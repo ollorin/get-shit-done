@@ -1,0 +1,17 @@
+{
+  "_comment": "GSD configuration - feedback settings for model routing improvement",
+  "mode": "yolo",
+  "depth": "standard",
+  "parallelization": true,
+  "commit_docs": false,
+  "model_profile": "balanced",
+  "workflow": {
+    "research": true,
+    "plan_check": true,
+    "verifier": true
+  },
+  "feedback_enabled": false,
+  "feedback_mode": "human",
+  "feedback_frequency": "escalations",
+  "sample_rate": 0.1
+}
