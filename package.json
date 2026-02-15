@@ -34,9 +34,12 @@
     "url": "https://github.com/glittercowboy/get-shit-done/issues"
   },
   "engines": {
-    "node": ">=16.7.0"
+    "node": ">=18.0.0"
   },
-  "dependencies": {},
+  "dependencies": {
+    "better-sqlite3": "^12.0.0",
+    "sqlite-vec": "^0.1.0"
+  },
   "devDependencies": {
     "esbuild": "^0.24.0"
   },
