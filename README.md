@@ -479,6 +479,156 @@ You're never locked in. The system adapts.
 
 ---
 
+## Telegram Bot (Human-in-the-Loop)
+
+GSD includes an AI-powered Telegram bot for human-in-the-loop intervention during autonomous execution.
+
+### Features
+
+- **Blocking Questions**: GSD sends questions via Telegram when it needs decisions
+- **Requirement Gathering**: Conversational AI helps clarify new feature requirements
+- **Voice Support**: Respond via voice messages (transcribed locally with Whisper)
+- **Smart Routing**: Haiku decides whether requirements are new phases, todos, or future ideas
+
+### Quick Start
+
+1. **Create Telegram Bot**
+   ```bash
+   # Message @BotFather on Telegram
+   /newbot
+   # Copy the bot token
+   ```
+
+2. **Configure Credentials**
+   ```bash
+   # Add to .env file
+   TELEGRAM_BOT_TOKEN=your_bot_token_here
+   TELEGRAM_OWNER_ID=your_telegram_chat_id
+   ANTHROPIC_API_KEY=your_api_key
+   ```
+
+3. **Start Bot**
+   ```bash
+   /gsd:telegram start
+   ```
+
+4. **Open Telegram**
+   - Find your bot
+   - Send `/start`
+   - Use the menu buttons
+
+### Menu Options
+
+- **📊 Status**: Check current GSD execution status
+- **❓ Pending Questions**: View and respond to blocking questions
+- **✨ New Requirements**: Add new features/phases via conversation
+
+### Usage Examples
+
+**Add New Feature via Telegram:**
+1. Click "New Requirements" button
+2. Describe what you want: "Add user authentication with JWT"
+3. Haiku asks clarifying questions
+4. Haiku decides: "This should be a new phase"
+5. Phase automatically added to roadmap
+6. Run `/gsd:plan-phase <N>` to create execution plan
+
+**Respond to Blocking Questions:**
+1. GSD running autonomous execution in terminal
+2. Encounters decision point: "Use React or Vue?"
+3. Sends question to your Telegram
+4. You reply: "React"
+5. GSD continues execution automatically
+
+**Voice Messages:**
+1. Click "New Requirements"
+2. Send voice message describing feature
+3. Haiku transcribes and continues conversation
+4. No typing required!
+
+### Commands
+
+```bash
+/gsd:telegram start      # Start bot with Haiku monitor
+/gsd:telegram stop       # Stop bot
+/gsd:telegram status     # Check bot status
+/gsd:telegram logs       # View session logs
+```
+
+### Session Logs
+
+All bot activity is logged to `.planning/telegram-sessions/` for audit trail:
+- User messages
+- Bot responses
+- Haiku decisions
+- Blocking questions
+
+View logs:
+```bash
+node get-shit-done/bin/gsd-tools.js telegram logs --latest
+node get-shit-done/bin/gsd-tools.js telegram logs --list
+```
+
+### Voice Transcription Setup
+
+Optional: Enable voice message support
+
+1. **Install ffmpeg**
+   ```bash
+   brew install ffmpeg  # macOS
+   apt install ffmpeg   # Linux
+   ```
+
+2. **Download Whisper model**
+   ```bash
+   cd get-shit-done
+   npx whisper-node download --model base.en
+   ```
+
+Voice messages will be transcribed locally (no API cost, fully private).
+
+### How It Works
+
+```
+Terminal 1: Claude Code     Terminal 2: Claude Code
+/gsd:telegram start         /gsd:execute-roadmap
+   ↓                             ↓
+Haiku monitors bot           Coordinator executing
+   ↓                             ↓
+Waiting for messages         Needs user decision
+                                  ↓
+         ←────── Sends question to Telegram ─────────
+                                  ↓
+User answers in Telegram app
+                                  ↓
+         ────── Response unblocks coordinator ───────→
+                                  ↓
+                            Execution continues
+```
+
+### Troubleshooting
+
+**Bot doesn't respond:**
+- Check `TELEGRAM_BOT_TOKEN` in .env
+- Verify you sent `/start` in Telegram
+- Check bot is running: `ps aux | grep telegram`
+
+**Voice messages not working:**
+- Install ffmpeg: `brew install ffmpeg`
+- Download model: `npx whisper-node download`
+- Check: `node get-shit-done/bin/gsd-tools.js telegram test "voice test"`
+
+**"Chat not found" error:**
+- You must send `/start` to bot first in Telegram
+- Telegram security: users must initiate contact
+
+**Requirements not being added:**
+- Check `ANTHROPIC_API_KEY` is set
+- View logs: `node get-shit-done/bin/gsd-tools.js telegram logs`
+- Ensure conversation completed (Haiku makes decision)
+
+---
+
 ## Configuration
 
 GSD stores project settings in `.planning/config.json`. Configure during `/gsd:new-project` or update later with `/gsd:settings`.
