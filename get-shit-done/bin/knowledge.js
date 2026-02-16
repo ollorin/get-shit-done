@@ -290,7 +290,16 @@ const knowledge = {
   /**
    * Close all connections (for cleanup)
    */
-  close: closeAllConnections
+  close: closeAllConnections,
+
+  /**
+   * Get connection object for direct access (internal API)
+   * @param {string} scope - 'global' or 'project'
+   * @returns {object} { db, available, reason? }
+   */
+  _getConnection(scope = 'project') {
+    return getConnection(scope);
+  }
 };
 
 module.exports = { knowledge };
