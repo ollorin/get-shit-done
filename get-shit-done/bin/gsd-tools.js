@@ -145,6 +145,9 @@ const path = require('path');
 const { execSync } = require('child_process');
 const { EVENT_TYPES, initLog, appendEvent, getHistory, getCurrentPhase, getLastCheckpoint, getExecutionStats, needsResume, getResumeContext, markResumed, getPhaseTimeline } = require('./execution-log.js');
 const { parseRoadmap, buildDAG, getExecutionOrder, detectParallelOpportunities } = require('./roadmap-parser.js');
+const { TokenBudgetMonitor, estimatePhaseTokens } = require('./token-monitor.js');
+const { FailureHandler, executeWithRetry } = require('./failure-handler.js');
+const { CompletionSignal, COMPLETION_STATUS } = require('./completion-signal.js');
 
 // ─── Model Profile Table ─────────────────────────────────────────────────────
 
@@ -2990,6 +2993,351 @@ function cmdExecutionLog(cwd, args, raw) {
 
     default:
       error(`execution-log: unknown subcommand "${subcommand}"`);
+  }
+}
+
+// ─── Failure Handler Commands ────────────────────────────────────────────────
+
+function cmdFailure(cwd, args, raw) {
+  const subcommand = args[0];
+
+  if (!subcommand) {
+    error('failure: subcommand required (test-retry|classify|backoff|log-failure)');
+  }
+
+  switch (subcommand) {
+    case 'test-retry': {
+      const failCount = parseInt(args[1] || '2', 10);
+      let attempts = 0;
+
+      const operation = async () => {
+        attempts++;
+        if (attempts <= failCount) {
+          throw new Error(`Simulated failure ${attempts}/${failCount}`);
+        }
+        return { success: true, attempts };
+      };
+
+      executeWithRetry(operation, { operation: 'test-retry', verbose: true })
+        .then(result => {
+          if (raw) {
+            output(result, true);
+          } else {
+            if (result.success) {
+              console.log(`✓ Operation succeeded after ${result.retries} retries`);
+              console.log(`Result: ${JSON.stringify(result.result)}`);
+            } else {
+              console.log(`✗ Operation failed after ${result.retries} retries`);
+              console.log(`Error: ${result.error.message}`);
+            }
+          }
+        })
+        .catch(err => error(`test-retry failed: ${err.message}`));
+      break;
+    }
+
+    case 'classify': {
+      const errorMsg = args[1];
+      if (!errorMsg) {
+        error('classify: error message required');
+      }
+
+      const handler = new FailureHandler();
+      const retryable = handler.isRetryable({ message: errorMsg });
+
+      // Find which pattern matched (if any)
+      let patternMatched = null;
+      if (retryable) {
+        for (const pattern of FailureHandler.RETRYABLE_PATTERNS) {
+          if (pattern.test(errorMsg)) {
+            patternMatched = pattern.toString();
+            break;
+          }
+        }
+      }
+
+      const result = {
+        retryable,
+        pattern_matched: patternMatched,
+      };
+
+      output(result, raw, `Error is ${retryable ? 'retryable' : 'NOT retryable'}${patternMatched ? ` (matched: ${patternMatched})` : ''}`);
+      break;
+    }
+
+    case 'backoff': {
+      const attempt = parseInt(args[1], 10);
+      const baseDelay = args[2] ? parseInt(args[2], 10) : undefined;
+
+      if (isNaN(attempt)) {
+        error('backoff: attempt number required (0-indexed)');
+      }
+
+      const handler = new FailureHandler(baseDelay ? { baseDelay } : {});
+      const delayMs = handler.calculateBackoff(attempt);
+
+      const result = {
+        attempt,
+        delay_ms: delayMs,
+        delay_readable: formatDuration(delayMs),
+      };
+
+      output(result, raw, `Attempt ${attempt}: delay ${delayMs}ms (${result.delay_readable})`);
+      break;
+    }
+
+    case 'log-failure': {
+      const phase = args[1];
+      const errorMsg = args[2];
+      const action = args[3];
+
+      if (!phase || !errorMsg || !action) {
+        error('log-failure: phase, error, and action required');
+      }
+
+      if (!['retry', 'skip', 'escalate'].includes(action)) {
+        error(`log-failure: action must be retry|skip|escalate, got "${action}"`);
+      }
+
+      const event = {
+        type: 'failure',
+        phase: parseInt(phase),
+        error: errorMsg,
+        action,
+      };
+
+      const result = appendEvent(cwd, event);
+      output(result, raw, 'Failure logged to EXECUTION_LOG.md');
+      break;
+    }
+
+    default:
+      error(`failure: unknown subcommand "${subcommand}"`);
+  }
+}
+
+// Helper for formatting duration in human-readable form
+function formatDuration(ms) {
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${(ms / 60000).toFixed(1)}m`;
+}
+
+// ─── Completion Signals ──────────────────────────────────────────────────────
+
+function cmdCompletion(cwd, args, raw) {
+  const subcommand = args[0];
+
+  if (!subcommand) {
+    error('completion: subcommand required (create|log|parse|handle)');
+  }
+
+  switch (subcommand) {
+    case 'create': {
+      // Create completion signal JSON
+      const status = args[1];
+      const phase = args[2];
+      const detailsArg = args[3];
+
+      if (!status || !phase) {
+        error('completion create: status and phase required');
+      }
+
+      // Parse details from JSON string or key=value pairs
+      let details = {};
+      if (detailsArg) {
+        try {
+          // Try parsing as JSON first
+          details = JSON.parse(detailsArg);
+        } catch (e) {
+          // Parse key=value pairs
+          for (let i = 3; i < args.length; i++) {
+            const [key, value] = args[i].split('=');
+            if (key && value !== undefined) {
+              // Try to parse value as JSON, otherwise use as string
+              try {
+                details[key] = JSON.parse(value);
+              } catch {
+                details[key] = value;
+              }
+            }
+          }
+        }
+      }
+
+      // Create appropriate signal using factory method
+      let signal;
+      const phaseNum = parseInt(phase);
+
+      switch (status.toLowerCase()) {
+        case 'success':
+          signal = CompletionSignal.success(phaseNum, details);
+          break;
+        case 'failure':
+          const error = new Error(details.error || 'Unknown error');
+          if (details.stack) error.stack = details.stack;
+          signal = CompletionSignal.failure(phaseNum, error, details);
+          break;
+        case 'blocked':
+          signal = CompletionSignal.blocked(phaseNum, details.reason || 'Unknown reason', details);
+          break;
+        case 'skipped':
+          signal = CompletionSignal.skipped(phaseNum, details.reason || 'User skipped');
+          break;
+        default:
+          error(`completion create: unknown status "${status}"`);
+      }
+
+      output(signal.toJSON(), raw);
+      break;
+    }
+
+    case 'log': {
+      // Log completion signal to EXECUTION_LOG.md
+      const signalArg = args[1];
+
+      if (!signalArg) {
+        error('completion log: signal JSON required');
+      }
+
+      let signalData;
+      try {
+        signalData = JSON.parse(signalArg);
+      } catch (e) {
+        error(`completion log: invalid JSON - ${e.message}`);
+      }
+
+      // Append to EXECUTION_LOG.md as NDJSON event
+      const event = {
+        type: EVENT_TYPES.PHASE_COMPLETE,
+        phase: signalData.phase,
+        status: signalData.status,
+        timestamp: signalData.timestamp,
+        ...signalData
+      };
+
+      appendEvent(cwd, event);
+      output({ logged: true }, raw, 'Completion signal logged');
+      break;
+    }
+
+    case 'parse': {
+      // Parse completion signal from JSON
+      const signalArg = args[1];
+
+      if (!signalArg) {
+        error('completion parse: signal JSON required');
+      }
+
+      let signalData;
+      try {
+        signalData = JSON.parse(signalArg);
+      } catch (e) {
+        error(`completion parse: invalid JSON - ${e.message}`);
+      }
+
+      // Reconstruct signal object to get helper methods
+      const signal = new CompletionSignal(
+        signalData.status,
+        signalData.phase,
+        signalData
+      );
+
+      output({
+        status: signal.status,
+        phase: signal.phase,
+        isTerminal: signal.isTerminal(),
+        canRetry: signal.canRetry()
+      }, raw);
+      break;
+    }
+
+    case 'handle': {
+      // Process completion signal and output decision
+      const signalArg = args[1];
+
+      if (!signalArg) {
+        error('completion handle: signal JSON required');
+      }
+
+      let signalData;
+      try {
+        signalData = JSON.parse(signalArg);
+      } catch (e) {
+        error(`completion handle: invalid JSON - ${e.message}`);
+      }
+
+      // Reconstruct signal to use helper methods
+      const signal = new CompletionSignal(
+        signalData.status,
+        signalData.phase,
+        signalData
+      );
+
+      let decision;
+
+      switch (signal.status) {
+        case COMPLETION_STATUS.SUCCESS:
+          decision = {
+            continue: true,
+            nextPhase: signal.phase + 1
+          };
+          break;
+
+        case COMPLETION_STATUS.FAILURE:
+          if (signal.canRetry()) {
+            decision = {
+              continue: false,
+              action: 'retry',
+              backoff: signal.details.retryOptions?.backoffMs || 2000
+            };
+          } else {
+            decision = {
+              continue: false,
+              action: 'escalate'
+            };
+          }
+          break;
+
+        case COMPLETION_STATUS.BLOCKED:
+          if (signal.details.userInputRequired) {
+            decision = {
+              continue: false,
+              action: 'await_user'
+            };
+          } else if (signal.details.blockingDependencies && signal.details.blockingDependencies.length > 0) {
+            decision = {
+              continue: false,
+              action: 'await_dependency',
+              deps: signal.details.blockingDependencies
+            };
+          } else {
+            decision = {
+              continue: false,
+              action: 'blocked',
+              reason: signal.details.reason
+            };
+          }
+          break;
+
+        case COMPLETION_STATUS.SKIPPED:
+          decision = {
+            continue: true,
+            nextPhase: signal.phase + 1,
+            skipped: true
+          };
+          break;
+
+        default:
+          error(`completion handle: unknown status "${signal.status}"`);
+      }
+
+      output(decision, raw);
+      break;
+    }
+
+    default:
+      error(`completion: unknown subcommand "${subcommand}"`);
   }
 }
 
@@ -6176,6 +6524,11 @@ async function main() {
 
     case 'execution-log': {
       cmdExecutionLog(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'failure': {
+      cmdFailure(cwd, args.slice(1), raw);
       break;
     }
 
