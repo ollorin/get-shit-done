@@ -55,13 +55,13 @@ function getConnection(scope) {
     connections.set(dbPath, conn);
 
     // Run cleanup on first open
-    const cleaned = lifecycle.cleanupExpired(conn);
+    const cleaned = lifecycle.cleanupExpired(conn.db);
     if (cleaned.deleted > 0) {
       console.log(`Knowledge: cleaned ${cleaned.deleted} expired entries`);
     }
   }
 
-  return { db: connections.get(dbPath), available: true };
+  return { ...connections.get(dbPath), available: true };
 }
 
 function closeAllConnections() {
@@ -164,7 +164,7 @@ const knowledge = {
     const conn = getConnection(scope);
     if (!conn.available) return [];
 
-    const results = search.searchKnowledge(conn.db, query, options);
+    const results = search.searchKnowledge(conn, query, options);
 
     // Track access for returned results
     if (results.length > 0) {

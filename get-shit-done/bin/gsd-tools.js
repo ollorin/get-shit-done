@@ -112,6 +112,19 @@
  *   quota check                        Check warnings and wait status
  *   quota wait                         Check if should wait for quota
  *
+ * Knowledge Operations:
+ *   knowledge status [--scope project|global]   Show knowledge DB status
+ *   knowledge add <content> --type <type>       Add knowledge entry
+ *     [--scope project|global]
+ *     [--ttl permanent|long_term|short_term|ephemeral]
+ *   knowledge search <query>                    Search knowledge
+ *     [--scope project|global] [--limit N]
+ *   knowledge get <id> [--scope project|global] Get knowledge by ID
+ *   knowledge delete <id>                       Delete knowledge entry
+ *     [--scope project|global]
+ *   knowledge cleanup [--scope project|global]  Remove expired entries
+ *   knowledge stats [--scope project|global]    Show access statistics
+ *
  * Compound Commands (workflow-specific initialization):
  *   init execute-phase <phase>         All context for execute-phase workflow
  *   init plan-phase <phase>            All context for plan-phase workflow
@@ -2269,6 +2282,105 @@ function cmdSummaryExtract(cwd, summaryPath, fields, raw) {
   }
 
   output(fullResult, raw);
+}
+
+// ─── Knowledge Commands ──────────────────────────────────────────────────────
+
+function cmdKnowledgeStatus(cwd, args, raw) {
+  const scope = args.includes('--scope') ? args[args.indexOf('--scope') + 1] : 'project';
+  const { knowledge } = require('./knowledge.js');
+
+  const status = knowledge.isAvailable(scope);
+  const result = {
+    scope,
+    available: status.available,
+    reason: status.reason || null,
+    db_path: status.available ? require('./knowledge-db.js').getDBPath(scope) : null
+  };
+
+  output(result, raw);
+}
+
+function cmdKnowledgeAdd(cwd, args, raw) {
+  const content = args[0];
+  if (!content) {
+    error('knowledge add: content required');
+  }
+
+  const scope = args.includes('--scope') ? args[args.indexOf('--scope') + 1] : 'project';
+  const type = args.includes('--type') ? args[args.indexOf('--type') + 1] : 'summary';
+  const ttl = args.includes('--ttl') ? args[args.indexOf('--ttl') + 1] : null;
+
+  const { knowledge } = require('./knowledge.js');
+  const result = knowledge.add({
+    content,
+    type,
+    scope,
+    ttlCategory: ttl
+  });
+
+  output(result, raw);
+}
+
+function cmdKnowledgeSearch(cwd, args, raw) {
+  const query = args[0];
+  if (!query) {
+    error('knowledge search: query required');
+  }
+
+  const scope = args.includes('--scope') ? args[args.indexOf('--scope') + 1] : 'project';
+  const limit = args.includes('--limit') ? parseInt(args[args.indexOf('--limit') + 1]) : 10;
+
+  const { knowledge } = require('./knowledge.js');
+  const results = knowledge.search(query, { scope, limit });
+
+  output(results, raw);
+}
+
+function cmdKnowledgeGet(cwd, args, raw) {
+  const id = parseInt(args[0]);
+  if (isNaN(id)) {
+    error('knowledge get: id required (integer)');
+  }
+
+  const scope = args.includes('--scope') ? args[args.indexOf('--scope') + 1] : 'project';
+
+  const { knowledge } = require('./knowledge.js');
+  const result = knowledge.get(id, scope);
+
+  output(result, raw);
+}
+
+function cmdKnowledgeDelete(cwd, args, raw) {
+  const id = parseInt(args[0]);
+  if (isNaN(id)) {
+    error('knowledge delete: id required (integer)');
+  }
+
+  const scope = args.includes('--scope') ? args[args.indexOf('--scope') + 1] : 'project';
+
+  const { knowledge } = require('./knowledge.js');
+  const result = knowledge.delete(id, scope);
+
+  output(result, raw);
+}
+
+function cmdKnowledgeCleanup(cwd, args, raw) {
+  const scope = args.includes('--scope') ? args[args.indexOf('--scope') + 1] : 'project';
+
+  const { knowledge } = require('./knowledge.js');
+  const result = knowledge.cleanup(scope);
+
+  output(result, raw);
+}
+
+function cmdKnowledgeStats(cwd, args, raw) {
+  const scope = args.includes('--scope') ? args[args.indexOf('--scope') + 1] : 'project';
+
+  const { knowledge } = require('./knowledge.js');
+  const result = knowledge.getStats({ scope });
+
+  output(result, raw);
 }
 
 // ─── Web Search (Brave API) ──────────────────────────────────────────────────
@@ -4990,6 +5102,37 @@ async function main() {
         }
       } else {
         error('Unknown quota subcommand. Available: status, reset, record, update-from-headers, check, wait, status-bar, stats');
+      }
+      break;
+    }
+
+    case 'knowledge': {
+      const knowledgeSubcmd = args[1];
+      const knowledgeArgs = args.slice(2);
+      switch (knowledgeSubcmd) {
+        case 'status':
+          cmdKnowledgeStatus(cwd, knowledgeArgs, raw);
+          break;
+        case 'add':
+          cmdKnowledgeAdd(cwd, knowledgeArgs, raw);
+          break;
+        case 'search':
+          cmdKnowledgeSearch(cwd, knowledgeArgs, raw);
+          break;
+        case 'get':
+          cmdKnowledgeGet(cwd, knowledgeArgs, raw);
+          break;
+        case 'delete':
+          cmdKnowledgeDelete(cwd, knowledgeArgs, raw);
+          break;
+        case 'cleanup':
+          cmdKnowledgeCleanup(cwd, knowledgeArgs, raw);
+          break;
+        case 'stats':
+          cmdKnowledgeStats(cwd, knowledgeArgs, raw);
+          break;
+        default:
+          error(`knowledge: unknown subcommand '${knowledgeSubcmd}'`);
       }
       break;
     }
