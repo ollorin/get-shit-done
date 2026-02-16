@@ -118,7 +118,8 @@ function trackCost(db, { action, cost, metadata = {} }) {
     tracked: true,
     cost,
     total_cost: alertResult.total_cost,
-    alerts: alertResult.alerts
+    alerts: alertResult.alerts,
+    circuit_breaker_enabled: alertResult.circuit_breaker_enabled
   }
 }
 
