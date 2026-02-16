@@ -3647,6 +3647,98 @@ function cmdTask(cwd, args, raw) {
   }
 }
 
+// ─── Telegram Bot Operations ──────────────────────────────────────────────────
+
+async function cmdTelegram(args, raw) {
+  const subcommand = args[0];
+
+  if (!subcommand) {
+    error('telegram: subcommand required (start|stop|test|ask|pending|status)');
+  }
+
+  // Lazy-load telegram modules
+  const telegram = require('./telegram-bot.js');
+  const conversation = require('./telegram-conversation.js');
+
+  switch (subcommand) {
+    case 'start': {
+      await telegram.startBot();
+      output({ status: 'started' }, raw, 'Telegram bot started in polling mode');
+      break;
+    }
+
+    case 'stop': {
+      telegram.stopBot();
+      output({ status: 'stopped' }, raw, 'Telegram bot stopped');
+      break;
+    }
+
+    case 'test': {
+      const message = args.slice(1).join(' ');
+      if (!message) {
+        error('telegram test: message required');
+      }
+      try {
+        const response = await telegram.sendBlockingQuestion(`Test: ${message}`, {
+          timeout: 300000 // 5 minutes for test
+        });
+        output({ response }, raw, `Response: ${JSON.stringify(response)}`);
+      } catch (err) {
+        error(`telegram test failed: ${err.message}`);
+      }
+      break;
+    }
+
+    case 'ask': {
+      const question = args.slice(1).join(' ');
+      if (!question) {
+        error('telegram ask: question required');
+      }
+
+      // Check for --choices flag
+      const choicesIdx = args.indexOf('--choices');
+      const choices = choicesIdx !== -1 ? args[choicesIdx + 1].split(',') : null;
+
+      try {
+        const response = await telegram.sendBlockingQuestion(question, {
+          choices,
+          timeout: 3600000 // 1 hour
+        });
+        output({ response }, raw, `Response: ${JSON.stringify(response)}`);
+      } catch (err) {
+        error(`telegram ask failed: ${err.message}`);
+      }
+      break;
+    }
+
+    case 'pending': {
+      const pending = conversation.getPendingQuestions();
+      output({
+        count: pending.length,
+        questions: pending
+      }, raw, pending.length === 0
+        ? 'No pending questions'
+        : `${pending.length} pending question(s):\n` + pending.map(q =>
+          `  ${q.questionId}: ${q.question.substring(0, 60)}...`
+        ).join('\n'));
+      break;
+    }
+
+    case 'status': {
+      const pending = conversation.getPendingQuestions();
+      const botStatus = telegram.bot ? 'running' : 'not configured';
+      output({
+        bot_status: botStatus,
+        pending_count: pending.length
+      }, raw, `Bot: ${botStatus}\nPending questions: ${pending.length}`);
+      break;
+    }
+
+    default:
+      error(`telegram: unknown subcommand "${subcommand}"\nAvailable: start, stop, test, ask, pending, status`);
+  }
+}
+
 // ─── Parallel Execution ───────────────────────────────────────────────────────
 
 async function cmdParallel(cwd, args, raw) {
@@ -6539,7 +6631,7 @@ async function main() {
   const cwd = process.cwd();
 
   if (!command) {
-    error('Usage: gsd-tools <command> [args] [--raw]\nCommands: state, resolve-model, find-phase, commit, verify-summary, verify, frontmatter, template, generate-slug, current-timestamp, list-todos, verify-path-exists, config-ensure-section, init');
+    error('Usage: gsd-tools <command> [args] [--raw]\nCommands: state, resolve-model, find-phase, commit, verify-summary, verify, frontmatter, template, generate-slug, current-timestamp, list-todos, verify-path-exists, config-ensure-section, telegram, init');
   }
 
   switch (command) {
@@ -7165,6 +7257,11 @@ async function main() {
 
     case 'task': {
       cmdTask(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'telegram': {
+      await cmdTelegram(args.slice(1), raw);
       break;
     }
 
