@@ -15,6 +15,7 @@ const { getPendingQuestions } = require('./telegram-conversation.js');
 let monitorActive = false;
 let currentConversationMode = null; // 'requirements', 'pending', null
 let requirementGatheringActive = false;
+let botInstance = null; // Store bot instance for use in handlers
 
 /**
  * Main menu keyboard
@@ -36,6 +37,7 @@ function startHaikuMonitor(bot) {
     return;
   }
 
+  botInstance = bot; // Store for use in handlers
   monitorActive = true;
   console.log('Haiku monitor started');
 
@@ -250,10 +252,10 @@ async function handleRequirementsMenu(ctx) {
       const handler = (responseCtx) => {
         const text = responseCtx.message.text;
         logMessage(responseCtx.from.id, responseCtx.from.username, 'text', text);
-        ctx.telegram.bot.removeListener('text', handler);
+        botInstance.removeListener('text', handler);
         resolve(text);
       };
-      ctx.telegram.bot.once('text', handler);
+      botInstance.once('text', handler);
     });
   };
 
