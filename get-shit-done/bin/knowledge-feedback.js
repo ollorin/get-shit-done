@@ -31,6 +31,91 @@ const DEGRADATION_FACTORS = {
  */
 const INVALIDATION_THRESHOLD = 0.3
 
+// ─── Feedback History ──────────────────────────────────────────────────────
+
+/**
+ * Ensure feedback_history table exists
+ * @param {object} db - better-sqlite3 database connection
+ */
+function ensureFeedbackHistoryTable(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS feedback_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      principle_id INTEGER NOT NULL,
+      event_type TEXT NOT NULL,
+      severity TEXT,
+      reason TEXT,
+      old_confidence REAL,
+      new_confidence REAL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (principle_id) REFERENCES knowledge(id)
+    );
+  `)
+}
+
+/**
+ * Record a feedback event in history
+ * @param {object} db - better-sqlite3 database connection
+ * @param {number} principleId - Principle ID
+ * @param {object} event - Event details
+ * @returns {object} Result with recorded status and event ID
+ */
+function recordFeedbackEvent(db, principleId, event) {
+  ensureFeedbackHistoryTable(db)
+
+  const stmt = db.prepare(`
+    INSERT INTO feedback_history (principle_id, event_type, severity, reason, old_confidence, new_confidence, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `)
+
+  const info = stmt.run(
+    principleId,
+    event.event_type,
+    event.severity || null,
+    event.reason || null,
+    event.old_confidence || null,
+    event.new_confidence || null,
+    event.created_at || Date.now()
+  )
+
+  return {
+    recorded: true,
+    event_id: info.lastInsertRowid
+  }
+}
+
+/**
+ * Get feedback history for a principle
+ * @param {object} db - better-sqlite3 database connection
+ * @param {number} principleId - Principle ID
+ * @returns {Array<object>} Array of feedback events
+ */
+function getPrincipleFeedbackHistory(db, principleId) {
+  ensureFeedbackHistoryTable(db)
+
+  return db.prepare(`
+    SELECT * FROM feedback_history
+    WHERE principle_id = ?
+    ORDER BY created_at DESC
+  `).all(principleId)
+}
+
+/**
+ * Get all invalidated principles
+ * @param {object} db - better-sqlite3 database connection
+ * @returns {Array<object>} Array of invalidated principles
+ */
+function getInvalidatedPrinciples(db) {
+  return db.prepare(`
+    SELECT * FROM knowledge
+    WHERE type = 'principle'
+    AND JSON_EXTRACT(metadata, '$.invalidated') = 1
+  `).all().map(row => ({
+    ...row,
+    metadata: row.metadata ? JSON.parse(row.metadata) : {}
+  }))
+}
+
 // ─── Mark Principle Wrong ──────────────────────────────────────────────────
 
 /**
@@ -76,11 +161,23 @@ function markPrincipleWrong(db, principleId, feedback = {}) {
     metadata.invalidated_at = Date.now()
   }
 
-  // 7. Update database
-  db.prepare('UPDATE knowledge SET metadata = ? WHERE id = ?').run(
-    JSON.stringify(metadata),
-    principleId
-  )
+  // 7. Update database and record event
+  db.transaction(() => {
+    db.prepare('UPDATE knowledge SET metadata = ? WHERE id = ?').run(
+      JSON.stringify(metadata),
+      principleId
+    )
+
+    // Record feedback event
+    recordFeedbackEvent(db, principleId, {
+      event_type: 'marked_wrong',
+      severity,
+      reason: feedback.reason,
+      old_confidence: currentConfidence,
+      new_confidence: newConfidence,
+      created_at: Date.now()
+    })
+  })()
 
   return {
     success: true,
@@ -109,6 +206,7 @@ function markPrincipleOutdated(db, principleId, options = {}) {
 
   // 2. Parse metadata
   const metadata = row.metadata ? JSON.parse(row.metadata) : {}
+  const oldConfidence = metadata.confidence !== undefined ? metadata.confidence : 0.7
 
   // 3. Update metadata with outdated status
   metadata.outdated = true
@@ -122,12 +220,23 @@ function markPrincipleOutdated(db, principleId, options = {}) {
   const now = Date.now()
   const expiresAt = now + (7 * 24 * 60 * 60 * 1000) // 7 days
 
-  // 5. Update database
-  db.prepare('UPDATE knowledge SET metadata = ?, expires_at = ? WHERE id = ?').run(
-    JSON.stringify(metadata),
-    expiresAt,
-    principleId
-  )
+  // 5. Update database and record event
+  db.transaction(() => {
+    db.prepare('UPDATE knowledge SET metadata = ?, expires_at = ? WHERE id = ?').run(
+      JSON.stringify(metadata),
+      expiresAt,
+      principleId
+    )
+
+    // Record feedback event
+    recordFeedbackEvent(db, principleId, {
+      event_type: 'marked_outdated',
+      reason: options.replacement ? `Replaced by ${options.replacement}` : null,
+      old_confidence: oldConfidence,
+      new_confidence: 0.0,
+      created_at: now
+    })
+  })()
 
   return {
     success: true,
@@ -156,5 +265,8 @@ module.exports = {
   DEGRADATION_FACTORS,
   markPrincipleWrong,
   markPrincipleOutdated,
-  getPrincipleMetadata
+  getPrincipleMetadata,
+  recordFeedbackEvent,
+  getPrincipleFeedbackHistory,
+  getInvalidatedPrinciples
 }
