@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-15)
 ## Current Position
 
 Phase: 9 of 12 (Hook-based Documentation Compression)
-Plan: 02 of 04
+Plan: 03 of 04
 Status: In Progress
-Last activity: 2026-02-16 — Completed plan 09-02 (Task Context Routing & CLI Summary)
+Last activity: 2026-02-16 — Completed plan 09-03 (PreToolUse Hook with Compression Cache)
 
-Progress: [████████████████████████████████████] 90%
+Progress: [████████████████████████████████████] 91%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 22
+- Total plans completed: 23
 - Average duration: 3.1 min
-- Total execution time: 1.2 hours
+- Total execution time: 1.3 hours
 
 **By Phase:**
 
@@ -56,6 +56,7 @@ Progress: [███████████████████████
 | 04    | 05   | 2 min    | 2     | 3     |
 | 04    | 06   | 2 min    | 2     | 2     |
 | 09    | 02   | 5 min    | 3     | 2     |
+| 09    | 03   | 5 min    | 4     | 3     |
 
 ## Accumulated Context
 
@@ -167,6 +168,10 @@ Recent decisions affecting current work:
 - [Phase 09-02]: On-demand summary extraction vs pre-computed: chose on-demand for routing full (faster index builds)
 - [Phase 09-02]: Task Context Skill provides structured output format for orchestrators
 - [Phase 09-02]: HeaderExtractor lazy-loaded to avoid dependency errors at import time
+- [Phase 09-03]: Cache key combines filePath + content + mtime for reliable cache invalidation
+- [Phase 09-03]: Match both full path and basename for flexible glob pattern matching
+- [Phase 09-03]: 5-minute default cache TTL balances freshness and performance
+- [Phase 09-03]: Pass-through on error (don't block reads) for resilience
 
 ### Pending Todos
 
@@ -178,6 +183,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-16T18:55:34Z (plan execution)
-Stopped at: Completed 09-02-PLAN.md (Task Context Routing & CLI Summary)
+Last session: 2026-02-16T19:05:41Z (plan execution)
+Stopped at: Completed 09-03-PLAN.md (PreToolUse Hook with Compression Cache)
 Resume file: None
