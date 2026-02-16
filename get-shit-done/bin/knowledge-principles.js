@@ -13,7 +13,10 @@ const ACTION_TYPES = {
     'production_deploy', 'truncate', 'purge'
   ],
   external: [
-    'send_email', 'api_call', 'notification', 'webhook'
+    'send_email', 'api_call', 'notification', 'webhook',
+    'http_request', 'post_to', 'publish', 'broadcast',
+    'slack_message', 'discord_message', 'telegram_send',
+    'sms', 'push_notification'
   ],
   costly: [
     'cloud_resource', 'paid_api', 'large_compute'
@@ -72,6 +75,13 @@ function classifyAction(action) {
       (lowerAction.includes('production') || lowerAction.includes('prod') ||
        lowerAction.includes('data') || lowerAction.includes('all'))) {
     return { category: 'irreversible', keyword: 'delete_production' };
+  }
+
+  // External communication detection
+  if ((lowerAction.includes('send') || lowerAction.includes('post') || lowerAction.includes('publish')) &&
+      (lowerAction.includes('email') || lowerAction.includes('message') || lowerAction.includes('notification') ||
+       lowerAction.includes('slack') || lowerAction.includes('discord') || lowerAction.includes('telegram'))) {
+    return { category: 'external', keyword: 'communication_detected' };
   }
 
   return { category: 'reversible', keyword: 'default' };
