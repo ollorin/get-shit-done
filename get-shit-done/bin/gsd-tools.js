@@ -150,6 +150,7 @@ const { FailureHandler, executeWithRetry } = require('./failure-handler.js');
 const { CompletionSignal, COMPLETION_STATUS } = require('./completion-signal.js');
 const { TaskChunker, BatchCoordinator, analyzeTask, estimateTaskTokens } = require('./task-chunker.js');
 const { estimatePhaseSize, detectOversizedPhases, recommendSplit, validateSplitPreservesDependencies, LIMITS: PHASE_LIMITS } = require('./phase-sizer.js');
+const { ParallelPhaseExecutor, analyzeParallelOpportunities: analyzeParallel, CONFIG: PARALLEL_CONFIG } = require('./parallel-executor.js');
 
 // ─── Model Profile Table ─────────────────────────────────────────────────────
 
@@ -3646,6 +3647,166 @@ function cmdTask(cwd, args, raw) {
   }
 }
 
+// ─── Parallel Execution ───────────────────────────────────────────────────────
+
+async function cmdParallel(cwd, args, raw) {
+  const subcommand = args[0];
+  const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
+  const budgetPath = path.join(cwd, '.planning', 'token_budget.json');
+
+  if (!subcommand) {
+    error('parallel: subcommand required (analyze|check|config|simulate)');
+  }
+
+  // Helper to get phases
+  const getPhases = async () => {
+    if (!fs.existsSync(roadmapPath)) {
+      error('ROADMAP.md not found');
+    }
+    const { phases } = await parseRoadmap(roadmapPath);
+    return phases;
+  };
+
+  switch (subcommand) {
+    case 'config': {
+      // Display parallel execution config
+      output(PARALLEL_CONFIG, raw, Object.entries(PARALLEL_CONFIG)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join('\n'));
+      break;
+    }
+
+    case 'analyze': {
+      // Analyze parallel opportunities from roadmap
+      const phases = await getPhases();
+      const analysis = analyzeParallel(phases);
+
+      if (raw) {
+        output(analysis, raw);
+      } else {
+        console.log(`Total phases: ${analysis.totalPhases}`);
+        console.log(`Max parallelism: ${analysis.maxParallelism}`);
+        console.log('\nParallel groups (phases at same level can run together):');
+        analysis.parallelGroups.forEach((group, idx) => {
+          const canParallel = group.length > 1 ? '(parallel)' : '(sequential)';
+          console.log(`  Wave ${idx + 1}: [${group.join(', ')}] ${canParallel}`);
+        });
+      }
+      break;
+    }
+
+    case 'check': {
+      // Check if parallel execution is possible with current token budget
+      const phases = await getPhases();
+      const analysis = analyzeParallel(phases);
+      const executor = new ParallelPhaseExecutor(PARALLEL_CONFIG.MAX_WORKERS);
+
+      // Load token budget if available
+      let tokenMonitor = null;
+      if (fs.existsSync(budgetPath)) {
+        try {
+          const data = JSON.parse(fs.readFileSync(budgetPath, 'utf-8'));
+          tokenMonitor = TokenBudgetMonitor.fromJSON(data);
+        } catch (e) {
+          // Continue without monitor
+        }
+      }
+
+      const results = [];
+      for (const group of analysis.parallelGroups) {
+        const check = executor.canExecuteInParallel(group, tokenMonitor);
+        results.push({
+          group,
+          ...check
+        });
+      }
+
+      const canParallel = results.some(r => r.canParallel && r.group?.length > 1);
+
+      if (raw) {
+        output({
+          canParallel,
+          groups: results,
+          tokenBudget: tokenMonitor ? tokenMonitor.getReport() : null
+        }, raw);
+      } else {
+        console.log(`Parallel execution: ${canParallel ? 'POSSIBLE' : 'SEQUENTIAL_ONLY'}`);
+        console.log(`\nGroup analysis:`);
+        for (const r of results) {
+          const status = r.canParallel ? 'CAN_PROCEED' : 'FALLBACK_SEQUENTIAL';
+          console.log(`  [${r.group.join(', ')}]: ${status}`);
+          if (!r.canParallel && r.shortfall) {
+            console.log(`    Shortfall: ${r.shortfall} tokens`);
+          }
+        }
+
+        if (tokenMonitor) {
+          const report = tokenMonitor.getReport();
+          console.log(`\nToken budget: ${report.current_usage}/${report.max_tokens} (${report.utilization_percent}%)`);
+        } else {
+          console.log('\nToken budget: Not initialized (run: gsd-tools token init)');
+        }
+      }
+
+      // Exit code: 0 if parallel possible, 1 if sequential only
+      process.exit(canParallel ? 0 : 1);
+    }
+
+    case 'simulate': {
+      // Simulate parallel execution without actually spawning
+      const groupsArg = args[1]; // Format: "1,2:3,4" means [1,2] then [3,4]
+
+      if (!groupsArg) {
+        // Use auto-detected groups from roadmap
+        const phases = await getPhases();
+        const analysis = analyzeParallel(phases);
+
+        // Estimate durations
+        let parallelTime = 0;
+        let sequentialTime = 0;
+
+        for (const group of analysis.parallelGroups) {
+          const groupTime = group.length * 10; // 10 min per phase estimate
+          parallelTime += Math.max(...Array(group.length).fill(10)); // Parallel: max of group
+          sequentialTime += groupTime; // Sequential: sum of group
+        }
+
+        output({
+          parallelGroups: analysis.parallelGroups,
+          estimatedParallelMinutes: parallelTime,
+          estimatedSequentialMinutes: sequentialTime,
+          timeSavings: `${Math.round((1 - parallelTime / sequentialTime) * 100)}%`
+        }, raw, `Parallel: ~${parallelTime} min | Sequential: ~${sequentialTime} min | Savings: ${Math.round((1 - parallelTime / sequentialTime) * 100)}%`);
+      } else {
+        // Parse custom groups
+        const customGroups = groupsArg.split(':').map(g =>
+          g.split(',').map(n => parseInt(n.trim(), 10))
+        );
+
+        let parallelTime = 0;
+        let sequentialTime = 0;
+
+        for (const group of customGroups) {
+          const groupTime = group.length * 10;
+          parallelTime += Math.max(...Array(group.length).fill(10));
+          sequentialTime += groupTime;
+        }
+
+        output({
+          customGroups,
+          estimatedParallelMinutes: parallelTime,
+          estimatedSequentialMinutes: sequentialTime,
+          timeSavings: `${Math.round((1 - parallelTime / sequentialTime) * 100)}%`
+        }, raw);
+      }
+      break;
+    }
+
+    default:
+      error(`parallel: unknown subcommand "${subcommand}"`);
+  }
+}
+
 // ─── Web Search (Brave API) ──────────────────────────────────────────────────
 
 async function cmdWebsearch(query, options, raw) {
@@ -7004,6 +7165,11 @@ async function main() {
 
     case 'task': {
       cmdTask(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'parallel': {
+      await cmdParallel(cwd, args.slice(1), raw);
       break;
     }
 
