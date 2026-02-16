@@ -18,7 +18,7 @@ const crypto = require('crypto')
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 1
+const SCHEMA_VERSION = 2
 const DB_CONNECTIONS = new Map()
 
 // ─── Path Resolution ───────────────────────────────────────────────────────
@@ -134,6 +134,44 @@ function createSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_knowledge_hash
     ON knowledge(content_hash);
   `)
+
+  // Permissions table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS permissions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      grant_token TEXT UNIQUE NOT NULL,
+      action_pattern TEXT NOT NULL,
+      scope TEXT NOT NULL DEFAULT 'global',
+      limits TEXT,
+      granted_at INTEGER NOT NULL,
+      expires_at INTEGER,
+      revoked_at INTEGER,
+      metadata TEXT
+    );
+  `)
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_permissions_pattern ON permissions(action_pattern);
+  `)
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_permissions_active ON permissions(revoked_at) WHERE revoked_at IS NULL;
+  `)
+
+  // Permission usage tracking table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS permission_usage (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      grant_id INTEGER NOT NULL,
+      action TEXT NOT NULL,
+      timestamp INTEGER NOT NULL,
+      FOREIGN KEY (grant_id) REFERENCES permissions(id)
+    );
+  `)
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_permission_usage_grant ON permission_usage(grant_id);
+  `)
 }
 
 /**
@@ -186,11 +224,49 @@ function migrateDatabase(db) {
   if (currentVersion === 0) {
     // Initial schema creation
     createSchema(db)
-    setVersion(db, 1)
+    setVersion(db, SCHEMA_VERSION)
   }
 
-  // Future migrations go here
-  // if (currentVersion < 2) { ... }
+  // Migration from version 1 to version 2: Add permissions tables
+  if (currentVersion === 1) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS permissions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        grant_token TEXT UNIQUE NOT NULL,
+        action_pattern TEXT NOT NULL,
+        scope TEXT NOT NULL DEFAULT 'global',
+        limits TEXT,
+        granted_at INTEGER NOT NULL,
+        expires_at INTEGER,
+        revoked_at INTEGER,
+        metadata TEXT
+      );
+    `)
+
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_permissions_pattern ON permissions(action_pattern);
+    `)
+
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_permissions_active ON permissions(revoked_at) WHERE revoked_at IS NULL;
+    `)
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS permission_usage (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        grant_id INTEGER NOT NULL,
+        action TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        FOREIGN KEY (grant_id) REFERENCES permissions(id)
+      );
+    `)
+
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_permission_usage_grant ON permission_usage(grant_id);
+    `)
+
+    setVersion(db, 2)
+  }
 
   return getCurrentVersion(db)
 }
