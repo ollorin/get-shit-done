@@ -181,7 +181,7 @@ bot.on('text', (ctx) => {
  * Callback query handler: Handle inline keyboard button presses for questions
  * Note: Menu buttons (menu:*) are handled by specific action handlers in telegram-haiku-monitor.js
  */
-bot.on('callback_query', (ctx) => {
+bot.on('callback_query', (ctx, next) => {
   const data = ctx.callbackQuery.data;
 
   // Format: "questionId:choice"
@@ -190,7 +190,7 @@ bot.on('callback_query', (ctx) => {
   // Only handle question responses (questionId starts with "q_")
   // Let other callbacks (like "menu:action") pass through to specific handlers
   if (!questionId.startsWith('q_')) {
-    return; // Don't call ctx.answerCbQuery() - let specific handlers do it
+    return next(); // Pass to next handler (bot.action handlers in haiku-monitor)
   }
 
   const response = { type: 'button', content: choice };
