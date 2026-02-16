@@ -3802,7 +3802,7 @@ async function cmdTelegram(args, raw) {
   const subcommand = args[0];
 
   if (!subcommand) {
-    error('telegram: subcommand required (start|stop|test|ask|pending|status)');
+    error('telegram: subcommand required (start|stop|test|ask|pending|status|logs)');
   }
 
   // Lazy-load telegram modules
@@ -3811,8 +3811,13 @@ async function cmdTelegram(args, raw) {
 
   switch (subcommand) {
     case 'start': {
+      console.log('Starting Telegram bot with Haiku monitor...');
       await telegram.startBot();
-      output({ status: 'started' }, raw, 'Telegram bot started in polling mode');
+      console.log('\nBot running! Press Ctrl+C to stop.\n');
+      console.log('📱 Send /start to your bot in Telegram to see the menu.');
+
+      // Keep process alive
+      await new Promise(() => {}); // Never resolves
       break;
     }
 
@@ -3883,8 +3888,41 @@ async function cmdTelegram(args, raw) {
       break;
     }
 
+    case 'logs': {
+      const logger = require('./telegram-session-logger.js');
+      const sessions = logger.getAllSessions();
+
+      if (sessions.length === 0) {
+        output({ sessions: [] }, raw, 'No session logs found');
+        break;
+      }
+
+      if (args[1] === '--latest' || !args[1]) {
+        // Show latest session
+        const events = logger.readSession(sessions[0]);
+        output({ events }, raw, JSON.stringify(events, null, 2));
+      } else if (args[1] === '--list') {
+        // List all sessions
+        const sessionList = sessions.map((s, i) => ({
+          index: i + 1,
+          file: require('path').basename(s)
+        }));
+        output({ sessions: sessionList }, raw, 'Session logs:\n' + sessionList.map(s => `  ${s.index}. ${s.file}`).join('\n'));
+      } else {
+        // Show specific session by index
+        const idx = parseInt(args[1]) - 1;
+        if (idx >= 0 && idx < sessions.length) {
+          const events = logger.readSession(sessions[idx]);
+          output({ events }, raw, JSON.stringify(events, null, 2));
+        } else {
+          error('Invalid session index. Use --list to see available sessions.');
+        }
+      }
+      break;
+    }
+
     default:
-      error(`telegram: unknown subcommand "${subcommand}"\nAvailable: start, stop, test, ask, pending, status`);
+      error(`telegram: unknown subcommand "${subcommand}"\nAvailable: start, stop, test, ask, pending, status, logs`);
   }
 }
 
