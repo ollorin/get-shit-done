@@ -23,8 +23,8 @@ let botInstance = null; // Store bot instance for use in handlers
 const MAIN_MENU = Markup.inlineKeyboard([
   [
     Markup.button.callback('📊 Status', 'menu:status'),
-    Markup.button.callback('❓ Pending', 'menu:pending'),
-    Markup.button.callback('✨ New Requirements', 'menu:requirements')
+    Markup.button.callback('❓ Pending', 'menu:pending')
+    // ✨ New Requirements - DISABLED (conversational flow not compatible with Telegraf)
   ]
 ]);
 
