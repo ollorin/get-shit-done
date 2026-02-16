@@ -18,7 +18,7 @@ const crypto = require('crypto')
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 2
+const SCHEMA_VERSION = 3
 const DB_CONNECTIONS = new Map()
 
 // ─── Path Resolution ───────────────────────────────────────────────────────
@@ -172,6 +172,46 @@ function createSchema(db) {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_permission_usage_grant ON permission_usage(grant_id);
   `)
+
+  // Cost tracking table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cost_tracking (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      action TEXT NOT NULL,
+      cost REAL NOT NULL,
+      timestamp INTEGER NOT NULL,
+      metadata TEXT
+    );
+  `)
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_cost_timestamp ON cost_tracking(timestamp DESC);
+  `)
+
+  // Budget alerts tracking (deduplication)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS budget_alerts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      threshold REAL NOT NULL,
+      period_start INTEGER NOT NULL,
+      fired_at INTEGER NOT NULL,
+      UNIQUE(threshold, period_start)
+    );
+  `)
+
+  // Circuit breaker state
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS circuit_breaker (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      enabled INTEGER NOT NULL DEFAULT 0,
+      reason TEXT,
+      enabled_at INTEGER
+    );
+  `)
+
+  db.exec(`
+    INSERT OR IGNORE INTO circuit_breaker (id, enabled) VALUES (1, 0);
+  `)
 }
 
 /**
@@ -266,6 +306,48 @@ function migrateDatabase(db) {
     `)
 
     setVersion(db, 2)
+  }
+
+  // Migration from version 2 to version 3: Add cost tracking tables
+  if (currentVersion === 2) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS cost_tracking (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        action TEXT NOT NULL,
+        cost REAL NOT NULL,
+        timestamp INTEGER NOT NULL,
+        metadata TEXT
+      );
+    `)
+
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_cost_timestamp ON cost_tracking(timestamp DESC);
+    `)
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS budget_alerts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        threshold REAL NOT NULL,
+        period_start INTEGER NOT NULL,
+        fired_at INTEGER NOT NULL,
+        UNIQUE(threshold, period_start)
+      );
+    `)
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS circuit_breaker (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        enabled INTEGER NOT NULL DEFAULT 0,
+        reason TEXT,
+        enabled_at INTEGER
+      );
+    `)
+
+    db.exec(`
+      INSERT OR IGNORE INTO circuit_breaker (id, enabled) VALUES (1, 0);
+    `)
+
+    setVersion(db, 3)
   }
 
   return getCurrentVersion(db)
