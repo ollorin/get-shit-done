@@ -197,6 +197,81 @@ function extractAndFilter(responseText, options = {}) {
   return filterWithQualityGates(raw, options);
 }
 
+// Content hashing for deduplication
+const crypto = require('crypto');
+
+/**
+ * Compute exact content hash
+ * @param {string} content - Content to hash
+ * @returns {string} SHA-256 hash
+ */
+function computeContentHash(content) {
+  return crypto.createHash('sha256').update(content.trim()).digest('hex');
+}
+
+/**
+ * Compute canonical hash for near-duplicate detection
+ * @param {string} content - Content to normalize and hash
+ * @returns {string} SHA-256 hash of normalized content
+ */
+function computeCanonicalHash(content) {
+  const canonical = content
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[.,;:!?'"]/g, '')
+    .trim();
+  return crypto.createHash('sha256').update(canonical).digest('hex');
+}
+
+/**
+ * Deduplicate extractions within batch
+ * @param {Array} extractions - Array of extraction objects
+ * @returns {Array} Deduplicated extractions with content_hash and canonical_hash
+ */
+function deduplicateExtractions(extractions) {
+  const seen = new Map();  // canonical_hash -> extraction
+  const deduplicated = [];
+
+  for (const ext of extractions) {
+    const canonical = computeCanonicalHash(ext.content);
+
+    if (!seen.has(canonical)) {
+      seen.set(canonical, ext);
+      deduplicated.push({
+        ...ext,
+        content_hash: computeContentHash(ext.content),
+        canonical_hash: canonical
+      });
+    }
+  }
+
+  return deduplicated;
+}
+
+/**
+ * Full extraction pipeline
+ * @param {string} responseText - Claude response text
+ * @param {Object} options - Options { debug: boolean }
+ * @returns {Object} Pipeline results with stats and extractions
+ */
+function extractKnowledge(responseText, options = {}) {
+  // Step 1: Extract raw matches
+  const raw = extractFromResponse(responseText);
+
+  // Step 2: Apply quality gates
+  const filtered = filterWithQualityGates(raw, options);
+
+  // Step 3: Deduplicate within batch
+  const deduplicated = deduplicateExtractions(filtered);
+
+  return {
+    total_raw: raw.length,
+    total_filtered: filtered.length,
+    total_deduplicated: deduplicated.length,
+    extractions: deduplicated
+  };
+}
+
 module.exports = {
   DECISION_PATTERNS,
   LESSON_PATTERNS,
@@ -205,5 +280,9 @@ module.exports = {
   extractFromResponse,
   passesQualityGate,
   filterWithQualityGates,
-  extractAndFilter
+  extractAndFilter,
+  computeContentHash,
+  computeCanonicalHash,
+  deduplicateExtractions,
+  extractKnowledge
 };
