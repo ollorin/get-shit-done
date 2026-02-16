@@ -197,14 +197,16 @@ Plans:
   6. Graduated budget alerts notify at 50%, 80%, 90%, 100% thresholds
   7. Real-time progress dashboard shows execution status via EXECUTION_LOG.md
   8. Token savings report compares auto mode vs manual profiles with detailed analytics
-**Plans:** 5 plans
+**Plans:** 7 plans
 
 Plans:
-- [ ] 08-01-PLAN.md - Telegram bot foundation (text questions, responses, resume)
-- [ ] 08-02-PLAN.md - Voice message transcription (Whisper, ffmpeg, audio pipeline)
-- [ ] 08-03-PLAN.md - OpenTelemetry tracing (distributed traces, LLM metrics)
-- [ ] 08-04-PLAN.md - Graduated budget alerts (50/80/90/100%, Telegram escalation)
-- [ ] 08-05-PLAN.md - Dashboard and savings reports (WebSocket streaming, cost analysis)
+- [x] 08-01-PLAN.md - Telegram bot foundation (text questions, responses, resume)
+- [x] 08-02-PLAN.md - Voice message transcription (Whisper, ffmpeg, audio pipeline)
+- [x] 08-03-PLAN.md - OpenTelemetry tracing (distributed traces, LLM metrics)
+- [x] 08-04-PLAN.md - Graduated budget alerts (50/80/90/100%, Telegram escalation)
+- [x] 08-05-PLAN.md - Dashboard and savings reports (WebSocket streaming, cost analysis)
+- [x] 08-06-PLAN.md - AI-Powered Telegram Bot with Haiku Monitor (gap closure)
+- [x] 08-07-PLAN.md - Documentation and Setup Guide (gap closure)
 
 ## Progress
 
@@ -239,7 +241,7 @@ Phase 7 (Autonomous Optimization) --> Phase 8 (Notifications & Observability)
 | 5. Knowledge Permissions & Safety | 6 | Planning complete | - |
 | 6. Autonomous Execution Core | 6 | Complete | 2026-02-16 |
 | 7. Autonomous Execution Optimization | 6 | Complete | 2026-02-16 |
-| 8. Notifications & Observability | 5 | Planning complete | - |
+| 8. Notifications & Observability | 7 | Complete | 2026-02-16 |
 
 ### Phase 9: Hook-based documentation compression - Optimize context injection by extracting AI-friendly headers from docs and injecting only summaries with absolute links instead of full content
 
