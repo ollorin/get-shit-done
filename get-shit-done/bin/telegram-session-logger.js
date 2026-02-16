@@ -10,6 +10,9 @@
 const fs = require('fs');
 const path = require('path');
 
+// Capture project root at module load time (before any cwd changes)
+const PROJECT_ROOT = process.cwd();
+
 let currentSessionPath = null;
 let sessionStartTime = null;
 
@@ -18,7 +21,7 @@ let sessionStartTime = null;
  */
 function startSession() {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  const sessionsDir = path.join(process.cwd(), '.planning', 'telegram-sessions');
+  const sessionsDir = path.join(PROJECT_ROOT, '.planning', 'telegram-sessions');
 
   if (!fs.existsSync(sessionsDir)) {
     fs.mkdirSync(sessionsDir, { recursive: true });
@@ -139,7 +142,7 @@ function getSessionPath() {
  * Get all session files
  */
 function getAllSessions() {
-  const sessionsDir = path.join(process.cwd(), '.planning', 'telegram-sessions');
+  const sessionsDir = path.join(PROJECT_ROOT, '.planning', 'telegram-sessions');
   if (!fs.existsSync(sessionsDir)) return [];
 
   return fs.readdirSync(sessionsDir)
