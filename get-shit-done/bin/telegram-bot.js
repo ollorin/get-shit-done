@@ -7,7 +7,7 @@
  * during autonomous execution.
  */
 
-require('dotenv').config();
+// Note: .env is loaded by gsd-tools.js before this module is imported
 const path = require('path');
 const fs = require('fs');
 
