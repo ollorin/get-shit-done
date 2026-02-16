@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-15)
 
 **Core value:** Claude learns to make autonomous decisions based on user's reasoning patterns, only stopping for irreversible/external/costly actions
-**Current focus:** Phase 3 - Knowledge System Foundation
+**Current focus:** Phase 4 - Knowledge Extraction & Hooks
 
 ## Current Position
 
-Phase: 3 of 8 (Knowledge System Foundation)
-Plan: 05 of 05
+Phase: 4 of 8 (Knowledge Extraction & Hooks)
+Plan: 02 of 06
 Status: In Progress
-Last activity: 2026-02-16 — Completed plan 03-05 (Knowledge API & CLI integration)
+Last activity: 2026-02-16 — Completed plan 04-02 (Pattern-based knowledge extraction)
 
-Progress: [█████████-] 21%
+Progress: [██████████] 25%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 17
-- Average duration: 3.7 min
-- Total execution time: 1.0 hours
+- Total plans completed: 19
+- Average duration: 3.5 min
+- Total execution time: 1.1 hours
 
 **By Phase:**
 
@@ -30,6 +30,7 @@ Progress: [█████████-] 21%
 | 01    | 6     | 20 min | 3.3 min  |
 | 02    | 6     | 28 min | 4.7 min  |
 | 03    | 5     | 16 min | 3.2 min  |
+| 04    | 2     | 5 min  | 2.5 min  |
 
 **Recent Completions:**
 
@@ -48,6 +49,8 @@ Progress: [█████████-] 21%
 | 03    | 03   | 7 min    | 3     | 3     |
 | 03    | 04   | 2 min    | 3     | 1     |
 | 03    | 05   | 3 min    | 3     | 2     |
+| 04    | 01   | 2 min    | 2     | 3     |
+| 04    | 02   | 3 min    | 3     | 1     |
 
 ## Accumulated Context
 
@@ -131,6 +134,13 @@ Recent decisions affecting current work:
 - [Phase 03]: Lazy load knowledge modules to avoid dependency errors at import time
 - [Phase 03]: Cache database connections per path to avoid repeated opens
 - [Phase 03]: Pass full connection object to search, db property to CRUD functions
+- [Phase 04]: Use Nomic Embed v1.5 with 512-dim Matryoshka for local embeddings
+- [Phase 04]: Lazy-load embedding pipeline on first use, not at import time
+- [Phase 04-02]: Use regex patterns with capture groups for decision/lesson extraction
+- [Phase 04-02]: 20-char minimum length threshold for quality gates
+- [Phase 04-02]: Technical signals include code backticks, paths, keywords, identifiers
+- [Phase 04-02]: All-caps pattern added for technical terms (AUTOINCREMENT, WAL, etc.)
+- [Phase 04-02]: Canonical hash normalizes case/punctuation for near-duplicate detection
 
 ### Pending Todos
 
@@ -142,6 +152,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-16T00:00:00Z (plan execution)
-Stopped at: Completed 03-04-PLAN.md (Knowledge lifecycle management)
+Last session: 2026-02-16T05:17:03Z (plan execution)
+Stopped at: Completed 04-02-PLAN.md (Pattern-based knowledge extraction)
 Resume file: None
