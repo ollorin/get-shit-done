@@ -143,6 +143,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const { EVENT_TYPES, initLog, appendEvent, getHistory, getCurrentPhase, getLastCheckpoint, getExecutionStats, needsResume, getResumeContext, markResumed, getPhaseTimeline } = require('./execution-log.js');
 
 // ─── Model Profile Table ─────────────────────────────────────────────────────
 
@@ -2689,6 +2690,120 @@ function cmdPendingReplacements(cwd, args, raw) {
         console.log('---');
       }
     }
+  }
+}
+
+// ─── Execution Log ───────────────────────────────────────────────────────────
+
+function cmdExecutionLog(cwd, args, raw) {
+  const subcommand = args[0];
+
+  if (!subcommand) {
+    error('execution-log: subcommand required (append|history|current|last-complete|stats)');
+  }
+
+  switch (subcommand) {
+    case 'append': {
+      // Parse event type
+      const typeIndex = args.indexOf('--type');
+      if (typeIndex === -1) {
+        error('execution-log append: --type required');
+      }
+      const type = args[typeIndex + 1];
+
+      // Build event object from args
+      const event = { type };
+
+      // Parse optional fields
+      const parseArg = (flag) => {
+        const idx = args.indexOf(flag);
+        return idx !== -1 ? args[idx + 1] : undefined;
+      };
+
+      const phase = parseArg('--phase');
+      const name = parseArg('--name');
+      const status = parseArg('--status');
+      const duration = parseArg('--duration');
+      const checkpointId = parseArg('--checkpoint-id');
+      const totalPhases = parseArg('--total-phases');
+
+      if (phase !== undefined) event.phase = parseInt(phase);
+      if (name !== undefined) event.name = name;
+      if (status !== undefined) event.status = status;
+      if (duration !== undefined) event.duration = parseInt(duration);
+      if (checkpointId !== undefined) event.checkpoint_id = checkpointId;
+      if (totalPhases !== undefined) event.total_phases = parseInt(totalPhases);
+
+      const result = appendEvent(cwd, event);
+      output(result, raw, 'Event appended to EXECUTION_LOG.md');
+      break;
+    }
+
+    case 'history': {
+      const events = getHistory(cwd);
+
+      if (raw || args.includes('--json')) {
+        output(events, true);
+      } else {
+        console.log('\n=== Execution History ===\n');
+        if (events.length === 0) {
+          console.log('No events in log.');
+        } else {
+          for (const event of events) {
+            console.log(`[${event.timestamp}] ${event.type}${event.phase ? ` (Phase ${event.phase})` : ''}`);
+            if (event.name) console.log(`  Name: ${event.name}`);
+            if (event.status) console.log(`  Status: ${event.status}`);
+            console.log('');
+          }
+        }
+      }
+      break;
+    }
+
+    case 'current': {
+      const current = getCurrentPhase(cwd);
+      output(current || { phase: null }, raw, current ? `Currently executing: Phase ${current.phase}` : 'No active phase');
+      break;
+    }
+
+    case 'last-complete': {
+      const events = getHistory(cwd);
+      const completeEvents = events.filter(e => e.type === EVENT_TYPES.PHASE_COMPLETE);
+      const lastComplete = completeEvents.length > 0 ? completeEvents[completeEvents.length - 1] : null;
+
+      if (raw) {
+        output({ phase: lastComplete ? lastComplete.phase : null }, raw);
+      } else {
+        if (lastComplete) {
+          console.log(`Last completed phase: ${lastComplete.phase}`);
+        } else {
+          console.log('No completed phases yet.');
+        }
+      }
+      break;
+    }
+
+    case 'stats': {
+      const stats = getExecutionStats(cwd);
+
+      if (raw) {
+        output(stats, raw);
+      } else {
+        console.log('\n=== Execution Statistics ===\n');
+        console.log(`Phases completed: ${stats.phases_completed}`);
+        console.log(`Phases failed: ${stats.phases_failed}`);
+        console.log(`Checkpoints: ${stats.checkpoint_count}`);
+        if (stats.total_duration_ms > 0) {
+          const hours = Math.floor(stats.total_duration_ms / 3600000);
+          const mins = Math.floor((stats.total_duration_ms % 3600000) / 60000);
+          console.log(`Total duration: ${hours}h ${mins}m`);
+        }
+      }
+      break;
+    }
+
+    default:
+      error(`execution-log: unknown subcommand "${subcommand}"`);
   }
 }
 
@@ -5493,6 +5608,11 @@ async function main() {
 
     case 'pending-replacements': {
       cmdPendingReplacements(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'execution-log': {
+      cmdExecutionLog(cwd, args.slice(1), raw);
       break;
     }
 
