@@ -2532,7 +2532,7 @@ function cmdBudget(cwd, args, raw) {
   }
 
   const { knowledge } = require('./knowledge.js');
-  const { getTotalCost, getBudgetLimit, getAlertStatus } = require('./knowledge-cost.js');
+  const { getTotalCost, getBudgetLimit, getStartOfPeriod, hasAlertFired } = require('./knowledge-cost.js');
 
   const conn = knowledge._getConnection(scope);
   if (!conn.available) {
@@ -2541,9 +2541,17 @@ function cmdBudget(cwd, args, raw) {
 
   const totalCost = getTotalCost(conn.db, period);
   const limit = getBudgetLimit(period);
-  const alertStatus = getAlertStatus(conn.db, period);
-
   const percent = limit > 0 ? ((totalCost / limit) * 100).toFixed(1) : 0;
+  const periodStart = getStartOfPeriod(period);
+
+  // Check which alerts have fired
+  const ALERT_THRESHOLDS = [0.5, 0.8, 0.9, 1.0];
+  const firedLevels = [];
+  for (const threshold of ALERT_THRESHOLDS) {
+    if (hasAlertFired(conn.db, threshold, periodStart)) {
+      firedLevels.push(`${(threshold * 100).toFixed(0)}%`);
+    }
+  }
 
   if (raw) {
     output({
@@ -2551,13 +2559,13 @@ function cmdBudget(cwd, args, raw) {
       spent: totalCost,
       limit,
       percent: parseFloat(percent),
-      alerts_fired: alertStatus.fired_levels
+      alerts_fired: firedLevels
     }, raw);
   } else {
     console.log(`\n=== Budget Status (${period}) ===\n`);
     console.log(`Spent: $${totalCost.toFixed(2)} / $${limit.toFixed(2)} (${percent}%)`);
-    if (alertStatus.fired_levels && alertStatus.fired_levels.length > 0) {
-      console.log(`Alerts fired: ${alertStatus.fired_levels.join(', ')}`);
+    if (firedLevels.length > 0) {
+      console.log(`Alerts fired: ${firedLevels.join(', ')}`);
     }
   }
 }
