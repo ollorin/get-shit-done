@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-15)
 ## Current Position
 
 Phase: 8 of 8 (Notifications & Observability)
-Plan: Not started
-Status: Ready
-Last activity: 2026-02-16 — Completed Phase 7 (Autonomous Execution Optimization) with all 6 plans
+Plan: 3 of 5
+Status: In Progress
+Last activity: 2026-02-16 — Completed Plan 08-03 (OpenTelemetry Distributed Tracing)
 
-Progress: [███████████████████] 47%
+Progress: [████████████████████] 49%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 40
+- Total plans completed: 42
 - Average duration: 4.2 min
-- Total execution time: 2.8 hours
+- Total execution time: 3.0 hours
 
 **By Phase:**
 
@@ -34,13 +34,12 @@ Progress: [███████████████████] 47%
 | 05    | 5     | 16 min | 3.2 min  |
 | 06    | 6     | 41 min | 6.8 min  |
 | 07    | 6     | 15 min | 2.5 min  |
+| 08    | 2     | 9 min  | 4.5 min  |
 
 **Recent Completions:**
 
 | Phase | Plan | Duration | Tasks | Files |
 |-------|------|----------|-------|-------|
-| 05    | 06   | 6 min    | 3     | 1     |
-| 06    | 01   | 5 min    | 3     | 2     |
 | 06    | 02   | 5 min    | 3     | 4     |
 | 06    | 03   | 4 min    | 3     | 2     |
 | 06    | 04   | 8 min    | 3     | 2     |
@@ -52,6 +51,8 @@ Progress: [███████████████████] 47%
 | 07    | 04   | 3 min    | 3     | 2     |
 | 07    | 05   | 4 min    | 3     | 3     |
 | 07    | 06   | 2 min    | 3     | 2     |
+| 08    | 01   | 4 min    | 4     | 4     |
+| 08    | 03   | 5 min    | 3     | 4     |
 
 ## Accumulated Context
 
@@ -1064,6 +1065,9 @@ Recent decisions affecting current work:
 - [Phase 07-03]: Integrate signals into gsd-tools CLI for consistency with existing GSD operations
 - [Phase 07-03]: Log signals to EXECUTION_LOG.md as NDJSON events for history tracking and debugging
 - [Phase 07]: Use exponential backoff with jitter to prevent thundering herd
+- [Phase 08-01]: Use in-memory Map for question storage (single-user bot)
+- [Phase 08-01]: Lazy-load telegram modules in gsd-tools to avoid startup overhead
+- [Phase 08-01]: Default 1-hour timeout for blocking questions
 5 weekly)
 - [Phase 05-06]: Lazy-load knowledge modules via require() to avoid import-time dependencies
 - [Phase 05-06]: Cache database connections via knowledge._getConnection() - no manual close needed
@@ -1208,6 +1212,10 @@ Recent decisions affecting current work:
 - [Phase 07]: Use exponential backoff with jitter to prevent thundering herd
 - [Phase 7]: 80/90/95% token thresholds for warn/critical/stop alerts enable proactive compression
 - [Phase 7]: Reserve-before-execute pattern checks budget availability before spawning operations
+- [Phase 08-03]: Use trace-specific OTLP exporter instead of deprecated generic exporter for future compatibility
+- [Phase 08-03]: Graceful no-op mode when OTEL_EXPORTER_OTLP_ENDPOINT not set for optional observability
+- [Phase 08-03]: gen_ai.* semantic conventions for LLM operations with custom gsd.* attributes for GSD-specific metadata
+- [Phase 08-03]: Prompt cache cost tracked separately with discounted pricing (10% of base input tokens)
 
 ### Roadmap Evolution
 
