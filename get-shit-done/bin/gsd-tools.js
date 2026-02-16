@@ -148,6 +148,7 @@ const { parseRoadmap, buildDAG, getExecutionOrder, detectParallelOpportunities }
 const { TokenBudgetMonitor, estimatePhaseTokens } = require('./token-monitor.js');
 const { FailureHandler, executeWithRetry } = require('./failure-handler.js');
 const { CompletionSignal, COMPLETION_STATUS } = require('./completion-signal.js');
+const { TaskChunker, BatchCoordinator, analyzeTask, estimateTaskTokens } = require('./task-chunker.js');
 
 // ─── Model Profile Table ─────────────────────────────────────────────────────
 
@@ -3460,6 +3461,190 @@ function cmdToken(cwd, args, raw) {
   }
 }
 
+// ─── Task Chunking ────────────────────────────────────────────────────────────
+
+function cmdTask(cwd, args, raw) {
+  const subcommand = args[0];
+
+  if (!subcommand) {
+    error('task: subcommand required (analyze|chunk|batch|estimate|progress|resume)');
+  }
+
+  const progressPath = path.join(cwd, '.planning', 'batch_progress.json');
+
+  switch (subcommand) {
+    case 'analyze': {
+      // Analyze a task for chunking requirements
+      const descIdx = args.indexOf('--description');
+      const description = descIdx !== -1 ? args[descIdx + 1] : null;
+      const filesIdx = args.indexOf('--files');
+      const filesGlob = filesIdx !== -1 ? args[filesIdx + 1] : null;
+
+      if (!description) {
+        error('task analyze: --description required');
+      }
+
+      // Expand glob if provided
+      let files = [];
+      if (filesGlob) {
+        try {
+          const globResult = execSync(`ls -1 ${filesGlob} 2>/dev/null || true`, { cwd, encoding: 'utf-8' });
+          files = globResult.trim().split('\n').filter(Boolean);
+        } catch {
+          // Glob expansion failed, use empty
+        }
+      }
+
+      const task = { description, files };
+      const result = analyzeTask(task);
+
+      const humanMsg = result.needsChunking
+        ? `Task requires chunking: ${result.chunkCount} chunks via ${result.strategy} strategy`
+        : `Task is manageable: ${result.complexity} complexity (${result.estimatedTokens} estimated tokens)`;
+
+      output(result, raw, humanMsg);
+      break;
+    }
+
+    case 'chunk': {
+      // Get chunk definitions for a task
+      const descIdx = args.indexOf('--description');
+      const description = descIdx !== -1 ? args[descIdx + 1] : null;
+      const filesIdx = args.indexOf('--files');
+      const filesGlob = filesIdx !== -1 ? args[filesIdx + 1] : null;
+      const strategyIdx = args.indexOf('--strategy');
+      const strategyOverride = strategyIdx !== -1 ? args[strategyIdx + 1] : null;
+
+      if (!description) {
+        error('task chunk: --description required');
+      }
+
+      let files = [];
+      if (filesGlob) {
+        try {
+          const globResult = execSync(`ls -1 ${filesGlob} 2>/dev/null || true`, { cwd, encoding: 'utf-8' });
+          files = globResult.trim().split('\n').filter(Boolean);
+        } catch {
+          // Glob expansion failed
+        }
+      }
+
+      const chunker = new TaskChunker();
+      const task = { description, files };
+      const estimate = chunker.estimateTaskTokens(task);
+      const strategy = strategyOverride || chunker.selectChunkingStrategy(task, estimate);
+      const chunkCount = chunker.calculateChunkCount(estimate.tokens, strategy, estimate.signals);
+      const chunks = chunker.createChunks(task, strategy, chunkCount, estimate.signals);
+
+      output({
+        strategy,
+        chunkCount,
+        chunks
+      }, raw, `Created ${chunkCount} chunks using ${strategy} strategy`);
+      break;
+    }
+
+    case 'batch': {
+      // Get batch breakdown for repetitive operations
+      const descIdx = args.indexOf('--description');
+      const description = descIdx !== -1 ? args[descIdx + 1] : null;
+      const countIdx = args.indexOf('--count');
+      const batchCount = countIdx !== -1 ? parseInt(args[countIdx + 1], 10) : 10;
+
+      if (!description) {
+        error('task batch: --description required');
+      }
+
+      const chunker = new TaskChunker();
+      const operationCount = chunker.extractOperationCount(description);
+      const opsPerBatch = Math.ceil(operationCount / batchCount);
+
+      const batches = [];
+      for (let i = 0; i < batchCount; i++) {
+        const start = i * opsPerBatch + 1;
+        const end = Math.min((i + 1) * opsPerBatch, operationCount);
+        if (start <= operationCount) {
+          batches.push({
+            batch: i + 1,
+            range: `items ${start}-${end}`,
+            count: end - start + 1
+          });
+        }
+      }
+
+      output({
+        totalOperations: operationCount,
+        batchCount: batches.length,
+        batches
+      }, raw, batches.map(b => `Batch ${b.batch}: ${b.range} (${b.count} items)`).join('\n'));
+      break;
+    }
+
+    case 'estimate': {
+      // Quick token estimate without full analysis
+      const descIdx = args.indexOf('--description');
+      const description = descIdx !== -1 ? args[descIdx + 1] : null;
+      const filesIdx = args.indexOf('--files');
+      const fileCount = filesIdx !== -1 ? parseInt(args[filesIdx + 1], 10) : 0;
+
+      if (!description) {
+        error('task estimate: --description required');
+      }
+
+      // Create minimal task object
+      const task = {
+        description,
+        files: Array(fileCount || 0).fill('file.js')
+      };
+
+      const result = estimateTaskTokens(task);
+      output(result, raw, `Estimated ${result.tokens} tokens (${result.complexity})`);
+      break;
+    }
+
+    case 'progress': {
+      // Show batch progress from checkpoint file
+      if (!fs.existsSync(progressPath)) {
+        output({ available: false, reason: 'No batch progress file found' }, raw, 'No active batch execution');
+        break;
+      }
+
+      const data = JSON.parse(fs.readFileSync(progressPath, 'utf-8'));
+      const coordinator = BatchCoordinator.fromJSON(data);
+      const progress = coordinator.getProgress();
+
+      output(progress, raw, `Progress: ${progress.completed}/${progress.total} chunks (${progress.percentComplete}%)`);
+      break;
+    }
+
+    case 'resume': {
+      // Resume from batch checkpoint
+      if (!fs.existsSync(progressPath)) {
+        output({ available: false, reason: 'No batch progress file found' }, raw, 'No batch to resume');
+        break;
+      }
+
+      const data = JSON.parse(fs.readFileSync(progressPath, 'utf-8'));
+      const coordinator = BatchCoordinator.fromJSON(data);
+      const nextChunk = coordinator.getNextChunk();
+
+      if (!nextChunk) {
+        output({ complete: true, progress: coordinator.getProgress() }, raw, 'All chunks complete');
+        break;
+      }
+
+      output({
+        nextChunk,
+        progress: coordinator.getProgress()
+      }, raw, `Next chunk: ${nextChunk.id} - ${nextChunk.description}`);
+      break;
+    }
+
+    default:
+      error(`task: unknown subcommand "${subcommand}"`);
+  }
+}
+
 // ─── Web Search (Brave API) ──────────────────────────────────────────────────
 
 async function cmdWebsearch(query, options, raw) {
@@ -6658,6 +6843,11 @@ async function main() {
 
     case 'token': {
       cmdToken(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'task': {
+      cmdTask(cwd, args.slice(1), raw);
       break;
     }
 
