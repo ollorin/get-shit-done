@@ -2383,6 +2383,307 @@ function cmdKnowledgeStats(cwd, args, raw) {
   output(result, raw);
 }
 
+// ─── Permission Management ───────────────────────────────────────────────────
+
+function parseDuration(str) {
+  if (!str) return null;
+  const match = str.match(/^(\d+)([hdw])$/);
+  if (!match) {
+    error(`Invalid duration format: ${str}. Use format like "7d", "24h", or "2w"`);
+  }
+  const [, num, unit] = match;
+  const value = parseInt(num, 10);
+  const ms = {
+    h: value * 60 * 60 * 1000,
+    d: value * 24 * 60 * 60 * 1000,
+    w: value * 7 * 24 * 60 * 60 * 1000
+  };
+  return ms[unit];
+}
+
+function cmdPermissionGrant(cwd, args, raw) {
+  const action = args[0];
+  if (!action) {
+    error('grant: action required (e.g., "delete_file:/test/*")');
+  }
+
+  const scope = args.includes('--scope') ? args[args.indexOf('--scope') + 1] : 'project';
+  const ttlStr = args.includes('--ttl') ? args[args.indexOf('--ttl') + 1] : null;
+  const maxCostStr = args.includes('--max-cost') ? args[args.indexOf('--max-cost') + 1] : null;
+  const maxCountStr = args.includes('--max-count') ? args[args.indexOf('--max-count') + 1] : null;
+  const path = args.includes('--path') ? args[args.indexOf('--path') + 1] : null;
+
+  const ttl = ttlStr ? parseDuration(ttlStr) : null;
+  const limits = {};
+  if (maxCostStr) limits.max_cost = parseFloat(maxCostStr);
+  if (maxCountStr) limits.max_count = parseInt(maxCountStr, 10);
+  if (path) limits.path = path;
+
+  const { knowledge } = require('./knowledge.js');
+  const { grantPermission } = require('./knowledge-permissions.js');
+
+  const conn = knowledge._getConnection(scope);
+  if (!conn.available) {
+    error(`Knowledge system not available: ${conn.reason}`);
+  }
+
+  const result = grantPermission(conn.db, { action, scope, limits, ttl });
+
+  output(result, raw);
+}
+
+function cmdPermissionRevoke(cwd, args, raw) {
+  const token = args[0];
+  if (!token) {
+    error('revoke: token required');
+  }
+
+  const scope = args.includes('--scope') ? args[args.indexOf('--scope') + 1] : 'project';
+
+  const { knowledge } = require('./knowledge.js');
+  const { revokePermission } = require('./knowledge-permissions.js');
+
+  const conn = knowledge._getConnection(scope);
+  if (!conn.available) {
+    error(`Knowledge system not available: ${conn.reason}`);
+  }
+
+  const result = revokePermission(conn.db, token);
+
+  output(result, raw);
+}
+
+function cmdPermissionList(cwd, args, raw) {
+  const scope = args.includes('--scope') ? args[args.indexOf('--scope') + 1] : 'project';
+  const jsonOutput = args.includes('--json');
+
+  const { knowledge } = require('./knowledge.js');
+  const { listActivePermissions } = require('./knowledge-permissions.js');
+
+  const conn = knowledge._getConnection(scope);
+  if (!conn.available) {
+    error(`Knowledge system not available: ${conn.reason}`);
+  }
+
+  const permissions = listActivePermissions(conn.db);
+
+  if (jsonOutput || raw) {
+    output({ permissions }, raw);
+  } else {
+    // Format as table
+    console.log('\n=== Active Permissions ===\n');
+    if (permissions.length === 0) {
+      console.log('No active permissions.');
+    } else {
+      for (const perm of permissions) {
+        console.log(`Action: ${perm.action_pattern}`);
+        console.log(`Token: ${perm.grant_token}`);
+        console.log(`Expires: ${perm.expires_at ? new Date(perm.expires_at).toISOString() : 'Never'}`);
+        if (perm.limits) {
+          console.log(`Limits: ${perm.limits}`);
+        }
+        console.log('---');
+      }
+    }
+  }
+}
+
+// ─── Emergency Stop & Budget ─────────────────────────────────────────────────
+
+function cmdPause(cwd, args, raw) {
+  const reason = args.includes('--reason') ? args[args.indexOf('--reason') + 1] : 'user_requested';
+  const scope = args.includes('--scope') ? args[args.indexOf('--scope') + 1] : 'project';
+
+  const { knowledge } = require('./knowledge.js');
+  const { enableCircuitBreaker } = require('./knowledge-cost.js');
+
+  const conn = knowledge._getConnection(scope);
+  if (!conn.available) {
+    error(`Knowledge system not available: ${conn.reason}`);
+  }
+
+  enableCircuitBreaker(conn.db, reason);
+
+  output({ paused: true, reason }, raw, 'Emergency stop enabled. Costly and external actions will be blocked.');
+}
+
+function cmdResume(cwd, args, raw) {
+  const scope = args.includes('--scope') ? args[args.indexOf('--scope') + 1] : 'project';
+
+  const { knowledge } = require('./knowledge.js');
+  const { disableCircuitBreaker } = require('./knowledge-cost.js');
+
+  const conn = knowledge._getConnection(scope);
+  if (!conn.available) {
+    error(`Knowledge system not available: ${conn.reason}`);
+  }
+
+  disableCircuitBreaker(conn.db);
+
+  output({ resumed: true }, raw, 'Emergency stop disabled. Normal operation resumed.');
+}
+
+function cmdBudget(cwd, args, raw) {
+  const period = args.includes('--period') ? args[args.indexOf('--period') + 1] : 'daily';
+  const scope = args.includes('--scope') ? args[args.indexOf('--scope') + 1] : 'project';
+
+  if (period !== 'daily' && period !== 'weekly') {
+    error('budget: period must be "daily" or "weekly"');
+  }
+
+  const { knowledge } = require('./knowledge.js');
+  const { getTotalCost, getBudgetLimit, getAlertStatus } = require('./knowledge-cost.js');
+
+  const conn = knowledge._getConnection(scope);
+  if (!conn.available) {
+    error(`Knowledge system not available: ${conn.reason}`);
+  }
+
+  const totalCost = getTotalCost(conn.db, period);
+  const limit = getBudgetLimit(period);
+  const alertStatus = getAlertStatus(conn.db, period);
+
+  const percent = limit > 0 ? ((totalCost / limit) * 100).toFixed(1) : 0;
+
+  if (raw) {
+    output({
+      period,
+      spent: totalCost,
+      limit,
+      percent: parseFloat(percent),
+      alerts_fired: alertStatus.fired_levels
+    }, raw);
+  } else {
+    console.log(`\n=== Budget Status (${period}) ===\n`);
+    console.log(`Spent: $${totalCost.toFixed(2)} / $${limit.toFixed(2)} (${percent}%)`);
+    if (alertStatus.fired_levels && alertStatus.fired_levels.length > 0) {
+      console.log(`Alerts fired: ${alertStatus.fired_levels.join(', ')}`);
+    }
+  }
+}
+
+// ─── Principle Feedback ──────────────────────────────────────────────────────
+
+function cmdMarkWrong(cwd, args, raw) {
+  const id = parseInt(args[0]);
+  if (isNaN(id)) {
+    error('mark-wrong: principle-id required (integer)');
+  }
+
+  const scope = args.includes('--scope') ? args[args.indexOf('--scope') + 1] : 'project';
+  const severity = args.includes('--severity') ? args[args.indexOf('--severity') + 1] : 'minor';
+  const reason = args.includes('--reason') ? args[args.indexOf('--reason') + 1] : null;
+
+  if (!['minor', 'major', 'critical'].includes(severity)) {
+    error('mark-wrong: severity must be "minor", "major", or "critical"');
+  }
+
+  const { knowledge } = require('./knowledge.js');
+  const { markPrincipleWrong } = require('./knowledge-feedback.js');
+
+  const conn = knowledge._getConnection(scope);
+  if (!conn.available) {
+    error(`Knowledge system not available: ${conn.reason}`);
+  }
+
+  const result = markPrincipleWrong(conn.db, id, { severity, reason });
+
+  output(result, raw);
+}
+
+function cmdMarkOutdated(cwd, args, raw) {
+  const id = parseInt(args[0]);
+  if (isNaN(id)) {
+    error('mark-outdated: principle-id required (integer)');
+  }
+
+  const scope = args.includes('--scope') ? args[args.indexOf('--scope') + 1] : 'project';
+  const replacement = args.includes('--replacement') ? args[args.indexOf('--replacement') + 1] : null;
+
+  const { knowledge } = require('./knowledge.js');
+  const { markPrincipleOutdated, createReplacementPrinciple } = require('./knowledge-feedback.js');
+
+  const conn = knowledge._getConnection(scope);
+  if (!conn.available) {
+    error(`Knowledge system not available: ${conn.reason}`);
+  }
+
+  const result = markPrincipleOutdated(conn.db, id);
+
+  if (replacement) {
+    const replacementResult = createReplacementPrinciple(conn.db, id, replacement);
+    result.replacement_id = replacementResult.new_principle_id;
+  }
+
+  output(result, raw);
+}
+
+function cmdPrincipleHistory(cwd, args, raw) {
+  const id = parseInt(args[0]);
+  if (isNaN(id)) {
+    error('principle-history: principle-id required (integer)');
+  }
+
+  const scope = args.includes('--scope') ? args[args.indexOf('--scope') + 1] : 'project';
+
+  const { knowledge } = require('./knowledge.js');
+  const { getPrincipleFeedbackHistory } = require('./knowledge-feedback.js');
+
+  const conn = knowledge._getConnection(scope);
+  if (!conn.available) {
+    error(`Knowledge system not available: ${conn.reason}`);
+  }
+
+  const history = getPrincipleFeedbackHistory(conn.db, id);
+
+  if (raw) {
+    output({ principle_id: id, history }, raw);
+  } else {
+    console.log(`\n=== Feedback History for Principle ${id} ===\n`);
+    if (history.length === 0) {
+      console.log('No feedback recorded.');
+    } else {
+      for (const event of history) {
+        console.log(`Type: ${event.feedback_type}`);
+        console.log(`Date: ${new Date(event.created_at).toISOString()}`);
+        console.log(`Severity: ${event.severity || 'N/A'}`);
+        console.log(`Reason: ${event.reason || 'N/A'}`);
+        console.log('---');
+      }
+    }
+  }
+}
+
+function cmdPendingReplacements(cwd, args, raw) {
+  const scope = args.includes('--scope') ? args[args.indexOf('--scope') + 1] : 'project';
+
+  const { knowledge } = require('./knowledge.js');
+  const { getPendingReplacements } = require('./knowledge-feedback.js');
+
+  const conn = knowledge._getConnection(scope);
+  if (!conn.available) {
+    error(`Knowledge system not available: ${conn.reason}`);
+  }
+
+  const pending = getPendingReplacements(conn.db);
+
+  if (raw) {
+    output({ pending }, raw);
+  } else {
+    console.log('\n=== Principles Needing Replacement ===\n');
+    if (pending.length === 0) {
+      console.log('No pending replacements.');
+    } else {
+      for (const item of pending) {
+        console.log(`ID: ${item.id}`);
+        console.log(`Content: ${item.content.substring(0, 100)}...`);
+        console.log(`Confidence: ${item.confidence}`);
+        console.log('---');
+      }
+    }
+  }
+}
+
 // ─── Web Search (Brave API) ──────────────────────────────────────────────────
 
 async function cmdWebsearch(query, options, raw) {
@@ -5134,6 +5435,56 @@ async function main() {
         default:
           error(`knowledge: unknown subcommand '${knowledgeSubcmd}'`);
       }
+      break;
+    }
+
+    case 'grant': {
+      cmdPermissionGrant(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'revoke': {
+      cmdPermissionRevoke(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'list-permissions': {
+      cmdPermissionList(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'pause': {
+      cmdPause(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'resume': {
+      cmdResume(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'budget': {
+      cmdBudget(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'mark-wrong': {
+      cmdMarkWrong(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'mark-outdated': {
+      cmdMarkOutdated(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'principle-history': {
+      cmdPrincipleHistory(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'pending-replacements': {
+      cmdPendingReplacements(cwd, args.slice(1), raw);
       break;
     }
 
