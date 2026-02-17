@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 /**
- * Configure MCP servers in .claude/.mcp.json
+ * Configure MCP servers in ~/.claude.json (global)
  * Merges GSD servers with existing configuration (user servers preserved)
  */
 
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 /**
  * Install MCP server configuration
@@ -15,8 +16,8 @@ const path = require('path');
  */
 function installMcp(options = {}) {
   const projectRoot = path.resolve(__dirname, '..');
-  const configDir = path.join(projectRoot, '.claude');
-  const mcpPath = path.join(configDir, '.mcp.json');
+  const configDir = path.join(os.homedir(), '.claude');
+  const mcpPath = path.join(configDir, '.claude.json');
 
   if (options.debug) {
     console.log(`       Debug: Project root: ${projectRoot}`);
@@ -26,11 +27,11 @@ function installMcp(options = {}) {
   // Create .claude directory if needed
   fs.mkdirSync(configDir, { recursive: true });
 
-  // GSD servers to install
+  // GSD servers to install (with absolute paths)
   const gsdServers = {
     telegram: {
       command: 'node',
-      args: ['mcp-servers/telegram-mcp/dist/index.js'],
+      args: [path.join(projectRoot, 'mcp-servers/telegram-mcp/dist/index.js')],
       env: {
         TELEGRAM_BOT_TOKEN: '${TELEGRAM_BOT_TOKEN}',
         TELEGRAM_OWNER_ID: '${TELEGRAM_OWNER_ID}'
@@ -53,11 +54,11 @@ function installMcp(options = {}) {
       backupCreated = true;
 
       if (options.debug) {
-        console.log(`       Debug: Loaded existing .mcp.json`);
+        console.log(`       Debug: Loaded existing .claude.json`);
         console.log(`       Debug: Backup created at ${backupPath}`);
       }
     } catch (e) {
-      console.log(`       Warning: Could not parse existing .mcp.json: ${e.message}`);
+      console.log(`       Warning: Could not parse existing .claude.json: ${e.message}`);
       console.log(`       Creating new config...`);
     }
   }
@@ -122,7 +123,7 @@ if (require.main === module) {
     if (result.success) {
       console.log(`  ✓ MCP configuration complete`);
       if (result.backupCreated) {
-        console.log(`    Backup created: .claude/.mcp.json.backup`);
+        console.log(`    Backup created: ~/.claude/.claude.json.backup`);
       }
     } else {
       console.error(`  ✗ MCP configuration failed`);
