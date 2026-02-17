@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -14,6 +15,8 @@ import {
   CHECK_ANSWERS_TOOL_DEF,
   MARK_ANSWERED_TOOL_DEF
 } from './tools/index.js';
+import { startBot, stopBot } from './bot/telegram-bot.js';
+import { REQUIREMENTS_RESOURCE_DEF, readRequirementsResource } from './resources/index.js';
 
 // Create MCP server instance
 const server = new Server(
@@ -95,37 +98,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 // Register resource list handler
 server.setRequestHandler(ListResourcesRequestSchema, async () => {
   return {
-    resources: [
-      {
-        uri: "telegram://requirements/new",
-        name: "New Requirements",
-        description: "JSONL stream of new requirements submitted via Telegram",
-        mimeType: "application/x-ndjson"
-      }
-    ]
+    resources: [REQUIREMENTS_RESOURCE_DEF]
   };
 });
 
-// Register resource read handler (placeholder implementation)
+// Register resource read handler
 server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
-  const { uri } = request.params;
-
-  if (uri === "telegram://requirements/new") {
-    return {
-      contents: [
-        {
-          uri,
-          mimeType: "application/x-ndjson",
-          text: JSON.stringify({
-            requirements: [],
-            message: "Placeholder: Resource implementation pending in Plan 02"
-          })
-        }
-      ]
-    };
-  }
-
-  throw new Error(`Unknown resource: ${uri}`);
+  return readRequirementsResource(request.params.uri);
 });
 
 // Server lifecycle management
@@ -138,16 +117,32 @@ async function main() {
   console.error("[MCP] Server ready on stdio transport");
   console.error("[MCP] Tools: ask_blocking_question, check_question_answers, mark_question_answered");
   console.error("[MCP] Resources: telegram://requirements/new");
+
+  // Start Telegram bot if token available
+  if (process.env.TELEGRAM_BOT_TOKEN) {
+    try {
+      await startBot();
+      console.error('[MCP] Telegram bot started');
+    } catch (err: any) {
+      console.error('[MCP] Bot start failed:', err.message);
+      console.error('[MCP] Continuing without bot (tools will queue questions only)');
+    }
+  } else {
+    console.error('[MCP] TELEGRAM_BOT_TOKEN not set, bot disabled');
+    console.error('[MCP] Questions will be queued but not sent to Telegram');
+  }
 }
 
 // Graceful shutdown
 process.on("SIGINT", async () => {
   console.error("[MCP] Shutting down...");
+  stopBot();
   process.exit(0);
 });
 
 process.on("SIGTERM", async () => {
   console.error("[MCP] Shutting down...");
+  stopBot();
   process.exit(0);
 });
 

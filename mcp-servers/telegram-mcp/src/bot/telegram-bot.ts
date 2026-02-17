@@ -34,20 +34,8 @@ interface BotContext extends Context {
   session: SessionData;
 }
 
-// Check for bot token
-if (!process.env.TELEGRAM_BOT_TOKEN) {
-  console.error('[telegram-bot] ERROR: TELEGRAM_BOT_TOKEN not set in .env');
-  throw new Error('TELEGRAM_BOT_TOKEN required');
-}
-
-// Initialize bot with session middleware
-const bot = new Telegraf<BotContext>(process.env.TELEGRAM_BOT_TOKEN);
-bot.use(session({
-  defaultSession: (): SessionData => ({
-    awaitingQuestionResponse: null
-  })
-}));
-
+// Bot instance (lazy-initialized in startBot)
+let bot: Telegraf<BotContext> | null = null;
 let botStarted = false;
 let ownerChatId: number | null = null;
 
@@ -92,91 +80,118 @@ async function getGSDStatus(): Promise<string> {
 }
 
 /**
- * Menu action handler: Status
+ * Initialize bot instance with handlers
  */
-bot.action('menu:status', async (ctx) => {
-  await ctx.answerCbQuery();
+function initializeBot(): Telegraf<BotContext> {
+  if (!process.env.TELEGRAM_BOT_TOKEN) {
+    throw new Error('TELEGRAM_BOT_TOKEN not set in environment');
+  }
 
-  const status = await getGSDStatus();
-  const backButton = Markup.inlineKeyboard([
-    Markup.button.callback('« Back to Menu', 'back:main')
-  ]);
+  const botInstance = new Telegraf<BotContext>(process.env.TELEGRAM_BOT_TOKEN);
 
-  await ctx.editMessageText(status, { parse_mode: 'Markdown', ...backButton });
-  logBotResponse(status, 'menu');
-});
+  // Add session middleware
+  botInstance.use(session({
+    defaultSession: (): SessionData => ({
+      awaitingQuestionResponse: null
+    })
+  }));
+
+  // Register all handlers
+  setupHandlers(botInstance);
+
+  return botInstance;
+}
 
 /**
- * Menu action handler: Pending Questions
+ * Setup all bot command and message handlers
  */
-bot.action('menu:pending', async (ctx) => {
-  await ctx.answerCbQuery();
+function setupHandlers(botInstance: Telegraf<BotContext>): void {
+  /**
+   * Menu action handler: Status
+   */
+  botInstance.action('menu:status', async (ctx) => {
+    await ctx.answerCbQuery();
 
-  const questions = await loadPendingQuestions();
-
-  if (questions.length === 0) {
+    const status = await getGSDStatus();
     const backButton = Markup.inlineKeyboard([
       Markup.button.callback('« Back to Menu', 'back:main')
     ]);
-    await ctx.editMessageText('No pending questions. All clear! ✓', backButton);
-    logBotResponse('No pending questions', 'menu');
-    return;
-  }
 
-  // Show questions with answer buttons
-  let text = `❓ **Pending Questions** (${questions.length})\n\nClick to respond:\n\n`;
-
-  const buttons = questions.map((q, idx) => {
-    const preview = q.question.slice(0, 40);
-    return [Markup.button.callback(`${idx + 1}. ${preview}...`, `answer:${q.id}`)];
+    await ctx.editMessageText(status, { parse_mode: 'Markdown', ...backButton });
+    logBotResponse(status, 'menu');
   });
 
-  buttons.push([Markup.button.callback('« Back to Menu', 'back:main')]);
+  /**
+   * Menu action handler: Pending Questions
+   */
+  botInstance.action('menu:pending', async (ctx) => {
+    await ctx.answerCbQuery();
 
-  const keyboard = Markup.inlineKeyboard(buttons);
-  await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
-  logBotResponse(`Showed ${questions.length} pending questions`, 'menu');
-});
+    const questions = await loadPendingQuestions();
 
-/**
- * Answer button handler (dynamic - registers for any question ID)
- */
-bot.action(/^answer:(.+)$/, async (ctx) => {
-  const questionId = ctx.match[1];
-  await ctx.answerCbQuery();
+    if (questions.length === 0) {
+      const backButton = Markup.inlineKeyboard([
+        Markup.button.callback('« Back to Menu', 'back:main')
+      ]);
+      await ctx.editMessageText('No pending questions. All clear! ✓', backButton);
+      logBotResponse('No pending questions', 'menu');
+      return;
+    }
 
-  const question = await getPendingById(questionId);
-  if (!question) {
-    await ctx.reply('Question not found or already answered.');
-    return;
-  }
+    // Show questions with answer buttons
+    let text = `❓ **Pending Questions** (${questions.length})\n\nClick to respond:\n\n`;
 
-  // Set session state to await response
-  ctx.session.awaitingQuestionResponse = questionId;
+    const buttons = questions.map((q, idx) => {
+      const preview = q.question.slice(0, 40);
+      return [Markup.button.callback(`${idx + 1}. ${preview}...`, `answer:${q.id}`)];
+    });
 
-  await ctx.reply(
-    `**Question:** ${question.question}\n\n` +
-    `Send your response (text or voice):`,
-    { parse_mode: 'Markdown' }
-  );
+    buttons.push([Markup.button.callback('« Back to Menu', 'back:main')]);
 
-  logBotResponse(`Awaiting response for question: ${questionId}`, 'menu');
-});
+    const keyboard = Markup.inlineKeyboard(buttons);
+    await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+    logBotResponse(`Showed ${questions.length} pending questions`, 'menu');
+  });
 
-/**
- * Back to main menu handler
- */
-bot.action('back:main', async (ctx) => {
-  await ctx.answerCbQuery();
-  ctx.session.awaitingQuestionResponse = null;
-  await ctx.editMessageText('Main Menu:', MAIN_MENU);
-  logBotResponse('Returned to main menu', 'menu');
-});
+  /**
+   * Answer button handler (dynamic - registers for any question ID)
+   */
+  botInstance.action(/^answer:(.+)$/, async (ctx) => {
+    const questionId = ctx.match[1];
+    await ctx.answerCbQuery();
 
-/**
- * Command: /start
- */
-bot.command('start', async (ctx) => {
+    const question = await getPendingById(questionId);
+    if (!question) {
+      await ctx.reply('Question not found or already answered.');
+      return;
+    }
+
+    // Set session state to await response
+    ctx.session.awaitingQuestionResponse = questionId;
+
+    await ctx.reply(
+      `**Question:** ${question.question}\n\n` +
+      `Send your response (text or voice):`,
+      { parse_mode: 'Markdown' }
+    );
+
+    logBotResponse(`Awaiting response for question: ${questionId}`, 'menu');
+  });
+
+  /**
+   * Back to main menu handler
+   */
+  botInstance.action('back:main', async (ctx) => {
+    await ctx.answerCbQuery();
+    ctx.session.awaitingQuestionResponse = null;
+    await ctx.editMessageText('Main Menu:', MAIN_MENU);
+    logBotResponse('Returned to main menu', 'menu');
+  });
+
+  /**
+   * Command: /start
+   */
+  botInstance.command('start', async (ctx) => {
   const chatId = ctx.from.id;
   const username = ctx.from.username || 'unknown';
 
@@ -203,7 +218,7 @@ bot.command('start', async (ctx) => {
 /**
  * Text message handler
  */
-bot.on('text', async (ctx) => {
+botInstance.on('text', async (ctx) => {
   const text = ctx.message.text;
   const userId = ctx.from.id;
   const username = ctx.from.username || 'unknown';
@@ -259,7 +274,7 @@ bot.on('text', async (ctx) => {
 /**
  * Voice message handler
  */
-bot.on('voice', async (ctx) => {
+botInstance.on('voice', async (ctx) => {
   const userId = ctx.from.id;
   const username = ctx.from.username || 'unknown';
   const duration = ctx.message.voice.duration;
@@ -333,12 +348,17 @@ bot.on('voice', async (ctx) => {
   } catch (err: any) {
     await ctx.reply(`Transcription error: ${err.message}`);
   }
-});
+  });
+}
 
 /**
  * Send message to owner
  */
 export async function sendMessage(text: string, extra?: any): Promise<void> {
+  if (!bot) {
+    throw new Error('Bot not initialized. Call startBot() first.');
+  }
+
   if (!ownerChatId) {
     throw new Error('Owner chat ID not set. User must send /start to bot first.');
   }
@@ -353,6 +373,10 @@ export async function sendBlockingQuestion(
   question: string,
   options: { context?: string; timeout?: number } = {}
 ): Promise<string> {
+  if (!bot) {
+    throw new Error('Bot not initialized. Call startBot() first.');
+  }
+
   if (!ownerChatId) {
     throw new Error('Owner chat ID not set. User must send /start to bot first.');
   }
@@ -405,6 +429,11 @@ export async function startBot(): Promise<void> {
     return;
   }
 
+  // Initialize bot if not already done
+  if (!bot) {
+    bot = initializeBot();
+  }
+
   const sessionPath = startSession();
   console.error('[telegram-bot] Session log:', sessionPath);
 
@@ -417,7 +446,7 @@ export async function startBot(): Promise<void> {
  * Stop bot gracefully
  */
 export function stopBot(): void {
-  if (!botStarted) {
+  if (!botStarted || !bot) {
     console.error('[telegram-bot] Bot not running');
     return;
   }
@@ -433,7 +462,7 @@ export function stopBot(): void {
 /**
  * Get bot instance (for advanced use)
  */
-export function getBot(): Telegraf<BotContext> {
+export function getBot(): Telegraf<BotContext> | null {
   return bot;
 }
 
