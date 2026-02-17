@@ -28,14 +28,14 @@ function installMcp(options = {}) {
   fs.mkdirSync(configDir, { recursive: true });
 
   // GSD servers to install (with absolute paths)
+  // Note: Only PROJECT_ROOT is set here. The telegram server loads
+  // TELEGRAM_BOT_TOKEN and TELEGRAM_OWNER_ID from .env via dotenv.
   const gsdServers = {
     telegram: {
       command: 'node',
       args: [path.join(projectRoot, 'mcp-servers/telegram-mcp/dist/index.js')],
       env: {
-        PROJECT_ROOT: projectRoot,
-        TELEGRAM_BOT_TOKEN: '${TELEGRAM_BOT_TOKEN}',
-        TELEGRAM_OWNER_ID: '${TELEGRAM_OWNER_ID}'
+        PROJECT_ROOT: projectRoot
       }
     }
   };
