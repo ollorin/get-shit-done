@@ -17,6 +17,13 @@ import {
 } from './tools/index.js';
 import { startBot, stopBot } from './bot/telegram-bot.js';
 import { REQUIREMENTS_RESOURCE_DEF, readRequirementsResource } from './resources/index.js';
+import {
+  createSession,
+  cleanupStaleSessions,
+  updateHeartbeat,
+  closeSession
+} from './storage/session-manager.js';
+import { setCurrentSessionId } from './storage/session-state.js';
 
 // Create MCP server instance
 const server = new Server(
@@ -107,9 +114,34 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   return readRequirementsResource(request.params.uri);
 });
 
+// Track heartbeat interval for cleanup on shutdown
+let heartbeatInterval: NodeJS.Timeout | null = null;
+let currentSessionId: string | null = null;
+
 // Server lifecycle management
 async function main() {
   console.error("[MCP] Starting Telegram MCP server...");
+
+  // Opportunistic cleanup of stale sessions
+  try {
+    await cleanupStaleSessions();
+  } catch (err: any) {
+    console.error('[MCP] Stale session cleanup failed:', err.message);
+  }
+
+  // Create session for this MCP server instance
+  currentSessionId = await createSession();
+  setCurrentSessionId(currentSessionId);
+  console.error(`[MCP] Session: ${currentSessionId}`);
+
+  // Start heartbeat interval (every 5 minutes)
+  heartbeatInterval = setInterval(() => {
+    if (currentSessionId) {
+      updateHeartbeat(currentSessionId).catch(err => {
+        console.error('[MCP] Heartbeat error:', err);
+      });
+    }
+  }, 5 * 60 * 1000);
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
@@ -136,13 +168,51 @@ async function main() {
 // Graceful shutdown
 process.on("SIGINT", async () => {
   console.error("[MCP] Shutting down...");
+
+  // Clear heartbeat interval
+  if (heartbeatInterval) {
+    clearInterval(heartbeatInterval);
+    heartbeatInterval = null;
+  }
+
+  // Close session
+  if (currentSessionId) {
+    try {
+      await closeSession(currentSessionId);
+      console.error(`[MCP] Session closed: ${currentSessionId}`);
+    } catch (err: any) {
+      console.error('[MCP] Session close error:', err.message);
+    }
+  }
+
+  // Stop bot
   stopBot();
+
   process.exit(0);
 });
 
 process.on("SIGTERM", async () => {
   console.error("[MCP] Shutting down...");
+
+  // Clear heartbeat interval
+  if (heartbeatInterval) {
+    clearInterval(heartbeatInterval);
+    heartbeatInterval = null;
+  }
+
+  // Close session
+  if (currentSessionId) {
+    try {
+      await closeSession(currentSessionId);
+      console.error(`[MCP] Session closed: ${currentSessionId}`);
+    } catch (err: any) {
+      console.error('[MCP] Session close error:', err.message);
+    }
+  }
+
+  // Stop bot
   stopBot();
+
   process.exit(0);
 });
 
