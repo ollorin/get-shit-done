@@ -170,6 +170,56 @@ Auth errors during execution are NOT failures — they're expected interaction p
 
 </authentication_gates>
 
+<telegram_mcp_integration>
+
+## Telegram MCP Integration
+
+When Telegram MCP is available (check via `gsd-tools telegram-mcp status`), use MCP tools for blocking questions instead of CLI prompts.
+
+### Sending a Blocking Question
+
+```javascript
+// Check availability first
+const { available } = await checkTelegramMCP();
+
+if (available) {
+  // Use MCP tool (Claude Code handles this automatically)
+  const result = await mcp_telegram_ask_blocking_question({
+    question: "Should I proceed with Phase 3?",
+    context: "Planning decision for knowledge system"
+  });
+
+  // Poll for answer
+  const { answers } = await mcp_telegram_check_question_answers({
+    question_ids: [result.question_id],
+    wait_seconds: 60
+  });
+
+  if (answers.length > 0) {
+    const userAnswer = answers[0].answer;
+    // Continue with answer
+    await mcp_telegram_mark_question_answered({
+      question_id: result.question_id
+    });
+  }
+} else {
+  // Fallback to CLI prompt
+  const answer = await askUserInCLI("Should I proceed with Phase 3?");
+}
+```
+
+### Graceful Degradation
+
+Orchestrators should ALWAYS check availability and fall back gracefully. The system must work without Telegram MCP (current behavior).
+
+### Configuration
+
+Set environment variables:
+- `TELEGRAM_BOT_TOKEN`: Bot token from @BotFather
+- `TELEGRAM_OWNER_ID`: Your Telegram user ID (get via /start command)
+
+</telegram_mcp_integration>
+
 <deviation_rules>
 
 ## Deviation Rules
