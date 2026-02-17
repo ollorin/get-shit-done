@@ -2,7 +2,20 @@ import fs from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 // Base directory for message queue
-const QUEUE_DIR = path.join(process.cwd(), '.planning/telegram-queue');
+// Use PROJECT_ROOT env var or traverse up to find project root
+function getProjectRoot() {
+    if (process.env.PROJECT_ROOT) {
+        return process.env.PROJECT_ROOT;
+    }
+    // Traverse up from mcp-servers/telegram-mcp to project root
+    const currentDir = process.cwd();
+    if (currentDir.includes('mcp-servers/telegram-mcp')) {
+        return path.resolve(currentDir, '../..');
+    }
+    return currentDir;
+}
+const PROJECT_ROOT = getProjectRoot();
+const QUEUE_DIR = path.join(PROJECT_ROOT, '.planning/telegram-queue');
 const REQUIREMENTS_FILE = path.join(QUEUE_DIR, 'requirements.jsonl');
 /**
  * Ensure queue directory exists

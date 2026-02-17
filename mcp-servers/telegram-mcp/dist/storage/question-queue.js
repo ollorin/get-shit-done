@@ -3,9 +3,22 @@ import { existsSync } from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
 // Base directory for question storage
-const QUESTIONS_DIR = path.join(process.cwd(), '.planning/telegram-questions');
+// Use PROJECT_ROOT env var or traverse up to find project root
+function getProjectRoot() {
+    if (process.env.PROJECT_ROOT) {
+        return process.env.PROJECT_ROOT;
+    }
+    // Traverse up from mcp-servers/telegram-mcp to project root
+    const currentDir = process.cwd();
+    if (currentDir.includes('mcp-servers/telegram-mcp')) {
+        return path.resolve(currentDir, '../..');
+    }
+    return currentDir;
+}
+const PROJECT_ROOT = getProjectRoot();
+const QUESTIONS_DIR = path.join(PROJECT_ROOT, '.planning/telegram-questions');
 const PENDING_FILE = path.join(QUESTIONS_DIR, 'pending.jsonl');
-const SESSIONS_DIR = path.join(process.cwd(), '.planning/telegram-sessions');
+const SESSIONS_DIR = path.join(PROJECT_ROOT, '.planning/telegram-sessions');
 /**
  * Ensure storage directories exist
  */
