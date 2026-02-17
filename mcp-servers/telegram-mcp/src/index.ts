@@ -21,7 +21,8 @@ import {
   createSession,
   cleanupStaleSessions,
   updateHeartbeat,
-  closeSession
+  closeSession,
+  closeSessionWithAnalysis
 } from './storage/session-manager.js';
 import { setCurrentSessionId } from './storage/session-state.js';
 
@@ -175,10 +176,15 @@ process.on("SIGINT", async () => {
     heartbeatInterval = null;
   }
 
-  // Close session
+  // Run session analysis then close (10-second timeout prevents hanging)
   if (currentSessionId) {
     try {
-      await closeSession(currentSessionId);
+      const analysisPromise = closeSessionWithAnalysis(currentSessionId);
+      const timeoutPromise = new Promise<{ analyzed: boolean; reason: string }>(resolve =>
+        setTimeout(() => resolve({ analyzed: false, reason: 'timeout' }), 10000)
+      );
+      const result = await Promise.race([analysisPromise, timeoutPromise]);
+      console.error(`[MCP] Session analysis: ${result.analyzed ? 'completed' : 'skipped'} (${result.reason})`);
       console.error(`[MCP] Session closed: ${currentSessionId}`);
     } catch (err: any) {
       console.error('[MCP] Session close error:', err.message);
@@ -200,10 +206,15 @@ process.on("SIGTERM", async () => {
     heartbeatInterval = null;
   }
 
-  // Close session
+  // Run session analysis then close (10-second timeout prevents hanging)
   if (currentSessionId) {
     try {
-      await closeSession(currentSessionId);
+      const analysisPromise = closeSessionWithAnalysis(currentSessionId);
+      const timeoutPromise = new Promise<{ analyzed: boolean; reason: string }>(resolve =>
+        setTimeout(() => resolve({ analyzed: false, reason: 'timeout' }), 10000)
+      );
+      const result = await Promise.race([analysisPromise, timeoutPromise]);
+      console.error(`[MCP] Session analysis: ${result.analyzed ? 'completed' : 'skipped'} (${result.reason})`);
       console.error(`[MCP] Session closed: ${currentSessionId}`);
     } catch (err: any) {
       console.error('[MCP] Session close error:', err.message);

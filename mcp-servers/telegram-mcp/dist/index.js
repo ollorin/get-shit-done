@@ -5,6 +5,8 @@ import { ListToolsRequestSchema, CallToolRequestSchema, ListResourcesRequestSche
 import { askBlockingQuestionHandler, checkQuestionAnswersHandler, markQuestionAnsweredHandler, ASK_QUESTION_TOOL_DEF, CHECK_ANSWERS_TOOL_DEF, MARK_ANSWERED_TOOL_DEF } from './tools/index.js';
 import { startBot, stopBot } from './bot/telegram-bot.js';
 import { REQUIREMENTS_RESOURCE_DEF, readRequirementsResource } from './resources/index.js';
+import { createSession, cleanupStaleSessions, updateHeartbeat, closeSessionWithAnalysis } from './storage/session-manager.js';
+import { setCurrentSessionId } from './storage/session-state.js';
 // Create MCP server instance
 const server = new Server({
     name: "telegram-mcp",
@@ -80,9 +82,31 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => {
 server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     return readRequirementsResource(request.params.uri);
 });
+// Track heartbeat interval for cleanup on shutdown
+let heartbeatInterval = null;
+let currentSessionId = null;
 // Server lifecycle management
 async function main() {
     console.error("[MCP] Starting Telegram MCP server...");
+    // Opportunistic cleanup of stale sessions
+    try {
+        await cleanupStaleSessions();
+    }
+    catch (err) {
+        console.error('[MCP] Stale session cleanup failed:', err.message);
+    }
+    // Create session for this MCP server instance
+    currentSessionId = await createSession();
+    setCurrentSessionId(currentSessionId);
+    console.error(`[MCP] Session: ${currentSessionId}`);
+    // Start heartbeat interval (every 5 minutes)
+    heartbeatInterval = setInterval(() => {
+        if (currentSessionId) {
+            updateHeartbeat(currentSessionId).catch(err => {
+                console.error('[MCP] Heartbeat error:', err);
+            });
+        }
+    }, 5 * 60 * 1000);
     const transport = new StdioServerTransport();
     await server.connect(transport);
     console.error("[MCP] Server ready on stdio transport");
@@ -107,11 +131,49 @@ async function main() {
 // Graceful shutdown
 process.on("SIGINT", async () => {
     console.error("[MCP] Shutting down...");
+    // Clear heartbeat interval
+    if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+        heartbeatInterval = null;
+    }
+    // Run session analysis then close (10-second timeout prevents hanging)
+    if (currentSessionId) {
+        try {
+            const analysisPromise = closeSessionWithAnalysis(currentSessionId);
+            const timeoutPromise = new Promise(resolve => setTimeout(() => resolve({ analyzed: false, reason: 'timeout' }), 10000));
+            const result = await Promise.race([analysisPromise, timeoutPromise]);
+            console.error(`[MCP] Session analysis: ${result.analyzed ? 'completed' : 'skipped'} (${result.reason})`);
+            console.error(`[MCP] Session closed: ${currentSessionId}`);
+        }
+        catch (err) {
+            console.error('[MCP] Session close error:', err.message);
+        }
+    }
+    // Stop bot
     stopBot();
     process.exit(0);
 });
 process.on("SIGTERM", async () => {
     console.error("[MCP] Shutting down...");
+    // Clear heartbeat interval
+    if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+        heartbeatInterval = null;
+    }
+    // Run session analysis then close (10-second timeout prevents hanging)
+    if (currentSessionId) {
+        try {
+            const analysisPromise = closeSessionWithAnalysis(currentSessionId);
+            const timeoutPromise = new Promise(resolve => setTimeout(() => resolve({ analyzed: false, reason: 'timeout' }), 10000));
+            const result = await Promise.race([analysisPromise, timeoutPromise]);
+            console.error(`[MCP] Session analysis: ${result.analyzed ? 'completed' : 'skipped'} (${result.reason})`);
+            console.error(`[MCP] Session closed: ${currentSessionId}`);
+        }
+        catch (err) {
+            console.error('[MCP] Session close error:', err.message);
+        }
+    }
+    // Stop bot
     stopBot();
     process.exit(0);
 });

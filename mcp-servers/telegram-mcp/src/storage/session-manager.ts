@@ -3,6 +3,9 @@ import { existsSync } from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { withLock } from './file-lock.js';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
 
 /**
  * Session metadata - first line of every session JSONL file
@@ -290,4 +293,79 @@ export async function closeSession(sessionId: string): Promise<void> {
   };
 
   await appendToSession(sessionId, entry);
+}
+
+/**
+ * Close session with pre-close analysis.
+ *
+ * Per locked decision #6: Analysis runs BEFORE session close to prevent
+ * data loss on crash. Analysis failures must never prevent session close.
+ *
+ * Flow:
+ * 1. Load session entries
+ * 2. Run quality gates (shouldAnalyzeSession)
+ * 3. Check if already analyzed (isAlreadyAnalyzed)
+ * 4. Prepare extraction requests via analyzeSession()
+ * 5. Append session_analysis_pending entry for GSD workflow to pick up
+ * 6. Close session (append session_close entry)
+ *
+ * @param sessionId - Session identifier
+ * @returns { analyzed: boolean, reason: string }
+ */
+export async function closeSessionWithAnalysis(
+  sessionId: string
+): Promise<{ analyzed: boolean; reason: string }> {
+  let analyzed = false;
+  let reason = 'analysis not attempted';
+
+  try {
+    // 1. Load session entries
+    const sessionPath = getSessionPath(sessionId);
+    const entries = await loadSessionJSONL(sessionPath);
+
+    // 2. Run quality gates
+    const gates = require(path.resolve(PROJECT_ROOT, 'get-shit-done/bin/session-quality-gates.js'));
+    const gateResult = gates.shouldAnalyzeSession(entries);
+
+    if (!gateResult.analyze) {
+      reason = `quality gate: ${gateResult.reason}`;
+    } else {
+      // 3. Check if already analyzed with same content
+      const contentHash = gates.getSessionContentHash(entries);
+      const alreadyDone = gates.isAlreadyAnalyzed(sessionId, contentHash);
+
+      if (alreadyDone) {
+        reason = 'already analyzed (content unchanged)';
+      } else {
+        // 4. Prepare extraction requests
+        const analyzer = require(path.resolve(PROJECT_ROOT, 'get-shit-done/bin/session-analyzer.js'));
+        const requests = analyzer.analyzeSession(entries);
+
+        // 5. Append session_analysis_pending entry for GSD workflow
+        //    The actual Haiku Task() invocation happens in the calling GSD workflow.
+        //    This entry signals that analysis should be triggered.
+        const pendingEntry = {
+          type: 'session_analysis_pending',
+          extraction_requests: requests,
+          timestamp: new Date().toISOString(),
+          session_path: sessionPath,
+          content_hash: contentHash
+        };
+        await appendToSession(sessionId, pendingEntry);
+
+        analyzed = true;
+        reason = `prepared ${requests.length} extraction request(s)`;
+      }
+    }
+  } catch (err: any) {
+    // Analysis failure must never prevent session close
+    console.error(`[session-manager] closeSessionWithAnalysis error (session: ${sessionId}):`, err.message);
+    reason = `analysis error: ${err.message}`;
+    analyzed = false;
+  }
+
+  // 6. Close session (analysis happens before this per decision #6)
+  await closeSession(sessionId);
+
+  return { analyzed, reason };
 }

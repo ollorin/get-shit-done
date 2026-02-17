@@ -11,13 +11,17 @@ import path from 'path';
 import dotenv from 'dotenv';
 import { startSession, endSession, logMessage, logBotResponse, logBlockingQuestion, logBlockingResponse } from './session-logger.js';
 import { transcribeAudio, checkWhisperModel } from './transcription.js';
-import { loadPendingQuestions, getPendingById, markAnswered } from '../storage/question-queue.js';
+import { loadAllPendingQuestions, getPendingById, markAnswered } from '../storage/question-queue.js';
+import { discoverSessions } from '../storage/session-manager.js';
 // Load environment variables
 dotenv.config();
 // Bot instance (lazy-initialized in startBot)
 let bot = null;
 let botStarted = false;
 let ownerChatId = null;
+// Inactivity timer for session-end detection
+let inactivityTimer = null;
+const INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 // Set owner chat ID from env
 if (process.env.TELEGRAM_OWNER_ID) {
     ownerChatId = parseInt(process.env.TELEGRAM_OWNER_ID, 10);
@@ -31,6 +35,46 @@ export const MAIN_MENU = Markup.inlineKeyboard([
         Markup.button.callback('❓ Pending', 'menu:pending')
     ]
 ]);
+/**
+ * Reset the 10-minute inactivity timer.
+ * When the timer fires, triggers session analysis.
+ * Called after each substantive user message.
+ */
+function resetInactivityTimer() {
+    if (inactivityTimer) {
+        clearTimeout(inactivityTimer);
+        inactivityTimer = null;
+    }
+    inactivityTimer = setTimeout(async () => {
+        try {
+            const { closeSessionWithAnalysis } = await import('../storage/session-manager.js');
+            const { getCurrentSessionId } = await import('../storage/session-state.js');
+            let sessionId = null;
+            try {
+                sessionId = getCurrentSessionId();
+            }
+            catch {
+                // Session not initialized
+            }
+            if (sessionId) {
+                await closeSessionWithAnalysis(sessionId);
+                // Notify owner if possible
+                if (bot && ownerChatId) {
+                    try {
+                        await bot.telegram.sendMessage(ownerChatId, 'Session analysis triggered (10-minute inactivity timeout). Knowledge extracted.');
+                    }
+                    catch (sendErr) {
+                        console.error('[telegram-bot] Failed to send inactivity notification:', sendErr.message);
+                    }
+                }
+            }
+            console.error('[telegram-bot] Inactivity timeout - session analysis triggered');
+        }
+        catch (err) {
+            console.error('[telegram-bot] Inactivity timer error:', err.message);
+        }
+    }, INACTIVITY_TIMEOUT_MS);
+}
 /**
  * Get GSD status from STATE.md
  */
@@ -63,7 +107,8 @@ function initializeBot() {
     // Add session middleware
     botInstance.use(session({
         defaultSession: () => ({
-            awaitingQuestionResponse: null
+            awaitingQuestionResponse: null,
+            awaitingSessionId: null
         })
     }));
     // Register all handlers
@@ -91,7 +136,7 @@ function setupHandlers(botInstance) {
      */
     botInstance.action('menu:pending', async (ctx) => {
         await ctx.answerCbQuery();
-        const questions = await loadPendingQuestions();
+        const questions = await loadAllPendingQuestions();
         if (questions.length === 0) {
             const backButton = Markup.inlineKeyboard([
                 Markup.button.callback('« Back to Menu', 'back:main')
@@ -100,33 +145,48 @@ function setupHandlers(botInstance) {
             logBotResponse('No pending questions', 'menu');
             return;
         }
+        // Count unique sessions
+        const sessionIds = new Set(questions.map(q => q.session_id));
+        const sessionCount = sessionIds.size;
+        // Get session metadata for labels
+        const sessions = await discoverSessions();
+        const sessionLabels = new Map();
+        for (const session of sessions) {
+            if (session.metadata) {
+                const label = session.metadata.label || session.id.slice(0, 8);
+                sessionLabels.set(session.id, label);
+            }
+        }
         // Show questions with answer buttons
-        let text = `❓ **Pending Questions** (${questions.length})\n\nClick to respond:\n\n`;
+        let text = `❓ **Pending Questions** (${questions.length} from ${sessionCount} session${sessionCount > 1 ? 's' : ''})\n\nClick to respond:\n\n`;
         const buttons = questions.map((q, idx) => {
-            const preview = q.question.slice(0, 40);
-            return [Markup.button.callback(`${idx + 1}. ${preview}...`, `answer:${q.id}`)];
+            const label = sessionLabels.get(q.session_id) || q.session_id.slice(0, 8);
+            const preview = q.question.slice(0, 30);
+            return [Markup.button.callback(`${idx + 1}. [${label}] ${preview}...`, `answer:${q.session_id}:${q.id}`)];
         });
         buttons.push([Markup.button.callback('« Back to Menu', 'back:main')]);
         const keyboard = Markup.inlineKeyboard(buttons);
         await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
-        logBotResponse(`Showed ${questions.length} pending questions`, 'menu');
+        logBotResponse(`Showed ${questions.length} pending questions from ${sessionCount} sessions`, 'menu');
     });
     /**
-     * Answer button handler (dynamic - registers for any question ID)
+     * Answer button handler (dynamic - registers for session:question format)
      */
-    botInstance.action(/^answer:(.+)$/, async (ctx) => {
-        const questionId = ctx.match[1];
+    botInstance.action(/^answer:([^:]+):(.+)$/, async (ctx) => {
+        const sessionId = ctx.match[1];
+        const questionId = ctx.match[2];
         await ctx.answerCbQuery();
-        const question = await getPendingById(questionId);
+        const question = await getPendingById(questionId, sessionId);
         if (!question) {
             await ctx.reply('Question not found or already answered.');
             return;
         }
         // Set session state to await response
         ctx.session.awaitingQuestionResponse = questionId;
+        ctx.session.awaitingSessionId = sessionId;
         await ctx.reply(`**Question:** ${question.question}\n\n` +
             `Send your response (text or voice):`, { parse_mode: 'Markdown' });
-        logBotResponse(`Awaiting response for question: ${questionId}`, 'menu');
+        logBotResponse(`Awaiting response for question: ${questionId} (session: ${sessionId})`, 'menu');
     });
     /**
      * Back to main menu handler
@@ -134,6 +194,7 @@ function setupHandlers(botInstance) {
     botInstance.action('back:main', async (ctx) => {
         await ctx.answerCbQuery();
         ctx.session.awaitingQuestionResponse = null;
+        ctx.session.awaitingSessionId = null;
         await ctx.editMessageText('Main Menu:', MAIN_MENU);
         logBotResponse('Returned to main menu', 'menu');
     });
@@ -161,6 +222,38 @@ function setupHandlers(botInstance) {
         }
     });
     /**
+     * Command: /end
+     * Explicitly ends the session and triggers knowledge extraction
+     */
+    botInstance.command('end', async (ctx) => {
+        try {
+            const { closeSessionWithAnalysis } = await import('../storage/session-manager.js');
+            const { getCurrentSessionId } = await import('../storage/session-state.js');
+            let sessionId = null;
+            try {
+                sessionId = getCurrentSessionId();
+            }
+            catch {
+                // Session not initialized
+            }
+            if (sessionId) {
+                const result = await closeSessionWithAnalysis(sessionId);
+                await ctx.reply(`Session analysis ${result.analyzed ? 'completed' : 'skipped'} (${result.reason}). Knowledge extracted.`);
+            }
+            else {
+                await ctx.reply('No active session.');
+            }
+            // Clear inactivity timer since we explicitly ended
+            if (inactivityTimer) {
+                clearTimeout(inactivityTimer);
+                inactivityTimer = null;
+            }
+        }
+        catch (err) {
+            await ctx.reply(`Error ending session: ${err.message}`);
+        }
+    });
+    /**
      * Text message handler
      */
     botInstance.on('text', async (ctx) => {
@@ -171,13 +264,45 @@ function setupHandlers(botInstance) {
         if (text.startsWith('/')) {
             return;
         }
+        // Detect "done" keyword - triggers session analysis
+        const lowerText = text.trim().toLowerCase();
+        if (lowerText === 'done') {
+            try {
+                const { closeSessionWithAnalysis } = await import('../storage/session-manager.js');
+                const { getCurrentSessionId } = await import('../storage/session-state.js');
+                let sessionId = null;
+                try {
+                    sessionId = getCurrentSessionId();
+                }
+                catch {
+                    // Session not initialized
+                }
+                if (sessionId) {
+                    const result = await closeSessionWithAnalysis(sessionId);
+                    await ctx.reply(`Session analysis ${result.analyzed ? 'completed' : 'skipped'} (${result.reason}). Knowledge extracted.`);
+                }
+                else {
+                    await ctx.reply('No active session to analyze.');
+                }
+                if (inactivityTimer) {
+                    clearTimeout(inactivityTimer);
+                    inactivityTimer = null;
+                }
+            }
+            catch (err) {
+                await ctx.reply(`Error triggering session analysis: ${err.message}`);
+            }
+            return;
+        }
         logMessage(userId, username, 'text', text);
         // If awaiting response for specific question
-        if (ctx.session.awaitingQuestionResponse) {
+        if (ctx.session.awaitingQuestionResponse && ctx.session.awaitingSessionId) {
             const questionId = ctx.session.awaitingQuestionResponse;
+            const sessionId = ctx.session.awaitingSessionId;
             try {
-                await markAnswered(questionId, text);
+                await markAnswered(sessionId, questionId, text);
                 ctx.session.awaitingQuestionResponse = null;
+                ctx.session.awaitingSessionId = null;
                 await ctx.reply('✅ Response recorded! Resuming execution...');
                 logBlockingResponse(questionId, text);
                 return;
@@ -185,15 +310,17 @@ function setupHandlers(botInstance) {
             catch (err) {
                 await ctx.reply(`Error recording response: ${err.message}`);
                 ctx.session.awaitingQuestionResponse = null;
+                ctx.session.awaitingSessionId = null;
                 return;
             }
         }
         // Check for single pending question (auto-match)
-        const pending = await loadPendingQuestions();
+        const pending = await loadAllPendingQuestions();
         if (pending.length === 1) {
             const questionId = pending[0].id;
+            const sessionId = pending[0].session_id;
             try {
-                await markAnswered(questionId, text);
+                await markAnswered(sessionId, questionId, text);
                 await ctx.reply(`✅ Response recorded for: "${pending[0].question.slice(0, 50)}..."\n\n` +
                     `Resuming execution...`);
                 logBlockingResponse(questionId, text);
@@ -206,6 +333,8 @@ function setupHandlers(botInstance) {
         }
         // Multiple pending or none - show menu
         await ctx.reply('What would you like to do?', MAIN_MENU);
+        // Reset inactivity timer on every substantive message
+        resetInactivityTimer();
     });
     /**
      * Voice message handler
@@ -235,11 +364,13 @@ function setupHandlers(botInstance) {
             const transcription = await transcribeAudio(fileLink.href);
             await ctx.reply(`Transcribed: "${transcription}"`);
             // If awaiting response, use transcription as answer
-            if (ctx.session.awaitingQuestionResponse) {
+            if (ctx.session.awaitingQuestionResponse && ctx.session.awaitingSessionId) {
                 const questionId = ctx.session.awaitingQuestionResponse;
+                const sessionId = ctx.session.awaitingSessionId;
                 try {
-                    await markAnswered(questionId, transcription);
+                    await markAnswered(sessionId, questionId, transcription);
                     ctx.session.awaitingQuestionResponse = null;
+                    ctx.session.awaitingSessionId = null;
                     await ctx.reply('✅ Response recorded! Resuming execution...');
                     logBlockingResponse(questionId, transcription);
                     return;
@@ -247,15 +378,17 @@ function setupHandlers(botInstance) {
                 catch (err) {
                     await ctx.reply(`Error recording response: ${err.message}`);
                     ctx.session.awaitingQuestionResponse = null;
+                    ctx.session.awaitingSessionId = null;
                     return;
                 }
             }
             // Check for single pending question
-            const pending = await loadPendingQuestions();
+            const pending = await loadAllPendingQuestions();
             if (pending.length === 1) {
                 const questionId = pending[0].id;
+                const sessionId = pending[0].session_id;
                 try {
-                    await markAnswered(questionId, transcription);
+                    await markAnswered(sessionId, questionId, transcription);
                     await ctx.reply(`✅ Response recorded for: "${pending[0].question.slice(0, 50)}..."\n\n` +
                         `Resuming execution...`);
                     logBlockingResponse(questionId, transcription);
@@ -268,6 +401,8 @@ function setupHandlers(botInstance) {
             }
             // Show menu
             await ctx.reply('What would you like to do?', MAIN_MENU);
+            // Reset inactivity timer after successful voice processing
+            resetInactivityTimer();
         }
         catch (err) {
             await ctx.reply(`Transcription error: ${err.message}`);
@@ -288,6 +423,8 @@ export async function sendMessage(text, extra) {
 }
 /**
  * Send blocking question to owner
+ * NOTE: This function is deprecated in favor of MCP tools (ask-question).
+ * Kept for backward compatibility but should not be used in new code.
  */
 export async function sendBlockingQuestion(question, options = {}) {
     if (!bot) {
@@ -296,16 +433,20 @@ export async function sendBlockingQuestion(question, options = {}) {
     if (!ownerChatId) {
         throw new Error('Owner chat ID not set. User must send /start to bot first.');
     }
-    // Append question to queue (handled by MCP tools)
-    // This function is called by MCP server when blocking question is asked
-    const { appendQuestion } = await import('../storage/question-queue.js');
+    // This function is legacy - MCP tools now handle question creation
+    // If no sessionId provided, use appendQuestionLegacy for backward compatibility
+    const { appendQuestionLegacy: appendQuestion } = await import('../storage/question-queue.js');
     const questionObj = await appendQuestion({
         question,
         context: options.context
     });
+    const sessionId = questionObj.session_id;
     logBlockingQuestion(questionObj.id, question, 'mcp-server');
-    // Send to Telegram
-    let message = `❓ ${question}\n\nID: ${questionObj.id}`;
+    // Send to Telegram with session label
+    const sessions = await discoverSessions();
+    const session = sessions.find(s => s.id === sessionId);
+    const label = session?.metadata?.label || sessionId.slice(0, 8);
+    let message = `❓ [${label}] Question from Claude:\n\n${question}\n\nID: ${questionObj.id}`;
     if (options.context) {
         message += `\n\nContext: ${options.context}`;
     }
@@ -317,7 +458,7 @@ export async function sendBlockingQuestion(question, options = {}) {
     const startTime = Date.now();
     const pollInterval = 1000; // 1 second
     while (Date.now() - startTime < timeout) {
-        const q = await getPendingById(questionObj.id);
+        const q = await getPendingById(questionObj.id, sessionId);
         if (q && q.status === 'answered' && q.answer) {
             return q.answer;
         }
@@ -350,6 +491,11 @@ export function stopBot() {
     if (!botStarted || !bot) {
         console.error('[telegram-bot] Bot not running');
         return;
+    }
+    // Clear inactivity timer to prevent it firing after shutdown
+    if (inactivityTimer) {
+        clearTimeout(inactivityTimer);
+        inactivityTimer = null;
     }
     const sessionPath = endSession();
     console.error('[telegram-bot] Session ended:', sessionPath);

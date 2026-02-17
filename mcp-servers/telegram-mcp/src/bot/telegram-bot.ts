@@ -41,6 +41,10 @@ let bot: Telegraf<BotContext> | null = null;
 let botStarted = false;
 let ownerChatId: number | null = null;
 
+// Inactivity timer for session-end detection
+let inactivityTimer: NodeJS.Timeout | null = null;
+const INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+
 // Set owner chat ID from env
 if (process.env.TELEGRAM_OWNER_ID) {
   ownerChatId = parseInt(process.env.TELEGRAM_OWNER_ID, 10);
@@ -55,6 +59,52 @@ export const MAIN_MENU = Markup.inlineKeyboard([
     Markup.button.callback('❓ Pending', 'menu:pending')
   ]
 ]);
+
+/**
+ * Reset the 10-minute inactivity timer.
+ * When the timer fires, triggers session analysis.
+ * Called after each substantive user message.
+ */
+function resetInactivityTimer(): void {
+  if (inactivityTimer) {
+    clearTimeout(inactivityTimer);
+    inactivityTimer = null;
+  }
+
+  inactivityTimer = setTimeout(async () => {
+    try {
+      const { closeSessionWithAnalysis } = await import('../storage/session-manager.js');
+      const { getCurrentSessionId } = await import('../storage/session-state.js');
+
+      let sessionId: string | null = null;
+      try {
+        sessionId = getCurrentSessionId();
+      } catch {
+        // Session not initialized
+      }
+
+      if (sessionId) {
+        await closeSessionWithAnalysis(sessionId);
+
+        // Notify owner if possible
+        if (bot && ownerChatId) {
+          try {
+            await bot.telegram.sendMessage(
+              ownerChatId,
+              'Session analysis triggered (10-minute inactivity timeout). Knowledge extracted.'
+            );
+          } catch (sendErr: any) {
+            console.error('[telegram-bot] Failed to send inactivity notification:', sendErr.message);
+          }
+        }
+      }
+
+      console.error('[telegram-bot] Inactivity timeout - session analysis triggered');
+    } catch (err: any) {
+      console.error('[telegram-bot] Inactivity timer error:', err.message);
+    }
+  }, INACTIVITY_TIMEOUT_MS);
+}
 
 /**
  * Get GSD status from STATE.md
@@ -237,6 +287,41 @@ function setupHandlers(botInstance: Telegraf<BotContext>): void {
 });
 
 /**
+ * Command: /end
+ * Explicitly ends the session and triggers knowledge extraction
+ */
+botInstance.command('end', async (ctx) => {
+  try {
+    const { closeSessionWithAnalysis } = await import('../storage/session-manager.js');
+    const { getCurrentSessionId } = await import('../storage/session-state.js');
+
+    let sessionId: string | null = null;
+    try {
+      sessionId = getCurrentSessionId();
+    } catch {
+      // Session not initialized
+    }
+
+    if (sessionId) {
+      const result = await closeSessionWithAnalysis(sessionId);
+      await ctx.reply(
+        `Session analysis ${result.analyzed ? 'completed' : 'skipped'} (${result.reason}). Knowledge extracted.`
+      );
+    } else {
+      await ctx.reply('No active session.');
+    }
+
+    // Clear inactivity timer since we explicitly ended
+    if (inactivityTimer) {
+      clearTimeout(inactivityTimer);
+      inactivityTimer = null;
+    }
+  } catch (err: any) {
+    await ctx.reply(`Error ending session: ${err.message}`);
+  }
+});
+
+/**
  * Text message handler
  */
 botInstance.on('text', async (ctx) => {
@@ -246,6 +331,39 @@ botInstance.on('text', async (ctx) => {
 
   // Skip commands
   if (text.startsWith('/')) {
+    return;
+  }
+
+  // Detect "done" keyword - triggers session analysis
+  const lowerText = text.trim().toLowerCase();
+  if (lowerText === 'done') {
+    try {
+      const { closeSessionWithAnalysis } = await import('../storage/session-manager.js');
+      const { getCurrentSessionId } = await import('../storage/session-state.js');
+
+      let sessionId: string | null = null;
+      try {
+        sessionId = getCurrentSessionId();
+      } catch {
+        // Session not initialized
+      }
+
+      if (sessionId) {
+        const result = await closeSessionWithAnalysis(sessionId);
+        await ctx.reply(
+          `Session analysis ${result.analyzed ? 'completed' : 'skipped'} (${result.reason}). Knowledge extracted.`
+        );
+      } else {
+        await ctx.reply('No active session to analyze.');
+      }
+
+      if (inactivityTimer) {
+        clearTimeout(inactivityTimer);
+        inactivityTimer = null;
+      }
+    } catch (err: any) {
+      await ctx.reply(`Error triggering session analysis: ${err.message}`);
+    }
     return;
   }
 
@@ -294,6 +412,9 @@ botInstance.on('text', async (ctx) => {
 
   // Multiple pending or none - show menu
   await ctx.reply('What would you like to do?', MAIN_MENU);
+
+  // Reset inactivity timer on every substantive message
+  resetInactivityTimer();
 });
 
 /**
@@ -374,6 +495,9 @@ botInstance.on('voice', async (ctx) => {
 
     // Show menu
     await ctx.reply('What would you like to do?', MAIN_MENU);
+
+    // Reset inactivity timer after successful voice processing
+    resetInactivityTimer();
   } catch (err: any) {
     await ctx.reply(`Transcription error: ${err.message}`);
   }
@@ -486,6 +610,12 @@ export function stopBot(): void {
   if (!botStarted || !bot) {
     console.error('[telegram-bot] Bot not running');
     return;
+  }
+
+  // Clear inactivity timer to prevent it firing after shutdown
+  if (inactivityTimer) {
+    clearTimeout(inactivityTimer);
+    inactivityTimer = null;
   }
 
   const sessionPath = endSession();
