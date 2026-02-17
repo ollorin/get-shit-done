@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-15)
 
 ## Current Position
 
-Phase: 10.1 of 12 (Multi-Instance MCP Safety)
-Plan: 04 of 04
-Status: Complete
-Last activity: 2026-02-17 — Completed plan 10.1-04 (Multi-Session Telegram UI and Gitignore)
+Phase: 11 of 12 (Session-End Knowledge Extraction)
+Plan: 01 of 04
+Status: In Progress
+Last activity: 2026-02-17 — Completed plan 11-01 (Session Analysis Infrastructure)
 
-Progress: [███████████████████                 ] 57%
+Progress: [████████████████████                ] 59%
 
 ## Performance Metrics
 
@@ -76,6 +76,7 @@ Progress: [███████████████████            
 | 10.1  | 02   | 3 min    | 2     | 6     |
 | 10.1  | 03   | 4 min    | 2     | 6     |
 | 10.1  | 04   | 3 min    | 2     | 2     |
+| Phase 11 P01 | 4 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -253,6 +254,9 @@ Recent decisions affecting current work:
 - [Phase 10.1-04]: Session labels shown in question list for user identification
 - [Phase 10.1-04]: Auto-match preserved for single pending question (zero overhead)
 - [Phase 10.1-04]: loadAllPendingQuestions for bot, loadPendingQuestions(sessionId) for tools
+- [Phase 11-01]: All Haiku analysis via Task() subagent - analyzeSession() returns extraction request objects, caller invokes Task() - zero @anthropic-ai/sdk usage
+- [Phase 11-01]: context_snippet required for grounding: parseExtractionResult filters any item with empty/short context_snippet to prevent hallucinated knowledge
+- [Phase 11-01]: conversation_id optional for backward compat: existing PendingQuestion entries without conversation_id grouped under 'ungrouped' key
 
 ### Roadmap Evolution
 
@@ -268,6 +272,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-17T16:26:19Z (plan execution)
-Stopped at: Completed 10.1-04-PLAN.md (Multi-Session Telegram UI and Gitignore) - Phase 10.1 Plan 04 of 04 - PHASE COMPLETE
+Last session: 2026-02-17T21:00:00Z (plan execution)
+Stopped at: Completed 11-01-PLAN.md (Session Analysis Infrastructure) - Phase 11 Plan 01 of 04
 Resume file: None
