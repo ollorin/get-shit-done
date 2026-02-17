@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-15)
 ## Current Position
 
 Phase: 11 of 12 (Session-End Knowledge Extraction)
-Plan: 03 of 04
-Status: In Progress
-Last activity: 2026-02-17 — Completed plan 11-03 (Knowledge Integration and Session-End Analysis Hook)
+Plan: 04 of 04
+Status: Complete
+Last activity: 2026-02-17 — Completed plan 11-04 (CLI Commands and Analysis Workflow)
 
-Progress: [████████████████████                ] 59%
+Progress: [█████████████████████                ] 61%
 
 ## Performance Metrics
 
@@ -79,6 +79,7 @@ Progress: [████████████████████         
 | Phase 11 P01 | 4 | 2 tasks | 5 files |
 | Phase 11 P02 | 4 | 2 tasks | 2 files |
 | Phase 11 P03 | 3 | 2 tasks | 4 files |
+| Phase 11 P04 | 4 | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -266,6 +267,10 @@ Recent decisions affecting current work:
 - [Phase 11-03]: createRequire(import.meta.url) in ESM session-manager.ts for requiring CommonJS get-shit-done/bin/*.js quality-gates and analyzer modules
 - [Phase 11-03]: Embedding stage of dedup skipped at session-close time - hash-based stages 1 and 2 always run for reliable synchronous dedup
 - [Phase 11-03]: insertOrEvolve used for all insertions (not just near-duplicates) so canonical_hash metadata is always written for future Stage 2 dedup
+- [Phase 11-04]: historical-extract.js returns extraction requests (not results) - same Task() subagent pattern as session-analyzer.js, maintains zero direct API calls
+- [Phase 11-04]: ROADMAP.md completed phase detection uses three patterns: [x] checkbox, table Complete/Done status, and ## [x] section header
+- [Phase 11-04]: list-pending-sessions double-guards against re-analysis: session_analysis_complete JSONL entry check AND isAlreadyAnalyzed() call
+- [Phase 11-04]: store-analysis-result appends session_analysis_complete to JSONL after storing insights, enabling list-pending-sessions filter
 
 ### Roadmap Evolution
 
@@ -281,6 +286,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-17T21:10:42Z (plan execution)
-Stopped at: Completed 11-03-PLAN.md (Knowledge Integration and Session-End Analysis Hook) - Phase 11 Plan 03 of 04
+Last session: 2026-02-17T21:17:57Z (plan execution)
+Stopped at: Completed 11-04-PLAN.md (CLI Commands and Analysis Workflow) - Phase 11 Plan 04 of 04 (Phase 11 COMPLETE)
 Resume file: None
