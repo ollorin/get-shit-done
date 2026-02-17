@@ -6,6 +6,14 @@ import {
   ListResourcesRequestSchema,
   ReadResourceRequestSchema
 } from "@modelcontextprotocol/sdk/types.js";
+import {
+  askBlockingQuestionHandler,
+  checkQuestionAnswersHandler,
+  markQuestionAnsweredHandler,
+  ASK_QUESTION_TOOL_DEF,
+  CHECK_ANSWERS_TOOL_DEF,
+  MARK_ANSWERED_TOOL_DEF
+} from './tools/index.js';
 
 // Create MCP server instance
 const server = new Server(
@@ -25,105 +33,62 @@ const server = new Server(
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
-      {
-        name: "ask_blocking_question",
-        description: "Send a blocking question to user via Telegram and wait for response",
-        inputSchema: {
-          type: "object",
-          properties: {
-            question: {
-              type: "string",
-              description: "The question to send to the user"
-            },
-            choices: {
-              type: "array",
-              items: { type: "string" },
-              description: "Optional multiple choice options"
-            },
-            timeout_minutes: {
-              type: "number",
-              description: "Timeout in minutes (default: 60)"
-            }
-          },
-          required: ["question"]
-        }
-      },
-      {
-        name: "check_question_answers",
-        description: "Poll for answers to pending blocking questions",
-        inputSchema: {
-          type: "object",
-          properties: {
-            question_ids: {
-              type: "array",
-              items: { type: "string" },
-              description: "Specific question IDs to check, or all if not provided"
-            }
-          }
-        }
-      },
-      {
-        name: "mark_question_answered",
-        description: "Archive an answered question and remove from pending list",
-        inputSchema: {
-          type: "object",
-          properties: {
-            question_id: {
-              type: "string",
-              description: "The question ID to mark as answered"
-            }
-          },
-          required: ["question_id"]
-        }
-      }
+      ASK_QUESTION_TOOL_DEF,
+      CHECK_ANSWERS_TOOL_DEF,
+      MARK_ANSWERED_TOOL_DEF
     ]
   };
 });
 
-// Register tool call handler (placeholder implementations)
+// Register tool call handler
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
-  switch (name) {
-    case "ask_blocking_question":
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({
-              questionId: `q_${Date.now()}`,
-              status: "pending",
-              message: "Placeholder: Tool implementation pending in Plan 02"
-            })
-          }
-        ]
-      };
+  try {
+    let result: unknown;
 
-    case "check_question_answers":
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify([])
-          }
-        ]
-      };
+    switch (name) {
+      case "ask_blocking_question":
+        result = await askBlockingQuestionHandler(args);
+        break;
 
-    case "mark_question_answered":
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({
-              status: "success",
-              message: "Placeholder: Tool implementation pending in Plan 02"
-            })
-          }
-        ]
-      };
+      case "check_question_answers":
+        result = await checkQuestionAnswersHandler(args);
+        break;
 
-    default:
-      throw new Error(`Unknown tool: ${name}`);
+      case "mark_question_answered":
+        result = await markQuestionAnsweredHandler(args);
+        break;
+
+      default:
+        throw new Error(`Unknown tool: ${name}`);
+    }
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(result)
+        }
+      ]
+    };
+  } catch (error) {
+    // Return error in MCP format
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`[MCP] Tool ${name} error:`, errorMessage);
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            error: errorMessage,
+            tool: name
+          })
+        }
+      ],
+      isError: true
+    };
   }
 });
 
