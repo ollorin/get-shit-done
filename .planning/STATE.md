@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-15)
 ## Current Position
 
 Phase: 08.1 of 12 (Telegram MCP Server)
-Plan: 02 of 08
+Plan: 03 of 06
 Status: In Progress
-Last activity: 2026-02-17 — Completed plan 08.1-02 (JSONL-Based Persistence Layer)
+Last activity: 2026-02-17 — Completed plan 08.1-03 (MCP Tool Handlers)
 
 Progress: [████████████████████████████████████] 96%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 25
+- Total plans completed: 26
 - Average duration: 3.3 min
-- Total execution time: 1.5 hours
+- Total execution time: 1.6 hours
 
 **By Phase:**
 
@@ -60,6 +60,7 @@ Progress: [███████████████████████
 | 09    | 04   | 5 min    | 3     | 3     |
 | 09    | 05   | 3 min    | 4     | 2     |
 | 08.1  | 02   | 4 min    | 3     | 5     |
+| 08.1  | 03   | 3 min    | 3     | 5     |
 
 ## Accumulated Context
 
@@ -192,6 +193,10 @@ Recent decisions affecting current work:
 - [Phase 08.1-01]: Use @modelcontextprotocol/sdk official TypeScript SDK for MCP protocol implementation
 - [Phase 08.1-01]: Placeholder tool implementations return mock responses until Plan 02
 - [Phase 08.1-01]: All logging to stderr (stdout reserved for JSON-RPC)
+- [Phase 08.1-03]: Long polling with 5-second intervals, max 300 seconds (5 minutes) to prevent MCP client hangs
+- [Phase 08.1-03]: Centralized tool exports via tools/index.ts for cleaner server imports
+- [Phase 08.1-03]: Error handling in CallToolRequestSchema returns errors in MCP format rather than throwing
+- [Phase 08.1-03]: MCP tool handler pattern exports both handler function and tool definition for registration
 
 ### Roadmap Evolution
 
@@ -207,6 +212,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-17T10:27:05Z (plan execution)
-Stopped at: Completed 08.1-02-PLAN.md (JSONL-Based Persistence Layer) - Phase 08.1 Plan 02 complete
+Last session: 2026-02-17T10:31:09Z (plan execution)
+Stopped at: Completed 08.1-03-PLAN.md (MCP Tool Handlers) - Phase 08.1 Plan 03 complete
 Resume file: None
