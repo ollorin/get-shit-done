@@ -69,13 +69,14 @@ export async function loadPendingQuestions() {
 }
 /**
  * Append new question to queue
- * @param question Question details (without id, created_at, status - auto-generated)
+ * @param question Question details (without id, session_id, created_at, status - auto-generated)
  * @returns Full question object with generated fields
  */
 export async function appendQuestion(question) {
     await ensureDirectories();
     const fullQuestion = {
         id: randomUUID(),
+        session_id: process.pid,
         question: question.question,
         context: question.context,
         status: 'pending',

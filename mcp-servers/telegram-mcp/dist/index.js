@@ -1,6 +1,10 @@
+import 'dotenv/config';
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { ListToolsRequestSchema, CallToolRequestSchema, ListResourcesRequestSchema, ReadResourceRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { askBlockingQuestionHandler, checkQuestionAnswersHandler, markQuestionAnsweredHandler, ASK_QUESTION_TOOL_DEF, CHECK_ANSWERS_TOOL_DEF, MARK_ANSWERED_TOOL_DEF } from './tools/index.js';
+import { startBot, stopBot } from './bot/telegram-bot.js';
+import { REQUIREMENTS_RESOURCE_DEF, readRequirementsResource } from './resources/index.js';
 // Create MCP server instance
 const server = new Server({
     name: "telegram-mcp",
@@ -15,133 +19,66 @@ const server = new Server({
 server.setRequestHandler(ListToolsRequestSchema, async () => {
     return {
         tools: [
-            {
-                name: "ask_blocking_question",
-                description: "Send a blocking question to user via Telegram and wait for response",
-                inputSchema: {
-                    type: "object",
-                    properties: {
-                        question: {
-                            type: "string",
-                            description: "The question to send to the user"
-                        },
-                        choices: {
-                            type: "array",
-                            items: { type: "string" },
-                            description: "Optional multiple choice options"
-                        },
-                        timeout_minutes: {
-                            type: "number",
-                            description: "Timeout in minutes (default: 60)"
-                        }
-                    },
-                    required: ["question"]
-                }
-            },
-            {
-                name: "check_question_answers",
-                description: "Poll for answers to pending blocking questions",
-                inputSchema: {
-                    type: "object",
-                    properties: {
-                        question_ids: {
-                            type: "array",
-                            items: { type: "string" },
-                            description: "Specific question IDs to check, or all if not provided"
-                        }
-                    }
-                }
-            },
-            {
-                name: "mark_question_answered",
-                description: "Archive an answered question and remove from pending list",
-                inputSchema: {
-                    type: "object",
-                    properties: {
-                        question_id: {
-                            type: "string",
-                            description: "The question ID to mark as answered"
-                        }
-                    },
-                    required: ["question_id"]
-                }
-            }
+            ASK_QUESTION_TOOL_DEF,
+            CHECK_ANSWERS_TOOL_DEF,
+            MARK_ANSWERED_TOOL_DEF
         ]
     };
 });
-// Register tool call handler (placeholder implementations)
+// Register tool call handler
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
-    switch (name) {
-        case "ask_blocking_question":
-            return {
-                content: [
-                    {
-                        type: "text",
-                        text: JSON.stringify({
-                            questionId: `q_${Date.now()}`,
-                            status: "pending",
-                            message: "Placeholder: Tool implementation pending in Plan 02"
-                        })
-                    }
-                ]
-            };
-        case "check_question_answers":
-            return {
-                content: [
-                    {
-                        type: "text",
-                        text: JSON.stringify([])
-                    }
-                ]
-            };
-        case "mark_question_answered":
-            return {
-                content: [
-                    {
-                        type: "text",
-                        text: JSON.stringify({
-                            status: "success",
-                            message: "Placeholder: Tool implementation pending in Plan 02"
-                        })
-                    }
-                ]
-            };
-        default:
-            throw new Error(`Unknown tool: ${name}`);
+    try {
+        let result;
+        switch (name) {
+            case "ask_blocking_question":
+                result = await askBlockingQuestionHandler(args);
+                break;
+            case "check_question_answers":
+                result = await checkQuestionAnswersHandler(args);
+                break;
+            case "mark_question_answered":
+                result = await markQuestionAnsweredHandler(args);
+                break;
+            default:
+                throw new Error(`Unknown tool: ${name}`);
+        }
+        return {
+            content: [
+                {
+                    type: "text",
+                    text: JSON.stringify(result)
+                }
+            ]
+        };
+    }
+    catch (error) {
+        // Return error in MCP format
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error(`[MCP] Tool ${name} error:`, errorMessage);
+        return {
+            content: [
+                {
+                    type: "text",
+                    text: JSON.stringify({
+                        error: errorMessage,
+                        tool: name
+                    })
+                }
+            ],
+            isError: true
+        };
     }
 });
 // Register resource list handler
 server.setRequestHandler(ListResourcesRequestSchema, async () => {
     return {
-        resources: [
-            {
-                uri: "telegram://requirements/new",
-                name: "New Requirements",
-                description: "JSONL stream of new requirements submitted via Telegram",
-                mimeType: "application/x-ndjson"
-            }
-        ]
+        resources: [REQUIREMENTS_RESOURCE_DEF]
     };
 });
-// Register resource read handler (placeholder implementation)
+// Register resource read handler
 server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
-    const { uri } = request.params;
-    if (uri === "telegram://requirements/new") {
-        return {
-            contents: [
-                {
-                    uri,
-                    mimeType: "application/x-ndjson",
-                    text: JSON.stringify({
-                        requirements: [],
-                        message: "Placeholder: Resource implementation pending in Plan 02"
-                    })
-                }
-            ]
-        };
-    }
-    throw new Error(`Unknown resource: ${uri}`);
+    return readRequirementsResource(request.params.uri);
 });
 // Server lifecycle management
 async function main() {
@@ -151,14 +88,31 @@ async function main() {
     console.error("[MCP] Server ready on stdio transport");
     console.error("[MCP] Tools: ask_blocking_question, check_question_answers, mark_question_answered");
     console.error("[MCP] Resources: telegram://requirements/new");
+    // Start Telegram bot if token available
+    if (process.env.TELEGRAM_BOT_TOKEN) {
+        try {
+            await startBot();
+            console.error('[MCP] Telegram bot started');
+        }
+        catch (err) {
+            console.error('[MCP] Bot start failed:', err.message);
+            console.error('[MCP] Continuing without bot (tools will queue questions only)');
+        }
+    }
+    else {
+        console.error('[MCP] TELEGRAM_BOT_TOKEN not set, bot disabled');
+        console.error('[MCP] Questions will be queued but not sent to Telegram');
+    }
 }
 // Graceful shutdown
 process.on("SIGINT", async () => {
     console.error("[MCP] Shutting down...");
+    stopBot();
     process.exit(0);
 });
 process.on("SIGTERM", async () => {
     console.error("[MCP] Shutting down...");
+    stopBot();
     process.exit(0);
 });
 // Error handling

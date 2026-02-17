@@ -50,8 +50,9 @@ export const ASK_QUESTION_TOOL_DEF = {
  * Format question for Telegram message
  */
 function formatQuestionMessage(question: PendingQuestion): string {
-  let msg = `❓ **Question from Claude:**\n\n${question.question}\n\n`;
+  let msg = `❓ **[Session ${question.session_id}] Question from Claude:**\n\n${question.question}\n\n`;
   msg += `ID: \`${question.id}\`\n`;
+  msg += `Session: ${question.session_id}\n`;
   if (question.context) {
     msg += `Context: ${question.context}\n`;
   }

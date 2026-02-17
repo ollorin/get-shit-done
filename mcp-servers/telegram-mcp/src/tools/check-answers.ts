@@ -57,7 +57,7 @@ function sleep(ms: number): Promise<void> {
  *
  * @param questionIds Filter by specific IDs (empty = all)
  * @param timeoutMs Maximum time to poll in milliseconds
- * @returns Array of answered questions
+ * @returns Array of answered questions (only from this session)
  */
 async function pollForAnswers(
   questionIds: string[],
@@ -65,14 +65,16 @@ async function pollForAnswers(
 ): Promise<PendingQuestion[]> {
   const startTime = Date.now();
   const pollInterval = 5000; // 5 seconds
+  const mySessionId = process.pid;
 
   while (Date.now() - startTime < timeoutMs) {
     const questions = await loadPendingQuestions();
 
-    // Find answered questions
+    // Find answered questions FROM THIS SESSION ONLY
     const answered = questions.filter(q => {
+      const matchesSession = q.session_id === mySessionId;
       const matchesFilter = questionIds.length === 0 || questionIds.includes(q.id);
-      return q.status === 'answered' && matchesFilter;
+      return q.status === 'answered' && matchesSession && matchesFilter;
     });
 
     // If we found answers, return immediately
@@ -87,11 +89,12 @@ async function pollForAnswers(
     // If less than poll interval remaining, do one final check after waiting
     if (remaining > 0 && remaining < pollInterval) {
       await sleep(remaining);
-      // Final check
+      // Final check (only this session's questions)
       const finalQuestions = await loadPendingQuestions();
       return finalQuestions.filter(q => {
+        const matchesSession = q.session_id === mySessionId;
         const matchesFilter = questionIds.length === 0 || questionIds.includes(q.id);
-        return q.status === 'answered' && matchesFilter;
+        return q.status === 'answered' && matchesSession && matchesFilter;
       });
     }
 
@@ -138,16 +141,18 @@ export async function checkQuestionAnswersHandler(
 
   // Load pending questions
   let answeredQuestions: PendingQuestion[];
+  const mySessionId = process.pid;
 
   if (waitSeconds > 0) {
     // Long polling mode
     answeredQuestions = await pollForAnswers(questionIds, waitSeconds * 1000);
   } else {
-    // Immediate check (no polling)
+    // Immediate check (no polling, only this session's questions)
     const questions = await loadPendingQuestions();
     answeredQuestions = questions.filter(q => {
+      const matchesSession = q.session_id === mySessionId;
       const matchesFilter = questionIds.length === 0 || questionIds.includes(q.id);
-      return q.status === 'answered' && matchesFilter;
+      return q.status === 'answered' && matchesSession && matchesFilter;
     });
   }
 

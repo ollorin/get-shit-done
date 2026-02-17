@@ -9,6 +9,7 @@ import { randomUUID } from 'crypto';
  */
 export interface PendingQuestion {
   id: string;              // UUID
+  session_id: number;      // Process PID (for multi-instance safety)
   question: string;        // Question text
   context?: string;        // Execution context
   status: "pending" | "answered";
@@ -91,16 +92,17 @@ export async function loadPendingQuestions(): Promise<PendingQuestion[]> {
 
 /**
  * Append new question to queue
- * @param question Question details (without id, created_at, status - auto-generated)
+ * @param question Question details (without id, session_id, created_at, status - auto-generated)
  * @returns Full question object with generated fields
  */
 export async function appendQuestion(
-  question: Omit<PendingQuestion, 'id' | 'created_at' | 'status'>
+  question: Omit<PendingQuestion, 'id' | 'session_id' | 'created_at' | 'status'>
 ): Promise<PendingQuestion> {
   await ensureDirectories();
 
   const fullQuestion: PendingQuestion = {
     id: randomUUID(),
+    session_id: process.pid,
     question: question.question,
     context: question.context,
     status: 'pending',

@@ -4,6 +4,7 @@
  */
 export interface PendingQuestion {
     id: string;
+    session_id: number;
     question: string;
     context?: string;
     status: "pending" | "answered";
@@ -18,10 +19,10 @@ export interface PendingQuestion {
 export declare function loadPendingQuestions(): Promise<PendingQuestion[]>;
 /**
  * Append new question to queue
- * @param question Question details (without id, created_at, status - auto-generated)
+ * @param question Question details (without id, session_id, created_at, status - auto-generated)
  * @returns Full question object with generated fields
  */
-export declare function appendQuestion(question: Omit<PendingQuestion, 'id' | 'created_at' | 'status'>): Promise<PendingQuestion>;
+export declare function appendQuestion(question: Omit<PendingQuestion, 'id' | 'session_id' | 'created_at' | 'status'>): Promise<PendingQuestion>;
 /**
  * Mark question as answered
  * @param questionId Question UUID
