@@ -20,7 +20,8 @@ import {
   logBlockingResponse
 } from './session-logger.js';
 import { transcribeAudio, checkWhisperModel } from './transcription.js';
-import { loadPendingQuestionsLegacy as loadPendingQuestions, getPendingById, markAnsweredLegacy as markAnswered } from '../storage/question-queue.js';
+import { loadAllPendingQuestions, getPendingById, markAnswered } from '../storage/question-queue.js';
+import { discoverSessions, loadSessionJSONL } from '../storage/session-manager.js';
 
 // Load environment variables
 dotenv.config();
@@ -28,6 +29,7 @@ dotenv.config();
 // Session data interface
 interface SessionData {
   awaitingQuestionResponse: string | null; // Question ID user is responding to
+  awaitingSessionId: string | null; // Session ID for the question
 }
 
 interface BotContext extends Context {
@@ -92,7 +94,8 @@ function initializeBot(): Telegraf<BotContext> {
   // Add session middleware
   botInstance.use(session({
     defaultSession: (): SessionData => ({
-      awaitingQuestionResponse: null
+      awaitingQuestionResponse: null,
+      awaitingSessionId: null
     })
   }));
 
@@ -127,7 +130,7 @@ function setupHandlers(botInstance: Telegraf<BotContext>): void {
   botInstance.action('menu:pending', async (ctx) => {
     await ctx.answerCbQuery();
 
-    const questions = await loadPendingQuestions();
+    const questions = await loadAllPendingQuestions();
 
     if (questions.length === 0) {
       const backButton = Markup.inlineKeyboard([
@@ -138,29 +141,45 @@ function setupHandlers(botInstance: Telegraf<BotContext>): void {
       return;
     }
 
+    // Count unique sessions
+    const sessionIds = new Set(questions.map(q => q.session_id));
+    const sessionCount = sessionIds.size;
+
+    // Get session metadata for labels
+    const sessions = await discoverSessions();
+    const sessionLabels = new Map<string, string>();
+    for (const session of sessions) {
+      if (session.metadata) {
+        const label = session.metadata.label || session.id.slice(0, 8);
+        sessionLabels.set(session.id, label);
+      }
+    }
+
     // Show questions with answer buttons
-    let text = `❓ **Pending Questions** (${questions.length})\n\nClick to respond:\n\n`;
+    let text = `❓ **Pending Questions** (${questions.length} from ${sessionCount} session${sessionCount > 1 ? 's' : ''})\n\nClick to respond:\n\n`;
 
     const buttons = questions.map((q, idx) => {
-      const preview = q.question.slice(0, 40);
-      return [Markup.button.callback(`${idx + 1}. ${preview}...`, `answer:${q.id}`)];
+      const label = sessionLabels.get(q.session_id) || q.session_id.slice(0, 8);
+      const preview = q.question.slice(0, 30);
+      return [Markup.button.callback(`${idx + 1}. [${label}] ${preview}...`, `answer:${q.session_id}:${q.id}`)];
     });
 
     buttons.push([Markup.button.callback('« Back to Menu', 'back:main')]);
 
     const keyboard = Markup.inlineKeyboard(buttons);
     await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
-    logBotResponse(`Showed ${questions.length} pending questions`, 'menu');
+    logBotResponse(`Showed ${questions.length} pending questions from ${sessionCount} sessions`, 'menu');
   });
 
   /**
-   * Answer button handler (dynamic - registers for any question ID)
+   * Answer button handler (dynamic - registers for session:question format)
    */
-  botInstance.action(/^answer:(.+)$/, async (ctx) => {
-    const questionId = ctx.match[1];
+  botInstance.action(/^answer:([^:]+):(.+)$/, async (ctx) => {
+    const sessionId = ctx.match[1];
+    const questionId = ctx.match[2];
     await ctx.answerCbQuery();
 
-    const question = await getPendingById(questionId);
+    const question = await getPendingById(questionId, sessionId);
     if (!question) {
       await ctx.reply('Question not found or already answered.');
       return;
@@ -168,6 +187,7 @@ function setupHandlers(botInstance: Telegraf<BotContext>): void {
 
     // Set session state to await response
     ctx.session.awaitingQuestionResponse = questionId;
+    ctx.session.awaitingSessionId = sessionId;
 
     await ctx.reply(
       `**Question:** ${question.question}\n\n` +
@@ -175,7 +195,7 @@ function setupHandlers(botInstance: Telegraf<BotContext>): void {
       { parse_mode: 'Markdown' }
     );
 
-    logBotResponse(`Awaiting response for question: ${questionId}`, 'menu');
+    logBotResponse(`Awaiting response for question: ${questionId} (session: ${sessionId})`, 'menu');
   });
 
   /**
@@ -184,6 +204,7 @@ function setupHandlers(botInstance: Telegraf<BotContext>): void {
   botInstance.action('back:main', async (ctx) => {
     await ctx.answerCbQuery();
     ctx.session.awaitingQuestionResponse = null;
+    ctx.session.awaitingSessionId = null;
     await ctx.editMessageText('Main Menu:', MAIN_MENU);
     logBotResponse('Returned to main menu', 'menu');
   });
@@ -231,12 +252,14 @@ botInstance.on('text', async (ctx) => {
   logMessage(userId, username, 'text', text);
 
   // If awaiting response for specific question
-  if (ctx.session.awaitingQuestionResponse) {
+  if (ctx.session.awaitingQuestionResponse && ctx.session.awaitingSessionId) {
     const questionId = ctx.session.awaitingQuestionResponse;
+    const sessionId = ctx.session.awaitingSessionId;
 
     try {
-      await markAnswered(questionId, text);
+      await markAnswered(sessionId, questionId, text);
       ctx.session.awaitingQuestionResponse = null;
+      ctx.session.awaitingSessionId = null;
 
       await ctx.reply('✅ Response recorded! Resuming execution...');
       logBlockingResponse(questionId, text);
@@ -244,17 +267,19 @@ botInstance.on('text', async (ctx) => {
     } catch (err: any) {
       await ctx.reply(`Error recording response: ${err.message}`);
       ctx.session.awaitingQuestionResponse = null;
+      ctx.session.awaitingSessionId = null;
       return;
     }
   }
 
   // Check for single pending question (auto-match)
-  const pending = await loadPendingQuestions();
+  const pending = await loadAllPendingQuestions();
   if (pending.length === 1) {
     const questionId = pending[0].id;
+    const sessionId = pending[0].session_id;
 
     try {
-      await markAnswered(questionId, text);
+      await markAnswered(sessionId, questionId, text);
       await ctx.reply(
         `✅ Response recorded for: "${pending[0].question.slice(0, 50)}..."\n\n` +
         `Resuming execution...`
@@ -307,12 +332,14 @@ botInstance.on('voice', async (ctx) => {
     await ctx.reply(`Transcribed: "${transcription}"`);
 
     // If awaiting response, use transcription as answer
-    if (ctx.session.awaitingQuestionResponse) {
+    if (ctx.session.awaitingQuestionResponse && ctx.session.awaitingSessionId) {
       const questionId = ctx.session.awaitingQuestionResponse;
+      const sessionId = ctx.session.awaitingSessionId;
 
       try {
-        await markAnswered(questionId, transcription);
+        await markAnswered(sessionId, questionId, transcription);
         ctx.session.awaitingQuestionResponse = null;
+        ctx.session.awaitingSessionId = null;
 
         await ctx.reply('✅ Response recorded! Resuming execution...');
         logBlockingResponse(questionId, transcription);
@@ -320,17 +347,19 @@ botInstance.on('voice', async (ctx) => {
       } catch (err: any) {
         await ctx.reply(`Error recording response: ${err.message}`);
         ctx.session.awaitingQuestionResponse = null;
+        ctx.session.awaitingSessionId = null;
         return;
       }
     }
 
     // Check for single pending question
-    const pending = await loadPendingQuestions();
+    const pending = await loadAllPendingQuestions();
     if (pending.length === 1) {
       const questionId = pending[0].id;
+      const sessionId = pending[0].session_id;
 
       try {
-        await markAnswered(questionId, transcription);
+        await markAnswered(sessionId, questionId, transcription);
         await ctx.reply(
           `✅ Response recorded for: "${pending[0].question.slice(0, 50)}..."\n\n` +
           `Resuming execution...`
@@ -368,10 +397,12 @@ export async function sendMessage(text: string, extra?: any): Promise<void> {
 
 /**
  * Send blocking question to owner
+ * NOTE: This function is deprecated in favor of MCP tools (ask-question).
+ * Kept for backward compatibility but should not be used in new code.
  */
 export async function sendBlockingQuestion(
   question: string,
-  options: { context?: string; timeout?: number } = {}
+  options: { context?: string; timeout?: number; sessionId?: string } = {}
 ): Promise<string> {
   if (!bot) {
     throw new Error('Bot not initialized. Call startBot() first.');
@@ -381,8 +412,8 @@ export async function sendBlockingQuestion(
     throw new Error('Owner chat ID not set. User must send /start to bot first.');
   }
 
-  // Append question to queue (handled by MCP tools)
-  // This function is called by MCP server when blocking question is asked
+  // This function is legacy - MCP tools now handle question creation
+  // If no sessionId provided, use appendQuestionLegacy for backward compatibility
   const { appendQuestionLegacy: appendQuestion } = await import('../storage/question-queue.js');
 
   const questionObj = await appendQuestion({
@@ -390,10 +421,16 @@ export async function sendBlockingQuestion(
     context: options.context
   });
 
+  const sessionId = questionObj.session_id;
+
   logBlockingQuestion(questionObj.id, question, 'mcp-server');
 
-  // Send to Telegram
-  let message = `❓ ${question}\n\nID: ${questionObj.id}`;
+  // Send to Telegram with session label
+  const sessions = await discoverSessions();
+  const session = sessions.find(s => s.id === sessionId);
+  const label = session?.metadata?.label || sessionId.slice(0, 8);
+
+  let message = `❓ [${label}] Question from Claude:\n\n${question}\n\nID: ${questionObj.id}`;
   if (options.context) {
     message += `\n\nContext: ${options.context}`;
   }
@@ -408,7 +445,7 @@ export async function sendBlockingQuestion(
   const pollInterval = 1000; // 1 second
 
   while (Date.now() - startTime < timeout) {
-    const q = await getPendingById(questionObj.id);
+    const q = await getPendingById(questionObj.id, sessionId);
 
     if (q && q.status === 'answered' && q.answer) {
       return q.answer;
