@@ -305,10 +305,32 @@ Plans:
 - [ ] 10-03-PLAN.md - Hook installation and MCP configuration
 - [ ] 10-04-PLAN.md - Environment template, uninstall script, and verification
 
+### Phase 10.1: Multi-Instance MCP Safety - Robust concurrent Claude Code support with per-session storage, file locking, and proper answer routing (INSERTED)
+
+**Goal:** Multiple Claude Code instances can run simultaneously without conflicts, answer confusion, or race conditions. Each instance maintains isolated question queues and routing, with proper file locking and session tracking.
+**Depends on:** Phase 10
+**Requirements:** Per-session JSONL files, file locking (flock/lockfile), session-aware answer routing, backward compatibility with Phase 08.1 quick fix
+**Success Criteria** (what must be TRUE):
+  1. Each Claude Code instance writes to its own session-scoped JSONL files
+  2. File locking prevents simultaneous writes from corrupting data
+  3. Answers route to correct session (no cross-instance confusion)
+  4. Session cleanup removes old/abandoned sessions automatically
+  5. Telegram messages clearly identify which session asked
+  6. Works seamlessly when only one instance runs (no overhead)
+  7. Backward compatible with existing questions using session_id
+**Plans:** 0 plans (run /gsd:discuss-phase 10.1 then /gsd:plan-phase 10.1)
+
+Plans:
+- [ ] TBD - Options to evaluate during discuss-phase:
+  - Per-session JSONL vs global with session index
+  - File locking strategy (flock vs lockfile vs database)
+  - Session lifecycle (cleanup triggers, TTL)
+  - Answer routing architecture (session-local vs coordinator)
+
 ### Phase 11: Session-end knowledge extraction - Implement Haiku-based analysis of completed sessions to extract reasoning patterns and decisions beyond keyword matching
 
 **Goal:** [To be planned]
-**Depends on:** Phase 10
+**Depends on:** Phase 10.1
 **Plans:** 0 plans
 
 Plans:
