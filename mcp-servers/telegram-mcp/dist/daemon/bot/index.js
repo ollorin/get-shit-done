@@ -108,7 +108,7 @@ export async function startBot(sessionService, getQuestions) {
         await startWebhookMode(botInstance, webhookUrl);
     }
     else if (ngrokAuthtoken) {
-        const port = parseInt(process.env.PORT ?? '3000', 10);
+        const port = parseInt(process.env.PORT ?? '3333', 10);
         const tunnelUrl = await startNgrokTunnel(port);
         await startWebhookMode(botInstance, tunnelUrl);
     }
@@ -118,7 +118,7 @@ export async function startBot(sessionService, getQuestions) {
 }
 async function startWebhookMode(botInstance, webhookUrl) {
     const token = process.env.TELEGRAM_BOT_TOKEN;
-    const port = parseInt(process.env.PORT ?? '3000', 10);
+    const port = parseInt(process.env.PORT ?? '3333', 10);
     const hookPath = `/bot${token}`;
     // Create a plain Node.js HTTP server — express not needed for a single endpoint
     webhookServer = http.createServer(async (req, res) => {
