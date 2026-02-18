@@ -20,7 +20,8 @@ import { IPCServer, type MethodHandler } from './ipc-server.js';
 import { SessionService } from './session-service.js';
 import { getSocketPath } from '../shared/socket-path.js';
 import { createLogger } from '../shared/logger.js';
-import type { IPCMethod } from '../shared/types.js';
+import type { IPCMethod, Question } from '../shared/types.js';
+import { initializeBot, startBot, stopBot } from './bot/index.js';
 
 const log = createLogger('daemon/index');
 
@@ -28,16 +29,21 @@ async function main(): Promise<void> {
   const socketPath = getSocketPath();
   const sessionService = new SessionService();
 
-  // ─── Session service event logging ────────────────────────────────────────
-  // Bot notification will be wired here in Plan 03.
+  // ─── Question registry stub (Plan 04 will replace) ────────────────────────
+  // Plan 04 will provide a QuestionService; for now return empty array.
+  const pendingQuestions: Question[] = [];
+  const getQuestions = (): Question[] => pendingQuestions;
 
-  sessionService.on('session:connected', (session) => {
-    log.info({ sessionId: session.id, label: session.label }, 'Session connected (bot notification pending Plan 03)');
-  });
+  // ─── Bot startup ───────────────────────────────────────────────────────────
+  // initializeBot() creates the Telegraf instance lazily.
+  // startBot() wires handlers, session notifications, and starts polling/webhook.
 
-  sessionService.on('session:disconnected', (session) => {
-    log.info({ sessionId: session.id, label: session.label }, 'Session disconnected (bot notification pending Plan 03)');
-  });
+  if (process.env.TELEGRAM_BOT_TOKEN) {
+    initializeBot();
+    await startBot(sessionService, getQuestions);
+  } else {
+    log.warn('TELEGRAM_BOT_TOKEN not set — bot will not start');
+  }
 
   // ─── IPC method handler map ────────────────────────────────────────────────
 
@@ -111,6 +117,7 @@ async function main(): Promise<void> {
 
   const shutdown = (signal: string): void => {
     log.info({ signal }, 'Shutdown signal received — closing daemon');
+    stopBot();
     ipcServer.close();
     process.exit(0);
   };
