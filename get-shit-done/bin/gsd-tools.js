@@ -255,6 +255,7 @@ function loadConfig(cwd) {
       verifier: get('verifier', { section: 'workflow', field: 'verifier' }) ?? defaults.verifier,
       parallelization,
       brave_search: get('brave_search') ?? defaults.brave_search,
+      coordinator_model: get('coordinator_model') ?? null,
     };
   } catch {
     return defaults;
@@ -6994,7 +6995,7 @@ function cmdInitExecuteRoadmap(cwd, raw) {
     budget: 'haiku',
     auto: 'haiku'
   };
-  const coordinatorModel = profileToCoordinatorModel[config.model_profile] ?? 'haiku';
+  const coordinatorModel = config.coordinator_model ?? profileToCoordinatorModel[config.model_profile] ?? 'haiku';
 
   // Use existing cmdRoadmapAnalyze logic to get phase data
   const content = fs.readFileSync(roadmapPath, 'utf-8');
