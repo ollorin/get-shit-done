@@ -6987,6 +6987,15 @@ function cmdInitExecuteRoadmap(cwd, raw) {
     return;
   }
 
+  const config = loadConfig(cwd);
+  const profileToCoordinatorModel = {
+    quality: 'opus',
+    balanced: 'sonnet',
+    budget: 'haiku',
+    auto: 'sonnet'
+  };
+  const coordinatorModel = profileToCoordinatorModel[config.model_profile] ?? 'sonnet';
+
   // Use existing cmdRoadmapAnalyze logic to get phase data
   const content = fs.readFileSync(roadmapPath, 'utf-8');
   const phasesDir = path.join(cwd, '.planning', 'phases');
@@ -7114,7 +7123,7 @@ function cmdInitExecuteRoadmap(cwd, raw) {
     blocked_phases: blocked,
     has_execution_log: hasExecutionLog,
     resume_state: resumeState,
-    coordinator_model: 'opus'
+    coordinator_model: coordinatorModel
   }, raw);
 }
 
