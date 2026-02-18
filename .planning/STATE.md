@@ -9,10 +9,10 @@ See: .planning/PROJECT.md (updated 2026-02-15)
 
 ## Current Position
 
-Phase: 12 of 12 (Historical Conversation Mining)
-Plan: 03 of 03
+Phase: 13 of 13 (Cross-Phase Integration Fixes)
+Plan: 01 of 01
 Status: Complete
-Last activity: 2026-02-18 — Completed plan 01-09 (Auto Mode Agent Integration - Gap 3)
+Last activity: 2026-02-18 — Completed plan 13-01 (Cross-Phase Integration Fixes)
 
 Progress: [█████████████████████████████████████] 100%
 
@@ -87,6 +87,7 @@ Progress: [███████████████████████
 | Phase 01 P07 | 5min | 1 task | 2 files |
 | Phase 01 P08 | 2 | 1 tasks | 2 files |
 | Phase 01 P09 | 3min | 2 tasks | 4 files |
+| Phase 13 P01 | 2min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -301,10 +302,16 @@ Recent decisions affecting current work:
 - [Phase 01-09]: gsd-phase-coordinator reads model_profile once before executor loop — single config read per phase
 - [Phase 01-09]: EXECUTOR_MODEL variable replaces hardcoded sonnet in Task() spawn; fallback to sonnet when profile != auto
 - [Phase 01-09]: routing_context block appended to executor prompt only when auto profile active — observable auto mode metadata
+- [Phase 13-01]: Lazy-load opossum inside createTaskBreaker() so gsd-circuit-breaker.js works without the dep for checkExecution/getAdaptiveThresholds
+- [Phase 13-01]: checkExecution() gate uses fail-open pattern (errors return proceed:true to never block execution)
+- [Phase 13-01]: Token monitor uses process.env.HOME-based absolute path for hooks/config.js (not __dirname-relative, supports varied install locations)
+- [Phase 13-01]: TELEGRAM_STANDALONE_FORCE=1 env var overrides dual-bot race condition guard
+- [Phase 13-01]: telegram?.bot optional chaining fixes pre-existing null crash when TELEGRAM_BOT_TOKEN not set
 
 ### Roadmap Evolution
 
 - Phase 08.1 inserted after Phase 08: Telegram MCP Server - Replace standalone bot with MCP integration using subscription tokens (URGENT)
+- Phase 14 added: Telegram MCP and bot audit and rework — pending questions not found by bot, buttons not working, full end-to-end review needed
 
 ### Pending Todos
 
@@ -316,6 +323,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-18T08:34:23Z (plan execution)
-Stopped at: Completed 01-09-PLAN.md (Auto Mode Agent Integration) - Phase 01 Plan 09 - Gap 3 closed
+Last session: 2026-02-18T09:50:10Z (plan execution)
+Stopped at: Completed 13-01-PLAN.md (Cross-Phase Integration Fixes) - Phase 13 Plan 01 - all 3 integration gaps closed
 Resume file: None
