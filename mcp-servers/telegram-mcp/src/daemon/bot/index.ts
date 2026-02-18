@@ -17,6 +17,7 @@ import { createLogger } from '../../shared/logger.js';
 import type { SessionService } from '../session-service.js';
 import type { Question } from '../../shared/types.js';
 import { setupHandlers } from './handlers.js';
+import ngrok from '@ngrok/ngrok';
 
 const log = createLogger('bot');
 
@@ -38,6 +39,9 @@ let bot: Telegraf<BotContext> | null = null;
 
 /** HTTP server used in webhook mode (null in polling mode) */
 let webhookServer: http.Server | null = null;
+
+/** ngrok tunnel listener — non-null only when auto-ngrok is active */
+let ngrokListener: Awaited<ReturnType<typeof ngrok.forward>> | null = null;
 
 // ─── Bot lifecycle ─────────────────────────────────────────────────────────────
 
@@ -139,11 +143,17 @@ export async function startBot(
   }
 
   // ─── Webhook vs polling ───────────────────────────────────────────────────
+  // Priority: manual TELEGRAM_WEBHOOK_URL > auto ngrok (NGROK_AUTHTOKEN) > long polling
 
   const webhookUrl = process.env.TELEGRAM_WEBHOOK_URL;
+  const ngrokAuthtoken = process.env.NGROK_AUTHTOKEN;
 
   if (webhookUrl) {
     await startWebhookMode(botInstance, webhookUrl);
+  } else if (ngrokAuthtoken) {
+    const port = parseInt(process.env.PORT ?? '3000', 10);
+    const tunnelUrl = await startNgrokTunnel(port);
+    await startWebhookMode(botInstance, tunnelUrl);
   } else {
     await startPollingMode(botInstance);
   }
@@ -197,9 +207,32 @@ async function startPollingMode(botInstance: Telegraf<BotContext>): Promise<void
 }
 
 /**
+ * Start an ngrok tunnel and return the public HTTPS URL.
+ *
+ * Requires NGROK_AUTHTOKEN to be set. The tunnel forwards to localhost:{port}.
+ * The returned URL is used as the Telegram webhook base URL.
+ *
+ * @param port Local port to tunnel (same as webhook HTTP server port)
+ * @returns Public HTTPS URL (e.g. "https://abc123.ngrok-free.app")
+ */
+async function startNgrokTunnel(port: number): Promise<string> {
+  const authtoken = process.env.NGROK_AUTHTOKEN as string;
+  ngrokListener = await ngrok.forward({
+    addr: port,
+    authtoken,
+  });
+  const url = ngrokListener.url();
+  if (!url) {
+    throw new Error('ngrok tunnel started but returned no URL');
+  }
+  log.info({ url, port }, 'ngrok tunnel established');
+  return url;
+}
+
+/**
  * Stop the bot gracefully (polling or webhook mode).
  */
-export function stopBot(): void {
+export async function stopBot(): Promise<void> {
   if (!bot) {
     log.warn('stopBot() called but bot not initialized');
     return;
@@ -210,6 +243,12 @@ export function stopBot(): void {
   if (webhookServer) {
     webhookServer.close();
     webhookServer = null;
+  }
+
+  if (ngrokListener) {
+    await ngrokListener.close();
+    ngrokListener = null;
+    log.info('ngrok tunnel closed');
   }
 
   log.info('Bot stopped');
