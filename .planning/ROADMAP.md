@@ -266,6 +266,7 @@ Phase 8 (Notifications & Observability) --> Phase 08.1 (Telegram MCP Server)
 | 10.1. Multi-Instance MCP Safety | 4 | Complete | 2026-02-17 |
 | 11. Session-End Knowledge Extraction | 4 | Complete | 2026-02-17 |
 | 12. Historical Conversation Mining | 3 | Planning complete | - |
+| 13. Cross-Phase Integration Fixes | 1 | Planning complete | - |
 
 ### Phase 9: Hook-based documentation compression - Optimize context injection by extracting AI-friendly headers from docs and injecting only summaries with absolute links instead of full content
 
@@ -356,6 +357,15 @@ Plans:
 - [ ] 12-02-PLAN.md - gsd-tools.js CLI commands (mine-conversations, store-conversation-result)
 - [ ] 12-03-PLAN.md - mine-conversations.md workflow and end-to-end integration verification
 
+### Phase 13: Cross-Phase Integration Fixes
+
+**Goal:** Three integration wiring gaps identified by v2.0 milestone audit are fixed: (1) circuit breaker becomes an execution gate by adding a `checkExecution()` function called from `init execute-phase`, (2) token monitor auto-enables doc compression at 80% threshold, (3) Telegram standalone bot guards against dual-bot race condition when MCP server is configured
+**Depends on:** Phase 2, Phase 9, Phase 8/8.1 (fixes integration gaps across these phases)
+**Plans:** 1 plan
+
+Plans:
+- [ ] 13-01-PLAN.md — Circuit breaker execution gate + token monitor compression wiring + Telegram dual-bot race guard
+
 ---
 *Roadmap created: 2026-02-15*
-*Last updated: 2026-02-18 after Phase 1 gap closure planning (plans 07-09)*
+*Last updated: 2026-02-18 after Phase 13 planned (1 plan, 3 tasks covering all 3 integration gaps)*

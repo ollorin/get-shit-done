@@ -5,6 +5,7 @@ const path = require('path');
 const os = require('os');
 const readline = require('readline');
 const crypto = require('crypto');
+const { execSync } = require('child_process');
 
 // Colors
 const cyan = '\x1b[36m';
@@ -1266,6 +1267,41 @@ function reportLocalPatches(configDir) {
   return meta.files || [];
 }
 
+/**
+ * Install npm dependencies needed by the doc-compression hook.
+ * Writes a minimal package.json to gsdDir and runs npm install.
+ * Fails gracefully — compression just stays disabled if install fails.
+ */
+function installHookDependencies(gsdDir) {
+  const packageJsonPath = path.join(gsdDir, 'package.json');
+
+  // Only write package.json if one doesn't already exist
+  if (!fs.existsSync(packageJsonPath)) {
+    fs.writeFileSync(packageJsonPath, JSON.stringify({
+      name: 'gsd-hooks',
+      version: '1.0.0',
+      private: true,
+      description: 'Dependencies for GSD hooks',
+      dependencies: {
+        'markdown-it': '^14.0.0',
+        'gray-matter': '^4.0.3',
+        'minimatch': '^9.0.0'
+      }
+    }, null, 2));
+  }
+
+  try {
+    execSync('npm install --prefer-offline --silent', {
+      cwd: gsdDir,
+      stdio: 'pipe',
+      timeout: 30000
+    });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 function install(isGlobal, runtime = 'claude') {
   const isOpencode = runtime === 'opencode';
   const isGemini = runtime === 'gemini';
@@ -1342,6 +1378,17 @@ function install(isGlobal, runtime = 'claude') {
     console.log(`  ${green}✓${reset} Installed get-shit-done`);
   } else {
     failures.push('get-shit-done');
+  }
+
+  // Install npm dependencies for the doc-compression hook
+  // These live in get-shit-done/node_modules/ so the hook can require() them
+  if (!isOpencode && !isGemini) {
+    const depsOk = installHookDependencies(skillDest);
+    if (depsOk) {
+      console.log(`  ${green}✓${reset} Installed hook dependencies (markdown-it, gray-matter, minimatch)`);
+    } else {
+      console.log(`  ${yellow}⚠${reset} Hook dependencies install failed — doc compression will be unavailable`);
+    }
   }
 
   // Copy agents to agents directory
@@ -1475,6 +1522,28 @@ function install(isGlobal, runtime = 'claude') {
         ]
       });
       console.log(`  ${green}✓${reset} Configured update check hook`);
+    }
+
+    // Register PreToolUse:Read hook for doc compression
+    const compressionHookPath = isGlobal
+      ? path.join(targetDir, 'get-shit-done', 'bin', 'hooks', 'doc-compression-hook.js').replace(/\\/g, '/')
+      : path.join(dirName, 'get-shit-done', 'bin', 'hooks', 'doc-compression-hook.js').replace(/\\/g, '/');
+    const compressionHookCommand = `node "${compressionHookPath}"`;
+
+    if (!settings.hooks.PreToolUse) {
+      settings.hooks.PreToolUse = [];
+    }
+
+    const hasCompressionHook = settings.hooks.PreToolUse.some(entry =>
+      entry.hooks && entry.hooks.some(h => h.command && h.command.includes('doc-compression-hook'))
+    );
+
+    if (!hasCompressionHook) {
+      settings.hooks.PreToolUse.push({
+        matcher: 'Read',
+        hooks: [{ type: 'command', command: compressionHookCommand }]
+      });
+      console.log(`  ${green}✓${reset} Configured doc compression hook`);
     }
   }
 

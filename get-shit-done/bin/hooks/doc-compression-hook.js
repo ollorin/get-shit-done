@@ -2,6 +2,22 @@
 
 const fs = require('fs');
 const path = require('path');
+
+// Early exit guard: check hook-config.json using only built-in modules BEFORE
+// loading any npm dependencies. This prevents crashes when deps are not installed
+// (the default state) or when compression is disabled (also the default).
+try {
+  const configPath = path.join(__dirname, '..', '..', '..', 'hook-config.json');
+  const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  if (!cfg.enabled || !cfg.compression || !cfg.compression.enabled) {
+    process.exit(0);
+  }
+} catch (_) {
+  // Config missing or invalid → treat as disabled, pass through
+  process.exit(0);
+}
+
+// Compression is enabled — now safe to load npm dependencies
 const { HeaderExtractor } = require('../compression/header-extractor');
 const { loadHookConfig, matchesPattern, checkCircuitBreaker, recordSuccess, recordFailure, getCircuitBreakerStatus } = require('./config');
 const { CompressionCache } = require('./compression-cache');
