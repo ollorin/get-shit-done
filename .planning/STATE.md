@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-15)
 
 ## Current Position
 
-Phase: 13 of 13 (Cross-Phase Integration Fixes)
-Plan: 01 of 01
-Status: Complete
-Last activity: 2026-02-18 — Completed plan 13-01 (Cross-Phase Integration Fixes)
+Phase: 14 of 14 (Telegram MCP and Bot Audit and Rework)
+Plan: 01 of 06
+Status: In Progress
+Last activity: 2026-02-18 — Completed plan 14-01 (Telegram Audit, Standalone Bot Deletion, Shared Modules)
 
-Progress: [█████████████████████████████████████] 100%
+Progress: [████████████████████████████████████░] 97%
 
 ## Performance Metrics
 
@@ -88,6 +88,7 @@ Progress: [███████████████████████
 | Phase 01 P08 | 2 | 1 tasks | 2 files |
 | Phase 01 P09 | 3min | 2 tasks | 4 files |
 | Phase 13 P01 | 2min | 3 tasks | 3 files |
+| Phase 14 P01 | 9min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -307,11 +308,16 @@ Recent decisions affecting current work:
 - [Phase 13-01]: Token monitor uses process.env.HOME-based absolute path for hooks/config.js (not __dirname-relative, supports varied install locations)
 - [Phase 13-01]: TELEGRAM_STANDALONE_FORCE=1 env var overrides dual-bot race condition guard
 - [Phase 13-01]: telegram?.bot optional chaining fixes pre-existing null crash when TELEGRAM_BOT_TOKEN not set
+- [Phase 14-01]: Pino used for structured logging — bundled TypeScript types, zero-config stderr destination via pino.destination({dest:2})
+- [Phase 14-01]: Socket path uses SHA-1 of PROJECT_ROOT (first 8 hex chars) for project-scoped collision avoidance at /tmp/telegram-mcp-{hash}.sock
+- [Phase 14-01]: IPCMethod as union type (not enum) for ESM/NodeNext moduleResolution compatibility
+- [Phase 14-01]: graduated-alerts.js --telegram flag deprecated silently with comment (standalone bot deleted, feature was never in production use)
 
 ### Roadmap Evolution
 
 - Phase 08.1 inserted after Phase 08: Telegram MCP Server - Replace standalone bot with MCP integration using subscription tokens (URGENT)
 - Phase 14 added: Telegram MCP and bot audit and rework — pending questions not found by bot, buttons not working, full end-to-end review needed
+- Phase 14 Plan 01 complete: AUDIT.md written, standalone bot deleted, shared foundation modules created
 
 ### Pending Todos
 
@@ -323,6 +329,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-18T09:50:10Z (plan execution)
-Stopped at: Completed 13-01-PLAN.md (Cross-Phase Integration Fixes) - Phase 13 Plan 01 - all 3 integration gaps closed
+Last session: 2026-02-18T13:43:29Z (plan execution)
+Stopped at: Completed 14-01-PLAN.md (Telegram Audit, Standalone Bot Deletion, Shared Modules) - Phase 14 Plan 01 - AUDIT.md written, 5 bot files deleted, 3 shared modules created
 Resume file: None
