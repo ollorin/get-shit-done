@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
-const CircuitBreaker = require('opossum');
+// opossum is lazy-loaded inside createTaskBreaker() so the rest of the module
+// works without it (checkExecution, getAdaptiveThresholds, etc. are dependency-free)
 const fs = require('fs');
 const path = require('path');
 
@@ -202,6 +203,9 @@ function salvageOrEscalate(task, model, err) {
 function createTaskBreaker(taskFn, task, model) {
   const thresholds = getAdaptiveThresholds(task, model);
 
+  // Lazy-load opossum so the module works without it for checkExecution/getAdaptiveThresholds
+  const CircuitBreaker = require('opossum');
+
   // Opossum circuit breaker options
   const options = {
     timeout: thresholds.timeout_ms,
@@ -287,6 +291,30 @@ async function executeWithIterationCap(taskStepFn, task, model, maxIterations) {
   throw error;
 }
 
+/**
+ * Gate function for execution loops. Checks whether an iteration count is within
+ * the adaptive cap for the given task/model combination.
+ *
+ * @param {string} taskDescription - Task slug or description (used for adaptive thresholds)
+ * @param {string} model - Model name (haiku|sonnet|opus)
+ * @param {number} iterationCount - Current iteration count
+ * @returns {{ proceed: boolean, reason: string }}
+ */
+function checkExecution(taskDescription, model, iterationCount) {
+  try {
+    const thresholds = getAdaptiveThresholds(taskDescription, model);
+    if (iterationCount >= thresholds.iterations) {
+      return {
+        proceed: false,
+        reason: `iteration_cap_reached (${iterationCount}/${thresholds.iterations})`
+      };
+    }
+    return { proceed: true, reason: 'within_limits' };
+  } catch (e) {
+    return { proceed: true, reason: 'check_error: ' + e.message };
+  }
+}
+
 // Exports
 module.exports = {
   createTaskBreaker,
@@ -294,5 +322,6 @@ module.exports = {
   getAdaptiveThresholds,
   loadThresholds,
   saveThresholds,
-  logTimeout
+  logTimeout,
+  checkExecution
 };

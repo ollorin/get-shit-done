@@ -6375,6 +6375,21 @@ function cmdInitExecutePhase(cwd, phase, includes, raw) {
     result.roadmap_content = safeReadFile(path.join(cwd, '.planning', 'ROADMAP.md'));
   }
 
+  // Circuit breaker execution gate (Gap 1: circuit breaker -> init execute-phase wiring)
+  if (circuitBreaker && circuitBreaker.checkExecution) {
+    try {
+      result.circuit_breaker = circuitBreaker.checkExecution(
+        phaseInfo?.phase_slug || phase,
+        result.executor_model,
+        0
+      );
+    } catch (e) {
+      result.circuit_breaker = { proceed: true, reason: 'check_error' };
+    }
+  } else {
+    result.circuit_breaker = null;
+  }
+
   output(result, raw);
 }
 
