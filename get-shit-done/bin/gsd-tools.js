@@ -6992,9 +6992,9 @@ function cmdInitExecuteRoadmap(cwd, raw) {
     quality: 'opus',
     balanced: 'sonnet',
     budget: 'haiku',
-    auto: 'sonnet'
+    auto: 'haiku'
   };
-  const coordinatorModel = profileToCoordinatorModel[config.model_profile] ?? 'sonnet';
+  const coordinatorModel = profileToCoordinatorModel[config.model_profile] ?? 'haiku';
 
   // Use existing cmdRoadmapAnalyze logic to get phase data
   const content = fs.readFileSync(roadmapPath, 'utf-8');
