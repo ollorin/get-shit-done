@@ -7721,6 +7721,71 @@ function cmdRoutingMatch(cwd, taskDesc, raw) {
   output(result, raw);
 }
 
+function selectModelFromRulesWithQuota(taskDesc, rules, quotaState) {
+  // Get base selection using complexity scoring (from plan 07)
+  const baseSelection = selectModelFromRules(taskDesc, rules);
+
+  if (!quotaState || !quotaState.session) {
+    return baseSelection;  // No quota state — pass through unchanged
+  }
+
+  const sessionLimit = quotaState.session.tokens_limit || 0;
+  if (sessionLimit === 0) {
+    return baseSelection;  // Unknown limit — pass through
+  }
+
+  const sessionUsed = quotaState.session.tokens_used || 0;
+  const quotaPercent = (sessionUsed / sessionLimit) * 100;
+
+  // Apply downgrade ladder based on quota pressure
+  // Per user decision: quota logic in sub-coordinator, but the routing function
+  // must support quota-aware selection so coordinators can call it
+  if (quotaPercent > 95) {
+    // Critical: downgrade any model to haiku to conserve what remains
+    if (baseSelection.model === 'opus' || baseSelection.model === 'sonnet') {
+      return {
+        ...baseSelection,
+        model: 'haiku',
+        reason: `quota-adjusted (${quotaPercent.toFixed(1)}% used, >95% threshold): conserving to haiku — original: ${baseSelection.model}`,
+        quota_adjusted: true,
+        quota_percent: quotaPercent
+      };
+    }
+  } else if (quotaPercent > 80) {
+    // High pressure: downgrade opus to sonnet only
+    if (baseSelection.model === 'opus') {
+      return {
+        ...baseSelection,
+        model: 'sonnet',
+        reason: `quota-adjusted (${quotaPercent.toFixed(1)}% used, >80% threshold): downgraded opus→sonnet — original reason: ${baseSelection.reason}`,
+        quota_adjusted: true,
+        quota_percent: quotaPercent
+      };
+    }
+  }
+
+  // No adjustment needed
+  return {
+    ...baseSelection,
+    quota_adjusted: false,
+    quota_percent: quotaPercent
+  };
+}
+
+function cmdRoutingMatchWithQuota(cwd, taskDesc, raw) {
+  if (!taskDesc) { error('task description required'); return; }
+
+  const HOME = require('os').homedir();
+  const globalRules = loadRoutingRules(path.join(HOME, '.claude', 'routing-rules.md'));
+  const projectRules = loadRoutingRules(path.join(cwd, '.planning', 'routing', 'project-rules.md'));
+  const merged = mergeRoutingRules(globalRules, projectRules);
+
+  const quotaState = loadQuotaState(cwd);
+  const result = selectModelFromRulesWithQuota(taskDesc, merged, quotaState);
+
+  output(result, raw);
+}
+
 function extractKeywords(text) {
   const stopWords = new Set([
     'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
@@ -9868,8 +9933,10 @@ Was ${model} the right choice for this task? (y/n): `;
         cmdRoutingIndexBuild(cwd, args, raw);
       } else if (subcommand === 'index-refresh') {
         cmdRoutingIndexRefresh(cwd, raw);
+      } else if (subcommand === 'match-with-quota') {
+        cmdRoutingMatchWithQuota(cwd, args.slice(2).join(' '), raw);
       } else {
-        error('Unknown routing subcommand. Available: match, context, full, index-build, index-refresh');
+        error('Unknown routing subcommand. Available: match, match-with-quota, context, full, index-build, index-refresh');
       }
       break;
     }
