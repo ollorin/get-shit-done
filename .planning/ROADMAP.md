@@ -266,7 +266,8 @@ Phase 8 (Notifications & Observability) --> Phase 08.1 (Telegram MCP Server)
 | 10.1. Multi-Instance MCP Safety | 4 | Complete | 2026-02-17 |
 | 11. Session-End Knowledge Extraction | 4 | Complete | 2026-02-17 |
 | 12. Historical Conversation Mining | 3 | Planning complete | - |
-| 13. Cross-Phase Integration Fixes | 1 | Planning complete | - |
+| 13. Cross-Phase Integration Fixes | 1 | Complete | 2026-02-18 |
+| 14. Telegram MCP Audit & Rework | 6 | Planning complete | - |
 
 ### Phase 9: Hook-based documentation compression - Optimize context injection by extracting AI-friendly headers from docs and injecting only summaries with absolute links instead of full content
 
@@ -364,8 +365,22 @@ Plans:
 **Plans:** 1 plan
 
 Plans:
-- [ ] 13-01-PLAN.md — Circuit breaker execution gate + token monitor compression wiring + Telegram dual-bot race guard
+- [x] 13-01-PLAN.md — Circuit breaker execution gate + token monitor compression wiring + Telegram dual-bot race guard
+
+### Phase 14: Telegram MCP and bot audit and rework
+
+**Goal:** Audit and rework the Telegram MCP server into a daemon + adapter architecture supporting multiple concurrent Claude Code sessions, real-time Q&A via Telegram forum threads, live Status view, and voice transcription — removing the standalone bot process entirely
+**Depends on:** Phase 13
+**Plans:** 6 plans
+
+Plans:
+- [ ] 14-01-PLAN.md — Audit and cleanup: delete standalone bot, create shared types/logger/socket-path
+- [ ] 14-02-PLAN.md — Daemon core: IPC server and session service
+- [ ] 14-03-PLAN.md — Daemon bot: Telegraf with forum threads, status/questions panels, whisper
+- [ ] 14-04-PLAN.md — Question service: thread lifecycle, EventEmitter answer delivery
+- [ ] 14-05-PLAN.md — MCP adapter: thin stdio proxy with IPC client and daemon launcher
+- [ ] 14-06-PLAN.md — Integration: MCP config update, cleanup, env docs, end-to-end verification
 
 ---
 *Roadmap created: 2026-02-15*
-*Last updated: 2026-02-18 after Phase 13 planned (1 plan, 3 tasks covering all 3 integration gaps)*
+*Last updated: 2026-02-18 after Phase 14 planned (6 plans across 3 waves)*

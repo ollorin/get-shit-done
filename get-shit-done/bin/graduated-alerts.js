@@ -112,24 +112,9 @@ class GraduatedBudgetMonitor extends TokenBudgetMonitor {
     this.graduatedAlerts.push(alert);
     console.error(`[BUDGET] 90% threshold reached - escalating to user`);
 
-    // Send Telegram notification if enabled
-    if (this.telegramEnabled) {
-      try {
-        const { sendBlockingQuestion } = require('./telegram-bot.js');
-        await sendBlockingQuestion(
-          `Token Budget Alert (90%)\n\n` +
-          `Usage: ${this.currentUsage} / ${this.maxTokens} tokens\n` +
-          `Phase: ${phase}\n\n` +
-          `Options:\n` +
-          `1. Continue (may fail if next phase is large)\n` +
-          `2. Pause and checkpoint\n` +
-          `3. Restart with fresh context`,
-          { choices: ['Continue', 'Pause', 'Restart'] }
-        );
-      } catch (error) {
-        console.error('Failed to send Telegram alert:', error.message);
-      }
-    }
+    // Note: Telegram notification via standalone bot removed in Phase 14.
+    // The --telegram flag is no longer supported (standalone bot deleted).
+    // Future: integrate with Telegram MCP daemon when available.
   }
 
   handleHalt(utilization, phase) {
