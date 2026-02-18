@@ -109,7 +109,21 @@ This fork extends the base GSD system with autonomous execution, a persistent kn
 ### What Was Built
 
 **Auto Mode (Phases 1–2)**
-Intelligent model selection using complexity signals. Haiku for simple tasks, Sonnet for standard, Opus for complex — with circuit breakers, iteration caps, error escalation, and a feedback loop that learns from corrections. 40–60% token savings vs all-Sonnet.
+Two things happen when a task is routed: model selection (Haiku/Sonnet/Opus based on task description matched against `~/.claude/routing-rules.md`) and context injection (top 3 relevant docs injected into the subagent prompt). Circuit breakers, iteration caps, error escalation ladder, and a feedback loop that learns from mis-routings. 40–60% token savings vs all-Sonnet.
+
+Test:
+```bash
+# Model + top-3 context docs + CLAUDE.md keywords (what orchestrators actually use)
+node ~/.claude/get-shit-done/bin/gsd-tools.js routing full "Design database schema for users"
+
+# Model selection only
+node ~/.claude/get-shit-done/bin/gsd-tools.js routing match "Add button to dashboard"
+
+# Rebuild context index after adding docs to ~/.claude/guides or .planning/codebase/
+node ~/.claude/get-shit-done/bin/gsd-tools.js routing index-build --force
+```
+
+Routing rules editable at `~/.claude/routing-rules.md`. Project overrides at `.planning/routing/project-rules.md`.
 
 **Knowledge System (Phases 3–4)**
 Local SQLite + sqlite-vec knowledge database at `.planning/knowledge/{user}.db`. Stores decisions, lessons, summaries with TTL lifecycle, vector + FTS5 search, and type-weighted ranking (decisions/lessons score 2× vs summaries). Passive extraction via Claude Code hooks captures knowledge during normal work. Three-stage deduplication: content hash → canonical hash → embedding similarity (0.88 threshold). Memory evolves — similar new knowledge updates existing entries rather than creating duplicates.
