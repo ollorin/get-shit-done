@@ -6,7 +6,7 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "node dist/adapter/index.js",
     "start:daemon": "node dist/daemon/index.js",
     "dev": "tsc --watch"
   },
