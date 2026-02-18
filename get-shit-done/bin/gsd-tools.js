@@ -7554,7 +7554,7 @@ function loadRoutingRules(filePath) {
     if (patternStr.toLowerCase() === 'pattern' || model.toLowerCase() === 'model') return null;
 
     const patterns = patternStr.split(',').map(p => p.trim().replace(/\*\*/g, ''));
-    const validPatterns = patterns.filter(p => p && !p.toLowerCase().includes('testing') && !p.toLowerCase().includes('architecture'));
+    const validPatterns = patterns.filter(p => p && p.trim().length > 0);
 
     if (validPatterns.length === 0) return null;
 
@@ -7593,18 +7593,102 @@ function mergeRoutingRules(globalRules, projectRules) {
   return merged;
 }
 
+function computeComplexityScore(taskDesc, rules) {
+  // Signal 1 — Keyword model weight (0-50 points)
+  const lowerTask = taskDesc.toLowerCase();
+  let keywordScore = 0;
+  for (const rule of rules) {
+    try {
+      const regex = new RegExp(rule.regex, 'i');
+      if (regex.test(lowerTask)) {
+        const model = rule.model.toLowerCase();
+        if (model === 'haiku') {
+          keywordScore = Math.min(keywordScore + 5, 15);
+        } else if (model === 'sonnet') {
+          keywordScore = Math.min(keywordScore + 15, 30);
+        } else if (model === 'opus') {
+          keywordScore = Math.min(keywordScore + 30, 50);
+        }
+      }
+    } catch (e) {
+      // Skip invalid regex patterns
+    }
+  }
+  if (keywordScore === 0) keywordScore = 25; // default: no pattern match → sonnet territory
+
+  // Signal 2 — Task length (0-25 points)
+  const wordCount = taskDesc.trim().split(/\s+/).filter(Boolean).length;
+  let lengthScore;
+  if (wordCount <= 5) {
+    lengthScore = 3;
+  } else if (wordCount <= 20) {
+    lengthScore = 8;
+  } else if (wordCount <= 50) {
+    lengthScore = 15;
+  } else if (wordCount <= 100) {
+    lengthScore = 20;
+  } else {
+    lengthScore = 25;
+  }
+
+  // Signal 3 — Structural markers (0-25 points)
+  let structuralScore = 0;
+  // Code block markers
+  if (/```|`[^`]+`/.test(taskDesc)) structuralScore += 8;
+  // Multiple bullet points (3+)
+  const bulletMatches = taskDesc.match(/^[ \t]*[-*•]/gm) || [];
+  if (bulletMatches.length >= 3) structuralScore += 5;
+  // Nested indicators
+  if (/^[ \t]{2,}[-*•]/m.test(taskDesc) || /^[ \t]+\d+\./m.test(taskDesc)) structuralScore += 5;
+  // Multiple numbered steps (3+)
+  const numberedSteps = taskDesc.match(/^\s*\d+\./gm) || [];
+  if (numberedSteps.length >= 3) structuralScore += 5;
+  // Architectural keywords
+  if (/\b(design|architecture|system|integrate|migration|migrate|refactor|evaluate)\b/i.test(taskDesc)) structuralScore += 8;
+  // Cross-cutting concerns
+  if (/\b(security|performance|scalability|all|entire|across)\b/i.test(taskDesc)) structuralScore += 6;
+  // Negation/constraints
+  if (/\b(must not|never|always|required|must)\b/i.test(taskDesc)) structuralScore += 3;
+  structuralScore = Math.min(structuralScore, 25);
+
+  const score = Math.min(keywordScore + lengthScore + structuralScore, 100);
+
+  let tier;
+  if (score <= 30) {
+    tier = 'haiku';
+  } else if (score <= 70) {
+    tier = 'sonnet';
+  } else {
+    tier = 'opus';
+  }
+
+  return {
+    score,
+    tier,
+    signals: {
+      keyword: keywordScore,
+      length: lengthScore,
+      structural: structuralScore
+    }
+  };
+}
+
 function selectModelFromRules(taskDesc, rules) {
   const lowerTask = taskDesc.toLowerCase();
-  let bestMatch = null;
-  let highestPriority = -1;
 
+  // Compute multi-signal complexity score
+  const { score, tier, signals } = computeComplexityScore(taskDesc, rules);
+
+  // Track highest-priority matching rule for pattern/rationale
+  let matchedRule = null;
+  let highestPriority = -1;
   for (const rule of rules) {
     try {
       const regex = new RegExp(rule.regex, 'i');
       if (regex.test(lowerTask)) {
         if (rule.priority > highestPriority) {
           highestPriority = rule.priority;
-          bestMatch = rule;
+          matchedRule = rule;
         }
       }
     } catch (e) {
@@ -7612,19 +7696,16 @@ function selectModelFromRules(taskDesc, rules) {
     }
   }
 
-  if (bestMatch) {
-    return {
-      model: bestMatch.model,
-      reason: bestMatch.rationale,
-      matched: true,
-      pattern: bestMatch.patterns.join(',')
-    };
-  }
+  const reasonBase = `complexity score ${score}/100 (keyword:${signals.keyword}, length:${signals.length}, structural:${signals.structural})`;
+  const noMatch = matchedRule === null;
 
   return {
-    model: 'sonnet',
-    reason: 'default (no pattern match)',
-    matched: false
+    model: tier,
+    reason: noMatch ? `default (no pattern match) — score ${score}/100` : reasonBase,
+    matched: !noMatch,
+    pattern: matchedRule ? matchedRule.patterns.join(',') : null,
+    score,
+    signals
   };
 }
 
