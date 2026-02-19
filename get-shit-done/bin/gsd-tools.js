@@ -8087,12 +8087,14 @@ function cmdRoutingIndexRefresh(cwd, raw) {
 }
 
 /**
- * mine-conversations [--max-age-days N] [--include-subagents] [--limit N]
+ * mine-conversations [--max-age-days N] [--include-subagents] [--limit N] [--all-projects]
  *
  * Discovers Claude Code project JSONL conversation files, converts entries to
  * session-like format, applies quality gates, checks re-analysis prevention
  * via conversation-specific analysis log, and returns extraction requests
  * ready for the calling GSD workflow to pass to Task().
+ *
+ * --all-projects: scan all ~/.claude/projects/ slug directories instead of current CWD only.
  */
 async function cmdMineConversations(cwd, args, raw) {
   const maxAgeDays = args.includes('--max-age-days')
@@ -8102,6 +8104,7 @@ async function cmdMineConversations(cwd, args, raw) {
   const limit = args.includes('--limit')
     ? parseInt(args[args.indexOf('--limit') + 1])
     : 0;
+  const allProjects = args.includes('--all-projects');
 
   // Lazy-require conversation-miner.js
   let conversationMiner;
@@ -8112,7 +8115,52 @@ async function cmdMineConversations(cwd, args, raw) {
     return;
   }
 
-  // Discover project conversations
+  if (allProjects) {
+    // --all-projects: scan all project slug dirs under ~/.claude/projects/
+    const { projects, totalFiles, skippedNonGSD } = conversationMiner.discoverAllProjectConversations(
+      { maxAgeDays, includeSubagents }
+    );
+
+    const extractionSessions = [];
+    const skipped = [];
+
+    for (const project of projects) {
+      const projectFiles = limit > 0 ? project.files.slice(0, limit) : project.files;
+
+      for (const fileInfo of projectFiles) {
+        const prepared = conversationMiner.prepareConversationForMining(fileInfo.path, fileInfo.sessionId);
+
+        if (!prepared.shouldMine) {
+          skipped.push({ sessionId: fileInfo.sessionId, projectSlug: project.projectSlug, reason: prepared.reason });
+        } else {
+          extractionSessions.push({
+            sessionId: fileInfo.sessionId,
+            sessionPath: fileInfo.path,
+            projectSlug: project.projectSlug,
+            mtime: fileInfo.mtime,
+            chunkCount: prepared.chunkCount,
+            contentHash: prepared.contentHash,
+            extractionRequests: prepared.extractionRequests
+          });
+        }
+      }
+    }
+
+    output({
+      status: 'ready',
+      allProjects: true,
+      projectsScanned: projects.length,
+      skippedNonGSD,
+      filesFound: totalFiles,
+      sessionsReady: extractionSessions.length,
+      sessionsSkipped: skipped.length,
+      sessions: extractionSessions,
+      skipped
+    }, raw);
+    return;
+  }
+
+  // Single project mode (current CWD)
   const { files, projectSlugDir, error: discoverError } = conversationMiner.discoverProjectConversations(
     cwd,
     { maxAgeDays, includeSubagents }
@@ -8455,6 +8503,95 @@ async function cmdMigrateKnowledge(cwd, args, raw) {
     total_entries: totalMigrated,
     note: 'Old per-project DBs were NOT deleted. Remove .planning/knowledge/ manually when satisfied.'
   }, raw);
+}
+
+// ─── Knowledge Query ─────────────────────────────────────────────────────────
+
+/**
+ * query-knowledge <question> [--project <slug>]
+ *
+ * Search the global knowledge DB for relevant past decisions, lessons, and summaries.
+ * Returns top 5 results in the locked output schema for agent-readable consumption.
+ *
+ * Output schema per result:
+ *   { question, answer, confidence, project_slug, source_type, created_at }
+ *
+ * Zero results: { results: [], no_results: true, query: "..." }
+ */
+async function cmdQueryKnowledge(cwd, args, raw) {
+  // Parse --project flag
+  const projectFlagIdx = args.indexOf('--project');
+  const projectSlug = projectFlagIdx !== -1 ? args[projectFlagIdx + 1] : null;
+
+  // Build the question string from remaining args (excluding --project and its value)
+  const filteredArgs = args.filter((_, i) => {
+    if (projectFlagIdx === -1) return true;
+    return i !== projectFlagIdx && i !== projectFlagIdx + 1;
+  });
+
+  const questionString = filteredArgs.join(' ').trim();
+
+  if (!questionString) {
+    output({ status: 'error', reason: 'Usage: query-knowledge <question> [--project <slug>]' }, raw);
+    return;
+  }
+
+  // Lazy-require knowledge-db.js
+  let knowledgeDb;
+  try {
+    knowledgeDb = require(path.join(__dirname, 'knowledge-db.js'));
+  } catch (err) {
+    output({ results: [], no_results: true, query: questionString, error: 'Failed to load knowledge-db.js: ' + err.message }, raw);
+    return;
+  }
+
+  // Open the global knowledge DB
+  let conn;
+  try {
+    conn = knowledgeDb.openKnowledgeDB('global');
+  } catch (err) {
+    // DB may not exist yet (no knowledge stored)
+    output({ results: [], no_results: true, query: questionString, note: 'Global knowledge DB not found or could not be opened: ' + err.message }, raw);
+    return;
+  }
+
+  // Lazy-require knowledge-search.js
+  let searchKnowledge;
+  try {
+    searchKnowledge = require(path.join(__dirname, 'knowledge-search.js')).searchKnowledge;
+  } catch (err) {
+    output({ results: [], no_results: true, query: questionString, error: 'Failed to load knowledge-search.js: ' + err.message }, raw);
+    return;
+  }
+
+  // Execute search — top 5 results, no confidence threshold filtering
+  let rawResults = [];
+  try {
+    rawResults = searchKnowledge(conn, questionString, {
+      limit: 5,
+      project_slug: projectSlug || null
+    });
+  } catch (err) {
+    output({ results: [], no_results: true, query: questionString, error: 'Search failed: ' + err.message }, raw);
+    return;
+  }
+
+  if (!rawResults || rawResults.length === 0) {
+    output({ results: [], no_results: true, query: questionString }, raw);
+    return;
+  }
+
+  // Map to locked output schema
+  const results = rawResults.map(r => ({
+    question: questionString,
+    answer: r.content,
+    confidence: (r.metadata && r.metadata.confidence) ? r.metadata.confidence : 'medium',
+    project_slug: r.project_slug || null,
+    source_type: r.type,
+    created_at: r.created_at
+  }));
+
+  output({ results, query: questionString }, raw);
 }
 
 // ─── CLI Router ───────────────────────────────────────────────────────────────
@@ -9170,6 +9307,11 @@ async function main() {
 
     case 'migrate-knowledge': {
       await cmdMigrateKnowledge(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'query-knowledge': {
+      await cmdQueryKnowledge(cwd, args.slice(1), raw);
       break;
     }
 
