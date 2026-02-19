@@ -3,7 +3,7 @@
 ## Milestones
 
 - ✅ **v1.9.0 GSD Enhancements** — Phases 1-14 (shipped 2026-02-19)
-- 🚧 **v1.9.1 Upstream Sync** — Phases 18-20 (in progress)
+- ✅ **v1.9.1 Upstream Sync** — Phases 18-20 (completed 2026-02-19)
 
 ## Phases
 
@@ -31,7 +31,8 @@ Full details: `.planning/milestones/v1.9.0-ROADMAP.md`
 
 </details>
 
-### 🚧 v1.9.1 Upstream Sync (In Progress)
+<details>
+<summary>✅ v1.9.1 Upstream Sync (Phases 18-20) — COMPLETE 2026-02-19</summary>
 
 **Milestone Goal:** Review glittercowboy/get-shit-done upstream commits and port the most valuable improvements into this fork without breaking fork-specific features (auto routing, knowledge system, Telegram MCP, autonomous execution).
 
@@ -39,44 +40,32 @@ Full details: `.planning/milestones/v1.9.0-ROADMAP.md`
 **Goal**: Developer can see exactly what upstream has added since the fork diverged, with every change categorized and evaluated for portability
 **Depends on**: Nothing (first phase of milestone)
 **Requirements**: AUDT-01, AUDT-02
-**Success Criteria** (what must be TRUE):
-  1. UPSTREAM-DIFF.md exists listing every upstream commit not present in this fork, each tagged with a category (bug-fix, feature, workflow-change, context-management, git-branching, execution)
-  2. Each upstream change is assessed as safe-to-port, needs-adaptation, or conflicts-with-fork with a one-line rationale
-  3. Developer can read UPSTREAM-DIFF.md and know without any further research which changes to take into Phase 19 and which into Phase 20
 **Plans**: 1/1
 
 Plans:
 - [x] 18-01: Fetch upstream, compare commit history, produce UPSTREAM-DIFF.md — completed 2026-02-19
 
-#### Phase 19: Bug Fixes & Context Window Management
+#### Phase 19: Bug Fixes & Context Window Management — COMPLETE
 **Goal**: All upstream stability fixes and context window improvements are running in the fork with no regressions to existing fork-specific features
 **Depends on**: Phase 18
 **Requirements**: BUGF-01, BUGF-02, CTXT-01
-**Success Criteria** (what must be TRUE):
-  1. Every bug fix from upstream identified in Phase 18 as safe-to-port is applied to the fork's shared code paths (workflows, skills, templates)
-  2. Fork shared code paths produce the same behavior as upstream for identical inputs (no silent divergence on bug-fixed paths)
-  3. Upstream context window management improvements are active in the fork — context pressure is handled at least as well as upstream does it
-  4. No existing fork feature (auto routing, knowledge system, Telegram MCP) is broken by ported changes
-**Plans**: TBD
+**Plans**: 2/2
 
 Plans:
-- [ ] 19-01: Port upstream bug fixes to shared code paths
-- [ ] 19-02: Port upstream context window management improvements
+- [x] 19-01: Port upstream bug fixes to shared code paths — completed 2026-02-19
+- [x] 19-02: Port upstream context window management improvements — completed 2026-02-19
 
-#### Phase 20: Git Branching & Autonomous Execution
+#### Phase 20: Git Branching & Autonomous Execution — COMPLETE
 **Goal**: GSD creates feature branches at phase start and any compatible upstream execution improvements are integrated without breaking the fork's sub-coordinator design
 **Depends on**: Phase 19
 **Requirements**: GIT-01, GIT-02, EXEC-01, EXEC-02
-**Success Criteria** (what must be TRUE):
-  1. When a GSD phase begins execution, a feature branch is created before any code changes are written (not after phase completion)
-  2. Branch names follow a consistent convention derived from upstream pattern (or improved where upstream falls short)
-  3. Upstream execution flow improvements identified as compatible in Phase 18 are running in the fork
-  4. `/gsd:execute-roadmap` still works end-to-end and the per-phase fresh-context sub-coordinator pattern is intact
-**Plans**: TBD
+**Plans**: 2/2
 
 Plans:
-- [ ] 20-01: Implement early git branching at phase start
-- [ ] 20-02: Port compatible upstream autonomous execution improvements
+- [x] 20-01: Implement early git branching at phase start — completed 2026-02-19
+- [x] 20-02: Port compatible upstream autonomous execution improvements — completed 2026-02-19
+
+</details>
 
 ## Progress
 
@@ -99,8 +88,8 @@ Plans:
 | 13. Cross-Phase Integration Fixes | v1.9.0 | 1/1 | Complete | 2026-02-18 |
 | 14. Telegram MCP Audit & Rework | v1.9.0 | 6/6 | Complete | 2026-02-18 |
 | 18. Upstream Audit | v1.9.1 | 1/1 | Complete | 2026-02-19 |
-| 19. Bug Fixes & Context Window Management | v1.9.1 | 0/TBD | Not started | - |
-| 20. Git Branching & Autonomous Execution | v1.9.1 | 0/TBD | Not started | - |
+| 19. Bug Fixes & Context Window Management | v1.9.1 | 2/2 | Complete | 2026-02-19 |
+| 20. Git Branching & Autonomous Execution | v1.9.1 | 2/2 | Complete | 2026-02-19 |
 
 ---
-*Roadmap created: 2026-02-15 | Last updated: 2026-02-19 — Phase 18 complete*
+*Roadmap created: 2026-02-15 | Last updated: 2026-02-19 — v1.9.1 milestone complete*
