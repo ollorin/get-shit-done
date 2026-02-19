@@ -217,16 +217,29 @@ Status: WIRED (state displayed) | NOT_WIRED (state exists, not rendered)
 
 ## Step 6: Check Requirements Coverage
 
-If REQUIREMENTS.md has requirements mapped to this phase:
+Read requirement IDs from PLAN.md frontmatter (not from REQUIREMENTS.md directly):
 
 ```bash
-grep -E "Phase $PHASE_NUM" .planning/REQUIREMENTS.md 2>/dev/null
+# Read requirements from each plan's frontmatter
+for plan in "$PHASE_DIR"/*-PLAN.md; do
+  PLAN_REQS=$(node ~/.claude/get-shit-done/bin/gsd-tools.js frontmatter get "$plan" --field requirements 2>/dev/null)
+  echo "=== $plan: $PLAN_REQS ==="
+done
 ```
 
-For each requirement: parse description → identify supporting truths/artifacts → determine status.
+Aggregate all requirement IDs across plans. For each requirement ID:
+1. Check if it appears in a plan's `requirements` field (Source Plan column)
+2. Look up description in REQUIREMENTS.md if it exists
+3. Check corresponding truths/artifacts verification status
+
+**Requirements table schema:**
+
+| REQ-ID | Source Plan | Description | Status | Evidence |
+|--------|-------------|-------------|--------|----------|
+| REQ-01 | 19-01 | description | SATISFIED / BLOCKED / NEEDS HUMAN | evidence |
 
 - ✓ SATISFIED: All supporting truths verified
-- ✗ BLOCKED: One or more supporting truths failed
+- ✗ BLOCKED: One or more supporting truths failed or artifact missing
 - ? NEEDS HUMAN: Can't verify programmatically
 
 ## Step 7: Scan for Anti-Patterns
