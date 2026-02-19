@@ -85,5 +85,6 @@ export interface IPCResponse {
  * mark_question_answered — adapter calls to explicitly close a question
  * send_message         — adapter calls to push a plain Telegram message
  * send_status_update   — adapter calls to push a formatted status notification
+ * create_topic         — adapter calls to create a new forum topic and get its threadId
  */
-export type IPCMethod = 'register_session' | 'unregister_session' | 'update_session_status' | 'ask_blocking_question' | 'check_question_answers' | 'mark_question_answered' | 'send_message' | 'send_status_update';
+export type IPCMethod = 'register_session' | 'unregister_session' | 'update_session_status' | 'ask_blocking_question' | 'check_question_answers' | 'mark_question_answered' | 'send_message' | 'send_status_update' | 'create_topic';

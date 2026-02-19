@@ -246,6 +246,16 @@ async function main(): Promise<void> {
     return { sent: true };
   });
 
+  handlers.set('create_topic', async (params, _clientId) => {
+    if (!questionService) {
+      throw new Error('Bot not available — TELEGRAM_BOT_TOKEN not set');
+    }
+    const title =
+      typeof params['title'] === 'string' ? params['title'] : 'GSD Execution';
+    const threadId = await createForumTopic(title);
+    return { threadId };
+  });
+
   // ─── IPC server ────────────────────────────────────────────────────────────
 
   const ipcServer = new IPCServer(socketPath, handlers);

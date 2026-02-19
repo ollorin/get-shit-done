@@ -156,6 +156,21 @@ const TOOL_DEFINITIONS = [
       required: ['status'],
     },
   },
+  {
+    name: 'create_topic',
+    description:
+      'Create a new forum topic (thread) in the configured Telegram group and return its thread_id. Used to create a dedicated thread for roadmap execution notifications.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: {
+          type: 'string',
+          description: 'Topic title displayed as the thread name in Telegram',
+        },
+      },
+      required: ['title'],
+    },
+  },
 ];
 
 // ─── IPC helper ──────────────────────────────────────────────────────────────
@@ -335,6 +350,12 @@ async function main(): Promise<void> {
             sessionId,
             status: toolArgs['status'],
             questionTitle: toolArgs['question_title'],
+          });
+          break;
+
+        case 'create_topic':
+          result = await proxyTool('create_topic', {
+            title: toolArgs['title'],
           });
           break;
 
