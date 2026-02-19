@@ -5,21 +5,21 @@
 See: .planning/PROJECT.md (updated 2026-02-19)
 
 **Core value:** Claude learns to make autonomous decisions based on user's reasoning patterns, only stopping for irreversible/external/costly actions
-**Current focus:** v1.10.0 — Telegram Escalation (Phase 23 complete)
+**Current focus:** v1.10.0 — Telegram Notifications (Phase 24 in progress)
 
 ## Current Position
 
-Phase: 23 of 25 (Telegram Escalation) — complete
-Plan: 2 of 2 (complete)
-Status: Plan 23-02 complete — multi-turn follow-up loop (max 3 turns) and JSONL logging woven into escalation block of gsd-phase-coordinator.md discuss step
-Last activity: 2026-02-19 — Plan 23-02 complete (ESCL-03 multi-turn loop + ESCL-05 JSONL logging implemented)
+Phase: 24 of 25 (Telegram Notifications) — in progress
+Plan: 1 of 4 (complete)
+Status: Plan 24-01 complete — create_topic MCP tool added to Telegram server (IPCMethod union, daemon handler, adapter tool + switch case)
+Last activity: 2026-02-19 — Plan 24-01 complete (NOTIF-01 create_topic MCP tool implemented)
 
-Progress: [██████████░░░░░░░░░░] 48% (v1.10.0)
+Progress: [███████████░░░░░░░░░] 52% (v1.10.0)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 96 (v1.9.0: 85, v1.9.1: 5, v1.10.0: 6)
+- Total plans completed: 97 (v1.9.0: 85, v1.9.1: 5, v1.10.0: 7)
 - Average duration: 3.0 min
 - Total execution time: ~4.7 hours
 
@@ -33,6 +33,7 @@ Progress: [██████████░░░░░░░░░░] 48% (v1
 | 21    | 3/3   | 10 min  | 3.3 min  |
 | 22    | 4/4   | 13 min  | 3.25 min  |
 | 23    | 2/2   | 6 min   | 3.0 min   |
+| 24    | 1/4   | 1 min   | 1.0 min   |
 
 **Recent Trend:**
 - Last 5 plans: 27, 15, 4, 4, 2 min
@@ -82,6 +83,8 @@ Recent decisions affecting current work:
 - [Phase 23-02]: Reply confidence evaluated inline: 0.85 (clear actionable), 0.65 (general direction), 0.5 (non-committal)
 - [Phase 23-02]: Session status (waiting/busy) toggled once per item outside loop — not per turn to avoid excessive API churn
 - [Phase 23-02]: JSONL entries use date-based file .planning/telegram-sessions/{YYYY-MM-DD}.jsonl — consistent with existing session format
+- [Phase 24-01]: create_topic returns { threadId } verbatim — no extraction needed (adapter JSON.stringify path handles it, unlike ask_blocking_question which extracts .answer)
+- [Phase 24-01]: Daemon guard reuses same pattern as send_message: checks questionService null (bot not available) rather than a separate bot check
 
 ### Pending Todos
 
@@ -93,11 +96,11 @@ None.
 
 ### Next Steps
 
-- Phase 23 complete — all escalation requirements (ESCL-01 through ESCL-05) implemented across Plans 23-01 and 23-02
-- Proceed to Phase 24 (Telegram create_topic MCP tool) — escalation pathway fully operational
+- Phase 24 in progress — Plan 24-01 complete (create_topic primitive)
+- Proceed to Plans 24-02/03/04 to wire phase lifecycle notifications using the new create_topic tool
 
 ## Session Continuity
 
 Last session: 2026-02-19
-Stopped at: Completed 23-02-PLAN.md — multi-turn follow-up loop and JSONL logging woven into escalation block of gsd-phase-coordinator.md
+Stopped at: Completed 24-01-PLAN.md — create_topic MCP tool added to Telegram server
 Resume file: None

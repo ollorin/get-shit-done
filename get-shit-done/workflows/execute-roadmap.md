@@ -79,6 +79,41 @@ Log format: JSONL lines after markdown header, enabling streaming append:
 # Execution Log
 {"type":"roadmap_start","timestamp":"...","total_phases":8,"execution_order":[1,3,2,4,5,6,7,8]}
 ```
+
+**Create Telegram forum topic for this execution:**
+
+Derive `roadmap_name` from the first heading in ROADMAP.md (`# Roadmap: {name}` → strip "Roadmap: " prefix). Fallback to "Roadmap" if not found.
+
+If the Telegram MCP is available, create a dedicated forum topic to receive all execution notifications:
+
+```
+telegram_topic_id = null
+try:
+  topic_result = mcp__telegram__create_topic({
+    title: "GSD: {roadmap_name} — {current_date}"
+  })
+  telegram_topic_id = topic_result.threadId
+  // Store thread_id in execution log so phase coordinators can read it
+  node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
+    --type telegram_topic_created \
+    --data '{"thread_id": {telegram_topic_id}, "title": "GSD: {roadmap_name} — {current_date}"}'
+except (MCP not available / TELEGRAM_BOT_TOKEN not set / any error):
+  // Non-fatal — continue without topic, notifications will go to main group
+  telegram_topic_id = null
+  log.info("Telegram topic creation skipped — MCP not available or bot not configured")
+```
+
+The `telegram_topic_id` variable persists in the coordinator's context for the duration of the execution. Pass `thread_id: telegram_topic_id` (when non-null) to all subsequent `mcp__telegram__send_message` calls.
+
+**Send execution start notification:**
+
+```
+if telegram_topic_id is not null:
+  mcp__telegram__send_message({
+    text: "Roadmap execution started\n\nPhases: {execution_order joined with ', '}\n\n{For each phase in execution_order: '- Phase {N}: {phase_name}'}\n\nTotal: {total_phases} phases",
+    thread_id: telegram_topic_id
+  })
+```
 </step>
 
 <step name="execute_phases">
@@ -166,7 +201,16 @@ node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
   --data '{"phase": {N}, "error": "...", "timestamp": "..."}'
 ```
 
-2. **Create detailed checkpoint:**
+2. **Send failure notification:**
+```
+if telegram_topic_id is not null:
+  mcp__telegram__send_message({
+    text: "Phase {N} failed\n\nError: {error}\nLast step: {step}\n\nOptions: reply 'retry', 'skip', or 'stop'",
+    thread_id: telegram_topic_id
+  })
+```
+
+3. **Create detailed checkpoint:**
 ```
 ## Phase {N} Failed
 
@@ -180,7 +224,7 @@ node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
 - "stop" — stop execution, preserve partial state
 ```
 
-3. **Store failure context for manual intervention:**
+4. **Store failure context for manual intervention:**
 - Checkpoint file at `.planning/phases/{phase_dir}/FAILURE.md`
 - Include: error, last step, files touched, suggested fixes
 </step>
@@ -219,7 +263,22 @@ node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
   --data '{"completed_phases": [...], "skipped_phases": [...], "timestamp": "..."}'
 ```
 
-2. **Present completion summary:**
+2. **Send execution complete notification:**
+```
+if telegram_topic_id is not null:
+  // Build one-liner per phase from SUMMARYs
+  phase_lines = []
+  for each completed_phase:
+    summary_oneliner = read first non-blank, non-heading line from .planning/phases/{phase_dir}/*-SUMMARY.md
+    phase_lines.push("- Phase {N} ({name}): {summary_oneliner}")
+
+  mcp__telegram__send_message({
+    text: "Roadmap execution complete\n\nCompleted: {completed_count}/{total_phases}\nSkipped: {skipped_count}\n\n{phase_lines joined with newline}",
+    thread_id: telegram_topic_id
+  })
+```
+
+3. **Present completion summary:**
 ```
 ## Roadmap Execution Complete
 
