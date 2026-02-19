@@ -117,7 +117,7 @@ const knowledge = {
    * @param {string} scope - 'global' or 'project'
    * @returns {{ available: boolean, reason?: string }}
    */
-  isAvailable(scope = 'project') {
+  isAvailable(scope = 'global') {
     const check = loadModules();
     if (!check.available) return check;
     return db.isKnowledgeDBAvailable(scope);
@@ -129,7 +129,7 @@ const knowledge = {
    * @returns {{ id: number, content_hash: string } | { skipped: true, reason: string }}
    */
   add(entry) {
-    const conn = getConnection(entry.scope || 'project');
+    const conn = getConnection(entry.scope || 'global');
     if (!conn.available) {
       return { skipped: true, reason: conn.reason };
     }
@@ -142,7 +142,7 @@ const knowledge = {
    * @param {string} scope - 'global' or 'project'
    * @returns {Object | null}
    */
-  get(id, scope = 'project') {
+  get(id, scope = 'global') {
     const conn = getConnection(scope);
     if (!conn.available) return null;
 
@@ -160,7 +160,7 @@ const knowledge = {
    * @returns {Array}
    */
   search(query, options = {}) {
-    const scope = options.scope || 'project';
+    const scope = options.scope || 'global';
     const conn = getConnection(scope);
     if (!conn.available) return [];
 
@@ -181,7 +181,7 @@ const knowledge = {
    * @param {string} scope
    * @returns {{ success: boolean, error?: string }}
    */
-  update(id, updates, scope = 'project') {
+  update(id, updates, scope = 'global') {
     const conn = getConnection(scope);
     if (!conn.available) {
       return { success: false, error: conn.reason };
@@ -195,7 +195,7 @@ const knowledge = {
    * @param {string} scope
    * @returns {{ deleted: boolean }}
    */
-  delete(id, scope = 'project') {
+  delete(id, scope = 'global') {
     const conn = getConnection(scope);
     if (!conn.available) {
       return { deleted: false };
@@ -210,7 +210,7 @@ const knowledge = {
    * @returns {Array}
    */
   getByType(type, options = {}) {
-    const scope = options.scope || 'project';
+    const scope = options.scope || 'global';
     const conn = getConnection(scope);
     if (!conn.available) return [];
     return crud.getKnowledgeByType(conn.db, type, options);
@@ -221,7 +221,7 @@ const knowledge = {
    * @param {string} scope
    * @returns {{ deleted: number, ids: number[] }}
    */
-  cleanup(scope = 'project') {
+  cleanup(scope = 'global') {
     const conn = getConnection(scope);
     if (!conn.available) {
       return { deleted: 0, ids: [] };
@@ -235,7 +235,7 @@ const knowledge = {
    * @param {string} scope
    * @returns {Object | null}
    */
-  getStaleness(id, scope = 'project') {
+  getStaleness(id, scope = 'global') {
     const conn = getConnection(scope);
     if (!conn.available) return null;
     return lifecycle.getStalenessScore(conn.db, id);
@@ -247,7 +247,7 @@ const knowledge = {
    * @returns {Array}
    */
   getStats(options = {}) {
-    const scope = options.scope || 'project';
+    const scope = options.scope || 'global';
     const conn = getConnection(scope);
     if (!conn.available) return [];
     return lifecycle.getAccessStats(conn.db, options);
@@ -276,7 +276,7 @@ const knowledge = {
   /**
    * Check if knowledge is both available and enabled
    */
-  isReady(scope = 'project', cwd = process.cwd()) {
+  isReady(scope = 'global', cwd = process.cwd()) {
     if (!isKnowledgeEnabled(cwd)) {
       return { ready: false, reason: 'disabled in config' };
     }
@@ -297,7 +297,7 @@ const knowledge = {
    * @param {string} scope - 'global' or 'project'
    * @returns {object} { db, available, reason? }
    */
-  _getConnection(scope = 'project') {
+  _getConnection(scope = 'global') {
     return getConnection(scope);
   }
 };

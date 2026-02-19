@@ -109,18 +109,8 @@ function ensureKnowledgeDB(scope) {
     return { available: false, reason: check.reason };
   }
 
-  // 3. Ensure .planning/knowledge/ directory exists for project scope
-  if (scope !== 'global') {
-    try {
-      const dbPath = knowledgeDb.getDBPath(scope);
-      const dbDir = path.dirname(dbPath);
-      if (!fs.existsSync(dbDir)) {
-        fs.mkdirSync(dbDir, { recursive: true });
-      }
-    } catch (err) {
-      return { available: false, reason: 'Could not create knowledge DB directory: ' + err.message };
-    }
-  }
+  // 3. Directory creation is handled by openKnowledgeDB() for all scopes
+  // (all scopes now resolve to the global ~/.claude/knowledge/ path)
 
   // 4. Open the database (auto-creates schema on first use)
   let conn;
@@ -149,12 +139,12 @@ function ensureKnowledgeDB(scope) {
  * @param {object} options - Storage options
  * @param {string} [options.sessionId] - Session ID for context tracking
  * @param {string} [options.conversationId] - Conversation ID for context tracking
- * @param {string} [options.scope='project'] - Knowledge scope ('project' or 'global')
+ * @param {string} [options.scope='global'] - Knowledge scope ('project' or 'global')
  * @returns {Promise<{ stored: number, skipped: number, evolved: number, errors: string[] }>}
  */
 async function storeInsights(insights, options = {}) {
   const result = { stored: 0, skipped: 0, evolved: 0, errors: [] };
-  const scope = options.scope || 'project';
+  const scope = options.scope || 'global';
 
   // Validate input
   if (!Array.isArray(insights) || insights.length === 0) {
