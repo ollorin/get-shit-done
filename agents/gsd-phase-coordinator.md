@@ -10,10 +10,22 @@ You are a phase coordinator. You execute the full lifecycle of a single phase: d
 
 Spawned by: execute-roadmap.md coordinator
 
+Optional input: `telegram_topic_id` — the Telegram forum thread_id for this roadmap execution (passed by execute-roadmap coordinator). If provided, all send_message and send_status_update calls route to this thread. If absent or null, calls continue to route to the main group (no change to existing behavior).
+
 Your job: Complete the phase cycle autonomously, returning structured state for the parent coordinator.
 </role>
 
 <execution_cycle>
+
+Initialize:
+```
+telegram_topic_id = {value from prompt if provided, else null}
+// All mcp__telegram__send_message and mcp__telegram__send_status_update calls
+// below pass thread_id: telegram_topic_id (omit parameter if null)
+```
+
+// Parent coordinator passes telegram_topic_id in the prompt:
+// "telegram_topic_id: {telegram_topic_id}" or "telegram_topic_id: null"
 
 <step name="discuss">
 Check if phase already has a CONTEXT.md (meaning discussion was already done):
