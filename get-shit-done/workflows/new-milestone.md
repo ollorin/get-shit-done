@@ -329,8 +329,8 @@ node ~/.claude/get-shit-done/bin/gsd-tools.js commit "docs: create milestone v[X
 
 ```bash
 BRANCH_INIT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js init milestone-branch)
-BRANCH_NAME=$(echo "$BRANCH_INIT" | grep -v '^\[dotenv' | jq -r '.branch_name')
-STRATEGY=$(echo "$BRANCH_INIT" | grep -v '^\[dotenv' | jq -r '.branching_strategy')
+BRANCH_NAME=$(echo "$BRANCH_INIT" | jq -r '.branch_name')
+STRATEGY=$(echo "$BRANCH_INIT" | jq -r '.branching_strategy')
 
 if [ "$STRATEGY" != "none" ] && [ "$BRANCH_NAME" != "null" ] && [ -n "$BRANCH_NAME" ]; then
   git checkout -b "$BRANCH_NAME" 2>/dev/null || git checkout "$BRANCH_NAME"
