@@ -64,22 +64,12 @@ const CONVERSATION_ANALYSIS_LOG_NAME = '.conversation-analysis-log.jsonl';
 
 /**
  * Resolve the path to the .conversation-analysis-log.jsonl file.
- * Stored at .planning/knowledge/ in the project root.
+ * Stored at ~/.claude/knowledge/ (global path, per Plan 01 migration).
  *
  * @returns {string} Absolute path to the conversation analysis log
  */
 function getConversationAnalysisLogPath() {
-  // Walk up from this file's directory to find the project root (.planning/)
-  let dir = __dirname;
-  for (let i = 0; i < 6; i++) {
-    const planningDir = path.join(dir, '.planning');
-    if (fs.existsSync(planningDir)) {
-      return path.join(planningDir, 'knowledge', CONVERSATION_ANALYSIS_LOG_NAME);
-    }
-    dir = path.dirname(dir);
-  }
-  // Fallback: relative to CWD
-  return path.join(process.cwd(), '.planning', 'knowledge', CONVERSATION_ANALYSIS_LOG_NAME);
+  return path.join(os.homedir(), '.claude', 'knowledge', CONVERSATION_ANALYSIS_LOG_NAME);
 }
 
 /**
@@ -207,6 +197,209 @@ function discoverProjectConversations(projectCwd, options = {}) {
   files.sort((a, b) => b.mtime - a.mtime);
 
   return { files, projectSlugDir };
+}
+
+// ---------------------------------------------------------------------------
+// reverseSlugToCwd
+// ---------------------------------------------------------------------------
+
+/**
+ * Reverse a Claude Code project slug to a filesystem path.
+ *
+ * The slug is the project CWD with every "/" replaced by "-":
+ *   /Users/ollorin/get-shit-done → -Users-ollorin-get-shit-done
+ *
+ * The reversal replaces "-" with "/" and re-adds the leading "/".
+ * This is a lossy operation (dirs with hyphens are ambiguous) but is
+ * sufficient for checking if ~/.claude/knowledge/.planning/ exists.
+ *
+ * @param {string} slug - Slug directory name (e.g., '-Users-ollorin-foo')
+ * @returns {string} Best-effort reversed filesystem path
+ */
+function reverseSlugToCwd(slug) {
+  // Leading '-' maps to leading '/', rest: '-' → '/'
+  if (slug.startsWith('-')) {
+    return '/' + slug.slice(1).replace(/-/g, '/');
+  }
+  return slug.replace(/-/g, '/');
+}
+
+// ---------------------------------------------------------------------------
+// discoverConversationsInSlugDir (internal)
+// ---------------------------------------------------------------------------
+
+/**
+ * Scan a slug directory for JSONL conversation files.
+ * Used by discoverAllProjectConversations to avoid slug→CWD→slug round-trip.
+ *
+ * @param {string} slugDirPath - Absolute path to the slug dir (e.g. ~/.claude/projects/-Users-foo/)
+ * @param {object} [options]
+ * @param {number} [options.maxAgeDays=30] - Skip files older than N days (0 = no limit)
+ * @param {boolean} [options.includeSubagents=false] - Also scan subagents/ subdirs
+ * @returns {Array<{path, sessionId, size, mtime, isSubagent?}>}
+ */
+function discoverConversationsInSlugDir(slugDirPath, options = {}) {
+  const { maxAgeDays = 30, includeSubagents = false } = options;
+  const cutoffMs = maxAgeDays > 0 ? Date.now() - maxAgeDays * 86400000 : 0;
+
+  const files = [];
+
+  let dirEntries;
+  try {
+    dirEntries = fs.readdirSync(slugDirPath);
+  } catch {
+    return files;
+  }
+
+  for (const entry of dirEntries) {
+    if (entry.endsWith('.jsonl')) {
+      const fullPath = path.join(slugDirPath, entry);
+      let stat;
+      try {
+        stat = fs.statSync(fullPath);
+      } catch {
+        continue;
+      }
+      if (cutoffMs > 0 && stat.mtimeMs < cutoffMs) continue;
+      files.push({
+        path: fullPath,
+        sessionId: entry.replace('.jsonl', ''),
+        size: stat.size,
+        mtime: stat.mtime
+      });
+    }
+
+    if (includeSubagents) {
+      const subagentsPath = path.join(slugDirPath, entry, 'subagents');
+      if (fs.existsSync(subagentsPath)) {
+        let subFiles;
+        try {
+          subFiles = fs.readdirSync(subagentsPath).filter(f => f.endsWith('.jsonl'));
+        } catch {
+          continue;
+        }
+        for (const sf of subFiles) {
+          const fullPath = path.join(subagentsPath, sf);
+          let stat;
+          try {
+            stat = fs.statSync(fullPath);
+          } catch {
+            continue;
+          }
+          if (cutoffMs > 0 && stat.mtimeMs < cutoffMs) continue;
+          files.push({
+            path: fullPath,
+            sessionId: `${entry}-sub-${sf.replace('.jsonl', '')}`,
+            size: stat.size,
+            mtime: stat.mtime,
+            isSubagent: true
+          });
+        }
+      }
+    }
+  }
+
+  // Sort by modification time, newest first
+  files.sort((a, b) => b.mtime - a.mtime);
+
+  return files;
+}
+
+// ---------------------------------------------------------------------------
+// discoverAllProjectConversations
+// ---------------------------------------------------------------------------
+
+/**
+ * Discover conversation JSONL files across ALL projects under ~/.claude/projects/.
+ *
+ * For each project slug directory:
+ * - Reverses the slug to a filesystem path and checks for .planning/ to
+ *   determine if it's a GSD project.
+ * - Non-GSD projects (no .planning/) are skipped silently and counted.
+ * - For GSD projects, resolves project_slug from .planning/config.json
+ *   (key: project.slug), falling back to path.basename(reversedCwd).
+ * - Discovers conversation JSONL files via discoverConversationsInSlugDir().
+ *
+ * @param {object} [options]
+ * @param {number} [options.maxAgeDays=30] - Skip files older than N days (0 = no limit)
+ * @param {boolean} [options.includeSubagents=false] - Also scan subagents/ subdirs
+ * @returns {{
+ *   projects: Array<{
+ *     projectSlugDir: string,
+ *     reversedCwd: string,
+ *     isGSD: boolean,
+ *     projectSlug: string,
+ *     files: Array<{path, sessionId, size, mtime, isSubagent?}>,
+ *     error?: string
+ *   }>,
+ *   totalFiles: number,
+ *   skippedNonGSD: number
+ * }}
+ */
+function discoverAllProjectConversations(options = {}) {
+  const projectsDir = path.join(os.homedir(), '.claude', 'projects');
+
+  let slugDirNames;
+  try {
+    slugDirNames = fs.readdirSync(projectsDir).filter(entry => {
+      try {
+        return fs.statSync(path.join(projectsDir, entry)).isDirectory();
+      } catch {
+        return false;
+      }
+    });
+  } catch {
+    // ~/.claude/projects/ may not exist
+    return { projects: [], totalFiles: 0, skippedNonGSD: 0 };
+  }
+
+  const projects = [];
+  let totalFiles = 0;
+  let skippedNonGSD = 0;
+
+  for (const slugDirName of slugDirNames) {
+    const slugDirPath = path.join(projectsDir, slugDirName);
+    const reversedCwd = reverseSlugToCwd(slugDirName);
+
+    // Check if this is a GSD project (has .planning/)
+    const planningDir = path.join(reversedCwd, '.planning');
+    const isGSD = fs.existsSync(planningDir);
+
+    if (!isGSD) {
+      skippedNonGSD++;
+      continue;
+    }
+
+    // Resolve project_slug from config.json, fallback to basename
+    let projectSlug = path.basename(reversedCwd);
+    const configPath = path.join(planningDir, 'config.json');
+    if (fs.existsSync(configPath)) {
+      try {
+        const configRaw = fs.readFileSync(configPath, 'utf8');
+        const config = JSON.parse(configRaw);
+        if (config && config.project && typeof config.project.slug === 'string') {
+          projectSlug = config.project.slug;
+        }
+      } catch {
+        // Fallback to basename — already set
+      }
+    }
+
+    // Discover conversation files in this slug dir
+    const files = discoverConversationsInSlugDir(slugDirPath, options);
+
+    totalFiles += files.length;
+
+    projects.push({
+      projectSlugDir: slugDirPath,
+      reversedCwd,
+      isGSD: true,
+      projectSlug,
+      files
+    });
+  }
+
+  return { projects, totalFiles, skippedNonGSD };
 }
 
 // ---------------------------------------------------------------------------
@@ -454,6 +647,8 @@ function prepareConversationForMining(filePath, sessionId) {
 
 module.exports = {
   discoverProjectConversations,
+  discoverAllProjectConversations,
+  reverseSlugToCwd,
   convertConversationEntries,
   shouldMineConversation,
   prepareConversationForMining
