@@ -325,7 +325,25 @@ Success criteria:
 node ~/.claude/get-shit-done/bin/gsd-tools.js commit "docs: create milestone v[X.Y] roadmap ([N] phases)" --files .planning/ROADMAP.md .planning/STATE.md .planning/REQUIREMENTS.md
 ```
 
-## 11. Done
+## 11. Create Milestone Branch
+
+```bash
+BRANCH_INIT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js init milestone-branch)
+BRANCH_NAME=$(echo "$BRANCH_INIT" | grep -v '^\[dotenv' | jq -r '.branch_name')
+STRATEGY=$(echo "$BRANCH_INIT" | grep -v '^\[dotenv' | jq -r '.branching_strategy')
+
+if [ "$STRATEGY" != "none" ] && [ "$BRANCH_NAME" != "null" ] && [ -n "$BRANCH_NAME" ]; then
+  git checkout -b "$BRANCH_NAME" 2>/dev/null || git checkout "$BRANCH_NAME"
+  echo "On branch: $BRANCH_NAME"
+fi
+```
+
+If branch was created (or switched to), tell the user:
+> "Created branch `[branch_name]` — all phases in this milestone will commit here."
+
+If strategy is `"none"`, skip silently.
+
+## 12. Done
 
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -368,6 +386,7 @@ Also: `/gsd:plan-phase [N]` — skip discussion, plan directly
 - [ ] User feedback incorporated (if any)
 - [ ] ROADMAP.md phases continue from previous milestone
 - [ ] All commits made (if planning docs committed)
+- [ ] Milestone branch created (if branching_strategy != "none")
 - [ ] User knows next step: `/gsd:discuss-phase [N]`
 
 **Atomic commits:** Each phase commits its artifacts immediately.

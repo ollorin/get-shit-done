@@ -220,7 +220,7 @@ function loadConfig(cwd) {
     search_gitignored: false,
     branching_strategy: 'none',
     phase_branch_template: 'gsd/phase-{phase}-{slug}',
-    milestone_branch_template: 'gsd/{milestone}-{slug}',
+    milestone_branch_template: 'feature/{slug}',
     research: true,
     plan_checker: true,
     verifier: true,
@@ -945,7 +945,7 @@ function cmdConfigEnsureSection(cwd, raw) {
     search_gitignored: false,
     branching_strategy: 'none',
     phase_branch_template: 'gsd/phase-{phase}-{slug}',
-    milestone_branch_template: 'gsd/{milestone}-{slug}',
+    milestone_branch_template: 'feature/{slug}',
     workflow: {
       research: true,
       plan_check: true,
@@ -6563,6 +6563,24 @@ function cmdInitNewMilestone(cwd, raw) {
   output(result, raw);
 }
 
+function cmdInitMilestoneBranch(cwd, raw) {
+  const config = loadConfig(cwd);
+  const milestone = getMilestoneInfo(cwd);
+
+  const result = {
+    branching_strategy: config.branching_strategy,
+    branch_name: config.branching_strategy === 'milestone'
+      ? config.milestone_branch_template
+          .replace('{milestone}', milestone.version)
+          .replace('{slug}', generateSlugInternal(milestone.name) || 'milestone')
+      : null,
+    milestone_version: milestone.version,
+    milestone_slug: generateSlugInternal(milestone.name),
+  };
+
+  output(result, raw);
+}
+
 function cmdInitQuick(cwd, description, raw) {
   const config = loadConfig(cwd);
   const now = new Date();
@@ -8601,6 +8619,9 @@ async function main() {
         case 'new-milestone':
           cmdInitNewMilestone(cwd, raw);
           break;
+        case 'milestone-branch':
+          cmdInitMilestoneBranch(cwd, raw);
+          break;
         case 'quick':
           cmdInitQuick(cwd, args.slice(2).join(' '), raw);
           break;
@@ -8629,7 +8650,7 @@ async function main() {
           cmdInitExecuteRoadmap(cwd, raw);
           break;
         default:
-          error(`Unknown init workflow: ${workflow}\nAvailable: execute-phase, plan-phase, new-project, new-milestone, quick, resume, verify-work, phase-op, todos, milestone-op, map-codebase, progress, execute-roadmap`);
+          error(`Unknown init workflow: ${workflow}\nAvailable: execute-phase, plan-phase, new-project, new-milestone, milestone-branch, quick, resume, verify-work, phase-op, todos, milestone-op, map-codebase, progress, execute-roadmap`);
       }
       break;
     }
