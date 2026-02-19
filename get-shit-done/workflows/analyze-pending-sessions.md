@@ -29,7 +29,7 @@ Invocation:
 Discover sessions that have been flagged for analysis by the MCP server.
 
 ```bash
-PENDING_JSON=$(node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js list-pending-sessions)
+PENDING_JSON=$(node ~/.claude/get-shit-done/bin/gsd-tools.js list-pending-sessions)
 ```
 
 Parse the JSON output. Extract `count` and `pending` array.
@@ -94,7 +94,7 @@ Process each session sequentially to extract knowledge.
 
 5. **Store the results** by calling gsd-tools.js:
    ```bash
-   STORE_RESULT=$(node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js \
+   STORE_RESULT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js \
      store-analysis-result "{sessionId}" '{resultsJson}')
    ```
 
@@ -131,7 +131,7 @@ normal — partial analysis is expected for sessions with unusual content.
 This step applies when invoked AFTER running `historical-extract`:
 
 ```bash
-HISTORICAL_JSON=$(node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js \
+HISTORICAL_JSON=$(node ~/.claude/get-shit-done/bin/gsd-tools.js \
   historical-extract "/path/to/project/.planning")
 ```
 

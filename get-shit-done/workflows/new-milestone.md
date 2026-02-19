@@ -71,14 +71,14 @@ Keep Accumulated Context section from previous milestone.
 Delete MILESTONE-CONTEXT.md if exists (consumed).
 
 ```bash
-node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js commit "docs: start milestone v[X.Y] [Name]" --files .planning/PROJECT.md .planning/STATE.md
+node ~/.claude/get-shit-done/bin/gsd-tools.js commit "docs: start milestone v[X.Y] [Name]" --files .planning/PROJECT.md .planning/STATE.md
 ```
 
 ## 7. Load Context and Resolve Models
 
 ```bash
 INIT_FILE="/tmp/gsd-init-$$.json"
-node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js init new-milestone > "$INIT_FILE"
+node ~/.claude/get-shit-done/bin/gsd-tools.js init new-milestone > "$INIT_FILE"
 ```
 
 Extract from init JSON: `researcher_model`, `synthesizer_model`, `roadmapper_model`, `commit_docs`, `research_enabled`, `current_milestone`, `project_exists`, `roadmap_exists`.
@@ -93,10 +93,10 @@ AskUserQuestion: "Research the domain ecosystem for new features before defining
 
 ```bash
 # If "Research first": persist true
-node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js config-set workflow.research true
+node ~/.claude/get-shit-done/bin/gsd-tools.js config-set workflow.research true
 
 # If "Skip research": persist false
-node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js config-set workflow.research false
+node ~/.claude/get-shit-done/bin/gsd-tools.js config-set workflow.research false
 ```
 
 **If "Research first":**
@@ -247,7 +247,7 @@ If "adjust": Return to scoping.
 
 **Commit requirements:**
 ```bash
-node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js commit "docs: define milestone v[X.Y] requirements" --files .planning/REQUIREMENTS.md
+node ~/.claude/get-shit-done/bin/gsd-tools.js commit "docs: define milestone v[X.Y] requirements" --files .planning/REQUIREMENTS.md
 ```
 
 ## 10. Create Roadmap
@@ -322,7 +322,7 @@ Success criteria:
 
 **Commit roadmap** (after approval):
 ```bash
-node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js commit "docs: create milestone v[X.Y] roadmap ([N] phases)" --files .planning/ROADMAP.md .planning/STATE.md .planning/REQUIREMENTS.md
+node ~/.claude/get-shit-done/bin/gsd-tools.js commit "docs: create milestone v[X.Y] roadmap ([N] phases)" --files .planning/ROADMAP.md .planning/STATE.md .planning/REQUIREMENTS.md
 ```
 
 ## 11. Done

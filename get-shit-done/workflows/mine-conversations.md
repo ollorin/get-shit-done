@@ -31,7 +31,7 @@ Invocation:
 Discover conversation JSONL files that are ready to be mined for knowledge.
 
 ```bash
-MINE_JSON=$(node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js mine-conversations --max-age-days 30 --limit 10)
+MINE_JSON=$(node ~/.claude/get-shit-done/bin/gsd-tools.js mine-conversations --max-age-days 30 --limit 10)
 ```
 
 Parse the JSON output. Extract `status`, `sessionsReady`, `sessionsSkipped`, `sessions`, `skipped`.
@@ -103,7 +103,7 @@ Process each conversation sequentially to extract knowledge.
 
 5. **Store the results** by calling gsd-tools.js:
    ```bash
-   STORE_RESULT=$(node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js \
+   STORE_RESULT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js \
      store-conversation-result "{sessionId}" '{resultsJson}' --content-hash "{session.contentHash}")
    ```
 

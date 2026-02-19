@@ -30,7 +30,7 @@ Load phase operation context:
 ```bash
 # Use temp file to avoid bash command substitution buffer limits
 INIT_FILE="/tmp/gsd-init-$$.json"
-node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js init phase-op "${PHASE_ARG}" > "$INIT_FILE"
+node ~/.claude/get-shit-done/bin/gsd-tools.js init phase-op "${PHASE_ARG}" > "$INIT_FILE"
 ```
 
 Extract from init JSON: `phase_dir`, `phase_number`, `phase_name`, `has_plans`, `plan_count`.
@@ -43,7 +43,7 @@ PHASE_NAME=$(jq -r '.phase_name' < "$INIT_FILE")
 
 Then load phase details and list plans/summaries:
 ```bash
-node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js roadmap get-phase "${PHASE_NUMBER}"
+node ~/.claude/get-shit-done/bin/gsd-tools.js roadmap get-phase "${PHASE_NUMBER}"
 grep -E "^| ${PHASE_NUMBER}" .planning/REQUIREMENTS.md 2>/dev/null
 ls "$PHASE_DIR"/*-SUMMARY.md "$PHASE_DIR"/*-PLAN.md 2>/dev/null
 ```
@@ -58,7 +58,7 @@ Use gsd-tools to extract must_haves from each PLAN:
 
 ```bash
 for plan in "$PHASE_DIR"/*-PLAN.md; do
-  MUST_HAVES=$(node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js frontmatter get "$plan" --field must_haves)
+  MUST_HAVES=$(node ~/.claude/get-shit-done/bin/gsd-tools.js frontmatter get "$plan" --field must_haves)
   echo "=== $plan ===" && echo "$MUST_HAVES"
 done
 ```
@@ -92,7 +92,7 @@ Use gsd-tools for artifact verification against must_haves in each PLAN:
 
 ```bash
 for plan in "$PHASE_DIR"/*-PLAN.md; do
-  ARTIFACT_RESULT=$(node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js verify artifacts "$plan")
+  ARTIFACT_RESULT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js verify artifacts "$plan")
   echo "=== $plan ===" && echo "$ARTIFACT_RESULT"
 done
 ```
@@ -124,7 +124,7 @@ Use gsd-tools for key link verification against must_haves in each PLAN:
 
 ```bash
 for plan in "$PHASE_DIR"/*-PLAN.md; do
-  LINKS_RESULT=$(node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js verify key-links "$plan")
+  LINKS_RESULT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js verify key-links "$plan")
   echo "=== $plan ===" && echo "$LINKS_RESULT"
 done
 ```

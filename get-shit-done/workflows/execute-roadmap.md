@@ -17,7 +17,7 @@ Load roadmap context:
 
 ```bash
 INIT_FILE="/tmp/gsd-roadmap-init-$$.json"
-node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js init execute-roadmap > "$INIT_FILE"
+node ~/.claude/get-shit-done/bin/gsd-tools.js init execute-roadmap > "$INIT_FILE"
 ```
 
 Parse JSON for:
@@ -69,7 +69,7 @@ If user types "yes": proceed to `initialize_execution_log`.
 Create or append to `.planning/EXECUTION_LOG.md`:
 
 ```bash
-node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
+node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
   --type roadmap_start \
   --data '{"total_phases": {N}, "execution_order": [...], "timestamp": "..."}'
 ```
@@ -90,7 +90,7 @@ For each phase in execution order:
 **2. Check dependencies:**
 ```bash
 # For each dep in phase.depends_on:
-node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js roadmap get-phase {dep}
+node ~/.claude/get-shit-done/bin/gsd-tools.js roadmap get-phase {dep}
 # Check disk_status == "complete"
 ```
 
@@ -100,7 +100,7 @@ If any dependency not complete:
 
 **3. Log phase start:**
 ```bash
-node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
+node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
   --type phase_start \
   --data '{"phase": {N}, "name": "...", "timestamp": "..."}'
 ```
@@ -161,7 +161,7 @@ On phase failure:
 
 1. **Log failure:**
 ```bash
-node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
+node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
   --type phase_failed \
   --data '{"phase": {N}, "error": "...", "timestamp": "..."}'
 ```
@@ -214,7 +214,7 @@ After all phases complete (or all remaining skipped):
 
 1. **Log roadmap complete:**
 ```bash
-node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
+node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
   --type roadmap_complete \
   --data '{"completed_phases": [...], "skipped_phases": [...], "timestamp": "..."}'
 ```

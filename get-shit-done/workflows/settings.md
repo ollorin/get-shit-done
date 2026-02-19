@@ -12,9 +12,9 @@ Read all files referenced by the invoking prompt's execution_context before star
 Ensure config exists and load current state:
 
 ```bash
-node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js config-ensure-section
+node ~/.claude/get-shit-done/bin/gsd-tools.js config-ensure-section
 INIT_FILE="/tmp/gsd-init-$$.json"
-node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js state load > "$INIT_FILE"
+node ~/.claude/get-shit-done/bin/gsd-tools.js state load > "$INIT_FILE"
 ```
 
 Creates `.planning/config.json` with defaults if missing and loads current config values.

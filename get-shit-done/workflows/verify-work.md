@@ -26,7 +26,7 @@ If $ARGUMENTS contains a phase number, load context:
 ```bash
 # Use temp file to avoid bash command substitution buffer limits
 INIT_FILE="/tmp/gsd-init-$$.json"
-node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js init verify-work "${PHASE_ARG}" > "$INIT_FILE"
+node ~/.claude/get-shit-done/bin/gsd-tools.js init verify-work "${PHASE_ARG}" > "$INIT_FILE"
 ```
 
 Parse JSON for: `planner_model`, `checker_model`, `commit_docs`, `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `has_verification`.
@@ -300,7 +300,7 @@ Clear Current Test section:
 
 Commit the UAT file:
 ```bash
-node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js commit "test({phase}): complete UAT - {passed} passed, {issues} issues" --files ".planning/phases/XX-name/{phase}-UAT.md"
+node ~/.claude/get-shit-done/bin/gsd-tools.js commit "test({phase}): complete UAT - {passed} passed, {issues} issues" --files ".planning/phases/XX-name/{phase}-UAT.md"
 ```
 
 Present summary:

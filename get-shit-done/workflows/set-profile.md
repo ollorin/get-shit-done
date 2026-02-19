@@ -23,9 +23,9 @@ if $ARGUMENTS.profile not in ["quality", "balanced", "budget", "auto"]:
 Ensure config exists and load current state:
 
 ```bash
-node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js config-ensure-section
+node ~/.claude/get-shit-done/bin/gsd-tools.js config-ensure-section
 INIT_FILE="/tmp/gsd-init-$$.json"
-node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js state load > "$INIT_FILE"
+node ~/.claude/get-shit-done/bin/gsd-tools.js state load > "$INIT_FILE"
 ```
 
 This creates `.planning/config.json` with defaults if missing and loads current config.
@@ -92,8 +92,8 @@ When auto is active:
 **Fallback behavior:** Sonnet when no patterns match (safety over savings)
 
 To view stats:
-- Quick status: `node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js quota status-bar`
-- Full breakdown: `node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js quota stats --table`
+- Quick status: `node ~/.claude/get-shit-done/bin/gsd-tools.js quota status-bar`
+- Full breakdown: `node ~/.claude/get-shit-done/bin/gsd-tools.js quota stats --table`
 ```
 </step>
 
