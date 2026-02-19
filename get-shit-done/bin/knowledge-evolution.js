@@ -59,12 +59,12 @@ function mergeMemories(existing, newContent, options = {}) {
 /**
  * Insert or evolve knowledge entry based on similarity
  * @param {object} conn - Database connection object
- * @param {object} entry - Entry to insert { content, type, scope, embedding, metadata }
+ * @param {object} entry - Entry to insert { content, type, scope, embedding, metadata, project_slug }
  * @param {object} options - Options
  * @returns {Promise<object>} { action, id?, similarity?, ... }
  */
 async function insertOrEvolve(conn, entry, options = {}) {
-  const { content, type, scope, embedding, metadata = {} } = entry;
+  const { content, type, scope, embedding, metadata = {}, project_slug } = entry;
   const { db } = conn;
 
   // Step 1: Check for duplicates
@@ -127,6 +127,7 @@ async function insertOrEvolve(conn, entry, options = {}) {
     type,
     scope,
     embedding,
+    project_slug,
     metadata: {
       ...metadata,
       canonical_hash: canonicalHash
@@ -162,6 +163,7 @@ async function processExtractionBatch(conn, extractions, options = {}) {
         type: ext.type,
         scope: options.scope || 'project',
         embedding,
+        project_slug: options.project_slug || null,
         metadata: {
           source: options.source || 'extraction',
           pattern: ext.pattern,

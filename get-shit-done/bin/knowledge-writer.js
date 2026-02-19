@@ -20,6 +20,27 @@
 const path = require('path');
 const fs = require('fs');
 
+// ─── Project Slug Resolution ──────────────────────────────────────────────
+
+/**
+ * Resolve the project slug for a given working directory.
+ *
+ * Resolution priority:
+ *   1. .planning/config.json project.slug field
+ *   2. Directory basename of cwd
+ *
+ * @param {string} [cwd] - Working directory (defaults to process.cwd())
+ * @returns {string} Project slug
+ */
+function resolveProjectSlug(cwd) {
+  try {
+    const configPath = path.join(cwd || process.cwd(), '.planning', 'config.json');
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    if (config.project && config.project.slug) return config.project.slug;
+  } catch { /* no config or no slug field */ }
+  return path.basename(cwd || process.cwd());
+}
+
 // ─── Type and TTL Mapping ─────────────────────────────────────────────────
 
 /**
@@ -145,6 +166,7 @@ function ensureKnowledgeDB(scope) {
 async function storeInsights(insights, options = {}) {
   const result = { stored: 0, skipped: 0, evolved: 0, errors: [] };
   const scope = options.scope || 'global';
+  const projectSlug = options.projectSlug || resolveProjectSlug(options.cwd);
 
   // Validate input
   if (!Array.isArray(insights) || insights.length === 0) {
@@ -238,6 +260,7 @@ async function storeInsights(insights, options = {}) {
             type: knowledgeType,
             scope,
             embedding: null,
+            project_slug: projectSlug,
             metadata: {
               ...contextMetadata,
               tags
@@ -262,6 +285,7 @@ async function storeInsights(insights, options = {}) {
         type: knowledgeType,
         scope,
         embedding: null,
+        project_slug: projectSlug,
         metadata: {
           ...contextMetadata,
           tags
@@ -293,5 +317,6 @@ module.exports = {
   storeInsights,
   ensureKnowledgeDB,
   mapInsightToKnowledgeType,
-  extractInsightContent
+  extractInsightContent,
+  resolveProjectSlug
 };

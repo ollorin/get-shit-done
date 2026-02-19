@@ -136,10 +136,11 @@
  *   list-pending-sessions                       Find sessions awaiting Haiku analysis
  *   store-analysis-result <id> <json>           Store Haiku extraction results
  *   mine-conversations                          Discover and prepare conversation mining
- *     [--max-age-days N] [--include-subagents] [--limit N]
+ *     [--max-age-days N] [--include-subagents] [--limit N] [--all-projects]
  *   store-conversation-result <id> <json>       Store conversation mining results
  *     [--content-hash <hash>]
  *   migrate-knowledge                           Migrate per-project DBs to global DB
+ *   query-knowledge <question> [--project <slug>]  Search global knowledge DB (top 5 JSON)
  *
  * Compound Commands (workflow-specific initialization):
  *   init execute-phase <phase>         All context for execute-phase workflow
@@ -2370,12 +2371,16 @@ function cmdKnowledgeAdd(cwd, args, raw) {
   const type = args.includes('--type') ? args[args.indexOf('--type') + 1] : 'summary';
   const ttl = args.includes('--ttl') ? args[args.indexOf('--ttl') + 1] : null;
 
+  const { resolveProjectSlug } = require('./knowledge-writer.js');
+  const project_slug = resolveProjectSlug(cwd);
+
   const { knowledge } = require('./knowledge.js');
   const result = knowledge.add({
     content,
     type,
     scope,
-    ttlCategory: ttl
+    ttlCategory: ttl,
+    project_slug
   });
 
   output(result, raw);
@@ -2389,9 +2394,10 @@ function cmdKnowledgeSearch(cwd, args, raw) {
 
   const scope = args.includes('--scope') ? args[args.indexOf('--scope') + 1] : 'project';
   const limit = args.includes('--limit') ? parseInt(args[args.indexOf('--limit') + 1]) : 10;
+  const project_slug = args.includes('--project') ? args[args.indexOf('--project') + 1] : null;
 
   const { knowledge } = require('./knowledge.js');
-  const results = knowledge.search(query, { scope, limit });
+  const results = knowledge.search(query, { scope, limit, project_slug });
 
   output(results, raw);
 }
@@ -7486,10 +7492,11 @@ async function cmdStoreAnalysisResult(cwd, args, raw) {
   }
 
   // Store all insights in knowledge DB
+  const { resolveProjectSlug } = require(path.join(__dirname, 'knowledge-writer.js'));
   let storeResult = { stored: 0, skipped: 0, evolved: 0, errors: [] };
   if (allInsights.length > 0) {
     try {
-      storeResult = await storeInsights(allInsights, { sessionId, scope: 'global' });
+      storeResult = await storeInsights(allInsights, { sessionId, scope: 'global', projectSlug: resolveProjectSlug(cwd) });
     } catch (err) {
       storeResult.errors.push('storeInsights failed: ' + err.message);
     }
@@ -8239,13 +8246,15 @@ async function cmdStoreConversationResult(cwd, args, raw) {
   }
 
   // Store all insights in knowledge DB (pass conversationId for context tracking)
+  const { resolveProjectSlug: resolveProjectSlugConv } = require(path.join(__dirname, 'knowledge-writer.js'));
   let storeResult = { stored: 0, skipped: 0, evolved: 0, errors: [] };
   if (allInsights.length > 0) {
     try {
       storeResult = await storeInsights(allInsights, {
         sessionId,
         conversationId: sessionId,
-        scope: 'global'
+        scope: 'global',
+        projectSlug: resolveProjectSlugConv(cwd)
       });
     } catch (err) {
       storeResult.errors.push('storeInsights failed: ' + err.message);
