@@ -6223,12 +6223,15 @@ function findPhaseInternal(cwd, phase) {
   try {
     const entries = fs.readdirSync(phasesDir, { withFileTypes: true });
     const dirs = entries.filter(e => e.isDirectory()).map(e => e.name).sort();
-    const match = dirs.find(d => d.startsWith(normalized));
+    // Match both 'NN-name' and 'phase-NN-name' directory conventions
+    const match = dirs.find(d => d.startsWith(normalized) || d.startsWith('phase-' + normalized + '-') || d === 'phase-' + normalized);
     if (!match) return null;
 
-    const dirMatch = match.match(/^(\d+(?:\.\d+)?)-?(.*)/);
+    const dirMatch = match.match(/^(?:phase-)?(\d+(?:\.\d+)?)-?(.*)/);
     const phaseNumber = dirMatch ? dirMatch[1] : normalized;
-    const phaseName = dirMatch && dirMatch[2] ? dirMatch[2] : null;
+    const rawName = dirMatch && dirMatch[2] ? dirMatch[2] : null;
+    // Strip leading 'phase-' artifact if present (shouldn't be after regex fix, but safety net)
+    const phaseName = rawName ? rawName.replace(/^phase-/, '') : null;
     const phaseDir = path.join(phasesDir, match);
     const phaseFiles = fs.readdirSync(phaseDir);
 
