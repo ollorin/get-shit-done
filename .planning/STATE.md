@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 
 ## Current Position
 
-Phase: 24 of 25 (Telegram Notifications) — complete
-Plan: 4 of 4 (complete)
-Status: Plan 24-04 complete — six phase lifecycle notification events and JSONL logging woven into gsd-phase-coordinator.md
-Last activity: 2026-02-19 — Plan 24-04 complete (phase lifecycle notifications: phase_start, context_ready, research_done, plans_ready, phase_complete, phase_failed)
+Phase: 25 of 25 (End-to-End Validation) — in progress
+Plan: 2 of 4 (complete)
+Status: Plan 25-02 complete — Phase 26 test stub (Milestone Summary & Archival) injected into ROADMAP.md with calibrated gray areas for live discuss step validation
+Last activity: 2026-02-19 — Plan 25-02 complete (Phase 26 stub: gray areas A/B target high-confidence autonomous path, gray area C targets low-confidence + sensitivity escalation trigger)
 
-Progress: [██████████████░░░░░░] 65% (v1.10.0)
+Progress: [████████████████░░░░] 75% (v1.10.0)
 
 ## Performance Metrics
 
@@ -34,6 +34,7 @@ Progress: [██████████████░░░░░░] 65% (v1
 | 22    | 4/4   | 13 min  | 3.25 min  |
 | 23    | 2/2   | 6 min   | 3.0 min   |
 | 24    | 4/4   | 15 min  | 3.75 min  |
+| 25    | 2/4   | 6 min   | 3.0 min   |
 
 **Recent Trend:**
 - Last 5 plans: 4, 4, 2, 2, 4 min
@@ -96,6 +97,8 @@ Recent decisions affecting current work:
 - [Phase 24-04]: phase_complete includes duration_minutes calculated from phase start timestamp — key UX metric
 - [Phase 24-04]: phase_failed fires for all failed/blocked outcomes with retry/skip/stop options — actionable recovery prompt
 - [Phase 24-04]: Coordinator failure notification coexists with execute-roadmap failure notification — different scopes (phase-level vs roadmap-level)
+- [Phase 25-02]: Phase 26 gray area C (distribution: commit vs Telegram vs private) is the escalation target — matches sensitivity criterion #3 (major architectural decision on output visibility), guarantees escalation in live validation
+- [Phase 25-02]: Test fixture design pattern — inject phase with known confidence profile into ROADMAP.md rather than running discuss step against real upcoming phase (avoids polluting actual planning with synthetic gray areas)
 
 ### Pending Todos
 
@@ -107,12 +110,12 @@ None.
 
 ### Next Steps
 
-- Phase 24 complete — all 4 plans done (create_topic MCP tool, execute-roadmap notifications, phase coordinator thread_id propagation, phase lifecycle notifications)
-- v1.10.0 Telegram Notifications milestone feature is complete end-to-end
-- Proceed to Phase 25 if it exists, or complete milestone v1.10.0
+- Phase 25 Plans 01-02 complete — static wiring verified + Phase 26 test stub injected into ROADMAP.md
+- Phase 26 (Milestone Summary & Archival) is in ROADMAP.md with calibrated gray areas, discoverable by gsd-tools
+- Proceed to Plan 25-03 (live discuss step execution on Phase 26 — requires Telegram reply from user)
 
 ## Session Continuity
 
 Last session: 2026-02-19
-Stopped at: Completed 24-04-PLAN.md — six phase lifecycle notification events and JSONL logging in phase coordinator
+Stopped at: Completed 25-02-PLAN.md — Phase 26 test stub injected into ROADMAP.md with calibrated gray areas for live discuss step validation
 Resume file: None
