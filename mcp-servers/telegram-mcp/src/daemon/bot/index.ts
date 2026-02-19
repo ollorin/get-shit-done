@@ -202,7 +202,11 @@ async function startWebhookMode(
 
 async function startPollingMode(botInstance: Telegraf<BotContext>): Promise<void> {
   await botInstance.telegram.deleteWebhook();
-  await botInstance.launch({ dropPendingUpdates: true });
+  // Note: bot.launch() resolves only when the bot is stopped (Telegraf v4 long polling).
+  // Fire without awaiting so startBot() returns and the IPC server can start.
+  botInstance.launch({ dropPendingUpdates: true }).catch((err: Error) => {
+    log.error({ err: err.message }, 'Polling error — bot stopped unexpectedly');
+  });
   log.info('Bot started in long polling mode');
 }
 
