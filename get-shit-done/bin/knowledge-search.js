@@ -11,6 +11,8 @@
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
+const QUERY_TIMEOUT_MS = 5000
+
 const TYPE_WEIGHTS = {
   decision: 2.0,
   lesson: 2.0,
@@ -33,6 +35,23 @@ function sanitizeFTSQuery(query) {
     .split(/\s+/)
     .filter(word => word.length > 0)
     .join(' ')
+}
+
+// ─── Timeout Guard ─────────────────────────────────────────────────────────
+
+/**
+ * Set busy_timeout on a DB connection so SQLite waits up to `ms` milliseconds
+ * when the database is locked rather than throwing SQLITE_BUSY immediately.
+ * Called idempotently before each query — setting the same value is a no-op.
+ * @param {object} db - better-sqlite3 Database instance
+ * @param {number} ms - Timeout in milliseconds
+ */
+function ensureBusyTimeout(db, ms) {
+  try {
+    db.pragma(`busy_timeout = ${ms}`)
+  } catch (_) {
+    // Read-only connections or already configured — ignore
+  }
 }
 
 // ─── FTS5 Search ───────────────────────────────────────────────────────────
@@ -100,6 +119,8 @@ function ftsSearch(db, query, { limit = 20, scope = null, types = null, project_
   sql += ' ORDER BY bm25_score LIMIT ?'
   params.push(limit)
 
+  ensureBusyTimeout(db, QUERY_TIMEOUT_MS)
+
   try {
     return db.prepare(sql).all(...params).map((row, idx) => ({
       ...row,
@@ -148,6 +169,8 @@ function vectorSearch(conn, embedding, { limit = 20, scope = null, types = null,
   if (!embedding || embedding.length === 0) {
     return []
   }
+
+  ensureBusyTimeout(conn.db, QUERY_TIMEOUT_MS)
 
   // Normalize query embedding
   const normalizedEmb = normalizeEmbedding(embedding)
@@ -276,8 +299,26 @@ function hybridSearch(conn, {
   const candidateLimit = limit * 3 // Fetch more candidates for fusion
 
   // Phase 1: Gather candidates from both sources
-  const ftsResults = query ? ftsSearch(conn.db, query, { limit: candidateLimit, scope, types, project_slug }) : []
-  const vecResults = embedding ? vectorSearch(conn, embedding, { limit: candidateLimit, scope, types, project_slug }) : []
+  // Each call is guarded by busy_timeout internally; catch any lock/timeout errors
+  // and degrade gracefully rather than blocking the caller indefinitely.
+  let ftsResults = []
+  let vecResults = []
+
+  if (query) {
+    try {
+      ftsResults = ftsSearch(conn.db, query, { limit: candidateLimit, scope, types, project_slug })
+    } catch (err) {
+      process.stderr.write(`[knowledge-search] degraded mode: FTS search failed (${err.message}) — skipping FTS results\n`)
+    }
+  }
+
+  if (embedding) {
+    try {
+      vecResults = vectorSearch(conn, embedding, { limit: candidateLimit, scope, types, project_slug })
+    } catch (err) {
+      process.stderr.write(`[knowledge-search] degraded mode: vector search failed (${err.message}) — using FTS results only\n`)
+    }
+  }
 
   // Phase 2: Build RRF score map
   const scoreMap = new Map()
