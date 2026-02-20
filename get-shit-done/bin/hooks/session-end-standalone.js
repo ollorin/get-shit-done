@@ -86,12 +86,17 @@ async function main() {
     process.exit(0);
   }
 
-  // --- Session dedup guard ---
-  // If a .done flag exists, extraction already ran for this session_id in a
-  // prior restart or concurrent invocation. Skip to avoid double-extracting.
-  if (fs.existsSync(doneFile)) {
-    cleanupOldTempFiles();
-    process.exit(0);
+  // --- Atomic session dedup guard (wx = exclusive create, fails with EEXIST if already exists) ---
+  try {
+    const fd = fs.openSync(doneFile, 'wx');
+    fs.closeSync(fd);
+  } catch (err) {
+    if (err.code === 'EEXIST') {
+      // Another invocation already claimed this session — skip extraction
+      cleanupOldTempFiles();
+      process.exit(0);
+    }
+    // Any other error (e.g. permissions): fall through and attempt extraction anyway
   }
 
   // --- Extract and store knowledge ---
@@ -126,9 +131,8 @@ async function main() {
         }
 
         // --- Delete temp file after successful extraction ---
-        // Write a .done flag first so concurrent invocations don't double-extract,
-        // then remove both the accumulated text and the flag on next cleanup sweep.
-        try { fs.writeFileSync(doneFile, session_id); } catch (_) {}
+        // The .done flag was already created atomically before extraction started.
+        // Remove both the accumulated text and the flag now that extraction is complete.
         try { fs.unlinkSync(tempFile); } catch (_) {}
         try { fs.unlinkSync(doneFile); } catch (_) {}
       }
