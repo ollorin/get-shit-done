@@ -13,12 +13,75 @@ class HeaderExtractor {
   }
 
   /**
+   * Extract paragraphs scored by term overlap with a query context string.
+   * Returns the top-scoring paragraphs up to maxChars total.
+   * Falls back to first-N-chars extraction when queryContext is empty.
+   *
+   * @param {string} content - Section body text (plain text, may contain markdown)
+   * @param {string} queryContext - Search terms or query string from hook input
+   * @param {number} maxChars - Max chars to return (default 300)
+   * @returns {string} Selected preview text
+   */
+  selectiveExtract(content, queryContext, maxChars = 300) {
+    if (!queryContext || queryContext.trim().length === 0) {
+      // No query context — fall back to structural (first N chars)
+      return content.substring(0, maxChars);
+    }
+
+    // Tokenize query into terms (lowercase, split on non-word chars, remove short words)
+    const queryTerms = queryContext
+      .toLowerCase()
+      .split(/\W+/)
+      .filter(t => t.length >= 3);
+
+    if (queryTerms.length === 0) {
+      return content.substring(0, maxChars);
+    }
+
+    // Split content into candidate paragraphs (blank-line separated)
+    const paragraphs = content
+      .split(/\n{2,}/)
+      .map(p => p.trim())
+      .filter(p => p.length > 0);
+
+    if (paragraphs.length === 0) {
+      return content.substring(0, maxChars);
+    }
+
+    // Score each paragraph by term overlap (preserve original index for stable sort on ties)
+    const scored = paragraphs.map((para, idx) => {
+      const paraLower = para.toLowerCase();
+      const matchCount = queryTerms.filter(term => paraLower.includes(term)).length;
+      const score = matchCount / queryTerms.length;
+      return { para, score, idx };
+    });
+
+    // Sort by score descending, original order as tiebreaker
+    scored.sort((a, b) => b.score - a.score || a.idx - b.idx);
+
+    // Collect top paragraphs up to maxChars
+    let result = '';
+    for (const { para } of scored) {
+      if (result.length === 0) {
+        // Always include at least one paragraph (truncate if necessary)
+        result = para.substring(0, maxChars);
+        if (result.length >= maxChars) break;
+      } else if (result.length + 2 + para.length <= maxChars) {
+        result += '\n\n' + para;
+      }
+    }
+
+    return result || content.substring(0, maxChars);
+  }
+
+  /**
    * Extract summary from markdown content
    * @param {string} markdownContent - Full markdown document
    * @param {string} absolutePath - Absolute file path for reference link
+   * @param {string} [queryContext] - Optional query context for semantic paragraph scoring
    * @returns {Object} { summary, sections, frontmatter }
    */
-  extractSummary(markdownContent, absolutePath) {
+  extractSummary(markdownContent, absolutePath, queryContext = '') {
     // Handle empty content edge case
     if (!markdownContent || markdownContent.trim().length === 0) {
       return {
@@ -60,8 +123,8 @@ class HeaderExtractor {
         // Short content without headers - return as-is
         summaryParts.push(content);
       } else {
-        // Long content without headers - truncate
-        summaryParts.push(content.substring(0, 500) + '...');
+        // Long content without headers — use selective extract
+        summaryParts.push(this.selectiveExtract(content, queryContext, 500) + (content.length > 500 ? '...' : ''));
       }
       summaryParts.push('');
       summaryParts.push(`**Full documentation:** [View complete file](file://${absolutePath})`);
@@ -77,9 +140,9 @@ class HeaderExtractor {
     let currentHeader = null;
     let currentLevel = 0;
     let captureContent = false;
-    let capturedChars = 0;
     let inCodeBlock = false;
-    let previewLines = [];
+    // Accumulate section body lines for selective extraction
+    let sectionBodyLines = [];
     let bulletCount = 0;
     const MAX_PREVIEW_CHARS = 300;
     const MAX_BULLETS = 3;
@@ -97,7 +160,9 @@ class HeaderExtractor {
       if (token.type === 'heading_open') {
         // Save previous section if any
         if (currentHeader) {
-          this._addSection(summaryParts, currentHeader, currentLevel, previewLines);
+          const sectionBody = sectionBodyLines.join('\n\n');
+          const preview = this.selectiveExtract(sectionBody, queryContext, MAX_PREVIEW_CHARS);
+          this._addSection(summaryParts, currentHeader, currentLevel, preview ? [preview] : []);
           sectionCount++;
         }
 
@@ -108,32 +173,31 @@ class HeaderExtractor {
           currentHeader = nextToken.content;
         }
         captureContent = true;
-        capturedChars = 0;
-        previewLines = [];
+        sectionBodyLines = [];
         bulletCount = 0;
         continue;
       }
 
-      // Capture content after header (until we hit max chars or next header)
-      if (captureContent && !inCodeBlock && capturedChars < MAX_PREVIEW_CHARS) {
+      // Capture content after header (until we hit next header)
+      if (captureContent && !inCodeBlock) {
         if (token.type === 'paragraph_open') {
           // Next token should be inline content
           const nextToken = tokens[i + 1];
           if (nextToken && nextToken.type === 'inline') {
-            const text = nextToken.content;
-            previewLines.push(text);
-            capturedChars += text.length;
+            sectionBodyLines.push(nextToken.content);
           }
         } else if (token.type === 'bullet_list_open') {
           // Capture bullets after header
-          for (let j = i + 1; j < tokens.length && bulletCount < MAX_BULLETS; j++) {
+          const bulletLines = [];
+          for (let j = i + 1; j < tokens.length && bulletLines.length < MAX_BULLETS; j++) {
             const bulletToken = tokens[j];
             if (bulletToken.type === 'bullet_list_close') break;
             if (bulletToken.type === 'inline' && bulletToken.content) {
-              previewLines.push(`- ${bulletToken.content}`);
-              bulletCount++;
-              capturedChars += bulletToken.content.length;
+              bulletLines.push(`- ${bulletToken.content}`);
             }
+          }
+          if (bulletLines.length > 0) {
+            sectionBodyLines.push(bulletLines.join('\n'));
           }
         }
       }
@@ -141,7 +205,9 @@ class HeaderExtractor {
 
     // Add final section
     if (currentHeader) {
-      this._addSection(summaryParts, currentHeader, currentLevel, previewLines);
+      const sectionBody = sectionBodyLines.join('\n\n');
+      const preview = this.selectiveExtract(sectionBody, queryContext, MAX_PREVIEW_CHARS);
+      this._addSection(summaryParts, currentHeader, currentLevel, preview ? [preview] : []);
       sectionCount++;
     }
 

@@ -9428,12 +9428,19 @@ async function main() {
               : 0;
 
             const totalTokensSaved = records.reduce((sum, r) =>
-              sum + ((r.originalTokens || 0) - (r.compressedTokens || 0)), 0);
+              sum + ((r.originalTokensEst || 0) - (r.compressedTokensEst || 0)), 0);
 
             output({
               count: records.length,
               avgReduction: avgReduction.toFixed(1) + '%',
-              totalTokensSaved
+              totalTokensSaved,
+              recentFiles: records.slice(-5).map(r => ({
+                file: r.file ? require('path').basename(r.file) : 'unknown',
+                timestamp: r.timestamp,
+                reductionPercent: r.reductionPercent,
+                originalTokensEst: r.originalTokensEst,
+                compressedTokensEst: r.compressedTokensEst
+              }))
             }, raw);
           }
         }

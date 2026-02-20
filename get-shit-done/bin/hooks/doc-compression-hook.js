@@ -41,6 +41,29 @@ const DOC_PATTERNS = [
 ];
 
 /**
+ * Estimate token count using 4 chars/token approximation
+ * @param {string} text
+ * @returns {number}
+ */
+function estimateTokens(text) {
+  return Math.ceil(text.length / 4);
+}
+
+/**
+ * Append a compression event to the metrics JSONL file.
+ * Failures are silently swallowed — metrics write must never affect hook output.
+ * @param {Object} record
+ */
+function appendMetrics(record) {
+  try {
+    const metricsPath = path.join(process.env.HOME, '.claude', 'get-shit-done', 'compression-metrics.jsonl');
+    fs.appendFileSync(metricsPath, JSON.stringify(record) + '\n');
+  } catch (_) {
+    // Metrics write failure must not affect compression output
+  }
+}
+
+/**
  * Main hook execution
  */
 async function main() {
@@ -140,9 +163,13 @@ async function main() {
       process.exit(0);
     }
 
+    // Extract query context from hook input if available
+    // hookData may carry a context or query_context string from the Read call
+    const queryContext = (hookData.context || hookData.query_context || '').trim();
+
     // Cache miss - compress the file
     const extractor = new HeaderExtractor();
-    const { summary, sections } = extractor.extractSummary(content, absolutePath);
+    const { summary, sections } = extractor.extractSummary(content, absolutePath, queryContext);
 
     // Record success after successful compression
     recordSuccess();
@@ -150,10 +177,21 @@ async function main() {
     // Store in cache
     cache.set(absolutePath, content, stat.mtimeMs, summary);
 
-    // Calculate reduction
+    // Calculate char-based reduction
     const originalChars = content.length;
     const compressedChars = summary.length;
-    const reduction = Math.round((1 - compressedChars / originalChars) * 100);
+    const reductionPercent = parseFloat(((1 - compressedChars / originalChars) * 100).toFixed(1));
+
+    // Write metrics JSONL entry (failure must not affect output)
+    appendMetrics({
+      timestamp: new Date().toISOString(),
+      file: absolutePath,
+      originalChars,
+      compressedChars,
+      reductionPercent,
+      originalTokensEst: estimateTokens(content),
+      compressedTokensEst: estimateTokens(summary)
+    });
 
     // Get circuit breaker status for metadata
     const cbStatus = getCircuitBreakerStatus();
@@ -169,7 +207,7 @@ async function main() {
         strategy: config.compression.strategy,
         originalChars,
         compressedChars,
-        reduction: `${reduction}%`,
+        reduction: `${reductionPercent}%`,
         circuitBreaker: cbStatus.state
       }
     };
