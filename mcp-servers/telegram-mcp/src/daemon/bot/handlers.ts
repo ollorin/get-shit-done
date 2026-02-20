@@ -84,6 +84,21 @@ export function setupHandlers(
     log.info({ questionCount: questions.length }, '/questions command received');
   });
 
+  // ─── /help command ─────────────────────────────────────────────────────
+
+  bot.command('help', async (ctx) => {
+    const helpText = [
+      'GSD Telegram Bot — Available Commands',
+      '',
+      '/start — initialize session and confirm bot is connected',
+      '/status — show current session status (idle/busy/waiting)',
+      '/questions — list all pending questions awaiting your reply',
+      '/help — show this message',
+    ].join('\n');
+    await ctx.reply(helpText);
+    log.info({ fromId: ctx.from?.id }, '/help command received');
+  });
+
   // ─── Text message handler ──────────────────────────────────────────────
 
   bot.on('text', async (ctx) => {
@@ -144,6 +159,17 @@ export function setupHandlers(
   // ─── Menu callback handlers ────────────────────────────────────────────
 
   registerMenuHandlers(bot, sessionService, getQuestions);
+
+  // ─── Register command list with BotFather for autocomplete ────────────
+
+  bot.telegram.setMyCommands([
+    { command: 'start', description: 'Initialize session and confirm bot is connected' },
+    { command: 'status', description: 'Show current session status (idle/busy/waiting)' },
+    { command: 'questions', description: 'List all pending questions awaiting your reply' },
+    { command: 'help', description: 'Show available commands' },
+  ]).catch((err: any) => {
+    log.warn({ err: err.message }, 'Failed to register bot commands with BotFather — autocomplete unavailable');
+  });
 
   log.info('All handlers registered');
 }

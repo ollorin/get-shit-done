@@ -202,32 +202,43 @@ async function main() {
     // 3. Connect to daemon via IPC
     ipcClient = new IPCClient(socketPath);
     await ipcClient.connect();
-    // 4. Handle unexpected daemon disconnects
+    // 4. Handle unexpected daemon disconnects with exponential backoff
+    const MAX_RECONNECT_RETRIES = 10;
+    const BASE_RECONNECT_DELAY_MS = 1000;
+    const MAX_RECONNECT_DELAY_MS = 8000;
+    const attemptReconnect = async (attempt) => {
+        if (attempt > MAX_RECONNECT_RETRIES) {
+            log.error({ maxRetries: MAX_RECONNECT_RETRIES }, 'Max reconnect attempts reached — giving up');
+            process.exit(1);
+            return;
+        }
+        const delay = Math.min(BASE_RECONNECT_DELAY_MS * Math.pow(2, attempt - 1), MAX_RECONNECT_DELAY_MS);
+        log.info({ attempt, maxRetries: MAX_RECONNECT_RETRIES, delayMs: delay }, 'Scheduling reconnect attempt');
+        await new Promise(resolve => setTimeout(resolve, delay));
+        try {
+            const fresh = new IPCClient(socketPath);
+            await fresh.connect();
+            ipcClient = fresh;
+            // Re-register session
+            const result = (await ipcClient.request('register_session', {
+                projectRoot: process.cwd(),
+            }));
+            sessionId = result.sessionId;
+            log.info({ sessionId, label: result.label, attempt }, 'Reconnected and re-registered session');
+            // Re-attach disconnect handler so next disconnection starts a fresh backoff loop
+            ipcClient.on('disconnected', () => {
+                log.warn('Daemon disconnected — starting reconnect loop with exponential backoff');
+                attemptReconnect(1).catch(() => process.exit(1));
+            });
+        }
+        catch (err) {
+            log.warn({ err, attempt }, 'Reconnect attempt failed — will retry');
+            await attemptReconnect(attempt + 1);
+        }
+    };
     ipcClient.on('disconnected', () => {
-        log.warn('Daemon disconnected unexpectedly — attempting to reconnect once');
-        // Attempt one reconnect
-        const reconnect = async () => {
-            try {
-                const fresh = new IPCClient(socketPath);
-                await fresh.connect();
-                ipcClient = fresh;
-                // Re-register session
-                const result = (await ipcClient.request('register_session', {
-                    projectRoot: process.cwd(),
-                }));
-                sessionId = result.sessionId;
-                log.info({ sessionId, label: result.label }, 'Reconnected and re-registered session');
-                ipcClient.on('disconnected', () => {
-                    log.error('Daemon disconnected again after reconnect — exiting');
-                    process.exit(1);
-                });
-            }
-            catch (err) {
-                log.error({ err }, 'Failed to reconnect to daemon — exiting');
-                process.exit(1);
-            }
-        };
-        reconnect().catch(() => process.exit(1));
+        log.warn('Daemon disconnected unexpectedly — starting reconnect loop with exponential backoff');
+        attemptReconnect(1).catch(() => process.exit(1));
     });
     // 5. Register session with daemon
     const registerResult = (await ipcClient.request('register_session', {
