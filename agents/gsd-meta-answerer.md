@@ -57,7 +57,7 @@ Each result object has this shape:
 
 **Step 2: Multi-pass fallback on empty results**
 
-If `no_results: true` or `results` is an empty array from the first query:
+If `no_results: true` or `results` is an empty array from the first query, enter fallback mode. Run BOTH passes below regardless of whether the first returns results — corroborating evidence from multiple passes is merged before scoring.
 
 **Pass 2 — Type-filtered decision query:**
 
@@ -66,22 +66,29 @@ Run:
 node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js query-knowledge "{question text}" --type decision
 ```
 
-If this returns results, proceed to Step 3 (synthesize) using these results. Apply a base confidence cap of 0.5 (weaker evidence — type-match only, not full semantic match). Adjust down from the scoring table accordingly.
+Collect any results. Do not stop here even if results were found — continue to Pass 3.
 
 **Pass 3 — Keyword-broadened query:**
 
-If Pass 2 also returns no results:
+Always run this when in fallback mode (i.e., Pass 1 was empty):
 1. Extract 2-3 key nouns or verbs from the question. Skip stop words: "is", "the", "should", "will", "how", "does", "what", "a", "an", "in", "on", "for", "of", "to", "and", "or", "with", "are", "it", "this", "that", "be", "by", "at", "if", "when"
 2. For each keyword, run:
    ```bash
    node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js query-knowledge "{keyword}"
    ```
-3. Merge all result arrays, deduplicating by answer text (use first 80 chars as the dedup key)
-4. If merged results are non-empty, proceed to Step 3 using the merged results. Apply a base confidence cap of 0.4 (weaker evidence — keyword scatter-search).
+3. Collect all result arrays.
+
+**Merge fallback pool:**
+
+After both passes complete, merge all Pass 2 and Pass 3 results into a single pool:
+- Deduplicate by answer text (use first 80 chars as the dedup key — keep first occurrence)
+- Use this merged pool as the input to Step 3
+
+Set `merged_from_passes: true` on the answer object when this merged pool is used.
 
 **No results across all passes:**
 
-Only if all three passes return empty:
+Only if both Pass 2 and Pass 3 return empty (merged pool is empty):
 - Answer: `"No relevant knowledge found"`
 - Confidence: `0.0`
 - Sources: `[]`
@@ -108,10 +115,9 @@ Start with a base score, then apply bumps:
 | Results loosely related, answer is an inference | 0.3–0.5 |
 | No relevant results or results contradict each other | 0.0–0.3 |
 
-**If results came from Pass 2 (decision type-filter):** cap confidence at 0.5 before applying bumps.
-**If results came from Pass 3 (keyword broadening):** cap confidence at 0.4 before applying bumps.
+**If results came from the merged fallback pool (Pass 2 + Pass 3):** apply no per-pass cap — multiple corroborating passes together justify scoring from the full table. The standard scoring table already captures evidence strength (multiple agreeing results score 0.9–1.0; single or tangential results score lower).
 
-**Bump rules (apply after base score and cap, cap total at 1.0):**
+**Bump rules (apply after base score, cap total at 1.0):**
 - `+0.05` if any result has `source_type === "decision"` (explicit recorded decision)
 - `+0.05` if any result has `project_slug` matching the current project (from phase_context)
 
@@ -144,7 +150,8 @@ Return a single JSON object as your final response. No markdown, no prose — on
           "excerpt": "first 100 chars of the answer field from this result"
         }
       ],
-      "no_results": false
+      "no_results": false,
+      "merged_from_passes": false
     }
   ],
   "stats": {
@@ -163,6 +170,7 @@ Field rules:
 - `confidence`: float 0.0–1.0, two decimal places
 - `sources`: array of 0–3 source reference objects
 - `no_results`: `true` when no DB results were found across all passes, `false` otherwise
+- `merged_from_passes`: `true` when the answer was synthesized from the merged Pass 2+3 fallback pool, `false` otherwise
 - `stats.answered`: count of questions where `no_results === false`
 - `stats.no_results`: count of questions where `no_results === true` (all passes exhausted)
 - `stats.avg_confidence`: average of all confidence values (including 0.0 entries)
