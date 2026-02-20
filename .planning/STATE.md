@@ -10,9 +10,9 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 ## Current Position
 
 Phase: 31-per-task-model-routing-executor-becomes-mini-orchestrator-option-a (in progress)
-Plan: 3 of ? (31-03 complete)
-Status: Plan 31-03 complete — executor routing-aware behavior added
-Last activity: 2026-02-20 — Plan 31-03 complete (routing tier read, haiku failure signaling, ROUTING_TIERS_USED tracking, ## Routing section in SUMMARY)
+Plan: 3 of ? (31-02 and 31-03 complete)
+Status: Plan 31-02 complete — per-task tier routing and quota downgrade added to coordinator execute step
+Last activity: 2026-02-20 — Plan 31-02 complete (PER_TASK_MODE, TASK_TIERS, quota downgrade, haiku escalation, routing stats in Telegram notification)
 
 Progress: [████████████████████] 100% (v1.11.0 — 5/5 phases, Phase 31 in progress)
 
@@ -47,6 +47,7 @@ Progress: [████████████████████] 100% (v
 *Updated after each plan completion*
 | Phase 31-per-task-model-routing-executor-becomes-mini-orchestrator-option-a P03 | 4 | 1 tasks | 1 files |
 | Phase 31 P01 | 2 | 1 tasks | 1 files |
+| Phase 31-per-task-model-routing-executor-becomes-mini-orchestrator-option-a P02 | 2 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -132,6 +133,7 @@ Recent decisions affecting current work:
 - [Phase 31-per-task-model-routing-executor-becomes-mini-orchestrator-option-a]: Haiku failure signal format: 'TASK FAILED: {name} [tier: haiku] — {error}'; sonnet/opus failures use existing behavior (no tier tag)
 - [Phase 31-01]: routing_pass step fires after write_phase_prompt and before validate_plan in gsd-planner — tier tags committed with plan
 - [Phase 31-01]: MODEL_PROFILE check fail = silent skip (routing is best-effort); per-task router failure defaults to sonnet
+- [Phase 31]: PER_TASK_MODE activates only when at least one task has an explicit tier tag — backward-compatible fallback to plan-level routing for plans with no tier tags
 
 ### Roadmap Evolution
 
@@ -154,5 +156,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-20
-Stopped at: Completed 31-01-PLAN.md — routing_pass step added to gsd-planner (tier tags via parallel gsd-task-router spawns when model_profile="auto")
+Stopped at: Completed 31-02-PLAN.md — per-task tier routing and quota downgrade added to gsd-phase-coordinator execute step
 Resume file: None

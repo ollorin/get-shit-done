@@ -225,6 +225,46 @@ function reverseSlugToCwd(slug) {
 }
 
 // ---------------------------------------------------------------------------
+// readCwdFromSlugDir
+// ---------------------------------------------------------------------------
+
+/**
+ * Read the actual CWD from the first JSONL file in a slug directory.
+ *
+ * Claude Code stores `cwd` on every user/assistant/progress entry in the
+ * JSONL conversation files. Reading it directly is lossless and handles
+ * project paths that contain hyphens (which reverseSlugToCwd cannot).
+ *
+ * @param {string} slugDirPath - Absolute path to the slug dir
+ * @returns {string|null} The actual CWD, or null if unreadable
+ */
+function readCwdFromSlugDir(slugDirPath) {
+  let dirEntries;
+  try {
+    dirEntries = fs.readdirSync(slugDirPath).filter(f => f.endsWith('.jsonl')).slice(0, 3);
+  } catch {
+    return null;
+  }
+
+  for (const file of dirEntries) {
+    try {
+      const content = fs.readFileSync(path.join(slugDirPath, file), 'utf8');
+      const lines = content.split('\n').filter(Boolean).slice(0, 20);
+      for (const line of lines) {
+        try {
+          const entry = JSON.parse(line);
+          if (entry.cwd && typeof entry.cwd === 'string') {
+            return entry.cwd;
+          }
+        } catch { /* skip malformed lines */ }
+      }
+    } catch { /* skip unreadable files */ }
+  }
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // discoverConversationsInSlugDir (internal)
 // ---------------------------------------------------------------------------
 
@@ -313,8 +353,9 @@ function discoverConversationsInSlugDir(slugDirPath, options = {}) {
  * Discover conversation JSONL files across ALL projects under ~/.claude/projects/.
  *
  * For each project slug directory:
- * - Reverses the slug to a filesystem path and checks for .planning/ to
- *   determine if it's a GSD project.
+ * - Reads the actual CWD from the first JSONL entry (lossless, handles hyphenated paths).
+ *   Falls back to slug reversal if no JSONL files are found.
+ * - Checks for .planning/ to determine if it's a GSD project.
  * - Non-GSD projects (no .planning/) are skipped silently and counted.
  * - For GSD projects, resolves project_slug from .planning/config.json
  *   (key: project.slug), falling back to path.basename(reversedCwd).
@@ -359,7 +400,8 @@ function discoverAllProjectConversations(options = {}) {
 
   for (const slugDirName of slugDirNames) {
     const slugDirPath = path.join(projectsDir, slugDirName);
-    const reversedCwd = reverseSlugToCwd(slugDirName);
+    // Prefer reading cwd from JSONL entries (lossless) over slug reversal (lossy for hyphenated paths)
+    const reversedCwd = readCwdFromSlugDir(slugDirPath) || reverseSlugToCwd(slugDirName);
 
     // Check if this is a GSD project (has .planning/)
     const planningDir = path.join(reversedCwd, '.planning');
