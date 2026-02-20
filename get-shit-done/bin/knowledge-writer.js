@@ -156,6 +156,9 @@ function ensureKnowledgeDB(scope) {
  *   Similarity 0.65-0.88 -> evolve (insertOrEvolve via knowledge-evolution.js)
  *   Similarity < 0.65 -> insert (insertKnowledge via knowledge-crud.js)
  *
+ * Stage 3 is attempted with a 2-second timeout using generateEmbeddingCached().
+ * If embedding generation times out or fails, dedup falls back to stages 1 and 2.
+ *
  * @param {Array<object>} insights - Parsed Haiku output objects (from parseExtractionResult)
  * @param {object} options - Storage options
  * @param {string} [options.sessionId] - Session ID for context tracking
@@ -237,12 +240,21 @@ async function storeInsights(insights, options = {}) {
       // d. Build tags
       const tags = ['haiku-extracted', insight.type];
 
-      // e. Check for duplicates (three-stage dedup)
-      // Note: embedding is not generated here (requires ML model at runtime).
-      // We rely on stages 1 and 2 (hash-based) for synchronous dedup.
-      // Stage 3 (embedding similarity) requires an active embedding pipeline
-      // which may not be available at session close time.
-      const dupCheck = await checkDuplicate(conn, content, null);
+      // e. Attempt Stage-3 embedding generation with 2s timeout (lazy-loaded)
+      // Falls back to null (hash-only dedup) on timeout or unavailability.
+      let embedding = null;
+      try {
+        const { generateEmbeddingCached } = require('./embeddings.js');
+        embedding = await Promise.race([
+          generateEmbeddingCached(content),
+          new Promise(resolve => setTimeout(() => resolve(null), 2000))
+        ]);
+      } catch (_embErr) {
+        // Embedding unavailable — fall back to hash-only dedup (stages 1 and 2)
+      }
+
+      // f. Check for duplicates (three-stage dedup; stage 3 fires when embedding non-null)
+      const dupCheck = await checkDuplicate(conn, content, embedding);
 
       if (dupCheck.isDuplicate) {
         const similarity = dupCheck.similarity || 0;
@@ -278,7 +290,7 @@ async function storeInsights(insights, options = {}) {
         }
       }
 
-      // f. Not a duplicate - insert new entry
+      // g. Not a duplicate - insert new entry
       // Use insertOrEvolve for canonical handling (it runs full dedup internally)
       const insertResult = await insertOrEvolve(conn, {
         content,
