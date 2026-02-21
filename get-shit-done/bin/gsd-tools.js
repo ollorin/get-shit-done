@@ -3070,10 +3070,28 @@ function cmdExecutionLog(cwd, args, raw) {
   const subcommand = args[0];
 
   if (!subcommand) {
-    error('execution-log: subcommand required (append|history|current|last-complete|stats)');
+    error('execution-log: subcommand required (event|append|history|current|last-complete|stats)');
   }
 
   switch (subcommand) {
+    case 'event': {
+      // Alias: execution-log event --type <type> --data '<json>'
+      // Accepts a JSON blob via --data for flexible event logging from workflows
+      const typeIndex = args.indexOf('--type');
+      if (typeIndex === -1) {
+        error('execution-log event: --type required');
+      }
+      const type = args[typeIndex + 1];
+      const dataIndex = args.indexOf('--data');
+      let extra = {};
+      if (dataIndex !== -1) {
+        try { extra = JSON.parse(args[dataIndex + 1]); } catch (e) { /* ignore malformed JSON */ }
+      }
+      const result = appendEvent(cwd, { type, ...extra });
+      output(result, raw, 'Event appended to EXECUTION_LOG.md');
+      break;
+    }
+
     case 'append': {
       // Parse event type
       const typeIndex = args.indexOf('--type');
@@ -8964,8 +8982,11 @@ async function main() {
   const command = args[0];
   const cwd = process.cwd();
 
-  if (!command) {
-    error('Usage: gsd-tools <command> [args] [--raw]\nCommands: state, resolve-model, find-phase, commit, verify-summary, verify, frontmatter, template, generate-slug, current-timestamp, list-todos, verify-path-exists, config-ensure-section, observability, health, init');
+  if (!command || command === '--help' || command === 'help') {
+    console.log('Usage: gsd-tools <command> [args] [--raw]');
+    console.log('Commands: state, roadmap, execution-log, quota, config, phases, frontmatter, template, commit, verify, health, init, and more.');
+    console.log('Run gsd-tools <command> without args for subcommand help.');
+    process.exit(0);
   }
 
   switch (command) {
@@ -9181,7 +9202,7 @@ async function main() {
       const subcommand = args[1];
       if (subcommand === 'get-phase') {
         cmdRoadmapGetPhase(cwd, args[2], raw);
-      } else if (subcommand === 'analyze') {
+      } else if (subcommand === 'analyze' || subcommand === 'list') {
         cmdRoadmapAnalyze(cwd, raw);
       } else if (subcommand === 'parse') {
         cmdRoadmapParse(cwd, raw);
@@ -9194,7 +9215,7 @@ async function main() {
       } else if (subcommand === 'update-plan-progress') {
         cmdRoadmapUpdatePlanProgress(cwd, args[2], raw);
       } else {
-        error('Unknown roadmap subcommand. Available: get-phase, analyze, parse, dag, status, validate, update-plan-progress');
+        error('Unknown roadmap subcommand. Available: get-phase, analyze, list, parse, dag, status, validate, update-plan-progress');
       }
       break;
     }
