@@ -109,125 +109,69 @@ This fork extends the base GSD system with autonomous execution, a persistent kn
 ### What Was Built
 
 **Auto Mode**
-Two things happen when a task is routed: model selection and context injection. A Haiku subagent (`gsd-task-router`) reads the task description and uses LLM reasoning — not keyword matching — to pick the right tier (Haiku for mechanical one-step tasks, Sonnet for multi-step implementation, Opus for architecture and high-stakes decisions). Quota pressure adjusts selection downward at >80% and >95% usage. Top 3 relevant docs are injected into the subagent prompt alongside the routing decision. Circuit breakers, iteration caps, error escalation ladder, and a feedback loop that learns from mis-routings. ~40–60% token savings vs all-Opus.
-
-Test:
-```bash
-# Model + top-3 context docs + CLAUDE.md keywords (what orchestrators actually use)
-node ~/.claude/get-shit-done/bin/gsd-tools.js routing full "Design database schema for users"
-
-# LLM-scored model selection with quota awareness
-node ~/.claude/get-shit-done/bin/gsd-tools.js routing match-with-quota "Add button to dashboard" --json
-
-# Model selection only (rule-based, no quota check)
-node ~/.claude/get-shit-done/bin/gsd-tools.js routing match "Add button to dashboard"
-
-# Rebuild context index after adding docs to ~/.claude/guides or .planning/codebase/
-node ~/.claude/get-shit-done/bin/gsd-tools.js routing index-build --force
-```
+A Haiku subagent (`gsd-task-router`) reads each task description and uses LLM reasoning — not keyword matching — to pick the right tier. Haiku for mechanical one-step tasks, Sonnet for multi-step implementation, Opus for architecture and high-stakes decisions. Quota pressure adjusts selection downward at >80% and >95% usage. Top 3 relevant docs are injected into the executor prompt alongside the routing decision. ~40–60% token savings vs all-Opus.
 
 Routing rules editable at `~/.claude/routing-rules.md`. Project overrides at `.planning/routing/project-rules.md`.
 
 **Knowledge System**
-Local SQLite + sqlite-vec knowledge database at `.planning/knowledge/{user}.db`. Stores decisions, lessons, summaries with TTL lifecycle, vector + FTS5 search, and type-weighted ranking (decisions/lessons score 2× vs summaries). Passive extraction via Claude Code hooks captures knowledge during normal work. Three-stage deduplication: content hash → canonical hash → embedding similarity (0.88 threshold). Memory evolves — similar new knowledge updates existing entries rather than creating duplicates.
+Local SQLite + sqlite-vec knowledge database at `.planning/knowledge/{user}.db`. Stores decisions, lessons, summaries with TTL lifecycle, vector + FTS5 search, and type-weighted ranking. Passive extraction via Claude Code hooks captures knowledge during normal work. Three-stage deduplication: content hash → canonical hash → embedding similarity. Memory evolves — similar new knowledge updates existing entries rather than creating duplicates.
 
-**Autonomous Execution (Phases 6–7)**
-`/gsd:execute-roadmap` — runs an entire project roadmap unattended. Opus coordinator spawns per-phase sub-coordinators, each with fresh context. Token budget monitoring (alerts at 80%), failure handling with retry/skip/escalate, task chunking for large plans, and parallel execution for independent phases.
+**Autonomous Execution**
+`/gsd:execute-roadmap` — runs an entire project roadmap unattended. Opus coordinator spawns per-phase sub-coordinators, each with fresh context. Before pushing, runs pre-PR quality gates (lint, type checks, unit tests, docs validation), then automatically pushes the branch and opens a PR. Failure handling with retry/skip/escalate and parallel execution for independent phases.
 
-**Telegram MCP Server (Phases 8, 8.1)**
-MCP server (`mcp-servers/telegram-mcp/`) that auto-loads with Claude Code. Sends blocking questions to your phone when human input is needed, resumes automatically on reply. Voice message support via local Whisper (no API cost). Multi-instance safe — each Claude Code session has isolated question queues with file locking and UUID-based session IDs.
+**Telegram Integration**
+MCP server (`mcp-servers/telegram-mcp/`) that auto-loads with Claude Code. Sends blocking questions to your phone when human input is needed, resumes automatically on reply. Voice message support via local Whisper (no API cost). Multi-instance safe with isolated question queues and file locking.
 
-**Doc Compression (Phase 9)**
-PreToolUse hook intercepts reads of GSD planning documents and injects compressed summaries (60–70% token reduction) with absolute file links. Cache invalidated on content change. Circuit breaker disables compression after 3 failures.
-
-Disabled by default. Enable in `hook-config.json`:
+**Doc Compression**
+PreToolUse hook intercepts reads of GSD planning documents and injects compressed summaries (60–70% token reduction). Disabled by default. Enable in `hook-config.json`:
 ```json
 { "enabled": true, "compression": { "enabled": true } }
 ```
 
-**Installation System (Phase 10)**
-Single command installs all dependencies, hooks, MCP config, and Whisper models:
-```bash
-npm run install:gsd
-```
-
-**Session Knowledge Extraction (Phase 11)**
-Haiku analyzes completed Telegram MCP sessions at close time, extracting decisions and reasoning patterns beyond regex matching. Quality gates, chunking for long sessions, deduplication against the knowledge DB, and re-analysis prevention via content hash.
-
-**Historical Conversation Mining (Phase 12)**
-Mines `~/.claude/projects/{slug}/*.jsonl` for knowledge — the entire Claude Code conversation history. Format adapter converts Claude Code JSONL (97.5% noise removed) to Phase 11-compatible entries, then spawns Haiku subagents to extract insights.
+**Conversation Mining**
+`/gsd:mine-conversations` — mines `~/.claude/projects/{slug}/*.jsonl` for decisions and reasoning patterns. Haiku subagents extract insights from Claude Code conversation history. Idempotent — already-analyzed sessions are skipped via content hash.
 
 ---
 
-## Fork Setup & Operations
-
-### Install from Fork
+## Setup
 
 ```bash
-git clone https://github.com/YOUR_FORK/get-shit-done.git
+git clone https://github.com/ollorin/get-shit-done.git
 cd get-shit-done
 cp .env.template .env
 # Fill in TELEGRAM_BOT_TOKEN and TELEGRAM_OWNER_ID in .env
 npm run install:gsd
 ```
 
-This installs npm dependencies, Whisper models, Claude Code hooks, and MCP server config.
+Installs npm dependencies, Whisper models, Claude Code hooks, and MCP server config. The knowledge DB creates itself on first use.
 
-### Update from Fork
+After updating from git: run `/gsd:reapply-patches` if you have local modifications to GSD files.
 
-```bash
-cd /path/to/get-shit-done
-git pull origin main
-npm run install:gsd   # reinstalls hooks, MCP config if changed
-```
+---
 
-If you have local patches to GSD skills/commands, run `/gsd:reapply-patches` after updating.
+## Recent Changes
 
-### Apply to a Different Project
+### v1.18.0
+- `--auto` flag for `/gsd:new-project` — runs research → requirements → roadmap automatically after config questions. Pass idea document via `@` reference: `/gsd:new-project --auto @prd.md`
+- Windows: SessionStart hook spawns detached process correctly; HEREDOC replaced with literal newlines for git commit compatibility
+- Research decision from `/gsd:new-milestone` now persists to config.json
 
-The install script deploys hooks and MCP config globally to `~/.claude/`. Once done, the knowledge system and Telegram integration work in any project — point Claude Code at your project directory and start.
+### v1.17.0
+- **gsd-tools verification suite**: `verify plan-structure`, `verify phase-completeness`, `verify references`, `verify commits`, `verify artifacts` — deterministic structural checks that replace manual AI-driven inspection
+- **gsd-tools frontmatter CRUD**: `frontmatter get/set/merge/validate` — safe YAML frontmatter operations with schema validation
+- **Local patch preservation**: installer detects locally modified GSD files, backs them up to `gsd-local-patches/`
+- `/gsd:reapply-patches` command to merge local modifications back after GSD updates
+- Agents (executor, planner, plan-checker, verifier) now use gsd-tools for state updates instead of manual markdown parsing
 
-The knowledge DB is per-project (`.planning/knowledge/{user}.db`) and global (`~/.claude/knowledge/{user}.db`). Both are created automatically on first use.
+### Post-release fixes
 
-### Initialize the Knowledge Database
+**Routing accuracy** — auto-mode tier assignment calibrated from empirical analysis of real task history. Haiku rubric expanded with patterns that were consistently over-assigned to Sonnet: mechanical search-replace, dead code removal, lint fixes, single-element additions, run-and-report tasks. Sonnet rubric extended with targeted debugging and documentation tasks that were incorrectly reaching Opus. Fallback defaults changed from sonnet → haiku throughout. Planner routing pass now runs a consistency check: structurally similar tasks in the same plan get the same tier.
 
-No explicit init step needed. The DB creates itself on first access. Verify it's working:
+**execute-roadmap: pre-PR quality gates** — before pushing and opening a PR, runs: frontend lint (`npm run lint`), backend lint (`deno lint`), type checks, unit tests (both npm and deno), and docs validation (`markdownlint`, `deno task validate:frontmatter`, `deno task validate:links`) when `docs/` files changed. Pre-commit hooks also run explicitly to catch anything agents may have bypassed. Collects all failures before reporting — asks fix/proceed/stop. On "proceed anyway", failures are noted in the PR body.
 
-```bash
-node get-shit-done/bin/gsd-tools.js knowledge status
-# → {"available": true, "db_path": ".../.planning/knowledge/ollorin.db"}
+**execute-roadmap: auto push + PR** — after all phases complete and quality gates pass, branch is pushed to remote and PR opened automatically via `gh pr create`. PR body includes phase summary from SUMMARY.md files. Skipped on `main`/`master`.
 
-node get-shit-done/bin/gsd-tools.js knowledge stats
-# → entry counts by type and scope
-```
-
-### Mine Past Conversations
-
-**From `~/.claude/projects/` (Claude Code conversation history):**
-
-```bash
-# Discover what's ready to mine, then process via Haiku subagents
-node get-shit-done/bin/gsd-tools.js mine-conversations --max-age-days 90
-
-# Or run the full orchestrated workflow in Claude Code:
-# (ask Claude to run the mine-conversations workflow)
-# @get-shit-done/workflows/mine-conversations.md
-```
-
-Options: `--max-age-days N` (default 30), `--limit N`, `--include-subagents`.
-Already-analyzed conversations are skipped via content hash.
-
-**From `.planning/telegram-sessions/` (Telegram session history):**
-
-```bash
-# List sessions pending analysis
-node get-shit-done/bin/gsd-tools.js list-pending-sessions
-
-# Run full analysis (spawns Haiku per session)
-# @get-shit-done/workflows/analyze-pending-sessions.md
-```
-
-Both workflows are idempotent — safe to re-run. Results stored in `.planning/knowledge/`.
+**gsd-tools CLI** — added `--help` command (prints usage, exits cleanly); `execution-log event` alias (workflows use `event` but tool only had `append` with individual flags — now accepts `--data '<json>'` blob); `roadmap list` alias for `roadmap analyze`.
 
 ---
 
