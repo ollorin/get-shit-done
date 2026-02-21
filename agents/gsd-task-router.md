@@ -28,6 +28,14 @@ Use haiku unless the task genuinely requires judgment or architecture. Most well
 - CRUD endpoints, form fields, UI tweaks, copy changes
 - Update a dependency, bump a version, add an entry to a list
 - Any task where the plan already answers the "how" and the work is just execution
+- Mechanical search-and-replace across files when the find/replace strings are given (rename env var, swap import, change string constant)
+- Remove dead code or unused files when a specific list is provided
+- Add a single element to named files: an attribute, an env var, a config key, one field
+- Fix well-specified lint violations (prefer-const, unused vars, import style)
+- Run tests and report results — execution and observation, no code changes required
+- Commit, verify, create SUMMARY.md, or any task whose only action is run/check/commit
+
+**Disambiguation:** A technically-sounding task name does not imply sonnet. Read the action body — if it specifies what to change and where, it's haiku regardless of how complex the domain sounds.
 
 **Sonnet — multi-step work with real judgment (~30% of tasks)**
 
@@ -37,15 +45,19 @@ Escalate to sonnet only when execution requires genuine design decisions not alr
 - Implement a feature that touches multiple files and requires coherent design choices
 - Write integration tests for a complex flow
 - Tasks where the "how" is partially specified but requires filling in non-obvious details
+- Investigate and fix failures where error messages and failing locations are already known (CI log analysis → targeted fix)
+- Write or update documentation when the content to cover is already clear (deployment guides, migration docs, README updates)
+- Migrations with a defined before/after (env var renaming, auth client swap, dependency substitution across files)
+- Verification tasks: check phase goal achievement, compare must_haves against codebase
 
 **Opus — reserved for the hardest ~15% only**
 
-Use opus sparingly. Only when the cost of a wrong decision is high AND the task requires reasoning that sonnet genuinely struggles with:
-- Design a new system from scratch with major architectural tradeoffs
-- Debug a non-obvious race condition or cross-system failure with no clear lead
-- Make a breaking change with wide blast radius across the codebase
-- Evaluate competing approaches where the choice has long-term consequences
-- Security-critical code where subtle mistakes are costly
+Use opus ONLY when the correct answer is genuinely unknown AND the cost of a wrong call is high:
+- Design decisions with multiple valid architectural approaches where there is no clear right answer
+- Debug a failure where the root cause is completely unknown across multiple systems
+- Making breaking changes where design tradeoffs span the whole codebase
+
+Not opus: investigations where error messages are already known, doc writing, migrations with defined before/after, routine plan execution.
 
 **Default rule: when in doubt, go one tier down.** A haiku doing clean execution beats a sonnet over-thinking a simple task. Only escalate when you can name a specific reason.
 
@@ -98,8 +110,8 @@ If all commands fail:
 ROUTING DECISION
 ================
 Task: {task description}
-Model: sonnet
-Reasoning: fallback — commands unavailable, defaulting to sonnet
+Model: haiku
+Reasoning: fallback — commands unavailable, defaulting to haiku
 Quota: unknown
 ```
 </step>

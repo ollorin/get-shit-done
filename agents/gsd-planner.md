@@ -1067,22 +1067,24 @@ For each PLAN.md written in the write_phase_prompt step:
 
 3. **Parse each ROUTING DECISION response** — extract the `Model:` line from each result:
    ```
-   tier = response.match(/^Model:\s*(haiku|sonnet|opus)/m)?.[1] ?? 'sonnet'
+   tier = response.match(/^Model:\s*(haiku|sonnet|opus)/m)?.[1] ?? 'haiku'
    ```
-   If parsing fails or model is not one of haiku/sonnet/opus, default to sonnet.
+   If parsing fails or model is not one of haiku/sonnet/opus, default to haiku.
 
 4. **Rewrite task <name> elements** — for each task, prepend `[{tier}] ` to the <name> content. Use Edit tool to update PLAN.md in-place. Only modify the `<name>` element — do not change any other task field.
    - Before: `<name>Task 3: Add config field</name>`
    - After: `<name>[haiku] Task 3: Add config field</name>`
 
-5. **Log routing decisions** — after all tasks are updated, write a brief summary to stdout:
+5. **Consistency check** — after all tiers are assigned, scan for tasks with structurally similar names (same verb + same target pattern, e.g. two tasks both named "Convert X to match()"). If similar tasks got different tiers, downgrade all of them to the lowest assigned tier and log the adjustment.
+
+6. **Log routing decisions** — after all tasks are updated, write a brief summary to stdout:
    ```
    Routing pass complete: {haiku_count} haiku, {sonnet_count} sonnet, {opus_count} opus
    ```
 
 **Important constraints:**
 - Routing pass runs AFTER the full plan is written to disk — never interleave with drafting
-- If gsd-task-router call fails for a task, default that task to sonnet and continue (don't abort the routing pass)
+- If gsd-task-router call fails for a task, default that task to haiku and continue (don't abort the routing pass)
 - If MODEL_PROFILE check command fails, skip the routing pass entirely
 - The routing pass is a best-effort step — plan commits happen AFTER routing pass (in the git_commit step that follows)
 </step>
