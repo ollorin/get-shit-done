@@ -25,6 +25,7 @@ export declare class IPCServer extends EventEmitter {
     private server;
     /** Map of clientId → net.Socket for all connected clients */
     private clients;
+    private static readonly MAX_BUFFER_SIZE;
     constructor(socketPath: string, handlers: Map<IPCMethod, MethodHandler>);
     private handleConnection;
     private handleLine;

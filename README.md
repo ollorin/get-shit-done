@@ -102,13 +102,13 @@ Verify: `/gsd:help` inside Claude Code.
 
 ---
 
-## v2.0 Enhancements (This Fork)
+## Enhancements (This Fork)
 
-This fork extends the base GSD system with autonomous execution, a persistent knowledge database, Telegram integration, and conversation mining. Built across 12 phases.
+This fork extends the base GSD system with autonomous execution, a persistent knowledge database, Telegram integration, and conversation mining.
 
 ### What Was Built
 
-**Auto Mode (Phases 1–2)**
+**Auto Mode**
 Two things happen when a task is routed: model selection and context injection. A Haiku subagent (`gsd-task-router`) reads the task description and uses LLM reasoning — not keyword matching — to pick the right tier (Haiku for mechanical one-step tasks, Sonnet for multi-step implementation, Opus for architecture and high-stakes decisions). Quota pressure adjusts selection downward at >80% and >95% usage. Top 3 relevant docs are injected into the subagent prompt alongside the routing decision. Circuit breakers, iteration caps, error escalation ladder, and a feedback loop that learns from mis-routings. ~40–60% token savings vs all-Opus.
 
 Test:
@@ -128,7 +128,7 @@ node ~/.claude/get-shit-done/bin/gsd-tools.js routing index-build --force
 
 Routing rules editable at `~/.claude/routing-rules.md`. Project overrides at `.planning/routing/project-rules.md`.
 
-**Knowledge System (Phases 3–4)**
+**Knowledge System**
 Local SQLite + sqlite-vec knowledge database at `.planning/knowledge/{user}.db`. Stores decisions, lessons, summaries with TTL lifecycle, vector + FTS5 search, and type-weighted ranking (decisions/lessons score 2× vs summaries). Passive extraction via Claude Code hooks captures knowledge during normal work. Three-stage deduplication: content hash → canonical hash → embedding similarity (0.88 threshold). Memory evolves — similar new knowledge updates existing entries rather than creating duplicates.
 
 **Autonomous Execution (Phases 6–7)**

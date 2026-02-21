@@ -1315,7 +1315,8 @@ function installHookDependencies(gsdDir) {
       'gray-matter': '^4.0.3',
       'minimatch': '^9.0.0',
       'better-sqlite3': '^11.0.0',
-      'sqlite-vec': '^0.1.0'
+      'sqlite-vec': '^0.1.0',
+      '@xenova/transformers': '^2.17.2'
     }
   }, null, 2));
 
@@ -1414,7 +1415,7 @@ function install(isGlobal, runtime = 'claude') {
   if (!isOpencode && !isGemini) {
     const depsOk = installHookDependencies(skillDest);
     if (depsOk) {
-      console.log(`  ${green}✓${reset} Installed hook dependencies (markdown-it, gray-matter, minimatch)`);
+      console.log(`  ${green}✓${reset} Installed hook dependencies (markdown-it, gray-matter, minimatch, @xenova/transformers)`);
     } else {
       console.log(`  ${yellow}⚠${reset} Hook dependencies install failed — doc compression will be unavailable`);
     }

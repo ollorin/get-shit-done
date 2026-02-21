@@ -234,6 +234,10 @@ export class QuestionService extends EventEmitter {
         const now = Date.now();
         let staleCount = 0;
         for (const q of savedQuestions) {
+            // Skip answered questions — they serve no operational purpose on restart
+            if (q.answer !== undefined) {
+                continue;
+            }
             // Filter out pending questions that expired while the daemon was down
             if (q.answer === undefined) {
                 const expiresAt = new Date(q.createdAt).getTime() + q.timeoutMinutes * 60 * 1000;
@@ -269,6 +273,10 @@ export class QuestionService extends EventEmitter {
         else {
             log.info({ count: savedQuestions.length }, 'Question state restored from file');
         }
+        // Compact the state file: remove answered and stale entries
+        // this.questions now contains only the live (pending, non-expired) questions
+        this.saveState();
+        log.debug({ path: this.stateFilePath }, 'Question state compacted after restore');
     }
     // ─── Private helpers ─────────────────────────────────────────────────────────
     /**

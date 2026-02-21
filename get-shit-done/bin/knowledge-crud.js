@@ -235,9 +235,11 @@ function updateKnowledge(db, id, updates) {
     }
 
     // Update embedding if provided
-    // Note: sqlite-vec 0.1.6 vec0 tables don't support rowid specification on INSERT
-    // So we can't safely update embeddings (delete + reinsert may get different rowid)
-    // For now, embedding updates are not supported - delete and reinsert the entry instead
+    // Note: sqlite-vec vec0 supports explicit rowid only as a SQL literal, not as a bound
+    // parameter — `INSERT INTO t(rowid, v) VALUES (42, ?)` works but `VALUES (?, ?)` fails.
+    // So a prepared statement can't safely update embeddings (delete + reinsert auto-assigns
+    // a new rowid that no longer matches knowledge.id).
+    // Embedding updates are not supported here — delete and reinsert the entry instead.
     if (updates.embedding && db.vectorEnabled) {
       throw new Error('Embedding updates not supported with sqlite-vec 0.1.6. Delete and reinsert the knowledge entry instead.')
     }

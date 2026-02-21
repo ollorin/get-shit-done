@@ -4,7 +4,7 @@
 
 - ✅ **v1.9.0 GSD Enhancements** — Phases 1-14 (shipped 2026-02-19)
 - ✅ **v1.9.1 Upstream Sync** — Phases 18-20 (completed 2026-02-19)
-- ✅ **v1.10.0 Autonomous Phase Discussion** — Phases 21-25 (completed 2026-02-19)
+- ✅ **v1.10.0 Autonomous Phase Discussion** — Phases 21-25, 33 (shipped 2026-02-21)
 - ✅ **v1.11.0 System Hardening** — Phases 26-30 (completed 2026-02-20)
   - 26: Telegram MCP Reliability · 27: Knowledge Quality · 28: Compression Observability · 29: Session Fix · 30: Milestone Archival
 
@@ -70,101 +70,19 @@ Plans:
 
 </details>
 
-### ✅ v1.10.0 Autonomous Phase Discussion (Complete)
+<details>
+<summary>✅ v1.10.0 Autonomous Phase Discussion (Phases 21-25, 33) — SHIPPED 2026-02-21</summary>
 
-**Milestone Goal:** Enable `execute-roadmap` to autonomously discuss each phase using a global meta-knowledge DB, writing CONTEXT.md before research begins, with Telegram escalation for sensitive decisions and progress notifications throughout execution.
+- [x] Phase 21: Knowledge Global Migration (3/3 plans) — completed 2026-02-19
+- [x] Phase 22: Discuss Step & Meta-Answerer (4/4 plans) — completed 2026-02-19
+- [x] Phase 23: Telegram Escalation (2/2 plans) — completed 2026-02-19
+- [x] Phase 24: Telegram Notifications (4/4 plans) — completed 2026-02-19
+- [x] Phase 25: End-to-End Validation (4/4 plans) — completed 2026-02-19
+- [x] Phase 33: v1.10.0 Tech Debt Closure (2/2 plans) — completed 2026-02-21
 
-- [x] **Phase 21: Knowledge Global Migration** — Migrate knowledge DB to `~/.claude/knowledge/`, add project tagging, cross-project mining, and `query-knowledge` CLI command
-- [x] **Phase 22: Discuss Step & Meta-Answerer** — Add autonomous discuss step to phase coordinator: gray-area analysis, 10-20 Q&A questions per gray area, `gsd-meta-answerer` subagent answers from global knowledge DB, CONTEXT.md written from answers
-- [x] **Phase 23: Telegram Escalation** — Wire sensitive flagged questions into Telegram blocking escalation with multi-turn follow-up loop, sensitivity criteria enforcement, and JSONL logging
-- [x] **Phase 24: Telegram Notifications** — Add `create_topic` MCP tool for milestone forum topics, wire phase lifecycle and roadmap-level events into coordinator notifications
-- [x] **Phase 25: End-to-End Validation** — Verify full autonomous discuss loop on a real phase with mixed autonomous and Telegram-escalated answers producing a complete CONTEXT.md
+Full details: `.planning/milestones/v1.10.0-ROADMAP.md`
 
-#### Phase 21: Knowledge Global Migration
-**Goal**: The knowledge system operates from a single global DB at `~/.claude/knowledge/` shared across all projects, with project tagging for scoped queries and cross-project conversation mining
-**Depends on**: Phase 20 (existing knowledge system)
-**Requirements**: KNOW-01, KNOW-02, KNOW-03, KNOW-04, KNOW-05
-**Success Criteria** (what must be TRUE):
-  1. Running `gsd-tools query-knowledge "should I use async or sync here"` returns relevant past decisions with confidence scores and source snippets from the global DB
-  2. Knowledge entries written during any project session carry a `project_slug` field that filters correctly when queried with `--project=<slug>`
-  3. The conversation miner scans `~/.claude/projects/` (all projects) and successfully populates the global DB with entries from projects other than the current working directory
-  4. All Phase 3/4/11/12 modules (knowledge-writer, session-analyzer, conversation-miner) write to `~/.claude/knowledge/<user>.db` and the old `.planning/knowledge/` path is no longer used as primary storage
-  5. Existing knowledge entries (if any) remain queryable after migration with no data loss
-**Plans**: 3 plans
-
-Plans:
-- [ ] 21-01: Migrate knowledge DB path to `~/.claude/knowledge/`, update all modules to global scope, add `project_slug` schema, create `migrate-knowledge` command
-- [ ] 21-02: Add `project_slug` tagging to all write paths (crud, writer, evolution) and query filtering to all search paths
-- [ ] 21-03: Extend conversation miner to scan all projects (`--all-projects`) and implement `query-knowledge` gsd-tools command
-
-#### Phase 22: Discuss Step & Meta-Answerer
-**Goal**: The phase coordinator autonomously identifies gray areas before research begins, generates targeted Q&A questions, spawns `gsd-meta-answerer` to answer from the global knowledge DB, and writes CONTEXT.md from the results — all without human input for questions it can answer with sufficient confidence
-**Depends on**: Phase 21 (query-knowledge command required by gsd-meta-answerer)
-**Requirements**: DISC-01, DISC-02, DISC-03, DISC-04, DISC-05, DISC-06, DISC-07
-**Success Criteria** (what must be TRUE):
-  1. When `execute-roadmap` starts a phase that has no CONTEXT.md, the coordinator runs a discuss step before research; when CONTEXT.md already exists, the discuss step is skipped automatically
-  2. The discuss step produces a list of gray areas for the phase (goal, requirements, and context analyzed) along with 10-20 concrete questions per gray area
-  3. `gsd-meta-answerer` receives the questions and phase context, queries the global knowledge DB via `query-knowledge`, and returns an answer + confidence score + source references for each question
-  4. Each answer is evaluated and marked `sufficient` or `needs-escalation`; sufficient answers are written directly into CONTEXT.md
-  5. CONTEXT.md exists and contains documented decisions before the research step begins, regardless of whether all answers came autonomously or some required escalation
-**Plans**: 4 plans
-
-Plans:
-- [x] 22-01-PLAN.md — Add discuss step skeleton to gsd-phase-coordinator (CONTEXT.md skip guard + gray-area identification)
-- [x] 22-02-PLAN.md — Implement question generation (gray-area analysis → 10-20 Q&A per area)
-- [x] 22-03-PLAN.md — Create gsd-meta-answerer subagent (query-knowledge integration, confidence scoring, source references)
-- [x] 22-04-PLAN.md — Wire meta-answerer invocation, answer evaluation (sufficient vs needs-escalation), and CONTEXT.md writer
-
-#### Phase 23: Telegram Escalation
-**Goal**: Questions the meta-answerer cannot answer with sufficient confidence are sent to the user via Telegram, execution blocks until the user replies, follow-up exchanges continue until confidence threshold is met, and the full exchange is logged for future knowledge extraction
-**Depends on**: Phase 22 (needs-escalation signal from discuss step)
-**Requirements**: ESCL-01, ESCL-02, ESCL-03, ESCL-04, ESCL-05
-**Success Criteria** (what must be TRUE):
-  1. A flagged question triggers `mcp__telegram__ask_blocking_question` with the question text, sensitivity reason, phase context, and options; the coordinator waits for a reply before continuing
-  2. The user's reply is written into CONTEXT.md and counted as an answered question; execution resumes only after the reply is received
-  3. After receiving a reply, the subagent re-evaluates confidence on the topic; if still below threshold, a follow-up question is sent automatically — this loop continues until confidence is satisfied
-  4. All six sensitivity criteria (irreversible change, >1 phase rework risk, major architectural decision, money/data loss potential, conflicting KB signals, always-ask topics) trigger escalation correctly and non-sensitive questions do not escalate
-  5. Every escalated question, user reply, and follow-up exchange is appended to the Telegram session JSONL in the same format as existing session logs
-**Plans**: 2 plans
-
-Plans:
-- [ ] 23-01-PLAN.md — Escalation trigger: sensitivity criteria evaluation + mcp__telegram__ask_blocking_question blocking call + escalated answers merged into CONTEXT.md
-- [ ] 23-02-PLAN.md — Multi-turn follow-up loop (max 3 turns, confidence re-evaluation) + JSONL logging (escalation_question, escalation_reply, escalation_complete)
-
-#### Phase 24: Telegram Notifications
-**Goal**: Each roadmap execution gets a dedicated Telegram forum topic, and phase lifecycle events are posted to that topic so the user can monitor autonomous execution from their phone without polling
-**Depends on**: Phase 22 (coordinator changes exist), Phase 23 (Telegram session logging established)
-**Requirements**: NOTIF-01, NOTIF-02, NOTIF-03, NOTIF-04, NOTIF-05, NOTIF-06
-**Success Criteria** (what must be TRUE):
-  1. Calling `create_topic` via the Telegram MCP returns a `thread_id` and creates a visible forum topic in the configured Telegram group
-  2. At execution start, the coordinator creates a milestone forum topic and the `thread_id` is stored in EXECUTION_LOG.md under `telegram_topic_id`; all subsequent messages pass this `thread_id`
-  3. Phase lifecycle notifications appear in the correct topic thread: phase start, context-ready (N autonomous + M escalated answers), research done, plans ready, phase complete (with duration), and phase failure (with 'retry'/'skip'/'stop' options)
-  4. Roadmap-level events appear in the topic: execution start listing all phases, and execution complete with a one-liner per phase from SUMMARY.md
-  5. All notification messages (not just escalation) are logged in the session JSONL for future knowledge extraction
-**Plans**: 4 plans
-
-Plans:
-- [x] 24-01-PLAN.md — Add `create_topic` tool to Telegram MCP server (types.ts + daemon handler + adapter tool + npm build) — completed 2026-02-19
-- [x] 24-02-PLAN.md — Wire topic creation into execute-roadmap (create topic at start, store telegram_topic_id, roadmap-level notifications) — completed 2026-02-19
-- [x] 24-03-PLAN.md — Thread telegram_topic_id through all send_message/send_status_update calls in phase coordinator — completed 2026-02-19
-- [x] 24-04-PLAN.md — Implement 6 phase lifecycle notification events + JSONL logging for all notifications — completed 2026-02-19
-
-#### Phase 25: End-to-End Validation
-**Goal**: The full autonomous discuss loop is verified working on a real phase: questions generated, most answered by the meta-answerer, at least one escalated to Telegram, user replies on phone, CONTEXT.md contains both autonomous and human-answered decisions, and execution continues into research
-**Depends on**: Phase 24 (all components in place)
-**Requirements**: VALID-01, VALID-02
-**Success Criteria** (what must be TRUE):
-  1. Running `execute-roadmap` on a test phase with known gray areas produces a discuss step that generates questions, answers most autonomously via the global knowledge DB, and escalates at least one question to Telegram
-  2. The user receives the escalated question on their phone via the milestone forum topic, replies, and the system receives the reply and continues execution without manual intervention
-  3. CONTEXT.md written before research begins contains documented decisions from both autonomous (meta-answerer) and human (Telegram reply) sources, each attributed to its source
-  4. The full exchange — questions, autonomous answers, Telegram escalation, user reply, follow-up if any — is present in the session JSONL
-**Plans**: 4 plans
-
-Plans:
-- [ ] 25-01-PLAN.md — Static verification of Phase 21–24 component wiring (no live execution)
-- [ ] 25-02-PLAN.md — Design and inject Phase 26 test stub into ROADMAP.md with calibrated gray areas
-- [ ] 25-03-PLAN.md — Execute live discuss step on Phase 26 (requires Telegram reply from user)
-- [ ] 25-04-PLAN.md — Artifact verification and phase closure (VERIFICATION.md + STATE.md + ROADMAP.md update)
+</details>
 
 #### Phase 26: Telegram MCP Reliability
 **Goal**: Fix three silent failure modes in the Telegram MCP daemon that cause polling callers to always wait full timeouts, questions to be lost on daemon restart, and timed-out questions to disappear without user notification
@@ -271,7 +189,7 @@ Plans:
 | 29. Session Extraction Fix | v1.11.0 | 1/1 | Complete | 2026-02-20 |
 | 30. Milestone Summary & Archival | v1.11.0 | 1/1 | Complete | 2026-02-20 |
 | 32. Reliability & Quality Gap Fixes | TBD | 4/4 | Complete | 2026-02-21 |
-| 33. v1.10.0 Tech Debt Closure | TBD | 1/2 | In Progress | - |
+| 33. v1.10.0 Tech Debt Closure | v1.10.0 | 2/2 | Complete | 2026-02-21 |
 
 ### Phase 31: Per-task model routing — executor becomes mini-orchestrator (Option A)
 
@@ -315,11 +233,11 @@ Plans:
   1. `query-knowledge` returns `confidence: 0.7` (float) as the fallback when a KB entry lacks `metadata.confidence` — confirmed by inserting a test entry without confidence metadata and querying it
   2. REQUIREMENTS.md traceability table shows all 25 v1.10.0 requirements as "Complete" and all 25 checkboxes checked `[x]`
   3. Plans 22-02, 22-03, 22-04, 23-01, 24-02, 24-03, 24-04 each have correct `requirements-completed` arrays in their SUMMARY.md frontmatter matching the requirements they implemented
-**Plans:** 1/2
+**Plans:** 2/2 plans complete
 
 Plans:
 - [x] 33-01-PLAN.md — Fix `confidence` string/float bug in `gsd-tools.js` line 8947 + update REQUIREMENTS.md traceability (20 Pending → Complete, 20 checkboxes) — completed 2026-02-21
-- [ ] 33-02-PLAN.md — Backfill `requirements-completed` in 7 SUMMARY.md files (22-02, 22-03, 22-04, 23-01, 24-02, 24-03, 24-04)
+- [x] 33-02-PLAN.md — Backfill `requirements-completed` in 7 SUMMARY.md files (22-02, 22-03, 22-04, 23-01, 24-02, 24-03, 24-04) — completed 2026-02-21
 
 ---
-*Roadmap created: 2026-02-15 | Last updated: 2026-02-21 — Phase 33 Plan 01 complete: confidence bug fixed + REQUIREMENTS.md traceability closed*
+*Roadmap created: 2026-02-15 | Last updated: 2026-02-21 — v1.10.0 Autonomous Phase Discussion milestone archived*
