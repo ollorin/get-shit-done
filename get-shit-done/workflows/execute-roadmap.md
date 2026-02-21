@@ -298,16 +298,59 @@ if telegram_topic_id is not null:
   })
 ```
 
-3. **Push branch and open PR:**
+3. **Pre-PR quality gates:**
 
 Check current branch:
 ```bash
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 ```
 
-If `CURRENT_BRANCH` is `main` or `master`: skip this step.
+If `CURRENT_BRANCH` is `main` or `master`: skip steps 3 and 4.
 
-Otherwise:
+Otherwise run quality checks. Track failures — don't abort on first failure, collect all results:
+
+**Lint:**
+```bash
+# npm lint (frontend / root)
+npm run lint 2>&1 | tail -8
+# Deno lint (backend)
+if [ -f apps/api/deno.json ]; then
+  (cd apps/api && deno task lint 2>&1 | tail -8)
+fi
+```
+
+**Type checks:**
+```bash
+npx nx run player-web:typecheck --if-present 2>&1 | tail -5
+npx nx run operator-web:typecheck --if-present 2>&1 | tail -5
+```
+
+**Unit tests:**
+```bash
+# npm tests (frontend)
+npm run test 2>&1 | tail -10
+# Deno tests (backend)
+if [ -f apps/api/deno.json ]; then
+  (cd apps/api && deno task test:ci 2>&1 | tail -10)
+fi
+```
+
+**Pre-commit hooks (explicit — catches docs/validation agents may have bypassed):**
+```bash
+if [ -x scripts/hooks/pre-commit ]; then scripts/hooks/pre-commit 2>&1 | tail -8; fi
+if [ -x .git/hooks/pre-commit ]; then .git/hooks/pre-commit 2>&1 | tail -8; fi
+```
+
+After all checks complete, if any failed:
+- Show a summary: which checks failed + last 8 lines of each failure
+- Ask user: **"Fix issues before PR"** / **"Open PR anyway (CI will catch)"** / **"Stop"**
+- If "Open PR anyway": add `⚠ pre-PR checks failed: {list}` to PR body
+- If "Fix issues before PR" or "Stop": exit, do not push or open PR
+
+Proceed to step 4 only if all checks pass or user explicitly chooses "Open PR anyway".
+
+4. **Push branch and open PR:**
+
 ```bash
 git push -u origin {CURRENT_BRANCH}
 ```
