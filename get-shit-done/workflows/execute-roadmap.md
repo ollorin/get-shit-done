@@ -335,7 +335,26 @@ if [ -f apps/api/deno.json ]; then
 fi
 ```
 
-**Pre-commit hooks (explicit — catches docs/validation agents may have bypassed):**
+**Docs validation (only if docs/ files changed):**
+```bash
+CHANGED_DOCS=$(git diff --name-only main...HEAD 2>/dev/null | grep '^docs/.*\.md$' || true)
+if [ -n "$CHANGED_DOCS" ]; then
+  # Markdown lint (blocking)
+  npx markdownlint-cli2 $CHANGED_DOCS 2>&1 | tail -10
+  # Frontmatter validation (blocking)
+  if [ -f apps/api/deno.json ]; then
+    (cd apps/api && deno task validate:frontmatter 2>&1 | tail -8)
+  fi
+  # Link validation (non-blocking — warn only)
+  if [ -f apps/api/deno.json ]; then
+    (cd apps/api && deno task validate:links 2>&1 | tail -8) || echo "⚠ Link validation warnings (non-blocking)"
+  fi
+else
+  echo "No docs/ changes — skipping docs validation"
+fi
+```
+
+**Pre-commit hooks (explicit — catches any validation agents may have bypassed):**
 ```bash
 if [ -x scripts/hooks/pre-commit ]; then scripts/hooks/pre-commit 2>&1 | tail -8; fi
 if [ -x .git/hooks/pre-commit ]; then .git/hooks/pre-commit 2>&1 | tail -8; fi
