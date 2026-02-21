@@ -100,8 +100,13 @@ process.stdin.on('end', () => {
         ];
 
         if (allNew.length > 0) {
-          // Load quota state
-          const quotaStatePath = path.join(cwd, '.planning', 'quota', 'session-usage.json');
+          // Load quota state — anchor to git root so all terminals in the same
+          // repo share the same counter regardless of their working directory.
+          let projectRoot = cwd;
+          try {
+            projectRoot = execSync('git rev-parse --show-toplevel', { encoding: 'utf8', cwd }).trim();
+          } catch (_) {}
+          const quotaStatePath = path.join(projectRoot, '.planning', 'quota', 'session-usage.json');
           const DEFAULT_STATE = {
             tasks: [],
             session: { tokens_used: 0, tokens_limit: 2000000, last_updated: null, reset_time: null },
