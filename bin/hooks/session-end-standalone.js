@@ -19,7 +19,6 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const TEMP_PREFIX = path.join(os.tmpdir(), 'gsd-session-');
 const MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 async function main() {
