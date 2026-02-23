@@ -899,6 +899,27 @@ If exists, load relevant documents by phase type:
 | (default) | STACK.md, ARCHITECTURE.md |
 </step>
 
+<step name="load_user_reasoning_context">
+Query the knowledge DB for user reasoning context relevant to this phase.
+
+Extract 2-3 keywords from the phase goal (e.g. for "implement sportsbook betting module" → "sportsbook", "betting"). Then run:
+
+```bash
+USER_CONTEXT=$(node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js \
+  query-knowledge "{phase_goal_first_3_words}" 2>/dev/null || echo "[]")
+```
+
+If `USER_CONTEXT` is empty or returns an error: log "No relevant user context found" and continue — this step is non-fatal.
+
+If results exist: Hold them as a `<user_reasoning_context>` block. Throughout planning, treat these as strong signals of user intent:
+- **Decisions**: Honor them unless CONTEXT.md explicitly overrides
+- **Preferences**: Factor into task design (library choices, patterns, approach)
+- **Principles**: Use as quality bar for task acceptance criteria
+- **Anti-patterns**: Do not reproduce these patterns in plans
+
+Log: "User context loaded: {N} items retrieved from knowledge DB"
+</step>
+
 <step name="identify_phase">
 ```bash
 cat .planning/ROADMAP.md
