@@ -86,6 +86,29 @@ If the prompt contains a `<routing_context>` block:
   If no routing_context or parse fails: ROUTED_TIER = null
 </step>
 
+<step name="load_user_reasoning_context">
+Query the knowledge DB for user preferences and decisions relevant to this plan.
+
+Use the phase goal from the plan's frontmatter or objective section as the query term:
+
+```bash
+USER_CONTEXT=$(node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js \
+  query-knowledge "{phase_goal_or_objective}" 2>/dev/null || echo "[]")
+```
+
+If `USER_CONTEXT` is empty or errors: log "No user context found" and continue — non-fatal.
+
+If results exist: Throughout task execution, apply these as implicit constraints:
+- **Preferences** (e.g. "prefers functional over class-based"): Apply when choices arise
+- **Decisions** (e.g. "use bun not npm"): Apply exactly, do not deviate
+- **Anti-patterns** (e.g. "avoid direct DB calls in controllers"): Never reproduce
+- **Principles** (e.g. "performance over code elegance"): Use as tiebreaker
+
+These supplement (not override) the plan's explicit task instructions. If a user decision conflicts with a plan task, honor the plan — it was written after the decision and may intentionally override it.
+
+Log: "User context loaded: {N} items from knowledge DB"
+</step>
+
 <step name="record_start_time">
 ```bash
 PLAN_START_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
