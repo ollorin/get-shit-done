@@ -46,6 +46,53 @@ if telegram_topic_id is not null:
   // Append above line to .planning/telegram-sessions/{YYYY-MM-DD}.jsonl
 ```
 
+<step name="harvest_knowledge">
+Mine recent Claude Code sessions for decisions and reasoning before planning begins.
+
+```bash
+HARVEST=$(node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js \
+  mine-conversations --all-projects --max-age-days 3 --limit 5 2>/dev/null || echo '{"status":"error"}')
+```
+
+Parse HARVEST JSON. Extract `status`, `sessionsReady`, `sessions`.
+
+**If `status === 'error'` or `sessionsReady === 0`:** Log "Knowledge harvest: no new sessions" and continue to discuss step.
+
+**Otherwise:** For each session in `sessions` (process sequentially):
+
+1. For each item in `session.extractionRequests` (up to 3 — decision, reasoning_pattern, meta_knowledge):
+
+   ```
+   Task(
+     subagent_type="general-purpose",
+     model="haiku",
+     prompt="{item.prompt}"
+   )
+   ```
+
+   Collect Haiku output text. If Task() throws or returns empty, skip this extraction type and continue.
+
+2. Assemble results array from successful outputs:
+   ```json
+   [
+     {"type": "decision", "result": "{haikuOutput1}"},
+     {"type": "reasoning_pattern", "result": "{haikuOutput2}"},
+     {"type": "meta_knowledge", "result": "{haikuOutput3}"}
+   ]
+   ```
+
+3. Store results:
+   ```bash
+   node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js \
+     store-conversation-result "{session.sessionId}" '{resultsJson}' \
+     --content-hash "{session.contentHash}"
+   ```
+
+   Log: "Harvested {session.sessionId}: {stored} stored, {evolved} evolved, {skipped} skipped"
+
+**Non-fatal:** If any session fails entirely, log the error and continue to the next session. If the whole step fails, log and proceed to discuss step — never block the phase lifecycle.
+</step>
+
 <step name="discuss">
 Check if phase already has a CONTEXT.md (meaning discussion was already done):
 
