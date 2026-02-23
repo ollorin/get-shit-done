@@ -19,6 +19,7 @@ Invocation:
 
 <constraints>
 - ZERO direct API calls — all Haiku work via Task(subagent_type="general-purpose", model="haiku")
+- NEVER run `claude -p`, `claude --model`, or any `claude` CLI command to spawn subagents — this causes hanging. Use the Task tool exclusively.
 - Sequential processing: one conversation at a time to avoid overwhelming the system
 - Partial analysis is better than none: if one extraction type fails, continue with others
 - If store-conversation-result fails for a conversation, log and continue with the next
