@@ -177,8 +177,6 @@ Task(
 
   Full cycle: research -> plan -> execute -> verify
 
-  @/Users/ollorin/.claude/get-shit-done/workflows/execute-phase-lifecycle.md
-
   Create checkpoint after each step.
   telegram_topic_id: {telegram_topic_id}
   Return structured completion state as JSON."
@@ -298,7 +296,7 @@ if telegram_topic_id is not null:
   })
 ```
 
-3. **Pre-PR quality gates:**
+3. **Pre-PR quality gates (MANDATORY — no skipping):**
 
 Check current branch:
 ```bash
@@ -307,38 +305,83 @@ CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
 If `CURRENT_BRANCH` is `main` or `master`: skip steps 3 and 4.
 
-Otherwise run quality checks. Track failures — don't abort on first failure, collect all results:
+Otherwise run the full quality gate suite. **All checks must pass TWICE in a row before the PR is opened. This is non-negotiable.**
 
-**Lint:**
+**Step 3a — Detect what changed:**
 ```bash
-# npm lint (frontend / root)
-npm run lint 2>&1 | tail -8
+CHANGED_FILES=$(git diff --name-only main...HEAD 2>/dev/null || git diff --name-only HEAD~1 2>/dev/null)
+
+# API / Edge Function detection — triggers mandatory integration tests
+API_CHANGED=false
+if echo "$CHANGED_FILES" | grep -qE '^apps/api/functions/|^apps/api/libs/'; then
+  API_CHANGED=true
+fi
+
+# Docs detection — triggers vale + markdownlint
+CHANGED_DOCS=$(echo "$CHANGED_FILES" | grep '^docs/.*\.md$' || true)
+```
+
+**Step 3b — Integration tests (MANDATORY if API/edge functions touched):**
+
+If `API_CHANGED=true`:
+```
+⚠ API/Edge Function changes detected — integration tests are MANDATORY before PR.
+```
+```bash
+# Requires local Supabase stack: supabase start
+if command -v supabase &>/dev/null; then
+  cd apps/api
+  deno test --allow-all --env-file=.env.test functions/__tests__/*.integration.test.ts 2>&1 | tail -20
+  cd ../..
+else
+  echo "ERROR: supabase CLI not found. Start the local stack before opening a PR."
+  exit 1
+fi
+```
+
+If integration tests fail: **STOP. Do not proceed. Fix the failures first.**
+
+**Step 3c — Full check suite (run TWICE — both runs must be green):**
+
+Run the following checks twice. Label each run clearly ("Run 1" / "Run 2"). Track all failures across both runs.
+
+```bash
+# --- LINT ---
+# npm / nx lint (frontend)
+npx nx lint player-web 2>&1 | tail -8
+npx nx lint operator-web 2>&1 | tail -8
 # Deno lint (backend)
 if [ -f apps/api/deno.json ]; then
-  (cd apps/api && deno task lint 2>&1 | tail -8)
+  (cd apps/api && deno lint 2>&1 | tail -8)
 fi
-```
 
-**Type checks:**
-```bash
+# --- TYPE CHECKS ---
+# Edge Functions type check (backend)
+if [ -f apps/api/deno.json ]; then
+  for func in apps/api/functions/*/index.ts; do
+    deno check --quiet "$func" 2>&1
+  done
+fi
 npx nx run player-web:typecheck --if-present 2>&1 | tail -5
 npx nx run operator-web:typecheck --if-present 2>&1 | tail -5
-```
 
-**Unit tests:**
-```bash
-# npm tests (frontend)
-npm run test 2>&1 | tail -10
-# Deno tests (backend)
+# --- UNIT TESTS ---
+# Frontend
+CI=true npx nx test player-web 2>&1 | tail -10
+CI=true npx nx test operator-web 2>&1 | tail -10
+# Backend (unit only — integration tests already ran above if needed)
 if [ -f apps/api/deno.json ]; then
-  (cd apps/api && deno task test:ci 2>&1 | tail -10)
+  (cd apps/api && NODE_ENV=test DENO_ENV=test deno task test:ci 2>&1 | tail -10)
 fi
-```
 
-**Docs validation (only if docs/ files changed):**
-```bash
-CHANGED_DOCS=$(git diff --name-only main...HEAD 2>/dev/null | grep '^docs/.*\.md$' || true)
+# --- BUILDS ---
+npx nx build player-web 2>&1 | tail -5
+npx nx build operator-web 2>&1 | tail -5
+
+# --- DOCS VALIDATION (only if docs/ changed) ---
 if [ -n "$CHANGED_DOCS" ]; then
+  # Vale prose linting (blocking — same check CI runs)
+  vale $CHANGED_DOCS 2>&1 | tail -15
   # Markdown lint (blocking)
   npx markdownlint-cli2 $CHANGED_DOCS 2>&1 | tail -10
   # Frontmatter validation (blocking)
@@ -354,19 +397,13 @@ else
 fi
 ```
 
-**Pre-commit hooks (explicit — catches any validation agents may have bypassed):**
-```bash
-if [ -x scripts/hooks/pre-commit ]; then scripts/hooks/pre-commit 2>&1 | tail -8; fi
-if [ -x .git/hooks/pre-commit ]; then .git/hooks/pre-commit 2>&1 | tail -8; fi
-```
+**After Run 1:** If any check failed → show which checks failed + last 8 lines of each failure → **STOP. Fix all failures. Do not proceed to Run 2.**
 
-After all checks complete, if any failed:
-- Show a summary: which checks failed + last 8 lines of each failure
-- Ask user: **"Fix issues before PR"** / **"Open PR anyway (CI will catch)"** / **"Stop"**
-- If "Open PR anyway": add `⚠ pre-PR checks failed: {list}` to PR body
-- If "Fix issues before PR" or "Stop": exit, do not push or open PR
+**After Run 2:** If any check failed → **STOP. This is a flaky failure — investigate and fix before opening PR.**
 
-Proceed to step 4 only if all checks pass or user explicitly chooses "Open PR anyway".
+**Both Run 1 and Run 2 must be fully green.** Only then proceed to step 4.
+
+> There is NO "open PR anyway" escape hatch. Failing tests = no PR. Fix it first.
 
 4. **Push branch and open PR:**
 
