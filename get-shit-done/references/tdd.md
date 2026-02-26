@@ -101,8 +101,9 @@ After completion, create SUMMARY.md with:
 **GREEN - Implement to pass:**
 1. Write minimal code to make test pass
 2. No cleverness, no optimization - just make it work
-3. Run test - it MUST pass
-4. Commit: `feat({phase}-{plan}): implement [feature]`
+3. Verify DB column names, RPC parameter names, and operation ordering match existing schema/migrations
+4. Run test - it MUST pass
+5. Commit: `feat({phase}-{plan}): implement [feature]`
 
 **REFACTOR (if needed):**
 1. Clean up implementation if obvious improvements exist

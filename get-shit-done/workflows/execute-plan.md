@@ -249,6 +249,7 @@ Proceed with proposed change? (yes / different approach / defer)
 
 **Priority:** Rule 4 (STOP) > Rules 1-3 (auto) > unsure → Rule 4
 **Edge cases:** missing validation → R2 | null crash → R1 | new table → R4 | new column → R1/2
+**Silent correctness bugs (R1):** wrong column name in INSERT, wrong operation ordering, TOCTOU race (SELECT-then-UPDATE without lock), skipped HMAC/auth check on null config
 **Heuristic:** Affects correctness/security/completion? → R1-3. Maybe? → R4.
 
 </deviation_rules>
@@ -286,6 +287,14 @@ See `/Users/ollorin/.claude/get-shit-done/references/tdd.md` for structure.
 After each task (verification passed, done criteria met), commit immediately.
 
 **1. Check:** `git status --short`
+
+**1b. Pre-commit correctness scan** (silent bugs often pass tests):
+- [ ] **Column/field names:** Do INSERT/UPDATE column names match the actual DB schema or migration? (e.g. `payload` vs `payload_redacted`)
+- [ ] **Operation ordering:** For multi-step flows (reserve-then-dispatch, validate-then-write), is the sequence correct? Check that preconditions execute before dependent operations.
+- [ ] **Security gates:** Does new handler/endpoint code include required auth checks, input validation, rate limiting, and idempotency where applicable?
+- [ ] **Migration privileges:** Does any new GRANT or ALTER DEFAULT PRIVILEGES follow least-privilege? No blanket grants to `authenticated` without RLS.
+- [ ] **Concurrency safety:** Any SELECT-then-UPDATE pattern without `FOR UPDATE`? Any read-validate-write that needs atomicity?
+- [ ] **Set-based SQL:** Any PL/pgSQL loop that could be a single CTE or bulk UPDATE?
 
 **2. Stage individually** (NEVER `git add .` or `git add -A`):
 ```bash
