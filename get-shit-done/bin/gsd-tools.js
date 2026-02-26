@@ -3066,7 +3066,21 @@ function cmdCheckpoint(cwd, args, raw) {
 
 // ─── Execution Log ───────────────────────────────────────────────────────────
 
+/**
+ * Walk up from dir until we find a directory containing .planning/, or return dir if not found.
+ */
+function findProjectRoot(dir) {
+  let current = dir;
+  while (true) {
+    if (fs.existsSync(path.join(current, '.planning'))) return current;
+    const parent = path.dirname(current);
+    if (parent === current) return dir; // reached fs root, fall back to original cwd
+    current = parent;
+  }
+}
+
 function cmdExecutionLog(cwd, args, raw) {
+  cwd = findProjectRoot(cwd);
   const subcommand = args[0];
 
   if (!subcommand) {
@@ -5093,7 +5107,8 @@ function cmdPhaseAdd(cwd, description, raw) {
 
   const newPhaseNum = maxPhase + 1;
   const paddedNum = String(newPhaseNum).padStart(2, '0');
-  const dirName = `${paddedNum}-${slug}`;
+  const truncatedSlug = slug.slice(0, 60).replace(/-+$/, '');
+  const dirName = `${paddedNum}-${truncatedSlug}`;
   const dirPath = path.join(cwd, '.planning', 'phases', dirName);
 
   // Create directory
@@ -5163,7 +5178,8 @@ function cmdPhaseInsert(cwd, afterPhase, description, raw) {
 
   const nextDecimal = existingDecimals.length === 0 ? 1 : Math.max(...existingDecimals) + 1;
   const decimalPhase = `${normalizedBase}.${nextDecimal}`;
-  const dirName = `${decimalPhase}-${slug}`;
+  const truncatedSlug = slug.slice(0, 60).replace(/-+$/, '');
+  const dirName = `${decimalPhase}-${truncatedSlug}`;
   const dirPath = path.join(cwd, '.planning', 'phases', dirName);
 
   // Create directory
@@ -6563,7 +6579,8 @@ function cmdScaffold(cwd, type, options, raw) {
         error('phase and name required for phase-dir scaffold');
       }
       const slug = generateSlugInternal(name);
-      const dirName = `${padded}-${slug}`;
+      const truncatedSlug = slug.slice(0, 60).replace(/-+$/, '');
+      const dirName = `${padded}-${truncatedSlug}`;
       const phasesParent = path.join(cwd, '.planning', 'phases');
       fs.mkdirSync(phasesParent, { recursive: true });
       const dirPath = path.join(phasesParent, dirName);
@@ -8968,6 +8985,29 @@ async function cmdQueryKnowledge(cwd, args, raw) {
     created_at: r.created_at
   }));
 
+  // Track access for returned results so stats reflect actual usage
+  try {
+    const knowledgeLifecycle = require(path.join(__dirname, 'knowledge-lifecycle.js'));
+    const ids = rawResults.map(r => r.id).filter(Boolean);
+    if (ids.length > 0) knowledgeLifecycle.trackAccessBatch(conn.db, ids);
+  } catch (_) {
+    // Non-fatal — tracking failure must not break query results
+  }
+
+  // Emit feature-level telemetry for successful knowledge queries
+  try {
+    if (cwd && typeof cwd === 'string') {
+      appendEvent(cwd, {
+        type: EVENT_TYPES.KNOWLEDGE_QUERY,
+        query: questionString,
+        result_count: results.length,
+        project_slug: projectSlug || null
+      });
+    }
+  } catch (_) {
+    // Telemetry must never break the feature
+  }
+
   output({ results, query: questionString }, raw);
 }
 
@@ -10699,6 +10739,38 @@ Was ${model} the right choice for this task? (y/n): `;
         cmdRoutingMatchWithQuota(cwd, args.slice(2).join(' '), raw);
       } else {
         error('Unknown routing subcommand. Available: match, match-with-quota, context, full, index-build, index-refresh');
+      }
+      break;
+    }
+
+    case 'log-feature-event': {
+      // CLI bridge for subagents (e.g. task-router) that cannot call appendEvent directly.
+      // Usage: node gsd-tools.js log-feature-event --project-path <path> --type <EVENT_TYPE> --data <json>
+      const projectPathIdx = args.indexOf('--project-path');
+      const typeIdx = args.indexOf('--type');
+      const dataIdx = args.indexOf('--data');
+
+      if (projectPathIdx === -1 || typeIdx === -1) {
+        error('log-feature-event: --project-path and --type are required');
+        break;
+      }
+
+      const featureEventProjectPath = args[projectPathIdx + 1];
+      const featureEventType = args[typeIdx + 1];
+      let featureEventData = {};
+      if (dataIdx !== -1) {
+        try { featureEventData = JSON.parse(args[dataIdx + 1]); } catch (_) { /* ignore malformed JSON */ }
+      }
+
+      try {
+        if (!featureEventProjectPath || typeof featureEventProjectPath !== 'string') {
+          error('log-feature-event: --project-path must be a non-empty string');
+          break;
+        }
+        const result = appendEvent(featureEventProjectPath, { type: featureEventType, ...featureEventData });
+        output(result, raw, 'Feature event appended to EXECUTION_LOG.md');
+      } catch (err) {
+        error(`log-feature-event: failed to append event: ${err.message}`);
       }
       break;
     }
