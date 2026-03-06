@@ -246,6 +246,14 @@ function loadConfig(cwd) {
     const raw = fs.readFileSync(configPath, 'utf-8');
     const parsed = JSON.parse(raw);
 
+    // Migrate deprecated "depth" key to "granularity"
+    if ('depth' in parsed && !('granularity' in parsed)) {
+      const depthToGranularity = { quick: 'coarse', standard: 'standard', comprehensive: 'fine' };
+      parsed.granularity = depthToGranularity[parsed.depth] || parsed.depth;
+      delete parsed.depth;
+      try { fs.writeFileSync(configPath, JSON.stringify(parsed, null, 2), 'utf-8'); } catch {}
+    }
+
     const get = (key, nested) => {
       if (parsed[key] !== undefined) return parsed[key];
       if (nested && parsed[nested.section] && parsed[nested.section][nested.field] !== undefined) {
