@@ -1,0 +1,23 @@
+{
+  "doc": "vercel-deployment.md",
+  "questions": [
+    {"id": 1, "question": "What are the names of the two separate Vercel projects that must be created for the iGaming Platform?", "reference_answer": "player-web and operator-web"},
+    {"id": 2, "question": "What is the output directory for the operator-web build configuration?", "reference_answer": "dist/apps/operator-web"},
+    {"id": 3, "question": "Which environment variables are required only for the operator-web application and not for player-web?", "reference_answer": "UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN"},
+    {"id": 4, "question": "What is the maximum duration timeout for serverless functions in the operator-web vercel.json configuration?", "reference_answer": "10 seconds (maxDuration: 10)"},
+    {"id": 5, "question": "Why does the iGaming Platform use GitHub Actions for deployments instead of Vercel's automatic Git integration?", "reference_answer": "To provide a controlled deployment approach that disables automatic Vercel builds, prevents wasted build minutes and failed build emails, and avoids duplicate deployments"},
+    {"id": 6, "question": "How long can DNS propagation take for SSL certificate provisioning after adding a custom domain to Vercel?", "reference_answer": "1 to 48 hours"},
+    {"id": 7, "question": "What command should be used to verify the Vercel CLI installation?", "reference_answer": "vercel --version"},
+    {"id": 8, "question": "What is the Frankfurt region code used in the Vercel project configuration?", "reference_answer": "fra1"},
+    {"id": 9, "question": "What is the purpose of the ignoreCommand setting in vercel.json?", "reference_answer": "To skip automatic Vercel builds since deployments are controlled via GitHub Actions"},
+    {"id": 10, "question": "How are environment variables exposed to client-side code in these Next.js applications?", "reference_answer": "Through next.config.js which uses the env property to expose SUPABASE_URL and SUPABASE_ANON_KEY at build time without requiring NEXT_PUBLIC_ prefix"},
+    {"id": 11, "question": "What should be done if an SSL certificate fails to provision on a custom domain?", "reference_answer": "Verify DNS records are correct, check for CAA records blocking Let's Encrypt, and ensure no conflicting CDN is interfering"},
+    {"id": 12, "question": "What is the Node.js version specified for both Vercel projects?", "reference_answer": "20.x"},
+    {"id": 13, "question": "How many GitHub secrets are required to configure GitHub Actions for Vercel deployments?", "reference_answer": "Four: VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PLAYER_WEB_PROJECT_ID, and VERCEL_OPERATOR_WEB_PROJECT_ID"},
+    {"id": 14, "question": "What is the recommended DNS record type for configuring subdomains with Vercel?", "reference_answer": "CNAME pointing to cname.vercel-dns.com"},
+    {"id": 15, "question": "What must be typed to confirm a manual production deployment trigger in GitHub Actions?", "reference_answer": "DEPLOY TO PRODUCTION"},
+    {"id": 16, "question": "What is the Cache-Control header value for static assets in player-web vercel.json?", "reference_answer": "public, max-age=31536000, immutable"},
+    {"id": 17, "question": "Describe the complete staging to production deployment flow and which steps are automatic versus manual.", "reference_answer": "Pull Request triggers CI tests. After merge to main, staging deployment runs automatically (backend, validation, frontend to Vercel preview). Manual verification occurs. Production deployment requires manual trigger from GitHub Actions, then runs backend, validation, and frontend deployment to Vercel production, finally creating a release tag."},
+    {"id": 18, "question": "What is the install command for both applications and why is the legacy-peer-deps flag used?", "reference_answer": "npm install --legacy-peer-deps is used for compatibility, allowing npm to work with peer dependency conflicts that might otherwise prevent installation"}
+  ]
+}

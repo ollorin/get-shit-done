@@ -17,9 +17,9 @@ Fork: https://github.com/ollorin/get-shit-done
 
 ---
 
-## Structural Note: gsd-tools.cjs vs gsd-tools.js
+## Structural Note: gsd-tools.js vs gsd-tools.js
 
-Upstream renamed `get-shit-done/bin/gsd-tools.cjs` (while our fork keeps `get-shit-done/bin/gsd-tools.js`). All upstream agent and workflow references use `gsd-tools.cjs`; our fork uses `gsd-tools.js`. When porting, every `gsd-tools.cjs` reference in upstream diffs must remain `gsd-tools.js` in this fork. This is a mechanical substitution that applies to all patches.
+Upstream renamed `get-shit-done/bin/gsd-tools.js` (while our fork keeps `get-shit-done/bin/gsd-tools.js`). All upstream agent and workflow references use `gsd-tools.js`; our fork uses `gsd-tools.js`. When porting, every `gsd-tools.js` reference in upstream diffs must remain `gsd-tools.js` in this fork. This is a mechanical substitution that applies to all patches.
 
 ---
 
@@ -62,7 +62,7 @@ Upstream renamed `get-shit-done/bin/gsd-tools.cjs` (while our fork keeps `get-sh
 - Our fork's agent files (researcher, planner, verifier, plan-checker) have not been modified fork-specifically — they are close to the upstream base. Changes are additive.
 
 **Portability assessment:** `needs-adaptation`
-**Rationale:** Changes are beneficial bug fixes but the execute-phase.md and execute-plan.md patches must be applied selectively — upstream removed Telegram MCP integration that our fork keeps, and upstream references `gsd-tools.cjs` paths that our fork keeps as `gsd-tools.js`. The agent file changes (researcher, planner, verifier, plan-checker) can be ported cleanly. Template changes are straightforward. Phase 19 work.
+**Rationale:** Changes are beneficial bug fixes but the execute-phase.md and execute-plan.md patches must be applied selectively — upstream removed Telegram MCP integration that our fork keeps, and upstream references `gsd-tools.js` paths that our fork keeps as `gsd-tools.js`. The agent file changes (researcher, planner, verifier, plan-checker) can be ported cleanly. Template changes are straightforward. Phase 19 work.
 
 ---
 
@@ -132,13 +132,13 @@ Upstream renamed `get-shit-done/bin/gsd-tools.cjs` (while our fork keeps `get-sh
   4. **ALWAYS use Write tool directive**: New instruction never to use `Bash(cat << 'EOF')` or heredoc for file creation.
   5. **Roadmap + requirements update calls**: After state updates, executor must call `roadmap update-plan-progress` and `requirements mark-complete`.
   6. **ROADMAP.md and REQUIREMENTS.md in final commit**.
-- `get-shit-done/bin/gsd-tools.cjs`: Adds `cmdRequirementsMarkComplete` function and `requirements mark-complete` CLI command. Also adds `roadmap update-plan-progress` command (marks plan as complete in ROADMAP.md progress table).
+- `get-shit-done/bin/gsd-tools.js`: Adds `cmdRequirementsMarkComplete` function and `requirements mark-complete` CLI command. Also adds `roadmap update-plan-progress` command (marks plan as complete in ROADMAP.md progress table).
 - `get-shit-done/workflows/execute-phase.md`: Updates executor prompt success criteria to include ROADMAP.md update. Adds auto-mode checkpoint handling section.
 - `get-shit-done/workflows/execute-plan.md`: Adds `<step name="update_requirements">` — marks completed requirements from PLAN frontmatter after plan completes.
 
 **Files modified in upstream:**
 - `agents/gsd-executor.md`
-- `get-shit-done/bin/gsd-tools.cjs` (our fork: `gsd-tools.js`)
+- `get-shit-done/bin/gsd-tools.js` (our fork: `gsd-tools.js`)
 - `get-shit-done/workflows/execute-phase.md`
 - `get-shit-done/workflows/execute-plan.md`
 
@@ -146,7 +146,7 @@ Upstream renamed `get-shit-done/bin/gsd-tools.cjs` (while our fork keeps `get-sh
 - Our fork's `gsd-executor.md` does not have auto-mode detection or scope boundary sections — these are fully additive and safe to apply.
 - Our fork's `execute-phase.md` has auto routing (model profile, task router) and execute-roadmap integration that upstream doesn't. The auto-mode checkpoint section in upstream is compatible with fork's existing auto-routing but needs to coexist with the fork's Telegram-based checkpoint handling.
 - Our fork's `execute-plan.md` has absolute paths (`/Users/ollorin/.claude/...`) and Telegram MCP integration (removed from upstream). The `update_requirements` step is additive.
-- `gsd-tools.js`: The `requirements mark-complete` command and `roadmap update-plan-progress` command are entirely new CLI subcommands not in the fork. These need to be ported from the upstream's `gsd-tools.cjs` additions into our fork's `gsd-tools.js`.
+- `gsd-tools.js`: The `requirements mark-complete` command and `roadmap update-plan-progress` command are entirely new CLI subcommands not in the fork. These need to be ported from the upstream's `gsd-tools.js` additions into our fork's `gsd-tools.js`.
 
 **Portability assessment:** `needs-adaptation`
 **Rationale:** The most impactful fix — executors currently never update ROADMAP.md or mark requirements complete, causing planning artifacts to stay stale throughout milestone execution. The gsd-tools.js additions (requirements mark-complete, roadmap update-plan-progress) are pure additions with no conflict. The executor agent and workflow changes need selective application (keep fork's Telegram integration, keep absolute paths, keep auto routing). Phase 19 work.
@@ -201,7 +201,7 @@ No upstream changes map to Phase 20 scope (git branching, autonomous execution f
 
 | File | Upstream Source | Adaptation Needed |
 |------|----------------|-------------------|
-| `get-shit-done/bin/gsd-tools.js` | `gsd-tools.cjs` additions | Add `requirements mark-complete` + `roadmap update-plan-progress` commands |
+| `get-shit-done/bin/gsd-tools.js` | `gsd-tools.js` additions | Add `requirements mark-complete` + `roadmap update-plan-progress` commands |
 | `agents/gsd-executor.md` | `1764abc` + `1764abc` | Add scope boundary, auto-mode detection, ROADMAP/req update calls; keep absolute paths |
 | `agents/gsd-planner.md` | `9ef582e` | Add Step 0 (extract requirement IDs), enforce REQUIRED on requirements field |
 | `agents/gsd-plan-checker.md` | `9ef582e` | Add blocking FAIL for missing requirement IDs |

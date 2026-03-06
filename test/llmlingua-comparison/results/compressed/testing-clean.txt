@@ -1,0 +1,518 @@
+
+ title Testing Guide 
+ testing guide unit integration E2E tests iGaming platform 
+ tags e2e deno 
+ audience backend developers frontend 
+ prerequisites docs development README 
+ updated 2026 - 02 - 13 
+ status published 
+ AI Summary testing guide backend Deno frontend Vitest Playwright tests 
+ Backend integration tests 100 % pass rate 383 steps E2E tests run locally 
+ not CI infrastructure validates backend lint build 
+ Testing Guide 
+ documentation test suites iGaming Platform 
+ iGaming Platform layered testing strategy 
+ Type Framework Location CI Status Purpose 
+ Backend Integration Deno Test 2. 1. 4 apps api functions tests CI API endpoint validation database operations auth flows 
+ Frontend Unit Vitest Jest apps player - web apps operator - web Optional CI Component utility testing 
+ E2E ( Player ) Playwright 1. 58apps player - web - e2e Non - blocking CI End user flows login games catalog 
+ E2E Operator Playwright 1. 58 apps operator - web - e2e Non - blocking CI Admin workflows games CRUD configs players 
+ Test Pass Rate Updated 2026 - 02 - 04 
+ Backend Integration 100 
+ E2E Tests locally excluded CI - infrastructure requirements 
+ Overall Achievement 100 % Pass Rate 
+ Backend Integration Tests 
+ running local Supabase instance 
+ Prerequisites 
+ Supabase CLI installed 
+ Docker running 
+ Environment variables configured 
+ Setup Steps 
+ Navigate API directory 
+ Start local Supabase 
+ Create env test 
+ SUPABASE URL 127. 0. 0. 1 : 54321 
+ ANON KEY 
+ SERVICE ROLE KEY 
+ UPSTASH _ REDIS _ REST URL 
+ credentials Supabase status 
+Environment Variables 
+ SUPABASE URL Local Supabase API URL 127 
+ SUPABASE ANON KEY anonymous RLS protected operations 
+ SERVICE ROLE Admin bypassing RLS 
+ UPSTASH REDIS REST Redis cache URL 
+ TOKEN Redis
+ntication token 
+ - DENO _ ENV Set test test - specific behavior 
+ Running Tests 
+ backend tests 
+ bash 
+ cd apps 
+ deno task test 
+ text 
+ Specific test suite 
+ bash 
+ cd apps 
+ file env. test functions integration 
+ text 
+ filter specific test case ) 
+ bash 
+ cd apps 
+ env file env. test filter Login Flow " 
+ text 
+ Watch mode re - run file changes 
+ bash 
+ cd apps task 
+ text 
+ Verbose mode trace logs 
+ test text 
+ Test Files 
+ Test Suite File Coverage 
+ Authentication integration Registration login logout session management password reset 
+ Session Lifecycle Token creation refresh rotation termination expiry 
+ 2FA & TOTP integration TOTP setup verification backup codes replay prevention 
+ Games Catalog games - catalog integration Public games API filtering caching 
+ Games CRUD crud integrationtest. ts games - crud. comprehensive. test Create read update delete operations with RLS 
+ Configurations configurations. integration. test configurations - history. integration Config management versioning audit trail 
+ Sentry Integration Error capturing fingerprinting PII sanitization 
+ Smoke Tests Basic endpoint availability database connectivity 
+ Total Test Coverage ( 2026 - 02 - 04 ) 
+ - 11 test suites 
+ 102 + test cases 
+ 383 test steps categories 
+ 100 % pass rate tests 
+ Category Sentry : 100 % 
+ 2FA 100 % 
+ Configurations 100 % 
+ Sessions : 100 % 
+ Games CRUD : 100 % 
+ Auth 100 
+ Writing New Tests 
+ Test Structure 
+ typescript 
+ import describe @ std testing 
+ assertEquals createClient 
+ describe Feature 
+ ReturnType 
+ beforeAll 
+ Supabase supabase createClient 
+ env afterAll 
+perform expected behavior async ( ) = > 
+ Arrange 
+ const input 
+ Act 
+ result await myFunction input 
+ Assert 
+ assertEquals result status 200 
+ assertExists data 
+ Practices 
+ Test Isolation test independent create cleanup data 
+ Descriptive Names Use clear test return 401 token expired 
+
+Cases Test success failure paths 
+ RLS Validation policies enforce access control 
+ Type Safety Use TypeScript types request response validation 
+ E2E Tests 
+ End - to E2E ) tests validate user workflows non - blocking visibility without PR merges 
+ Non - blocking E2E tests GitHub 
+ reports artifacts 7 - day retention 
+ Provides visibility E2E test status without blocking development 
+ for pre - deployment validation bug reproduction 
+ Non - Blocking? 
+ Requires full infrastructure 
+ Longer execution time tests 
+ fixes after UI changes 
+ Critical bugs integration tests 
+ E2E Tests 
+ E2E tests Playwright cover authentication flows registration password reset games catalog functionality 
+ Test 30 tests non - skipped 4 files 
+ Stability Validated 3 stable runs Phase 24 
+ Strategy 
+ Pass Rate 100 % 30 / 30 non - skipped tests 
+ Inventory 
+ts 8 passing 1 skipped ) Login logout session persistence 
+ registration. spec. ts | 7 passing Registration form validation 
+ password - reset. spec. ts | 5 passing Password reset flow 
+ games. spec. ts | 10 passing 7 skipped ) Game catalog filters game details modal 
+ Total 30 passing tests 8 skipped 7 favorites feature + 1 session refresh requiring investigation 
+ Running E2E Tests Locally 
+ Prerequisites 
+ Docker running Supabase 
+ Supabase local instance started 
+ Quick Start 
+ JWT bypass mode local development 
+ E2E tests 
+ player - web - e2e 
+ test file 
+ headed mode 
+ debug mode 
+ Selector Strategy 
+ E2E tests data - testid attributes reliable targeting 
+ typescript 
+ Preferred 
+ getByTestId 
+ Available test IDs 
+Auth login modal email input password input submit button logout button 
+ Registration registration form register email input password input submit
+
+ Password Reset password reset email input submit button back - to login button 
+ Games game - card title card - play button demo button game - details modal 
+ Namespace Strategy 
+ prefix game - card title card - play - button demo - button 
+ Modal elements standard names game title button demo button 
+ prevents Playwright violations cards modals 
+ Stability Validation 
+ E2E tests 3 runs Phase 24 - 07 
+ Run Result Passing Skipped Notes 
+ Run 1 PASS | 30 / 30 8 execution 
+ Run 2 PASS 30 / 30 Stability check 
+ Final validation 
+ No flaky tests first run without retries 
+ Test Results Suite 
+ Authentication 89 % 8 / 9 passing skipped 
+ Registration 100 % | 7 / 7 passing validation flows 
+ Password Reset 100 % 5 / 5 passing Request completion flows validated 
+Games Catalog 100 % 10 / 17 passing 7 skipped favorites 
+ Integration 
+ Current Configuration NON - BLOCKING 
+ E2E tests GitHub Actions don ' t block PR merges Phase 18 - 06 decision 
+ Configuration 
+ Player Web continue Test reports artifacts 7 - day retention 
+ visibility without blocking development 
+ Full infrastructure requirements Supabase Redis servers 
+ Longer execution time browser automation 138 tests 
+ updates after UI changes 
+ Critical bugs integration tests 
+ E2E Tests 
+ merging major features 
+ release validation 
+ reproducing user - reported bugs 
+ visual regression testing 
+ UI changes 
+ Playwright Configuration 
+ Retries masking 
+ Artifacts Screenshots traces video failure 
+ Browser Chromium 
+ Workers 1 CI 
+ Base URLs Player = 3001 Operator 
+ Troubleshooting 
+ Common Issues 
+ Supabase not running " error 
+ 3001 in use 
+Test timeout errors 
+ Check Docker running 
+ Verify Supabase status api 
+ Increase timeout 30000 
+ Selector found 
+ Verify data attribute component 
+
+component rendered conditional 
+ Playwright Inspector e2e player - web debug 
+ Session refresh test fails 
+ Profile API authentication after page reload 
+ Test skipped 
+ block phase completion 
+ Session persistence test skipped 
+ API returns error after page reload 
+ verify session refresh 
+ log 
+ profile API debugging 
+ not implemented 7 tests skipped 
+ Feature missing product 
+ Tests documented ready 
+ LOW future 
+ Operator Web E2E Tests 
+ admin dashboard E2E test coverage CRUD operations form validation error handling admin workflows 
+ Test Suites 6 spec files 138 tests 
+ Framework Playwright 1. 58. 0 
+ Browser Chromium 
+ Test Inventory 
+ File Tests Coverage 
+ authentication Login logout session management security tests UI / UX keyboard navigation 
+ Full CRUD status toggle search / filter pagination optimistic updates 
+ CRUD status toggle search filter cache invalidation JSON validation 
+Display search filters tabs status badges verification account locking 
+ form validation Real - time validation empty forms range characters keyboard navigation 
+ error - handling Success toasts error feedback loading states confirmation dialogs skeleton loaders 
+ 138 tests 
+ Authentication 24 tests 
+ credentials persistence 
+ Invalid email empty fields wrong credentials passwords 
+ Security Route protection logout attempts browser navigation SQL injection XSS 
+ accessibility mobile responsiveness 
+ Games Management 28 tests 
+ view search controls skeleton loaders empty 
+ delete confirmation 
+ optimistic updates 
+ Search Filter 
+ Navigation display page 
+ Cache Updates Auto - refresh 
+ Configurations Management 22 tests 
+ view search controls skeleton loaders empty state 
+ Create config edit delete
+
+ Validation Empty fields JSON format validation 
+ Status Active inactive optimistic updates 
+ Search Filter search term category status 
+ Cache mutations optimistic updates 
+ API errors loading states 
+ Players Management 26 tests 
+ Display Player list columns avatar badges skeleton loaders 
+ name email input 
+ Filters Status active inactive suspended verification 
+ audit 
+ Status Badges Active suspended inactive indicators 
+ Verification Verified unverified 
+ View account 
+ No players audit logs 
+ Form Validation 19 tests 
+ Empty validation range negative values long strings 
+ Configurations JSON characters 
+ Real - time Feedback Errors blur correction 
+ Navigation Tab fields 
+ Focus - focus trap 
+ Error Handling Feedback 19 tests 
+ Network errors validation API errors 
+ Loading Skeleton loaders spinner buttons disabled loading 
+ Confirmation Dialogs delete cancel button ESC key closes focus trap 
+ Mechanisms failed operations 
+test file 
+ cd apps operator web - e2e 
+ playwright test authentication spec. ts 
+ test name 
+ e2e operator web e2e grep login 
+ Headed mode browser 
+ e2e operator web e2e 
+ Debug mode Playwright Inspector 
+ e2e debug 
+ UI mode interactive test runner 
+ e2e operator web e2e 
+ Test Data 
+ Admin credentials 
+ seed data apps 
+ Configuration 
+ Config file apps operator web - e2e playwright config ts 
+ Base 
+ - starts API backend JWT bypass mode operator web frontend 
+ Timeout 30s test 5s assertion 
+ 4 
+ Strategy 
+ semantic selectors roles labels data targeting 
+ getByRole 
+ getByText Operator Login 
+ Test IDs 
+ getByTestId games - table 
+ game - button 
+Common Test IDs 
+ Tables games configurations players table 
+ Buttons create
+ity button edit delete toggle - status 
+ Forms entity name input description submit button cancel button 
+ Navigation dashboard - link games - link configurations players - link 
+ UI Text Mismatches test pass rate 
+ Sign Operator Login 
+ Authentication tests fail selector assertions 
+ Tests before UI 
+ match UI text Phase 18 - 06 
+ HIGH - blocking 100 % pass rate 
+ Playwright webServer timeout blocking test execution 
+ config checks 127. 0. 0. 1 : 54321 functions v1 
+ Tests API server 
+ function URL health 
+ API before tests 
+ HIGH - blocking test execution 
+ Integration Non - Blocking 
+ GitHub Actions 
+ web Non - blocking 
+ install - dependencies build - validation 
+ Timeout 30 minutes 
+ Test reports 7 - day retention 
+ Failures don ' t block 
+ Non - Blocking 
+Tests need updates after UI changes 
+ Longer execution time ( 138 tests, ~ 10 - 15 minutes ) 
+ Infrastructure complexity ( Supabase + Redis + frontend ) 
+ Critical bugs by backend integration tests 
+ Setup 
+ Prerequisites : 
+ 1 Local Supabase running ( supabase start in apps api 
+ 2 Node. js npm installed 
+ 3 Playwright installed ( via npm install ) 
+ Environment Setup 
+ E2E tests start frontend dev servers via Playwright ' s webServer configuration No manual setup required 
+ Configuration Files 
+ apps player web e2e playwright config web 
+ Operator web Running Tests 
+ Player Web E2E Tests Headless mode ( default 
+ Headed mode 
+ UI mode interactive 
+ Web E2E Tests 
+ Headless mode 
+ Headed mode 
+ Debug Mode 
+ bash with Playwright Inspector 
+e2e player web debug 
+ Test Coverage 
+ Player Web 5 tests 
+ auth spec Login flow navigation redirect 
+ registration User registration flow 
+ games spec
+Games catalog browsing 
+ Operator Web ( 40 tests 
+ authentication. spec. ts 24 tests Login logout password reset session management 
+ games - management spec ts 16 tests Create edit delete games filters pagination 
+ Writing New E2E Tests 
+ Test Structure 
+ typescript 
+ import test expect playwright 
+ describe Feature Name 
+ user action 
+ Navigate 
+ await page goto 
+ Interact 
+ page getByLabel fill example. com 
+ await page getByRole click 
+ Assert 
+ expect toHaveURL 
+ expect getByText toBeVisible 
+ Best Practices 
+ Semantic Selectors Use getByRole getByLabel getByText getByTestId 
+ Wait for Navigation page. waitForURL after actions navigation 
+ Test Independence start clean state 
+ Cleanup Logout reset state after tests 
+ Timeouts Configure timeouts slow operations 
+ Debugging 
+ Common Issues 
+Connection refused " errors 
+ bash 
+ Ensure Supabase running 
+ cd apps api 
+ status Restart 
+ text Environment variable not set " errors 
+ bash 
+ Check env. test valid 
+ cat apps api test 
+ current Supabase credentials 
+ cd apps api 
+ text 
+ Test timeout errors 
+ typescript 
+ Increase timeout slow tests 
+ operation async setTimeout 60000 seconds 
+ test Flaky E2E tests intermittent failures 
+ typescript 
+ elements visible 
+ await page waitForSelector 
+ Use built - in retry logic 
+ expect getByText toBeVisible timeout 
+ Add explicit waits network 
+ await page waitForResponse 
+ Playwright Debugging 
+ View Test Report 
+ After test run open HTML report 
+ show - report Inspect Test Traces 
+ bash captured first retry 
+ Open 
+ Run in Debug Mode 
+ bash Playwright Inspector 
+e2e player - web e2e debug 
+ Screenshots Failure 
+ captures screenshots failure 
+ apps player web e2e 
+ web 
+ Modify timeout retries screenshot settings playwright config 
+ typescript 
+ export default defineConfig 
+ timeout 30000 Default 
+ retries 2 Retry 
+ trace retry Capture
+retry 
+ screenshot failure 
+ text CI CD Configuration 
+ Runs CI 
+ github workflows pr - validation requests 
+ Backend Tests 
+ type check non - blocking reports errors 
+ Integration tests suites pass 
+ Frontend Tests OPTIONAL 
+ ESLint player - web operator - web 
+ TypeScript check non - blocking 
+ Unit tests 
+ Build Validation 
+ Local - Only 
+ E2E Tests NOT CI 
+ excluded CI 
+ Infrastructure Requirements local Supabase Redis frontend servers 
+ Execution Playwright tests slow 2 - 5 minutes 
+ Browser automation unstable CI environments 
+ GitHub Actions limited free tier 
+ Run E2E Tests 
+ merging features 
+ reproducing user - reported bugs 
+ release validation 
+ visual regression testing 
+ Workflow Comments 
+ PR validation workflow comments E2E exclusion 
+ backend tests 
+ integration tests 
+ E2E tests excluded run locally player - web 
+Run integration tests 
+ cd apps api 
+ deno task test 
+ CI Environment Variables 
+ Required Secrets GitHub Repository Settings 
+ UPSTASH REDIS REST Redis cache URL 
+ Redis Auto - Configured Workflow 
+ SUPABASE 
+ Test Maintenance 
+ Update Tests 
+ API Changes integration tests endpoints change 
+ E2E tests page structure changes 
+ Add test coverage functionality 
+ Bug Fixes Add regression tests prevent recurrence 
+ Test Coverage Goals 
+ Current Coverage 
+ Backend Integration endpoint coverage 
+ E2E Tests Core workflows auth CRUD 
+ Future Enhancements 
+ Frontend unit tests testing React Testing Library 
+ API contract testing OpenAPI schema validation 
+ Performance testing testing k6 Artillery 
+ Visual regression testing Chromatic 
+ Backend Tests 
+ Average runtime 2 minutes 
+ Parallelization 
+ E2E Tests 
+ Player web 1 minute 5 tests 
+Operator web 3 minutes 40 tests 
+ Add 30 % overhead 
+ Resources 
+ Backend Architecture docs authentication docs api guides
+cture. md 
+ Development Workflow docs DEVELOPMENT. md 
+ Deployment Process docs deployment runbook. md 
+ Playwright Documentation playwright. dev 
+ Deno Testing deno. land manual testing 
+ Test Status Summary ( 2026 - 02 - 04 ) 
+ Achievement Milestone 100 % Test Pass Rate 
+ Session Goal 81 ACHIEVED 
+ Key Metrics 
+ Total Test Steps 383 / 383 passing ( 100 % ) 
+ Test Suites 11 total 
+ Cases 102 + 
+ Fixed 8 critical issues resolved 
+ Achievement Single development session 
+ Major Fixes Completed 
+ 1. 2FA system 4 critical bugs fixed 
+ Session management 2 critical bugs 
+ Configurations 1 critical bug fixed 
+ Test infrastructure 1 cleanup issue fixed 
+ Running Full Test Suite 
+ Expected output 
+ 102 passed ( 383 steps ) 
+ Verification 
+ category 
+ deno test - 2FA 
+2026 - 02 - 04 100 % Test Pass Rate 
+ backend tests bugs resolved deployment validation 
+

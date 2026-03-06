@@ -1,0 +1,655 @@
+# Testing Guide
+This guide provides comprehensive documentation for running and maintaining all test suites in the iGaming Platform monorepo.
+
+## Overview
+The iGaming Platform uses a layered testing strategy:
+
+| Test Type | Framework | Location | CI Status | Purpose |
+|-----------|-----------|----------|-----------|---------|
+| **Backend Integration** | Deno Test 2.1.4 | `apps/api/functions/__tests__/` | Runs in CI | API endpoint validation, database operations, auth flows |
+| **Frontend Unit** | Vitest/Jest | `apps/player-web/`, `apps/operator-web/…
+
+## Backend Integration Tests
+
+### Setup
+Backend integration tests require a running local Supabase instance.
+
+**Prerequisites:**
+
+1. Supabase CLI installed
+2. Docker running
+3. Environment variables configured
+
+**Setup Steps:**
+
+```bash
+
+# 1. Navigate to API directory
+cd /Users/ollorin/igaming-platform/apps/api
+
+# 2. Start local Supabase (uses Docker)
+supabase start
+
+# 3. Create .env.test file (if not exists)
+cat > .env.test <<EOF
+SUPABASE_URL=http://127.0.0.1:54321
+SUPABASE_ANON_KEY=[from supabase status]
+SUPABASE_SERVICE_ROLE_KEY=[from supabase status]
+UPSTASH_REDIS_REST_URL=[your Upstash Redis URL]
+UPSTASH_REDIS_REST_TOKEN=[your Upstash Redis token]
+DENO_ENV=test
+EOF
+
+# 4. Get credentials from Supabase status
+supabase status
+```text
+
+**Environment Variables:**
+
+- `SUPABASE_URL`: Local Supabase API URL (default: `http://127.0.0.1:54321`)
+- `SUPABASE_ANON_KEY`: Public anonymous key for RLS-protected operations
+- `SUPABASE_SERVICE_ROLE_KEY`: Admin key for bypassing RLS (use sparingly)
+- `UPSTASH_REDIS_REST_URL`: Redis cache URL (required for session tests)
+- `UPSTASH_REDIS_REST_TOKEN`: Redis authenticatio…
+
+### Running Tests
+**All backend tests:**
+
+```bash
+cd apps/api
+deno task test
+```text
+
+**Specific test suite:**
+
+```bash
+cd apps/api
+deno test --allow-all --env-file=.env.test functions/__tests__/auth.integration.test.ts
+```text
+
+**With filter (specific test case):**
+
+```bash
+cd apps/api
+deno test --allow-all --env-file=.env.test --filter "Login Flow"
+```text
+
+**Watch mode (re-run on file changes):**
+
+```bash
+cd app…
+
+### Test Files
+| Test Suite | File | Coverage |
+|------------|------|----------|
+| **Authentication** | `auth.integration.test.ts` | Registration, login, logout, session management, password reset |
+| **Session Lifecycle** | `session.integration.test.ts` | Token creation, refresh, rotation, termination, expiry |
+| **2FA & TOTP** | `2fa.integration.test.ts` | TOTP setup, verification, backup codes, replay prevent…
+
+### Writing New Tests
+**Test Structure:**
+
+```typescript
+import { describe, it, beforeAll, afterAll } from '@std/testing';
+import { assertEquals, assertExists } from '@std/testing';
+import { createClient } from '@supabase/supabase-js';
+
+describe('My Feature', () => {
+  let supabase: ReturnType<typeof createClient>;
+
+  beforeAll(() => {
+    // Setup: Initialize Supabase client
+    supabase = createClient(
+      Deno.env…
+
+## E2E Tests
+
+### Overview
+End-to-end (E2E) tests validate complete user workflows through the browser. They run in CI as **non-blocking** jobs that provide visibility without blocking PR merges.
+
+**CI Configuration:**
+
+- **Non-blocking**: E2E tests run in GitHub Actions but use `continue-on-error: true`
+- Test reports uploaded as artifacts (7-day retention)
+- Provides visibility into E2E test status without blocking develo…
+
+## Player Web E2E Tests
+
+### Overview
+The player-web frontend has comprehensive E2E tests using Playwright. Tests cover authentication flows, registration, password reset, and games catalog functionality.
+
+**Test Count:** 30 tests (non-skipped) across 4 test files
+**Stability:** Validated with 3 consecutive stable runs (Phase 24)
+**CI Strategy:** LOCAL-ONLY (see CI Integration section below)
+**Pass Rate:** 100% (30/30 non-skipped test…
+
+### Test Inventory
+| Test File | Test Count | Coverage |
+|-----------|------------|----------|
+| auth.spec.ts | 8 passing (1 skipped) | Login, logout, session persistence |
+| registration.spec.ts | 7 passing | Registration form, validation |
+| password-reset.spec.ts | 5 passing | Password reset flow |
+| games.spec.ts | 10 passing (7 skipped) | Game catalog, filters, game details modal |
+
+**Total:** 30 passing tests,…
+
+### Running E2E Tests Locally
+**Prerequisites:**
+
+1. Docker running (for Supabase)
+2. Supabase local instance started
+
+**Quick Start:**
+
+```bash
+
+# Start Supabase (JWT bypass mode for local development)
+cd apps/api && npx nx start:dev api
+
+# Run E2E tests (Playwright auto-starts player-web)
+npx nx e2e player-web-e2e
+
+# Run specific test file
+npx nx e2e player-web-e2e --grep "auth"
+
+# Run in headed mode (see browser)
+npx nx e2e player-web-e2e --headed
+
+# Run in debug mode
+npx nx e2e player-web-e2e --debug
+```text
+
+### Selector Strategy
+E2E tests use `data-testid` attributes for reliable element targeting:
+
+```typescript
+// Preferred (stable)
+await page.getByTestId('login-submit-button')
+await page.getByTestId('game-card').first()
+
+// Avoid (fragile)
+await page.getByRole('button', { name: /login/i })
+await page.getByText('Login')
+```text
+
+**Available test IDs:**
+
+- Auth: `login-modal`, `login-email-input`, `login-password-input`,…
+
+### Stability Validation
+E2E tests validated with 3 consecutive runs requirement (Phase 24-07):
+
+| Run | Result | Passing | Skipped | Notes |
+|-----|--------|---------|---------|-------|
+| Run 1 | PASS | 30/30 | 8 | Baseline execution |
+| Run 2 | PASS | 30/30 | 8 | Stability check |
+| Run 3 | PASS | 30/30 | 8 | Final validation |
+
+**No flaky tests identified.** Tests pass on first run without retries.
+
+### Test Results by Suite
+| Suite | Status | Tests | Notes |
+|-------|--------|-------|-------|
+| **Authentication** | 89% | 8/9 passing | 1 skipped (session refresh requires profile API investigation) |
+| **Registration** | 100% | 7/7 passing | All validation flows covered |
+| **Password Reset** | 100% | 5/5 passing | Request and completion flows validated |
+| **Games Catalog** | 100% | 10/17 passing | 7 skipped (favorite…
+
+### CI Integration
+**Current Configuration: NON-BLOCKING**
+
+E2E tests run in GitHub Actions but don't block PR merges (Phase 18-06 decision).
+
+**CI Configuration:**
+
+- Player Web E2E: `player-web-e2e` job with `continue-on-error: true`
+- Operator Web E2E: `operator-web-e2e` job with `continue-on-error: true`
+- Test reports uploaded as artifacts with 7-day retention
+- Provides visibility without blocking development
+…
+
+### Troubleshooting
+**Common Issues:**
+
+1. **"Supabase not running" error:**
+
+   ```bash
+   cd apps/api && npx nx start:dev api
+   ```
+
+2. **"Port 3001 already in use":**
+
+   ```bash
+   lsof -i :3001 | grep LISTEN | awk '{print $2}' | xargs kill -9
+   ```
+
+3. **Test timeout errors:**
+   - Check Docker is running
+   - Verify Supabase status: `cd apps/api && supabase status`
+   - Increase timeout if needed: `{ timeout:…
+
+### Known Issues
+1. **Session persistence test skipped** (1 test)
+   - Issue: Profile API returns error after page reload
+   - Impact: Cannot verify session survives page refresh
+   - Workaround: Users can log in again (acceptable UX)
+   - Priority: MEDIUM - requires profile API debugging
+
+2. **Favorites feature not implemented** (7 tests skipped)
+   - Impact: Feature missing from product
+   - Tests documented and…
+
+## Operator Web E2E Tests
+
+### Overview
+The operator-web admin dashboard has comprehensive E2E test coverage for all CRUD operations, form validation, error handling, and admin workflows.
+
+**Test Suites:** 6 spec files, 138 total tests
+**Framework:** Playwright 1.58.0
+**Browser:** Chromium (headless by default)
+
+### Test Inventory
+| Test File | Tests | Coverage |
+|-----------|-------|----------|
+| `authentication.spec.ts` | 24 | Login (valid/invalid), logout, session management, security tests, UI/UX, keyboard navigation |
+| `games-management.spec.ts` | 28 | Full CRUD, status toggle, search/filter, pagination, optimistic updates |
+| `configurations-management.spec.ts` | 22 | Full CRUD, status toggle, search/filter, cache in…
+
+### Test Categories
+**1. Authentication (24 tests)**
+
+- Positive flows: Valid credentials (admin and user), session persistence, navigation
+- Negative flows: Invalid email, empty fields, wrong credentials, short passwords
+- Security: Route protection, logout, multiple failed attempts, browser back navigation, SQL injection, XSS
+- UI/UX: Loading states, keyboard accessibility, mobile responsiveness
+
+**2. Games Managem…
+
+### Running Operator Web E2E Tests
+**Quick Start:**
+
+```bash
+
+# All tests (headless)
+npx nx e2e operator-web-e2e
+
+# Specific test file
+cd apps/operator-web-e2e
+npx playwright test authentication.spec.ts
+
+# Specific test by name
+npx nx e2e operator-web-e2e --grep "should login successfully"
+
+# Headed mode (see browser)
+npx nx e2e operator-web-e2e --headed
+
+# Debug mode (Playwright Inspector)
+npx nx e2e operator-web-e2e --debug
+
+# UI mode (interactive test runner)
+npx nx e2e operator-web-e2e --ui
+```text
+
+**Test Data:**
+
+- Admin credentials: `admin@test.local` / `admin123456`
+- Regular user: `user@test.local` / `user123456`
+- Uses seed data from `apps/api/supabase/seed/`
+
+**Configuration:**
+
+- Config file: `apps/operator-web-e2e/playwright.config.ts`
+- Base URL: `http://localhost:3001`
+- Auto-starts: API backend (JWT bypass mode) + operator-web frontend
+- T…
+
+### Selector Strategy
+Tests use semantic selectors (roles, labels) and `data-testid` for reliable targeting:
+
+```typescript
+// Preferred: Semantic selectors
+await page.getByRole('button', { name: 'Sign In' })
+await page.getByLabel('Email')
+await page.getByText('Operator Login')
+
+// When needed: Test IDs
+await page.getByTestId('games-table')
+await page.getByTestId('create-game-button')
+```text
+
+**Common Test IDs:**
+
+- T…
+
+### Known Issues
+1. **UI Text Mismatches** (affecting test pass rate)
+   - Issue: Some tests expect "Sign In" heading but UI shows "Operator Login"
+   - Impact: Authentication tests fail on selector assertions
+   - Root Cause: Tests written before UI implementation finalized
+   - Fix: Update test selectors to match actual UI text (ongoing in Phase 18-06)
+   - Priority: HIGH - blocking 100% pass rate
+
+2. **Playwrig…
+
+### CI Integration (Non-Blocking)
+**GitHub Actions Configuration:**
+
+- Job name: `operator-web-e2e`
+- Status: Non-blocking (`continue-on-error: true`)
+- Runs after: `install-dependencies` and `build-validation`
+- Timeout: 30 minutes
+- Artifacts: Test reports with 7-day retention
+
+**When Tests Run:**
+
+- On every PR to `main` branch
+- Results visible in Actions tab
+- Reports downloadable as artifacts
+- Failures don't block PR merge
+…
+
+### Setup
+**Prerequisites:**
+
+1. Local Supabase running (`supabase start` in `apps/api`)
+2. Node.js and npm installed
+3. Playwright installed (via `npm install`)
+
+**Environment Setup:**
+
+E2E tests automatically start the frontend dev servers via Playwright's `webServer` configuration. No manual setup required.
+
+**Configuration Files:**
+
+- `apps/player-web-e2e/playwright.config.ts`: Player web app E2E config…
+
+### Running Tests
+**Player Web E2E Tests:**
+
+```bash
+
+# Headless mode (default)
+npx nx e2e player-web-e2e
+
+# Headed mode (see browser)
+npx nx e2e player-web-e2e --headed
+
+# UI mode (interactive)
+npx nx e2e player-web-e2e --ui
+
+# Specific test
+npx nx e2e player-web-e2e --grep "Login"
+```text
+
+**Operator Web E2E Tests:**
+
+```bash
+
+# Headless mode
+npx nx e2e operator-web-e2e
+
+# Headed mode
+npx nx e2e operator-web-e2e --headed
+
+# Specific test
+npx nx e2e operator-web-e2e --grep "Create Game"
+```text
+
+**Debug Mode:**
+
+```bash
+
+# Run with Playwright Inspector
+npx nx e2e player-web-e2e --debug
+```text
+
+### Test Coverage
+**Player Web (5 tests):**
+
+- `auth.spec.ts`: Login flow with navigation, logout with redirect
+- `registration.spec.ts`: User registration flow
+- `games.spec.ts`: Games catalog browsing
+
+**Operator Web (40 tests):**
+
+- `authentication.spec.ts` (24 tests): Login, logout, password reset, session management
+- `games-management.spec.ts` (16 tests): Create, edit, delete games, filters, pagination
+
+### Writing New E2E Tests
+**Test Structure:**
+
+```typescript
+import { test, expect } from '@playwright/test';
+
+test.describe('Feature Name', () => {
+  test('should perform user action', async ({ page }) => {
+    // Navigate
+    await page.goto('/');
+
+    // Interact
+    await page.getByLabel('Email').fill('user@example.com');
+    await page.getByRole('button', { name: 'Login' }).click();
+
+    // Assert
+    await expect(pag…
+
+## Debugging
+
+### Common Issues
+**1. "Connection refused" errors:**
+
+```bash
+
+# Ensure Supabase is running
+cd apps/api
+supabase status
+
+# Restart if needed
+supabase stop
+supabase start
+```text
+
+**2. "Environment variable not set" errors:**
+
+```bash
+
+# Check .env.test exists and is valid
+cat apps/api/.env.test
+
+# Get current Supabase credentials
+cd apps/api
+supabase status
+```text
+
+**3. "Test timeout" errors:**
+
+```typescript
+// Increase timeout for slow tests
+test('slow operation', async ({ page }) => {
+  test.setTimeout(60000); // 60 seconds
+  // ... test code
+});
+```text
+
+**4. "Flaky E2E tests" (intermittent failures):**
+
+```typescript
+// Wait for elements to be visible
+await page.waitForSelector('[data-testid="result"]');
+
+// Use buil…
+
+### Playwright Debugging
+**View Test Report:**
+
+```bash
+
+# After test run, open HTML report
+npx playwright show-report
+```text
+
+**Inspect Test Traces:**
+
+```bash
+
+# Traces are captured on first retry
+
+# Open with:
+npx playwright show-trace trace.zip
+```text
+
+**Run in Debug Mode:**
+
+```bash
+
+# Opens Playwright Inspector
+npx nx e2e player-web-e2e --debug
+```text
+
+**Screenshots on Failure:**
+
+Playwright automatically captures screenshots on failure. Find them in:
+
+- `apps/player-web-e2e/test-results/`
+- `apps/operator-web-e2e/test-results/`
+
+**Test Configuration:**
+
+Modify timeout, retries, and screenshot settings in `playwright.config.ts`:
+
+```typescript
+export default defineConfig({
+  timeout: 30000,           //…
+
+## CI/CD Configuration
+
+### What Runs in CI
+The `.github/workflows/pr-validation.yml` workflow runs on all pull requests:
+
+**Backend Tests (BLOCKING):**
+
+- Deno lint
+- Deno type check (non-blocking, reports errors)
+- Integration tests (all suites must pass)
+
+**Frontend Tests (OPTIONAL):**
+
+- ESLint (player-web, operator-web)
+- TypeScript type check (non-blocking)
+- Unit tests (if configured, non-blocking)
+
+**Build Validation (BLOCKING):**
+
+…
+
+### What's Local-Only
+**E2E Tests (NOT in CI):**
+
+E2E tests are **explicitly excluded** from CI for these reasons:
+
+1. **Infrastructure Requirements**: Requires full local Supabase + Redis + frontend servers
+2. **Execution Time**: Playwright tests are slow (2-5 minutes per suite)
+3. **Flakiness**: Browser automation can be unstable in CI environments
+4. **Cost**: GitHub Actions minutes are limited on free tier
+
+**When …
+
+### CI Environment Variables
+**Required Secrets (GitHub Repository Settings):**
+
+For CI to pass, configure these secrets:
+
+- `UPSTASH_REDIS_REST_URL`: Redis cache URL
+- `UPSTASH_REDIS_REST_TOKEN`: Redis auth token
+
+**Auto-Configured by Workflow:**
+
+- `SUPABASE_URL`: From `supabase start` output
+- `SUPABASE_ANON_KEY`: From `supabase status`
+- `SUPABASE_SERVICE_ROLE_KEY`: From `supabase status`
+
+---
+
+## Test Maintenance
+
+### When to Update Tests
+1. **API Changes**: Update integration tests when endpoints change
+2. **UI Changes**: Update E2E tests when page structure changes
+3. **New Features**: Add test coverage for new functionality
+4. **Bug Fixes**: Add regression tests to prevent recurrence
+
+### Test Coverage Goals
+**Current Coverage:**
+
+- Backend Integration: **100%** endpoint coverage
+- E2E Tests: **Core workflows** covered (auth, games CRUD)
+
+**Future Enhancements:**
+
+- Frontend unit tests (component testing with React Testing Library)
+- API contract testing (OpenAPI schema validation)
+- Performance testing (load testing with k6 or Artillery)
+- Visual regression testing (Percy or Chromatic)
+
+### Test Performance
+**Backend Tests:**
+
+- Average runtime: ~2 minutes (all suites)
+- Parallelization: Not yet implemented (future optimization)
+
+**E2E Tests:**
+
+- Player web: ~1 minute (5 tests)
+- Operator web: ~3 minutes (40 tests)
+- Headed mode: Add 30% overhead
+
+---
+
+## Additional Resources
+- **Backend Architecture**: `docs/authentication.md`, `docs/api/guides/architecture.md`
+- **Development Workflow**: `docs/DEVELOPMENT.md`
+- **Deployment Process**: `docs/deployment/runbook.md`
+- **Playwright Documentation**: <https://playwright.dev/>
+- **Deno Testing**: <https://deno.land/manual/testing>
+
+---
+
+## Test Status Summary (2026-02-04)
+
+### Achievement Milestone: 100% Test Pass Rate
+**Session Goal**: 81% -> 100% **ACHIEVED**
+
+**Key Metrics:**
+
+- Total Test Steps: 383/383 passing (100%)
+- Test Suites: 11 total
+- Test Cases: 102+
+- Bugs Fixed: 8 critical issues resolved
+- Time to Achievement: Single development session
+
+**Major Fixes Completed:**
+
+1. 2FA system - 4 critical bugs fixed
+2. Session management - 2 critical bugs fixed
+3. Configurations - 1 critical bug fixed
+4. Test…
+
+# Expected output:
+
+# ok | 102 passed (383 steps) | 0 failed
+```text
+
+**Verification:**
+
+```bash
+
+# Run specific category
+deno test --allow-all --env=.env.test --filter "2FA" functions/__tests__/2fa*.test.ts
+deno test --allow-all --env=.env.test --filter "Session" functions/__tests__/session*.test.ts
+deno test --allow-all --env=.env.test --filter "Auth" functions/__tests__/auth*.test.ts
+```text
+
+---
+
+**Last Updated**: 2026-02-04 (100% Test Pass Rate Achievement)
+**Status**: All backend tests passing (100%), all bugs …

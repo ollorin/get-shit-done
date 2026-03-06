@@ -1,0 +1,380 @@
+{"original_chars": 19438, "compressed_chars": 11101, "original_tokens_est": 4860, "compressed_tokens_est": 2776, "reduction_pct": 42.9, "rate_requested": 0.4}
+
+ Backend Architecture Guide 
+ Clean Architecture Supabase Edge Functions functional programming patterns neverthrow ResultAsync error factories domain entities use cases repository patterns 
+ development 
+ tags architecture clean architecture domain - driven design entities use - cases repositories functional programming neverthrow result - types 
+ backend developers 
+ prerequisites monorepo guide 
+ error handling 
+ updated 2026 - 02 - 15 
+ Clean Architecture implementation iGaming platform backend Supabase 
+ Edge Functions functional programming patterns neverthrow Result types 
+ error handling ts - pattern three - layer architecture 
+ entity patterns value objects use cases CQRS repository abstractions 
+ caching strategies security middleware 
+ Key Concepts Clean Architecture Domain entities Value Objects Use Cases CQRS 
+ Repository pattern Multi - tier caching Rate limiting Authentication middleware 
+ Monorepo Guide Workspace structure 
+ API Documentation 
+ Clean Architecture Implementation 
+apps api libs 
+ domain Business Rules 
+ entities Core business objects 
+ value - objects Immutable 
+ services Domain 
+ errors Domain - specific errors 
+ application Use Cases 
+ commands Write operations 
+ queries Read operations 
+ dtos Data Transfer Objects 
+ infrastructure External Concerns 
+ repositories Data access abstractions 
+ Third - party integrations 
+ cache Caching implementations 
+ security Security middleware 
+ Dependency Flow 
+ Infrastructure Application Domain 
+ Use Cases Business Rules 
+ Key Principles 
+ Dependencies flow inward 
+ no external dependencies 
+ depends Functional Programming Patterns 
+ Railway - Oriented Programming 
+ edge functions use ResultAsync error handling 
+ typescript import ResultAsync neverthrow ValidationError DatabaseError igaming domain function
+ePlayer ( data CreatePlayerInput ) ResultAsync < Player BaseError > 
+ return validateInput 
+ andThen ( validated saveToDatabase 
+ player notifyCreation player 
+ Key Benefits 
+ Exhaustive error handling error cases handled compile time 
+ Type - safe error propagation errors typed not 
+ Pipeline composition operations chain cleanly with andThen 
+ No catch blocks eliminates error handlers 
+ Error Factories 
+ Domain errors via factory functions not classes enables cleaner pattern matching 
+ typescript 
+ Domain layer errors 
+ import ValidationError AuthenticationError DatabaseError from ' @ igaming domain 
+ Create errors with factory 
+ const error = InvalidCredentialsError ( 
+ Errors pattern matching 
+ incorrect 
+ Error Categories 
+ InvalidCredentialsError SessionExpiredError 
+REG _ Registration DuplicateEmailError WeakPasswordError 
+ VAL _ Validation field - level issues 
+ DB _ Database DatabaseError NotFoundError 
+ CACHE _ Cache Redis RedisError RedisConnectionError 
+ API Error Handling Guide error - handling complete error code reference 
+ Translation Layer 
+ Results converted HTTP responses translation layer ensures consistent response format 
+ typescript 
+ import resultAsyncToResponse igaming infrastructure 
+ function handlePost Request Promise 
+ return resultAsyncToResponse 
+ parseRequestBody 
+ validateRequest 
+ processCreate 
+ corsHeaders 
+ Response Format 
+ Error Handling 
+ Automatic status codes error 
+ Rate limit headers Retry RateLimitError 
+ Infrastructure sanitization generic messages DB Redis errors security 
+ Sentry integration 5xx errors captured 
+ Structured logging context debugging 
+ Domain Layer 
+Entities 
+ core business objects 
+ typescript 
+ game ts 
+ export class Game 
+ constructor 
+ id 
+ title 
+ provider 
+ type GameType 
+ rtp number 
+
+lic volatility : 
+ public minBet : number 
+ maxBet number 
+ status GameStatus 
+ isActive ( boolean 
+ return status active ' 
+ isSlotGame ( boolean 
+ return type slot ' 
+ validateBet ( betAmount : number ) boolean 
+ return betAmount > minBet maxBet 
+ text 
+ Value Objects 
+ immutable identified values not identity 
+ typescript 
+ libs value email ts 
+ export class Email 
+ constructor string 
+ static create ( Result ValidationError 
+ const emailRegex = + 
+ if test 
+ return Result fail Invalid 
+ return Result. ok toLowerCase 
+ getValue ( string 
+ return value 
+ equals ( other Email ) boolean 
+ return value 
+ text 
+ session token 
+ export class SessionToken 
+ constructor 
+ static create ( SessionToken 
+ return new SessionToken ( crypto. randomUUID 
+static fromString ( token Result SessionToken ValidationError > 
+ const uuidRegex = [ 0 - 9a - f ] 8 - 0 - 9a - f ] 4 - 0 - 9a - f 4 - 0 - 9a - f 4 - 0 - 9a - f ] 12 } $ 
+ if uuidRegex. test 
+ return Result. fail ( ValidationError Invalid token format 
+ return Result. ok SessionToken 
+ getValue ( string 
+ return value 
+ Domain Services 
+ typescript export class SessionValidationService 
+ validateSessionExpiry ( 
+ return calculateRefreshExpiry ( 
+ const newExpiry = 
+ setDate 
+ return Application Layer Cases 
+ Command Pattern Operations 
+ typescript 
+ export interface CreateSessionCommand 
+? 
+? 
+ class CreateSessionUseCase 
+ constructor 
+sessionRepository 
+ async execute CreateSessionCommand Promise Result Session SessionError 
+ Create domain entity 
+ const session Session create 
+ playerId command 
+ token 
+ deviceInfo command 
+ ipAddress command 
+ expiresAt
+teExpiry ( 
+ Persist 
+ const saveResult await sessionRepository. save 
+ saveResult isErr 
+ return Result. fail saveResult error 
+ Cache validation 
+ await sessionCache. set session token getValue 
+ return Result ok 
+ calculateExpiry ( Date 
+ const expiry = 
+ setDate getDate + 7 7 - day sliding window 
+ return expiry 
+ Query Pattern 
+ typescript export interface GetGamesQuery 
+ type? GameType 
+ provider? string 
+ status? 
+ limit? 
+ offset? 
+ export class GetGamesUseCase 
+ constructor 
+ async execute Promise Result 
+ games Game 
+ total number 
+ GameError 
+ const games await gameRepository. findAll ( query 
+ const total gameRepository count ( 
+ return Result. ok 
+ Infrastructure Layer 
+ Repository Pattern 
+ typescriptlibs infrastructure src repositories game. repository. ts 
+ export interface IGameRepository 
+ findById Promise < Game | null 
+ findAll Promise Game 
+ save Promise Result 
+ update Promise 
+ delete Promise 
+ count Promise number 
+ Supabase Implementation 
+ export class SupabaseGameRepository implements 
+ constructor 
+ async findById Promise < Game | null 
+ const { data, error } = await supabase 
+ from games 
+ select ( 
+ eq 
+ single ( 
+ if error 
+ return null 
+ RepositoryError Database error 
+ return mapToDomain data 
+ async findAll Promise < Game ] 
+ dbQuery = supabase. from games select ( * 
+ if query type ) dbQuery = dbQuery. eq 
+ provider dbQuery = dbQuery. ilike provider 
+ if query status ) dbQuery = dbQueryeq status query 
+ query limit dbQuery = 
+ query offset = range query offset 
+ const data error await dbQuery 
+ error RepositoryError Database error 
+ return data. map mapToDomain 
+ private mapToDomain data any Game 
+ return new Game 
+ data id 
+ title 
+ data provider 
+
+data. type 
+ rtp 
+ volatility 
+ min _ bet 
+ max _ bet 
+ status 
+ text 
+ Caching Implementation 
+ Multi - tier caching strategy 
+ typescript 
+ libs infrastructure src cache session - cache ts 
+ export class SessionCache implements ISessionCache 
+ constructor redis Redis ) 
+ async get null 
+ const data = await redis. get 
+ return data? JSON parse null 
+ catch ( error ) 
+ console warn 
+ null async set ( 
+ await redis. setex 
+ catch error 
+ async invalidate 
+ await redis. del 
+ catch ( error 
+ console warn invalidation error 
+ text 
+ Multi - tier Caching Strategy 
+ typescript 
+ export class CachedSessionRepository implements ISessionRepository 
+ private memoryCache = new Map L1 : Memory 
+ constructor 
+ Redis 
+ SupabaseSessionRepository L3 
+
+ async findByToken ( string Promise Session null 
+ L1 Check memory cache 
+ const l1Session = memoryCache get 
+ l1Session return l1Session 
+ L2 Redis cache 
+ const l2Session = redisCache get 
+ if l2Session 
+ l2Session Promote L1 
+ return l2Session 
+ L3 Fetch from database 
+ const dbSession findByToken 
+ dbSession 
+ Cache 
+ memoryCache set 
+ redisCache 
+ return dbSession 
+ Security 
+ Authentication 
+ export async function requireAuth Promise Result 
+ AuthError 
+ const authHeader = request 
+? 
+ return Result fail Missing authentication 
+ const token = authHeader substring ( 7 ) 
+ sessionResult = sessionService validate 
+ if isErr 
+ return Result fail error 
+ return Result. ok 
+ sessionResult valuesession 
+ Rate Limiting 
+ typescript 
+ libs infrastructure security rate - limiter 
+ export RateLimiter 
+ constructor 
+ redis 
+
+windowMs 60000 1 minute 
+ maxRequests 100 
+ async checkLimit ( identifier string ) Promise < boolean > 
+ const key = rate - limit $ identifier 
+ const now = Date. now ( 
+ windowStart = now windowMs 
+ Remove old requests 
+ await redis. zremrangebyscore windowStart 
+ Count current requests 
+ const requestCount redis. zcard 
+ maxRequests 
+ return false Rate limit exceeded 
+ Add current request 
+ redis. zadd toString 
+ redis. expire ceil windowMs 1000 
+ return true 
+ Input Validation 
+ typescript 
+ validation schemas 
+ import z zod ' 
+ export const CreateGameSchema = z. object 
+ title string 
+ provider string 
+ type z. enum 
+ rtp : z. number 
+ volatility : z. enum 
+ bet number positive 
+ export function validateInput < T > schema zZodSchema < T > data unknown Result T ValidationError > 
+ const result = schema. safeParse data ) 
+ result success 
+ return Result fail ValidationError Invalid input error errors 
+ return Result ok result data 
+ Performance Metrics 
+ Operation Avg Time P95 Notes 
+ Session Validation L1 Hit < 10ms 20ms Redis cache 
+ Session Validation L2 Hit 15 - 30ms | 50ms Database fallback 
+ Login 2FA 80 - 120ms | 150ms Password verify 
+ 2FA 120 - 180ms 200ms TOTP verification 
+ Refresh 30 - 60ms | 100ms Rotation cache update 
+ 2FA Verification 50 - 100ms | 150ms HMAC comparison cache check 
+ Factory Functions 
+ domain errors use factory functions classes enables cleaner pattern matching type inference 
+ createError 
+ Factory creates object 
+ InvalidCredentialsError? 
+ incorrect 
+Usage handlers 
+ import InvalidCredentialsError SessionExpiredError igaming domain 
+ err neverthrow 
+ result validateCredentials email password 
+ mapErr error InvalidCredentialsError traceId 
+ neverthrow 
+ type safe error handling 
+ import ResultAsync ok err
+neverthrow ' 
+ import BaseError @ igaming domain ' 
+ ResultAsync async operations 
+ function fetchPlayer id string ResultAsync Player BaseError > 
+ return ResultAsync fromPromise ( 
+ supabase players ) select eq id single 
+ e = > DatabaseError select 
+ andThen ( data error 
+ error? err data 
+ Chain operations andThen 
+ result await fetchPlayer id 
+ andThen player validateAccess 
+ formatResponse 
+ match ( 
+ createSuccessResponse 
+ error handleError corsHeaders 
+ domain errors interface 
+ BaseError 
+ string Discriminator pattern matching 
+ Machine - readable 
+ User - facing message 
+ HTTP 
+ context? ErrorContext Internal debugging context 
+ complete error code reference frontend integration patterns API Error Handling Guide error - handling 
+ Migrated memory bank guides backend architecture testing guide 
+2026 02 
+

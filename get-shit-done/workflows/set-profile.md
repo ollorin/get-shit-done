@@ -23,8 +23,8 @@ if $ARGUMENTS.profile not in ["quality", "balanced", "budget"]:
 Ensure config exists and load current state:
 
 ```bash
-node "$HOME/.claude/get-shit-done/bin/gsd-tools.cjs" config-ensure-section
-INIT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.cjs" state load)
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" config-ensure-section
+INIT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" state load)
 if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
 ```
 
@@ -52,7 +52,7 @@ Display confirmation with model table for selected profile:
 
 Agents will now use:
 
-[Show table from MODEL_PROFILES in gsd-tools.cjs for selected profile]
+[Show table from MODEL_PROFILES in gsd-tools.js for selected profile]
 
 Example:
 | Agent | Model |

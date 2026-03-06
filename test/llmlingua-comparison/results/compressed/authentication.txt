@@ -1,0 +1,701 @@
+{"original_chars": 35434, "compressed_chars": 19805, "original_tokens_est": 8859, "compressed_tokens_est": 4952, "reduction_pct": 44.1, "rate_requested": 0.4}
+
+ title Authentication System 
+ custom session - based authentication system opaque tokens 2FA magic links account linking 
+ domain api 
+ tags authentication session management 2fa magic - links account - linking security 
+ audience backend developers security engineers 
+ prerequisites docs api README md 
+ schema access 
+ updated 2026 - 02 - 13 
+ status published 
+ Summary Custom session - based authentication system opaque tokens JWT 
+ Implements registration login 2FA TOTP SMS magic links account linking 
+ INSTEAD triggers pattern database access 
+ Authentication System Documentation 
+ Version 2 
+ Updated 2026 - 02 - 07 
+ Unified Custom Authentication 
+ Overview 
+ Migration Notice 
+ Architecture 
+ Authentication Methods authentication 
+ Management 
+ Two - Factor Authentication 
+ API Reference 
+ Security Considerations considerations 
+ Configuration configuration 
+ Error 
+ Production Deployment deployment 
+ Unified Custom Authentication ( February 2026 ) 
+iGaming Platform migrated from Supabase Auth to unified custom authentication system affects Operator Web backoffice Player Web casino applications 
+ Changed 
+ Previous ( Supabase Auth ) Current ( Custom Auth ) 
+ API Endpoint auth v1 functions v1 auth 
+ Database Table 
+ Token Type Supabase JWT HMAC - SHA256 
+ Admin Detection app metadata 
+ Session Storage Supabase managed Two - tier cache ( Redis + PostgreSQL 
+ Test User Creation Supabase Studio / Auth API Seed Custom Auth API 
+ Breaking Changes for Deployments 
+ API Endpoints auth calls use functions v1 auth 
+ User Data Migrate users from to accounts 
+ Admin Access Update admin detection from 
+ Token Validation Update middleware to validate custom JWTs 
+ Migration Steps 
+ database migrations to create player player accounts 
+ Migrate existing user data 
+auth stores API endpoints 
+ Update middleware validate JWT tokens 
+ Test authentication 
+ migration contact development team 
+ iGaming Platform
+hentication system secure authentication multiple methods two - factor authentication comprehensive session management 
+ Authentication Methods Email magic link social login 
+ Two - Factor Authentication TOTP RFC 6238 SMS Email backup codes 
+ Secure Session Management UUID tokens HMAC - SHA256 hashing 
+ methods single account 
+ Comprehensive Audit Logging authentication events security compliance 
+ Row - Level Security 
+ Design Decisions 
+ tokens UUIDs security revocation 
+ Two - Tier Caching Redis L1 PostgreSQL L2 
+ HMAC Token Hashing HMAC - SHA256 plaintext exposure 
+ Token Rotation Generation counter family tracking replay attacks 
+ Variables multi - tenant data access 
+ Security 
+ HMAC - SHA256 hashing no plaintext storage secure 
+ hashing PostgreSQL 
+ Compliance RFC 6238 TOTP timing safe comparisons replay attack prevention 
+Account Enumeration Prevention Consistent error messages timing normalization 
+ Audit Trail Comprehensive logging authentication events encrypted sensitive data 
+ Architecture 
+ Component Diagram 
+ text Client Web / App ) 
+ Edge Function 
+ Middleware ( CORS, Security 
+ Authentication Facade 
+ Email / Password Provider 
+ Phone OTP Provider 
+ Social Auth Provider 
+ Two - Factor Facade 
+ Session Cache Redis DB + Cache L1 PostgreSQL ( player schema ) 
+ player _ accounts 
+ auth _ sessions 
+ linked _ auth _ methods 
+ player _
+
+ player _ audit _ log 
+ text Token Flow 
+ text │Client│ Edge Session 
+ Function Store 
+ 1 POST / login 
+ Validate creds 
+ 3 createSession ( 
+ 4 Generate UUIDs 
+ Hash with HMAC - SHA256 
+ 6 Store L1 ( Redis ) 
+ 7 Store L2 ( Database ) 
+ Return tokens 
+ 9 sessionToken 
+ refreshToken 
+ 10 GET / profile 
+ Bearer sessionToken 11 validateSession ( 
+ 12 Check L1 ( Redis ) 
+ 13 Fallback L2 ( DB ) 
+ 14 Validate expiry 
+ Return session data 
+ 16 Set RLS context 
+ Execute query 
+ 18 Profile data 
+ text Authentication Methods 
+ Email / Password Authentication 
+ Traditional credential - based authentication with email password 
+ Flow : 
+registers email password 
+ bcrypt cost 10 
+ Email verification 15 expiry 
+ verifies email activate 
+ login email password 
+ Bcrypt password hashing 
+ Email
+fication required 
+ Failed login attempt tracking 
+ Account enumeration prevention 
+ Registration 
+ typescript register credential player example. com 
+ authMethod password 
+ SecurePassword123 
+ acceptTerms 
+ marketingConsent 
+ Password Authentication 
+ Alternative credential authentication phone 
+ User registers E. 164 phone number password 
+ SMS verification code 5 - minute expiry 
+ verifies 
+ login password 
+ E. 164 14155552671 
+ Magic Link Passwordless 
+ authentication 
+ requests magic link email 
+ token UUID 15 - minute expiry 
+ stored database single - use enforcement 
+ sent authentication link 
+ clicks token verified consumed 
+ Session 
+ Security Features 
+ Single - use tokens 
+ 15 - minute expiration 
+ Database persistence audit trail 
+ Account enumeration prevention 
+ Migration Plan 06 - 13 2026 - 01 - 30 
+ Social Authentication 
+ authentication Apple Google 
+ Supported Providers 
+Client obtains OAuth token provider 
+ Token validated with provider 
+ User profile retrieved 
+ Account created linked existing account 
+ 5 Session created 
+ Social auth linked existing accounts 
+ Two - Factor Authentication ( 2FA ) 
+ Session Management 
+ platform uses session - based authentication opaque UUID tokens not JWTs Sessions support short - lived access tokens long - lived refresh tokens comprehensive termination rotation mechanisms 
+ Termination 
+ soft - delete via terminated timestamp audit trail preservation 
+ terminates user sessions 
+ Replay attack 
+ Database Operation Sets terminated timestamp Clears Redis cache 
+ Preserves audit trail database L2 
+ termination security analysis 
+ Token Rotation 
+ terminate - - create pattern prevent replay attacks 
+ Old session sessionStore New session created incremented generation 
+
+wSession sessionStore createSession 
+ generation oldGeneration + 1 prevents replay 
+ Track token 
+ Redis cache old token 
+ redisCache delete 
+ Returns new tokens 
+ Replay Attack Prevention 
+ refresh tokens 
+ token terminates 
+ tokens invalid 
+ Token Architecture 
+ Short - lived 15 minutes 
+ 7 days new session tokens 
+ Format UUID v4 a3b2c1d4 - e5f6 - 4789 - a0b1 - c2d3e4f5g6h7 
+ Generated crypto randomUUID 128 - bit entropy 
+ HMAC - SHA256 
+ plaintext 
+ Transmitted over TLS 
+ new session 
+ Response 
+ success 
+ a3b2c1d4 - e5f6 - - a0b1 - c2d3e4f5g6h7 
+refreshToken b4c3d2e1 - f6g7 - 5890 b1c2 - d3e4f5g6h7i8 
+ expiresAt 2026 - 01 - 30T19 : 00Z 
+ playerAccountId 
+ requires2FA 
+ Session 
+ HMAC - SHA256 
+ Player account 
+ Device 
+ Family token rotation 
+ Generation counter replay attack prevention 
+ Created expires timestamps 
+ IP user agent 
+ Validation 
+ token 
+ Edge extracts token validateSession 
+ L1 Cache Redis checked 
+ L2 Cache fallback Redis 20 40ms 
+ expiry 
+ Player account status checked 
+ RLS context 
+ Request level security 
+ L1 Redis 15 - minute TTL session tokens 7 - day refresh 
+ L2 Database source delete pattern audit 
+ Refresh 
+ tokens 
+b4c3d2e1 f6g7 b1c2 d3e4f5g6h7i8 
+ c5d4e3f2 g7h8 e4f5g6h7i8j9 
+ d6e5f4g3 d3e4 f5g6h7i8j9k0 
+ 2026 - 01 
+
+Attack Prevention 
+ text 
+ Login Family A Gen 0 
+ Refresh Family A Gen 1 Gen 0 
+ Attacker Gen 0 Replay detected Terminate Family A 
+ Session Termination 
+ POST logout terminates session 
+ database 
+ Removes Redis cache 
+ termination user logout timeout replay attack detected 
+ Preserves audit trail 
+ terminates specific 
+ Allows logout 
+ Requires authentication 
+ Two - Factor Authentication 
+ TOTP Authenticator 
+ RFC 6238 Compliant Implementation 
+ Algorithm HMAC - SHA1 
+ Digits 6 
+ 30 seconds 
+ ±1 step 90 seconds 
+ Secret Size 160 bits 20 bytes 
+ Secret Encryption 2026 - 02 - 04 
+ encrypted PostgreSQL pgcrypto 
+ Encrypt secret stored base64 database 
+ encrypt 
+ plaintext 
+ Uses convert _ to bytea conversion 
+ convert plaintext UTF8 encryption input 
+convert decrypted UTF8 output normalization 
+ text 
+ Implementation 
+ Uses PostgreSQL pgcrypto extension 
+ AES - 256 encryption CBC mode 
+ Symmetric key ENCRYPTION _ KEY environment variable minimum 32 bytes 
+ Converts text to bytea encryption 
+ Base64 encoding storage 
+ Service role bypasses RLS encryption operations 
+ Configuration 
+ set environments Local Development apps 
+ Staging GitHub Supabase 
+ Production 
+ setup instructions 
+ Receive TOTP secret QR code 
+ 10 backup codes 
+ Compatible Apps 
+ Google Authenticator 
+ RFC 6238 compliant 
+ Security Features 
+ Replay attack prevention Redis counter tracking 
+ Timing safe code comparison 
+ Encrypted secret storage pgcrypto AES - 256 
+ Time window tolerance clock 
+ Proper bytea conversion overflow errors 
+ Backup Codes 
+ Generated TOTP setup 
+Count 10 codes 
+ Format 8 characters 
+ Entropy 40 bits code 
+ Security HMAC - SHA256 storage 
+ Single - Use Marked timestamp 
+ Regeneration generate new set
+
+ SMS OTP 
+ 6 - digit SMS 
+ Expiry 5 minutes 
+ Rate Limit 5 attempts per 15 minutes enforced 
+ Security Rejection sampling prevents modulo bias 
+ Atomic Attempt Tracking Redis Lua script prevents race conditions 
+ Email OTP 
+ 6 - digit email 
+ Expiry 10 minutes 
+ Rate Limit 5 attempts per 15 minutes enforced 
+ security model SMS OTP 
+ 2FA Login Flow 
+ User enters email password 
+ validates credentials 
+ detects 2FA 
+ Response includes pendingSessionToken requires2FA true 
+ User enters TOTP SMS Email code backup 
+ verifies code 
+ upgrades pending session full session 
+ Returns sessionToken refreshToken 
+ Reference 
+ Authentication Endpoints 
+ register 
+ Request 
+ credential 
+ type authMethod password acceptTerms 
+ marketingConsent false 
+ Response ( 201 Created 
+ success 
+ data 
+ playerAccountIdverificationRequired " true 
+ verificationMethod email " sms " 
+ text Errors 
+ 400 Invalid input password email phone format 
+ Email phone registered 
+ POST login 
+ Authenticate credentials 
+ Request 
+ credential 
+ type email phone 
+ value player @ example. com + 14155552671 
+ authMethod password 
+ SecurePassword123! 
+ deviceInfo 
+ deviceName iPhone 14 
+ platform ios 
+ type mobile 
+ Response ( 200 OK 
+ success " 
+ data 
+ sessionToken uuid 
+ refreshToken 
+ expiresAt ISO 8601 timestamp 
+ playerAccountId uuid 
+ requires2FA false 
+ requiresVerification 
+ Response with 2FA ( 200 OK ) 
+ success " true 
+ data 
+ pendingSessionToken uuid 
+ requires2FA 
+ primaryMethod totp 
+ availableMethods totp sms email backup _ code " 
+ text Errors 400 Invalid input 
+401 Invalid credentials account locked 
+ - 429 Rate limit exceeded enforced 
+ POST auth logout 
+ Terminate current session 
+ Headers Authorization Bearer sessionToken 
+ Response ( 200 OK ) 
+ json success true 
+ data 
+ message Logged text Errors 
+ 401 Invalid expired session token 
+ POST auth refresh 
+ session tokens Request 
+ json refreshToken uuid 
+ text Response ( 200 OK ) 
+ json success true 
+ data 
+ sessionToken uuid 
+ refreshToken
+uuid " 
+ expiresAt " ISO 8601 timestamp " 
+ text Errors - 401 Invalid expired refresh token replay attack detected 
+ POST password - reset 
+ Request password reset json email " player @ example. com 
+ Response ( 200 OK 
+ json success " true 
+ data " 
+ message " account exists reset link sent 
+ text returns success prevent account enumeration 
+ POST password reset confirm 
+ password reset Request json token " reset - token 
+ newPassword " NewSecurePassword123! 
+ Response ( 200 OK 
+ success " true 
+ data " 
+ message Password reset successfully 
+ text Errors 400 Invalid expired token weak password 
+ Magic Link Endpoints 
+ link request 
+ link authentication 
+ json email " player @ example. com 
+ Response ( 200 OK ) 
+ json success " true 
+ data " 
+message Magic link sent 
+ expiresAt ISO 8601 timestamp 
+ text returns success prevent account enumeration 
+ POST magic - link verify 
+ magic link token 
+ Request 
+ json token magic - link - token 
+ text Response ( 200 OK 
+ json success true 
+ data 
+ sessionToken uuid 
+ refreshToken 
+ expiresAt ISO 8601 timestamp 
+ playerAccountId uuid 
+ Errors 
+ Invalid expired token 
+ 2FA Endpoints 
+ POST setup 
+ TOTP 2FA setup 
+ Headers Authorization sessionToken Response OK success true 
+ data 
+ secret BASE32 - ENCODED - SECRET 
+ qrCodeUri otpauth totp / iGaming % 20Platform player @ example. com? secret = 
+ expiresAt ISO 8601 timestamp " 
+ text POST verify 
+ Verify TOTP code enable 2FA 
+ Authorization sessionToken 
+Request 
+ json code 123456 " 
+ text Response ( 200 OK ) 
+ success " 
+ data " 
+ backupCodes " 
+ ABCD - 1234 
+ EFGH - 5678 
+ message 2FA enabled successfully 
+ text Errors 400 Invalid code setup expired 
+ 401 Unauthorized 
+ POST verify 
+ 2FA code login 
+ Request 
+ pendingSessionToken uuid 
+ code 123456 " 
+ method totp sms email backup _ code 
+ text Response ( 200 OK ) 
+ success " 
+ data " 
+ sessionToken uuid 
+ refreshToken uuid 
+ expiresAt ISO 8601 timestamp 
+ playerAccountId uuid " 
+ text Errors 400 Invalid code attempts 
+ 401 Invalid pending session token 
+ DELETE totp 
+
+sable TOTP 2FA 
+ Headers Authorization Bearer sessionToken 
+ Response ( 200 OK ) 
+ json success " true 
+ data " 
+ message TOTP 2FA disabled successfully 
+ text 
+ Session Management Endpoints 
+ GET sessions 
+ active sessions authenticated user 
+ Authorization Bearer 
+ Response ( 200 OK 
+ json success " true 
+ data " 
+ sessions 
+ id uuid 
+ deviceName iPhone 14 
+ deviceType mobile 
+ platform ios 
+ createdAt ISO 8601 timestamp 
+ lastActivityAt 
+ current 
+ total " 1 
+ text DELETE sessions 
+ specific session 
+ Authorization Bearer Response ( 200 OK 
+ json success " true 
+ data " 
+ message Session terminated successfully 
+ text 
+ Errors 400 terminate last session invalid session ID 
+ 401 Unauthorized 
+ 404 Session not found 
+ Account Linking Endpoints 
+ methods 
+ List linked authentication methods 
+ Headers Authorization Bearer sessionToken 
+Response ( 200 OK ) 
+ success " true 
+ data " 
+ methods " 
+ id uuid 
+ provider email _ password " 
+ credential email 
+ value " @ example. com 
+ verified " true 
+ createdAt " ISO 8601 timestamp 
+ text POST auth account link 
+ authentication method 
+ Headers Authorization sessionToken 
+ Request provider " email _ password phone _ password apple google 
+ credential " 
+ type email phone 
+ value " example. com + 14155552671 " 
+ Response ( 200 OK ) 
+ success " true 
+ data " 
+ verificationRequired 
+ expiresAt ISO 8601 timestamp 
+ linkToken uuid 
+ POST account link verify 
+ account linking 
+ Authorization sessionToken Request linkToken uuid " 
+ verificationCode " 123456 " 
+ text Response ( 200 OK ) 
+ success " true 
+ data " 
+ message " Account linked successfully " 
+methodId 
+ text 
+ DELETE auth account link methodId 
+ Unlink authentication method 
+ Headers Authorization Bearer sessionToken 
+ Response ( 200 OK 
+ success 
+ data 
+ message Method unlinked 
+ text Errors 
+ unlink method 
+ Security Considerations 
+ Token Security 
+ Generation crypto. randomUUID 128 - bit entropy 
+ Hashing HMAC - SHA256 environment - configured secret minimum 32 characters 
+ Storage stored
+text hashed 
+ Transmission over TLS / HTTPS 
+ Rotation Refresh tokens 
+ Password Security 
+ Hashing Bcrypt via PostgreSQL pgcrypto extension 
+ Cost Factor 10 ( configurable ) 
+ Verification Database - side via verify password 
+ Requirements 
+ 8 characters 
+ uppercase letter 
+ Rate Limiting Configuration 
+ instantiated enforced Issue GAP - 004 HIGH 
+ Configured Limits 
+ 5 attempts per 15 minutes IP 
+ Password Reset 3 requests per 60 minutes email 
+ Registration 3 before production deployment 
+ Account Lockout Policy 
+ Issue GAP - 003 MEDIUM 
+ Recommended Policy 
+ Lock account after 10 login attempts 
+ email verification 
+ security alert email lockout 
+ Track lockout events audit 
+ Audit Logging 
+ authentication 
+ Registration attempts success failure 
+ Login 
+ Session creation termination 
+ refresh 
+ verification 
+ Account linking 
+ Password reset requests 
+ Log Entry Structure 
+ Player account 
+ Event type 
+Success status 
+ IP address 
+ User agent 
+ Metadata encrypted sensitive data 
+ Timestamp 
+ Configuration 
+ Environment Variables 
+ Required : 
+ Supabase Configuration 
+ SUPABASE URL 
+ SUPABASE ANON KEY eyJ. 
+ eyJ Authentication Configuration 
+ AUTH HMAC SECRET minimum 32 character secret 
+ Redis Configuration 
+ UPSTASH _ REDIS _ REST URL 
+ REST TOKEN 
+ Application Configuration 
+ APP _ BASE URL play 
+ TOTP ISSUER Platform 
+ Configuration 
+ ALLOWED ORIGINS 
+ Optional 
+ ACCESS TOKEN 900 15 minutes 
+ REFRESH TOKEN = 604800 7 days 
+ Rate Limiting 
+ ENABLED rate limiting 
+ Logging 
+ Database Configuration 
+ RLS ( Row - Level Security ) 
+ authentication tables RLS enabled 
+ Policies use current _ setting user id UUID 
+Service role bypasses RLS admin operations 
+ performance auth sessions session token hash lookup 
+ token token rotation 
+ linked auth
+email _ hash email login ) 
+ linked auth phone hash login 
+ player _ 2fa player _ account _ id 2FA retrieval ) 
+ Functions 
+ set _ auth _ context ( user _ id UUID user _ role TEXT RLS variables 
+ hash _ password ( p _ password TEXT Bcrypt password 
+ verify _ password TEXT Bcrypt verification 
+ encrypt _ 2fa _ secret p plaintext TEXT Encrypt TOTP secrets 
+ decrypt 2fa p ciphertext TEXT Decrypt TOTP secrets 
+ Authentication 
+ 001 credentials incorrect 
+ not verified 
+ locked failed login attempts 
+ suspended 
+ Authentication failed Generic error ( check logs 
+ 006 2FA required 2FA verification needed 
+ 007 Invalid 2FA code incorrect or expired 
+ 008 2FA setup required 2FA not configured 
+ Session Errors 
+SESSION _ 001 Invalid session token not found expired terminated 
+ 002 Session expired Access token expired refresh required 
+ 003 Session terminated manually terminated 
+ SESSION 004 Refresh token invalid not found expired 
+ 005 Replay attack detected terminated 
+ Validation 
+ Code Message Description 
+ VAL 001 email format doesn t match regex pattern 
+ VAL 002 phone format match E. 164 format 
+ VAL 003 password doesn ' t meet requirements 
+ VAL 004 Invalid UUID format ID parameter valid 
+ 005 Missing request 
+ Production Deployment 
+ CRITICAL BLOCKERS 
+ Rate limiting enforcement 
+ Debug logging removed production code 
+ Account lockout mechanism GAP - 003 
+ Concurrent session limits GAP - 001 
+ session timeout GAP - 002 MEDIUM 
+ VERIFICATION 
+ environment variables 
+ Redis connection verified 
+ Database migrations applied 
+ origins 
+TLS / HTTPS enforced 
+ Audit logging enabled 
+ Monitoring alerting 
+ Performance Targets 
+ Operation Target Latency ( p95 ) Notes 
+ Session validation L1 hit < 50ms Redis cache hit 
+ Session validation L2 hit < 100ms Database
+
+ Login no 2FA < 200ms password verify session 
+ 300ms TOTP verify 
+ refresh 100ms Validate cache update 
+ Logout < 50ms cache invalidate 
+ Monitoring Recommendations 
+ Login success failure rate 
+ 2FA verification 
+ Cache hit ratio L1 
+ Authentication latency p50 
+ Rate limit violations 
+ Account lockouts 
+ Replay attack detections 
+ High login failure rate 10 % 5 minutes 
+ Low cache hit ratio 80 % 
+ authentication latency 500ms 
+ Replay attack 
+ Rate limit violations 
+ Database connection 
+ Redis 
+ Security Monitoring 
+ Failed login attempts 
+ Account enumeration attempts 
+ Suspicious 2FA patterns 
+ Geographic anomalies 
+ Concurrent session anomalies 
+ replay attempts 
+ Phase 6 Documentation Authentication architecture 
+ Security Audit 
+ Quality Report 
+ Gap 
+ Performance 
+RFC 6238 TOTP Time - Based Password Algorithm 
+ OWASP ASVS 3. 0 Application Security Verification Standard 
+ NIST SP 800 - 63B Digital Identity Guidelines 
+ Document Version 1. 2 
+ Last Review 2026 - 02 - 07 
+ After production 
+ v1. 2 ( 2026 - 02 - 07 Added migration notice unified custom authentication system 
+ v1. 1 2026 - 02 - 04 Session termination refresh token rotation updates 
+ v1. 0 2026 - 01 - 30 Initial comprehensive documentation 
+ implementation 
+ endpoints 
+ directory API endpoint reference 
+ LOCAL DEVELOPMENT Test user setup instructions 
+

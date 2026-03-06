@@ -1,0 +1,1050 @@
+{"original_chars":35434,"compressed_chars":24331,"original_tokens_est":8859,"compressed_tokens_est":6083,"reduction_pct":31.3,"method":"header-extraction"}
+# Authentication System Documentation
+**Version:** 1.2
+**Last Updated:** 2026-02-07
+**Phase:** Completion - Unified Custom Authentication
+
+---
+
+## Table of Contents
+1. [Overview](#overview)
+2. [Migration Notice](#migration-notice)
+3. [Architecture](#architecture)
+4. [Authentication Methods](#authentication-methods)
+5. [Session Management](#session-management)
+6. [Two-Factor Authentication](#two-factor-authentication)
+7. [API Reference](#api-reference)
+8. [Security Considerations](#security-considerations)
+9. [Configuration](#configuration)
+10. [Error Codes](#…
+
+## Migration Notice
+> **IMPORTANT: Unified Custom Authentication (February 2026)**
+>
+> The iGaming Platform has migrated from Supabase Auth to a unified custom authentication system. This affects both Operator Web (backoffice) and Player Web (casino) applications.
+
+### What Changed
+| Aspect | Previous (Supabase Auth) | Current (Custom Auth) |
+|--------|--------------------------|----------------------|
+| **API Endpoint** | `/auth/v1/token` | `/functions/v1/auth/*` |
+| **Database Table** | `auth.users` | `player.player_accounts` |
+| **Token Type** | Supabase JWT | Custom JWT (HMAC-SHA256) |
+| **Admin Detection** | `app_metadata.role = "admin"` | `is_admin = TRUE` column |
+| *…
+
+### Breaking Changes for Existing Deployments
+1. **API Endpoints**: All auth calls must use `/functions/v1/auth/*` instead of `/auth/v1/*`
+2. **User Data**: Migrate users from `auth.users` to `player.player_accounts`
+3. **Admin Access**: Update admin detection from `app_metadata.role` to `is_admin` column
+4. **Token Validation**: Update middleware to validate custom JWTs
+
+### Migration Steps
+1. Run database migrations to create `player.player_accounts` and related tables
+2. Migrate existing user data (if applicable)
+3. Update frontend auth stores to use new API endpoints
+4. Update middleware to validate custom JWT tokens
+5. Test authentication flows end-to-end
+
+For detailed migration guidance, contact the development team.
+
+---
+
+## Overview
+The iGaming Platform authentication system provides secure, scalable, and compliant player authentication with support for multiple authentication methods, two-factor authentication, and comprehensive session management.
+
+### Key Features
+- **Multiple Authentication Methods**: Email/password, phone/password, magic link, social login (Apple, Google)
+- **Two-Factor Authentication**: TOTP (RFC 6238), SMS OTP, Email OTP, backup codes
+- **Secure Session Management**: Opaque UUID tokens with HMAC-SHA256 hashing
+- **Account Linking**: Players can link multiple authentication methods to a single account
+- **Comprehensive Audit Logging**: A…
+
+### Design Decisions (Phase 6)
+1. **Opaque Tokens over JWTs**: Session tokens are UUIDs stored server-side for enhanced security and revocation capabilities
+2. **Two-Tier Caching**: Redis L1 cache + PostgreSQL L2 cache for high performance and reliability
+3. **HMAC Token Hashing**: Tokens hashed with HMAC-SHA256 before storage to prevent plaintext exposure
+4. **Refresh Token Rotation**: Generation counter and family tracking pr…
+
+### Security Model
+- **Token Security**: HMAC-SHA256 hashing, no plaintext storage, cryptographically secure generation
+- **Password Security**: Bcrypt hashing via PostgreSQL `pgcrypto` extension
+- **2FA Compliance**: RFC 6238 TOTP, timing-safe comparisons, replay attack prevention
+- **Account Enumeration Prevention**: Consistent error messages, timing normalization
+- **Audit Trail**: Comprehensive logging of all au…
+
+## Architecture
+
+### Component Diagram
+```text
+┌─────────────┐
+│   Client    │
+│  (Web/App)  │
+└──────┬──────┘
+       │
+       ▼
+┌─────────────────────────────────────┐
+│    Edge Function: /auth             │
+│  ┌───────────────────────────────┐  │
+│  │  Middleware (CORS, Security)  │  │
+│  └────────────┬──────────────────┘  │
+│               ▼                      │
+│  ┌───────────────────────────────┐  │
+│  │  Authentication Facade  …
+
+### Token Flow
+```text
+┌──────┐                ┌──────────┐              ┌──────────┐
+│Client│                │  Edge    │              │ Session  │
+│      │                │ Function │              │  Store   │
+└───┬──┘                └────┬─────┘              └────┬─────┘
+    │                        │                         │
+    │  1. POST /login        │                         │
+    ├─────────────────────…
+
+## Authentication Methods
+
+### 1. Email/Password Authentication
+Traditional credential-based authentication with email and password.
+
+**Flow:**
+
+1. User registers with email and password
+2. Password hashed with bcrypt (cost factor 10)
+3. Email verification code sent (15-minute expiry)
+4. User verifies email to activate account
+5. User can login with email + password
+
+**Security Features:**
+
+- Bcrypt password hashing
+- Email verification required
+- Failed login…
+
+### 2. Phone/Password Authentication
+Alternative credential-based authentication using phone number.
+
+**Flow:**
+
+1. User registers with E.164 phone number and password
+2. SMS verification code sent (5-minute expiry)
+3. User verifies phone to activate account
+4. User can login with phone + password
+
+**Phone Format:** E.164 international format (e.g., `+14155552671`)
+
+### 3. Magic Link (Passwordless)
+Email-based passwordless authentication.
+
+**Flow:**
+
+1. User requests magic link via email
+2. Unique token generated (UUID) with 15-minute expiry
+3. Token stored in database with single-use enforcement
+4. Email sent with authentication link
+5. User clicks link, token verified and consumed
+6. Session created automatically
+
+**Security Features:**
+
+- Single-use tokens (atomic verify-and-consume)
+- 15…
+
+### 4. Social Authentication
+OAuth 2.0 authentication with Apple and Google.
+
+**Supported Providers:**
+
+- Apple Sign In
+- Google Sign In
+
+**Flow:**
+
+1. Client obtains OAuth token from provider
+2. Token validated with provider
+3. User profile retrieved
+4. Account created or linked to existing account
+5. Session created
+
+**Account Linking:** Social auth can be linked to existing accounts.
+
+### 5. Two-Factor Authentication (2FA)
+See dedicated [Two-Factor Authentication](#two-factor-authentication) section.
+
+---
+
+## Session Management
+
+### Overview
+The platform uses session-based authentication with opaque UUID tokens (not JWTs). Sessions support both short-lived access tokens and long-lived refresh tokens, with comprehensive termination and rotation mechanisms.
+
+### Session Termination
+Sessions support soft-delete via `terminated_at` timestamp for audit trail preservation:
+
+```typescript
+// Logout terminates all user sessions
+await authFacade.logout(sessionToken)
+
+// Individual session termination
+await sessionStore.terminateSession(sessionToken, 'user_logout')
+
+// Session can also be terminated for:
+// - Timeout expiry
+// - Replay attack detection
+// - Admin revocation
+// - Dev…
+
+### Refresh Token Rotation
+Tokens are rotated using a terminate-and-create pattern to prevent replay attacks:
+
+```typescript
+// Old session is terminated
+await sessionStore.terminateSession(oldSessionId, 'token_rotation')
+
+// New session created with incremented generation
+const newSession = await sessionStore.createSession({
+  playerAccountId: playerId,
+  generation: oldGeneration + 1,  // Increment prevents replay
+  famil…
+
+### Token Architecture
+**Token Types:**
+
+- **Session Token (Access Token)**: Short-lived (15 minutes), used for API requests
+- **Refresh Token**: Long-lived (7 days), used to obtain new session tokens
+
+**Token Format:** UUID v4 (e.g., `a3b2c1d4-e5f6-4789-a0b1-c2d3e4f5g6h7`)
+
+**Token Security:**
+
+- Generated with `crypto.randomUUID()` (128-bit entropy)
+- Hashed with HMAC-SHA256 before storage
+- Never stored in plaintext
+…
+
+### Session Creation
+**POST /auth/login** creates a new session:
+
+```json
+Response:
+{
+  "success": true,
+  "data": {
+    "sessionToken": "a3b2c1d4-e5f6-4789-a0b1-c2d3e4f5g6h7",
+    "refreshToken": "b4c3d2e1-f6g7-5890-b1c2-d3e4f5g6h7i8",
+    "expiresAt": "2026-01-30T19:00:00Z",
+    "playerAccountId": "...",
+    "requires2FA": false
+  }
+}
+```text
+
+**Session Data Stored:**
+
+- Session token hash (HMAC-SHA256)
+- Refresh to…
+
+### Session Validation
+**How It Works:**
+
+1. Client sends session token in `Authorization: Bearer <token>` header
+2. Edge function extracts token and calls `validateSession()`
+3. L1 Cache (Redis) checked first (<5ms typical)
+4. L2 Cache (Database) fallback if Redis miss (~20-40ms)
+5. Token expiry validated
+6. Player account status checked
+7. RLS context set with `app.current_user_id` and `app.current_user_role`
+8. Reque…
+
+### Token Refresh
+**POST /auth/refresh** rotates both tokens:
+
+```json
+Request:
+{
+  "refreshToken": "b4c3d2e1-f6g7-5890-b1c2-d3e4f5g6h7i8"
+}
+
+Response:
+{
+  "success": true,
+  "data": {
+    "sessionToken": "c5d4e3f2-g7h8-6901-c2d3-e4f5g6h7i8j9",
+    "refreshToken": "d6e5f4g3-h8i9-7012-d3e4-f5g6h7i8j9k0",
+    "expiresAt": "2026-01-30T19:15:00Z"
+  }
+}
+```text
+
+**Refresh Token Rotation:**
+
+- Both tokens invalidated and…
+
+### Session Termination
+**POST /auth/logout** terminates session:
+
+- Marks session as terminated in database (soft delete)
+- Removes from Redis cache
+- Records termination reason (user_logout, timeout, replay_attack_detected, etc.)
+- Preserves audit trail
+
+**DELETE /auth/sessions/:id** terminates specific session:
+
+- Allows users to logout from specific devices
+- Requires authentication
+- Can only terminate own sessions
+…
+
+## Two-Factor Authentication
+
+### TOTP (Authenticator App)
+**RFC 6238 Compliant Implementation:**
+
+- Algorithm: HMAC-SHA1
+- Digits: 6
+- Time Step: 30 seconds
+- Window: ±1 step (90 seconds total)
+- Secret Size: 160 bits (20 bytes)
+
+**2FA Secret Encryption (Updated 2026-02-04)**
+
+TOTP secrets are encrypted using PostgreSQL pgcrypto with the `ENCRYPTION_KEY` environment variable:
+
+```sql
+-- Encrypt a secret (stored as base64 in database)
+SELECT public.encryp…
+
+### Backup Codes
+Generated during TOTP setup:
+
+- **Count:** 10 codes
+- **Format:** `XXXX-XXXX` (8 alphanumeric characters)
+- **Entropy:** 40 bits per code
+- **Security:** HMAC-SHA256 hashed before storage
+- **Single-Use:** Marked as used with timestamp
+- **Regeneration:** Can generate new set (invalidates old codes)
+
+### SMS OTP
+6-digit OTP sent via SMS:
+
+- **Expiry:** 5 minutes
+- **Rate Limit:** 5 attempts per 15 minutes (when enforced)
+- **Security:** Rejection sampling prevents modulo bias
+- **Atomic Attempt Tracking:** Redis Lua script prevents race conditions
+
+### Email OTP
+6-digit OTP sent via email:
+
+- **Expiry:** 10 minutes
+- **Rate Limit:** 5 attempts per 15 minutes (when enforced)
+- **Same security model as SMS OTP**
+
+### 2FA Login Flow
+```text
+1. User enters email + password
+2. System validates credentials
+3. System detects 2FA enabled
+4. Response includes pendingSessionToken and requires2FA=true
+5. User enters TOTP/SMS/Email code or backup code
+6. System verifies code
+7. System upgrades pending session to full session
+8. Returns sessionToken + refreshToken
+```text
+
+---
+
+## API Reference
+
+### Authentication Endpoints
+
+#### POST /auth/register
+Register new player account.
+
+**Request:**
+
+```json
+{
+  "credential": {
+    "type": "email" | "phone",
+    "value": "player@example.com" | "+14155552671"
+  },
+  "authMethod": "password",
+  "password": "SecurePassword123!",
+  "acceptTerms": true,
+  "marketingConsent": false
+}
+```text
+
+**Response (201 Created):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "playerId": "uuid",
+    "playerAccountId"…
+
+#### POST /auth/login
+Authenticate with credentials.
+
+**Request:**
+
+```json
+{
+  "credential": {
+    "type": "email" | "phone",
+    "value": "player@example.com" | "+14155552671"
+  },
+  "authMethod": "password",
+  "password": "SecurePassword123!",
+  "deviceInfo": {
+    "deviceName": "iPhone 14",
+    "platform": "ios",
+    "type": "mobile"
+  }
+}
+```text
+
+**Response (200 OK):**
+
+```json
+{
+  "success": true,
+  "data": {
+  …
+
+#### POST /auth/logout
+Terminate current session.
+
+**Headers:** `Authorization: Bearer <sessionToken>`
+
+**Response (200 OK):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Logged out successfully"
+  }
+}
+```text
+
+**Errors:**
+
+- `401` - Invalid/expired session token
+
+---
+
+#### POST /auth/refresh
+Refresh session tokens.
+
+**Request:**
+
+```json
+{
+  "refreshToken": "uuid"
+}
+```text
+
+**Response (200 OK):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "sessionToken": "uuid",
+    "refreshToken": "uuid",
+    "expiresAt": "ISO 8601 timestamp"
+  }
+}
+```text
+
+**Errors:**
+
+- `401` - Invalid/expired refresh token, replay attack detected
+
+---
+
+#### POST /auth/password-reset
+Request password reset.
+
+**Request:**
+
+```json
+{
+  "email": "player@example.com"
+}
+```text
+
+**Response (200 OK):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "If an account exists, a reset link has been sent"
+  }
+}
+```text
+
+**Note:** Always returns success to prevent account enumeration.
+
+---
+
+#### POST /auth/password-reset-confirm
+Confirm password reset.
+
+**Request:**
+
+```json
+{
+  "token": "reset-token",
+  "newPassword": "NewSecurePassword123!"
+}
+```text
+
+**Response (200 OK):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Password reset successfully"
+  }
+}
+```text
+
+**Errors:**
+
+- `400` - Invalid/expired token, weak password
+
+---
+
+### Magic Link Endpoints
+
+#### POST /auth/magic-link/request
+Request magic link authentication.
+
+**Request:**
+
+```json
+{
+  "email": "player@example.com"
+}
+```text
+
+**Response (200 OK):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Magic link sent",
+    "expiresAt": "ISO 8601 timestamp"
+  }
+}
+```text
+
+**Note:** Always returns success to prevent account enumeration.
+
+---
+
+#### POST /auth/magic-link/verify
+Verify magic link token.
+
+**Request:**
+
+```json
+{
+  "token": "magic-link-token"
+}
+```text
+
+**Response (200 OK):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "sessionToken": "uuid",
+    "refreshToken": "uuid",
+    "expiresAt": "ISO 8601 timestamp",
+    "playerAccountId": "uuid"
+  }
+}
+```text
+
+**Errors:**
+
+- `400` - Invalid/expired token, token already used
+
+---
+
+### 2FA Endpoints
+
+#### POST /auth/2fa/totp/setup
+Initialize TOTP 2FA setup.
+
+**Headers:** `Authorization: Bearer <sessionToken>`
+
+**Response (200 OK):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "secret": "BASE32-ENCODED-SECRET",
+    "qrCodeUri": "otpauth://totp/iGaming%20Platform:player@example.com?secret=...",
+    "expiresAt": "ISO 8601 timestamp"
+  }
+}
+```text
+
+---
+
+#### POST /auth/2fa/totp/verify
+Verify TOTP code and enable 2FA.
+
+**Headers:** `Authorization: Bearer <sessionToken>`
+
+**Request:**
+
+```json
+{
+  "code": "123456"
+}
+```text
+
+**Response (200 OK):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "backupCodes": [
+      "ABCD-1234",
+      "EFGH-5678",
+      ...
+    ],
+    "message": "2FA enabled successfully"
+  }
+}
+```text
+
+**Errors:**
+
+- `400` - Invalid code, setup expired
+- `401` - …
+
+#### POST /auth/2fa/verify
+Verify 2FA code during login.
+
+**Request:**
+
+```json
+{
+  "pendingSessionToken": "uuid",
+  "code": "123456",
+  "method": "totp" | "sms" | "email" | "backup_code"
+}
+```text
+
+**Response (200 OK):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "sessionToken": "uuid",
+    "refreshToken": "uuid",
+    "expiresAt": "ISO 8601 timestamp",
+    "playerAccountId": "uuid"
+  }
+}
+```text
+
+**Errors:**
+
+- `400` - …
+
+#### DELETE /auth/2fa/totp
+Disable TOTP 2FA.
+
+**Headers:** `Authorization: Bearer <sessionToken>`
+
+**Response (200 OK):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "TOTP 2FA disabled successfully"
+  }
+}
+```text
+
+---
+
+### Session Management Endpoints
+
+#### GET /auth/sessions
+List active sessions for authenticated user.
+
+**Headers:** `Authorization: Bearer <sessionToken>`
+
+**Response (200 OK):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "sessions": [
+      {
+        "id": "uuid",
+        "deviceName": "iPhone 14",
+        "deviceType": "mobile",
+        "platform": "ios",
+        "createdAt": "ISO 8601 timestamp",
+        "lastActivityAt": "ISO 8601 timestamp",
+   …
+
+#### DELETE /auth/sessions/:id
+Terminate specific session.
+
+**Headers:** `Authorization: Bearer <sessionToken>`
+
+**Response (200 OK):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Session terminated successfully"
+  }
+}
+```text
+
+**Errors:**
+
+- `400` - Cannot terminate last session, invalid session ID
+- `401` - Unauthorized
+- `404` - Session not found
+
+---
+
+### Account Linking Endpoints
+
+#### GET /auth/account/methods
+List linked authentication methods.
+
+**Headers:** `Authorization: Bearer <sessionToken>`
+
+**Response (200 OK):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "methods": [
+      {
+        "id": "uuid",
+        "provider": "email_password",
+        "credential": "email",
+        "value": "pla***@example.com",
+        "verified": true,
+        "createdAt": "ISO 8601 timestamp"
+      }
+    ]
+  }
+}
+``…
+
+#### POST /auth/account/link
+Link new authentication method.
+
+**Headers:** `Authorization: Bearer <sessionToken>`
+
+**Request:**
+
+```json
+{
+  "provider": "email_password" | "phone_password" | "apple" | "google",
+  "credential": {
+    "type": "email" | "phone",
+    "value": "new@example.com" | "+14155552671"
+  }
+}
+```text
+
+**Response (200 OK):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "verificationRequired": true,
+    "ex…
+
+#### POST /auth/account/link/verify
+Verify and complete account linking.
+
+**Headers:** `Authorization: Bearer <sessionToken>`
+
+**Request:**
+
+```json
+{
+  "linkToken": "uuid",
+  "verificationCode": "123456"
+}
+```text
+
+**Response (200 OK):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Account linked successfully",
+    "methodId": "uuid"
+  }
+}
+```text
+
+---
+
+#### DELETE /auth/account/link/:methodId
+Unlink authentication method.
+
+**Headers:** `Authorization: Bearer <sessionToken>`
+
+**Response (200 OK):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Method unlinked successfully"
+  }
+}
+```text
+
+**Errors:**
+
+- `400` - Cannot unlink last method
+
+---
+
+## Security Considerations
+
+### Token Security
+- **Generation:** `crypto.randomUUID()` provides 128-bit entropy
+- **Hashing:** HMAC-SHA256 with environment-configured secret (minimum 32 characters)
+- **Storage:** Never stored in plaintext, always hashed
+- **Transmission:** Only over TLS/HTTPS
+- **Rotation:** Refresh tokens rotated on every use
+
+### Password Security
+- **Hashing:** Bcrypt via PostgreSQL `pgcrypto` extension
+- **Cost Factor:** 10 (configurable)
+- **Verification:** Database-side via `verify_password()` function
+- **Requirements:**
+  - Minimum 8 characters
+  - At least one uppercase letter
+  - At least one lowercase letter
+  - At least one number
+  - At least one special character
+
+### Rate Limiting Configuration
+**Note:** Rate limiters are instantiated but NOT currently enforced (Issue GAP-004 HIGH).
+
+**Configured Limits:**
+
+- Login: 5 attempts per 15 minutes (per IP)
+- 2FA Verification: 5 attempts per 15 minutes (per session)
+- Password Reset: 3 requests per 60 minutes (per email)
+- Registration: 3 attempts per 60 minutes (per IP)
+- Magic Link: 3 requests per 60 minutes (per email)
+
+**Enforcement:** CRIT…
+
+### Account Lockout Policy
+**Note:** Currently NOT implemented (Issue GAP-003 MEDIUM).
+
+**Recommended Policy:**
+
+- Lock account after 10 consecutive failed login attempts
+- Require email verification to unlock
+- Send security alert email on lockout
+- Track lockout events in audit log
+
+### Audit Logging
+All authentication events logged to `player.player_audit_log`:
+
+- Registration attempts (success/failure)
+- Login attempts (success/failure with reason)
+- Session creation/termination
+- Token refresh operations
+- 2FA setup/verification
+- Account linking operations
+- Password reset requests
+
+**Log Entry Structure:**
+
+- Player account ID
+- Event type
+- Success status
+- IP address
+- User agent
+- Meta…
+
+## Configuration
+
+### Environment Variables
+**Required:**
+
+```bash
+
+# Supabase Configuration
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=eyJ...
+SUPABASE_SERVICE_ROLE_KEY=eyJ...
+
+# Authentication Configuration
+AUTH_HMAC_SECRET=<minimum-32-character-secret>
+
+# Redis Configuration (Upstash)
+UPSTASH_REDIS_REST_URL=https://your-redis.upstash.io
+UPSTASH_REDIS_REST_TOKEN=<token>
+
+# Application Configuration
+APP_BASE_URL=https://play.igaming.com
+TOTP_ISSUER=iGaming Platform
+
+# CORS Configuration
+ALLOWED_ORIGINS=https://play.igaming.com,https://admin.igaming.com
+```text
+
+**Optional:**
+
+```bash
+
+# Token TTL (seconds)
+ACCESS_TOKEN_TTL=900        # 15 minutes (default)
+REFRESH_TOKEN_TTL=604800    # 7 days (default)
+
+# Rate Limiting
+RATE_LIMIT_ENABLED=true     # Enable rate limiting (default: false)
+
+# Logging
+LOG_LEVEL=info              # debug, info, warn, error
+```text
+
+### Database Configuration
+**RLS (Row-Level Security):**
+
+- All authentication tables have RLS enabled
+- Policies use `current_setting('app.current_user_id', true)::UUID`
+- Service role bypasses RLS for admin operations
+
+**Indexes:**
+Critical indexes for performance:
+
+- `auth_sessions.session_token_hash` (session lookup)
+- `auth_sessions.refresh_token_hash` (token rotation)
+- `linked_auth_methods.email_hash` (email login)
+-…
+
+## Error Codes
+
+### Authentication Errors
+| Code | Message | Description |
+|------|---------|-------------|
+| AUTH_001 | Invalid credentials | Email/phone or password incorrect |
+| AUTH_002 | Account not verified | Email/phone verification required |
+| AUTH_003 | Account locked | Too many failed login attempts |
+| AUTH_004 | Account suspended | Account administratively suspended |
+| AUTH_005 | Authentication failed | Generic error (check …
+
+### Session Errors
+| Code | Message | Description |
+|------|---------|-------------|
+| SESSION_001 | Invalid session token | Token not found, expired, or terminated |
+| SESSION_002 | Session expired | Access token expired, refresh required |
+| SESSION_003 | Session terminated | Session manually terminated |
+| SESSION_004 | Refresh token invalid | Refresh token not found or expired |
+| SESSION_005 | Replay attack det…
+
+### Validation Errors
+| Code | Message | Description |
+|------|---------|-------------|
+| VAL_001 | Invalid email format | Email doesn't match regex pattern |
+| VAL_002 | Invalid phone format | Phone doesn't match E.164 format |
+| VAL_003 | Weak password | Password doesn't meet requirements |
+| VAL_004 | Invalid UUID format | ID parameter is not valid UUID |
+| VAL_005 | Missing required field | Required request field m…
+
+## Production Deployment
+
+### Pre-Deployment Checklist
+**CRITICAL BLOCKERS:**
+
+- [ ] Rate limiting enforcement implemented (GAP-004 HIGH)
+- [ ] Debug logging removed from production code (AUTH-SEC-004 HIGH)
+
+**RECOMMENDED:**
+
+- [ ] Account lockout mechanism implemented (GAP-003 MEDIUM)
+- [ ] Concurrent session limits configured (GAP-001 MEDIUM)
+- [ ] Idle session timeout implemented (GAP-002 MEDIUM)
+
+**VERIFICATION:**
+
+- [ ] All environment variables …
+
+### Performance Targets
+| Operation | Target Latency (p95) | Notes |
+|-----------|---------------------|-------|
+| Session validation (L1 hit) | <50ms | Redis cache hit |
+| Session validation (L2 hit) | <100ms | Database fallback |
+| Login (no 2FA) | <200ms | Includes password verify + session create |
+| Login (with 2FA) | <300ms | Includes TOTP verify |
+| Token refresh | <100ms | Validate + rotate + cache update |
+| Log…
+
+### Monitoring Recommendations
+**Metrics to Track:**
+
+- Login success/failure rate
+- 2FA verification success rate
+- Session creation rate
+- Token refresh rate
+- Cache hit ratio (L1/L2)
+- Authentication latency (p50, p95, p99)
+- Rate limit violations
+- Account lockouts
+- Replay attack detections
+
+**Alerts to Configure:**
+
+- High login failure rate (>10% over 5 minutes)
+- Low cache hit ratio (<80%)
+- High authentication latency …
+
+### Security Monitoring
+- Failed login attempts by IP
+- Account enumeration attempts
+- Suspicious 2FA patterns (rapid code submissions)
+- Geographic anomalies (login from unusual location)
+- Concurrent session anomalies (many devices)
+- Refresh token replay attempts
+
+---
+
+## References
+- **Phase 6 Documentation:** Authentication architecture decisions
+- **Security Audit:** 11-01-SECURITY-AUDIT.md
+- **Code Quality Report:** 11-02-CODE-QUALITY-REPORT.md
+- **Functionality Gap Analysis:** 11-04-FUNCTIONALITY-GAP-ANALYSIS.md
+- **Performance Analysis:** 11-05-PERFORMANCE-ANALYSIS.md
+- **RFC 6238:** TOTP: Time-Based One-Time Password Algorithm
+- **OWASP ASVS 3.0:** Application Security…

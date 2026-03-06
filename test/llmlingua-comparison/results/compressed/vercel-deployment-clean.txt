@@ -1,0 +1,468 @@
+
+ title Vercel Deployment Guide 
+ deploying player - web operator - web frontend applications Vercel 
+ domain deployment 
+ tags vercel deployment frontend player - web operator - web ci - cd 
+ audience devops frontend - developers 
+ prerequisites docs deployment README 
+ vercel setup 
+ updated 2026 - 02 - 13 
+ status published 
+ Vercel Deployment Guide 
+ guide deploying iGaming Platform frontend applications player - web operator - web Vercel 
+ Table Contents 
+ Project Setup Vercel 
+ Environment Variables Configuration 
+ Domain Configuration 
+ GitHub Actions Integration 
+ 6 Deployment Workflow deployment workflow 
+ Project Configuration Files 
+ Troubleshooting troubleshooting 
+ Verification 
+ Vercel Account Setup 
+ Create Vercel Account 
+ vercel. com sign 
+ GitHub account easier repository integration 
+ plan personal projects teams 
+ Join Create Team 
+ shared projects environment variables billing 
+Required Access Permissions 
+ GitHub repository write access PR deployments ) 
+ Vercel account plan 
+ Access to Vercel Team team deployment 
+ Access to DNS provider custom domains 
+ Vercel CLI Installation 
+ globally local development debugging 
+ bash 
+ npm 
+ install global vercel @ latest 
+ pnpm 
+ add - g vercel 
+ installation 
+ version 
+ text Login Vercel CLI 
+ bash 
+ login 
+ text opens browser for authentication CLI commands 
+ Project Setup on Vercel 
+ requires two separate Vercel projects each frontend application 
+ player - web 
+ admin 
+ Creating Projects via Vercel Dashboard 
+ 1 Import Repository 
+ vercel. com 
+ Import Git Repository 
+ GitHub account 
+ Configure player - web Project 
+ Project Name 
+ Framework Preset Next auto - detected 
+ Root Directory 
+ Build Output Settings 
+ Command player - web 
+Output Directory apps player
+
+ Install Command npm install legacy - peer - deps 
+ Deploy 
+ Step 3 Configure operator - web Project 
+ Repeat import process operator web 
+ vercel. com new 
+ Import same repository 
+ Project Name operator - web 
+ Root Directory apps operator - web 
+ Build Output Settings 
+ Command npx nx reset no install build operator - web 
+ Output Directory dist apps operator - web 
+ Install Command npm install legacy - peer - deps 
+ 6 Deploy 
+ Creating Projects via CLI 
+ Vercel CLI 
+ Navigate project root 
+ platform 
+ Create player - web project 
+ cd apps 
+ prompts 
+ Build Settings Summary 
+ player Framework Next. js 
+ Root Directory apps player - web apps operator - web 
+ Build Command npx nx reset no - install nx build player - web reset install build operator - web 
+Output Directory | dist / apps / player - web dist apps operator - web 
+ Install Command | npm install legacy - peer - deps npm install legacy - peer - deps 
+ Node. js Version | 20. x | 
+ Region | fra1 ( Frankfurt ) | 
+ Environment Variables Configuration 
+ Required Environment Variables 
+ applications require environment variables : 
+ Core Variables ( Apps ) 
+ Variable Description Example 
+ SUPABASE _ URL Supabase project API URL 
+ SUPABASE anonymous public key eyJhbGciOiJIUzI1NiIs.. 
+ Additional Variables ( operator - web only ) 
+ Variable Description 
+ UPSTASH _ REDIS _ REST _ URL Upstash Redis REST endpoint 
+ Setting Environment Variables Vercel Dashboard 
+ Navigate Settings Environment Variables * 
+ 3 Add each variable scope : 
+variable name SUPABASE _ URL 
+ value 
+ Select environments 
+ Production production deployments 
+ Preview PR preview deployments staging values 
+ Development local vercel dev optional 
+ Save " 
+ Environment Values 
+ Staging Environment Preview Deployments 
+ player - web operator - web 
+ URL project 
+ ANON KEY 
+ operator - web only Redis 
+ UPSTASH _ REDIS _ REST URL staging redis 
+
+staging token 
+ text 
+ Production Environment 
+ env 
+ player - web operator - web 
+ SUPABASE URL production project supabase 
+ ANON KEY production anon key 
+ operator - web only Redis ) 
+ UPSTASH _ REDIS _ REST URL 
+ production token text 
+ Setting Variables via CLI 
+ bash 
+ Add variable environments 
+ SUPABASE URL 
+ specific environment 
+ preview 
+ environment variables 
+ variables local development 
+ text 
+ Important Notes 
+ secrets Vercel environment variable management 
+ NEXT _ PUBLIC prefix next config exposes SUPABASE _ URL SUPABASE _ ANON _ KEY client - side code 
+ Different values environment Supabase projects staging production 
+ Domain Configuration 
+ Staging Domains 
+ preview Vercel automatic domains 
+ player - web 
+ custom staging domains 
+ project Settings 
+ Add staging domain : 
+player - staging. yourdomain. com 
+ operator - staging. yourdomain. com 
+ 3 Configure DNS DNS Configuration ) 
+ Production Domains 
+ Adding Custom Domains 
+ 1 project * Settings Domains * 
+ 2 Enter production domain : 
+ player - web player. yourdomain. com play. yourdomain 
+ admin yourdomain 3 Click Add " 
+ DNS Configuration 
+ Vercel display required DNS records Configure in DNS provider : 
+ Option A CNAME Record ( Subdomains ) * 
+ player 
+ 3600 
+ B A Record ( Apex / Root Domain ) * 
+ Value 76. 76. 21. 21 
+ TTL 3600 
+ Recommended Setup 
+ | Domain | Type 
+ yourdomain player - staging. yourdomain. com 
+ SSL Certificate Setup 
+ Vercel renews SSL certificates via Encrypt : 
+domain Vercel initiates certificate provisioning 
+ DNS propagation 1 48 hours 
+ Certificate status 
+ Valid Configuration green checkmark 
+ Troubleshooting SSL 
+ certificate fails verify DNS 
+ CAA records Encrypt 
+
+conflicting CDN Cloudflare proxy interfering 
+ Domain Verification 
+ custom domain Vercel may require verification 
+ Add TXT record to DNS 
+ Type TXT 
+ Name vercel 
+ Value vc - domain - verify = xxxxx 
+ TTL : 3600 
+ Wait DNS propagation 
+ Verify Vercel dashboard 
+ GitHub Actions Integration 
+ iGaming Platform uses GitHub Actions automated deployments instead Vercel Git integration. 
+ Required GitHub Secrets 
+ Add secrets to GitHub repository 
+ Name Description 
+ VERCEL _ TOKEN API token Dashboard Settings 
+ ORG ID organization / team ID 
+ PLAYER WEB PROJECT 
+ OPERATOR 
+ Vercel Token 
+ vercel. com account tokens 
+ Create Token " 
+ Name : github - actions - deploy 
+ 4 Full Account team ) 
+ 5 Copy token immediately 
+ Organization Project IDs 
+Method 1 Via Vercel CLI 
+ Link project check vercel json 
+ apps player - web 
+ View file 
+ cat vercel project json 
+ Output orgId team _ xxxx projectId prj _ yyyy 
+ Method 2 Via Dashboard 
+ Vercel project 
+ Navigate Settings 
+ Scroll Project ID value 
+ Organization ID team settings 
+ Adding Secrets GitHub 
+ repository 
+ Navigate Settings variables 
+ New repository secret 
+ Add 
+ VERCEL _ TOKEN 
+ ORG ID team xxxxxxxxxxxxx 
+ PLAYER WEB PROJECT ID prj xxxxxxxxxxxxx 
+ OPERATOR WEB PROJECT prj xxxxxxxxxxxxx 
+ GitHub Environment Specific Secrets 
+ Vercel deployments GitHub Environments 
+ staging 
+ SUPABASE URL staging 
+ staging 
+ production 
+ SUPABASE URL production 
+SUPABASE ANON KEY production 
+ Deployment Workflow 
+ iGaming Platform controlled deployment 
+ Automatic Vercel builds disabled skips builds 
+ GitHub triggers deployments CI passes workflow deploys Vercel CLI 
+ No duplicate deployments Prevents wasted minutes failed emails 
+ Deployment Flow 
+ Request Tests Run 
+ main 
+
+
+ Staging Deployment deploy - staging. yml ) 
+ Backend deployments migrations functions 
+ Post - deployment validation 
+ Frontend deployment to Vercel ( preview ) 
+ Manual Verification 
+ Production Deployment deploy - production. yml - manual trigger ) 
+ Backend deployments 
+ Post - deployment validation 
+ Frontend deployment to Vercel ( production ) 
+ Staging Deployment Automatic 
+ Triggered code merged 
+ github deploy - staging yml 
+ frontend 
+ Deploy Frontend Vercel 
+ post - deployment - tests 
+ strategy 
+ matrix 
+ app 
+ steps Vercel Pull 
+ Build with Vercel 
+ Deploy 
+ Production Deployment Manual 
+ deployments require manual trigger 
+ GitHub Actions Deploy to Production 
+ Run workflow 
+ PRODUCTION confirm 
+ workflow 
+ Validates environment 
+ Runs pre - deployment tests 
+ Deploys backend ( migrations functions ) 
+post - deployment smoke tests 
+ 5 Deploys frontend Vercel production 
+ 6 Creates release tag 
+ Deployment Status Checks 
+ Monitor deployments in : 
+ 1 GitHub Actions Repository > Actions tab 
+ 2 Vercel Dashboard Project > Deployments 
+ 3 Vercel CLI list recent deployments 
+ Manual Deployment ( Emergency ) 
+ GitHub Actions fails deploy manually via CLI : 
+ bash 
+ Navigate to app directory 
+ cd apps / player - web 
+ Pull environment build 
+ vercel production token TOKEN 
+ prod 
+ Deploy 
+ vercel deploy text 
+ Vercel Project Configuration Files 
+ vercel. json 
+ Each app vercel. json configuration file : 
+ apps player - web 
+ framework nextjs 
+ buildCommand player - web 
+ outputDirectory 
+ installCommand 
+ ignoreCommand 
+ regions 
+ github 
+ headers 
+ headers 
+key Cache - Control 
+ value public max - age 31536000 immutable 
+ source images / ( * ) 
+ headers 
+ key Cache - Control 
+ value public max - age 31536000 immutable 
+
+
+ apps / operator - web vercel. json 
+ framework " nextjs " 
+ buildCommand npx nx reset no - install nx build operator - web 
+ outputDirectory dist / apps operator - web 
+ installCommand npm install legacy - peer - deps 
+ ignoreCommand bash. scripts 
+ functions 
+ src app / api ts 
+ maxDuration 
+ regions 
+ github 
+ headers 
+ source api * 
+ headers key Cache - Control 
+ value no - cache 
+ source next static / (. * ) 
+ headers 
+ Control value public max - age = 31536000 immutable 
+ Configuration Explained 
+ Setting Purpose 
+ framework Next js optimizations 
+ buildCommand Nx - based build command cache reset 
+ outputDirectory Nx outputs built app 
+ installCommand npm install legacy peer deps compatibility 
+ ignoreCommand Script skips automatic Vercel builds 
+regions Deployment region Frankfurt 
+ github. silent Disables Vercel comments on PRs 
+ headers Custom HTTP headers caching 
+ functions Serverless function configuration operator - web 
+ Ignore Build Script 
+ scripts vercel ignore build ensures automatic Vercel builds skipped 
+ bash 
+ Returns exit code 0 to SKIP build BUILD 
+ Skipping automatic Vercel build deployed GitHub Actions 
+ exit 0 
+ text next config 
+ expose Supabase environment variables client - side code 
+ javascript SUPABASE URL Vercel embedded at build time 
+ preview production builds 
+ Troubleshooting 
+ Common Deployment Errors 
+ Build Fails Module not found 
+ Cause Missing dependencies import paths 
+ Solution Verify build works 
+ apps player - web 
+ missing dependencies 
+ ls package - name > 
+ textBuild Fails nx command found 
+ Nx installed build 
+ Solution Ensure installCommand legacy peer deps installs workspace dependencies Nx 
+ Environment Variable Issues 
+ App undefined Supabase URL pages 
+ Check Vercel project Settings Environment Variables 
+ Verify variable scope deployment type Production Preview 
+ Ensure
+typos variable names 
+ Solution 
+ Pull verify environment locally 
+ local 
+ SUPABASE 
+ Domain Configuration Problems 
+ shows Invalid Configuration SSL errors 
+ Verify DNS records correct 
+ DNS propagation 48 hours 
+ Check CAA records blocking Encrypt 
+ Ensure domain proxied CDN 
+ DNS propagation 
+ yourdomain. com Deployment Times 
+ Build long 45 minutes 
+ Solutions Enable Nx caching 
+ Upgrade Vercel plan longer build times 
+ Optimize removing unused dependencies 
+ Failures GitHub Actions 
+ VERCEL _ TOKEN not set 
+ Add VERCEL TOKEN GitHub repository secrets 
+ Project not found 
+ Verify VERCEL _ ORG _ ID VERCEL PROJECT _ ID correct 
+ Build exists 
+ deploy same build twice 
+ ignore check workflow logic 
+ Debugging Builds 
+ View Build Logs 
+ Vercel project Deployments 
+Click failed deployment 
+ View Build Logs tab 
+ Local Build Testing 
+ bash Simulate Vercel build locally 
+ cd apps player - web 
+ vercel build Check output 
+ ls - la vercel output 
+ text Verification 
+ Verify Deployment Succeeded 
+ Check GitHub Actions 
+ repository Actions tab 
+ Find deployment workflow run 
+ jobs show green checkmarks 
+ Click deploy - frontend " job deployment URL 
+ Check Vercel Dashboard 
+ Vercel project 
+ Navigate Deployments 
+ Latest deployment 
+ - Status Ready " 
+ Preview URL staging Production URL 
+ Visual Verification 
+ Visit deployed application : 
+ Staging 
+ igaming player web xxxx 
+ Production Smoke Tests Deployed Apps 
+ Check app loads 
+ curl - sI 
+ return : 
+ HTTP / 2 200 
+ content - type text html 
+ Operator Web 
+ curl - API routes work 
+ curl health textHealth Check Endpoints 
+ apps 
+ pages api health. ts route. ts 
+ typescript 
+ export async function GET 
+ return Response. json 
+ status ok 
+ timestamp Date toISOString 
+ environment process unknown 
+ text 
+ Verify curl player. yourdomain. com api health 
+
+status ok timestamp 2026 - 02 - 07T12 : 00 : 00. 000Z environment production 
+ Monitoring After Deployment 
+ Analytics 
+ Check error rate spikes 
+ Monitor Core Web Vitals 
+ Logs 
+ project 
+ Filter time 
+ errors 
+ Browser Console 
+ Open deployed app 
+ Check DevTools console JavaScript errors 
+ Verify network requests 
+ Post - Deployment Checklist 
+ App loads without errors 
+ Static assets JS 
+ Environment variables correct 
+ Authentication flows 
+ API routes respond 
+ SSL certificate valid 
+ No console errors browser DevTools 
+ Documentation 
+ Deployment Runbook Complete deployment procedures 
+ Environment Variables Guide 
+ Rollback Procedures 
+ Development Flow production workflow 
+ Last updated 2026 - 02 - 07 
+ Owner DevOps team 
+

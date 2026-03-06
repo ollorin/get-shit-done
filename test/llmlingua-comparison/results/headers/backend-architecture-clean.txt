@@ -1,0 +1,289 @@
+# Backend Architecture Guide
+> **AI Summary**: Clean Architecture implementation for the iGaming platform backend using Supabase
+> Edge Functions. Now includes functional programming patterns with neverthrow Result types and
+> exhaustive error handling via ts-pattern. Covers three-layer architecture (Domain, Application,
+> Infrastructure), entity patterns, value objects, use cases with CQRS, repository abstractions,
+> caching…
+
+## Clean Architecture Implementation
+
+### Layer Overview
+```text
+apps/api/libs/
+├── domain/           # Business Rules Layer
+│   ├── entities/     # Core business objects
+│   ├── value-objects/# Immutable value objects
+│   ├── services/     # Domain services
+│   └── errors/       # Domain-specific errors
+├── application/      # Use Cases Layer
+│   ├── use-cases/    # Application services
+│   ├── commands/     # Write operations
+│   ├── queries/      # R…
+
+### Dependency Flow
+```text
+Infrastructure -> Application -> Domain
+      |               |            |
+      v               v            v
+ (External)     (Use Cases)   (Business Rules)
+```text
+
+**Key Principles:**
+
+- Dependencies flow inward (toward Domain)
+- Domain layer has no external dependencies
+- Each layer only knows about layers it depends on
+
+---
+
+## Functional Programming Patterns (v0.1.2)
+
+### Railway-Oriented Programming
+All edge functions use ResultAsync for error handling instead of try/catch:
+
+```typescript
+import { ResultAsync, ok, err } from 'neverthrow'
+import { ValidationError, DatabaseError } from '@igaming/domain'
+
+function createPlayer(data: CreatePlayerInput): ResultAsync<Player, BaseError> {
+  return validateInput(data)
+    .andThen(validated => saveToDatabase(validated))
+    .andThen(player => notifyC…
+
+### Error Factories
+Domain errors are created via factory functions, not classes. This enables cleaner pattern matching:
+
+```typescript
+// Domain layer - apps/api/libs/domain/src/lib/errors/fp/
+import { ValidationError, AuthenticationError, DatabaseError } from '@igaming/domain'
+
+// Create errors with factory
+const error = InvalidCredentialsError({ traceId: '123' })
+
+// Errors have _tag for pattern matching
+error._ta…
+
+### Translation Layer
+Results are converted to HTTP responses via the translation layer. This ensures consistent response format across all endpoints:
+
+```typescript
+import { resultAsyncToResponse } from '@igaming/infrastructure'
+
+async function handlePost(req: Request): Promise<Response> {
+  return resultAsyncToResponse(
+    parseRequestBody(req)
+      .andThen(body => validateRequest(body, schema))
+      .andThen(dat…
+
+## Domain Layer
+
+### Entities
+Domain entities represent core business objects with identity:
+
+```typescript
+// libs/domain/src/entities/game.ts
+export class Game {
+  constructor(
+    public readonly id: string,
+    public readonly title: string,
+    public readonly provider: string,
+    public readonly type: GameType,
+    public readonly rtp: number,
+    public readonly volatility: VolatilityLevel,
+    public readonly minBet: …
+
+### Value Objects
+Value objects are immutable and identified by their values, not identity:
+
+```typescript
+// libs/domain/src/value-objects/email.ts
+export class Email {
+  private constructor(private readonly value: string) {}
+
+  static create(email: string): Result<Email, ValidationError> {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return Result.fail(new Validati…
+
+### Domain Services
+Domain services contain business logic that doesn't belong to a single entity:
+
+```typescript
+// libs/domain/src/services/session-validation.service.ts
+export class SessionValidationService {
+  validateSessionExpiry(session: Session, now: Date): boolean {
+    return session.expiresAt > now;
+  }
+
+  calculateRefreshExpiry(originalExpiry: Date, refreshWindow: number): Date {
+    const newExpiry = new…
+
+## Application Layer (Use Cases)
+
+### Command Pattern (Write Operations)
+```typescript
+// libs/application/src/commands/create-session.command.ts
+export interface CreateSessionCommand {
+  playerId: string;
+  deviceInfo?: DeviceInfo;
+  ipAddress?: string;
+}
+
+export class CreateSessionUseCase {
+  constructor(
+    private readonly sessionRepository: ISessionRepository,
+    private readonly sessionCache: ISessionCache
+  ) {}
+
+  async execute(command: CreateSessionCommand):…
+
+### Query Pattern (Read Operations)
+```typescript
+// libs/application/src/queries/get-games.query.ts
+export interface GetGamesQuery {
+  type?: GameType;
+  provider?: string;
+  status?: GameStatus;
+  limit?: number;
+  offset?: number;
+}
+
+export class GetGamesUseCase {
+  constructor(private readonly gameRepository: IGameRepository) {}
+
+  async execute(query: GetGamesQuery): Promise<Result<{
+    games: Game[];
+    total: number;
+    ha…
+
+## Infrastructure Layer
+
+### Repository Pattern
+```typescript
+// libs/infrastructure/src/repositories/game.repository.ts
+export interface IGameRepository {
+  findById(id: string): Promise<Game | null>;
+  findAll(query: GetGamesQuery): Promise<Game[]>;
+  save(game: Game): Promise<Result<void, RepositoryError>>;
+  update(id: string, game: Game): Promise<Result<void, RepositoryError>>;
+  delete(id: string): Promise<Result<void, RepositoryError>>;
+…
+
+### Caching Implementation
+Multi-tier caching strategy:
+
+```typescript
+// libs/infrastructure/src/cache/session-cache.ts
+export class SessionCache implements ISessionCache {
+  constructor(private readonly redis: Redis) {}
+
+  async get(token: string): Promise<Session | null> {
+    try {
+      const data = await this.redis.get(`session:${token}`);
+      return data ? JSON.parse(data) : null;
+    } catch (error) {
+      consol…
+
+### Multi-tier Caching Strategy
+```typescript
+export class CachedSessionRepository implements ISessionRepository {
+  private memoryCache = new Map<string, Session>(); // L1: Memory
+
+  constructor(
+    private readonly redisCache: SessionCache,  // L2: Redis
+    private readonly database: SupabaseSessionRepository // L3: Database
+  ) {}
+
+  async findByToken(token: string): Promise<Session | null> {
+    // L1: Check memory cache
+ …
+
+## Security Middleware
+
+### Authentication Middleware
+```typescript
+// libs/infrastructure/src/security/auth-middleware.ts
+export async function requireAuth(request: Request): Promise<Result<{
+  session: Session;
+  player: Player;
+}, AuthError>> {
+  const authHeader = request.headers.get('Authorization');
+  if (!authHeader?.startsWith('Bearer ')) {
+    return Result.fail(new AuthError('Missing authentication token'));
+  }
+
+  const token = authHeader.…
+
+### Rate Limiting
+```typescript
+// libs/infrastructure/src/security/rate-limiter.ts
+export class RateLimiter {
+  constructor(
+    private redis: Redis,
+    private windowMs: number = 60000, // 1 minute
+    private maxRequests: number = 100
+  ) {}
+
+  async checkLimit(identifier: string): Promise<boolean> {
+    const key = `rate-limit:${identifier}`;
+    const now = Date.now();
+    const windowStart = now - this.wind…
+
+## Input Validation
+```typescript
+// libs/infrastructure/src/validation/schemas.ts
+import { z } from 'zod';
+
+export const CreateGameSchema = z.object({
+  title: z.string().min(1).max(200),
+  provider: z.string().min(1).max(100),
+  type: z.enum(['slot', 'table', 'live', 'crash', 'card']),
+  rtp: z.number().min(0).max(100),
+  volatility: z.enum(['low', 'medium', 'high']),
+  min_bet: z.number().positive(),
+  max_bet: z.…
+
+## Performance Metrics
+| Operation | Avg Time | P95 | Notes |
+|-----------|----------|-----|-------|
+| Session Validation (L1 Hit) | <10ms | <20ms | Redis cache |
+| Session Validation (L2 Hit) | 15-30ms | 50ms | Database fallback |
+| Login (no 2FA) | 80-120ms | 150ms | Password verify + session create |
+| Login (with 2FA) | 120-180ms | 200ms | TOTP verification included |
+| Token Refresh | 30-60ms | 100ms | Rotation + c…
+
+## Error Handling
+
+### Error Factory Functions
+As of v0.1.2, domain errors use factory functions instead of classes. This enables cleaner pattern matching and type inference:
+
+```typescript
+// apps/api/libs/domain/src/lib/errors/fp/auth.ts
+import { createError, type ErrorContext } from './base.ts'
+
+// Factory creates plain object with _tag discriminator
+export const InvalidCredentialsError = (context?: ErrorContext) =>
+  createError('InvalidCr…
+
+### Result Types with neverthrow
+The platform uses [neverthrow](https://github.com/supermacro/neverthrow) for type-safe error handling:
+
+```typescript
+import { ResultAsync, ok, err } from 'neverthrow'
+import type { BaseError } from '@igaming/domain'
+
+// ResultAsync for async operations
+function fetchPlayer(id: string): ResultAsync<Player, BaseError> {
+  return ResultAsync.fromPromise(
+    supabase.from('players').select().eq('id'…
+
+### BaseError Interface
+All domain errors implement this interface:
+
+```typescript
+interface BaseError {
+  readonly _tag: string       // Discriminator for pattern matching
+  readonly code: string       // Machine-readable code (e.g., 'AUTH_001')
+  readonly message: string    // User-facing message
+  readonly statusCode: number // HTTP status code
+  readonly context?: ErrorContext // Internal debugging context (never exp…

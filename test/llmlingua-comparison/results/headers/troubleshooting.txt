@@ -1,0 +1,609 @@
+{"original_chars":15479,"compressed_chars":14500,"original_tokens_est":3870,"compressed_tokens_est":3625,"reduction_pct":6.3,"method":"header-extraction"}
+# Troubleshooting Guide
+> **AI Summary**: Troubleshooting guide covering development issues (port conflicts, JWT bypass, import errors), deployment issues (environment variables, migrations, cache), testing issues (CI failures, database state), RLS policy issues, and performance issues with symptom-cause-solution format.
+
+> **Key Concepts**: Port conflicts, JWT bypass, import maps, environment variables, RLS policies, da…
+
+## Overview
+This guide documents common issues, their root causes, solutions, and prevention strategies for the iGaming Platform API backend. Issues are organized by category and use a consistent symptom → root cause → solution → prevention format.
+
+---
+
+## Development Issues
+
+### Issue: "Port already allocated" during supabase start
+**Symptoms:**
+
+```text
+Error: port 54321 is already allocated
+Error: Cannot start Supabase local environment
+```text
+
+**When it occurs:** Running `supabase start` in the wrong directory
+
+**Root Cause:**
+
+Project has two Supabase configurations:
+
+- **Root directory:** `/Users/ollorin/igaming-platform` (project-id: `igaming-platform`)
+- **API directory:** `/Users/ollorin/igaming-platform/apps/api` (…
+
+# Step 1: Check which project is running
+supabase status
+
+# Step 2: Stop root project if running
+cd /Users/ollorin/igaming-platform
+supabase stop --project-id igaming-platform
+
+# Step 3: Start API project from correct directory
+cd /Users/ollorin/igaming-platform/apps/api
+supabase start
+```text
+
+**Prevention:**
+
+- Always work from `apps/api/` directory for backend development
+- Use NX commands from project root: `npx nx start:dev api`
+
+---
+
+### Issue: "Missing authorization header" for public endpoints
+**Symptoms:**
+
+```json
+{"msg": "Error: Missing authorization header"}
+```text
+
+**When it occurs:** Testing public auth endpoints (`/auth/login`, `/auth/register`) in local development with `supabase start`
+
+**Root Cause:**
+
+Kong Gateway in `supabase start` enforces JWT verification at the gateway level **before** Edge Function code runs. The `verify_jwt = false` setting in `config.toml` does **not…
+
+# Option 1: Automated (Recommended)
+npx nx start:dev api
+
+# Option 2: Manual (Two terminals)
+
+# Terminal 1:
+npx nx start:minimal api  # Starts services without Edge Runtime
+
+# Terminal 2:
+npx nx start:functions api  # Starts functions with --no-verify-jwt
+```text
+
+**Verification:**
+
+```bash
+curl -X POST http://127.0.0.1:54321/functions/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","password":"test"}'
+
+# Expected: Application-level error (e.g., "Login failed")
+
+# NOT: "Missing authorization header"
+```text
+
+**Prevention:**
+
+- Always use `npx nx start:dev api` for local development
+- Document JWT bypass in onboarding materials
+
+---
+
+### Issue: Edge Function import errors
+**Symptoms:**
+
+```text
+error: Module not found "file:///src/@igaming/domain"
+error: Cannot find module '@igaming/infrastructure'
+```text
+
+**When it occurs:** After modifying import maps or workspace packages
+
+**Root Cause:**
+
+Import map in `deno.json` doesn't match import statements, or import map cache is stale.
+
+**Solution:**
+
+```bash
+
+# Step 1: Verify import map configuration
+cat apps/api/deno.json
+
+# Expected imports section:
+
+# "@igaming/domain": "./libs/domain/src/index.ts"
+
+# "@igaming/application": "./libs/application/src/index.ts"
+
+# "@igaming/infrastructure": "./libs/infrastructure/src/index.ts"
+
+# Step 2: Clear Deno cache
+deno cache --reload apps/api/functions/<function-name>/index.ts
+
+# Step 3: Test function locally
+cd apps/api
+supabase functions serve <function-name>
+
+# Step 4: Verify import paths in function code
+grep -r "@igaming/" apps/api/functions/<function-name>/
+```text
+
+**Prevention:**
+
+- Run `deno check` before committing changes
+- Use consistent import aliases across all functions
+- Add pre-commit hook for import validation
+
+---
+
+### Issue: Integration tests fail to connect to database
+**Symptoms:**
+
+```text
+Connection refused: 127.0.0.1:54322
+Error: Failed to connect to PostgreSQL
+Test timeout: Database connection not established
+```text
+
+**When it occurs:** Running integration tests
+
+**Root Cause:**
+
+Supabase local environment not running, or `.env.test` has incorrect connection string.
+
+**Solution:**
+
+```bash
+
+# Step 1: Check Supabase status
+cd apps/api
+supabase status
+
+# If not running, start it
+supabase start
+
+# Step 2: Verify .env.test configuration
+cat .env.test | grep SUPABASE_URL
+
+# Expected: SUPABASE_URL=http://127.0.0.1:54321
+
+# Step 3: Test database connection manually
+psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -c "SELECT version();"
+
+# Step 4: Run tests again
+npx nx test:integration api
+```text
+
+**Prevention:**
+
+- Always run `supabase status` before testing
+- Add database health check to test setup
+
+---
+
+## Deployment Issues
+
+### Issue: Function deploys successfully but crashes at runtime
+**Symptoms:**
+
+```text
+500 Internal Server Error
+Logs show: "Environment variable UPSTASH_REDIS_REST_URL is not defined"
+```text
+
+**When it occurs:** After deploying Edge Function to staging or production
+
+**Root Cause:**
+
+Environment variables are not configured in Supabase Dashboard for the deployed project.
+
+**Solution:**
+
+```bash
+
+# Step 1: Check current environment variables
+supabase secrets list --project-ref <project-id>
+
+# Step 2: Add missing variables via Dashboard
+
+# Navigate to: Supabase Dashboard > Project Settings > Edge Functions
+
+# Required variables:
+
+# - UPSTASH_REDIS_REST_URL
+
+# - UPSTASH_REDIS_REST_TOKEN
+
+# - JWT_SECRET_KEY
+
+# - ALLOWED_ORIGINS
+
+# Step 3: Redeploy function
+supabase functions deploy <function-name> --project-ref <project-id>
+
+# Step 4: Test deployed function
+curl https://<project-ref>.supabase.co/functions/v1/<function-name>
+```text
+
+**Prevention:**
+
+- Document required environment variables per function
+- Use environment variable validation in function startup
+- Add deployment checklist to runbook
+
+---
+
+### Issue: Migration fails in production with schema conflict
+**Symptoms:**
+
+```text
+Error: relation "games_catalog.games" already exists
+Migration aborted due to errors
+```text
+
+**When it occurs:** Running `supabase db push` in production
+
+**Root Cause:**
+
+Migration was already partially applied, or production schema diverged from migration files.
+
+**Solution:**
+
+```bash
+
+# Step 1: Check migration status
+supabase migration list --project-ref <project-id>
+
+# Step 2: Compare local and remote schemas
+supabase db diff --linked
+
+# Step 3: If migration partially applied, create fix migration
+supabase migration new fix_schema_conflict
+
+# Step 4: Write SQL to handle existing state
+
+# Example:
+
+# CREATE TABLE IF NOT EXISTS ...
+
+# ALTER TABLE ... ADD COLUMN IF NOT EXISTS ...
+
+# Step 5: Apply fix migration
+supabase db push --linked
+```text
+
+**Prevention:**
+
+- Always test migrations in staging first
+- Use `IF NOT EXISTS` clauses for idempotent migrations
+- Never manually modify production schema
+
+---
+
+## Testing Issues
+
+### Issue: Tests pass locally but fail in CI
+**Symptoms:**
+
+```text
+Local: All tests pass (303 passing)
+CI: Tests fail with connection timeout errors
+```text
+
+**When it occurs:** Running tests in GitHub Actions CI pipeline
+
+**Root Cause:**
+
+GitHub Secrets don't match local environment variables, or Supabase is not started in CI.
+
+**Solution:**
+
+```bash
+
+# Step 1: Verify GitHub Secrets are configured
+
+# Navigate to: GitHub > Repository > Settings > Secrets and variables > Actions
+
+# Required secrets:
+
+# - SUPABASE_ACCESS_TOKEN
+
+# - STAGING_SUPABASE_URL
+
+# - STAGING_ANON_KEY
+
+# - UPSTASH_REDIS_REST_URL
+
+# - UPSTASH_REDIS_REST_TOKEN
+
+# Step 2: Check CI workflow configuration
+cat .github/workflows/test.yml
+
+# Ensure Supabase is started before tests
+```text
+
+**Prevention:**
+
+- Keep `.env.test.example` in sync with GitHub Secrets
+- Document required secrets in README
+
+---
+
+### Issue: Database state interference between tests
+**Symptoms:**
+
+```text
+Tests pass when run individually
+Tests fail when run together
+Error: "duplicate key value violates unique constraint"
+```text
+
+**When it occurs:** Running full integration test suite
+
+**Root Cause:**
+
+Tests don't clean up database state, or use shared test data with conflicts.
+
+**Solution:**
+
+```bash
+
+# Step 1: Reset database between test runs
+cd apps/api
+supabase db reset
+
+# Step 2: Add database cleanup to test setup
+
+# In test file:
+
+# beforeEach(async () => {
+
+#   await supabase.from('games').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+
+# });
+
+# Step 3: Use unique identifiers per test
+
+# Generate UUIDs: crypto.randomUUID()
+```text
+
+**Prevention:**
+
+- Implement proper test isolation (beforeEach cleanup)
+- Use factories for test data generation
+- Avoid hardcoded IDs in tests
+
+---
+
+## RLS Policy Issues
+
+### Issue: Query returns empty result when data exists
+**Symptoms:**
+
+```text
+SELECT query returns 0 rows
+Data visible in database when querying as postgres user
+Same query works with service role key
+```text
+
+**When it occurs:** Querying tables with Row Level Security (RLS) enabled
+
+**Root Cause:**
+
+RLS policy blocks access for the current user context, or auth context is missing.
+
+**Solution:**
+
+```bash
+
+# Step 1: Verify RLS is enabled on table
+psql $DATABASE_URL -c "SELECT tablename, rowsecurity FROM pg_tables WHERE schemaname = 'games_catalog';"
+
+# Step 2: Check RLS policies for table
+psql $DATABASE_URL -c "\d+ games_catalog.games"
+
+# Step 3: Test query with different auth contexts
+
+# As anonymous user (anon key):
+curl -H "Authorization: Bearer $ANON_KEY" ...
+
+# As authenticated user (user JWT):
+curl -H "Authorization: Bearer $USER_JWT" ...
+
+# As admin (service role):
+curl -H "Authorization: Bearer $SERVICE_ROLE_KEY" ...
+
+# Step 4: Check auth context in Edge Function
+
+# Add logging to function:
+
+# const { data: { user } } = await supabase.auth.getUser();
+
+# console.log('User context:', user);
+```text
+
+**Prevention:**
+
+- Test RLS policies with different user contexts
+- Document required auth context for each table
+- Use RLS audit checklist for new migrations
+
+---
+
+### Issue: RLS policy allows unauthorized access
+**Symptoms:**
+
+```text
+User can query data from other jurisdictions
+Player can access admin-only tables
+```text
+
+**When it occurs:** After creating or modifying RLS policies
+
+**Root Cause:**
+
+RLS policy is too permissive, or uses incorrect user context checks.
+
+**Solution:**
+
+```bash
+
+# Step 1: Review current RLS policies
+psql $DATABASE_URL -c "SELECT schemaname, tablename, policyname, permissive, roles, cmd, qual
+  FROM pg_policies
+  WHERE schemaname = 'games_catalog';"
+
+# Step 2: Identify overly permissive policies
+
+# Look for:
+
+# - USING (true) without restrictions
+
+# - Missing jurisdiction checks
+
+# - Missing user_id checks
+
+# Step 3: Create restrictive policy migration
+supabase migration new fix_rls_policy_<table>
+
+# Step 4: Write corrected policy
+
+# DROP POLICY IF EXISTS "old_policy" ON games_catalog.games;
+
+# CREATE POLICY "jurisdiction_restricted" ON games_catalog.games
+
+#   FOR SELECT TO authenticated
+
+#   USING (jurisdiction = auth.jwt() ->> 'jurisdiction');
+```text
+
+**Prevention:**
+
+- Use least-privilege principle for RLS policies
+- Always include jurisdiction checks for multi-tenant data
+- Perform security code reviews for RLS changes
+
+---
+
+## Performance Issues
+
+### Issue: Slow query response times
+**Symptoms:**
+
+```text
+API requests take > 2 seconds to complete
+Database CPU usage spikes during queries
+```text
+
+**When it occurs:** After deploying new features or increased load
+
+**Root Cause:**
+
+Missing database indexes, inefficient queries, or N+1 query problems.
+
+**Solution:**
+
+```bash
+
+# Step 1: Identify slow queries
+psql $DATABASE_URL -c "SELECT query, mean_exec_time, calls
+  FROM pg_stat_statements
+  ORDER BY mean_exec_time DESC
+  LIMIT 10;"
+
+# Step 2: Analyze query plan
+psql $DATABASE_URL -c "EXPLAIN ANALYZE SELECT * FROM games_catalog.games WHERE jurisdiction = 'MT';"
+
+# Look for:
+
+# - Sequential scans (Seq Scan) on large tables
+
+# - Missing indexes
+
+# - Large row counts
+
+# Step 3: Create index migration
+supabase migration new add_index_<table>_<column>
+
+# Step 4: Add indexes
+
+# CREATE INDEX CONCURRENTLY idx_games_jurisdiction ON games_catalog.games(jurisdiction);
+```text
+
+**Prevention:**
+
+- Create indexes for commonly queried columns
+- Use `EXPLAIN ANALYZE` before deploying queries
+- Monitor query performance metrics
+
+---
+
+## Common Error Messages
+
+### Error: "invalid claim: missing sub claim"
+**Meaning:** JWT token is missing the subject (user ID) claim
+
+**Cause:** Using anon key as Bearer token for authenticated endpoint
+
+**Solution:** Use actual user JWT token or service role key
+
+---
+
+### Error: "duplicate key value violates unique constraint"
+**Meaning:** Attempting to insert row with existing unique value
+
+**Cause:** Test data conflicts, or migration creates duplicate data
+
+**Solution:** Clear test data, use unique identifiers, or add `ON CONFLICT DO NOTHING` clause
+
+---
+
+### Error: "permission denied for table games"
+**Meaning:** RLS policy blocks access or user lacks table permissions
+
+**Cause:** Missing RLS policy, incorrect auth context, or restrictive policy
+
+**Solution:** Review RLS policies, verify auth token, or use service role for admin operations
+
+---
+
+### Error: "relation does not exist"
+**Meaning:** Table or view not found in database
+
+**Cause:** Migration not applied, wrong schema, or table name typo
+
+**Solution:** Run `supabase db push`, verify schema name, or check table spelling
+
+---
+
+## Getting Help
+
+### Before Asking for Help
+1. **Check this troubleshooting guide** for your specific error
+2. **Review logs** for detailed error messages
+3. **Verify environment** configuration is correct
+4. **Test in isolation** to reproduce the issue
+5. **Search documentation** for related issues
+
+### Where to Get Help
+- **Team Chat:** Ask in #backend-dev channel
+- **Documentation:** Check [Architecture Guide](/docs/api/guides/architecture.md) and related docs
+- **Supabase Docs:** [Official Supabase Documentation](https://supabase.com/docs)
+- **Deno Docs:** [Official Deno Documentation](https://docs.deno.com/)
+
+### Reporting Issues
+When reporting a new issue, include:
+
+1. **Symptom:** Exact error message and when it occurs
+2. **Environment:** Local, staging, or production
+3. **Steps to reproduce:** Commands run and expected vs actual behavior
+4. **Logs:** Relevant error logs (sanitize secrets!)
+5. **Attempted solutions:** What you've already tried
+
+---
+
+**Last Updated:** 2026-02-13
+**Maintained By:** Backend Team

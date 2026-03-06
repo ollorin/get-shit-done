@@ -1,0 +1,283 @@
+
+ title Troubleshooting Guide 
+ issues solutions for iGaming API development deployment testing RLS policies 
+ domain api 
+ tags troubleshooting debugging development deployment testing 
+ audience backend developers 
+ prerequisites guides environment - config md 
+ related guides architecture md error - monitoring md 
+ updated 2026 - 02 - 13 
+ status published 
+ Summary Troubleshooting guide development port conflicts JWT bypass import errors deployment environment variables migrations cache testing CI failures database state RLS policy performance issues symptom - cause solution format 
+ Concepts Port conflicts JWT bypass import maps environment variables RLS policies database testing 
+ Environment Config setup 
+ Sentry integration 
+ Updated 2026 - 02 - 13 
+ Developers 
+ documents common issues root causes solutions prevention strategies for iGaming Platform API backend Issues organized category symptom root cause solution prevention format 
+ Port already allocated " 
+ Symptoms 
+text 
+ Running supabase start wrong directory 
+ Root Cause 
+ Project two Supabase configurations 
+ Root directory Users platform 
+ API directory api 
+ one run time due port conflicts. 
+ Solution 
+ Step 1 Check project running 
+ supabase status 
+ Stop root project running 
+ cd 
+ supabase 3 Start API project correct directory 
+ cd api 
+ supabase start 
+ text 
+ Prevention 
+ work apps api directory backend development 
+ Use NX commands project root start dev api 
+ Missing authorization header public endpoints 
+ Symptoms 
+ text Testing public auth endpoints ( login register local development supabase start 
+ Root Cause 
+ Kong Gateway supabase start enforces JWT verification gateway level Edge Function code runs verify _ jwt = false setting config. toml work with
+start full stack 
+ Use JWT bypass development commands 
+ bash Option 1 Automated Recommended 
+ start dev api 
+ 2 Manual Two terminals 
+ Terminal 1 
+ start minimal api Starts services without Edge Runtime 
+ start functions api verify jwt 
+ text 
+ bash 
+ POST http 127. 0. 0. 1 : 54321 functions v1 auth login 
+ Content - Type application / json 
+ Application - level error Login failed 
+ Missing authorization header 
+ start dev api local development 
+ JWT bypass onboarding materials 
+ Issue Edge Function import errors 
+ Module not found file src igaming domain 
+ modifying import maps workspace packages 
+ Import map deno json doesn match import statements import map cache stale 
+ bash 
+ Step Verify import map configuration 
+ apps / api / deno json 
+ imports section 
+ igaming domain libs domain src index ts 
+igaming application libs src index. ts 
+ infrastructure 
+ 2 Clear Deno cache 
+ reload apps api functions function - name index 
+ 3 Test function locally 
+ cd apps api 
+ supabase functions serve function - name 
+ 4 Verify import paths function code 
+ igaming apps api functions function - name 
+ Prevention 
+ before Use import aliases 
+ validation Integration tests fail connect database 
+ Symptoms 127. 0. 0. 1 : 54322 
+ connect PostgreSQL 
+ Test Database connection 
+ integration tests 
+ local environment not running incorrect connection 
+ 1 Check Supabase status 
+ apps api 
+ 2 Verify env. test configuration 
+ SUPABASE _ URL 
+ http 127. 0. 0. 1 : 54321 
+ Test database connection manually 
+ postgresql postgres @ 127. 0. 0. 1 : 54322 SELECT version 
+ Step 4 Run tests 
+ integration api 
+ textPrevention 
+ run testing 
+ Add database health check test setup 
+ Deployment Issues 
+ Function deploys crashes runtime 
+ Symptoms 
+ Server Error 
+ Environment variable UPSTASH URL not
+
+ After deploying Edge staging production 
+ Root Cause 
+ Environment variables not configured in Supabase Dashboard deployed project 
+ 1 Check current environment variables 
+ supabase project 
+ Add missing variables via Dashboard 
+ Supabase Project Settings Edge Functions 
+ Required variables 
+ UPSTASH REDIS 
+ Redeploy function 
+ supabase function name 
+ 4 Test deployed function 
+ curl supabase 
+ Prevention 
+ Document environment variables 
+ validation 
+ Add deployment checklist to runbook 
+ Migration fails production schema conflict 
+ Symptoms 
+ relation games _ catalog games 
+ Migration aborted errors 
+ Running supabase production 
+ Root Cause 
+ Migration partially applied production schema diverged from migration files 
+ Check migration status 
+ supabase migration 
+ 2 Compare local remote schemas 
+ supabase db 
+ 3 partially applied create fix migration 
+supabase migration fix schema conflict 
+ Step 4 Write SQL handle state 
+ Example 
+ CREATE TABLE NOT EXISTS 
+ ALTER TABLE ADD COLUMN NOT EXISTS 
+ Step 5 Apply fix migration 
+ supabase db push - - linked 
+ text 
+ Prevention 
+ test migrations staging first 
+ Use NOT EXISTS clauses idempotent migrations 
+ modify production schema 
+ Testing Issues 
+ Tests pass locally fail 
+ Symptoms 
+ tests pass 
+ fail timeout errors 
+ Running tests GitHub Actions pipeline 
+ Secrets match local environment variables Supabase not started CI 
+ Solution Step 1 Verify GitHub Secrets configured 
+ Repository Settings Secrets variables Actions 
+ Step 2 Check workflow configuration 
+ Supabase started before tests 
+ Prevention 
+ GitHub Secrets 
+ Database state interference tests 
+
+ Symptoms 
+ pass individually 
+ fail 
+ duplicate key value
+unique constraint 
+ text 
+ Running full integration test suite 
+ Root Cause 
+ Tests don ' t clean database state use shared test data conflicts 
+ Solution 
+ 1 Reset database between test runs 
+ apps supabase reset 2 Add database cleanup to test setup 
+ file 
+ 3 Use unique identifiers per test 
+ Generate UUIDs crypto. randomUUID 
+ Prevention 
+ Implement test isolation cleanup 
+ Use factories for test data generation 
+ Avoid hardcoded IDs in tests 
+ RLS Policy Issues 
+ Query returns empty result 
+ Symptoms 
+ query returns 0 rows 
+ Data database postgres user service role key 
+ Querying tables Row Level Security ( RLS enabled 
+ policy blocks access for current user context missing 
+ Solution 
+ 1 Verify RLS enabled on table 
+ DATABASE URL - 
+ 2 Check RLS policies for table 
+ DATABASE URL - c 
+Step 3 Test query auth contexts 
+ anonymous user 
+ curl - H $ ANON _ KEY 
+ authenticated user JWT 
+ curl - H $ USER _ JWT 
+ admin service role 
+ curl - H $ SERVICE _ ROLE _ KEY 
+ Step 4 Check auth context Edge 
+ Add logging function 
+ const data user } await supabase. auth getUser 
+ console. log context 
+ Prevention Test RLS policies user contexts 
+ audit checklist migrations 
+ unauthorized access 
+ query data 
+ access admin - tables 
+ RLS policies 
+ permissive incorrect user context checks 
+ Review RLS policies 
+ DATABASE _ URL - c SELECT schemaname tablename policyname permissive roles cmd 
+ Identify permissive policies 
+ restrictions 
+ jurisdiction checks 
+ Step 3 Create restrictive policy migration 
+ supabase migration fix rls policy 
+Step 4 Write policy 
+ DROP POLICY policy games catalog 
+ CREATE POLICY jurisdiction restricted 
+ SELECT 
+ USING
+ion = auth. jwt ( ' jurisdiction ' 
+ Prevention 
+ Use least privilege principle RLS policies 
+ include jurisdiction checks multi - tenant data 
+ security code reviews RLS changes 
+ Performance Issues 
+ Slow query response times 
+ Symptoms 
+ API requests 2 seconds complete 
+ CPU usage spikes queries 
+ deploying features load 
+ Root Cause Missing database indexes inefficient queries N + 1 query problems 
+ Solution 
+ 1 Identify slow queries 
+ DATABASE URL SELECT query exec time 
+ statements Analyze query plan 
+ ANALYZE catalog 
+ scans large tables 
+ Missing indexes 
+ Create index migration 
+ 4 Add indexes 
+ CREATE INDEX CONCURRENTLY games _ jurisdiction games catalog 
+ Prevention 
+ Create indexes columns 
+ deploying queries 
+ Monitor query performance metrics 
+ Common Error Messages 
+ invalid claim missing sub claim 
+JWT token missing subject user ID claim 
+ Using anon key Bearer token authenticated endpoint 
+ Use user JWT token service role key 
+ duplicate key value violates unique constraint 
+ Attempting insert row unique value 
+ Test data conflicts migration creates duplicate data 
+ Clear test data use unique identifiers add CONFLICT NOTHING clause 
+ permission denied for table games 
+ lacks table permissions 
+ Missing RLS policy incorrect context restrictive policy 
+ Review RLS policies verify auth token use service role admin operations 
+ relation exist 
+ Table view not database 
+ Migration not applied wrong schema table name typo 
+ verify schema name check table spelling 
+ Check troubleshooting guide specific error 
+ Review logs detailed error messages 
+ Verify environment configuration correct 
+ Test in isolation reproduce issue 
+ Search documentation related issues 
+ backend 
+ Documentation Check [ Architecture Guide ] docs api guides related docs 
+Supabase Docs Official Supabase Documentation com docs 
+
+Deno Docs Official Deno Documentation com 
+ Reporting Issues 
+ reporting new issue 
+ Symptom Exact error message 
+ Environment Local staging production 
+ Steps reproduce Commands run expected behavior 
+ Logs Relevant error logs sanitize secrets 
+ Attempted solutions 
+ Last Updated 2026 - 02 - 13 
+ Maintained Backend Team 
+

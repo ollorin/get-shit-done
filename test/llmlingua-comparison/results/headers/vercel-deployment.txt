@@ -1,0 +1,743 @@
+{"original_chars":22205,"compressed_chars":19635,"original_tokens_est":5552,"compressed_tokens_est":4909,"reduction_pct":11.6,"method":"header-extraction"}
+# Vercel Deployment Guide
+Comprehensive guide for deploying the iGaming Platform frontend applications (player-web and operator-web) to Vercel.
+
+## Table of Contents
+1. [Prerequisites](#prerequisites)
+2. [Project Setup on Vercel](#project-setup-on-vercel)
+3. [Environment Variables Configuration](#environment-variables-configuration)
+4. [Domain Configuration](#domain-configuration)
+5. [GitHub Actions Integration](#github-actions-integration)
+6. [Deployment Workflow](#deployment-workflow)
+7. [Vercel Project Configuration Files](#vercel-project-configuration-file…
+
+## Prerequisites
+
+### Vercel Account Setup
+1. **Create a Vercel Account:**
+   - Go to [vercel.com](https://vercel.com) and sign up
+   - Recommended: Sign up with your GitHub account for easier repository integration
+   - Choose a plan (Hobby is free for personal projects, Pro for teams)
+
+2. **Join or Create a Team (Optional):**
+   - For team projects, create a Vercel Team under Account Settings
+   - Teams allow shared projects, environment…
+
+### Required Access and Permissions
+- [ ] GitHub repository write access (for PR deployments)
+- [ ] Vercel account with appropriate plan
+- [ ] Access to Vercel Team (if using team deployment)
+- [ ] Access to DNS provider for custom domains
+
+### Vercel CLI Installation
+Install the Vercel CLI globally for local development and debugging:
+
+```bash
+
+# Using npm
+npm install --global vercel@latest
+
+# Using pnpm
+pnpm add -g vercel
+
+# Verify installation
+vercel --version
+```text
+
+**Login to Vercel CLI:**
+
+```bash
+vercel login
+```text
+
+This opens a browser for authentication. After login, you can use CLI commands.
+
+---
+
+## Project Setup on Vercel
+This project requires **two separate Vercel projects** - one for each frontend application:
+
+1. **player-web** - Player-facing application
+2. **operator-web** - Operator/admin application
+
+### Creating Projects via Vercel Dashboard
+
+#### Step 1: Import Repository
+1. Go to [vercel.com/new](https://vercel.com/new)
+2. Click "Import Git Repository"
+3. Select your GitHub account and find the `igaming-platform` repository
+4. Click "Import"
+
+#### Step 2: Configure player-web Project
+1. **Project Name:** `igaming-player-web` (or your preferred name)
+2. **Framework Preset:** Next.js (auto-detected)
+3. **Root Directory:** Click "Edit" and set to `apps/player-web`
+4. **Build and Output Settings:**
+   - Build Command: `npx nx reset && npx --no-install nx build player-web`
+   - Output Directory: `dist/apps/player-web`
+   - Install Command: `npm install --legacy-peer-deps`
+5. Click …
+
+#### Step 3: Configure operator-web Project
+Repeat the import process for operator-web:
+
+1. Go to [vercel.com/new](https://vercel.com/new) again
+2. Import the same repository
+3. **Project Name:** `igaming-operator-web`
+4. **Root Directory:** `apps/operator-web`
+5. **Build and Output Settings:**
+   - Build Command: `npx nx reset && npx --no-install nx build operator-web`
+   - Output Directory: `dist/apps/operator-web`
+   - Install Command: `…
+
+### Creating Projects via CLI
+Alternatively, use the Vercel CLI:
+
+```bash
+
+# Navigate to project root
+cd /path/to/igaming-platform
+
+# Create player-web project
+cd apps/player-web
+vercel link
+
+# Follow prompts to create or link to existing project
+
+# Create operator-web project
+cd ../operator-web
+vercel link
+```text
+
+### Build Settings Summary
+| Setting | player-web | operator-web |
+|---------|------------|--------------|
+| Framework | Next.js | Next.js |
+| Root Directory | `apps/player-web` | `apps/operator-web` |
+| Build Command | `npx nx reset && npx --no-install nx build player-web` | `npx nx reset && npx --no-install nx build operator-web` |
+| Output Directory | `dist/apps/player-web` | `dist/apps/operator-web` |
+| Install Command …
+
+## Environment Variables Configuration
+
+### Required Environment Variables
+Both applications require the following environment variables:
+
+#### Core Variables (Both Apps)
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `SUPABASE_URL` | Supabase project API URL | `https://abcdefgh.supabase.co` |
+| `SUPABASE_ANON_KEY` | Supabase anonymous/public key | `eyJhbGciOiJIUzI1NiIs...` |
+
+#### Additional Variables (operator-web only)
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `UPSTASH_REDIS_REST_URL` | Upstash Redis REST endpoint | `https://xxx.upstash.io` |
+| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis auth token | `AXxx...` |
+
+### Setting Environment Variables in Vercel Dashboard
+1. Go to your Vercel project dashboard
+2. Navigate to **Settings** > **Environment Variables**
+3. Add each variable with the appropriate scope:
+
+**For each variable:**
+
+1. Enter the variable name (e.g., `SUPABASE_URL`)
+2. Enter the value
+3. Select environments:
+   - **Production** - For production deployments
+   - **Preview** - For PR preview deployments (staging values)
+   - **Development** - For…
+
+### Environment-Specific Values
+
+#### Staging Environment (Preview Deployments)
+```env
+
+# player-web and operator-web
+SUPABASE_URL=https://your-staging-project.supabase.co
+SUPABASE_ANON_KEY=your_staging_anon_key
+
+# operator-web only (if using Redis)
+UPSTASH_REDIS_REST_URL=https://staging-redis.upstash.io
+UPSTASH_REDIS_REST_TOKEN=staging_token
+```text
+
+#### Production Environment
+```env
+
+# player-web and operator-web
+SUPABASE_URL=https://your-production-project.supabase.co
+SUPABASE_ANON_KEY=your_production_anon_key
+
+# operator-web only (if using Redis)
+UPSTASH_REDIS_REST_URL=https://production-redis.upstash.io
+UPSTASH_REDIS_REST_TOKEN=production_token
+```text
+
+### Setting Variables via CLI
+```bash
+
+# Add a variable for all environments
+vercel env add SUPABASE_URL
+
+# Add for specific environment
+vercel env add SUPABASE_URL production
+vercel env add SUPABASE_URL preview
+
+# List all environment variables
+vercel env ls
+
+# Pull environment variables for local development
+vercel env pull .env.local
+```text
+
+### Important Notes
+- **Never commit secrets to git** - Use Vercel's environment variable management
+- **NEXT_PUBLIC_ prefix not needed** - The `next.config.js` exposes `SUPABASE_URL` and `SUPABASE_ANON_KEY` to client-side code automatically
+- **Different values per environment** - Use different Supabase projects for staging vs production
+
+---
+
+## Domain Configuration
+
+### Staging Domains
+For staging/preview deployments, Vercel provides automatic domains:
+
+- **player-web:** `igaming-player-web-staging.vercel.app`
+- **operator-web:** `igaming-operator-web-staging.vercel.app`
+
+For custom staging domains:
+
+1. Go to project **Settings** > **Domains**
+2. Add your staging domain:
+   - `player-staging.yourdomain.com`
+   - `operator-staging.yourdomain.com`
+3. Configure DNS (see DNS Configu…
+
+### Production Domains
+
+#### Adding Custom Domains
+1. Go to project **Settings** > **Domains**
+2. Enter your production domain:
+   - For player-web: `player.yourdomain.com` or `play.yourdomain.com`
+   - For operator-web: `admin.yourdomain.com` or `operator.yourdomain.com`
+3. Click "Add"
+
+#### DNS Configuration
+Vercel will display the required DNS records. Configure these in your DNS provider:
+
+**Option A: CNAME Record (Subdomains)**
+
+```text
+Type: CNAME
+Name: player
+Value: cname.vercel-dns.com
+TTL: 3600 (or auto)
+```text
+
+**Option B: A Record (Apex/Root Domain)**
+
+```text
+Type: A
+Name: @ (or leave blank)
+Value: 76.76.21.21
+TTL: 3600
+```text
+
+**Recommended Setup:**
+
+| Domain | Type | Value |
+|--------|--…
+
+### SSL/TLS Certificate Setup
+Vercel automatically provisions and renews SSL certificates via Let's Encrypt:
+
+1. After adding a domain, Vercel initiates certificate provisioning
+2. Wait for DNS propagation (can take 1-48 hours)
+3. Certificate status shows in project **Settings** > **Domains**
+4. Status should change to "Valid Configuration" with a green checkmark
+
+**Troubleshooting SSL:**
+
+- If certificate fails, verify DNS re…
+
+### Domain Verification
+For each custom domain, Vercel may require verification:
+
+1. Add the provided TXT record to your DNS:
+
+   ```
+   Type: TXT
+   Name: _vercel
+   Value: vc-domain-verify=xxxxx
+   TTL: 3600
+   ```
+
+2. Wait for DNS propagation
+3. Click "Verify" in Vercel dashboard
+
+---
+
+## GitHub Actions Integration
+The iGaming Platform uses GitHub Actions for automated deployments instead of Vercel's automatic Git integration.
+
+### Required GitHub Secrets
+Add these secrets to your GitHub repository (**Settings** > **Secrets and variables** > **Actions**):
+
+| Secret Name | Description | How to Get |
+|-------------|-------------|------------|
+| `VERCEL_TOKEN` | Vercel API token | Vercel Dashboard > Settings > Tokens |
+| `VERCEL_ORG_ID` | Vercel organization/team ID | See below |
+| `VERCEL_PLAYER_WEB_PROJECT_ID` | player-web project ID | See below |
+|…
+
+### Getting Vercel Token
+1. Go to [vercel.com/account/tokens](https://vercel.com/account/tokens)
+2. Click "Create Token"
+3. Name: `github-actions-deploy`
+4. Scope: Full Account (or specific team)
+5. Copy the token immediately (it won't be shown again)
+
+### Getting Organization and Project IDs
+**Method 1: Via Vercel CLI**
+
+```bash
+
+# Link to project and check .vercel/project.json
+cd apps/player-web
+vercel link
+
+# View the generated file
+cat .vercel/project.json
+
+# Output: {"orgId":"team_xxxx","projectId":"prj_yyyy"}
+```text
+
+**Method 2: Via Dashboard**
+
+1. Go to your Vercel project
+2. Navigate to **Settings** > **General**
+3. Scroll to "Project ID" - copy this value
+4. "Organization ID" is in your team settings
+
+### Adding Secrets to GitHub
+1. Go to your GitHub repository
+2. Navigate to **Settings** > **Secrets and variables** > **Actions**
+3. Click "New repository secret"
+4. Add each secret:
+
+```text
+VERCEL_TOKEN=your_vercel_token_here
+VERCEL_ORG_ID=team_xxxxxxxxxxxxx
+VERCEL_PLAYER_WEB_PROJECT_ID=prj_xxxxxxxxxxxxx
+VERCEL_OPERATOR_WEB_PROJECT_ID=prj_xxxxxxxxxxxxx
+```text
+
+### GitHub Environment-Specific Secrets
+For environment-specific Vercel deployments, add these to GitHub Environments:
+
+**Environment: `staging`**
+
+- All VERCEL_* secrets above
+- SUPABASE_URL (staging)
+- SUPABASE_ANON_KEY (staging)
+
+**Environment: `production`**
+
+- All VERCEL_* secrets above
+- SUPABASE_URL (production)
+- SUPABASE_ANON_KEY (production)
+
+---
+
+## Deployment Workflow
+
+### How Deployments Work
+The iGaming Platform uses a **controlled deployment approach**:
+
+1. **Automatic Vercel builds are disabled** - The `vercel.json` ignoreCommand skips all automatic builds
+2. **GitHub Actions triggers deployments** - After CI passes, the workflow deploys via Vercel CLI
+3. **No duplicate deployments** - Prevents wasted build minutes and failed build emails
+
+### Deployment Flow
+```text
+Pull Request Created
+       │
+       ▼
+CI Tests Run (backend-tests.yml)
+       │
+       ▼
+Merge to main
+       │
+       ▼
+Staging Deployment (deploy-staging.yml)
+  1. Backend deployments (migrations, functions)
+  2. Post-deployment validation
+  3. Frontend deployment to Vercel (preview)
+       │
+       ▼
+Manual Verification
+       │
+       ▼
+Production Deployment (deploy-production.yml - m…
+
+### Staging Deployment (Automatic)
+Triggered automatically when code is merged to `main`:
+
+```yaml
+
+# From .github/workflows/deploy-staging.yml
+deploy-frontend:
+  name: Deploy Frontend to Vercel
+  needs: [post-deployment-tests]
+  strategy:
+    matrix:
+      app: [player-web, operator-web]
+  steps:
+    - name: Install Vercel CLI
+      run: npm install --global vercel@latest
+
+    - name: Pull Vercel Environment
+      run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
+
+    - name: Build with Vercel
+      run: ve…
+
+### Production Deployment (Manual)
+Production deployments require manual trigger:
+
+1. Go to **GitHub** > **Actions** > **Deploy to Production**
+2. Click **Run workflow**
+3. Type `DEPLOY TO PRODUCTION` to confirm
+4. Click **Run workflow**
+
+The workflow:
+
+1. Validates environment
+2. Runs pre-deployment tests
+3. Deploys backend (migrations, functions)
+4. Runs post-deployment smoke tests
+5. Deploys frontend to Vercel production
+6. Crea…
+
+### Deployment Status Checks
+Monitor deployments in:
+
+1. **GitHub Actions:** Repository > Actions tab
+2. **Vercel Dashboard:** Project > Deployments
+3. **Vercel CLI:** `vercel ls` to list recent deployments
+
+### Manual Deployment (Emergency)
+If GitHub Actions fails, deploy manually via CLI:
+
+```bash
+
+# Navigate to app directory
+cd apps/player-web
+
+# Pull environment and build
+vercel pull --yes --environment=production --token=$VERCEL_TOKEN
+vercel build --prod --token=$VERCEL_TOKEN
+
+# Deploy
+vercel deploy --prebuilt --prod --token=$VERCEL_TOKEN
+```text
+
+---
+
+## Vercel Project Configuration Files
+
+### vercel.json
+Each app has a `vercel.json` configuration file:
+
+#### apps/player-web/vercel.json
+```json
+{
+  "framework": "nextjs",
+  "buildCommand": "npx nx reset && npx --no-install nx build player-web",
+  "outputDirectory": "dist/apps/player-web",
+  "installCommand": "npm install --legacy-peer-deps",
+  "ignoreCommand": "bash ../../scripts/vercel-ignore-build.sh",
+  "regions": ["fra1"],
+  "github": {
+    "silent": true
+  },
+  "headers": [
+    {
+      "source": "/_next/static/(.*)",
+      "h…
+
+#### apps/operator-web/vercel.json
+```json
+{
+  "framework": "nextjs",
+  "buildCommand": "npx nx reset && npx --no-install nx build operator-web",
+  "outputDirectory": "dist/apps/operator-web",
+  "installCommand": "npm install --legacy-peer-deps",
+  "ignoreCommand": "bash ../../scripts/vercel-ignore-build.sh",
+  "functions": {
+    "src/app/api/**/*.ts": {
+      "maxDuration": 10
+    }
+  },
+  "regions": ["fra1"],
+  "github": {
+    "s…
+
+### Configuration Explained
+| Setting | Purpose |
+|---------|---------|
+| `framework` | Tells Vercel to use Next.js optimizations |
+| `buildCommand` | Nx-based build command with cache reset |
+| `outputDirectory` | Where Nx outputs the built app |
+| `installCommand` | npm install with legacy peer deps for compatibility |
+| `ignoreCommand` | Script that skips automatic Vercel builds |
+| `regions` | Deployment region (fra1 = F…
+
+### Ignore Build Script
+The `scripts/vercel-ignore-build.sh` script ensures automatic Vercel builds are skipped:
+
+```bash
+#!/bin/bash
+
+# Returns exit code 0 to SKIP build, 1 to BUILD
+echo "Skipping automatic Vercel build (deployed via GitHub Actions)"
+exit 0
+```text
+
+### next.config.js Considerations
+Both apps expose Supabase environment variables to client-side code:
+
+```javascript
+// next.config.js
+const nextConfig = {
+  env: {
+    SUPABASE_URL: process.env.SUPABASE_URL,
+    SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY,
+  },
+  // ... other config
+}
+```text
+
+This means:
+
+- Set `SUPABASE_URL` and `SUPABASE_ANON_KEY` in Vercel (not `NEXT_PUBLIC_` prefixed)
+- These are embedded at build time…
+
+## Troubleshooting
+
+### Common Deployment Errors
+
+#### Build Fails: "Module not found"
+**Cause:** Missing dependencies or incorrect import paths.
+
+**Solution:**
+
+```bash
+
+# Verify build works locally
+cd apps/player-web
+npx nx build player-web
+
+# Check for missing dependencies
+npm ls <package-name>
+```text
+
+#### Build Fails: "nx: command not found"
+**Cause:** Nx not installed during build.
+
+**Solution:** Ensure `installCommand` runs `npm install --legacy-peer-deps` which installs all workspace dependencies including Nx.
+
+#### Environment Variable Issues
+**Symptom:** App shows undefined for Supabase URL or blank pages.
+
+**Diagnosis:**
+
+1. Check Vercel project **Settings** > **Environment Variables**
+2. Verify variable scope matches deployment type (Production/Preview)
+3. Ensure no typos in variable names
+
+**Solution:**
+
+```bash
+
+# Pull and verify environment locally
+vercel env pull .env.local
+cat .env.local | grep SUPABASE
+```text
+
+#### Domain Configuration Problems
+**Symptom:** Domain shows "Invalid Configuration" or SSL errors.
+
+**Checklist:**
+
+1. Verify DNS records are correct (use `dig` or online tools)
+2. Wait for DNS propagation (up to 48 hours)
+3. Check for CAA records blocking Let's Encrypt
+4. Ensure domain isn't proxied through another CDN
+
+```bash
+
+# Check DNS propagation
+dig player.yourdomain.com CNAME
+dig player.yourdomain.com A
+```text
+
+#### Deployment Times Out
+**Cause:** Build taking too long (>45 minutes for Hobby, varies by plan).
+
+**Solutions:**
+
+- Enable Nx caching (already configured)
+- Upgrade Vercel plan for longer build times
+- Optimize build by removing unused dependencies
+
+### Build Failures in GitHub Actions
+
+#### "VERCEL_TOKEN is not set"
+**Solution:** Add `VERCEL_TOKEN` to GitHub repository secrets.
+
+#### "Project not found"
+**Solution:** Verify `VERCEL_ORG_ID` and `VERCEL_*_PROJECT_ID` are correct.
+
+#### "Build already exists"
+**Cause:** Trying to deploy the same build twice.
+
+**Solution:** Usually safe to ignore. If persistent, check workflow logic.
+
+### Debugging Builds
+**View Build Logs:**
+
+1. Go to Vercel project **Deployments**
+2. Click on the failed deployment
+3. View **Build Logs** tab
+
+**Local Build Testing:**
+
+```bash
+
+# Simulate Vercel build locally
+cd apps/player-web
+vercel build
+
+# Check the output
+ls -la .vercel/output
+```text
+
+---
+
+## Verification
+
+### How to Verify Deployment Succeeded
+
+#### 1. Check GitHub Actions
+1. Go to repository **Actions** tab
+2. Find the deployment workflow run
+3. All jobs should show green checkmarks
+4. Click "deploy-frontend" job for deployment URL
+
+#### 2. Check Vercel Dashboard
+1. Go to your Vercel project
+2. Navigate to **Deployments**
+3. Latest deployment should show:
+   - Status: "Ready"
+   - Preview URL (staging) or Production URL
+
+#### 3. Visual Verification
+Visit the deployed application:
+
+**Staging:**
+
+- `https://igaming-player-web-xxxx.vercel.app`
+- `https://igaming-operator-web-xxxx.vercel.app`
+
+**Production:**
+
+- `https://player.yourdomain.com`
+- `https://operator.yourdomain.com`
+
+### Smoke Tests for Deployed Apps
+
+#### Player Web
+```bash
+
+# Check app loads
+curl -sI https://player.yourdomain.com | head -5
+
+# Should return:
+
+# HTTP/2 200
+
+# content-type: text/html
+```text
+
+#### Operator Web
+```bash
+
+# Check app loads
+curl -sI https://operator.yourdomain.com | head -5
+
+# Check API routes work
+curl -s https://operator.yourdomain.com/api/health
+```text
+
+### Health Check Endpoints
+Create health check endpoints in your apps:
+
+**pages/api/health.ts (or app/api/health/route.ts):**
+
+```typescript
+export async function GET() {
+  return Response.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    environment: process.env.VERCEL_ENV || 'unknown'
+  })
+}
+```text
+
+**Verify:**
+
+```bash
+curl https://player.yourdomain.com/api/health
+
+# {"status":"ok","timestamp":"2026-02-07T12:00:00.000Z","environment":"production"}
+```text
+
+### Monitoring After Deployment
+1. **Vercel Analytics** (if enabled):
+   - Check for error rate spikes
+   - Monitor Core Web Vitals
+
+2. **Vercel Logs:**
+   - Go to project **Logs** tab
+   - Filter by time range
+   - Look for errors
+
+3. **Browser Console:**
+   - Open deployed app
+   - Check DevTools console for JavaScript errors
+   - Verify network requests succeed
+
+### Post-Deployment Checklist
+- [ ] App loads without errors
+- [ ] Static assets (CSS, JS, images) load correctly
+- [ ] Environment variables are correct (check Supabase connection)
+- [ ] Authentication flows work
+- [ ] API routes respond correctly (operator-web)
+- [ ] SSL certificate is valid (green padlock)
+- [ ] No console errors in browser DevTools
+
+---
+
+## Related Documentation
+- [Deployment Runbook](./runbook.md) - Complete deployment procedures
+- [Environment Variables Guide](./environment-vars.md) - All environment variables
+- [Rollback Procedures](./rollback.md) - How to rollback deployments
+- [Development Flow](./development-flow.md) - Development to production workflow
+
+---
+
+*Last updated: 2026-02-07*
+*Owner: DevOps team*
