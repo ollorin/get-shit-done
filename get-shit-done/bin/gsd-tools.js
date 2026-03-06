@@ -239,6 +239,7 @@ function loadConfig(cwd) {
     verifier: true,
     parallelization: true,
     nyquist_validation: true,
+    granularity: 'standard',
     brave_search: false,
   };
 
@@ -281,6 +282,7 @@ function loadConfig(cwd) {
       verifier: get('verifier', { section: 'workflow', field: 'verifier' }) ?? defaults.verifier,
       parallelization,
       nyquist_validation: get('nyquist_validation', { section: 'workflow', field: 'nyquist_validation' }) ?? defaults.nyquist_validation,
+      granularity: get('granularity') ?? defaults.granularity,
       brave_search: get('brave_search') ?? defaults.brave_search,
       coordinator_model: get('coordinator_model') ?? null,
     };
