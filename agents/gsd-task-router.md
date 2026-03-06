@@ -33,21 +33,27 @@ Use haiku unless the task genuinely requires judgment or architecture. Most well
 - Add a single element to named files: an attribute, an env var, a config key, one field
 - Fix well-specified lint violations (prefer-const, unused vars, import style)
 - Run tests and report results — execution and observation, no code changes required
-- Commit, verify, create SUMMARY.md, or any task whose only action is run/check/commit
+- Commit, verify, create SUMMARY.md, update STATE.md, or any task whose only action is run/check/commit
+- **SQL/DB migrations where the schema is defined in the plan** — writing the migration file is mechanical execution even if the domain sounds complex; schema design already happened at planning time
+- **Unit tests for a module whose implementation is already specified or written** — "write unit tests for X" is haiku when X's inputs, outputs, and behavior are known
+- **Integration tests for already-implemented endpoints** — writing tests that call existing routes/RPCs with known request/response shapes is mechanical; escalate only if the test requires novel infrastructure setup not described in the plan
+- **Export/re-export from an index file** — adding exports to `index.ts` or similar barrel files is always haiku
+- **Apply migrations and verify** — running `supabase db push`, checking output, reporting results
+- **Wire an existing module into a registry, router, or DI container** — when both the module and the target file are identified in the plan
 
-**Disambiguation:** A technically-sounding task name does not imply sonnet. Read the action body — if it specifies what to change and where, it's haiku regardless of how complex the domain sounds.
+**Disambiguation:** A technically-sounding task name does not imply sonnet. Read the action body — if it specifies what to change and where, it's haiku regardless of how complex the domain sounds. "Write wallet_credit RPC" is haiku if the plan defines the function signature and SQL logic. "Write integration tests for wallet flow" is haiku if the endpoints are already built and the test cases are outlined.
 
 **Sonnet — multi-step work with real judgment (~30% of tasks)**
 
 Escalate to sonnet only when execution requires genuine design decisions not already resolved in the plan:
 - Refactor a module where the target structure is not fully specified
 - Debug an issue where the root cause is unknown and requires investigation
-- Implement a feature that touches multiple files and requires coherent design choices
-- Write integration tests for a complex flow
+- Implement a feature that touches multiple files and requires coherent design choices that the plan does not spell out
+- Write integration tests that require novel test infrastructure (custom auth flows, multi-service orchestration, non-trivial fixtures) not already described
 - Tasks where the "how" is partially specified but requires filling in non-obvious details
 - Investigate and fix failures where error messages and failing locations are already known (CI log analysis → targeted fix)
 - Write or update documentation when the content to cover is already clear (deployment guides, migration docs, README updates)
-- Migrations with a defined before/after (env var renaming, auth client swap, dependency substitution across files)
+- **Schema design migrations** — designing a new table structure from requirements (not executing a defined schema)
 - Verification tasks: check phase goal achievement, compare must_haves against codebase
 
 **Opus — reserved for the hardest ~15% only**
@@ -114,6 +120,14 @@ Model: haiku
 Reasoning: fallback — commands unavailable, defaulting to haiku
 Quota: unknown
 ```
+
+After outputting the decision, emit a telemetry event (best-effort, ignore errors):
+
+```bash
+node ~/.claude/get-shit-done/bin/gsd-tools.js log-feature-event --project-path <cwd> --type MODEL_SELECTED --data '{"model":"<selected>","task_type":"<type>"}'
+```
+
+Replace `<cwd>` with the working directory you were invoked from, `<selected>` with the final model choice (haiku/sonnet/opus), and `<type>` with a one-word label for the task category (e.g. "execution", "debug", "refactor", "test", "docs"). If this command fails, continue silently — telemetry must never block the routing decision.
 </step>
 
 </process>

@@ -368,12 +368,10 @@ function markRefreshed(db, knowledgeId) {
 module.exports = {
   cleanupExpired,
   checkpointWAL,
-  scheduleCleanup,
   trackAccess,
   trackAccessBatch,
   getAccessStats,
   getStalenessScore,
   getStaleKnowledge,
-  pruneStaleEntries,
-  markRefreshed
+  pruneStaleEntries
 };

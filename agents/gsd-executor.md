@@ -183,6 +183,10 @@ No user permission needed for Rules 1-3.
 
 **Examples:** Missing error handling, no input validation, missing null checks, no auth on protected routes, missing authorization, no CSRF/CORS, no rate limiting, missing DB indexes, no error logging
 
+**Consistency within a module is also Rule 2:** When adding to an existing file or module, scan what safety patterns the surrounding code already applies (input validation, auth checks, error propagation). New code in the same module inherits that contract. Partial coverage — where some entry points are guarded and others aren't — is as exploitable as no coverage. The rule is: match the pattern, don't introduce gaps.
+
+**Orphaned side effects are Rule 2, not style:** Any operation that mutates external state (database write, cache update, external API call, file write) and is not in the success/failure propagation chain is a latent correctness bug. It doesn't fail loudly — it silently mutates state while the caller sees a different outcome. Treat disconnected async mutations the same as missing error handling.
+
 **Critical = required for correct/secure/performant operation.** These aren't "features" — they're correctness requirements.
 
 ---

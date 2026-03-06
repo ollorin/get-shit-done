@@ -10,7 +10,10 @@ const EVENT_TYPES = {
   CHECKPOINT: 'checkpoint',
   DEPENDENCY_WAIT: 'dependency_wait',
   RESUME: 'resume',
-  USER_DECISION: 'user_decision'
+  USER_DECISION: 'user_decision',
+  KNOWLEDGE_QUERY: 'knowledge_query',
+  KNOWLEDGE_WRITE: 'knowledge_write',
+  MODEL_SELECTED: 'model_selected'
 };
 
 /**
@@ -31,6 +34,7 @@ function initLog(projectPath) {
   }
 
   const header = '# Autonomous Roadmap Execution Log\n\n';
+  fs.mkdirSync(path.dirname(logPath), { recursive: true });
   fs.writeFileSync(logPath, header, 'utf8');
 
   return { created: true, path: logPath };

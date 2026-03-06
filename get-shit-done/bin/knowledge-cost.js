@@ -301,14 +301,11 @@ module.exports = {
   getBudgetLimit,
 
   // Cost tracking
-  trackCost,
   getTotalCost,
 
   // Budget alerts
   checkBudgetAlerts,
-  getAlertLevel,
   hasAlertFired,
-  markAlertFired,
 
   // Circuit breaker
   enableCircuitBreaker,

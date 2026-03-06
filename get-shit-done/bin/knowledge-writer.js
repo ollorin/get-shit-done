@@ -20,6 +20,15 @@
 const path = require('path');
 const fs = require('fs');
 
+// Lazy-loaded so knowledge-writer remains usable even if execution-log is absent
+let _execLog = null;
+function getExecLog() {
+  if (!_execLog) {
+    try { _execLog = require('./execution-log.js'); } catch (_) { /* non-fatal */ }
+  }
+  return _execLog;
+}
+
 // ─── Knowledge Config ────────────────────────────────────────────────────────
 
 const KNOWLEDGE_DEFAULTS = {
@@ -322,10 +331,32 @@ async function storeInsights(insights, options = {}) {
 
           if (evolveResult.action === 'evolved') {
             result.evolved++;
+            try {
+              const execLog = getExecLog();
+              const cwd = options.cwd;
+              if (execLog && cwd && typeof cwd === 'string') {
+                execLog.appendEvent(cwd, {
+                  type: execLog.EVENT_TYPES.KNOWLEDGE_WRITE,
+                  type_written: knowledgeType,
+                  project_slug: projectSlug
+                });
+              }
+            } catch (_) { /* telemetry must never break the feature */ }
           } else if (evolveResult.action === 'skipped') {
             result.skipped++;
           } else if (evolveResult.action === 'created') {
             result.stored++;
+            try {
+              const execLog = getExecLog();
+              const cwd = options.cwd;
+              if (execLog && cwd && typeof cwd === 'string') {
+                execLog.appendEvent(cwd, {
+                  type: execLog.EVENT_TYPES.KNOWLEDGE_WRITE,
+                  type_written: knowledgeType,
+                  project_slug: projectSlug
+                });
+              }
+            } catch (_) { /* telemetry must never break the feature */ }
           }
           continue;
         }
@@ -347,8 +378,30 @@ async function storeInsights(insights, options = {}) {
 
       if (insertResult.action === 'created') {
         result.stored++;
+        try {
+          const execLog = getExecLog();
+          const cwd = options.cwd;
+          if (execLog && cwd && typeof cwd === 'string') {
+            execLog.appendEvent(cwd, {
+              type: execLog.EVENT_TYPES.KNOWLEDGE_WRITE,
+              type_written: knowledgeType,
+              project_slug: projectSlug
+            });
+          }
+        } catch (_) { /* telemetry must never break the feature */ }
       } else if (insertResult.action === 'evolved') {
         result.evolved++;
+        try {
+          const execLog = getExecLog();
+          const cwd = options.cwd;
+          if (execLog && cwd && typeof cwd === 'string') {
+            execLog.appendEvent(cwd, {
+              type: execLog.EVENT_TYPES.KNOWLEDGE_WRITE,
+              type_written: knowledgeType,
+              project_slug: projectSlug
+            });
+          }
+        } catch (_) { /* telemetry must never break the feature */ }
       } else if (insertResult.action === 'skipped') {
         result.skipped++;
       }

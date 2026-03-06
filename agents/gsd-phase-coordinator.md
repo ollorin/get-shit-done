@@ -604,6 +604,13 @@ For each incomplete plan (no SUMMARY.md):
      Parse the ROUTING DECISION response to extract the Model: line.
      Set EXECUTOR_MODEL to the returned model tier (haiku/sonnet/opus).
      Also capture ROUTING_SCORE and ROUTING_CONTEXT from the response.
+
+     After extracting the decision, log it to EXECUTION_LOG.md (best-effort):
+     ```bash
+     node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
+       --type routing_decision \
+       --data "{\"phase\":{phase_number},\"plan\":\"{plan_number}\",\"model\":\"{EXECUTOR_MODEL}\",\"task\":\"{PLAN_OBJECTIVE}\"}"
+     ```
    ```
 
    **If MODEL_PROFILE is NOT "auto":** PER_TASK_MODE = false, EXECUTOR_MODEL = "sonnet" (unchanged default behavior).
@@ -695,7 +702,14 @@ For each incomplete plan (no SUMMARY.md):
           "
         )
 
-     5. Wait for task executor to complete before spawning next task
+     5. Log task dispatch to EXECUTION_LOG.md (best-effort, before waiting for result):
+        ```bash
+        node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
+          --type task_dispatch \
+          --data '{"phase":{phase_number},"plan":"{plan_file}","task_index":{task_index},"task_name":"{task_name_without_tier_prefix}","tier":"{TASK_TIER}","quota_pct":{session_percent},"quota_adjusted":{true_if_tier_was_downgraded}}'
+        ```
+
+     6. Wait for task executor to complete before spawning next task
         (sequential within a plan — tasks may have intra-plan dependencies)
 
      6. On executor return, check for haiku-tier failure and escalate if needed:

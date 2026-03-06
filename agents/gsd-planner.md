@@ -1098,10 +1098,19 @@ For each PLAN.md written in the write_phase_prompt step:
 
 5. **Consistency check** — after all tiers are assigned, scan for tasks with structurally similar names (same verb + same target pattern, e.g. two tasks both named "Convert X to match()"). If similar tasks got different tiers, downgrade all of them to the lowest assigned tier and log the adjustment.
 
-6. **Log routing decisions** — after all tasks are updated, write a brief summary to stdout:
+6. **Log routing decisions** — after all tasks are updated, write a brief summary to stdout AND append a structured event to EXECUTION_LOG.md:
    ```
    Routing pass complete: {haiku_count} haiku, {sonnet_count} sonnet, {opus_count} opus
    ```
+
+   Then write to the execution log (best-effort, do not abort if this fails):
+   ```bash
+   node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
+     --type routing_decisions \
+     --data '{"plan":"{plan_filename}","phase":{phase_number},"decisions":[{"index":1,"name":"...","tier":"..."},...],"summary":{"haiku":{haiku_count},"sonnet":{sonnet_count},"opus":{opus_count}}}'
+   ```
+
+   Build the `decisions` array from the final tier assignments (after consistency check). Each entry: `{ "index": task_index, "name": task_name_without_tier_prefix, "tier": "haiku"|"sonnet"|"opus" }`. Run once per PLAN.md written.
 
 **Important constraints:**
 - Routing pass runs AFTER the full plan is written to disk — never interleave with drafting

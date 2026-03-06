@@ -388,6 +388,5 @@ module.exports = {
   listActivePermissions,
   matchesPattern,
   validateLimits,
-  checkLimits,
-  recordPermissionUsage
+  checkLimits
 }

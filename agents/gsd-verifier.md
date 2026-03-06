@@ -274,6 +274,18 @@ grep -n -B 2 -A 2 "console\.log" "$file" 2>/dev/null | grep -E "^\s*(const|funct
 
 Categorize: 🛑 Blocker (prevents goal) | ⚠️ Warning (incomplete) | ℹ️ Info (notable)
 
+**Beyond placeholder detection — verify behavioral correctness:**
+
+Code can be fully implemented (no TODOs, no stubs) yet still incorrect. After the mechanical anti-pattern scan, apply judgment on these categories:
+
+- **Orphaned side effects:** Any operation that mutates external state (database, cache, file system, external API) must be in the success/failure propagation chain. An async mutation that is created but not awaited, chained, or returned is behaviorally invisible — it silently succeeds or fails with no effect on the caller's result. Look for async work that is "launched and forgotten" near mutations.
+
+- **Entry point validation consistency:** For any module that has multiple entry points (handlers, routes, commands), validate that safety checks (auth, input validation, ownership verification) are applied uniformly. One unguarded entry point in a file that otherwise validates everything is effectively ungated. The question is not "does validation exist somewhere" but "is every entry point covered."
+
+- **Multi-step operation completeness:** When an operation has two phases with external side effects (e.g., write to external store then write to DB, charge then record, send then mark sent), verify both phases exist in the codebase and are linked. A phase 1 with no phase 2 creates orphaned external state — data that exists outside the system with no corresponding internal record.
+
+- **Derived state alignment:** Frontend constants, enums, or sets that mirror backend/DB domain values (status names, event types, valid transitions) must stay synchronized. Independently defined copies drift silently. Verify they reference or are typed against the authoritative source.
+
 ## Step 8: Identify Human Verification Needs
 
 **Always needs human:** Visual appearance, user flow completion, real-time behavior, external service integration, performance feel, error message clarity.

@@ -296,11 +296,9 @@ function refreshTTL(db, id, ttlCategory = null) {
 module.exports = {
   insertKnowledge,
   getKnowledge,
-  getKnowledgeByHash,
   getKnowledgeByType,
   updateKnowledge,
   deleteKnowledge,
-  refreshTTL,
   TTL_CATEGORIES,
   TYPE_TO_TTL
 }

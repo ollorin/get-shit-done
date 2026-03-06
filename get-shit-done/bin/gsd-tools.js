@@ -3067,14 +3067,25 @@ function cmdCheckpoint(cwd, args, raw) {
 // ─── Execution Log ───────────────────────────────────────────────────────────
 
 /**
- * Walk up from dir until we find a directory containing .planning/, or return dir if not found.
+ * Walk up from dir until we find a real GSD project root (contains .planning/ with phases/ or ROADMAP.md).
+ * A bare .planning/ with only EXECUTION_LOG.md is not considered a real root — it may be an artifact
+ * from incorrect logging when cwd was a subdirectory (e.g. apps/api/.planning/).
+ * Falls back to the first .planning/ found if no proper root is found.
  */
 function findProjectRoot(dir) {
   let current = dir;
+  let firstPlanningDir = null;
   while (true) {
-    if (fs.existsSync(path.join(current, '.planning'))) return current;
+    const planningDir = path.join(current, '.planning');
+    if (fs.existsSync(planningDir)) {
+      const isRealRoot =
+        fs.existsSync(path.join(planningDir, 'phases')) ||
+        fs.existsSync(path.join(planningDir, 'ROADMAP.md'));
+      if (isRealRoot) return current;
+      if (!firstPlanningDir) firstPlanningDir = current;
+    }
     const parent = path.dirname(current);
-    if (parent === current) return dir; // reached fs root, fall back to original cwd
+    if (parent === current) return firstPlanningDir || dir; // reached fs root
     current = parent;
   }
 }
@@ -8997,7 +9008,7 @@ async function cmdQueryKnowledge(cwd, args, raw) {
   // Emit feature-level telemetry for successful knowledge queries
   try {
     if (cwd && typeof cwd === 'string') {
-      appendEvent(cwd, {
+      appendEvent(findProjectRoot(cwd), {
         type: EVENT_TYPES.KNOWLEDGE_QUERY,
         query: questionString,
         result_count: results.length,
@@ -10767,7 +10778,8 @@ Was ${model} the right choice for this task? (y/n): `;
           error('log-feature-event: --project-path must be a non-empty string');
           break;
         }
-        const result = appendEvent(featureEventProjectPath, { type: featureEventType, ...featureEventData });
+        const resolvedFeaturePath = findProjectRoot(featureEventProjectPath);
+        const result = appendEvent(resolvedFeaturePath, { type: featureEventType, ...featureEventData });
         output(result, raw, 'Feature event appended to EXECUTION_LOG.md');
       } catch (err) {
         error(`log-feature-event: failed to append event: ${err.message}`);
