@@ -192,23 +192,34 @@ Voice messages: install `ffmpeg` (`brew install ffmpeg`) — Whisper model is do
 
 ## Configuration
 
-Settings in `.planning/config.json`. Change via `/gsd:settings`.
+GSD stores project settings in `.planning/config.json`. Configure during `/gsd:new-project` or update later with `/gsd:settings`. For the full config schema, workflow toggles, git branching options, and per-agent model breakdown, see the [User Guide](docs/USER-GUIDE.md#configuration-reference).
 
-| Setting | Default | What it does |
-|---------|---------|--------------|
-| `mode` | `interactive` | `yolo` = auto-approve all steps |
-| `depth` | `standard` | Planning thoroughness |
+### Core Settings
+
+| Setting | Options | Default | What it controls |
+|---------|---------|---------|------------------|
+| `mode` | `yolo`, `interactive` | `interactive` | Auto-approve vs confirm at each step |
+| `granularity` | `coarse`, `standard`, `fine` | `standard` | Phase granularity — how finely scope is sliced (phases × plans) |
 | `parallelization.enabled` | `true` | Run independent plans in parallel |
 | `git.branching_strategy` | `none` | `phase` or `milestone` to create branches |
 
-**Model profiles** (`/gsd:set-profile`):
+### Model Profiles
+
+Control which Claude model each agent uses. Balance quality vs token spend.
 
 | Profile | Planning | Execution | Verification |
 |---------|----------|-----------|--------------|
 | `auto` | adaptive | adaptive | adaptive |
 | `quality` | Opus | Opus | Sonnet |
-| `balanced` | Opus | Sonnet | Sonnet |
+| `balanced` (default) | Opus | Sonnet | Sonnet |
 | `budget` | Sonnet | Sonnet | Haiku |
+
+Switch profiles:
+```
+/gsd:set-profile budget
+```
+
+Or configure via `/gsd:settings`.
 
 `auto` spawns a Haiku subagent (`gsd-task-router`) that reads each task description and reasons about which model tier to use — Haiku for mechanical single-step tasks, Sonnet for standard multi-step implementation, Opus for architecture and high-stakes decisions. Quota pressure downgrade: >80% usage drops Opus→Sonnet, >95% drops all to Haiku. Circuit breakers and error escalation ensure quality.
 
