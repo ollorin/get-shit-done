@@ -11,14 +11,14 @@ Audit Nyquist validation gaps for a completed phase. Generate missing tests. Upd
 ## 0. Initialize
 
 ```bash
-INIT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.cjs" init phase-op "${PHASE_ARG}")
+INIT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" init phase-op "${PHASE_ARG}")
 ```
 
 Parse: `phase_dir`, `phase_number`, `phase_name`, `phase_slug`, `padded_phase`.
 
 ```bash
-AUDITOR_MODEL=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.cjs" resolve-model gsd-nyquist-auditor --raw)
-NYQUIST_CFG=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.cjs" config get workflow.nyquist_validation --raw)
+AUDITOR_MODEL=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" resolve-model gsd-nyquist-auditor --raw)
+NYQUIST_CFG=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" config get workflow.nyquist_validation --raw)
 ```
 
 If `NYQUIST_CFG` is `false`: exit with "Nyquist validation is disabled. Enable via /gsd:settings."
@@ -127,7 +127,7 @@ Handle return:
 git add {test_files}
 git commit -m "test(phase-${PHASE}): add Nyquist validation tests"
 
-node "$HOME/.claude/get-shit-done/bin/gsd-tools.cjs" commit-docs "docs(phase-${PHASE}): add/update validation strategy"
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit-docs "docs(phase-${PHASE}): add/update validation strategy"
 ```
 
 ## 8. Results + Routing
