@@ -1596,7 +1596,29 @@ function install(isGlobal, runtime = 'claude') {
       });
       console.log(`  ${green}✓${reset} Configured session extraction Stop hook`);
     }
+
+    // Register PreToolUse:Write|Edit hook to protect managed files from direct edits
+    const protectHookPath = isGlobal
+      ? path.join(targetDir, 'get-shit-done', 'bin', 'hooks', 'gsd-protect-managed-files.js').replace(/\\/g, '/')
+      : path.join(dirName, 'get-shit-done', 'bin', 'hooks', 'gsd-protect-managed-files.js').replace(/\\/g, '/');
+    const protectHookCommand = `node "${protectHookPath}"`;
+
+    const hasProtectHook = settings.hooks.PreToolUse.some(entry =>
+      entry.hooks && entry.hooks.some(h => h.command && h.command.includes('gsd-protect-managed-files'))
+    );
+
+    if (!hasProtectHook) {
+      settings.hooks.PreToolUse.push({
+        matcher: 'Write|Edit',
+        hooks: [{ type: 'command', command: protectHookCommand }]
+      });
+      console.log(`  ${green}✓${reset} Configured managed file protection hook`);
+    }
   }
+
+  // Write source project path so the protection hook can reference it
+  const sourcePathFile = path.join(targetDir, 'gsd-source-path.txt');
+  fs.writeFileSync(sourcePathFile, process.cwd() + '\n');
 
   // Write file manifest for future modification detection
   writeManifest(targetDir);
