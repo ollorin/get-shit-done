@@ -1603,20 +1603,25 @@ function install(isGlobal, runtime = 'claude') {
       : path.join(dirName, 'get-shit-done', 'bin', 'hooks', 'gsd-protect-managed-files.js').replace(/\\/g, '/');
     const protectHookCommand = `node "${protectHookPath}"`;
 
-    const hasProtectHook = settings.hooks.PreToolUse.some(entry =>
-      entry.hooks && entry.hooks.some(h => h.command && h.command.includes('gsd-protect-managed-files'))
+    // Remove any stale protect entries (e.g. old "Write|Edit" combined matcher)
+    const before = settings.hooks.PreToolUse.length;
+    settings.hooks.PreToolUse = settings.hooks.PreToolUse.filter(entry =>
+      !(entry.hooks && entry.hooks.some(h => h.command && h.command.includes('gsd-protect-managed-files')))
     );
+    const removed = before - settings.hooks.PreToolUse.length;
 
-    if (!hasProtectHook) {
-      // Two separate entries — one per tool — to avoid relying on regex matcher support
-      settings.hooks.PreToolUse.push({
-        matcher: 'Write',
-        hooks: [{ type: 'command', command: protectHookCommand }]
-      });
-      settings.hooks.PreToolUse.push({
-        matcher: 'Edit',
-        hooks: [{ type: 'command', command: protectHookCommand }]
-      });
+    // Add two entries — one per tool — avoid relying on regex matcher support
+    settings.hooks.PreToolUse.push({
+      matcher: 'Write',
+      hooks: [{ type: 'command', command: protectHookCommand }]
+    });
+    settings.hooks.PreToolUse.push({
+      matcher: 'Edit',
+      hooks: [{ type: 'command', command: protectHookCommand }]
+    });
+    if (removed > 0) {
+      console.log(`  ${green}✓${reset} Updated managed file protection hook (Write + Edit)`);
+    } else {
       console.log(`  ${green}✓${reset} Configured managed file protection hook (Write + Edit)`);
     }
   }
