@@ -134,6 +134,32 @@ After completion, create SUMMARY.md with:
 - Bad: Mock internals, test private methods, assert on internal state
 </test_quality>
 
+<contract_tests>
+## Cross-Boundary Contract Tests
+
+**Principle:** When a feature crosses a service boundary (frontend calls backend, service A calls service B), TDD must include a contract test that verifies the boundary itself — not just each side in isolation.
+
+A unit test that mocks the API call and asserts the frontend handles the response correctly is valuable but insufficient. It doesn't verify that the backend route exists, accepts the payload the frontend sends, or returns the shape the frontend expects.
+
+**When to write contract tests:**
+- Frontend handler submits data to a backend route
+- API route depends on another service's response format
+- Any `<done>` criterion that spans two independently deployed/tested components
+
+**What a contract test covers:**
+- The route exists and accepts the HTTP method used (e.g., POST, not just GET)
+- The request payload shape matches what the backend handler reads from the request body
+- The response shape matches what the frontend destructures/renders
+- Error responses follow the contract the frontend error-handling expects
+
+**Integration with TDD cycle:**
+- **RED:** Write a test that calls the actual route handler (not a mock) with the payload the frontend will send, asserting the expected response shape
+- **GREEN:** Implement the route handler to satisfy the contract
+- This does not replace unit tests — it supplements them by testing the seam
+
+**Heuristic:** If the `<done>` criterion says "user can submit X" and the implementation spans frontend and backend, a contract test is required. If it's pure frontend or pure backend, standard unit TDD suffices.
+</contract_tests>
+
 <framework_setup>
 ## Test Framework Setup (If None Exists)
 

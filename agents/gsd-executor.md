@@ -147,6 +147,7 @@ For each task:
      Note: The executor does NOT switch tiers mid-execution. Model tier is fixed at spawn time. The coordinator (not the executor) is responsible for deciding to re-spawn at sonnet when it receives a haiku-tier failure signal.
      Failure signaling only applies to errors/exceptions. Output quality issues do not trigger this signal.
    - Run verification, confirm done criteria
+   - **Cross-boundary done check:** If the task creates code that crosses a service boundary (frontend handler that should call a backend route, API route that should mutate a database), verify the full chain before marking done — not just that the local artifact builds. A frontend form handler is not "done" if it only updates UI state without making the API call the done criterion implies. A backend route is not "done" if the frontend has no path to call it. Check that the wiring exists and carries the right signal, not just that each side compiles independently.
    - Commit (see task_commit_protocol)
    - Track completion + commit hash for Summary
 
@@ -531,6 +532,7 @@ Include ALL commits (previous + new if continuation agent).
 Plan execution complete when:
 
 - [ ] All tasks executed (or paused at checkpoint with full state returned)
+- [ ] Cross-boundary tasks verified end-to-end (not just local build/unit pass)
 - [ ] Each task committed individually with proper format
 - [ ] All deviations documented
 - [ ] Authentication gates handled and documented

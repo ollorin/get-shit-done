@@ -20,10 +20,13 @@ Integration verification checks connections:
 
 1. **Exports → Imports** — Phase 1 exports `getCurrentUser`, Phase 3 imports and calls it?
 2. **APIs → Consumers** — `/api/users` route exists, something fetches from it?
-3. **Forms → Handlers** — Form submits to API, API processes, result displays?
-4. **Data → Display** — Database has data, UI renders it?
+3. **Consumers → APIs (reverse)** — Frontend calls `/api/submit`, does that route actually exist and accept the payload?
+4. **Forms → Handlers** — Form submits to API, API processes, result displays?
+5. **Data → Display** — Database has data, UI renders it?
 
 A "complete" codebase with broken wiring is a broken product.
+
+**Bidirectionality principle:** Integration verification is only complete when wiring is confirmed in both directions — from producer to consumer AND from consumer to producer. Checking that API routes have callers (producer → consumer) is necessary but insufficient. You must also check that every API call in the frontend targets a route that actually exists on the backend (consumer → producer). A unidirectional check creates a blind spot where the frontend can reference routes that were never built, and this will only surface at runtime.
 </core_principle>
 
 <inputs>
@@ -164,6 +167,41 @@ check_api_consumed() {
   fi
 }
 ```
+
+## Step 3b: Reverse API Verification (Consumer → Producer)
+
+Step 3 checks that API routes have callers (producer → consumer). This step checks the reverse: that every API call in the frontend targets a route that actually exists on the backend.
+
+**Extract all frontend API calls:**
+
+```bash
+# Find all fetch/axios URL paths in frontend code
+grep -r -oE "fetch\(['\"][^'\"]+['\"]" "$search_path" --include="*.tsx" --include="*.ts" 2>/dev/null | \
+  grep -oE "['\"][^'\"]+['\"]" | tr -d "'\""
+
+# Also check for API client/wrapper calls
+grep -r -oE "api\.(get|post|put|patch|delete)\(['\"][^'\"]+['\"]" "$search_path" --include="*.tsx" --include="*.ts" 2>/dev/null
+```
+
+**For each extracted API path, verify the backend route exists:**
+
+```bash
+check_api_exists() {
+  local api_path="$1"
+  # Map API path to route file (adapt to framework)
+  local route_file="src/app${api_path}/route.ts"
+
+  if [ -f "$route_file" ]; then
+    echo "ROUTE_EXISTS: $api_path → $route_file"
+  else
+    echo "PHANTOM_ROUTE: $api_path — frontend calls this but no backend route exists"
+  fi
+}
+```
+
+**Also verify HTTP method alignment:** If the frontend POSTs to a route, the backend must export a POST handler (not just GET).
+
+**Phantom routes** (frontend calls with no backend) are integration failures that only surface at runtime. Report these as MISSING connections.
 
 ## Step 4: Verify Auth Protection
 
@@ -344,8 +382,6 @@ flows:
       steps_missing: ["Fetch", "State", "Display"]
 ```
 
-</verification_process>
-
 ## Step 7: Build Requirements Integration Map
 
 For each milestone requirement, trace wiring across phases:
@@ -410,10 +446,10 @@ Return structured report to milestone auditor:
 **Orphaned:** {N} exports created but unused
 **Missing:** {N} expected connections not found
 
-### API Coverage
+### API Coverage (Bidirectional)
 
-**Consumed:** {N} routes have callers
-**Orphaned:** {N} routes with no callers
+**Producer → Consumer:** {N} routes have callers, {N} orphaned (no callers)
+**Consumer → Producer:** {N} frontend API calls target existing routes, {N} phantom routes (frontend calls non-existent backend)
 
 ### Auth Protection
 
@@ -452,7 +488,7 @@ Return structured report to milestone auditor:
 
 **Trace full paths.** Component → API → DB → Response → Display. Break at any point = broken flow.
 
-**Check both directions.** Export exists AND import exists AND import is used AND used correctly.
+**Check both directions.** For exports: export exists AND import exists AND import is used correctly. For APIs: route has callers AND every frontend API call targets an existing route with the correct HTTP method.
 
 **Be specific about breaks.** "Dashboard doesn't work" is useless. "Dashboard.tsx line 45 fetches /api/users but doesn't await response" is actionable.
 
@@ -464,7 +500,8 @@ Return structured report to milestone auditor:
 
 - [ ] Export/import map built from SUMMARYs
 - [ ] All key exports checked for usage
-- [ ] All API routes checked for consumers
+- [ ] All API routes checked for consumers (producer → consumer)
+- [ ] All frontend API calls checked for existing backend routes (consumer → producer)
 - [ ] Auth protection verified on sensitive routes
 - [ ] E2E flows traced and status determined
 - [ ] Orphaned code identified

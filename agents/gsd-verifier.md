@@ -23,8 +23,13 @@ Goal-backward verification starts from the outcome and works backwards:
 1. What must be TRUE for the goal to be achieved?
 2. What must EXIST for those truths to hold?
 3. What must be WIRED for those artifacts to function?
+4. What must be SEMANTICALLY CORRECT for the wiring to produce the claimed outcome?
 
 Then verify each level against the actual codebase.
+
+**Semantic verification principle:** Wiring can be syntactically present but behaviorally inert. A handler that "submits" by advancing a UI stepper without making an API call is wired (it's connected to the button) but semantically broken (it doesn't cause the state transition the user expects). After confirming wiring exists, verify the wiring carries the right signal — that the mechanism actually causes the claimed effect.
+
+**Done-criteria traceability:** For each `<done>` criterion, trace backwards to the implementation that achieves it. The criterion "user can submit application" is only satisfied if there exists a code path from the submit action through an API call to a state mutation. If any link in that chain is missing, the criterion is not achievable regardless of what artifacts exist.
 </core_principle>
 
 <verification_process>
@@ -215,6 +220,18 @@ grep -E "\{.*$state_var.*\}|\{$state_var\." "$component" 2>/dev/null
 
 Status: WIRED (state displayed) | NOT_WIRED (state exists, not rendered)
 
+## Step 5b: Verify Done-Criteria Achievability
+
+For each `<done>` criterion in the plan's tasks, trace backward from the claimed outcome to the implementation:
+
+1. **Identify the claimed effect** — what state change, output, or behavior does the criterion describe?
+2. **Trace the causal chain** — starting from the user action (button click, form submit, page load), follow the code path through handler → API call → mutation → response → UI update
+3. **Flag broken chains** — any criterion where the chain has a gap (handler with no API call, API call to non-existent route, mutation with no persistence) is NOT ACHIEVED regardless of artifact status
+
+This step catches semantic stubs — implementations that satisfy the criterion's wording but not its intent. A "Submit" button that advances a stepper without calling an API satisfies "submit button exists" but not "user can submit."
+
+**Integration:** For cross-service done criteria (frontend action → backend effect), verify both sides exist and connect. A frontend that POSTs to `/api/submit` only achieves the criterion if that route exists, accepts the payload, and performs the claimed operation.
+
 ## Step 6: Check Requirements Coverage
 
 Read requirement IDs from PLAN.md frontmatter (not from REQUIREMENTS.md directly):
@@ -276,15 +293,17 @@ Categorize: 🛑 Blocker (prevents goal) | ⚠️ Warning (incomplete) | ℹ️ 
 
 **Beyond placeholder detection — verify behavioral correctness:**
 
-Code can be fully implemented (no TODOs, no stubs) yet still incorrect. After the mechanical anti-pattern scan, apply judgment on these categories:
+Code can be fully implemented (no TODOs, no stubs) yet still incorrect. After the mechanical anti-pattern scan, apply judgment:
 
-- **Orphaned side effects:** Any operation that mutates external state (database, cache, file system, external API) must be in the success/failure propagation chain. An async mutation that is created but not awaited, chained, or returned is behaviorally invisible — it silently succeeds or fails with no effect on the caller's result. Look for async work that is "launched and forgotten" near mutations.
+- **Semantic stubs:** Handlers that satisfy verification criteria syntactically but not semantically — they claim to perform an action (submit, save, approve) but only update local/UI state without I/O. See `verification-patterns.md` `<core_principle>` for the full principle.
 
-- **Entry point validation consistency:** For any module that has multiple entry points (handlers, routes, commands), validate that safety checks (auth, input validation, ownership verification) are applied uniformly. One unguarded entry point in a file that otherwise validates everything is effectively ungated. The question is not "does validation exist somewhere" but "is every entry point covered."
+- **Orphaned side effects:** Async mutations that are created but not awaited, chained, or returned are behaviorally invisible. Look for async work "launched and forgotten" near mutations.
 
-- **Multi-step operation completeness:** When an operation has two phases with external side effects (e.g., write to external store then write to DB, charge then record, send then mark sent), verify both phases exist in the codebase and are linked. A phase 1 with no phase 2 creates orphaned external state — data that exists outside the system with no corresponding internal record.
+- **Entry point validation consistency:** Safety checks (auth, validation, ownership) must be applied uniformly across all entry points in a module. One unguarded entry point in a file that otherwise validates everything is effectively ungated.
 
-- **Derived state alignment:** Frontend constants, enums, or sets that mirror backend/DB domain values (status names, event types, valid transitions) must stay synchronized. Independently defined copies drift silently. Verify they reference or are typed against the authoritative source.
+- **Multi-step operation completeness:** When an operation has two phases with external side effects (write to external store then write to DB), verify both phases exist and are linked. Phase 1 without phase 2 creates orphaned external state.
+
+- **Derived state alignment:** Frontend constants/enums that mirror backend/DB domain values must stay synchronized. Independently defined copies drift silently.
 
 ## Step 8: Identify Human Verification Needs
 
@@ -480,52 +499,11 @@ Automated checks passed. Awaiting human verification.
 
 <stub_detection_patterns>
 
-## React Component Stubs
+## Stub Detection Reference
 
-```javascript
-// RED FLAGS:
-return <div>Component</div>
-return <div>Placeholder</div>
-return <div>{/* TODO */}</div>
-return null
-return <></>
+For comprehensive patterns (placeholder, semantic, wiring stubs), see **@~/.claude/get-shit-done/references/verification-patterns.md**.
 
-// Empty handlers:
-onClick={() => {}}
-onChange={() => console.log('clicked')}
-onSubmit={(e) => e.preventDefault()}  // Only prevents default
-```
-
-## API Route Stubs
-
-```typescript
-// RED FLAGS:
-export async function POST() {
-  return Response.json({ message: "Not implemented" });
-}
-
-export async function GET() {
-  return Response.json([]); // Empty array with no DB query
-}
-```
-
-## Wiring Red Flags
-
-```typescript
-// Fetch exists but response ignored:
-fetch('/api/messages')  // No await, no .then, no assignment
-
-// Query exists but result not returned:
-await prisma.message.findMany()
-return Response.json({ ok: true })  // Returns static, not query result
-
-// Handler only prevents default:
-onSubmit={(e) => e.preventDefault()}
-
-// State exists but not rendered:
-const [messages, setMessages] = useState([])
-return <div>No messages</div>  // Always shows "no messages"
-```
+Key categories: placeholder stubs (TODOs, empty returns), semantic stubs (handlers that update only UI state where I/O is required), wiring stubs (ignored responses, static returns), and reverse wiring gaps (frontend calls targeting non-existent backend routes).
 
 </stub_detection_patterns>
 
@@ -537,6 +515,7 @@ return <div>No messages</div>  // Always shows "no messages"
 - [ ] All truths verified with status and evidence
 - [ ] All artifacts checked at all three levels (exists, substantive, wired)
 - [ ] All key links verified
+- [ ] Done-criteria traced backward to implementation (Step 5b) — semantic completeness confirmed
 - [ ] Requirements coverage assessed (if applicable)
 - [ ] Anti-patterns scanned and categorized
 - [ ] Human verification items identified

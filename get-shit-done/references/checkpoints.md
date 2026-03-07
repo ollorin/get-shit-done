@@ -299,8 +299,20 @@ Plans execute autonomously. Checkpoints formalize interaction points where human
 </task>
 ```
 
+**Pre-validation (before launching QA):**
+
+Before spawning Charlotte for browser-based QA, the executor/coordinator must verify that the code under test has its wiring in place. QA testing a page where a submit button doesn't call an API wastes a QA cycle and produces confusing failures.
+
+Pre-validation checks (run programmatically, not in browser):
+1. **Semantic wiring:** Every user action in `<test-flows>` that implies a state transition (submit, save, approve, delete) has a code path from the UI handler through an API call to a backend route that exists
+2. **Route existence:** Every API path referenced in frontend fetch/axios calls resolves to an actual backend route file
+3. **HTTP method alignment:** Frontend POST calls target routes that export POST handlers (not just GET)
+
+If pre-validation fails, fix the wiring before launching Charlotte. A QA round that tests unwired UI produces noise, not signal.
+
 **How the coordinator handles it:**
 The phase coordinator runs an automated 3-round QA loop:
+- **Pre-check:** Verify wiring (above) — if broken, fix before entering QA loop
 - Round 1: spawn gsd-charlotte-qa → if issues found → spawn fix subagent → commit → restart if needed
 - Round 2: re-run gsd-charlotte-qa → if issues → spawn fix subagent
 - Round 3: re-run gsd-charlotte-qa → if still issues → escalate to human with report

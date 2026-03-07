@@ -3,15 +3,17 @@
 How to verify different types of artifacts are real implementations, not stubs or placeholders.
 
 <core_principle>
-**Existence ≠ Implementation**
+**Existence ≠ Implementation ≠ Correctness**
 
 A file existing does not mean the feature works. Verification must check:
 1. **Exists** - File is present at expected path
 2. **Substantive** - Content is real implementation, not placeholder
 3. **Wired** - Connected to the rest of the system
-4. **Functional** - Actually works when invoked
+4. **Semantically complete** - The implementation achieves the claimed outcome, not just its syntactic form
 
-Levels 1-3 can be checked programmatically. Level 4 often requires human verification.
+Levels 1-3 can be checked programmatically. Level 4 requires reasoning about intent vs. mechanism.
+
+**Semantic completeness principle:** An implementation is a stub if it satisfies verification criteria syntactically but not semantically. Code that "handles submission" by advancing a UI stepper without making an API call satisfies the criterion "user can submit" in form only — the state transition it claims to cause never actually occurs. When a UI action claims to trigger a state transition, verify the action wires to the mechanism that causes that transition (API call, mutation, message), not just local UI state changes.
 </core_principle>
 
 <stub_detection>
@@ -43,6 +45,15 @@ grep -E "return null|return undefined|return \{\}|return \[\]" "$file"
 grep -E "pass$|\.\.\.|\bnothing\b" "$file"
 grep -E "console\.(log|warn|error).*only" "$file"  # Log-only functions
 ```
+
+**Semantic stubs (syntactically complete but behaviorally inert):**
+
+These pass mechanical stub detection but don't perform the work they claim:
+- Handlers that update only local/UI state where a remote call is required (e.g., `onClick={() => setStep(next)}` for a "Submit" action that should POST data)
+- Functions with no async work where the operation they name is inherently async (network, disk, external service)
+- Event handlers that manipulate presentation state without causing the side effect the user expects (save, send, approve, delete)
+
+The meta-rule: if the handler's name or context implies a side effect beyond the current process, and the implementation has no I/O, it is a semantic stub.
 
 **Hardcoded values where dynamic expected:**
 ```bash
@@ -90,6 +101,11 @@ return <></>
 onClick={() => {}}
 onChange={() => console.log('clicked')}
 onSubmit={(e) => e.preventDefault()}  // Only prevents default, does nothing
+
+// Semantic stubs — look complete but skip the real work:
+onClick={() => setCurrentStep(4)}     // "Submit" that only advances UI, no API call
+onClick={() => setStatus('approved')} // "Approve" that only sets local state
+onSubmit={() => { setSubmitted(true); toast('Saved!') }}  // Shows success without saving
 ```
 
 **Wiring check:**
@@ -350,6 +366,8 @@ grep -E "$VAR_NAME" src/env.ts src/env.mjs 2>/dev/null
 
 Wiring verification checks that components actually communicate. This is where most stubs hide.
 
+**Bidirectionality principle:** Integration verification is only complete when wiring is confirmed in both directions — from producer to consumer and from consumer to producer. Checking that API routes have callers is necessary but insufficient. You must also check that every API call in the frontend targets a route that actually exists on the backend. A unidirectional check creates a blind spot: the frontend can call routes that don't exist, and this will only surface at runtime.
+
 ### Pattern: Component → API
 
 **Check:** Does the component actually call the API?
@@ -376,6 +394,24 @@ fetch('/api/messages')  // No await, no .then, no assignment
 // Fetch to wrong endpoint:
 fetch('/api/message')  // Typo - should be /api/messages
 ```
+
+### Pattern: Frontend API calls → Backend routes (reverse check)
+
+**Check:** Does every API call in the frontend target a route that actually exists?
+
+```bash
+# Extract all fetch/axios URL paths from frontend code
+grep -r -oE "fetch\(['\"]([^'\"]+)['\"]" "$search_path" --include="*.tsx" --include="*.ts" | \
+  sed "s/.*fetch(['\"]//;s/['\"]$//"
+
+# For each extracted path, verify the backend route file exists
+# (Adapt path mapping to your framework — e.g., /api/users → src/app/api/users/route.ts)
+```
+
+**Red flags:**
+- Frontend calls `/api/submit` but no `src/app/api/submit/route.ts` exists
+- Frontend POSTs to an endpoint that only exports GET
+- Frontend sends fields the backend handler doesn't read from the request body
 
 ### Pattern: API → Database
 
@@ -430,6 +466,11 @@ const handleSubmit = (data) => {
 
 // Handler is empty:
 onSubmit={() => {}}
+
+// Handler only updates local state (semantic stub):
+const handleSubmit = () => { setStep(step + 1) }          // Advances wizard, saves nothing
+const handleApprove = () => { setStatus('approved') }     // Local state, no API call
+const handleSave = () => { setIsSaved(true) }             // Displays "saved" without saving
 ```
 
 ### Pattern: State → Render
@@ -509,8 +550,10 @@ For each artifact type, run through this checklist:
 
 ### Wiring Checklist
 - [ ] Component → API: fetch/axios call exists and uses response
+- [ ] API → Component (reverse): every frontend API call targets a route that exists on the backend
 - [ ] API → Database: query exists and result returned
-- [ ] Form → Handler: onSubmit calls API/mutation
+- [ ] Form → Handler: onSubmit calls API/mutation (not just local state update)
+- [ ] Handler semantic check: handlers that imply side effects (submit, save, approve, delete) perform I/O, not just UI state changes
 - [ ] State → Render: state variables appear in JSX
 
 </verification_checklist>
