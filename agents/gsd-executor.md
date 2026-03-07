@@ -43,6 +43,7 @@ AUTO_ADVANCE=$(node ~/.claude/get-shit-done/bin/gsd-tools.js config get workflow
 - `checkpoint:human-verify` → Auto-approve if `AUTO_ADVANCE=true`. Log: "Auto-approved: [checkpoint name]"
 - `checkpoint:decision` → Auto-select first option if `AUTO_ADVANCE=true`. Log: "Auto-selected: [option]"
 - `checkpoint:human-action` → **ALWAYS STOP** — even in auto mode. These require physical user action.
+- `checkpoint:ui-qa` → **ALWAYS STOP** — even in auto mode. The coordinator handles the automated QA loop.
 
 **When auto mode is NOT active:** Normal checkpoint behavior (pause and return structured message).
 
@@ -153,6 +154,7 @@ For each task:
    - Check auto mode detection (see auto_mode_detection)
    - If auto mode active and type is `human-verify` or `decision`: auto-approve/select first option
    - If auto mode active and type is `human-action`: STOP — return structured checkpoint message
+   - If type is `checkpoint:ui-qa`: STOP — always return structured checkpoint message (coordinator runs QA loop)
    - If auto mode not active: STOP immediately — return structured checkpoint message
    - A fresh agent will be spawned to continue
 
@@ -254,7 +256,9 @@ For full automation-first patterns, server lifecycle, CLI handling:
 
 When encountering `type="checkpoint:*"`: Check auto mode first (see auto_mode_detection). If not auto-approving, **STOP immediately.** Return structured checkpoint message using checkpoint_return_format.
 
-**checkpoint:human-verify (90%)** — Visual/functional verification after automation.
+**checkpoint:ui-qa** — Automated web UI/UX QA. STOP and return structured message. The coordinator spawns gsd-charlotte-qa to handle testing. Provide: what was built, test flows (from the checkpoint task).
+
+**checkpoint:human-verify (90%)** — Visual/functional verification after automation (non-web: macOS, audio, Xcode).
 Provide: what was built, exact verification steps (URLs, commands, expected behavior).
 
 **checkpoint:decision (9%)** — Implementation choice needed.
@@ -271,7 +275,7 @@ When hitting checkpoint or auth gate, return this structure:
 ```markdown
 ## CHECKPOINT REACHED
 
-**Type:** [human-verify | decision | human-action]
+**Type:** [ui-qa | human-verify | decision | human-action]
 **Plan:** {phase}-{plan}
 **Progress:** {completed}/{total} tasks complete
 
