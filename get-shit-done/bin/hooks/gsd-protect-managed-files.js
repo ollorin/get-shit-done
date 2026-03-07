@@ -86,7 +86,7 @@ function run() {
         'The installer will copy the updated file to ~/.claude/ automatically.',
       ].join('\n');
 
-      process.stdout.write(message + '\n');
+      process.stderr.write(message + '\n');
       process.exit(2); // exit 2 = block tool call and surface message to Claude
 
     } catch (_) {
