@@ -328,6 +328,52 @@ When executing task with `tdd="true"`:
 **Error handling:** RED doesn't fail → investigate. GREEN doesn't pass → debug/iterate. REFACTOR breaks → undo.
 </tdd_execution>
 
+<test_task_handling>
+
+## Handling tdd="true" Tasks
+
+When encountering a task with `tdd="true"`:
+
+DO NOT execute the task inline. Instead:
+
+1. Collect context from the PREVIOUS implementation task:
+   - `task_name`: name of the implementation task just completed
+   - `files_modified`: files created/modified in the previous task
+   - `behavior_description`: the previous task's `<done>` criteria text
+   - `project_dir`: current working directory
+
+2. Spawn gsd-test-writer:
+   ```
+   Task(
+     subagent_type="gsd-test-writer",
+     model="sonnet",
+     prompt="
+       task_name={task_name}
+       files_modified={files_modified}
+       behavior_description={behavior_description}
+       project_dir={project_dir}
+       test_framework={detected from package.json / deno.json}
+     "
+   )
+   ```
+
+3. Wait for gsd-test-writer to complete.
+
+4. If gsd-test-writer reports failing tests:
+   - Apply Deviation Rule 1 (auto-fix bugs): fix the implementation
+   - Re-spawn gsd-test-writer to verify
+   - If still failing after 1 retry: log "Tests failing after retry" in SUMMARY.md but DO NOT block execution (note as gap)
+
+5. Record in SUMMARY.md:
+   ```
+   Tests (Task N+1): {passed} passing, {failed} failing
+   Categories covered: {list}
+   ```
+
+6. Commit: `git add -p && git commit -m "test({scope}): add {feature} tests"`
+
+</test_task_handling>
+
 <task_commit_protocol>
 After each task completes (verification passed, done criteria met), commit immediately.
 
@@ -403,6 +449,13 @@ After all tasks complete, create `{phase}-{plan}-SUMMARY.md` at `.planning/phase
 Or: "None - plan executed exactly as written."
 
 **Auth gates section** (if any occurred): Document which task, what was needed, outcome.
+
+**Test Results table (include when any tdd="true" tasks were executed):**
+
+```markdown
+| Task | Tests Written | Tests Passing | Categories |
+|------|--------------|---------------|-----------|
+```
 
 **Routing summary (include when ROUTED_TIER is set for any task):**
 
