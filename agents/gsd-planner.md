@@ -177,6 +177,8 @@ Every task has four required fields:
 - CSS-only changes with no structural HTML/JSX changes (use judgment — if visual regression likely, add it)
 - Non-web projects (use checkpoint:human-verify)
 
+**Anti-pattern — "final phase sign-off":** A pre-PR or check-suite plan that also includes web UI verification must still use `checkpoint:ui-qa` for the UI portion, not `checkpoint:human-verify`. "This is a final verification plan" is NOT a reason to bypass the checkpoint type rules. Apply the same rule: web UI → `checkpoint:ui-qa`, backend CLI checks → `auto`.
+
 **Reading CLAUDE.md for QA config:**
 When planning a web UI phase, read the project's `## QA / Dev Server` section of CLAUDE.md to understand:
 - The app URL (for populating test-flows with real URLs)
@@ -210,6 +212,57 @@ The `<test-flows>` content is the QA agent's script. Be specific:
 ```
 
 **Grouping rule:** One `checkpoint:ui-qa` per logical feature group, not per individual task. If tasks 1-3 all build parts of the same page, place a single `checkpoint:ui-qa` after task 3. Do not add a checkpoint after each individual task.
+
+## Testing Mandate
+
+Every plan that produces user-facing behavior MUST include:
+
+### 1. A test task (type="auto", tdd="true")
+
+Place it immediately after the implementation task it covers:
+
+```xml
+<task type="auto" tdd="true">
+  <name>Test [feature name]</name>
+  <behavior>
+    List EVERY behavior to test, not just happy path:
+    - Happy path: [what works]
+    - Auth: unauthenticated → 401, wrong role → 403
+    - Validation: missing field → error naming the field, empty string → rejected
+    - Error: downstream failure → graceful error message
+    - Edge: empty collection → [], max value → accepted/rejected per spec
+    - Wiring: submit button actually calls the API
+  </behavior>
+  <action>Spawn gsd-test-writer to write and run tests covering all behaviors above.</action>
+  <verify>All tests pass. gsd-test-writer reports 0 failing tests.</verify>
+  <done>Test suite covers all behaviors listed. All green.</done>
+</task>
+```
+
+**When to include a test task:**
+- API endpoints: ALWAYS
+- Database RPCs/functions: ALWAYS
+- Form submit handlers: ALWAYS
+- Business logic functions: ALWAYS
+- Pure UI components with no logic: SKIP (Charlotte covers UI)
+- Migration files: SKIP (wiring test covers this)
+
+### 2. A checkpoint:ui-qa task (if plan creates/modifies web UI)
+
+Already covered by existing mandate. This is a reminder: test tasks and ui-qa are BOTH required for plans that build API + UI together. They cover different dimensions:
+- `tdd="true"` task → unit/integration tests (backend behavior, error handling)
+- `checkpoint:ui-qa` → visual behavior, UX, wiring in the browser
+
+### 3. e2e_flows in frontmatter (if this plan completes a full user journey)
+
+Add to frontmatter when the plan (or the phase it's part of) completes something a user can do end-to-end:
+```yaml
+e2e_flows:
+  - "player can upload KYC documents"
+  - "operator can approve a KYC session"
+```
+
+If unsure: err on the side of adding flows. The coordinator will attempt them and report gaps.
 
 ## Task Sizing
 
@@ -456,16 +509,17 @@ After completion, create `.planning/phases/XX-name/{phase}-{plan}-SUMMARY.md`
 
 ## Tier Tag Format (auto profile only)
 
-When `model_profile: "auto"` is active, each task `<name>` carries a tier prefix written by the routing pass:
+When `model_profile: "auto"` is active, each task gets a `<model>` element written by the routing pass:
 
 ```xml
 <task type="auto">
-  <name>[haiku] Task 3: Add config field to settings.json</name>
+  <name>Task 3: Add config field to settings.json</name>
+  <model>haiku</model>
   ...
 </task>
 ```
 
-Valid prefixes: `[haiku]`, `[sonnet]`, `[opus]`. If no prefix is present on a task, the coordinator defaults to sonnet (unchanged behavior). The prefix is written by the planner after drafting — it is NOT part of the human-authored task name.
+Valid values: `haiku`, `sonnet`, `opus`. If no `<model>` element is present, the coordinator defaults to sonnet (unchanged behavior). The element is written by the planner after drafting — it is NOT part of the human-authored task content.
 
 ## Frontmatter Fields
 
@@ -481,6 +535,7 @@ Valid prefixes: `[haiku]`, `[sonnet]`, `[opus]`. If no prefix is present on a ta
 | `user_setup` | No | Human-required setup items |
 | `requirements` | Yes | REQUIRED — Requirement IDs this plan addresses. MUST NOT be empty if phase has requirements. |
 | `must_haves` | Yes | Goal-backward verification criteria |
+| `e2e_flows` | No | List of user journeys testable after this plan completes. Triggers E2E run in coordinator. Example: `["player can deposit", "operator can review KYC session"]` |
 
 Wave numbers are pre-computed during planning. Execute-phase reads `wave` directly from frontmatter.
 
@@ -1146,9 +1201,9 @@ For each PLAN.md written in the write_phase_prompt step:
    ```
    If parsing fails or model is not one of haiku/sonnet/opus, default to haiku.
 
-4. **Rewrite task <name> elements** — for each task, prepend `[{tier}] ` to the <name> content. Use Edit tool to update PLAN.md in-place. Only modify the `<name>` element — do not change any other task field.
+4. **Inject `<model>` element** — for each task, insert `<model>{tier}</model>` immediately after the `<name>` closing tag. Use Edit tool to update PLAN.md in-place. Do NOT modify the `<name>` element or any other task field.
    - Before: `<name>Task 3: Add config field</name>`
-   - After: `<name>[haiku] Task 3: Add config field</name>`
+   - After: `<name>Task 3: Add config field</name>\n  <model>haiku</model>`
 
 5. **Consistency check** — after all tiers are assigned, scan for tasks with structurally similar names (same verb + same target pattern, e.g. two tasks both named "Convert X to match()"). If similar tasks got different tiers, downgrade all of them to the lowest assigned tier and log the adjustment.
 
@@ -1164,7 +1219,7 @@ For each PLAN.md written in the write_phase_prompt step:
      --data '{"plan":"{plan_filename}","phase":{phase_number},"decisions":[{"index":1,"name":"...","tier":"..."},...],"summary":{"haiku":{haiku_count},"sonnet":{sonnet_count},"opus":{opus_count}}}'
    ```
 
-   Build the `decisions` array from the final tier assignments (after consistency check). Each entry: `{ "index": task_index, "name": task_name_without_tier_prefix, "tier": "haiku"|"sonnet"|"opus" }`. Run once per PLAN.md written.
+   Build the `decisions` array from the final tier assignments (after consistency check). Each entry: `{ "index": task_index, "name": task_name, "tier": "haiku"|"sonnet"|"opus" }`. Run once per PLAN.md written.
 
 **Important constraints:**
 - Routing pass runs AFTER the full plan is written to disk — never interleave with drafting
@@ -1201,6 +1256,16 @@ Returns JSON: `{ valid, errors, warnings, task_count, tasks }`
 - Missing `<name>` in task → add name element
 - Missing `<action>` → add action element
 - Checkpoint/autonomous mismatch → update `autonomous: false`
+
+**Checkpoint type audit (web projects):** After structural validation, scan every `checkpoint:human-verify` task in the plan. For each one, ask: "Do the verification steps involve visiting a URL, clicking UI, or inspecting a web page?" If yes → this is a misclassification. Convert it:
+1. Change type to `checkpoint:ui-qa`
+2. Replace `<how-to-verify>` content with `<what-built>` + `<test-flows>` elements
+3. Extract any non-web steps (DB migrations, CLI checks) into a preceding `type="auto"` task
+4. Add a preceding `type="auto"` task to start the dev server if not already present
+
+This audit is mandatory. `checkpoint:human-verify` is only valid for: macOS/iOS apps, audio/video quality, Xcode builds, physical hardware interaction, OAuth browser flows requiring credentials. Everything else that can be tested in a browser must be `checkpoint:ui-qa`.
+
+Also verify: plans with API endpoints have a `tdd='true'` task. If missing, add one.
 </step>
 
 <step name="update_roadmap">
