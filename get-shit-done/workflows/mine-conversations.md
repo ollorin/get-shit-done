@@ -8,7 +8,7 @@ project's knowledge database.
 The conversation-miner.js module handles format conversion (Claude Code JSONL → Phase 11
 compatible entries). The mine-conversations CLI command applies quality gates and prevents
 re-analysis via .planning/knowledge/.conversation-analysis-log.jsonl. This workflow reads those
-entries, invokes Haiku Task() for each extraction type, and stores the results via
+entries, invokes Haiku Agent() for each extraction type, and stores the results via
 store-conversation-result.
 
 Invocation:
@@ -18,7 +18,7 @@ Invocation:
 </purpose>
 
 <constraints>
-- ZERO direct API calls — all Haiku work via Task(subagent_type="general-purpose", model="haiku")
+- ZERO direct API calls — all Haiku work via Agent(subagent_type="general-purpose", model="haiku")
 - NEVER run `claude -p`, `claude --model`, or any `claude` CLI command to spawn subagents — this causes hanging. Use the Task tool exclusively.
 - Sequential processing: one conversation at a time to avoid overwhelming the system
 - Partial analysis is better than none: if one extraction type fails, continue with others
@@ -79,19 +79,19 @@ Process each conversation sequentially to extract knowledge.
 
    Spawn a Haiku subagent for each extraction type:
    ```
-   Task(
+   Agent(
      subagent_type="general-purpose",
      model="haiku",
      prompt="{request.prompt}"
    )
    ```
 
-   Collect the raw text output from each Task() call.
+   Collect the raw text output from each Agent() call.
 
-   If Task() throws or returns empty: log the error and continue with remaining
+   If Agent() throws or returns empty: log the error and continue with remaining
    extraction types for this conversation.
 
-4. **Assemble results array** from all successful Task() outputs:
+4. **Assemble results array** from all successful Agent() outputs:
    ```json
    [
      {"type": "decision", "result": "{haikuOutput1}"},
@@ -147,7 +147,7 @@ normal — partial analysis is expected for conversations with unusual content.
 </process>
 
 <success_criteria>
-- [ ] All discovered conversations processed via Haiku Task() subagents (zero direct API calls)
+- [ ] All discovered conversations processed via Haiku Agent() subagents (zero direct API calls)
 - [ ] Results stored via store-conversation-result (marks conversations as analyzed)
 - [ ] Already-analyzed conversations skipped at discovery time via .conversation-analysis-log.jsonl
 - [ ] Summary report generated showing totals (stored, evolved, skipped, errors)

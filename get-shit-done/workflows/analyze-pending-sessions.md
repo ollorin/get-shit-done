@@ -7,7 +7,7 @@ This workflow completes the full analysis loop by:
 3. Storing the extracted knowledge in the project's knowledge database
 
 The MCP server prepares extraction requests and writes a session_analysis_pending JSONL
-entry. This workflow reads those entries, invokes Haiku Task() for each extraction type,
+entry. This workflow reads those entries, invokes Haiku Agent() for each extraction type,
 and stores the results via gsd-tools.js.
 
 Invocation:
@@ -17,7 +17,7 @@ Invocation:
 </purpose>
 
 <constraints>
-- ZERO direct API calls — all Haiku work via Task(subagent_type="general-purpose", model="haiku")
+- ZERO direct API calls — all Haiku work via Agent(subagent_type="general-purpose", model="haiku")
 - Sequential processing: one session at a time to avoid overwhelming the system
 - Partial analysis is better than none: if one extraction type fails, continue with others
 - If store-analysis-result fails for a session, log and continue with the next session
@@ -69,19 +69,19 @@ Process each session sequentially to extract knowledge.
 
    Spawn a Haiku subagent for each extraction type:
    ```
-   Task(
+   Agent(
      subagent_type="general-purpose",
      model="haiku",
      prompt="{request.prompt}"
    )
    ```
 
-   Collect the raw text output from each Task() call.
+   Collect the raw text output from each Agent() call.
 
-   If Task() throws or returns empty: log the error and continue with remaining
+   If Agent() throws or returns empty: log the error and continue with remaining
    extraction types for this session.
 
-4. **Assemble results array** from all successful Task() outputs:
+4. **Assemble results array** from all successful Agent() outputs:
    ```json
    [
      {"type": "decision", "result": "{haikuOutput1}"},
@@ -149,7 +149,7 @@ The `historical-extract` command returns:
 For each item in `extractionRequests`, treat it like a pending session:
 - Use `conversationId` as the sessionId
 - Use `requests` as the extraction requests
-- Process each request via Haiku Task() and store results via store-analysis-result
+- Process each request via Haiku Agent() and store results via store-analysis-result
 
 This enables bulk extraction from existing projects with completed phases.
 </step>
@@ -158,7 +158,7 @@ This enables bulk extraction from existing projects with completed phases.
 
 <success_criteria>
 - [ ] All pending sessions discovered via list-pending-sessions
-- [ ] Each session's extraction requests passed to Haiku Task() subagents
+- [ ] Each session's extraction requests passed to Haiku Agent() subagents
 - [ ] Results stored via store-analysis-result (marks sessions as analyzed, writes to knowledge DB)
 - [ ] session_analysis_complete entry written to each processed session JSONL file
 - [ ] Summary report generated showing totals

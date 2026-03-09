@@ -61,7 +61,7 @@ With phase context collected:
 Extract `MILESTONE_REQ_IDS` from REQUIREMENTS.md traceability table — all REQ-IDs assigned to phases in this milestone.
 
 ```
-Task(
+Agent(
   prompt="Check cross-phase integration and E2E flows.
 
 Phases: {phase_dirs}

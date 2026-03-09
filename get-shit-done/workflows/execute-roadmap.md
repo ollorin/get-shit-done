@@ -167,7 +167,7 @@ COORDINATOR_MODEL=$(jq -r '.coordinator_model // "sonnet"' .planning/config.json
 ```
 
 ```
-Task(
+Agent(
   subagent_type="gsd-phase-coordinator",
   model="{COORDINATOR_MODEL}",
   prompt="Execute Phase {N}: {name}
@@ -485,7 +485,7 @@ EXECUTION_LOG.md is the source of truth for execution state. Each phase start/co
 <parallel_execution>
 When `parallel_opportunities` contains multiple phases:
 - Phases with no mutual dependencies can run simultaneously
-- Spawn multiple sub-coordinators in parallel via Task()
+- Spawn multiple sub-coordinators in parallel via Agent()
 - Wait for all to complete before proceeding to dependent phases
 - Handle mixed results: some pass, some fail, some blocked
 

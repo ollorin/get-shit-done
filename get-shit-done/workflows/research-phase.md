@@ -42,7 +42,7 @@ if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
 ## Step 4: Spawn Researcher
 
 ```
-Task(
+Agent(
   prompt="<objective>
 Research implementation approach for Phase {phase}: {name}
 </objective>

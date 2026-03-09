@@ -78,7 +78,7 @@ This runs in parallel - all gaps investigated simultaneously.
 For each gap, fill the debug-subagent-prompt template and spawn:
 
 ```
-Task(
+Agent(
   prompt=filled_debug_subagent_prompt,
   subagent_type="general-purpose",
   description="Debug: {truth_short}"

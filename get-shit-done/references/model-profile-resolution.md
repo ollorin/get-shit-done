@@ -17,7 +17,7 @@ Default: `balanced` if not set or config missing.
 Look up the agent in the table for the resolved profile. Pass the model parameter to Task calls:
 
 ```
-Task(
+Agent(
   prompt="...",
   subagent_type="gsd-planner",
   model="{resolved_model}"  # e.g., "opus" for quality profile

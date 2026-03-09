@@ -84,7 +84,7 @@ Call AskUserQuestion with gap table and options:
 ## 5. Spawn gsd-nyquist-auditor
 
 ```
-Task(
+Agent(
   prompt="Read ~/.claude/agents/gsd-nyquist-auditor.md for instructions.\n\n" +
     "<files_to_read>{PLAN, SUMMARY, impl files, VALIDATION.md}</files_to_read>" +
     "<gaps>{gap list}</gaps>" +

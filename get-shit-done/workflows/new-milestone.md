@@ -141,7 +141,7 @@ Spawn 4 parallel gsd-project-researcher agents. Each uses this template with dim
 
 **Common structure for all 4 researchers:**
 ```
-Task(prompt="
+Agent(prompt="
 <research_type>Project Research — {DIMENSION} for [new features].</research_type>
 
 <milestone_context>
@@ -180,7 +180,7 @@ Use template: ~/.claude/get-shit-done/templates/research-project/{FILE}
 After all 4 complete, spawn synthesizer:
 
 ```
-Task(prompt="
+Agent(prompt="
 Synthesize research outputs into SUMMARY.md.
 
 <files_to_read>
@@ -293,7 +293,7 @@ node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs: define milesto
 **Starting phase number:** Read MILESTONES.md for last phase number. Continue from there (v1.0 ended at phase 5 → v1.1 starts at phase 6).
 
 ```
-Task(prompt="
+Agent(prompt="
 <planning_context>
 <files_to_read>
 - .planning/PROJECT.md

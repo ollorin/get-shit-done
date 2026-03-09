@@ -207,7 +207,7 @@ Write to: {phase_dir}/{phase_num}-RESEARCH.md
 ```
 
 ```
-Task(
+Agent(
   prompt=research_prompt,
   subagent_type="gsd-phase-researcher",
   model="{researcher_model}",
@@ -331,7 +331,7 @@ Output consumed by /gsd:execute-phase. Plans need:
 ```
 
 ```
-Task(
+Agent(
   prompt=filled_prompt,
   subagent_type="gsd-planner",
   model="{planner_model}",
@@ -384,7 +384,7 @@ Checker prompt:
 ```
 
 ```
-Task(
+Agent(
   prompt=checker_prompt,
   subagent_type="gsd-plan-checker",
   model="{checker_model}",
@@ -428,7 +428,7 @@ Return what changed.
 ```
 
 ```
-Task(
+Agent(
   prompt=revision_prompt,
   subagent_type="gsd-planner",
   model="{planner_model}",

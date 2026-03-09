@@ -547,7 +547,7 @@ Display spawning indicator:
 Spawn 4 parallel gsd-project-researcher agents with path references:
 
 ```
-Task(prompt="<research_type>
+Agent(prompt="<research_type>
 Project Research — Stack dimension for [domain].
 </research_type>
 
@@ -585,7 +585,7 @@ Use template: ~/.claude/get-shit-done/templates/research-project/STACK.md
 </output>
 ", subagent_type="gsd-project-researcher", model="{researcher_model}", description="Stack research")
 
-Task(prompt="<research_type>
+Agent(prompt="<research_type>
 Project Research — Features dimension for [domain].
 </research_type>
 
@@ -623,7 +623,7 @@ Use template: ~/.claude/get-shit-done/templates/research-project/FEATURES.md
 </output>
 ", subagent_type="gsd-project-researcher", model="{researcher_model}", description="Features research")
 
-Task(prompt="<research_type>
+Agent(prompt="<research_type>
 Project Research — Architecture dimension for [domain].
 </research_type>
 
@@ -661,7 +661,7 @@ Use template: ~/.claude/get-shit-done/templates/research-project/ARCHITECTURE.md
 </output>
 ", subagent_type="gsd-project-researcher", model="{researcher_model}", description="Architecture research")
 
-Task(prompt="<research_type>
+Agent(prompt="<research_type>
 Project Research — Pitfalls dimension for [domain].
 </research_type>
 
@@ -703,7 +703,7 @@ Use template: ~/.claude/get-shit-done/templates/research-project/PITFALLS.md
 After all 4 agents complete, spawn synthesizer to create SUMMARY.md:
 
 ```
-Task(prompt="
+Agent(prompt="
 <task>
 Synthesize research outputs into SUMMARY.md.
 </task>
@@ -899,7 +899,7 @@ Display stage banner:
 Spawn gsd-roadmapper agent with path references:
 
 ```
-Task(prompt="
+Agent(prompt="
 <planning_context>
 
 <files_to_read>
@@ -990,7 +990,7 @@ Use AskUserQuestion:
 - Get user's adjustment notes
 - Re-spawn roadmapper with revision context:
   ```
-  Task(prompt="
+  Agent(prompt="
   <revision>
   User feedback on roadmap:
   [user's notes]

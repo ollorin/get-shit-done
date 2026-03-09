@@ -372,7 +372,7 @@ Display:
 Spawn gsd-planner in --gaps mode:
 
 ```
-Task(
+Agent(
   prompt="""
 <planning_context>
 
@@ -420,7 +420,7 @@ Initialize: `iteration_count = 1`
 Spawn gsd-plan-checker:
 
 ```
-Task(
+Agent(
   prompt="""
 <verification_context>
 
@@ -460,7 +460,7 @@ Display: `Sending back to planner for revision... (iteration {N}/3)`
 Spawn gsd-planner with revision context:
 
 ```
-Task(
+Agent(
   prompt="""
 <revision_context>
 

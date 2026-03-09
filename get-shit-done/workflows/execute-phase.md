@@ -110,7 +110,7 @@ Execute each wave in sequence. Within a wave: parallel if `PARALLELIZATION=true`
    This keeps orchestrator context lean (~10-15%).
 
    ```
-   Task(
+   Agent(
      subagent_type="gsd-executor",
      model="{executor_model}",
      prompt="
@@ -306,7 +306,7 @@ node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs(phase-${PARENT_
 Verify phase achieved its GOAL, not just completed tasks.
 
 ```
-Task(
+Agent(
   prompt="Verify phase {phase_number} goal achievement.
 Phase directory: {phase_dir}
 Phase goal: {goal from ROADMAP.md}

@@ -232,7 +232,7 @@ Report: `Context captured: ${QUICK_DIR}/${next_num}-CONTEXT.md`
 **If NOT `$FULL_MODE`:** Use standard `quick` mode.
 
 ```
-Task(
+Agent(
   prompt="
 <planning_context>
 
@@ -324,7 +324,7 @@ ${DISCUSS_MODE ? '- Context compliance: Does the plan honor locked decisions fro
 ```
 
 ```
-Task(
+Agent(
   prompt=checker_prompt,
   subagent_type="gsd-plan-checker",
   model="{checker_model}",
@@ -367,7 +367,7 @@ Return what changed.
 ```
 
 ```
-Task(
+Agent(
   prompt=revision_prompt,
   subagent_type="gsd-planner",
   model="{planner_model}",
@@ -390,7 +390,7 @@ Offer: 1) Force proceed, 2) Abort
 Spawn gsd-executor with plan reference:
 
 ```
-Task(
+Agent(
   prompt="
 Execute quick task ${next_num}.
 
@@ -441,7 +441,7 @@ Display banner:
 ```
 
 ```
-Task(
+Agent(
   prompt="Verify quick task goal achievement.
 Task directory: ${QUICK_DIR}
 Task goal: ${DESCRIPTION}

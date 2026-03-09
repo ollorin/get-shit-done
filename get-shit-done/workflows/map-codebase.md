@@ -92,7 +92,7 @@ Use Task tool with `subagent_type="gsd-codebase-mapper"`, `model="{mapper_model}
 **Agent 1: Tech Focus**
 
 ```
-Task(
+Agent(
   subagent_type="gsd-codebase-mapper",
   model="{mapper_model}",
   run_in_background=true,
@@ -112,7 +112,7 @@ Explore thoroughly. Write documents directly using templates. Return confirmatio
 **Agent 2: Architecture Focus**
 
 ```
-Task(
+Agent(
   subagent_type="gsd-codebase-mapper",
   model="{mapper_model}",
   run_in_background=true,
@@ -132,7 +132,7 @@ Explore thoroughly. Write documents directly using templates. Return confirmatio
 **Agent 3: Quality Focus**
 
 ```
-Task(
+Agent(
   subagent_type="gsd-codebase-mapper",
   model="{mapper_model}",
   run_in_background=true,
@@ -152,7 +152,7 @@ Explore thoroughly. Write documents directly using templates. Return confirmatio
 **Agent 4: Concerns Focus**
 
 ```
-Task(
+Agent(
   subagent_type="gsd-codebase-mapper",
   model="{mapper_model}",
   run_in_background=true,
