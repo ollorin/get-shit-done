@@ -64,6 +64,8 @@ PLAN_INDEX=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" phase-plan-inde
 
 Parse JSON for: `phase`, `plans[]` (each with `id`, `wave`, `autonomous`, `objective`, `files_modified`, `task_count`, `has_summary`), `waves` (map of wave number → plan IDs), `incomplete`, `has_checkpoints`.
 
+**Null safety:** `objective` may be `null` if the plan frontmatter omits it — always use a fallback: `plan.objective ?? "(no objective)"`. Do NOT pipe through python3 or shell scripts that assume fields are non-null; read the JSON value directly from the bash variable.
+
 **Filtering:** Skip plans where `has_summary: true`. If `--gaps-only`: also skip non-gap_closure plans. If all filtered: "No matching incomplete plans" → exit.
 
 Report:
