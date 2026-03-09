@@ -533,10 +533,43 @@ ls .planning/phases/{phase_dir}/*-PLAN.md 2>/dev/null || echo "NO_PLANS"
 **If PLAN.md files exist:** Skip planning, create checkpoint with status: "skipped"
 
 **If no plans:**
-1. Run plan workflow internally using `/gsd:plan-phase {phase}`
-2. Wait for planning completion
-3. Verify PLAN.md files created
-4. Create checkpoint: `{ step: "plan", status: "complete", plan_count: N }`
+
+Spawn gsd-planner explicitly — do NOT plan inline in context:
+
+```
+Agent(
+  subagent_type="gsd-planner",
+  model="{planner_model}",
+  description="Plan phase {phase_number}",
+  prompt="
+    <planning_context>
+    Phase: {phase_number}
+    Phase goal: {goal from ROADMAP.md}
+    <files_to_read>
+    - .planning/phases/{phase_dir}/*-CONTEXT.md
+    - .planning/phases/{phase_dir}/*-RESEARCH.md
+    - .planning/STATE.md
+    - .planning/ROADMAP.md
+    </files_to_read>
+    </planning_context>
+    Write PLAN.md files to: .planning/phases/{phase_dir}/
+    Return: ## PLANNING COMPLETE
+  "
+)
+```
+
+After planner returns, **hard-verify files on disk**:
+```bash
+PLAN_COUNT=$(ls .planning/phases/{phase_dir}/*-PLAN.md 2>/dev/null | wc -l | tr -d ' ')
+echo "PLAN_COUNT=$PLAN_COUNT"
+```
+
+**If PLAN_COUNT == 0:** CRITICAL — do NOT proceed to execute. Return failure state:
+```json
+{ "status": "failed", "step": "plan", "reason": "gsd-planner returned success but no PLAN.md files found on disk" }
+```
+
+Create checkpoint: `{ step: "plan", status: "complete", plan_count: N }`
 
 **Skip rationale:** Plans may already exist from a previous partial execution. Always prefer existing plans over re-planning to preserve prior decisions.
 
@@ -555,6 +588,12 @@ if telegram_topic_id is not null AND plan_status == "complete":
 
 <step name="execute">
 Execute all plans in the phase:
+
+**Pre-flight: verify PLAN.md files exist before spawning any executor.**
+```bash
+PLAN_COUNT=$(ls .planning/phases/{phase_dir}/*-PLAN.md 2>/dev/null | wc -l | tr -d ' ')
+```
+If PLAN_COUNT == 0: HARD STOP — return failure state. Never execute a phase without plans on disk.
 
 ```bash
 # Check what plans exist and which have summaries
