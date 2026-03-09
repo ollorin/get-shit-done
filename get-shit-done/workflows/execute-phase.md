@@ -201,6 +201,55 @@ When executor returns a checkpoint AND (`AUTO_CHAIN` is `"true"` OR `AUTO_CFG` i
 - **decision** → Auto-spawn continuation agent with `{user_response}` = first option from checkpoint details. Log `⚡ Auto-selected: [option]`.
 - **human-action** → Present to user (existing behavior below). Auth gates cannot be automated.
 
+**UI QA checkpoints — always auto-run (Charlotte is the human here):**
+
+When executor returns `Type: ui-qa` — regardless of AUTO_CHAIN or AUTO_CFG:
+
+1. Log: `⚡ UI QA: Starting Charlotte automated testing...`
+
+2. **Auto-start dev servers** — do NOT ask user to start servers:
+   - For each URL implied by `<what-built>` (default: http://localhost:3000):
+     ```bash
+     curl -s --max-time 3 http://localhost:3000 > /dev/null 2>&1 && echo UP || echo DOWN
+     ```
+   - If DOWN: detect framework and start in background:
+     - NX monorepo: `npx nx dev {app-name}` (app name from checkpoint `<apps>` tag or CLAUDE.md)
+     - Next.js/Vite/other: `npm run dev` or `yarn dev` in background
+   - Wait up to 30s for server to respond. If still DOWN after 30s: log warning, proceed anyway (Charlotte reports server errors as issues).
+
+3. **Run Charlotte QA loop** (max 3 rounds):
+   ```
+   MAX_ROUNDS = 3
+   round = 1
+   qa_passed = false
+
+   while round <= MAX_ROUNDS AND qa_passed == false:
+     qa_result = Agent(
+       subagent_type="gsd-charlotte-qa",
+       model="haiku",
+       description="UI QA round {round}",
+       prompt="mode=ui-qa\n<what_built>{what_built}</what_built>\n<test_flows>{test_flows}</test_flows>\n<round>{round}</round>{IF round > 1: <previous_issues>{previous_report}</previous_issues>}"
+     )
+
+     if qa_result.passed:
+       qa_passed = true
+       break
+
+     if round == MAX_ROUNDS:
+       Present ONLY the issue report — NOT server start instructions:
+       "Charlotte found {N} issues after {MAX_ROUNDS} rounds. Type 'continue' to proceed, or describe what to fix."
+       Wait for user response. If 'continue': break. Else: spawn fix agent, re-run QA.
+       break
+
+     FIX_TIER = qa_result.severity_counts.critical > 0 OR qa_result.severity_counts.high > 0 ? "sonnet" : "haiku"
+     Agent(subagent_type="general-purpose", model="{FIX_TIER}", description="Fix UI issues round {round}",
+       prompt="Fix these UI issues: {qa_result.report_markdown}\nCommit each fix atomically.")
+     round++
+   ```
+
+4. Spawn continuation agent with `{user_response}` = "Charlotte QA passed" (or issue summary if not passed).
+5. Log: `⚡ UI QA: {passed/failed} — {N} issues {found/fixed}`
+
 **Standard flow (not auto-mode, or human-action type):**
 
 1. Spawn agent for checkpoint plan

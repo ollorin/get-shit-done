@@ -776,6 +776,17 @@ When the executor agent returns a checkpoint message with `Type: ui-qa`, the coo
 - `what_built`: from the `<what-built>` tag in the checkpoint task
 - `test_flows`: from the `<test-flows>` tag in the checkpoint task
 
+**Before the loop: auto-start dev servers — do NOT ask the user:**
+
+Check if servers are up. Try http://localhost:3000 and any other URL mentioned in `what_built`:
+```bash
+curl -s --max-time 3 http://localhost:3000 > /dev/null 2>&1 && echo UP || echo DOWN
+```
+If DOWN:
+- NX monorepo (nx.json present): `npx nx dev {app-name}` — app name from `<apps>` tag in checkpoint or infer from CLAUDE.md. Start each app in background.
+- Other: detect from package.json scripts.dev → run in background
+- Wait up to 30s for ready signal. If still DOWN: log warning and proceed (Charlotte will report server errors as test failures, not block the loop).
+
 **Loop (max 3 rounds):**
 
 ```
@@ -966,7 +977,11 @@ After ALL plans in this phase have completed execution:
 2. If any found: this phase produced web UI
 
 3. If web UI was produced:
-   a. Start dev server if not running (see checkpoints.md dev server automation)
+   a. **Auto-start dev server** — do NOT ask user. Check http://localhost:3000 (or other port from CLAUDE.md):
+      ```bash
+      curl -s --max-time 3 http://localhost:3000 > /dev/null 2>&1 && echo UP || echo DOWN
+      ```
+      If DOWN: NX monorepo → `npx nx dev {app}` in background; other → `npm run dev` in background. Wait up to 30s.
    b. Derive test scope from phase success criteria and SUMMARY.md key-files
    c. Run the Charlotte 3-round loop — mode="ux-audit":
       ```
@@ -1004,7 +1019,7 @@ After post_phase_ux_sweep and before verify_phase_goal:
 2. If E2E_FLOWS is empty or null: skip this step.
 
 3. If E2E_FLOWS has entries:
-   a. Start dev server if not running
+   a. **Auto-start dev server** — do NOT ask user. Same pattern as post_phase_ux_sweep step 3a.
    b. Spawn gsd-charlotte-qa (mode=e2e):
       ```
       Agent(
