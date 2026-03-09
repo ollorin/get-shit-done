@@ -1176,11 +1176,16 @@ MODEL_PROFILE=$(node ~/.claude/get-shit-done/bin/gsd-tools.js config get model_p
 
 For each PLAN.md written in the write_phase_prompt step:
 
-1. **Extract all task names** — parse the `<name>` element from each `<task>` in the PLAN.md. Also read the `<action>` content for each task (the router needs the full task description for accurate routing). Build a list:
+1. **Extract all task names** — parse the `<name>`, `<action>`, `<verify>`, and `<done>` elements from each `<task>` in the PLAN.md. Also extract plan-level frontmatter fields: `complexity`, `depends_on`, `must_haves`. Build a list:
    ```
+   plan_context = {
+     complexity: frontmatter.complexity ?? "medium",
+     depends_on: frontmatter.depends_on ?? [],
+     must_haves_count: (frontmatter.must_haves?.truths?.length ?? 0) + (frontmatter.must_haves?.artifacts?.length ?? 0)
+   }
    tasks = [
-     { index: 1, name: "...", action: "..." },
-     { index: 2, name: "...", action: "..." },
+     { index: 1, name: "...", action: "...", verify: "...", done: "..." },
+     { index: 2, name: "...", action: "...", verify: "...", done: "..." },
      ...
    ]
    ```
@@ -1190,7 +1195,7 @@ For each PLAN.md written in the write_phase_prompt step:
    routing_results = await Promise.all(tasks.map(task =>
      Task(
        subagent_type="gsd-task-router",
-       prompt="Route this task: {task.name}\n\nTask action summary: {task.action}"
+       prompt="Route this task: {task.name}\n\nTask action:\n{task.action}\n\nDone criteria:\n{task.done}\n\nVerification:\n{task.verify}\n\nPlan context: complexity={plan_context.complexity}, depends_on={plan_context.depends_on.length} prior plans, must_haves={plan_context.must_haves_count} criteria"
      )
    ))
    ```
