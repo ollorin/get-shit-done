@@ -246,9 +246,9 @@ Plans:
 **Plans:** TBD
 
 Plans:
-- [ ] 35-01: Executor post-plan test suite gate — run test command after task completion, block SUMMARY.md on failure; add coverage threshold check when config.testing.coverage_threshold is set
-- [ ] 35-02: Charlotte mandatory sweep — detect web framework in package.json; unconditional Charlotte step in executor for web projects; add coverage threshold enforcement
-- [ ] 35-03: Verifier hard-fail rules — gaps_found on missing Charlotte QA for UI files; gaps_found on implementation files with no test counterpart
+- [x] 35-01: Executor post-plan test suite gate — run test command after task completion, block SUMMARY.md on failure; add coverage threshold check when config.testing.coverage_threshold is set
+- [x] 35-02: Charlotte mandatory sweep — detect web framework in package.json; unconditional Charlotte step in executor for web projects; add coverage threshold enforcement
+- [x] 35-03: Verifier hard-fail rules — gaps_found on missing Charlotte QA for UI files; gaps_found on implementation files with no test counterpart
 
 #### Phase 36: Migration Safety & Error Taxonomy
 
@@ -364,7 +364,7 @@ Plans:
 | 32. Reliability & Quality Gap Fixes | v1.11.0 | 4/4 | Complete | 2026-02-21 |
 | 33. v1.10.0 Tech Debt Closure | v1.10.0 | 2/2 | Complete | 2026-02-21 |
 | 34. Checkpoint & Plan-Structure Gates | v1.12.0 | Complete    | 2026-03-10 | - |
-| 35. Test & Coverage Enforcement | v1.12.0 | 0/3 | Not started | - |
+| 35. Test & Coverage Enforcement | v1.12.0 | 3/3 | Complete | 2026-03-11 |
 | 36. Migration Safety & Error Taxonomy | v1.12.0 | 0/2 | Not started | - |
 | 37. PRD Traceability & Flow Context | v1.12.0 | 0/2 | Not started | - |
 | 38. Dev Server Lifecycle & Knowledge Feedback | v1.12.0 | 0/2 | Not started | - |

@@ -547,6 +547,55 @@ For each implementation file that has no test counterpart:
 If IMPL_FILES_RAW is empty or all implementation files have test counterparts: this check passes silently.
 
 </check_test_file_coverage>
+<check_migration_timestamps>
+
+## Step 8e: Migration Timestamp Conflict Check (QGATE-05)
+
+**Trigger:** A `migrations/` directory exists in the project root.
+
+**Hard rule:** Unresolved duplicate migration timestamps detected by this check cause `gaps_found`. This is NEVER a warning.
+
+**Step A — Detect migrations directory:**
+
+```bash
+MIGRATIONS_DIR="no"
+if [ -d "migrations" ]; then
+  MIGRATIONS_DIR="yes"
+fi
+```
+
+**Step B — Run timestamp conflict check:**
+
+If MIGRATIONS_DIR == "yes":
+```bash
+MIGRATION_RESULT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js verify migration-timestamps 2>/dev/null || echo '{"error":"command failed"}')
+```
+
+Parse MIGRATION_RESULT JSON. Extract `conflicts_found` and `resolved`.
+
+**Step C — Evaluate result:**
+
+- If `error` key present: log warning "migration-timestamps check failed — skipping" and continue (non-fatal, the check is best-effort)
+- If `skipped === true`: this check passes silently
+- If `conflicts_found > 0` AND `resolved < conflicts_found` (unresolved conflicts remain): add gap and set STATUS = gaps_found
+- If `conflicts_found > 0` AND `resolved === conflicts_found` (all auto-resolved): add informational note to VERIFICATION.md but do NOT set gaps_found — auto-resolution succeeded
+- If `conflicts_found === 0`: this check passes silently
+
+**Gap format for unresolved conflicts:**
+```yaml
+- truth: "All migration timestamps are unique"
+  status: failed
+  reason: "Duplicate migration timestamps found and could not be auto-resolved"
+  artifacts:
+    - path: "migrations/"
+      issue: "{conflicts_found} duplicate timestamps detected, {resolved} resolved, {conflicts_found - resolved} unresolved"
+  missing:
+    - "Manually rename conflicting migration files to use unique timestamps"
+```
+
+If MIGRATIONS_DIR == "no": this check passes silently.
+
+</check_migration_timestamps>
 
 </verification_process>
 
@@ -715,6 +764,7 @@ Key categories: placeholder stubs (TODOs, empty returns), semantic stubs (handle
 - [ ] Test suite executed (Step 8b) — failures recorded as gaps, no-tests flagged as warning
 - [ ] Charlotte QA coverage checked (Step 8c) — UI files without Charlotte QA → gaps_found (never warning)
 - [ ] Test file coverage checked (Step 8d) — implementation files without test counterparts → gaps_found (never warning)
+- [ ] Migration timestamp conflicts checked (Step 8e) — unresolved conflicts → gaps_found (never warning)
 - [ ] Overall status determined
 - [ ] Gaps structured in YAML frontmatter (if gaps_found)
 - [ ] Re-verification metadata included (if previous existed)

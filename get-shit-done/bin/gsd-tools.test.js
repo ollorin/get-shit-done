@@ -2738,3 +2738,75 @@ describe('gsd-verifier — hard-fail rules for QA and test coverage (Phase 35-03
   });
 });
 
+
+describe('verify migration-timestamps command', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  test('no migrations directory returns skipped result', () => {
+    // No migrations/ dir created — just the standard .planning/phases structure
+    const result = runGsdTools('verify migration-timestamps', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+    const data = JSON.parse(result.output);
+    assert.strictEqual(data.skipped, true, 'Should be skipped when no migrations dir');
+    assert.strictEqual(data.migrations_dir, null, 'migrations_dir should be null');
+  });
+
+  test('no conflicts returns zero conflict count', () => {
+    const migrationsDir = path.join(tmpDir, 'migrations');
+    fs.mkdirSync(migrationsDir, { recursive: true });
+    fs.writeFileSync(path.join(migrationsDir, '20240101120000_create_users.sql'), '');
+    fs.writeFileSync(path.join(migrationsDir, '20240101120001_add_index.sql'), '');
+
+    const result = runGsdTools('verify migration-timestamps', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+    const data = JSON.parse(result.output);
+    assert.strictEqual(data.conflicts_found, 0, 'Should find no conflicts');
+    assert.strictEqual(data.resolved, 0, 'Should resolve nothing');
+    assert.strictEqual(data.files_scanned, 2, 'Should scan 2 files');
+  });
+
+  test('duplicate timestamps are auto-resolved by rename', () => {
+    const migrationsDir = path.join(tmpDir, 'migrations');
+    fs.mkdirSync(migrationsDir, { recursive: true });
+    fs.writeFileSync(path.join(migrationsDir, '20240101120000_create_users.sql'), '');
+    fs.writeFileSync(path.join(migrationsDir, '20240101120000_add_index.sql'), '');
+
+    const result = runGsdTools('verify migration-timestamps', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+    const data = JSON.parse(result.output);
+    assert.strictEqual(data.conflicts_found, 1, 'Should detect 1 conflict');
+    assert.strictEqual(data.resolved, 1, 'Should resolve 1 conflict');
+
+    // The renamed file must exist on disk
+    const resolvedEntry = data.migrations.find(m => m.status === 'resolved');
+    assert.ok(resolvedEntry, 'Should have a resolved entry');
+    const renamedPath = path.join(migrationsDir, resolvedEntry.new_file);
+    assert.ok(fs.existsSync(renamedPath), `Renamed file should exist at ${renamedPath}`);
+
+    // The original conflicting file should no longer exist under its old name
+    const originalPath = path.join(migrationsDir, resolvedEntry.original_file);
+    assert.ok(!fs.existsSync(originalPath), 'Original conflicting file should be renamed away');
+  });
+
+  test('non-migration files are ignored in scan', () => {
+    const migrationsDir = path.join(tmpDir, 'migrations');
+    fs.mkdirSync(migrationsDir, { recursive: true });
+    fs.writeFileSync(path.join(migrationsDir, 'README.md'), '# migrations');
+    fs.writeFileSync(path.join(migrationsDir, '.gitkeep'), '');
+    fs.writeFileSync(path.join(migrationsDir, '20240101120000_init.sql'), '');
+
+    const result = runGsdTools('verify migration-timestamps', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+    const data = JSON.parse(result.output);
+    assert.strictEqual(data.files_scanned, 1, 'Should scan only migration files (not README.md or .gitkeep)');
+    assert.strictEqual(data.conflicts_found, 0, 'Should find no conflicts');
+  });
+});

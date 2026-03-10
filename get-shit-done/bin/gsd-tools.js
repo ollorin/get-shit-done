@@ -87,6 +87,7 @@
  *   verify commits <h1> [h2] ...      Batch verify commit hashes
  *   verify artifacts <plan-file>       Check must_haves.artifacts
  *   verify key-links <plan-file>       Check must_haves.key_links
+ *   verify migration-timestamps         Scan migrations/ for duplicate timestamps; auto-resolve by rename
  *
  * Template Fill:
  *   template fill summary --phase N    Create pre-filled SUMMARY.md
@@ -4941,6 +4942,102 @@ function cmdVerifyKeyLinks(cwd, planFilePath, raw) {
   }, raw, verified === results.length ? 'valid' : 'invalid');
 }
 
+function cmdVerifyMigrationTimestamps(cwd, raw) {
+  const migrationsDir = path.join(cwd, 'migrations');
+
+  if (!fs.existsSync(migrationsDir)) {
+    output({ migrations_dir: null, skipped: true, reason: 'No migrations directory found' }, raw);
+    return;
+  }
+
+  // Read flat file list from migrations/
+  let allFiles;
+  try {
+    allFiles = fs.readdirSync(migrationsDir, { withFileTypes: true })
+      .filter(d => d.isFile())
+      .map(d => d.name);
+  } catch (e) {
+    output({ error: 'Could not read migrations directory: ' + e.message }, raw);
+    return;
+  }
+
+  // Filter to files with a leading numeric timestamp prefix
+  const TIMESTAMP_RE = /^(\d+)([_\-].*)?$/;
+  const migrationFiles = allFiles.filter(f => TIMESTAMP_RE.test(f));
+
+  // Group by timestamp prefix
+  const groups = {};
+  for (const file of migrationFiles) {
+    const match = TIMESTAMP_RE.exec(file);
+    const ts = match[1];
+    if (!groups[ts]) groups[ts] = [];
+    groups[ts].push(file);
+  }
+
+  const migrations = [];
+  const existingTimestamps = new Set(migrationFiles.map(f => TIMESTAMP_RE.exec(f)[1]));
+
+  let conflictsFound = 0;
+  let resolved = 0;
+
+  for (const [ts, files] of Object.entries(groups)) {
+    if (files.length === 1) {
+      migrations.push({ file: files[0], timestamp: ts, status: 'ok' });
+      continue;
+    }
+
+    // First file is canonical, rest are conflicts
+    migrations.push({ file: files[0], timestamp: ts, status: 'ok' });
+
+    for (let i = 1; i < files.length; i++) {
+      const originalFile = files[i];
+      const tsMatch = TIMESTAMP_RE.exec(originalFile);
+      const suffix = tsMatch[2] || '';
+      conflictsFound++;
+
+      // Find a unique timestamp by incrementing
+      let newTs = BigInt(ts) + BigInt(1);
+      while (existingTimestamps.has(String(newTs))) {
+        newTs += BigInt(1);
+      }
+      const newTsStr = String(newTs);
+      const newFile = newTsStr + suffix;
+
+      try {
+        fs.renameSync(
+          path.join(migrationsDir, originalFile),
+          path.join(migrationsDir, newFile)
+        );
+        existingTimestamps.add(newTsStr);
+        resolved++;
+        migrations.push({
+          file: newFile,
+          timestamp: newTsStr,
+          original_file: originalFile,
+          new_file: newFile,
+          status: 'resolved',
+          action: 'renamed',
+        });
+      } catch (e) {
+        migrations.push({
+          file: originalFile,
+          timestamp: ts,
+          status: 'error',
+          error: 'Rename failed: ' + e.message,
+        });
+      }
+    }
+  }
+
+  output({
+    migrations_dir: 'migrations',
+    files_scanned: migrationFiles.length,
+    conflicts_found: conflictsFound,
+    resolved,
+    migrations,
+  }, raw, conflictsFound === 0 || resolved === conflictsFound ? 'valid' : 'invalid');
+}
+
 // ─── Roadmap Analysis ─────────────────────────────────────────────────────────
 
 function cmdRoadmapAnalyze(cwd, raw) {
@@ -9393,8 +9490,10 @@ async function main() {
         cmdVerifyArtifacts(cwd, args[2], raw);
       } else if (subcommand === 'key-links') {
         cmdVerifyKeyLinks(cwd, args[2], raw);
+      } else if (subcommand === 'migration-timestamps') {
+        cmdVerifyMigrationTimestamps(cwd, raw);
       } else {
-        error('Unknown verify subcommand. Available: plan-structure, phase-completeness, references, commits, artifacts, key-links');
+        error('Unknown verify subcommand. Available: plan-structure, phase-completeness, references, commits, artifacts, key-links, migration-timestamps');
       }
       break;
     }
