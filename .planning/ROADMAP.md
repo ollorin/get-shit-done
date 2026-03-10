@@ -259,7 +259,7 @@ Plans:
   1. Running `gsd-tools.js verify migration-timestamps` before commit scans all migration files, detects duplicate timestamps, and auto-resolves conflicts by incrementing the conflicting timestamp — the scan runs as part of the verifier step for projects with a migrations directory
   2. VERIFICATION.md gap entries include a `failure_type` field set to one of the documented enum values (`stub | unwired | missing_artifact | semantic_stub | broken_chain | regression | missing_test`) — the verifier populates this field; gaps without a type are rejected as malformed
   3. The gap-closure planner reads `failure_type` from each gap and selects a fix strategy accordingly — stub gaps get a different plan template than regression gaps
-**Plans:** TBD
+**Plans:** 2/2 plans complete
 
 Plans:
 - [ ] 36-01: Migration timestamp conflict detection — add `verify migration-timestamps` subcommand to gsd-tools.js; auto-resolve by incrementing duplicate timestamps; wire into verifier for projects with migrations directory
@@ -365,7 +365,7 @@ Plans:
 | 33. v1.10.0 Tech Debt Closure | v1.10.0 | 2/2 | Complete | 2026-02-21 |
 | 34. Checkpoint & Plan-Structure Gates | v1.12.0 | Complete    | 2026-03-10 | - |
 | 35. Test & Coverage Enforcement | v1.12.0 | 3/3 | Complete | 2026-03-11 |
-| 36. Migration Safety & Error Taxonomy | v1.12.0 | 0/2 | Not started | - |
+| 36. Migration Safety & Error Taxonomy | 2/2 | Complete    | 2026-03-10 | - |
 | 37. PRD Traceability & Flow Context | v1.12.0 | 0/2 | Not started | - |
 | 38. Dev Server Lifecycle & Knowledge Feedback | v1.12.0 | 0/2 | Not started | - |
 | 39. Execution Intelligence | v1.12.0 | 0/3 | Not started | - |
