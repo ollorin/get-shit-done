@@ -835,6 +835,41 @@ Key categories: placeholder stubs (TODOs, empty returns), semantic stubs (handle
 
 </stub_detection_patterns>
 
+<kb_feedback>
+
+## Step 11: Write Anti-Patterns to Knowledge DB
+
+After VERIFICATION.md is written, extract FAILED and STUB gaps and write them to the knowledge DB as `anti_pattern` entries. This persists discovered anti-patterns immediately so future executions can learn from them.
+
+**Extract gaps from the verification result you just assembled:**
+
+From the gaps array you structured in Step 10 (if any), iterate over each gap entry.
+
+**For each gap in the gaps array:**
+- Skip if gap `status` is `uncertain`, `human_needed`, `warning`, or `partial` — only write `failed` and `stub` gaps
+- Skip if gap `failure_type` is `missing_test` — test coverage gaps are not anti-patterns for KB purposes
+- Extract: `truth` (what failed), `reason` (root cause), `failure_type` (classification)
+- Build KB entry content: `[Phase {PHASE_NUM} anti-pattern] {truth} — root cause: {reason}`
+
+**Write each qualifying gap to the knowledge DB:**
+
+```bash
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" knowledge add   "[Phase ${PHASE_NUM} anti-pattern] {truth} — root cause: {reason}"   --type anti_pattern   --scope project   --ttl long_term 2>/dev/null || true
+```
+
+Log each write: "KB: wrote anti-pattern entry — {truth (first 60 chars)}"
+
+**Error handling:** Wrap all KB writes with `2>/dev/null || true` — never block verification on KB write failures. If no gaps of the qualifying types exist, log "KB feedback: no qualifying anti-patterns to write" and skip.
+
+**Step complete when:**
+
+- [ ] All FAILED and STUB gaps from VERIFICATION.md processed
+- [ ] Each qualifying gap written to KB as source_type: anti_pattern, scope: project, TTL: long_term
+- [ ] Uncertain/human_needed/warning/partial gaps skipped
+- [ ] KB write failures not blocking (|| true pattern)
+
+</kb_feedback>
+
 <success_criteria>
 
 - [ ] Previous VERIFICATION.md checked (Step 0)
@@ -857,4 +892,5 @@ Key categories: placeholder stubs (TODOs, empty returns), semantic stubs (handle
 - [ ] Re-verification metadata included (if previous existed)
 - [ ] VERIFICATION.md created with complete report
 - [ ] Results returned to orchestrator (NOT committed)
+- [ ] Anti-patterns written to KB (Step 11) — FAILED/STUB gaps only; writes non-blocking (failures logged)
 </success_criteria>
