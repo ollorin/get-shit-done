@@ -259,6 +259,57 @@ Aggregate all requirement IDs across plans. For each requirement ID:
 - ✗ BLOCKED: One or more supporting truths failed or artifact missing
 - ? NEEDS HUMAN: Can't verify programmatically
 
+## Step 6b: PRD Intent Alignment Check (Optional — fires only if PRD-TRACE.md present)
+
+```bash
+PRD_TRACE=$(ls "$PHASE_DIR"/*-PRD-TRACE.md 2>/dev/null | head -1)
+```
+
+If PRD_TRACE is empty: skip this step silently — PRD Express Path was not used for this phase.
+
+If PRD_TRACE found:
+
+1. Parse the PRD-TRACE.md table — extract each row: REQ-ID, Requirement text, Plan column.
+
+2. For each row where Plan column is NOT "TBD":
+   - Find the plan's SUMMARY.md: `$PHASE_DIR/${row_plan}-SUMMARY.md`
+   - If SUMMARY.md does not exist: mark as UNVERIFIED, continue
+   - Extract the SUMMARY one-liner (first `**...**` bold line after the `#` heading) and the Accomplishments section
+   - Compare intent:
+     - **ALIGNED**: SUMMARY describes work that implements the PRD requirement's domain and purpose
+     - **MISMATCH**: SUMMARY describes functionality entirely unrelated to the PRD requirement — different domain, different user need
+     - **PARTIAL**: SUMMARY partially addresses the requirement but key aspects are absent
+     - **UNVERIFIED**: The plan SUMMARY.md does not exist yet
+
+3. For each MISMATCH: add a gap entry and set STATUS = gaps_found (hard-fail — NEVER a warning):
+   ```yaml
+   - truth: "PRD requirement {REQ-ID} implemented as specified"
+     status: failed
+     failure_type: semantic_stub
+     reason: "Intent mismatch: PRD requires '{requirement_text}' but SUMMARY describes unrelated work"
+     artifacts:
+       - path: "{SUMMARY_path}"
+         issue: "Implementation does not align with PRD requirement {REQ-ID}"
+     missing:
+       - "Implement: {requirement_text}"
+   ```
+
+4. For each PARTIAL: add a gap entry with `failure_type: stub` and set STATUS = gaps_found.
+
+5. Add PRD alignment table to VERIFICATION.md report under Requirements Coverage:
+
+```markdown
+### PRD Intent Alignment
+
+| REQ-ID | Requirement | Plan | Status |
+|--------|-------------|------|--------|
+| PRD-01 | {text} | 37-01 | ALIGNED |
+| PRD-02 | {text} | TBD | UNVERIFIED |
+| PRD-03 | {text} | 37-02 | MISMATCH |
+```
+
+Note: UNVERIFIED rows are NOT counted as failures — they indicate work not yet delivered (plan not yet completed). Only MISMATCH and PARTIAL rows create gap entries.
+
 ## Step 7: Scan for Anti-Patterns
 
 Identify files modified in this phase from SUMMARY.md key-files section, or extract commits and verify:
@@ -694,6 +745,14 @@ human_verification: # Only if status: human_needed
 | Requirement | Status | Blocking Issue |
 | ----------- | ------ | -------------- |
 
+### PRD Intent Alignment
+
+{Include only if PRD-TRACE.md was present — from Step 6b output}
+
+| REQ-ID | Requirement | Plan | Status |
+|--------|-------------|------|--------|
+| PRD-01 | {text} | {plan} | ALIGNED / MISMATCH / PARTIAL / UNVERIFIED |
+
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
@@ -786,6 +845,7 @@ Key categories: placeholder stubs (TODOs, empty returns), semantic stubs (handle
 - [ ] All key links verified
 - [ ] Done-criteria traced backward to implementation (Step 5b) — semantic completeness confirmed
 - [ ] Requirements coverage assessed (if applicable)
+- [ ] PRD intent alignment checked (Step 6b) — fires only if PRD-TRACE.md present; mismatches → gaps_found (never warning)
 - [ ] Anti-patterns scanned and categorized
 - [ ] Human verification items identified
 - [ ] Test suite executed (Step 8b) — failures recorded as gaps, no-tests flagged as warning
