@@ -150,6 +150,7 @@ For each task:
    - **Cross-boundary done check:** If the task creates code that crosses a service boundary (frontend handler that should call a backend route, API route that should mutate a database), verify the full chain before marking done — not just that the local artifact builds. A frontend form handler is not "done" if it only updates UI state without making the API call the done criterion implies. A backend route is not "done" if the frontend has no path to call it. Check that the wiring exists and carries the right signal, not just that each side compiles independently.
    - Commit (see task_commit_protocol)
    - Track completion + commit hash for Summary
+   - **Inter-task syntax check** (runs after each task commit — see inter_task_syntax_check block below)
 
 2. **If `type="checkpoint:*"`:**
    - Check auto mode detection (see auto_mode_detection)
@@ -163,6 +164,73 @@ For each task:
 </step>
 
 </execution_flow>
+
+<inter_task_syntax_check>
+
+**Purpose:** After each `type="auto"` task commit, run a lightweight JavaScript syntax check on modified .js files. Catches syntax errors early with one auto-fix attempt before logging as a gap. Syntax errors NEVER abort the plan.
+
+**Steps (run after each task commit, before moving to the next task):**
+
+**Step 1 — Get changed JavaScript files:**
+```bash
+CHANGED_JS=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | grep '\.js$' || true)
+```
+
+If CHANGED_JS is empty (no .js files changed, git unavailable, or initial commit): skip the syntax check silently and continue to the next task.
+
+**Step 2 — Run node --check on each changed .js file:**
+```bash
+SYNTAX_ERRORS=""
+for JS_FILE in $CHANGED_JS; do
+  if [ -f "$JS_FILE" ]; then
+    CHECK_OUTPUT=$(node --check "$JS_FILE" 2>&1)
+    if [ $? -ne 0 ]; then
+      SYNTAX_ERRORS="${SYNTAX_ERRORS}
+${JS_FILE}: ${CHECK_OUTPUT}"
+    fi
+  fi
+done
+```
+
+**If no syntax errors (SYNTAX_ERRORS is empty):** Log "Syntax check passed for task {task_index}" and continue to the next task.
+
+**If syntax errors found — make one auto-fix attempt:**
+
+1. Read each failing .js file and identify the specific syntax error from the node --check output (line number and error type)
+2. Fix the syntax error inline (e.g., missing closing bracket, unclosed string, invalid token)
+3. Commit the fix: `git commit -m "fix({plan_id}): auto-fix syntax error in {file} after task {task_index}"`
+4. Re-run the check:
+   ```bash
+   RECHECK_ERRORS=""
+   for JS_FILE in $CHANGED_JS; do
+     if [ -f "$JS_FILE" ]; then
+       RECHECK_OUTPUT=$(node --check "$JS_FILE" 2>&1)
+       if [ $? -ne 0 ]; then
+         RECHECK_ERRORS="${RECHECK_ERRORS}
+${JS_FILE}: ${RECHECK_OUTPUT}"
+       fi
+     fi
+   done
+   ```
+
+**If re-check passes:** Log "Syntax auto-fixed and verified for task {task_index}" and continue to the next task.
+
+**If re-check also fails — log as gap (NEVER abort the plan):**
+
+Append to `deferred-items.md` in the phase directory:
+```
+- [SYNTAX-GAP] node --check failed after auto-fix attempt for task {task_index}: {RECHECK_ERRORS} — files: {CHANGED_JS}
+```
+
+Log: "Syntax check gap logged for task {task_index} — proceeding to next task"
+
+Continue to the next task immediately.
+
+**CRITICAL constraint:** Syntax errors discovered by the inter-task check NEVER abort the plan. The plan execution continues to the next task regardless of syntax check outcome. This is an advisory check with one auto-fix opportunity — not a gate.
+
+**Scope:** Only .js files changed in the current task's commit. Does not check .ts, .jsx, .md, or other file types. Does not recursively check the entire codebase — only the delta.
+
+</inter_task_syntax_check>
 
 <deviation_rules>
 **While executing, you WILL discover work not in the plan.** Apply these rules automatically. Track all deviations for Summary.
