@@ -129,6 +129,41 @@ For each REQ-ID, determine status using all three sources:
 
 **Orphan detection:** Requirements present in REQUIREMENTS.md traceability table but absent from ALL phase VERIFICATION.md files MUST be flagged as orphaned. Orphaned requirements are treated as `unsatisfied` — they were assigned but never verified by any phase.
 
+### 5f. PRD-TRACE.md Cross-Reference (Optional — per phase with PRD Express Path)
+
+For each phase directory in the milestone scope:
+
+```bash
+PRD_TRACE=$(ls ".planning/phases/${phase_dir}"/*-PRD-TRACE.md 2>/dev/null | head -1)
+```
+
+If PRD_TRACE is empty for this phase: skip — note "Phase {N}: no PRD-TRACE.md (PRD Express Path not used)" as informational in audit output. NOT a blocker.
+
+If PRD_TRACE found:
+
+1. Parse the PRD-TRACE.md table — extract each row: REQ-ID, Requirement, Category, Plan, Status.
+
+2. For each row where Plan column is NOT "TBD":
+   - Read the phase VERIFICATION.md for that phase
+   - Check whether the corresponding plan's work is listed as having its requirements satisfied
+   - Produce per-requirement alignment status: SATISFIED | UNSATISFIED | UNVERIFIED
+
+3. For the phase, produce a PRD traceability table:
+   ```markdown
+   ### Phase {N} PRD Traceability (Source: {source_prd from PRD-TRACE.md frontmatter})
+
+   | PRD REQ-ID | Requirement | Plan | Status |
+   |------------|-------------|------|--------|
+   | PRD-01 | {text} | {plan} | SATISFIED |
+   | PRD-02 | {text} | TBD | UNVERIFIED |
+   ```
+
+4. Compute `prd_satisfied` and `prd_total` counts for this phase:
+   - `prd_satisfied`: rows where status == SATISFIED
+   - `prd_total`: all rows (including UNVERIFIED and UNSATISFIED)
+
+5. Accumulate into milestone totals: `total_prd_satisfied` and `total_prd_requirements`.
+
 ## 5.5. Nyquist Compliance Discovery
 
 Skip if `workflow.nyquist_validation` is explicitly `false` (absent = enabled).
@@ -167,6 +202,7 @@ scores:
   phases: N/M
   integration: N/M
   flows: N/M
+  prd_traceability: N/M  # N/M PRD requirements satisfied across all phases with PRD-TRACE.md. Omit if no phases used PRD Express Path.
 gaps:  # Critical blockers
   requirements:
     - id: "{REQ-ID}"
@@ -190,6 +226,24 @@ tech_debt:  # Non-critical, deferred
 ```
 
 Plus full markdown report with tables for requirements, phases, integration, tech debt.
+
+**The PRD Traceability section** (include after Requirements Coverage, before Tech Debt):
+
+```markdown
+## PRD Traceability
+
+{For each phase with a PRD-TRACE.md — paste the per-phase table from Step 5f:}
+
+### Phase {N}: {name}
+**Source PRD:** {source_prd from PRD-TRACE.md frontmatter}
+
+| PRD REQ-ID | Requirement | Plan | Status |
+|------------|-------------|------|--------|
+...
+
+{If no phases had PRD-TRACE.md in this milestone:}
+*No phases in this milestone used the PRD Express Path — PRD-TRACE.md not present in any phase directory.*
+```
 
 **Status values:**
 - `passed` — all requirements met, no critical gaps, minimal tech debt
@@ -329,5 +383,7 @@ All requirements met. No critical blockers. Accumulated tech debt needs review.
 - [ ] FAIL gate enforced — any unsatisfied requirement forces gaps_found status
 - [ ] Nyquist compliance scanned for all milestone phases (if enabled)
 - [ ] Missing VALIDATION.md phases flagged with validate-phase suggestion
+- [ ] PRD-TRACE.md cross-reference run for each phase with PRD Express Path (Step 5f) — optional, skipped if absent; NOT a blocker when absent
+- [ ] MILESTONE-AUDIT.md includes PRD Traceability section and prd_traceability score (if any phases used PRD Express Path)
 - [ ] Results presented with actionable next steps
 </success_criteria>
