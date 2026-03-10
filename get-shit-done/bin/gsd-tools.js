@@ -166,6 +166,14 @@
  *   init milestone-op                  All context for milestone operations
  *   init map-codebase                  All context for map-codebase workflow
  *   init progress                      All context for progress workflow
+ *
+ * Service Health:
+ *   service-health start <name>        Start named server from dev_servers registry;
+ *     [--raw]                          poll health endpoint until ready or 60s timeout
+ *   service-health stop <name>         Stop named server by PID; SIGTERM then SIGKILL after 5s
+ *   service-health status <name>       Check if named server is running (JSON output)
+ *   service-health start-all           Start all servers in dev_servers registry
+ *   service-health stop-all            Stop all running servers (by PID files)
  */
 
 const fs = require('fs');
@@ -5327,6 +5335,112 @@ function cmdRoadmapAnalyze(cwd, raw) {
   const totalSummaries = phases.reduce((sum, p) => sum + p.summary_count, 0);
   const completedPhases = phases.filter(p => p.disk_status === 'complete').length;
 
+
+  // ─── File conflict detection for parallel-eligible phases ────────────────────
+  const fileConflicts = [];
+
+  try {
+    // Only check not-yet-complete phases that have directories
+    const incompletePhases = phases.filter(function(p) {
+      return p.disk_status !== 'complete';
+    });
+
+    // Build phaseNum -> Set<string> map from PLAN.md files_modified frontmatter
+    const phaseFilesMap = {};
+
+    // Re-read entries from phasesDir for this pass
+    let dirEntries = [];
+    try { dirEntries = fs.readdirSync(phasesDir, { withFileTypes: true }); } catch (e) {}
+    const allPhaseDirs = dirEntries.filter(function(e) { return e.isDirectory(); }).map(function(e) { return e.name; });
+
+    for (const phase of incompletePhases) {
+      const normPhase = normalizePhaseName(phase.number);
+      const phDir = allPhaseDirs.find(function(d) { return d.startsWith(normPhase + '-') || d === normPhase; });
+      if (!phDir) continue;
+
+      const planFiles = fs.readdirSync(path.join(phasesDir, phDir))
+        .filter(function(f) { return f.endsWith('-PLAN.md'); });
+      const claimedFiles = {};
+
+      for (const planFile of planFiles) {
+        const planContent = safeReadFile(path.join(phasesDir, phDir, planFile));
+        if (!planContent) continue;
+        const fmMatch = planContent.match(/^---\n([\s\S]*?)\n---/);
+        if (!fmMatch) continue;
+        const fm = fmMatch[1];
+        const filesModMatch = fm.match(/files_modified:\s*\n((?:\s+-\s+[^\n]+\n?)*)/);
+        if (filesModMatch) {
+          const lines = filesModMatch[1].split('\n');
+          for (const line of lines) {
+            const fm2 = line.match(/^\s+-\s+(.+)/);
+            if (fm2) {
+              const f = fm2[1].trim().replace(/^["']|["']$/g, '');
+              if (f) claimedFiles[f] = true;
+            }
+          }
+        }
+      }
+
+      const keys = Object.keys(claimedFiles);
+      if (keys.length > 0) {
+        phaseFilesMap[phase.number] = keys;
+      }
+    }
+
+    // Find parallel-eligible pairs: phases with no mutual dependency
+    const incompleteNums = incompletePhases.map(function(p) { return p.number; });
+    const conflictMap = {}; // file -> Set of phase numbers
+
+    for (let i = 0; i < incompletePhases.length; i++) {
+      for (let j = i + 1; j < incompletePhases.length; j++) {
+        const phA = incompletePhases[i];
+        const phB = incompletePhases[j];
+
+        // Parse depends_on strings (may be "Phase 35" style)
+        function parseDeps(depsStr) {
+          if (!depsStr) return [];
+          const matches = [];
+          const re = /Phase\s+(\d+)/gi;
+          let m;
+          while ((m = re.exec(depsStr)) !== null) matches.push(parseInt(m[1]));
+          return matches;
+        }
+
+        const depsA = parseDeps(phA.depends_on);
+        const depsB = parseDeps(phB.depends_on);
+        const numA = parseInt(phA.number) || 0;
+        const numB = parseInt(phB.number) || 0;
+
+        // Parallel-eligible if neither depends on the other
+        if (depsA.indexOf(numB) !== -1 || depsB.indexOf(numA) !== -1) continue;
+
+        const filesA = phaseFilesMap[phA.number] || [];
+        const filesB = phaseFilesMap[phB.number] || [];
+
+        for (const file of filesA) {
+          if (filesB.indexOf(file) !== -1) {
+            if (!conflictMap[file]) conflictMap[file] = {};
+            conflictMap[file][phA.number] = true;
+            conflictMap[file][phB.number] = true;
+          }
+        }
+      }
+    }
+
+    for (const file of Object.keys(conflictMap)) {
+      const claimedBy = Object.keys(conflictMap[file])
+        .map(function(p) { return parseInt(p) || p; })
+        .sort(function(a, b) { return a - b; });
+      fileConflicts.push({
+        file: file,
+        claimed_by: claimedBy,
+        conflict_type: 'write-write'
+      });
+    }
+  } catch (conflictErr) {
+    // Non-fatal: file conflict detection is best-effort
+  }
+
   const result = {
     milestones,
     phases,
@@ -5337,6 +5451,7 @@ function cmdRoadmapAnalyze(cwd, raw) {
     progress_percent: totalPlans > 0 ? Math.round((totalSummaries / totalPlans) * 100) : 0,
     current_phase: currentPhase ? currentPhase.number : null,
     next_phase: nextPhase ? nextPhase.number : null,
+    file_conflicts: fileConflicts,
   };
 
   output(result, raw);
@@ -9506,6 +9621,215 @@ async function cmdQueryKnowledge(cwd, args, raw) {
   output({ results, query: questionString }, raw);
 }
 
+
+// ─── Service Health Helpers ───────────────────────────────────────────────────
+
+function getServicePidsDir(cwd) {
+  return path.join(cwd, '.planning', 'service-pids');
+}
+
+function getPidFilePath(cwd, name) {
+  return path.join(getServicePidsDir(cwd), name + '.pid');
+}
+
+function readServicePid(cwd, name) {
+  const pidFile = getPidFilePath(cwd, name);
+  try {
+    const raw = fs.readFileSync(pidFile, 'utf8').trim();
+    const pid = parseInt(raw, 10);
+    return isNaN(pid) ? null : pid;
+  } catch {
+    return null;
+  }
+}
+
+function writeServicePid(cwd, name, pid) {
+  const dir = getServicePidsDir(cwd);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(getPidFilePath(cwd, name), String(pid), 'utf8');
+}
+
+function removeServicePid(cwd, name) {
+  const pidFile = getPidFilePath(cwd, name);
+  try { fs.unlinkSync(pidFile); } catch (e) { /* already gone */ }
+}
+
+function isProcessRunning(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function pollHealthEndpoint(url, intervalMs, timeoutMs) {
+  const mod = await import(url.startsWith('https') ? 'https' : 'http');
+  const http = mod.default || mod;
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      await new Promise(function(resolve, reject) {
+        const req = http.get(url, function(res) {
+          res.resume();
+          if (res.statusCode >= 200 && res.statusCode < 400) resolve(true);
+          else reject(new Error('HTTP ' + res.statusCode));
+        });
+        req.on('error', reject);
+        req.setTimeout(2000, function() { req.destroy(); reject(new Error('timeout')); });
+      });
+      return true;
+    } catch (e) {
+      await new Promise(function(r) { setTimeout(r, intervalMs); });
+    }
+  }
+  return false;
+}
+
+function getDevServerConfig(cwd, name) {
+  const config = loadConfig(cwd);
+  const devServers = config.dev_servers || {};
+  if (name === 'default') {
+    const keys = Object.keys(devServers);
+    if (keys.length === 1) return Object.assign({ name: keys[0] }, devServers[keys[0]]);
+    if (keys.length === 0) return null;
+    if (devServers['default']) return Object.assign({ name: 'default' }, devServers['default']);
+    return null;
+  }
+  if (!devServers[name]) return null;
+  return Object.assign({ name: name }, devServers[name]);
+}
+
+async function cmdServiceHealth(cwd, args, raw) {
+  const subCmd = args[0];
+  const serverName = args[1] || 'default';
+
+  if (subCmd === 'start') {
+    const serverCfg = getDevServerConfig(cwd, serverName);
+    if (!serverCfg) {
+      output({ status: 'no_config', name: serverName, message: 'No dev_servers.' + serverName + ' in config.json — caller should use fallback' }, raw);
+      return;
+    }
+
+    const healthUrl = serverCfg.health_url || ('http://localhost:' + (serverCfg.port || 3000));
+
+    const existingPid = readServicePid(cwd, serverName);
+    if (existingPid && isProcessRunning(existingPid)) {
+      const alreadyUp = await pollHealthEndpoint(healthUrl, 500, 3000);
+      if (alreadyUp) {
+        output({ status: 'already_running', name: serverName, pid: existingPid, health_url: healthUrl }, raw);
+        return;
+      }
+    }
+
+    const preCheck = await pollHealthEndpoint(healthUrl, 500, 3000);
+    if (preCheck) {
+      output({ status: 'already_running', name: serverName, health_url: healthUrl, pid: null }, raw);
+      return;
+    }
+
+    const startCmd = serverCfg.start;
+    if (!startCmd) {
+      error('service-health start: dev_servers.' + serverName + '.start command is required');
+      return;
+    }
+
+    const { spawn } = require('child_process');
+    const child = spawn('sh', ['-c', startCmd], {
+      cwd: cwd,
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.unref();
+    writeServicePid(cwd, serverName, child.pid);
+
+    const ready = await pollHealthEndpoint(healthUrl, 2000, 60000);
+    if (ready) {
+      output({ status: 'started', name: serverName, pid: child.pid, health_url: healthUrl }, raw);
+    } else {
+      output({ status: 'start_timeout', name: serverName, pid: child.pid, health_url: healthUrl, message: 'Server did not respond within 60s' }, raw);
+    }
+
+  } else if (subCmd === 'stop') {
+    const pid = readServicePid(cwd, serverName);
+    if (!pid) {
+      output({ status: 'not_running', name: serverName, message: 'No PID file found' }, raw);
+      return;
+    }
+    if (!isProcessRunning(pid)) {
+      removeServicePid(cwd, serverName);
+      output({ status: 'already_stopped', name: serverName, pid: pid }, raw);
+      return;
+    }
+
+    try {
+      process.kill(pid, 'SIGTERM');
+      let stopped = false;
+      for (let i = 0; i < 25; i++) {
+        await new Promise(function(r) { setTimeout(r, 200); });
+        if (!isProcessRunning(pid)) { stopped = true; break; }
+      }
+      if (!stopped) {
+        try { process.kill(pid, 'SIGKILL'); } catch (e) { /* already gone */ }
+      }
+      removeServicePid(cwd, serverName);
+      output({ status: 'stopped', name: serverName, pid: pid, graceful: stopped }, raw);
+    } catch (e) {
+      removeServicePid(cwd, serverName);
+      output({ status: 'stop_error', name: serverName, pid: pid, error: e.message }, raw);
+    }
+
+  } else if (subCmd === 'status') {
+    const serverCfg = getDevServerConfig(cwd, serverName);
+    const healthUrl = serverCfg ? (serverCfg.health_url || ('http://localhost:' + (serverCfg.port || 3000))) : null;
+    const pid = readServicePid(cwd, serverName);
+    const pidRunning = pid ? isProcessRunning(pid) : false;
+    const healthOk = healthUrl ? await pollHealthEndpoint(healthUrl, 500, 3000) : null;
+
+    output({
+      name: serverName,
+      pid: pid || null,
+      pid_running: pidRunning,
+      health_url: healthUrl,
+      health_ok: healthOk,
+      status: (pidRunning || healthOk) ? 'running' : 'stopped',
+    }, raw);
+
+  } else if (subCmd === 'start-all') {
+    const config = loadConfig(cwd);
+    const devServers = config.dev_servers || {};
+    const names = Object.keys(devServers);
+    if (names.length === 0) {
+      output({ status: 'no_servers', message: 'No dev_servers in config.json' }, raw);
+      return;
+    }
+    const results = [];
+    for (const name of names) {
+      await cmdServiceHealth(cwd, ['start', name], true);
+      results.push(name);
+    }
+    output({ status: 'done', started: results }, raw);
+
+  } else if (subCmd === 'stop-all') {
+    const dir = getServicePidsDir(cwd);
+    if (!fs.existsSync(dir)) {
+      output({ status: 'no_pid_files', message: 'No service PID files found' }, raw);
+      return;
+    }
+    const pidFiles = fs.readdirSync(dir).filter(function(f) { return f.endsWith('.pid'); });
+    const results = [];
+    for (const pf of pidFiles) {
+      const name = pf.replace(/\.pid$/, '');
+      await cmdServiceHealth(cwd, ['stop', name], true);
+      results.push(name);
+    }
+    output({ status: 'done', stopped: results }, raw);
+
+  } else {
+    error('service-health: unknown subcommand ' + JSON.stringify(subCmd) + '. Available: start, stop, status, start-all, stop-all');
+  }
+}
+
 // ─── CLI Router ───────────────────────────────────────────────────────────────
 
 async function main() {
@@ -11281,6 +11605,11 @@ Was ${model} the right choice for this task? (y/n): `;
       } catch (err) {
         error(`log-feature-event: failed to append event: ${err.message}`);
       }
+      break;
+    }
+
+    case 'service-health': {
+      await cmdServiceHealth(cwd, args.slice(1), raw);
       break;
     }
 

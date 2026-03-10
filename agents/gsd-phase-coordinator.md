@@ -627,6 +627,16 @@ Parse DRIFT_RESULT JSON:
 - If `drift_detected == false` (and no error): Log: "Dependency stability check passed — no drift detected"
 - If `error` field present or JSON parse fails: Log: "Dependency stability check skipped: {error}" — continue execution
 
+**File conflict check for parallel execution (informational — never blocks):**
+```bash
+FILE_CONFLICTS=$(node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js roadmap analyze --raw 2>/dev/null | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{const j=JSON.parse(d);console.log(JSON.stringify(j.file_conflicts||[]));}catch(e){console.log('[]');}})" 2>/dev/null || echo '[]')
+```
+
+Parse FILE_CONFLICTS JSON array:
+- If non-empty: Log "FILE CONFLICTS DETECTED: The following files are claimed by multiple parallel-eligible phases — {for each conflict: file claimed by phases A, B}. Review before running phases in parallel."
+- If empty: Log "No file conflicts detected among parallel-eligible phases"
+- If parse fails: Log "File conflict check unavailable — skipping" and continue
+
 ```bash
 # Check what plans exist and which have summaries
 node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js phase-plan-index {phase_number}

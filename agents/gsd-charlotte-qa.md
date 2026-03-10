@@ -28,7 +28,29 @@ Your job: Health-check the dev server, test every specified flow using Charlotte
 
 <service_startup>
 
-## Step 1: Read Project Config
+## Step 1: Try service-health registry first
+
+```bash
+SERVICE_HEALTH_RESULT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" service-health start default --raw 2>/dev/null)
+SERVICE_STATUS=$(echo "$SERVICE_HEALTH_RESULT" | node -e "try{const r=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));process.stdout.write(r.status||'')}catch{}")
+QA_URL=$(echo "$SERVICE_HEALTH_RESULT" | node -e "try{const r=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));process.stdout.write(r.health_url||'http://localhost:3000')}catch{process.stdout.write('http://localhost:3000')}")
+```
+
+- If `SERVICE_STATUS` is `already_running` or `started`:
+  - Use `QA_URL` extracted above as the service URL
+  - Log: "Service health: {SERVICE_STATUS} | URL: {QA_URL}"
+  - Skip Steps 2 and 3 — proceed directly to Step 4 (test flows)
+
+- If `SERVICE_STATUS` is `no_config` or empty (registry not configured):
+  - Fall through to Steps 2 and 3 (existing CLAUDE.md-based startup)
+  - Set QA_URL to http://localhost:3000 (default, may be overridden in Step 2)
+
+- If `SERVICE_STATUS` is `start_timeout`:
+  - Log: "FATAL: Service failed to start within 60s (service-health timeout). Cannot proceed with QA."
+  - Return failure result — coordinator will escalate
+  - exit 1
+
+## Step 2: Read Project Config (fallback — only if service-health returned no_config)
 
 Read the project's CLAUDE.md to find dev server config:
 
@@ -49,7 +71,7 @@ Extract from the `## QA / Dev Server` section:
 
 If `## QA / Dev Server` section is absent, use the defaults above.
 
-## Step 2: Health-Check First
+## Step 3: Health-Check Then Launch (fallback — only if service-health returned no_config)
 
 ```bash
 HTTP_CODE=$(eval "$QA_HEALTH_CMD")
@@ -57,9 +79,7 @@ echo "Health check: $HTTP_CODE"
 ```
 
 - If `200`: service is running — proceed to testing immediately, do NOT relaunch.
-- If not `200`: launch service (Step 3).
-
-## Step 3: Launch If Down (only if health check failed)
+- If not `200`: launch service:
 
 ```bash
 # Launch in background
