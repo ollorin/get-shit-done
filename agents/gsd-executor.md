@@ -445,7 +445,11 @@ Plan context: complexity=medium, depends_on=0 prior plans, must_haves=1 criteria
    Categories covered: {list}
    ```
 
-6. Commit: `git add -p && git commit -m "test({scope}): add {feature} tests"`
+6. Commit (stage test files individually, per task_commit_protocol):
+   ```bash
+   git add {test_file_1} {test_file_2} {test_file_N}
+   git commit -m "test({scope}): add {feature} tests"
+   ```
 
 </test_task_handling>
 
