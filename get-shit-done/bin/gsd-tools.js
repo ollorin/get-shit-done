@@ -51,10 +51,6 @@
  *     [--phases N-M]                   plan count, duration, key decisions)
  *   milestone archive-phases <version> Move completed phase dirs to milestones/{version}/phases/
  *     [--phases N-M] [--dry-run]
- *   milestone summarize <version>      Generate {version}-SUMMARY.md (one-liner per phase,
- *     [--phases N-M]                   plan count, duration, key decisions)
- *   milestone archive-phases <version> Move completed phase dirs to milestones/{version}/phases/
- *     [--phases N-M] [--dry-run]
  * Validation:
  *   validate consistency               Check phase numbering, disk/roadmap sync
  *
@@ -212,7 +208,7 @@ const MODEL_PROFILES = {
   'gsd-codebase-mapper':      { quality: 'sonnet', balanced: 'haiku', budget: 'haiku', auto: 'haiku'  },
   'gsd-verifier':             { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku', auto: 'sonnet' },
   'gsd-plan-checker':         { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku', auto: 'sonnet' },
-  'gsd-nyquist-auditor':      { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku' },
+  'gsd-nyquist-auditor':      { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku', auto: 'sonnet' },
   'gsd-integration-checker':  { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku', auto: 'sonnet' },
 };
 
@@ -294,8 +290,12 @@ function loadConfig(cwd) {
       granularity: get('granularity') ?? defaults.granularity,
       brave_search: get('brave_search') ?? defaults.brave_search,
       coordinator_model: get('coordinator_model') ?? null,
+      dev_servers: parsed.dev_servers || null,
     };
-  } catch {
+  } catch (e) {
+    // Only suppress file-not-found; surface parse errors so broken config is visible
+    if (e.code === 'ENOENT') return defaults;
+    process.stderr.write('Warning: config.json parse error: ' + e.message + '\n');
     return defaults;
   }
 }
@@ -622,12 +622,13 @@ function getQuotaPath(cwd) {
 function loadQuotaState(cwd) {
   const quotaPath = getQuotaPath(cwd);
   if (!fs.existsSync(quotaPath)) {
-    return { ...DEFAULT_QUOTA_STATE };
+    // Deep copy to avoid shared nested objects (session, weekly, tasks, warnings_shown)
+    return JSON.parse(JSON.stringify(DEFAULT_QUOTA_STATE));
   }
   try {
     return JSON.parse(fs.readFileSync(quotaPath, 'utf-8'));
   } catch {
-    return { ...DEFAULT_QUOTA_STATE };
+    return JSON.parse(JSON.stringify(DEFAULT_QUOTA_STATE));
   }
 }
 
@@ -842,27 +843,29 @@ function formatStatusBar(quotaState) {
 function getUsageStats(quotaState) {
   const tasks = quotaState.tasks || [];
 
-  // Calculate per-model breakdown
+  // Calculate per-model breakdown (include cache token fields for accuracy)
   const models = { haiku: { tokens: 0, tasks: 0 }, sonnet: { tokens: 0, tasks: 0 }, opus: { tokens: 0, tasks: 0 } };
   for (const task of tasks) {
     const model = task.model.toLowerCase();
     if (models[model]) {
-      models[model].tokens += task.tokens_in + task.tokens_out;
+      models[model].tokens += (task.tokens_in || 0) + (task.tokens_out || 0)
+        + (task.tokens_cache_create_1h || 0) + (task.tokens_cache_create_5m || 0)
+        + (task.tokens_cache_read || 0);
       models[model].tasks += 1;
     }
   }
 
-  // Calculate estimated cost savings (rough estimates)
-  // Opus: $15/M input, $75/M output
-  // Sonnet: $3/M input, $15/M output
-  // Haiku: $0.25/M input, $1.25/M output
-  const opusCost = (models.opus.tokens / 1000000) * 45; // Avg of input/output
-  const sonnetCost = (models.sonnet.tokens / 1000000) * 9;
-  const haikuCost = (models.haiku.tokens / 1000000) * 0.75;
+  // Calculate estimated cost savings using per-token pricing (anthropic.com/pricing, Feb 2026)
+  // Uses blended avg of input ($X/M) and output ($Y/M) per model
+  // Aligned with RATES in formatStatusBar: haiku in:$1 out:$5, sonnet in:$3 out:$15, opus in:$5 out:$25
+  const BLENDED_RATES = { haiku: 3, sonnet: 9, opus: 15 }; // $/M tokens blended avg
+  const opusCost = (models.opus.tokens / 1000000) * BLENDED_RATES.opus;
+  const sonnetCost = (models.sonnet.tokens / 1000000) * BLENDED_RATES.sonnet;
+  const haikuCost = (models.haiku.tokens / 1000000) * BLENDED_RATES.haiku;
 
   // If all tasks were Opus
   const totalTokens = models.haiku.tokens + models.sonnet.tokens + models.opus.tokens;
-  const allOpusCost = (totalTokens / 1000000) * 45;
+  const allOpusCost = (totalTokens / 1000000) * BLENDED_RATES.opus;
   const actualCost = opusCost + sonnetCost + haikuCost;
   const savings = allOpusCost - actualCost;
   const savingsPercent = allOpusCost > 0 ? (savings / allOpusCost) * 100 : 0;
@@ -1780,7 +1783,11 @@ function cmdFindPhase(cwd, phase, raw) {
     const entries = fs.readdirSync(phasesDir, { withFileTypes: true });
     const dirs = entries.filter(e => e.isDirectory()).map(e => e.name).sort();
 
-    const match = dirs.find(d => d.startsWith(normalized));
+    // Prefer exact match (e.g., "01-name") over prefix match (e.g., "01.1-name")
+    // to prevent phase "1" resolving to "1.1" when both exist
+    const exactMatch = dirs.find(d => d === normalized || d.startsWith(normalized + '-'));
+    const prefixMatch = dirs.find(d => d.startsWith(normalized));
+    const match = exactMatch || prefixMatch;
     if (!match) {
       output(notFound, raw, '');
       return;
@@ -5232,20 +5239,18 @@ function cmdVerifyDependencyStability(cwd, phaseArg, raw) {
 }
 
 
-// ─── Roadmap Analysis ─────────────────────────────────────────────────────────
+// ─── Shared Phase Parsing Helper ──────────────────────────────────────────────
 
-function cmdRoadmapAnalyze(cwd, raw) {
-  const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
-
-  if (!fs.existsSync(roadmapPath)) {
-    output({ error: 'ROADMAP.md not found', milestones: [], phases: [], current_phase: null }, raw);
-    return;
-  }
-
-  const content = fs.readFileSync(roadmapPath, 'utf-8');
-  const phasesDir = path.join(cwd, '.planning', 'phases');
-
-  // Extract all phase headings: ### Phase N: Name
+/**
+ * Parse phases from ROADMAP.md content + disk state.
+ * Shared between cmdRoadmapAnalyze and cmdInitExecuteRoadmap to avoid duplication.
+ * @param {string} content - ROADMAP.md content
+ * @param {string} phasesDir - path to .planning/phases
+ * @param {object} [options] - { includeExtendedDiskInfo: true } to include has_context/has_research/roadmap_complete
+ * @returns {Array} phases
+ */
+function parseRoadmapPhases(content, phasesDir, options) {
+  const extended = options && options.includeExtendedDiskInfo;
   const phasePattern = /###\s*Phase\s+(\d+(?:\.\d+)?)\s*:\s*([^\n]+)/gi;
   const phases = [];
   let match;
@@ -5254,7 +5259,6 @@ function cmdRoadmapAnalyze(cwd, raw) {
     const phaseNum = match[1];
     const phaseName = match[2].replace(/\(INSERTED\)/i, '').trim();
 
-    // Extract goal from the section
     const sectionStart = match.index;
     const restOfContent = content.slice(sectionStart);
     const nextHeader = restOfContent.match(/\n###\s+Phase\s+\d/i);
@@ -5267,7 +5271,6 @@ function cmdRoadmapAnalyze(cwd, raw) {
     const dependsMatch = section.match(/\*\*Depends on:\*\*\s*([^\n]+)/i);
     const depends_on = dependsMatch ? dependsMatch[1].trim() : null;
 
-    // Check completion on disk
     const normalized = normalizePhaseName(phaseNum);
     let diskStatus = 'no_directory';
     let planCount = 0;
@@ -5284,36 +5287,50 @@ function cmdRoadmapAnalyze(cwd, raw) {
         const phaseFiles = fs.readdirSync(path.join(phasesDir, dirMatch));
         planCount = phaseFiles.filter(f => f.endsWith('-PLAN.md') || f === 'PLAN.md').length;
         summaryCount = phaseFiles.filter(f => f.endsWith('-SUMMARY.md') || f === 'SUMMARY.md').length;
-        hasContext = phaseFiles.some(f => f.endsWith('-CONTEXT.md') || f === 'CONTEXT.md');
-        hasResearch = phaseFiles.some(f => f.endsWith('-RESEARCH.md') || f === 'RESEARCH.md');
+        if (extended) {
+          hasContext = phaseFiles.some(f => f.endsWith('-CONTEXT.md') || f === 'CONTEXT.md');
+          hasResearch = phaseFiles.some(f => f.endsWith('-RESEARCH.md') || f === 'RESEARCH.md');
+        }
 
         if (summaryCount >= planCount && planCount > 0) diskStatus = 'complete';
         else if (summaryCount > 0) diskStatus = 'partial';
         else if (planCount > 0) diskStatus = 'planned';
-        else if (hasResearch) diskStatus = 'researched';
-        else if (hasContext) diskStatus = 'discussed';
+        else if (extended && hasResearch) diskStatus = 'researched';
+        else if (extended && hasContext) diskStatus = 'discussed';
         else diskStatus = 'empty';
       }
     } catch {}
 
-    // Check ROADMAP checkbox status
-    const checkboxPattern = new RegExp(`-\\s*\\[(x| )\\]\\s*.*Phase\\s+${phaseNum.replace('.', '\\.')}`, 'i');
-    const checkboxMatch = content.match(checkboxPattern);
-    const roadmapComplete = checkboxMatch ? checkboxMatch[1] === 'x' : false;
-
-    phases.push({
-      number: phaseNum,
-      name: phaseName,
-      goal,
-      depends_on,
-      plan_count: planCount,
-      summary_count: summaryCount,
-      has_context: hasContext,
-      has_research: hasResearch,
-      disk_status: diskStatus,
-      roadmap_complete: roadmapComplete,
-    });
+    const phaseObj = { number: phaseNum, name: phaseName, goal, depends_on, disk_status: diskStatus };
+    if (extended) {
+      phaseObj.plan_count = planCount;
+      phaseObj.summary_count = summaryCount;
+      phaseObj.has_context = hasContext;
+      phaseObj.has_research = hasResearch;
+      const checkboxPattern = new RegExp(`-\\s*\\[(x| )\\]\\s*.*Phase\\s+${phaseNum.replace('.', '\\.')}`, 'i');
+      const checkboxMatch = content.match(checkboxPattern);
+      phaseObj.roadmap_complete = checkboxMatch ? checkboxMatch[1] === 'x' : false;
+    }
+    phases.push(phaseObj);
   }
+
+  return phases;
+}
+
+// ─── Roadmap Analysis ─────────────────────────────────────────────────────────
+
+function cmdRoadmapAnalyze(cwd, raw) {
+  const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
+
+  if (!fs.existsSync(roadmapPath)) {
+    output({ error: 'ROADMAP.md not found', milestones: [], phases: [], current_phase: null }, raw);
+    return;
+  }
+
+  const content = fs.readFileSync(roadmapPath, 'utf-8');
+  const phasesDir = path.join(cwd, '.planning', 'phases');
+
+  const phases = parseRoadmapPhases(content, phasesDir, { includeExtendedDiskInfo: true });
 
   // Extract milestone info
   const milestones = [];
@@ -6121,19 +6138,17 @@ function cmdRequirementsMarkComplete(cwd, reqIdsRaw, raw) {
     let found = false;
 
     // Update checkbox: - [ ] **REQ-ID** -> - [x] **REQ-ID**
-    const checkboxPattern = new RegExp(`(-\\s*\\[)[ ](\\]\\s*\\*\\*${reqId}\\*\\*)`, 'gi');
-    if (checkboxPattern.test(reqContent)) {
-      reqContent = reqContent.replace(checkboxPattern, '$1x$2');
+    // Note: use separate regex instances for test vs replace to avoid g-flag lastIndex bug
+    const checkboxRegex = `(-\\s*\\[)[ ](\\]\\s*\\*\\*${reqId}\\*\\*)`;
+    if (new RegExp(checkboxRegex, 'gi').test(reqContent)) {
+      reqContent = reqContent.replace(new RegExp(checkboxRegex, 'gi'), '$1x$2');
       found = true;
     }
 
     // Update traceability table: | REQ-ID | Phase N | Pending | -> | REQ-ID | Phase N | Complete |
-    const tablePattern = new RegExp(`(\\|\\s*${reqId}\\s*\\|[^|]+\\|)\\s*Pending\\s*(\\|)`, 'gi');
-    if (tablePattern.test(reqContent)) {
-      reqContent = reqContent.replace(
-        new RegExp(`(\\|\\s*${reqId}\\s*\\|[^|]+\\|)\\s*Pending\\s*(\\|)`, 'gi'),
-        '$1 Complete $2'
-      );
+    const tableRegex = `(\\|\\s*${reqId}\\s*\\|[^|]+\\|)\\s*Pending\\s*(\\|)`;
+    if (new RegExp(tableRegex, 'gi').test(reqContent)) {
+      reqContent = reqContent.replace(new RegExp(tableRegex, 'gi'), '$1 Complete $2');
       found = true;
     }
 
@@ -8008,63 +8023,10 @@ function cmdInitExecuteRoadmap(cwd, raw) {
   };
   const coordinatorModel = config.coordinator_model ?? profileToCoordinatorModel[config.model_profile] ?? 'haiku';
 
-  // Use existing cmdRoadmapAnalyze logic to get phase data
+  // Reuse shared phase parsing (avoids duplicating 60+ lines from cmdRoadmapAnalyze)
   const content = fs.readFileSync(roadmapPath, 'utf-8');
   const phasesDir = path.join(cwd, '.planning', 'phases');
-
-  // Extract all phase headings: ### Phase N: Name
-  const phasePattern = /###\s*Phase\s+(\d+(?:\.\d+)?)\s*:\s*([^\n]+)/gi;
-  const phases = [];
-  let match;
-
-  while ((match = phasePattern.exec(content)) !== null) {
-    const phaseNum = match[1];
-    const phaseName = match[2].replace(/\(INSERTED\)/i, '').trim();
-
-    // Extract goal from the section
-    const sectionStart = match.index;
-    const restOfContent = content.slice(sectionStart);
-    const nextHeader = restOfContent.match(/\n###\s+Phase\s+\d/i);
-    const sectionEnd = nextHeader ? sectionStart + nextHeader.index : content.length;
-    const section = content.slice(sectionStart, sectionEnd);
-
-    const goalMatch = section.match(/\*\*Goal:\*\*\s*([^\n]+)/i);
-    const goal = goalMatch ? goalMatch[1].trim() : null;
-
-    const dependsMatch = section.match(/\*\*Depends on:\*\*\s*([^\n]+)/i);
-    const depends_on = dependsMatch ? dependsMatch[1].trim() : null;
-
-    // Check completion on disk
-    const normalized = normalizePhaseName(phaseNum);
-    let diskStatus = 'no_directory';
-    let planCount = 0;
-    let summaryCount = 0;
-
-    try {
-      const entries = fs.readdirSync(phasesDir, { withFileTypes: true });
-      const dirs = entries.filter(e => e.isDirectory()).map(e => e.name);
-      const dirMatch = dirs.find(d => d.startsWith(normalized + '-') || d === normalized);
-
-      if (dirMatch) {
-        const phaseFiles = fs.readdirSync(path.join(phasesDir, dirMatch));
-        planCount = phaseFiles.filter(f => f.endsWith('-PLAN.md') || f === 'PLAN.md').length;
-        summaryCount = phaseFiles.filter(f => f.endsWith('-SUMMARY.md') || f === 'SUMMARY.md').length;
-
-        if (summaryCount >= planCount && planCount > 0) diskStatus = 'complete';
-        else if (summaryCount > 0) diskStatus = 'partial';
-        else if (planCount > 0) diskStatus = 'planned';
-        else diskStatus = 'empty';
-      }
-    } catch {}
-
-    phases.push({
-      number: phaseNum,
-      name: phaseName,
-      goal,
-      depends_on,
-      disk_status: diskStatus,
-    });
-  }
+  const phases = parseRoadmapPhases(content, phasesDir);
 
   // Build execution order (simple sequential for now - no DAG parallel support yet)
   const executionOrder = phases.map(p => p.number);
@@ -11565,7 +11527,7 @@ Was ${model} the right choice for this task? (y/n): `;
       break;
     }
 
-        case 'requirements': {
+    case 'requirements': {
       const subcommand = args[1];
       if (subcommand === 'mark-complete') {
         cmdRequirementsMarkComplete(cwd, args.slice(2), raw);
