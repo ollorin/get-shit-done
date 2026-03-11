@@ -665,6 +665,82 @@ git log --oneline --all | grep -q "{hash}" && echo "FOUND: {hash}" || echo "MISS
 Do NOT skip. Do NOT proceed to state updates if self-check fails.
 </self_check>
 
+<docs_update>
+
+## Mandatory Docs Update
+
+After self-check passes (SUMMARY.md verified), spawn the docs updater agent as the last mandatory step before state updates.
+
+**This step is not skippable.** Fire it regardless of what was built. If self-check failed (SUMMARY.md says FAILED), skip this step — state updates are also skipped in that case.
+
+Determine the absolute path of the SUMMARY.md just written:
+
+```bash
+SUMMARY_PATH="$(pwd)/.planning/phases/${PHASE_DIR}/${PHASE}-${PLAN}-SUMMARY.md"
+PROJECT_ROOT="$(pwd)"
+```
+
+Spawn gsd-docs-updater:
+
+```
+Task(
+  subagent_type="gsd-docs-updater",
+  model="haiku",
+  prompt="
+    <context>
+    Phase: {PHASE}
+    Plan: {PLAN}
+    Project root: {PROJECT_ROOT}
+    </context>
+
+    <summary_path>
+    {SUMMARY_PATH}
+    </summary_path>
+
+    Read the SUMMARY.md at the path above. Classify build scope. Detect /docs conventions. Write proportionally-scoped docs. Commit. Report.
+  "
+)
+```
+
+Wait for gsd-docs-updater to complete. Parse the returned report:
+- `DOCS_BUILD_SCOPE` — the BUILD_SCOPE value (api_change / ui_surface / architecture / refactoring)
+- `DOCS_FILES_WRITTEN` — list of files written
+- `DOCS_COMMIT` — the commit hash
+
+**On docs agent failure (Task() throws or returns error):**
+- Log the error message
+- Continue to state updates — docs failure does NOT block state updates or phase completion
+- Append to SUMMARY.md:
+
+```markdown
+## Docs
+
+**Status:** Failed — {error message}
+```
+
+**On docs agent success:**
+- Append to SUMMARY.md:
+
+```markdown
+## Docs
+
+**Scope:** {DOCS_BUILD_SCOPE}
+**Files written:**
+{for each file in DOCS_FILES_WRITTEN: - {file path}}
+**Commit:** {DOCS_COMMIT}
+```
+
+- Commit the SUMMARY.md update:
+
+```bash
+git add ".planning/phases/${PHASE_DIR}/${PHASE}-${PLAN}-SUMMARY.md"
+git commit -m "docs(${PHASE}-${PLAN}): append docs section to SUMMARY.md"
+```
+
+</docs_update>
+
+
+
 <state_updates>
 After SUMMARY.md, update STATE.md using gsd-tools:
 
