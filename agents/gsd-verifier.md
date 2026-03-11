@@ -674,6 +674,139 @@ If MIGRATIONS_DIR == "no": this check passes silently.
 
 </check_migration_timestamps>
 
+<check_docs_coverage>
+
+## Step 8f: Docs Validation Gate (DOCS-04)
+
+Check whether documentation was produced proportional to what was built in this phase.
+
+**Step A — Determine build scope from SUMMARY.md:**
+
+For each SUMMARY.md in the phase directory, extract key-files and task descriptions to classify build scope.
+
+**Signal classification (path-based, case-insensitive):**
+
+| Signal type | Path pattern matches |
+|-------------|---------------------|
+| api_change | `api`, `route`, `handler`, `endpoint`, `router` |
+| ui_surface | `component`, `page`, `frontend`, `view`, `screen` |
+| architecture | SUMMARY text contains: "architectural decision", "migration", "schema change", "major refactor", "new service" |
+| refactoring | None of the above |
+
+Take the highest-priority signal as `DOCS_EXPECTED_SCOPE` (priority: api_change > ui_surface > architecture > refactoring).
+
+```bash
+DOCS_EXPECTED_SCOPE="refactoring"  # default
+for summary in "$PHASE_DIR"/*-SUMMARY.md; do
+  if [ -f "$summary" ]; then
+    SCOPE=$(node -e "
+      try {
+        const fs = require('fs');
+        const c = fs.readFileSync('$summary', 'utf8').toLowerCase();
+        const files = (c.match(/[w-\/\.]+\.(ts|tsx|js|py|rb|go|java)/g) || []).join(' ');
+        if (/api|route|handler|endpoint|router/.test(files)) { console.log('api_change'); }
+        else if (/component|page|frontend|view|screen/.test(files)) { console.log('ui_surface'); }
+        else if (/architectural decision|migration|schema change|major refactor|new service/.test(c)) { console.log('architecture'); }
+        else { console.log('refactoring'); }
+      } catch(e) { console.log('refactoring'); }
+    " 2>/dev/null || echo "refactoring")
+    # Take highest priority
+    if [ "$SCOPE" = "api_change" ]; then DOCS_EXPECTED_SCOPE="api_change"; break; fi
+    if [ "$SCOPE" = "ui_surface" ] && [ "$DOCS_EXPECTED_SCOPE" != "api_change" ]; then DOCS_EXPECTED_SCOPE="ui_surface"; fi
+    if [ "$SCOPE" = "architecture" ] && [ "$DOCS_EXPECTED_SCOPE" = "refactoring" ]; then DOCS_EXPECTED_SCOPE="architecture"; fi
+  fi
+done
+```
+
+**Step B — Check if docs agent ran:**
+
+Check SUMMARY.md files for a `## Docs` section (written by gsd-docs-updater when it succeeds):
+
+```bash
+DOCS_SECTION_COUNT=$(for summary in "$PHASE_DIR"/*-SUMMARY.md; do
+  [ -f "$summary" ] && cat "$summary" 2>/dev/null || true
+done | grep -c "^## Docs" 2>/dev/null || echo 0)
+```
+
+If `DOCS_SECTION_COUNT == 0`:
+- `DOCS_AGENT_RAN=false`
+
+If `DOCS_SECTION_COUNT >= 1`:
+- `DOCS_AGENT_RAN=true`
+- Extract the **Scope** line from the first `## Docs` section found: `DOCS_ACTUAL_SCOPE`
+
+**Step C — Check doc artifacts exist on disk:**
+
+Based on `DOCS_EXPECTED_SCOPE`:
+
+- `api_change`: `API_DOCS=$(ls docs/api/*.md 2>/dev/null | wc -l | tr -d ' ')` — must be >= 1
+- `ui_surface`: `UI_DOCS=$(ls docs/frontend*/*.md docs/frontend/*.md 2>/dev/null | wc -l | tr -d ' ')` — must be >= 1
+- `architecture`: `ARCH_DOCS=$(ls docs/architecture/*.md 2>/dev/null | wc -l | tr -d ' ')` — must be >= 1
+- `refactoring`: Check CHANGELOG.md exists and contains a reference to phase ${PHASE_NUM}:
+  ```bash
+  CHANGELOG_ENTRY=$(grep -c "Phase ${PHASE_NUM}" CHANGELOG.md 2>/dev/null || echo 0)
+  ```
+
+**Step D — Evaluate and report gaps:**
+
+For each docs issue found (DOCS_AGENT_RAN=false when scope is not refactoring, or artifact count is 0):
+
+- If `DOCS_AGENT_RAN=false` AND `DOCS_EXPECTED_SCOPE` is not `refactoring`:
+  Add gap:
+  ```yaml
+  - truth: "Documentation produced proportional to build scope (api_change/ui_surface/architecture)"
+    status: failed
+    failure_type: missing_artifact
+    reason: "Docs agent was skipped — no ## Docs section found in any SUMMARY.md for this phase"
+    artifacts:
+      - path: "docs/"
+        issue: "No documentation artifacts found for {DOCS_EXPECTED_SCOPE} build scope"
+    missing:
+      - "Run gsd-docs-updater to generate missing documentation for this phase"
+  ```
+  Set STATUS = gaps_found
+
+- If `DOCS_AGENT_RAN=true` AND artifact count is 0 AND scope is not `refactoring`:
+  Add gap:
+  ```yaml
+  - truth: "Documentation artifacts exist for build scope ({DOCS_EXPECTED_SCOPE})"
+    status: failed
+    failure_type: missing_artifact
+    reason: "Docs agent ran but no documentation files found in docs/ for expected scope"
+    artifacts:
+      - path: "docs/{expected subdir}/"
+        issue: "Directory is empty or missing for {DOCS_EXPECTED_SCOPE} scope"
+    missing:
+      - "Check gsd-docs-updater output for errors — docs commit may have failed"
+  ```
+  Set STATUS = gaps_found
+
+- If `DOCS_EXPECTED_SCOPE=refactoring` AND CHANGELOG entry not found:
+  Add gap:
+  ```yaml
+  - truth: "Refactoring phase has a CHANGELOG.md entry"
+    status: failed
+    failure_type: missing_artifact
+    reason: "Refactoring phase but no CHANGELOG.md entry found referencing phase {PHASE_NUM}"
+    artifacts:
+      - path: "CHANGELOG.md"
+        issue: "No entry for phase {PHASE_NUM} found"
+    missing:
+      - "Add a one-line entry to CHANGELOG.md ## Unreleased section describing this refactoring"
+  ```
+  Set STATUS = gaps_found
+
+**Passing conditions (no gap added):**
+- `DOCS_EXPECTED_SCOPE=api_change` AND `API_DOCS >= 1`
+- `DOCS_EXPECTED_SCOPE=ui_surface` AND `UI_DOCS >= 1`
+- `DOCS_EXPECTED_SCOPE=architecture` AND `ARCH_DOCS >= 1`
+- `DOCS_EXPECTED_SCOPE=refactoring` AND `CHANGELOG_ENTRY >= 1`
+
+Log: "Docs validation — expected scope: {DOCS_EXPECTED_SCOPE} | agent ran: {DOCS_AGENT_RAN} | artifacts found: {artifact_count} | gaps: {gap_count}"
+
+</check_docs_coverage>
+
+
 </verification_process>
 
 <output>
@@ -887,6 +1020,7 @@ Log each write: "KB: wrote anti-pattern entry — {truth (first 60 chars)}"
 - [ ] Charlotte QA coverage checked (Step 8c) — UI files without Charlotte QA → gaps_found (never warning)
 - [ ] Test file coverage checked (Step 8d) — implementation files without test counterparts → gaps_found (never warning)
 - [ ] Migration timestamp conflicts checked (Step 8e) — unresolved conflicts → gaps_found (never warning)
+- [ ] Docs coverage validated (Step 8f) — docs missing for scope → gaps_found (never warning)
 - [ ] Overall status determined
 - [ ] Gaps structured in YAML frontmatter (if gaps_found) — each gap includes failure_type field
 - [ ] Re-verification metadata included (if previous existed)
