@@ -84,7 +84,7 @@ Template for `.planning/prds/pending/{slug}.md` — product-oriented PRD format 
 
 *PRD Status: pending*
 *Stored: .planning/prds/pending/{slug}.md*
-*Ready for: /gsd:new-milestone --prd .planning/prds/pending/{slug}.md*
+*Ready for: /gsd:new-milestone (will auto-detect this PRD from .planning/prds/pending/)*
 ```
 
 </template>
