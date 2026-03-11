@@ -127,9 +127,40 @@ Generating CONTEXT.md from requirements...
 *Context gathered: [date] via PRD Express Path*
 ```
 
-5. Commit:
+4.5. Write PRD-TRACE.md:
+
+Display progress: `Generating PRD traceability map...`
+
+Parse each requirement/user story/acceptance criterion/constraint from PRD_CONTENT. Assign sequential REQ-IDs starting at PRD-01 in the order they appear in the PRD.
+
+For each requirement found, extract:
+- **REQ-ID**: PRD-01, PRD-02, ... (sequential)
+- **Requirement**: the requirement text (trimmed to one line if multi-line)
+- **Category**: derive from content context (functional | acceptance_criterion | user_story | constraint | nonfunctional)
+- **Plan**: TBD (set at generation time — the planner assigns plan numbers later when creating PLAN.md files)
+- **Status**: pending
+
+Write to `${phase_dir}/${padded_phase}-PRD-TRACE.md`:
+```markdown
+---
+phase: {padded_phase}-{phase_slug}
+source_prd: {PRD_FILE}
+generated: {current_date}
+---
+
+# PRD Traceability Map
+
+| REQ-ID | Requirement | Category | Plan | Status |
+|--------|-------------|----------|------|--------|
+| PRD-01 | {requirement text} | {category} | TBD | pending |
+| PRD-02 | {requirement text} | {category} | TBD | pending |
+```
+
+Set `prd_trace_path="${phase_dir}/${padded_phase}-PRD-TRACE.md"`.
+
+5. Commit (includes both CONTEXT.md and PRD-TRACE.md):
 ```bash
-node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs(${padded_phase}): generate context from PRD" --files "${phase_dir}/${padded_phase}-CONTEXT.md"
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs(${padded_phase}): generate context and PRD traceability map from PRD" --files "${phase_dir}/${padded_phase}-CONTEXT.md" "${phase_dir}/${padded_phase}-PRD-TRACE.md"
 ```
 
 6. Set `context_content` to the generated CONTEXT.md content and continue to step 5 (Handle Research).

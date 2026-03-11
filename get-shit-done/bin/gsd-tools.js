@@ -51,10 +51,6 @@
  *     [--phases N-M]                   plan count, duration, key decisions)
  *   milestone archive-phases <version> Move completed phase dirs to milestones/{version}/phases/
  *     [--phases N-M] [--dry-run]
- *   milestone summarize <version>      Generate {version}-SUMMARY.md (one-liner per phase,
- *     [--phases N-M]                   plan count, duration, key decisions)
- *   milestone archive-phases <version> Move completed phase dirs to milestones/{version}/phases/
- *     [--phases N-M] [--dry-run]
  * Validation:
  *   validate consistency               Check phase numbering, disk/roadmap sync
  *
@@ -81,12 +77,13 @@
  *     --schema plan|summary|verification
  *
  * Verification Suite:
- *   verify plan-structure <file>       Check PLAN.md structure + tasks
+ *   verify plan-structure <file>       Check PLAN.md structure + tasks (tdd/ui-qa gates; exits 1 on error)
  *   verify phase-completeness <phase>  Check all plans have summaries
  *   verify references <file>           Check @-refs + paths resolve
  *   verify commits <h1> [h2] ...      Batch verify commit hashes
  *   verify artifacts <plan-file>       Check must_haves.artifacts
  *   verify key-links <plan-file>       Check must_haves.key_links
+ *   verify migration-timestamps         Scan migrations/ for duplicate timestamps; auto-resolve by rename
  *
  * Template Fill:
  *   template fill summary --phase N    Create pre-filled SUMMARY.md
@@ -165,6 +162,14 @@
  *   init milestone-op                  All context for milestone operations
  *   init map-codebase                  All context for map-codebase workflow
  *   init progress                      All context for progress workflow
+ *
+ * Service Health:
+ *   service-health start <name>        Start named server from dev_servers registry;
+ *     [--raw]                          poll health endpoint until ready or 60s timeout
+ *   service-health stop <name>         Stop named server by PID; SIGTERM then SIGKILL after 5s
+ *   service-health status <name>       Check if named server is running (JSON output)
+ *   service-health start-all           Start all servers in dev_servers registry
+ *   service-health stop-all            Stop all running servers (by PID files)
  */
 
 const fs = require('fs');
@@ -203,7 +208,7 @@ const MODEL_PROFILES = {
   'gsd-codebase-mapper':      { quality: 'sonnet', balanced: 'haiku', budget: 'haiku', auto: 'haiku'  },
   'gsd-verifier':             { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku', auto: 'sonnet' },
   'gsd-plan-checker':         { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku', auto: 'sonnet' },
-  'gsd-nyquist-auditor':      { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku' },
+  'gsd-nyquist-auditor':      { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku', auto: 'sonnet' },
   'gsd-integration-checker':  { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku', auto: 'sonnet' },
 };
 
@@ -285,8 +290,12 @@ function loadConfig(cwd) {
       granularity: get('granularity') ?? defaults.granularity,
       brave_search: get('brave_search') ?? defaults.brave_search,
       coordinator_model: get('coordinator_model') ?? null,
+      dev_servers: parsed.dev_servers || null,
     };
-  } catch {
+  } catch (e) {
+    // Only suppress file-not-found; surface parse errors so broken config is visible
+    if (e.code === 'ENOENT') return defaults;
+    process.stderr.write('Warning: config.json parse error: ' + e.message + '\n');
     return defaults;
   }
 }
@@ -613,12 +622,13 @@ function getQuotaPath(cwd) {
 function loadQuotaState(cwd) {
   const quotaPath = getQuotaPath(cwd);
   if (!fs.existsSync(quotaPath)) {
-    return { ...DEFAULT_QUOTA_STATE };
+    // Deep copy to avoid shared nested objects (session, weekly, tasks, warnings_shown)
+    return JSON.parse(JSON.stringify(DEFAULT_QUOTA_STATE));
   }
   try {
     return JSON.parse(fs.readFileSync(quotaPath, 'utf-8'));
   } catch {
-    return { ...DEFAULT_QUOTA_STATE };
+    return JSON.parse(JSON.stringify(DEFAULT_QUOTA_STATE));
   }
 }
 
@@ -833,27 +843,29 @@ function formatStatusBar(quotaState) {
 function getUsageStats(quotaState) {
   const tasks = quotaState.tasks || [];
 
-  // Calculate per-model breakdown
+  // Calculate per-model breakdown (include cache token fields for accuracy)
   const models = { haiku: { tokens: 0, tasks: 0 }, sonnet: { tokens: 0, tasks: 0 }, opus: { tokens: 0, tasks: 0 } };
   for (const task of tasks) {
     const model = task.model.toLowerCase();
     if (models[model]) {
-      models[model].tokens += task.tokens_in + task.tokens_out;
+      models[model].tokens += (task.tokens_in || 0) + (task.tokens_out || 0)
+        + (task.tokens_cache_create_1h || 0) + (task.tokens_cache_create_5m || 0)
+        + (task.tokens_cache_read || 0);
       models[model].tasks += 1;
     }
   }
 
-  // Calculate estimated cost savings (rough estimates)
-  // Opus: $15/M input, $75/M output
-  // Sonnet: $3/M input, $15/M output
-  // Haiku: $0.25/M input, $1.25/M output
-  const opusCost = (models.opus.tokens / 1000000) * 45; // Avg of input/output
-  const sonnetCost = (models.sonnet.tokens / 1000000) * 9;
-  const haikuCost = (models.haiku.tokens / 1000000) * 0.75;
+  // Calculate estimated cost savings using per-token pricing (anthropic.com/pricing, Feb 2026)
+  // Uses blended avg of input ($X/M) and output ($Y/M) per model
+  // Aligned with RATES in formatStatusBar: haiku in:$1 out:$5, sonnet in:$3 out:$15, opus in:$5 out:$25
+  const BLENDED_RATES = { haiku: 3, sonnet: 9, opus: 15 }; // $/M tokens blended avg
+  const opusCost = (models.opus.tokens / 1000000) * BLENDED_RATES.opus;
+  const sonnetCost = (models.sonnet.tokens / 1000000) * BLENDED_RATES.sonnet;
+  const haikuCost = (models.haiku.tokens / 1000000) * BLENDED_RATES.haiku;
 
   // If all tasks were Opus
   const totalTokens = models.haiku.tokens + models.sonnet.tokens + models.opus.tokens;
-  const allOpusCost = (totalTokens / 1000000) * 45;
+  const allOpusCost = (totalTokens / 1000000) * BLENDED_RATES.opus;
   const actualCost = opusCost + sonnetCost + haikuCost;
   const savings = allOpusCost - actualCost;
   const savingsPercent = allOpusCost > 0 ? (savings / allOpusCost) * 100 : 0;
@@ -1771,7 +1783,11 @@ function cmdFindPhase(cwd, phase, raw) {
     const entries = fs.readdirSync(phasesDir, { withFileTypes: true });
     const dirs = entries.filter(e => e.isDirectory()).map(e => e.name).sort();
 
-    const match = dirs.find(d => d.startsWith(normalized));
+    // Prefer exact match (e.g., "01-name") over prefix match (e.g., "01.1-name")
+    // to prevent phase "1" resolving to "1.1" when both exist
+    const exactMatch = dirs.find(d => d === normalized || d.startsWith(normalized + '-'));
+    const prefixMatch = dirs.find(d => d.startsWith(normalized));
+    const match = exactMatch || prefixMatch;
     if (!match) {
       output(notFound, raw, '');
       return;
@@ -4628,24 +4644,38 @@ function cmdVerifyPlanStructure(cwd, filePath, raw) {
 
   // Parse and check task elements
   const taskPattern = /<task[^>]*>([\s\S]*?)<\/task>/g;
+  const taskTagPattern = /<task([^>]*)>/g;
   const tasks = [];
   let taskMatch;
+  let taskTagMatch;
+  const taskOpenTags = [];
+  while ((taskTagMatch = taskTagPattern.exec(content)) !== null) {
+    taskOpenTags.push(taskTagMatch[1] || '');
+  }
+  let taskIdx = 0;
+  taskPattern.lastIndex = 0;
   while ((taskMatch = taskPattern.exec(content)) !== null) {
+    const taskAttrs = taskOpenTags[taskIdx] || '';
+    taskIdx++;
+    // Checkpoint tasks have different structure — skip <name>/<action> checks for them
+    const isCheckpointTask = /type=["']?checkpoint:/.test(taskAttrs);
     const taskContent = taskMatch[1];
     const nameMatch = taskContent.match(/<name>([\s\S]*?)<\/name>/);
-    const taskName = nameMatch ? nameMatch[1].trim() : 'unnamed';
+    const taskName = nameMatch ? nameMatch[1].trim() : (isCheckpointTask ? '(checkpoint)' : 'unnamed');
     const hasFiles = /<files>/.test(taskContent);
-    const hasAction = /<action>/.test(taskContent);
+    const hasAction = /<action>/.test(taskContent) || isCheckpointTask;
     const hasVerify = /<verify>/.test(taskContent);
     const hasDone = /<done>/.test(taskContent);
 
-    if (!nameMatch) errors.push('Task missing <name> element');
-    if (!hasAction) errors.push(`Task '${taskName}' missing <action>`);
-    if (!hasVerify) warnings.push(`Task '${taskName}' missing <verify>`);
-    if (!hasDone) warnings.push(`Task '${taskName}' missing <done>`);
-    if (!hasFiles) warnings.push(`Task '${taskName}' missing <files>`);
+    if (!isCheckpointTask) {
+      if (!nameMatch) errors.push('Task missing <name> element');
+      if (!hasAction) errors.push(`Task '${taskName}' missing <action>`);
+      if (!hasVerify) warnings.push(`Task '${taskName}' missing <verify>`);
+      if (!hasDone) warnings.push(`Task '${taskName}' missing <done>`);
+      if (!hasFiles) warnings.push(`Task '${taskName}' missing <files>`);
+    }
 
-    tasks.push({ name: taskName, hasFiles, hasAction, hasVerify, hasDone });
+    tasks.push({ name: taskName, isCheckpoint: isCheckpointTask, hasFiles, hasAction, hasVerify, hasDone });
   }
 
   if (tasks.length === 0) warnings.push('No <task> elements found');
@@ -4661,14 +4691,41 @@ function cmdVerifyPlanStructure(cwd, filePath, raw) {
     errors.push('Has checkpoint tasks but autonomous is not false');
   }
 
-  output({
+  // UI-QA check: plans that modify UI files must have a checkpoint:ui-qa task
+  const UI_FILE_PATTERNS = ['.tsx', '.jsx', '.vue', '.svelte'];
+  const filesModified = Array.isArray(fm.files_modified)
+    ? fm.files_modified
+    : (fm.files_modified ? [String(fm.files_modified)] : []);
+  const hasUiFiles = filesModified.some(f =>
+    UI_FILE_PATTERNS.some(ext => f.endsWith(ext))
+  );
+  const hasUiQaTask = /<task[^>]+type=["']?checkpoint:ui-qa/.test(content);
+  if (hasUiFiles && !hasUiQaTask) {
+    errors.push('Plan modifies UI files (.tsx/.jsx/.vue/.svelte) but has no checkpoint:ui-qa task');
+  }
+
+  // TDD check: plans that modify API/route files must have a tdd="true" task
+  const API_FILE_PATTERNS = ['route.ts', 'route.js', '/api/', '/routes/', '/functions/', 'controller.ts', 'controller.js', 'handler.ts', 'handler.js'];
+  const hasApiFiles = filesModified.some(f =>
+    API_FILE_PATTERNS.some(pat => f.includes(pat))
+  );
+  const hasTddTask = /tdd=["']?true/.test(content);
+  if (hasApiFiles && !hasTddTask) {
+    errors.push('Plan modifies API/route files but has no tdd="true" task');
+  }
+
+  // Output result and exit with code reflecting validation status
+  // Exit 1 when errors exist so bash callers can gate on this
+  const resultData = {
     valid: errors.length === 0,
     errors,
     warnings,
     task_count: tasks.length,
     tasks,
     frontmatter_fields: Object.keys(fm),
-  }, raw, errors.length === 0 ? 'valid' : 'invalid');
+  };
+  process.stdout.write(JSON.stringify(resultData, null, 2));
+  process.exit(errors.length > 0 ? 1 : 0);
 }
 
 function cmdVerifyPhaseCompleteness(cwd, phase, raw) {
@@ -4900,20 +4957,300 @@ function cmdVerifyKeyLinks(cwd, planFilePath, raw) {
   }, raw, verified === results.length ? 'valid' : 'invalid');
 }
 
-// ─── Roadmap Analysis ─────────────────────────────────────────────────────────
+function cmdVerifyMigrationTimestamps(cwd, raw) {
+  const migrationsDir = path.join(cwd, 'migrations');
 
-function cmdRoadmapAnalyze(cwd, raw) {
-  const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
-
-  if (!fs.existsSync(roadmapPath)) {
-    output({ error: 'ROADMAP.md not found', milestones: [], phases: [], current_phase: null }, raw);
+  if (!fs.existsSync(migrationsDir)) {
+    output({ migrations_dir: null, skipped: true, reason: 'No migrations directory found' }, raw);
     return;
   }
 
-  const content = fs.readFileSync(roadmapPath, 'utf-8');
-  const phasesDir = path.join(cwd, '.planning', 'phases');
+  // Read flat file list from migrations/
+  let allFiles;
+  try {
+    allFiles = fs.readdirSync(migrationsDir, { withFileTypes: true })
+      .filter(d => d.isFile())
+      .map(d => d.name);
+  } catch (e) {
+    output({ error: 'Could not read migrations directory: ' + e.message }, raw);
+    return;
+  }
 
-  // Extract all phase headings: ### Phase N: Name
+  // Filter to files with a leading numeric timestamp prefix
+  const TIMESTAMP_RE = /^(\d+)([_\-].*)?$/;
+  const migrationFiles = allFiles.filter(f => TIMESTAMP_RE.test(f));
+
+  // Group by timestamp prefix
+  const groups = {};
+  for (const file of migrationFiles) {
+    const match = TIMESTAMP_RE.exec(file);
+    const ts = match[1];
+    if (!groups[ts]) groups[ts] = [];
+    groups[ts].push(file);
+  }
+
+  const migrations = [];
+  const existingTimestamps = new Set(migrationFiles.map(f => TIMESTAMP_RE.exec(f)[1]));
+
+  let conflictsFound = 0;
+  let resolved = 0;
+
+  for (const [ts, files] of Object.entries(groups)) {
+    if (files.length === 1) {
+      migrations.push({ file: files[0], timestamp: ts, status: 'ok' });
+      continue;
+    }
+
+    // First file is canonical, rest are conflicts
+    migrations.push({ file: files[0], timestamp: ts, status: 'ok' });
+
+    for (let i = 1; i < files.length; i++) {
+      const originalFile = files[i];
+      const tsMatch = TIMESTAMP_RE.exec(originalFile);
+      const suffix = tsMatch[2] || '';
+      conflictsFound++;
+
+      // Find a unique timestamp by incrementing
+      let newTs = BigInt(ts) + BigInt(1);
+      while (existingTimestamps.has(String(newTs))) {
+        newTs += BigInt(1);
+      }
+      const newTsStr = String(newTs);
+      const newFile = newTsStr + suffix;
+
+      try {
+        fs.renameSync(
+          path.join(migrationsDir, originalFile),
+          path.join(migrationsDir, newFile)
+        );
+        existingTimestamps.add(newTsStr);
+        resolved++;
+        migrations.push({
+          file: newFile,
+          timestamp: newTsStr,
+          original_file: originalFile,
+          new_file: newFile,
+          status: 'resolved',
+          action: 'renamed',
+        });
+      } catch (e) {
+        migrations.push({
+          file: originalFile,
+          timestamp: ts,
+          status: 'error',
+          error: 'Rename failed: ' + e.message,
+        });
+      }
+    }
+  }
+
+  output({
+    migrations_dir: 'migrations',
+    files_scanned: migrationFiles.length,
+    conflicts_found: conflictsFound,
+    resolved,
+    migrations,
+  }, raw, conflictsFound === 0 || resolved === conflictsFound ? 'valid' : 'invalid');
+}
+
+// ─── Verify Dependency Stability ──────────────────────────────────────────────
+
+function cmdVerifyDependencyStability(cwd, phaseArg, raw) {
+  if (!phaseArg) {
+    error('phase number required: verify dependency-stability <phase>');
+    return;
+  }
+
+  const phaseNum = parseInt(phaseArg, 10);
+  if (isNaN(phaseNum)) {
+    error('phase must be a number');
+    return;
+  }
+
+  const phasesDir = path.join(cwd, '.planning', 'phases');
+  const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
+
+  // 1. Find the target phase directory
+  const normalized = normalizePhaseName(phaseNum.toString());
+  const allDirs = fs.existsSync(phasesDir) ? fs.readdirSync(phasesDir) : [];
+  const phaseDir = allDirs.find(function(d) { return d.startsWith(normalized + '-') || d === normalized; });
+
+  if (!phaseDir) {
+    output({ error: 'Phase ' + phaseNum + ' directory not found', drift_detected: false }, raw);
+    return;
+  }
+
+  // 2. Read ROADMAP.md to find what phases this phase depends on
+  let dependsOn = [];
+  if (fs.existsSync(roadmapPath)) {
+    const roadmapContent = fs.readFileSync(roadmapPath, 'utf-8');
+    // Find the phase section header
+    const phaseHeaderRe = new RegExp('###\\s+Phase\\s+' + phaseNum + '[^\\d]', 'i');
+    const phaseStart = roadmapContent.search(phaseHeaderRe);
+    if (phaseStart !== -1) {
+      const sectionRest = roadmapContent.slice(phaseStart, phaseStart + 2000);
+      const depsMatch = sectionRest.match(/\*\*Depends on:\*\*\s*([^\n]+)/i);
+      if (depsMatch) {
+        const depsText = depsMatch[1].trim();
+        if (!depsText.toLowerCase().includes('nothing')) {
+          dependsOn = depsText
+            .split(',')
+            .map(function(dep) {
+              const m = dep.match(/Phase\s+(\d+)/);
+              return m ? parseInt(m[1]) : null;
+            })
+            .filter(function(n) { return n !== null; });
+        }
+      }
+    }
+  }
+
+  if (dependsOn.length === 0) {
+    output({
+      phase: phaseNum,
+      depends_on_phases: [],
+      files_checked: [],
+      drifted_files: [],
+      drift_detected: false,
+      message: 'No dependencies to check'
+    }, raw, 'stable');
+    return;
+  }
+
+  // 3. For each depended-on phase, collect files_modified from their PLAN.md frontmatters
+  const allTrackedFiles = new Map(); // file -> depPhaseNum
+  const depsWithNoFiles = [];
+
+  for (const depPhaseNum of dependsOn) {
+    const depNorm = normalizePhaseName(depPhaseNum.toString());
+    const depDir = allDirs.find(function(d) { return d.startsWith(depNorm + '-') || d === depNorm; });
+    if (!depDir) continue;
+
+    const depDirPath = path.join(phasesDir, depDir);
+    let planFiles = [];
+    try { planFiles = fs.readdirSync(depDirPath).filter(function(f) { return f.endsWith('-PLAN.md'); }); } catch (e) {}
+    let foundFiles = false;
+
+    for (const planFile of planFiles) {
+      const planContent = safeReadFile(path.join(depDirPath, planFile));
+      if (!planContent) continue;
+      // Parse YAML frontmatter
+      const fmMatch = planContent.match(/^---\n([\s\S]*?)\n---/);
+      if (!fmMatch) continue;
+      const fm = fmMatch[1];
+      // Extract files_modified list
+      const filesModifiedMatch = fm.match(/files_modified:\s*\n((?:\s+-\s+[^\n]+\n?)*)/);
+      if (filesModifiedMatch) {
+        const lines = filesModifiedMatch[1].split('\n');
+        for (const line of lines) {
+          const fileMatch = line.match(/^\s+-\s+(.+)/);
+          if (fileMatch) {
+            const trackedFile = fileMatch[1].trim().replace(/^["']|["']$/g, '');
+            if (trackedFile) {
+              allTrackedFiles.set(trackedFile, depPhaseNum);
+              foundFiles = true;
+            }
+          }
+        }
+      }
+    }
+
+    if (!foundFiles) depsWithNoFiles.push(depPhaseNum);
+  }
+
+  if (allTrackedFiles.size === 0) {
+    output({
+      phase: phaseNum,
+      depends_on_phases: dependsOn,
+      files_checked: [],
+      drifted_files: [],
+      drift_detected: false,
+      message: 'No tracked files found in depended-on phases (files_modified frontmatter may be absent)',
+      deps_with_no_files: depsWithNoFiles
+    }, raw, 'stable');
+    return;
+  }
+
+  // 4. For each tracked file, check git log for commits not from the origin phase
+  const driftedFiles = [];
+  const filesChecked = Array.from(allTrackedFiles.keys());
+
+  for (const [trackedFile, originPhase] of allTrackedFiles) {
+    const fullFilePath = path.join(cwd, trackedFile);
+    if (!fs.existsSync(fullFilePath)) continue;
+
+    try {
+      const { execSync } = require('child_process');
+      const logOutput = execSync(
+        'git log --oneline --follow -- "' + trackedFile + '"',
+        { cwd: cwd, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 5000 }
+      ).trim();
+
+      if (!logOutput) continue;
+
+      const originNormStr = normalizePhaseName(originPhase.toString());
+      const targetNormStr = normalizePhaseName(phaseNum.toString());
+
+      const commits = logOutput.split('\n').map(function(line) {
+        const spaceIdx = line.indexOf(' ');
+        return {
+          hash: line.slice(0, spaceIdx).trim(),
+          message: line.slice(spaceIdx + 1).trim()
+        };
+      });
+
+      for (const commit of commits) {
+        const msg = commit.message;
+        const isFromOriginPhase = msg.includes(originNormStr) ||
+          msg.toLowerCase().includes('phase ' + originPhase);
+        const isFromTargetPhase = msg.includes(targetNormStr) ||
+          msg.toLowerCase().includes('phase ' + phaseNum);
+
+        if (!isFromOriginPhase && !isFromTargetPhase) {
+          // Extract phase number from conventional commit message if possible
+          const phaseInMsg = msg.match(/(?:feat|fix|refactor|docs|chore|test)[^(]*\((\d+)/);
+          const modifiedByPhase = phaseInMsg ? phaseInMsg[1] : 'unknown';
+          driftedFiles.push({
+            file: trackedFile,
+            origin_phase: originPhase,
+            modified_by_phase: modifiedByPhase,
+            commit_hash: commit.hash,
+            commit_msg: commit.message
+          });
+          break; // Only report first drift per file
+        }
+      }
+    } catch (gitErr) {
+      // git unavailable or file not tracked — skip silently
+    }
+  }
+
+  const result = {
+    phase: phaseNum,
+    depends_on_phases: dependsOn,
+    files_checked: filesChecked,
+    drifted_files: driftedFiles,
+    drift_detected: driftedFiles.length > 0
+  };
+
+  if (depsWithNoFiles.length > 0) result.deps_with_no_files = depsWithNoFiles;
+
+  output(result, raw, driftedFiles.length > 0 ? 'drift_detected' : 'stable');
+}
+
+
+// ─── Shared Phase Parsing Helper ──────────────────────────────────────────────
+
+/**
+ * Parse phases from ROADMAP.md content + disk state.
+ * Shared between cmdRoadmapAnalyze and cmdInitExecuteRoadmap to avoid duplication.
+ * @param {string} content - ROADMAP.md content
+ * @param {string} phasesDir - path to .planning/phases
+ * @param {object} [options] - { includeExtendedDiskInfo: true } to include has_context/has_research/roadmap_complete
+ * @returns {Array} phases
+ */
+function parseRoadmapPhases(content, phasesDir, options) {
+  const extended = options && options.includeExtendedDiskInfo;
   const phasePattern = /###\s*Phase\s+(\d+(?:\.\d+)?)\s*:\s*([^\n]+)/gi;
   const phases = [];
   let match;
@@ -4922,7 +5259,6 @@ function cmdRoadmapAnalyze(cwd, raw) {
     const phaseNum = match[1];
     const phaseName = match[2].replace(/\(INSERTED\)/i, '').trim();
 
-    // Extract goal from the section
     const sectionStart = match.index;
     const restOfContent = content.slice(sectionStart);
     const nextHeader = restOfContent.match(/\n###\s+Phase\s+\d/i);
@@ -4935,7 +5271,6 @@ function cmdRoadmapAnalyze(cwd, raw) {
     const dependsMatch = section.match(/\*\*Depends on:\*\*\s*([^\n]+)/i);
     const depends_on = dependsMatch ? dependsMatch[1].trim() : null;
 
-    // Check completion on disk
     const normalized = normalizePhaseName(phaseNum);
     let diskStatus = 'no_directory';
     let planCount = 0;
@@ -4952,36 +5287,50 @@ function cmdRoadmapAnalyze(cwd, raw) {
         const phaseFiles = fs.readdirSync(path.join(phasesDir, dirMatch));
         planCount = phaseFiles.filter(f => f.endsWith('-PLAN.md') || f === 'PLAN.md').length;
         summaryCount = phaseFiles.filter(f => f.endsWith('-SUMMARY.md') || f === 'SUMMARY.md').length;
-        hasContext = phaseFiles.some(f => f.endsWith('-CONTEXT.md') || f === 'CONTEXT.md');
-        hasResearch = phaseFiles.some(f => f.endsWith('-RESEARCH.md') || f === 'RESEARCH.md');
+        if (extended) {
+          hasContext = phaseFiles.some(f => f.endsWith('-CONTEXT.md') || f === 'CONTEXT.md');
+          hasResearch = phaseFiles.some(f => f.endsWith('-RESEARCH.md') || f === 'RESEARCH.md');
+        }
 
         if (summaryCount >= planCount && planCount > 0) diskStatus = 'complete';
         else if (summaryCount > 0) diskStatus = 'partial';
         else if (planCount > 0) diskStatus = 'planned';
-        else if (hasResearch) diskStatus = 'researched';
-        else if (hasContext) diskStatus = 'discussed';
+        else if (extended && hasResearch) diskStatus = 'researched';
+        else if (extended && hasContext) diskStatus = 'discussed';
         else diskStatus = 'empty';
       }
     } catch {}
 
-    // Check ROADMAP checkbox status
-    const checkboxPattern = new RegExp(`-\\s*\\[(x| )\\]\\s*.*Phase\\s+${phaseNum.replace('.', '\\.')}`, 'i');
-    const checkboxMatch = content.match(checkboxPattern);
-    const roadmapComplete = checkboxMatch ? checkboxMatch[1] === 'x' : false;
-
-    phases.push({
-      number: phaseNum,
-      name: phaseName,
-      goal,
-      depends_on,
-      plan_count: planCount,
-      summary_count: summaryCount,
-      has_context: hasContext,
-      has_research: hasResearch,
-      disk_status: diskStatus,
-      roadmap_complete: roadmapComplete,
-    });
+    const phaseObj = { number: phaseNum, name: phaseName, goal, depends_on, disk_status: diskStatus };
+    if (extended) {
+      phaseObj.plan_count = planCount;
+      phaseObj.summary_count = summaryCount;
+      phaseObj.has_context = hasContext;
+      phaseObj.has_research = hasResearch;
+      const checkboxPattern = new RegExp(`-\\s*\\[(x| )\\]\\s*.*Phase\\s+${phaseNum.replace('.', '\\.')}`, 'i');
+      const checkboxMatch = content.match(checkboxPattern);
+      phaseObj.roadmap_complete = checkboxMatch ? checkboxMatch[1] === 'x' : false;
+    }
+    phases.push(phaseObj);
   }
+
+  return phases;
+}
+
+// ─── Roadmap Analysis ─────────────────────────────────────────────────────────
+
+function cmdRoadmapAnalyze(cwd, raw) {
+  const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
+
+  if (!fs.existsSync(roadmapPath)) {
+    output({ error: 'ROADMAP.md not found', milestones: [], phases: [], current_phase: null }, raw);
+    return;
+  }
+
+  const content = fs.readFileSync(roadmapPath, 'utf-8');
+  const phasesDir = path.join(cwd, '.planning', 'phases');
+
+  const phases = parseRoadmapPhases(content, phasesDir, { includeExtendedDiskInfo: true });
 
   // Extract milestone info
   const milestones = [];
@@ -5003,6 +5352,111 @@ function cmdRoadmapAnalyze(cwd, raw) {
   const totalSummaries = phases.reduce((sum, p) => sum + p.summary_count, 0);
   const completedPhases = phases.filter(p => p.disk_status === 'complete').length;
 
+
+  // ─── File conflict detection for parallel-eligible phases ────────────────────
+  const fileConflicts = [];
+
+  try {
+    // Only check not-yet-complete phases that have directories
+    const incompletePhases = phases.filter(function(p) {
+      return p.disk_status !== 'complete';
+    });
+
+    // Build phaseNum -> Set<string> map from PLAN.md files_modified frontmatter
+    const phaseFilesMap = {};
+
+    // Re-read entries from phasesDir for this pass
+    let dirEntries = [];
+    try { dirEntries = fs.readdirSync(phasesDir, { withFileTypes: true }); } catch (e) {}
+    const allPhaseDirs = dirEntries.filter(function(e) { return e.isDirectory(); }).map(function(e) { return e.name; });
+
+    for (const phase of incompletePhases) {
+      const normPhase = normalizePhaseName(phase.number);
+      const phDir = allPhaseDirs.find(function(d) { return d.startsWith(normPhase + '-') || d === normPhase; });
+      if (!phDir) continue;
+
+      const planFiles = fs.readdirSync(path.join(phasesDir, phDir))
+        .filter(function(f) { return f.endsWith('-PLAN.md'); });
+      const claimedFiles = {};
+
+      for (const planFile of planFiles) {
+        const planContent = safeReadFile(path.join(phasesDir, phDir, planFile));
+        if (!planContent) continue;
+        const fmMatch = planContent.match(/^---\n([\s\S]*?)\n---/);
+        if (!fmMatch) continue;
+        const fm = fmMatch[1];
+        const filesModMatch = fm.match(/files_modified:\s*\n((?:\s+-\s+[^\n]+\n?)*)/);
+        if (filesModMatch) {
+          const lines = filesModMatch[1].split('\n');
+          for (const line of lines) {
+            const fm2 = line.match(/^\s+-\s+(.+)/);
+            if (fm2) {
+              const f = fm2[1].trim().replace(/^["']|["']$/g, '');
+              if (f) claimedFiles[f] = true;
+            }
+          }
+        }
+      }
+
+      const keys = Object.keys(claimedFiles);
+      if (keys.length > 0) {
+        phaseFilesMap[phase.number] = keys;
+      }
+    }
+
+    // Find parallel-eligible pairs: phases with no mutual dependency
+    const conflictMap = {}; // file -> Set of phase numbers
+
+    for (let i = 0; i < incompletePhases.length; i++) {
+      for (let j = i + 1; j < incompletePhases.length; j++) {
+        const phA = incompletePhases[i];
+        const phB = incompletePhases[j];
+
+        // Parse depends_on strings (may be "Phase 35" style)
+        function parseDeps(depsStr) {
+          if (!depsStr) return [];
+          const matches = [];
+          const re = /Phase\s+(\d+)/gi;
+          let m;
+          while ((m = re.exec(depsStr)) !== null) matches.push(parseInt(m[1]));
+          return matches;
+        }
+
+        const depsA = parseDeps(phA.depends_on);
+        const depsB = parseDeps(phB.depends_on);
+        const numA = parseInt(phA.number) || 0;
+        const numB = parseInt(phB.number) || 0;
+
+        // Parallel-eligible if neither depends on the other
+        if (depsA.indexOf(numB) !== -1 || depsB.indexOf(numA) !== -1) continue;
+
+        const filesA = phaseFilesMap[phA.number] || [];
+        const filesB = phaseFilesMap[phB.number] || [];
+
+        for (const file of filesA) {
+          if (filesB.indexOf(file) !== -1) {
+            if (!conflictMap[file]) conflictMap[file] = {};
+            conflictMap[file][phA.number] = true;
+            conflictMap[file][phB.number] = true;
+          }
+        }
+      }
+    }
+
+    for (const file of Object.keys(conflictMap)) {
+      const claimedBy = Object.keys(conflictMap[file])
+        .map(function(p) { return parseInt(p) || p; })
+        .sort(function(a, b) { return a - b; });
+      fileConflicts.push({
+        file: file,
+        claimed_by: claimedBy,
+        conflict_type: 'write-write'
+      });
+    }
+  } catch (conflictErr) {
+    // Non-fatal: file conflict detection is best-effort
+  }
+
   const result = {
     milestones,
     phases,
@@ -5013,6 +5467,7 @@ function cmdRoadmapAnalyze(cwd, raw) {
     progress_percent: totalPlans > 0 ? Math.round((totalSummaries / totalPlans) * 100) : 0,
     current_phase: currentPhase ? currentPhase.number : null,
     next_phase: nextPhase ? nextPhase.number : null,
+    file_conflicts: fileConflicts,
   };
 
   output(result, raw);
@@ -5682,19 +6137,17 @@ function cmdRequirementsMarkComplete(cwd, reqIdsRaw, raw) {
     let found = false;
 
     // Update checkbox: - [ ] **REQ-ID** -> - [x] **REQ-ID**
-    const checkboxPattern = new RegExp(`(-\\s*\\[)[ ](\\]\\s*\\*\\*${reqId}\\*\\*)`, 'gi');
-    if (checkboxPattern.test(reqContent)) {
-      reqContent = reqContent.replace(checkboxPattern, '$1x$2');
+    // Note: use separate regex instances for test vs replace to avoid g-flag lastIndex bug
+    const checkboxRegex = `(-\\s*\\[)[ ](\\]\\s*\\*\\*${reqId}\\*\\*)`;
+    if (new RegExp(checkboxRegex, 'gi').test(reqContent)) {
+      reqContent = reqContent.replace(new RegExp(checkboxRegex, 'gi'), '$1x$2');
       found = true;
     }
 
     // Update traceability table: | REQ-ID | Phase N | Pending | -> | REQ-ID | Phase N | Complete |
-    const tablePattern = new RegExp(`(\\|\\s*${reqId}\\s*\\|[^|]+\\|)\\s*Pending\\s*(\\|)`, 'gi');
-    if (tablePattern.test(reqContent)) {
-      reqContent = reqContent.replace(
-        new RegExp(`(\\|\\s*${reqId}\\s*\\|[^|]+\\|)\\s*Pending\\s*(\\|)`, 'gi'),
-        '$1 Complete $2'
-      );
+    const tableRegex = `(\\|\\s*${reqId}\\s*\\|[^|]+\\|)\\s*Pending\\s*(\\|)`;
+    if (new RegExp(tableRegex, 'gi').test(reqContent)) {
+      reqContent = reqContent.replace(new RegExp(tableRegex, 'gi'), '$1 Complete $2');
       found = true;
     }
 
@@ -5737,6 +6190,79 @@ function cmdPhaseComplete(cwd, phaseNum, raw) {
 
   const planCount = phaseInfo.plans.length;
   const summaryCount = phaseInfo.summaries.length;
+
+  // ── Phase completeness pre-conditions ──────────────────────────────────────────
+  // Refuse to mark phase complete unless all required artifacts are present and valid.
+  // This prevents phases being marked done without a passing VERIFICATION.md.
+  {
+    // Find phase directory on disk
+    let phaseDirPath = null;
+    try {
+      const entries = fs.readdirSync(phasesDir, { withFileTypes: true });
+      // Normalize phase number for directory matching (e.g., "1" -> "01")
+      const normalizedPhaseNum = phaseNum.includes('.') ? phaseNum : String(parseInt(phaseNum, 10)).padStart(2, '0');
+      const safePhase = normalizedPhaseNum.replace(/[.]/g, String.fromCharCode(92) + String.fromCharCode(92) + '.');
+      const safePhaseOrig = phaseNum.replace(/[.]/g, String.fromCharCode(92) + String.fromCharCode(92) + '.');
+      const re = new RegExp('^(' + safePhase + '|' + safePhaseOrig + ')-');
+      const match = entries.find(e => e.isDirectory() && re.test(e.name));
+      if (match) phaseDirPath = path.join(phasesDir, match.name);
+    } catch {}
+
+    if (phaseDirPath) {
+      let dirFiles;
+      try { dirFiles = fs.readdirSync(phaseDirPath); } catch { dirFiles = []; }
+      const completenessErrors = [];
+
+      // 1. VERIFICATION.md must exist with status: passed
+      const verFile = dirFiles.find(f => f.match(/-VERIFICATION.md$/i));
+      if (!verFile) {
+        completenessErrors.push('VERIFICATION.md not found — verifier must run before phase can be marked complete');
+      } else {
+        try {
+          const verContent = fs.readFileSync(path.join(phaseDirPath, verFile), 'utf-8');
+          const statusMatch = verContent.match(/^status:\s*(\S+)/m);
+          const verStatus = statusMatch ? statusMatch[1].trim() : 'unknown';
+          if (verStatus !== 'passed') {
+            completenessErrors.push(`VERIFICATION.md status is ${verStatus} — must be passed before phase complete`);
+          }
+        } catch { completenessErrors.push('Cannot read VERIFICATION.md'); }
+      }
+
+      // 2. Every PLAN.md must have a matching SUMMARY.md
+      const planFiles = dirFiles.filter(f => f.match(/-PLAN.md$/i));
+      const summarySet = new Set(dirFiles.filter(f => f.match(/-SUMMARY.md$/i)).map(f => f.replace(/-SUMMARY.md$/i, '')));
+      for (const planFile of planFiles) {
+        const planId = planFile.replace(/-PLAN.md$/i, '');
+        if (!summarySet.has(planId)) {
+          completenessErrors.push(`Plan ${planFile} has no matching SUMMARY.md`);
+        }
+      }
+
+      // 3. CHECKPOINT.json must exist with last_step: verify
+      const checkpointPath = path.join(phaseDirPath, 'CHECKPOINT.json');
+      if (!fs.existsSync(checkpointPath)) {
+        completenessErrors.push('CHECKPOINT.json not found — phase lifecycle must complete before marking done');
+      } else {
+        try {
+          const checkpoint = JSON.parse(fs.readFileSync(checkpointPath, 'utf-8'));
+          if (checkpoint.last_step !== 'verify') {
+            completenessErrors.push(`CHECKPOINT.json last_step is ${checkpoint.last_step} — must be verify before phase complete`);
+          }
+        } catch { completenessErrors.push('CHECKPOINT.json is malformed — cannot verify phase lifecycle completion'); }
+      }
+
+      if (completenessErrors.length > 0) {
+        const result = {
+          error: 'Phase completeness validation failed',
+          phase: phaseNum,
+          validation_errors: completenessErrors,
+          hint: 'Run the verifier first to create VERIFICATION.md with status: passed',
+        };
+        process.stdout.write(JSON.stringify(result, null, 2));
+        process.exit(1);
+      }
+    }
+  }
 
   // Update ROADMAP.md: mark phase complete
   if (fs.existsSync(roadmapPath)) {
@@ -7496,63 +8022,10 @@ function cmdInitExecuteRoadmap(cwd, raw) {
   };
   const coordinatorModel = config.coordinator_model ?? profileToCoordinatorModel[config.model_profile] ?? 'haiku';
 
-  // Use existing cmdRoadmapAnalyze logic to get phase data
+  // Reuse shared phase parsing (avoids duplicating 60+ lines from cmdRoadmapAnalyze)
   const content = fs.readFileSync(roadmapPath, 'utf-8');
   const phasesDir = path.join(cwd, '.planning', 'phases');
-
-  // Extract all phase headings: ### Phase N: Name
-  const phasePattern = /###\s*Phase\s+(\d+(?:\.\d+)?)\s*:\s*([^\n]+)/gi;
-  const phases = [];
-  let match;
-
-  while ((match = phasePattern.exec(content)) !== null) {
-    const phaseNum = match[1];
-    const phaseName = match[2].replace(/\(INSERTED\)/i, '').trim();
-
-    // Extract goal from the section
-    const sectionStart = match.index;
-    const restOfContent = content.slice(sectionStart);
-    const nextHeader = restOfContent.match(/\n###\s+Phase\s+\d/i);
-    const sectionEnd = nextHeader ? sectionStart + nextHeader.index : content.length;
-    const section = content.slice(sectionStart, sectionEnd);
-
-    const goalMatch = section.match(/\*\*Goal:\*\*\s*([^\n]+)/i);
-    const goal = goalMatch ? goalMatch[1].trim() : null;
-
-    const dependsMatch = section.match(/\*\*Depends on:\*\*\s*([^\n]+)/i);
-    const depends_on = dependsMatch ? dependsMatch[1].trim() : null;
-
-    // Check completion on disk
-    const normalized = normalizePhaseName(phaseNum);
-    let diskStatus = 'no_directory';
-    let planCount = 0;
-    let summaryCount = 0;
-
-    try {
-      const entries = fs.readdirSync(phasesDir, { withFileTypes: true });
-      const dirs = entries.filter(e => e.isDirectory()).map(e => e.name);
-      const dirMatch = dirs.find(d => d.startsWith(normalized + '-') || d === normalized);
-
-      if (dirMatch) {
-        const phaseFiles = fs.readdirSync(path.join(phasesDir, dirMatch));
-        planCount = phaseFiles.filter(f => f.endsWith('-PLAN.md') || f === 'PLAN.md').length;
-        summaryCount = phaseFiles.filter(f => f.endsWith('-SUMMARY.md') || f === 'SUMMARY.md').length;
-
-        if (summaryCount >= planCount && planCount > 0) diskStatus = 'complete';
-        else if (summaryCount > 0) diskStatus = 'partial';
-        else if (planCount > 0) diskStatus = 'planned';
-        else diskStatus = 'empty';
-      }
-    } catch {}
-
-    phases.push({
-      number: phaseNum,
-      name: phaseName,
-      goal,
-      depends_on,
-      disk_status: diskStatus,
-    });
-  }
+  const phases = parseRoadmapPhases(content, phasesDir);
 
   // Build execution order (simple sequential for now - no DAG parallel support yet)
   const executionOrder = phases.map(p => p.number);
@@ -9109,6 +9582,215 @@ async function cmdQueryKnowledge(cwd, args, raw) {
   output({ results, query: questionString }, raw);
 }
 
+
+// ─── Service Health Helpers ───────────────────────────────────────────────────
+
+function getServicePidsDir(cwd) {
+  return path.join(cwd, '.planning', 'service-pids');
+}
+
+function getPidFilePath(cwd, name) {
+  return path.join(getServicePidsDir(cwd), name + '.pid');
+}
+
+function readServicePid(cwd, name) {
+  const pidFile = getPidFilePath(cwd, name);
+  try {
+    const raw = fs.readFileSync(pidFile, 'utf8').trim();
+    const pid = parseInt(raw, 10);
+    return isNaN(pid) ? null : pid;
+  } catch {
+    return null;
+  }
+}
+
+function writeServicePid(cwd, name, pid) {
+  const dir = getServicePidsDir(cwd);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(getPidFilePath(cwd, name), String(pid), 'utf8');
+}
+
+function removeServicePid(cwd, name) {
+  const pidFile = getPidFilePath(cwd, name);
+  try { fs.unlinkSync(pidFile); } catch (e) { /* already gone */ }
+}
+
+function isProcessRunning(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function pollHealthEndpoint(url, intervalMs, timeoutMs) {
+  const mod = await import(url.startsWith('https') ? 'https' : 'http');
+  const http = mod.default || mod;
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      await new Promise(function(resolve, reject) {
+        const req = http.get(url, function(res) {
+          res.resume();
+          if (res.statusCode >= 200 && res.statusCode < 400) resolve(true);
+          else reject(new Error('HTTP ' + res.statusCode));
+        });
+        req.on('error', reject);
+        req.setTimeout(2000, function() { req.destroy(); reject(new Error('timeout')); });
+      });
+      return true;
+    } catch (e) {
+      await new Promise(function(r) { setTimeout(r, intervalMs); });
+    }
+  }
+  return false;
+}
+
+function getDevServerConfig(cwd, name) {
+  const config = loadConfig(cwd);
+  const devServers = config.dev_servers || {};
+  if (name === 'default') {
+    const keys = Object.keys(devServers);
+    if (keys.length === 1) return Object.assign({ name: keys[0] }, devServers[keys[0]]);
+    if (keys.length === 0) return null;
+    if (devServers['default']) return Object.assign({ name: 'default' }, devServers['default']);
+    return null;
+  }
+  if (!devServers[name]) return null;
+  return Object.assign({ name: name }, devServers[name]);
+}
+
+async function cmdServiceHealth(cwd, args, raw) {
+  const subCmd = args[0];
+  const serverName = args[1] || 'default';
+
+  if (subCmd === 'start') {
+    const serverCfg = getDevServerConfig(cwd, serverName);
+    if (!serverCfg) {
+      output({ status: 'no_config', name: serverName, message: 'No dev_servers.' + serverName + ' in config.json — caller should use fallback' }, raw);
+      return;
+    }
+
+    const healthUrl = serverCfg.health_url || ('http://localhost:' + (serverCfg.port || 3000));
+
+    const existingPid = readServicePid(cwd, serverName);
+    if (existingPid && isProcessRunning(existingPid)) {
+      const alreadyUp = await pollHealthEndpoint(healthUrl, 500, 3000);
+      if (alreadyUp) {
+        output({ status: 'already_running', name: serverName, pid: existingPid, health_url: healthUrl }, raw);
+        return;
+      }
+    }
+
+    const preCheck = await pollHealthEndpoint(healthUrl, 500, 3000);
+    if (preCheck) {
+      output({ status: 'already_running', name: serverName, health_url: healthUrl, pid: null }, raw);
+      return;
+    }
+
+    const startCmd = serverCfg.start;
+    if (!startCmd) {
+      error('service-health start: dev_servers.' + serverName + '.start command is required');
+      return;
+    }
+
+    const { spawn } = require('child_process');
+    const child = spawn('sh', ['-c', startCmd], {
+      cwd: cwd,
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.unref();
+    writeServicePid(cwd, serverName, child.pid);
+
+    const ready = await pollHealthEndpoint(healthUrl, 2000, 60000);
+    if (ready) {
+      output({ status: 'started', name: serverName, pid: child.pid, health_url: healthUrl }, raw);
+    } else {
+      output({ status: 'start_timeout', name: serverName, pid: child.pid, health_url: healthUrl, message: 'Server did not respond within 60s' }, raw);
+    }
+
+  } else if (subCmd === 'stop') {
+    const pid = readServicePid(cwd, serverName);
+    if (!pid) {
+      output({ status: 'not_running', name: serverName, message: 'No PID file found' }, raw);
+      return;
+    }
+    if (!isProcessRunning(pid)) {
+      removeServicePid(cwd, serverName);
+      output({ status: 'already_stopped', name: serverName, pid: pid }, raw);
+      return;
+    }
+
+    try {
+      process.kill(pid, 'SIGTERM');
+      let stopped = false;
+      for (let i = 0; i < 25; i++) {
+        await new Promise(function(r) { setTimeout(r, 200); });
+        if (!isProcessRunning(pid)) { stopped = true; break; }
+      }
+      if (!stopped) {
+        try { process.kill(pid, 'SIGKILL'); } catch (e) { /* already gone */ }
+      }
+      removeServicePid(cwd, serverName);
+      output({ status: 'stopped', name: serverName, pid: pid, graceful: stopped }, raw);
+    } catch (e) {
+      removeServicePid(cwd, serverName);
+      output({ status: 'stop_error', name: serverName, pid: pid, error: e.message }, raw);
+    }
+
+  } else if (subCmd === 'status') {
+    const serverCfg = getDevServerConfig(cwd, serverName);
+    const healthUrl = serverCfg ? (serverCfg.health_url || ('http://localhost:' + (serverCfg.port || 3000))) : null;
+    const pid = readServicePid(cwd, serverName);
+    const pidRunning = pid ? isProcessRunning(pid) : false;
+    const healthOk = healthUrl ? await pollHealthEndpoint(healthUrl, 500, 3000) : null;
+
+    output({
+      name: serverName,
+      pid: pid || null,
+      pid_running: pidRunning,
+      health_url: healthUrl,
+      health_ok: healthOk,
+      status: (pidRunning || healthOk) ? 'running' : 'stopped',
+    }, raw);
+
+  } else if (subCmd === 'start-all') {
+    const config = loadConfig(cwd);
+    const devServers = config.dev_servers || {};
+    const names = Object.keys(devServers);
+    if (names.length === 0) {
+      output({ status: 'no_servers', message: 'No dev_servers in config.json' }, raw);
+      return;
+    }
+    const results = [];
+    for (const name of names) {
+      await cmdServiceHealth(cwd, ['start', name], true);
+      results.push(name);
+    }
+    output({ status: 'done', started: results }, raw);
+
+  } else if (subCmd === 'stop-all') {
+    const dir = getServicePidsDir(cwd);
+    if (!fs.existsSync(dir)) {
+      output({ status: 'no_pid_files', message: 'No service PID files found' }, raw);
+      return;
+    }
+    const pidFiles = fs.readdirSync(dir).filter(function(f) { return f.endsWith('.pid'); });
+    const results = [];
+    for (const pf of pidFiles) {
+      const name = pf.replace(/\.pid$/, '');
+      await cmdServiceHealth(cwd, ['stop', name], true);
+      results.push(name);
+    }
+    output({ status: 'done', stopped: results }, raw);
+
+  } else {
+    error('service-health: unknown subcommand ' + JSON.stringify(subCmd) + '. Available: start, stop, status, start-all, stop-all');
+  }
+}
+
 // ─── CLI Router ───────────────────────────────────────────────────────────────
 
 async function main() {
@@ -9279,8 +9961,12 @@ async function main() {
         cmdVerifyArtifacts(cwd, args[2], raw);
       } else if (subcommand === 'key-links') {
         cmdVerifyKeyLinks(cwd, args[2], raw);
+      } else if (subcommand === 'migration-timestamps') {
+        cmdVerifyMigrationTimestamps(cwd, raw);
+      } else if (subcommand === 'dependency-stability') {
+        cmdVerifyDependencyStability(cwd, args[2], raw);
       } else {
-        error('Unknown verify subcommand. Available: plan-structure, phase-completeness, references, commits, artifacts, key-links');
+        error('Unknown verify subcommand. Available: plan-structure, phase-completeness, references, commits, artifacts, key-links, migration-timestamps, dependency-stability');
       }
       break;
     }
@@ -9763,6 +10449,26 @@ async function main() {
 
     case 'execution-log': {
       cmdExecutionLog(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'analytics': {
+      const analyticsSubcmd = args[1];
+      if (!analyticsSubcmd) {
+        error('analytics: subcommand required (report|calibrate)');
+      }
+      if (analyticsSubcmd === 'report') {
+        const { generateReport } = require('./analytics.js');
+        const report = generateReport(cwd);
+        process.stdout.write(report + '\n');
+      } else if (analyticsSubcmd === 'calibrate') {
+        const { calibrate } = require('./analytics.js');
+        const dryRun = args.includes('--dry-run');
+        const result = calibrate(cwd, { dryRun });
+        output(result, raw, dryRun ? 'Calibration (dry run)' : 'Calibration applied');
+      } else {
+        error(`analytics: unknown subcommand "${analyticsSubcmd}"`);
+      }
       break;
     }
 
@@ -10820,7 +11526,7 @@ Was ${model} the right choice for this task? (y/n): `;
       break;
     }
 
-        case 'requirements': {
+    case 'requirements': {
       const subcommand = args[1];
       if (subcommand === 'mark-complete') {
         cmdRequirementsMarkComplete(cwd, args.slice(2), raw);
@@ -10880,6 +11586,11 @@ Was ${model} the right choice for this task? (y/n): `;
       } catch (err) {
         error(`log-feature-event: failed to append event: ${err.message}`);
       }
+      break;
+    }
+
+    case 'service-health': {
+      await cmdServiceHealth(cwd, args.slice(1), raw);
       break;
     }
 

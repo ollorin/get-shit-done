@@ -150,6 +150,7 @@ For each task:
    - **Cross-boundary done check:** If the task creates code that crosses a service boundary (frontend handler that should call a backend route, API route that should mutate a database), verify the full chain before marking done — not just that the local artifact builds. A frontend form handler is not "done" if it only updates UI state without making the API call the done criterion implies. A backend route is not "done" if the frontend has no path to call it. Check that the wiring exists and carries the right signal, not just that each side compiles independently.
    - Commit (see task_commit_protocol)
    - Track completion + commit hash for Summary
+   - **Inter-task syntax check** (runs after each task commit — see inter_task_syntax_check block below)
 
 2. **If `type="checkpoint:*"`:**
    - Check auto mode detection (see auto_mode_detection)
@@ -163,6 +164,73 @@ For each task:
 </step>
 
 </execution_flow>
+
+<inter_task_syntax_check>
+
+**Purpose:** After each `type="auto"` task commit, run a lightweight JavaScript syntax check on modified .js files. Catches syntax errors early with one auto-fix attempt before logging as a gap. Syntax errors NEVER abort the plan.
+
+**Steps (run after each task commit, before moving to the next task):**
+
+**Step 1 — Get changed JavaScript files:**
+```bash
+CHANGED_JS=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | grep '\.js$' || true)
+```
+
+If CHANGED_JS is empty (no .js files changed, git unavailable, or initial commit): skip the syntax check silently and continue to the next task.
+
+**Step 2 — Run node --check on each changed .js file:**
+```bash
+SYNTAX_ERRORS=""
+for JS_FILE in $CHANGED_JS; do
+  if [ -f "$JS_FILE" ]; then
+    CHECK_OUTPUT=$(node --check "$JS_FILE" 2>&1)
+    if [ $? -ne 0 ]; then
+      SYNTAX_ERRORS="${SYNTAX_ERRORS}
+${JS_FILE}: ${CHECK_OUTPUT}"
+    fi
+  fi
+done
+```
+
+**If no syntax errors (SYNTAX_ERRORS is empty):** Log "Syntax check passed for task {task_index}" and continue to the next task.
+
+**If syntax errors found — make one auto-fix attempt:**
+
+1. Read each failing .js file and identify the specific syntax error from the node --check output (line number and error type)
+2. Fix the syntax error inline (e.g., missing closing bracket, unclosed string, invalid token)
+3. Commit the fix: `git commit -m "fix({plan_id}): auto-fix syntax error in {file} after task {task_index}"`
+4. Re-run the check:
+   ```bash
+   RECHECK_ERRORS=""
+   for JS_FILE in $CHANGED_JS; do
+     if [ -f "$JS_FILE" ]; then
+       RECHECK_OUTPUT=$(node --check "$JS_FILE" 2>&1)
+       if [ $? -ne 0 ]; then
+         RECHECK_ERRORS="${RECHECK_ERRORS}
+${JS_FILE}: ${RECHECK_OUTPUT}"
+       fi
+     fi
+   done
+   ```
+
+**If re-check passes:** Log "Syntax auto-fixed and verified for task {task_index}" and continue to the next task.
+
+**If re-check also fails — log as gap (NEVER abort the plan):**
+
+Append to `deferred-items.md` in the phase directory:
+```
+- [SYNTAX-GAP] node --check failed after auto-fix attempt for task {task_index}: {RECHECK_ERRORS} — files: {CHANGED_JS}
+```
+
+Log: "Syntax check gap logged for task {task_index} — proceeding to next task"
+
+Continue to the next task immediately.
+
+**CRITICAL constraint:** Syntax errors discovered by the inter-task check NEVER abort the plan. The plan execution continues to the next task regardless of syntax check outcome. This is an advisory check with one auto-fix opportunity — not a gate.
+
+**Scope:** Only .js files changed in the current task's commit. Does not check .ts, .jsx, .md, or other file types. Does not recursively check the entire codebase — only the delta.
+
+</inter_task_syntax_check>
 
 <deviation_rules>
 **While executing, you WILL discover work not in the plan.** Apply these rules automatically. Track all deviations for Summary.
@@ -423,6 +491,103 @@ RETRY_ESCALATED=false  # set to true if task was escalated to sonnet from haiku
 **ALWAYS use Write tool** for file creation — never use `Bash(cat << 'EOF')` heredoc patterns for file creation.
 </task_commit_protocol>
 
+<post_plan_test_gate>
+
+## Post-Plan Test Suite Gate
+
+After ALL tasks in the plan complete (including all `tdd="true"` test tasks), run the full project test suite as a final quality gate before creating SUMMARY.md.
+
+**SUMMARY.md creation is BLOCKED if:**
+- Test suite fails (non-zero exit code)
+- Test suite times out (5-minute limit, exit code 124)
+- Measured coverage falls below `testing.coverage_threshold` (when set in config.json)
+
+**Step 1: Detect test command**
+
+```bash
+# Try config.json first
+TEST_CMD=$(node ~/.claude/get-shit-done/bin/gsd-tools.js config get testing.test_command 2>/dev/null || echo "")
+
+if [ -z "$TEST_CMD" ]; then
+  # Auto-detect from package.json
+  if [ -f "package.json" ]; then
+    TEST_CMD=$(node -e "try{const p=require('./package.json');console.log(p.scripts&&p.scripts['test:ci']||p.scripts&&p.scripts.test||'')}catch(e){console.log('')}" 2>/dev/null || echo "")
+  fi
+fi
+
+if [ -z "$TEST_CMD" ]; then
+  # Try deno.json
+  if [ -f "deno.json" ]; then
+    TEST_CMD=$(node -e "try{const d=require('./deno.json');console.log(d.tasks&&d.tasks['test:ci']||d.tasks&&d.tasks.test||'')}catch(e){console.log('')}" 2>/dev/null || echo "")
+  fi
+fi
+```
+
+If TEST_CMD is empty after all detection attempts: log "No test command found — skipping post-plan test gate" and proceed to `<summary_creation>`. Do NOT block or fail when no test command is available.
+
+**Step 2: Run test suite (5-minute timeout)**
+
+```bash
+TEST_OUTPUT_FILE="/tmp/gsd-test-output-$$.txt"
+timeout 300 bash -c "${TEST_CMD}" > "${TEST_OUTPUT_FILE}" 2>&1
+TEST_EXIT_CODE=$?
+TEST_OUTPUT=$(tail -50 "${TEST_OUTPUT_FILE}" 2>/dev/null || echo "")
+rm -f "${TEST_OUTPUT_FILE}"
+```
+
+**Step 3: Read coverage threshold from config.json**
+
+```bash
+COVERAGE_THRESHOLD=$(node ~/.claude/get-shit-done/bin/gsd-tools.js config get testing.coverage_threshold 2>/dev/null || echo "")
+COVERAGE_BLOCKED=false
+COVERAGE_FOUND=""
+```
+
+If COVERAGE_THRESHOLD is set (non-empty) AND TEST_EXIT_CODE == 0, attempt to parse coverage from TEST_OUTPUT:
+- Look for Istanbul/nyc format: `All files | N.N |` — extract the first numeric value in that row
+- Look for `Statements   : N.N%` or `Lines        : N.N%` patterns
+- Look for `Coverage: N.N%` in Jest output
+- Parse the found value as a float
+
+If a coverage value is found:
+```
+COVERAGE_FOUND = parsed float
+if COVERAGE_FOUND < COVERAGE_THRESHOLD:
+  COVERAGE_BLOCKED = true
+  Log: "Coverage ${COVERAGE_FOUND}% < threshold ${COVERAGE_THRESHOLD}% — SUMMARY.md will be blocked"
+```
+
+If coverage cannot be parsed from output: log "Coverage threshold set but unable to parse coverage from output — proceeding without enforcement" and continue (fail open on parse failure).
+
+**Step 4: Decision logic**
+
+| Condition | Action |
+|-----------|--------|
+| TEST_EXIT_CODE == 124 (timeout) | Set TEST_GATE_BLOCKED=true, TEST_GATE_REASON="timeout" |
+| TEST_EXIT_CODE != 0 (not timeout) | Set TEST_GATE_BLOCKED=true, TEST_GATE_REASON="test_failure" |
+| TEST_EXIT_CODE == 0 AND COVERAGE_BLOCKED=true | Set TEST_GATE_BLOCKED=true, TEST_GATE_REASON="coverage_below_threshold" |
+| TEST_EXIT_CODE == 0 AND NOT COVERAGE_BLOCKED | Set TEST_GATE_BLOCKED=false, log "Test suite passed — proceeding to SUMMARY.md" |
+
+**Step 5: If TEST_GATE_BLOCKED=true — return failure, do NOT create SUMMARY.md**
+
+```
+Return:
+## PLAN FAILED: Test gate blocked SUMMARY.md creation
+
+**Reason:** {TEST_GATE_REASON}
+{If TEST_GATE_REASON == "coverage_below_threshold":}
+**Coverage:** {COVERAGE_FOUND}% (threshold: {COVERAGE_THRESHOLD}%)
+{If TEST_GATE_REASON == "test_failure" or "timeout":}
+**Test output (last 30 lines):**
+{TEST_OUTPUT last 30 lines}
+
+**Action required:** Fix failing tests before this plan can be marked complete. Do NOT create SUMMARY.md.
+```
+
+Do NOT proceed to `<summary_creation>`. Do NOT create SUMMARY.md when TEST_GATE_BLOCKED=true.
+
+</post_plan_test_gate>
+
 <summary_creation>
 After all tasks complete, create `{phase}-{plan}-SUMMARY.md` at `.planning/phases/XX-name/`.
 
@@ -596,6 +761,7 @@ Plan execution complete when:
 - [ ] Each task committed individually with proper format
 - [ ] All deviations documented
 - [ ] Authentication gates handled and documented
+- [ ] Post-plan test suite gate passed (test suite ran, no failures, coverage threshold met if configured)
 - [ ] SUMMARY.md created with substantive content
 - [ ] STATE.md updated (position, decisions, issues, session)
 - [ ] Requirements marked complete in REQUIREMENTS.md (if plan has requirements)

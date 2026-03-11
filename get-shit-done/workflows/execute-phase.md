@@ -104,6 +104,8 @@ Report:
 <step name="execute_waves">
 Execute each wave in sequence. Within a wave: parallel if `PARALLELIZATION=true`, sequential if `false`.
 
+Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each wave completes).
+
 **For each wave:**
 
 1. **Describe what's being built (BEFORE spawning):**
@@ -129,6 +131,7 @@ Execute each wave in sequence. Within a wave: parallel if `PARALLELIZATION=true`
    Pass paths only — executors read files themselves with their fresh 200k context.
    This keeps orchestrator context lean (~10-15%).
 
+   **For Wave 1 executors** (wave_number == 1, no prior context):
    ```
    Agent(
      subagent_type="gsd-executor",
@@ -167,6 +170,51 @@ Execute each wave in sequence. Within a wave: parallel if `PARALLELIZATION=true`
    )
    ```
 
+   **For Wave 2+ executors** (wave_number >= 2 — inject completed_plans_context from prior wave SUMMARYs):
+   ```
+   Agent(
+     subagent_type="gsd-executor",
+     model="{executor_model}",
+     description="Execute plan {plan_number}",
+     prompt="
+       <objective>
+       Execute plan {plan_number} of phase {phase_number}-{phase_name}.
+       Commit each task atomically. Create SUMMARY.md. Update STATE.md and ROADMAP.md.
+       </objective>
+
+       <execution_context>
+       @~/.claude/get-shit-done/workflows/execute-plan.md
+       @~/.claude/get-shit-done/templates/summary.md
+       @~/.claude/get-shit-done/references/checkpoints.md
+       @~/.claude/get-shit-done/references/tdd.md
+       </execution_context>
+
+       <files_to_read>
+       Read these files at execution start using the Read tool:
+       - {phase_dir}/{plan_file} (Plan)
+       - .planning/STATE.md (State)
+       - .planning/config.json (Config, if exists)
+       - ./CLAUDE.md (Project instructions, if exists — follow project-specific guidelines and coding conventions)
+       - .claude/skills/ or .agents/skills/ (Project skills, if either exists — list skills, read SKILL.md for each, follow relevant rules during implementation)
+       </files_to_read>
+
+       <completed_plans_context>
+       The following plans completed in prior waves. Build on what was ACTUALLY built (from SUMMARY.md), not what plans assumed.
+
+       {COMPLETED_CONTEXT_BLOCK}
+       </completed_plans_context>
+
+       <success_criteria>
+       - [ ] All tasks executed
+       - [ ] Each task committed individually
+       - [ ] SUMMARY.md created in plan directory
+       - [ ] STATE.md updated with position and decisions
+       - [ ] ROADMAP.md updated with plan progress (via `roadmap update-plan-progress`)
+       </success_criteria>
+     "
+   )
+   ```
+
 3. **Wait for all agents in wave to complete.**
 
 4. **Report completion — spot-check claims first:**
@@ -193,6 +241,41 @@ Execute each wave in sequence. Within a wave: parallel if `PARALLELIZATION=true`
 
    - Bad: "Wave 2 complete. Proceeding to Wave 3."
    - Good: "Terrain system complete — 3 biome types, height-based texturing, physics collision meshes. Vehicle physics (Wave 3) can now reference ground surfaces."
+
+4.5. **Assemble completed_plans_context (only if a next wave exists):**
+
+   After all spot-checks pass for the current wave, and if `current_wave < total_waves`:
+
+   ```
+   COMPLETED_CONTEXT_PARTS = []
+
+   For each plan that has completed in waves 1..current_wave (all completed plans so far):
+     SUMMARY_PATH = "{phase_dir}/{plan_id}-SUMMARY.md"
+     If SUMMARY_PATH does not exist: skip this plan with warning "Skipping {plan_id} — SUMMARY.md not found"
+
+     Extract from SUMMARY.md frontmatter:
+       node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" summary-extract "$SUMMARY_PATH" \
+         --fields key-files,key-decisions,provides 2>/dev/null
+
+     If extraction succeeds, read the one-liner (first **bold** line after the # heading in SUMMARY.md):
+       ONE_LINER = first line matching /^\*\*.+\*\*/ in SUMMARY.md body
+
+     Assemble context part:
+       "Plan {plan_id} ({ONE_LINER or 'no one-liner'}):\n
+        Files created: {key-files.created joined with ', ' or 'none'}\n
+        Files modified: {key-files.modified joined with ', ' or 'none'}\n
+        Key decisions: {key-decisions joined with '; ' or 'none'}\n
+        Provides: {provides joined with ', ' or 'none'}"
+
+     Append to COMPLETED_CONTEXT_PARTS
+
+   COMPLETED_CONTEXT_BLOCK = COMPLETED_CONTEXT_PARTS joined with "\n\n"
+
+   If COMPLETED_CONTEXT_BLOCK is empty (all extractions failed):
+     COMPLETED_CONTEXT_BLOCK = "Prior wave plans completed but SUMMARY.md context unavailable — proceed based on plan files."
+   ```
+
+   Store COMPLETED_CONTEXT_BLOCK — it will be injected into Wave {current_wave + 1} executor spawns in step 2 above.
 
 5. **Handle failures:**
 

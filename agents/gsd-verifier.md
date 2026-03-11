@@ -259,6 +259,57 @@ Aggregate all requirement IDs across plans. For each requirement ID:
 - ✗ BLOCKED: One or more supporting truths failed or artifact missing
 - ? NEEDS HUMAN: Can't verify programmatically
 
+## Step 6b: PRD Intent Alignment Check (Optional — fires only if PRD-TRACE.md present)
+
+```bash
+PRD_TRACE=$(ls "$PHASE_DIR"/*-PRD-TRACE.md 2>/dev/null | head -1)
+```
+
+If PRD_TRACE is empty: skip this step silently — PRD Express Path was not used for this phase.
+
+If PRD_TRACE found:
+
+1. Parse the PRD-TRACE.md table — extract each row: REQ-ID, Requirement text, Plan column.
+
+2. For each row where Plan column is NOT "TBD":
+   - Find the plan's SUMMARY.md: `$PHASE_DIR/${row_plan}-SUMMARY.md`
+   - If SUMMARY.md does not exist: mark as UNVERIFIED, continue
+   - Extract the SUMMARY one-liner (first `**...**` bold line after the `#` heading) and the Accomplishments section
+   - Compare intent:
+     - **ALIGNED**: SUMMARY describes work that implements the PRD requirement's domain and purpose
+     - **MISMATCH**: SUMMARY describes functionality entirely unrelated to the PRD requirement — different domain, different user need
+     - **PARTIAL**: SUMMARY partially addresses the requirement but key aspects are absent
+     - **UNVERIFIED**: The plan SUMMARY.md does not exist yet
+
+3. For each MISMATCH: add a gap entry and set STATUS = gaps_found (hard-fail — NEVER a warning):
+   ```yaml
+   - truth: "PRD requirement {REQ-ID} implemented as specified"
+     status: failed
+     failure_type: semantic_stub
+     reason: "Intent mismatch: PRD requires '{requirement_text}' but SUMMARY describes unrelated work"
+     artifacts:
+       - path: "{SUMMARY_path}"
+         issue: "Implementation does not align with PRD requirement {REQ-ID}"
+     missing:
+       - "Implement: {requirement_text}"
+   ```
+
+4. For each PARTIAL: add a gap entry with `failure_type: stub` and set STATUS = gaps_found.
+
+5. Add PRD alignment table to VERIFICATION.md report under Requirements Coverage:
+
+```markdown
+### PRD Intent Alignment
+
+| REQ-ID | Requirement | Plan | Status |
+|--------|-------------|------|--------|
+| PRD-01 | {text} | 37-01 | ALIGNED |
+| PRD-02 | {text} | TBD | UNVERIFIED |
+| PRD-03 | {text} | 37-02 | MISMATCH |
+```
+
+Note: UNVERIFIED rows are NOT counted as failures — they indicate work not yet delivered (plan not yet completed). Only MISMATCH and PARTIAL rows create gap entries.
+
 ## Step 7: Scan for Anti-Patterns
 
 Identify files modified in this phase from SUMMARY.md key-files section, or extract commits and verify:
@@ -374,6 +425,7 @@ Structure gaps in YAML frontmatter for `/gsd:plan-phase --gaps`:
 gaps:
   - truth: "Observable truth that failed"
     status: failed
+    failure_type: stub          # REQUIRED — one of: stub | unwired | missing_artifact | semantic_stub | broken_chain | regression | missing_test
     reason: "Brief explanation"
     artifacts:
       - path: "src/path/to/file.tsx"
@@ -386,9 +438,241 @@ gaps:
 - `status`: failed | partial
 - `reason`: Brief explanation
 - `artifacts`: Files with issues
+- `failure_type`: Required classification — one of: `stub` | `unwired` | `missing_artifact` | `semantic_stub` | `broken_chain` | `regression` | `missing_test`
 - `missing`: Specific things to add/fix
 
+**failure_type classification (REQUIRED — gaps without this field are malformed):**
+
+| Value | When to use |
+|-------|-------------|
+| `stub` | Artifact exists but is a placeholder — empty return, TODO comment, minimal implementation that does nothing |
+| `unwired` | Artifact exists and is substantive but is not imported or called by anything that needs it |
+| `missing_artifact` | Artifact does not exist at all — file is absent, function not defined |
+| `semantic_stub` | Artifact appears wired but produces no real effect — handler updates only UI state, API call result is discarded, action is no-op |
+| `broken_chain` | A multi-step causal chain has a gap — frontend calls route that doesn't exist, mutation has no persistence, step 1 runs but step 2 is absent |
+| `regression` | A truth that previously passed now fails — confirmed by re-verification mode or test that was previously green |
+| `missing_test` | Implementation exists and functions correctly but has no automated test coverage |
+
+**Assign failure_type inline:** When writing each gap entry, determine which type best describes the root cause. A gap may have only one failure_type. When in doubt, choose the most specific type (e.g. prefer `semantic_stub` over `stub` when the artifact exists but behaves inertly).
+
+**Malformed gap rejection:** Before writing VERIFICATION.md, verify every gap entry has a `failure_type` field set to one of the seven values above. If any gap is missing `failure_type`, set the status to `gaps_found` and add a meta-gap:
+```yaml
+- truth: "All gap entries include a failure_type classification"
+  status: failed
+  failure_type: missing_artifact
+  reason: "One or more gaps were written without a failure_type field"
+  missing:
+    - "Add failure_type to every gap entry before finalizing VERIFICATION.md"
+```
+
 **Group related gaps by concern** — if multiple truths fail from the same root cause, note this to help the planner create focused plans.
+
+
+<check_charlotte_qa_coverage>
+
+## Step 8c: Charlotte QA Coverage Check (QGATE-07)
+
+**Trigger:** One or more `.tsx` or `.jsx` files appear in SUMMARY.md key-files for this phase.
+
+**Hard rule:** If UI files were produced but no Charlotte QA session is recorded, mark the phase `gaps_found`. This is NEVER a warning — never emit a warning for missing Charlotte QA on UI-producing phases.
+
+**Step A — Detect UI files in SUMMARY.md:**
+
+```bash
+SUMMARY_UI_FILES="no"
+for summary in "$PHASE_DIR"/*-SUMMARY.md; do
+  if [ -f "$summary" ]; then
+    UI_IN_SUMMARY=$(node -e "
+      try {
+        const fs = require('fs');
+        const content = fs.readFileSync('$summary', 'utf8');
+        const hasTsx = /\.(tsx|jsx)/.test(content);
+        console.log(hasTsx ? 'yes' : 'no');
+      } catch(e) { console.log('no'); }
+    " 2>/dev/null || echo "no")
+    if [ "$UI_IN_SUMMARY" = "yes" ]; then
+      SUMMARY_UI_FILES="yes"
+      break
+    fi
+  fi
+done
+```
+
+**Step B — Check for Charlotte QA session record:**
+
+A Charlotte QA session is recorded when any of these exist in the phase directory:
+- A file matching `*-QA-*.md` or `*-CHARLOTTE-*.md` or `*-UX-*.md`
+- A SUMMARY.md that contains "charlotte", "ui-qa", "ux-audit", or "qa round" in its content
+
+```bash
+CHARLOTTE_QA_FOUND=false
+# Check for Charlotte QA session files
+for qa_file in "$PHASE_DIR"/*-QA-*.md "$PHASE_DIR"/*-CHARLOTTE-*.md "$PHASE_DIR"/*-UX-*.md; do
+  if [ -f "$qa_file" ]; then
+    CHARLOTTE_QA_FOUND=true
+    break
+  fi
+done
+# Also check SUMMARY.md files for Charlotte references
+if [ "$CHARLOTTE_QA_FOUND" = "false" ]; then
+  for summary in "$PHASE_DIR"/*-SUMMARY.md; do
+    if [ -f "$summary" ]; then
+      HAS_CHARLOTTE=$(node -e "
+        try {
+          const fs = require('fs');
+          const content = fs.readFileSync('$summary', 'utf8').toLowerCase();
+          const found = content.includes('charlotte') || content.includes('ui-qa') || content.includes('ux-audit') || content.includes('qa round');
+          console.log(found ? 'yes' : 'no');
+        } catch(e) { console.log('no'); }
+      " 2>/dev/null || echo "no")
+      if [ "$HAS_CHARLOTTE" = "yes" ]; then
+        CHARLOTTE_QA_FOUND=true
+        break
+      fi
+    fi
+  done
+fi
+```
+
+**Step C — Hard-fail if UI files present but no Charlotte QA:**
+
+If SUMMARY_UI_FILES == "yes" AND CHARLOTTE_QA_FOUND == false:
+- Add gap to gaps list:
+  ```yaml
+  - truth: "Charlotte QA was run for phases producing UI files (.tsx/.jsx)"
+    status: failed
+    reason: "Phase produced .tsx/.jsx files but no Charlotte QA session was recorded"
+    artifacts:
+      - path: "{PHASE_DIR}"
+        issue: "No Charlotte QA session files found in phase directory"
+    missing:
+      - "Run Charlotte QA for all .tsx/.jsx files produced in this phase"
+      - "Charlotte QA session must be recorded before phase can pass verification"
+  ```
+- Set STATUS = gaps_found (hard-fail — NOT a warning)
+
+If SUMMARY_UI_FILES == "no" OR CHARLOTTE_QA_FOUND == true: this check passes silently.
+
+</check_charlotte_qa_coverage>
+
+<check_test_file_coverage>
+
+## Step 8d: Implementation File Test Coverage Check (QGATE-10)
+
+**Trigger:** One or more `.ts`, `.tsx`, or `.js` implementation files appear in SUMMARY.md key-files.
+
+**Hard rule:** Every implementation file must have a corresponding test file. Missing test files → `gaps_found`. This is NEVER a warning — never emit a warning for missing test files.
+
+**Implementation files** are `.ts`, `.tsx`, `.js` files that are NOT:
+- Test files themselves: `*.test.ts`, `*.spec.ts`, `*.test.js`, `*.spec.js`, `*.test.tsx`, `*.spec.tsx`
+- Configuration files: `*.config.ts`, `*.config.js`, `vite.config.*`, `next.config.*`, `tailwind.config.*`, `jest.config.*`, `vitest.config.*`
+- Type declaration files: `*.d.ts`
+- Build output files (in `dist/`, `build/`, `.next/`, `.nuxt/`, `out/` directories)
+
+**Step A — Collect implementation files from SUMMARY.md:**
+
+```bash
+IMPL_FILES_RAW=$(for summary in "$PHASE_DIR"/*-SUMMARY.md; do
+  if [ -f "$summary" ]; then
+    node -e "
+      try {
+        const fs = require('fs');
+        const content = fs.readFileSync('$summary', 'utf8');
+        const matches = content.match(/[\w\-\/\.]+\.(ts|tsx|js)(?=[\s\x60'\"]|\$)/g) || [];
+        const impl = matches.filter(function(f) {
+          const isTest = /\.(test|spec)\.(ts|tsx|js)\$/.test(f);
+          const isConfig = /\.(config|d)\.(ts|js)\$/.test(f) || /^(vite|next|tailwind|jest|vitest|webpack|babel|eslint|prettier)\./.test(f.split('/').pop());
+          const isBuildOutput = /^(dist|build|\.next|\.nuxt|out)\//.test(f);
+          return isTest === false && isConfig === false && isBuildOutput === false;
+        });
+        console.log(impl.join('\n'));
+      } catch(e) {}
+    " 2>/dev/null
+  fi
+done)
+```
+
+**Step B — For each implementation file, check for test counterpart:**
+
+For each file in IMPL_FILES_RAW:
+1. Determine test file candidates:
+   - `{dir}/{name}.test.{ext}` — same directory, e.g. `src/api/users.ts` → `src/api/users.test.ts`
+   - `{dir}/{name}.spec.{ext}`
+   - `{dir}/__tests__/{name}.test.{ext}`
+   - `{dir}/__tests__/{name}.spec.{ext}`
+   - `tests/{name}.test.{ext}`
+   - `__tests__/{basename}.test.{ext}`
+2. Check if any candidate exists on disk
+
+**Step C — Hard-fail if any implementation file lacks test:**
+
+For each implementation file that has no test counterpart:
+- Add gap:
+  ```yaml
+  - truth: "Every implementation file (.ts/.tsx/.js) has a corresponding test file"
+    status: failed
+    reason: "Implementation file has no test counterpart"
+    artifacts:
+      - path: "{impl_file}"
+        issue: "No test file found (checked: .test.ts, .spec.ts, __tests__/)"
+    missing:
+      - "Add test file for {impl_file}"
+      - "Acceptable locations: {dir}/{name}.test.ts, {dir}/__tests__/{name}.test.ts"
+  ```
+- Set STATUS = gaps_found (hard-fail — NOT a warning — NEVER emit a warning for missing tests)
+
+If IMPL_FILES_RAW is empty or all implementation files have test counterparts: this check passes silently.
+
+</check_test_file_coverage>
+<check_migration_timestamps>
+
+## Step 8e: Migration Timestamp Conflict Check (QGATE-05)
+
+**Trigger:** A `migrations/` directory exists in the project root.
+
+**Hard rule:** Unresolved duplicate migration timestamps detected by this check cause `gaps_found`. This is NEVER a warning.
+
+**Step A — Detect migrations directory:**
+
+```bash
+MIGRATIONS_DIR="no"
+if [ -d "migrations" ]; then
+  MIGRATIONS_DIR="yes"
+fi
+```
+
+**Step B — Run timestamp conflict check:**
+
+If MIGRATIONS_DIR == "yes":
+```bash
+MIGRATION_RESULT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js verify migration-timestamps 2>/dev/null || echo '{"error":"command failed"}')
+```
+
+Parse MIGRATION_RESULT JSON. Extract `conflicts_found` and `resolved`.
+
+**Step C — Evaluate result:**
+
+- If `error` key present: log warning "migration-timestamps check failed — skipping" and continue (non-fatal, the check is best-effort)
+- If `skipped === true`: this check passes silently
+- If `conflicts_found > 0` AND `resolved < conflicts_found` (unresolved conflicts remain): add gap and set STATUS = gaps_found
+- If `conflicts_found > 0` AND `resolved === conflicts_found` (all auto-resolved): add informational note to VERIFICATION.md but do NOT set gaps_found — auto-resolution succeeded
+- If `conflicts_found === 0`: this check passes silently
+
+**Gap format for unresolved conflicts:**
+```yaml
+- truth: "All migration timestamps are unique"
+  status: failed
+  reason: "Duplicate migration timestamps found and could not be auto-resolved"
+  artifacts:
+    - path: "migrations/"
+      issue: "{conflicts_found} duplicate timestamps detected, {resolved} resolved, {conflicts_found - resolved} unresolved"
+  missing:
+    - "Manually rename conflicting migration files to use unique timestamps"
+```
+
+If MIGRATIONS_DIR == "no": this check passes silently.
+
+</check_migration_timestamps>
 
 </verification_process>
 
@@ -414,6 +698,7 @@ re_verification: # Only if previous VERIFICATION.md existed
 gaps: # Only if status: gaps_found
   - truth: "Observable truth that failed"
     status: failed
+    failure_type: stub   # Required: stub | unwired | missing_artifact | semantic_stub | broken_chain | regression | missing_test
     reason: "Why it failed"
     artifacts:
       - path: "src/path/to/file.tsx"
@@ -459,6 +744,14 @@ human_verification: # Only if status: human_needed
 
 | Requirement | Status | Blocking Issue |
 | ----------- | ------ | -------------- |
+
+### PRD Intent Alignment
+
+{Include only if PRD-TRACE.md was present — from Step 6b output}
+
+| REQ-ID | Requirement | Plan | Status |
+|--------|-------------|------|--------|
+| PRD-01 | {text} | {plan} | ALIGNED / MISMATCH / PARTIAL / UNVERIFIED |
 
 ### Anti-Patterns Found
 
@@ -542,6 +835,41 @@ Key categories: placeholder stubs (TODOs, empty returns), semantic stubs (handle
 
 </stub_detection_patterns>
 
+<kb_feedback>
+
+## Step 11: Write Anti-Patterns to Knowledge DB
+
+After VERIFICATION.md is written, extract FAILED and STUB gaps and write them to the knowledge DB as `anti_pattern` entries. This persists discovered anti-patterns immediately so future executions can learn from them.
+
+**Extract gaps from the verification result you just assembled:**
+
+From the gaps array you structured in Step 10 (if any), iterate over each gap entry.
+
+**For each gap in the gaps array:**
+- Skip if gap `status` is `uncertain`, `human_needed`, `warning`, or `partial` — only write `failed` and `stub` gaps
+- Skip if gap `failure_type` is `missing_test` — test coverage gaps are not anti-patterns for KB purposes
+- Extract: `truth` (what failed), `reason` (root cause), `failure_type` (classification)
+- Build KB entry content: `[Phase {PHASE_NUM} anti-pattern] {truth} — root cause: {reason}`
+
+**Write each qualifying gap to the knowledge DB:**
+
+```bash
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" knowledge add   "[Phase ${PHASE_NUM} anti-pattern] {truth} — root cause: {reason}"   --type anti_pattern   --scope project   --ttl long_term 2>/dev/null || true
+```
+
+Log each write: "KB: wrote anti-pattern entry — {truth (first 60 chars)}"
+
+**Error handling:** Wrap all KB writes with `2>/dev/null || true` — never block verification on KB write failures. If no gaps of the qualifying types exist, log "KB feedback: no qualifying anti-patterns to write" and skip.
+
+**Step complete when:**
+
+- [ ] All FAILED and STUB gaps from VERIFICATION.md processed
+- [ ] Each qualifying gap written to KB as source_type: anti_pattern, scope: project, TTL: long_term
+- [ ] Uncertain/human_needed/warning/partial gaps skipped
+- [ ] KB write failures not blocking (|| true pattern)
+
+</kb_feedback>
+
 <success_criteria>
 
 - [ ] Previous VERIFICATION.md checked (Step 0)
@@ -552,12 +880,17 @@ Key categories: placeholder stubs (TODOs, empty returns), semantic stubs (handle
 - [ ] All key links verified
 - [ ] Done-criteria traced backward to implementation (Step 5b) — semantic completeness confirmed
 - [ ] Requirements coverage assessed (if applicable)
+- [ ] PRD intent alignment checked (Step 6b) — fires only if PRD-TRACE.md present; mismatches → gaps_found (never warning)
 - [ ] Anti-patterns scanned and categorized
 - [ ] Human verification items identified
 - [ ] Test suite executed (Step 8b) — failures recorded as gaps, no-tests flagged as warning
+- [ ] Charlotte QA coverage checked (Step 8c) — UI files without Charlotte QA → gaps_found (never warning)
+- [ ] Test file coverage checked (Step 8d) — implementation files without test counterparts → gaps_found (never warning)
+- [ ] Migration timestamp conflicts checked (Step 8e) — unresolved conflicts → gaps_found (never warning)
 - [ ] Overall status determined
-- [ ] Gaps structured in YAML frontmatter (if gaps_found)
+- [ ] Gaps structured in YAML frontmatter (if gaps_found) — each gap includes failure_type field
 - [ ] Re-verification metadata included (if previous existed)
 - [ ] VERIFICATION.md created with complete report
 - [ ] Results returned to orchestrator (NOT committed)
+- [ ] Anti-patterns written to KB (Step 11) — FAILED/STUB gaps only; writes non-blocking (failures logged)
 </success_criteria>

@@ -231,6 +231,52 @@ After (Phase 2 shipped JWT auth, discovered rate limiting needed):
 
 </step>
 
+<step name="transition-kb-feedback">
+
+Write key decisions from completed phase summaries into the knowledge DB as persistent `decision` entries. This ensures decisions made during execution are immediately available for future phases and conversation mining.
+
+**Read phase summaries (same files already read in evolve_project):**
+
+```bash
+ls .planning/phases/${current_phase_dir}/*-SUMMARY.md 2>/dev/null
+```
+
+**For each SUMMARY.md found, extract key decisions:**
+
+Use gsd-tools to extract the key-decisions field:
+
+```bash
+for SUMMARY_FILE in .planning/phases/${current_phase_dir}/*-SUMMARY.md; do
+  DECISIONS_JSON=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" summary-extract "$SUMMARY_FILE" --fields decisions 2>/dev/null)
+  echo "$DECISIONS_JSON"
+done
+```
+
+Parse the decisions array from the JSON output (field: `decisions`). For each decision object in the array:
+- Skip if the decision text is empty or null
+- Extract `decision` (what was decided) and `rationale` (why — may be empty)
+- Build KB entry content:
+  - With rationale: `[Phase {current_phase} decision] {decision text} — rationale: {rationale}`
+  - Without rationale: `[Phase {current_phase} decision] {decision text}`
+
+**Write each decision to the knowledge DB:**
+
+```bash
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" knowledge add   "[Phase ${current_phase} decision] {decision_text}"   --type decision   --scope project   --ttl long_term 2>/dev/null || true
+```
+
+Run this command once per decision. Log each write: "KB: wrote decision entry for phase {current_phase} — {decision_text (first 60 chars)}"
+
+**Error handling:** If `summary-extract` returns an error or empty decisions array, log "KB feedback: no decisions found in {SUMMARY_FILE}" and continue. Never block the transition on KB write failures — all writes use `|| true`.
+
+**Step complete when:**
+
+- [ ] All SUMMARY.md files in completed phase read for decisions
+- [ ] Each non-empty decision written to KB as source_type: decision, scope: project, TTL: long_term
+- [ ] Failures logged but not blocking
+
+</step>
+
 <step name="update_current_position_after_transition">
 
 **Note:** Basic position updates (Current Phase, Status, Current Plan, Last Activity) were already handled by `gsd-tools phase complete` in the update_roadmap_and_state step.

@@ -46,6 +46,80 @@ if telegram_topic_id is not null:
   // Append above line to .planning/telegram-sessions/{YYYY-MM-DD}.jsonl
 ```
 
+
+<context_budget_monitoring>
+
+## Context Budget Monitoring
+
+Monitor context window usage at the start of each major step. Initialize these state variables once:
+
+```
+COMPRESSED_MODE_THRESHOLD = 0.60   // 60% -- switch to compressed output mode
+FRESH_SUBAGENT_THRESHOLD = 0.80    // 80% -- consider fresh subagent for verifier
+compressed_mode_notified = false   // track whether 60% notification was sent
+fresh_subagent_notified = false    // track whether 80% notification was sent
+context_budget_pct = 0.0           // current estimated usage percentage
+```
+
+**How to estimate context usage:**
+
+Claude Code reports context window usage in the environment. Check it at the start of each major step (harvest_knowledge, discuss, research, plan, execute each plan, verify). If the runtime does not expose this directly, use a conservative heuristic: estimate 5-10% per major step completed.
+
+**Compressed mode (at >= 60% context usage):**
+
+When context_budget_pct >= COMPRESSED_MODE_THRESHOLD:
+- Switch to terse output: use bullet points only, skip verbose reasoning narration
+- Omit intermediate planning commentary -- act and report results concisely
+- Skip optional diagnostic log messages
+- Send ONE Telegram notification (on first threshold crossing only):
+
+```
+if context_budget_pct >= COMPRESSED_MODE_THRESHOLD AND NOT compressed_mode_notified:
+  if telegram_topic_id is not null:
+    mcp__telegram__send_message({
+      text: "Phase {phase_number}: context at {usage_pct}% -- switching to compressed mode",
+      ...(telegram_topic_id ? { thread_id: telegram_topic_id } : {})
+    })
+  compressed_mode_notified = true
+  // Log to JSONL: {"type":"context_budget","event":"compressed_mode","timestamp":"{ISO}","phase":{N},"usage_pct":{usage_pct}}
+```
+
+**Fresh-subagent consideration (at >= 80% context usage):**
+
+When context_budget_pct >= FRESH_SUBAGENT_THRESHOLD:
+- Before spawning the verifier: create a compact handoff summary containing: phase goal, key decisions made, tasks completed, files modified
+- Pass this handoff summary in the verifier subagent prompt so the verifier has full context without relying on the coordinator context window
+- Send ONE Telegram notification (on first threshold crossing only):
+
+```
+if context_budget_pct >= FRESH_SUBAGENT_THRESHOLD AND NOT fresh_subagent_notified:
+  if telegram_topic_id is not null:
+    mcp__telegram__send_message({
+      text: "Phase {phase_number}: context at {usage_pct}% -- passing handoff summary to verifier",
+      ...(telegram_topic_id ? { thread_id: telegram_topic_id } : {})
+    })
+  fresh_subagent_notified = true
+  // Log to JSONL: {"type":"context_budget","event":"fresh_subagent","timestamp":"{ISO}","phase":{N},"usage_pct":{usage_pct}}
+  // Build handoff_summary:
+  handoff_summary = """
+  Phase {phase_number}: {phase_name}
+  Goal: {phase_goal}
+  Steps completed: {steps_completed}
+  Key decisions: {key_decisions_from_CONTEXT.md}
+  Files modified: {files_modified_so_far}
+  """
+```
+
+**Handoff summary injection in verifier spawn:**
+
+When spawning the verifier subagent (verify step), if fresh_subagent_notified is true:
+- Append the handoff_summary to the verifier prompt under a <context_handoff> tag
+- This ensures the verifier has all required context even when spawned from a nearly-full coordinator context window
+
+**Non-fatal:** Context budget monitoring never blocks execution. If usage cannot be determined, default to 0% and proceed normally.
+
+</context_budget_monitoring>
+
 <step name="harvest_knowledge">
 Mine recent Claude Code sessions for decisions and reasoning before planning begins.
 
@@ -569,6 +643,28 @@ echo "PLAN_COUNT=$PLAN_COUNT"
 { "status": "failed", "step": "plan", "reason": "gsd-planner returned success but no PLAN.md files found on disk" }
 ```
 
+**Plan structure gate:** After PLAN_COUNT check passes, run structural validation on each plan before proceeding:
+
+```bash
+GATE_FAILURES=0
+for plan_file in .planning/phases/{phase_dir}/*-PLAN.md; do
+  VALIDATION_OUTPUT=$(node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js verify plan-structure "$plan_file" 2>/dev/null)
+  VALID=$(echo "$VALIDATION_OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('valid', True))" 2>/dev/null || echo "True")
+  if [ "$VALID" = "False" ] || [ "$VALID" = "false" ]; then
+    ERRORS=$(echo "$VALIDATION_OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(', '.join(d.get('errors',[])))" 2>/dev/null || echo "unknown errors")
+    echo "PLAN STRUCTURE GATE FAILED: $plan_file — $ERRORS"
+    GATE_FAILURES=$((GATE_FAILURES + 1))
+  fi
+done
+```
+
+**If GATE_FAILURES > 0:** CRITICAL — do NOT proceed to execute. Return failure state:
+```json
+{ "status": "failed", "step": "plan", "reason": "Plan structure gate: {N} plan(s) failed validation — missing tdd tasks or ui-qa checkpoints. See gate output above for details." }
+```
+
+Note: The gate runs for BOTH the run path (planner just returned) AND the skip path (plans already existed). If the validation tool itself fails to parse a plan (e.g., tool error), treat as non-blocking and continue — only hard-fail on explicit valid:false responses.
+
 Create checkpoint: `{ step: "plan", status: "complete", plan_count: N }`
 
 **Skip rationale:** Plans may already exist from a previous partial execution. Always prefer existing plans over re-planning to preserve prior decisions.
@@ -594,6 +690,26 @@ Execute all plans in the phase:
 PLAN_COUNT=$(ls .planning/phases/{phase_dir}/*-PLAN.md 2>/dev/null | wc -l | tr -d ' ')
 ```
 If PLAN_COUNT == 0: HARD STOP — return failure state. Never execute a phase without plans on disk.
+
+**Pre-execution dependency drift check (advisory — never blocks execution):**
+```bash
+DRIFT_RESULT=$(node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js verify dependency-stability {phase_number} 2>/dev/null || echo '{"drift_detected":false,"error":"drift check unavailable"}')
+```
+
+Parse DRIFT_RESULT JSON:
+- If `drift_detected == true`: Log WARNING: "WARNING: Dependency drift detected for phase {phase_number} — files modified by intervening phases: {list drifted_files[].file and modified_by_phase}. Review if critical before proceeding. Continuing with execution."
+- If `drift_detected == false` (and no error): Log: "Dependency stability check passed — no drift detected"
+- If `error` field present or JSON parse fails: Log: "Dependency stability check skipped: {error}" — continue execution
+
+**File conflict check for parallel execution (informational — never blocks):**
+```bash
+FILE_CONFLICTS=$(node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js roadmap analyze --raw 2>/dev/null | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{const j=JSON.parse(d);console.log(JSON.stringify(j.file_conflicts||[]));}catch(e){console.log('[]');}})" 2>/dev/null || echo '[]')
+```
+
+Parse FILE_CONFLICTS JSON array:
+- If non-empty: Log "FILE CONFLICTS DETECTED: The following files are claimed by multiple parallel-eligible phases — {for each conflict: file claimed by phases A, B}. Review before running phases in parallel."
+- If empty: Log "No file conflicts detected among parallel-eligible phases"
+- If parse fails: Log "File conflict check unavailable — skipping" and continue
 
 ```bash
 # Check what plans exist and which have summaries
@@ -815,16 +931,25 @@ When the executor agent returns a checkpoint message with `Type: ui-qa`, the coo
 - `what_built`: from the `<what-built>` tag in the checkpoint task
 - `test_flows`: from the `<test-flows>` tag in the checkpoint task
 
-**Before the loop: auto-start dev servers — do NOT ask the user:**
+**Before the loop: auto-start dev servers via service-health — do NOT ask the user:**
 
-Check if servers are up. Try http://localhost:3000 and any other URL mentioned in `what_built`:
+Try the service-health registry first:
 ```bash
-curl -s --max-time 3 http://localhost:3000 > /dev/null 2>&1 && echo UP || echo DOWN
+SH_RESULT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" service-health start default --raw 2>/dev/null)
+SH_STATUS=$(echo "$SH_RESULT" | node -e "try{const r=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));process.stdout.write(r.status||'')}catch{}")
 ```
-If DOWN:
-- NX monorepo (nx.json present): `npx nx dev {app-name}` — app name from `<apps>` tag in checkpoint or infer from CLAUDE.md. Start each app in background.
-- Other: detect from package.json scripts.dev → run in background
-- Wait up to 30s for ready signal. If still DOWN: log warning and proceed (Charlotte will report server errors as test failures, not block the loop).
+
+- If SH_STATUS is `already_running` or `started`: log "Dev server ready via service-health" and proceed to the QA loop.
+- If SH_STATUS is `no_config` or empty (no registry): fall back to inline startup:
+  - Check http://localhost:3000 and any other URL mentioned in `what_built`:
+    ```bash
+    curl -s --max-time 3 http://localhost:3000 > /dev/null 2>&1 && echo UP || echo DOWN
+    ```
+    If DOWN:
+    - NX monorepo (nx.json present): `npx nx dev {app-name}` — app name from `<apps>` tag in checkpoint or infer from CLAUDE.md. Start each app in background.
+    - Other: detect from package.json scripts.dev → run in background
+    - Wait up to 30s for ready signal. If still DOWN: log warning and proceed.
+- If SH_STATUS is `start_timeout`: log warning and proceed (Charlotte will report server errors as test failures).
 
 **Loop (max 3 rounds):**
 
@@ -1008,19 +1133,59 @@ while round <= MAX_ROUNDS AND qa_passed == false:
 
 </checkpoint_ui_qa_loop>
 
+<detect_web_framework>
+
+## Detect Web Framework
+
+Before running the post-phase UX sweep, detect if this is a web project by checking package.json. This runs unconditionally — regardless of what file extensions appear in SUMMARY.md.
+
+```bash
+WEB_FRAMEWORK_DETECTED=false
+WEB_FRAMEWORK_NAME=""
+
+if [ -f "package.json" ]; then
+  FRAMEWORK=$(node -e "
+    try {
+      const p = require('./package.json');
+      const deps = Object.assign({}, p.dependencies || {}, p.devDependencies || {});
+      const frameworks = ['react', 'next', 'vue', 'svelte', '@angular/core', 'nuxt', 'gatsby', 'remix', '@remix-run/react', 'solid-js', 'preact'];
+      const found = frameworks.find(function(f) { return deps[f]; });
+      console.log(found || '');
+    } catch(e) { console.log(''); }
+  " 2>/dev/null || echo "")
+
+  if [ -n "$FRAMEWORK" ]; then
+    WEB_FRAMEWORK_DETECTED=true
+    WEB_FRAMEWORK_NAME="$FRAMEWORK"
+    Log: "Web framework detected: ${WEB_FRAMEWORK_NAME} — Charlotte UX sweep will run unconditionally"
+  fi
+fi
+```
+
+If WEB_FRAMEWORK_DETECTED=true: Charlotte UX sweep runs unconditionally for this phase, regardless of whether any .tsx/.jsx files appear in SUMMARY.md. This ensures web projects always get QA coverage.
+
+</detect_web_framework>
+
+
 <step name="post_phase_ux_sweep">
 
 After ALL plans in this phase have completed execution:
 
-1. Scan all SUMMARY.md files from this phase for `.tsx`, `.jsx`, `.vue`, `.svelte` files in key-files
-2. If any found: this phase produced web UI
+1. Detect if this phase produced web UI. Either condition triggers the sweep:
+   a. **Framework detection** (preferred): `WEB_FRAMEWORK_DETECTED=true` from the `detect_web_framework` step above — the project uses a web framework, so ALL phases get a Charlotte sweep regardless of what changed
+   b. **SUMMARY.md scan** (fallback): Scan all SUMMARY.md files from this phase for `.tsx`, `.jsx`, `.vue`, `.svelte` files in key-files
+
+2. If EITHER condition is true: proceed with Charlotte UX sweep (steps 3-5 below)
 
 3. If web UI was produced:
-   a. **Auto-start dev server** — do NOT ask user. Check http://localhost:3000 (or other port from CLAUDE.md):
+   a. **Auto-start dev server via service-health** — do NOT ask user:
       ```bash
-      curl -s --max-time 3 http://localhost:3000 > /dev/null 2>&1 && echo UP || echo DOWN
+      SH_RESULT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" service-health start default --raw 2>/dev/null)
+      SH_STATUS=$(echo "$SH_RESULT" | node -e "try{const r=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));process.stdout.write(r.status||'')}catch{}")
       ```
-      If DOWN: NX monorepo → `npx nx dev {app}` in background; other → `npm run dev` in background. Wait up to 30s.
+      If SH_STATUS is `already_running` or `started`: proceed to step b.
+      If SH_STATUS is `no_config` or empty: fallback — check http://localhost:3000; if DOWN → NX monorepo → `npx nx dev {app}` in background; other → `npm run dev` in background. Wait up to 30s.
+      If SH_STATUS is `start_timeout`: log warning and proceed (Charlotte will surface server errors).
    b. Derive test scope from phase success criteria and SUMMARY.md key-files
    c. Run the Charlotte 3-round loop — mode="ux-audit":
       ```
@@ -1058,7 +1223,7 @@ After post_phase_ux_sweep and before verify_phase_goal:
 2. If E2E_FLOWS is empty or null: skip this step.
 
 3. If E2E_FLOWS has entries:
-   a. **Auto-start dev server** — do NOT ask user. Same pattern as post_phase_ux_sweep step 3a.
+   a. **Auto-start dev server via service-health** — do NOT ask user. Same pattern as post_phase_ux_sweep step 3a — call `service-health start default` first, fall back to inline NX/npm startup if SH_STATUS is `no_config`.
    b. Spawn gsd-charlotte-qa (mode=e2e):
       ```
       Agent(
@@ -1199,6 +1364,18 @@ After each step (discuss, research, plan, execute, verify):
 3. Overwrite previous checkpoint (only latest matters for resume)
 
 **Purpose:** Enable resume from any step on failure. Parent coordinator reads checkpoint to understand where to restart.
+
+**CHECKPOINT.json field semantics (authoritative contract):**
+
+- `step_status: "complete"` — the step RAN to completion. This does NOT mean the phase goal was achieved. For the `verify` step, "complete" only means the verifier agent ran and wrote VERIFICATION.md — the actual outcome is in VERIFICATION.md's `status` field.
+- `step_status: "skipped"` — the step was not needed (e.g., CONTEXT.md already existed, so discuss was skipped).
+- `step_status: "failed"` — the step encountered an error before completing.
+- `last_step` — the most recent step that ran. `last_step: "verify"` means the verify step ran (not that it passed).
+- `resume_from` — which step a restarted coordinator should begin from.
+
+**Outcome authority:** VERIFICATION.md `status` is the authoritative judgment on whether the phase achieved its goal. CHECKPOINT.json only tracks execution lifecycle (what ran), not quality outcome (did it succeed). A coordinator MUST NOT mark a phase as roadmap-complete based on CHECKPOINT.json alone — it must read VERIFICATION.md `status: "passed"`.
+
+**Invariant enforced by tooling:** `gsd-tools.js phase complete` refuses to mark a phase done unless VERIFICATION.md has `status: "passed"`, all PLAN.md files have matching SUMMARY.md files, and CHECKPOINT.json has `last_step: "verify"`. This contract is not advisory — it is a hard gate.
 </checkpoint_protocol>
 
 <return_state>
