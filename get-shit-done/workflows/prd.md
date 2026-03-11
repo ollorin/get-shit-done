@@ -404,6 +404,14 @@ If NO prohibited patterns found:
 No-HOW Guard: Tech section is clean — no schemas, routes, or code detected.
 ```
 
+Append any unresolved Stage 3 gaps to the Open Questions section (cumulative — do not replace Stage 1 or Stage 2 entries):
+- Read the current Open Questions section from `.planning/prds/pending/{slug}.md`
+- For each unresolved gap from Stage 3 Q&A (if any), append:
+  ```
+  - **[Stage 3 — {gap_name}]** {gap question text} *(unresolved — {reason: deferred/vague/not addressed})*
+  ```
+- If no Stage 3 gaps remain unresolved, append a note: `*(No new open questions from Stage 3)*`
+
 ### 3e. Update Stage Marker
 
 Update the stage marker at the top of the PRD file:

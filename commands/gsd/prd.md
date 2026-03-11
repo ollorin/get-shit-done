@@ -5,8 +5,10 @@ argument-hint: "<concept description | file path | URL>"
 allowed-tools:
   - Read
   - Write
+  - Edit
   - Bash
   - WebFetch
+  - WebSearch
   - AskUserQuestion
 ---
 
