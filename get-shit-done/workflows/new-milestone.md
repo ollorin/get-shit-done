@@ -453,7 +453,7 @@ if ! mv .planning/prds/pending/{SELECTED_PRD_SLUG}.md .planning/prds/done/{SELEC
   echo "Then re-run the commit step once the file is in place."
   exit 1
 fi
-node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs: create milestone v[X.Y] roadmap — {SELECTED_PRD_SLUG} PRD promoted" --files .planning/ROADMAP.md .planning/STATE.md .planning/REQUIREMENTS.md .planning/prds/done/{SELECTED_PRD_SLUG}.md
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs: create milestone v[X.Y] roadmap — {SELECTED_PRD_SLUG} PRD promoted" --files .planning/ROADMAP.md .planning/STATE.md .planning/REQUIREMENTS.md .planning/prds/pending/{SELECTED_PRD_SLUG}.md .planning/prds/done/{SELECTED_PRD_SLUG}.md
 ```
 
 Print after commit:
