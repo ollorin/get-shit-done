@@ -464,7 +464,8 @@ To check for existing PRD: ask user for slug first, then check if file exists.
 ```
 function qa_loop(stage_name, topic_context, max_rounds=3, max_questions=4, confidence_threshold=0.80):
   round = 1
-  confidence = 0.0
+  confidence = {initial_confidence_from_stage_assessment}
+  # Set by stage gap assessment above before calling this loop
   gaps = [initial blocking gaps for this stage]
 
   while confidence < confidence_threshold AND round <= max_rounds:
