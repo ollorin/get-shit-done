@@ -19,9 +19,7 @@ Spawned by gsd-executor after SUMMARY.md is committed and self-checked.
 
 Read the SUMMARY.md at the path provided in your prompt:
 
-```bash
-cat "{SUMMARY_MD_PATH}"
-```
+Use the Read tool: `Read(file_path="{SUMMARY_MD_PATH}")`
 
 Extract build scope signals from the SUMMARY.md content. Look in these sections:
 - `## Files Modified` / `## Files Created` / `key-files` frontmatter
@@ -66,12 +64,11 @@ ls "{PROJECT_ROOT}/docs" 2>/dev/null && echo "DOCS_EXISTS" || echo "NO_DOCS_DIR"
 **If docs directory exists:**
 
 Find up to 5 existing `.md` files:
-```bash
-find "{PROJECT_ROOT}/docs" -name "*.md" -not -path "*/node_modules/*" | head -5
-```
+
+Use the Glob tool: `Glob(pattern="**/*.md", path="{PROJECT_ROOT}/docs")` — take the first 5 results.
 
 For each file found:
-1. Read the first 20 lines
+1. Read the first 20 lines using the Read tool
 2. Check for YAML frontmatter between `---` markers
 3. If frontmatter present: extract key names (e.g., `title`, `date`, `category`, `version`, `author`)
 4. Note the primary heading level (does the content use `# Title` or start with `## Section`?)
@@ -116,10 +113,8 @@ mkdir -p "{PROJECT_ROOT}/docs/api"
 - If the API file name is unclear: use the plan number as the filename: `docs/api/phase-{phase_number}.md`
 
 **Content — read the actual modified files first:**
-```bash
-# Find the actual API files from SUMMARY.md file list
-cat "{actual_api_file_path}" | head -80
-```
+
+Use the Read tool: `Read(file_path="{actual_api_file_path}", limit=80)`
 
 **Content template:**
 ```markdown
@@ -166,9 +161,8 @@ Create the directory if it does not exist.
 - `pages/dashboard.tsx` → `docs/frontend/dashboard.md`
 
 **Content — read the actual component file first:**
-```bash
-cat "{actual_component_file_path}" | head -60
-```
+
+Use the Read tool: `Read(file_path="{actual_component_file_path}", limit=60)`
 
 **Content template:**
 ```markdown
@@ -243,18 +237,21 @@ Do not add any additional sections, context, or explanation. One bullet, one lin
 
 ## Step 4: Commit Docs Changes
 
-After writing all doc files:
+During Steps 2–3, track every file you create or modify in a list called `WRITTEN_FILES`. Add each absolute path to this list at the moment you write it.
+
+After writing all doc files, stage only the files you wrote:
 
 ```bash
-cd "{PROJECT_ROOT}"
-git add docs/ CHANGELOG.md 2>/dev/null || true
-git status --short
+git -C "{PROJECT_ROOT}" add {WRITTEN_FILES joined by spaces}
+git -C "{PROJECT_ROOT}" status --short
 ```
+
+If `WRITTEN_FILES` is empty, skip the `git add` command entirely.
 
 If there are staged changes:
 ```bash
-git commit -m "docs({phase_number}-{plan_number}): {BUILD_SCOPE} documentation for phase {phase_number}"
-DOCS_COMMIT=$(git rev-parse --short HEAD)
+git -C "{PROJECT_ROOT}" commit -m "docs({phase_number}-{plan_number}): {BUILD_SCOPE} documentation for phase {phase_number}"
+DOCS_COMMIT=$(git -C "{PROJECT_ROOT}" rev-parse --short HEAD)
 ```
 
 If there are no staged changes (no files were modified): set `DOCS_COMMIT = "no-changes"`.
