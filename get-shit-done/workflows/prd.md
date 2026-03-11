@@ -31,7 +31,16 @@ mkdir -p .planning/prds/pending
 mkdir -p .planning/prds/done
 ```
 
-4. Create empty PRD draft at `.planning/prds/pending/{slug}.md` from the template at `~/.claude/get-shit-done/templates/prd.md`.
+4. Check that the PRD template exists before using it:
+   - If `~/.claude/get-shit-done/templates/prd.md` does NOT exist, display:
+     ```
+     ERROR: PRD template not found at ~/.claude/get-shit-done/templates/prd.md
+     The GSD installation may be incomplete or corrupted.
+     Run the GSD installer to restore missing templates, then retry.
+     ```
+     Then stop — do not proceed further.
+
+   Create empty PRD draft at `.planning/prds/pending/{slug}.md` from the template at `~/.claude/get-shit-done/templates/prd.md`.
    Replace `{slug}`, `{date}`, and `{concept_summary}` placeholders in the template.
 
 5. Write the stage marker at the top of the PRD file:
@@ -79,8 +88,8 @@ Remove gaps that are already clearly answered by the concept or research.
 
 Set initial confidence:
 - 0 gaps: confidence = 0.85 (advance immediately)
-- 1-2 gaps: confidence = 0.55
-- 3+ gaps: confidence = 0.35
+- 1-2 gaps: confidence = 0.65
+- 3+ gaps: confidence = 0.50
 
 ### 1c. Q&A Loop
 
@@ -102,9 +111,8 @@ After each user reply:
 - Mark gaps as resolved if the answer provides a clear, actionable decision
 - Update confidence:
   - All gaps resolved → 0.85
-  - 1-2 gaps remain → 0.65
-  - 3+ gaps remain → 0.45
-  - User defers ("you decide") → keep same confidence, do not resolve the gap
+  - 1-2 gaps remain vague → 0.65
+  - Non-committal answers or deferred to Claude → 0.50
 
 **Force-advance after round 3:** If confidence < 0.80 after round 3, proceed anyway. Add unresolved gaps to the PRD's Open Questions section.
 
@@ -138,6 +146,16 @@ Add market context as a comment block after the Problem Statement section:
 {market context summary from research — 3-5 bullets}
 -->
 ```
+
+Populate the Open Questions section with any gaps that were not resolved by the Q&A loop. This sets the initial Open Questions list:
+- If any gaps remain unresolved after the Q&A loop, replace the `{open_questions}` placeholder with:
+  ```markdown
+  ## Open Questions
+
+  {For each unresolved gap from Stage 1 Q&A:}
+  - **[Stage 1 — {gap_name}]** {gap question text} *(unresolved — {reason: deferred/vague/not addressed})*
+  ```
+- If all gaps were resolved, replace `{open_questions}` with `## Open Questions\n\n*(None from Stage 1)*`
 
 ### 1e. Update Stage Marker
 
@@ -183,11 +201,11 @@ Set initial scoping gaps for the Q&A:
 - acceptance_evidence: "How does the user know each story is complete? (concrete behavior, not feature description)" (blocked if vague)
 
 Set initial confidence:
-- 0-1 gaps: confidence = 0.75 (close to threshold)
+- 1 gap (mvp_scope only): confidence = 0.60 (ensures at least one focused Q&A round)
 - 2-3 gaps: confidence = 0.50
 - 4+ gaps: confidence = 0.30
 
-Note: `mvp_scope` is always marked blocked — the MVP boundary MUST be defined through Q&A, never inferred.
+Note: `mvp_scope` is always marked blocked — the MVP boundary MUST be defined through Q&A, never inferred. There can never be 0 gaps at this stage because `mvp_scope` is always blocked.
 
 ### 2c. Q&A Loop
 
@@ -270,6 +288,14 @@ Include in assumptions:
 - User behavior assumptions (e.g., "assumed users have email verified before using this feature")
 - Integration assumptions (e.g., "assumed Stripe is already integrated for payment features")
 - Any gaps deferred from the Q&A (unresolved items become explicit assumptions)
+
+Append any unresolved Stage 2 gaps to the Open Questions section (cumulative — do not replace Stage 1 entries):
+- Read the current Open Questions section from `.planning/prds/pending/{slug}.md`
+- For each unresolved gap from Stage 2 Q&A, append:
+  ```
+  - **[Stage 2 — {gap_name}]** {gap question text} *(unresolved — {reason: deferred/vague/not addressed})*
+  ```
+- If no Stage 2 gaps remain unresolved, append a note: `*(No new open questions from Stage 2)*`
 
 ### 2f. Update Stage Marker
 
@@ -407,7 +433,7 @@ Sections complete:
   - Assumptions
 
 Next step:
-  /gsd:new-milestone --prd .planning/prds/pending/{slug}.md
+  /gsd:new-milestone
 ```
 
 </process>

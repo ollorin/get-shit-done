@@ -49,6 +49,15 @@ options:
 **If user selects a PRD option (selects option 1 through N):**
 - Set `SELECTED_PRD_PATH = .planning/prds/pending/{selected_slug}.md`
 - Set `SELECTED_PRD_SLUG = {selected_slug}`
+
+**If STAGE of the selected PRD is NOT `<!-- stage: complete -->`:**
+Ask (plain text, not AskUserQuestion):
+```
+This PRD is still in progress (stage: {STAGE}). Key sections may be incomplete. Continue anyway? (yes/no)
+```
+- If user answers **no**: Return to the PRD selection prompt (re-display the options list).
+- If user answers **yes**: Proceed.
+
 - Set `PRD_DRIVEN = true`
 - Display: "Using PRD: {SELECTED_PRD_SLUG} as milestone foundation."
 
@@ -233,6 +242,8 @@ Display key findings from SUMMARY.md:
 **If "Skip research":** Continue to Step 9.
 
 ## 9. Define Requirements
+
+> **Skip this step if PRD_DRIVEN=true.** The roadmapper will generate REQUIREMENTS.md from PRD User Stories in Step 10. Proceed directly to Step 10.
 
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -436,7 +447,12 @@ Proceed directly to commit step below.
 **If PRD_DRIVEN=true:**
 ```bash
 mkdir -p .planning/prds/done
-mv .planning/prds/pending/{SELECTED_PRD_SLUG}.md .planning/prds/done/{SELECTED_PRD_SLUG}.md || echo "Warning: Could not move PRD to done/ — move manually: mv .planning/prds/pending/{SELECTED_PRD_SLUG}.md .planning/prds/done/{SELECTED_PRD_SLUG}.md"
+if ! mv .planning/prds/pending/{SELECTED_PRD_SLUG}.md .planning/prds/done/{SELECTED_PRD_SLUG}.md; then
+  echo "ERROR: Could not move PRD to done/ — stopping. Resolve manually:"
+  echo "  mv .planning/prds/pending/{SELECTED_PRD_SLUG}.md .planning/prds/done/{SELECTED_PRD_SLUG}.md"
+  echo "Then re-run the commit step once the file is in place."
+  exit 1
+fi
 node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs: create milestone v[X.Y] roadmap — {SELECTED_PRD_SLUG} PRD promoted" --files .planning/ROADMAP.md .planning/STATE.md .planning/REQUIREMENTS.md .planning/prds/done/{SELECTED_PRD_SLUG}.md
 ```
 
