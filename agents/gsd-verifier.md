@@ -379,7 +379,7 @@ After static wiring checks, attempt to run the project's test suite:
 ```bash
 # Detect test runner from package.json
 if [ -f "package.json" ]; then
-  TEST_CMD=$(node -e "const p=require('./package.json'); console.log(p.scripts?.test || p.scripts?.['test:ci'] || '')")
+  TEST_CMD=$(node -e "const p=require('./package.json'); console.log(p.scripts?.['test:ci'] || p.scripts?.test || '')")
 fi
 
 # Detect deno
@@ -541,6 +541,7 @@ If SUMMARY_UI_FILES == "yes" AND CHARLOTTE_QA_FOUND == false:
   ```yaml
   - truth: "Charlotte QA was run for phases producing UI files (.tsx/.jsx)"
     status: failed
+    failure_type: missing_artifact
     reason: "Phase produced .tsx/.jsx files but no Charlotte QA session was recorded"
     artifacts:
       - path: "{PHASE_DIR}"
@@ -578,10 +579,10 @@ IMPL_FILES_RAW=$(for summary in "$PHASE_DIR"/*-SUMMARY.md; do
       try {
         const fs = require('fs');
         const content = fs.readFileSync('$summary', 'utf8');
-        const matches = content.match(/[\w\-\/\.]+\.(ts|tsx|js)(?=[\s\x60'\"]|\$)/g) || [];
+        const matches = content.match(/[\w\-\/\.]+\.(ts|tsx|js)(?=[\s\x60'"]|$)/g) || [];
         const impl = matches.filter(function(f) {
-          const isTest = /\.(test|spec)\.(ts|tsx|js)\$/.test(f);
-          const isConfig = /\.(config|d)\.(ts|js)\$/.test(f) || /^(vite|next|tailwind|jest|vitest|webpack|babel|eslint|prettier)\./.test(f.split('/').pop());
+          const isTest = /\.(test|spec)\.(ts|tsx|js)$/.test(f);
+          const isConfig = /\.(config|d)\.(ts|js)$/.test(f) || /^(vite|next|tailwind|jest|vitest|webpack|babel|eslint|prettier)\./.test(f.split('/').pop());
           const isBuildOutput = /^(dist|build|\.next|\.nuxt|out)\//.test(f);
           return isTest === false && isConfig === false && isBuildOutput === false;
         });
@@ -611,6 +612,7 @@ For each implementation file that has no test counterpart:
   ```yaml
   - truth: "Every implementation file (.ts/.tsx/.js) has a corresponding test file"
     status: failed
+    failure_type: missing_test
     reason: "Implementation file has no test counterpart"
     artifacts:
       - path: "{impl_file}"
@@ -662,6 +664,7 @@ Parse MIGRATION_RESULT JSON. Extract `conflicts_found` and `resolved`.
 ```yaml
 - truth: "All migration timestamps are unique"
   status: failed
+  failure_type: broken_chain
   reason: "Duplicate migration timestamps found and could not be auto-resolved"
   artifacts:
     - path: "migrations/"
@@ -690,7 +693,7 @@ For each SUMMARY.md in the phase directory, extract key-files and task descripti
 |-------------|---------------------|
 | api_change | `api`, `route`, `handler`, `endpoint`, `router` |
 | ui_surface | `component`, `page`, `frontend`, `view`, `screen` |
-| architecture | SUMMARY text contains: "architectural decision", "migration", "schema change", "major refactor", "new service" |
+| architecture | SUMMARY text contains: "architectural decision", "migration", "schema change", "major refactor", "new service", "design decision" |
 | refactoring | None of the above |
 
 Take the highest-priority signal as `DOCS_EXPECTED_SCOPE` (priority: api_change > ui_surface > architecture > refactoring).
@@ -703,10 +706,10 @@ for summary in "$PHASE_DIR"/*-SUMMARY.md; do
       try {
         const fs = require('fs');
         const c = fs.readFileSync('$summary', 'utf8').toLowerCase();
-        const files = (c.match(/[w-\/\.]+\.(ts|tsx|js|py|rb|go|java)/g) || []).join(' ');
+        const files = (c.match(/[\w\-\/\.]+\.(ts|tsx|js|py|rb|go|java)/g) || []).join(' ');
         if (/api|route|handler|endpoint|router/.test(files)) { console.log('api_change'); }
         else if (/component|page|frontend|view|screen/.test(files)) { console.log('ui_surface'); }
-        else if (/architectural decision|migration|schema change|major refactor|new service/.test(c)) { console.log('architecture'); }
+        else if (/architectural decision|migration|schema change|major refactor|new service|design decision/.test(c)) { console.log('architecture'); }
         else { console.log('refactoring'); }
       } catch(e) { console.log('refactoring'); }
     " 2>/dev/null || echo "refactoring")
@@ -972,14 +975,14 @@ Key categories: placeholder stubs (TODOs, empty returns), semantic stubs (handle
 
 ## Step 11: Write Anti-Patterns to Knowledge DB
 
-After VERIFICATION.md is written, extract FAILED and STUB gaps and write them to the knowledge DB as `anti_pattern` entries. This persists discovered anti-patterns immediately so future executions can learn from them.
+After VERIFICATION.md is written, extract gaps where `status` is `failed` and write them to the knowledge DB as `anti_pattern` entries. This persists discovered anti-patterns immediately so future executions can learn from them.
 
 **Extract gaps from the verification result you just assembled:**
 
 From the gaps array you structured in Step 10 (if any), iterate over each gap entry.
 
 **For each gap in the gaps array:**
-- Skip if gap `status` is `uncertain`, `human_needed`, `warning`, or `partial` — only write `failed` and `stub` gaps
+- Skip if gap `status` is not `failed` — only write gaps where `status` is `failed`
 - Skip if gap `failure_type` is `missing_test` — test coverage gaps are not anti-patterns for KB purposes
 - Extract: `truth` (what failed), `reason` (root cause), `failure_type` (classification)
 - Build KB entry content: `[Phase {PHASE_NUM} anti-pattern] {truth} — root cause: {reason}`
@@ -996,9 +999,9 @@ Log each write: "KB: wrote anti-pattern entry — {truth (first 60 chars)}"
 
 **Step complete when:**
 
-- [ ] All FAILED and STUB gaps from VERIFICATION.md processed
+- [ ] All gaps with `status: failed` from VERIFICATION.md processed
 - [ ] Each qualifying gap written to KB as source_type: anti_pattern, scope: project, TTL: long_term
-- [ ] Uncertain/human_needed/warning/partial gaps skipped
+- [ ] Non-failed (uncertain/human_needed/warning/partial) gaps skipped
 - [ ] KB write failures not blocking (|| true pattern)
 
 </kb_feedback>
