@@ -683,9 +683,9 @@ PROJECT_ROOT="$(pwd)"
 Spawn gsd-docs-updater:
 
 ```
-Task(
+Agent(
   subagent_type="gsd-docs-updater",
-  model="haiku",
+  model="{executor_model}",
   prompt="
     <context>
     Phase: {PHASE}
@@ -707,7 +707,7 @@ Wait for gsd-docs-updater to complete. Parse the returned report:
 - `DOCS_FILES_WRITTEN` — list of files written
 - `DOCS_COMMIT` — the commit hash
 
-**On docs agent failure (Task() throws or returns error):**
+**On docs agent failure (Agent() throws or returns error):**
 - Log the error message
 - Continue to state updates — docs failure does NOT block state updates or phase completion
 - Append to SUMMARY.md:
@@ -728,13 +728,6 @@ Wait for gsd-docs-updater to complete. Parse the returned report:
 **Files written:**
 {for each file in DOCS_FILES_WRITTEN: - {file path}}
 **Commit:** {DOCS_COMMIT}
-```
-
-- Commit the SUMMARY.md update:
-
-```bash
-git add ".planning/phases/${PHASE_DIR}/${PHASE}-${PLAN}-SUMMARY.md"
-git commit -m "docs(${PHASE}-${PLAN}): append docs section to SUMMARY.md"
 ```
 
 </docs_update>
