@@ -21,9 +21,13 @@ Detection order:
 1. Detect input mode and extract concept content (see `<input_modes>` above).
 
 2. Ask user for PRD slug:
-   - Display: "What should this PRD be called? (slug format, e.g., auth-system, payment-flow)"
-   - Validate: lowercase, hyphens only, no spaces — if invalid, prompt again
-   - If `.planning/prds/pending/{slug}.md` already exists, warn user and append `-2` or ask to confirm overwrite
+   - Output this exact question as your final text, then **STOP immediately — do not call any more tools, do not continue the workflow**:
+     ```
+     What should this PRD be called? (slug format: lowercase, hyphens only, no spaces)
+     ```
+   - Wait for the user's reply. The slug comes from that reply, not from any examples or assumptions.
+   - Validate: lowercase, hyphens only, no spaces — if invalid, output the correction request and STOP again
+   - If `.planning/prds/pending/{slug}.md` already exists, warn user and append `-2` or ask to confirm overwrite (STOP and wait for reply)
 
 3. Create directory structure:
 ```bash
@@ -61,10 +65,14 @@ Display header:
 
 Perform competitive landscape research on the concept:
 
-1. Identify 2-3 relevant search angles from the concept (e.g., "competitor products", "market category", "problem domain"):
-   - For each angle, construct a search URL or use a known reference site
-   - Fetch each URL using WebFetch: `WebFetch(url="{url}", prompt="Summarize key features, target users, and differentiators")`
-   - If a fetch fails or returns irrelevant content, skip it and note "Research unavailable for this source"
+**Delegate all web fetches to a Haiku subagent** to keep the main context lean:
+- Spawn a `general-purpose` agent with model `haiku`
+- Pass it: the concept text + a prompt to fetch 2-3 competitive/market URLs and return a 3-5 bullet summary
+- Use the returned summary — do not re-fetch URLs in the main session
+
+If the subagent fails or returns no useful content: print "Research unavailable — proceeding with concept description only" and continue.
+
+1. Identify 2-3 relevant search angles from the concept (e.g., "competitor products", "market category", "problem domain") and pass them to the Haiku subagent.
 
 2. If all fetches fail: print "Research unavailable — proceeding with concept description only" and continue to Q&A without blocking.
 
@@ -330,9 +338,13 @@ It does NOT define HOW to implement. No schemas, API routes, or code.
 
 Research technology candidates for the product concept:
 
-1. Identify 2-3 technology domains relevant to the concept (e.g., "real-time communication", "payment processing", "ML inference"):
-   - For each domain, fetch 1-2 technology comparison pages via WebFetch
-   - If fetches fail: proceed with Claude's existing knowledge of technology candidates
+**Delegate all web fetches to a Haiku subagent** (same pattern as Stage 1):
+- Spawn a `general-purpose` agent with model `haiku`
+- Pass it: the technology domains + user stories from the PRD + a prompt to fetch 1-2 comparison pages per domain and return primary/alternative candidates with rationale
+- Use the returned summary — do not re-fetch in the main session
+- If the subagent fails: proceed with Claude's existing knowledge of technology candidates
+
+1. Identify 2-3 technology domains relevant to the concept (e.g., "real-time communication", "payment processing", "ML inference") and pass them to the Haiku subagent.
 
 2. Review the User Stories and MVP Boundary from the PRD draft (already written by Stage 2) to understand what capabilities are needed:
    - Read `.planning/prds/pending/{slug}.md` to extract user stories and MVP scope
@@ -351,6 +363,7 @@ If unclear (e.g., multiple viable tech stacks with very different implications),
 - max_rounds = 1
 - max_questions = 4
 - Questions focus on: scale requirements, team expertise, existing infrastructure constraints, cost sensitivity
+- **CRITICAL: Output questions and STOP. Do not continue until user replies.**
 
 ### 3c. Write Tech Candidates Section
 
@@ -481,9 +494,13 @@ function qa_loop(stage_name, topic_context, max_rounds=3, max_questions=4, confi
     print confidence: "Current confidence: {confidence*100:.0f}% — blocking gaps: {gaps}"
 
     questions = derive up to max_questions concrete questions that address the gaps
-    Ask all questions in one turn (numbered list)
 
-    Receive user answers.
+    Output the round header and numbered questions as your final text.
+    **CRITICAL: After outputting the questions, STOP IMMEDIATELY.**
+    Do NOT call any more tools. Do NOT continue the workflow. Do NOT force-advance.
+    Do NOT write anything after the last question.
+    The user's next message will contain their answers — process those answers
+    when that message arrives, then continue the loop.
 
     Update confidence based on answers:
       - All blocking gaps answered with clear decisions → confidence = 0.85 (sufficient)
