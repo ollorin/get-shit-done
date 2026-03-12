@@ -251,8 +251,16 @@ Replace `{acceptance_criteria}` placeholder with:
 - [ ] {concrete testable condition 1}
 - [ ] {concrete testable condition 2}
 - [ ] {edge case: what happens when...}
+- [ ] **API tests:** {comma-separated list of test scenarios}   ← include when US involves backend behavior (API endpoint, RPC, business logic, state machine)
+- [ ] **Charlotte QA:** {comma-separated list of QA flows}     ← include when US involves a UI page, form, modal, or interactive component
 
 ```
+
+**Test AC generation rules:**
+- US involves backend behavior (API endpoint, RPC, DB function, state machine, business logic) → add `**API tests:**` AC listing: happy path, auth/authz failure, validation errors, error handling, edge cases
+- US involves a UI page, form, modal, or interactive component → add `**Charlotte QA:**` AC listing: renders correctly, key interactions, error states, responsive behavior
+- US is pure infrastructure (migration only, config, no user-facing behavior) → omit both
+- US has both backend + UI → include both
 
 Replace `{mvp_items}` and `{phase2_items}` placeholders with:
 ```markdown
