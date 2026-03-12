@@ -365,26 +365,14 @@ If `CURRENT_BRANCH` is `main` or `master`: skip steps 3 and 4.
 
 Otherwise run the full quality gate suite. **All checks must pass TWICE in a row before the PR is opened. This is non-negotiable.**
 
-**Step 3a — Detect what changed:**
+**Step 3a — Detect what changed (informational only):**
 ```bash
 CHANGED_FILES=$(git diff --name-only main...HEAD 2>/dev/null || git diff --name-only HEAD~1 2>/dev/null)
-
-# API / Edge Function detection — triggers mandatory integration tests
-API_CHANGED=false
-if echo "$CHANGED_FILES" | grep -qE '^apps/api/functions/|^apps/api/libs/'; then
-  API_CHANGED=true
-fi
-
-# Docs detection — triggers vale + markdownlint
-CHANGED_DOCS=$(echo "$CHANGED_FILES" | grep '^docs/.*\.md$' || true)
+echo "Files changed: $(echo "$CHANGED_FILES" | wc -l | tr -d ' ')"
 ```
 
-**Step 3b — Integration tests (MANDATORY if API/edge functions touched):**
+**Step 3b — API integration tests (ALWAYS MANDATORY — run regardless of what changed):**
 
-If `API_CHANGED=true`:
-```
-⚠ API/Edge Function changes detected — integration tests are MANDATORY before PR.
-```
 ```bash
 # Requires local Supabase stack: supabase start
 if command -v supabase &>/dev/null; then
@@ -436,22 +424,22 @@ fi
 npx nx build player-web 2>&1 | tail -5
 npx nx build operator-web 2>&1 | tail -5
 
-# --- DOCS VALIDATION (only if docs/ changed) ---
-if [ -n "$CHANGED_DOCS" ]; then
+# --- DOCS VALIDATION (ALWAYS — full docs/ directory, not just changed files) ---
+if [ -d docs ]; then
   # Vale prose linting (blocking — same check CI runs)
-  vale $CHANGED_DOCS 2>&1 | tail -15
+  vale docs/ 2>&1 | tail -15
   # Markdown lint (blocking)
-  npx markdownlint-cli2 $CHANGED_DOCS 2>&1 | tail -10
+  npx markdownlint-cli2 "docs/**/*.md" 2>&1 | tail -10
   # Frontmatter validation (blocking)
   if [ -f apps/api/deno.json ]; then
     (cd apps/api && deno task validate:frontmatter 2>&1 | tail -8)
   fi
-  # Link validation (non-blocking — warn only)
+  # Link validation (blocking)
   if [ -f apps/api/deno.json ]; then
-    (cd apps/api && deno task validate:links 2>&1 | tail -8) || echo "⚠ Link validation warnings (non-blocking)"
+    (cd apps/api && deno task validate:links 2>&1 | tail -8)
   fi
 else
-  echo "No docs/ changes — skipping docs validation"
+  echo "No docs/ directory found — skipping docs validation"
 fi
 ```
 
