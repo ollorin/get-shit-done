@@ -1,5 +1,7 @@
 <purpose>
-Check for GSD updates via npm, display changelog for versions between installed and latest, obtain user confirmation, and execute clean installation with cache clearing.
+Check for GSD updates from the user's local fork clone, display changelog for versions between installed and latest, obtain user confirmation, and execute clean installation with cache clearing.
+
+**Fork source:** `~/get-shit-done` (git clone of `https://github.com/ollorin/get-shit-done`)
 </purpose>
 
 <required_reading>
@@ -44,17 +46,29 @@ Proceed to install step (treat as version 0.0.0 for comparison).
 </step>
 
 <step name="check_latest_version">
-Check npm for latest version:
+Pull latest from the fork and read the version:
 
 ```bash
-npm view get-shit-done-cc version 2>/dev/null
+FORK_DIR="$HOME/get-shit-done"
+
+# Verify the fork clone exists
+if [ ! -d "$FORK_DIR" ]; then
+  echo "ERROR: Fork clone not found at $FORK_DIR"
+  exit 1
+fi
+
+# Pull latest from origin (fork)
+git -C "$FORK_DIR" pull origin main 2>&1
+
+# Read version from package.json
+node -p "require('$FORK_DIR/package.json').version"
 ```
 
-**If npm check fails:**
+**If git pull fails:**
 ```
-Couldn't check for updates (offline or npm unavailable).
+Couldn't pull latest from fork (offline or git error).
 
-To update manually: `npx get-shit-done-cc --global`
+To update manually: cd ~/get-shit-done && git pull && node bin/install.js
 ```
 
 Exit.
@@ -89,9 +103,9 @@ Exit.
 </step>
 
 <step name="show_changes_and_confirm">
-**If update available**, fetch and show what's new BEFORE updating:
+**If update available**, read and show what's new BEFORE updating:
 
-1. Fetch changelog from GitHub raw URL
+1. Read changelog from `$HOME/get-shit-done/CHANGELOG.md` (already pulled in previous step)
 2. Extract entries between installed and latest versions
 3. Display preview and ask for confirmation:
 
@@ -142,16 +156,10 @@ Use AskUserQuestion:
 </step>
 
 <step name="run_update">
-Run the update using the install type detected in step 1:
+Run the install script from the fork clone (already up to date from the pull in step 2):
 
-**If LOCAL install:**
 ```bash
-npx get-shit-done-cc --local
-```
-
-**If GLOBAL install (or unknown):**
-```bash
-npx get-shit-done-cc --global
+node "$HOME/get-shit-done/bin/install.js"
 ```
 
 Capture output. If install fails, show error and exit.
@@ -179,7 +187,7 @@ Format completion message (changelog was already shown in confirmation step):
 
 ⚠️  Restart Claude Code to pick up the new commands.
 
-[View full changelog](https://github.com/glittercowboy/get-shit-done/blob/main/CHANGELOG.md)
+[View full changelog](https://github.com/ollorin/get-shit-done/blob/main/CHANGELOG.md)
 ```
 </step>
 
