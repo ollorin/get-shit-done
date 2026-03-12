@@ -146,6 +146,40 @@ Options:
 
 </goal_backward_phases>
 
+<testing_mandate>
+
+## Testing Success Criteria Are Mandatory
+
+When phases create API endpoints or UI, testing is NOT a separate concern — it is a delivery criterion of that phase.
+
+### Rule 1: API Test Criterion
+
+If any requirement mapped to a phase has an `**API tests:**` AC, the phase success criteria MUST include:
+
+> Integration tests cover: [list the test scenarios from the AC]
+
+Example:
+- Bad: "Deposit limit blocks player when exceeded" ← behavioral only
+- Good: "Deposit limit blocks player when exceeded" AND "Integration tests cover: limit enforcement, limit exceeded (422), cooling-off, concurrent deposits" ← behavioral + tested
+
+### Rule 2: Charlotte QA Criterion
+
+If any requirement mapped to a phase has a `**Charlotte QA:**` AC, the phase success criteria MUST include:
+
+> Charlotte QA passes for: [list the flows from the AC]
+
+Example:
+- Bad: "Player can view and manage their limits on the RG limits page" ← behavioral only
+- Good: "Player can view and manage their limits on the RG limits page" AND "Charlotte QA passes for: limit widget renders, edit flow saves, operator-imposed read-only badge" ← behavioral + QA'd
+
+### Rule 3: No Testing Deferral
+
+Do NOT compress all testing into a single testing phase at the end of the milestone.
+
+Each delivery phase that creates API endpoints or UI MUST include its own test success criteria. A dedicated integration test phase (e.g., "Phase N: E2E Tests") is allowed for cross-cutting concerns only — it cannot replace per-phase test criteria.
+
+</testing_mandate>
+
 <phase_identification>
 
 ## Deriving Phases from Requirements
@@ -571,6 +605,10 @@ When unable to proceed:
 - Bad: AUTH-01 in Phase 2 AND Phase 3
 - Good: AUTH-01 in Phase 2 only
 
+**Don't defer all testing to a final phase:**
+- Bad: Phases 1-9 implement features, Phase 10 adds all tests
+- Good: Each delivery phase includes test success criteria alongside implementation criteria
+
 </anti_patterns>
 
 <success_criteria>
@@ -584,6 +622,9 @@ Roadmap is complete when:
 - [ ] Granularity calibration applied
 - [ ] Dependencies between phases identified
 - [ ] Success criteria derived for each phase (2-5 observable behaviors)
+- [ ] Phases with API test ACs have an integration test success criterion
+- [ ] Phases with Charlotte QA ACs have a QA success criterion
+- [ ] No delivery phase defers all testing to a later phase
 - [ ] Success criteria cross-checked against requirements (gaps resolved)
 - [ ] 100% requirement coverage validated (no orphans)
 - [ ] ROADMAP.md structure complete
