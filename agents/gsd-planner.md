@@ -1288,7 +1288,51 @@ Returns JSON: `{ valid, errors, warnings, task_count, tasks }`
 
 This audit is mandatory. `checkpoint:human-verify` is only valid for: macOS/iOS apps, audio/video quality, Xcode builds, physical hardware interaction, OAuth browser flows requiring credentials. Everything else that can be tested in a browser must be `checkpoint:ui-qa`.
 
-Also verify: plans with API endpoints have a `tdd='true'` task. If missing, add one.
+</step>
+
+<step name="validate_testing_gate">
+## Hard Testing Gate
+
+Run this gate AFTER all plans are written, BEFORE returning to orchestrator.
+
+**Scan all plans for testing violations:**
+
+For each plan in this phase:
+1. List every task that creates or modifies an API endpoint, edge function, RPC, or HTTP route
+2. For each such task: is there an adjacent `tdd="true"` task in the same or immediately following plan?
+3. List every task that creates or modifies a web UI page, form, modal, or interactive component
+4. For each such task: is there a `checkpoint:ui-qa` task covering it in the same or immediately following plan?
+
+**If any violation found:**
+
+Return immediately with:
+
+```
+## PLAN REJECTED — TESTING GATE FAILED
+
+The following plans are missing required test coverage:
+
+{For each violation:}
+- Plan {NN}: task "{task name}" creates/modifies {API endpoint/UI} — missing {tdd="true" task / checkpoint:ui-qa}
+
+Fix required before proceeding:
+- API tasks without tdd coverage → add a `type="auto" tdd="true"` task immediately after each
+- UI tasks without ui-qa coverage → add a `type="checkpoint:ui-qa"` task after the feature group
+
+Resubmit plans after adding missing test tasks.
+```
+
+Do NOT return PLANNING COMPLETE. Do NOT write SUMMARY. Do NOT commit.
+
+**If no violations:**
+
+Continue to `update_roadmap` step normally.
+
+**Exemptions (do not flag):**
+- Migration-only tasks (no user-facing behavior, no HTTP routes)
+- Config/type definition files
+- Pure CSS changes with no structural component changes
+- Non-web projects (macOS, audio, Xcode) — use judgment
 </step>
 
 <step name="update_roadmap">
