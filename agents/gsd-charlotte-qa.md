@@ -189,7 +189,28 @@ Form Design:
 
 ## UX Audit Mode (mode=ux-audit)
 
-Run this checklist on every page/screen in scope. Screenshot before and after any interaction.
+**HARD RULE: Every checklist item must be answered from a saved screenshot, visually analyzed via `charlotte_screenshot_get`. DOM inspection alone is NOT sufficient for UX validation. You are checking how the UI looks and feels to a real user — not whether elements exist in the HTML.**
+
+### Screenshot-first protocol (mandatory for every screen)
+
+Before evaluating ANY checklist item on a screen:
+
+1. `charlotte_navigate` to the page
+2. `charlotte_screenshot({ save: true, filename: "ux-{screen-name}-initial.png" })`
+3. `charlotte_screenshot_get({ id: returned_id })` — **look at the actual rendered image**
+4. Only now answer checklist items — base every answer on what you SEE in the screenshot, not what the DOM says
+
+For interactive states (hover, focus, loading, error, empty):
+- Trigger the state
+- `charlotte_screenshot({ save: true, filename: "ux-{screen-name}-{state}.png" })`
+- `charlotte_screenshot_get({ id: returned_id })` — visually inspect before concluding
+- Every distinct state needs its own saved screenshot
+
+**You MUST reference a screenshot ID for every issue you report.** An issue without a screenshot is not a valid issue — re-capture if needed.
+
+**DOM is supporting evidence only.** Use `charlotte_observe` to locate elements, but judge UX quality from the screenshot. A label that exists in the DOM but is visually invisible, truncated, or misleadingly styled is still a UX failure.
+
+Run this checklist on every page/screen in scope.
 
 ### Clarity & Focus
 - [ ] Is the PRIMARY action obvious without reading? (not buried in a menu or styled same as secondary)
