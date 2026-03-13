@@ -589,7 +589,7 @@ A Charlotte QA session is recorded when any of these exist in the phase director
 ```bash
 CHARLOTTE_QA_FOUND=false
 # Check for Charlotte QA session files (highest confidence)
-for qa_file in "$PHASE_DIR"/*-QA-*.md "$PHASE_DIR"/*-CHARLOTTE-*.md "$PHASE_DIR"/*-UX-*.md; do
+for qa_file in "$PHASE_DIR"/*-QA-*.md "$PHASE_DIR"/*-CHARLOTTE-*.md "$PHASE_DIR"/*-UX-*.md "$PHASE_DIR"/*-UX-AUDIT.md; do
   if [ -f "$qa_file" ]; then
     CHARLOTTE_QA_FOUND=true
     break

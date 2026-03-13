@@ -1155,7 +1155,82 @@ while round <= MAX_ROUNDS AND qa_passed == false:
 // End of loop
 ```
 
-**After loop completes successfully (qa_passed == true):** Continue plan execution from the next task after the checkpoint:ui-qa task.
+**After loop completes successfully (qa_passed == true):** Run mandatory UX audit before continuing.
+
+**MANDATORY UX AUDIT after every ui-qa pass:**
+
+When the ui-qa loop passes, immediately run a ux-audit on the same surface before continuing plan execution. UI testing and UX testing are inseparable — you never run one without the other.
+
+```
+// After qa_passed == true from the ui-qa loop:
+ux_result = Agent(
+  subagent_type="gsd-charlotte-qa",
+  model="sonnet",
+  description="UX audit after UI QA — {what_built}",
+  prompt="
+    mode=ux-audit
+    <what_built>{what_built}</what_built>
+    <test_flows>{test_flows}</test_flows>
+    <round>1</round>
+  "
+)
+
+Parse ux_result JSON:
+  ux_passed = ux_result.passed
+  ux_issue_count = ux_result.issue_count
+  ux_severity_counts = ux_result.severity_counts
+  ux_issues = ux_result.issues
+  ux_report = ux_result.report_markdown
+
+Log: "UX Audit: {ux_issue_count} issues (Critical: {ux_severity_counts.critical}, High: {ux_severity_counts.high}, Medium: {ux_severity_counts.medium}, Low: {ux_severity_counts.low})"
+
+// If Critical or High UX issues found: spawn fix subagent (same model logic as ui-qa loop)
+if ux_severity_counts.critical > 0 OR ux_severity_counts.high > 0:
+  ux_fix_result = Agent(
+    subagent_type="general-purpose",
+    model="sonnet",
+    description="Fix UX issues",
+    prompt="
+      Fix these UX issues found by Charlotte UX audit.
+
+      <what_built>{what_built}</what_built>
+
+      <issues>
+      {ux_report}
+      </issues>
+
+      Fix all Critical and High severity UX issues. Medium and Low are optional. Commit your fixes.
+    "
+  )
+
+  // Re-run UX audit to verify fixes
+  ux_recheck = Agent(
+    subagent_type="gsd-charlotte-qa",
+    model="sonnet",
+    description="UX re-audit after fixes",
+    prompt="
+      mode=ux-audit
+      <what_built>{what_built}</what_built>
+      <test_flows>{test_flows}</test_flows>
+      <round>2</round>
+      <previous_issues>{ux_report}</previous_issues>
+    "
+  )
+
+  Parse ux_recheck JSON. Log results.
+
+  // If Critical/High still present after fix: write UX-ISSUES.md so verifier catches it
+  if ux_recheck.severity_counts.critical > 0 OR ux_recheck.severity_counts.high > 0:
+    Write `.planning/phases/{phase_dir}/UX-ISSUES.md` with the remaining issues
+    Log: "UX issues persist after fix attempt — recorded in UX-ISSUES.md for verifier"
+
+// Write UX audit report to phase directory regardless of outcome
+Write `.planning/phases/{phase_dir}/{phase}-{plan}-UX-AUDIT.md` with ux_result.report_markdown (and ux_recheck report if ran)
+
+// Continue plan execution from the next task after the checkpoint:ui-qa task
+```
+
+**HARD RULE: The UX audit cannot be skipped when UI tests run.** It runs on the same surface, same service URL, immediately after ui-qa passes. Medium and Low UX issues are logged but do not block execution. Critical and High issues trigger a fix-and-recheck loop.
 
 **Note on commit handling:** The fix subagent commits its own changes atomically per fix. The coordinator does not make additional commits for the QA loop — only the executor's per-task commits and the final summary commit exist.
 
