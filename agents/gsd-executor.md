@@ -529,6 +529,43 @@ fi
 
 If TEST_CMD is empty after all detection attempts: log "No test command found — skipping post-plan test gate" and proceed to `<summary_creation>`. Do NOT block or fail when no test command is available.
 
+**CRITICAL: Infrastructure unavailability is NOT the same as "no test command found".** If TEST_CMD exists but tests fail because services are down, you MUST attempt infrastructure startup (Step 1.5 below). Only when TEST_CMD truly cannot be detected from any config file should this gate be skipped.
+
+**Step 1.5: Infrastructure startup (if TEST_CMD found)**
+
+If TEST_CMD is non-empty, do a quick pre-flight run to detect infrastructure errors BEFORE the full 5-minute run:
+
+```bash
+# Quick pre-flight to detect infrastructure errors
+PRE_FLIGHT_FILE="/tmp/gsd-preflight-$$.txt"
+timeout 30 bash -c "${TEST_CMD}" > "${PRE_FLIGHT_FILE}" 2>&1
+PRE_FLIGHT_EXIT=$?
+PRE_FLIGHT_OUTPUT=$(cat "${PRE_FLIGHT_FILE}" 2>/dev/null || echo "")
+rm -f "${PRE_FLIGHT_FILE}"
+
+# Detect infrastructure unavailability
+INFRA_ERROR=false
+if echo "$PRE_FLIGHT_OUTPUT" | grep -qiE "ECONNREFUSED|connection refused|not running|supabase.*not|database.*unavailable|connect.*failed|supabase not started|service.*unavailable"; then
+  INFRA_ERROR=true
+fi
+```
+
+If INFRA_ERROR=true AND PRE_FLIGHT_EXIT != 0:
+
+1. Log: "Infrastructure appears to be down — reading CLAUDE.md for startup commands..."
+
+2. Read the project's CLAUDE.md (same approach as gsd-charlotte-qa: `find . -maxdepth 2 -name "CLAUDE.md" | head -1`). Look for a `## Dev / Infrastructure` or `## Supabase` or `## QA / Dev Server` section — extract the infrastructure startup command.
+
+3. If CLAUDE.md has a startup command: run it. Example: if CLAUDE.md mentions `supabase start` → run `supabase start 2>&1 | tail -10`. Wait up to 60s for it to complete.
+
+4. If no CLAUDE.md startup command found, try common fallbacks in order:
+   - If `supabase/config.toml` or `supabase/` directory exists: `supabase start`
+   - If `docker-compose.yml` or `docker-compose.yaml` exists: `docker-compose up -d`
+
+5. After startup attempt, wait 5 seconds, then proceed to Step 2 (full test run).
+
+**HARD RULE:** NEVER treat infrastructure unavailability as "no test command found". Do NOT skip the test gate because infrastructure is down. Infrastructure that won't start = hard blocker. If startup fails and tests still fail → TEST_GATE_BLOCKED=true. Do NOT create SUMMARY.md.
+
 **Step 2: Run test suite (5-minute timeout)**
 
 ```bash

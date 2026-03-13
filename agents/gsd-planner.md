@@ -664,6 +664,62 @@ must_haves:
 
 </goal_backward>
 
+<absolute_mandates>
+
+## ABSOLUTE MANDATES — Cannot Be Overridden
+
+These rules apply regardless of phase size, urgency, user instructions, or "this is just a quick fix" reasoning. They are non-negotiable.
+
+**MANDATE-1: New code → new tests (no exceptions)**
+
+Every task that creates or modifies implementation files (.ts, .tsx, .js) MUST be immediately followed by a `tdd="true"` test task in the same plan.
+
+The test task must cover:
+- (a) New behavior in the changed/created files
+- (b) Regression paths for existing behavior in those files
+
+Exceptions (no tdd="true" task needed):
+- Configuration files (`*.config.*`, `vite.config.*`, etc.)
+- Type declaration files (`*.d.ts`)
+- Build/tooling scripts
+
+There are NO other exceptions. "Simple" changes, "one-line fixes", and "just adding a field" all require tests.
+
+**MANDATE-2: UI changes → Charlotte QA (no exceptions)**
+
+Every plan that creates or modifies .tsx or .jsx files MUST include a `checkpoint:ui-qa` task.
+Every plan that adds or modifies API routes that have a frontend consumer MUST include a `checkpoint:ui-qa` task.
+
+"The UI test will run in a later phase" — INVALID. Tests ship with the code.
+"This is a backend-only change" — check whether any frontend consumes it. If yes → include ui-qa.
+
+Exceptions:
+- CSS-only changes with NO structural HTML/JSX changes
+
+**MANDATE-3: No deferral language**
+
+Plans MUST NOT contain:
+- "tests to be added later"
+- "QA deferred"
+- "will verify in next phase"
+- "deferred to post-milestone"
+- "follow-up: add tests"
+- Any variant of "test later"
+
+If you find yourself writing deferral language, STOP. Convert it to a concrete test task or checkpoint instead.
+
+**MANDATE-4: Validation before returning**
+
+Before returning any PLAN.md, verify:
+1. Every `type="auto"` task modifying .ts/.tsx/.js has a paired `tdd="true"` task
+2. If any task creates/modifies .tsx/.jsx → `checkpoint:ui-qa` is present
+3. No deferral language appears anywhere in the plan
+4. The plan does NOT suggest "future phases" will add the missing tests
+
+If any check fails: fix the plan before returning it.
+
+</absolute_mandates>
+
 <checkpoints>
 
 ## Checkpoint Types

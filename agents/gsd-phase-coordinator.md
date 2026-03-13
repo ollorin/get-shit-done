@@ -949,7 +949,24 @@ SH_STATUS=$(echo "$SH_RESULT" | node -e "try{const r=JSON.parse(require('fs').re
     - NX monorepo (nx.json present): `npx nx dev {app-name}` — app name from `<apps>` tag in checkpoint or infer from CLAUDE.md. Start each app in background.
     - Other: detect from package.json scripts.dev → run in background
     - Wait up to 30s for ready signal. If still DOWN: log warning and proceed.
-- If SH_STATUS is `start_timeout`: log warning and proceed (Charlotte will report server errors as test failures).
+- If SH_STATUS is `start_timeout`:
+  - **DO NOT PROCEED.** Charlotte cannot test a dead server.
+  - Read CLAUDE.md for infrastructure startup instructions. Try the startup command found there.
+  - If startup still fails after 60s: return a `human-action` checkpoint:
+    ```
+    ## CHECKPOINT REACHED
+
+    **Type:** human-action
+    **Blocked by:** Dev server / infrastructure failed to start for Charlotte QA
+
+    The Charlotte QA checkpoint cannot be skipped or deferred. Please start the dev server manually:
+    1. Check CLAUDE.md for the startup command
+    2. Verify the server is responding at the expected URL
+    3. Reply "continue" once the server is running
+
+    **IMPORTANT:** Charlotte QA CANNOT be deferred to a future phase. It must run before this phase can complete.
+    ```
+  - Wait for user response. Do NOT mark phase complete without Charlotte QA running.
 
 **Loop (max 3 rounds):**
 
@@ -1164,6 +1181,17 @@ fi
 
 If WEB_FRAMEWORK_DETECTED=true: Charlotte UX sweep runs unconditionally for this phase, regardless of whether any .tsx/.jsx files appear in SUMMARY.md. This ensures web projects always get QA coverage.
 
+**HARD RULE: Charlotte UX sweep is MANDATORY for web projects.**
+
+If WEB_FRAMEWORK_DETECTED=true:
+- The UX sweep MUST run after all plans complete
+- If the dev server fails to start: read CLAUDE.md for startup instructions, attempt startup, then run the sweep
+- If after startup attempts the server still won't start: return a `human-action` checkpoint — do NOT skip the sweep
+- "The UX was tested by individual checkpoint:ui-qa tasks" is NOT sufficient to skip the end-of-phase sweep
+- The sweep catches cross-plan UX regressions and holistic flow issues that per-plan checkpoints miss
+
+There is NO mechanism to skip the Charlotte UX sweep for web projects. The only way to proceed without it is a `human-action` checkpoint where the user explicitly decides.
+
 </detect_web_framework>
 
 
@@ -1185,7 +1213,7 @@ After ALL plans in this phase have completed execution:
       ```
       If SH_STATUS is `already_running` or `started`: proceed to step b.
       If SH_STATUS is `no_config` or empty: fallback — check http://localhost:3000; if DOWN → NX monorepo → `npx nx dev {app}` in background; other → `npm run dev` in background. Wait up to 30s.
-      If SH_STATUS is `start_timeout`: log warning and proceed (Charlotte will surface server errors).
+      If SH_STATUS is `start_timeout`: read CLAUDE.md for infrastructure startup instructions, attempt startup. If still failing after 60s: return a `human-action` checkpoint — do NOT skip the sweep. Charlotte cannot test a dead server.
    b. Derive test scope from phase success criteria and SUMMARY.md key-files
    c. Run the Charlotte 3-round loop — mode="ux-audit":
       ```
@@ -1251,6 +1279,15 @@ Verify phase goal achieved using VERIFICATION.md:
 ```bash
 node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js init verify-work {phase_number}
 ```
+
+**HARD RULE: The coordinator MUST spawn gsd-verifier to write VERIFICATION.md.**
+
+Writing VERIFICATION.md inline (coordinator writes it directly without spawning gsd-verifier) is prohibited for phases that:
+- Contain any .tsx/.jsx files in their SUMMARY.md key-files
+- Have any PLAN.md with a checkpoint:ui-qa task
+- Have success criteria mentioning "Charlotte", "browser QA", "UI test", or "integration test"
+
+If the coordinator DOES write inline (e.g., timeout fallback), it MUST set `verifier: coordinator` in the frontmatter. When gsd-verifier runs in re-verification mode and sees `verifier: coordinator`, it MUST re-run all QA-related QGATEs (07, 10, 12) regardless of what the coordinator's inline report said.
 
 Spawn verifier agent to create VERIFICATION.md:
 ```

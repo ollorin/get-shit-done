@@ -409,6 +409,20 @@ fi
 
 ## Step 9: Determine Overall Status
 
+**PARTIAL PASS IS NOT A PASS**
+
+If any success criterion or observable truth is marked as:
+- "PARTIAL PASS"
+- "PARTIAL"
+- "DEFERRED"
+- "deferred to post-milestone"
+- "deferred to future phase"
+- "pending"
+
+→ The phase status MUST be `gaps_found`. There is no in-between. A criterion is either ✓ VERIFIED or ✗ FAILED.
+
+Any deferral language in a success criterion = verification failure. "All underlying infrastructure is in place" is not evidence that a criterion is satisfied. Only running and passing the actual test counts.
+
 **Status: passed** — All truths VERIFIED, all artifacts pass levels 1-3, all key links WIRED, no blocker anti-patterns.
 
 **Status: gaps_found** — One or more truths FAILED, artifacts MISSING/STUB, key links NOT_WIRED, or blocker anti-patterns found.
@@ -498,6 +512,30 @@ for summary in "$PHASE_DIR"/*-SUMMARY.md; do
 done
 ```
 
+**Step A.5 — Also check if any PLAN.md required Charlotte QA:**
+
+```bash
+PLAN_REQUIRES_UI_QA=false
+for plan in "$PHASE_DIR"/*-PLAN.md; do
+  if [ -f "$plan" ]; then
+    UI_QA_IN_PLAN=$(node -e "
+      try {
+        const fs = require('fs');
+        const content = fs.readFileSync('$plan', 'utf8');
+        const hasUiQa = content.includes('checkpoint:ui-qa') || content.includes('type=\"checkpoint:ui-qa\"');
+        console.log(hasUiQa ? 'yes' : 'no');
+      } catch(e) { console.log('no'); }
+    " 2>/dev/null || echo "no")
+    if [ "$UI_QA_IN_PLAN" = "yes" ]; then
+      PLAN_REQUIRES_UI_QA=true
+      break
+    fi
+  fi
+done
+```
+
+Set `TRIGGER_QA_CHECK=true` if `SUMMARY_UI_FILES="yes"` OR `PLAN_REQUIRES_UI_QA=true`.
+
 **Step B — Check for Charlotte QA session record:**
 
 A Charlotte QA session is recorded when any of these exist in the phase directory:
@@ -534,27 +572,84 @@ if [ "$CHARLOTTE_QA_FOUND" = "false" ]; then
 fi
 ```
 
-**Step C — Hard-fail if UI files present but no Charlotte QA:**
+**Step C — Hard-fail if UI files present or plan requires QA but no Charlotte QA:**
 
-If SUMMARY_UI_FILES == "yes" AND CHARLOTTE_QA_FOUND == false:
+If TRIGGER_QA_CHECK == true AND CHARLOTTE_QA_FOUND == false:
 - Add gap to gaps list:
   ```yaml
   - truth: "Charlotte QA was run for phases producing UI files (.tsx/.jsx)"
     status: failed
     failure_type: missing_artifact
-    reason: "Phase produced .tsx/.jsx files but no Charlotte QA session was recorded"
+    reason: "Phase produced .tsx/.jsx files or PLAN.md includes checkpoint:ui-qa but no Charlotte QA session was recorded"
     artifacts:
       - path: "{PHASE_DIR}"
         issue: "No Charlotte QA session files found in phase directory"
     missing:
-      - "Run Charlotte QA for all .tsx/.jsx files produced in this phase"
+      - "Run Charlotte QA for all .tsx/.jsx files produced in this phase OR as required by checkpoint:ui-qa tasks in PLAN.md"
       - "Charlotte QA session must be recorded before phase can pass verification"
+      - "If supabase/dev server was not running: start it (check CLAUDE.md for startup command) and re-run"
   ```
 - Set STATUS = gaps_found (hard-fail — NOT a warning)
 
-If SUMMARY_UI_FILES == "no" OR CHARLOTTE_QA_FOUND == true: this check passes silently.
+If TRIGGER_QA_CHECK == false OR CHARLOTTE_QA_FOUND == true: this check passes silently.
 
 </check_charlotte_qa_coverage>
+
+<check_deferral_language>
+
+## Step 8c.5: Deferral Language Detection (QGATE-12)
+
+**Trigger:** Always runs.
+
+**Hard rule:** Any deferral of tests, QA, or verification to a future phase is a verification failure. This is NEVER a warning.
+
+**Step A — Scan SUMMARY.md and VERIFICATION.md files for deferral language:**
+
+```bash
+DEFERRAL_PATTERNS="deferred|defer to|deferred to|post-milestone testing|future phase|will be tested later|to be added later|qa skipped|tests skipped|skipped.*because.*not running|skipped.*infrastructure"
+DEFERRAL_FOUND=false
+DEFERRAL_EVIDENCE=""
+
+for file in "$PHASE_DIR"/*-SUMMARY.md "$PHASE_DIR"/*-VERIFICATION.md; do
+  if [ -f "$file" ]; then
+    MATCHES=$(node -e "
+      try {
+        const fs = require('fs');
+        const content = fs.readFileSync('$file', 'utf8');
+        const patterns = /deferred|defer to|deferred to|post-milestone testing|future phase|will be tested later|to be added later|qa skipped|tests skipped|skipped.*because.*not running|skipped.*infrastructure/gi;
+        const matches = content.match(patterns) || [];
+        console.log(matches.length > 0 ? matches.slice(0,3).join('; ') : '');
+      } catch(e) { console.log(''); }
+    " 2>/dev/null || echo "")
+    if [ -n "$MATCHES" ]; then
+      DEFERRAL_FOUND=true
+      DEFERRAL_EVIDENCE="${DEFERRAL_EVIDENCE} | ${file##*/}: ${MATCHES}"
+    fi
+  fi
+done
+```
+
+**Step B — Hard-fail if deferral language found:**
+
+If DEFERRAL_FOUND=true:
+- Add gap:
+  ```yaml
+  - truth: "All tests and QA were completed in this phase (no deferral)"
+    status: failed
+    failure_type: missing_artifact
+    reason: "Deferral language detected in phase artifacts — tests or QA were deferred to a future phase"
+    artifacts:
+      - path: "{PHASE_DIR}"
+        issue: "Deferral evidence: {DEFERRAL_EVIDENCE}"
+    missing:
+      - "Run all deferred tests and QA within this phase before marking complete"
+      - "Remove deferral language and replace with evidence of actual test execution"
+  ```
+- Set STATUS = gaps_found (hard-fail — NEVER a warning)
+
+If DEFERRAL_FOUND=false: this check passes silently.
+
+</check_deferral_language>
 
 <check_test_file_coverage>
 
@@ -1021,6 +1116,7 @@ Log each write: "KB: wrote anti-pattern entry — {truth (first 60 chars)}"
 - [ ] Human verification items identified
 - [ ] Test suite executed (Step 8b) — failures recorded as gaps, no-tests flagged as warning
 - [ ] Charlotte QA coverage checked (Step 8c) — UI files without Charlotte QA → gaps_found (never warning)
+- [ ] Deferral language check (Step 8c.5 / QGATE-12) — deferral of tests/QA to future phases → gaps_found (never warning)
 - [ ] Test file coverage checked (Step 8d) — implementation files without test counterparts → gaps_found (never warning)
 - [ ] Migration timestamp conflicts checked (Step 8e) — unresolved conflicts → gaps_found (never warning)
 - [ ] Docs coverage validated (Step 8f) — docs missing for scope → gaps_found (never warning)
