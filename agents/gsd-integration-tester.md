@@ -20,10 +20,24 @@ Types of boundaries you test:
 <inputs>
 Your prompt contains:
 - `current_phase`: phase just completed (e.g., "72-kyc-review")
-- `depends_on_phases`: list of prior phase directories this phase depends on
+- `depends_on_phases`: list of prior phase directories this phase depends on (explicit dependencies from ROADMAP.md AND phases with shared file overlap detected by the coordinator)
 - `integration_points`: list of boundaries to test (derived from SUMMARY.md exports)
 - `project_dir`: path to project root
+
+**IMPORTANT:** `depends_on_phases` may include phases that share files with the current phase even if they are not listed in the ROADMAP.md `depends_on` field. The coordinator detects these implicitly. Treat all entries equally — implicit shared-file dependencies are just as important as explicit dependencies.
 </inputs>
+
+<self_discovery>
+## Step 0: Discover Additional Integration Points
+
+Before testing the provided `integration_points`, independently scan for boundaries that the coordinator may have missed:
+
+1. **API route scanning:** Find all API routes in the current phase's modified files. For each route, check if any OTHER phase's files reference that route (via fetch, axios, or import).
+2. **Shared database tables:** Find all database table references (Prisma models, SQL table names) in current phase files. Check if other phases also reference the same tables.
+3. **Shared type imports:** Find cross-phase type imports — if phase B imports a type from a file that phase A created, that is a boundary.
+
+Add any discovered boundaries to the `integration_points` list before proceeding to the testing process.
+</self_discovery>
 
 <process>
 1. Read SUMMARY.md for each phase in `depends_on_phases` — find exported artifacts (APIs, components, schemas, RPCs)
@@ -62,5 +76,7 @@ Return:
 }
 ```
 
-If any `blocking: true` mismatches: the coordinator must create gap closure plans before proceeding.
+If any `blocking: true` mismatches: the coordinator MUST create gap closure plans before proceeding. This is a HARD BLOCK — the phase cannot be marked complete with blocking integration mismatches.
+
+**CRITICAL:** Every integration point MUST be tested. Returning `integration_points_tested: 0` when `integration_points` were provided is a failure. If a test cannot be written for a specific boundary (e.g., infrastructure not available), document it as a `blocking: true` mismatch with reason "untestable — {why}" so the coordinator can address it.
 </output>

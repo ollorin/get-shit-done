@@ -226,7 +226,7 @@ Log: "Syntax check gap logged for task {task_index} — proceeding to next task"
 
 Continue to the next task immediately.
 
-**CRITICAL constraint:** Syntax errors discovered by the inter-task check NEVER abort the plan. The plan execution continues to the next task regardless of syntax check outcome. This is an advisory check with one auto-fix opportunity — not a gate.
+**Constraint:** Syntax errors discovered by the inter-task check do not abort the plan on the first occurrence. However, if the same file has syntax errors across 2 consecutive task commits, escalate to a checkpoint — do NOT silently continue. Persistent syntax errors indicate a deeper problem that must be addressed before more work is built on top of broken code.
 
 **Scope:** Only .js files changed in the current task's commit. Does not check .ts, .jsx, .md, or other file types. Does not recursively check the entire codebase — only the delta.
 
@@ -235,7 +235,12 @@ Continue to the next task immediately.
 <deviation_rules>
 **While executing, you WILL discover work not in the plan.** Apply these rules automatically. Track all deviations for Summary.
 
-**Shared process for Rules 1-3:** Fix inline → add/update tests if applicable → verify fix → continue task → track as `[Rule N - Type] description`
+**Shared process for Rules 1-3:** Fix inline → add/update tests for the fix (REQUIRED, not "if applicable" — every auto-fix MUST have a test proving the fix works) → verify fix → continue task → track as `[Rule N - Type] description`
+
+**Test requirement for auto-fixes:** When applying Rules 1-3, the fix MUST include at least one test that:
+- Reproduces the original bug/gap (would fail without the fix)
+- Passes with the fix applied
+If the project has no test infrastructure at all (no test runner, no test framework), document the untested fix in deferred-items.md with severity "high" — but this is the ONLY exception.
 
 No user permission needed for Rules 1-3.
 
@@ -437,9 +442,24 @@ Plan context: complexity=medium, depends_on=0 prior plans, must_haves=1 criteria
 4. If gsd-test-writer reports failing tests:
    - Apply Deviation Rule 1 (auto-fix bugs): fix the implementation
    - Re-spawn gsd-test-writer to verify
-   - If still failing after 1 retry: log "Tests failing after retry" in SUMMARY.md but DO NOT block execution (note as gap)
+   - If still failing after 2 retries: BLOCK — do NOT proceed to the next task. Return:
+     ```
+     ## PLAN FAILED: Test task blocked execution
 
-5. Record in SUMMARY.md:
+     **Task:** {task_name} (tdd="true")
+     **Failing tests:** {count}
+     **Retries exhausted:** 2
+
+     Tests MUST pass before this plan can continue. Do NOT create SUMMARY.md.
+     ```
+     Do NOT log as a "gap" and continue. Do NOT create SUMMARY.md. Failing tests on a tdd="true" task are a hard blocker.
+
+5. If gsd-test-writer returns 0 tests written:
+   - BLOCK — this is a failure, not a skip. A tdd="true" task that produces no tests has not been completed.
+   - Re-spawn gsd-test-writer once with explicit instruction: "You MUST write at least 6 tests. 0 tests is not acceptable."
+   - If second attempt also returns 0 tests: BLOCK execution. Return failure as above.
+
+6. Record in SUMMARY.md:
    ```
    Tests (Task N+1): {passed} passing, {failed} failing
    Categories covered: {list}
@@ -527,7 +547,9 @@ if [ -z "$TEST_CMD" ]; then
 fi
 ```
 
-If TEST_CMD is empty after all detection attempts: log "No test command found — skipping post-plan test gate" and proceed to `<summary_creation>`. Do NOT block or fail when no test command is available.
+If TEST_CMD is empty after all detection attempts AND this plan contains no `tdd="true"` tasks: log "No test command found and no tdd tasks — skipping post-plan test gate" and proceed to `<summary_creation>`.
+
+**However:** If TEST_CMD is empty BUT this plan contains `tdd="true"` tasks, this is a HARD FAILURE. The tdd tasks should have created tests and a test runner. Log: "CRITICAL: Plan has tdd='true' tasks but no test command found — test infrastructure was not properly set up." Set TEST_GATE_BLOCKED=true, TEST_GATE_REASON="missing_test_infrastructure". Do NOT create SUMMARY.md.
 
 **CRITICAL: Infrastructure unavailability is NOT the same as "no test command found".** If TEST_CMD exists but tests fail because services are down, you MUST attempt infrastructure startup (Step 1.5 below). Only when TEST_CMD truly cannot be detected from any config file should this gate be skipped.
 
@@ -598,7 +620,7 @@ if COVERAGE_FOUND < COVERAGE_THRESHOLD:
   Log: "Coverage ${COVERAGE_FOUND}% < threshold ${COVERAGE_THRESHOLD}% — SUMMARY.md will be blocked"
 ```
 
-If coverage cannot be parsed from output: log "Coverage threshold set but unable to parse coverage from output — proceeding without enforcement" and continue (fail open on parse failure).
+If coverage cannot be parsed from output: log "WARNING: Coverage threshold set (${COVERAGE_THRESHOLD}%) but unable to parse coverage from output. Adding warning to SUMMARY.md." Add a warning section to SUMMARY.md: "Coverage threshold configured but coverage data could not be parsed from test output. Manual verification required." Continue but document the gap — do NOT silently pass.
 
 **Step 4: Decision logic**
 

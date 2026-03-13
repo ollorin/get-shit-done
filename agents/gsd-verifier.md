@@ -399,13 +399,32 @@ fi
 - Evidence: test name + failure message (first 3 lines)
 - Status cannot be `passed` if tests fail — set to `gaps_found`
 
-**If no tests exist:**
-- Add warning to VERIFICATION.md: "⚠️ No test suite found. Manual testing required."
-- Do NOT block verification — but flag this phase as having no automated coverage
+**If no tests exist AND the phase produced implementation files (.ts/.tsx/.js):**
+- This is a HARD FAIL — set STATUS = gaps_found
+- Add gap:
+  ```yaml
+  - truth: "Phase has automated test coverage"
+    status: failed
+    failure_type: missing_test
+    reason: "No test suite found but phase produced implementation files — tests are required"
+    missing:
+      - "Add test files for all implementation files produced in this phase"
+  ```
+- "No test suite found" is NOT an acceptable state for phases that produce code. Only phases that produce exclusively non-code artifacts (documentation, configuration, migrations with no logic) may pass without tests.
+
+**If no tests exist AND the phase produced NO implementation files:** Add informational note: "No test suite found — phase produced no implementation files. Acceptable." Do NOT block verification.
 
 **If test command times out:**
-- Note in VERIFICATION.md: "Tests timed out after 5 minutes — manual verification required"
-- Do NOT fail verification for timeout alone
+- Set STATUS = gaps_found — timeout is a failure, not a pass
+- Add gap:
+  ```yaml
+  - truth: "Test suite completes within time limit"
+    status: failed
+    failure_type: broken_chain
+    reason: "Test suite timed out after 5 minutes — tests may be hanging or infrastructure may be down"
+    missing:
+      - "Fix test suite to complete within 5 minutes or investigate hanging tests"
+  ```
 
 ## Step 9: Determine Overall Status
 
@@ -423,11 +442,13 @@ If any success criterion or observable truth is marked as:
 
 Any deferral language in a success criterion = verification failure. "All underlying infrastructure is in place" is not evidence that a criterion is satisfied. Only running and passing the actual test counts.
 
-**Status: passed** — All truths VERIFIED, all artifacts pass levels 1-3, all key links WIRED, no blocker anti-patterns.
+**Status: passed** — All truths VERIFIED, all artifacts pass levels 1-3, all key links WIRED, no blocker anti-patterns, test suite passes, Charlotte QA completed (if UI phase).
 
-**Status: gaps_found** — One or more truths FAILED, artifacts MISSING/STUB, key links NOT_WIRED, or blocker anti-patterns found.
+**Status: gaps_found** — One or more truths FAILED, artifacts MISSING/STUB, key links NOT_WIRED, blocker anti-patterns found, test suite fails, or Charlotte QA missing for UI phase.
 
-**Status: human_needed** — All automated checks pass but items flagged for human verification.
+**Status: human_needed** — All automated checks pass AND test suite passes AND Charlotte QA passed (if applicable), but items flagged for human verification that cannot be automated.
+
+**CRITICAL: `human_needed` is NOT a soft version of `gaps_found`.** If any truth FAILED or any test failed, the status MUST be `gaps_found` — never `human_needed`. The `human_needed` status is ONLY valid when all automated checks pass and the remaining items genuinely require a human (e.g., visual appearance, real-time behavior, external service integration). A failing test or missing artifact MUST NEVER be classified as `human_needed`.
 
 **Score:** `verified_truths / total_truths`
 
@@ -486,9 +507,11 @@ gaps:
 
 ## Step 8c: Charlotte QA Coverage Check (QGATE-07)
 
-**Trigger:** One or more `.tsx` or `.jsx` files appear in SUMMARY.md key-files for this phase.
+**Trigger:** ANY of the following:
+1. One or more `.tsx` or `.jsx` files appear in SUMMARY.md key-files for this phase
+2. The project uses a web framework (check package.json for react, next, vue, svelte, @angular/core, nuxt, gatsby, remix, solid-js, preact in dependencies/devDependencies) AND the phase modified any files in the project
 
-**Hard rule:** If UI files were produced but no Charlotte QA session is recorded, mark the phase `gaps_found`. This is NEVER a warning — never emit a warning for missing Charlotte QA on UI-producing phases.
+**Hard rule:** If UI files were produced OR the project is a web project, Charlotte QA MUST have run. If no Charlotte QA session is recorded, mark the phase `gaps_found`. This is NEVER a warning — never emit a warning for missing Charlotte QA on UI-producing phases or web projects.
 
 **Step A — Detect UI files in SUMMARY.md:**
 
@@ -534,24 +557,45 @@ for plan in "$PHASE_DIR"/*-PLAN.md; do
 done
 ```
 
-Set `TRIGGER_QA_CHECK=true` if `SUMMARY_UI_FILES="yes"` OR `PLAN_REQUIRES_UI_QA=true`.
+**Step A.7 — Also check if project is a web framework project:**
+
+```bash
+WEB_FRAMEWORK_PROJECT=false
+if [ -f "package.json" ]; then
+  WEB_FW=$(node -e "
+    try {
+      const p = require('./package.json');
+      const deps = Object.assign({}, p.dependencies || {}, p.devDependencies || {});
+      const frameworks = ['react', 'next', 'vue', 'svelte', '@angular/core', 'nuxt', 'gatsby', 'remix', '@remix-run/react', 'solid-js', 'preact'];
+      const found = frameworks.find(function(f) { return deps[f]; });
+      console.log(found ? 'yes' : 'no');
+    } catch(e) { console.log('no'); }
+  " 2>/dev/null || echo "no")
+  if [ "$WEB_FW" = "yes" ]; then
+    WEB_FRAMEWORK_PROJECT=true
+  fi
+fi
+```
+
+Set `TRIGGER_QA_CHECK=true` if `SUMMARY_UI_FILES="yes"` OR `PLAN_REQUIRES_UI_QA=true` OR `WEB_FRAMEWORK_PROJECT=true`.
 
 **Step B — Check for Charlotte QA session record:**
 
 A Charlotte QA session is recorded when any of these exist in the phase directory:
-- A file matching `*-QA-*.md` or `*-CHARLOTTE-*.md` or `*-UX-*.md`
-- A SUMMARY.md that contains "charlotte", "ui-qa", "ux-audit", or "qa round" in its content
+- A file matching `*-QA-*.md` or `*-CHARLOTTE-*.md` or `*-UX-*.md` (dedicated QA report files)
+- A SUMMARY.md that contains evidence of ACTUAL QA execution: "qa round", "ux-audit", "screens_tested", "issue_count", "QA Report" (not just a mention of "charlotte" or "ui-qa" in passing)
+- A `*-QA-ISSUES.md` file (written by coordinator when QA ran but had unresolved issues)
 
 ```bash
 CHARLOTTE_QA_FOUND=false
-# Check for Charlotte QA session files
+# Check for Charlotte QA session files (highest confidence)
 for qa_file in "$PHASE_DIR"/*-QA-*.md "$PHASE_DIR"/*-CHARLOTTE-*.md "$PHASE_DIR"/*-UX-*.md; do
   if [ -f "$qa_file" ]; then
     CHARLOTTE_QA_FOUND=true
     break
   fi
 done
-# Also check SUMMARY.md files for Charlotte references
+# Also check SUMMARY.md files for Charlotte QA execution evidence (not just mentions)
 if [ "$CHARLOTTE_QA_FOUND" = "false" ]; then
   for summary in "$PHASE_DIR"/*-SUMMARY.md; do
     if [ -f "$summary" ]; then
@@ -559,8 +603,11 @@ if [ "$CHARLOTTE_QA_FOUND" = "false" ]; then
         try {
           const fs = require('fs');
           const content = fs.readFileSync('$summary', 'utf8').toLowerCase();
-          const found = content.includes('charlotte') || content.includes('ui-qa') || content.includes('ux-audit') || content.includes('qa round');
-          console.log(found ? 'yes' : 'no');
+          // Require evidence of ACTUAL QA execution, not just a passing mention
+          const executionEvidence = content.includes('qa round') || content.includes('screens_tested') || content.includes('issue_count') || content.includes('qa report') || content.includes('ux-audit');
+          // Also check for the coordinator's checkpoint:ui-qa completion pattern
+          const checkpointEvidence = content.includes('checkpoint:ui-qa') && (content.includes('passed') || content.includes('completed'));
+          console.log((executionEvidence || checkpointEvidence) ? 'yes' : 'no');
         } catch(e) { console.log('no'); }
       " 2>/dev/null || echo "no")
       if [ "$HAS_CHARLOTTE" = "yes" ]; then
@@ -571,6 +618,8 @@ if [ "$CHARLOTTE_QA_FOUND" = "false" ]; then
   done
 fi
 ```
+
+**Anti-spoofing:** A SUMMARY.md that merely mentions "Charlotte" or "ui-qa" in a task description without evidence of actual QA execution (round numbers, screen counts, issue counts) does NOT satisfy this check. The detection requires evidence of execution, not just intent.
 
 **Step C — Hard-fail if UI files present or plan requires QA but no Charlotte QA:**
 
@@ -1114,7 +1163,7 @@ Log each write: "KB: wrote anti-pattern entry — {truth (first 60 chars)}"
 - [ ] PRD intent alignment checked (Step 6b) — fires only if PRD-TRACE.md present; mismatches → gaps_found (never warning)
 - [ ] Anti-patterns scanned and categorized
 - [ ] Human verification items identified
-- [ ] Test suite executed (Step 8b) — failures recorded as gaps, no-tests flagged as warning
+- [ ] Test suite executed (Step 8b) — failures recorded as gaps, no-tests for code-producing phases → gaps_found (NEVER a warning), timeouts → gaps_found (NEVER a pass)
 - [ ] Charlotte QA coverage checked (Step 8c) — UI files without Charlotte QA → gaps_found (never warning)
 - [ ] Deferral language check (Step 8c.5 / QGATE-12) — deferral of tests/QA to future phases → gaps_found (never warning)
 - [ ] Test file coverage checked (Step 8d) — implementation files without test counterparts → gaps_found (never warning)

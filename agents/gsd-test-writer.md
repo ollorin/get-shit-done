@@ -78,9 +78,20 @@ NEVER write these worthless tests:
 5. Run the tests: detect test command from package.json scripts or deno.json
 6. If tests fail: fix the TEST first (wrong expectation?) before assuming implementation bug
    If the implementation has a genuine bug: fix it, re-run
-7. Report:
-   - Tests written: N (by category)
+7. **Verify minimum test count:** You MUST write at least 6 tests. If fewer than 6 tests were written, go back and add more tests from underrepresented categories. 0 tests written is NEVER acceptable — this is a hard failure.
+8. Report (REQUIRED — you MUST return this structured report):
+   - Tests written: N (by category) — MUST be >= 6
    - Tests passing: N
    - Tests failing: N (with reason if any remain failing)
    - Coverage of each category above: covered / skipped (reason)
+   - Test files created: [list of file paths]
+
+**CRITICAL: You must ALWAYS run the tests you write.** Never report tests as "written" without executing them. Every test must have a verified pass/fail status from an actual test run.
+
+**CRITICAL: Writing 0 tests is a failure state.** If you cannot write tests for the given code (e.g., no test framework, no testable behavior), you MUST report this explicitly:
+```
+FAILURE: 0 tests written
+Reason: {specific reason}
+```
+This allows the executor to handle the failure appropriately. Do NOT return a success-looking report with 0 tests.
 </process>

@@ -72,7 +72,7 @@ Per gap: Write test file. One focused test per requirement behavior. Arrange/Act
 <step name="run_and_verify">
 Execute each test. If passes: record success, next gap. If fails: enter debug loop.
 
-Run every test. Never mark untested tests as passing.
+Run every test. Never mark untested tests as passing. If a test file was written but the test runner cannot be found or the test cannot be executed, this is a FAILURE — not a skip. Report it as an escalation with reason "test runner unavailable".
 </step>
 
 <step name="debug_loop">

@@ -314,52 +314,108 @@ issue:
   fix_hint: "Remove search task - belongs in future phase per user decision"
 ```
 
-## Dimension 8: Nyquist Compliance
+## Dimension 8: Testing Mandate Compliance
 
-Skip if: `workflow.nyquist_validation` is explicitly set to `false` in config.json (absent key = enabled), phase has no RESEARCH.md, or RESEARCH.md has no "Validation Architecture" section. Output: "Dimension 8: SKIPPED (nyquist_validation disabled or not applicable)"
+**Question:** Does every implementation task have paired test coverage, and every UI-producing plan have Charlotte QA?
 
-### Check 8e — VALIDATION.md Existence (Gate)
+**Process:**
 
-Before running checks 8a-8d, verify VALIDATION.md exists:
+**Check 8-T1 — tdd="true" pairing:**
+
+For each `<task type="auto">` in each plan that creates or modifies .ts, .tsx, .js files (check the `<files>` element):
+1. Is there an adjacent `<task type="auto" tdd="true">` task immediately after it in the same plan?
+2. Exempt tasks: tasks that ONLY modify config files (*.config.*), type declarations (*.d.ts), or build scripts
+
+If any implementation task lacks a paired tdd="true" task: **BLOCKING FAIL**
+
+```yaml
+issue:
+  dimension: testing_mandate
+  severity: blocker
+  description: "Task {N} in plan {plan} modifies implementation files but has no paired tdd='true' test task"
+  plan: "{plan}"
+  task: {N}
+  fix_hint: "Add a tdd='true' task immediately after task {N} to test the implementation"
+```
+
+**Check 8-T2 — checkpoint:ui-qa presence:**
+
+For each plan: if ANY task creates or modifies .tsx or .jsx files (check `<files>` elements):
+1. Does the plan contain at least one `<task type="checkpoint:ui-qa">` task?
+2. A `checkpoint:human-verify` is NOT an acceptable substitute for web UI testing
+
+If UI files are modified but no checkpoint:ui-qa exists: **BLOCKING FAIL**
+
+```yaml
+issue:
+  dimension: testing_mandate
+  severity: blocker
+  description: "Plan {plan} creates/modifies .tsx/.jsx files but has no checkpoint:ui-qa task"
+  plan: "{plan}"
+  fix_hint: "Add a checkpoint:ui-qa task after the UI implementation tasks"
+```
+
+**Check 8-T3 — No deferral language:**
+
+Scan all plan text for deferral patterns: "tests to be added later", "QA deferred", "will verify in next phase", "deferred to post-milestone", "follow-up: add tests", "test later"
+
+If any deferral language found: **BLOCKING FAIL**
+
+```yaml
+issue:
+  dimension: testing_mandate
+  severity: blocker
+  description: "Plan {plan} contains deferral language: '{matched text}'"
+  plan: "{plan}"
+  fix_hint: "Replace deferral language with a concrete test task or checkpoint"
+```
+
+## Dimension 9: Nyquist Compliance
+
+Skip if: `workflow.nyquist_validation` is explicitly set to `false` in config.json (absent key = enabled), phase has no RESEARCH.md, or RESEARCH.md has no "Validation Architecture" section. Output: "Dimension 9: SKIPPED (nyquist_validation disabled or not applicable)"
+
+### Check 9e — VALIDATION.md Existence (Gate)
+
+Before running checks 9a-9d, verify VALIDATION.md exists:
 
 ```bash
 ls "${PHASE_DIR}"/*-VALIDATION.md 2>/dev/null
 ```
 
 **If missing:** **BLOCKING FAIL** — "VALIDATION.md not found for phase {N}. Re-run `/gsd:plan-phase {N} --research` to regenerate."
-Skip checks 8a-8d entirely. Report Dimension 8 as FAIL with this single issue.
+Skip checks 9a-9d entirely. Report Dimension 9 as FAIL with this single issue.
 
-**If exists:** Proceed to checks 8a-8d.
+**If exists:** Proceed to checks 9a-9d.
 
-### Check 8a — Automated Verify Presence
+### Check 9a — Automated Verify Presence
 
 For each `<task>` in each plan:
 - `<verify>` must contain `<automated>` command, OR a Wave 0 dependency that creates the test first
 - If `<automated>` is absent with no Wave 0 dependency → **BLOCKING FAIL**
 - If `<automated>` says "MISSING", a Wave 0 task must reference the same test file path → **BLOCKING FAIL** if link broken
 
-### Check 8b — Feedback Latency Assessment
+### Check 9b — Feedback Latency Assessment
 
 For each `<automated>` command:
 - Full Charlotte E2E suite → **WARNING** — suggest faster unit/smoke test; Charlotte runs locally via gsd-charlotte-qa, not as automated CI
 - Watch mode flags (`--watchAll`) → **BLOCKING FAIL**
 - Delays > 30 seconds → **WARNING**
 
-### Check 8c — Sampling Continuity
+### Check 9c — Sampling Continuity
 
 Map tasks to waves. Per wave, any consecutive window of 3 implementation tasks must have ≥2 with `<automated>` verify. 3 consecutive without → **BLOCKING FAIL**.
 
-### Check 8d — Wave 0 Completeness
+### Check 9d — Wave 0 Completeness
 
 For each `<automated>MISSING</automated>` reference:
 - Wave 0 task must exist with matching `<files>` path
 - Wave 0 plan must execute before dependent task
 - Missing match → **BLOCKING FAIL**
 
-### Dimension 8 Output
+### Dimension 9 Output
 
 ```
-## Dimension 8: Nyquist Compliance
+## Dimension 9: Nyquist Compliance
 
 | Task | Plan | Wave | Automated Command | Status |
 |------|------|------|-------------------|--------|
@@ -523,7 +579,7 @@ Thresholds: 2-3 tasks/plan good, 4 warning, 5+ blocker (split required).
 
 ## Step 10: Determine Overall Status
 
-**passed:** All requirements covered, all tasks complete, dependency graph valid, key links planned, scope within budget, must_haves properly derived.
+**passed:** All requirements covered, all tasks complete, dependency graph valid, key links planned, scope within budget, must_haves properly derived, testing mandate satisfied (all implementation tasks have tdd="true" pairs, all UI plans have checkpoint:ui-qa, no deferral language).
 
 **issues_found:** One or more blockers or warnings. Plans need revision.
 
@@ -696,6 +752,9 @@ Plan verification complete when:
 - [ ] Dependency graph verified (no cycles, valid references)
 - [ ] Key links checked (wiring planned, not just artifacts)
 - [ ] Scope assessed (within context budget)
+- [ ] Testing mandate verified: all implementation tasks have tdd="true" pairs
+- [ ] Testing mandate verified: all UI-producing plans have checkpoint:ui-qa
+- [ ] Testing mandate verified: no deferral language in any plan
 - [ ] must_haves derivation verified (user-observable truths)
 - [ ] Context compliance checked (if CONTEXT.md provided):
   - [ ] Locked decisions have implementing tasks

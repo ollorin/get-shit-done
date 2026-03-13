@@ -897,10 +897,12 @@ For each incomplete plan (no SUMMARY.md):
         Output quality issues do not trigger re-spawn.
    ```
 
-4. **Spot-check result:**
-   - SUMMARY.md exists for this plan
+4. **Spot-check result (MANDATORY — do NOT skip):**
+   - SUMMARY.md exists for this plan — if missing, the executor failed to complete. HARD FAIL.
    - Git commit present with phase-plan reference
-   - No `## Self-Check: FAILED` in SUMMARY.md
+   - No `## Self-Check: FAILED` in SUMMARY.md — if FAILED, HARD FAIL.
+   - No `## PLAN FAILED` in executor output — if present, the test gate or tdd task blocked completion. HARD FAIL.
+   - If the executor returned a failure message containing "Test gate blocked" or "Test task blocked": do NOT create a SUMMARY.md on the coordinator's behalf. The executor was correct to block. Return the failure to the parent.
 
 5. **Create checkpoint after each wave:**
 ```json
@@ -1035,10 +1037,19 @@ while round <= MAX_ROUNDS AND qa_passed == false:
     {report_markdown}
 
     ────────────────────────────────────────────────────────
-    → Type "continue" to proceed despite issues, or describe what to fix
+    → Type "continue" to proceed (Critical/High issues will be recorded as verification gaps),
+      or describe what to fix
     ────────────────────────────────────────────────────────
     ```
-    Wait for user response. If "continue": proceed to next task. Else: implement requested fix and re-run QA.
+    Wait for user response.
+    If "continue":
+      - If severity_counts.critical > 0 OR severity_counts.high > 0:
+        Log: "WARNING: Proceeding with {critical} critical and {high} high QA issues — these WILL cause verification failure"
+        Write QA issues to a file in the phase directory: `{phase_dir}/{phase}-QA-ISSUES.md` with the full report_markdown
+        // The verifier will detect this file and hard-fail the phase via QGATE-07
+        // This ensures "continue" does NOT silently bypass quality gates — it merely defers the block to verification
+      - Proceed to next task
+    Else: implement requested fix and re-run QA.
     break
 
   // --- STEP D: Spawn fix subagent ---
@@ -1268,8 +1279,9 @@ After post_phase_ux_sweep and before verify_phase_goal:
       ```
    c. Parse results:
       - All flows PASS → log "E2E: {N} flows passing" → continue to verify_phase_goal
-      - Any flow FAILS → create gap entry → spawns gap closure plan (BLOCKING for Critical flows)
-      - Non-critical flow fails → log as warning, continue
+      - Any flow FAILS with severity Critical or High → create gap entry → spawn gap closure plan (BLOCKING — do NOT proceed to verify until gaps are closed)
+      - Any flow FAILS with severity Medium → create gap entry, record in phase QA report. The verifier will flag this as `gaps_found`. Do NOT silently ignore medium-severity E2E failures.
+      - Any flow FAILS with severity Low → log as informational, record in phase QA report. Proceed to verify.
 
 </step>
 
@@ -1309,6 +1321,17 @@ Check must_haves against actual codebase. Create VERIFICATION.md."
 Read verification result:
 ```bash
 grep "^status:" .planning/phases/{phase_dir}/*-VERIFICATION.md
+```
+
+**HARD RULE: VERIFICATION.md must exist on disk before phase can return any success state.**
+
+```bash
+VERIFICATION_EXISTS=$(ls .planning/phases/{phase_dir}/*-VERIFICATION.md 2>/dev/null | wc -l | tr -d ' ')
+if [ "$VERIFICATION_EXISTS" = "0" ]; then
+  # Verifier was spawned but failed to write VERIFICATION.md — HARD FAIL
+  Log: "CRITICAL: gsd-verifier completed but no VERIFICATION.md found on disk"
+  Return: { "status": "failed", "step": "verify", "reason": "Verifier completed but did not write VERIFICATION.md — phase cannot be marked complete without verification" }
+fi
 ```
 
 **Status routing:**
@@ -1352,9 +1375,37 @@ if telegram_topic_id is not null:
 
 <step name="cross_phase_integration">
 
-After verify_phase_goal, if current phase `depends_on` has entries:
+After verify_phase_goal, check for cross-phase integration boundaries.
 
-1. Read SUMMARY.md of each depended-on phase — collect exported artifacts
+**Trigger conditions (ANY of these triggers integration testing — not just explicit depends_on):**
+
+1. **Explicit dependency:** Current phase `depends_on` has entries in ROADMAP.md
+2. **Shared artifact detection:** Current phase's SUMMARY.md key-files overlap with any previous phase's SUMMARY.md key-files (same API routes, same database tables, same shared components)
+3. **API producer/consumer:** Current phase creates or modifies API routes that are called by components from previous phases, OR current phase creates components that call API routes from previous phases
+
+```bash
+# Check explicit depends_on
+DEPENDS_ON=$(node ~/.claude/get-shit-done/bin/gsd-tools.js roadmap get-phase {phase_number} --raw 2>/dev/null | node -e "try{const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(JSON.stringify(d.depends_on||[]))}catch{console.log('[]')}" 2>/dev/null || echo "[]")
+
+# Check for shared files with ANY completed phase (not just depends_on)
+CURRENT_FILES=$(grep -oE '[\w\-\/\.]+\.(ts|tsx|js|jsx)' .planning/phases/{phase_dir}/*-SUMMARY.md 2>/dev/null | sort -u)
+SHARED_OVERLAP=false
+for prev_phase_dir in .planning/phases/*/; do
+  if [ "$prev_phase_dir" != ".planning/phases/{phase_dir}/" ] && ls "$prev_phase_dir"*-SUMMARY.md >/dev/null 2>&1; then
+    PREV_FILES=$(grep -oE '[\w\-\/\.]+\.(ts|tsx|js|jsx)' "$prev_phase_dir"*-SUMMARY.md 2>/dev/null | sort -u)
+    OVERLAP=$(comm -12 <(echo "$CURRENT_FILES") <(echo "$PREV_FILES") 2>/dev/null)
+    if [ -n "$OVERLAP" ]; then
+      SHARED_OVERLAP=true
+      OVERLAPPING_PHASE="$prev_phase_dir"
+      break
+    fi
+  fi
+done
+```
+
+**If DEPENDS_ON is non-empty OR SHARED_OVERLAP is true:**
+
+1. Read SUMMARY.md of each depended-on phase AND any overlapping phase — collect exported artifacts
 2. Read SUMMARY.md of current phase — collect consumed artifacts
 3. If overlap found (same API routes, same tables, same component names):
 
@@ -1366,14 +1417,14 @@ After verify_phase_goal, if current phase `depends_on` has entries:
      description="Integration test phase {phase_number}",
      prompt="
        current_phase={phase_slug}
-       depends_on_phases={depends_on list}
+       depends_on_phases={depends_on list + overlapping phases}
        integration_points={derived overlap}
        project_dir={project_dir}
      "
    )
    ```
 
-4. If blocking mismatches found: create gap closure plans (same pattern as verification gaps)
+4. If blocking mismatches found: create gap closure plans (same pattern as verification gaps). This is a HARD BLOCK — do NOT proceed to phase complete with blocking integration mismatches.
 
 </step>
 
@@ -1416,6 +1467,15 @@ After each step (discuss, research, plan, execute, verify):
 </checkpoint_protocol>
 
 <return_state>
+**HARD RULE: Status "completed" requires VERIFICATION.md with status "passed".**
+
+Before returning ANY response with `status: "completed"`:
+1. Verify VERIFICATION.md exists on disk
+2. Verify VERIFICATION.md `status` field is "passed"
+3. If either check fails → return `status: "gaps_found"` or `status: "failed"` instead
+
+A phase is NEVER "completed" without passing verification. There is no shortcut, no fallback, no "the executor said it was done so it must be done" path.
+
 Return structured JSON as final response:
 
 ```json

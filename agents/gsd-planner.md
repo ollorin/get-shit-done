@@ -708,15 +708,21 @@ Plans MUST NOT contain:
 
 If you find yourself writing deferral language, STOP. Convert it to a concrete test task or checkpoint instead.
 
-**MANDATE-4: Validation before returning**
+**MANDATE-4: Validation before returning (HARD GATE)**
 
 Before returning any PLAN.md, verify:
 1. Every `type="auto"` task modifying .ts/.tsx/.js has a paired `tdd="true"` task
 2. If any task creates/modifies .tsx/.jsx → `checkpoint:ui-qa` is present
 3. No deferral language appears anywhere in the plan
 4. The plan does NOT suggest "future phases" will add the missing tests
+5. Every `tdd="true"` task has a non-empty `<behavior>` section listing specific test cases (not just "test the feature")
+6. Every `checkpoint:ui-qa` task has a non-empty `<test-flows>` section with specific URLs and interactions
 
-If any check fails: fix the plan before returning it.
+If any check fails: fix the plan before returning it. Do NOT return `## PLANNING COMPLETE` with a plan that violates any mandate. The plan-checker and the coordinator's plan structure gate will both reject it — fix it here first.
+
+**MANDATE-5: Gap closure plans require tests too**
+
+Gap closure plans (created from `--gaps` flag) are NOT exempt from mandates 1-4. A gap closure plan that adds implementation code MUST include a tdd="true" task. A gap closure plan that modifies UI MUST include checkpoint:ui-qa. "It's just a fix" is NOT an exception.
 
 </absolute_mandates>
 
@@ -913,7 +919,14 @@ Apply the strategy above when constructing the task action. The task name must s
 </task>
 ```
 
-**7. Write PLAN.md files:**
+**7. Apply testing mandates to gap closure plans:**
+
+Gap closure plans are NOT exempt from MANDATE-1 through MANDATE-5. After grouping gaps into tasks:
+- If any gap closure task creates/modifies .ts/.tsx/.js files → add a `tdd="true"` task after it
+- If any gap closure task creates/modifies .tsx/.jsx files → add a `checkpoint:ui-qa` task
+- If the gap's failure_type is `missing_test` → the gap closure plan IS the test task (no additional tdd task needed, but the test must actually be written and run)
+
+**8. Write PLAN.md files:**
 
 ```yaml
 ---
