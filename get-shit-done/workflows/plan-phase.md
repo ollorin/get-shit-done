@@ -272,6 +272,29 @@ test -f "${PHASE_DIR}/${PADDED_PHASE}-VALIDATION.md" && echo "VALIDATION_CREATED
 
 **If not found:** Warn and continue — plans may fail Dimension 8.
 
+## 5.6. Generate E2E Test Cases (Web Projects)
+
+**Trigger:** Phase goal mentions UI, frontend, page, component, form, or modal — OR PLAN.md modifies `.tsx`/`.jsx` files.
+
+**Skip if:** No web framework detected in project.
+
+**Process:**
+1. Read RESEARCH.md to understand what UI will be built/changed
+2. Spawn gsd-ui-inventory (haiku) focused on the affected modules (not full app scan)
+3. Spawn gsd-e2e-test-generator (sonnet) with:
+   - Focused UI inventory
+   - Phase requirements
+   - Existing test coverage for affected areas
+4. Generator produces `{phase_dir}/E2E-TEST-PLAN.md` with:
+   - Test cases for new/changed UI
+   - Acceptance criteria that phase executor must satisfy
+   - Tags for generated tests
+5. Planner receives E2E-TEST-PLAN.md and incorporates test tasks into PLAN.md
+
+**Hard rule:** If phase creates/modifies UI pages and E2E-TEST-PLAN.md is empty or missing, planning is incomplete. The planner must include e2e test scenario creation as explicit tasks.
+
+**Output:** `{phase_dir}/E2E-TEST-PLAN.md` — consumed by executor and verifier.
+
 ## 6. Check Existing Plans
 
 ```bash
