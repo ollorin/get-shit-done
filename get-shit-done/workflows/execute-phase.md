@@ -6,6 +6,18 @@ Execute all plans in a phase using wave-based parallel execution. Orchestrator s
 Orchestrator coordinates, not executes. Each subagent loads the full execute-plan context. Orchestrator: discover plans → analyze deps → group waves → spawn agents → handle checkpoints → collect results.
 </core_principle>
 
+## E2E Testing — Non-Negotiable Rules
+
+These rules CANNOT be skipped, deferred, or deprioritized by any subagent:
+
+1. **Every UI page created or modified MUST have e2e test coverage** — verified by post-execution inventory scan
+2. **E2E tests MUST exercise ALL interactive elements** — not just "page loads"
+3. **E2E tests MUST check for data display bugs** — NaN, undefined, null, [object Object], empty strings where values expected
+4. **E2E tests MUST open every dropdown, modal, and sub-section** — visual completeness
+5. **New regression-worthy tests MUST be tagged `regression`** — selected by test generator
+6. **Pre-dev test generation (Step 5.6) and post-dev gap closure (Step 6.5) are MANDATORY for web phases** — not optional, not deferrable
+7. **Subagents that skip or defer e2e testing will trigger verification failure** — QGATE-07 enforces this
+
 <required_reading>
 Read STATE.md before any operation to load project context.
 </required_reading>

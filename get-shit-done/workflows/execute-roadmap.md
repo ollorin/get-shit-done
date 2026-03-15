@@ -451,6 +451,24 @@ fi
 
 > There is NO "open PR anyway" escape hatch. Failing tests = no PR. Fix it first.
 
+### E2E Regression Gate (Web Projects)
+
+**After all phases complete, before PR quality gates:**
+
+1. Run `deno task test:regression` in `apps/e2e-charlotte/`
+2. ALL regression-tagged tests must PASS
+3. If any fail:
+   - Show failure report
+   - Spawn debug agent to diagnose
+   - Create fix plan
+   - Execute fixes
+   - Re-run regression
+   - Max 3 attempts before escalating to user
+4. This gate is NON-NEGOTIABLE for web projects — no PR without green regression
+
+Add to the "Both Runs Must Pass" section:
+- E2E regression tests (Charlotte + Haiku)
+
 4. **Push branch and open PR:**
 
 ```bash
