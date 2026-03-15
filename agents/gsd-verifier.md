@@ -700,6 +700,25 @@ If DEFERRAL_FOUND=false: this check passes silently.
 
 </check_deferral_language>
 
+<check_e2e_coverage>
+
+## Step 8c.6: E2E Test Coverage (QGATE-13) (Web Projects)
+
+**Trigger:** Phase produced `.tsx`/`.jsx` files OR project has web framework in package.json.
+
+**Check:**
+1. E2E-TEST-PLAN.md exists in phase directory
+2. Scenario files exist for pages listed in E2E-TEST-PLAN.md
+3. Each scenario has `tags` array (not empty)
+4. Regression-tagged scenarios exist for core flows
+5. No page in UI inventory is uncovered
+
+**Status:** `gaps_found` if any check fails.
+
+**This is NEVER a warning — it is a hard verification failure.**
+
+</check_e2e_coverage>
+
 <check_test_file_coverage>
 
 ## Step 8d: Implementation File Test Coverage Check (QGATE-10)
@@ -1166,6 +1185,7 @@ Log each write: "KB: wrote anti-pattern entry — {truth (first 60 chars)}"
 - [ ] Test suite executed (Step 8b) — failures recorded as gaps, no-tests for code-producing phases → gaps_found (NEVER a warning), timeouts → gaps_found (NEVER a pass)
 - [ ] Charlotte QA coverage checked (Step 8c) — UI files without Charlotte QA → gaps_found (never warning)
 - [ ] Deferral language check (Step 8c.5 / QGATE-12) — deferral of tests/QA to future phases → gaps_found (never warning)
+- [ ] E2E test coverage check (Step 8c.6 / QGATE-13) — web projects must have E2E-TEST-PLAN.md and scenario files → gaps_found (never warning)
 - [ ] Test file coverage checked (Step 8d) — implementation files without test counterparts → gaps_found (never warning)
 - [ ] Migration timestamp conflicts checked (Step 8e) — unresolved conflicts → gaps_found (never warning)
 - [ ] Docs coverage validated (Step 8f) — docs missing for scope → gaps_found (never warning)
