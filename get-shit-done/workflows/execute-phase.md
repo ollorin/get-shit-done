@@ -405,6 +405,37 @@ After all waves:
 ```
 </step>
 
+<step name="e2e_coverage_closure">
+
+### Step 6.5: Post-Execution E2E Coverage Closure (Web Projects)
+
+**Trigger:** Same as Step 5.6 in plan-phase — web project with UI changes.
+
+**Process:**
+1. Read SUMMARY.md to identify what was actually built
+2. Spawn gsd-ui-inventory (haiku) on the changed modules to get fresh inventory
+3. Compare actual UI inventory against E2E-TEST-PLAN.md from planning phase
+4. If gaps found (new UI elements not covered by any test):
+   a. Spawn gsd-e2e-test-generator (sonnet) with gap list
+   b. Generator creates additional scenarios
+   c. Run new scenarios with Charlotte to verify they work
+5. Update scenario index files to include new tests
+6. Tag new tests and select regression candidates:
+   - Tests covering core user flows → `regression`
+   - Tests covering edge cases → `functional`
+   - Tests covering visual quality → `ux`
+
+**Hard rule:** Phase execution is NOT complete until every UI page created/modified has at least one e2e scenario covering:
+- Page loads without console errors
+- All interactive elements are clickable/fillable
+- All data displays show valid values (no NaN, undefined, null)
+- All forms submit successfully with valid data
+- All forms show validation errors with invalid data
+
+**Output:** Updated scenarios in `apps/e2e-charlotte/scenarios/`, updated E2E-TEST-PLAN.md with coverage status.
+
+</step>
+
 <step name="close_parent_artifacts">
 **For decimal/polish phases only (X.Y pattern):** Close the feedback loop by resolving parent UAT and debug artifacts.
 
