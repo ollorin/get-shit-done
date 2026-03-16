@@ -406,7 +406,7 @@ if telegram_topic_id is not null:
   })
 ```
 
-3. **Pre-PR quality gates (MANDATORY — no skipping):**
+3. **Pre-PR quality gates (programmatic enforcement):**
 
 Check current branch:
 ```bash
@@ -415,116 +415,65 @@ CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
 If `CURRENT_BRANCH` is `main` or `master`: skip steps 3 and 4.
 
-Otherwise run the full quality gate suite. **All checks must pass TWICE in a row before the PR is opened. This is non-negotiable.**
-
-**Step 3a — Detect what changed (informational only):**
-```bash
-CHANGED_FILES=$(git diff --name-only main...HEAD 2>/dev/null || git diff --name-only HEAD~1 2>/dev/null)
-echo "Files changed: $(echo "$CHANGED_FILES" | wc -l | tr -d ' ')"
-```
-
-**Step 3b — API integration tests (ALWAYS MANDATORY — run regardless of what changed):**
+Otherwise:
 
 ```bash
-# Requires local Supabase stack: supabase start
-if command -v supabase &>/dev/null; then
-  cd apps/api
-  deno test --allow-all --env-file=.env.test functions/__tests__/*.integration.test.ts 2>&1 | tail -20
-  cd ../..
-else
-  echo "ERROR: supabase CLI not found. Start the local stack before opening a PR."
-  exit 1
-fi
+GATE_RESULT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js gate pre-pr)
 ```
 
-If integration tests fail: **STOP. Do not proceed. Fix the failures first.**
-
-**Step 3c — Full check suite (run TWICE — both runs must be green):**
-
-Run the following checks twice. Label each run clearly ("Run 1" / "Run 2"). Track all failures across both runs.
-
+Parse the JSON output. If `action_required` is true:
+- Run EVERY check listed in `checks` array
+- Each check must exit 0
+- Run the full suite TWICE — both runs must be green
+- After both runs pass, mark the gate:
 ```bash
-# --- LINT ---
-# npm / nx lint (frontend)
-npx nx lint player-web 2>&1 | tail -8
-npx nx lint operator-web 2>&1 | tail -8
-# Deno lint (backend)
-if [ -f apps/api/deno.json ]; then
-  (cd apps/api && deno lint 2>&1 | tail -8)
-fi
-
-# --- TYPE CHECKS ---
-# Edge Functions type check (backend)
-if [ -f apps/api/deno.json ]; then
-  for func in apps/api/functions/*/index.ts; do
-    deno check --quiet "$func" 2>&1
-  done
-fi
-npx nx run player-web:typecheck --if-present 2>&1 | tail -5
-npx nx run operator-web:typecheck --if-present 2>&1 | tail -5
-
-# --- UNIT TESTS ---
-# Frontend
-CI=true npx nx test player-web 2>&1 | tail -10
-CI=true npx nx test operator-web 2>&1 | tail -10
-# Backend (unit only — integration tests already ran above if needed)
-if [ -f apps/api/deno.json ]; then
-  (cd apps/api && NODE_ENV=test DENO_ENV=test deno task test:ci 2>&1 | tail -10)
-fi
-
-# --- BUILDS ---
-npx nx build player-web 2>&1 | tail -5
-npx nx build operator-web 2>&1 | tail -5
-
-# --- DOCS VALIDATION (ALWAYS — full docs/ directory, not just changed files) ---
-if [ -d docs ]; then
-  # Vale prose linting (blocking — same check CI runs)
-  vale docs/ 2>&1 | tail -15
-  # Markdown lint (blocking)
-  npx markdownlint-cli2 "docs/**/*.md" 2>&1 | tail -10
-  # Frontmatter validation (blocking)
-  if [ -f apps/api/deno.json ]; then
-    (cd apps/api && deno task validate:frontmatter 2>&1 | tail -8)
-  fi
-  # Link validation (blocking)
-  if [ -f apps/api/deno.json ]; then
-    (cd apps/api && deno task validate:links 2>&1 | tail -8)
-  fi
-else
-  echo "No docs/ directory found — skipping docs validation"
-fi
+node ~/.claude/get-shit-done/bin/gsd-tools.js gate pre-pr --mark-passed
 ```
 
-**After Run 1:** If any check failed → show which checks failed + last 8 lines of each failure → **STOP. Fix all failures. Do not proceed to Run 2.**
+If any check fails: **STOP. Fix the failure. Re-run from the beginning.**
 
-**After Run 2:** If any check failed → **STOP. This is a flaky failure — investigate and fix before opening PR.**
-
-**Both Run 1 and Run 2 must be fully green.** Only then proceed to step 4.
-
-> There is NO "open PR anyway" escape hatch. Failing tests = no PR. Fix it first.
+There is NO bypass. The `gate pre-pr --mark-passed` command writes a marker to EXECUTION_LOG.md.
+The PR creation step below checks for this marker.
 
 ### E2E Regression Gate (Web Projects)
 
-**After all phases complete, before PR quality gates:**
+**Before marking the gate as passed:**
 
-1. Run `deno task test:regression` in `apps/e2e-charlotte/`
-2. ALL regression-tagged tests must PASS
-3. If any fail:
+1. Start frontend dev servers (required for Charlotte):
+```bash
+npx nx dev player-web &
+npx nx dev operator-web &
+# Wait for both to be ready
+```
+
+2. Run Charlotte regression tests:
+```bash
+cd apps/e2e-charlotte && deno task test:regression
+```
+
+3. ALL regression-tagged tests must PASS
+4. If any fail:
    - Show failure report
    - Spawn debug agent to diagnose
    - Create fix plan
    - Execute fixes
    - Re-run regression
    - Max 3 attempts before escalating to user
-4. This gate is NON-NEGOTIABLE for web projects — no PR without green regression
+5. This gate is NON-NEGOTIABLE for web projects — no PR without green regression
 
-Add to the "Both Runs Must Pass" section:
-- E2E regression tests (Charlotte + Haiku)
-
-4. **Push branch and open PR:**
+4. **Push branch and open PR (requires gate marker):**
 
 ```bash
-git push -u origin {CURRENT_BRANCH}
+# Verify gate was passed
+GATE_CHECK=$(node ~/.claude/get-shit-done/bin/gsd-tools.js gate pre-pr)
+if echo "$GATE_CHECK" | grep -q '"passed":true'; then
+  git push -u origin {CURRENT_BRANCH}
+  gh pr create ...
+else
+  echo "ERROR: Quality gates not passed. Run all checks first."
+  echo "$GATE_CHECK"
+  exit 1
+fi
 ```
 
 Then create PR:
