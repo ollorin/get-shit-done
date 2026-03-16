@@ -212,7 +212,24 @@ Agent(
   Phase directory: .planning/phases/{phase_dir}/
   Phase goal: {goal}
 
-  Full cycle: research -> plan -> execute -> verify
+  Full lifecycle — ALL steps mandatory, in order:
+  1. Research (skip if not needed)
+  2. Plan — MUST include tdd='true' tasks for API work, checkpoint:ui-qa for UI work.
+     Planner MUST run validate_testing_gate before returning plans.
+     If phase touches UI: generate E2E-TEST-PLAN.md via gsd-ui-inventory + gsd-e2e-test-generator.
+  3. Execute — tdd tasks spawn gsd-test-writer (min 6 tests, 6 categories).
+     checkpoint:ui-qa tasks trigger Charlotte QA loop (3 rounds) + MANDATORY ux-audit.
+     Post-plan test gate: full test suite must pass before SUMMARY.md.
+  4. Post-execution — If web project: run post_phase_ux_sweep (Charlotte ux-audit, unconditional).
+     If e2e_flows in plan frontmatters: run Charlotte e2e mode.
+     If UI built: run E2E gap closure (Step 6.5 of execute-phase).
+  5. Verify — MUST spawn gsd-verifier agent. NEVER write VERIFICATION.md inline for phases with UI.
+     Verifier checks QGATE-07 (Charlotte ran), QGATE-10 (test files exist), QGATE-13 (E2E plan exists).
+
+  HARD RULES:
+  - Phase with .tsx/.jsx files CANNOT have verifier: coordinator in VERIFICATION.md
+  - Phase with API endpoints CANNOT skip tdd tasks
+  - Charlotte QA + UX audit CANNOT be skipped for web projects
 
   Create checkpoint after each step.
   telegram_topic_id: {telegram_topic_id}
