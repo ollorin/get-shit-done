@@ -56,13 +56,13 @@ Roadmap execution commits many changes. Running on main risks polluting the main
 branch with partial or broken work.
 
 Options:
-  A) Create milestone branch now: gsd/{MILESTONE_VERSION}-{MILESTONE_SLUG}
+  A) Create milestone branch now: {MILESTONE_VERSION}-{MILESTONE_SLUG}
   B) Create custom branch — type: "branch my-branch-name"
   C) Override — I know what I'm doing (type "override")
 ```
 
 Wait for user response:
-- **"A"** or "yes": `git checkout -b "gsd/{MILESTONE_VERSION}-{MILESTONE_SLUG}"` → log branch → proceed
+- **"A"** or "yes": `git checkout -b "{MILESTONE_VERSION}-{MILESTONE_SLUG}"` → log branch → proceed
 - **"branch {name}"**: `git checkout -b "{name}"` → log branch → proceed
 - **"override"**: log warning, proceed on main (user explicitly accepted risk)
 - **"stop"** / anything else: exit cleanly
