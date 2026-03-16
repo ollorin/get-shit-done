@@ -2380,6 +2380,88 @@ function cmdStateSnapshot(cwd, raw) {
   output(result, raw);
 }
 
+function cmdGatePrePr(cwd, args, raw) {
+  const markPassed = args.includes('--mark-passed');
+  const planningDir = path.join(cwd, '.planning');
+  const execLogPath = path.join(planningDir, 'EXECUTION_LOG.md');
+
+  if (markPassed) {
+    // Write gate passed marker to execution log
+    const event = JSON.stringify({
+      type: 'gate_pre_pr_passed',
+      timestamp: new Date().toISOString(),
+      checks_passed: true
+    });
+    fs.appendFileSync(execLogPath, event + '\n');
+    output({ gate: 'pre-pr', passed: true, marked: true }, raw);
+    return;
+  }
+
+  // Check if execution log exists
+  if (!fs.existsSync(execLogPath)) {
+    output({ error: 'No EXECUTION_LOG.md found. Run execute-roadmap first.', gate: 'pre-pr', passed: false }, raw);
+    process.exit(1);
+  }
+
+  // Check all phases are complete
+  const logContent = fs.readFileSync(execLogPath, 'utf-8');
+  const lines = logContent.split('\n').filter(l => l.trim().startsWith('{'));
+
+  const phaseStarts = lines.filter(l => {
+    try { return JSON.parse(l).type === 'phase_start'; } catch { return false; }
+  });
+  const phaseCompletes = lines.filter(l => {
+    try { return JSON.parse(l).type === 'phase_complete'; } catch { return false; }
+  });
+
+  if (phaseStarts.length > phaseCompletes.length) {
+    const startedPhases = phaseStarts.map(l => JSON.parse(l).data?.phase || JSON.parse(l).phase);
+    const completedPhases = phaseCompletes.map(l => JSON.parse(l).data?.phase || JSON.parse(l).phase);
+    const incomplete = startedPhases.filter(p => !completedPhases.includes(p));
+    output({
+      error: `Incomplete phases: ${incomplete.join(', ')}. All phases must complete before PR.`,
+      gate: 'pre-pr',
+      passed: false,
+      incomplete_phases: incomplete
+    }, raw);
+    process.exit(1);
+  }
+
+  // Check for existing gate marker
+  const hasGateMarker = lines.some(l => {
+    try { return JSON.parse(l).type === 'gate_pre_pr_passed'; } catch { return false; }
+  });
+
+  if (hasGateMarker) {
+    output({ gate: 'pre-pr', passed: true, cached: true, message: 'Gate already passed in this execution.' }, raw);
+    return;
+  }
+
+  // Output instructions for the coordinator to run checks
+  // The coordinator must run each check and report back
+  output({
+    gate: 'pre-pr',
+    passed: false,
+    action_required: true,
+    checks: [
+      { id: 'db-reset', command: 'cd apps/api && npx supabase db reset', required: true },
+      { id: 'integration-tests', command: 'cd apps/api && NODE_ENV=test DENO_ENV=test deno test --allow-all --env-file=.env.test functions/__tests__/*.integration.test.ts', required: true },
+      { id: 'backend-unit-tests', command: 'cd apps/api && NODE_ENV=test DENO_ENV=test deno task test:ci', required: true },
+      { id: 'deno-lint', command: 'cd apps/api && deno lint', required: true },
+      { id: 'deno-check', command: 'cd apps/api && deno check --quiet functions/*/index.ts', required: true },
+      { id: 'player-web-test', command: 'CI=true npx nx test player-web', required: true },
+      { id: 'operator-web-test', command: 'CI=true npx nx test operator-web', required: true },
+      { id: 'player-web-build', command: 'npx nx build player-web', required: true },
+      { id: 'operator-web-build', command: 'npx nx build operator-web', required: true },
+      { id: 'player-web-lint', command: 'npx nx lint player-web', required: true },
+      { id: 'operator-web-lint', command: 'npx nx lint operator-web', required: true },
+      { id: 'charlotte-regression', command: 'cd apps/e2e-charlotte && deno task test:regression', required: 'if_web_project' },
+    ],
+    instructions: 'Run each check. If ALL pass, call: gsd-tools gate pre-pr --mark-passed. If any fail, fix and re-run.',
+    mark_command: 'node ~/.claude/get-shit-done/bin/gsd-tools.js gate pre-pr --mark-passed'
+  }, raw);
+}
+
 function cmdSummaryExtract(cwd, summaryPath, fields, raw) {
   if (!summaryPath) {
     error('summary-path required for summary-extract');
@@ -11591,6 +11673,17 @@ Was ${model} the right choice for this task? (y/n): `;
 
     case 'service-health': {
       await cmdServiceHealth(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'gate': {
+      const subCmd = args[1];
+      if (subCmd === 'pre-pr') {
+        cmdGatePrePr(cwd, args.slice(2), raw);
+      } else {
+        console.error(`Unknown gate subcommand: ${subCmd}`);
+        process.exit(1);
+      }
       break;
     }
 
