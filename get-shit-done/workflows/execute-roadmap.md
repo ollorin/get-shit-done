@@ -244,6 +244,41 @@ Agent(
 - `status: "gaps_found"`: offer gap closure cycle, then continue
 - `status: "human_needed"`: present human items, await approval
 
+**5b. Cross-phase integration checkpoint (if phase produced DB or API changes):**
+
+Check if the completed phase modified migrations or edge functions:
+```bash
+PHASE_FILES=$(git diff --name-only HEAD~1 2>/dev/null || echo "")
+HAS_MIGRATIONS=$(echo "$PHASE_FILES" | grep -c "migrations/" || echo "0")
+HAS_FUNCTIONS=$(echo "$PHASE_FILES" | grep -c "functions/" || echo "0")
+```
+
+If `HAS_MIGRATIONS > 0` OR `HAS_FUNCTIONS > 0`:
+
+1. Reset local DB to apply new migrations:
+```bash
+cd apps/api && npx supabase db reset 2>&1 | tail -5
+```
+If reset fails: **STOP. Migration is broken. Fix before continuing.**
+
+2. Run integration tests:
+```bash
+cd apps/api && NODE_ENV=test DENO_ENV=test deno test --allow-all --env-file=.env.test functions/__tests__/*.integration.test.ts 2>&1 | tail -10
+```
+If failures > 0:
+- Log `integration_test_failure` event to EXECUTION_LOG.md
+- Present failures to user
+- **STOP. Fix failures before starting next phase.**
+
+3. Log success:
+```bash
+node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
+  --type cross_phase_integration \
+  --data '{"phase": {N}, "tests_passed": true, "timestamp": "..."}'
+```
+
+**Rationale:** Catching integration failures between phases (2 failures) is dramatically cheaper than catching them after all phases (52 failures). Each phase's migrations are tested against the full chain before the next phase builds on top.
+
 **6. Archive phase context:**
 - Compress completed phase to summary (SUMMARYs already created by executor)
 - Clean up ephemeral checkpoints
