@@ -410,6 +410,71 @@ node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs({phase}-{plan})
 ```
 </step>
 
+<step name="documentation_hard_gate">
+**HARD GATE — not configurable, not skippable.**
+
+Classify what was built by reading SUMMARY.md accomplishments and the git diff since this plan started:
+
+```bash
+SUMMARY_PATH=".planning/phases/XX-name/${PHASE}-${PLAN}-SUMMARY.md"
+# Get files changed in this plan's commits
+FIRST_COMMIT=$(git log --oneline --grep="${PHASE}-${PLAN}" --reverse | head -1 | cut -d' ' -f1)
+git diff --name-only ${FIRST_COMMIT}^..HEAD 2>/dev/null
+```
+
+**Documentation-worthy signals (ANY match = gate fires):**
+
+| Signal | Condition |
+|--------|-----------|
+| New/changed API endpoints | Changed files match: `api`, `route`, `handler`, `endpoint`, `router` |
+| New UI routes or pages | Changed files match: `page`, `pages/`, `screen`, `view`, `frontend` |
+| New DB schema / migration | Changed files match: `migration`, `schema`, `prisma`, `model` |
+| New service or middleware | SUMMARY.md contains: "new service", "middleware", "new schema" |
+| New auth/payment/onboarding flow | SUMMARY.md contains: "auth", "payment", "onboarding", "flow" |
+
+**Exclusions (gate passes automatically, no docs needed):**
+- Pure refactoring with no new public surface (no routes, no new components, no schema changes)
+- Test-only changes (`*.test.*`, `*.spec.*`, `__tests__/`)
+- CI/config-only changes (`.github/`, `*.yml`, `*.json` config files only)
+- Internal utility/helper changes with no exported public API
+
+**If documentation-worthy changes found:**
+
+Spawn `gsd-docs-updater` subagent:
+
+```
+Spawn agent: gsd-docs-updater
+Prompt: "Documentation gate triggered for phase {phase}, plan {plan}.
+SUMMARY.md path: {SUMMARY_PATH}
+Project root: {PROJECT_ROOT}
+Changes classified as: {comma-separated list of matched signals}
+Changed files: {list of changed files}
+
+Read SUMMARY.md and the changed source files. Create or update docs following project conventions. Commit all doc changes."
+```
+
+Wait for subagent to return. Check result:
+
+- If subagent returns `DOCS_COMMIT = "no-changes"` but documentation-worthy signals were found: **GATE FAILS**
+  ```
+  🚫 DOCUMENTATION GATE FAILED
+  Documentation-worthy changes detected ({matched signals}) but no docs were written.
+  The phase cannot complete until documentation is created.
+  Fix: manually run gsd-docs-updater or write the docs directly, then re-run this step.
+  ```
+  STOP — do not proceed to `update_codebase_map`.
+
+- If subagent fails or errors: **GATE FAILS** with the same block message above. STOP.
+
+- If subagent returns one or more written files with a valid commit: gate passes. Record doc files in SUMMARY.md `## Documentation Updates` section.
+
+**If no documentation-worthy changes (exclusion path):** Gate passes automatically. Add to SUMMARY.md:
+```
+## Documentation Updates
+No documentation-worthy changes in this phase (pure refactoring/tests/CI).
+```
+</step>
+
 <step name="update_codebase_map">
 If .planning/codebase/ doesn't exist: skip.
 

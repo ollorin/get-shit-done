@@ -84,6 +84,20 @@ If no must_haves in frontmatter AND no Success Criteria in ROADMAP:
 3. Derive **artifacts** (concrete file paths for each truth)
 4. Derive **key links** (critical wiring where stubs hide)
 5. Document derived must-haves before proceeding
+
+**Documentation must-haves (auto-added when applicable):**
+
+After establishing truths/artifacts via Options A/B/C above, scan SUMMARY.md files for the phase:
+```bash
+cat "$phase_dir"/*-SUMMARY.md 2>/dev/null | grep -iE "api|route|handler|endpoint|router|page|screen|migration|schema|new service|middleware"
+```
+
+If any documentation-worthy signals found (new API endpoints, UI routes, schema changes, new services), automatically add to must-haves:
+- **Truth:** "Phase-shipped APIs/features are documented"
+- **Artifact:** `docs/` directory contains file(s) referencing the new endpoints/routes/features
+- **Check:** `ls {PROJECT_ROOT}/docs/**/*.md 2>/dev/null | xargs grep -l "{feature_keyword}" 2>/dev/null`
+
+If no matches (pure refactoring/tests/CI): skip documentation must-have.
 </step>
 
 <step name="verify_truths">
@@ -126,6 +140,21 @@ WIRED = imported AND used. ORPHANED = exists but not imported/used.
 | ✓ | ✓ | ✗ | ⚠️ ORPHANED |
 | ✓ | ✗ | - | ✗ STUB |
 | ✗ | - | - | ✗ MISSING |
+
+**Documentation artifact verification:**
+
+If documentation must-haves were added in `establish_must_haves`, verify them here:
+
+```bash
+# Check docs exist and reference the feature
+find {PROJECT_ROOT}/docs -name "*.md" 2>/dev/null | xargs grep -l "{feature_keyword}" 2>/dev/null
+```
+
+- Doc file exists AND contains content referencing the feature → ✓ VERIFIED
+- Doc file exists but contains only frontmatter or single-line stub → ✗ STUB → set `gaps_found`
+- Doc file does not exist → ✗ MISSING → set `gaps_found`
+
+STUB and MISSING documentation artifacts are `gaps_found` and **block phase completion**, same as missing code artifacts.
 </step>
 
 <step name="verify_wiring">
@@ -175,6 +204,8 @@ Extract files modified in this phase from SUMMARY.md, scan each:
 | Placeholder content | `grep -n -iE "placeholder\|coming soon\|will be here"` | 🛑 Blocker |
 | Empty returns | `grep -n -E "return null\|return \{\}\|return \[\]\|=> \{\}"` | ⚠️ Warning |
 | Log-only functions | Functions containing only console.log | ⚠️ Warning |
+| TODO: document markers | `grep -rn -iE "TODO.*document\|document.*TODO\|@undocumented"` | 🛑 Blocker |
+| Undocumented public exports | exported functions/classes/routes with no JSDoc/comment | ⚠️ Warning |
 
 Categorize: 🛑 Blocker (prevents goal) | ⚠️ Warning (incomplete) | ℹ️ Info (notable).
 </step>

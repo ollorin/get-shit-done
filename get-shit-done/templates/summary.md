@@ -63,6 +63,12 @@ completed: YYYY-MM-DD
 - [Second key accomplishment]
 - [Third if applicable]
 
+## Documentation Updates
+
+[Filled by documentation_hard_gate after execution. One of:]
+- `docs/path/to/created-or-updated.md` — what it covers
+- `No documentation-worthy changes in this phase (pure refactoring/tests/CI).`
+
 ## Task Commits
 
 Each task was committed atomically:
@@ -184,6 +190,9 @@ The one-liner should tell someone what actually shipped.
 - Login/logout endpoints with httpOnly JWT cookies
 - Protected route middleware checking token validity
 - Refresh token rotation on each request
+
+## Documentation Updates
+- `docs/api/auth.md` — login/logout endpoints with request/response tables
 
 ## Files Created/Modified
 - `prisma/schema.prisma` - User and Session models
