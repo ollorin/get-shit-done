@@ -230,6 +230,15 @@ Agent(
   - Phase with .tsx/.jsx files CANNOT have verifier: coordinator in VERIFICATION.md
   - Phase with API endpoints CANNOT skip tdd tasks
   - Charlotte QA + UX audit CANNOT be skipped for web projects
+  - Individual plans MUST stay under 400 lines. If a plan exceeds 400 lines, split it.
+    DB migrations, edge function handlers, and integration tests are three separate plans — not one.
+  - Before writing SUMMARY.md, set charlotte_qa_ran in CHECKPOINT.json (true if Charlotte ran, false if no UI).
+    The orchestrator validates this after you return.
+
+  CONTEXT OVERFLOW PREVENTION:
+  - Do NOT read the full edge function file if it exceeds 1000 lines. Use LSP or grep for the specific handler.
+  - Do NOT accumulate multiple plan executions in a single context. Execute one plan, write SUMMARY, checkpoint, return.
+  - If you are approaching context limits, return a checkpoint with resume_from instead of trying to finish.
 
   Create checkpoint after each step.
   telegram_topic_id: {telegram_topic_id}
@@ -238,46 +247,63 @@ Agent(
 ```
 
 **5. Handle result:**
-- `status: "completed"`: log `phase_complete`, continue to next phase
+- `status: "completed"`: proceed to **5a** (Charlotte gate) then **5b** (integration gate)
 - `status: "failed"`: see `<step name="handle_failure">`
 - `status: "blocked"`: present blocker, wait for resolution
 - `status: "gaps_found"`: offer gap closure cycle, then continue
 - `status: "human_needed"`: present human items, await approval
 
-**5b. Cross-phase integration checkpoint (if phase produced DB or API changes):**
+**5a. Charlotte QA gate (BLOCKING — owned by orchestrator, not coordinator):**
 
-Check if the completed phase modified migrations or edge functions:
+Check if the phase has UI work:
 ```bash
-PHASE_FILES=$(git diff --name-only HEAD~1 2>/dev/null || echo "")
-HAS_MIGRATIONS=$(echo "$PHASE_FILES" | grep -c "migrations/" || echo "0")
-HAS_FUNCTIONS=$(echo "$PHASE_FILES" | grep -c "functions/" || echo "0")
+HAS_UI=$(find .planning/phases/{phase_dir}/ -name "*.md" -exec grep -l "\.tsx\|\.jsx\|checkpoint:ui-qa\|type: frontend" {} \; | head -1)
 ```
 
-If `HAS_MIGRATIONS > 0` OR `HAS_FUNCTIONS > 0`:
+**If HAS_UI is non-empty:**
 
-1. Reset local DB to apply new migrations:
-```bash
-cd apps/api && npx supabase db reset 2>&1 | tail -5
+Check CHECKPOINT.json for `charlotte_qa_ran: true`. If missing or false:
+
 ```
-If reset fails: **STOP. Migration is broken. Fix before continuing.**
+⛔ CHARLOTTE QA GATE — BLOCKING
 
-2. Run integration tests:
+Phase {N} has UI work but no Charlotte QA evidence.
+Running Charlotte QA now...
+```
+
+1. Start dev servers (detect from CLAUDE.md or plan files)
+2. Spawn `gsd-charlotte-qa` with `mode=ui-qa` on phase UI pages
+3. If critical/high issues → spawn fix agent → re-run (max 3 rounds)
+4. Run regression: all `regression`-tagged Charlotte scenarios must pass
+5. Only after pass → set `charlotte_qa_ran: true` in CHECKPOINT.json → proceed to 5b
+
+**Why the orchestrator owns this gate:** Coordinators that overflow context drop Charlotte as a late step and write "code-level verification" — which missed 5 real UI bugs in v0.1.9. The orchestrator runs this check AFTER the coordinator returns, so context overflow cannot bypass it.
+
+**5b. Cross-phase integration checkpoint (UNCONDITIONAL — every phase):**
+
+Run after EVERY completed phase. No conditional.
+
+1. Run unit + integration tests:
 ```bash
+cd apps/api && NODE_ENV=test DENO_ENV=test deno task test:ci 2>&1 | tail -5
 cd apps/api && NODE_ENV=test DENO_ENV=test deno test --allow-all --env-file=.env.test functions/__tests__/*.integration.test.ts 2>&1 | tail -10
 ```
-If failures > 0:
-- Log `integration_test_failure` event to EXECUTION_LOG.md
-- Present failures to user
-- **STOP. Fix failures before starting next phase.**
 
-3. Log success:
+2. If phase touched frontend: run frontend tests + builds:
+```bash
+CI=true npx nx test player-web && CI=true npx nx test operator-web
+npx nx build player-web && npx nx build operator-web
+```
+
+If ANY failures → log `integration_test_failure` → **STOP. Fix before next phase.**
+
 ```bash
 node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
   --type cross_phase_integration \
   --data '{"phase": {N}, "tests_passed": true, "timestamp": "..."}'
 ```
 
-**Rationale:** Catching integration failures between phases (2 failures) is dramatically cheaper than catching them after all phases (52 failures). Each phase's migrations are tested against the full chain before the next phase builds on top.
+**Why unconditional:** The v0.1.9 conditional ("if migrations changed") was always true but never triggered — the orchestrator skipped it. Removing the condition removes the failure mode. Cost is ~30s/phase. Savings when 15 failures compound: hours.
 
 **6. Archive phase context:**
 - Compress completed phase to summary (SUMMARYs already created by executor)

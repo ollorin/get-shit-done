@@ -417,6 +417,35 @@ After all waves:
 ```
 </step>
 
+<step name="pre_verify_gates">
+
+### Step 6.4: Pre-Verification Gates (BLOCKING)
+
+Before proceeding to verification, these gates must pass. They cannot be deferred.
+
+**Gate 1 — Charlotte QA evidence (UI phases only):**
+
+If any plan in this phase has `type: frontend` or `checkpoint: ui-qa` or created `.tsx/.jsx` files:
+- CHECKPOINT.json must contain `charlotte_qa_ran: true`
+- If missing: the orchestrator (execute-roadmap step 5a) will catch this and run Charlotte
+- Set `charlotte_qa_ran: false` in CHECKPOINT.json if Charlotte was not run — do NOT omit the field
+
+**Gate 2 — Integration tests green:**
+
+All integration tests must pass before SUMMARY.md is considered complete:
+```bash
+cd apps/api && NODE_ENV=test DENO_ENV=test deno task test:ci
+```
+If failures: fix before proceeding. Do not write "tests pass" in SUMMARY.md if they don't.
+
+**Gate 3 — Cross-layer consistency (if phase added enums, types, or status values):**
+
+If the phase introduced a new enum value, status string, or type discriminator:
+- Verify it exists in ALL layers: DB constraint, RPC validation, edge function validation, frontend type, UI display map
+- A value present in one layer but missing in another is a blocking defect
+
+</step>
+
 <step name="e2e_coverage_closure">
 
 ### Step 6.5: Post-Execution E2E Coverage Closure (Web Projects)
