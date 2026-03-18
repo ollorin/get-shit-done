@@ -610,10 +610,13 @@ When unable to proceed:
 - Good: Each delivery phase includes test success criteria alongside implementation criteria
 
 **Don't skip the documentation phase:**
-If the milestone introduces 5+ new API endpoints, a new edge function, or a new PostgreSQL schema: include a final documentation phase. Success criteria: API endpoint reference updated, architecture decisions documented, rules extracted from implementation patterns. Documentation written post-implementation is higher quality because it reflects what was actually built, not what was planned.
+Every milestone that introduces new API endpoints, edge functions, or schemas MUST include a documentation phase as the last phase before E2E regression. No threshold — if you added or changed an endpoint, the docs must reflect it. Documentation written post-implementation reflects what was actually built.
+
+**Don't skip the E2E regression phase:**
+Every milestone that includes UI work MUST end with a dedicated E2E regression phase. This phase runs ALL Charlotte scenarios (new + existing regression suite) and fixes any failures. It is the final quality gate before the milestone can ship. Success criteria: all regression-tagged Charlotte scenarios pass, all new UI pages have at least one scenario.
 
 **Don't create plans over 400 lines:**
-Plans that combine DB migrations + edge function handlers + integration tests in a single file exceed agent context budgets. Split into focused plans: one for schema/RPCs, one for edge function handlers, one for integration tests. Each plan should target a single artifact type.
+Plans that combine DB migrations + edge function handlers + integration tests in a single file exceed agent context budgets. Split into focused plans: one for schema/RPCs, one for edge function handlers, one for integration tests. Each plan targets a single artifact type.
 
 </anti_patterns>
 
@@ -631,7 +634,10 @@ Roadmap is complete when:
 - [ ] Phases with API test ACs have an integration test success criterion
 - [ ] Phases with Charlotte QA ACs have a QA success criterion
 - [ ] No delivery phase defers all testing to a later phase
-- [ ] Documentation phase included if milestone adds 5+ endpoints or new schema
+- [ ] Documentation phase included (mandatory — last phase before E2E regression)
+- [ ] E2E regression phase included if milestone has ANY UI work (mandatory — final phase)
+- [ ] UI phases have Charlotte QA as a success criterion (not optional)
+- [ ] API phases that change endpoints consumed by existing UI include "existing UI still works" criterion
 - [ ] No plan exceeds 400 lines (split DB/API/test into separate plans)
 - [ ] Success criteria cross-checked against requirements (gaps resolved)
 - [ ] 100% requirement coverage validated (no orphans)

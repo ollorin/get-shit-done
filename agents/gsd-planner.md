@@ -253,13 +253,16 @@ Already covered by existing mandate. This is a reminder: test tasks and ui-qa ar
 - `tdd="true"` task → unit/integration tests (backend behavior, error handling)
 - `checkpoint:ui-qa` → visual behavior, UX, wiring in the browser
 
-### 3. e2e_flows in frontmatter (if this plan completes a full user journey)
+### 3. e2e_flows in frontmatter (REQUIRED for UI plans)
 
-Add to frontmatter when the plan (or the phase it's part of) completes something a user can do end-to-end:
+Every plan that creates or modifies UI components MUST populate `e2e_flows` with at least one user journey. These trigger Charlotte E2E testing in the coordinator. Empty `e2e_flows: []` on a UI plan is a planning defect.
+
+Also required when a backend plan changes an API response shape consumed by existing frontend — the existing UI must still work.
+
 ```yaml
 e2e_flows:
-  - "player can upload KYC documents"
-  - "operator can approve a KYC session"
+  - "player can see bonus promotions list with eligibility states"
+  - "operator can create a campaign and see it in the list"
 ```
 
 If unsure: err on the side of adding flows. The coordinator will attempt them and report gaps.
@@ -534,8 +537,8 @@ Valid values: `haiku`, `sonnet`, `opus`. If no `<model>` element is present, the
 | `autonomous` | Yes | `true` if no checkpoints |
 | `user_setup` | No | Human-required setup items |
 | `requirements` | Yes | REQUIRED — Requirement IDs this plan addresses. MUST NOT be empty if phase has requirements. |
-| `must_haves` | Yes | Goal-backward verification criteria |
-| `e2e_flows` | No | List of user journeys testable after this plan completes. Triggers E2E run in coordinator. Example: `["player can deposit", "operator can review KYC session"]` |
+| `must_haves` | Yes | Goal-backward verification criteria. MUST NOT be empty — every plan must have at least one verifiable truth and one artifact. |
+| `e2e_flows` | **Conditional** | REQUIRED if plan type is `frontend` or plan creates/modifies UI components (.tsx/.jsx). List of user journeys testable after this plan completes. Triggers Charlotte E2E in coordinator. Empty `[]` is only valid for backend-only plans with no UI impact. |
 
 Wave numbers are pre-computed during planning. Execute-phase reads `wave` directly from frontmatter.
 
@@ -1392,6 +1395,14 @@ Resubmit plans after adding missing test tasks.
 ```
 
 Do NOT return PLANNING COMPLETE. Do NOT write SUMMARY. Do NOT commit.
+
+**Also scan for structural violations:**
+
+5. For each plan: `must_haves` section MUST have at least one `truths` entry AND one `artifacts` entry. Empty `must_haves` means the plan has no verifiable outcome — it cannot be verified.
+6. For each plan with `type: frontend` or creating `.tsx/.jsx` files: `e2e_flows` MUST NOT be empty. Every UI plan must define at least one user journey for Charlotte testing.
+7. For each plan that modifies an API response shape consumed by existing frontend: `e2e_flows` MUST include a "existing UI still works" flow.
+
+Flag violations same as above — PLAN REJECTED.
 
 **If no violations:**
 
