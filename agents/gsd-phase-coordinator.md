@@ -116,7 +116,27 @@ When spawning the verifier subagent (verify step), if fresh_subagent_notified is
 - Append the handoff_summary to the verifier prompt under a <context_handoff> tag
 - This ensures the verifier has all required context even when spawned from a nearly-full coordinator context window
 
-**Non-fatal:** Context budget monitoring never blocks execution. If usage cannot be determined, default to 0% and proceed normally.
+**Non-fatal for monitoring itself.** But context budget DOES affect execution policy:
+
+**At >= 80%: Return early with structured checkpoint instead of risking overflow.**
+
+If you reach 80% context and have NOT yet completed the verify step:
+1. Write CHECKPOINT.json with `resume_from: "verify"` (or whatever step is next)
+2. Set `charlotte_qa_ran: false` in CHECKPOINT.json if Charlotte was not run
+3. Return to orchestrator with `status: "completed_with_deferrals"` and include in the return:
+   ```json
+   {
+     "status": "completed_with_deferrals",
+     "deferred": ["verify", "charlotte_qa"],
+     "reason": "context_budget_exceeded",
+     "handoff_summary": "..."
+   }
+   ```
+4. The orchestrator will spawn fresh agents for the deferred steps
+
+**Do NOT try to power through the remaining steps at 80%+.** Overflowing mid-verify or mid-Charlotte produces incomplete artifacts that the orchestrator accepts as valid. Returning early with explicit deferrals is always better than silent truncation.
+
+If usage cannot be determined, default to 0% and proceed normally.
 
 </context_budget_monitoring>
 

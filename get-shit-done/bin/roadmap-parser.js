@@ -31,6 +31,7 @@ async function parseRoadmap(roadmapPath) {
   let currentPhase = null;
   let inSuccessCriteria = false;
   let inPlans = false;
+  let insideCollapsedDetails = 0; // Track <details> nesting depth
 
   const fileStream = fs.createReadStream(roadmapPath);
   const rl = readline.createInterface({
@@ -39,14 +40,19 @@ async function parseRoadmap(roadmapPath) {
   });
 
   for await (const line of rl) {
-    // Phase header: ### Phase N: Name
-    const phaseMatch = line.match(/^###\s+Phase\s+(\d+):\s+(.+)/);
+    // Track <details> blocks — phases inside them are archived (shipped), skip them
+    if (line.trim().startsWith('<details')) insideCollapsedDetails++;
+    if (line.trim().startsWith('</details')) insideCollapsedDetails = Math.max(0, insideCollapsedDetails - 1);
+    if (insideCollapsedDetails > 0) continue;
+
+    // Phase header: ### Phase N: Name or #### Phase N: Name
+    const phaseMatch = line.match(/^#{2,4}\s+Phase\s+([\d.]+):\s+(.+)/);
     if (phaseMatch) {
       // Save previous phase
       if (currentPhase) phases.push(currentPhase);
 
       currentPhase = {
-        number: parseInt(phaseMatch[1]),
+        number: phaseMatch[1].includes('.') ? parseFloat(phaseMatch[1]) : parseInt(phaseMatch[1]),
         name: phaseMatch[2].trim(),
         goal: '',
         depends_on: [],

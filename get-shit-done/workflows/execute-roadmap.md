@@ -248,10 +248,24 @@ Agent(
 
 **5. Handle result:**
 - `status: "completed"`: proceed to **5a** (Charlotte gate) then **5b** (integration gate)
+- `status: "completed_with_deferrals"`: coordinator hit context limits. Spawn fresh agents for deferred steps:
+  - If `"verify"` in deferred: spawn `gsd-verifier` with handoff_summary from return
+  - If `"charlotte_qa"` in deferred: will be caught by 5a gate
+  - After all deferrals resolved: proceed to 5a → 5b
 - `status: "failed"`: see `<step name="handle_failure">`
 - `status: "blocked"`: present blocker, wait for resolution
 - `status: "gaps_found"`: offer gap closure cycle, then continue
 - `status: "human_needed"`: present human items, await approval
+
+Also check for deferred-items.md in the phase directory:
+```bash
+if [ -f ".planning/phases/{phase_dir}/deferred-items.md" ]; then
+  # Phase deferred some work — surface it
+  echo "⚠ Phase {N} has deferred items"
+  cat ".planning/phases/{phase_dir}/deferred-items.md"
+  # Ask: fix now or defer to gap closure?
+fi
+```
 
 **5a. Charlotte QA gate (BLOCKING — owned by orchestrator, not coordinator):**
 
@@ -580,5 +594,18 @@ When `parallel_opportunities` contains multiple phases:
 - Wait for all to complete before proceeding to dependent phases
 - Handle mixed results: some pass, some fail, some blocked
 
-Current implementation: sequential by default. Parallel execution requires explicit user opt-in ("run parallel? yes/no") due to complexity of failure handling.
+**Parallelism limits (ENFORCED):**
+
+| Phase type | Max parallel | Rationale |
+|------------|-------------|-----------|
+| Schema-only (migrations, RPCs, no edge function) | 3 | Low context, independent schemas |
+| Feature (DB + edge function + tests) | 2 | High context, shared edge function file |
+| UI (frontend components + pages) | 2 | Charlotte QA contention, shared dev server |
+
+When the orchestrator identifies N parallelizable phases:
+- If N > max_parallel for the type: split into batches of max_parallel
+- Run batch 1, wait for all to complete + pass gates (5a, 5b)
+- Then run batch 2
+
+**Why not more:** v0.1.9 ran 3 feature phases in parallel — 2 of 3 had context issues. The coordinator's 200k context window is consumed by: reading existing code (~40%), planning (~20%), executing (~30%), verifying (~10%). With complex feature phases, 200k is barely enough for 1 full lifecycle. Parallel doesn't help if coordinators overflow.
 </parallel_execution>

@@ -609,6 +609,12 @@ When unable to proceed:
 - Bad: Phases 1-9 implement features, Phase 10 adds all tests
 - Good: Each delivery phase includes test success criteria alongside implementation criteria
 
+**Don't skip the documentation phase:**
+If the milestone introduces 5+ new API endpoints, a new edge function, or a new PostgreSQL schema: include a final documentation phase. Success criteria: API endpoint reference updated, architecture decisions documented, rules extracted from implementation patterns. Documentation written post-implementation is higher quality because it reflects what was actually built, not what was planned.
+
+**Don't create plans over 400 lines:**
+Plans that combine DB migrations + edge function handlers + integration tests in a single file exceed agent context budgets. Split into focused plans: one for schema/RPCs, one for edge function handlers, one for integration tests. Each plan should target a single artifact type.
+
 </anti_patterns>
 
 <success_criteria>
@@ -625,6 +631,8 @@ Roadmap is complete when:
 - [ ] Phases with API test ACs have an integration test success criterion
 - [ ] Phases with Charlotte QA ACs have a QA success criterion
 - [ ] No delivery phase defers all testing to a later phase
+- [ ] Documentation phase included if milestone adds 5+ endpoints or new schema
+- [ ] No plan exceeds 400 lines (split DB/API/test into separate plans)
 - [ ] Success criteria cross-checked against requirements (gaps resolved)
 - [ ] 100% requirement coverage validated (no orphans)
 - [ ] ROADMAP.md structure complete
