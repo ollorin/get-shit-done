@@ -417,6 +417,32 @@ After all waves:
 ```
 </step>
 
+
+<checkpoint type="verify" name="phase-completion-gate">
+  <!-- Fires after all waves complete, before pre_verify_gates and verify_phase_goal. -->
+  <!-- All blocking items must pass before the verifier is spawned. -->
+
+  <item id="PHGATE-01" severity="blocking">
+    <check>All plans have a corresponding SUMMARY.md</check>
+    <pass>SUMMARIES count >= PLANS count (every plan has a summary)</pass>
+    <fail>Missing SUMMARY.md — re-run failed plans before verification</fail>
+  </item>
+
+  <item id="PHGATE-02" severity="blocking">
+    <check>No SUMMARY.md contains Self-Check: FAILED</check>
+    <command>grep -rl "Self-Check: FAILED" .planning/phases/{phase_dir}/ 2>/dev/null || echo NONE</command>
+    <pass>Output is NONE (no failed self-checks)</pass>
+    <fail>Self-check failed in listed SUMMARY.md — investigate and fix before verification</fail>
+  </item>
+
+  <item id="PHGATE-03" severity="advisory">
+    <check>Audit log file exists for this phase</check>
+    <pass>phase-{N}-audit.jsonl exists in .planning/audit/</pass>
+    <fail>Non-blocking — audit log may not have been written. See references/audit-log.md.</fail>
+  </item>
+
+</checkpoint>
+
 <step name="pre_verify_gates">
 
 ### Step 6.4: Pre-Verification Gates (BLOCKING)

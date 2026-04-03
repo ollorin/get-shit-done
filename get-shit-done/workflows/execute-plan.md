@@ -298,6 +298,42 @@ Orchestrator parses → presents to user → spawns fresh continuation with your
 If verification fails: STOP. Present: "Verification failed for Task [X]: [name]. Expected: [criteria]. Actual: [result]." Options: Retry | Skip (mark incomplete) | Stop (investigate). If skipped → SUMMARY "Issues Encountered".
 </step>
 
+<checkpoint type="verify" name="post-execution-audit">
+  <!-- Fires after all tasks complete and before SUMMARY.md is written. -->
+  <!-- Agents MUST pass all blocking items before writing SUMMARY.md. -->
+
+  <item id="CPGATE-01" severity="blocking">
+    <check>All plan tasks have a corresponding git commit</check>
+    <pass>commit count >= plan task_count (skip if plan uses single aggregate commit)</pass>
+    <fail>Missing commits — re-run failed tasks or document skipped tasks in SUMMARY.md</fail>
+  </item>
+
+  <item id="CPGATE-02" severity="blocking">
+    <check>All files listed in task done criteria exist on disk</check>
+    <pass>All output files present at expected paths</pass>
+    <fail>Missing output files — task did not complete correctly</fail>
+  </item>
+
+  <item id="CPGATE-03" severity="advisory">
+    <check>FP lint passes on modified TypeScript files (functions/, libs/ only)</check>
+    <command>bash scripts/fp-lint.sh functions/ libs/ 2>/dev/null || true</command>
+    <pass>0 violations, or no TypeScript files modified in fp-lint scope</pass>
+    <fail>FP violations found — document in SUMMARY.md deviations section and fix before PR</fail>
+  </item>
+
+  <item id="CPGATE-04" severity="advisory">
+    <check>Audit log entry written for plan completion</check>
+    <action>
+      Write a plan_complete entry to .planning/audit/phase-{N}-audit.jsonl (non-fatal if fails).
+      See ~/.claude/get-shit-done/references/audit-log.md for entry format.
+    </action>
+    <fail>Non-blocking — log error and continue</fail>
+  </item>
+
+</checkpoint>
+
+
+
 <step name="record_completion_time">
 ```bash
 PLAN_END_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
