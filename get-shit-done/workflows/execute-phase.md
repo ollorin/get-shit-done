@@ -435,10 +435,10 @@ After all waves:
     <fail>Self-check failed in listed SUMMARY.md — investigate and fix before verification</fail>
   </item>
 
-  <item id="PHGATE-03" severity="advisory">
+  <item id="PHGATE-03" severity="blocking">
     <check>Audit log file exists for this phase</check>
     <pass>phase-{N}-audit.jsonl exists in .planning/audit/</pass>
-    <fail>Non-blocking — audit log may not have been written. See references/audit-log.md.</fail>
+    <fail>BLOCKING — .planning/audit/phase-{N}-audit.jsonl does not exist. Phase cannot be marked complete without an audit entry. Verify all plans wrote their audit entries (check CPGATE-04 in each plan's execution). See ~/.claude/get-shit-done/references/audit-log.md.</fail>
   </item>
 
 </checkpoint>

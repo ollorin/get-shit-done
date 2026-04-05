@@ -321,13 +321,14 @@ If verification fails: STOP. Present: "Verification failed for Task [X]: [name].
     <fail>FP violations found — document in SUMMARY.md deviations section and fix before PR</fail>
   </item>
 
-  <item id="CPGATE-04" severity="advisory">
+  <item id="CPGATE-04" severity="blocking">
     <check>Audit log entry written for plan completion</check>
     <action>
-      Write a plan_complete entry to .planning/audit/phase-{N}-audit.jsonl (non-fatal if fails).
-      See ~/.claude/get-shit-done/references/audit-log.md for entry format.
+      Write a plan_complete entry to .planning/audit/phase-{N}-audit.jsonl.
+      Run the write command from ~/.claude/get-shit-done/references/audit-log.md.
+      Verify the entry is valid JSON before continuing.
     </action>
-    <fail>Non-blocking — log error and continue</fail>
+    <fail>BLOCKING — audit log entry not written. Write entry before proceeding. See ~/.claude/get-shit-done/references/audit-log.md for format. Entry must be valid JSON on a single line in .planning/audit/phase-{N}-audit.jsonl</fail>
   </item>
 
 </checkpoint>
