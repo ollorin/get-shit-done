@@ -84,6 +84,9 @@
  *   verify artifacts <plan-file>       Check must_haves.artifacts
  *   verify key-links <plan-file>       Check must_haves.key_links
  *   verify migration-timestamps         Scan migrations/ for duplicate timestamps; auto-resolve by rename
+ *   verify phase-gate <phase>          Deterministic 5-artifact phase gate (test/charlotte_qa/docs/
+ *                                       e2e_plan/verification); honors DEFERRED.json waivers; exits
+ *                                       1 on failed checks, 2 on malformed plan/waiver data
  *
  * Template Fill:
  *   template fill summary --phase N    Create pre-filled SUMMARY.md
@@ -4814,6 +4817,194 @@ function cmdVerifyPhaseCompleteness(cwd, phase, raw) {
   }, raw, errors.length === 0 ? 'complete' : 'incomplete');
 }
 
+// ─── Phase Gate (MILE-05, Phase 45-01) ───────────────────────────────────────
+// Deterministic replacement for scattered self-reported prose checklists:
+// computes which of 5 expected artifacts (test, charlotte_qa, docs, e2e_plan,
+// verification) a phase's plans were expected to produce, cross-references
+// against what actually landed (via collectPhaseTouchedFiles -- git-diff
+// based, never frontmatter-based), and honors DEFERRED.json waivers. Exits
+// non-zero (1 = failed checks, 2 = malformed plan/waiver data) so callers can
+// gate on this deterministically instead of trusting self-reported prose.
+
+const DOC_PATH_SIGNAL_RE = /(api|route|handler|endpoint|router|page|pages\/|screen|view|frontend|migration|schema|prisma|model)/i;
+const DOC_KEYWORD_SIGNAL_RE = /(new service|middleware|new schema|auth|payment|onboarding|flow)/i;
+const DOC_SATISFIED_RE = /(docs\/|README|CHANGELOG\.md)/i;
+const TEST_FILE_RE = /\.(test|spec)\.(ts|tsx|js)$/;
+
+// Returns the first waiver entry (from DEFERRED.json) matching this check's
+// `step`, the current phase number, and either no plan-scoping or a matching
+// plan. Phase-wide waivers (no `plan` field) match any plan.
+function findPhaseGateWaiver(waivers, step, phaseNumber, planNum) {
+  return waivers.find(entry =>
+    entry && entry.step === step &&
+    String(entry.phase) === String(phaseNumber) &&
+    (!entry.plan || entry.plan === planNum)
+  );
+}
+
+// Evaluates a single expected-artifact check. `computeSatisfied` is only
+// invoked when `required` is true (avoids unnecessary fs/git work for
+// not-required checks).
+function evaluatePhaseGateCheck(type, required, computeSatisfied, waivers, phaseNumber) {
+  if (!required) {
+    return { type, required: false, satisfied: true, waived: false, failure_type: null, detail: 'not required for this phase' };
+  }
+  const satisfied = computeSatisfied();
+  if (satisfied) {
+    return { type, required: true, satisfied: true, waived: false, failure_type: null, detail: 'satisfied' };
+  }
+  const waiver = findPhaseGateWaiver(waivers, type, phaseNumber, null);
+  if (waiver) {
+    return { type, required: true, satisfied: true, waived: true, failure_type: null, detail: 'waived: DEFERRED.json entry found' };
+  }
+  return { type, required: true, satisfied: false, waived: false, failure_type: `missing_${type}`, detail: `${type} check failed` };
+}
+
+function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
+  const phaseInfo = findPhaseInternal(cwd, phaseArg);
+  if (!phaseInfo || !phaseInfo.found) {
+    process.stdout.write(JSON.stringify({ error: true, type: 'phase_not_found', phase: phaseArg }, null, 2));
+    process.exit(1);
+    return;
+  }
+
+  const phaseDir = path.join(cwd, phaseInfo.directory);
+
+  let dirFiles;
+  try {
+    dirFiles = fs.readdirSync(phaseDir);
+  } catch (e) {
+    process.stdout.write(JSON.stringify({ error: true, type: 'phase_dir_unreadable', phase: phaseArg, message: e.message }, null, 2));
+    process.exit(1);
+    return;
+  }
+
+  // Collect plans -- malformed-tolerant: a broken PLAN.md is recorded and
+  // skipped for artifact computation, never a hard crash of the whole command.
+  const planFileNames = dirFiles.filter(f => f.match(/-PLAN\.md$/i));
+  const malformedPlans = [];
+  const validPlans = [];
+
+  for (const file of planFileNames) {
+    try {
+      const fullPath = path.join(phaseDir, file);
+      const content = fs.readFileSync(fullPath, 'utf-8');
+      const fm = extractFrontmatter(content);
+      if (!fm.plan || typeof fm.plan !== 'string' || fm.plan.trim() === '') {
+        malformedPlans.push({ plan: file, failure_type: 'malformed_frontmatter', message: 'Missing or invalid `plan` field in frontmatter' });
+        continue;
+      }
+      validPlans.push({ file, fm, content, planNum: fm.plan });
+    } catch (e) {
+      malformedPlans.push({ plan: file, failure_type: 'malformed_frontmatter', message: e.message });
+    }
+  }
+
+  // Touched files -- derived purely from git history, never from frontmatter.
+  const { files: touchedFiles, warnings: touchedWarnings } = collectPhaseTouchedFiles(cwd, phaseInfo.phase_number, validPlans);
+
+  // HAS_UI stub: extension-only match against the hoisted UI_FILE_PATTERNS.
+  // 45-02 replaces this with real route-pattern detection (computeHasUI()).
+  const hasUi = touchedFiles.some(f => UI_FILE_PATTERNS.some(ext => f.endsWith(ext)));
+
+  // Waiver lookup -- 45-03 refactors this inline read into a shared
+  // readDeferredWaivers() helper without changing observable behavior here.
+  let waivers = [];
+  let malformedWaiver = null;
+  const deferredPath = path.join(phaseDir, 'DEFERRED.json');
+  if (fs.existsSync(deferredPath)) {
+    const deferredContent = safeReadFile(deferredPath);
+    if (deferredContent === null) {
+      malformedWaiver = { type: 'malformed_waiver', message: 'Could not read DEFERRED.json' };
+    } else {
+      const parsed = safeJsonParse(deferredContent, 'DEFERRED.json');
+      if (!parsed.ok) {
+        malformedWaiver = { type: 'malformed_waiver', message: parsed.error.message };
+      } else if (!Array.isArray(parsed.value)) {
+        malformedWaiver = { type: 'malformed_waiver', message: 'DEFERRED.json must be an array of waiver entries' };
+      } else {
+        const invalidEntry = parsed.value.find(e => !e || typeof e !== 'object' || !e.step || !e.reason || !e.approver || !e.phase);
+        if (invalidEntry !== undefined) {
+          malformedWaiver = { type: 'malformed_waiver', message: 'One or more DEFERRED.json entries missing required fields (step, reason, approver, phase)' };
+        } else {
+          waivers = parsed.value;
+        }
+      }
+    }
+  }
+
+  // Docs signal: path-based patterns against touched files, OR keyword
+  // patterns against the phase's own *-SUMMARY.md text.
+  const summaryFileNames = dirFiles.filter(f => f.match(/-SUMMARY\.md$/i));
+  let summaryText = '';
+  for (const sf of summaryFileNames) {
+    summaryText += (safeReadFile(path.join(phaseDir, sf)) || '');
+  }
+  const docsRequired = touchedFiles.some(f => DOC_PATH_SIGNAL_RE.test(f)) || DOC_KEYWORD_SIGNAL_RE.test(summaryText);
+
+  // Five expected-artifact checks.
+  const testRequired = validPlans.some(p => /tdd=["']?true/.test(p.content));
+  const checks = [
+    evaluatePhaseGateCheck(
+      'test', testRequired,
+      () => touchedFiles.some(f => TEST_FILE_RE.test(f)),
+      waivers, phaseInfo.phase_number
+    ),
+    evaluatePhaseGateCheck(
+      'charlotte_qa', hasUi,
+      () => {
+        const checkpointContent = safeReadFile(path.join(phaseDir, 'CHECKPOINT.json'));
+        if (checkpointContent === null) return false;
+        const parsed = safeJsonParse(checkpointContent, 'CHECKPOINT.json');
+        return parsed.ok && parsed.value && parsed.value.charlotte_qa_ran === true;
+      },
+      waivers, phaseInfo.phase_number
+    ),
+    evaluatePhaseGateCheck(
+      'docs', docsRequired,
+      () => touchedFiles.some(f => DOC_SATISFIED_RE.test(f)),
+      waivers, phaseInfo.phase_number
+    ),
+    evaluatePhaseGateCheck(
+      'e2e_plan', hasUi,
+      () => fs.existsSync(path.join(phaseDir, 'E2E-TEST-PLAN.md')),
+      waivers, phaseInfo.phase_number
+    ),
+    evaluatePhaseGateCheck(
+      'verification', true,
+      () => dirFiles.some(f => f.match(/-VERIFICATION\.md$/i)),
+      waivers, phaseInfo.phase_number
+    ),
+  ];
+
+  const failures = checks.filter(c => c.failure_type).map(c => c.failure_type);
+  const passed = failures.length === 0 && malformedPlans.length === 0 && !malformedWaiver;
+
+  const result = {
+    phase: phaseInfo.phase_number,
+    passed,
+    checks,
+    failures,
+    malformed_plans: malformedPlans,
+    touched_files_count: touchedFiles.length,
+    has_ui: hasUi,
+  };
+  if (malformedWaiver) result.malformed_waiver = malformedWaiver;
+  if (touchedWarnings.length > 0) result.touched_file_warnings = touchedWarnings;
+
+  process.stdout.write(JSON.stringify(result, null, 2));
+
+  if (malformedWaiver) {
+    process.exit(2);
+  } else if (malformedPlans.length > 0) {
+    process.exit(2);
+  } else if (!passed) {
+    process.exit(1);
+  } else {
+    process.exit(0);
+  }
+}
+
 function cmdVerifyReferences(cwd, filePath, raw) {
   if (!filePath) { error('file path required'); }
   const fullPath = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath);
@@ -7364,7 +7555,11 @@ function collectPhaseTouchedFiles(cwd, phaseNumber, plans) {
     for (const line of commitLines) {
       const hash = line.split(/\s+/)[0];
       if (!hash) continue;
-      const diffResult = execGit(cwd, ['diff-tree', '--no-commit-id', '--name-only', '-r', hash]);
+      // --root is required so root commits (no parent -- common in small test
+      // fixtures and possible for a repo's very first tagged commit) are
+      // diffed against the empty tree instead of silently producing zero
+      // file paths (git diff-tree's default behavior for parentless commits).
+      const diffResult = execGit(cwd, ['diff-tree', '--no-commit-id', '--name-only', '-r', '--root', hash]);
       const filePaths = (diffResult.stdout || '')
         .split('\n')
         .map(f => f.trim())
@@ -10111,8 +10306,10 @@ async function main() {
         cmdVerifyMigrationTimestamps(cwd, raw);
       } else if (subcommand === 'dependency-stability') {
         cmdVerifyDependencyStability(cwd, args[2], raw);
+      } else if (subcommand === 'phase-gate') {
+        cmdVerifyPhaseGate(cwd, args[2], raw);
       } else {
-        error('Unknown verify subcommand. Available: plan-structure, phase-completeness, references, commits, artifacts, key-links, migration-timestamps, dependency-stability');
+        error('Unknown verify subcommand. Available: plan-structure, phase-completeness, references, commits, artifacts, key-links, migration-timestamps, dependency-stability, phase-gate');
       }
       break;
     }
