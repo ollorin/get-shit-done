@@ -94,7 +94,7 @@
 
 #### Telegram Escalation Reliability
 
-- [ ] **MILE-21**: Telegram escalation is hardened for unattended runs: prompt daemon-crash detection (typed error, not ~45s silent hang), single-owner question-timeout (race resolved), real file locking on JSONL state, detected/logged/retried delivery failures, and a configurable overnight blocking-question fallback (default: DEFERRED.json entry with `approver: "timeout-fallback"`, park item, continue non-dependent work) (US-16)
+- [x] **MILE-21**: Telegram escalation is hardened for unattended runs: prompt daemon-crash detection (typed error, not ~45s silent hang), single-owner question-timeout (race resolved), real file locking on JSONL state, detected/logged/retried delivery failures, and a configurable overnight blocking-question fallback (default: DEFERRED.json entry with `approver: "timeout-fallback"`, park item, continue non-dependent work) (US-16)
 
 ### v2 Requirements (Deferred — PRD "Phase 2")
 
@@ -152,7 +152,7 @@
 | MILE-18 | Phase 44 | Pending |
 | MILE-19 | Phase 50 | Pending |
 | MILE-20 | Phase 44 | Complete |
-| MILE-21 | Phase 47 | Pending |
+| MILE-21 | Phase 47 | Complete |
 
 **Coverage:**
 - v1.13.0 requirements: 15 total — mapped: 15, unmapped: 0 ✓

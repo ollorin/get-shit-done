@@ -472,7 +472,7 @@ Plans:
   2. JSONL question/session state writes use real file locking (the vendored `proper-lockfile`) or atomic write-rename — no concurrent-daemon corruption; notification delivery failure is detected, logged loudly, and retried with bounded backoff, never silently dropped
   3. A blocking question that reaches its timeout during autonomous execution resolves to a configurable fallback (default: DEFERRED.json entry with `approver: "timeout-fallback"`, blocked item parked, run continues with non-dependent work); daemon-down-at-escalation-time logs the failure, applies the same fallback, and the escalation failure appears in the milestone audit
   4. Integration tests cover: daemon down → prompt typed error, not 45s hang; question timeout → fallback fires + DEFERRED entry written; concurrent state writes → no corruption; delivery failure → logged + retried, run continues
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 Plans:
 - [ ] 47-01: Daemon-crash detection + double-timer race fix (single timeout owner, deterministic failure on crash during pending question)
@@ -579,7 +579,7 @@ Plans:
 | 44. Reliability Foundations & Dead-Code Cleanup | 1/5 | In Progress|  | - |
 | 45. Deterministic Phase-Gate & Deferral Protocol | 5/5 | Complete   | 2026-07-04 | - |
 | 46. Artifact-Generation & Coverage Gates | 4/4 | Complete   | 2026-07-04 | - |
-| 47. Telegram Escalation Reliability | 2/3 | In Progress|  | - |
+| 47. Telegram Escalation Reliability | 3/3 | Complete   | 2026-07-04 | - |
 | 48. Satellite Injections: Mining, Discovery, Debugger | v1.14.0 | 0/TBD | Not started | - |
 | 49. Knowledge Auto-Wiring & CLI Cleanup | v1.14.0 | 0/TBD | Not started | - |
 | 50. Final Deletions & Verification Sweep | v1.14.0 | 0/TBD | Not started | - |
