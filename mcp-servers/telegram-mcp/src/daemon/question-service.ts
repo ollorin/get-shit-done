@@ -57,6 +57,13 @@ export class QuestionService extends EventEmitter {
     os.homedir(), '.claude', 'knowledge', 'question-state.jsonl'
   );
 
+  /**
+   * Thread IDs of questions that were orphaned by a daemon restart (restored
+   * pending questions with no live timer/listener). A reply landing on one of
+   * these threads is a dead question, never a deliverable answer.
+   */
+  private readonly orphanedThreadIds: Set<number> = new Set();
+
   constructor(
     private readonly createForumTopic: CreateForumTopicFn,
     private readonly sendToThread: SendToThreadFn,
@@ -233,6 +240,14 @@ export class QuestionService extends EventEmitter {
    * @returns         true if the reply was matched to a pending question; false otherwise
    */
   deliverAnswer(threadId: number, text: string): boolean {
+    if (this.orphanedThreadIds.has(threadId)) {
+      log.warn(
+        { threadId },
+        "Reply arrived for an orphaned (post-restart) question -- cannot be delivered, this thread's question was dropped on daemon restart"
+      );
+      return false;
+    }
+
     const questionId = this.threadToQuestion.get(threadId);
     if (questionId === undefined) {
       log.debug({ threadId }, 'Thread reply received but no pending question for this thread');
@@ -285,6 +300,7 @@ export class QuestionService extends EventEmitter {
   public restoreState(savedQuestions: Question[]): void {
     const now = Date.now();
     let staleCount = 0;
+    let freshlyOrphanedCount = 0;
 
     for (const q of savedQuestions) {
       // Skip answered questions — they serve no operational purpose on restart
@@ -292,53 +308,58 @@ export class QuestionService extends EventEmitter {
         continue;
       }
 
-      // Filter out pending questions that expired while the daemon was down
-      if (q.answer === undefined) {
-        const expiresAt = new Date(q.createdAt).getTime() + q.timeoutMinutes * 60 * 1000;
-        if (expiresAt < now) {
-          staleCount++;
-          // Notify the user in the original thread (reusing timeout notification pattern)
-          const timeoutMsg = `Question timed out after ${q.timeoutMinutes} minutes (daemon was restarted): "${q.title}"`;
-          const notification = q.threadId !== undefined
-            ? this.sendToThread(q.threadId, timeoutMsg)
-            : this.sendToGroup(timeoutMsg);
-          notification.catch((err: any) => {
-            log.warn({ questionId: q.id, err: err.message }, 'Failed to send stale-question timeout notification');
-          });
-          log.info(
-            { questionId: q.id, expiresAt: new Date(expiresAt).toISOString() },
-            'Dropped stale question — expired while daemon was down'
-          );
-          continue; // Do not restore to live maps
-        }
+      // ─── Every restored pending question is orphaned, deterministically ───
+      // A daemon crash destroys the in-memory Promise/listener/timer that owned
+      // this question no matter how much time was left on the clock -- there is
+      // no way to resurrect that state across a process crash. Whether or not
+      // the timeoutMinutes deadline had technically elapsed yet is only used to
+      // pick the accurate notification wording; in both cases the question is
+      // dropped from live state, never silently re-armed as a zombie.
+      const expiresAt = new Date(q.createdAt).getTime() + q.timeoutMinutes * 60 * 1000;
+      const alreadyExpired = expiresAt < now;
+
+      const notifyMsg = alreadyExpired
+        ? `Question timed out after ${q.timeoutMinutes} minutes (daemon was restarted): "${q.title}"`
+        : `This question cannot be resumed after a daemon restart -- please re-ask if still needed: "${q.title}"`;
+
+      const notification = q.threadId !== undefined
+        ? this.sendToThread(q.threadId, notifyMsg)
+        : this.sendToGroup(notifyMsg);
+      notification.catch((err: any) => {
+        log.warn({ questionId: q.id, err: err.message }, 'Failed to send orphaned-question notification');
+      });
+
+      if (q.threadId !== undefined) {
+        this.orphanedThreadIds.add(q.threadId);
       }
 
-      this.questions.set(q.id, q);
-
-      if (q.threadId !== undefined && q.answer === undefined) {
-        // Only restore active thread routing for unanswered questions
-        this.threadToQuestion.set(q.threadId, q.id);
+      if (alreadyExpired) {
+        staleCount++;
+        log.info(
+          { questionId: q.id, expiresAt: new Date(expiresAt).toISOString() },
+          'Dropped stale question — expired while daemon was down'
+        );
+      } else {
+        freshlyOrphanedCount++;
+        log.info(
+          { questionId: q.id, expiresAt: new Date(expiresAt).toISOString() },
+          'Dropped orphaned question — daemon crashed before its deadline, cannot resume'
+        );
       }
 
-      const sessionList = this.sessionQuestions.get(q.sessionId) ?? [];
-      if (!sessionList.includes(q.id)) {
-        sessionList.push(q.id);
-      }
-      this.sessionQuestions.set(q.sessionId, sessionList);
+      // Do NOT restore into this.questions / this.threadToQuestion /
+      // this.sessionQuestions -- fully drop it from live state.
     }
 
-    const restored = savedQuestions.length - staleCount;
-    if (staleCount > 0) {
-      log.info(
-        { restored, stale: staleCount },
-        `Question state restored — dropped ${staleCount} stale question(s) expired while daemon was down`
-      );
-    } else {
-      log.info({ count: savedQuestions.length }, 'Question state restored from file');
-    }
+    log.info(
+      { staleCount, freshlyOrphanedCount },
+      `Question state restored — dropped ${staleCount} expired-while-down and ${freshlyOrphanedCount} orphaned-by-crash question(s)`
+    );
 
-    // Compact the state file: remove answered and stale entries
-    // this.questions now contains only the live (pending, non-expired) questions
+    // Compact the state file: remove answered and orphaned entries.
+    // this.questions now contains only the live (pending) questions -- which,
+    // after the loop above, is always empty on restart (no path re-adds any
+    // restored pending question to live state).
     this.saveState();
     log.debug({ path: this.stateFilePath }, 'Question state compacted after restore');
   }
