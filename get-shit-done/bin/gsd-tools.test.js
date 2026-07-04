@@ -4650,3 +4650,172 @@ describe('phase-gate full matrix + HAS_UI integration (Phase 45-05 Task 1)', () 
   });
 });
 
+describe('deferred add/list <-> phase-gate composition integration (Phase 45-05 Task 2)', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+    execSync('git init', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git config user.email "gsd-test@example.com"', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git config user.name "GSD Test"', { cwd: tmpDir, stdio: 'pipe' });
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function phaseDirPath(phaseDirName) {
+    return path.join(tmpDir, '.planning', 'phases', phaseDirName);
+  }
+
+  function runDeferred(argsStr, cwd) {
+    try {
+      const result = execSync(`node "${TOOLS_PATH}" deferred ${argsStr}`, {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      return { success: true, output: result.trim(), exitCode: 0 };
+    } catch (err) {
+      return {
+        success: false,
+        output: err.stdout?.toString().trim() || '',
+        error: err.stderr?.toString().trim() || '',
+        exitCode: err.status ?? 1,
+      };
+    }
+  }
+
+  function runPhaseGate(phaseArg, cwd) {
+    try {
+      const result = execSync(`node "${TOOLS_PATH}" verify phase-gate ${phaseArg}`, {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      return { success: true, output: result.trim(), exitCode: 0 };
+    } catch (err) {
+      return {
+        success: false,
+        output: err.stdout?.toString().trim() || '',
+        error: err.stderr?.toString().trim() || '',
+        exitCode: err.status ?? 1,
+      };
+    }
+  }
+
+  function buildMissingVerificationFixture(phaseDirName) {
+    const phaseDir = phaseDirPath(phaseDirName);
+    fs.mkdirSync(phaseDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(phaseDir, '45-01-PLAN.md'),
+      `---\nphase: "45"\nplan: "01"\ntype: execute\nfiles_modified: []\n---\n<tasks>\n<task type="auto">\n<name>Task 1</name>\n<action>do stuff</action>\n</task>\n</tasks>\n`
+    );
+    fs.writeFileSync(path.join(phaseDir, 'impl.js'), 'module.exports = {};\n');
+    execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git commit -q --allow-empty -m "feat(45-01): fixture missing verification"', { cwd: tmpDir, stdio: 'pipe' });
+    return phaseDir;
+  }
+
+  test('deferred add (real CLI) followed by verify phase-gate (real CLI) composes through the actual DEFERRED.json file on disk -- not just in-memory', () => {
+    buildMissingVerificationFixture('45-int-composeadd');
+
+    const before = runPhaseGate('45', tmpDir);
+    assert.strictEqual(before.exitCode, 1);
+    assert.ok(JSON.parse(before.output).failures.includes('missing_verification'));
+
+    const addResult = runDeferred(
+      `add 45-int-composeadd --step verification --reason "mid-execution dry run" --approver ollorin --raw`,
+      tmpDir
+    );
+    assert.ok(addResult.success, `deferred add should exit 0: ${addResult.error}`);
+
+    const after = runPhaseGate('45', tmpDir);
+    assert.ok(after.success, `phase-gate should now pass via the on-disk waiver: ${after.error}`);
+    const afterParsed = JSON.parse(after.output);
+    assert.strictEqual(afterParsed.passed, true);
+    const verificationCheck = afterParsed.checks.find(c => c.type === 'verification');
+    assert.strictEqual(verificationCheck.satisfied, true);
+    assert.strictEqual(verificationCheck.waived, true);
+  });
+
+  test('deferred list after two separate deferred add calls returns both entries in one array (append proven via CLI, not in-memory)', () => {
+    const phaseDir = phaseDirPath('45-int-listtwo');
+    fs.mkdirSync(phaseDir, { recursive: true });
+
+    runDeferred(`add 45-int-listtwo --step verification --reason "first" --approver ollorin --raw`, tmpDir);
+    runDeferred(`add 45-int-listtwo --step docs --reason "second" --approver ollorin --plan 02 --raw`, tmpDir);
+
+    const listResult = runDeferred(`list 45-int-listtwo --raw`, tmpDir);
+    assert.ok(listResult.success, `deferred list should exit 0: ${listResult.error}`);
+    const parsed = JSON.parse(listResult.output);
+    assert.strictEqual(parsed.count, 2);
+    assert.strictEqual(parsed.waivers.length, 2);
+    assert.strictEqual(parsed.waivers[0].step, 'verification');
+    assert.strictEqual(parsed.waivers[1].step, 'docs');
+
+    const onDisk = JSON.parse(fs.readFileSync(path.join(phaseDir, 'DEFERRED.json'), 'utf-8'));
+    assert.strictEqual(onDisk.length, 2);
+  });
+
+  test('a phase-wide waiver (--plan omitted) satisfies the check for the phase overall', () => {
+    buildMissingVerificationFixture('45-int-phasewide');
+
+    runDeferred(
+      `add 45-int-phasewide --step verification --reason "phase-wide waiver" --approver ollorin --raw`,
+      tmpDir
+    );
+
+    const result = runPhaseGate('45', tmpDir);
+    assert.ok(result.success, `phase-wide waiver should satisfy the check: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.passed, true);
+    const verificationCheck = parsed.checks.find(c => c.type === 'verification');
+    assert.strictEqual(verificationCheck.waived, true);
+  });
+
+  test('a plan-scoped waiver (--plan supplied) does NOT satisfy phase-gate\'s phase-wide check -- scoping is respected, not "any waiver found"', () => {
+    buildMissingVerificationFixture('45-int-planscoped');
+
+    runDeferred(
+      `add 45-int-planscoped --step verification --reason "plan-scoped waiver" --approver ollorin --plan 02 --raw`,
+      tmpDir
+    );
+
+    const result = runPhaseGate('45', tmpDir);
+    assert.strictEqual(result.exitCode, 1, 'a plan-scoped waiver must not blanket-satisfy the phase-wide verification check');
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.passed, false);
+    assert.ok(parsed.failures.includes('missing_verification'));
+    const verificationCheck = parsed.checks.find(c => c.type === 'verification');
+    assert.strictEqual(verificationCheck.satisfied, false);
+    assert.strictEqual(verificationCheck.waived, false);
+  });
+
+  test('full round trip with a malformed DEFERRED.json: deferred list, deferred add, AND verify phase-gate all fail loud -- none silently treats it as empty', () => {
+    const phaseDir = buildMissingVerificationFixture('45-int-roundtripbad');
+    const originalBadContent = '{"not": "an array"}';
+    fs.writeFileSync(path.join(phaseDir, 'DEFERRED.json'), originalBadContent);
+
+    const listResult = runDeferred(`list 45-int-roundtripbad --raw`, tmpDir);
+    assert.strictEqual(listResult.exitCode, 2, 'deferred list must fail loud on a malformed file');
+    const listParsed = JSON.parse(listResult.output);
+    assert.strictEqual(listParsed.type, 'malformed_waiver');
+
+    const addResult = runDeferred(
+      `add 45-int-roundtripbad --step verification --reason x --approver y --raw`,
+      tmpDir
+    );
+    assert.strictEqual(addResult.exitCode, 2, 'deferred add must refuse to append to a malformed file');
+    const addParsed = JSON.parse(addResult.output);
+    assert.strictEqual(addParsed.type, 'malformed_waiver');
+
+    const gateResult = runPhaseGate('45', tmpDir);
+    assert.strictEqual(gateResult.exitCode, 2, 'verify phase-gate must fail loud on a malformed file');
+    const gateParsed = JSON.parse(gateResult.output);
+    assert.ok(gateParsed.malformed_waiver, 'phase-gate must surface a malformed_waiver entry');
+
+    const onDiskContent = fs.readFileSync(path.join(phaseDir, 'DEFERRED.json'), 'utf-8');
+    assert.strictEqual(onDiskContent, originalBadContent);
+  });
+});
