@@ -3109,3 +3109,128 @@ describe('output() large-payload path — fs.readFileSync replacement for `cat` 
     assert.strictEqual(Object.keys(parsed.phases).length, 40, 'all 40 phases should be present in the large output');
   });
 });
+
+describe('atomicWriteFileSync helper (Phase 44-02)', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  test('write is fully readable immediately after the call returns', () => {
+    const statePath = path.join(tmpDir, '.planning', 'STATE.md');
+    fs.writeFileSync(statePath, `# State\n\n**Status:** Old\n**Current Phase:** 01\n`);
+
+    const result = runGsdTools('state update Status Updated-via-atomic-write', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.updated, true, 'command should report the field was updated');
+
+    // Read the file back immediately (no delay) — should be the complete new
+    // content, not a truncated/partial write and not the temp file leftover.
+    const content = fs.readFileSync(statePath, 'utf-8');
+    assert.ok(content.includes('**Status:** Updated-via-atomic-write'), 'new value should be fully present');
+    assert.ok(!content.includes('**Status:** Old'), 'old value should be fully replaced');
+    assert.ok(content.includes('**Current Phase:** 01'), 'unrelated fields should be untouched');
+
+    // The temp file used internally must not be left behind.
+    const dirEntries = fs.readdirSync(path.join(tmpDir, '.planning'));
+    assert.ok(
+      !dirEntries.some(f => f.includes('.tmp-')),
+      `no leftover temp file should remain in .planning: ${dirEntries.join(', ')}`
+    );
+  });
+
+  test('two back-to-back writes to the same STATE.md path both fully land (last write is complete, not mixed/truncated)', () => {
+    const statePath = path.join(tmpDir, '.planning', 'STATE.md');
+    fs.writeFileSync(statePath, `# State\n\n**Status:** Initial\n**Current Plan:** 01-01\n`);
+
+    const firstValue = 'First-write-' + 'a'.repeat(200);
+    const secondValue = 'Second-write-' + 'b'.repeat(200);
+
+    const first = runGsdTools(`state update Status ${firstValue}`, tmpDir);
+    assert.ok(first.success, `First write failed: ${first.error}`);
+
+    const second = runGsdTools(`state update Status ${secondValue}`, tmpDir);
+    assert.ok(second.success, `Second write failed: ${second.error}`);
+
+    const content = fs.readFileSync(statePath, 'utf-8');
+    assert.ok(
+      content.includes(`**Status:** ${secondValue}`),
+      'second (final) write must be present in full, not truncated'
+    );
+    assert.ok(
+      !content.includes(firstValue),
+      'first write must be fully replaced, not mixed in with the second'
+    );
+    assert.ok(content.includes('**Current Plan:** 01-01'), 'unrelated fields should survive both writes untouched');
+  });
+
+  test('write to an unwritable target directory throws a clear error identifying the target path', () => {
+    // Fixture mirrors the existing "phase remove" tests (see 'updates STATE.md
+    // phase count' above) so the command reaches its atomicWriteFileSync(roadmapPath, ...)
+    // call for a real ROADMAP.md rewrite.
+    const roadmapPath = path.join(tmpDir, '.planning', 'ROADMAP.md');
+    fs.writeFileSync(
+      roadmapPath,
+      `# Roadmap\n### Phase 1: A\n**Goal:** A\n### Phase 2: B\n**Goal:** B\n`
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'STATE.md'),
+      `# State\n\n**Current Phase:** 1\n**Total Phases:** 2\n`
+    );
+    fs.mkdirSync(path.join(tmpDir, '.planning', 'phases', '01-a'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.planning', 'phases', '02-b'), { recursive: true });
+
+    // Remove write permission on the .planning directory itself so the
+    // "<file>.tmp-<pid>-<ts>" temp file used by atomicWriteFileSync cannot be
+    // created there. Read access (needed earlier in the command) is untouched.
+    const planningDir = path.join(tmpDir, '.planning');
+    fs.chmodSync(planningDir, 0o555);
+
+    try {
+      const result = runGsdTools('phase remove 2', tmpDir);
+      assert.strictEqual(result.success, false, 'command should fail loudly, not silently no-op');
+      assert.ok(
+        result.error.includes('Atomic write failed for'),
+        `error should identify this as an atomic write failure: ${result.error}`
+      );
+      assert.ok(
+        result.error.includes(roadmapPath),
+        `error should name the specific target path that failed: ${result.error}`
+      );
+    } finally {
+      // Restore write permission so afterEach's recursive cleanup can succeed.
+      fs.chmodSync(planningDir, 0o755);
+    }
+  });
+
+  test('no fs.writeFileSync(statePath|roadmapPath|configPath, ...) bypass exists anywhere in gsd-tools.js (structural regression guard)', () => {
+    const source = fs.readFileSync(TOOLS_PATH, 'utf-8');
+
+    const bypassPatterns = [
+      'fs.writeFileSync(statePath',
+      'fs.writeFileSync(roadmapPath',
+      'fs.writeFileSync(configPath',
+    ];
+
+    for (const pattern of bypassPatterns) {
+      assert.ok(
+        !source.includes(pattern),
+        `found a direct fs.writeFileSync bypass of atomicWriteFileSync: "${pattern}"`
+      );
+    }
+
+    // Positive control: confirm the helper itself, and real call sites, exist —
+    // guards against the negative assertions above passing vacuously (e.g. if
+    // the whole file were empty or the helper got renamed/removed).
+    assert.ok(source.includes('function atomicWriteFileSync('), 'atomicWriteFileSync helper should be defined');
+    assert.ok(source.includes('atomicWriteFileSync(statePath'), 'at least one statePath call site should route through the helper');
+    assert.ok(source.includes('atomicWriteFileSync(roadmapPath'), 'at least one roadmapPath call site should route through the helper');
+    assert.ok(source.includes('atomicWriteFileSync(configPath'), 'at least one configPath call site should route through the helper');
+  });
+});
