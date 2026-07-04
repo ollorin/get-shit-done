@@ -219,8 +219,33 @@ const MODEL_PROFILES = {
 // can reuse the exact same UI/API file-classification rules without duplicating
 // the pattern lists. Behavior for existing plan-structure checks is unchanged.
 
-const UI_FILE_PATTERNS = ['.tsx', '.jsx', '.vue', '.svelte'];
+const UI_FILE_PATTERNS = ['.tsx', '.jsx', '.vue', '.svelte', '.astro', '.mdx'];
 const API_FILE_PATTERNS = ['route.ts', 'route.js', '/api/', '/routes/', '/functions/', 'controller.ts', 'controller.js', 'handler.ts', 'handler.js'];
+
+// ─── Diff-Based HAS_UI Detection (Phase 45-02) ───────────────────────────────
+// isUIFile/computeHasUI are pure functions -- no I/O, no SUMMARY.md read --
+// so HAS_UI is always derived from the actual git diff (touchedFiles), never
+// from self-reported SUMMARY.md key-files metadata. See 45-02-PLAN.md.
+
+function isUIFile(filePath) {
+  const isConfigOrDeclaration = /\.(config|d)\.[jt]sx?$/.test(filePath) ||
+    /^(vite|next|tailwind|jest|vitest|webpack|babel|eslint|prettier)\./.test(path.basename(filePath));
+  if (isConfigOrDeclaration) return false;
+  if (UI_FILE_PATTERNS.some(ext => filePath.endsWith(ext))) return true;
+  const isRoutePath = /(^|\/)(app|pages|routes)\//.test(filePath);
+  const isApiPath = /(^|\/)api\//.test(filePath);
+  if (isRoutePath && !isApiPath) {
+    // A route-directory file with a non-standard-UI extension (rare -- most
+    // route files already carry a UI extension caught above). Still excludes
+    // api/ sub-paths and config/declaration files handled above.
+    return true;
+  }
+  return false;
+}
+
+function computeHasUI(touchedFiles) {
+  return touchedFiles.some(isUIFile);
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -4903,9 +4928,10 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
   // Touched files -- derived purely from git history, never from frontmatter.
   const { files: touchedFiles, warnings: touchedWarnings } = collectPhaseTouchedFiles(cwd, phaseInfo.phase_number, validPlans);
 
-  // HAS_UI stub: extension-only match against the hoisted UI_FILE_PATTERNS.
-  // 45-02 replaces this with real route-pattern detection (computeHasUI()).
-  const hasUi = touchedFiles.some(f => UI_FILE_PATTERNS.some(ext => f.endsWith(ext)));
+  // HAS_UI: diff-derived, independent of SUMMARY.md self-reports. Detects both
+  // UI-extension files and UI-only-by-path route files (app/pages/routes,
+  // excluding api/ sub-paths and config/declaration files). See 45-02-PLAN.md.
+  const hasUi = computeHasUI(touchedFiles);
 
   // Waiver lookup -- 45-03 refactors this inline read into a shared
   // readDeferredWaivers() helper without changing observable behavior here.
