@@ -211,6 +211,14 @@ const MODEL_PROFILES = {
   'gsd-integration-checker':  { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku', auto: 'sonnet' },
 };
 
+// ─── Shared File-Pattern Constants ───────────────────────────────────────────
+// Hoisted from cmdVerifyPlanStructure (Phase 44) so cmdVerifyPhaseGate (Phase 45)
+// can reuse the exact same UI/API file-classification rules without duplicating
+// the pattern lists. Behavior for existing plan-structure checks is unchanged.
+
+const UI_FILE_PATTERNS = ['.tsx', '.jsx', '.vue', '.svelte'];
+const API_FILE_PATTERNS = ['route.ts', 'route.js', '/api/', '/routes/', '/functions/', 'controller.ts', 'controller.js', 'handler.ts', 'handler.js'];
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function parseIncludeFlag(args) {
@@ -4723,7 +4731,7 @@ function cmdVerifyPlanStructure(cwd, filePath, raw) {
   }
 
   // UI-QA check: plans that modify UI files must have a checkpoint:ui-qa task
-  const UI_FILE_PATTERNS = ['.tsx', '.jsx', '.vue', '.svelte'];
+  // (UI_FILE_PATTERNS is a shared top-level constant — see "Shared File-Pattern Constants")
   const filesModified = Array.isArray(fm.files_modified)
     ? fm.files_modified
     : (fm.files_modified ? [String(fm.files_modified)] : []);
@@ -4736,7 +4744,7 @@ function cmdVerifyPlanStructure(cwd, filePath, raw) {
   }
 
   // TDD check: plans that modify API/route files must have a tdd="true" task
-  const API_FILE_PATTERNS = ['route.ts', 'route.js', '/api/', '/routes/', '/functions/', 'controller.ts', 'controller.js', 'handler.ts', 'handler.js'];
+  // (API_FILE_PATTERNS is a shared top-level constant — see "Shared File-Pattern Constants")
   const hasApiFiles = filesModified.some(f =>
     API_FILE_PATTERNS.some(pat => f.includes(pat))
   );
@@ -7319,6 +7327,68 @@ function findPhaseInternal(cwd, phase) {
   } catch {
     return null;
   }
+}
+
+// Derives the set of files a phase actually touched, purely from git history
+// (log --grep + diff-tree) -- never from PLAN.md `files_modified` or SUMMARY.md
+// `key-files`, which are self-reported and exactly what MILE-06/phase-gate must
+// be independent of. Shared by cmdVerifyPhaseGate (45-01) and HAS_UI detection
+// (45-02).
+//
+// `plans` is an array of { file, fm, content, planNum } objects for the phase's
+// *-PLAN.md files (planNum e.g. "01"). Returns { files: [...unique paths],
+// warnings: [...] } where warnings flag plans with zero matching commits, plus
+// optional cross-check warnings when a plan's self-reported files_modified
+// disagrees with the real diff (informational only -- never affects `files`).
+function collectPhaseTouchedFiles(cwd, phaseNumber, plans) {
+  const fileSet = new Set();
+  const warnings = [];
+
+  for (const plan of plans || []) {
+    const planNum = plan.planNum || (plan.fm && plan.fm.plan);
+    if (!planNum) continue;
+
+    const grepTag = `${phaseNumber}-${planNum}`;
+    const logResult = execGit(cwd, ['log', '--oneline', '--all', '--grep', grepTag]);
+    const commitLines = (logResult.stdout || '')
+      .split('\n')
+      .map(l => l.trim())
+      .filter(l => l.length > 0);
+
+    if (commitLines.length === 0) {
+      warnings.push({ plan: planNum, warning: 'no_commits_found' });
+      continue;
+    }
+
+    const planFiles = new Set();
+    for (const line of commitLines) {
+      const hash = line.split(/\s+/)[0];
+      if (!hash) continue;
+      const diffResult = execGit(cwd, ['diff-tree', '--no-commit-id', '--name-only', '-r', hash]);
+      const filePaths = (diffResult.stdout || '')
+        .split('\n')
+        .map(f => f.trim())
+        .filter(f => f.length > 0);
+      for (const f of filePaths) {
+        fileSet.add(f);
+        planFiles.add(f);
+      }
+    }
+
+    // Optional cross-check (informational only -- never affects the returned
+    // `files` array): flag when a plan's self-reported files_modified claims a
+    // file that never showed up in the real diff for that plan's commits.
+    const claimedFiles = plan.fm && Array.isArray(plan.fm.files_modified)
+      ? plan.fm.files_modified
+      : (plan.fm && plan.fm.files_modified ? [String(plan.fm.files_modified)] : []);
+    for (const claimed of claimedFiles) {
+      if (!planFiles.has(claimed)) {
+        warnings.push({ plan: planNum, warning: 'claimed_file_not_in_diff', file: claimed });
+      }
+    }
+  }
+
+  return { files: [...fileSet], warnings };
 }
 
 function pathExistsInternal(cwd, targetPath) {
