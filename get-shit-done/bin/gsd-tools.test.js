@@ -11,12 +11,16 @@ const { execSync } = require('child_process');
 const TOOLS_PATH = path.join(__dirname, 'gsd-tools.js');
 
 // Helper to run gsd-tools command
-function runGsdTools(args, cwd = process.cwd()) {
+// extraEnv is optional and merged over process.env (used by Phase 48-01's
+// mining tests to isolate ~/.claude/projects and ~/.claude/knowledge via a
+// fake HOME) — existing call sites that omit it are unaffected.
+function runGsdTools(args, cwd = process.cwd(), extraEnv = {}) {
   try {
     const result = execSync(`node "${TOOLS_PATH}" ${args}`, {
       cwd,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, ...extraEnv },
     });
     return { success: true, output: result.trim() };
   } catch (err) {
@@ -5806,5 +5810,210 @@ describe('Static regression: 46-02 docs-gate prose changes (Phase 46-04)', () =>
     const end = content.indexOf('</step>', start);
     const gateSection = content.slice(start, end);
     assert.ok(gateSection.includes('deferred add'), 'the documentation_hard_gate step must cite "deferred add" as the sanctioned bypass');
+  });
+});
+
+describe('auto_mine config gate (Phase 48-01)', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  test('auto_mine absent from config.json defaults to true', () => {
+    const result = runGsdTools('config get auto_mine', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.value, true, 'auto_mine should default to true when absent from config.json');
+  });
+
+  test('auto_mine: false explicit in config.json returns false', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'config.json'),
+      JSON.stringify({ auto_mine: false }, null, 2)
+    );
+    const result = runGsdTools('config get auto_mine', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.value, false, 'auto_mine should be false when explicitly set false in config.json');
+  });
+
+  test('auto_mine: true explicit in config.json returns true', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'config.json'),
+      JSON.stringify({ auto_mine: true }, null, 2)
+    );
+    const result = runGsdTools('config get auto_mine', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.value, true, 'auto_mine should be true when explicitly set true in config.json');
+  });
+
+  test('malformed config.json falls through to default auto_mine: true (existing loadConfig catch-block behavior, unchanged)', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'config.json'),
+      '{ this is not valid JSON'
+    );
+    const result = runGsdTools('config get auto_mine', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.value, true, 'malformed config.json should fall through to defaults, where auto_mine is true');
+  });
+});
+
+describe('mine-conversations dedup on re-mine (Phase 48-01)', () => {
+  let fakeHome;
+  let projectDir;
+
+  // Build a synthetic Claude Code JSONL conversation that passes
+  // shouldMineConversation's quality gate: >= 2 assistant responses and
+  // >= 500 total chars across converted entries (see conversation-miner.js).
+  function buildMiningFixtureEntries() {
+    const ts = new Date().toISOString();
+    return [
+      {
+        type: 'user',
+        timestamp: ts,
+        message: {
+          content: [{
+            type: 'text',
+            text: 'Please implement a new feature that mines past conversations for hidden insights and knowledge that we can act upon in future planning sessions.'
+          }]
+        }
+      },
+      {
+        type: 'assistant',
+        timestamp: ts,
+        message: {
+          content: [{
+            type: 'text',
+            text: 'I will implement the mining feature now. This requires reading JSONL conversation files, converting entries into a normalized session format, and running quality gates before extraction begins. Let me start by building the file discovery logic and a helper function to compute a stable content hash for deduplication across repeated invocations of the mining command.'
+          }]
+        }
+      },
+      {
+        type: 'user',
+        timestamp: ts,
+        message: {
+          content: [{
+            type: 'text',
+            text: 'Great, please also add deduplication logic so re-mining the same session does not double count previously stored insights and correctly skips conversations that were already analyzed in a prior run.'
+          }]
+        }
+      },
+      {
+        type: 'assistant',
+        timestamp: ts,
+        message: {
+          content: [{
+            type: 'text',
+            text: 'Done. The dedup logic checks the conversation analysis log for a matching session id and content hash before allowing extraction to proceed, and appends a new log entry after successfully extracting and storing insights into the knowledge database for future retrieval and reasoning.'
+          }]
+        }
+      }
+    ];
+  }
+
+  // Places a fixture JSONL file where conversation-miner.js's
+  // discoverProjectConversations expects it: {fakeHome}/.claude/projects/{slug}/{sessionId}.jsonl
+  // where slug = the REAL (symlink-resolved) project cwd with "/" -> "-".
+  // macOS temp dirs are under /var/folders/... which resolves to
+  // /private/var/folders/... — the child process's process.cwd() reports the
+  // resolved path, so the slug must be computed from the resolved path too,
+  // or discovery silently finds nothing.
+  function writeConversationFixture(homeDir, projDir, sessionId, entries) {
+    const realProjDir = fs.realpathSync(projDir);
+    const slug = realProjDir.replace(/\//g, '-');
+    const slugDir = path.join(homeDir, '.claude', 'projects', slug);
+    fs.mkdirSync(slugDir, { recursive: true });
+    const jsonlPath = path.join(slugDir, `${sessionId}.jsonl`);
+    const content = entries.map(e => JSON.stringify(e)).join('\n') + '\n';
+    fs.writeFileSync(jsonlPath, content, 'utf-8');
+    return jsonlPath;
+  }
+
+  beforeEach(() => {
+    fakeHome = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-fakehome-'));
+    projectDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(projectDir);
+    cleanup(fakeHome);
+  });
+
+  test('re-mining the same session is deduped, not double-counted', () => {
+    const sessionId = 'test-session-dedup-48-01';
+    writeConversationFixture(fakeHome, projectDir, sessionId, buildMiningFixtureEntries());
+
+    // First mine: session should be ready (not skipped)
+    const firstMine = runGsdTools(
+      'mine-conversations --max-age-days 30 --limit 50',
+      projectDir,
+      { HOME: fakeHome }
+    );
+    assert.ok(firstMine.success, `First mine-conversations call failed: ${firstMine.error}`);
+    const firstParsed = JSON.parse(firstMine.output);
+    assert.strictEqual(firstParsed.status === 'error', false, 'first mine should not error');
+    assert.strictEqual(firstParsed.sessionsReady, 1, 'the fixture session should be ready for extraction on first mine');
+    const readySession = firstParsed.sessions.find(s => s.sessionId === sessionId);
+    assert.ok(readySession, 'fixture session should appear in sessions[], not skipped[]');
+    assert.ok(readySession.contentHash, 'ready session should carry a computed contentHash');
+
+    // Store a minimal result to populate .conversation-analysis-log.jsonl.
+    // NOTE: passing a bare '[]' (empty results array) hits cmdStoreConversationResult's
+    // early "no results" return path BEFORE it ever reaches the log-write code, so the
+    // analysis log never gets written and dedup can't fire. A single result object whose
+    // `result` text is itself the string "[]" parses cleanly to zero insights via
+    // parseExtractionResult while still reaching the unconditional log-write step.
+    const minimalResults = JSON.stringify([{ type: 'decision', result: '[]' }]);
+    const storeResult = runGsdTools(
+      `store-conversation-result "${sessionId}" '${minimalResults}' --content-hash "${readySession.contentHash}"`,
+      projectDir,
+      { HOME: fakeHome }
+    );
+    assert.ok(storeResult.success, `store-conversation-result failed: ${storeResult.error}`);
+
+    // Second mine on the SAME session file: must now be deduped/skipped
+    const secondMine = runGsdTools(
+      'mine-conversations --max-age-days 30 --limit 50',
+      projectDir,
+      { HOME: fakeHome }
+    );
+    assert.ok(secondMine.success, `Second mine-conversations call failed: ${secondMine.error}`);
+    const secondParsed = JSON.parse(secondMine.output);
+    assert.strictEqual(secondParsed.sessionsReady, 0, 're-mining the same session should yield zero newly-ready sessions');
+    assert.strictEqual(secondParsed.sessionsSkipped, 1, 're-mining the same session should count it as skipped');
+    const skippedSession = secondParsed.skipped.find(s => s.sessionId === sessionId);
+    assert.ok(skippedSession, 'the re-mined session should appear in skipped[]');
+    assert.match(
+      skippedSession.reason.toLowerCase(),
+      /already analyzed/,
+      'the skip reason should indicate the session was already analyzed'
+    );
+  });
+
+  test('mine-conversations returns {status: "error"} gracefully when the target project slug directory is missing (does not throw)', () => {
+    // A fresh project dir with no corresponding ~/.claude/projects/{slug} entry
+    // under fakeHome reproduces the CLI's existing discoverProjectConversations
+    // error path — proving the "mining throws -> caller can still continue"
+    // contract holds at the CLI boundary (the CLI itself never throws/crashes).
+    const orphanProjectDir = createTempProject();
+    try {
+      const result = runGsdTools(
+        'mine-conversations --max-age-days 30 --limit 50',
+        orphanProjectDir,
+        { HOME: fakeHome }
+      );
+      assert.ok(result.success, `CLI process itself should not crash: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.status, 'error', 'missing project slug directory should surface status: error, not throw');
+    } finally {
+      cleanup(orphanProjectDir);
+    }
   });
 });
