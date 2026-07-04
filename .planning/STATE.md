@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-07-02)
 
 ## Current Position
 
-Phase: 45 of 50 (Deterministic Phase-Gate & Deferral Protocol) — in progress
-Plan: 2 of 5 in current phase
-Status: Phase 45 Plan 02 COMPLETE (diff-based HAS_UI detection) — ready to begin Plan 03 (deferred waiver protocol)
-Last activity: 2026-07-04 — Executed 45-02-PLAN.md: replaced the 45-01 extension-only HAS_UI stub with `isUIFile`/`computeHasUI(touchedFiles)` (route-pattern detection for app/pages/routes excluding api/ sub-paths and config/declaration files, UI_FILE_PATTERNS extended with .astro/.mdx), wired into cmdVerifyPhaseGate, 8 new tests, npm test 198/198 green. 45-02-SUMMARY.md written.
+Phase: 45 of 50 (Deterministic Phase-Gate & Deferral Protocol) — COMPLETE, ready for verification
+Plan: 5 of 5 in current phase (all plans complete)
+Status: Phase 45 Plan 05 COMPLETE (cross-cutting integration tests) — Phase 45 feature-complete, ready for gsd-verifier
+Last activity: 2026-07-04 — Executed 45-05-PLAN.md: added 18 cross-cutting integration tests to gsd-tools.test.js exercising the full phase-gate matrix, HAS_UI matrix, and DEFERRED.json waiver matrix (including phase-wide vs plan-scoped waiver scoping and full round-trip malformed-file agreement across deferred add/deferred list/verify phase-gate) via real CLI subprocess against temp git-repo fixtures. npm test 224/224 green (full Phase 44 + Phase 45 suite). 45-05-SUMMARY.md written.
 
-Progress: [██████████░░░░░░░░░░] v1.14.0 — Phase 44/7 complete (1 of 7 phases: 44-50); Phase 45: 2/5 plans complete
+Progress: [██████████░░░░░░░░░░] v1.14.0 — Phase 44/7 complete (1 of 7 phases: 44-50); Phase 45: 5/5 plans complete
 
 ## Performance Metrics
 
@@ -46,6 +46,9 @@ Progress: [██████████░░░░░░░░░░] v1.14.0
 | Phase 44 TOTAL | multi-session (3 coordinators) | 13 tasks | VERIFIED passed |
 | Phase 45 P01 | 20min | 3 tasks | 2 files |
 | Phase 45 P02 | 15 | 2 tasks | 2 files |
+| Phase 45 P03 | ~15min | 3 tasks | 3 files |
+| Phase 45 P04 | 12min | 2 tasks | 4 files |
+| Phase 45 P05 | ~15min | 2 tasks | 1 file |
 
 ## Accumulated Context
 
@@ -64,6 +67,10 @@ Recent decisions affecting current work:
 - [Phase 44]: atomicWriteFileSync (44-02) guarantees no torn/corrupted writes but NOT cross-process lost-update prevention under genuinely simultaneous writers -- explicitly out of scope per 44-CONTEXT.md; documented in deferred-items.md; verifier confirmed this is a justified scope boundary, not a gap
 - [Phase 45]: collectPhaseTouchedFiles derives touched files exclusively from git log --grep + diff-tree (never PLAN.md/SUMMARY.md self-reports); git diff-tree requires --root to correctly handle a phase's root commit
 - [Phase 45]: computeHasUI(touchedFiles) is a pure diff-derived detector (extension match OR app/pages/routes path, excluding api/ sub-paths and config/declaration files) — HAS_UI is never read from SUMMARY.md self-reports, so a .tsx file omitted from key-files still triggers Charlotte QA/E2E gates
+- [Phase 45]: readDeferredWaivers() is the single shared malformed-JSON-safe authority for DEFERRED.json across cmdVerifyPhaseGate, deferred add, and deferred list — a corrupt waiver file always surfaces loudly (exit 2), never silently treated as "no waivers"; deferred add refuses to overwrite an existing malformed file rather than attempting recovery
+- [Phase 45]: notifyTelegramWaiver fires after the atomic DEFERRED.json write succeeds and is never awaited — Telegram notification success/failure never affects deferred add's exit code or output
+- [Phase 45]: [Phase 45-04]: verify phase-gate is now actually invoked as a BLOCKING gate by execute-phase.md Gate 1 and execute-roadmap.md step 5a's HAS_UI check — deterministic tool call is no longer inert
+- [Phase 45]: [Phase 45-05]: Cross-cutting integration tests confirm findPhaseGateWaiver's plan-scoping is never honored by cmdVerifyPhaseGate today (always called with planNum=null) -- phase-wide waivers satisfy checks, plan-scoped waivers never do; 224/224 npm test passing, Phase 45 complete and ready for verification
 
 ### Roadmap Evolution
 
@@ -88,11 +95,11 @@ None.
 
 ### Next Steps
 
-- Begin Phase 45 (Deterministic Phase-Gate & Deferral Protocol) — discuss/research/plan/execute/verify cycle
+- Run gsd-verifier against Phase 45 (Deterministic Phase-Gate & Deferral Protocol) — all 5 plans complete, 224/224 npm test passing
 - Continue roadmap autonomously through phase 50 (46 Artifact-Generation & Coverage Gates, 47 Telegram Escalation Reliability, 48 Satellite Injections, 49 Knowledge Auto-Wiring, 50 Final Deletions & Verification Sweep)
 
 ## Session Continuity
 
-Last session: 2026-07-04T17:44:25Z
-Stopped at: Completed 45-02-PLAN.md
-Resume file: .planning/phases/45-phase-gate-deferral/45-03-PLAN.md
+Last session: 2026-07-04T20:21:00Z
+Stopped at: Completed 45-05-PLAN.md (Phase 45 feature-complete)
+Resume file: none — Phase 45 ready for verification; next is Phase 46 planning after verification passes

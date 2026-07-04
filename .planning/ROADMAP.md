@@ -434,7 +434,7 @@ Plans:
   3. `DEFERRED.json` (`{step, reason, approver, timestamp, phase, plan}`) is defined, documented, and satisfies any expected-artifact check in place of the artifact; every self-waiver fires a non-blocking Telegram notification at write time; `audit-milestone` surfaces all accumulated waivers as a visible table
   4. `execute-phase.md`, `execute-roadmap.md`, `gsd-executor.md`, and `gsd-phase-coordinator.md` call phase-gate and treat non-zero exit as blocking; skipping a mandatory step requires writing the waiver as part of the skip; the prose "MUST" checklists the gate replaces are removed from the corresponding agent prompts (not left duplicated)
   5. Integration tests cover: all artifacts present → pass; each artifact type missing individually → correct `failure_type`; waiver present for missing artifact → pass; malformed frontmatter → typed error; UI file omitted from SUMMARY → detected; non-UI plan → not flagged; mixed plan → detected; valid waiver → pass; missing waiver → fail; malformed JSON waiver → loud typed error, never silently ignored
-**Plans:** 2/5 plans executed
+**Plans:** 5/5 plans complete
 
 Plans:
 - [ ] 45-01: `verify phase-gate` subcommand — expected-artifact computation from plan type + touched files, machine-readable JSON output, typed failure types
@@ -577,7 +577,7 @@ Plans:
 | 42. Milestone PRD Integration | v1.13.0 | 0/TBD | Not started | - |
 | 43. Docs Automation | v1.13.0 | 0/TBD | Not started | - |
 | 44. Reliability Foundations & Dead-Code Cleanup | 1/5 | In Progress|  | - |
-| 45. Deterministic Phase-Gate & Deferral Protocol | 2/5 | In Progress|  | - |
+| 45. Deterministic Phase-Gate & Deferral Protocol | 5/5 | Complete   | 2026-07-04 | - |
 | 46. Artifact-Generation & Coverage Gates | v1.14.0 | 0/TBD | Not started | - |
 | 47. Telegram Escalation Reliability | v1.14.0 | 0/TBD | Not started | - |
 | 48. Satellite Injections: Mining, Discovery, Debugger | v1.14.0 | 0/TBD | Not started | - |

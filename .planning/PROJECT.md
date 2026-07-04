@@ -4,14 +4,19 @@
 
 A fork of the Get Shit Done framework (glittercowboy/get-shit-done) with major enhancements: intelligent auto model selection, autonomous roadmap execution with autonomous pre-planning, a local vector knowledge system with global cross-project scope, and a production-ready Telegram MCP with forum topics and blocking escalation. Built for developers who want maximum efficiency from AI-assisted development while maintaining control over critical decisions. v1.10.0 shipped 2026-02-21.
 
-## Current Milestone: v1.13.0 — Product Discovery & Docs Automation
+## Current Milestone: v1.14.0 — Enforcement & Integration
 
-**Goal:** Add a structured PRD maturation workflow (`gsd:prd`) that takes raw product ideas through PM/PO/tech stages to produce product-oriented PRDs, update `gsd:new-milestone` to consume PRDs autonomously, and embed mandatory docs updates into the phase execution and verification cycle.
+**Goal:** Make every mandatory GSD step deterministic and automatic — deterministic enforcement gates replace prose "MUST" language, valuable satellite capabilities (mining, Nyquist, discovery, debugger) inject into the golden path, knowledge maintenance runs automatically on its natural triggers, and the escalation channel is hardened for unattended overnight runs.
+
+**PRD:** `.planning/prds/` — enforcement-and-integration (16 user stories US-1..US-16)
 
 **Target features:**
-- `gsd:prd` — 3-stage PRD maturation (PM Discovery → PO/BA Scoping → HL Tech Discovery), multi-round confidence-driven Q&A, outputs product-oriented PRD to `.planning/prds/pending/`
-- `gsd:new-milestone` PRD integration — list/select pending PRDs, autonomous phase decomposition, single approval checkpoint, move PRD to done on approval
-- Docs mandatory step — Haiku docs agent as final executor task, verifier gate validates appropriateness, respects existing project doc format
+- P0 enforcement gates: deterministic `verify phase-gate`, diff-based UI detection, structured `DEFERRED.json` waiver protocol, auto-E2E-generation, blocking docs gate, test-content gate
+- Satellite injections: conversation mining → complete-milestone, Nyquist auditor → verifier gate, discovery → prd confidence-gated, debugger → execution failure paths
+- Knowledge auto-wiring: write-path safety incl. NEW secrets/PII filtering, event-triggered lifecycle/feedback/checkpoint, milestone-cadence synthesis/principles/conflicts; delete qa/scan/permissions CLI
+- Telegram escalation reliability: daemon-crash detection, timeout-race fix, JSONL locking, overnight blocking-question fallback
+- P2 reliability: JSON.parse guards, execSync hardening, state-file atomic writes, GitHub Actions CI, install fixes
+- Verified-dead deletions (modules/ stubs, orphaned hooks, parallel-executor, obsoleted standalone entry points)
 
 ## Core Value
 
@@ -70,10 +75,15 @@ Claude learns to make autonomous decisions based on the user's reasoning pattern
 
 ### Active
 
-**Target: v1.13.0 — Product Discovery & Docs Automation (Phases 41+)**
-- [ ] `gsd:prd` skill + workflow: 3-stage PRD maturation with confidence-driven Q&A loop
-- [ ] `gsd:new-milestone` PRD integration: list pending PRDs, autonomous decomposition, single checkpoint
-- [ ] Docs mandatory step: Haiku agent in executor final wave + verifier validation gate
+**Target: v1.14.0 — Enforcement & Integration (Phases 44+)**
+- [ ] Every mandatory step has a deterministic, machine-checkable gate (phase-gate + DEFERRED.json waivers)
+- [ ] UI work detected from git diff, never self-reported metadata; Charlotte QA + E2E artifacts required when detected
+- [ ] Satellites reachable from golden path: mining at complete-milestone, Nyquist in verifier, discovery in prd, debugger on repeat failure
+- [ ] Knowledge system fully automatic: write-path safety with secrets/PII filter, lifecycle/feedback/checkpoint triggers, milestone consolidation pass
+- [ ] Telegram escalation reliable for unattended runs; blocking-question timeout has a defined fallback
+- [ ] gsd-tools.js reliability quick wins + GitHub Actions CI + verified-dead deletions
+
+**Note:** v1.13.0 (phases 41-43) was defined 2026-03-11 but never formally executed; its scope (gsd:prd, new-milestone PRD integration, docs-updater) is present in the codebase today. Reconcile/audit v1.13 status separately — do not double-build.
 
 **Deferred:**
 - [ ] Savings analytics vs actual profile baselines (not just all-Opus) — AUTO-10
@@ -136,4 +146,4 @@ Node.js (CommonJS gsd-tools.js + ESM modules), TypeScript (telegram-mcp), SQLite
 | `confidence: 0.7` float fallback (not string 'medium') | Type contract between query-knowledge and meta-answerer numeric scoring | ✓ Good — fixes silent failure on KB hits |
 
 ---
-*Last updated: 2026-03-11 after v1.12.0 milestone completion — v1.13.0 started*
+*Last updated: 2026-07-02 — v1.14.0 Enforcement & Integration started (from enforcement-and-integration PRD; 2026-07-02 deep-dive audit in docs/analysis/)*
