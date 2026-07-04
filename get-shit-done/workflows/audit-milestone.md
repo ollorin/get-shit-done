@@ -188,6 +188,34 @@ Add to audit YAML: `nyquist: { compliant_phases, partial_phases, missing_phases,
 
 Discovery only — never auto-calls `/gsd:validate-phase`.
 
+## 5.6. Deferred Waivers Table
+
+For each phase directory in the milestone's phase range:
+
+```bash
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" deferred list {phase} --raw
+```
+
+Aggregate all returned waiver entries (`step`, `reason`, `approver`, `timestamp`, `phase`, `plan`) across every phase in the milestone. Do not read `DEFERRED.json` files directly or grep `deferred-items.md` prose — `deferred list` is the single deterministic source, sharing the same malformed-JSON handling as `verify phase-gate` (a corrupt `DEFERRED.json` for any phase must be surfaced, not silently skipped as "no waivers").
+
+Render into the aggregated `v{version}-MILESTONE-AUDIT.md` output (feeds into step 6 below, the same way step 5.5's Nyquist classification feeds the `nyquist: {...}` YAML block):
+
+```markdown
+### Deferred Waivers
+
+| Phase | Plan | Step | Reason | Approver | Timestamp |
+|-------|------|------|--------|----------|-----------|
+| 45    | 03   | verification | mid-execution dry run | ollorin | 2026-07-04T17:52:27.112Z |
+```
+
+If zero waivers exist across the whole milestone, render:
+
+```
+No deferred/waived items this milestone
+```
+
+Never render a table with a header row and no data rows — the presence or absence of the table itself is the signal.
+
 ## 6. Aggregate into v{version}-MILESTONE-AUDIT.md
 
 Create `.planning/v{version}-v{version}-MILESTONE-AUDIT.md` with:
