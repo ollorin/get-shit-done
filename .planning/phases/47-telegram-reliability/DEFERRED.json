@@ -1,0 +1,26 @@
+[
+  {
+    "step": "docs",
+    "reason": "gsd-docs-updater could not be spawned: no Agent/Task tool available in this execution environment (same limitation documented in Phase 46-04). Manually assessed as exclusion-path pass: internal reliability fix (restoreState determinism, typed DaemonUnavailableError, reconnect-policy extraction) + tests only, no user-facing API/behavior/schema surface requiring documentation.",
+    "approver": "executor-manual-assessment",
+    "timestamp": "2026-07-04T21:00:23.101Z",
+    "phase": "47",
+    "plan": "01"
+  },
+  {
+    "step": "docs",
+    "reason": "No Agent/Task tool available in this execution environment (same as 47-01) -- gsd-docs-updater could not be spawned. Manually assessed: this plan is an internal reliability fix (atomic state-file writes, per-project scoping, retry wrapper) with no user-facing API/behavior change requiring /docs updates, matching 47-01's precedent exactly.",
+    "approver": "executor-manual-assessment",
+    "timestamp": "2026-07-04T21:17:04.809Z",
+    "phase": "47",
+    "plan": "02"
+  },
+  {
+    "step": "docs",
+    "reason": "Internal agent-prompt escalation fallback wiring (Step A-fallback in gsd-phase-coordinator.md + config.json timeout key), no user-facing API/behavior surface requiring /docs updates; no Agent tool available to spawn gsd-docs-updater",
+    "approver": "executor-manual-assessment",
+    "timestamp": "2026-07-04T21:26:27.459Z",
+    "phase": "47",
+    "plan": "03"
+  }
+]
