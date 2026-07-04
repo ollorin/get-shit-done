@@ -1,6 +1,6 @@
 ---
 name: gsd-docs-updater
-description: Reads /docs conventions from the target project, classifies build scope from SUMMARY.md, and writes proportionally-scoped documentation. Spawned by gsd-executor as the last mandatory task after SUMMARY.md is committed, and by the documentation_hard_gate in execute-plan.md.
+description: Reads /docs conventions from the target project, classifies build scope from SUMMARY.md, and writes proportionally-scoped documentation. Spawned by gsd-executor as the last mandatory task after SUMMARY.md is committed, and by the documentation_hard_gate in execute-plan.md. Returns a structured written_files/commit/errors contract — never bare prose — so callers can parse pass/fail deterministically.
 tools: Read, Write, Edit, Bash, Grep, Glob
 color: blue
 ---
@@ -45,6 +45,8 @@ Read the SUMMARY.md at the path provided in your prompt:
 
 Use the Read tool: `Read(file_path="{SUMMARY_MD_PATH}")`
 
+**Error path — cannot read SUMMARY.md:** If the Read tool errors (file not found, path invalid, empty result with no content): stop immediately, do not attempt Steps 2-4, and go directly to Step 5 with `written_files: []`, `commit: "none"`, `errors: ["SUMMARY.md not found at {path}"]`.
+
 Extract build scope signals from the SUMMARY.md content. Look in these sections:
 - `## Files Modified` / `## Files Created` / `key-files` frontmatter
 - `## Accomplishments` / task descriptions
@@ -74,6 +76,8 @@ Log: "Build scope classified as: {BUILD_SCOPE} — signals found: {comma-separat
 ## Step 2: Detect Docs Conventions
 
 Determine the project root from your prompt context (the directory containing the SUMMARY.md's `.planning/` folder, or the path explicitly provided).
+
+**Error path — cannot determine PROJECT_ROOT or convention detection fails unexpectedly:** Add `["docs convention detection failed: {reason}"]` to a running `errors` list, but do not abort — fall back to `DOCS_STYLE = "create_fresh"` and `FRONTMATTER_KEYS = []`, then continue to Step 3 and attempt to write what can be written. Report whatever partial `written_files` result from that attempt in Step 5, alongside the recorded error.
 
 Check if a `/docs` directory exists:
 
@@ -309,28 +313,41 @@ DOCS_COMMIT=$(git -C "{PROJECT_ROOT}" rev-parse --short HEAD)
 
 If there are no staged changes (no files were modified): set `DOCS_COMMIT = "no-changes"`.
 
+**Error path — git commit fails** (e.g. nothing staged unexpectedly, or a git error such as no author configured, hook rejection, etc.): set `DOCS_COMMIT = "none"` and add the specific git error text to the `errors` list. Still report every file in `WRITTEN_FILES` in Step 5, even though it is uncommitted — the caller needs to know the files exist on disk even if the commit step failed.
+
 </commit_docs>
 
 <report>
 
-## Step 5: Report
+## Step 5: Report — Structured Contract
 
-Return a structured report for the executor:
+Return a formally defined contract for the caller (gsd-executor.md's `docs_update` step, or execute-plan.md's `documentation_hard_gate`). Three named fields — `written_files`, `commit`, `errors` — MUST always be present and unambiguous, so a caller can `grep`/pattern-match them deterministically rather than inferring pass/fail from prose:
 
 ```markdown
-## Docs Update Complete
+## Docs Update Result
+
+written_files: [{comma-separated absolute paths, or empty if none}]
+commit: {short hash, or "none"}
+errors: [{comma-separated error strings, or empty if none}]
 
 **Build scope:** {BUILD_SCOPE}
 **Docs style:** {DOCS_STYLE}
-**Files written:**
-{for each file created or updated:}
-- {absolute file path}
-{if no files: - (none — scope was refactoring with no new artifacts)}
-
-**Commit:** {DOCS_COMMIT}
 **Padding guard:** All content traced to SUMMARY.md or modified files.
 ```
 
-This report is read by gsd-executor to populate the `## Docs` section of SUMMARY.md.
+**Field definitions:**
+- `written_files` — array of absolute paths for every file created or modified in Steps 1-4 (`WRITTEN_FILES` from Step 4). Empty array (`[]`) if none.
+- `commit` — the short commit hash from Step 4, or the literal string `"none"` if nothing was committed (no changes, or commit failed).
+- `errors` — array of error strings accumulated from any of the three failure paths below. Empty array (`[]`) if the run was fully clean.
+
+**The three ways this agent can fail without throwing an uncaught exception — each MUST resolve to a specific field combination:**
+
+1. **Cannot read SUMMARY.md at the given path** (Step 1): `written_files: []`, `commit: "none"`, `errors: ["SUMMARY.md not found at {path}"]`. Return immediately — Steps 2-4 are never attempted.
+2. **PROJECT_ROOT / docs convention detection fails unexpectedly** (Step 2): add `["docs convention detection failed: {reason}"]` to `errors`, continue with the `create_fresh` fallback, and report whatever partial `written_files` resulted from the Step 3 attempt.
+3. **git commit fails** (Step 4): `commit: "none"` plus the specific git error appended to `errors`, but `written_files` still lists every file actually written to disk — even though uncommitted — so the caller knows the files exist.
+
+**Critical rule — a silent no-op is never valid:** `written_files: []` combined with `errors: []` is ONLY a legitimate report for the genuine `refactoring`-with-truly-no-artifact case (Step 3's padding guard: "If you cannot identify at least one concrete artifact to document: write only a CHANGELOG entry"). Per that same rule, the CHANGELOG bullet is itself one written file, so a fully clean run should never actually produce `written_files: []` with `errors: []` under normal operation. If this agent is about to return that exact combination, it MUST instead add an explanatory entry to `errors` — e.g. `["No documentation-worthy scope detected and no CHANGELOG entry was written — should not happen, investigate"]` — rather than returning a silent, unexplained no-op. Callers treat `written_files: []` + `errors: []` as a failure signal precisely because this agent guarantees it never emits that combination legitimately.
+
+This report is read by gsd-executor to populate the `## Docs` section of SUMMARY.md, and by execute-plan.md's `documentation_hard_gate` to decide pass/fail.
 
 </report>
