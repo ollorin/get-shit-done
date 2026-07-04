@@ -293,7 +293,31 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
 
    **Known Claude Code bug (classifyHandoffIfNeeded):** If an agent reports "failed" with error containing `classifyHandoffIfNeeded is not defined`, this is a Claude Code runtime bug — not a GSD or agent issue. The error fires in the completion handler AFTER all tool calls finish. In this case: run the same spot-checks as step 4 (SUMMARY.md exists, git commits present, no Self-Check: FAILED). If spot-checks PASS → treat as **successful**. If spot-checks FAIL → treat as real failure below.
 
-   For real failures: report which plan failed → ask "Continue?" or "Stop?" → if continue, dependent plans may also fail. If stop, partial completion report.
+   For real failures (not the classifyHandoffIfNeeded runtime bug), call execution-state to get the auto-retry/debug/escalate decision:
+
+   ```bash
+   STATE_RESULT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" execution-state record-failure \
+     --phase {N} --plan {plan_id} --error "{error message}" --step "{last completed step}" \
+     --files "{comma-separated files modified}" --raw)
+   ```
+
+   Parse `action`, `attempts`, `max_attempts` from `STATE_RESULT`.
+
+   - **`action == "retry"`** (1st failure): Log "Auto-retry {plan_id} (attempt 2 of {max_attempts}) — no user prompt." Re-spawn the plan's executor fresh with the same plan context. On success: `execution-state record-success --phase {N} --plan {plan_id}`, continue to next wave. On failure again: repeat this step (`attempts` is now 2).
+
+   - **`action == "debug"`** (2nd+ failure, below the ceiling): Log "Auto-spawning debugger for {plan_id} after {attempts} failures." Invoke @~/.claude/get-shit-done/workflows/debug.md non-interactively:
+     ```
+     mode: symptoms_prefilled: true, interactive: false, goal: find_and_fix
+     symptoms: expected="plan {plan_id} completes successfully", actual="{error}", errors="{error}", reproduction="re-run plan {plan_id}", timeline="this execution"
+     debug_file: .planning/debug/{phase}-{plan_id}-attempt{attempts}.md
+     ```
+     After the debug workflow returns, re-spawn the plan's executor. On success: `execution-state record-success --phase {N} --plan {plan_id}`. On failure again: repeat this step (`attempts` increments via the next `record-failure` call).
+
+   - **`action == "escalate"`** (at the `max_attempts` ceiling — NEVER spawn another debug attempt):
+     1. Read the most recent `.planning/debug/{phase}-{plan_id}-attempt*.md` file's findings summary (or "No debugger findings available" if none exist).
+     2. If a blocking Telegram question tool (`mcp__telegram__ask_blocking_question`) is available in this execution context: escalate using the IDENTICAL Step A + Step A-fallback pattern already defined in `agents/gsd-phase-coordinator.md` (~lines 386-425) — same call shape, same fallback (on daemon-down/timeout: log loudly, `deferred add --step execution --reason "..." --approver timeout-fallback`, continue). Do NOT modify `gsd-phase-coordinator.md` — this is a new call site elsewhere that reuses its documented pattern verbatim.
+     3. If that tool is not available in this execution context (e.g. a standalone `/gsd:execute-phase` run without roadmap-level Telegram wiring): fall back to `AskUserQuestion` if interactive, or the existing fire-and-forget notification + `FAILURE.md` write if fully autonomous — document which path was taken in SUMMARY.md.
+     4. Mark this plan failed, report partial completion, continue with non-dependent plans only.
 
 6. **Execute checkpoint plans between waves** — see `<checkpoint_handling>`.
 

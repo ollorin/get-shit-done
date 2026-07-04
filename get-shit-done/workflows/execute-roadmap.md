@@ -353,22 +353,33 @@ node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
   --data '{"phase": {N}, "error": "...", "timestamp": "..."}'
 ```
 
-2. **Send failure notification:**
+2. **Call execution-state to get the auto-retry/debug/escalate decision** (phase-granularity, no `--plan`):
+   ```bash
+   STATE_RESULT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js execution-state record-failure --phase {N} --error "{error}" --step "{step}" --files "{files}" --raw)
+   ```
+   Branch on `action` (same retry/debug/escalate semantics as `execute-phase.md`, phase-level):
+   - **"retry"** (1st failure): log auto-retry, re-run `execute-phase {N}` fresh, no user prompt.
+   - **"debug"** (2nd+ failure, below the ceiling): auto-spawn @~/.claude/get-shit-done/workflows/debug.md non-interactively (`mode: symptoms_prefilled: true, interactive: false, goal: find_and_fix`) with phase-level context from `FAILURE.md` (error, last completed step, files touched), `debug_file: .planning/debug/phase-{N}-attempt{attempts}.md`, then re-run `execute-phase {N}`.
+   - **"escalate"** (at the ceiling — NEVER spawn another debug attempt): hard stop. This workflow's existing Telegram notification (the `mcp__telegram__send_message` call below) is fire-and-forget, NOT `ask_blocking_question` — per the confirmed finding that `execute-roadmap.md` has zero blocking call sites. Keep it fire-and-forget; just append the debugger's findings (from the most recent phase-level debug file, `.planning/debug/phase-{N}-attempt*.md`) to the notification text and to `FAILURE.md` below. Still offer the existing retry/skip/stop reply options.
+   - On success at any branch: `execution-state record-success --phase {N}`.
+
+3. **Send failure notification:**
 ```
 if telegram_topic_id is not null:
   mcp__telegram__send_message({
-    text: "Phase {N} failed\n\nError: {error}\nLast step: {step}\n\nOptions: reply 'retry', 'skip', or 'stop'",
+    text: "Phase {N} failed\n\nError: {error}\nLast step: {step}\n{If action == escalate: Debugger findings: {findings}\n}\nOptions: reply 'retry', 'skip', or 'stop'",
     thread_id: telegram_topic_id
   })
 ```
 
-3. **Create detailed checkpoint:**
+4. **Create detailed checkpoint:**
 ```
 ## Phase {N} Failed
 
 **Error:** {error}
 **Last completed step:** {step}
 **Files modified:** {files}
+{If action == escalate: **Debugger findings:** {findings}}
 
 ### Options
 - "retry" — retry this phase with fresh context
@@ -376,9 +387,9 @@ if telegram_topic_id is not null:
 - "stop" — stop execution, preserve partial state
 ```
 
-4. **Store failure context for manual intervention:**
+5. **Store failure context for manual intervention:**
 - Checkpoint file at `.planning/phases/{phase_dir}/FAILURE.md`
-- Include: error, last step, files touched, suggested fixes
+- Include: error, last step, files touched, suggested fixes, and (if `action == escalate`) the debugger's findings
 </step>
 
 <step name="resume_capability">
