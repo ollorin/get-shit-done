@@ -230,6 +230,19 @@ function safeReadFile(filePath) {
   }
 }
 
+// Shared JSON.parse guard: never throws. Returns { ok: true, value } on success
+// or { ok: false, error: { error: true, type: 'corrupted_state', context, message } }
+// on failure. Use at every call site that parses external/user/file input with
+// no surrounding try/catch (do NOT use for JSON.parse(JSON.stringify(...)) idioms
+// or sites already wrapped in their own try/catch).
+function safeJsonParse(content, contextLabel) {
+  try {
+    return { ok: true, value: JSON.parse(content) };
+  } catch (e) {
+    return { ok: false, error: { error: true, type: 'corrupted_state', context: contextLabel, message: e.message } };
+  }
+}
+
 function loadConfig(cwd) {
   const configPath = path.join(cwd, '.planning', 'config.json');
   const defaults = {
@@ -3737,8 +3750,11 @@ function cmdToken(cwd, args, raw) {
       // Load existing budget
       let monitor;
       if (fs.existsSync(budgetPath)) {
-        const data = JSON.parse(fs.readFileSync(budgetPath, 'utf-8'));
-        monitor = TokenBudgetMonitor.fromJSON(data);
+        const parseResult = safeJsonParse(fs.readFileSync(budgetPath, 'utf-8'), 'token_budget.json');
+        if (!parseResult.ok) {
+          error(`token reserve: ${parseResult.error.message} (corrupted ${budgetPath})`);
+        }
+        monitor = TokenBudgetMonitor.fromJSON(parseResult.value);
       } else {
         // Auto-initialize if not exists
         monitor = new TokenBudgetMonitor();
@@ -3772,7 +3788,11 @@ function cmdToken(cwd, args, raw) {
       // Load existing budget
       let monitor;
       if (fs.existsSync(budgetPath)) {
-        const data = JSON.parse(fs.readFileSync(budgetPath, 'utf-8'));
+        const parseResult = safeJsonParse(fs.readFileSync(budgetPath, 'utf-8'), 'token_budget.json');
+        if (!parseResult.ok) {
+          error(`token record: ${parseResult.error.message} (corrupted ${budgetPath})`);
+        }
+        const data = parseResult.value;
 
         // Detect if graduated state exists
         if (data.thresholdsPassed !== undefined) {
@@ -3802,7 +3822,11 @@ function cmdToken(cwd, args, raw) {
         break;
       }
 
-      const data = JSON.parse(fs.readFileSync(budgetPath, 'utf-8'));
+      const reportParseResult = safeJsonParse(fs.readFileSync(budgetPath, 'utf-8'), 'token_budget.json');
+      if (!reportParseResult.ok) {
+        error(`token report: ${reportParseResult.error.message} (corrupted ${budgetPath})`);
+      }
+      const data = reportParseResult.value;
 
       // Detect if graduated state exists
       let monitor, report;
@@ -3848,8 +3872,11 @@ function cmdAlerts(cwd, args, raw) {
       // Load existing budget state if available
       let monitor;
       if (fs.existsSync(budgetPath)) {
-        const data = JSON.parse(fs.readFileSync(budgetPath, 'utf8'));
-        monitor = GraduatedBudgetMonitor.fromJSON(data);
+        const statusParseResult = safeJsonParse(fs.readFileSync(budgetPath, 'utf8'), 'token_budget.json');
+        if (!statusParseResult.ok) {
+          error(`alerts status: ${statusParseResult.error.message} (corrupted ${budgetPath})`);
+        }
+        monitor = GraduatedBudgetMonitor.fromJSON(statusParseResult.value);
       } else {
         monitor = new GraduatedBudgetMonitor();
       }
@@ -3893,7 +3920,11 @@ function cmdAlerts(cwd, args, raw) {
 
     case 'reset': {
       if (fs.existsSync(budgetPath)) {
-        const data = JSON.parse(fs.readFileSync(budgetPath, 'utf8'));
+        const resetParseResult = safeJsonParse(fs.readFileSync(budgetPath, 'utf8'), 'token_budget.json');
+        if (!resetParseResult.ok) {
+          error(`alerts reset: ${resetParseResult.error.message} (corrupted ${budgetPath})`);
+        }
+        const data = resetParseResult.value;
         data.thresholdsPassed = [];
         data.graduatedAlerts = [];
         fs.writeFileSync(budgetPath, JSON.stringify(data, null, 2));
@@ -3906,7 +3937,11 @@ function cmdAlerts(cwd, args, raw) {
 
     case 'history': {
       if (fs.existsSync(budgetPath)) {
-        const data = JSON.parse(fs.readFileSync(budgetPath, 'utf8'));
+        const historyParseResult = safeJsonParse(fs.readFileSync(budgetPath, 'utf8'), 'token_budget.json');
+        if (!historyParseResult.ok) {
+          error(`alerts history: ${historyParseResult.error.message} (corrupted ${budgetPath})`);
+        }
+        const data = historyParseResult.value;
         const alerts = data.graduatedAlerts || [];
 
         if (args.includes('--json') || raw) {
@@ -4081,8 +4116,11 @@ function cmdTask(cwd, args, raw) {
         break;
       }
 
-      const data = JSON.parse(fs.readFileSync(progressPath, 'utf-8'));
-      const coordinator = BatchCoordinator.fromJSON(data);
+      const progressParseResult = safeJsonParse(fs.readFileSync(progressPath, 'utf-8'), 'batch-progress.json');
+      if (!progressParseResult.ok) {
+        error(`task progress: ${progressParseResult.error.message} (corrupted ${progressPath})`);
+      }
+      const coordinator = BatchCoordinator.fromJSON(progressParseResult.value);
       const progress = coordinator.getProgress();
 
       output(progress, raw, `Progress: ${progress.completed}/${progress.total} chunks (${progress.percentComplete}%)`);
@@ -4096,8 +4134,11 @@ function cmdTask(cwd, args, raw) {
         break;
       }
 
-      const data = JSON.parse(fs.readFileSync(progressPath, 'utf-8'));
-      const coordinator = BatchCoordinator.fromJSON(data);
+      const resumeParseResult = safeJsonParse(fs.readFileSync(progressPath, 'utf-8'), 'batch-progress.json');
+      if (!resumeParseResult.ok) {
+        error(`task resume: ${resumeParseResult.error.message} (corrupted ${progressPath})`);
+      }
+      const coordinator = BatchCoordinator.fromJSON(resumeParseResult.value);
       const nextChunk = coordinator.getNextChunk();
 
       if (!nextChunk) {
@@ -9012,7 +9053,12 @@ function loadContextIndex(cwd) {
     const stat = fs.statSync(cachePath);
     const ageMs = Date.now() - stat.mtime.getTime();
     if (ageMs < 3600000) { // 1 hour TTL
-      return JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
+      const cacheParseResult = safeJsonParse(fs.readFileSync(cachePath, 'utf-8'), 'context-index-cache.json');
+      if (cacheParseResult.ok) {
+        return cacheParseResult.value;
+      }
+      // Corrupted cache: fall through and rebuild rather than crash.
+      process.stderr.write('Warning: context-index-cache.json is corrupted, rebuilding: ' + cacheParseResult.error.message + '\n');
     }
   }
 
@@ -9121,7 +9167,12 @@ function cmdRoutingIndexRefresh(cwd, raw) {
     return;
   }
 
-  const cached = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
+  const refreshParseResult = safeJsonParse(fs.readFileSync(cachePath, 'utf-8'), 'context-index-cache.json');
+  if (!refreshParseResult.ok) {
+    output({ stale: true, reason: 'Cache is corrupted: ' + refreshParseResult.error.message, entries: 0 }, raw);
+    return;
+  }
+  const cached = refreshParseResult.value;
   const stale = cached.entries.some(entry => {
     if (!fs.existsSync(entry.path)) return true;
     const stat = fs.statSync(entry.path);
@@ -9993,13 +10044,21 @@ async function main() {
         const typeIdx = args.indexOf('--type');
         const waveIdx = args.indexOf('--wave');
         const fieldsIdx = args.indexOf('--fields');
+        let templateFields = {};
+        if (fieldsIdx !== -1) {
+          const fieldsParseResult = safeJsonParse(args[fieldsIdx + 1], '--fields argument');
+          if (!fieldsParseResult.ok) {
+            error(`template fill: --fields ${fieldsParseResult.error.message}`);
+          }
+          templateFields = fieldsParseResult.value;
+        }
         cmdTemplateFill(cwd, templateType, {
           phase: phaseIdx !== -1 ? args[phaseIdx + 1] : null,
           plan: planIdx !== -1 ? args[planIdx + 1] : null,
           name: nameIdx !== -1 ? args[nameIdx + 1] : null,
           type: typeIdx !== -1 ? args[typeIdx + 1] : 'execute',
           wave: waveIdx !== -1 ? args[waveIdx + 1] : '1',
-          fields: fieldsIdx !== -1 ? JSON.parse(args[fieldsIdx + 1]) : {},
+          fields: templateFields,
         }, raw);
       } else {
         error('Unknown template subcommand. Available: select, fill');
@@ -10399,7 +10458,11 @@ async function main() {
         }, raw);
       } else if (subCommand === 'update-from-headers') {
         const headersJson = args.slice(2).join(' ');
-        const headers = JSON.parse(headersJson);
+        const headersParseResult = safeJsonParse(headersJson, 'update-from-headers argument');
+        if (!headersParseResult.ok) {
+          error(`quota update-from-headers: ${headersParseResult.error.message}`);
+        }
+        const headers = headersParseResult.value;
         const parsed = parseQuotaHeaders(headers);
 
         const state = loadQuotaState(cwd);
@@ -10933,8 +10996,15 @@ async function main() {
             .trim()
             .split('\n')
             .filter(line => line.trim())
-            .map(line => JSON.parse(line))
-            .filter(entry => !entry._comment); // Skip header comments
+            .map(line => {
+              const parseResult = safeJsonParse(line, 'validation-log.jsonl');
+              if (!parseResult.ok) {
+                process.stderr.write('Warning: skipping malformed validation-log.jsonl line: ' + parseResult.error.message + '\n');
+                return null;
+              }
+              return parseResult.value;
+            })
+            .filter(entry => entry !== null && !entry._comment); // Skip malformed lines and header comments
 
           if (taskIdFilter) {
             entries = entries.filter(e => e.task_id === taskIdFilter);
@@ -10955,8 +11025,15 @@ async function main() {
             .trim()
             .split('\n')
             .filter(line => line.trim())
-            .map(line => JSON.parse(line))
-            .filter(entry => !entry._comment && entry.result);
+            .map(line => {
+              const parseResult = safeJsonParse(line, 'validation-log.jsonl');
+              if (!parseResult.ok) {
+                process.stderr.write('Warning: skipping malformed validation-log.jsonl line: ' + parseResult.error.message + '\n');
+                return null;
+              }
+              return parseResult.value;
+            })
+            .filter(entry => entry !== null && !entry._comment && entry.result);
         }
 
         const total = entries.length;
