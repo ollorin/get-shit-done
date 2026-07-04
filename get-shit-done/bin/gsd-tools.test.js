@@ -5370,3 +5370,314 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
     assert.strictEqual(parsed.passed, false);
   });
 });
+
+// ─── Phase 46 cross-cutting integration (Phase 46-04 Task 2) ────────────────
+// ADDITIVE coverage only -- this does not duplicate the unit tests 46-01's
+// "verify e2e-gaps + gap-aware e2e_plan check" describe block or 46-03's
+// "verify test-content classification matrix" describe block already wrote in
+// their own tdd tasks. This block proves the net-new deterministic surfaces
+// from 46-01/46-02/46-03 COMPOSE correctly against real CLI subprocesses --
+// e.g. that a generation-failure marker on the e2e gate does not affect an
+// unrelated COVERED test-content requirement in the same fixture, and that a
+// single fixture satisfying all five phase-gate checks plus a covered
+// test-content requirement passes both `verify phase-gate` and
+// `verify test-content` simultaneously.
+//
+// Scope boundary (explicit, matching 45-VERIFICATION.md's documented
+// human_verification precedent): gsd-docs-updater's own runtime behavior
+// (thrown error -> block, "no changes" + matched signals -> block) and
+// gsd-verifier's Step 6c nyquist-auditor BLOCKING SPAWN are AGENT PROMPT
+// behaviors with no gsd-tools.js function backing them -- they are not
+// unit-testable in this file, which only exercises gsd-tools.js's CLI
+// surface via subprocess. What IS unit-testable and covered here is the
+// deterministic decision layer (JSON contracts: gap_count, generation_failed,
+// failure_type, requirement status, hollow_tests) those agent prompts branch
+// on, plus static regression locks (below) on 46-02's specific prose changes
+// so they cannot silently regress back to the "log error, continue" pattern
+// that was removed.
+//
+// NOTE: no Agent/Task tool was available in this execution environment to
+// spawn gsd-test-writer for this tdd="true" task (same limitation documented
+// in 46-01-SUMMARY.md and 46-03-SUMMARY.md) -- these tests were written
+// directly, following this file's existing buildFixture/runGsdTools
+// git-fixture conventions (see the three describe blocks referenced above).
+describe('Phase 46 cross-cutting integration (Phase 46-04 Task 2)', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+    execSync('git init', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git config user.email "gsd-test@example.com"', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git config user.name "GSD Test"', { cwd: tmpDir, stdio: 'pipe' });
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function phaseDirPath(phaseDirName) {
+    return path.join(tmpDir, '.planning', 'phases', phaseDirName);
+  }
+
+  function commitAll(message) {
+    execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
+    execSync(`git commit -q --allow-empty -m "${message}"`, { cwd: tmpDir, stdio: 'pipe' });
+  }
+
+  function writePlan(phaseDir, planNum, { tdd = false, requirements = [] } = {}) {
+    const taskTag = tdd ? '<task type="auto" tdd="true">' : '<task type="auto">';
+    const reqLine = `requirements: [${requirements.join(', ')}]\n`;
+    fs.writeFileSync(
+      path.join(phaseDir, `46-${planNum}-PLAN.md`),
+      `---\nphase: "46"\nplan: "${planNum}"\ntype: execute\n${reqLine}files_modified: []\n---\n<tasks>\n${taskTag}\n<name>Task 1</name>\n<action>do stuff</action>\n</task>\n</tasks>\n`
+    );
+  }
+
+  // Surfaces the real process exit code -- `verify e2e-gaps` uses distinct
+  // exit codes: 0 = idempotent-skip, 1 = gaps/generation failure, 2 = error.
+  function runE2EGaps(phaseArg, cwd) {
+    try {
+      const result = execSync(`node "${TOOLS_PATH}" verify e2e-gaps ${phaseArg}`, {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      return { success: true, output: result.trim(), exitCode: 0 };
+    } catch (err) {
+      return {
+        success: false,
+        output: err.stdout?.toString().trim() || '',
+        error: err.stderr?.toString().trim() || '',
+        exitCode: err.status ?? 1,
+      };
+    }
+  }
+
+  function runPhaseGate(phaseArg, cwd) {
+    try {
+      const result = execSync(`node "${TOOLS_PATH}" verify phase-gate ${phaseArg}`, {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      return { success: true, output: result.trim(), exitCode: 0 };
+    } catch (err) {
+      return {
+        success: false,
+        output: err.stdout?.toString().trim() || '',
+        error: err.stderr?.toString().trim() || '',
+        exitCode: err.status ?? 1,
+      };
+    }
+  }
+
+  // Like runGsdTools but also surfaces the real process exit code --
+  // `verify test-content` uses distinct exit codes: 0 passed, 1 gap present,
+  // 2 malformed/phase-not-found data.
+  function runTestContent(phaseArg, cwd) {
+    try {
+      const result = execSync(`node "${TOOLS_PATH}" verify test-content ${phaseArg}`, {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      return { success: true, output: result.trim(), exitCode: 0 };
+    } catch (err) {
+      return {
+        success: false,
+        output: err.stdout?.toString().trim() || '',
+        error: err.stderr?.toString().trim() || '',
+        exitCode: err.status ?? 1,
+      };
+    }
+  }
+
+  test('E2E gap detected (no E2E-TEST-PLAN.md) -> gap_count > 0, exit 1 -- the signal execute-phase.md uses to decide "spawn the generator"', () => {
+    const phaseDir = phaseDirPath('46-int-e2egap');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    writePlan(phaseDir, '01');
+    fs.writeFileSync(path.join(phaseDir, 'Dashboard.tsx'), 'export default function Dashboard() { return null; }\n');
+    commitAll('feat(46-01): UI file touched, no e2e plan at all');
+
+    const result = runE2EGaps('46', tmpDir);
+    assert.strictEqual(result.exitCode, 1);
+    const parsed = JSON.parse(result.output);
+    assert.ok(parsed.gap_count > 0, `expected gap_count > 0, got ${JSON.stringify(parsed)}`);
+  });
+
+  test('Full E2E coverage already present -> gap_count 0, generation_failed false, exit 0 -- the idempotent-skip signal', () => {
+    const phaseDir = phaseDirPath('46-int-e2eok');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    writePlan(phaseDir, '01');
+    fs.writeFileSync(path.join(phaseDir, 'Dashboard.tsx'), 'export default function Dashboard() { return null; }\n');
+    fs.writeFileSync(path.join(phaseDir, 'E2E-TEST-PLAN.md'), '# E2E Test Plan\n\n- Dashboard loads correctly\n');
+    commitAll('feat(46-01): UI file touched, full e2e text coverage');
+
+    const result = runE2EGaps('46', tmpDir);
+    assert.strictEqual(result.exitCode, 0, `expected idempotent-skip exit 0: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.gap_count, 0);
+    assert.strictEqual(parsed.generation_failed, false);
+  });
+
+  test('E2E-GENERATION-FAILED.json marker present -> phase-gate e2e_plan check fails failure_type "e2e_generation_failed" (distinct from missing_e2e_plan), while an UNRELATED COVERED test-content requirement in the same fixture still passes independently', () => {
+    const phaseDir = phaseDirPath('46-int-genfail');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    writePlan(phaseDir, '01', { tdd: true, requirements: ['MILE-INT-A'] });
+    fs.writeFileSync(path.join(phaseDir, 'impl.js'), 'module.exports = {};\n');
+    fs.writeFileSync(
+      path.join(phaseDir, 'impl.test.js'),
+      `const { test } = require('node:test');\nconst assert = require('node:assert');\ntest('real coverage', () => { assert(1 === 1); });\n`
+    );
+    fs.writeFileSync(path.join(phaseDir, 'Dashboard.tsx'), 'export default function Dashboard() { return null; }\n');
+    fs.writeFileSync(path.join(phaseDir, 'E2E-TEST-PLAN.md'), '# E2E Test Plan\n\n- Dashboard loads correctly\n');
+    commitAll('feat(46-01): tdd-covered requirement + UI file, full e2e text coverage');
+    fs.writeFileSync(
+      path.join(phaseDir, 'E2E-GENERATION-FAILED.json'),
+      JSON.stringify({ error: 'gsd-e2e-test-generator threw during spawn', timestamp: '2026-07-04T00:00:00Z' })
+    );
+    fs.writeFileSync(path.join(phaseDir, 'CHECKPOINT.json'), JSON.stringify({ charlotte_qa_ran: true }));
+    fs.writeFileSync(path.join(phaseDir, '46-VERIFICATION.md'), `---\nphase: "46"\nstatus: passed\n---\n# Verification\n`);
+
+    const gateResult = runPhaseGate('46', tmpDir);
+    assert.strictEqual(gateResult.exitCode, 1);
+    const gateParsed = JSON.parse(gateResult.output);
+    assert.ok(gateParsed.failures.includes('e2e_generation_failed'), `expected e2e_generation_failed: ${JSON.stringify(gateParsed.failures)}`);
+    assert.ok(!gateParsed.failures.includes('missing_e2e_plan'), 'the override must REPLACE the generic failure_type, not add to it');
+
+    // The unrelated test-content gate must compose independently -- an e2e
+    // generation failure must never leak into or affect the test-content
+    // classification of a fully-covered, unrelated requirement.
+    const testContentResult = runTestContent('46', tmpDir);
+    assert.strictEqual(testContentResult.exitCode, 0, 'test-content gate must pass independently of the unrelated e2e generation failure');
+    const testContentParsed = JSON.parse(testContentResult.output);
+    assert.strictEqual(testContentParsed.requirements.find(r => r.req_id === 'MILE-INT-A').status, 'COVERED');
+  });
+
+  test('Empty test file (zero non-skipped it()/test() calls) for a tdd="true" plan\'s requirement -> verify test-content classifies MISSING, appears in hollow_tests, exit 1 -- the signal that would trigger gsd-verifier\'s blocking nyquist-auditor spawn', () => {
+    const phaseDir = phaseDirPath('46-int-hollow');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    writePlan(phaseDir, '01', { tdd: true, requirements: ['MILE-INT-B'] });
+    fs.writeFileSync(path.join(phaseDir, 'impl.js'), 'module.exports = {};\n');
+    fs.writeFileSync(
+      path.join(phaseDir, 'impl.test.js'),
+      `const { describe, it } = require('node:test');\ndescribe('impl', () => {\n  it.skip('should do something eventually', () => {});\n});\n`
+    );
+    commitAll('feat(46-01): hollow test file (only it.skip)');
+
+    const result = runTestContent('46', tmpDir);
+    assert.strictEqual(result.exitCode, 1);
+    const parsed = JSON.parse(result.output);
+    const req = parsed.requirements.find(r => r.req_id === 'MILE-INT-B');
+    assert.strictEqual(req.status, 'MISSING');
+    assert.ok(parsed.hollow_tests.some(h => h.file.endsWith('impl.test.js')));
+  });
+
+  test('Real, growing assertions for a tdd="true" plan\'s requirement -> verify test-content classifies COVERED, exit 0', () => {
+    const phaseDir = phaseDirPath('46-int-covered');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    writePlan(phaseDir, '01', { tdd: true, requirements: ['MILE-INT-C'] });
+    fs.writeFileSync(path.join(phaseDir, 'impl.js'), 'module.exports = {};\n');
+    fs.writeFileSync(
+      path.join(phaseDir, 'impl.test.js'),
+      `const { test } = require('node:test');\nconst assert = require('node:assert');\ntest('real coverage', () => { assert(1 === 1); assert(2 === 2); });\n`
+    );
+    commitAll('feat(46-01): real, substantive assertions');
+
+    const result = runTestContent('46', tmpDir);
+    assert.strictEqual(result.exitCode, 0, `expected exit 0: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.requirements.find(r => r.req_id === 'MILE-INT-C').status, 'COVERED');
+    assert.strictEqual(parsed.passed, true);
+  });
+
+  test('Requirement with no matching test file at all -> classified MISSING -- same signal a real verifier run would use to invoke gsd-nyquist-auditor (the actual Agent() spawn is a prose-level behavior tested at the agent-prompt level, not here)', () => {
+    const phaseDir = phaseDirPath('46-int-nofile');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    writePlan(phaseDir, '01', { tdd: true, requirements: ['MILE-INT-D'] });
+    fs.writeFileSync(path.join(phaseDir, 'impl.js'), 'module.exports = {};\n');
+    commitAll('feat(46-01): impl only, no test file at all');
+
+    const result = runTestContent('46', tmpDir);
+    assert.strictEqual(result.exitCode, 1);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.requirements.find(r => r.req_id === 'MILE-INT-D').status, 'MISSING');
+    // Boundary: gsd-verifier.md's actual blocking Agent() spawn of
+    // gsd-nyquist-auditor on this MISSING result is agent-prompt behavior,
+    // not gsd-tools.js function behavior -- out of reach for this test file.
+  });
+
+  test('Full verify phase-gate run: satisfied docs signal + covered e2e plan + covered test-content requirement + VERIFICATION.md + Charlotte evidence (UI) -> passed true, exit 0 -- proving all three 46-01/46-02/46-03 gates compose without interfering with each other or the pre-existing Phase 45 checks', () => {
+    const phaseDir = phaseDirPath('46-int-allgates');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    writePlan(phaseDir, '01', { tdd: true, requirements: ['MILE-INT-E'] });
+    fs.writeFileSync(path.join(phaseDir, 'impl.js'), 'module.exports = {};\n');
+    fs.writeFileSync(
+      path.join(phaseDir, 'impl.test.js'),
+      `const { test } = require('node:test');\nconst assert = require('node:assert');\ntest('real coverage', () => { assert(1 === 1); });\n`
+    );
+    // api/ path -> DOC_PATH_SIGNAL_RE match, makes the docs check `required`.
+    fs.mkdirSync(path.join(phaseDir, 'src', 'api'), { recursive: true });
+    fs.writeFileSync(path.join(phaseDir, 'src', 'api', 'users.js'), 'module.exports = {};\n');
+    // docs/ path -> DOC_SATISFIED_RE match, satisfies the now-required check.
+    fs.mkdirSync(path.join(phaseDir, 'docs'), { recursive: true });
+    fs.writeFileSync(path.join(phaseDir, 'docs', 'api-users.md'), '# Users API\n');
+    // UI file -> has_ui true, e2e_plan + charlotte_qa become required.
+    fs.writeFileSync(path.join(phaseDir, 'Dashboard.tsx'), 'export default function Dashboard() { return null; }\n');
+    fs.writeFileSync(path.join(phaseDir, 'E2E-TEST-PLAN.md'), '# E2E Test Plan\n\n- Dashboard loads correctly\n');
+    commitAll('feat(46-01): full matrix fixture -- covered test, docs signal, e2e coverage, ui file');
+    fs.writeFileSync(path.join(phaseDir, 'CHECKPOINT.json'), JSON.stringify({ charlotte_qa_ran: true }));
+    fs.writeFileSync(path.join(phaseDir, '46-VERIFICATION.md'), `---\nphase: "46"\nstatus: passed\n---\n# Verification\n`);
+
+    const gateResult = runPhaseGate('46', tmpDir);
+    assert.ok(gateResult.success, `expected phase-gate exit 0: ${gateResult.error} :: ${gateResult.output}`);
+    const gateParsed = JSON.parse(gateResult.output);
+    assert.strictEqual(gateParsed.passed, true, `expected passed true: ${JSON.stringify(gateParsed.failures)}`);
+    assert.deepStrictEqual(gateParsed.failures, []);
+    assert.strictEqual(gateParsed.has_ui, true);
+
+    const testContentResult = runTestContent('46', tmpDir);
+    assert.ok(testContentResult.success, `expected test-content exit 0: ${testContentResult.error}`);
+    const testContentParsed = JSON.parse(testContentResult.output);
+    assert.strictEqual(testContentParsed.passed, true);
+    assert.strictEqual(testContentParsed.requirements.find(r => r.req_id === 'MILE-INT-E').status, 'COVERED');
+
+    const e2eGapsResult = runE2EGaps('46', tmpDir);
+    assert.strictEqual(e2eGapsResult.exitCode, 0);
+    const e2eGapsParsed = JSON.parse(e2eGapsResult.output);
+    assert.strictEqual(e2eGapsParsed.gap_count, 0);
+  });
+});
+
+// ─── Static regression locks: 46-02's docs-gate prose changes (Phase 46-04) ──
+// Prose-level assertions only -- these lock in 46-02's specific wording
+// changes so they cannot silently regress. Not a full behavioral test of the
+// docs-gate runtime (that's agent-prompt behavior, see the scope-boundary
+// comment on the describe block above).
+describe('Static regression: 46-02 docs-gate prose changes (Phase 46-04)', () => {
+  const EXECUTOR_PATH = path.join(__dirname, '..', '..', 'agents', 'gsd-executor.md');
+  const EXECUTE_PLAN_PATH = path.join(__dirname, '..', 'workflows', 'execute-plan.md');
+
+  test('gsd-executor.md no longer contains the removed "does NOT block state updates" contradiction', () => {
+    const content = fs.readFileSync(EXECUTOR_PATH, 'utf-8');
+    assert.ok(!content.includes('does NOT block state updates'), 'the removed contradiction must not reappear in gsd-executor.md');
+  });
+
+  test('gsd-executor.md\'s <docs_update> block contains the "deferred add" waiver escape hatch', () => {
+    const content = fs.readFileSync(EXECUTOR_PATH, 'utf-8');
+    const start = content.indexOf('<docs_update>');
+    const end = content.indexOf('</docs_update>');
+    assert.ok(start !== -1 && end !== -1, 'expected a <docs_update>...</docs_update> block in gsd-executor.md');
+    const docsUpdateSection = content.slice(start, end);
+    assert.ok(docsUpdateSection.includes('deferred add'), 'the <docs_update> block must cite "deferred add" as the sanctioned bypass');
+  });
+
+  test('execute-plan.md\'s documentation_hard_gate section contains the "deferred add" waiver escape hatch', () => {
+    const content = fs.readFileSync(EXECUTE_PLAN_PATH, 'utf-8');
+    const start = content.indexOf('<step name="documentation_hard_gate">');
+    assert.ok(start !== -1, 'expected a documentation_hard_gate step in execute-plan.md');
+    const end = content.indexOf('</step>', start);
+    const gateSection = content.slice(start, end);
+    assert.ok(gateSection.includes('deferred add'), 'the documentation_hard_gate step must cite "deferred add" as the sanctioned bypass');
+  });
+});
