@@ -490,20 +490,32 @@ Changed files: {list of changed files}
 Read SUMMARY.md and the changed source files. Create or update docs following project conventions. Commit all doc changes."
 ```
 
-Wait for subagent to return. Check result:
+Wait for subagent to return. Parse the structured contract from gsd-docs-updater.md's `<report>` step: `written_files` (array), `commit` (short hash or `"none"`), `errors` (array). Check result:
 
-- If subagent returns `DOCS_COMMIT = "no-changes"` but documentation-worthy signals were found: **GATE FAILS**
-  ```
-  🚫 DOCUMENTATION GATE FAILED
-  Documentation-worthy changes detected ({matched signals}) but no docs were written.
-  The phase cannot complete until documentation is created.
-  Fix: manually run gsd-docs-updater or write the docs directly, then re-run this step.
-  ```
-  STOP — do not proceed to `update_codebase_map`.
+**Three distinct named failure triggers — any of these means GATE FAILS:**
 
-- If subagent fails or errors: **GATE FAILS** with the same block message above. STOP.
+- **No-changes-with-signals:** subagent returns `commit: "none"` and `written_files: []` but documentation-worthy signals were found in this plan's diff.
+- **Thrown error / exception:** the subagent call itself throws (crashes, cannot be spawned, malformed response).
+- **Timeout:** the subagent does not return within the expected window.
 
-- If subagent returns one or more written files with a valid commit: gate passes. Record doc files in SUMMARY.md `## Documentation Updates` section.
+On any of the three:
+```
+🚫 DOCUMENTATION GATE FAILED
+Documentation-worthy changes detected ({matched signals}) but no docs were written.
+The phase cannot complete until documentation is created.
+Fix: manually run gsd-docs-updater or write the docs directly, then re-run this step.
+```
+STOP — do not proceed to `update_codebase_map`.
+
+For a legitimate, documented exception instead of fixing the docs, run:
+```
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" deferred add "${PHASE}" --step docs --reason <reason> --approver <approver> --plan "${PLAN}"
+```
+Then treat the gate as passed (waived) and proceed to `update_codebase_map`. Record the waiver in SUMMARY.md's `## Documentation Updates` section instead of a written-files list.
+
+This is the ONLY sanctioned bypass — do not add any other flag or silent-skip condition.
+
+- If subagent returns one or more `written_files` with a valid `commit` (and `errors` empty): gate passes. Record doc files in SUMMARY.md `## Documentation Updates` section.
 
 **If no documentation-worthy changes (exclusion path):** Gate passes automatically. Add to SUMMARY.md:
 ```
