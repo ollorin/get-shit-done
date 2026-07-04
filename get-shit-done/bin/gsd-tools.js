@@ -87,6 +87,12 @@
  *   verify phase-gate <phase>          Deterministic 5-artifact phase gate (test/charlotte_qa/docs/
  *                                       e2e_plan/verification); honors DEFERRED.json waivers; exits
  *                                       1 on failed checks, 2 on malformed plan/waiver data
+ *   deferred add <phase> --step X       Append a waiver entry to DEFERRED.json (the ONLY sanctioned
+ *     --reason Y --approver Z            way to satisfy a phase-gate check without the real artifact);
+ *     [--plan M]                         fires a best-effort Telegram notification; exits 2 if the
+ *                                       existing DEFERRED.json is malformed (refuses to overwrite)
+ *   deferred list <phase>              List waiver entries for a phase; exits 2 (not empty array) if
+ *                                       DEFERRED.json is malformed
  *
  * Template Fill:
  *   template fill summary --phase N    Create pre-filled SUMMARY.md
@@ -4856,6 +4862,70 @@ const DOC_KEYWORD_SIGNAL_RE = /(new service|middleware|new schema|auth|payment|o
 const DOC_SATISFIED_RE = /(docs\/|README|CHANGELOG\.md)/i;
 const TEST_FILE_RE = /\.(test|spec)\.(ts|tsx|js)$/;
 
+// Shared malformed-JSON-safe reader for a phase's DEFERRED.json waiver file.
+// Single source of truth for: cmdVerifyPhaseGate's waiver lookup, `deferred
+// add`, and `deferred list` (Phase 45-03). An absent file is NOT an error --
+// it means zero waivers. A malformed file (invalid JSON, not an array, or any
+// entry missing step/reason/approver/phase) is ALWAYS surfaced as a typed
+// `malformed_waiver` error -- never silently treated as "no waivers", per
+// 45-01's US-3 acceptance criteria.
+function readDeferredWaivers(cwd, phaseDirRelative) {
+  const deferredPath = path.join(cwd, phaseDirRelative, 'DEFERRED.json');
+  if (!fs.existsSync(deferredPath)) {
+    return { ok: true, waivers: [] };
+  }
+  const content = safeReadFile(deferredPath);
+  if (content === null) {
+    return { ok: false, error: { error: true, type: 'malformed_waiver', context: 'DEFERRED.json', message: 'Could not read DEFERRED.json' } };
+  }
+  const parsed = safeJsonParse(content, 'DEFERRED.json');
+  if (!parsed.ok) {
+    return { ok: false, error: { error: true, type: 'malformed_waiver', context: 'DEFERRED.json', message: parsed.error.message } };
+  }
+  if (!Array.isArray(parsed.value)) {
+    return { ok: false, error: { error: true, type: 'malformed_waiver', context: 'DEFERRED.json', message: 'DEFERRED.json must be an array of waiver entries' } };
+  }
+  const invalidEntry = parsed.value.find(e => !e || typeof e !== 'object' || !e.step || !e.reason || !e.approver || !e.phase);
+  if (invalidEntry !== undefined) {
+    return { ok: false, error: { error: true, type: 'malformed_waiver', context: 'DEFERRED.json', message: 'One or more DEFERRED.json entries missing required fields (step, reason, approver, phase)' } };
+  }
+  return { ok: true, waivers: parsed.value };
+}
+
+// Best-effort, fire-and-forget Telegram notification fired after a waiver is
+// successfully written by `deferred add`. Never blocks or fails the caller:
+// missing env vars, network errors, and timeouts are all swallowed (logged to
+// stderr at most). Uses Node's built-in `https` module -- no new dependency.
+function notifyTelegramWaiver(entry) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const ownerId = process.env.TELEGRAM_OWNER_ID;
+  if (!token || !ownerId) {
+    process.stderr.write('Telegram not configured — skipping waiver notification\n');
+    return;
+  }
+  try {
+    const https = require('https');
+    const text = `GSD Waiver Recorded\nPhase: ${entry.phase}${entry.plan ? ` (plan ${entry.plan})` : ''}\nStep: ${entry.step}\nReason: ${entry.reason}\nApprover: ${entry.approver}`;
+    const body = JSON.stringify({ chat_id: ownerId, text });
+    const req = https.request({
+      hostname: 'api.telegram.org',
+      path: `/bot${token}/sendMessage`,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+      timeout: 3000,
+    }, (res) => {
+      res.on('data', () => {});
+      res.on('error', () => {});
+    });
+    req.on('error', () => { /* swallow -- best-effort, never fail the caller */ });
+    req.on('timeout', () => { req.destroy(); });
+    req.write(body);
+    req.end();
+  } catch (_e) {
+    // Swallow -- best-effort notification must never affect deferred add's outcome.
+  }
+}
+
 // Returns the first waiver entry (from DEFERRED.json) matching this check's
 // `step`, the current phase number, and either no plan-scoping or a matching
 // plan. Phase-wide waivers (no `plan` field) match any plan.
@@ -4933,30 +5003,16 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
   // excluding api/ sub-paths and config/declaration files). See 45-02-PLAN.md.
   const hasUi = computeHasUI(touchedFiles);
 
-  // Waiver lookup -- 45-03 refactors this inline read into a shared
-  // readDeferredWaivers() helper without changing observable behavior here.
+  // Waiver lookup -- shared with `deferred add`/`deferred list` (45-03) via
+  // readDeferredWaivers(), so all three code paths agree on what counts as a
+  // malformed DEFERRED.json.
   let waivers = [];
   let malformedWaiver = null;
-  const deferredPath = path.join(phaseDir, 'DEFERRED.json');
-  if (fs.existsSync(deferredPath)) {
-    const deferredContent = safeReadFile(deferredPath);
-    if (deferredContent === null) {
-      malformedWaiver = { type: 'malformed_waiver', message: 'Could not read DEFERRED.json' };
-    } else {
-      const parsed = safeJsonParse(deferredContent, 'DEFERRED.json');
-      if (!parsed.ok) {
-        malformedWaiver = { type: 'malformed_waiver', message: parsed.error.message };
-      } else if (!Array.isArray(parsed.value)) {
-        malformedWaiver = { type: 'malformed_waiver', message: 'DEFERRED.json must be an array of waiver entries' };
-      } else {
-        const invalidEntry = parsed.value.find(e => !e || typeof e !== 'object' || !e.step || !e.reason || !e.approver || !e.phase);
-        if (invalidEntry !== undefined) {
-          malformedWaiver = { type: 'malformed_waiver', message: 'One or more DEFERRED.json entries missing required fields (step, reason, approver, phase)' };
-        } else {
-          waivers = parsed.value;
-        }
-      }
-    }
+  const deferredResult = readDeferredWaivers(cwd, phaseInfo.directory);
+  if (!deferredResult.ok) {
+    malformedWaiver = { type: 'malformed_waiver', message: deferredResult.error.message };
+  } else {
+    waivers = deferredResult.waivers;
   }
 
   // Docs signal: path-based patterns against touched files, OR keyword
@@ -5029,6 +5085,68 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
   } else {
     process.exit(0);
   }
+}
+
+// ─── Deferred Waiver Protocol (MILE-07, Phase 45-03) ─────────────────────────
+// `deferred add`/`deferred list` are the ONLY sanctioned way to satisfy a
+// phase-gate check without producing the real artifact -- every waiver is
+// machine-readable ({step, reason, approver, timestamp, phase, plan}),
+// appended atomically, and fires a best-effort Telegram notification.
+
+function cmdDeferredAdd(cwd, phaseArg, options, raw) {
+  const { step, reason, approver, plan } = options;
+  if (!step || typeof step !== 'string' || !step.trim()) { error('deferred add requires --step, --reason, --approver'); }
+  if (!reason || typeof reason !== 'string' || !reason.trim()) { error('deferred add requires --step, --reason, --approver'); }
+  if (!approver || typeof approver !== 'string' || !approver.trim()) { error('deferred add requires --step, --reason, --approver'); }
+
+  const phaseInfo = findPhaseInternal(cwd, phaseArg);
+  if (!phaseInfo || !phaseInfo.found) {
+    process.stdout.write(JSON.stringify({ error: true, type: 'phase_not_found', phase: phaseArg }, null, 2));
+    process.exit(1);
+    return;
+  }
+
+  const existing = readDeferredWaivers(cwd, phaseInfo.directory);
+  if (!existing.ok) {
+    process.stdout.write(JSON.stringify({ ...existing.error, message: `${existing.error.message} — fix DEFERRED.json before adding a new entry` }, null, 2));
+    process.exit(2);
+    return;
+  }
+
+  const newEntry = {
+    step,
+    reason,
+    approver,
+    timestamp: new Date().toISOString(),
+    phase: phaseInfo.phase_number,
+    plan: plan || null,
+  };
+
+  const deferredPath = path.join(cwd, phaseInfo.directory, 'DEFERRED.json');
+  atomicWriteFileSync(deferredPath, JSON.stringify([...existing.waivers, newEntry], null, 2));
+
+  // Fire-and-forget -- must not delay or affect this command's exit.
+  notifyTelegramWaiver(newEntry);
+
+  output({ written: true, entry: newEntry }, raw);
+}
+
+function cmdDeferredList(cwd, phaseArg, raw) {
+  const phaseInfo = findPhaseInternal(cwd, phaseArg);
+  if (!phaseInfo || !phaseInfo.found) {
+    process.stdout.write(JSON.stringify({ error: true, type: 'phase_not_found', phase: phaseArg }, null, 2));
+    process.exit(1);
+    return;
+  }
+
+  const result = readDeferredWaivers(cwd, phaseInfo.directory);
+  if (!result.ok) {
+    process.stdout.write(JSON.stringify(result.error, null, 2));
+    process.exit(2);
+    return;
+  }
+
+  output({ phase: phaseInfo.phase_number, waivers: result.waivers, count: result.waivers.length }, raw);
 }
 
 function cmdVerifyReferences(cwd, filePath, raw) {
@@ -10336,6 +10454,27 @@ async function main() {
         cmdVerifyPhaseGate(cwd, args[2], raw);
       } else {
         error('Unknown verify subcommand. Available: plan-structure, phase-completeness, references, commits, artifacts, key-links, migration-timestamps, dependency-stability, phase-gate');
+      }
+      break;
+    }
+
+    case 'deferred': {
+      const subcommand = args[1];
+      if (subcommand === 'add') {
+        const stepIdx = args.indexOf('--step');
+        const reasonIdx = args.indexOf('--reason');
+        const approverIdx = args.indexOf('--approver');
+        const planIdx = args.indexOf('--plan');
+        cmdDeferredAdd(cwd, args[2], {
+          step: stepIdx !== -1 ? args[stepIdx + 1] : null,
+          reason: reasonIdx !== -1 ? args[reasonIdx + 1] : null,
+          approver: approverIdx !== -1 ? args[approverIdx + 1] : null,
+          plan: planIdx !== -1 ? args[planIdx + 1] : null,
+        }, raw);
+      } else if (subcommand === 'list') {
+        cmdDeferredList(cwd, args[2], raw);
+      } else {
+        error('Unknown deferred subcommand. Available: add, list');
       }
       break;
     }
