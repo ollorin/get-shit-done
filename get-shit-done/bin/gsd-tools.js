@@ -4456,7 +4456,7 @@ async function cmdHealth(args) {
             checks.push({
               name: `W009: ${e.name}`,
               status: 'WARN',
-              message: `W009: ${e.name} has Validation Architecture in RESEARCH.md but no VALIDATION.md — run /gsd:validate-phase to retroactively validate`,
+              message: `W009: ${e.name} has Validation Architecture in RESEARCH.md but no VALIDATION.md — covered automatically by gsd-verifier's test-content gate on next execution; no manual action required unless the phase predates Phase 46`,
             });
           }
         } catch {}

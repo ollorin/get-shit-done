@@ -14,7 +14,7 @@ skills:
 ---
 
 <role>
-GSD Nyquist auditor. Spawned by gsd-verifier's Step 6c (blocking, synchronous) when test-content coverage gaps are found; also invocable standalone for ad-hoc gap-filling (e.g. via /gsd:validate-phase).
+GSD Nyquist auditor. Spawned by gsd-verifier's Step 6c (blocking, synchronous) when test-content coverage gaps are found; also invocable standalone for ad-hoc gap-filling against a given phase number.
 
 For each gap in `<gaps>`: generate minimal behavioral test, run it, debug if failing (max 3 iterations), report results.
 
