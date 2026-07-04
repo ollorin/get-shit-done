@@ -3927,3 +3927,239 @@ must_haves:
     assert.strictEqual(parsed.errors.length, 0);
   });
 });
+
+describe('diff-based HAS_UI detection matrix (Phase 45-02)', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+    execSync('git init', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git config user.email "gsd-test@example.com"', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git config user.name "GSD Test"', { cwd: tmpDir, stdio: 'pipe' });
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function phaseDirPath(phaseDirName) {
+    return path.join(tmpDir, '.planning', 'phases', phaseDirName);
+  }
+
+  function commitAll(message) {
+    execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
+    execSync(`git commit -q --allow-empty -m "${message}"`, { cwd: tmpDir, stdio: 'pipe' });
+  }
+
+  function runPhaseGate(phaseArg, cwd) {
+    try {
+      const result = execSync(`node "${TOOLS_PATH}" verify phase-gate ${phaseArg}`, {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      return { success: true, output: result.trim(), exitCode: 0 };
+    } catch (err) {
+      return {
+        success: false,
+        output: err.stdout?.toString().trim() || '',
+        error: err.stderr?.toString().trim() || '',
+        exitCode: err.status ?? 1,
+      };
+    }
+  }
+
+  test('.tsx file omitted from SUMMARY.md key-files is still detected as has_ui=true (proves independence from SUMMARY.md content)', () => {
+    const phaseDir = phaseDirPath('45-tsxomitted');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(phaseDir, '45-01-PLAN.md'),
+      `---\nphase: "45"\nplan: "01"\ntype: execute\nfiles_modified: []\n---\n<tasks>\n<task type="auto">\n<name>Task 1</name>\n<action>do stuff</action>\n</task>\n</tasks>\n`
+    );
+    // The actual diff touches a .tsx file...
+    fs.writeFileSync(path.join(phaseDir, 'Widget.tsx'), 'export default function Widget() { return null; }\n');
+    // ...but the SUMMARY.md text only mentions unrelated filenames, never Widget.tsx.
+    fs.writeFileSync(
+      path.join(phaseDir, '45-01-SUMMARY.md'),
+      `---\nphase: 45-01\nkey-files:\n  created:\n    - src/utils/helper.js\n  modified: []\n---\n# Summary\nNo mention of the tsx file here.\n`
+    );
+    fs.writeFileSync(path.join(phaseDir, 'CHECKPOINT.json'), JSON.stringify({ charlotte_qa_ran: true }));
+    fs.writeFileSync(path.join(phaseDir, 'E2E-TEST-PLAN.md'), '# E2E Test Plan\n');
+    commitAll('feat(45-01): add Widget.tsx, SUMMARY omits it from key-files');
+    fs.writeFileSync(
+      path.join(phaseDir, '45-VERIFICATION.md'),
+      `---\nphase: "45"\nstatus: passed\n---\n# Verification\n`
+    );
+
+    const result = runPhaseGate('45', tmpDir);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.has_ui, true, 'has_ui must be true from the git diff alone, regardless of what SUMMARY.md key-files claims');
+  });
+
+  test('non-UI plan (only .ts files, no app/pages/routes path) is not falsely flagged has_ui=false', () => {
+    const phaseDir = phaseDirPath('45-nouipath');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(phaseDir, '45-01-PLAN.md'),
+      `---\nphase: "45"\nplan: "01"\ntype: execute\nfiles_modified: []\n---\n<tasks>\n<task type="auto">\n<name>Task 1</name>\n<action>do stuff</action>\n</task>\n</tasks>\n`
+    );
+    fs.writeFileSync(path.join(phaseDir, 'service.ts'), 'export function service() {}\n');
+    fs.writeFileSync(path.join(phaseDir, 'utils.ts'), 'export function util() {}\n');
+    commitAll('feat(45-01): backend-only .ts files, no UI');
+    fs.writeFileSync(
+      path.join(phaseDir, '45-VERIFICATION.md'),
+      `---\nphase: "45"\nstatus: passed\n---\n# Verification\n`
+    );
+
+    const result = runPhaseGate('45', tmpDir);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.has_ui, false, 'plain .ts backend files with no UI extension/route path must not be flagged as UI');
+  });
+
+  test('mixed plan (one .tsx + several .ts files) is detected as has_ui=true', () => {
+    const phaseDir = phaseDirPath('45-mixed');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(phaseDir, '45-01-PLAN.md'),
+      `---\nphase: "45"\nplan: "01"\ntype: execute\nfiles_modified: []\n---\n<tasks>\n<task type="auto">\n<name>Task 1</name>\n<action>do stuff</action>\n</task>\n</tasks>\n`
+    );
+    fs.writeFileSync(path.join(phaseDir, 'Widget.tsx'), 'export default function Widget() { return null; }\n');
+    fs.writeFileSync(path.join(phaseDir, 'service.ts'), 'export function service() {}\n');
+    fs.writeFileSync(path.join(phaseDir, 'utils.ts'), 'export function util() {}\n');
+    fs.writeFileSync(path.join(phaseDir, 'CHECKPOINT.json'), JSON.stringify({ charlotte_qa_ran: true }));
+    fs.writeFileSync(path.join(phaseDir, 'E2E-TEST-PLAN.md'), '# E2E Test Plan\n');
+    commitAll('feat(45-01): mixed .tsx + .ts files');
+    fs.writeFileSync(
+      path.join(phaseDir, '45-VERIFICATION.md'),
+      `---\nphase: "45"\nstatus: passed\n---\n# Verification\n`
+    );
+
+    const result = runPhaseGate('45', tmpDir);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.has_ui, true, 'a single .tsx file among several .ts files must still flip has_ui to true');
+  });
+
+  test('pages/api/users.ts (API route under pages/) alone is not flagged as UI -> has_ui=false', () => {
+    const phaseDir = phaseDirPath('45-pagesapi');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    fs.mkdirSync(path.join(phaseDir, 'pages', 'api'), { recursive: true });
+    fs.writeFileSync(
+      path.join(phaseDir, '45-01-PLAN.md'),
+      `---\nphase: "45"\nplan: "01"\ntype: execute\nfiles_modified: []\n---\n<tasks>\n<task type="auto">\n<name>Task 1</name>\n<action>do stuff</action>\n</task>\n</tasks>\n`
+    );
+    fs.writeFileSync(path.join(phaseDir, 'pages', 'api', 'users.ts'), 'export default function handler(req, res) {}\n');
+    commitAll('feat(45-01): pages/api/users.ts is an API route, not UI');
+    fs.writeFileSync(
+      path.join(phaseDir, '45-VERIFICATION.md'),
+      `---\nphase: "45"\nstatus: passed\n---\n# Verification\n`
+    );
+
+    const result = runPhaseGate('45', tmpDir);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.has_ui, false, 'pages/api/*.ts is an API route despite living under pages/, must not trigger UI checks');
+  });
+
+  test('app/api/users/route.ts (API route under app/) alone is not flagged as UI -> has_ui=false', () => {
+    const phaseDir = phaseDirPath('45-appapi');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    fs.mkdirSync(path.join(phaseDir, 'app', 'api', 'users'), { recursive: true });
+    fs.writeFileSync(
+      path.join(phaseDir, '45-01-PLAN.md'),
+      `---\nphase: "45"\nplan: "01"\ntype: execute\nfiles_modified: []\n---\n<tasks>\n<task type="auto">\n<name>Task 1</name>\n<action>do stuff</action>\n</task>\n</tasks>\n`
+    );
+    fs.writeFileSync(path.join(phaseDir, 'app', 'api', 'users', 'route.ts'), 'export async function GET() {}\n');
+    commitAll('feat(45-01): app/api/users/route.ts is an API route, not UI');
+    fs.writeFileSync(
+      path.join(phaseDir, '45-VERIFICATION.md'),
+      `---\nphase: "45"\nstatus: passed\n---\n# Verification\n`
+    );
+
+    const result = runPhaseGate('45', tmpDir);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.has_ui, false, 'app/api/*/route.ts is an API route despite living under app/, must not trigger UI checks');
+  });
+
+  test('routes/checkout.astro alone is detected as UI -> has_ui=true', () => {
+    const phaseDir = phaseDirPath('45-astroroute');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    fs.mkdirSync(path.join(phaseDir, 'routes'), { recursive: true });
+    fs.writeFileSync(
+      path.join(phaseDir, '45-01-PLAN.md'),
+      `---\nphase: "45"\nplan: "01"\ntype: execute\nfiles_modified: []\n---\n<tasks>\n<task type="auto">\n<name>Task 1</name>\n<action>do stuff</action>\n</task>\n</tasks>\n`
+    );
+    fs.writeFileSync(path.join(phaseDir, 'routes', 'checkout.astro'), '---\n---\n<h1>Checkout</h1>\n');
+    fs.writeFileSync(path.join(phaseDir, 'CHECKPOINT.json'), JSON.stringify({ charlotte_qa_ran: true }));
+    fs.writeFileSync(path.join(phaseDir, 'E2E-TEST-PLAN.md'), '# E2E Test Plan\n');
+    commitAll('feat(45-01): add routes/checkout.astro');
+    fs.writeFileSync(
+      path.join(phaseDir, '45-VERIFICATION.md'),
+      `---\nphase: "45"\nstatus: passed\n---\n# Verification\n`
+    );
+
+    const result = runPhaseGate('45', tmpDir);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.has_ui, true, '.astro is a UI extension (extended in 45-02) and must be detected');
+  });
+
+  test('a *.config.ts file under pages/ (edge case) is excluded from UI detection -> has_ui=false', () => {
+    const phaseDir = phaseDirPath('45-pagesconfig');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    fs.mkdirSync(path.join(phaseDir, 'pages'), { recursive: true });
+    fs.writeFileSync(
+      path.join(phaseDir, '45-01-PLAN.md'),
+      `---\nphase: "45"\nplan: "01"\ntype: execute\nfiles_modified: []\n---\n<tasks>\n<task type="auto">\n<name>Task 1</name>\n<action>do stuff</action>\n</task>\n</tasks>\n`
+    );
+    fs.writeFileSync(path.join(phaseDir, 'pages', 'route.config.ts'), 'export default {};\n');
+    commitAll('feat(45-01): add pages/route.config.ts, a config file under a route dir');
+    fs.writeFileSync(
+      path.join(phaseDir, '45-VERIFICATION.md'),
+      `---\nphase: "45"\nstatus: passed\n---\n# Verification\n`
+    );
+
+    const result = runPhaseGate('45', tmpDir);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.has_ui, false, 'a *.config.ts file must be excluded from UI detection even under a pages/ route directory');
+  });
+
+  test('regression: verify plan-structure UI-QA-check still passes on .tsx/.jsx/.vue/.svelte fixtures after extending UI_FILE_PATTERNS with .astro/.mdx', () => {
+    const planPath = path.join(tmpDir, 'ui-plan.md');
+    // Note: deliberately no <tasks>...</tasks> wrapper here (matching the
+    // convention used by the existing "plan with .tsx AND checkpoint:ui-qa
+    // task" test above) -- a <tasks> wrapper's own opening tag is itself
+    // matched by the plan-structure parser's /<task[^>]*>/ tag regex (since
+    // "tasks" starts with "task"), which shifts task-attribute attribution
+    // by one when 2+ tasks are present. That's a pre-existing parser quirk
+    // unrelated to this plan's UI_FILE_PATTERNS change -- out of scope here.
+    fs.writeFileSync(planPath, `---
+phase: 45
+plan: "02"
+type: execute
+wave: 1
+depends_on: []
+files_modified:
+  - src/components/Widget.tsx
+autonomous: false
+must_haves:
+  truths:
+    - "Widget.tsx renders"
+---
+<task type="auto">
+<name>Task 1</name>
+<files>src/components/Widget.tsx</files>
+<action>Write a UI component</action>
+<verify>node -c src/components/Widget.tsx</verify>
+<done>Widget.tsx exists</done>
+</task>
+<task type="checkpoint:ui-qa" gate="blocking">
+<name>QA the widget</name>
+<what-built>Widget component</what-built>
+<test-flows>- Visit the widget page — verify renders</test-flows>
+</task>
+`);
+
+    const result = runGsdTools(`verify plan-structure "${planPath}"`, tmpDir);
+    assert.ok(result.success, `Command should exit 0 on a valid UI plan with a ui-qa checkpoint: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.valid, true, `expected valid plan, got errors: ${JSON.stringify(parsed.errors)}`);
+  });
+});
