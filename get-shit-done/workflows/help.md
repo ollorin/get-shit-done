@@ -108,6 +108,7 @@ Execute all plans in a phase.
 - Plans within each wave run in parallel via Task tool
 - Verifies phase goal after all plans complete
 - Updates REQUIREMENTS.md, ROADMAP.md, STATE.md
+- Self-healing on task failure: 1st failure retries silently, 2nd+ failure auto-spawns `gsd-debugger`, ceiling (`execution.max_attempts`, default 4) escalates with debugger findings attached
 
 Usage: `/gsd:execute-phase 5`
 
@@ -179,6 +180,7 @@ Archive completed milestone and prepare for next version.
 - Archives full details to milestones/ directory
 - Creates git tag for the release
 - Prepares workspace for next version
+- Automatically mines conversation history for decisions/insights (`auto_mine` config, default `true`) into `.planning/milestones/v{X}-KNOWLEDGE.md`; never blocks completion on failure
 
 Usage: `/gsd:complete-milestone 1.0.0`
 
