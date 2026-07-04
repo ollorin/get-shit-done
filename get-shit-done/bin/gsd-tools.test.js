@@ -6169,3 +6169,124 @@ describe('execution-state CLI (Phase 48-03)', () => {
     assert.deepStrictEqual(strayTempFiles, [], 'no .tmp-* files should remain after atomic writes complete');
   });
 });
+
+describe('Phase 48 cross-cutting trigger matrix — deterministic (Phase 48-04)', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  // NOTE: 48-01's "mine-conversations dedup on re-mine" describe block already
+  // proves the missing-project-slug-directory error path (discoverProjectConversations's
+  // `error` return) surfaces as {status: 'error'} with a clean exit 0, never an
+  // uncaught throw. This test exercises a DIFFERENT failure surface inside the
+  // same non-blocking contract -- prepareConversationForMining's own try/catch
+  // around fs.readFileSync (e.g. EISDIR when a discovered ".jsonl" entry turns
+  // out to be a directory, not a file) -- to lock in that the CLI boundary never
+  // throws uncaught regardless of WHERE inside the mining pipeline the failure
+  // originates.
+  test('mine-conversations tolerates a discovered ".jsonl" entry that is actually a directory -- never throws uncaught, always exits 0', () => {
+    const fakeHome = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-fakehome-'));
+    const projectDir = createTempProject();
+    try {
+      const realProjDir = fs.realpathSync(projectDir);
+      const slug = realProjDir.replace(/\//g, '-');
+      const slugDir = path.join(fakeHome, '.claude', 'projects', slug);
+      fs.mkdirSync(slugDir, { recursive: true });
+      // A directory named "*.jsonl" passes discoverProjectConversations' fs.statSync
+      // check (stat works fine on directories) but then fails inside
+      // prepareConversationForMining's fs.readFileSync (EISDIR) -- a genuinely
+      // different throw-prone code path than the missing-slug-dir case in 48-01.
+      fs.mkdirSync(path.join(slugDir, 'weird-session.jsonl'));
+
+      const result = runGsdTools(
+        'mine-conversations --max-age-days 30 --limit 50',
+        projectDir,
+        { HOME: fakeHome }
+      );
+      assert.ok(result.success, `CLI process itself must exit 0 (graceful, never an uncaught throw): ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.notStrictEqual(parsed.status, 'error', 'a single unreadable entry should not fail the whole mining run');
+      assert.strictEqual(parsed.sessionsSkipped >= 1, true, 'the directory-as-.jsonl entry should be skipped, not crash the process');
+      const skipped = parsed.skipped.find(s => s.sessionId === 'weird-session');
+      assert.ok(skipped, 'the unreadable entry should appear in skipped[] with a reason, not silently vanish');
+      assert.match(skipped.reason.toLowerCase(), /failed to read file/, 'skip reason should surface the underlying read error');
+    } finally {
+      cleanup(projectDir);
+      cleanup(fakeHome);
+    }
+  });
+
+  test('execution-state ceiling is monotonic: once action reaches "escalate", subsequent record-failure calls never regress back to "retry" or "debug"', () => {
+    // Default max_attempts is 4: attempts 1-4 should be retry, debug, debug, escalate.
+    // Attempts 5 and 6 (well past the ceiling) MUST still read "escalate" -- proving
+    // `action` is a monotonic ceiling (attempts < maxAttempts check), never a
+    // modulo/cycle back to an earlier action as attempts keeps incrementing.
+    const expectedThroughCeiling = ['retry', 'debug', 'debug', 'escalate'];
+    expectedThroughCeiling.forEach((expectedAction, idx) => {
+      const attemptNum = idx + 1;
+      const result = runGsdTools(
+        `execution-state record-failure --phase 60 --plan 01 --error "e${attemptNum}" --step "s${attemptNum}" --files "f.js" --raw`,
+        tmpDir
+      );
+      assert.ok(result.success, `record-failure call ${attemptNum} failed: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.action, expectedAction, `attempt ${attemptNum} should yield "${expectedAction}"`);
+    });
+
+    // Past the ceiling: two more failures, both must remain "escalate".
+    for (let extra = 1; extra <= 2; extra++) {
+      const attemptNum = 4 + extra;
+      const result = runGsdTools(
+        `execution-state record-failure --phase 60 --plan 01 --error "past-ceiling-${extra}" --step "s${attemptNum}" --files "f.js" --raw`,
+        tmpDir
+      );
+      assert.ok(result.success, `record-failure call ${attemptNum} failed: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.attempts, attemptNum, `attempt count should keep incrementing to ${attemptNum}`);
+      assert.strictEqual(parsed.action, 'escalate', `attempt ${attemptNum} (past the ceiling) must still be "escalate", never regress to retry/debug`);
+    }
+  });
+
+  test('auto_mine and execution.max_attempts coexist in one config.json with unrelated pre-existing keys -- full loadConfig() round-trip reads every field correctly', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'config.json'),
+      JSON.stringify({
+        auto_mine: false,
+        execution: { max_attempts: 7 },
+        workflow: { research: false, plan_check: false, verifier: false, nyquist_validation: false },
+        parallelization: false,
+        granularity: 'fine',
+        model_profile: 'quality',
+      }, null, 2)
+    );
+
+    const expectations = {
+      auto_mine: false,
+      max_attempts: 7,
+      research: false,
+      plan_checker: false,
+      verifier: false,
+      nyquist_validation: false,
+      parallelization: false,
+      granularity: 'fine',
+      model_profile: 'quality',
+    };
+
+    for (const [key, expectedValue] of Object.entries(expectations)) {
+      const result = runGsdTools(`config get ${key}`, tmpDir);
+      assert.ok(result.success, `config get ${key} failed: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(
+        parsed.value,
+        expectedValue,
+        `config key "${key}" should read back as ${JSON.stringify(expectedValue)} without interference from the other keys set alongside it`
+      );
+    }
+  });
+});
