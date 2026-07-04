@@ -4863,6 +4863,23 @@ const DOC_SATISFIED_RE = /(docs\/|README|CHANGELOG\.md)/i;
 const TEST_FILE_RE = /\.(test|spec)\.(ts|tsx|js)$/;
 const E2E_GENERATION_FAILED_FILENAME = 'E2E-GENERATION-FAILED.json';
 
+// Pure regex-based test-content counters (MILE-10, Phase 46-03). Deliberately
+// NOT AST-based -- regex counting is the accepted MVP bar for this milestone
+// (see 46-03-PLAN.md's scope boundary). countTestCalls intentionally does NOT
+// match `it.skip(`/`test.skip(`/`it.todo(` forms -- those have a `.`
+// immediately after `it`/`test`, not `(`, so the regex naturally excludes
+// them with no extra logic.
+function countTestCalls(content) {
+  if (!content) return 0;
+  const matches = content.match(/\b(?:it|test)\s*\(/g);
+  return matches ? matches.length : 0;
+}
+function countAssertions(content) {
+  if (!content) return 0;
+  const matches = content.match(/\b(?:expect|assert)\s*\(/g);
+  return matches ? matches.length : 0;
+}
+
 // Pure gap-detection function (MILE-08, Phase 46-01): given the phase's
 // touched files and the raw text content of E2E-TEST-PLAN.md (or null if the
 // file doesn't exist), returns which UI files' basenames are NOT mentioned
@@ -5042,14 +5059,14 @@ function loadPhaseGateInputs(cwd, phaseArg) {
   }
 
   // Touched files -- derived purely from git history, never from frontmatter.
-  const { files: touchedFiles, warnings: touchedWarnings } = collectPhaseTouchedFiles(cwd, phaseInfo.phase_number, validPlans);
+  const { files: touchedFiles, warnings: touchedWarnings, filesByPlan } = collectPhaseTouchedFiles(cwd, phaseInfo.phase_number, validPlans);
 
   // HAS_UI: diff-derived, independent of SUMMARY.md self-reports. Detects both
   // UI-extension files and UI-only-by-path route files (app/pages/routes,
   // excluding api/ sub-paths and config/declaration files). See 45-02-PLAN.md.
   const hasUi = computeHasUI(touchedFiles);
 
-  return { phaseInfo, phaseDir, dirFiles, touchedFiles, touchedWarnings, hasUi, malformedPlans, validPlans };
+  return { phaseInfo, phaseDir, dirFiles, touchedFiles, touchedWarnings, filesByPlan, hasUi, malformedPlans, validPlans };
 }
 
 function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
@@ -5202,6 +5219,175 @@ function cmdVerifyE2EGaps(cwd, phaseArg, raw) {
   } else {
     process.exit(1);
   }
+}
+
+// ─── Test-Content Coverage & Hollow-Test Detection (MILE-10, Phase 46-03) ────
+// Closes Loophole 7 / Issue 8: the verifier's existing Step 8d test-file
+// coverage check only proves a `.test.ts` file EXISTS -- it never checks
+// whether the file actually tests anything. computeTestContentCoverage is a
+// pure classifier (COVERED/PARTIAL/MISSING/not_applicable per requirement)
+// built on top of collectPhaseTouchedFiles's per-plan filesByPlan breakdown,
+// countTestCalls/countAssertions regex counting (accepted MVP bar -- no
+// mutation testing, no coverage percentages, no AST analysis), and a
+// net-zero-new-assertions check against the plan's first tagged commit.
+//
+// Scope boundary (per PRD Assumption #15 / this plan's <context>): only
+// requirements whose declaring plan(s) contain at least one tdd="true" task
+// are classified -- a requirement declared solely by a prose/workflow-editing
+// plan (no tdd task) is `not_applicable` and excluded from `passed`.
+function computeTestContentCoverage(cwd, phaseNumber, validPlans, filesByPlan) {
+  // reqId -> [{ planNum, hasTdd }] -- every declaring plan, tdd or not.
+  const reqToPlans = {};
+  for (const plan of validPlans || []) {
+    const planNum = plan.planNum || (plan.fm && plan.fm.plan);
+    if (!planNum) continue;
+    const hasTdd = /tdd=["']?true/.test(plan.content || '');
+    const reqIds = Array.isArray(plan.fm && plan.fm.requirements) ? plan.fm.requirements : [];
+    for (const reqId of reqIds) {
+      if (!reqToPlans[reqId]) reqToPlans[reqId] = [];
+      reqToPlans[reqId].push({ planNum, hasTdd });
+    }
+  }
+
+  const requirements = [];
+  const hollowFilesMap = new Map();
+  const netZeroFilesMap = new Map();
+
+  for (const reqId of Object.keys(reqToPlans)) {
+    const declaringPlans = reqToPlans[reqId];
+    const tddPlans = declaringPlans.filter(p => p.hasTdd);
+
+    if (tddPlans.length === 0) {
+      requirements.push({
+        req_id: reqId,
+        status: 'not_applicable',
+        source_plans: declaringPlans.map(p => p.planNum),
+        matched_files: [],
+      });
+      continue;
+    }
+
+    const matchedFiles = [];
+    let hollowCount = 0;
+    let netZeroCount = 0;
+
+    for (const tddPlan of tddPlans) {
+      const planTestFiles = (filesByPlan[tddPlan.planNum] || []).filter(f => TEST_FILE_RE.test(f));
+      for (const file of planTestFiles) {
+        if (!matchedFiles.includes(file)) matchedFiles.push(file);
+
+        const content = safeReadFile(path.join(cwd, file));
+        if (content === null) {
+          // Deleted/unreadable at HEAD -- never crash; contributes nothing,
+          // equivalent to hollow.
+          hollowCount += 1;
+          if (!hollowFilesMap.has(file)) hollowFilesMap.set(file, { file, source_plan: tddPlan.planNum });
+          continue;
+        }
+
+        const nonSkippedCount = countTestCalls(content);
+        const assertionCount = countAssertions(content);
+        // "Hollow" for gate purposes combines both bars from this plan's
+        // <context>: zero non-skipped test()/it() calls, OR real test calls
+        // with zero real assertions (no assertion = same bar as hollow).
+        const hollow = nonSkippedCount === 0 || assertionCount === 0;
+
+        if (hollow) {
+          hollowCount += 1;
+          if (!hollowFilesMap.has(file)) hollowFilesMap.set(file, { file, source_plan: tddPlan.planNum });
+          continue;
+        }
+
+        // Net-zero-new-assertions check: only meaningful for a non-hollow
+        // file that already has real assertions -- compare against the
+        // content as of the plan's earliest tagged commit.
+        const grepTag = `${phaseNumber}-${tddPlan.planNum}`;
+        const logResult = execGit(cwd, ['log', '--oneline', '--all', '--grep', grepTag, '--reverse']);
+        const commitLines = (logResult.stdout || '').split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+        let netZero = false;
+        let beforeCount = null;
+        if (commitLines.length > 0) {
+          const firstHash = commitLines[0].split(/\s+/)[0];
+          const beforeResult = execGit(cwd, ['show', `${firstHash}^:${file}`]);
+          if (beforeResult.exitCode === 0 && beforeResult.stdout) {
+            // File existed before this plan's first commit -- a real
+            // regression candidate. Missing/errored (new file in this phase,
+            // or root commit with no parent) => not a regression candidate.
+            beforeCount = countAssertions(beforeResult.stdout);
+            netZero = assertionCount <= beforeCount;
+          }
+        }
+
+        if (netZero) {
+          netZeroCount += 1;
+          if (!netZeroFilesMap.has(file)) {
+            netZeroFilesMap.set(file, { file, source_plan: tddPlan.planNum, before_count: beforeCount, after_count: assertionCount });
+          }
+        }
+      }
+    }
+
+    let status;
+    if (matchedFiles.length === 0) {
+      status = 'MISSING';
+    } else if (hollowCount === matchedFiles.length) {
+      // Every matched test file is hollow -- no real, non-hollow assertion
+      // exists anywhere for this requirement.
+      status = 'MISSING';
+    } else if (hollowCount > 0 || netZeroCount > 0) {
+      status = 'PARTIAL';
+    } else {
+      status = 'COVERED';
+    }
+
+    requirements.push({
+      req_id: reqId,
+      status,
+      source_plans: tddPlans.map(p => p.planNum),
+      matched_files: matchedFiles,
+    });
+  }
+
+  const hollow_tests = [...hollowFilesMap.values()];
+  const net_zero_assertion_files = [...netZeroFilesMap.values()];
+  const passed = requirements.filter(r => r.status !== 'not_applicable').every(r => r.status === 'COVERED');
+
+  return { requirements, hollow_tests, net_zero_assertion_files, passed };
+}
+
+// `verify test-content {phase}` -- CLI entry point for the classifier above.
+// Exit codes: 0 = passed; 1 = any requirement MISSING/PARTIAL or any
+// hollow_tests/net_zero_assertion_files entries exist; 2 = phase-not-found or
+// malformed-plan errors (matching the existing verify subcommand convention).
+function cmdVerifyTestContent(cwd, phaseArg, raw) {
+  const inputs = loadPhaseGateInputs(cwd, phaseArg);
+  if (inputs.error) {
+    process.stdout.write(JSON.stringify(inputs.error, null, 2));
+    process.exit(2);
+    return;
+  }
+  const { phaseInfo, validPlans, malformedPlans, filesByPlan } = inputs;
+
+  if (malformedPlans.length > 0) {
+    process.stdout.write(JSON.stringify({ error: true, type: 'malformed_plan', phase: phaseInfo.phase_number, malformed_plans: malformedPlans }, null, 2));
+    process.exit(2);
+    return;
+  }
+
+  const coverage = computeTestContentCoverage(cwd, phaseInfo.phase_number, validPlans, filesByPlan);
+
+  const result = {
+    phase: phaseInfo.phase_number,
+    requirements: coverage.requirements,
+    hollow_tests: coverage.hollow_tests,
+    net_zero_assertion_files: coverage.net_zero_assertion_files,
+    passed: coverage.passed,
+  };
+
+  process.stdout.write(JSON.stringify(result, null, 2));
+
+  process.exit(coverage.passed ? 0 : 1);
 }
 
 // ─── Deferred Waiver Protocol (MILE-07, Phase 45-03) ─────────────────────────
@@ -7795,6 +7981,7 @@ function findPhaseInternal(cwd, phase) {
 function collectPhaseTouchedFiles(cwd, phaseNumber, plans) {
   const fileSet = new Set();
   const warnings = [];
+  const filesByPlan = {};
 
   for (const plan of plans || []) {
     const planNum = plan.planNum || (plan.fm && plan.fm.plan);
@@ -7842,9 +8029,15 @@ function collectPhaseTouchedFiles(cwd, phaseNumber, plans) {
         warnings.push({ plan: planNum, warning: 'claimed_file_not_in_diff', file: claimed });
       }
     }
+
+    // Additive (Phase 46-03): per-plan file breakdown, used by
+    // computeTestContentCoverage to scope test files to the plan(s) that
+    // actually declare a given requirement -- existing callers destructure
+    // only { files, warnings } and are unaffected by this new key.
+    filesByPlan[planNum] = [...planFiles];
   }
 
-  return { files: [...fileSet], warnings };
+  return { files: [...fileSet], warnings, filesByPlan };
 }
 
 function pathExistsInternal(cwd, targetPath) {
@@ -10571,8 +10764,10 @@ async function main() {
         cmdVerifyPhaseGate(cwd, args[2], raw);
       } else if (subcommand === 'e2e-gaps') {
         cmdVerifyE2EGaps(cwd, args[2], raw);
+      } else if (subcommand === 'test-content') {
+        cmdVerifyTestContent(cwd, args[2], raw);
       } else {
-        error('Unknown verify subcommand. Available: plan-structure, phase-completeness, references, commits, artifacts, key-links, migration-timestamps, dependency-stability, phase-gate, e2e-gaps');
+        error('Unknown verify subcommand. Available: plan-structure, phase-completeness, references, commits, artifacts, key-links, migration-timestamps, dependency-stability, phase-gate, e2e-gaps, test-content');
       }
       break;
     }
