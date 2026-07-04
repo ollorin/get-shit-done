@@ -67,7 +67,6 @@
     "uninstall:gsd": "bash scripts/uninstall.sh"
   },
   "workspaces": [
-    "get-shit-done/modules/*",
     "mcp-servers/*"
   ]
 }
