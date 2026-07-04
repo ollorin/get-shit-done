@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-07-02)
 
 ## Current Position
 
-Phase: 44 of 50 (Reliability Foundations & Dead-Code Cleanup) — first phase of v1.14.0
-Plan: 1 of 5 in current phase
-Status: Ready to execute
-Last activity: 2026-07-04 — Executed 44-01 (JSON.parse guards + execSync hardening in gsd-tools.js, 136/136 tests passing)
+Phase: 45 of 50 (Deterministic Phase-Gate & Deferral Protocol) — in progress
+Plan: 2 of 5 in current phase
+Status: Phase 45 Plan 02 COMPLETE (diff-based HAS_UI detection) — ready to begin Plan 03 (deferred waiver protocol)
+Last activity: 2026-07-04 — Executed 45-02-PLAN.md: replaced the 45-01 extension-only HAS_UI stub with `isUIFile`/`computeHasUI(touchedFiles)` (route-pattern detection for app/pages/routes excluding api/ sub-paths and config/declaration files, UI_FILE_PATTERNS extended with .astro/.mdx), wired into cmdVerifyPhaseGate, 8 new tests, npm test 198/198 green. 45-02-SUMMARY.md written.
 
-Progress: [██░░░░░░░░░░░░░░░░░░] 10% (v1.14.0 — 1/5 plans in phase 44 complete)
+Progress: [██████████░░░░░░░░░░] v1.14.0 — Phase 44/7 complete (1 of 7 phases: 44-50); Phase 45: 2/5 plans complete
 
 ## Performance Metrics
 
@@ -39,6 +39,13 @@ Progress: [██░░░░░░░░░░░░░░░░░░] 10% (v1
 
 *Updated after each plan completion*
 | Phase 44 P01 | 21min | 3 tasks | 2 files |
+| Phase 44 P03 | multi-session | 3 tasks | 4 files |
+| Phase 44 P02 | ~15min | 2 tasks | 2 files |
+| Phase 44 P04 | single-session | 3 tasks | 9 deleted, 8 modified, 1 created |
+| Phase 44 P05 | single-session | 2 tasks | 3 files |
+| Phase 44 TOTAL | multi-session (3 coordinators) | 13 tasks | VERIFIED passed |
+| Phase 45 P01 | 20min | 3 tasks | 2 files |
+| Phase 45 P02 | 15 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -54,6 +61,9 @@ Recent decisions affecting current work:
 - [Phase 34]: CHECKPOINT.json step_status "complete" means step ran; outcome read from VERIFICATION.md status
 - [Phase 44]: safeJsonParse and expandGlobSync/findCodeFilesSync added as top-level functions in gsd-tools.js (no module-split refactor per CONTEXT.md discretion)
 - [Phase 44]: JSONL log-parsing loops use per-line skip-and-warn (matching existing local convention) rather than terminal error() for validation-log.jsonl reads
+- [Phase 44]: atomicWriteFileSync (44-02) guarantees no torn/corrupted writes but NOT cross-process lost-update prevention under genuinely simultaneous writers -- explicitly out of scope per 44-CONTEXT.md; documented in deferred-items.md; verifier confirmed this is a justified scope boundary, not a gap
+- [Phase 45]: collectPhaseTouchedFiles derives touched files exclusively from git log --grep + diff-tree (never PLAN.md/SUMMARY.md self-reports); git diff-tree requires --root to correctly handle a phase's root commit
+- [Phase 45]: computeHasUI(touchedFiles) is a pure diff-derived detector (extension match OR app/pages/routes path, excluding api/ sub-paths and config/declaration files) — HAS_UI is never read from SUMMARY.md self-reports, so a .tsx file omitted from key-files still triggers Charlotte QA/E2E gates
 
 ### Roadmap Evolution
 
@@ -78,11 +88,11 @@ None.
 
 ### Next Steps
 
-- Execute 44-02-PLAN.md (atomic write-rename for STATE.md/ROADMAP.md/config.json) on branch feature/enforcement-and-integration
-- Then continue executing 44-03 through 44-05, then roadmap autonomously through phase 50
+- Begin Phase 45 (Deterministic Phase-Gate & Deferral Protocol) — discuss/research/plan/execute/verify cycle
+- Continue roadmap autonomously through phase 50 (46 Artifact-Generation & Coverage Gates, 47 Telegram Escalation Reliability, 48 Satellite Injections, 49 Knowledge Auto-Wiring, 50 Final Deletions & Verification Sweep)
 
 ## Session Continuity
 
-Last session: 2026-07-04T11:00:32Z
-Stopped at: Completed 44-01-PLAN.md
-Resume file: None
+Last session: 2026-07-04T17:44:25Z
+Stopped at: Completed 45-02-PLAN.md
+Resume file: .planning/phases/45-phase-gate-deferral/45-03-PLAN.md

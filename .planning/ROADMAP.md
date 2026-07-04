@@ -414,14 +414,14 @@ Plans:
   2. A GitHub Actions workflow runs `npm test` on push and pull request; install builds `hooks/dist` if missing, `PreToolUse` hooks are timeout-wrapped, and hook dependency failures fail the install loudly instead of registering silently
   3. `get-shit-done/modules/` stubs, `skills/llmlingua-comparison/`, orphaned hook files, `parallel-executor.js` + its requiring command, the broken quota auto-compression branch in `token-monitor.js`, and stale template/QGATE-07 references are removed — each deletion preceded by a fresh zero-reference grep in the same session; `scripts/install-hooks.js` removed only if confirmed fully duplicated by `bin/install.js`
   4. Integration tests cover: malformed JSON per guarded site (typed error, not crash); execSync replacement sites (no shell injection via crafted branch/file names); concurrent `STATE.md` writes (both updates preserved); CI config runs on push and PR events
-**Plans:** 1/5 plans executed
+**Plans:** 5/5 plans executed — PHASE COMPLETE, VERIFIED (status: passed, 2026-07-04)
 
 Plans:
-- [ ] 44-01: JSON.parse guards + execSync → spawn/execFile hardening in gsd-tools.js
-- [ ] 44-02: Atomic write-rename for STATE.md / ROADMAP.md / config.json read-modify-write paths
-- [ ] 44-03: GitHub Actions CI (npm test on push/PR) + installer fixes (hooks/dist build, timeout-wrapped PreToolUse, loud dependency failures)
-- [ ] 44-04: Category-A dead-code deletions with fresh zero-reference greps (modules/ stubs, llmlingua-comparison, orphaned hooks, parallel-executor, quota branch, stale refs, install-hooks.js if duplicated)
-- [ ] 44-05: Integration tests — JSON guard sites, injection resistance, concurrent state writes
+- [x] 44-01: JSON.parse guards + execSync → spawn/execFile hardening in gsd-tools.js
+- [x] 44-02: Atomic write-rename for STATE.md / ROADMAP.md / config.json read-modify-write paths
+- [x] 44-03: GitHub Actions CI (npm test on push/PR) + installer fixes (hooks/dist build, timeout-wrapped PreToolUse, loud dependency failures)
+- [x] 44-04: Category-A dead-code deletions with fresh zero-reference greps (modules/ stubs, llmlingua-comparison, orphaned hooks, parallel-executor, quota branch, stale refs, install-hooks.js if duplicated)
+- [x] 44-05: Integration tests — JSON guard sites, injection resistance, concurrent state writes
 
 #### Phase 45: Deterministic Phase-Gate & Deferral Protocol
 
@@ -434,7 +434,7 @@ Plans:
   3. `DEFERRED.json` (`{step, reason, approver, timestamp, phase, plan}`) is defined, documented, and satisfies any expected-artifact check in place of the artifact; every self-waiver fires a non-blocking Telegram notification at write time; `audit-milestone` surfaces all accumulated waivers as a visible table
   4. `execute-phase.md`, `execute-roadmap.md`, `gsd-executor.md`, and `gsd-phase-coordinator.md` call phase-gate and treat non-zero exit as blocking; skipping a mandatory step requires writing the waiver as part of the skip; the prose "MUST" checklists the gate replaces are removed from the corresponding agent prompts (not left duplicated)
   5. Integration tests cover: all artifacts present → pass; each artifact type missing individually → correct `failure_type`; waiver present for missing artifact → pass; malformed frontmatter → typed error; UI file omitted from SUMMARY → detected; non-UI plan → not flagged; mixed plan → detected; valid waiver → pass; missing waiver → fail; malformed JSON waiver → loud typed error, never silently ignored
-**Plans:** TBD
+**Plans:** 2/5 plans executed
 
 Plans:
 - [ ] 45-01: `verify phase-gate` subcommand — expected-artifact computation from plan type + touched files, machine-readable JSON output, typed failure types
@@ -577,7 +577,7 @@ Plans:
 | 42. Milestone PRD Integration | v1.13.0 | 0/TBD | Not started | - |
 | 43. Docs Automation | v1.13.0 | 0/TBD | Not started | - |
 | 44. Reliability Foundations & Dead-Code Cleanup | 1/5 | In Progress|  | - |
-| 45. Deterministic Phase-Gate & Deferral Protocol | v1.14.0 | 0/TBD | Not started | - |
+| 45. Deterministic Phase-Gate & Deferral Protocol | 2/5 | In Progress|  | - |
 | 46. Artifact-Generation & Coverage Gates | v1.14.0 | 0/TBD | Not started | - |
 | 47. Telegram Escalation Reliability | v1.14.0 | 0/TBD | Not started | - |
 | 48. Satellite Injections: Mining, Discovery, Debugger | v1.14.0 | 0/TBD | Not started | - |
