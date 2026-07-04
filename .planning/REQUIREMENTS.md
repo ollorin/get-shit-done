@@ -69,9 +69,9 @@
 - [x] **MILE-05**: Deterministic `gsd-tools.js verify phase-gate {phase}` command computes expected artifacts from plan type and touched files, returns machine-readable JSON, exits non-zero on any missing artifact without a matching waiver, and is called as blocking (not advisory) by execute-phase/execute-roadmap; replaced prose "MUST" checklists are removed from agent prompts (US-1)
 - [x] **MILE-06**: `HAS_UI` is computed from `git diff --name-only` (file extensions, route-pattern files), never from self-reported SUMMARY.md metadata — UI files omitted from SUMMARY are still detected and trigger Charlotte QA + E2E requirements (US-2)
 - [x] **MILE-07**: Any skipped mandatory step requires a machine-readable `DEFERRED.json` entry (`{step, reason, approver, timestamp, phase, plan}`); self-waivers fire a non-blocking Telegram notification at write time; `audit-milestone` surfaces all waivers as a visible table (US-3)
-- [ ] **MILE-08**: `gsd-e2e-test-generator` auto-spawns when `HAS_UI=true` and `E2E-TEST-PLAN.md` is missing or has coverage gaps, before phase-gate evaluates — idempotent when coverage is complete, generator failure fails the gate with a clear `failure_type` (US-4)
-- [ ] **MILE-09**: `gsd-docs-updater` returns a structured contract and its failure (thrown error, timeout, or "no changes" with matched documentation-worthy signals) blocks phase completion, waivable only via DEFERRED.json — never log-and-continue (US-5)
-- [ ] **MILE-10**: The verifier classifies each PLAN.md requirement ID COVERED/PARTIAL/MISSING against test files, fails hollow tests (empty describe blocks, net-zero new assertions), blocking-spawns `gsd-nyquist-auditor` on gaps, and escalates unfillable gaps as `gaps_found`; `/gsd:validate-phase` is deleted once absorbed (US-6)
+- [x] **MILE-08**: `gsd-e2e-test-generator` auto-spawns when `HAS_UI=true` and `E2E-TEST-PLAN.md` is missing or has coverage gaps, before phase-gate evaluates — idempotent when coverage is complete, generator failure fails the gate with a clear `failure_type` (US-4)
+- [x] **MILE-09**: `gsd-docs-updater` returns a structured contract and its failure (thrown error, timeout, or "no changes" with matched documentation-worthy signals) blocks phase completion, waivable only via DEFERRED.json — never log-and-continue (US-5)
+- [x] **MILE-10**: The verifier classifies each PLAN.md requirement ID COVERED/PARTIAL/MISSING against test files, fails hollow tests (empty describe blocks, net-zero new assertions), blocking-spawns `gsd-nyquist-auditor` on gaps, and escalates unfillable gaps as `gaps_found`; `/gsd:validate-phase` is deleted once absorbed (US-6)
 
 #### Satellite Injections
 
@@ -139,9 +139,9 @@
 | MILE-05 | Phase 45 | Complete |
 | MILE-06 | Phase 45 | Complete |
 | MILE-07 | Phase 45 | Complete |
-| MILE-08 | Phase 46 | Pending |
-| MILE-09 | Phase 46 | Pending |
-| MILE-10 | Phase 46 | Pending |
+| MILE-08 | Phase 46 | Complete |
+| MILE-09 | Phase 46 | Complete |
+| MILE-10 | Phase 46 | Complete |
 | MILE-11 | Phase 48 | Pending |
 | MILE-12 | Phase 48 | Pending |
 | MILE-13 | Phase 48 | Pending |

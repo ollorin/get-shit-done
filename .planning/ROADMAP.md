@@ -454,7 +454,7 @@ Plans:
   3. The verifier's init step classifies each PLAN.md requirement ID COVERED / PARTIAL / MISSING against test files; an empty describe block or net-zero new assertions since a prior commit fails the gate; gaps blocking-spawn `gsd-nyquist-auditor`; unfillable gaps escalate as `gaps_found`, never silently pass
   4. `/gsd:validate-phase` is deleted once this lands — its function fully absorbed into the verifier gate (fresh zero-reference grep before deletion)
   5. Integration tests cover: E2E gap → generator spawned → plan produced; full coverage → generator skipped; generator failure → gate fails; docs success → pass; docs exception → block; docs no-changes-with-signals + no waiver → block; empty test file → `missing_test`; real assertions → pass; unmatched requirement → MISSING + nyquist invoked; unfillable gap → `gaps_found`
-**Plans:** TBD
+**Plans:** 4/4 plans complete
 
 Plans:
 - [ ] 46-01: E2E generator auto-spawn — gap detection, idempotent skip on full coverage, failure_type on generator failure
@@ -472,7 +472,7 @@ Plans:
   2. JSONL question/session state writes use real file locking (the vendored `proper-lockfile`) or atomic write-rename — no concurrent-daemon corruption; notification delivery failure is detected, logged loudly, and retried with bounded backoff, never silently dropped
   3. A blocking question that reaches its timeout during autonomous execution resolves to a configurable fallback (default: DEFERRED.json entry with `approver: "timeout-fallback"`, blocked item parked, run continues with non-dependent work); daemon-down-at-escalation-time logs the failure, applies the same fallback, and the escalation failure appears in the milestone audit
   4. Integration tests cover: daemon down → prompt typed error, not 45s hang; question timeout → fallback fires + DEFERRED entry written; concurrent state writes → no corruption; delivery failure → logged + retried, run continues
-**Plans:** TBD
+**Plans:** 2/3 plans executed
 
 Plans:
 - [ ] 47-01: Daemon-crash detection + double-timer race fix (single timeout owner, deterministic failure on crash during pending question)
@@ -578,8 +578,8 @@ Plans:
 | 43. Docs Automation | v1.13.0 | 0/TBD | Not started | - |
 | 44. Reliability Foundations & Dead-Code Cleanup | 1/5 | In Progress|  | - |
 | 45. Deterministic Phase-Gate & Deferral Protocol | 5/5 | Complete   | 2026-07-04 | - |
-| 46. Artifact-Generation & Coverage Gates | v1.14.0 | 0/TBD | Not started | - |
-| 47. Telegram Escalation Reliability | v1.14.0 | 0/TBD | Not started | - |
+| 46. Artifact-Generation & Coverage Gates | 4/4 | Complete   | 2026-07-04 | - |
+| 47. Telegram Escalation Reliability | 2/3 | In Progress|  | - |
 | 48. Satellite Injections: Mining, Discovery, Debugger | v1.14.0 | 0/TBD | Not started | - |
 | 49. Knowledge Auto-Wiring & CLI Cleanup | v1.14.0 | 0/TBD | Not started | - |
 | 50. Final Deletions & Verification Sweep | v1.14.0 | 0/TBD | Not started | - |

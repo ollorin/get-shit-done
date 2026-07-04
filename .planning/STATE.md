@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-07-02)
 
 ## Current Position
 
-Phase: 45 of 50 (Deterministic Phase-Gate & Deferral Protocol) — COMPLETE, ready for verification
-Plan: 5 of 5 in current phase (all plans complete)
-Status: Phase 45 Plan 05 COMPLETE (cross-cutting integration tests) — Phase 45 feature-complete, ready for gsd-verifier
-Last activity: 2026-07-04 — Executed 45-05-PLAN.md: added 18 cross-cutting integration tests to gsd-tools.test.js exercising the full phase-gate matrix, HAS_UI matrix, and DEFERRED.json waiver matrix (including phase-wide vs plan-scoped waiver scoping and full round-trip malformed-file agreement across deferred add/deferred list/verify phase-gate) via real CLI subprocess against temp git-repo fixtures. npm test 224/224 green (full Phase 44 + Phase 45 suite). 45-05-SUMMARY.md written.
+Phase: 47 of 50 (Telegram Escalation Reliability) — IN PROGRESS
+Plan: 2 of 3 in current phase complete
+Status: Phase 47 Plan 02 complete (JSONL state locking + delivery-failure retry, MILE-21 partial); Plan 03 (overnight timeout fallback + workflow-layer wiring) remains. Phase 45 and 46 still pending gsd-verifier (not yet run).
+Last activity: 2026-07-04 — Executed 47-02-PLAN.md (Plan 2 of 3, Phase 47): saveState() rewritten to write-temp-then-fs.renameSync atomically (no torn/partial JSONL file ever survives a crash mid-write); added getStateFilePath(projectRoot?) mirroring getSocketPath()'s SHA1-hash scheme, closing the cross-project-collision gap; QuestionService's stateFilePath is now constructor-injectable (5th arg); daemon/index.ts computes stateFilePath once and reuses it for both the restore-on-boot read and the constructor. Added shared/retry.ts's withRetry() bounded-backoff helper (4 total attempts, 500ms/1500ms/4000ms delays, injectable sleepFn) and wired it into sendToGroup/sendToThread/createForumTopic in daemon/bot/index.ts (reactToMessage left unwrapped, cosmetic/out of scope). Added 19 new tests (socket-path.test.ts, appended question-service.test.ts block, retry.test.ts, daemon/bot/index.test.ts) — 35/35 telegram-mcp tests passing, 251/251 root npm test passing. Deviation (Rule 3): package.json's test script (`node --test dist/**/*.test.js`) silently missed the new two-levels-deep dist/daemon/bot/index.test.js under sh's non-globstar glob semantics (false-green 29/29 that omitted this plan's own bot-wiring tests) — fixed by switching to `find dist -name '*.test.js' | xargs node --test`, which recurses correctly regardless of shell; documented in 47-02-SUMMARY.md. No Agent/Task tool available — tests written directly, gsd-docs-updater waiver filed (--step docs --approver executor-manual-assessment --plan 02), matching 47-01's precedent. Production Telegram daemon (topic 3208, PID running since Jul 2) confirmed never restarted or touched throughout (state file mtime predates this session). The pre-existing STATE.md-format mismatch with `state advance-plan`/`update-progress` persisted here too — worked around via manual STATE.md edit.
 
-Progress: [██████████░░░░░░░░░░] v1.14.0 — Phase 44/7 complete (1 of 7 phases: 44-50); Phase 45: 5/5 plans complete
+Progress: [██████████░░░░░░░░░░] v1.14.0 — Phase 44/7 complete (1 of 7 phases: 44-50); Phase 45: 5/5 plans complete (pending verification); Phase 46: 4/4 plans complete (pending verification); Phase 47: 2/3 plans complete
 
 ## Performance Metrics
 
@@ -49,6 +49,12 @@ Progress: [██████████░░░░░░░░░░] v1.14.0
 | Phase 45 P03 | ~15min | 3 tasks | 3 files |
 | Phase 45 P04 | 12min | 2 tasks | 4 files |
 | Phase 45 P05 | ~15min | 2 tasks | 1 file |
+| Phase 46 P01 | 12min | 3 tasks | 3 files |
+| Phase 46 P02 | ~15min | 3 tasks | 3 files |
+| Phase 46 P03 | ~20min | 3 tasks | 4 files |
+| Phase 46 P04 | 12min | 2 tasks | 6 files |
+| Phase 47 P01 | 47min | 5 tasks | 9 files |
+| Phase 47 P02 | ~35min | 5 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -71,6 +77,12 @@ Recent decisions affecting current work:
 - [Phase 45]: notifyTelegramWaiver fires after the atomic DEFERRED.json write succeeds and is never awaited — Telegram notification success/failure never affects deferred add's exit code or output
 - [Phase 45]: [Phase 45-04]: verify phase-gate is now actually invoked as a BLOCKING gate by execute-phase.md Gate 1 and execute-roadmap.md step 5a's HAS_UI check — deterministic tool call is no longer inert
 - [Phase 45]: [Phase 45-05]: Cross-cutting integration tests confirm findPhaseGateWaiver's plan-scoping is never honored by cmdVerifyPhaseGate today (always called with planNum=null) -- phase-wide waivers satisfy checks, plan-scoped waivers never do; 224/224 npm test passing, Phase 45 complete and ready for verification
+- [Phase 46]: [Phase 46-01]: computeE2ECoverageGaps/readE2EGenerationFailure are shared verbatim between cmdVerifyPhaseGate and the new `verify e2e-gaps` via a single loadPhaseGateInputs() extraction, so the pre-check execute-phase.md runs before Gate 1 and the actual gate can never disagree about what counts as a coverage gap; E2E-GENERATION-FAILED.json failure_type REPLACES missing_e2e_plan rather than adding a second failure entry; execute-phase.md's E2E coverage closure step now runs before Gate 1 (renumbered Step 6.35), closing Loophole 5 for MILE-08/US-4
+- [Phase 46]: [Phase 46-02]: gsd-docs-updater.md's written_files:[] + errors:[] combination is defined as never a legitimate silent no-op — both callers (gsd-executor.md's docs_update, execute-plan.md's documentation_hard_gate) treat that exact combination as a failure signal without additional heuristics; deferred add --step docs is the only sanctioned bypass in either caller, matching execute-phase.md Gate 1's waiver pattern, closing Loophole 3/Issue 1 for MILE-09
+- [Phase 46]: [Phase 46-03]: computeTestContentCoverage classifies requirements COVERED/PARTIAL/MISSING/not_applicable scoped to tdd="true" declaring plans; gsd-verifier.md Step 6c blocking-spawns gsd-nyquist-auditor on any gap and escalates unfillable gaps as gaps_found, closing Loophole 7/Issue 8 for MILE-10
+- [Phase 46]: [Phase 46-04]: /gsd:validate-phase deleted after fresh same-session grep confirmed zero remaining references; its function fully absorbed by gsd-verifier's Step 6c test-content gate (46-03); cross-cutting integration tests prove 46-01/46-02/46-03's gates compose without interfering; MILE-09 flipped MISSING->COVERED
+- [Phase 47]: [Phase 47-01]: restoreState() collapses to one deterministic path -- every restored pending question is dropped+notified regardless of expiry, since a daemon crash destroys the owning Promise/listener either way; DaemonUnavailableError (code DAEMON_UNAVAILABLE) is the typed signal at every client-side daemon-unavailability detection point; reconnect-policy.ts extracted as pure zero-import-from-adapter/index.ts functions; telegram-mcp's test infra is tsc+node --test dist/**/*.test.js (not the no-compile-step approach originally assumed), reuse this for 47-02/47-03
+- [Phase 47]: [Phase 47-02]: saveState() writes atomically (temp-file + fs.renameSync); getStateFilePath(projectRoot?) mirrors getSocketPath()'s SHA1-hash scheme for per-project state-file scoping; shared/retry.ts's withRetry() (4 attempts, 500/1500/4000ms) wraps sendToGroup/sendToThread/createForumTopic, never reactToMessage; telegram-mcp's test script corrected from `dist/**/*.test.js` (silently misses files >1 dir deep under sh) to `find dist -name '*.test.js' | xargs node --test` -- reuse this corrected form for 47-03
 
 ### Roadmap Evolution
 
@@ -95,11 +107,13 @@ None.
 
 ### Next Steps
 
-- Run gsd-verifier against Phase 45 (Deterministic Phase-Gate & Deferral Protocol) — all 5 plans complete, 224/224 npm test passing
-- Continue roadmap autonomously through phase 50 (46 Artifact-Generation & Coverage Gates, 47 Telegram Escalation Reliability, 48 Satellite Injections, 49 Knowledge Auto-Wiring, 50 Final Deletions & Verification Sweep)
+- Run gsd-verifier against Phase 45 (Deterministic Phase-Gate & Deferral Protocol) — all 5 plans complete, 224/224 npm test passing (still pending, not blocking Phase 46 execution)
+- Run gsd-verifier against Phase 46 (Artifact-Generation & Coverage Gates) — all 4 plans complete, 251/251 npm test passing
+- Execute 47-03-PLAN.md (overnight timeout fallback + workflow-layer wiring) to complete Phase 47
+- Continue roadmap autonomously through phase 50 (48 Satellite Injections, 49 Knowledge Auto-Wiring, 50 Final Deletions & Verification Sweep)
 
 ## Session Continuity
 
-Last session: 2026-07-04T20:21:00Z
-Stopped at: Completed 45-05-PLAN.md (Phase 45 feature-complete)
-Resume file: none — Phase 45 ready for verification; next is Phase 46 planning after verification passes
+Last session: 2026-07-04T21:17:04Z
+Stopped at: Completed 47-02-PLAN.md (Phase 47 Plan 02 of 3)
+Resume file: none — next is 47-03-PLAN.md (Phase 47 Plan 03), pending gsd-verifier runs for Phases 45 and 46
