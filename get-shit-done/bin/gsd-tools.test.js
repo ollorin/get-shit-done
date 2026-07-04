@@ -3616,3 +3616,314 @@ describe('CI workflow config sanity check (Phase 44-05, static file check, no ne
     assert.ok(/steps:/.test(content), `workflow should declare "steps:" under the job, got:\n${content}`);
   });
 });
+
+describe('verify phase-gate command (Phase 45-01)', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+    execSync('git init', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git config user.email "gsd-test@example.com"', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git config user.name "GSD Test"', { cwd: tmpDir, stdio: 'pipe' });
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function phaseDirPath(phaseDirName) {
+    return path.join(tmpDir, '.planning', 'phases', phaseDirName);
+  }
+
+  // Commits everything currently on disk in tmpDir, tagging the message with
+  // {phase}-{plan} the same way the real `commit` command / executors do --
+  // this is exactly the convention collectPhaseTouchedFiles's `git log --grep`
+  // walk depends on.
+  function commitAll(message) {
+    execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
+    execSync(`git commit -q --allow-empty -m "${message}"`, { cwd: tmpDir, stdio: 'pipe' });
+  }
+
+  // Like runGsdTools but also surfaces the real process exit code (needed here
+  // because phase-gate uses distinct exit codes: 0 passed, 1 failed checks,
+  // 2 malformed plan/waiver data).
+  function runPhaseGate(phaseArg, cwd) {
+    try {
+      const result = execSync(`node "${TOOLS_PATH}" verify phase-gate ${phaseArg}`, {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      return { success: true, output: result.trim(), exitCode: 0 };
+    } catch (err) {
+      return {
+        success: false,
+        output: err.stdout?.toString().trim() || '',
+        error: err.stderr?.toString().trim() || '',
+        exitCode: err.status ?? 1,
+      };
+    }
+  }
+
+  test('phase not found returns typed phase_not_found error, non-zero exit, no crash', () => {
+    const result = runPhaseGate('99', tmpDir);
+    assert.strictEqual(result.success, false, 'should exit non-zero for an unknown phase');
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.error, true);
+    assert.strictEqual(parsed.type, 'phase_not_found');
+    assert.strictEqual(parsed.phase, '99');
+  });
+
+  test('all 5 artifacts present (no tdd task, no UI files, VERIFICATION.md present, no doc signal) -> passed true, exit 0', () => {
+    const phaseDir = phaseDirPath('45-allgood');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(phaseDir, '45-01-PLAN.md'),
+      `---\nphase: "45"\nplan: "01"\ntype: execute\nfiles_modified: []\n---\n<tasks>\n<task type="auto">\n<name>Task 1</name>\n<action>do stuff</action>\n</task>\n</tasks>\n`
+    );
+    commitAll('feat(45-01): plain task, no tdd, no ui');
+    fs.writeFileSync(
+      path.join(phaseDir, '45-VERIFICATION.md'),
+      `---\nphase: "45"\nstatus: passed\n---\n# Verification\n`
+    );
+
+    const result = runPhaseGate('45', tmpDir);
+    assert.ok(result.success, `Command should exit 0: ${result.error}`);
+    assert.strictEqual(result.exitCode, 0);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.passed, true);
+    assert.deepStrictEqual(parsed.failures, []);
+    assert.strictEqual(parsed.malformed_plans.length, 0);
+    assert.strictEqual(parsed.has_ui, false);
+  });
+
+  test('tdd="true" task present but no test/spec file in touched-files diff -> missing_test, passed false, exit 1', () => {
+    const phaseDir = phaseDirPath('45-notest');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(phaseDir, '45-01-PLAN.md'),
+      `---\nphase: "45"\nplan: "01"\ntype: execute\nfiles_modified: []\n---\n<tasks>\n<task type="auto" tdd="true">\n<name>Task 1</name>\n<action>do stuff</action>\n</task>\n</tasks>\n`
+    );
+    fs.writeFileSync(path.join(phaseDir, 'impl.js'), 'module.exports = {};\n');
+    commitAll('feat(45-01): impl with tdd task but no test file committed');
+    fs.writeFileSync(
+      path.join(phaseDir, '45-VERIFICATION.md'),
+      `---\nphase: "45"\nstatus: passed\n---\n# Verification\n`
+    );
+
+    const result = runPhaseGate('45', tmpDir);
+    assert.strictEqual(result.success, false);
+    assert.strictEqual(result.exitCode, 1);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.passed, false);
+    assert.ok(parsed.failures.includes('missing_test'), `expected missing_test in failures: ${JSON.stringify(parsed.failures)}`);
+    const testCheck = parsed.checks.find(c => c.type === 'test');
+    assert.strictEqual(testCheck.required, true);
+    assert.strictEqual(testCheck.satisfied, false);
+    assert.strictEqual(testCheck.failure_type, 'missing_test');
+  });
+
+  test('.tsx file in diff but CHECKPOINT.json missing -> missing_charlotte_qa', () => {
+    const phaseDir = phaseDirPath('45-nocharlotte');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(phaseDir, '45-01-PLAN.md'),
+      `---\nphase: "45"\nplan: "01"\ntype: execute\nfiles_modified: []\n---\n<tasks>\n<task type="auto">\n<name>Task 1</name>\n<action>do stuff</action>\n</task>\n</tasks>\n`
+    );
+    fs.writeFileSync(path.join(phaseDir, 'Dashboard.tsx'), 'export default function Dashboard() { return null; }\n');
+    commitAll('feat(45-01): add Dashboard.tsx, no CHECKPOINT.json');
+    fs.writeFileSync(
+      path.join(phaseDir, '45-VERIFICATION.md'),
+      `---\nphase: "45"\nstatus: passed\n---\n# Verification\n`
+    );
+    fs.writeFileSync(path.join(phaseDir, 'E2E-TEST-PLAN.md'), '# E2E Test Plan\n');
+
+    const result = runPhaseGate('45', tmpDir);
+    assert.strictEqual(result.success, false);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.has_ui, true);
+    assert.ok(parsed.failures.includes('missing_charlotte_qa'), `expected missing_charlotte_qa in failures: ${JSON.stringify(parsed.failures)}`);
+    const charlotteCheck = parsed.checks.find(c => c.type === 'charlotte_qa');
+    assert.strictEqual(charlotteCheck.required, true);
+    assert.strictEqual(charlotteCheck.satisfied, false);
+  });
+
+  test('.tsx file in diff but no E2E-TEST-PLAN.md -> missing_e2e_plan', () => {
+    const phaseDir = phaseDirPath('45-noe2e');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(phaseDir, '45-01-PLAN.md'),
+      `---\nphase: "45"\nplan: "01"\ntype: execute\nfiles_modified: []\n---\n<tasks>\n<task type="auto">\n<name>Task 1</name>\n<action>do stuff</action>\n</task>\n</tasks>\n`
+    );
+    fs.writeFileSync(path.join(phaseDir, 'Dashboard.tsx'), 'export default function Dashboard() { return null; }\n');
+    fs.writeFileSync(path.join(phaseDir, 'CHECKPOINT.json'), JSON.stringify({ charlotte_qa_ran: true }));
+    commitAll('feat(45-01): add Dashboard.tsx, charlotte ran, no E2E plan');
+    fs.writeFileSync(
+      path.join(phaseDir, '45-VERIFICATION.md'),
+      `---\nphase: "45"\nstatus: passed\n---\n# Verification\n`
+    );
+
+    const result = runPhaseGate('45', tmpDir);
+    assert.strictEqual(result.success, false);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.has_ui, true);
+    assert.ok(parsed.failures.includes('missing_e2e_plan'), `expected missing_e2e_plan in failures: ${JSON.stringify(parsed.failures)}`);
+    const charlotteCheck = parsed.checks.find(c => c.type === 'charlotte_qa');
+    assert.strictEqual(charlotteCheck.satisfied, true, 'charlotte_qa should be satisfied via CHECKPOINT.json in this fixture');
+    const e2eCheck = parsed.checks.find(c => c.type === 'e2e_plan');
+    assert.strictEqual(e2eCheck.required, true);
+    assert.strictEqual(e2eCheck.satisfied, false);
+  });
+
+  test('doc-worthy signal (touched api/ file) but no docs commit/file -> missing_docs', () => {
+    // Note: deliberately avoid any phase-dir name containing the substring
+    // "docs/" (e.g. "45-nodocs") -- that would spuriously satisfy the docs
+    // check itself, since DOC_SATISFIED_RE matches "docs/" anywhere in the
+    // touched-file path, including the phase directory name.
+    const phaseDir = phaseDirPath('45-apisignal');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    fs.mkdirSync(path.join(phaseDir, 'src', 'api'), { recursive: true });
+    fs.writeFileSync(
+      path.join(phaseDir, '45-01-PLAN.md'),
+      `---\nphase: "45"\nplan: "01"\ntype: execute\nfiles_modified: []\n---\n<tasks>\n<task type="auto">\n<name>Task 1</name>\n<action>do stuff</action>\n</task>\n</tasks>\n`
+    );
+    fs.writeFileSync(path.join(phaseDir, 'src', 'api', 'users.js'), 'module.exports = {};\n');
+    commitAll('feat(45-01): add src/api/users.js, no docs touched');
+    fs.writeFileSync(
+      path.join(phaseDir, '45-VERIFICATION.md'),
+      `---\nphase: "45"\nstatus: passed\n---\n# Verification\n`
+    );
+
+    const result = runPhaseGate('45', tmpDir);
+    assert.strictEqual(result.success, false);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.has_ui, false, 'api/ file is not a UI file extension');
+    assert.ok(parsed.failures.includes('missing_docs'), `expected missing_docs in failures: ${JSON.stringify(parsed.failures)}`);
+    const docsCheck = parsed.checks.find(c => c.type === 'docs');
+    assert.strictEqual(docsCheck.required, true);
+    assert.strictEqual(docsCheck.satisfied, false);
+  });
+
+  test('no *-VERIFICATION.md present -> missing_verification', () => {
+    const phaseDir = phaseDirPath('45-noverify');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(phaseDir, '45-01-PLAN.md'),
+      `---\nphase: "45"\nplan: "01"\ntype: execute\nfiles_modified: []\n---\n<tasks>\n<task type="auto">\n<name>Task 1</name>\n<action>do stuff</action>\n</task>\n</tasks>\n`
+    );
+    commitAll('feat(45-01): plain task, no verification file');
+
+    const result = runPhaseGate('45', tmpDir);
+    assert.strictEqual(result.success, false);
+    assert.strictEqual(result.exitCode, 1);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.passed, false);
+    assert.ok(parsed.failures.includes('missing_verification'), `expected missing_verification in failures: ${JSON.stringify(parsed.failures)}`);
+    const verificationCheck = parsed.checks.find(c => c.type === 'verification');
+    assert.strictEqual(verificationCheck.required, true);
+    assert.strictEqual(verificationCheck.satisfied, false);
+  });
+
+  test('malformed/missing frontmatter (no plan field) -> malformed_plans entry, passed false, exit 2, no crash', () => {
+    const phaseDir = phaseDirPath('45-malformed');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    // Missing the required `plan` frontmatter field entirely.
+    fs.writeFileSync(
+      path.join(phaseDir, '45-01-PLAN.md'),
+      `---\nphase: "45"\ntype: execute\nfiles_modified: []\n---\n<tasks>\n<task type="auto">\n<name>Task 1</name>\n<action>do stuff</action>\n</task>\n</tasks>\n`
+    );
+    commitAll('feat(45-01): plan with malformed frontmatter (no plan field)');
+    fs.writeFileSync(
+      path.join(phaseDir, '45-VERIFICATION.md'),
+      `---\nphase: "45"\nstatus: passed\n---\n# Verification\n`
+    );
+
+    const result = runPhaseGate('45', tmpDir);
+    assert.strictEqual(result.success, false, 'should not throw/crash the process');
+    assert.strictEqual(result.exitCode, 2, 'malformed plan frontmatter should exit 2');
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.passed, false);
+    assert.strictEqual(parsed.malformed_plans.length, 1);
+    assert.strictEqual(parsed.malformed_plans[0].failure_type, 'malformed_frontmatter');
+  });
+
+  test('valid DEFERRED.json entry waives a missing check (verification) -> satisfied true, waived true, not in failures', () => {
+    const phaseDir = phaseDirPath('45-waived');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(phaseDir, '45-01-PLAN.md'),
+      `---\nphase: "45"\nplan: "01"\ntype: execute\nfiles_modified: []\n---\n<tasks>\n<task type="auto">\n<name>Task 1</name>\n<action>do stuff</action>\n</task>\n</tasks>\n`
+    );
+    // No 45-VERIFICATION.md written -- would normally fail missing_verification.
+    fs.writeFileSync(
+      path.join(phaseDir, 'DEFERRED.json'),
+      JSON.stringify([{ step: 'verification', reason: 'mid-execution dry run', approver: 'ollorin', phase: '45' }])
+    );
+    commitAll('feat(45-01): plain task, verification deferred via DEFERRED.json');
+
+    const result = runPhaseGate('45', tmpDir);
+    assert.ok(result.success, `Command should exit 0 with a valid waiver: ${result.error}`);
+    assert.strictEqual(result.exitCode, 0);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.passed, true);
+    assert.ok(!parsed.failures.includes('missing_verification'), `waived check should not appear in failures: ${JSON.stringify(parsed.failures)}`);
+    const verificationCheck = parsed.checks.find(c => c.type === 'verification');
+    assert.strictEqual(verificationCheck.satisfied, true);
+    assert.strictEqual(verificationCheck.waived, true);
+  });
+
+  test('malformed DEFERRED.json (not an array) fails the whole gate loudly with exit 2', () => {
+    const phaseDir = phaseDirPath('45-badwaiver');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(phaseDir, '45-01-PLAN.md'),
+      `---\nphase: "45"\nplan: "01"\ntype: execute\nfiles_modified: []\n---\n<tasks>\n<task type="auto">\n<name>Task 1</name>\n<action>do stuff</action>\n</task>\n</tasks>\n`
+    );
+    fs.writeFileSync(
+      path.join(phaseDir, '45-VERIFICATION.md'),
+      `---\nphase: "45"\nstatus: passed\n---\n# Verification\n`
+    );
+    fs.writeFileSync(path.join(phaseDir, 'DEFERRED.json'), JSON.stringify({ step: 'verification' }));
+    commitAll('feat(45-01): plain task with malformed DEFERRED.json');
+
+    const result = runPhaseGate('45', tmpDir);
+    assert.strictEqual(result.success, false);
+    assert.strictEqual(result.exitCode, 2, 'malformed waiver data should exit 2, not be silently treated as "no waivers"');
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.passed, false);
+    assert.ok(parsed.malformed_waiver, 'result should surface a malformed_waiver entry');
+  });
+
+  test('regression: verify plan-structure still passes on an existing valid plan fixture (proves constant hoisting did not change behavior)', () => {
+    const planPath = path.join(tmpDir, 'valid-plan.md');
+    fs.writeFileSync(planPath, `---
+phase: 45
+plan: "01"
+type: execute
+wave: 1
+depends_on: []
+files_modified:
+  - src/utils/helper.js
+autonomous: true
+must_haves:
+  truths:
+    - "helper.js exports a function"
+---
+<tasks>
+<task type="auto">
+<name>Task 1</name>
+<files>src/utils/helper.js</files>
+<action>Write a helper function</action>
+<verify>node -c src/utils/helper.js</verify>
+<done>helper.js exists and exports a function</done>
+</task>
+</tasks>
+`);
+
+    const result = runGsdTools(`verify plan-structure "${planPath}"`, tmpDir);
+    assert.ok(result.success, `Command should exit 0 on a valid plan: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.valid, true, `expected valid plan, got errors: ${JSON.stringify(parsed.errors)}`);
+    assert.strictEqual(parsed.errors.length, 0);
+  });
+});
