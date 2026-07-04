@@ -767,32 +767,37 @@ Agent(
 )
 ```
 
-Wait for gsd-docs-updater to complete. Parse the returned report:
-- `DOCS_BUILD_SCOPE` — the BUILD_SCOPE value (api_change / ui_surface / architecture / refactoring)
-- `DOCS_FILES_WRITTEN` — list of files written
-- `DOCS_COMMIT` — the commit hash
+Wait for gsd-docs-updater to complete. Parse the returned structured contract (see gsd-docs-updater.md's `<report>` step):
+- `written_files` — array of absolute paths written (empty array if none)
+- `commit` — short commit hash, or the literal `"none"`
+- `errors` — array of error strings (empty array if none)
 
-**On docs agent failure (Agent() throws or returns error):**
-- Log the error message
-- Continue to state updates — docs failure does NOT block state updates or phase completion
-- Append to SUMMARY.md:
+**On docs agent failure — HARD BLOCK. Do NOT proceed to state_updates.** Failure means any of:
+- `Agent()` throws an exception, or the call times out
+- The returned report's `errors` array is non-empty
+- The returned report has `written_files: []` (empty) AND `errors: []` (empty) — per gsd-docs-updater.md's own contract, this combination should never occur legitimately; if it does, treat it as a failure, not a silent pass
 
-```markdown
-## Docs
+On any of the above:
+1. Append to SUMMARY.md:
+   ```markdown
+   ## Docs
 
-**Status:** Failed — {error message}
-```
+   **Status:** BLOCKED — {error message or "docs-updater returned no written files and no error, treated as failure per contract"}
+   ```
+2. STOP. Present two options to the operator/coordinator, matching the pattern already established for Gate 1 in `execute-phase.md`:
+   (a) Fix the underlying issue (missing SUMMARY.md path, docs convention detection bug, etc.) and re-spawn `gsd-docs-updater`, or
+   (b) For a legitimate, documented exception, run `node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" deferred add "${PHASE}" --step docs --reason <reason> --approver <approver> --plan "${PLAN}"`, then proceed to state_updates with the waiver noted in SUMMARY.md's `## Docs` section.
+3. Do not allow silent continuation past a docs failure. This step remains "not skippable" (see above — unchanged) — the fix is that failure now actually blocks, instead of being logged and ignored.
 
-**On docs agent success:**
-- Append to SUMMARY.md:
+**On docs agent success** (parse the structured contract — `written_files` non-empty OR a valid `commit` other than `"none"`, and `errors` empty): append to SUMMARY.md:
 
 ```markdown
 ## Docs
 
 **Scope:** {DOCS_BUILD_SCOPE}
 **Files written:**
-{for each file in DOCS_FILES_WRITTEN: - {file path}}
-**Commit:** {DOCS_COMMIT}
+{for each file in written_files: - {file path}}
+**Commit:** {commit}
 ```
 
 </docs_update>
