@@ -14,13 +14,11 @@
  *   - Handles SIGINT / SIGTERM for graceful shutdown
  */
 
-import os from 'os';
 import fs from 'fs';
-import path from 'path';
 import { IPCServer, type MethodHandler } from './ipc-server.js';
 import { SessionService } from './session-service.js';
 import { QuestionService } from './question-service.js';
-import { getSocketPath } from '../shared/socket-path.js';
+import { getSocketPath, getStateFilePath } from '../shared/socket-path.js';
 import { createLogger } from '../shared/logger.js';
 import type { IPCMethod, Question } from '../shared/types.js';
 import {
@@ -50,16 +48,18 @@ async function main(): Promise<void> {
   if (process.env.TELEGRAM_BOT_TOKEN) {
     initializeBot();
 
+    // ─── Restore question state from previous daemon run ─────────────────
+    const stateFilePath = getStateFilePath();
+
     // Create QuestionService with bot functions and session service
     questionService = new QuestionService(
       createForumTopic,
       sendToThread,
       sendToGroup,
-      sessionService
+      sessionService,
+      stateFilePath
     );
 
-    // ─── Restore question state from previous daemon run ─────────────────
-    const stateFilePath = path.join(os.homedir(), '.claude', 'knowledge', 'question-state.jsonl');
     try {
       if (fs.existsSync(stateFilePath)) {
         const raw = fs.readFileSync(stateFilePath, 'utf8');

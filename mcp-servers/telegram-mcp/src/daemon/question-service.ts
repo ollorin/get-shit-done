@@ -22,10 +22,10 @@
 
 import { EventEmitter } from 'events';
 import { randomUUID } from 'crypto';
-import os from 'os';
 import fs from 'fs';
 import path from 'path';
 import { createLogger } from '../shared/logger.js';
+import { getStateFilePath } from '../shared/socket-path.js';
 import type { Question } from '../shared/types.js';
 import type { SessionService } from './session-service.js';
 
@@ -53,9 +53,7 @@ export class QuestionService extends EventEmitter {
   private sessionQuestions: Map<string, string[]> = new Map();
 
   /** Path to the JSONL file used for question state persistence */
-  private readonly stateFilePath: string = path.join(
-    os.homedir(), '.claude', 'knowledge', 'question-state.jsonl'
-  );
+  private readonly stateFilePath: string;
 
   /**
    * Thread IDs of questions that were orphaned by a daemon restart (restored
@@ -68,9 +66,11 @@ export class QuestionService extends EventEmitter {
     private readonly createForumTopic: CreateForumTopicFn,
     private readonly sendToThread: SendToThreadFn,
     private readonly sendToGroup: SendToGroupFn,
-    private readonly sessionService: SessionService
+    private readonly sessionService: SessionService,
+    stateFilePath?: string
   ) {
     super();
+    this.stateFilePath = stateFilePath ?? getStateFilePath();
   }
 
   // ─── Public API ─────────────────────────────────────────────────────────────
@@ -435,14 +435,24 @@ export class QuestionService extends EventEmitter {
    * Persist current question state to the JSONL state file.
    * Writes all questions (pending and recently answered) for daemon restart recovery.
    * Errors are logged as warnings and do not propagate.
+   *
+   * Atomic write-rename (temp file + fs.renameSync) chosen over the vendored
+   * proper-lockfile dependency: simpler, no lock-file lifecycle/staleness
+   * cleanup to manage, and sufficient for this threat model (single-writer-
+   * per-process, crash-safety against torn reads). proper-lockfile remains a
+   * listed dependency but is intentionally unused -- see 47-02-SUMMARY.md.
    */
   private saveState(): void {
     try {
       const allQuestions = Array.from(this.questions.values());
       const lines = allQuestions.map((q) => JSON.stringify(q));
       const content = lines.length > 0 ? lines.join('\n') + '\n' : '';
-      fs.writeFileSync(this.stateFilePath, content, 'utf8');
-      log.debug({ count: allQuestions.length, path: this.stateFilePath }, 'Question state saved');
+      const dir = path.dirname(this.stateFilePath);
+      fs.mkdirSync(dir, { recursive: true });
+      const tmpPath = `${this.stateFilePath}.tmp-${process.pid}-${Math.random().toString(36).slice(2)}`;
+      fs.writeFileSync(tmpPath, content, 'utf8');
+      fs.renameSync(tmpPath, this.stateFilePath); // atomic on POSIX -- readers never see a torn file
+      log.debug({ count: allQuestions.length, path: this.stateFilePath }, 'Question state saved (atomic rename)');
     } catch (err: any) {
       log.warn({ err: err.message }, 'Failed to save question state — state persistence skipped');
     }
