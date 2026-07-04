@@ -38,6 +38,12 @@ export declare class QuestionService extends EventEmitter {
     private sessionQuestions;
     /** Path to the JSONL file used for question state persistence */
     private readonly stateFilePath;
+    /**
+     * Thread IDs of questions that were orphaned by a daemon restart (restored
+     * pending questions with no live timer/listener). A reply landing on one of
+     * these threads is a dead question, never a deliverable answer.
+     */
+    private readonly orphanedThreadIds;
     constructor(createForumTopic: CreateForumTopicFn, sendToThread: SendToThreadFn, sendToGroup: SendToGroupFn, sessionService: SessionService);
     /**
      * Ask a blocking question.
