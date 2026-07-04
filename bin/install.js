@@ -5,7 +5,7 @@ const path = require('path');
 const os = require('os');
 const readline = require('readline');
 const crypto = require('crypto');
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 
 // Colors
 const cyan = '\x1b[36m';
@@ -147,12 +147,17 @@ const explicitConfigDir = parseConfigDirArg();
 const hasHelp = args.includes('--help') || args.includes('-h');
 const forceStatusline = args.includes('--force-statusline');
 
-console.log(banner);
+// Banner + --help output are side effects of the CLI entry point only —
+// gated behind require.main so `require('./install.js')` (e.g. from tests)
+// doesn't print output or exit(0) as a side effect of loading the module.
+if (require.main === module) {
+  console.log(banner);
 
-// Show help if requested
-if (hasHelp) {
-  console.log(`  ${yellow}Usage:${reset} npx get-shit-done-cc [options]\n\n  ${yellow}Options:${reset}\n    ${cyan}-g, --global${reset}              Install globally (to config directory)\n    ${cyan}-l, --local${reset}               Install locally (to current directory)\n    ${cyan}--claude${reset}                  Install for Claude Code only\n    ${cyan}--opencode${reset}                Install for OpenCode only\n    ${cyan}--gemini${reset}                  Install for Gemini only\n    ${cyan}--all${reset}                     Install for all runtimes\n    ${cyan}-u, --uninstall${reset}           Uninstall GSD (remove all GSD files)\n    ${cyan}-c, --config-dir <path>${reset}   Specify custom config directory\n    ${cyan}-h, --help${reset}                Show this help message\n    ${cyan}--force-statusline${reset}        Replace existing statusline config\n\n  ${yellow}Examples:${reset}\n    ${dim}# Interactive install (prompts for runtime and location)${reset}\n    npx get-shit-done-cc\n\n    ${dim}# Install for Claude Code globally${reset}\n    npx get-shit-done-cc --claude --global\n\n    ${dim}# Install for Gemini globally${reset}\n    npx get-shit-done-cc --gemini --global\n\n    ${dim}# Install for all runtimes globally${reset}\n    npx get-shit-done-cc --all --global\n\n    ${dim}# Install to custom config directory${reset}\n    npx get-shit-done-cc --claude --global --config-dir ~/.claude-bc\n\n    ${dim}# Install to current project only${reset}\n    npx get-shit-done-cc --claude --local\n\n    ${dim}# Uninstall GSD from Claude Code globally${reset}\n    npx get-shit-done-cc --claude --global --uninstall\n\n  ${yellow}Notes:${reset}\n    The --config-dir option is useful when you have multiple configurations.\n    It takes priority over CLAUDE_CONFIG_DIR / GEMINI_CONFIG_DIR environment variables.\n`);
-  process.exit(0);
+  // Show help if requested
+  if (hasHelp) {
+    console.log(`  ${yellow}Usage:${reset} npx get-shit-done-cc [options]\n\n  ${yellow}Options:${reset}\n    ${cyan}-g, --global${reset}              Install globally (to config directory)\n    ${cyan}-l, --local${reset}               Install locally (to current directory)\n    ${cyan}--claude${reset}                  Install for Claude Code only\n    ${cyan}--opencode${reset}                Install for OpenCode only\n    ${cyan}--gemini${reset}                  Install for Gemini only\n    ${cyan}--all${reset}                     Install for all runtimes\n    ${cyan}-u, --uninstall${reset}           Uninstall GSD (remove all GSD files)\n    ${cyan}-c, --config-dir <path>${reset}   Specify custom config directory\n    ${cyan}-h, --help${reset}                Show this help message\n    ${cyan}--force-statusline${reset}        Replace existing statusline config\n\n  ${yellow}Examples:${reset}\n    ${dim}# Interactive install (prompts for runtime and location)${reset}\n    npx get-shit-done-cc\n\n    ${dim}# Install for Claude Code globally${reset}\n    npx get-shit-done-cc --claude --global\n\n    ${dim}# Install for Gemini globally${reset}\n    npx get-shit-done-cc --gemini --global\n\n    ${dim}# Install for all runtimes globally${reset}\n    npx get-shit-done-cc --all --global\n\n    ${dim}# Install to custom config directory${reset}\n    npx get-shit-done-cc --claude --global --config-dir ~/.claude-bc\n\n    ${dim}# Install to current project only${reset}\n    npx get-shit-done-cc --claude --local\n\n    ${dim}# Uninstall GSD from Claude Code globally${reset}\n    npx get-shit-done-cc --claude --global --uninstall\n\n  ${yellow}Notes:${reset}\n    The --config-dir option is useful when you have multiple configurations.\n    It takes priority over CLAUDE_CONFIG_DIR / GEMINI_CONFIG_DIR environment variables.\n`);
+    process.exit(0);
+  }
 }
 
 /**
@@ -1296,6 +1301,16 @@ function reportLocalPatches(configDir) {
 }
 
 /**
+ * Wrap a hook command with a POSIX `timeout` guard so a hung/crashed hook
+ * cannot block Read/Write/Edit indefinitely. Windows has no reliable
+ * equivalent shipped by default, so the command is left unwrapped there
+ * rather than introducing a fragile cross-platform shim.
+ */
+function wrapWithTimeout(command, seconds = 10) {
+  return process.platform === 'win32' ? command : `timeout ${seconds}s ${command}`;
+}
+
+/**
  * Install npm dependencies needed by the doc-compression hook.
  * Writes a minimal package.json to gsdDir and runs npm install.
  * Fails gracefully — compression just stays disabled if install fails.
@@ -1412,8 +1427,12 @@ function install(isGlobal, runtime = 'claude') {
 
   // Install npm dependencies for the doc-compression hook
   // These live in get-shit-done/node_modules/ so the hook can require() them
+  // Declared in the function scope (not just !isOpencode && !isGemini) because
+  // the compression hook registration below is gated on this flag and runs
+  // whenever !isOpencode (i.e. for Gemini too).
+  let depsOk = false;
   if (!isOpencode && !isGemini) {
-    const depsOk = installHookDependencies(skillDest);
+    depsOk = installHookDependencies(skillDest);
     if (depsOk) {
       console.log(`  ${green}✓${reset} Installed hook dependencies (markdown-it, gray-matter, minimatch, @xenova/transformers)`);
     } else {
@@ -1484,6 +1503,16 @@ function install(isGlobal, runtime = 'claude') {
 
   // Copy hooks from dist/ (bundled with dependencies)
   const hooksSrc = path.join(src, 'hooks', 'dist');
+  if (!fs.existsSync(hooksSrc)) {
+    // Fresh clone without a pre-built hooks/dist — build it inline instead
+    // of silently skipping hook installation.
+    try {
+      const buildHooksScript = path.join(src, 'scripts', 'build-hooks.js');
+      execFileSync(process.execPath, [buildHooksScript], { stdio: 'inherit' });
+    } catch (e) {
+      // fall through — re-check below and report a clear failure
+    }
+  }
   if (fs.existsSync(hooksSrc)) {
     const hooksDest = path.join(targetDir, 'hooks');
     fs.mkdirSync(hooksDest, { recursive: true });
@@ -1500,6 +1529,8 @@ function install(isGlobal, runtime = 'claude') {
     } else {
       failures.push('hooks');
     }
+  } else {
+    failures.push('hooks (build-hooks.js failed to produce hooks/dist)');
   }
 
   if (failures.length > 0) {
@@ -1558,7 +1589,7 @@ function install(isGlobal, runtime = 'claude') {
     const compressionHookPath = isGlobal
       ? path.join(targetDir, 'get-shit-done', 'bin', 'hooks', 'doc-compression-hook.js').replace(/\\/g, '/')
       : path.join(dirName, 'get-shit-done', 'bin', 'hooks', 'doc-compression-hook.js').replace(/\\/g, '/');
-    const compressionHookCommand = `node "${compressionHookPath}"`;
+    const compressionHookCommand = wrapWithTimeout(`node "${compressionHookPath}"`);
 
     if (!settings.hooks.PreToolUse) {
       settings.hooks.PreToolUse = [];
@@ -1568,12 +1599,14 @@ function install(isGlobal, runtime = 'claude') {
       entry.hooks && entry.hooks.some(h => h.command && h.command.includes('doc-compression-hook'))
     );
 
-    if (!hasCompressionHook) {
+    if (!hasCompressionHook && depsOk) {
       settings.hooks.PreToolUse.push({
         matcher: 'Read',
         hooks: [{ type: 'command', command: compressionHookCommand }]
       });
       console.log(`  ${green}✓${reset} Configured doc compression hook`);
+    } else if (!hasCompressionHook && !depsOk) {
+      console.warn(`  ${yellow}⚠ Compression hook NOT registered — hook dependencies failed to install. Doc compression is disabled until 'npm install' succeeds in get-shit-done/.${reset}`);
     }
 
     // Register Stop hook for session knowledge extraction
@@ -1601,7 +1634,7 @@ function install(isGlobal, runtime = 'claude') {
     const protectHookPath = isGlobal
       ? path.join(targetDir, 'get-shit-done', 'bin', 'hooks', 'gsd-protect-managed-files.js').replace(/\\/g, '/')
       : path.join(dirName, 'get-shit-done', 'bin', 'hooks', 'gsd-protect-managed-files.js').replace(/\\/g, '/');
-    const protectHookCommand = `node "${protectHookPath}"`;
+    const protectHookCommand = wrapWithTimeout(`node "${protectHookPath}"`);
 
     // Remove any stale protect entries (e.g. old "Write|Edit" combined matcher)
     const before = settings.hooks.PreToolUse.length;
@@ -1854,38 +1887,44 @@ function installAllRuntimes(runtimes, isGlobal, isInteractive) {
 }
 
 // Main logic
-if (hasGlobal && hasLocal) {
-  console.error(`  ${yellow}Cannot specify both --global and --local${reset}`);
-  process.exit(1);
-} else if (explicitConfigDir && hasLocal) {
-  console.error(`  ${yellow}Cannot use --config-dir with --local${reset}`);
-  process.exit(1);
-} else if (hasUninstall) {
-  if (!hasGlobal && !hasLocal) {
-    console.error(`  ${yellow}--uninstall requires --global or --local${reset}`);
+// Guarded so `require('./install.js')` (e.g. from tests) does not trigger a
+// real interactive/global install as a side effect of loading the module.
+if (require.main === module) {
+  if (hasGlobal && hasLocal) {
+    console.error(`  ${yellow}Cannot specify both --global and --local${reset}`);
     process.exit(1);
-  }
-  const runtimes = selectedRuntimes.length > 0 ? selectedRuntimes : ['claude'];
-  for (const runtime of runtimes) {
-    uninstall(hasGlobal, runtime);
-  }
-} else if (selectedRuntimes.length > 0) {
-  if (!hasGlobal && !hasLocal) {
-    promptLocation(selectedRuntimes);
+  } else if (explicitConfigDir && hasLocal) {
+    console.error(`  ${yellow}Cannot use --config-dir with --local${reset}`);
+    process.exit(1);
+  } else if (hasUninstall) {
+    if (!hasGlobal && !hasLocal) {
+      console.error(`  ${yellow}--uninstall requires --global or --local${reset}`);
+      process.exit(1);
+    }
+    const runtimes = selectedRuntimes.length > 0 ? selectedRuntimes : ['claude'];
+    for (const runtime of runtimes) {
+      uninstall(hasGlobal, runtime);
+    }
+  } else if (selectedRuntimes.length > 0) {
+    if (!hasGlobal && !hasLocal) {
+      promptLocation(selectedRuntimes);
+    } else {
+      installAllRuntimes(selectedRuntimes, hasGlobal, false);
+    }
+  } else if (hasGlobal || hasLocal) {
+    // Default to Claude if no runtime specified but location is
+    installAllRuntimes(['claude'], hasGlobal, false);
   } else {
-    installAllRuntimes(selectedRuntimes, hasGlobal, false);
-  }
-} else if (hasGlobal || hasLocal) {
-  // Default to Claude if no runtime specified but location is
-  installAllRuntimes(['claude'], hasGlobal, false);
-} else {
-  // Interactive
-  if (!process.stdin.isTTY) {
-    console.log(`  ${yellow}Non-interactive terminal detected, defaulting to Claude Code global install${reset}\n`);
-    installAllRuntimes(['claude'], true, false);
-  } else {
-    promptRuntime((runtimes) => {
-      promptLocation(runtimes);
-    });
+    // Interactive
+    if (!process.stdin.isTTY) {
+      console.log(`  ${yellow}Non-interactive terminal detected, defaulting to Claude Code global install${reset}\n`);
+      installAllRuntimes(['claude'], true, false);
+    } else {
+      promptRuntime((runtimes) => {
+        promptLocation(runtimes);
+      });
+    }
   }
 }
+
+module.exports = { installHookDependencies, wrapWithTimeout };
