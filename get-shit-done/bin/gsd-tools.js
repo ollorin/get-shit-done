@@ -93,6 +93,14 @@
  *                                       existing DEFERRED.json is malformed (refuses to overwrite)
  *   deferred list <phase>              List waiver entries for a phase; exits 2 (not empty array) if
  *                                       DEFERRED.json is malformed
+ *   execution-state record-failure     Increment the retry counter for a phase (+ optional plan) in
+ *     --phase N [--plan M]               .planning/execution-state.json; returns {action: retry|debug|
+ *     --error "msg" --step "..."         escalate} based on attempts vs config-driven max_attempts
+ *     --files "a,b,c"                    (default 4); exits 2 if execution-state.json is malformed
+ *   execution-state record-success     Clear the retry counter for a phase (+ optional plan); no-op
+ *     --phase N [--plan M]               (not an error) if no entry existed; exits 2 if malformed
+ *   execution-state get                Read-only lookup; returns {attempts: 0, key} if no entry exists
+ *     --phase N [--plan M]               (a valid default, not an error); exits 2 if malformed
  *
  * Template Fill:
  *   template fill summary --phase N    Create pre-filled SUMMARY.md
@@ -318,6 +326,8 @@ function loadConfig(cwd) {
     granularity: 'standard',
     brave_search: false,
     auto_mine: true,
+    max_attempts: 4,
+    execution: { max_attempts: 4 },
   };
 
   try {
@@ -362,6 +372,7 @@ function loadConfig(cwd) {
       granularity: get('granularity') ?? defaults.granularity,
       brave_search: get('brave_search') ?? defaults.brave_search,
       auto_mine: get('auto_mine') ?? defaults.auto_mine,
+      max_attempts: get('max_attempts', { section: 'execution', field: 'max_attempts' }) ?? defaults.max_attempts,
       coordinator_model: get('coordinator_model') ?? null,
       dev_servers: parsed.dev_servers || null,
     };
@@ -5452,6 +5463,137 @@ function cmdDeferredList(cwd, phaseArg, raw) {
   }
 
   output({ phase: phaseInfo.phase_number, waivers: result.waivers, count: result.waivers.length }, raw);
+}
+
+// ─── Execution State Protocol (MILE-13, Phase 48-03) ─────────────────────────
+// `.planning/execution-state.json` is a per-phase/per-plan retry counter that
+// drives autonomous execution's self-healing failure path: `record-failure`
+// increments the counter and returns an `action` of retry (1st failure),
+// debug (2nd+ failure, below the configurable `max_attempts` ceiling), or
+// escalate (at the ceiling -- never spawn another debug attempt after this).
+// `record-success` clears the counter. `get` is a read-only lookup. All three
+// share the same malformed-JSON-safe contract as `deferred add`/`deferred
+// list` (readDeferredWaivers): an absent file means no history (not an
+// error); a malformed file is ALWAYS a loud, typed, non-zero-exit error --
+// never silently reset to `{}`.
+
+function getExecutionStatePath(cwd) {
+  return path.join(cwd, '.planning', 'execution-state.json');
+}
+
+// Phase-level and plan-level entries for the SAME phase number are
+// independent keys (e.g. "5" vs "5-01") -- recording a failure at one
+// granularity never affects the other's attempt count.
+function computeStateKey(phase, plan) {
+  return plan ? `${phase}-${plan}` : `${phase}`;
+}
+
+function readExecutionState(cwd) {
+  const statePath = getExecutionStatePath(cwd);
+  if (!fs.existsSync(statePath)) {
+    return { ok: true, state: {} };
+  }
+  const content = safeReadFile(statePath);
+  if (content === null) {
+    return { ok: false, error: { error: true, type: 'corrupted_execution_state', message: 'Could not read execution-state.json' } };
+  }
+  const parsed = safeJsonParse(content, 'execution-state.json');
+  if (!parsed.ok) {
+    return { ok: false, error: { error: true, type: 'corrupted_execution_state', message: parsed.error.message } };
+  }
+  if (typeof parsed.value !== 'object' || parsed.value === null || Array.isArray(parsed.value)) {
+    return { ok: false, error: { error: true, type: 'corrupted_execution_state', message: 'execution-state.json must be a JSON object keyed by phase/plan' } };
+  }
+  return { ok: true, state: parsed.value };
+}
+
+function writeExecutionState(cwd, state) {
+  atomicWriteFileSync(getExecutionStatePath(cwd), JSON.stringify(state, null, 2));
+}
+
+function cmdExecutionStateRecordFailure(cwd, options, raw) {
+  const { phase, plan, errorMsg, step, files } = options;
+  if (!phase) { error('execution-state record-failure requires --phase'); }
+
+  const existing = readExecutionState(cwd);
+  if (!existing.ok) {
+    process.stdout.write(JSON.stringify({ ...existing.error, message: `${existing.error.message} — fix execution-state.json before recording another failure` }, null, 2));
+    process.exit(2);
+    return;
+  }
+
+  const key = computeStateKey(phase, plan);
+  const state = existing.state;
+  const entry = state[key] || { attempts: 0, history: [] };
+  entry.attempts = (entry.attempts || 0) + 1;
+  entry.last_error = errorMsg || null;
+  entry.last_step = step || null;
+  entry.files_modified = files ? files.split(',').map((f) => f.trim()).filter(Boolean) : [];
+  entry.history = entry.history || [];
+  entry.history.push({ attempts: entry.attempts, error: errorMsg || null, timestamp: new Date().toISOString() });
+  // Cap history at 10 entries, dropping the oldest.
+  if (entry.history.length > 10) {
+    entry.history = entry.history.slice(entry.history.length - 10);
+  }
+  state[key] = entry;
+
+  const maxAttempts = loadConfig(cwd).max_attempts;
+  const action = entry.attempts === 1 ? 'retry' : (entry.attempts < maxAttempts ? 'debug' : 'escalate');
+
+  writeExecutionState(cwd, state);
+
+  output({
+    key,
+    attempts: entry.attempts,
+    action,
+    max_attempts: maxAttempts,
+    error: entry.last_error,
+    last_step: entry.last_step,
+    files_modified: entry.files_modified,
+  }, raw);
+}
+
+function cmdExecutionStateRecordSuccess(cwd, options, raw) {
+  const { phase, plan } = options;
+  if (!phase) { error('execution-state record-success requires --phase'); }
+
+  const existing = readExecutionState(cwd);
+  if (!existing.ok) {
+    process.stdout.write(JSON.stringify({ ...existing.error, message: `${existing.error.message} — fix execution-state.json before recording success` }, null, 2));
+    process.exit(2);
+    return;
+  }
+
+  const key = computeStateKey(phase, plan);
+  const state = existing.state;
+  const cleared = Object.prototype.hasOwnProperty.call(state, key);
+  if (cleared) {
+    delete state[key];
+    writeExecutionState(cwd, state);
+  }
+
+  output({ cleared, key }, raw);
+}
+
+function cmdExecutionStateGet(cwd, options, raw) {
+  const { phase, plan } = options;
+  if (!phase) { error('execution-state get requires --phase'); }
+
+  const existing = readExecutionState(cwd);
+  if (!existing.ok) {
+    process.stdout.write(JSON.stringify(existing.error, null, 2));
+    process.exit(2);
+    return;
+  }
+
+  const key = computeStateKey(phase, plan);
+  const entry = existing.state[key];
+  if (!entry) {
+    output({ attempts: 0, key }, raw);
+    return;
+  }
+
+  output({ ...entry, key }, raw);
 }
 
 function cmdVerifyReferences(cwd, filePath, raw) {
@@ -10791,6 +10933,34 @@ async function main() {
         cmdDeferredList(cwd, args[2], raw);
       } else {
         error('Unknown deferred subcommand. Available: add, list');
+      }
+      break;
+    }
+
+    case 'execution-state': {
+      const subcommand = args[1];
+      const phaseIdx = args.indexOf('--phase');
+      const planIdx = args.indexOf('--plan');
+      const errorIdx = args.indexOf('--error');
+      const stepIdx = args.indexOf('--step');
+      const filesIdx = args.indexOf('--files');
+      const options = {
+        phase: phaseIdx !== -1 ? args[phaseIdx + 1] : null,
+        plan: planIdx !== -1 ? args[planIdx + 1] : null,
+      };
+      if (subcommand === 'record-failure') {
+        cmdExecutionStateRecordFailure(cwd, {
+          ...options,
+          errorMsg: errorIdx !== -1 ? args[errorIdx + 1] : null,
+          step: stepIdx !== -1 ? args[stepIdx + 1] : null,
+          files: filesIdx !== -1 ? args[filesIdx + 1] : null,
+        }, raw);
+      } else if (subcommand === 'record-success') {
+        cmdExecutionStateRecordSuccess(cwd, options, raw);
+      } else if (subcommand === 'get') {
+        cmdExecutionStateGet(cwd, options, raw);
+      } else {
+        error('Unknown execution-state subcommand. Available: record-failure, record-success, get');
       }
       break;
     }
