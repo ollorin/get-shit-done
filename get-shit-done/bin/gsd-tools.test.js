@@ -4163,3 +4163,151 @@ must_haves:
     assert.strictEqual(parsed.valid, true, `expected valid plan, got errors: ${JSON.stringify(parsed.errors)}`);
   });
 });
+
+describe('deferred add/list commands (Phase 45-03)', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function phaseDirPath(phaseDirName) {
+    return path.join(tmpDir, '.planning', 'phases', phaseDirName);
+  }
+
+  // Like runGsdTools but also surfaces the real process exit code (needed
+  // here because deferred add/list use distinct exit codes: 0 = success,
+  // 1 = phase not found / validation error, 2 = malformed DEFERRED.json).
+  function runDeferred(argsStr, cwd) {
+    const start = Date.now();
+    try {
+      const result = execSync(`node "${TOOLS_PATH}" deferred ${argsStr}`, {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      return { success: true, output: result.trim(), exitCode: 0, durationMs: Date.now() - start };
+    } catch (err) {
+      return {
+        success: false,
+        output: err.stdout?.toString().trim() || '',
+        error: err.stderr?.toString().trim() || '',
+        exitCode: err.status ?? 1,
+        durationMs: Date.now() - start,
+      };
+    }
+  }
+
+  test('deferred add on a phase with no existing DEFERRED.json creates a JSON array with exactly one entry with all 6 schema fields, plan:null when --plan omitted', () => {
+    const phaseDir = phaseDirPath('45-deferredadd1');
+    fs.mkdirSync(phaseDir, { recursive: true });
+
+    const result = runDeferred(`add 45-deferredadd1 --step verification --reason "dry run" --approver ollorin --raw`, tmpDir);
+    assert.ok(result.success, `deferred add should exit 0: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.written, true);
+    assert.strictEqual(parsed.entry.step, 'verification');
+    assert.strictEqual(parsed.entry.reason, 'dry run');
+    assert.strictEqual(parsed.entry.approver, 'ollorin');
+    assert.ok(typeof parsed.entry.timestamp === 'string' && parsed.entry.timestamp.length > 0);
+    assert.strictEqual(parsed.entry.phase, '45');
+    assert.strictEqual(parsed.entry.plan, null);
+
+    const onDisk = JSON.parse(fs.readFileSync(path.join(phaseDir, 'DEFERRED.json'), 'utf-8'));
+    assert.ok(Array.isArray(onDisk));
+    assert.strictEqual(onDisk.length, 1);
+    assert.deepStrictEqual(Object.keys(onDisk[0]).sort(), ['approver', 'phase', 'plan', 'reason', 'step', 'timestamp'].sort());
+  });
+
+  test('a second deferred add call appends a second entry -- file remains one array with two entries, not overwritten', () => {
+    const phaseDir = phaseDirPath('45-deferredadd2');
+    fs.mkdirSync(phaseDir, { recursive: true });
+
+    runDeferred(`add 45-deferredadd2 --step verification --reason "first" --approver ollorin --raw`, tmpDir);
+    const second = runDeferred(`add 45-deferredadd2 --step docs --reason "second" --approver ollorin --plan 02 --raw`, tmpDir);
+    assert.ok(second.success, `second deferred add should exit 0: ${second.error}`);
+
+    const onDisk = JSON.parse(fs.readFileSync(path.join(phaseDir, 'DEFERRED.json'), 'utf-8'));
+    assert.strictEqual(onDisk.length, 2, 'DEFERRED.json should accumulate entries, not be overwritten');
+    assert.strictEqual(onDisk[0].step, 'verification');
+    assert.strictEqual(onDisk[1].step, 'docs');
+    assert.strictEqual(onDisk[1].plan, '02');
+  });
+
+  test('deferred list on a phase with no DEFERRED.json returns { waivers: [], count: 0 } -- absent file is valid, not an error', () => {
+    const phaseDir = phaseDirPath('45-deferredlistempty');
+    fs.mkdirSync(phaseDir, { recursive: true });
+
+    const result = runDeferred(`list 45-deferredlistempty --raw`, tmpDir);
+    assert.ok(result.success, `deferred list should exit 0 for an absent DEFERRED.json: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.deepStrictEqual(parsed.waivers, []);
+    assert.strictEqual(parsed.count, 0);
+  });
+
+  test('deferred list on a phase with a malformed/truncated DEFERRED.json returns a typed malformed_waiver error with non-zero exit -- NOT {waivers: []}', () => {
+    const phaseDir = phaseDirPath('45-deferredlistbad');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    fs.writeFileSync(path.join(phaseDir, 'DEFERRED.json'), '{"step": "verification"'); // truncated JSON
+
+    const result = runDeferred(`list 45-deferredlistbad --raw`, tmpDir);
+    assert.strictEqual(result.success, false, 'malformed DEFERRED.json should exit non-zero');
+    assert.strictEqual(result.exitCode, 2);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.error, true);
+    assert.strictEqual(parsed.type, 'malformed_waiver');
+    assert.notDeepStrictEqual(parsed, { waivers: [] }, 'a corrupt file must never look like zero waivers');
+  });
+
+  test('deferred add on a phase with an existing malformed DEFERRED.json refuses to append/overwrite -- errors loudly instead of silently replacing it', () => {
+    const phaseDir = phaseDirPath('45-deferredaddbad');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    const originalBadContent = '{"not": "an array"}';
+    fs.writeFileSync(path.join(phaseDir, 'DEFERRED.json'), originalBadContent);
+
+    const result = runDeferred(`add 45-deferredaddbad --step verification --reason x --approver y --raw`, tmpDir);
+    assert.strictEqual(result.success, false, 'deferred add must refuse to write over a malformed DEFERRED.json');
+    assert.strictEqual(result.exitCode, 2);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.error, true);
+    assert.strictEqual(parsed.type, 'malformed_waiver');
+
+    // The corrupt file must be left untouched -- not silently replaced with a
+    // fresh single-entry array.
+    const onDiskContent = fs.readFileSync(path.join(phaseDir, 'DEFERRED.json'), 'utf-8');
+    assert.strictEqual(onDiskContent, originalBadContent);
+  });
+
+  test('with TELEGRAM_BOT_TOKEN/TELEGRAM_OWNER_ID unset, deferred add still succeeds and returns promptly (well under the 3s notification timeout)', () => {
+    const phaseDir = phaseDirPath('45-deferredaddnotelegram');
+    fs.mkdirSync(phaseDir, { recursive: true });
+
+    const result = runDeferred(`add 45-deferredaddnotelegram --step verification --reason x --approver y --raw`, tmpDir);
+    assert.ok(result.success, `deferred add should succeed with Telegram unconfigured: ${result.error}`);
+    assert.ok(result.durationMs < 2000, `deferred add should return promptly (no hang waiting on a network call), took ${result.durationMs}ms`);
+
+    const onDisk = JSON.parse(fs.readFileSync(path.join(phaseDir, 'DEFERRED.json'), 'utf-8'));
+    assert.strictEqual(onDisk.length, 1);
+  });
+
+  test('missing required flags (--step/--reason/--approver) errors instead of writing a partial entry', () => {
+    const phaseDir = phaseDirPath('45-deferredaddmissingflags');
+    fs.mkdirSync(phaseDir, { recursive: true });
+
+    const result = runDeferred(`add 45-deferredaddmissingflags --step verification --reason x`, tmpDir);
+    assert.strictEqual(result.success, false, 'deferred add must reject a call missing --approver');
+    assert.strictEqual(fs.existsSync(path.join(phaseDir, 'DEFERRED.json')), false, 'no file should be written when required flags are missing');
+  });
+
+  test('deferred add on an unknown phase returns typed phase_not_found, non-zero exit, no crash', () => {
+    const result = runDeferred(`add 99-doesnotexist --step verification --reason x --approver y --raw`, tmpDir);
+    assert.strictEqual(result.success, false);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.error, true);
+    assert.strictEqual(parsed.type, 'phase_not_found');
+  });
+});
