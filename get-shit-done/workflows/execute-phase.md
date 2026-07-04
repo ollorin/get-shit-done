@@ -15,7 +15,7 @@ These rules CANNOT be skipped, deferred, or deprioritized by any subagent:
 3. **E2E tests MUST check for data display bugs** — NaN, undefined, null, [object Object], empty strings where values expected
 4. **E2E tests MUST open every dropdown, modal, and sub-section** — visual completeness
 5. **New regression-worthy tests MUST be tagged `regression`** — selected by test generator
-6. **Pre-dev test generation (Step 5.6) and post-dev gap closure (Step 6.5) are MANDATORY for web phases** — not optional, not deferrable
+6. **Pre-dev test generation (Step 5.6) and pre-gate gap closure (Step 6.35, runs BEFORE phase-gate) are MANDATORY for web phases** — not optional, not deferrable
 7. **Subagents that skip or defer e2e testing will trigger verification failure** — QGATE-07 enforces this
 
 <required_reading>
@@ -443,6 +443,69 @@ After all waves:
 
 </checkpoint>
 
+<step name="e2e_coverage_closure">
+
+### Step 6.35: Pre-Gate E2E Coverage Closure (BLOCKING, runs before phase-gate)
+
+**Trigger:** Same as Step 5.6 in plan-phase — web project with UI changes. This step runs BEFORE Gate 1 (`verify phase-gate` in `pre_verify_gates` below) so the `e2e_plan` artifact phase-gate demands has a chance to actually be produced first — a gate must never demand an artifact that nothing creates (MILE-08, Loophole 5).
+
+**Process:**
+
+1. Run the deterministic pre-check:
+   ```bash
+   E2E_GAP_RESULT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" verify e2e-gaps "${PHASE}")
+   E2E_GAP_EXIT=$?
+   ```
+   Parse JSON fields: `has_ui`, `gaps`, `gap_count`, `generation_failed`.
+
+2. **If `has_ui` is `false`:** Skip this entire step — proceed directly to `pre_verify_gates`. Nothing to close for a non-UI phase.
+
+3. **If `gap_count == 0` and `generation_failed == false`:** **Idempotent skip.** Log: "E2E-TEST-PLAN.md already covers all touched UI pages — generator not re-invoked." Proceed to `pre_verify_gates`. Do NOT spawn the generator — full coverage already exists, re-invoking it would be wasted cost.
+
+4. **Otherwise** (gaps exist, or a stale `generation_failed` marker is present from a prior failed attempt): spawn the generator with the gap list as its UI-inventory-gap input, plus phase context:
+   ```
+   Agent(
+     subagent_type="gsd-e2e-test-generator",
+     model="sonnet",
+     description="Close E2E coverage gaps for phase {PHASE}",
+     prompt="
+       Phase: {PHASE_NUMBER} - {PHASE_NAME}
+       Phase directory: {PHASE_DIR}
+       UI coverage gaps (page basenames with no e2e scenario mention): {gaps}
+       Existing E2E-TEST-PLAN.md (if any): {PHASE_DIR}/E2E-TEST-PLAN.md
+       Read the phase's PLAN.md/SUMMARY.md files to understand what these pages do.
+       Write/update scenarios covering every listed gap. Update E2E-TEST-PLAN.md so it
+       explicitly names each covered page (verify e2e-gaps checks for the page's basename
+       appearing in the plan text).
+     "
+   )
+   ```
+
+5. **On generator success** (returns written scenario files + an updated `E2E-TEST-PLAN.md`, no thrown error): delete the marker if present —
+   ```bash
+   rm -f "${PHASE_DIR}/E2E-GENERATION-FAILED.json"
+   ```
+   Re-run `verify e2e-gaps "${PHASE}"` to confirm `gap_count == 0` now. **If gaps remain** after a generation attempt (the generator produced a plan that still omits a page): treat this the same as failure (step 6 below) — never silently proceed with residual gaps.
+
+6. **On generator failure** (Agent() throws, times out, or returns no plan / clearly malformed output) **OR residual gaps remain after a generation attempt**: write the marker —
+   ```bash
+   cat > "${PHASE_DIR}/E2E-GENERATION-FAILED.json" <<EOF
+   {"error": "<short description>", "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
+   EOF
+   ```
+   Do NOT proceed to `pre_verify_gates` silently — the next Gate 1 (`verify phase-gate`) will now surface this as `failure_type: e2e_generation_failed`, which the operator/coordinator handles exactly like any other Gate 1 failure: fix (retry generation) or `deferred add --step e2e_plan --reason ... --approver ...` for a documented exception.
+
+**Hard rule:** Phase execution is NOT complete until every UI page created/modified has at least one e2e scenario covering:
+- Page loads without console errors
+- All interactive elements are clickable/fillable
+- All data displays show valid values (no NaN, undefined, null)
+- All forms submit successfully with valid data
+- All forms show validation errors with invalid data
+
+**Output:** Updated scenarios in `apps/e2e-charlotte/scenarios/`, updated E2E-TEST-PLAN.md with coverage status, `E2E-GENERATION-FAILED.json` written on failure / cleared on success.
+
+</step>
+
 <step name="pre_verify_gates">
 
 ### Step 6.4: Pre-Verification Gates (BLOCKING)
@@ -477,37 +540,6 @@ If failures: fix before proceeding. Do not write "tests pass" in SUMMARY.md if t
 If the phase introduced a new enum value, status string, or type discriminator:
 - Verify it exists in ALL layers: DB constraint, RPC validation, edge function validation, frontend type, UI display map
 - A value present in one layer but missing in another is a blocking defect
-
-</step>
-
-<step name="e2e_coverage_closure">
-
-### Step 6.5: Post-Execution E2E Coverage Closure (Web Projects)
-
-**Trigger:** Same as Step 5.6 in plan-phase — web project with UI changes.
-
-**Process:**
-1. Read SUMMARY.md to identify what was actually built
-2. Spawn gsd-ui-inventory (haiku) on the changed modules to get fresh inventory
-3. Compare actual UI inventory against E2E-TEST-PLAN.md from planning phase
-4. If gaps found (new UI elements not covered by any test):
-   a. Spawn gsd-e2e-test-generator (sonnet) with gap list
-   b. Generator creates additional scenarios
-   c. Run new scenarios with Charlotte to verify they work
-5. Update scenario index files to include new tests
-6. Tag new tests and select regression candidates:
-   - Tests covering core user flows → `regression`
-   - Tests covering edge cases → `functional`
-   - Tests covering visual quality → `ux`
-
-**Hard rule:** Phase execution is NOT complete until every UI page created/modified has at least one e2e scenario covering:
-- Page loads without console errors
-- All interactive elements are clickable/fillable
-- All data displays show valid values (no NaN, undefined, null)
-- All forms submit successfully with valid data
-- All forms show validation errors with invalid data
-
-**Output:** Updated scenarios in `apps/e2e-charlotte/scenarios/`, updated E2E-TEST-PLAN.md with coverage status.
 
 </step>
 
