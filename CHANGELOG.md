@@ -6,6 +6,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Removed
+- **Phase 44-04: dead-code cleanup (MILE-18)** — deleted 5 verified-dead targets with zero live references: placeholder module stubs `get-shit-done/modules/{circuit-breaker,escalation,feedback,learning,validator}/` (superseded by the real `bin/gsd-*.js` implementations), the never-instantiated `bin/parallel-executor.js`, `bin/hooks/session-end.js` (superseded by `session-end-standalone.js`), `test/llmlingua-comparison/`, and `scripts/install-hooks.js` (superseded by `bin/install.js`). The `gsd-tools.js parallel` CLI command — never functional in practice, since wave parallelism runs via coordinator prompt orchestration rather than this module — has been removed entirely; running it now produces a clean "Unknown command" error instead of a crash. `scripts/install-orchestrator.js`'s install steps are renumbered 1-6 (was 1-7) after removing the `install-hooks.js` step.
+
 ### Added
 - **Phase 43-02/03:** Wired docs automation into executor (mandatory final step) and verifier (Step 8f docs gate — gaps_found when docs scope does not match build scope)
 - **Phase 43-01:** New `gsd-docs-updater` Haiku agent — reads /docs conventions, classifies build scope from SUMMARY.md into 4 categories (api_change, ui_surface, architecture, refactoring), writes proportionally-scoped documentation with padding guard (internal tooling addition)
