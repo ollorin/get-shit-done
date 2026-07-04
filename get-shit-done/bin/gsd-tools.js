@@ -5016,7 +5016,13 @@ function loadPhaseGateInputs(cwd, phaseArg) {
 
   // Collect plans -- malformed-tolerant: a broken PLAN.md is recorded and
   // skipped for artifact computation, never a hard crash of the whole command.
-  const planFileNames = dirFiles.filter(f => f.match(/-PLAN\.md$/i));
+  // Deliberately requires a 2-digit plan number directly before "-PLAN.md"
+  // (matching the real `{phase}-{planNN}-PLAN.md` naming convention) rather
+  // than a bare `/-PLAN\.md$/i`, which would incidentally also match
+  // artifact filenames like "E2E-TEST-PLAN.md" and misclassify them as a
+  // malformed task-plan file (missing `plan:` frontmatter) purely because
+  // of their name. Bug found via 46-01's e2e-gaps tests (Phase 46-01 Task 2).
+  const planFileNames = dirFiles.filter(f => f.match(/-\d{2}-PLAN\.md$/i));
   const malformedPlans = [];
   const validPlans = [];
 

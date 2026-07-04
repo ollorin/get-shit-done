@@ -4819,3 +4819,283 @@ describe('deferred add/list <-> phase-gate composition integration (Phase 45-05 
     assert.strictEqual(onDiskContent, originalBadContent);
   });
 });
+
+describe('verify e2e-gaps + gap-aware e2e_plan check (Phase 46-01)', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+    execSync('git init', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git config user.email "gsd-test@example.com"', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git config user.name "GSD Test"', { cwd: tmpDir, stdio: 'pipe' });
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function phaseDirPath(phaseDirName) {
+    return path.join(tmpDir, '.planning', 'phases', phaseDirName);
+  }
+
+  function commitAll(message) {
+    execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
+    execSync(`git commit -q --allow-empty -m "${message}"`, { cwd: tmpDir, stdio: 'pipe' });
+  }
+
+  // Surfaces the real process exit code -- `verify e2e-gaps` uses distinct
+  // exit codes: 0 = idempotent-skip (nothing to do), 1 = gaps/generation
+  // failure present, 2 = phase-not-found/malformed-plan.
+  function runE2EGaps(phaseArg, cwd) {
+    try {
+      const result = execSync(`node "${TOOLS_PATH}" verify e2e-gaps ${phaseArg}`, {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      return { success: true, output: result.trim(), exitCode: 0 };
+    } catch (err) {
+      return {
+        success: false,
+        output: err.stdout?.toString().trim() || '',
+        error: err.stderr?.toString().trim() || '',
+        exitCode: err.status ?? 1,
+      };
+    }
+  }
+
+  function runPhaseGate(phaseArg, cwd) {
+    try {
+      const result = execSync(`node "${TOOLS_PATH}" verify phase-gate ${phaseArg}`, {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      return { success: true, output: result.trim(), exitCode: 0 };
+    } catch (err) {
+      return {
+        success: false,
+        output: err.stdout?.toString().trim() || '',
+        error: err.stderr?.toString().trim() || '',
+        exitCode: err.status ?? 1,
+      };
+    }
+  }
+
+  function runDeferred(argsStr, cwd) {
+    try {
+      const result = execSync(`node "${TOOLS_PATH}" deferred ${argsStr}`, {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      return { success: true, output: result.trim(), exitCode: 0 };
+    } catch (err) {
+      return {
+        success: false,
+        output: err.stdout?.toString().trim() || '',
+        error: err.stderr?.toString().trim() || '',
+        exitCode: err.status ?? 1,
+      };
+    }
+  }
+
+  function writePlan(phaseDir, planFile = '46-01-PLAN.md') {
+    fs.writeFileSync(
+      path.join(phaseDir, planFile),
+      `---\nphase: "46"\nplan: "01"\ntype: execute\nfiles_modified: []\n---\n<tasks>\n<task type="auto">\n<name>Task 1</name>\n<action>do stuff</action>\n</task>\n</tasks>\n`
+    );
+  }
+
+  test('non-UI phase (only .ts files touched) -> verify e2e-gaps has_ui false, gap_count 0, exit 0; phase-gate e2e_plan check not-required', () => {
+    const phaseDir = phaseDirPath('46-nonui');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    writePlan(phaseDir);
+    fs.writeFileSync(path.join(phaseDir, 'utils.ts'), 'export const noop = () => {};\n');
+    commitAll('feat(46-01): non-ui ts file only');
+
+    const gapResult = runE2EGaps('46', tmpDir);
+    assert.ok(gapResult.success, `verify e2e-gaps should exit 0 for a non-UI phase: ${gapResult.error}`);
+    assert.strictEqual(gapResult.exitCode, 0);
+    const gapParsed = JSON.parse(gapResult.output);
+    assert.strictEqual(gapParsed.has_ui, false);
+    assert.strictEqual(gapParsed.gap_count, 0);
+    assert.strictEqual(gapParsed.generation_failed, false);
+
+    fs.writeFileSync(path.join(phaseDir, '46-VERIFICATION.md'), `---\nphase: "46"\nstatus: passed\n---\n# Verification\n`);
+    const gateResult = runPhaseGate('46', tmpDir);
+    const gateParsed = JSON.parse(gateResult.output);
+    const e2eCheck = gateParsed.checks.find(c => c.type === 'e2e_plan');
+    assert.strictEqual(e2eCheck.required, false, 'e2e_plan check must remain not-required for a non-UI phase, unchanged from Phase 45 behavior');
+  });
+
+  test('UI phase, no E2E-TEST-PLAN.md at all -> gaps contains every touched UI basename, gap_count > 0, exit 1; phase-gate fails missing_e2e_plan', () => {
+    const phaseDir = phaseDirPath('46-noplan');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    writePlan(phaseDir);
+    fs.writeFileSync(path.join(phaseDir, 'Dashboard.tsx'), 'export default function Dashboard() { return null; }\n');
+    fs.writeFileSync(path.join(phaseDir, 'Settings.tsx'), 'export default function Settings() { return null; }\n');
+    commitAll('feat(46-01): two UI files, no e2e plan');
+
+    const gapResult = runE2EGaps('46', tmpDir);
+    assert.strictEqual(gapResult.exitCode, 1);
+    const gapParsed = JSON.parse(gapResult.output);
+    assert.strictEqual(gapParsed.has_ui, true);
+    assert.strictEqual(gapParsed.e2e_plan_exists, false);
+    assert.strictEqual(gapParsed.gap_count, 2);
+    assert.deepStrictEqual([...gapParsed.gaps].sort(), ['Dashboard', 'Settings']);
+
+    const gateResult = runPhaseGate('46', tmpDir);
+    assert.strictEqual(gateResult.exitCode, 1);
+    const gateParsed = JSON.parse(gateResult.output);
+    assert.ok(gateParsed.failures.includes('missing_e2e_plan'));
+    const e2eCheck = gateParsed.checks.find(c => c.type === 'e2e_plan');
+    assert.strictEqual(e2eCheck.satisfied, false);
+    assert.strictEqual(e2eCheck.failure_type, 'missing_e2e_plan');
+    assert.deepStrictEqual([...gateParsed.e2e_gaps].sort(), ['Dashboard', 'Settings']);
+  });
+
+  test('UI phase, E2E-TEST-PLAN.md mentions every touched UI basename (case-insensitive) -> gap_count 0, exit 0; phase-gate e2e_plan passes', () => {
+    const phaseDir = phaseDirPath('46-fullcoverage');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    writePlan(phaseDir);
+    fs.writeFileSync(path.join(phaseDir, 'Dashboard.tsx'), 'export default function Dashboard() { return null; }\n');
+    fs.writeFileSync(path.join(phaseDir, 'Settings.tsx'), 'export default function Settings() { return null; }\n');
+    fs.writeFileSync(path.join(phaseDir, 'E2E-TEST-PLAN.md'), '# E2E Test Plan\n\n## Scenarios\n- dashboard loads correctly\n- SETTINGS page saves preferences\n');
+    commitAll('feat(46-01): two UI files, full e2e coverage');
+    fs.writeFileSync(path.join(phaseDir, '46-VERIFICATION.md'), `---\nphase: "46"\nstatus: passed\n---\n# Verification\n`);
+
+    const gapResult = runE2EGaps('46', tmpDir);
+    assert.strictEqual(gapResult.exitCode, 0, `full coverage should be an idempotent-skip signal: ${JSON.stringify(gapResult)}`);
+    const gapParsed = JSON.parse(gapResult.output);
+    assert.strictEqual(gapParsed.gap_count, 0);
+    assert.strictEqual(gapParsed.e2e_plan_exists, true);
+
+    const gateResult = runPhaseGate('46', tmpDir);
+    const gateParsed = JSON.parse(gateResult.output);
+    assert.ok(!gateParsed.failures.includes('missing_e2e_plan'), `e2e_plan should not fail when coverage is complete: ${JSON.stringify(gateParsed.failures)}`);
+    const e2eCheck = gateParsed.checks.find(c => c.type === 'e2e_plan');
+    assert.strictEqual(e2eCheck.satisfied, true);
+    assert.strictEqual(e2eCheck.failure_type, null);
+  });
+
+  test('UI phase, E2E-TEST-PLAN.md omits one UI basename -> gaps contains exactly that basename, gap_count 1, exit 1; phase-gate fails missing_e2e_plan', () => {
+    const phaseDir = phaseDirPath('46-partial');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    writePlan(phaseDir);
+    fs.writeFileSync(path.join(phaseDir, 'Dashboard.tsx'), 'export default function Dashboard() { return null; }\n');
+    fs.writeFileSync(path.join(phaseDir, 'Settings.tsx'), 'export default function Settings() { return null; }\n');
+    fs.writeFileSync(path.join(phaseDir, 'E2E-TEST-PLAN.md'), '# E2E Test Plan\n\n## Scenarios\n- Dashboard loads correctly\n');
+    commitAll('feat(46-01): two UI files, partial e2e coverage (Settings omitted)');
+    fs.writeFileSync(path.join(phaseDir, '46-VERIFICATION.md'), `---\nphase: "46"\nstatus: passed\n---\n# Verification\n`);
+
+    const gapResult = runE2EGaps('46', tmpDir);
+    assert.strictEqual(gapResult.exitCode, 1);
+    const gapParsed = JSON.parse(gapResult.output);
+    assert.strictEqual(gapParsed.gap_count, 1);
+    assert.deepStrictEqual(gapParsed.gaps, ['Settings']);
+
+    const gateResult = runPhaseGate('46', tmpDir);
+    assert.strictEqual(gateResult.exitCode, 1);
+    const gateParsed = JSON.parse(gateResult.output);
+    assert.ok(gateParsed.failures.includes('missing_e2e_plan'));
+    const e2eCheck = gateParsed.checks.find(c => c.type === 'e2e_plan');
+    assert.strictEqual(e2eCheck.failure_type, 'missing_e2e_plan');
+    assert.deepStrictEqual(gateParsed.e2e_gaps, ['Settings']);
+  });
+
+  test('E2E-GENERATION-FAILED.json marker present (even with full text coverage) -> generation_failed true; phase-gate fails e2e_generation_failed, NOT missing_e2e_plan', () => {
+    const phaseDir = phaseDirPath('46-genfail');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    writePlan(phaseDir);
+    fs.writeFileSync(path.join(phaseDir, 'Dashboard.tsx'), 'export default function Dashboard() { return null; }\n');
+    fs.writeFileSync(path.join(phaseDir, 'E2E-TEST-PLAN.md'), '# E2E Test Plan\n\n- Dashboard loads correctly\n');
+    commitAll('feat(46-01): full coverage but generator marked failed');
+    fs.writeFileSync(
+      path.join(phaseDir, 'E2E-GENERATION-FAILED.json'),
+      JSON.stringify({ error: 'gsd-e2e-test-generator threw during spawn', timestamp: '2026-07-04T00:00:00Z' })
+    );
+    fs.writeFileSync(path.join(phaseDir, '46-VERIFICATION.md'), `---\nphase: "46"\nstatus: passed\n---\n# Verification\n`);
+
+    const gapResult = runE2EGaps('46', tmpDir);
+    assert.strictEqual(gapResult.exitCode, 1, 'a generation-failure marker must block the idempotent-skip signal even with gap_count 0');
+    const gapParsed = JSON.parse(gapResult.output);
+    assert.strictEqual(gapParsed.gap_count, 0, 'text coverage is complete -- gaps computation itself is unaffected by the marker');
+    assert.strictEqual(gapParsed.generation_failed, true);
+
+    const gateResult = runPhaseGate('46', tmpDir);
+    assert.strictEqual(gateResult.exitCode, 1);
+    const gateParsed = JSON.parse(gateResult.output);
+    assert.ok(gateParsed.failures.includes('e2e_generation_failed'), `expected e2e_generation_failed in failures: ${JSON.stringify(gateParsed.failures)}`);
+    assert.ok(!gateParsed.failures.includes('missing_e2e_plan'), 'the override must REPLACE the generic failure_type, not add to it');
+    const e2eCheck = gateParsed.checks.find(c => c.type === 'e2e_plan');
+    assert.strictEqual(e2eCheck.satisfied, false);
+    assert.strictEqual(e2eCheck.failure_type, 'e2e_generation_failed');
+  });
+
+  test('malformed E2E-GENERATION-FAILED.json (invalid JSON) does not crash verify e2e-gaps or verify phase-gate -- still treated as a generation failure', () => {
+    const phaseDir = phaseDirPath('46-genfailbad');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    writePlan(phaseDir);
+    fs.writeFileSync(path.join(phaseDir, 'Dashboard.tsx'), 'export default function Dashboard() { return null; }\n');
+    fs.writeFileSync(path.join(phaseDir, 'E2E-TEST-PLAN.md'), '# E2E Test Plan\n\n- Dashboard loads correctly\n');
+    commitAll('feat(46-01): full coverage, malformed generation-failure marker');
+    fs.writeFileSync(path.join(phaseDir, 'E2E-GENERATION-FAILED.json'), '{not valid json');
+    fs.writeFileSync(path.join(phaseDir, '46-VERIFICATION.md'), `---\nphase: "46"\nstatus: passed\n---\n# Verification\n`);
+
+    const gapResult = runE2EGaps('46', tmpDir);
+    assert.strictEqual(gapResult.exitCode, 1, 'malformed marker must not crash and must still be treated as a failure');
+    const gapParsed = JSON.parse(gapResult.output);
+    assert.strictEqual(gapParsed.generation_failed, true);
+
+    const gateResult = runPhaseGate('46', tmpDir);
+    assert.strictEqual(gateResult.exitCode, 1, 'malformed marker must not crash verify phase-gate');
+    const gateParsed = JSON.parse(gateResult.output);
+    const e2eCheck = gateParsed.checks.find(c => c.type === 'e2e_plan');
+    assert.strictEqual(e2eCheck.failure_type, 'e2e_generation_failed');
+  });
+
+  test('a deferred add --step e2e_plan waiver satisfies the e2e_plan check even when gaps exist AND the generation-failure marker is present', () => {
+    const phaseDir = phaseDirPath('46-waived');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    writePlan(phaseDir);
+    fs.writeFileSync(path.join(phaseDir, 'Dashboard.tsx'), 'export default function Dashboard() { return null; }\n');
+    fs.writeFileSync(path.join(phaseDir, 'Settings.tsx'), 'export default function Settings() { return null; }\n');
+    // Deliberately no E2E-TEST-PLAN.md at all -- every UI file is a gap.
+    commitAll('feat(46-01): two UI files, no e2e plan, about to be waived');
+    fs.writeFileSync(
+      path.join(phaseDir, 'E2E-GENERATION-FAILED.json'),
+      JSON.stringify({ error: 'generator threw', timestamp: '2026-07-04T00:00:00Z' })
+    );
+    // charlotte_qa is a separate, unrelated check -- satisfy it here so this
+    // test isolates the e2e_plan waiver behavior instead of also failing on
+    // missing_charlotte_qa (which every UI-bearing fixture in this suite would
+    // otherwise trip).
+    fs.writeFileSync(path.join(phaseDir, 'CHECKPOINT.json'), JSON.stringify({ charlotte_qa_ran: true }));
+    fs.writeFileSync(path.join(phaseDir, '46-VERIFICATION.md'), `---\nphase: "46"\nstatus: passed\n---\n# Verification\n`);
+
+    const addResult = runDeferred(
+      `add 46-waived --step e2e_plan --reason "E2E generator unavailable in this environment" --approver ollorin --raw`,
+      tmpDir
+    );
+    assert.ok(addResult.success, `deferred add should exit 0: ${addResult.error}`);
+
+    const gateResult = runPhaseGate('46', tmpDir);
+    assert.ok(gateResult.success, `waiver should satisfy the e2e_plan check despite gaps and the generation-failure marker: ${gateResult.error}`);
+    const gateParsed = JSON.parse(gateResult.output);
+    assert.ok(!gateParsed.failures.includes('missing_e2e_plan'));
+    assert.ok(!gateParsed.failures.includes('e2e_generation_failed'));
+    const e2eCheck = gateParsed.checks.find(c => c.type === 'e2e_plan');
+    assert.strictEqual(e2eCheck.satisfied, true);
+    assert.strictEqual(e2eCheck.waived, true);
+    assert.strictEqual(e2eCheck.failure_type, null, 'a waived check must report failure_type null, not the override string');
+  });
+
+  // Regression proof: the existing Phase 45-01/45-05 e2e_plan existence-only
+  // fixtures (E2E-TEST-PLAN.md with generic non-matching content like
+  // "# E2E Test Plan\n") already run as part of the pre-existing test suite
+  // (see "verify phase-gate command (Phase 45-01)" and "phase-gate full
+  // matrix + HAS_UI integration (Phase 45-05 Task 1)" describe blocks above)
+  // and continue to pass after this plan's gap-aware rewrite -- confirmed via
+  // the full `npm test` run (224 pre-existing + new tests, 0 failures).
+});
