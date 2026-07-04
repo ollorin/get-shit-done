@@ -4312,6 +4312,133 @@ describe('deferred add/list commands (Phase 45-03)', () => {
   });
 });
 
+// ─── Phase 47-03: Telegram Escalation Timeout-Fallback Waiver Wiring ────────
+// gsd-phase-coordinator.md's Step A-fallback (see agents/gsd-phase-coordinator.md)
+// invokes this EXACT CLI shape on ask_blocking_question failure:
+//   deferred add {phase} --step discuss --reason "..." --approver timeout-fallback [--plan {plan}]
+// These tests prove that exact invocation actually writes and surfaces a
+// waiver -- the coordinator prose itself cannot be unit-tested (it's an agent
+// prompt, not TS/JS), so this is the lightest-weight deterministic proof that
+// the CLI mechanism it depends on works end-to-end.
+describe('timeout-fallback waiver wiring (Phase 47-03)', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function phaseDirPath(phaseDirName) {
+    return path.join(tmpDir, '.planning', 'phases', phaseDirName);
+  }
+
+  // Reuses the exact runDeferred pattern already established above (surfaces
+  // real process exit code, since deferred add/list use distinct exit codes).
+  function runDeferred(argsStr, cwd) {
+    try {
+      const result = execSync(`node "${TOOLS_PATH}" deferred ${argsStr}`, {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      return { success: true, output: result.trim(), exitCode: 0 };
+    } catch (err) {
+      return {
+        success: false,
+        output: err.stdout?.toString().trim() || '',
+        error: err.stderr?.toString().trim() || '',
+        exitCode: err.status ?? 1,
+      };
+    }
+  }
+
+  test('the exact coordinator CLI shape (no --plan) writes a DEFERRED.json entry with approver: timeout-fallback, step: discuss, plan: null -- all 6 schema fields present', () => {
+    const phaseDir = phaseDirPath('47-timeoutfallback1');
+    fs.mkdirSync(phaseDir, { recursive: true });
+
+    const result = runDeferred(
+      `add 47-timeoutfallback1 --step discuss --reason "Telegram escalation timed out/unavailable for: should we use JWT or session cookies?" --approver timeout-fallback --raw`,
+      tmpDir
+    );
+    assert.ok(result.success, `deferred add should exit 0: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.written, true);
+    assert.strictEqual(parsed.entry.step, 'discuss');
+    assert.strictEqual(parsed.entry.reason, 'Telegram escalation timed out/unavailable for: should we use JWT or session cookies?');
+    assert.strictEqual(parsed.entry.approver, 'timeout-fallback');
+    assert.strictEqual(parsed.entry.plan, null, '--plan is optional for this use case: the escalation loop runs at the discuss step, before any plan exists yet');
+    assert.ok(typeof parsed.entry.timestamp === 'string' && parsed.entry.timestamp.length > 0);
+    assert.strictEqual(parsed.entry.phase, '47');
+
+    const onDisk = JSON.parse(fs.readFileSync(path.join(phaseDir, 'DEFERRED.json'), 'utf-8'));
+    assert.ok(Array.isArray(onDisk));
+    assert.strictEqual(onDisk.length, 1);
+    assert.deepStrictEqual(Object.keys(onDisk[0]).sort(), ['approver', 'phase', 'plan', 'reason', 'step', 'timestamp'].sort());
+    assert.strictEqual(onDisk[0].approver, 'timeout-fallback');
+  });
+
+  test('deferred list immediately surfaces the timeout-fallback entry -- round-trip proof', () => {
+    const phaseDir = phaseDirPath('47-timeoutfallback2');
+    fs.mkdirSync(phaseDir, { recursive: true });
+
+    runDeferred(
+      `add 47-timeoutfallback2 --step discuss --reason "Telegram escalation timed out/unavailable for: pick a caching strategy" --approver timeout-fallback --raw`,
+      tmpDir
+    );
+
+    const listResult = runDeferred(`list 47-timeoutfallback2 --raw`, tmpDir);
+    assert.ok(listResult.success, `deferred list should exit 0: ${listResult.error}`);
+    const parsed = JSON.parse(listResult.output);
+    assert.strictEqual(parsed.count, 1);
+    assert.strictEqual(parsed.waivers.length, 1);
+    assert.strictEqual(parsed.waivers[0].approver, 'timeout-fallback');
+    assert.strictEqual(parsed.waivers[0].step, 'discuss');
+    assert.strictEqual(parsed.waivers[0].reason, 'Telegram escalation timed out/unavailable for: pick a caching strategy');
+  });
+
+  test('a second timeout-fallback entry for a different gray_area on the same phase appends rather than overwrites', () => {
+    const phaseDir = phaseDirPath('47-timeoutfallback3');
+    fs.mkdirSync(phaseDir, { recursive: true });
+
+    runDeferred(
+      `add 47-timeoutfallback3 --step discuss --reason "Telegram escalation timed out/unavailable for: gray area A" --approver timeout-fallback --raw`,
+      tmpDir
+    );
+    const second = runDeferred(
+      `add 47-timeoutfallback3 --step discuss --reason "Telegram escalation timed out/unavailable for: gray area B" --approver timeout-fallback --raw`,
+      tmpDir
+    );
+    assert.ok(second.success, `second deferred add should exit 0: ${second.error}`);
+
+    const onDisk = JSON.parse(fs.readFileSync(path.join(phaseDir, 'DEFERRED.json'), 'utf-8'));
+    assert.strictEqual(onDisk.length, 2, 'DEFERRED.json should accumulate multiple timeout-fallback waivers, not clobber -- confirms multiple escalation timeouts in one phase run each get their own waiver');
+    assert.strictEqual(onDisk[0].reason, 'Telegram escalation timed out/unavailable for: gray area A');
+    assert.strictEqual(onDisk[1].reason, 'Telegram escalation timed out/unavailable for: gray area B');
+    assert.strictEqual(onDisk[0].approver, 'timeout-fallback');
+    assert.strictEqual(onDisk[1].approver, 'timeout-fallback');
+
+    const listResult = runDeferred(`list 47-timeoutfallback3 --raw`, tmpDir);
+    const parsedList = JSON.parse(listResult.output);
+    assert.strictEqual(parsedList.count, 2);
+  });
+
+  test('--plan flag is optional but honored when provided (e.g. a fallback occurring mid-plan, not just at discuss-step)', () => {
+    const phaseDir = phaseDirPath('47-timeoutfallback4');
+    fs.mkdirSync(phaseDir, { recursive: true });
+
+    const result = runDeferred(
+      `add 47-timeoutfallback4 --step discuss --reason "Telegram escalation timed out/unavailable for: gray area with plan context" --approver timeout-fallback --plan 03 --raw`,
+      tmpDir
+    );
+    assert.ok(result.success, `deferred add should exit 0: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.entry.plan, '03');
+  });
+});
+
 // ─── Phase 45-05: Cross-Cutting Integration Tests ────────────────────────────
 // 45-01/45-02/45-03 each ship unit-level tdd tests for their own change,
 // already exercised through the real CLI via execSync (not narrower in-process
