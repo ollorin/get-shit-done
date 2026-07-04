@@ -259,6 +259,53 @@ Aggregate all requirement IDs across plans. For each requirement ID:
 - ✗ BLOCKED: One or more supporting truths failed or artifact missing
 - ? NEEDS HUMAN: Can't verify programmatically
 
+## Step 6c: Test-Content Coverage & Hollow-Test Detection (QGATE-14)
+
+Closes Loophole 7 / Issue 8: Step 8d (below) only proves a `.test.ts` file EXISTS — it never checks whether the file actually tests anything. This step classifies each requirement's real, non-hollow test coverage and blocking-spawns `gsd-nyquist-auditor` to fill any gap before verification continues.
+
+Run the deterministic classifier:
+
+```bash
+TEST_CONTENT_RESULT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js verify test-content "$PHASE_NUM")
+```
+
+Parse `requirements` (each with `req_id`/`status`/`source_plans`/`matched_files`), `hollow_tests`, `net_zero_assertion_files`, `passed`.
+
+**If `passed` is true:** log "Test-content coverage: all applicable requirements COVERED" and continue to Step 6b/7.
+
+**If `passed` is false:** BEFORE continuing verification, blocking-spawn `gsd-nyquist-auditor` (synchronous — wait for it to return, do not continue verification in parallel):
+
+Build a `<gaps>` list from the JSON:
+- Each `MISSING` requirement with zero test files → `{ gap_id: req_id, requirement: req_id, type: "no_test_file", reason: "no test file found for this requirement" }`
+- Each entry in `hollow_tests` → `{ gap_id: req_id (owning requirement), requirement: req_id, type: "hollow_test", file, reason: "test file has zero non-skipped test()/it() calls, or zero assertions" }`
+- Each entry in `net_zero_assertion_files` → `{ gap_id: req_id, requirement: req_id, type: "stale_assertions", file, before_count, after_count, reason: "assertion count did not increase since the phase's first commit touching this file" }`
+
+Spawn:
+```
+Agent(
+  subagent_type="gsd-nyquist-auditor",
+  model="{verifier_model}",
+  prompt="Phase {phase_number} test-content gaps.\n<gaps>{gap list above}</gaps>\nImplementation files are READ-ONLY. Fill each gap with a real test covering the requirement's observable behavior. Report GAPS FILLED / PARTIAL / ESCALATE."
+)
+```
+
+After it returns, re-run `verify test-content "$PHASE_NUM"` to confirm gaps are closed.
+
+**If still not `passed` after the nyquist-auditor spawn (any requirement remains MISSING/PARTIAL, or the auditor's own report is PARTIAL/ESCALATE):** add one gap entry per remaining item to VERIFICATION.md and set STATUS = gaps_found — NEVER silently pass:
+
+```yaml
+- truth: "Requirement {req_id} has real, non-hollow test coverage"
+  status: failed
+  failure_type: missing_test    # use `missing_test` for MISSING, `stub` for a hollow file the auditor could not fill, `regression` for stale_assertions the auditor could not fill
+  reason: "{nyquist-auditor's escalation reason, or 'still MISSING/PARTIAL after auto-fill attempt'}"
+  missing:
+    - "{specific fix the auditor could not complete}"
+```
+
+This step's hard-fail is NEVER a warning — matches the existing convention for Step 8b/8c/8d's hard rules elsewhere in this file.
+
+Note: Step 8d (Implementation File Test Coverage, below) is a coarser, complementary, file-existence-only check and stays unchanged — Step 6c adds requirement-level classification and content-quality (hollow/stale) detection on top of it, it does not replace it.
+
 ## Step 6b: PRD Intent Alignment Check (Optional — fires only if PRD-TRACE.md present)
 
 ```bash
