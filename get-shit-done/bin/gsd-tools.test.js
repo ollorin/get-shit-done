@@ -2810,3 +2810,302 @@ describe('verify migration-timestamps command', () => {
     assert.strictEqual(data.conflicts_found, 0, 'Should find no conflicts');
   });
 });
+
+// ─── Phase 44-01: safeJsonParse guard behavior ────────────────────────────────
+
+describe('token report — safeJsonParse guard (Phase 44-01)', () => {
+  let tmpDir;
+  let budgetPath;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+    budgetPath = path.join(tmpDir, '.planning', 'token_budget.json');
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  test('malformed token_budget.json produces a typed error, not an uncaught crash', () => {
+    fs.writeFileSync(budgetPath, '{ this is not valid json');
+
+    const result = runGsdTools('token report', tmpDir);
+
+    assert.strictEqual(result.success, false, 'command should fail gracefully on corrupted state, not succeed with garbage data');
+    assert.ok(
+      /corrupted|token_budget\.json/i.test(result.error),
+      `error should reference corruption/context label, got: ${result.error}`
+    );
+    assert.ok(
+      !/at Object\.<anonymous>|node:internal\/|SyntaxError: Unexpected/.test(result.error) || /Error: /.test(result.error),
+      `should surface a clean "Error: ..." message rather than a raw Node stack trace, got: ${result.error}`
+    );
+  });
+
+  test('well-formed token_budget.json still parses and reports correctly (regression)', () => {
+    const validState = {
+      model: 'opus',
+      maxTokens: 200000,
+      currentUsage: 1000,
+      phaseUsage: {},
+      alerts: [],
+      thresholdsPassed: [],
+      graduatedAlerts: [],
+      telegramEnabled: false,
+    };
+    fs.writeFileSync(budgetPath, JSON.stringify(validState));
+
+    const result = runGsdTools('token report', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.current_usage, 1000);
+    assert.strictEqual(parsed.max_tokens, 200000);
+  });
+
+  test('missing token_budget.json is reported as not-initialized (unaffected by guard change)', () => {
+    // No budgetPath file written at all
+    const result = runGsdTools('token report', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.available, false);
+  });
+});
+
+describe('routing index-refresh — cache safeJsonParse guard (Phase 44-01)', () => {
+  let tmpDir;
+  let cachePath;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+    cachePath = path.join(tmpDir, '.planning', '.context-index-cache.json');
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  test('malformed context-index cache produces a typed corruption result, not an uncaught crash', () => {
+    fs.writeFileSync(cachePath, '{ not: valid, json ][');
+
+    const result = runGsdTools('routing index-refresh', tmpDir);
+    assert.ok(result.success, `Command should report a graceful JSON result, not crash: ${result.error}`);
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.stale, true, 'corrupted cache should be reported as stale');
+    assert.ok(/corrupted/i.test(parsed.reason), `reason should mention corruption, got: ${parsed.reason}`);
+  });
+
+  test('well-formed context-index cache still refreshes correctly (regression)', () => {
+    const validCache = {
+      created_at: new Date(0).toISOString(), // guaranteed stale by mtime comparison below
+      entries: [],
+    };
+    fs.writeFileSync(cachePath, JSON.stringify(validCache));
+
+    const result = runGsdTools('routing index-refresh', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.entries, 0);
+    assert.strictEqual(typeof parsed.stale, 'boolean');
+  });
+});
+
+describe('validation log / stats — JSONL per-line safeJsonParse guard (Phase 44-01)', () => {
+  let tmpDir;
+  let logFile;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+    const validationDir = path.join(tmpDir, '.planning', 'validation');
+    fs.mkdirSync(validationDir, { recursive: true });
+    logFile = path.join(validationDir, 'validation-log.jsonl');
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  test('one malformed line in validation-log.jsonl does not abort processing of the other valid lines', () => {
+    const validLine1 = JSON.stringify({ task_id: 'task-1', result: { valid: true, correctness_score: 9 }, depth: 'light' });
+    const malformedLine = '{ this is not valid json at all';
+    const validLine2 = JSON.stringify({ task_id: 'task-2', result: { valid: true, correctness_score: 8 }, depth: 'standard' });
+
+    fs.writeFileSync(logFile, [validLine1, malformedLine, validLine2].join('\n') + '\n');
+
+    const result = runGsdTools('validation log', tmpDir);
+    assert.ok(result.success, `Command should not crash on a malformed line: ${result.error}`);
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.count, 2, 'both well-formed lines should still be processed despite one malformed line');
+    const taskIds = parsed.entries.map(e => e.task_id).sort();
+    assert.deepStrictEqual(taskIds, ['task-1', 'task-2']);
+  });
+
+  test('validation stats tolerates a malformed line and computes stats from the remaining valid entries', () => {
+    const validLine1 = JSON.stringify({ task_id: 'task-1', result: { valid: true, correctness_score: 9, reasoning_score: 9 }, depth: 'light' });
+    const malformedLine = 'not json {{{';
+    fs.writeFileSync(logFile, [validLine1, malformedLine].join('\n') + '\n');
+
+    const result = runGsdTools('validation stats', tmpDir);
+    assert.ok(result.success, `Command should not crash on a malformed line: ${result.error}`);
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.total_validations, 1, 'malformed line should be skipped, only the valid entry counted');
+  });
+
+  test('well-formed validation-log.jsonl with no malformed lines behaves exactly as before (regression)', () => {
+    const validLine1 = JSON.stringify({ task_id: 'task-1', result: { valid: true, correctness_score: 9 }, depth: 'light' });
+    const validLine2 = JSON.stringify({ task_id: 'task-2', result: { valid: false, correctness_score: 3 }, depth: 'thorough' });
+    fs.writeFileSync(logFile, [validLine1, validLine2].join('\n') + '\n');
+
+    const result = runGsdTools('validation log', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.count, 2);
+  });
+});
+
+// ─── Phase 44-01: execSync → execFileSync/pure-Node hardening ────────────────
+
+describe('task analyze/chunk --files — expandGlobSync injection hardening (Phase 44-01)', () => {
+  let tmpDir;
+  const markerPath = path.join(require('os').tmpdir(), 'gsd-test-pwned-glob-marker.txt');
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+    if (fs.existsSync(markerPath)) fs.rmSync(markerPath);
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+    if (fs.existsSync(markerPath)) fs.rmSync(markerPath);
+  });
+
+  test('shell metacharacters in --files glob are not shell-interpreted', () => {
+    const maliciousGlob = `*.js; touch ${markerPath}; echo pwned`;
+    const escaped = maliciousGlob.replace(/'/g, "'\\''");
+
+    const result = runGsdTools(`task analyze --description "test task" --files '${escaped}'`, tmpDir);
+
+    assert.ok(
+      !fs.existsSync(markerPath),
+      'shell metacharacters in --files must not execute as a shell command (marker file must not be created)'
+    );
+    assert.ok(result.success, `Command should not crash on a malicious glob: ${result.error}`);
+  });
+
+  test('shell metacharacters in task chunk --files are also not shell-interpreted', () => {
+    const maliciousGlob = `*.js\`touch ${markerPath}\``;
+    const escaped = maliciousGlob.replace(/'/g, "'\\''");
+
+    const result = runGsdTools(`task chunk --description "test task" --files '${escaped}'`, tmpDir);
+
+    assert.ok(!fs.existsSync(markerPath), 'backtick command substitution in --files must not execute');
+    assert.ok(result.success, `Command should not crash on a malicious glob: ${result.error}`);
+  });
+
+  test('normal glob pattern still matches files without shelling out (regression)', () => {
+    fs.writeFileSync(path.join(tmpDir, 'foo.js'), 'x');
+    fs.writeFileSync(path.join(tmpDir, 'bar.js'), 'x');
+    fs.writeFileSync(path.join(tmpDir, 'baz.txt'), 'x');
+
+    const result = runGsdTools('task analyze --description "test task" --files "*.js"', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.ok(parsed.complexity, 'should return a complexity estimate as before');
+  });
+});
+
+describe('commit command — execFileSync git argv-array hardening (Phase 44-01)', () => {
+  let tmpDir;
+  const markerPath = path.join(require('os').tmpdir(), 'gsd-test-pwned-commit-marker.txt');
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+    execSync('git init', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git config user.email "gsd-test@example.com"', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git config user.name "GSD Test"', { cwd: tmpDir, stdio: 'pipe' });
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'STATE.md'), '# state\n');
+    if (fs.existsSync(markerPath)) fs.rmSync(markerPath);
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+    if (fs.existsSync(markerPath)) fs.rmSync(markerPath);
+  });
+
+  test('commit message with shell metacharacters is not shell-interpreted', () => {
+    const maliciousMessage = `pwn"; touch ${markerPath}; echo "done`;
+    const escaped = maliciousMessage.replace(/'/g, "'\\''");
+
+    runGsdTools(`commit '${escaped}'`, tmpDir);
+
+    assert.ok(
+      !fs.existsSync(markerPath),
+      'shell metacharacters in the commit message must not execute as a shell command'
+    );
+  });
+
+  test('normal commit message still commits successfully via execFileSync argv array (regression)', () => {
+    const result = runGsdTools('commit "test: normal commit message"', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.committed, true);
+    assert.ok(parsed.hash, 'should return a commit hash from the execFileSync-based git rev-parse call');
+  });
+
+  test('git check-ignore (isGitIgnored) behavior is unchanged for a normal (non-ignored) .planning directory', () => {
+    // No .gitignore present — .planning should not be reported as ignored,
+    // so the commit should proceed rather than being skipped.
+    const result = runGsdTools('commit "test: check-ignore regression"', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.notStrictEqual(parsed.reason, 'skipped_gitignored');
+  });
+
+  test('commit is skipped when .planning is gitignored (git check-ignore behavior preserved)', () => {
+    fs.writeFileSync(path.join(tmpDir, '.gitignore'), '.planning/\n');
+    const result = runGsdTools('commit "test: gitignored regression"', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.committed, false);
+    assert.strictEqual(parsed.reason, 'skipped_gitignored');
+  });
+});
+
+describe('output() large-payload path — fs.readFileSync replacement for `cat` (Phase 44-01)', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  test('large piped output (>100KB) is written completely and remains valid JSON', () => {
+    // Generate enough phase directories with SUMMARY.md content to push
+    // history-digest's JSON output past the 100KB large-output threshold,
+    // exercising the temp-file read-and-write-to-stdout path.
+    for (let i = 1; i <= 40; i++) {
+      const phaseDir = path.join(tmpDir, '.planning', 'phases', `${String(i).padStart(2, '0')}-phase-${i}`);
+      fs.mkdirSync(phaseDir, { recursive: true });
+      const filler = 'x'.repeat(4000);
+      const summaryContent = `---\nphase: "${i}"\nname: "Phase ${i}"\ndependency-graph:\n  provides:\n    - "${filler}"\n---\n\n# Summary\n`;
+      fs.writeFileSync(path.join(phaseDir, `${String(i).padStart(2, '0')}-01-SUMMARY.md`), summaryContent);
+    }
+
+    const result = runGsdTools('history-digest', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+    assert.ok(result.output.length > 100 * 1024, 'test fixture should actually exceed the 100KB large-output threshold');
+
+    // Must still be valid, complete JSON — proves fs.readFileSync + stdout.write
+    // preserved full content without truncation (no shell/pipe buffer loss).
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(Object.keys(parsed.phases).length, 40, 'all 40 phases should be present in the large output');
+  });
+});

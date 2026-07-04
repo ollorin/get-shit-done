@@ -584,20 +584,45 @@ function output(result, raw, rawValue) {
     try {
       fs.writeFileSync(tempFile, outputStr, 'utf-8');
       // Read the file back and write directly to stdout - avoids buffer limits
-      // without shelling out to `cat` for a known local file.
-      process.stdout.write(fs.readFileSync(tempFile, 'utf-8'));
+      // without shelling out to `cat` for a known local file. Uses a blocking
+      // fs.writeSync loop (not process.stdout.write, which is async on pipes
+      // and can be truncated by the process.exit(0) below before it flushes).
+      writeStdoutSync(fs.readFileSync(tempFile, 'utf-8'));
       // Clean up temp file
       fs.unlinkSync(tempFile);
     } catch (err) {
       // Fallback to direct write if temp file approach fails
-      process.stdout.write(outputStr);
+      writeStdoutSync(outputStr);
     }
   } else {
     // Normal sized output or terminal output - write directly
-    process.stdout.write(outputStr);
+    writeStdoutSync(outputStr);
   }
 
   process.exit(0);
+}
+
+// Synchronous, complete write to stdout (fd 1). process.stdout.write() is
+// asynchronous when stdout is a pipe, so an immediately-following
+// process.exit(0) can truncate output before the OS write completes.
+// fs.writeSync blocks until the data is actually written, looping to handle
+// partial writes. When stdout is a non-blocking pipe with a full buffer,
+// fs.writeSync throws EAGAIN instead of blocking — retry with a brief
+// synchronous pause until the reader drains the pipe.
+function writeStdoutSync(content) {
+  const buffer = Buffer.from(content, 'utf-8');
+  let written = 0;
+  while (written < buffer.length) {
+    try {
+      written += fs.writeSync(1, buffer, written, buffer.length - written);
+    } catch (err) {
+      if (err.code === 'EAGAIN') {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+        continue;
+      }
+      throw err;
+    }
+  }
 }
 
 function error(message) {
