@@ -22,6 +22,7 @@
 | [08-infrastructure-install-hooks-modules.md](08-infrastructure-install-hooks-modules.md) | Install/hooks/modules | hooks/dist build gap can block install; PreToolUse hooks have no timeout |
 | [09-telegram-mcp.md](09-telegram-mcp.md) | Telegram MCP | Solid architecture; locking dep unused; wiring status contradicts other reports `[verify]` |
 | [10-self-testing-and-ci.md](10-self-testing-and-ci.md) | GSD self-testing + CI | 155 tests all pass locally, but **no CI runs them**; observability layer is dead code |
+| [15-model-perspective-additions.md](15-model-perspective-additions.md) | Model's own additions (2026-07-04) | Session-limit resilience (observed live ×2), behavioral eval harness, prompt size budgets, version-skew detection, self-report telemetry, injection hardening |
 
 ## The Six Cross-Cutting Themes
 
