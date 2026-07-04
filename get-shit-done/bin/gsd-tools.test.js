@@ -3234,3 +3234,63 @@ describe('atomicWriteFileSync helper (Phase 44-02)', () => {
     assert.ok(source.includes('atomicWriteFileSync(configPath'), 'at least one configPath call site should route through the helper');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// parallel command removal (Phase 44-04, MILE-18 dead-code cleanup)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('parallel command removal (Phase 44-04)', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  test('`parallel analyze` fails cleanly with an "Unknown command" error, not a crash', () => {
+    const result = runGsdTools('parallel analyze', tmpDir);
+
+    assert.strictEqual(result.success, false, 'command should exit non-zero, not silently succeed');
+    assert.ok(
+      result.error.includes('Unknown command'),
+      `expected a clean "Unknown command" style error, got: ${result.error}`
+    );
+    assert.ok(
+      result.error.includes('parallel'),
+      `error message should name the unrecognized command: ${result.error}`
+    );
+  });
+
+  test('`parallel` with any subcommand/args still hits the unknown-command path, never a require/module error', () => {
+    const result = runGsdTools('parallel some-other-subcommand --flag value', tmpDir);
+
+    assert.strictEqual(result.success, false, 'command should exit non-zero');
+    assert.ok(
+      !result.error.includes('Cannot find module'),
+      `must not crash referencing a missing module: ${result.error}`
+    );
+    assert.ok(
+      !result.error.toLowerCase().includes('parallel-executor'),
+      `must not reference the deleted parallel-executor.js file: ${result.error}`
+    );
+    assert.ok(
+      result.error.includes('Unknown command'),
+      `expected clean unknown-command error, got: ${result.error}`
+    );
+  });
+
+  test('no stray require of the deleted parallel-executor.js remains in gsd-tools.js (structural regression guard)', () => {
+    const source = fs.readFileSync(TOOLS_PATH, 'utf-8');
+    assert.ok(
+      !source.includes('parallel-executor'),
+      'gsd-tools.js should not reference the deleted parallel-executor.js module'
+    );
+    assert.ok(
+      !/case\s+'parallel'\s*:/.test(source),
+      'the CLI switch should no longer have a case for "parallel"'
+    );
+  });
+});
