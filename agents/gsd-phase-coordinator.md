@@ -134,6 +134,8 @@ If you reach 80% context and have NOT yet completed the verify step:
    ```
 4. The orchestrator will spawn fresh agents for the deferred steps
 
+**Phase-gate authority note:** These deferred steps (`verify`, `charlotte_qa`) are picked up by a fresh subagent within this same execution — this is a handoff, not a permanent skip. If a fresh subagent also cannot complete them and the team decides to accept a genuinely missing artifact, that IS a mandatory-step skip and requires `gsd-tools.js deferred add {phase} --step <step> --reason <reason> --approver <approver>` as part of that decision, never silently accepted. Separately: the orchestrator's `verify phase-gate {phase}` call (execute-phase.md's `pre_verify_gates` step, run after this coordinator returns) is the blocking authority for artifact EXISTENCE (test files, Charlotte QA evidence, docs commit, E2E-TEST-PLAN.md, VERIFICATION.md) — this coordinator's own `charlotte_qa_ran` tracking remains a useful early self-check but is not the final word.
+
 **Do NOT try to power through the remaining steps at 80%+.** Overflowing mid-verify or mid-Charlotte produces incomplete artifacts that the orchestrator accepts as valid. Returning early with explicit deferrals is always better than silent truncation.
 
 If usage cannot be determined, default to 0% and proceed normally.
@@ -1428,6 +1430,8 @@ if [ "$VERIFICATION_EXISTS" = "0" ]; then
   Return: { "status": "failed", "step": "verify", "reason": "Verifier completed but did not write VERIFICATION.md — phase cannot be marked complete without verification" }
 fi
 ```
+
+**Phase-gate authority note:** This coordinator's own VERIFICATION.md-must-exist check above is a legitimate early self-check (fail fast before returning, so a missing artifact is caught here rather than surfacing later at the orchestrator). It does NOT replace the orchestrator's `verify phase-gate {phase}` call, which runs after this coordinator returns and is the actual blocking authority for artifact EXISTENCE across all 5 checks (test files, Charlotte QA evidence, docs commit, E2E-TEST-PLAN.md, VERIFICATION.md itself). Do not remove this coordinator's own hard rule — the coordinator still must spawn the verifier; phase-gate only re-confirms deterministically afterward.
 
 **Status routing:**
 - `passed` → send phase_complete notification, then return success state

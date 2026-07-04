@@ -391,6 +391,8 @@ If spawned as continuation agent (`<completed_tasks>` in prompt):
 
 ## Handling tdd="true" Tasks
 
+**Phase-gate authority note:** Individual `tdd="true"` task completion (this section) and the post-plan test gate below establish plan-level test correctness. Phase-level artifact EXISTENCE (that a test file, Charlotte QA evidence, docs commit, E2E-TEST-PLAN.md, and VERIFICATION.md exist somewhere in the phase) is enforced deterministically by `gsd-tools.js verify phase-gate {phase}` at the orchestrator level (execute-phase.md's `pre_verify_gates` step), run after this plan and its sibling plans in the phase complete — this executor is not responsible for that phase-wide check. If a mandatory step in this plan is genuinely skipped (not "not applicable," a real skip of something otherwise required), that skip requires `gsd-tools.js deferred add {phase} --step <step> --reason <reason> --approver <approver>` as part of the skip, not logged-and-forgotten afterward.
+
 When encountering a task with `tdd="true"`:
 
 DO NOT execute the task inline. Instead:
