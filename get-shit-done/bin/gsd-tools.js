@@ -317,6 +317,7 @@ function loadConfig(cwd) {
     nyquist_validation: true,
     granularity: 'standard',
     brave_search: false,
+    auto_mine: true,
   };
 
   try {
@@ -360,6 +361,7 @@ function loadConfig(cwd) {
       nyquist_validation: get('nyquist_validation', { section: 'workflow', field: 'nyquist_validation' }) ?? defaults.nyquist_validation,
       granularity: get('granularity') ?? defaults.granularity,
       brave_search: get('brave_search') ?? defaults.brave_search,
+      auto_mine: get('auto_mine') ?? defaults.auto_mine,
       coordinator_model: get('coordinator_model') ?? null,
       dev_servers: parsed.dev_servers || null,
     };

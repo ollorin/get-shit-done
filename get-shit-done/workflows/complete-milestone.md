@@ -404,6 +404,65 @@ After archival, the AI still handles:
 
 </step>
 
+<step name="mine_milestone_conversations">
+
+Mine this milestone's session conversations into the knowledge DB, non-blocking on any failure. This step MUST run after `milestone complete` (above) has set `version`/`date` and MUST NOT block `reorganize_roadmap_and_delete_originals` on any failure.
+
+**Config gate:**
+```bash
+AUTO_MINE=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" config get auto_mine 2>/dev/null | jq -r '.value // "true"')
+```
+If `AUTO_MINE` is not `"true"`: log "Milestone mining skipped (auto_mine: false)" and skip to `reorganize_roadmap_and_delete_originals`.
+
+**Compute the milestone's session date range** (best-effort — never fails the step):
+```bash
+MILESTONE_START=$(git log --reverse --grep="feat(" --format="%ai" 2>/dev/null | head -1)
+if [ -n "$MILESTONE_START" ]; then
+  AGE_DAYS=$(( ( $(date +%s) - $(date -d "$MILESTONE_START" +%s 2>/dev/null || date -jf "%Y-%m-%d %H:%M:%S %z" "${MILESTONE_START% *}" +%s 2>/dev/null || echo 0) ) / 86400 ))
+fi
+# Fall back to 30 days if AGE_DAYS is empty, zero, or negative (git log unavailable, single-commit repo, or date parse failure on this platform)
+AGE_DAYS=${AGE_DAYS:-30}
+if [ "$AGE_DAYS" -le 0 ] 2>/dev/null; then AGE_DAYS=30; fi
+```
+
+**Mine sessions** (reuse the exact call pattern from `gsd-phase-coordinator.md`'s `harvest_knowledge` step — current-project scan, not `--all-projects`, since this is milestone-scoped to the current project):
+```bash
+MINE_JSON=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" mine-conversations --max-age-days "$AGE_DAYS" --limit 50 2>/dev/null || echo '{"status":"error"}')
+```
+
+Parse `status`, `sessionsReady`, `sessions` from `MINE_JSON`.
+
+**If `status === 'error'` or `sessionsReady === 0`:** Log "Milestone mining: no new sessions found" and skip straight to writing the metadata file (below) with zero counts. Do NOT fail the milestone completion.
+
+**Otherwise, for each session (sequentially, same pattern as harvest_knowledge):**
+1. For each item in `session.extractionRequests` (up to 3 — decision, reasoning_pattern, meta_knowledge): spawn `Agent(subagent_type="general-purpose", model="haiku", description="Extract {item.type}", max_turns=15, prompt="{item.prompt}")`. If the Agent call throws or returns empty, skip this extraction type — non-fatal.
+2. Assemble the results array from successful outputs (same shape as harvest_knowledge: `[{"type": "...", "result": "..."}]`).
+3. Store + dedupe:
+   ```bash
+   node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" store-conversation-result "{session.sessionId}" '{resultsJson}' --content-hash "{session.contentHash}"
+   ```
+   Accumulate `stored`/`evolved`/`skipped` counts across all sessions.
+4. **Non-fatal per-session:** if any single session's extraction or storage throws, log the error, increment an `errors` counter, and continue to the next session. Never abort the loop.
+
+**Write metadata file (always runs, even on zero sessions or total failure):**
+Write `.planning/milestones/v[X.Y]-KNOWLEDGE.md` (version from the `archive_milestone` step's ARCHIVE result):
+```markdown
+# Knowledge Extracted: v[X.Y] — [date]
+
+From [N] conversations, [M] insights stored:
+- [stored_count] new entries
+- [evolved_count] evolved entries
+- [skipped_count] deduped/skipped
+
+Errors: [errors_count] (non-blocking — see execution log)
+
+See `.planning/knowledge/` for full entries.
+```
+
+**Non-blocking guarantee:** Wrap this entire step's logic so that ANY failure (missing gsd-tools.js, mine-conversations erroring, Agent() failures, metadata write failure) is logged via a single line ("Milestone mining failed non-fatally: {error} — milestone completion continues") and execution ALWAYS proceeds to `reorganize_roadmap_and_delete_originals`. This step must never be the reason a milestone fails to complete.
+
+</step>
+
 <step name="reorganize_roadmap_and_delete_originals">
 
 After `milestone complete` has archived, reorganize ROADMAP.md with milestone groupings, then delete originals:
@@ -677,7 +736,7 @@ git push origin v[X.Y]
 Commit milestone completion.
 
 ```bash
-node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "chore: complete v[X.Y] milestone" --files .planning/milestones/v[X.Y]-ROADMAP.md .planning/milestones/v[X.Y]-REQUIREMENTS.md .planning/milestones/v[X.Y]-MILESTONE-AUDIT.md .planning/MILESTONES.md .planning/PROJECT.md .planning/STATE.md
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "chore: complete v[X.Y] milestone" --files .planning/milestones/v[X.Y]-ROADMAP.md .planning/milestones/v[X.Y]-REQUIREMENTS.md .planning/milestones/v[X.Y]-MILESTONE-AUDIT.md .planning/milestones/v[X.Y]-KNOWLEDGE.md .planning/MILESTONES.md .planning/PROJECT.md .planning/STATE.md
 ```
 ```
 
@@ -759,6 +818,7 @@ Milestone completion is successful when:
 - [ ] Known gaps recorded in MILESTONES.md if user proceeded with incomplete requirements
 - [ ] RETROSPECTIVE.md updated with milestone section
 - [ ] Cross-milestone trends updated
+- [ ] Milestone conversations mined (or skipped per auto_mine:false) — non-blocking on failure
 - [ ] User knows next step (/gsd:new-milestone)
 
 </success_criteria>
