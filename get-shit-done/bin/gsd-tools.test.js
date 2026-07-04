@@ -6017,3 +6017,155 @@ describe('mine-conversations dedup on re-mine (Phase 48-01)', () => {
     }
   });
 });
+
+describe('execution-state CLI (Phase 48-03)', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  test('execution-state get on a phase/plan with no prior entry returns {attempts: 0, key}', () => {
+    const result = runGsdTools('execution-state get --phase 42 --plan 01 --raw', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.deepStrictEqual(parsed, { attempts: 0, key: '42-01' });
+  });
+
+  test('sequential record-failure calls with default max_attempts (4): retry -> debug -> debug -> escalate', () => {
+    const expectedActions = ['retry', 'debug', 'debug', 'escalate'];
+    expectedActions.forEach((expectedAction, idx) => {
+      const attemptNum = idx + 1;
+      const result = runGsdTools(
+        `execution-state record-failure --phase 10 --plan 02 --error "boom ${attemptNum}" --step "task ${attemptNum}" --files "a.js,b.js" --raw`,
+        tmpDir
+      );
+      assert.ok(result.success, `record-failure call ${attemptNum} failed: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.attempts, attemptNum, `attempt count should be ${attemptNum}`);
+      assert.strictEqual(parsed.action, expectedAction, `attempt ${attemptNum} should yield action "${expectedAction}"`);
+      assert.strictEqual(parsed.max_attempts, 4, 'default max_attempts should be 4 with no config.json override');
+    });
+  });
+
+  test('config.json execution.max_attempts: 2 makes the ceiling configurable: retry -> escalate', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'config.json'),
+      JSON.stringify({ execution: { max_attempts: 2 } }, null, 2)
+    );
+
+    const first = runGsdTools(
+      'execution-state record-failure --phase 11 --plan 03 --error "e1" --step "s1" --files "x.js" --raw',
+      tmpDir
+    );
+    assert.ok(first.success, `first record-failure failed: ${first.error}`);
+    const firstParsed = JSON.parse(first.output);
+    assert.strictEqual(firstParsed.attempts, 1);
+    assert.strictEqual(firstParsed.action, 'retry');
+    assert.strictEqual(firstParsed.max_attempts, 2);
+
+    const second = runGsdTools(
+      'execution-state record-failure --phase 11 --plan 03 --error "e2" --step "s2" --files "x.js" --raw',
+      tmpDir
+    );
+    assert.ok(second.success, `second record-failure failed: ${second.error}`);
+    const secondParsed = JSON.parse(second.output);
+    assert.strictEqual(secondParsed.attempts, 2);
+    assert.strictEqual(secondParsed.action, 'escalate', 'attempt 2 should escalate when max_attempts is configured to 2');
+  });
+
+  test('record-success clears the entry -- a subsequent get returns {attempts: 0, key} again', () => {
+    const failResult = runGsdTools(
+      'execution-state record-failure --phase 12 --plan 04 --error "e" --step "s" --files "f.js" --raw',
+      tmpDir
+    );
+    assert.ok(failResult.success, `record-failure failed: ${failResult.error}`);
+    const failParsed = JSON.parse(failResult.output);
+    assert.strictEqual(failParsed.attempts, 1);
+
+    const successResult = runGsdTools('execution-state record-success --phase 12 --plan 04 --raw', tmpDir);
+    assert.ok(successResult.success, `record-success failed: ${successResult.error}`);
+    const successParsed = JSON.parse(successResult.output);
+    assert.deepStrictEqual(successParsed, { cleared: true, key: '12-04' });
+
+    const getResult = runGsdTools('execution-state get --phase 12 --plan 04 --raw', tmpDir);
+    assert.ok(getResult.success, `get failed: ${getResult.error}`);
+    const getParsed = JSON.parse(getResult.output);
+    assert.deepStrictEqual(getParsed, { attempts: 0, key: '12-04' });
+  });
+
+  test('record-success on a key with no existing entry is a no-op, not an error', () => {
+    const result = runGsdTools('execution-state record-success --phase 99 --raw', tmpDir);
+    assert.ok(result.success, `record-success failed: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.deepStrictEqual(parsed, { cleared: false, key: '99' });
+  });
+
+  test('phase-level key and plan-level key for the SAME phase number are independent', () => {
+    // Record 3 failures at the plan level.
+    for (let i = 1; i <= 3; i++) {
+      const result = runGsdTools(
+        `execution-state record-failure --phase 20 --plan 05 --error "plan-e${i}" --step "s" --files "f.js" --raw`,
+        tmpDir
+      );
+      assert.ok(result.success, `plan-level record-failure ${i} failed: ${result.error}`);
+    }
+
+    // Record a single failure at the phase level (no --plan).
+    const phaseResult = runGsdTools(
+      'execution-state record-failure --phase 20 --error "phase-e1" --step "s" --files "f.js" --raw',
+      tmpDir
+    );
+    assert.ok(phaseResult.success, `phase-level record-failure failed: ${phaseResult.error}`);
+    const phaseParsed = JSON.parse(phaseResult.output);
+    assert.strictEqual(phaseParsed.key, '20');
+    assert.strictEqual(phaseParsed.attempts, 1, 'phase-level attempt count must not be affected by plan-level failures');
+
+    const planGet = runGsdTools('execution-state get --phase 20 --plan 05 --raw', tmpDir);
+    const planParsed = JSON.parse(planGet.output);
+    assert.strictEqual(planParsed.attempts, 3, 'plan-level attempt count must not be affected by the phase-level failure');
+  });
+
+  test("record-failure's files argument round-trips as an array", () => {
+    const result = runGsdTools(
+      'execution-state record-failure --phase 21 --plan 06 --error "e" --step "s" --files "src/a.js,src/b.js,src/c.js" --raw',
+      tmpDir
+    );
+    assert.ok(result.success, `record-failure failed: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.deepStrictEqual(parsed.files_modified, ['src/a.js', 'src/b.js', 'src/c.js']);
+  });
+
+  test('a malformed execution-state.json fails loudly (non-zero exit, typed error) on get and record-failure -- never silently treated as {}', () => {
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'execution-state.json'), '{ this is not valid JSON');
+
+    const getResult = runGsdTools('execution-state get --phase 30 --raw', tmpDir);
+    assert.strictEqual(getResult.success, false, 'get against malformed execution-state.json must exit non-zero');
+    const getParsed = JSON.parse(getResult.output);
+    assert.strictEqual(getParsed.error, true);
+    assert.strictEqual(getParsed.type, 'corrupted_execution_state');
+
+    const failResult = runGsdTools(
+      'execution-state record-failure --phase 30 --error "e" --step "s" --files "f.js" --raw',
+      tmpDir
+    );
+    assert.strictEqual(failResult.success, false, 'record-failure against malformed execution-state.json must exit non-zero');
+    const failParsed = JSON.parse(failResult.output);
+    assert.strictEqual(failParsed.error, true);
+    assert.strictEqual(failParsed.type, 'corrupted_execution_state');
+  });
+
+  test('no stray .tmp-* files remain in .planning/ after record-failure/record-success operations', () => {
+    runGsdTools('execution-state record-failure --phase 40 --plan 07 --error "e" --step "s" --files "f.js" --raw', tmpDir);
+    runGsdTools('execution-state record-success --phase 40 --plan 07 --raw', tmpDir);
+    runGsdTools('execution-state get --phase 40 --plan 07 --raw', tmpDir);
+
+    const planningFiles = fs.readdirSync(path.join(tmpDir, '.planning'));
+    const strayTempFiles = planningFiles.filter((f) => f.includes('.tmp-'));
+    assert.deepStrictEqual(strayTempFiles, [], 'no .tmp-* files should remain after atomic writes complete');
+  });
+});
