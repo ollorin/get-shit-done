@@ -63,11 +63,11 @@ async function main() {
 
   try {
     // Step 1: Install npm dependencies via workspaces
-    console.log('📥 1/7 Installing npm dependencies...');
+    console.log('📥 1/6 Installing npm dependencies...');
     require('./install-modules.js')();
 
     // Step 2: Copy GSD files to ~/.claude/
-    console.log('📁 2/7 Installing GSD files to ~/.claude/...');
+    console.log('📁 2/6 Installing GSD files to ~/.claude/...');
     const installScript = path.join(__dirname, '..', 'bin', 'install.js');
     execSync(`node "${installScript}" --global --claude`, {
       stdio: 'inherit',
@@ -75,7 +75,7 @@ async function main() {
     });
 
     // Step 3: Whisper models (handled by Plan 02)
-    console.log('🎙️  3/7 Whisper model installation...');
+    console.log('🎙️  3/6 Whisper model installation...');
     const whisperInstaller = path.join(__dirname, 'install-whisper.js');
     if (fs.existsSync(whisperInstaller)) {
       require(whisperInstaller)();
@@ -83,17 +83,8 @@ async function main() {
       console.log('       ⏭️  (skipped - whisper installer not yet created)');
     }
 
-    // Step 4: Claude Code hooks (handled by Plan 03)
-    console.log('🪝 4/7 Installing Claude Code hooks...');
-    const hookInstaller = path.join(__dirname, 'install-hooks.js');
-    if (fs.existsSync(hookInstaller)) {
-      require(hookInstaller)();
-    } else {
-      console.log('       ⏭️  (skipped - hook installer not yet created)');
-    }
-
-    // Step 5: MCP server config (handled by Plan 03)
-    console.log('🔌 5/7 Configuring MCP servers...');
+    // Step 4: MCP server config (handled by Plan 03)
+    console.log('🔌 4/6 Configuring MCP servers...');
     const mcpInstaller = path.join(__dirname, 'install-mcp.js');
     if (fs.existsSync(mcpInstaller)) {
       require(mcpInstaller)();
@@ -101,8 +92,8 @@ async function main() {
       console.log('       ⏭️  (skipped - MCP installer not yet created)');
     }
 
-    // Step 6: .env template (handled by Plan 04)
-    console.log('📝 6/7 Generating .env.template...');
+    // Step 5: .env template (handled by Plan 04)
+    console.log('📝 5/6 Generating .env.template...');
     const envGenerator = path.join(__dirname, 'generate-env-template.js');
     if (fs.existsSync(envGenerator)) {
       require(envGenerator)();
@@ -110,8 +101,8 @@ async function main() {
       console.log('       ⏭️  (skipped - env generator not yet created)');
     }
 
-    // Step 7: Health check (handled by Plan 02)
-    console.log('🩺 7/7 Running health check...');
+    // Step 6: Health check (handled by Plan 02)
+    console.log('🩺 6/6 Running health check...');
     const healthCheck = path.join(__dirname, 'health-check.js');
     if (fs.existsSync(healthCheck)) {
       require(healthCheck)();
