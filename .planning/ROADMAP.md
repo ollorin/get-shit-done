@@ -13,6 +13,9 @@
   - 39: Execution Intelligence · 40: Observability & Analytics
 - 🚧 **v1.13.0 Product Discovery & Docs Automation** — Phases 41-43 (in progress)
   - 41: gsd:prd Workflow · 42: Milestone PRD Integration · 43: Docs Automation
+- 🚧 **v1.14.0 Enforcement & Integration** — Phases 44-50 (in progress, branch `feature/enforcement-and-integration`)
+  - 44: Reliability Foundations & Dead-Code Cleanup · 45: Deterministic Phase-Gate & Deferral Protocol · 46: Artifact-Generation & Coverage Gates
+  - 47: Telegram Escalation Reliability · 48: Satellite Injections · 49: Knowledge Auto-Wiring & CLI Cleanup · 50: Final Deletions & Verification Sweep
 
 ## Phases
 
@@ -390,6 +393,143 @@ Plans:
 - [ ] 43-02: Executor final-wave integration — wire docs agent as last mandatory task after feature work is committed; pass SUMMARY.md build scope as context
 - [ ] 43-03: Verifier docs validation gate — check docs appropriateness relative to build scope; `gaps_found` on skip or scope mismatch
 
+### 🚧 v1.14.0 Enforcement & Integration (Phases 44-50) — In Progress
+
+**Milestone Goal:** Make every mandatory GSD step deterministic and automatic — deterministic enforcement gates replace prose "MUST" language, valuable satellite capabilities (mining, Nyquist, discovery, debugger) inject into the golden path, knowledge maintenance runs automatically on its natural triggers, and the escalation channel is hardened for unattended overnight runs.
+
+**Branch:** `feature/enforcement-and-integration` (existing)
+**Source PRD:** `.planning/prds/pending/enforcement-and-integration.md` (US-1..US-16, MVP boundary = all 16)
+
+**Dependency note:** Mostly linear (44 → 45 → 46 → 47 → 48 → 50), reflecting the PRD's risk-ascending ordering — reliability + safe deletions first, phase-gate/waiver foundation next, gates that consume it next, Telegram hardened before the debugger relies on escalation, satellites next. Phase 49 depends only on Phase 44 and is parallel-eligible with 45-48. Phase 50 must run last (final grep sweep across everything already deleted).
+
+**Scope notes:** No new UI anywhere in this milestone (PRD-confirmed) — no Charlotte QA or E2E-regression phase required. Every phase carries its own integration-test success criterion (no testing deferral). US-14 is split: MILE-18 (dead code with no replacement dependency, Phase 44) vs MILE-19 (deletions gated on replacements landing, Phase 50).
+
+#### Phase 44: Reliability Foundations & Dead-Code Cleanup
+
+**Goal:** The 11,695-line `gsd-tools.js` and the installer no longer crash or silently corrupt state, CI runs the test suite on every push/PR, and verified-dead code with no replacement dependency is removed — de-risking every gate built on top in later phases
+**Depends on:** Phase 43 (v1.13.0 scope present in codebase)
+**Requirements:** MILE-18, MILE-20
+**Success Criteria** (what must be TRUE):
+  1. Unguarded `JSON.parse` call sites in gsd-tools.js are wrapped with try/catch producing typed, actionable errors; `execSync` calls with unsanitized interpolation are replaced with `spawn`/`execFile` + argv arrays; `STATE.md`/`ROADMAP.md`/`config.json` read-modify-write operations use atomic write-rename so no update is silently lost under parallel execution
+  2. A GitHub Actions workflow runs `npm test` on push and pull request; install builds `hooks/dist` if missing, `PreToolUse` hooks are timeout-wrapped, and hook dependency failures fail the install loudly instead of registering silently
+  3. `get-shit-done/modules/` stubs, `skills/llmlingua-comparison/`, orphaned hook files, `parallel-executor.js` + its requiring command, the broken quota auto-compression branch in `token-monitor.js`, and stale template/QGATE-07 references are removed — each deletion preceded by a fresh zero-reference grep in the same session; `scripts/install-hooks.js` removed only if confirmed fully duplicated by `bin/install.js`
+  4. Integration tests cover: malformed JSON per guarded site (typed error, not crash); execSync replacement sites (no shell injection via crafted branch/file names); concurrent `STATE.md` writes (both updates preserved); CI config runs on push and PR events
+**Plans:** 1/5 plans executed
+
+Plans:
+- [ ] 44-01: JSON.parse guards + execSync → spawn/execFile hardening in gsd-tools.js
+- [ ] 44-02: Atomic write-rename for STATE.md / ROADMAP.md / config.json read-modify-write paths
+- [ ] 44-03: GitHub Actions CI (npm test on push/PR) + installer fixes (hooks/dist build, timeout-wrapped PreToolUse, loud dependency failures)
+- [ ] 44-04: Category-A dead-code deletions with fresh zero-reference greps (modules/ stubs, llmlingua-comparison, orphaned hooks, parallel-executor, quota branch, stale refs, install-hooks.js if duplicated)
+- [ ] 44-05: Integration tests — JSON guard sites, injection resistance, concurrent state writes
+
+#### Phase 45: Deterministic Phase-Gate & Deferral Protocol
+
+**Goal:** Phase completion is blocked by a single deterministic tool call that computes expected artifacts from plan type and the actual git diff, and every intentional skip of a mandatory step requires a machine-readable, auditable `DEFERRED.json` waiver — silent skipping becomes structurally impossible
+**Depends on:** Phase 44
+**Requirements:** MILE-05, MILE-06, MILE-07
+**Success Criteria** (what must be TRUE):
+  1. `gsd-tools.js verify phase-gate {phase}` exists, returns machine-readable JSON, and exits non-zero when any expected artifact (test changes for tdd tasks, Charlotte QA evidence for UI files, docs commit for documentation-worthy signals, E2E-TEST-PLAN.md for UI plans, VERIFICATION.md) is missing without a matching waiver; malformed plan frontmatter yields a graceful typed error, not a crash
+  2. `HAS_UI` is computed from `git diff --name-only` file extensions and route-pattern files, independent of SUMMARY.md content — a `.tsx` file omitted from SUMMARY `key-files` is still detected; zero-UI plans are not falsely flagged
+  3. `DEFERRED.json` (`{step, reason, approver, timestamp, phase, plan}`) is defined, documented, and satisfies any expected-artifact check in place of the artifact; every self-waiver fires a non-blocking Telegram notification at write time; `audit-milestone` surfaces all accumulated waivers as a visible table
+  4. `execute-phase.md`, `execute-roadmap.md`, `gsd-executor.md`, and `gsd-phase-coordinator.md` call phase-gate and treat non-zero exit as blocking; skipping a mandatory step requires writing the waiver as part of the skip; the prose "MUST" checklists the gate replaces are removed from the corresponding agent prompts (not left duplicated)
+  5. Integration tests cover: all artifacts present → pass; each artifact type missing individually → correct `failure_type`; waiver present for missing artifact → pass; malformed frontmatter → typed error; UI file omitted from SUMMARY → detected; non-UI plan → not flagged; mixed plan → detected; valid waiver → pass; missing waiver → fail; malformed JSON waiver → loud typed error, never silently ignored
+**Plans:** TBD
+
+Plans:
+- [ ] 45-01: `verify phase-gate` subcommand — expected-artifact computation from plan type + touched files, machine-readable JSON output, typed failure types
+- [ ] 45-02: Diff-based HAS_UI detection (extensions + route patterns, SUMMARY-independent)
+- [ ] 45-03: DEFERRED.json waiver protocol — schema, gate integration, fire-and-forget Telegram notification, audit-milestone waiver table
+- [ ] 45-04: Workflow/agent wiring — blocking phase-gate calls in execute-phase/execute-roadmap/executor/coordinator + removal of replaced prose MUST checklists
+- [ ] 45-05: Integration tests — phase-gate matrix, HAS_UI detection cases, waiver valid/missing/malformed
+
+#### Phase 46: Artifact-Generation & Coverage Gates
+
+**Goal:** The gates that demand artifacts also produce or verify them — the E2E generator auto-runs when its artifact is required, docs-updater failure blocks instead of logging, and the verifier requires real, non-hollow test coverage per requirement with the Nyquist auditor auto-filling gaps — so no gate ever demands an artifact nothing creates
+**Depends on:** Phase 45
+**Requirements:** MILE-08, MILE-09, MILE-10
+**Success Criteria** (what must be TRUE):
+  1. `gsd-e2e-test-generator` auto-spawns when `HAS_UI=true` and `E2E-TEST-PLAN.md` is missing or has coverage gaps, before phase-gate evaluates; when the plan already covers all pages the generator is not re-invoked; generator failure fails phase-gate with a clear `failure_type`, never a silent pass
+  2. `gsd-docs-updater` returns a structured contract (written-files list, commit hash or none, errors); thrown error, timeout, or "no changes" with matched documentation-worthy signals is a hard failure that blocks the phase, waivable only via DEFERRED.json — never silent continuation
+  3. The verifier's init step classifies each PLAN.md requirement ID COVERED / PARTIAL / MISSING against test files; an empty describe block or net-zero new assertions since a prior commit fails the gate; gaps blocking-spawn `gsd-nyquist-auditor`; unfillable gaps escalate as `gaps_found`, never silently pass
+  4. `/gsd:validate-phase` is deleted once this lands — its function fully absorbed into the verifier gate (fresh zero-reference grep before deletion)
+  5. Integration tests cover: E2E gap → generator spawned → plan produced; full coverage → generator skipped; generator failure → gate fails; docs success → pass; docs exception → block; docs no-changes-with-signals + no waiver → block; empty test file → `missing_test`; real assertions → pass; unmatched requirement → MISSING + nyquist invoked; unfillable gap → `gaps_found`
+**Plans:** TBD
+
+Plans:
+- [ ] 46-01: E2E generator auto-spawn — gap detection, idempotent skip on full coverage, failure_type on generator failure
+- [ ] 46-02: Docs-updater structured contract + blocking docs gate in executor/execute-plan, DEFERRED.json-only waiver path
+- [ ] 46-03: Test-content gate — requirement→test coverage scan, hollow-test detection, net-new assertion check, nyquist-auditor blocking spawn
+- [ ] 46-04: Delete /gsd:validate-phase (post-grep) + integration tests for all three gates
+
+#### Phase 47: Telegram Escalation Reliability
+
+**Goal:** The escalation channel every other autonomy feature routes through is reliable for unattended runs — daemon death is detected instead of silently hanging, state files can't corrupt, delivery failures are detected and retried, and a blocking question that goes unanswered overnight resolves to a defined fallback instead of hanging the run
+**Depends on:** Phase 45 (timeout fallback writes DEFERRED.json entries), Phase 44
+**Requirements:** MILE-21
+**Success Criteria** (what must be TRUE):
+  1. The adapter detects daemon death/unavailability promptly and surfaces a typed error to the calling agent instead of hanging ~45s in a silent reconnect loop; the daemon/adapter double-timer race is resolved to exactly one owner of the question timeout, and daemon crash during a pending question fails the question deterministically
+  2. JSONL question/session state writes use real file locking (the vendored `proper-lockfile`) or atomic write-rename — no concurrent-daemon corruption; notification delivery failure is detected, logged loudly, and retried with bounded backoff, never silently dropped
+  3. A blocking question that reaches its timeout during autonomous execution resolves to a configurable fallback (default: DEFERRED.json entry with `approver: "timeout-fallback"`, blocked item parked, run continues with non-dependent work); daemon-down-at-escalation-time logs the failure, applies the same fallback, and the escalation failure appears in the milestone audit
+  4. Integration tests cover: daemon down → prompt typed error, not 45s hang; question timeout → fallback fires + DEFERRED entry written; concurrent state writes → no corruption; delivery failure → logged + retried, run continues
+**Plans:** TBD
+
+Plans:
+- [ ] 47-01: Daemon-crash detection + double-timer race fix (single timeout owner, deterministic failure on crash during pending question)
+- [ ] 47-02: JSONL state locking (proper-lockfile or atomic rename) + delivery-failure detection, loud logging, bounded-backoff retry
+- [ ] 47-03: Overnight blocking-question timeout fallback (DEFERRED.json + park + continue) + integration tests
+
+#### Phase 48: Satellite Injections — Mining, Discovery, Debugger
+
+**Goal:** The three remaining satellite capabilities are reachable from the golden path automatically — conversation mining runs at milestone completion, deep discovery fires inside `/gsd:prd` when confidence stays low, and repeated execution failures auto-spawn the debugger (routing any remaining escalation through the now-reliable Telegram channel) — so nothing valuable depends on someone remembering to run a standalone command
+**Depends on:** Phase 47 (debugger escalation path), Phase 46
+**Requirements:** MILE-11, MILE-12, MILE-13
+**Success Criteria** (what must be TRUE):
+  1. `complete-milestone.md` gains a mining step (after archival, gated by `auto_mine: true` default) that mines the milestone's session date range into the knowledge DB, writes metadata to `.planning/milestones/v{X}-KNOWLEDGE.md`, is verified deduped against session-end extraction, and is non-blocking on failure (logged, milestone still completes)
+  2. `prd.md` Stages 1d/2d auto-spawn 4–6 parallel `gsd-product-investigator` agents (Haiku, capped fan-out) when confidence < ~0.50 with unresolved gaps after max Q&A rounds; `gsd-discovery-synthesizer` merges findings and updates confidence; confidence ≥ ~0.65 stays dormant; `workflows/discover.md`, `discovery-phase.md`, and `skills/gsd-discover/` are deleted once this lands
+  3. A retry counter per plan/phase lives in `.planning/execution-state.json`; 1st failure auto-retries with no user prompt; 2nd failure of the same task/phase auto-spawns `gsd-debugger` with context (error, last completed step, files modified); post-debugger Telegram escalation includes the debugger's findings; hard stop at a configurable max-attempts ceiling (default 4); `workflows/debug.md` is rebuilt slim around the existing `gsd-debugger` agent, fixing the broken `/gsd:debug` command
+  4. Integration tests cover: `auto_mine: true` + sessions → mined; `auto_mine: false` → skipped; mining throws → milestone still completes; low confidence + gaps → investigators spawn capped at 6; high confidence → no spawn; investigator failure → standard unresolved-gap handling, no hard block; failure at threshold → debugger spawned; below threshold → standard path; at max-attempts ceiling → hard stop with escalation, not another debug attempt
+**Plans:** TBD
+
+Plans:
+- [ ] 48-01: Mining injection into complete-milestone — auto_mine config gate, session date-range scan, dedup verification, v{X}-KNOWLEDGE.md metadata, non-blocking failure
+- [ ] 48-02: Discovery injection into prd.md — confidence-gated investigator fan-out (4-6 Haiku, capped), synthesizer merge, delete discover.md/discovery-phase.md/gsd-discover (post-grep)
+- [ ] 48-03: Debugger injection — execution-state.json retry counter, auto-retry then 2nd-failure debugger spawn, findings-attached escalation, max-attempts ceiling, slim workflows/debug.md rebuild
+- [ ] 48-04: Integration tests — mining gate cases, discovery spawn/dormant/failure cases, retry-threshold matrix
+
+#### Phase 49: Knowledge Auto-Wiring & CLI Cleanup
+
+**Goal:** The knowledge system operates fully automatically on its natural triggers — every write passes a safety gate with secrets/PII filtering, lifecycle/feedback/checkpoint fire on their events, consolidation runs once per milestone — and the manual CLI surface those triggers make redundant is deleted
+**Depends on:** Phase 44 (parallel-eligible with Phases 45-48)
+**Requirements:** MILE-14, MILE-15, MILE-16, MILE-17
+**Success Criteria** (what must be TRUE):
+  1. `knowledge-safety.js` is wired into `knowledge-writer.storeInsights` as a pre-write guard; a config-extensible secrets/PII regex filter (API-key-like tokens, emails, credential keywords; rejection preferred over redaction when ambiguous) runs on every write — matching content is never persisted verbatim, clean content passes unchanged; the `storeInsights` transaction race is fixed; `knowledge-cost.js`'s circuit breaker is checked before extraction/embedding batches with the existing configured budget
+  2. `pruneStaleEntries` + `checkpointWAL` run automatically at the session-end hook and at `complete-milestone`; `markPrincipleWrong` auto-triggers when the verifier or executor finds a KB-sourced answer contradicted by execution outcome (entry confidence auto-degraded); `knowledge-checkpoint.js` auto-checkpoints before bulk operations
+  3. `complete-milestone.md` gains a knowledge-consolidation step (clustering → principle synthesis with a real Haiku call replacing the "first 10 words" stub → conflict detection) that runs once per milestone, never before every agent action; a thin manual backstop command exposes the same code path on demand; insufficient clusters force no principle
+  4. `knowledge-qa.js`, `knowledge-scan.js`, and the `knowledge-permissions.js` grant/revoke CLI surface are deleted after a fresh zero-reference grep across bin/, workflows/, agents/, scripts/, hooks/, commands/, references/, templates/; gsd-tools.js command dispatch no longer references them
+  5. Integration tests cover: secret pattern → redacted/rejected; clean content → unchanged; budget exceeded → circuit breaker blocks + logs; concurrent writes → no lost update; session-end → prune runs; verification failure tied to KB answer → feedback recorded; bulk op → checkpoint first; sufficient cluster → principle with LLM-generated text; insufficient cluster → none; conflicting principles → flagged, not silently overwritten
+**Plans:** TBD
+
+Plans:
+- [ ] 49-01: Write-path safety — knowledge-safety wiring into storeInsights, config-extensible secrets/PII regex filter, transaction race fix, cost circuit-breaker pre-check
+- [ ] 49-02: Event triggers — lifecycle prune/checkpointWAL at session-end + complete-milestone, verifier/executor feedback auto-trigger, pre-bulk-op checkpoint
+- [ ] 49-03: Milestone consolidation pass — clustering, real Haiku principle synthesis (cost-capped), conflict detection, thin manual backstop command
+- [ ] 49-04: Knowledge CLI deletions (qa/scan/permissions grant-revoke, post-grep) + integration tests
+
+#### Phase 50: Final Deletions & Verification Sweep
+
+**Goal:** The standalone entry points obsoleted by this milestone's replacements are removed now that those replacements are confirmed working, and a final zero-reference sweep proves the framework carries no dangling references to anything deleted across the milestone
+**Depends on:** Phases 44, 48, 49 (all replacements landed and verified)
+**Requirements:** MILE-19
+**Success Criteria** (what must be TRUE):
+  1. The standalone `research-phase` command entry is removed only after the existing `plan-phase` research step is confirmed as its working replacement
+  2. `scripts/install-modules.js` and `scripts/health-check.js` are updated to stop validating the stubs deleted in Phase 44
+  3. A fresh grep across `bin/`, `workflows/`, `agents/`, `scripts/`, `hooks/`, `commands/`, `references/`, `templates/` for every file/command deleted across Phases 44-49 returns zero references — verified in the same session as the final deletions
+**Plans:** TBD
+
+Plans:
+- [ ] 50-01: Remove standalone research-phase entry (replacement-confirmed), update install-modules.js/health-check.js, run final cross-milestone zero-reference grep sweep
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -436,6 +576,13 @@ Plans:
 | 41. gsd:prd Workflow | v1.13.0 | 0/TBD | Not started | - |
 | 42. Milestone PRD Integration | v1.13.0 | 0/TBD | Not started | - |
 | 43. Docs Automation | v1.13.0 | 0/TBD | Not started | - |
+| 44. Reliability Foundations & Dead-Code Cleanup | 1/5 | In Progress|  | - |
+| 45. Deterministic Phase-Gate & Deferral Protocol | v1.14.0 | 0/TBD | Not started | - |
+| 46. Artifact-Generation & Coverage Gates | v1.14.0 | 0/TBD | Not started | - |
+| 47. Telegram Escalation Reliability | v1.14.0 | 0/TBD | Not started | - |
+| 48. Satellite Injections: Mining, Discovery, Debugger | v1.14.0 | 0/TBD | Not started | - |
+| 49. Knowledge Auto-Wiring & CLI Cleanup | v1.14.0 | 0/TBD | Not started | - |
+| 50. Final Deletions & Verification Sweep | v1.14.0 | 0/TBD | Not started | - |
 
 ---
 *Roadmap created: 2026-02-15 | Last updated: 2026-03-11 — v1.13.0 Product Discovery & Docs Automation phases 41-43 added*
