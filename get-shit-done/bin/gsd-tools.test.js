@@ -5099,3 +5099,274 @@ describe('verify e2e-gaps + gap-aware e2e_plan check (Phase 46-01)', () => {
   // and continue to pass after this plan's gap-aware rewrite -- confirmed via
   // the full `npm test` run (224 pre-existing + new tests, 0 failures).
 });
+
+describe('verify test-content classification matrix (Phase 46-03 Task 2)', () => {
+  // NOTE (46-03-SUMMARY.md): this environment had no Agent/Task tool available
+  // to spawn gsd-test-writer for this tdd="true" task, so these tests were
+  // written directly following this file's existing buildFixture/runGsdTools
+  // git-fixture conventions (see the "phase-gate full matrix" and
+  // "deferred add/list <-> phase-gate composition" describe blocks above).
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+    execSync('git init', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git config user.email "gsd-test@example.com"', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git config user.name "GSD Test"', { cwd: tmpDir, stdio: 'pipe' });
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function phaseDirPath(phaseDirName) {
+    return path.join(tmpDir, '.planning', 'phases', phaseDirName);
+  }
+
+  // Like runGsdTools but also surfaces the real process exit code --
+  // verify test-content uses distinct exit codes: 0 passed, 1 gap present,
+  // 2 malformed/phase-not-found data.
+  function runTestContent(phaseArg, cwd) {
+    try {
+      const result = execSync(`node "${TOOLS_PATH}" verify test-content ${phaseArg}`, {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      return { success: true, output: result.trim(), exitCode: 0 };
+    } catch (err) {
+      return {
+        success: false,
+        output: err.stdout?.toString().trim() || '',
+        error: err.stderr?.toString().trim() || '',
+        exitCode: err.status ?? 1,
+      };
+    }
+  }
+
+  function writePlan(phaseDir, planNum, { tdd = false, requirements = [] } = {}) {
+    const taskTag = tdd ? '<task type="auto" tdd="true">' : '<task type="auto">';
+    const reqLine = `requirements: [${requirements.join(', ')}]\n`;
+    fs.writeFileSync(
+      path.join(phaseDir, `46-${planNum}-PLAN.md`),
+      `---\nphase: "46"\nplan: "${planNum}"\ntype: execute\n${reqLine}files_modified: []\n---\n<tasks>\n${taskTag}\n<name>Task 1</name>\n<action>do stuff</action>\n</task>\n</tasks>\n`
+    );
+  }
+
+  function commitAll(message) {
+    execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
+    execSync(`git commit -q --allow-empty -m "${message}"`, { cwd: tmpDir, stdio: 'pipe' });
+  }
+
+  test('requirement declared only by a non-tdd plan -> not_applicable, excluded from passed (passed: true)', () => {
+    const phaseDir = phaseDirPath('46-t1-notapplicable');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    writePlan(phaseDir, '01', { tdd: false, requirements: ['MILE-A'] });
+    fs.writeFileSync(path.join(phaseDir, 'notes.md'), '# notes, prose only\n');
+    commitAll('docs(46-01): prose only fixture, no tdd task');
+
+    const result = runTestContent('46', tmpDir);
+    assert.ok(result.success, `expected exit 0: ${result.error}`);
+    assert.strictEqual(result.exitCode, 0);
+    const parsed = JSON.parse(result.output);
+    const req = parsed.requirements.find(r => r.req_id === 'MILE-A');
+    assert.strictEqual(req.status, 'not_applicable');
+    assert.strictEqual(parsed.passed, true);
+  });
+
+  test('tdd="true" plan with zero touched test files -> MISSING', () => {
+    const phaseDir = phaseDirPath('46-t2-missingnofile');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    writePlan(phaseDir, '01', { tdd: true, requirements: ['MILE-B'] });
+    fs.writeFileSync(path.join(phaseDir, 'impl.js'), 'module.exports = {};\n');
+    commitAll('feat(46-01): impl only, no test file at all');
+
+    const result = runTestContent('46', tmpDir);
+    assert.strictEqual(result.exitCode, 1);
+    const parsed = JSON.parse(result.output);
+    const req = parsed.requirements.find(r => r.req_id === 'MILE-B');
+    assert.strictEqual(req.status, 'MISSING');
+    assert.deepStrictEqual(req.matched_files, []);
+    assert.strictEqual(parsed.passed, false);
+  });
+
+  test('test file with zero non-skipped it()/test() calls (only it.skip) -> MISSING, file listed in hollow_tests', () => {
+    const phaseDir = phaseDirPath('46-t3-hollownotest');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    writePlan(phaseDir, '01', { tdd: true, requirements: ['MILE-C'] });
+    fs.writeFileSync(path.join(phaseDir, 'impl.js'), 'module.exports = {};\n');
+    fs.writeFileSync(
+      path.join(phaseDir, 'impl.test.js'),
+      `const { describe, it } = require('node:test');\ndescribe('impl', () => {\n  it.skip('should do something eventually', () => {});\n});\n`
+    );
+    commitAll('feat(46-01): hollow test file (only it.skip)');
+
+    const result = runTestContent('46', tmpDir);
+    assert.strictEqual(result.exitCode, 1);
+    const parsed = JSON.parse(result.output);
+    const req = parsed.requirements.find(r => r.req_id === 'MILE-C');
+    assert.strictEqual(req.status, 'MISSING', 'it.skip-only file must never count as real coverage');
+    assert.ok(parsed.hollow_tests.some(h => h.file.endsWith('impl.test.js')));
+  });
+
+  test('test file with real test() calls but zero assert()/expect() calls -> MISSING (no assertion = hollow bar)', () => {
+    const phaseDir = phaseDirPath('46-t4-noassert');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    writePlan(phaseDir, '01', { tdd: true, requirements: ['MILE-D'] });
+    fs.writeFileSync(path.join(phaseDir, 'impl.js'), 'module.exports = {};\n');
+    fs.writeFileSync(
+      path.join(phaseDir, 'impl.test.js'),
+      `const { test } = require('node:test');\ntest('runs but proves nothing', () => {\n  // no assertions in this body\n});\n`
+    );
+    commitAll('feat(46-01): test with real test() call but zero assertions');
+
+    const result = runTestContent('46', tmpDir);
+    assert.strictEqual(result.exitCode, 1);
+    const parsed = JSON.parse(result.output);
+    const req = parsed.requirements.find(r => r.req_id === 'MILE-D');
+    assert.strictEqual(req.status, 'MISSING');
+    assert.ok(parsed.hollow_tests.some(h => h.file.endsWith('impl.test.js')));
+  });
+
+  test('net-zero-new-assertions since the phase\'s first tagged commit -> PARTIAL, file listed in net_zero_assertion_files', () => {
+    const phaseDir = phaseDirPath('46-t5-netzero');
+    fs.mkdirSync(phaseDir, { recursive: true });
+
+    // Baseline commit -- deliberately NOT tagged "46-01" -- represents the
+    // file's pre-existing state from before this phase touched it, with 2
+    // real (non-hollow) assertions.
+    fs.writeFileSync(
+      path.join(phaseDir, 'impl.test.js'),
+      `const { test } = require('node:test');\nconst assert = require('node:assert');\ntest('baseline a', () => { assert(1 === 1); });\ntest('baseline b', () => { assert(2 === 2); });\n`
+    );
+    execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git commit -q -m "chore: baseline test file predating phase 46"', { cwd: tmpDir, stdio: 'pipe' });
+
+    // Phase 46-01's own tagged commit touches the file without adding any
+    // net-new assertions (same count as the baseline).
+    writePlan(phaseDir, '01', { tdd: true, requirements: ['MILE-E'] });
+    fs.writeFileSync(
+      path.join(phaseDir, 'impl.test.js'),
+      `const { test } = require('node:test');\nconst assert = require('node:assert');\n// touched during 46-01, no new assertions added\ntest('baseline a', () => { assert(1 === 1); });\ntest('baseline b', () => { assert(2 === 2); });\n`
+    );
+    commitAll('feat(46-01): touch test file, no new assertions');
+
+    const result = runTestContent('46', tmpDir);
+    assert.strictEqual(result.exitCode, 1);
+    const parsed = JSON.parse(result.output);
+    const req = parsed.requirements.find(r => r.req_id === 'MILE-E');
+    assert.strictEqual(req.status, 'PARTIAL');
+    const netZeroEntry = parsed.net_zero_assertion_files.find(n => n.file.endsWith('impl.test.js'));
+    assert.ok(netZeroEntry, 'expected the touched file in net_zero_assertion_files');
+    assert.strictEqual(netZeroEntry.before_count, 2);
+    assert.strictEqual(netZeroEntry.after_count, 2);
+  });
+
+  test('real, growing assertion count since the phase\'s first tagged commit -> COVERED, passed true', () => {
+    const phaseDir = phaseDirPath('46-t6-growing');
+    fs.mkdirSync(phaseDir, { recursive: true });
+
+    fs.writeFileSync(
+      path.join(phaseDir, 'impl.test.js'),
+      `const { test } = require('node:test');\nconst assert = require('node:assert');\ntest('baseline a', () => { assert(1 === 1); });\n`
+    );
+    execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git commit -q -m "chore: baseline test file predating phase 46"', { cwd: tmpDir, stdio: 'pipe' });
+
+    writePlan(phaseDir, '01', { tdd: true, requirements: ['MILE-F'] });
+    fs.writeFileSync(
+      path.join(phaseDir, 'impl.test.js'),
+      `const { test } = require('node:test');\nconst assert = require('node:assert');\ntest('baseline a', () => { assert(1 === 1); });\ntest('new real coverage', () => { assert(2 === 2); assert(3 === 3); });\n`
+    );
+    commitAll('feat(46-01): add real new assertions');
+
+    const result = runTestContent('46', tmpDir);
+    assert.ok(result.success, `expected exit 0: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    const req = parsed.requirements.find(r => r.req_id === 'MILE-F');
+    assert.strictEqual(req.status, 'COVERED');
+    assert.strictEqual(parsed.passed, true, 'a single COVERED requirement in scope must pass overall');
+  });
+
+  test('requirement declared by both a tdd plan (substantive tests) and a non-tdd plan -> classified using only the tdd plan\'s files', () => {
+    const phaseDir = phaseDirPath('46-t7-multiplan');
+    fs.mkdirSync(phaseDir, { recursive: true });
+
+    writePlan(phaseDir, '01', { tdd: true, requirements: ['MILE-G'] });
+    fs.writeFileSync(path.join(phaseDir, 'impl.js'), 'module.exports = {};\n');
+    fs.writeFileSync(
+      path.join(phaseDir, 'impl.test.js'),
+      `const { test } = require('node:test');\nconst assert = require('node:assert');\ntest('real coverage', () => { assert(1 === 1); });\n`
+    );
+    writePlan(phaseDir, '02', { tdd: false, requirements: ['MILE-G'] });
+    fs.writeFileSync(path.join(phaseDir, 'docs.md'), '# docs, no tests here\n');
+    commitAll('feat(46-01): tdd plan with real tests + non-tdd companion plan (46-02)');
+
+    const result = runTestContent('46', tmpDir);
+    assert.ok(result.success, `expected exit 0: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    const req = parsed.requirements.find(r => r.req_id === 'MILE-G');
+    assert.strictEqual(req.status, 'COVERED', "the non-tdd plan's absence of tests must never drag a shared requirement to MISSING");
+    assert.deepStrictEqual(req.source_plans, ['01']);
+  });
+
+  test('test file listed in the diff but deleted from disk at HEAD -> does not crash, treated as hollow-equivalent', () => {
+    const phaseDir = phaseDirPath('46-t8-deleted');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    writePlan(phaseDir, '01', { tdd: true, requirements: ['MILE-H'] });
+    fs.writeFileSync(path.join(phaseDir, 'impl.js'), 'module.exports = {};\n');
+    fs.writeFileSync(
+      path.join(phaseDir, 'impl.test.js'),
+      `const { test } = require('node:test');\nconst assert = require('node:assert');\ntest('real coverage', () => { assert(1 === 1); });\n`
+    );
+    commitAll('feat(46-01): add test file');
+
+    // Follow-up commit deletes the file from disk -- diff-tree for the
+    // original "46-01" commit still lists it as touched, but it no longer
+    // exists at HEAD.
+    fs.rmSync(path.join(phaseDir, 'impl.test.js'));
+    execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git commit -q -m "chore: remove test file after the fact"', { cwd: tmpDir, stdio: 'pipe' });
+
+    const result = runTestContent('46', tmpDir);
+    assert.strictEqual(result.exitCode, 1, 'a deleted test file must never satisfy the gate');
+    let parsed;
+    assert.doesNotThrow(() => { parsed = JSON.parse(result.output); }, 'output must be parseable JSON even when a touched test file is missing on disk');
+    const req = parsed.requirements.find(r => r.req_id === 'MILE-H');
+    assert.strictEqual(req.status, 'MISSING');
+    assert.ok(parsed.hollow_tests.some(h => h.file.endsWith('impl.test.js')));
+  });
+
+  test('CLI exit code: all requirements COVERED or not_applicable -> exit 0', () => {
+    const phaseDir = phaseDirPath('46-t9-allpass');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    writePlan(phaseDir, '01', { tdd: true, requirements: ['MILE-I'] });
+    fs.writeFileSync(path.join(phaseDir, 'impl.js'), 'module.exports = {};\n');
+    fs.writeFileSync(
+      path.join(phaseDir, 'impl.test.js'),
+      `const { test } = require('node:test');\nconst assert = require('node:assert');\ntest('real coverage', () => { assert(1 === 1); });\n`
+    );
+    writePlan(phaseDir, '02', { tdd: false, requirements: ['MILE-J'] });
+    commitAll('feat(46-01): covered requirement + not_applicable companion requirement');
+
+    const result = runTestContent('46', tmpDir);
+    assert.strictEqual(result.exitCode, 0);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.passed, true);
+    assert.strictEqual(parsed.requirements.find(r => r.req_id === 'MILE-I').status, 'COVERED');
+    assert.strictEqual(parsed.requirements.find(r => r.req_id === 'MILE-J').status, 'not_applicable');
+  });
+
+  test('CLI exit code: any MISSING/PARTIAL present -> exit 1', () => {
+    const phaseDir = phaseDirPath('46-t9-anyfail');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    writePlan(phaseDir, '01', { tdd: true, requirements: ['MILE-K'] });
+    fs.writeFileSync(path.join(phaseDir, 'impl.js'), 'module.exports = {};\n');
+    commitAll('feat(46-01): missing test file entirely');
+
+    const result = runTestContent('46', tmpDir);
+    assert.strictEqual(result.exitCode, 1);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.passed, false);
+  });
+});
