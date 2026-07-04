@@ -374,6 +374,8 @@ discretion_items = escalation_needed items where sensitive_escalation == false
 
 For each item in `sensitive_items`, run a multi-turn follow-up loop:
 
+Read the escalation timeout from `.planning/config.json`'s `telegram.escalation_timeout_minutes` field (default: 30 if the file is missing, unparseable, or the key is absent). Use this value as `escalation_timeout_minutes` for every `ask_blocking_question` call in this loop (replacing the previously hardcoded `timeout_minutes: 30`).
+
 Initialize loop state: `turn = 1`, `max_turns = 3`, `sufficient = false`, `question_text = item.question`.
 
 Update session status to 'waiting' once before the loop begins:
@@ -389,7 +391,7 @@ Call ask_blocking_question — this BLOCKS until the user replies:
 reply = mcp__telegram__ask_blocking_question({
   question: question_text,
   context: "Phase {phase_number} — {phase_name}\nGray area: {item.gray_area}\nMeta-answerer confidence: {item.confidence}\nSensitivity reason: {which criterion triggered}",
-  timeout_minutes: 30
+  timeout_minutes: {escalation_timeout_minutes}
 })
 ```
 
@@ -397,6 +399,30 @@ Immediately after sending (before reply arrives), append a JSON line to `.planni
 ```
 {"type":"escalation_question","timestamp":"{ISO}","phase":{phase_number},"gray_area":"{item.gray_area}","question":"{question_text}","turn":{turn},"sensitivity_reason":"{which criterion triggered}"}
 ```
+
+**Step A-fallback — daemon-down or timeout during escalation:** If the `ask_blocking_question` call in Step A throws or returns an error (IPC timeout, a `DAEMON_UNAVAILABLE`-coded error, or the daemon's own question-timeout bubbling back as an IPC error response) — covers BOTH "user didn't reply in time" and "daemon was down at escalation time," same handling for both, do not build two paths:
+
+1. Log the failure loudly (this failure must be visible in the milestone audit):
+   ```
+   "Telegram escalation failed for phase {phase_number}, gray_area: {item.gray_area} — {error message}. Applying timeout-fallback: writing DEFERRED.json waiver, parking to Claude's Discretion, continuing."
+   ```
+
+2. Write a DEFERRED.json waiver via the ONLY sanctioned mechanism (do not invent a parallel one):
+   ```bash
+   node get-shit-done/bin/gsd-tools.js deferred add {phase_number} --step discuss --reason "Telegram escalation timed out/unavailable for: {item.question}" --approver timeout-fallback
+   ```
+
+3. Append a JSON line to `.planning/telegram-sessions/{YYYY-MM-DD}.jsonl`:
+   ```
+   {"type":"escalation_complete","timestamp":"{ISO}","phase":{phase_number},"gray_area":"{item.gray_area}","final_answer":null,"turns_used":{turn},"escalated_to_discretion":true,"fallback_reason":"{error message}"}
+   ```
+
+4. Push item into `discretion_items` (NOT `escalated_answers`) so CONTEXT.md's Claude's Discretion subsection still documents it:
+   ```
+   discretion_items.push({ gray_area: item.gray_area, question: item.question, reason: "Telegram escalation timeout/unavailable — parked via timeout-fallback" })
+   ```
+
+5. Exit this item's loop immediately (do not attempt Step B/C for this item) and continue to the next item in `sensitive_items`.
 
 **Step B — Evaluate reply confidence:**
 Read the reply text inline and assign confidence using these rules:
