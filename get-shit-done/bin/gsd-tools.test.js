@@ -3294,3 +3294,325 @@ describe('parallel command removal (Phase 44-04)', () => {
     );
   });
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Phase 44-05: CLI/subprocess-level integration coverage
+//
+// Everything above already invokes the real gsd-tools.js binary as a subprocess
+// via runGsdTools() (execSync), so this section is additive CLI-level coverage
+// on top of the 44-01/44-02 unit tests, per plan 44-05:
+//   A. safeJsonParse guard reachability through two FRESH command entry points
+//      (alerts status / task progress) not already exercised by 44-01's tests.
+//   B. execSync-hardening injection resistance using a payload SHAPE (command
+//      substitution `$(...)`) not already exercised by the existing `;`/backtick
+//      44-01 tests, through the same two attack-surface commands (task analyze
+//      --files, commit message).
+//   C. GENUINE concurrent (not rapid-sequential) `state update` subprocesses
+//      racing on the same STATE.md fixture.
+// ═════════════════════════════════════════════════════════════════════════════
+
+const { spawn } = require('child_process');
+
+// Like runGsdTools(), but allows a timeout so a hang (rather than a clean
+// non-zero exit) is caught as a test failure instead of blocking the suite.
+function runGsdToolsTimed(args, cwd, timeoutMs = 8000) {
+  try {
+    const result = execSync(`node "${TOOLS_PATH}" ${args}`, {
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: timeoutMs,
+    });
+    return { success: true, output: result.trim(), timedOut: false };
+  } catch (err) {
+    return {
+      success: false,
+      output: err.stdout?.toString().trim() || '',
+      error: err.stderr?.toString().trim() || err.message,
+      // node sets `err.signal === 'SIGKILL'`/`'SIGTERM'` and `err.code === null`
+      // when execSync's own `timeout` option kills the child.
+      timedOut: err.killed === true && err.code === null,
+    };
+  }
+}
+
+// Runs gsd-tools.js as a real detached child process via spawn() (argv array,
+// no shell), resolving once it exits. Used so two invocations can be started
+// back-to-back (both spawn() calls issued before either is awaited) and race
+// for real, rather than being serialized by execSync's synchronous nature.
+function spawnGsdToolsAsync(args, cwd) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [TOOLS_PATH, ...args], {
+      cwd,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (d) => { stdout += d; });
+    child.stderr.on('data', (d) => { stderr += d; });
+    child.on('close', (code) => {
+      resolve({ success: code === 0, output: stdout.trim(), error: stderr.trim(), code });
+    });
+    child.on('error', (e) => {
+      resolve({ success: false, output: '', error: e.message, code: null });
+    });
+  });
+}
+
+describe('safeJsonParse guard — CLI/subprocess-level reachability, fresh entry points (Phase 44-05)', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  test('`alerts status` on a corrupted token_budget.json fails gracefully as a real subprocess (no hang, no raw stack trace)', () => {
+    const budgetPath = path.join(tmpDir, '.planning', 'token_budget.json');
+    fs.writeFileSync(budgetPath, '{ this is not valid json at all [[[');
+
+    const result = runGsdToolsTimed('alerts status', tmpDir);
+
+    assert.strictEqual(result.timedOut, false, 'command must not hang on corrupted JSON, should exit promptly');
+    assert.strictEqual(result.success, false, 'command should exit non-zero on corrupted state, not fabricate a result');
+    assert.ok(
+      /corrupted|token_budget\.json/i.test(result.error),
+      `error should reference corruption/context label, got: ${result.error}`
+    );
+    assert.ok(
+      /^Error: /.test(result.error) && !/at Object\.<anonymous>|node:internal\//.test(result.error),
+      `should surface a clean "Error: ..." message, not a raw Node stack trace, got: ${result.error}`
+    );
+  });
+
+  test('`task progress` on a corrupted batch_progress.json fails gracefully as a real subprocess (no hang, no raw stack trace)', () => {
+    const progressPath = path.join(tmpDir, '.planning', 'batch_progress.json');
+    fs.writeFileSync(progressPath, '{{{ not json, definitely not');
+
+    const result = runGsdToolsTimed('task progress', tmpDir);
+
+    assert.strictEqual(result.timedOut, false, 'command must not hang on corrupted JSON, should exit promptly');
+    assert.strictEqual(result.success, false, 'command should exit non-zero on corrupted state, not fabricate a result');
+    assert.ok(
+      /corrupted|batch_progress\.json/i.test(result.error),
+      `error should reference corruption/context label, got: ${result.error}`
+    );
+    assert.ok(
+      /^Error: /.test(result.error) && !/at Object\.<anonymous>|node:internal\//.test(result.error),
+      `should surface a clean "Error: ..." message, not a raw Node stack trace, got: ${result.error}`
+    );
+  });
+
+  test('`alerts status` with a well-formed token_budget.json still succeeds through the same subprocess path (regression)', () => {
+    const budgetPath = path.join(tmpDir, '.planning', 'token_budget.json');
+    fs.writeFileSync(budgetPath, JSON.stringify({
+      model: 'opus', maxTokens: 200000, currentUsage: 5000,
+      phaseUsage: {}, alerts: [], thresholdsPassed: [], graduatedAlerts: [], telegramEnabled: false,
+    }));
+
+    const result = runGsdToolsTimed('alerts status', tmpDir);
+    assert.strictEqual(result.timedOut, false, 'well-formed input should never hang');
+    assert.ok(result.success, `Command failed on well-formed input: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.current_usage, 5000);
+  });
+
+  test('`task progress` with no batch_progress.json at all reports "not available" rather than erroring (regression)', () => {
+    const result = runGsdToolsTimed('task progress', tmpDir);
+    assert.strictEqual(result.timedOut, false);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.available, false);
+  });
+});
+
+describe('execSync-hardening — command-substitution injection resistance via fresh CLI invocations (Phase 44-05)', () => {
+  const analyzeMarker = path.join(require('os').tmpdir(), `gsd-44-05-pwned-analyze-${process.pid}.txt`);
+  const commitMarker = path.join(require('os').tmpdir(), `gsd-44-05-pwned-commit-${process.pid}.txt`);
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+    if (fs.existsSync(analyzeMarker)) fs.rmSync(analyzeMarker);
+    if (fs.existsSync(commitMarker)) fs.rmSync(commitMarker);
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+    // Clean up regardless of pass/fail so a failing assertion never leaks a
+    // marker file into subsequent runs.
+    if (fs.existsSync(analyzeMarker)) fs.rmSync(analyzeMarker);
+    if (fs.existsSync(commitMarker)) fs.rmSync(commitMarker);
+  });
+
+  test('`task analyze --files` with a $(...) command-substitution payload does not execute the substituted command', () => {
+    // Distinct payload SHAPE from the existing 44-01 `;`/backtick tests:
+    // `$(...)` command substitution, still targeting expandGlobSync()'s
+    // --files argument handling.
+    const malicious = `$(touch ${analyzeMarker})*.js`;
+    const escaped = malicious.replace(/'/g, "'\\''");
+
+    const result = runGsdTools(`task analyze --description "test task" --files '${escaped}'`, tmpDir);
+
+    assert.ok(
+      !fs.existsSync(analyzeMarker),
+      '$(...) command substitution in --files must not execute (marker file must not be created)'
+    );
+    assert.ok(result.success, `Command should not crash on a malicious glob: ${result.error}`);
+  });
+
+  test('`commit` message with a $(...) command-substitution payload does not execute the substituted command', () => {
+    execSync('git init', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git config user.email "gsd-test@example.com"', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git config user.name "GSD Test"', { cwd: tmpDir, stdio: 'pipe' });
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'STATE.md'), '# state\n');
+
+    // Distinct payload SHAPE from the existing 44-01 `;`/backtick test: `$(...)`
+    // command substitution embedded in the commit message argument.
+    const malicious = `pwn $(touch ${commitMarker})`;
+    const escaped = malicious.replace(/'/g, "'\\''");
+
+    const result = runGsdTools(`commit '${escaped}'`, tmpDir);
+
+    assert.ok(
+      !fs.existsSync(commitMarker),
+      '$(...) command substitution in the commit message must not execute (marker file must not be created)'
+    );
+    // The commit itself should still complete (execFileSync argv-array commit,
+    // treating the whole string as one literal message), not crash.
+    assert.ok(result.success, `Command should handle the literal string safely rather than crashing: ${result.error}`);
+  });
+});
+
+describe('concurrent `state update` subprocesses racing on the same STATE.md (Phase 44-05)', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  // KNOWN LIMITATION (found during 44-05, documented rather than silently
+  // patched -- see 44-05-SUMMARY.md and deferred-items.md):
+  //
+  // 44-CONTEXT.md's 44-02 decision section explicitly scopes atomicWriteFileSync
+  // to "prevents a torn/corrupted write ... satisfies MILE-20's 'no update is
+  // silently lost' bar for the read-modify-write pattern GSD actually uses
+  // (sequential coordinator calls, not truly concurrent writers in the common
+  // case)" and explicitly instructs "Do NOT attempt true cross-process locking
+  // (mutex/semaphore) in this phase." That guarantee -- sequential/rapid-succession
+  // writes both land -- is exactly what 44-02's own unit test already proves
+  // (see 'atomicWriteFileSync helper (Phase 44-02)' above) and is reconfirmed
+  // here at the CLI/subprocess boundary below.
+  //
+  // Genuinely SIMULTANEOUS (Promise.all, both spawned before either is awaited)
+  // writes are a stronger guarantee this phase never designed for: two processes
+  // each do read-whole-file -> mutate-in-memory -> atomicWriteFileSync, so
+  // whichever process's write lands second silently clobbers the other's
+  // in-memory copy of the rest of the file with its own stale read. This is a
+  // real, reproducible data-loss race (confirmed via 30/30 raw trials during
+  // 44-05's test-writing) -- but fixing it requires real cross-process locking,
+  // which 44-CONTEXT.md explicitly defers past this phase (proper-lockfile is
+  // reserved for Phase 47's Telegram JSONL hardening, not this phase). This test
+  // documents the actual, current, accepted behavior (never a crash or a torn
+  // file -- but under genuine concurrency, the LOSER's field update can be
+  // silently dropped) so the gap stays visible rather than being hidden by a
+  // test that asserts a guarantee the system doesn't provide.
+  test('sequential (non-overlapping) `state update` calls to different fields both land -- the guarantee this phase actually provides', () => {
+    const statePath = path.join(tmpDir, '.planning', 'STATE.md');
+    fs.writeFileSync(statePath, `# State
+
+**Status:** Initial
+**Current Phase:** 00
+`);
+
+    const r1 = runGsdTools('state update Status UpdatedByProcessA', tmpDir);
+    const r2 = runGsdTools("state update \"Current Phase\" 07", tmpDir);
+
+    assert.ok(r1.success, `first "state update" subprocess failed: ${r1.error}`);
+    assert.ok(r2.success, `second "state update" subprocess failed: ${r2.error}`);
+
+    const content = fs.readFileSync(statePath, 'utf-8');
+    assert.ok(content.includes('**Status:** UpdatedByProcessA'), `Status update should land: ${content}`);
+    assert.ok(content.includes('**Current Phase:** 07'), `Current Phase update should land: ${content}`);
+  });
+
+  test('genuinely concurrent (Promise.all, overlapping) `state update` calls never crash or torn-write the file, but a losing update CAN be silently dropped (documented limitation, not fixed in this phase)', async () => {
+    const statePath = path.join(tmpDir, '.planning', 'STATE.md');
+    fs.writeFileSync(statePath, `# State
+
+**Status:** Initial
+**Current Phase:** 00
+`);
+
+    // Both spawn() calls are issued here, BEFORE either is awaited, so the two
+    // child processes' read-modify-write cycles genuinely overlap in time.
+    const [r1, r2] = await Promise.all([
+      spawnGsdToolsAsync(['state', 'update', 'Status', 'UpdatedByProcessA'], tmpDir),
+      spawnGsdToolsAsync(['state', 'update', 'Current Phase', '07'], tmpDir),
+    ]);
+
+    assert.ok(r1.success, `first concurrent "state update" subprocess failed: ${r1.error}`);
+    assert.ok(r2.success, `second concurrent "state update" subprocess failed: ${r2.error}`);
+
+    // The file must never be torn/corrupted (atomicWriteFileSync's actual,
+    // in-scope guarantee) -- it must still be valid, readable Markdown with
+    // AT LEAST one of the two updates present. It is NOT guaranteed that BOTH
+    // land under genuine concurrency (see comment above) -- that would require
+    // cross-process locking, explicitly out of scope for this phase.
+    const content = fs.readFileSync(statePath, 'utf-8');
+    assert.ok(content.length > 0, 'file must never end up empty/torn');
+    const statusLanded = content.includes('**Status:** UpdatedByProcessA');
+    const phaseLanded = content.includes('**Current Phase:** 07');
+    assert.ok(
+      statusLanded || phaseLanded,
+      `at least one of the two concurrent updates should survive (neither silently corrupting the whole file): ${content}`
+    );
+  });
+});
+
+describe('CI workflow config sanity check (Phase 44-05, static file check, no network/Actions invocation)', () => {
+  const WORKFLOW_PATH = path.join(__dirname, '..', '..', '.github', 'workflows', 'test.yml');
+
+  test('.github/workflows/test.yml exists on disk', () => {
+    assert.ok(
+      fs.existsSync(WORKFLOW_PATH),
+      `expected CI workflow file at ${WORKFLOW_PATH}`
+    );
+  });
+
+  test('workflow triggers on both push and pull_request', () => {
+    const content = fs.readFileSync(WORKFLOW_PATH, 'utf-8');
+    assert.ok(/^on:/m.test(content), `workflow should declare an "on:" trigger block, got:\n${content}`);
+    assert.ok(/^\s*push:?\s*$/m.test(content), `workflow should trigger on "push", got:\n${content}`);
+    assert.ok(/^\s*pull_request:?\s*$/m.test(content), `workflow should trigger on "pull_request", got:\n${content}`);
+  });
+
+  test('workflow runs the project test suite via npm', () => {
+    const content = fs.readFileSync(WORKFLOW_PATH, 'utf-8');
+    assert.ok(
+      /npm test|npm ci/.test(content),
+      `workflow should invoke "npm test" or "npm ci" somewhere, got:\n${content}`
+    );
+  });
+
+  test('workflow explicitly installs dependencies (npm ci) before running tests (npm test)', () => {
+    const content = fs.readFileSync(WORKFLOW_PATH, 'utf-8');
+    // Stronger check than the single-invocation test above: this repo's
+    // workflow should do a clean, reproducible install before testing.
+    assert.ok(content.includes('npm ci'), `expected "npm ci" for a reproducible install, got:\n${content}`);
+    assert.ok(content.includes('npm test'), `expected "npm test" to actually run the suite, got:\n${content}`);
+  });
+
+  test('workflow is not accidentally empty or truncated (has a jobs: block with at least one step)', () => {
+    const content = fs.readFileSync(WORKFLOW_PATH, 'utf-8');
+    assert.ok(/^jobs:/m.test(content), `workflow should declare a "jobs:" block, got:\n${content}`);
+    assert.ok(/steps:/.test(content), `workflow should declare "steps:" under the job, got:\n${content}`);
+  });
+});
