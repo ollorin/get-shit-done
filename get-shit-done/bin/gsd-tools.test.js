@@ -6290,3 +6290,129 @@ describe('Phase 48 cross-cutting trigger matrix — deterministic (Phase 48-04)'
     }
   });
 });
+
+describe('Phase 48 cross-cutting trigger matrix — prompt-layer wiring (Phase 48-04)', () => {
+  // These are structural regression guards, not execution tests: the logic
+  // they cover is Claude-prose in .md files, not code. Repo root is two
+  // levels up from this test file's __dirname (get-shit-done/bin/ ->
+  // get-shit-done/ -> repo root) -- verified against the actual on-disk
+  // layout before writing these assertions.
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+
+  function readRepoFile(relativePath) {
+    return fs.readFileSync(path.join(REPO_ROOT, relativePath), 'utf-8');
+  }
+
+  test('Mining wiring: complete-milestone.md references auto_mine + mine-conversations + explicit non-blocking language, positioned after archive_milestone and before reorganize_roadmap_and_delete_originals', () => {
+    const content = readRepoFile('get-shit-done/workflows/complete-milestone.md');
+
+    assert.match(content, /auto_mine/, 'complete-milestone.md must reference auto_mine');
+    assert.match(content, /mine-conversations/, 'complete-milestone.md must reference the mine-conversations CLI command');
+    assert.match(
+      content,
+      /non-blocking|milestone completion continues/i,
+      'complete-milestone.md must state the mining step is non-blocking'
+    );
+
+    const archiveIdx = content.indexOf('<step name="archive_milestone">');
+    const mineIdx = content.indexOf('<step name="mine_milestone_conversations">');
+    const reorganizeIdx = content.indexOf('<step name="reorganize_roadmap_and_delete_originals">');
+
+    assert.notStrictEqual(archiveIdx, -1, 'archive_milestone step must exist');
+    assert.notStrictEqual(mineIdx, -1, 'mine_milestone_conversations step must exist');
+    assert.notStrictEqual(reorganizeIdx, -1, 'reorganize_roadmap_and_delete_originals step must exist');
+
+    assert.ok(archiveIdx < mineIdx, 'mine_milestone_conversations must be positioned after archive_milestone');
+    assert.ok(mineIdx < reorganizeIdx, 'mine_milestone_conversations must be positioned before reorganize_roadmap_and_delete_originals');
+  });
+
+  test('Discovery wiring: prd.md has BOTH a Stage 1 and a Stage 2 confidence-gated fan-out subsection with the required investigator/synthesizer/threshold/cap content', () => {
+    const content = readRepoFile('get-shit-done/workflows/prd.md');
+
+    const stage1Idx = content.indexOf('### 1c-bis. Confidence-Gated Discovery Fan-Out');
+    const stage1EndIdx = content.indexOf('### 1d.', stage1Idx);
+    const stage2Idx = content.indexOf('### 2c-bis. Confidence-Gated Discovery Fan-Out');
+    const stage2EndIdx = content.indexOf('### 2d.', stage2Idx);
+
+    assert.notStrictEqual(stage1Idx, -1, 'prd.md must have a Stage 1 (1c-bis) confidence-gated fan-out subsection');
+    assert.notStrictEqual(stage2Idx, -1, 'prd.md must have a Stage 2 (2c-bis) confidence-gated fan-out subsection');
+    assert.ok(stage1EndIdx > stage1Idx, 'Stage 1 subsection must be bounded by the following 1d. subsection');
+    assert.ok(stage2EndIdx > stage2Idx, 'Stage 2 subsection must be bounded by the following 2d. subsection');
+
+    const stage1Section = content.slice(stage1Idx, stage1EndIdx);
+    const stage2Section = content.slice(stage2Idx, stage2EndIdx);
+
+    for (const [label, section] of [['Stage 1', stage1Section], ['Stage 2', stage2Section]]) {
+      assert.match(section, /gsd-product-investigator/, `${label} subsection must reference gsd-product-investigator`);
+      assert.match(section, /model="haiku"|model:\s*haiku/, `${label} subsection must spawn investigators on the haiku model`);
+      assert.match(section, /capped at 6/, `${label} subsection must cap fan-out at 6`);
+      assert.match(section, /minimum 4|at least 4/i, `${label} subsection must document a floor of 4 investigators`);
+      assert.match(section, /gsd-discovery-synthesizer/, `${label} subsection must reference gsd-discovery-synthesizer for merging findings`);
+      assert.match(section, /<\s*0\.50/, `${label} subsection must document the < 0.50 trigger threshold`);
+      assert.match(section, />=\s*0\.65/, `${label} subsection must document the >= 0.65 dormant threshold`);
+    }
+  });
+
+  test('Discovery deletion: discover.md, discovery-phase.md, and skills/gsd-discover/ do not exist on disk (permanent regression guard)', () => {
+    assert.strictEqual(
+      fs.existsSync(path.join(REPO_ROOT, 'get-shit-done', 'workflows', 'discover.md')),
+      false,
+      'get-shit-done/workflows/discover.md must remain deleted'
+    );
+    assert.strictEqual(
+      fs.existsSync(path.join(REPO_ROOT, 'get-shit-done', 'workflows', 'discovery-phase.md')),
+      false,
+      'get-shit-done/workflows/discovery-phase.md must remain deleted'
+    );
+    assert.strictEqual(
+      fs.existsSync(path.join(REPO_ROOT, 'skills', 'gsd-discover')),
+      false,
+      'skills/gsd-discover/ must remain deleted'
+    );
+  });
+
+  test('Debugger wiring: execute-phase.md and execute-roadmap.md both branch on execution-state record-failure\'s action field (retry/debug/escalate); debug.md and commands/gsd/debug.md are correctly wired', () => {
+    const executePhase = readRepoFile('get-shit-done/workflows/execute-phase.md');
+    const executeRoadmap = readRepoFile('get-shit-done/workflows/execute-roadmap.md');
+    const debugWorkflow = readRepoFile('get-shit-done/workflows/debug.md');
+    const debugCommand = readRepoFile('commands/gsd/debug.md');
+
+    for (const [label, content] of [['execute-phase.md', executePhase], ['execute-roadmap.md', executeRoadmap]]) {
+      assert.match(content, /execution-state record-failure/, `${label} must call execution-state record-failure`);
+      assert.match(content, /action/, `${label} must branch on the action field`);
+      assert.match(content, /retry/, `${label} must handle the "retry" action`);
+      assert.match(content, /debug/, `${label} must handle the "debug" action`);
+      assert.match(content, /escalate/, `${label} must handle the "escalate" action`);
+    }
+
+    assert.match(debugWorkflow, /gsd-debugger/, 'workflows/debug.md must reference gsd-debugger');
+
+    assert.match(
+      debugCommand,
+      /@~\/\.claude\/get-shit-done\/workflows\/debug\.md/,
+      'commands/gsd/debug.md must use the standard @-include pattern pointing at workflows/debug.md'
+    );
+    assert.doesNotMatch(
+      debugCommand,
+      /## 0\. Initialize Context/,
+      'commands/gsd/debug.md must NOT retain the old fully-inline interactive-only process (marker: "## 0. Initialize Context") as its primary path'
+    );
+  });
+
+  test('Debugger escalation composition: execute-phase.md references timeout-fallback, and gsd-phase-coordinator.md\'s Step A-fallback deferred-add invocation shape is unchanged', () => {
+    const executePhase = readRepoFile('get-shit-done/workflows/execute-phase.md');
+    const phaseCoordinator = readRepoFile('agents/gsd-phase-coordinator.md');
+
+    assert.match(
+      executePhase,
+      /timeout-fallback/,
+      'execute-phase.md must reference timeout-fallback, proving it composes with gsd-phase-coordinator.md\'s existing Step A-fallback pattern rather than duplicating it'
+    );
+
+    assert.match(
+      phaseCoordinator,
+      /deferred add \{phase_number\} --step discuss[\s\S]{0,120}--approver timeout-fallback/,
+      'gsd-phase-coordinator.md\'s Step A-fallback deferred-add invocation shape must remain unchanged (confirms 48-03 composed rather than overwrote it)'
+    );
+  });
+});
