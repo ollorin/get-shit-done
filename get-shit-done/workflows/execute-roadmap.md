@@ -269,10 +269,13 @@ fi
 
 **5a. Charlotte QA gate (BLOCKING — owned by orchestrator, not coordinator):**
 
-Check if the phase has UI work:
+Check if the phase has UI work using the deterministic, git-diff-derived phase gate (never a markdown/frontmatter self-report scan):
 ```bash
-HAS_UI=$(find .planning/phases/{phase_dir}/ -name "*.md" -exec grep -l "\.tsx\|\.jsx\|checkpoint:ui-qa\|type: frontend" {} \; | head -1)
+PHASE_GATE_RESULT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js verify phase-gate {N})
+HAS_UI=$(node -e "console.log(JSON.parse(process.argv[1]).has_ui === true ? 'true' : '')" "$PHASE_GATE_RESULT")
 ```
+
+`has_ui` is computed from the phase's actual touched files (extension + route-path detection), independent of what any PLAN.md/SUMMARY.md self-reports — a `.tsx` file omitted from a plan's key-files still triggers this gate.
 
 **If HAS_UI is non-empty:**
 
@@ -290,6 +293,8 @@ Running Charlotte QA now...
 3. If critical/high issues → spawn fix agent → re-run (max 3 rounds)
 4. Run regression: all `regression`-tagged Charlotte scenarios must pass
 5. Only after pass → set `charlotte_qa_ran: true` in CHECKPOINT.json → proceed to 5b
+
+If Charlotte QA genuinely cannot be run (e.g. dev environment unavailable) and proceeding anyway is a deliberate, approved decision: this is a genuine mandatory-step skip, not a routine no-UI skip. Run `node ~/.claude/get-shit-done/bin/gsd-tools.js deferred add {N} --step charlotte_qa --reason <reason> --approver <approver>` as part of the skip — never logged-and-forgotten afterward. Do not set `charlotte_qa_ran: true` for QA that did not actually happen; record the waiver instead and let `verify phase-gate` honor it.
 
 **Why the orchestrator owns this gate:** Coordinators that overflow context drop Charlotte as a late step and write "code-level verification" — which missed 5 real UI bugs in v0.1.9. The orchestrator runs this check AFTER the coordinator returns, so context overflow cannot bypass it.
 

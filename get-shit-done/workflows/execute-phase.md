@@ -449,12 +449,20 @@ After all waves:
 
 Before proceeding to verification, these gates must pass. They cannot be deferred.
 
-**Gate 1 — Charlotte QA evidence (UI phases only):**
+**Gate 1 — Deterministic phase-gate (BLOCKING):**
 
-If any plan in this phase has `type: frontend` or `checkpoint: ui-qa` or created `.tsx/.jsx` files:
-- CHECKPOINT.json must contain `charlotte_qa_ran: true`
-- If missing: the orchestrator (execute-roadmap step 5a) will catch this and run Charlotte
-- Set `charlotte_qa_ran: false` in CHECKPOINT.json if Charlotte was not run — do NOT omit the field
+Run the deterministic, git-diff-derived phase gate instead of self-reporting artifact existence. This single call replaces the prior "check `type: frontend`/`checkpoint: ui-qa`/`.tsx`/`.jsx` by hand" prose — it covers Charlotte QA evidence, plus test/docs/e2e-plan/verification existence, from actual touched files and waivers, not plan self-reports:
+
+```bash
+PHASE_GATE_RESULT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" verify phase-gate "${PHASE}")
+PHASE_GATE_EXIT=$?
+```
+
+If `PHASE_GATE_EXIT` is non-zero: **BLOCKING** — do not proceed to verifier spawn. Present the failing checks (the `failures` array in the JSON output) to the operator/coordinator with two options:
+(a) fix the missing artifact (e.g. run Charlotte QA if `missing_charlotte_qa`) and re-run `verify phase-gate`, or
+(b) for a legitimate, documented exception, run `node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" deferred add "${PHASE}" --step <step> --reason <reason> --approver <approver>`, then re-run `verify phase-gate` to confirm it now passes waived.
+
+Skipping a mandatory step requires calling `deferred add` as part of the skip — never logged-and-forgotten after the fact. Do not allow silent continuation past a non-zero exit.
 
 **Gate 2 — Integration tests green:**
 
