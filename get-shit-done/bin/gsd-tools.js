@@ -174,7 +174,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execSync, execFileSync, spawnSync } = require('child_process');
 const { EVENT_TYPES, appendEvent, getHistory, getCurrentPhase, getExecutionStats } = require('./execution-log.js');
 const { parseRoadmap, buildDAG, getExecutionOrder, detectParallelOpportunities } = require('./roadmap-parser.js');
 const { TokenBudgetMonitor } = require('./token-monitor.js');
@@ -315,7 +315,9 @@ function loadConfig(cwd) {
 
 function isGitIgnored(cwd, targetPath) {
   try {
-    execSync('git check-ignore -q -- ' + targetPath.replace(/[^a-zA-Z0-9._\-/]/g, ''), {
+    // git check-ignore exits non-zero when the path is NOT ignored — execFileSync
+    // throws on non-zero exit, so the catch branch preserves that boolean logic.
+    execFileSync('git', ['check-ignore', '-q', '--', targetPath], {
       cwd,
       stdio: 'pipe',
     });
@@ -327,11 +329,7 @@ function isGitIgnored(cwd, targetPath) {
 
 function execGit(cwd, args) {
   try {
-    const escaped = args.map(a => {
-      if (/^[a-zA-Z0-9._\-/=:@]+$/.test(a)) return a;
-      return "'" + a.replace(/'/g, "'\\''") + "'";
-    });
-    const stdout = execSync('git ' + escaped.join(' '), {
+    const stdout = execFileSync('git', args, {
       cwd,
       stdio: 'pipe',
       encoding: 'utf-8',
@@ -585,8 +583,9 @@ function output(result, raw, rawValue) {
 
     try {
       fs.writeFileSync(tempFile, outputStr, 'utf-8');
-      // Use cat to pipe the file contents - this avoids buffer limits
-      execSync(`cat "${tempFile}"`, { stdio: 'inherit' });
+      // Read the file back and write directly to stdout - avoids buffer limits
+      // without shelling out to `cat` for a known local file.
+      process.stdout.write(fs.readFileSync(tempFile, 'utf-8'));
       // Clean up temp file
       fs.unlinkSync(tempFile);
     } catch (err) {
@@ -3970,6 +3969,43 @@ function cmdAlerts(cwd, args, raw) {
 
 // ─── Task Chunking ────────────────────────────────────────────────────────────
 
+// Pure-Node glob expansion for a single directory level (matches the scope of
+// what shell globbing via `ls -1 <pattern>` provided previously — no shell
+// interpolation, so unsanitized --files input cannot be shell-interpreted).
+// Supports `*` and `?` wildcards in the final path segment only.
+function expandGlobSync(cwd, globPattern) {
+  try {
+    const normalizedPattern = (globPattern || '').trim();
+    if (!normalizedPattern) return [];
+
+    const lastSlash = normalizedPattern.lastIndexOf('/');
+    const dirPart = lastSlash === -1 ? '.' : normalizedPattern.slice(0, lastSlash);
+    const filePattern = lastSlash === -1 ? normalizedPattern : normalizedPattern.slice(lastSlash + 1);
+
+    // No wildcard in the final segment: treat as a literal path, matching
+    // shell behavior when a glob doesn't match anything (echoes the literal).
+    if (!/[*?]/.test(filePattern)) {
+      return fs.existsSync(path.join(cwd, normalizedPattern)) ? [normalizedPattern] : [];
+    }
+
+    const regexSource = '^' + filePattern
+      .replace(/[.+^${}()|[\]\\]/g, '\\$&') // escape regex special chars
+      .replace(/\*/g, '.*')
+      .replace(/\?/g, '.') + '$';
+    const regex = new RegExp(regexSource);
+
+    const dirAbs = path.join(cwd, dirPart);
+    if (!fs.existsSync(dirAbs)) return [];
+
+    return fs.readdirSync(dirAbs)
+      .filter(name => regex.test(name))
+      .map(name => (dirPart === '.' ? name : `${dirPart}/${name}`))
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
 function cmdTask(cwd, args, raw) {
   const subcommand = args[0];
 
@@ -3994,12 +4030,7 @@ function cmdTask(cwd, args, raw) {
       // Expand glob if provided
       let files = [];
       if (filesGlob) {
-        try {
-          const globResult = execSync(`ls -1 ${filesGlob} 2>/dev/null || true`, { cwd, encoding: 'utf-8' });
-          files = globResult.trim().split('\n').filter(Boolean);
-        } catch {
-          // Glob expansion failed, use empty
-        }
+        files = expandGlobSync(cwd, filesGlob);
       }
 
       const task = { description, files };
@@ -4028,12 +4059,7 @@ function cmdTask(cwd, args, raw) {
 
       let files = [];
       if (filesGlob) {
-        try {
-          const globResult = execSync(`ls -1 ${filesGlob} 2>/dev/null || true`, { cwd, encoding: 'utf-8' });
-          files = globResult.trim().split('\n').filter(Boolean);
-        } catch {
-          // Glob expansion failed
-        }
+        files = expandGlobSync(cwd, filesGlob);
       }
 
       const chunker = new TaskChunker();
@@ -5303,9 +5329,9 @@ function cmdVerifyDependencyStability(cwd, phaseArg, raw) {
     if (!fs.existsSync(fullFilePath)) continue;
 
     try {
-      const { execSync } = require('child_process');
-      const logOutput = execSync(
-        'git log --oneline --follow -- "' + trackedFile + '"',
+      const { execFileSync } = require('child_process');
+      const logOutput = execFileSync(
+        'git', ['log', '--oneline', '--follow', '--', trackedFile],
         { cwd: cwd, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 5000 }
       ).trim();
 
@@ -7628,6 +7654,37 @@ function cmdInitPlanPhase(cwd, phase, includes, raw) {
   output(result, raw);
 }
 
+// Pure-Node recursive directory walk (depth-limited), replacing a prior
+// `find ... | grep -v ... | head -N` shell pipeline. Skips node_modules/.git.
+function findCodeFilesSync(cwd, extensions, maxDepth, limit) {
+  const results = [];
+  const skipDirs = new Set(['node_modules', '.git']);
+
+  function walk(dir, depth) {
+    if (results.length >= limit || depth > maxDepth) return;
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (results.length >= limit) return;
+      if (entry.isDirectory()) {
+        if (skipDirs.has(entry.name)) continue;
+        walk(path.join(dir, entry.name), depth + 1);
+      } else if (entry.isFile()) {
+        if (extensions.includes(path.extname(entry.name))) {
+          results.push(path.join(dir, entry.name));
+        }
+      }
+    }
+  }
+
+  walk(cwd, 0);
+  return results;
+}
+
 function cmdInitNewProject(cwd, raw) {
   const config = loadConfig(cwd);
 
@@ -7640,12 +7697,8 @@ function cmdInitNewProject(cwd, raw) {
   let hasCode = false;
   let hasPackageFile = false;
   try {
-    const files = execSync('find . -maxdepth 3 \\( -name "*.ts" -o -name "*.js" -o -name "*.py" -o -name "*.go" -o -name "*.rs" -o -name "*.swift" -o -name "*.java" \\) 2>/dev/null | grep -v node_modules | grep -v .git | head -5', {
-      cwd,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    hasCode = files.trim().length > 0;
+    const files = findCodeFilesSync(cwd, ['.ts', '.js', '.py', '.go', '.rs', '.swift', '.java'], 3, 5);
+    hasCode = files.length > 0;
   } catch {}
 
   hasPackageFile = pathExistsInternal(cwd, 'package.json') ||
