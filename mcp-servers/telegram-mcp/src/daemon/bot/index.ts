@@ -17,6 +17,7 @@ import { createLogger } from '../../shared/logger.js';
 import type { SessionService } from '../session-service.js';
 import type { Question } from '../../shared/types.js';
 import { setupHandlers } from './handlers.js';
+import { withRetry } from '../../shared/retry.js';
 import ngrok from '@ngrok/ngrok';
 
 const log = createLogger('bot');
@@ -316,7 +317,7 @@ export async function sendToGroup(
     );
   }
 
-  await bot.telegram.sendMessage(chatId, text, options);
+  await withRetry(() => bot!.telegram.sendMessage(chatId, text, options), { label: 'sendToGroup' });
 }
 
 /**
@@ -335,7 +336,7 @@ export async function createForumTopic(title: string): Promise<number> {
     throw new Error('TELEGRAM_GROUP_CHAT_ID is not set — cannot create forum topics');
   }
 
-  const topic = await bot.telegram.createForumTopic(chatId, title);
+  const topic = await withRetry(() => bot!.telegram.createForumTopic(chatId, title), { label: 'createForumTopic' });
   log.info({ chatId, title, threadId: topic.message_thread_id }, 'Forum topic created');
   return topic.message_thread_id;
 }
@@ -361,8 +362,8 @@ export async function sendToThread(
     throw new Error('TELEGRAM_GROUP_CHAT_ID is not set — cannot send to forum threads');
   }
 
-  await bot.telegram.sendMessage(chatId, text, {
-    ...options,
-    message_thread_id: threadId,
-  });
+  await withRetry(
+    () => bot!.telegram.sendMessage(chatId, text, { ...options, message_thread_id: threadId }),
+    { label: 'sendToThread' }
+  );
 }
