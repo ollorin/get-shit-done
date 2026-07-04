@@ -14,6 +14,7 @@ import net from 'net';
 import { EventEmitter } from 'events';
 import { randomUUID } from 'crypto';
 import { createLogger } from '../shared/logger.js';
+import { DaemonUnavailableError } from '../shared/errors.js';
 const log = createLogger('ipc-client');
 /** Default timeout for most IPC methods (milliseconds) */
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -77,7 +78,7 @@ export class IPCClient extends EventEmitter {
                 // Reject all pending requests — daemon went away
                 for (const [id, pending] of this.pending) {
                     clearTimeout(pending.timer);
-                    pending.reject(new Error('IPC connection closed while request was pending'));
+                    pending.reject(new DaemonUnavailableError('IPC connection closed while request was pending -- daemon may have crashed'));
                     this.pending.delete(id);
                 }
                 this.emit('disconnected');
@@ -94,7 +95,7 @@ export class IPCClient extends EventEmitter {
      */
     async request(method, params, timeoutMs) {
         if (!this.socket || !this.connected) {
-            throw new Error('IPC client is not connected');
+            throw new DaemonUnavailableError('IPC client is not connected');
         }
         const id = randomUUID();
         const ipcRequest = { id, method, params };
@@ -123,6 +124,10 @@ export class IPCClient extends EventEmitter {
      * - check_question_answers: uses wait_seconds + 10 seconds when wait_seconds provided
      * - everything else: DEFAULT_TIMEOUT_MS
      */
+    // OWNERSHIP: this timeout is a dead-man's-switch BACKSTOP only, for a hard daemon
+    // hang with no socket close. The daemon-side QuestionService.ask() setTimeout
+    // (question-service.ts) is the single authoritative owner of "did the user answer
+    // in time." Do not shorten this below the daemon's own timeout + buffer.
     static methodTimeout(method, params) {
         if (method === 'ask_blocking_question') {
             const timeoutMinutes = typeof params['timeout_minutes'] === 'number'

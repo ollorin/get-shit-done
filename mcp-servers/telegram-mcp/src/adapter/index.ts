@@ -24,8 +24,10 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { getSocketPath } from '../shared/socket-path.js';
 import { createLogger } from '../shared/logger.js';
+import { DaemonUnavailableError } from '../shared/errors.js';
 import { ensureDaemon } from './daemon-launcher.js';
 import { IPCClient } from './ipc-client.js';
+import { shouldGiveUpReconnecting, computeReconnectDelayMs } from './reconnect-policy.js';
 
 const log = createLogger('adapter');
 
@@ -184,7 +186,7 @@ async function proxyTool(
   params: Record<string, unknown>
 ): Promise<unknown> {
   if (!ipcClient || !ipcClient.isConnected()) {
-    throw new Error('IPC client is not connected — daemon may have crashed');
+    throw new DaemonUnavailableError('IPC client is not connected — daemon may have crashed');
   }
 
   // Compute method-specific timeout
@@ -246,13 +248,13 @@ async function main(): Promise<void> {
   const MAX_RECONNECT_DELAY_MS = 8000;
 
   const attemptReconnect = async (attempt: number): Promise<void> => {
-    if (attempt > MAX_RECONNECT_RETRIES) {
-      log.error({ maxRetries: MAX_RECONNECT_RETRIES }, 'Max reconnect attempts reached — giving up');
+    if (shouldGiveUpReconnecting(attempt, MAX_RECONNECT_RETRIES)) {
+      log.error({ maxRetries: MAX_RECONNECT_RETRIES, code: 'DAEMON_UNAVAILABLE' }, 'Max reconnect attempts reached — daemon appears permanently unavailable, giving up');
       process.exit(1);
       return;
     }
 
-    const delay = Math.min(BASE_RECONNECT_DELAY_MS * Math.pow(2, attempt - 1), MAX_RECONNECT_DELAY_MS);
+    const delay = computeReconnectDelayMs(attempt, BASE_RECONNECT_DELAY_MS, MAX_RECONNECT_DELAY_MS);
     log.info({ attempt, maxRetries: MAX_RECONNECT_RETRIES, delayMs: delay }, 'Scheduling reconnect attempt');
 
     await new Promise<void>(resolve => setTimeout(resolve, delay));
@@ -390,13 +392,14 @@ async function main(): Promise<void> {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      log.error({ tool: name, err: error }, 'Tool call error');
+      const errorCode = (error as { code?: string })?.code;
+      log.error({ tool: name, err: error, code: errorCode }, 'Tool call error');
 
       return {
         content: [
           {
             type: 'text',
-            text: JSON.stringify({ error: errorMessage, tool: name }),
+            text: JSON.stringify({ error: errorMessage, tool: name, ...(errorCode ? { code: errorCode } : {}) }),
           },
         ],
         isError: true,

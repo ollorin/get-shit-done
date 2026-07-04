@@ -183,6 +183,11 @@ export class QuestionService extends EventEmitter {
         resolve(answerText);
       };
 
+      // OWNERSHIP: this is the single authoritative timer for "did the user answer
+      // in time." The adapter-side IPCClient.methodTimeout() value for
+      // ask_blocking_question is a dead-man's-switch backstop only (see
+      // ipc-client.ts) — it should never fire before this one under normal
+      // operation.
       const timer = setTimeout(() => {
         this.removeAllListeners(`answer:${questionId}`);
 
