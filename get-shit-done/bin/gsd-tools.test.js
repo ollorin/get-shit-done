@@ -4311,3 +4311,342 @@ describe('deferred add/list commands (Phase 45-03)', () => {
     assert.strictEqual(parsed.type, 'phase_not_found');
   });
 });
+
+// ─── Phase 45-05: Cross-Cutting Integration Tests ────────────────────────────
+// 45-01/45-02/45-03 each ship unit-level tdd tests for their own change,
+// already exercised through the real CLI via execSync (not narrower in-process
+// calls). This suite is ADDITIVE: a single reusable fixture builder covering
+// the FULL phase-gate matrix + HAS_UI matrix + waiver matrix named in
+// ROADMAP.md Phase 45 Success Criterion 5, plus cross-feature composition
+// scenarios (deferred add -> phase-gate, deferred list after multiple adds,
+// phase-wide vs plan-scoped waiver scoping, and full round-trip malformed-file
+// agreement across all three commands) that no single prior plan's own tests
+// fully cover.
+
+describe('phase-gate full matrix + HAS_UI integration (Phase 45-05 Task 1)', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+    execSync('git init', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git config user.email "gsd-test@example.com"', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git config user.name "GSD Test"', { cwd: tmpDir, stdio: 'pipe' });
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function phaseDirPath(phaseDirName) {
+    return path.join(tmpDir, '.planning', 'phases', phaseDirName);
+  }
+
+  // Like runGsdTools but also surfaces the real process exit code -- phase-gate
+  // uses distinct exit codes: 0 passed, 1 failed checks, 2 malformed data.
+  function runPhaseGate(phaseArg, cwd) {
+    try {
+      const result = execSync(`node "${TOOLS_PATH}" verify phase-gate ${phaseArg}`, {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      return { success: true, output: result.trim(), exitCode: 0 };
+    } catch (err) {
+      return {
+        success: false,
+        output: err.stdout?.toString().trim() || '',
+        error: err.stderr?.toString().trim() || '',
+        exitCode: err.status ?? 1,
+      };
+    }
+  }
+
+  // Reusable fixture builder (per this plan's <behavior> spec): builds a phase
+  // directory with a real git repo, a single configurable *-PLAN.md (tdd
+  // marker toggle), a configurable set of extra files committed alongside it
+  // (tagged `45-{planNum}` so collectPhaseTouchedFiles's git-log --grep walk
+  // picks them up as real touched files -- never a self-report), and optional
+  // CHECKPOINT.json / E2E-TEST-PLAN.md / *-VERIFICATION.md / *-SUMMARY.md /
+  // DEFERRED.json artifacts written AFTER the commit (so they never
+  // accidentally count as "touched" themselves unless a test wants that).
+  function buildFixture(phaseDirName, {
+    planNum = '01',
+    tdd = false,
+    extraFiles = {},
+    commitMessage,
+    checkpoint = null,        // null | object
+    e2eTestPlan = undefined,  // undefined = omit file, string = write ('' -> default content)
+    verification = undefined, // undefined = omit file, string = write ('' -> default content)
+    summary = undefined,      // undefined = omit file, string = write as 45-{planNum}-SUMMARY.md content
+    deferred = undefined,     // undefined = omit file, string = write raw (possibly malformed), array = JSON.stringify
+  } = {}) {
+    const phaseDir = phaseDirPath(phaseDirName);
+    fs.mkdirSync(phaseDir, { recursive: true });
+
+    const taskTag = tdd ? '<task type="auto" tdd="true">' : '<task type="auto">';
+    fs.writeFileSync(
+      path.join(phaseDir, `45-${planNum}-PLAN.md`),
+      `---\nphase: "45"\nplan: "${planNum}"\ntype: execute\nfiles_modified: []\n---\n<tasks>\n${taskTag}\n<name>Task 1</name>\n<action>do stuff</action>\n</task>\n</tasks>\n`
+    );
+    for (const [relPath, content] of Object.entries(extraFiles)) {
+      const fullPath = path.join(phaseDir, relPath);
+      fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+      fs.writeFileSync(fullPath, content);
+    }
+
+    execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
+    execSync(
+      `git commit -q --allow-empty -m "${commitMessage || `feat(45-${planNum}): fixture commit`}"`,
+      { cwd: tmpDir, stdio: 'pipe' }
+    );
+
+    if (checkpoint) {
+      fs.writeFileSync(path.join(phaseDir, 'CHECKPOINT.json'), JSON.stringify(checkpoint));
+    }
+    if (e2eTestPlan !== undefined) {
+      fs.writeFileSync(path.join(phaseDir, 'E2E-TEST-PLAN.md'), e2eTestPlan || '# E2E Test Plan\n');
+    }
+    if (verification !== undefined) {
+      fs.writeFileSync(
+        path.join(phaseDir, `45-${planNum}-VERIFICATION.md`),
+        verification || `---\nphase: "45"\nstatus: passed\n---\n# Verification\n`
+      );
+    }
+    if (summary !== undefined) {
+      fs.writeFileSync(path.join(phaseDir, `45-${planNum}-SUMMARY.md`), summary);
+    }
+    if (deferred !== undefined) {
+      const content = typeof deferred === 'string' ? deferred : JSON.stringify(deferred);
+      fs.writeFileSync(path.join(phaseDir, 'DEFERRED.json'), content);
+    }
+
+    return phaseDir;
+  }
+
+  test('all 5 artifacts present via fixture builder -> passed true, exit 0, has_ui false', () => {
+    buildFixture('45-int-allgood', {
+      extraFiles: { 'impl.js': 'module.exports = {};\n' },
+      verification: '',
+    });
+
+    const result = runPhaseGate('45', tmpDir);
+    assert.ok(result.success, `expected exit 0: ${result.error}`);
+    assert.strictEqual(result.exitCode, 0);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.passed, true);
+    assert.deepStrictEqual(parsed.failures, []);
+    assert.strictEqual(parsed.has_ui, false);
+  });
+
+  test('missing_test: tdd task present, no test/spec file in the real diff -> missing_test, exit 1', () => {
+    buildFixture('45-int-notest', {
+      tdd: true,
+      extraFiles: { 'impl.js': 'module.exports = {};\n' },
+      verification: '',
+    });
+
+    const result = runPhaseGate('45', tmpDir);
+    assert.strictEqual(result.exitCode, 1);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.passed, false);
+    assert.ok(parsed.failures.includes('missing_test'));
+  });
+
+  test('missing_charlotte_qa: .tsx in diff, E2E-TEST-PLAN.md present, CHECKPOINT.json absent -> missing_charlotte_qa', () => {
+    buildFixture('45-int-nocharlotte', {
+      extraFiles: { 'Dashboard.tsx': 'export default function Dashboard() { return null; }\n' },
+      e2eTestPlan: '',
+      verification: '',
+    });
+
+    const result = runPhaseGate('45', tmpDir);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.has_ui, true);
+    assert.ok(parsed.failures.includes('missing_charlotte_qa'));
+  });
+
+  test('missing_e2e_plan: .tsx in diff, CHECKPOINT.json present, E2E-TEST-PLAN.md absent -> missing_e2e_plan', () => {
+    buildFixture('45-int-noe2e', {
+      extraFiles: { 'Dashboard.tsx': 'export default function Dashboard() { return null; }\n' },
+      checkpoint: { charlotte_qa_ran: true },
+      verification: '',
+    });
+
+    const result = runPhaseGate('45', tmpDir);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.has_ui, true);
+    assert.ok(parsed.failures.includes('missing_e2e_plan'));
+  });
+
+  test('missing_docs: api/ file touched, no docs/README/CHANGELOG signal -> missing_docs', () => {
+    // Deliberately avoid a phase-dir name containing the substring "docs/" --
+    // it would spuriously satisfy DOC_SATISFIED_RE via the directory path.
+    buildFixture('45-int-apisignal', {
+      extraFiles: { 'src/api/users.js': 'module.exports = {};\n' },
+      verification: '',
+    });
+
+    const result = runPhaseGate('45', tmpDir);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.has_ui, false, 'api/ file has no UI extension/route path');
+    assert.ok(parsed.failures.includes('missing_docs'));
+  });
+
+  test('missing_verification: no *-VERIFICATION.md present -> missing_verification, exit 1', () => {
+    buildFixture('45-int-noverify', {
+      extraFiles: { 'impl.js': 'module.exports = {};\n' },
+    });
+
+    const result = runPhaseGate('45', tmpDir);
+    assert.strictEqual(result.exitCode, 1);
+    const parsed = JSON.parse(result.output);
+    assert.ok(parsed.failures.includes('missing_verification'));
+  });
+
+  test('HAS_UI: .tsx touched but omitted from *-SUMMARY.md key-files text -> has_ui true (independent of self-report)', () => {
+    buildFixture('45-int-uiomitted', {
+      extraFiles: { 'Dashboard.tsx': 'export default function Dashboard() { return null; }\n' },
+      checkpoint: { charlotte_qa_ran: true },
+      e2eTestPlan: '',
+      verification: '',
+      summary: `---\nphase: "45"\nplan: "01"\nkey-files:\n  created:\n    - impl.js\n---\n# Summary\nNo mention of the UI file here.\n`,
+    });
+
+    const result = runPhaseGate('45', tmpDir);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.has_ui, true, 'has_ui must be derived from the real diff, not from SUMMARY.md key-files text');
+  });
+
+  test('HAS_UI: non-UI-only fixture (.ts backend files only) -> has_ui false', () => {
+    buildFixture('45-int-nonui', {
+      extraFiles: {
+        'src/service.ts': 'export const service = {};\n',
+        'src/repository.ts': 'export const repository = {};\n',
+      },
+      verification: '',
+    });
+
+    const result = runPhaseGate('45', tmpDir);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.has_ui, false);
+  });
+
+  test('HAS_UI: mixed fixture (.tsx + several .ts) -> has_ui true', () => {
+    buildFixture('45-int-mixed', {
+      extraFiles: {
+        'Dashboard.tsx': 'export default function Dashboard() { return null; }\n',
+        'src/service.ts': 'export const service = {};\n',
+        'src/repository.ts': 'export const repository = {};\n',
+        'src/utils.ts': 'export const utils = {};\n',
+      },
+      checkpoint: { charlotte_qa_ran: true },
+      e2eTestPlan: '',
+      verification: '',
+    });
+
+    const result = runPhaseGate('45', tmpDir);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.has_ui, true);
+  });
+
+  test('valid DEFERRED.json waiver for the missing check -> satisfied true, waived true, overall passed true, exit 0', () => {
+    buildFixture('45-int-waived', {
+      extraFiles: { 'impl.js': 'module.exports = {};\n' },
+      // No verification file -- would normally fail missing_verification.
+      deferred: [{ step: 'verification', reason: 'mid-execution dry run', approver: 'ollorin', phase: '45' }],
+    });
+
+    const result = runPhaseGate('45', tmpDir);
+    assert.ok(result.success, `expected exit 0 with a valid waiver: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.passed, true);
+    assert.ok(!parsed.failures.includes('missing_verification'));
+    const verificationCheck = parsed.checks.find(c => c.type === 'verification');
+    assert.strictEqual(verificationCheck.satisfied, true);
+    assert.strictEqual(verificationCheck.waived, true);
+  });
+
+  test('a waiver for an UNRELATED step does not waive a different missing check -- fails with its own failure_type, not silently passed', () => {
+    buildFixture('45-int-scopedmiss', {
+      extraFiles: { 'impl.js': 'module.exports = {};\n' },
+      // Waiver present, but for "docs", not "verification" -- verification is
+      // still missing and must still fail.
+      deferred: [{ step: 'docs', reason: 'unrelated waiver', approver: 'ollorin', phase: '45' }],
+    });
+
+    const result = runPhaseGate('45', tmpDir);
+    assert.strictEqual(result.exitCode, 1);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.passed, false);
+    assert.ok(parsed.failures.includes('missing_verification'), 'an unrelated waiver must never satisfy a different check');
+    const verificationCheck = parsed.checks.find(c => c.type === 'verification');
+    assert.strictEqual(verificationCheck.satisfied, false);
+    assert.strictEqual(verificationCheck.waived, false);
+  });
+
+  test('malformed DEFERRED.json fails LOUD with a typed malformed_waiver error -- explicitly distinct from the "no waivers" empty-array case', () => {
+    // Fixture A: no DEFERRED.json at all (absent file == "no waivers").
+    buildFixture('45-int-nowaiver', {
+      extraFiles: { 'impl.js': 'module.exports = {};\n' },
+      verification: '',
+    });
+    const noWaiverResult = runPhaseGate('45', tmpDir);
+    const noWaiverParsed = JSON.parse(noWaiverResult.output);
+    assert.strictEqual(noWaiverResult.exitCode, 0);
+    assert.strictEqual(noWaiverParsed.passed, true);
+    assert.strictEqual(noWaiverParsed.malformed_waiver, undefined, 'absent DEFERRED.json must never surface a malformed_waiver key');
+
+    // Fixture B: same phase number, malformed DEFERRED.json (not an array).
+    // Uses a separate tmpDir so the two fixtures do not collide on one phase.
+    const tmpDir2 = createTempProject();
+    execSync('git init', { cwd: tmpDir2, stdio: 'pipe' });
+    execSync('git config user.email "gsd-test@example.com"', { cwd: tmpDir2, stdio: 'pipe' });
+    execSync('git config user.name "GSD Test"', { cwd: tmpDir2, stdio: 'pipe' });
+    try {
+      const phaseDir2 = path.join(tmpDir2, '.planning', 'phases', '45-int-badwaiver');
+      fs.mkdirSync(phaseDir2, { recursive: true });
+      fs.writeFileSync(
+        path.join(phaseDir2, '45-01-PLAN.md'),
+        `---\nphase: "45"\nplan: "01"\ntype: execute\nfiles_modified: []\n---\n<tasks>\n<task type="auto">\n<name>Task 1</name>\n<action>do stuff</action>\n</task>\n</tasks>\n`
+      );
+      execSync('git add -A', { cwd: tmpDir2, stdio: 'pipe' });
+      execSync('git commit -q --allow-empty -m "feat(45-01): fixture"', { cwd: tmpDir2, stdio: 'pipe' });
+      fs.writeFileSync(path.join(phaseDir2, '45-VERIFICATION.md'), `---\nphase: "45"\nstatus: passed\n---\n# Verification\n`);
+      fs.writeFileSync(path.join(phaseDir2, 'DEFERRED.json'), JSON.stringify({ step: 'verification' }));
+
+      const badWaiverResult = runPhaseGate('45', tmpDir2);
+      assert.strictEqual(badWaiverResult.exitCode, 2, 'malformed waiver data must exit 2, not be silently treated as "no waivers"');
+      const badWaiverParsed = JSON.parse(badWaiverResult.output);
+      assert.strictEqual(badWaiverParsed.passed, false);
+      assert.ok(badWaiverParsed.malformed_waiver, 'a malformed DEFERRED.json must surface a distinct malformed_waiver entry');
+      assert.notDeepStrictEqual(badWaiverParsed.malformed_waiver, noWaiverParsed.malformed_waiver, 'malformed-waiver shape must differ from the no-waivers case (undefined)');
+    } finally {
+      cleanup(tmpDir2);
+    }
+  });
+
+  test('malformed plan frontmatter (missing plan field) -> typed malformed_frontmatter entry, passed false, no crash -- output is still parseable JSON', () => {
+    buildFixture('45-int-malformedfm', {
+      verification: '',
+    });
+    // Overwrite the PLAN.md written by the builder with one missing `plan`.
+    const phaseDir = phaseDirPath('45-int-malformedfm');
+    fs.writeFileSync(
+      path.join(phaseDir, '45-01-PLAN.md'),
+      `---\nphase: "45"\ntype: execute\nfiles_modified: []\n---\n<tasks>\n<task type="auto">\n<name>Task 1</name>\n<action>do stuff</action>\n</task>\n</tasks>\n`
+    );
+    execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git commit -q --allow-empty -m "feat(45-01): overwrite plan with malformed frontmatter"', { cwd: tmpDir, stdio: 'pipe' });
+
+    const result = runPhaseGate('45', tmpDir);
+    assert.strictEqual(result.success, false, 'should not throw/crash the process');
+    assert.strictEqual(result.exitCode, 2);
+    // Proves runGsdTools-style callers can always JSON.parse the output even on
+    // a non-zero exit -- no uncaught exception/stack trace was printed instead.
+    let parsed;
+    assert.doesNotThrow(() => { parsed = JSON.parse(result.output); }, 'output must be parseable JSON even on failure, never a stack trace');
+    assert.strictEqual(parsed.passed, false);
+    assert.strictEqual(parsed.malformed_plans[0].failure_type, 'malformed_frontmatter');
+  });
+});
+
