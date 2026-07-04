@@ -4861,6 +4861,43 @@ const DOC_PATH_SIGNAL_RE = /(api|route|handler|endpoint|router|page|pages\/|scre
 const DOC_KEYWORD_SIGNAL_RE = /(new service|middleware|new schema|auth|payment|onboarding|flow)/i;
 const DOC_SATISFIED_RE = /(docs\/|README|CHANGELOG\.md)/i;
 const TEST_FILE_RE = /\.(test|spec)\.(ts|tsx|js)$/;
+const E2E_GENERATION_FAILED_FILENAME = 'E2E-GENERATION-FAILED.json';
+
+// Pure gap-detection function (MILE-08, Phase 46-01): given the phase's
+// touched files and the raw text content of E2E-TEST-PLAN.md (or null if the
+// file doesn't exist), returns which UI files' basenames are NOT mentioned
+// anywhere in the plan text. No I/O -- callers (cmdVerifyPhaseGate and
+// cmdVerifyE2EGaps) both read the file themselves and pass the content in, so
+// both agree on the exact same gap-detection logic. A missing plan means
+// every UI file is a gap.
+function computeE2ECoverageGaps(touchedFiles, e2ePlanContent) {
+  const uiFiles = touchedFiles.filter(isUIFile);
+  if (e2ePlanContent === null || e2ePlanContent === undefined) {
+    return { uiFiles, gaps: uiFiles.map(f => path.basename(f, path.extname(f))) };
+  }
+  const lowerPlan = e2ePlanContent.toLowerCase();
+  const gaps = uiFiles
+    .map(f => path.basename(f, path.extname(f)))
+    .filter(basename => !lowerPlan.includes(basename.toLowerCase()));
+  return { uiFiles, gaps };
+}
+
+// Reads the phase's E2E-GENERATION-FAILED.json marker (written by
+// execute-phase.md's e2e_coverage_closure step when gsd-e2e-test-generator
+// fails or leaves residual gaps). Absent file -> null (no failure recorded).
+// Malformed JSON -> treated as a failure anyway (fail-loud-but-graceful,
+// matching safeJsonParse's established convention) rather than crashing or
+// silently ignoring a marker that clearly indicates something went wrong.
+function readE2EGenerationFailure(phaseDir) {
+  const markerPath = path.join(phaseDir, E2E_GENERATION_FAILED_FILENAME);
+  const content = safeReadFile(markerPath);
+  if (content === null) return null;
+  const parsed = safeJsonParse(content, E2E_GENERATION_FAILED_FILENAME);
+  if (!parsed.ok) {
+    return { error: 'marker file malformed', timestamp: null };
+  }
+  return parsed.value;
+}
 
 // Shared malformed-JSON-safe reader for a phase's DEFERRED.json waiver file.
 // Single source of truth for: cmdVerifyPhaseGate's waiver lookup, `deferred
@@ -4940,7 +4977,7 @@ function findPhaseGateWaiver(waivers, step, phaseNumber, planNum) {
 // Evaluates a single expected-artifact check. `computeSatisfied` is only
 // invoked when `required` is true (avoids unnecessary fs/git work for
 // not-required checks).
-function evaluatePhaseGateCheck(type, required, computeSatisfied, waivers, phaseNumber) {
+function evaluatePhaseGateCheck(type, required, computeSatisfied, waivers, phaseNumber, failureTypeOverride) {
   if (!required) {
     return { type, required: false, satisfied: true, waived: false, failure_type: null, detail: 'not required for this phase' };
   }
@@ -4952,15 +4989,20 @@ function evaluatePhaseGateCheck(type, required, computeSatisfied, waivers, phase
   if (waiver) {
     return { type, required: true, satisfied: true, waived: true, failure_type: null, detail: 'waived: DEFERRED.json entry found' };
   }
-  return { type, required: true, satisfied: false, waived: false, failure_type: `missing_${type}`, detail: `${type} check failed` };
+  return { type, required: true, satisfied: false, waived: false, failure_type: failureTypeOverride || `missing_${type}`, detail: `${type} check failed` };
 }
 
-function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
+// Shared plan-collection / touched-files / HAS_UI computation used by both
+// cmdVerifyPhaseGate and cmdVerifyE2EGaps (Phase 46-01) -- a single source of
+// truth so the pre-check (`verify e2e-gaps`) and the actual gate
+// (`verify phase-gate`) can never disagree about what counts as touched or
+// UI-bearing for a given phase. Returns `{ error }` on phase-not-found or
+// unreadable phase dir; callers must check for that before using other
+// fields.
+function loadPhaseGateInputs(cwd, phaseArg) {
   const phaseInfo = findPhaseInternal(cwd, phaseArg);
   if (!phaseInfo || !phaseInfo.found) {
-    process.stdout.write(JSON.stringify({ error: true, type: 'phase_not_found', phase: phaseArg }, null, 2));
-    process.exit(1);
-    return;
+    return { error: { error: true, type: 'phase_not_found', phase: phaseArg } };
   }
 
   const phaseDir = path.join(cwd, phaseInfo.directory);
@@ -4969,9 +5011,7 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
   try {
     dirFiles = fs.readdirSync(phaseDir);
   } catch (e) {
-    process.stdout.write(JSON.stringify({ error: true, type: 'phase_dir_unreadable', phase: phaseArg, message: e.message }, null, 2));
-    process.exit(1);
-    return;
+    return { error: { error: true, type: 'phase_dir_unreadable', phase: phaseArg, message: e.message } };
   }
 
   // Collect plans -- malformed-tolerant: a broken PLAN.md is recorded and
@@ -5003,6 +5043,18 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
   // excluding api/ sub-paths and config/declaration files). See 45-02-PLAN.md.
   const hasUi = computeHasUI(touchedFiles);
 
+  return { phaseInfo, phaseDir, dirFiles, touchedFiles, touchedWarnings, hasUi, malformedPlans, validPlans };
+}
+
+function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
+  const inputs = loadPhaseGateInputs(cwd, phaseArg);
+  if (inputs.error) {
+    process.stdout.write(JSON.stringify(inputs.error, null, 2));
+    process.exit(inputs.error.type === 'phase_not_found' ? 1 : 1);
+    return;
+  }
+  const { phaseInfo, phaseDir, dirFiles, touchedFiles, touchedWarnings, hasUi, malformedPlans, validPlans } = inputs;
+
   // Waiver lookup -- shared with `deferred add`/`deferred list` (45-03) via
   // readDeferredWaivers(), so all three code paths agree on what counts as a
   // malformed DEFERRED.json.
@@ -5023,6 +5075,14 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
     summaryText += (safeReadFile(path.join(phaseDir, sf)) || '');
   }
   const docsRequired = touchedFiles.some(f => DOC_PATH_SIGNAL_RE.test(f)) || DOC_KEYWORD_SIGNAL_RE.test(summaryText);
+
+  // E2E coverage gap detection (MILE-08, Phase 46-01): gap-aware, not just
+  // existence-based -- computeE2ECoverageGaps is the same pure function
+  // `verify e2e-gaps` uses, so the pre-check execute-phase.md runs BEFORE
+  // Gate 1 and this actual gate always agree on what counts as a gap.
+  const e2ePlanContent = safeReadFile(path.join(phaseDir, 'E2E-TEST-PLAN.md'));
+  const e2eGapResult = computeE2ECoverageGaps(touchedFiles, e2ePlanContent);
+  const e2eGenFailure = readE2EGenerationFailure(phaseDir);
 
   // Five expected-artifact checks.
   const testRequired = validPlans.some(p => /tdd=["']?true/.test(p.content));
@@ -5049,8 +5109,9 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
     ),
     evaluatePhaseGateCheck(
       'e2e_plan', hasUi,
-      () => fs.existsSync(path.join(phaseDir, 'E2E-TEST-PLAN.md')),
-      waivers, phaseInfo.phase_number
+      () => !e2eGenFailure && e2ePlanContent !== null && e2eGapResult.gaps.length === 0,
+      waivers, phaseInfo.phase_number,
+      e2eGenFailure ? 'e2e_generation_failed' : undefined
     ),
     evaluatePhaseGateCheck(
       'verification', true,
@@ -5070,6 +5131,7 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
     malformed_plans: malformedPlans,
     touched_files_count: touchedFiles.length,
     has_ui: hasUi,
+    e2e_gaps: e2eGapResult.gaps,
   };
   if (malformedWaiver) result.malformed_waiver = malformedWaiver;
   if (touchedWarnings.length > 0) result.touched_file_warnings = touchedWarnings;
@@ -5084,6 +5146,55 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
     process.exit(1);
   } else {
     process.exit(0);
+  }
+}
+
+// ─── E2E Coverage Pre-Check (MILE-08, Phase 46-01) ───────────────────────────
+// `verify e2e-gaps {phase}` is the deterministic pre-check execute-phase.md's
+// e2e_coverage_closure step calls BEFORE Gate 1 (verify phase-gate) evaluates
+// the e2e_plan artifact -- this is what makes the generator auto-run instead
+// of phase-gate merely demanding an artifact nothing produces (Loophole 5).
+// Shares loadPhaseGateInputs + computeE2ECoverageGaps with cmdVerifyPhaseGate
+// so the pre-check and the actual gate can never disagree about gaps.
+function cmdVerifyE2EGaps(cwd, phaseArg, raw) {
+  const inputs = loadPhaseGateInputs(cwd, phaseArg);
+  if (inputs.error) {
+    process.stdout.write(JSON.stringify(inputs.error, null, 2));
+    process.exit(2);
+    return;
+  }
+  const { phaseInfo, phaseDir, touchedFiles, hasUi, malformedPlans } = inputs;
+
+  if (malformedPlans.length > 0) {
+    process.stdout.write(JSON.stringify({ error: true, type: 'malformed_plan', phase: phaseInfo.phase_number, malformed_plans: malformedPlans }, null, 2));
+    process.exit(2);
+    return;
+  }
+
+  const e2ePlanPath = path.join(phaseDir, 'E2E-TEST-PLAN.md');
+  const e2ePlanContent = safeReadFile(e2ePlanPath);
+  const e2ePlanExists = e2ePlanContent !== null;
+  const e2eGapResult = computeE2ECoverageGaps(touchedFiles, e2ePlanContent);
+  const e2eGenFailure = readE2EGenerationFailure(phaseDir);
+  const generationFailed = !!e2eGenFailure;
+
+  const result = {
+    phase: phaseInfo.phase_number,
+    has_ui: hasUi,
+    e2e_plan_exists: e2ePlanExists,
+    gaps: e2eGapResult.gaps,
+    gap_count: e2eGapResult.gaps.length,
+    generation_failed: generationFailed,
+  };
+
+  process.stdout.write(JSON.stringify(result, null, 2));
+
+  // Idempotent-skip condition: nothing to do when there's no UI, or the plan
+  // already covers everything and there's no stale generation-failure marker.
+  if (!hasUi || (e2eGapResult.gaps.length === 0 && !generationFailed)) {
+    process.exit(0);
+  } else {
+    process.exit(1);
   }
 }
 
@@ -10452,8 +10563,10 @@ async function main() {
         cmdVerifyDependencyStability(cwd, args[2], raw);
       } else if (subcommand === 'phase-gate') {
         cmdVerifyPhaseGate(cwd, args[2], raw);
+      } else if (subcommand === 'e2e-gaps') {
+        cmdVerifyE2EGaps(cwd, args[2], raw);
       } else {
-        error('Unknown verify subcommand. Available: plan-structure, phase-completeness, references, commits, artifacts, key-links, migration-timestamps, dependency-stability, phase-gate');
+        error('Unknown verify subcommand. Available: plan-structure, phase-completeness, references, commits, artifacts, key-links, migration-timestamps, dependency-stability, phase-gate, e2e-gaps');
       }
       break;
     }
