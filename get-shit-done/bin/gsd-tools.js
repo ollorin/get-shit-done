@@ -243,6 +243,23 @@ function safeJsonParse(content, contextLabel) {
   }
 }
 
+// Atomic write-temp-then-rename helper. Guarantees a write to targetPath is
+// either fully complete or fully absent -- never torn/partial -- because
+// fs.renameSync is atomic on POSIX for same-filesystem renames (the temp file
+// is created in the same directory as the target). This does NOT implement
+// cross-process locking; it only guarantees each individual write is
+// complete-or-absent. Use for every STATE.md/ROADMAP.md/config.json write.
+function atomicWriteFileSync(targetPath, content) {
+  const tempPath = `${targetPath}.tmp-${process.pid}-${Date.now()}`;
+  try {
+    fs.writeFileSync(tempPath, content, 'utf-8');
+    fs.renameSync(tempPath, targetPath);
+  } catch (e) {
+    try { fs.unlinkSync(tempPath); } catch (_) { /* tempPath may not exist yet */ }
+    throw new Error(`Atomic write failed for ${targetPath}: ${e.message}`);
+  }
+}
+
 function loadConfig(cwd) {
   const configPath = path.join(cwd, '.planning', 'config.json');
   const defaults = {
@@ -270,7 +287,7 @@ function loadConfig(cwd) {
       const depthToGranularity = { quick: 'coarse', standard: 'standard', comprehensive: 'fine' };
       parsed.granularity = depthToGranularity[parsed.depth] || parsed.depth;
       delete parsed.depth;
-      try { fs.writeFileSync(configPath, JSON.stringify(parsed, null, 2), 'utf-8'); } catch {}
+      try { atomicWriteFileSync(configPath, JSON.stringify(parsed, null, 2)); } catch (e) { console.warn(`Warning: failed to persist config migration: ${e.message}`); }
     }
 
     const get = (key, nested) => {
@@ -1071,7 +1088,7 @@ function cmdConfigEnsureSection(cwd, raw) {
   };
 
   try {
-    fs.writeFileSync(configPath, JSON.stringify(defaults, null, 2), 'utf-8');
+    atomicWriteFileSync(configPath, JSON.stringify(defaults, null, 2));
     const result = { created: true, path: '.planning/config.json' };
     output(result, raw, 'created');
   } catch (err) {
@@ -1116,7 +1133,7 @@ function cmdConfigSet(cwd, keyPath, value, raw) {
 
   // Write back
   try {
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+    atomicWriteFileSync(configPath, JSON.stringify(config, null, 2));
     const result = { updated: true, key: keyPath, value: parsedValue };
     output(result, raw, `${keyPath}=${parsedValue}`);
   } catch (err) {
@@ -1520,7 +1537,7 @@ function cmdStatePatch(cwd, patches, raw) {
     }
 
     if (results.updated.length > 0) {
-      fs.writeFileSync(statePath, content, 'utf-8');
+      atomicWriteFileSync(statePath, content);
     }
 
     output(results, raw, results.updated.length > 0 ? 'true' : 'false');
@@ -1541,7 +1558,7 @@ function cmdStateUpdate(cwd, field, value) {
     const pattern = new RegExp(`(\\*\\*${fieldEscaped}:\\*\\*\\s*)(.*)`, 'i');
     if (pattern.test(content)) {
       content = content.replace(pattern, `$1${value}`);
-      fs.writeFileSync(statePath, content, 'utf-8');
+      atomicWriteFileSync(statePath, content);
       output({ updated: true });
     } else {
       output({ updated: false, reason: `Field "${field}" not found in STATE.md` });
@@ -1585,14 +1602,14 @@ function cmdStateAdvancePlan(cwd, raw) {
   if (currentPlan >= totalPlans) {
     content = stateReplaceField(content, 'Status', 'Phase complete — ready for verification') || content;
     content = stateReplaceField(content, 'Last Activity', today) || content;
-    fs.writeFileSync(statePath, content, 'utf-8');
+    atomicWriteFileSync(statePath, content);
     output({ advanced: false, reason: 'last_plan', current_plan: currentPlan, total_plans: totalPlans, status: 'ready_for_verification' }, raw, 'false');
   } else {
     const newPlan = currentPlan + 1;
     content = stateReplaceField(content, 'Current Plan', String(newPlan)) || content;
     content = stateReplaceField(content, 'Status', 'Ready to execute') || content;
     content = stateReplaceField(content, 'Last Activity', today) || content;
-    fs.writeFileSync(statePath, content, 'utf-8');
+    atomicWriteFileSync(statePath, content);
     output({ advanced: true, previous_plan: currentPlan, current_plan: newPlan, total_plans: totalPlans }, raw, 'true');
   }
 }
@@ -1625,7 +1642,7 @@ function cmdStateRecordMetric(cwd, options, raw) {
     }
 
     content = content.replace(metricsPattern, `${tableHeader}${tableBody}\n`);
-    fs.writeFileSync(statePath, content, 'utf-8');
+    atomicWriteFileSync(statePath, content);
     output({ recorded: true, phase, plan, duration }, raw, 'true');
   } else {
     output({ recorded: false, reason: 'Performance Metrics section not found in STATE.md' }, raw, 'false');
@@ -1662,7 +1679,7 @@ function cmdStateUpdateProgress(cwd, raw) {
   const progressPattern = /(\*\*Progress:\*\*\s*).*/i;
   if (progressPattern.test(content)) {
     content = content.replace(progressPattern, `$1${progressStr}`);
-    fs.writeFileSync(statePath, content, 'utf-8');
+    atomicWriteFileSync(statePath, content);
     output({ updated: true, percent, completed: totalSummaries, total: totalPlans, bar: progressStr }, raw, progressStr);
   } else {
     output({ updated: false, reason: 'Progress field not found in STATE.md' }, raw, 'false');
@@ -1689,7 +1706,7 @@ function cmdStateAddDecision(cwd, options, raw) {
     sectionBody = sectionBody.replace(/None yet\.?\s*\n?/gi, '').replace(/No decisions yet\.?\s*\n?/gi, '');
     sectionBody = sectionBody.trimEnd() + '\n' + entry + '\n';
     content = content.replace(sectionPattern, `${match[1]}${sectionBody}`);
-    fs.writeFileSync(statePath, content, 'utf-8');
+    atomicWriteFileSync(statePath, content);
     output({ added: true, decision: entry }, raw, 'true');
   } else {
     output({ added: false, reason: 'Decisions section not found in STATE.md' }, raw, 'false');
@@ -1712,7 +1729,7 @@ function cmdStateAddBlocker(cwd, text, raw) {
     sectionBody = sectionBody.replace(/None\.?\s*\n?/gi, '').replace(/None yet\.?\s*\n?/gi, '');
     sectionBody = sectionBody.trimEnd() + '\n' + entry + '\n';
     content = content.replace(sectionPattern, `${match[1]}${sectionBody}`);
-    fs.writeFileSync(statePath, content, 'utf-8');
+    atomicWriteFileSync(statePath, content);
     output({ added: true, blocker: text }, raw, 'true');
   } else {
     output({ added: false, reason: 'Blockers section not found in STATE.md' }, raw, 'false');
@@ -1744,7 +1761,7 @@ function cmdStateResolveBlocker(cwd, text, raw) {
     }
 
     content = content.replace(sectionPattern, `${match[1]}${newBody}`);
-    fs.writeFileSync(statePath, content, 'utf-8');
+    atomicWriteFileSync(statePath, content);
     output({ resolved: true, blocker: text }, raw, 'true');
   } else {
     output({ resolved: false, reason: 'Blockers section not found in STATE.md' }, raw, 'false');
@@ -1779,7 +1796,7 @@ function cmdStateRecordSession(cwd, options, raw) {
   if (result) { content = result; updated.push('Resume File'); }
 
   if (updated.length > 0) {
-    fs.writeFileSync(statePath, content, 'utf-8');
+    atomicWriteFileSync(statePath, content);
     output({ recorded: true, updated }, raw, 'true');
   } else {
     output({ recorded: false, reason: 'No session fields found in STATE.md' }, raw, 'false');
@@ -4443,7 +4460,7 @@ async function cmdHealth(args) {
               if (!configParsed.workflow) configParsed.workflow = {};
               if (configParsed.workflow.nyquist_validation === undefined) {
                 configParsed.workflow.nyquist_validation = true;
-                fs.writeFileSync(configPath, JSON.stringify(configParsed, null, 2), 'utf-8');
+                atomicWriteFileSync(configPath, JSON.stringify(configParsed, null, 2));
                 console.log('  ✓ Added workflow.nyquist_validation = true to config.json');
               }
             } catch {}
@@ -5855,7 +5872,7 @@ function cmdPhaseAdd(cwd, description, raw) {
     updatedContent = content + phaseEntry;
   }
 
-  fs.writeFileSync(roadmapPath, updatedContent, 'utf-8');
+  atomicWriteFileSync(roadmapPath, updatedContent);
 
   const result = {
     phase_number: newPhaseNum,
@@ -5936,7 +5953,7 @@ function cmdPhaseInsert(cwd, afterPhase, description, raw) {
   }
 
   const updatedContent = content.slice(0, insertIdx) + phaseEntry + content.slice(insertIdx);
-  fs.writeFileSync(roadmapPath, updatedContent, 'utf-8');
+  atomicWriteFileSync(roadmapPath, updatedContent);
 
   const result = {
     phase_number: decimalPhase,
@@ -6167,7 +6184,7 @@ function cmdPhaseRemove(cwd, targetPhase, options, raw) {
     }
   }
 
-  fs.writeFileSync(roadmapPath, roadmapContent, 'utf-8');
+  atomicWriteFileSync(roadmapPath, roadmapContent);
 
   // Update STATE.md phase count
   const statePath = path.join(cwd, '.planning', 'STATE.md');
@@ -6187,7 +6204,7 @@ function cmdPhaseRemove(cwd, targetPhase, options, raw) {
       const oldTotal = parseInt(ofMatch[2], 10);
       stateContent = stateContent.replace(ofPattern, `$1${oldTotal - 1}$3`);
     }
-    fs.writeFileSync(statePath, stateContent, 'utf-8');
+    atomicWriteFileSync(statePath, stateContent);
   }
 
   const result = {
@@ -6266,7 +6283,7 @@ function cmdRoadmapUpdatePlanProgress(cwd, phaseNum, raw) {
     roadmapContent = roadmapContent.replace(checkboxPattern, `$1x$2 (completed ${today})`);
   }
 
-  fs.writeFileSync(roadmapPath, roadmapContent, 'utf-8');
+  atomicWriteFileSync(roadmapPath, roadmapContent);
 
   output({
     updated: true,
@@ -6470,7 +6487,7 @@ function cmdPhaseComplete(cwd, phaseNum, raw) {
       `$1${summaryCount}/${planCount} plans complete`
     );
 
-    fs.writeFileSync(roadmapPath, roadmapContent, 'utf-8');
+    atomicWriteFileSync(roadmapPath, roadmapContent);
   }
 
   // Find next phase
@@ -6540,7 +6557,7 @@ function cmdPhaseComplete(cwd, phaseNum, raw) {
       `$1Phase ${phaseNum} complete${nextPhaseNum ? `, transitioned to Phase ${nextPhaseNum}` : ''}`
     );
 
-    fs.writeFileSync(statePath, stateContent, 'utf-8');
+    atomicWriteFileSync(statePath, stateContent);
   }
 
   const result = {
@@ -6858,7 +6875,7 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
       /(\*\*Last Activity Description:\*\*\s*).*/,
       `$1${version} milestone completed and archived`
     );
-    fs.writeFileSync(statePath, stateContent, 'utf-8');
+    atomicWriteFileSync(statePath, stateContent);
   }
 
   const result = {
