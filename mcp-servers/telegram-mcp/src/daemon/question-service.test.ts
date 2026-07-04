@@ -1,12 +1,24 @@
 /**
- * Tests for QuestionService.restoreState() orphan-handling determinism.
+ * Tests for QuestionService.restoreState() orphan-handling determinism, plus
+ * (47-02) atomic-write-rename + per-project state-file scoping.
  *
- * SAFETY: QuestionService.saveState() writes unconditionally to the real
- * production path (os.homedir()/.claude/knowledge/question-state.jsonl) --
- * there is no constructor override for this path. Every test in this file
- * mocks fs.writeFileSync for its entire duration so NO test ever touches the
- * real production state file, regardless of how many times ask()/restoreState()
- * internally call saveState(). Never remove this mock.
+ * SAFETY: as of 47-02, QuestionService's constructor accepts an optional 5th
+ * `stateFilePath` argument -- but every test in THIS top-level describe block
+ * (restoreState orphan-handling, added in 47-01) constructs QuestionService
+ * WITHOUT that argument, meaning saveState() would target the real production
+ * path (getStateFilePath() -> ~/.claude/knowledge/question-state-{hash}.jsonl)
+ * if not intercepted. The file-level `before`/`after` below mocks
+ * fs.writeFileSync for the ENTIRE file duration so NO test in the 47-01
+ * describe blocks ever touches the real production state file, regardless of
+ * how many times ask()/restoreState() internally call saveState(). Never
+ * remove this mock from the 47-01 blocks.
+ *
+ * The 47-02 describe block below ("atomic state persistence + per-project
+ * scoping") is the ONE exception: it locally restores the real fs.writeFileSync
+ * for its own duration (via a nested before/after) because it needs REAL disk
+ * writes to prove atomic rename -- but it ALWAYS passes an explicit
+ * os.tmpdir()-scoped stateFilePath to the QuestionService constructor, never
+ * the production path, so this is still safe.
  *
  * All QuestionService instances here are constructed directly with fake,
  * injected createForumTopic/sendToThread/sendToGroup spy functions -- never a
@@ -16,6 +28,9 @@
 import { describe, test, before, after, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { randomUUID } from 'crypto';
 import { QuestionService } from './question-service.js';
 import { SessionService } from './session-service.js';
 import type { Question } from '../shared/types.js';
@@ -255,6 +270,172 @@ describe('QuestionService.restoreState() - realistic crash-simulation pattern', 
 
       assert.deepEqual(qs2.getPendingQuestions(), []);
       assert.equal(qs2.deliverAnswer(999, 'a reply arriving after the crash'), false);
+    } finally {
+      mock.timers.reset();
+    }
+  });
+});
+
+describe('atomic state persistence + per-project scoping (47-02)', () => {
+  // This block needs REAL disk writes to prove atomic rename -- restore the
+  // real fs.writeFileSync for its duration. Every test below always passes an
+  // explicit os.tmpdir()-scoped stateFilePath to the QuestionService
+  // constructor, so this never touches the real production state file.
+  let localMock: ReturnType<typeof mock.method> | undefined;
+
+  before(() => {
+    writeFileSyncMock.mock.restore();
+  });
+
+  after(() => {
+    // Re-establish the file-level protective mock in case any test is ever
+    // appended after this block in the future.
+    localMock = mock.method(fs, 'writeFileSync', () => {});
+    void localMock;
+  });
+
+  /** Create a fresh, not-yet-existing temp directory + JSONL file path. */
+  function makeTempStatePath(): string {
+    return path.join(os.tmpdir(), `gsd-telegram-mcp-test-${randomUUID()}`, 'nested', 'question-state.jsonl');
+  }
+
+  /** Read a JSONL file and assert every non-empty line parses as valid JSON. */
+  function assertValidJsonl(filePath: string): unknown[] {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    const lines = raw.split('\n').filter((line) => line.trim() !== '');
+    return lines.map((line) => {
+      // Throws (failing the test) if any line is torn/unparseable.
+      return JSON.parse(line);
+    });
+  }
+
+  test('getStateFilePath(a) !== getStateFilePath(b) for different roots (per-project scoping)', async () => {
+    const { getStateFilePath } = await import('../shared/socket-path.js');
+    const pathA = getStateFilePath('/fake/project/alpha');
+    const pathB = getStateFilePath('/fake/project/beta');
+    assert.notEqual(pathA, pathB);
+  });
+
+  test('constructing QuestionService with an explicit temp stateFilePath creates the parent directory and file on saveState(), even when the directory does not yet exist', async () => {
+    const tempPath = makeTempStatePath();
+    assert.equal(fs.existsSync(path.dirname(tempPath)), false);
+
+    const bot = makeFakeBot(600);
+    const sessionService = new SessionService();
+    const qs = new QuestionService(
+      bot.createForumTopic,
+      bot.sendToThread,
+      bot.sendToGroup,
+      sessionService,
+      tempPath
+    );
+
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+      const session = sessionService.register('fake-client-temp', 'fake-root');
+      // Do not await -- ask() blocks pending an answer. This is enough to
+      // trigger saveState() synchronously before the first await point.
+      const askPromise = qs.ask(session.id, 'Does the temp dir get created?', undefined, 30);
+      askPromise.catch(() => {});
+
+      // Let the microtask queue drain so the directory + file are created.
+      await new Promise((resolve) => setImmediate(resolve));
+
+      assert.equal(fs.existsSync(tempPath), true, 'state file should exist after saveState()');
+      assertValidJsonl(tempPath);
+    } finally {
+      mock.timers.reset();
+    }
+  });
+
+  test('rapid-fire saveState() calls (multiple back-to-back ask() calls) never leave a torn/unparseable JSONL file', async () => {
+    const tempPath = makeTempStatePath();
+    const bot = makeFakeBot(700);
+    const sessionService = new SessionService();
+    const qs = new QuestionService(
+      bot.createForumTopic,
+      bot.sendToThread,
+      bot.sendToGroup,
+      sessionService,
+      tempPath
+    );
+
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+      const session = sessionService.register('fake-client-rapid', 'fake-root');
+
+      // Fire several ask() calls back-to-back without awaiting -- each one
+      // triggers at least one synchronous saveState() call immediately, plus
+      // another after its (fake, injected) createForumTopic resolves on the
+      // microtask queue. This interleaves multiple saveState() writes to the
+      // SAME file in quick succession.
+      const promises: Promise<string>[] = [];
+      for (let i = 0; i < 5; i++) {
+        const p = qs.ask(session.id, `Rapid question ${i}`, undefined, 30);
+        p.catch(() => {});
+        promises.push(p);
+      }
+
+      // Let all pending microtasks (thread creation, question posting) settle.
+      for (let i = 0; i < 5; i++) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+
+      assert.equal(fs.existsSync(tempPath), true);
+      const parsed = assertValidJsonl(tempPath);
+      // Every fired ask() should have a corresponding persisted question record.
+      assert.equal(parsed.length, 5);
+    } finally {
+      mock.timers.reset();
+    }
+  });
+
+  test('regression: round-trip ask() -> saveState() (real disk) -> read -> restoreState() on a fresh instance still orphans the question deterministically', async () => {
+    const tempPath = makeTempStatePath();
+    const firstBot = makeFakeBot(800);
+    const firstSessionService = new SessionService();
+    const qs1 = new QuestionService(
+      firstBot.createForumTopic,
+      firstBot.sendToThread,
+      firstBot.sendToGroup,
+      firstSessionService,
+      tempPath
+    );
+
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+      const session = firstSessionService.register('fake-client-roundtrip', 'fake-root');
+      const askPromise = qs1.ask(session.id, 'Will the round trip work?', undefined, 30);
+      askPromise.catch(() => {});
+
+      await new Promise((resolve) => setImmediate(resolve));
+      await new Promise((resolve) => setImmediate(resolve));
+
+      // Read back exactly what saveState() persisted to real disk.
+      const savedQuestions = assertValidJsonl(tempPath) as Question[];
+      assert.equal(savedQuestions.length, 1);
+      assert.equal(savedQuestions[0]?.threadId, 800);
+      assert.equal(savedQuestions[0]?.answer, undefined);
+
+      // Construct a SECOND, fresh QuestionService (simulating a post-crash
+      // process) and restore from the file just read.
+      const secondBot = makeFakeBot(800);
+      const secondSessionService = new SessionService();
+      const qs2 = new QuestionService(
+        secondBot.createForumTopic,
+        secondBot.sendToThread,
+        secondBot.sendToGroup,
+        secondSessionService,
+        makeTempStatePath() // fresh path for the second instance's own persistence
+      );
+
+      qs2.restoreState(savedQuestions);
+      await new Promise((resolve) => setImmediate(resolve));
+
+      assert.equal(secondBot.sendToThreadCalls.length, 1);
+      assert.equal(secondBot.sendToThreadCalls[0]?.threadId, 800);
+      assert.deepEqual(qs2.getPendingQuestions(), []);
+      assert.equal(qs2.deliverAnswer(800, 'a late reply'), false);
     } finally {
       mock.timers.reset();
     }

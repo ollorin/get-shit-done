@@ -21,10 +21,10 @@
  */
 import { EventEmitter } from 'events';
 import { randomUUID } from 'crypto';
-import os from 'os';
 import fs from 'fs';
 import path from 'path';
 import { createLogger } from '../shared/logger.js';
+import { getStateFilePath } from '../shared/socket-path.js';
 const log = createLogger('question-service');
 /** Maximum age (ms) of a recently answered question to allow thread reuse */
 const FOLLOW_UP_WINDOW_MS = 5 * 60 * 1000;
@@ -41,19 +41,20 @@ export class QuestionService extends EventEmitter {
     /** Maps sessionId to list of questionIds in creation order */
     sessionQuestions = new Map();
     /** Path to the JSONL file used for question state persistence */
-    stateFilePath = path.join(os.homedir(), '.claude', 'knowledge', 'question-state.jsonl');
+    stateFilePath;
     /**
      * Thread IDs of questions that were orphaned by a daemon restart (restored
      * pending questions with no live timer/listener). A reply landing on one of
      * these threads is a dead question, never a deliverable answer.
      */
     orphanedThreadIds = new Set();
-    constructor(createForumTopic, sendToThread, sendToGroup, sessionService) {
+    constructor(createForumTopic, sendToThread, sendToGroup, sessionService, stateFilePath) {
         super();
         this.createForumTopic = createForumTopic;
         this.sendToThread = sendToThread;
         this.sendToGroup = sendToGroup;
         this.sessionService = sessionService;
+        this.stateFilePath = stateFilePath ?? getStateFilePath();
     }
     // ─── Public API ─────────────────────────────────────────────────────────────
     /**
@@ -351,14 +352,24 @@ export class QuestionService extends EventEmitter {
      * Persist current question state to the JSONL state file.
      * Writes all questions (pending and recently answered) for daemon restart recovery.
      * Errors are logged as warnings and do not propagate.
+     *
+     * Atomic write-rename (temp file + fs.renameSync) chosen over the vendored
+     * proper-lockfile dependency: simpler, no lock-file lifecycle/staleness
+     * cleanup to manage, and sufficient for this threat model (single-writer-
+     * per-process, crash-safety against torn reads). proper-lockfile remains a
+     * listed dependency but is intentionally unused -- see 47-02-SUMMARY.md.
      */
     saveState() {
         try {
             const allQuestions = Array.from(this.questions.values());
             const lines = allQuestions.map((q) => JSON.stringify(q));
             const content = lines.length > 0 ? lines.join('\n') + '\n' : '';
-            fs.writeFileSync(this.stateFilePath, content, 'utf8');
-            log.debug({ count: allQuestions.length, path: this.stateFilePath }, 'Question state saved');
+            const dir = path.dirname(this.stateFilePath);
+            fs.mkdirSync(dir, { recursive: true });
+            const tmpPath = `${this.stateFilePath}.tmp-${process.pid}-${Math.random().toString(36).slice(2)}`;
+            fs.writeFileSync(tmpPath, content, 'utf8');
+            fs.renameSync(tmpPath, this.stateFilePath); // atomic on POSIX -- readers never see a torn file
+            log.debug({ count: allQuestions.length, path: this.stateFilePath }, 'Question state saved (atomic rename)');
         }
         catch (err) {
             log.warn({ err: err.message }, 'Failed to save question state — state persistence skipped');

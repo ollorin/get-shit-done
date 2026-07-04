@@ -44,7 +44,7 @@ export declare class QuestionService extends EventEmitter {
      * these threads is a dead question, never a deliverable answer.
      */
     private readonly orphanedThreadIds;
-    constructor(createForumTopic: CreateForumTopicFn, sendToThread: SendToThreadFn, sendToGroup: SendToGroupFn, sessionService: SessionService);
+    constructor(createForumTopic: CreateForumTopicFn, sendToThread: SendToThreadFn, sendToGroup: SendToGroupFn, sessionService: SessionService, stateFilePath?: string);
     /**
      * Ask a blocking question.
      *
@@ -108,6 +108,12 @@ export declare class QuestionService extends EventEmitter {
      * Persist current question state to the JSONL state file.
      * Writes all questions (pending and recently answered) for daemon restart recovery.
      * Errors are logged as warnings and do not propagate.
+     *
+     * Atomic write-rename (temp file + fs.renameSync) chosen over the vendored
+     * proper-lockfile dependency: simpler, no lock-file lifecycle/staleness
+     * cleanup to manage, and sufficient for this threat model (single-writer-
+     * per-process, crash-safety against torn reads). proper-lockfile remains a
+     * listed dependency but is intentionally unused -- see 47-02-SUMMARY.md.
      */
     private saveState;
     /**
