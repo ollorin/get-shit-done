@@ -179,6 +179,106 @@ describe('wrapWithTimeout', () => {
   });
 });
 
+describe('Stop hook timeout wrap and per-turn.js removal', () => {
+  test('per-turn.js no longer exists on disk (permanent-absence regression guard)', () => {
+    const perTurnPath = path.join(REPO_ROOT, 'get-shit-done', 'bin', 'hooks', 'per-turn.js');
+    assert.strictEqual(fs.existsSync(perTurnPath), false, 'get-shit-done/bin/hooks/per-turn.js should be permanently deleted');
+  });
+
+  test('a repo-wide grep for per-turn / perTurnHook / createPerTurnMiddleware returns zero matches (outside this permanent-absence guard test itself)', () => {
+    let output = '';
+    try {
+      output = execSync(
+        'grep -rln "per-turn\\|perTurnHook\\|createPerTurnMiddleware" bin/ get-shit-done/ agents/ commands/ scripts/ hooks/ 2>/dev/null',
+        { cwd: REPO_ROOT, encoding: 'utf-8' }
+      );
+    } catch (err) {
+      // grep exits 1 when there are no matches at all — that's the expected clean state.
+      if (err.status === 1) {
+        output = err.stdout ? err.stdout.toString() : '';
+      } else {
+        throw err;
+      }
+    }
+    const matchingFiles = output
+      .split('\n')
+      .map((f) => f.trim())
+      .filter(Boolean)
+      // This test file itself legitimately contains these strings as part of the
+      // permanent-absence assertion — exclude it, not any real production reference.
+      .filter((f) => path.resolve(REPO_ROOT, f) !== path.resolve(__filename));
+    assert.deepStrictEqual(matchingFiles, [], `expected zero references to per-turn.js outside this test file, got:\n${matchingFiles.join('\n')}`);
+  });
+
+  let scratchDir;
+
+  beforeEach(() => {
+    scratchDir = createScratchDir('gsd-install-target-');
+  });
+
+  afterEach(() => {
+    cleanup(scratchDir);
+  });
+
+  test('Stop hook command is timeout-wrapped and still targets session-end-standalone.js', () => {
+    const result = runInstall(scratchDir, { mockNpmFail: false });
+    assert.ok(result.success, `install should succeed: ${result.error || ''}\n${result.output}`);
+
+    const settingsPath = path.join(scratchDir, '.claude', 'settings.json');
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+    const stopHooks = (settings.hooks && settings.hooks.Stop) || [];
+    const sessionEndEntry = stopHooks.find(
+      (entry) => entry.hooks && entry.hooks.some((h) => h.command && h.command.includes('session-end-standalone'))
+    );
+    assert.ok(sessionEndEntry, 'Stop hook registration for session-end-standalone.js should exist');
+    const sessionEndCommand = sessionEndEntry.hooks.find((h) => h.command && h.command.includes('session-end-standalone')).command;
+
+    if (process.platform === 'win32') {
+      assert.ok(sessionEndCommand.includes('session-end-standalone'), 'command should still reference session-end-standalone.js on win32 (no wrap)');
+    } else {
+      assert.ok(
+        sessionEndCommand.startsWith('timeout 10s '),
+        `expected Stop hook command to start with "timeout 10s ", got: ${sessionEndCommand}`
+      );
+      assert.ok(sessionEndCommand.includes('session-end-standalone'), 'wrapped command should still reference session-end-standalone.js');
+    }
+  });
+
+  test('the Stop hook timeout prefix is byte-identical in shape to the PreToolUse Write/Edit protect-managed-files hook wrap (one shared wrapWithTimeout(), not a second bespoke mechanism)', () => {
+    const result = runInstall(scratchDir, { mockNpmFail: false });
+    assert.ok(result.success, `install should succeed: ${result.error || ''}\n${result.output}`);
+
+    if (process.platform === 'win32') {
+      return; // wrapWithTimeout is a no-op on win32 -- nothing to compare
+    }
+
+    const settingsPath = path.join(scratchDir, '.claude', 'settings.json');
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+
+    const stopHooks = (settings.hooks && settings.hooks.Stop) || [];
+    const sessionEndCommand = stopHooks
+      .flatMap((entry) => entry.hooks || [])
+      .find((h) => h.command && h.command.includes('session-end-standalone')).command;
+
+    const preToolUseHooks = (settings.hooks && settings.hooks.PreToolUse) || [];
+    const protectCommand = preToolUseHooks
+      .flatMap((entry) => entry.hooks || [])
+      .find((h) => h.command && h.command.includes('gsd-protect-managed-files')).command;
+
+    const timeoutPrefixPattern = /^timeout \d+s /;
+    const sessionEndMatch = sessionEndCommand.match(timeoutPrefixPattern);
+    const protectMatch = protectCommand.match(timeoutPrefixPattern);
+
+    assert.ok(sessionEndMatch, `Stop hook command should carry a "timeout Ns " prefix, got: ${sessionEndCommand}`);
+    assert.ok(protectMatch, `protect-managed-files command should carry a "timeout Ns " prefix, got: ${protectCommand}`);
+    assert.strictEqual(
+      sessionEndMatch[0],
+      protectMatch[0],
+      'the Stop hook and the PreToolUse protect-managed-files hook should share the exact same timeout prefix (same seconds value, same shape) -- proving one shared wrapWithTimeout() helper was reused, not a second bespoke wrapping mechanism'
+    );
+  });
+});
+
 describe('missing hooks/dist build-if-missing', () => {
   let scratchRepo;
   let scratchTarget;
