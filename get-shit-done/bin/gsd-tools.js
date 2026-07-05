@@ -2851,111 +2851,6 @@ async function cmdKnowledgeConsolidate(cwd, args, raw) {
   output(result, raw);
 }
 
-// ─── Permission Management ───────────────────────────────────────────────────
-
-function parseDuration(str) {
-  if (!str) return null;
-  const match = str.match(/^(\d+)([hdw])$/);
-  if (!match) {
-    error(`Invalid duration format: ${str}. Use format like "7d", "24h", or "2w"`);
-  }
-  const [, num, unit] = match;
-  const value = parseInt(num, 10);
-  const ms = {
-    h: value * 60 * 60 * 1000,
-    d: value * 24 * 60 * 60 * 1000,
-    w: value * 7 * 24 * 60 * 60 * 1000
-  };
-  return ms[unit];
-}
-
-function cmdPermissionGrant(args, raw) {
-  const action = args[0];
-  if (!action) {
-    error('grant: action required (e.g., "delete_file:/test/*")');
-  }
-
-  const scope = args.includes('--scope') ? args[args.indexOf('--scope') + 1] : 'project';
-  const ttlStr = args.includes('--ttl') ? args[args.indexOf('--ttl') + 1] : null;
-  const maxCostStr = args.includes('--max-cost') ? args[args.indexOf('--max-cost') + 1] : null;
-  const maxCountStr = args.includes('--max-count') ? args[args.indexOf('--max-count') + 1] : null;
-  const path = args.includes('--path') ? args[args.indexOf('--path') + 1] : null;
-
-  const ttl = ttlStr ? parseDuration(ttlStr) : null;
-  const limits = {};
-  if (maxCostStr) limits.max_cost = parseFloat(maxCostStr);
-  if (maxCountStr) limits.max_count = parseInt(maxCountStr, 10);
-  if (path) limits.path = path;
-
-  const { knowledge } = require('./knowledge.js');
-  const { grantPermission } = require('./knowledge-permissions.js');
-
-  const conn = knowledge._getConnection(scope);
-  if (!conn.available) {
-    error(`Knowledge system not available: ${conn.reason}`);
-  }
-
-  const result = grantPermission(conn.db, { action, scope, limits, ttl });
-
-  output(result, raw);
-}
-
-function cmdPermissionRevoke(args, raw) {
-  const token = args[0];
-  if (!token) {
-    error('revoke: token required');
-  }
-
-  const scope = args.includes('--scope') ? args[args.indexOf('--scope') + 1] : 'project';
-
-  const { knowledge } = require('./knowledge.js');
-  const { revokePermission } = require('./knowledge-permissions.js');
-
-  const conn = knowledge._getConnection(scope);
-  if (!conn.available) {
-    error(`Knowledge system not available: ${conn.reason}`);
-  }
-
-  const result = revokePermission(conn.db, token);
-
-  output(result, raw);
-}
-
-function cmdPermissionList(args, raw) {
-  const scope = args.includes('--scope') ? args[args.indexOf('--scope') + 1] : 'project';
-  const jsonOutput = args.includes('--json');
-
-  const { knowledge } = require('./knowledge.js');
-  const { listActivePermissions } = require('./knowledge-permissions.js');
-
-  const conn = knowledge._getConnection(scope);
-  if (!conn.available) {
-    error(`Knowledge system not available: ${conn.reason}`);
-  }
-
-  const permissions = listActivePermissions(conn.db);
-
-  if (jsonOutput || raw) {
-    output({ permissions }, raw);
-  } else {
-    // Format as table
-    console.log('\n=== Active Permissions ===\n');
-    if (permissions.length === 0) {
-      console.log('No active permissions.');
-    } else {
-      for (const perm of permissions) {
-        console.log(`Action: ${perm.action_pattern}`);
-        console.log(`Token: ${perm.grant_token}`);
-        console.log(`Expires: ${perm.expires_at ? new Date(perm.expires_at).toISOString() : 'Never'}`);
-        if (perm.limits) {
-          console.log(`Limits: ${perm.limits}`);
-        }
-        console.log('---');
-      }
-    }
-  }
-}
-
 // ─── Emergency Stop & Budget ─────────────────────────────────────────────────
 
 function cmdPause(args, raw) {
@@ -11461,21 +11356,6 @@ async function main() {
         default:
           error(`knowledge: unknown subcommand '${knowledgeSubcmd}'`);
       }
-      break;
-    }
-
-    case 'grant': {
-      cmdPermissionGrant(args.slice(1), raw);
-      break;
-    }
-
-    case 'revoke': {
-      cmdPermissionRevoke(args.slice(1), raw);
-      break;
-    }
-
-    case 'list-permissions': {
-      cmdPermissionList(args.slice(1), raw);
       break;
     }
 
