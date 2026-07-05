@@ -393,16 +393,18 @@ Plans:
 - [ ] 43-02: Executor final-wave integration — wire docs agent as last mandatory task after feature work is committed; pass SUMMARY.md build scope as context
 - [ ] 43-03: Verifier docs validation gate — check docs appropriateness relative to build scope; `gaps_found` on skip or scope mismatch
 
-### 🚧 v1.14.0 Enforcement & Integration (Phases 44-50) — In Progress
+### 🚧 v1.14.0 Enforcement & Integration (Phases 44-53) — In Progress
 
-**Milestone Goal:** Make every mandatory GSD step deterministic and automatic — deterministic enforcement gates replace prose "MUST" language, valuable satellite capabilities (mining, Nyquist, discovery, debugger) inject into the golden path, knowledge maintenance runs automatically on its natural triggers, and the escalation channel is hardened for unattended overnight runs.
+**Milestone Goal:** Make every mandatory GSD step deterministic and automatic — deterministic enforcement gates replace prose "MUST" language, valuable satellite capabilities (mining, Nyquist, discovery, debugger) inject into the golden path, knowledge maintenance runs automatically on its natural triggers, the escalation channel is hardened for unattended overnight runs, and (scope addition 2026-07-05) the framework becomes self-resilient and self-observable: it survives its own coordinator deaths, detects stale installs, measures its own prompts, and hardens against injection.
 
 **Branch:** `feature/enforcement-and-integration` (existing)
-**Source PRD:** `.planning/prds/pending/enforcement-and-integration.md` (US-1..US-16, MVP boundary = all 16)
+**Source PRD:** `.planning/prds/done/enforcement-and-integration.md` (US-1..US-16) + scope addition `docs/analysis/2026-07-02-deep-dive/17-scope-addition-v1.14.md` (MILE-22..31, promoted from analysis docs 15/16 by maintainer 2026-07-05)
 
-**Dependency note:** Mostly linear (44 → 45 → 46 → 47 → 48 → 50), reflecting the PRD's risk-ascending ordering — reliability + safe deletions first, phase-gate/waiver foundation next, gates that consume it next, Telegram hardened before the debugger relies on escalation, satellites next. Phase 49 depends only on Phase 44 and is parallel-eligible with 45-48. Phase 50 must run last (final grep sweep across everything already deleted).
+**Dependency note:** Core (44→45→46→47→48→49) landed & verified. Phase 50 (extended) then 51→52→53 run sequentially. 51 (auto-resume/state sanity) precedes 52 (skew/telemetry/registry — self-report rides the same return-contract changes) precedes 53 (eval harness/prompt hygiene/injection — largest; every prior phase becomes its test corpus).
 
-**Scope notes:** No new UI anywhere in this milestone (PRD-confirmed) — no Charlotte QA or E2E-regression phase required. Every phase carries its own integration-test success criterion (no testing deferral). US-14 is split: MILE-18 (dead code with no replacement dependency, Phase 44) vs MILE-19 (deletions gated on replacements landing, Phase 50).
+**Scope notes:** No new UI anywhere in this milestone (PRD-confirmed) — no Charlotte QA or E2E-regression phase required. Every phase carries its own integration-test success criterion. US-14 split: MILE-18 (Phase 44) vs MILE-19 (Phase 50). rtk fixes (hooks R-4/R-5) are OUT — separate rtk repo.
+
+**Status (2026-07-05):** Phases 44-49 ✅ complete/verified/deployed (tests 155→317). Extended scope 50-53 pending.
 
 #### Phase 44: Reliability Foundations & Dead-Code Cleanup
 
@@ -516,19 +518,65 @@ Plans:
 - [x] 49-03: Milestone consolidation pass — clustering, real Haiku principle synthesis (cost-capped), conflict detection, thin manual backstop command
 - [x] 49-04: Knowledge CLI deletions (qa/scan/permissions grant-revoke, post-grep) + integration tests
 
-#### Phase 50: Final Deletions & Verification Sweep
+#### Phase 50: Final Deletions, Hook Fixes & Verification Sweep (EXTENDED)
 
-**Goal:** The standalone entry points obsoleted by this milestone's replacements are removed now that those replacements are confirmed working, and a final zero-reference sweep proves the framework carries no dangling references to anything deleted across the milestone
+**Goal:** The standalone entry points obsoleted by this milestone's replacements are removed now that those replacements are confirmed working, the dead/broken Claude Code hooks are fixed or removed, and a final zero-reference sweep proves the framework carries no dangling references to anything deleted across the milestone
 **Depends on:** Phases 44, 48, 49 (all replacements landed and verified)
-**Requirements:** MILE-19
+**Requirements:** MILE-19, MILE-22
 **Success Criteria** (what must be TRUE):
   1. The standalone `research-phase` command entry is removed only after the existing `plan-phase` research step is confirmed as its working replacement
   2. `scripts/install-modules.js` and `scripts/health-check.js` are updated to stop validating the stubs deleted in Phase 44
   3. A fresh grep across `bin/`, `workflows/`, `agents/`, `scripts/`, `hooks/`, `commands/`, `references/`, `templates/` for every file/command deleted across Phases 44-49 returns zero references — verified in the same session as the final deletions
-**Plans:** TBD
+  4. The doc-compression hook actually fires: installer deploys `hook-config.json` to the guard path, the hook reads `tool_name`/`tool_input` (not `tool`/`parameters`), its `require()`s are try/caught fail-open, and a real Read produces a non-empty compression-metrics JSONL with a measured reduction percentage (hooks analysis R-1)
+  5. Orphaned `per-turn.js` is deleted (fresh zero-reference grep) and the Stop hook registration in `install.js` is timeout-wrapped like the PreToolUse hooks (R-2, R-3)
+**Plans:** 2/2 plans executed
 
 Plans:
-- [ ] 50-01: Remove standalone research-phase entry (replacement-confirmed), update install-modules.js/health-check.js, run final cross-milestone zero-reference grep sweep
+- [x] 50-01: Remove standalone research-phase entry (replacement-confirmed), update install-modules.js/health-check.js, run final cross-milestone zero-reference grep sweep
+- [x] 50-02: Doc-compression hook triple-fix (installer hook-config.json deploy, protocol field names, guarded requires) + measure real reduction; delete per-turn.js; timeout-wrap Stop hook registration
+
+#### Phase 51: Run Resilience — Auto-Resume & State Sanity
+
+**Goal:** An overnight run survives coordinator deaths without human forensics — provider-limit deaths auto-resume from checkpoints, quota readings can't silently poison routing, and the state helpers work against the real STATE.md
+**Depends on:** Phase 50. Evidence: three live coordinator deaths this run (2026-07-02/04/05), each recovered by manual orchestrator forensics; corrupted quota readings (28625%, 59196%) in phases 44/49; STATE.md schema mismatch deferred since 44-01.
+**Requirements:** MILE-23, MILE-24
+**Success Criteria** (what must be TRUE):
+  1. In a test harness, a coordinator killed mid-phase is detected (staleness heartbeat: no CHECKPOINT.json/transcript write for N minutes, OR a session/quota-limit death signature) and `execute-roadmap` auto-spawns a successor from the phase's `resume_from` with no human input; when the death message carries a reset time, the orchestrator waits until then
+  2. Before a run, execute-roadmap estimates cost (phases × observed avg tokens) against remaining budget and surfaces a deliberate pause point rather than dying mid-phase
+  3. A corrupted quota-tracker percentage is detected, reset, and logged loudly; routing falls back to the genuine tier, never a poisoned reading
+  4. `gsd-tools.js state advance-plan`/`update-progress` operate correctly against the repo's actual STATE.md format (schema migrated or commands made tolerant) — no more manual state edits
+  5. Integration tests cover: killed-coordinator → successor spawned from checkpoint; reset-time death → wait; corrupted quota → reset+log; state advance-plan round-trip on real STATE.md
+**Plans:** 1/3 plans executed
+
+Plans:
+- [ ] 51-01: Quota corruption self-heal (loadQuotaState) + corruption-log.jsonl audit trail, and tolerant STATE.md field parsing for state advance-plan/update-progress against the real plain-prose format
+- [ ] 51-02: Deterministic auto-resume helpers (parseDeathSignature, parseResetTime, checkStaleness, parseCheckpointForResume, buildResumeBrief, estimateQuotaForRemainingPhases) + resilience CLI namespace
+- [ ] 51-03: Wire execute-roadmap.md prose (pre-flight quota estimate + death-detection/auto-respawn/wait-until-reset), verified via grep-assertion tests
+
+#### Phase 52: Skew Detection, Telemetry & Model Registry
+
+**Goal:** The framework can tell when it's stale, agents report their own failure modes, model knowledge lives in one place, and state-mutating workflow steps are crash-safe
+**Depends on:** Phase 51 (self-report rides the same return-contract changes auto-resume touches)
+**Requirements:** MILE-25, MILE-26, MILE-27, MILE-28
+**Success Criteria** (what must be TRUE):
+  1. `install` writes a content-hash manifest + source git SHA; a SessionStart/`gsd doctor` check compares installed vs repo and warns on drift; execute-roadmap pre-flight asserts freshness when run inside the GSD repo — reproduced against the exact skew this milestone hit repeatedly
+  2. Coordinator/executor/verifier returns carry `{context_pressure, instructions_not_followed, ambiguities, tool_errors_swallowed}`, appended to a run JSONL and summarized in `analytics report`
+  3. One config-sourced tier→model registry (with per-tier operating params) is consumed by gsd-circuit-breaker.js/gsd-escalation.js/analytics.js — no duplicated tier tables; a model upgrade touches one file. `verify test-content` countAssertions recognizes `assert.method(` style (Phase 48 finding)
+  4. Golden-path state-mutating steps are enumerated and classified idempotent/resumable/neither; the "neither" cases are fixed; a quarterly upstream-review policy is documented and UPSTREAM-DIFF.md refreshed once
+  5. Integration tests cover: skew manifest mismatch → warning; self-report fields present in returns + JSONL; registry single-source consumed by all three modules; countAssertions namespace style
+**Plans:** TBD
+
+#### Phase 53: Eval Harness, Prompt Hygiene & Injection Hardening
+
+**Goal:** Prompt and workflow changes become measurable, prompts fit in budget with hard rules up front, and file-derived content can't hijack agents
+**Depends on:** Phase 52 (eval harness asserts on telemetry + skew-clean installs). Ordered last: largest, and every earlier phase's changes become its test corpus.
+**Requirements:** MILE-29, MILE-30, MILE-31
+**Success Criteria** (what must be TRUE):
+  1. A golden mini-project fixture repo + eval runner executes plan→execute→verify with cheap models and asserts on artifacts (right agents spawned, gates fired, DEFERRED.json written on skip, commits atomic); runnable locally and wired into CI on prompt-file changes
+  2. A CI check enforces per-agent token budgets (coordinator ≤8k core); the 5 oversized agents (coordinator 17.5k, planner 14.5k, verifier 12.4k, debugger 9.4k, executor 9.2k) are restructured hard-rules-first with on-demand references; the eval harness confirms behavior is preserved
+  3. Agent prompts frame file-derived content as data-not-instructions; the knowledge write path screens injection patterns (composing with the MILE-14 secrets filter); an adversarial fixture in the eval harness that tries to derail the executor is caught
+  4. Integration tests / eval scenarios cover: a known-good roadmap passes the harness; a prompt edit that drops a mandatory gate is caught by the harness; an over-budget agent fails the CI budget check; the adversarial fixture does not derail the executor
+**Plans:** TBD
 
 ## Progress
 
@@ -576,13 +624,16 @@ Plans:
 | 41. gsd:prd Workflow | v1.13.0 | 0/TBD | Not started | - |
 | 42. Milestone PRD Integration | v1.13.0 | 0/TBD | Not started | - |
 | 43. Docs Automation | v1.13.0 | 0/TBD | Not started | - |
-| 44. Reliability Foundations & Dead-Code Cleanup | 1/5 | In Progress|  | - |
-| 45. Deterministic Phase-Gate & Deferral Protocol | 5/5 | Complete   | 2026-07-04 | - |
-| 46. Artifact-Generation & Coverage Gates | 4/4 | Complete   | 2026-07-04 | - |
-| 47. Telegram Escalation Reliability | 3/3 | Complete   | 2026-07-04 | - |
-| 48. Satellite Injections: Mining, Discovery, Debugger | 4/4 | Complete   | 2026-07-04 | - |
-| 49. Knowledge Auto-Wiring & CLI Cleanup | 4/4 | Complete    | 2026-07-05 | - |
-| 50. Final Deletions & Verification Sweep | v1.14.0 | 0/TBD | Not started | - |
+| 44. Reliability Foundations & Dead-Code Cleanup | v1.14.0 | 5/5 | Complete | 2026-07-04 |
+| 45. Deterministic Phase-Gate & Deferral Protocol | v1.14.0 | 5/5 | Complete | 2026-07-04 |
+| 46. Artifact-Generation & Coverage Gates | v1.14.0 | 4/4 | Complete | 2026-07-04 |
+| 47. Telegram Escalation Reliability | v1.14.0 | 3/3 | Complete | 2026-07-04 |
+| 48. Satellite Injections: Mining, Discovery, Debugger | v1.14.0 | 4/4 | Complete | 2026-07-04 |
+| 49. Knowledge Auto-Wiring & CLI Cleanup | v1.14.0 | 4/4 | Complete | 2026-07-05 |
+| 50. Final Deletions, Hook Fixes & Verification Sweep | v1.14.0 | 2/2 | Complete | 2026-07-05 |
+| 51. Run Resilience — Auto-Resume & State Sanity | 1/3 | In Progress|  | - |
+| 52. Skew Detection, Telemetry & Model Registry | v1.14.0 | 0/TBD | Not started | - |
+| 53. Eval Harness, Prompt Hygiene & Injection Hardening | v1.14.0 | 0/TBD | Not started | - |
 
 ---
-*Roadmap created: 2026-02-15 | Last updated: 2026-03-11 — v1.13.0 Product Discovery & Docs Automation phases 41-43 added*
+*Roadmap created: 2026-02-15 | Last updated: 2026-07-05 — v1.14.0 scope expanded to phases 44-53 (MILE-22..31 from analysis-folder findings); phases 44-49 complete/verified/deployed*

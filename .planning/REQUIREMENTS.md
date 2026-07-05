@@ -89,12 +89,25 @@
 #### Reliability & Deletions
 
 - [ ] **MILE-18**: Category-A verified-dead code with no replacement dependency is removed early: `get-shit-done/modules/` stubs, `skills/llmlingua-comparison/`, orphaned hook files, `parallel-executor.js` + its requiring command, the broken quota auto-compression branch in `token-monitor.js`, stale template/QGATE-07 references, and `scripts/install-hooks.js` if confirmed duplicated — each preceded by a fresh zero-reference grep (US-14 part A)
-- [ ] **MILE-19**: Entry points obsoleted by this milestone's replacements are removed only after those replacements are confirmed working: the standalone `research-phase` command entry; `scripts/install-modules.js`/`scripts/health-check.js` updated to stop validating deleted stubs; final cross-milestone zero-reference grep sweep (US-14 part B)
+- [x] **MILE-19**: Entry points obsoleted by this milestone's replacements are removed only after those replacements are confirmed working: the standalone `research-phase` command entry; `scripts/install-modules.js`/`scripts/health-check.js` updated to stop validating deleted stubs; final cross-milestone zero-reference grep sweep (US-14 part B)
 - [x] **MILE-20**: P2 reliability quick-wins: unguarded `JSON.parse` sites wrapped with typed errors, unsanitized `execSync` replaced with `spawn`/`execFile` + argv arrays, atomic write-rename for `STATE.md`/`ROADMAP.md`/`config.json`, GitHub Actions running `npm test` on push/PR, and install hardening (hooks/dist build, timeout-wrapped PreToolUse, loud dependency failures) (US-15)
 
 #### Telegram Escalation Reliability
 
 - [x] **MILE-21**: Telegram escalation is hardened for unattended runs: prompt daemon-crash detection (typed error, not ~45s silent hang), single-owner question-timeout (race resolved), real file locking on JSONL state, detected/logged/retried delivery failures, and a configurable overnight blocking-question fallback (default: DEFERRED.json entry with `approver: "timeout-fallback"`, park item, continue non-dependent work) (US-16)
+
+#### Scope Addition (2026-07-05 — all analysis-folder findings promoted; see docs/analysis/2026-07-02-deep-dive/17-scope-addition-v1.14.md)
+
+- [x] **MILE-22**: Doc-compression hook actually fires — installer deploys `hook-config.json` to the guard path, protocol fields corrected (`tool_name`/`tool_input`), `require()`s guarded fail-open, real reduction measured; orphaned `per-turn.js` deleted; Stop hook registration timeout-wrapped (hooks analysis R-1, R-2, R-3)
+- [ ] **MILE-23**: `execute-roadmap` auto-resumes coordinator deaths — on subagent death matching session/quota-limit patterns, read phase CHECKPOINT.json and auto-spawn a successor from `resume_from` (with wait-until-reset when a reset time is present) and a staleness-heartbeat check (no checkpoint/transcript writes for N minutes ⇒ presumed dead); pre-flight quota estimate before a run (doc 15 S-1)
+- [x] **MILE-24**: Quota-tracker sanity — corrupted percentage readings (observed 28625%, 59196%) detected, reset, and logged loudly, never silently poisoning routing; STATE.md Current Position migrated to (or the `state advance-plan`/`update-progress` commands made tolerant of) the schema the CLI helpers expect, so manual state updates are no longer required (in-run findings, phases 44/49)
+- [ ] **MILE-25**: Version-skew detection — install writes a content-hash manifest + source git SHA; SessionStart (or `gsd doctor`) compares installed vs repo and warns; execute-roadmap pre-flight asserts freshness when running inside the GSD repo (doc 15 S-4, hooks R-6)
+- [ ] **MILE-26**: Agent self-report telemetry — coordinator/executor/verifier return contracts extended with `{context_pressure, instructions_not_followed, ambiguities, tool_errors_swallowed}`, appended to a run JSONL and surfaced in the analytics report (doc 15 S-5)
+- [ ] **MILE-27**: Model-registry indirection — tier→model mapping + per-tier operating parameters read from one config-sourced registry consumed by `gsd-circuit-breaker.js`/`gsd-escalation.js`/`analytics.js` (no duplicated tier tables); `verify test-content` `countAssertions` recognizes `assert.method(` namespace style (doc 15 S-7 + Phase 48 finding)
+- [ ] **MILE-28**: Workflow crash-point audit — enumerate state-mutating steps across golden-path workflows, classify idempotent/resumable/neither, fix the "neither" cases; document a quarterly upstream cherry-pick review policy and refresh UPSTREAM-DIFF.md as the first instance (doc 15 S-8, S-9)
+- [ ] **MILE-29**: Behavioral eval harness — golden mini-project fixture repo + eval runner executing plan→execute→verify with cheap models, asserting on artifacts (agents spawned, gates fired, DEFERRED.json on skip, atomic commits); runnable locally and wired into CI on prompt-file changes (doc 15 S-2)
+- [ ] **MILE-30**: Prompt budgets + instruction architecture — per-agent token budget enforced by a CI check (coordinator ≤8k core); hard-rules-first preamble + on-demand references applied to the 5 oversized agents (coordinator 17.5k, planner 14.5k, verifier 12.4k, debugger 9.4k, executor 9.2k); behavior preservation verified via the MILE-29 harness (doc 15 S-3)
+- [ ] **MILE-31**: Prompt-injection hardening — data-not-instructions framing for file-derived content in agent prompts; injection-pattern screening at the knowledge write path (composes with the MILE-14 filter); an adversarial fixture in the eval harness that attempts to derail the executor (doc 15 S-6)
 
 ### v2 Requirements (Deferred — PRD "Phase 2")
 
@@ -149,15 +162,25 @@
 | MILE-15 | Phase 49 | Complete |
 | MILE-16 | Phase 49 | Complete |
 | MILE-17 | Phase 49 | Complete |
-| MILE-18 | Phase 44 | Pending |
-| MILE-19 | Phase 50 | Pending |
+| MILE-18 | Phase 44 | Complete |
+| MILE-19 | Phase 50 | Complete |
 | MILE-20 | Phase 44 | Complete |
 | MILE-21 | Phase 47 | Complete |
+| MILE-22 | Phase 50 | Complete |
+| MILE-23 | Phase 51 | Pending |
+| MILE-24 | Phase 51 | Complete |
+| MILE-25 | Phase 52 | Pending |
+| MILE-26 | Phase 52 | Pending |
+| MILE-27 | Phase 52 | Pending |
+| MILE-28 | Phase 52 | Pending |
+| MILE-29 | Phase 53 | Pending |
+| MILE-30 | Phase 53 | Pending |
+| MILE-31 | Phase 53 | Pending |
 
 **Coverage:**
 - v1.13.0 requirements: 15 total — mapped: 15, unmapped: 0 ✓
-- v1.14.0 requirements: 17 total — mapped: 17, unmapped: 0 ✓
+- v1.14.0 requirements: 27 total — mapped: 27, unmapped: 0 ✓ (17 original MILE-05..21 + 10 scope-addition MILE-22..31)
 
 ---
 *Requirements defined: 2026-03-11 (v1.13.0), 2026-07-02 (v1.14.0)*
-*Last updated: 2026-07-02 — v1.14.0 Enforcement & Integration requirements added (MILE-05..MILE-21 from enforcement-and-integration PRD)*
+*Last updated: 2026-07-05 — v1.14.0 scope expanded: MILE-22..31 (all analysis-folder findings) added; Phases 51-53 created, Phase 50 extended. MILE-18 status corrected Pending→Complete (delivered in Phase 44).*
