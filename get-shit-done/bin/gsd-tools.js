@@ -13057,4 +13057,21 @@ Was ${model} the right choice for this task? (y/n): `;
   }
 }
 
-main();
+// Only auto-run when invoked directly as a CLI (`node gsd-tools.js ...`), not
+// when required as a module -- lets tests `require()` the pure resilience
+// helpers below (which take a controllable `referenceDate`/path argument,
+// e.g. parseResetTime) without triggering main()'s process.argv-driven
+// side effects (which would call process.exit() inside the test process).
+// The CLI's own behavior is completely unaffected by this guard.
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  parseDeathSignature,
+  parseResetTime,
+  checkStaleness,
+  parseCheckpointForResume,
+  buildResumeBrief,
+  estimateQuotaForRemainingPhases,
+};

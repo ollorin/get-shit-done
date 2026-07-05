@@ -7897,3 +7897,367 @@ describe('Phase 51-01: STATE.md tolerant parsing (state advance-plan / state upd
     }
   });
 });
+
+// Phase 51-02: resilience helpers (MILE-23). Pure functions are required
+// directly (gsd-tools.js guards main() behind require.main === module so
+// requiring it for tests never triggers the CLI's process.argv/process.exit
+// side effects); CLI subcommands are still exercised via runGsdTools, per
+// existing convention.
+const resilience = require('./gsd-tools.js');
+
+describe('Phase 51-02: parseDeathSignature', () => {
+  test('matches session-limit death message and extracts reset fragment', () => {
+    const result = resilience.parseDeathSignature("You've hit your session limit · resets 12:30am");
+    assert.strictEqual(result.is_death, true);
+    assert.strictEqual(result.matched_pattern, 'session limit');
+    assert.strictEqual(result.reset_fragment, '12:30am');
+  });
+
+  test('matches usage limit / quota limit / rate limit exceeded pattern variants', () => {
+    const usage = resilience.parseDeathSignature('usage limit reached');
+    assert.strictEqual(usage.is_death, true);
+    assert.strictEqual(usage.matched_pattern, 'usage limit');
+
+    const quota = resilience.parseDeathSignature('quota limit exceeded');
+    assert.strictEqual(quota.is_death, true);
+    assert.strictEqual(quota.matched_pattern, 'quota limit');
+
+    const rate = resilience.parseDeathSignature('rate limit exceeded');
+    assert.strictEqual(rate.is_death, true);
+    assert.strictEqual(rate.matched_pattern, 'rate limit exceeded');
+  });
+
+  test('case-insensitive match ("SESSION LIMIT")', () => {
+    const result = resilience.parseDeathSignature('SESSION LIMIT reached, try again later');
+    assert.strictEqual(result.is_death, true);
+    assert.strictEqual(result.matched_pattern, 'session limit');
+  });
+
+  test('non-death text returns is_death false, reset_fragment null', () => {
+    const result = resilience.parseDeathSignature('build succeeded');
+    assert.strictEqual(result.is_death, false);
+    assert.strictEqual(result.matched_pattern, null);
+    assert.strictEqual(result.reset_fragment, null);
+  });
+
+  test('empty/null/undefined input never throws, returns is_death false', () => {
+    for (const input of ['', null, undefined]) {
+      assert.doesNotThrow(() => resilience.parseDeathSignature(input));
+      const result = resilience.parseDeathSignature(input);
+      assert.strictEqual(result.is_death, false);
+    }
+  });
+});
+
+describe('Phase 51-02: parseResetTime', () => {
+  test('fragment time still in the future relative to referenceDate -> today\'s occurrence', () => {
+    const reference = new Date(2026, 0, 15, 11, 0, 0); // Jan 15 2026, 11:00am local
+    const iso = resilience.parseResetTime('5:20pm', reference);
+    assert.ok(iso, 'expected a non-null ISO timestamp');
+    const parsed = new Date(iso);
+    assert.strictEqual(parsed.getFullYear(), 2026);
+    assert.strictEqual(parsed.getMonth(), 0);
+    assert.strictEqual(parsed.getDate(), 15, 'expected today\'s date (15th), not tomorrow');
+    assert.strictEqual(parsed.getHours(), 17);
+    assert.strictEqual(parsed.getMinutes(), 20);
+  });
+
+  test('fragment time already passed relative to referenceDate -> tomorrow\'s occurrence', () => {
+    const reference = new Date(2026, 0, 15, 18, 0, 0); // Jan 15 2026, 6:00pm local
+    const iso = resilience.parseResetTime('5:20pm', reference);
+    assert.ok(iso, 'expected a non-null ISO timestamp');
+    const parsed = new Date(iso);
+    assert.strictEqual(parsed.getDate(), 16, 'expected tomorrow\'s date (16th) since 5:20pm already passed');
+    assert.strictEqual(parsed.getHours(), 17);
+    assert.strictEqual(parsed.getMinutes(), 20);
+  });
+
+  test('extracts fragment from a full "resets <time>" death message, not just a bare fragment', () => {
+    const reference = new Date(2026, 0, 15, 11, 0, 0);
+    const iso = resilience.parseResetTime("You've hit your session limit · resets 5:20pm", reference);
+    assert.ok(iso);
+    const parsed = new Date(iso);
+    assert.strictEqual(parsed.getHours(), 17);
+    assert.strictEqual(parsed.getMinutes(), 20);
+  });
+
+  test('fragment with no parseable time returns null', () => {
+    const reference = new Date(2026, 0, 15, 11, 0, 0);
+    assert.strictEqual(resilience.parseResetTime('no time here', reference), null);
+    assert.strictEqual(resilience.parseResetTime('', reference), null);
+    assert.strictEqual(resilience.parseResetTime(null, reference), null);
+  });
+});
+
+describe('Phase 51-02: checkStaleness', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  test('a freshly-written file with threshold 30min -> stale false', () => {
+    const filePath = path.join(tmpDir, 'fresh.txt');
+    fs.writeFileSync(filePath, 'fresh');
+    const result = resilience.checkStaleness(filePath, 30);
+    assert.strictEqual(result.file_exists, true);
+    assert.strictEqual(result.stale, false);
+    assert.strictEqual(result.threshold_minutes, 30);
+    assert.ok(result.mtime);
+  });
+
+  test('a file with mtime manually set >30min in the past -> stale true', () => {
+    const filePath = path.join(tmpDir, 'old.txt');
+    fs.writeFileSync(filePath, 'old');
+    const oldTime = new Date(Date.now() - 45 * 60 * 1000); // 45 minutes ago
+    fs.utimesSync(filePath, oldTime, oldTime);
+    const result = resilience.checkStaleness(filePath, 30);
+    assert.strictEqual(result.file_exists, true);
+    assert.strictEqual(result.stale, true);
+    assert.ok(result.age_minutes > 30);
+  });
+
+  test('a nonexistent file path -> file_exists false, stale null, no throw', () => {
+    assert.doesNotThrow(() => resilience.checkStaleness(path.join(tmpDir, 'does-not-exist.txt'), 30));
+    const result = resilience.checkStaleness(path.join(tmpDir, 'does-not-exist.txt'), 30);
+    assert.strictEqual(result.file_exists, false);
+    assert.strictEqual(result.stale, null);
+    assert.strictEqual(result.age_minutes, null);
+  });
+});
+
+describe('Phase 51-02: parseCheckpointForResume', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  // Fixture shaped like this repo's real 50-final-sweep/CHECKPOINT.json
+  // (constructed equivalent, not copied verbatim, per plan instruction).
+  function realShapedFixture() {
+    return {
+      phase: 50,
+      phase_name: 'final-sweep',
+      last_step: 'verify',
+      step_status: 'complete',
+      wave: 1,
+      plans_complete: ['50-01', '50-02'],
+      plans_remaining: [],
+      timestamp: '2026-07-05T18:05:00Z',
+      files_touched: ['.planning/phases/50-final-sweep/50-01-SUMMARY.md'],
+      key_context: 'PHASE 50 COMPLETE. All checks passed.',
+      resume_from: 'done',
+    };
+  }
+
+  test('real-shaped fixture -> found true, all fields extracted correctly', () => {
+    const checkpointPath = path.join(tmpDir, 'CHECKPOINT.json');
+    fs.writeFileSync(checkpointPath, JSON.stringify(realShapedFixture(), null, 2));
+
+    const result = resilience.parseCheckpointForResume(checkpointPath);
+    assert.strictEqual(result.found, true);
+    assert.strictEqual(result.resume_from, 'done');
+    assert.strictEqual(result.last_step, 'verify');
+    assert.strictEqual(result.step_status, 'complete');
+    assert.deepStrictEqual(result.plans_complete, ['50-01', '50-02']);
+    assert.deepStrictEqual(result.plans_remaining, []);
+    assert.strictEqual(result.key_context, 'PHASE 50 COMPLETE. All checks passed.');
+  });
+
+  test('older-shape CHECKPOINT.json missing plans_complete/plans_remaining -> found true, those fields null, no throw', () => {
+    const checkpointPath = path.join(tmpDir, 'CHECKPOINT.json');
+    const olderShape = realShapedFixture();
+    delete olderShape.plans_complete;
+    delete olderShape.plans_remaining;
+    fs.writeFileSync(checkpointPath, JSON.stringify(olderShape, null, 2));
+
+    assert.doesNotThrow(() => resilience.parseCheckpointForResume(checkpointPath));
+    const result = resilience.parseCheckpointForResume(checkpointPath);
+    assert.strictEqual(result.found, true);
+    assert.strictEqual(result.plans_complete, null);
+    assert.strictEqual(result.plans_remaining, null);
+  });
+
+  test('a missing file path -> found false, resume_from null', () => {
+    const result = resilience.parseCheckpointForResume(path.join(tmpDir, 'nope', 'CHECKPOINT.json'));
+    assert.strictEqual(result.found, false);
+    assert.strictEqual(result.resume_from, null);
+  });
+
+  test('a malformed-JSON file -> found false, error message present, no throw', () => {
+    const checkpointPath = path.join(tmpDir, 'CHECKPOINT.json');
+    fs.writeFileSync(checkpointPath, '{ not valid json ][');
+
+    assert.doesNotThrow(() => resilience.parseCheckpointForResume(checkpointPath));
+    const result = resilience.parseCheckpointForResume(checkpointPath);
+    assert.strictEqual(result.found, false);
+    assert.ok(result.error, 'expected an error message on parse failure');
+  });
+});
+
+describe('Phase 51-02: buildResumeBrief', () => {
+  test('found:true checkpoint data -> brief_text contains RESUMING FROM DEATH, key_context, last_step', () => {
+    const checkpointData = {
+      found: true,
+      resume_from: 'execute',
+      last_step: 'execute',
+      step_status: 'in_progress',
+      plans_complete: ['51-01'],
+      plans_remaining: ['51-02', '51-03'],
+      key_context: 'Some very specific key context text.',
+    };
+    const phaseInfo = { phase_number: '51', phase_name: 'run-resilience', directory: '.planning/phases/51-run-resilience' };
+
+    const brief = resilience.buildResumeBrief(checkpointData, phaseInfo);
+    assert.strictEqual(brief.resume_from, 'execute');
+    assert.ok(brief.brief_text.includes('RESUMING FROM DEATH'));
+    assert.ok(brief.brief_text.includes('Some very specific key context text.'));
+    assert.ok(brief.brief_text.includes('execute'), 'expected last_step to appear in brief_text');
+  });
+
+  test('found:false checkpoint data -> brief_text indicates fresh start, resume_from is "discuss"', () => {
+    const checkpointData = { found: false, resume_from: null, last_step: null, step_status: null, plans_complete: null, plans_remaining: null, key_context: null };
+    const phaseInfo = { phase_number: '52', phase_name: 'never-started', directory: '.planning/phases/52-never-started' };
+
+    const brief = resilience.buildResumeBrief(checkpointData, phaseInfo);
+    assert.strictEqual(brief.resume_from, 'discuss');
+    assert.ok(/from scratch/i.test(brief.brief_text), 'expected brief_text to plainly indicate a fresh start');
+  });
+});
+
+describe('Phase 51-02: estimateQuotaForRemainingPhases', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function writeQuotaFixture(tasks, sessionLimit = 2000000, sessionUsed = 0) {
+    const quotaDir = path.join(tmpDir, '.planning', 'quota');
+    fs.mkdirSync(quotaDir, { recursive: true });
+    fs.writeFileSync(path.join(quotaDir, 'session-usage.json'), JSON.stringify({
+      session: { tokens_used: sessionUsed, tokens_limit: sessionLimit, reset_time: null, last_updated: null },
+      weekly: { tokens_used: sessionUsed, tokens_limit: 100000000, reset_time: null, last_updated: null },
+      tasks,
+      warnings_shown: { session_80: false, weekly_80: false },
+    }, null, 2));
+  }
+
+  function writeExecutionLog(phaseCompleteCount) {
+    const lines = ['# Autonomous Roadmap Execution Log', ''];
+    for (let i = 0; i < phaseCompleteCount; i++) {
+      lines.push(JSON.stringify({ timestamp: new Date().toISOString(), type: 'phase_complete', phase: 40 + i }));
+    }
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'EXECUTION_LOG.md'), lines.join('\n') + '\n');
+  }
+
+  test('EXECUTION_LOG.md present with phases_completed > 0 -> avg computed from quota tasks total, source observed_history', () => {
+    writeQuotaFixture([
+      { task_id: 't1', model: 'sonnet', tokens_in: 1000, tokens_out: 2000, timestamp: new Date().toISOString() },
+      { task_id: 't2', model: 'sonnet', tokens_in: 500, tokens_out: 500, timestamp: new Date().toISOString() },
+    ]); // total = 4000
+    writeExecutionLog(2); // phases_completed = 2 -> avg = 2000
+
+    const result = resilience.estimateQuotaForRemainingPhases(tmpDir, 1);
+    assert.strictEqual(result.source, 'observed_history');
+    assert.strictEqual(result.avg_tokens_per_phase, 2000);
+    assert.strictEqual(result.estimated_tokens, 2000);
+  });
+
+  test('no EXECUTION_LOG.md (phases_completed 0) -> source conservative_default, avg_tokens_per_phase === 300000', () => {
+    writeQuotaFixture([{ task_id: 't1', model: 'sonnet', tokens_in: 1000, tokens_out: 2000, timestamp: new Date().toISOString() }]);
+    // no EXECUTION_LOG.md written
+
+    const result = resilience.estimateQuotaForRemainingPhases(tmpDir, 1);
+    assert.strictEqual(result.source, 'conservative_default');
+    assert.strictEqual(result.avg_tokens_per_phase, 300000);
+  });
+
+  test('sufficient correctly flips false when estimated_tokens > remaining_budget', () => {
+    writeQuotaFixture(
+      [{ task_id: 't1', model: 'sonnet', tokens_in: 100000, tokens_out: 100000, timestamp: new Date().toISOString() }],
+      2000000,
+      1990000 // remaining_budget = 10000, tiny
+    );
+    writeExecutionLog(1); // avg = 200000/1 = 200000 -- far exceeds remaining_budget of 10000
+
+    const result = resilience.estimateQuotaForRemainingPhases(tmpDir, 1);
+    assert.strictEqual(result.sufficient, false);
+    assert.strictEqual(result.remaining_budget, 10000);
+  });
+});
+
+describe('Phase 51-02: resilience CLI subcommands', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  test('resilience check-staleness <file> --threshold-minutes 5 returns valid JSON with expected shape', () => {
+    const filePath = path.join(tmpDir, 'checkme.txt');
+    fs.writeFileSync(filePath, 'hi');
+    const result = runGsdTools(`resilience check-staleness "${filePath}" --threshold-minutes 5`, tmpDir);
+    assert.ok(result.success, `command should succeed: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.file_exists, true);
+    assert.strictEqual(parsed.threshold_minutes, 5);
+    assert.strictEqual(parsed.stale, false);
+  });
+
+  test('resilience parse-death --text "..." returns valid JSON including reset_time_iso when a reset fragment is present', () => {
+    const result = runGsdTools(`resilience parse-death --text "session limit hit, resets 5:20pm"`, tmpDir);
+    assert.ok(result.success, `command should succeed: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.is_death, true);
+    assert.strictEqual(parsed.reset_fragment, '5:20pm');
+    assert.ok(parsed.reset_time_iso, 'expected a non-null reset_time_iso');
+  });
+
+  test('resilience resume-brief <phase> against a temp project with a real CHECKPOINT.json fixture returns found:true', () => {
+    const phaseDir = path.join(tmpDir, '.planning', 'phases', '05-test-phase');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    fs.writeFileSync(path.join(phaseDir, 'CHECKPOINT.json'), JSON.stringify({
+      phase: 5,
+      phase_name: 'test-phase',
+      last_step: 'execute',
+      step_status: 'in_progress',
+      plans_complete: ['05-01'],
+      plans_remaining: ['05-02'],
+      key_context: 'mid-execution death simulated for CLI test',
+      resume_from: 'execute',
+    }, null, 2));
+
+    const result = runGsdTools('resilience resume-brief 05', tmpDir);
+    assert.ok(result.success, `command should succeed: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.checkpoint.found, true);
+    assert.ok(parsed.brief_text.includes('RESUMING FROM DEATH'));
+  });
+
+  test('resilience estimate-quota --phases 5 returns valid JSON with sufficient boolean', () => {
+    const result = runGsdTools('resilience estimate-quota --phases 5', tmpDir);
+    assert.ok(result.success, `command should succeed: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(typeof parsed.sufficient, 'boolean');
+    assert.strictEqual(parsed.phase_count, 5);
+    assert.ok(typeof parsed.estimated_tokens === 'number');
+  });
+});
