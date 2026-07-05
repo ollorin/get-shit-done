@@ -11143,6 +11143,109 @@ async function cmdServiceHealth(cwd, args, raw) {
   }
 }
 
+// ─── Skew Detection (MILE-25) ──────────────────────────────────────────
+// Pure function -- no I/O. Compares an installed manifest's file->hash map
+// against a freshly-computed current-tree map. Files present in installed
+// but absent from current are flagged 'missing_in_source'; files with a
+// different hash are flagged 'hash_mismatch'. Files present ONLY in
+// current (new files added since the manifest was written) are NOT drift.
+function computeManifestDrift(installedFiles, currentFiles) {
+  const drifted = [];
+  for (const [relPath, installedHash] of Object.entries(installedFiles || {})) {
+    const currentHash = (currentFiles || {})[relPath];
+    if (currentHash === undefined) {
+      drifted.push({ path: relPath, reason: 'missing_in_source' });
+    } else if (currentHash !== installedHash) {
+      drifted.push({ path: relPath, reason: 'hash_mismatch' });
+    }
+  }
+  return { clean: drifted.length === 0, drifted };
+}
+
+// Deliberately NOT cross-requiring bin/install.js's fileHash/generateManifest:
+// that file only exists in dev checkouts, not installed deployments, and a
+// hard require would need brittle existence-guarding for zero benefit over
+// duplicating this 3-line SHA256-over-file-bytes primitive verbatim.
+function hashFileSync(filePath) {
+  const content = fs.readFileSync(filePath);
+  return require('crypto').createHash('sha256').update(content).digest('hex');
+}
+
+// I/O: walks the same three subtrees writeManifest() hashes (get-shit-done/,
+// commands/gsd/, agents/gsd-*.md) under repoRoot, using the EXACT SAME key
+// prefixes so the result lines up 1:1 against an installed manifest's `files`.
+function buildCurrentSourceManifest(repoRoot) {
+  const result = {};
+  function walk(dir, baseDir, prefix) {
+    if (!fs.existsSync(dir)) return;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(fullPath, baseDir, prefix);
+      } else {
+        const relPath = path.relative(baseDir, fullPath).replace(/\\/g, '/');
+        result[prefix + relPath] = hashFileSync(fullPath);
+      }
+    }
+  }
+  walk(path.join(repoRoot, 'get-shit-done'), path.join(repoRoot, 'get-shit-done'), 'get-shit-done/');
+  walk(path.join(repoRoot, 'commands', 'gsd'), path.join(repoRoot, 'commands', 'gsd'), 'commands/gsd/');
+  const agentsDir = path.join(repoRoot, 'agents');
+  if (fs.existsSync(agentsDir)) {
+    for (const file of fs.readdirSync(agentsDir)) {
+      if (file.startsWith('gsd-') && file.endsWith('.md')) {
+        result['agents/' + file] = hashFileSync(path.join(agentsDir, file));
+      }
+    }
+  }
+  return result;
+}
+
+const MANIFEST_NAME_FOR_DOCTOR = 'gsd-file-manifest.json';
+
+function cmdDoctor(cwd, options, raw) {
+  const homeDir = require('os').homedir();
+  const configDir = options.configDir || path.join(homeDir, '.claude');
+  const manifestPath = path.join(configDir, 'gsd-file-manifest.json');
+
+  if (!fs.existsSync(manifestPath)) {
+    output({ ok: false, reason: 'no_manifest', message: 'No installed manifest found — run install first' }, raw);
+    return;
+  }
+  const parseResult = safeJsonParse(fs.readFileSync(manifestPath, 'utf-8'), MANIFEST_NAME_FOR_DOCTOR);
+  if (!parseResult.ok) {
+    output({ ok: false, reason: 'corrupted_manifest', error: parseResult.error }, raw);
+    return;
+  }
+  const manifest = parseResult.value;
+
+  const isSourceCheckout = fs.existsSync(path.join(cwd, 'get-shit-done', 'bin', 'gsd-tools.js'));
+  if (!isSourceCheckout) {
+    output({ ok: true, reason: 'not_a_source_checkout', message: 'Not running from a GSD source checkout — skipping skew check' }, raw);
+    return;
+  }
+
+  // Fast path: compare git SHAs directly if both are available.
+  if (manifest.source_git_sha) {
+    try {
+      const currentSha = require('child_process').execSync('git rev-parse HEAD', { cwd, encoding: 'utf8' }).trim();
+      if (currentSha === manifest.source_git_sha) {
+        output({ ok: true, clean: true, drifted: [], method: 'git_sha', current_sha: currentSha }, raw);
+        return;
+      }
+    } catch (_) { /* git unavailable — fall through to full hash diff */ }
+  }
+
+  // Full path: re-hash the current tree and diff against the installed manifest.
+  const currentManifest = buildCurrentSourceManifest(cwd);
+  const diff = computeManifestDrift(manifest.files || {}, currentManifest);
+  if (!diff.clean) {
+    console.warn(`WARNING: ${diff.drifted.length} file(s) drifted between installed copy and source checkout:`);
+    for (const d of diff.drifted) console.warn(`  - ${d.path} (${d.reason})`);
+  }
+  output({ ok: true, clean: diff.clean, drifted: diff.drifted, method: 'file_hash' }, raw);
+}
+
 // ─── CLI Router ───────────────────────────────────────────────────────────────
 
 async function main() {
@@ -11805,6 +11908,13 @@ async function main() {
       } else {
         error('Unknown resilience subcommand. Available: check-staleness, parse-death, resume-brief, estimate-quota');
       }
+      break;
+    }
+
+    case 'doctor': {
+      const configDirIdx = args.indexOf('--config-dir');
+      const options = { configDir: configDirIdx !== -1 ? args[configDirIdx + 1] : null };
+      cmdDoctor(cwd, options, raw);
       break;
     }
 
@@ -13074,4 +13184,5 @@ module.exports = {
   parseCheckpointForResume,
   buildResumeBrief,
   estimateQuotaForRemainingPhases,
+  computeManifestDrift,
 };

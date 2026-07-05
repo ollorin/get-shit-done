@@ -1205,7 +1205,7 @@ function generateManifest(dir, baseDir) {
 /**
  * Write file manifest after installation for future modification detection
  */
-function writeManifest(configDir) {
+function writeManifest(configDir, sourceRepoPath) {
   const gsdDir = path.join(configDir, 'get-shit-done');
   const commandsDir = path.join(configDir, 'commands', 'gsd');
   const agentsDir = path.join(configDir, 'agents');
@@ -1228,6 +1228,19 @@ function writeManifest(configDir) {
       }
     }
   }
+
+  // MILE-25: capture the source repo's git SHA for skew detection. This is a
+  // DIFFERENT purpose than the local-patch hashes above (repo-vs-installed
+  // staleness, not local-edit detection) -- do not merge semantics, just add
+  // sibling fields to the same manifest object.
+  let sourceGitSha = null;
+  if (sourceRepoPath) {
+    try {
+      sourceGitSha = execSync('git rev-parse HEAD', { cwd: sourceRepoPath, encoding: 'utf8' }).trim();
+    } catch (_) { sourceGitSha = null; } // git absent / not-a-repo is non-fatal
+  }
+  manifest.source_git_sha = sourceGitSha;
+  manifest.source_repo_path = sourceRepoPath || null;
 
   fs.writeFileSync(path.join(configDir, MANIFEST_NAME), JSON.stringify(manifest, null, 2));
   return manifest;
@@ -1696,7 +1709,7 @@ function install(isGlobal, runtime = 'claude') {
   fs.writeFileSync(sourcePathFile, process.cwd() + '\n');
 
   // Write file manifest for future modification detection
-  writeManifest(targetDir);
+  writeManifest(targetDir, process.cwd());
   console.log(`  ${green}✓${reset} Wrote file manifest (${MANIFEST_NAME})`);
 
   // Report any backed-up local patches
