@@ -191,7 +191,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync, execFileSync, spawnSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const { EVENT_TYPES, appendEvent, getHistory, getCurrentPhase, getExecutionStats } = require('./execution-log.js');
 const { parseRoadmap, buildDAG, getExecutionOrder, detectParallelOpportunities } = require('./roadmap-parser.js');
 const { TokenBudgetMonitor } = require('./token-monitor.js');
@@ -1995,18 +1995,6 @@ function stateReplaceField(content, fieldName, newValue) {
   return null;
 }
 
-// Tolerant field extractor: tries the bold `**Field:**` pattern first (back-compat
-// with stateExtractField's existing contract), falls back to a plain multiline
-// `Field: value` line match for STATE.md's real plain-prose format.
-function stateExtractFieldTolerant(content, fieldName) {
-  const bold = stateExtractField(content, fieldName);
-  if (bold !== null) return bold;
-  const escaped = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const pattern = new RegExp(`^\\s*${escaped}:\\s*(.*)$`, 'im');
-  const match = content.match(pattern);
-  return match ? match[1].trim() : null;
-}
-
 // Tolerant field replacer: tries the bold pattern first (unchanged behavior for
 // bold-field STATE.md), falls back to a plain multiline `Field: value` line
 // replacement. Returns null if neither pattern matched (matching stateReplaceField's
@@ -2045,17 +2033,6 @@ function replacePlanProgressLine(content, newCurrentPlan, totalPlans, suffix) {
   if (!pattern.test(content)) return null;
   const newLine = `Plan: ${newCurrentPlan} of ${totalPlans}${suffix ? ' ' + suffix : ''}`;
   return content.replace(pattern, newLine);
-}
-
-// Read-only reader for the "Phase: {N} of {M}" line -- used for context in the
-// advance-plan output payload only. This command does NOT auto-advance the
-// phase number, matching existing behavior (only the plan counter within the
-// current phase advances).
-function parsePhaseProgressLine(content) {
-  const pattern = /^\s*Phase:\s*(\d+)\s*of\s*(\d+)/im;
-  const match = content.match(pattern);
-  if (!match) return null;
-  return { currentPhase: parseInt(match[1], 10), totalPhases: parseInt(match[2], 10) };
 }
 
 function cmdStateAdvancePlan(cwd, raw) {
