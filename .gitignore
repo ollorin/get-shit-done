@@ -26,6 +26,15 @@ animation/
 .planning/
 get-shit-done/.planning/
 
+# Eval harness fixture (MILE-29): tracked FILES are intentionally committed by
+# the outer repo (ROADMAP.md, PROJECT.md, .planning/STATE.md, etc.) -- only the
+# fixture's own NESTED .git/ internals are excluded, so the outer repo never
+# treats it as a submodule-like blob. The .planning/ negation below is required
+# because the blanket ".planning/" rule above otherwise matches at any depth.
+tests/fixtures/eval-project/.git/
+!tests/fixtures/eval-project/.planning/
+!tests/fixtures/eval-project/.planning/**
+
 # Internal planning documents
 reports/
 RAILROAD_ARCHITECTURE.md

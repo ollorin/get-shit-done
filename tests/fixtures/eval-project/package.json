@@ -1,0 +1,9 @@
+{
+  "name": "eval-fixture",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Toy math library fixture for GSD's behavioral eval harness. Not a real product.",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  }
+}
