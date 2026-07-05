@@ -8261,3 +8261,91 @@ describe('Phase 51-02: resilience CLI subcommands', () => {
     assert.ok(typeof parsed.estimated_tokens === 'number');
   });
 });
+
+describe('execute-roadmap.md resilience wiring (Phase 51-03)', () => {
+  // Prose isn't unit-testable -- these are structural regression guards
+  // proving the workflow file's text actually contains the CLI call
+  // references and structural pieces this plan's prose wiring claims to add,
+  // following the exact precedent set in Phase 48-04's grep-assertion tests.
+  // Repo root is two levels up from this test file's __dirname
+  // (get-shit-done/bin/ -> get-shit-done/ -> repo root).
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+
+  function readExecuteRoadmap() {
+    return fs.readFileSync(path.join(REPO_ROOT, 'get-shit-done', 'workflows', 'execute-roadmap.md'), 'utf-8');
+  }
+
+  test('pre-flight quota estimate step calls resilience estimate-quota and logs both branches', () => {
+    const content = readExecuteRoadmap();
+
+    assert.match(content, /<step name="preflight_quota_estimate">/, 'execute-roadmap.md must have a preflight_quota_estimate step');
+    assert.match(content, /resilience estimate-quota/, 'preflight step must call resilience estimate-quota');
+    assert.match(content, /quota_preflight_ok/, 'preflight step must log quota_preflight_ok when sufficient');
+    assert.match(content, /quota_preflight_insufficient/, 'preflight step must log quota_preflight_insufficient when insufficient');
+
+    const preflightIdx = content.indexOf('<step name="preflight_quota_estimate">');
+    const confirmIdx = content.indexOf('<step name="confirm_execution">');
+    assert.notStrictEqual(preflightIdx, -1);
+    assert.notStrictEqual(confirmIdx, -1);
+    assert.ok(preflightIdx < confirmIdx, 'preflight_quota_estimate must be positioned before confirm_execution');
+  });
+
+  test('death-detection subsection exists, calls check-staleness/parse-death/resume-brief, and is positioned before step 5', () => {
+    const content = readExecuteRoadmap();
+
+    assert.match(content, /4a\. Detect coordinator death/, 'execute_phases must have a labeled 4a death-detection subsection');
+    assert.match(content, /resilience check-staleness/, 'death detection must call resilience check-staleness');
+    assert.match(content, /resilience parse-death/, 'death detection must call resilience parse-death');
+    assert.match(content, /resilience resume-brief/, 'death detection must call resilience resume-brief');
+
+    const fourAIdx = content.indexOf('4a. Detect coordinator death');
+    const fiveIdx = content.indexOf('**5. Handle result:**');
+    assert.notStrictEqual(fourAIdx, -1);
+    assert.notStrictEqual(fiveIdx, -1);
+    assert.ok(fourAIdx < fiveIdx, '4a death-detection subsection must be positioned before step 5\'s status branches');
+  });
+
+  test('death-detection logs coordinator_death_detected and auto_resume_spawned as literal event-type strings', () => {
+    const content = readExecuteRoadmap();
+
+    assert.match(content, /--type coordinator_death_detected/, 'must log coordinator_death_detected via execution-log event');
+    assert.match(content, /--type auto_resume_spawned/, 'must log auto_resume_spawned via execution-log event');
+  });
+
+  test('wait-until-reset logic documents a capped maximum wait duration (6 hours)', () => {
+    const content = readExecuteRoadmap();
+
+    assert.match(content, /6 hours/, 'wait-until-reset logic must document the 6-hour cap');
+    assert.match(content, /death_reset_time_implausible/, 'must log death_reset_time_implausible when the reset time exceeds the cap');
+  });
+
+  test('respawn re-spawns gsd-phase-coordinator with the resume brief prepended, and requires no human input', () => {
+    const content = readExecuteRoadmap();
+
+    const fourAIdx = content.indexOf('4a. Detect coordinator death');
+    const fiveIdx = content.indexOf('**5. Handle result:**');
+    const section = content.slice(fourAIdx, fiveIdx);
+
+    assert.match(section, /subagent_type="gsd-phase-coordinator"/, '4a must respawn via a fresh gsd-phase-coordinator Agent() call');
+    assert.match(section, /BRIEF_TEXT/, '4a must prepend the resume brief text to the respawn prompt');
+    assert.match(section, /RESUMING FROM DEATH/, '4a must reuse the "RESUMING FROM DEATH" preamble');
+    assert.match(section, /No human input required/, '4a must document that the auto-resume path requires no human input');
+  });
+
+  test('handle_failure retains its original execution-state record-failure retry/debug/escalate ladder unchanged (regression guard)', () => {
+    const content = readExecuteRoadmap();
+
+    const handleFailureIdx = content.indexOf('<step name="handle_failure">');
+    const resumeCapabilityIdx = content.indexOf('<step name="resume_capability">', handleFailureIdx);
+    assert.notStrictEqual(handleFailureIdx, -1, 'handle_failure step must still exist');
+    assert.notStrictEqual(resumeCapabilityIdx, -1, 'resume_capability step must still exist (used as the section boundary)');
+
+    const section = content.slice(handleFailureIdx, resumeCapabilityIdx);
+
+    assert.match(section, /execution-state record-failure/, 'handle_failure must retain its execution-state record-failure call');
+    assert.match(section, /"retry"/, 'handle_failure must retain the retry branch');
+    assert.match(section, /"debug"/, 'handle_failure must retain the debug branch');
+    assert.match(section, /"escalate"/, 'handle_failure must retain the escalate branch');
+    assert.match(section, /entered ONLY for genuine `status: "failed"` task-logic failures/, 'handle_failure must have the new clarifying scope note distinguishing it from coordinator deaths');
+  });
+});
