@@ -7501,3 +7501,399 @@ describe('Phase 49: cross-cutting acceptance criteria', () => {
     assert.strictEqual(coverageIndex.length, 10, 'expected exactly 10 AC bullets from ROADMAP Phase 49 success criterion 5');
   });
 });
+
+describe('Phase 51-01: quota corruption self-heal (loadQuotaState)', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function writeQuotaFixture(session, weekly, tasks = []) {
+    const quotaDir = path.join(tmpDir, '.planning', 'quota');
+    fs.mkdirSync(quotaDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(quotaDir, 'session-usage.json'),
+      JSON.stringify({
+        session,
+        weekly,
+        tasks,
+        warnings_shown: { session_80: false, weekly_80: false },
+      }, null, 2)
+    );
+    return path.join(quotaDir, 'session-usage.json');
+  }
+
+  function readQuotaFile() {
+    return JSON.parse(fs.readFileSync(path.join(tmpDir, '.planning', 'quota', 'session-usage.json'), 'utf-8'));
+  }
+
+  function readCorruptionLog() {
+    const logPath = path.join(tmpDir, '.planning', 'quota', 'corruption-log.jsonl');
+    if (!fs.existsSync(logPath)) return [];
+    return fs.readFileSync(logPath, 'utf-8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
+  }
+
+  test('synthetic 28625%-shaped session corruption -> session healed to 0, weekly untouched, one corruption-log entry', () => {
+    writeQuotaFixture(
+      { tokens_used: 572500000, tokens_limit: 2000000, reset_time: null, last_updated: null }, // 28625%
+      { tokens_used: 1000000, tokens_limit: 100000000, reset_time: null, last_updated: null }
+    );
+
+    const result = runGsdTools('quota status', tmpDir);
+    assert.ok(result.success, `quota status should succeed: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+
+    assert.strictEqual(parsed.session.used, 0, 'corrupted session tokens_used must be healed to 0');
+    assert.strictEqual(parsed.session.percent, 0, 'healed session percent must be 0');
+    assert.strictEqual(parsed.weekly.used, 1000000, 'weekly scope must be untouched when only session is corrupted');
+
+    const healedFile = readQuotaFile();
+    assert.strictEqual(healedFile.session.tokens_used, 0, 'healed state must persist to disk via saveQuotaState');
+    assert.strictEqual(healedFile.weekly.tokens_used, 1000000, 'weekly scope on disk must be untouched');
+
+    const log = readCorruptionLog();
+    assert.strictEqual(log.length, 1, 'expected exactly one corruption-log.jsonl entry');
+    assert.strictEqual(log[0].scope, 'session', 'the single corruption entry must be for session, not weekly');
+  });
+
+  test('synthetic 59196%-shaped weekly corruption -> weekly healed, session untouched', () => {
+    writeQuotaFixture(
+      { tokens_used: 900000, tokens_limit: 2000000, reset_time: null, last_updated: null },
+      { tokens_used: 59196000000, tokens_limit: 100000000, reset_time: null, last_updated: null } // 59196%
+    );
+
+    const result = runGsdTools('quota status', tmpDir);
+    assert.ok(result.success, `quota status should succeed: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+
+    assert.strictEqual(parsed.weekly.used, 0, 'corrupted weekly tokens_used must be healed to 0');
+    assert.strictEqual(parsed.weekly.percent, 0, 'healed weekly percent must be 0');
+    assert.strictEqual(parsed.session.used, 900000, 'session scope must be untouched when only weekly is corrupted');
+
+    const log = readCorruptionLog();
+    assert.strictEqual(log.length, 1, 'expected exactly one corruption-log.jsonl entry');
+    assert.strictEqual(log[0].scope, 'weekly', 'the single corruption entry must be for weekly, not session');
+  });
+
+  test('live-fixture-shaped corruption (this repo\'s actual numbers: 1479301347/2000000 session) -> heals from ~73965% to 0%, healthy 100M weekly untouched', () => {
+    writeQuotaFixture(
+      { tokens_used: 1479301347, tokens_limit: 2000000, reset_time: null, last_updated: '2026-07-05T00:00:00.000Z' },
+      { tokens_used: 8500000, tokens_limit: 100000000, reset_time: null, last_updated: '2026-07-05T00:00:00.000Z' },
+      [{ task_id: 't1', model: 'sonnet', tokens_in: 100, tokens_out: 200, timestamp: '2026-07-01T00:00:00.000Z' }]
+    );
+
+    const result = runGsdTools('quota status', tmpDir);
+    assert.ok(result.success, `quota status should succeed: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+
+    assert.strictEqual(parsed.session.percent, 0, 'the live-shaped ~73965% session corruption must heal to 0%');
+    assert.strictEqual(parsed.weekly.used, 8500000, 'the healthy 8.5% weekly scope must NOT be flagged as corrupted at this limit');
+    assert.strictEqual(parsed.weekly.percent, 8.5, 'weekly percent must be unchanged (8.5%)');
+  });
+
+  test('NaN tokens_used (string "NaN" coerced) -> detected and healed', () => {
+    writeQuotaFixture(
+      { tokens_used: 'NaN', tokens_limit: 2000000, reset_time: null, last_updated: null },
+      { tokens_used: 2000000, tokens_limit: 100000000, reset_time: null, last_updated: null }
+    );
+
+    const result = runGsdTools('quota status', tmpDir);
+    assert.ok(result.success, `quota status should succeed: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+
+    assert.strictEqual(parsed.session.used, 0, 'NaN-shaped tokens_used must be healed to 0');
+    const log = readCorruptionLog();
+    assert.strictEqual(log.length, 1, 'expected exactly one corruption-log.jsonl entry for the NaN scope');
+    assert.strictEqual(log[0].scope, 'session');
+  });
+
+  test('null tokens_used -> detected and healed', () => {
+    writeQuotaFixture(
+      { tokens_used: null, tokens_limit: 2000000, reset_time: null, last_updated: null },
+      { tokens_used: 2000000, tokens_limit: 100000000, reset_time: null, last_updated: null }
+    );
+
+    const result = runGsdTools('quota status', tmpDir);
+    assert.ok(result.success, `quota status should succeed: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+
+    assert.strictEqual(parsed.session.used, 0, 'null tokens_used must be healed to 0');
+  });
+
+  test('negative tokens_used -> detected and healed', () => {
+    writeQuotaFixture(
+      { tokens_used: -500000, tokens_limit: 2000000, reset_time: null, last_updated: null },
+      { tokens_used: 2000000, tokens_limit: 100000000, reset_time: null, last_updated: null }
+    );
+
+    const result = runGsdTools('quota status', tmpDir);
+    assert.ok(result.success, `quota status should succeed: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+
+    assert.strictEqual(parsed.session.used, 0, 'negative tokens_used must be healed to 0');
+    const log = readCorruptionLog();
+    assert.strictEqual(log.length, 1);
+    assert.strictEqual(log[0].action, 'reset_tokens_used', 'a negative-tokens_used-only corruption must not also reset a valid limit');
+  });
+
+  test('tokens_limit <= 0 -> detected, tokens_used reset AND tokens_limit reset to DEFAULT_QUOTA_STATE value', () => {
+    writeQuotaFixture(
+      { tokens_used: 500000, tokens_limit: 0, reset_time: null, last_updated: null },
+      { tokens_used: 2000000, tokens_limit: 100000000, reset_time: null, last_updated: null }
+    );
+
+    const result = runGsdTools('quota status', tmpDir);
+    assert.ok(result.success, `quota status should succeed: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+
+    assert.strictEqual(parsed.session.used, 0, 'tokens_used must be reset when tokens_limit is corrupted');
+    assert.strictEqual(parsed.session.limit, 2000000, 'tokens_limit must be reset to the DEFAULT_QUOTA_STATE value (2,000,000)');
+
+    const log = readCorruptionLog();
+    assert.strictEqual(log.length, 1);
+    assert.strictEqual(log[0].action, 'reset_tokens_used_and_limit', 'a corrupted tokens_limit must produce the "and_limit" action, not just "reset_tokens_used"');
+  });
+
+  test('valid non-corrupted state (45% session, 12% weekly) -> passes through completely unchanged, no corruption-log.jsonl, no stderr corruption message', () => {
+    writeQuotaFixture(
+      { tokens_used: 900000, tokens_limit: 2000000, reset_time: null, last_updated: null }, // 45%
+      { tokens_used: 12000000, tokens_limit: 100000000, reset_time: null, last_updated: null } // 12%
+    );
+
+    const result = runGsdTools('quota status', tmpDir);
+    assert.ok(result.success, `quota status should succeed: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+
+    assert.strictEqual(parsed.session.used, 900000, 'valid session tokens_used must be unchanged');
+    assert.strictEqual(parsed.session.percent, 45, 'valid session percent must be unchanged');
+    assert.strictEqual(parsed.weekly.used, 12000000, 'valid weekly tokens_used must be unchanged');
+    assert.strictEqual(parsed.weekly.percent, 12, 'valid weekly percent must be unchanged');
+
+    assert.ok(!/QUOTA CORRUPTION DETECTED/.test(result.error || ''), 'no corruption stderr message expected for a healthy state');
+
+    const logPath = path.join(tmpDir, '.planning', 'quota', 'corruption-log.jsonl');
+    assert.ok(!fs.existsSync(logPath), 'corruption-log.jsonl must not be created for a healthy, non-corrupted state');
+  });
+
+  test('corruption-log.jsonl entry shape includes timestamp, scope, tokens_used_before, tokens_limit_before, computed_percent, action', () => {
+    writeQuotaFixture(
+      { tokens_used: 999999999, tokens_limit: 2000000, reset_time: null, last_updated: null },
+      { tokens_used: 1000000, tokens_limit: 100000000, reset_time: null, last_updated: null }
+    );
+
+    runGsdTools('quota status', tmpDir);
+    const log = readCorruptionLog();
+    assert.strictEqual(log.length, 1);
+    const entry = log[0];
+
+    assert.ok(typeof entry.timestamp === 'string' && entry.timestamp.length > 0, 'entry must have a timestamp');
+    assert.strictEqual(entry.scope, 'session');
+    assert.strictEqual(entry.tokens_used_before, 999999999);
+    assert.strictEqual(entry.tokens_limit_before, 2000000);
+    assert.ok(typeof entry.computed_percent === 'number' || entry.computed_percent === null, 'computed_percent must be present (number or JSON-serialized null for NaN)');
+    assert.strictEqual(entry.action, 'reset_tokens_used');
+  });
+
+  test('integration proof: routing match-with-quota returns the genuine (non-haiku-forced) tier for an opus-shaped task after healing', () => {
+    // This repo's own live corrupted numbers (73965% session) -- proves the
+    // exact poisoning scenario this plan fixes no longer occurs.
+    writeQuotaFixture(
+      { tokens_used: 1479301347, tokens_limit: 2000000, reset_time: null, last_updated: null },
+      { tokens_used: 5000000, tokens_limit: 100000000, reset_time: null, last_updated: null }
+    );
+
+    const opusShapedTask = [
+      'Design system architecture and design service boundary decisions comprehensively.',
+      '- item one',
+      '- item two',
+      '- item three',
+      '  - nested one',
+      '  - nested two',
+      '1. step one',
+      '2. step two',
+      '3. step three',
+      'This must never regress security, performance, scalability across the entire system.',
+      'Evaluate migration and refactor entire architecture design integrate design service boundary.',
+    ].join('\n');
+
+    const result = runGsdTools(`routing match-with-quota "${opusShapedTask}"`, tmpDir);
+    assert.ok(result.success, `routing match-with-quota should succeed: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+
+    assert.strictEqual(parsed.model, 'opus', 'an opus-shaped task must NOT be force-downgraded to haiku once loadQuotaState has healed the corrupted percent before this function ever sees it');
+    assert.strictEqual(parsed.quota_adjusted, false, 'quota_adjusted must be false once the session percent is healed to 0');
+    assert.strictEqual(parsed.quota_percent, 0, 'quota_percent must reflect the healed (0%), not the corrupted (73965%) value');
+  });
+});
+
+describe('Phase 51-01: STATE.md tolerant parsing (state advance-plan / state update-progress)', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function writeState(content) {
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'STATE.md'), content);
+  }
+
+  function readState() {
+    return fs.readFileSync(path.join(tmpDir, '.planning', 'STATE.md'), 'utf-8');
+  }
+
+  test('round-trip against a COPY of the actual repo .planning/STATE.md: advance-plan succeeds and correctly parses the real "Plan: N of M" line', () => {
+    const realStatePath = path.join(__dirname, '..', '..', '.planning', 'STATE.md');
+    const realContent = fs.readFileSync(realStatePath, 'utf-8');
+    writeState(realContent); // temp fixture copy -- never touches the live file
+
+    const parsedBefore = (() => {
+      const match = realContent.match(/^\s*Plan:\s*(\d+)\s*of\s*(\d+)\s*(.*)$/im);
+      assert.ok(match, 'sanity check: the real repo STATE.md must have a plain "Plan: N of M" line for this round-trip test to be meaningful');
+      return { current: parseInt(match[1], 10), total: parseInt(match[2], 10) };
+    })();
+
+    const result = runGsdTools('state advance-plan', tmpDir);
+    assert.ok(result.success, `state advance-plan should succeed against a real STATE.md copy: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+
+    assert.ok(!parsed.error, `advance-plan must not error against the real STATE.md shape: ${JSON.stringify(parsed)}`);
+    assert.strictEqual(parsed.total_plans, parsedBefore.total, 'total_plans must match the real file\'s current total');
+
+    if (parsedBefore.current >= parsedBefore.total) {
+      assert.strictEqual(parsed.advanced, false);
+      assert.strictEqual(parsed.reason, 'last_plan');
+    } else {
+      assert.strictEqual(parsed.advanced, true);
+      assert.strictEqual(parsed.current_plan, parsedBefore.current + 1);
+    }
+
+    // Confirm the on-disk temp fixture was actually rewritten with a valid Plan line.
+    const after = readState();
+    assert.ok(/^\s*Plan:\s*\d+\s*of\s*\d+/im.test(after), 'the temp fixture must still have a parseable Plan line after advance-plan');
+  });
+
+  test('round-trip update-progress against the same real-STATE.md copy: succeeds, replaces the plain Progress: line, preserves the bar/percent format', () => {
+    const realStatePath = path.join(__dirname, '..', '..', '.planning', 'STATE.md');
+    const realContent = fs.readFileSync(realStatePath, 'utf-8');
+    writeState(realContent); // temp fixture copy -- never touches the live file
+
+    const result = runGsdTools('state update-progress', tmpDir);
+    assert.ok(result.success, `state update-progress should succeed against a real STATE.md copy: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+
+    assert.strictEqual(parsed.updated, true, 'update-progress must succeed against the real plain Progress: line');
+    assert.match(parsed.bar, /^\[[█░]+\]\s*\d+%$/, 'bar/percent format must be preserved');
+
+    const after = readState();
+    assert.match(after, /^\s*Progress:\s*\[[█░]+\]\s*\d+%/im, 'the plain Progress: line must be present and correctly formatted after update');
+  });
+
+  test('back-compat: a synthetic bold-field fixture still works via the original bold path, unchanged output shape', () => {
+    writeState([
+      '# Project State',
+      '',
+      '## Current Position',
+      '',
+      '**Current Plan:** 2',
+      '**Total Plans in Phase:** 3',
+      '**Status:** In progress',
+      '**Last Activity:** 2026-01-01',
+      '',
+      '**Progress:** [old bar] 50%',
+      '',
+    ].join('\n'));
+
+    const advanceResult = runGsdTools('state advance-plan', tmpDir);
+    assert.ok(advanceResult.success, `advance-plan should succeed on a bold fixture: ${advanceResult.error}`);
+    const advanceParsed = JSON.parse(advanceResult.output);
+    assert.deepStrictEqual(advanceParsed, { advanced: true, previous_plan: 2, current_plan: 3, total_plans: 3 });
+
+    const afterAdvance = readState();
+    assert.match(afterAdvance, /\*\*Current Plan:\*\*\s*3/, 'bold Current Plan field must be advanced in place');
+    assert.match(afterAdvance, /\*\*Status:\*\*\s*Ready to execute/, 'bold Status field must be updated');
+
+    const progressResult = runGsdTools('state update-progress', tmpDir);
+    assert.ok(progressResult.success, `update-progress should succeed on a bold fixture: ${progressResult.error}`);
+    const progressParsed = JSON.parse(progressResult.output);
+    assert.strictEqual(progressParsed.updated, true);
+
+    const afterProgress = readState();
+    assert.match(afterProgress, /\*\*Progress:\*\*\s*\[[█░]+\]\s*\d+%/, 'bold Progress field must be replaced with the new bar');
+  });
+
+  test('edge case: STATE.md missing the Plan: line entirely -> advance-plan returns the existing { error: ... } shape, does not throw', () => {
+    writeState([
+      '# Project State',
+      '',
+      '## Current Position',
+      '',
+      'Phase: 1 of 1',
+      'Status: In progress',
+      '',
+    ].join('\n'));
+
+    const result = runGsdTools('state advance-plan', tmpDir);
+    assert.ok(result.success, `advance-plan must not throw, even on unparseable input: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.error, 'Cannot parse Current Plan or Total Plans in Phase from STATE.md');
+  });
+
+  test('edge case: STATE.md missing Progress: entirely (neither bold nor plain) -> update-progress returns { updated: false, reason: ... }', () => {
+    writeState([
+      '# Project State',
+      '',
+      '## Current Position',
+      '',
+      'Plan: 1 of 2 in current phase',
+      'Status: In progress',
+      '',
+    ].join('\n'));
+
+    const result = runGsdTools('state update-progress', tmpDir);
+    assert.ok(result.success, `update-progress must not throw: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.deepStrictEqual(parsed, { updated: false, reason: 'Progress field not found in STATE.md' });
+  });
+
+  test('case-insensitivity: "last activity" vs "Last Activity" vs "Last activity" all match via the tolerant replacer', () => {
+    const cases = ['last activity', 'Last Activity', 'Last activity'];
+    for (const fieldCasing of cases) {
+      const freshTmp = createTempProject();
+      try {
+        fs.writeFileSync(path.join(freshTmp, '.planning', 'STATE.md'), [
+          '# Project State',
+          '',
+          '## Current Position',
+          '',
+          'Plan: 1 of 2 in current phase complete',
+          'Status: In progress',
+          `${fieldCasing}: 2020-01-01`,
+          '',
+          'Progress: [░░░░░░░░░░] 0%',
+          '',
+        ].join('\n'));
+
+        const result = runGsdTools('state advance-plan', freshTmp);
+        assert.ok(result.success, `advance-plan must succeed regardless of "${fieldCasing}" casing: ${result.error}`);
+        const parsed = JSON.parse(result.output);
+        assert.strictEqual(parsed.advanced, true, `expected advance to succeed for casing "${fieldCasing}"`);
+
+        const after = fs.readFileSync(path.join(freshTmp, '.planning', 'STATE.md'), 'utf-8');
+        const today = new Date().toISOString().split('T')[0];
+        const activityPattern = new RegExp(`^\\s*${fieldCasing.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}:\\s*${today}`, 'im');
+        assert.ok(activityPattern.test(after), `expected the "${fieldCasing}" field to be updated to today's date regardless of casing`);
+      } finally {
+        cleanup(freshTmp);
+      }
+    }
+  });
+});
