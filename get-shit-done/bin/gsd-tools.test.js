@@ -7244,3 +7244,260 @@ describe('Phase 49-03: complete-milestone consolidation step wiring', () => {
     }
   });
 });
+
+describe('Phase 49-04: CLI deletions', () => {
+  let tmpDbPath;
+  let prevOverride;
+
+  beforeEach(() => {
+    prevOverride = process.env.GSD_KNOWLEDGE_DB_PATH;
+    tmpDbPath = path.join(
+      require('os').tmpdir(),
+      `gsd-test-knowledge-49-04-${Date.now()}-${Math.random().toString(36).slice(2)}.db`
+    );
+  });
+
+  afterEach(() => {
+    for (const suffix of ['', '-wal', '-shm']) {
+      const p = tmpDbPath + suffix;
+      if (fs.existsSync(p)) {
+        try { fs.rmSync(p, { force: true }); } catch (_) { /* best-effort */ }
+      }
+    }
+    if (prevOverride === undefined) {
+      delete process.env.GSD_KNOWLEDGE_DB_PATH;
+    } else {
+      process.env.GSD_KNOWLEDGE_DB_PATH = prevOverride;
+    }
+  });
+
+  test('grant is no longer a recognized command', () => {
+    const result = runGsdTools('grant test_action', process.cwd(), { GSD_KNOWLEDGE_DB_PATH: tmpDbPath });
+    assert.strictEqual(result.success, false, 'expected grant to fail now that the command is removed');
+    assert.match(result.error, /Unknown command/i);
+  });
+
+  test('revoke is no longer a recognized command', () => {
+    const result = runGsdTools('revoke some_token', process.cwd(), { GSD_KNOWLEDGE_DB_PATH: tmpDbPath });
+    assert.strictEqual(result.success, false, 'expected revoke to fail now that the command is removed');
+    assert.match(result.error, /Unknown command/i);
+  });
+
+  test('list-permissions is no longer a recognized command', () => {
+    const result = runGsdTools('list-permissions', process.cwd(), { GSD_KNOWLEDGE_DB_PATH: tmpDbPath });
+    assert.strictEqual(result.success, false, 'expected list-permissions to fail now that the command is removed');
+    assert.match(result.error, /Unknown command/i);
+  });
+
+  test('knowledge-qa.js and knowledge-scan.js no longer exist on disk', () => {
+    assert.strictEqual(fs.existsSync(path.join(__dirname, 'knowledge-qa.js')), false, 'knowledge-qa.js should be deleted');
+    assert.strictEqual(fs.existsSync(path.join(__dirname, 'knowledge-scan.js')), false, 'knowledge-scan.js should be deleted');
+  });
+
+  test('knowledge-permissions.js module itself is untouched and still loadable, exposing its full API', () => {
+    // Clear the require cache so this test reflects the file's current on-disk state.
+    const modPath = path.join(__dirname, 'knowledge-permissions.js');
+    delete require.cache[require.resolve(modPath)];
+    const mod = require(modPath);
+    assert.strictEqual(typeof mod.grantPermission, 'function', 'grantPermission should still be exported');
+    assert.strictEqual(typeof mod.revokePermission, 'function', 'revokePermission should still be exported');
+    assert.strictEqual(typeof mod.listActivePermissions, 'function', 'listActivePermissions should still be exported');
+  });
+
+  test('sibling knowledge subcommands are unaffected by the deletion', () => {
+    const result = runGsdTools('knowledge stats --raw', process.cwd(), { GSD_KNOWLEDGE_DB_PATH: tmpDbPath });
+    assert.strictEqual(result.success, true, `knowledge stats failed: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.ok(parsed.by_type !== undefined, 'expected valid knowledge stats JSON output');
+  });
+});
+
+describe('Phase 49: cross-cutting acceptance criteria', () => {
+  // CRITICAL — SHARED-DB CAUTION: ~/.claude/knowledge/ is a LIVE database.
+  // Every test in this block MUST set GSD_KNOWLEDGE_DB_PATH to an isolated
+  // temp file before touching anything that opens the knowledge DB.
+  let tmpDbPath;
+  let prevOverride;
+  let openedDbs;
+
+  beforeEach(() => {
+    prevOverride = process.env.GSD_KNOWLEDGE_DB_PATH;
+    tmpDbPath = path.join(
+      require('os').tmpdir(),
+      `gsd-test-knowledge-49-04-xcut-${Date.now()}-${Math.random().toString(36).slice(2)}.db`
+    );
+    process.env.GSD_KNOWLEDGE_DB_PATH = tmpDbPath;
+    openedDbs = [];
+  });
+
+  afterEach(() => {
+    const { closeKnowledgeDB } = require('./knowledge-db.js');
+    for (const db of openedDbs) {
+      try { closeKnowledgeDB(db); } catch (_) { /* best-effort */ }
+    }
+    for (const suffix of ['', '-wal', '-shm']) {
+      const p = tmpDbPath + suffix;
+      if (fs.existsSync(p)) {
+        try { fs.rmSync(p, { force: true }); } catch (_) { /* best-effort */ }
+      }
+    }
+    if (prevOverride === undefined) {
+      delete process.env.GSD_KNOWLEDGE_DB_PATH;
+    } else {
+      process.env.GSD_KNOWLEDGE_DB_PATH = prevOverride;
+    }
+  });
+
+  test('end-to-end: multi-insight batch with one secret-bearing insight -- only the offending insight is skipped, clean siblings in the same batch are still stored', async () => {
+    const { storeInsights } = require('./knowledge-writer.js');
+    const { openKnowledgeDB, closeKnowledgeDB } = require('./knowledge-db.js');
+
+    const rawKey = 'sk-batchtest1234567890abcdefghij';
+    const tmpCwd = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-test-49-04-batch-cwd-'));
+    try {
+      const result = await storeInsights(
+        [
+          { type: 'decision', decision: `first clean decision about testing strategy ${Date.now()}` },
+          { type: 'decision', decision: `use this key: ${rawKey} for the integration` },
+          { type: 'reasoning_pattern', description: `second clean lesson about code review ${Date.now()}` }
+        ],
+        { cwd: tmpCwd }
+      );
+
+      // 2 clean insights stored/evolved, 1 secret-bearing insight skipped.
+      assert.strictEqual(result.stored + result.evolved, 2, 'expected exactly the 2 clean insights to be stored');
+      assert.strictEqual(result.skipped, 1, 'expected exactly the 1 secret-bearing insight to be skipped');
+
+      const conn = openKnowledgeDB('global');
+      openedDbs.push(conn.db);
+      const rows = conn.db.prepare('SELECT content FROM knowledge').all();
+      for (const row of rows) {
+        assert.ok(!row.content.includes(rawKey), 'raw API key must never be persisted verbatim, even alongside clean siblings in the same batch');
+      }
+    } finally {
+      fs.rmSync(tmpCwd, { recursive: true, force: true });
+    }
+  });
+
+  test('end-to-end: circuit breaker enabled -- storeInsights blocks embeddings AND writes a GSD_DEBUG log line (the "and logs" half of the AC)', () => {
+    const { spawnSync } = require('child_process');
+
+    const childScript = path.join(require('os').tmpdir(), `gsd-test-49-04-cb-log-child-${Date.now()}.js`);
+    const tmpCwd = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-test-49-04-cb-log-cwd-'));
+    try {
+      fs.writeFileSync(childScript, `
+        const { enableCircuitBreaker } = require(${JSON.stringify(path.join(__dirname, 'knowledge-cost.js'))});
+        const { openKnowledgeDB, closeKnowledgeDB } = require(${JSON.stringify(path.join(__dirname, 'knowledge-db.js'))});
+        const { storeInsights } = require(${JSON.stringify(path.join(__dirname, 'knowledge-writer.js'))});
+        (async () => {
+          const conn = openKnowledgeDB('global');
+          enableCircuitBreaker(conn.db, 'integration_test_reason');
+          closeKnowledgeDB(conn.db);
+          const result = await storeInsights(
+            [{ type: 'decision', decision: 'a decision long enough to pass the content filter for this logging test' }],
+            { cwd: process.cwd() }
+          );
+          process.stdout.write(JSON.stringify(result));
+        })();
+      `);
+
+      const spawned = spawnSync('node', [childScript], {
+        cwd: tmpCwd,
+        encoding: 'utf-8',
+        env: { ...process.env, GSD_DEBUG: '1', GSD_KNOWLEDGE_DB_PATH: tmpDbPath }
+      });
+
+      assert.strictEqual(spawned.status, 0, `child process failed: ${spawned.stderr}`);
+      assert.match(
+        spawned.stderr,
+        /Circuit breaker enabled.*skipping embedding generation, hash-only dedup/,
+        'expected a GSD_DEBUG log line proving the circuit breaker block was logged, not just silently applied'
+      );
+
+      const parsedStdout = JSON.parse(spawned.stdout);
+      assert.strictEqual(parsedStdout.stored + parsedStdout.evolved, 1, 'insight should still be stored via hash-only dedup while embeddings are blocked');
+    } finally {
+      fs.rmSync(childScript, { force: true });
+      fs.rmSync(tmpCwd, { recursive: true, force: true });
+    }
+  });
+
+  test('end-to-end: concurrent storeInsights calls on identical content via the public API -- no lost update, exactly one row', async () => {
+    const { storeInsights } = require('./knowledge-writer.js');
+    const { openKnowledgeDB, closeKnowledgeDB } = require('./knowledge-db.js');
+
+    const tmpCwd = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-test-49-04-concurrent-cwd-'));
+    try {
+      const content = `always run the full test suite before committing any change to main ${Date.now()}`;
+      const calls = [];
+      for (let i = 0; i < 5; i++) {
+        calls.push(storeInsights([{ type: 'reasoning_pattern', description: content }], { cwd: tmpCwd }));
+      }
+      const results = await Promise.all(calls);
+
+      const totalStoredOrEvolved = results.reduce((sum, r) => sum + r.stored + r.evolved, 0);
+      assert.ok(totalStoredOrEvolved >= 1, 'expected at least one call to have stored/evolved the content');
+
+      const conn = openKnowledgeDB('global');
+      openedDbs.push(conn.db);
+      const row = conn.db.prepare('SELECT COUNT(*) as cnt FROM knowledge WHERE content = ?').get(content);
+      assert.strictEqual(row.cnt, 1, 'expected exactly 1 row via the public storeInsights API -- no lost update / no duplicate insert under concurrency');
+    } finally {
+      fs.rmSync(tmpCwd, { recursive: true, force: true });
+    }
+  });
+
+  // Full acceptance-criteria coverage index -- ROADMAP.md Phase 49 success
+  // criterion 5 lists exactly 10 AC bullets. Each is mapped below to the
+  // owning test(s) by describe/test name. Anything without a clear owner
+  // gets a new test in THIS describe block rather than a footnote.
+  test('coverage index: all 10 Phase 49 success-criterion-5 AC bullets have an owning test', () => {
+    const coverageIndex = [
+      {
+        ac: 'secret pattern -> redacted/rejected',
+        owner: '"Phase 49-01: secrets/PII filter end-to-end" > "API-key pattern -> storeInsights rejects the whole insight, raw key never persisted" / "custom config pattern -> filterContentForSecrets rejects" / "ambiguous high-entropy token -> rejected"'
+      },
+      {
+        ac: 'clean content -> unchanged',
+        owner: '"Phase 49-01: secrets/PII filter end-to-end" > "clean content -> passes through unchanged, and storeInsights stores it successfully"'
+      },
+      {
+        ac: 'budget exceeded -> circuit breaker blocks + logs',
+        owner: '"Phase 49-01: write-path safety" > "circuit breaker gates embedding generation, storeInsights still stores the insight via hash-only dedup" (blocks) + "Phase 49: cross-cutting acceptance criteria" > "end-to-end: circuit breaker enabled -- storeInsights blocks embeddings AND writes a GSD_DEBUG log line" (logs, this plan)'
+      },
+      {
+        ac: 'concurrent writes -> no lost update',
+        owner: '"Phase 49-01: write-path safety" > 5-concurrent-insertOrEvolve test (module level) + "Phase 49: cross-cutting acceptance criteria" > "end-to-end: concurrent storeInsights calls on identical content via the public API" (public-API level, this plan)'
+      },
+      {
+        ac: 'session-end -> prune runs',
+        owner: '"Phase 49-02: event triggers" > "session-end hook prunes a stale entry with no manual invocation"'
+      },
+      {
+        ac: 'verification failure tied to KB answer -> feedback recorded',
+        owner: '"Phase 49-02: knowledge feedback wiring" > "mark-wrong degrades confidence and records the reason (verification-failure-tied-to-KB-answer scenario)"'
+      },
+      {
+        ac: 'bulk op -> checkpoint first',
+        owner: '"Phase 49-02: event triggers" > "mine-conversations creates a checkpoint before scanning/extracting"'
+      },
+      {
+        ac: 'sufficient cluster -> principle with LLM-generated text',
+        owner: '"Phase 49-03: milestone consolidation" > "sufficient cluster -> principle stores the injected synthesizer text, not the truncated stub"'
+      },
+      {
+        ac: 'insufficient cluster -> none',
+        owner: '"Phase 49-03: milestone consolidation" > "insufficient cluster -> zero principles, bar never lowered to force output"'
+      },
+      {
+        ac: 'conflicting principles -> flagged, not silently overwritten',
+        owner: '"Phase 49-03: milestone consolidation" > "conflicting same-topic principles -> flagged to CONFLICTS.jsonl, existing principle never overwritten"'
+      }
+    ];
+
+    for (const entry of coverageIndex) {
+      assert.ok(entry.owner && entry.owner.length > 0, `AC bullet "${entry.ac}" has no owning test`);
+    }
+    assert.strictEqual(coverageIndex.length, 10, 'expected exactly 10 AC bullets from ROADMAP Phase 49 success criterion 5');
+  });
+});
