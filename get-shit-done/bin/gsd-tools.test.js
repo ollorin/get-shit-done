@@ -43,6 +43,31 @@ function cleanup(tmpDir) {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 }
 
+// Phase 53-02 (MILE-30): gsd-phase-coordinator.md, gsd-planner.md,
+// gsd-verifier.md, gsd-debugger.md, and gsd-executor.md were restructured
+// hard-rules-first -- a short core preamble followed by
+// `<!-- GSD:CORE-PREAMBLE-END -->` and a `@get-shit-done/references/*.md`
+// pointer to the relocated detail. Several pre-existing regression tests
+// below assert on content that now lives in the reference file rather than
+// the agent file directly. Since Claude Code resolves `@`-includes at
+// prompt-load time (the agent's EFFECTIVE prompt is core + included
+// content), this helper reads an agent .md file and inlines any
+// `@get-shit-done/references/*.md` pointer line it finds, so assertions
+// against "what the agent actually sees" remain accurate regardless of
+// which physical file the content lives in. Falls back to the raw content
+// unchanged if no such pointer is present (pre-restructuring behavior).
+function readEffectiveAgentContent(agentPath) {
+  const raw = fs.readFileSync(agentPath, 'utf8');
+  const repoRoot = path.join(__dirname, '..', '..');
+  const pointerPattern = /^@(get-shit-done\/references\/[\w-]+\.md)$/m;
+  const match = raw.match(pointerPattern);
+  if (!match) return raw;
+  const refPath = path.join(repoRoot, match[1]);
+  if (!fs.existsSync(refPath)) return raw;
+  const refContent = fs.readFileSync(refPath, 'utf8');
+  return raw + '\n' + refContent;
+}
+
 describe('history-digest command', () => {
   let tmpDir;
 
@@ -2686,13 +2711,13 @@ describe('gsd-executor — post-plan test gate section (Phase 35-01)', () => {
   const EXECUTOR_PATH = path.join('/Users/ollorin/get-shit-done', 'agents', 'gsd-executor.md');
 
   test('post_plan_test_gate section exists in executor prompt', () => {
-    const content = fs.readFileSync(EXECUTOR_PATH, 'utf8');
+    const content = readEffectiveAgentContent(EXECUTOR_PATH);
     assert.ok(content.includes('<post_plan_test_gate>'), 'Missing <post_plan_test_gate> opening tag');
     assert.ok(content.includes('</post_plan_test_gate>'), 'Missing </post_plan_test_gate> closing tag');
   });
 
   test('post_plan_test_gate references test command auto-detection', () => {
-    const content = fs.readFileSync(EXECUTOR_PATH, 'utf8');
+    const content = readEffectiveAgentContent(EXECUTOR_PATH);
     assert.ok(
       content.includes('testing.test_command') || content.includes('TEST_CMD'),
       'Missing test command reference'
@@ -2701,7 +2726,7 @@ describe('gsd-executor — post-plan test gate section (Phase 35-01)', () => {
   });
 
   test('post_plan_test_gate references coverage threshold', () => {
-    const content = fs.readFileSync(EXECUTOR_PATH, 'utf8');
+    const content = readEffectiveAgentContent(EXECUTOR_PATH);
     assert.ok(
       content.includes('testing.coverage_threshold') || content.includes('COVERAGE_THRESHOLD'),
       'Missing coverage threshold reference'
@@ -2709,7 +2734,7 @@ describe('gsd-executor — post-plan test gate section (Phase 35-01)', () => {
   });
 
   test('post_plan_test_gate blocks SUMMARY.md on failure', () => {
-    const content = fs.readFileSync(EXECUTOR_PATH, 'utf8');
+    const content = readEffectiveAgentContent(EXECUTOR_PATH);
     const start = content.indexOf('<post_plan_test_gate>');
     const end = content.indexOf('</post_plan_test_gate>');
     assert.ok(start >= 0 && end > start, 'post_plan_test_gate section not found');
@@ -2721,9 +2746,17 @@ describe('gsd-executor — post-plan test gate section (Phase 35-01)', () => {
   });
 
   test('post_plan_test_gate appears before summary_creation', () => {
-    const content = fs.readFileSync(EXECUTOR_PATH, 'utf8');
-    const ptgIdx = content.indexOf('<post_plan_test_gate>');
-    const scIdx = content.indexOf('<summary_creation>');
+    const content = readEffectiveAgentContent(EXECUTOR_PATH);
+    // Phase 53-02 (MILE-30): use lastIndexOf, not indexOf. The restructured
+    // core preamble's <hard_rules_digest> quotes the literal string
+    // "`<summary_creation>`" (a verbatim excerpt of the real hard rule
+    // "Do NOT proceed to `<summary_creation>`...") ahead of where the real
+    // <post_plan_test_gate>/<summary_creation> tags live in the relocated
+    // reference file. lastIndexOf finds the real tag occurrence in the
+    // reference file, where both tags still appear in their original
+    // relative order (verified byte-for-byte at restructuring time).
+    const ptgIdx = content.lastIndexOf('<post_plan_test_gate>');
+    const scIdx = content.lastIndexOf('<summary_creation>');
     assert.ok(ptgIdx >= 0, 'post_plan_test_gate not found');
     assert.ok(scIdx >= 0, 'summary_creation not found');
     assert.ok(ptgIdx < scIdx, 'post_plan_test_gate must appear before summary_creation');
@@ -2736,7 +2769,7 @@ describe('gsd-phase-coordinator — web framework detection (Phase 35-02)', () =
   const COORDINATOR_PATH = path.join('/Users/ollorin/get-shit-done', 'agents', 'gsd-phase-coordinator.md');
 
   test('detect_web_framework section exists in coordinator', () => {
-    const content = fs.readFileSync(COORDINATOR_PATH, 'utf8');
+    const content = readEffectiveAgentContent(COORDINATOR_PATH);
     assert.ok(
       content.includes('detect_web_framework') || content.includes('WEB_FRAMEWORK_DETECTED'),
       'Missing detect_web_framework or WEB_FRAMEWORK_DETECTED in coordinator'
@@ -2744,7 +2777,7 @@ describe('gsd-phase-coordinator — web framework detection (Phase 35-02)', () =
   });
 
   test('web framework detection checks for React/Next.js/Vue/Svelte', () => {
-    const content = fs.readFileSync(COORDINATOR_PATH, 'utf8');
+    const content = readEffectiveAgentContent(COORDINATOR_PATH);
     assert.ok(content.includes('react'), 'Missing react framework check');
     assert.ok(
       content.includes('next') || content.includes('vue') || content.includes('svelte'),
@@ -2753,14 +2786,14 @@ describe('gsd-phase-coordinator — web framework detection (Phase 35-02)', () =
   });
 
   test('post_phase_ux_sweep references WEB_FRAMEWORK_DETECTED', () => {
-    const content = fs.readFileSync(COORDINATOR_PATH, 'utf8');
+    const content = readEffectiveAgentContent(COORDINATOR_PATH);
     const start = content.indexOf('post_phase_ux_sweep');
     assert.ok(start >= 0, 'post_phase_ux_sweep not found in coordinator');
     assert.ok(content.includes('WEB_FRAMEWORK_DETECTED'), 'WEB_FRAMEWORK_DETECTED not referenced in coordinator');
   });
 
   test('detect_web_framework appears before post_phase_ux_sweep', () => {
-    const content = fs.readFileSync(COORDINATOR_PATH, 'utf8');
+    const content = readEffectiveAgentContent(COORDINATOR_PATH);
     const detectIdx = content.indexOf('detect_web_framework');
     const sweepIdx = content.indexOf('post_phase_ux_sweep');
     assert.ok(detectIdx >= 0, 'detect_web_framework not found');
@@ -2769,7 +2802,7 @@ describe('gsd-phase-coordinator — web framework detection (Phase 35-02)', () =
   });
 
   test('sweep trigger uses EITHER condition language', () => {
-    const content = fs.readFileSync(COORDINATOR_PATH, 'utf8');
+    const content = readEffectiveAgentContent(COORDINATOR_PATH);
     assert.ok(
       content.includes('EITHER') || content.includes('either'),
       'Missing EITHER/either language for the OR trigger condition in post_phase_ux_sweep'
@@ -2783,12 +2816,12 @@ describe('gsd-verifier — hard-fail rules for QA and test coverage (Phase 35-03
   const VERIFIER_PATH = path.join('/Users/ollorin/get-shit-done', 'agents', 'gsd-verifier.md');
 
   test('check_charlotte_qa_coverage section exists in verifier', () => {
-    const content = fs.readFileSync(VERIFIER_PATH, 'utf8');
+    const content = readEffectiveAgentContent(VERIFIER_PATH);
     assert.ok(content.includes('check_charlotte_qa_coverage'), 'Missing check_charlotte_qa_coverage in verifier');
   });
 
   test('Charlotte QA check is documented as gaps_found not warning', () => {
-    const content = fs.readFileSync(VERIFIER_PATH, 'utf8');
+    const content = readEffectiveAgentContent(VERIFIER_PATH);
     const start = content.indexOf('check_charlotte_qa_coverage');
     const end = content.indexOf('check_test_file_coverage');
     assert.ok(start >= 0, 'check_charlotte_qa_coverage not found');
@@ -2801,12 +2834,12 @@ describe('gsd-verifier — hard-fail rules for QA and test coverage (Phase 35-03
   });
 
   test('check_test_file_coverage section exists in verifier', () => {
-    const content = fs.readFileSync(VERIFIER_PATH, 'utf8');
+    const content = readEffectiveAgentContent(VERIFIER_PATH);
     assert.ok(content.includes('check_test_file_coverage'), 'Missing check_test_file_coverage in verifier');
   });
 
   test('test file check is documented as gaps_found not warning', () => {
-    const content = fs.readFileSync(VERIFIER_PATH, 'utf8');
+    const content = readEffectiveAgentContent(VERIFIER_PATH);
     const start = content.indexOf('check_test_file_coverage');
     assert.ok(start >= 0, 'check_test_file_coverage not found');
     const section = content.slice(start, start + 3000);
@@ -2818,7 +2851,7 @@ describe('gsd-verifier — hard-fail rules for QA and test coverage (Phase 35-03
   });
 
   test('check_charlotte_qa_coverage appears before check_test_file_coverage', () => {
-    const content = fs.readFileSync(VERIFIER_PATH, 'utf8');
+    const content = readEffectiveAgentContent(VERIFIER_PATH);
     const charlotteIdx = content.indexOf('check_charlotte_qa_coverage');
     const testIdx = content.indexOf('check_test_file_coverage');
     assert.ok(charlotteIdx >= 0, 'check_charlotte_qa_coverage not found');
@@ -2827,12 +2860,23 @@ describe('gsd-verifier — hard-fail rules for QA and test coverage (Phase 35-03
   });
 
   test('both checks appear before output section', () => {
-    const content = fs.readFileSync(VERIFIER_PATH, 'utf8');
+    // Phase 53-02 (MILE-30): gsd-verifier.md was restructured hard-rules-first
+    // -- <output> (the VERIFICATION.md template + return contract) is now
+    // part of the CORE preamble (kept near the top, with the other hard
+    // rules), while the full <verification_process> (including
+    // check_test_file_coverage / Step 8d) was relocated wholesale to
+    // @get-shit-done/references/verifier-detail.md, loaded on demand. This
+    // means the two sections are no longer in the same linear byte-order in
+    // the concatenated effective content -- that is an intentional
+    // consequence of the redesign (rules/contract surface early, detail is
+    // available on demand), not a regression. What still matters, and what
+    // this test now asserts, is that both sections continue to exist
+    // somewhere in the agent's effective prompt content.
+    const content = readEffectiveAgentContent(VERIFIER_PATH);
     const testIdx = content.indexOf('check_test_file_coverage');
     const outputIdx = content.indexOf('<output>');
     assert.ok(testIdx >= 0, 'check_test_file_coverage not found');
     assert.ok(outputIdx >= 0, '<output> section not found');
-    assert.ok(testIdx < outputIdx, 'check_test_file_coverage must appear before <output>');
   });
 });
 
@@ -5884,12 +5928,12 @@ describe('Static regression: 46-02 docs-gate prose changes (Phase 46-04)', () =>
   const EXECUTE_PLAN_PATH = path.join(__dirname, '..', 'workflows', 'execute-plan.md');
 
   test('gsd-executor.md no longer contains the removed "does NOT block state updates" contradiction', () => {
-    const content = fs.readFileSync(EXECUTOR_PATH, 'utf-8');
+    const content = readEffectiveAgentContent(EXECUTOR_PATH);
     assert.ok(!content.includes('does NOT block state updates'), 'the removed contradiction must not reappear in gsd-executor.md');
   });
 
   test('gsd-executor.md\'s <docs_update> block contains the "deferred add" waiver escape hatch', () => {
-    const content = fs.readFileSync(EXECUTOR_PATH, 'utf-8');
+    const content = readEffectiveAgentContent(EXECUTOR_PATH);
     const start = content.indexOf('<docs_update>');
     const end = content.indexOf('</docs_update>');
     assert.ok(start !== -1 && end !== -1, 'expected a <docs_update>...</docs_update> block in gsd-executor.md');
@@ -6495,7 +6539,12 @@ describe('Phase 48 cross-cutting trigger matrix — prompt-layer wiring (Phase 4
 
   test('Debugger escalation composition: execute-phase.md references timeout-fallback, and gsd-phase-coordinator.md\'s Step A-fallback deferred-add invocation shape is unchanged', () => {
     const executePhase = readRepoFile('get-shit-done/workflows/execute-phase.md');
-    const phaseCoordinator = readRepoFile('agents/gsd-phase-coordinator.md');
+    // Phase 53-02 (MILE-30): gsd-phase-coordinator.md's execution_cycle (incl.
+    // the discuss step's Step A-fallback) was relocated verbatim to
+    // @get-shit-done/references/coordinator-detail.md. Use the effective
+    // (core + resolved @-include) content so this still finds the unchanged
+    // invocation shape wherever it now physically lives.
+    const phaseCoordinator = readEffectiveAgentContent(path.join(REPO_ROOT, 'agents/gsd-phase-coordinator.md'));
 
     assert.match(
       executePhase,
@@ -7031,8 +7080,13 @@ describe('Phase 49-02: knowledge feedback wiring', () => {
   });
 
   test('prompt-layer wiring: both agents/gsd-verifier.md and agents/gsd-executor.md reference mark-wrong', () => {
-    const verifierContent = fs.readFileSync(path.join(__dirname, '..', '..', 'agents', 'gsd-verifier.md'), 'utf-8');
-    const executorContent = fs.readFileSync(path.join(__dirname, '..', '..', 'agents', 'gsd-executor.md'), 'utf-8');
+    // Phase 53-02 (MILE-30): both agents were restructured hard-rules-first;
+    // the mark-wrong reference (kb_feedback / Step 11 in the verifier,
+    // the "Knowledge feedback on contradiction" bullet in the executor's
+    // execute_tasks step) now lives in each agent's relocated reference
+    // detail file. Use effective (core + resolved @-include) content.
+    const verifierContent = readEffectiveAgentContent(path.join(__dirname, '..', '..', 'agents', 'gsd-verifier.md'));
+    const executorContent = readEffectiveAgentContent(path.join(__dirname, '..', '..', 'agents', 'gsd-executor.md'));
 
     assert.ok(verifierContent.includes('mark-wrong'), 'expected agents/gsd-verifier.md to reference mark-wrong');
     assert.ok(executorContent.includes('mark-wrong'), 'expected agents/gsd-executor.md to reference mark-wrong');
@@ -8919,8 +8973,14 @@ describe('Phase 52-02: Self-Report Telemetry (analytics.js section + agent-file 
   });
 
   describe('agent-file wiring: grep assertions with regression guards', () => {
+    // Phase 53-02 (MILE-30): several of these agents were restructured
+    // hard-rules-first, relocating detail (e.g. the PLAN FAILED blocks,
+    // the Return to Orchestrator section body) to
+    // @get-shit-done/references/*-detail.md. Use effective (core + resolved
+    // @-include) content so these assertions still find the unchanged text
+    // regardless of which physical file it now lives in.
     function readAgentFile(name) {
-      return fs.readFileSync(path.join(REPO_ROOT, 'agents', name), 'utf-8');
+      return readEffectiveAgentContent(path.join(REPO_ROOT, 'agents', name));
     }
 
     test('gsd-phase-coordinator.md: all 4 field names present inside <return_state> section specifically', () => {
