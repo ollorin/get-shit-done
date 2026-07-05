@@ -11246,6 +11246,89 @@ function cmdDoctor(cwd, options, raw) {
   output({ ok: true, clean: diff.clean, drifted: diff.drifted, method: 'file_hash' }, raw);
 }
 
+// ─── Self-Report Telemetry (MILE-26) ───────────────────────────────────
+const TELEMETRY_DIR = 'telemetry';
+const TELEMETRY_FILE = 'agent-reports.jsonl';
+const TELEMETRY_FIELDS_DEFAULTS = {
+  context_pressure: null,
+  instructions_not_followed: [],
+  ambiguities: [],
+  tool_errors_swallowed: 0
+};
+
+function getTelemetryPath(cwd) {
+  return path.join(cwd, '.planning', TELEMETRY_DIR, TELEMETRY_FILE);
+}
+
+// I/O: appends one JSONL line. Missing optional fields fall back to safe
+// defaults (never throws on a caller omitting one of the 4 fields) --
+// agent/phase/timestamp are always attached fresh, never trusted from input.
+function appendTelemetryReport(cwd, agent, phase, fields) {
+  const telemetryPath = getTelemetryPath(cwd);
+  fs.mkdirSync(path.dirname(telemetryPath), { recursive: true });
+  const entry = {
+    agent,
+    phase,
+    timestamp: new Date().toISOString(),
+    context_pressure: (fields && fields.context_pressure !== undefined) ? fields.context_pressure : TELEMETRY_FIELDS_DEFAULTS.context_pressure,
+    instructions_not_followed: (fields && Array.isArray(fields.instructions_not_followed)) ? fields.instructions_not_followed : TELEMETRY_FIELDS_DEFAULTS.instructions_not_followed,
+    ambiguities: (fields && Array.isArray(fields.ambiguities)) ? fields.ambiguities : TELEMETRY_FIELDS_DEFAULTS.ambiguities,
+    tool_errors_swallowed: (fields && typeof fields.tool_errors_swallowed === 'number') ? fields.tool_errors_swallowed : TELEMETRY_FIELDS_DEFAULTS.tool_errors_swallowed
+  };
+  fs.appendFileSync(telemetryPath, JSON.stringify(entry) + '\n');
+  return entry;
+}
+
+// I/O: reads all reports, skip-and-warn per malformed line (matches the
+// established local convention for JSONL log reads, e.g. validation-log.jsonl).
+function readTelemetryReports(cwd) {
+  const telemetryPath = getTelemetryPath(cwd);
+  if (!fs.existsSync(telemetryPath)) return [];
+  const lines = fs.readFileSync(telemetryPath, 'utf-8').split('\n');
+  const reports = [];
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const parsed = safeJsonParse(line, TELEMETRY_FILE);
+    if (parsed.ok) reports.push(parsed.value);
+    else console.warn(`Warning: skipping malformed telemetry line: ${parsed.error.message}`);
+  }
+  return reports;
+}
+
+// Pure function -- no I/O. Aggregates an array of report objects (shape
+// matches appendTelemetryReport's entry) into summary stats.
+function summarizeTelemetryReports(reports) {
+  if (!reports || reports.length === 0) {
+    return { count: 0, avg_context_pressure: null, total_tool_errors_swallowed: 0, instructions_not_followed_by_rule: {}, top_ambiguities: [] };
+  }
+  let pressureSum = 0, pressureCount = 0, toolErrorsTotal = 0;
+  const byRule = {};
+  const ambiguityCounts = {};
+  for (const r of reports) {
+    if (typeof r.context_pressure === 'number') { pressureSum += r.context_pressure; pressureCount++; }
+    toolErrorsTotal += (typeof r.tool_errors_swallowed === 'number') ? r.tool_errors_swallowed : 0;
+    for (const item of (r.instructions_not_followed || [])) {
+      const rule = (item && item.rule) ? item.rule : String(item);
+      byRule[rule] = (byRule[rule] || 0) + 1;
+    }
+    for (const amb of (r.ambiguities || [])) {
+      const key = typeof amb === 'string' ? amb : JSON.stringify(amb);
+      ambiguityCounts[key] = (ambiguityCounts[key] || 0) + 1;
+    }
+  }
+  const topAmbiguities = Object.entries(ambiguityCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([text, count]) => ({ text, count }));
+  return {
+    count: reports.length,
+    avg_context_pressure: pressureCount > 0 ? pressureSum / pressureCount : null,
+    total_tool_errors_swallowed: toolErrorsTotal,
+    instructions_not_followed_by_rule: byRule,
+    top_ambiguities: topAmbiguities
+  };
+}
+
 // ─── CLI Router ───────────────────────────────────────────────────────────────
 
 async function main() {
@@ -11915,6 +11998,35 @@ async function main() {
       const configDirIdx = args.indexOf('--config-dir');
       const options = { configDir: configDirIdx !== -1 ? args[configDirIdx + 1] : null };
       cmdDoctor(cwd, options, raw);
+      break;
+    }
+
+    case 'telemetry': {
+      const telemetrySubcmd = args[1];
+      if (telemetrySubcmd === 'append') {
+        const agentIdx = args.indexOf('--agent');
+        const phaseIdx = args.indexOf('--phase');
+        const pressureIdx = args.indexOf('--context-pressure');
+        const instrIdx = args.indexOf('--instructions-not-followed');
+        const ambIdx = args.indexOf('--ambiguities');
+        const toolErrIdx = args.indexOf('--tool-errors-swallowed');
+        const agent = agentIdx !== -1 ? args[agentIdx + 1] : null;
+        const phase = phaseIdx !== -1 ? args[phaseIdx + 1] : null;
+        if (!agent) error('telemetry append: --agent required');
+        const fields = {
+          context_pressure: pressureIdx !== -1 ? parseFloat(args[pressureIdx + 1]) : null,
+          instructions_not_followed: instrIdx !== -1 ? safeJsonParse(args[instrIdx + 1], '--instructions-not-followed').value || [] : [],
+          ambiguities: ambIdx !== -1 ? safeJsonParse(args[ambIdx + 1], '--ambiguities').value || [] : [],
+          tool_errors_swallowed: toolErrIdx !== -1 ? parseInt(args[toolErrIdx + 1], 10) : 0
+        };
+        const entry = appendTelemetryReport(cwd, agent, phase, fields);
+        output(entry, raw);
+      } else if (telemetrySubcmd === 'summarize') {
+        const reports = readTelemetryReports(cwd);
+        output(summarizeTelemetryReports(reports), raw);
+      } else {
+        error('Unknown telemetry subcommand. Available: append, summarize');
+      }
       break;
     }
 
@@ -13185,4 +13297,7 @@ module.exports = {
   buildResumeBrief,
   estimateQuotaForRemainingPhases,
   computeManifestDrift,
+  summarizeTelemetryReports,
+  appendTelemetryReport,
+  readTelemetryReports,
 };
