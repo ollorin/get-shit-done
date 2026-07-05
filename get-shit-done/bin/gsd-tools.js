@@ -326,6 +326,7 @@ function loadConfig(cwd) {
     granularity: 'standard',
     brave_search: false,
     auto_mine: true,
+    auto_consolidate: true,
     max_attempts: 4,
     execution: { max_attempts: 4 },
   };
@@ -372,6 +373,7 @@ function loadConfig(cwd) {
       granularity: get('granularity') ?? defaults.granularity,
       brave_search: get('brave_search') ?? defaults.brave_search,
       auto_mine: get('auto_mine') ?? defaults.auto_mine,
+      auto_consolidate: get('auto_consolidate') ?? defaults.auto_consolidate,
       max_attempts: get('max_attempts', { section: 'execution', field: 'max_attempts' }) ?? defaults.max_attempts,
       coordinator_model: get('coordinator_model') ?? null,
       dev_servers: parsed.dev_servers || null,
@@ -2804,6 +2806,49 @@ function cmdKnowledgeStats(cwd, args, raw) {
     by_type: dbStats || [],
     hint: 'Set knowledge.dedup_threshold / knowledge.evolution_threshold in .planning/config.json to tune. Enable GSD_DEBUG=1 to log per-entry dedup decisions.'
   }, raw);
+}
+
+// Manual backstop for milestone knowledge consolidation. Calls the exact same
+// synthesizePrinciples() function the automatic complete-milestone.md
+// `consolidate_knowledge` step calls — never a parallel implementation.
+// --principles '<json array>' lets a caller with real Haiku-synthesized text
+// (i.e. the workflow step, AFTER it has spawned Agent() calls per cluster)
+// feed that text into this same function. Without --principles, every cluster
+// falls back to the stub inside synthesizePrinciples — useful for ad hoc
+// manual exercising of clustering/confidence/conflict-detection logic.
+async function cmdKnowledgeConsolidate(cwd, args, raw) {
+  const scope = args.includes('--scope') ? args[args.indexOf('--scope') + 1] : 'global';
+
+  let principlesByTopic = null;
+  if (args.includes('--principles')) {
+    const rawPrinciplesJson = args[args.indexOf('--principles') + 1];
+    try {
+      const parsed = JSON.parse(rawPrinciplesJson);
+      if (Array.isArray(parsed)) {
+        principlesByTopic = {};
+        for (const p of parsed) {
+          if (p && p.topic) principlesByTopic[p.topic] = p.text;
+        }
+      }
+    } catch (_) {
+      // Malformed --principles JSON: proceed with no synthesizer override.
+      principlesByTopic = null;
+    }
+  }
+
+  const { knowledge } = require('./knowledge.js');
+  const conn = knowledge._getConnection(scope);
+  if (conn.available === false) {
+    error('knowledge consolidate: DB unavailable — ' + (conn.reason || 'unknown'));
+  }
+
+  const { synthesizePrinciples } = require('./knowledge-synthesis.js');
+  const synthesizeFn = principlesByTopic
+    ? (cluster) => principlesByTopic[cluster.topic]
+    : undefined;
+
+  const result = await synthesizePrinciples(conn, {}, synthesizeFn);
+  output(result, raw);
 }
 
 // ─── Permission Management ───────────────────────────────────────────────────
@@ -11409,6 +11454,9 @@ async function main() {
           break;
         case 'stats':
           cmdKnowledgeStats(cwd, knowledgeArgs, raw);
+          break;
+        case 'consolidate':
+          await cmdKnowledgeConsolidate(cwd, knowledgeArgs, raw);
           break;
         default:
           error(`knowledge: unknown subcommand '${knowledgeSubcmd}'`);

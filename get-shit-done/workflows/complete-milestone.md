@@ -469,6 +469,54 @@ This call already runs `pruneStaleEntries` + (internally, on >100 deletions) `ch
 
 </step>
 
+<step name="consolidate_knowledge">
+
+Run knowledge consolidation (clustering -> principle synthesis -> conflict detection) once per milestone, non-blocking on any failure. This step MUST run after `mine_milestone_conversations` (above) and MUST NOT block `reorganize_roadmap_and_delete_originals`.
+
+**Config gate:**
+```bash
+AUTO_CONSOLIDATE=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" config get auto_consolidate 2>/dev/null | jq -r '.value // "true"')
+```
+If `AUTO_CONSOLIDATE` is not `"true"`: log "Milestone consolidation skipped (auto_consolidate: false)" and skip to `reorganize_roadmap_and_delete_originals`.
+
+**Discover clusters (no synthesis yet):**
+```bash
+CLUSTERS_JSON=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" knowledge consolidate --scope global --raw 2>/dev/null || echo '{"synthesized":0,"reason":"error"}')
+```
+Parse `reason` and `clusters_found` from `CLUSTERS_JSON`. **If `reason === 'circuit_breaker_blocked'`:** log "Milestone consolidation skipped (cost circuit breaker enabled)" and skip straight to writing the metadata file (below) with zero counts. **If `reason === 'insufficient_knowledge'` or `clusters_found === 0`:** log "Milestone consolidation: no sufficient clusters found" and skip to the metadata file with zero counts — do not force a principle.
+
+**Otherwise, for each cluster found (from the discovery call's cluster data above — that discovery call already clustered AND inserted using the stub fallback; that insertion is informational only and gets superseded by the finalize step below), spawn one Haiku synthesis call per cluster:**
+```
+Agent(
+  subagent_type="general-purpose",
+  model="haiku",
+  description="Synthesize principle for {cluster.topic}",
+  max_turns=10,
+  prompt="These are related lessons/decisions from a completed milestone: {cluster.examples joined}. Write ONE concise, actionable principle statement (1-2 sentences) that captures the common pattern. Do not include preamble — return only the principle text."
+)
+```
+If the Agent() call throws or returns empty, fall back to using the cluster's already-stubbed text from the discovery call — non-fatal, never blocks the loop.
+
+**Finalize with real text:**
+```bash
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" knowledge consolidate --scope global --raw --principles '[{"topic":"...","text":"..."}, ...]'
+```
+This re-runs clustering deterministically and applies the real synthesized text + conflict detection, per Phase 49-03's design — inserting principles with the Haiku-generated text (or the stub fallback for any cluster whose Agent() call failed). This is the exact same `synthesizePrinciples` function called by the manual `knowledge consolidate` backstop — never a parallel implementation.
+
+**Write metadata file (always runs):**
+Write `.planning/milestones/v[X.Y]-CONSOLIDATION.md`:
+```markdown
+# Knowledge Consolidated: v[X.Y] — [date]
+
+- [synthesized_count] principles synthesized
+- [conflicts_flagged_count] conflicts flagged (see .planning/knowledge/CONFLICTS.jsonl)
+- [clusters_found_count] clusters found, [skipped] below minimum size
+```
+
+**Non-blocking guarantee:** Wrap this entire step's logic so ANY failure (missing gsd-tools.js, consolidate command erroring, Agent() failures, metadata write failure) is logged via a single line ("Milestone consolidation failed non-fatally: {error} — milestone completion continues") and execution ALWAYS proceeds to `reorganize_roadmap_and_delete_originals`. This step must never be the reason a milestone fails to complete. This pass explicitly does NOT run before every agent action — only here, at complete-milestone cadence.
+
+</step>
+
 <step name="reorganize_roadmap_and_delete_originals">
 
 After `milestone complete` has archived, reorganize ROADMAP.md with milestone groupings, then delete originals:

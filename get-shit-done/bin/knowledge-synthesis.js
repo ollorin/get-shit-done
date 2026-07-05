@@ -1,4 +1,5 @@
-const { knowledge } = require('./knowledge.js');
+const fs = require('fs');
+const path = require('path');
 const { generateEmbedding } = require('./embeddings.js');
 
 const SYNTHESIS_CONFIG = {
@@ -57,9 +58,11 @@ function calculateAverageSimilarity(embeddings) {
   return pairs > 0 ? totalSim / pairs : 0;
 }
 
+// Fallback stub — used only when no injectable synthesizer is supplied (or the
+// supplied synthesizer returns nothing usable for a given cluster). Real
+// synthesis is expected to come from an injected synthesizeFn (e.g. an
+// Agent()/Task()-backed Haiku call at the workflow layer).
 function generatePrincipleText(patterns, topic) {
-  // Extract common phrases (simplified)
-  // Real implementation would use LLM to synthesize
   const words = patterns[0].split(' ').slice(0, 10).join(' ');
   return `For ${topic.replace(/_/g, ' ')}: ${words}...`;
 }
@@ -148,7 +151,8 @@ function extractPrinciple(cluster) {
   const sizeBonus = Math.min(members.length / 10, 0.2);  // Max 0.2 bonus
   const confidence = Math.min(avgSimilarity + sizeBonus, 1.0);
 
-  // Generate principle text (simplified - real would use LLM)
+  // Fallback principle text (real text is substituted in synthesizePrinciples
+  // when an injectable synthesizeFn is supplied — see A2 in 49-03-PLAN.md)
   const principleText = generatePrincipleText(patterns, topic);
 
   return {
@@ -162,53 +166,167 @@ function extractPrinciple(cluster) {
   };
 }
 
-async function synthesizePrinciples(conn, options = {}) {
+// Build a principle-shaped object suitable for knowledge-conflicts.js's
+// resolvePrincipleConflict(). scorePrinciple() already defaults a missing
+// metadata.category to 'convenience' internally, so we only need to ensure
+// confidence is present — category is left to that built-in default unless
+// the row already specifies one.
+function buildExistingConflictObject(row) {
+  let meta = {};
+  try {
+    meta = row.metadata ? JSON.parse(row.metadata) : {};
+  } catch (_) {
+    meta = {};
+  }
+  return {
+    content: row.content,
+    metadata: {
+      ...meta,
+      confidence: meta.confidence !== undefined ? meta.confidence : 0.7
+    },
+    __existing_id: row.id
+  };
+}
+
+function buildCandidateConflictObject(principle) {
+  return {
+    content: principle.rule,
+    metadata: {
+      confidence: principle.confidence
+    },
+    __is_candidate: true
+  };
+}
+
+async function synthesizePrinciples(conn, options = {}, synthesizeFn) {
   const { db } = conn;
+
+  // A1: circuit breaker gate — checked BEFORE any costly clustering/embedding
+  // work fires (clusterKnowledge generates embeddings for up to `limit`
+  // entries). Both the automatic (workflow) path and the manual `knowledge
+  // consolidate` backstop call this same function, so both get this
+  // protection for free.
+  const { shouldBlockCostlyAction } = require('./knowledge-cost.js');
+  const breakerState = shouldBlockCostlyAction(db);
+  if (breakerState.blocked) {
+    return {
+      synthesized: 0,
+      reason: 'circuit_breaker_blocked',
+      blocked_reason: breakerState.reason,
+      clusters_found: 0,
+      conflicts_flagged: 0,
+      principles: []
+    };
+  }
 
   // Get clusters
   const { clusters, reason } = await clusterKnowledge(conn, options);
 
   if (reason) {
-    return { synthesized: 0, reason };
+    return { synthesized: 0, reason, clusters_found: 0, conflicts_flagged: 0, principles: [] };
   }
 
   const principles = [];
+  let conflictsFlagged = 0;
 
   for (const cluster of clusters.slice(0, SYNTHESIS_CONFIG.max_principles)) {
     const principle = extractPrinciple(cluster);
 
-    // Only store if confidence meets threshold
-    if (principle.confidence >= SYNTHESIS_CONFIG.confidence_threshold) {
-      // Store as 'principle' type knowledge
-      const { insertOrEvolve } = require('./knowledge-evolution.js');
-      const embedding = await generateEmbedding(principle.rule);
-
-      const result = await insertOrEvolve(conn, {
-        content: principle.rule,
-        type: 'principle',
-        scope: 'global',  // Principles are global
-        embedding,
-        metadata: {
-          topic: principle.topic,
-          confidence: principle.confidence,
-          examples: principle.examples,
-          source_count: principle.source_count,
-          source_ids: principle.source_ids,
-          synthesized_at: Date.now()
-        }
-      });
-
-      principles.push({
-        ...principle,
-        action: result.action,
-        id: result.id
-      });
+    // Only proceed if confidence meets threshold
+    if (principle.confidence < SYNTHESIS_CONFIG.confidence_threshold) {
+      continue;
     }
+
+    // A2: injectable synthesizer — if supplied and it returns usable text,
+    // that text replaces the stub. If it returns nothing (undefined/null/
+    // empty string), fall through to the stub already computed above.
+    if (synthesizeFn) {
+      const synthesizedText = await synthesizeFn(cluster);
+      if (synthesizedText !== undefined && synthesizedText !== null && synthesizedText !== '') {
+        principle.rule = synthesizedText;
+      }
+    }
+
+    // A3: conflict detection — query existing same-topic principles before
+    // inserting. If none exist, proceed straight to insertOrEvolve (unchanged
+    // behavior). If one or more exist, resolve via knowledge-conflicts.js
+    // and never silently overwrite an ambiguous conflict.
+    const existingRows = db.prepare(
+      "SELECT id, content, metadata FROM knowledge WHERE type = 'principle' AND json_extract(metadata, '$.topic') = ?"
+    ).all(principle.topic);
+
+    let skipInsert = false;
+
+    if (existingRows.length > 0) {
+      const { resolvePrincipleConflict } = require('./knowledge-conflicts.js');
+
+      const existingObjs = existingRows.map(buildExistingConflictObject);
+      const candidateObj = buildCandidateConflictObject(principle);
+
+      const conflictResult = resolvePrincipleConflict([...existingObjs, candidateObj]);
+
+      if (conflictResult.resolved === false) {
+        // Ambiguous priority — flag to the review artifact, never overwrite.
+        try {
+          const conflictsDir = path.join(process.cwd(), '.planning', 'knowledge');
+          fs.mkdirSync(conflictsDir, { recursive: true });
+          const conflictRecord = {
+            topic: principle.topic,
+            existing_ids: existingRows.map(r => r.id),
+            candidate_text: principle.rule,
+            reason: conflictResult.message,
+            flagged_at: Date.now()
+          };
+          fs.appendFileSync(
+            path.join(conflictsDir, 'CONFLICTS.jsonl'),
+            JSON.stringify(conflictRecord) + '\n'
+          );
+        } catch (_) {
+          // Non-fatal: a conflict-logging failure must never crash synthesis.
+        }
+        conflictsFlagged++;
+        skipInsert = true;
+      } else if (conflictResult.resolved === true && !conflictResult.chosen.__is_candidate) {
+        // An existing principle wins — the new candidate is skipped, but
+        // nothing was overwritten, so this is not a flagged conflict.
+        skipInsert = true;
+      }
+      // else: candidate wins (or resolved === true with __is_candidate) —
+      // proceed to insertOrEvolve below, same as the no-existing-rows path.
+    }
+
+    if (skipInsert) continue;
+
+    // Store as 'principle' type knowledge
+    const { insertOrEvolve } = require('./knowledge-evolution.js');
+    const embedding = await generateEmbedding(principle.rule);
+
+    const result = await insertOrEvolve(conn, {
+      content: principle.rule,
+      type: 'principle',
+      scope: 'global',  // Principles are global
+      embedding,
+      metadata: {
+        topic: principle.topic,
+        confidence: principle.confidence,
+        examples: principle.examples,
+        source_count: principle.source_count,
+        source_ids: principle.source_ids,
+        synthesized_at: Date.now()
+      }
+    });
+
+    principles.push({
+      ...principle,
+      action: result.action,
+      id: result.id
+    });
   }
 
   return {
     synthesized: principles.length,
     clusters_found: clusters.length,
+    conflicts_flagged: conflictsFlagged,
     principles
   };
 }
@@ -218,5 +336,6 @@ module.exports = {
   clusterKnowledge,
   extractPrinciple,
   cosineSimilarity,
+  generatePrincipleText,
   synthesizePrinciples
 };
