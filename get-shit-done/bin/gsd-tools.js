@@ -329,6 +329,8 @@ function loadConfig(cwd) {
     auto_consolidate: true,
     max_attempts: 4,
     execution: { max_attempts: 4 },
+    staleness_threshold_minutes: 30,
+    resilience: { staleness_threshold_minutes: 30 },
   };
 
   try {
@@ -375,6 +377,7 @@ function loadConfig(cwd) {
       auto_mine: get('auto_mine') ?? defaults.auto_mine,
       auto_consolidate: get('auto_consolidate') ?? defaults.auto_consolidate,
       max_attempts: get('max_attempts', { section: 'execution', field: 'max_attempts' }) ?? defaults.max_attempts,
+      staleness_threshold_minutes: get('staleness_threshold_minutes', { section: 'resilience', field: 'staleness_threshold_minutes' }) ?? defaults.staleness_threshold_minutes,
       coordinator_model: get('coordinator_model') ?? null,
       dev_servers: parsed.dev_servers || null,
     };
@@ -735,11 +738,74 @@ function loadQuotaState(cwd) {
     // Deep copy to avoid shared nested objects (session, weekly, tasks, warnings_shown)
     return JSON.parse(JSON.stringify(DEFAULT_QUOTA_STATE));
   }
+  let state;
   try {
-    return JSON.parse(fs.readFileSync(quotaPath, 'utf-8'));
+    state = JSON.parse(fs.readFileSync(quotaPath, 'utf-8'));
   } catch {
     return JSON.parse(JSON.stringify(DEFAULT_QUOTA_STATE));
   }
+
+  // Corruption detection + self-heal. The try/catch above only guards against
+  // structurally-invalid JSON -- a structurally-valid file can still have a
+  // numerically corrupted session/weekly scope (e.g. tokens_used accumulated
+  // forever with no reset, vastly exceeding tokens_limit, or NaN/negative
+  // values from a bad arithmetic path). This is the single read choke point
+  // every consumer (quota status/stats, routing match-quota, phase-coordinator's
+  // per-task quota check) goes through, so healing here protects all of them
+  // for free. Each scope is checked/healed independently -- corruption in one
+  // scope never resets the other.
+  let healedAny = false;
+  for (const scopeName of ['session', 'weekly']) {
+    const scope = state && state[scopeName];
+    if (!scope || typeof scope !== 'object') continue;
+
+    const tokensUsed = scope.tokens_used;
+    const tokensLimit = scope.tokens_limit;
+    const percent = (typeof tokensLimit === 'number' && tokensLimit !== 0)
+      ? (tokensUsed / tokensLimit) * 100
+      : NaN;
+
+    const limitCorrupted = !Number.isFinite(tokensLimit) || tokensLimit <= 0;
+    const corrupted = !Number.isFinite(percent) || percent > 100 ||
+      !Number.isFinite(tokensUsed) || tokensUsed < 0 || limitCorrupted;
+
+    if (!corrupted) continue;
+
+    healedAny = true;
+    const action = limitCorrupted ? 'reset_tokens_used_and_limit' : 'reset_tokens_used';
+
+    process.stderr.write(
+      `QUOTA CORRUPTION DETECTED (${scopeName}): tokens_used=${tokensUsed}, tokens_limit=${tokensLimit}, computed_percent=${percent} — resetting tokens_used to 0\n`
+    );
+
+    try {
+      const quotaDir = path.dirname(quotaPath);
+      fs.mkdirSync(quotaDir, { recursive: true });
+      const logPath = path.join(quotaDir, 'corruption-log.jsonl');
+      const logEntry = {
+        timestamp: new Date().toISOString(),
+        scope: scopeName,
+        tokens_used_before: tokensUsed,
+        tokens_limit_before: tokensLimit,
+        computed_percent: percent,
+        action,
+      };
+      fs.appendFileSync(logPath, JSON.stringify(logEntry) + '\n');
+    } catch (e) {
+      process.stderr.write(`Warning: failed to write corruption-log.jsonl: ${e.message}\n`);
+    }
+
+    scope.tokens_used = 0;
+    if (limitCorrupted) {
+      scope.tokens_limit = DEFAULT_QUOTA_STATE[scopeName].tokens_limit;
+    }
+  }
+
+  if (healedAny) {
+    saveQuotaState(cwd, state);
+  }
+
+  return state;
 }
 
 function saveQuotaState(cwd, state) {
