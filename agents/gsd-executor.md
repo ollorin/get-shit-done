@@ -452,6 +452,7 @@ Plan context: complexity=medium, depends_on=0 prior plans, must_haves=1 criteria
      **Task:** {task_name} (tdd="true")
      **Failing tests:** {count}
      **Retries exhausted:** 2
+     **Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}
 
      Tests MUST pass before this plan can continue. Do NOT create SUMMARY.md.
      ```
@@ -646,6 +647,7 @@ Return:
 {If TEST_GATE_REASON == "test_failure" or "timeout":}
 **Test output (last 30 lines):**
 {TEST_OUTPUT last 30 lines}
+**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}
 
 **Action required:** Fix failing tests before this plan can be marked complete. Do NOT create SUMMARY.md.
 ```
@@ -888,9 +890,12 @@ Separate from per-task commits — captures execution results only.
 - {hash}: {message}
 
 **Duration:** {time}
+**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}
 ```
 
 Include ALL commits (previous + new if continuation agent).
+
+Self-report telemetry (MILE-26): populate these from your own run — an ambiguous task instruction you had to interpret counts as an ambiguity; a tool call that errored and was silently retried/skipped counts toward tool_errors_swallowed. Best-effort, never blocks completion.
 </completion_format>
 
 <success_criteria>

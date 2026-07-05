@@ -1662,9 +1662,15 @@ Return structured JSON as final response:
   "error": null,
   "gaps": null,
   "human_items": null,
-  "duration_minutes": 12
+  "duration_minutes": 12,
+  "context_pressure": 0.0,
+  "instructions_not_followed": [],
+  "ambiguities": [],
+  "tool_errors_swallowed": 0
 }
 ```
+
+**Self-report telemetry (MILE-26):** Populate `context_pressure` from the `context_budget_pct` value you have already been tracking in `<context_budget_monitoring>` throughout this run. Populate `instructions_not_followed` with `{rule, why}` entries for any step you skipped or deviated from and could name a reason for. Populate `ambiguities` with any instruction you found unclear and had to interpret. Populate `tool_errors_swallowed` with a running count of tool calls that errored and were silently retried or skipped rather than surfaced. These are self-observations from THIS run — best-effort, never block your return on gathering them.
 
 **On failure:**
 ```json
@@ -1675,7 +1681,11 @@ Return structured JSON as final response:
   "error": "Plan 06-03 executor failed: ...",
   "checkpoints": [...],
   "files_modified": [...],
-  "resume_from": "execute"
+  "resume_from": "execute",
+  "context_pressure": 0.0,
+  "instructions_not_followed": [],
+  "ambiguities": [],
+  "tool_errors_swallowed": 0
 }
 ```
 </return_state>

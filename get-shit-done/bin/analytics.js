@@ -32,6 +32,17 @@ function getHistory(projectPath) {
   }
 }
 
+// Lazy-load telemetry helpers from gsd-tools.js (same directory, no
+// cross-boundary fragility) -- never let a telemetry read crash the report.
+function getTelemetryHelpers() {
+  try {
+    const { summarizeTelemetryReports, readTelemetryReports } = require('./gsd-tools.js');
+    return { summarizeTelemetryReports, readTelemetryReports };
+  } catch (e) {
+    return { summarizeTelemetryReports: null, readTelemetryReports: null };
+  }
+}
+
 /**
  * Scan all phase SUMMARY.md files and extract first content line.
  * Returns array of { phase, name, oneliner, path }
@@ -239,6 +250,38 @@ function generateReport(projectPath) {
       lines.push(`| ${tier} | ${count} | ${pct}% |`);
     }
     lines.push('');
+  }
+
+  // --- Self-Report Telemetry (MILE-26) ---
+  let telemetryReports = [];
+  try {
+    const { readTelemetryReports } = getTelemetryHelpers();
+    telemetryReports = readTelemetryReports ? readTelemetryReports(projectPath) : [];
+  } catch (e) { telemetryReports = []; }
+  if (telemetryReports.length > 0) {
+    const { summarizeTelemetryReports } = getTelemetryHelpers();
+    const summary = summarizeTelemetryReports(telemetryReports);
+    lines.push('## Self-Report Telemetry');
+    lines.push('');
+    lines.push(`| Metric | Value |`);
+    lines.push(`|--------|-------|`);
+    lines.push(`| Reports | ${summary.count} |`);
+    lines.push(`| Avg context pressure | ${summary.avg_context_pressure !== null ? summary.avg_context_pressure.toFixed(2) : 'N/A'} |`);
+    lines.push(`| Total tool errors swallowed | ${summary.total_tool_errors_swallowed} |`);
+    lines.push('');
+    const rules = Object.entries(summary.instructions_not_followed_by_rule);
+    if (rules.length > 0) {
+      lines.push('**Instructions not followed (by rule):**');
+      lines.push('');
+      for (const [rule, count] of rules) lines.push(`- ${rule}: ${count}`);
+      lines.push('');
+    }
+    if (summary.top_ambiguities.length > 0) {
+      lines.push('**Top ambiguities:**');
+      lines.push('');
+      for (const a of summary.top_ambiguities) lines.push(`- ${a.text} (${a.count})`);
+      lines.push('');
+    }
   }
 
   // --- Failure Analysis ---

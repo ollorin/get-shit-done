@@ -13279,16 +13279,12 @@ Was ${model} the right choice for this task? (y/n): `;
   }
 }
 
-// Only auto-run when invoked directly as a CLI (`node gsd-tools.js ...`), not
-// when required as a module -- lets tests `require()` the pure resilience
-// helpers below (which take a controllable `referenceDate`/path argument,
-// e.g. parseResetTime) without triggering main()'s process.argv-driven
-// side effects (which would call process.exit() inside the test process).
-// The CLI's own behavior is completely unaffected by this guard.
-if (require.main === module) {
-  main();
-}
-
+// module.exports is assigned BEFORE the require.main guard below (not after)
+// so that a circular require('./gsd-tools.js') from another same-directory
+// module (e.g. analytics.js's lazy telemetry-helpers require, MILE-26) sees
+// the fully-populated exports object even when gsd-tools.js is the CLI entry
+// point currently executing main() -- otherwise Node's circular-dependency
+// resolution would hand back an empty/partial exports object mid-main().
 module.exports = {
   parseDeathSignature,
   parseResetTime,
@@ -13301,3 +13297,13 @@ module.exports = {
   appendTelemetryReport,
   readTelemetryReports,
 };
+
+// Only auto-run when invoked directly as a CLI (`node gsd-tools.js ...`), not
+// when required as a module -- lets tests `require()` the pure resilience
+// helpers below (which take a controllable `referenceDate`/path argument,
+// e.g. parseResetTime) without triggering main()'s process.argv-driven
+// side effects (which would call process.exit() inside the test process).
+// The CLI's own behavior is completely unaffected by this guard.
+if (require.main === module) {
+  main();
+}
