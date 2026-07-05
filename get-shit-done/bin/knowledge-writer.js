@@ -229,6 +229,22 @@ async function storeInsights(insights, options = {}) {
 
   const conn = dbResult.conn;
 
+  // 1b. Check the knowledge-cost circuit breaker before attempting any
+  // embedding generation batches. If blocked, embeddings are skipped for
+  // every insight in this call and dedup falls back to hash-only (stages 1+2)
+  // — this must never throw or abort storeInsights.
+  let embeddingsBlocked = false;
+  let costCheckReason = null;
+  try {
+    const { shouldBlockCostlyAction } = require('./knowledge-cost.js');
+    const costCheck = shouldBlockCostlyAction(conn.db);
+    embeddingsBlocked = !!costCheck.blocked;
+    costCheckReason = costCheck.reason || null;
+  } catch (_costErr) {
+    // knowledge-cost.js unavailable or errored — degrade gracefully, do not block
+    embeddingsBlocked = false;
+  }
+
   // 2. Load dedup and evolution modules
   let checkDuplicate, insertOrEvolve, insertKnowledge;
   try {
@@ -284,16 +300,25 @@ async function storeInsights(insights, options = {}) {
       const tags = ['haiku-extracted', insight.type];
 
       // e. Attempt Stage-3 embedding generation with 2s timeout (lazy-loaded)
-      // Falls back to null (hash-only dedup) on timeout or unavailability.
+      // Falls back to null (hash-only dedup) on timeout, unavailability, or
+      // when the cost circuit breaker is enabled (embeddingsBlocked).
       let embedding = null;
-      try {
-        const { generateEmbeddingCached } = require('./embeddings.js');
-        embedding = await Promise.race([
-          generateEmbeddingCached(content),
-          new Promise(resolve => setTimeout(() => resolve(null), embeddingTimeoutMs))
-        ]);
-      } catch (_embErr) {
-        // Embedding unavailable — fall back to hash-only dedup (stages 1 and 2)
+      if (embeddingsBlocked) {
+        if (debug) {
+          process.stderr.write(
+            `[knowledge-writer] Circuit breaker enabled (${costCheckReason}) — skipping embedding generation, hash-only dedup\n`
+          );
+        }
+      } else {
+        try {
+          const { generateEmbeddingCached } = require('./embeddings.js');
+          embedding = await Promise.race([
+            generateEmbeddingCached(content),
+            new Promise(resolve => setTimeout(() => resolve(null), embeddingTimeoutMs))
+          ]);
+        } catch (_embErr) {
+          // Embedding unavailable — fall back to hash-only dedup (stages 1 and 2)
+        }
       }
 
       // f. Check for duplicates (three-stage dedup; stage 3 fires when embedding non-null)

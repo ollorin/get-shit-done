@@ -83,88 +83,128 @@ async function insertOrEvolve(conn, entry, options = {}) {
 
 /**
  * Internal implementation of insertOrEvolve. Called serially via the pendingWrites chain.
+ *
+ * The dedup-check + insert/evolve decision + write are wrapped in a single
+ * db.transaction() so the whole check->decide->write sequence is one atomic
+ * SQLite transaction. This closes the cross-process race where two separate
+ * node processes both read "not a duplicate" and both insert: SQLite now
+ * serializes writers at the transaction level. checkDuplicate is synchronous
+ * (knowledge-dedup.js) and updateKnowledge/insertKnowledge are synchronous
+ * (each wraps its own internal db.transaction(), which better-sqlite3
+ * automatically nests as a SAVEPOINT — supported and safe), so the whole
+ * critical section can run inside one plain sync transaction callback
+ * (better-sqlite3 transactions must be plain sync functions).
+ *
+ * Note: this does NOT touch the existing in-process pendingWrites
+ * promise-chain serialization above — that stays as-is; this fix adds
+ * cross-process protection on top of it.
+ *
  * @param {object} conn - Database connection object
  * @param {object} entry - Entry to insert { content, type, scope, embedding, metadata, project_slug }
  * @param {object} options - Options
- * @returns {Promise<object>} { action, id?, similarity?, ... }
+ * @returns {object} { action, id?, similarity?, ... }
  */
-async function _insertOrEvolveImpl(conn, entry, options = {}) {
+function _insertOrEvolveImpl(conn, entry, options = {}) {
   const { content, type, scope, embedding, metadata = {}, project_slug } = entry;
   const { db } = conn;
 
-  // Step 1: Check for duplicates
-  const dupCheck = await checkDuplicate(conn, content, embedding);
+  const runTxn = db.transaction(() => {
+    // Step 1: Check for duplicates (synchronous)
+    const dupCheck = checkDuplicate(conn, content, embedding);
 
-  // Case 1: Exact duplicate (> 0.88) - skip
-  if (dupCheck.isDuplicate && dupCheck.similarity > EVOLUTION_THRESHOLDS.duplicate) {
-    return {
-      action: 'skipped',
-      reason: `duplicate_${dupCheck.stage}`,
-      existingId: dupCheck.existingId,
-      similarity: dupCheck.similarity
-    };
-  }
-
-  // Case 2: Similar (0.65-0.88) - evolve existing
-  if (dupCheck.isDuplicate &&
-      dupCheck.similarity >= EVOLUTION_THRESHOLDS.evolve_min &&
-      dupCheck.similarity <= EVOLUTION_THRESHOLDS.evolve_max) {
-
-    const existing = db.prepare('SELECT * FROM knowledge WHERE id = ?').get(dupCheck.existingId);
-    if (!existing) {
-      // Shouldn't happen, but fallback to create
-      return insertOrEvolve(conn, entry, { ...options, forceCreate: true });
+    // Case 1: Exact duplicate (> 0.88) - skip
+    if (dupCheck.isDuplicate && dupCheck.similarity > EVOLUTION_THRESHOLDS.duplicate) {
+      return {
+        action: 'skipped',
+        reason: `duplicate_${dupCheck.stage}`,
+        existingId: dupCheck.existingId,
+        similarity: dupCheck.similarity
+      };
     }
 
-    // Merge memories
-    const existingMeta = existing.metadata ? JSON.parse(existing.metadata) : {};
-    const { merged, metadata: newMeta, evolutionCount } = mergeMemories(
-      { content: existing.content, metadata: existingMeta },
-      content,
-      { similarity: dupCheck.similarity }
-    );
+    // Case 2: Similar (0.65-0.88) - evolve existing
+    if (dupCheck.isDuplicate &&
+        dupCheck.similarity >= EVOLUTION_THRESHOLDS.evolve_min &&
+        dupCheck.similarity <= EVOLUTION_THRESHOLDS.evolve_max) {
 
-    // Update existing entry
-    await updateKnowledge(db, dupCheck.existingId, {
-      content: merged,
+      const existing = db.prepare('SELECT * FROM knowledge WHERE id = ?').get(dupCheck.existingId);
+      if (!existing) {
+        // Shouldn't happen, but fallback to create inline (recursing into
+        // insertOrEvolve here would re-enter the pendingWrites promise chain
+        // from inside a synchronous transaction callback, which is unsafe).
+        const canonicalHash = dupCheck.canonicalHash || computeCanonicalHash(content);
+        const result = insertKnowledge(db, {
+          content,
+          type,
+          scope,
+          embedding,
+          project_slug,
+          metadata: {
+            ...metadata,
+            canonical_hash: canonicalHash
+          }
+        });
+
+        return {
+          action: 'created',
+          id: result.id,
+          contentHash: result.content_hash,
+          similarity: dupCheck.similarity || 0
+        };
+      }
+
+      // Merge memories
+      const existingMeta = existing.metadata ? JSON.parse(existing.metadata) : {};
+      const { merged, metadata: newMeta, evolutionCount } = mergeMemories(
+        { content: existing.content, metadata: existingMeta },
+        content,
+        { similarity: dupCheck.similarity }
+      );
+
+      // Update existing entry
+      updateKnowledge(db, dupCheck.existingId, {
+        content: merged,
+        metadata: {
+          ...newMeta,
+          canonical_hash: dupCheck.canonicalHash || existingMeta.canonical_hash
+        }
+      });
+
+      // Note: Embedding update not supported in sqlite-vec 0.1.6
+      // The existing embedding stays (represents original concept)
+
+      return {
+        action: 'evolved',
+        id: dupCheck.existingId,
+        similarity: dupCheck.similarity,
+        evolutionCount
+      };
+    }
+
+    // Case 3: Different enough (< 0.65 or no match) - create new
+    const canonicalHash = dupCheck.canonicalHash || computeCanonicalHash(content);
+
+    const result = insertKnowledge(db, {
+      content,
+      type,
+      scope,
+      embedding,
+      project_slug,
       metadata: {
-        ...newMeta,
-        canonical_hash: dupCheck.canonicalHash || existingMeta.canonical_hash
+        ...metadata,
+        canonical_hash: canonicalHash
       }
     });
 
-    // Note: Embedding update not supported in sqlite-vec 0.1.6
-    // The existing embedding stays (represents original concept)
-
     return {
-      action: 'evolved',
-      id: dupCheck.existingId,
-      similarity: dupCheck.similarity,
-      evolutionCount
+      action: 'created',
+      id: result.id,
+      contentHash: result.content_hash,
+      similarity: dupCheck.similarity || 0
     };
-  }
-
-  // Case 3: Different enough (< 0.65 or no match) - create new
-  const canonicalHash = dupCheck.canonicalHash || computeCanonicalHash(content);
-
-  const result = await insertKnowledge(db, {
-    content,
-    type,
-    scope,
-    embedding,
-    project_slug,
-    metadata: {
-      ...metadata,
-      canonical_hash: canonicalHash
-    }
   });
 
-  return {
-    action: 'created',
-    id: result.id,
-    contentHash: result.content_hash,
-    similarity: dupCheck.similarity || 0
-  };
+  return runTxn();
 }
 
 /**
