@@ -439,7 +439,7 @@ Exit skill and invoke SlashCommand("/gsd:plan-phase [X+1]")
 
 **Also available:**
 - `/gsd:discuss-phase [X+1]` — gather context first
-- `/gsd:research-phase [X+1]` — investigate unknowns
+- `/gsd:plan-phase [X+1] --research` — investigate unknowns
 - Review roadmap
 
 ---
