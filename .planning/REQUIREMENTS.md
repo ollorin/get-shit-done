@@ -105,7 +105,7 @@
 - [x] **MILE-26**: Agent self-report telemetry — coordinator/executor/verifier return contracts extended with `{context_pressure, instructions_not_followed, ambiguities, tool_errors_swallowed}`, appended to a run JSONL and surfaced in the analytics report (doc 15 S-5)
 - [x] **MILE-27**: Model-registry indirection — tier→model mapping + per-tier operating parameters read from one config-sourced registry consumed by `gsd-circuit-breaker.js`/`gsd-escalation.js`/`analytics.js` (no duplicated tier tables); `verify test-content` `countAssertions` recognizes `assert.method(` namespace style (doc 15 S-7 + Phase 48 finding)
 - [x] **MILE-28**: Workflow crash-point audit — enumerate state-mutating steps across golden-path workflows, classify idempotent/resumable/neither, fix the "neither" cases; document a quarterly upstream cherry-pick review policy and refresh UPSTREAM-DIFF.md as the first instance (doc 15 S-8, S-9)
-- [ ] **MILE-29**: Behavioral eval harness — golden mini-project fixture repo + eval runner executing plan→execute→verify with cheap models, asserting on artifacts (agents spawned, gates fired, DEFERRED.json on skip, atomic commits); runnable locally and wired into CI on prompt-file changes (doc 15 S-2)
+- [x] **MILE-29**: Behavioral eval harness — golden mini-project fixture repo + eval runner executing plan→execute→verify with cheap models, asserting on artifacts (agents spawned, gates fired, DEFERRED.json on skip, atomic commits); runnable locally and wired into CI on prompt-file changes (doc 15 S-2)
 - [ ] **MILE-30**: Prompt budgets + instruction architecture — per-agent token budget enforced by a CI check (coordinator ≤8k core); hard-rules-first preamble + on-demand references applied to the 5 oversized agents (coordinator 17.5k, planner 14.5k, verifier 12.4k, debugger 9.4k, executor 9.2k); behavior preservation verified via the MILE-29 harness (doc 15 S-3)
 - [ ] **MILE-31**: Prompt-injection hardening — data-not-instructions framing for file-derived content in agent prompts; injection-pattern screening at the knowledge write path (composes with the MILE-14 filter); an adversarial fixture in the eval harness that attempts to derail the executor (doc 15 S-6)
 
@@ -173,7 +173,7 @@
 | MILE-26 | Phase 52 | Complete |
 | MILE-27 | Phase 52 | Complete |
 | MILE-28 | Phase 52 | Complete |
-| MILE-29 | Phase 53 | Pending |
+| MILE-29 | Phase 53 | Complete |
 | MILE-30 | Phase 53 | Pending |
 | MILE-31 | Phase 53 | Pending |
 

@@ -582,7 +582,11 @@ Plans:
   2. A CI check enforces per-agent token budgets (coordinator ≤8k core); the 5 oversized agents (coordinator 17.5k, planner 14.5k, verifier 12.4k, debugger 9.4k, executor 9.2k) are restructured hard-rules-first with on-demand references; the eval harness confirms behavior is preserved
   3. Agent prompts frame file-derived content as data-not-instructions; the knowledge write path screens injection patterns (composing with the MILE-14 secrets filter); an adversarial fixture in the eval harness that tries to derail the executor is caught
   4. Integration tests / eval scenarios cover: a known-good roadmap passes the harness; a prompt edit that drops a mandatory gate is caught by the harness; an over-budget agent fails the CI budget check; the adversarial fixture does not derail the executor
-**Plans:** TBD
+**Plans:** 1/3 plans executed
+Plans:
+- [ ] 53-01-PLAN.md — Behavioral eval harness: golden fixture project, pure assertion functions, eval CLI, CI wiring (MILE-29)
+- [ ] 53-02-PLAN.md — Prompt budgets: budget-check script + hard-rules-first restructure of the 5 oversized agents, verified via the eval harness (MILE-30)
+- [ ] 53-03-PLAN.md — Injection hardening: content-firewall convention, knowledge-write injection screening, adversarial eval fixture (MILE-31)
 
 ## Progress
 
@@ -639,7 +643,7 @@ Plans:
 | 50. Final Deletions, Hook Fixes & Verification Sweep | v1.14.0 | 2/2 | Complete | 2026-07-05 |
 | 51. Run Resilience — Auto-Resume & State Sanity | 3/3 | Complete    | 2026-07-05 | - |
 | 52. Skew Detection, Telemetry & Model Registry | 4/4 | Complete   | 2026-07-05 | - |
-| 53. Eval Harness, Prompt Hygiene & Injection Hardening | v1.14.0 | 0/TBD | Not started | - |
+| 53. Eval Harness, Prompt Hygiene & Injection Hardening | 1/3 | In Progress|  | - |
 
 ---
 *Roadmap created: 2026-02-15 | Last updated: 2026-07-05 — v1.14.0 scope expanded to phases 44-53 (MILE-22..31 from analysis-folder findings); phases 44-49 complete/verified/deployed*
