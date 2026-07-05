@@ -6416,3 +6416,132 @@ describe('Phase 48 cross-cutting trigger matrix — prompt-layer wiring (Phase 4
     );
   });
 });
+
+describe('Phase 49-01: write-path safety', () => {
+  // CRITICAL — SHARED-DB CAUTION: ~/.claude/knowledge/ is a LIVE database
+  // written by session hooks in this environment. Every test in this block
+  // MUST set GSD_KNOWLEDGE_DB_PATH to an isolated temp file before touching
+  // anything that opens the knowledge DB, and MUST clean up afterward.
+  // Never let a test touch the real path.
+  let tmpDbPath;
+  let prevOverride;
+  let openedDbs;
+
+  beforeEach(() => {
+    prevOverride = process.env.GSD_KNOWLEDGE_DB_PATH;
+    tmpDbPath = path.join(
+      require('os').tmpdir(),
+      `gsd-test-knowledge-${Date.now()}-${Math.random().toString(36).slice(2)}.db`
+    );
+    process.env.GSD_KNOWLEDGE_DB_PATH = tmpDbPath;
+    openedDbs = [];
+  });
+
+  afterEach(() => {
+    const { closeKnowledgeDB } = require('./knowledge-db.js');
+    for (const db of openedDbs) {
+      try { closeKnowledgeDB(db); } catch (_) { /* best-effort */ }
+    }
+    for (const suffix of ['', '-wal', '-shm']) {
+      const p = tmpDbPath + suffix;
+      if (fs.existsSync(p)) {
+        try { fs.rmSync(p, { force: true }); } catch (_) { /* best-effort */ }
+      }
+    }
+    if (prevOverride === undefined) {
+      delete process.env.GSD_KNOWLEDGE_DB_PATH;
+    } else {
+      process.env.GSD_KNOWLEDGE_DB_PATH = prevOverride;
+    }
+  });
+
+  test('getDBPath honors GSD_KNOWLEDGE_DB_PATH override, falls back to hardcoded path when unset', () => {
+    const knowledgeDb = require('./knowledge-db.js');
+
+    // Override set (beforeEach already set it) — scope is ignored, same path for both
+    assert.strictEqual(knowledgeDb.getDBPath('global'), tmpDbPath);
+    assert.strictEqual(knowledgeDb.getDBPath('project'), tmpDbPath);
+
+    // Temporarily unset to verify original hardcoded behavior is unchanged
+    const saved = process.env.GSD_KNOWLEDGE_DB_PATH;
+    delete process.env.GSD_KNOWLEDGE_DB_PATH;
+    try {
+      const hardcodedPath = knowledgeDb.getDBPath('global');
+      assert.match(hardcodedPath, /\.claude[\\/]knowledge[\\/].+\.db$/);
+    } finally {
+      process.env.GSD_KNOWLEDGE_DB_PATH = saved;
+    }
+  });
+
+  test('vectorEnabled fix: conn.db.vectorEnabled stays in sync with conn.vectorEnabled', () => {
+    const { openKnowledgeDB } = require('./knowledge-db.js');
+    const conn = openKnowledgeDB('global');
+    openedDbs.push(conn.db);
+
+    // Key assertion: the two are now IN SYNC (not hardcoded true/false) —
+    // sqlite-vec availability is environment-dependent.
+    assert.strictEqual(conn.db.vectorEnabled, conn.vectorEnabled);
+
+    if (conn.vectorEnabled) {
+      const { insertKnowledge } = require('./knowledge-crud.js');
+      const content = 'vector-enabled test entry ' + Date.now();
+      const embedding = new Float32Array(512).fill(0.1);
+      const result = insertKnowledge(conn.db, {
+        content,
+        type: 'lesson',
+        scope: 'global',
+        embedding
+      });
+
+      const row = conn.db.prepare('SELECT COUNT(*) as cnt FROM knowledge_vec WHERE rowid = ?').get(result.id);
+      assert.strictEqual(row.cnt, 1, 'expected the inserted embedding to land in knowledge_vec');
+    }
+  });
+
+  test('transaction race fix: 5 concurrent insertOrEvolve calls with identical content create exactly 1 row', async () => {
+    const { openKnowledgeDB } = require('./knowledge-db.js');
+    const { insertOrEvolve } = require('./knowledge-evolution.js');
+    const conn = openKnowledgeDB('global');
+    openedDbs.push(conn.db);
+
+    const content = 'identical content for race test';
+    await Promise.all(
+      Array.from({ length: 5 }, () =>
+        insertOrEvolve(conn, {
+          content,
+          type: 'lesson',
+          scope: 'global',
+          embedding: null,
+          metadata: {}
+        })
+      )
+    );
+
+    const row = conn.db.prepare('SELECT COUNT(*) as cnt FROM knowledge WHERE content = ?').get(content);
+    assert.strictEqual(row.cnt, 1, 'expected exactly 1 row, not 5 — no lost update / no duplicate insert under concurrency');
+  });
+
+  test('circuit breaker gates embedding generation, storeInsights still stores the insight via hash-only dedup', async () => {
+    const { openKnowledgeDB } = require('./knowledge-db.js');
+    const { enableCircuitBreaker } = require('./knowledge-cost.js');
+    const conn = openKnowledgeDB('global');
+    openedDbs.push(conn.db);
+
+    enableCircuitBreaker(conn.db, 'test');
+
+    const { storeInsights } = require('./knowledge-writer.js');
+
+    const tmpCwd = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-test-cwd-'));
+    try {
+      const result = await storeInsights(
+        [{ type: 'decision', decision: 'test decision content long enough to pass the filter' }],
+        { cwd: tmpCwd }
+      );
+
+      assert.strictEqual(result.errors.length, 0, `Unexpected errors: ${JSON.stringify(result.errors)}`);
+      assert.strictEqual(result.stored + result.evolved, 1, 'insight should still be stored when circuit breaker blocks embeddings');
+    } finally {
+      fs.rmSync(tmpCwd, { recursive: true, force: true });
+    }
+  });
+});
