@@ -229,6 +229,22 @@ async function storeInsights(insights, options = {}) {
 
   const conn = dbResult.conn;
 
+  // 1b. Check the knowledge-cost circuit breaker before attempting any
+  // embedding generation batches. If blocked, embeddings are skipped for
+  // every insight in this call and dedup falls back to hash-only (stages 1+2)
+  // — this must never throw or abort storeInsights.
+  let embeddingsBlocked = false;
+  let costCheckReason = null;
+  try {
+    const { shouldBlockCostlyAction } = require('./knowledge-cost.js');
+    const costCheck = shouldBlockCostlyAction(conn.db);
+    embeddingsBlocked = !!costCheck.blocked;
+    costCheckReason = costCheck.reason || null;
+  } catch (_costErr) {
+    // knowledge-cost.js unavailable or errored — degrade gracefully, do not block
+    embeddingsBlocked = false;
+  }
+
   // 2. Load dedup and evolution modules
   let checkDuplicate, insertOrEvolve, insertKnowledge;
   try {
@@ -266,6 +282,32 @@ async function storeInsights(insights, options = {}) {
         continue;
       }
 
+      // a2. Run content through the secrets/PII safety filter. Rejected
+      // insights are never persisted (not even in redacted form) — the whole
+      // insight is dropped. Redacted content replaces the original for every
+      // subsequent step (dedup check, embedding generation, insert/evolve).
+      const { filterContentForSecrets } = require('./knowledge-safety.js');
+      const filterResult = filterContentForSecrets(content, options.cwd);
+      if (!filterResult.safe) {
+        result.errors.push(`Rejected insight: ${filterResult.reason || 'sensitive content detected'}`);
+        result.skipped++;
+        continue;
+      }
+      const safeContent = filterResult.content;
+
+      // a3. MILE-31: injection-pattern screening, additive to the secrets
+      // filter above -- same choke point, same reject-on-match philosophy,
+      // different threat model (hijacking the reader, not leaking a
+      // credential). Runs AFTER the secrets filter so secrets are still
+      // checked/redacted/rejected first.
+      const { screenForInjectionPatterns } = require('./knowledge-safety.js');
+      const injectionResult = screenForInjectionPatterns(safeContent);
+      if (!injectionResult.safe) {
+        result.errors.push(`Rejected insight: ${injectionResult.reason}`);
+        result.skipped++;
+        continue;
+      }
+
       // b. Map insight type to knowledge type and TTL
       const { knowledgeType, ttlCategory } = mapInsightToKnowledgeType(insight);
 
@@ -284,20 +326,29 @@ async function storeInsights(insights, options = {}) {
       const tags = ['haiku-extracted', insight.type];
 
       // e. Attempt Stage-3 embedding generation with 2s timeout (lazy-loaded)
-      // Falls back to null (hash-only dedup) on timeout or unavailability.
+      // Falls back to null (hash-only dedup) on timeout, unavailability, or
+      // when the cost circuit breaker is enabled (embeddingsBlocked).
       let embedding = null;
-      try {
-        const { generateEmbeddingCached } = require('./embeddings.js');
-        embedding = await Promise.race([
-          generateEmbeddingCached(content),
-          new Promise(resolve => setTimeout(() => resolve(null), embeddingTimeoutMs))
-        ]);
-      } catch (_embErr) {
-        // Embedding unavailable — fall back to hash-only dedup (stages 1 and 2)
+      if (embeddingsBlocked) {
+        if (debug) {
+          process.stderr.write(
+            `[knowledge-writer] Circuit breaker enabled (${costCheckReason}) — skipping embedding generation, hash-only dedup\n`
+          );
+        }
+      } else {
+        try {
+          const { generateEmbeddingCached } = require('./embeddings.js');
+          embedding = await Promise.race([
+            generateEmbeddingCached(safeContent),
+            new Promise(resolve => setTimeout(() => resolve(null), embeddingTimeoutMs))
+          ]);
+        } catch (_embErr) {
+          // Embedding unavailable — fall back to hash-only dedup (stages 1 and 2)
+        }
       }
 
       // f. Check for duplicates (three-stage dedup; stage 3 fires when embedding non-null)
-      const dupCheck = await checkDuplicate(conn, content, embedding);
+      const dupCheck = await checkDuplicate(conn, safeContent, embedding);
 
       if (dupCheck.isDuplicate) {
         const similarity = dupCheck.similarity || 0;
@@ -318,7 +369,7 @@ async function storeInsights(insights, options = {}) {
         if (similarity >= evolutionThreshold && similarity <= dedupThreshold) {
           // Near-duplicate - evolve existing entry via insertOrEvolve
           const evolveResult = await insertOrEvolve(conn, {
-            content,
+            content: safeContent,
             type: knowledgeType,
             scope,
             embedding: null,
@@ -365,7 +416,7 @@ async function storeInsights(insights, options = {}) {
       // g. Not a duplicate - insert new entry
       // Use insertOrEvolve for canonical handling (it runs full dedup internally)
       const insertResult = await insertOrEvolve(conn, {
-        content,
+        content: safeContent,
         type: knowledgeType,
         scope,
         embedding: null,

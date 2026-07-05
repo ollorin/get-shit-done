@@ -15,6 +15,30 @@ Fork: https://github.com/ollorin/get-shit-done
 | Upstream commits ahead | 10 |
 | Substantive upstream commits | 4 (others are version bumps and changelogs) |
 
+**Note (2026-07-05):** upstream has since progressed to approximately v1.42-43; this
+fork has continued on its own numbered-phase line (Phases 44-53+) without re-diffing
+against every intervening upstream commit. Per the quarterly policy below, a full
+re-diff scoping upstream's security/fault-injection and deterministic-test-design work
+is worth doing at the next quarterly checkpoint — not this phase's job to port.
+
+---
+
+## Quarterly Upstream Cherry-Pick Review Policy
+
+Every quarter, re-run a diff against `glittercowboy/get-shit-done` upstream and re-assess
+which substantive commits are portable to this fork. This file (`UPSTREAM-DIFF.md`) is the
+living record of that assessment — update it in place each quarter rather than creating a
+new file per review.
+
+**Process:** (1) `git fetch upstream`, (2) diff HEAD against `upstream/main`, (3) classify
+new substantive commits using the same `needs-adaptation` / `conflicts-with-fork` /
+`portable-as-is` categories already used below, (4) update the "Upstream current" /
+"Fork current" version pointers, (5) note any new findings in a dated addendum rather than
+rewriting prior history.
+
+**Last reviewed:** 2026-07-05 (light-touch refresh only — see note above; the next
+quarterly review should perform a full re-diff).
+
 ---
 
 ## Structural Note: gsd-tools.js vs gsd-tools.js

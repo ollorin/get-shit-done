@@ -15,7 +15,7 @@ These rules CANNOT be skipped, deferred, or deprioritized by any subagent:
 3. **E2E tests MUST check for data display bugs** — NaN, undefined, null, [object Object], empty strings where values expected
 4. **E2E tests MUST open every dropdown, modal, and sub-section** — visual completeness
 5. **New regression-worthy tests MUST be tagged `regression`** — selected by test generator
-6. **Pre-dev test generation (Step 5.6) and post-dev gap closure (Step 6.5) are MANDATORY for web phases** — not optional, not deferrable
+6. **Pre-dev test generation (Step 5.6) and pre-gate gap closure (Step 6.35, runs BEFORE phase-gate) are MANDATORY for web phases** — not optional, not deferrable
 7. **Subagents that skip or defer e2e testing will trigger verification failure** — QGATE-07 enforces this
 
 <required_reading>
@@ -293,7 +293,31 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
 
    **Known Claude Code bug (classifyHandoffIfNeeded):** If an agent reports "failed" with error containing `classifyHandoffIfNeeded is not defined`, this is a Claude Code runtime bug — not a GSD or agent issue. The error fires in the completion handler AFTER all tool calls finish. In this case: run the same spot-checks as step 4 (SUMMARY.md exists, git commits present, no Self-Check: FAILED). If spot-checks PASS → treat as **successful**. If spot-checks FAIL → treat as real failure below.
 
-   For real failures: report which plan failed → ask "Continue?" or "Stop?" → if continue, dependent plans may also fail. If stop, partial completion report.
+   For real failures (not the classifyHandoffIfNeeded runtime bug), call execution-state to get the auto-retry/debug/escalate decision:
+
+   ```bash
+   STATE_RESULT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" execution-state record-failure \
+     --phase {N} --plan {plan_id} --error "{error message}" --step "{last completed step}" \
+     --files "{comma-separated files modified}" --raw)
+   ```
+
+   Parse `action`, `attempts`, `max_attempts` from `STATE_RESULT`.
+
+   - **`action == "retry"`** (1st failure): Log "Auto-retry {plan_id} (attempt 2 of {max_attempts}) — no user prompt." Re-spawn the plan's executor fresh with the same plan context. On success: `execution-state record-success --phase {N} --plan {plan_id}`, continue to next wave. On failure again: repeat this step (`attempts` is now 2).
+
+   - **`action == "debug"`** (2nd+ failure, below the ceiling): Log "Auto-spawning debugger for {plan_id} after {attempts} failures." Invoke @~/.claude/get-shit-done/workflows/debug.md non-interactively:
+     ```
+     mode: symptoms_prefilled: true, interactive: false, goal: find_and_fix
+     symptoms: expected="plan {plan_id} completes successfully", actual="{error}", errors="{error}", reproduction="re-run plan {plan_id}", timeline="this execution"
+     debug_file: .planning/debug/{phase}-{plan_id}-attempt{attempts}.md
+     ```
+     After the debug workflow returns, re-spawn the plan's executor. On success: `execution-state record-success --phase {N} --plan {plan_id}`. On failure again: repeat this step (`attempts` increments via the next `record-failure` call).
+
+   - **`action == "escalate"`** (at the `max_attempts` ceiling — NEVER spawn another debug attempt):
+     1. Read the most recent `.planning/debug/{phase}-{plan_id}-attempt*.md` file's findings summary (or "No debugger findings available" if none exist).
+     2. If a blocking Telegram question tool (`mcp__telegram__ask_blocking_question`) is available in this execution context: escalate using the IDENTICAL Step A + Step A-fallback pattern already defined in `agents/gsd-phase-coordinator.md` (~lines 386-425) — same call shape, same fallback (on daemon-down/timeout: log loudly, `deferred add --step execution --reason "..." --approver timeout-fallback`, continue). Do NOT modify `gsd-phase-coordinator.md` — this is a new call site elsewhere that reuses its documented pattern verbatim.
+     3. If that tool is not available in this execution context (e.g. a standalone `/gsd:execute-phase` run without roadmap-level Telegram wiring): fall back to `AskUserQuestion` if interactive, or the existing fire-and-forget notification + `FAILURE.md` write if fully autonomous — document which path was taken in SUMMARY.md.
+     4. Mark this plan failed, report partial completion, continue with non-dependent plans only.
 
 6. **Execute checkpoint plans between waves** — see `<checkpoint_handling>`.
 
@@ -435,13 +459,76 @@ After all waves:
     <fail>Self-check failed in listed SUMMARY.md — investigate and fix before verification</fail>
   </item>
 
-  <item id="PHGATE-03" severity="advisory">
+  <item id="PHGATE-03" severity="blocking">
     <check>Audit log file exists for this phase</check>
     <pass>phase-{N}-audit.jsonl exists in .planning/audit/</pass>
-    <fail>Non-blocking — audit log may not have been written. See references/audit-log.md.</fail>
+    <fail>BLOCKING — .planning/audit/phase-{N}-audit.jsonl does not exist. Phase cannot be marked complete without an audit entry. Verify all plans wrote their audit entries (check CPGATE-04 in each plan's execution). See ~/.claude/get-shit-done/references/audit-log.md.</fail>
   </item>
 
 </checkpoint>
+
+<step name="e2e_coverage_closure">
+
+### Step 6.35: Pre-Gate E2E Coverage Closure (BLOCKING, runs before phase-gate)
+
+**Trigger:** Same as Step 5.6 in plan-phase — web project with UI changes. This step runs BEFORE Gate 1 (`verify phase-gate` in `pre_verify_gates` below) so the `e2e_plan` artifact phase-gate demands has a chance to actually be produced first — a gate must never demand an artifact that nothing creates (MILE-08, Loophole 5).
+
+**Process:**
+
+1. Run the deterministic pre-check:
+   ```bash
+   E2E_GAP_RESULT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" verify e2e-gaps "${PHASE}")
+   E2E_GAP_EXIT=$?
+   ```
+   Parse JSON fields: `has_ui`, `gaps`, `gap_count`, `generation_failed`.
+
+2. **If `has_ui` is `false`:** Skip this entire step — proceed directly to `pre_verify_gates`. Nothing to close for a non-UI phase.
+
+3. **If `gap_count == 0` and `generation_failed == false`:** **Idempotent skip.** Log: "E2E-TEST-PLAN.md already covers all touched UI pages — generator not re-invoked." Proceed to `pre_verify_gates`. Do NOT spawn the generator — full coverage already exists, re-invoking it would be wasted cost.
+
+4. **Otherwise** (gaps exist, or a stale `generation_failed` marker is present from a prior failed attempt): spawn the generator with the gap list as its UI-inventory-gap input, plus phase context:
+   ```
+   Agent(
+     subagent_type="gsd-e2e-test-generator",
+     model="sonnet",
+     description="Close E2E coverage gaps for phase {PHASE}",
+     prompt="
+       Phase: {PHASE_NUMBER} - {PHASE_NAME}
+       Phase directory: {PHASE_DIR}
+       UI coverage gaps (page basenames with no e2e scenario mention): {gaps}
+       Existing E2E-TEST-PLAN.md (if any): {PHASE_DIR}/E2E-TEST-PLAN.md
+       Read the phase's PLAN.md/SUMMARY.md files to understand what these pages do.
+       Write/update scenarios covering every listed gap. Update E2E-TEST-PLAN.md so it
+       explicitly names each covered page (verify e2e-gaps checks for the page's basename
+       appearing in the plan text).
+     "
+   )
+   ```
+
+5. **On generator success** (returns written scenario files + an updated `E2E-TEST-PLAN.md`, no thrown error): delete the marker if present —
+   ```bash
+   rm -f "${PHASE_DIR}/E2E-GENERATION-FAILED.json"
+   ```
+   Re-run `verify e2e-gaps "${PHASE}"` to confirm `gap_count == 0` now. **If gaps remain** after a generation attempt (the generator produced a plan that still omits a page): treat this the same as failure (step 6 below) — never silently proceed with residual gaps.
+
+6. **On generator failure** (Agent() throws, times out, or returns no plan / clearly malformed output) **OR residual gaps remain after a generation attempt**: write the marker —
+   ```bash
+   cat > "${PHASE_DIR}/E2E-GENERATION-FAILED.json" <<EOF
+   {"error": "<short description>", "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
+   EOF
+   ```
+   Do NOT proceed to `pre_verify_gates` silently — the next Gate 1 (`verify phase-gate`) will now surface this as `failure_type: e2e_generation_failed`, which the operator/coordinator handles exactly like any other Gate 1 failure: fix (retry generation) or `deferred add --step e2e_plan --reason ... --approver ...` for a documented exception.
+
+**Hard rule:** Phase execution is NOT complete until every UI page created/modified has at least one e2e scenario covering:
+- Page loads without console errors
+- All interactive elements are clickable/fillable
+- All data displays show valid values (no NaN, undefined, null)
+- All forms submit successfully with valid data
+- All forms show validation errors with invalid data
+
+**Output:** Updated scenarios in `apps/e2e-charlotte/scenarios/`, updated E2E-TEST-PLAN.md with coverage status, `E2E-GENERATION-FAILED.json` written on failure / cleared on success.
+
+</step>
 
 <step name="pre_verify_gates">
 
@@ -449,12 +536,20 @@ After all waves:
 
 Before proceeding to verification, these gates must pass. They cannot be deferred.
 
-**Gate 1 — Charlotte QA evidence (UI phases only):**
+**Gate 1 — Deterministic phase-gate (BLOCKING):**
 
-If any plan in this phase has `type: frontend` or `checkpoint: ui-qa` or created `.tsx/.jsx` files:
-- CHECKPOINT.json must contain `charlotte_qa_ran: true`
-- If missing: the orchestrator (execute-roadmap step 5a) will catch this and run Charlotte
-- Set `charlotte_qa_ran: false` in CHECKPOINT.json if Charlotte was not run — do NOT omit the field
+Run the deterministic, git-diff-derived phase gate instead of self-reporting artifact existence. This single call replaces the prior "check `type: frontend`/`checkpoint: ui-qa`/`.tsx`/`.jsx` by hand" prose — it covers Charlotte QA evidence, plus test/docs/e2e-plan/verification existence, from actual touched files and waivers, not plan self-reports:
+
+```bash
+PHASE_GATE_RESULT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" verify phase-gate "${PHASE}")
+PHASE_GATE_EXIT=$?
+```
+
+If `PHASE_GATE_EXIT` is non-zero: **BLOCKING** — do not proceed to verifier spawn. Present the failing checks (the `failures` array in the JSON output) to the operator/coordinator with two options:
+(a) fix the missing artifact (e.g. run Charlotte QA if `missing_charlotte_qa`) and re-run `verify phase-gate`, or
+(b) for a legitimate, documented exception, run `node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" deferred add "${PHASE}" --step <step> --reason <reason> --approver <approver>`, then re-run `verify phase-gate` to confirm it now passes waived.
+
+Skipping a mandatory step requires calling `deferred add` as part of the skip — never logged-and-forgotten after the fact. Do not allow silent continuation past a non-zero exit.
 
 **Gate 2 — Integration tests green:**
 
@@ -469,37 +564,6 @@ If failures: fix before proceeding. Do not write "tests pass" in SUMMARY.md if t
 If the phase introduced a new enum value, status string, or type discriminator:
 - Verify it exists in ALL layers: DB constraint, RPC validation, edge function validation, frontend type, UI display map
 - A value present in one layer but missing in another is a blocking defect
-
-</step>
-
-<step name="e2e_coverage_closure">
-
-### Step 6.5: Post-Execution E2E Coverage Closure (Web Projects)
-
-**Trigger:** Same as Step 5.6 in plan-phase — web project with UI changes.
-
-**Process:**
-1. Read SUMMARY.md to identify what was actually built
-2. Spawn gsd-ui-inventory (haiku) on the changed modules to get fresh inventory
-3. Compare actual UI inventory against E2E-TEST-PLAN.md from planning phase
-4. If gaps found (new UI elements not covered by any test):
-   a. Spawn gsd-e2e-test-generator (sonnet) with gap list
-   b. Generator creates additional scenarios
-   c. Run new scenarios with Charlotte to verify they work
-5. Update scenario index files to include new tests
-6. Tag new tests and select regression candidates:
-   - Tests covering core user flows → `regression`
-   - Tests covering edge cases → `functional`
-   - Tests covering visual quality → `ux`
-
-**Hard rule:** Phase execution is NOT complete until every UI page created/modified has at least one e2e scenario covering:
-- Page loads without console errors
-- All interactive elements are clickable/fillable
-- All data displays show valid values (no NaN, undefined, null)
-- All forms submit successfully with valid data
-- All forms show validation errors with invalid data
-
-**Output:** Updated scenarios in `apps/e2e-charlotte/scenarios/`, updated E2E-TEST-PLAN.md with coverage status.
 
 </step>
 

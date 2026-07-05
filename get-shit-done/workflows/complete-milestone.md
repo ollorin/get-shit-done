@@ -404,9 +404,130 @@ After archival, the AI still handles:
 
 </step>
 
+<step name="mine_milestone_conversations">
+
+Mine this milestone's session conversations into the knowledge DB, non-blocking on any failure. This step MUST run after `milestone complete` (above) has set `version`/`date` and MUST NOT block `reorganize_roadmap_and_delete_originals` on any failure.
+
+**Config gate:**
+```bash
+AUTO_MINE=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" config get auto_mine 2>/dev/null | jq -r '.value // "true"')
+```
+If `AUTO_MINE` is not `"true"`: log "Milestone mining skipped (auto_mine: false)" and skip to `reorganize_roadmap_and_delete_originals`.
+
+**Compute the milestone's session date range** (best-effort — never fails the step):
+```bash
+MILESTONE_START=$(git log --reverse --grep="feat(" --format="%ai" 2>/dev/null | head -1)
+if [ -n "$MILESTONE_START" ]; then
+  AGE_DAYS=$(( ( $(date +%s) - $(date -d "$MILESTONE_START" +%s 2>/dev/null || date -jf "%Y-%m-%d %H:%M:%S %z" "${MILESTONE_START% *}" +%s 2>/dev/null || echo 0) ) / 86400 ))
+fi
+# Fall back to 30 days if AGE_DAYS is empty, zero, or negative (git log unavailable, single-commit repo, or date parse failure on this platform)
+AGE_DAYS=${AGE_DAYS:-30}
+if [ "$AGE_DAYS" -le 0 ] 2>/dev/null; then AGE_DAYS=30; fi
+```
+
+**Mine sessions** (reuse the exact call pattern from `gsd-phase-coordinator.md`'s `harvest_knowledge` step — current-project scan, not `--all-projects`, since this is milestone-scoped to the current project):
+```bash
+MINE_JSON=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" mine-conversations --max-age-days "$AGE_DAYS" --limit 50 2>/dev/null || echo '{"status":"error"}')
+```
+
+Parse `status`, `sessionsReady`, `sessions` from `MINE_JSON`.
+
+**If `status === 'error'` or `sessionsReady === 0`:** Log "Milestone mining: no new sessions found" and skip straight to writing the metadata file (below) with zero counts. Do NOT fail the milestone completion.
+
+**Otherwise, for each session (sequentially, same pattern as harvest_knowledge):**
+1. For each item in `session.extractionRequests` (up to 3 — decision, reasoning_pattern, meta_knowledge): spawn `Agent(subagent_type="general-purpose", model="haiku", description="Extract {item.type}", max_turns=15, prompt="{item.prompt}")`. If the Agent call throws or returns empty, skip this extraction type — non-fatal.
+2. Assemble the results array from successful outputs (same shape as harvest_knowledge: `[{"type": "...", "result": "..."}]`).
+3. Store + dedupe:
+   ```bash
+   node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" store-conversation-result "{session.sessionId}" '{resultsJson}' --content-hash "{session.contentHash}"
+   ```
+   Accumulate `stored`/`evolved`/`skipped` counts across all sessions.
+4. **Non-fatal per-session:** if any single session's extraction or storage throws, log the error, increment an `errors` counter, and continue to the next session. Never abort the loop.
+
+**Write metadata file (always runs, even on zero sessions or total failure):**
+Write `.planning/milestones/v[X.Y]-KNOWLEDGE.md` (version from the `archive_milestone` step's ARCHIVE result):
+```markdown
+# Knowledge Extracted: v[X.Y] — [date]
+
+From [N] conversations, [M] insights stored:
+- [stored_count] new entries
+- [evolved_count] evolved entries
+- [skipped_count] deduped/skipped
+
+Errors: [errors_count] (non-blocking — see execution log)
+
+See `.planning/knowledge/` for full entries.
+```
+
+**Non-blocking guarantee:** Wrap this entire step's logic so that ANY failure (missing gsd-tools.js, mine-conversations erroring, Agent() failures, metadata write failure) is logged via a single line ("Milestone mining failed non-fatally: {error} — milestone completion continues") and execution ALWAYS proceeds to `reorganize_roadmap_and_delete_originals`. This step must never be the reason a milestone fails to complete.
+
+**Prune + checkpoint (non-blocking):**
+```bash
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" knowledge prune --scope global 2>/dev/null || true
+```
+This call already runs `pruneStaleEntries` + (internally, on >100 deletions) `checkpointWAL` via the existing `cmdKnowledgePrune`, and now always checkpoints the WAL unconditionally after a live (non-dry-run) prune, regardless of delete count. Failure of this call must never block `reorganize_roadmap_and_delete_originals` — it is covered by this step's Non-blocking guarantee above like everything else in this step.
+
+</step>
+
+<step name="consolidate_knowledge">
+
+Run knowledge consolidation (clustering -> principle synthesis -> conflict detection) once per milestone, non-blocking on any failure. This step MUST run after `mine_milestone_conversations` (above) and MUST NOT block `reorganize_roadmap_and_delete_originals`.
+
+**Config gate:**
+```bash
+AUTO_CONSOLIDATE=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" config get auto_consolidate 2>/dev/null | jq -r '.value // "true"')
+```
+If `AUTO_CONSOLIDATE` is not `"true"`: log "Milestone consolidation skipped (auto_consolidate: false)" and skip to `reorganize_roadmap_and_delete_originals`.
+
+**Discover clusters (no synthesis yet):**
+```bash
+CLUSTERS_JSON=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" knowledge consolidate --scope global --raw 2>/dev/null || echo '{"synthesized":0,"reason":"error"}')
+```
+Parse `reason` and `clusters_found` from `CLUSTERS_JSON`. **If `reason === 'circuit_breaker_blocked'`:** log "Milestone consolidation skipped (cost circuit breaker enabled)" and skip straight to writing the metadata file (below) with zero counts. **If `reason === 'insufficient_knowledge'` or `clusters_found === 0`:** log "Milestone consolidation: no sufficient clusters found" and skip to the metadata file with zero counts — do not force a principle.
+
+**Otherwise, for each cluster found (from the discovery call's cluster data above — that discovery call already clustered AND inserted using the stub fallback; that insertion is informational only and gets superseded by the finalize step below), spawn one Haiku synthesis call per cluster:**
+```
+Agent(
+  subagent_type="general-purpose",
+  model="haiku",
+  description="Synthesize principle for {cluster.topic}",
+  max_turns=10,
+  prompt="These are related lessons/decisions from a completed milestone: {cluster.examples joined}. Write ONE concise, actionable principle statement (1-2 sentences) that captures the common pattern. Do not include preamble — return only the principle text."
+)
+```
+If the Agent() call throws or returns empty, fall back to using the cluster's already-stubbed text from the discovery call — non-fatal, never blocks the loop.
+
+**Finalize with real text:**
+```bash
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" knowledge consolidate --scope global --raw --principles '[{"topic":"...","text":"..."}, ...]'
+```
+This re-runs clustering deterministically and applies the real synthesized text + conflict detection, per Phase 49-03's design — inserting principles with the Haiku-generated text (or the stub fallback for any cluster whose Agent() call failed). This is the exact same `synthesizePrinciples` function called by the manual `knowledge consolidate` backstop — never a parallel implementation.
+
+**Write metadata file (always runs):**
+Write `.planning/milestones/v[X.Y]-CONSOLIDATION.md`:
+```markdown
+# Knowledge Consolidated: v[X.Y] — [date]
+
+- [synthesized_count] principles synthesized
+- [conflicts_flagged_count] conflicts flagged (see .planning/knowledge/CONFLICTS.jsonl)
+- [clusters_found_count] clusters found, [skipped] below minimum size
+```
+
+**Non-blocking guarantee:** Wrap this entire step's logic so ANY failure (missing gsd-tools.js, consolidate command erroring, Agent() failures, metadata write failure) is logged via a single line ("Milestone consolidation failed non-fatally: {error} — milestone completion continues") and execution ALWAYS proceeds to `reorganize_roadmap_and_delete_originals`. This step must never be the reason a milestone fails to complete. This pass explicitly does NOT run before every agent action — only here, at complete-milestone cadence.
+
+</step>
+
 <step name="reorganize_roadmap_and_delete_originals">
 
 After `milestone complete` has archived, reorganize ROADMAP.md with milestone groupings, then delete originals:
+
+**Idempotency check (resume-safe):** Before rewriting, check whether ROADMAP.md already
+has been reorganized by a prior (possibly crashed) run of this step:
+```bash
+ALREADY_REORGANIZED=$(grep -c "^## Milestones" .planning/ROADMAP.md 2>/dev/null || echo 0)
+```
+If `ALREADY_REORGANIZED` is greater than 0, skip the "Reorganize ROADMAP.md" rewrite below and go
+straight to "Then delete originals".
 
 **Reorganize ROADMAP.md** — group completed milestone phases:
 
@@ -432,9 +553,11 @@ After `milestone complete` has archived, reorganize ROADMAP.md with milestone gr
 **Then delete originals:**
 
 ```bash
-rm .planning/ROADMAP.md
-rm .planning/REQUIREMENTS.md
+rm -f .planning/ROADMAP.md
+rm -f .planning/REQUIREMENTS.md
 ```
+
+(`-f` makes re-running this step after a prior partial deletion silent/idempotent instead of erroring on an already-removed file.)
 
 </step>
 
@@ -677,7 +800,7 @@ git push origin v[X.Y]
 Commit milestone completion.
 
 ```bash
-node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "chore: complete v[X.Y] milestone" --files .planning/milestones/v[X.Y]-ROADMAP.md .planning/milestones/v[X.Y]-REQUIREMENTS.md .planning/milestones/v[X.Y]-MILESTONE-AUDIT.md .planning/MILESTONES.md .planning/PROJECT.md .planning/STATE.md
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "chore: complete v[X.Y] milestone" --files .planning/milestones/v[X.Y]-ROADMAP.md .planning/milestones/v[X.Y]-REQUIREMENTS.md .planning/milestones/v[X.Y]-MILESTONE-AUDIT.md .planning/milestones/v[X.Y]-KNOWLEDGE.md .planning/MILESTONES.md .planning/PROJECT.md .planning/STATE.md
 ```
 ```
 
@@ -759,6 +882,7 @@ Milestone completion is successful when:
 - [ ] Known gaps recorded in MILESTONES.md if user proceeded with incomplete requirements
 - [ ] RETROSPECTIVE.md updated with milestone section
 - [ ] Cross-milestone trends updated
+- [ ] Milestone conversations mined (or skipped per auto_mine:false) — non-blocking on failure
 - [ ] User knows next step (/gsd:new-milestone)
 
 </success_criteria>

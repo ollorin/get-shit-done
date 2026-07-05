@@ -124,6 +124,42 @@ After each user reply:
 
 **Force-advance after round 3:** If confidence < 0.80 after round 3, proceed anyway. Add unresolved gaps to the PRD's Open Questions section.
 
+### 1c-bis. Confidence-Gated Discovery Fan-Out
+
+After the Q&A loop above completes:
+
+If `confidence >= 0.65`: discovery stays dormant — skip this subsection entirely, continue to 1d unchanged.
+
+If `confidence < 0.50` AND `gaps` is non-empty:
+1. Determine fan-out count: one investigator per remaining gap, capped at 6, minimum 4 if 4+ gaps remain (if fewer than 4 gaps remain, spawn exactly one investigator per gap).
+2. For each targeted gap, spawn a Haiku investigator in parallel:
+   ```
+   Agent(
+     subagent_type="gsd-product-investigator",
+     model="haiku",
+     description="Investigate gap: {gap_name}",
+     prompt="idea={concept} dimension={infer closest of: domain|competitive|innovation|codebase|technical|risk from gap_name} gap_question={gap_question_text} codebase_path={codebase path if brownfield else null} round=2"
+   )
+   ```
+3. Wait for all to complete. If ALL investigators fail or return empty: log "Discovery investigation unavailable — proceeding with standard unresolved-gap handling" and continue to 1d completely unchanged (do not hard-block PRD completion).
+4. If at least one investigator succeeds, spawn the synthesizer to merge findings:
+   ```
+   Agent(
+     subagent_type="gsd-discovery-synthesizer",
+     model="opus",
+     description="Merge Stage 1 discovery findings",
+     prompt="slug={slug} stage=1 original_idea={concept} findings={collected investigator outputs, one per gap}"
+   )
+   ```
+5. Parse the synthesizer's returned findings-per-gap. For each gap now resolved by investigation, remove it from `gaps` and note the resolution. Recompute `confidence`: if all gaps now resolved -> 0.75; if some remain -> 0.60.
+6. Log: "Discovery fan-out: {N} investigators spawned, confidence {before} -> {after}, {R} of {G} gaps resolved"
+
+If confidence is between 0.50 and 0.65 (exclusive of 0.65): stays dormant, same as the documented threshold — no fan-out.
+
+Investigator failure is NON-FATAL: if any Agent() call throws, times out, or returns unparseable output, treat that specific gap as still-unresolved and continue — never abort the PRD workflow because an investigator failed.
+
+Continue to 1d using the (possibly updated) `confidence` and `gaps`.
+
 ### 1d. Write PM Section to PRD
 
 After the Q&A loop completes, write the PM Discovery section to `.planning/prds/pending/{slug}.md`.
@@ -235,6 +271,42 @@ Focus questions on:
 - User stories in "As a [user], I want [action] so that [outcome]" format
 - Acceptance criteria: "The story is complete when [concrete testable behavior]"
 - MVP line: "For MVP, include X, Y, Z. Defer A, B, C to Phase 2."
+
+### 2c-bis. Confidence-Gated Discovery Fan-Out
+
+After the Q&A loop above completes:
+
+If `confidence >= 0.65`: discovery stays dormant — skip this subsection entirely, continue to 2d unchanged.
+
+If `confidence < 0.50` AND `gaps` is non-empty:
+1. Determine fan-out count: one investigator per remaining gap, capped at 6, minimum 4 if 4+ gaps remain (if fewer than 4 gaps remain, spawn exactly one investigator per gap).
+2. For each targeted gap, spawn a Haiku investigator in parallel. Gap questions and dimension inference come from Stage 2's scoping gaps (user_personas, core_actions, mvp_scope, priority_story, acceptance_evidence). Reference "Prior context" (brownfield/greenfield, done PRDs found from 2a) in the prompt where relevant to the gap:
+   ```
+   Agent(
+     subagent_type="gsd-product-investigator",
+     model="haiku",
+     description="Investigate gap: {gap_name}",
+     prompt="idea={concept} dimension={infer closest of: domain|competitive|innovation|codebase|technical|risk from gap_name} gap_question={gap_question_text} codebase_path={codebase path if brownfield else null} round=2 prior_context={brownfield/greenfield, done PRDs found — from 2a, where relevant to this gap}"
+   )
+   ```
+3. Wait for all to complete. If ALL investigators fail or return empty: log "Discovery investigation unavailable — proceeding with standard unresolved-gap handling" and continue to 2d completely unchanged (do not hard-block PRD completion).
+4. If at least one investigator succeeds, spawn the synthesizer to merge findings:
+   ```
+   Agent(
+     subagent_type="gsd-discovery-synthesizer",
+     model="opus",
+     description="Merge Stage 2 discovery findings",
+     prompt="slug={slug} stage=2 original_idea={concept} findings={collected investigator outputs, one per gap}"
+   )
+   ```
+5. Parse the synthesizer's returned findings-per-gap. For each gap now resolved by investigation, remove it from `gaps` and note the resolution. Recompute `confidence`: if all gaps now resolved -> 0.75; if some remain -> 0.60.
+6. Log: "Discovery fan-out: {N} investigators spawned, confidence {before} -> {after}, {R} of {G} gaps resolved"
+
+If confidence is between 0.50 and 0.65 (exclusive of 0.65): stays dormant, same as the documented threshold — no fan-out.
+
+Investigator failure is NON-FATAL: if any Agent() call throws, times out, or returns unparseable output, treat that specific gap as still-unresolved and continue — never abort the PRD workflow because an investigator failed.
+
+Continue to 2d using the (possibly updated) `confidence` and `gaps`.
 
 ### 2d. Write PO Section to PRD
 

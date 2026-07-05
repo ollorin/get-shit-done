@@ -186,7 +186,35 @@ Classify per phase:
 
 Add to audit YAML: `nyquist: { compliant_phases, partial_phases, missing_phases, overall }`
 
-Discovery only — never auto-calls `/gsd:validate-phase`.
+Discovery only — never triggers manual validation; missing/partial test-content coverage is now enforced automatically by gsd-verifier's Step 6c gate during `/gsd:execute-phase`.
+
+## 5.6. Deferred Waivers Table
+
+For each phase directory in the milestone's phase range:
+
+```bash
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" deferred list {phase} --raw
+```
+
+Aggregate all returned waiver entries (`step`, `reason`, `approver`, `timestamp`, `phase`, `plan`) across every phase in the milestone. Do not read `DEFERRED.json` files directly or grep `deferred-items.md` prose — `deferred list` is the single deterministic source, sharing the same malformed-JSON handling as `verify phase-gate` (a corrupt `DEFERRED.json` for any phase must be surfaced, not silently skipped as "no waivers").
+
+Render into the aggregated `v{version}-MILESTONE-AUDIT.md` output (feeds into step 6 below, the same way step 5.5's Nyquist classification feeds the `nyquist: {...}` YAML block):
+
+```markdown
+### Deferred Waivers
+
+| Phase | Plan | Step | Reason | Approver | Timestamp |
+|-------|------|------|--------|----------|-----------|
+| 45    | 03   | verification | mid-execution dry run | ollorin | 2026-07-04T17:52:27.112Z |
+```
+
+If zero waivers exist across the whole milestone, render:
+
+```
+No deferred/waived items this milestone
+```
+
+Never render a table with a header row and no data rows — the presence or absence of the table itself is the signal.
 
 ## 6. Aggregate into v{version}-MILESTONE-AUDIT.md
 
@@ -311,9 +339,9 @@ All requirements covered. Cross-phase integration verified. E2E flows complete.
 
 | Phase | VALIDATION.md | Compliant | Action |
 |-------|---------------|-----------|--------|
-| {phase} | exists/missing | true/false/partial | `/gsd:validate-phase {N}` |
+| {phase} | exists/missing | true/false/partial | auto-enforced by gsd-verifier's Step 6c on next `/gsd:execute-phase` |
 
-Phases needing validation: run `/gsd:validate-phase {N}` for each flagged phase.
+Phases needing test-content validation: this is now enforced automatically by gsd-verifier's Step 6c (test-content coverage gate) during `/gsd:execute-phase` — no separate manual command is needed.
 
 ───────────────────────────────────────────────────────────────
 
@@ -382,7 +410,7 @@ All requirements met. No critical blockers. Accumulated tech debt needs review.
 - [ ] v{version}-MILESTONE-AUDIT.md created with structured requirement gap objects
 - [ ] FAIL gate enforced — any unsatisfied requirement forces gaps_found status
 - [ ] Nyquist compliance scanned for all milestone phases (if enabled)
-- [ ] Missing VALIDATION.md phases flagged with validate-phase suggestion
+- [ ] Missing VALIDATION.md phases flagged (test-content coverage now enforced automatically by gsd-verifier's Step 6c gate — no manual command needed)
 - [ ] PRD-TRACE.md cross-reference run for each phase with PRD Express Path (Step 5f) — optional, skipped if absent; NOT a blocker when absent
 - [ ] MILESTONE-AUDIT.md includes PRD Traceability section and prd_traceability score (if any phases used PRD Express Path)
 - [ ] Results presented with actionable next steps

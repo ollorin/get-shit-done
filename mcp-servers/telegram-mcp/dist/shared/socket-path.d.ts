@@ -21,3 +21,16 @@
  * @returns Absolute path to the socket file, e.g. '/tmp/telegram-mcp-a1b2c3d4.sock'
  */
 export declare function getSocketPath(projectRoot?: string): string;
+/**
+ * Compute the project-scoped path for question-state JSONL persistence.
+ * Mirrors getSocketPath()'s SHA1-hash scheme so each project's daemon persists
+ * its own question state independently -- no cross-project collision.
+ * NOTE: changing this only affects daemons started AFTER the change; an
+ * already-running daemon keeps using the path it computed at its own startup.
+ *
+ * @param projectRoot Optional explicit project root path.
+ *   If omitted, falls back to process.env.PROJECT_ROOT, then process.cwd().
+ * @returns Absolute path to the state file, e.g.
+ *   '~/.claude/knowledge/question-state-a1b2c3d4.jsonl'
+ */
+export declare function getStateFilePath(projectRoot?: string): string;

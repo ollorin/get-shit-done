@@ -72,6 +72,79 @@ Wait for user response:
 **If `BRANCHING_STRATEGY` is "milestone" AND not on main:** Inform user which branch will be used (current branch — already correctly set up).
 </step>
 
+<step name="preflight_quota_estimate">
+Before presenting the execution plan in `confirm_execution` below, estimate whether the current quota budget can plausibly cover the phases about to run. Read-only + one CLI call + a conditional log/prompt — matches this workflow's "coordinator stays lean" core principle, no extra context cost.
+
+**1. Compute remaining phases** (reuse the exact same disk-status check `execute_phases` step 2 already uses for dependency checks — do not reinvent):
+```bash
+REMAINING_PHASES=0
+# For each phase in {execution_order}:
+for PHASE_NUM in {execution_order}; do
+  PHASE_INFO=$(node ~/.claude/get-shit-done/bin/gsd-tools.js roadmap get-phase ${PHASE_NUM})
+  DISK_STATUS=$(node -e "console.log(JSON.parse(process.argv[1]).disk_status || '')" "$PHASE_INFO")
+  if [ "$DISK_STATUS" != "complete" ]; then
+    REMAINING_PHASES=$((REMAINING_PHASES + 1))
+  fi
+done
+```
+
+**2. Run the estimate** (composes automatically with 51-01's self-healed `loadQuotaState` — never reads the raw quota file directly):
+```bash
+QUOTA_ESTIMATE=$(node ~/.claude/get-shit-done/bin/gsd-tools.js resilience estimate-quota --phases ${REMAINING_PHASES})
+SUFFICIENT=$(node -e "console.log(JSON.parse(process.argv[1]).sufficient)" "$QUOTA_ESTIMATE")
+ESTIMATED_TOKENS=$(node -e "console.log(JSON.parse(process.argv[1]).estimated_tokens)" "$QUOTA_ESTIMATE")
+REMAINING_BUDGET=$(node -e "console.log(JSON.parse(process.argv[1]).remaining_budget)" "$QUOTA_ESTIMATE")
+QUOTA_SOURCE=$(node -e "console.log(JSON.parse(process.argv[1]).source)" "$QUOTA_ESTIMATE")
+```
+
+**3. If `SUFFICIENT` is `false`:** this is a deliberate pause point, NOT a hard block — the human/autonomous caller can still choose to proceed. Log loudly:
+```bash
+node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
+  --type quota_preflight_insufficient \
+  --data '{"remaining_phases": '"${REMAINING_PHASES}"', "estimated_tokens": '"${ESTIMATED_TOKENS}"', "remaining_budget": '"${REMAINING_BUDGET}"', "source": "'"${QUOTA_SOURCE}"'"}'
+```
+Append to the `confirm_execution` prompt below:
+```
+⚠ Quota estimate: ~{ESTIMATED_TOKENS} tokens needed for {REMAINING_PHASES} remaining phases,
+but only ~{REMAINING_BUDGET} tokens remain in the current session quota (source: {QUOTA_SOURCE}).
+This run may hit a session/quota limit mid-phase.
+
+Type "yes" to proceed anyway, "wait" to pause until quota resets, or "stop" to cancel.
+```
+If autonomous (no human present — same convention as `gsd-phase-coordinator.md`'s no-Telegram/no-`ask_blocking_question` autonomous path): default to "yes" (proceed), but the loud log above still fires unconditionally — never silently downgrade or skip the warning.
+
+**4. If `SUFFICIENT` is `true`:** proceed silently (no extra prompt noise appended to `confirm_execution`), but still log for the analytics trail:
+```bash
+node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
+  --type quota_preflight_ok \
+  --data '{"remaining_phases": '"${REMAINING_PHASES}"', "estimated_tokens": '"${ESTIMATED_TOKENS}"', "remaining_budget": '"${REMAINING_BUDGET}"'}'
+```
+</step>
+
+<step name="preflight_skew_check">
+Self-referential staleness check (MILE-25): only meaningful when this orchestrator is itself running from a GSD source checkout (never for target projects being built with GSD). Read-only, non-blocking, never requires reinstall/restart to take effect for THIS run — it only affects future runs.
+
+**1. Detect GSD source checkout:**
+```bash
+IS_GSD_CHECKOUT=false
+if [ -f "get-shit-done/bin/gsd-tools.js" ]; then IS_GSD_CHECKOUT=true; fi
+```
+
+**2. If NOT a GSD source checkout:** log "skew check skipped — not a GSD source checkout" and continue to `confirm_execution`.
+
+**3. If a GSD source checkout:** run the doctor check and log:
+```bash
+DOCTOR_RESULT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js doctor --raw)
+CLEAN=$(node -e "console.log(JSON.parse(process.argv[1]).clean)" "$DOCTOR_RESULT")
+if [ "$CLEAN" != "true" ]; then
+  node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
+    --type skew_detected \
+    --data "$DOCTOR_RESULT"
+  echo "⚠ Installed GSD copy has drifted from this source checkout — see execution log. This does not block the current run."
+fi
+```
+</step>
+
 <step name="confirm_execution">
 Present execution plan to user before any autonomous action:
 
@@ -246,6 +319,91 @@ Agent(
 )
 ```
 
+**4a. Detect coordinator death (runs before step 5's status branches):**
+
+A genuine coordinator death is different from a normal `status: "failed"` task-logic failure — either the `Agent()` call itself throws/errors, or the returned text does not parse as the expected status JSON contract (e.g. it IS the raw death message, such as "You've hit your session limit · resets 12:30am", instead of JSON).
+
+1. If the `Agent()` call threw, OR the returned text fails to parse as the expected status JSON contract, run:
+```bash
+DEATH_CHECK=$(node ~/.claude/get-shit-done/bin/gsd-tools.js resilience parse-death --text "{raw returned text or error message}")
+IS_DEATH=$(node -e "console.log(JSON.parse(process.argv[1]).is_death)" "$DEATH_CHECK")
+RESET_TIME_ISO=$(node -e "console.log(JSON.parse(process.argv[1]).reset_time_iso || '')" "$DEATH_CHECK")
+```
+
+2. Separately (regardless of whether step 1 matched), check staleness of the phase's own CHECKPOINT.json — default threshold is read from config's `resilience.staleness_threshold_minutes` when `--threshold-minutes` is omitted:
+```bash
+STALENESS_CHECK=$(node ~/.claude/get-shit-done/bin/gsd-tools.js resilience check-staleness .planning/phases/{phase_dir}/CHECKPOINT.json)
+IS_STALE=$(node -e "console.log(JSON.parse(process.argv[1]).stale)" "$STALENESS_CHECK")
+```
+
+3. **The coordinator is presumed dead if `IS_DEATH` is `true` OR `IS_STALE` is `true`.**
+
+4. **If presumed dead:**
+   - Log loudly (coordinator death detected):
+     ```bash
+     REASON=$([ "$IS_DEATH" = "true" ] && echo "death_signature" || echo "staleness")
+     node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
+       --type coordinator_death_detected \
+       --data '{"phase": {N}, "reason": "'"${REASON}"'", "reset_time_iso": "'"${RESET_TIME_ISO}"'"}'
+     ```
+   - Get the resume brief before doing anything else:
+     ```bash
+     RESUME_BRIEF=$(node ~/.claude/get-shit-done/bin/gsd-tools.js resilience resume-brief {N})
+     BRIEF_TEXT=$(node -e "console.log(JSON.parse(process.argv[1]).brief_text)" "$RESUME_BRIEF")
+     RESUME_FROM=$(node -e "console.log(JSON.parse(process.argv[1]).resume_from)" "$RESUME_BRIEF")
+     ```
+     If the phase's CHECKPOINT.json is missing entirely (coordinator died before its first checkpoint), `resilience resume-brief` already reports `resume_from: "discuss"` and a "starting from scratch" `brief_text` — this workflow needs no special-case handling for the missing-checkpoint case beyond the loud logging above; it is never a silent no-op.
+   - **Wait-until-reset:** if `RESET_TIME_ISO` is non-empty, compute the wait duration and cap it at a sane maximum (6 hours) — if the reset time is implausibly far out (or unparseable/negative), do NOT sleep; log and escalate instead:
+     ```bash
+     NOW_EPOCH=$(date -u +%s)
+     RESET_EPOCH=$(date -u -d "${RESET_TIME_ISO}" +%s 2>/dev/null || date -u -jf "%Y-%m-%dT%H:%M:%S" "${RESET_TIME_ISO%%.*}" +%s 2>/dev/null || echo "")
+     MAX_WAIT_SECONDS=$((6 * 3600))
+     WAIT_SECONDS=$([ -n "$RESET_EPOCH" ] && echo $((RESET_EPOCH - NOW_EPOCH)) || echo -1)
+     ```
+     - If `WAIT_SECONDS` is negative or exceeds `MAX_WAIT_SECONDS`: log and escalate instead of hanging:
+       ```bash
+       node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
+         --type death_reset_time_implausible \
+         --data '{"phase": {N}, "reset_time_iso": "'"${RESET_TIME_ISO}"'", "wait_seconds": '"${WAIT_SECONDS}"', "cap_seconds": '"${MAX_WAIT_SECONDS}"'}'
+       ```
+       Escalate via the same fire-and-forget Telegram notification pattern used in `handle_failure` step 3 (if `telegram_topic_id` is not null) — do not respawn immediately in this case; treat it the same as a phase failure requiring human awareness (falls through to `handle_failure`).
+     - Otherwise, actually pause with a polling sleep loop (matching the Charlotte QA health-check polling pattern used elsewhere in this codebase) until the reset time is reached, THEN proceed to respawn:
+       ```bash
+       while [ "$(date -u +%s)" -lt "${RESET_EPOCH}" ]; do
+         sleep 60
+       done
+       ```
+   - **Respawn** — a fresh `Agent()` call, not a retry of the dead one: re-run the exact same `Agent(subagent_type="gsd-phase-coordinator", ...)` spawn block from step 4 above, but prepend `BRIEF_TEXT` to the prompt with a clear "RESUMING FROM DEATH" preamble (reuse the brief text verbatim — do not re-derive it):
+     ```
+     Agent(
+       subagent_type="gsd-phase-coordinator",
+       model="{COORDINATOR_MODEL}",
+       description="Execute phase {N} (auto-resume)",
+       prompt="{BRIEF_TEXT}
+
+       Execute Phase {N}: {name}
+       ... (identical remaining prompt body to step 4's spawn block above — full lifecycle, HARD RULES, CONTEXT OVERFLOW PREVENTION, telegram_topic_id, structured completion state) ...
+       "
+     )
+     ```
+   - Log the auto-resume spawn:
+     ```bash
+     node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
+       --type auto_resume_spawned \
+       --data '{"phase": {N}, "resume_from": "'"${RESUME_FROM}"'"}'
+     ```
+   - After respawn, fall through to step 5's existing status-branching logic on the NEW return value (the respawned coordinator's actual completion status) — 4a itself never decides completed/failed/etc., it only gets a fresh attempt running.
+   - **No human input required for this path.** If Telegram is configured, send a fire-and-forget notification (matching this file's existing "zero blocking call sites" precedent) but do not wait for a reply before respawning:
+     ```
+     if telegram_topic_id is not null:
+       mcp__telegram__send_message({
+         text: "Phase {N}: coordinator death detected ({REASON}), auto-resuming from {RESUME_FROM}...",
+         thread_id: telegram_topic_id
+       })
+     ```
+
+5. **If NOT presumed dead:** proceed directly to step 5's existing logic below, unchanged.
+
 **5. Handle result:**
 - `status: "completed"`: proceed to **5a** (Charlotte gate) then **5b** (integration gate)
 - `status: "completed_with_deferrals"`: coordinator hit context limits. Spawn fresh agents for deferred steps:
@@ -269,10 +427,13 @@ fi
 
 **5a. Charlotte QA gate (BLOCKING — owned by orchestrator, not coordinator):**
 
-Check if the phase has UI work:
+Check if the phase has UI work using the deterministic, git-diff-derived phase gate (never a markdown/frontmatter self-report scan):
 ```bash
-HAS_UI=$(find .planning/phases/{phase_dir}/ -name "*.md" -exec grep -l "\.tsx\|\.jsx\|checkpoint:ui-qa\|type: frontend" {} \; | head -1)
+PHASE_GATE_RESULT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js verify phase-gate {N})
+HAS_UI=$(node -e "console.log(JSON.parse(process.argv[1]).has_ui === true ? 'true' : '')" "$PHASE_GATE_RESULT")
 ```
+
+`has_ui` is computed from the phase's actual touched files (extension + route-path detection), independent of what any PLAN.md/SUMMARY.md self-reports — a `.tsx` file omitted from a plan's key-files still triggers this gate.
 
 **If HAS_UI is non-empty:**
 
@@ -290,6 +451,8 @@ Running Charlotte QA now...
 3. If critical/high issues → spawn fix agent → re-run (max 3 rounds)
 4. Run regression: all `regression`-tagged Charlotte scenarios must pass
 5. Only after pass → set `charlotte_qa_ran: true` in CHECKPOINT.json → proceed to 5b
+
+If Charlotte QA genuinely cannot be run (e.g. dev environment unavailable) and proceeding anyway is a deliberate, approved decision: this is a genuine mandatory-step skip, not a routine no-UI skip. Run `node ~/.claude/get-shit-done/bin/gsd-tools.js deferred add {N} --step charlotte_qa --reason <reason> --approver <approver>` as part of the skip — never logged-and-forgotten afterward. Do not set `charlotte_qa_ran: true` for QA that did not actually happen; record the waiver instead and let `verify phase-gate` honor it.
 
 **Why the orchestrator owns this gate:** Coordinators that overflow context drop Charlotte as a late step and write "code-level verification" — which missed 5 real UI bugs in v0.1.9. The orchestrator runs this check AFTER the coordinator returns, so context overflow cannot bypass it.
 
@@ -341,6 +504,8 @@ node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
 <step name="handle_failure">
 On phase failure:
 
+**Scope note:** `handle_failure` is entered ONLY for genuine `status: "failed"` task-logic failures. A detected coordinator death (session/quota-limit death or CHECKPOINT.json staleness) is handled entirely by `execute_phases` step 4a above and never reaches this retry/debug/escalate ladder — a session/quota death retried immediately here would just die again before the reset, which is exactly the failure mode 4a exists to avoid. (The one exception: an implausible reset time detected in 4a explicitly falls through to this step, since that case genuinely needs human/escalation visibility rather than a blind respawn.)
+
 1. **Log failure:**
 ```bash
 node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
@@ -348,22 +513,33 @@ node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
   --data '{"phase": {N}, "error": "...", "timestamp": "..."}'
 ```
 
-2. **Send failure notification:**
+2. **Call execution-state to get the auto-retry/debug/escalate decision** (phase-granularity, no `--plan`):
+   ```bash
+   STATE_RESULT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js execution-state record-failure --phase {N} --error "{error}" --step "{step}" --files "{files}" --raw)
+   ```
+   Branch on `action` (same retry/debug/escalate semantics as `execute-phase.md`, phase-level):
+   - **"retry"** (1st failure): log auto-retry, re-run `execute-phase {N}` fresh, no user prompt.
+   - **"debug"** (2nd+ failure, below the ceiling): auto-spawn @~/.claude/get-shit-done/workflows/debug.md non-interactively (`mode: symptoms_prefilled: true, interactive: false, goal: find_and_fix`) with phase-level context from `FAILURE.md` (error, last completed step, files touched), `debug_file: .planning/debug/phase-{N}-attempt{attempts}.md`, then re-run `execute-phase {N}`.
+   - **"escalate"** (at the ceiling — NEVER spawn another debug attempt): hard stop. This workflow's existing Telegram notification (the `mcp__telegram__send_message` call below) is fire-and-forget, NOT `ask_blocking_question` — per the confirmed finding that `execute-roadmap.md` has zero blocking call sites. Keep it fire-and-forget; just append the debugger's findings (from the most recent phase-level debug file, `.planning/debug/phase-{N}-attempt*.md`) to the notification text and to `FAILURE.md` below. Still offer the existing retry/skip/stop reply options.
+   - On success at any branch: `execution-state record-success --phase {N}`.
+
+3. **Send failure notification:**
 ```
 if telegram_topic_id is not null:
   mcp__telegram__send_message({
-    text: "Phase {N} failed\n\nError: {error}\nLast step: {step}\n\nOptions: reply 'retry', 'skip', or 'stop'",
+    text: "Phase {N} failed\n\nError: {error}\nLast step: {step}\n{If action == escalate: Debugger findings: {findings}\n}\nOptions: reply 'retry', 'skip', or 'stop'",
     thread_id: telegram_topic_id
   })
 ```
 
-3. **Create detailed checkpoint:**
+4. **Create detailed checkpoint:**
 ```
 ## Phase {N} Failed
 
 **Error:** {error}
 **Last completed step:** {step}
 **Files modified:** {files}
+{If action == escalate: **Debugger findings:** {findings}}
 
 ### Options
 - "retry" — retry this phase with fresh context
@@ -371,9 +547,9 @@ if telegram_topic_id is not null:
 - "stop" — stop execution, preserve partial state
 ```
 
-4. **Store failure context for manual intervention:**
+5. **Store failure context for manual intervention:**
 - Checkpoint file at `.planning/phases/{phase_dir}/FAILURE.md`
-- Include: error, last step, files touched, suggested fixes
+- Include: error, last step, files touched, suggested fixes, and (if `action == escalate`) the debugger's findings
 </step>
 
 <step name="resume_capability">

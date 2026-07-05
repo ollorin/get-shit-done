@@ -1,0 +1,58 @@
+{
+  "expectedPlan": [
+    {
+      "phase": "01-add-function",
+      "agent": "gsd-phase-researcher",
+      "tier": "haiku"
+    },
+    {
+      "phase": "01-add-function",
+      "agent": "gsd-planner",
+      "tier": "haiku"
+    },
+    {
+      "phase": "01-add-function",
+      "agent": "gsd-executor",
+      "tier": "haiku"
+    },
+    {
+      "phase": "01-add-function",
+      "agent": "gsd-verifier",
+      "tier": "haiku"
+    },
+    {
+      "phase": "02-multiply-function",
+      "agent": "gsd-phase-researcher",
+      "tier": "haiku"
+    },
+    {
+      "phase": "02-multiply-function",
+      "agent": "gsd-planner",
+      "tier": "haiku"
+    },
+    {
+      "phase": "02-multiply-function",
+      "agent": "gsd-executor",
+      "tier": "haiku"
+    },
+    {
+      "phase": "02-multiply-function",
+      "agent": "gsd-verifier",
+      "tier": "haiku"
+    }
+  ],
+  "expectSkip": {
+    "01-add-function": false,
+    "02-multiply-function": true
+  },
+  "expectedCommitCount": 4,
+  "expectedFileSet": [
+    "README.md",
+    "package.json",
+    "ROADMAP.md",
+    "PROJECT.md",
+    ".planning/**",
+    "src/**",
+    "test/**"
+  ]
+}

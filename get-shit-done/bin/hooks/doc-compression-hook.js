@@ -17,16 +17,24 @@ try {
   process.exit(0);
 }
 
-// Compression is enabled — now safe to load npm dependencies
-const { HeaderExtractor } = require('../compression/header-extractor');
-const { loadHookConfig, matchesPattern, checkCircuitBreaker, recordSuccess, recordFailure, getCircuitBreakerStatus } = require('./config');
-const { CompressionCache } = require('./compression-cache');
+// Compression is enabled — now safe to load npm dependencies. Guarded so a
+// missing/broken dependency fails open (stderr log + exit 0) instead of
+// crashing the process on every Read.
+let HeaderExtractor, loadHookConfig, matchesPattern, checkCircuitBreaker, recordSuccess, recordFailure, getCircuitBreakerStatus, CompressionCache;
+try {
+  ({ HeaderExtractor } = require('../compression/header-extractor'));
+  ({ loadHookConfig, matchesPattern, checkCircuitBreaker, recordSuccess, recordFailure, getCircuitBreakerStatus } = require('./config'));
+  ({ CompressionCache } = require('./compression-cache'));
+} catch (e) {
+  process.stderr.write('[doc-compression-hook] dependency load error: ' + e.message + '\n');
+  process.exit(0);
+}
 
 /**
  * PreToolUse Hook: Documentation Compression
  *
  * Purpose: Intercept Read operations on GSD documentation files and return compressed summaries
- * Input: JSON via stdin { tool, parameters }
+ * Input: JSON via stdin { tool_name, tool_input }
  * Output: JSON via stdout { additionalContext, metadata } or exit 0 (pass-through)
  */
 
@@ -77,19 +85,19 @@ async function main() {
     }
 
     const hookData = JSON.parse(input);
-    const { tool, parameters } = hookData;
+    const { tool_name, tool_input } = hookData;
 
     // Only intercept Read operations
-    if (tool !== 'Read') {
+    if (tool_name !== 'Read') {
       process.exit(0);
     }
 
     // Check if file_path parameter exists
-    if (!parameters || !parameters.file_path) {
+    if (!tool_input || !tool_input.file_path) {
       process.exit(0);
     }
 
-    const filePath = parameters.file_path;
+    const filePath = tool_input.file_path;
 
     // Expand ~ to home directory
     const absolutePath = filePath.startsWith('~')

@@ -117,7 +117,7 @@ Routing rules editable at `~/.claude/routing-rules.md`. Project overrides at `.p
 Local SQLite + sqlite-vec knowledge database at `.planning/knowledge/{user}.db`. Stores decisions, lessons, summaries with TTL lifecycle, vector + FTS5 search, and type-weighted ranking. Passive extraction via Claude Code hooks captures knowledge during normal work. Three-stage deduplication: content hash → canonical hash → embedding similarity. Memory evolves — similar new knowledge updates existing entries rather than creating duplicates.
 
 **Autonomous Execution**
-`/gsd:execute-roadmap` — runs an entire project roadmap unattended. Opus coordinator spawns per-phase sub-coordinators, each with fresh context. Before pushing, runs pre-PR quality gates (lint, type checks, unit tests, docs validation), then automatically pushes the branch and opens a PR. Failure handling with retry/skip/escalate and parallel execution for independent phases.
+`/gsd:execute-roadmap` — runs an entire project roadmap unattended. Opus coordinator spawns per-phase sub-coordinators, each with fresh context. Before pushing, runs pre-PR quality gates (lint, type checks, unit tests, docs validation), then automatically pushes the branch and opens a PR. Self-healing failure handling: 1st failure retries silently, 2nd+ failure auto-spawns `gsd-debugger` with context, and a configurable attempt ceiling (`execution.max_attempts`, default 4) escalates with the debugger's findings attached. Parallel execution for independent phases.
 
 **Telegram Integration**
 MCP server (`mcp-servers/telegram-mcp/`) that auto-loads with Claude Code. Sends blocking questions to your phone when human input is needed, resumes automatically on reply. Voice message support via local Whisper (no API cost). Multi-instance safe with isolated question queues and file locking.
@@ -129,7 +129,10 @@ PreToolUse hook intercepts reads of GSD planning documents and injects compresse
 ```
 
 **Conversation Mining**
-`/gsd:mine-conversations` — mines `~/.claude/projects/{slug}/*.jsonl` for decisions and reasoning patterns. Haiku subagents extract insights from Claude Code conversation history. Idempotent — already-analyzed sessions are skipped via content hash.
+`/gsd:mine-conversations` — mines `~/.claude/projects/{slug}/*.jsonl` for decisions and reasoning patterns. Haiku subagents extract insights from Claude Code conversation history. Idempotent — already-analyzed sessions are skipped via content hash. Also runs automatically at `/gsd:complete-milestone` (`auto_mine` config, default `true`) — writes `.planning/milestones/v{X}-KNOWLEDGE.md` and never blocks milestone completion on failure.
+
+**Product Discovery**
+`/gsd:prd` matures a raw concept into a structured PRD across PM/PO/Tech stages. When Q&A confidence stays below 0.50 with unresolved gaps, it auto-spawns 4-6 parallel Haiku `gsd-product-investigator` agents (one per gap) and merges findings via `gsd-discovery-synthesizer`; stays dormant at confidence >= 0.65. Investigator failure is non-fatal — falls back to standard unresolved-gap handling.
 
 ---
 

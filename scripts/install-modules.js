@@ -4,7 +4,6 @@
  *
  * Uses npm workspaces to install dependencies for all modules:
  * - Root package.json
- * - get-shit-done/modules/*
  * - mcp-servers/*
  */
 

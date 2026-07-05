@@ -13,13 +13,11 @@
  *   - Can also be started directly: node dist/daemon/index.js
  *   - Handles SIGINT / SIGTERM for graceful shutdown
  */
-import os from 'os';
 import fs from 'fs';
-import path from 'path';
 import { IPCServer } from './ipc-server.js';
 import { SessionService } from './session-service.js';
 import { QuestionService } from './question-service.js';
-import { getSocketPath } from '../shared/socket-path.js';
+import { getSocketPath, getStateFilePath } from '../shared/socket-path.js';
 import { createLogger } from '../shared/logger.js';
 import { initializeBot, startBot, stopBot, createForumTopic, sendToThread, sendToGroup, reactToMessage, } from './bot/index.js';
 import { handlerEvents } from './bot/handlers.js';
@@ -34,10 +32,10 @@ async function main() {
     let questionService = null;
     if (process.env.TELEGRAM_BOT_TOKEN) {
         initializeBot();
-        // Create QuestionService with bot functions and session service
-        questionService = new QuestionService(createForumTopic, sendToThread, sendToGroup, sessionService);
         // ─── Restore question state from previous daemon run ─────────────────
-        const stateFilePath = path.join(os.homedir(), '.claude', 'knowledge', 'question-state.jsonl');
+        const stateFilePath = getStateFilePath();
+        // Create QuestionService with bot functions and session service
+        questionService = new QuestionService(createForumTopic, sendToThread, sendToGroup, sessionService, stateFilePath);
         try {
             if (fs.existsSync(stateFilePath)) {
                 const raw = fs.readFileSync(stateFilePath, 'utf8');

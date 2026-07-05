@@ -99,7 +99,7 @@ Add note that this is the last plan and what comes after:
 
 **Also available:**
 - `/gsd:discuss-phase 2` — gather context first
-- `/gsd:research-phase 2` — investigate unknowns
+- `/gsd:plan-phase 2 --research` — investigate unknowns
 - Review roadmap
 
 ---
@@ -128,7 +128,7 @@ Show completion status before next action:
 
 **Also available:**
 - `/gsd:discuss-phase 3` — gather context first
-- `/gsd:research-phase 3` — investigate unknowns
+- `/gsd:plan-phase 3 --research` — investigate unknowns
 - Review what Phase 2 built
 
 ---
@@ -149,7 +149,7 @@ When there's no clear primary action:
 
 **To discuss context first:** `/gsd:discuss-phase 3`
 
-**To research unknowns:** `/gsd:research-phase 3`
+**To research unknowns:** `/gsd:plan-phase 3 --research`
 
 <sub>`/clear` first → fresh context window</sub>
 

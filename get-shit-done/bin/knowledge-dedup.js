@@ -97,12 +97,18 @@ function checkCanonicalDuplicate(db, content) {
 
 /**
  * Stage 3: Find similar entries by embedding
+ *
+ * Synchronous — better-sqlite3 calls are fully synchronous; the previous
+ * `async` keyword was cosmetic. Being synchronous is required so this can be
+ * called safely from inside a `db.transaction()` callback (better-sqlite3
+ * transactions must be plain sync functions).
+ *
  * @param {object} conn - Database connection object
  * @param {Float32Array|Buffer} embedding - Query embedding
  * @param {object} options - Search options
- * @returns {Promise<Array>} Similar entries
+ * @returns {Array} Similar entries
  */
-async function findSimilarByEmbedding(conn, embedding, options = {}) {
+function findSimilarByEmbedding(conn, embedding, options = {}) {
   const { threshold = 0.88, limit = 5 } = options;
 
   if (!embedding || !conn.vectorEnabled) {
@@ -151,13 +157,16 @@ async function findSimilarByEmbedding(conn, embedding, options = {}) {
 
 /**
  * Stage 3: Check for embedding-based duplicate
+ *
+ * Synchronous — see findSimilarByEmbedding for rationale.
+ *
  * @param {object} conn - Database connection object
  * @param {Float32Array|Buffer} embedding - Query embedding
  * @param {number} threshold - Similarity threshold (default: 0.88)
- * @returns {Promise<object>} Duplicate result
+ * @returns {object} Duplicate result
  */
-async function checkEmbeddingDuplicate(conn, embedding, threshold = 0.88) {
-  const similar = await findSimilarByEmbedding(conn, embedding, { threshold, limit: 1 });
+function checkEmbeddingDuplicate(conn, embedding, threshold = 0.88) {
+  const similar = findSimilarByEmbedding(conn, embedding, { threshold, limit: 1 });
 
   if (similar.length > 0) {
     return {
@@ -175,12 +184,17 @@ async function checkEmbeddingDuplicate(conn, embedding, threshold = 0.88) {
 
 /**
  * Three-stage duplicate check
+ *
+ * Synchronous — see findSimilarByEmbedding for rationale. Existing callers
+ * doing `await checkDuplicate(...)` remain correct (awaiting a non-Promise
+ * value resolves immediately).
+ *
  * @param {object} conn - Database connection object
  * @param {string} content - Content to check
  * @param {Float32Array|Buffer} embedding - Optional embedding
- * @returns {Promise<object>} Duplicate result
+ * @returns {object} Duplicate result
  */
-async function checkDuplicate(conn, content, embedding = null) {
+function checkDuplicate(conn, content, embedding = null) {
   const { db } = conn;
 
   // Stage 1: Exact content hash
@@ -197,7 +211,7 @@ async function checkDuplicate(conn, content, embedding = null) {
 
   // Stage 3: Embedding similarity (if embedding provided)
   if (embedding && conn.vectorEnabled) {
-    const embeddingCheck = await checkEmbeddingDuplicate(conn, embedding);
+    const embeddingCheck = checkEmbeddingDuplicate(conn, embedding);
     if (embeddingCheck.isDuplicate) {
       return embeddingCheck;
     }

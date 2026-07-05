@@ -447,7 +447,9 @@ Proceed directly to commit step below.
 **If PRD_DRIVEN=true:**
 ```bash
 mkdir -p .planning/prds/done
-if ! mv .planning/prds/pending/{SELECTED_PRD_SLUG}.md .planning/prds/done/{SELECTED_PRD_SLUG}.md; then
+if [ -f .planning/prds/done/{SELECTED_PRD_SLUG}.md ] && [ ! -f .planning/prds/pending/{SELECTED_PRD_SLUG}.md ]; then
+  echo "PRD already moved to done/ (resuming after an interrupted commit) — skipping move."
+elif ! mv .planning/prds/pending/{SELECTED_PRD_SLUG}.md .planning/prds/done/{SELECTED_PRD_SLUG}.md; then
   echo "ERROR: Could not move PRD to done/ — stopping. Resolve manually:"
   echo "  mv .planning/prds/pending/{SELECTED_PRD_SLUG}.md .planning/prds/done/{SELECTED_PRD_SLUG}.md"
   echo "Then re-run the commit step once the file is in place."

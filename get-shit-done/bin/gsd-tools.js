@@ -84,6 +84,23 @@
  *   verify artifacts <plan-file>       Check must_haves.artifacts
  *   verify key-links <plan-file>       Check must_haves.key_links
  *   verify migration-timestamps         Scan migrations/ for duplicate timestamps; auto-resolve by rename
+ *   verify phase-gate <phase>          Deterministic 5-artifact phase gate (test/charlotte_qa/docs/
+ *                                       e2e_plan/verification); honors DEFERRED.json waivers; exits
+ *                                       1 on failed checks, 2 on malformed plan/waiver data
+ *   deferred add <phase> --step X       Append a waiver entry to DEFERRED.json (the ONLY sanctioned
+ *     --reason Y --approver Z            way to satisfy a phase-gate check without the real artifact);
+ *     [--plan M]                         fires a best-effort Telegram notification; exits 2 if the
+ *                                       existing DEFERRED.json is malformed (refuses to overwrite)
+ *   deferred list <phase>              List waiver entries for a phase; exits 2 (not empty array) if
+ *                                       DEFERRED.json is malformed
+ *   execution-state record-failure     Increment the retry counter for a phase (+ optional plan) in
+ *     --phase N [--plan M]               .planning/execution-state.json; returns {action: retry|debug|
+ *     --error "msg" --step "..."         escalate} based on attempts vs config-driven max_attempts
+ *     --files "a,b,c"                    (default 4); exits 2 if execution-state.json is malformed
+ *   execution-state record-success     Clear the retry counter for a phase (+ optional plan); no-op
+ *     --phase N [--plan M]               (not an error) if no entry existed; exits 2 if malformed
+ *   execution-state get                Read-only lookup; returns {attempts: 0, key} if no entry exists
+ *     --phase N [--plan M]               (a valid default, not an error); exits 2 if malformed
  *
  * Template Fill:
  *   template fill summary --phase N    Create pre-filled SUMMARY.md
@@ -174,7 +191,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const { EVENT_TYPES, appendEvent, getHistory, getCurrentPhase, getExecutionStats } = require('./execution-log.js');
 const { parseRoadmap, buildDAG, getExecutionOrder, detectParallelOpportunities } = require('./roadmap-parser.js');
 const { TokenBudgetMonitor } = require('./token-monitor.js');
@@ -182,7 +199,8 @@ const { FailureHandler, executeWithRetry } = require('./failure-handler.js');
 const { CompletionSignal, COMPLETION_STATUS } = require('./completion-signal.js');
 const { TaskChunker, BatchCoordinator, analyzeTask, estimateTaskTokens } = require('./task-chunker.js');
 const { estimatePhaseSize, detectOversizedPhases, recommendSplit, validateSplitPreservesDependencies, LIMITS: PHASE_LIMITS } = require('./phase-sizer.js');
-const { ParallelPhaseExecutor, analyzeParallelOpportunities: analyzeParallel, CONFIG: PARALLEL_CONFIG } = require('./parallel-executor.js');
+const evalHarness = require('./eval-harness.js');
+const promptBudget = require('./prompt-budget.js');
 
 // Phase 2: Auto Mode safety modules (lazy — gracefully absent if not installed)
 let circuitBreaker, validator, escalation, feedback, learning;
@@ -212,6 +230,39 @@ const MODEL_PROFILES = {
   'gsd-integration-checker':  { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku', auto: 'sonnet' },
 };
 
+// ─── Shared File-Pattern Constants ───────────────────────────────────────────
+// Hoisted from cmdVerifyPlanStructure (Phase 44) so cmdVerifyPhaseGate (Phase 45)
+// can reuse the exact same UI/API file-classification rules without duplicating
+// the pattern lists. Behavior for existing plan-structure checks is unchanged.
+
+const UI_FILE_PATTERNS = ['.tsx', '.jsx', '.vue', '.svelte', '.astro', '.mdx'];
+const API_FILE_PATTERNS = ['route.ts', 'route.js', '/api/', '/routes/', '/functions/', 'controller.ts', 'controller.js', 'handler.ts', 'handler.js'];
+
+// ─── Diff-Based HAS_UI Detection (Phase 45-02) ───────────────────────────────
+// isUIFile/computeHasUI are pure functions -- no I/O, no SUMMARY.md read --
+// so HAS_UI is always derived from the actual git diff (touchedFiles), never
+// from self-reported SUMMARY.md key-files metadata. See 45-02-PLAN.md.
+
+function isUIFile(filePath) {
+  const isConfigOrDeclaration = /\.(config|d)\.[jt]sx?$/.test(filePath) ||
+    /^(vite|next|tailwind|jest|vitest|webpack|babel|eslint|prettier)\./.test(path.basename(filePath));
+  if (isConfigOrDeclaration) return false;
+  if (UI_FILE_PATTERNS.some(ext => filePath.endsWith(ext))) return true;
+  const isRoutePath = /(^|\/)(app|pages|routes)\//.test(filePath);
+  const isApiPath = /(^|\/)api\//.test(filePath);
+  if (isRoutePath && !isApiPath) {
+    // A route-directory file with a non-standard-UI extension (rare -- most
+    // route files already carry a UI extension caught above). Still excludes
+    // api/ sub-paths and config/declaration files handled above.
+    return true;
+  }
+  return false;
+}
+
+function computeHasUI(touchedFiles) {
+  return touchedFiles.some(isUIFile);
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function parseIncludeFlag(args) {
@@ -227,6 +278,36 @@ function safeReadFile(filePath) {
     return fs.readFileSync(filePath, 'utf-8');
   } catch {
     return null;
+  }
+}
+
+// Shared JSON.parse guard: never throws. Returns { ok: true, value } on success
+// or { ok: false, error: { error: true, type: 'corrupted_state', context, message } }
+// on failure. Use at every call site that parses external/user/file input with
+// no surrounding try/catch (do NOT use for JSON.parse(JSON.stringify(...)) idioms
+// or sites already wrapped in their own try/catch).
+function safeJsonParse(content, contextLabel) {
+  try {
+    return { ok: true, value: JSON.parse(content) };
+  } catch (e) {
+    return { ok: false, error: { error: true, type: 'corrupted_state', context: contextLabel, message: e.message } };
+  }
+}
+
+// Atomic write-temp-then-rename helper. Guarantees a write to targetPath is
+// either fully complete or fully absent -- never torn/partial -- because
+// fs.renameSync is atomic on POSIX for same-filesystem renames (the temp file
+// is created in the same directory as the target). This does NOT implement
+// cross-process locking; it only guarantees each individual write is
+// complete-or-absent. Use for every STATE.md/ROADMAP.md/config.json write.
+function atomicWriteFileSync(targetPath, content) {
+  const tempPath = `${targetPath}.tmp-${process.pid}-${Date.now()}`;
+  try {
+    fs.writeFileSync(tempPath, content, 'utf-8');
+    fs.renameSync(tempPath, targetPath);
+  } catch (e) {
+    try { fs.unlinkSync(tempPath); } catch (_) { /* tempPath may not exist yet */ }
+    throw new Error(`Atomic write failed for ${targetPath}: ${e.message}`);
   }
 }
 
@@ -246,6 +327,12 @@ function loadConfig(cwd) {
     nyquist_validation: true,
     granularity: 'standard',
     brave_search: false,
+    auto_mine: true,
+    auto_consolidate: true,
+    max_attempts: 4,
+    execution: { max_attempts: 4 },
+    staleness_threshold_minutes: 30,
+    resilience: { staleness_threshold_minutes: 30 },
   };
 
   try {
@@ -257,7 +344,7 @@ function loadConfig(cwd) {
       const depthToGranularity = { quick: 'coarse', standard: 'standard', comprehensive: 'fine' };
       parsed.granularity = depthToGranularity[parsed.depth] || parsed.depth;
       delete parsed.depth;
-      try { fs.writeFileSync(configPath, JSON.stringify(parsed, null, 2), 'utf-8'); } catch {}
+      try { atomicWriteFileSync(configPath, JSON.stringify(parsed, null, 2)); } catch (e) { console.warn(`Warning: failed to persist config migration: ${e.message}`); }
     }
 
     const get = (key, nested) => {
@@ -289,6 +376,10 @@ function loadConfig(cwd) {
       nyquist_validation: get('nyquist_validation', { section: 'workflow', field: 'nyquist_validation' }) ?? defaults.nyquist_validation,
       granularity: get('granularity') ?? defaults.granularity,
       brave_search: get('brave_search') ?? defaults.brave_search,
+      auto_mine: get('auto_mine') ?? defaults.auto_mine,
+      auto_consolidate: get('auto_consolidate') ?? defaults.auto_consolidate,
+      max_attempts: get('max_attempts', { section: 'execution', field: 'max_attempts' }) ?? defaults.max_attempts,
+      staleness_threshold_minutes: get('staleness_threshold_minutes', { section: 'resilience', field: 'staleness_threshold_minutes' }) ?? defaults.staleness_threshold_minutes,
       coordinator_model: get('coordinator_model') ?? null,
       dev_servers: parsed.dev_servers || null,
     };
@@ -302,7 +393,9 @@ function loadConfig(cwd) {
 
 function isGitIgnored(cwd, targetPath) {
   try {
-    execSync('git check-ignore -q -- ' + targetPath.replace(/[^a-zA-Z0-9._\-/]/g, ''), {
+    // git check-ignore exits non-zero when the path is NOT ignored — execFileSync
+    // throws on non-zero exit, so the catch branch preserves that boolean logic.
+    execFileSync('git', ['check-ignore', '-q', '--', targetPath], {
       cwd,
       stdio: 'pipe',
     });
@@ -314,11 +407,7 @@ function isGitIgnored(cwd, targetPath) {
 
 function execGit(cwd, args) {
   try {
-    const escaped = args.map(a => {
-      if (/^[a-zA-Z0-9._\-/=:@]+$/.test(a)) return a;
-      return "'" + a.replace(/'/g, "'\\''") + "'";
-    });
-    const stdout = execSync('git ' + escaped.join(' '), {
+    const stdout = execFileSync('git', args, {
       cwd,
       stdio: 'pipe',
       encoding: 'utf-8',
@@ -572,20 +661,46 @@ function output(result, raw, rawValue) {
 
     try {
       fs.writeFileSync(tempFile, outputStr, 'utf-8');
-      // Use cat to pipe the file contents - this avoids buffer limits
-      execSync(`cat "${tempFile}"`, { stdio: 'inherit' });
+      // Read the file back and write directly to stdout - avoids buffer limits
+      // without shelling out to `cat` for a known local file. Uses a blocking
+      // fs.writeSync loop (not process.stdout.write, which is async on pipes
+      // and can be truncated by the process.exit(0) below before it flushes).
+      writeStdoutSync(fs.readFileSync(tempFile, 'utf-8'));
       // Clean up temp file
       fs.unlinkSync(tempFile);
     } catch (err) {
       // Fallback to direct write if temp file approach fails
-      process.stdout.write(outputStr);
+      writeStdoutSync(outputStr);
     }
   } else {
     // Normal sized output or terminal output - write directly
-    process.stdout.write(outputStr);
+    writeStdoutSync(outputStr);
   }
 
   process.exit(0);
+}
+
+// Synchronous, complete write to stdout (fd 1). process.stdout.write() is
+// asynchronous when stdout is a pipe, so an immediately-following
+// process.exit(0) can truncate output before the OS write completes.
+// fs.writeSync blocks until the data is actually written, looping to handle
+// partial writes. When stdout is a non-blocking pipe with a full buffer,
+// fs.writeSync throws EAGAIN instead of blocking — retry with a brief
+// synchronous pause until the reader drains the pipe.
+function writeStdoutSync(content) {
+  const buffer = Buffer.from(content, 'utf-8');
+  let written = 0;
+  while (written < buffer.length) {
+    try {
+      written += fs.writeSync(1, buffer, written, buffer.length - written);
+    } catch (err) {
+      if (err.code === 'EAGAIN') {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+        continue;
+      }
+      throw err;
+    }
+  }
 }
 
 function error(message) {
@@ -625,11 +740,74 @@ function loadQuotaState(cwd) {
     // Deep copy to avoid shared nested objects (session, weekly, tasks, warnings_shown)
     return JSON.parse(JSON.stringify(DEFAULT_QUOTA_STATE));
   }
+  let state;
   try {
-    return JSON.parse(fs.readFileSync(quotaPath, 'utf-8'));
+    state = JSON.parse(fs.readFileSync(quotaPath, 'utf-8'));
   } catch {
     return JSON.parse(JSON.stringify(DEFAULT_QUOTA_STATE));
   }
+
+  // Corruption detection + self-heal. The try/catch above only guards against
+  // structurally-invalid JSON -- a structurally-valid file can still have a
+  // numerically corrupted session/weekly scope (e.g. tokens_used accumulated
+  // forever with no reset, vastly exceeding tokens_limit, or NaN/negative
+  // values from a bad arithmetic path). This is the single read choke point
+  // every consumer (quota status/stats, routing match-quota, phase-coordinator's
+  // per-task quota check) goes through, so healing here protects all of them
+  // for free. Each scope is checked/healed independently -- corruption in one
+  // scope never resets the other.
+  let healedAny = false;
+  for (const scopeName of ['session', 'weekly']) {
+    const scope = state && state[scopeName];
+    if (!scope || typeof scope !== 'object') continue;
+
+    const tokensUsed = scope.tokens_used;
+    const tokensLimit = scope.tokens_limit;
+    const percent = (typeof tokensLimit === 'number' && tokensLimit !== 0)
+      ? (tokensUsed / tokensLimit) * 100
+      : NaN;
+
+    const limitCorrupted = !Number.isFinite(tokensLimit) || tokensLimit <= 0;
+    const corrupted = !Number.isFinite(percent) || percent > 100 ||
+      !Number.isFinite(tokensUsed) || tokensUsed < 0 || limitCorrupted;
+
+    if (!corrupted) continue;
+
+    healedAny = true;
+    const action = limitCorrupted ? 'reset_tokens_used_and_limit' : 'reset_tokens_used';
+
+    process.stderr.write(
+      `QUOTA CORRUPTION DETECTED (${scopeName}): tokens_used=${tokensUsed}, tokens_limit=${tokensLimit}, computed_percent=${percent} — resetting tokens_used to 0\n`
+    );
+
+    try {
+      const quotaDir = path.dirname(quotaPath);
+      fs.mkdirSync(quotaDir, { recursive: true });
+      const logPath = path.join(quotaDir, 'corruption-log.jsonl');
+      const logEntry = {
+        timestamp: new Date().toISOString(),
+        scope: scopeName,
+        tokens_used_before: tokensUsed,
+        tokens_limit_before: tokensLimit,
+        computed_percent: percent,
+        action,
+      };
+      fs.appendFileSync(logPath, JSON.stringify(logEntry) + '\n');
+    } catch (e) {
+      process.stderr.write(`Warning: failed to write corruption-log.jsonl: ${e.message}\n`);
+    }
+
+    scope.tokens_used = 0;
+    if (limitCorrupted) {
+      scope.tokens_limit = DEFAULT_QUOTA_STATE[scopeName].tokens_limit;
+    }
+  }
+
+  if (healedAny) {
+    saveQuotaState(cwd, state);
+  }
+
+  return state;
 }
 
 function saveQuotaState(cwd, state) {
@@ -900,6 +1078,292 @@ function getUsageStats(quotaState) {
   };
 }
 
+// ─── Resilience: Auto-Resume (MILE-23, Phase 51-02) ──────────────────────────
+//
+// Deterministic, pure-function core consumed by execute-roadmap.md prose
+// (wired in 51-03) to detect a dead coordinator (session/quota-limit death or
+// checkpoint staleness), assemble a resume brief from its CHECKPOINT.json, and
+// estimate quota cost before a run -- all unit-tested here so the (untestable)
+// workflow prose plan can stay small and low-risk.
+
+// Detects a session/usage/quota/rate-limit death message, case-insensitively,
+// and extracts an optional "resets <time>" fragment. Never throws on
+// empty/null/undefined input.
+function parseDeathSignature(text) {
+  if (!text || typeof text !== 'string') {
+    return { is_death: false, matched_pattern: null, reset_fragment: null };
+  }
+
+  const patterns = [
+    { regex: /session limit/i, label: 'session limit' },
+    { regex: /usage limit/i, label: 'usage limit' },
+    { regex: /quota limit/i, label: 'quota limit' },
+    { regex: /rate limit exceeded/i, label: 'rate limit exceeded' },
+  ];
+
+  let matchedPattern = null;
+  for (const p of patterns) {
+    if (p.regex.test(text)) {
+      matchedPattern = p.label;
+      break;
+    }
+  }
+
+  if (!matchedPattern) {
+    return { is_death: false, matched_pattern: null, reset_fragment: null };
+  }
+
+  // Tolerate any separator before "resets" (e.g. "· resets 12:30am") -- match
+  // on "resets" regardless of what precedes it.
+  const resetMatch = text.match(/resets\s+(\d{1,2}:\d{2}\s*(?:am|pm))/i);
+
+  return {
+    is_death: true,
+    matched_pattern: matchedPattern,
+    reset_fragment: resetMatch ? resetMatch[1].replace(/\s+/g, '').toLowerCase() : null,
+  };
+}
+
+// Parses a 12-hour-clock fragment (e.g. "12:30am", "5:20pm") -- or a full
+// death message containing "resets <time>" -- into the next real occurrence
+// as an ISO timestamp relative to referenceDate (today if still in the
+// future, tomorrow otherwise). Returns null if no valid time can be parsed.
+function parseResetTime(text, referenceDate) {
+  const refDate = referenceDate instanceof Date && !Number.isNaN(referenceDate.getTime())
+    ? referenceDate
+    : new Date();
+
+  if (!text || typeof text !== 'string') return null;
+
+  // Accept either a raw fragment ("12:30am") or a full message ("... resets 12:30am").
+  const resetsMatch = text.match(/resets\s+(\d{1,2}:\d{2}\s*(?:am|pm))/i);
+  const timeSource = resetsMatch ? resetsMatch[1] : text;
+
+  const timeMatch = timeSource.match(/(\d{1,2}):(\d{2})\s*(am|pm)/i);
+  if (!timeMatch) return null;
+
+  let hour = parseInt(timeMatch[1], 10);
+  const minute = parseInt(timeMatch[2], 10);
+  const meridiem = timeMatch[3].toLowerCase();
+
+  if (hour < 1 || hour > 12 || minute < 0 || minute > 59) return null;
+
+  if (meridiem === 'am') {
+    hour = hour === 12 ? 0 : hour;
+  } else {
+    hour = hour === 12 ? 12 : hour + 12;
+  }
+
+  const candidate = new Date(
+    refDate.getFullYear(), refDate.getMonth(), refDate.getDate(),
+    hour, minute, 0, 0
+  );
+
+  // Still in the future (strictly after referenceDate) -> today's occurrence.
+  // Already passed (equal to or before referenceDate) -> tomorrow's occurrence.
+  if (candidate.getTime() <= refDate.getTime()) {
+    candidate.setDate(candidate.getDate() + 1);
+  }
+
+  return candidate.toISOString();
+}
+
+// Reports whether a file's mtime exceeds thresholdMinutes. Returns a clear
+// stale:null / file_exists:false result (never throws) when the file is
+// missing -- distinct from stale:true/false, so callers can branch on
+// "never wrote a first checkpoint" as its own case.
+function checkStaleness(filePath, thresholdMinutes) {
+  const threshold = typeof thresholdMinutes === 'number' && Number.isFinite(thresholdMinutes)
+    ? thresholdMinutes
+    : 30;
+
+  if (!fs.existsSync(filePath)) {
+    return { stale: null, file_exists: false, mtime: null, age_minutes: null, threshold_minutes: threshold };
+  }
+
+  const stat = fs.statSync(filePath);
+  const ageMinutes = (Date.now() - stat.mtimeMs) / 60000;
+
+  return {
+    stale: ageMinutes > threshold,
+    file_exists: true,
+    mtime: new Date(stat.mtimeMs).toISOString(),
+    age_minutes: ageMinutes,
+    threshold_minutes: threshold,
+  };
+}
+
+function cmdResilienceCheckStaleness(cwd, filePath, thresholdMinutes, raw) {
+  if (!filePath) {
+    error('resilience check-staleness: <file> required');
+  }
+  const resolvedPath = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath);
+  const threshold = (thresholdMinutes !== null && thresholdMinutes !== undefined && Number.isFinite(thresholdMinutes))
+    ? thresholdMinutes
+    : loadConfig(cwd).staleness_threshold_minutes;
+  const result = checkStaleness(resolvedPath, threshold);
+  output(result, raw);
+}
+
+function cmdResilienceParseDeath(text, raw) {
+  if (!text) {
+    error('resilience parse-death: --text required');
+  }
+  const result = parseDeathSignature(text);
+  result.reset_time_iso = (result.is_death && result.reset_fragment)
+    ? parseResetTime(result.reset_fragment, new Date())
+    : null;
+  output(result, raw);
+}
+
+// Extracts resume_from/last_step/step_status/plans_complete/plans_remaining/
+// key_context from a phase's real CHECKPOINT.json shape. Tolerates missing
+// fields (older checkpoints predate plans_complete/plans_remaining) and a
+// missing/malformed file (never throws) -- both are the "restart from
+// scratch" signal callers must treat as such, never a silent no-op.
+function parseCheckpointForResume(checkpointPath) {
+  const notFoundShape = {
+    found: false,
+    resume_from: null,
+    last_step: null,
+    step_status: null,
+    plans_complete: null,
+    plans_remaining: null,
+    key_context: null,
+  };
+
+  if (!fs.existsSync(checkpointPath)) {
+    return { ...notFoundShape };
+  }
+
+  let rawContent;
+  try {
+    rawContent = fs.readFileSync(checkpointPath, 'utf-8');
+  } catch (e) {
+    return { ...notFoundShape, error: e.message };
+  }
+
+  const parseResult = safeJsonParse(rawContent, checkpointPath);
+  if (!parseResult.ok) {
+    return { ...notFoundShape, error: parseResult.error.message };
+  }
+
+  const data = parseResult.value;
+  return {
+    found: true,
+    resume_from: data.resume_from ?? null,
+    last_step: data.last_step ?? null,
+    step_status: data.step_status ?? null,
+    plans_complete: data.plans_complete ?? null,
+    plans_remaining: data.plans_remaining ?? null,
+    key_context: data.key_context ?? null,
+  };
+}
+
+// Assembles a resume-brief text/object from checkpoint data + phase info,
+// suitable for injecting directly into a respawned coordinator's Agent()
+// prompt string (plain text, no markdown tables).
+function buildResumeBrief(checkpointData, phaseInfo) {
+  const phaseNumber = phaseInfo && phaseInfo.phase_number;
+  const phaseName = phaseInfo && phaseInfo.phase_name;
+
+  if (!checkpointData || !checkpointData.found) {
+    const briefText = `No prior checkpoint found -- starting phase ${phaseNumber} (${phaseName}) from scratch.`;
+    return {
+      resume_from: 'discuss',
+      brief_text: briefText,
+      checkpoint: checkpointData || null,
+    };
+  }
+
+  const lines = [];
+  lines.push('RESUMING FROM DEATH');
+  lines.push(`Phase ${phaseNumber} (${phaseName})`);
+  lines.push(`Last step: ${checkpointData.last_step ?? 'unknown'} (status: ${checkpointData.step_status ?? 'unknown'})`);
+  if (checkpointData.plans_complete !== null && checkpointData.plans_complete !== undefined) {
+    lines.push(`Plans complete: ${JSON.stringify(checkpointData.plans_complete)}`);
+  }
+  if (checkpointData.plans_remaining !== null && checkpointData.plans_remaining !== undefined) {
+    lines.push(`Plans remaining: ${JSON.stringify(checkpointData.plans_remaining)}`);
+  }
+  if (checkpointData.key_context) {
+    lines.push('');
+    lines.push('Key context:');
+    lines.push(checkpointData.key_context);
+  }
+
+  return {
+    resume_from: checkpointData.resume_from,
+    brief_text: lines.join('\n'),
+    checkpoint: checkpointData,
+  };
+}
+
+function cmdResilienceResumeBrief(cwd, phase, raw) {
+  if (!phase) {
+    error('resilience resume-brief: <phase> required');
+  }
+  const phaseInfo = findPhaseInternal(cwd, phase);
+  if (!phaseInfo) {
+    output({ error: 'phase not found', phase }, raw);
+    return;
+  }
+  const checkpointPath = path.join(cwd, phaseInfo.directory, 'CHECKPOINT.json');
+  const checkpointData = parseCheckpointForResume(checkpointPath);
+  const brief = buildResumeBrief(checkpointData, phaseInfo);
+  output(brief, raw);
+}
+
+// Estimates the token cost of phaseCount remaining phases against the
+// current (self-healed via loadQuotaState) quota budget. Reuses
+// loadQuotaState -- never reads the raw quota file itself -- so this
+// composes with 51-01's self-heal automatically.
+function estimateQuotaForRemainingPhases(cwd, phaseCount) {
+  const quotaState = loadQuotaState(cwd);
+
+  // Deliberately conservative placeholder, not a measured value -- used only
+  // when no execution history exists yet (brand new project, or
+  // EXECUTION_LOG.md absent).
+  const CONSERVATIVE_DEFAULT_TOKENS_PER_PHASE = 300000;
+
+  let avgTokensPerPhase = CONSERVATIVE_DEFAULT_TOKENS_PER_PHASE;
+  let source = 'conservative_default';
+
+  try {
+    const { getExecutionStats } = require('./execution-log.js');
+    const stats = getExecutionStats(cwd);
+    if (stats && stats.phases_completed > 0) {
+      const totalTokensAcrossTasks = (quotaState.tasks || []).reduce(
+        (sum, t) => sum + (t.tokens_in || 0) + (t.tokens_out || 0), 0
+      );
+      avgTokensPerPhase = totalTokensAcrossTasks / stats.phases_completed;
+      source = 'observed_history';
+    }
+  } catch (e) {
+    // require failure or getExecutionStats throwing -- fall back to the
+    // conservative default above.
+  }
+
+  const estimatedTokens = avgTokensPerPhase * phaseCount;
+  const remainingBudget = quotaState.session.tokens_limit - quotaState.session.tokens_used;
+  const sufficient = estimatedTokens <= remainingBudget;
+
+  return {
+    estimated_tokens: estimatedTokens,
+    avg_tokens_per_phase: avgTokensPerPhase,
+    remaining_budget: remainingBudget,
+    sufficient,
+    phase_count: phaseCount,
+    source,
+  };
+}
+
+function cmdResilienceEstimateQuota(cwd, phaseCount, raw) {
+  const count = Number.isFinite(phaseCount) && phaseCount > 0 ? phaseCount : 1;
+  const result = estimateQuotaForRemainingPhases(cwd, count);
+  output(result, raw);
+}
+
 // ─── Commands ─────────────────────────────────────────────────────────────────
 
 function cmdGenerateSlug(text, raw) {
@@ -1034,7 +1498,7 @@ function cmdConfigEnsureSection(cwd, raw) {
   };
 
   try {
-    fs.writeFileSync(configPath, JSON.stringify(defaults, null, 2), 'utf-8');
+    atomicWriteFileSync(configPath, JSON.stringify(defaults, null, 2));
     const result = { created: true, path: '.planning/config.json' };
     output(result, raw, 'created');
   } catch (err) {
@@ -1079,7 +1543,7 @@ function cmdConfigSet(cwd, keyPath, value, raw) {
 
   // Write back
   try {
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+    atomicWriteFileSync(configPath, JSON.stringify(config, null, 2));
     const result = { updated: true, key: keyPath, value: parsedValue };
     output(result, raw, `${keyPath}=${parsedValue}`);
   } catch (err) {
@@ -1483,7 +1947,7 @@ function cmdStatePatch(cwd, patches, raw) {
     }
 
     if (results.updated.length > 0) {
-      fs.writeFileSync(statePath, content, 'utf-8');
+      atomicWriteFileSync(statePath, content);
     }
 
     output(results, raw, results.updated.length > 0 ? 'true' : 'false');
@@ -1504,7 +1968,7 @@ function cmdStateUpdate(cwd, field, value) {
     const pattern = new RegExp(`(\\*\\*${fieldEscaped}:\\*\\*\\s*)(.*)`, 'i');
     if (pattern.test(content)) {
       content = content.replace(pattern, `$1${value}`);
-      fs.writeFileSync(statePath, content, 'utf-8');
+      atomicWriteFileSync(statePath, content);
       output({ updated: true });
     } else {
       output({ updated: false, reason: `Field "${field}" not found in STATE.md` });
@@ -1531,31 +1995,103 @@ function stateReplaceField(content, fieldName, newValue) {
   return null;
 }
 
+// Tolerant field replacer: tries the bold pattern first (unchanged behavior for
+// bold-field STATE.md), falls back to a plain multiline `Field: value` line
+// replacement. Returns null if neither pattern matched (matching stateReplaceField's
+// existing null-on-no-match contract).
+function stateReplaceFieldTolerant(content, fieldName, newValue) {
+  const bold = stateReplaceField(content, fieldName, newValue);
+  if (bold !== null) return bold;
+  const escaped = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`(^\\s*${escaped}:\\s*).*$`, 'im');
+  if (pattern.test(content)) {
+    return content.replace(pattern, `$1${newValue}`);
+  }
+  return null;
+}
+
+// Composite parser for the real STATE.md "Plan: {N} of {M}{suffix}" line, which
+// encodes both the current plan number and the total in a single plain-prose
+// line (there is no separate bold "Total Plans in Phase" field in the real file).
+function parsePlanProgressLine(content) {
+  const pattern = /^\s*Plan:\s*(\d+)\s*of\s*(\d+)\s*(.*)$/im;
+  const match = content.match(pattern);
+  if (!match) return null;
+  return {
+    currentPlan: parseInt(match[1], 10),
+    totalPlans: parseInt(match[2], 10),
+    suffix: match[3].trim(),
+    lineText: match[0],
+  };
+}
+
+// Reconstructs and replaces the "Plan: {N} of {M}{suffix}" line, preserving the
+// suffix prose verbatim (only the current-plan number is this command's job --
+// the suffix's narrative text is not this command's responsibility to rewrite).
+function replacePlanProgressLine(content, newCurrentPlan, totalPlans, suffix) {
+  const pattern = /^\s*Plan:\s*(\d+)\s*of\s*(\d+)\s*(.*)$/im;
+  if (!pattern.test(content)) return null;
+  const newLine = `Plan: ${newCurrentPlan} of ${totalPlans}${suffix ? ' ' + suffix : ''}`;
+  return content.replace(pattern, newLine);
+}
+
 function cmdStateAdvancePlan(cwd, raw) {
   const statePath = path.join(cwd, '.planning', 'STATE.md');
   if (!fs.existsSync(statePath)) { output({ error: 'STATE.md not found' }, raw); return; }
 
   let content = fs.readFileSync(statePath, 'utf-8');
-  const currentPlan = parseInt(stateExtractField(content, 'Current Plan'), 10);
-  const totalPlans = parseInt(stateExtractField(content, 'Total Plans in Phase'), 10);
   const today = new Date().toISOString().split('T')[0];
 
-  if (isNaN(currentPlan) || isNaN(totalPlans)) {
+  // Try the existing bold-field path FIRST -- if both bold fields parse to
+  // valid numbers, keep the exact existing behavior unchanged (back-compat
+  // with any STATE.md already using bold fields, and with existing tests).
+  const boldCurrentPlan = parseInt(stateExtractField(content, 'Current Plan'), 10);
+  const boldTotalPlans = parseInt(stateExtractField(content, 'Total Plans in Phase'), 10);
+
+  if (!isNaN(boldCurrentPlan) && !isNaN(boldTotalPlans)) {
+    const currentPlan = boldCurrentPlan;
+    const totalPlans = boldTotalPlans;
+
+    if (currentPlan >= totalPlans) {
+      content = stateReplaceField(content, 'Status', 'Phase complete — ready for verification') || content;
+      content = stateReplaceField(content, 'Last Activity', today) || content;
+      atomicWriteFileSync(statePath, content);
+      output({ advanced: false, reason: 'last_plan', current_plan: currentPlan, total_plans: totalPlans, status: 'ready_for_verification' }, raw, 'false');
+    } else {
+      const newPlan = currentPlan + 1;
+      content = stateReplaceField(content, 'Current Plan', String(newPlan)) || content;
+      content = stateReplaceField(content, 'Status', 'Ready to execute') || content;
+      content = stateReplaceField(content, 'Last Activity', today) || content;
+      atomicWriteFileSync(statePath, content);
+      output({ advanced: true, previous_plan: currentPlan, current_plan: newPlan, total_plans: totalPlans }, raw, 'true');
+    }
+    return;
+  }
+
+  // Fall back to the real plain-prose "Plan: {N} of {M}{suffix}" line shape.
+  const parsed = parsePlanProgressLine(content);
+  if (!parsed) {
     output({ error: 'Cannot parse Current Plan or Total Plans in Phase from STATE.md' }, raw);
     return;
   }
 
+  const { currentPlan, totalPlans, suffix } = parsed;
+
   if (currentPlan >= totalPlans) {
-    content = stateReplaceField(content, 'Status', 'Phase complete — ready for verification') || content;
-    content = stateReplaceField(content, 'Last Activity', today) || content;
-    fs.writeFileSync(statePath, content, 'utf-8');
+    // Preserve the parsed suffix verbatim if it already indicates completion --
+    // do not double up wording (e.g. "in current phase complete" appearing twice).
+    const completionSuffix = /complete/i.test(suffix) ? suffix : 'in current phase complete';
+    content = replacePlanProgressLine(content, currentPlan, totalPlans, completionSuffix) || content;
+    content = stateReplaceFieldTolerant(content, 'Status', 'Phase complete — ready for verification') || content;
+    content = stateReplaceFieldTolerant(content, 'Last activity', today) || content;
+    atomicWriteFileSync(statePath, content);
     output({ advanced: false, reason: 'last_plan', current_plan: currentPlan, total_plans: totalPlans, status: 'ready_for_verification' }, raw, 'false');
   } else {
     const newPlan = currentPlan + 1;
-    content = stateReplaceField(content, 'Current Plan', String(newPlan)) || content;
-    content = stateReplaceField(content, 'Status', 'Ready to execute') || content;
-    content = stateReplaceField(content, 'Last Activity', today) || content;
-    fs.writeFileSync(statePath, content, 'utf-8');
+    content = replacePlanProgressLine(content, newPlan, totalPlans, suffix) || content;
+    content = stateReplaceFieldTolerant(content, 'Status', 'Ready to execute') || content;
+    content = stateReplaceFieldTolerant(content, 'Last activity', today) || content;
+    atomicWriteFileSync(statePath, content);
     output({ advanced: true, previous_plan: currentPlan, current_plan: newPlan, total_plans: totalPlans }, raw, 'true');
   }
 }
@@ -1588,7 +2124,7 @@ function cmdStateRecordMetric(cwd, options, raw) {
     }
 
     content = content.replace(metricsPattern, `${tableHeader}${tableBody}\n`);
-    fs.writeFileSync(statePath, content, 'utf-8');
+    atomicWriteFileSync(statePath, content);
     output({ recorded: true, phase, plan, duration }, raw, 'true');
   } else {
     output({ recorded: false, reason: 'Performance Metrics section not found in STATE.md' }, raw, 'false');
@@ -1622,10 +2158,18 @@ function cmdStateUpdateProgress(cwd, raw) {
   const bar = '\u2588'.repeat(filled) + '\u2591'.repeat(barWidth - filled);
   const progressStr = `[${bar}] ${percent}%`;
 
-  const progressPattern = /(\*\*Progress:\*\*\s*).*/i;
-  if (progressPattern.test(content)) {
-    content = content.replace(progressPattern, `$1${progressStr}`);
-    fs.writeFileSync(statePath, content, 'utf-8');
+  // Try the existing bold `**Progress:**` pattern first (unchanged behavior),
+  // fall back to the real plain (non-bold) `Progress:` line.
+  const boldProgressPattern = /(\*\*Progress:\*\*\s*).*/i;
+  const plainProgressPattern = /^(\s*Progress:\s*).*/im;
+
+  if (boldProgressPattern.test(content)) {
+    content = content.replace(boldProgressPattern, `$1${progressStr}`);
+    atomicWriteFileSync(statePath, content);
+    output({ updated: true, percent, completed: totalSummaries, total: totalPlans, bar: progressStr }, raw, progressStr);
+  } else if (plainProgressPattern.test(content)) {
+    content = content.replace(plainProgressPattern, `$1${progressStr}`);
+    atomicWriteFileSync(statePath, content);
     output({ updated: true, percent, completed: totalSummaries, total: totalPlans, bar: progressStr }, raw, progressStr);
   } else {
     output({ updated: false, reason: 'Progress field not found in STATE.md' }, raw, 'false');
@@ -1652,7 +2196,7 @@ function cmdStateAddDecision(cwd, options, raw) {
     sectionBody = sectionBody.replace(/None yet\.?\s*\n?/gi, '').replace(/No decisions yet\.?\s*\n?/gi, '');
     sectionBody = sectionBody.trimEnd() + '\n' + entry + '\n';
     content = content.replace(sectionPattern, `${match[1]}${sectionBody}`);
-    fs.writeFileSync(statePath, content, 'utf-8');
+    atomicWriteFileSync(statePath, content);
     output({ added: true, decision: entry }, raw, 'true');
   } else {
     output({ added: false, reason: 'Decisions section not found in STATE.md' }, raw, 'false');
@@ -1675,7 +2219,7 @@ function cmdStateAddBlocker(cwd, text, raw) {
     sectionBody = sectionBody.replace(/None\.?\s*\n?/gi, '').replace(/None yet\.?\s*\n?/gi, '');
     sectionBody = sectionBody.trimEnd() + '\n' + entry + '\n';
     content = content.replace(sectionPattern, `${match[1]}${sectionBody}`);
-    fs.writeFileSync(statePath, content, 'utf-8');
+    atomicWriteFileSync(statePath, content);
     output({ added: true, blocker: text }, raw, 'true');
   } else {
     output({ added: false, reason: 'Blockers section not found in STATE.md' }, raw, 'false');
@@ -1707,7 +2251,7 @@ function cmdStateResolveBlocker(cwd, text, raw) {
     }
 
     content = content.replace(sectionPattern, `${match[1]}${newBody}`);
-    fs.writeFileSync(statePath, content, 'utf-8');
+    atomicWriteFileSync(statePath, content);
     output({ resolved: true, blocker: text }, raw, 'true');
   } else {
     output({ resolved: false, reason: 'Blockers section not found in STATE.md' }, raw, 'false');
@@ -1742,7 +2286,7 @@ function cmdStateRecordSession(cwd, options, raw) {
   if (result) { content = result; updated.push('Resume File'); }
 
   if (updated.length > 0) {
-    fs.writeFileSync(statePath, content, 'utf-8');
+    atomicWriteFileSync(statePath, content);
     output({ recorded: true, updated }, raw, 'true');
   } else {
     output({ recorded: false, reason: 'No session fields found in STATE.md' }, raw, 'false');
@@ -2620,7 +3164,7 @@ function cmdKnowledgePrune(args, raw) {
     : 0.7;
 
   const { knowledge } = require('./knowledge.js');
-  const { pruneStaleEntries } = require('./knowledge-lifecycle.js');
+  const { pruneStaleEntries, checkpointWAL } = require('./knowledge-lifecycle.js');
 
   const conn = knowledge._getConnection(scope);
   if (conn.available === false) {
@@ -2633,6 +3177,12 @@ function cmdKnowledgePrune(args, raw) {
     dryRun,
     vectorEnabled: conn.vectorEnabled || false
   });
+
+  // Always checkpoint the WAL after a live prune, regardless of delete count.
+  // Skip in dry-run mode — dry-run must not mutate WAL state.
+  if (!dryRun) {
+    checkpointWAL(conn.db);
+  }
 
   const summary = {
     mode: dryRun ? 'dry-run' : 'live',
@@ -2692,109 +3242,47 @@ function cmdKnowledgeStats(cwd, args, raw) {
   }, raw);
 }
 
-// ─── Permission Management ───────────────────────────────────────────────────
+// Manual backstop for milestone knowledge consolidation. Calls the exact same
+// synthesizePrinciples() function the automatic complete-milestone.md
+// `consolidate_knowledge` step calls — never a parallel implementation.
+// --principles '<json array>' lets a caller with real Haiku-synthesized text
+// (i.e. the workflow step, AFTER it has spawned Agent() calls per cluster)
+// feed that text into this same function. Without --principles, every cluster
+// falls back to the stub inside synthesizePrinciples — useful for ad hoc
+// manual exercising of clustering/confidence/conflict-detection logic.
+async function cmdKnowledgeConsolidate(cwd, args, raw) {
+  const scope = args.includes('--scope') ? args[args.indexOf('--scope') + 1] : 'global';
 
-function parseDuration(str) {
-  if (!str) return null;
-  const match = str.match(/^(\d+)([hdw])$/);
-  if (!match) {
-    error(`Invalid duration format: ${str}. Use format like "7d", "24h", or "2w"`);
-  }
-  const [, num, unit] = match;
-  const value = parseInt(num, 10);
-  const ms = {
-    h: value * 60 * 60 * 1000,
-    d: value * 24 * 60 * 60 * 1000,
-    w: value * 7 * 24 * 60 * 60 * 1000
-  };
-  return ms[unit];
-}
-
-function cmdPermissionGrant(args, raw) {
-  const action = args[0];
-  if (!action) {
-    error('grant: action required (e.g., "delete_file:/test/*")');
-  }
-
-  const scope = args.includes('--scope') ? args[args.indexOf('--scope') + 1] : 'project';
-  const ttlStr = args.includes('--ttl') ? args[args.indexOf('--ttl') + 1] : null;
-  const maxCostStr = args.includes('--max-cost') ? args[args.indexOf('--max-cost') + 1] : null;
-  const maxCountStr = args.includes('--max-count') ? args[args.indexOf('--max-count') + 1] : null;
-  const path = args.includes('--path') ? args[args.indexOf('--path') + 1] : null;
-
-  const ttl = ttlStr ? parseDuration(ttlStr) : null;
-  const limits = {};
-  if (maxCostStr) limits.max_cost = parseFloat(maxCostStr);
-  if (maxCountStr) limits.max_count = parseInt(maxCountStr, 10);
-  if (path) limits.path = path;
-
-  const { knowledge } = require('./knowledge.js');
-  const { grantPermission } = require('./knowledge-permissions.js');
-
-  const conn = knowledge._getConnection(scope);
-  if (!conn.available) {
-    error(`Knowledge system not available: ${conn.reason}`);
-  }
-
-  const result = grantPermission(conn.db, { action, scope, limits, ttl });
-
-  output(result, raw);
-}
-
-function cmdPermissionRevoke(args, raw) {
-  const token = args[0];
-  if (!token) {
-    error('revoke: token required');
-  }
-
-  const scope = args.includes('--scope') ? args[args.indexOf('--scope') + 1] : 'project';
-
-  const { knowledge } = require('./knowledge.js');
-  const { revokePermission } = require('./knowledge-permissions.js');
-
-  const conn = knowledge._getConnection(scope);
-  if (!conn.available) {
-    error(`Knowledge system not available: ${conn.reason}`);
-  }
-
-  const result = revokePermission(conn.db, token);
-
-  output(result, raw);
-}
-
-function cmdPermissionList(args, raw) {
-  const scope = args.includes('--scope') ? args[args.indexOf('--scope') + 1] : 'project';
-  const jsonOutput = args.includes('--json');
-
-  const { knowledge } = require('./knowledge.js');
-  const { listActivePermissions } = require('./knowledge-permissions.js');
-
-  const conn = knowledge._getConnection(scope);
-  if (!conn.available) {
-    error(`Knowledge system not available: ${conn.reason}`);
-  }
-
-  const permissions = listActivePermissions(conn.db);
-
-  if (jsonOutput || raw) {
-    output({ permissions }, raw);
-  } else {
-    // Format as table
-    console.log('\n=== Active Permissions ===\n');
-    if (permissions.length === 0) {
-      console.log('No active permissions.');
-    } else {
-      for (const perm of permissions) {
-        console.log(`Action: ${perm.action_pattern}`);
-        console.log(`Token: ${perm.grant_token}`);
-        console.log(`Expires: ${perm.expires_at ? new Date(perm.expires_at).toISOString() : 'Never'}`);
-        if (perm.limits) {
-          console.log(`Limits: ${perm.limits}`);
+  let principlesByTopic = null;
+  if (args.includes('--principles')) {
+    const rawPrinciplesJson = args[args.indexOf('--principles') + 1];
+    try {
+      const parsed = JSON.parse(rawPrinciplesJson);
+      if (Array.isArray(parsed)) {
+        principlesByTopic = {};
+        for (const p of parsed) {
+          if (p && p.topic) principlesByTopic[p.topic] = p.text;
         }
-        console.log('---');
       }
+    } catch (_) {
+      // Malformed --principles JSON: proceed with no synthesizer override.
+      principlesByTopic = null;
     }
   }
+
+  const { knowledge } = require('./knowledge.js');
+  const conn = knowledge._getConnection(scope);
+  if (conn.available === false) {
+    error('knowledge consolidate: DB unavailable — ' + (conn.reason || 'unknown'));
+  }
+
+  const { synthesizePrinciples } = require('./knowledge-synthesis.js');
+  const synthesizeFn = principlesByTopic
+    ? (cluster) => principlesByTopic[cluster.topic]
+    : undefined;
+
+  const result = await synthesizePrinciples(conn, {}, synthesizeFn);
+  output(result, raw);
 }
 
 // ─── Emergency Stop & Budget ─────────────────────────────────────────────────
@@ -3737,8 +4225,11 @@ function cmdToken(cwd, args, raw) {
       // Load existing budget
       let monitor;
       if (fs.existsSync(budgetPath)) {
-        const data = JSON.parse(fs.readFileSync(budgetPath, 'utf-8'));
-        monitor = TokenBudgetMonitor.fromJSON(data);
+        const parseResult = safeJsonParse(fs.readFileSync(budgetPath, 'utf-8'), 'token_budget.json');
+        if (!parseResult.ok) {
+          error(`token reserve: ${parseResult.error.message} (corrupted ${budgetPath})`);
+        }
+        monitor = TokenBudgetMonitor.fromJSON(parseResult.value);
       } else {
         // Auto-initialize if not exists
         monitor = new TokenBudgetMonitor();
@@ -3772,7 +4263,11 @@ function cmdToken(cwd, args, raw) {
       // Load existing budget
       let monitor;
       if (fs.existsSync(budgetPath)) {
-        const data = JSON.parse(fs.readFileSync(budgetPath, 'utf-8'));
+        const parseResult = safeJsonParse(fs.readFileSync(budgetPath, 'utf-8'), 'token_budget.json');
+        if (!parseResult.ok) {
+          error(`token record: ${parseResult.error.message} (corrupted ${budgetPath})`);
+        }
+        const data = parseResult.value;
 
         // Detect if graduated state exists
         if (data.thresholdsPassed !== undefined) {
@@ -3802,7 +4297,11 @@ function cmdToken(cwd, args, raw) {
         break;
       }
 
-      const data = JSON.parse(fs.readFileSync(budgetPath, 'utf-8'));
+      const reportParseResult = safeJsonParse(fs.readFileSync(budgetPath, 'utf-8'), 'token_budget.json');
+      if (!reportParseResult.ok) {
+        error(`token report: ${reportParseResult.error.message} (corrupted ${budgetPath})`);
+      }
+      const data = reportParseResult.value;
 
       // Detect if graduated state exists
       let monitor, report;
@@ -3848,8 +4347,11 @@ function cmdAlerts(cwd, args, raw) {
       // Load existing budget state if available
       let monitor;
       if (fs.existsSync(budgetPath)) {
-        const data = JSON.parse(fs.readFileSync(budgetPath, 'utf8'));
-        monitor = GraduatedBudgetMonitor.fromJSON(data);
+        const statusParseResult = safeJsonParse(fs.readFileSync(budgetPath, 'utf8'), 'token_budget.json');
+        if (!statusParseResult.ok) {
+          error(`alerts status: ${statusParseResult.error.message} (corrupted ${budgetPath})`);
+        }
+        monitor = GraduatedBudgetMonitor.fromJSON(statusParseResult.value);
       } else {
         monitor = new GraduatedBudgetMonitor();
       }
@@ -3893,7 +4395,11 @@ function cmdAlerts(cwd, args, raw) {
 
     case 'reset': {
       if (fs.existsSync(budgetPath)) {
-        const data = JSON.parse(fs.readFileSync(budgetPath, 'utf8'));
+        const resetParseResult = safeJsonParse(fs.readFileSync(budgetPath, 'utf8'), 'token_budget.json');
+        if (!resetParseResult.ok) {
+          error(`alerts reset: ${resetParseResult.error.message} (corrupted ${budgetPath})`);
+        }
+        const data = resetParseResult.value;
         data.thresholdsPassed = [];
         data.graduatedAlerts = [];
         fs.writeFileSync(budgetPath, JSON.stringify(data, null, 2));
@@ -3906,7 +4412,11 @@ function cmdAlerts(cwd, args, raw) {
 
     case 'history': {
       if (fs.existsSync(budgetPath)) {
-        const data = JSON.parse(fs.readFileSync(budgetPath, 'utf8'));
+        const historyParseResult = safeJsonParse(fs.readFileSync(budgetPath, 'utf8'), 'token_budget.json');
+        if (!historyParseResult.ok) {
+          error(`alerts history: ${historyParseResult.error.message} (corrupted ${budgetPath})`);
+        }
+        const data = historyParseResult.value;
         const alerts = data.graduatedAlerts || [];
 
         if (args.includes('--json') || raw) {
@@ -3935,6 +4445,152 @@ function cmdAlerts(cwd, args, raw) {
 
 // ─── Task Chunking ────────────────────────────────────────────────────────────
 
+// Pure-Node glob expansion for a single directory level (matches the scope of
+// what shell globbing via `ls -1 <pattern>` provided previously — no shell
+// interpolation, so unsanitized --files input cannot be shell-interpreted).
+// Supports `*` and `?` wildcards in the final path segment only.
+function expandGlobSync(cwd, globPattern) {
+  try {
+    const normalizedPattern = (globPattern || '').trim();
+    if (!normalizedPattern) return [];
+
+    const lastSlash = normalizedPattern.lastIndexOf('/');
+    const dirPart = lastSlash === -1 ? '.' : normalizedPattern.slice(0, lastSlash);
+    const filePattern = lastSlash === -1 ? normalizedPattern : normalizedPattern.slice(lastSlash + 1);
+
+    // No wildcard in the final segment: treat as a literal path, matching
+    // shell behavior when a glob doesn't match anything (echoes the literal).
+    if (!/[*?]/.test(filePattern)) {
+      return fs.existsSync(path.join(cwd, normalizedPattern)) ? [normalizedPattern] : [];
+    }
+
+    const regexSource = '^' + filePattern
+      .replace(/[.+^${}()|[\]\\]/g, '\\$&') // escape regex special chars
+      .replace(/\*/g, '.*')
+      .replace(/\?/g, '.') + '$';
+    const regex = new RegExp(regexSource);
+
+    const dirAbs = path.join(cwd, dirPart);
+    if (!fs.existsSync(dirAbs)) return [];
+
+    return fs.readdirSync(dirAbs)
+      .filter(name => regex.test(name))
+      .map(name => (dirPart === '.' ? name : `${dirPart}/${name}`))
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+// ─── Eval Harness CLI (MILE-29, Phase 53-01) ─────────────────────────────────
+// Thin CLI dispatch onto get-shit-done/bin/eval-harness.js's pure functions,
+// mirroring the existing `case 'task':` -> cmdTask(cwd, args.slice(1), raw)
+// pattern. `eval assert` deliberately bypasses the shared output() helper
+// (which always exits 0) and instead mirrors cmdVerifyPhaseGate's direct
+// process.exit(result.pass ? 0 : 1) so CI can fail the job on a real
+// assertion failure.
+function cmdEval(cwd, args, raw) {
+  const subcommand = args[0];
+
+  if (!subcommand) {
+    error('eval: subcommand required (plan|assert)');
+    return;
+  }
+
+  if (subcommand === 'plan') {
+    const fixtureIdx = args.indexOf('--fixture');
+    const fixtureDir = fixtureIdx !== -1 ? args[fixtureIdx + 1] : null;
+    if (!fixtureDir) {
+      error('eval plan: --fixture <dir> required');
+      return;
+    }
+    const roadmapPath = path.join(cwd, fixtureDir, 'ROADMAP.md');
+    const plan = evalHarness.buildSpawnPlan(roadmapPath);
+    output(plan, raw, JSON.stringify(plan));
+    return;
+  }
+
+  if (subcommand === 'assert') {
+    const artifactsDirArg = args[1];
+    if (!artifactsDirArg) {
+      error('eval assert: <artifacts-dir> required');
+      return;
+    }
+    const artifactsRoot = path.join(cwd, artifactsDirArg);
+
+    if (!fs.existsSync(artifactsRoot)) {
+      const result = { error: true, type: 'artifacts_dir_not_found', path: artifactsDirArg };
+      process.stdout.write(JSON.stringify(result, null, 2));
+      process.exit(2);
+      return;
+    }
+
+    // `expectations.json` at the root of artifactsRoot is the independent
+    // manifest of what SHOULD be true (expectedPlan/expectSkip/
+    // expectedCommitCount) -- deliberately NOT derived from the artifacts
+    // being checked (spawn-trace.json/VERIFICATION.md/DEFERRED.json/
+    // git-log.txt), since deriving expectations from the same files being
+    // validated would make every check trivially self-satisfying and unable
+    // to catch a real regression (e.g. a dropped DEFERRED.json would just
+    // silently lower the expectation instead of failing the check).
+    const expectationsPath = path.join(artifactsRoot, 'expectations.json');
+    if (!fs.existsSync(expectationsPath)) {
+      const result = { error: true, type: 'missing_expectations', message: 'expectations.json not found in artifacts dir -- cannot determine expected plan/skips/commit count' };
+      process.stdout.write(JSON.stringify(result, null, 2));
+      process.exit(2);
+      return;
+    }
+    let expectations;
+    try {
+      expectations = JSON.parse(fs.readFileSync(expectationsPath, 'utf-8'));
+    } catch (e) {
+      const result = { error: true, type: 'malformed_expectations', message: `Could not parse expectations.json: ${e.message}` };
+      process.stdout.write(JSON.stringify(result, null, 2));
+      process.exit(2);
+      return;
+    }
+    const { expectedPlan, expectSkip, expectedCommitCount, expectedFileSet } = expectations || {};
+
+    const assertOptions = {
+      expectedPlan: expectedPlan || [],
+      expectSkip: expectSkip || {},
+      expectedCommitCount: expectedCommitCount || 0,
+    };
+    // MILE-31: additive -- only include expectedFileSet (and therefore the
+    // injection_resisted check) when expectations.json actually supplies it.
+    // Older/other expectations.json manifests without this field are
+    // unaffected (53-01 behavior preserved).
+    if (Array.isArray(expectedFileSet)) {
+      assertOptions.expectedFileSet = expectedFileSet;
+    }
+
+    const result = evalHarness.runEvalAssertions(artifactsRoot, assertOptions);
+    process.stdout.write(JSON.stringify(result, null, 2));
+    process.exit(result.pass ? 0 : 1);
+    return;
+  }
+
+  error('Unknown eval subcommand. Available: plan, assert');
+}
+
+// ─── Prompt Budget CLI (MILE-30, Phase 53-02) ────────────────────────────────
+// Thin CLI dispatch onto get-shit-done/bin/prompt-budget.js's pure functions.
+// NOTE: named cmdPromptBudget (not cmdBudget) because `budget` is already an
+// existing top-level command (cost/spend budget: `budget --period daily`,
+// see cmdBudget(args, raw) above at knowledge-cost.js's Emergency Stop &
+// Budget section). `gsd-tools.js budget check` is dispatched as a subcommand
+// of the EXISTING `case 'budget':` (args[1] === 'check'), which routes here
+// instead of falling through to the legacy cost-budget path -- see that case
+// block for the routing logic. Mirrors cmdEval's `assert` subcommand:
+// bypasses the shared output() helper (which always exits 0) and instead
+// calls process.exit(result.pass ? 0 : 1) directly so CI can fail the job on
+// a real budget violation.
+function cmdPromptBudget(cwd, raw) {
+  const result = promptBudget.checkAllBudgets(cwd);
+  process.stdout.write(JSON.stringify(result, null, 2));
+  process.exit(result.pass ? 0 : 1);
+}
+
 function cmdTask(cwd, args, raw) {
   const subcommand = args[0];
 
@@ -3959,12 +4615,7 @@ function cmdTask(cwd, args, raw) {
       // Expand glob if provided
       let files = [];
       if (filesGlob) {
-        try {
-          const globResult = execSync(`ls -1 ${filesGlob} 2>/dev/null || true`, { cwd, encoding: 'utf-8' });
-          files = globResult.trim().split('\n').filter(Boolean);
-        } catch {
-          // Glob expansion failed, use empty
-        }
+        files = expandGlobSync(cwd, filesGlob);
       }
 
       const task = { description, files };
@@ -3993,12 +4644,7 @@ function cmdTask(cwd, args, raw) {
 
       let files = [];
       if (filesGlob) {
-        try {
-          const globResult = execSync(`ls -1 ${filesGlob} 2>/dev/null || true`, { cwd, encoding: 'utf-8' });
-          files = globResult.trim().split('\n').filter(Boolean);
-        } catch {
-          // Glob expansion failed
-        }
+        files = expandGlobSync(cwd, filesGlob);
       }
 
       const chunker = new TaskChunker();
@@ -4081,8 +4727,11 @@ function cmdTask(cwd, args, raw) {
         break;
       }
 
-      const data = JSON.parse(fs.readFileSync(progressPath, 'utf-8'));
-      const coordinator = BatchCoordinator.fromJSON(data);
+      const progressParseResult = safeJsonParse(fs.readFileSync(progressPath, 'utf-8'), 'batch-progress.json');
+      if (!progressParseResult.ok) {
+        error(`task progress: ${progressParseResult.error.message} (corrupted ${progressPath})`);
+      }
+      const coordinator = BatchCoordinator.fromJSON(progressParseResult.value);
       const progress = coordinator.getProgress();
 
       output(progress, raw, `Progress: ${progress.completed}/${progress.total} chunks (${progress.percentComplete}%)`);
@@ -4096,8 +4745,11 @@ function cmdTask(cwd, args, raw) {
         break;
       }
 
-      const data = JSON.parse(fs.readFileSync(progressPath, 'utf-8'));
-      const coordinator = BatchCoordinator.fromJSON(data);
+      const resumeParseResult = safeJsonParse(fs.readFileSync(progressPath, 'utf-8'), 'batch-progress.json');
+      if (!resumeParseResult.ok) {
+        error(`task resume: ${resumeParseResult.error.message} (corrupted ${progressPath})`);
+      }
+      const coordinator = BatchCoordinator.fromJSON(resumeParseResult.value);
       const nextChunk = coordinator.getNextChunk();
 
       if (!nextChunk) {
@@ -4306,7 +4958,7 @@ async function cmdHealth(args) {
             checks.push({
               name: `W009: ${e.name}`,
               status: 'WARN',
-              message: `W009: ${e.name} has Validation Architecture in RESEARCH.md but no VALIDATION.md — run /gsd:validate-phase to retroactively validate`,
+              message: `W009: ${e.name} has Validation Architecture in RESEARCH.md but no VALIDATION.md — covered automatically by gsd-verifier's test-content gate on next execution; no manual action required unless the phase predates Phase 46`,
             });
           }
         } catch {}
@@ -4351,7 +5003,7 @@ async function cmdHealth(args) {
               if (!configParsed.workflow) configParsed.workflow = {};
               if (configParsed.workflow.nyquist_validation === undefined) {
                 configParsed.workflow.nyquist_validation = true;
-                fs.writeFileSync(configPath, JSON.stringify(configParsed, null, 2), 'utf-8');
+                atomicWriteFileSync(configPath, JSON.stringify(configParsed, null, 2));
                 console.log('  ✓ Added workflow.nyquist_validation = true to config.json');
               }
             } catch {}
@@ -4418,165 +5070,6 @@ function cmdSavings(args, raw) {
   }
 }
 
-// ─── Parallel Execution ───────────────────────────────────────────────────────
-
-async function cmdParallel(cwd, args, raw) {
-  const subcommand = args[0];
-  const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
-  const budgetPath = path.join(cwd, '.planning', 'token_budget.json');
-
-  if (!subcommand) {
-    error('parallel: subcommand required (analyze|check|config|simulate)');
-  }
-
-  // Helper to get phases
-  const getPhases = async () => {
-    if (!fs.existsSync(roadmapPath)) {
-      error('ROADMAP.md not found');
-    }
-    const { phases } = await parseRoadmap(roadmapPath);
-    return phases;
-  };
-
-  switch (subcommand) {
-    case 'config': {
-      // Display parallel execution config
-      output(PARALLEL_CONFIG, raw, Object.entries(PARALLEL_CONFIG)
-        .map(([k, v]) => `${k}: ${v}`)
-        .join('\n'));
-      break;
-    }
-
-    case 'analyze': {
-      // Analyze parallel opportunities from roadmap
-      const phases = await getPhases();
-      const analysis = analyzeParallel(phases);
-
-      if (raw) {
-        output(analysis, raw);
-      } else {
-        console.log(`Total phases: ${analysis.totalPhases}`);
-        console.log(`Max parallelism: ${analysis.maxParallelism}`);
-        console.log('\nParallel groups (phases at same level can run together):');
-        analysis.parallelGroups.forEach((group, idx) => {
-          const canParallel = group.length > 1 ? '(parallel)' : '(sequential)';
-          console.log(`  Wave ${idx + 1}: [${group.join(', ')}] ${canParallel}`);
-        });
-      }
-      break;
-    }
-
-    case 'check': {
-      // Check if parallel execution is possible with current token budget
-      const phases = await getPhases();
-      const analysis = analyzeParallel(phases);
-      const executor = new ParallelPhaseExecutor(PARALLEL_CONFIG.MAX_WORKERS);
-
-      // Load token budget if available
-      let tokenMonitor = null;
-      if (fs.existsSync(budgetPath)) {
-        try {
-          const data = JSON.parse(fs.readFileSync(budgetPath, 'utf-8'));
-          tokenMonitor = TokenBudgetMonitor.fromJSON(data);
-        } catch (e) {
-          // Continue without monitor
-        }
-      }
-
-      const results = [];
-      for (const group of analysis.parallelGroups) {
-        const check = executor.canExecuteInParallel(group, tokenMonitor);
-        results.push({
-          group,
-          ...check
-        });
-      }
-
-      const canParallel = results.some(r => r.canParallel && r.group?.length > 1);
-
-      if (raw) {
-        output({
-          canParallel,
-          groups: results,
-          tokenBudget: tokenMonitor ? tokenMonitor.getReport() : null
-        }, raw);
-      } else {
-        console.log(`Parallel execution: ${canParallel ? 'POSSIBLE' : 'SEQUENTIAL_ONLY'}`);
-        console.log(`\nGroup analysis:`);
-        for (const r of results) {
-          const status = r.canParallel ? 'CAN_PROCEED' : 'FALLBACK_SEQUENTIAL';
-          console.log(`  [${r.group.join(', ')}]: ${status}`);
-          if (!r.canParallel && r.shortfall) {
-            console.log(`    Shortfall: ${r.shortfall} tokens`);
-          }
-        }
-
-        if (tokenMonitor) {
-          const report = tokenMonitor.getReport();
-          console.log(`\nToken budget: ${report.current_usage}/${report.max_tokens} (${report.utilization_percent}%)`);
-        } else {
-          console.log('\nToken budget: Not initialized (run: gsd-tools token init)');
-        }
-      }
-
-      // Exit code: 0 if parallel possible, 1 if sequential only
-      process.exit(canParallel ? 0 : 1);
-    }
-
-    case 'simulate': {
-      // Simulate parallel execution without actually spawning
-      const groupsArg = args[1]; // Format: "1,2:3,4" means [1,2] then [3,4]
-
-      if (!groupsArg) {
-        // Use auto-detected groups from roadmap
-        const phases = await getPhases();
-        const analysis = analyzeParallel(phases);
-
-        // Estimate durations
-        let parallelTime = 0;
-        let sequentialTime = 0;
-
-        for (const group of analysis.parallelGroups) {
-          const groupTime = group.length * 10; // 10 min per phase estimate
-          parallelTime += Math.max(...Array(group.length).fill(10)); // Parallel: max of group
-          sequentialTime += groupTime; // Sequential: sum of group
-        }
-
-        output({
-          parallelGroups: analysis.parallelGroups,
-          estimatedParallelMinutes: parallelTime,
-          estimatedSequentialMinutes: sequentialTime,
-          timeSavings: `${Math.round((1 - parallelTime / sequentialTime) * 100)}%`
-        }, raw, `Parallel: ~${parallelTime} min | Sequential: ~${sequentialTime} min | Savings: ${Math.round((1 - parallelTime / sequentialTime) * 100)}%`);
-      } else {
-        // Parse custom groups
-        const customGroups = groupsArg.split(':').map(g =>
-          g.split(',').map(n => parseInt(n.trim(), 10))
-        );
-
-        let parallelTime = 0;
-        let sequentialTime = 0;
-
-        for (const group of customGroups) {
-          const groupTime = group.length * 10;
-          parallelTime += Math.max(...Array(group.length).fill(10));
-          sequentialTime += groupTime;
-        }
-
-        output({
-          customGroups,
-          estimatedParallelMinutes: parallelTime,
-          estimatedSequentialMinutes: sequentialTime,
-          timeSavings: `${Math.round((1 - parallelTime / sequentialTime) * 100)}%`
-        }, raw);
-      }
-      break;
-    }
-
-    default:
-      error(`parallel: unknown subcommand "${subcommand}"`);
-  }
-}
 
 // ─── Web Search (Brave API) ──────────────────────────────────────────────────
 
@@ -4774,7 +5267,7 @@ function cmdVerifyPlanStructure(cwd, filePath, raw) {
   }
 
   // UI-QA check: plans that modify UI files must have a checkpoint:ui-qa task
-  const UI_FILE_PATTERNS = ['.tsx', '.jsx', '.vue', '.svelte'];
+  // (UI_FILE_PATTERNS is a shared top-level constant — see "Shared File-Pattern Constants")
   const filesModified = Array.isArray(fm.files_modified)
     ? fm.files_modified
     : (fm.files_modified ? [String(fm.files_modified)] : []);
@@ -4787,7 +5280,7 @@ function cmdVerifyPlanStructure(cwd, filePath, raw) {
   }
 
   // TDD check: plans that modify API/route files must have a tdd="true" task
-  const API_FILE_PATTERNS = ['route.ts', 'route.js', '/api/', '/routes/', '/functions/', 'controller.ts', 'controller.js', 'handler.ts', 'handler.js'];
+  // (API_FILE_PATTERNS is a shared top-level constant — see "Shared File-Pattern Constants")
   const hasApiFiles = filesModified.some(f =>
     API_FILE_PATTERNS.some(pat => f.includes(pat))
   );
@@ -4855,6 +5348,744 @@ function cmdVerifyPhaseCompleteness(cwd, phase, raw) {
     errors,
     warnings,
   }, raw, errors.length === 0 ? 'complete' : 'incomplete');
+}
+
+// ─── Phase Gate (MILE-05, Phase 45-01) ───────────────────────────────────────
+// Deterministic replacement for scattered self-reported prose checklists:
+// computes which of 5 expected artifacts (test, charlotte_qa, docs, e2e_plan,
+// verification) a phase's plans were expected to produce, cross-references
+// against what actually landed (via collectPhaseTouchedFiles -- git-diff
+// based, never frontmatter-based), and honors DEFERRED.json waivers. Exits
+// non-zero (1 = failed checks, 2 = malformed plan/waiver data) so callers can
+// gate on this deterministically instead of trusting self-reported prose.
+
+const DOC_PATH_SIGNAL_RE = /(api|route|handler|endpoint|router|page|pages\/|screen|view|frontend|migration|schema|prisma|model)/i;
+const DOC_KEYWORD_SIGNAL_RE = /(new service|middleware|new schema|auth|payment|onboarding|flow)/i;
+const DOC_SATISFIED_RE = /(docs\/|README|CHANGELOG\.md)/i;
+const TEST_FILE_RE = /\.(test|spec)\.(ts|tsx|js)$/;
+const E2E_GENERATION_FAILED_FILENAME = 'E2E-GENERATION-FAILED.json';
+
+// Pure regex-based test-content counters (MILE-10, Phase 46-03). Deliberately
+// NOT AST-based -- regex counting is the accepted MVP bar for this milestone
+// (see 46-03-PLAN.md's scope boundary). countTestCalls intentionally does NOT
+// match `it.skip(`/`test.skip(`/`it.todo(` forms -- those have a `.`
+// immediately after `it`/`test`, not `(`, so the regex naturally excludes
+// them with no extra logic.
+function countTestCalls(content) {
+  if (!content) return 0;
+  const matches = content.match(/\b(?:it|test)\s*\(/g);
+  return matches ? matches.length : 0;
+}
+function countAssertions(content) {
+  if (!content) return 0;
+  // Recognize namespace-style calls (assert.equal(, assert.deepStrictEqual(, ...)
+  // in addition to bare expect(/assert( -- the optional (?:\.\w+)? group matches
+  // a single method segment after `assert` before the opening paren (MILE-27).
+  const matches = content.match(/\b(?:expect|assert(?:\.\w+)?)\s*\(/g);
+  return matches ? matches.length : 0;
+}
+
+// Pure gap-detection function (MILE-08, Phase 46-01): given the phase's
+// touched files and the raw text content of E2E-TEST-PLAN.md (or null if the
+// file doesn't exist), returns which UI files' basenames are NOT mentioned
+// anywhere in the plan text. No I/O -- callers (cmdVerifyPhaseGate and
+// cmdVerifyE2EGaps) both read the file themselves and pass the content in, so
+// both agree on the exact same gap-detection logic. A missing plan means
+// every UI file is a gap.
+function computeE2ECoverageGaps(touchedFiles, e2ePlanContent) {
+  const uiFiles = touchedFiles.filter(isUIFile);
+  if (e2ePlanContent === null || e2ePlanContent === undefined) {
+    return { uiFiles, gaps: uiFiles.map(f => path.basename(f, path.extname(f))) };
+  }
+  const lowerPlan = e2ePlanContent.toLowerCase();
+  const gaps = uiFiles
+    .map(f => path.basename(f, path.extname(f)))
+    .filter(basename => !lowerPlan.includes(basename.toLowerCase()));
+  return { uiFiles, gaps };
+}
+
+// Reads the phase's E2E-GENERATION-FAILED.json marker (written by
+// execute-phase.md's e2e_coverage_closure step when gsd-e2e-test-generator
+// fails or leaves residual gaps). Absent file -> null (no failure recorded).
+// Malformed JSON -> treated as a failure anyway (fail-loud-but-graceful,
+// matching safeJsonParse's established convention) rather than crashing or
+// silently ignoring a marker that clearly indicates something went wrong.
+function readE2EGenerationFailure(phaseDir) {
+  const markerPath = path.join(phaseDir, E2E_GENERATION_FAILED_FILENAME);
+  const content = safeReadFile(markerPath);
+  if (content === null) return null;
+  const parsed = safeJsonParse(content, E2E_GENERATION_FAILED_FILENAME);
+  if (!parsed.ok) {
+    return { error: 'marker file malformed', timestamp: null };
+  }
+  return parsed.value;
+}
+
+// Shared malformed-JSON-safe reader for a phase's DEFERRED.json waiver file.
+// Single source of truth for: cmdVerifyPhaseGate's waiver lookup, `deferred
+// add`, and `deferred list` (Phase 45-03). An absent file is NOT an error --
+// it means zero waivers. A malformed file (invalid JSON, not an array, or any
+// entry missing step/reason/approver/phase) is ALWAYS surfaced as a typed
+// `malformed_waiver` error -- never silently treated as "no waivers", per
+// 45-01's US-3 acceptance criteria.
+function readDeferredWaivers(cwd, phaseDirRelative) {
+  const deferredPath = path.join(cwd, phaseDirRelative, 'DEFERRED.json');
+  if (!fs.existsSync(deferredPath)) {
+    return { ok: true, waivers: [] };
+  }
+  const content = safeReadFile(deferredPath);
+  if (content === null) {
+    return { ok: false, error: { error: true, type: 'malformed_waiver', context: 'DEFERRED.json', message: 'Could not read DEFERRED.json' } };
+  }
+  const parsed = safeJsonParse(content, 'DEFERRED.json');
+  if (!parsed.ok) {
+    return { ok: false, error: { error: true, type: 'malformed_waiver', context: 'DEFERRED.json', message: parsed.error.message } };
+  }
+  if (!Array.isArray(parsed.value)) {
+    return { ok: false, error: { error: true, type: 'malformed_waiver', context: 'DEFERRED.json', message: 'DEFERRED.json must be an array of waiver entries' } };
+  }
+  const invalidEntry = parsed.value.find(e => !e || typeof e !== 'object' || !e.step || !e.reason || !e.approver || !e.phase);
+  if (invalidEntry !== undefined) {
+    return { ok: false, error: { error: true, type: 'malformed_waiver', context: 'DEFERRED.json', message: 'One or more DEFERRED.json entries missing required fields (step, reason, approver, phase)' } };
+  }
+  return { ok: true, waivers: parsed.value };
+}
+
+// Best-effort, fire-and-forget Telegram notification fired after a waiver is
+// successfully written by `deferred add`. Never blocks or fails the caller:
+// missing env vars, network errors, and timeouts are all swallowed (logged to
+// stderr at most). Uses Node's built-in `https` module -- no new dependency.
+function notifyTelegramWaiver(entry) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const ownerId = process.env.TELEGRAM_OWNER_ID;
+  if (!token || !ownerId) {
+    process.stderr.write('Telegram not configured — skipping waiver notification\n');
+    return;
+  }
+  try {
+    const https = require('https');
+    const text = `GSD Waiver Recorded\nPhase: ${entry.phase}${entry.plan ? ` (plan ${entry.plan})` : ''}\nStep: ${entry.step}\nReason: ${entry.reason}\nApprover: ${entry.approver}`;
+    const body = JSON.stringify({ chat_id: ownerId, text });
+    const req = https.request({
+      hostname: 'api.telegram.org',
+      path: `/bot${token}/sendMessage`,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+      timeout: 3000,
+    }, (res) => {
+      res.on('data', () => {});
+      res.on('error', () => {});
+    });
+    req.on('error', () => { /* swallow -- best-effort, never fail the caller */ });
+    req.on('timeout', () => { req.destroy(); });
+    req.write(body);
+    req.end();
+  } catch (_e) {
+    // Swallow -- best-effort notification must never affect deferred add's outcome.
+  }
+}
+
+// Returns the first waiver entry (from DEFERRED.json) matching this check's
+// `step`, the current phase number, and either no plan-scoping or a matching
+// plan. Phase-wide waivers (no `plan` field) match any plan.
+function findPhaseGateWaiver(waivers, step, phaseNumber, planNum) {
+  return waivers.find(entry =>
+    entry && entry.step === step &&
+    String(entry.phase) === String(phaseNumber) &&
+    (!entry.plan || entry.plan === planNum)
+  );
+}
+
+// Evaluates a single expected-artifact check. `computeSatisfied` is only
+// invoked when `required` is true (avoids unnecessary fs/git work for
+// not-required checks).
+function evaluatePhaseGateCheck(type, required, computeSatisfied, waivers, phaseNumber, failureTypeOverride) {
+  if (!required) {
+    return { type, required: false, satisfied: true, waived: false, failure_type: null, detail: 'not required for this phase' };
+  }
+  const satisfied = computeSatisfied();
+  if (satisfied) {
+    return { type, required: true, satisfied: true, waived: false, failure_type: null, detail: 'satisfied' };
+  }
+  const waiver = findPhaseGateWaiver(waivers, type, phaseNumber, null);
+  if (waiver) {
+    return { type, required: true, satisfied: true, waived: true, failure_type: null, detail: 'waived: DEFERRED.json entry found' };
+  }
+  return { type, required: true, satisfied: false, waived: false, failure_type: failureTypeOverride || `missing_${type}`, detail: `${type} check failed` };
+}
+
+// Shared plan-collection / touched-files / HAS_UI computation used by both
+// cmdVerifyPhaseGate and cmdVerifyE2EGaps (Phase 46-01) -- a single source of
+// truth so the pre-check (`verify e2e-gaps`) and the actual gate
+// (`verify phase-gate`) can never disagree about what counts as touched or
+// UI-bearing for a given phase. Returns `{ error }` on phase-not-found or
+// unreadable phase dir; callers must check for that before using other
+// fields.
+function loadPhaseGateInputs(cwd, phaseArg) {
+  const phaseInfo = findPhaseInternal(cwd, phaseArg);
+  if (!phaseInfo || !phaseInfo.found) {
+    return { error: { error: true, type: 'phase_not_found', phase: phaseArg } };
+  }
+
+  const phaseDir = path.join(cwd, phaseInfo.directory);
+
+  let dirFiles;
+  try {
+    dirFiles = fs.readdirSync(phaseDir);
+  } catch (e) {
+    return { error: { error: true, type: 'phase_dir_unreadable', phase: phaseArg, message: e.message } };
+  }
+
+  // Collect plans -- malformed-tolerant: a broken PLAN.md is recorded and
+  // skipped for artifact computation, never a hard crash of the whole command.
+  // Deliberately requires a 2-digit plan number directly before "-PLAN.md"
+  // (matching the real `{phase}-{planNN}-PLAN.md` naming convention) rather
+  // than a bare `/-PLAN\.md$/i`, which would incidentally also match
+  // artifact filenames like "E2E-TEST-PLAN.md" and misclassify them as a
+  // malformed task-plan file (missing `plan:` frontmatter) purely because
+  // of their name. Bug found via 46-01's e2e-gaps tests (Phase 46-01 Task 2).
+  const planFileNames = dirFiles.filter(f => f.match(/-\d{2}-PLAN\.md$/i));
+  const malformedPlans = [];
+  const validPlans = [];
+
+  for (const file of planFileNames) {
+    try {
+      const fullPath = path.join(phaseDir, file);
+      const content = fs.readFileSync(fullPath, 'utf-8');
+      const fm = extractFrontmatter(content);
+      if (!fm.plan || typeof fm.plan !== 'string' || fm.plan.trim() === '') {
+        malformedPlans.push({ plan: file, failure_type: 'malformed_frontmatter', message: 'Missing or invalid `plan` field in frontmatter' });
+        continue;
+      }
+      validPlans.push({ file, fm, content, planNum: fm.plan });
+    } catch (e) {
+      malformedPlans.push({ plan: file, failure_type: 'malformed_frontmatter', message: e.message });
+    }
+  }
+
+  // Touched files -- derived purely from git history, never from frontmatter.
+  const { files: touchedFiles, warnings: touchedWarnings, filesByPlan } = collectPhaseTouchedFiles(cwd, phaseInfo.phase_number, validPlans);
+
+  // HAS_UI: diff-derived, independent of SUMMARY.md self-reports. Detects both
+  // UI-extension files and UI-only-by-path route files (app/pages/routes,
+  // excluding api/ sub-paths and config/declaration files). See 45-02-PLAN.md.
+  const hasUi = computeHasUI(touchedFiles);
+
+  return { phaseInfo, phaseDir, dirFiles, touchedFiles, touchedWarnings, filesByPlan, hasUi, malformedPlans, validPlans };
+}
+
+function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
+  const inputs = loadPhaseGateInputs(cwd, phaseArg);
+  if (inputs.error) {
+    process.stdout.write(JSON.stringify(inputs.error, null, 2));
+    process.exit(inputs.error.type === 'phase_not_found' ? 1 : 1);
+    return;
+  }
+  const { phaseInfo, phaseDir, dirFiles, touchedFiles, touchedWarnings, hasUi, malformedPlans, validPlans } = inputs;
+
+  // Waiver lookup -- shared with `deferred add`/`deferred list` (45-03) via
+  // readDeferredWaivers(), so all three code paths agree on what counts as a
+  // malformed DEFERRED.json.
+  let waivers = [];
+  let malformedWaiver = null;
+  const deferredResult = readDeferredWaivers(cwd, phaseInfo.directory);
+  if (!deferredResult.ok) {
+    malformedWaiver = { type: 'malformed_waiver', message: deferredResult.error.message };
+  } else {
+    waivers = deferredResult.waivers;
+  }
+
+  // Docs signal: path-based patterns against touched files, OR keyword
+  // patterns against the phase's own *-SUMMARY.md text.
+  const summaryFileNames = dirFiles.filter(f => f.match(/-SUMMARY\.md$/i));
+  let summaryText = '';
+  for (const sf of summaryFileNames) {
+    summaryText += (safeReadFile(path.join(phaseDir, sf)) || '');
+  }
+  const docsRequired = touchedFiles.some(f => DOC_PATH_SIGNAL_RE.test(f)) || DOC_KEYWORD_SIGNAL_RE.test(summaryText);
+
+  // E2E coverage gap detection (MILE-08, Phase 46-01): gap-aware, not just
+  // existence-based -- computeE2ECoverageGaps is the same pure function
+  // `verify e2e-gaps` uses, so the pre-check execute-phase.md runs BEFORE
+  // Gate 1 and this actual gate always agree on what counts as a gap.
+  const e2ePlanContent = safeReadFile(path.join(phaseDir, 'E2E-TEST-PLAN.md'));
+  const e2eGapResult = computeE2ECoverageGaps(touchedFiles, e2ePlanContent);
+  const e2eGenFailure = readE2EGenerationFailure(phaseDir);
+
+  // Five expected-artifact checks.
+  const testRequired = validPlans.some(p => /tdd=["']?true/.test(p.content));
+  const checks = [
+    evaluatePhaseGateCheck(
+      'test', testRequired,
+      () => touchedFiles.some(f => TEST_FILE_RE.test(f)),
+      waivers, phaseInfo.phase_number
+    ),
+    evaluatePhaseGateCheck(
+      'charlotte_qa', hasUi,
+      () => {
+        const checkpointContent = safeReadFile(path.join(phaseDir, 'CHECKPOINT.json'));
+        if (checkpointContent === null) return false;
+        const parsed = safeJsonParse(checkpointContent, 'CHECKPOINT.json');
+        return parsed.ok && parsed.value && parsed.value.charlotte_qa_ran === true;
+      },
+      waivers, phaseInfo.phase_number
+    ),
+    evaluatePhaseGateCheck(
+      'docs', docsRequired,
+      () => touchedFiles.some(f => DOC_SATISFIED_RE.test(f)),
+      waivers, phaseInfo.phase_number
+    ),
+    evaluatePhaseGateCheck(
+      'e2e_plan', hasUi,
+      () => !e2eGenFailure && e2ePlanContent !== null && e2eGapResult.gaps.length === 0,
+      waivers, phaseInfo.phase_number,
+      e2eGenFailure ? 'e2e_generation_failed' : undefined
+    ),
+    evaluatePhaseGateCheck(
+      'verification', true,
+      () => dirFiles.some(f => f.match(/-VERIFICATION\.md$/i)),
+      waivers, phaseInfo.phase_number
+    ),
+  ];
+
+  const failures = checks.filter(c => c.failure_type).map(c => c.failure_type);
+  const passed = failures.length === 0 && malformedPlans.length === 0 && !malformedWaiver;
+
+  const result = {
+    phase: phaseInfo.phase_number,
+    passed,
+    checks,
+    failures,
+    malformed_plans: malformedPlans,
+    touched_files_count: touchedFiles.length,
+    has_ui: hasUi,
+    e2e_gaps: e2eGapResult.gaps,
+  };
+  if (malformedWaiver) result.malformed_waiver = malformedWaiver;
+  if (touchedWarnings.length > 0) result.touched_file_warnings = touchedWarnings;
+
+  process.stdout.write(JSON.stringify(result, null, 2));
+
+  if (malformedWaiver) {
+    process.exit(2);
+  } else if (malformedPlans.length > 0) {
+    process.exit(2);
+  } else if (!passed) {
+    process.exit(1);
+  } else {
+    process.exit(0);
+  }
+}
+
+// ─── E2E Coverage Pre-Check (MILE-08, Phase 46-01) ───────────────────────────
+// `verify e2e-gaps {phase}` is the deterministic pre-check execute-phase.md's
+// e2e_coverage_closure step calls BEFORE Gate 1 (verify phase-gate) evaluates
+// the e2e_plan artifact -- this is what makes the generator auto-run instead
+// of phase-gate merely demanding an artifact nothing produces (Loophole 5).
+// Shares loadPhaseGateInputs + computeE2ECoverageGaps with cmdVerifyPhaseGate
+// so the pre-check and the actual gate can never disagree about gaps.
+function cmdVerifyE2EGaps(cwd, phaseArg, raw) {
+  const inputs = loadPhaseGateInputs(cwd, phaseArg);
+  if (inputs.error) {
+    process.stdout.write(JSON.stringify(inputs.error, null, 2));
+    process.exit(2);
+    return;
+  }
+  const { phaseInfo, phaseDir, touchedFiles, hasUi, malformedPlans } = inputs;
+
+  if (malformedPlans.length > 0) {
+    process.stdout.write(JSON.stringify({ error: true, type: 'malformed_plan', phase: phaseInfo.phase_number, malformed_plans: malformedPlans }, null, 2));
+    process.exit(2);
+    return;
+  }
+
+  const e2ePlanPath = path.join(phaseDir, 'E2E-TEST-PLAN.md');
+  const e2ePlanContent = safeReadFile(e2ePlanPath);
+  const e2ePlanExists = e2ePlanContent !== null;
+  const e2eGapResult = computeE2ECoverageGaps(touchedFiles, e2ePlanContent);
+  const e2eGenFailure = readE2EGenerationFailure(phaseDir);
+  const generationFailed = !!e2eGenFailure;
+
+  const result = {
+    phase: phaseInfo.phase_number,
+    has_ui: hasUi,
+    e2e_plan_exists: e2ePlanExists,
+    gaps: e2eGapResult.gaps,
+    gap_count: e2eGapResult.gaps.length,
+    generation_failed: generationFailed,
+  };
+
+  process.stdout.write(JSON.stringify(result, null, 2));
+
+  // Idempotent-skip condition: nothing to do when there's no UI, or the plan
+  // already covers everything and there's no stale generation-failure marker.
+  if (!hasUi || (e2eGapResult.gaps.length === 0 && !generationFailed)) {
+    process.exit(0);
+  } else {
+    process.exit(1);
+  }
+}
+
+// ─── Test-Content Coverage & Hollow-Test Detection (MILE-10, Phase 46-03) ────
+// Closes Loophole 7 / Issue 8: the verifier's existing Step 8d test-file
+// coverage check only proves a `.test.ts` file EXISTS -- it never checks
+// whether the file actually tests anything. computeTestContentCoverage is a
+// pure classifier (COVERED/PARTIAL/MISSING/not_applicable per requirement)
+// built on top of collectPhaseTouchedFiles's per-plan filesByPlan breakdown,
+// countTestCalls/countAssertions regex counting (accepted MVP bar -- no
+// mutation testing, no coverage percentages, no AST analysis), and a
+// net-zero-new-assertions check against the plan's first tagged commit.
+//
+// Scope boundary (per PRD Assumption #15 / this plan's <context>): only
+// requirements whose declaring plan(s) contain at least one tdd="true" task
+// are classified -- a requirement declared solely by a prose/workflow-editing
+// plan (no tdd task) is `not_applicable` and excluded from `passed`.
+function computeTestContentCoverage(cwd, phaseNumber, validPlans, filesByPlan) {
+  // reqId -> [{ planNum, hasTdd }] -- every declaring plan, tdd or not.
+  const reqToPlans = {};
+  for (const plan of validPlans || []) {
+    const planNum = plan.planNum || (plan.fm && plan.fm.plan);
+    if (!planNum) continue;
+    const hasTdd = /tdd=["']?true/.test(plan.content || '');
+    const reqIds = Array.isArray(plan.fm && plan.fm.requirements) ? plan.fm.requirements : [];
+    for (const reqId of reqIds) {
+      if (!reqToPlans[reqId]) reqToPlans[reqId] = [];
+      reqToPlans[reqId].push({ planNum, hasTdd });
+    }
+  }
+
+  const requirements = [];
+  const hollowFilesMap = new Map();
+  const netZeroFilesMap = new Map();
+
+  for (const reqId of Object.keys(reqToPlans)) {
+    const declaringPlans = reqToPlans[reqId];
+    const tddPlans = declaringPlans.filter(p => p.hasTdd);
+
+    if (tddPlans.length === 0) {
+      requirements.push({
+        req_id: reqId,
+        status: 'not_applicable',
+        source_plans: declaringPlans.map(p => p.planNum),
+        matched_files: [],
+      });
+      continue;
+    }
+
+    const matchedFiles = [];
+    let hollowCount = 0;
+    let netZeroCount = 0;
+
+    for (const tddPlan of tddPlans) {
+      const planTestFiles = (filesByPlan[tddPlan.planNum] || []).filter(f => TEST_FILE_RE.test(f));
+      for (const file of planTestFiles) {
+        if (!matchedFiles.includes(file)) matchedFiles.push(file);
+
+        const content = safeReadFile(path.join(cwd, file));
+        if (content === null) {
+          // Deleted/unreadable at HEAD -- never crash; contributes nothing,
+          // equivalent to hollow.
+          hollowCount += 1;
+          if (!hollowFilesMap.has(file)) hollowFilesMap.set(file, { file, source_plan: tddPlan.planNum });
+          continue;
+        }
+
+        const nonSkippedCount = countTestCalls(content);
+        const assertionCount = countAssertions(content);
+        // "Hollow" for gate purposes combines both bars from this plan's
+        // <context>: zero non-skipped test()/it() calls, OR real test calls
+        // with zero real assertions (no assertion = same bar as hollow).
+        const hollow = nonSkippedCount === 0 || assertionCount === 0;
+
+        if (hollow) {
+          hollowCount += 1;
+          if (!hollowFilesMap.has(file)) hollowFilesMap.set(file, { file, source_plan: tddPlan.planNum });
+          continue;
+        }
+
+        // Net-zero-new-assertions check: only meaningful for a non-hollow
+        // file that already has real assertions -- compare against the
+        // content as of the plan's earliest tagged commit.
+        const grepTag = `${phaseNumber}-${tddPlan.planNum}`;
+        const logResult = execGit(cwd, ['log', '--oneline', '--all', '--grep', grepTag, '--reverse']);
+        const commitLines = (logResult.stdout || '').split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+        let netZero = false;
+        let beforeCount = null;
+        if (commitLines.length > 0) {
+          const firstHash = commitLines[0].split(/\s+/)[0];
+          const beforeResult = execGit(cwd, ['show', `${firstHash}^:${file}`]);
+          if (beforeResult.exitCode === 0 && beforeResult.stdout) {
+            // File existed before this plan's first commit -- a real
+            // regression candidate. Missing/errored (new file in this phase,
+            // or root commit with no parent) => not a regression candidate.
+            beforeCount = countAssertions(beforeResult.stdout);
+            netZero = assertionCount <= beforeCount;
+          }
+        }
+
+        if (netZero) {
+          netZeroCount += 1;
+          if (!netZeroFilesMap.has(file)) {
+            netZeroFilesMap.set(file, { file, source_plan: tddPlan.planNum, before_count: beforeCount, after_count: assertionCount });
+          }
+        }
+      }
+    }
+
+    let status;
+    if (matchedFiles.length === 0) {
+      status = 'MISSING';
+    } else if (hollowCount === matchedFiles.length) {
+      // Every matched test file is hollow -- no real, non-hollow assertion
+      // exists anywhere for this requirement.
+      status = 'MISSING';
+    } else if (hollowCount > 0 || netZeroCount > 0) {
+      status = 'PARTIAL';
+    } else {
+      status = 'COVERED';
+    }
+
+    requirements.push({
+      req_id: reqId,
+      status,
+      source_plans: tddPlans.map(p => p.planNum),
+      matched_files: matchedFiles,
+    });
+  }
+
+  const hollow_tests = [...hollowFilesMap.values()];
+  const net_zero_assertion_files = [...netZeroFilesMap.values()];
+  const passed = requirements.filter(r => r.status !== 'not_applicable').every(r => r.status === 'COVERED');
+
+  return { requirements, hollow_tests, net_zero_assertion_files, passed };
+}
+
+// `verify test-content {phase}` -- CLI entry point for the classifier above.
+// Exit codes: 0 = passed; 1 = any requirement MISSING/PARTIAL or any
+// hollow_tests/net_zero_assertion_files entries exist; 2 = phase-not-found or
+// malformed-plan errors (matching the existing verify subcommand convention).
+function cmdVerifyTestContent(cwd, phaseArg, raw) {
+  const inputs = loadPhaseGateInputs(cwd, phaseArg);
+  if (inputs.error) {
+    process.stdout.write(JSON.stringify(inputs.error, null, 2));
+    process.exit(2);
+    return;
+  }
+  const { phaseInfo, validPlans, malformedPlans, filesByPlan } = inputs;
+
+  if (malformedPlans.length > 0) {
+    process.stdout.write(JSON.stringify({ error: true, type: 'malformed_plan', phase: phaseInfo.phase_number, malformed_plans: malformedPlans }, null, 2));
+    process.exit(2);
+    return;
+  }
+
+  const coverage = computeTestContentCoverage(cwd, phaseInfo.phase_number, validPlans, filesByPlan);
+
+  const result = {
+    phase: phaseInfo.phase_number,
+    requirements: coverage.requirements,
+    hollow_tests: coverage.hollow_tests,
+    net_zero_assertion_files: coverage.net_zero_assertion_files,
+    passed: coverage.passed,
+  };
+
+  process.stdout.write(JSON.stringify(result, null, 2));
+
+  process.exit(coverage.passed ? 0 : 1);
+}
+
+// ─── Deferred Waiver Protocol (MILE-07, Phase 45-03) ─────────────────────────
+// `deferred add`/`deferred list` are the ONLY sanctioned way to satisfy a
+// phase-gate check without producing the real artifact -- every waiver is
+// machine-readable ({step, reason, approver, timestamp, phase, plan}),
+// appended atomically, and fires a best-effort Telegram notification.
+
+function cmdDeferredAdd(cwd, phaseArg, options, raw) {
+  const { step, reason, approver, plan } = options;
+  if (!step || typeof step !== 'string' || !step.trim()) { error('deferred add requires --step, --reason, --approver'); }
+  if (!reason || typeof reason !== 'string' || !reason.trim()) { error('deferred add requires --step, --reason, --approver'); }
+  if (!approver || typeof approver !== 'string' || !approver.trim()) { error('deferred add requires --step, --reason, --approver'); }
+
+  const phaseInfo = findPhaseInternal(cwd, phaseArg);
+  if (!phaseInfo || !phaseInfo.found) {
+    process.stdout.write(JSON.stringify({ error: true, type: 'phase_not_found', phase: phaseArg }, null, 2));
+    process.exit(1);
+    return;
+  }
+
+  const existing = readDeferredWaivers(cwd, phaseInfo.directory);
+  if (!existing.ok) {
+    process.stdout.write(JSON.stringify({ ...existing.error, message: `${existing.error.message} — fix DEFERRED.json before adding a new entry` }, null, 2));
+    process.exit(2);
+    return;
+  }
+
+  const newEntry = {
+    step,
+    reason,
+    approver,
+    timestamp: new Date().toISOString(),
+    phase: phaseInfo.phase_number,
+    plan: plan || null,
+  };
+
+  const deferredPath = path.join(cwd, phaseInfo.directory, 'DEFERRED.json');
+  atomicWriteFileSync(deferredPath, JSON.stringify([...existing.waivers, newEntry], null, 2));
+
+  // Fire-and-forget -- must not delay or affect this command's exit.
+  notifyTelegramWaiver(newEntry);
+
+  output({ written: true, entry: newEntry }, raw);
+}
+
+function cmdDeferredList(cwd, phaseArg, raw) {
+  const phaseInfo = findPhaseInternal(cwd, phaseArg);
+  if (!phaseInfo || !phaseInfo.found) {
+    process.stdout.write(JSON.stringify({ error: true, type: 'phase_not_found', phase: phaseArg }, null, 2));
+    process.exit(1);
+    return;
+  }
+
+  const result = readDeferredWaivers(cwd, phaseInfo.directory);
+  if (!result.ok) {
+    process.stdout.write(JSON.stringify(result.error, null, 2));
+    process.exit(2);
+    return;
+  }
+
+  output({ phase: phaseInfo.phase_number, waivers: result.waivers, count: result.waivers.length }, raw);
+}
+
+// ─── Execution State Protocol (MILE-13, Phase 48-03) ─────────────────────────
+// `.planning/execution-state.json` is a per-phase/per-plan retry counter that
+// drives autonomous execution's self-healing failure path: `record-failure`
+// increments the counter and returns an `action` of retry (1st failure),
+// debug (2nd+ failure, below the configurable `max_attempts` ceiling), or
+// escalate (at the ceiling -- never spawn another debug attempt after this).
+// `record-success` clears the counter. `get` is a read-only lookup. All three
+// share the same malformed-JSON-safe contract as `deferred add`/`deferred
+// list` (readDeferredWaivers): an absent file means no history (not an
+// error); a malformed file is ALWAYS a loud, typed, non-zero-exit error --
+// never silently reset to `{}`.
+
+function getExecutionStatePath(cwd) {
+  return path.join(cwd, '.planning', 'execution-state.json');
+}
+
+// Phase-level and plan-level entries for the SAME phase number are
+// independent keys (e.g. "5" vs "5-01") -- recording a failure at one
+// granularity never affects the other's attempt count.
+function computeStateKey(phase, plan) {
+  return plan ? `${phase}-${plan}` : `${phase}`;
+}
+
+function readExecutionState(cwd) {
+  const statePath = getExecutionStatePath(cwd);
+  if (!fs.existsSync(statePath)) {
+    return { ok: true, state: {} };
+  }
+  const content = safeReadFile(statePath);
+  if (content === null) {
+    return { ok: false, error: { error: true, type: 'corrupted_execution_state', message: 'Could not read execution-state.json' } };
+  }
+  const parsed = safeJsonParse(content, 'execution-state.json');
+  if (!parsed.ok) {
+    return { ok: false, error: { error: true, type: 'corrupted_execution_state', message: parsed.error.message } };
+  }
+  if (typeof parsed.value !== 'object' || parsed.value === null || Array.isArray(parsed.value)) {
+    return { ok: false, error: { error: true, type: 'corrupted_execution_state', message: 'execution-state.json must be a JSON object keyed by phase/plan' } };
+  }
+  return { ok: true, state: parsed.value };
+}
+
+function writeExecutionState(cwd, state) {
+  atomicWriteFileSync(getExecutionStatePath(cwd), JSON.stringify(state, null, 2));
+}
+
+function cmdExecutionStateRecordFailure(cwd, options, raw) {
+  const { phase, plan, errorMsg, step, files } = options;
+  if (!phase) { error('execution-state record-failure requires --phase'); }
+
+  const existing = readExecutionState(cwd);
+  if (!existing.ok) {
+    process.stdout.write(JSON.stringify({ ...existing.error, message: `${existing.error.message} — fix execution-state.json before recording another failure` }, null, 2));
+    process.exit(2);
+    return;
+  }
+
+  const key = computeStateKey(phase, plan);
+  const state = existing.state;
+  const entry = state[key] || { attempts: 0, history: [] };
+  entry.attempts = (entry.attempts || 0) + 1;
+  entry.last_error = errorMsg || null;
+  entry.last_step = step || null;
+  entry.files_modified = files ? files.split(',').map((f) => f.trim()).filter(Boolean) : [];
+  entry.history = entry.history || [];
+  entry.history.push({ attempts: entry.attempts, error: errorMsg || null, timestamp: new Date().toISOString() });
+  // Cap history at 10 entries, dropping the oldest.
+  if (entry.history.length > 10) {
+    entry.history = entry.history.slice(entry.history.length - 10);
+  }
+  state[key] = entry;
+
+  const maxAttempts = loadConfig(cwd).max_attempts;
+  const action = entry.attempts === 1 ? 'retry' : (entry.attempts < maxAttempts ? 'debug' : 'escalate');
+
+  writeExecutionState(cwd, state);
+
+  output({
+    key,
+    attempts: entry.attempts,
+    action,
+    max_attempts: maxAttempts,
+    error: entry.last_error,
+    last_step: entry.last_step,
+    files_modified: entry.files_modified,
+  }, raw);
+}
+
+function cmdExecutionStateRecordSuccess(cwd, options, raw) {
+  const { phase, plan } = options;
+  if (!phase) { error('execution-state record-success requires --phase'); }
+
+  const existing = readExecutionState(cwd);
+  if (!existing.ok) {
+    process.stdout.write(JSON.stringify({ ...existing.error, message: `${existing.error.message} — fix execution-state.json before recording success` }, null, 2));
+    process.exit(2);
+    return;
+  }
+
+  const key = computeStateKey(phase, plan);
+  const state = existing.state;
+  const cleared = Object.prototype.hasOwnProperty.call(state, key);
+  if (cleared) {
+    delete state[key];
+    writeExecutionState(cwd, state);
+  }
+
+  output({ cleared, key }, raw);
+}
+
+function cmdExecutionStateGet(cwd, options, raw) {
+  const { phase, plan } = options;
+  if (!phase) { error('execution-state get requires --phase'); }
+
+  const existing = readExecutionState(cwd);
+  if (!existing.ok) {
+    process.stdout.write(JSON.stringify(existing.error, null, 2));
+    process.exit(2);
+    return;
+  }
+
+  const key = computeStateKey(phase, plan);
+  const entry = existing.state[key];
+  if (!entry) {
+    output({ attempts: 0, key }, raw);
+    return;
+  }
+
+  output({ ...entry, key }, raw);
 }
 
 function cmdVerifyReferences(cwd, filePath, raw) {
@@ -5262,9 +6493,9 @@ function cmdVerifyDependencyStability(cwd, phaseArg, raw) {
     if (!fs.existsSync(fullFilePath)) continue;
 
     try {
-      const { execSync } = require('child_process');
-      const logOutput = execSync(
-        'git log --oneline --follow -- "' + trackedFile + '"',
+      const { execFileSync } = require('child_process');
+      const logOutput = execFileSync(
+        'git', ['log', '--oneline', '--follow', '--', trackedFile],
         { cwd: cwd, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 5000 }
       ).trim();
 
@@ -5763,7 +6994,7 @@ function cmdPhaseAdd(cwd, description, raw) {
     updatedContent = content + phaseEntry;
   }
 
-  fs.writeFileSync(roadmapPath, updatedContent, 'utf-8');
+  atomicWriteFileSync(roadmapPath, updatedContent);
 
   const result = {
     phase_number: newPhaseNum,
@@ -5844,7 +7075,7 @@ function cmdPhaseInsert(cwd, afterPhase, description, raw) {
   }
 
   const updatedContent = content.slice(0, insertIdx) + phaseEntry + content.slice(insertIdx);
-  fs.writeFileSync(roadmapPath, updatedContent, 'utf-8');
+  atomicWriteFileSync(roadmapPath, updatedContent);
 
   const result = {
     phase_number: decimalPhase,
@@ -6075,7 +7306,7 @@ function cmdPhaseRemove(cwd, targetPhase, options, raw) {
     }
   }
 
-  fs.writeFileSync(roadmapPath, roadmapContent, 'utf-8');
+  atomicWriteFileSync(roadmapPath, roadmapContent);
 
   // Update STATE.md phase count
   const statePath = path.join(cwd, '.planning', 'STATE.md');
@@ -6095,7 +7326,7 @@ function cmdPhaseRemove(cwd, targetPhase, options, raw) {
       const oldTotal = parseInt(ofMatch[2], 10);
       stateContent = stateContent.replace(ofPattern, `$1${oldTotal - 1}$3`);
     }
-    fs.writeFileSync(statePath, stateContent, 'utf-8');
+    atomicWriteFileSync(statePath, stateContent);
   }
 
   const result = {
@@ -6174,7 +7405,7 @@ function cmdRoadmapUpdatePlanProgress(cwd, phaseNum, raw) {
     roadmapContent = roadmapContent.replace(checkboxPattern, `$1x$2 (completed ${today})`);
   }
 
-  fs.writeFileSync(roadmapPath, roadmapContent, 'utf-8');
+  atomicWriteFileSync(roadmapPath, roadmapContent);
 
   output({
     updated: true,
@@ -6378,7 +7609,7 @@ function cmdPhaseComplete(cwd, phaseNum, raw) {
       `$1${summaryCount}/${planCount} plans complete`
     );
 
-    fs.writeFileSync(roadmapPath, roadmapContent, 'utf-8');
+    atomicWriteFileSync(roadmapPath, roadmapContent);
   }
 
   // Find next phase
@@ -6448,7 +7679,7 @@ function cmdPhaseComplete(cwd, phaseNum, raw) {
       `$1Phase ${phaseNum} complete${nextPhaseNum ? `, transitioned to Phase ${nextPhaseNum}` : ''}`
     );
 
-    fs.writeFileSync(statePath, stateContent, 'utf-8');
+    atomicWriteFileSync(statePath, stateContent);
   }
 
   const result = {
@@ -6671,6 +7902,23 @@ async function cmdPhaseCleanupCheckpoints(_cwd, phaseNum, raw) {
 
 // ─── Milestone Complete ───────────────────────────────────────────────────────
 
+// Pure function -- no I/O. Does MILESTONES.md already contain an entry for
+// this exact version? Prevents cmdMilestoneComplete's append from
+// duplicating the milestone entry if the command is re-run after a crash
+// between this write and a later step (MILE-28 crash-point audit finding).
+function milestoneAlreadyRecorded(milestonesContent, version) {
+  if (!milestonesContent || !version) return false;
+  const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Negative lookahead (not a plain \b) -- a plain word-boundary assertion
+  // treats "." as a non-word char, so "v1.0" would falsely match a "v1.0.1"
+  // heading (boundary fires right after the shared "v1.0" prefix). Requiring
+  // the next character to be neither a word char NOR "." prevents a shorter
+  // version from false-positive-matching a longer dotted version that
+  // extends it, in either direction.
+  const heading = new RegExp('^##\\s+' + escaped + '(?![\\w.])', 'm');
+  return heading.test(milestonesContent);
+}
+
 function cmdMilestoneComplete(cwd, version, options, raw) {
   if (!version) {
     error('version required for milestone complete (e.g., v1.0)');
@@ -6744,9 +7992,15 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
   const accomplishmentsList = accomplishments.map(a => `- ${a}`).join('\n');
   const milestoneEntry = `## ${version} ${milestoneName} (Shipped: ${today})\n\n**Phases completed:** ${phaseCount} phases, ${totalPlans} plans, ${totalTasks} tasks\n\n**Key accomplishments:**\n${accomplishmentsList || '- (none recorded)'}\n\n---\n\n`;
 
+  let milestonesAppended = true;
   if (fs.existsSync(milestonesPath)) {
     const existing = fs.readFileSync(milestonesPath, 'utf-8');
-    fs.writeFileSync(milestonesPath, existing + '\n' + milestoneEntry, 'utf-8');
+    if (milestoneAlreadyRecorded(existing, version)) {
+      console.warn(`  Note: MILESTONES.md already has an entry for ${version} — skipping duplicate append (re-run detected).`);
+      milestonesAppended = false;
+    } else {
+      fs.writeFileSync(milestonesPath, existing + '\n' + milestoneEntry, 'utf-8');
+    }
   } else {
     fs.writeFileSync(milestonesPath, `# Milestones\n\n${milestoneEntry}`, 'utf-8');
   }
@@ -6766,7 +8020,7 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
       /(\*\*Last Activity Description:\*\*\s*).*/,
       `$1${version} milestone completed and archived`
     );
-    fs.writeFileSync(statePath, stateContent, 'utf-8');
+    atomicWriteFileSync(statePath, stateContent);
   }
 
   const result = {
@@ -6783,6 +8037,7 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
       audit: fs.existsSync(path.join(archiveDir, `${version}-MILESTONE-AUDIT.md`)),
     },
     milestones_updated: true,
+    milestones_appended: milestonesAppended,
     state_updated: fs.existsSync(statePath),
   };
 
@@ -7372,6 +8627,79 @@ function findPhaseInternal(cwd, phase) {
   }
 }
 
+// Derives the set of files a phase actually touched, purely from git history
+// (log --grep + diff-tree) -- never from PLAN.md `files_modified` or SUMMARY.md
+// `key-files`, which are self-reported and exactly what MILE-06/phase-gate must
+// be independent of. Shared by cmdVerifyPhaseGate (45-01) and HAS_UI detection
+// (45-02).
+//
+// `plans` is an array of { file, fm, content, planNum } objects for the phase's
+// *-PLAN.md files (planNum e.g. "01"). Returns { files: [...unique paths],
+// warnings: [...] } where warnings flag plans with zero matching commits, plus
+// optional cross-check warnings when a plan's self-reported files_modified
+// disagrees with the real diff (informational only -- never affects `files`).
+function collectPhaseTouchedFiles(cwd, phaseNumber, plans) {
+  const fileSet = new Set();
+  const warnings = [];
+  const filesByPlan = {};
+
+  for (const plan of plans || []) {
+    const planNum = plan.planNum || (plan.fm && plan.fm.plan);
+    if (!planNum) continue;
+
+    const grepTag = `${phaseNumber}-${planNum}`;
+    const logResult = execGit(cwd, ['log', '--oneline', '--all', '--grep', grepTag]);
+    const commitLines = (logResult.stdout || '')
+      .split('\n')
+      .map(l => l.trim())
+      .filter(l => l.length > 0);
+
+    if (commitLines.length === 0) {
+      warnings.push({ plan: planNum, warning: 'no_commits_found' });
+      continue;
+    }
+
+    const planFiles = new Set();
+    for (const line of commitLines) {
+      const hash = line.split(/\s+/)[0];
+      if (!hash) continue;
+      // --root is required so root commits (no parent -- common in small test
+      // fixtures and possible for a repo's very first tagged commit) are
+      // diffed against the empty tree instead of silently producing zero
+      // file paths (git diff-tree's default behavior for parentless commits).
+      const diffResult = execGit(cwd, ['diff-tree', '--no-commit-id', '--name-only', '-r', '--root', hash]);
+      const filePaths = (diffResult.stdout || '')
+        .split('\n')
+        .map(f => f.trim())
+        .filter(f => f.length > 0);
+      for (const f of filePaths) {
+        fileSet.add(f);
+        planFiles.add(f);
+      }
+    }
+
+    // Optional cross-check (informational only -- never affects the returned
+    // `files` array): flag when a plan's self-reported files_modified claims a
+    // file that never showed up in the real diff for that plan's commits.
+    const claimedFiles = plan.fm && Array.isArray(plan.fm.files_modified)
+      ? plan.fm.files_modified
+      : (plan.fm && plan.fm.files_modified ? [String(plan.fm.files_modified)] : []);
+    for (const claimed of claimedFiles) {
+      if (!planFiles.has(claimed)) {
+        warnings.push({ plan: planNum, warning: 'claimed_file_not_in_diff', file: claimed });
+      }
+    }
+
+    // Additive (Phase 46-03): per-plan file breakdown, used by
+    // computeTestContentCoverage to scope test files to the plan(s) that
+    // actually declare a given requirement -- existing callers destructure
+    // only { files, warnings } and are unaffected by this new key.
+    filesByPlan[planNum] = [...planFiles];
+  }
+
+  return { files: [...fileSet], warnings, filesByPlan };
+}
+
 function pathExistsInternal(cwd, targetPath) {
   const fullPath = path.isAbsolute(targetPath) ? targetPath : path.join(cwd, targetPath);
   try {
@@ -7587,6 +8915,37 @@ function cmdInitPlanPhase(cwd, phase, includes, raw) {
   output(result, raw);
 }
 
+// Pure-Node recursive directory walk (depth-limited), replacing a prior
+// `find ... | grep -v ... | head -N` shell pipeline. Skips node_modules/.git.
+function findCodeFilesSync(cwd, extensions, maxDepth, limit) {
+  const results = [];
+  const skipDirs = new Set(['node_modules', '.git']);
+
+  function walk(dir, depth) {
+    if (results.length >= limit || depth > maxDepth) return;
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (results.length >= limit) return;
+      if (entry.isDirectory()) {
+        if (skipDirs.has(entry.name)) continue;
+        walk(path.join(dir, entry.name), depth + 1);
+      } else if (entry.isFile()) {
+        if (extensions.includes(path.extname(entry.name))) {
+          results.push(path.join(dir, entry.name));
+        }
+      }
+    }
+  }
+
+  walk(cwd, 0);
+  return results;
+}
+
 function cmdInitNewProject(cwd, raw) {
   const config = loadConfig(cwd);
 
@@ -7599,12 +8958,8 @@ function cmdInitNewProject(cwd, raw) {
   let hasCode = false;
   let hasPackageFile = false;
   try {
-    const files = execSync('find . -maxdepth 3 \\( -name "*.ts" -o -name "*.js" -o -name "*.py" -o -name "*.go" -o -name "*.rs" -o -name "*.swift" -o -name "*.java" \\) 2>/dev/null | grep -v node_modules | grep -v .git | head -5', {
-      cwd,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    hasCode = files.trim().length > 0;
+    const files = findCodeFilesSync(cwd, ['.ts', '.js', '.py', '.go', '.rs', '.swift', '.java'], 3, 5);
+    hasCode = files.length > 0;
   } catch {}
 
   hasPackageFile = pathExistsInternal(cwd, 'package.json') ||
@@ -9012,7 +10367,12 @@ function loadContextIndex(cwd) {
     const stat = fs.statSync(cachePath);
     const ageMs = Date.now() - stat.mtime.getTime();
     if (ageMs < 3600000) { // 1 hour TTL
-      return JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
+      const cacheParseResult = safeJsonParse(fs.readFileSync(cachePath, 'utf-8'), 'context-index-cache.json');
+      if (cacheParseResult.ok) {
+        return cacheParseResult.value;
+      }
+      // Corrupted cache: fall through and rebuild rather than crash.
+      process.stderr.write('Warning: context-index-cache.json is corrupted, rebuilding: ' + cacheParseResult.error.message + '\n');
     }
   }
 
@@ -9121,7 +10481,12 @@ function cmdRoutingIndexRefresh(cwd, raw) {
     return;
   }
 
-  const cached = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
+  const refreshParseResult = safeJsonParse(fs.readFileSync(cachePath, 'utf-8'), 'context-index-cache.json');
+  if (!refreshParseResult.ok) {
+    output({ stale: true, reason: 'Cache is corrupted: ' + refreshParseResult.error.message, entries: 0 }, raw);
+    return;
+  }
+  const cached = refreshParseResult.value;
   const stale = cached.entries.some(entry => {
     if (!fs.existsSync(entry.path)) return true;
     const stat = fs.statSync(entry.path);
@@ -9161,6 +10526,23 @@ async function cmdMineConversations(cwd, args, raw) {
     output({ status: 'error', reason: 'Failed to load conversation-miner.js: ' + err.message }, raw);
     return;
   }
+
+  // Auto-checkpoint before this bulk operation, best-effort. Checkpoint
+  // failure must never block mining — swallow any error and continue.
+  try {
+    const { createCheckpoint } = require(path.join(__dirname, 'knowledge-checkpoint.js'));
+    await createCheckpoint({
+      task_title: 'Conversation mining (bulk operation)',
+      plan: ['discover conversations', 'extract insights', 'store results'],
+      progress: { completed: [], current: 'discover conversations', remaining: ['extract insights', 'store results'] },
+      phase: 0,
+      plan_id: 'bulk-mine-conversations',
+      key_context: `Bulk conversation mining started at ${new Date().toISOString()}, allProjects=${allProjects}, maxAgeDays=${maxAgeDays}`,
+      files_touched: [],
+      decisions: [],
+      next_steps: []
+    });
+  } catch (_) { /* checkpoint failure must never block mining */ }
 
   if (allProjects) {
     // --all-projects: scan all project slug dirs under ~/.claude/projects/
@@ -9628,8 +11010,11 @@ async function cmdQueryKnowledge(cwd, args, raw) {
     return;
   }
 
-  // Map to locked output schema
+  // Map to locked output schema. `id` is additive (Phase 49-02) — every
+  // other field is unchanged so an agent can call `knowledge mark-wrong <id>`
+  // later if this specific answer proves wrong, without breaking existing callers.
   const results = rawResults.map(r => ({
+    id: r.id,
     question: questionString,
     answer: r.content,
     confidence: (r.metadata && r.metadata.confidence) ? r.metadata.confidence : 0.7,
@@ -9873,6 +11258,192 @@ async function cmdServiceHealth(cwd, args, raw) {
   }
 }
 
+// ─── Skew Detection (MILE-25) ──────────────────────────────────────────
+// Pure function -- no I/O. Compares an installed manifest's file->hash map
+// against a freshly-computed current-tree map. Files present in installed
+// but absent from current are flagged 'missing_in_source'; files with a
+// different hash are flagged 'hash_mismatch'. Files present ONLY in
+// current (new files added since the manifest was written) are NOT drift.
+function computeManifestDrift(installedFiles, currentFiles) {
+  const drifted = [];
+  for (const [relPath, installedHash] of Object.entries(installedFiles || {})) {
+    const currentHash = (currentFiles || {})[relPath];
+    if (currentHash === undefined) {
+      drifted.push({ path: relPath, reason: 'missing_in_source' });
+    } else if (currentHash !== installedHash) {
+      drifted.push({ path: relPath, reason: 'hash_mismatch' });
+    }
+  }
+  return { clean: drifted.length === 0, drifted };
+}
+
+// Deliberately NOT cross-requiring bin/install.js's fileHash/generateManifest:
+// that file only exists in dev checkouts, not installed deployments, and a
+// hard require would need brittle existence-guarding for zero benefit over
+// duplicating this 3-line SHA256-over-file-bytes primitive verbatim.
+function hashFileSync(filePath) {
+  const content = fs.readFileSync(filePath);
+  return require('crypto').createHash('sha256').update(content).digest('hex');
+}
+
+// I/O: walks the same three subtrees writeManifest() hashes (get-shit-done/,
+// commands/gsd/, agents/gsd-*.md) under repoRoot, using the EXACT SAME key
+// prefixes so the result lines up 1:1 against an installed manifest's `files`.
+function buildCurrentSourceManifest(repoRoot) {
+  const result = {};
+  function walk(dir, baseDir, prefix) {
+    if (!fs.existsSync(dir)) return;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(fullPath, baseDir, prefix);
+      } else {
+        const relPath = path.relative(baseDir, fullPath).replace(/\\/g, '/');
+        result[prefix + relPath] = hashFileSync(fullPath);
+      }
+    }
+  }
+  walk(path.join(repoRoot, 'get-shit-done'), path.join(repoRoot, 'get-shit-done'), 'get-shit-done/');
+  walk(path.join(repoRoot, 'commands', 'gsd'), path.join(repoRoot, 'commands', 'gsd'), 'commands/gsd/');
+  const agentsDir = path.join(repoRoot, 'agents');
+  if (fs.existsSync(agentsDir)) {
+    for (const file of fs.readdirSync(agentsDir)) {
+      if (file.startsWith('gsd-') && file.endsWith('.md')) {
+        result['agents/' + file] = hashFileSync(path.join(agentsDir, file));
+      }
+    }
+  }
+  return result;
+}
+
+const MANIFEST_NAME_FOR_DOCTOR = 'gsd-file-manifest.json';
+
+function cmdDoctor(cwd, options, raw) {
+  const homeDir = require('os').homedir();
+  const configDir = options.configDir || path.join(homeDir, '.claude');
+  const manifestPath = path.join(configDir, 'gsd-file-manifest.json');
+
+  if (!fs.existsSync(manifestPath)) {
+    output({ ok: false, reason: 'no_manifest', message: 'No installed manifest found — run install first' }, raw);
+    return;
+  }
+  const parseResult = safeJsonParse(fs.readFileSync(manifestPath, 'utf-8'), MANIFEST_NAME_FOR_DOCTOR);
+  if (!parseResult.ok) {
+    output({ ok: false, reason: 'corrupted_manifest', error: parseResult.error }, raw);
+    return;
+  }
+  const manifest = parseResult.value;
+
+  const isSourceCheckout = fs.existsSync(path.join(cwd, 'get-shit-done', 'bin', 'gsd-tools.js'));
+  if (!isSourceCheckout) {
+    output({ ok: true, reason: 'not_a_source_checkout', message: 'Not running from a GSD source checkout — skipping skew check' }, raw);
+    return;
+  }
+
+  // Fast path: compare git SHAs directly if both are available.
+  if (manifest.source_git_sha) {
+    try {
+      const currentSha = require('child_process').execSync('git rev-parse HEAD', { cwd, encoding: 'utf8' }).trim();
+      if (currentSha === manifest.source_git_sha) {
+        output({ ok: true, clean: true, drifted: [], method: 'git_sha', current_sha: currentSha }, raw);
+        return;
+      }
+    } catch (_) { /* git unavailable — fall through to full hash diff */ }
+  }
+
+  // Full path: re-hash the current tree and diff against the installed manifest.
+  const currentManifest = buildCurrentSourceManifest(cwd);
+  const diff = computeManifestDrift(manifest.files || {}, currentManifest);
+  if (!diff.clean) {
+    console.warn(`WARNING: ${diff.drifted.length} file(s) drifted between installed copy and source checkout:`);
+    for (const d of diff.drifted) console.warn(`  - ${d.path} (${d.reason})`);
+  }
+  output({ ok: true, clean: diff.clean, drifted: diff.drifted, method: 'file_hash' }, raw);
+}
+
+// ─── Self-Report Telemetry (MILE-26) ───────────────────────────────────
+const TELEMETRY_DIR = 'telemetry';
+const TELEMETRY_FILE = 'agent-reports.jsonl';
+const TELEMETRY_FIELDS_DEFAULTS = {
+  context_pressure: null,
+  instructions_not_followed: [],
+  ambiguities: [],
+  tool_errors_swallowed: 0
+};
+
+function getTelemetryPath(cwd) {
+  return path.join(cwd, '.planning', TELEMETRY_DIR, TELEMETRY_FILE);
+}
+
+// I/O: appends one JSONL line. Missing optional fields fall back to safe
+// defaults (never throws on a caller omitting one of the 4 fields) --
+// agent/phase/timestamp are always attached fresh, never trusted from input.
+function appendTelemetryReport(cwd, agent, phase, fields) {
+  const telemetryPath = getTelemetryPath(cwd);
+  fs.mkdirSync(path.dirname(telemetryPath), { recursive: true });
+  const entry = {
+    agent,
+    phase,
+    timestamp: new Date().toISOString(),
+    context_pressure: (fields && fields.context_pressure !== undefined) ? fields.context_pressure : TELEMETRY_FIELDS_DEFAULTS.context_pressure,
+    instructions_not_followed: (fields && Array.isArray(fields.instructions_not_followed)) ? fields.instructions_not_followed : TELEMETRY_FIELDS_DEFAULTS.instructions_not_followed,
+    ambiguities: (fields && Array.isArray(fields.ambiguities)) ? fields.ambiguities : TELEMETRY_FIELDS_DEFAULTS.ambiguities,
+    tool_errors_swallowed: (fields && typeof fields.tool_errors_swallowed === 'number') ? fields.tool_errors_swallowed : TELEMETRY_FIELDS_DEFAULTS.tool_errors_swallowed
+  };
+  fs.appendFileSync(telemetryPath, JSON.stringify(entry) + '\n');
+  return entry;
+}
+
+// I/O: reads all reports, skip-and-warn per malformed line (matches the
+// established local convention for JSONL log reads, e.g. validation-log.jsonl).
+function readTelemetryReports(cwd) {
+  const telemetryPath = getTelemetryPath(cwd);
+  if (!fs.existsSync(telemetryPath)) return [];
+  const lines = fs.readFileSync(telemetryPath, 'utf-8').split('\n');
+  const reports = [];
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const parsed = safeJsonParse(line, TELEMETRY_FILE);
+    if (parsed.ok) reports.push(parsed.value);
+    else console.warn(`Warning: skipping malformed telemetry line: ${parsed.error.message}`);
+  }
+  return reports;
+}
+
+// Pure function -- no I/O. Aggregates an array of report objects (shape
+// matches appendTelemetryReport's entry) into summary stats.
+function summarizeTelemetryReports(reports) {
+  if (!reports || reports.length === 0) {
+    return { count: 0, avg_context_pressure: null, total_tool_errors_swallowed: 0, instructions_not_followed_by_rule: {}, top_ambiguities: [] };
+  }
+  let pressureSum = 0, pressureCount = 0, toolErrorsTotal = 0;
+  const byRule = {};
+  const ambiguityCounts = {};
+  for (const r of reports) {
+    if (typeof r.context_pressure === 'number') { pressureSum += r.context_pressure; pressureCount++; }
+    toolErrorsTotal += (typeof r.tool_errors_swallowed === 'number') ? r.tool_errors_swallowed : 0;
+    for (const item of (r.instructions_not_followed || [])) {
+      const rule = (item && item.rule) ? item.rule : String(item);
+      byRule[rule] = (byRule[rule] || 0) + 1;
+    }
+    for (const amb of (r.ambiguities || [])) {
+      const key = typeof amb === 'string' ? amb : JSON.stringify(amb);
+      ambiguityCounts[key] = (ambiguityCounts[key] || 0) + 1;
+    }
+  }
+  const topAmbiguities = Object.entries(ambiguityCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([text, count]) => ({ text, count }));
+  return {
+    count: reports.length,
+    avg_context_pressure: pressureCount > 0 ? pressureSum / pressureCount : null,
+    total_tool_errors_swallowed: toolErrorsTotal,
+    instructions_not_followed_by_rule: byRule,
+    top_ambiguities: topAmbiguities
+  };
+}
+
 // ─── CLI Router ───────────────────────────────────────────────────────────────
 
 async function main() {
@@ -9993,13 +11564,21 @@ async function main() {
         const typeIdx = args.indexOf('--type');
         const waveIdx = args.indexOf('--wave');
         const fieldsIdx = args.indexOf('--fields');
+        let templateFields = {};
+        if (fieldsIdx !== -1) {
+          const fieldsParseResult = safeJsonParse(args[fieldsIdx + 1], '--fields argument');
+          if (!fieldsParseResult.ok) {
+            error(`template fill: --fields ${fieldsParseResult.error.message}`);
+          }
+          templateFields = fieldsParseResult.value;
+        }
         cmdTemplateFill(cwd, templateType, {
           phase: phaseIdx !== -1 ? args[phaseIdx + 1] : null,
           plan: planIdx !== -1 ? args[planIdx + 1] : null,
           name: nameIdx !== -1 ? args[nameIdx + 1] : null,
           type: typeIdx !== -1 ? args[typeIdx + 1] : 'execute',
           wave: waveIdx !== -1 ? args[waveIdx + 1] : '1',
-          fields: fieldsIdx !== -1 ? JSON.parse(args[fieldsIdx + 1]) : {},
+          fields: templateFields,
         }, raw);
       } else {
         error('Unknown template subcommand. Available: select, fill');
@@ -10047,8 +11626,63 @@ async function main() {
         cmdVerifyMigrationTimestamps(cwd, raw);
       } else if (subcommand === 'dependency-stability') {
         cmdVerifyDependencyStability(cwd, args[2], raw);
+      } else if (subcommand === 'phase-gate') {
+        cmdVerifyPhaseGate(cwd, args[2], raw);
+      } else if (subcommand === 'e2e-gaps') {
+        cmdVerifyE2EGaps(cwd, args[2], raw);
+      } else if (subcommand === 'test-content') {
+        cmdVerifyTestContent(cwd, args[2], raw);
       } else {
-        error('Unknown verify subcommand. Available: plan-structure, phase-completeness, references, commits, artifacts, key-links, migration-timestamps, dependency-stability');
+        error('Unknown verify subcommand. Available: plan-structure, phase-completeness, references, commits, artifacts, key-links, migration-timestamps, dependency-stability, phase-gate, e2e-gaps, test-content');
+      }
+      break;
+    }
+
+    case 'deferred': {
+      const subcommand = args[1];
+      if (subcommand === 'add') {
+        const stepIdx = args.indexOf('--step');
+        const reasonIdx = args.indexOf('--reason');
+        const approverIdx = args.indexOf('--approver');
+        const planIdx = args.indexOf('--plan');
+        cmdDeferredAdd(cwd, args[2], {
+          step: stepIdx !== -1 ? args[stepIdx + 1] : null,
+          reason: reasonIdx !== -1 ? args[reasonIdx + 1] : null,
+          approver: approverIdx !== -1 ? args[approverIdx + 1] : null,
+          plan: planIdx !== -1 ? args[planIdx + 1] : null,
+        }, raw);
+      } else if (subcommand === 'list') {
+        cmdDeferredList(cwd, args[2], raw);
+      } else {
+        error('Unknown deferred subcommand. Available: add, list');
+      }
+      break;
+    }
+
+    case 'execution-state': {
+      const subcommand = args[1];
+      const phaseIdx = args.indexOf('--phase');
+      const planIdx = args.indexOf('--plan');
+      const errorIdx = args.indexOf('--error');
+      const stepIdx = args.indexOf('--step');
+      const filesIdx = args.indexOf('--files');
+      const options = {
+        phase: phaseIdx !== -1 ? args[phaseIdx + 1] : null,
+        plan: planIdx !== -1 ? args[planIdx + 1] : null,
+      };
+      if (subcommand === 'record-failure') {
+        cmdExecutionStateRecordFailure(cwd, {
+          ...options,
+          errorMsg: errorIdx !== -1 ? args[errorIdx + 1] : null,
+          step: stepIdx !== -1 ? args[stepIdx + 1] : null,
+          files: filesIdx !== -1 ? args[filesIdx + 1] : null,
+        }, raw);
+      } else if (subcommand === 'record-success') {
+        cmdExecutionStateRecordSuccess(cwd, options, raw);
+      } else if (subcommand === 'get') {
+        cmdExecutionStateGet(cwd, options, raw);
+      } else {
+        error('Unknown execution-state subcommand. Available: record-failure, record-success, get');
       }
       break;
     }
@@ -10399,7 +12033,11 @@ async function main() {
         }, raw);
       } else if (subCommand === 'update-from-headers') {
         const headersJson = args.slice(2).join(' ');
-        const headers = JSON.parse(headersJson);
+        const headersParseResult = safeJsonParse(headersJson, 'update-from-headers argument');
+        if (!headersParseResult.ok) {
+          error(`quota update-from-headers: ${headersParseResult.error.message}`);
+        }
+        const headers = headersParseResult.value;
         const parsed = parseQuotaHeaders(headers);
 
         const state = loadQuotaState(cwd);
@@ -10440,6 +12078,73 @@ async function main() {
       break;
     }
 
+    case 'resilience': {
+      const subCommand = args[1];
+
+      if (subCommand === 'check-staleness') {
+        const filePath = args[2];
+        const thresholdIdx = args.indexOf('--threshold-minutes');
+        const thresholdMinutes = thresholdIdx !== -1 ? parseFloat(args[thresholdIdx + 1]) : null;
+        if (!filePath) {
+          error('resilience check-staleness: <file> required');
+        }
+        cmdResilienceCheckStaleness(cwd, filePath, thresholdMinutes, raw);
+      } else if (subCommand === 'parse-death') {
+        const textIdx = args.indexOf('--text');
+        const text = textIdx !== -1 ? args[textIdx + 1] : null;
+        if (!text) {
+          error('resilience parse-death: --text required');
+        }
+        cmdResilienceParseDeath(text, raw);
+      } else if (subCommand === 'resume-brief') {
+        const phase = args[2];
+        cmdResilienceResumeBrief(cwd, phase, raw);
+      } else if (subCommand === 'estimate-quota') {
+        const phasesIdx = args.indexOf('--phases');
+        const phaseCount = phasesIdx !== -1 ? parseInt(args[phasesIdx + 1], 10) : 1;
+        cmdResilienceEstimateQuota(cwd, phaseCount, raw);
+      } else {
+        error('Unknown resilience subcommand. Available: check-staleness, parse-death, resume-brief, estimate-quota');
+      }
+      break;
+    }
+
+    case 'doctor': {
+      const configDirIdx = args.indexOf('--config-dir');
+      const options = { configDir: configDirIdx !== -1 ? args[configDirIdx + 1] : null };
+      cmdDoctor(cwd, options, raw);
+      break;
+    }
+
+    case 'telemetry': {
+      const telemetrySubcmd = args[1];
+      if (telemetrySubcmd === 'append') {
+        const agentIdx = args.indexOf('--agent');
+        const phaseIdx = args.indexOf('--phase');
+        const pressureIdx = args.indexOf('--context-pressure');
+        const instrIdx = args.indexOf('--instructions-not-followed');
+        const ambIdx = args.indexOf('--ambiguities');
+        const toolErrIdx = args.indexOf('--tool-errors-swallowed');
+        const agent = agentIdx !== -1 ? args[agentIdx + 1] : null;
+        const phase = phaseIdx !== -1 ? args[phaseIdx + 1] : null;
+        if (!agent) error('telemetry append: --agent required');
+        const fields = {
+          context_pressure: pressureIdx !== -1 ? parseFloat(args[pressureIdx + 1]) : null,
+          instructions_not_followed: instrIdx !== -1 ? safeJsonParse(args[instrIdx + 1], '--instructions-not-followed').value || [] : [],
+          ambiguities: ambIdx !== -1 ? safeJsonParse(args[ambIdx + 1], '--ambiguities').value || [] : [],
+          tool_errors_swallowed: toolErrIdx !== -1 ? parseInt(args[toolErrIdx + 1], 10) : 0
+        };
+        const entry = appendTelemetryReport(cwd, agent, phase, fields);
+        output(entry, raw);
+      } else if (telemetrySubcmd === 'summarize') {
+        const reports = readTelemetryReports(cwd);
+        output(summarizeTelemetryReports(reports), raw);
+      } else {
+        error('Unknown telemetry subcommand. Available: append, summarize');
+      }
+      break;
+    }
+
     case 'knowledge': {
       const knowledgeSubcmd = args[1];
       const knowledgeArgs = args.slice(2);
@@ -10468,24 +12173,12 @@ async function main() {
         case 'stats':
           cmdKnowledgeStats(cwd, knowledgeArgs, raw);
           break;
+        case 'consolidate':
+          await cmdKnowledgeConsolidate(cwd, knowledgeArgs, raw);
+          break;
         default:
           error(`knowledge: unknown subcommand '${knowledgeSubcmd}'`);
       }
-      break;
-    }
-
-    case 'grant': {
-      cmdPermissionGrant(args.slice(1), raw);
-      break;
-    }
-
-    case 'revoke': {
-      cmdPermissionRevoke(args.slice(1), raw);
-      break;
-    }
-
-    case 'list-permissions': {
-      cmdPermissionList(args.slice(1), raw);
       break;
     }
 
@@ -10500,22 +12193,32 @@ async function main() {
     }
 
     case 'budget': {
-      cmdBudget(args.slice(1), raw);
+      // Sub-dispatch: `budget check` (MILE-30 prompt-token budget, Phase
+      // 53-02) vs the pre-existing cost/spend budget command (`budget
+      // --period daily --scope project`). Only a bare `check` positional as
+      // the very first sub-argument routes to the prompt-budget path; every
+      // other invocation (including bare `budget` with no args) preserves
+      // the original cost-budget behavior unchanged.
+      if (args[1] === 'check') {
+        cmdPromptBudget(cwd, raw);
+      } else {
+        cmdBudget(args.slice(1), raw);
+      }
       break;
     }
 
     case 'mark-wrong': {
-      cmdMarkWrong(cwd, args.slice(1), raw);
+      cmdMarkWrong(args.slice(1), raw);
       break;
     }
 
     case 'mark-outdated': {
-      cmdMarkOutdated(cwd, args.slice(1), raw);
+      cmdMarkOutdated(args.slice(1), raw);
       break;
     }
 
     case 'principle-history': {
-      cmdPrincipleHistory(cwd, args.slice(1), raw);
+      cmdPrincipleHistory(args.slice(1), raw);
       break;
     }
 
@@ -10579,13 +12282,13 @@ async function main() {
       break;
     }
 
-    case 'observability': {
-      await cmdObservability(args.slice(1), raw);
+    case 'eval': {
+      cmdEval(cwd, args.slice(1), raw);
       break;
     }
 
-    case 'parallel': {
-      await cmdParallel(cwd, args.slice(1), raw);
+    case 'observability': {
+      await cmdObservability(args.slice(1), raw);
       break;
     }
 
@@ -10933,8 +12636,15 @@ async function main() {
             .trim()
             .split('\n')
             .filter(line => line.trim())
-            .map(line => JSON.parse(line))
-            .filter(entry => !entry._comment); // Skip header comments
+            .map(line => {
+              const parseResult = safeJsonParse(line, 'validation-log.jsonl');
+              if (!parseResult.ok) {
+                process.stderr.write('Warning: skipping malformed validation-log.jsonl line: ' + parseResult.error.message + '\n');
+                return null;
+              }
+              return parseResult.value;
+            })
+            .filter(entry => entry !== null && !entry._comment); // Skip malformed lines and header comments
 
           if (taskIdFilter) {
             entries = entries.filter(e => e.task_id === taskIdFilter);
@@ -10955,8 +12665,15 @@ async function main() {
             .trim()
             .split('\n')
             .filter(line => line.trim())
-            .map(line => JSON.parse(line))
-            .filter(entry => !entry._comment && entry.result);
+            .map(line => {
+              const parseResult = safeJsonParse(line, 'validation-log.jsonl');
+              if (!parseResult.ok) {
+                process.stderr.write('Warning: skipping malformed validation-log.jsonl line: ' + parseResult.error.message + '\n');
+                return null;
+              }
+              return parseResult.value;
+            })
+            .filter(entry => entry !== null && !entry._comment && entry.result);
         }
 
         const total = entries.length;
@@ -11692,4 +13409,34 @@ Was ${model} the right choice for this task? (y/n): `;
   }
 }
 
-main();
+// module.exports is assigned BEFORE the require.main guard below (not after)
+// so that a circular require('./gsd-tools.js') from another same-directory
+// module (e.g. analytics.js's lazy telemetry-helpers require, MILE-26) sees
+// the fully-populated exports object even when gsd-tools.js is the CLI entry
+// point currently executing main() -- otherwise Node's circular-dependency
+// resolution would hand back an empty/partial exports object mid-main().
+module.exports = {
+  parseDeathSignature,
+  parseResetTime,
+  checkStaleness,
+  parseCheckpointForResume,
+  buildResumeBrief,
+  estimateQuotaForRemainingPhases,
+  computeManifestDrift,
+  summarizeTelemetryReports,
+  appendTelemetryReport,
+  readTelemetryReports,
+  countTestCalls,
+  countAssertions,
+  milestoneAlreadyRecorded,
+};
+
+// Only auto-run when invoked directly as a CLI (`node gsd-tools.js ...`), not
+// when required as a module -- lets tests `require()` the pure resilience
+// helpers below (which take a controllable `referenceDate`/path argument,
+// e.g. parseResetTime) without triggering main()'s process.argv-driven
+// side effects (which would call process.exit() inside the test process).
+// The CLI's own behavior is completely unaffected by this guard.
+if (require.main === module) {
+  main();
+}

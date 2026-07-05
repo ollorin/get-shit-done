@@ -227,12 +227,12 @@ function defineChecks() {
       }
     },
     {
-      category: 'Module Imports',
-      name: 'Module stubs: validator',
+      category: 'Core Implementations',
+      name: 'Implementation: validator',
       skip: () => false,
       test: () => {
         try {
-          const modulePath = path.join(projectRoot, 'get-shit-done', 'modules', 'validator', 'index.js');
+          const modulePath = path.join(projectRoot, 'get-shit-done', 'bin', 'gsd-validator.js');
           return fs.existsSync(modulePath);
         } catch {
           return false;
@@ -240,12 +240,12 @@ function defineChecks() {
       }
     },
     {
-      category: 'Module Imports',
-      name: 'Module stubs: circuit-breaker',
+      category: 'Core Implementations',
+      name: 'Implementation: circuit-breaker',
       skip: () => false,
       test: () => {
         try {
-          const modulePath = path.join(projectRoot, 'get-shit-done', 'modules', 'circuit-breaker', 'index.js');
+          const modulePath = path.join(projectRoot, 'get-shit-done', 'bin', 'gsd-circuit-breaker.js');
           return fs.existsSync(modulePath);
         } catch {
           return false;
@@ -253,12 +253,12 @@ function defineChecks() {
       }
     },
     {
-      category: 'Module Imports',
-      name: 'Module stubs: escalation',
+      category: 'Core Implementations',
+      name: 'Implementation: escalation',
       skip: () => false,
       test: () => {
         try {
-          const modulePath = path.join(projectRoot, 'get-shit-done', 'modules', 'escalation', 'index.js');
+          const modulePath = path.join(projectRoot, 'get-shit-done', 'bin', 'gsd-escalation.js');
           return fs.existsSync(modulePath);
         } catch {
           return false;
@@ -266,12 +266,12 @@ function defineChecks() {
       }
     },
     {
-      category: 'Module Imports',
-      name: 'Module stubs: feedback',
+      category: 'Core Implementations',
+      name: 'Implementation: feedback',
       skip: () => false,
       test: () => {
         try {
-          const modulePath = path.join(projectRoot, 'get-shit-done', 'modules', 'feedback', 'index.js');
+          const modulePath = path.join(projectRoot, 'get-shit-done', 'bin', 'gsd-feedback.js');
           return fs.existsSync(modulePath);
         } catch {
           return false;
@@ -279,12 +279,12 @@ function defineChecks() {
       }
     },
     {
-      category: 'Module Imports',
-      name: 'Module stubs: learning',
+      category: 'Core Implementations',
+      name: 'Implementation: learning',
       skip: () => false,
       test: () => {
         try {
-          const modulePath = path.join(projectRoot, 'get-shit-done', 'modules', 'learning', 'index.js');
+          const modulePath = path.join(projectRoot, 'get-shit-done', 'bin', 'gsd-learning.js');
           return fs.existsSync(modulePath);
         } catch {
           return false;

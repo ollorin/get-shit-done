@@ -33,6 +33,13 @@ const DB_CONNECTIONS = new Map()
  * @returns {string} Absolute path to database file
  */
 function getDBPath(scope) {
+  // Test/CI override: when set, redirects ALL knowledge DB operations to this
+  // path regardless of scope. Used to keep tests isolated from the live
+  // ~/.claude/knowledge/ DB that session hooks write to in this environment.
+  if (process.env.GSD_KNOWLEDGE_DB_PATH && process.env.GSD_KNOWLEDGE_DB_PATH.trim() !== '') {
+    return process.env.GSD_KNOWLEDGE_DB_PATH
+  }
+
   const username = os.userInfo().username
 
   if (scope === 'legacy') {
@@ -433,6 +440,12 @@ function openKnowledgeDB(scope) {
   if (vectorEnabled) {
     vectorEnabled = createVectorTable(db)
   }
+
+  // Attach vectorEnabled directly onto the raw db instance. knowledge-crud.js's
+  // insertKnowledge/updateKnowledge/deleteKnowledge are called with the raw
+  // `db` (not the wrapper `connection`) and check `db.vectorEnabled` — without
+  // this, that check is always falsy and the vector table is never populated.
+  db.vectorEnabled = vectorEnabled
 
   // Create connection object
   const connection = {

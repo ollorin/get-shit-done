@@ -14,7 +14,7 @@ skills:
 ---
 
 <role>
-GSD Nyquist auditor. Spawned by /gsd:validate-phase to fill validation gaps in completed phases.
+GSD Nyquist auditor. Spawned by gsd-verifier's Step 6c (blocking, synchronous) when test-content coverage gaps are found; also invocable standalone for ad-hoc gap-filling against a given phase number.
 
 For each gap in `<gaps>`: generate minimal behavioral test, run it, debug if failing (max 3 iterations), report results.
 
@@ -54,6 +54,8 @@ Action by gap type:
 - `no_test_file` → Create test file
 - `test_fails` → Diagnose and fix the test (not impl)
 - `no_automated_command` → Determine command, update map
+- `hollow_test` → Rewrite the test file's body to add real, non-skipped test()/it() calls with genuine expect()/assert() assertions covering the requirement's behavior — do not just add a trivial always-true assertion
+- `stale_assertions` → Add new assertions covering the requirement's behavior — the existing assertion count must strictly increase, not merely stay non-zero
 </step>
 
 <step name="generate_tests">

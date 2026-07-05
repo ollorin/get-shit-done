@@ -69,16 +69,6 @@ Help articulate your vision for a phase before planning.
 
 Usage: `/gsd:discuss-phase 2`
 
-**`/gsd:research-phase <number>`**
-Comprehensive ecosystem research for niche/complex domains.
-
-- Discovers standard stack, architecture patterns, pitfalls
-- Creates RESEARCH.md with "how experts build this" knowledge
-- Use for 3D, games, audio, shaders, ML, and other specialized domains
-- Goes beyond "which library" to ecosystem knowledge
-
-Usage: `/gsd:research-phase 3`
-
 **`/gsd:list-phase-assumptions <number>`**
 See what Claude is planning to do before it starts.
 
@@ -95,8 +85,12 @@ Create detailed execution plan for a specific phase.
 - Breaks phase into concrete, actionable tasks
 - Includes verification criteria and success measures
 - Multiple plans per phase supported (XX-01, XX-02, etc.)
+- Add `--research` for comprehensive ecosystem research for niche/complex domains first — discovers
+  standard stack, architecture patterns, and pitfalls, and creates RESEARCH.md with "how experts build
+  this" knowledge (3D, games, audio, shaders, ML, and other specialized domains)
 
 Usage: `/gsd:plan-phase 1`
+Usage (with research): `/gsd:plan-phase 3 --research`
 Result: Creates `.planning/phases/01-foundation/01-01-PLAN.md`
 
 ### Execution
@@ -108,6 +102,7 @@ Execute all plans in a phase.
 - Plans within each wave run in parallel via Task tool
 - Verifies phase goal after all plans complete
 - Updates REQUIREMENTS.md, ROADMAP.md, STATE.md
+- Self-healing on task failure: 1st failure retries silently, 2nd+ failure auto-spawns `gsd-debugger`, ceiling (`execution.max_attempts`, default 4) escalates with debugger findings attached
 
 Usage: `/gsd:execute-phase 5`
 
@@ -179,6 +174,7 @@ Archive completed milestone and prepare for next version.
 - Archives full details to milestones/ directory
 - Creates git tag for the release
 - Prepares workspace for next version
+- Automatically mines conversation history for decisions/insights (`auto_mine` config, default `true`) into `.planning/milestones/v{X}-KNOWLEDGE.md`; never blocks completion on failure
 
 Usage: `/gsd:complete-milestone 1.0.0`
 

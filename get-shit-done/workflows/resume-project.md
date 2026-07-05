@@ -238,7 +238,7 @@ Based on user selection, route to appropriate workflow:
 
   **Also available:**
   - `/gsd:discuss-phase [N]` — gather context first
-  - `/gsd:research-phase [N]` — investigate unknowns
+  - `/gsd:plan-phase [N] --research` — investigate unknowns
 
   ---
   ```

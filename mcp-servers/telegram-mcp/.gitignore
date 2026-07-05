@@ -1,0 +1,7 @@
+# Compiled test artifacts (from tsc + `node --test dist/**/*.test.js`).
+# The rest of dist/ is tracked (existing repo convention); only test output
+# is excluded so tests never leave build-artifact clutter behind.
+dist/**/*.test.js
+dist/**/*.test.js.map
+dist/**/*.test.d.ts
+dist/**/*.test.d.ts.map

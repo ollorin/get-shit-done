@@ -12,6 +12,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { getTiers } = require('./model-registry');
 
 // Lazy-load execution-log to avoid circular dependency issues
 function getHistory(projectPath) {
@@ -29,6 +30,17 @@ function getHistory(projectPath) {
       try { events.push(JSON.parse(line)); } catch (e2) { /* skip */ }
     }
     return events;
+  }
+}
+
+// Lazy-load telemetry helpers from gsd-tools.js (same directory, no
+// cross-boundary fragility) -- never let a telemetry read crash the report.
+function getTelemetryHelpers() {
+  try {
+    const { summarizeTelemetryReports, readTelemetryReports } = require('./gsd-tools.js');
+    return { summarizeTelemetryReports, readTelemetryReports };
+  } catch (e) {
+    return { summarizeTelemetryReports: null, readTelemetryReports: null };
   }
 }
 
@@ -218,12 +230,16 @@ function generateReport(projectPath) {
 
   // --- Model Tier Distribution ---
   const routingEvents = events.filter(e => e.type === 'routing_decision' || e.type === 'task_dispatch');
-  const tierCounts = { haiku: 0, sonnet: 0, opus: 0, unknown: 0 };
+  // Tier key set is sourced from the single-source-of-truth model registry
+  // (MILE-27) instead of a hardcoded literal; the fixed `unknown` bucket catches
+  // any tier the registry doesn't know about. Output is identical to the prior
+  // haiku/sonnet/opus/unknown literal for the tiers getTiers() currently returns.
+  const tierCounts = {};
+  for (const t of getTiers()) tierCounts[t] = 0;
+  tierCounts.unknown = 0;
   for (const ev of routingEvents) {
     const tier = (ev.model || ev.tier || '').toLowerCase();
-    if (tier === 'haiku') tierCounts.haiku++;
-    else if (tier === 'sonnet') tierCounts.sonnet++;
-    else if (tier === 'opus') tierCounts.opus++;
+    if (Object.prototype.hasOwnProperty.call(tierCounts, tier) && tier !== 'unknown') tierCounts[tier]++;
     else tierCounts.unknown++;
   }
 
@@ -239,6 +255,38 @@ function generateReport(projectPath) {
       lines.push(`| ${tier} | ${count} | ${pct}% |`);
     }
     lines.push('');
+  }
+
+  // --- Self-Report Telemetry (MILE-26) ---
+  let telemetryReports = [];
+  try {
+    const { readTelemetryReports } = getTelemetryHelpers();
+    telemetryReports = readTelemetryReports ? readTelemetryReports(projectPath) : [];
+  } catch (e) { telemetryReports = []; }
+  if (telemetryReports.length > 0) {
+    const { summarizeTelemetryReports } = getTelemetryHelpers();
+    const summary = summarizeTelemetryReports(telemetryReports);
+    lines.push('## Self-Report Telemetry');
+    lines.push('');
+    lines.push(`| Metric | Value |`);
+    lines.push(`|--------|-------|`);
+    lines.push(`| Reports | ${summary.count} |`);
+    lines.push(`| Avg context pressure | ${summary.avg_context_pressure !== null ? summary.avg_context_pressure.toFixed(2) : 'N/A'} |`);
+    lines.push(`| Total tool errors swallowed | ${summary.total_tool_errors_swallowed} |`);
+    lines.push('');
+    const rules = Object.entries(summary.instructions_not_followed_by_rule);
+    if (rules.length > 0) {
+      lines.push('**Instructions not followed (by rule):**');
+      lines.push('');
+      for (const [rule, count] of rules) lines.push(`- ${rule}: ${count}`);
+      lines.push('');
+    }
+    if (summary.top_ambiguities.length > 0) {
+      lines.push('**Top ambiguities:**');
+      lines.push('');
+      for (const a of summary.top_ambiguities) lines.push(`- ${a.text} (${a.count})`);
+      lines.push('');
+    }
   }
 
   // --- Failure Analysis ---

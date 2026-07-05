@@ -97,7 +97,7 @@ Phases likely needing deeper research during planning:
 - **Phase [X]:** [reason — e.g., "complex integration, needs API research"]
 - **Phase [Y]:** [reason — e.g., "niche domain, sparse documentation"]
 
-Phases with standard patterns (skip research-phase):
+Phases with standard patterns (skip `--research`):
 - **Phase [X]:** [reason — e.g., "well-documented, established patterns"]
 
 ## Confidence Assessment

@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { getEscalationLadder } = require('./model-registry');
 
 // Error weights per user decision (AUTO-12)
 const ERROR_WEIGHTS = {
@@ -13,12 +14,11 @@ const ERROR_WEIGHTS = {
 // Aggressive escalation threshold (1-2 errors trigger escalation)
 const ESCALATION_THRESHOLD = 1.0;
 
-// Escalation ladder: haiku → sonnet → opus → null
-const ESCALATION_LADDER = {
-  haiku: 'sonnet',
-  sonnet: 'opus',
-  opus: null
-};
+// Escalation ladder: haiku → sonnet → opus → null.
+// Sourced from the single-source-of-truth model registry (MILE-27) instead of a
+// duplicated literal; the variable name is kept as a thin re-export so
+// getNextModel() and module.exports.ESCALATION_LADDER are unchanged.
+const ESCALATION_LADDER = getEscalationLadder();
 
 /**
  * ErrorTracker - Tracks weighted errors and determines when to escalate
