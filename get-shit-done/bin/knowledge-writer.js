@@ -282,6 +282,19 @@ async function storeInsights(insights, options = {}) {
         continue;
       }
 
+      // a2. Run content through the secrets/PII safety filter. Rejected
+      // insights are never persisted (not even in redacted form) — the whole
+      // insight is dropped. Redacted content replaces the original for every
+      // subsequent step (dedup check, embedding generation, insert/evolve).
+      const { filterContentForSecrets } = require('./knowledge-safety.js');
+      const filterResult = filterContentForSecrets(content, options.cwd);
+      if (!filterResult.safe) {
+        result.errors.push(`Rejected insight: ${filterResult.reason || 'sensitive content detected'}`);
+        result.skipped++;
+        continue;
+      }
+      const safeContent = filterResult.content;
+
       // b. Map insight type to knowledge type and TTL
       const { knowledgeType, ttlCategory } = mapInsightToKnowledgeType(insight);
 
@@ -313,7 +326,7 @@ async function storeInsights(insights, options = {}) {
         try {
           const { generateEmbeddingCached } = require('./embeddings.js');
           embedding = await Promise.race([
-            generateEmbeddingCached(content),
+            generateEmbeddingCached(safeContent),
             new Promise(resolve => setTimeout(() => resolve(null), embeddingTimeoutMs))
           ]);
         } catch (_embErr) {
@@ -322,7 +335,7 @@ async function storeInsights(insights, options = {}) {
       }
 
       // f. Check for duplicates (three-stage dedup; stage 3 fires when embedding non-null)
-      const dupCheck = await checkDuplicate(conn, content, embedding);
+      const dupCheck = await checkDuplicate(conn, safeContent, embedding);
 
       if (dupCheck.isDuplicate) {
         const similarity = dupCheck.similarity || 0;
@@ -343,7 +356,7 @@ async function storeInsights(insights, options = {}) {
         if (similarity >= evolutionThreshold && similarity <= dedupThreshold) {
           // Near-duplicate - evolve existing entry via insertOrEvolve
           const evolveResult = await insertOrEvolve(conn, {
-            content,
+            content: safeContent,
             type: knowledgeType,
             scope,
             embedding: null,
@@ -390,7 +403,7 @@ async function storeInsights(insights, options = {}) {
       // g. Not a duplicate - insert new entry
       // Use insertOrEvolve for canonical handling (it runs full dedup internally)
       const insertResult = await insertOrEvolve(conn, {
-        content,
+        content: safeContent,
         type: knowledgeType,
         scope,
         embedding: null,

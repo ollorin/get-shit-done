@@ -1,4 +1,167 @@
+const fs = require('fs');
+const path = require('path');
+
 const { classifyAction } = require('./knowledge-principles.js');
+
+// ─── Secrets/PII Content Filter ────────────────────────────────────────────
+
+// Unambiguous API-key-like prefixes. Any match here means REJECT the whole
+// insight outright (never redact) — per policy, a clear credential match is
+// never persisted verbatim to the DB, full stop.
+const API_KEY_PATTERNS = [
+  /\bsk-[A-Za-z0-9]{20,}\b/,
+  /\bAKIA[0-9A-Z]{16}\b/,
+  /\bghp_[A-Za-z0-9]{36}\b/,
+  /\bgho_[A-Za-z0-9]{36}\b/,
+  /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/,
+  /\bAIza[A-Za-z0-9_-]{35}\b/
+];
+
+// Credential keyword patterns -> REDACT (unambiguous key:value shape, safe
+// to redact rather than reject since the key name itself is harmless).
+const CREDENTIAL_KEYWORD_PATTERN = /(password|secret|api[_-]?key|token)\s*[:=]\s*(\S+)/gi;
+
+// Email addresses -> REDACT.
+const EMAIL_PATTERN = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
+
+// Generic high-entropy ambiguous token -> REJECT whole insight. Standalone
+// 32+ char alnum/dash tokens not already matched by a known API-key prefix.
+// Word-boundary guarded, and skipped if preceded closely by a word like
+// hash/sha/commit/id (normal git-hash mentions in lessons/prose).
+const HIGH_ENTROPY_TOKEN_PATTERN = /\b[A-Za-z0-9_-]{32,}\b/g;
+const HIGH_ENTROPY_CONTEXT_EXCLUSION = /(hash|sha|commit|id)\W{0,10}$/i;
+
+/**
+ * Load additional project-configured secret patterns from
+ * .planning/config.json's `knowledge.secrets_patterns` (array of strings,
+ * each compiled as a case-insensitive RegExp). Never throws — absent file,
+ * malformed JSON, or an invalid regex string all degrade to an empty array.
+ *
+ * @param {string} [cwd] - Working directory (defaults to process.cwd())
+ * @returns {RegExp[]} Compiled extra secret patterns
+ */
+function loadExtraSecretPatterns(cwd) {
+  try {
+    const configPath = path.join(cwd || process.cwd(), '.planning', 'config.json');
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    const patterns = (config.knowledge && config.knowledge.secrets_patterns) || [];
+    if (!Array.isArray(patterns)) return [];
+    const compiled = [];
+    for (const p of patterns) {
+      try {
+        if (typeof p === 'string' && p.length > 0) {
+          compiled.push(new RegExp(p, 'i'));
+        }
+      } catch (_) {
+        // Invalid regex string — skip it, never throw
+      }
+    }
+    return compiled;
+  } catch (_) {
+    return [];
+  }
+}
+
+/**
+ * Filter content for secrets/PII before persistence.
+ *
+ * Policy: rejection preferred over redaction when a match is ambiguous — "a
+ * lost knowledge entry is cheaper than a persisted credential." Clean content
+ * with no sensitive patterns passes through completely unchanged.
+ *
+ * Order of evaluation:
+ *   1. Unambiguous-reject patterns (built-in API-key prefixes + project-
+ *      configured custom patterns) — any match short-circuits to rejected.
+ *   2. Ambiguous high-entropy token check — also short-circuits to rejected.
+ *   3. Redaction passes (credential keywords, then emails) — applied only if
+ *      neither reject condition fired.
+ *
+ * @param {string} content - Raw content to filter
+ * @param {string} [cwd] - Working directory for loading custom patterns
+ * @returns {{ safe: boolean, action: 'redacted'|'rejected'|null, content: string, reason?: string }}
+ */
+function filterContentForSecrets(content, cwd) {
+  if (typeof content !== 'string') {
+    return { safe: true, action: null, content };
+  }
+
+  // 1a. Built-in unambiguous API-key prefixes
+  for (const pattern of API_KEY_PATTERNS) {
+    if (pattern.test(content)) {
+      return {
+        safe: false,
+        action: 'rejected',
+        content,
+        reason: 'API-key-like token detected'
+      };
+    }
+  }
+
+  // 1b. Project-configured custom patterns — treated as unambiguous, same as
+  // built-in API-key prefixes, since explicit project configuration signals
+  // clear intent.
+  const extraPatterns = loadExtraSecretPatterns(cwd);
+  for (const pattern of extraPatterns) {
+    if (pattern.test(content)) {
+      return {
+        safe: false,
+        action: 'rejected',
+        content,
+        reason: 'Matched project-configured secret pattern'
+      };
+    }
+  }
+
+  // 2. Ambiguous high-entropy token check
+  HIGH_ENTROPY_TOKEN_PATTERN.lastIndex = 0;
+  let match;
+  while ((match = HIGH_ENTROPY_TOKEN_PATTERN.exec(content)) !== null) {
+    const token = match[0];
+    // Skip tokens already covered by a redaction pattern below (email local
+    // parts can be long, but those are handled by EMAIL_PATTERN separately —
+    // check here only for tokens NOT part of an email address).
+    const precedingText = content.slice(Math.max(0, match.index - 12), match.index);
+    if (HIGH_ENTROPY_CONTEXT_EXCLUSION.test(precedingText)) {
+      continue; // e.g. "commit abc123...", "sha: abc123...", "id abc123..."
+    }
+    // Skip if this token is actually the domain/local part of an email match
+    const surroundingChar = content[match.index - 1];
+    const trailingChar = content[match.index + token.length];
+    if (surroundingChar === '@' || trailingChar === '@') {
+      continue;
+    }
+    return {
+      safe: false,
+      action: 'rejected',
+      content,
+      reason: 'Ambiguous high-entropy token detected'
+    };
+  }
+
+  // 3. Redaction passes — credential keywords, then emails
+  let redacted = content;
+  let didRedact = false;
+
+  CREDENTIAL_KEYWORD_PATTERN.lastIndex = 0;
+  if (CREDENTIAL_KEYWORD_PATTERN.test(redacted)) {
+    didRedact = true;
+  }
+  CREDENTIAL_KEYWORD_PATTERN.lastIndex = 0;
+  redacted = redacted.replace(CREDENTIAL_KEYWORD_PATTERN, (m, key) => `${key}: [REDACTED]`);
+
+  EMAIL_PATTERN.lastIndex = 0;
+  if (EMAIL_PATTERN.test(redacted)) {
+    didRedact = true;
+  }
+  EMAIL_PATTERN.lastIndex = 0;
+  redacted = redacted.replace(EMAIL_PATTERN, '[REDACTED_EMAIL]');
+
+  return {
+    safe: true,
+    action: didRedact ? 'redacted' : null,
+    content: redacted
+  };
+}
 
 // Lazy-load permissions module to avoid circular dependencies
 function getPermissionsModule() {
@@ -219,5 +382,7 @@ module.exports = {
   shouldStopAndAsk,
   formatApprovalPrompt,
   estimateActionCost,
-  executeWithSafetyCheck
+  executeWithSafetyCheck,
+  filterContentForSecrets,
+  loadExtraSecretPatterns
 };
