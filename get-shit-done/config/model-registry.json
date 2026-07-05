@@ -1,0 +1,9 @@
+{
+  "tiers": ["haiku", "sonnet", "opus"],
+  "escalation_ladder": { "haiku": "sonnet", "sonnet": "opus", "opus": null },
+  "thresholds": {
+    "haiku":  { "timeout_ms": 1200000, "iterations": 15 },
+    "sonnet": { "timeout_ms": 2400000, "iterations": 20 },
+    "opus":   { "timeout_ms": 3600000, "iterations": 25 }
+  }
+}
