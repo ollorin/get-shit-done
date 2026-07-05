@@ -31,6 +31,9 @@ async function main() {
   // Clean up old temp files left by previous regex-extraction implementation
   cleanupOldTempFiles();
 
+  // Prune stale knowledge entries + checkpoint the WAL, non-blocking.
+  runKnowledgeMaintenance();
+
   process.exit(0);
 }
 
@@ -48,6 +51,28 @@ function cleanupOldTempFiles() {
       } catch (_) {}
     }
   } catch (_) {}
+}
+
+/**
+ * Prune stale knowledge entries and checkpoint the WAL at session end.
+ * Entirely best-effort: module absence (e.g. better-sqlite3 not installed),
+ * DB unavailability, or any error during prune/checkpoint is swallowed
+ * silently (logged to stderr only). This function must NEVER throw and
+ * must NEVER be the reason this hook exits non-zero or hangs.
+ */
+function runKnowledgeMaintenance() {
+  try {
+    const { openKnowledgeDB } = require('../knowledge-db.js');
+    const { pruneStaleEntries, checkpointWAL } = require('../knowledge-lifecycle.js');
+
+    const conn = openKnowledgeDB('global');
+    pruneStaleEntries(conn.db, { scope: 'global', vectorEnabled: conn.vectorEnabled });
+    checkpointWAL(conn.db);
+  } catch (err) {
+    try {
+      process.stderr.write('[session-end] knowledge maintenance skipped: ' + (err && err.message) + '\n');
+    } catch (_) {}
+  }
 }
 
 main().catch(() => process.exit(0));

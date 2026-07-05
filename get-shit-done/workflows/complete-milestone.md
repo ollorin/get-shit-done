@@ -461,6 +461,12 @@ See `.planning/knowledge/` for full entries.
 
 **Non-blocking guarantee:** Wrap this entire step's logic so that ANY failure (missing gsd-tools.js, mine-conversations erroring, Agent() failures, metadata write failure) is logged via a single line ("Milestone mining failed non-fatally: {error} — milestone completion continues") and execution ALWAYS proceeds to `reorganize_roadmap_and_delete_originals`. This step must never be the reason a milestone fails to complete.
 
+**Prune + checkpoint (non-blocking):**
+```bash
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" knowledge prune --scope global 2>/dev/null || true
+```
+This call already runs `pruneStaleEntries` + (internally, on >100 deletions) `checkpointWAL` via the existing `cmdKnowledgePrune`, and now always checkpoints the WAL unconditionally after a live (non-dry-run) prune, regardless of delete count. Failure of this call must never block `reorganize_roadmap_and_delete_originals` — it is covered by this step's Non-blocking guarantee above like everything else in this step.
+
 </step>
 
 <step name="reorganize_roadmap_and_delete_originals">

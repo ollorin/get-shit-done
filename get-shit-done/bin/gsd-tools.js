@@ -2728,7 +2728,7 @@ function cmdKnowledgePrune(args, raw) {
     : 0.7;
 
   const { knowledge } = require('./knowledge.js');
-  const { pruneStaleEntries } = require('./knowledge-lifecycle.js');
+  const { pruneStaleEntries, checkpointWAL } = require('./knowledge-lifecycle.js');
 
   const conn = knowledge._getConnection(scope);
   if (conn.available === false) {
@@ -2741,6 +2741,12 @@ function cmdKnowledgePrune(args, raw) {
     dryRun,
     vectorEnabled: conn.vectorEnabled || false
   });
+
+  // Always checkpoint the WAL after a live prune, regardless of delete count.
+  // Skip in dry-run mode — dry-run must not mutate WAL state.
+  if (!dryRun) {
+    checkpointWAL(conn.db);
+  }
 
   const summary = {
     mode: dryRun ? 'dry-run' : 'live',
@@ -10010,6 +10016,23 @@ async function cmdMineConversations(cwd, args, raw) {
     output({ status: 'error', reason: 'Failed to load conversation-miner.js: ' + err.message }, raw);
     return;
   }
+
+  // Auto-checkpoint before this bulk operation, best-effort. Checkpoint
+  // failure must never block mining — swallow any error and continue.
+  try {
+    const { createCheckpoint } = require(path.join(__dirname, 'knowledge-checkpoint.js'));
+    await createCheckpoint({
+      task_title: 'Conversation mining (bulk operation)',
+      plan: ['discover conversations', 'extract insights', 'store results'],
+      progress: { completed: [], current: 'discover conversations', remaining: ['extract insights', 'store results'] },
+      phase: 0,
+      plan_id: 'bulk-mine-conversations',
+      key_context: `Bulk conversation mining started at ${new Date().toISOString()}, allProjects=${allProjects}, maxAgeDays=${maxAgeDays}`,
+      files_touched: [],
+      decisions: [],
+      next_steps: []
+    });
+  } catch (_) { /* checkpoint failure must never block mining */ }
 
   if (allProjects) {
     // --all-projects: scan all project slug dirs under ~/.claude/projects/
