@@ -521,6 +521,14 @@ Write `.planning/milestones/v[X.Y]-CONSOLIDATION.md`:
 
 After `milestone complete` has archived, reorganize ROADMAP.md with milestone groupings, then delete originals:
 
+**Idempotency check (resume-safe):** Before rewriting, check whether ROADMAP.md already
+has been reorganized by a prior (possibly crashed) run of this step:
+```bash
+ALREADY_REORGANIZED=$(grep -c "^## Milestones" .planning/ROADMAP.md 2>/dev/null || echo 0)
+```
+If `ALREADY_REORGANIZED` is greater than 0, skip the "Reorganize ROADMAP.md" rewrite below and go
+straight to "Then delete originals".
+
 **Reorganize ROADMAP.md** — group completed milestone phases:
 
 ```markdown
@@ -545,9 +553,11 @@ After `milestone complete` has archived, reorganize ROADMAP.md with milestone gr
 **Then delete originals:**
 
 ```bash
-rm .planning/ROADMAP.md
-rm .planning/REQUIREMENTS.md
+rm -f .planning/ROADMAP.md
+rm -f .planning/REQUIREMENTS.md
 ```
+
+(`-f` makes re-running this step after a prior partial deletion silent/idempotent instead of erroring on an already-removed file.)
 
 </step>
 
