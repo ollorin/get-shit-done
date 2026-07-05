@@ -6675,3 +6675,165 @@ describe('Phase 49-01: secrets/PII filter end-to-end', () => {
     assert.strictEqual(result.action, 'rejected');
   });
 });
+
+describe('Phase 49-02: event triggers', () => {
+  // CRITICAL — SHARED-DB CAUTION: ~/.claude/knowledge/ is a LIVE database.
+  // Every test in this block MUST set GSD_KNOWLEDGE_DB_PATH to an isolated
+  // temp file before touching anything that opens the knowledge DB.
+  let tmpDbPath;
+  let prevOverride;
+  let openedDbs;
+
+  const HOOK_PATH = path.join(__dirname, 'hooks', 'session-end-standalone.js');
+  const COMPLETE_MILESTONE_PATH = path.join(__dirname, '..', 'workflows', 'complete-milestone.md');
+
+  beforeEach(() => {
+    prevOverride = process.env.GSD_KNOWLEDGE_DB_PATH;
+    tmpDbPath = path.join(
+      require('os').tmpdir(),
+      `gsd-test-knowledge-49-02-${Date.now()}-${Math.random().toString(36).slice(2)}.db`
+    );
+    process.env.GSD_KNOWLEDGE_DB_PATH = tmpDbPath;
+    openedDbs = [];
+  });
+
+  afterEach(() => {
+    const { closeKnowledgeDB } = require('./knowledge-db.js');
+    for (const db of openedDbs) {
+      try { closeKnowledgeDB(db); } catch (_) { /* best-effort */ }
+    }
+    for (const suffix of ['', '-wal', '-shm']) {
+      const p = tmpDbPath + suffix;
+      if (fs.existsSync(p)) {
+        try { fs.rmSync(p, { force: true }); } catch (_) { /* best-effort */ }
+      }
+    }
+    if (prevOverride === undefined) {
+      delete process.env.GSD_KNOWLEDGE_DB_PATH;
+    } else {
+      process.env.GSD_KNOWLEDGE_DB_PATH = prevOverride;
+    }
+  });
+
+  test('session-end hook prunes a stale entry with no manual invocation', () => {
+    const { openKnowledgeDB, closeKnowledgeDB } = require('./knowledge-db.js');
+    const { insertKnowledge } = require('./knowledge-crud.js');
+
+    const conn = openKnowledgeDB('global');
+    const { id } = insertKnowledge(conn.db, {
+      content: 'stale fixture entry for 49-02 session-end prune test ' + Date.now(),
+      type: 'temp_note', // high volatility (0.9) so it clears the default 0.7 staleness threshold quickly
+      scope: 'global'
+    });
+    // Force this entry to look 40 days dormant (default threshold is exceeded well before 24 days
+    // for temp_note with zero access_count: timeFactor(40/30) * volatility(0.9) * accessFactor(1) = 1.2 > 0.7).
+    // insertKnowledge sets last_accessed = created_at at insert time, so both must be backdated —
+    // getStalenessScore computes dormancy from last_accessed (falling back to created_at only when null).
+    const fortyDaysAgo = Date.now() - 40 * 24 * 60 * 60 * 1000;
+    conn.db.prepare('UPDATE knowledge SET created_at = ?, last_accessed = ? WHERE id = ?').run(fortyDaysAgo, fortyDaysAgo, id);
+    closeKnowledgeDB(conn.db);
+
+    // Run the hook exactly as Claude Code would invoke it — no manual prune command.
+    execSync(`node "${HOOK_PATH}"`, {
+      encoding: 'utf-8',
+      input: '',
+      env: { ...process.env, GSD_KNOWLEDGE_DB_PATH: tmpDbPath },
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+    // execSync throws on non-zero exit — reaching here already proves exit code 0.
+
+    const reconn = openKnowledgeDB('global');
+    openedDbs.push(reconn.db);
+    const row = reconn.db.prepare('SELECT id FROM knowledge WHERE id = ?').get(id);
+    assert.strictEqual(row, undefined, 'expected the stale entry to be pruned by the session-end hook with no manual invocation');
+  });
+
+  test('session-end hook still exits 0 when the knowledge DB path is unusable', () => {
+    // Force openKnowledgeDB's mkdirSync(dbDir, {recursive:true}) to fail deterministically:
+    // point the "directory" at a path where a regular file already sits in the parent chain.
+    const blockerFile = path.join(require('os').tmpdir(), `gsd-test-49-02-blocker-${Date.now()}.txt`);
+    fs.writeFileSync(blockerFile, 'not a directory');
+    const badPath = path.join(blockerFile, 'sub', 'knowledge.db');
+
+    try {
+      assert.doesNotThrow(() => {
+        execSync(`node "${HOOK_PATH}"`, {
+          encoding: 'utf-8',
+          input: '',
+          env: { ...process.env, GSD_KNOWLEDGE_DB_PATH: badPath },
+          stdio: ['pipe', 'pipe', 'pipe']
+        });
+      }, 'session-end hook must always exit 0, even when the knowledge DB is unreachable');
+    } finally {
+      fs.rmSync(blockerFile, { force: true });
+    }
+  });
+
+  test('complete-milestone.md: mine_milestone_conversations step includes the prune+checkpoint call within its own boundaries', () => {
+    const content = fs.readFileSync(COMPLETE_MILESTONE_PATH, 'utf-8');
+    const start = content.indexOf('<step name="mine_milestone_conversations">');
+    assert.notStrictEqual(start, -1, 'mine_milestone_conversations step not found in complete-milestone.md');
+    const end = content.indexOf('</step>', start);
+    assert.notStrictEqual(end, -1, 'closing </step> for mine_milestone_conversations not found');
+
+    const stepBody = content.slice(start, end);
+    assert.ok(
+      stepBody.includes('knowledge prune'),
+      'expected "knowledge prune" call inside the mine_milestone_conversations step boundaries'
+    );
+  });
+
+  test('cmdKnowledgePrune always checkpoints the WAL on a live run, regardless of delete count', () => {
+    const { openKnowledgeDB, closeKnowledgeDB } = require('./knowledge-db.js');
+    const { insertKnowledge } = require('./knowledge-crud.js');
+
+    const conn = openKnowledgeDB('global');
+    for (let i = 0; i < 5; i++) {
+      insertKnowledge(conn.db, {
+        content: `pending wal frame entry ${i} ${Date.now()}`,
+        type: 'lesson',
+        scope: 'global'
+      });
+    }
+    closeKnowledgeDB(conn.db);
+
+    const result = runGsdTools('knowledge prune --scope global --raw', process.cwd(), { GSD_KNOWLEDGE_DB_PATH: tmpDbPath });
+    assert.strictEqual(result.success, true, `knowledge prune failed: ${result.error}`);
+
+    const walPath = tmpDbPath + '-wal';
+    const walSizeAfter = fs.existsSync(walPath) ? fs.statSync(walPath).size : 0;
+    assert.strictEqual(walSizeAfter, 0, 'expected the WAL file to be truncated (checkpointed) after a live knowledge prune run');
+  });
+
+  test('mine-conversations creates a checkpoint before scanning/extracting', () => {
+    // Use a cwd with no corresponding ~/.claude/projects/<slug> directory so
+    // discovery is a fast, deterministic no-op — the checkpoint call happens
+    // before that discovery branch regardless of its outcome.
+    const emptyCwd = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-test-49-02-mine-cwd-'));
+    try {
+      const result = runGsdTools('mine-conversations --limit 1 --raw', emptyCwd, { GSD_KNOWLEDGE_DB_PATH: tmpDbPath });
+      assert.strictEqual(result.success, true, `mine-conversations failed: ${result.error}`);
+
+      const { openKnowledgeDB, closeKnowledgeDB } = require('./knowledge-db.js');
+      const conn = openKnowledgeDB('project');
+      openedDbs.push(conn.db);
+
+      const rows = conn.db.prepare(
+        `SELECT id, metadata FROM knowledge WHERE type = 'checkpoint' ORDER BY created_at DESC LIMIT 10`
+      ).all();
+
+      const found = rows.some(row => {
+        try {
+          const metadata = JSON.parse(row.metadata || '{}');
+          return metadata.task_title === 'Conversation mining (bulk operation)';
+        } catch (_) {
+          return false;
+        }
+      });
+
+      assert.ok(found, 'expected a checkpoint entry with task_title "Conversation mining (bulk operation)" to exist after mine-conversations ran');
+    } finally {
+      fs.rmSync(emptyCwd, { recursive: true, force: true });
+    }
+  });
+});
