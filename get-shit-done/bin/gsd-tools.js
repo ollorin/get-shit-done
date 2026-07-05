@@ -199,6 +199,7 @@ const { FailureHandler, executeWithRetry } = require('./failure-handler.js');
 const { CompletionSignal, COMPLETION_STATUS } = require('./completion-signal.js');
 const { TaskChunker, BatchCoordinator, analyzeTask, estimateTaskTokens } = require('./task-chunker.js');
 const { estimatePhaseSize, detectOversizedPhases, recommendSplit, validateSplitPreservesDependencies, LIMITS: PHASE_LIMITS } = require('./phase-sizer.js');
+const evalHarness = require('./eval-harness.js');
 
 // Phase 2: Auto Mode safety modules (lazy — gracefully absent if not installed)
 let circuitBreaker, validator, escalation, feedback, learning;
@@ -4501,6 +4502,88 @@ function expandGlobSync(cwd, globPattern) {
   } catch {
     return [];
   }
+}
+
+// ─── Eval Harness CLI (MILE-29, Phase 53-01) ─────────────────────────────────
+// Thin CLI dispatch onto get-shit-done/bin/eval-harness.js's pure functions,
+// mirroring the existing `case 'task':` -> cmdTask(cwd, args.slice(1), raw)
+// pattern. `eval assert` deliberately bypasses the shared output() helper
+// (which always exits 0) and instead mirrors cmdVerifyPhaseGate's direct
+// process.exit(result.pass ? 0 : 1) so CI can fail the job on a real
+// assertion failure.
+function cmdEval(cwd, args, raw) {
+  const subcommand = args[0];
+
+  if (!subcommand) {
+    error('eval: subcommand required (plan|assert)');
+    return;
+  }
+
+  if (subcommand === 'plan') {
+    const fixtureIdx = args.indexOf('--fixture');
+    const fixtureDir = fixtureIdx !== -1 ? args[fixtureIdx + 1] : null;
+    if (!fixtureDir) {
+      error('eval plan: --fixture <dir> required');
+      return;
+    }
+    const roadmapPath = path.join(cwd, fixtureDir, 'ROADMAP.md');
+    const plan = evalHarness.buildSpawnPlan(roadmapPath);
+    output(plan, raw, JSON.stringify(plan));
+    return;
+  }
+
+  if (subcommand === 'assert') {
+    const artifactsDirArg = args[1];
+    if (!artifactsDirArg) {
+      error('eval assert: <artifacts-dir> required');
+      return;
+    }
+    const artifactsRoot = path.join(cwd, artifactsDirArg);
+
+    if (!fs.existsSync(artifactsRoot)) {
+      const result = { error: true, type: 'artifacts_dir_not_found', path: artifactsDirArg };
+      process.stdout.write(JSON.stringify(result, null, 2));
+      process.exit(2);
+      return;
+    }
+
+    // `expectations.json` at the root of artifactsRoot is the independent
+    // manifest of what SHOULD be true (expectedPlan/expectSkip/
+    // expectedCommitCount) -- deliberately NOT derived from the artifacts
+    // being checked (spawn-trace.json/VERIFICATION.md/DEFERRED.json/
+    // git-log.txt), since deriving expectations from the same files being
+    // validated would make every check trivially self-satisfying and unable
+    // to catch a real regression (e.g. a dropped DEFERRED.json would just
+    // silently lower the expectation instead of failing the check).
+    const expectationsPath = path.join(artifactsRoot, 'expectations.json');
+    if (!fs.existsSync(expectationsPath)) {
+      const result = { error: true, type: 'missing_expectations', message: 'expectations.json not found in artifacts dir -- cannot determine expected plan/skips/commit count' };
+      process.stdout.write(JSON.stringify(result, null, 2));
+      process.exit(2);
+      return;
+    }
+    let expectations;
+    try {
+      expectations = JSON.parse(fs.readFileSync(expectationsPath, 'utf-8'));
+    } catch (e) {
+      const result = { error: true, type: 'malformed_expectations', message: `Could not parse expectations.json: ${e.message}` };
+      process.stdout.write(JSON.stringify(result, null, 2));
+      process.exit(2);
+      return;
+    }
+    const { expectedPlan, expectSkip, expectedCommitCount } = expectations || {};
+
+    const result = evalHarness.runEvalAssertions(artifactsRoot, {
+      expectedPlan: expectedPlan || [],
+      expectSkip: expectSkip || {},
+      expectedCommitCount: expectedCommitCount || 0,
+    });
+    process.stdout.write(JSON.stringify(result, null, 2));
+    process.exit(result.pass ? 0 : 1);
+    return;
+  }
+
+  error('Unknown eval subcommand. Available: plan, assert');
 }
 
 function cmdTask(cwd, args, raw) {
@@ -12181,6 +12264,11 @@ async function main() {
 
     case 'task': {
       cmdTask(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'eval': {
+      cmdEval(cwd, args.slice(1), raw);
       break;
     }
 

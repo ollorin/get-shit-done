@@ -1,0 +1,4 @@
+0efd6c3 docs(02-01): task 2 defer shared-constant lookup, record phase 02 ver...
+b51b37f feat(02-01): task 1 implement multiply(a, b)
+339690d docs(01-01): task 2 record phase 01 verification
+bf2526e feat(01-01): task 1 implement add(a, b)
