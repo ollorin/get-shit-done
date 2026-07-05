@@ -6837,3 +6837,110 @@ describe('Phase 49-02: event triggers', () => {
     }
   });
 });
+
+describe('Phase 49-02: knowledge feedback wiring', () => {
+  // CRITICAL — SHARED-DB CAUTION: ~/.claude/knowledge/ is a LIVE database.
+  // Every test in this block MUST set GSD_KNOWLEDGE_DB_PATH to an isolated
+  // temp file before touching anything that opens the knowledge DB.
+  let tmpDbPath;
+  let prevOverride;
+  let openedDbs;
+
+  beforeEach(() => {
+    prevOverride = process.env.GSD_KNOWLEDGE_DB_PATH;
+    tmpDbPath = path.join(
+      require('os').tmpdir(),
+      `gsd-test-knowledge-49-02b-${Date.now()}-${Math.random().toString(36).slice(2)}.db`
+    );
+    process.env.GSD_KNOWLEDGE_DB_PATH = tmpDbPath;
+    openedDbs = [];
+  });
+
+  afterEach(() => {
+    const { closeKnowledgeDB } = require('./knowledge-db.js');
+    for (const db of openedDbs) {
+      try { closeKnowledgeDB(db); } catch (_) { /* best-effort */ }
+    }
+    for (const suffix of ['', '-wal', '-shm']) {
+      const p = tmpDbPath + suffix;
+      if (fs.existsSync(p)) {
+        try { fs.rmSync(p, { force: true }); } catch (_) { /* best-effort */ }
+      }
+    }
+    if (prevOverride === undefined) {
+      delete process.env.GSD_KNOWLEDGE_DB_PATH;
+    } else {
+      process.env.GSD_KNOWLEDGE_DB_PATH = prevOverride;
+    }
+  });
+
+  test('query-knowledge returns id alongside the existing locked schema fields', () => {
+    const { openKnowledgeDB, closeKnowledgeDB } = require('./knowledge-db.js');
+    const { insertKnowledge } = require('./knowledge-crud.js');
+
+    const conn = openKnowledgeDB('global');
+    const uniqueMarker = `zzqueryknowledgeidfieldtest${Date.now()}`;
+    const { id } = insertKnowledge(conn.db, {
+      content: `Distinctive lesson content mentioning ${uniqueMarker} for the id-field test`,
+      type: 'lesson',
+      scope: 'global',
+      metadata: { confidence: 0.75 }
+    });
+    closeKnowledgeDB(conn.db);
+
+    const result = runGsdTools(`query-knowledge "${uniqueMarker}" --raw`, process.cwd(), { GSD_KNOWLEDGE_DB_PATH: tmpDbPath });
+    assert.strictEqual(result.success, true, `query-knowledge failed: ${result.error}`);
+
+    const parsed = JSON.parse(result.output);
+    assert.ok(Array.isArray(parsed.results) && parsed.results.length > 0, 'expected at least one query-knowledge result');
+    const first = parsed.results[0];
+    assert.strictEqual(first.id, id, 'expected results[0].id to match the inserted entry id');
+    // Schema is additive — existing locked fields must still be present.
+    assert.ok('question' in first);
+    assert.ok('answer' in first);
+    assert.ok('confidence' in first);
+    assert.ok('project_slug' in first);
+    assert.ok('source_type' in first);
+    assert.ok('created_at' in first);
+  });
+
+  test('mark-wrong degrades confidence and records the reason (verification-failure-tied-to-KB-answer scenario)', () => {
+    const { openKnowledgeDB, closeKnowledgeDB } = require('./knowledge-db.js');
+    const { insertKnowledge, getKnowledge } = require('./knowledge-crud.js');
+
+    const conn = openKnowledgeDB('global');
+    const { id } = insertKnowledge(conn.db, {
+      content: 'principle that turned out to be wrong per execution outcome',
+      type: 'principle',
+      scope: 'global',
+      metadata: { confidence: 0.8 }
+    });
+    closeKnowledgeDB(conn.db);
+
+    const result = runGsdTools(
+      `mark-wrong ${id} --severity major --reason "contradicted by execution outcome" --raw`,
+      process.cwd(),
+      { GSD_KNOWLEDGE_DB_PATH: tmpDbPath }
+    );
+    assert.strictEqual(result.success, true, `mark-wrong failed: ${result.error}`);
+
+    const reconn = openKnowledgeDB('global');
+    openedDbs.push(reconn.db);
+    const row = getKnowledge(reconn.db, id);
+    assert.ok(row.metadata.confidence < 0.8, `expected confidence to degrade below 0.8, got ${row.metadata.confidence}`);
+    // major severity -> DEGRADATION_FACTORS.major = 0.5 -> newConfidence = 0.8 * (1 - 0.5) = 0.4
+    assert.ok(Math.abs(row.metadata.confidence - 0.4) < 1e-9, `expected confidence 0.4 for major severity, got ${row.metadata.confidence}`);
+    assert.ok(
+      row.metadata.last_feedback_reason && row.metadata.last_feedback_reason.includes('contradicted by execution outcome'),
+      'expected metadata.last_feedback_reason to contain the reason text'
+    );
+  });
+
+  test('prompt-layer wiring: both agents/gsd-verifier.md and agents/gsd-executor.md reference mark-wrong', () => {
+    const verifierContent = fs.readFileSync(path.join(__dirname, '..', '..', 'agents', 'gsd-verifier.md'), 'utf-8');
+    const executorContent = fs.readFileSync(path.join(__dirname, '..', '..', 'agents', 'gsd-executor.md'), 'utf-8');
+
+    assert.ok(verifierContent.includes('mark-wrong'), 'expected agents/gsd-verifier.md to reference mark-wrong');
+    assert.ok(executorContent.includes('mark-wrong'), 'expected agents/gsd-executor.md to reference mark-wrong');
+  });
+});

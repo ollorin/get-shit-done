@@ -11447,17 +11447,17 @@ async function main() {
     }
 
     case 'mark-wrong': {
-      cmdMarkWrong(cwd, args.slice(1), raw);
+      cmdMarkWrong(args.slice(1), raw);
       break;
     }
 
     case 'mark-outdated': {
-      cmdMarkOutdated(cwd, args.slice(1), raw);
+      cmdMarkOutdated(args.slice(1), raw);
       break;
     }
 
     case 'principle-history': {
-      cmdPrincipleHistory(cwd, args.slice(1), raw);
+      cmdPrincipleHistory(args.slice(1), raw);
       break;
     }
 
