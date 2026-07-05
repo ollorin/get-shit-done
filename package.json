@@ -61,7 +61,7 @@
   "scripts": {
     "build:hooks": "node scripts/build-hooks.js",
     "prepublishOnly": "npm run build:hooks",
-    "test": "node --test bin/install.test.js get-shit-done/bin/gsd-tools.test.js get-shit-done/bin/model-registry.test.js scripts/cleanup-regressions.test.js get-shit-done/bin/hooks/doc-compression-hook.test.js get-shit-done/bin/eval-harness.test.js get-shit-done/bin/prompt-budget.test.js",
+    "test": "node --test bin/install.test.js get-shit-done/bin/gsd-tools.test.js get-shit-done/bin/model-registry.test.js scripts/cleanup-regressions.test.js get-shit-done/bin/hooks/doc-compression-hook.test.js get-shit-done/bin/eval-harness.test.js get-shit-done/bin/prompt-budget.test.js get-shit-done/bin/knowledge-safety.test.js",
     "install:gsd": "node scripts/install-orchestrator.js",
     "health-check": "node scripts/health-check.js",
     "uninstall:gsd": "bash scripts/uninstall.sh"
