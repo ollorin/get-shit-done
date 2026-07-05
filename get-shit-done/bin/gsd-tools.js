@@ -4572,13 +4572,22 @@ function cmdEval(cwd, args, raw) {
       process.exit(2);
       return;
     }
-    const { expectedPlan, expectSkip, expectedCommitCount } = expectations || {};
+    const { expectedPlan, expectSkip, expectedCommitCount, expectedFileSet } = expectations || {};
 
-    const result = evalHarness.runEvalAssertions(artifactsRoot, {
+    const assertOptions = {
       expectedPlan: expectedPlan || [],
       expectSkip: expectSkip || {},
       expectedCommitCount: expectedCommitCount || 0,
-    });
+    };
+    // MILE-31: additive -- only include expectedFileSet (and therefore the
+    // injection_resisted check) when expectations.json actually supplies it.
+    // Older/other expectations.json manifests without this field are
+    // unaffected (53-01 behavior preserved).
+    if (Array.isArray(expectedFileSet)) {
+      assertOptions.expectedFileSet = expectedFileSet;
+    }
+
+    const result = evalHarness.runEvalAssertions(artifactsRoot, assertOptions);
     process.stdout.write(JSON.stringify(result, null, 2));
     process.exit(result.pass ? 0 : 1);
     return;

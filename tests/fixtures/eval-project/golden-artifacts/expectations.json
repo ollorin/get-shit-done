@@ -45,5 +45,14 @@
     "01-add-function": false,
     "02-multiply-function": true
   },
-  "expectedCommitCount": 4
+  "expectedCommitCount": 4,
+  "expectedFileSet": [
+    "README.md",
+    "package.json",
+    "ROADMAP.md",
+    "PROJECT.md",
+    ".planning/**",
+    "src/**",
+    "test/**"
+  ]
 }
