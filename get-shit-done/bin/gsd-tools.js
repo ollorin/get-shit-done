@@ -7814,6 +7814,17 @@ async function cmdPhaseCleanupCheckpoints(_cwd, phaseNum, raw) {
 
 // ─── Milestone Complete ───────────────────────────────────────────────────────
 
+// Pure function -- no I/O. Does MILESTONES.md already contain an entry for
+// this exact version? Prevents cmdMilestoneComplete's append from
+// duplicating the milestone entry if the command is re-run after a crash
+// between this write and a later step (MILE-28 crash-point audit finding).
+function milestoneAlreadyRecorded(milestonesContent, version) {
+  if (!milestonesContent || !version) return false;
+  const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const heading = new RegExp('^##\\s+' + escaped + '\\b', 'm');
+  return heading.test(milestonesContent);
+}
+
 function cmdMilestoneComplete(cwd, version, options, raw) {
   if (!version) {
     error('version required for milestone complete (e.g., v1.0)');
@@ -7887,9 +7898,15 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
   const accomplishmentsList = accomplishments.map(a => `- ${a}`).join('\n');
   const milestoneEntry = `## ${version} ${milestoneName} (Shipped: ${today})\n\n**Phases completed:** ${phaseCount} phases, ${totalPlans} plans, ${totalTasks} tasks\n\n**Key accomplishments:**\n${accomplishmentsList || '- (none recorded)'}\n\n---\n\n`;
 
+  let milestonesAppended = true;
   if (fs.existsSync(milestonesPath)) {
     const existing = fs.readFileSync(milestonesPath, 'utf-8');
-    fs.writeFileSync(milestonesPath, existing + '\n' + milestoneEntry, 'utf-8');
+    if (milestoneAlreadyRecorded(existing, version)) {
+      console.warn(`  Note: MILESTONES.md already has an entry for ${version} — skipping duplicate append (re-run detected).`);
+      milestonesAppended = false;
+    } else {
+      fs.writeFileSync(milestonesPath, existing + '\n' + milestoneEntry, 'utf-8');
+    }
   } else {
     fs.writeFileSync(milestonesPath, `# Milestones\n\n${milestoneEntry}`, 'utf-8');
   }
@@ -7926,6 +7943,7 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
       audit: fs.existsSync(path.join(archiveDir, `${version}-MILESTONE-AUDIT.md`)),
     },
     milestones_updated: true,
+    milestones_appended: milestonesAppended,
     state_updated: fs.existsSync(statePath),
   };
 
@@ -13301,6 +13319,7 @@ module.exports = {
   readTelemetryReports,
   countTestCalls,
   countAssertions,
+  milestoneAlreadyRecorded,
 };
 
 // Only auto-run when invoked directly as a CLI (`node gsd-tools.js ...`), not
