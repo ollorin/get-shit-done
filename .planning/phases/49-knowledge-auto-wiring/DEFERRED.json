@@ -14,5 +14,13 @@
     "timestamp": "2026-07-05T14:20:38.355Z",
     "phase": "49",
     "plan": "03"
+  },
+  {
+    "step": "docs",
+    "reason": "Final plan of Phase 49 -- real gsd-docs-updater run deferred to run once immediately after this plan's code/test commits, covering the full phase's final state in one pass rather than per-plan",
+    "approver": "executor-manual-assessment",
+    "timestamp": "2026-07-05T14:33:03.245Z",
+    "phase": "49",
+    "plan": "04"
   }
 ]

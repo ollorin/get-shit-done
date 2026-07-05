@@ -84,7 +84,7 @@
 - [x] **MILE-14**: Every knowledge write passes through `knowledge-safety.js` as a pre-write guard, including a new config-extensible secrets/PII regex filter (API-key-like tokens, emails, credential keywords — rejection preferred over redaction when ambiguous); the `storeInsights` transaction race is fixed; `knowledge-cost.js` circuit breaker is checked before extraction/embedding batches (US-10)
 - [x] **MILE-15**: `pruneStaleEntries` + `checkpointWAL` run automatically at session-end and `complete-milestone`; `markPrincipleWrong` auto-triggers when verifier/executor finds a KB-sourced answer contradicted by execution outcome; `knowledge-checkpoint.js` auto-checkpoints before bulk operations (US-11)
 - [x] **MILE-16**: Knowledge synthesis, principle extraction, and conflict detection run once per milestone at `complete-milestone` (never per-action), with a real Haiku call replacing the stubbed principle-text generator, plus a thin manual backstop command exposing the same code path (US-12)
-- [ ] **MILE-17**: `knowledge-qa.js`, `knowledge-scan.js`, and the `knowledge-permissions.js` grant/revoke CLI surface are deleted after fresh zero-reference greps; gsd-tools.js dispatch no longer references them (US-13)
+- [x] **MILE-17**: `knowledge-qa.js`, `knowledge-scan.js`, and the `knowledge-permissions.js` grant/revoke CLI surface are deleted after fresh zero-reference greps; gsd-tools.js dispatch no longer references them (US-13)
 
 #### Reliability & Deletions
 
@@ -148,7 +148,7 @@
 | MILE-14 | Phase 49 | Complete |
 | MILE-15 | Phase 49 | Complete |
 | MILE-16 | Phase 49 | Complete |
-| MILE-17 | Phase 49 | Pending |
+| MILE-17 | Phase 49 | Complete |
 | MILE-18 | Phase 44 | Pending |
 | MILE-19 | Phase 50 | Pending |
 | MILE-20 | Phase 44 | Complete |
