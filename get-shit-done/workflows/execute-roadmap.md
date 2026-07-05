@@ -295,6 +295,91 @@ Agent(
 )
 ```
 
+**4a. Detect coordinator death (runs before step 5's status branches):**
+
+A genuine coordinator death is different from a normal `status: "failed"` task-logic failure — either the `Agent()` call itself throws/errors, or the returned text does not parse as the expected status JSON contract (e.g. it IS the raw death message, such as "You've hit your session limit · resets 12:30am", instead of JSON).
+
+1. If the `Agent()` call threw, OR the returned text fails to parse as the expected status JSON contract, run:
+```bash
+DEATH_CHECK=$(node ~/.claude/get-shit-done/bin/gsd-tools.js resilience parse-death --text "{raw returned text or error message}")
+IS_DEATH=$(node -e "console.log(JSON.parse(process.argv[1]).is_death)" "$DEATH_CHECK")
+RESET_TIME_ISO=$(node -e "console.log(JSON.parse(process.argv[1]).reset_time_iso || '')" "$DEATH_CHECK")
+```
+
+2. Separately (regardless of whether step 1 matched), check staleness of the phase's own CHECKPOINT.json — default threshold is read from config's `resilience.staleness_threshold_minutes` when `--threshold-minutes` is omitted:
+```bash
+STALENESS_CHECK=$(node ~/.claude/get-shit-done/bin/gsd-tools.js resilience check-staleness .planning/phases/{phase_dir}/CHECKPOINT.json)
+IS_STALE=$(node -e "console.log(JSON.parse(process.argv[1]).stale)" "$STALENESS_CHECK")
+```
+
+3. **The coordinator is presumed dead if `IS_DEATH` is `true` OR `IS_STALE` is `true`.**
+
+4. **If presumed dead:**
+   - Log loudly (coordinator death detected):
+     ```bash
+     REASON=$([ "$IS_DEATH" = "true" ] && echo "death_signature" || echo "staleness")
+     node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
+       --type coordinator_death_detected \
+       --data '{"phase": {N}, "reason": "'"${REASON}"'", "reset_time_iso": "'"${RESET_TIME_ISO}"'"}'
+     ```
+   - Get the resume brief before doing anything else:
+     ```bash
+     RESUME_BRIEF=$(node ~/.claude/get-shit-done/bin/gsd-tools.js resilience resume-brief {N})
+     BRIEF_TEXT=$(node -e "console.log(JSON.parse(process.argv[1]).brief_text)" "$RESUME_BRIEF")
+     RESUME_FROM=$(node -e "console.log(JSON.parse(process.argv[1]).resume_from)" "$RESUME_BRIEF")
+     ```
+     If the phase's CHECKPOINT.json is missing entirely (coordinator died before its first checkpoint), `resilience resume-brief` already reports `resume_from: "discuss"` and a "starting from scratch" `brief_text` — this workflow needs no special-case handling for the missing-checkpoint case beyond the loud logging above; it is never a silent no-op.
+   - **Wait-until-reset:** if `RESET_TIME_ISO` is non-empty, compute the wait duration and cap it at a sane maximum (6 hours) — if the reset time is implausibly far out (or unparseable/negative), do NOT sleep; log and escalate instead:
+     ```bash
+     NOW_EPOCH=$(date -u +%s)
+     RESET_EPOCH=$(date -u -d "${RESET_TIME_ISO}" +%s 2>/dev/null || date -u -jf "%Y-%m-%dT%H:%M:%S" "${RESET_TIME_ISO%%.*}" +%s 2>/dev/null || echo "")
+     MAX_WAIT_SECONDS=$((6 * 3600))
+     WAIT_SECONDS=$([ -n "$RESET_EPOCH" ] && echo $((RESET_EPOCH - NOW_EPOCH)) || echo -1)
+     ```
+     - If `WAIT_SECONDS` is negative or exceeds `MAX_WAIT_SECONDS`: log and escalate instead of hanging:
+       ```bash
+       node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
+         --type death_reset_time_implausible \
+         --data '{"phase": {N}, "reset_time_iso": "'"${RESET_TIME_ISO}"'", "wait_seconds": '"${WAIT_SECONDS}"', "cap_seconds": '"${MAX_WAIT_SECONDS}"'}'
+       ```
+       Escalate via the same fire-and-forget Telegram notification pattern used in `handle_failure` step 3 (if `telegram_topic_id` is not null) — do not respawn immediately in this case; treat it the same as a phase failure requiring human awareness (falls through to `handle_failure`).
+     - Otherwise, actually pause with a polling sleep loop (matching the Charlotte QA health-check polling pattern used elsewhere in this codebase) until the reset time is reached, THEN proceed to respawn:
+       ```bash
+       while [ "$(date -u +%s)" -lt "${RESET_EPOCH}" ]; do
+         sleep 60
+       done
+       ```
+   - **Respawn** — a fresh `Agent()` call, not a retry of the dead one: re-run the exact same `Agent(subagent_type="gsd-phase-coordinator", ...)` spawn block from step 4 above, but prepend `BRIEF_TEXT` to the prompt with a clear "RESUMING FROM DEATH" preamble (reuse the brief text verbatim — do not re-derive it):
+     ```
+     Agent(
+       subagent_type="gsd-phase-coordinator",
+       model="{COORDINATOR_MODEL}",
+       description="Execute phase {N} (auto-resume)",
+       prompt="{BRIEF_TEXT}
+
+       Execute Phase {N}: {name}
+       ... (identical remaining prompt body to step 4's spawn block above — full lifecycle, HARD RULES, CONTEXT OVERFLOW PREVENTION, telegram_topic_id, structured completion state) ...
+       "
+     )
+     ```
+   - Log the auto-resume spawn:
+     ```bash
+     node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
+       --type auto_resume_spawned \
+       --data '{"phase": {N}, "resume_from": "'"${RESUME_FROM}"'"}'
+     ```
+   - After respawn, fall through to step 5's existing status-branching logic on the NEW return value (the respawned coordinator's actual completion status) — 4a itself never decides completed/failed/etc., it only gets a fresh attempt running.
+   - **No human input required for this path.** If Telegram is configured, send a fire-and-forget notification (matching this file's existing "zero blocking call sites" precedent) but do not wait for a reply before respawning:
+     ```
+     if telegram_topic_id is not null:
+       mcp__telegram__send_message({
+         text: "Phase {N}: coordinator death detected ({REASON}), auto-resuming from {RESUME_FROM}...",
+         thread_id: telegram_topic_id
+       })
+     ```
+
+5. **If NOT presumed dead:** proceed directly to step 5's existing logic below, unchanged.
+
 **5. Handle result:**
 - `status: "completed"`: proceed to **5a** (Charlotte gate) then **5b** (integration gate)
 - `status: "completed_with_deferrals"`: coordinator hit context limits. Spawn fresh agents for deferred steps:
@@ -394,6 +479,8 @@ node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
 
 <step name="handle_failure">
 On phase failure:
+
+**Scope note:** `handle_failure` is entered ONLY for genuine `status: "failed"` task-logic failures. A detected coordinator death (session/quota-limit death or CHECKPOINT.json staleness) is handled entirely by `execute_phases` step 4a above and never reaches this retry/debug/escalate ladder — a session/quota death retried immediately here would just die again before the reset, which is exactly the failure mode 4a exists to avoid. (The one exception: an implausible reset time detected in 4a explicitly falls through to this step, since that case genuinely needs human/escalation visibility rather than a blind respawn.)
 
 1. **Log failure:**
 ```bash
