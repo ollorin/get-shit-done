@@ -8584,3 +8584,183 @@ describe('Phase 52-01: SessionStart skew-check helpers + execute-roadmap.md pref
     });
   });
 });
+
+describe('Phase 52-02: telemetry append/summarize', () => {
+  const { summarizeTelemetryReports, appendTelemetryReport, readTelemetryReports } = require(TOOLS_PATH);
+
+  test('summarizeTelemetryReports([]) returns the safe empty-summary shape', () => {
+    const result = summarizeTelemetryReports([]);
+    assert.deepStrictEqual(result, {
+      count: 0,
+      avg_context_pressure: null,
+      total_tool_errors_swallowed: 0,
+      instructions_not_followed_by_rule: {},
+      top_ambiguities: [],
+    });
+  });
+
+  test('overlapping instructions_not_followed rule names sum per-rule counts across reports', () => {
+    const reports = [
+      { instructions_not_followed: [{ rule: 'rule-A', why: 'x' }, { rule: 'rule-B', why: 'y' }] },
+      { instructions_not_followed: [{ rule: 'rule-A', why: 'z' }] },
+      { instructions_not_followed: [{ rule: 'rule-A', why: 'w' }, { rule: 'rule-B', why: 'v' }] },
+    ];
+    const result = summarizeTelemetryReports(reports);
+    assert.strictEqual(result.instructions_not_followed_by_rule['rule-A'], 3);
+    assert.strictEqual(result.instructions_not_followed_by_rule['rule-B'], 2);
+  });
+
+  test('avg_context_pressure only averages over reports where context_pressure is a number (nulls/missing excluded, not treated as 0)', () => {
+    const reports = [
+      { context_pressure: 0.5 },
+      { context_pressure: null },
+      { context_pressure: 0.9 },
+      {}, // missing entirely
+    ];
+    const result = summarizeTelemetryReports(reports);
+    assert.strictEqual(result.avg_context_pressure, 0.7);
+  });
+
+  test('total_tool_errors_swallowed sums across all reports', () => {
+    const reports = [
+      { tool_errors_swallowed: 2 },
+      { tool_errors_swallowed: 3 },
+      { tool_errors_swallowed: 0 },
+      {}, // missing -> treated as 0, not skipped
+    ];
+    const result = summarizeTelemetryReports(reports);
+    assert.strictEqual(result.total_tool_errors_swallowed, 5);
+  });
+
+  test('top_ambiguities dedupes identical strings across reports, sorts by frequency descending, capped at 5', () => {
+    const reports = [
+      { ambiguities: ['ambiguous instruction A', 'ambiguous instruction B'] },
+      { ambiguities: ['ambiguous instruction A'] },
+      { ambiguities: ['ambiguous instruction A', 'ambiguous instruction C'] },
+      { ambiguities: ['ambiguous instruction D'] },
+      { ambiguities: ['ambiguous instruction E'] },
+      { ambiguities: ['ambiguous instruction F'] },
+      { ambiguities: ['ambiguous instruction G'] },
+    ];
+    const result = summarizeTelemetryReports(reports);
+    assert.strictEqual(result.top_ambiguities.length, 5);
+    assert.strictEqual(result.top_ambiguities[0].text, 'ambiguous instruction A');
+    assert.strictEqual(result.top_ambiguities[0].count, 3);
+    // Descending order check
+    for (let i = 1; i < result.top_ambiguities.length; i++) {
+      assert.ok(result.top_ambiguities[i - 1].count >= result.top_ambiguities[i].count);
+    }
+  });
+
+  describe('appendTelemetryReport / readTelemetryReports round-trip', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+      tmpDir = createTempProject();
+    });
+
+    afterEach(() => {
+      cleanup(tmpDir);
+    });
+
+    test('appends 2 reports, reads them back with correct shape and field values', () => {
+      appendTelemetryReport(tmpDir, 'gsd-executor', '52', {
+        context_pressure: 0.4,
+        instructions_not_followed: [{ rule: 'Rule 1', why: 'test' }],
+        ambiguities: ['unclear thing'],
+        tool_errors_swallowed: 1,
+      });
+      appendTelemetryReport(tmpDir, 'gsd-verifier', '52', {
+        context_pressure: 0.6,
+        instructions_not_followed: [],
+        ambiguities: [],
+        tool_errors_swallowed: 0,
+      });
+
+      const reports = readTelemetryReports(tmpDir);
+      assert.strictEqual(reports.length, 2);
+      assert.strictEqual(reports[0].agent, 'gsd-executor');
+      assert.strictEqual(reports[0].phase, '52');
+      assert.strictEqual(reports[0].context_pressure, 0.4);
+      assert.deepStrictEqual(reports[0].instructions_not_followed, [{ rule: 'Rule 1', why: 'test' }]);
+      assert.deepStrictEqual(reports[0].ambiguities, ['unclear thing']);
+      assert.strictEqual(reports[0].tool_errors_swallowed, 1);
+      assert.strictEqual(reports[1].agent, 'gsd-verifier');
+      assert.strictEqual(typeof reports[0].timestamp, 'string');
+      assert.strictEqual(typeof reports[1].timestamp, 'string');
+    });
+
+    test('agent/phase/timestamp are always present even when the caller passes no fields at all', () => {
+      appendTelemetryReport(tmpDir, 'gsd-phase-coordinator', '52', undefined);
+      const reports = readTelemetryReports(tmpDir);
+      assert.strictEqual(reports.length, 1);
+      assert.strictEqual(reports[0].agent, 'gsd-phase-coordinator');
+      assert.strictEqual(reports[0].phase, '52');
+      assert.strictEqual(typeof reports[0].timestamp, 'string');
+      assert.ok(reports[0].timestamp.length > 0);
+    });
+
+    test('omitting instructions_not_followed/ambiguities/tool_errors_swallowed/context_pressure entirely gets safe defaults, never undefined', () => {
+      appendTelemetryReport(tmpDir, 'gsd-executor', '52', {});
+      const reports = readTelemetryReports(tmpDir);
+      assert.strictEqual(reports.length, 1);
+      assert.strictEqual(reports[0].context_pressure, null);
+      assert.deepStrictEqual(reports[0].instructions_not_followed, []);
+      assert.deepStrictEqual(reports[0].ambiguities, []);
+      assert.strictEqual(reports[0].tool_errors_swallowed, 0);
+      // Never undefined
+      assert.notStrictEqual(reports[0].context_pressure, undefined);
+      assert.notStrictEqual(reports[0].instructions_not_followed, undefined);
+      assert.notStrictEqual(reports[0].ambiguities, undefined);
+      assert.notStrictEqual(reports[0].tool_errors_swallowed, undefined);
+    });
+
+    test('a malformed line manually injected into the JSONL file is skipped (with a warning), remaining valid lines still returned', () => {
+      appendTelemetryReport(tmpDir, 'gsd-executor', '52', { context_pressure: 0.3 });
+      const telemetryPath = path.join(tmpDir, '.planning', 'telemetry', 'agent-reports.jsonl');
+      fs.appendFileSync(telemetryPath, 'NOT VALID JSON\n');
+      appendTelemetryReport(tmpDir, 'gsd-verifier', '52', { context_pressure: 0.5 });
+
+      const originalWarn = console.warn;
+      const warnings = [];
+      console.warn = (msg) => warnings.push(msg);
+      let reports;
+      try {
+        reports = readTelemetryReports(tmpDir);
+      } finally {
+        console.warn = originalWarn;
+      }
+      assert.strictEqual(reports.length, 2, 'malformed line must be skipped, not thrown');
+      assert.strictEqual(reports[0].agent, 'gsd-executor');
+      assert.strictEqual(reports[1].agent, 'gsd-verifier');
+      assert.ok(warnings.some((w) => /malformed telemetry/i.test(w)), 'expected a console.warn about the malformed line');
+    });
+  });
+
+  describe('telemetry CLI smoke test', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+      tmpDir = createTempProject();
+    });
+
+    afterEach(() => {
+      cleanup(tmpDir);
+    });
+
+    test('telemetry append followed by telemetry summarize reflects appended values', () => {
+      const appendResult = runGsdTools(
+        `telemetry append --agent gsd-executor --phase 52 --context-pressure 0.4 --tool-errors-swallowed 2`,
+        tmpDir
+      );
+      assert.ok(appendResult.success, `append should exit 0: ${appendResult.error}`);
+
+      const summarizeResult = runGsdTools('telemetry summarize --raw', tmpDir);
+      assert.ok(summarizeResult.success, `summarize should exit 0: ${summarizeResult.error}`);
+      const summary = JSON.parse(summarizeResult.output);
+      assert.strictEqual(summary.count, 1);
+      assert.strictEqual(summary.avg_context_pressure, 0.4);
+      assert.strictEqual(summary.total_tool_errors_swallowed, 2);
+    });
+  });
+});
