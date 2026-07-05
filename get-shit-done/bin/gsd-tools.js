@@ -1707,30 +1707,125 @@ function stateReplaceField(content, fieldName, newValue) {
   return null;
 }
 
+// Tolerant field extractor: tries the bold `**Field:**` pattern first (back-compat
+// with stateExtractField's existing contract), falls back to a plain multiline
+// `Field: value` line match for STATE.md's real plain-prose format.
+function stateExtractFieldTolerant(content, fieldName) {
+  const bold = stateExtractField(content, fieldName);
+  if (bold !== null) return bold;
+  const escaped = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`^\\s*${escaped}:\\s*(.*)$`, 'im');
+  const match = content.match(pattern);
+  return match ? match[1].trim() : null;
+}
+
+// Tolerant field replacer: tries the bold pattern first (unchanged behavior for
+// bold-field STATE.md), falls back to a plain multiline `Field: value` line
+// replacement. Returns null if neither pattern matched (matching stateReplaceField's
+// existing null-on-no-match contract).
+function stateReplaceFieldTolerant(content, fieldName, newValue) {
+  const bold = stateReplaceField(content, fieldName, newValue);
+  if (bold !== null) return bold;
+  const escaped = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`(^\\s*${escaped}:\\s*).*$`, 'im');
+  if (pattern.test(content)) {
+    return content.replace(pattern, `$1${newValue}`);
+  }
+  return null;
+}
+
+// Composite parser for the real STATE.md "Plan: {N} of {M}{suffix}" line, which
+// encodes both the current plan number and the total in a single plain-prose
+// line (there is no separate bold "Total Plans in Phase" field in the real file).
+function parsePlanProgressLine(content) {
+  const pattern = /^\s*Plan:\s*(\d+)\s*of\s*(\d+)\s*(.*)$/im;
+  const match = content.match(pattern);
+  if (!match) return null;
+  return {
+    currentPlan: parseInt(match[1], 10),
+    totalPlans: parseInt(match[2], 10),
+    suffix: match[3].trim(),
+    lineText: match[0],
+  };
+}
+
+// Reconstructs and replaces the "Plan: {N} of {M}{suffix}" line, preserving the
+// suffix prose verbatim (only the current-plan number is this command's job --
+// the suffix's narrative text is not this command's responsibility to rewrite).
+function replacePlanProgressLine(content, newCurrentPlan, totalPlans, suffix) {
+  const pattern = /^\s*Plan:\s*(\d+)\s*of\s*(\d+)\s*(.*)$/im;
+  if (!pattern.test(content)) return null;
+  const newLine = `Plan: ${newCurrentPlan} of ${totalPlans}${suffix ? ' ' + suffix : ''}`;
+  return content.replace(pattern, newLine);
+}
+
+// Read-only reader for the "Phase: {N} of {M}" line -- used for context in the
+// advance-plan output payload only. This command does NOT auto-advance the
+// phase number, matching existing behavior (only the plan counter within the
+// current phase advances).
+function parsePhaseProgressLine(content) {
+  const pattern = /^\s*Phase:\s*(\d+)\s*of\s*(\d+)/im;
+  const match = content.match(pattern);
+  if (!match) return null;
+  return { currentPhase: parseInt(match[1], 10), totalPhases: parseInt(match[2], 10) };
+}
+
 function cmdStateAdvancePlan(cwd, raw) {
   const statePath = path.join(cwd, '.planning', 'STATE.md');
   if (!fs.existsSync(statePath)) { output({ error: 'STATE.md not found' }, raw); return; }
 
   let content = fs.readFileSync(statePath, 'utf-8');
-  const currentPlan = parseInt(stateExtractField(content, 'Current Plan'), 10);
-  const totalPlans = parseInt(stateExtractField(content, 'Total Plans in Phase'), 10);
   const today = new Date().toISOString().split('T')[0];
 
-  if (isNaN(currentPlan) || isNaN(totalPlans)) {
+  // Try the existing bold-field path FIRST -- if both bold fields parse to
+  // valid numbers, keep the exact existing behavior unchanged (back-compat
+  // with any STATE.md already using bold fields, and with existing tests).
+  const boldCurrentPlan = parseInt(stateExtractField(content, 'Current Plan'), 10);
+  const boldTotalPlans = parseInt(stateExtractField(content, 'Total Plans in Phase'), 10);
+
+  if (!isNaN(boldCurrentPlan) && !isNaN(boldTotalPlans)) {
+    const currentPlan = boldCurrentPlan;
+    const totalPlans = boldTotalPlans;
+
+    if (currentPlan >= totalPlans) {
+      content = stateReplaceField(content, 'Status', 'Phase complete — ready for verification') || content;
+      content = stateReplaceField(content, 'Last Activity', today) || content;
+      atomicWriteFileSync(statePath, content);
+      output({ advanced: false, reason: 'last_plan', current_plan: currentPlan, total_plans: totalPlans, status: 'ready_for_verification' }, raw, 'false');
+    } else {
+      const newPlan = currentPlan + 1;
+      content = stateReplaceField(content, 'Current Plan', String(newPlan)) || content;
+      content = stateReplaceField(content, 'Status', 'Ready to execute') || content;
+      content = stateReplaceField(content, 'Last Activity', today) || content;
+      atomicWriteFileSync(statePath, content);
+      output({ advanced: true, previous_plan: currentPlan, current_plan: newPlan, total_plans: totalPlans }, raw, 'true');
+    }
+    return;
+  }
+
+  // Fall back to the real plain-prose "Plan: {N} of {M}{suffix}" line shape.
+  const parsed = parsePlanProgressLine(content);
+  if (!parsed) {
     output({ error: 'Cannot parse Current Plan or Total Plans in Phase from STATE.md' }, raw);
     return;
   }
 
+  const { currentPlan, totalPlans, suffix } = parsed;
+
   if (currentPlan >= totalPlans) {
-    content = stateReplaceField(content, 'Status', 'Phase complete — ready for verification') || content;
-    content = stateReplaceField(content, 'Last Activity', today) || content;
+    // Preserve the parsed suffix verbatim if it already indicates completion --
+    // do not double up wording (e.g. "in current phase complete" appearing twice).
+    const completionSuffix = /complete/i.test(suffix) ? suffix : 'in current phase complete';
+    content = replacePlanProgressLine(content, currentPlan, totalPlans, completionSuffix) || content;
+    content = stateReplaceFieldTolerant(content, 'Status', 'Phase complete — ready for verification') || content;
+    content = stateReplaceFieldTolerant(content, 'Last activity', today) || content;
     atomicWriteFileSync(statePath, content);
     output({ advanced: false, reason: 'last_plan', current_plan: currentPlan, total_plans: totalPlans, status: 'ready_for_verification' }, raw, 'false');
   } else {
     const newPlan = currentPlan + 1;
-    content = stateReplaceField(content, 'Current Plan', String(newPlan)) || content;
-    content = stateReplaceField(content, 'Status', 'Ready to execute') || content;
-    content = stateReplaceField(content, 'Last Activity', today) || content;
+    content = replacePlanProgressLine(content, newPlan, totalPlans, suffix) || content;
+    content = stateReplaceFieldTolerant(content, 'Status', 'Ready to execute') || content;
+    content = stateReplaceFieldTolerant(content, 'Last activity', today) || content;
     atomicWriteFileSync(statePath, content);
     output({ advanced: true, previous_plan: currentPlan, current_plan: newPlan, total_plans: totalPlans }, raw, 'true');
   }
@@ -1798,9 +1893,17 @@ function cmdStateUpdateProgress(cwd, raw) {
   const bar = '\u2588'.repeat(filled) + '\u2591'.repeat(barWidth - filled);
   const progressStr = `[${bar}] ${percent}%`;
 
-  const progressPattern = /(\*\*Progress:\*\*\s*).*/i;
-  if (progressPattern.test(content)) {
-    content = content.replace(progressPattern, `$1${progressStr}`);
+  // Try the existing bold `**Progress:**` pattern first (unchanged behavior),
+  // fall back to the real plain (non-bold) `Progress:` line.
+  const boldProgressPattern = /(\*\*Progress:\*\*\s*).*/i;
+  const plainProgressPattern = /^(\s*Progress:\s*).*/im;
+
+  if (boldProgressPattern.test(content)) {
+    content = content.replace(boldProgressPattern, `$1${progressStr}`);
+    atomicWriteFileSync(statePath, content);
+    output({ updated: true, percent, completed: totalSummaries, total: totalPlans, bar: progressStr }, raw, progressStr);
+  } else if (plainProgressPattern.test(content)) {
+    content = content.replace(plainProgressPattern, `$1${progressStr}`);
     atomicWriteFileSync(statePath, content);
     output({ updated: true, percent, completed: totalSummaries, total: totalPlans, bar: progressStr }, raw, progressStr);
   } else {
