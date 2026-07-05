@@ -581,7 +581,7 @@ Plans:
 | 46. Artifact-Generation & Coverage Gates | 4/4 | Complete   | 2026-07-04 | - |
 | 47. Telegram Escalation Reliability | 3/3 | Complete   | 2026-07-04 | - |
 | 48. Satellite Injections: Mining, Discovery, Debugger | 4/4 | Complete   | 2026-07-04 | - |
-| 49. Knowledge Auto-Wiring & CLI Cleanup | 4/4 | Complete   | 2026-07-05 | - |
+| 49. Knowledge Auto-Wiring & CLI Cleanup | 4/4 | Complete    | 2026-07-05 | - |
 | 50. Final Deletions & Verification Sweep | v1.14.0 | 0/TBD | Not started | - |
 
 ---
