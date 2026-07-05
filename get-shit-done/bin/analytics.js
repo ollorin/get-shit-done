@@ -12,6 +12,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { getTiers } = require('./model-registry');
 
 // Lazy-load execution-log to avoid circular dependency issues
 function getHistory(projectPath) {
@@ -229,12 +230,16 @@ function generateReport(projectPath) {
 
   // --- Model Tier Distribution ---
   const routingEvents = events.filter(e => e.type === 'routing_decision' || e.type === 'task_dispatch');
-  const tierCounts = { haiku: 0, sonnet: 0, opus: 0, unknown: 0 };
+  // Tier key set is sourced from the single-source-of-truth model registry
+  // (MILE-27) instead of a hardcoded literal; the fixed `unknown` bucket catches
+  // any tier the registry doesn't know about. Output is identical to the prior
+  // haiku/sonnet/opus/unknown literal for the tiers getTiers() currently returns.
+  const tierCounts = {};
+  for (const t of getTiers()) tierCounts[t] = 0;
+  tierCounts.unknown = 0;
   for (const ev of routingEvents) {
     const tier = (ev.model || ev.tier || '').toLowerCase();
-    if (tier === 'haiku') tierCounts.haiku++;
-    else if (tier === 'sonnet') tierCounts.sonnet++;
-    else if (tier === 'opus') tierCounts.opus++;
+    if (Object.prototype.hasOwnProperty.call(tierCounts, tier) && tier !== 'unknown') tierCounts[tier]++;
     else tierCounts.unknown++;
   }
 

@@ -5290,7 +5290,10 @@ function countTestCalls(content) {
 }
 function countAssertions(content) {
   if (!content) return 0;
-  const matches = content.match(/\b(?:expect|assert)\s*\(/g);
+  // Recognize namespace-style calls (assert.equal(, assert.deepStrictEqual(, ...)
+  // in addition to bare expect(/assert( -- the optional (?:\.\w+)? group matches
+  // a single method segment after `assert` before the opening paren (MILE-27).
+  const matches = content.match(/\b(?:expect|assert(?:\.\w+)?)\s*\(/g);
   return matches ? matches.length : 0;
 }
 
@@ -13296,6 +13299,8 @@ module.exports = {
   summarizeTelemetryReports,
   appendTelemetryReport,
   readTelemetryReports,
+  countTestCalls,
+  countAssertions,
 };
 
 // Only auto-run when invoked directly as a CLI (`node gsd-tools.js ...`), not

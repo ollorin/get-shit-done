@@ -4,13 +4,13 @@
 // works without it (checkExecution, getAdaptiveThresholds, etc. are dependency-free)
 const fs = require('fs');
 const path = require('path');
+const { getAllThresholds } = require('./model-registry');
 
-// Base thresholds per model (user decision: configurable per model)
-const BASE_THRESHOLDS = {
-  haiku: { timeout_ms: 20 * 60 * 1000, iterations: 15 },  // 20min
-  sonnet: { timeout_ms: 40 * 60 * 1000, iterations: 20 }, // 40min
-  opus: { timeout_ms: 60 * 60 * 1000, iterations: 25 }    // 60min
-};
+// Base thresholds per model (user decision: configurable per model).
+// Sourced from the single-source-of-truth model registry (MILE-27) instead of
+// a duplicated literal; the variable name is kept as a thin re-export so every
+// downstream reference to BASE_THRESHOLDS in this file is unchanged.
+const BASE_THRESHOLDS = getAllThresholds();
 
 // Default complexity keywords for task complexity estimation
 const DEFAULT_COMPLEXITY_KEYWORDS = [
