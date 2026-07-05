@@ -7821,7 +7821,13 @@ async function cmdPhaseCleanupCheckpoints(_cwd, phaseNum, raw) {
 function milestoneAlreadyRecorded(milestonesContent, version) {
   if (!milestonesContent || !version) return false;
   const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const heading = new RegExp('^##\\s+' + escaped + '\\b', 'm');
+  // Negative lookahead (not a plain \b) -- a plain word-boundary assertion
+  // treats "." as a non-word char, so "v1.0" would falsely match a "v1.0.1"
+  // heading (boundary fires right after the shared "v1.0" prefix). Requiring
+  // the next character to be neither a word char NOR "." prevents a shorter
+  // version from false-positive-matching a longer dotted version that
+  // extends it, in either direction.
+  const heading = new RegExp('^##\\s+' + escaped + '(?![\\w.])', 'm');
   return heading.test(milestonesContent);
 }
 

@@ -1752,6 +1752,100 @@ describe('milestone complete command', () => {
     assert.ok(milestones.includes('v0.9 Alpha'), 'existing entry should be preserved');
     assert.ok(milestones.includes('v1.0 Beta'), 'new entry should be appended');
   });
+
+  // ── milestoneAlreadyRecorded (pure function) — MILE-28 crash-point audit ──
+
+  test('milestoneAlreadyRecorded returns false for empty/null content', () => {
+    const { milestoneAlreadyRecorded } = require(TOOLS_PATH);
+    assert.strictEqual(milestoneAlreadyRecorded('', 'v1.0'), false, 'empty content should return false');
+    assert.strictEqual(milestoneAlreadyRecorded(null, 'v1.0'), false, 'null content should return false');
+    assert.strictEqual(milestoneAlreadyRecorded('## v1.0 Foo', ''), false, 'empty version should return false');
+    assert.strictEqual(milestoneAlreadyRecorded('## v1.0 Foo', null), false, 'null version should return false');
+  });
+
+  test('milestoneAlreadyRecorded returns true when content has a matching version heading', () => {
+    const { milestoneAlreadyRecorded } = require(TOOLS_PATH);
+    assert.strictEqual(
+      milestoneAlreadyRecorded('## v1.0 Foo (Shipped: 2026-01-01)\n\nSome details.\n', 'v1.0'),
+      true,
+      'should detect an existing ## v1.0 heading'
+    );
+  });
+
+  test('milestoneAlreadyRecorded returns false without a false-positive substring match', () => {
+    const { milestoneAlreadyRecorded } = require(TOOLS_PATH);
+    // Content has v1.0 heading, but we're checking for v1.1 -- must not match.
+    assert.strictEqual(
+      milestoneAlreadyRecorded('## v1.0 Foo (Shipped: 2026-01-01)\n', 'v1.1'),
+      false,
+      'v1.1 should not match a v1.0 heading'
+    );
+    // v1.0 must not match against a v1.0.1 heading (word boundary check).
+    assert.strictEqual(
+      milestoneAlreadyRecorded('## v1.0.1 Patch (Shipped: 2026-01-01)\n', 'v1.0'),
+      false,
+      'v1.0 should not false-positive match a v1.0.1 heading'
+    );
+    // v1.0.1 must not match against a plain v1.0 heading either.
+    assert.strictEqual(
+      milestoneAlreadyRecorded('## v1.0 Foo (Shipped: 2026-01-01)\n', 'v1.0.1'),
+      false,
+      'v1.0.1 should not false-positive match a v1.0 heading'
+    );
+  });
+
+  test('milestoneAlreadyRecorded handles regex-special characters in version without throwing', () => {
+    const { milestoneAlreadyRecorded } = require(TOOLS_PATH);
+    assert.doesNotThrow(() => {
+      milestoneAlreadyRecorded('## v1.0+beta Foo (Shipped: 2026-01-01)\n', 'v1.0+beta');
+    });
+    assert.strictEqual(
+      milestoneAlreadyRecorded('## v1.0+beta Foo (Shipped: 2026-01-01)\n', 'v1.0+beta'),
+      true,
+      'should match a version containing regex-special characters like +'
+    );
+  });
+
+  // ── cmdMilestoneComplete double-invocation idempotency — MILE-28 ──
+
+  test('re-running milestone complete for the same version does not duplicate the MILESTONES.md entry', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      `# Roadmap v1.0 MVP\n\n### Phase 1: Foundation\n**Goal:** Setup\n`
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'STATE.md'),
+      `# State\n\n**Status:** In progress\n**Last Activity:** 2025-01-01\n**Last Activity Description:** Working\n`
+    );
+    const p1 = path.join(tmpDir, '.planning', 'phases', '01-foundation');
+    fs.mkdirSync(p1, { recursive: true });
+    fs.writeFileSync(
+      path.join(p1, '01-01-SUMMARY.md'),
+      `---\none-liner: Set up project infrastructure\n---\n# Summary\n`
+    );
+
+    // First call: normal full entry.
+    const first = runGsdTools('milestone complete v2.0 --name Rerun', tmpDir);
+    assert.ok(first.success, `First call failed: ${first.error}`);
+    const firstOutput = JSON.parse(first.output);
+    assert.strictEqual(firstOutput.milestones_appended, true, 'first call should append');
+    assert.strictEqual(firstOutput.milestones_updated, true, 'first call should report milestones_updated true');
+    assert.ok(
+      Array.isArray(firstOutput.accomplishments) && firstOutput.accomplishments.includes('Set up project infrastructure'),
+      'first call should include full accomplishments content'
+    );
+
+    // Second call, same version: simulates a re-run after a crash between this
+    // step and a later one -- must NOT duplicate the MILESTONES.md entry.
+    const second = runGsdTools('milestone complete v2.0 --name Rerun', tmpDir);
+    assert.ok(second.success, `Second call failed: ${second.error}`);
+    const secondOutput = JSON.parse(second.output);
+    assert.strictEqual(secondOutput.milestones_appended, false, 'second call should detect duplicate and skip append');
+
+    const milestones = fs.readFileSync(path.join(tmpDir, '.planning', 'MILESTONES.md'), 'utf-8');
+    const headingMatches = milestones.match(/^##\s+v2\.0\b/gm) || [];
+    assert.strictEqual(headingMatches.length, 1, 'MILESTONES.md should contain exactly one v2.0 heading after both calls');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
