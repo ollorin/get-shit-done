@@ -72,6 +72,55 @@ Wait for user response:
 **If `BRANCHING_STRATEGY` is "milestone" AND not on main:** Inform user which branch will be used (current branch — already correctly set up).
 </step>
 
+<step name="preflight_quota_estimate">
+Before presenting the execution plan in `confirm_execution` below, estimate whether the current quota budget can plausibly cover the phases about to run. Read-only + one CLI call + a conditional log/prompt — matches this workflow's "coordinator stays lean" core principle, no extra context cost.
+
+**1. Compute remaining phases** (reuse the exact same disk-status check `execute_phases` step 2 already uses for dependency checks — do not reinvent):
+```bash
+REMAINING_PHASES=0
+# For each phase in {execution_order}:
+for PHASE_NUM in {execution_order}; do
+  PHASE_INFO=$(node ~/.claude/get-shit-done/bin/gsd-tools.js roadmap get-phase ${PHASE_NUM})
+  DISK_STATUS=$(node -e "console.log(JSON.parse(process.argv[1]).disk_status || '')" "$PHASE_INFO")
+  if [ "$DISK_STATUS" != "complete" ]; then
+    REMAINING_PHASES=$((REMAINING_PHASES + 1))
+  fi
+done
+```
+
+**2. Run the estimate** (composes automatically with 51-01's self-healed `loadQuotaState` — never reads the raw quota file directly):
+```bash
+QUOTA_ESTIMATE=$(node ~/.claude/get-shit-done/bin/gsd-tools.js resilience estimate-quota --phases ${REMAINING_PHASES})
+SUFFICIENT=$(node -e "console.log(JSON.parse(process.argv[1]).sufficient)" "$QUOTA_ESTIMATE")
+ESTIMATED_TOKENS=$(node -e "console.log(JSON.parse(process.argv[1]).estimated_tokens)" "$QUOTA_ESTIMATE")
+REMAINING_BUDGET=$(node -e "console.log(JSON.parse(process.argv[1]).remaining_budget)" "$QUOTA_ESTIMATE")
+QUOTA_SOURCE=$(node -e "console.log(JSON.parse(process.argv[1]).source)" "$QUOTA_ESTIMATE")
+```
+
+**3. If `SUFFICIENT` is `false`:** this is a deliberate pause point, NOT a hard block — the human/autonomous caller can still choose to proceed. Log loudly:
+```bash
+node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
+  --type quota_preflight_insufficient \
+  --data '{"remaining_phases": '"${REMAINING_PHASES}"', "estimated_tokens": '"${ESTIMATED_TOKENS}"', "remaining_budget": '"${REMAINING_BUDGET}"', "source": "'"${QUOTA_SOURCE}"'"}'
+```
+Append to the `confirm_execution` prompt below:
+```
+⚠ Quota estimate: ~{ESTIMATED_TOKENS} tokens needed for {REMAINING_PHASES} remaining phases,
+but only ~{REMAINING_BUDGET} tokens remain in the current session quota (source: {QUOTA_SOURCE}).
+This run may hit a session/quota limit mid-phase.
+
+Type "yes" to proceed anyway, "wait" to pause until quota resets, or "stop" to cancel.
+```
+If autonomous (no human present — same convention as `gsd-phase-coordinator.md`'s no-Telegram/no-`ask_blocking_question` autonomous path): default to "yes" (proceed), but the loud log above still fires unconditionally — never silently downgrade or skip the warning.
+
+**4. If `SUFFICIENT` is `true`:** proceed silently (no extra prompt noise appended to `confirm_execution`), but still log for the analytics trail:
+```bash
+node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
+  --type quota_preflight_ok \
+  --data '{"remaining_phases": '"${REMAINING_PHASES}"', "estimated_tokens": '"${ESTIMATED_TOKENS}"', "remaining_budget": '"${REMAINING_BUDGET}"'}'
+```
+</step>
+
 <step name="confirm_execution">
 Present execution plan to user before any autonomous action:
 
