@@ -1645,7 +1645,7 @@ function install(isGlobal, runtime = 'claude') {
     const sessionEndHookPath = isGlobal
       ? path.join(targetDir, 'get-shit-done', 'bin', 'hooks', 'session-end-standalone.js').replace(/\\/g, '/')
       : path.join(dirName, 'get-shit-done', 'bin', 'hooks', 'session-end-standalone.js').replace(/\\/g, '/');
-    const sessionEndHookCommand = `node "${sessionEndHookPath}"`;
+    const sessionEndHookCommand = wrapWithTimeout(`node "${sessionEndHookPath}"`);
 
     if (!settings.hooks.Stop) {
       settings.hooks.Stop = [];
