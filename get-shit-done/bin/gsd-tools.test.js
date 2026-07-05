@@ -8349,3 +8349,138 @@ describe('execute-roadmap.md resilience wiring (Phase 51-03)', () => {
     assert.match(section, /entered ONLY for genuine `status: "failed"` task-logic failures/, 'handle_failure must have the new clarifying scope note distinguishing it from coordinator deaths');
   });
 });
+
+describe('Phase 52-01: skew detection (computeManifestDrift / cmdDoctor)', () => {
+  const { computeManifestDrift } = require(TOOLS_PATH);
+
+  test('identical maps -> clean: true, drifted: []', () => {
+    const installed = { 'a.js': 'hash1', 'b.js': 'hash2' };
+    const current = { 'a.js': 'hash1', 'b.js': 'hash2' };
+    const result = computeManifestDrift(installed, current);
+    assert.strictEqual(result.clean, true);
+    assert.deepStrictEqual(result.drifted, []);
+  });
+
+  test('one file with a different hash -> hash_mismatch', () => {
+    const installed = { 'a.js': 'hash1', 'b.js': 'hash2' };
+    const current = { 'a.js': 'hash1', 'b.js': 'DIFFERENT' };
+    const result = computeManifestDrift(installed, current);
+    assert.strictEqual(result.clean, false);
+    assert.deepStrictEqual(result.drifted, [{ path: 'b.js', reason: 'hash_mismatch' }]);
+  });
+
+  test('file present in installed but absent from current -> missing_in_source', () => {
+    const installed = { 'a.js': 'hash1', 'gone.js': 'hash2' };
+    const current = { 'a.js': 'hash1' };
+    const result = computeManifestDrift(installed, current);
+    assert.strictEqual(result.clean, false);
+    assert.deepStrictEqual(result.drifted, [{ path: 'gone.js', reason: 'missing_in_source' }]);
+  });
+
+  test('file present ONLY in current (new file added post-manifest) is NOT reported as drift', () => {
+    const installed = { 'a.js': 'hash1' };
+    const current = { 'a.js': 'hash1', 'new-file.js': 'hash-new' };
+    const result = computeManifestDrift(installed, current);
+    assert.strictEqual(result.clean, true);
+    assert.deepStrictEqual(result.drifted, []);
+  });
+
+  test('reproduces the exact skew class this milestone hit: stale hash vs current hash for one known file', () => {
+    const knownFile = 'get-shit-done/workflows/execute-roadmap.md';
+    const staleInstalled = { [knownFile]: 'stale-hash-abc123' };
+    const driftedCurrent = { [knownFile]: 'current-hash-xyz789' };
+    const drift = computeManifestDrift(staleInstalled, driftedCurrent);
+    assert.strictEqual(drift.clean, false);
+    assert.strictEqual(drift.drifted.length, 1);
+    assert.deepStrictEqual(drift.drifted[0], { path: knownFile, reason: 'hash_mismatch' });
+
+    const matchingInstalled = { [knownFile]: 'same-hash-abc123' };
+    const matchingCurrent = { [knownFile]: 'same-hash-abc123' };
+    const clean = computeManifestDrift(matchingInstalled, matchingCurrent);
+    assert.strictEqual(clean.clean, true);
+    assert.deepStrictEqual(clean.drifted, []);
+  });
+
+  describe('cmdDoctor via CLI', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+      tmpDir = createTempProject();
+    });
+
+    afterEach(() => {
+      cleanup(tmpDir);
+    });
+
+    test('--config-dir pointed at a tmp dir with no manifest -> exit 0, "No installed manifest found"', () => {
+      const emptyConfigDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-doctor-empty-'));
+      try {
+        const result = runGsdTools(`doctor --config-dir "${emptyConfigDir}"`, tmpDir);
+        assert.ok(result.success, `command should exit 0: ${result.error}`);
+        assert.match(result.output, /No installed manifest found/);
+      } finally {
+        cleanup(emptyConfigDir);
+      }
+    });
+
+    test('fixture with drifted file -> --raw JSON reports clean: false and the drifted path', () => {
+      const configDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-doctor-config-'));
+      const sourceCheckout = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-doctor-checkout-'));
+      try {
+        // Sentinel file proving this cwd is treated as a GSD source checkout.
+        fs.mkdirSync(path.join(sourceCheckout, 'get-shit-done', 'bin'), { recursive: true });
+        fs.writeFileSync(path.join(sourceCheckout, 'get-shit-done', 'bin', 'gsd-tools.js'), '// sentinel\n');
+        // A second tracked file whose real hash will differ from the manifest's
+        // recorded (deliberately bogus) hash for that same path.
+        fs.writeFileSync(path.join(sourceCheckout, 'get-shit-done', 'other.js'), '// real current content\n');
+
+        const manifest = {
+          version: '0.0.0-test',
+          timestamp: new Date().toISOString(),
+          files: {
+            'get-shit-done/other.js': '0'.repeat(64), // bogus hash, guaranteed mismatch
+          },
+          // No source_git_sha -- forces the full-hash-diff path, not the git-SHA fast path.
+        };
+        fs.writeFileSync(path.join(configDir, 'gsd-file-manifest.json'), JSON.stringify(manifest, null, 2));
+
+        const result = runGsdTools(`doctor --config-dir "${configDir}" --raw`, sourceCheckout);
+        assert.ok(result.success, `command should exit 0: ${result.error}`);
+        const parsed = JSON.parse(result.output);
+        assert.strictEqual(parsed.ok, true);
+        assert.strictEqual(parsed.clean, false);
+        assert.strictEqual(parsed.method, 'file_hash');
+        assert.ok(
+          parsed.drifted.some((d) => d.path === 'get-shit-done/other.js' && d.reason === 'hash_mismatch'),
+          `expected drifted path get-shit-done/other.js, got: ${JSON.stringify(parsed.drifted)}`
+        );
+      } finally {
+        cleanup(configDir);
+        cleanup(sourceCheckout);
+      }
+    });
+
+    test('cwd that is NOT a GSD source checkout -> reports not_a_source_checkout, never attempts a hash diff', () => {
+      const configDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-doctor-config-'));
+      const notACheckout = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-doctor-notcheckout-'));
+      try {
+        const manifest = {
+          version: '0.0.0-test',
+          timestamp: new Date().toISOString(),
+          files: { 'get-shit-done/other.js': '0'.repeat(64) },
+        };
+        fs.writeFileSync(path.join(configDir, 'gsd-file-manifest.json'), JSON.stringify(manifest, null, 2));
+
+        const result = runGsdTools(`doctor --config-dir "${configDir}" --raw`, notACheckout);
+        assert.ok(result.success, `command should exit 0: ${result.error}`);
+        const parsed = JSON.parse(result.output);
+        assert.strictEqual(parsed.reason, 'not_a_source_checkout');
+        assert.strictEqual(parsed.clean, undefined, 'hash diff must never be attempted when not a source checkout');
+        assert.strictEqual(parsed.drifted, undefined, 'hash diff must never be attempted when not a source checkout');
+      } finally {
+        cleanup(configDir);
+        cleanup(notACheckout);
+      }
+    });
+  });
+});

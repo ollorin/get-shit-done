@@ -356,3 +356,51 @@ describe('require.main === module guard', () => {
     assert.strictEqual(typeof mod.wrapWithTimeout, 'function');
   });
 });
+
+describe('Phase 52-01: writeManifest source_git_sha capture', () => {
+  const { writeManifest } = require(INSTALL_JS_PATH);
+  let scratchConfigDir;
+
+  beforeEach(() => {
+    scratchConfigDir = createScratchDir('gsd-manifest-config-');
+  });
+
+  afterEach(() => {
+    cleanup(scratchConfigDir);
+  });
+
+  test('writes a non-null source_git_sha string when sourceRepoPath is a real git repo', () => {
+    // This repo's own root is a real git repo -- a solid fixture cwd.
+    const manifest = writeManifest(scratchConfigDir, REPO_ROOT);
+    assert.strictEqual(typeof manifest.source_git_sha, 'string');
+    assert.ok(manifest.source_git_sha.length > 0, 'source_git_sha should be a non-empty string');
+    assert.strictEqual(manifest.source_repo_path, REPO_ROOT);
+
+    const written = JSON.parse(fs.readFileSync(path.join(scratchConfigDir, 'gsd-file-manifest.json'), 'utf-8'));
+    assert.strictEqual(written.source_git_sha, manifest.source_git_sha);
+    assert.strictEqual(written.source_repo_path, REPO_ROOT);
+  });
+
+  test('writes source_git_sha: null when sourceRepoPath is a plain non-repo tmp dir', () => {
+    const nonRepoDir = createScratchDir('gsd-nonrepo-');
+    try {
+      const manifest = writeManifest(scratchConfigDir, nonRepoDir);
+      assert.strictEqual(manifest.source_git_sha, null);
+      assert.strictEqual(manifest.source_repo_path, nonRepoDir);
+    } finally {
+      cleanup(nonRepoDir);
+    }
+  });
+
+  test('never throws regardless of sourceRepoPath validity', () => {
+    assert.doesNotThrow(() => writeManifest(scratchConfigDir, REPO_ROOT));
+    const nonRepoDir = createScratchDir('gsd-nonrepo-');
+    try {
+      assert.doesNotThrow(() => writeManifest(scratchConfigDir, nonRepoDir));
+    } finally {
+      cleanup(nonRepoDir);
+    }
+    assert.doesNotThrow(() => writeManifest(scratchConfigDir, null));
+    assert.doesNotThrow(() => writeManifest(scratchConfigDir));
+  });
+});

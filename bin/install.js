@@ -1972,4 +1972,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { installHookDependencies, wrapWithTimeout };
+module.exports = { installHookDependencies, wrapWithTimeout, writeManifest };
