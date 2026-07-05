@@ -9055,3 +9055,165 @@ describe('Phase 52-03: countAssertions namespace-style fix', () => {
     assert.strictEqual(countTestCalls('test("x", () => {});'), 1);
   });
 });
+
+// ─── Phase 53-01: eval CLI (plan/assert) ─────────────────────────────────────
+describe('Phase 53-01: eval CLI (plan/assert)', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-eval-cli-test-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  // Like runGsdTools but also surfaces the real process exit code (needed
+  // here because `eval assert` uses distinct exit codes: 0 pass, 1 fail,
+  // 2 malformed/missing artifacts input -- mirrors the verify phase-gate
+  // test helper's runPhaseGate pattern above).
+  function runEvalCli(args, cwd) {
+    try {
+      const result = execSync(`node "${TOOLS_PATH}" ${args}`, {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      return { success: true, output: result.trim(), exitCode: 0 };
+    } catch (err) {
+      return {
+        success: false,
+        output: err.stdout?.toString().trim() || '',
+        error: err.stderr?.toString().trim() || '',
+        exitCode: err.status ?? 1,
+      };
+    }
+  }
+
+  function writeMinimalFixtureRoadmap(fixtureDir) {
+    fs.mkdirSync(fixtureDir, { recursive: true });
+    fs.writeFileSync(path.join(fixtureDir, 'ROADMAP.md'),
+      '# Roadmap: Tmp Fixture\n\n' +
+      '#### Phase 01: Add function\n**Goal**: add works.\n\n' +
+      '#### Phase 02: Multiply function\n**Goal**: multiply works.\n'
+    );
+  }
+
+  function fullyPassingExpectedPlan() {
+    return [
+      { phase: '01-add-function', agent: 'gsd-phase-researcher', tier: 'haiku' },
+      { phase: '01-add-function', agent: 'gsd-planner', tier: 'haiku' },
+      { phase: '01-add-function', agent: 'gsd-executor', tier: 'haiku' },
+      { phase: '01-add-function', agent: 'gsd-verifier', tier: 'haiku' },
+      { phase: '02-multiply-function', agent: 'gsd-phase-researcher', tier: 'haiku' },
+      { phase: '02-multiply-function', agent: 'gsd-planner', tier: 'haiku' },
+      { phase: '02-multiply-function', agent: 'gsd-executor', tier: 'haiku' },
+      { phase: '02-multiply-function', agent: 'gsd-verifier', tier: 'haiku' },
+    ];
+  }
+
+  function buildArtifactsDir(root, { includeDeferred = true } = {}) {
+    fs.mkdirSync(path.join(root, 'phases', '01-add-function'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'phases', '02-multiply-function'), { recursive: true });
+
+    fs.writeFileSync(path.join(root, 'phases', '01-add-function', '01-01-VERIFICATION.md'), '**Status:** passed\n');
+    fs.writeFileSync(path.join(root, 'phases', '02-multiply-function', '02-01-VERIFICATION.md'), '**Status:** passed\n');
+
+    if (includeDeferred) {
+      fs.writeFileSync(path.join(root, 'phases', '02-multiply-function', 'DEFERRED.json'), JSON.stringify([
+        { step: 'lookup-shared-constant', reason: 'lookup host unreachable', approver: 'executor', phase: '02', timestamp: '2026-07-05T00:00:00Z' },
+      ]));
+    }
+
+    const expectedPlan = fullyPassingExpectedPlan();
+    fs.writeFileSync(path.join(root, 'spawn-trace.json'), JSON.stringify(
+      expectedPlan.map(e => ({ ...e, timestamp: '2026-07-05T00:00:00Z' }))
+    ));
+
+    fs.writeFileSync(path.join(root, 'git-log.txt'),
+      'abc123 feat(01-01): task 1 implement add\n' +
+      'abc456 feat(02-01): task 1 implement multiply\n'
+    );
+
+    fs.writeFileSync(path.join(root, 'expectations.json'), JSON.stringify({
+      expectedPlan,
+      expectSkip: { '01-add-function': false, '02-multiply-function': true },
+      expectedCommitCount: 2,
+    }));
+  }
+
+  describe('eval plan', () => {
+    test('--fixture <dir> --raw against a minimal 2-phase ROADMAP.md prints valid JSON matching buildSpawnPlan shape, exits 0', () => {
+      const fixtureDir = path.join(tmpDir, 'fixture');
+      writeMinimalFixtureRoadmap(fixtureDir);
+
+      const result = runEvalCli('eval plan --fixture fixture --raw', tmpDir);
+      assert.ok(result.success, `eval plan should exit 0: ${result.error}`);
+      assert.strictEqual(result.exitCode, 0);
+
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.length, 8);
+      assert.strictEqual(parsed[0].phase, '01-add-function');
+      assert.strictEqual(parsed[0].agent, 'gsd-phase-researcher');
+      assert.strictEqual(parsed[0].tier, 'haiku');
+      assert.strictEqual(parsed[7].agent, 'gsd-verifier');
+    });
+  });
+
+  describe('eval assert', () => {
+    test('artifacts dir built to fully satisfy all four checks -> pass:true, exit 0', () => {
+      const artifactsDir = path.join(tmpDir, 'artifacts');
+      buildArtifactsDir(artifactsDir);
+
+      const result = runEvalCli('eval assert artifacts --raw', tmpDir);
+      assert.ok(result.success, `eval assert should exit 0: ${result.error}`);
+      assert.strictEqual(result.exitCode, 0);
+
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.pass, true);
+      assert.strictEqual(parsed.checks.agents_spawned.pass, true);
+      assert.strictEqual(parsed.checks.gates_fired.pass, true);
+      assert.strictEqual(parsed.checks.deferred_written.pass, true);
+      assert.strictEqual(parsed.checks.commits_atomic.pass, true);
+    });
+
+    test('missing DEFERRED.json where one was expected -> pass:false, checks.deferred_written.pass:false, exit 1', () => {
+      const artifactsDir = path.join(tmpDir, 'artifacts');
+      buildArtifactsDir(artifactsDir, { includeDeferred: false });
+
+      const result = runEvalCli('eval assert artifacts --raw', tmpDir);
+      assert.strictEqual(result.success, false, 'eval assert should exit non-zero when a mandatory gate/deferral is missing');
+      assert.strictEqual(result.exitCode, 1);
+
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.pass, false);
+      assert.strictEqual(parsed.checks.deferred_written.pass, false);
+    });
+
+    test('against a nonexistent directory -> clear error, no crash, exits non-zero', () => {
+      const result = runEvalCli('eval assert does-not-exist --raw', tmpDir);
+      assert.strictEqual(result.success, false);
+      assert.notStrictEqual(result.exitCode, 0);
+
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.error, true);
+      assert.strictEqual(parsed.type, 'artifacts_dir_not_found');
+    });
+  });
+
+  describe('eval with no/unknown subcommand', () => {
+    test('no subcommand -> "Unknown" / "required" style error, exits non-zero', () => {
+      const result = runEvalCli('eval', tmpDir);
+      assert.strictEqual(result.success, false);
+      assert.notStrictEqual(result.exitCode, 0);
+      assert.match(result.error, /subcommand required/i);
+    });
+
+    test('unknown subcommand -> "Unknown eval subcommand" style error, exits non-zero', () => {
+      const result = runEvalCli('eval bogus-subcommand', tmpDir);
+      assert.strictEqual(result.success, false);
+      assert.notStrictEqual(result.exitCode, 0);
+      assert.match(result.error, /Unknown eval subcommand/i);
+    });
+  });
+});
