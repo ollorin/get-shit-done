@@ -1492,6 +1492,20 @@ function install(isGlobal, runtime = 'claude') {
     }
   }
 
+  // Copy hook-config.json (only if not already deployed — preserves live circuit-breaker
+  // state / user tuning across reinstalls; config.js's loadHookConfig/saveHookConfig mutate
+  // this same file at runtime)
+  const hookConfigSrc = path.join(src, 'hook-config.json');
+  const hookConfigDest = path.join(targetDir, 'get-shit-done', 'hook-config.json');
+  if (fs.existsSync(hookConfigSrc) && !fs.existsSync(hookConfigDest)) {
+    fs.copyFileSync(hookConfigSrc, hookConfigDest);
+    if (verifyFileInstalled(hookConfigDest, 'hook-config.json')) {
+      console.log(`  ${green}✓${reset} Installed hook-config.json`);
+    } else {
+      failures.push('hook-config.json');
+    }
+  }
+
   // Write VERSION file
   const versionDest = path.join(targetDir, 'get-shit-done', 'VERSION');
   fs.writeFileSync(versionDest, pkg.version);
