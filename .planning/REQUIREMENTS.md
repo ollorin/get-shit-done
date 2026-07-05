@@ -102,7 +102,7 @@
 - [x] **MILE-23**: `execute-roadmap` auto-resumes coordinator deaths — on subagent death matching session/quota-limit patterns, read phase CHECKPOINT.json and auto-spawn a successor from `resume_from` (with wait-until-reset when a reset time is present) and a staleness-heartbeat check (no checkpoint/transcript writes for N minutes ⇒ presumed dead); pre-flight quota estimate before a run (doc 15 S-1) — deterministic helpers + resilience CLI namespace landed in Plan 51-02; execute-roadmap.md prose wiring lands in Plan 51-03, which fully satisfies this requirement
 - [x] **MILE-24**: Quota-tracker sanity — corrupted percentage readings (observed 28625%, 59196%) detected, reset, and logged loudly, never silently poisoning routing; STATE.md Current Position migrated to (or the `state advance-plan`/`update-progress` commands made tolerant of) the schema the CLI helpers expect, so manual state updates are no longer required (in-run findings, phases 44/49)
 - [x] **MILE-25**: Version-skew detection — install writes a content-hash manifest + source git SHA; SessionStart (or `gsd doctor`) compares installed vs repo and warns; execute-roadmap pre-flight asserts freshness when running inside the GSD repo (doc 15 S-4, hooks R-6)
-- [ ] **MILE-26**: Agent self-report telemetry — coordinator/executor/verifier return contracts extended with `{context_pressure, instructions_not_followed, ambiguities, tool_errors_swallowed}`, appended to a run JSONL and surfaced in the analytics report (doc 15 S-5)
+- [x] **MILE-26**: Agent self-report telemetry — coordinator/executor/verifier return contracts extended with `{context_pressure, instructions_not_followed, ambiguities, tool_errors_swallowed}`, appended to a run JSONL and surfaced in the analytics report (doc 15 S-5)
 - [ ] **MILE-27**: Model-registry indirection — tier→model mapping + per-tier operating parameters read from one config-sourced registry consumed by `gsd-circuit-breaker.js`/`gsd-escalation.js`/`analytics.js` (no duplicated tier tables); `verify test-content` `countAssertions` recognizes `assert.method(` namespace style (doc 15 S-7 + Phase 48 finding)
 - [ ] **MILE-28**: Workflow crash-point audit — enumerate state-mutating steps across golden-path workflows, classify idempotent/resumable/neither, fix the "neither" cases; document a quarterly upstream cherry-pick review policy and refresh UPSTREAM-DIFF.md as the first instance (doc 15 S-8, S-9)
 - [ ] **MILE-29**: Behavioral eval harness — golden mini-project fixture repo + eval runner executing plan→execute→verify with cheap models, asserting on artifacts (agents spawned, gates fired, DEFERRED.json on skip, atomic commits); runnable locally and wired into CI on prompt-file changes (doc 15 S-2)
@@ -170,7 +170,7 @@
 | MILE-23 | Phase 51 | Complete |
 | MILE-24 | Phase 51 | Complete |
 | MILE-25 | Phase 52 | Complete |
-| MILE-26 | Phase 52 | Pending |
+| MILE-26 | Phase 52 | Complete |
 | MILE-27 | Phase 52 | Pending |
 | MILE-28 | Phase 52 | Pending |
 | MILE-29 | Phase 53 | Pending |
