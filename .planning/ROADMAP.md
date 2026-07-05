@@ -546,7 +546,7 @@ Plans:
   3. A corrupted quota-tracker percentage is detected, reset, and logged loudly; routing falls back to the genuine tier, never a poisoned reading
   4. `gsd-tools.js state advance-plan`/`update-progress` operate correctly against the repo's actual STATE.md format (schema migrated or commands made tolerant) — no more manual state edits
   5. Integration tests cover: killed-coordinator → successor spawned from checkpoint; reset-time death → wait; corrupted quota → reset+log; state advance-plan round-trip on real STATE.md
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 
 Plans:
 - [ ] 51-01: Quota corruption self-heal (loadQuotaState) + corruption-log.jsonl audit trail, and tolerant STATE.md field parsing for state advance-plan/update-progress against the real plain-prose format
@@ -631,7 +631,7 @@ Plans:
 | 48. Satellite Injections: Mining, Discovery, Debugger | v1.14.0 | 4/4 | Complete | 2026-07-04 |
 | 49. Knowledge Auto-Wiring & CLI Cleanup | v1.14.0 | 4/4 | Complete | 2026-07-05 |
 | 50. Final Deletions, Hook Fixes & Verification Sweep | v1.14.0 | 2/2 | Complete | 2026-07-05 |
-| 51. Run Resilience — Auto-Resume & State Sanity | 1/3 | In Progress|  | - |
+| 51. Run Resilience — Auto-Resume & State Sanity | 2/3 | In Progress|  | - |
 | 52. Skew Detection, Telemetry & Model Registry | v1.14.0 | 0/TBD | Not started | - |
 | 53. Eval Harness, Prompt Hygiene & Injection Hardening | v1.14.0 | 0/TBD | Not started | - |
 
