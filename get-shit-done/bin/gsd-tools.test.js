@@ -8906,3 +8906,58 @@ describe('Phase 52-02: Self-Report Telemetry (analytics.js section + agent-file 
     });
   });
 });
+
+describe('Phase 52-03: countAssertions namespace-style fix', () => {
+  const { countAssertions, countTestCalls } = resilience;
+
+  test('bare assert( is counted', () => {
+    assert.strictEqual(countAssertions('assert(x);'), 1);
+  });
+
+  test('assert.equal( namespace-style is counted', () => {
+    assert.strictEqual(countAssertions('assert.equal(a, b);'), 1);
+  });
+
+  test('assert.deepStrictEqual( namespace-style is counted', () => {
+    assert.strictEqual(countAssertions('assert.deepStrictEqual(a, b);'), 1);
+  });
+
+  test('expect( is still counted', () => {
+    assert.strictEqual(countAssertions('expect(x).toBe(y);'), 1);
+  });
+
+  test('mixed fixture: 2x assert.equal(, 1x assert(, 3x expect( -> 6', () => {
+    const content = [
+      'assert.equal(a, b);',
+      'assert.equal(c, d);',
+      'assert(flag);',
+      'expect(one).toBe(1);',
+      'expect(two).toEqual(2);',
+      'expect(three).toBeTruthy();',
+    ].join('\n');
+    assert.strictEqual(countAssertions(content), 6);
+  });
+
+  test('empty/nullish content -> 0', () => {
+    assert.strictEqual(countAssertions(''), 0);
+    assert.strictEqual(countAssertions(null), 0);
+    assert.strictEqual(countAssertions(undefined), 0);
+  });
+
+  // Regression guard: countTestCalls (the neighboring function) must NOT change.
+  test('regression: countTestCalls excludes it.skip(', () => {
+    assert.strictEqual(countTestCalls('it.skip("x", () => {});'), 0);
+  });
+
+  test('regression: countTestCalls excludes test.skip(', () => {
+    assert.strictEqual(countTestCalls('test.skip("x", () => {});'), 0);
+  });
+
+  test('regression: countTestCalls counts plain it(', () => {
+    assert.strictEqual(countTestCalls('it("x", () => {});'), 1);
+  });
+
+  test('regression: countTestCalls counts plain test(', () => {
+    assert.strictEqual(countTestCalls('test("x", () => {});'), 1);
+  });
+});
