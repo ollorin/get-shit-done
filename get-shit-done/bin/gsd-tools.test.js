@@ -6944,3 +6944,303 @@ describe('Phase 49-02: knowledge feedback wiring', () => {
     assert.ok(executorContent.includes('mark-wrong'), 'expected agents/gsd-executor.md to reference mark-wrong');
   });
 });
+
+describe('Phase 49-03: milestone consolidation', () => {
+  // CRITICAL — SHARED-DB CAUTION: ~/.claude/knowledge/ is a LIVE database.
+  // Every test in this block MUST set GSD_KNOWLEDGE_DB_PATH to an isolated
+  // temp file before touching anything that opens the knowledge DB.
+  let tmpDbPath;
+  let prevOverride;
+  let openedDbs;
+  let prevCwd;
+  let tmpCwd;
+
+  beforeEach(() => {
+    prevOverride = process.env.GSD_KNOWLEDGE_DB_PATH;
+    tmpDbPath = path.join(
+      require('os').tmpdir(),
+      `gsd-test-knowledge-49-03-${Date.now()}-${Math.random().toString(36).slice(2)}.db`
+    );
+    process.env.GSD_KNOWLEDGE_DB_PATH = tmpDbPath;
+    openedDbs = [];
+
+    // synthesizePrinciples writes CONFLICTS.jsonl relative to process.cwd() —
+    // chdir into an isolated temp directory for the duration of each test so
+    // no test ever writes into the real repo's .planning/knowledge/ directory.
+    prevCwd = process.cwd();
+    tmpCwd = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-test-49-03-cwd-'));
+    process.chdir(tmpCwd);
+  });
+
+  afterEach(() => {
+    process.chdir(prevCwd);
+    fs.rmSync(tmpCwd, { recursive: true, force: true });
+
+    const { closeKnowledgeDB } = require('./knowledge-db.js');
+    for (const db of openedDbs) {
+      try { closeKnowledgeDB(db); } catch (_) { /* best-effort */ }
+    }
+    for (const suffix of ['', '-wal', '-shm']) {
+      const p = tmpDbPath + suffix;
+      if (fs.existsSync(p)) {
+        try { fs.rmSync(p, { force: true }); } catch (_) { /* best-effort */ }
+      }
+    }
+    if (prevOverride === undefined) {
+      delete process.env.GSD_KNOWLEDGE_DB_PATH;
+    } else {
+      process.env.GSD_KNOWLEDGE_DB_PATH = prevOverride;
+    }
+  });
+
+  test('sufficient cluster -> principle stores the injected synthesizer text, not the truncated stub', async () => {
+    const { openKnowledgeDB, closeKnowledgeDB } = require('./knowledge-db.js');
+    const { insertKnowledge } = require('./knowledge-crud.js');
+    const { synthesizePrinciples, SYNTHESIS_CONFIG } = require('./knowledge-synthesis.js');
+    const { generateEmbedding } = require('./embeddings.js');
+
+    const conn = openKnowledgeDB('global');
+    openedDbs.push(conn.db);
+
+    const content = 'always write tests before merging code to the main branch';
+    const emb = await generateEmbedding(content);
+    for (let i = 0; i < SYNTHESIS_CONFIG.min_cluster_size; i++) {
+      insertKnowledge(conn.db, { content, type: 'lesson', scope: 'global', embedding: emb });
+    }
+
+    const result = await synthesizePrinciples(conn, {}, async (cluster) => 'REAL SYNTHESIZED TEXT for ' + cluster.topic);
+
+    assert.ok(result.synthesized >= 1, `expected at least one synthesized principle, got ${result.synthesized}`);
+    const stored = result.principles[0];
+    assert.ok(
+      stored.rule.startsWith('REAL SYNTHESIZED TEXT for'),
+      `expected stored principle text to start with the injected synthesizer text, got: ${stored.rule}`
+    );
+    // Prove this is NOT the "first 10 words" stub fragment of the raw lesson content.
+    assert.ok(!stored.rule.startsWith('For '), 'stub fallback text ("For {topic}: ...") must not be used when a synthesizer is supplied');
+  });
+
+  test('insufficient cluster -> zero principles, bar never lowered to force output', async () => {
+    const { openKnowledgeDB, closeKnowledgeDB } = require('./knowledge-db.js');
+    const { insertKnowledge } = require('./knowledge-crud.js');
+    const { synthesizePrinciples } = require('./knowledge-synthesis.js');
+    const { generateEmbedding } = require('./embeddings.js');
+
+    const conn = openKnowledgeDB('global');
+    openedDbs.push(conn.db);
+
+    const content = 'a rarely repeated lesson about something niche and specific';
+    const emb = await generateEmbedding(content);
+    // Below SYNTHESIS_CONFIG.min_cluster_size (5) — only 2 entries.
+    for (let i = 0; i < 2; i++) {
+      insertKnowledge(conn.db, { content, type: 'lesson', scope: 'global', embedding: emb });
+    }
+
+    let called = 0;
+    const result = await synthesizePrinciples(conn, {}, async () => { called++; return 'should never be used'; });
+
+    assert.strictEqual(result.synthesized, 0, 'expected zero synthesized principles for an insufficient cluster');
+    assert.strictEqual(result.reason, 'insufficient_knowledge');
+    assert.strictEqual(called, 0, 'synthesizer must never be invoked when no cluster qualifies');
+  });
+
+  test('conflicting same-topic principles -> flagged to CONFLICTS.jsonl, existing principle never overwritten', async () => {
+    const { openKnowledgeDB, closeKnowledgeDB } = require('./knowledge-db.js');
+    const { insertKnowledge } = require('./knowledge-crud.js');
+    const { synthesizePrinciples } = require('./knowledge-synthesis.js');
+    const { generateEmbedding } = require('./embeddings.js');
+
+    const conn = openKnowledgeDB('global');
+    openedDbs.push(conn.db);
+
+    // Existing principle. No metadata.category -> defaults to 'convenience'
+    // (priority 0.3) inside knowledge-conflicts.js's scorePrinciple(), same
+    // default the new candidate object always gets (buildCandidateConflictObject
+    // never sets a category). confidence 0.85 * 0.3 = 0.255.
+    const existingContent = 'Existing established principle about database migrations';
+    const existingEmb = await generateEmbedding(existingContent);
+    insertKnowledge(conn.db, {
+      content: existingContent,
+      type: 'principle',
+      scope: 'global',
+      embedding: existingEmb,
+      metadata: { topic: 'database_migration_rollback', confidence: 0.85 }
+    });
+
+    // This content deterministically infers topic "database_migration_rollback"
+    // via inferTopic's top-3-most-common-word extraction, and clusters to a
+    // cohesion+size-bonus confidence of 1.0 (capped) with 5 identical members
+    // -> candidate score 1.0 * 0.3 = 0.3. Gap vs existing's 0.255 is 15%,
+    // under the 20% ambiguity threshold in resolvePrincipleConflict().
+    const content = 'database migration rollback strategy requires backup verification';
+    const emb = await generateEmbedding(content);
+    for (let i = 0; i < 5; i++) {
+      insertKnowledge(conn.db, { content, type: 'lesson', scope: 'global', embedding: emb });
+    }
+
+    const result = await synthesizePrinciples(conn, {}, async () => 'candidate synthesized text');
+
+    assert.strictEqual(result.synthesized, 0, 'the ambiguous candidate must not be inserted');
+    assert.strictEqual(result.conflicts_flagged, 1, 'expected exactly one conflict to be flagged');
+
+    const conflictsPath = path.join(tmpCwd, '.planning', 'knowledge', 'CONFLICTS.jsonl');
+    assert.ok(fs.existsSync(conflictsPath), 'expected CONFLICTS.jsonl to be created');
+    const lines = fs.readFileSync(conflictsPath, 'utf-8').trim().split('\n');
+    const record = JSON.parse(lines[lines.length - 1]);
+    assert.strictEqual(record.topic, 'database_migration_rollback');
+
+    const rows = conn.db.prepare("SELECT id, content FROM knowledge WHERE type = 'principle'").all();
+    assert.strictEqual(rows.length, 1, 'no new principle row should have been inserted for the conflicting topic');
+    assert.strictEqual(rows[0].content, existingContent, 'the original existing principle content must be byte-for-byte unchanged');
+  });
+
+  test('circuit breaker blocks synthesis before any synthesizer call fires', async () => {
+    const { openKnowledgeDB, closeKnowledgeDB } = require('./knowledge-db.js');
+    const { enableCircuitBreaker } = require('./knowledge-cost.js');
+    const { synthesizePrinciples } = require('./knowledge-synthesis.js');
+
+    const conn = openKnowledgeDB('global');
+    openedDbs.push(conn.db);
+    enableCircuitBreaker(conn.db, 'test_budget_exceeded');
+
+    let called = 0;
+    const result = await synthesizePrinciples(conn, {}, async () => { called++; return 'should never fire'; });
+
+    assert.strictEqual(result.reason, 'circuit_breaker_blocked');
+    assert.strictEqual(result.synthesized, 0);
+    assert.strictEqual(called, 0, 'the injected synthesizer must never be invoked when the circuit breaker is enabled');
+  });
+
+  test('manual backstop CLI produces an identical result to the automatic (direct-call) path given the same seed data', async () => {
+    const { openKnowledgeDB, closeKnowledgeDB } = require('./knowledge-db.js');
+    const { insertKnowledge } = require('./knowledge-crud.js');
+    const { synthesizePrinciples } = require('./knowledge-synthesis.js');
+    const { generateEmbedding } = require('./embeddings.js');
+
+    const content = 'always write tests before merging code to the main branch';
+    const emb = await generateEmbedding(content);
+
+    // Path A: automatic/direct call against DB A.
+    const connA = openKnowledgeDB('global');
+    openedDbs.push(connA.db);
+    for (let i = 0; i < 5; i++) {
+      insertKnowledge(connA.db, { content, type: 'lesson', scope: 'global', embedding: emb });
+    }
+    const resultA = await synthesizePrinciples(connA, {}, (cluster) => 'FIXED TEXT for ' + cluster.topic);
+    closeKnowledgeDB(connA.db);
+
+    // Path B: manual `knowledge consolidate` CLI backstop against a fresh, identically-seeded DB B.
+    const tmpDbPathB = path.join(
+      require('os').tmpdir(),
+      `gsd-test-knowledge-49-03-backstopB-${Date.now()}-${Math.random().toString(36).slice(2)}.db`
+    );
+    const prevPathOverride = process.env.GSD_KNOWLEDGE_DB_PATH;
+    process.env.GSD_KNOWLEDGE_DB_PATH = tmpDbPathB;
+    try {
+      const connB = openKnowledgeDB('global');
+      for (let i = 0; i < 5; i++) {
+        insertKnowledge(connB.db, { content, type: 'lesson', scope: 'global', embedding: emb });
+      }
+      closeKnowledgeDB(connB.db);
+
+      const inferredTopic = resultA.principles[0].topic;
+      const cliResult = runGsdTools(
+        `knowledge consolidate --raw --scope global --principles '${JSON.stringify([{ topic: inferredTopic, text: 'FIXED TEXT for ' + inferredTopic }])}'`,
+        tmpCwd,
+        { GSD_KNOWLEDGE_DB_PATH: tmpDbPathB }
+      );
+      assert.strictEqual(cliResult.success, true, `knowledge consolidate CLI failed: ${cliResult.error}`);
+      const parsedB = JSON.parse(cliResult.output);
+
+      assert.strictEqual(parsedB.synthesized, resultA.synthesized, 'expected the same synthesized count from both paths');
+      assert.strictEqual(parsedB.principles[0].rule, resultA.principles[0].rule, 'expected identical stored principle text from both paths');
+      assert.strictEqual(parsedB.principles[0].topic, resultA.principles[0].topic, 'expected identical inferred topic from both paths');
+    } finally {
+      for (const suffix of ['', '-wal', '-shm']) {
+        const p = tmpDbPathB + suffix;
+        if (fs.existsSync(p)) {
+          try { fs.rmSync(p, { force: true }); } catch (_) { /* best-effort */ }
+        }
+      }
+      if (prevPathOverride === undefined) {
+        delete process.env.GSD_KNOWLEDGE_DB_PATH;
+      } else {
+        process.env.GSD_KNOWLEDGE_DB_PATH = prevPathOverride;
+      }
+    }
+  });
+});
+
+describe('Phase 49-03: complete-milestone consolidation step wiring', () => {
+  const COMPLETE_MILESTONE_PATH = path.join(__dirname, '..', 'workflows', 'complete-milestone.md');
+
+  test('consolidate_knowledge step exists positioned after mine_milestone_conversations and before reorganize_roadmap_and_delete_originals', () => {
+    const content = fs.readFileSync(COMPLETE_MILESTONE_PATH, 'utf-8');
+
+    const mineStart = content.indexOf('<step name="mine_milestone_conversations">');
+    assert.notStrictEqual(mineStart, -1, 'mine_milestone_conversations step not found');
+    const mineEnd = content.indexOf('</step>', mineStart);
+    assert.notStrictEqual(mineEnd, -1, 'closing </step> for mine_milestone_conversations not found');
+
+    const consolidateStart = content.indexOf('<step name="consolidate_knowledge">');
+    assert.notStrictEqual(consolidateStart, -1, 'consolidate_knowledge step not found');
+
+    const reorgStart = content.indexOf('<step name="reorganize_roadmap_and_delete_originals">');
+    assert.notStrictEqual(reorgStart, -1, 'reorganize_roadmap_and_delete_originals step not found');
+
+    assert.ok(mineEnd < consolidateStart, 'consolidate_knowledge must start after mine_milestone_conversations closes');
+    assert.ok(consolidateStart < reorgStart, 'consolidate_knowledge must start before reorganize_roadmap_and_delete_originals');
+  });
+
+  test('consolidate_knowledge step body references the knowledge consolidate CLI command', () => {
+    const content = fs.readFileSync(COMPLETE_MILESTONE_PATH, 'utf-8');
+    const start = content.indexOf('<step name="consolidate_knowledge">');
+    const end = content.indexOf('</step>', start);
+    const stepBody = content.slice(start, end);
+
+    assert.ok(stepBody.includes('knowledge consolidate'), 'expected "knowledge consolidate" call inside the consolidate_knowledge step');
+  });
+
+  test('consolidate_knowledge step spawns a haiku Agent() call matching the harvest_knowledge pattern', () => {
+    const content = fs.readFileSync(COMPLETE_MILESTONE_PATH, 'utf-8');
+    const start = content.indexOf('<step name="consolidate_knowledge">');
+    const end = content.indexOf('</step>', start);
+    const stepBody = content.slice(start, end);
+
+    assert.ok(stepBody.includes('Agent('), 'expected an Agent( call inside the consolidate_knowledge step');
+    assert.ok(stepBody.includes('subagent_type="general-purpose"'), 'expected subagent_type="general-purpose"');
+    assert.ok(stepBody.includes('model="haiku"'), 'expected model="haiku"');
+  });
+
+  test('consolidate_knowledge step is config-gated by auto_consolidate', () => {
+    const content = fs.readFileSync(COMPLETE_MILESTONE_PATH, 'utf-8');
+    const start = content.indexOf('<step name="consolidate_knowledge">');
+    const end = content.indexOf('</step>', start);
+    const stepBody = content.slice(start, end);
+
+    assert.ok(stepBody.includes('auto_consolidate'), 'expected a config gate referencing auto_consolidate');
+  });
+
+  test('consolidate_knowledge step declares a non-blocking guarantee', () => {
+    const content = fs.readFileSync(COMPLETE_MILESTONE_PATH, 'utf-8');
+    const start = content.indexOf('<step name="consolidate_knowledge">');
+    const end = content.indexOf('</step>', start);
+    const stepBody = content.slice(start, end);
+
+    assert.ok(
+      /non-blocking|never block/i.test(stepBody),
+      'expected non-blocking guarantee language in the consolidate_knowledge step'
+    );
+  });
+
+  test('loadConfig() returns auto_consolidate: true by default when no config.json is present', () => {
+    const tmpDir = createTempProject();
+    try {
+      const result = runGsdTools('config get auto_consolidate --raw', tmpDir);
+      assert.strictEqual(result.success, true, `config get failed: ${result.error}`);
+      assert.strictEqual(result.output.trim(), 'true', 'expected auto_consolidate to default to true');
+    } finally {
+      cleanup(tmpDir);
+    }
+  });
+});
