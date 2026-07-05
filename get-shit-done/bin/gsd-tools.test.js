@@ -8764,3 +8764,145 @@ describe('Phase 52-02: telemetry append/summarize', () => {
     });
   });
 });
+
+describe('Phase 52-02: Self-Report Telemetry (analytics.js section + agent-file wiring)', () => {
+  const ANALYTICS_PATH = path.join(__dirname, 'analytics.js');
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+
+  describe('analytics.js generateReport() Self-Report Telemetry section', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+      tmpDir = createTempProject();
+      // Base EXECUTION_LOG.md fixture so generateReport doesn't early-return
+      // on "no execution history found" before reaching the telemetry section.
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'EXECUTION_LOG.md'),
+        '{"type":"phase_start","phase":1,"timestamp":"2026-01-01T00:00:00Z","name":"fixture-phase"}\n' +
+        '{"type":"phase_complete","phase":1,"timestamp":"2026-01-01T01:00:00Z","name":"fixture-phase"}\n'
+      );
+    });
+
+    afterEach(() => {
+      cleanup(tmpDir);
+    });
+
+    test('renders "## Self-Report Telemetry" with correct aggregate values when 2+ reports exist', () => {
+      delete require.cache[require.resolve(ANALYTICS_PATH)];
+      delete require.cache[require.resolve(TOOLS_PATH)];
+      const { appendTelemetryReport } = require(TOOLS_PATH);
+      appendTelemetryReport(tmpDir, 'gsd-executor', '1', {
+        context_pressure: 0.3,
+        instructions_not_followed: [{ rule: 'Rule 1', why: 'test' }],
+        ambiguities: ['ambiguity A'],
+        tool_errors_swallowed: 1,
+      });
+      appendTelemetryReport(tmpDir, 'gsd-verifier', '1', {
+        context_pressure: 0.7,
+        instructions_not_followed: [{ rule: 'Rule 1', why: 'test2' }],
+        ambiguities: ['ambiguity A'],
+        tool_errors_swallowed: 2,
+      });
+
+      const { generateReport } = require(ANALYTICS_PATH);
+      const report = generateReport(tmpDir);
+
+      assert.match(report, /## Self-Report Telemetry/);
+      assert.match(report, /\| Reports \| 2 \|/);
+      assert.match(report, /Avg context pressure \| 0\.50 \|/);
+      assert.match(report, /Total tool errors swallowed \| 3 \|/);
+      assert.match(report, /Rule 1: 2/);
+      assert.match(report, /ambiguity A \(2\)/);
+    });
+
+    test('omits "## Self-Report Telemetry" heading entirely when no telemetry file is present', () => {
+      delete require.cache[require.resolve(ANALYTICS_PATH)];
+      const { generateReport } = require(ANALYTICS_PATH);
+      const report = generateReport(tmpDir);
+
+      assert.doesNotMatch(report, /## Self-Report Telemetry/);
+    });
+  });
+
+  describe('agent-file wiring: grep assertions with regression guards', () => {
+    function readAgentFile(name) {
+      return fs.readFileSync(path.join(REPO_ROOT, 'agents', name), 'utf-8');
+    }
+
+    test('gsd-phase-coordinator.md: all 4 field names present inside <return_state> section specifically', () => {
+      const content = readAgentFile('gsd-phase-coordinator.md');
+      const startIdx = content.indexOf('<return_state>');
+      const endIdx = content.indexOf('</return_state>');
+      assert.notStrictEqual(startIdx, -1, '<return_state> must exist');
+      assert.notStrictEqual(endIdx, -1, '</return_state> must exist');
+      const section = content.slice(startIdx, endIdx);
+
+      for (const field of ['context_pressure', 'instructions_not_followed', 'ambiguities', 'tool_errors_swallowed']) {
+        assert.match(section, new RegExp(field), `${field} must appear inside <return_state>`);
+      }
+    });
+
+    test('gsd-phase-coordinator.md regression guard: pre-existing status enum literal still present', () => {
+      const content = readAgentFile('gsd-phase-coordinator.md');
+      assert.match(content, /"status": "completed \| failed \| blocked \| gaps_found \| human_needed"/, 'pre-existing status enum literal must not have been removed');
+    });
+
+    test('gsd-executor.md: all 4 field names present in PLAN COMPLETE <completion_format> AND both PLAN FAILED blocks (3 index-bounded checks)', () => {
+      const content = readAgentFile('gsd-executor.md');
+      const fields = ['context_pressure', 'instructions_not_followed', 'ambiguities', 'tool_errors_swallowed'];
+
+      // Check 1: <completion_format> PLAN COMPLETE template
+      const cfStart = content.indexOf('<completion_format>');
+      const cfEnd = content.indexOf('</completion_format>');
+      assert.notStrictEqual(cfStart, -1, '<completion_format> must exist');
+      assert.notStrictEqual(cfEnd, -1, '</completion_format> must exist');
+      const completionSection = content.slice(cfStart, cfEnd);
+      for (const field of fields) {
+        assert.match(completionSection, new RegExp(field), `${field} must appear inside <completion_format>`);
+      }
+
+      // Check 2: first PLAN FAILED block (test task blocked execution)
+      const pf1Start = content.indexOf('## PLAN FAILED: Test task blocked execution');
+      assert.notStrictEqual(pf1Start, -1, 'first PLAN FAILED block must exist');
+      const pf1End = content.indexOf('Do NOT log as a "gap" and continue', pf1Start);
+      assert.notStrictEqual(pf1End, -1);
+      const pf1Section = content.slice(pf1Start, pf1End);
+      for (const field of fields) {
+        assert.match(pf1Section, new RegExp(field), `${field} must appear inside the first PLAN FAILED block`);
+      }
+
+      // Check 3: second PLAN FAILED block (test gate blocked SUMMARY.md creation)
+      const pf2Start = content.indexOf('## PLAN FAILED: Test gate blocked SUMMARY.md creation');
+      assert.notStrictEqual(pf2Start, -1, 'second PLAN FAILED block must exist');
+      const pf2End = content.indexOf('Do NOT proceed to `<summary_creation>`', pf2Start);
+      assert.notStrictEqual(pf2End, -1);
+      const pf2Section = content.slice(pf2Start, pf2End);
+      for (const field of fields) {
+        assert.match(pf2Section, new RegExp(field), `${field} must appear inside the second PLAN FAILED block`);
+      }
+    });
+
+    test('gsd-executor.md regression guard: pre-existing "**Duration:** {time}" literal still present', () => {
+      const content = readAgentFile('gsd-executor.md');
+      assert.match(content, /\*\*Duration:\*\* \{time\}/, 'pre-existing Duration line must not have been removed');
+    });
+
+    test('gsd-verifier.md: all 4 field names present inside "## Return to Orchestrator" section specifically', () => {
+      const content = readAgentFile('gsd-verifier.md');
+      const startIdx = content.indexOf('## Return to Orchestrator');
+      const endIdx = content.indexOf('</output>', startIdx);
+      assert.notStrictEqual(startIdx, -1, '## Return to Orchestrator must exist');
+      assert.notStrictEqual(endIdx, -1, '</output> boundary after it must exist');
+      const section = content.slice(startIdx, endIdx);
+
+      for (const field of ['context_pressure', 'instructions_not_followed', 'ambiguities', 'tool_errors_swallowed']) {
+        assert.match(section, new RegExp(field), `${field} must appear inside ## Return to Orchestrator`);
+      }
+    });
+
+    test('gsd-verifier.md regression guard: pre-existing "**Score:** {N}/{M} must-haves verified" literal still present', () => {
+      const content = readAgentFile('gsd-verifier.md');
+      assert.match(content, /\*\*Score:\*\* \{N\}\/\{M\} must-haves verified/, 'pre-existing Score line must not have been removed');
+    });
+  });
+});
