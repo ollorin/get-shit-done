@@ -6545,3 +6545,133 @@ describe('Phase 49-01: write-path safety', () => {
     }
   });
 });
+
+describe('Phase 49-01: secrets/PII filter end-to-end', () => {
+  // Same SHARED-DB CAUTION as the block above — isolate via GSD_KNOWLEDGE_DB_PATH.
+  let tmpDbPath;
+  let prevOverride;
+  let openedDbs;
+
+  beforeEach(() => {
+    prevOverride = process.env.GSD_KNOWLEDGE_DB_PATH;
+    tmpDbPath = path.join(
+      require('os').tmpdir(),
+      `gsd-test-knowledge-${Date.now()}-${Math.random().toString(36).slice(2)}.db`
+    );
+    process.env.GSD_KNOWLEDGE_DB_PATH = tmpDbPath;
+    openedDbs = [];
+  });
+
+  afterEach(() => {
+    const { closeKnowledgeDB } = require('./knowledge-db.js');
+    for (const db of openedDbs) {
+      try { closeKnowledgeDB(db); } catch (_) { /* best-effort */ }
+    }
+    for (const suffix of ['', '-wal', '-shm']) {
+      const p = tmpDbPath + suffix;
+      if (fs.existsSync(p)) {
+        try { fs.rmSync(p, { force: true }); } catch (_) { /* best-effort */ }
+      }
+    }
+    if (prevOverride === undefined) {
+      delete process.env.GSD_KNOWLEDGE_DB_PATH;
+    } else {
+      process.env.GSD_KNOWLEDGE_DB_PATH = prevOverride;
+    }
+  });
+
+  test('API-key pattern -> storeInsights rejects the whole insight, raw key never persisted', async () => {
+    const { storeInsights } = require('./knowledge-writer.js');
+    const { openKnowledgeDB } = require('./knowledge-db.js');
+
+    const rawKey = 'sk-abcdefghijklmnopqrst1234567890';
+    const tmpCwd = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-test-cwd-'));
+    try {
+      const result = await storeInsights(
+        [{ type: 'decision', decision: `use this key: ${rawKey} for the integration` }],
+        { cwd: tmpCwd }
+      );
+
+      assert.strictEqual(result.stored, 0);
+      assert.strictEqual(result.skipped, 1);
+
+      const conn = openKnowledgeDB('global');
+      openedDbs.push(conn.db);
+      const rows = conn.db.prepare('SELECT content FROM knowledge').all();
+      for (const row of rows) {
+        assert.ok(!row.content.includes(rawKey), 'raw API key must never be persisted verbatim');
+      }
+    } finally {
+      fs.rmSync(tmpCwd, { recursive: true, force: true });
+    }
+  });
+
+  test('custom config pattern -> filterContentForSecrets rejects, config-extensible with zero code change', () => {
+    const { filterContentForSecrets } = require('./knowledge-safety.js');
+
+    const tmpCwd = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-test-cwd-'));
+    try {
+      fs.mkdirSync(path.join(tmpCwd, '.planning'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpCwd, '.planning', 'config.json'),
+        JSON.stringify({ knowledge: { secrets_patterns: ['MYPROJECT_SECRET_[0-9]+'] } })
+      );
+
+      const result = filterContentForSecrets('the value is MYPROJECT_SECRET_42 in this project', tmpCwd);
+      assert.strictEqual(result.safe, false);
+      assert.strictEqual(result.action, 'rejected');
+    } finally {
+      fs.rmSync(tmpCwd, { recursive: true, force: true });
+    }
+  });
+
+  test('email address -> redacted, not rejected', () => {
+    const { filterContentForSecrets } = require('./knowledge-safety.js');
+
+    const result = filterContentForSecrets('contact us at ops@example.com for help', undefined);
+    assert.strictEqual(result.safe, true);
+    assert.strictEqual(result.action, 'redacted');
+    assert.ok(result.content.includes('[REDACTED_EMAIL]'));
+    assert.ok(!result.content.includes('ops@example.com'));
+  });
+
+  test('credential keyword -> redacted, original secret value absent', () => {
+    const { filterContentForSecrets } = require('./knowledge-safety.js');
+
+    const result = filterContentForSecrets('password: hunter2love', undefined);
+    assert.strictEqual(result.safe, true);
+    assert.strictEqual(result.action, 'redacted');
+    assert.ok(!result.content.includes('hunter2love'));
+    assert.ok(result.content.includes('[REDACTED]'));
+  });
+
+  test('clean content -> passes through unchanged, and storeInsights stores it successfully', async () => {
+    const { filterContentForSecrets } = require('./knowledge-safety.js');
+    const { storeInsights } = require('./knowledge-writer.js');
+
+    const original = 'Always run tests before committing changes to the main branch';
+    const filterResult = filterContentForSecrets(original, undefined);
+    assert.strictEqual(filterResult.action, null);
+    assert.strictEqual(filterResult.content, original);
+
+    const tmpCwd = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-test-cwd-'));
+    try {
+      const result = await storeInsights(
+        [{ type: 'reasoning_pattern', description: original }],
+        { cwd: tmpCwd }
+      );
+      assert.strictEqual(result.stored + result.evolved, 1);
+    } finally {
+      fs.rmSync(tmpCwd, { recursive: true, force: true });
+    }
+  });
+
+  test('ambiguous high-entropy token -> rejected', () => {
+    const { filterContentForSecrets } = require('./knowledge-safety.js');
+
+    const token = 'aZ9qP2mK7xT4wN1vB8sD6fG3hJ5rL0cY'; // 32 random-looking alnum chars, no known prefix
+    const result = filterContentForSecrets(`found this stray value ${token} in the logs`, undefined);
+    assert.strictEqual(result.safe, false);
+    assert.strictEqual(result.action, 'rejected');
+  });
+});
