@@ -121,6 +121,30 @@ node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
 ```
 </step>
 
+<step name="preflight_skew_check">
+Self-referential staleness check (MILE-25): only meaningful when this orchestrator is itself running from a GSD source checkout (never for target projects being built with GSD). Read-only, non-blocking, never requires reinstall/restart to take effect for THIS run — it only affects future runs.
+
+**1. Detect GSD source checkout:**
+```bash
+IS_GSD_CHECKOUT=false
+if [ -f "get-shit-done/bin/gsd-tools.js" ]; then IS_GSD_CHECKOUT=true; fi
+```
+
+**2. If NOT a GSD source checkout:** log "skew check skipped — not a GSD source checkout" and continue to `confirm_execution`.
+
+**3. If a GSD source checkout:** run the doctor check and log:
+```bash
+DOCTOR_RESULT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js doctor --raw)
+CLEAN=$(node -e "console.log(JSON.parse(process.argv[1]).clean)" "$DOCTOR_RESULT")
+if [ "$CLEAN" != "true" ]; then
+  node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
+    --type skew_detected \
+    --data "$DOCTOR_RESULT"
+  echo "⚠ Installed GSD copy has drifted from this source checkout — see execution log. This does not block the current run."
+fi
+```
+</step>
+
 <step name="confirm_execution">
 Present execution plan to user before any autonomous action:
 
