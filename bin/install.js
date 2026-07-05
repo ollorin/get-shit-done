@@ -1418,6 +1418,15 @@ function install(isGlobal, runtime = 'claude') {
   // Copy get-shit-done skill with path replacement
   const skillSrc = path.join(src, 'get-shit-done');
   const skillDest = path.join(targetDir, 'get-shit-done');
+  // Back up any already-deployed hook-config.json BEFORE copyWithPathReplacement's
+  // clean-install rmSync wipes the destination directory — the wipe deletes the whole
+  // get-shit-done/ directory (including hook-config.json), so its live circuit-breaker
+  // state / user tuning must be preserved in memory and restored after the copy,
+  // rather than merely checked-and-skipped (which would leave it deleted entirely).
+  const existingHookConfigPath = path.join(skillDest, 'hook-config.json');
+  const existingHookConfigContent = fs.existsSync(existingHookConfigPath)
+    ? fs.readFileSync(existingHookConfigPath, 'utf8')
+    : null;
   copyWithPathReplacement(skillSrc, skillDest, pathPrefix, runtime);
   if (verifyInstalled(skillDest, 'get-shit-done')) {
     console.log(`  ${green}✓${reset} Installed get-shit-done`);
@@ -1492,12 +1501,21 @@ function install(isGlobal, runtime = 'claude') {
     }
   }
 
-  // Copy hook-config.json (only if not already deployed — preserves live circuit-breaker
-  // state / user tuning across reinstalls; config.js's loadHookConfig/saveHookConfig mutate
-  // this same file at runtime)
+  // Restore/deploy hook-config.json (preserves live circuit-breaker state / user tuning
+  // across reinstalls; config.js's loadHookConfig/saveHookConfig mutate this same file at
+  // runtime). If a copy already existed before the clean-install wipe above, restore that
+  // exact content verbatim — never overwrite it with the repo's defaults. Only deploy the
+  // repo-root hook-config.json fresh when nothing was previously deployed.
   const hookConfigSrc = path.join(src, 'hook-config.json');
   const hookConfigDest = path.join(targetDir, 'get-shit-done', 'hook-config.json');
-  if (fs.existsSync(hookConfigSrc) && !fs.existsSync(hookConfigDest)) {
+  if (existingHookConfigContent !== null) {
+    fs.writeFileSync(hookConfigDest, existingHookConfigContent);
+    if (verifyFileInstalled(hookConfigDest, 'hook-config.json')) {
+      console.log(`  ${green}✓${reset} Preserved existing hook-config.json`);
+    } else {
+      failures.push('hook-config.json');
+    }
+  } else if (fs.existsSync(hookConfigSrc)) {
     fs.copyFileSync(hookConfigSrc, hookConfigDest);
     if (verifyFileInstalled(hookConfigDest, 'hook-config.json')) {
       console.log(`  ${green}✓${reset} Installed hook-config.json`);
