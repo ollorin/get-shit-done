@@ -8484,3 +8484,103 @@ describe('Phase 52-01: skew detection (computeManifestDrift / cmdDoctor)', () =>
     });
   });
 });
+
+describe('Phase 52-01: SessionStart skew-check helpers + execute-roadmap.md preflight_skew_check wiring', () => {
+  const HOOK_PATH = path.join(__dirname, '..', '..', 'hooks', 'gsd-check-update.js');
+
+  test('shouldCheckSkew(cwd): true when <cwd>/get-shit-done/bin/gsd-tools.js exists', () => {
+    const { shouldCheckSkew } = require(HOOK_PATH);
+    const tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-skew-cwd-'));
+    try {
+      fs.mkdirSync(path.join(tmpDir, 'get-shit-done', 'bin'), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, 'get-shit-done', 'bin', 'gsd-tools.js'), '// sentinel\n');
+      assert.strictEqual(shouldCheckSkew(tmpDir), true);
+    } finally {
+      cleanup(tmpDir);
+    }
+  });
+
+  test('shouldCheckSkew(cwd): false when the sentinel file does not exist', () => {
+    const { shouldCheckSkew } = require(HOOK_PATH);
+    const tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-skew-cwd-'));
+    try {
+      assert.strictEqual(shouldCheckSkew(tmpDir), false);
+    } finally {
+      cleanup(tmpDir);
+    }
+  });
+
+  test('buildSkewCachePayload: clean doctor result', () => {
+    const { buildSkewCachePayload } = require(HOOK_PATH);
+    const payload = buildSkewCachePayload({ clean: true, drifted: [] });
+    assert.strictEqual(payload.clean, true);
+    assert.strictEqual(payload.drifted_count, 0);
+    assert.strictEqual(typeof payload.checked, 'number');
+  });
+
+  test('buildSkewCachePayload: drifted doctor result with 2 entries', () => {
+    const { buildSkewCachePayload } = require(HOOK_PATH);
+    const payload = buildSkewCachePayload({ clean: false, drifted: [{ path: 'a' }, { path: 'b' }] });
+    assert.strictEqual(payload.clean, false);
+    assert.strictEqual(payload.drifted_count, 2);
+    assert.strictEqual(typeof payload.checked, 'number');
+  });
+
+  test('buildSkewCachePayload: malformed/undefined input never throws, returns a safe default shape', () => {
+    const { buildSkewCachePayload } = require(HOOK_PATH);
+    const payload = buildSkewCachePayload(undefined);
+    assert.strictEqual(payload.clean, false);
+    assert.strictEqual(payload.drifted_count, 0);
+  });
+
+  test('requiring hooks/gsd-check-update.js does not spawn a child process or throw (require.main guard)', () => {
+    assert.doesNotThrow(() => {
+      delete require.cache[require.resolve(HOOK_PATH)];
+      require(HOOK_PATH);
+    });
+  });
+
+  describe('execute-roadmap.md preflight_skew_check wiring', () => {
+    const REPO_ROOT = path.join(__dirname, '..', '..');
+
+    function readExecuteRoadmap() {
+      return fs.readFileSync(path.join(REPO_ROOT, 'get-shit-done', 'workflows', 'execute-roadmap.md'), 'utf-8');
+    }
+
+    test('preflight_skew_check step exists and calls gsd-tools.js doctor --raw', () => {
+      const content = readExecuteRoadmap();
+      assert.match(content, /<step name="preflight_skew_check">/);
+      assert.match(content, /doctor --raw/);
+    });
+
+    test('preflight_skew_check is positioned after preflight_quota_estimate and before confirm_execution', () => {
+      const content = readExecuteRoadmap();
+      const quotaIdx = content.indexOf('<step name="preflight_quota_estimate">');
+      const skewIdx = content.indexOf('<step name="preflight_skew_check">');
+      const confirmIdx = content.indexOf('<step name="confirm_execution">');
+      assert.notStrictEqual(quotaIdx, -1);
+      assert.notStrictEqual(skewIdx, -1);
+      assert.notStrictEqual(confirmIdx, -1);
+      assert.ok(quotaIdx < skewIdx, 'preflight_skew_check must come after preflight_quota_estimate');
+      assert.ok(skewIdx < confirmIdx, 'preflight_skew_check must come before confirm_execution');
+    });
+
+    test('logs --type skew_detected only inside the not-clean branch', () => {
+      const content = readExecuteRoadmap();
+      const skewIdx = content.indexOf('<step name="preflight_skew_check">');
+      const nextStepIdx = content.indexOf('<step name="confirm_execution">');
+      const section = content.slice(skewIdx, nextStepIdx);
+      assert.match(section, /--type skew_detected/);
+      const notCleanIdx = section.indexOf('if [ "$CLEAN" != "true" ]');
+      const skewDetectedIdx = section.indexOf('--type skew_detected');
+      assert.notStrictEqual(notCleanIdx, -1);
+      assert.ok(notCleanIdx < skewDetectedIdx, 'skew_detected event must be logged inside the not-clean branch');
+    });
+
+    test('preflight_quota_estimate and confirm_execution sections are otherwise unchanged (regression spot-check)', () => {
+      const content = readExecuteRoadmap();
+      assert.match(content, /resilience estimate-quota/, 'preflight_quota_estimate content must still be present');
+      assert.match(content, /quota_preflight_ok/, 'preflight_quota_estimate content must still be present');
+    });
+  });
+});
