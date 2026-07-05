@@ -10500,8 +10500,11 @@ async function cmdQueryKnowledge(cwd, args, raw) {
     return;
   }
 
-  // Map to locked output schema
+  // Map to locked output schema. `id` is additive (Phase 49-02) — every
+  // other field is unchanged so an agent can call `knowledge mark-wrong <id>`
+  // later if this specific answer proves wrong, without breaking existing callers.
   const results = rawResults.map(r => ({
+    id: r.id,
     question: questionString,
     answer: r.content,
     confidence: (r.metadata && r.metadata.confidence) ? r.metadata.confidence : 0.7,

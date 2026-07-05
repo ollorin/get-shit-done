@@ -549,6 +549,8 @@ gaps:
 
 **Group related gaps by concern** — if multiple truths fail from the same root cause, note this to help the planner create focused plans.
 
+**Knowledge feedback (non-blocking):** If a gap's root cause traces to a specific knowledge-DB entry retrieved earlier via `query-knowledge` (i.e. the plan or a prior agent followed a KB-sourced recommendation that this verification proves was wrong), call `node ~/.claude/get-shit-done/bin/gsd-tools.js knowledge mark-wrong <id> --severity <minor|major|critical> --reason "<one-line reason>"` using the entry's `id` field from that earlier `query-knowledge` call. Choose severity by impact: `minor` for a stale/imprecise recommendation, `major` for one that caused a real implementation gap, `critical` for one that caused a broken/incorrect artifact to ship. This call is best-effort and MUST NOT block VERIFICATION.md from being written — wrap in a non-fatal check, log the outcome, and continue regardless of its result. This does not change the gap's `failure_type` or the phase's overall STATUS.
+
 
 <check_charlotte_qa_coverage>
 
