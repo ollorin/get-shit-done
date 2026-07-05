@@ -564,7 +564,7 @@ Plans:
   3. One config-sourced tier→model registry (with per-tier operating params) is consumed by gsd-circuit-breaker.js/gsd-escalation.js/analytics.js — no duplicated tier tables; a model upgrade touches one file. `verify test-content` countAssertions recognizes `assert.method(` style (Phase 48 finding)
   4. Golden-path state-mutating steps are enumerated and classified idempotent/resumable/neither; the "neither" cases are fixed; a quarterly upstream-review policy is documented and UPSTREAM-DIFF.md refreshed once
   5. Integration tests cover: skew manifest mismatch → warning; self-report fields present in returns + JSONL; registry single-source consumed by all three modules; countAssertions namespace style
-**Plans:** 2/4 plans executed
+**Plans:** 4/4 plans complete
 
 Plans:
 - [ ] 52-01-PLAN.md — Skew detection: install manifest source_git_sha, gsd-tools.js doctor command, SessionStart caching, additive execute-roadmap.md pre-flight (MILE-25)
@@ -638,7 +638,7 @@ Plans:
 | 49. Knowledge Auto-Wiring & CLI Cleanup | v1.14.0 | 4/4 | Complete | 2026-07-05 |
 | 50. Final Deletions, Hook Fixes & Verification Sweep | v1.14.0 | 2/2 | Complete | 2026-07-05 |
 | 51. Run Resilience — Auto-Resume & State Sanity | 3/3 | Complete    | 2026-07-05 | - |
-| 52. Skew Detection, Telemetry & Model Registry | 2/4 | In Progress|  | - |
+| 52. Skew Detection, Telemetry & Model Registry | 4/4 | Complete   | 2026-07-05 | - |
 | 53. Eval Harness, Prompt Hygiene & Injection Hardening | v1.14.0 | 0/TBD | Not started | - |
 
 ---
