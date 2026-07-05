@@ -615,10 +615,52 @@ ls .planning/phases/{phase_dir}/*-RESEARCH.md 2>/dev/null || echo "NO_RESEARCH"
 **If RESEARCH.md exists:** Skip research, create checkpoint with status: "skipped"
 
 **If no RESEARCH.md:**
-1. Run research workflow internally using `/gsd:research-phase {phase}`
-2. Wait for research completion
-3. Verify RESEARCH.md created
-4. Create checkpoint: `{ step: "research", status: "complete", files: [...] }`
+
+Build the research prompt (mirrors `get-shit-done/workflows/plan-phase.md`'s "Handle Research" section):
+
+```bash
+PHASE_DESC=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" roadmap get-phase "${phase_number}" | jq -r '.section')
+```
+
+```markdown
+<objective>
+Research how to implement Phase {phase_number}: {phase_name}
+Answer: "What do I need to know to PLAN this phase well?"
+</objective>
+
+<files_to_read>
+- {context_path} (USER DECISIONS from the discuss step, if present)
+- {requirements_path} (Project requirements)
+- {state_path} (Project decisions and history)
+</files_to_read>
+
+<additional_context>
+**Phase description:** {PHASE_DESC}
+**Phase requirement IDs (MUST address):** {phase_req_ids}
+
+**Project instructions:** Read ./CLAUDE.md if exists — follow project-specific guidelines
+**Project skills:** Check .claude/skills/ or .agents/skills/ directory (if either exists) — read SKILL.md files, research should account for project skill patterns
+</additional_context>
+
+<output>
+Write to: {phase_dir}/{padded_phase}-RESEARCH.md
+</output>
+```
+
+Spawn `gsd-phase-researcher` directly — no shell-out to any slash command:
+
+```
+Agent(
+  prompt=research_prompt,
+  subagent_type="gsd-phase-researcher",
+  model="{researcher_model}",
+  description="Research Phase {phase_number}"
+)
+```
+
+**Handle researcher return:**
+- **`## RESEARCH COMPLETE`:** Verify RESEARCH.md was created on disk, then create checkpoint: `{ step: "research", status: "complete", files: [...] }`
+- **`## RESEARCH BLOCKED`:** This coordinator runs autonomously — do NOT offer an interactive choice (that is plan-phase.md's interactive pattern, not this agent's). Instead, apply this file's own `<error_handling>` convention: log the blocker, write checkpoint `{ step: "research", step_status: "failed", ... }`, and return `{ status: "failed", step: "research", error: "{blocker text from RESEARCH BLOCKED}" }` — do not attempt plan/execute/verify.
 
 **Checkpoint format:**
 ```json
