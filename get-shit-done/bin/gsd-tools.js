@@ -1076,6 +1076,144 @@ function getUsageStats(quotaState) {
   };
 }
 
+// ─── Resilience: Auto-Resume (MILE-23, Phase 51-02) ──────────────────────────
+//
+// Deterministic, pure-function core consumed by execute-roadmap.md prose
+// (wired in 51-03) to detect a dead coordinator (session/quota-limit death or
+// checkpoint staleness), assemble a resume brief from its CHECKPOINT.json, and
+// estimate quota cost before a run -- all unit-tested here so the (untestable)
+// workflow prose plan can stay small and low-risk.
+
+// Detects a session/usage/quota/rate-limit death message, case-insensitively,
+// and extracts an optional "resets <time>" fragment. Never throws on
+// empty/null/undefined input.
+function parseDeathSignature(text) {
+  if (!text || typeof text !== 'string') {
+    return { is_death: false, matched_pattern: null, reset_fragment: null };
+  }
+
+  const patterns = [
+    { regex: /session limit/i, label: 'session limit' },
+    { regex: /usage limit/i, label: 'usage limit' },
+    { regex: /quota limit/i, label: 'quota limit' },
+    { regex: /rate limit exceeded/i, label: 'rate limit exceeded' },
+  ];
+
+  let matchedPattern = null;
+  for (const p of patterns) {
+    if (p.regex.test(text)) {
+      matchedPattern = p.label;
+      break;
+    }
+  }
+
+  if (!matchedPattern) {
+    return { is_death: false, matched_pattern: null, reset_fragment: null };
+  }
+
+  // Tolerate any separator before "resets" (e.g. "· resets 12:30am") -- match
+  // on "resets" regardless of what precedes it.
+  const resetMatch = text.match(/resets\s+(\d{1,2}:\d{2}\s*(?:am|pm))/i);
+
+  return {
+    is_death: true,
+    matched_pattern: matchedPattern,
+    reset_fragment: resetMatch ? resetMatch[1].replace(/\s+/g, '').toLowerCase() : null,
+  };
+}
+
+// Parses a 12-hour-clock fragment (e.g. "12:30am", "5:20pm") -- or a full
+// death message containing "resets <time>" -- into the next real occurrence
+// as an ISO timestamp relative to referenceDate (today if still in the
+// future, tomorrow otherwise). Returns null if no valid time can be parsed.
+function parseResetTime(text, referenceDate) {
+  const refDate = referenceDate instanceof Date && !Number.isNaN(referenceDate.getTime())
+    ? referenceDate
+    : new Date();
+
+  if (!text || typeof text !== 'string') return null;
+
+  // Accept either a raw fragment ("12:30am") or a full message ("... resets 12:30am").
+  const resetsMatch = text.match(/resets\s+(\d{1,2}:\d{2}\s*(?:am|pm))/i);
+  const timeSource = resetsMatch ? resetsMatch[1] : text;
+
+  const timeMatch = timeSource.match(/(\d{1,2}):(\d{2})\s*(am|pm)/i);
+  if (!timeMatch) return null;
+
+  let hour = parseInt(timeMatch[1], 10);
+  const minute = parseInt(timeMatch[2], 10);
+  const meridiem = timeMatch[3].toLowerCase();
+
+  if (hour < 1 || hour > 12 || minute < 0 || minute > 59) return null;
+
+  if (meridiem === 'am') {
+    hour = hour === 12 ? 0 : hour;
+  } else {
+    hour = hour === 12 ? 12 : hour + 12;
+  }
+
+  const candidate = new Date(
+    refDate.getFullYear(), refDate.getMonth(), refDate.getDate(),
+    hour, minute, 0, 0
+  );
+
+  // Still in the future (strictly after referenceDate) -> today's occurrence.
+  // Already passed (equal to or before referenceDate) -> tomorrow's occurrence.
+  if (candidate.getTime() <= refDate.getTime()) {
+    candidate.setDate(candidate.getDate() + 1);
+  }
+
+  return candidate.toISOString();
+}
+
+// Reports whether a file's mtime exceeds thresholdMinutes. Returns a clear
+// stale:null / file_exists:false result (never throws) when the file is
+// missing -- distinct from stale:true/false, so callers can branch on
+// "never wrote a first checkpoint" as its own case.
+function checkStaleness(filePath, thresholdMinutes) {
+  const threshold = typeof thresholdMinutes === 'number' && Number.isFinite(thresholdMinutes)
+    ? thresholdMinutes
+    : 30;
+
+  if (!fs.existsSync(filePath)) {
+    return { stale: null, file_exists: false, mtime: null, age_minutes: null, threshold_minutes: threshold };
+  }
+
+  const stat = fs.statSync(filePath);
+  const ageMinutes = (Date.now() - stat.mtimeMs) / 60000;
+
+  return {
+    stale: ageMinutes > threshold,
+    file_exists: true,
+    mtime: new Date(stat.mtimeMs).toISOString(),
+    age_minutes: ageMinutes,
+    threshold_minutes: threshold,
+  };
+}
+
+function cmdResilienceCheckStaleness(cwd, filePath, thresholdMinutes, raw) {
+  if (!filePath) {
+    error('resilience check-staleness: <file> required');
+  }
+  const resolvedPath = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath);
+  const threshold = (thresholdMinutes !== null && thresholdMinutes !== undefined && Number.isFinite(thresholdMinutes))
+    ? thresholdMinutes
+    : loadConfig(cwd).staleness_threshold_minutes;
+  const result = checkStaleness(resolvedPath, threshold);
+  output(result, raw);
+}
+
+function cmdResilienceParseDeath(text, raw) {
+  if (!text) {
+    error('resilience parse-death: --text required');
+  }
+  const result = parseDeathSignature(text);
+  result.reset_time_iso = (result.is_death && result.reset_fragment)
+    ? parseResetTime(result.reset_fragment, new Date())
+    : null;
+  output(result, raw);
+}
+
 // ─── Commands ─────────────────────────────────────────────────────────────────
 
 function cmdGenerateSlug(text, raw) {
@@ -11487,6 +11625,30 @@ async function main() {
         }
       } else {
         error('Unknown quota subcommand. Available: status, reset, record, update-from-headers, check, wait, status-bar, stats');
+      }
+      break;
+    }
+
+    case 'resilience': {
+      const subCommand = args[1];
+
+      if (subCommand === 'check-staleness') {
+        const filePath = args[2];
+        const thresholdIdx = args.indexOf('--threshold-minutes');
+        const thresholdMinutes = thresholdIdx !== -1 ? parseFloat(args[thresholdIdx + 1]) : null;
+        if (!filePath) {
+          error('resilience check-staleness: <file> required');
+        }
+        cmdResilienceCheckStaleness(cwd, filePath, thresholdMinutes, raw);
+      } else if (subCommand === 'parse-death') {
+        const textIdx = args.indexOf('--text');
+        const text = textIdx !== -1 ? args[textIdx + 1] : null;
+        if (!text) {
+          error('resilience parse-death: --text required');
+        }
+        cmdResilienceParseDeath(text, raw);
+      } else {
+        error('Unknown resilience subcommand. Available: check-staleness, parse-death');
       }
       break;
     }
