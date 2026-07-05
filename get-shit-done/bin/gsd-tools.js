@@ -200,6 +200,7 @@ const { CompletionSignal, COMPLETION_STATUS } = require('./completion-signal.js'
 const { TaskChunker, BatchCoordinator, analyzeTask, estimateTaskTokens } = require('./task-chunker.js');
 const { estimatePhaseSize, detectOversizedPhases, recommendSplit, validateSplitPreservesDependencies, LIMITS: PHASE_LIMITS } = require('./phase-sizer.js');
 const evalHarness = require('./eval-harness.js');
+const promptBudget = require('./prompt-budget.js');
 
 // Phase 2: Auto Mode safety modules (lazy — gracefully absent if not installed)
 let circuitBreaker, validator, escalation, feedback, learning;
@@ -4584,6 +4585,24 @@ function cmdEval(cwd, args, raw) {
   }
 
   error('Unknown eval subcommand. Available: plan, assert');
+}
+
+// ─── Prompt Budget CLI (MILE-30, Phase 53-02) ────────────────────────────────
+// Thin CLI dispatch onto get-shit-done/bin/prompt-budget.js's pure functions.
+// NOTE: named cmdPromptBudget (not cmdBudget) because `budget` is already an
+// existing top-level command (cost/spend budget: `budget --period daily`,
+// see cmdBudget(args, raw) above at knowledge-cost.js's Emergency Stop &
+// Budget section). `gsd-tools.js budget check` is dispatched as a subcommand
+// of the EXISTING `case 'budget':` (args[1] === 'check'), which routes here
+// instead of falling through to the legacy cost-budget path -- see that case
+// block for the routing logic. Mirrors cmdEval's `assert` subcommand:
+// bypasses the shared output() helper (which always exits 0) and instead
+// calls process.exit(result.pass ? 0 : 1) directly so CI can fail the job on
+// a real budget violation.
+function cmdPromptBudget(cwd, raw) {
+  const result = promptBudget.checkAllBudgets(cwd);
+  process.stdout.write(JSON.stringify(result, null, 2));
+  process.exit(result.pass ? 0 : 1);
 }
 
 function cmdTask(cwd, args, raw) {
@@ -12188,7 +12207,17 @@ async function main() {
     }
 
     case 'budget': {
-      cmdBudget(args.slice(1), raw);
+      // Sub-dispatch: `budget check` (MILE-30 prompt-token budget, Phase
+      // 53-02) vs the pre-existing cost/spend budget command (`budget
+      // --period daily --scope project`). Only a bare `check` positional as
+      // the very first sub-argument routes to the prompt-budget path; every
+      // other invocation (including bare `budget` with no args) preserves
+      // the original cost-budget behavior unchanged.
+      if (args[1] === 'check') {
+        cmdPromptBudget(cwd, raw);
+      } else {
+        cmdBudget(args.slice(1), raw);
+      }
       break;
     }
 
