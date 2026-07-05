@@ -1214,6 +1214,154 @@ function cmdResilienceParseDeath(text, raw) {
   output(result, raw);
 }
 
+// Extracts resume_from/last_step/step_status/plans_complete/plans_remaining/
+// key_context from a phase's real CHECKPOINT.json shape. Tolerates missing
+// fields (older checkpoints predate plans_complete/plans_remaining) and a
+// missing/malformed file (never throws) -- both are the "restart from
+// scratch" signal callers must treat as such, never a silent no-op.
+function parseCheckpointForResume(checkpointPath) {
+  const notFoundShape = {
+    found: false,
+    resume_from: null,
+    last_step: null,
+    step_status: null,
+    plans_complete: null,
+    plans_remaining: null,
+    key_context: null,
+  };
+
+  if (!fs.existsSync(checkpointPath)) {
+    return { ...notFoundShape };
+  }
+
+  let rawContent;
+  try {
+    rawContent = fs.readFileSync(checkpointPath, 'utf-8');
+  } catch (e) {
+    return { ...notFoundShape, error: e.message };
+  }
+
+  const parseResult = safeJsonParse(rawContent, checkpointPath);
+  if (!parseResult.ok) {
+    return { ...notFoundShape, error: parseResult.error.message };
+  }
+
+  const data = parseResult.value;
+  return {
+    found: true,
+    resume_from: data.resume_from ?? null,
+    last_step: data.last_step ?? null,
+    step_status: data.step_status ?? null,
+    plans_complete: data.plans_complete ?? null,
+    plans_remaining: data.plans_remaining ?? null,
+    key_context: data.key_context ?? null,
+  };
+}
+
+// Assembles a resume-brief text/object from checkpoint data + phase info,
+// suitable for injecting directly into a respawned coordinator's Agent()
+// prompt string (plain text, no markdown tables).
+function buildResumeBrief(checkpointData, phaseInfo) {
+  const phaseNumber = phaseInfo && phaseInfo.phase_number;
+  const phaseName = phaseInfo && phaseInfo.phase_name;
+
+  if (!checkpointData || !checkpointData.found) {
+    const briefText = `No prior checkpoint found -- starting phase ${phaseNumber} (${phaseName}) from scratch.`;
+    return {
+      resume_from: 'discuss',
+      brief_text: briefText,
+      checkpoint: checkpointData || null,
+    };
+  }
+
+  const lines = [];
+  lines.push('RESUMING FROM DEATH');
+  lines.push(`Phase ${phaseNumber} (${phaseName})`);
+  lines.push(`Last step: ${checkpointData.last_step ?? 'unknown'} (status: ${checkpointData.step_status ?? 'unknown'})`);
+  if (checkpointData.plans_complete !== null && checkpointData.plans_complete !== undefined) {
+    lines.push(`Plans complete: ${JSON.stringify(checkpointData.plans_complete)}`);
+  }
+  if (checkpointData.plans_remaining !== null && checkpointData.plans_remaining !== undefined) {
+    lines.push(`Plans remaining: ${JSON.stringify(checkpointData.plans_remaining)}`);
+  }
+  if (checkpointData.key_context) {
+    lines.push('');
+    lines.push('Key context:');
+    lines.push(checkpointData.key_context);
+  }
+
+  return {
+    resume_from: checkpointData.resume_from,
+    brief_text: lines.join('\n'),
+    checkpoint: checkpointData,
+  };
+}
+
+function cmdResilienceResumeBrief(cwd, phase, raw) {
+  if (!phase) {
+    error('resilience resume-brief: <phase> required');
+  }
+  const phaseInfo = findPhaseInternal(cwd, phase);
+  if (!phaseInfo) {
+    output({ error: 'phase not found', phase }, raw);
+    return;
+  }
+  const checkpointPath = path.join(cwd, phaseInfo.directory, 'CHECKPOINT.json');
+  const checkpointData = parseCheckpointForResume(checkpointPath);
+  const brief = buildResumeBrief(checkpointData, phaseInfo);
+  output(brief, raw);
+}
+
+// Estimates the token cost of phaseCount remaining phases against the
+// current (self-healed via loadQuotaState) quota budget. Reuses
+// loadQuotaState -- never reads the raw quota file itself -- so this
+// composes with 51-01's self-heal automatically.
+function estimateQuotaForRemainingPhases(cwd, phaseCount) {
+  const quotaState = loadQuotaState(cwd);
+
+  // Deliberately conservative placeholder, not a measured value -- used only
+  // when no execution history exists yet (brand new project, or
+  // EXECUTION_LOG.md absent).
+  const CONSERVATIVE_DEFAULT_TOKENS_PER_PHASE = 300000;
+
+  let avgTokensPerPhase = CONSERVATIVE_DEFAULT_TOKENS_PER_PHASE;
+  let source = 'conservative_default';
+
+  try {
+    const { getExecutionStats } = require('./execution-log.js');
+    const stats = getExecutionStats(cwd);
+    if (stats && stats.phases_completed > 0) {
+      const totalTokensAcrossTasks = (quotaState.tasks || []).reduce(
+        (sum, t) => sum + (t.tokens_in || 0) + (t.tokens_out || 0), 0
+      );
+      avgTokensPerPhase = totalTokensAcrossTasks / stats.phases_completed;
+      source = 'observed_history';
+    }
+  } catch (e) {
+    // require failure or getExecutionStats throwing -- fall back to the
+    // conservative default above.
+  }
+
+  const estimatedTokens = avgTokensPerPhase * phaseCount;
+  const remainingBudget = quotaState.session.tokens_limit - quotaState.session.tokens_used;
+  const sufficient = estimatedTokens <= remainingBudget;
+
+  return {
+    estimated_tokens: estimatedTokens,
+    avg_tokens_per_phase: avgTokensPerPhase,
+    remaining_budget: remainingBudget,
+    sufficient,
+    phase_count: phaseCount,
+    source,
+  };
+}
+
+function cmdResilienceEstimateQuota(cwd, phaseCount, raw) {
+  const count = Number.isFinite(phaseCount) && phaseCount > 0 ? phaseCount : 1;
+  const result = estimateQuotaForRemainingPhases(cwd, count);
+  output(result, raw);
+}
+
 // ─── Commands ─────────────────────────────────────────────────────────────────
 
 function cmdGenerateSlug(text, raw) {
@@ -11647,8 +11795,15 @@ async function main() {
           error('resilience parse-death: --text required');
         }
         cmdResilienceParseDeath(text, raw);
+      } else if (subCommand === 'resume-brief') {
+        const phase = args[2];
+        cmdResilienceResumeBrief(cwd, phase, raw);
+      } else if (subCommand === 'estimate-quota') {
+        const phasesIdx = args.indexOf('--phases');
+        const phaseCount = phasesIdx !== -1 ? parseInt(args[phasesIdx + 1], 10) : 1;
+        cmdResilienceEstimateQuota(cwd, phaseCount, raw);
       } else {
-        error('Unknown resilience subcommand. Available: check-staleness, parse-death');
+        error('Unknown resilience subcommand. Available: check-staleness, parse-death, resume-brief, estimate-quota');
       }
       break;
     }
