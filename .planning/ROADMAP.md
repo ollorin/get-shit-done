@@ -489,7 +489,7 @@ Plans:
   2. `prd.md` Stages 1d/2d auto-spawn 4–6 parallel `gsd-product-investigator` agents (Haiku, capped fan-out) when confidence < ~0.50 with unresolved gaps after max Q&A rounds; `gsd-discovery-synthesizer` merges findings and updates confidence; confidence ≥ ~0.65 stays dormant; `workflows/discover.md`, `discovery-phase.md`, and `skills/gsd-discover/` are deleted once this lands
   3. A retry counter per plan/phase lives in `.planning/execution-state.json`; 1st failure auto-retries with no user prompt; 2nd failure of the same task/phase auto-spawns `gsd-debugger` with context (error, last completed step, files modified); post-debugger Telegram escalation includes the debugger's findings; hard stop at a configurable max-attempts ceiling (default 4); `workflows/debug.md` is rebuilt slim around the existing `gsd-debugger` agent, fixing the broken `/gsd:debug` command
   4. Integration tests cover: `auto_mine: true` + sessions → mined; `auto_mine: false` → skipped; mining throws → milestone still completes; low confidence + gaps → investigators spawn capped at 6; high confidence → no spawn; investigator failure → standard unresolved-gap handling, no hard block; failure at threshold → debugger spawned; below threshold → standard path; at max-attempts ceiling → hard stop with escalation, not another debug attempt
-**Plans:** TBD
+**Plans:** 4/4 plans complete
 
 Plans:
 - [ ] 48-01: Mining injection into complete-milestone — auto_mine config gate, session date-range scan, dedup verification, v{X}-KNOWLEDGE.md metadata, non-blocking failure
@@ -508,12 +508,12 @@ Plans:
   3. `complete-milestone.md` gains a knowledge-consolidation step (clustering → principle synthesis with a real Haiku call replacing the "first 10 words" stub → conflict detection) that runs once per milestone, never before every agent action; a thin manual backstop command exposes the same code path on demand; insufficient clusters force no principle
   4. `knowledge-qa.js`, `knowledge-scan.js`, and the `knowledge-permissions.js` grant/revoke CLI surface are deleted after a fresh zero-reference grep across bin/, workflows/, agents/, scripts/, hooks/, commands/, references/, templates/; gsd-tools.js command dispatch no longer references them
   5. Integration tests cover: secret pattern → redacted/rejected; clean content → unchanged; budget exceeded → circuit breaker blocks + logs; concurrent writes → no lost update; session-end → prune runs; verification failure tied to KB answer → feedback recorded; bulk op → checkpoint first; sufficient cluster → principle with LLM-generated text; insufficient cluster → none; conflicting principles → flagged, not silently overwritten
-**Plans:** TBD
+**Plans:** 3/4 plans executed
 
 Plans:
-- [ ] 49-01: Write-path safety — knowledge-safety wiring into storeInsights, config-extensible secrets/PII regex filter, transaction race fix, cost circuit-breaker pre-check
-- [ ] 49-02: Event triggers — lifecycle prune/checkpointWAL at session-end + complete-milestone, verifier/executor feedback auto-trigger, pre-bulk-op checkpoint
-- [ ] 49-03: Milestone consolidation pass — clustering, real Haiku principle synthesis (cost-capped), conflict detection, thin manual backstop command
+- [x] 49-01: Write-path safety — knowledge-safety wiring into storeInsights, config-extensible secrets/PII regex filter, transaction race fix, cost circuit-breaker pre-check
+- [x] 49-02: Event triggers — lifecycle prune/checkpointWAL at session-end + complete-milestone, verifier/executor feedback auto-trigger, pre-bulk-op checkpoint
+- [x] 49-03: Milestone consolidation pass — clustering, real Haiku principle synthesis (cost-capped), conflict detection, thin manual backstop command
 - [ ] 49-04: Knowledge CLI deletions (qa/scan/permissions grant-revoke, post-grep) + integration tests
 
 #### Phase 50: Final Deletions & Verification Sweep
@@ -580,8 +580,8 @@ Plans:
 | 45. Deterministic Phase-Gate & Deferral Protocol | 5/5 | Complete   | 2026-07-04 | - |
 | 46. Artifact-Generation & Coverage Gates | 4/4 | Complete   | 2026-07-04 | - |
 | 47. Telegram Escalation Reliability | 3/3 | Complete   | 2026-07-04 | - |
-| 48. Satellite Injections: Mining, Discovery, Debugger | v1.14.0 | 0/TBD | Not started | - |
-| 49. Knowledge Auto-Wiring & CLI Cleanup | v1.14.0 | 0/TBD | Not started | - |
+| 48. Satellite Injections: Mining, Discovery, Debugger | 4/4 | Complete   | 2026-07-04 | - |
+| 49. Knowledge Auto-Wiring & CLI Cleanup | 3/4 | In Progress|  | - |
 | 50. Final Deletions & Verification Sweep | v1.14.0 | 0/TBD | Not started | - |
 
 ---

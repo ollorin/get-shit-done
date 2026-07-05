@@ -75,15 +75,15 @@
 
 #### Satellite Injections
 
-- [ ] **MILE-11**: `complete-milestone` automatically mines the milestone's conversation sessions into the knowledge DB (gated by `auto_mine: true` default, deduped against session-end extraction, metadata to `.planning/milestones/v{X}-KNOWLEDGE.md`, non-blocking on failure) (US-7)
-- [ ] **MILE-12**: `/gsd:prd` auto-spawns 4–6 parallel `gsd-product-investigator` agents (Haiku, capped) when confidence < ~0.50 with unresolved gaps after max Q&A rounds; `gsd-discovery-synthesizer` merges findings; confidence ≥ ~0.65 stays dormant; standalone discover surfaces are deleted once landed (US-8)
-- [ ] **MILE-13**: Repeated execution failure auto-spawns `gsd-debugger`: 1st failure auto-retries silently, 2nd failure spawns the debugger with context, escalation includes debugger findings, hard stop at max-attempts ceiling (default 4); `workflows/debug.md` rebuilt slim around the existing agent (US-9)
+- [x] **MILE-11**: `complete-milestone` automatically mines the milestone's conversation sessions into the knowledge DB (gated by `auto_mine: true` default, deduped against session-end extraction, metadata to `.planning/milestones/v{X}-KNOWLEDGE.md`, non-blocking on failure) (US-7)
+- [x] **MILE-12**: `/gsd:prd` auto-spawns 4–6 parallel `gsd-product-investigator` agents (Haiku, capped) when confidence < ~0.50 with unresolved gaps after max Q&A rounds; `gsd-discovery-synthesizer` merges findings; confidence ≥ ~0.65 stays dormant; standalone discover surfaces are deleted once landed (US-8)
+- [x] **MILE-13**: Repeated execution failure auto-spawns `gsd-debugger`: 1st failure auto-retries silently, 2nd failure spawns the debugger with context, escalation includes debugger findings, hard stop at max-attempts ceiling (default 4); `workflows/debug.md` rebuilt slim around the existing agent (US-9)
 
 #### Knowledge Auto-Wiring
 
-- [ ] **MILE-14**: Every knowledge write passes through `knowledge-safety.js` as a pre-write guard, including a new config-extensible secrets/PII regex filter (API-key-like tokens, emails, credential keywords — rejection preferred over redaction when ambiguous); the `storeInsights` transaction race is fixed; `knowledge-cost.js` circuit breaker is checked before extraction/embedding batches (US-10)
-- [ ] **MILE-15**: `pruneStaleEntries` + `checkpointWAL` run automatically at session-end and `complete-milestone`; `markPrincipleWrong` auto-triggers when verifier/executor finds a KB-sourced answer contradicted by execution outcome; `knowledge-checkpoint.js` auto-checkpoints before bulk operations (US-11)
-- [ ] **MILE-16**: Knowledge synthesis, principle extraction, and conflict detection run once per milestone at `complete-milestone` (never per-action), with a real Haiku call replacing the stubbed principle-text generator, plus a thin manual backstop command exposing the same code path (US-12)
+- [x] **MILE-14**: Every knowledge write passes through `knowledge-safety.js` as a pre-write guard, including a new config-extensible secrets/PII regex filter (API-key-like tokens, emails, credential keywords — rejection preferred over redaction when ambiguous); the `storeInsights` transaction race is fixed; `knowledge-cost.js` circuit breaker is checked before extraction/embedding batches (US-10)
+- [x] **MILE-15**: `pruneStaleEntries` + `checkpointWAL` run automatically at session-end and `complete-milestone`; `markPrincipleWrong` auto-triggers when verifier/executor finds a KB-sourced answer contradicted by execution outcome; `knowledge-checkpoint.js` auto-checkpoints before bulk operations (US-11)
+- [x] **MILE-16**: Knowledge synthesis, principle extraction, and conflict detection run once per milestone at `complete-milestone` (never per-action), with a real Haiku call replacing the stubbed principle-text generator, plus a thin manual backstop command exposing the same code path (US-12)
 - [ ] **MILE-17**: `knowledge-qa.js`, `knowledge-scan.js`, and the `knowledge-permissions.js` grant/revoke CLI surface are deleted after fresh zero-reference greps; gsd-tools.js dispatch no longer references them (US-13)
 
 #### Reliability & Deletions
@@ -142,12 +142,12 @@
 | MILE-08 | Phase 46 | Complete |
 | MILE-09 | Phase 46 | Complete |
 | MILE-10 | Phase 46 | Complete |
-| MILE-11 | Phase 48 | Pending |
-| MILE-12 | Phase 48 | Pending |
-| MILE-13 | Phase 48 | Pending |
-| MILE-14 | Phase 49 | Pending |
-| MILE-15 | Phase 49 | Pending |
-| MILE-16 | Phase 49 | Pending |
+| MILE-11 | Phase 48 | Complete |
+| MILE-12 | Phase 48 | Complete |
+| MILE-13 | Phase 48 | Complete |
+| MILE-14 | Phase 49 | Complete |
+| MILE-15 | Phase 49 | Complete |
+| MILE-16 | Phase 49 | Complete |
 | MILE-17 | Phase 49 | Pending |
 | MILE-18 | Phase 44 | Pending |
 | MILE-19 | Phase 50 | Pending |
