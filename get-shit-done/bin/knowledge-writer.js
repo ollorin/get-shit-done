@@ -295,6 +295,19 @@ async function storeInsights(insights, options = {}) {
       }
       const safeContent = filterResult.content;
 
+      // a3. MILE-31: injection-pattern screening, additive to the secrets
+      // filter above -- same choke point, same reject-on-match philosophy,
+      // different threat model (hijacking the reader, not leaking a
+      // credential). Runs AFTER the secrets filter so secrets are still
+      // checked/redacted/rejected first.
+      const { screenForInjectionPatterns } = require('./knowledge-safety.js');
+      const injectionResult = screenForInjectionPatterns(safeContent);
+      if (!injectionResult.safe) {
+        result.errors.push(`Rejected insight: ${injectionResult.reason}`);
+        result.skipped++;
+        continue;
+      }
+
       // b. Map insight type to knowledge type and TTL
       const { knowledgeType, ttlCategory } = mapInsightToKnowledgeType(insight);
 

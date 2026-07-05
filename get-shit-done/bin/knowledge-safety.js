@@ -163,6 +163,49 @@ function filterContentForSecrets(content, cwd) {
   };
 }
 
+// ─── Prompt-Injection Pattern Screen (MILE-31) ─────────────────────────────
+
+// Additive to filterContentForSecrets -- composes at the same choke point,
+// never replaces it. Detects unambiguous prompt-injection phrasing aimed
+// at hijacking whatever agent later reads this persisted knowledge
+// content. Fail-safe like the secrets filter: on match, reject rather
+// than attempt to sanitize/redact (an injection payload can't be
+// partially redacted into something safe the way an email address can).
+const INJECTION_PATTERNS = [
+  /\bignore (all |any )?previous instructions\b/i,
+  /\bdisregard (the |all )?(above|prior|previous)\b/i,
+  /\bnew instructions?\s*:/i,
+  /\byou (must|should) now\b/i,
+  /\boverride (your|all|the) (system )?instructions\b/i,
+  /\bact as (if you were|a different)\b/i
+];
+
+/**
+ * Screen content for unambiguous prompt-injection phrasing before
+ * persistence. Additive to filterContentForSecrets -- different threat
+ * model (hijacking the reader, not leaking a credential), same
+ * reject-on-match philosophy.
+ *
+ * @param {string} content - Raw content to screen
+ * @returns {{ safe: boolean, action: 'rejected'|null, content: string, reason?: string }}
+ */
+function screenForInjectionPatterns(content) {
+  if (typeof content !== 'string') {
+    return { safe: true, action: null, content };
+  }
+  for (const pattern of INJECTION_PATTERNS) {
+    if (pattern.test(content)) {
+      return {
+        safe: false,
+        action: 'rejected',
+        content,
+        reason: 'Prompt-injection-like phrasing detected: ' + pattern.source
+      };
+    }
+  }
+  return { safe: true, action: null, content };
+}
+
 // Lazy-load permissions module to avoid circular dependencies
 function getPermissionsModule() {
   try {
@@ -384,5 +427,6 @@ module.exports = {
   estimateActionCost,
   executeWithSafetyCheck,
   filterContentForSecrets,
-  loadExtraSecretPatterns
+  loadExtraSecretPatterns,
+  screenForInjectionPatterns
 };
