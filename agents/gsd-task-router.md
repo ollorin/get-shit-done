@@ -97,6 +97,24 @@ Read `session.percent` from the result:
 - **≤80% or command fails:** keep your reasoned tier
 </step>
 
+<step name="consult_ledger">
+Consult the routing ledger for historical evidence that may contradict your heuristic tier:
+
+```bash
+node ~/.claude/get-shit-done/bin/gsd-tools.js routing task-type "{TASK_DESCRIPTION}" --raw
+node ~/.claude/get-shit-done/bin/gsd-tools.js routing ledger consult --task-type "{derived_type}" --heuristic-tier {tier} --raw
+```
+
+Parse the consult result:
+- If `adjusted: true`: override your tier to `result.tier` and append `result.reason` to your
+  Reasoning line.
+- If `fail_open: true`: the CLI already printed a loud warning to stderr — surface it in your
+  own output too (you will state `Ledger: unavailable ({reason}) — heuristic only` in
+  return_decision below).
+- If either command fails or is unavailable: keep your reasoned tier unchanged, treat as
+  `fail_open: true, reason: 'command_unavailable'`.
+</step>
+
 <step name="get_context">
 Fetch relevant docs for the task (used by coordinator to inject context into executor prompt):
 
@@ -117,6 +135,7 @@ Task: {task description}
 Model: {haiku|sonnet|opus}
 Reasoning: {one sentence — why this tier for this task}
 Quota: {session.percent}% used{, adjusted: {original}→{new} if downgraded}
+Ledger: {adjusted, e.g. "adjusted haiku→sonnet: {reason}"|not adjusted ({reason})|unavailable ({reason}) — heuristic only}
 
 Context injection:
 - {doc path 1}
@@ -133,6 +152,7 @@ Task: {task description}
 Model: haiku
 Reasoning: fallback — commands unavailable, defaulting to haiku
 Quota: unknown
+Ledger: unavailable (command_unavailable) — heuristic only
 ```
 
 After outputting the decision, emit a telemetry event (best-effort, ignore errors):

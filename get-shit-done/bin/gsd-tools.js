@@ -10853,6 +10853,25 @@ function cmdRoutingLedgerShow(cwd, raw) {
   output(result.ledger || { built_at: null, source_event_count: 0, min_sample_count: 5, task_types: {} }, raw);
 }
 
+// Composes readRoutingLedger + consultLedger. Never throws -- fails open
+// with a loud stderr warning whenever the ledger is unavailable (missing or
+// corrupt), consistent with the readRoutingLedger contract it wraps.
+function cmdRoutingLedgerConsult(cwd, options, raw) {
+  const { taskType, heuristicTier } = options || {};
+  if (!taskType || !heuristicTier) { error('routing ledger consult: --task-type and --heuristic-tier are required'); return; }
+  const readResult = readRoutingLedger(cwd);
+  if (!readResult.ok) {
+    process.stderr.write(`WARNING: routing ledger unavailable (${readResult.reason}) -- falling back to heuristic-only routing\n`);
+    output({ tier: heuristicTier, adjusted: false, fail_open: true, reason: readResult.reason }, raw);
+    return;
+  }
+  const decision = consultLedger(readResult.ledger, taskType, heuristicTier, null);
+  if (decision.fail_open) {
+    process.stderr.write(`WARNING: routing ledger unavailable (${decision.reason}) -- falling back to heuristic-only routing\n`);
+  }
+  output(decision, raw);
+}
+
 function extractKeywords(text) {
   const stopWords = new Set([
     'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
@@ -12160,6 +12179,42 @@ function buildRoutingLedger(events, options = {}) {
     }
   }
   return { built_at: new Date().toISOString(), source_event_count: sourceEventCount, min_sample_count: minSampleCount, task_types: taskTypes };
+}
+
+// Pure function -- no I/O. Decides whether historical ledger evidence
+// contradicts a heuristic tier decision strongly enough to warrant an
+// UPWARD-ONLY adjustment. Never adjusts down (per MILE-34/57-RESEARCH.md --
+// downgrading is out of scope; the heuristic's own cost bias already handles
+// that). Only a single hop up via getNextTier(heuristicTier) is considered
+// per call (haiku->sonnet or sonnet->opus, never a two-hop haiku->opus skip).
+function consultLedger(ledger, taskType, heuristicTier, minSampleCount) {
+  if (!ledger) {
+    return { tier: heuristicTier, adjusted: false, fail_open: true, reason: 'ledger_unavailable' };
+  }
+  const perTier = ledger.task_types && ledger.task_types[taskType];
+  if (!perTier) {
+    return { tier: heuristicTier, adjusted: false, reason: 'no_data_for_task_type' };
+  }
+  const effectiveMin = minSampleCount || ledger.min_sample_count || 5;
+  const totalSamples = Object.values(perTier).reduce((sum, t) => sum + (t.attempts || 0), 0);
+  if (totalSamples < effectiveMin) {
+    return { tier: heuristicTier, adjusted: false, reason: 'insufficient_sample', sample_count: totalSamples };
+  }
+  const rateOf = (tierStats) => (tierStats && tierStats.attempts > 0) ? tierStats.successes / tierStats.attempts : null;
+  const heuristicRate = rateOf(perTier[heuristicTier]);
+  const higherTier = getNextTier(heuristicTier);
+  if (heuristicRate !== null && heuristicRate < 0.5 && higherTier && perTier[higherTier] && perTier[higherTier].attempts >= effectiveMin) {
+    const higherRate = rateOf(perTier[higherTier]);
+    if (higherRate !== null && higherRate >= heuristicRate + 0.2) {
+      return {
+        tier: higherTier,
+        adjusted: true,
+        reason: `historical evidence: ${taskType} at ${heuristicTier} succeeds ${(heuristicRate * 100).toFixed(0)}% (${perTier[heuristicTier].attempts} samples) vs ${higherTier} ${(higherRate * 100).toFixed(0)}%`,
+        sample_count: totalSamples
+      };
+    }
+  }
+  return { tier: heuristicTier, adjusted: false, reason: 'no_contradicting_evidence', sample_count: totalSamples };
 }
 
 // ─── CLI Router ───────────────────────────────────────────────────────────────
@@ -14111,7 +14166,15 @@ Was ${model} the right choice for this task? (y/n): `;
         const ledgerSub = args[2];
         if (ledgerSub === 'build') cmdRoutingLedgerBuild(cwd, raw);
         else if (ledgerSub === 'show') cmdRoutingLedgerShow(cwd, raw);
-        else error('Unknown routing ledger subcommand. Available: build, show');
+        else if (ledgerSub === 'consult') {
+          const taskTypeIdx = args.indexOf('--task-type');
+          const heuristicTierIdx = args.indexOf('--heuristic-tier');
+          cmdRoutingLedgerConsult(cwd, {
+            taskType: taskTypeIdx !== -1 ? args[taskTypeIdx + 1] : null,
+            heuristicTier: heuristicTierIdx !== -1 ? args[heuristicTierIdx + 1] : null,
+          }, raw);
+        }
+        else error('Unknown routing ledger subcommand. Available: build, show, consult');
       } else {
         error('Unknown routing subcommand. Available: match, match-with-quota, context, full, index-build, index-refresh, task-type, ledger');
       }
@@ -14204,6 +14267,7 @@ module.exports = {
   readRoutingLedger,
   writeRoutingLedger,
   getRoutingLedgerPath,
+  consultLedger,
   loadConfig,
 };
 
