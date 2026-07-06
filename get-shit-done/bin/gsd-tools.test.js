@@ -10545,3 +10545,236 @@ files_changed: []
     assert.strictEqual(regressParsed.executed[0].pass, true);
   });
 });
+
+// MILE-33 (Phase 56-03): cross-cutting integration tests. Mirrors the
+// MILE-32 block above's pattern exactly -- each test builds its own isolated
+// temp project via createTempProject() (a fixture `agents/` dir, temp
+// `.planning/telemetry/agent-reports.jsonl`, temp
+// `tests/eval-regressions/accepted/`, temp `get-shit-done/config/
+// prompt-budgets.json` -- NEVER the real repo's agents/ or .planning/
+// trees), then drives the real `prompt-optimize --agent <name>` CLI
+// subprocess via runGsdTools. Covers all 5 required MILE-33 scenarios:
+// diagnosis generation from seeded telemetry failures, budget-violation
+// rejection, eval-failure rejection, the no-signal path, and diff format
+// validity on the real written candidate.diff file.
+describe('MILE-33 end-to-end: reflective prompt optimization (Phase 56)', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  const FIXTURE_AGENT_A_CONTENT = `# GSD Fixture Agent A
+
+This is a short preamble for the fixture agent used by Phase 56-03's
+MILE-33 integration tests.
+
+<!-- GSD:CORE-PREAMBLE-END -->
+
+## Detail Section
+
+Extra detail content that lives after the core preamble marker.
+`;
+
+  const FIXTURE_AGENT_B_CONTENT = `# GSD Fixture Agent B
+
+A second, unrelated fixture agent with no telemetry or eval signal at all.
+
+<!-- GSD:CORE-PREAMBLE-END -->
+
+## Detail Section
+
+Nothing interesting here.
+`;
+
+  const SEEDED_AMBIGUITY_TEXT = 'unclear scope boundary for fixture task X';
+
+  function writeFixtureAgent(fileName, content) {
+    const dir = path.join(tmpDir, 'agents');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, fileName), content, 'utf-8');
+  }
+
+  function seedTelemetryEntry(agentName, extra = {}) {
+    const dir = path.join(tmpDir, '.planning', 'telemetry');
+    fs.mkdirSync(dir, { recursive: true });
+    const entry = {
+      agent: agentName,
+      timestamp: '2026-01-01T00:00:00.000Z',
+      ambiguities: [SEEDED_AMBIGUITY_TEXT],
+      instructions_not_followed: [],
+      tool_errors_swallowed: 0,
+      ...extra,
+    };
+    fs.appendFileSync(path.join(dir, 'agent-reports.jsonl'), JSON.stringify(entry) + '\n', 'utf-8');
+  }
+
+  function seedBudgetConfig(map) {
+    const dir = path.join(tmpDir, 'get-shit-done', 'config');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'prompt-budgets.json'), JSON.stringify(map, null, 2), 'utf-8');
+  }
+
+  function seedAcceptedEvalCandidate(candidate) {
+    const dir = path.join(tmpDir, 'tests', 'eval-regressions', 'accepted');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, `${candidate.id}.json`), JSON.stringify(candidate, null, 2), 'utf-8');
+  }
+
+  function forbiddenStringCandidate() {
+    return {
+      id: 'cand-fixture-a-never-appears',
+      source: 'debugger',
+      created_at: '2026-01-01T00:00:00.000Z',
+      title: 'gsd-fixture-a must never contain a forbidden string',
+      context: { agent: 'gsd-fixture-a', phase: null, root_cause: 'x', gap_description: null, debug_file: null, verification_file: null },
+      expected: { type: 'file_contains', file: 'agents/gsd-fixture-a.md', needle: 'THIS_STRING_WILL_NEVER_APPEAR_IN_THE_REVISION' },
+      status: 'accepted',
+    };
+  }
+
+  // Scenario (a): diagnosis generation from seeded telemetry failures.
+  test('scenario (a): diagnosis generation from seeded telemetry produces ready_for_review with diagnosis+diff files on disk', () => {
+    writeFixtureAgent('gsd-fixture-a.md', FIXTURE_AGENT_A_CONTENT);
+    seedTelemetryEntry('gsd-fixture-a');
+    seedBudgetConfig({ 'agents/gsd-fixture-a.md': 100000 });
+
+    const result = runGsdTools('prompt-optimize --agent gsd-fixture-a', tmpDir);
+    assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.status, 'ready_for_review');
+    assert.strictEqual(parsed.agent, 'gsd-fixture-a');
+
+    const diagnosisFullPath = path.join(tmpDir, parsed.diagnosisPath);
+    const diffFullPath = path.join(tmpDir, parsed.diffPath);
+    assert.ok(fs.existsSync(diagnosisFullPath), `expected diagnosis file to exist at ${diagnosisFullPath}`);
+    assert.ok(fs.existsSync(diffFullPath), `expected diff file to exist at ${diffFullPath}`);
+
+    const diagnosisContent = fs.readFileSync(diagnosisFullPath, 'utf-8');
+    assert.ok(diagnosisContent.includes('gsd-fixture-a'), 'expected diagnosis file to name the agent');
+
+    const diffContent = fs.readFileSync(diffFullPath, 'utf-8');
+    assert.ok(diffContent.includes(SEEDED_AMBIGUITY_TEXT), 'expected candidate diff to contain the seeded ambiguity text');
+  });
+
+  // Scenario (a), gate-results check: both gates pass on a generous budget
+  // with no conflicting accepted eval candidates.
+  test('scenario (a): ready_for_review JSON output reports both gates passing', () => {
+    writeFixtureAgent('gsd-fixture-a.md', FIXTURE_AGENT_A_CONTENT);
+    seedTelemetryEntry('gsd-fixture-a');
+    seedBudgetConfig({ 'agents/gsd-fixture-a.md': 100000 });
+
+    const result = runGsdTools('prompt-optimize --agent gsd-fixture-a', tmpDir);
+    assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.budgetResult.pass, true);
+    assert.strictEqual(parsed.evalResult.pass, true);
+    assert.strictEqual(parsed.evalResult.total, 0);
+  });
+
+  // Scenario (b): budget-violation rejection.
+  test('scenario (b): a deliberately tiny budget rejects the candidate with reason budget_exceeded, still writing rejected artifacts', () => {
+    writeFixtureAgent('gsd-fixture-a.md', FIXTURE_AGENT_A_CONTENT);
+    seedTelemetryEntry('gsd-fixture-a');
+    seedBudgetConfig({ 'agents/gsd-fixture-a.md': 1 });
+
+    const result = runGsdTools('prompt-optimize --agent gsd-fixture-a', tmpDir);
+    assert.strictEqual(result.success, false, 'expected non-zero exit on budget_exceeded rejection');
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.status, 'rejected');
+    assert.strictEqual(parsed.reason, 'budget_exceeded');
+
+    const diagnosisFullPath = path.join(tmpDir, parsed.diagnosisPath);
+    const diffFullPath = path.join(tmpDir, parsed.diffPath);
+    assert.ok(parsed.diagnosisPath.endsWith('diagnosis-rejected.md'), `expected diagnosis-rejected.md, got: ${parsed.diagnosisPath}`);
+    assert.ok(parsed.diffPath.endsWith('candidate-rejected.diff'), `expected candidate-rejected.diff, got: ${parsed.diffPath}`);
+    assert.ok(fs.existsSync(diagnosisFullPath), 'expected diagnosis-rejected.md to exist on disk');
+    assert.ok(fs.existsSync(diffFullPath), 'expected candidate-rejected.diff to exist on disk');
+  });
+
+  // Scenario (b), gate-results check: budget genuinely exceeded.
+  test('scenario (b): budgetResult in JSON output reports pass:false with estimatedTokens exceeding the tiny budget', () => {
+    writeFixtureAgent('gsd-fixture-a.md', FIXTURE_AGENT_A_CONTENT);
+    seedTelemetryEntry('gsd-fixture-a');
+    seedBudgetConfig({ 'agents/gsd-fixture-a.md': 1 });
+
+    const result = runGsdTools('prompt-optimize --agent gsd-fixture-a', tmpDir);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.budgetResult.pass, false);
+    assert.strictEqual(parsed.budgetResult.budget, 1);
+    assert.ok(parsed.budgetResult.estimatedTokens > 1, 'expected estimatedTokens to exceed the tiny budget');
+  });
+
+  // Scenario (c): eval-failure rejection -- generous budget, ONLY the eval
+  // gate is under test.
+  test('scenario (c): an accepted eval candidate whose assertion the revision breaks rejects with reason eval_failed', () => {
+    writeFixtureAgent('gsd-fixture-a.md', FIXTURE_AGENT_A_CONTENT);
+    seedTelemetryEntry('gsd-fixture-a');
+    seedBudgetConfig({ 'agents/gsd-fixture-a.md': 100000 });
+    seedAcceptedEvalCandidate(forbiddenStringCandidate());
+
+    const result = runGsdTools('prompt-optimize --agent gsd-fixture-a', tmpDir);
+    assert.strictEqual(result.success, false, 'expected non-zero exit on eval_failed rejection');
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.status, 'rejected');
+    assert.strictEqual(parsed.reason, 'eval_failed');
+  });
+
+  // Scenario (c), gate-results check: budget passes, only eval fails --
+  // proves the rejection is attributable to the eval gate specifically.
+  test('scenario (c): evalResult reports pass:false while budgetResult reports pass:true (isolating the eval gate)', () => {
+    writeFixtureAgent('gsd-fixture-a.md', FIXTURE_AGENT_A_CONTENT);
+    seedTelemetryEntry('gsd-fixture-a');
+    seedBudgetConfig({ 'agents/gsd-fixture-a.md': 100000 });
+    seedAcceptedEvalCandidate(forbiddenStringCandidate());
+
+    const result = runGsdTools('prompt-optimize --agent gsd-fixture-a', tmpDir);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.budgetResult.pass, true);
+    assert.strictEqual(parsed.evalResult.pass, false);
+    assert.ok(parsed.evalResult.total >= 1, 'expected at least one evaluated accepted candidate');
+  });
+
+  // Scenario (d): no-signal path -- a separate fixture agent with no
+  // telemetry and no matching eval-regression candidates anywhere.
+  test('scenario (d): a fixture agent with zero telemetry/eval signal exits 0 with status no_signal and writes nothing to disk', () => {
+    writeFixtureAgent('gsd-fixture-b.md', FIXTURE_AGENT_B_CONTENT);
+
+    const result = runGsdTools('prompt-optimize --agent gsd-fixture-b', tmpDir);
+    assert.ok(result.success, `expected exit 0 on no_signal, got: ${result.error}`);
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.status, 'no_signal');
+    assert.strictEqual(parsed.agent, 'gsd-fixture-b');
+
+    const reviewDir = path.join(tmpDir, '.planning', 'prompt-optimize', 'gsd-fixture-b');
+    assert.ok(!fs.existsSync(reviewDir), 'expected no review-artifact directory to be written for the no_signal path');
+  });
+
+  // Scenario (e): diff format validity -- the real written candidate.diff
+  // file (not a unit-level isValidUnifiedDiff call) must be structurally
+  // valid unified-diff text.
+  test('scenario (e): the real written candidate.diff contains valid unified-diff structure (--- / +++ / @@ headers)', () => {
+    writeFixtureAgent('gsd-fixture-a.md', FIXTURE_AGENT_A_CONTENT);
+    seedTelemetryEntry('gsd-fixture-a');
+    seedBudgetConfig({ 'agents/gsd-fixture-a.md': 100000 });
+
+    const result = runGsdTools('prompt-optimize --agent gsd-fixture-a', tmpDir);
+    assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+
+    const parsed = JSON.parse(result.output);
+    const diffContent = fs.readFileSync(path.join(tmpDir, parsed.diffPath), 'utf-8');
+
+    assert.ok(/^--- /m.test(diffContent), 'expected a "--- " header line');
+    assert.ok(/^\+\+\+ /m.test(diffContent), 'expected a "+++ " header line');
+    assert.ok(/^@@ .*@@/m.test(diffContent), 'expected at least one "@@ ... @@" hunk header line');
+  });
+});
