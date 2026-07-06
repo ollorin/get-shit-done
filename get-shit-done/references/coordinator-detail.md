@@ -1654,7 +1654,7 @@ After verify_phase_goal, check for cross-phase integration boundaries.
 
 ```bash
 # Check explicit depends_on
-DEPENDS_ON=$(node ~/.claude/get-shit-done/bin/gsd-tools.js roadmap get-phase {phase_number} --raw 2>/dev/null | node -e "try{const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(JSON.stringify(d.depends_on||[]))}catch{console.log('[]')}" 2>/dev/null || echo "[]")
+DEPENDS_ON=$(node ~/.claude/get-shit-done/bin/gsd-tools.js roadmap get-phase {phase_number} 2>/dev/null | node -e "try{const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(JSON.stringify(d.depends_on||[]))}catch{console.log('[]')}" 2>/dev/null || echo "[]")
 
 # Check for shared files with ANY completed phase (not just depends_on)
 CURRENT_FILES=$(grep -oE '[\w\-\/\.]+\.(ts|tsx|js|jsx)' .planning/phases/{phase_dir}/*-SUMMARY.md 2>/dev/null | sort -u)
