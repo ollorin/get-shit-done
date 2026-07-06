@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-07-02)
 ## Current Position
 
 Phase: 57 of 61 (Outcome-Informed Routing Ledger & Bounded Tier Escalation)
-Plan: 2 of 4 (57-02 complete)
+Plan: 3 of 4 (57-03 complete)
 Status: Ready to execute
 Last activity: 2026-07-06
 
-Progress: [██████████] 99%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -88,6 +88,7 @@ Progress: [██████████] 99%
 | Phase 56 P03 | ~15min | 3 tasks | 2 files |
 | Phase 57 P01 | ~20min | 2 tasks | 3 files |
 | Phase 57 P02 | ~20min | 2 tasks | 3 files |
+| Phase 57 P03 | ~20min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -158,6 +159,7 @@ Recent decisions affecting current work:
 - [Phase 56]: [56-03]: Task 1 (package.json test-chain wiring) was already satisfied by 56-02's own deviation-fix commit -- confirmed via grep before writing any new test, no redundant change made; 8 new cross-cutting integration tests in gsd-tools.test.js drive the real `prompt-optimize --agent` CLI subprocess against isolated temp-project fixtures (fixture agents/*.md, temp .planning/telemetry/agent-reports.jsonl, temp tests/eval-regressions/accepted/, temp get-shit-done/config/prompt-budgets.json), covering all 5 required MILE-33 scenarios exactly as specified; checkBudgetForCandidate's default config path resolves to `<cwd>/get-shit-done/config/prompt-budgets.json` (no override arg passed by runPromptOptimize), so budget-gate tests seed that exact relative path under the temp cwd; a real-repo smoke test (`prompt-optimize --agent gsd-test-writer` against the live repo root, no fixtures) confirms exit 0 (no_signal) and byte-identical `git status` before/after, proving the never-auto-apply guarantee holds against the live repo and not just temp fixtures; no Task/Agent tool was available in this executor run, so Task 2's tdd="true" spawn and the mandatory docs-update step were both completed inline; 638/638 npm test passing (was 630); Phase 56 (Reflective Prompt Optimization) now COMPLETE across all 3 plans, MILE-33 satisfied end-to-end
 - [Phase 57]: [Phase 57]: [57-01]: writeRoutingLedger uses plain fs.writeFileSync (not atomic) per 57-RESEARCH.md guidance -- coordinator-only-writer, low concurrent-write risk; loadConfig gains both flat routing_min_sample_count and nested routing.min_sample_count defaults (ENOENT branch returns raw defaults object directly); getNextTier/getTiers imported from model-registry.js now so Plan 57-03 needs no duplicate require; 660/660 npm test passing (was 638)
 - [Phase 57]: [57-02]: consultLedger single-hop-up-only (never haiku->opus in one call, never down); routing ledger consult CLI fails open loudly on missing/corrupt ledger, exit 0; gsd-task-router.md's consult_ledger step sits between check_quota and get_context; MILE-34 satisfied end-to-end across 57-01/57-02; found+fixed a real state record-session bug (bold-only field matching silently no-op'd against the real plain-prose STATE.md, now uses stateReplaceFieldTolerant); 679/679 npm test passing (was 662)
+- [Phase 57]: [57-03]: NON_CAPABILITY_PATTERNS has 15 entries (not 14 per the plan's prose -- env var/environment variable are two distinct literal strings); decideEscalation enforces two independent stop conditions (ladder null-terminator AND explicit escalationsUsed >= getTiers().length-1 bound); classifyFailure/decideEscalation placed adjacent to consultLedger in the same case 'routing' dispatch block; executor-detail.md's TASK FAILED signal gains a backward-compatible [non-capability] marker, old unmarked format preserved verbatim; 715/715 npm test passing (was 679); MILE-35 remains Pending -- spans this plan (decision logic) and 57-04 (coordinator-loop wiring)
 
 ### Roadmap Evolution
 
@@ -192,11 +194,11 @@ None.
 
 ### Next Steps
 
-- Phase 57 Plan 2 (routing ledger consultation + task-router wiring) complete — MILE-34 satisfied end-to-end. Next: execute Phase 57 Plan 3 (bounded escalation logic, MILE-35), then 57-04 (coordinator loop wiring, MILE-35).
+- Phase 57 Plan 3 (bounded escalation decision logic + failure classification) complete — classifyFailure/decideEscalation pure functions built, CLI-exposed, executor-detail.md's [non-capability] marker wired backward-compatibly. Next: execute Phase 57 Plan 4 (coordinator-detail.md escalation loop rewrite + execution-log recording) — the plan that flips MILE-35 to Complete.
 - Reconcile v1.13.0 status separately (see Pending Todos) — do not double-build during v1.15.0 execution
 
 ## Session Continuity
 
-Last session: 2026-07-06T08:14:11.642Z
-Stopped at: Completed 57-02-PLAN.md (routing ledger consultation + task-router wiring, MILE-34 complete)
-Resume file: None
+Last session: 2026-07-06T08:28:40.462Z
+Stopped at: Completed 57-03-PLAN.md (bounded escalation decision logic, MILE-35 decision-logic half)
+Resume file: none
