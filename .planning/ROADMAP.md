@@ -663,10 +663,13 @@ Plans:
   2. Ledger absence or corruption degrades gracefully to heuristic-only routing (fail-open, loud warning); a ledger with fewer than a minimum sample count for a task type is ignored for that type
   3. A haiku-tier task failure signaled by the executor triggers a sonnet retry, sonnet failure triggers opus, opus failure escalates to the existing failure-handling path — escalation is bounded (one retry per tier) and recorded in the execution log and routing ledger; failures that are not tier-capability-related (missing file, environment error) never trigger tier escalation
   4. Integration tests cover: ledger build from seeded logs, router consultation changing a tier decision, corrupt-ledger fail-open, minimum-sample threshold, haiku→sonnet→opus chain, bound enforcement, non-capability failure exclusion, ledger recording of escalation outcome
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete
 
 Plans:
-- [ ] 57-01: TBD (planned during plan-phase)
+- [x] 57-01: routing ledger storage & build aggregation (deriveTaskType, buildRoutingLedger, readRoutingLedger/writeRoutingLedger, `routing ledger build|show` CLI)
+- [x] 57-02: ledger consultation & task-router wiring (consultLedger, `routing ledger consult` CLI, gsd-task-router.md's consult_ledger step)
+- [x] 57-03: bounded escalation decision logic & failure classification (classifyFailure, decideEscalation, `routing classify-failure`/`routing escalation-decision` CLI, executor's [non-capability] marker)
+- [x] 57-04: coordinator escalation-loop rewrite + ledger-build trigger + phase-closing integration tests (MILE-35 complete)
 
 #### Phase 58: Honest Token Accounting
 
@@ -787,7 +790,7 @@ Plans:
 | 54. Structured Handoffs & Invariant Re-Injection | 4/4 | Complete   | 2026-07-06 | - |
 | 55. Failures-to-Regression Pipeline | 3/3 | Complete | 2026-07-06 | - |
 | 56. Reflective Prompt Optimization | v1.15.0 | 3/3 | Complete | 2026-07-06 |
-| 57. Outcome-Informed Routing Ledger & Bounded Escalation | v1.15.0 | 3/4 | In Progress|  |
+| 57. Outcome-Informed Routing Ledger & Bounded Escalation | v1.15.0 | 4/4 | Complete | 2026-07-06 |
 | 58. Honest Token Accounting | v1.15.0 | 0/TBD | Not started | - |
 | 59. Dormant Quality Agents Wired In | v1.15.0 | 0/TBD | Not started | - |
 | 60. Adversarial Plan Review | v1.15.0 | 0/TBD | Not started | - |

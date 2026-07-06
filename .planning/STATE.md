@@ -5,13 +5,13 @@
 See: .planning/PROJECT.md (updated 2026-07-02)
 
 **Core value:** Claude learns to make autonomous decisions based on user's reasoning patterns, only stopping for irreversible/external/costly actions
-**Current focus:** v1.15.0 — Self-Improving Quality Loop (roadmap created 2026-07-06, ready to plan Phase 54)
+**Current focus:** v1.15.0 — Self-Improving Quality Loop (roadmap created 2026-07-06, Phase 57 complete, ready to plan Phase 58)
 
 ## Current Position
 
-Phase: 57 of 61 (Outcome-Informed Routing Ledger & Bounded Tier Escalation)
-Plan: 3 of 4 (57-03 complete)
-Status: Ready to execute
+Phase: 57 of 61 (Outcome-Informed Routing Ledger & Bounded Tier Escalation) — COMPLETE (4/4 plans)
+Plan: 4 of 4 (57-04 complete)
+Status: Ready to plan Phase 58 (Honest Token Accounting)
 Last activity: 2026-07-06
 
 Progress: [██████████] 100%
@@ -89,6 +89,7 @@ Progress: [██████████] 100%
 | Phase 57 P01 | ~20min | 2 tasks | 3 files |
 | Phase 57 P02 | ~20min | 2 tasks | 3 files |
 | Phase 57 P03 | ~20min | 2 tasks | 3 files |
+| Phase 57 P04 | ~20min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -160,6 +161,7 @@ Recent decisions affecting current work:
 - [Phase 57]: [Phase 57]: [57-01]: writeRoutingLedger uses plain fs.writeFileSync (not atomic) per 57-RESEARCH.md guidance -- coordinator-only-writer, low concurrent-write risk; loadConfig gains both flat routing_min_sample_count and nested routing.min_sample_count defaults (ENOENT branch returns raw defaults object directly); getNextTier/getTiers imported from model-registry.js now so Plan 57-03 needs no duplicate require; 660/660 npm test passing (was 638)
 - [Phase 57]: [57-02]: consultLedger single-hop-up-only (never haiku->opus in one call, never down); routing ledger consult CLI fails open loudly on missing/corrupt ledger, exit 0; gsd-task-router.md's consult_ledger step sits between check_quota and get_context; MILE-34 satisfied end-to-end across 57-01/57-02; found+fixed a real state record-session bug (bold-only field matching silently no-op'd against the real plain-prose STATE.md, now uses stateReplaceFieldTolerant); 679/679 npm test passing (was 662)
 - [Phase 57]: [57-03]: NON_CAPABILITY_PATTERNS has 15 entries (not 14 per the plan's prose -- env var/environment variable are two distinct literal strings); decideEscalation enforces two independent stop conditions (ladder null-terminator AND explicit escalationsUsed >= getTiers().length-1 bound); classifyFailure/decideEscalation placed adjacent to consultLedger in the same case 'routing' dispatch block; executor-detail.md's TASK FAILED signal gains a backward-compatible [non-capability] marker, old unmarked format preserved verbatim; 715/715 npm test passing (was 679); MILE-35 remains Pending -- spans this plan (decision logic) and 57-04 (coordinator-loop wiring)
+- [Phase 57]: [57-04]: coordinator-detail.md's PER_TASK_MODE escalation block rewritten from a haiku-only unconditional single-hop escalation into the full bounded loop that calls `routing escalation-decision` per attempt (never reasoning about ladder bounds inline), honors the executor's own [non-capability] tag as authoritative over the CLI's own re-classification, and logs one task_outcome event per terminal attempt plus one tier_escalation event per hop; a new final item in the execute step runs `routing ledger build --raw` once after all plans/waves complete, before post_phase_ux_sweep (best-effort, never blocking); since coordinator-detail.md is prose consumed by an LLM subagent, coverage split into 4 simulation tests driving the REAL escalation-decision/execution-log event/routing ledger build CLI through the full haiku->sonnet->opus chain (bound enforcement, non-capability exclusion, ledger recording) plus 7 index-bounded grep-assertion tests locking prose wiring/ordering; budget check --raw still pass:true for all 5 agents (coordinator-detail.md not budget-measured); 726/726 npm test passing (was 715); MILE-35 flipped to Complete -- Phase 57 (Outcome-Informed Routing Ledger & Bounded Escalation) now COMPLETE across all 4 plans, MILE-34/MILE-35 both satisfied end-to-end, all 8 required 57-RESEARCH.md integration-test scenarios covered across the phase's 4 plans
 
 ### Roadmap Evolution
 
@@ -194,11 +196,11 @@ None.
 
 ### Next Steps
 
-- Phase 57 Plan 3 (bounded escalation decision logic + failure classification) complete — classifyFailure/decideEscalation pure functions built, CLI-exposed, executor-detail.md's [non-capability] marker wired backward-compatibly. Next: execute Phase 57 Plan 4 (coordinator-detail.md escalation loop rewrite + execution-log recording) — the plan that flips MILE-35 to Complete.
+- Phase 57 (Outcome-Informed Routing Ledger & Bounded Escalation) COMPLETE across all 4 plans — MILE-34/MILE-35 both satisfied end-to-end. Next: plan Phase 58 (Honest Token Accounting, MILE-36) — depends on Phase 57's per-task execution records (task_outcome events / routing ledger), which this phase now provides.
 - Reconcile v1.13.0 status separately (see Pending Todos) — do not double-build during v1.15.0 execution
 
 ## Session Continuity
 
-Last session: 2026-07-06T08:28:40.462Z
-Stopped at: Completed 57-03-PLAN.md (bounded escalation decision logic, MILE-35 decision-logic half)
+Last session: 2026-07-06T08:38:14.132Z
+Stopped at: Completed 57-04-PLAN.md (bounded coordinator escalation-loop rewrite + ledger-build trigger + phase-closing integration tests) — Phase 57 now COMPLETE
 Resume file: none

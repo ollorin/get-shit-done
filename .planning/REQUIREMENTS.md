@@ -147,7 +147,7 @@
 #### Outcome-Informed Routing
 
 - [x] **MILE-34**: A per-tier outcome ledger is built from EXECUTION_LOG.md routing decisions plus telemetry outcomes, persisted per-project, and consulted by the task router to adjust tier assignment when historical evidence contradicts the complexity heuristic; ledger absence/corruption fails open to heuristic-only routing with a loud warning, and task types below a minimum sample count are ignored (US-3)
-- [ ] **MILE-35**: A failed haiku-tier task automatically retries at sonnet, a failed sonnet retry escalates to opus, and opus failure routes into the existing failure-handling path — escalation is bounded to one retry per tier and recorded in the execution log and routing ledger; failures that are not tier-capability-related (missing file, environment error) never trigger escalation (US-4)
+- [x] **MILE-35**: A failed haiku-tier task automatically retries at sonnet, a failed sonnet retry escalates to opus, and opus failure routes into the existing failure-handling path — escalation is bounded to one retry per tier and recorded in the execution log and routing ledger; failures that are not tier-capability-related (missing file, environment error) never trigger escalation (US-4)
 
 #### Honest Economics
 
@@ -238,7 +238,7 @@
 | MILE-32 | Phase 55 | Complete |
 | MILE-33 | Phase 56 | Complete |
 | MILE-34 | Phase 57 | Complete |
-| MILE-35 | Phase 57 | Pending |
+| MILE-35 | Phase 57 | Complete |
 | MILE-36 | Phase 58 | Pending |
 | MILE-37 | Phase 59 | Pending |
 | MILE-38 | Phase 59 | Pending |
