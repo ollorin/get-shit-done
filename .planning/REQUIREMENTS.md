@@ -59,7 +59,7 @@
 
 ## v1.14.0 — Enforcement & Integration (Defined: 2026-07-02)
 
-**Source PRD:** `.planning/prds/pending/enforcement-and-integration.md` (US-1..US-16, all in MVP boundary)
+**Source PRD:** `.planning/prds/done/enforcement-and-integration.md` (US-1..US-16, all in MVP boundary)
 **Note:** US-14 is split into two requirements — MILE-18 (dead code with no replacement dependency, deleted early) and MILE-19 (deletions gated on replacements landing, deleted last) — per the PRD's risk-ascending ordering.
 
 ### v1 Requirements
@@ -106,8 +106,8 @@
 - [x] **MILE-27**: Model-registry indirection — tier→model mapping + per-tier operating parameters read from one config-sourced registry consumed by `gsd-circuit-breaker.js`/`gsd-escalation.js`/`analytics.js` (no duplicated tier tables); `verify test-content` `countAssertions` recognizes `assert.method(` namespace style (doc 15 S-7 + Phase 48 finding)
 - [x] **MILE-28**: Workflow crash-point audit — enumerate state-mutating steps across golden-path workflows, classify idempotent/resumable/neither, fix the "neither" cases; document a quarterly upstream cherry-pick review policy and refresh UPSTREAM-DIFF.md as the first instance (doc 15 S-8, S-9)
 - [x] **MILE-29**: Behavioral eval harness — golden mini-project fixture repo + eval runner executing plan→execute→verify with cheap models, asserting on artifacts (agents spawned, gates fired, DEFERRED.json on skip, atomic commits); runnable locally and wired into CI on prompt-file changes (doc 15 S-2)
-- [ ] **MILE-30**: Prompt budgets + instruction architecture — per-agent token budget enforced by a CI check (coordinator ≤8k core); hard-rules-first preamble + on-demand references applied to the 5 oversized agents (coordinator 17.5k, planner 14.5k, verifier 12.4k, debugger 9.4k, executor 9.2k); behavior preservation verified via the MILE-29 harness (doc 15 S-3)
-- [ ] **MILE-31**: Prompt-injection hardening — data-not-instructions framing for file-derived content in agent prompts; injection-pattern screening at the knowledge write path (composes with the MILE-14 filter); an adversarial fixture in the eval harness that attempts to derail the executor (doc 15 S-6)
+- [x] **MILE-30**: Prompt budgets + instruction architecture — per-agent token budget enforced by a CI check (coordinator ≤8k core); hard-rules-first preamble + on-demand references applied to the 5 oversized agents (coordinator 17.5k, planner 14.5k, verifier 12.4k, debugger 9.4k, executor 9.2k); behavior preservation verified via the MILE-29 harness (doc 15 S-3)
+- [x] **MILE-31**: Prompt-injection hardening — data-not-instructions framing for file-derived content in agent prompts; injection-pattern screening at the knowledge write path (composes with the MILE-14 filter); an adversarial fixture in the eval harness that attempts to derail the executor (doc 15 S-6)
 
 ### v2 Requirements (Deferred — PRD "Phase 2")
 
@@ -129,6 +129,65 @@
 | Entropy-based secret scanning | Regex starter set is MVP; follow-up only if false-negative rate proves too high |
 | Requirement-ID convention redesign for Nyquist matching | Known MVP limitation accepted; redesign is a larger separate effort |
 | New CI gates (lint, typecheck, coverage thresholds) | CI scope is narrowly "run existing 155-test suite on push/PR" |
+
+---
+
+## v1.15.0 — Self-Improving Quality Loop (Defined: 2026-07-06)
+
+**Source PRD:** `.planning/prds/pending/self-improving-quality-loop.md` (US-1..US-10, all in MVP boundary; promoted to `done/` at roadmap creation)
+**Note:** Requirement IDs continue the MILE- prefix (shared across milestones that consume PRDs via `gsd:new-milestone`/`gsd:prd`); MILE-32..41 map 1:1 to US-1..US-10.
+
+### v1 Requirements
+
+#### Feedback Loop Foundations
+
+- [ ] **MILE-32**: Debugger sessions with a confirmed root cause and phase-verification failures (`gaps_found`) automatically write candidate eval fixtures (input, expected assertion) to a review queue; accepted candidates become permanent eval cases run by the existing eval harness in CI, rejected candidates are archived (not deleted), and an aborted debugger session with no root cause writes nothing (US-1)
+- [ ] **MILE-33**: A prompt-optimize command reads a target agent's eval failures and telemetry, produces a natural-language diagnosis plus a budget-compliant, eval-gated candidate prompt-revision diff, never auto-applies it, runs per-agent only, and reports "no signal" cleanly when there is no failure/telemetry data for that agent (US-2)
+
+#### Outcome-Informed Routing
+
+- [ ] **MILE-34**: A per-tier outcome ledger is built from EXECUTION_LOG.md routing decisions plus telemetry outcomes, persisted per-project, and consulted by the task router to adjust tier assignment when historical evidence contradicts the complexity heuristic; ledger absence/corruption fails open to heuristic-only routing with a loud warning, and task types below a minimum sample count are ignored (US-3)
+- [ ] **MILE-35**: A failed haiku-tier task automatically retries at sonnet, a failed sonnet retry escalates to opus, and opus failure routes into the existing failure-handling path — escalation is bounded to one retry per tier and recorded in the execution log and routing ledger; failures that are not tier-capability-related (missing file, environment error) never trigger escalation (US-4)
+
+#### Honest Economics
+
+- [ ] **MILE-36**: Actual per-task token usage is recorded during execution into a durable per-project record; the savings report computes savings from that recorded usage against the configured profile baseline, states explicitly when no recorded data exists instead of inventing numbers, and reports an explicit coverage percentage when only some tasks have recorded usage (US-5)
+
+#### Dormant Quality Agents
+
+- [ ] **MILE-37**: With a config toggle enabled (default off, preserving current behavior), the executor spawns the existing `gsd-test-writer` agent after each implementation task that touches source code; a missing test-file output is a loud executor deviation, never a silent skip; toggle-off produces no spawn and no change to existing flows (US-6)
+- [ ] **MILE-38**: With a config toggle enabled (default off), the coordinator spawns the existing `gsd-integration-tester` agent at phase completion when the phase declares dependencies on prior phases; phases with no dependencies never spawn it; integration-tester `gaps_found` feeds the existing verification-failure path (and thus MILE-32's fixture generation) (US-7)
+
+#### Adversarial Review & Long-Run Integrity
+
+- [ ] **MILE-39**: Plans marked high-risk (config criteria or explicit flag) are reviewed by an attacker/defender/judge trio instead of the single-pass plan-checker; the judge verdict is a durable artifact attached to the plan with randomized attack/defense presentation order; a critical-flaws verdict routes into the existing plan-revision loop; non-high-risk plans keep the existing single-checker path unchanged (US-8)
+- [ ] **MILE-40**: A fixed handoff brief (phase goal, key decisions, open risks, file map, hard rules) is defined once in references and used at coordinator→executor and executor→verifier boundaries; on checkpoint resume, hard rules and phase invariants are re-read verbatim from source files (never from summaries), with an eval assertion proving the resume path includes them; prompt budgets still pass for all modified agents (US-9)
+
+#### Project-Aware Gating
+
+- [ ] **MILE-41**: The pre-PR gate detects a target project's type and command set from its own manifest files and runs the corresponding checks, passes on the GSD repo itself (self-hosting proof), and degrades unknown project types to a minimal universal check set with a loud notice, never a crash (US-10)
+
+### v2 Requirements (Deferred — PRD "Phase 2")
+
+- gsd-tools.js module split and coverage raise
+- Knowledge-system file consolidation (19 → ~6 files)
+- Charlotte QA 3-mode (ui-qa/ux-audit/e2e) end-to-end wiring
+- Cross-process file locking for STATE.md/ROADMAP.md/config.json
+- Remaining 6 non-idempotent crash points from the 52-04 audit (logged in deferred-items.md)
+- Windows path handling
+- Auto-applied prompt revisions (optimization stays human-approved in MVP)
+- Judge-panel calibration against human corrections
+
+### Out of Scope (v1.15.0)
+
+| Feature | Reason |
+|---------|--------|
+| Auto-applied prompt revisions | Human approval is a deliberate MVP safety boundary, not a technical limitation |
+| Judge-panel calibration against human corrections | Requires a corpus of human rulings that doesn't exist yet; revisit once MILE-39 has run for a while |
+| gsd-tools.js module split / knowledge-system consolidation | Structural refactors orthogonal to closing feedback loops; tracked separately |
+| New Python dependencies for prompt optimization (DSPy/GEPA) | Architectural constraint: Node.js only |
+
+---
 
 ## Traceability
 
@@ -174,13 +233,24 @@
 | MILE-27 | Phase 52 | Complete |
 | MILE-28 | Phase 52 | Complete |
 | MILE-29 | Phase 53 | Complete |
-| MILE-30 | Phase 53 | Pending |
-| MILE-31 | Phase 53 | Pending |
+| MILE-30 | Phase 53 | Complete |
+| MILE-31 | Phase 53 | Complete |
+| MILE-32 | Phase 55 | Pending |
+| MILE-33 | Phase 56 | Pending |
+| MILE-34 | Phase 57 | Pending |
+| MILE-35 | Phase 57 | Pending |
+| MILE-36 | Phase 58 | Pending |
+| MILE-37 | Phase 59 | Pending |
+| MILE-38 | Phase 59 | Pending |
+| MILE-39 | Phase 60 | Pending |
+| MILE-40 | Phase 54 | Pending |
+| MILE-41 | Phase 61 | Pending |
 
 **Coverage:**
 - v1.13.0 requirements: 15 total — mapped: 15, unmapped: 0 ✓
 - v1.14.0 requirements: 27 total — mapped: 27, unmapped: 0 ✓ (17 original MILE-05..21 + 10 scope-addition MILE-22..31)
+- v1.15.0 requirements: 10 total — mapped: 10, unmapped: 0 ✓ (MILE-32..41, one per PRD user story US-1..US-10)
 
 ---
-*Requirements defined: 2026-03-11 (v1.13.0), 2026-07-02 (v1.14.0)*
-*Last updated: 2026-07-05 — v1.14.0 scope expanded: MILE-22..31 (all analysis-folder findings) added; Phases 51-53 created, Phase 50 extended. MILE-18 status corrected Pending→Complete (delivered in Phase 44).*
+*Requirements defined: 2026-03-11 (v1.13.0), 2026-07-02 (v1.14.0), 2026-07-06 (v1.15.0)*
+*Last updated: 2026-07-06 — v1.15.0 Self-Improving Quality Loop requirements added (MILE-32..41 from self-improving-quality-loop PRD); v1.14.0 MILE-30/31 corrected Pending→Complete (delivered in Phase 53, milestone shipped 2026-07-06 PR #3).*

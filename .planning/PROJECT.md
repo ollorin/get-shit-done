@@ -4,19 +4,36 @@
 
 A fork of the Get Shit Done framework (glittercowboy/get-shit-done) with major enhancements: intelligent auto model selection, autonomous roadmap execution with autonomous pre-planning, a local vector knowledge system with global cross-project scope, and a production-ready Telegram MCP with forum topics and blocking escalation. Built for developers who want maximum efficiency from AI-assisted development while maintaining control over critical decisions. v1.10.0 shipped 2026-02-21.
 
-## Current Milestone: v1.14.0 — Enforcement & Integration
+## Current State
 
-**Goal:** Make every mandatory GSD step deterministic and automatic — deterministic enforcement gates replace prose "MUST" language, valuable satellite capabilities (mining, Nyquist, discovery, debugger) inject into the golden path, knowledge maintenance runs automatically on its natural triggers, and the escalation channel is hardened for unattended overnight runs.
+**Shipped:** v1.14.0 — Enforcement & Integration (2026-07-06, PR #3). 10 phases (44-53), 37 plans, all verified + deployed; tests 155 → 514. Built autonomously via prd → new-milestone → execute-roadmap.
 
-**PRD:** `.planning/prds/` — enforcement-and-integration (16 user stories US-1..US-16)
+The framework now enforces its own mandatory steps deterministically (git-diff-derived phase-gate + DEFERRED.json waivers), auto-invokes its previously-orphaned satellite capabilities from the golden path, auto-maintains the knowledge system, survives its own coordinator deaths (auto-resume), and is self-observable (skew detection, telemetry, eval harness). The doc-compression hook — dead since it was built — now fires at ~90% measured reduction.
+
+## Current Milestone: v1.15.0 Self-Improving Quality Loop
+
+**Goal:** Close every feedback loop v1.14.0 left open — failures become regression evals, eval results drive human-approved prompt optimization, routing learns from recorded outcomes, and the quality agents that were designed but never spawned get wired into the golden path.
 
 **Target features:**
-- P0 enforcement gates: deterministic `verify phase-gate`, diff-based UI detection, structured `DEFERRED.json` waiver protocol, auto-E2E-generation, blocking docs gate, test-content gate
-- Satellite injections: conversation mining → complete-milestone, Nyquist auditor → verifier gate, discovery → prd confidence-gated, debugger → execution failure paths
-- Knowledge auto-wiring: write-path safety incl. NEW secrets/PII filtering, event-triggered lifecycle/feedback/checkpoint, milestone-cadence synthesis/principles/conflicts; delete qa/scan/permissions CLI
-- Telegram escalation reliability: daemon-crash detection, timeout-race fix, JSONL locking, overnight blocking-question fallback
-- P2 reliability: JSON.parse guards, execSync hardening, state-file atomic writes, GitHub Actions CI, install fixes
-- Verified-dead deletions (modules/ stubs, orphaned hooks, parallel-executor, obsoleted standalone entry points)
+- Failures-to-regression pipeline: debugger sessions and verification failures auto-generate candidate eval fixtures (US-1)
+- Reflective prompt optimization: eval failures + telemetry → diagnosed, budget-compliant, eval-gated prompt-revision diffs for human approval (US-2)
+- Outcome-informed routing: per-tier outcome ledger consulted by task-router, bounded failure escalation haiku→sonnet→opus, honest token accounting from recorded usage (US-3/4/5)
+- Dormant quality agents wired in: gsd-test-writer after implementation tasks, gsd-integration-tester on dependent phases (toggleable) (US-6/7)
+- Adversarial attacker/defender/judge review for high-risk plans (US-8)
+- Structured handoff briefs + verbatim invariant re-injection after checkpoint resume (US-9)
+- Project-aware pre-PR gate that passes on GSD itself (US-10)
+
+**Source PRD:** `.planning/prds/pending/self-improving-quality-loop.md` (promoted to done/ at roadmap creation)
+
+**Still-open candidates for later:** reconcile v1.13.0 (phases 41-43 unreconciled — scope already in codebase); gsd-tools module split; prompt-dedup pass; knowledge-system consolidation; Charlotte QA 3-mode wiring.
+
+<details>
+<summary>v1.14.0 milestone goal & target features (shipped)</summary>
+
+**Goal:** Make every mandatory GSD step deterministic and automatic — enforcement gates replace prose "MUST" language, satellite capabilities inject into the golden path, knowledge maintenance runs automatically, and the escalation channel is hardened for unattended runs.
+
+**Delivered:** deterministic phase-gate + DEFERRED.json; satellite injections (mining/Nyquist/discovery/debugger); knowledge auto-wiring incl. secrets/PII filter; Telegram overnight fallback; run self-resilience (auto-resume, quota self-heal); observability (skew doctor, telemetry, model registry, eval harness, prompt budgets, injection hardening); reliability quick-wins + CI; doc-compression hook resurrected. Full details: `.planning/milestones/v1.14.0-ROADMAP.md`.
+</details>
 
 ## Core Value
 
@@ -75,13 +92,15 @@ Claude learns to make autonomous decisions based on the user's reasoning pattern
 
 ### Active
 
-**Target: v1.14.0 — Enforcement & Integration (Phases 44+)**
-- [ ] Every mandatory step has a deterministic, machine-checkable gate (phase-gate + DEFERRED.json waivers)
-- [ ] UI work detected from git diff, never self-reported metadata; Charlotte QA + E2E artifacts required when detected
-- [ ] Satellites reachable from golden path: mining at complete-milestone, Nyquist in verifier, discovery in prd, debugger on repeat failure
-- [ ] Knowledge system fully automatic: write-path safety with secrets/PII filter, lifecycle/feedback/checkpoint triggers, milestone consolidation pass
-- [ ] Telegram escalation reliable for unattended runs; blocking-question timeout has a defined fallback
-- [ ] gsd-tools.js reliability quick wins + GitHub Actions CI + verified-dead deletions
+**Target: v1.15.0 — Self-Improving Quality Loop (Phases 54+)**
+- [ ] Debugger sessions and verification failures auto-generate candidate eval fixtures; accepted candidates run permanently in CI
+- [ ] Prompt-optimize command produces diagnosed, budget-compliant, eval-gated revision diffs (human-approved, per-agent)
+- [ ] Task-router consults a historical per-tier outcome ledger; failed cheap-tier tasks escalate bounded (haiku→sonnet→opus)
+- [ ] Actual token usage recorded per task; savings reported from real data with explicit coverage
+- [ ] gsd-test-writer spawned after implementation tasks and gsd-integration-tester on dependent phases (config-toggleable, eval-asserted)
+- [ ] High-risk plans reviewed by attacker/defender/judge trio with durable verdict artifact
+- [ ] Fixed handoff briefs at agent boundaries; invariants re-injected verbatim after checkpoint resume
+- [ ] `gate pre-pr` detects project type from manifests and passes on GSD itself
 
 **Note:** v1.13.0 (phases 41-43) was defined 2026-03-11 but never formally executed; its scope (gsd:prd, new-milestone PRD integration, docs-updater) is present in the codebase today. Reconcile/audit v1.13 status separately — do not double-build.
 
@@ -146,4 +165,4 @@ Node.js (CommonJS gsd-tools.js + ESM modules), TypeScript (telegram-mcp), SQLite
 | `confidence: 0.7` float fallback (not string 'medium') | Type contract between query-knowledge and meta-answerer numeric scoring | ✓ Good — fixes silent failure on KB hits |
 
 ---
-*Last updated: 2026-07-02 — v1.14.0 Enforcement & Integration started (from enforcement-and-integration PRD; 2026-07-02 deep-dive audit in docs/analysis/)*
+*Last updated: 2026-07-06 v1.15.0 Self-Improving Quality Loop started (from self-improving-quality-loop PRD) — previously: 2026-07-06 v1.14.0 shipped (PR #3); 2026-07-02 deep-dive audit in docs/analysis/*
