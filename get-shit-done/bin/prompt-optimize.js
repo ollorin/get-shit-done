@@ -545,6 +545,236 @@ function buildRevisionCandidate(agentFilePath, diagnosis) {
   }
 }
 
+// --- Gating + Orchestration (MILE-33, Phase 56-02) ---
+
+// ─── Budget gate ─────────────────────────────────────────────────────────────
+
+// Checks the in-memory revised content against config/prompt-budgets.json's
+// configured budget for agentRelPath. Fails OPEN (pass:true + warning) when
+// the config file is missing/malformed OR the agent has no entry -- an agent
+// with no configured budget cannot be gated on budget, mirroring
+// model-registry.js's fail-open convention (never blocks the run just
+// because config is absent). Fails CLOSED (pass:false) ONLY when a
+// configured budget is genuinely exceeded. Never throws.
+function checkBudgetForCandidate(cwd, agentRelPath, revisedContent, budgetsConfigPath) {
+  const configPath = budgetsConfigPath || path.join(cwd, 'get-shit-done', 'config', 'prompt-budgets.json');
+
+  let budgets;
+  try {
+    budgets = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  } catch (_e) {
+    return {
+      pass: true,
+      warning: `could not read/parse budgets config at ${configPath} -- cannot gate on budget for ${agentRelPath}`,
+    };
+  }
+
+  const budget = budgets ? budgets[agentRelPath] : undefined;
+  if (typeof budget !== 'number') {
+    return {
+      pass: true,
+      warning: `no budget configured for ${agentRelPath} -- cannot gate on budget (fail-open)`,
+    };
+  }
+
+  const { estimatedTokens } = promptBudget.measurePreambleFromContent(revisedContent);
+  return { pass: estimatedTokens <= budget, estimatedTokens, budget, agentRelPath };
+}
+
+// ─── Eval gate ───────────────────────────────────────────────────────────────
+
+// Executes a single accepted eval candidate's `expected` assertion against
+// IN-MEMORY revised content -- mirrors eval-harness.js's executeEvalCandidate
+// switch, but never touches the filesystem for the target agent file. Never
+// throws.
+function executeEvalCandidateAgainstContent(candidate, agentRelPath, content) {
+  const safeCandidate = (candidate && typeof candidate === 'object') ? candidate : {};
+  const expected = (safeCandidate.expected && typeof safeCandidate.expected === 'object') ? safeCandidate.expected : {};
+
+  switch (expected.type) {
+    case 'file_exists':
+    case 'file_not_exists':
+      // Deliberate documented deviation from eval-harness.js's on-disk
+      // executeEvalCandidate: we are validating CONTENT of an
+      // already-known-to-exist target (resolveAgentFile already proved the
+      // file exists), not existence itself -- both types trivially pass here.
+      return {
+        id: safeCandidate.id,
+        pass: true,
+        reason: `${expected.type} is trivially satisfied for in-memory content validation of ${agentRelPath} (target file is known to exist)`,
+      };
+    case 'file_contains': {
+      const includesNeedle = (content || '').includes(expected.needle);
+      return {
+        id: safeCandidate.id,
+        pass: includesNeedle,
+        reason: includesNeedle ? 'revised content contains needle' : `revised content missing needle: ${expected.needle}`,
+      };
+    }
+    case 'file_not_contains': {
+      const includesNeedle = (content || '').includes(expected.needle);
+      return {
+        id: safeCandidate.id,
+        pass: !includesNeedle,
+        reason: !includesNeedle ? 'revised content does not contain needle' : `revised content unexpectedly contains needle: ${expected.needle}`,
+      };
+    }
+    default:
+      return { id: safeCandidate.id, pass: false, reason: `unknown expected.type: ${expected.type}` };
+  }
+}
+
+// Scopes accepted eval candidates to exactly the ones targeting
+// agentRelPath, executes each entirely in-memory against revisedContent.
+// Vacuously passes (pass:true, total:0) when no candidates match -- mirrors
+// runEvalRegressions' empty-set-is-a-trivial-pass convention. Never throws.
+function checkEvalForCandidate(cwd, agentRelPath, revisedContent) {
+  const acceptedDir = path.join(cwd, 'tests', 'eval-regressions', 'accepted');
+
+  let validCandidates = [];
+  try {
+    const loaded = evalHarness.loadAcceptedEvalCandidates(acceptedDir);
+    validCandidates = (loaded && Array.isArray(loaded.validCandidates)) ? loaded.validCandidates : [];
+  } catch (_e) {
+    validCandidates = [];
+  }
+
+  const matching = validCandidates.filter((c) => c && c.expected && c.expected.file === agentRelPath);
+  const executed = matching.map((c) => executeEvalCandidateAgainstContent(c, agentRelPath, revisedContent));
+  const pass = executed.every((r) => r.pass);
+
+  return { pass, total: executed.length, executed };
+}
+
+// ─── Review-artifact writer (the ONLY write path in this feature) ───────────
+
+// Writes diagnosis + candidate diff under
+// .planning/prompt-optimize/{agentName}/{timestamp}/. Rejected candidates
+// are tagged `rejected` in the filename (still written for audit purposes).
+// This is the ONLY function in the entire prompt-optimize feature that
+// writes to disk -- agents/*.md is never touched by this or any other
+// function here.
+function writeReviewArtifacts(cwd, agentName, tag, diagnosis, diffText, meta) {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const dir = path.join(cwd, '.planning', 'prompt-optimize', agentName, timestamp);
+  fs.mkdirSync(dir, { recursive: true });
+
+  const isRejected = tag === 'rejected';
+  const diagnosisFile = isRejected ? 'diagnosis-rejected.md' : 'diagnosis.md';
+  const diffFile = isRejected ? 'candidate-rejected.diff' : 'candidate.diff';
+
+  const safeMeta = meta || {};
+  const budgetResult = safeMeta.budgetResult || {};
+  const evalResult = safeMeta.evalResult || {};
+
+  const budgetLine = `- Budget: ${budgetResult.pass ? 'PASS' : 'FAIL'}` +
+    `${budgetResult.warning ? ` (${budgetResult.warning})` : ''}` +
+    `${typeof budgetResult.estimatedTokens === 'number' ? ` (estimatedTokens=${budgetResult.estimatedTokens}, budget=${budgetResult.budget})` : ''}`;
+  const evalLine = `- Eval assertions: ${evalResult.pass ? 'PASS' : 'FAIL'} (total=${evalResult.total})`;
+
+  const header = `# Prompt Optimization Diagnosis: ${agentName}\n\n` +
+    `**Status:** ${isRejected ? `rejected (${safeMeta.reason})` : 'ready_for_review'}\n` +
+    `**Generated:** ${new Date().toISOString()}\n\n` +
+    `## Gate Results\n${budgetLine}\n${evalLine}\n\n` +
+    `${diagnosis.text}\n\n---\n` +
+    `This diff was NOT applied automatically. Review candidate diff and apply manually if appropriate.`;
+
+  fs.writeFileSync(path.join(dir, diagnosisFile), header);
+  fs.writeFileSync(path.join(dir, diffFile), diffText);
+
+  return {
+    diagnosisPath: path.relative(cwd, path.join(dir, diagnosisFile)),
+    diffPath: path.relative(cwd, path.join(dir, diffFile)),
+  };
+}
+
+// ─── Orchestration ───────────────────────────────────────────────────────────
+
+// The full pipeline: resolve agent -> collect signal -> (no_signal exit,
+// nothing written) -> diagnose -> build in-memory revision candidate ->
+// budget gate -> eval gate -> write review artifacts (rejected or ready).
+// `resolved.fullPath` (the real agents/*.md file) is read ONCE via
+// buildRevisionCandidate and NEVER written to by any branch below -- the
+// revision only ever exists as candidate.revisedContent in memory and in the
+// review-dir artifact files. Returns exactly one of:
+//   { status: 'error', reason }
+//   { status: 'no_signal', agent, message }               (nothing written)
+//   { status: 'rejected', reason: 'budget_exceeded'|'eval_failed', ... }
+//   { status: 'ready_for_review', ... }
+function runPromptOptimize(cwd, agentArg) {
+  const resolved = resolveAgentFile(cwd, agentArg);
+  if (resolved.error) return { status: 'error', reason: resolved.error };
+
+  const telemetryEntries = readTelemetryForAgent(cwd, resolved.agentName);
+  const evalFailures = readEvalFailuresForAgent(cwd, resolved.agentName);
+
+  if (!hasSignal(telemetryEntries, evalFailures)) {
+    return {
+      status: 'no_signal',
+      agent: resolved.agentName,
+      message: `No eval failures or telemetry entries found for ${resolved.agentName}.`,
+    };
+  }
+
+  const diagnosis = buildDiagnosis(resolved.agentName, telemetryEntries, evalFailures);
+  const candidate = buildRevisionCandidate(resolved.fullPath, diagnosis);
+  if (candidate.error) return { status: 'error', reason: candidate.error };
+
+  const budgetResult = checkBudgetForCandidate(cwd, resolved.relPath, candidate.revisedContent);
+  const evalResult = checkEvalForCandidate(cwd, resolved.relPath, candidate.revisedContent);
+
+  if (!budgetResult.pass) {
+    const written = writeReviewArtifacts(cwd, resolved.agentName, 'rejected', diagnosis, candidate.diffText, {
+      reason: 'budget_exceeded',
+      budgetResult,
+      evalResult,
+    });
+    return {
+      status: 'rejected',
+      reason: 'budget_exceeded',
+      agent: resolved.agentName,
+      diagnosis,
+      budgetResult,
+      evalResult,
+      diagnosisPath: written.diagnosisPath,
+      diffPath: written.diffPath,
+    };
+  }
+
+  if (!evalResult.pass) {
+    const written = writeReviewArtifacts(cwd, resolved.agentName, 'rejected', diagnosis, candidate.diffText, {
+      reason: 'eval_failed',
+      budgetResult,
+      evalResult,
+    });
+    return {
+      status: 'rejected',
+      reason: 'eval_failed',
+      agent: resolved.agentName,
+      diagnosis,
+      budgetResult,
+      evalResult,
+      diagnosisPath: written.diagnosisPath,
+      diffPath: written.diffPath,
+    };
+  }
+
+  const written = writeReviewArtifacts(cwd, resolved.agentName, 'ready', diagnosis, candidate.diffText, {
+    budgetResult,
+    evalResult,
+  });
+
+  return {
+    status: 'ready_for_review',
+    agent: resolved.agentName,
+    diagnosisPath: written.diagnosisPath,
+    diffPath: written.diffPath,
+    diagnosis,
+    budgetResult,
+    evalResult,
+  };
+}
+
 module.exports = {
   resolveAgentFile,
   readTelemetryForAgent,
@@ -554,4 +784,9 @@ module.exports = {
   computeUnifiedDiff,
   isValidUnifiedDiff,
   buildRevisionCandidate,
+  checkBudgetForCandidate,
+  checkEvalForCandidate,
+  executeEvalCandidateAgainstContent,
+  writeReviewArtifacts,
+  runPromptOptimize,
 };

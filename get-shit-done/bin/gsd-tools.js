@@ -201,6 +201,7 @@ const { TaskChunker, BatchCoordinator, analyzeTask, estimateTaskTokens } = requi
 const { estimatePhaseSize, detectOversizedPhases, recommendSplit, validateSplitPreservesDependencies, LIMITS: PHASE_LIMITS } = require('./phase-sizer.js');
 const evalHarness = require('./eval-harness.js');
 const promptBudget = require('./prompt-budget.js');
+const promptOptimize = require('./prompt-optimize.js');
 
 // Phase 2: Auto Mode safety modules (lazy — gracefully absent if not installed)
 let circuitBreaker, validator, escalation, feedback, learning;
@@ -5158,6 +5159,28 @@ function cmdPromptBudget(cwd, raw) {
   const result = promptBudget.checkAllBudgets(cwd);
   process.stdout.write(JSON.stringify(result, null, 2));
   process.exit(result.pass ? 0 : 1);
+}
+
+// ─── Reflective Prompt Optimization CLI (MILE-33, Phase 56-02) ──────────────
+// Thin CLI dispatch onto get-shit-done/bin/prompt-optimize.js's
+// runPromptOptimize orchestrator. Bypasses the shared output() helper (which
+// always exits 0) and calls process.exit() directly, EXACT pattern as
+// cmdEval's assert/regress subcommands and cmdPromptBudget above -- CI/human
+// review needs the real exit code. Exit 0 for no_signal/ready_for_review,
+// exit 1 for rejected/error. NEVER writes to agents/*.md -- runPromptOptimize
+// itself is the only orchestration layer, and its only write path is
+// writeReviewArtifacts under .planning/prompt-optimize/.
+function cmdPromptOptimize(cwd, args, raw) {
+  const agentIdx = args.indexOf('--agent');
+  const agentArg = agentIdx !== -1 ? args[agentIdx + 1] : null;
+  if (!agentArg) {
+    error('prompt-optimize: --agent <name> required');
+    return;
+  }
+  const result = promptOptimize.runPromptOptimize(cwd, agentArg);
+  process.stdout.write(JSON.stringify(result, null, 2));
+  const exitCode = (result.status === 'no_signal' || result.status === 'ready_for_review') ? 0 : 1;
+  process.exit(exitCode);
 }
 
 function cmdTask(cwd, args, raw) {
@@ -12886,6 +12909,11 @@ async function main() {
       } else {
         error('Unknown eval-candidate subcommand. Available: from-debug, from-verification, list, accept, reject');
       }
+      break;
+    }
+
+    case 'prompt-optimize': {
+      cmdPromptOptimize(cwd, args.slice(1), raw);
       break;
     }
 
