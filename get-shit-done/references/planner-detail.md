@@ -808,6 +808,7 @@ grep -l "status: diagnosed" "$phase_dir"/*-UAT.md 2>/dev/null
 | `broken_chain` | Repair the chain | Find the broken link (missing route, missing step, discarded result); add only the missing link, not a rewrite |
 | `regression` | Revert or re-fix | Find what changed since last passing state (from git log/diff); revert the regression or patch the breaking change |
 | `missing_test` | Add test file | Create test file alongside implementation; assert the observable truth from the gap |
+| `contract_mismatch` | Fix the boundary mismatch | Update whichever side (producer or consumer) is wrong per the mismatch detail so the shapes agree; do not change both sides speculatively |
 
 Apply the strategy above when constructing the task action. The task name must start with the failure_type prefix: `[stub] Implement X`, `[unwired] Wire X into Y`, `[missing_artifact] Create X`, etc.
 

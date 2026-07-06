@@ -113,19 +113,33 @@ For each task:
    - Handle auth errors as authentication gates
    - **Failure signaling for coordinator escalation (routing active only):**
      If ROUTED_TIER is set AND a task fails with an error/exception AND all retries are exhausted:
-       Return failure with structured signal:
+       Classify the failure before signaling (best-effort -- never blocks the signal itself):
+         node ~/.claude/get-shit-done/bin/gsd-tools.js routing classify-failure "{error_summary}" --raw
+       If that command succeeds and returns `capability_related: false`, append a `[non-capability]`
+       marker to the signal:
+         "TASK FAILED: {task_name} [tier: {ROUTED_TIER}] [non-capability] — {error_summary}"
+       Otherwise (capability_related: true, OR the classify-failure command fails/is unavailable)
+       use the EXISTING unmarked format, unchanged:
          "TASK FAILED: {task_name} [tier: {ROUTED_TIER}] — {error_summary}"
-       This format allows the coordinator to parse the tier and decide whether to re-spawn at a higher tier.
-       If ROUTED_TIER is null (routing not active): return failure using existing behavior (no structured tag).
+       This format allows the coordinator to parse the tier (and the non-capability marker, when
+       present) and decide whether to re-spawn at a higher tier. A `[non-capability]`-tagged failure
+       is never escalated by the coordinator (missing file, environment error, etc. — the next tier
+       up cannot fix these).
+       If ROUTED_TIER is null (routing not active): return failure using existing behavior (no
+       structured tag, no classification call).
 
-     Note: The executor does NOT switch tiers mid-execution. Model tier is fixed at spawn time. The coordinator (not the executor) is responsible for deciding to re-spawn at sonnet when it receives a haiku-tier failure signal.
-     Failure signaling only applies to errors/exceptions. Output quality issues do not trigger this signal.
+     Note: The executor does NOT switch tiers mid-execution. Model tier is fixed at spawn time. The
+     coordinator (not the executor) is responsible for deciding to re-spawn at a higher tier when it
+     receives a capability-related failure signal.
+     Failure signaling only applies to errors/exceptions. Output quality issues do not trigger this
+     signal.
    - Run verification, confirm done criteria
    - **Cross-boundary done check:** If the task creates code that crosses a service boundary (frontend handler that should call a backend route, API route that should mutate a database), verify the full chain before marking done — not just that the local artifact builds. A frontend form handler is not "done" if it only updates UI state without making the API call the done criterion implies. A backend route is not "done" if the frontend has no path to call it. Check that the wiring exists and carries the right signal, not just that each side compiles independently.
    - **Knowledge feedback on contradiction (non-blocking):** If, during task execution, a specific entry from `USER_CONTEXT` (loaded via `query-knowledge` above) turns out to be contradicted by the actual outcome (e.g. a "preference" entry recommended an approach that a test or the user's own correction proved wrong), call `node ~/.claude/get-shit-done/bin/gsd-tools.js mark-wrong <id> --severity <minor|major|critical> --reason "<reason>"` using that entry's `id` field. Best-effort only — never block task completion or the plan's overall execution on this call's outcome.
    - Commit (see task_commit_protocol)
    - Track completion + commit hash for Summary
    - **Inter-task syntax check** (runs after each task commit — see inter_task_syntax_check block below)
+   - **Post-task quality test-writer spawn** (only when the `quality.test_writer` config toggle is on and the task touches source code — see post_task_quality_spawn block below)
 
 2. **If `type="checkpoint:*"`:**
    - Check auto mode detection (see auto_mode_detection)
@@ -206,6 +220,94 @@ Continue to the next task immediately.
 **Scope:** Only .js files changed in the current task's commit. Does not check .ts, .jsx, .md, or other file types. Does not recursively check the entire codebase — only the delta.
 
 </inter_task_syntax_check>
+
+<post_task_quality_spawn>
+
+## Post-Task Quality Test-Writer Spawn (Phase 59-02, MILE-37)
+
+**Purpose:** For projects that enable `quality.test_writer` (default OFF -- zero behavior change
+when off), spawn gsd-test-writer after EVERY `type="auto"` implementation task that touches
+source code, not just tasks the planner marked `tdd="true"`. This is ADDITIVE to (never a
+replacement of) the existing `tdd="true"` hard-block contract in `<test_task_handling>` above,
+which is completely UNCHANGED by this block.
+
+**Runs immediately after the current task's commit (`task_commit_protocol`) AND after the
+inter-task syntax check -- only for `type="auto"` tasks that are NOT themselves a `tdd="true"`
+test task.** (A `tdd="true"` task is already handled exclusively by `<test_task_handling>` --
+never spawn gsd-test-writer twice for the same task.)
+
+**Step 1 -- check the toggle (fails closed/off by default):**
+```bash
+TEST_WRITER_ENABLED=$(node ~/.claude/get-shit-done/bin/gsd-tools.js config get test_writer_enabled --raw 2>/dev/null || echo "false")
+```
+If `TEST_WRITER_ENABLED` is not exactly `"true"`: skip this entire block, continue to the next
+task. (Toggle off -- zero behavior change from pre-Phase-59 execution.)
+
+**Step 2 -- check whether the task touched source code:**
+```bash
+TASK_CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || true)
+TOUCHES_SOURCE=$(node ~/.claude/get-shit-done/bin/gsd-tools.js quality touches-source --files "$(echo "$TASK_CHANGED_FILES" | tr '\n' ',')" --raw 2>/dev/null | node -e "try{const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(d.touches_source_code)}catch{console.log('false')}")
+```
+If `TOUCHES_SOURCE` is not `true` (the task only touched docs/config/tests): skip this block,
+continue to the next task.
+
+**Step 3 -- spawn gsd-test-writer (same inputs/routing as the existing `tdd="true"` spawn in
+`<test_task_handling>` above):**
+```
+route_result = Agent(
+  subagent_type="gsd-task-router",
+  description="Route quality test-writer spawn",
+  max_turns=5,
+  prompt="Route this task: Write tests for {task_name}
+
+Task action:
+Write and run tests covering the behavior just implemented: {task's <done> criteria text}
+
+Plan context: complexity=medium, depends_on=0 prior plans, must_haves=1 criteria"
+)
+test_writer_model = parse "Model:" line from route_result // default "sonnet" if parse fails
+
+Agent(
+  subagent_type="gsd-test-writer",
+  description="Write tests for {task_name} (quality toggle)",
+  model={test_writer_model},
+  prompt="
+    task_name={task_name}
+    files_modified={TASK_CHANGED_FILES}
+    behavior_description={task's <done> criteria text}
+    project_dir={project_dir}
+    test_framework={detected from package.json / deno.json}
+  "
+)
+```
+
+**Step 4 -- handle the result as a LOUD DEVIATION, never a block (this is the key contrast
+with the `tdd="true"` contract above):**
+
+If gsd-test-writer reports 0 tests written OR returns no identifiable test-file output:
+  Append to the plan's SUMMARY.md `## Deviations from Plan` section:
+  ```
+  **[Rule Quality-TW] gsd-test-writer produced no test output for task {task_name}**
+  - Found during: Task {task_index} ({task_name})
+  - Issue: quality.test_writer toggle is on, task touched source code, but gsd-test-writer
+    reported 0 tests written / no test-file output
+  - Impact: this task's new code has no automatically-generated companion test coverage
+  - Committed in: N/A (no commit — this is a logged deviation, not a fix)
+  ```
+  Do NOT block. Do NOT retry. Continue immediately to the next task.
+
+If gsd-test-writer reports >=1 tests written (whether passing or failing):
+  Commit the new test file(s) (stage individually, per `task_commit_protocol`):
+  ```bash
+  git add {test_file_1} {test_file_2}
+  git commit -m "test({phase}-{plan}): quality test-writer coverage for {task_name}"
+  ```
+  If any tests are FAILING: this spawn point is best-effort/additive, unlike `tdd="true"`'s hard
+  block -- append a `[Rule Quality-TW]` deviation line noting the failing count and reason, then
+  continue to the next task (do NOT retry, do NOT block).
+  If all tests pass: continue to the next task, no deviation entry needed.
+
+</post_task_quality_spawn>
 
 <test_task_handling>
 

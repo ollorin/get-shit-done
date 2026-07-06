@@ -1,0 +1,32 @@
+{
+  "node": {
+    "manifest": "package.json",
+    "script_checks": ["test", "lint", "build"]
+  },
+  "python": {
+    "manifest": "pyproject.toml",
+    "checks": [
+      { "id": "python-test", "command": "pytest", "required": true }
+    ]
+  },
+  "go": {
+    "manifest": "go.mod",
+    "checks": [
+      { "id": "go-test", "command": "go test ./...", "required": true },
+      { "id": "go-vet", "command": "go vet ./...", "required": true }
+    ]
+  },
+  "rust": {
+    "manifest": "Cargo.toml",
+    "checks": [
+      { "id": "rust-test", "command": "cargo test", "required": true },
+      { "id": "rust-clippy", "command": "cargo clippy -- -D warnings", "required": false }
+    ]
+  },
+  "unknown": {
+    "checks": [
+      { "id": "git-status-clean", "command": "test -z \"$(git status --porcelain)\"", "required": true },
+      { "id": "branch-not-main", "command": "[ \"$(git rev-parse --abbrev-ref HEAD)\" != \"main\" ] && [ \"$(git rev-parse --abbrev-ref HEAD)\" != \"master\" ]", "required": true }
+    ]
+  }
+}

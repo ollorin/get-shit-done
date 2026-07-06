@@ -157,6 +157,9 @@ appears unchanged, in full context, in the reference file.
 **archive_session step:**
 > Only run this step when checkpoint response confirms the fix works end-to-end.
 
+**investigation_loop step (Phase 4 CONFIRMED):**
+> Invoke eval-candidate from-debug to write a candidate regression fixture from the confirmed root cause. Do NOT invoke this ... on INVESTIGATION INCONCLUSIVE.
+
 </hard_rules_digest>
 
 <checkpoint_behavior>

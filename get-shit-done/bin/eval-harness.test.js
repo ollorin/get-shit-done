@@ -14,6 +14,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { execSync } = require('child_process');
 
 const {
   buildSpawnPlan,
@@ -23,12 +24,22 @@ const {
   assertDeferredWritten,
   assertCommitsAtomic,
   assertNoInjectionCompliance,
+  assertHandoffBriefPresent,
+  assertResumeInvariantsReinjected,
   runEvalAssertions,
+  validateEvalCandidateShape,
+  loadAcceptedEvalCandidates,
+  executeEvalCandidate,
+  runEvalRegressions,
 } = require('./eval-harness.js');
+
+const GSD_TOOLS_PATH = path.join(__dirname, 'gsd-tools.js');
 
 const REAL_FIXTURE_ROADMAP = path.join(__dirname, '..', '..', 'tests', 'fixtures', 'eval-project', 'ROADMAP.md');
 const REAL_FIXTURE_ROOT = path.join(__dirname, '..', '..', 'tests', 'fixtures', 'eval-project');
 const REAL_GOLDEN_ARTIFACTS = path.join(REAL_FIXTURE_ROOT, 'golden-artifacts');
+const POST_54_ARTIFACTS = path.join(REAL_GOLDEN_ARTIFACTS, 'post-54');
+const POST_59_ARTIFACTS = path.join(REAL_GOLDEN_ARTIFACTS, 'post-59');
 
 function mkTmp() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-eval-harness-test-'));
@@ -340,6 +351,31 @@ describe('Phase 53-01: eval-harness.js pure assertion functions', () => {
       });
     });
   });
+
+  // Phase 59-03 (MILE-37/MILE-38): proves BOTH new golden-path spawns
+  // (gsd-test-writer + gsd-integration-tester) are assertable via the
+  // existing assertAgentsSpawned machinery, mirroring how post-54's fixture
+  // is consumed directly by assertHandoffBriefPresent above -- no new
+  // assertion function needed, the Phase 53-01 primitive already suffices.
+  describe('Phase 59-03: post-59 golden fixture -- test-writer + integration-tester spawns (MILE-37/MILE-38)', () => {
+    test('assertAgentsSpawned against the REAL post-59/spawn-trace.json + expectations.json fixture -> pass:true, both new agents present', () => {
+      const entries = JSON.parse(fs.readFileSync(path.join(POST_59_ARTIFACTS, 'spawn-trace.json'), 'utf8'));
+      const expectations = JSON.parse(fs.readFileSync(path.join(POST_59_ARTIFACTS, 'expectations.json'), 'utf8'));
+
+      const result = assertAgentsSpawned(expectations.expectedPlan, entries);
+      assert.strictEqual(result.pass, true, `expected pass:true, got missing: ${JSON.stringify(result.missing)}, wrong_tier: ${JSON.stringify(result.wrong_tier)}, extra: ${JSON.stringify(result.extra)}`);
+      assert.deepStrictEqual(result.missing, []);
+      assert.deepStrictEqual(result.wrong_tier, []);
+      assert.deepStrictEqual(result.extra, []);
+
+      const testWriterEntry = entries.find(e => e.agent === 'gsd-test-writer');
+      const integrationTesterEntry = entries.find(e => e.agent === 'gsd-integration-tester');
+      assert.ok(testWriterEntry, 'expected a gsd-test-writer entry in the spawn trace (MILE-37)');
+      assert.ok(integrationTesterEntry, 'expected a gsd-integration-tester entry in the spawn trace (MILE-38)');
+      assert.strictEqual(testWriterEntry.phase, '03-dependent-phase');
+      assert.strictEqual(integrationTesterEntry.phase, '03-dependent-phase');
+    });
+  });
 });
 
 // -------------------------------------------------------------------------
@@ -550,5 +586,385 @@ describe('Phase 53-03: runEvalAssertions with expectedFileSet (MILE-31)', () => 
     assert.strictEqual(result.checks.commits_atomic.pass, true);
     assert.ok(result.checks.injection_resisted, 'expected injection_resisted check to be present against the real golden-artifacts (expectations.json declares expectedFileSet)');
     assert.strictEqual(result.checks.injection_resisted.pass, true);
+  });
+});
+
+// -------------------------------------------------------------------------
+// Phase 54-03 (MILE-40): assertHandoffBriefPresent + assertResumeInvariantsReinjected.
+describe('Phase 54-03: assertHandoffBriefPresent + assertResumeInvariantsReinjected', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = mkTmp();
+  });
+
+  afterEach(() => {
+    rmTmp(tmpDir);
+  });
+
+  function makeCompleteBrief(overrides) {
+    return Object.assign({
+      phase_goal: 'Add a pure add(a, b) function to src/ with a passing unit test.',
+      key_decisions: ['Use plain arithmetic, no external math library'],
+      open_risks: 'None identified.',
+      file_map: ['src/add.js', 'test/add.test.js'],
+      hard_rules: ['Commit each task atomically'],
+    }, overrides || {});
+  }
+
+  // --- Category 1: Happy path ---------------------------------------------
+  describe('happy path', () => {
+    test('assertHandoffBriefPresent against the REAL post-54/spawn-trace.json fixture -> pass:true', () => {
+      const entries = JSON.parse(fs.readFileSync(path.join(POST_54_ARTIFACTS, 'spawn-trace.json'), 'utf8'));
+      const result = assertHandoffBriefPresent(entries);
+      assert.strictEqual(result.pass, true, `expected pass:true, got missing: ${JSON.stringify(result.missing)}`);
+      assert.deepStrictEqual(result.missing, []);
+    });
+
+    test('assertResumeInvariantsReinjected with a briefText containing a verbatim source substring -> pass:true', () => {
+      const invariant = '**Goal**: add(a, b) works and is tested.';
+      const briefText = `PHASE INVARIANTS (verbatim from ROADMAP.md -- DO NOT paraphrase):\n${invariant}\n`;
+      const result = assertResumeInvariantsReinjected(briefText, REAL_FIXTURE_ROADMAP, [invariant]);
+      assert.strictEqual(result.pass, true);
+      assert.deepStrictEqual(result.missing_from_source, []);
+      assert.deepStrictEqual(result.missing_from_brief, []);
+    });
+  });
+
+  // --- Category 2: Missing/malformed input --------------------------------
+  describe('missing/malformed input', () => {
+    test('assertHandoffBriefPresent([]) -> pass:false (no required-agent entry exists)', () => {
+      const result = assertHandoffBriefPresent([]);
+      assert.strictEqual(result.pass, false);
+      assert.deepStrictEqual(result.missing, []);
+    });
+
+    test('assertResumeInvariantsReinjected with a non-existent sourceFilePath -> pass:false with error, never throws', () => {
+      assert.doesNotThrow(() => {
+        const result = assertResumeInvariantsReinjected('some text', path.join(tmpDir, 'does-not-exist.md'), ['foo']);
+        assert.strictEqual(result.pass, false);
+        assert.ok(typeof result.error === 'string' && result.error.length > 0);
+      });
+    });
+
+    test('non-array spawnEntries/requiredAgents and non-array/non-string expectedInvariants are coerced, never throw', () => {
+      assert.doesNotThrow(() => {
+        const result1 = assertHandoffBriefPresent('not-an-array', 'not-an-array-either');
+        assert.strictEqual(result1.pass, false);
+
+        const sourcePath = path.join(tmpDir, 'source.md');
+        fs.writeFileSync(sourcePath, 'some content here');
+        const result2 = assertResumeInvariantsReinjected(123, sourcePath, { not: 'an array or string' });
+        assert.strictEqual(result2.pass, false);
+        assert.ok(typeof result2.error === 'string' && result2.error.length > 0);
+      });
+    });
+  });
+
+  // --- Category 3: Edge case -----------------------------------------------
+  describe('edge case', () => {
+    test('an executor entry missing one of the 5 keys -> pass:false, missing names that entry', () => {
+      const briefMissingOpenRisks = makeCompleteBrief();
+      delete briefMissingOpenRisks.open_risks;
+      const entries = [
+        { phase: '01-add-function', agent: 'gsd-executor', handoff_brief: briefMissingOpenRisks },
+      ];
+      const result = assertHandoffBriefPresent(entries);
+      assert.strictEqual(result.pass, false);
+      assert.strictEqual(result.missing.length, 1);
+      assert.strictEqual(result.missing[0].agent, 'gsd-executor');
+      assert.strictEqual(result.missing[0].phase, '01-add-function');
+      assert.match(result.missing[0].reason, /open_risks/);
+    });
+
+    test('a briefText that PARAPHRASES a source invariant (reworded, non-verbatim) -> pass:false, containment rejects paraphrase', () => {
+      const invariant = '**Goal**: add(a, b) works and is tested.';
+      const paraphrasedBriefText = 'The goal here is for add(a,b) to function correctly and be fully tested.';
+      const result = assertResumeInvariantsReinjected(paraphrasedBriefText, REAL_FIXTURE_ROADMAP, [invariant]);
+      assert.strictEqual(result.pass, false);
+      assert.ok(result.missing_from_brief.includes(invariant));
+    });
+  });
+
+  // --- Category 4: Boundary -------------------------------------------------
+  describe('boundary', () => {
+    test('a substring present in source but NOT in briefText -> listed in missing_from_brief', () => {
+      const invariant = '**Goal**: add(a, b) works and is tested.';
+      const result = assertResumeInvariantsReinjected('completely unrelated brief text', REAL_FIXTURE_ROADMAP, [invariant]);
+      assert.strictEqual(result.pass, false);
+      assert.deepStrictEqual(result.missing_from_brief, [invariant]);
+      assert.deepStrictEqual(result.missing_from_source, []);
+    });
+
+    test('a substring in briefText but NOT in source -> listed in missing_from_source (guards against fabricated invariants)', () => {
+      const fabricated = 'This invariant was never in the source file at all.';
+      const briefText = `PHASE INVARIANTS:\n${fabricated}\n`;
+      const result = assertResumeInvariantsReinjected(briefText, REAL_FIXTURE_ROADMAP, [fabricated]);
+      assert.strictEqual(result.pass, false);
+      assert.deepStrictEqual(result.missing_from_source, [fabricated]);
+      assert.deepStrictEqual(result.missing_from_brief, []);
+    });
+  });
+
+  // --- Category 5: Wiring/integration ----------------------------------------
+  describe('wiring/integration', () => {
+    function buildBaseArtifacts(root) {
+      fs.mkdirSync(path.join(root, 'phases', '01-add-function'), { recursive: true });
+      fs.writeFileSync(path.join(root, 'phases', '01-add-function', '01-01-VERIFICATION.md'), '**Status:** passed\n');
+
+      const expectedPlan = [
+        { phase: '01-add-function', agent: 'gsd-executor', tier: 'haiku' },
+      ];
+      fs.writeFileSync(path.join(root, 'git-log.txt'), 'abc123 feat(01-01): task 1 implement add\n');
+      return { expectedPlan, expectSkip: {}, expectedCommitCount: 1 };
+    }
+
+    test('runEvalAssertions with handoffSpawnTrace/requiredHandoffAgents -> adds checks.handoff_brief_present, folds into aggregate pass', () => {
+      const { expectedPlan, expectSkip, expectedCommitCount } = buildBaseArtifacts(tmpDir);
+      // No real spawn-trace.json on disk -- entries supplied directly via handoffSpawnTrace.
+      const handoffSpawnTrace = [
+        { phase: '01-add-function', agent: 'gsd-executor', tier: 'haiku', handoff_brief: makeCompleteBrief() },
+      ];
+      fs.writeFileSync(path.join(tmpDir, 'spawn-trace.json'), JSON.stringify(handoffSpawnTrace));
+
+      const result = runEvalAssertions(tmpDir, {
+        expectedPlan, expectSkip, expectedCommitCount,
+        requiredHandoffAgents: ['gsd-executor'],
+        handoffSpawnTrace,
+      });
+      assert.ok('handoff_brief_present' in result.checks, 'expected handoff_brief_present key in checks');
+      assert.strictEqual(result.checks.handoff_brief_present.pass, true);
+      assert.strictEqual(result.pass, true);
+    });
+
+    test('runEvalAssertions WITHOUT handoff/resume options -> no such keys (additive-only, 53-xx behavior preserved)', () => {
+      const { expectedPlan, expectSkip, expectedCommitCount } = buildBaseArtifacts(tmpDir);
+      fs.writeFileSync(path.join(tmpDir, 'spawn-trace.json'), JSON.stringify(
+        expectedPlan.map(e => ({ ...e, timestamp: '2026-07-05T00:00:00Z' }))
+      ));
+
+      const result = runEvalAssertions(tmpDir, { expectedPlan, expectSkip, expectedCommitCount });
+      assert.strictEqual('handoff_brief_present' in result.checks, false);
+      assert.strictEqual('resume_invariants_reinjected' in result.checks, false);
+      assert.strictEqual(result.pass, true);
+    });
+  });
+
+  // --- Category 6: Regression-guard -------------------------------------------
+  describe('regression-guard', () => {
+    test('runEvalAssertions with existing 53-xx options only (no handoff/resume options) -> same check keys as before, no new keys', () => {
+      fs.mkdirSync(path.join(tmpDir, 'phases', '01-add-function'), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, 'phases', '01-add-function', '01-01-VERIFICATION.md'), '**Status:** passed\n');
+
+      const expectedPlan = [{ phase: '01-add-function', agent: 'gsd-executor', tier: 'haiku' }];
+      fs.writeFileSync(path.join(tmpDir, 'spawn-trace.json'), JSON.stringify(
+        expectedPlan.map(e => ({ ...e, timestamp: '2026-07-05T00:00:00Z' }))
+      ));
+      fs.writeFileSync(path.join(tmpDir, 'git-log.txt'), 'abc123 feat(01-01): task 1 implement add\n');
+
+      const result = runEvalAssertions(tmpDir, { expectedPlan, expectSkip: {}, expectedCommitCount: 1 });
+      assert.deepStrictEqual(
+        Object.keys(result.checks).sort(),
+        ['agents_spawned', 'commits_atomic', 'deferred_written', 'gates_fired'].sort()
+      );
+      assert.strictEqual(result.pass, true);
+    });
+  });
+});
+
+// -------------------------------------------------------------------------
+// Phase 55-03 (MILE-32): eval regression candidates -- loader/executor for
+// PERMANENT accepted regression fixtures under tests/eval-regressions/accepted/.
+describe('eval regression candidates (Phase 55-03, MILE-32)', () => {
+  let acceptedDir;
+  let projectRoot;
+
+  beforeEach(() => {
+    acceptedDir = mkTmp();
+    projectRoot = mkTmp();
+  });
+
+  afterEach(() => {
+    rmTmp(acceptedDir);
+    rmTmp(projectRoot);
+  });
+
+  function writeCandidate(filename, candidate) {
+    fs.writeFileSync(path.join(acceptedDir, filename), JSON.stringify(candidate));
+  }
+
+  function makeCandidate(overrides) {
+    return Object.assign({
+      id: 'cand-001',
+      source: 'debug-log',
+      created_at: '2026-07-05T00:00:00Z',
+      title: 'x.txt must exist',
+      context: 'Regression from a real failure',
+      expected: { type: 'file_exists', file: 'x.txt' },
+      status: 'accepted',
+    }, overrides || {});
+  }
+
+  // --- Category 1: Happy path ----------------------------------------------
+  describe('happy path', () => {
+    test('one satisfied file_exists candidate -> runEvalRegressions returns pass:true, executed[0].pass true', () => {
+      writeCandidate('cand-001.json', makeCandidate());
+      fs.writeFileSync(path.join(projectRoot, 'x.txt'), 'hello\n');
+
+      const result = runEvalRegressions(acceptedDir, projectRoot);
+      assert.strictEqual(result.pass, true);
+      assert.strictEqual(result.total, 1);
+      assert.deepStrictEqual(result.malformed, []);
+      assert.strictEqual(result.executed.length, 1);
+      assert.strictEqual(result.executed[0].pass, true);
+      assert.strictEqual(result.executed[0].id, 'cand-001');
+    });
+  });
+
+  // --- Category 2: Missing/malformed input ---------------------------------
+  describe('missing/malformed input', () => {
+    test('an invalid-JSON .json file in accepted dir -> loadAcceptedEvalCandidates reports valid:false with "Malformed JSON", never throws', () => {
+      fs.writeFileSync(path.join(acceptedDir, 'broken.json'), '{ this is not : valid json ][');
+
+      assert.doesNotThrow(() => {
+        const { results, validCandidates } = loadAcceptedEvalCandidates(acceptedDir);
+        assert.strictEqual(results.length, 1);
+        assert.strictEqual(results[0].valid, false);
+        assert.ok(
+          results[0].error.includes('Malformed JSON'),
+          `expected error to include "Malformed JSON", got: ${results[0].error}`
+        );
+        assert.deepStrictEqual(validCandidates, []);
+      });
+    });
+  });
+
+  // --- Category 3: Edge case -----------------------------------------------
+  describe('edge case', () => {
+    test('valid JSON but missing a required key (no "expected") -> valid:false with "Schema validation failed"', () => {
+      const candidate = makeCandidate();
+      delete candidate.expected;
+      writeCandidate('missing-expected.json', candidate);
+
+      const { results, validCandidates } = loadAcceptedEvalCandidates(acceptedDir);
+      assert.strictEqual(results.length, 1);
+      assert.strictEqual(results[0].valid, false);
+      assert.ok(
+        results[0].error.includes('Schema validation failed'),
+        `expected error to include "Schema validation failed", got: ${results[0].error}`
+      );
+      assert.deepStrictEqual(validCandidates, []);
+    });
+
+    test('nonexistent accepted dir -> loadAcceptedEvalCandidates returns {results:[], validCandidates:[]}, no throw', () => {
+      const nonexistentDir = path.join(acceptedDir, 'does-not-exist-subdir');
+      assert.doesNotThrow(() => {
+        const result = loadAcceptedEvalCandidates(nonexistentDir);
+        assert.deepStrictEqual(result, { results: [], validCandidates: [] });
+      });
+    });
+  });
+
+  // --- Category 4: Boundary -------------------------------------------------
+  describe('boundary', () => {
+    test('empty accepted dir (zero candidate files) -> runEvalRegressions returns the exact trivial-pass shape', () => {
+      // acceptedDir already exists (mkTmp) and is empty -- zero files written.
+      const result = runEvalRegressions(acceptedDir, projectRoot);
+      assert.deepStrictEqual(result, { pass: true, total: 0, malformed: [], executed: [] });
+    });
+  });
+
+  // --- Category 5: Wiring/integration ---------------------------------------
+  describe('wiring/integration', () => {
+    test('real `eval regress` CLI subprocess with one satisfied + one unsatisfied candidate -> non-zero exit, pass:false, unsatisfied candidate names a reason', () => {
+      writeCandidate('cand-satisfied.json', makeCandidate({ id: 'cand-satisfied', expected: { type: 'file_exists', file: 'present.txt' } }));
+      writeCandidate('cand-unsatisfied.json', makeCandidate({ id: 'cand-unsatisfied', expected: { type: 'file_exists', file: 'absent.txt' } }));
+      fs.writeFileSync(path.join(projectRoot, 'present.txt'), 'hi\n');
+      // absent.txt deliberately NOT written.
+
+      let stdout;
+      let threw = false;
+      let exitStatus = 0;
+      try {
+        stdout = execSync(
+          `node "${GSD_TOOLS_PATH}" eval regress "${acceptedDir}" --project-root "${projectRoot}"`,
+          { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+        );
+      } catch (err) {
+        threw = true;
+        exitStatus = err.status;
+        stdout = err.stdout ? err.stdout.toString() : '';
+      }
+
+      assert.strictEqual(threw, true, 'expected the CLI to exit non-zero (throwing from execSync)');
+      assert.notStrictEqual(exitStatus, 0, `expected non-zero exit status, got: ${exitStatus}`);
+
+      const parsed = JSON.parse(stdout);
+      assert.strictEqual(parsed.pass, false);
+      const unsatisfied = parsed.executed.find((r) => r.id === 'cand-unsatisfied');
+      assert.ok(unsatisfied, `expected an executed entry for cand-unsatisfied, got: ${JSON.stringify(parsed.executed)}`);
+      assert.strictEqual(unsatisfied.pass, false);
+      assert.ok(typeof unsatisfied.reason === 'string' && unsatisfied.reason.length > 0, 'expected a non-empty reason string');
+    });
+  });
+
+  // --- Category 6: Regression-guard ------------------------------------------
+  describe('regression-guard', () => {
+    test('all 9 pre-existing eval-harness.js exports remain functions after Task 1\'s additive module.exports growth', () => {
+      assert.strictEqual(typeof buildSpawnPlan, 'function');
+      assert.strictEqual(typeof parseSpawnTrace, 'function');
+      assert.strictEqual(typeof assertAgentsSpawned, 'function');
+      assert.strictEqual(typeof assertGatesFired, 'function');
+      assert.strictEqual(typeof assertDeferredWritten, 'function');
+      assert.strictEqual(typeof assertCommitsAtomic, 'function');
+      assert.strictEqual(typeof assertNoInjectionCompliance, 'function');
+      assert.strictEqual(typeof assertHandoffBriefPresent, 'function');
+      assert.strictEqual(typeof assertResumeInvariantsReinjected, 'function');
+      assert.strictEqual(typeof runEvalAssertions, 'function');
+    });
+  });
+
+  // --- Additional coverage: validateEvalCandidateShape + executeEvalCandidate
+  describe('validateEvalCandidateShape + executeEvalCandidate (additional direct coverage)', () => {
+    test('validateEvalCandidateShape(non-object) -> ["candidate is not an object"]', () => {
+      assert.deepStrictEqual(validateEvalCandidateShape(null), ['candidate is not an object']);
+      assert.deepStrictEqual(validateEvalCandidateShape('a string'), ['candidate is not an object']);
+      assert.deepStrictEqual(validateEvalCandidateShape([1, 2]), ['candidate is not an object']);
+    });
+
+    test('validateEvalCandidateShape rejects an invalid expected.type and a file_contains candidate missing needle', () => {
+      const badType = makeCandidate({ expected: { type: 'delete_everything', file: 'x.txt' } });
+      const badTypeErrors = validateEvalCandidateShape(badType);
+      assert.ok(badTypeErrors.some((e) => e.includes('invalid expected.type')), `got: ${JSON.stringify(badTypeErrors)}`);
+
+      const missingNeedle = makeCandidate({ expected: { type: 'file_contains', file: 'x.txt' } });
+      const missingNeedleErrors = validateEvalCandidateShape(missingNeedle);
+      assert.ok(missingNeedleErrors.some((e) => e.includes('needle')), `got: ${JSON.stringify(missingNeedleErrors)}`);
+    });
+
+    test('executeEvalCandidate for file_contains/file_not_contains and an unreadable file -> pass:false with reason, never throws', () => {
+      fs.writeFileSync(path.join(projectRoot, 'note.txt'), 'the quick brown fox');
+
+      const containsResult = executeEvalCandidate(
+        makeCandidate({ id: 'c-contains', expected: { type: 'file_contains', file: 'note.txt', needle: 'quick' } }),
+        projectRoot
+      );
+      assert.strictEqual(containsResult.pass, true);
+
+      const notContainsResult = executeEvalCandidate(
+        makeCandidate({ id: 'c-not-contains', expected: { type: 'file_not_contains', file: 'note.txt', needle: 'zebra' } }),
+        projectRoot
+      );
+      assert.strictEqual(notContainsResult.pass, true);
+
+      assert.doesNotThrow(() => {
+        const unreadable = executeEvalCandidate(
+          makeCandidate({ id: 'c-missing', expected: { type: 'file_contains', file: 'does-not-exist.txt', needle: 'x' } }),
+          projectRoot
+        );
+        assert.strictEqual(unreadable.pass, false);
+        assert.ok(typeof unreadable.reason === 'string' && unreadable.reason.length > 0);
+      });
+    });
   });
 });

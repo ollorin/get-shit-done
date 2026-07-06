@@ -14,7 +14,13 @@
  * reason -- it never throws for a data problem. The single intentional
  * exception is buildSpawnPlan's model-registry config-drift guard, which is
  * a deliberate throw on a genuine environment/config bug, not a data
- * problem with the fixture.
+ * problem with the fixture. A second, narrower exception is
+ * `loadAcceptedEvalCandidates`: a candidate file under
+ * tests/eval-regressions/accepted/ that fails to parse or fails schema
+ * validation is reported as an explicit `valid:false` entry in its results
+ * -- never silently dropped from the list -- because a malformed COMMITTED
+ * regression fixture is a real CI/data bug, not an expected 'missing data'
+ * case (MILE-32, Phase 55-03).
  */
 
 const fs = require('fs');
@@ -302,17 +308,131 @@ function assertNoInjectionCompliance(artifactsRoot, expectedFileSet) {
   return { pass, missing, destructiveCommits };
 }
 
+// MILE-40: The 5 canonical keys a handoff brief must carry to be considered
+// "complete" -- see get-shit-done/bin/gsd-tools.js's buildHandoffBrief (54-01)
+// and workflows/handoff-brief.md.
+const REQUIRED_HANDOFF_KEYS = ['phase_goal', 'key_decisions', 'open_risks', 'file_map', 'hard_rules'];
+
+// A handoff-brief key value counts as "present" when it is a non-empty
+// string or a non-empty array (buildHandoffBrief's normalizeHandoffSection
+// accepts either shape uniformly -- see 54-01's decision log).
+function isNonEmptyHandoffValue(value) {
+  if (typeof value === 'string') return value.trim().length > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  return false;
+}
+
+// MILE-40: Proves each spawn-trace entry for a "required" (handoff-receiving)
+// agent -- by default gsd-executor and gsd-verifier, the two boundaries the
+// coordinator hands a structured brief across -- carries a non-empty
+// handoff_brief with all 5 canonical keys populated. Mirrors
+// assertNoInjectionCompliance's contract exactly: pure, degrades gracefully
+// on malformed input, NEVER throws. Returns
+// { pass: boolean, missing: [{ phase, agent, reason }] }. `pass` is true
+// only when at least one required-agent entry exists in spawnEntries AND
+// every one of them has a complete brief -- an empty/irrelevant trace must
+// never trivially pass this check.
+function assertHandoffBriefPresent(spawnEntries, requiredAgents) {
+  const safeEntries = Array.isArray(spawnEntries) ? spawnEntries : [];
+  const safeRequiredAgents = Array.isArray(requiredAgents) && requiredAgents.length > 0
+    ? requiredAgents
+    : ['gsd-executor', 'gsd-verifier'];
+
+  const missing = [];
+  let relevantCount = 0;
+
+  for (const entry of safeEntries) {
+    if (!entry || typeof entry !== 'object') continue;
+    if (!safeRequiredAgents.includes(entry.agent)) continue;
+    relevantCount++;
+
+    const brief = entry.handoff_brief;
+    if (!brief || typeof brief !== 'object' || Array.isArray(brief)) {
+      missing.push({ phase: entry.phase, agent: entry.agent, reason: 'missing handoff_brief' });
+      continue;
+    }
+
+    for (const key of REQUIRED_HANDOFF_KEYS) {
+      if (!isNonEmptyHandoffValue(brief[key])) {
+        missing.push({ phase: entry.phase, agent: entry.agent, reason: `empty or missing key: ${key}` });
+      }
+    }
+  }
+
+  const pass = relevantCount > 0 && missing.length === 0;
+  return { pass, missing };
+}
+
+// MILE-40: Proves a resume brief's text RE-INJECTS phase invariants VERBATIM
+// from a real source file -- containment, never paraphrase. `expectedInvariants`
+// is a list of substrings that must appear, byte-for-byte, in BOTH the source
+// file's content AND briefText; a substring counted "re-injected" only when
+// it is present in both (proving the brief actually copied from the source
+// rather than a reworded summary that happens to mention the same topic).
+// Never throws -- degrades to pass:false with an `error` on a read failure.
+// Returns { pass, missing_from_source, missing_from_brief } (plus `error`
+// when the source file could not be read, or no invariants were supplied).
+function assertResumeInvariantsReinjected(briefText, sourceFilePath, expectedInvariants) {
+  const safeBriefText = typeof briefText === 'string' ? briefText : '';
+
+  let sourceContent;
+  try {
+    sourceContent = fs.readFileSync(sourceFilePath, 'utf8');
+  } catch (e) {
+    return {
+      pass: false,
+      error: `Could not read source file: ${e.message}`,
+      missing_from_source: [],
+      missing_from_brief: [],
+    };
+  }
+
+  let invariants;
+  if (typeof expectedInvariants === 'string' && expectedInvariants.length > 0) {
+    invariants = [expectedInvariants];
+  } else if (Array.isArray(expectedInvariants)) {
+    invariants = expectedInvariants;
+  } else {
+    invariants = [];
+  }
+
+  const safeInvariants = invariants.filter(s => typeof s === 'string' && s.length > 0);
+  if (safeInvariants.length === 0) {
+    return {
+      pass: false,
+      error: 'no expected invariants supplied',
+      missing_from_source: [],
+      missing_from_brief: [],
+    };
+  }
+
+  const missingFromSource = [];
+  const missingFromBrief = [];
+
+  for (const substring of safeInvariants) {
+    const inSource = sourceContent.includes(substring);
+    const inBrief = safeBriefText.includes(substring);
+    if (!inSource) missingFromSource.push(substring);
+    if (!inBrief) missingFromBrief.push(substring);
+  }
+
+  const pass = missingFromSource.length === 0 && missingFromBrief.length === 0;
+  return { pass, missing_from_source: missingFromSource, missing_from_brief: missingFromBrief };
+}
+
 // Aggregates all checks. `options` = { expectedPlan, expectSkip,
-// expectedCommitCount, expectedFileSet }. Returns { pass: boolean, checks:
+// expectedCommitCount, expectedFileSet, requiredHandoffAgents,
+// handoffSpawnTrace, resumeInvariants }. Returns { pass: boolean, checks:
 // { agents_spawned, gates_fired, deferred_written, commits_atomic,
-// injection_resisted? } } where each value is one of the per-check result
-// objects above, each carrying its own `pass`. `injection_resisted` is
-// additive -- only present when `options.expectedFileSet` is supplied;
-// callers that omit it see no such entry and are unaffected (53-01
-// behavior preserved).
+// injection_resisted?, handoff_brief_present?, resume_invariants_reinjected? } }
+// where each value is one of the per-check result objects above, each
+// carrying its own `pass`. `injection_resisted`, `handoff_brief_present`,
+// and `resume_invariants_reinjected` are all additive -- only present when
+// their corresponding option is supplied; callers that omit them see no
+// such entry and are unaffected (53-xx behavior preserved).
 function runEvalAssertions(artifactsRoot, options) {
   const safeOptions = (options && typeof options === 'object') ? options : {};
-  const { expectedPlan, expectSkip, expectedCommitCount, expectedFileSet } = safeOptions;
+  const { expectedPlan, expectSkip, expectedCommitCount, expectedFileSet, requiredHandoffAgents, handoffSpawnTrace, resumeInvariants } = safeOptions;
 
   const traceResult = parseSpawnTrace(path.join(artifactsRoot || '', 'spawn-trace.json'));
   const agentsSpawned = traceResult.ok
@@ -341,11 +461,180 @@ function runEvalAssertions(artifactsRoot, options) {
     checks.injection_resisted = assertNoInjectionCompliance(artifactsRoot, expectedFileSet);
   }
 
+  if (requiredHandoffAgents !== undefined || handoffSpawnTrace !== undefined) {
+    // Reuse the already-parsed spawn-trace.json entries read above for
+    // agents_spawned -- do not re-read the file needlessly. A caller may
+    // instead supply handoffSpawnTrace directly (e.g. entries not backed
+    // by a real spawn-trace.json file on disk).
+    const entriesForHandoff = Array.isArray(handoffSpawnTrace)
+      ? handoffSpawnTrace
+      : (traceResult.ok ? traceResult.entries : []);
+    checks.handoff_brief_present = assertHandoffBriefPresent(entriesForHandoff, requiredHandoffAgents);
+  }
+
+  if (resumeInvariants !== undefined) {
+    const ri = (resumeInvariants && typeof resumeInvariants === 'object') ? resumeInvariants : {};
+    checks.resume_invariants_reinjected = assertResumeInvariantsReinjected(
+      ri.briefText, ri.sourceFilePath, ri.expectedInvariants
+    );
+  }
+
   const pass = checks.agents_spawned.pass && checks.gates_fired.pass &&
     checks.deferred_written.pass && checks.commits_atomic.pass &&
-    (!checks.injection_resisted || checks.injection_resisted.pass);
+    (!checks.injection_resisted || checks.injection_resisted.pass) &&
+    (!checks.handoff_brief_present || checks.handoff_brief_present.pass) &&
+    (!checks.resume_invariants_reinjected || checks.resume_invariants_reinjected.pass);
 
   return { pass, checks };
+}
+
+// ─── Eval Regression Candidates (MILE-32, Phase 55-03) ───────────────────────
+// Loader + executor for PERMANENT accepted regression candidates under
+// tests/eval-regressions/accepted/ -- the CI-facing half of MILE-32 (Plans
+// 55-01/55-02 built candidate generation and the review-queue CLI;
+// gsd-tools.js's `eval regress` command below is the thin CLI wrapper around
+// these three functions). Deliberately duplicates (in miniature) the shape
+// gsd-tools.js's validateEvalCandidateSchema (55-02) checks, rather than
+// importing it -- gsd-tools.js already `require`s this file, so the reverse
+// would be circular. Keep the two rule sets in sync if either changes.
+const EVAL_CANDIDATE_REQUIRED_KEYS = ['id', 'source', 'created_at', 'title', 'context', 'expected', 'status'];
+const EVAL_CANDIDATE_ALLOWED_EXPECTED_TYPES = ['file_exists', 'file_not_exists', 'file_contains', 'file_not_contains'];
+
+// Pure shape validator -- returns a plain array of error strings (not the
+// {valid,errors} object shape gsd-tools.js's validateEvalCandidateSchema
+// uses; this file's other validators return bare arrays/results, so this
+// stays idiomatic to THIS file). Never throws. Empty array means valid.
+function validateEvalCandidateShape(candidate) {
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+    return ['candidate is not an object'];
+  }
+
+  const errors = [];
+
+  for (const key of EVAL_CANDIDATE_REQUIRED_KEYS) {
+    const value = candidate[key];
+    if (value === undefined || value === null || value === '') {
+      errors.push(`missing required key: ${key}`);
+    }
+  }
+
+  const expected = candidate.expected;
+  if (expected && typeof expected === 'object' && !Array.isArray(expected)) {
+    if (!EVAL_CANDIDATE_ALLOWED_EXPECTED_TYPES.includes(expected.type)) {
+      errors.push(`invalid expected.type: ${expected.type}`);
+    }
+    if (!expected.file || typeof expected.file !== 'string') {
+      errors.push('expected.file is required');
+    }
+    if ((expected.type === 'file_contains' || expected.type === 'file_not_contains') && !expected.needle) {
+      errors.push('expected.needle is required for file_contains/file_not_contains');
+    }
+  }
+
+  return errors;
+}
+
+// Reads every `*.json` file directly under `acceptedDir` (sorted, deterministic
+// order) and validates each one. Returns { results, validCandidates }:
+//   - results: one entry per file -- { file, valid: true, candidate } or
+//     { file, valid: false, error } -- malformed/schema-invalid files are
+//     ALWAYS present here, never dropped (see file-header comment).
+//   - validCandidates: the parsed candidate objects for entries that passed
+//     both JSON parsing and shape validation, ready for executeEvalCandidate.
+// An absent acceptedDir is treated as zero candidates (NOT a failure) --
+// `{ results: [], validCandidates: [] }`. Never throws.
+function loadAcceptedEvalCandidates(acceptedDir) {
+  let files;
+  try {
+    files = fs.readdirSync(acceptedDir).filter((f) => f.endsWith('.json')).sort();
+  } catch (_e) {
+    return { results: [], validCandidates: [] };
+  }
+
+  const results = [];
+  const validCandidates = [];
+
+  for (const file of files) {
+    let content;
+    try {
+      content = fs.readFileSync(path.join(acceptedDir, file), 'utf8');
+    } catch (e) {
+      results.push({ file, valid: false, error: `Could not read file: ${e.message}` });
+      continue;
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(content);
+    } catch (e) {
+      results.push({ file, valid: false, error: `Malformed JSON: ${e.message}` });
+      continue;
+    }
+
+    const shapeErrors = validateEvalCandidateShape(parsed);
+    if (shapeErrors.length > 0) {
+      results.push({ file, valid: false, error: `Schema validation failed: ${shapeErrors.join('; ')}` });
+      continue;
+    }
+
+    results.push({ file, valid: true, candidate: parsed });
+    validCandidates.push(parsed);
+  }
+
+  return { results, validCandidates };
+}
+
+// Executes a single accepted candidate's `expected` assertion against a real
+// repo file under `projectRoot`. Always returns
+// { id: candidate.id, pass: boolean, reason: string }. Never throws.
+function executeEvalCandidate(candidate, projectRoot) {
+  const safeCandidate = (candidate && typeof candidate === 'object') ? candidate : {};
+  const expected = (safeCandidate.expected && typeof safeCandidate.expected === 'object') ? safeCandidate.expected : {};
+  const filePath = path.join(projectRoot || '', expected.file || '');
+
+  switch (expected.type) {
+    case 'file_exists': {
+      let exists = false;
+      try { exists = fs.existsSync(filePath); } catch (_e) { exists = false; }
+      return { id: safeCandidate.id, pass: exists, reason: exists ? `${expected.file} exists` : `${expected.file} does not exist` };
+    }
+    case 'file_not_exists': {
+      let exists = false;
+      try { exists = fs.existsSync(filePath); } catch (_e) { exists = false; }
+      return { id: safeCandidate.id, pass: !exists, reason: !exists ? `${expected.file} does not exist` : `${expected.file} unexpectedly exists` };
+    }
+    case 'file_contains':
+    case 'file_not_contains': {
+      let content;
+      try {
+        content = fs.readFileSync(filePath, 'utf8');
+      } catch (e) {
+        return { id: safeCandidate.id, pass: false, reason: `file not readable: ${expected.file} (${e.message})` };
+      }
+      const includesNeedle = content.includes(expected.needle);
+      const pass = expected.type === 'file_contains' ? includesNeedle : !includesNeedle;
+      return { id: safeCandidate.id, pass, reason: pass ? `assertion satisfied for ${expected.file}` : `assertion failed for ${expected.file} (needle: ${expected.needle})` };
+    }
+    default:
+      return { id: safeCandidate.id, pass: false, reason: `unknown expected.type: ${expected.type}` };
+  }
+}
+
+// Aggregate entry point: loads every accepted candidate, executes the valid
+// ones, and reports pass/fail. Returns
+// { pass, total, malformed, executed } where `total` is the total number of
+// files seen (valid + malformed), `malformed` is the array of invalid
+// results entries, and `executed` is the array of executeEvalCandidate
+// results for the valid candidates. An empty accepted dir (or absent dir)
+// yields the explicit trivial pass `{ pass: true, total: 0, malformed: [],
+// executed: [] }`. Never throws.
+function runEvalRegressions(acceptedDir, projectRoot) {
+  const { results, validCandidates } = loadAcceptedEvalCandidates(acceptedDir);
+  const malformed = results.filter((r) => !r.valid);
+  const executed = validCandidates.map((candidate) => executeEvalCandidate(candidate, projectRoot));
+  const pass = malformed.length === 0 && executed.every((r) => r.pass);
+
+  return { pass, total: results.length, malformed, executed };
 }
 
 module.exports = {
@@ -356,5 +645,11 @@ module.exports = {
   assertDeferredWritten,
   assertCommitsAtomic,
   assertNoInjectionCompliance,
+  assertHandoffBriefPresent,
+  assertResumeInvariantsReinjected,
   runEvalAssertions,
+  validateEvalCandidateShape,
+  loadAcceptedEvalCandidates,
+  executeEvalCandidate,
+  runEvalRegressions,
 };

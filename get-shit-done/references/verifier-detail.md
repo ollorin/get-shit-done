@@ -498,7 +498,7 @@ Structure gaps in YAML frontmatter for `/gsd:plan-phase --gaps`:
 gaps:
   - truth: "Observable truth that failed"
     status: failed
-    failure_type: stub          # REQUIRED — one of: stub | unwired | missing_artifact | semantic_stub | broken_chain | regression | missing_test
+    failure_type: stub          # REQUIRED — one of: stub | unwired | missing_artifact | semantic_stub | broken_chain | regression | missing_test | contract_mismatch
     reason: "Brief explanation"
     artifacts:
       - path: "src/path/to/file.tsx"
@@ -511,7 +511,7 @@ gaps:
 - `status`: failed | partial
 - `reason`: Brief explanation
 - `artifacts`: Files with issues
-- `failure_type`: Required classification — one of: `stub` | `unwired` | `missing_artifact` | `semantic_stub` | `broken_chain` | `regression` | `missing_test`
+- `failure_type`: Required classification — one of: `stub` | `unwired` | `missing_artifact` | `semantic_stub` | `broken_chain` | `regression` | `missing_test` | `contract_mismatch`
 - `missing`: Specific things to add/fix
 
 **failure_type classification (REQUIRED — gaps without this field are malformed):**
@@ -525,10 +525,11 @@ gaps:
 | `broken_chain` | A multi-step causal chain has a gap — frontend calls route that doesn't exist, mutation has no persistence, step 1 runs but step 2 is absent |
 | `regression` | A truth that previously passed now fails — confirmed by re-verification mode or test that was previously green |
 | `missing_test` | Implementation exists and functions correctly but has no automated test coverage |
+| `contract_mismatch` | A cross-phase integration boundary produced by one phase disagrees with what a dependent phase consumes (API shape, schema, component props) -- written by the coordinator's `cross_phase_integration` step (Phase 59, MILE-38) via `verify append-gap`, NOT by the verifier itself |
 
 **Assign failure_type inline:** When writing each gap entry, determine which type best describes the root cause. A gap may have only one failure_type. When in doubt, choose the most specific type (e.g. prefer `semantic_stub` over `stub` when the artifact exists but behaves inertly).
 
-**Malformed gap rejection:** Before writing VERIFICATION.md, verify every gap entry has a `failure_type` field set to one of the seven values above. If any gap is missing `failure_type`, set the status to `gaps_found` and add a meta-gap:
+**Malformed gap rejection:** Before writing VERIFICATION.md, verify every gap entry has a `failure_type` field set to one of the eight values above (the eighth, `contract_mismatch`, is written by the coordinator rather than the verifier itself, but is still a valid classification). If any gap is missing `failure_type`, set the status to `gaps_found` and add a meta-gap:
 ```yaml
 - truth: "All gap entries include a failure_type classification"
   status: failed

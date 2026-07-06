@@ -13,7 +13,9 @@ const EVENT_TYPES = {
   USER_DECISION: 'user_decision',
   KNOWLEDGE_QUERY: 'knowledge_query',
   KNOWLEDGE_WRITE: 'knowledge_write',
-  MODEL_SELECTED: 'model_selected'
+  MODEL_SELECTED: 'model_selected',
+  TASK_OUTCOME: 'task_outcome',
+  TIER_ESCALATION: 'tier_escalation'
 };
 
 /**

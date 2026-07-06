@@ -24,13 +24,23 @@ const CORE_PREAMBLE_MARKER = '<!-- GSD:CORE-PREAMBLE-END -->';
 // (roughly 4 characters per token for English prose) -- acceptable per
 // MILE-30's scope, NOT a real tokenizer call. Good enough for a budget
 // gate; not good enough for exact billing.
-function measurePreamble(filePath) {
-  const content = fs.readFileSync(filePath, 'utf-8');
+//
+// Pure, in-memory variant (Phase 56-01, MILE-33): no I/O, string in ->
+// measurement out. measurePreamble(filePath) below is now a thin wrapper
+// that reads the file and delegates here -- this is what lets
+// prompt-optimize.js measure an in-memory CANDIDATE revision (never written
+// to disk) against the same budget logic real files are checked with.
+function measurePreambleFromContent(content) {
   const markerIdx = content.indexOf(CORE_PREAMBLE_MARKER);
   const markerPresent = markerIdx !== -1;
   const preamble = markerPresent ? content.slice(0, markerIdx) : content;
   const estimatedTokens = Math.ceil(preamble.length / 4);
-  return { filePath, estimatedTokens, markerPresent, charCount: preamble.length };
+  return { estimatedTokens, markerPresent, charCount: preamble.length };
+}
+
+function measurePreamble(filePath) {
+  const content = fs.readFileSync(filePath, 'utf-8');
+  return { filePath, ...measurePreambleFromContent(content) };
 }
 
 // Reads a budgets config object (repoRoot-relative paths as keys mapping to
@@ -107,4 +117,4 @@ function checkAllBudgets(repoRoot, budgetsConfigPath) {
   return { pass: allPass, results };
 }
 
-module.exports = { measurePreamble, checkAllBudgets, CORE_PREAMBLE_MARKER };
+module.exports = { measurePreamble, measurePreambleFromContent, checkAllBudgets, CORE_PREAMBLE_MARKER };

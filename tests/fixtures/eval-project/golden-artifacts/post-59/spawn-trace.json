@@ -1,0 +1,24 @@
+[
+  { "phase": "01-add-function", "agent": "gsd-phase-researcher", "tier": "haiku", "timestamp": "2026-07-06T10:00:00Z" },
+  { "phase": "01-add-function", "agent": "gsd-planner", "tier": "haiku", "timestamp": "2026-07-06T10:01:00Z" },
+  { "phase": "01-add-function", "agent": "gsd-executor", "tier": "haiku", "timestamp": "2026-07-06T10:02:00Z" },
+  { "phase": "01-add-function", "agent": "gsd-verifier", "tier": "haiku", "timestamp": "2026-07-06T10:03:00Z" },
+  { "phase": "03-dependent-phase", "agent": "gsd-phase-researcher", "tier": "haiku", "timestamp": "2026-07-06T10:10:00Z" },
+  { "phase": "03-dependent-phase", "agent": "gsd-planner", "tier": "haiku", "timestamp": "2026-07-06T10:11:00Z" },
+  { "phase": "03-dependent-phase", "agent": "gsd-executor", "tier": "haiku", "timestamp": "2026-07-06T10:12:00Z" },
+  {
+    "phase": "03-dependent-phase",
+    "agent": "gsd-test-writer",
+    "tier": "haiku",
+    "timestamp": "2026-07-06T10:13:00Z",
+    "_note": "MILE-37: quality.test_writer toggle on -- executor's post_task_quality_spawn fired after the source-touching task (src/subtract.js)"
+  },
+  { "phase": "03-dependent-phase", "agent": "gsd-verifier", "tier": "haiku", "timestamp": "2026-07-06T10:14:00Z" },
+  {
+    "phase": "03-dependent-phase",
+    "agent": "gsd-integration-tester",
+    "tier": "sonnet",
+    "timestamp": "2026-07-06T10:15:00Z",
+    "_note": "MILE-38: quality.integration_tester toggle on -- coordinator's new step 3b fired on the declared ROADMAP.md depends_on: [\"01-add-function\"], independent of file-overlap"
+  }
+]

@@ -891,7 +891,19 @@ For each incomplete plan (no SUMMARY.md):
        @/Users/ollorin/.claude/get-shit-done/templates/summary.md
        @/Users/ollorin/.claude/get-shit-done/references/checkpoints.md
        @/Users/ollorin/.claude/get-shit-done/references/tdd.md
+       @/Users/ollorin/.claude/get-shit-done/references/handoff-brief.md
        </execution_context>
+
+       <handoff_brief>
+       {Coordinator fills the 5 fixed sections per references/handoff-brief.md (may assemble
+       brief_text deterministically via `node ~/.claude/get-shit-done/bin/gsd-tools.js handoff
+       brief --json '{...}'`, Plan 01):
+       PHASE GOAL: {goal from ROADMAP.md}
+       KEY DECISIONS: {locked decisions from CONTEXT.md / STATE.md for this phase}
+       OPEN RISKS: {known risks / watch-items}
+       FILE MAP: {files this phase owns/touches}
+       HARD RULES: {the non-negotiable rules the executor MUST honor}
+       </handoff_brief>
 
        <files_to_read>
        - Plan: {phase_dir}/{plan_file}
@@ -946,7 +958,18 @@ For each incomplete plan (no SUMMARY.md):
             @/Users/ollorin/.claude/get-shit-done/templates/summary.md
             @/Users/ollorin/.claude/get-shit-done/references/checkpoints.md
             @/Users/ollorin/.claude/get-shit-done/references/tdd.md
+            @/Users/ollorin/.claude/get-shit-done/references/handoff-brief.md
             </execution_context>
+            <handoff_brief>
+            {Coordinator fills the 5 fixed sections per references/handoff-brief.md (may assemble
+            brief_text deterministically via `node ~/.claude/get-shit-done/bin/gsd-tools.js handoff
+            brief --json '{...}'`, Plan 01):
+            PHASE GOAL: {goal from ROADMAP.md}
+            KEY DECISIONS: {locked decisions from CONTEXT.md / STATE.md for this phase}
+            OPEN RISKS: {known risks / watch-items}
+            FILE MAP: {files this phase owns/touches}
+            HARD RULES: {the non-negotiable rules the executor MUST honor}
+            </handoff_brief>
             <files_to_read>
             - Plan: {phase_dir}/{plan_file}
             - State: .planning/STATE.md
@@ -971,22 +994,76 @@ For each incomplete plan (no SUMMARY.md):
      6. Wait for task executor to complete before spawning next task
         (sequential within a plan — tasks may have intra-plan dependencies)
 
-     6. On executor return, check for haiku-tier failure and escalate if needed:
-        If the executor's return output contains "TASK FAILED:" AND "[tier: haiku]":
-          If quota allows (session_percent < 95, i.e., not in critical conservation):
-            Log: "Task {task_index} failed at haiku — re-spawning at sonnet (coordinator escalation)"
-            TASK_TIER = "sonnet"
-            ROUTING_STATS["haiku"] -= 1  // remove the failed haiku attempt from stats
-            ROUTING_STATS["sonnet"] += 1
-            Re-spawn the same task using the same executor prompt with TASK_TIER = "sonnet"
-            Wait for sonnet executor to complete
-          Else (quota critical):
-            Log: "Task {task_index} failed at haiku — quota critical, skipping escalation"
-            Record task as failed, continue to next task
-        If the executor's return output contains "TASK FAILED:" AND tier is NOT haiku (sonnet/opus/unrouted):
-          Record task as failed, continue to next task (no escalation for sonnet/opus)
-        Escalation only for error/exception failures signaled by the executor.
-        Output quality issues do not trigger re-spawn.
+     7. On executor return, derive the task_type once (best-effort, never blocks):
+        TASK_TYPE_FOR_LOGGING = run: node ~/.claude/get-shit-done/bin/gsd-tools.js routing task-type "{task_name}" --raw
+        (If this command fails, use "other" as TASK_TYPE_FOR_LOGGING and continue.)
+
+        If the executor's return output does NOT contain "TASK FAILED:" (success):
+          Log ONE task_outcome event:
+            node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event --type task_outcome \
+              --data '{"phase":{phase_number},"plan":"{plan_file}","task_index":{task_index},"task_name":"{task_name}","task_type":"{TASK_TYPE_FOR_LOGGING}","tier":"{TASK_TIER}","outcome":"success","capability_related":true}'
+          Record token usage (best-effort, never blocks -- if this command fails, log a warning and continue):
+            node ~/.claude/get-shit-done/bin/gsd-tools.js token-usage record \
+              --phase {phase_number} --plan "{plan_file}" --task-index {task_index} --task-name "{task_name}" --tier "{TASK_TIER}" --raw
+          Continue to next task.
+
+        If the executor's return output DOES contain "TASK FAILED:" — run the bounded escalation loop:
+          CURRENT_SIGNAL_TIER = the tier parsed from the signal's "[tier: X]" tag (X = haiku/sonnet/opus;
+            if absent, routing was not active for this task — record as failed, no escalation, continue
+            to next task)
+          ERROR_SUMMARY = the text after the final " — " in the signal
+          IS_NON_CAPABILITY_TAGGED = signal contains "[non-capability]"
+          ESCALATIONS_USED = 0
+
+          LOOP:
+            DECISION_JSON = run: node ~/.claude/get-shit-done/bin/gsd-tools.js routing escalation-decision \
+              --current-tier "{CURRENT_SIGNAL_TIER}" --error-summary "{ERROR_SUMMARY}" \
+              --escalations-used {ESCALATIONS_USED} --raw
+            // The executor's own [non-capability] tag is authoritative and cheaper than a re-derived
+            // classification — if present, this attempt is never escalable regardless of the CLI's
+            // own re-classification of the error text:
+            EFFECTIVE_ESCALATE = DECISION_JSON.escalate AND (NOT IS_NON_CAPABILITY_TAGGED)
+            EFFECTIVE_REASON = IS_NON_CAPABILITY_TAGGED ? "non_capability_failure" : DECISION_JSON.reason
+
+            Log ONE task_outcome event for this failed attempt:
+              node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event --type task_outcome \
+                --data '{"phase":{phase_number},"plan":"{plan_file}","task_index":{task_index},"task_name":"{task_name}","task_type":"{TASK_TYPE_FOR_LOGGING}","tier":"{CURRENT_SIGNAL_TIER}","outcome":"failure","capability_related":{true if NOT IS_NON_CAPABILITY_TAGGED else false}}'
+            Record token usage for this failed attempt (best-effort, never blocks):
+              node ~/.claude/get-shit-done/bin/gsd-tools.js token-usage record \
+                --phase {phase_number} --plan "{plan_file}" --task-index {task_index} --task-name "{task_name}" --tier "{CURRENT_SIGNAL_TIER}" --raw
+
+            If EFFECTIVE_ESCALATE is true AND quota allows (session_percent < 95, not in critical conservation):
+              Log: "Task {task_index} failed at {CURRENT_SIGNAL_TIER} ({EFFECTIVE_REASON}) — re-spawning at {DECISION_JSON.next_tier} (coordinator escalation)"
+              node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event --type tier_escalation \
+                --data '{"phase":{phase_number},"plan":"{plan_file}","task_index":{task_index},"task_name":"{task_name}","task_type":"{TASK_TYPE_FOR_LOGGING}","from_tier":"{CURRENT_SIGNAL_TIER}","to_tier":"{DECISION_JSON.next_tier}","reason":"{EFFECTIVE_REASON}"}'
+              ROUTING_STATS[CURRENT_SIGNAL_TIER] -= 1
+              ROUTING_STATS[DECISION_JSON.next_tier] += 1
+              ESCALATIONS_USED += 1
+              TASK_TIER = DECISION_JSON.next_tier
+              Re-spawn the same task using the same executor prompt with TASK_TIER = DECISION_JSON.next_tier
+              Wait for the re-spawned executor to complete
+              If the re-spawned executor's output contains "TASK FAILED:":
+                Update CURRENT_SIGNAL_TIER, ERROR_SUMMARY, IS_NON_CAPABILITY_TAGGED from the new signal
+                GOTO LOOP (bounded automatically — escalation-decision returns escalate:false once
+                  ESCALATIONS_USED reaches the ladder's bound, or once CURRENT_SIGNAL_TIER is opus)
+              Else (re-spawned executor succeeded):
+                Log ONE task_outcome success event at the FINAL tier:
+                  node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event --type task_outcome \
+                    --data '{"phase":{phase_number},"plan":"{plan_file}","task_index":{task_index},"task_name":"{task_name}","task_type":"{TASK_TYPE_FOR_LOGGING}","tier":"{TASK_TIER}","outcome":"success","capability_related":true}'
+                Record token usage at the FINAL tier (best-effort, never blocks):
+                  node ~/.claude/get-shit-done/bin/gsd-tools.js token-usage record \
+                    --phase {phase_number} --plan "{plan_file}" --task-index {task_index} --task-name "{task_name}" --tier "{TASK_TIER}" --raw
+                Continue to next task.
+            Else:
+              Log: "Task {task_index} failed at {CURRENT_SIGNAL_TIER} — {EFFECTIVE_REASON}, no further escalation"
+              Record task as failed, continue to next task (falls into the existing failure-handling
+                path — Spot-check result below, and the human-escalation path if this blocks phase
+                completion)
+
+        Escalation ONLY EVER applies to capability-related error/exception failures signaled by the
+        executor. Output quality issues never trigger this loop. A [non-capability]-tagged failure
+        (missing file, environment error) is recorded as failed immediately and NEVER escalated,
+        per MILE-35.
    ```
 
 4. **Spot-check result (MANDATORY — do NOT skip):**
@@ -1011,6 +1088,16 @@ For each incomplete plan (no SUMMARY.md):
 **On plan failure:** Create checkpoint, return failure state to parent coordinator. Do not attempt to continue if a critical dependency plan failed.
 
 **On classifyHandoffIfNeeded error:** Claude Code runtime bug — not a plan failure. Spot-check (SUMMARY.md + commits) to confirm success before treating as failed.
+
+6. **Rebuild the routing ledger (after ALL plans/waves in this phase have completed):**
+   ```bash
+   node ~/.claude/get-shit-done/bin/gsd-tools.js routing ledger build --raw
+   ```
+   Best-effort — if this command fails, log a warning and continue; it never blocks phase
+   completion. This folds every `task_outcome`/`tier_escalation` event this phase logged into
+   `.planning/routing-ledger.json`, satisfying "escalation is ... recorded ... in the routing
+   ledger" (MILE-35). The ledger is a rebuilt aggregate (not a live-appended log), so running
+   `routing ledger build` here is always safe and idempotent regardless of how the phase ended.
 </step>
 
 <checkpoint_ui_qa_loop>
@@ -1481,7 +1568,20 @@ Agent(
   prompt="Verify phase {phase_number} goal achievement.
 Phase directory: {phase_dir}
 Phase goal: {goal from ROADMAP.md}
-Check must_haves against actual codebase. Create VERIFICATION.md."
+Check must_haves against actual codebase. Create VERIFICATION.md.
+
+@/Users/ollorin/.claude/get-shit-done/references/handoff-brief.md
+
+<handoff_brief>
+{Coordinator fills the 5 fixed sections per references/handoff-brief.md (may assemble
+brief_text deterministically via `node ~/.claude/get-shit-done/bin/gsd-tools.js handoff
+brief --json '{...}'`, Plan 01):
+PHASE GOAL: {goal from ROADMAP.md}
+KEY DECISIONS: {locked decisions from CONTEXT.md / STATE.md for this phase}
+OPEN RISKS: {known risks / watch-items}
+FILE MAP: {files this phase owns/touches}
+HARD RULES: {the non-negotiable rules the phase was verified against}
+</handoff_brief>"
 )
 ```
 
@@ -1554,7 +1654,7 @@ After verify_phase_goal, check for cross-phase integration boundaries.
 
 ```bash
 # Check explicit depends_on
-DEPENDS_ON=$(node ~/.claude/get-shit-done/bin/gsd-tools.js roadmap get-phase {phase_number} --raw 2>/dev/null | node -e "try{const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(JSON.stringify(d.depends_on||[]))}catch{console.log('[]')}" 2>/dev/null || echo "[]")
+DEPENDS_ON=$(node ~/.claude/get-shit-done/bin/gsd-tools.js roadmap get-phase {phase_number} 2>/dev/null | node -e "try{const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(JSON.stringify(d.depends_on||[]))}catch{console.log('[]')}" 2>/dev/null || echo "[]")
 
 # Check for shared files with ANY completed phase (not just depends_on)
 CURRENT_FILES=$(grep -oE '[\w\-\/\.]+\.(ts|tsx|js|jsx)' .planning/phases/{phase_dir}/*-SUMMARY.md 2>/dev/null | sort -u)
@@ -1593,7 +1693,43 @@ done
    )
    ```
 
-4. If blocking mismatches found: create gap closure plans (same pattern as verification gaps). This is a HARD BLOCK — do NOT proceed to phase complete with blocking integration mismatches.
+3b. **(NEW, MILE-38, additive) If step 3 above did NOT already spawn gsd-integration-tester
+    for this phase:** check the `quality.integration_tester` toggle:
+    ```bash
+    INTEGRATION_TESTER_ENABLED=$(node ~/.claude/get-shit-done/bin/gsd-tools.js config get integration_tester_enabled --raw 2>/dev/null || echo "false")
+    ```
+    If `INTEGRATION_TESTER_ENABLED` is `"true"` AND `DEPENDS_ON` (from the "Check explicit
+    depends_on" bash block above) has length > 0: spawn gsd-integration-tester anyway, using
+    the EXACT SAME `Agent()` call as step 3 (`depends_on_phases={DEPENDS_ON + overlapping
+    phases}`, `integration_points={derived overlap, may be empty if none was found}`) -- this
+    fires even when `SHARED_OVERLAP` is `false`, because a phase can legitimately depend on a
+    prior phase's schema/convention with zero raw file-name overlap. If `DEPENDS_ON` is empty:
+    NEVER spawn via this branch, regardless of the toggle state -- independent phases never
+    trigger it.
+
+4. If any `blocking: true` mismatch is returned by gsd-integration-tester (from EITHER the
+   step 3 spawn or the new step 3b spawn): this is a HARD BLOCK — do NOT proceed to phase
+   complete. For EACH blocking mismatch, propagate it into this phase's already-written
+   VERIFICATION.md so it composes with the EXISTING verification-gap pipeline (no second/
+   parallel gap-writing mechanism):
+
+   ```bash
+   node ~/.claude/get-shit-done/bin/gsd-tools.js verify append-gap "{phase_dir}/{verification_file}" \
+     --truth "Cross-phase integration boundary '{mismatch.boundary}' matches between producer and consumer" \
+     --reason "{mismatch.mismatch} (producer: {mismatch.producer_shape}, consumer: {mismatch.consumer_shape})" \
+     --failure-type contract_mismatch \
+     --raw
+   ```
+
+   This appends one gap entry per blocking mismatch and flips VERIFICATION.md's `status` to
+   `gaps_found` — the SAME frontmatter shape `eval-candidate from-verification` (Phase 55)
+   already reads, so a subsequent `eval-candidate from-verification` run picks up these gaps
+   automatically, and `/gsd:plan-phase --gaps` can build gap closure plans from them exactly as
+   it does for verifier-originated gaps. Do NOT build a separate gap-closure code path for
+   integration mismatches.
+
+   If gsd-integration-tester returns zero `blocking: true` mismatches: continue to phase
+   complete as normal (no VERIFICATION.md change).
 
 </step>
 

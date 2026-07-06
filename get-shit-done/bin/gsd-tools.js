@@ -201,6 +201,9 @@ const { TaskChunker, BatchCoordinator, analyzeTask, estimateTaskTokens } = requi
 const { estimatePhaseSize, detectOversizedPhases, recommendSplit, validateSplitPreservesDependencies, LIMITS: PHASE_LIMITS } = require('./phase-sizer.js');
 const evalHarness = require('./eval-harness.js');
 const promptBudget = require('./prompt-budget.js');
+const promptOptimize = require('./prompt-optimize.js');
+const { getNextTier, getTiers } = require('./model-registry.js');
+const { deriveCheckSet } = require('./pre-pr-checks.js');
 
 // Phase 2: Auto Mode safety modules (lazy — gracefully absent if not installed)
 let circuitBreaker, validator, escalation, feedback, learning;
@@ -261,6 +264,32 @@ function isUIFile(filePath) {
 
 function computeHasUI(touchedFiles) {
   return touchedFiles.some(isUIFile);
+}
+
+// ─── Source-Touch Detection (Phase 59-02, MILE-37) ──────────────────────────
+// isSourceFile/computeTouchesSourceCode are pure functions -- no I/O -- gating the new
+// post-task gsd-test-writer spawn point in executor-detail.md. Mirrors isUIFile/
+// computeHasUI's pure extension+path-pattern style exactly (Phase 45-02): derived only
+// from a passed-in file list, never from a SUMMARY.md self-report.
+const SOURCE_FILE_EXTENSIONS = ['.js', '.ts', '.tsx', '.jsx', '.py', '.go', '.rb'];
+
+function isTestOrSpecFile(filePath) {
+  if (typeof filePath !== 'string' || !filePath) return false;
+  const base = path.basename(filePath);
+  if (/\.(test|spec)\.[a-zA-Z0-9]+$/.test(base)) return true;
+  if (/(^|\/)(test|tests|__tests__|spec)\//.test(filePath)) return true;
+  return false;
+}
+
+function isSourceFile(filePath) {
+  if (typeof filePath !== 'string' || !filePath) return false;
+  if (isTestOrSpecFile(filePath)) return false;
+  return SOURCE_FILE_EXTENSIONS.some(ext => filePath.endsWith(ext));
+}
+
+function computeTouchesSourceCode(fileList) {
+  const files = Array.isArray(fileList) ? fileList : [];
+  return files.some(isSourceFile);
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -333,6 +362,22 @@ function loadConfig(cwd) {
     execution: { max_attempts: 4 },
     staleness_threshold_minutes: 30,
     resilience: { staleness_threshold_minutes: 30 },
+    routing_min_sample_count: 5,
+    routing: { min_sample_count: 5 },
+    savings_baseline_profile: 'quality',
+    savings: { baseline_profile: 'quality' },
+    test_writer_enabled: false,
+    integration_tester_enabled: false,
+    adversarial_review_enabled: false,
+    adversarial_review_file_threshold: 8,
+    adversarial_review_security_patterns: ['auth', 'payment', 'secret', 'credential', 'crypto', 'security', 'token', 'password', '/api/', 'migration'],
+    quality: {
+      test_writer: false,
+      integration_tester: false,
+      adversarial_review: false,
+      adversarial_review_file_threshold: 8,
+      adversarial_review_security_patterns: ['auth', 'payment', 'secret', 'credential', 'crypto', 'security', 'token', 'password', '/api/', 'migration'],
+    },
   };
 
   try {
@@ -380,6 +425,13 @@ function loadConfig(cwd) {
       auto_consolidate: get('auto_consolidate') ?? defaults.auto_consolidate,
       max_attempts: get('max_attempts', { section: 'execution', field: 'max_attempts' }) ?? defaults.max_attempts,
       staleness_threshold_minutes: get('staleness_threshold_minutes', { section: 'resilience', field: 'staleness_threshold_minutes' }) ?? defaults.staleness_threshold_minutes,
+      routing_min_sample_count: get('routing_min_sample_count', { section: 'routing', field: 'min_sample_count' }) ?? defaults.routing_min_sample_count,
+      savings_baseline_profile: get('savings_baseline_profile', { section: 'savings', field: 'baseline_profile' }) ?? defaults.savings_baseline_profile,
+      test_writer_enabled: get('test_writer_enabled', { section: 'quality', field: 'test_writer' }) ?? defaults.test_writer_enabled,
+      integration_tester_enabled: get('integration_tester_enabled', { section: 'quality', field: 'integration_tester' }) ?? defaults.integration_tester_enabled,
+      adversarial_review_enabled: get('adversarial_review_enabled', { section: 'quality', field: 'adversarial_review' }) ?? defaults.adversarial_review_enabled,
+      adversarial_review_file_threshold: get('adversarial_review_file_threshold', { section: 'quality', field: 'adversarial_review_file_threshold' }) ?? defaults.adversarial_review_file_threshold,
+      adversarial_review_security_patterns: get('adversarial_review_security_patterns', { section: 'quality', field: 'adversarial_review_security_patterns' }) ?? defaults.adversarial_review_security_patterns,
       coordinator_model: get('coordinator_model') ?? null,
       dev_servers: parsed.dev_servers || null,
     };
@@ -1263,16 +1315,35 @@ function parseCheckpointForResume(checkpointPath) {
 // Assembles a resume-brief text/object from checkpoint data + phase info,
 // suitable for injecting directly into a respawned coordinator's Agent()
 // prompt string (plain text, no markdown tables).
-function buildResumeBrief(checkpointData, phaseInfo) {
+//
+// invariantsText (optional, third arg, default null) carries VERBATIM
+// phase-invariant text read straight from ROADMAP.md by getPhaseInvariantsText
+// (see below). Design rationale (MILE-40 criterion 2): key_context above is an
+// LLM-authored summary written at checkpoint time -- it can drift, be
+// paraphrased, or omit a hard rule. On resume, the hard rules/success criteria
+// that actually govern the phase MUST be re-read byte-for-byte from their
+// source (ROADMAP.md), never reconstructed from a summary. key_context is
+// NOT removed -- it stays for narrative continuity -- but it is demoted from
+// being the resume brief's sole "what matters" authority. When invariantsText
+// is omitted/null/empty, behavior is 100% unchanged from before this
+// parameter existed (backward compatible with all two-arg callers/tests).
+function buildResumeBrief(checkpointData, phaseInfo, invariantsText = null) {
   const phaseNumber = phaseInfo && phaseInfo.phase_number;
   const phaseName = phaseInfo && phaseInfo.phase_name;
+  const hasInvariants = typeof invariantsText === 'string' && invariantsText.trim() !== '';
 
   if (!checkpointData || !checkpointData.found) {
-    const briefText = `No prior checkpoint found -- starting phase ${phaseNumber} (${phaseName}) from scratch.`;
+    const briefLines = [`No prior checkpoint found -- starting phase ${phaseNumber} (${phaseName}) from scratch.`];
+    if (hasInvariants) {
+      briefLines.push('');
+      briefLines.push('PHASE INVARIANTS (verbatim from ROADMAP.md -- DO NOT paraphrase):');
+      briefLines.push(invariantsText);
+    }
     return {
       resume_from: 'discuss',
-      brief_text: briefText,
+      brief_text: briefLines.join('\n'),
       checkpoint: checkpointData || null,
+      invariants: hasInvariants ? invariantsText : null,
     };
   }
 
@@ -1291,11 +1362,17 @@ function buildResumeBrief(checkpointData, phaseInfo) {
     lines.push('Key context:');
     lines.push(checkpointData.key_context);
   }
+  if (hasInvariants) {
+    lines.push('');
+    lines.push('PHASE INVARIANTS (verbatim from ROADMAP.md -- DO NOT paraphrase):');
+    lines.push(invariantsText);
+  }
 
   return {
     resume_from: checkpointData.resume_from,
     brief_text: lines.join('\n'),
     checkpoint: checkpointData,
+    invariants: hasInvariants ? invariantsText : null,
   };
 }
 
@@ -1310,7 +1387,84 @@ function cmdResilienceResumeBrief(cwd, phase, raw) {
   }
   const checkpointPath = path.join(cwd, phaseInfo.directory, 'CHECKPOINT.json');
   const checkpointData = parseCheckpointForResume(checkpointPath);
-  const brief = buildResumeBrief(checkpointData, phaseInfo);
+  const invariantsText = getPhaseInvariantsText(cwd, phaseInfo.phase_number);
+  const brief = buildResumeBrief(checkpointData, phaseInfo, invariantsText);
+  output(brief, raw);
+}
+
+// Normalizes a single handoff-brief section value into a plain-text form.
+// Accepts a string or an array of strings; arrays render as one bullet per
+// line. Never throws -- any other input (null/undefined/number/object) or an
+// all-whitespace/all-empty-items value normalizes to '' (treated as missing
+// by buildHandoffBrief).
+function normalizeHandoffSection(value) {
+  if (Array.isArray(value)) {
+    const items = value.filter((v) => typeof v === 'string' && v.trim() !== '');
+    if (items.length === 0) return '';
+    return items.map((v) => `- ${v.trim()}`).join('\n');
+  }
+  if (typeof value === 'string' && value.trim() !== '') {
+    return value.trim();
+  }
+  return '';
+}
+
+// Assembles the fixed 5-section handoff brief (see
+// get-shit-done/references/handoff-brief.md for the canonical structure this
+// mirrors) as plain text, suitable for injecting directly into a coordinator
+// -> executor or executor -> verifier spawn prompt. Fail-safe like
+// buildResumeBrief: never throws, degrades on missing/malformed input by
+// reporting complete:false rather than raising -- a fixed structure is
+// guaranteed (all 5 labels always render), only completeness varies.
+function buildHandoffBrief(fields) {
+  const safeFields = (fields && typeof fields === 'object') ? fields : {};
+  const phaseNumber = safeFields.phase_number !== undefined && safeFields.phase_number !== null
+    ? safeFields.phase_number
+    : 'unknown';
+  const phaseName = safeFields.phase_name !== undefined && safeFields.phase_name !== null && safeFields.phase_name !== ''
+    ? safeFields.phase_name
+    : 'unknown';
+
+  const sectionDefs = [
+    { key: 'phase_goal', label: 'PHASE GOAL' },
+    { key: 'key_decisions', label: 'KEY DECISIONS' },
+    { key: 'open_risks', label: 'OPEN RISKS' },
+    { key: 'file_map', label: 'FILE MAP' },
+    { key: 'hard_rules', label: 'HARD RULES' },
+  ];
+
+  const sections = {};
+  let complete = true;
+
+  const lines = [];
+  lines.push('HANDOFF BRIEF');
+  lines.push(`Phase ${phaseNumber} (${phaseName})`);
+
+  for (const { key, label } of sectionDefs) {
+    const normalized = normalizeHandoffSection(safeFields[key]);
+    sections[key] = normalized;
+    if (normalized === '') complete = false;
+    lines.push('');
+    lines.push(`${label}:`);
+    lines.push(normalized === '' ? '(none provided)' : normalized);
+  }
+
+  return {
+    brief_text: lines.join('\n'),
+    sections,
+    complete,
+  };
+}
+
+function cmdHandoffBrief(jsonArg, raw) {
+  if (!jsonArg) {
+    error('handoff brief: --json required');
+  }
+  const parseResult = safeJsonParse(jsonArg, '--json');
+  if (!parseResult.ok) {
+    error(`handoff brief: invalid JSON in --json (${parseResult.error.message})`);
+  }
+  const brief = buildHandoffBrief(parseResult.value);
   output(brief, raw);
 }
 
@@ -1721,6 +1875,54 @@ function cmdPhasesList(cwd, options, raw) {
   }
 }
 
+// Reads a phase's own ROADMAP.md section VERBATIM (byte-for-byte, no
+// reformatting/summarizing) for injection into a checkpoint resume brief.
+// Design rationale (MILE-40 criterion 2): the resume path must re-read hard
+// rules/invariants from a real source file, never from an LLM-authored
+// summary (CHECKPOINT.json's key_context, or any SUMMARY.md). ROADMAP.md's
+// phase section already contains the phase Goal + numbered Success Criteria
+// -- these ARE the phase invariants. Reuses the exact section-slice logic
+// cmdRoadmapGetPhase uses (phase header -> next "### Phase" header or EOF)
+// rather than duplicating a second regex convention. A pure helper (no
+// output()/process side effects) so it composes directly into
+// buildResumeBrief's third argument. Never throws: any failure (missing
+// ROADMAP.md, missing phase section, read/regex error) returns null, and
+// callers must treat null as "no invariants available" (graceful
+// degradation), never as an error to surface.
+function getPhaseInvariantsText(cwd, phaseNum) {
+  try {
+    const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
+    if (!fs.existsSync(roadmapPath)) return null;
+
+    const content = fs.readFileSync(roadmapPath, 'utf-8');
+    const escapedPhase = String(phaseNum).replace(/\./g, '\\.');
+    // Capture the actual heading level (##, ###, ####, ...) used for this
+    // phase's header rather than hardcoding 3 hashes: this repo's own live
+    // ROADMAP.md uses "#### Phase N:" (4 hashes), not "### Phase N:" (3) --
+    // hardcoding 3 would either mis-slice (partial match starting mid-hash-run)
+    // or fail to find a same-level boundary, running the "section" all the
+    // way to EOF. Reusing the SAME captured hash-run for the next-header
+    // boundary guarantees the slice stops at the next phase heading
+    // regardless of which heading level a given ROADMAP.md happens to use.
+    const phasePattern = new RegExp(`(#{2,6})\\s*Phase\\s+${escapedPhase}:\\s*([^\\n]+)`, 'i');
+    const headerMatch = content.match(phasePattern);
+    if (!headerMatch) return null;
+
+    const hashRun = headerMatch[1];
+    const headerIndex = headerMatch.index;
+    const restOfContent = content.slice(headerIndex);
+    const nextHeaderMatch = restOfContent.match(new RegExp(`\\n${hashRun}\\s+Phase\\s+\\d`, 'i'));
+    const sectionEnd = nextHeaderMatch
+      ? headerIndex + nextHeaderMatch.index
+      : content.length;
+
+    const section = content.slice(headerIndex, sectionEnd).trim();
+    return section || null;
+  } catch (e) {
+    return null;
+  }
+}
+
 function cmdRoadmapGetPhase(cwd, phaseNum, raw) {
   const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
 
@@ -1763,12 +1965,27 @@ function cmdRoadmapGetPhase(cwd, phaseNum, raw) {
     const goalMatch = section.match(/\*\*Goal:\*\*\s*([^\n]+)/i);
     const goal = goalMatch ? goalMatch[1].trim() : null;
 
+    // Phase 59-03 (MILE-38): extract depends_on the same way parseRoadmapPhases does (~L7274),
+    // normalized into an array (empty when absent/"None"/"Nothing"), tolerant of BOTH real-world
+    // ROADMAP.md styles ("**Depends on:**" colon-inside-bold AND "**Depends on**:" colon-outside-
+    // bold -- the live .planning/ROADMAP.md uses both across different phases). This field was
+    // PREVIOUSLY MISSING from this function's return value entirely -- coordinator-detail.md's
+    // existing DEPENDS_ON bash parse (`d.depends_on||[]`) has therefore always silently resolved
+    // to "[]" regardless of the real ROADMAP.md content. This fix makes that pre-existing,
+    // unchanged bash snippet functionally correct for the first time.
+    const dependsMatch = section.match(/\*\*Depends on:?\*\*:?\s*([^\n]+)/i);
+    const dependsOnRaw = dependsMatch ? dependsMatch[1].trim() : null;
+    const depends_on = (!dependsOnRaw || /^(none|nothing)\b/i.test(dependsOnRaw))
+      ? []
+      : dependsOnRaw.split(',').map(s => s.trim()).filter(Boolean);
+
     output(
       {
         found: true,
         phase_number: phaseNum,
         phase_name: phaseName,
         goal,
+        depends_on,
         section,
       },
       raw,
@@ -2266,23 +2483,27 @@ function cmdStateRecordSession(cwd, options, raw) {
   const now = new Date().toISOString();
   const updated = [];
 
-  // Update Last session / Last Date
-  let result = stateReplaceField(content, 'Last session', now);
+  // Update Last session / Last Date -- stateReplaceFieldTolerant (bold-first,
+  // plain-prose-fallback, per the 51-01 STATE.md-tolerance convention) since
+  // the real STATE.md's "## Session Continuity" section is plain prose
+  // ("Last session: ..."), not bold ("**Last session:**"). The bold-only
+  // stateReplaceField silently no-ops against the real file's shape.
+  let result = stateReplaceFieldTolerant(content, 'Last session', now);
   if (result) { content = result; updated.push('Last session'); }
-  result = stateReplaceField(content, 'Last Date', now);
+  result = stateReplaceFieldTolerant(content, 'Last Date', now);
   if (result) { content = result; updated.push('Last Date'); }
 
   // Update Stopped at
   if (options.stopped_at) {
-    result = stateReplaceField(content, 'Stopped At', options.stopped_at);
-    if (!result) result = stateReplaceField(content, 'Stopped at', options.stopped_at);
+    result = stateReplaceFieldTolerant(content, 'Stopped At', options.stopped_at);
+    if (!result) result = stateReplaceFieldTolerant(content, 'Stopped at', options.stopped_at);
     if (result) { content = result; updated.push('Stopped At'); }
   }
 
   // Update Resume file
   const resumeFile = options.resume_file || 'None';
-  result = stateReplaceField(content, 'Resume File', resumeFile);
-  if (!result) result = stateReplaceField(content, 'Resume file', resumeFile);
+  result = stateReplaceFieldTolerant(content, 'Resume File', resumeFile);
+  if (!result) result = stateReplaceFieldTolerant(content, 'Resume file', resumeFile);
   if (result) { content = result; updated.push('Resume File'); }
 
   if (updated.length > 0) {
@@ -2981,29 +3202,23 @@ function cmdGatePrePr(cwd, args, raw) {
     return;
   }
 
-  // Output instructions for the coordinator to run checks
-  // The coordinator must run each check and report back
-  output({
+  // Derive checks from project type
+  const { checks, degraded, notice, detected_types } = deriveCheckSet(cwd);
+
+  const result = {
     gate: 'pre-pr',
     passed: false,
     action_required: true,
-    checks: [
-      { id: 'db-reset', command: 'cd apps/api && npx supabase db reset', required: true },
-      { id: 'integration-tests', command: 'cd apps/api && NODE_ENV=test DENO_ENV=test deno test --allow-all --env-file=.env.test functions/__tests__/*.integration.test.ts', required: true },
-      { id: 'backend-unit-tests', command: 'cd apps/api && NODE_ENV=test DENO_ENV=test deno task test:ci', required: true },
-      { id: 'deno-lint', command: 'cd apps/api && deno lint', required: true },
-      { id: 'deno-check', command: 'cd apps/api && deno check --quiet functions/*/index.ts', required: true },
-      { id: 'player-web-test', command: 'CI=true npx nx test player-web', required: true },
-      { id: 'operator-web-test', command: 'CI=true npx nx test operator-web', required: true },
-      { id: 'player-web-build', command: 'npx nx build player-web', required: true },
-      { id: 'operator-web-build', command: 'npx nx build operator-web', required: true },
-      { id: 'player-web-lint', command: 'npx nx lint player-web', required: true },
-      { id: 'operator-web-lint', command: 'npx nx lint operator-web', required: true },
-      { id: 'charlotte-regression', command: 'cd apps/e2e-charlotte && deno task test:regression', required: 'if_web_project' },
-    ],
+    checks,
     instructions: 'Run each check. If ALL pass, call: gsd-tools gate pre-pr --mark-passed. If any fail, fix and re-run.',
-    mark_command: 'node ~/.claude/get-shit-done/bin/gsd-tools.js gate pre-pr --mark-passed'
-  }, raw);
+    mark_command: 'node ~/.claude/get-shit-done/bin/gsd-tools.js gate pre-pr --mark-passed',
+    detected_types
+  };
+  if (degraded) {
+    result.degraded = true;
+    result.notice = notice;
+  }
+  output(result, raw);
 }
 
 function cmdSummaryExtract(cwd, summaryPath, fields, raw) {
@@ -4331,6 +4546,82 @@ function cmdToken(cwd, args, raw) {
   }
 }
 
+// ─── Token Usage Ledger CLI (MILE-36, Phase 58) ──────────────────────────────
+// Thin CLI dispatch onto token-usage-ledger.js's appendTaskUsage/estimateTaskTokens.
+// Deliberately a SEPARATE top-level command from `token` (init/reserve/record/
+// report/reset), which stays pointed at the live-session TokenBudgetMonitor
+// (session-window reserve-before-op/halt-at-95% guardrail) -- this command is
+// the durable, per-project, per-task HISTORICAL usage ledger the coordinator's
+// golden path (Plan 58-03) records into, and `savings report` (below) reads
+// back. See 58-RESEARCH.md's "don't conflate two systems" note. Never touches
+// token_budget.json.
+function cmdTokenUsage(cwd, args, raw) {
+  const subcommand = args[0];
+  if (subcommand !== 'record') {
+    error('token-usage: unknown subcommand (expected "record")');
+    return;
+  }
+
+  const { appendTaskUsage, estimateTaskTokens } = require('./token-usage-ledger.js');
+  const getArg = (flag) => {
+    const idx = args.indexOf(flag);
+    return idx !== -1 ? args[idx + 1] : undefined;
+  };
+
+  const phaseArg = getArg('--phase');
+  const planArg = getArg('--plan');
+  const taskIndexArg = getArg('--task-index');
+  const taskName = getArg('--task-name') || '';
+  const tier = getArg('--tier') || 'sonnet';
+  const tokensInputArg = getArg('--tokens-input');
+  const tokensOutputArg = getArg('--tokens-output');
+  const sourceArg = getArg('--source');
+
+  // No explicit --tokens-input/--tokens-output: this is the golden-path call
+  // shape (Plan 58-03) -- the harness exposes no real per-spawn token counts
+  // (see token-usage-ledger.js's HONESTY CONTRACT), so we estimate via the
+  // crude, clearly-labeled heuristic and ALWAYS tag source:'estimated'.
+  // Explicit tokens (manual/testing use) may be tagged 'actual' via
+  // --source actual; omitted tokens are never 'actual' regardless of --source.
+  let tokens, source;
+  if (tokensInputArg !== undefined && tokensOutputArg !== undefined) {
+    tokens = {
+      input: parseInt(tokensInputArg, 10) || 0,
+      output: parseInt(tokensOutputArg, 10) || 0
+    };
+    source = sourceArg === 'actual' ? 'actual' : 'estimated';
+  } else {
+    tokens = estimateTaskTokens(taskName, tier);
+    source = 'estimated';
+  }
+
+  const parsedPhase = phaseArg !== undefined
+    ? (isNaN(parseInt(phaseArg, 10)) ? phaseArg : parseInt(phaseArg, 10))
+    : null;
+  const parsedTaskIndex = taskIndexArg !== undefined
+    ? (isNaN(parseInt(taskIndexArg, 10)) ? null : parseInt(taskIndexArg, 10))
+    : null;
+
+  const entry = {
+    phase: parsedPhase,
+    plan: planArg !== undefined ? planArg : null,
+    task_index: parsedTaskIndex,
+    task_name: taskName,
+    tier,
+    tokens,
+    source
+  };
+
+  const result = appendTaskUsage(cwd, entry);
+  output(
+    { recorded: result.ok, record: result.record },
+    raw,
+    result.ok
+      ? `Recorded token usage for task ${parsedTaskIndex} (${source})`
+      : `Warning: failed to record token usage: ${result.error}`
+  );
+}
+
 // ─── Graduated Budget Alerts ──────────────────────────────────────────────────
 
 function cmdAlerts(cwd, args, raw) {
@@ -4493,7 +4784,7 @@ function cmdEval(cwd, args, raw) {
   const subcommand = args[0];
 
   if (!subcommand) {
-    error('eval: subcommand required (plan|assert)');
+    error('eval: subcommand required (plan|assert|regress)');
     return;
   }
 
@@ -4570,7 +4861,678 @@ function cmdEval(cwd, args, raw) {
     return;
   }
 
-  error('Unknown eval subcommand. Available: plan, assert');
+  if (subcommand === 'regress') {
+    const acceptedDirArg = args[1];
+    if (!acceptedDirArg) {
+      error('eval regress: <accepted-dir> required');
+      return;
+    }
+    const acceptedDir = path.isAbsolute(acceptedDirArg) ? acceptedDirArg : path.join(cwd, acceptedDirArg);
+
+    const projectRootIdx = args.indexOf('--project-root');
+    const projectRootArg = projectRootIdx !== -1 ? args[projectRootIdx + 1] : cwd;
+    const projectRoot = path.isAbsolute(projectRootArg) ? projectRootArg : path.join(cwd, projectRootArg);
+
+    // Bypass output() (which always exits 0) and write the full JSON result
+    // directly to stdout, mirroring `assert`'s pattern exactly -- CI needs
+    // the real exit code (MILE-32, Phase 55-03).
+    const result = evalHarness.runEvalRegressions(acceptedDir, projectRoot);
+    process.stdout.write(JSON.stringify(result, null, 2));
+    process.exit(result.pass ? 0 : 1);
+    return;
+  }
+
+  error('Unknown eval subcommand. Available: plan, assert, regress');
+}
+
+// ─── Eval Regression Candidates (MILE-32, Phase 55) ──────────────────────────
+// Design decision: candidate fixtures are stored under
+// tests/eval-regressions/{queue,accepted,archived}/ (git-tracked, NOT under
+// .planning/ which is gitignored) so accepted candidates survive as
+// permanent, CI-visible artifacts. queue/accepted/archived are created now
+// with an empty .gitkeep each -- queue and archived start empty forever
+// until a human reviews a candidate; accepted starts empty until the first
+// candidate is promoted (Plan 55-02).
+//
+// Uses gray-matter (already a package.json dependency, unused elsewhere in
+// bin/*.js until now) to parse BOTH the debug file's frontmatter and
+// VERIFICATION.md's frontmatter, because the existing hand-rolled
+// extractFrontmatter (~line 434) only handles flat arrays of scalar strings
+// and cannot reliably parse VERIFICATION.md's nested array-of-objects `gaps:
+// [{artifacts: [...], missing: [...]}]` schema. extractFrontmatter itself is
+// left untouched.
+const EVAL_REGRESSIONS_ROOT = 'tests/eval-regressions';
+
+function getEvalRegressionsQueueDir(cwd) {
+  return path.join(cwd, EVAL_REGRESSIONS_ROOT, 'queue');
+}
+
+function getEvalRegressionsAcceptedDir(cwd) {
+  return path.join(cwd, EVAL_REGRESSIONS_ROOT, 'accepted');
+}
+
+function getEvalRegressionsArchivedDir(cwd) {
+  return path.join(cwd, EVAL_REGRESSIONS_ROOT, 'archived');
+}
+
+// Lowercase, replace non-alphanumerics with `-`, trim leading/trailing `-`,
+// truncate to maxLen. Never throws -- coerces non-string input to ''.
+function slugifyCandidateText(text, maxLen = 40) {
+  const str = typeof text === 'string' ? text : '';
+  const slug = str
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug.slice(0, maxLen);
+}
+
+// Extracts the `## Resolution` section body from a debug file's markdown
+// BODY (not frontmatter) per gsd-debugger.md's <debug_file_protocol> File
+// Structure. Stops at the next `##` heading or end of string. Returns '' if
+// no Resolution section is present.
+function extractDebugResolutionSection(bodyMarkdown) {
+  const match = /##\s*Resolution\s*\n([\s\S]*?)(?=\n##\s|\n?$)/.exec(bodyMarkdown || '');
+  return match ? match[1] : '';
+}
+
+// Line-anchored field extraction from a Resolution section, e.g.
+// `root_cause: the thing` -> 'the thing'. Multiline flag matches any line
+// start, not just the string start (Resolution section has multiple
+// `field: value` lines).
+function parseResolutionField(sectionText, fieldName) {
+  const re = new RegExp(`^${fieldName}:\\s*(.*)$`, 'm');
+  const match = re.exec(sectionText || '');
+  return match ? match[1].trim() : '';
+}
+
+// Supports BOTH inline `files_changed: [a, b]` and multi-line
+// `files_changed:\n  - a\n  - b` forms. Returns [] if neither form matches
+// or the array is empty.
+function parseResolutionFilesChanged(sectionText) {
+  const text = sectionText || '';
+
+  const inlineMatch = /^files_changed:\s*\[(.*)\]\s*$/m.exec(text);
+  if (inlineMatch) {
+    return inlineMatch[1]
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
+  const multilineMatch = /^files_changed:\s*\n((?:^[ \t]*-[ \t]*.+$\n?)+)/m.exec(text);
+  if (multilineMatch) {
+    return multilineMatch[1]
+      .split('\n')
+      .map((line) => line.replace(/^[ \t]*-[ \t]*/, '').trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+// Reads a debug file (frontmatter + `## Resolution` body section) and builds
+// a single candidate regression fixture from its confirmed root_cause.
+// Returns `null` (writes NOTHING) when root_cause is absent, whitespace-only,
+// or still the literal `[empty until found]` placeholder -- this is the
+// must-have guarantee that an INVESTIGATION INCONCLUSIVE session (root_cause
+// never confirmed) produces zero candidates. Never throws -- any read/parse
+// failure returns `null`.
+function buildEvalCandidateFromDebugFile(cwd, debugFilePath) {
+  try {
+    const content = safeReadFile(debugFilePath);
+    if (content === null) return null;
+
+    const matter = require('gray-matter');
+    const parsed = matter(content);
+
+    const section = extractDebugResolutionSection(parsed.content);
+    const rootCause = parseResolutionField(section, 'root_cause');
+
+    if (!rootCause || !rootCause.trim() || rootCause.trim() === '[empty until found]') {
+      return null;
+    }
+    const trimmedRootCause = rootCause.trim();
+
+    const filesChanged = parseResolutionFilesChanged(section);
+    const expected = filesChanged.length > 0
+      ? { type: 'file_exists', file: filesChanged[0] }
+      // Weak fallback for a human reviewer to replace: no files_changed was
+      // recorded on this session, so the only thing we can assert existence
+      // of is the debug file itself.
+      : { type: 'file_exists', file: path.relative(cwd, debugFilePath) };
+
+    const title = (parsed.data && typeof parsed.data.trigger === 'string' && parsed.data.trigger.trim())
+      ? parsed.data.trigger.trim()
+      : trimmedRootCause.slice(0, 80);
+
+    const slug = slugifyCandidateText(path.basename(debugFilePath, '.md'));
+
+    return {
+      id: `debug-${slug}-${Date.now()}`,
+      source: 'debugger',
+      created_at: new Date().toISOString(),
+      title,
+      context: {
+        phase: null,
+        root_cause: trimmedRootCause,
+        gap_description: null,
+        debug_file: path.relative(cwd, debugFilePath),
+        verification_file: null,
+      },
+      expected,
+      status: 'pending',
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+// Reads a VERIFICATION.md (frontmatter per gsd-verifier.md's <output>
+// "Create VERIFICATION.md" schema) and builds one candidate regression
+// fixture per gap when `status: gaps_found`. Returns [] for `status:
+// passed`/`status: human_needed`, or an empty/absent `gaps` array (defensive
+// against the contradictory-but-possible gaps_found + empty-array case).
+// Never throws -- malformed frontmatter degrades to [].
+function buildEvalCandidatesFromVerificationFile(cwd, verificationFilePath) {
+  try {
+    const content = safeReadFile(verificationFilePath);
+    if (content === null) return [];
+
+    const matter = require('gray-matter');
+    const parsed = matter(content);
+    const data = parsed.data || {};
+
+    if (data.status !== 'gaps_found' || !Array.isArray(data.gaps) || data.gaps.length === 0) {
+      return [];
+    }
+
+    const ts = Date.now(); // computed ONCE so multiple gaps get distinct, stable-ordered ids via the -${i} suffix
+    const relVerificationFile = path.relative(cwd, verificationFilePath);
+
+    return data.gaps.map((gap, i) => {
+      const gapObj = gap || {};
+      const expected = (gapObj.artifacts && gapObj.artifacts[0] && gapObj.artifacts[0].path)
+        ? { type: 'file_exists', file: gapObj.artifacts[0].path }
+        // Weak fallback for a human reviewer to replace: no artifacts path
+        // recorded on this gap, so the only thing we can assert existence
+        // of is the VERIFICATION.md file itself.
+        : { type: 'file_exists', file: relVerificationFile };
+
+      const id = `verify-${slugifyCandidateText(data.phase || 'unknown')}-${slugifyCandidateText(gapObj.truth)}-${ts}-${i}`;
+
+      return {
+        id,
+        source: 'verifier',
+        created_at: new Date().toISOString(),
+        title: gapObj.truth || null,
+        context: {
+          phase: data.phase || null,
+          root_cause: null,
+          gap_description: gapObj.reason || null,
+          debug_file: null,
+          verification_file: relVerificationFile,
+        },
+        expected,
+        status: 'pending',
+      };
+    });
+  } catch (e) {
+    return [];
+  }
+}
+
+// ─── Verification Gap Append (Phase 59-01, MILE-38 support) ────────────────
+// appendVerificationGap composes with buildEvalCandidatesFromVerificationFile above --
+// reads the SAME VERIFICATION.md frontmatter shape via gray-matter, appends one gap
+// object, flips status to 'gaps_found', writes back preserving the markdown BODY
+// untouched. Never throws -- returns {ok:false, error} instead, so a CLI caller can
+// decide its own exit code (mirrors cmdEvalCandidateAccept's structured-error
+// convention, not the generic error() helper). This is the ONLY new gap-write path in
+// the codebase; Plan 59-03's coordinator wiring calls this (via the CLI below) on a
+// blocking cross-phase integration mismatch, and the EXISTING
+// buildEvalCandidatesFromVerificationFile / `eval-candidate from-verification` reader
+// picks up the appended gap unmodified -- no second/parallel gap pipeline.
+function appendVerificationGap(cwd, verificationFilePath, gapEntry) {
+  try {
+    const content = safeReadFile(verificationFilePath);
+    if (content === null) {
+      return { ok: false, error: `VERIFICATION.md not found at ${verificationFilePath}` };
+    }
+
+    const matter = require('gray-matter');
+    const parsed = matter(content);
+    const data = parsed.data || {};
+
+    const gap = {
+      truth: (gapEntry && gapEntry.truth) || null,
+      status: 'failed',
+      failure_type: (gapEntry && gapEntry.failure_type) || 'contract_mismatch',
+      reason: (gapEntry && gapEntry.reason) || null,
+    };
+    if (gapEntry && Array.isArray(gapEntry.artifacts) && gapEntry.artifacts.length > 0) {
+      gap.artifacts = gapEntry.artifacts;
+    }
+
+    const existingGaps = Array.isArray(data.gaps) ? data.gaps : [];
+    const updatedData = { ...data, status: 'gaps_found', gaps: [...existingGaps, gap] };
+
+    const rebuilt = matter.stringify(parsed.content, updatedData);
+    atomicWriteFileSync(verificationFilePath, rebuilt);
+    return { ok: true, gap, gaps_count: updatedData.gaps.length };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+// Thin CLI wrapper. Structured JSON error + explicit exit code on failure (mirrors
+// cmdEvalCandidateAccept's convention) -- NOT the generic error() helper, so callers
+// can distinguish "missing required flag" (exit 2) from "write failed" (exit 1).
+function cmdVerifyAppendGap(cwd, verificationFileArg, options, raw) {
+  if (!verificationFileArg) {
+    process.stdout.write(JSON.stringify({ error: true, type: 'missing_argument', message: 'verify append-gap: <verification-file-path> required' }, null, 2));
+    process.exit(2);
+    return;
+  }
+  const opts = options || {};
+  if (!opts.truth || !opts.reason) {
+    process.stdout.write(JSON.stringify({ error: true, type: 'missing_flags', message: 'verify append-gap: --truth and --reason are required' }, null, 2));
+    process.exit(2);
+    return;
+  }
+
+  let artifacts;
+  if (opts.artifactsJson) {
+    try {
+      artifacts = JSON.parse(opts.artifactsJson);
+    } catch (e) {
+      process.stdout.write(JSON.stringify({ error: true, type: 'malformed_artifacts_json', message: e.message }, null, 2));
+      process.exit(2);
+      return;
+    }
+  }
+
+  const verificationFilePath = path.isAbsolute(verificationFileArg) ? verificationFileArg : path.join(cwd, verificationFileArg);
+  const result = appendVerificationGap(cwd, verificationFilePath, {
+    truth: opts.truth,
+    reason: opts.reason,
+    failure_type: opts.failureType || 'contract_mismatch',
+    artifacts,
+  });
+
+  if (!result.ok) {
+    process.stdout.write(JSON.stringify({ error: true, type: 'append_gap_failed', message: result.error }, null, 2));
+    process.exit(1);
+    return;
+  }
+  output({ appended: true, gaps_count: result.gaps_count, gap: result.gap }, raw);
+}
+
+// ─── Adversarial Plan Review (Phase 60, MILE-39) ────────────────────────────
+// computeHighRisk/computePresentationOrder are pure, no-I/O functions (mirror
+// isUIFile/computeHasUI's style, fail-soft like appendVerificationGap) gating whether a
+// plan gets the attacker/defender/judge trio instead of the single-pass gsd-plan-checker.
+// An explicit `high_risk: true` (or the string "true") plan frontmatter flag ALWAYS wins,
+// even when the `adversarial_review_enabled` toggle is off -- an explicit per-plan author
+// decision is a stronger signal than the global default and must never be silently
+// ignored. When the toggle is off and no explicit flag is set: high_risk is always false
+// (zero behavior change, matches the test_writer/integration_tester precedent). When the
+// toggle is on: any of (files_modified.length > threshold), a security-pattern substring
+// match against files_modified, or a tdd="true" task count >= 3 flags the plan high-risk,
+// one reason string per matched criterion.
+function computeHighRisk(fm, planContent, config) {
+  try {
+    const frontmatter = fm || {};
+    const cfg = config || {};
+    const explicitFlag = frontmatter.high_risk === true || frontmatter.high_risk === 'true';
+    if (explicitFlag) {
+      return { high_risk: true, reasons: ['explicit high_risk frontmatter flag'] };
+    }
+    if (cfg.adversarial_review_enabled !== true) {
+      return { high_risk: false, reasons: [] };
+    }
+
+    const reasons = [];
+    const filesModified = Array.isArray(frontmatter.files_modified)
+      ? frontmatter.files_modified
+      : (frontmatter.files_modified ? [String(frontmatter.files_modified)] : []);
+
+    const threshold = typeof cfg.adversarial_review_file_threshold === 'number'
+      ? cfg.adversarial_review_file_threshold
+      : 8;
+    if (filesModified.length > threshold) {
+      reasons.push(`files_modified count (${filesModified.length}) exceeds threshold (${threshold})`);
+    }
+
+    const patterns = Array.isArray(cfg.adversarial_review_security_patterns)
+      ? cfg.adversarial_review_security_patterns
+      : [];
+    const matchedPattern = patterns.find(p =>
+      filesModified.some(f => typeof f === 'string' && f.includes(p))
+    );
+    if (matchedPattern) {
+      reasons.push(`files_modified matches security pattern "${matchedPattern}"`);
+    }
+
+    const content = typeof planContent === 'string' ? planContent : '';
+    const tddMatches = content.match(/tdd=["']?true/g) || [];
+    if (tddMatches.length >= 3) {
+      reasons.push(`tdd="true" task count (${tddMatches.length}) >= 3`);
+    }
+
+    return { high_risk: reasons.length > 0, reasons };
+  } catch (e) {
+    // Never throws -- a malformed frontmatter/content combination degrades to
+    // "not high-risk" rather than crashing the caller (fail-soft, mirrors
+    // appendVerificationGap's {ok:false,...} convention adapted to this
+    // function's {high_risk, reasons} return shape).
+    return { high_risk: false, reasons: [] };
+  }
+}
+
+// "Randomized" attack/defense presentation order, implemented as a DETERMINISTIC
+// function of the plan's own content (a simple djb2-style string hash), NOT
+// Math.random() -- this is a deliberate, documented choice: it lets integration tests
+// assert a stable presentation_order for a fixed fixture (a flaky test that sometimes
+// gets attack_first and sometimes defense_first for identical input would be useless).
+// Same plan content -> same order, always. Different plan content -> ~50/50 split in
+// practice via the hash's parity.
+function computePresentationOrder(planContent) {
+  const content = typeof planContent === 'string' ? planContent : '';
+  let hash = 0;
+  for (let i = 0; i < content.length; i++) {
+    hash = (hash * 31 + content.charCodeAt(i)) | 0;
+  }
+  return (hash & 1) === 0 ? 'attack_first' : 'defense_first';
+}
+
+// Thin CLI wrapper over computeHighRisk/computePresentationOrder. Never throws
+// (fail-soft) -- a missing/malformed plan file is reported as its own failing result
+// (error:true + a safe high_risk:false/reasons:[] default) rather than a crash or
+// non-zero exit, so plan-phase.md's risk-triage step can iterate every *-PLAN.md in a
+// phase directory without a single bad file aborting the loop.
+function cmdQualityAssessRisk(cwd, filePath, raw) {
+  if (!filePath) {
+    output({ error: true, type: 'missing_argument', message: 'quality assess-risk: <plan-file> required', high_risk: false, reasons: [] }, raw);
+    return;
+  }
+  const fullPath = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath);
+  const content = safeReadFile(fullPath);
+  if (content === null) {
+    output({ error: true, type: 'file_not_found', message: `Plan file not found: ${filePath}`, high_risk: false, reasons: [] }, raw);
+    return;
+  }
+
+  let fm = {};
+  try {
+    const matter = require('gray-matter');
+    fm = matter(content).data || {};
+  } catch (e) {
+    output({ error: true, type: 'malformed_frontmatter', message: e.message, high_risk: false, reasons: [] }, raw);
+    return;
+  }
+
+  const config = loadConfig(cwd);
+  const { high_risk, reasons } = computeHighRisk(fm, content, config);
+  const presentation_order = computePresentationOrder(content);
+  output({ high_risk, reasons, presentation_order }, raw);
+}
+
+// verdictToIssues converts a judge's {plan}-VERDICT.md frontmatter into the EXACT
+// issues: shape gsd-plan-checker's ## ISSUES FOUND output already produces
+// ({ plan, dimension, severity, description, fix_hint }), so the EXISTING
+// plan-phase.md revision loop (step 12) can consume adversarial-review verdicts
+// without any new revision mechanism. approved (or missing verdict) -> [].
+// revise -> one warning-severity issue per required_change. critical -> one
+// blocker-severity issue per required_change.
+function verdictToIssues(verdictFrontmatter, planId) {
+  const fm = verdictFrontmatter || {};
+  const verdict = fm.verdict;
+  if (verdict === 'approved' || !verdict) return [];
+
+  const requiredChanges = Array.isArray(fm.required_changes) ? fm.required_changes : [];
+  const severity = verdict === 'critical' ? 'blocker' : 'warning';
+  const resolvedPlanId = planId || fm.plan || null;
+
+  return requiredChanges.map((change) => {
+    const description = typeof change === 'string' ? change : ((change && change.description) || JSON.stringify(change));
+    const fixHint = typeof change === 'string' ? change : ((change && change.fix_hint) || null);
+    return {
+      plan: resolvedPlanId,
+      dimension: 'adversarial_review',
+      severity,
+      description,
+      fix_hint: fixHint,
+    };
+  });
+}
+
+// Thin CLI wrapper over verdictToIssues. Never throws -- missing/malformed verdict
+// file reported as {error:true, issues:[]}.
+function cmdQualityVerdictToIssues(cwd, filePath, raw) {
+  if (!filePath) {
+    output({ error: true, type: 'missing_argument', message: 'quality verdict-to-issues: <verdict-file> required', issues: [] }, raw);
+    return;
+  }
+  const fullPath = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath);
+  const content = safeReadFile(fullPath);
+  if (content === null) {
+    output({ error: true, type: 'file_not_found', message: `Verdict file not found: ${filePath}`, issues: [] }, raw);
+    return;
+  }
+
+  let fm = {};
+  try {
+    const matter = require('gray-matter');
+    fm = matter(content).data || {};
+  } catch (e) {
+    output({ error: true, type: 'malformed_frontmatter', message: e.message, issues: [] }, raw);
+    return;
+  }
+
+  const issues = verdictToIssues(fm, fm.plan || null);
+  output({ issues, verdict: fm.verdict || null }, raw);
+}
+
+// Writes candidate(s) to the queue directory. Accepts a single candidate
+// object or an array; normalizes to an array. Skips any candidate without a
+// truthy `id`. Returns the array of cwd-relative paths actually written.
+function writeEvalCandidates(cwd, candidates) {
+  const list = Array.isArray(candidates) ? candidates : [candidates];
+  const queueDir = getEvalRegressionsQueueDir(cwd);
+  fs.mkdirSync(queueDir, { recursive: true });
+
+  const written = [];
+  for (const candidate of list) {
+    if (!candidate || !candidate.id) continue;
+    const targetPath = path.join(queueDir, `${candidate.id}.json`);
+    atomicWriteFileSync(targetPath, JSON.stringify(candidate, null, 2));
+    written.push(path.relative(cwd, targetPath));
+  }
+  return written;
+}
+
+// ─── Eval Candidate Review Queue (MILE-32, Phase 55-02) ──────────────────────
+// Human-in-the-loop lifecycle on top of Plan 55-01's queue/ writers:
+// list/accept/reject. A candidate is only "pending" until a human reviews
+// it; accept promotes it to a permanent, CI-visible fixture under accepted/;
+// reject archives it (never deletes) with an appended reason trail.
+const EVAL_CANDIDATE_REQUIRED_KEYS = ['id', 'source', 'created_at', 'title', 'context', 'expected', 'status'];
+const EVAL_CANDIDATE_ALLOWED_SOURCES = ['debugger', 'verifier'];
+const EVAL_CANDIDATE_ALLOWED_STATUSES = ['pending', 'accepted', 'rejected'];
+const EVAL_CANDIDATE_ALLOWED_EXPECTED_TYPES = ['file_exists', 'file_not_exists', 'file_contains', 'file_not_contains'];
+
+// Pure validator -- never throws. This is intentionally re-implemented
+// (identical rule set) by Plan 55-03's eval-harness.js loader for the
+// accepted-dir, to preserve eval-harness.js's zero-dependency-on-gsd-tools.js
+// convention. Keep both copies in sync: a candidate that passes here must
+// also pass there.
+function validateEvalCandidateSchema(candidate) {
+  const errors = [];
+
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+    return { valid: false, errors: ['candidate is not an object'] };
+  }
+
+  for (const key of EVAL_CANDIDATE_REQUIRED_KEYS) {
+    const value = candidate[key];
+    if (value === undefined || value === null || value === '') {
+      errors.push(`missing required key: ${key}`);
+    }
+  }
+
+  if (candidate.source !== undefined && candidate.source !== null && candidate.source !== '' && !EVAL_CANDIDATE_ALLOWED_SOURCES.includes(candidate.source)) {
+    errors.push(`invalid source: ${candidate.source}`);
+  }
+
+  if (candidate.status !== undefined && candidate.status !== null && candidate.status !== '' && !EVAL_CANDIDATE_ALLOWED_STATUSES.includes(candidate.status)) {
+    errors.push(`invalid status: ${candidate.status}`);
+  }
+
+  if (candidate.expected && typeof candidate.expected === 'object' && !Array.isArray(candidate.expected)) {
+    const expected = candidate.expected;
+    if (!EVAL_CANDIDATE_ALLOWED_EXPECTED_TYPES.includes(expected.type)) {
+      errors.push(`invalid expected.type: ${expected.type}`);
+    }
+    if (!expected.file || typeof expected.file !== 'string') {
+      errors.push('expected.file is required');
+    }
+    if ((expected.type === 'file_contains' || expected.type === 'file_not_contains') && !expected.needle) {
+      errors.push('expected.needle is required for file_contains/file_not_contains');
+    }
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+// Reads every `*.json` file in the resolved dir (queue/accepted/archived,
+// defaulting to queue for an unrecognized dirArg). Never throws, never skips
+// a malformed file silently -- it is surfaced in the candidates array with an
+// `error` field instead.
+function cmdEvalCandidateList(cwd, dirArg, raw) {
+  const dir = ['queue', 'accepted', 'archived'].includes(dirArg) ? dirArg : 'queue';
+  const dirPath = path.join(cwd, EVAL_REGRESSIONS_ROOT, dir); // dir is validated above against the same three names getEvalRegressions*Dir() hardcode
+
+  if (!fs.existsSync(dirPath)) {
+    output({ dir, count: 0, candidates: [] }, raw);
+    return;
+  }
+
+  const files = fs.readdirSync(dirPath).filter((f) => f.endsWith('.json'));
+  const candidates = [];
+  for (const file of files) {
+    const content = safeReadFile(path.join(dirPath, file));
+    const parsed = content === null ? { ok: false, error: { message: 'could not read file' } } : safeJsonParse(content, file);
+    if (parsed.ok) {
+      const value = parsed.value || {};
+      candidates.push({ file, id: value.id, title: value.title, status: value.status });
+    } else {
+      candidates.push({ file, error: 'malformed JSON' });
+    }
+  }
+
+  output({ dir, count: candidates.length, candidates }, raw);
+}
+
+function cmdEvalCandidateAccept(cwd, id, raw) {
+  if (!id) { error('eval-candidate accept: <id> required'); return; }
+
+  const queuePath = path.join(getEvalRegressionsQueueDir(cwd), `${id}.json`);
+  const content = safeReadFile(queuePath);
+  if (content === null) {
+    process.stdout.write(JSON.stringify({ error: true, type: 'candidate_not_found', id }, null, 2));
+    process.exit(1);
+    return;
+  }
+
+  const parsed = safeJsonParse(content, queuePath);
+  if (!parsed.ok) {
+    process.stdout.write(JSON.stringify({ error: true, type: 'malformed_candidate', id, message: parsed.error.message }, null, 2));
+    process.exit(2);
+    return;
+  }
+
+  const validation = validateEvalCandidateSchema(parsed.value);
+  if (!validation.valid) {
+    process.stdout.write(JSON.stringify({ error: true, type: 'invalid_candidate_schema', id, errors: validation.errors }, null, 2));
+    process.exit(2);
+    return;
+  }
+
+  const accepted = { ...parsed.value, status: 'accepted', accepted_at: new Date().toISOString() };
+  const acceptedDir = getEvalRegressionsAcceptedDir(cwd);
+  fs.mkdirSync(acceptedDir, { recursive: true });
+  const acceptedPath = path.join(acceptedDir, `${id}.json`);
+  atomicWriteFileSync(acceptedPath, JSON.stringify(accepted, null, 2));
+  fs.unlinkSync(queuePath);
+
+  output({ accepted: true, id, path: path.relative(cwd, acceptedPath) }, raw);
+}
+
+function cmdEvalCandidateReject(cwd, id, reason, raw) {
+  if (!id) { error('eval-candidate reject: <id> required'); return; }
+  if (!reason || !reason.trim()) { error('eval-candidate reject requires --reason'); return; }
+
+  const queuePath = path.join(getEvalRegressionsQueueDir(cwd), `${id}.json`);
+  const content = safeReadFile(queuePath);
+  if (content === null) {
+    process.stdout.write(JSON.stringify({ error: true, type: 'candidate_not_found', id }, null, 2));
+    process.exit(1);
+    return;
+  }
+
+  const parsed = safeJsonParse(content, queuePath);
+  if (!parsed.ok) {
+    process.stdout.write(JSON.stringify({ error: true, type: 'malformed_candidate', id, message: parsed.error.message }, null, 2));
+    process.exit(2);
+    return;
+  }
+
+  const existing = parsed.value;
+  const combinedReason = existing.reason ? `${existing.reason}; ${reason}` : reason;
+  const rejected = { ...existing, status: 'rejected', reason: combinedReason, rejected_at: new Date().toISOString() };
+
+  const archivedDir = getEvalRegressionsArchivedDir(cwd);
+  fs.mkdirSync(archivedDir, { recursive: true });
+  const archivedPath = path.join(archivedDir, `${id}.json`);
+  atomicWriteFileSync(archivedPath, JSON.stringify(rejected, null, 2));
+  fs.unlinkSync(queuePath);
+
+  output({ rejected: true, id, path: path.relative(cwd, archivedPath) }, raw);
+}
+
+function cmdEvalCandidateFromDebug(cwd, debugFileArg, raw) {
+  if (!debugFileArg) {
+    error('eval-candidate from-debug: <debug-file-path> required');
+    return;
+  }
+  const debugFilePath = path.isAbsolute(debugFileArg) ? debugFileArg : path.join(cwd, debugFileArg);
+
+  const candidate = buildEvalCandidateFromDebugFile(cwd, debugFilePath);
+  if (candidate === null) {
+    // Valid no-op (INVESTIGATION INCONCLUSIVE / no confirmed root_cause yet) -- exit 0, not a failure.
+    output({ written: false, reason: 'no confirmed root_cause found in debug file' }, raw);
+    return;
+  }
+
+  const paths = writeEvalCandidates(cwd, candidate);
+  output({ written: true, paths, candidate }, raw);
+}
+
+function cmdEvalCandidateFromVerification(cwd, verificationFileArg, raw) {
+  if (!verificationFileArg) {
+    error('eval-candidate from-verification: <verification-file-path> required');
+    return;
+  }
+  const verificationFilePath = path.isAbsolute(verificationFileArg) ? verificationFileArg : path.join(cwd, verificationFileArg);
+
+  const candidates = buildEvalCandidatesFromVerificationFile(cwd, verificationFilePath);
+  if (candidates.length === 0) {
+    output({ written: 0, paths: [] }, raw);
+    return;
+  }
+
+  const paths = writeEvalCandidates(cwd, candidates);
+  output({ written: paths.length, paths }, raw);
 }
 
 // ─── Prompt Budget CLI (MILE-30, Phase 53-02) ────────────────────────────────
@@ -4589,6 +5551,28 @@ function cmdPromptBudget(cwd, raw) {
   const result = promptBudget.checkAllBudgets(cwd);
   process.stdout.write(JSON.stringify(result, null, 2));
   process.exit(result.pass ? 0 : 1);
+}
+
+// ─── Reflective Prompt Optimization CLI (MILE-33, Phase 56-02) ──────────────
+// Thin CLI dispatch onto get-shit-done/bin/prompt-optimize.js's
+// runPromptOptimize orchestrator. Bypasses the shared output() helper (which
+// always exits 0) and calls process.exit() directly, EXACT pattern as
+// cmdEval's assert/regress subcommands and cmdPromptBudget above -- CI/human
+// review needs the real exit code. Exit 0 for no_signal/ready_for_review,
+// exit 1 for rejected/error. NEVER writes to agents/*.md -- runPromptOptimize
+// itself is the only orchestration layer, and its only write path is
+// writeReviewArtifacts under .planning/prompt-optimize/.
+function cmdPromptOptimize(cwd, args, raw) {
+  const agentIdx = args.indexOf('--agent');
+  const agentArg = agentIdx !== -1 ? args[agentIdx + 1] : null;
+  if (!agentArg) {
+    error('prompt-optimize: --agent <name> required');
+    return;
+  }
+  const result = promptOptimize.runPromptOptimize(cwd, agentArg);
+  process.stdout.write(JSON.stringify(result, null, 2));
+  const exitCode = (result.status === 'no_signal' || result.status === 'ready_for_review') ? 0 : 1;
+  process.exit(exitCode);
 }
 
 function cmdTask(cwd, args, raw) {
@@ -5030,22 +6014,33 @@ async function checkPort(port) {
 
 // ─── Savings Report ───────────────────────────────────────────────────────────
 
-function cmdSavings(args, raw) {
+function cmdSavings(cwd, args, raw) {
   const subcommand = args[0] || 'report';
-  const { generateReport, formatReportTable, calculateSavings } = require('./savings-report.js');
 
   switch (subcommand) {
     case 'report': {
-      const report = generateReport();
+      // Phase 58 (MILE-36): retargeted from the old token_budget.json-based
+      // generateReport() (phantom-file path, see 58-RESEARCH.md's audit
+      // finding) onto the durable recorded-usage ledger. NEVER falls back to
+      // the old path -- zero recorded usage means available:false, not a
+      // silent empty-defaults report.
+      const { readTaskUsageRecords, computeSavingsFromUsage, formatUsageSavingsTable } = require('./token-usage-ledger.js');
+      const { getHistory } = require('./execution-log.js');
+      const config = loadConfig(cwd);
+      const usageRecords = readTaskUsageRecords(cwd);
+      const taskOutcomeEvents = getHistory(cwd).filter(e => e && e.type === 'task_outcome');
+      const report = computeSavingsFromUsage(usageRecords, taskOutcomeEvents, config.savings_baseline_profile);
+
       if (args.includes('--json')) {
         output(report, raw);
       } else {
-        console.log(formatReportTable(report));
+        console.log(formatUsageSavingsTable(report));
       }
       break;
     }
 
     case 'calculate': {
+      const { calculateSavings } = require('./savings-report.js');
       // Manual calculation: savings calculate --haiku 50000 --sonnet 100000 --opus 20000
       const haikuIdx = args.indexOf('--haiku');
       const sonnetIdx = args.indexOf('--sonnet');
@@ -7375,15 +8370,21 @@ function cmdRoadmapUpdatePlanProgress(cwd, phaseNum, raw) {
   let roadmapContent = fs.readFileSync(roadmapPath, 'utf-8');
   const phaseEscaped = phaseNum.replace('.', '\\.');
 
-  // Progress table row: update Plans column (summaries/plans) and Status column
+  // Progress table row: | Phase Name | Milestone | Plans | Status | Completed |
+  // (5 columns). The Milestone column (2nd) must be preserved verbatim --
+  // only Plans/Status/Completed (columns 3-5) are rewritten. A prior version
+  // of this regex only accounted for 4 columns and silently discarded the
+  // Milestone cell's value on every run (found + fixed during Phase 57-01;
+  // see deferred-items.md for pre-existing rows this bug corrupted before
+  // this fix landed).
   const tablePattern = new RegExp(
-    `(\\|\\s*${phaseEscaped}\\.?\\s[^|]*\\|)[^|]*(\\|)\\s*[^|]*(\\|)\\s*[^|]*(\\|)`,
+    `(\\|\\s*${phaseEscaped}\\.?\\s[^|]*\\|)([^|]*\\|)[^|]*(\\|)\\s*[^|]*(\\|)\\s*[^|]*(\\|)`,
     'i'
   );
   const dateField = isComplete ? ` ${today} ` : '  ';
   roadmapContent = roadmapContent.replace(
     tablePattern,
-    `$1 ${summaryCount}/${planCount} $2 ${status.padEnd(11)}$3${dateField}$4`
+    `$1$2 ${summaryCount}/${planCount} $3 ${status.padEnd(11)}$4${dateField}$5`
   );
 
   // Update plan count in phase detail section
@@ -10229,6 +11230,63 @@ function cmdRoutingMatchWithQuota(cwd, taskDesc, raw) {
   output(result, raw);
 }
 
+function cmdRoutingTaskType(cwd, taskDesc, raw) {
+  if (!taskDesc) { error('task description required'); return; }
+  const taskType = deriveTaskType(taskDesc);
+  output({ task_type: taskType }, raw, taskType);
+}
+
+function cmdRoutingLedgerBuild(cwd, raw) {
+  const events = getHistory(cwd);
+  const config = loadConfig(cwd);
+  let telemetryReports = [];
+  try { telemetryReports = readTelemetryReports(cwd); } catch (_) { telemetryReports = []; }
+  const ledger = buildRoutingLedger(events, { minSampleCount: config.routing_min_sample_count, telemetryReports });
+  writeRoutingLedger(cwd, ledger);
+  output({ ok: true, built_at: ledger.built_at, source_event_count: ledger.source_event_count, min_sample_count: ledger.min_sample_count, task_type_count: Object.keys(ledger.task_types).length }, raw);
+}
+
+function cmdRoutingLedgerShow(cwd, raw) {
+  const result = readRoutingLedger(cwd);
+  if (!result.ok) { output({ ok: false, reason: result.reason, error: result.error }, raw); return; }
+  output(result.ledger || { built_at: null, source_event_count: 0, min_sample_count: 5, task_types: {} }, raw);
+}
+
+// Composes readRoutingLedger + consultLedger. Never throws -- fails open
+// with a loud stderr warning whenever the ledger is unavailable (missing or
+// corrupt), consistent with the readRoutingLedger contract it wraps.
+function cmdRoutingLedgerConsult(cwd, options, raw) {
+  const { taskType, heuristicTier } = options || {};
+  if (!taskType || !heuristicTier) { error('routing ledger consult: --task-type and --heuristic-tier are required'); return; }
+  const readResult = readRoutingLedger(cwd);
+  if (!readResult.ok) {
+    process.stderr.write(`WARNING: routing ledger unavailable (${readResult.reason}) -- falling back to heuristic-only routing\n`);
+    output({ tier: heuristicTier, adjusted: false, fail_open: true, reason: readResult.reason }, raw);
+    return;
+  }
+  const decision = consultLedger(readResult.ledger, taskType, heuristicTier, null);
+  if (decision.fail_open) {
+    process.stderr.write(`WARNING: routing ledger unavailable (${decision.reason}) -- falling back to heuristic-only routing\n`);
+  }
+  output(decision, raw);
+}
+
+function cmdRoutingClassifyFailure(cwd, errorText, raw) {
+  const result = classifyFailure(errorText || '');
+  output(result, raw);
+}
+
+// Composes classifyFailure + decideEscalation into one call the coordinator
+// can use to decide whether to re-spawn a failed task at a higher tier.
+function cmdRoutingEscalationDecision(cwd, options, raw) {
+  const { currentTier, errorSummary, escalationsUsed } = options || {};
+  if (!currentTier) { error('routing escalation-decision: --current-tier is required'); return; }
+  const classification = classifyFailure(errorSummary || '');
+  const escalationsUsedNum = parseInt(escalationsUsed, 10) || 0;
+  const decision = decideEscalation(currentTier, classification, escalationsUsedNum);
+  output({ ...classification, ...decision, current_tier: currentTier, escalations_used: escalationsUsedNum }, raw);
+}
+
 function extractKeywords(text) {
   const stopWords = new Set([
     'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
@@ -11444,6 +12502,181 @@ function summarizeTelemetryReports(reports) {
   };
 }
 
+// ─── Routing Ledger (Phase 57-01, MILE-34) ────────────────────────────────────
+//
+// Storage: .planning/routing-ledger.json is a single REBUILDABLE JSON object
+// (like .context-index-cache.json), not a JSONL append log. `routing ledger
+// build` rebuilds it wholesale from EXECUTION_LOG.md's task_outcome events
+// plus optional telemetry enrichment; it is never appended to incrementally.
+
+// Fixed ordered verb vocabulary for task-type bucketing. First whole-word
+// match wins (scanned in this order) -- no match falls back to 'other'.
+const TASK_TYPE_VOCAB = ['write', 'fix', 'add', 'remove', 'refactor', 'debug', 'design', 'implement',
+  'wire', 'migrate', 'test', 'update', 'create', 'configure', 'document', 'investigate', 'review',
+  'verify', 'run', 'commit'];
+
+// Pure function -- no I/O. Buckets a task description into a fixed ordered
+// verb vocabulary via first whole-word match; unmatched descriptions fall
+// back to 'other'.
+function deriveTaskType(taskDescription) {
+  if (!taskDescription || typeof taskDescription !== 'string') return 'other';
+  const lower = taskDescription.toLowerCase();
+  for (const verb of TASK_TYPE_VOCAB) {
+    if (new RegExp(`\\b${verb}\\b`).test(lower)) return verb;
+  }
+  return 'other';
+}
+
+function getRoutingLedgerPath(cwd) {
+  return path.join(cwd, '.planning', 'routing-ledger.json');
+}
+
+// Thin I/O wrapper -- NEVER throws. Mirrors readDeferredWaivers's exact
+// fail-open shape: an absent ledger file is not an error (no history yet);
+// a malformed/corrupt file is always surfaced loudly, never silently
+// treated as "no ledger".
+function readRoutingLedger(cwd) {
+  const ledgerPath = getRoutingLedgerPath(cwd);
+  if (!fs.existsSync(ledgerPath)) return { ok: true, ledger: null, reason: 'missing' };
+  const content = safeReadFile(ledgerPath);
+  if (content === null) return { ok: false, ledger: null, reason: 'corrupt', error: 'Could not read routing-ledger.json' };
+  const parsed = safeJsonParse(content, 'routing-ledger.json');
+  if (!parsed.ok) return { ok: false, ledger: null, reason: 'corrupt', error: parsed.error.message };
+  if (!parsed.value || typeof parsed.value !== 'object' || !parsed.value.task_types || typeof parsed.value.task_types !== 'object') {
+    return { ok: false, ledger: null, reason: 'corrupt', error: 'routing-ledger.json missing required task_types key' };
+  }
+  return { ok: true, ledger: parsed.value, reason: null };
+}
+
+// Thin I/O wrapper. This file is coordinator-only-writer (rebuilt wholesale
+// on each `routing ledger build`), low concurrent-write risk unlike
+// STATE.md/ROADMAP.md/config.json -- a plain writeFileSync is acceptable
+// per 57-RESEARCH.md (documented choice, see 57-01-SUMMARY.md).
+function writeRoutingLedger(cwd, ledger) {
+  const ledgerPath = getRoutingLedgerPath(cwd);
+  fs.mkdirSync(path.dirname(ledgerPath), { recursive: true });
+  fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2), 'utf-8');
+  return { ok: true, path: ledgerPath };
+}
+
+// Pure function -- no I/O. Aggregates an array of EXECUTION_LOG.md events
+// (shape matches getHistory's return) into a per-(task_type, tier)
+// attempts/successes/failures ledger. Non-task_outcome events in the same
+// array are ignored. Optional best-effort telemetry enrichment folds
+// tool_errors_swallowed into a quality_flags counter when a telemetry
+// report's phase+plan matches a bucketed task_outcome event -- never
+// required for the core attempts/successes math to be valid.
+function buildRoutingLedger(events, options = {}) {
+  const minSampleCount = options.minSampleCount || 5;
+  const taskTypes = {};
+  let sourceEventCount = 0;
+  for (const e of (events || [])) {
+    if (!e || e.type !== 'task_outcome' || !e.tier) continue;
+    sourceEventCount++;
+    const taskType = e.task_type || 'other';
+    if (!taskTypes[taskType]) taskTypes[taskType] = {};
+    if (!taskTypes[taskType][e.tier]) taskTypes[taskType][e.tier] = { attempts: 0, successes: 0, failures: 0 };
+    const bucket = taskTypes[taskType][e.tier];
+    bucket.attempts++;
+    if (e.outcome === 'success') bucket.successes++;
+    else if (e.outcome === 'failure') bucket.failures++;
+  }
+  // Best-effort telemetry enrichment -- never required for the core math to be valid.
+  if (Array.isArray(options.telemetryReports)) {
+    for (const r of options.telemetryReports) {
+      if (!r || r.phase === undefined || r.plan === undefined) continue;
+      const matches = (events || []).filter(e => e.type === 'task_outcome' && e.phase === r.phase && e.plan === r.plan);
+      for (const m of matches) {
+        const bucket = taskTypes[m.task_type || 'other'] && taskTypes[m.task_type || 'other'][m.tier];
+        if (!bucket) continue;
+        bucket.quality_flags = (bucket.quality_flags || 0) + (typeof r.tool_errors_swallowed === 'number' ? r.tool_errors_swallowed : 0);
+      }
+    }
+  }
+  return { built_at: new Date().toISOString(), source_event_count: sourceEventCount, min_sample_count: minSampleCount, task_types: taskTypes };
+}
+
+// Pure function -- no I/O. Decides whether historical ledger evidence
+// contradicts a heuristic tier decision strongly enough to warrant an
+// UPWARD-ONLY adjustment. Never adjusts down (per MILE-34/57-RESEARCH.md --
+// downgrading is out of scope; the heuristic's own cost bias already handles
+// that). Only a single hop up via getNextTier(heuristicTier) is considered
+// per call (haiku->sonnet or sonnet->opus, never a two-hop haiku->opus skip).
+function consultLedger(ledger, taskType, heuristicTier, minSampleCount) {
+  if (!ledger) {
+    return { tier: heuristicTier, adjusted: false, fail_open: true, reason: 'ledger_unavailable' };
+  }
+  const perTier = ledger.task_types && ledger.task_types[taskType];
+  if (!perTier) {
+    return { tier: heuristicTier, adjusted: false, reason: 'no_data_for_task_type' };
+  }
+  const effectiveMin = minSampleCount || ledger.min_sample_count || 5;
+  const totalSamples = Object.values(perTier).reduce((sum, t) => sum + (t.attempts || 0), 0);
+  if (totalSamples < effectiveMin) {
+    return { tier: heuristicTier, adjusted: false, reason: 'insufficient_sample', sample_count: totalSamples };
+  }
+  const rateOf = (tierStats) => (tierStats && tierStats.attempts > 0) ? tierStats.successes / tierStats.attempts : null;
+  const heuristicRate = rateOf(perTier[heuristicTier]);
+  const higherTier = getNextTier(heuristicTier);
+  if (heuristicRate !== null && heuristicRate < 0.5 && higherTier && perTier[higherTier] && perTier[higherTier].attempts >= effectiveMin) {
+    const higherRate = rateOf(perTier[higherTier]);
+    if (higherRate !== null && higherRate >= heuristicRate + 0.2) {
+      return {
+        tier: higherTier,
+        adjusted: true,
+        reason: `historical evidence: ${taskType} at ${heuristicTier} succeeds ${(heuristicRate * 100).toFixed(0)}% (${perTier[heuristicTier].attempts} samples) vs ${higherTier} ${(higherRate * 100).toFixed(0)}%`,
+        sample_count: totalSamples
+      };
+    }
+  }
+  return { tier: heuristicTier, adjusted: false, reason: 'no_contradicting_evidence', sample_count: totalSamples };
+}
+
+// Fixed, case-insensitive substring deny-list: matching ANY of these means
+// the failure is environment/infra-shaped (missing file, network, auth, disk,
+// git conflict), not a capability gap -- escalating to a higher model tier
+// cannot fix these, so classifyFailure/decideEscalation must never escalate
+// on them. Unmatched text defaults to capability_related:true (the safer
+// default for a self-healing system -- an unclassified failure is assumed to
+// be a capability gap the next tier up might solve).
+const NON_CAPABILITY_PATTERNS = [
+  'ENOENT', 'no such file', 'command not found', 'permission denied', 'EACCES',
+  'ECONNREFUSED', 'getaddrinfo', 'network error', 'env var', 'environment variable',
+  '.env', 'ENOSPC', 'disk full', 'git conflict', 'merge conflict'
+];
+
+// Pure. Never throws -- empty/undefined input defaults to capability_related:true.
+function classifyFailure(errorSummary) {
+  const text = (errorSummary || '').toLowerCase();
+  for (const pattern of NON_CAPABILITY_PATTERNS) {
+    if (text.includes(pattern.toLowerCase())) {
+      return { capability_related: false, matched_pattern: pattern };
+    }
+  }
+  return { capability_related: true, matched_pattern: null };
+}
+
+// Pure, ladder-bounded escalation decision. Uses getNextTier/getTiers from
+// model-registry.js -- the SINGLE source of truth for the escalation ladder;
+// never re-declares a second hardcoded ladder here. Bound: one retry per
+// tier (escalationsUsed caps at getTiers().length - 1), non-capability
+// failures never escalate, and the ladder's own null-terminator (opus
+// exhausted) is a second, independent stop condition.
+function decideEscalation(currentTier, classification, escalationsUsed) {
+  if (!classification || classification.capability_related === false) {
+    return { escalate: false, next_tier: null, reason: 'non_capability_failure' };
+  }
+  const maxEscalations = getTiers().length - 1;
+  if ((escalationsUsed || 0) >= maxEscalations) {
+    return { escalate: false, next_tier: null, reason: 'escalation_bound_reached' };
+  }
+  const nextTier = getNextTier(currentTier);
+  if (!nextTier) {
+    return { escalate: false, next_tier: null, reason: 'ladder_exhausted' };
+  }
+  return { escalate: true, next_tier: nextTier, reason: 'capability_failure' };
+}
+
 // ─── CLI Router ───────────────────────────────────────────────────────────────
 
 async function main() {
@@ -11632,8 +12865,19 @@ async function main() {
         cmdVerifyE2EGaps(cwd, args[2], raw);
       } else if (subcommand === 'test-content') {
         cmdVerifyTestContent(cwd, args[2], raw);
+      } else if (subcommand === 'append-gap') {
+        const truthIdx = args.indexOf('--truth');
+        const reasonIdx = args.indexOf('--reason');
+        const failureTypeIdx = args.indexOf('--failure-type');
+        const artifactsIdx = args.indexOf('--artifacts');
+        cmdVerifyAppendGap(cwd, args[2], {
+          truth: truthIdx !== -1 ? args[truthIdx + 1] : null,
+          reason: reasonIdx !== -1 ? args[reasonIdx + 1] : null,
+          failureType: failureTypeIdx !== -1 ? args[failureTypeIdx + 1] : null,
+          artifactsJson: artifactsIdx !== -1 ? args[artifactsIdx + 1] : null,
+        }, raw);
       } else {
-        error('Unknown verify subcommand. Available: plan-structure, phase-completeness, references, commits, artifacts, key-links, migration-timestamps, dependency-stability, phase-gate, e2e-gaps, test-content');
+        error('Unknown verify subcommand. Available: plan-structure, phase-completeness, references, commits, artifacts, key-links, migration-timestamps, dependency-stability, phase-gate, e2e-gaps, test-content, append-gap');
       }
       break;
     }
@@ -12109,6 +13353,19 @@ async function main() {
       break;
     }
 
+    case 'handoff': {
+      const subCommand = args[1];
+
+      if (subCommand === 'brief') {
+        const jsonIdx = args.indexOf('--json');
+        const jsonArg = jsonIdx !== -1 ? args[jsonIdx + 1] : null;
+        cmdHandoffBrief(jsonArg, raw);
+      } else {
+        error('Unknown handoff subcommand. Available: brief');
+      }
+      break;
+    }
+
     case 'doctor': {
       const configDirIdx = args.indexOf('--config-dir');
       const options = { configDir: configDirIdx !== -1 ? args[configDirIdx + 1] : null };
@@ -12272,6 +13529,11 @@ async function main() {
       break;
     }
 
+    case 'token-usage': {
+      cmdTokenUsage(cwd, args.slice(1), raw);
+      break;
+    }
+
     case 'alerts': {
       cmdAlerts(cwd, args.slice(1), raw);
       break;
@@ -12284,6 +13546,31 @@ async function main() {
 
     case 'eval': {
       cmdEval(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'eval-candidate': {
+      const subcommand = args[1];
+      if (subcommand === 'from-debug') {
+        cmdEvalCandidateFromDebug(cwd, args[2], raw);
+      } else if (subcommand === 'from-verification') {
+        cmdEvalCandidateFromVerification(cwd, args[2], raw);
+      } else if (subcommand === 'list') {
+        cmdEvalCandidateList(cwd, args[2], raw);
+      } else if (subcommand === 'accept') {
+        cmdEvalCandidateAccept(cwd, args[2], raw);
+      } else if (subcommand === 'reject') {
+        const reasonIndex = args.indexOf('--reason');
+        const reason = reasonIndex !== -1 ? args[reasonIndex + 1] : undefined;
+        cmdEvalCandidateReject(cwd, args[2], reason, raw);
+      } else {
+        error('Unknown eval-candidate subcommand. Available: from-debug, from-verification, list, accept, reject');
+      }
+      break;
+    }
+
+    case 'prompt-optimize': {
+      cmdPromptOptimize(cwd, args.slice(1), raw);
       break;
     }
 
@@ -12303,7 +13590,7 @@ async function main() {
     }
 
     case 'savings': {
-      cmdSavings(args.slice(1), raw);
+      cmdSavings(cwd, args.slice(1), raw);
       break;
     }
 
@@ -13349,8 +14636,51 @@ Was ${model} the right choice for this task? (y/n): `;
         cmdRoutingIndexRefresh(cwd, raw);
       } else if (subcommand === 'match-with-quota') {
         cmdRoutingMatchWithQuota(cwd, args.slice(2).join(' '), raw);
+      } else if (subcommand === 'task-type') {
+        cmdRoutingTaskType(cwd, args.slice(2).join(' '), raw);
+      } else if (subcommand === 'ledger') {
+        const ledgerSub = args[2];
+        if (ledgerSub === 'build') cmdRoutingLedgerBuild(cwd, raw);
+        else if (ledgerSub === 'show') cmdRoutingLedgerShow(cwd, raw);
+        else if (ledgerSub === 'consult') {
+          const taskTypeIdx = args.indexOf('--task-type');
+          const heuristicTierIdx = args.indexOf('--heuristic-tier');
+          cmdRoutingLedgerConsult(cwd, {
+            taskType: taskTypeIdx !== -1 ? args[taskTypeIdx + 1] : null,
+            heuristicTier: heuristicTierIdx !== -1 ? args[heuristicTierIdx + 1] : null,
+          }, raw);
+        }
+        else error('Unknown routing ledger subcommand. Available: build, show, consult');
+      } else if (subcommand === 'classify-failure') {
+        cmdRoutingClassifyFailure(cwd, args.slice(2).join(' '), raw);
+      } else if (subcommand === 'escalation-decision') {
+        const currentTierIdx = args.indexOf('--current-tier');
+        const errorSummaryIdx = args.indexOf('--error-summary');
+        const escalationsUsedIdx = args.indexOf('--escalations-used');
+        cmdRoutingEscalationDecision(cwd, {
+          currentTier: currentTierIdx !== -1 ? args[currentTierIdx + 1] : null,
+          errorSummary: errorSummaryIdx !== -1 ? args[errorSummaryIdx + 1] : null,
+          escalationsUsed: escalationsUsedIdx !== -1 ? args[escalationsUsedIdx + 1] : null,
+        }, raw);
       } else {
-        error('Unknown routing subcommand. Available: match, match-with-quota, context, full, index-build, index-refresh');
+        error('Unknown routing subcommand. Available: match, match-with-quota, context, full, index-build, index-refresh, task-type, ledger, classify-failure, escalation-decision');
+      }
+      break;
+    }
+
+    case 'quality': {
+      const subcommand = args[1];
+      if (subcommand === 'touches-source') {
+        const filesIdx = args.indexOf('--files');
+        const filesArg = filesIdx !== -1 ? (args[filesIdx + 1] || '') : '';
+        const fileList = filesArg.split(',').map(s => s.trim()).filter(Boolean);
+        output({ touches_source_code: computeTouchesSourceCode(fileList), file_count: fileList.length }, raw);
+      } else if (subcommand === 'assess-risk') {
+        cmdQualityAssessRisk(cwd, args[2], raw);
+      } else if (subcommand === 'verdict-to-issues') {
+        cmdQualityVerdictToIssues(cwd, args[2], raw);
+      } else {
+        error('Unknown quality subcommand. Available: touches-source, assess-risk, verdict-to-issues');
       }
       break;
     }
@@ -13429,6 +14759,30 @@ module.exports = {
   countTestCalls,
   countAssertions,
   milestoneAlreadyRecorded,
+  buildHandoffBrief,
+  cmdHandoffBrief,
+  getPhaseInvariantsText,
+  buildEvalCandidateFromDebugFile,
+  buildEvalCandidatesFromVerificationFile,
+  appendVerificationGap,
+  writeEvalCandidates,
+  validateEvalCandidateSchema,
+  deriveTaskType,
+  buildRoutingLedger,
+  readRoutingLedger,
+  writeRoutingLedger,
+  getRoutingLedgerPath,
+  consultLedger,
+  classifyFailure,
+  decideEscalation,
+  NON_CAPABILITY_PATTERNS,
+  loadConfig,
+  isSourceFile,
+  isTestOrSpecFile,
+  computeTouchesSourceCode,
+  computeHighRisk,
+  computePresentationOrder,
+  verdictToIssues,
 };
 
 // Only auto-run when invoked directly as a CLI (`node gsd-tools.js ...`), not

@@ -7,12 +7,14 @@ on:
       - 'get-shit-done/workflows/**'
       - 'get-shit-done/references/**'
       - 'get-shit-done/bin/eval-harness.js'
+      - 'tests/eval-regressions/**'
   pull_request:
     paths:
       - 'agents/**'
       - 'get-shit-done/workflows/**'
       - 'get-shit-done/references/**'
       - 'get-shit-done/bin/eval-harness.js'
+      - 'tests/eval-regressions/**'
 
 jobs:
   eval-assert:
@@ -23,3 +25,12 @@ jobs:
         with:
           node-version: '20'
       - run: node get-shit-done/bin/gsd-tools.js eval assert tests/fixtures/eval-project/golden-artifacts --raw
+
+  eval-regress:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: node get-shit-done/bin/gsd-tools.js eval regress tests/eval-regressions/accepted --project-root .

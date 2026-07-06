@@ -9277,3 +9277,4317 @@ describe('Phase 53-01: eval CLI (plan/assert)', () => {
     });
   });
 });
+
+// Phase 54-01: buildHandoffBrief (MILE-40). Pure function, required directly
+// off the same `resilience` alias used by the Phase 51-02 suite above (both
+// point at the same gsd-tools.js module.exports object).
+describe('buildHandoffBrief', () => {
+  const FULL_FIELDS = {
+    phase_number: 54,
+    phase_name: 'structured-handoffs',
+    phase_goal: 'stay on-constraint',
+    key_decisions: ['locked decision a', 'locked decision b'],
+    open_risks: 'a single open risk',
+    file_map: ['get-shit-done/bin/gsd-tools.js'],
+    hard_rules: ['never throw', 'always render 5 sections'],
+  };
+
+  const ALL_LABELS = ['PHASE GOAL', 'KEY DECISIONS', 'OPEN RISKS', 'FILE MAP', 'HARD RULES'];
+
+  // Category 1: Happy path.
+  test('happy path: fully-populated fields -> complete:true, all 5 labels + phase number/name present', () => {
+    const brief = resilience.buildHandoffBrief(FULL_FIELDS);
+    assert.strictEqual(brief.complete, true);
+    for (const label of ALL_LABELS) {
+      assert.ok(brief.brief_text.includes(label), `expected brief_text to include label "${label}"`);
+    }
+    assert.ok(brief.brief_text.includes('54'), 'expected phase number to appear in brief_text');
+    assert.ok(brief.brief_text.includes('structured-handoffs'), 'expected phase name to appear in brief_text');
+  });
+
+  // Category 2: Missing/malformed input.
+  test('missing/malformed input: fields={} -> complete:false, all 5 labels still present with "(none provided)"', () => {
+    const brief = resilience.buildHandoffBrief({});
+    assert.strictEqual(brief.complete, false);
+    for (const label of ALL_LABELS) {
+      assert.ok(brief.brief_text.includes(label), `expected brief_text to include label "${label}"`);
+    }
+    const noneProvidedCount = (brief.brief_text.match(/\(none provided\)/g) || []).length;
+    assert.strictEqual(noneProvidedCount, 5);
+  });
+
+  test('missing/malformed input: fields=null -> complete:false, no throw', () => {
+    assert.doesNotThrow(() => resilience.buildHandoffBrief(null));
+    const brief = resilience.buildHandoffBrief(null);
+    assert.strictEqual(brief.complete, false);
+  });
+
+  test('missing/malformed input: fields=undefined -> complete:false, no throw', () => {
+    assert.doesNotThrow(() => resilience.buildHandoffBrief(undefined));
+    const brief = resilience.buildHandoffBrief(undefined);
+    assert.strictEqual(brief.complete, false);
+  });
+
+  // Category 3: Edge case -- array-valued sections and mixed string/array input.
+  test('edge case: array-valued section renders one bullet per line', () => {
+    const brief = resilience.buildHandoffBrief(FULL_FIELDS);
+    assert.ok(brief.sections.key_decisions.includes('- locked decision a'));
+    assert.ok(brief.sections.key_decisions.includes('- locked decision b'));
+    assert.strictEqual(brief.sections.key_decisions.split('\n').length, 2);
+  });
+
+  test('edge case: a mix of string and array section inputs both normalize correctly', () => {
+    const brief = resilience.buildHandoffBrief(FULL_FIELDS);
+    // open_risks was supplied as a plain string -- normalizes to itself, no bullet.
+    assert.strictEqual(brief.sections.open_risks, 'a single open risk');
+    // file_map was supplied as an array -- normalizes to a bulleted line.
+    assert.strictEqual(brief.sections.file_map, '- get-shit-done/bin/gsd-tools.js');
+  });
+
+  // Category 4: Boundary conditions.
+  test('boundary: exactly one section blank -> complete:false but the other 4 render their real content', () => {
+    const fields = { ...FULL_FIELDS, open_risks: '' };
+    const brief = resilience.buildHandoffBrief(fields);
+    assert.strictEqual(brief.complete, false);
+    assert.strictEqual(brief.sections.open_risks, '');
+    assert.ok(brief.brief_text.includes('stay on-constraint'));
+    assert.ok(brief.brief_text.includes('- locked decision a'));
+    assert.ok(brief.brief_text.includes('- get-shit-done/bin/gsd-tools.js'));
+    assert.ok(brief.brief_text.includes('- never throw'));
+  });
+
+  test('boundary: whitespace-only string section is treated as empty -> complete:false', () => {
+    const fields = { ...FULL_FIELDS, hard_rules: '   ' };
+    const brief = resilience.buildHandoffBrief(fields);
+    assert.strictEqual(brief.complete, false);
+    assert.strictEqual(brief.sections.hard_rules, '');
+  });
+
+  // Category 5: Wiring/integration -- sections object matches brief_text content.
+  test('wiring: sections object exposes all 5 canonical keys, values match what appears in brief_text', () => {
+    const brief = resilience.buildHandoffBrief(FULL_FIELDS);
+    const canonicalKeys = ['phase_goal', 'key_decisions', 'open_risks', 'file_map', 'hard_rules'];
+    for (const key of canonicalKeys) {
+      assert.ok(Object.prototype.hasOwnProperty.call(brief.sections, key), `expected sections.${key} to exist`);
+      assert.ok(brief.brief_text.includes(brief.sections[key]), `expected brief_text to contain sections.${key}'s value`);
+    }
+  });
+
+  // Category 6: Regression guard -- buildResumeBrief unaffected by the new adjacent builder.
+  test('regression guard: buildResumeBrief still returns its expected shape', () => {
+    const checkpointData = { found: false, resume_from: null, last_step: null, step_status: null, plans_complete: null, plans_remaining: null, key_context: null };
+    const phaseInfo = { phase_number: '54', phase_name: 'structured-handoffs', directory: '.planning/phases/54-structured-handoffs' };
+    const brief = resilience.buildResumeBrief(checkpointData, phaseInfo);
+    assert.strictEqual(brief.resume_from, 'discuss');
+    assert.ok(typeof brief.brief_text === 'string' && brief.brief_text.length > 0);
+  });
+});
+
+// Phase 54-02 (MILE-40): resume-brief invariant re-injection. getPhaseInvariantsText
+// reads a phase's own ROADMAP.md section VERBATIM (never paraphrased from
+// CHECKPOINT.json's key_context or any SUMMARY.md); buildResumeBrief's third
+// invariantsText param appends that verbatim text to the resume brief so a
+// respawned coordinator re-reads hard rules/success criteria from source.
+describe('resume-brief invariant re-injection', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  const PHASE_54_SUCCESS_CRITERION = 'Resume brief re-reads hard rules verbatim from ROADMAP.md, never from a paraphrased summary.';
+
+  function writeRoadmapFixture(dir, { includePhase55 = false } = {}) {
+    const lines = [
+      '# Roadmap',
+      '',
+      '### Phase 54: Structured Handoffs & Invariant Re-Injection',
+      '',
+      '**Goal:** Long runs stay on-constraint across agent boundaries and resumes',
+      '**Success Criteria** (what must be TRUE):',
+      `  1. ${PHASE_54_SUCCESS_CRITERION}`,
+      '  2. Prompt budgets still pass for all agents modified.',
+      '',
+    ];
+    if (includePhase55) {
+      lines.push(
+        '### Phase 55: Failures-to-Regression Pipeline',
+        '',
+        '**Goal:** Every failure becomes a permanent regression eval',
+        '**Success Criteria** (what must be TRUE):',
+        '  1. This sentence belongs to Phase 55 and must NEVER appear in Phase 54 invariants.',
+        ''
+      );
+    }
+    fs.mkdirSync(path.join(dir, '.planning'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.planning', 'ROADMAP.md'), lines.join('\n'));
+  }
+
+  const PHASE_INFO = { phase_number: '54', phase_name: 'structured-handoffs', directory: '.planning/phases/54-structured-handoffs' };
+
+  // Category 1: Happy path.
+  test('happy path: buildResumeBrief with invariantsText -> PHASE INVARIANTS block + verbatim text + invariants field set', () => {
+    writeRoadmapFixture(tmpDir);
+    const invariantsText = resilience.getPhaseInvariantsText(tmpDir, '54');
+    assert.ok(invariantsText, 'expected getPhaseInvariantsText to return a non-null section');
+
+    const checkpointData = {
+      found: true,
+      resume_from: 'execute',
+      last_step: 'execute',
+      step_status: 'in_progress',
+      plans_complete: ['54-01'],
+      plans_remaining: ['54-02'],
+      key_context: 'Some key context.',
+    };
+
+    const brief = resilience.buildResumeBrief(checkpointData, PHASE_INFO, invariantsText);
+    assert.ok(brief.brief_text.includes('PHASE INVARIANTS (verbatim from ROADMAP.md'));
+    assert.ok(brief.brief_text.includes(invariantsText), 'expected brief_text to contain invariantsText verbatim, byte-for-byte');
+    assert.strictEqual(brief.invariants, invariantsText);
+  });
+
+  // Category 2: Missing/malformed input.
+  test('missing/malformed input: no ROADMAP.md -> getPhaseInvariantsText returns null, no throw', () => {
+    // tmpDir has no .planning/ROADMAP.md written by this test.
+    assert.doesNotThrow(() => resilience.getPhaseInvariantsText(tmpDir, '54'));
+    assert.strictEqual(resilience.getPhaseInvariantsText(tmpDir, '54'), null);
+  });
+
+  test('missing/malformed input: buildResumeBrief(invariantsText=null) omits PHASE INVARIANTS block, byte-identical to two-arg call', () => {
+    const checkpointData = {
+      found: true,
+      resume_from: 'execute',
+      last_step: 'execute',
+      step_status: 'in_progress',
+      plans_complete: ['54-01'],
+      plans_remaining: ['54-02'],
+      key_context: 'Some key context.',
+    };
+    const twoArgBrief = resilience.buildResumeBrief(checkpointData, PHASE_INFO);
+    const threeArgNullBrief = resilience.buildResumeBrief(checkpointData, PHASE_INFO, null);
+    assert.strictEqual(threeArgNullBrief.brief_text, twoArgBrief.brief_text);
+    assert.ok(!threeArgNullBrief.brief_text.includes('PHASE INVARIANTS'));
+    assert.strictEqual(threeArgNullBrief.invariants, null);
+  });
+
+  // Category 3: Edge case -- verbatim-containment guarantee.
+  test('edge case: a success-criterion sentence from the fixture ROADMAP appears exactly (verbatim) in brief_text', () => {
+    writeRoadmapFixture(tmpDir);
+    const invariantsText = resilience.getPhaseInvariantsText(tmpDir, '54');
+    const checkpointData = { found: false, resume_from: null, last_step: null, step_status: null, plans_complete: null, plans_remaining: null, key_context: null };
+
+    const brief = resilience.buildResumeBrief(checkpointData, PHASE_INFO, invariantsText);
+    assert.ok(brief.brief_text.includes(PHASE_54_SUCCESS_CRITERION), 'expected the exact success-criterion sentence to appear verbatim (containment, not paraphrase)');
+  });
+
+  // Category 4: Boundary conditions.
+  test('boundary: found:false (from-scratch) resume STILL appends PHASE INVARIANTS block when invariantsText supplied', () => {
+    writeRoadmapFixture(tmpDir);
+    const invariantsText = resilience.getPhaseInvariantsText(tmpDir, '54');
+    const checkpointData = { found: false, resume_from: null, last_step: null, step_status: null, plans_complete: null, plans_remaining: null, key_context: null };
+
+    const brief = resilience.buildResumeBrief(checkpointData, PHASE_INFO, invariantsText);
+    assert.strictEqual(brief.resume_from, 'discuss');
+    assert.ok(/from scratch/i.test(brief.brief_text));
+    assert.ok(brief.brief_text.includes('PHASE INVARIANTS (verbatim from ROADMAP.md'));
+    assert.ok(brief.brief_text.includes(PHASE_54_SUCCESS_CRITERION));
+  });
+
+  test('boundary: empty-string invariantsText behaves like null -> no PHASE INVARIANTS block', () => {
+    const checkpointData = { found: false, resume_from: null, last_step: null, step_status: null, plans_complete: null, plans_remaining: null, key_context: null };
+    const brief = resilience.buildResumeBrief(checkpointData, PHASE_INFO, '');
+    assert.ok(!brief.brief_text.includes('PHASE INVARIANTS'));
+    assert.strictEqual(brief.invariants, null);
+  });
+
+  // Category 5: Wiring/integration -- correct phase-section slicing.
+  test('wiring: getPhaseInvariantsText slices only Phase 54\'s section, stopping at the next "### Phase" header', () => {
+    writeRoadmapFixture(tmpDir, { includePhase55: true });
+    const invariantsText = resilience.getPhaseInvariantsText(tmpDir, '54');
+    assert.ok(invariantsText.includes('Phase 54'));
+    assert.ok(invariantsText.includes(PHASE_54_SUCCESS_CRITERION));
+    assert.ok(!invariantsText.includes('Phase 55'), 'expected the Phase 54 slice to stop before the Phase 55 header');
+    assert.ok(!invariantsText.includes('belongs to Phase 55'), 'expected Phase 55 content to be excluded from the Phase 54 slice');
+  });
+
+  // Category 6: Regression guard -- pre-existing two-argument buildResumeBrief contract (51-02) intact.
+  test('regression guard: two-arg buildResumeBrief(found:false, phaseInfo) -> resume_from "discuss", original brief_text unchanged', () => {
+    const checkpointData = { found: false, resume_from: null, last_step: null, step_status: null, plans_complete: null, plans_remaining: null, key_context: null };
+    const phaseInfo = { phase_number: '52', phase_name: 'never-started', directory: '.planning/phases/52-never-started' };
+
+    const brief = resilience.buildResumeBrief(checkpointData, phaseInfo);
+    assert.strictEqual(brief.resume_from, 'discuss');
+    assert.strictEqual(brief.brief_text, 'No prior checkpoint found -- starting phase 52 (never-started) from scratch.');
+    assert.ok(!brief.brief_text.includes('PHASE INVARIANTS'));
+  });
+});
+
+describe('Phase 54 handoff-brief wiring', () => {
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  const COORDINATOR_DETAIL_PATH = path.join(REPO_ROOT, 'get-shit-done', 'references', 'coordinator-detail.md');
+  const HANDOFF_BRIEF_PATH = path.join(REPO_ROOT, 'get-shit-done', 'references', 'handoff-brief.md');
+  const COORDINATOR_AGENT_PATH = path.join(REPO_ROOT, 'agents', 'gsd-phase-coordinator.md');
+  const EXECUTOR_AGENT_PATH = path.join(REPO_ROOT, 'agents', 'gsd-executor.md');
+  const VERIFIER_AGENT_PATH = path.join(REPO_ROOT, 'agents', 'gsd-verifier.md');
+  const PLANNER_AGENT_PATH = path.join(REPO_ROOT, 'agents', 'gsd-planner.md');
+  const DEBUGGER_AGENT_PATH = path.join(REPO_ROOT, 'agents', 'gsd-debugger.md');
+  const CORE_PREAMBLE_MARKER = '<!-- GSD:CORE-PREAMBLE-END -->';
+
+  // Guarded read helper: fails the assertion loudly (not an unhandled throw)
+  // if the expected file has moved/been deleted, per the plan's "missing
+  // input" category requirement.
+  function readRepoFile(absPath) {
+    assert.ok(fs.existsSync(absPath), `expected file to exist: ${absPath}`);
+    return fs.readFileSync(absPath, 'utf-8');
+  }
+
+  // Category 1: Happy path.
+  test('happy path: coordinator-detail.md injects <handoff_brief> at both executor branches and the verifier spawn, @-mentioning handoff-brief.md', () => {
+    const content = readRepoFile(COORDINATOR_DETAIL_PATH);
+
+    const executeStepIdx = content.indexOf('<step name="execute">');
+    const verifyStepIdx = content.indexOf('<step name="verify">');
+    assert.ok(executeStepIdx !== -1, 'expected an <step name="execute"> anchor');
+    assert.ok(verifyStepIdx !== -1, 'expected a <step name="verify"> anchor');
+    assert.ok(executeStepIdx < verifyStepIdx, 'expected the execute step to precede the verify step');
+
+    const executorRegion = content.slice(executeStepIdx, verifyStepIdx);
+    const verifierRegion = content.slice(verifyStepIdx);
+
+    const executorBriefCount = (executorRegion.match(/<handoff_brief>/g) || []).length;
+    const verifierBriefCount = (verifierRegion.match(/<handoff_brief>/g) || []).length;
+
+    assert.ok(executorBriefCount >= 2, `expected >= 2 <handoff_brief> occurrences in the executor spawn region (both PER_TASK_MODE branches), got ${executorBriefCount}`);
+    assert.ok(verifierBriefCount >= 1, `expected >= 1 <handoff_brief> occurrence in the verifier spawn region, got ${verifierBriefCount}`);
+
+    assert.ok(executorRegion.includes('handoff-brief.md'), 'expected handoff-brief.md to be @-mentioned in the executor spawn region');
+    assert.ok(verifierRegion.includes('handoff-brief.md'), 'expected handoff-brief.md to be @-mentioned in the verifier spawn region');
+  });
+
+  // Category 2: Missing/malformed input.
+  test('missing/malformed input: readRepoFile fails the assertion loudly (not an unhandled throw) for an absent path', () => {
+    const bogusPath = path.join(REPO_ROOT, 'get-shit-done', 'references', 'this-file-does-not-exist-54-04.md');
+    assert.throws(
+      () => readRepoFile(bogusPath),
+      /expected file to exist/,
+      'expected a clear assertion failure, not an unhandled exception, for a moved/absent file'
+    );
+  });
+
+  // Category 3: Edge case -- pointer line lives INSIDE the budget-measured preamble.
+  test('edge case: each of the 3 agent files carries its handoff-brief line BEFORE its own CORE-PREAMBLE-END marker', () => {
+    const agents = [
+      { path: COORDINATOR_AGENT_PATH, pattern: /handoff brief/i },
+      { path: EXECUTOR_AGENT_PATH, pattern: /handoff_brief/ },
+      { path: VERIFIER_AGENT_PATH, pattern: /handoff_brief/ },
+    ];
+
+    for (const { path: agentPath, pattern } of agents) {
+      const content = readRepoFile(agentPath);
+      const markerIdx = content.indexOf(CORE_PREAMBLE_MARKER);
+      const matchIdx = content.search(pattern);
+
+      assert.ok(markerIdx !== -1, `expected ${agentPath} to contain the CORE-PREAMBLE-END marker`);
+      assert.ok(matchIdx !== -1, `expected ${agentPath} to contain a handoff-brief acknowledgment matching ${pattern}`);
+      assert.ok(matchIdx < markerIdx, `expected the handoff-brief line in ${agentPath} to appear BEFORE CORE-PREAMBLE-END (matchIdx=${matchIdx}, markerIdx=${markerIdx})`);
+    }
+  });
+
+  // Category 4: Boundary -- blast radius confined to coordinator/executor/verifier.
+  test('boundary: gsd-planner.md and gsd-debugger.md do NOT contain a <handoff_brief> block', () => {
+    const plannerContent = readRepoFile(PLANNER_AGENT_PATH);
+    const debuggerContent = readRepoFile(DEBUGGER_AGENT_PATH);
+
+    assert.ok(!plannerContent.includes('<handoff_brief>'), 'expected gsd-planner.md to be untouched by the handoff-brief wiring');
+    assert.ok(!debuggerContent.includes('<handoff_brief>'), 'expected gsd-debugger.md to be untouched by the handoff-brief wiring');
+  });
+
+  // Category 5: Wiring/integration -- budgets still pass after the preamble additions.
+  test('wiring: checkAllBudgets reports pass:true overall and for coordinator/executor/verifier individually', () => {
+    const { checkAllBudgets } = require('./prompt-budget.js');
+    const result = checkAllBudgets(REPO_ROOT);
+
+    assert.strictEqual(result.pass, true, `expected checkAllBudgets to pass overall, got: ${JSON.stringify(result.results)}`);
+
+    const modifiedAgents = ['agents/gsd-phase-coordinator.md', 'agents/gsd-executor.md', 'agents/gsd-verifier.md'];
+    for (const relPath of modifiedAgents) {
+      const entry = result.results.find((r) => r.filePath === relPath);
+      assert.ok(entry, `expected a budget result entry for ${relPath}`);
+      assert.strictEqual(entry.pass, true, `expected ${relPath} to pass its budget, got ${entry.estimatedTokens}/${entry.budget}`);
+    }
+  });
+
+  // Category 6: Regression guard -- the single-source structure was not diluted by the wiring.
+  test('regression guard: handoff-brief.md still defines all 5 canonical section labels', () => {
+    const content = readRepoFile(HANDOFF_BRIEF_PATH);
+    const labels = ['Phase Goal', 'Key Decisions', 'Open Risks', 'File Map', 'Hard Rules'];
+    for (const label of labels) {
+      assert.ok(content.includes(label), `expected handoff-brief.md to still define the "${label}" section label`);
+    }
+  });
+});
+
+// Phase 55-01 (MILE-32): eval-candidate generation. Pure builders required
+// directly off the same `resilience` alias used by the Phase 51-02/54-01
+// suites above (both point at the same gsd-tools.js module.exports object).
+// Fixtures are built in a temp dir per test, mirroring createTempProject's
+// pattern, so builders are exercised against real files on disk (they read
+// via safeReadFile / gray-matter, not in-memory strings).
+describe('eval-candidate generation (Phase 55-01)', () => {
+  const {
+    buildEvalCandidateFromDebugFile,
+    buildEvalCandidatesFromVerificationFile,
+    writeEvalCandidates,
+  } = resilience;
+
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function writeDebugFixture(relPath, content) {
+    const fullPath = path.join(tmpDir, relPath);
+    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    fs.writeFileSync(fullPath, content, 'utf-8');
+    return fullPath;
+  }
+
+  const CONFIRMED_DEBUG_CONTENT = `---
+status: verifying
+trigger: "login button does nothing"
+created: 2026-01-01T00:00:00Z
+updated: 2026-01-01T00:05:00Z
+---
+
+## Current Focus
+
+hypothesis: n/a
+
+## Resolution
+
+root_cause: onClick handler never attached to the button element
+fix: attached onClick handler
+verification: manually clicked and it worked
+files_changed: [src/components/LoginButton.jsx]
+`;
+
+  const CONFIRMED_DEBUG_NO_FILES_CONTENT = `---
+status: verifying
+trigger: "some other trigger"
+---
+
+## Resolution
+
+root_cause: a different confirmed root cause
+fix: applied a fix
+verification: verified
+files_changed: []
+`;
+
+  const INCONCLUSIVE_DEBUG_CONTENT = `---
+status: investigating
+trigger: "still looking"
+---
+
+## Resolution
+
+root_cause: [empty until found]
+fix: [empty until applied]
+verification: [empty until verified]
+files_changed: []
+`;
+
+  const GAPS_FOUND_2_CONTENT = `---
+phase: 55-test-phase
+verified: 2026-01-01T00:00:00Z
+status: gaps_found
+score: 3/5 must-haves verified
+gaps:
+  - truth: "First truth failed"
+    status: failed
+    failure_type: stub
+    reason: "reason one"
+    artifacts:
+      - path: "src/a.js"
+        issue: "missing"
+    missing:
+      - "thing one"
+  - truth: "Second truth failed"
+    status: failed
+    failure_type: unwired
+    reason: "reason two"
+    artifacts:
+      - path: "src/b.js"
+        issue: "missing"
+    missing:
+      - "thing two"
+---
+
+# Verification Report
+`;
+
+  const STATUS_PASSED_CONTENT = `---
+phase: 55-test-phase
+verified: 2026-01-01T00:00:00Z
+status: passed
+score: 5/5 must-haves verified
+---
+
+# Verification Report
+`;
+
+  const GAP_NO_ARTIFACTS_CONTENT = `---
+phase: 55-test-phase
+status: gaps_found
+gaps:
+  - truth: "No artifacts truth"
+    status: failed
+    failure_type: missing_artifact
+    reason: "no artifacts recorded on this gap"
+    missing:
+      - "something"
+---
+`;
+
+  const GAPS_FOUND_EMPTY_ARRAY_CONTENT = `---
+phase: 55-test-phase
+status: gaps_found
+gaps: []
+---
+`;
+
+  const SAME_TRUTH_3_GAPS_CONTENT = `---
+phase: 55-test-phase
+status: gaps_found
+gaps:
+  - truth: "Duplicate truth text"
+    status: failed
+    failure_type: stub
+    reason: "reason a"
+    artifacts:
+      - path: "src/a.js"
+        issue: "missing"
+  - truth: "Duplicate truth text"
+    status: failed
+    failure_type: stub
+    reason: "reason b"
+    artifacts:
+      - path: "src/b.js"
+        issue: "missing"
+  - truth: "Duplicate truth text"
+    status: failed
+    failure_type: stub
+    reason: "reason c"
+    artifacts:
+      - path: "src/c.js"
+        issue: "missing"
+---
+`;
+
+  // Category 1: Happy path.
+  test('happy path: confirmed root_cause + files_changed -> candidate with all 7 schema keys, correct expected/status', () => {
+    const debugPath = writeDebugFixture('.planning/debug/fixture.md', CONFIRMED_DEBUG_CONTENT);
+    const candidate = buildEvalCandidateFromDebugFile(tmpDir, debugPath);
+
+    assert.ok(candidate, 'expected a non-null candidate');
+    const expectedKeys = ['id', 'source', 'created_at', 'title', 'context', 'expected', 'status'];
+    for (const key of expectedKeys) {
+      assert.ok(Object.prototype.hasOwnProperty.call(candidate, key), `expected candidate to have key "${key}"`);
+    }
+    assert.strictEqual(candidate.source, 'debugger');
+    assert.strictEqual(candidate.status, 'pending');
+    assert.deepStrictEqual(candidate.expected, { type: 'file_exists', file: 'src/components/LoginButton.jsx' });
+    assert.strictEqual(candidate.context.root_cause, 'onClick handler never attached to the button element');
+  });
+
+  test('happy path: status:gaps_found with 2 gaps -> exactly 2 candidates with distinct ids', () => {
+    const verificationPath = writeDebugFixture('.planning/phases/55-test-phase/55-VERIFICATION.md', GAPS_FOUND_2_CONTENT);
+    const candidates = buildEvalCandidatesFromVerificationFile(tmpDir, verificationPath);
+
+    assert.strictEqual(candidates.length, 2);
+    const ids = candidates.map((c) => c.id);
+    assert.strictEqual(new Set(ids).size, 2, 'expected 2 distinct ids');
+    for (const c of candidates) {
+      assert.strictEqual(c.source, 'verifier');
+      assert.strictEqual(c.status, 'pending');
+    }
+  });
+
+  // Category 2: Missing/malformed input.
+  test('missing/malformed: debug file with placeholder root_cause "[empty until found]" -> null', () => {
+    const debugPath = writeDebugFixture('.planning/debug/inconclusive.md', INCONCLUSIVE_DEBUG_CONTENT);
+    const candidate = buildEvalCandidateFromDebugFile(tmpDir, debugPath);
+    assert.strictEqual(candidate, null);
+  });
+
+  test('missing/malformed: VERIFICATION.md with status:passed (no gaps key) -> []', () => {
+    const verificationPath = writeDebugFixture('.planning/phases/55-test-phase/55-VERIFICATION.md', STATUS_PASSED_CONTENT);
+    const candidates = buildEvalCandidatesFromVerificationFile(tmpDir, verificationPath);
+    assert.deepStrictEqual(candidates, []);
+  });
+
+  test('missing/malformed: nonexistent debug/verification file paths -> null/[] respectively, no throw', () => {
+    const missingDebugPath = path.join(tmpDir, '.planning', 'debug', 'does-not-exist.md');
+    const missingVerificationPath = path.join(tmpDir, '.planning', 'phases', '55-test-phase', '55-VERIFICATION.md');
+
+    assert.doesNotThrow(() => buildEvalCandidateFromDebugFile(tmpDir, missingDebugPath));
+    assert.strictEqual(buildEvalCandidateFromDebugFile(tmpDir, missingDebugPath), null);
+
+    assert.doesNotThrow(() => buildEvalCandidatesFromVerificationFile(tmpDir, missingVerificationPath));
+    assert.deepStrictEqual(buildEvalCandidatesFromVerificationFile(tmpDir, missingVerificationPath), []);
+  });
+
+  // Category 3: Edge case.
+  test('edge case: debug file with root_cause set but no files_changed -> expected.file falls back to debug file\'s own relative path', () => {
+    const debugPath = writeDebugFixture('.planning/debug/no-files.md', CONFIRMED_DEBUG_NO_FILES_CONTENT);
+    const candidate = buildEvalCandidateFromDebugFile(tmpDir, debugPath);
+
+    assert.ok(candidate);
+    assert.deepStrictEqual(candidate.expected, { type: 'file_exists', file: path.relative(tmpDir, debugPath) });
+  });
+
+  test('edge case: gap with no artifacts entry -> expected.file falls back to VERIFICATION.md\'s own relative path', () => {
+    const verificationPath = writeDebugFixture('.planning/phases/55-test-phase/55-VERIFICATION.md', GAP_NO_ARTIFACTS_CONTENT);
+    const candidates = buildEvalCandidatesFromVerificationFile(tmpDir, verificationPath);
+
+    assert.strictEqual(candidates.length, 1);
+    assert.deepStrictEqual(candidates[0].expected, { type: 'file_exists', file: path.relative(tmpDir, verificationPath) });
+  });
+
+  // Category 4: Boundary.
+  test('boundary: status:gaps_found with an EMPTY gaps:[] array -> [] (no crash on contradictory-but-defensive case)', () => {
+    const verificationPath = writeDebugFixture('.planning/phases/55-test-phase/55-VERIFICATION.md', GAPS_FOUND_EMPTY_ARRAY_CONTENT);
+    assert.doesNotThrow(() => buildEvalCandidatesFromVerificationFile(tmpDir, verificationPath));
+    const candidates = buildEvalCandidatesFromVerificationFile(tmpDir, verificationPath);
+    assert.deepStrictEqual(candidates, []);
+  });
+
+  test('boundary: multiple gaps with IDENTICAL truth text in one call still produce non-colliding ids', () => {
+    const verificationPath = writeDebugFixture('.planning/phases/55-test-phase/55-VERIFICATION.md', SAME_TRUTH_3_GAPS_CONTENT);
+    const candidates = buildEvalCandidatesFromVerificationFile(tmpDir, verificationPath);
+
+    assert.strictEqual(candidates.length, 3);
+    const ids = candidates.map((c) => c.id);
+    assert.strictEqual(new Set(ids).size, ids.length, 'expected all 3 ids to be distinct even with identical truth text');
+  });
+
+  // Category 5: Wiring/integration.
+  test('wiring: `eval-candidate from-debug` CLI creates exactly one file under tests/eval-regressions/queue/', () => {
+    writeDebugFixture('.planning/debug/fixture.md', CONFIRMED_DEBUG_CONTENT);
+    const result = runGsdTools('eval-candidate from-debug .planning/debug/fixture.md --raw', tmpDir);
+    assert.ok(result.success, `expected CLI success, got: ${result.error}`);
+
+    const queueDir = path.join(tmpDir, 'tests', 'eval-regressions', 'queue');
+    const files = fs.readdirSync(queueDir).filter((f) => f.endsWith('.json'));
+    assert.strictEqual(files.length, 1);
+  });
+
+  test('wiring: `eval-candidate from-debug` CLI on placeholder root_cause creates zero files', () => {
+    writeDebugFixture('.planning/debug/inconclusive.md', INCONCLUSIVE_DEBUG_CONTENT);
+    const result = runGsdTools('eval-candidate from-debug .planning/debug/inconclusive.md --raw', tmpDir);
+    assert.ok(result.success, `expected CLI success (valid no-op), got: ${result.error}`);
+
+    const queueDir = path.join(tmpDir, 'tests', 'eval-regressions', 'queue');
+    const files = fs.existsSync(queueDir) ? fs.readdirSync(queueDir).filter((f) => f.endsWith('.json')) : [];
+    assert.strictEqual(files.length, 0);
+  });
+
+  test('wiring: `eval-candidate from-verification` CLI creates N files matching gap count, zero for status:passed', () => {
+    writeDebugFixture('.planning/phases/55-test-phase/55-VERIFICATION.md', GAPS_FOUND_2_CONTENT);
+    const gapsResult = runGsdTools('eval-candidate from-verification .planning/phases/55-test-phase/55-VERIFICATION.md --raw', tmpDir);
+    assert.ok(gapsResult.success, `expected CLI success, got: ${gapsResult.error}`);
+
+    const queueDir = path.join(tmpDir, 'tests', 'eval-regressions', 'queue');
+    const filesAfterGaps = fs.readdirSync(queueDir).filter((f) => f.endsWith('.json'));
+    assert.strictEqual(filesAfterGaps.length, 2);
+
+    // Second temp project for the zero-file passed case (isolated queue dir).
+    const passedTmpDir = createTempProject();
+    try {
+      const passedFullPath = path.join(passedTmpDir, '.planning', 'phases', '55-test-phase', '55-VERIFICATION.md');
+      fs.mkdirSync(path.dirname(passedFullPath), { recursive: true });
+      fs.writeFileSync(passedFullPath, STATUS_PASSED_CONTENT, 'utf-8');
+      const passedResult = runGsdTools('eval-candidate from-verification .planning/phases/55-test-phase/55-VERIFICATION.md --raw', passedTmpDir);
+      assert.ok(passedResult.success, `expected CLI success (valid no-op), got: ${passedResult.error}`);
+
+      const passedQueueDir = path.join(passedTmpDir, 'tests', 'eval-regressions', 'queue');
+      const filesAfterPassed = fs.existsSync(passedQueueDir) ? fs.readdirSync(passedQueueDir).filter((f) => f.endsWith('.json')) : [];
+      assert.strictEqual(filesAfterPassed.length, 0);
+    } finally {
+      cleanup(passedTmpDir);
+    }
+  });
+
+  // Category 6: Regression guard.
+  test('regression guard: buildHandoffBrief still returns its expected shape when required alongside the new eval-candidate builders', () => {
+    assert.strictEqual(typeof buildEvalCandidateFromDebugFile, 'function');
+    assert.strictEqual(typeof buildEvalCandidatesFromVerificationFile, 'function');
+    assert.strictEqual(typeof writeEvalCandidates, 'function');
+
+    const brief = resilience.buildHandoffBrief({ phase_number: 55, phase_name: 'failures-to-regression' });
+    assert.strictEqual(typeof brief.complete, 'boolean');
+    assert.ok(brief.brief_text.includes('55'));
+  });
+});
+
+// Phase 55-01 (MILE-32): structural grep-assertion + budget wiring tests --
+// house convention from Phases 48/52/54 -- proving the debugger/verifier
+// agent-wiring additions from Task 3 land at the correct point, are confined
+// to the correct blast radius, and do not regress prompt budgets.
+describe('Phase 55-01 eval-candidate agent wiring', () => {
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  const DEBUGGER_DETAIL_PATH = path.join(REPO_ROOT, 'get-shit-done', 'references', 'debugger-detail.md');
+  const VERIFIER_AGENT_PATH = path.join(REPO_ROOT, 'agents', 'gsd-verifier.md');
+  const PLANNER_AGENT_PATH = path.join(REPO_ROOT, 'agents', 'gsd-planner.md');
+  const EXECUTOR_AGENT_PATH = path.join(REPO_ROOT, 'agents', 'gsd-executor.md');
+
+  // Guarded read helper: fails the assertion loudly (not an unhandled throw)
+  // if the expected file has moved/been deleted.
+  function readRepoFile(absPath) {
+    assert.ok(fs.existsSync(absPath), `expected file to exist: ${absPath}`);
+    return fs.readFileSync(absPath, 'utf-8');
+  }
+
+  // Category 1: Happy path.
+  test('happy path: `eval-candidate from-debug` appears within the "Phase 4: Evaluate" region of debugger-detail.md', () => {
+    const content = readRepoFile(DEBUGGER_DETAIL_PATH);
+
+    const phase4Idx = content.indexOf('**Phase 4: Evaluate**');
+    assert.ok(phase4Idx !== -1, 'expected a "**Phase 4: Evaluate**" heading');
+
+    const afterHeading = phase4Idx + '**Phase 4: Evaluate**'.length;
+    const nextPhaseIdx = content.indexOf('**Phase', afterHeading);
+    const stepCloseIdx = content.indexOf('</step>', afterHeading);
+    const boundaryCandidates = [nextPhaseIdx, stepCloseIdx].filter((i) => i !== -1);
+    const boundaryIdx = boundaryCandidates.length ? Math.min(...boundaryCandidates) : content.length;
+
+    const phase4Region = content.slice(phase4Idx, boundaryIdx);
+    assert.ok(phase4Region.includes('eval-candidate from-debug'), 'expected "eval-candidate from-debug" inside the Phase 4: Evaluate region');
+  });
+
+  // Category 2: Missing/malformed input.
+  test('missing/malformed: guarded read helper fails loudly with a clear message when the real repo path is moved', () => {
+    const bogusPath = path.join(REPO_ROOT, 'get-shit-done', 'references', 'does-not-exist-debugger-detail.md');
+    assert.throws(() => readRepoFile(bogusPath), /expected file to exist/);
+  });
+
+  // Category 3: Edge case -- blast radius confined to the CONFIRMED point.
+  test('edge case: `eval-candidate from-debug` does NOT appear in the ELIMINATED bullet or return_diagnosis/request_human_verification step bodies', () => {
+    const content = readRepoFile(DEBUGGER_DETAIL_PATH);
+
+    const eliminatedIdx = content.indexOf('- **ELIMINATED:**');
+    assert.ok(eliminatedIdx !== -1, 'expected an "- **ELIMINATED:**" bullet');
+    const eliminatedLineEnd = content.indexOf('\n', eliminatedIdx);
+    const eliminatedBullet = content.slice(eliminatedIdx, eliminatedLineEnd === -1 ? content.length : eliminatedLineEnd);
+    assert.ok(!eliminatedBullet.includes('eval-candidate from-debug'), 'expected the ELIMINATED bullet to NOT invoke eval-candidate from-debug');
+
+    const returnDiagIdx = content.indexOf('<step name="return_diagnosis">');
+    assert.ok(returnDiagIdx !== -1, 'expected a return_diagnosis step');
+    const returnDiagEndIdx = content.indexOf('</step>', returnDiagIdx);
+    assert.ok(returnDiagEndIdx !== -1, 'expected return_diagnosis step to close with </step>');
+    const returnDiagBody = content.slice(returnDiagIdx, returnDiagEndIdx);
+    assert.ok(!returnDiagBody.includes('eval-candidate from-debug'), 'expected return_diagnosis step to NOT invoke eval-candidate from-debug');
+
+    const humanVerifyIdx = content.indexOf('<step name="request_human_verification">');
+    assert.ok(humanVerifyIdx !== -1, 'expected a request_human_verification step');
+    const humanVerifyEndIdx = content.indexOf('</step>', humanVerifyIdx);
+    assert.ok(humanVerifyEndIdx !== -1, 'expected request_human_verification step to close with </step>');
+    const humanVerifyBody = content.slice(humanVerifyIdx, humanVerifyEndIdx);
+    assert.ok(!humanVerifyBody.includes('eval-candidate from-debug'), 'expected request_human_verification step to NOT invoke eval-candidate from-debug');
+  });
+
+  // Category 4: Boundary -- correct placement in gsd-verifier.md's <output> section.
+  test('boundary: `eval-candidate from-verification` in gsd-verifier.md appears AFTER the VERIFICATION.md template closing fence and BEFORE "## Return to Orchestrator"', () => {
+    const content = readRepoFile(VERIFIER_AGENT_PATH);
+
+    const returnHeadingIdx = content.indexOf('## Return to Orchestrator');
+    assert.ok(returnHeadingIdx !== -1, 'expected a "## Return to Orchestrator" heading');
+
+    const evalCandidateIdx = content.indexOf('eval-candidate from-verification');
+    assert.ok(evalCandidateIdx !== -1, 'expected "eval-candidate from-verification" to appear in gsd-verifier.md');
+    assert.ok(evalCandidateIdx < returnHeadingIdx, 'expected eval-candidate from-verification to appear BEFORE "## Return to Orchestrator"');
+
+    // Closing fence of the VERIFICATION.md template block is the last ``` before "## Return to Orchestrator".
+    const templateRegion = content.slice(0, returnHeadingIdx);
+    const lastFenceIdx = templateRegion.lastIndexOf('```');
+    assert.ok(lastFenceIdx !== -1, 'expected a closing ``` fence before "## Return to Orchestrator"');
+    assert.ok(evalCandidateIdx > lastFenceIdx, 'expected eval-candidate from-verification to appear AFTER the VERIFICATION.md template closing fence');
+  });
+
+  // Category 5: Wiring/integration -- budgets still pass after the digest/output additions.
+  test('wiring: checkAllBudgets reports pass:true overall and for gsd-debugger/gsd-verifier individually', () => {
+    const { checkAllBudgets } = require('./prompt-budget.js');
+    const result = checkAllBudgets(REPO_ROOT);
+
+    assert.strictEqual(result.pass, true, `expected checkAllBudgets to pass overall, got: ${JSON.stringify(result.results)}`);
+
+    const modifiedAgents = ['agents/gsd-debugger.md', 'agents/gsd-verifier.md'];
+    for (const relPath of modifiedAgents) {
+      const entry = result.results.find((r) => r.filePath === relPath);
+      assert.ok(entry, `expected a budget result entry for ${relPath}`);
+      assert.strictEqual(entry.pass, true, `expected ${relPath} to pass its budget, got ${entry.estimatedTokens}/${entry.budget}`);
+    }
+  });
+
+  // Category 6: Regression guard -- blast radius stayed within debugger/verifier.
+  test('regression guard: gsd-planner.md and gsd-executor.md do NOT contain "eval-candidate"', () => {
+    const plannerContent = readRepoFile(PLANNER_AGENT_PATH);
+    const executorContent = readRepoFile(EXECUTOR_AGENT_PATH);
+
+    assert.ok(!plannerContent.includes('eval-candidate'), 'expected gsd-planner.md to be untouched by the eval-candidate wiring');
+    assert.ok(!executorContent.includes('eval-candidate'), 'expected gsd-executor.md to be untouched by the eval-candidate wiring');
+  });
+});
+
+// Phase 55-02 (MILE-32): review-queue lifecycle -- validateEvalCandidateSchema
+// (pure) plus the list/accept/reject CLI built on top of it. Mirrors the
+// 55-01 describe block's createTempProject/cleanup + runGsdTools conventions;
+// candidates are hand-seeded as JSON files directly into a temp
+// tests/eval-regressions/queue/ dir (rather than generated via from-debug/
+// from-verification) so each test controls the exact shape under test,
+// including deliberately-invalid hand-edited shapes.
+describe('eval-candidate review queue (Phase 55-02)', () => {
+  const { validateEvalCandidateSchema } = resilience;
+
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function queueDirPath(dir = tmpDir) {
+    return path.join(dir, 'tests', 'eval-regressions', 'queue');
+  }
+
+  function acceptedDirPath(dir = tmpDir) {
+    return path.join(dir, 'tests', 'eval-regressions', 'accepted');
+  }
+
+  function archivedDirPath(dir = tmpDir) {
+    return path.join(dir, 'tests', 'eval-regressions', 'archived');
+  }
+
+  function validCandidate(overrides = {}) {
+    return {
+      id: 'cand-valid-1',
+      source: 'debugger',
+      created_at: '2026-01-01T00:00:00.000Z',
+      title: 'A valid candidate',
+      context: { phase: null, root_cause: 'x', gap_description: null, debug_file: null, verification_file: null },
+      expected: { type: 'file_exists', file: 'src/foo.js' },
+      status: 'pending',
+      ...overrides,
+    };
+  }
+
+  function seedQueueFile(id, content) {
+    const dir = queueDirPath();
+    fs.mkdirSync(dir, { recursive: true });
+    const filePath = path.join(dir, `${id}.json`);
+    fs.writeFileSync(filePath, content, 'utf-8');
+    return filePath;
+  }
+
+  function seedQueueCandidate(candidate) {
+    return seedQueueFile(candidate.id, JSON.stringify(candidate, null, 2));
+  }
+
+  // Category 1: Happy path.
+  test('happy path: fully valid candidate object -> validateEvalCandidateSchema returns {valid:true, errors:[]}', () => {
+    const result = validateEvalCandidateSchema(validCandidate());
+    assert.deepStrictEqual(result, { valid: true, errors: [] });
+  });
+
+  test('happy path: `eval-candidate accept` moves a valid queued candidate to accepted/ with status:"accepted" and removes it from queue/', () => {
+    seedQueueCandidate(validCandidate({ id: 'cand-happy' }));
+
+    const result = runGsdTools('eval-candidate accept cand-happy --raw', tmpDir);
+    assert.ok(result.success, `expected CLI success, got: ${result.error}`);
+
+    const acceptedPath = path.join(acceptedDirPath(), 'cand-happy.json');
+    assert.ok(fs.existsSync(acceptedPath), 'expected candidate to exist in accepted/');
+    const accepted = JSON.parse(fs.readFileSync(acceptedPath, 'utf-8'));
+    assert.strictEqual(accepted.status, 'accepted');
+    assert.ok(accepted.accepted_at, 'expected an accepted_at timestamp');
+
+    const queuePath = path.join(queueDirPath(), 'cand-happy.json');
+    assert.ok(!fs.existsSync(queuePath), 'expected candidate to no longer exist in queue/');
+  });
+
+  // Category 2: Missing/malformed input.
+  test('missing/malformed: candidate missing `expected` -> valid:false with "missing required key: expected"', () => {
+    const candidate = validCandidate();
+    delete candidate.expected;
+    const result = validateEvalCandidateSchema(candidate);
+    assert.strictEqual(result.valid, false);
+    assert.ok(result.errors.includes('missing required key: expected'), `expected "missing required key: expected" in ${JSON.stringify(result.errors)}`);
+  });
+
+  test('missing/malformed: `eval-candidate accept` on invalid JSON in queue/ exits non-zero, leaves file untouched, stdout mentions malformed_candidate', () => {
+    seedQueueFile('cand-broken', '{ not valid json');
+
+    const result = runGsdTools('eval-candidate accept cand-broken --raw', tmpDir);
+    assert.strictEqual(result.success, false, 'expected non-zero exit');
+    assert.ok(result.output.includes('malformed_candidate'), `expected "malformed_candidate" in output: ${result.output}`);
+
+    const queuePath = path.join(queueDirPath(), 'cand-broken.json');
+    assert.ok(fs.existsSync(queuePath), 'expected the malformed file to remain in queue/ untouched');
+    assert.strictEqual(fs.readFileSync(queuePath, 'utf-8'), '{ not valid json');
+  });
+
+  // Category 3: Edge case.
+  test('edge case: expected.type "file_contains" without expected.needle -> valid:false with the needle-specific error', () => {
+    const candidate = validCandidate({ expected: { type: 'file_contains', file: 'src/foo.js' } });
+    const result = validateEvalCandidateSchema(candidate);
+    assert.strictEqual(result.valid, false);
+    assert.ok(
+      result.errors.includes('expected.needle is required for file_contains/file_not_contains'),
+      `expected the needle-specific error in ${JSON.stringify(result.errors)}`
+    );
+  });
+
+  test('edge case: `eval-candidate accept` re-validates and REJECTS a hand-edited candidate that is now schema-invalid, leaving it in queue/', () => {
+    // Hand-edited to a previously-valid-looking but now-broken shape: file_contains with no needle.
+    seedQueueCandidate(validCandidate({ id: 'cand-hand-edited', expected: { type: 'file_contains', file: 'src/foo.js' } }));
+
+    const result = runGsdTools('eval-candidate accept cand-hand-edited --raw', tmpDir);
+    assert.strictEqual(result.success, false, 'expected non-zero exit on schema-invalid hand-edited candidate');
+    assert.ok(result.output.includes('invalid_candidate_schema'), `expected "invalid_candidate_schema" in output: ${result.output}`);
+    const parsedOutput = JSON.parse(result.output);
+    assert.ok(Array.isArray(parsedOutput.errors) && parsedOutput.errors.length > 0, 'expected a non-empty errors array');
+
+    const queuePath = path.join(queueDirPath(), 'cand-hand-edited.json');
+    assert.ok(fs.existsSync(queuePath), 'expected the invalid hand-edited candidate to remain in queue/');
+    const acceptedPath = path.join(acceptedDirPath(), 'cand-hand-edited.json');
+    assert.ok(!fs.existsSync(acceptedPath), 'expected the invalid hand-edited candidate to NOT be promoted to accepted/');
+  });
+
+  // Category 4: Boundary.
+  test('boundary: `eval-candidate reject` on a candidate that already has a `reason` appends (never overwrites) the new reason', () => {
+    seedQueueCandidate(validCandidate({ id: 'cand-reasoned', reason: 'first reason' }));
+
+    const result = runGsdTools('eval-candidate reject cand-reasoned --reason "second reason" --raw', tmpDir);
+    assert.ok(result.success, `expected CLI success, got: ${result.error}`);
+
+    const archivedPath = path.join(archivedDirPath(), 'cand-reasoned.json');
+    assert.ok(fs.existsSync(archivedPath), 'expected candidate to exist in archived/');
+    const archived = JSON.parse(fs.readFileSync(archivedPath, 'utf-8'));
+    assert.strictEqual(archived.status, 'rejected');
+    assert.strictEqual(archived.reason, 'first reason; second reason');
+    assert.ok(archived.rejected_at, 'expected a rejected_at timestamp');
+
+    const queuePath = path.join(queueDirPath(), 'cand-reasoned.json');
+    assert.ok(!fs.existsSync(queuePath), 'expected candidate to no longer exist in queue/ (moved, not copied)');
+  });
+
+  // Category 5: Wiring/integration.
+  test('wiring: `eval-candidate list` reflects queue/accepted/archived contents correctly after one accept and one reject', () => {
+    seedQueueCandidate(validCandidate({ id: 'cand-list-accept' }));
+    seedQueueCandidate(validCandidate({ id: 'cand-list-reject' }));
+    seedQueueCandidate(validCandidate({ id: 'cand-list-remains' }));
+
+    const acceptResult = runGsdTools('eval-candidate accept cand-list-accept --raw', tmpDir);
+    assert.ok(acceptResult.success, `expected accept success, got: ${acceptResult.error}`);
+    const rejectResult = runGsdTools('eval-candidate reject cand-list-reject --reason "not reproducible" --raw', tmpDir);
+    assert.ok(rejectResult.success, `expected reject success, got: ${rejectResult.error}`);
+
+    const queueListResult = runGsdTools('eval-candidate list --raw', tmpDir);
+    assert.ok(queueListResult.success, `expected list success, got: ${queueListResult.error}`);
+    const queueList = JSON.parse(queueListResult.output);
+    assert.strictEqual(queueList.dir, 'queue');
+    assert.strictEqual(queueList.count, 1);
+    assert.strictEqual(queueList.candidates[0].id, 'cand-list-remains');
+
+    const acceptedListResult = runGsdTools('eval-candidate list accepted --raw', tmpDir);
+    assert.ok(acceptedListResult.success, `expected list success, got: ${acceptedListResult.error}`);
+    const acceptedList = JSON.parse(acceptedListResult.output);
+    assert.strictEqual(acceptedList.count, 1);
+    assert.strictEqual(acceptedList.candidates[0].id, 'cand-list-accept');
+    assert.strictEqual(acceptedList.candidates[0].status, 'accepted');
+
+    const archivedListResult = runGsdTools('eval-candidate list archived --raw', tmpDir);
+    assert.ok(archivedListResult.success, `expected list success, got: ${archivedListResult.error}`);
+    const archivedList = JSON.parse(archivedListResult.output);
+    assert.strictEqual(archivedList.count, 1);
+    assert.strictEqual(archivedList.candidates[0].id, 'cand-list-reject');
+    assert.strictEqual(archivedList.candidates[0].status, 'rejected');
+  });
+
+  // Category 6: Regression guard.
+  test('regression guard: `eval-candidate from-debug`/`from-verification` (55-01) still land fresh candidates in queue/ unmodified', () => {
+    const debugFixture = path.join(tmpDir, '.planning', 'debug', 'fixture.md');
+    fs.mkdirSync(path.dirname(debugFixture), { recursive: true });
+    fs.writeFileSync(debugFixture, `---
+status: verifying
+trigger: "regression guard trigger"
+---
+
+## Resolution
+
+root_cause: still confirmed after 55-02 CLI additions
+fix: n/a
+verification: n/a
+files_changed: [src/regression-guard.js]
+`, 'utf-8');
+
+    const fromDebugResult = runGsdTools('eval-candidate from-debug .planning/debug/fixture.md --raw', tmpDir);
+    assert.ok(fromDebugResult.success, `expected from-debug CLI success, got: ${fromDebugResult.error}`);
+    const queueFilesAfterDebug = fs.readdirSync(queueDirPath()).filter((f) => f.endsWith('.json'));
+    assert.strictEqual(queueFilesAfterDebug.length, 1, 'expected exactly one candidate written by from-debug');
+
+    const verificationFixture = path.join(tmpDir, '.planning', 'phases', '55-test-phase', '55-VERIFICATION.md');
+    fs.mkdirSync(path.dirname(verificationFixture), { recursive: true });
+    fs.writeFileSync(verificationFixture, `---
+phase: 55-test-phase
+status: gaps_found
+gaps:
+  - truth: "Regression guard gap"
+    status: failed
+    failure_type: stub
+    reason: "still works after 55-02 CLI additions"
+    artifacts:
+      - path: "src/regression-guard-gap.js"
+        issue: "missing"
+---
+`, 'utf-8');
+
+    const fromVerificationResult = runGsdTools('eval-candidate from-verification .planning/phases/55-test-phase/55-VERIFICATION.md --raw', tmpDir);
+    assert.ok(fromVerificationResult.success, `expected from-verification CLI success, got: ${fromVerificationResult.error}`);
+    const queueFilesAfterBoth = fs.readdirSync(queueDirPath()).filter((f) => f.endsWith('.json'));
+    assert.strictEqual(queueFilesAfterBoth.length, 2, 'expected a second candidate written by from-verification, alongside the from-debug one');
+  });
+});
+
+// MILE-32 (Phase 55-03): cross-cutting integration tests. Unlike the 55-01
+// and 55-02 describe blocks above (which unit-test individual CLI commands
+// in isolation), these tests chain multiple real CLI invocations against ONE
+// temp cwd per test (via runGsdTools/execSync, never direct function calls)
+// to prove the full "a failure becomes a permanent regression eval" pipeline
+// actually works end-to-end: candidate generation from a seeded debug
+// session, review-queue accept/reject transitions, CI pickup of an accepted
+// fixture (including the regression it exists to catch), and loud handling
+// of a malformed committed candidate file.
+describe('MILE-32 end-to-end: failures become permanent regression evals (Phase 55)', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function queueDirPath(dir = tmpDir) {
+    return path.join(dir, 'tests', 'eval-regressions', 'queue');
+  }
+
+  function acceptedDirPath(dir = tmpDir) {
+    return path.join(dir, 'tests', 'eval-regressions', 'accepted');
+  }
+
+  function archivedDirPath(dir = tmpDir) {
+    return path.join(dir, 'tests', 'eval-regressions', 'archived');
+  }
+
+  function writeDebugFixture(relPath, content) {
+    const fullPath = path.join(tmpDir, relPath);
+    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    fs.writeFileSync(fullPath, content, 'utf-8');
+    return fullPath;
+  }
+
+  function validCandidate(overrides = {}) {
+    return {
+      id: 'cand-valid-1',
+      source: 'debugger',
+      created_at: '2026-01-01T00:00:00.000Z',
+      title: 'A valid candidate',
+      context: { phase: null, root_cause: 'x', gap_description: null, debug_file: null, verification_file: null },
+      expected: { type: 'file_exists', file: 'src/foo.js' },
+      status: 'pending',
+      ...overrides,
+    };
+  }
+
+  function seedQueueFile(id, content) {
+    const dir = queueDirPath();
+    fs.mkdirSync(dir, { recursive: true });
+    const filePath = path.join(dir, `${id}.json`);
+    fs.writeFileSync(filePath, content, 'utf-8');
+    return filePath;
+  }
+
+  function seedQueueCandidate(candidate) {
+    return seedQueueFile(candidate.id, JSON.stringify(candidate, null, 2));
+  }
+
+  function seedAcceptedCandidate(candidate) {
+    const dir = acceptedDirPath();
+    fs.mkdirSync(dir, { recursive: true });
+    const filePath = path.join(dir, `${candidate.id}.json`);
+    fs.writeFileSync(filePath, JSON.stringify(candidate, null, 2), 'utf-8');
+    return filePath;
+  }
+
+  const CONFIRMED_LEAK_DEBUG_CONTENT = `---
+status: verifying
+trigger: "memory leak in worker pool"
+created: 2026-01-01T00:00:00Z
+updated: 2026-01-01T00:05:00Z
+---
+
+## Current Focus
+
+hypothesis: n/a
+
+## Resolution
+
+root_cause: worker pool never released event listeners on shutdown
+fix: added removeAllListeners on worker.terminate()
+verification: ran load test, memory stable
+files_changed: [src/workers/pool.js]
+`;
+
+  const INCONCLUSIVE_LEAK_DEBUG_CONTENT = `---
+status: investigating
+trigger: "still looking"
+---
+
+## Resolution
+
+root_cause: [empty until found]
+fix: [empty until applied]
+verification: [empty until verified]
+files_changed: []
+`;
+
+  // Scenario (a), happy path: a debug session with a confirmed root_cause
+  // produces exactly one well-formed candidate in queue/.
+  test('scenario (a) happy path: `eval-candidate from-debug` on a confirmed debug session writes exactly one 7-key-schema candidate to queue/', () => {
+    writeDebugFixture('.planning/debug/leak.md', CONFIRMED_LEAK_DEBUG_CONTENT);
+
+    const result = runGsdTools('eval-candidate from-debug .planning/debug/leak.md', tmpDir);
+    assert.ok(result.success, `expected CLI success, got: ${result.error}`);
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.written, true);
+    assert.strictEqual(parsed.paths.length, 1);
+
+    const files = fs.readdirSync(queueDirPath()).filter((f) => f.endsWith('.json'));
+    assert.strictEqual(files.length, 1, 'expected exactly one candidate file in queue/');
+
+    const candidate = JSON.parse(fs.readFileSync(path.join(queueDirPath(), files[0]), 'utf-8'));
+    const expectedKeys = ['id', 'source', 'created_at', 'title', 'context', 'expected', 'status'];
+    assert.deepStrictEqual(Object.keys(candidate).sort(), [...expectedKeys].sort());
+    assert.strictEqual(candidate.source, 'debugger');
+    assert.strictEqual(candidate.status, 'pending');
+    assert.strictEqual(candidate.context.root_cause, 'worker pool never released event listeners on shutdown');
+    assert.deepStrictEqual(candidate.expected, { type: 'file_exists', file: 'src/workers/pool.js' });
+  });
+
+  // Scenario (a), inverse: an INVESTIGATION INCONCLUSIVE debug session (the
+  // root_cause placeholder still intact) must write NOTHING to queue/.
+  test('scenario (a) inverse: `eval-candidate from-debug` on an inconclusive debug session (placeholder root_cause) writes nothing to queue/', () => {
+    writeDebugFixture('.planning/debug/leak.md', INCONCLUSIVE_LEAK_DEBUG_CONTENT);
+
+    const result = runGsdTools('eval-candidate from-debug .planning/debug/leak.md', tmpDir);
+    assert.ok(result.success, `expected CLI success (valid no-op), got: ${result.error}`);
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.written, false);
+    assert.strictEqual(parsed.reason, 'no confirmed root_cause found in debug file');
+
+    const files = fs.existsSync(queueDirPath()) ? fs.readdirSync(queueDirPath()).filter((f) => f.endsWith('.json')) : [];
+    assert.strictEqual(files.length, 0, 'expected queue/ file count to be unchanged (still zero)');
+  });
+
+  // Scenario (b), happy path: a candidate generated by (a) is then accepted
+  // via the real CLI -- proves the generation -> review-queue pipeline
+  // chains correctly, not just each command in isolation.
+  test('scenario (b) happy path: a from-debug-generated candidate is accepted -> moves to accepted/ with status:"accepted", removed from queue/', () => {
+    writeDebugFixture('.planning/debug/leak.md', CONFIRMED_LEAK_DEBUG_CONTENT);
+    const genResult = runGsdTools('eval-candidate from-debug .planning/debug/leak.md', tmpDir);
+    assert.ok(genResult.success, `expected generation CLI success, got: ${genResult.error}`);
+
+    const queueFiles = fs.readdirSync(queueDirPath()).filter((f) => f.endsWith('.json'));
+    assert.strictEqual(queueFiles.length, 1);
+    const id = queueFiles[0].replace(/\.json$/, '');
+
+    const acceptResult = runGsdTools(`eval-candidate accept ${id}`, tmpDir);
+    assert.ok(acceptResult.success, `expected accept CLI success, got: ${acceptResult.error}`);
+    const acceptParsed = JSON.parse(acceptResult.output);
+    assert.strictEqual(acceptParsed.accepted, true);
+    assert.strictEqual(acceptParsed.id, id);
+
+    const acceptedPath = path.join(acceptedDirPath(), `${id}.json`);
+    assert.ok(fs.existsSync(acceptedPath), 'expected candidate to exist in accepted/');
+    const accepted = JSON.parse(fs.readFileSync(acceptedPath, 'utf-8'));
+    assert.strictEqual(accepted.status, 'accepted');
+    assert.ok(accepted.accepted_at, 'expected an accepted_at timestamp to have been added');
+
+    const queuePath = path.join(queueDirPath(), `${id}.json`);
+    assert.ok(!fs.existsSync(queuePath), 'expected candidate to no longer exist in queue/ (moved, not copied)');
+  });
+
+  // Scenario (b), inverse: a hand-seeded queue candidate is rejected via the
+  // real CLI -- archived (never fully deleted from disk), status flips to
+  // "rejected", and the given --reason text is recorded.
+  test('scenario (b) inverse: `eval-candidate reject <id> --reason "flaky"` archives the candidate with status:"rejected" and the given reason, not deleted', () => {
+    seedQueueCandidate(validCandidate({ id: 'cand-reject-me' }));
+
+    const result = runGsdTools('eval-candidate reject cand-reject-me --reason "flaky"', tmpDir);
+    assert.ok(result.success, `expected reject CLI success, got: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.rejected, true);
+    assert.strictEqual(parsed.id, 'cand-reject-me');
+
+    const archivedPath = path.join(archivedDirPath(), 'cand-reject-me.json');
+    assert.ok(fs.existsSync(archivedPath), 'expected candidate to exist (archived, not deleted) in archived/');
+    const archived = JSON.parse(fs.readFileSync(archivedPath, 'utf-8'));
+    assert.strictEqual(archived.status, 'rejected');
+    assert.ok(archived.reason.includes('flaky'), `expected reason to contain "flaky", got: ${archived.reason}`);
+    assert.ok(archived.rejected_at, 'expected a rejected_at timestamp to have been added');
+
+    const queuePath = path.join(queueDirPath(), 'cand-reject-me.json');
+    assert.ok(!fs.existsSync(queuePath), 'expected candidate to no longer exist in queue/');
+  });
+
+  // Scenario (c): CI pickup of an accepted fixture actually catches a
+  // regression -- the same command reports pass:true while the real file it
+  // targets exists, then pass:false (and exits non-zero) the moment that
+  // file is removed, proving CI would genuinely fail the build.
+  test('scenario (c): `eval regress` reports pass:true while the target file exists, then pass:false/exit-1 once it is deleted', () => {
+    fs.mkdirSync(path.join(tmpDir, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'src', 'marker.txt'), 'marker content', 'utf-8');
+    seedAcceptedCandidate(validCandidate({
+      id: 'cand-marker',
+      status: 'accepted',
+      expected: { type: 'file_exists', file: 'src/marker.txt' },
+    }));
+
+    const passResult = runGsdTools('eval regress tests/eval-regressions/accepted --project-root .', tmpDir);
+    assert.ok(passResult.success, `expected exit 0 while marker.txt exists, got: ${passResult.error}`);
+    const passParsed = JSON.parse(passResult.output);
+    assert.strictEqual(passParsed.pass, true);
+    assert.strictEqual(passParsed.total, 1);
+    assert.strictEqual(passParsed.executed[0].pass, true);
+
+    fs.unlinkSync(path.join(tmpDir, 'src', 'marker.txt'));
+
+    const failResult = runGsdTools('eval regress tests/eval-regressions/accepted --project-root .', tmpDir);
+    assert.strictEqual(failResult.success, false, 'expected non-zero exit once marker.txt is deleted');
+    const failParsed = JSON.parse(failResult.output);
+    assert.strictEqual(failParsed.pass, false);
+    assert.strictEqual(failParsed.executed[0].pass, false);
+    assert.strictEqual(failParsed.executed[0].id, 'cand-marker');
+  });
+
+  // Scenario (d): a malformed (invalid JSON) file placed directly in
+  // accepted/ is a loud, explicit, non-crashing failure -- named in the
+  // `malformed` array, never silently dropped -- and fails the whole run.
+  test('scenario (d): a malformed (invalid JSON) file in accepted/ is reported by name in `malformed`, and the CLI exits non-zero without crashing', () => {
+    const acceptedDir = acceptedDirPath();
+    fs.mkdirSync(acceptedDir, { recursive: true });
+    fs.writeFileSync(path.join(acceptedDir, 'bad.json'), '{not valid json', 'utf-8');
+
+    const result = runGsdTools('eval regress tests/eval-regressions/accepted --project-root .', tmpDir);
+    assert.strictEqual(result.success, false, 'expected non-zero exit due to the malformed committed candidate');
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.pass, false);
+    assert.ok(Array.isArray(parsed.malformed), 'expected a malformed array in the result');
+    const malformedEntry = parsed.malformed.find((m) => m.file === 'bad.json');
+    assert.ok(malformedEntry, `expected an entry naming bad.json in malformed, got: ${JSON.stringify(parsed.malformed)}`);
+    assert.strictEqual(malformedEntry.valid, false);
+  });
+
+  // Regression guard: the full loop -- generate from a debug session, accept
+  // it, then have `eval regress` pick up the now-accepted fixture and pass --
+  // still works end-to-end when every step is chained in one continuous run,
+  // proving "a failure becomes a permanent, CI-verified regression eval" is
+  // not just true of each command in isolation.
+  test('regression guard: full pipeline (from-debug -> accept -> eval regress) chains correctly end-to-end in one continuous run', () => {
+    fs.mkdirSync(path.join(tmpDir, 'src', 'workers'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'src', 'workers', 'pool.js'), '// pool implementation\n', 'utf-8');
+    writeDebugFixture('.planning/debug/leak.md', CONFIRMED_LEAK_DEBUG_CONTENT);
+
+    const genResult = runGsdTools('eval-candidate from-debug .planning/debug/leak.md', tmpDir);
+    assert.ok(genResult.success, `expected generation CLI success, got: ${genResult.error}`);
+    const queueFiles = fs.readdirSync(queueDirPath()).filter((f) => f.endsWith('.json'));
+    assert.strictEqual(queueFiles.length, 1);
+    const id = queueFiles[0].replace(/\.json$/, '');
+
+    const acceptResult = runGsdTools(`eval-candidate accept ${id}`, tmpDir);
+    assert.ok(acceptResult.success, `expected accept CLI success, got: ${acceptResult.error}`);
+    assert.ok(fs.existsSync(path.join(acceptedDirPath(), `${id}.json`)), 'expected accepted candidate on disk');
+
+    const regressResult = runGsdTools('eval regress tests/eval-regressions/accepted --project-root .', tmpDir);
+    assert.ok(regressResult.success, `expected eval regress to pass since src/workers/pool.js exists, got: ${regressResult.error}`);
+    const regressParsed = JSON.parse(regressResult.output);
+    assert.strictEqual(regressParsed.pass, true);
+    assert.strictEqual(regressParsed.total, 1);
+    assert.strictEqual(regressParsed.executed[0].id, id);
+    assert.strictEqual(regressParsed.executed[0].pass, true);
+  });
+});
+
+// MILE-33 (Phase 56-03): cross-cutting integration tests. Mirrors the
+// MILE-32 block above's pattern exactly -- each test builds its own isolated
+// temp project via createTempProject() (a fixture `agents/` dir, temp
+// `.planning/telemetry/agent-reports.jsonl`, temp
+// `tests/eval-regressions/accepted/`, temp `get-shit-done/config/
+// prompt-budgets.json` -- NEVER the real repo's agents/ or .planning/
+// trees), then drives the real `prompt-optimize --agent <name>` CLI
+// subprocess via runGsdTools. Covers all 5 required MILE-33 scenarios:
+// diagnosis generation from seeded telemetry failures, budget-violation
+// rejection, eval-failure rejection, the no-signal path, and diff format
+// validity on the real written candidate.diff file.
+describe('MILE-33 end-to-end: reflective prompt optimization (Phase 56)', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  const FIXTURE_AGENT_A_CONTENT = `# GSD Fixture Agent A
+
+This is a short preamble for the fixture agent used by Phase 56-03's
+MILE-33 integration tests.
+
+<!-- GSD:CORE-PREAMBLE-END -->
+
+## Detail Section
+
+Extra detail content that lives after the core preamble marker.
+`;
+
+  const FIXTURE_AGENT_B_CONTENT = `# GSD Fixture Agent B
+
+A second, unrelated fixture agent with no telemetry or eval signal at all.
+
+<!-- GSD:CORE-PREAMBLE-END -->
+
+## Detail Section
+
+Nothing interesting here.
+`;
+
+  const SEEDED_AMBIGUITY_TEXT = 'unclear scope boundary for fixture task X';
+
+  function writeFixtureAgent(fileName, content) {
+    const dir = path.join(tmpDir, 'agents');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, fileName), content, 'utf-8');
+  }
+
+  function seedTelemetryEntry(agentName, extra = {}) {
+    const dir = path.join(tmpDir, '.planning', 'telemetry');
+    fs.mkdirSync(dir, { recursive: true });
+    const entry = {
+      agent: agentName,
+      timestamp: '2026-01-01T00:00:00.000Z',
+      ambiguities: [SEEDED_AMBIGUITY_TEXT],
+      instructions_not_followed: [],
+      tool_errors_swallowed: 0,
+      ...extra,
+    };
+    fs.appendFileSync(path.join(dir, 'agent-reports.jsonl'), JSON.stringify(entry) + '\n', 'utf-8');
+  }
+
+  function seedBudgetConfig(map) {
+    const dir = path.join(tmpDir, 'get-shit-done', 'config');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'prompt-budgets.json'), JSON.stringify(map, null, 2), 'utf-8');
+  }
+
+  function seedAcceptedEvalCandidate(candidate) {
+    const dir = path.join(tmpDir, 'tests', 'eval-regressions', 'accepted');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, `${candidate.id}.json`), JSON.stringify(candidate, null, 2), 'utf-8');
+  }
+
+  function forbiddenStringCandidate() {
+    return {
+      id: 'cand-fixture-a-never-appears',
+      source: 'debugger',
+      created_at: '2026-01-01T00:00:00.000Z',
+      title: 'gsd-fixture-a must never contain a forbidden string',
+      context: { agent: 'gsd-fixture-a', phase: null, root_cause: 'x', gap_description: null, debug_file: null, verification_file: null },
+      expected: { type: 'file_contains', file: 'agents/gsd-fixture-a.md', needle: 'THIS_STRING_WILL_NEVER_APPEAR_IN_THE_REVISION' },
+      status: 'accepted',
+    };
+  }
+
+  // Scenario (a): diagnosis generation from seeded telemetry failures.
+  test('scenario (a): diagnosis generation from seeded telemetry produces ready_for_review with diagnosis+diff files on disk', () => {
+    writeFixtureAgent('gsd-fixture-a.md', FIXTURE_AGENT_A_CONTENT);
+    seedTelemetryEntry('gsd-fixture-a');
+    seedBudgetConfig({ 'agents/gsd-fixture-a.md': 100000 });
+
+    const result = runGsdTools('prompt-optimize --agent gsd-fixture-a', tmpDir);
+    assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.status, 'ready_for_review');
+    assert.strictEqual(parsed.agent, 'gsd-fixture-a');
+
+    const diagnosisFullPath = path.join(tmpDir, parsed.diagnosisPath);
+    const diffFullPath = path.join(tmpDir, parsed.diffPath);
+    assert.ok(fs.existsSync(diagnosisFullPath), `expected diagnosis file to exist at ${diagnosisFullPath}`);
+    assert.ok(fs.existsSync(diffFullPath), `expected diff file to exist at ${diffFullPath}`);
+
+    const diagnosisContent = fs.readFileSync(diagnosisFullPath, 'utf-8');
+    assert.ok(diagnosisContent.includes('gsd-fixture-a'), 'expected diagnosis file to name the agent');
+
+    const diffContent = fs.readFileSync(diffFullPath, 'utf-8');
+    assert.ok(diffContent.includes(SEEDED_AMBIGUITY_TEXT), 'expected candidate diff to contain the seeded ambiguity text');
+  });
+
+  // Scenario (a), gate-results check: both gates pass on a generous budget
+  // with no conflicting accepted eval candidates.
+  test('scenario (a): ready_for_review JSON output reports both gates passing', () => {
+    writeFixtureAgent('gsd-fixture-a.md', FIXTURE_AGENT_A_CONTENT);
+    seedTelemetryEntry('gsd-fixture-a');
+    seedBudgetConfig({ 'agents/gsd-fixture-a.md': 100000 });
+
+    const result = runGsdTools('prompt-optimize --agent gsd-fixture-a', tmpDir);
+    assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.budgetResult.pass, true);
+    assert.strictEqual(parsed.evalResult.pass, true);
+    assert.strictEqual(parsed.evalResult.total, 0);
+  });
+
+  // Scenario (b): budget-violation rejection.
+  test('scenario (b): a deliberately tiny budget rejects the candidate with reason budget_exceeded, still writing rejected artifacts', () => {
+    writeFixtureAgent('gsd-fixture-a.md', FIXTURE_AGENT_A_CONTENT);
+    seedTelemetryEntry('gsd-fixture-a');
+    seedBudgetConfig({ 'agents/gsd-fixture-a.md': 1 });
+
+    const result = runGsdTools('prompt-optimize --agent gsd-fixture-a', tmpDir);
+    assert.strictEqual(result.success, false, 'expected non-zero exit on budget_exceeded rejection');
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.status, 'rejected');
+    assert.strictEqual(parsed.reason, 'budget_exceeded');
+
+    const diagnosisFullPath = path.join(tmpDir, parsed.diagnosisPath);
+    const diffFullPath = path.join(tmpDir, parsed.diffPath);
+    assert.ok(parsed.diagnosisPath.endsWith('diagnosis-rejected.md'), `expected diagnosis-rejected.md, got: ${parsed.diagnosisPath}`);
+    assert.ok(parsed.diffPath.endsWith('candidate-rejected.diff'), `expected candidate-rejected.diff, got: ${parsed.diffPath}`);
+    assert.ok(fs.existsSync(diagnosisFullPath), 'expected diagnosis-rejected.md to exist on disk');
+    assert.ok(fs.existsSync(diffFullPath), 'expected candidate-rejected.diff to exist on disk');
+  });
+
+  // Scenario (b), gate-results check: budget genuinely exceeded.
+  test('scenario (b): budgetResult in JSON output reports pass:false with estimatedTokens exceeding the tiny budget', () => {
+    writeFixtureAgent('gsd-fixture-a.md', FIXTURE_AGENT_A_CONTENT);
+    seedTelemetryEntry('gsd-fixture-a');
+    seedBudgetConfig({ 'agents/gsd-fixture-a.md': 1 });
+
+    const result = runGsdTools('prompt-optimize --agent gsd-fixture-a', tmpDir);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.budgetResult.pass, false);
+    assert.strictEqual(parsed.budgetResult.budget, 1);
+    assert.ok(parsed.budgetResult.estimatedTokens > 1, 'expected estimatedTokens to exceed the tiny budget');
+  });
+
+  // Scenario (c): eval-failure rejection -- generous budget, ONLY the eval
+  // gate is under test.
+  test('scenario (c): an accepted eval candidate whose assertion the revision breaks rejects with reason eval_failed', () => {
+    writeFixtureAgent('gsd-fixture-a.md', FIXTURE_AGENT_A_CONTENT);
+    seedTelemetryEntry('gsd-fixture-a');
+    seedBudgetConfig({ 'agents/gsd-fixture-a.md': 100000 });
+    seedAcceptedEvalCandidate(forbiddenStringCandidate());
+
+    const result = runGsdTools('prompt-optimize --agent gsd-fixture-a', tmpDir);
+    assert.strictEqual(result.success, false, 'expected non-zero exit on eval_failed rejection');
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.status, 'rejected');
+    assert.strictEqual(parsed.reason, 'eval_failed');
+  });
+
+  // Scenario (c), gate-results check: budget passes, only eval fails --
+  // proves the rejection is attributable to the eval gate specifically.
+  test('scenario (c): evalResult reports pass:false while budgetResult reports pass:true (isolating the eval gate)', () => {
+    writeFixtureAgent('gsd-fixture-a.md', FIXTURE_AGENT_A_CONTENT);
+    seedTelemetryEntry('gsd-fixture-a');
+    seedBudgetConfig({ 'agents/gsd-fixture-a.md': 100000 });
+    seedAcceptedEvalCandidate(forbiddenStringCandidate());
+
+    const result = runGsdTools('prompt-optimize --agent gsd-fixture-a', tmpDir);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.budgetResult.pass, true);
+    assert.strictEqual(parsed.evalResult.pass, false);
+    assert.ok(parsed.evalResult.total >= 1, 'expected at least one evaluated accepted candidate');
+  });
+
+  // Scenario (d): no-signal path -- a separate fixture agent with no
+  // telemetry and no matching eval-regression candidates anywhere.
+  test('scenario (d): a fixture agent with zero telemetry/eval signal exits 0 with status no_signal and writes nothing to disk', () => {
+    writeFixtureAgent('gsd-fixture-b.md', FIXTURE_AGENT_B_CONTENT);
+
+    const result = runGsdTools('prompt-optimize --agent gsd-fixture-b', tmpDir);
+    assert.ok(result.success, `expected exit 0 on no_signal, got: ${result.error}`);
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.status, 'no_signal');
+    assert.strictEqual(parsed.agent, 'gsd-fixture-b');
+
+    const reviewDir = path.join(tmpDir, '.planning', 'prompt-optimize', 'gsd-fixture-b');
+    assert.ok(!fs.existsSync(reviewDir), 'expected no review-artifact directory to be written for the no_signal path');
+  });
+
+  // Scenario (e): diff format validity -- the real written candidate.diff
+  // file (not a unit-level isValidUnifiedDiff call) must be structurally
+  // valid unified-diff text.
+  test('scenario (e): the real written candidate.diff contains valid unified-diff structure (--- / +++ / @@ headers)', () => {
+    writeFixtureAgent('gsd-fixture-a.md', FIXTURE_AGENT_A_CONTENT);
+    seedTelemetryEntry('gsd-fixture-a');
+    seedBudgetConfig({ 'agents/gsd-fixture-a.md': 100000 });
+
+    const result = runGsdTools('prompt-optimize --agent gsd-fixture-a', tmpDir);
+    assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+
+    const parsed = JSON.parse(result.output);
+    const diffContent = fs.readFileSync(path.join(tmpDir, parsed.diffPath), 'utf-8');
+
+    assert.ok(/^--- /m.test(diffContent), 'expected a "--- " header line');
+    assert.ok(/^\+\+\+ /m.test(diffContent), 'expected a "+++ " header line');
+    assert.ok(/^@@ .*@@/m.test(diffContent), 'expected at least one "@@ ... @@" hunk header line');
+  });
+});
+
+describe('Phase 57-01: routing ledger storage & build', () => {
+  const { deriveTaskType, buildRoutingLedger, readRoutingLedger, writeRoutingLedger, loadConfig } = require(TOOLS_PATH);
+
+  describe('deriveTaskType', () => {
+    test('first-match-wins ordering: "write" precedes "fix" in the vocabulary', () => {
+      assert.strictEqual(deriveTaskType('write and fix the bug'), 'write');
+    });
+
+    test('whole-word matching does NOT match "rewrite" as "write"', () => {
+      assert.strictEqual(deriveTaskType('rewrite the module entirely'), 'other');
+    });
+
+    test('case-insensitive matching', () => {
+      assert.strictEqual(deriveTaskType('WRITE the wallet_credit RPC'), 'write');
+      assert.strictEqual(deriveTaskType('Fix the failing test'), 'fix');
+    });
+
+    test('falls back to "other" when no vocabulary verb matches', () => {
+      assert.strictEqual(deriveTaskType('look at the thing'), 'other');
+    });
+
+    test('falls back to "other" for empty/non-string input', () => {
+      assert.strictEqual(deriveTaskType(''), 'other');
+      assert.strictEqual(deriveTaskType(null), 'other');
+      assert.strictEqual(deriveTaskType(undefined), 'other');
+      assert.strictEqual(deriveTaskType(42), 'other');
+    });
+
+    test('matches a later-vocabulary verb when no earlier verb is present', () => {
+      assert.strictEqual(deriveTaskType('investigate the root cause'), 'investigate');
+      assert.strictEqual(deriveTaskType('commit the staged changes'), 'commit');
+    });
+  });
+
+  describe('buildRoutingLedger (pure)', () => {
+    test('buckets mixed task_outcome events across 2+ task_types and multiple tiers', () => {
+      const events = [
+        { type: 'task_outcome', task_type: 'write', tier: 'haiku', outcome: 'success' },
+        { type: 'task_outcome', task_type: 'write', tier: 'haiku', outcome: 'failure' },
+        { type: 'task_outcome', task_type: 'write', tier: 'sonnet', outcome: 'success' },
+        { type: 'task_outcome', task_type: 'fix', tier: 'opus', outcome: 'success' },
+        { type: 'task_outcome', task_type: 'fix', tier: 'opus', outcome: 'success' },
+      ];
+      const ledger = buildRoutingLedger(events);
+      assert.deepStrictEqual(ledger.task_types.write.haiku, { attempts: 2, successes: 1, failures: 1 });
+      assert.deepStrictEqual(ledger.task_types.write.sonnet, { attempts: 1, successes: 1, failures: 0 });
+      assert.deepStrictEqual(ledger.task_types.fix.opus, { attempts: 2, successes: 2, failures: 0 });
+    });
+
+    test('source_event_count counts only task_outcome events; non-matching event types in the same array are ignored', () => {
+      const events = [
+        { type: 'task_outcome', task_type: 'write', tier: 'haiku', outcome: 'success' },
+        { type: 'phase_start', phase: '57' },
+        { type: 'tier_escalation', from_tier: 'haiku', to_tier: 'sonnet' },
+        { type: 'task_outcome', task_type: 'fix', tier: 'sonnet', outcome: 'failure' },
+      ];
+      const ledger = buildRoutingLedger(events);
+      assert.strictEqual(ledger.source_event_count, 2);
+    });
+
+    test('an empty events array produces {task_types: {}} without throwing', () => {
+      assert.doesNotThrow(() => {
+        const ledger = buildRoutingLedger([]);
+        assert.deepStrictEqual(ledger.task_types, {});
+        assert.strictEqual(ledger.source_event_count, 0);
+      });
+      assert.doesNotThrow(() => {
+        const ledger = buildRoutingLedger(null);
+        assert.deepStrictEqual(ledger.task_types, {});
+      });
+    });
+
+    test('min_sample_count defaults to 5 and is overridable via options.minSampleCount', () => {
+      assert.strictEqual(buildRoutingLedger([]).min_sample_count, 5);
+      assert.strictEqual(buildRoutingLedger([], { minSampleCount: 12 }).min_sample_count, 12);
+    });
+
+    test('telemetry-enrichment path folds tool_errors_swallowed into quality_flags only on the matching (phase, plan) bucket', () => {
+      const events = [
+        { type: 'task_outcome', task_type: 'write', tier: 'haiku', outcome: 'success', phase: '57', plan: '01' },
+        { type: 'task_outcome', task_type: 'fix', tier: 'sonnet', outcome: 'success', phase: '58', plan: '01' },
+      ];
+      const telemetryReports = [
+        { phase: '57', plan: '01', tool_errors_swallowed: 3 },
+        { phase: '99', plan: '01', tool_errors_swallowed: 7 }, // no matching task_outcome — must not affect any bucket
+      ];
+      const ledger = buildRoutingLedger(events, { telemetryReports });
+      assert.strictEqual(ledger.task_types.write.haiku.quality_flags, 3);
+      assert.strictEqual(ledger.task_types.fix.sonnet.quality_flags, undefined);
+    });
+
+    test('telemetry enrichment is a no-op when telemetryReports is omitted', () => {
+      const events = [
+        { type: 'task_outcome', task_type: 'write', tier: 'haiku', outcome: 'success', phase: '57', plan: '01' },
+      ];
+      const ledger = buildRoutingLedger(events);
+      assert.strictEqual(ledger.task_types.write.haiku.quality_flags, undefined);
+    });
+  });
+
+  describe('readRoutingLedger / writeRoutingLedger', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+      tmpDir = createTempProject();
+    });
+
+    afterEach(() => {
+      cleanup(tmpDir);
+    });
+
+    test('missing file -> {ok:true, ledger:null, reason:"missing"}, never throws', () => {
+      let result;
+      assert.doesNotThrow(() => { result = readRoutingLedger(tmpDir); });
+      assert.deepStrictEqual(result, { ok: true, ledger: null, reason: 'missing' });
+    });
+
+    test('malformed JSON file -> {ok:false, ledger:null, reason:"corrupt"}, never throws', () => {
+      const ledgerPath = path.join(tmpDir, '.planning', 'routing-ledger.json');
+      fs.writeFileSync(ledgerPath, 'NOT VALID JSON{{{', 'utf-8');
+      let result;
+      assert.doesNotThrow(() => { result = readRoutingLedger(tmpDir); });
+      assert.strictEqual(result.ok, false);
+      assert.strictEqual(result.ledger, null);
+      assert.strictEqual(result.reason, 'corrupt');
+    });
+
+    test('a valid JSON file missing the task_types key -> reason:"corrupt", never throws', () => {
+      const ledgerPath = path.join(tmpDir, '.planning', 'routing-ledger.json');
+      fs.writeFileSync(ledgerPath, JSON.stringify({ built_at: 'x', source_event_count: 0 }), 'utf-8');
+      let result;
+      assert.doesNotThrow(() => { result = readRoutingLedger(tmpDir); });
+      assert.strictEqual(result.ok, false);
+      assert.strictEqual(result.reason, 'corrupt');
+    });
+
+    test('writeRoutingLedger + readRoutingLedger round-trip: deep equality', () => {
+      const ledger = buildRoutingLedger([
+        { type: 'task_outcome', task_type: 'write', tier: 'haiku', outcome: 'success' },
+      ]);
+      writeRoutingLedger(tmpDir, ledger);
+      const result = readRoutingLedger(tmpDir);
+      assert.strictEqual(result.ok, true);
+      assert.deepStrictEqual(result.ledger, ledger);
+    });
+  });
+
+  describe('loadConfig routing_min_sample_count', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+      tmpDir = createTempProject();
+    });
+
+    afterEach(() => {
+      cleanup(tmpDir);
+    });
+
+    test('defaults to 5 when config.json is absent', () => {
+      const config = loadConfig(tmpDir);
+      assert.strictEqual(config.routing_min_sample_count, 5);
+    });
+
+    test('resolves to 12 when config.json has {"routing": {"min_sample_count": 12}}', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'config.json'),
+        JSON.stringify({ routing: { min_sample_count: 12 } }),
+        'utf-8'
+      );
+      const config = loadConfig(tmpDir);
+      assert.strictEqual(config.routing_min_sample_count, 12);
+    });
+  });
+
+  describe('CLI integration', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+      tmpDir = createTempProject();
+    });
+
+    afterEach(() => {
+      cleanup(tmpDir);
+    });
+
+    function seedExecutionLogEvents(events) {
+      const logPath = path.join(tmpDir, '.planning', 'EXECUTION_LOG.md');
+      const header = '# Autonomous Roadmap Execution Log\n\n';
+      const lines = events.map((e) => JSON.stringify(e)).join('\n') + '\n';
+      fs.writeFileSync(logPath, header + lines, 'utf-8');
+    }
+
+    test('routing task-type "<desc>" --raw prints the bare derived type', () => {
+      const result = runGsdTools('routing task-type "Write the wallet_credit RPC" --raw', tmpDir);
+      assert.ok(result.success, `expected exit 0: ${result.error}`);
+      assert.strictEqual(result.output, 'write');
+    });
+
+    // Integration-test scenario #1 from 57-RESEARCH.md: ledger build from
+    // seeded EXECUTION_LOG.md events.
+    test('routing ledger build --raw against a seeded EXECUTION_LOG.md writes a valid routing-ledger.json with correct bucket counts', () => {
+      seedExecutionLogEvents([
+        { type: 'task_outcome', task_type: 'write', tier: 'haiku', outcome: 'success' },
+        { type: 'task_outcome', task_type: 'write', tier: 'haiku', outcome: 'failure' },
+        { type: 'task_outcome', task_type: 'fix', tier: 'sonnet', outcome: 'success' },
+        { type: 'phase_start', phase: '57' },
+      ]);
+
+      const result = runGsdTools('routing ledger build --raw', tmpDir);
+      assert.ok(result.success, `expected exit 0: ${result.error}`);
+      const summary = JSON.parse(result.output);
+      assert.strictEqual(summary.ok, true);
+      assert.strictEqual(summary.source_event_count, 3);
+      assert.strictEqual(summary.task_type_count, 2);
+
+      // Assert the file on disk, not just the CLI's summary output.
+      const ledgerPath = path.join(tmpDir, '.planning', 'routing-ledger.json');
+      assert.ok(fs.existsSync(ledgerPath), 'expected routing-ledger.json to be written to disk');
+      const onDisk = JSON.parse(fs.readFileSync(ledgerPath, 'utf-8'));
+      assert.deepStrictEqual(onDisk.task_types.write.haiku, { attempts: 2, successes: 1, failures: 1 });
+      assert.deepStrictEqual(onDisk.task_types.fix.sonnet, { attempts: 1, successes: 1, failures: 0 });
+    });
+
+    test('routing ledger show --raw returns the built ledger from a project with a valid routing-ledger.json', () => {
+      seedExecutionLogEvents([
+        { type: 'task_outcome', task_type: 'write', tier: 'haiku', outcome: 'success' },
+      ]);
+      const buildResult = runGsdTools('routing ledger build --raw', tmpDir);
+      assert.ok(buildResult.success);
+
+      const showResult = runGsdTools('routing ledger show --raw', tmpDir);
+      assert.ok(showResult.success, `expected exit 0: ${showResult.error}`);
+      const shown = JSON.parse(showResult.output);
+      assert.deepStrictEqual(shown.task_types.write.haiku, { attempts: 1, successes: 1, failures: 0 });
+    });
+
+    // Corrupt-ledger scenario #3 from 57-RESEARCH.md's required coverage list
+    // (ledger-consult half deferred to Plan 57-02 — this asserts the `show`
+    // half: it never throws / never non-zero exits on a corrupt file).
+    test('routing ledger show --raw against a corrupted routing-ledger.json returns ok:false, reason:"corrupt" without a non-zero-exit crash', () => {
+      const ledgerPath = path.join(tmpDir, '.planning', 'routing-ledger.json');
+      fs.writeFileSync(ledgerPath, 'NOT VALID JSON{{{', 'utf-8');
+
+      const result = runGsdTools('routing ledger show --raw', tmpDir);
+      assert.ok(result.success, `show must still exit 0 even on a corrupt ledger: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.ok, false);
+      assert.strictEqual(parsed.reason, 'corrupt');
+    });
+  });
+});
+
+describe('Phase 57-02: ledger consultation & task-router wiring', () => {
+  const { consultLedger } = require(TOOLS_PATH);
+
+  describe('consultLedger (pure)', () => {
+    test('null ledger -> fail-open heuristic passthrough', () => {
+      const result = consultLedger(null, 'write', 'haiku', 5);
+      assert.deepStrictEqual(result, { tier: 'haiku', adjusted: false, fail_open: true, reason: 'ledger_unavailable' });
+    });
+
+    test('ledger present but no bucket for the requested task_type -> not adjusted, reason no_data_for_task_type', () => {
+      const ledger = { task_types: { fix: { haiku: { attempts: 10, successes: 8, failures: 2 } } } };
+      const result = consultLedger(ledger, 'write', 'haiku', 5);
+      assert.strictEqual(result.adjusted, false);
+      assert.strictEqual(result.reason, 'no_data_for_task_type');
+      assert.strictEqual(result.tier, 'haiku');
+    });
+
+    test('total samples below min_sample_count -> not adjusted, reason insufficient_sample, EVEN when rates would otherwise justify adjustment', () => {
+      // haiku 0/2 successes, sonnet 5/5 successes -- total attempts 7 < minSampleCount 10
+      const ledger = {
+        task_types: {
+          write: {
+            haiku: { attempts: 2, successes: 0, failures: 2 },
+            sonnet: { attempts: 5, successes: 5, failures: 0 },
+          },
+        },
+      };
+      const result = consultLedger(ledger, 'write', 'haiku', 10);
+      assert.strictEqual(result.adjusted, false);
+      assert.strictEqual(result.reason, 'insufficient_sample');
+      assert.strictEqual(result.sample_count, 7);
+    });
+
+    test('heuristic tier success_rate >= 0.5 -> no adjustment even if a higher tier looks better', () => {
+      const ledger = {
+        task_types: {
+          write: {
+            haiku: { attempts: 10, successes: 6, failures: 4 }, // 60% -- not below the 0.5 contradiction threshold
+            sonnet: { attempts: 10, successes: 10, failures: 0 }, // 100%
+          },
+        },
+      };
+      const result = consultLedger(ledger, 'write', 'haiku', 5);
+      assert.strictEqual(result.adjusted, false);
+      assert.strictEqual(result.tier, 'haiku');
+    });
+
+    test('a genuine contradiction (haiku 20%, sonnet 90%, both >= min sample) -> adjusted:true, tier:sonnet, reason mentions both rates', () => {
+      const ledger = {
+        task_types: {
+          write: {
+            haiku: { attempts: 10, successes: 2, failures: 8 },
+            sonnet: { attempts: 10, successes: 9, failures: 1 },
+          },
+        },
+      };
+      const result = consultLedger(ledger, 'write', 'haiku', 5);
+      assert.strictEqual(result.adjusted, true);
+      assert.strictEqual(result.tier, 'sonnet');
+      assert.match(result.reason, /20%/);
+      assert.match(result.reason, /90%/);
+    });
+
+    test('heuristic tier is opus (ceiling, getNextTier("opus") === null) -> never adjusts regardless of data', () => {
+      const ledger = {
+        task_types: {
+          write: {
+            opus: { attempts: 10, successes: 1, failures: 9 },
+          },
+        },
+      };
+      const result = consultLedger(ledger, 'write', 'opus', 5);
+      assert.strictEqual(result.adjusted, false);
+      assert.strictEqual(result.tier, 'opus');
+    });
+
+    test('never adjusts DOWN -- sonnet with a worse rate than haiku still returns adjusted:false', () => {
+      const ledger = {
+        task_types: {
+          write: {
+            haiku: { attempts: 10, successes: 9, failures: 1 }, // 90% -- good, no reason to escalate
+            sonnet: { attempts: 10, successes: 2, failures: 8 }, // 20% -- worse, but consultLedger only ever compares heuristic vs the tier ABOVE it
+          },
+        },
+      };
+      const result = consultLedger(ledger, 'write', 'sonnet', 5);
+      assert.strictEqual(result.adjusted, false);
+      assert.strictEqual(result.tier, 'sonnet');
+    });
+  });
+
+  describe('CLI integration: routing ledger consult', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+      tmpDir = createTempProject();
+    });
+
+    afterEach(() => {
+      cleanup(tmpDir);
+    });
+
+    function seedLedger(ledger) {
+      const ledgerPath = path.join(tmpDir, '.planning', 'routing-ledger.json');
+      fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2), 'utf-8');
+    }
+
+    // runGsdTools (execSync-based) only captures stderr on a NON-zero exit --
+    // the fail-open path here exits 0 while still writing a stderr warning,
+    // so a synchronous spawnSync call (which always returns both streams
+    // regardless of exit code) is used instead for these two assertions.
+    function runGsdToolsCapturingStderr(args, cwd) {
+      const { spawnSync } = require('child_process');
+      const result = spawnSync(process.execPath, [TOOLS_PATH, ...args], { cwd, encoding: 'utf-8' });
+      return { success: result.status === 0, output: (result.stdout || '').trim(), error: (result.stderr || '').trim() };
+    }
+
+    // Integration-test scenario #2 from 57-RESEARCH.md: consultLedger
+    // changing a tier decision via the real CLI.
+    test('adjustment scenario: haiku-poor/sonnet-good bucket at sufficient sample count -> adjusted:true, tier:sonnet', () => {
+      seedLedger({
+        built_at: '2026-07-06T00:00:00.000Z',
+        source_event_count: 20,
+        min_sample_count: 5,
+        task_types: {
+          write: {
+            haiku: { attempts: 10, successes: 2, failures: 8 },
+            sonnet: { attempts: 10, successes: 9, failures: 1 },
+          },
+        },
+      });
+      const result = runGsdTools('routing ledger consult --task-type write --heuristic-tier haiku --raw', tmpDir);
+      assert.ok(result.success, `expected exit 0: ${result.error}`);
+      const decision = JSON.parse(result.output);
+      assert.strictEqual(decision.adjusted, true);
+      assert.strictEqual(decision.tier, 'sonnet');
+    });
+
+    // Integration-test scenario #3 from 57-RESEARCH.md: absent-ledger fail-open.
+    test('fail-open scenario: NO ledger file at all -> stderr WARNING + stdout fail_open:true', () => {
+      const result = runGsdToolsCapturingStderr(['routing', 'ledger', 'consult', '--task-type', 'write', '--heuristic-tier', 'haiku', '--raw'], tmpDir);
+      assert.ok(result.success, `expected exit 0 (fail-open, not an error): ${result.error}`);
+      assert.match(result.error, /WARNING: routing ledger unavailable/);
+      const decision = JSON.parse(result.output);
+      assert.strictEqual(decision.fail_open, true);
+    });
+
+    // Integration-test scenario #3 (corrupt half) from 57-RESEARCH.md's
+    // required coverage list.
+    test('fail-open scenario: corrupt (non-JSON) routing-ledger.json -> stderr WARNING + stdout fail_open:true', () => {
+      const ledgerPath = path.join(tmpDir, '.planning', 'routing-ledger.json');
+      fs.writeFileSync(ledgerPath, 'NOT VALID JSON{{{', 'utf-8');
+      const result = runGsdToolsCapturingStderr(['routing', 'ledger', 'consult', '--task-type', 'write', '--heuristic-tier', 'haiku', '--raw'], tmpDir);
+      assert.ok(result.success, `expected exit 0 (fail-open, not an error): ${result.error}`);
+      assert.match(result.error, /WARNING: routing ledger unavailable/);
+      const decision = JSON.parse(result.output);
+      assert.strictEqual(decision.fail_open, true);
+    });
+
+    test('missing --task-type or --heuristic-tier errors', () => {
+      const result = runGsdTools('routing ledger consult --heuristic-tier haiku --raw', tmpDir);
+      assert.strictEqual(result.success, false);
+    });
+  });
+
+  describe('gsd-task-router.md grep-assertion (prose wiring lock-in)', () => {
+    const routerPath = path.join(__dirname, '..', '..', 'agents', 'gsd-task-router.md');
+    const content = fs.readFileSync(routerPath, 'utf-8');
+
+    test('consult_ledger step name is present', () => {
+      assert.match(content, /<step name="consult_ledger">/);
+    });
+
+    test('ordering lock-in: check_quota < consult_ledger < get_context', () => {
+      const checkQuotaIdx = content.indexOf('name="check_quota"');
+      const consultLedgerIdx = content.indexOf('name="consult_ledger"');
+      const getContextIdx = content.indexOf('name="get_context"');
+      assert.ok(checkQuotaIdx !== -1, 'check_quota step not found');
+      assert.ok(consultLedgerIdx !== -1, 'consult_ledger step not found');
+      assert.ok(getContextIdx !== -1, 'get_context step not found');
+      assert.ok(checkQuotaIdx < consultLedgerIdx, 'consult_ledger must come after check_quota');
+      assert.ok(consultLedgerIdx < getContextIdx, 'consult_ledger must come before get_context');
+    });
+
+    test('routing task-type and routing ledger consult commands are both present inside the consult_ledger step body', () => {
+      const stepStart = content.indexOf('<step name="consult_ledger">');
+      const stepEnd = content.indexOf('</step>', stepStart);
+      const stepBody = content.slice(stepStart, stepEnd);
+      assert.match(stepBody, /routing task-type/);
+      assert.match(stepBody, /routing ledger consult/);
+    });
+
+    test('a Ledger: line template is present in the return_decision step output format section', () => {
+      const stepStart = content.indexOf('<step name="return_decision">');
+      const stepEnd = content.indexOf('</step>', stepStart);
+      const stepBody = content.slice(stepStart, stepEnd);
+      assert.match(stepBody, /Ledger:/);
+    });
+  });
+});
+
+// [Rule 1 - Bug] found during Phase 57-02's own mandatory state_updates step:
+// `state record-session` used the bold-only `stateReplaceField` for all 4 of
+// its fields (Last session/Last Date/Stopped At/Resume File), but the real
+// STATE.md's "## Session Continuity" section is plain prose ("Last session:
+// ..."), not bold ("**Last session:**") -- every field silently failed to
+// match, so every real invocation returned `{recorded: false, reason: "No
+// session fields found in STATE.md"}` and STATE.md was never actually
+// updated. Fixed by switching to `stateReplaceFieldTolerant` (bold-first,
+// plain-prose-fallback), matching the established 51-01 STATE.md-tolerance
+// convention already used by `state advance-plan`'s Status/Last-activity
+// fields.
+describe("Phase 57-02 [Rule 1 fix]: state record-session tolerates plain-prose STATE.md fields", () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function writePlainProseState() {
+    const statePath = path.join(tmpDir, '.planning', 'STATE.md');
+    const content = [
+      '# Project State',
+      '',
+      '## Session Continuity',
+      '',
+      'Last session: 2026-01-01',
+      'Stopped at: some prior stopping point',
+      'Resume file: none',
+      '',
+    ].join('\n');
+    fs.writeFileSync(statePath, content, 'utf-8');
+    return statePath;
+  }
+
+  test('record-session updates plain-prose Last session/Stopped at/Resume file lines (regression guard for the discard bug)', () => {
+    const statePath = writePlainProseState();
+    const result = runGsdTools('state record-session --stopped-at "Completed 57-02-PLAN.md" --resume-file none', tmpDir);
+    assert.ok(result.success, `expected exit 0: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.recorded, true);
+    assert.ok(parsed.updated.includes('Last session'));
+    assert.ok(parsed.updated.includes('Stopped At'));
+    assert.ok(parsed.updated.includes('Resume File'));
+
+    const updatedContent = fs.readFileSync(statePath, 'utf-8');
+    assert.match(updatedContent, /Stopped at: Completed 57-02-PLAN\.md/);
+    assert.doesNotMatch(updatedContent, /some prior stopping point/);
+  });
+
+  test('bold-format STATE.md (pre-existing convention) still works after the fix', () => {
+    const statePath = path.join(tmpDir, '.planning', 'STATE.md');
+    fs.writeFileSync(statePath, [
+      '# Project State',
+      '',
+      '## Session Continuity',
+      '',
+      '**Last session:** 2026-01-01',
+      '**Stopped At:** old value',
+      '**Resume File:** old-resume.md',
+      '',
+    ].join('\n'), 'utf-8');
+
+    const result = runGsdTools('state record-session --stopped-at "new stopped value"', tmpDir);
+    assert.ok(result.success, `expected exit 0: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.recorded, true);
+
+    const updatedContent = fs.readFileSync(statePath, 'utf-8');
+    assert.match(updatedContent, /\*\*Stopped At:\*\* new stopped value/);
+  });
+});
+
+// [Rule 1 - Bug] found during Phase 57-01's state_updates step: `roadmap
+// update-plan-progress`'s table regex assumed a 4-column progress table
+// (Phase | Plans | Status | Completed) but the real table has 5 columns
+// (Phase | Milestone | Plans | Status | Completed) -- the Milestone cell was
+// silently discarded on every run. Fixed to preserve the Milestone column
+// verbatim while only rewriting Plans/Status/Completed.
+describe('Phase 57-01 [Rule 1 fix]: roadmap update-plan-progress preserves the Milestone column', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function seedPhaseWithRoadmapRow(rowLine) {
+    const phaseDir = path.join(tmpDir, '.planning', 'phases', '57-routing-ledger-escalation');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    fs.writeFileSync(path.join(phaseDir, '57-01-PLAN.md'), '# plan 1');
+    fs.writeFileSync(path.join(phaseDir, '57-02-PLAN.md'), '# plan 2');
+    fs.writeFileSync(path.join(phaseDir, '57-01-SUMMARY.md'), '# summary 1');
+
+    const roadmapPath = path.join(tmpDir, '.planning', 'ROADMAP.md');
+    const content = [
+      '# Roadmap',
+      '',
+      '## Progress',
+      '',
+      '| Phase | Milestone | Plans | Status | Completed |',
+      '|-------|-----------|-------|--------|-----------|',
+      rowLine,
+      '| 58. Next Phase | v1.15.0 | 0/TBD | Not started | - |',
+      '',
+    ].join('\n');
+    fs.writeFileSync(roadmapPath, content, 'utf-8');
+    return roadmapPath;
+  }
+
+  test('a well-formed 5-column row keeps its Milestone value after an update (regression guard for the discard bug)', () => {
+    const roadmapPath = seedPhaseWithRoadmapRow(
+      '| 57. Outcome-Informed Routing Ledger & Bounded Escalation | v1.15.0 | 0/TBD | Not started | - |'
+    );
+
+    const result = runGsdTools('roadmap update-plan-progress 57', tmpDir);
+    assert.ok(result.success, `expected exit 0: ${result.error}`);
+
+    const updated = fs.readFileSync(roadmapPath, 'utf-8');
+    const row = updated.split('\n').find((l) => l.startsWith('| 57.'));
+    assert.ok(row, 'expected to find the Phase 57 row in the updated ROADMAP.md');
+    assert.ok(row.includes('v1.15.0'), `Milestone column must be preserved, got: ${row}`);
+    assert.ok(row.includes('1/2'), `Plans column must reflect 1 summary / 2 plans, got: ${row}`);
+    assert.ok(/In Progress/.test(row), `Status column must be In Progress, got: ${row}`);
+  });
+
+  test('the neighboring row (Phase 58) is untouched by a Phase 57 update', () => {
+    const roadmapPath = seedPhaseWithRoadmapRow(
+      '| 57. Outcome-Informed Routing Ledger & Bounded Escalation | v1.15.0 | 0/TBD | Not started | - |'
+    );
+
+    runGsdTools('roadmap update-plan-progress 57', tmpDir);
+
+    const updated = fs.readFileSync(roadmapPath, 'utf-8');
+    const row58 = updated.split('\n').find((l) => l.startsWith('| 58.'));
+    assert.strictEqual(row58, '| 58. Next Phase | v1.15.0 | 0/TBD | Not started | - |');
+  });
+});
+
+describe('Phase 57-03: failure classification & escalation bound logic', () => {
+  const { classifyFailure, decideEscalation, NON_CAPABILITY_PATTERNS } = require(TOOLS_PATH);
+
+  describe('classifyFailure (pure)', () => {
+    const denyListCases = [
+      ['ENOENT', 'ENOENT: no such file or directory, open \'/tmp/missing.txt\''],
+      ['no such file', 'bash: foo: no such file'],
+      ['command not found', 'zsh: command not found: rtk'],
+      ['permission denied', 'cp: /etc/shadow: Permission denied'],
+      ['EACCES', 'Error: EACCES: access refused, open \'/root/secret\''],
+      ['ECONNREFUSED', 'connect ECONNREFUSED 127.0.0.1:5432'],
+      ['getaddrinfo', 'Error: getaddrinfo ENOTFOUND example.invalid'],
+      ['network error', 'fetch failed: network error'],
+      ['env var', 'missing required env var DATABASE_URL'],
+      ['environment variable', 'missing required environment variable API_KEY'],
+      ['.env', 'could not load .env file'],
+      ['ENOSPC', 'ENOSPC: no space left on device, write'],
+      ['disk full', 'write failed: disk full'],
+      ['git conflict', 'git conflict detected in src/index.js'],
+      ['merge conflict', 'CONFLICT (content): merge conflict in README.md'],
+    ];
+
+    for (const [pattern, sampleText] of denyListCases) {
+      test(`deny-list pattern "${pattern}" -> capability_related:false, matched_pattern:"${pattern}"`, () => {
+        const result = classifyFailure(sampleText);
+        assert.strictEqual(result.capability_related, false, `expected non-capability for: ${sampleText}`);
+        assert.strictEqual(result.matched_pattern, pattern);
+      });
+    }
+
+    // 57-RESEARCH.md/the plan's prose says "14 patterns" but the actual
+    // enumerated list (env var / environment variable counted as two
+    // distinct literal strings, per the plan's own code block) has 15
+    // entries -- asserting against denyListCases.length (not a hardcoded
+    // 14) keeps this test honest about the real array shape while still
+    // locking in that every documented pattern is present.
+    test('all documented deny-list patterns are present in NON_CAPABILITY_PATTERNS (regression guard against silent list drift)', () => {
+      assert.strictEqual(NON_CAPABILITY_PATTERNS.length, denyListCases.length);
+      for (const [pattern] of denyListCases) {
+        assert.ok(
+          NON_CAPABILITY_PATTERNS.some((p) => p.toLowerCase() === pattern.toLowerCase()),
+          `expected "${pattern}" to be present in NON_CAPABILITY_PATTERNS`
+        );
+      }
+    });
+
+    test('case-insensitivity: "Permission Denied" (mixed case) still matches', () => {
+      const result = classifyFailure('Error: Permission Denied while writing file');
+      assert.strictEqual(result.capability_related, false);
+      assert.strictEqual(result.matched_pattern, 'permission denied');
+    });
+
+    test('a genuine capability-shaped error ("assertion failed: expected true, got false") -> capability_related:true, matched_pattern:null', () => {
+      const result = classifyFailure('assertion failed: expected true, got false');
+      assert.strictEqual(result.capability_related, true);
+      assert.strictEqual(result.matched_pattern, null);
+    });
+
+    test('empty string input -> capability_related:true (safe default, never throws)', () => {
+      assert.doesNotThrow(() => {
+        const result = classifyFailure('');
+        assert.strictEqual(result.capability_related, true);
+        assert.strictEqual(result.matched_pattern, null);
+      });
+    });
+
+    test('undefined input -> capability_related:true (safe default, never throws)', () => {
+      assert.doesNotThrow(() => {
+        const result = classifyFailure(undefined);
+        assert.strictEqual(result.capability_related, true);
+        assert.strictEqual(result.matched_pattern, null);
+      });
+    });
+  });
+
+  describe('decideEscalation (pure, ladder-bounded)', () => {
+    test('non-capability classification -> escalate:false, reason:non_capability_failure, regardless of currentTier/escalationsUsed', () => {
+      const classification = { capability_related: false, matched_pattern: 'ENOENT' };
+      const result = decideEscalation('haiku', classification, 0);
+      assert.deepStrictEqual(result, { escalate: false, next_tier: null, reason: 'non_capability_failure' });
+    });
+
+    test('non-capability classification at a high escalationsUsed count still never escalates', () => {
+      const classification = { capability_related: false, matched_pattern: 'EACCES' };
+      const result = decideEscalation('sonnet', classification, 5);
+      assert.strictEqual(result.escalate, false);
+      assert.strictEqual(result.reason, 'non_capability_failure');
+    });
+
+    test('currentTier haiku, escalationsUsed 0, capability failure -> escalate:true, next_tier:sonnet', () => {
+      const classification = { capability_related: true, matched_pattern: null };
+      const result = decideEscalation('haiku', classification, 0);
+      assert.strictEqual(result.escalate, true);
+      assert.strictEqual(result.next_tier, 'sonnet');
+      assert.strictEqual(result.reason, 'capability_failure');
+    });
+
+    test('currentTier sonnet, escalationsUsed 1, capability failure -> escalate:true, next_tier:opus', () => {
+      const classification = { capability_related: true, matched_pattern: null };
+      const result = decideEscalation('sonnet', classification, 1);
+      assert.strictEqual(result.escalate, true);
+      assert.strictEqual(result.next_tier, 'opus');
+      assert.strictEqual(result.reason, 'capability_failure');
+    });
+
+    test('currentTier opus (ladder ceiling) -> escalate:false, reason:ladder_exhausted -- opus failure never attempts a 4th tier', () => {
+      const classification = { capability_related: true, matched_pattern: null };
+      const result = decideEscalation('opus', classification, 0);
+      assert.strictEqual(result.escalate, false);
+      assert.strictEqual(result.next_tier, null);
+      assert.strictEqual(result.reason, 'ladder_exhausted');
+    });
+
+    test('escalationsUsed already at getTiers().length - 1 (2) with currentTier haiku -> escalate:false, reason:escalation_bound_reached (explicit safety cap fires even though getNextTier(haiku) would otherwise return sonnet)', () => {
+      const { getTiers, getNextTier } = require('./model-registry.js');
+      const maxEscalations = getTiers().length - 1;
+      assert.strictEqual(maxEscalations, 2, 'sanity check: 3-tier ladder (haiku/sonnet/opus) has a bound of 2');
+      assert.strictEqual(getNextTier('haiku'), 'sonnet', 'sanity check: getNextTier would otherwise permit escalation');
+
+      const classification = { capability_related: true, matched_pattern: null };
+      const result = decideEscalation('haiku', classification, maxEscalations);
+      assert.strictEqual(result.escalate, false);
+      assert.strictEqual(result.next_tier, null);
+      assert.strictEqual(result.reason, 'escalation_bound_reached');
+    });
+
+    test('missing/null classification -> treated as non-capability, never escalates (defensive default)', () => {
+      const result = decideEscalation('haiku', null, 0);
+      assert.strictEqual(result.escalate, false);
+      assert.strictEqual(result.reason, 'non_capability_failure');
+    });
+  });
+
+  describe('CLI integration: routing classify-failure / routing escalation-decision', () => {
+    test('routing classify-failure "ENOENT: ..." --raw returns capability_related:false', () => {
+      const result = runGsdTools('routing classify-failure "ENOENT: no such file or directory" --raw');
+      assert.ok(result.success, `expected exit 0: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.capability_related, false);
+      assert.strictEqual(parsed.matched_pattern, 'ENOENT');
+    });
+
+    test('routing classify-failure with a capability-shaped error --raw returns capability_related:true', () => {
+      const result = runGsdTools('routing classify-failure "assertion failed: expected 200 got 500" --raw');
+      assert.ok(result.success, `expected exit 0: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.capability_related, true);
+      assert.strictEqual(parsed.matched_pattern, null);
+    });
+
+    test('composition: routing escalation-decision --current-tier haiku --error-summary "ENOENT: ..." --escalations-used 0 --raw agrees with classify-failure (non-capability text never escalates via the composed CLI either)', () => {
+      const classifyResult = runGsdTools('routing classify-failure "ENOENT: no such file" --raw');
+      const classifyParsed = JSON.parse(classifyResult.output);
+
+      const escalationResult = runGsdTools(
+        'routing escalation-decision --current-tier haiku --error-summary "ENOENT: no such file" --escalations-used 0 --raw'
+      );
+      assert.ok(escalationResult.success, `expected exit 0: ${escalationResult.error}`);
+      const escalationParsed = JSON.parse(escalationResult.output);
+
+      assert.strictEqual(escalationParsed.capability_related, classifyParsed.capability_related);
+      assert.strictEqual(escalationParsed.capability_related, false);
+      assert.strictEqual(escalationParsed.escalate, false);
+      assert.strictEqual(escalationParsed.reason, 'non_capability_failure');
+    });
+
+    test('composition: a capability-shaped error at haiku with 0 escalations used composes to escalate:true, next_tier:sonnet', () => {
+      const result = runGsdTools(
+        'routing escalation-decision --current-tier haiku --error-summary "assertion failed: expected true, got false" --escalations-used 0 --raw'
+      );
+      assert.ok(result.success, `expected exit 0: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.capability_related, true);
+      assert.strictEqual(parsed.escalate, true);
+      assert.strictEqual(parsed.next_tier, 'sonnet');
+    });
+
+    test('routing escalation-decision without --current-tier errors', () => {
+      const result = runGsdTools('routing escalation-decision --error-summary "assertion failed" --escalations-used 0 --raw');
+      assert.strictEqual(result.success, false);
+    });
+  });
+
+  describe('executor-detail.md grep-assertion + regression guard (failure-signaling block)', () => {
+    const executorDetailPath = path.join(__dirname, '..', 'references', 'executor-detail.md');
+    const content = fs.readFileSync(executorDetailPath, 'utf-8');
+
+    test('the failure-signaling block calls routing classify-failure', () => {
+      const blockStart = content.indexOf('Failure signaling for coordinator escalation');
+      assert.ok(blockStart !== -1, 'failure-signaling block not found');
+      const blockEnd = content.indexOf('Note: The executor does NOT switch tiers', blockStart);
+      const block = content.slice(blockStart, blockEnd !== -1 ? blockEnd : blockStart + 2000);
+      assert.match(block, /routing classify-failure/);
+    });
+
+    test('the [non-capability] marker string is present', () => {
+      assert.match(content, /\[non-capability\]/);
+    });
+
+    test('regression guard: the OLD unmarked format string is STILL present verbatim (backward compatibility with the pre-57-03 format for capability-related failures was not accidentally dropped)', () => {
+      assert.ok(
+        content.includes('"TASK FAILED: {task_name} [tier: {ROUTED_TIER}] — {error_summary}"'),
+        'the original unmarked TASK FAILED format string must remain present verbatim'
+      );
+    });
+
+    test('the new marked format string is present', () => {
+      assert.ok(
+        content.includes('"TASK FAILED: {task_name} [tier: {ROUTED_TIER}] [non-capability] — {error_summary}"'),
+        'the new [non-capability]-marked TASK FAILED format string must be present'
+      );
+    });
+  });
+});
+
+describe('Phase 57-04: bounded escalation loop & ledger recording', () => {
+  const { getHistory } = require('./execution-log.js');
+
+  describe('coordinator-loop simulation via the real CLI', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+      tmpDir = createTempProject();
+    });
+
+    afterEach(() => {
+      cleanup(tmpDir);
+    });
+
+    function decide(currentTier, escalationsUsed, errorSummary = 'assertion failed') {
+      const result = runGsdTools(
+        `routing escalation-decision --current-tier "${currentTier}" --error-summary "${errorSummary}" --escalations-used ${escalationsUsed} --raw`,
+        tmpDir
+      );
+      assert.ok(result.success, `escalation-decision failed: ${result.error}`);
+      return JSON.parse(result.output);
+    }
+
+    function logTaskOutcome(taskIndex, tier, outcome, capabilityRelated) {
+      const data = JSON.stringify({
+        phase: 57,
+        plan: '57-04-PLAN.md',
+        task_index: taskIndex,
+        task_name: 'fix the escalation loop',
+        task_type: 'fix',
+        tier,
+        outcome,
+        capability_related: capabilityRelated,
+      });
+      const result = runGsdTools(`execution-log event --type task_outcome --data '${data}'`, tmpDir);
+      assert.ok(result.success, `logging task_outcome failed: ${result.error}`);
+    }
+
+    function logTierEscalation(taskIndex, fromTier, toTier, reason) {
+      const data = JSON.stringify({
+        phase: 57,
+        plan: '57-04-PLAN.md',
+        task_index: taskIndex,
+        task_name: 'fix the escalation loop',
+        task_type: 'fix',
+        from_tier: fromTier,
+        to_tier: toTier,
+        reason,
+      });
+      const result = runGsdTools(`execution-log event --type tier_escalation --data '${data}'`, tmpDir);
+      assert.ok(result.success, `logging tier_escalation failed: ${result.error}`);
+    }
+
+    // Integration-test scenario #5 from 57-RESEARCH.md: the full
+    // haiku->sonnet->opus escalation chain, driven through the real
+    // escalation-decision CLI and mirrored exactly as coordinator-detail.md's
+    // loop instructs (one task_outcome failure event per attempt, one
+    // tier_escalation event per hop).
+    test('full haiku->sonnet->opus chain: 3 consecutive capability failures produce 3 task_outcome failures + 2 tier_escalation events', () => {
+      // Attempt 1: haiku fails, escalates to sonnet.
+      let decision = decide('haiku', 0);
+      assert.strictEqual(decision.escalate, true);
+      assert.strictEqual(decision.next_tier, 'sonnet');
+      logTaskOutcome(1, 'haiku', 'failure', true);
+      logTierEscalation(1, 'haiku', 'sonnet', decision.reason);
+
+      // Attempt 2: sonnet fails, escalates to opus.
+      decision = decide('sonnet', 1);
+      assert.strictEqual(decision.escalate, true);
+      assert.strictEqual(decision.next_tier, 'opus');
+      logTaskOutcome(1, 'sonnet', 'failure', true);
+      logTierEscalation(1, 'sonnet', 'opus', decision.reason);
+
+      // Attempt 3: opus fails -- no further escalation. decideEscalation
+      // enforces two independent stop conditions (per 57-03): the ladder's
+      // own null-terminator (getNextTier('opus') === null -> 'ladder_exhausted')
+      // AND the explicit escalationsUsed >= getTiers().length-1 safety cap
+      // (-> 'escalation_bound_reached'). At escalationsUsed=2 (the bound),
+      // the explicit cap check fires first in decideEscalation's own
+      // ordering -- either reason is a correct "stop" signal for this test.
+      decision = decide('opus', 2);
+      assert.strictEqual(decision.escalate, false);
+      assert.ok(
+        ['ladder_exhausted', 'escalation_bound_reached'].includes(decision.reason),
+        `expected a terminal stop reason, got: ${decision.reason}`
+      );
+      logTaskOutcome(1, 'opus', 'failure', true);
+
+      const events = getHistory(tmpDir);
+      const outcomes = events.filter((e) => e.type === 'task_outcome');
+      const escalations = events.filter((e) => e.type === 'tier_escalation');
+
+      assert.strictEqual(outcomes.length, 3, 'expected 3 task_outcome failure events (haiku, sonnet, opus)');
+      assert.deepStrictEqual(outcomes.map((e) => e.tier), ['haiku', 'sonnet', 'opus']);
+      assert.ok(outcomes.every((e) => e.outcome === 'failure'));
+
+      assert.strictEqual(escalations.length, 2, 'expected exactly 2 tier_escalation events (haiku->sonnet, sonnet->opus)');
+      assert.deepStrictEqual(
+        escalations.map((e) => `${e.from_tier}->${e.to_tier}`),
+        ['haiku->sonnet', 'sonnet->opus']
+      );
+    });
+
+    // Integration-test scenario #6: bound enforcement -- opus failure never
+    // attempts a 4th tier / never issues a 3rd tier_escalation event.
+    test('bound enforcement: opus attempt returns escalate:false and the loop never logs a 3rd tier_escalation event', () => {
+      decide('haiku', 0);
+      logTaskOutcome(2, 'haiku', 'failure', true);
+      logTierEscalation(2, 'haiku', 'sonnet', 'capability_failure');
+
+      decide('sonnet', 1);
+      logTaskOutcome(2, 'sonnet', 'failure', true);
+      logTierEscalation(2, 'sonnet', 'opus', 'capability_failure');
+
+      const opusDecision = decide('opus', 2);
+      assert.strictEqual(opusDecision.escalate, false, 'opus must never escalate further');
+      assert.strictEqual(opusDecision.next_tier, null);
+      logTaskOutcome(2, 'opus', 'failure', true);
+      // No further tier_escalation call is ever made for this task -- the
+      // coordinator loop's "Else" branch terminates here.
+
+      const escalations = getHistory(tmpDir).filter((e) => e.type === 'tier_escalation');
+      assert.strictEqual(escalations.length, 2, 'must never log a 3rd tier_escalation event past opus');
+    });
+
+    // Integration-test scenario #7 (coordinator-logic level): a
+    // [non-capability]-tagged failure at haiku never triggers a re-spawn --
+    // only one task_outcome (capability_related:false) is logged, zero
+    // tier_escalation events.
+    test('non-capability failure exclusion: an ENOENT-classified haiku failure never escalates, logs exactly one capability_related:false task_outcome, zero tier_escalation events', () => {
+      const decision = decide('haiku', 0, 'ENOENT: no such file or directory');
+      assert.strictEqual(decision.escalate, false);
+      assert.strictEqual(decision.reason, 'non_capability_failure');
+
+      // Coordinator's "Else" branch: record failed, no re-spawn.
+      logTaskOutcome(3, 'haiku', 'failure', false);
+
+      const events = getHistory(tmpDir);
+      const outcomes = events.filter((e) => e.type === 'task_outcome');
+      const escalations = events.filter((e) => e.type === 'tier_escalation');
+
+      assert.strictEqual(outcomes.length, 1);
+      assert.strictEqual(outcomes[0].capability_related, false);
+      assert.strictEqual(escalations.length, 0, 'a non-capability failure must never produce a tier_escalation event');
+    });
+
+    // Integration-test scenario #8: after seeding the full escalation chain's
+    // events, `routing ledger build` folds them into routing-ledger.json,
+    // reflecting an attempt (and a failure) at each of the 3 tiers.
+    test('ledger recording of escalation outcome: routing ledger build folds the full chain into routing-ledger.json with attempts/failures at all 3 tiers', () => {
+      decide('haiku', 0);
+      logTaskOutcome(4, 'haiku', 'failure', true);
+      logTierEscalation(4, 'haiku', 'sonnet', 'capability_failure');
+
+      decide('sonnet', 1);
+      logTaskOutcome(4, 'sonnet', 'failure', true);
+      logTierEscalation(4, 'sonnet', 'opus', 'capability_failure');
+
+      decide('opus', 2);
+      logTaskOutcome(4, 'opus', 'failure', true);
+
+      const buildResult = runGsdTools('routing ledger build --raw', tmpDir);
+      assert.ok(buildResult.success, `routing ledger build failed: ${buildResult.error}`);
+
+      const ledgerPath = path.join(tmpDir, '.planning', 'routing-ledger.json');
+      assert.ok(fs.existsSync(ledgerPath), 'expected routing-ledger.json to be written');
+      const ledger = JSON.parse(fs.readFileSync(ledgerPath, 'utf-8'));
+
+      const fixBucket = ledger.task_types.fix;
+      assert.ok(fixBucket, 'expected a "fix" task_type bucket (task_name "fix the escalation loop")');
+      assert.ok(fixBucket.haiku.attempts >= 1);
+      assert.ok(fixBucket.sonnet.attempts >= 1);
+      assert.ok(fixBucket.opus.attempts >= 1);
+      assert.strictEqual(fixBucket.haiku.failures, fixBucket.haiku.attempts);
+      assert.strictEqual(fixBucket.sonnet.failures, fixBucket.sonnet.attempts);
+      assert.strictEqual(fixBucket.opus.failures, fixBucket.opus.attempts);
+      assert.strictEqual(fixBucket.haiku.successes, 0);
+      assert.strictEqual(fixBucket.sonnet.successes, 0);
+      assert.strictEqual(fixBucket.opus.successes, 0);
+    });
+  });
+
+  describe('coordinator-detail.md prose wiring (grep-assertion, index-ordered)', () => {
+    const coordinatorDetailPath = path.join(__dirname, '..', 'references', 'coordinator-detail.md');
+    const content = fs.readFileSync(coordinatorDetailPath, 'utf-8');
+
+    const executeStart = content.indexOf('<step name="execute">');
+    const executeEnd = content.indexOf('</step>', executeStart);
+    const postUxSweepStart = content.indexOf('<step name="post_phase_ux_sweep">');
+
+    test('the execute step is found and precedes post_phase_ux_sweep (sanity check for index-bounded assertions below)', () => {
+      assert.ok(executeStart !== -1, '<step name="execute"> not found');
+      assert.ok(executeEnd !== -1, 'execute step closing </step> not found');
+      assert.ok(postUxSweepStart !== -1, '<step name="post_phase_ux_sweep"> not found');
+      assert.ok(executeEnd < postUxSweepStart, 'execute step must close before post_phase_ux_sweep starts');
+    });
+
+    test('routing escalation-decision is called inside the execute step', () => {
+      const idx = content.indexOf('routing escalation-decision', executeStart);
+      assert.ok(idx !== -1 && idx < executeEnd, 'routing escalation-decision must appear inside <step name="execute">');
+    });
+
+    test('task_outcome events are logged inside the execute step', () => {
+      const idx = content.indexOf('task_outcome', executeStart);
+      assert.ok(idx !== -1 && idx < executeEnd, 'task_outcome must appear inside <step name="execute">');
+    });
+
+    test('tier_escalation events are logged inside the execute step', () => {
+      const idx = content.indexOf('tier_escalation', executeStart);
+      assert.ok(idx !== -1 && idx < executeEnd, 'tier_escalation must appear inside <step name="execute">');
+    });
+
+    test('routing ledger build appears inside the execute step AND before post_phase_ux_sweep (ordering lock-in)', () => {
+      const idx = content.indexOf('routing ledger build', executeStart);
+      assert.ok(idx !== -1, 'routing ledger build not found');
+      assert.ok(idx < executeEnd, 'routing ledger build must appear inside <step name="execute">');
+      assert.ok(idx < postUxSweepStart, 'routing ledger build must run before post_phase_ux_sweep');
+    });
+
+    test('the [non-capability] tag handling (IS_NON_CAPABILITY_TAGGED) is present in the escalation loop', () => {
+      const idx = content.indexOf('IS_NON_CAPABILITY_TAGGED', executeStart);
+      assert.ok(idx !== -1 && idx < executeEnd, 'IS_NON_CAPABILITY_TAGGED must appear inside <step name="execute">');
+    });
+
+    test('the escalation loop is bounded via the ladder (references getNextTier/escalation-decision, never a second hardcoded ladder)', () => {
+      const block = content.slice(executeStart, executeEnd);
+      assert.doesNotMatch(
+        block,
+        /\{\s*haiku:\s*['"]sonnet['"]/,
+        'the escalation loop must not hardcode a second {haiku: "sonnet", ...} ladder inline'
+      );
+      assert.match(block, /routing escalation-decision/);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 58-03: token-usage golden-path wiring (MILE-36)
+//
+// coordinator-detail.md is prose consumed by an LLM subagent, not executable
+// code -- so, mirroring Phase 57-04's precedent above, the wiring is locked in
+// via grep-assertion tests: read the file from disk once, compute the
+// <step name="execute"> boundaries via indexOf, and assert each literal call
+// site's index falls where the design says it must.
+// ---------------------------------------------------------------------------
+describe('Phase 58-03: token-usage golden-path wiring', () => {
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  const coordinatorDetailPath = path.join(__dirname, '..', 'references', 'coordinator-detail.md');
+  const content = fs.readFileSync(coordinatorDetailPath, 'utf-8');
+
+  const executeStart = content.indexOf('<step name="execute">');
+  const executeEnd = content.indexOf('</step>', executeStart);
+  const executeBlock = content.slice(executeStart, executeEnd);
+
+  // The exact command string each of the 3 task_outcome logging call sites uses.
+  const TASK_OUTCOME_CMD = 'execution-log event --type task_outcome';
+
+  // Category: presence + step-boundary.
+  test('token-usage record appears inside the execute step (presence + step-boundary)', () => {
+    assert.ok(executeStart !== -1, '<step name="execute"> not found');
+    assert.ok(executeEnd !== -1, 'execute step closing </step> not found');
+    const idx = content.indexOf('token-usage record', executeStart);
+    assert.ok(idx !== -1, 'token-usage record not found after executeStart');
+    assert.ok(idx < executeEnd, 'token-usage record must appear inside <step name="execute">');
+  });
+
+  // Category: count -- exactly 3 call sites, one per task_outcome logging point.
+  test('exactly 3 occurrences of token-usage record fall inside the execute step (one per task_outcome call site)', () => {
+    const matches = executeBlock.match(/token-usage record/g) || [];
+    assert.strictEqual(
+      matches.length,
+      3,
+      `expected exactly 3 token-usage record call sites inside <step name="execute">, found ${matches.length}`
+    );
+  });
+
+  // Category: adjacency -- each token-usage record call is genuinely adjacent to
+  // its corresponding task_outcome log: the nearest following occurrence appears
+  // BEFORE the next task_outcome command AND before the next tier_escalation
+  // event log (call site 2 sits between its failed-attempt task_outcome log and
+  // the escalation loop's tier_escalation log, so this bound is the strict one).
+  test('each of the 3 task_outcome call sites is immediately followed by a token-usage record call (adjacency)', () => {
+    const cmdIndexes = [];
+    let i = executeBlock.indexOf(TASK_OUTCOME_CMD);
+    while (i !== -1) {
+      cmdIndexes.push(i);
+      i = executeBlock.indexOf(TASK_OUTCOME_CMD, i + 1);
+    }
+    assert.strictEqual(
+      cmdIndexes.length,
+      3,
+      `expected exactly 3 '${TASK_OUTCOME_CMD}' call sites inside the execute step, found ${cmdIndexes.length}`
+    );
+
+    for (let k = 0; k < cmdIndexes.length; k++) {
+      const tuIdx = executeBlock.indexOf('token-usage record', cmdIndexes[k]);
+      const nextCmdIdx = k + 1 < cmdIndexes.length ? cmdIndexes[k + 1] : executeBlock.length;
+      let nextEscIdx = executeBlock.indexOf('--type tier_escalation', cmdIndexes[k]);
+      if (nextEscIdx === -1) nextEscIdx = executeBlock.length;
+      const boundary = Math.min(nextCmdIdx, nextEscIdx);
+
+      assert.ok(tuIdx !== -1, `call site ${k + 1}: no token-usage record found after its task_outcome log`);
+      assert.ok(
+        tuIdx < boundary,
+        `call site ${k + 1}: token-usage record (index ${tuIdx}) must appear before the next task_outcome/tier_escalation call site (index ${boundary}) -- not just somewhere later in the step`
+      );
+    }
+  });
+
+  // Category: design intent -- golden-path calls never pass explicit token counts;
+  // the CLI always derives an estimate via estimateTaskTokens (source:'estimated').
+  test('no golden-path call site passes --tokens-input or --tokens-output (CLI always estimates)', () => {
+    assert.ok(
+      !executeBlock.includes('--tokens-input'),
+      'golden-path token-usage record calls must not pass --tokens-input'
+    );
+    assert.ok(
+      !executeBlock.includes('--tokens-output'),
+      'golden-path token-usage record calls must not pass --tokens-output'
+    );
+  });
+
+  // Category: budget regression -- mirrors the existing 'wiring: checkAllBudgets
+  // reports pass:true...' precedent. coordinator-detail.md itself sits after the
+  // CORE_PREAMBLE_MARKER and is not directly budget-measured, but prompt-budget
+  // risk was an explicit design constraint, so the regression is verified anyway.
+  test('checkAllBudgets still reports pass:true for all agents after the coordinator-detail.md edit', () => {
+    const { checkAllBudgets } = require('./prompt-budget.js');
+    const result = checkAllBudgets(REPO_ROOT);
+
+    assert.strictEqual(result.pass, true, `expected checkAllBudgets to pass overall, got: ${JSON.stringify(result.results)}`);
+    for (const entry of result.results) {
+      assert.strictEqual(entry.pass, true, `expected ${entry.filePath} to pass its budget, got ${entry.estimatedTokens}/${entry.budget}`);
+    }
+  });
+});
+
+// Phase 59-01 (MILE-37/MILE-38 foundation): quality config toggles +
+// appendVerificationGap + verify append-gap CLI + composition proof that the
+// existing Phase 55 eval-candidate reader consumes the newly-appended gap
+// unmodified (no second/parallel gap pipeline).
+describe('Phase 59-01: quality config toggles + appendVerificationGap', () => {
+  const { loadConfig, appendVerificationGap, buildEvalCandidatesFromVerificationFile } = resilience;
+  const matter = require('gray-matter');
+
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function writeVerificationFixture(relPath, content) {
+    const fullPath = path.join(tmpDir, relPath);
+    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    fs.writeFileSync(fullPath, content, 'utf-8');
+    return fullPath;
+  }
+
+  const PASSED_NO_GAPS_CONTENT = `---
+phase: 59-test-phase
+status: passed
+score: 5/5 must-haves verified
+---
+
+# Verification Report
+
+## Summary
+
+Everything checked out.
+
+| Truth | Status |
+| ----- | ------ |
+| Thing works | passed |
+`;
+
+  const GAPS_FOUND_1_EXISTING_CONTENT = `---
+phase: 59-test-phase
+status: gaps_found
+gaps:
+  - truth: "Pre-existing truth"
+    status: failed
+    failure_type: stub
+    reason: "pre-existing reason"
+    artifacts:
+      - path: "src/existing.js"
+        issue: "missing"
+---
+
+# Verification Report
+`;
+
+  const MALFORMED_FRONTMATTER_CONTENT = `---
+status: [unterminated
+this is not valid yaml: : :
+---
+
+# Body
+`;
+
+  describe('loadConfig defaults', () => {
+    test('test_writer_enabled/integration_tester_enabled both default false when config.json is absent (ENOENT branch)', () => {
+      const config = loadConfig(tmpDir);
+      assert.strictEqual(config.test_writer_enabled, false);
+      assert.strictEqual(config.integration_tester_enabled, false);
+    });
+
+    test('both default false when config.json exists but omits both keys', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'config.json'),
+        JSON.stringify({ model_profile: 'balanced' }),
+        'utf-8'
+      );
+      const config = loadConfig(tmpDir);
+      assert.strictEqual(config.test_writer_enabled, false);
+      assert.strictEqual(config.integration_tester_enabled, false);
+    });
+
+    test('flat override {"test_writer_enabled": true} resolves test_writer_enabled:true without affecting integration_tester_enabled', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'config.json'),
+        JSON.stringify({ test_writer_enabled: true }),
+        'utf-8'
+      );
+      const config = loadConfig(tmpDir);
+      assert.strictEqual(config.test_writer_enabled, true);
+      assert.strictEqual(config.integration_tester_enabled, false);
+    });
+
+    test('nested override {"quality": {"integration_tester": true}} resolves integration_tester_enabled:true without affecting test_writer_enabled', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'config.json'),
+        JSON.stringify({ quality: { integration_tester: true } }),
+        'utf-8'
+      );
+      const config = loadConfig(tmpDir);
+      assert.strictEqual(config.integration_tester_enabled, true);
+      assert.strictEqual(config.test_writer_enabled, false);
+    });
+  });
+
+  describe('appendVerificationGap', () => {
+    test('happy path: appends one gap, flips status to gaps_found, preserves markdown body byte-for-byte', () => {
+      const verificationPath = writeVerificationFixture('.planning/phases/59-test-phase/59-VERIFICATION.md', PASSED_NO_GAPS_CONTENT);
+      const bodyBefore = matter(PASSED_NO_GAPS_CONTENT).content;
+
+      const result = appendVerificationGap(tmpDir, verificationPath, {
+        truth: 'Cross-phase contract holds',
+        reason: 'consumer expected shape X, producer returned shape Y',
+        failure_type: 'contract_mismatch',
+        artifacts: [{ path: 'src/consumer.js', issue: 'shape mismatch' }],
+      });
+
+      assert.strictEqual(result.ok, true);
+
+      const rewritten = fs.readFileSync(verificationPath, 'utf-8');
+      const parsed = matter(rewritten);
+      assert.strictEqual(parsed.data.status, 'gaps_found');
+      assert.strictEqual(parsed.data.gaps.length, 1);
+      assert.strictEqual(parsed.data.gaps[0].failure_type, 'contract_mismatch');
+      assert.strictEqual(parsed.data.gaps[0].truth, 'Cross-phase contract holds');
+      assert.strictEqual(parsed.content, bodyBefore, 'expected markdown body to be byte-identical after the write');
+    });
+
+    test('appends (does not replace) an EXISTING gaps array', () => {
+      const verificationPath = writeVerificationFixture('.planning/phases/59-test-phase/59-VERIFICATION.md', GAPS_FOUND_1_EXISTING_CONTENT);
+      const originalParsed = matter(GAPS_FOUND_1_EXISTING_CONTENT);
+      const originalGap = originalParsed.data.gaps[0];
+
+      const result = appendVerificationGap(tmpDir, verificationPath, {
+        truth: 'Second truth',
+        reason: 'second reason',
+        failure_type: 'contract_mismatch',
+      });
+
+      assert.strictEqual(result.ok, true);
+      assert.strictEqual(result.gaps_count, 2);
+
+      const rewritten = fs.readFileSync(verificationPath, 'utf-8');
+      const parsed = matter(rewritten);
+      assert.strictEqual(parsed.data.gaps.length, 2);
+      assert.deepStrictEqual(parsed.data.gaps[0], originalGap, 'expected the original gap entry to be unchanged');
+      assert.strictEqual(parsed.data.gaps[1].truth, 'Second truth');
+    });
+
+    test('never throws on a missing file -- returns {ok:false, error}', () => {
+      const missingPath = path.join(tmpDir, '.planning', 'phases', '59-test-phase', 'does-not-exist.md');
+      let result;
+      assert.doesNotThrow(() => {
+        result = appendVerificationGap(tmpDir, missingPath, { truth: 'x', reason: 'y' });
+      });
+      assert.strictEqual(result.ok, false);
+      assert.ok(result.error);
+    });
+
+    test('never throws on malformed/corrupt frontmatter -- returns {ok:false, error}', () => {
+      const verificationPath = writeVerificationFixture('.planning/phases/59-test-phase/59-VERIFICATION.md', MALFORMED_FRONTMATTER_CONTENT);
+      let result;
+      assert.doesNotThrow(() => {
+        result = appendVerificationGap(tmpDir, verificationPath, { truth: 'x', reason: 'y' });
+      });
+      assert.strictEqual(result.ok, false);
+      assert.ok(result.error);
+    });
+  });
+
+  describe('verify append-gap CLI', () => {
+    test('missing --truth/--reason exits non-zero with a JSON error naming the missing flag', () => {
+      const verificationPath = writeVerificationFixture('.planning/phases/59-test-phase/59-VERIFICATION.md', PASSED_NO_GAPS_CONTENT);
+      const relPath = path.relative(tmpDir, verificationPath);
+      const result = runGsdTools(`verify append-gap "${relPath}" --raw`, tmpDir);
+      assert.ok(!result.success, 'expected non-zero exit when --truth/--reason are missing');
+      const parsed = JSON.parse(result.output || result.error);
+      assert.strictEqual(parsed.error, true);
+      assert.strictEqual(parsed.type, 'missing_flags');
+    });
+
+    test('happy path: exits 0, prints {appended:true, gaps_count:1, ...}, file on disk now has status:gaps_found', () => {
+      const verificationPath = writeVerificationFixture('.planning/phases/59-test-phase/59-VERIFICATION.md', PASSED_NO_GAPS_CONTENT);
+      const relPath = path.relative(tmpDir, verificationPath);
+      const result = runGsdTools(`verify append-gap "${relPath}" --truth "Some truth" --reason "some reason" --raw`, tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.appended, true);
+      assert.strictEqual(parsed.gaps_count, 1);
+
+      const rewritten = matter(fs.readFileSync(verificationPath, 'utf-8'));
+      assert.strictEqual(rewritten.data.status, 'gaps_found');
+    });
+
+    test('--artifacts with malformed JSON exits non-zero with malformed_artifacts_json error, WITHOUT writing to the file', () => {
+      const verificationPath = writeVerificationFixture('.planning/phases/59-test-phase/59-VERIFICATION.md', PASSED_NO_GAPS_CONTENT);
+      const contentBefore = fs.readFileSync(verificationPath, 'utf-8');
+      const relPath = path.relative(tmpDir, verificationPath);
+
+      const result = runGsdTools(`verify append-gap "${relPath}" --truth "t" --reason "r" --artifacts "{not valid json" --raw`, tmpDir);
+      assert.ok(!result.success, 'expected non-zero exit on malformed --artifacts JSON');
+      const parsed = JSON.parse(result.output || result.error);
+      assert.strictEqual(parsed.error, true);
+      assert.strictEqual(parsed.type, 'malformed_artifacts_json');
+
+      const contentAfter = fs.readFileSync(verificationPath, 'utf-8');
+      assert.strictEqual(contentAfter, contentBefore, 'expected the file to be untouched when --artifacts JSON is malformed');
+    });
+
+    test('--failure-type omitted defaults to contract_mismatch on the written gap', () => {
+      const verificationPath = writeVerificationFixture('.planning/phases/59-test-phase/59-VERIFICATION.md', PASSED_NO_GAPS_CONTENT);
+      const relPath = path.relative(tmpDir, verificationPath);
+      const result = runGsdTools(`verify append-gap "${relPath}" --truth "t" --reason "r" --raw`, tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+
+      const rewritten = matter(fs.readFileSync(verificationPath, 'utf-8'));
+      assert.strictEqual(rewritten.data.gaps[0].failure_type, 'contract_mismatch');
+    });
+  });
+
+  describe('composition proof: existing eval-candidate reader consumes the appended gap unmodified', () => {
+    test('after a real `verify append-gap` CLI call, buildEvalCandidatesFromVerificationFile returns exactly 1 candidate whose context.gap_description matches --reason', () => {
+      const verificationPath = writeVerificationFixture('.planning/phases/59-test-phase/59-VERIFICATION.md', PASSED_NO_GAPS_CONTENT);
+      const relPath = path.relative(tmpDir, verificationPath);
+      const reasonText = 'consumer reads field X but producer never sets it';
+
+      const cliResult = runGsdTools(`verify append-gap "${relPath}" --truth "Consumer/producer contract holds" --reason "${reasonText}" --raw`, tmpDir);
+      assert.ok(cliResult.success, `expected exit 0, got: ${cliResult.error}`);
+
+      const candidates = buildEvalCandidatesFromVerificationFile(tmpDir, verificationPath);
+      assert.strictEqual(candidates.length, 1, 'expected the existing Phase 55 reader to pick up exactly 1 candidate from the appended gap');
+      assert.strictEqual(candidates[0].context.gap_description, reasonText);
+    });
+  });
+});
+
+// Phase 59-01 (MILE-37/MILE-38): structural grep-assertion tests locking in
+// the agent drift refresh -- gsd-test-writer.md/gsd-integration-tester.md
+// (about to join the golden path for the first time in Plans 59-02/59-03)
+// both gain a <content_firewall> block (mirroring gsd-executor.md's exact
+// convention) and the MILE-26 4-field telemetry self-report line.
+describe('Phase 59-01: agent drift refresh (content_firewall + telemetry)', () => {
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  const TEST_WRITER_PATH = path.join(REPO_ROOT, 'agents', 'gsd-test-writer.md');
+  const INTEGRATION_TESTER_PATH = path.join(REPO_ROOT, 'agents', 'gsd-integration-tester.md');
+  const TELEMETRY_LINE = '**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}';
+
+  function readRepoFile(relPath) {
+    return fs.readFileSync(relPath, 'utf-8');
+  }
+
+  test('gsd-test-writer.md gains a <content_firewall> block immediately after </role>', () => {
+    const content = readRepoFile(TEST_WRITER_PATH);
+    assert.ok(content.includes('<content_firewall>'), 'expected gsd-test-writer.md to contain a <content_firewall> block');
+    const roleEndIdx = content.indexOf('</role>');
+    const firewallIdx = content.indexOf('<content_firewall>');
+    assert.ok(roleEndIdx !== -1 && firewallIdx !== -1 && firewallIdx > roleEndIdx, 'expected <content_firewall> to appear after </role>');
+    assert.ok(content.includes('content-firewall.md'), 'expected gsd-test-writer.md to point at the content-firewall.md convention');
+  });
+
+  test('gsd-integration-tester.md gains a <content_firewall> block immediately after </role>', () => {
+    const content = readRepoFile(INTEGRATION_TESTER_PATH);
+    assert.ok(content.includes('<content_firewall>'), 'expected gsd-integration-tester.md to contain a <content_firewall> block');
+    const roleEndIdx = content.indexOf('</role>');
+    const firewallIdx = content.indexOf('<content_firewall>');
+    assert.ok(roleEndIdx !== -1 && firewallIdx !== -1 && firewallIdx > roleEndIdx, 'expected <content_firewall> to appear after </role>');
+    assert.ok(content.includes('content-firewall.md'), 'expected gsd-integration-tester.md to point at the content-firewall.md convention');
+  });
+
+  test('gsd-test-writer.md gains the exact MILE-26 4-field telemetry self-report line', () => {
+    const content = readRepoFile(TEST_WRITER_PATH);
+    assert.ok(content.includes(TELEMETRY_LINE), 'expected gsd-test-writer.md to contain the exact 4-field telemetry line');
+  });
+
+  test('gsd-integration-tester.md gains the exact MILE-26 4-field telemetry self-report line', () => {
+    const content = readRepoFile(INTEGRATION_TESTER_PATH);
+    assert.ok(content.includes(TELEMETRY_LINE), 'expected gsd-integration-tester.md to contain the exact 4-field telemetry line');
+  });
+
+  test('boundary: gsd-planner.md and gsd-debugger.md carry NO <content_firewall> block (blast radius confined to test-writer/integration-tester)', () => {
+    const plannerContent = readRepoFile(path.join(REPO_ROOT, 'agents', 'gsd-planner.md'));
+    const debuggerContent = readRepoFile(path.join(REPO_ROOT, 'agents', 'gsd-debugger.md'));
+    assert.ok(!plannerContent.includes('<content_firewall>'), 'expected gsd-planner.md to be untouched by this plan\'s drift refresh');
+    assert.ok(!debuggerContent.includes('<content_firewall>'), 'expected gsd-debugger.md to be untouched by this plan\'s drift refresh');
+  });
+
+  test('regression guard: CHANGELOG.md documents both new toggle defaults under Unreleased/Added', () => {
+    const changelog = readRepoFile(path.join(REPO_ROOT, 'CHANGELOG.md'));
+    const unreleasedIdx = changelog.indexOf('## [Unreleased]');
+    const addedIdx = changelog.indexOf('### Added', unreleasedIdx);
+    const nextSectionIdx = changelog.indexOf('\n## ', addedIdx);
+    const addedSection = changelog.slice(addedIdx, nextSectionIdx === -1 ? changelog.length : nextSectionIdx);
+
+    assert.ok(addedSection.includes('test_writer_enabled'), 'expected CHANGELOG.md Unreleased/Added to mention test_writer_enabled');
+    assert.ok(addedSection.includes('integration_tester_enabled'), 'expected CHANGELOG.md Unreleased/Added to mention integration_tester_enabled');
+    // [Rule 1 fix, Phase 59-02] Newest-first ordering: the Phase 59-01 bullet should sit ABOVE
+    // an older, still-present anchor bullet (Phase 58) rather than assuming it is literally the
+    // FIRST bullet ever -- a later phase's own newer entry (e.g. Phase 59-02) is expected to be
+    // inserted above it in the future, which is correct newest-first behavior, not a regression.
+    const phase5901Idx = addedSection.indexOf('Phase 59-01');
+    const phase58Idx = addedSection.indexOf('Phase 58');
+    assert.ok(phase5901Idx !== -1 && phase58Idx !== -1 && phase5901Idx < phase58Idx, 'expected the Phase 59-01 bullet to sit above the older Phase 58 bullet under Unreleased/Added');
+  });
+});
+
+describe('Phase 59-02: post-task quality test-writer spawn (MILE-37)', () => {
+  const { isSourceFile, isTestOrSpecFile, computeTouchesSourceCode, loadConfig } = resilience;
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  const EXECUTOR_DETAIL_PATH = path.join(REPO_ROOT, 'get-shit-done', 'references', 'executor-detail.md');
+
+  describe('isSourceFile / isTestOrSpecFile / computeTouchesSourceCode (pure functions)', () => {
+    test('happy path: recognized source extensions classify as source', () => {
+      const sourceFiles = ['src/foo.js', 'lib/bar.ts', 'app/Baz.tsx', 'component.jsx', 'script.py', 'main.go', 'model.rb'];
+      for (const f of sourceFiles) {
+        assert.strictEqual(isSourceFile(f), true, `expected ${f} to classify as source`);
+      }
+    });
+
+    test('test/spec exclusion: source-extension files under test paths or with test/spec suffixes are NOT source', () => {
+      const excluded = ['src/foo.test.js', 'src/foo.spec.ts', 'test/bar.js', '__tests__/baz.js', 'spec/qux.rb'];
+      for (const f of excluded) {
+        assert.strictEqual(isTestOrSpecFile(f), true, `expected ${f} to be classified as a test/spec file`);
+        assert.strictEqual(isSourceFile(f), false, `expected ${f} to be excluded from isSourceFile despite a source extension`);
+      }
+    });
+
+    test('non-source extensions (docs/config) are NOT source', () => {
+      const nonSource = ['README.md', 'package.json', '.eslintrc'];
+      for (const f of nonSource) {
+        assert.strictEqual(isSourceFile(f), false, `expected ${f} to classify as NOT source`);
+      }
+    });
+
+    test('computeTouchesSourceCode: true when at least one source file is present among non-source files', () => {
+      assert.strictEqual(computeTouchesSourceCode(['README.md', 'src/foo.js', 'package.json']), true);
+    });
+
+    test('computeTouchesSourceCode: false when every file is non-source or test/spec', () => {
+      assert.strictEqual(computeTouchesSourceCode(['README.md', 'src/foo.test.js', 'package.json']), false);
+    });
+
+    test('computeTouchesSourceCode: false on empty array, never throws', () => {
+      assert.strictEqual(computeTouchesSourceCode([]), false);
+    });
+
+    test('computeTouchesSourceCode: false on non-array input (null/undefined/string), never throws', () => {
+      assert.doesNotThrow(() => {
+        assert.strictEqual(computeTouchesSourceCode(null), false);
+        assert.strictEqual(computeTouchesSourceCode(undefined), false);
+        assert.strictEqual(computeTouchesSourceCode('src/foo.js'), false);
+      });
+    });
+  });
+
+  describe('`quality touches-source` CLI (real subprocess)', () => {
+    test('mixed file list returns touches_source_code:true', () => {
+      const result = runGsdTools('quality touches-source --files "src/a.js,test/b.test.js" --raw');
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.touches_source_code, true);
+      assert.strictEqual(parsed.file_count, 2);
+    });
+
+    test('all-test/doc file list returns touches_source_code:false', () => {
+      const result = runGsdTools('quality touches-source --files "test/a.test.js,README.md" --raw');
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.touches_source_code, false);
+    });
+
+    test('empty --files value returns false, file_count:0 without erroring', () => {
+      const result = runGsdTools('quality touches-source --files "" --raw');
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.touches_source_code, false);
+      assert.strictEqual(parsed.file_count, 0);
+    });
+
+    test('--files flag omitted entirely returns false, file_count:0 without erroring', () => {
+      const result = runGsdTools('quality touches-source --raw');
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.touches_source_code, false);
+      assert.strictEqual(parsed.file_count, 0);
+    });
+  });
+
+  describe('prose wiring grep-assertion tests (house convention, mirrors Phase 57-04/58-03)', () => {
+    function readExecutorDetail() {
+      return fs.readFileSync(EXECUTOR_DETAIL_PATH, 'utf-8');
+    }
+
+    test('<post_task_quality_spawn> appears AFTER </inter_task_syntax_check> and BEFORE <test_task_handling> (index-bounded ordering)', () => {
+      const content = readExecutorDetail();
+      const syntaxCheckCloseIdx = content.indexOf('</inter_task_syntax_check>');
+      const spawnBlockIdx = content.indexOf('<post_task_quality_spawn>');
+      const testTaskHandlingIdx = content.indexOf('<test_task_handling>');
+      assert.ok(syntaxCheckCloseIdx !== -1, 'expected </inter_task_syntax_check> to exist');
+      assert.ok(spawnBlockIdx !== -1, 'expected <post_task_quality_spawn> to exist');
+      assert.ok(testTaskHandlingIdx !== -1, 'expected <test_task_handling> to exist');
+      assert.ok(spawnBlockIdx > syntaxCheckCloseIdx, 'expected <post_task_quality_spawn> to appear after </inter_task_syntax_check>');
+      assert.ok(spawnBlockIdx < testTaskHandlingIdx, 'expected <post_task_quality_spawn> to appear before <test_task_handling>');
+    });
+
+    test('test_writer_enabled toggle check appears inside the post_task_quality_spawn block', () => {
+      const content = readExecutorDetail();
+      const spawnBlockIdx = content.indexOf('<post_task_quality_spawn>');
+      const spawnBlockCloseIdx = content.indexOf('</post_task_quality_spawn>');
+      const toggleIdx = content.indexOf('test_writer_enabled', spawnBlockIdx);
+      assert.ok(toggleIdx !== -1 && toggleIdx < spawnBlockCloseIdx, 'expected test_writer_enabled to appear inside post_task_quality_spawn');
+    });
+
+    test('[Rule Quality-TW] literal string appears inside the post_task_quality_spawn block', () => {
+      const content = readExecutorDetail();
+      const spawnBlockIdx = content.indexOf('<post_task_quality_spawn>');
+      const spawnBlockCloseIdx = content.indexOf('</post_task_quality_spawn>');
+      const ruleIdx = content.indexOf('[Rule Quality-TW]', spawnBlockIdx);
+      assert.ok(ruleIdx !== -1 && ruleIdx < spawnBlockCloseIdx, 'expected [Rule Quality-TW] to appear inside post_task_quality_spawn');
+    });
+
+    test('continuation language ("Do NOT block") appears inside the post_task_quality_spawn block, distinguishing it from the tdd="true" hard-block contract', () => {
+      const content = readExecutorDetail();
+      const spawnBlockIdx = content.indexOf('<post_task_quality_spawn>');
+      const spawnBlockCloseIdx = content.indexOf('</post_task_quality_spawn>');
+      const doNotBlockIdx = content.indexOf('Do NOT block', spawnBlockIdx);
+      assert.ok(doNotBlockIdx !== -1 && doNotBlockIdx < spawnBlockCloseIdx, 'expected "Do NOT block" continuation language inside post_task_quality_spawn');
+    });
+  });
+
+  describe('regression guard: existing tdd="true" hard-block contract in <test_task_handling> is untouched', () => {
+    test('exact existing block-language substring is still present, unchanged', () => {
+      const content = fs.readFileSync(EXECUTOR_DETAIL_PATH, 'utf-8');
+      assert.ok(content.includes('BLOCK — do NOT proceed to the next task'), 'expected the existing tdd="true" hard-block language to still be present verbatim');
+    });
+
+    test('surrounding "0 tests written" hard-failure wording is unaffected', () => {
+      const content = fs.readFileSync(EXECUTOR_DETAIL_PATH, 'utf-8');
+      const testTaskHandlingIdx = content.indexOf('<test_task_handling>');
+      const testTaskHandlingCloseIdx = content.indexOf('</test_task_handling>');
+      const block = content.slice(testTaskHandlingIdx, testTaskHandlingCloseIdx);
+      assert.ok(block.includes('0 tests written'), 'expected "0 tests written" hard-failure wording to still be present inside <test_task_handling>');
+      assert.ok(block.includes('BLOCK — do NOT proceed to the next task'), 'expected the hard-block sentence to still be inside <test_task_handling>, not moved elsewhere');
+    });
+  });
+
+  describe('toggle-off regression proof', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+      tmpDir = createTempProject();
+    });
+
+    afterEach(() => {
+      cleanup(tmpDir);
+    });
+
+    test('loadConfig(tmpDir).test_writer_enabled is false with no .planning/config.json present', () => {
+      const config = loadConfig(tmpDir);
+      assert.strictEqual(config.test_writer_enabled, false);
+    });
+
+    test('[Rule 1 fix] `config get test_writer_enabled --raw` (the EXACT invocation form the corrected prose block uses) against a temp dir with no config.json prints bare "false", not JSON', () => {
+      const result = runGsdTools('config get test_writer_enabled --raw', tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      assert.strictEqual(result.output, 'false', 'expected the --raw invocation to print a bare "false" so the bash comparison against "true" in the prose block resolves correctly');
+    });
+  });
+
+  describe('regression guard: CHANGELOG.md documents Phase 59-02 (MILE-37)', () => {
+    test('Phase 59-02 bullet is present under Unreleased/Added, sits above the Phase 59-01 bullet, and mentions the key deliverables', () => {
+      const changelog = fs.readFileSync(path.join(REPO_ROOT, 'CHANGELOG.md'), 'utf-8');
+      const unreleasedIdx = changelog.indexOf('## [Unreleased]');
+      const addedIdx = changelog.indexOf('### Added', unreleasedIdx);
+      const nextSectionIdx = changelog.indexOf('\n## ', addedIdx);
+      const addedSection = changelog.slice(addedIdx, nextSectionIdx === -1 ? changelog.length : nextSectionIdx);
+
+      const phase5902Idx = addedSection.indexOf('Phase 59-02');
+      const phase5901Idx = addedSection.indexOf('Phase 59-01');
+      assert.ok(phase5902Idx !== -1, 'expected CHANGELOG.md Unreleased/Added to mention Phase 59-02');
+      assert.ok(phase5901Idx !== -1 && phase5902Idx < phase5901Idx, 'expected the Phase 59-02 bullet to sit above the older Phase 59-01 bullet (newest-first)');
+      assert.ok(addedSection.includes('computeTouchesSourceCode'), 'expected the Phase 59-02 bullet to mention computeTouchesSourceCode');
+      assert.ok(addedSection.includes('post_task_quality_spawn'), 'expected the Phase 59-02 bullet to mention post_task_quality_spawn');
+      assert.ok(addedSection.includes('MILE-37'), 'expected the Phase 59-02 bullet to mention MILE-37');
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 59-03: declared-dependency integration-tester spawn + gaps_found
+// propagation (MILE-38)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Phase 59-03: declared-dependency integration-tester spawn + gaps_found propagation (MILE-38)', () => {
+  const { buildEvalCandidatesFromVerificationFile } = resilience;
+  const matter = require('gray-matter');
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  const COORDINATOR_DETAIL_PATH = path.join(REPO_ROOT, 'get-shit-done', 'references', 'coordinator-detail.md');
+  const VERIFIER_DETAIL_PATH = path.join(REPO_ROOT, 'get-shit-done', 'references', 'verifier-detail.md');
+  const PLANNER_DETAIL_PATH = path.join(REPO_ROOT, 'get-shit-done', 'references', 'planner-detail.md');
+  const REAL_ROADMAP_PATH = path.join(REPO_ROOT, '.planning', 'ROADMAP.md');
+
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  describe('cmdRoadmapGetPhase depends_on fix (both real-world dependency-line styles)', () => {
+    test('colon-inside-bold style "**Depends on:** Phase 30" returns depends_on: ["Phase 30"]', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'ROADMAP.md'),
+        `# Roadmap\n\n### Phase 50: Current\n**Goal:** Do the thing\n**Depends on:** Phase 30\n`
+      );
+      const result = runGsdTools('roadmap get-phase 50', tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const output = JSON.parse(result.output);
+      assert.deepStrictEqual(output.depends_on, ['Phase 30']);
+    });
+
+    test('colon-outside-bold style "**Depends on**: Phase 18" (SEPARATE fixture) returns depends_on: ["Phase 18"]', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'ROADMAP.md'),
+        `# Roadmap\n\n### Phase 51: Current\n**Goal:** Do another thing\n**Depends on**: Phase 18\n`
+      );
+      const result = runGsdTools('roadmap get-phase 51', tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const output = JSON.parse(result.output);
+      assert.deepStrictEqual(output.depends_on, ['Phase 18']);
+    });
+
+    test('"**Depends on**: Nothing (first phase of milestone)" returns depends_on: []', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'ROADMAP.md'),
+        `# Roadmap\n\n### Phase 1: First\n**Goal:** Start\n**Depends on**: Nothing (first phase of milestone)\n`
+      );
+      const result = runGsdTools('roadmap get-phase 1', tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const output = JSON.parse(result.output);
+      assert.deepStrictEqual(output.depends_on, []);
+    });
+
+    test('phase with no "Depends on" line at all returns depends_on: []', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'ROADMAP.md'),
+        `# Roadmap\n\n### Phase 2: NoLine\n**Goal:** Just a goal\n`
+      );
+      const result = runGsdTools('roadmap get-phase 2', tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const output = JSON.parse(result.output);
+      assert.deepStrictEqual(output.depends_on, []);
+    });
+
+    test('comma-separated two-phase dependency returns a 2-element array', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'ROADMAP.md'),
+        `# Roadmap\n\n### Phase 3: TwoDeps\n**Goal:** Depends on two\n**Depends on:** Phase 1, Phase 2\n`
+      );
+      const result = runGsdTools('roadmap get-phase 3', tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const output = JSON.parse(result.output);
+      assert.strictEqual(output.depends_on.length, 2);
+      assert.deepStrictEqual(output.depends_on, ['Phase 1', 'Phase 2']);
+    });
+  });
+
+  describe('real-repo regression proof (against a COPY of the real live .planning/ROADMAP.md, never mutating it)', () => {
+    test('roadmap get-phase 59 against a temp copy of the real ROADMAP.md returns a non-empty depends_on array referencing Phase 55', () => {
+      const realRoadmap = fs.readFileSync(REAL_ROADMAP_PATH, 'utf-8');
+      fs.writeFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), realRoadmap);
+
+      const result = runGsdTools('roadmap get-phase 59', tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const output = JSON.parse(result.output);
+      assert.strictEqual(output.found, true, 'expected Phase 59 to be found in the real live ROADMAP.md');
+      assert.ok(Array.isArray(output.depends_on) && output.depends_on.length > 0, 'expected a non-empty depends_on array against the real live ROADMAP.md -- proves the fix is not merely fixture-shaped');
+      assert.ok(output.depends_on.some(d => d.includes('Phase 55')), `expected depends_on to reference Phase 55, got: ${JSON.stringify(output.depends_on)}`);
+    });
+  });
+
+  describe('spawn-decision boolean simulation (mirrors the new coordinator step 3b computation: toggle==="true" && depends_on.length>0)', () => {
+    function computeSpawnDecision(cwd, phaseNum) {
+      const toggleResult = runGsdTools('config get integration_tester_enabled --raw', cwd);
+      const toggle = toggleResult.success ? toggleResult.output.trim() : 'false';
+      const phaseResult = runGsdTools(`roadmap get-phase ${phaseNum}`, cwd);
+      const phaseOutput = phaseResult.success ? JSON.parse(phaseResult.output) : { depends_on: [] };
+      const dependsOn = Array.isArray(phaseOutput.depends_on) ? phaseOutput.depends_on : [];
+      return toggle === 'true' && dependsOn.length > 0;
+    }
+
+    test('dependent-phase (depends_on non-empty) + toggle on (via config.json) -> spawn decision true', () => {
+      fs.writeFileSync(path.join(tmpDir, '.planning', 'config.json'), JSON.stringify({ integration_tester_enabled: true }));
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'ROADMAP.md'),
+        `# Roadmap\n\n### Phase 5: Dependent\n**Goal:** g\n**Depends on:** Phase 1\n`
+      );
+      assert.strictEqual(computeSpawnDecision(tmpDir, 5), true);
+    });
+
+    test('independent-phase (depends_on empty) + toggle on -> spawn decision false regardless of toggle state', () => {
+      fs.writeFileSync(path.join(tmpDir, '.planning', 'config.json'), JSON.stringify({ integration_tester_enabled: true }));
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'ROADMAP.md'),
+        `# Roadmap\n\n### Phase 6: Independent\n**Goal:** g\n**Depends on**: Nothing (first phase of milestone)\n`
+      );
+      assert.strictEqual(computeSpawnDecision(tmpDir, 6), false);
+    });
+
+    test('dependent-phase (depends_on non-empty) + toggle off (default, no config.json) -> spawn decision false', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'ROADMAP.md'),
+        `# Roadmap\n\n### Phase 7: Dependent\n**Goal:** g\n**Depends on:** Phase 1\n`
+      );
+      assert.strictEqual(computeSpawnDecision(tmpDir, 7), false);
+    });
+  });
+
+  describe('gaps_found propagation composition (real CLI, end-to-end, matching the exact new coordinator invocation form)', () => {
+    test('verify append-gap --failure-type contract_mismatch flips status to gaps_found, and buildEvalCandidatesFromVerificationFile picks it up unmodified (1 candidate, matching --reason)', () => {
+      const verificationDir = path.join(tmpDir, '.planning', 'phases', '59-dependent-phase');
+      fs.mkdirSync(verificationDir, { recursive: true });
+      const verificationPath = path.join(verificationDir, '59-03-VERIFICATION.md');
+      fs.writeFileSync(verificationPath, `---\nphase: 59-dependent-phase\nstatus: passed\n---\n\n# Verification Report\n`);
+      const relPath = path.relative(tmpDir, verificationPath);
+      const reasonText = 'producer returns {id, name} but consumer destructures {id, label}';
+
+      const cliResult = runGsdTools(
+        `verify append-gap "${relPath}" --truth "Cross-phase integration boundary 'UserCard props' matches between producer and consumer" --reason "${reasonText}" --failure-type contract_mismatch --raw`,
+        tmpDir
+      );
+      assert.ok(cliResult.success, `expected exit 0, got: ${cliResult.error}`);
+
+      const rewritten = matter(fs.readFileSync(verificationPath, 'utf-8'));
+      assert.strictEqual(rewritten.data.status, 'gaps_found');
+      assert.strictEqual(rewritten.data.gaps[rewritten.data.gaps.length - 1].failure_type, 'contract_mismatch');
+
+      const candidates = buildEvalCandidatesFromVerificationFile(tmpDir, verificationPath);
+      assert.strictEqual(candidates.length, 1, 'expected exactly 1 candidate from the existing Phase 55 reader');
+      assert.strictEqual(candidates[0].context.gap_description, reasonText);
+    });
+  });
+
+  describe('prose wiring grep-assertion tests (house convention, mirrors Phase 57-04/58-03)', () => {
+    function readCoordinatorDetail() {
+      return fs.readFileSync(COORDINATOR_DETAIL_PATH, 'utf-8');
+    }
+
+    test('integration_tester_enabled and verify append-gap both appear inside <step name="cross_phase_integration">', () => {
+      const content = readCoordinatorDetail();
+      const stepStartIdx = content.indexOf('<step name="cross_phase_integration">');
+      const stepEndIdx = content.indexOf('</step>', stepStartIdx);
+      assert.ok(stepStartIdx !== -1 && stepEndIdx !== -1, 'expected cross_phase_integration step to exist');
+      const toggleIdx = content.indexOf('integration_tester_enabled', stepStartIdx);
+      const gapIdx = content.indexOf('verify append-gap', stepStartIdx);
+      assert.ok(toggleIdx !== -1 && toggleIdx < stepEndIdx, 'expected integration_tester_enabled inside the cross_phase_integration step');
+      assert.ok(gapIdx !== -1 && gapIdx < stepEndIdx, 'expected verify append-gap inside the cross_phase_integration step');
+    });
+
+    test('the new step 3b branch text appears AFTER step 3\'s existing "Spawn gsd-integration-tester:" Agent() block (ordering lock-in)', () => {
+      const content = readCoordinatorDetail();
+      const step3Idx = content.indexOf('Spawn gsd-integration-tester:');
+      const newBranchIdx = content.indexOf('3b. **(NEW, MILE-38, additive)');
+      assert.ok(step3Idx !== -1, 'expected step 3\'s existing Agent() block to exist');
+      assert.ok(newBranchIdx !== -1, 'expected the new step 3b branch to exist');
+      assert.ok(newBranchIdx > step3Idx, 'expected the new step 3b branch to appear after step 3\'s existing Agent() block');
+    });
+
+    test('regression guard: step 3\'s EXISTING, untouched overlap-trigger text is still present unchanged', () => {
+      const content = readCoordinatorDetail();
+      assert.ok(
+        content.includes('If overlap found (same API routes, same tables, same component names)'),
+        'expected step 3\'s existing overlap-trigger text to be unchanged'
+      );
+    });
+
+    test('contract_mismatch appears in both verifier-detail.md and planner-detail.md respective tables', () => {
+      const verifierContent = fs.readFileSync(VERIFIER_DETAIL_PATH, 'utf-8');
+      const plannerContent = fs.readFileSync(PLANNER_DETAIL_PATH, 'utf-8');
+      assert.ok(verifierContent.includes('contract_mismatch'), 'expected contract_mismatch in verifier-detail.md');
+      assert.ok(plannerContent.includes('contract_mismatch'), 'expected contract_mismatch in planner-detail.md');
+    });
+  });
+});
+
+describe('Phase 59-04: DEPENDS_ON snippet --raw contract-mismatch regression (MILE-38)', () => {
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  const COORDINATOR_DETAIL_PATH = path.join(REPO_ROOT, 'get-shit-done', 'references', 'coordinator-detail.md');
+
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  // Reads coordinator-detail.md from disk and extracts the LITERAL DEPENDS_ON=$(...) bash
+  // assignment line from inside <step name="cross_phase_integration">...</step>. This is
+  // deliberately NOT a hand-rolled equivalent -- 59-03's own computeSpawnDecision() simulation
+  // helper (above) calls `roadmap get-phase ${phaseNum}` directly and never caught the --raw
+  // bug because it never executed the prose file's actual bash line.
+  function extractDependsOnSnippet() {
+    const content = fs.readFileSync(COORDINATOR_DETAIL_PATH, 'utf-8');
+    const stepStart = content.indexOf('<step name="cross_phase_integration">');
+    const stepEnd = content.indexOf('</step>', stepStart);
+    assert.ok(stepStart !== -1 && stepEnd !== -1, 'expected cross_phase_integration step to exist in coordinator-detail.md');
+    const stepSlice = content.slice(stepStart, stepEnd);
+    const match = stepSlice.match(/^DEPENDS_ON=\$\(.*\)\s*$/m);
+    assert.ok(match, 'expected a literal DEPENDS_ON=$(...) bash assignment line inside cross_phase_integration -- fails loudly if the snippet\'s shape changes unexpectedly');
+    return match[0];
+  }
+
+  // Substitutes the installed-copy path for this repo's real gsd-tools.js and the literal
+  // {phase_number} placeholder for a real phase number (plain string substitution, not regex --
+  // the line contains literal `{`/`}` characters), writes the result to a temp .sh file inside
+  // tmpDir, and executes it via bash -- running the ACTUAL extracted pipeline, not a simulation.
+  function runExtractedSnippet(dir, phaseNum) {
+    const literalLine = extractDependsOnSnippet();
+    const substituted = literalLine
+      .split('~/.claude/get-shit-done/bin/gsd-tools.js').join(TOOLS_PATH)
+      .split('{phase_number}').join(String(phaseNum));
+    const scriptPath = path.join(dir, 'depends-on-snippet.sh');
+    fs.writeFileSync(scriptPath, `${substituted}\necho "$DEPENDS_ON"\n`);
+    const result = execSync(`bash "${scriptPath}"`, { cwd: dir, encoding: 'utf-8' });
+    return JSON.parse(result.trim());
+  }
+
+  test('extractDependsOnSnippet finds the literal DEPENDS_ON line inside cross_phase_integration', () => {
+    const line = extractDependsOnSnippet();
+    assert.ok(line.includes('roadmap get-phase'), 'expected the extracted line to call roadmap get-phase');
+    assert.ok(line.includes('JSON.parse'), 'expected the extracted line to pipe into a JSON.parse consumer');
+  });
+
+  test('literal snippet resolves a declared dependency to a real non-empty array (would have FAILED before the --raw fix)', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      `# Roadmap\n\n### Phase 20: Dependent\n**Goal:** g\n**Depends on:** Phase 10\n`
+    );
+    const result = runExtractedSnippet(tmpDir, 20);
+    assert.ok(Array.isArray(result) && result.length > 0, `expected a non-empty array, got: ${JSON.stringify(result)}`);
+    assert.deepStrictEqual(result, ['Phase 10']);
+  });
+
+  test('literal snippet resolves an independent phase (no Depends on line) to []', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      `# Roadmap\n\n### Phase 21: Independent\n**Goal:** g\n`
+    );
+    const result = runExtractedSnippet(tmpDir, 21);
+    assert.deepStrictEqual(result, []);
+  });
+
+  test('regression lock: no `roadmap get-phase` + `--raw` + `JSON.parse` combination remains anywhere inside cross_phase_integration', () => {
+    const content = fs.readFileSync(COORDINATOR_DETAIL_PATH, 'utf-8');
+    const stepStart = content.indexOf('<step name="cross_phase_integration">');
+    const stepEnd = content.indexOf('</step>', stepStart);
+    assert.ok(stepStart !== -1 && stepEnd !== -1, 'expected cross_phase_integration step to exist in coordinator-detail.md');
+    const lines = content.slice(stepStart, stepEnd).split('\n');
+    for (const line of lines) {
+      if (line.includes('roadmap get-phase') && line.includes('--raw') && line.includes('JSON.parse')) {
+        assert.fail(`found forbidden roadmap get-phase + --raw + JSON.parse combination inside cross_phase_integration: ${line}`);
+      }
+    }
+  });
+});
+
+// Phase 60-01 (MILE-39, foundation): loadConfig's 3 new adversarial_review
+// toggles, the pure computeHighRisk/computePresentationOrder/verdictToIssues
+// functions, and the quality assess-risk / quality verdict-to-issues CLI
+// subcommands they back. This plan lands the decision layer only -- Plan
+// 60-03 wires plan-phase.md's risk-triage step on top of these stable CLI
+// contracts.
+describe('Phase 60-01: adversarial-review config + assess-risk/verdict-to-issues (MILE-39)', () => {
+  const { loadConfig, computeHighRisk, computePresentationOrder, verdictToIssues } = resilience;
+
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function writeFixture(relPath, content) {
+    const fullPath = path.join(tmpDir, relPath);
+    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    fs.writeFileSync(fullPath, content, 'utf-8');
+    return fullPath;
+  }
+
+  describe('loadConfig defaults', () => {
+    test('adversarial_review_enabled:false, adversarial_review_file_threshold:8, adversarial_review_security_patterns 10-entry array when config.json is absent (ENOENT branch)', () => {
+      const config = loadConfig(tmpDir);
+      assert.strictEqual(config.adversarial_review_enabled, false);
+      assert.strictEqual(config.adversarial_review_file_threshold, 8);
+      assert.ok(Array.isArray(config.adversarial_review_security_patterns));
+      assert.strictEqual(config.adversarial_review_security_patterns.length, 10);
+    });
+
+    test('all three defaults hold when config.json exists but omits all three keys', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'config.json'),
+        JSON.stringify({ model_profile: 'balanced' }),
+        'utf-8'
+      );
+      const config = loadConfig(tmpDir);
+      assert.strictEqual(config.adversarial_review_enabled, false);
+      assert.strictEqual(config.adversarial_review_file_threshold, 8);
+      assert.strictEqual(config.adversarial_review_security_patterns.length, 10);
+    });
+
+    test('flat override {"adversarial_review_enabled": true} resolves without affecting the other two defaults', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'config.json'),
+        JSON.stringify({ adversarial_review_enabled: true }),
+        'utf-8'
+      );
+      const config = loadConfig(tmpDir);
+      assert.strictEqual(config.adversarial_review_enabled, true);
+      assert.strictEqual(config.adversarial_review_file_threshold, 8);
+      assert.strictEqual(config.adversarial_review_security_patterns.length, 10);
+    });
+
+    test('nested override {"quality": {"adversarial_review_file_threshold": 3}} resolves without affecting adversarial_review_enabled', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'config.json'),
+        JSON.stringify({ quality: { adversarial_review_file_threshold: 3 } }),
+        'utf-8'
+      );
+      const config = loadConfig(tmpDir);
+      assert.strictEqual(config.adversarial_review_file_threshold, 3);
+      assert.strictEqual(config.adversarial_review_enabled, false);
+    });
+  });
+
+  describe('computeHighRisk (unit)', () => {
+    test('explicit high_risk:true (boolean) frontmatter wins even when the toggle is OFF (default config)', () => {
+      const config = loadConfig(tmpDir);
+      const result = computeHighRisk({ high_risk: true }, '', config);
+      assert.deepStrictEqual(result, { high_risk: true, reasons: ['explicit high_risk frontmatter flag'] });
+    });
+
+    test('explicit high_risk: "true" (string) frontmatter resolves identically to the boolean case', () => {
+      const config = loadConfig(tmpDir);
+      const result = computeHighRisk({ high_risk: 'true' }, '', config);
+      assert.deepStrictEqual(result, { high_risk: true, reasons: ['explicit high_risk frontmatter flag'] });
+    });
+
+    test('no explicit flag, toggle OFF, 20 files_modified entries -> {high_risk:false, reasons:[]} (feature off wins)', () => {
+      const config = loadConfig(tmpDir); // toggle off by default
+      const filesModified = Array.from({ length: 20 }, (_, i) => `src/file${i}.js`);
+      const result = computeHighRisk({ files_modified: filesModified }, '', config);
+      assert.deepStrictEqual(result, { high_risk: false, reasons: [] });
+    });
+
+    test('no explicit flag, toggle ON, files_modified.length exceeds threshold -> high_risk:true with a threshold-exceeded reason', () => {
+      const config = { adversarial_review_enabled: true, adversarial_review_file_threshold: 8, adversarial_review_security_patterns: [] };
+      const filesModified = Array.from({ length: 9 }, (_, i) => `src/file${i}.js`);
+      const result = computeHighRisk({ files_modified: filesModified }, '', config);
+      assert.strictEqual(result.high_risk, true);
+      assert.ok(result.reasons.some(r => r.includes('threshold')), `expected a threshold reason, got: ${JSON.stringify(result.reasons)}`);
+    });
+
+    test('no explicit flag, toggle ON, a files_modified entry matches a configured security pattern -> high_risk:true with a pattern-match reason', () => {
+      const config = { adversarial_review_enabled: true, adversarial_review_file_threshold: 8, adversarial_review_security_patterns: ['auth', 'payment', '/api/'] };
+      const result = computeHighRisk({ files_modified: ['src/api/auth/route.ts'] }, '', config);
+      assert.strictEqual(result.high_risk, true);
+      assert.ok(result.reasons.some(r => r.includes('security pattern')), `expected a pattern-match reason, got: ${JSON.stringify(result.reasons)}`);
+    });
+
+    test('no explicit flag, toggle ON, plan content with 3 tdd="true" markers -> high_risk:true with a tdd-count reason; 2 markers -> high_risk:false', () => {
+      const config = { adversarial_review_enabled: true, adversarial_review_file_threshold: 8, adversarial_review_security_patterns: [] };
+      const threeMarkers = '<task type="auto" tdd="true"></task><task type="auto" tdd="true"></task><task type="auto" tdd="true"></task>';
+      const twoMarkers = '<task type="auto" tdd="true"></task><task type="auto" tdd="true"></task>';
+
+      const resultThree = computeHighRisk({}, threeMarkers, config);
+      assert.strictEqual(resultThree.high_risk, true);
+      assert.ok(resultThree.reasons.some(r => r.includes('tdd')), `expected a tdd-count reason, got: ${JSON.stringify(resultThree.reasons)}`);
+
+      const resultTwo = computeHighRisk({}, twoMarkers, config);
+      assert.strictEqual(resultTwo.high_risk, false);
+    });
+
+    test('no explicit flag, toggle ON, none of the 3 criteria met -> {high_risk:false, reasons:[]}', () => {
+      const config = { adversarial_review_enabled: true, adversarial_review_file_threshold: 8, adversarial_review_security_patterns: ['auth', 'payment'] };
+      const result = computeHighRisk({ files_modified: ['src/lib/util.js'] }, '<task tdd="true"></task>', config);
+      assert.deepStrictEqual(result, { high_risk: false, reasons: [] });
+    });
+
+    test('malformed input never throws: computeHighRisk(null, null, null) returns a well-formed object', () => {
+      let result;
+      assert.doesNotThrow(() => { result = computeHighRisk(null, null, null); });
+      assert.strictEqual(typeof result.high_risk, 'boolean');
+      assert.ok(Array.isArray(result.reasons));
+    });
+
+    test('malformed input never throws: files_modified is a string (not an array), toggle on', () => {
+      let result;
+      assert.doesNotThrow(() => {
+        result = computeHighRisk({ files_modified: 'not-an-array-but-a-string' }, undefined, { adversarial_review_enabled: true });
+      });
+      assert.strictEqual(typeof result.high_risk, 'boolean');
+      assert.ok(Array.isArray(result.reasons));
+    });
+  });
+
+  describe('computePresentationOrder (unit)', () => {
+    test('determinism: the SAME real plan-content string returns the identical value across repeated calls', () => {
+      const content = '---\nphase: 60\nplan: "01"\n---\n\n# Real plan content\n\nSome task details here.\n';
+      const first = computePresentationOrder(content);
+      const second = computePresentationOrder(content);
+      const third = computePresentationOrder(content);
+      assert.strictEqual(first, second);
+      assert.strictEqual(second, third);
+    });
+
+    test('valid enum: return value is always exactly attack_first or defense_first across 10 distinct synthetic content strings', () => {
+      for (let i = 0; i < 10; i++) {
+        const result = computePresentationOrder(`content-${i}-${'x'.repeat(i)}`);
+        assert.ok(result === 'attack_first' || result === 'defense_first', `unexpected value: ${result}`);
+      }
+    });
+
+    test('not constant: both attack_first and defense_first occur at least once across those same 10 distinct content strings', () => {
+      const seen = new Set();
+      for (let i = 0; i < 10; i++) {
+        seen.add(computePresentationOrder(`content-${i}-${'x'.repeat(i)}`));
+      }
+      assert.ok(seen.has('attack_first'), 'expected at least one attack_first result');
+      assert.ok(seen.has('defense_first'), 'expected at least one defense_first result');
+    });
+  });
+
+  describe('quality assess-risk CLI (real subprocess)', () => {
+    test('missing plan-file argument -> structured JSON error type:missing_argument, high_risk:false', () => {
+      const result = runGsdTools('quality assess-risk --raw', tmpDir);
+      const parsed = JSON.parse(result.output || result.error);
+      assert.strictEqual(parsed.error, true);
+      assert.strictEqual(parsed.type, 'missing_argument');
+      assert.strictEqual(parsed.high_risk, false);
+    });
+
+    test('nonexistent file path -> structured JSON error type:file_not_found', () => {
+      const result = runGsdTools('quality assess-risk does-not-exist-60-01.md --raw', tmpDir);
+      const parsed = JSON.parse(result.output || result.error);
+      assert.strictEqual(parsed.error, true);
+      assert.strictEqual(parsed.type, 'file_not_found');
+    });
+
+    test('malformed frontmatter (unterminated --- YAML block) -> structured JSON error type:malformed_frontmatter, process exits cleanly', () => {
+      const planPath = writeFixture(
+        '.planning/phases/60-adversarial-plan-review/malformed-PLAN.md',
+        '---\nstatus: [unterminated\nthis is not valid yaml: : :\n---\n\n# Body\n'
+      );
+      const relPath = path.relative(tmpDir, planPath);
+      const result = runGsdTools(`quality assess-risk "${relPath}" --raw`, tmpDir);
+      const parsed = JSON.parse(result.output || result.error);
+      assert.strictEqual(parsed.error, true);
+      assert.strictEqual(parsed.type, 'malformed_frontmatter');
+    });
+
+    test('real high-risk fixture: high_risk:true frontmatter (default config, toggle off) resolves high_risk:true with the explicit-flag reason', () => {
+      const planPath = writeFixture(
+        '.planning/phases/60-adversarial-plan-review/60-explicit-PLAN.md',
+        '---\nphase: 60\nplan: "explicit"\nhigh_risk: true\n---\n\n# Plan\n'
+      );
+      const relPath = path.relative(tmpDir, planPath);
+      const result = runGsdTools(`quality assess-risk "${relPath}" --raw`, tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.high_risk, true);
+      assert.ok(parsed.reasons.includes('explicit high_risk frontmatter flag'));
+      assert.ok(parsed.presentation_order === 'attack_first' || parsed.presentation_order === 'defense_first');
+    });
+
+    test('real criteria-triggered fixture: 9 files_modified entries + temp config toggle ON (default threshold 8) -> high_risk:true with a threshold reason', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'config.json'),
+        JSON.stringify({ adversarial_review_enabled: true }),
+        'utf-8'
+      );
+      const filesYaml = Array.from({ length: 9 }, (_, i) => `  - src/file${i}.js`).join('\n');
+      const planPath = writeFixture(
+        '.planning/phases/60-adversarial-plan-review/60-criteria-PLAN.md',
+        `---\nphase: 60\nplan: "criteria"\nfiles_modified:\n${filesYaml}\n---\n\n# Plan\n`
+      );
+      const relPath = path.relative(tmpDir, planPath);
+      const result = runGsdTools(`quality assess-risk "${relPath}" --raw`, tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.high_risk, true);
+      assert.ok(parsed.reasons.some(r => r.includes('threshold')), `expected a threshold reason, got: ${JSON.stringify(parsed.reasons)}`);
+    });
+
+    test('real not-high-risk fixture: toggle on, 2 files_modified entries, no security pattern match, 1 tdd="true" task -> {high_risk:false, reasons:[]}', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'config.json'),
+        JSON.stringify({ adversarial_review_enabled: true }),
+        'utf-8'
+      );
+      const planPath = writeFixture(
+        '.planning/phases/60-adversarial-plan-review/60-safe-PLAN.md',
+        '---\nphase: 60\nplan: "safe"\nfiles_modified:\n  - src/lib/util.js\n  - src/lib/helpers.js\n---\n\n<task type="auto" tdd="true"><name>Task 1</name></task>\n'
+      );
+      const relPath = path.relative(tmpDir, planPath);
+      const result = runGsdTools(`quality assess-risk "${relPath}" --raw`, tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.high_risk, false);
+      assert.deepStrictEqual(parsed.reasons, []);
+    });
+
+    test('toggle-off default wins: same 9-files_modified fixture WITHOUT the temp adversarial_review_enabled:true config override -> high_risk:false', () => {
+      const filesYaml = Array.from({ length: 9 }, (_, i) => `  - src/file${i}.js`).join('\n');
+      const planPath = writeFixture(
+        '.planning/phases/60-adversarial-plan-review/60-criteria-off-PLAN.md',
+        `---\nphase: 60\nplan: "criteria-off"\nfiles_modified:\n${filesYaml}\n---\n\n# Plan\n`
+      );
+      const relPath = path.relative(tmpDir, planPath);
+      const result = runGsdTools(`quality assess-risk "${relPath}" --raw`, tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.high_risk, false, 'expected the toggle-off default to win over the file-count criterion');
+    });
+  });
+
+  describe('verdictToIssues (unit)', () => {
+    test('{verdict: "approved"} -> []', () => {
+      assert.deepStrictEqual(verdictToIssues({ verdict: 'approved' }, '60-01'), []);
+    });
+
+    test('missing/undefined verdict field entirely -> [] (treated as approved-equivalent)', () => {
+      assert.deepStrictEqual(verdictToIssues({}, '60-01'), []);
+      assert.deepStrictEqual(verdictToIssues({ required_changes: ['x'] }, '60-01'), []);
+    });
+
+    test('{verdict: "revise", required_changes: [...], plan: "60-01"} -> 2 warning-severity issues in the exact gsd-plan-checker shape', () => {
+      const issues = verdictToIssues({ verdict: 'revise', required_changes: ['Fix A', 'Fix B'], plan: '60-01' });
+      assert.strictEqual(issues.length, 2);
+      for (const issue of issues) {
+        assert.strictEqual(issue.plan, '60-01');
+        assert.strictEqual(issue.dimension, 'adversarial_review');
+        assert.strictEqual(issue.severity, 'warning');
+      }
+      assert.strictEqual(issues[0].description, 'Fix A');
+      assert.strictEqual(issues[1].description, 'Fix B');
+    });
+
+    test('{verdict: "critical", required_changes: [{description, fix_hint}]} -> 1 blocker-severity issue, object-shaped required_changes handled', () => {
+      const issues = verdictToIssues({ verdict: 'critical', required_changes: [{ description: 'Fix C', fix_hint: 'Do X' }] });
+      assert.strictEqual(issues.length, 1);
+      assert.strictEqual(issues[0].severity, 'blocker');
+      assert.strictEqual(issues[0].description, 'Fix C');
+      assert.strictEqual(issues[0].fix_hint, 'Do X');
+      assert.strictEqual(issues[0].dimension, 'adversarial_review');
+    });
+  });
+
+  describe('quality verdict-to-issues CLI (real subprocess)', () => {
+    test('missing verdict-file argument -> structured JSON error type:missing_argument, issues:[]', () => {
+      const result = runGsdTools('quality verdict-to-issues --raw', tmpDir);
+      const parsed = JSON.parse(result.output || result.error);
+      assert.strictEqual(parsed.error, true);
+      assert.strictEqual(parsed.type, 'missing_argument');
+      assert.deepStrictEqual(parsed.issues, []);
+    });
+
+    test('nonexistent file -> structured JSON error type:file_not_found', () => {
+      const result = runGsdTools('quality verdict-to-issues does-not-exist-60-01-VERDICT.md --raw', tmpDir);
+      const parsed = JSON.parse(result.output || result.error);
+      assert.strictEqual(parsed.error, true);
+      assert.strictEqual(parsed.type, 'file_not_found');
+    });
+
+    test('real VERDICT.md fixture (verdict:critical, 2 required_changes) -> issues array of length 2, both blocker-severity, adversarial_review dimension', () => {
+      const verdictPath = writeFixture(
+        '.planning/phases/60-adversarial-plan-review/60-01-VERDICT.md',
+        '---\nplan: "60-01"\nverdict: critical\nrequired_changes:\n  - "Fix issue A"\n  - "Fix issue B"\n---\n\n# Verdict\n'
+      );
+      const relPath = path.relative(tmpDir, verdictPath);
+      const result = runGsdTools(`quality verdict-to-issues "${relPath}" --raw`, tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.issues.length, 2);
+      for (const issue of parsed.issues) {
+        assert.strictEqual(issue.severity, 'blocker');
+        assert.strictEqual(issue.dimension, 'adversarial_review');
+      }
+    });
+  });
+});
+
+// Phase 60-02 (MILE-39): structural validation of the three new adversarial-review
+// trio agent files (gsd-plan-attacker/gsd-plan-defender/gsd-plan-judge). These tests
+// parse frontmatter via gray-matter directly against the real files on disk (not a
+// fixture copy) and lock in the house content_firewall/Telemetry conventions plus
+// each agent's read-only-vs-Write tool boundary and distinct output contract.
+describe('Phase 60-02: adversarial-review trio agent files structural validation (MILE-39)', () => {
+  const matter = require('gray-matter');
+
+  const AGENTS_DIR = path.join(__dirname, '..', '..', 'agents');
+  const TELEMETRY_LINE = '**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}';
+
+  const AGENT_FILES = [
+    { file: 'gsd-plan-attacker.md', name: 'gsd-plan-attacker' },
+    { file: 'gsd-plan-defender.md', name: 'gsd-plan-defender' },
+    { file: 'gsd-plan-judge.md', name: 'gsd-plan-judge' },
+  ];
+
+  function readAgent(file) {
+    const fullPath = path.join(AGENTS_DIR, file);
+    const raw = fs.readFileSync(fullPath, 'utf-8');
+    const parsed = matter(raw);
+    return { raw, data: parsed.data, content: parsed.content, fullPath };
+  }
+
+  // Normalizes gray-matter's `tools` field (comma-separated string OR array) into
+  // an array of trimmed tool names, so assertions work regardless of YAML shape.
+  function normalizeTools(tools) {
+    if (Array.isArray(tools)) return tools.map((t) => String(t).trim());
+    if (typeof tools === 'string') return tools.split(',').map((t) => t.trim());
+    return [];
+  }
+
+  for (const { file, name } of AGENT_FILES) {
+    describe(file, () => {
+      test('frontmatter parses without throwing; name/description/tools well-formed', () => {
+        let agent;
+        assert.doesNotThrow(() => { agent = readAgent(file); });
+        assert.strictEqual(agent.data.name, name);
+        assert.strictEqual(typeof agent.data.description, 'string');
+        assert.ok(agent.data.description.length > 0, 'description must be non-empty');
+        const tools = normalizeTools(agent.data.tools);
+        assert.ok(tools.length > 0, 'tools must be non-empty');
+      });
+
+      test('raw content contains exact <content_firewall> substring', () => {
+        const agent = readAgent(file);
+        assert.ok(agent.raw.includes('<content_firewall>'), `${file} is missing the <content_firewall> tag`);
+      });
+
+      test('raw content contains the exact 4-field Telemetry self-report line', () => {
+        const agent = readAgent(file);
+        assert.ok(agent.raw.includes(TELEMETRY_LINE), `${file} is missing the exact Telemetry line substring`);
+      });
+    });
+  }
+
+  describe('read-only vs Write tool boundary', () => {
+    test('gsd-plan-attacker.md tools does NOT include Write or Edit', () => {
+      const agent = readAgent('gsd-plan-attacker.md');
+      const tools = normalizeTools(agent.data.tools);
+      assert.ok(!tools.includes('Write'), 'attacker must not have Write');
+      assert.ok(!tools.includes('Edit'), 'attacker must not have Edit');
+    });
+
+    test('gsd-plan-defender.md tools does NOT include Write or Edit', () => {
+      const agent = readAgent('gsd-plan-defender.md');
+      const tools = normalizeTools(agent.data.tools);
+      assert.ok(!tools.includes('Write'), 'defender must not have Write');
+      assert.ok(!tools.includes('Edit'), 'defender must not have Edit');
+    });
+
+    test('gsd-plan-judge.md tools DOES include Write', () => {
+      const agent = readAgent('gsd-plan-judge.md');
+      const tools = normalizeTools(agent.data.tools);
+      assert.ok(tools.includes('Write'), 'judge must have Write');
+    });
+  });
+
+  describe('per-agent distinct output contract', () => {
+    test('gsd-plan-judge.md body documents writing its own VERDICT.md and consuming presentation_order', () => {
+      const agent = readAgent('gsd-plan-judge.md');
+      assert.ok(agent.content.includes('VERDICT.md'), 'judge must document writing its own VERDICT.md artifact');
+      assert.ok(agent.content.includes('presentation_order'), 'judge must document consuming presentation_order');
+    });
+
+    test('gsd-plan-attacker.md body has its own flaws: output contract and is not a gsd-plan-checker clone', () => {
+      const agent = readAgent('gsd-plan-attacker.md');
+      assert.ok(agent.content.includes('flaws:'), 'attacker must document its flaws: structured output');
+      assert.ok(!agent.content.includes('## VERIFICATION PASSED'), 'attacker must not be a gsd-plan-checker clone (VERIFICATION PASSED)');
+      assert.ok(!agent.content.includes('## ISSUES FOUND'), 'attacker must not be a gsd-plan-checker clone (ISSUES FOUND)');
+    });
+
+    test('gsd-plan-defender.md body has its own rebuttals: output contract with the 3 ruling enum values', () => {
+      const agent = readAgent('gsd-plan-defender.md');
+      assert.ok(agent.content.includes('rebuttals:'), 'defender must document its rebuttals: structured output');
+      assert.ok(agent.content.includes('refuted'), 'defender must document the refuted ruling value');
+      assert.ok(agent.content.includes('conceded'), 'defender must document the conceded ruling value');
+      assert.ok(agent.content.includes('partially-conceded'), 'defender must document the partially-conceded ruling value');
+    });
+  });
+});
+
+// Phase 60-03 (MILE-39): plan-phase.md's risk-triage wiring (Step 9.5's `quality
+// assess-risk` decision, Step 10's trio-vs-checker branch with the EXACT
+// pre-existing checker spawn preserved byte-identical, Step 11's verdict routing
+// into `quality verdict-to-issues`, Step 12's re-triage-on-revision). Prose is
+// consumed by an LLM subagent, not executed as code -- coverage splits into
+// (a) index-ordered/byte-identical grep-assertions proving the prose
+// wiring/ordering (mirrors Phase 59-03/59-04's coordinator-detail.md pattern),
+// and (b) integration-style tests driving the real `quality
+// assess-risk`/`quality verdict-to-issues` CLI + gray-matter against real
+// on-disk fixtures (never a live Agent() spawn).
+describe('Phase 60-03: plan-phase.md adversarial-review risk-triage wiring (MILE-39)', () => {
+  const matter = require('gray-matter');
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  const PLAN_PHASE_PATH = path.join(REPO_ROOT, 'get-shit-done', 'workflows', 'plan-phase.md');
+
+  function readPlanPhase() {
+    return fs.readFileSync(PLAN_PHASE_PATH, 'utf-8');
+  }
+
+  // Exact pre-Phase-60 checker banner + <verification_context> prompt block +
+  // Agent() call, copied verbatim from the checker branch of plan-phase.md's
+  // Step 10. Must remain a byte-identical substring of the live file --
+  // proves criterion 3 (non-high-risk plans keep the existing single
+  // plan-checker path completely unchanged).
+  const EXACT_ORIGINAL_CHECKER_BLOCK = [
+    'Display banner:',
+    '```',
+    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+    ' GSD ► VERIFYING PLANS',
+    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+    '',
+    '◆ Spawning plan checker...',
+    '```',
+    '',
+    'Checker prompt:',
+    '',
+    '```markdown',
+    '<verification_context>',
+    '**Phase:** {phase_number}',
+    '**Phase Goal:** {goal from ROADMAP}',
+    '',
+    '<files_to_read>',
+    '- {PHASE_DIR}/*-PLAN.md (Plans to verify)',
+    '- {roadmap_path} (Roadmap)',
+    '- {requirements_path} (Requirements)',
+    '- {context_path} (USER DECISIONS from /gsd:discuss-phase)',
+    '- {research_path} (Technical Research — includes Validation Architecture)',
+    '</files_to_read>',
+    '',
+    '**Phase requirement IDs (MUST ALL be covered):** {phase_req_ids}',
+    '',
+    '**Project instructions:** Read ./CLAUDE.md if exists — verify plans honor project guidelines',
+    '**Project skills:** Check .claude/skills/ or .agents/skills/ directory (if either exists) — verify plans account for project skill rules',
+    '</verification_context>',
+    '',
+    '<expected_output>',
+    '- ## VERIFICATION PASSED — all checks pass',
+    '- ## ISSUES FOUND — structured issue list',
+    '</expected_output>',
+    '```',
+    '',
+    '```',
+    'Agent(',
+    '  prompt=checker_prompt,',
+    '  subagent_type="gsd-plan-checker",',
+    '  model="{checker_model}",',
+    '  description="Verify Phase {phase} plans"',
+    ')',
+    '```',
+  ].join('\n');
+
+  describe('index-ordered + byte-identical grep-assertions (real file on disk)', () => {
+    test('Step 9.5 heading exists and appears BEFORE Step 10\'s trio-vs-checker heading', () => {
+      const content = readPlanPhase();
+      const step95Idx = content.indexOf('## 9.5. Risk Triage (Adversarial Review, MILE-39)');
+      const step10Idx = content.indexOf('## 10. Spawn gsd-plan-checker Agent (or Adversarial Review Trio, MILE-39)');
+      assert.ok(step95Idx > -1, 'expected Step 9.5 heading to exist');
+      assert.ok(step10Idx > -1, 'expected the new Step 10 heading to exist');
+      assert.ok(step95Idx < step10Idx, 'expected Step 9.5 to be wired BEFORE Step 10');
+    });
+
+    test('fail-open fallback text is present', () => {
+      const content = readPlanPhase();
+      assert.ok(content.includes('Falling back to standard gsd-plan-checker for the entire phase'));
+    });
+
+    test('byte-identical regression guard: the EXACT pre-existing checker banner + prompt + Agent() block is still present unmodified', () => {
+      const content = readPlanPhase();
+      assert.ok(
+        content.includes(EXACT_ORIGINAL_CHECKER_BLOCK),
+        'expected the pre-Phase-60 checker spawn block to remain byte-identical inside the checker branch'
+      );
+    });
+
+    test('Step 11\'s heading appears AFTER Step 10\'s heading (ordering)', () => {
+      const content = readPlanPhase();
+      const step10Idx = content.indexOf('## 10. Spawn gsd-plan-checker Agent (or Adversarial Review Trio, MILE-39)');
+      const step11Idx = content.indexOf('## 11. Handle Checker Return');
+      assert.ok(step11Idx > step10Idx, 'expected Step 11 to appear after Step 10');
+    });
+
+    test('Step 11 branches on TRIAGE_MODE (checker vs trio) and calls quality verdict-to-issues', () => {
+      const content = readPlanPhase();
+      const step11Idx = content.indexOf('## 11. Handle Checker Return');
+      const step12Idx = content.indexOf('## 12. Revision Loop (Max 3 Iterations)');
+      const step11Text = content.slice(step11Idx, step12Idx);
+      assert.ok(step11Text.includes('`TRIAGE_MODE` is `checker`'), 'expected the checker-mode branch label');
+      assert.ok(step11Text.includes('`TRIAGE_MODE` is `trio`'), 'expected the trio-mode branch label');
+      assert.ok(step11Text.includes('quality verdict-to-issues'), 'expected the verdict-to-issues CLI call');
+    });
+
+    test('Step 12 re-runs Step 9.5\'s triage before re-spawning step 10, while the existing gsd-planner revision spawn remains unmodified', () => {
+      const content = readPlanPhase();
+      assert.ok(content.includes('re-run Step 9.5'), 'expected the re-triage-on-revision text');
+      assert.ok(
+        content.includes('subagent_type="gsd-planner"'),
+        'expected the existing Step 12 gsd-planner revision spawn to remain present unmodified'
+      );
+    });
+  });
+
+  describe('integration-style tests via the CLI/pure-function layer (real subprocess, no live Agent() spawn)', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+      tmpDir = createTempProject();
+    });
+
+    afterEach(() => {
+      cleanup(tmpDir);
+    });
+
+    function writeFixture(relPath, content) {
+      const fullPath = path.join(tmpDir, relPath);
+      fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+      fs.writeFileSync(fullPath, content, 'utf-8');
+      return fullPath;
+    }
+
+    function computeTriageMode(highRisk) {
+      return highRisk ? 'trio' : 'checker';
+    }
+
+    test('trio spawn decision: a real high-risk *-PLAN.md fixture drives quality assess-risk to high_risk:true, resolving TRIAGE_MODE=trio', () => {
+      const planPath = writeFixture(
+        '.planning/phases/60-adversarial-plan-review/60-99-PLAN.md',
+        '---\nphase: 60\nplan: "99"\nhigh_risk: true\n---\n\n# Plan\n'
+      );
+      const relPath = path.relative(tmpDir, planPath);
+      const result = runGsdTools(`quality assess-risk "${relPath}" --raw`, tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.high_risk, true);
+      assert.strictEqual(computeTriageMode(parsed.high_risk), 'trio');
+    });
+
+    test('single-checker path preserved: a real non-high-risk *-PLAN.md fixture (no high_risk flag, few files_modified, default config) drives quality assess-risk to high_risk:false, resolving TRIAGE_MODE=checker', () => {
+      const planPath = writeFixture(
+        '.planning/phases/60-adversarial-plan-review/60-98-PLAN.md',
+        '---\nphase: 60\nplan: "98"\nfiles_modified:\n  - src/lib/util.js\n---\n\n# Plan\n'
+      );
+      const relPath = path.relative(tmpDir, planPath);
+      const result = runGsdTools(`quality assess-risk "${relPath}" --raw`, tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.high_risk, false);
+      assert.strictEqual(computeTriageMode(parsed.high_risk), 'checker');
+    });
+
+    test('verdict artifact written: a real {plan_id}-VERDICT.md is constructed via matter.stringify, written to disk, and round-trips through a SEPARATE gray-matter parse call', () => {
+      const verdictDir = path.join(tmpDir, '.planning', 'phases', '60-adversarial-plan-review');
+      fs.mkdirSync(verdictDir, { recursive: true });
+      const verdictPath = path.join(verdictDir, '60-99-VERDICT.md');
+
+      const frontmatter = {
+        verdict: 'critical',
+        plan: '60-99',
+        timestamp: '2026-07-06T00:00:00Z',
+        presentation_order: 'attack_first',
+        required_changes: ['Fix the race condition', 'Add missing null check'],
+      };
+      const written = matter.stringify('# Verdict\n\nJudge findings go here.\n', frontmatter);
+      fs.writeFileSync(verdictPath, written, 'utf-8');
+
+      // Separate read-back parse call -- not reusing the write-time object.
+      const readBack = matter(fs.readFileSync(verdictPath, 'utf-8'));
+      assert.strictEqual(readBack.data.verdict, 'critical');
+      assert.strictEqual(readBack.data.plan, '60-99');
+      assert.strictEqual(readBack.data.timestamp, frontmatter.timestamp);
+      assert.strictEqual(readBack.data.presentation_order, 'attack_first');
+      assert.deepStrictEqual(readBack.data.required_changes, frontmatter.required_changes);
+    });
+
+    test('revision-loop routing: quality verdict-to-issues against that same critical VERDICT.md fixture produces one blocker-severity issue per required_changes entry, feeding the existing revision-prompt placeholder with zero shape translation', () => {
+      const verdictDir = path.join(tmpDir, '.planning', 'phases', '60-adversarial-plan-review');
+      fs.mkdirSync(verdictDir, { recursive: true });
+      const verdictPath = path.join(verdictDir, '60-99-VERDICT.md');
+      const frontmatter = {
+        verdict: 'critical',
+        plan: '60-99',
+        timestamp: '2026-07-06T00:00:00Z',
+        presentation_order: 'attack_first',
+        required_changes: ['Fix the race condition', 'Add missing null check'],
+      };
+      fs.writeFileSync(verdictPath, matter.stringify('# Verdict\n', frontmatter), 'utf-8');
+
+      const relPath = path.relative(tmpDir, verdictPath);
+      const result = runGsdTools(`quality verdict-to-issues "${relPath}" --raw`, tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.issues.length, frontmatter.required_changes.length);
+      for (const issue of parsed.issues) {
+        assert.strictEqual(issue.severity, 'blocker');
+        assert.strictEqual(issue.dimension, 'adversarial_review');
+      }
+    });
+  });
+});
+
+describe('Phase 61-02: project-aware gate pre-pr (MILE-41)', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function createExecutionLog(tmpDir) {
+    // Create a minimal balanced EXECUTION_LOG.md with phase_start/phase_complete pairs
+    const execLogPath = path.join(tmpDir, '.planning', 'EXECUTION_LOG.md');
+    const log = {
+      type: 'phase_start',
+      phase: '01',
+      timestamp: new Date().toISOString(),
+    };
+    const log2 = {
+      type: 'phase_complete',
+      phase: '01',
+      timestamp: new Date().toISOString(),
+    };
+    fs.writeFileSync(execLogPath, JSON.stringify(log) + '\n' + JSON.stringify(log2) + '\n');
+  }
+
+  test('node-type fixture (package.json with test+lint, no build): returns node checks only', () => {
+    createExecutionLog(tmpDir);
+
+    // Create package.json with test and lint scripts (no build)
+    const pkgJson = {
+      name: 'test-project',
+      scripts: {
+        test: 'jest',
+        lint: 'eslint .',
+      },
+    };
+    fs.writeFileSync(
+      path.join(tmpDir, 'package.json'),
+      JSON.stringify(pkgJson, null, 2),
+      'utf-8'
+    );
+
+    const result = runGsdTools('gate pre-pr --raw', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.gate, 'pre-pr');
+    assert.strictEqual(parsed.action_required, true);
+
+    // Check detected_types
+    assert.deepStrictEqual(parsed.detected_types, ['node']);
+
+    // Check degraded absent or false
+    assert.ok(parsed.degraded === undefined || parsed.degraded === false);
+
+    // Check checks array contains exactly node-test and node-lint
+    assert.strictEqual(parsed.checks.length, 2);
+    const ids = parsed.checks.map(c => c.id).sort();
+    assert.deepStrictEqual(ids, ['node-lint', 'node-test']);
+
+    const testCheck = parsed.checks.find(c => c.id === 'node-test');
+    assert.strictEqual(testCheck.command, 'npm run test');
+    assert.strictEqual(testCheck.required, true);
+
+    const lintCheck = parsed.checks.find(c => c.id === 'node-lint');
+    assert.strictEqual(lintCheck.command, 'npm run lint');
+    assert.strictEqual(lintCheck.required, true);
+  });
+
+  test('python-type fixture (pyproject.toml): returns python checks', () => {
+    createExecutionLog(tmpDir);
+
+    // Create minimal valid pyproject.toml
+    const tomlContent = `[tool.poetry]
+name = "test-project"
+version = "0.1.0"
+description = "Test"
+`;
+    fs.writeFileSync(path.join(tmpDir, 'pyproject.toml'), tomlContent, 'utf-8');
+
+    const result = runGsdTools('gate pre-pr --raw', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.action_required, true);
+    assert.deepStrictEqual(parsed.detected_types, ['python']);
+    assert.ok(parsed.degraded === undefined || parsed.degraded === false);
+
+    // Check python checks
+    assert.ok(parsed.checks.length > 0);
+    const pythonCheck = parsed.checks.find(c => c.id === 'python-test');
+    assert.ok(pythonCheck, 'Should have python-test check');
+    assert.strictEqual(pythonCheck.command, 'pytest');
+  });
+
+  test('unknown-type fixture (no manifests): degrades with notice, exit 0, universal checks', () => {
+    createExecutionLog(tmpDir);
+
+    // Create empty directory (no manifests)
+    const result = runGsdTools('gate pre-pr --raw', tmpDir);
+    assert.ok(result.success, `Command should exit 0, got: ${result.error}`);
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.gate, 'pre-pr');
+    assert.strictEqual(parsed.action_required, true);
+    assert.strictEqual(parsed.degraded, true);
+    assert.ok(typeof parsed.notice === 'string' && parsed.notice.length > 0);
+    assert.ok(parsed.notice.includes('manifest'), 'Notice should mention manifest files');
+    assert.deepStrictEqual(parsed.detected_types, []);
+
+    // Check universal checks (git-status-clean, branch-not-main)
+    assert.ok(parsed.checks.length > 0);
+    const checkIds = parsed.checks.map(c => c.id);
+    assert.ok(checkIds.includes('git-status-clean'));
+    assert.ok(checkIds.includes('branch-not-main'));
+  });
+
+  test('multi-manifest fixture (package.json + go.mod): union of checks, detected_types ordered', () => {
+    createExecutionLog(tmpDir);
+
+    // Create package.json with test only
+    const pkgJson = {
+      name: 'test-project',
+      scripts: {
+        test: 'go test ./...',
+      },
+    };
+    fs.writeFileSync(
+      path.join(tmpDir, 'package.json'),
+      JSON.stringify(pkgJson, null, 2),
+      'utf-8'
+    );
+
+    // Create go.mod
+    const goModContent = `module test-project
+go 1.21
+`;
+    fs.writeFileSync(path.join(tmpDir, 'go.mod'), goModContent, 'utf-8');
+
+    const result = runGsdTools('gate pre-pr --raw', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const parsed = JSON.parse(result.output);
+    assert.deepStrictEqual(parsed.detected_types, ['node', 'go']);
+
+    // Check union of checks (node-test + go-test + go-vet)
+    const checkIds = parsed.checks.map(c => c.id);
+    assert.ok(checkIds.includes('node-test'), 'Should have node-test from package.json');
+    assert.ok(checkIds.includes('go-test'), 'Should have go-test');
+    assert.ok(checkIds.includes('go-vet'), 'Should have go-vet');
+  });
+
+  test('regression: --mark-passed still writes marker and returns {gate, passed:true, marked:true}', () => {
+    createExecutionLog(tmpDir);
+
+    const execLogPath = path.join(tmpDir, '.planning', 'EXECUTION_LOG.md');
+    const initialContent = fs.readFileSync(execLogPath, 'utf-8');
+
+    const result = runGsdTools('gate pre-pr --mark-passed --raw', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.gate, 'pre-pr');
+    assert.strictEqual(parsed.passed, true);
+    assert.strictEqual(parsed.marked, true);
+
+    // Check that marker was appended to EXECUTION_LOG.md
+    const updatedContent = fs.readFileSync(execLogPath, 'utf-8');
+    assert.ok(updatedContent.length > initialContent.length);
+    const lines = updatedContent.split('\n').filter(l => l.trim().startsWith('{'));
+    const markerFound = lines.some(l => {
+      try { return JSON.parse(l).type === 'gate_pre_pr_passed'; } catch { return false; }
+    });
+    assert.ok(markerFound, 'gate_pre_pr_passed marker should be in EXECUTION_LOG.md');
+  });
+
+  test('regression: incomplete-phases error path unchanged', () => {
+    // Create UNBALANCED EXECUTION_LOG.md (phase_start without phase_complete)
+    const execLogPath = path.join(tmpDir, '.planning', 'EXECUTION_LOG.md');
+    const log = {
+      type: 'phase_start',
+      phase: '42',
+      timestamp: new Date().toISOString(),
+    };
+    fs.writeFileSync(execLogPath, JSON.stringify(log) + '\n');
+
+    const result = runGsdTools('gate pre-pr --raw', tmpDir);
+    // Note: output() function exits with code 0 even on errors, so success is true
+    assert.ok(result.success, 'Command exits with code 0 (pre-existing behavior)');
+
+    const parsed = JSON.parse(result.output || '{}');
+    assert.strictEqual(parsed.gate, 'pre-pr');
+    assert.strictEqual(parsed.passed, false);
+    assert.ok(parsed.error && parsed.error.includes('Incomplete phases'));
+    assert.ok(parsed.incomplete_phases && parsed.incomplete_phases.includes('42'));
+  });
+
+  test('regression: cached gate_pre_pr_passed marker returns {gate, passed:true, cached:true}', () => {
+    // Create EXECUTION_LOG.md with balanced phases AND existing gate_pre_pr_passed marker
+    const execLogPath = path.join(tmpDir, '.planning', 'EXECUTION_LOG.md');
+    const entries = [
+      { type: 'phase_start', phase: '01', timestamp: new Date().toISOString() },
+      { type: 'phase_complete', phase: '01', timestamp: new Date().toISOString() },
+      { type: 'gate_pre_pr_passed', timestamp: new Date().toISOString(), checks_passed: true },
+    ];
+    const logContent = entries.map(e => JSON.stringify(e)).join('\n') + '\n';
+    fs.writeFileSync(execLogPath, logContent);
+
+    const result = runGsdTools('gate pre-pr --raw', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.gate, 'pre-pr');
+    assert.strictEqual(parsed.passed, true);
+    assert.strictEqual(parsed.cached, true);
+    assert.ok(parsed.message && parsed.message.includes('already passed'));
+  });
+
+  test('grep-assertion: execute-roadmap.md still contains exact parsing contract strings', () => {
+    const roadmapPath = path.join(
+      __dirname,
+      '..',
+      'workflows',
+      'execute-roadmap.md'
+    );
+
+    assert.ok(fs.existsSync(roadmapPath), `execute-roadmap.md should exist at ${roadmapPath}`);
+    const content = fs.readFileSync(roadmapPath, 'utf-8');
+
+    // Lock in the parsing contract strings -- these are the exact literals consumed by execute-roadmap.md's step
+    assert.ok(content.includes('gate pre-pr'), 'Should contain gate pre-pr command');
+    assert.ok(content.includes('action_required'), 'Should contain action_required field parse');
+    assert.ok(content.includes('checks'), 'Should contain checks array reference');
+    assert.ok(content.includes('gate pre-pr --mark-passed'), 'Should contain mark-passed command');
+    assert.ok(content.includes('"passed": true'), 'Should contain "passed": true verification (space matches output()\'s JSON.stringify(result, null, 2) pretty-printing)');
+  });
+});

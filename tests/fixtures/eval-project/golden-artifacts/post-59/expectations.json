@@ -1,0 +1,55 @@
+{
+  "_note": "Phase 59-03 (MILE-37/MILE-38): 01-add-function is an independent phase (no depends_on, no source-touching test-writer spawn beyond its own baseline agents, matching post-54's convention). 03-dependent-phase declares a ROADMAP.md dependency on 01-add-function AND has a source-touching implementation task -- proving BOTH new spawn points fire together: gsd-test-writer (MILE-37, post_task_quality_spawn, toggle on) and gsd-integration-tester (MILE-38, coordinator step 3b, toggle on, independent of file-overlap).",
+  "expectedPlan": [
+    {
+      "phase": "01-add-function",
+      "agent": "gsd-phase-researcher",
+      "tier": "haiku"
+    },
+    {
+      "phase": "01-add-function",
+      "agent": "gsd-planner",
+      "tier": "haiku"
+    },
+    {
+      "phase": "01-add-function",
+      "agent": "gsd-executor",
+      "tier": "haiku"
+    },
+    {
+      "phase": "01-add-function",
+      "agent": "gsd-verifier",
+      "tier": "haiku"
+    },
+    {
+      "phase": "03-dependent-phase",
+      "agent": "gsd-phase-researcher",
+      "tier": "haiku"
+    },
+    {
+      "phase": "03-dependent-phase",
+      "agent": "gsd-planner",
+      "tier": "haiku"
+    },
+    {
+      "phase": "03-dependent-phase",
+      "agent": "gsd-executor",
+      "tier": "haiku"
+    },
+    {
+      "phase": "03-dependent-phase",
+      "agent": "gsd-test-writer",
+      "tier": "haiku"
+    },
+    {
+      "phase": "03-dependent-phase",
+      "agent": "gsd-verifier",
+      "tier": "haiku"
+    },
+    {
+      "phase": "03-dependent-phase",
+      "agent": "gsd-integration-tester",
+      "tier": "sonnet"
+    }
+  ]
+}

@@ -13,9 +13,13 @@
   - 39: Execution Intelligence · 40: Observability & Analytics
 - 🚧 **v1.13.0 Product Discovery & Docs Automation** — Phases 41-43 (in progress)
   - 41: gsd:prd Workflow · 42: Milestone PRD Integration · 43: Docs Automation
-- 🚧 **v1.14.0 Enforcement & Integration** — Phases 44-50 (in progress, branch `feature/enforcement-and-integration`)
-  - 44: Reliability Foundations & Dead-Code Cleanup · 45: Deterministic Phase-Gate & Deferral Protocol · 46: Artifact-Generation & Coverage Gates
-  - 47: Telegram Escalation Reliability · 48: Satellite Injections · 49: Knowledge Auto-Wiring & CLI Cleanup · 50: Final Deletions & Verification Sweep
+- ✅ **v1.14.0 Enforcement & Integration** — Phases 44-53 (shipped 2026-07-06, PR #3) — full details: `.planning/milestones/v1.14.0-ROADMAP.md`
+  - 44: Reliability Foundations · 45: Phase-Gate & Deferral · 46: Artifact & Coverage Gates · 47: Telegram Reliability · 48: Satellite Injections
+  - 49: Knowledge Auto-Wiring · 50: Final Sweep & Hook Fixes · 51: Run Resilience · 52: Skew/Telemetry/Registry · 53: Eval Harness/Prompt Hygiene/Injection
+- 🚧 **v1.15.0 Self-Improving Quality Loop** — Phases 54-61 (roadmap created 2026-07-06)
+  - 54: Structured Handoffs & Invariant Re-Injection · 55: Failures-to-Regression Pipeline · 56: Reflective Prompt Optimization
+  - 57: Outcome-Informed Routing Ledger & Bounded Escalation · 58: Honest Token Accounting · 59: Dormant Quality Agents Wired In
+  - 60: Adversarial Plan Review · 61: Project-Aware Pre-PR Gate
 
 ## Phases
 
@@ -393,7 +397,9 @@ Plans:
 - [ ] 43-02: Executor final-wave integration — wire docs agent as last mandatory task after feature work is committed; pass SUMMARY.md build scope as context
 - [ ] 43-03: Verifier docs validation gate — check docs appropriateness relative to build scope; `gaps_found` on skip or scope mismatch
 
-### 🚧 v1.14.0 Enforcement & Integration (Phases 44-53) — In Progress
+### ✅ v1.14.0 Enforcement & Integration (Phases 44-53) — SHIPPED 2026-07-06 (PR #3)
+
+> Full phase details archived to `.planning/milestones/v1.14.0-ROADMAP.md`. All 10 phases verified (gsd-verifier + verify phase-gate) and deployed; tests 155 → 514. Section retained below for in-place history.
 
 **Milestone Goal:** Make every mandatory GSD step deterministic and automatic — deterministic enforcement gates replace prose "MUST" language, valuable satellite capabilities (mining, Nyquist, discovery, debugger) inject into the golden path, knowledge maintenance runs automatically on its natural triggers, the escalation channel is hardened for unattended overnight runs, and (scope addition 2026-07-05) the framework becomes self-resilient and self-observable: it survives its own coordinator deaths, detects stale installs, measures its own prompts, and hardens against injection.
 
@@ -582,11 +588,157 @@ Plans:
   2. A CI check enforces per-agent token budgets (coordinator ≤8k core); the 5 oversized agents (coordinator 17.5k, planner 14.5k, verifier 12.4k, debugger 9.4k, executor 9.2k) are restructured hard-rules-first with on-demand references; the eval harness confirms behavior is preserved
   3. Agent prompts frame file-derived content as data-not-instructions; the knowledge write path screens injection patterns (composing with the MILE-14 secrets filter); an adversarial fixture in the eval harness that tries to derail the executor is caught
   4. Integration tests / eval scenarios cover: a known-good roadmap passes the harness; a prompt edit that drops a mandatory gate is caught by the harness; an over-budget agent fails the CI budget check; the adversarial fixture does not derail the executor
-**Plans:** 1/3 plans executed
+**Plans:** 3/3 plans complete
 Plans:
 - [ ] 53-01-PLAN.md — Behavioral eval harness: golden fixture project, pure assertion functions, eval CLI, CI wiring (MILE-29)
 - [ ] 53-02-PLAN.md — Prompt budgets: budget-check script + hard-rules-first restructure of the 5 oversized agents, verified via the eval harness (MILE-30)
 - [ ] 53-03-PLAN.md — Injection hardening: content-firewall convention, knowledge-write injection screening, adversarial eval fixture (MILE-31)
+
+### 🚧 v1.15.0 Self-Improving Quality Loop (Phases 54-61)
+
+**Milestone Goal:** Close every feedback loop v1.14.0 left open — failures become regression evals, eval results drive human-approved prompt optimization, routing learns from recorded outcomes, and the quality agents that were designed but never spawned get wired into the golden path.
+
+**Source PRD:** `.planning/prds/pending/self-improving-quality-loop.md` (US-1..US-10, all in MVP boundary; promoted to `done/` at roadmap creation)
+
+**Dependency note:** Phase 54 (structured handoffs + invariant re-injection) lands first — it touches the coordinator/executor/verifier return-contract plumbing that Phases 55-61 all build on top of. 55 (failures-to-regression) precedes 56 (prompt optimization needs eval failures as its input signal) and 59 (test-writer/integration-tester wiring feeds gaps_found into the same fixture pipeline). 57 (routing ledger + escalation) precedes 58 (honest token accounting reads the same per-task execution records). 60 (adversarial plan review) only needs the Phase 54 handoff/invariant plumbing. 61 (pre-PR gate) is last — it is the final quality gate and depends on the full milestone's surface area existing to self-host meaningfully.
+
+**Scope notes:** No new UI in this milestone — all work is CLI/prompt/workflow-layer (no Charlotte QA or E2E-regression phase required). Every phase carries its own integration-test success criterion per house convention. Prompt revisions remain human-approved in MVP (US-2); auto-applied revisions are deferred. Judge-panel calibration against human corrections is deferred.
+
+#### Phase 54: Structured Handoffs & Invariant Re-Injection
+
+**Goal:** Long runs stay on-constraint across agent boundaries and resumes
+**Depends on:** Nothing (first phase of milestone)
+**Requirements:** MILE-40
+**Success Criteria** (what must be TRUE):
+  1. A fixed handoff brief structure (phase goal, key decisions, open risks, file map, hard rules) is defined once in references and used at coordinator→executor and executor→verifier boundaries
+  2. On checkpoint resume, hard rules and phase invariants are re-read verbatim from source files — never from summaries — and an eval assertion proves the resume path includes them
+  3. Prompt budgets still pass for all agents modified to carry the handoff brief
+  4. Integration tests cover: handoff brief presence assertions on a golden fixture, resume-path invariant re-injection assertion, budget check on modified agents
+**Plans:** 4/4 plans complete
+
+Plans:
+- [ ] 54-01: TBD (planned during plan-phase)
+
+#### Phase 55: Failures-to-Regression Pipeline
+
+**Goal:** Every failure becomes a permanent regression eval
+**Depends on:** Phase 54
+**Requirements:** MILE-32
+**Success Criteria** (what must be TRUE):
+  1. Completing a gsd-debugger session with a confirmed root cause writes a candidate eval fixture (input, expected assertion) to a review queue directory; a debugger session aborted without root cause writes nothing
+  2. A phase-verification failure (`gaps_found`) writes a candidate fixture describing the gap
+  3. An accepted candidate becomes a permanent eval case executed by the existing eval harness in CI; a rejected candidate is archived, not silently deleted
+  4. Integration tests cover: candidate generation from a seeded debug session, review-queue accept/reject transitions, CI pickup of an accepted fixture, malformed candidate file handled loudly
+**Plans:** 3/3 plans executed — VERIFIED passed (14/14 must-haves, 2026-07-06)
+
+Plans:
+- [x] 55-01: Eval-candidate builders + from-debug/from-verification CLI + agent wiring
+- [x] 55-02: Review-queue lifecycle (list/accept/reject + schema re-validation)
+- [x] 55-03: Eval-regression loader/executor + `eval regress` CLI + CI wiring + MILE-32 e2e integration tests
+
+#### Phase 56: Reflective Prompt Optimization
+
+**Goal:** Evidence-based, human-approved prompt-revision diffs
+**Depends on:** Phase 55
+**Requirements:** MILE-33
+**Success Criteria** (what must be TRUE):
+  1. A prompt-optimize run for a target agent reads that agent's eval failures and telemetry entries and produces a natural-language diagnosis plus a candidate prompt revision as a diff
+  2. The candidate is auto-rejected if it exceeds the agent's prompt budget or fails any existing eval assertion; the command never auto-applies a revision — output is always a diff for human approval
+  3. Optimization is per-agent (one target agent per run), never whole-pipeline; a run with no eval failures and no telemetry for the target agent reports "no signal" and exits cleanly
+  4. Integration tests cover: diagnosis generation from seeded failures, budget-violation rejection, eval-failure rejection, the no-signal path, diff format validity
+**Plans:** 3/3 plans complete
+
+Plans:
+- [x] 56-01: prompt-optimize.js core pure functions (agent resolution, telemetry/eval-failure signal collection, deterministic diagnosis, unified-diff engine) + prompt-budget.js measurePreambleFromContent refactor
+- [x] 56-02: Gating (budget + eval-assertion checks against the in-memory candidate) + runPromptOptimize orchestration + review-dir writer + `prompt-optimize --agent` CLI wiring
+- [x] 56-03: MILE-33 end-to-end integration tests (5 scenarios) + npm test wiring + full-suite gate
+
+#### Phase 57: Outcome-Informed Routing Ledger & Bounded Escalation
+
+**Goal:** Routing learns from outcomes; failures self-heal across tiers
+**Depends on:** Phase 54
+**Requirements:** MILE-34, MILE-35
+**Success Criteria** (what must be TRUE):
+  1. A routing ledger is built from EXECUTION_LOG.md routing decisions plus telemetry outcomes, persisted per-project; the task router demonstrably reads the ledger and adjusts tier assignment when historical evidence contradicts the heuristic
+  2. Ledger absence or corruption degrades gracefully to heuristic-only routing (fail-open, loud warning); a ledger with fewer than a minimum sample count for a task type is ignored for that type
+  3. A haiku-tier task failure signaled by the executor triggers a sonnet retry, sonnet failure triggers opus, opus failure escalates to the existing failure-handling path — escalation is bounded (one retry per tier) and recorded in the execution log and routing ledger; failures that are not tier-capability-related (missing file, environment error) never trigger tier escalation
+  4. Integration tests cover: ledger build from seeded logs, router consultation changing a tier decision, corrupt-ledger fail-open, minimum-sample threshold, haiku→sonnet→opus chain, bound enforcement, non-capability failure exclusion, ledger recording of escalation outcome
+**Plans:** 4/4 plans complete
+
+Plans:
+- [x] 57-01: routing ledger storage & build aggregation (deriveTaskType, buildRoutingLedger, readRoutingLedger/writeRoutingLedger, `routing ledger build|show` CLI)
+- [x] 57-02: ledger consultation & task-router wiring (consultLedger, `routing ledger consult` CLI, gsd-task-router.md's consult_ledger step)
+- [x] 57-03: bounded escalation decision logic & failure classification (classifyFailure, decideEscalation, `routing classify-failure`/`routing escalation-decision` CLI, executor's [non-capability] marker)
+- [x] 57-04: coordinator escalation-loop rewrite + ledger-build trigger + phase-closing integration tests (MILE-35 complete)
+
+#### Phase 58: Honest Token Accounting
+
+**Goal:** Savings claims verifiable from real recorded usage
+**Depends on:** Phase 57
+**Requirements:** MILE-36
+**Success Criteria** (what must be TRUE):
+  1. Actual token usage per task is recorded during execution into a durable per-project record
+  2. The savings report computes savings from recorded usage against the configured profile baseline, and explicitly states when no recorded data exists instead of inventing numbers
+  3. Partial data (some tasks recorded, some not) is reported with an explicit coverage percentage
+  4. Integration tests cover: usage recording during a seeded run, report computation from recorded data, the empty-data honesty path, partial-coverage reporting
+**Plans:** 3/3 plans complete
+
+Plans:
+- [x] 58-01: token-usage ledger module + savings_baseline_profile config key (appendTaskUsage/readTaskUsageRecords, estimateTaskTokens, resolveBaselineTier, computeSavingsFromUsage, formatUsageSavingsTable)
+- [x] 58-02: `token-usage record` CLI + `savings report` retargeted onto recorded usage (empty/partial/full coverage honesty)
+- [x] 58-03: golden-path wiring — token-usage record called from all 3 task_outcome call sites in coordinator-detail.md's execute step + grep-assertion/budget-regression tests + MILE-36 CHANGELOG closure (Phase 58 COMPLETE)
+
+#### Phase 59: Dormant Quality Agents Wired In
+
+**Goal:** Test-writer + integration-tester join the golden path
+**Depends on:** Phase 55
+**Requirements:** MILE-37, MILE-38
+**Success Criteria** (what must be TRUE):
+  1. With the toggle enabled, the executor spawns gsd-test-writer after each implementation task that touches source code; the eval harness asserts the spawn occurred on the golden fixture. With the toggle disabled (default preserves current behavior), no spawn occurs and existing flows are unchanged; test-writer output failing to materialize (no test file written) is a loud executor deviation, not a silent skip
+  2. With the toggle enabled, the coordinator spawns gsd-integration-tester at phase completion when the phase declares dependencies on prior phases; eval harness asserts the spawn on a dependent-phase fixture. Phases with no dependencies never spawn it
+  3. Integration-tester `gaps_found` feeds the existing verification failure path (and thus Phase 55's fixture generation)
+  4. Integration tests cover: spawn-on-implementation assertion, toggle-off no-op, missing-output deviation path, dependent-phase spawn assertion, independent-phase no-spawn, gaps_found propagation
+**Plans:** 4/4 plans complete
+
+Plans:
+- [x] 59-01: config toggles (quality.test_writer/quality.integration_tester, default off) + appendVerificationGap/verify append-gap CLI + gsd-test-writer.md/gsd-integration-tester.md agent drift refresh (content_firewall + telemetry)
+- [x] 59-02: computeTouchesSourceCode/quality touches-source CLI + post_task_quality_spawn block in executor-detail.md — additive gsd-test-writer spawn after every source-touching type="auto" task, gated on quality.test_writer, loud-deviation-not-block failure handling (MILE-37 COMPLETE)
+- [x] 59-03: fixed cmdRoadmapGetPhase's pre-existing missing depends_on bug + coordinator-detail.md's new declared-dependency gsd-integration-tester spawn (step 3b) + verify append-gap gaps_found propagation + contract_mismatch failure_type in verifier-detail.md/planner-detail.md + post-59 golden fixture (MILE-38 COMPLETE — Phase 59 COMPLETE)
+- [x] 59-04: gap closure — dropped a stray `--raw` flag from coordinator-detail.md's DEPENDS_ON bash snippet (JSON.parse was always throwing, silently defeating step 3b's spawn trigger); literal-snippet regression test + permanent grep-assertion lock added; closes the single blocking contract_mismatch gap from 59-VERIFICATION.md — Phase 59 fully verified, zero open gaps
+
+#### Phase 60: Adversarial Plan Review
+
+**Goal:** High-risk plans get attacker/defender/judge review
+**Depends on:** Phase 54
+**Requirements:** MILE-39
+**Success Criteria** (what must be TRUE):
+  1. Plans marked high-risk (config criteria or explicit flag) are reviewed by attacker (finds flaws), defender (rebuts from plan evidence), and judge (rules) instead of a single-pass plan-checker
+  2. The judge verdict is a durable artifact attached to the plan, and presentation order of attack/defense is randomized
+  3. A judge ruling of critical flaws routes into the existing plan-revision loop; non-high-risk plans keep the existing single plan-checker path unchanged
+  4. Integration tests cover: trio spawn on a high-risk fixture, verdict artifact written, revision-loop routing on a critical verdict, single-checker path preserved otherwise
+**Plans:** 3/3 plans complete
+
+Plans:
+- [x] 60-01: adversarial-review config toggles (quality.adversarial_review/*, default off) + computeHighRisk/computePresentationOrder/verdictToIssues pure functions + quality assess-risk/verdict-to-issues CLI subcommands (MILE-39 foundation)
+- [x] 60-02: gsd-plan-attacker.md (read-only flaw-finder)/gsd-plan-defender.md (read-only evidence-only rebuttal)/gsd-plan-judge.md (rules + writes its own {plan_id}-VERDICT.md) agent trio, each carrying content_firewall + MILE-26 Telemetry — structural validation test suite proves all 3 well-formed
+- [x] 60-03: plan-phase.md Step 9.5 risk-triage (quality assess-risk per plan) + Step 10 trio-vs-checker branch (checker branch byte-identical to pre-Phase-60 form, fail-open on any trio-member failure) + Step 11 verdict routing (quality verdict-to-issues into the existing checker issues shape) + Step 12 re-triage-on-revision — Phase 60 COMPLETE, MILE-39 satisfied end-to-end
+
+#### Phase 61: Project-Aware Pre-PR Gate
+
+**Goal:** Pre-PR gate self-hosts on GSD and any project type
+**Depends on:** Phases 54-60
+**Requirements:** MILE-41
+**Success Criteria** (what must be TRUE):
+  1. The pre-PR gate detects project type and command set from the project's own manifest files and runs those checks
+  2. The gate passes on the GSD repo itself (self-hosting proof)
+  3. Unknown project types degrade to a minimal universal check set with a loud notice, never a crash
+  4. Integration tests cover: detection across at least two project types, GSD self-run pass, unknown-type degradation
+**Plans:** 3
+
+Plans:
+- [x] 61-01: get-shit-done/config/pre-pr-checks.json (config-as-data, mirrors model-registry.json) + get-shit-done/bin/pre-pr-checks.js (fail-open accessor: loadRegistry/detectProjectTypes/getDeclaredNodeScripts/checksForNode/discoverMakeTestCommand/deriveCheckSet) — pure detection/derivation module only, verified deriveCheckSet(process.cwd()) against this repo returns single node-test check with degraded:false; 896/896 tests passing
+- [ ] 61-02: TBD (planned during plan-phase)
+- [ ] 61-03: TBD (planned during plan-phase)
 
 ## Progress
 
@@ -641,9 +793,17 @@ Plans:
 | 48. Satellite Injections: Mining, Discovery, Debugger | v1.14.0 | 4/4 | Complete | 2026-07-04 |
 | 49. Knowledge Auto-Wiring & CLI Cleanup | v1.14.0 | 4/4 | Complete | 2026-07-05 |
 | 50. Final Deletions, Hook Fixes & Verification Sweep | v1.14.0 | 2/2 | Complete | 2026-07-05 |
-| 51. Run Resilience — Auto-Resume & State Sanity | 3/3 | Complete    | 2026-07-05 | - |
-| 52. Skew Detection, Telemetry & Model Registry | 4/4 | Complete   | 2026-07-05 | - |
-| 53. Eval Harness, Prompt Hygiene & Injection Hardening | 1/3 | In Progress|  | - |
+| 51. Run Resilience — Auto-Resume & State Sanity | v1.14.0 | 3/3 | Complete | 2026-07-05 |
+| 52. Skew Detection, Telemetry & Model Registry | v1.14.0 | 4/4 | Complete | 2026-07-05 |
+| 53. Eval Harness, Prompt Hygiene & Injection Hardening | v1.14.0 | 3/3 | Complete | 2026-07-05 |
+| 54. Structured Handoffs & Invariant Re-Injection | 4/4 | Complete   | 2026-07-06 | - |
+| 55. Failures-to-Regression Pipeline | 3/3 | Complete | 2026-07-06 | - |
+| 56. Reflective Prompt Optimization | v1.15.0 | 3/3 | Complete | 2026-07-06 |
+| 57. Outcome-Informed Routing Ledger & Bounded Escalation | v1.15.0 | Complete    | 2026-07-06 | 2026-07-06 |
+| 58. Honest Token Accounting | v1.15.0 | 0/TBD | Not started | - |
+| 59. Dormant Quality Agents Wired In | v1.15.0 | Complete    | 2026-07-06 | 2026-07-06 |
+| 60. Adversarial Plan Review | v1.15.0 | 3/3 | Complete | 2026-07-06 |
+| 61. Project-Aware Pre-PR Gate | v1.15.0 | 1/3 | In Progress | - |
 
 ---
-*Roadmap created: 2026-02-15 | Last updated: 2026-07-05 — v1.14.0 scope expanded to phases 44-53 (MILE-22..31 from analysis-folder findings); phases 44-49 complete/verified/deployed*
+*Roadmap created: 2026-02-15 | Last updated: 2026-07-06 — v1.15.0 Self-Improving Quality Loop roadmap created: phases 54-61 (MILE-32..41 from self-improving-quality-loop PRD)*
