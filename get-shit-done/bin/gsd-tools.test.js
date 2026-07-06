@@ -10271,3 +10271,277 @@ gaps:
     assert.strictEqual(queueFilesAfterBoth.length, 2, 'expected a second candidate written by from-verification, alongside the from-debug one');
   });
 });
+
+// MILE-32 (Phase 55-03): cross-cutting integration tests. Unlike the 55-01
+// and 55-02 describe blocks above (which unit-test individual CLI commands
+// in isolation), these tests chain multiple real CLI invocations against ONE
+// temp cwd per test (via runGsdTools/execSync, never direct function calls)
+// to prove the full "a failure becomes a permanent regression eval" pipeline
+// actually works end-to-end: candidate generation from a seeded debug
+// session, review-queue accept/reject transitions, CI pickup of an accepted
+// fixture (including the regression it exists to catch), and loud handling
+// of a malformed committed candidate file.
+describe('MILE-32 end-to-end: failures become permanent regression evals (Phase 55)', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function queueDirPath(dir = tmpDir) {
+    return path.join(dir, 'tests', 'eval-regressions', 'queue');
+  }
+
+  function acceptedDirPath(dir = tmpDir) {
+    return path.join(dir, 'tests', 'eval-regressions', 'accepted');
+  }
+
+  function archivedDirPath(dir = tmpDir) {
+    return path.join(dir, 'tests', 'eval-regressions', 'archived');
+  }
+
+  function writeDebugFixture(relPath, content) {
+    const fullPath = path.join(tmpDir, relPath);
+    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    fs.writeFileSync(fullPath, content, 'utf-8');
+    return fullPath;
+  }
+
+  function validCandidate(overrides = {}) {
+    return {
+      id: 'cand-valid-1',
+      source: 'debugger',
+      created_at: '2026-01-01T00:00:00.000Z',
+      title: 'A valid candidate',
+      context: { phase: null, root_cause: 'x', gap_description: null, debug_file: null, verification_file: null },
+      expected: { type: 'file_exists', file: 'src/foo.js' },
+      status: 'pending',
+      ...overrides,
+    };
+  }
+
+  function seedQueueFile(id, content) {
+    const dir = queueDirPath();
+    fs.mkdirSync(dir, { recursive: true });
+    const filePath = path.join(dir, `${id}.json`);
+    fs.writeFileSync(filePath, content, 'utf-8');
+    return filePath;
+  }
+
+  function seedQueueCandidate(candidate) {
+    return seedQueueFile(candidate.id, JSON.stringify(candidate, null, 2));
+  }
+
+  function seedAcceptedCandidate(candidate) {
+    const dir = acceptedDirPath();
+    fs.mkdirSync(dir, { recursive: true });
+    const filePath = path.join(dir, `${candidate.id}.json`);
+    fs.writeFileSync(filePath, JSON.stringify(candidate, null, 2), 'utf-8');
+    return filePath;
+  }
+
+  const CONFIRMED_LEAK_DEBUG_CONTENT = `---
+status: verifying
+trigger: "memory leak in worker pool"
+created: 2026-01-01T00:00:00Z
+updated: 2026-01-01T00:05:00Z
+---
+
+## Current Focus
+
+hypothesis: n/a
+
+## Resolution
+
+root_cause: worker pool never released event listeners on shutdown
+fix: added removeAllListeners on worker.terminate()
+verification: ran load test, memory stable
+files_changed: [src/workers/pool.js]
+`;
+
+  const INCONCLUSIVE_LEAK_DEBUG_CONTENT = `---
+status: investigating
+trigger: "still looking"
+---
+
+## Resolution
+
+root_cause: [empty until found]
+fix: [empty until applied]
+verification: [empty until verified]
+files_changed: []
+`;
+
+  // Scenario (a), happy path: a debug session with a confirmed root_cause
+  // produces exactly one well-formed candidate in queue/.
+  test('scenario (a) happy path: `eval-candidate from-debug` on a confirmed debug session writes exactly one 7-key-schema candidate to queue/', () => {
+    writeDebugFixture('.planning/debug/leak.md', CONFIRMED_LEAK_DEBUG_CONTENT);
+
+    const result = runGsdTools('eval-candidate from-debug .planning/debug/leak.md', tmpDir);
+    assert.ok(result.success, `expected CLI success, got: ${result.error}`);
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.written, true);
+    assert.strictEqual(parsed.paths.length, 1);
+
+    const files = fs.readdirSync(queueDirPath()).filter((f) => f.endsWith('.json'));
+    assert.strictEqual(files.length, 1, 'expected exactly one candidate file in queue/');
+
+    const candidate = JSON.parse(fs.readFileSync(path.join(queueDirPath(), files[0]), 'utf-8'));
+    const expectedKeys = ['id', 'source', 'created_at', 'title', 'context', 'expected', 'status'];
+    assert.deepStrictEqual(Object.keys(candidate).sort(), [...expectedKeys].sort());
+    assert.strictEqual(candidate.source, 'debugger');
+    assert.strictEqual(candidate.status, 'pending');
+    assert.strictEqual(candidate.context.root_cause, 'worker pool never released event listeners on shutdown');
+    assert.deepStrictEqual(candidate.expected, { type: 'file_exists', file: 'src/workers/pool.js' });
+  });
+
+  // Scenario (a), inverse: an INVESTIGATION INCONCLUSIVE debug session (the
+  // root_cause placeholder still intact) must write NOTHING to queue/.
+  test('scenario (a) inverse: `eval-candidate from-debug` on an inconclusive debug session (placeholder root_cause) writes nothing to queue/', () => {
+    writeDebugFixture('.planning/debug/leak.md', INCONCLUSIVE_LEAK_DEBUG_CONTENT);
+
+    const result = runGsdTools('eval-candidate from-debug .planning/debug/leak.md', tmpDir);
+    assert.ok(result.success, `expected CLI success (valid no-op), got: ${result.error}`);
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.written, false);
+    assert.strictEqual(parsed.reason, 'no confirmed root_cause found in debug file');
+
+    const files = fs.existsSync(queueDirPath()) ? fs.readdirSync(queueDirPath()).filter((f) => f.endsWith('.json')) : [];
+    assert.strictEqual(files.length, 0, 'expected queue/ file count to be unchanged (still zero)');
+  });
+
+  // Scenario (b), happy path: a candidate generated by (a) is then accepted
+  // via the real CLI -- proves the generation -> review-queue pipeline
+  // chains correctly, not just each command in isolation.
+  test('scenario (b) happy path: a from-debug-generated candidate is accepted -> moves to accepted/ with status:"accepted", removed from queue/', () => {
+    writeDebugFixture('.planning/debug/leak.md', CONFIRMED_LEAK_DEBUG_CONTENT);
+    const genResult = runGsdTools('eval-candidate from-debug .planning/debug/leak.md', tmpDir);
+    assert.ok(genResult.success, `expected generation CLI success, got: ${genResult.error}`);
+
+    const queueFiles = fs.readdirSync(queueDirPath()).filter((f) => f.endsWith('.json'));
+    assert.strictEqual(queueFiles.length, 1);
+    const id = queueFiles[0].replace(/\.json$/, '');
+
+    const acceptResult = runGsdTools(`eval-candidate accept ${id}`, tmpDir);
+    assert.ok(acceptResult.success, `expected accept CLI success, got: ${acceptResult.error}`);
+    const acceptParsed = JSON.parse(acceptResult.output);
+    assert.strictEqual(acceptParsed.accepted, true);
+    assert.strictEqual(acceptParsed.id, id);
+
+    const acceptedPath = path.join(acceptedDirPath(), `${id}.json`);
+    assert.ok(fs.existsSync(acceptedPath), 'expected candidate to exist in accepted/');
+    const accepted = JSON.parse(fs.readFileSync(acceptedPath, 'utf-8'));
+    assert.strictEqual(accepted.status, 'accepted');
+    assert.ok(accepted.accepted_at, 'expected an accepted_at timestamp to have been added');
+
+    const queuePath = path.join(queueDirPath(), `${id}.json`);
+    assert.ok(!fs.existsSync(queuePath), 'expected candidate to no longer exist in queue/ (moved, not copied)');
+  });
+
+  // Scenario (b), inverse: a hand-seeded queue candidate is rejected via the
+  // real CLI -- archived (never fully deleted from disk), status flips to
+  // "rejected", and the given --reason text is recorded.
+  test('scenario (b) inverse: `eval-candidate reject <id> --reason "flaky"` archives the candidate with status:"rejected" and the given reason, not deleted', () => {
+    seedQueueCandidate(validCandidate({ id: 'cand-reject-me' }));
+
+    const result = runGsdTools('eval-candidate reject cand-reject-me --reason "flaky"', tmpDir);
+    assert.ok(result.success, `expected reject CLI success, got: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.rejected, true);
+    assert.strictEqual(parsed.id, 'cand-reject-me');
+
+    const archivedPath = path.join(archivedDirPath(), 'cand-reject-me.json');
+    assert.ok(fs.existsSync(archivedPath), 'expected candidate to exist (archived, not deleted) in archived/');
+    const archived = JSON.parse(fs.readFileSync(archivedPath, 'utf-8'));
+    assert.strictEqual(archived.status, 'rejected');
+    assert.ok(archived.reason.includes('flaky'), `expected reason to contain "flaky", got: ${archived.reason}`);
+    assert.ok(archived.rejected_at, 'expected a rejected_at timestamp to have been added');
+
+    const queuePath = path.join(queueDirPath(), 'cand-reject-me.json');
+    assert.ok(!fs.existsSync(queuePath), 'expected candidate to no longer exist in queue/');
+  });
+
+  // Scenario (c): CI pickup of an accepted fixture actually catches a
+  // regression -- the same command reports pass:true while the real file it
+  // targets exists, then pass:false (and exits non-zero) the moment that
+  // file is removed, proving CI would genuinely fail the build.
+  test('scenario (c): `eval regress` reports pass:true while the target file exists, then pass:false/exit-1 once it is deleted', () => {
+    fs.mkdirSync(path.join(tmpDir, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'src', 'marker.txt'), 'marker content', 'utf-8');
+    seedAcceptedCandidate(validCandidate({
+      id: 'cand-marker',
+      status: 'accepted',
+      expected: { type: 'file_exists', file: 'src/marker.txt' },
+    }));
+
+    const passResult = runGsdTools('eval regress tests/eval-regressions/accepted --project-root .', tmpDir);
+    assert.ok(passResult.success, `expected exit 0 while marker.txt exists, got: ${passResult.error}`);
+    const passParsed = JSON.parse(passResult.output);
+    assert.strictEqual(passParsed.pass, true);
+    assert.strictEqual(passParsed.total, 1);
+    assert.strictEqual(passParsed.executed[0].pass, true);
+
+    fs.unlinkSync(path.join(tmpDir, 'src', 'marker.txt'));
+
+    const failResult = runGsdTools('eval regress tests/eval-regressions/accepted --project-root .', tmpDir);
+    assert.strictEqual(failResult.success, false, 'expected non-zero exit once marker.txt is deleted');
+    const failParsed = JSON.parse(failResult.output);
+    assert.strictEqual(failParsed.pass, false);
+    assert.strictEqual(failParsed.executed[0].pass, false);
+    assert.strictEqual(failParsed.executed[0].id, 'cand-marker');
+  });
+
+  // Scenario (d): a malformed (invalid JSON) file placed directly in
+  // accepted/ is a loud, explicit, non-crashing failure -- named in the
+  // `malformed` array, never silently dropped -- and fails the whole run.
+  test('scenario (d): a malformed (invalid JSON) file in accepted/ is reported by name in `malformed`, and the CLI exits non-zero without crashing', () => {
+    const acceptedDir = acceptedDirPath();
+    fs.mkdirSync(acceptedDir, { recursive: true });
+    fs.writeFileSync(path.join(acceptedDir, 'bad.json'), '{not valid json', 'utf-8');
+
+    const result = runGsdTools('eval regress tests/eval-regressions/accepted --project-root .', tmpDir);
+    assert.strictEqual(result.success, false, 'expected non-zero exit due to the malformed committed candidate');
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.pass, false);
+    assert.ok(Array.isArray(parsed.malformed), 'expected a malformed array in the result');
+    const malformedEntry = parsed.malformed.find((m) => m.file === 'bad.json');
+    assert.ok(malformedEntry, `expected an entry naming bad.json in malformed, got: ${JSON.stringify(parsed.malformed)}`);
+    assert.strictEqual(malformedEntry.valid, false);
+  });
+
+  // Regression guard: the full loop -- generate from a debug session, accept
+  // it, then have `eval regress` pick up the now-accepted fixture and pass --
+  // still works end-to-end when every step is chained in one continuous run,
+  // proving "a failure becomes a permanent, CI-verified regression eval" is
+  // not just true of each command in isolation.
+  test('regression guard: full pipeline (from-debug -> accept -> eval regress) chains correctly end-to-end in one continuous run', () => {
+    fs.mkdirSync(path.join(tmpDir, 'src', 'workers'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'src', 'workers', 'pool.js'), '// pool implementation\n', 'utf-8');
+    writeDebugFixture('.planning/debug/leak.md', CONFIRMED_LEAK_DEBUG_CONTENT);
+
+    const genResult = runGsdTools('eval-candidate from-debug .planning/debug/leak.md', tmpDir);
+    assert.ok(genResult.success, `expected generation CLI success, got: ${genResult.error}`);
+    const queueFiles = fs.readdirSync(queueDirPath()).filter((f) => f.endsWith('.json'));
+    assert.strictEqual(queueFiles.length, 1);
+    const id = queueFiles[0].replace(/\.json$/, '');
+
+    const acceptResult = runGsdTools(`eval-candidate accept ${id}`, tmpDir);
+    assert.ok(acceptResult.success, `expected accept CLI success, got: ${acceptResult.error}`);
+    assert.ok(fs.existsSync(path.join(acceptedDirPath(), `${id}.json`)), 'expected accepted candidate on disk');
+
+    const regressResult = runGsdTools('eval regress tests/eval-regressions/accepted --project-root .', tmpDir);
+    assert.ok(regressResult.success, `expected eval regress to pass since src/workers/pool.js exists, got: ${regressResult.error}`);
+    const regressParsed = JSON.parse(regressResult.output);
+    assert.strictEqual(regressParsed.pass, true);
+    assert.strictEqual(regressParsed.total, 1);
+    assert.strictEqual(regressParsed.executed[0].id, id);
+    assert.strictEqual(regressParsed.executed[0].pass, true);
+  });
+});
