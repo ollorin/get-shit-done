@@ -9,10 +9,10 @@ See: .planning/PROJECT.md (updated 2026-07-02)
 
 ## Current Position
 
-Phase: 56 of 61 (Reflective Prompt Optimization) — IN PROGRESS
-Plan: 2 of 3 (56-02 complete)
-Status: Ready to execute Plan 3
-Last activity: 2026-07-06 — Phase 56 Plan 2 (gating functions + runPromptOptimize orchestration + review-dir writer + `prompt-optimize --agent` CLI wiring) complete, 630/630 tests passing (was 597). Also fixed a 56-01 gap: prompt-optimize.test.js was never wired into package.json's test script. Next: Plan 3 (MILE-33 end-to-end integration tests + full-suite gate).
+Phase: 56 of 61 (Reflective Prompt Optimization) — COMPLETE
+Plan: 3 of 3 (56-03 complete)
+Status: Phase 56 complete. Ready to plan/execute Phase 57.
+Last activity: 2026-07-06 — Phase 56 Plan 3 (MILE-33 end-to-end integration tests: 8 cross-cutting tests covering diagnosis generation, budget-violation rejection, eval-failure rejection, no-signal path, diff format validity, all driven through the real `prompt-optimize` CLI subprocess) complete. 638/638 tests passing (was 630). Real-repo smoke test confirmed the never-auto-apply guarantee holds against the live repo (exit 0, git status unchanged). MILE-33 flipped to Complete in REQUIREMENTS.md. Phase 56 (Reflective Prompt Optimization) now COMPLETE across all 3 plans. Next: plan Phase 57 (Outcome-Informed Routing Ledger & Bounded Escalation, MILE-34/MILE-35).
 
 Progress: [██████████] 99%
 
@@ -85,6 +85,7 @@ Progress: [██████████] 99%
 | Phase 55 P03 | ~45min | 4 tasks | 6 files |
 | Phase 56 P01 | 15min | 2 tasks | 4 files |
 | Phase 56 P02 | ~15min | 2 tasks | 4 files |
+| Phase 56 P03 | ~15min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -152,6 +153,7 @@ Recent decisions affecting current work:
 - [Phase 55]: [55-02]: validateEvalCandidateSchema is re-run unconditionally at accept time (not only at 55-01's write time) -- closes the hand-edit bypass the must-haves called out, so a candidate that looked valid when queued but was hand-edited into an invalid shape before accepting is rejected and left in queue/; reject deliberately skips full schema re-validation (only requires successful JSON.parse) since a broken candidate must still be legitimately archivable; all accept/reject error paths write a typed JSON object directly to stdout + process.exit(1|2) rather than using output() (which always exits 0), guaranteeing a non-zero exit on every failure path; no Task/Agent tool was available in this executor run, so Task 2's tdd="true" spawn and the mandatory docs-update step were both completed inline per their respective agents' documented procedures (578/578 npm test passing, was 569)
 - [Phase 56]: [56-01]: prompt-optimize.js core functions (resolveAgentFile/readTelemetryForAgent/readEvalFailuresForAgent/hasSignal/buildDiagnosis/computeUnifiedDiff/isValidUnifiedDiff/buildRevisionCandidate) are pure/fail-safe/never-throw and require eval-harness.js + prompt-budget.js directly (never gsd-tools.js, avoiding a circular require since gsd-tools.js will require prompt-optimize.js in Plan 56-02); buildDiagnosis topIssue priority is ambiguity > instructions_not_followed.why > eval-failure > deterministic fallback; measurePreambleFromContent(content) is now the pure primitive prompt-budget.js's measurePreamble(filePath) delegates to, additive and backward-compatible
 - [Phase 56]: [56-02]: checkBudgetForCandidate fails OPEN (pass:true+warning) on missing/malformed config/prompt-budgets.json or a missing per-agent entry, fails CLOSED only on a genuine measured overage; checkEvalForCandidate/executeEvalCandidateAgainstContent scope to exactly the target agent's relPath and execute entirely in-memory against the candidate revision (file_exists/file_not_exists trivially pass -- the target is already known to exist -- only file_contains/file_not_contains actually discriminate); writeReviewArtifacts is the ONLY write path in the whole feature (.planning/prompt-optimize/{agent}/{timestamp}/, rejected candidates tagged and still written for audit); runPromptOptimize composes 56-01's pure core with both gates into exactly one of {error, no_signal (nothing written), rejected (budget_exceeded|eval_failed), ready_for_review}; `prompt-optimize --agent <name>` is a new top-level gsd-tools.js CLI command, direct-exit like `eval regress`/`budget check`; found and fixed a real gap from 56-01 -- prompt-optimize.test.js existed but was never wired into package.json's `test` script, so its tests were silently excluded from every `npm test`/CI run; no Task/Agent tool was available in this executor run, so Task 2's tdd="true" spawn and the mandatory docs-update step were both completed inline; 630/630 npm test passing (was 597)
+- [Phase 56]: [56-03]: Task 1 (package.json test-chain wiring) was already satisfied by 56-02's own deviation-fix commit -- confirmed via grep before writing any new test, no redundant change made; 8 new cross-cutting integration tests in gsd-tools.test.js drive the real `prompt-optimize --agent` CLI subprocess against isolated temp-project fixtures (fixture agents/*.md, temp .planning/telemetry/agent-reports.jsonl, temp tests/eval-regressions/accepted/, temp get-shit-done/config/prompt-budgets.json), covering all 5 required MILE-33 scenarios exactly as specified; checkBudgetForCandidate's default config path resolves to `<cwd>/get-shit-done/config/prompt-budgets.json` (no override arg passed by runPromptOptimize), so budget-gate tests seed that exact relative path under the temp cwd; a real-repo smoke test (`prompt-optimize --agent gsd-test-writer` against the live repo root, no fixtures) confirms exit 0 (no_signal) and byte-identical `git status` before/after, proving the never-auto-apply guarantee holds against the live repo and not just temp fixtures; no Task/Agent tool was available in this executor run, so Task 2's tdd="true" spawn and the mandatory docs-update step were both completed inline; 638/638 npm test passing (was 630); Phase 56 (Reflective Prompt Optimization) now COMPLETE across all 3 plans, MILE-33 satisfied end-to-end
 
 ### Roadmap Evolution
 
@@ -186,11 +188,11 @@ None.
 
 ### Next Steps
 
-- Phase 56 Plan 2 (gating + orchestration + CLI wiring) complete. Proceed to Plan 3 (MILE-33 end-to-end integration tests, 5 scenarios, + npm test wiring + full-suite gate).
+- Phase 56 (Reflective Prompt Optimization) complete across all 3 plans, MILE-33 satisfied end-to-end. Next: plan Phase 57 (Outcome-Informed Routing Ledger & Bounded Escalation, MILE-34/MILE-35).
 - Reconcile v1.13.0 status separately (see Pending Todos) — do not double-build during v1.15.0 execution
 
 ## Session Continuity
 
 Last session: 2026-07-06
-Stopped at: Completed 56-02-PLAN.md (gating functions + runPromptOptimize orchestration + review-dir writer + CLI wiring). 630/630 tests passing (was 597). Next action: execute Plan 3 (MILE-33 end-to-end integration tests + full-suite gate).
-Resume file: none — Plan 56-02 closed, no checkpoint pending.
+Stopped at: Completed 56-03-PLAN.md (MILE-33 end-to-end integration tests + full-suite gate). 638/638 tests passing (was 630). Phase 56 (Reflective Prompt Optimization) now COMPLETE. Next action: plan Phase 57 (Outcome-Informed Routing Ledger & Bounded Escalation).
+Resume file: none — Plan 56-03 closed, Phase 56 complete, no checkpoint pending.

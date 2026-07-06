@@ -142,7 +142,7 @@
 #### Feedback Loop Foundations
 
 - [x] **MILE-32**: Debugger sessions with a confirmed root cause and phase-verification failures (`gaps_found`) automatically write candidate eval fixtures (input, expected assertion) to a review queue; accepted candidates become permanent eval cases run by the existing eval harness in CI, rejected candidates are archived (not deleted), and an aborted debugger session with no root cause writes nothing (US-1)
-- [ ] **MILE-33**: A prompt-optimize command reads a target agent's eval failures and telemetry, produces a natural-language diagnosis plus a budget-compliant, eval-gated candidate prompt-revision diff, never auto-applies it, runs per-agent only, and reports "no signal" cleanly when there is no failure/telemetry data for that agent (US-2)
+- [x] **MILE-33**: A prompt-optimize command reads a target agent's eval failures and telemetry, produces a natural-language diagnosis plus a budget-compliant, eval-gated candidate prompt-revision diff, never auto-applies it, runs per-agent only, and reports "no signal" cleanly when there is no failure/telemetry data for that agent (US-2)
 
 #### Outcome-Informed Routing
 
@@ -236,7 +236,7 @@
 | MILE-30 | Phase 53 | Complete |
 | MILE-31 | Phase 53 | Complete |
 | MILE-32 | Phase 55 | Complete |
-| MILE-33 | Phase 56 | Pending |
+| MILE-33 | Phase 56 | Complete |
 | MILE-34 | Phase 57 | Pending |
 | MILE-35 | Phase 57 | Pending |
 | MILE-36 | Phase 58 | Pending |
