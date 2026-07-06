@@ -13351,3 +13351,243 @@ describe('Phase 60-03: plan-phase.md adversarial-review risk-triage wiring (MILE
     });
   });
 });
+
+describe('Phase 61-02: project-aware gate pre-pr (MILE-41)', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function createExecutionLog(tmpDir) {
+    // Create a minimal balanced EXECUTION_LOG.md with phase_start/phase_complete pairs
+    const execLogPath = path.join(tmpDir, '.planning', 'EXECUTION_LOG.md');
+    const log = {
+      type: 'phase_start',
+      phase: '01',
+      timestamp: new Date().toISOString(),
+    };
+    const log2 = {
+      type: 'phase_complete',
+      phase: '01',
+      timestamp: new Date().toISOString(),
+    };
+    fs.writeFileSync(execLogPath, JSON.stringify(log) + '\n' + JSON.stringify(log2) + '\n');
+  }
+
+  test('node-type fixture (package.json with test+lint, no build): returns node checks only', () => {
+    createExecutionLog(tmpDir);
+
+    // Create package.json with test and lint scripts (no build)
+    const pkgJson = {
+      name: 'test-project',
+      scripts: {
+        test: 'jest',
+        lint: 'eslint .',
+      },
+    };
+    fs.writeFileSync(
+      path.join(tmpDir, 'package.json'),
+      JSON.stringify(pkgJson, null, 2),
+      'utf-8'
+    );
+
+    const result = runGsdTools('gate pre-pr --raw', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.gate, 'pre-pr');
+    assert.strictEqual(parsed.action_required, true);
+
+    // Check detected_types
+    assert.deepStrictEqual(parsed.detected_types, ['node']);
+
+    // Check degraded absent or false
+    assert.ok(parsed.degraded === undefined || parsed.degraded === false);
+
+    // Check checks array contains exactly node-test and node-lint
+    assert.strictEqual(parsed.checks.length, 2);
+    const ids = parsed.checks.map(c => c.id).sort();
+    assert.deepStrictEqual(ids, ['node-lint', 'node-test']);
+
+    const testCheck = parsed.checks.find(c => c.id === 'node-test');
+    assert.strictEqual(testCheck.command, 'npm run test');
+    assert.strictEqual(testCheck.required, true);
+
+    const lintCheck = parsed.checks.find(c => c.id === 'node-lint');
+    assert.strictEqual(lintCheck.command, 'npm run lint');
+    assert.strictEqual(lintCheck.required, true);
+  });
+
+  test('python-type fixture (pyproject.toml): returns python checks', () => {
+    createExecutionLog(tmpDir);
+
+    // Create minimal valid pyproject.toml
+    const tomlContent = `[tool.poetry]
+name = "test-project"
+version = "0.1.0"
+description = "Test"
+`;
+    fs.writeFileSync(path.join(tmpDir, 'pyproject.toml'), tomlContent, 'utf-8');
+
+    const result = runGsdTools('gate pre-pr --raw', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.action_required, true);
+    assert.deepStrictEqual(parsed.detected_types, ['python']);
+    assert.ok(parsed.degraded === undefined || parsed.degraded === false);
+
+    // Check python checks
+    assert.ok(parsed.checks.length > 0);
+    const pythonCheck = parsed.checks.find(c => c.id === 'python-test');
+    assert.ok(pythonCheck, 'Should have python-test check');
+    assert.strictEqual(pythonCheck.command, 'pytest');
+  });
+
+  test('unknown-type fixture (no manifests): degrades with notice, exit 0, universal checks', () => {
+    createExecutionLog(tmpDir);
+
+    // Create empty directory (no manifests)
+    const result = runGsdTools('gate pre-pr --raw', tmpDir);
+    assert.ok(result.success, `Command should exit 0, got: ${result.error}`);
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.gate, 'pre-pr');
+    assert.strictEqual(parsed.action_required, true);
+    assert.strictEqual(parsed.degraded, true);
+    assert.ok(typeof parsed.notice === 'string' && parsed.notice.length > 0);
+    assert.ok(parsed.notice.includes('manifest'), 'Notice should mention manifest files');
+    assert.deepStrictEqual(parsed.detected_types, []);
+
+    // Check universal checks (git-status-clean, branch-not-main)
+    assert.ok(parsed.checks.length > 0);
+    const checkIds = parsed.checks.map(c => c.id);
+    assert.ok(checkIds.includes('git-status-clean'));
+    assert.ok(checkIds.includes('branch-not-main'));
+  });
+
+  test('multi-manifest fixture (package.json + go.mod): union of checks, detected_types ordered', () => {
+    createExecutionLog(tmpDir);
+
+    // Create package.json with test only
+    const pkgJson = {
+      name: 'test-project',
+      scripts: {
+        test: 'go test ./...',
+      },
+    };
+    fs.writeFileSync(
+      path.join(tmpDir, 'package.json'),
+      JSON.stringify(pkgJson, null, 2),
+      'utf-8'
+    );
+
+    // Create go.mod
+    const goModContent = `module test-project
+go 1.21
+`;
+    fs.writeFileSync(path.join(tmpDir, 'go.mod'), goModContent, 'utf-8');
+
+    const result = runGsdTools('gate pre-pr --raw', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const parsed = JSON.parse(result.output);
+    assert.deepStrictEqual(parsed.detected_types, ['node', 'go']);
+
+    // Check union of checks (node-test + go-test + go-vet)
+    const checkIds = parsed.checks.map(c => c.id);
+    assert.ok(checkIds.includes('node-test'), 'Should have node-test from package.json');
+    assert.ok(checkIds.includes('go-test'), 'Should have go-test');
+    assert.ok(checkIds.includes('go-vet'), 'Should have go-vet');
+  });
+
+  test('regression: --mark-passed still writes marker and returns {gate, passed:true, marked:true}', () => {
+    createExecutionLog(tmpDir);
+
+    const execLogPath = path.join(tmpDir, '.planning', 'EXECUTION_LOG.md');
+    const initialContent = fs.readFileSync(execLogPath, 'utf-8');
+
+    const result = runGsdTools('gate pre-pr --mark-passed --raw', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.gate, 'pre-pr');
+    assert.strictEqual(parsed.passed, true);
+    assert.strictEqual(parsed.marked, true);
+
+    // Check that marker was appended to EXECUTION_LOG.md
+    const updatedContent = fs.readFileSync(execLogPath, 'utf-8');
+    assert.ok(updatedContent.length > initialContent.length);
+    const lines = updatedContent.split('\n').filter(l => l.trim().startsWith('{'));
+    const markerFound = lines.some(l => {
+      try { return JSON.parse(l).type === 'gate_pre_pr_passed'; } catch { return false; }
+    });
+    assert.ok(markerFound, 'gate_pre_pr_passed marker should be in EXECUTION_LOG.md');
+  });
+
+  test('regression: incomplete-phases error path unchanged', () => {
+    // Create UNBALANCED EXECUTION_LOG.md (phase_start without phase_complete)
+    const execLogPath = path.join(tmpDir, '.planning', 'EXECUTION_LOG.md');
+    const log = {
+      type: 'phase_start',
+      phase: '42',
+      timestamp: new Date().toISOString(),
+    };
+    fs.writeFileSync(execLogPath, JSON.stringify(log) + '\n');
+
+    const result = runGsdTools('gate pre-pr --raw', tmpDir);
+    // Note: output() function exits with code 0 even on errors, so success is true
+    assert.ok(result.success, 'Command exits with code 0 (pre-existing behavior)');
+
+    const parsed = JSON.parse(result.output || '{}');
+    assert.strictEqual(parsed.gate, 'pre-pr');
+    assert.strictEqual(parsed.passed, false);
+    assert.ok(parsed.error && parsed.error.includes('Incomplete phases'));
+    assert.ok(parsed.incomplete_phases && parsed.incomplete_phases.includes('42'));
+  });
+
+  test('regression: cached gate_pre_pr_passed marker returns {gate, passed:true, cached:true}', () => {
+    // Create EXECUTION_LOG.md with balanced phases AND existing gate_pre_pr_passed marker
+    const execLogPath = path.join(tmpDir, '.planning', 'EXECUTION_LOG.md');
+    const entries = [
+      { type: 'phase_start', phase: '01', timestamp: new Date().toISOString() },
+      { type: 'phase_complete', phase: '01', timestamp: new Date().toISOString() },
+      { type: 'gate_pre_pr_passed', timestamp: new Date().toISOString(), checks_passed: true },
+    ];
+    const logContent = entries.map(e => JSON.stringify(e)).join('\n') + '\n';
+    fs.writeFileSync(execLogPath, logContent);
+
+    const result = runGsdTools('gate pre-pr --raw', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.gate, 'pre-pr');
+    assert.strictEqual(parsed.passed, true);
+    assert.strictEqual(parsed.cached, true);
+    assert.ok(parsed.message && parsed.message.includes('already passed'));
+  });
+
+  test('grep-assertion: execute-roadmap.md still contains exact parsing contract strings', () => {
+    const roadmapPath = path.join(
+      __dirname,
+      '..',
+      'workflows',
+      'execute-roadmap.md'
+    );
+
+    assert.ok(fs.existsSync(roadmapPath), `execute-roadmap.md should exist at ${roadmapPath}`);
+    const content = fs.readFileSync(roadmapPath, 'utf-8');
+
+    // Lock in the parsing contract strings -- these are the exact literals consumed by execute-roadmap.md's step
+    assert.ok(content.includes('gate pre-pr'), 'Should contain gate pre-pr command');
+    assert.ok(content.includes('action_required'), 'Should contain action_required field parse');
+    assert.ok(content.includes('checks'), 'Should contain checks array reference');
+    assert.ok(content.includes('gate pre-pr --mark-passed'), 'Should contain mark-passed command');
+    assert.ok(content.includes('"passed":true'), 'Should contain "passed":true verification');
+  });
+});
