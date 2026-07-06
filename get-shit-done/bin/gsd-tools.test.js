@@ -9382,3 +9382,147 @@ describe('buildHandoffBrief', () => {
     assert.ok(typeof brief.brief_text === 'string' && brief.brief_text.length > 0);
   });
 });
+
+// Phase 54-02 (MILE-40): resume-brief invariant re-injection. getPhaseInvariantsText
+// reads a phase's own ROADMAP.md section VERBATIM (never paraphrased from
+// CHECKPOINT.json's key_context or any SUMMARY.md); buildResumeBrief's third
+// invariantsText param appends that verbatim text to the resume brief so a
+// respawned coordinator re-reads hard rules/success criteria from source.
+describe('resume-brief invariant re-injection', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  const PHASE_54_SUCCESS_CRITERION = 'Resume brief re-reads hard rules verbatim from ROADMAP.md, never from a paraphrased summary.';
+
+  function writeRoadmapFixture(dir, { includePhase55 = false } = {}) {
+    const lines = [
+      '# Roadmap',
+      '',
+      '### Phase 54: Structured Handoffs & Invariant Re-Injection',
+      '',
+      '**Goal:** Long runs stay on-constraint across agent boundaries and resumes',
+      '**Success Criteria** (what must be TRUE):',
+      `  1. ${PHASE_54_SUCCESS_CRITERION}`,
+      '  2. Prompt budgets still pass for all agents modified.',
+      '',
+    ];
+    if (includePhase55) {
+      lines.push(
+        '### Phase 55: Failures-to-Regression Pipeline',
+        '',
+        '**Goal:** Every failure becomes a permanent regression eval',
+        '**Success Criteria** (what must be TRUE):',
+        '  1. This sentence belongs to Phase 55 and must NEVER appear in Phase 54 invariants.',
+        ''
+      );
+    }
+    fs.mkdirSync(path.join(dir, '.planning'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.planning', 'ROADMAP.md'), lines.join('\n'));
+  }
+
+  const PHASE_INFO = { phase_number: '54', phase_name: 'structured-handoffs', directory: '.planning/phases/54-structured-handoffs' };
+
+  // Category 1: Happy path.
+  test('happy path: buildResumeBrief with invariantsText -> PHASE INVARIANTS block + verbatim text + invariants field set', () => {
+    writeRoadmapFixture(tmpDir);
+    const invariantsText = resilience.getPhaseInvariantsText(tmpDir, '54');
+    assert.ok(invariantsText, 'expected getPhaseInvariantsText to return a non-null section');
+
+    const checkpointData = {
+      found: true,
+      resume_from: 'execute',
+      last_step: 'execute',
+      step_status: 'in_progress',
+      plans_complete: ['54-01'],
+      plans_remaining: ['54-02'],
+      key_context: 'Some key context.',
+    };
+
+    const brief = resilience.buildResumeBrief(checkpointData, PHASE_INFO, invariantsText);
+    assert.ok(brief.brief_text.includes('PHASE INVARIANTS (verbatim from ROADMAP.md'));
+    assert.ok(brief.brief_text.includes(invariantsText), 'expected brief_text to contain invariantsText verbatim, byte-for-byte');
+    assert.strictEqual(brief.invariants, invariantsText);
+  });
+
+  // Category 2: Missing/malformed input.
+  test('missing/malformed input: no ROADMAP.md -> getPhaseInvariantsText returns null, no throw', () => {
+    // tmpDir has no .planning/ROADMAP.md written by this test.
+    assert.doesNotThrow(() => resilience.getPhaseInvariantsText(tmpDir, '54'));
+    assert.strictEqual(resilience.getPhaseInvariantsText(tmpDir, '54'), null);
+  });
+
+  test('missing/malformed input: buildResumeBrief(invariantsText=null) omits PHASE INVARIANTS block, byte-identical to two-arg call', () => {
+    const checkpointData = {
+      found: true,
+      resume_from: 'execute',
+      last_step: 'execute',
+      step_status: 'in_progress',
+      plans_complete: ['54-01'],
+      plans_remaining: ['54-02'],
+      key_context: 'Some key context.',
+    };
+    const twoArgBrief = resilience.buildResumeBrief(checkpointData, PHASE_INFO);
+    const threeArgNullBrief = resilience.buildResumeBrief(checkpointData, PHASE_INFO, null);
+    assert.strictEqual(threeArgNullBrief.brief_text, twoArgBrief.brief_text);
+    assert.ok(!threeArgNullBrief.brief_text.includes('PHASE INVARIANTS'));
+    assert.strictEqual(threeArgNullBrief.invariants, null);
+  });
+
+  // Category 3: Edge case -- verbatim-containment guarantee.
+  test('edge case: a success-criterion sentence from the fixture ROADMAP appears exactly (verbatim) in brief_text', () => {
+    writeRoadmapFixture(tmpDir);
+    const invariantsText = resilience.getPhaseInvariantsText(tmpDir, '54');
+    const checkpointData = { found: false, resume_from: null, last_step: null, step_status: null, plans_complete: null, plans_remaining: null, key_context: null };
+
+    const brief = resilience.buildResumeBrief(checkpointData, PHASE_INFO, invariantsText);
+    assert.ok(brief.brief_text.includes(PHASE_54_SUCCESS_CRITERION), 'expected the exact success-criterion sentence to appear verbatim (containment, not paraphrase)');
+  });
+
+  // Category 4: Boundary conditions.
+  test('boundary: found:false (from-scratch) resume STILL appends PHASE INVARIANTS block when invariantsText supplied', () => {
+    writeRoadmapFixture(tmpDir);
+    const invariantsText = resilience.getPhaseInvariantsText(tmpDir, '54');
+    const checkpointData = { found: false, resume_from: null, last_step: null, step_status: null, plans_complete: null, plans_remaining: null, key_context: null };
+
+    const brief = resilience.buildResumeBrief(checkpointData, PHASE_INFO, invariantsText);
+    assert.strictEqual(brief.resume_from, 'discuss');
+    assert.ok(/from scratch/i.test(brief.brief_text));
+    assert.ok(brief.brief_text.includes('PHASE INVARIANTS (verbatim from ROADMAP.md'));
+    assert.ok(brief.brief_text.includes(PHASE_54_SUCCESS_CRITERION));
+  });
+
+  test('boundary: empty-string invariantsText behaves like null -> no PHASE INVARIANTS block', () => {
+    const checkpointData = { found: false, resume_from: null, last_step: null, step_status: null, plans_complete: null, plans_remaining: null, key_context: null };
+    const brief = resilience.buildResumeBrief(checkpointData, PHASE_INFO, '');
+    assert.ok(!brief.brief_text.includes('PHASE INVARIANTS'));
+    assert.strictEqual(brief.invariants, null);
+  });
+
+  // Category 5: Wiring/integration -- correct phase-section slicing.
+  test('wiring: getPhaseInvariantsText slices only Phase 54\'s section, stopping at the next "### Phase" header', () => {
+    writeRoadmapFixture(tmpDir, { includePhase55: true });
+    const invariantsText = resilience.getPhaseInvariantsText(tmpDir, '54');
+    assert.ok(invariantsText.includes('Phase 54'));
+    assert.ok(invariantsText.includes(PHASE_54_SUCCESS_CRITERION));
+    assert.ok(!invariantsText.includes('Phase 55'), 'expected the Phase 54 slice to stop before the Phase 55 header');
+    assert.ok(!invariantsText.includes('belongs to Phase 55'), 'expected Phase 55 content to be excluded from the Phase 54 slice');
+  });
+
+  // Category 6: Regression guard -- pre-existing two-argument buildResumeBrief contract (51-02) intact.
+  test('regression guard: two-arg buildResumeBrief(found:false, phaseInfo) -> resume_from "discuss", original brief_text unchanged', () => {
+    const checkpointData = { found: false, resume_from: null, last_step: null, step_status: null, plans_complete: null, plans_remaining: null, key_context: null };
+    const phaseInfo = { phase_number: '52', phase_name: 'never-started', directory: '.planning/phases/52-never-started' };
+
+    const brief = resilience.buildResumeBrief(checkpointData, phaseInfo);
+    assert.strictEqual(brief.resume_from, 'discuss');
+    assert.strictEqual(brief.brief_text, 'No prior checkpoint found -- starting phase 52 (never-started) from scratch.');
+    assert.ok(!brief.brief_text.includes('PHASE INVARIANTS'));
+  });
+});
