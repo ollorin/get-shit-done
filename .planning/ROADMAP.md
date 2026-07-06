@@ -733,10 +733,12 @@ Plans:
   2. The gate passes on the GSD repo itself (self-hosting proof)
   3. Unknown project types degrade to a minimal universal check set with a loud notice, never a crash
   4. Integration tests cover: detection across at least two project types, GSD self-run pass, unknown-type degradation
-**Plans:** TBD
+**Plans:** 3
 
 Plans:
-- [ ] 61-01: TBD (planned during plan-phase)
+- [x] 61-01: get-shit-done/config/pre-pr-checks.json (config-as-data, mirrors model-registry.json) + get-shit-done/bin/pre-pr-checks.js (fail-open accessor: loadRegistry/detectProjectTypes/getDeclaredNodeScripts/checksForNode/discoverMakeTestCommand/deriveCheckSet) — pure detection/derivation module only, verified deriveCheckSet(process.cwd()) against this repo returns single node-test check with degraded:false; 896/896 tests passing
+- [ ] 61-02: TBD (planned during plan-phase)
+- [ ] 61-03: TBD (planned during plan-phase)
 
 ## Progress
 
@@ -800,8 +802,8 @@ Plans:
 | 57. Outcome-Informed Routing Ledger & Bounded Escalation | v1.15.0 | Complete    | 2026-07-06 | 2026-07-06 |
 | 58. Honest Token Accounting | v1.15.0 | 0/TBD | Not started | - |
 | 59. Dormant Quality Agents Wired In | v1.15.0 | Complete    | 2026-07-06 | 2026-07-06 |
-| 60. Adversarial Plan Review | v1.15.0 | 3/3 | Complete   | 2026-07-06 |
-| 61. Project-Aware Pre-PR Gate | v1.15.0 | 0/TBD | Not started | - |
+| 60. Adversarial Plan Review | v1.15.0 | 3/3 | Complete | 2026-07-06 |
+| 61. Project-Aware Pre-PR Gate | v1.15.0 | 1/3 | In Progress | - |
 
 ---
 *Roadmap created: 2026-02-15 | Last updated: 2026-07-06 — v1.15.0 Self-Improving Quality Loop roadmap created: phases 54-61 (MILE-32..41 from self-improving-quality-loop PRD)*

@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-07-02)
 
 ## Current Position
 
-Phase: 60 of 61 (Adversarial Plan Review) — COMPLETE (3/3 plans)
-Plan: 3 of 3 (60-03 complete — MILE-39 plan-phase.md risk-triage wiring)
-Status: Ready to plan Phase 61
+Phase: 61 of 61 (Project-Aware Pre-PR Gate) — IN PROGRESS (1/3 plans)
+Plan: 1 of 3 (61-01 complete — pre-pr-checks.json/pre-pr-checks.js detection+derivation module, MILE-41 foundation)
+Status: Ready for Plan 61-02 (wires deriveCheckSet into gsd-tools.js's cmdGatePrePr)
 Last activity: 2026-07-06
 
-Progress: [██████████] 100%
+Progress: [█████████░] 92%
 
 ## Performance Metrics
 
@@ -182,6 +182,7 @@ Recent decisions affecting current work:
 - [Phase 60]: [60-01]: computeHighRisk's explicit high_risk:true frontmatter flag always wins even when adversarial_review_enabled toggle is off; computePresentationOrder uses a deterministic content-hash (not Math.random()) for reproducible presentation-order fixtures; quality assess-risk/verdict-to-issues CLIs always output(...) and never process.exit on a bad input file; 850/850 npm test passing (was 820)
 - [Phase 60]: [60-02]: gsd-plan-attacker.md (Read, Grep, Glob, Bash — no Write/Edit) finds severity-tagged flaws with plan/task references; gsd-plan-defender.md (same read-only tool set) rebuts each flaw strictly from cited plan text/task ID/must_haves entry/codebase file-line, never inventing facts; gsd-plan-judge.md (Read, Write, Bash, Grep, Glob — the only one with Write) reads whichever of attacker_flaws/defender_rebuttals its presentation_order input names first, independently re-verifies every flaw, and writes its own {phase_dir}/{plan_id}-VERDICT.md mirroring gsd-verifier's VERIFICATION.md pattern; all 3 carry content_firewall + the exact 4-field MILE-26 Telemetry line; new Phase 60-02 describe block in gsd-tools.test.js parses all 3 files' frontmatter via gray-matter directly against the real files on disk (not fixtures); no Task/Agent tool was available in this executor run, so Task 2's tdd="true" spawn and the mandatory docs-update step were both completed inline; 865/865 npm test passing (was 850); MILE-39 remains Pending — spans this plan plus 60-03's plan-phase.md risk-triage wiring
 - [Phase 60]: [60-03]: Step 9.5 fails toward TRIAGE_MODE=checker (the pre-existing safer path) when quality assess-risk errors for every plan; TRIAGE_MODE=trio applies to the WHOLE phase's plans (not a mixed split) since gsd-plan-checker was always a single cross-plan pass; fail-open on ANY trio-member failure discards partial results and re-runs the byte-identical checker branch for the whole phase; Step 11's quality verdict-to-issues reuses gsd-plan-checker's exact issues shape so Step 12's existing revision loop and gsd-planner spawn required zero changes beyond a re-triage-before-re-spawn amendment; no Task/Agent tool was available in this executor run, so Task 2's tdd="true" spawn and the mandatory docs-update step were both completed inline; 875/875 npm test passing (was 850); Phase 60 (Adversarial Plan Review) now COMPLETE across all 3 plans, MILE-39 satisfied end-to-end
+- [Phase 61]: [61-01]: get-shit-done/config/pre-pr-checks.json + get-shit-done/bin/pre-pr-checks.js mirror model-registry.json/model-registry.js's fail-open contract byte-for-byte (DEFAULT_CHECKS in-module constant, cachedRegistry singleton, loadRegistry() falls back wholesale on missing file/corrupt JSON/missing required top-level key, never throws); detectProjectTypes(cwd) is a PURE presence-only function (never reads manifest content, content-firewall) returning the UNION of all matching types in fixed ['node','python','go','rust'] order, with a per-manifest try/catch so one unreadable manifest never blocks the others; checksForNode(cwd, typeConfig) derives node checks ONLY from scripts actually declared in package.json's scripts object -- never synthesizes an undeclared lint/build check; deriveCheckSet(cwd) is the module's pure entry point Plan 61-02 will wire into cmdGatePrePr (no gsd-tools.js edit in this plan), verified end-to-end against this repo's own package.json (which declares only test) returning exactly one node-test check with degraded:false; no Task/Agent tool was available in this executor run, so Task 2's tdd="true" spawn was completed inline (21 new tests, isolated-module strategy mirroring model-registry.test.js exactly); 896/896 npm test passing (was 875 at plan start); MILE-41 remains Pending -- spans all 3 plans of Phase 61, flips to Complete only once 61-03 lands the full self-hosting + degradation success criteria
 
 ### Roadmap Evolution
 
@@ -216,11 +217,11 @@ None.
 
 ### Next Steps
 
-- Phase 60 (Adversarial Plan Review, MILE-39) COMPLETE across all 3 plans: 60-01 (config toggles + computeHighRisk/computePresentationOrder/verdictToIssues + quality assess-risk/verdict-to-issues CLI), 60-02 (gsd-plan-attacker/defender/judge agent trio + structural validation tests), 60-03 (plan-phase.md Step 9.5 risk-triage + Step 10 trio-vs-checker branch + Step 11 verdict routing + Step 12 re-triage-on-revision). 875/875 npm test passing (was 820 at phase start); budget check --raw pass:true for all 5 measured agents. Next: Phase 61 (Project-Aware Pre-PR Gate, MILE-41) — last phase of v1.15.0, self-hosts against the full milestone surface area.
+- Phase 61 (Project-Aware Pre-PR Gate, MILE-41) IN PROGRESS: 61-01 complete (pre-pr-checks.json + pre-pr-checks.js detection/derivation module, pure and independently unit-tested, 896/896 npm test passing). Next: Plan 61-02 wires deriveCheckSet into gsd-tools.js's cmdGatePrePr (single require + one call site swap per 61-01's design); Plan 61-03 covers self-hosting proof + unknown-type degradation integration tests per the phase's success criteria.
 - Reconcile v1.13.0 status separately (see Pending Todos) — do not double-build during v1.15.0 execution
 
 ## Session Continuity
 
 Last session: 2026-07-06T16:57:17.016Z
-Stopped at: Completed 60-03-PLAN.md (plan-phase.md risk-triage wiring, MILE-39) -- Phase 60 (Adversarial Plan Review) COMPLETE, 875/875 npm test passing
+Stopped at: Completed 61-01-PLAN.md (pre-pr-checks.json/pre-pr-checks.js detection+derivation module, MILE-41 foundation) -- Phase 61 IN PROGRESS (1/3 plans), 896/896 npm test passing
 Resume file: None
