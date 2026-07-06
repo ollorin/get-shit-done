@@ -629,7 +629,7 @@ Plans:
   2. A phase-verification failure (`gaps_found`) writes a candidate fixture describing the gap
   3. An accepted candidate becomes a permanent eval case executed by the existing eval harness in CI; a rejected candidate is archived, not silently deleted
   4. Integration tests cover: candidate generation from a seeded debug session, review-queue accept/reject transitions, CI pickup of an accepted fixture, malformed candidate file handled loudly
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 
 Plans:
 - [ ] 55-01: TBD (planned during plan-phase)

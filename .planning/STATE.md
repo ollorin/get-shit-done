@@ -10,9 +10,9 @@ See: .planning/PROJECT.md (updated 2026-07-02)
 ## Current Position
 
 Phase: 55 of 61 (Failures-to-Regression Pipeline) — IN PROGRESS
-Plan: 1 of 3 (55-01 complete)
-Status: Plan 55-01 complete — eval-candidate builders (buildEvalCandidateFromDebugFile, buildEvalCandidatesFromVerificationFile), atomic writer, and `eval-candidate from-debug`/`from-verification` CLI wired into gsd-debugger's Phase 4 CONFIRMED point and gsd-verifier's gaps_found output step; 569/569 tests passing. MILE-32 criteria 1 and 2 satisfied. 55-02 (accept/reject) and 55-03 (CI execution) pending.
-Last activity: 2026-07-06 — Executed 55-01-PLAN.md: added tests/eval-regressions/{queue,accepted,archived}/ git-tracked review-queue dirs, 19 new tests across both TDD tasks, CHANGELOG.md entry.
+Plan: 2 of 3 (55-02 complete)
+Status: Plan 55-02 complete — validateEvalCandidateSchema pure validator + cmdEvalCandidateList/Accept/Reject CLI wrappers extend the eval-candidate dispatch with list/accept/reject subcommands; accept re-validates schema unconditionally (even against a hand-edited candidate) before promoting queue->accepted, reject moves queue->archived (never deletes) with an appended reason; 578/578 tests passing. MILE-32 criterion 3 (human review durable/auditable) and 4d (malformed input hardening) satisfied. 55-03 (CI execution) pending.
+Last activity: 2026-07-06 — Executed 55-02-PLAN.md: added list/accept/reject CLI + validator, 9 new tests across all 6 TDD categories, CHANGELOG.md entry.
 
 Progress: [██████████] 99%
 
@@ -81,6 +81,7 @@ Progress: [██████████] 99%
 | Phase 54 P03 | ~15min | 3 tasks | 4 files |
 | Phase 54 P04 | ~20min | 3 tasks | 5 files |
 | Phase 55 P01 | 35min | 4 tasks | 8 files |
+| Phase 55 P02 | ~30min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -144,6 +145,7 @@ Recent decisions affecting current work:
 - [Phase 54]: [54-04]: coordinator-detail.md assembles the fixed handoff brief fresh at BOTH spawn boundaries (coordinator->executor, both PER_TASK_MODE branches, and executor->verifier) rather than threading it through SUMMARY.md, since the coordinator is the one agent present at both boundaries; each of the 3 modified agent core preambles (gsd-phase-coordinator.md/gsd-executor.md/gsd-verifier.md) gains exactly one acknowledgment sentence inside its existing hard_rules_digest/error_handling section, before its own CORE-PREAMBLE-END marker (index-ordering verified by test) -- all bulk 5-section content lives in coordinator-detail.md, an @-included reference the budget checker never measures, so prompt-budgets.json was never touched and executor's tight 1906-token headroom absorbed only a 39-token addition; 6 new grep-assertion/integration tests lock in the wiring plus a checkAllBudgets pass:true regression across all 3 modified agents; gsd-planner.md/gsd-debugger.md confirmed untouched (blast-radius boundary test); no Task/Agent tool was available in this executor run either, so Task 2's tdd="true" spawn and the mandatory docs-update step were again completed inline; MILE-40 flipped to Complete in REQUIREMENTS.md -- Phase 54 (Structured Handoffs & Invariant Re-Injection) now COMPLETE across all 4 plans, 550/550 npm test passing (was 544)
 - [Phase 55]: Candidate fixtures live under tests/eval-regressions/{queue,accepted,archived}/ (git-tracked) rather than .planning/ (gitignored) so accepted candidates survive as permanent CI artifacts
 - [Phase 55]: gray-matter used for debug-file and VERIFICATION.md frontmatter parsing instead of extending the hand-rolled extractFrontmatter, which cannot parse the nested gaps array-of-objects schema
+- [Phase 55]: [55-02]: validateEvalCandidateSchema is re-run unconditionally at accept time (not only at 55-01's write time) -- closes the hand-edit bypass the must-haves called out, so a candidate that looked valid when queued but was hand-edited into an invalid shape before accepting is rejected and left in queue/; reject deliberately skips full schema re-validation (only requires successful JSON.parse) since a broken candidate must still be legitimately archivable; all accept/reject error paths write a typed JSON object directly to stdout + process.exit(1|2) rather than using output() (which always exits 0), guaranteeing a non-zero exit on every failure path; no Task/Agent tool was available in this executor run, so Task 2's tdd="true" spawn and the mandatory docs-update step were both completed inline per their respective agents' documented procedures (578/578 npm test passing, was 569)
 
 ### Roadmap Evolution
 
@@ -178,11 +180,11 @@ None.
 
 ### Next Steps
 
-- Phase 54 (Structured Handoffs & Invariant Re-Injection) is complete — MILE-40 satisfied end-to-end. Proceed to Phase 55 (Failures-to-Regression Pipeline, MILE-32), the next phase in the v1.15.0 roadmap.
+- Plan 55-02 (review-queue accept/reject) is complete. Proceed to Plan 55-03 (CI execution) to close out Phase 55 (Failures-to-Regression Pipeline, MILE-32).
 - Reconcile v1.13.0 status separately (see Pending Todos) — do not double-build during v1.15.0 execution
 
 ## Session Continuity
 
 Last session: 2026-07-06
-Stopped at: Completed 54-04-PLAN.md (handoff-brief boundary wiring + final budget gate). MILE-40 marked Complete in REQUIREMENTS.md. Phase 54 fully complete across all 4 plans. Next action: `/gsd:execute-phase 55` to start the next phase.
-Resume file: none — 54-04 complete and committed, no checkpoint pending.
+Stopped at: Completed 55-02-PLAN.md (eval-candidate list/accept/reject review-queue lifecycle). 578/578 tests passing. Next action: execute 55-03-PLAN.md (CI execution) to complete Phase 55.
+Resume file: none — 55-02 complete and committed, no checkpoint pending.
