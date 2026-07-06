@@ -7971,15 +7971,21 @@ function cmdRoadmapUpdatePlanProgress(cwd, phaseNum, raw) {
   let roadmapContent = fs.readFileSync(roadmapPath, 'utf-8');
   const phaseEscaped = phaseNum.replace('.', '\\.');
 
-  // Progress table row: update Plans column (summaries/plans) and Status column
+  // Progress table row: | Phase Name | Milestone | Plans | Status | Completed |
+  // (5 columns). The Milestone column (2nd) must be preserved verbatim --
+  // only Plans/Status/Completed (columns 3-5) are rewritten. A prior version
+  // of this regex only accounted for 4 columns and silently discarded the
+  // Milestone cell's value on every run (found + fixed during Phase 57-01;
+  // see deferred-items.md for pre-existing rows this bug corrupted before
+  // this fix landed).
   const tablePattern = new RegExp(
-    `(\\|\\s*${phaseEscaped}\\.?\\s[^|]*\\|)[^|]*(\\|)\\s*[^|]*(\\|)\\s*[^|]*(\\|)`,
+    `(\\|\\s*${phaseEscaped}\\.?\\s[^|]*\\|)([^|]*\\|)[^|]*(\\|)\\s*[^|]*(\\|)\\s*[^|]*(\\|)`,
     'i'
   );
   const dateField = isComplete ? ` ${today} ` : '  ';
   roadmapContent = roadmapContent.replace(
     tablePattern,
-    `$1 ${summaryCount}/${planCount} $2 ${status.padEnd(11)}$3${dateField}$4`
+    `$1$2 ${summaryCount}/${planCount} $3 ${status.padEnd(11)}$4${dateField}$5`
   );
 
   // Update plan count in phase detail section

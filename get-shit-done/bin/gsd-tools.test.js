@@ -11030,3 +11030,72 @@ describe('Phase 57-01: routing ledger storage & build', () => {
     });
   });
 });
+
+// [Rule 1 - Bug] found during Phase 57-01's state_updates step: `roadmap
+// update-plan-progress`'s table regex assumed a 4-column progress table
+// (Phase | Plans | Status | Completed) but the real table has 5 columns
+// (Phase | Milestone | Plans | Status | Completed) -- the Milestone cell was
+// silently discarded on every run. Fixed to preserve the Milestone column
+// verbatim while only rewriting Plans/Status/Completed.
+describe('Phase 57-01 [Rule 1 fix]: roadmap update-plan-progress preserves the Milestone column', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function seedPhaseWithRoadmapRow(rowLine) {
+    const phaseDir = path.join(tmpDir, '.planning', 'phases', '57-routing-ledger-escalation');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    fs.writeFileSync(path.join(phaseDir, '57-01-PLAN.md'), '# plan 1');
+    fs.writeFileSync(path.join(phaseDir, '57-02-PLAN.md'), '# plan 2');
+    fs.writeFileSync(path.join(phaseDir, '57-01-SUMMARY.md'), '# summary 1');
+
+    const roadmapPath = path.join(tmpDir, '.planning', 'ROADMAP.md');
+    const content = [
+      '# Roadmap',
+      '',
+      '## Progress',
+      '',
+      '| Phase | Milestone | Plans | Status | Completed |',
+      '|-------|-----------|-------|--------|-----------|',
+      rowLine,
+      '| 58. Next Phase | v1.15.0 | 0/TBD | Not started | - |',
+      '',
+    ].join('\n');
+    fs.writeFileSync(roadmapPath, content, 'utf-8');
+    return roadmapPath;
+  }
+
+  test('a well-formed 5-column row keeps its Milestone value after an update (regression guard for the discard bug)', () => {
+    const roadmapPath = seedPhaseWithRoadmapRow(
+      '| 57. Outcome-Informed Routing Ledger & Bounded Escalation | v1.15.0 | 0/TBD | Not started | - |'
+    );
+
+    const result = runGsdTools('roadmap update-plan-progress 57', tmpDir);
+    assert.ok(result.success, `expected exit 0: ${result.error}`);
+
+    const updated = fs.readFileSync(roadmapPath, 'utf-8');
+    const row = updated.split('\n').find((l) => l.startsWith('| 57.'));
+    assert.ok(row, 'expected to find the Phase 57 row in the updated ROADMAP.md');
+    assert.ok(row.includes('v1.15.0'), `Milestone column must be preserved, got: ${row}`);
+    assert.ok(row.includes('1/2'), `Plans column must reflect 1 summary / 2 plans, got: ${row}`);
+    assert.ok(/In Progress/.test(row), `Status column must be In Progress, got: ${row}`);
+  });
+
+  test('the neighboring row (Phase 58) is untouched by a Phase 57 update', () => {
+    const roadmapPath = seedPhaseWithRoadmapRow(
+      '| 57. Outcome-Informed Routing Ledger & Bounded Escalation | v1.15.0 | 0/TBD | Not started | - |'
+    );
+
+    runGsdTools('roadmap update-plan-progress 57', tmpDir);
+
+    const updated = fs.readFileSync(roadmapPath, 'utf-8');
+    const row58 = updated.split('\n').find((l) => l.startsWith('| 58.'));
+    assert.strictEqual(row58, '| 58. Next Phase | v1.15.0 | 0/TBD | Not started | - |');
+  });
+});
