@@ -9939,3 +9939,112 @@ gaps:
     assert.ok(brief.brief_text.includes('55'));
   });
 });
+
+// Phase 55-01 (MILE-32): structural grep-assertion + budget wiring tests --
+// house convention from Phases 48/52/54 -- proving the debugger/verifier
+// agent-wiring additions from Task 3 land at the correct point, are confined
+// to the correct blast radius, and do not regress prompt budgets.
+describe('Phase 55-01 eval-candidate agent wiring', () => {
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  const DEBUGGER_DETAIL_PATH = path.join(REPO_ROOT, 'get-shit-done', 'references', 'debugger-detail.md');
+  const VERIFIER_AGENT_PATH = path.join(REPO_ROOT, 'agents', 'gsd-verifier.md');
+  const PLANNER_AGENT_PATH = path.join(REPO_ROOT, 'agents', 'gsd-planner.md');
+  const EXECUTOR_AGENT_PATH = path.join(REPO_ROOT, 'agents', 'gsd-executor.md');
+
+  // Guarded read helper: fails the assertion loudly (not an unhandled throw)
+  // if the expected file has moved/been deleted.
+  function readRepoFile(absPath) {
+    assert.ok(fs.existsSync(absPath), `expected file to exist: ${absPath}`);
+    return fs.readFileSync(absPath, 'utf-8');
+  }
+
+  // Category 1: Happy path.
+  test('happy path: `eval-candidate from-debug` appears within the "Phase 4: Evaluate" region of debugger-detail.md', () => {
+    const content = readRepoFile(DEBUGGER_DETAIL_PATH);
+
+    const phase4Idx = content.indexOf('**Phase 4: Evaluate**');
+    assert.ok(phase4Idx !== -1, 'expected a "**Phase 4: Evaluate**" heading');
+
+    const afterHeading = phase4Idx + '**Phase 4: Evaluate**'.length;
+    const nextPhaseIdx = content.indexOf('**Phase', afterHeading);
+    const stepCloseIdx = content.indexOf('</step>', afterHeading);
+    const boundaryCandidates = [nextPhaseIdx, stepCloseIdx].filter((i) => i !== -1);
+    const boundaryIdx = boundaryCandidates.length ? Math.min(...boundaryCandidates) : content.length;
+
+    const phase4Region = content.slice(phase4Idx, boundaryIdx);
+    assert.ok(phase4Region.includes('eval-candidate from-debug'), 'expected "eval-candidate from-debug" inside the Phase 4: Evaluate region');
+  });
+
+  // Category 2: Missing/malformed input.
+  test('missing/malformed: guarded read helper fails loudly with a clear message when the real repo path is moved', () => {
+    const bogusPath = path.join(REPO_ROOT, 'get-shit-done', 'references', 'does-not-exist-debugger-detail.md');
+    assert.throws(() => readRepoFile(bogusPath), /expected file to exist/);
+  });
+
+  // Category 3: Edge case -- blast radius confined to the CONFIRMED point.
+  test('edge case: `eval-candidate from-debug` does NOT appear in the ELIMINATED bullet or return_diagnosis/request_human_verification step bodies', () => {
+    const content = readRepoFile(DEBUGGER_DETAIL_PATH);
+
+    const eliminatedIdx = content.indexOf('- **ELIMINATED:**');
+    assert.ok(eliminatedIdx !== -1, 'expected an "- **ELIMINATED:**" bullet');
+    const eliminatedLineEnd = content.indexOf('\n', eliminatedIdx);
+    const eliminatedBullet = content.slice(eliminatedIdx, eliminatedLineEnd === -1 ? content.length : eliminatedLineEnd);
+    assert.ok(!eliminatedBullet.includes('eval-candidate from-debug'), 'expected the ELIMINATED bullet to NOT invoke eval-candidate from-debug');
+
+    const returnDiagIdx = content.indexOf('<step name="return_diagnosis">');
+    assert.ok(returnDiagIdx !== -1, 'expected a return_diagnosis step');
+    const returnDiagEndIdx = content.indexOf('</step>', returnDiagIdx);
+    assert.ok(returnDiagEndIdx !== -1, 'expected return_diagnosis step to close with </step>');
+    const returnDiagBody = content.slice(returnDiagIdx, returnDiagEndIdx);
+    assert.ok(!returnDiagBody.includes('eval-candidate from-debug'), 'expected return_diagnosis step to NOT invoke eval-candidate from-debug');
+
+    const humanVerifyIdx = content.indexOf('<step name="request_human_verification">');
+    assert.ok(humanVerifyIdx !== -1, 'expected a request_human_verification step');
+    const humanVerifyEndIdx = content.indexOf('</step>', humanVerifyIdx);
+    assert.ok(humanVerifyEndIdx !== -1, 'expected request_human_verification step to close with </step>');
+    const humanVerifyBody = content.slice(humanVerifyIdx, humanVerifyEndIdx);
+    assert.ok(!humanVerifyBody.includes('eval-candidate from-debug'), 'expected request_human_verification step to NOT invoke eval-candidate from-debug');
+  });
+
+  // Category 4: Boundary -- correct placement in gsd-verifier.md's <output> section.
+  test('boundary: `eval-candidate from-verification` in gsd-verifier.md appears AFTER the VERIFICATION.md template closing fence and BEFORE "## Return to Orchestrator"', () => {
+    const content = readRepoFile(VERIFIER_AGENT_PATH);
+
+    const returnHeadingIdx = content.indexOf('## Return to Orchestrator');
+    assert.ok(returnHeadingIdx !== -1, 'expected a "## Return to Orchestrator" heading');
+
+    const evalCandidateIdx = content.indexOf('eval-candidate from-verification');
+    assert.ok(evalCandidateIdx !== -1, 'expected "eval-candidate from-verification" to appear in gsd-verifier.md');
+    assert.ok(evalCandidateIdx < returnHeadingIdx, 'expected eval-candidate from-verification to appear BEFORE "## Return to Orchestrator"');
+
+    // Closing fence of the VERIFICATION.md template block is the last ``` before "## Return to Orchestrator".
+    const templateRegion = content.slice(0, returnHeadingIdx);
+    const lastFenceIdx = templateRegion.lastIndexOf('```');
+    assert.ok(lastFenceIdx !== -1, 'expected a closing ``` fence before "## Return to Orchestrator"');
+    assert.ok(evalCandidateIdx > lastFenceIdx, 'expected eval-candidate from-verification to appear AFTER the VERIFICATION.md template closing fence');
+  });
+
+  // Category 5: Wiring/integration -- budgets still pass after the digest/output additions.
+  test('wiring: checkAllBudgets reports pass:true overall and for gsd-debugger/gsd-verifier individually', () => {
+    const { checkAllBudgets } = require('./prompt-budget.js');
+    const result = checkAllBudgets(REPO_ROOT);
+
+    assert.strictEqual(result.pass, true, `expected checkAllBudgets to pass overall, got: ${JSON.stringify(result.results)}`);
+
+    const modifiedAgents = ['agents/gsd-debugger.md', 'agents/gsd-verifier.md'];
+    for (const relPath of modifiedAgents) {
+      const entry = result.results.find((r) => r.filePath === relPath);
+      assert.ok(entry, `expected a budget result entry for ${relPath}`);
+      assert.strictEqual(entry.pass, true, `expected ${relPath} to pass its budget, got ${entry.estimatedTokens}/${entry.budget}`);
+    }
+  });
+
+  // Category 6: Regression guard -- blast radius stayed within debugger/verifier.
+  test('regression guard: gsd-planner.md and gsd-executor.md do NOT contain "eval-candidate"', () => {
+    const plannerContent = readRepoFile(PLANNER_AGENT_PATH);
+    const executorContent = readRepoFile(EXECUTOR_AGENT_PATH);
+
+    assert.ok(!plannerContent.includes('eval-candidate'), 'expected gsd-planner.md to be untouched by the eval-candidate wiring');
+    assert.ok(!executorContent.includes('eval-candidate'), 'expected gsd-executor.md to be untouched by the eval-candidate wiring');
+  });
+});
