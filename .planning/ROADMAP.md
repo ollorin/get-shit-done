@@ -646,10 +646,12 @@ Plans:
   2. The candidate is auto-rejected if it exceeds the agent's prompt budget or fails any existing eval assertion; the command never auto-applies a revision — output is always a diff for human approval
   3. Optimization is per-agent (one target agent per run), never whole-pipeline; a run with no eval failures and no telemetry for the target agent reports "no signal" and exits cleanly
   4. Integration tests cover: diagnosis generation from seeded failures, budget-violation rejection, eval-failure rejection, the no-signal path, diff format validity
-**Plans:** TBD
+**Plans:** 3 planned
 
 Plans:
-- [ ] 56-01: TBD (planned during plan-phase)
+- [ ] 56-01: prompt-optimize.js core pure functions (agent resolution, telemetry/eval-failure signal collection, deterministic diagnosis, unified-diff engine) + prompt-budget.js measurePreambleFromContent refactor
+- [ ] 56-02: Gating (budget + eval-assertion checks against the in-memory candidate) + runPromptOptimize orchestration + review-dir writer + `prompt-optimize --agent` CLI wiring
+- [ ] 56-03: MILE-33 end-to-end integration tests (5 scenarios) + npm test wiring + full-suite gate
 
 #### Phase 57: Outcome-Informed Routing Ledger & Bounded Escalation
 
