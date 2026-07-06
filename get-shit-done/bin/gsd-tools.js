@@ -10876,6 +10876,22 @@ function cmdRoutingLedgerConsult(cwd, options, raw) {
   output(decision, raw);
 }
 
+function cmdRoutingClassifyFailure(cwd, errorText, raw) {
+  const result = classifyFailure(errorText || '');
+  output(result, raw);
+}
+
+// Composes classifyFailure + decideEscalation into one call the coordinator
+// can use to decide whether to re-spawn a failed task at a higher tier.
+function cmdRoutingEscalationDecision(cwd, options, raw) {
+  const { currentTier, errorSummary, escalationsUsed } = options || {};
+  if (!currentTier) { error('routing escalation-decision: --current-tier is required'); return; }
+  const classification = classifyFailure(errorSummary || '');
+  const escalationsUsedNum = parseInt(escalationsUsed, 10) || 0;
+  const decision = decideEscalation(currentTier, classification, escalationsUsedNum);
+  output({ ...classification, ...decision, current_tier: currentTier, escalations_used: escalationsUsedNum }, raw);
+}
+
 function extractKeywords(text) {
   const stopWords = new Set([
     'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
@@ -12219,6 +12235,51 @@ function consultLedger(ledger, taskType, heuristicTier, minSampleCount) {
     }
   }
   return { tier: heuristicTier, adjusted: false, reason: 'no_contradicting_evidence', sample_count: totalSamples };
+}
+
+// Fixed, case-insensitive substring deny-list: matching ANY of these means
+// the failure is environment/infra-shaped (missing file, network, auth, disk,
+// git conflict), not a capability gap -- escalating to a higher model tier
+// cannot fix these, so classifyFailure/decideEscalation must never escalate
+// on them. Unmatched text defaults to capability_related:true (the safer
+// default for a self-healing system -- an unclassified failure is assumed to
+// be a capability gap the next tier up might solve).
+const NON_CAPABILITY_PATTERNS = [
+  'ENOENT', 'no such file', 'command not found', 'permission denied', 'EACCES',
+  'ECONNREFUSED', 'getaddrinfo', 'network error', 'env var', 'environment variable',
+  '.env', 'ENOSPC', 'disk full', 'git conflict', 'merge conflict'
+];
+
+// Pure. Never throws -- empty/undefined input defaults to capability_related:true.
+function classifyFailure(errorSummary) {
+  const text = (errorSummary || '').toLowerCase();
+  for (const pattern of NON_CAPABILITY_PATTERNS) {
+    if (text.includes(pattern.toLowerCase())) {
+      return { capability_related: false, matched_pattern: pattern };
+    }
+  }
+  return { capability_related: true, matched_pattern: null };
+}
+
+// Pure, ladder-bounded escalation decision. Uses getNextTier/getTiers from
+// model-registry.js -- the SINGLE source of truth for the escalation ladder;
+// never re-declares a second hardcoded ladder here. Bound: one retry per
+// tier (escalationsUsed caps at getTiers().length - 1), non-capability
+// failures never escalate, and the ladder's own null-terminator (opus
+// exhausted) is a second, independent stop condition.
+function decideEscalation(currentTier, classification, escalationsUsed) {
+  if (!classification || classification.capability_related === false) {
+    return { escalate: false, next_tier: null, reason: 'non_capability_failure' };
+  }
+  const maxEscalations = getTiers().length - 1;
+  if ((escalationsUsed || 0) >= maxEscalations) {
+    return { escalate: false, next_tier: null, reason: 'escalation_bound_reached' };
+  }
+  const nextTier = getNextTier(currentTier);
+  if (!nextTier) {
+    return { escalate: false, next_tier: null, reason: 'ladder_exhausted' };
+  }
+  return { escalate: true, next_tier: nextTier, reason: 'capability_failure' };
 }
 
 // ─── CLI Router ───────────────────────────────────────────────────────────────
@@ -14179,8 +14240,19 @@ Was ${model} the right choice for this task? (y/n): `;
           }, raw);
         }
         else error('Unknown routing ledger subcommand. Available: build, show, consult');
+      } else if (subcommand === 'classify-failure') {
+        cmdRoutingClassifyFailure(cwd, args.slice(2).join(' '), raw);
+      } else if (subcommand === 'escalation-decision') {
+        const currentTierIdx = args.indexOf('--current-tier');
+        const errorSummaryIdx = args.indexOf('--error-summary');
+        const escalationsUsedIdx = args.indexOf('--escalations-used');
+        cmdRoutingEscalationDecision(cwd, {
+          currentTier: currentTierIdx !== -1 ? args[currentTierIdx + 1] : null,
+          errorSummary: errorSummaryIdx !== -1 ? args[errorSummaryIdx + 1] : null,
+          escalationsUsed: escalationsUsedIdx !== -1 ? args[escalationsUsedIdx + 1] : null,
+        }, raw);
       } else {
-        error('Unknown routing subcommand. Available: match, match-with-quota, context, full, index-build, index-refresh, task-type, ledger');
+        error('Unknown routing subcommand. Available: match, match-with-quota, context, full, index-build, index-refresh, task-type, ledger, classify-failure, escalation-decision');
       }
       break;
     }
@@ -14272,6 +14344,9 @@ module.exports = {
   writeRoutingLedger,
   getRoutingLedgerPath,
   consultLedger,
+  classifyFailure,
+  decideEscalation,
+  NON_CAPABILITY_PATTERNS,
   loadConfig,
 };
 

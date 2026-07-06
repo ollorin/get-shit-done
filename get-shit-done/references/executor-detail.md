@@ -113,13 +113,26 @@ For each task:
    - Handle auth errors as authentication gates
    - **Failure signaling for coordinator escalation (routing active only):**
      If ROUTED_TIER is set AND a task fails with an error/exception AND all retries are exhausted:
-       Return failure with structured signal:
+       Classify the failure before signaling (best-effort -- never blocks the signal itself):
+         node ~/.claude/get-shit-done/bin/gsd-tools.js routing classify-failure "{error_summary}" --raw
+       If that command succeeds and returns `capability_related: false`, append a `[non-capability]`
+       marker to the signal:
+         "TASK FAILED: {task_name} [tier: {ROUTED_TIER}] [non-capability] — {error_summary}"
+       Otherwise (capability_related: true, OR the classify-failure command fails/is unavailable)
+       use the EXISTING unmarked format, unchanged:
          "TASK FAILED: {task_name} [tier: {ROUTED_TIER}] — {error_summary}"
-       This format allows the coordinator to parse the tier and decide whether to re-spawn at a higher tier.
-       If ROUTED_TIER is null (routing not active): return failure using existing behavior (no structured tag).
+       This format allows the coordinator to parse the tier (and the non-capability marker, when
+       present) and decide whether to re-spawn at a higher tier. A `[non-capability]`-tagged failure
+       is never escalated by the coordinator (missing file, environment error, etc. — the next tier
+       up cannot fix these).
+       If ROUTED_TIER is null (routing not active): return failure using existing behavior (no
+       structured tag, no classification call).
 
-     Note: The executor does NOT switch tiers mid-execution. Model tier is fixed at spawn time. The coordinator (not the executor) is responsible for deciding to re-spawn at sonnet when it receives a haiku-tier failure signal.
-     Failure signaling only applies to errors/exceptions. Output quality issues do not trigger this signal.
+     Note: The executor does NOT switch tiers mid-execution. Model tier is fixed at spawn time. The
+     coordinator (not the executor) is responsible for deciding to re-spawn at a higher tier when it
+     receives a capability-related failure signal.
+     Failure signaling only applies to errors/exceptions. Output quality issues do not trigger this
+     signal.
    - Run verification, confirm done criteria
    - **Cross-boundary done check:** If the task creates code that crosses a service boundary (frontend handler that should call a backend route, API route that should mutate a database), verify the full chain before marking done — not just that the local artifact builds. A frontend form handler is not "done" if it only updates UI state without making the API call the done criterion implies. A backend route is not "done" if the frontend has no path to call it. Check that the wiring exists and carries the right signal, not just that each side compiles independently.
    - **Knowledge feedback on contradiction (non-blocking):** If, during task execution, a specific entry from `USER_CONTEXT` (loaded via `query-knowledge` above) turns out to be contradicted by the actual outcome (e.g. a "preference" entry recommended an approach that a test or the user's own correction proved wrong), call `node ~/.claude/get-shit-done/bin/gsd-tools.js mark-wrong <id> --severity <minor|major|critical> --reason "<reason>"` using that entry's `id` field. Best-effort only — never block task completion or the plan's overall execution on this call's outcome.
