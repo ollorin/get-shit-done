@@ -4723,6 +4723,255 @@ function cmdEval(cwd, args, raw) {
   error('Unknown eval subcommand. Available: plan, assert');
 }
 
+// ─── Eval Regression Candidates (MILE-32, Phase 55) ──────────────────────────
+// Design decision: candidate fixtures are stored under
+// tests/eval-regressions/{queue,accepted,archived}/ (git-tracked, NOT under
+// .planning/ which is gitignored) so accepted candidates survive as
+// permanent, CI-visible artifacts. queue/accepted/archived are created now
+// with an empty .gitkeep each -- queue and archived start empty forever
+// until a human reviews a candidate; accepted starts empty until the first
+// candidate is promoted (Plan 55-02).
+//
+// Uses gray-matter (already a package.json dependency, unused elsewhere in
+// bin/*.js until now) to parse BOTH the debug file's frontmatter and
+// VERIFICATION.md's frontmatter, because the existing hand-rolled
+// extractFrontmatter (~line 434) only handles flat arrays of scalar strings
+// and cannot reliably parse VERIFICATION.md's nested array-of-objects `gaps:
+// [{artifacts: [...], missing: [...]}]` schema. extractFrontmatter itself is
+// left untouched.
+const EVAL_REGRESSIONS_ROOT = 'tests/eval-regressions';
+
+function getEvalRegressionsQueueDir(cwd) {
+  return path.join(cwd, EVAL_REGRESSIONS_ROOT, 'queue');
+}
+
+function getEvalRegressionsAcceptedDir(cwd) {
+  return path.join(cwd, EVAL_REGRESSIONS_ROOT, 'accepted');
+}
+
+function getEvalRegressionsArchivedDir(cwd) {
+  return path.join(cwd, EVAL_REGRESSIONS_ROOT, 'archived');
+}
+
+// Lowercase, replace non-alphanumerics with `-`, trim leading/trailing `-`,
+// truncate to maxLen. Never throws -- coerces non-string input to ''.
+function slugifyCandidateText(text, maxLen = 40) {
+  const str = typeof text === 'string' ? text : '';
+  const slug = str
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug.slice(0, maxLen);
+}
+
+// Extracts the `## Resolution` section body from a debug file's markdown
+// BODY (not frontmatter) per gsd-debugger.md's <debug_file_protocol> File
+// Structure. Stops at the next `##` heading or end of string. Returns '' if
+// no Resolution section is present.
+function extractDebugResolutionSection(bodyMarkdown) {
+  const match = /##\s*Resolution\s*\n([\s\S]*?)(?=\n##\s|\n?$)/.exec(bodyMarkdown || '');
+  return match ? match[1] : '';
+}
+
+// Line-anchored field extraction from a Resolution section, e.g.
+// `root_cause: the thing` -> 'the thing'. Multiline flag matches any line
+// start, not just the string start (Resolution section has multiple
+// `field: value` lines).
+function parseResolutionField(sectionText, fieldName) {
+  const re = new RegExp(`^${fieldName}:\\s*(.*)$`, 'm');
+  const match = re.exec(sectionText || '');
+  return match ? match[1].trim() : '';
+}
+
+// Supports BOTH inline `files_changed: [a, b]` and multi-line
+// `files_changed:\n  - a\n  - b` forms. Returns [] if neither form matches
+// or the array is empty.
+function parseResolutionFilesChanged(sectionText) {
+  const text = sectionText || '';
+
+  const inlineMatch = /^files_changed:\s*\[(.*)\]\s*$/m.exec(text);
+  if (inlineMatch) {
+    return inlineMatch[1]
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
+  const multilineMatch = /^files_changed:\s*\n((?:^[ \t]*-[ \t]*.+$\n?)+)/m.exec(text);
+  if (multilineMatch) {
+    return multilineMatch[1]
+      .split('\n')
+      .map((line) => line.replace(/^[ \t]*-[ \t]*/, '').trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+// Reads a debug file (frontmatter + `## Resolution` body section) and builds
+// a single candidate regression fixture from its confirmed root_cause.
+// Returns `null` (writes NOTHING) when root_cause is absent, whitespace-only,
+// or still the literal `[empty until found]` placeholder -- this is the
+// must-have guarantee that an INVESTIGATION INCONCLUSIVE session (root_cause
+// never confirmed) produces zero candidates. Never throws -- any read/parse
+// failure returns `null`.
+function buildEvalCandidateFromDebugFile(cwd, debugFilePath) {
+  try {
+    const content = safeReadFile(debugFilePath);
+    if (content === null) return null;
+
+    const matter = require('gray-matter');
+    const parsed = matter(content);
+
+    const section = extractDebugResolutionSection(parsed.content);
+    const rootCause = parseResolutionField(section, 'root_cause');
+
+    if (!rootCause || !rootCause.trim() || rootCause.trim() === '[empty until found]') {
+      return null;
+    }
+    const trimmedRootCause = rootCause.trim();
+
+    const filesChanged = parseResolutionFilesChanged(section);
+    const expected = filesChanged.length > 0
+      ? { type: 'file_exists', file: filesChanged[0] }
+      // Weak fallback for a human reviewer to replace: no files_changed was
+      // recorded on this session, so the only thing we can assert existence
+      // of is the debug file itself.
+      : { type: 'file_exists', file: path.relative(cwd, debugFilePath) };
+
+    const title = (parsed.data && typeof parsed.data.trigger === 'string' && parsed.data.trigger.trim())
+      ? parsed.data.trigger.trim()
+      : trimmedRootCause.slice(0, 80);
+
+    const slug = slugifyCandidateText(path.basename(debugFilePath, '.md'));
+
+    return {
+      id: `debug-${slug}-${Date.now()}`,
+      source: 'debugger',
+      created_at: new Date().toISOString(),
+      title,
+      context: {
+        phase: null,
+        root_cause: trimmedRootCause,
+        gap_description: null,
+        debug_file: path.relative(cwd, debugFilePath),
+        verification_file: null,
+      },
+      expected,
+      status: 'pending',
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+// Reads a VERIFICATION.md (frontmatter per gsd-verifier.md's <output>
+// "Create VERIFICATION.md" schema) and builds one candidate regression
+// fixture per gap when `status: gaps_found`. Returns [] for `status:
+// passed`/`status: human_needed`, or an empty/absent `gaps` array (defensive
+// against the contradictory-but-possible gaps_found + empty-array case).
+// Never throws -- malformed frontmatter degrades to [].
+function buildEvalCandidatesFromVerificationFile(cwd, verificationFilePath) {
+  try {
+    const content = safeReadFile(verificationFilePath);
+    if (content === null) return [];
+
+    const matter = require('gray-matter');
+    const parsed = matter(content);
+    const data = parsed.data || {};
+
+    if (data.status !== 'gaps_found' || !Array.isArray(data.gaps) || data.gaps.length === 0) {
+      return [];
+    }
+
+    const ts = Date.now(); // computed ONCE so multiple gaps get distinct, stable-ordered ids via the -${i} suffix
+    const relVerificationFile = path.relative(cwd, verificationFilePath);
+
+    return data.gaps.map((gap, i) => {
+      const gapObj = gap || {};
+      const expected = (gapObj.artifacts && gapObj.artifacts[0] && gapObj.artifacts[0].path)
+        ? { type: 'file_exists', file: gapObj.artifacts[0].path }
+        // Weak fallback for a human reviewer to replace: no artifacts path
+        // recorded on this gap, so the only thing we can assert existence
+        // of is the VERIFICATION.md file itself.
+        : { type: 'file_exists', file: relVerificationFile };
+
+      const id = `verify-${slugifyCandidateText(data.phase || 'unknown')}-${slugifyCandidateText(gapObj.truth)}-${ts}-${i}`;
+
+      return {
+        id,
+        source: 'verifier',
+        created_at: new Date().toISOString(),
+        title: gapObj.truth || null,
+        context: {
+          phase: data.phase || null,
+          root_cause: null,
+          gap_description: gapObj.reason || null,
+          debug_file: null,
+          verification_file: relVerificationFile,
+        },
+        expected,
+        status: 'pending',
+      };
+    });
+  } catch (e) {
+    return [];
+  }
+}
+
+// Writes candidate(s) to the queue directory. Accepts a single candidate
+// object or an array; normalizes to an array. Skips any candidate without a
+// truthy `id`. Returns the array of cwd-relative paths actually written.
+function writeEvalCandidates(cwd, candidates) {
+  const list = Array.isArray(candidates) ? candidates : [candidates];
+  const queueDir = getEvalRegressionsQueueDir(cwd);
+  fs.mkdirSync(queueDir, { recursive: true });
+
+  const written = [];
+  for (const candidate of list) {
+    if (!candidate || !candidate.id) continue;
+    const targetPath = path.join(queueDir, `${candidate.id}.json`);
+    atomicWriteFileSync(targetPath, JSON.stringify(candidate, null, 2));
+    written.push(path.relative(cwd, targetPath));
+  }
+  return written;
+}
+
+function cmdEvalCandidateFromDebug(cwd, debugFileArg, raw) {
+  if (!debugFileArg) {
+    error('eval-candidate from-debug: <debug-file-path> required');
+    return;
+  }
+  const debugFilePath = path.isAbsolute(debugFileArg) ? debugFileArg : path.join(cwd, debugFileArg);
+
+  const candidate = buildEvalCandidateFromDebugFile(cwd, debugFilePath);
+  if (candidate === null) {
+    // Valid no-op (INVESTIGATION INCONCLUSIVE / no confirmed root_cause yet) -- exit 0, not a failure.
+    output({ written: false, reason: 'no confirmed root_cause found in debug file' }, raw);
+    return;
+  }
+
+  const paths = writeEvalCandidates(cwd, candidate);
+  output({ written: true, paths, candidate }, raw);
+}
+
+function cmdEvalCandidateFromVerification(cwd, verificationFileArg, raw) {
+  if (!verificationFileArg) {
+    error('eval-candidate from-verification: <verification-file-path> required');
+    return;
+  }
+  const verificationFilePath = path.isAbsolute(verificationFileArg) ? verificationFileArg : path.join(cwd, verificationFileArg);
+
+  const candidates = buildEvalCandidatesFromVerificationFile(cwd, verificationFilePath);
+  if (candidates.length === 0) {
+    output({ written: 0, paths: [] }, raw);
+    return;
+  }
+
+  const paths = writeEvalCandidates(cwd, candidates);
+  output({ written: paths.length, paths }, raw);
+}
+
 // ─── Prompt Budget CLI (MILE-30, Phase 53-02) ────────────────────────────────
 // Thin CLI dispatch onto get-shit-done/bin/prompt-budget.js's pure functions.
 // NOTE: named cmdPromptBudget (not cmdBudget) because `budget` is already an
@@ -12450,6 +12699,18 @@ async function main() {
       break;
     }
 
+    case 'eval-candidate': {
+      const subcommand = args[1];
+      if (subcommand === 'from-debug') {
+        cmdEvalCandidateFromDebug(cwd, args[2], raw);
+      } else if (subcommand === 'from-verification') {
+        cmdEvalCandidateFromVerification(cwd, args[2], raw);
+      } else {
+        error('Unknown eval-candidate subcommand. Available: from-debug, from-verification');
+      }
+      break;
+    }
+
     case 'observability': {
       await cmdObservability(args.slice(1), raw);
       break;
@@ -13595,6 +13856,9 @@ module.exports = {
   buildHandoffBrief,
   cmdHandoffBrief,
   getPhaseInvariantsText,
+  buildEvalCandidateFromDebugFile,
+  buildEvalCandidatesFromVerificationFile,
+  writeEvalCandidates,
 };
 
 // Only auto-run when invoked directly as a CLI (`node gsd-tools.js ...`), not
