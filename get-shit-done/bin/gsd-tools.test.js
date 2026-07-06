@@ -11591,3 +11591,239 @@ describe('Phase 57-03: failure classification & escalation bound logic', () => {
     });
   });
 });
+
+describe('Phase 57-04: bounded escalation loop & ledger recording', () => {
+  const { getHistory } = require('./execution-log.js');
+
+  describe('coordinator-loop simulation via the real CLI', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+      tmpDir = createTempProject();
+    });
+
+    afterEach(() => {
+      cleanup(tmpDir);
+    });
+
+    function decide(currentTier, escalationsUsed, errorSummary = 'assertion failed') {
+      const result = runGsdTools(
+        `routing escalation-decision --current-tier "${currentTier}" --error-summary "${errorSummary}" --escalations-used ${escalationsUsed} --raw`,
+        tmpDir
+      );
+      assert.ok(result.success, `escalation-decision failed: ${result.error}`);
+      return JSON.parse(result.output);
+    }
+
+    function logTaskOutcome(taskIndex, tier, outcome, capabilityRelated) {
+      const data = JSON.stringify({
+        phase: 57,
+        plan: '57-04-PLAN.md',
+        task_index: taskIndex,
+        task_name: 'fix the escalation loop',
+        task_type: 'fix',
+        tier,
+        outcome,
+        capability_related: capabilityRelated,
+      });
+      const result = runGsdTools(`execution-log event --type task_outcome --data '${data}'`, tmpDir);
+      assert.ok(result.success, `logging task_outcome failed: ${result.error}`);
+    }
+
+    function logTierEscalation(taskIndex, fromTier, toTier, reason) {
+      const data = JSON.stringify({
+        phase: 57,
+        plan: '57-04-PLAN.md',
+        task_index: taskIndex,
+        task_name: 'fix the escalation loop',
+        task_type: 'fix',
+        from_tier: fromTier,
+        to_tier: toTier,
+        reason,
+      });
+      const result = runGsdTools(`execution-log event --type tier_escalation --data '${data}'`, tmpDir);
+      assert.ok(result.success, `logging tier_escalation failed: ${result.error}`);
+    }
+
+    // Integration-test scenario #5 from 57-RESEARCH.md: the full
+    // haiku->sonnet->opus escalation chain, driven through the real
+    // escalation-decision CLI and mirrored exactly as coordinator-detail.md's
+    // loop instructs (one task_outcome failure event per attempt, one
+    // tier_escalation event per hop).
+    test('full haiku->sonnet->opus chain: 3 consecutive capability failures produce 3 task_outcome failures + 2 tier_escalation events', () => {
+      // Attempt 1: haiku fails, escalates to sonnet.
+      let decision = decide('haiku', 0);
+      assert.strictEqual(decision.escalate, true);
+      assert.strictEqual(decision.next_tier, 'sonnet');
+      logTaskOutcome(1, 'haiku', 'failure', true);
+      logTierEscalation(1, 'haiku', 'sonnet', decision.reason);
+
+      // Attempt 2: sonnet fails, escalates to opus.
+      decision = decide('sonnet', 1);
+      assert.strictEqual(decision.escalate, true);
+      assert.strictEqual(decision.next_tier, 'opus');
+      logTaskOutcome(1, 'sonnet', 'failure', true);
+      logTierEscalation(1, 'sonnet', 'opus', decision.reason);
+
+      // Attempt 3: opus fails -- no further escalation. decideEscalation
+      // enforces two independent stop conditions (per 57-03): the ladder's
+      // own null-terminator (getNextTier('opus') === null -> 'ladder_exhausted')
+      // AND the explicit escalationsUsed >= getTiers().length-1 safety cap
+      // (-> 'escalation_bound_reached'). At escalationsUsed=2 (the bound),
+      // the explicit cap check fires first in decideEscalation's own
+      // ordering -- either reason is a correct "stop" signal for this test.
+      decision = decide('opus', 2);
+      assert.strictEqual(decision.escalate, false);
+      assert.ok(
+        ['ladder_exhausted', 'escalation_bound_reached'].includes(decision.reason),
+        `expected a terminal stop reason, got: ${decision.reason}`
+      );
+      logTaskOutcome(1, 'opus', 'failure', true);
+
+      const events = getHistory(tmpDir);
+      const outcomes = events.filter((e) => e.type === 'task_outcome');
+      const escalations = events.filter((e) => e.type === 'tier_escalation');
+
+      assert.strictEqual(outcomes.length, 3, 'expected 3 task_outcome failure events (haiku, sonnet, opus)');
+      assert.deepStrictEqual(outcomes.map((e) => e.tier), ['haiku', 'sonnet', 'opus']);
+      assert.ok(outcomes.every((e) => e.outcome === 'failure'));
+
+      assert.strictEqual(escalations.length, 2, 'expected exactly 2 tier_escalation events (haiku->sonnet, sonnet->opus)');
+      assert.deepStrictEqual(
+        escalations.map((e) => `${e.from_tier}->${e.to_tier}`),
+        ['haiku->sonnet', 'sonnet->opus']
+      );
+    });
+
+    // Integration-test scenario #6: bound enforcement -- opus failure never
+    // attempts a 4th tier / never issues a 3rd tier_escalation event.
+    test('bound enforcement: opus attempt returns escalate:false and the loop never logs a 3rd tier_escalation event', () => {
+      decide('haiku', 0);
+      logTaskOutcome(2, 'haiku', 'failure', true);
+      logTierEscalation(2, 'haiku', 'sonnet', 'capability_failure');
+
+      decide('sonnet', 1);
+      logTaskOutcome(2, 'sonnet', 'failure', true);
+      logTierEscalation(2, 'sonnet', 'opus', 'capability_failure');
+
+      const opusDecision = decide('opus', 2);
+      assert.strictEqual(opusDecision.escalate, false, 'opus must never escalate further');
+      assert.strictEqual(opusDecision.next_tier, null);
+      logTaskOutcome(2, 'opus', 'failure', true);
+      // No further tier_escalation call is ever made for this task -- the
+      // coordinator loop's "Else" branch terminates here.
+
+      const escalations = getHistory(tmpDir).filter((e) => e.type === 'tier_escalation');
+      assert.strictEqual(escalations.length, 2, 'must never log a 3rd tier_escalation event past opus');
+    });
+
+    // Integration-test scenario #7 (coordinator-logic level): a
+    // [non-capability]-tagged failure at haiku never triggers a re-spawn --
+    // only one task_outcome (capability_related:false) is logged, zero
+    // tier_escalation events.
+    test('non-capability failure exclusion: an ENOENT-classified haiku failure never escalates, logs exactly one capability_related:false task_outcome, zero tier_escalation events', () => {
+      const decision = decide('haiku', 0, 'ENOENT: no such file or directory');
+      assert.strictEqual(decision.escalate, false);
+      assert.strictEqual(decision.reason, 'non_capability_failure');
+
+      // Coordinator's "Else" branch: record failed, no re-spawn.
+      logTaskOutcome(3, 'haiku', 'failure', false);
+
+      const events = getHistory(tmpDir);
+      const outcomes = events.filter((e) => e.type === 'task_outcome');
+      const escalations = events.filter((e) => e.type === 'tier_escalation');
+
+      assert.strictEqual(outcomes.length, 1);
+      assert.strictEqual(outcomes[0].capability_related, false);
+      assert.strictEqual(escalations.length, 0, 'a non-capability failure must never produce a tier_escalation event');
+    });
+
+    // Integration-test scenario #8: after seeding the full escalation chain's
+    // events, `routing ledger build` folds them into routing-ledger.json,
+    // reflecting an attempt (and a failure) at each of the 3 tiers.
+    test('ledger recording of escalation outcome: routing ledger build folds the full chain into routing-ledger.json with attempts/failures at all 3 tiers', () => {
+      decide('haiku', 0);
+      logTaskOutcome(4, 'haiku', 'failure', true);
+      logTierEscalation(4, 'haiku', 'sonnet', 'capability_failure');
+
+      decide('sonnet', 1);
+      logTaskOutcome(4, 'sonnet', 'failure', true);
+      logTierEscalation(4, 'sonnet', 'opus', 'capability_failure');
+
+      decide('opus', 2);
+      logTaskOutcome(4, 'opus', 'failure', true);
+
+      const buildResult = runGsdTools('routing ledger build --raw', tmpDir);
+      assert.ok(buildResult.success, `routing ledger build failed: ${buildResult.error}`);
+
+      const ledgerPath = path.join(tmpDir, '.planning', 'routing-ledger.json');
+      assert.ok(fs.existsSync(ledgerPath), 'expected routing-ledger.json to be written');
+      const ledger = JSON.parse(fs.readFileSync(ledgerPath, 'utf-8'));
+
+      const fixBucket = ledger.task_types.fix;
+      assert.ok(fixBucket, 'expected a "fix" task_type bucket (task_name "fix the escalation loop")');
+      assert.ok(fixBucket.haiku.attempts >= 1);
+      assert.ok(fixBucket.sonnet.attempts >= 1);
+      assert.ok(fixBucket.opus.attempts >= 1);
+      assert.strictEqual(fixBucket.haiku.failures, fixBucket.haiku.attempts);
+      assert.strictEqual(fixBucket.sonnet.failures, fixBucket.sonnet.attempts);
+      assert.strictEqual(fixBucket.opus.failures, fixBucket.opus.attempts);
+      assert.strictEqual(fixBucket.haiku.successes, 0);
+      assert.strictEqual(fixBucket.sonnet.successes, 0);
+      assert.strictEqual(fixBucket.opus.successes, 0);
+    });
+  });
+
+  describe('coordinator-detail.md prose wiring (grep-assertion, index-ordered)', () => {
+    const coordinatorDetailPath = path.join(__dirname, '..', 'references', 'coordinator-detail.md');
+    const content = fs.readFileSync(coordinatorDetailPath, 'utf-8');
+
+    const executeStart = content.indexOf('<step name="execute">');
+    const executeEnd = content.indexOf('</step>', executeStart);
+    const postUxSweepStart = content.indexOf('<step name="post_phase_ux_sweep">');
+
+    test('the execute step is found and precedes post_phase_ux_sweep (sanity check for index-bounded assertions below)', () => {
+      assert.ok(executeStart !== -1, '<step name="execute"> not found');
+      assert.ok(executeEnd !== -1, 'execute step closing </step> not found');
+      assert.ok(postUxSweepStart !== -1, '<step name="post_phase_ux_sweep"> not found');
+      assert.ok(executeEnd < postUxSweepStart, 'execute step must close before post_phase_ux_sweep starts');
+    });
+
+    test('routing escalation-decision is called inside the execute step', () => {
+      const idx = content.indexOf('routing escalation-decision', executeStart);
+      assert.ok(idx !== -1 && idx < executeEnd, 'routing escalation-decision must appear inside <step name="execute">');
+    });
+
+    test('task_outcome events are logged inside the execute step', () => {
+      const idx = content.indexOf('task_outcome', executeStart);
+      assert.ok(idx !== -1 && idx < executeEnd, 'task_outcome must appear inside <step name="execute">');
+    });
+
+    test('tier_escalation events are logged inside the execute step', () => {
+      const idx = content.indexOf('tier_escalation', executeStart);
+      assert.ok(idx !== -1 && idx < executeEnd, 'tier_escalation must appear inside <step name="execute">');
+    });
+
+    test('routing ledger build appears inside the execute step AND before post_phase_ux_sweep (ordering lock-in)', () => {
+      const idx = content.indexOf('routing ledger build', executeStart);
+      assert.ok(idx !== -1, 'routing ledger build not found');
+      assert.ok(idx < executeEnd, 'routing ledger build must appear inside <step name="execute">');
+      assert.ok(idx < postUxSweepStart, 'routing ledger build must run before post_phase_ux_sweep');
+    });
+
+    test('the [non-capability] tag handling (IS_NON_CAPABILITY_TAGGED) is present in the escalation loop', () => {
+      const idx = content.indexOf('IS_NON_CAPABILITY_TAGGED', executeStart);
+      assert.ok(idx !== -1 && idx < executeEnd, 'IS_NON_CAPABILITY_TAGGED must appear inside <step name="execute">');
+    });
+
+    test('the escalation loop is bounded via the ladder (references getNextTier/escalation-decision, never a second hardcoded ladder)', () => {
+      const block = content.slice(executeStart, executeEnd);
+      assert.doesNotMatch(
+        block,
+        /\{\s*haiku:\s*['"]sonnet['"]/,
+        'the escalation loop must not hardcode a second {haiku: "sonnet", ...} ladder inline'
+      );
+      assert.match(block, /routing escalation-decision/);
+    });
+  });
+});
