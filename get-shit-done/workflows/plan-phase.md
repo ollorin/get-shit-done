@@ -399,7 +399,27 @@ Agent(
 - **`## CHECKPOINT REACHED`:** Present to user, get response, spawn continuation (step 12)
 - **`## PLANNING INCONCLUSIVE`:** Show attempts, offer: Add context / Retry / Manual
 
-## 10. Spawn gsd-plan-checker Agent
+## 9.5. Risk Triage (Adversarial Review, MILE-39)
+
+**Skip if:** `plan_checker_enabled` is false or `--skip-verify` was passed (step 9 already routes past verification entirely in these cases — this triage only matters when a checker-equivalent step is about to run).
+
+For each `*-PLAN.md` file in `${PHASE_DIR}`:
+
+```bash
+for PLAN_FILE in "${PHASE_DIR}"/*-PLAN.md; do
+  node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" quality assess-risk "$PLAN_FILE" --raw
+done
+```
+
+Parse each result: `{ high_risk, reasons, presentation_order }` (or `{ error: true, ... }` on a missing/malformed file — treat an errored assessment as `high_risk: false` for that plan, never let one bad file abort the loop). Collect into `RISK_RESULTS` keyed by plan id.
+
+**If ANY plan's `high_risk` is `true`:** set `TRIAGE_MODE=trio`. Step 10 spawns the attacker → defender → judge trio once per plan file, for EVERY plan in the phase (not only the high-risk ones — `gsd-plan-checker` reviews a phase's plans as one cross-plan pass, so this phase's locked design replaces it wholesale for the phase rather than splitting coverage between two partial paths).
+
+**If NO plan is high-risk (including when `quality assess-risk` errored for every plan — fail toward the pre-existing, safer path):** set `TRIAGE_MODE=checker`. Step 10 runs EXACTLY as it did before Phase 60 — byte-identical.
+
+## 10. Spawn gsd-plan-checker Agent (or Adversarial Review Trio, MILE-39)
+
+**If `TRIAGE_MODE` is `checker`** (the default — no high-risk plan in this phase, or Step 9.5 could not run):
 
 Display banner:
 ```
@@ -446,10 +466,74 @@ Agent(
 )
 ```
 
+**If `TRIAGE_MODE` is `trio`** (one or more plans flagged high-risk by Step 9.5):
+
+Display banner:
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ GSD ► ADVERSARIAL PLAN REVIEW (MILE-39)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+◆ High-risk plan(s) detected. Spawning attacker → defender → judge trio, once per plan...
+```
+
+For EACH `*-PLAN.md` file in the phase directory (the whole phase takes the trio path, per Step 9.5):
+
+1. **Spawn `gsd-plan-attacker`:**
+```
+Agent(
+  prompt=attacker_prompt (plan_content={this plan's full text}, phase_goal={goal from ROADMAP}, context_content={CONTEXT.md if present}, research_content={RESEARCH.md if present}),
+  subagent_type="gsd-plan-attacker",
+  model="{checker_model}",
+  description="Attack Plan {plan_id}"
+)
+```
+Expect `## ATTACK COMPLETE` with a structured `flaws:` list.
+
+2. **Spawn `gsd-plan-defender`**, passing this plan's flaws:
+```
+Agent(
+  prompt=defender_prompt (plan_content={same plan text}, attacker_flaws={flaws from step 1}, context_content, research_content),
+  subagent_type="gsd-plan-defender",
+  model="{checker_model}",
+  description="Defend Plan {plan_id}"
+)
+```
+Expect `## DEFENSE COMPLETE` with a structured `rebuttals:` list.
+
+3. **Spawn `gsd-plan-judge`**, passing this plan's flaws AND rebuttals, ordered per `RISK_RESULTS[plan_id].presentation_order`:
+```
+Agent(
+  prompt=judge_prompt (plan_content, plan_id, phase_dir={PHASE_DIR}, attacker_flaws, defender_rebuttals, presentation_order={RISK_RESULTS[plan_id].presentation_order}),
+  subagent_type="gsd-plan-judge",
+  model="{checker_model}",
+  description="Judge Plan {plan_id}"
+)
+```
+The judge WRITES `{PHASE_DIR}/{plan_id}-VERDICT.md` itself and returns `## JUDGMENT COMPLETE` with the overall `verdict`.
+
+**Fail-open (mandatory, house-style):** If ANY of the 3 agents above errors, times out, or returns output missing its required structured section for ANY plan in this loop: display a loud warning:
+```
+⚠ Adversarial review trio failed for plan {plan_id}: {reason}. Falling back to standard gsd-plan-checker for the entire phase.
+```
+Discard any partial trio results already produced this pass, set `TRIAGE_MODE=checker`, and immediately re-run this step's `checker` branch above for the WHOLE phase (byte-identical single-checker spawn) — never block planning on a broken new feature.
+
+After all trio passes complete successfully with no fallback triggered (or after the checker branch returns): proceed to step 11.
+
 ## 11. Handle Checker Return
 
+**If `TRIAGE_MODE` is `checker`:**
 - **`## VERIFICATION PASSED`:** Display confirmation, proceed to step 13.
 - **`## ISSUES FOUND`:** Display issues, check iteration count, proceed to step 12.
+
+**If `TRIAGE_MODE` is `trio`:**
+- Read every `{PHASE_DIR}/{plan_id}-VERDICT.md` written in step 10.
+- **If ALL verdicts are `approved`:** treat identically to `## VERIFICATION PASSED` above — proceed to step 13.
+- **If ANY verdict is `revise` or `critical`:** for EACH such plan, call:
+  ```bash
+  node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" quality verdict-to-issues "${PHASE_DIR}/${plan_id}-VERDICT.md" --raw
+  ```
+  Merge every returned `issues` array into one combined `structured_issues_from_checker` list — the SAME shape `gsd-plan-checker`'s `## ISSUES FOUND` already produces (`{ plan, dimension: "adversarial_review", severity, description, fix_hint }`). Display the merged issues, then proceed to step 12 with this merged list exactly as the single-checker path would.
 
 ## 12. Revision Loop (Max 3 Iterations)
 
@@ -490,7 +574,7 @@ Agent(
 )
 ```
 
-After planner returns -> spawn checker again (step 10), increment iteration_count.
+After planner returns -> re-run Step 9.5's risk triage (a revision may have shrunk `files_modified` below `adversarial_review_file_threshold` or removed the `high_risk` flag, changing which path Step 10 takes) -> spawn step 10 again (checker or trio, per the fresh triage result), increment iteration_count.
 
 **If iteration_count >= 3:**
 
