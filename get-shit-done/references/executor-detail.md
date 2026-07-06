@@ -238,7 +238,7 @@ never spawn gsd-test-writer twice for the same task.)
 
 **Step 1 -- check the toggle (fails closed/off by default):**
 ```bash
-TEST_WRITER_ENABLED=$(node ~/.claude/get-shit-done/bin/gsd-tools.js config get test_writer_enabled 2>/dev/null || echo "false")
+TEST_WRITER_ENABLED=$(node ~/.claude/get-shit-done/bin/gsd-tools.js config get test_writer_enabled --raw 2>/dev/null || echo "false")
 ```
 If `TEST_WRITER_ENABLED` is not exactly `"true"`: skip this entire block, continue to the next
 task. (Toggle off -- zero behavior change from pre-Phase-59 execution.)

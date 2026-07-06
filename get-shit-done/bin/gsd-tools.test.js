@@ -12233,3 +12233,167 @@ describe('Phase 59-01: agent drift refresh (content_firewall + telemetry)', () =
     assert.ok(firstBulletIdx !== -1 && phase5901Idx !== -1 && phase5901Idx < firstBulletIdx + 20, 'expected the Phase 59-01 bullet to be the first bullet under Unreleased/Added');
   });
 });
+
+describe('Phase 59-02: post-task quality test-writer spawn (MILE-37)', () => {
+  const { isSourceFile, isTestOrSpecFile, computeTouchesSourceCode, loadConfig } = resilience;
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  const EXECUTOR_DETAIL_PATH = path.join(REPO_ROOT, 'get-shit-done', 'references', 'executor-detail.md');
+
+  describe('isSourceFile / isTestOrSpecFile / computeTouchesSourceCode (pure functions)', () => {
+    test('happy path: recognized source extensions classify as source', () => {
+      const sourceFiles = ['src/foo.js', 'lib/bar.ts', 'app/Baz.tsx', 'component.jsx', 'script.py', 'main.go', 'model.rb'];
+      for (const f of sourceFiles) {
+        assert.strictEqual(isSourceFile(f), true, `expected ${f} to classify as source`);
+      }
+    });
+
+    test('test/spec exclusion: source-extension files under test paths or with test/spec suffixes are NOT source', () => {
+      const excluded = ['src/foo.test.js', 'src/foo.spec.ts', 'test/bar.js', '__tests__/baz.js', 'spec/qux.rb'];
+      for (const f of excluded) {
+        assert.strictEqual(isTestOrSpecFile(f), true, `expected ${f} to be classified as a test/spec file`);
+        assert.strictEqual(isSourceFile(f), false, `expected ${f} to be excluded from isSourceFile despite a source extension`);
+      }
+    });
+
+    test('non-source extensions (docs/config) are NOT source', () => {
+      const nonSource = ['README.md', 'package.json', '.eslintrc'];
+      for (const f of nonSource) {
+        assert.strictEqual(isSourceFile(f), false, `expected ${f} to classify as NOT source`);
+      }
+    });
+
+    test('computeTouchesSourceCode: true when at least one source file is present among non-source files', () => {
+      assert.strictEqual(computeTouchesSourceCode(['README.md', 'src/foo.js', 'package.json']), true);
+    });
+
+    test('computeTouchesSourceCode: false when every file is non-source or test/spec', () => {
+      assert.strictEqual(computeTouchesSourceCode(['README.md', 'src/foo.test.js', 'package.json']), false);
+    });
+
+    test('computeTouchesSourceCode: false on empty array, never throws', () => {
+      assert.strictEqual(computeTouchesSourceCode([]), false);
+    });
+
+    test('computeTouchesSourceCode: false on non-array input (null/undefined/string), never throws', () => {
+      assert.doesNotThrow(() => {
+        assert.strictEqual(computeTouchesSourceCode(null), false);
+        assert.strictEqual(computeTouchesSourceCode(undefined), false);
+        assert.strictEqual(computeTouchesSourceCode('src/foo.js'), false);
+      });
+    });
+  });
+
+  describe('`quality touches-source` CLI (real subprocess)', () => {
+    test('mixed file list returns touches_source_code:true', () => {
+      const result = runGsdTools('quality touches-source --files "src/a.js,test/b.test.js" --raw');
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.touches_source_code, true);
+      assert.strictEqual(parsed.file_count, 2);
+    });
+
+    test('all-test/doc file list returns touches_source_code:false', () => {
+      const result = runGsdTools('quality touches-source --files "test/a.test.js,README.md" --raw');
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.touches_source_code, false);
+    });
+
+    test('empty --files value returns false, file_count:0 without erroring', () => {
+      const result = runGsdTools('quality touches-source --files "" --raw');
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.touches_source_code, false);
+      assert.strictEqual(parsed.file_count, 0);
+    });
+
+    test('--files flag omitted entirely returns false, file_count:0 without erroring', () => {
+      const result = runGsdTools('quality touches-source --raw');
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.touches_source_code, false);
+      assert.strictEqual(parsed.file_count, 0);
+    });
+  });
+
+  describe('prose wiring grep-assertion tests (house convention, mirrors Phase 57-04/58-03)', () => {
+    function readExecutorDetail() {
+      return fs.readFileSync(EXECUTOR_DETAIL_PATH, 'utf-8');
+    }
+
+    test('<post_task_quality_spawn> appears AFTER </inter_task_syntax_check> and BEFORE <test_task_handling> (index-bounded ordering)', () => {
+      const content = readExecutorDetail();
+      const syntaxCheckCloseIdx = content.indexOf('</inter_task_syntax_check>');
+      const spawnBlockIdx = content.indexOf('<post_task_quality_spawn>');
+      const testTaskHandlingIdx = content.indexOf('<test_task_handling>');
+      assert.ok(syntaxCheckCloseIdx !== -1, 'expected </inter_task_syntax_check> to exist');
+      assert.ok(spawnBlockIdx !== -1, 'expected <post_task_quality_spawn> to exist');
+      assert.ok(testTaskHandlingIdx !== -1, 'expected <test_task_handling> to exist');
+      assert.ok(spawnBlockIdx > syntaxCheckCloseIdx, 'expected <post_task_quality_spawn> to appear after </inter_task_syntax_check>');
+      assert.ok(spawnBlockIdx < testTaskHandlingIdx, 'expected <post_task_quality_spawn> to appear before <test_task_handling>');
+    });
+
+    test('test_writer_enabled toggle check appears inside the post_task_quality_spawn block', () => {
+      const content = readExecutorDetail();
+      const spawnBlockIdx = content.indexOf('<post_task_quality_spawn>');
+      const spawnBlockCloseIdx = content.indexOf('</post_task_quality_spawn>');
+      const toggleIdx = content.indexOf('test_writer_enabled', spawnBlockIdx);
+      assert.ok(toggleIdx !== -1 && toggleIdx < spawnBlockCloseIdx, 'expected test_writer_enabled to appear inside post_task_quality_spawn');
+    });
+
+    test('[Rule Quality-TW] literal string appears inside the post_task_quality_spawn block', () => {
+      const content = readExecutorDetail();
+      const spawnBlockIdx = content.indexOf('<post_task_quality_spawn>');
+      const spawnBlockCloseIdx = content.indexOf('</post_task_quality_spawn>');
+      const ruleIdx = content.indexOf('[Rule Quality-TW]', spawnBlockIdx);
+      assert.ok(ruleIdx !== -1 && ruleIdx < spawnBlockCloseIdx, 'expected [Rule Quality-TW] to appear inside post_task_quality_spawn');
+    });
+
+    test('continuation language ("Do NOT block") appears inside the post_task_quality_spawn block, distinguishing it from the tdd="true" hard-block contract', () => {
+      const content = readExecutorDetail();
+      const spawnBlockIdx = content.indexOf('<post_task_quality_spawn>');
+      const spawnBlockCloseIdx = content.indexOf('</post_task_quality_spawn>');
+      const doNotBlockIdx = content.indexOf('Do NOT block', spawnBlockIdx);
+      assert.ok(doNotBlockIdx !== -1 && doNotBlockIdx < spawnBlockCloseIdx, 'expected "Do NOT block" continuation language inside post_task_quality_spawn');
+    });
+  });
+
+  describe('regression guard: existing tdd="true" hard-block contract in <test_task_handling> is untouched', () => {
+    test('exact existing block-language substring is still present, unchanged', () => {
+      const content = fs.readFileSync(EXECUTOR_DETAIL_PATH, 'utf-8');
+      assert.ok(content.includes('BLOCK — do NOT proceed to the next task'), 'expected the existing tdd="true" hard-block language to still be present verbatim');
+    });
+
+    test('surrounding "0 tests written" hard-failure wording is unaffected', () => {
+      const content = fs.readFileSync(EXECUTOR_DETAIL_PATH, 'utf-8');
+      const testTaskHandlingIdx = content.indexOf('<test_task_handling>');
+      const testTaskHandlingCloseIdx = content.indexOf('</test_task_handling>');
+      const block = content.slice(testTaskHandlingIdx, testTaskHandlingCloseIdx);
+      assert.ok(block.includes('0 tests written'), 'expected "0 tests written" hard-failure wording to still be present inside <test_task_handling>');
+      assert.ok(block.includes('BLOCK — do NOT proceed to the next task'), 'expected the hard-block sentence to still be inside <test_task_handling>, not moved elsewhere');
+    });
+  });
+
+  describe('toggle-off regression proof', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+      tmpDir = createTempProject();
+    });
+
+    afterEach(() => {
+      cleanup(tmpDir);
+    });
+
+    test('loadConfig(tmpDir).test_writer_enabled is false with no .planning/config.json present', () => {
+      const config = loadConfig(tmpDir);
+      assert.strictEqual(config.test_writer_enabled, false);
+    });
+
+    test('[Rule 1 fix] `config get test_writer_enabled --raw` (the EXACT invocation form the corrected prose block uses) against a temp dir with no config.json prints bare "false", not JSON', () => {
+      const result = runGsdTools('config get test_writer_enabled --raw', tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      assert.strictEqual(result.output, 'false', 'expected the --raw invocation to print a bare "false" so the bash comparison against "true" in the prose block resolves correctly');
+    });
+  });
+});
