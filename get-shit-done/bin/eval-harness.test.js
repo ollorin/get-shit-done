@@ -23,12 +23,15 @@ const {
   assertDeferredWritten,
   assertCommitsAtomic,
   assertNoInjectionCompliance,
+  assertHandoffBriefPresent,
+  assertResumeInvariantsReinjected,
   runEvalAssertions,
 } = require('./eval-harness.js');
 
 const REAL_FIXTURE_ROADMAP = path.join(__dirname, '..', '..', 'tests', 'fixtures', 'eval-project', 'ROADMAP.md');
 const REAL_FIXTURE_ROOT = path.join(__dirname, '..', '..', 'tests', 'fixtures', 'eval-project');
 const REAL_GOLDEN_ARTIFACTS = path.join(REAL_FIXTURE_ROOT, 'golden-artifacts');
+const POST_54_ARTIFACTS = path.join(REAL_GOLDEN_ARTIFACTS, 'post-54');
 
 function mkTmp() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-eval-harness-test-'));
@@ -550,5 +553,188 @@ describe('Phase 53-03: runEvalAssertions with expectedFileSet (MILE-31)', () => 
     assert.strictEqual(result.checks.commits_atomic.pass, true);
     assert.ok(result.checks.injection_resisted, 'expected injection_resisted check to be present against the real golden-artifacts (expectations.json declares expectedFileSet)');
     assert.strictEqual(result.checks.injection_resisted.pass, true);
+  });
+});
+
+// -------------------------------------------------------------------------
+// Phase 54-03 (MILE-40): assertHandoffBriefPresent + assertResumeInvariantsReinjected.
+describe('Phase 54-03: assertHandoffBriefPresent + assertResumeInvariantsReinjected', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = mkTmp();
+  });
+
+  afterEach(() => {
+    rmTmp(tmpDir);
+  });
+
+  function makeCompleteBrief(overrides) {
+    return Object.assign({
+      phase_goal: 'Add a pure add(a, b) function to src/ with a passing unit test.',
+      key_decisions: ['Use plain arithmetic, no external math library'],
+      open_risks: 'None identified.',
+      file_map: ['src/add.js', 'test/add.test.js'],
+      hard_rules: ['Commit each task atomically'],
+    }, overrides || {});
+  }
+
+  // --- Category 1: Happy path ---------------------------------------------
+  describe('happy path', () => {
+    test('assertHandoffBriefPresent against the REAL post-54/spawn-trace.json fixture -> pass:true', () => {
+      const entries = JSON.parse(fs.readFileSync(path.join(POST_54_ARTIFACTS, 'spawn-trace.json'), 'utf8'));
+      const result = assertHandoffBriefPresent(entries);
+      assert.strictEqual(result.pass, true, `expected pass:true, got missing: ${JSON.stringify(result.missing)}`);
+      assert.deepStrictEqual(result.missing, []);
+    });
+
+    test('assertResumeInvariantsReinjected with a briefText containing a verbatim source substring -> pass:true', () => {
+      const invariant = '**Goal**: add(a, b) works and is tested.';
+      const briefText = `PHASE INVARIANTS (verbatim from ROADMAP.md -- DO NOT paraphrase):\n${invariant}\n`;
+      const result = assertResumeInvariantsReinjected(briefText, REAL_FIXTURE_ROADMAP, [invariant]);
+      assert.strictEqual(result.pass, true);
+      assert.deepStrictEqual(result.missing_from_source, []);
+      assert.deepStrictEqual(result.missing_from_brief, []);
+    });
+  });
+
+  // --- Category 2: Missing/malformed input --------------------------------
+  describe('missing/malformed input', () => {
+    test('assertHandoffBriefPresent([]) -> pass:false (no required-agent entry exists)', () => {
+      const result = assertHandoffBriefPresent([]);
+      assert.strictEqual(result.pass, false);
+      assert.deepStrictEqual(result.missing, []);
+    });
+
+    test('assertResumeInvariantsReinjected with a non-existent sourceFilePath -> pass:false with error, never throws', () => {
+      assert.doesNotThrow(() => {
+        const result = assertResumeInvariantsReinjected('some text', path.join(tmpDir, 'does-not-exist.md'), ['foo']);
+        assert.strictEqual(result.pass, false);
+        assert.ok(typeof result.error === 'string' && result.error.length > 0);
+      });
+    });
+
+    test('non-array spawnEntries/requiredAgents and non-array/non-string expectedInvariants are coerced, never throw', () => {
+      assert.doesNotThrow(() => {
+        const result1 = assertHandoffBriefPresent('not-an-array', 'not-an-array-either');
+        assert.strictEqual(result1.pass, false);
+
+        const sourcePath = path.join(tmpDir, 'source.md');
+        fs.writeFileSync(sourcePath, 'some content here');
+        const result2 = assertResumeInvariantsReinjected(123, sourcePath, { not: 'an array or string' });
+        assert.strictEqual(result2.pass, false);
+        assert.ok(typeof result2.error === 'string' && result2.error.length > 0);
+      });
+    });
+  });
+
+  // --- Category 3: Edge case -----------------------------------------------
+  describe('edge case', () => {
+    test('an executor entry missing one of the 5 keys -> pass:false, missing names that entry', () => {
+      const briefMissingOpenRisks = makeCompleteBrief();
+      delete briefMissingOpenRisks.open_risks;
+      const entries = [
+        { phase: '01-add-function', agent: 'gsd-executor', handoff_brief: briefMissingOpenRisks },
+      ];
+      const result = assertHandoffBriefPresent(entries);
+      assert.strictEqual(result.pass, false);
+      assert.strictEqual(result.missing.length, 1);
+      assert.strictEqual(result.missing[0].agent, 'gsd-executor');
+      assert.strictEqual(result.missing[0].phase, '01-add-function');
+      assert.match(result.missing[0].reason, /open_risks/);
+    });
+
+    test('a briefText that PARAPHRASES a source invariant (reworded, non-verbatim) -> pass:false, containment rejects paraphrase', () => {
+      const invariant = '**Goal**: add(a, b) works and is tested.';
+      const paraphrasedBriefText = 'The goal here is for add(a,b) to function correctly and be fully tested.';
+      const result = assertResumeInvariantsReinjected(paraphrasedBriefText, REAL_FIXTURE_ROADMAP, [invariant]);
+      assert.strictEqual(result.pass, false);
+      assert.ok(result.missing_from_brief.includes(invariant));
+    });
+  });
+
+  // --- Category 4: Boundary -------------------------------------------------
+  describe('boundary', () => {
+    test('a substring present in source but NOT in briefText -> listed in missing_from_brief', () => {
+      const invariant = '**Goal**: add(a, b) works and is tested.';
+      const result = assertResumeInvariantsReinjected('completely unrelated brief text', REAL_FIXTURE_ROADMAP, [invariant]);
+      assert.strictEqual(result.pass, false);
+      assert.deepStrictEqual(result.missing_from_brief, [invariant]);
+      assert.deepStrictEqual(result.missing_from_source, []);
+    });
+
+    test('a substring in briefText but NOT in source -> listed in missing_from_source (guards against fabricated invariants)', () => {
+      const fabricated = 'This invariant was never in the source file at all.';
+      const briefText = `PHASE INVARIANTS:\n${fabricated}\n`;
+      const result = assertResumeInvariantsReinjected(briefText, REAL_FIXTURE_ROADMAP, [fabricated]);
+      assert.strictEqual(result.pass, false);
+      assert.deepStrictEqual(result.missing_from_source, [fabricated]);
+      assert.deepStrictEqual(result.missing_from_brief, []);
+    });
+  });
+
+  // --- Category 5: Wiring/integration ----------------------------------------
+  describe('wiring/integration', () => {
+    function buildBaseArtifacts(root) {
+      fs.mkdirSync(path.join(root, 'phases', '01-add-function'), { recursive: true });
+      fs.writeFileSync(path.join(root, 'phases', '01-add-function', '01-01-VERIFICATION.md'), '**Status:** passed\n');
+
+      const expectedPlan = [
+        { phase: '01-add-function', agent: 'gsd-executor', tier: 'haiku' },
+      ];
+      fs.writeFileSync(path.join(root, 'git-log.txt'), 'abc123 feat(01-01): task 1 implement add\n');
+      return { expectedPlan, expectSkip: {}, expectedCommitCount: 1 };
+    }
+
+    test('runEvalAssertions with handoffSpawnTrace/requiredHandoffAgents -> adds checks.handoff_brief_present, folds into aggregate pass', () => {
+      const { expectedPlan, expectSkip, expectedCommitCount } = buildBaseArtifacts(tmpDir);
+      // No real spawn-trace.json on disk -- entries supplied directly via handoffSpawnTrace.
+      const handoffSpawnTrace = [
+        { phase: '01-add-function', agent: 'gsd-executor', tier: 'haiku', handoff_brief: makeCompleteBrief() },
+      ];
+      fs.writeFileSync(path.join(tmpDir, 'spawn-trace.json'), JSON.stringify(handoffSpawnTrace));
+
+      const result = runEvalAssertions(tmpDir, {
+        expectedPlan, expectSkip, expectedCommitCount,
+        requiredHandoffAgents: ['gsd-executor'],
+        handoffSpawnTrace,
+      });
+      assert.ok('handoff_brief_present' in result.checks, 'expected handoff_brief_present key in checks');
+      assert.strictEqual(result.checks.handoff_brief_present.pass, true);
+      assert.strictEqual(result.pass, true);
+    });
+
+    test('runEvalAssertions WITHOUT handoff/resume options -> no such keys (additive-only, 53-xx behavior preserved)', () => {
+      const { expectedPlan, expectSkip, expectedCommitCount } = buildBaseArtifacts(tmpDir);
+      fs.writeFileSync(path.join(tmpDir, 'spawn-trace.json'), JSON.stringify(
+        expectedPlan.map(e => ({ ...e, timestamp: '2026-07-05T00:00:00Z' }))
+      ));
+
+      const result = runEvalAssertions(tmpDir, { expectedPlan, expectSkip, expectedCommitCount });
+      assert.strictEqual('handoff_brief_present' in result.checks, false);
+      assert.strictEqual('resume_invariants_reinjected' in result.checks, false);
+      assert.strictEqual(result.pass, true);
+    });
+  });
+
+  // --- Category 6: Regression-guard -------------------------------------------
+  describe('regression-guard', () => {
+    test('runEvalAssertions with existing 53-xx options only (no handoff/resume options) -> same check keys as before, no new keys', () => {
+      fs.mkdirSync(path.join(tmpDir, 'phases', '01-add-function'), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, 'phases', '01-add-function', '01-01-VERIFICATION.md'), '**Status:** passed\n');
+
+      const expectedPlan = [{ phase: '01-add-function', agent: 'gsd-executor', tier: 'haiku' }];
+      fs.writeFileSync(path.join(tmpDir, 'spawn-trace.json'), JSON.stringify(
+        expectedPlan.map(e => ({ ...e, timestamp: '2026-07-05T00:00:00Z' }))
+      ));
+      fs.writeFileSync(path.join(tmpDir, 'git-log.txt'), 'abc123 feat(01-01): task 1 implement add\n');
+
+      const result = runEvalAssertions(tmpDir, { expectedPlan, expectSkip: {}, expectedCommitCount: 1 });
+      assert.deepStrictEqual(
+        Object.keys(result.checks).sort(),
+        ['agents_spawned', 'commits_atomic', 'deferred_written', 'gates_fired'].sort()
+      );
+      assert.strictEqual(result.pass, true);
+    });
   });
 });
