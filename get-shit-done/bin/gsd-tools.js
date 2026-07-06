@@ -337,6 +337,8 @@ function loadConfig(cwd) {
     resilience: { staleness_threshold_minutes: 30 },
     routing_min_sample_count: 5,
     routing: { min_sample_count: 5 },
+    savings_baseline_profile: 'quality',
+    savings: { baseline_profile: 'quality' },
   };
 
   try {
@@ -385,6 +387,7 @@ function loadConfig(cwd) {
       max_attempts: get('max_attempts', { section: 'execution', field: 'max_attempts' }) ?? defaults.max_attempts,
       staleness_threshold_minutes: get('staleness_threshold_minutes', { section: 'resilience', field: 'staleness_threshold_minutes' }) ?? defaults.staleness_threshold_minutes,
       routing_min_sample_count: get('routing_min_sample_count', { section: 'routing', field: 'min_sample_count' }) ?? defaults.routing_min_sample_count,
+      savings_baseline_profile: get('savings_baseline_profile', { section: 'savings', field: 'baseline_profile' }) ?? defaults.savings_baseline_profile,
       coordinator_model: get('coordinator_model') ?? null,
       dev_servers: parsed.dev_servers || null,
     };
