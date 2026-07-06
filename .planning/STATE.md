@@ -9,10 +9,10 @@ See: .planning/PROJECT.md (updated 2026-07-02)
 
 ## Current Position
 
-Phase: 55 of 61 (Failures-to-Regression Pipeline) — IN PROGRESS
-Plan: 2 of 3 (55-02 complete)
-Status: Plan 55-02 complete — validateEvalCandidateSchema pure validator + cmdEvalCandidateList/Accept/Reject CLI wrappers extend the eval-candidate dispatch with list/accept/reject subcommands; accept re-validates schema unconditionally (even against a hand-edited candidate) before promoting queue->accepted, reject moves queue->archived (never deletes) with an appended reason; 578/578 tests passing. MILE-32 criterion 3 (human review durable/auditable) and 4d (malformed input hardening) satisfied. 55-03 (CI execution) pending.
-Last activity: 2026-07-06 — Executed 55-02-PLAN.md: added list/accept/reject CLI + validator, 9 new tests across all 6 TDD categories, CHANGELOG.md entry.
+Phase: 55 of 61 (Failures-to-Regression Pipeline) — EXECUTED, awaiting verification
+Plan: 3 of 3 (55-03 complete)
+Status: Plan 55-03 complete — loadAcceptedEvalCandidates/executeEvalCandidate/runEvalRegressions loader+executor in eval-harness.js, `eval regress` CLI (direct-exit), dual CI wiring (npm test chain + dedicated eval-harness.yml eval-regress job), 17 new tests including all 4 MILE-32 end-to-end integration scenarios via the real CLI; 595/595 tests passing. MILE-32 fully satisfied (all 4 success criteria). Phase 55 pending gsd-verifier.
+Last activity: 2026-07-06 — Executed 55-03-PLAN.md (resumed post-checkpoint): loader/executor + CI wiring landed pre-checkpoint (8bb56df), tests via 2 gsd-test-writer spawns (2b2cc6e, e6bd004), CHANGELOG entry (2a64a65).
 
 Progress: [██████████] 99%
 
@@ -82,6 +82,7 @@ Progress: [██████████] 99%
 | Phase 54 P04 | ~20min | 3 tasks | 5 files |
 | Phase 55 P01 | 35min | 4 tasks | 8 files |
 | Phase 55 P02 | ~30min | 3 tasks | 3 files |
+| Phase 55 P03 | ~45min | 4 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -180,11 +181,11 @@ None.
 
 ### Next Steps
 
-- Plan 55-02 (review-queue accept/reject) is complete. Proceed to Plan 55-03 (CI execution) to close out Phase 55 (Failures-to-Regression Pipeline, MILE-32).
+- Plan 55-03 (CI execution) is complete — all 3 Phase 55 plans executed. Spawn gsd-verifier for Phase 55, then proceed to Phase 56 (Reflective Prompt Optimization, MILE-33).
 - Reconcile v1.13.0 status separately (see Pending Todos) — do not double-build during v1.15.0 execution
 
 ## Session Continuity
 
 Last session: 2026-07-06
-Stopped at: Completed 55-02-PLAN.md (eval-candidate list/accept/reject review-queue lifecycle). 578/578 tests passing. Next action: execute 55-03-PLAN.md (CI execution) to complete Phase 55.
-Resume file: none — 55-02 complete and committed, no checkpoint pending.
+Stopped at: Completed 55-03-PLAN.md (eval regression loader/executor + CI wiring). 595/595 tests passing. Next action: gsd-verifier for Phase 55.
+Resume file: .planning/phases/55-failures-to-regression/CHECKPOINT.json
