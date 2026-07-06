@@ -4493,6 +4493,82 @@ function cmdToken(cwd, args, raw) {
   }
 }
 
+// ─── Token Usage Ledger CLI (MILE-36, Phase 58) ──────────────────────────────
+// Thin CLI dispatch onto token-usage-ledger.js's appendTaskUsage/estimateTaskTokens.
+// Deliberately a SEPARATE top-level command from `token` (init/reserve/record/
+// report/reset), which stays pointed at the live-session TokenBudgetMonitor
+// (session-window reserve-before-op/halt-at-95% guardrail) -- this command is
+// the durable, per-project, per-task HISTORICAL usage ledger the coordinator's
+// golden path (Plan 58-03) records into, and `savings report` (below) reads
+// back. See 58-RESEARCH.md's "don't conflate two systems" note. Never touches
+// token_budget.json.
+function cmdTokenUsage(cwd, args, raw) {
+  const subcommand = args[0];
+  if (subcommand !== 'record') {
+    error('token-usage: unknown subcommand (expected "record")');
+    return;
+  }
+
+  const { appendTaskUsage, estimateTaskTokens } = require('./token-usage-ledger.js');
+  const getArg = (flag) => {
+    const idx = args.indexOf(flag);
+    return idx !== -1 ? args[idx + 1] : undefined;
+  };
+
+  const phaseArg = getArg('--phase');
+  const planArg = getArg('--plan');
+  const taskIndexArg = getArg('--task-index');
+  const taskName = getArg('--task-name') || '';
+  const tier = getArg('--tier') || 'sonnet';
+  const tokensInputArg = getArg('--tokens-input');
+  const tokensOutputArg = getArg('--tokens-output');
+  const sourceArg = getArg('--source');
+
+  // No explicit --tokens-input/--tokens-output: this is the golden-path call
+  // shape (Plan 58-03) -- the harness exposes no real per-spawn token counts
+  // (see token-usage-ledger.js's HONESTY CONTRACT), so we estimate via the
+  // crude, clearly-labeled heuristic and ALWAYS tag source:'estimated'.
+  // Explicit tokens (manual/testing use) may be tagged 'actual' via
+  // --source actual; omitted tokens are never 'actual' regardless of --source.
+  let tokens, source;
+  if (tokensInputArg !== undefined && tokensOutputArg !== undefined) {
+    tokens = {
+      input: parseInt(tokensInputArg, 10) || 0,
+      output: parseInt(tokensOutputArg, 10) || 0
+    };
+    source = sourceArg === 'actual' ? 'actual' : 'estimated';
+  } else {
+    tokens = estimateTaskTokens(taskName, tier);
+    source = 'estimated';
+  }
+
+  const parsedPhase = phaseArg !== undefined
+    ? (isNaN(parseInt(phaseArg, 10)) ? phaseArg : parseInt(phaseArg, 10))
+    : null;
+  const parsedTaskIndex = taskIndexArg !== undefined
+    ? (isNaN(parseInt(taskIndexArg, 10)) ? null : parseInt(taskIndexArg, 10))
+    : null;
+
+  const entry = {
+    phase: parsedPhase,
+    plan: planArg !== undefined ? planArg : null,
+    task_index: parsedTaskIndex,
+    task_name: taskName,
+    tier,
+    tokens,
+    source
+  };
+
+  const result = appendTaskUsage(cwd, entry);
+  output(
+    { recorded: result.ok, record: result.record },
+    raw,
+    result.ok
+      ? `Recorded token usage for task ${parsedTaskIndex} (${source})`
+      : `Warning: failed to record token usage: ${result.error}`
+  );
+}
+
 // ─── Graduated Budget Alerts ──────────────────────────────────────────────────
 
 function cmdAlerts(cwd, args, raw) {
@@ -5633,22 +5709,33 @@ async function checkPort(port) {
 
 // ─── Savings Report ───────────────────────────────────────────────────────────
 
-function cmdSavings(args, raw) {
+function cmdSavings(cwd, args, raw) {
   const subcommand = args[0] || 'report';
-  const { generateReport, formatReportTable, calculateSavings } = require('./savings-report.js');
 
   switch (subcommand) {
     case 'report': {
-      const report = generateReport();
+      // Phase 58 (MILE-36): retargeted from the old token_budget.json-based
+      // generateReport() (phantom-file path, see 58-RESEARCH.md's audit
+      // finding) onto the durable recorded-usage ledger. NEVER falls back to
+      // the old path -- zero recorded usage means available:false, not a
+      // silent empty-defaults report.
+      const { readTaskUsageRecords, computeSavingsFromUsage, formatUsageSavingsTable } = require('./token-usage-ledger.js');
+      const { getHistory } = require('./execution-log.js');
+      const config = loadConfig(cwd);
+      const usageRecords = readTaskUsageRecords(cwd);
+      const taskOutcomeEvents = getHistory(cwd).filter(e => e && e.type === 'task_outcome');
+      const report = computeSavingsFromUsage(usageRecords, taskOutcomeEvents, config.savings_baseline_profile);
+
       if (args.includes('--json')) {
         output(report, raw);
       } else {
-        console.log(formatReportTable(report));
+        console.log(formatUsageSavingsTable(report));
       }
       break;
     }
 
     case 'calculate': {
+      const { calculateSavings } = require('./savings-report.js');
       // Manual calculation: savings calculate --haiku 50000 --sonnet 100000 --opus 20000
       const haikuIdx = args.indexOf('--haiku');
       const sonnetIdx = args.indexOf('--sonnet');
@@ -13126,6 +13213,11 @@ async function main() {
       break;
     }
 
+    case 'token-usage': {
+      cmdTokenUsage(cwd, args.slice(1), raw);
+      break;
+    }
+
     case 'alerts': {
       cmdAlerts(cwd, args.slice(1), raw);
       break;
@@ -13182,7 +13274,7 @@ async function main() {
     }
 
     case 'savings': {
-      cmdSavings(args.slice(1), raw);
+      cmdSavings(cwd, args.slice(1), raw);
       break;
     }
 
