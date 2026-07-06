@@ -266,3 +266,70 @@ describe('Phase 61-01: deriveCheckSet (main derivation entry point)', () => {
     assert.deepStrictEqual(result.detected_types, []);
   });
 });
+
+// -------------------------------------------------------------------------
+describe('Phase 61-03: GSD self-hosting proof (MILE-41) - real repo root derivation', () => {
+  test('real repo root: detected_types===["node"], exactly one node-test check, degraded:false, package.json has test+no lint/build', () => {
+    const { deriveCheckSet } = require('./pre-pr-checks.js');
+
+    // Real repo root is two levels up from this file (get-shit-done/bin/pre-pr-checks.test.js)
+    const realRepoRoot = path.resolve(__dirname, '..', '..');
+
+    // Verify that the path resolves to a directory containing the real package.json
+    assert.ok(
+      fs.existsSync(realRepoRoot),
+      `Expected repo root to exist: ${realRepoRoot}`
+    );
+    const pkgJsonPath = path.join(realRepoRoot, 'package.json');
+    assert.ok(
+      fs.existsSync(pkgJsonPath),
+      `Expected package.json at: ${pkgJsonPath}`
+    );
+
+    // Verify that package.json is a valid, parseable manifest
+    let pkgJson;
+    assert.doesNotThrow(() => {
+      const content = fs.readFileSync(pkgJsonPath, 'utf8');
+      pkgJson = JSON.parse(content);
+    }, 'package.json must be valid JSON');
+
+    assert.ok(pkgJson.scripts, 'package.json must have a scripts object');
+    assert.ok(pkgJson.scripts.test, 'package.json must have a test script');
+
+    // Verify the repo's declared scripts: should have test, no lint/build
+    assert.strictEqual(
+      pkgJson.scripts.lint,
+      undefined,
+      'package.json must NOT declare a lint script (this test will fail if lint is ever added)'
+    );
+    assert.strictEqual(
+      pkgJson.scripts.build,
+      undefined,
+      'package.json must NOT declare a build script (this test will fail if build is ever added)'
+    );
+
+    // Call deriveCheckSet against the real repo root
+    const result = deriveCheckSet(realRepoRoot);
+
+    // Assert detected_types is exactly ['node']
+    assert.deepStrictEqual(
+      result.detected_types,
+      ['node'],
+      'Real repo root should be detected as node-only'
+    );
+
+    // Assert degraded is false (known type)
+    assert.strictEqual(
+      result.degraded,
+      false,
+      'Known project type (node) should not degrade'
+    );
+
+    // Assert checks is exactly one entry: {id:'node-test', command:'npm run test', required:true}
+    assert.deepStrictEqual(
+      result.checks,
+      [{ id: 'node-test', command: 'npm run test', required: true }],
+      'Real repo root declares only test script, so exactly one node-test check expected'
+    );
+  });
+});
