@@ -1314,6 +1314,82 @@ function cmdResilienceResumeBrief(cwd, phase, raw) {
   output(brief, raw);
 }
 
+// Normalizes a single handoff-brief section value into a plain-text form.
+// Accepts a string or an array of strings; arrays render as one bullet per
+// line. Never throws -- any other input (null/undefined/number/object) or an
+// all-whitespace/all-empty-items value normalizes to '' (treated as missing
+// by buildHandoffBrief).
+function normalizeHandoffSection(value) {
+  if (Array.isArray(value)) {
+    const items = value.filter((v) => typeof v === 'string' && v.trim() !== '');
+    if (items.length === 0) return '';
+    return items.map((v) => `- ${v.trim()}`).join('\n');
+  }
+  if (typeof value === 'string' && value.trim() !== '') {
+    return value.trim();
+  }
+  return '';
+}
+
+// Assembles the fixed 5-section handoff brief (see
+// get-shit-done/references/handoff-brief.md for the canonical structure this
+// mirrors) as plain text, suitable for injecting directly into a coordinator
+// -> executor or executor -> verifier spawn prompt. Fail-safe like
+// buildResumeBrief: never throws, degrades on missing/malformed input by
+// reporting complete:false rather than raising -- a fixed structure is
+// guaranteed (all 5 labels always render), only completeness varies.
+function buildHandoffBrief(fields) {
+  const safeFields = (fields && typeof fields === 'object') ? fields : {};
+  const phaseNumber = safeFields.phase_number !== undefined && safeFields.phase_number !== null
+    ? safeFields.phase_number
+    : 'unknown';
+  const phaseName = safeFields.phase_name !== undefined && safeFields.phase_name !== null && safeFields.phase_name !== ''
+    ? safeFields.phase_name
+    : 'unknown';
+
+  const sectionDefs = [
+    { key: 'phase_goal', label: 'PHASE GOAL' },
+    { key: 'key_decisions', label: 'KEY DECISIONS' },
+    { key: 'open_risks', label: 'OPEN RISKS' },
+    { key: 'file_map', label: 'FILE MAP' },
+    { key: 'hard_rules', label: 'HARD RULES' },
+  ];
+
+  const sections = {};
+  let complete = true;
+
+  const lines = [];
+  lines.push('HANDOFF BRIEF');
+  lines.push(`Phase ${phaseNumber} (${phaseName})`);
+
+  for (const { key, label } of sectionDefs) {
+    const normalized = normalizeHandoffSection(safeFields[key]);
+    sections[key] = normalized;
+    if (normalized === '') complete = false;
+    lines.push('');
+    lines.push(`${label}:`);
+    lines.push(normalized === '' ? '(none provided)' : normalized);
+  }
+
+  return {
+    brief_text: lines.join('\n'),
+    sections,
+    complete,
+  };
+}
+
+function cmdHandoffBrief(jsonArg, raw) {
+  if (!jsonArg) {
+    error('handoff brief: --json required');
+  }
+  const parseResult = safeJsonParse(jsonArg, '--json');
+  if (!parseResult.ok) {
+    error(`handoff brief: invalid JSON in --json (${parseResult.error.message})`);
+  }
+  const brief = buildHandoffBrief(parseResult.value);
+  output(brief, raw);
+}
+
 // Estimates the token cost of phaseCount remaining phases against the
 // current (self-healed via loadQuotaState) quota budget. Reuses
 // loadQuotaState -- never reads the raw quota file itself -- so this
@@ -12109,6 +12185,19 @@ async function main() {
       break;
     }
 
+    case 'handoff': {
+      const subCommand = args[1];
+
+      if (subCommand === 'brief') {
+        const jsonIdx = args.indexOf('--json');
+        const jsonArg = jsonIdx !== -1 ? args[jsonIdx + 1] : null;
+        cmdHandoffBrief(jsonArg, raw);
+      } else {
+        error('Unknown handoff subcommand. Available: brief');
+      }
+      break;
+    }
+
     case 'doctor': {
       const configDirIdx = args.indexOf('--config-dir');
       const options = { configDir: configDirIdx !== -1 ? args[configDirIdx + 1] : null };
@@ -13429,6 +13518,8 @@ module.exports = {
   countTestCalls,
   countAssertions,
   milestoneAlreadyRecorded,
+  buildHandoffBrief,
+  cmdHandoffBrief,
 };
 
 // Only auto-run when invoked directly as a CLI (`node gsd-tools.js ...`), not
