@@ -13030,3 +13030,105 @@ describe('Phase 60-01: adversarial-review config + assess-risk/verdict-to-issues
     });
   });
 });
+
+// Phase 60-02 (MILE-39): structural validation of the three new adversarial-review
+// trio agent files (gsd-plan-attacker/gsd-plan-defender/gsd-plan-judge). These tests
+// parse frontmatter via gray-matter directly against the real files on disk (not a
+// fixture copy) and lock in the house content_firewall/Telemetry conventions plus
+// each agent's read-only-vs-Write tool boundary and distinct output contract.
+describe('Phase 60-02: adversarial-review trio agent files structural validation (MILE-39)', () => {
+  const matter = require('gray-matter');
+
+  const AGENTS_DIR = path.join(__dirname, '..', '..', 'agents');
+  const TELEMETRY_LINE = '**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}';
+
+  const AGENT_FILES = [
+    { file: 'gsd-plan-attacker.md', name: 'gsd-plan-attacker' },
+    { file: 'gsd-plan-defender.md', name: 'gsd-plan-defender' },
+    { file: 'gsd-plan-judge.md', name: 'gsd-plan-judge' },
+  ];
+
+  function readAgent(file) {
+    const fullPath = path.join(AGENTS_DIR, file);
+    const raw = fs.readFileSync(fullPath, 'utf-8');
+    const parsed = matter(raw);
+    return { raw, data: parsed.data, content: parsed.content, fullPath };
+  }
+
+  // Normalizes gray-matter's `tools` field (comma-separated string OR array) into
+  // an array of trimmed tool names, so assertions work regardless of YAML shape.
+  function normalizeTools(tools) {
+    if (Array.isArray(tools)) return tools.map((t) => String(t).trim());
+    if (typeof tools === 'string') return tools.split(',').map((t) => t.trim());
+    return [];
+  }
+
+  for (const { file, name } of AGENT_FILES) {
+    describe(file, () => {
+      test('frontmatter parses without throwing; name/description/tools well-formed', () => {
+        let agent;
+        assert.doesNotThrow(() => { agent = readAgent(file); });
+        assert.strictEqual(agent.data.name, name);
+        assert.strictEqual(typeof agent.data.description, 'string');
+        assert.ok(agent.data.description.length > 0, 'description must be non-empty');
+        const tools = normalizeTools(agent.data.tools);
+        assert.ok(tools.length > 0, 'tools must be non-empty');
+      });
+
+      test('raw content contains exact <content_firewall> substring', () => {
+        const agent = readAgent(file);
+        assert.ok(agent.raw.includes('<content_firewall>'), `${file} is missing the <content_firewall> tag`);
+      });
+
+      test('raw content contains the exact 4-field Telemetry self-report line', () => {
+        const agent = readAgent(file);
+        assert.ok(agent.raw.includes(TELEMETRY_LINE), `${file} is missing the exact Telemetry line substring`);
+      });
+    });
+  }
+
+  describe('read-only vs Write tool boundary', () => {
+    test('gsd-plan-attacker.md tools does NOT include Write or Edit', () => {
+      const agent = readAgent('gsd-plan-attacker.md');
+      const tools = normalizeTools(agent.data.tools);
+      assert.ok(!tools.includes('Write'), 'attacker must not have Write');
+      assert.ok(!tools.includes('Edit'), 'attacker must not have Edit');
+    });
+
+    test('gsd-plan-defender.md tools does NOT include Write or Edit', () => {
+      const agent = readAgent('gsd-plan-defender.md');
+      const tools = normalizeTools(agent.data.tools);
+      assert.ok(!tools.includes('Write'), 'defender must not have Write');
+      assert.ok(!tools.includes('Edit'), 'defender must not have Edit');
+    });
+
+    test('gsd-plan-judge.md tools DOES include Write', () => {
+      const agent = readAgent('gsd-plan-judge.md');
+      const tools = normalizeTools(agent.data.tools);
+      assert.ok(tools.includes('Write'), 'judge must have Write');
+    });
+  });
+
+  describe('per-agent distinct output contract', () => {
+    test('gsd-plan-judge.md body documents writing its own VERDICT.md and consuming presentation_order', () => {
+      const agent = readAgent('gsd-plan-judge.md');
+      assert.ok(agent.content.includes('VERDICT.md'), 'judge must document writing its own VERDICT.md artifact');
+      assert.ok(agent.content.includes('presentation_order'), 'judge must document consuming presentation_order');
+    });
+
+    test('gsd-plan-attacker.md body has its own flaws: output contract and is not a gsd-plan-checker clone', () => {
+      const agent = readAgent('gsd-plan-attacker.md');
+      assert.ok(agent.content.includes('flaws:'), 'attacker must document its flaws: structured output');
+      assert.ok(!agent.content.includes('## VERIFICATION PASSED'), 'attacker must not be a gsd-plan-checker clone (VERIFICATION PASSED)');
+      assert.ok(!agent.content.includes('## ISSUES FOUND'), 'attacker must not be a gsd-plan-checker clone (ISSUES FOUND)');
+    });
+
+    test('gsd-plan-defender.md body has its own rebuttals: output contract with the 3 ruling enum values', () => {
+      const agent = readAgent('gsd-plan-defender.md');
+      assert.ok(agent.content.includes('rebuttals:'), 'defender must document its rebuttals: structured output');
+      assert.ok(agent.content.includes('refuted'), 'defender must document the refuted ruling value');
+      assert.ok(agent.content.includes('conceded'), 'defender must document the conceded ruling value');
+      assert.ok(agent.content.includes('partially-conceded'), 'defender must document the partially-conceded ruling value');
+    });
+  });
+});
