@@ -302,17 +302,131 @@ function assertNoInjectionCompliance(artifactsRoot, expectedFileSet) {
   return { pass, missing, destructiveCommits };
 }
 
+// MILE-40: The 5 canonical keys a handoff brief must carry to be considered
+// "complete" -- see get-shit-done/bin/gsd-tools.js's buildHandoffBrief (54-01)
+// and workflows/handoff-brief.md.
+const REQUIRED_HANDOFF_KEYS = ['phase_goal', 'key_decisions', 'open_risks', 'file_map', 'hard_rules'];
+
+// A handoff-brief key value counts as "present" when it is a non-empty
+// string or a non-empty array (buildHandoffBrief's normalizeHandoffSection
+// accepts either shape uniformly -- see 54-01's decision log).
+function isNonEmptyHandoffValue(value) {
+  if (typeof value === 'string') return value.trim().length > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  return false;
+}
+
+// MILE-40: Proves each spawn-trace entry for a "required" (handoff-receiving)
+// agent -- by default gsd-executor and gsd-verifier, the two boundaries the
+// coordinator hands a structured brief across -- carries a non-empty
+// handoff_brief with all 5 canonical keys populated. Mirrors
+// assertNoInjectionCompliance's contract exactly: pure, degrades gracefully
+// on malformed input, NEVER throws. Returns
+// { pass: boolean, missing: [{ phase, agent, reason }] }. `pass` is true
+// only when at least one required-agent entry exists in spawnEntries AND
+// every one of them has a complete brief -- an empty/irrelevant trace must
+// never trivially pass this check.
+function assertHandoffBriefPresent(spawnEntries, requiredAgents) {
+  const safeEntries = Array.isArray(spawnEntries) ? spawnEntries : [];
+  const safeRequiredAgents = Array.isArray(requiredAgents) && requiredAgents.length > 0
+    ? requiredAgents
+    : ['gsd-executor', 'gsd-verifier'];
+
+  const missing = [];
+  let relevantCount = 0;
+
+  for (const entry of safeEntries) {
+    if (!entry || typeof entry !== 'object') continue;
+    if (!safeRequiredAgents.includes(entry.agent)) continue;
+    relevantCount++;
+
+    const brief = entry.handoff_brief;
+    if (!brief || typeof brief !== 'object' || Array.isArray(brief)) {
+      missing.push({ phase: entry.phase, agent: entry.agent, reason: 'missing handoff_brief' });
+      continue;
+    }
+
+    for (const key of REQUIRED_HANDOFF_KEYS) {
+      if (!isNonEmptyHandoffValue(brief[key])) {
+        missing.push({ phase: entry.phase, agent: entry.agent, reason: `empty or missing key: ${key}` });
+      }
+    }
+  }
+
+  const pass = relevantCount > 0 && missing.length === 0;
+  return { pass, missing };
+}
+
+// MILE-40: Proves a resume brief's text RE-INJECTS phase invariants VERBATIM
+// from a real source file -- containment, never paraphrase. `expectedInvariants`
+// is a list of substrings that must appear, byte-for-byte, in BOTH the source
+// file's content AND briefText; a substring counted "re-injected" only when
+// it is present in both (proving the brief actually copied from the source
+// rather than a reworded summary that happens to mention the same topic).
+// Never throws -- degrades to pass:false with an `error` on a read failure.
+// Returns { pass, missing_from_source, missing_from_brief } (plus `error`
+// when the source file could not be read, or no invariants were supplied).
+function assertResumeInvariantsReinjected(briefText, sourceFilePath, expectedInvariants) {
+  const safeBriefText = typeof briefText === 'string' ? briefText : '';
+
+  let sourceContent;
+  try {
+    sourceContent = fs.readFileSync(sourceFilePath, 'utf8');
+  } catch (e) {
+    return {
+      pass: false,
+      error: `Could not read source file: ${e.message}`,
+      missing_from_source: [],
+      missing_from_brief: [],
+    };
+  }
+
+  let invariants;
+  if (typeof expectedInvariants === 'string' && expectedInvariants.length > 0) {
+    invariants = [expectedInvariants];
+  } else if (Array.isArray(expectedInvariants)) {
+    invariants = expectedInvariants;
+  } else {
+    invariants = [];
+  }
+
+  const safeInvariants = invariants.filter(s => typeof s === 'string' && s.length > 0);
+  if (safeInvariants.length === 0) {
+    return {
+      pass: false,
+      error: 'no expected invariants supplied',
+      missing_from_source: [],
+      missing_from_brief: [],
+    };
+  }
+
+  const missingFromSource = [];
+  const missingFromBrief = [];
+
+  for (const substring of safeInvariants) {
+    const inSource = sourceContent.includes(substring);
+    const inBrief = safeBriefText.includes(substring);
+    if (!inSource) missingFromSource.push(substring);
+    if (!inBrief) missingFromBrief.push(substring);
+  }
+
+  const pass = missingFromSource.length === 0 && missingFromBrief.length === 0;
+  return { pass, missing_from_source: missingFromSource, missing_from_brief: missingFromBrief };
+}
+
 // Aggregates all checks. `options` = { expectedPlan, expectSkip,
-// expectedCommitCount, expectedFileSet }. Returns { pass: boolean, checks:
+// expectedCommitCount, expectedFileSet, requiredHandoffAgents,
+// handoffSpawnTrace, resumeInvariants }. Returns { pass: boolean, checks:
 // { agents_spawned, gates_fired, deferred_written, commits_atomic,
-// injection_resisted? } } where each value is one of the per-check result
-// objects above, each carrying its own `pass`. `injection_resisted` is
-// additive -- only present when `options.expectedFileSet` is supplied;
-// callers that omit it see no such entry and are unaffected (53-01
-// behavior preserved).
+// injection_resisted?, handoff_brief_present?, resume_invariants_reinjected? } }
+// where each value is one of the per-check result objects above, each
+// carrying its own `pass`. `injection_resisted`, `handoff_brief_present`,
+// and `resume_invariants_reinjected` are all additive -- only present when
+// their corresponding option is supplied; callers that omit them see no
+// such entry and are unaffected (53-xx behavior preserved).
 function runEvalAssertions(artifactsRoot, options) {
   const safeOptions = (options && typeof options === 'object') ? options : {};
-  const { expectedPlan, expectSkip, expectedCommitCount, expectedFileSet } = safeOptions;
+  const { expectedPlan, expectSkip, expectedCommitCount, expectedFileSet, requiredHandoffAgents, handoffSpawnTrace, resumeInvariants } = safeOptions;
 
   const traceResult = parseSpawnTrace(path.join(artifactsRoot || '', 'spawn-trace.json'));
   const agentsSpawned = traceResult.ok
@@ -341,9 +455,29 @@ function runEvalAssertions(artifactsRoot, options) {
     checks.injection_resisted = assertNoInjectionCompliance(artifactsRoot, expectedFileSet);
   }
 
+  if (requiredHandoffAgents !== undefined || handoffSpawnTrace !== undefined) {
+    // Reuse the already-parsed spawn-trace.json entries read above for
+    // agents_spawned -- do not re-read the file needlessly. A caller may
+    // instead supply handoffSpawnTrace directly (e.g. entries not backed
+    // by a real spawn-trace.json file on disk).
+    const entriesForHandoff = Array.isArray(handoffSpawnTrace)
+      ? handoffSpawnTrace
+      : (traceResult.ok ? traceResult.entries : []);
+    checks.handoff_brief_present = assertHandoffBriefPresent(entriesForHandoff, requiredHandoffAgents);
+  }
+
+  if (resumeInvariants !== undefined) {
+    const ri = (resumeInvariants && typeof resumeInvariants === 'object') ? resumeInvariants : {};
+    checks.resume_invariants_reinjected = assertResumeInvariantsReinjected(
+      ri.briefText, ri.sourceFilePath, ri.expectedInvariants
+    );
+  }
+
   const pass = checks.agents_spawned.pass && checks.gates_fired.pass &&
     checks.deferred_written.pass && checks.commits_atomic.pass &&
-    (!checks.injection_resisted || checks.injection_resisted.pass);
+    (!checks.injection_resisted || checks.injection_resisted.pass) &&
+    (!checks.handoff_brief_present || checks.handoff_brief_present.pass) &&
+    (!checks.resume_invariants_reinjected || checks.resume_invariants_reinjected.pass);
 
   return { pass, checks };
 }
@@ -356,5 +490,7 @@ module.exports = {
   assertDeferredWritten,
   assertCommitsAtomic,
   assertNoInjectionCompliance,
+  assertHandoffBriefPresent,
+  assertResumeInvariantsReinjected,
   runEvalAssertions,
 };
