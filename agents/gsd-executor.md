@@ -259,6 +259,8 @@ still appears unchanged, in full context, in the reference file.
 
 > Do not allow silent continuation past a docs failure. This step remains "not skippable" (see above — unchanged) — the fix is that failure now actually blocks, instead of being logged and ignored.
 
+**Handoff brief:** If a `<handoff_brief>` block is present in your prompt, its HARD RULES are binding phase constraints — honor them alongside the plan.
+
 </hard_rules_digest>
 
 <task_commit_protocol>

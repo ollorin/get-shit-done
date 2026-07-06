@@ -891,7 +891,19 @@ For each incomplete plan (no SUMMARY.md):
        @/Users/ollorin/.claude/get-shit-done/templates/summary.md
        @/Users/ollorin/.claude/get-shit-done/references/checkpoints.md
        @/Users/ollorin/.claude/get-shit-done/references/tdd.md
+       @/Users/ollorin/.claude/get-shit-done/references/handoff-brief.md
        </execution_context>
+
+       <handoff_brief>
+       {Coordinator fills the 5 fixed sections per references/handoff-brief.md (may assemble
+       brief_text deterministically via `node ~/.claude/get-shit-done/bin/gsd-tools.js handoff
+       brief --json '{...}'`, Plan 01):
+       PHASE GOAL: {goal from ROADMAP.md}
+       KEY DECISIONS: {locked decisions from CONTEXT.md / STATE.md for this phase}
+       OPEN RISKS: {known risks / watch-items}
+       FILE MAP: {files this phase owns/touches}
+       HARD RULES: {the non-negotiable rules the executor MUST honor}
+       </handoff_brief>
 
        <files_to_read>
        - Plan: {phase_dir}/{plan_file}
@@ -946,7 +958,18 @@ For each incomplete plan (no SUMMARY.md):
             @/Users/ollorin/.claude/get-shit-done/templates/summary.md
             @/Users/ollorin/.claude/get-shit-done/references/checkpoints.md
             @/Users/ollorin/.claude/get-shit-done/references/tdd.md
+            @/Users/ollorin/.claude/get-shit-done/references/handoff-brief.md
             </execution_context>
+            <handoff_brief>
+            {Coordinator fills the 5 fixed sections per references/handoff-brief.md (may assemble
+            brief_text deterministically via `node ~/.claude/get-shit-done/bin/gsd-tools.js handoff
+            brief --json '{...}'`, Plan 01):
+            PHASE GOAL: {goal from ROADMAP.md}
+            KEY DECISIONS: {locked decisions from CONTEXT.md / STATE.md for this phase}
+            OPEN RISKS: {known risks / watch-items}
+            FILE MAP: {files this phase owns/touches}
+            HARD RULES: {the non-negotiable rules the executor MUST honor}
+            </handoff_brief>
             <files_to_read>
             - Plan: {phase_dir}/{plan_file}
             - State: .planning/STATE.md
@@ -1481,7 +1504,20 @@ Agent(
   prompt="Verify phase {phase_number} goal achievement.
 Phase directory: {phase_dir}
 Phase goal: {goal from ROADMAP.md}
-Check must_haves against actual codebase. Create VERIFICATION.md."
+Check must_haves against actual codebase. Create VERIFICATION.md.
+
+@/Users/ollorin/.claude/get-shit-done/references/handoff-brief.md
+
+<handoff_brief>
+{Coordinator fills the 5 fixed sections per references/handoff-brief.md (may assemble
+brief_text deterministically via `node ~/.claude/get-shit-done/bin/gsd-tools.js handoff
+brief --json '{...}'`, Plan 01):
+PHASE GOAL: {goal from ROADMAP.md}
+KEY DECISIONS: {locked decisions from CONTEXT.md / STATE.md for this phase}
+OPEN RISKS: {known risks / watch-items}
+FILE MAP: {files this phase owns/touches}
+HARD RULES: {the non-negotiable rules the phase was verified against}
+</handoff_brief>"
 )
 ```
 

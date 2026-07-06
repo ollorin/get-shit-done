@@ -104,6 +104,8 @@ reference file.
 **Step 8e (migration timestamp conflict check, QGATE-05):**
 > **Hard rule:** Unresolved duplicate migration timestamps detected by this check cause `gaps_found`. This is NEVER a warning.
 
+**Handoff brief:** A present `<handoff_brief>` block's HARD RULES / phase goal are the constraints the phase is verified against.
+
 </hard_rules_digest>
 
 <critical_rules>

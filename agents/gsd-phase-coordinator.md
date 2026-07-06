@@ -237,6 +237,8 @@ if telegram_topic_id is not null:
 ```
 
 Note: The failure notification in execute-roadmap.md handles roadmap-level failure reporting. This notification (Notification 6) is the phase-level failure report. Both can coexist — they fire in different contexts (phase coordinator vs roadmap coordinator).
+
+**Hard rule (handoff brief):** At every executor and verifier spawn, prepend the fixed 5-section handoff brief (phase goal, key decisions, open risks, file map, hard rules) per @references/handoff-brief.md.
 </error_handling>
 
 <!-- GSD:CORE-PREAMBLE-END -->
