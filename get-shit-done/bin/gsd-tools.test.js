@@ -11928,3 +11928,242 @@ describe('Phase 58-03: token-usage golden-path wiring', () => {
     }
   });
 });
+
+// Phase 59-01 (MILE-37/MILE-38 foundation): quality config toggles +
+// appendVerificationGap + verify append-gap CLI + composition proof that the
+// existing Phase 55 eval-candidate reader consumes the newly-appended gap
+// unmodified (no second/parallel gap pipeline).
+describe('Phase 59-01: quality config toggles + appendVerificationGap', () => {
+  const { loadConfig, appendVerificationGap, buildEvalCandidatesFromVerificationFile } = resilience;
+  const matter = require('gray-matter');
+
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function writeVerificationFixture(relPath, content) {
+    const fullPath = path.join(tmpDir, relPath);
+    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    fs.writeFileSync(fullPath, content, 'utf-8');
+    return fullPath;
+  }
+
+  const PASSED_NO_GAPS_CONTENT = `---
+phase: 59-test-phase
+status: passed
+score: 5/5 must-haves verified
+---
+
+# Verification Report
+
+## Summary
+
+Everything checked out.
+
+| Truth | Status |
+| ----- | ------ |
+| Thing works | passed |
+`;
+
+  const GAPS_FOUND_1_EXISTING_CONTENT = `---
+phase: 59-test-phase
+status: gaps_found
+gaps:
+  - truth: "Pre-existing truth"
+    status: failed
+    failure_type: stub
+    reason: "pre-existing reason"
+    artifacts:
+      - path: "src/existing.js"
+        issue: "missing"
+---
+
+# Verification Report
+`;
+
+  const MALFORMED_FRONTMATTER_CONTENT = `---
+status: [unterminated
+this is not valid yaml: : :
+---
+
+# Body
+`;
+
+  describe('loadConfig defaults', () => {
+    test('test_writer_enabled/integration_tester_enabled both default false when config.json is absent (ENOENT branch)', () => {
+      const config = loadConfig(tmpDir);
+      assert.strictEqual(config.test_writer_enabled, false);
+      assert.strictEqual(config.integration_tester_enabled, false);
+    });
+
+    test('both default false when config.json exists but omits both keys', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'config.json'),
+        JSON.stringify({ model_profile: 'balanced' }),
+        'utf-8'
+      );
+      const config = loadConfig(tmpDir);
+      assert.strictEqual(config.test_writer_enabled, false);
+      assert.strictEqual(config.integration_tester_enabled, false);
+    });
+
+    test('flat override {"test_writer_enabled": true} resolves test_writer_enabled:true without affecting integration_tester_enabled', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'config.json'),
+        JSON.stringify({ test_writer_enabled: true }),
+        'utf-8'
+      );
+      const config = loadConfig(tmpDir);
+      assert.strictEqual(config.test_writer_enabled, true);
+      assert.strictEqual(config.integration_tester_enabled, false);
+    });
+
+    test('nested override {"quality": {"integration_tester": true}} resolves integration_tester_enabled:true without affecting test_writer_enabled', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'config.json'),
+        JSON.stringify({ quality: { integration_tester: true } }),
+        'utf-8'
+      );
+      const config = loadConfig(tmpDir);
+      assert.strictEqual(config.integration_tester_enabled, true);
+      assert.strictEqual(config.test_writer_enabled, false);
+    });
+  });
+
+  describe('appendVerificationGap', () => {
+    test('happy path: appends one gap, flips status to gaps_found, preserves markdown body byte-for-byte', () => {
+      const verificationPath = writeVerificationFixture('.planning/phases/59-test-phase/59-VERIFICATION.md', PASSED_NO_GAPS_CONTENT);
+      const bodyBefore = matter(PASSED_NO_GAPS_CONTENT).content;
+
+      const result = appendVerificationGap(tmpDir, verificationPath, {
+        truth: 'Cross-phase contract holds',
+        reason: 'consumer expected shape X, producer returned shape Y',
+        failure_type: 'contract_mismatch',
+        artifacts: [{ path: 'src/consumer.js', issue: 'shape mismatch' }],
+      });
+
+      assert.strictEqual(result.ok, true);
+
+      const rewritten = fs.readFileSync(verificationPath, 'utf-8');
+      const parsed = matter(rewritten);
+      assert.strictEqual(parsed.data.status, 'gaps_found');
+      assert.strictEqual(parsed.data.gaps.length, 1);
+      assert.strictEqual(parsed.data.gaps[0].failure_type, 'contract_mismatch');
+      assert.strictEqual(parsed.data.gaps[0].truth, 'Cross-phase contract holds');
+      assert.strictEqual(parsed.content, bodyBefore, 'expected markdown body to be byte-identical after the write');
+    });
+
+    test('appends (does not replace) an EXISTING gaps array', () => {
+      const verificationPath = writeVerificationFixture('.planning/phases/59-test-phase/59-VERIFICATION.md', GAPS_FOUND_1_EXISTING_CONTENT);
+      const originalParsed = matter(GAPS_FOUND_1_EXISTING_CONTENT);
+      const originalGap = originalParsed.data.gaps[0];
+
+      const result = appendVerificationGap(tmpDir, verificationPath, {
+        truth: 'Second truth',
+        reason: 'second reason',
+        failure_type: 'contract_mismatch',
+      });
+
+      assert.strictEqual(result.ok, true);
+      assert.strictEqual(result.gaps_count, 2);
+
+      const rewritten = fs.readFileSync(verificationPath, 'utf-8');
+      const parsed = matter(rewritten);
+      assert.strictEqual(parsed.data.gaps.length, 2);
+      assert.deepStrictEqual(parsed.data.gaps[0], originalGap, 'expected the original gap entry to be unchanged');
+      assert.strictEqual(parsed.data.gaps[1].truth, 'Second truth');
+    });
+
+    test('never throws on a missing file -- returns {ok:false, error}', () => {
+      const missingPath = path.join(tmpDir, '.planning', 'phases', '59-test-phase', 'does-not-exist.md');
+      let result;
+      assert.doesNotThrow(() => {
+        result = appendVerificationGap(tmpDir, missingPath, { truth: 'x', reason: 'y' });
+      });
+      assert.strictEqual(result.ok, false);
+      assert.ok(result.error);
+    });
+
+    test('never throws on malformed/corrupt frontmatter -- returns {ok:false, error}', () => {
+      const verificationPath = writeVerificationFixture('.planning/phases/59-test-phase/59-VERIFICATION.md', MALFORMED_FRONTMATTER_CONTENT);
+      let result;
+      assert.doesNotThrow(() => {
+        result = appendVerificationGap(tmpDir, verificationPath, { truth: 'x', reason: 'y' });
+      });
+      assert.strictEqual(result.ok, false);
+      assert.ok(result.error);
+    });
+  });
+
+  describe('verify append-gap CLI', () => {
+    test('missing --truth/--reason exits non-zero with a JSON error naming the missing flag', () => {
+      const verificationPath = writeVerificationFixture('.planning/phases/59-test-phase/59-VERIFICATION.md', PASSED_NO_GAPS_CONTENT);
+      const relPath = path.relative(tmpDir, verificationPath);
+      const result = runGsdTools(`verify append-gap "${relPath}" --raw`, tmpDir);
+      assert.ok(!result.success, 'expected non-zero exit when --truth/--reason are missing');
+      const parsed = JSON.parse(result.output || result.error);
+      assert.strictEqual(parsed.error, true);
+      assert.strictEqual(parsed.type, 'missing_flags');
+    });
+
+    test('happy path: exits 0, prints {appended:true, gaps_count:1, ...}, file on disk now has status:gaps_found', () => {
+      const verificationPath = writeVerificationFixture('.planning/phases/59-test-phase/59-VERIFICATION.md', PASSED_NO_GAPS_CONTENT);
+      const relPath = path.relative(tmpDir, verificationPath);
+      const result = runGsdTools(`verify append-gap "${relPath}" --truth "Some truth" --reason "some reason" --raw`, tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.appended, true);
+      assert.strictEqual(parsed.gaps_count, 1);
+
+      const rewritten = matter(fs.readFileSync(verificationPath, 'utf-8'));
+      assert.strictEqual(rewritten.data.status, 'gaps_found');
+    });
+
+    test('--artifacts with malformed JSON exits non-zero with malformed_artifacts_json error, WITHOUT writing to the file', () => {
+      const verificationPath = writeVerificationFixture('.planning/phases/59-test-phase/59-VERIFICATION.md', PASSED_NO_GAPS_CONTENT);
+      const contentBefore = fs.readFileSync(verificationPath, 'utf-8');
+      const relPath = path.relative(tmpDir, verificationPath);
+
+      const result = runGsdTools(`verify append-gap "${relPath}" --truth "t" --reason "r" --artifacts "{not valid json" --raw`, tmpDir);
+      assert.ok(!result.success, 'expected non-zero exit on malformed --artifacts JSON');
+      const parsed = JSON.parse(result.output || result.error);
+      assert.strictEqual(parsed.error, true);
+      assert.strictEqual(parsed.type, 'malformed_artifacts_json');
+
+      const contentAfter = fs.readFileSync(verificationPath, 'utf-8');
+      assert.strictEqual(contentAfter, contentBefore, 'expected the file to be untouched when --artifacts JSON is malformed');
+    });
+
+    test('--failure-type omitted defaults to contract_mismatch on the written gap', () => {
+      const verificationPath = writeVerificationFixture('.planning/phases/59-test-phase/59-VERIFICATION.md', PASSED_NO_GAPS_CONTENT);
+      const relPath = path.relative(tmpDir, verificationPath);
+      const result = runGsdTools(`verify append-gap "${relPath}" --truth "t" --reason "r" --raw`, tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+
+      const rewritten = matter(fs.readFileSync(verificationPath, 'utf-8'));
+      assert.strictEqual(rewritten.data.gaps[0].failure_type, 'contract_mismatch');
+    });
+  });
+
+  describe('composition proof: existing eval-candidate reader consumes the appended gap unmodified', () => {
+    test('after a real `verify append-gap` CLI call, buildEvalCandidatesFromVerificationFile returns exactly 1 candidate whose context.gap_description matches --reason', () => {
+      const verificationPath = writeVerificationFixture('.planning/phases/59-test-phase/59-VERIFICATION.md', PASSED_NO_GAPS_CONTENT);
+      const relPath = path.relative(tmpDir, verificationPath);
+      const reasonText = 'consumer reads field X but producer never sets it';
+
+      const cliResult = runGsdTools(`verify append-gap "${relPath}" --truth "Consumer/producer contract holds" --reason "${reasonText}" --raw`, tmpDir);
+      assert.ok(cliResult.success, `expected exit 0, got: ${cliResult.error}`);
+
+      const candidates = buildEvalCandidatesFromVerificationFile(tmpDir, verificationPath);
+      assert.strictEqual(candidates.length, 1, 'expected the existing Phase 55 reader to pick up exactly 1 candidate from the appended gap');
+      assert.strictEqual(candidates[0].context.gap_description, reasonText);
+    });
+  });
+});
