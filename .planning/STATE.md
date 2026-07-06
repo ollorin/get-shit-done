@@ -9,10 +9,10 @@ See: .planning/PROJECT.md (updated 2026-07-02)
 
 ## Current Position
 
-Phase: 54 of 61 (Structured Handoffs & Invariant Re-Injection) — COMPLETE
-Plan: 4 of 4 (all complete)
-Status: Plan 54-04 complete — fixed handoff brief wired into coordinator->executor (both routing modes) and executor->verifier spawns, budget-safe one-line preamble pointers, all prompt budgets pass, 550/550 tests passing. MILE-40 satisfied end-to-end; Phase 54 fully complete.
-Last activity: 2026-07-06 — Executed 54-04-PLAN.md: coordinator-detail.md injects <handoff_brief> at both executor branches + verifier spawn; gsd-phase-coordinator.md/gsd-executor.md/gsd-verifier.md each gain a one-sentence budget-safe pointer; 6 new grep-assertion/integration tests (describe('Phase 54 handoff-brief wiring')); budget check --raw pass:true for all 5 agents; MILE-40 flipped to Complete in REQUIREMENTS.md; ROADMAP.md Phase 54 now shows 4/4 plans complete
+Phase: 55 of 61 (Failures-to-Regression Pipeline) — IN PROGRESS
+Plan: 1 of 3 (55-01 complete)
+Status: Plan 55-01 complete — eval-candidate builders (buildEvalCandidateFromDebugFile, buildEvalCandidatesFromVerificationFile), atomic writer, and `eval-candidate from-debug`/`from-verification` CLI wired into gsd-debugger's Phase 4 CONFIRMED point and gsd-verifier's gaps_found output step; 569/569 tests passing. MILE-32 criteria 1 and 2 satisfied. 55-02 (accept/reject) and 55-03 (CI execution) pending.
+Last activity: 2026-07-06 — Executed 55-01-PLAN.md: added tests/eval-regressions/{queue,accepted,archived}/ git-tracked review-queue dirs, 19 new tests across both TDD tasks, CHANGELOG.md entry.
 
 Progress: [██████████] 99%
 
@@ -80,6 +80,7 @@ Progress: [██████████] 99%
 | Phase 54 P02 | ~20min | 3 tasks | 2 files |
 | Phase 54 P03 | ~15min | 3 tasks | 4 files |
 | Phase 54 P04 | ~20min | 3 tasks | 5 files |
+| Phase 55 P01 | 35min | 4 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -141,6 +142,8 @@ Recent decisions affecting current work:
 - [Phase 54]: [54-02]: getPhaseInvariantsText captures the ACTUAL heading hash-run (## vs ### vs ####) at the phase-header match and reuses that exact string for the next-header boundary regex, instead of hardcoding 3 hashes as cmdRoadmapGetPhase's own regex does -- the real .planning/ROADMAP.md uses 4-hash "#### Phase N:" headers throughout, so hardcoding 3 (as literally reusing cmdRoadmapGetPhase's regex would do) causes the slice to run to EOF, capturing every subsequent phase plus the Progress table; confirmed cmdRoadmapGetPhase itself has this exact latent bug against the live file (logged to 54-structured-handoffs/deferred-items.md, out of scope for this plan since fixing that separate command was not the task); buildResumeBrief's new third invariantsText param appends a "PHASE INVARIANTS (verbatim from ROADMAP.md -- DO NOT paraphrase)" block to BOTH the found and not-found (from-scratch) branches and returns an additive invariants field, fully backward-compatible with 51-02's two-arg contract; no Task/Agent tool was available in this executor run either, so Task 2's tdd="true" spawn and the mandatory docs-update step were again completed inline (532/532 npm test passing, was 524)
 - [Phase 54]: [54-03]: assertHandoffBriefPresent(spawnEntries, requiredAgents) and assertResumeInvariantsReinjected(briefText, sourceFilePath, expectedInvariants) added to eval-harness.js, mirroring assertNoInjectionCompliance's pure/fail-safe/never-throw contract exactly -- the re-injection check requires a substring to be present in BOTH the real source file AND briefText (symmetric containment) before counting it as re-injected, rejecting paraphrase and catching fabricated invariants (present in the brief but never in the source) via separate missing_from_source/missing_from_brief lists; both wired additively into runEvalAssertions via new requiredHandoffAgents/handoffSpawnTrace/resumeInvariants options, reusing the already-parsed spawn-trace.json entries rather than re-reading the file, folded into the aggregate pass with the same (!check || check.pass) guard injection_resisted uses -- 53-xx callers that omit the new options see no new check keys (regression-tested); new tests/fixtures/eval-project/golden-artifacts/post-54/ golden fixture (8 entries, complete handoff_brief on each executor/verifier entry) exercises the presence assertion for real; no Task/Agent tool was available in this executor run either, so Task 2's tdd="true" spawn and the mandatory docs-update step were again completed inline (544/544 npm test passing, was 532)
 - [Phase 54]: [54-04]: coordinator-detail.md assembles the fixed handoff brief fresh at BOTH spawn boundaries (coordinator->executor, both PER_TASK_MODE branches, and executor->verifier) rather than threading it through SUMMARY.md, since the coordinator is the one agent present at both boundaries; each of the 3 modified agent core preambles (gsd-phase-coordinator.md/gsd-executor.md/gsd-verifier.md) gains exactly one acknowledgment sentence inside its existing hard_rules_digest/error_handling section, before its own CORE-PREAMBLE-END marker (index-ordering verified by test) -- all bulk 5-section content lives in coordinator-detail.md, an @-included reference the budget checker never measures, so prompt-budgets.json was never touched and executor's tight 1906-token headroom absorbed only a 39-token addition; 6 new grep-assertion/integration tests lock in the wiring plus a checkAllBudgets pass:true regression across all 3 modified agents; gsd-planner.md/gsd-debugger.md confirmed untouched (blast-radius boundary test); no Task/Agent tool was available in this executor run either, so Task 2's tdd="true" spawn and the mandatory docs-update step were again completed inline; MILE-40 flipped to Complete in REQUIREMENTS.md -- Phase 54 (Structured Handoffs & Invariant Re-Injection) now COMPLETE across all 4 plans, 550/550 npm test passing (was 544)
+- [Phase 55]: Candidate fixtures live under tests/eval-regressions/{queue,accepted,archived}/ (git-tracked) rather than .planning/ (gitignored) so accepted candidates survive as permanent CI artifacts
+- [Phase 55]: gray-matter used for debug-file and VERIFICATION.md frontmatter parsing instead of extending the hand-rolled extractFrontmatter, which cannot parse the nested gaps array-of-objects schema
 
 ### Roadmap Evolution
 
