@@ -10778,3 +10778,255 @@ Nothing interesting here.
     assert.ok(/^@@ .*@@/m.test(diffContent), 'expected at least one "@@ ... @@" hunk header line');
   });
 });
+
+describe('Phase 57-01: routing ledger storage & build', () => {
+  const { deriveTaskType, buildRoutingLedger, readRoutingLedger, writeRoutingLedger, loadConfig } = require(TOOLS_PATH);
+
+  describe('deriveTaskType', () => {
+    test('first-match-wins ordering: "write" precedes "fix" in the vocabulary', () => {
+      assert.strictEqual(deriveTaskType('write and fix the bug'), 'write');
+    });
+
+    test('whole-word matching does NOT match "rewrite" as "write"', () => {
+      assert.strictEqual(deriveTaskType('rewrite the module entirely'), 'other');
+    });
+
+    test('case-insensitive matching', () => {
+      assert.strictEqual(deriveTaskType('WRITE the wallet_credit RPC'), 'write');
+      assert.strictEqual(deriveTaskType('Fix the failing test'), 'fix');
+    });
+
+    test('falls back to "other" when no vocabulary verb matches', () => {
+      assert.strictEqual(deriveTaskType('look at the thing'), 'other');
+    });
+
+    test('falls back to "other" for empty/non-string input', () => {
+      assert.strictEqual(deriveTaskType(''), 'other');
+      assert.strictEqual(deriveTaskType(null), 'other');
+      assert.strictEqual(deriveTaskType(undefined), 'other');
+      assert.strictEqual(deriveTaskType(42), 'other');
+    });
+
+    test('matches a later-vocabulary verb when no earlier verb is present', () => {
+      assert.strictEqual(deriveTaskType('investigate the root cause'), 'investigate');
+      assert.strictEqual(deriveTaskType('commit the staged changes'), 'commit');
+    });
+  });
+
+  describe('buildRoutingLedger (pure)', () => {
+    test('buckets mixed task_outcome events across 2+ task_types and multiple tiers', () => {
+      const events = [
+        { type: 'task_outcome', task_type: 'write', tier: 'haiku', outcome: 'success' },
+        { type: 'task_outcome', task_type: 'write', tier: 'haiku', outcome: 'failure' },
+        { type: 'task_outcome', task_type: 'write', tier: 'sonnet', outcome: 'success' },
+        { type: 'task_outcome', task_type: 'fix', tier: 'opus', outcome: 'success' },
+        { type: 'task_outcome', task_type: 'fix', tier: 'opus', outcome: 'success' },
+      ];
+      const ledger = buildRoutingLedger(events);
+      assert.deepStrictEqual(ledger.task_types.write.haiku, { attempts: 2, successes: 1, failures: 1 });
+      assert.deepStrictEqual(ledger.task_types.write.sonnet, { attempts: 1, successes: 1, failures: 0 });
+      assert.deepStrictEqual(ledger.task_types.fix.opus, { attempts: 2, successes: 2, failures: 0 });
+    });
+
+    test('source_event_count counts only task_outcome events; non-matching event types in the same array are ignored', () => {
+      const events = [
+        { type: 'task_outcome', task_type: 'write', tier: 'haiku', outcome: 'success' },
+        { type: 'phase_start', phase: '57' },
+        { type: 'tier_escalation', from_tier: 'haiku', to_tier: 'sonnet' },
+        { type: 'task_outcome', task_type: 'fix', tier: 'sonnet', outcome: 'failure' },
+      ];
+      const ledger = buildRoutingLedger(events);
+      assert.strictEqual(ledger.source_event_count, 2);
+    });
+
+    test('an empty events array produces {task_types: {}} without throwing', () => {
+      assert.doesNotThrow(() => {
+        const ledger = buildRoutingLedger([]);
+        assert.deepStrictEqual(ledger.task_types, {});
+        assert.strictEqual(ledger.source_event_count, 0);
+      });
+      assert.doesNotThrow(() => {
+        const ledger = buildRoutingLedger(null);
+        assert.deepStrictEqual(ledger.task_types, {});
+      });
+    });
+
+    test('min_sample_count defaults to 5 and is overridable via options.minSampleCount', () => {
+      assert.strictEqual(buildRoutingLedger([]).min_sample_count, 5);
+      assert.strictEqual(buildRoutingLedger([], { minSampleCount: 12 }).min_sample_count, 12);
+    });
+
+    test('telemetry-enrichment path folds tool_errors_swallowed into quality_flags only on the matching (phase, plan) bucket', () => {
+      const events = [
+        { type: 'task_outcome', task_type: 'write', tier: 'haiku', outcome: 'success', phase: '57', plan: '01' },
+        { type: 'task_outcome', task_type: 'fix', tier: 'sonnet', outcome: 'success', phase: '58', plan: '01' },
+      ];
+      const telemetryReports = [
+        { phase: '57', plan: '01', tool_errors_swallowed: 3 },
+        { phase: '99', plan: '01', tool_errors_swallowed: 7 }, // no matching task_outcome — must not affect any bucket
+      ];
+      const ledger = buildRoutingLedger(events, { telemetryReports });
+      assert.strictEqual(ledger.task_types.write.haiku.quality_flags, 3);
+      assert.strictEqual(ledger.task_types.fix.sonnet.quality_flags, undefined);
+    });
+
+    test('telemetry enrichment is a no-op when telemetryReports is omitted', () => {
+      const events = [
+        { type: 'task_outcome', task_type: 'write', tier: 'haiku', outcome: 'success', phase: '57', plan: '01' },
+      ];
+      const ledger = buildRoutingLedger(events);
+      assert.strictEqual(ledger.task_types.write.haiku.quality_flags, undefined);
+    });
+  });
+
+  describe('readRoutingLedger / writeRoutingLedger', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+      tmpDir = createTempProject();
+    });
+
+    afterEach(() => {
+      cleanup(tmpDir);
+    });
+
+    test('missing file -> {ok:true, ledger:null, reason:"missing"}, never throws', () => {
+      let result;
+      assert.doesNotThrow(() => { result = readRoutingLedger(tmpDir); });
+      assert.deepStrictEqual(result, { ok: true, ledger: null, reason: 'missing' });
+    });
+
+    test('malformed JSON file -> {ok:false, ledger:null, reason:"corrupt"}, never throws', () => {
+      const ledgerPath = path.join(tmpDir, '.planning', 'routing-ledger.json');
+      fs.writeFileSync(ledgerPath, 'NOT VALID JSON{{{', 'utf-8');
+      let result;
+      assert.doesNotThrow(() => { result = readRoutingLedger(tmpDir); });
+      assert.strictEqual(result.ok, false);
+      assert.strictEqual(result.ledger, null);
+      assert.strictEqual(result.reason, 'corrupt');
+    });
+
+    test('a valid JSON file missing the task_types key -> reason:"corrupt", never throws', () => {
+      const ledgerPath = path.join(tmpDir, '.planning', 'routing-ledger.json');
+      fs.writeFileSync(ledgerPath, JSON.stringify({ built_at: 'x', source_event_count: 0 }), 'utf-8');
+      let result;
+      assert.doesNotThrow(() => { result = readRoutingLedger(tmpDir); });
+      assert.strictEqual(result.ok, false);
+      assert.strictEqual(result.reason, 'corrupt');
+    });
+
+    test('writeRoutingLedger + readRoutingLedger round-trip: deep equality', () => {
+      const ledger = buildRoutingLedger([
+        { type: 'task_outcome', task_type: 'write', tier: 'haiku', outcome: 'success' },
+      ]);
+      writeRoutingLedger(tmpDir, ledger);
+      const result = readRoutingLedger(tmpDir);
+      assert.strictEqual(result.ok, true);
+      assert.deepStrictEqual(result.ledger, ledger);
+    });
+  });
+
+  describe('loadConfig routing_min_sample_count', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+      tmpDir = createTempProject();
+    });
+
+    afterEach(() => {
+      cleanup(tmpDir);
+    });
+
+    test('defaults to 5 when config.json is absent', () => {
+      const config = loadConfig(tmpDir);
+      assert.strictEqual(config.routing_min_sample_count, 5);
+    });
+
+    test('resolves to 12 when config.json has {"routing": {"min_sample_count": 12}}', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'config.json'),
+        JSON.stringify({ routing: { min_sample_count: 12 } }),
+        'utf-8'
+      );
+      const config = loadConfig(tmpDir);
+      assert.strictEqual(config.routing_min_sample_count, 12);
+    });
+  });
+
+  describe('CLI integration', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+      tmpDir = createTempProject();
+    });
+
+    afterEach(() => {
+      cleanup(tmpDir);
+    });
+
+    function seedExecutionLogEvents(events) {
+      const logPath = path.join(tmpDir, '.planning', 'EXECUTION_LOG.md');
+      const header = '# Autonomous Roadmap Execution Log\n\n';
+      const lines = events.map((e) => JSON.stringify(e)).join('\n') + '\n';
+      fs.writeFileSync(logPath, header + lines, 'utf-8');
+    }
+
+    test('routing task-type "<desc>" --raw prints the bare derived type', () => {
+      const result = runGsdTools('routing task-type "Write the wallet_credit RPC" --raw', tmpDir);
+      assert.ok(result.success, `expected exit 0: ${result.error}`);
+      assert.strictEqual(result.output, 'write');
+    });
+
+    // Integration-test scenario #1 from 57-RESEARCH.md: ledger build from
+    // seeded EXECUTION_LOG.md events.
+    test('routing ledger build --raw against a seeded EXECUTION_LOG.md writes a valid routing-ledger.json with correct bucket counts', () => {
+      seedExecutionLogEvents([
+        { type: 'task_outcome', task_type: 'write', tier: 'haiku', outcome: 'success' },
+        { type: 'task_outcome', task_type: 'write', tier: 'haiku', outcome: 'failure' },
+        { type: 'task_outcome', task_type: 'fix', tier: 'sonnet', outcome: 'success' },
+        { type: 'phase_start', phase: '57' },
+      ]);
+
+      const result = runGsdTools('routing ledger build --raw', tmpDir);
+      assert.ok(result.success, `expected exit 0: ${result.error}`);
+      const summary = JSON.parse(result.output);
+      assert.strictEqual(summary.ok, true);
+      assert.strictEqual(summary.source_event_count, 3);
+      assert.strictEqual(summary.task_type_count, 2);
+
+      // Assert the file on disk, not just the CLI's summary output.
+      const ledgerPath = path.join(tmpDir, '.planning', 'routing-ledger.json');
+      assert.ok(fs.existsSync(ledgerPath), 'expected routing-ledger.json to be written to disk');
+      const onDisk = JSON.parse(fs.readFileSync(ledgerPath, 'utf-8'));
+      assert.deepStrictEqual(onDisk.task_types.write.haiku, { attempts: 2, successes: 1, failures: 1 });
+      assert.deepStrictEqual(onDisk.task_types.fix.sonnet, { attempts: 1, successes: 1, failures: 0 });
+    });
+
+    test('routing ledger show --raw returns the built ledger from a project with a valid routing-ledger.json', () => {
+      seedExecutionLogEvents([
+        { type: 'task_outcome', task_type: 'write', tier: 'haiku', outcome: 'success' },
+      ]);
+      const buildResult = runGsdTools('routing ledger build --raw', tmpDir);
+      assert.ok(buildResult.success);
+
+      const showResult = runGsdTools('routing ledger show --raw', tmpDir);
+      assert.ok(showResult.success, `expected exit 0: ${showResult.error}`);
+      const shown = JSON.parse(showResult.output);
+      assert.deepStrictEqual(shown.task_types.write.haiku, { attempts: 1, successes: 1, failures: 0 });
+    });
+
+    // Corrupt-ledger scenario #3 from 57-RESEARCH.md's required coverage list
+    // (ledger-consult half deferred to Plan 57-02 — this asserts the `show`
+    // half: it never throws / never non-zero exits on a corrupt file).
+    test('routing ledger show --raw against a corrupted routing-ledger.json returns ok:false, reason:"corrupt" without a non-zero-exit crash', () => {
+      const ledgerPath = path.join(tmpDir, '.planning', 'routing-ledger.json');
+      fs.writeFileSync(ledgerPath, 'NOT VALID JSON{{{', 'utf-8');
+
+      const result = runGsdTools('routing ledger show --raw', tmpDir);
+      assert.ok(result.success, `show must still exit 0 even on a corrupt ledger: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.ok, false);
+      assert.strictEqual(parsed.reason, 'corrupt');
+    });
+  });
+});

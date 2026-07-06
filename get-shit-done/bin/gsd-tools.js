@@ -14198,6 +14198,7 @@ module.exports = {
   readRoutingLedger,
   writeRoutingLedger,
   getRoutingLedgerPath,
+  loadConfig,
 };
 
 // Only auto-run when invoked directly as a CLI (`node gsd-tools.js ...`), not
