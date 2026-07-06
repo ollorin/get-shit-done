@@ -153,3 +153,23 @@ The pre-PR gate now:
 Phase 61 (Project-Aware Pre-PR Gate) is now **COMPLETE** across all 3 plans (61-01/61-02/61-03). MILE-41 is **satisfied end-to-end**. The gate self-hosts against the GSD repo and will continue to prove correct on every future `npm test` run via the permanent regression test.
 
 **v1.15.0 (Self-Improving Quality Loop)** is now **COMPLETE** across all 8 phases (54-61). All 10 requirements (MILE-32..41) are satisfied.
+
+## Post-Completion Self-Hosting Evidence (coordinator addendum, 2026-07-06)
+
+Captured after `phase complete 61` (phase_complete event logged, EXECUTION_LOG balanced):
+
+1. Real repo root, real CLI: `node get-shit-done/bin/gsd-tools.js gate pre-pr` returned
+   `{"gate":"pre-pr","passed":true,"cached":true,...}` — the gate passes on the GSD repo itself
+   (pre-existing cached-marker branch, preserved by 61-02).
+2. Action-required branch with the REAL GSD package.json (scratch dir with a copy of the real
+   manifest + minimal balanced EXECUTION_LOG.md):
+   `{"gate":"pre-pr","passed":false,"action_required":true,"checks":[{"id":"node-test","command":"npm run test","required":true}],"detected_types":["node"],...}`
+   — exactly one check derived from the sole declared script; no degraded flag.
+3. The derived check passed for real: `npm test` = 905/905, zero failures (run twice today:
+   post-61-02 at 904/904 and post-gap-fix at 905/905; eval regress `pass:true` both times).
+4. Full loop: `gate pre-pr --mark-passed` -> `{"passed":true,"marked":true}`; re-run ->
+   `{"passed":true,"cached":true}`; execute-roadmap.md's push guard
+   `grep -q '"passed": true'` matches (fix 4c3dc5f).
+5. Gap closure (from cross-phase integration check): execute-roadmap.md:685 grepped
+   `'"passed":true'` (no space) which never matched the pretty-printed CLI output — pre-existing
+   bug, fixed together with 61-02's contract-lock test assertion in commit 4c3dc5f.
