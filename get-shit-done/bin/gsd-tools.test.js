@@ -12702,3 +12702,331 @@ describe('Phase 59-04: DEPENDS_ON snippet --raw contract-mismatch regression (MI
     }
   });
 });
+
+// Phase 60-01 (MILE-39, foundation): loadConfig's 3 new adversarial_review
+// toggles, the pure computeHighRisk/computePresentationOrder/verdictToIssues
+// functions, and the quality assess-risk / quality verdict-to-issues CLI
+// subcommands they back. This plan lands the decision layer only -- Plan
+// 60-03 wires plan-phase.md's risk-triage step on top of these stable CLI
+// contracts.
+describe('Phase 60-01: adversarial-review config + assess-risk/verdict-to-issues (MILE-39)', () => {
+  const { loadConfig, computeHighRisk, computePresentationOrder, verdictToIssues } = resilience;
+
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function writeFixture(relPath, content) {
+    const fullPath = path.join(tmpDir, relPath);
+    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    fs.writeFileSync(fullPath, content, 'utf-8');
+    return fullPath;
+  }
+
+  describe('loadConfig defaults', () => {
+    test('adversarial_review_enabled:false, adversarial_review_file_threshold:8, adversarial_review_security_patterns 10-entry array when config.json is absent (ENOENT branch)', () => {
+      const config = loadConfig(tmpDir);
+      assert.strictEqual(config.adversarial_review_enabled, false);
+      assert.strictEqual(config.adversarial_review_file_threshold, 8);
+      assert.ok(Array.isArray(config.adversarial_review_security_patterns));
+      assert.strictEqual(config.adversarial_review_security_patterns.length, 10);
+    });
+
+    test('all three defaults hold when config.json exists but omits all three keys', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'config.json'),
+        JSON.stringify({ model_profile: 'balanced' }),
+        'utf-8'
+      );
+      const config = loadConfig(tmpDir);
+      assert.strictEqual(config.adversarial_review_enabled, false);
+      assert.strictEqual(config.adversarial_review_file_threshold, 8);
+      assert.strictEqual(config.adversarial_review_security_patterns.length, 10);
+    });
+
+    test('flat override {"adversarial_review_enabled": true} resolves without affecting the other two defaults', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'config.json'),
+        JSON.stringify({ adversarial_review_enabled: true }),
+        'utf-8'
+      );
+      const config = loadConfig(tmpDir);
+      assert.strictEqual(config.adversarial_review_enabled, true);
+      assert.strictEqual(config.adversarial_review_file_threshold, 8);
+      assert.strictEqual(config.adversarial_review_security_patterns.length, 10);
+    });
+
+    test('nested override {"quality": {"adversarial_review_file_threshold": 3}} resolves without affecting adversarial_review_enabled', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'config.json'),
+        JSON.stringify({ quality: { adversarial_review_file_threshold: 3 } }),
+        'utf-8'
+      );
+      const config = loadConfig(tmpDir);
+      assert.strictEqual(config.adversarial_review_file_threshold, 3);
+      assert.strictEqual(config.adversarial_review_enabled, false);
+    });
+  });
+
+  describe('computeHighRisk (unit)', () => {
+    test('explicit high_risk:true (boolean) frontmatter wins even when the toggle is OFF (default config)', () => {
+      const config = loadConfig(tmpDir);
+      const result = computeHighRisk({ high_risk: true }, '', config);
+      assert.deepStrictEqual(result, { high_risk: true, reasons: ['explicit high_risk frontmatter flag'] });
+    });
+
+    test('explicit high_risk: "true" (string) frontmatter resolves identically to the boolean case', () => {
+      const config = loadConfig(tmpDir);
+      const result = computeHighRisk({ high_risk: 'true' }, '', config);
+      assert.deepStrictEqual(result, { high_risk: true, reasons: ['explicit high_risk frontmatter flag'] });
+    });
+
+    test('no explicit flag, toggle OFF, 20 files_modified entries -> {high_risk:false, reasons:[]} (feature off wins)', () => {
+      const config = loadConfig(tmpDir); // toggle off by default
+      const filesModified = Array.from({ length: 20 }, (_, i) => `src/file${i}.js`);
+      const result = computeHighRisk({ files_modified: filesModified }, '', config);
+      assert.deepStrictEqual(result, { high_risk: false, reasons: [] });
+    });
+
+    test('no explicit flag, toggle ON, files_modified.length exceeds threshold -> high_risk:true with a threshold-exceeded reason', () => {
+      const config = { adversarial_review_enabled: true, adversarial_review_file_threshold: 8, adversarial_review_security_patterns: [] };
+      const filesModified = Array.from({ length: 9 }, (_, i) => `src/file${i}.js`);
+      const result = computeHighRisk({ files_modified: filesModified }, '', config);
+      assert.strictEqual(result.high_risk, true);
+      assert.ok(result.reasons.some(r => r.includes('threshold')), `expected a threshold reason, got: ${JSON.stringify(result.reasons)}`);
+    });
+
+    test('no explicit flag, toggle ON, a files_modified entry matches a configured security pattern -> high_risk:true with a pattern-match reason', () => {
+      const config = { adversarial_review_enabled: true, adversarial_review_file_threshold: 8, adversarial_review_security_patterns: ['auth', 'payment', '/api/'] };
+      const result = computeHighRisk({ files_modified: ['src/api/auth/route.ts'] }, '', config);
+      assert.strictEqual(result.high_risk, true);
+      assert.ok(result.reasons.some(r => r.includes('security pattern')), `expected a pattern-match reason, got: ${JSON.stringify(result.reasons)}`);
+    });
+
+    test('no explicit flag, toggle ON, plan content with 3 tdd="true" markers -> high_risk:true with a tdd-count reason; 2 markers -> high_risk:false', () => {
+      const config = { adversarial_review_enabled: true, adversarial_review_file_threshold: 8, adversarial_review_security_patterns: [] };
+      const threeMarkers = '<task type="auto" tdd="true"></task><task type="auto" tdd="true"></task><task type="auto" tdd="true"></task>';
+      const twoMarkers = '<task type="auto" tdd="true"></task><task type="auto" tdd="true"></task>';
+
+      const resultThree = computeHighRisk({}, threeMarkers, config);
+      assert.strictEqual(resultThree.high_risk, true);
+      assert.ok(resultThree.reasons.some(r => r.includes('tdd')), `expected a tdd-count reason, got: ${JSON.stringify(resultThree.reasons)}`);
+
+      const resultTwo = computeHighRisk({}, twoMarkers, config);
+      assert.strictEqual(resultTwo.high_risk, false);
+    });
+
+    test('no explicit flag, toggle ON, none of the 3 criteria met -> {high_risk:false, reasons:[]}', () => {
+      const config = { adversarial_review_enabled: true, adversarial_review_file_threshold: 8, adversarial_review_security_patterns: ['auth', 'payment'] };
+      const result = computeHighRisk({ files_modified: ['src/lib/util.js'] }, '<task tdd="true"></task>', config);
+      assert.deepStrictEqual(result, { high_risk: false, reasons: [] });
+    });
+
+    test('malformed input never throws: computeHighRisk(null, null, null) returns a well-formed object', () => {
+      let result;
+      assert.doesNotThrow(() => { result = computeHighRisk(null, null, null); });
+      assert.strictEqual(typeof result.high_risk, 'boolean');
+      assert.ok(Array.isArray(result.reasons));
+    });
+
+    test('malformed input never throws: files_modified is a string (not an array), toggle on', () => {
+      let result;
+      assert.doesNotThrow(() => {
+        result = computeHighRisk({ files_modified: 'not-an-array-but-a-string' }, undefined, { adversarial_review_enabled: true });
+      });
+      assert.strictEqual(typeof result.high_risk, 'boolean');
+      assert.ok(Array.isArray(result.reasons));
+    });
+  });
+
+  describe('computePresentationOrder (unit)', () => {
+    test('determinism: the SAME real plan-content string returns the identical value across repeated calls', () => {
+      const content = '---\nphase: 60\nplan: "01"\n---\n\n# Real plan content\n\nSome task details here.\n';
+      const first = computePresentationOrder(content);
+      const second = computePresentationOrder(content);
+      const third = computePresentationOrder(content);
+      assert.strictEqual(first, second);
+      assert.strictEqual(second, third);
+    });
+
+    test('valid enum: return value is always exactly attack_first or defense_first across 10 distinct synthetic content strings', () => {
+      for (let i = 0; i < 10; i++) {
+        const result = computePresentationOrder(`content-${i}-${'x'.repeat(i)}`);
+        assert.ok(result === 'attack_first' || result === 'defense_first', `unexpected value: ${result}`);
+      }
+    });
+
+    test('not constant: both attack_first and defense_first occur at least once across those same 10 distinct content strings', () => {
+      const seen = new Set();
+      for (let i = 0; i < 10; i++) {
+        seen.add(computePresentationOrder(`content-${i}-${'x'.repeat(i)}`));
+      }
+      assert.ok(seen.has('attack_first'), 'expected at least one attack_first result');
+      assert.ok(seen.has('defense_first'), 'expected at least one defense_first result');
+    });
+  });
+
+  describe('quality assess-risk CLI (real subprocess)', () => {
+    test('missing plan-file argument -> structured JSON error type:missing_argument, high_risk:false', () => {
+      const result = runGsdTools('quality assess-risk --raw', tmpDir);
+      const parsed = JSON.parse(result.output || result.error);
+      assert.strictEqual(parsed.error, true);
+      assert.strictEqual(parsed.type, 'missing_argument');
+      assert.strictEqual(parsed.high_risk, false);
+    });
+
+    test('nonexistent file path -> structured JSON error type:file_not_found', () => {
+      const result = runGsdTools('quality assess-risk does-not-exist-60-01.md --raw', tmpDir);
+      const parsed = JSON.parse(result.output || result.error);
+      assert.strictEqual(parsed.error, true);
+      assert.strictEqual(parsed.type, 'file_not_found');
+    });
+
+    test('malformed frontmatter (unterminated --- YAML block) -> structured JSON error type:malformed_frontmatter, process exits cleanly', () => {
+      const planPath = writeFixture(
+        '.planning/phases/60-adversarial-plan-review/malformed-PLAN.md',
+        '---\nstatus: [unterminated\nthis is not valid yaml: : :\n---\n\n# Body\n'
+      );
+      const relPath = path.relative(tmpDir, planPath);
+      const result = runGsdTools(`quality assess-risk "${relPath}" --raw`, tmpDir);
+      const parsed = JSON.parse(result.output || result.error);
+      assert.strictEqual(parsed.error, true);
+      assert.strictEqual(parsed.type, 'malformed_frontmatter');
+    });
+
+    test('real high-risk fixture: high_risk:true frontmatter (default config, toggle off) resolves high_risk:true with the explicit-flag reason', () => {
+      const planPath = writeFixture(
+        '.planning/phases/60-adversarial-plan-review/60-explicit-PLAN.md',
+        '---\nphase: 60\nplan: "explicit"\nhigh_risk: true\n---\n\n# Plan\n'
+      );
+      const relPath = path.relative(tmpDir, planPath);
+      const result = runGsdTools(`quality assess-risk "${relPath}" --raw`, tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.high_risk, true);
+      assert.ok(parsed.reasons.includes('explicit high_risk frontmatter flag'));
+      assert.ok(parsed.presentation_order === 'attack_first' || parsed.presentation_order === 'defense_first');
+    });
+
+    test('real criteria-triggered fixture: 9 files_modified entries + temp config toggle ON (default threshold 8) -> high_risk:true with a threshold reason', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'config.json'),
+        JSON.stringify({ adversarial_review_enabled: true }),
+        'utf-8'
+      );
+      const filesYaml = Array.from({ length: 9 }, (_, i) => `  - src/file${i}.js`).join('\n');
+      const planPath = writeFixture(
+        '.planning/phases/60-adversarial-plan-review/60-criteria-PLAN.md',
+        `---\nphase: 60\nplan: "criteria"\nfiles_modified:\n${filesYaml}\n---\n\n# Plan\n`
+      );
+      const relPath = path.relative(tmpDir, planPath);
+      const result = runGsdTools(`quality assess-risk "${relPath}" --raw`, tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.high_risk, true);
+      assert.ok(parsed.reasons.some(r => r.includes('threshold')), `expected a threshold reason, got: ${JSON.stringify(parsed.reasons)}`);
+    });
+
+    test('real not-high-risk fixture: toggle on, 2 files_modified entries, no security pattern match, 1 tdd="true" task -> {high_risk:false, reasons:[]}', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'config.json'),
+        JSON.stringify({ adversarial_review_enabled: true }),
+        'utf-8'
+      );
+      const planPath = writeFixture(
+        '.planning/phases/60-adversarial-plan-review/60-safe-PLAN.md',
+        '---\nphase: 60\nplan: "safe"\nfiles_modified:\n  - src/lib/util.js\n  - src/lib/helpers.js\n---\n\n<task type="auto" tdd="true"><name>Task 1</name></task>\n'
+      );
+      const relPath = path.relative(tmpDir, planPath);
+      const result = runGsdTools(`quality assess-risk "${relPath}" --raw`, tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.high_risk, false);
+      assert.deepStrictEqual(parsed.reasons, []);
+    });
+
+    test('toggle-off default wins: same 9-files_modified fixture WITHOUT the temp adversarial_review_enabled:true config override -> high_risk:false', () => {
+      const filesYaml = Array.from({ length: 9 }, (_, i) => `  - src/file${i}.js`).join('\n');
+      const planPath = writeFixture(
+        '.planning/phases/60-adversarial-plan-review/60-criteria-off-PLAN.md',
+        `---\nphase: 60\nplan: "criteria-off"\nfiles_modified:\n${filesYaml}\n---\n\n# Plan\n`
+      );
+      const relPath = path.relative(tmpDir, planPath);
+      const result = runGsdTools(`quality assess-risk "${relPath}" --raw`, tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.high_risk, false, 'expected the toggle-off default to win over the file-count criterion');
+    });
+  });
+
+  describe('verdictToIssues (unit)', () => {
+    test('{verdict: "approved"} -> []', () => {
+      assert.deepStrictEqual(verdictToIssues({ verdict: 'approved' }, '60-01'), []);
+    });
+
+    test('missing/undefined verdict field entirely -> [] (treated as approved-equivalent)', () => {
+      assert.deepStrictEqual(verdictToIssues({}, '60-01'), []);
+      assert.deepStrictEqual(verdictToIssues({ required_changes: ['x'] }, '60-01'), []);
+    });
+
+    test('{verdict: "revise", required_changes: [...], plan: "60-01"} -> 2 warning-severity issues in the exact gsd-plan-checker shape', () => {
+      const issues = verdictToIssues({ verdict: 'revise', required_changes: ['Fix A', 'Fix B'], plan: '60-01' });
+      assert.strictEqual(issues.length, 2);
+      for (const issue of issues) {
+        assert.strictEqual(issue.plan, '60-01');
+        assert.strictEqual(issue.dimension, 'adversarial_review');
+        assert.strictEqual(issue.severity, 'warning');
+      }
+      assert.strictEqual(issues[0].description, 'Fix A');
+      assert.strictEqual(issues[1].description, 'Fix B');
+    });
+
+    test('{verdict: "critical", required_changes: [{description, fix_hint}]} -> 1 blocker-severity issue, object-shaped required_changes handled', () => {
+      const issues = verdictToIssues({ verdict: 'critical', required_changes: [{ description: 'Fix C', fix_hint: 'Do X' }] });
+      assert.strictEqual(issues.length, 1);
+      assert.strictEqual(issues[0].severity, 'blocker');
+      assert.strictEqual(issues[0].description, 'Fix C');
+      assert.strictEqual(issues[0].fix_hint, 'Do X');
+      assert.strictEqual(issues[0].dimension, 'adversarial_review');
+    });
+  });
+
+  describe('quality verdict-to-issues CLI (real subprocess)', () => {
+    test('missing verdict-file argument -> structured JSON error type:missing_argument, issues:[]', () => {
+      const result = runGsdTools('quality verdict-to-issues --raw', tmpDir);
+      const parsed = JSON.parse(result.output || result.error);
+      assert.strictEqual(parsed.error, true);
+      assert.strictEqual(parsed.type, 'missing_argument');
+      assert.deepStrictEqual(parsed.issues, []);
+    });
+
+    test('nonexistent file -> structured JSON error type:file_not_found', () => {
+      const result = runGsdTools('quality verdict-to-issues does-not-exist-60-01-VERDICT.md --raw', tmpDir);
+      const parsed = JSON.parse(result.output || result.error);
+      assert.strictEqual(parsed.error, true);
+      assert.strictEqual(parsed.type, 'file_not_found');
+    });
+
+    test('real VERDICT.md fixture (verdict:critical, 2 required_changes) -> issues array of length 2, both blocker-severity, adversarial_review dimension', () => {
+      const verdictPath = writeFixture(
+        '.planning/phases/60-adversarial-plan-review/60-01-VERDICT.md',
+        '---\nplan: "60-01"\nverdict: critical\nrequired_changes:\n  - "Fix issue A"\n  - "Fix issue B"\n---\n\n# Verdict\n'
+      );
+      const relPath = path.relative(tmpDir, verdictPath);
+      const result = runGsdTools(`quality verdict-to-issues "${relPath}" --raw`, tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.issues.length, 2);
+      for (const issue of parsed.issues) {
+        assert.strictEqual(issue.severity, 'blocker');
+        assert.strictEqual(issue.dimension, 'adversarial_review');
+      }
+    });
+  });
+});
