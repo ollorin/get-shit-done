@@ -165,7 +165,7 @@
 
 #### Project-Aware Gating
 
-- [ ] **MILE-41**: The pre-PR gate detects a target project's type and command set from its own manifest files and runs the corresponding checks, passes on the GSD repo itself (self-hosting proof), and degrades unknown project types to a minimal universal check set with a loud notice, never a crash (US-10)
+- [x] **MILE-41**: The pre-PR gate detects a target project's type and command set from its own manifest files and runs the corresponding checks, passes on the GSD repo itself (self-hosting proof), and degrades unknown project types to a minimal universal check set with a loud notice, never a crash (US-10)
 
 ### v2 Requirements (Deferred — PRD "Phase 2")
 
@@ -244,7 +244,7 @@
 | MILE-38 | Phase 59 | Complete |
 | MILE-39 | Phase 60 | Complete |
 | MILE-40 | Phase 54 | Complete |
-| MILE-41 | Phase 61 | Pending |
+| MILE-41 | Phase 61 | Complete |
 
 **Coverage:**
 - v1.13.0 requirements: 15 total — mapped: 15, unmapped: 0 ✓
