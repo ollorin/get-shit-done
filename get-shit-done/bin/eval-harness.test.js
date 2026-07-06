@@ -39,6 +39,7 @@ const REAL_FIXTURE_ROADMAP = path.join(__dirname, '..', '..', 'tests', 'fixtures
 const REAL_FIXTURE_ROOT = path.join(__dirname, '..', '..', 'tests', 'fixtures', 'eval-project');
 const REAL_GOLDEN_ARTIFACTS = path.join(REAL_FIXTURE_ROOT, 'golden-artifacts');
 const POST_54_ARTIFACTS = path.join(REAL_GOLDEN_ARTIFACTS, 'post-54');
+const POST_59_ARTIFACTS = path.join(REAL_GOLDEN_ARTIFACTS, 'post-59');
 
 function mkTmp() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-eval-harness-test-'));
@@ -348,6 +349,31 @@ describe('Phase 53-01: eval-harness.js pure assertion functions', () => {
         });
         assert.strictEqual(result.pass, false);
       });
+    });
+  });
+
+  // Phase 59-03 (MILE-37/MILE-38): proves BOTH new golden-path spawns
+  // (gsd-test-writer + gsd-integration-tester) are assertable via the
+  // existing assertAgentsSpawned machinery, mirroring how post-54's fixture
+  // is consumed directly by assertHandoffBriefPresent above -- no new
+  // assertion function needed, the Phase 53-01 primitive already suffices.
+  describe('Phase 59-03: post-59 golden fixture -- test-writer + integration-tester spawns (MILE-37/MILE-38)', () => {
+    test('assertAgentsSpawned against the REAL post-59/spawn-trace.json + expectations.json fixture -> pass:true, both new agents present', () => {
+      const entries = JSON.parse(fs.readFileSync(path.join(POST_59_ARTIFACTS, 'spawn-trace.json'), 'utf8'));
+      const expectations = JSON.parse(fs.readFileSync(path.join(POST_59_ARTIFACTS, 'expectations.json'), 'utf8'));
+
+      const result = assertAgentsSpawned(expectations.expectedPlan, entries);
+      assert.strictEqual(result.pass, true, `expected pass:true, got missing: ${JSON.stringify(result.missing)}, wrong_tier: ${JSON.stringify(result.wrong_tier)}, extra: ${JSON.stringify(result.extra)}`);
+      assert.deepStrictEqual(result.missing, []);
+      assert.deepStrictEqual(result.wrong_tier, []);
+      assert.deepStrictEqual(result.extra, []);
+
+      const testWriterEntry = entries.find(e => e.agent === 'gsd-test-writer');
+      const integrationTesterEntry = entries.find(e => e.agent === 'gsd-integration-tester');
+      assert.ok(testWriterEntry, 'expected a gsd-test-writer entry in the spawn trace (MILE-37)');
+      assert.ok(integrationTesterEntry, 'expected a gsd-integration-tester entry in the spawn trace (MILE-38)');
+      assert.strictEqual(testWriterEntry.phase, '03-dependent-phase');
+      assert.strictEqual(integrationTesterEntry.phase, '03-dependent-phase');
     });
   });
 });

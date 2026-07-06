@@ -12418,3 +12418,203 @@ describe('Phase 59-02: post-task quality test-writer spawn (MILE-37)', () => {
     });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 59-03: declared-dependency integration-tester spawn + gaps_found
+// propagation (MILE-38)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Phase 59-03: declared-dependency integration-tester spawn + gaps_found propagation (MILE-38)', () => {
+  const { buildEvalCandidatesFromVerificationFile } = resilience;
+  const matter = require('gray-matter');
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  const COORDINATOR_DETAIL_PATH = path.join(REPO_ROOT, 'get-shit-done', 'references', 'coordinator-detail.md');
+  const VERIFIER_DETAIL_PATH = path.join(REPO_ROOT, 'get-shit-done', 'references', 'verifier-detail.md');
+  const PLANNER_DETAIL_PATH = path.join(REPO_ROOT, 'get-shit-done', 'references', 'planner-detail.md');
+  const REAL_ROADMAP_PATH = path.join(REPO_ROOT, '.planning', 'ROADMAP.md');
+
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  describe('cmdRoadmapGetPhase depends_on fix (both real-world dependency-line styles)', () => {
+    test('colon-inside-bold style "**Depends on:** Phase 30" returns depends_on: ["Phase 30"]', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'ROADMAP.md'),
+        `# Roadmap\n\n### Phase 50: Current\n**Goal:** Do the thing\n**Depends on:** Phase 30\n`
+      );
+      const result = runGsdTools('roadmap get-phase 50', tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const output = JSON.parse(result.output);
+      assert.deepStrictEqual(output.depends_on, ['Phase 30']);
+    });
+
+    test('colon-outside-bold style "**Depends on**: Phase 18" (SEPARATE fixture) returns depends_on: ["Phase 18"]', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'ROADMAP.md'),
+        `# Roadmap\n\n### Phase 51: Current\n**Goal:** Do another thing\n**Depends on**: Phase 18\n`
+      );
+      const result = runGsdTools('roadmap get-phase 51', tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const output = JSON.parse(result.output);
+      assert.deepStrictEqual(output.depends_on, ['Phase 18']);
+    });
+
+    test('"**Depends on**: Nothing (first phase of milestone)" returns depends_on: []', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'ROADMAP.md'),
+        `# Roadmap\n\n### Phase 1: First\n**Goal:** Start\n**Depends on**: Nothing (first phase of milestone)\n`
+      );
+      const result = runGsdTools('roadmap get-phase 1', tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const output = JSON.parse(result.output);
+      assert.deepStrictEqual(output.depends_on, []);
+    });
+
+    test('phase with no "Depends on" line at all returns depends_on: []', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'ROADMAP.md'),
+        `# Roadmap\n\n### Phase 2: NoLine\n**Goal:** Just a goal\n`
+      );
+      const result = runGsdTools('roadmap get-phase 2', tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const output = JSON.parse(result.output);
+      assert.deepStrictEqual(output.depends_on, []);
+    });
+
+    test('comma-separated two-phase dependency returns a 2-element array', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'ROADMAP.md'),
+        `# Roadmap\n\n### Phase 3: TwoDeps\n**Goal:** Depends on two\n**Depends on:** Phase 1, Phase 2\n`
+      );
+      const result = runGsdTools('roadmap get-phase 3', tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const output = JSON.parse(result.output);
+      assert.strictEqual(output.depends_on.length, 2);
+      assert.deepStrictEqual(output.depends_on, ['Phase 1', 'Phase 2']);
+    });
+  });
+
+  describe('real-repo regression proof (against a COPY of the real live .planning/ROADMAP.md, never mutating it)', () => {
+    test('roadmap get-phase 59 against a temp copy of the real ROADMAP.md returns a non-empty depends_on array referencing Phase 55', () => {
+      const realRoadmap = fs.readFileSync(REAL_ROADMAP_PATH, 'utf-8');
+      fs.writeFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), realRoadmap);
+
+      const result = runGsdTools('roadmap get-phase 59', tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const output = JSON.parse(result.output);
+      assert.strictEqual(output.found, true, 'expected Phase 59 to be found in the real live ROADMAP.md');
+      assert.ok(Array.isArray(output.depends_on) && output.depends_on.length > 0, 'expected a non-empty depends_on array against the real live ROADMAP.md -- proves the fix is not merely fixture-shaped');
+      assert.ok(output.depends_on.some(d => d.includes('Phase 55')), `expected depends_on to reference Phase 55, got: ${JSON.stringify(output.depends_on)}`);
+    });
+  });
+
+  describe('spawn-decision boolean simulation (mirrors the new coordinator step 3b computation: toggle==="true" && depends_on.length>0)', () => {
+    function computeSpawnDecision(cwd, phaseNum) {
+      const toggleResult = runGsdTools('config get integration_tester_enabled --raw', cwd);
+      const toggle = toggleResult.success ? toggleResult.output.trim() : 'false';
+      const phaseResult = runGsdTools(`roadmap get-phase ${phaseNum}`, cwd);
+      const phaseOutput = phaseResult.success ? JSON.parse(phaseResult.output) : { depends_on: [] };
+      const dependsOn = Array.isArray(phaseOutput.depends_on) ? phaseOutput.depends_on : [];
+      return toggle === 'true' && dependsOn.length > 0;
+    }
+
+    test('dependent-phase (depends_on non-empty) + toggle on (via config.json) -> spawn decision true', () => {
+      fs.writeFileSync(path.join(tmpDir, '.planning', 'config.json'), JSON.stringify({ integration_tester_enabled: true }));
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'ROADMAP.md'),
+        `# Roadmap\n\n### Phase 5: Dependent\n**Goal:** g\n**Depends on:** Phase 1\n`
+      );
+      assert.strictEqual(computeSpawnDecision(tmpDir, 5), true);
+    });
+
+    test('independent-phase (depends_on empty) + toggle on -> spawn decision false regardless of toggle state', () => {
+      fs.writeFileSync(path.join(tmpDir, '.planning', 'config.json'), JSON.stringify({ integration_tester_enabled: true }));
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'ROADMAP.md'),
+        `# Roadmap\n\n### Phase 6: Independent\n**Goal:** g\n**Depends on**: Nothing (first phase of milestone)\n`
+      );
+      assert.strictEqual(computeSpawnDecision(tmpDir, 6), false);
+    });
+
+    test('dependent-phase (depends_on non-empty) + toggle off (default, no config.json) -> spawn decision false', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'ROADMAP.md'),
+        `# Roadmap\n\n### Phase 7: Dependent\n**Goal:** g\n**Depends on:** Phase 1\n`
+      );
+      assert.strictEqual(computeSpawnDecision(tmpDir, 7), false);
+    });
+  });
+
+  describe('gaps_found propagation composition (real CLI, end-to-end, matching the exact new coordinator invocation form)', () => {
+    test('verify append-gap --failure-type contract_mismatch flips status to gaps_found, and buildEvalCandidatesFromVerificationFile picks it up unmodified (1 candidate, matching --reason)', () => {
+      const verificationDir = path.join(tmpDir, '.planning', 'phases', '59-dependent-phase');
+      fs.mkdirSync(verificationDir, { recursive: true });
+      const verificationPath = path.join(verificationDir, '59-03-VERIFICATION.md');
+      fs.writeFileSync(verificationPath, `---\nphase: 59-dependent-phase\nstatus: passed\n---\n\n# Verification Report\n`);
+      const relPath = path.relative(tmpDir, verificationPath);
+      const reasonText = 'producer returns {id, name} but consumer destructures {id, label}';
+
+      const cliResult = runGsdTools(
+        `verify append-gap "${relPath}" --truth "Cross-phase integration boundary 'UserCard props' matches between producer and consumer" --reason "${reasonText}" --failure-type contract_mismatch --raw`,
+        tmpDir
+      );
+      assert.ok(cliResult.success, `expected exit 0, got: ${cliResult.error}`);
+
+      const rewritten = matter(fs.readFileSync(verificationPath, 'utf-8'));
+      assert.strictEqual(rewritten.data.status, 'gaps_found');
+      assert.strictEqual(rewritten.data.gaps[rewritten.data.gaps.length - 1].failure_type, 'contract_mismatch');
+
+      const candidates = buildEvalCandidatesFromVerificationFile(tmpDir, verificationPath);
+      assert.strictEqual(candidates.length, 1, 'expected exactly 1 candidate from the existing Phase 55 reader');
+      assert.strictEqual(candidates[0].context.gap_description, reasonText);
+    });
+  });
+
+  describe('prose wiring grep-assertion tests (house convention, mirrors Phase 57-04/58-03)', () => {
+    function readCoordinatorDetail() {
+      return fs.readFileSync(COORDINATOR_DETAIL_PATH, 'utf-8');
+    }
+
+    test('integration_tester_enabled and verify append-gap both appear inside <step name="cross_phase_integration">', () => {
+      const content = readCoordinatorDetail();
+      const stepStartIdx = content.indexOf('<step name="cross_phase_integration">');
+      const stepEndIdx = content.indexOf('</step>', stepStartIdx);
+      assert.ok(stepStartIdx !== -1 && stepEndIdx !== -1, 'expected cross_phase_integration step to exist');
+      const toggleIdx = content.indexOf('integration_tester_enabled', stepStartIdx);
+      const gapIdx = content.indexOf('verify append-gap', stepStartIdx);
+      assert.ok(toggleIdx !== -1 && toggleIdx < stepEndIdx, 'expected integration_tester_enabled inside the cross_phase_integration step');
+      assert.ok(gapIdx !== -1 && gapIdx < stepEndIdx, 'expected verify append-gap inside the cross_phase_integration step');
+    });
+
+    test('the new step 3b branch text appears AFTER step 3\'s existing "Spawn gsd-integration-tester:" Agent() block (ordering lock-in)', () => {
+      const content = readCoordinatorDetail();
+      const step3Idx = content.indexOf('Spawn gsd-integration-tester:');
+      const newBranchIdx = content.indexOf('3b. **(NEW, MILE-38, additive)');
+      assert.ok(step3Idx !== -1, 'expected step 3\'s existing Agent() block to exist');
+      assert.ok(newBranchIdx !== -1, 'expected the new step 3b branch to exist');
+      assert.ok(newBranchIdx > step3Idx, 'expected the new step 3b branch to appear after step 3\'s existing Agent() block');
+    });
+
+    test('regression guard: step 3\'s EXISTING, untouched overlap-trigger text is still present unchanged', () => {
+      const content = readCoordinatorDetail();
+      assert.ok(
+        content.includes('If overlap found (same API routes, same tables, same component names)'),
+        'expected step 3\'s existing overlap-trigger text to be unchanged'
+      );
+    });
+
+    test('contract_mismatch appears in both verifier-detail.md and planner-detail.md respective tables', () => {
+      const verifierContent = fs.readFileSync(VERIFIER_DETAIL_PATH, 'utf-8');
+      const plannerContent = fs.readFileSync(PLANNER_DETAIL_PATH, 'utf-8');
+      assert.ok(verifierContent.includes('contract_mismatch'), 'expected contract_mismatch in verifier-detail.md');
+      assert.ok(plannerContent.includes('contract_mismatch'), 'expected contract_mismatch in planner-detail.md');
+    });
+  });
+});
