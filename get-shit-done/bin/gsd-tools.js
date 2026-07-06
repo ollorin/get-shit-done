@@ -265,6 +265,32 @@ function computeHasUI(touchedFiles) {
   return touchedFiles.some(isUIFile);
 }
 
+// ─── Source-Touch Detection (Phase 59-02, MILE-37) ──────────────────────────
+// isSourceFile/computeTouchesSourceCode are pure functions -- no I/O -- gating the new
+// post-task gsd-test-writer spawn point in executor-detail.md. Mirrors isUIFile/
+// computeHasUI's pure extension+path-pattern style exactly (Phase 45-02): derived only
+// from a passed-in file list, never from a SUMMARY.md self-report.
+const SOURCE_FILE_EXTENSIONS = ['.js', '.ts', '.tsx', '.jsx', '.py', '.go', '.rb'];
+
+function isTestOrSpecFile(filePath) {
+  if (typeof filePath !== 'string' || !filePath) return false;
+  const base = path.basename(filePath);
+  if (/\.(test|spec)\.[a-zA-Z0-9]+$/.test(base)) return true;
+  if (/(^|\/)(test|tests|__tests__|spec)\//.test(filePath)) return true;
+  return false;
+}
+
+function isSourceFile(filePath) {
+  if (typeof filePath !== 'string' || !filePath) return false;
+  if (isTestOrSpecFile(filePath)) return false;
+  return SOURCE_FILE_EXTENSIONS.some(ext => filePath.endsWith(ext));
+}
+
+function computeTouchesSourceCode(fileList) {
+  const files = Array.isArray(fileList) ? fileList : [];
+  return files.some(isSourceFile);
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function parseIncludeFlag(args) {
@@ -14454,6 +14480,19 @@ Was ${model} the right choice for this task? (y/n): `;
       break;
     }
 
+    case 'quality': {
+      const subcommand = args[1];
+      if (subcommand === 'touches-source') {
+        const filesIdx = args.indexOf('--files');
+        const filesArg = filesIdx !== -1 ? (args[filesIdx + 1] || '') : '';
+        const fileList = filesArg.split(',').map(s => s.trim()).filter(Boolean);
+        output({ touches_source_code: computeTouchesSourceCode(fileList), file_count: fileList.length }, raw);
+      } else {
+        error('Unknown quality subcommand. Available: touches-source');
+      }
+      break;
+    }
+
     case 'log-feature-event': {
       // CLI bridge for subagents (e.g. task-router) that cannot call appendEvent directly.
       // Usage: node gsd-tools.js log-feature-event --project-path <path> --type <EVENT_TYPE> --data <json>
@@ -14546,6 +14585,9 @@ module.exports = {
   decideEscalation,
   NON_CAPABILITY_PATTERNS,
   loadConfig,
+  isSourceFile,
+  isTestOrSpecFile,
+  computeTouchesSourceCode,
 };
 
 // Only auto-run when invoked directly as a CLI (`node gsd-tools.js ...`), not
