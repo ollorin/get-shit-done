@@ -222,6 +222,14 @@ _Verified: {timestamp}_
 _Verifier: Claude (gsd-verifier)_
 ```
 
+## Write Regression Candidates (MILE-32)
+
+If `status: gaps_found`, invoke:
+`node $HOME/.claude/get-shit-done/bin/gsd-tools.js eval-candidate from-verification
+.planning/phases/{phase_dir}/{phase}-VERIFICATION.md`
+to write one candidate regression fixture per gap into the review queue. Do NOT invoke this for
+`status: passed` or `status: human_needed`.
+
 ## Return to Orchestrator
 
 **DO NOT COMMIT.** The orchestrator bundles VERIFICATION.md with other phase artifacts.

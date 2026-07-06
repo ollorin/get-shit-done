@@ -802,6 +802,10 @@ Gather symptoms through questioning. Update file after EACH answer.
 
 **Phase 4: Evaluate**
 - **CONFIRMED:** Update Resolution.root_cause
+  - Invoke `node $HOME/.claude/get-shit-done/bin/gsd-tools.js eval-candidate from-debug
+    .planning/debug/{slug}.md` to write a candidate regression fixture from the confirmed root
+    cause. Do NOT invoke this on the ELIMINATED branch above, and never on INVESTIGATION
+    INCONCLUSIVE (no root_cause was ever confirmed).
   - If `goal: find_root_cause_only` -> proceed to return_diagnosis
   - Otherwise -> proceed to fix_and_verify
 - **ELIMINATED:** Append to Eliminated section, form new hypothesis, return to Phase 2
