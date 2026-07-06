@@ -14,6 +14,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { execSync } = require('child_process');
 
 const {
   resolveAgentFile,
@@ -24,9 +25,17 @@ const {
   computeUnifiedDiff,
   isValidUnifiedDiff,
   buildRevisionCandidate,
+  checkBudgetForCandidate,
+  checkEvalForCandidate,
+  executeEvalCandidateAgainstContent,
+  writeReviewArtifacts,
+  runPromptOptimize,
 } = require('./prompt-optimize.js');
 
-const { measurePreamble, measurePreambleFromContent, CORE_PREAMBLE_MARKER } = require('./prompt-budget.js');
+const { measurePreamble, measurePreambleFromContent, checkAllBudgets, CORE_PREAMBLE_MARKER } = require('./prompt-budget.js');
+const { loadAcceptedEvalCandidates, runEvalRegressions } = require('./eval-harness.js');
+
+const TOOLS_PATH = path.join(__dirname, 'gsd-tools.js');
 
 function mkTmp() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-prompt-optimize-test-'));
@@ -60,6 +69,32 @@ function writeAcceptedCandidate(cwd, filename, candidate) {
   const acceptedDir = path.join(cwd, 'tests', 'eval-regressions', 'accepted');
   fs.mkdirSync(acceptedDir, { recursive: true });
   fs.writeFileSync(path.join(acceptedDir, filename), typeof candidate === 'string' ? candidate : JSON.stringify(candidate));
+}
+
+function writeBudgetsConfig(cwd, budgets) {
+  const configDir = path.join(cwd, 'get-shit-done', 'config');
+  fs.mkdirSync(configDir, { recursive: true });
+  const configPath = path.join(configDir, 'prompt-budgets.json');
+  fs.writeFileSync(configPath, JSON.stringify(budgets));
+  return configPath;
+}
+
+function runPromptOptimizeCli(args, cwd) {
+  try {
+    const out = execSync(`node "${TOOLS_PATH}" ${args}`, {
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    return { success: true, output: out.trim(), exitCode: 0 };
+  } catch (err) {
+    return {
+      success: false,
+      output: err.stdout ? err.stdout.toString().trim() : '',
+      error: err.stderr ? err.stderr.toString().trim() : '',
+      exitCode: err.status != null ? err.status : 1,
+    };
+  }
 }
 
 // -------------------------------------------------------------------------
@@ -284,6 +319,244 @@ describe('Phase 56-01: prompt-optimize.js pure core functions', () => {
       const lines = result.diffText.split('\n');
       const hasAddedLine = lines.some((l) => l.startsWith('+') && !l.startsWith('+++') && l.includes('wired clarification'));
       assert.ok(hasAddedLine, 'expected diffText to contain a + content line with the clarification text');
+    });
+  });
+});
+
+// -------------------------------------------------------------------------
+describe('gating + orchestration (Phase 56-02)', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = mkTmp();
+  });
+
+  afterEach(() => {
+    rmTmp(tmpDir);
+  });
+
+  // === Happy path ==========================================================
+  describe('happy path', () => {
+    test('generous budget + zero-matching accepted candidate -> ready_for_review with real review-dir files on disk', () => {
+      writeAgentFixture(tmpDir, 'gsd-happy.md', `# gsd-happy preamble\n${CORE_PREAMBLE_MARKER}\ndetail section`);
+      writeTelemetry(tmpDir, [
+        JSON.stringify({ agent: 'gsd-happy', ambiguities: ['unclear about X'] }),
+      ]);
+      writeBudgetsConfig(tmpDir, { 'agents/gsd-happy.md': 5000 });
+
+      const result = runPromptOptimize(tmpDir, 'gsd-happy');
+
+      assert.strictEqual(result.status, 'ready_for_review');
+      assert.ok(result.diagnosisPath && result.diffPath, 'expected diagnosisPath/diffPath in result');
+
+      const diagnosisFullPath = path.join(tmpDir, result.diagnosisPath);
+      const diffFullPath = path.join(tmpDir, result.diffPath);
+      assert.ok(fs.existsSync(diagnosisFullPath), `expected diagnosis file to exist: ${diagnosisFullPath}`);
+      assert.ok(fs.existsSync(diffFullPath), `expected diff file to exist: ${diffFullPath}`);
+
+      const diagnosisContent = fs.readFileSync(diagnosisFullPath, 'utf8');
+      assert.ok(diagnosisContent.includes('Diagnosis for gsd-happy'), 'diagnosis file should contain diagnosis text');
+      const diffContent = fs.readFileSync(diffFullPath, 'utf8');
+      assert.strictEqual(isValidUnifiedDiff(diffContent), true, 'diff file should contain a valid unified diff');
+    });
+
+    test('checkEvalForCandidate with zero matching accepted candidates returns {pass:true, total:0, executed:[]}', () => {
+      const result = checkEvalForCandidate(tmpDir, 'agents/gsd-nothing-matches.md', 'some revised content');
+      assert.deepStrictEqual(result, { pass: true, total: 0, executed: [] });
+    });
+
+    test('executeEvalCandidateAgainstContent: file_exists/file_not_exists trivially pass; file_contains reflects real content', () => {
+      const existsResult = executeEvalCandidateAgainstContent(
+        { id: 'e1', expected: { type: 'file_exists' } }, 'agents/gsd-x.md', 'anything'
+      );
+      assert.strictEqual(existsResult.pass, true);
+
+      const notExistsResult = executeEvalCandidateAgainstContent(
+        { id: 'e2', expected: { type: 'file_not_exists' } }, 'agents/gsd-x.md', 'anything'
+      );
+      assert.strictEqual(notExistsResult.pass, true);
+
+      const containsPass = executeEvalCandidateAgainstContent(
+        { id: 'e3', expected: { type: 'file_contains', needle: 'hello' } }, 'agents/gsd-x.md', 'say hello world'
+      );
+      assert.strictEqual(containsPass.pass, true);
+
+      const containsFail = executeEvalCandidateAgainstContent(
+        { id: 'e4', expected: { type: 'file_contains', needle: 'missing-needle' } }, 'agents/gsd-x.md', 'say hello world'
+      );
+      assert.strictEqual(containsFail.pass, false);
+    });
+
+    test('writeReviewArtifacts writes both diagnosis and diff files under the expected review-dir path', () => {
+      const written = writeReviewArtifacts(
+        tmpDir, 'gsd-direct-write', 'ready',
+        { text: '# Diagnosis for gsd-direct-write\nsome text' },
+        '--- a/f.md\n+++ b/f.md\n@@ -1,1 +1,1 @@\n-old\n+new\n',
+        { budgetResult: { pass: true }, evalResult: { pass: true, total: 0 } }
+      );
+      assert.ok(fs.existsSync(path.join(tmpDir, written.diagnosisPath)));
+      assert.ok(fs.existsSync(path.join(tmpDir, written.diffPath)));
+      assert.ok(written.diagnosisPath.includes('gsd-direct-write'));
+    });
+  });
+
+  // === Missing/malformed input =============================================
+  describe('missing/malformed input', () => {
+    test('checkBudgetForCandidate against a missing prompt-budgets.json fails OPEN without throwing', () => {
+      let result;
+      assert.doesNotThrow(() => {
+        result = checkBudgetForCandidate(tmpDir, 'agents/gsd-anything.md', 'content');
+      });
+      assert.strictEqual(result.pass, true);
+      assert.strictEqual(typeof result.warning, 'string');
+    });
+
+    test('checkBudgetForCandidate against a malformed prompt-budgets.json fails OPEN without throwing', () => {
+      const configDir = path.join(tmpDir, 'get-shit-done', 'config');
+      fs.mkdirSync(configDir, { recursive: true });
+      const configPath = path.join(configDir, 'prompt-budgets.json');
+      fs.writeFileSync(configPath, '{ not valid json');
+
+      let result;
+      assert.doesNotThrow(() => {
+        result = checkBudgetForCandidate(tmpDir, 'agents/gsd-anything.md', 'content');
+      });
+      assert.strictEqual(result.pass, true);
+      assert.strictEqual(typeof result.warning, 'string');
+    });
+
+    test('runPromptOptimize with an unresolvable agent returns {status:"error", reason} without throwing', () => {
+      let result;
+      assert.doesNotThrow(() => {
+        result = runPromptOptimize(tmpDir, 'totally-nonexistent-agent');
+      });
+      assert.strictEqual(result.status, 'error');
+      assert.strictEqual(typeof result.reason, 'string');
+    });
+  });
+
+  // === Edge case ============================================================
+  describe('edge case', () => {
+    test('agent present in budgets config with NO telemetry and NO eval failures -> no_signal, nothing written', () => {
+      writeAgentFixture(tmpDir, 'gsd-quiet.md', `# gsd-quiet\n${CORE_PREAMBLE_MARKER}\ndetail`);
+      writeBudgetsConfig(tmpDir, { 'agents/gsd-quiet.md': 5000 });
+
+      const result = runPromptOptimize(tmpDir, 'gsd-quiet');
+      assert.strictEqual(result.status, 'no_signal');
+
+      const reviewDir = path.join(tmpDir, '.planning', 'prompt-optimize', 'gsd-quiet');
+      assert.strictEqual(fs.existsSync(reviewDir), false, 'no_signal path must write nothing to disk');
+    });
+
+    test('telemetry signal present but budget too tight for the revision -> rejected/budget_exceeded, rejected files written', () => {
+      writeAgentFixture(tmpDir, 'gsd-tight.md', `# gsd-tight\n${CORE_PREAMBLE_MARKER}\ndetail`);
+      writeTelemetry(tmpDir, [
+        JSON.stringify({ agent: 'gsd-tight', ambiguities: ['some ambiguity'] }),
+      ]);
+      writeBudgetsConfig(tmpDir, { 'agents/gsd-tight.md': 1 });
+
+      const result = runPromptOptimize(tmpDir, 'gsd-tight');
+      assert.strictEqual(result.status, 'rejected');
+      assert.strictEqual(result.reason, 'budget_exceeded');
+
+      const diagnosisFullPath = path.join(tmpDir, result.diagnosisPath);
+      const diffFullPath = path.join(tmpDir, result.diffPath);
+      assert.ok(diagnosisFullPath.endsWith('diagnosis-rejected.md'));
+      assert.ok(diffFullPath.endsWith('candidate-rejected.diff'));
+      assert.ok(fs.existsSync(diagnosisFullPath), 'rejected diagnosis file must still be written for audit');
+      assert.ok(fs.existsSync(diffFullPath), 'rejected diff file must still be written for audit');
+    });
+  });
+
+  // === Boundary =============================================================
+  describe('boundary', () => {
+    test('an accepted candidate whose expected.file does not match the target agent is excluded from the matching set', () => {
+      writeAcceptedCandidate(tmpDir, 'other-agent.json', {
+        id: 'oa1', source: 'verifier', created_at: '2026-01-01', title: 'other agent candidate',
+        context: { agent: 'gsd-other' },
+        expected: { type: 'file_contains', file: 'agents/gsd-other.md', needle: 'anything' },
+        status: 'accepted',
+      });
+
+      const result = checkEvalForCandidate(tmpDir, 'agents/gsd-boundary.md', 'revised content with anything present');
+      assert.strictEqual(result.total, 0);
+      assert.deepStrictEqual(result.executed, []);
+      assert.strictEqual(result.pass, true);
+    });
+
+    test('a file_contains accepted candidate whose needle is absent -> rejected/eval_failed with a generous budget isolating the eval gate', () => {
+      writeAgentFixture(tmpDir, 'gsd-eval-fail.md', `# gsd-eval-fail\n${CORE_PREAMBLE_MARKER}\ndetail`);
+      writeTelemetry(tmpDir, [
+        JSON.stringify({ agent: 'gsd-eval-fail', ambiguities: ['ambiguous thing'] }),
+      ]);
+      writeBudgetsConfig(tmpDir, { 'agents/gsd-eval-fail.md': 1000000 });
+      writeAcceptedCandidate(tmpDir, 'needle-missing.json', {
+        id: 'nm1', source: 'verifier', created_at: '2026-01-01', title: 'needle missing candidate',
+        context: { agent: 'gsd-eval-fail' },
+        expected: { type: 'file_contains', file: 'agents/gsd-eval-fail.md', needle: 'THIS_NEEDLE_DOES_NOT_EXIST_ANYWHERE' },
+        status: 'accepted',
+      });
+
+      const result = runPromptOptimize(tmpDir, 'gsd-eval-fail');
+      assert.strictEqual(result.status, 'rejected');
+      assert.strictEqual(result.reason, 'eval_failed');
+      assert.strictEqual(result.budgetResult.pass, true, 'budget gate must pass so only the eval gate is exercised');
+    });
+  });
+
+  // === Wiring/integration ===================================================
+  describe('wiring/integration', () => {
+    test('real CLI subprocess seeded for no_signal -> exit 0, status no_signal', () => {
+      writeAgentFixture(tmpDir, 'gsd-cli-quiet.md', '# gsd-cli-quiet\nno marker here');
+
+      const result = runPromptOptimizeCli('prompt-optimize --agent gsd-cli-quiet', tmpDir);
+      assert.strictEqual(result.exitCode, 0);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.status, 'no_signal');
+    });
+
+    test('real CLI subprocess seeded for a rejected (budget) outcome -> exit 1', () => {
+      writeAgentFixture(tmpDir, 'gsd-cli-tight.md', `# gsd-cli-tight\n${CORE_PREAMBLE_MARKER}\ndetail`);
+      writeTelemetry(tmpDir, [
+        JSON.stringify({ agent: 'gsd-cli-tight', ambiguities: ['cli ambiguity'] }),
+      ]);
+      writeBudgetsConfig(tmpDir, { 'agents/gsd-cli-tight.md': 1 });
+
+      const result = runPromptOptimizeCli('prompt-optimize --agent gsd-cli-tight', tmpDir);
+      assert.strictEqual(result.exitCode, 1);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.status, 'rejected');
+      assert.strictEqual(parsed.reason, 'budget_exceeded');
+    });
+
+    test('real CLI subprocess with no --agent -> exit 1', () => {
+      const result = runPromptOptimizeCli('prompt-optimize', tmpDir);
+      assert.strictEqual(result.exitCode, 1);
+    });
+  });
+
+  // === Regression-guard =====================================================
+  describe('regression-guard', () => {
+    test('checkAllBudgets (prompt-budget.js) still returns its pre-existing shape alongside the new gating functions', () => {
+      fs.mkdirSync(path.join(tmpDir, 'agents'), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, 'agents', 'small.md'), 'a'.repeat(40));
+      const configPath = writeBudgetsConfig(tmpDir, { 'agents/small.md': 100 });
+
+      const result = checkAllBudgets(tmpDir, configPath);
+      assert.strictEqual(result.pass, true);
+      assert.strictEqual(result.results.length, 1);
+    });
+
+    test('runEvalRegressions (eval-harness.js) still returns its pre-existing trivial-pass shape on an absent accepted dir', () => {
+      const acceptedDir = path.join(tmpDir, 'tests', 'eval-regressions', 'accepted');
+      const result = runEvalRegressions(acceptedDir, tmpDir);
+      assert.deepStrictEqual(result, { pass: true, total: 0, malformed: [], executed: [] });
+    });
+
+    test('loadAcceptedEvalCandidates (eval-harness.js) still returns its pre-existing shape on an absent accepted dir', () => {
+      const acceptedDir = path.join(tmpDir, 'tests', 'eval-regressions', 'accepted');
+      const result = loadAcceptedEvalCandidates(acceptedDir);
+      assert.deepStrictEqual(result, { results: [], validCandidates: [] });
     });
   });
 });
