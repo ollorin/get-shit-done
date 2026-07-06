@@ -161,7 +161,7 @@
 #### Adversarial Review & Long-Run Integrity
 
 - [ ] **MILE-39**: Plans marked high-risk (config criteria or explicit flag) are reviewed by an attacker/defender/judge trio instead of the single-pass plan-checker; the judge verdict is a durable artifact attached to the plan with randomized attack/defense presentation order; a critical-flaws verdict routes into the existing plan-revision loop; non-high-risk plans keep the existing single-checker path unchanged (US-8)
-- [ ] **MILE-40**: A fixed handoff brief (phase goal, key decisions, open risks, file map, hard rules) is defined once in references and used at coordinator→executor and executor→verifier boundaries; on checkpoint resume, hard rules and phase invariants are re-read verbatim from source files (never from summaries), with an eval assertion proving the resume path includes them; prompt budgets still pass for all modified agents (US-9)
+- [x] **MILE-40**: A fixed handoff brief (phase goal, key decisions, open risks, file map, hard rules) is defined once in references and used at coordinator→executor and executor→verifier boundaries; on checkpoint resume, hard rules and phase invariants are re-read verbatim from source files (never from summaries), with an eval assertion proving the resume path includes them; prompt budgets still pass for all modified agents (US-9)
 
 #### Project-Aware Gating
 
@@ -243,7 +243,7 @@
 | MILE-37 | Phase 59 | Pending |
 | MILE-38 | Phase 59 | Pending |
 | MILE-39 | Phase 60 | Pending |
-| MILE-40 | Phase 54 | Pending |
+| MILE-40 | Phase 54 | Complete |
 | MILE-41 | Phase 61 | Pending |
 
 **Coverage:**

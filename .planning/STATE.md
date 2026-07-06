@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-07-02)
 
 ## Current Position
 
-Phase: 54 of 61 (Structured Handoffs & Invariant Re-Injection) — in progress
-Plan: 3 of 4
-Status: Plan 54-03 complete — handoff-brief presence + resume-invariant re-injection eval assertions shipped (MILE-40 partial)
-Last activity: 2026-07-06 — Executed 54-03-PLAN.md: assertHandoffBriefPresent + assertResumeInvariantsReinjected added to eval-harness.js, additive runEvalAssertions wiring, post-54 golden fixture, 13 new tests (544/544 passing)
+Phase: 54 of 61 (Structured Handoffs & Invariant Re-Injection) — COMPLETE
+Plan: 4 of 4 (all complete)
+Status: Plan 54-04 complete — fixed handoff brief wired into coordinator->executor (both routing modes) and executor->verifier spawns, budget-safe one-line preamble pointers, all prompt budgets pass, 550/550 tests passing. MILE-40 satisfied end-to-end; Phase 54 fully complete.
+Last activity: 2026-07-06 — Executed 54-04-PLAN.md: coordinator-detail.md injects <handoff_brief> at both executor branches + verifier spawn; gsd-phase-coordinator.md/gsd-executor.md/gsd-verifier.md each gain a one-sentence budget-safe pointer; 6 new grep-assertion/integration tests (describe('Phase 54 handoff-brief wiring')); budget check --raw pass:true for all 5 agents; MILE-40 flipped to Complete in REQUIREMENTS.md; ROADMAP.md Phase 54 now shows 4/4 plans complete
 
-Progress: [██████████] 98%
+Progress: [██████████] 99%
 
 ## Performance Metrics
 
@@ -79,6 +79,7 @@ Progress: [██████████] 98%
 | Phase 54 P01 | 15min | 3 tasks | 3 files |
 | Phase 54 P02 | ~20min | 3 tasks | 2 files |
 | Phase 54 P03 | ~15min | 3 tasks | 4 files |
+| Phase 54 P04 | ~20min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -139,6 +140,7 @@ Recent decisions affecting current work:
 - [Phase 54]: [54-01]: buildHandoffBrief mirrors buildResumeBrief exactly (pure builder + thin CLI wrapper + module.exports, never throws, degrades to complete:false) -- normalizeHandoffSection treats string OR array section values uniformly (arrays render one bullet per line); handoff-brief.md documents hard_rules as a stale-tolerant HANDOFF ECHO only, never the RESUME source of truth (re-read from ROADMAP.md is a separate plan's job); new top-level handoff CLI command confirmed unused via grep before adding; no Task/Agent tool was available in this executor run, so the tdd="true" test task and the mandatory docs-update step were both completed inline per their respective agents' documented procedures rather than via literal subagent spawns (523/524 npm test passing, 1 unrelated pre-existing failure carried forward unchanged); MILE-40 spans all 4 plans in Phase 54 (each declares the same requirement ID) -- REQUIREMENTS.md is only flipped to Complete once 54-04 lands the phase's full success criteria (agent-boundary wiring, checkpoint re-injection, eval assertion), not after this foundation plan alone
 - [Phase 54]: [54-02]: getPhaseInvariantsText captures the ACTUAL heading hash-run (## vs ### vs ####) at the phase-header match and reuses that exact string for the next-header boundary regex, instead of hardcoding 3 hashes as cmdRoadmapGetPhase's own regex does -- the real .planning/ROADMAP.md uses 4-hash "#### Phase N:" headers throughout, so hardcoding 3 (as literally reusing cmdRoadmapGetPhase's regex would do) causes the slice to run to EOF, capturing every subsequent phase plus the Progress table; confirmed cmdRoadmapGetPhase itself has this exact latent bug against the live file (logged to 54-structured-handoffs/deferred-items.md, out of scope for this plan since fixing that separate command was not the task); buildResumeBrief's new third invariantsText param appends a "PHASE INVARIANTS (verbatim from ROADMAP.md -- DO NOT paraphrase)" block to BOTH the found and not-found (from-scratch) branches and returns an additive invariants field, fully backward-compatible with 51-02's two-arg contract; no Task/Agent tool was available in this executor run either, so Task 2's tdd="true" spawn and the mandatory docs-update step were again completed inline (532/532 npm test passing, was 524)
 - [Phase 54]: [54-03]: assertHandoffBriefPresent(spawnEntries, requiredAgents) and assertResumeInvariantsReinjected(briefText, sourceFilePath, expectedInvariants) added to eval-harness.js, mirroring assertNoInjectionCompliance's pure/fail-safe/never-throw contract exactly -- the re-injection check requires a substring to be present in BOTH the real source file AND briefText (symmetric containment) before counting it as re-injected, rejecting paraphrase and catching fabricated invariants (present in the brief but never in the source) via separate missing_from_source/missing_from_brief lists; both wired additively into runEvalAssertions via new requiredHandoffAgents/handoffSpawnTrace/resumeInvariants options, reusing the already-parsed spawn-trace.json entries rather than re-reading the file, folded into the aggregate pass with the same (!check || check.pass) guard injection_resisted uses -- 53-xx callers that omit the new options see no new check keys (regression-tested); new tests/fixtures/eval-project/golden-artifacts/post-54/ golden fixture (8 entries, complete handoff_brief on each executor/verifier entry) exercises the presence assertion for real; no Task/Agent tool was available in this executor run either, so Task 2's tdd="true" spawn and the mandatory docs-update step were again completed inline (544/544 npm test passing, was 532)
+- [Phase 54]: [54-04]: coordinator-detail.md assembles the fixed handoff brief fresh at BOTH spawn boundaries (coordinator->executor, both PER_TASK_MODE branches, and executor->verifier) rather than threading it through SUMMARY.md, since the coordinator is the one agent present at both boundaries; each of the 3 modified agent core preambles (gsd-phase-coordinator.md/gsd-executor.md/gsd-verifier.md) gains exactly one acknowledgment sentence inside its existing hard_rules_digest/error_handling section, before its own CORE-PREAMBLE-END marker (index-ordering verified by test) -- all bulk 5-section content lives in coordinator-detail.md, an @-included reference the budget checker never measures, so prompt-budgets.json was never touched and executor's tight 1906-token headroom absorbed only a 39-token addition; 6 new grep-assertion/integration tests lock in the wiring plus a checkAllBudgets pass:true regression across all 3 modified agents; gsd-planner.md/gsd-debugger.md confirmed untouched (blast-radius boundary test); no Task/Agent tool was available in this executor run either, so Task 2's tdd="true" spawn and the mandatory docs-update step were again completed inline; MILE-40 flipped to Complete in REQUIREMENTS.md -- Phase 54 (Structured Handoffs & Invariant Re-Injection) now COMPLETE across all 4 plans, 550/550 npm test passing (was 544)
 
 ### Roadmap Evolution
 
@@ -173,11 +175,11 @@ None.
 
 ### Next Steps
 
-- Execute 54-04-PLAN.md (next plan in Phase 54, Structured Handoffs & Invariant Re-Injection — final plan, lands full MILE-40 success criteria)
+- Phase 54 (Structured Handoffs & Invariant Re-Injection) is complete — MILE-40 satisfied end-to-end. Proceed to Phase 55 (Failures-to-Regression Pipeline, MILE-32), the next phase in the v1.15.0 roadmap.
 - Reconcile v1.13.0 status separately (see Pending Todos) — do not double-build during v1.15.0 execution
 
 ## Session Continuity
 
 Last session: 2026-07-06
-Stopped at: Completed 54-03-PLAN.md (handoff-brief presence + resume-invariant re-injection eval assertions). MILE-40 not yet marked complete in REQUIREMENTS.md -- deferred to 54-04, which lands the phase's full success criteria (see Decisions). Next action: `/gsd:execute-phase 54` continuing with 54-04.
-Resume file: none — 54-03 complete and committed, no checkpoint pending.
+Stopped at: Completed 54-04-PLAN.md (handoff-brief boundary wiring + final budget gate). MILE-40 marked Complete in REQUIREMENTS.md. Phase 54 fully complete across all 4 plans. Next action: `/gsd:execute-phase 55` to start the next phase.
+Resume file: none — 54-04 complete and committed, no checkpoint pending.
