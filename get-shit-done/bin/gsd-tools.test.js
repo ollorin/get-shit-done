@@ -9526,3 +9526,108 @@ describe('resume-brief invariant re-injection', () => {
     assert.ok(!brief.brief_text.includes('PHASE INVARIANTS'));
   });
 });
+
+describe('Phase 54 handoff-brief wiring', () => {
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  const COORDINATOR_DETAIL_PATH = path.join(REPO_ROOT, 'get-shit-done', 'references', 'coordinator-detail.md');
+  const HANDOFF_BRIEF_PATH = path.join(REPO_ROOT, 'get-shit-done', 'references', 'handoff-brief.md');
+  const COORDINATOR_AGENT_PATH = path.join(REPO_ROOT, 'agents', 'gsd-phase-coordinator.md');
+  const EXECUTOR_AGENT_PATH = path.join(REPO_ROOT, 'agents', 'gsd-executor.md');
+  const VERIFIER_AGENT_PATH = path.join(REPO_ROOT, 'agents', 'gsd-verifier.md');
+  const PLANNER_AGENT_PATH = path.join(REPO_ROOT, 'agents', 'gsd-planner.md');
+  const DEBUGGER_AGENT_PATH = path.join(REPO_ROOT, 'agents', 'gsd-debugger.md');
+  const CORE_PREAMBLE_MARKER = '<!-- GSD:CORE-PREAMBLE-END -->';
+
+  // Guarded read helper: fails the assertion loudly (not an unhandled throw)
+  // if the expected file has moved/been deleted, per the plan's "missing
+  // input" category requirement.
+  function readRepoFile(absPath) {
+    assert.ok(fs.existsSync(absPath), `expected file to exist: ${absPath}`);
+    return fs.readFileSync(absPath, 'utf-8');
+  }
+
+  // Category 1: Happy path.
+  test('happy path: coordinator-detail.md injects <handoff_brief> at both executor branches and the verifier spawn, @-mentioning handoff-brief.md', () => {
+    const content = readRepoFile(COORDINATOR_DETAIL_PATH);
+
+    const executeStepIdx = content.indexOf('<step name="execute">');
+    const verifyStepIdx = content.indexOf('<step name="verify">');
+    assert.ok(executeStepIdx !== -1, 'expected an <step name="execute"> anchor');
+    assert.ok(verifyStepIdx !== -1, 'expected a <step name="verify"> anchor');
+    assert.ok(executeStepIdx < verifyStepIdx, 'expected the execute step to precede the verify step');
+
+    const executorRegion = content.slice(executeStepIdx, verifyStepIdx);
+    const verifierRegion = content.slice(verifyStepIdx);
+
+    const executorBriefCount = (executorRegion.match(/<handoff_brief>/g) || []).length;
+    const verifierBriefCount = (verifierRegion.match(/<handoff_brief>/g) || []).length;
+
+    assert.ok(executorBriefCount >= 2, `expected >= 2 <handoff_brief> occurrences in the executor spawn region (both PER_TASK_MODE branches), got ${executorBriefCount}`);
+    assert.ok(verifierBriefCount >= 1, `expected >= 1 <handoff_brief> occurrence in the verifier spawn region, got ${verifierBriefCount}`);
+
+    assert.ok(executorRegion.includes('handoff-brief.md'), 'expected handoff-brief.md to be @-mentioned in the executor spawn region');
+    assert.ok(verifierRegion.includes('handoff-brief.md'), 'expected handoff-brief.md to be @-mentioned in the verifier spawn region');
+  });
+
+  // Category 2: Missing/malformed input.
+  test('missing/malformed input: readRepoFile fails the assertion loudly (not an unhandled throw) for an absent path', () => {
+    const bogusPath = path.join(REPO_ROOT, 'get-shit-done', 'references', 'this-file-does-not-exist-54-04.md');
+    assert.throws(
+      () => readRepoFile(bogusPath),
+      /expected file to exist/,
+      'expected a clear assertion failure, not an unhandled exception, for a moved/absent file'
+    );
+  });
+
+  // Category 3: Edge case -- pointer line lives INSIDE the budget-measured preamble.
+  test('edge case: each of the 3 agent files carries its handoff-brief line BEFORE its own CORE-PREAMBLE-END marker', () => {
+    const agents = [
+      { path: COORDINATOR_AGENT_PATH, pattern: /handoff brief/i },
+      { path: EXECUTOR_AGENT_PATH, pattern: /handoff_brief/ },
+      { path: VERIFIER_AGENT_PATH, pattern: /handoff_brief/ },
+    ];
+
+    for (const { path: agentPath, pattern } of agents) {
+      const content = readRepoFile(agentPath);
+      const markerIdx = content.indexOf(CORE_PREAMBLE_MARKER);
+      const matchIdx = content.search(pattern);
+
+      assert.ok(markerIdx !== -1, `expected ${agentPath} to contain the CORE-PREAMBLE-END marker`);
+      assert.ok(matchIdx !== -1, `expected ${agentPath} to contain a handoff-brief acknowledgment matching ${pattern}`);
+      assert.ok(matchIdx < markerIdx, `expected the handoff-brief line in ${agentPath} to appear BEFORE CORE-PREAMBLE-END (matchIdx=${matchIdx}, markerIdx=${markerIdx})`);
+    }
+  });
+
+  // Category 4: Boundary -- blast radius confined to coordinator/executor/verifier.
+  test('boundary: gsd-planner.md and gsd-debugger.md do NOT contain a <handoff_brief> block', () => {
+    const plannerContent = readRepoFile(PLANNER_AGENT_PATH);
+    const debuggerContent = readRepoFile(DEBUGGER_AGENT_PATH);
+
+    assert.ok(!plannerContent.includes('<handoff_brief>'), 'expected gsd-planner.md to be untouched by the handoff-brief wiring');
+    assert.ok(!debuggerContent.includes('<handoff_brief>'), 'expected gsd-debugger.md to be untouched by the handoff-brief wiring');
+  });
+
+  // Category 5: Wiring/integration -- budgets still pass after the preamble additions.
+  test('wiring: checkAllBudgets reports pass:true overall and for coordinator/executor/verifier individually', () => {
+    const { checkAllBudgets } = require('./prompt-budget.js');
+    const result = checkAllBudgets(REPO_ROOT);
+
+    assert.strictEqual(result.pass, true, `expected checkAllBudgets to pass overall, got: ${JSON.stringify(result.results)}`);
+
+    const modifiedAgents = ['agents/gsd-phase-coordinator.md', 'agents/gsd-executor.md', 'agents/gsd-verifier.md'];
+    for (const relPath of modifiedAgents) {
+      const entry = result.results.find((r) => r.filePath === relPath);
+      assert.ok(entry, `expected a budget result entry for ${relPath}`);
+      assert.strictEqual(entry.pass, true, `expected ${relPath} to pass its budget, got ${entry.estimatedTokens}/${entry.budget}`);
+    }
+  });
+
+  // Category 6: Regression guard -- the single-source structure was not diluted by the wiring.
+  test('regression guard: handoff-brief.md still defines all 5 canonical section labels', () => {
+    const content = readRepoFile(HANDOFF_BRIEF_PATH);
+    const labels = ['Phase Goal', 'Key Decisions', 'Open Risks', 'File Map', 'Hard Rules'];
+    for (const label of labels) {
+      assert.ok(content.includes(label), `expected handoff-brief.md to still define the "${label}" section label`);
+    }
+  });
+});
