@@ -10048,3 +10048,226 @@ describe('Phase 55-01 eval-candidate agent wiring', () => {
     assert.ok(!executorContent.includes('eval-candidate'), 'expected gsd-executor.md to be untouched by the eval-candidate wiring');
   });
 });
+
+// Phase 55-02 (MILE-32): review-queue lifecycle -- validateEvalCandidateSchema
+// (pure) plus the list/accept/reject CLI built on top of it. Mirrors the
+// 55-01 describe block's createTempProject/cleanup + runGsdTools conventions;
+// candidates are hand-seeded as JSON files directly into a temp
+// tests/eval-regressions/queue/ dir (rather than generated via from-debug/
+// from-verification) so each test controls the exact shape under test,
+// including deliberately-invalid hand-edited shapes.
+describe('eval-candidate review queue (Phase 55-02)', () => {
+  const { validateEvalCandidateSchema } = resilience;
+
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function queueDirPath(dir = tmpDir) {
+    return path.join(dir, 'tests', 'eval-regressions', 'queue');
+  }
+
+  function acceptedDirPath(dir = tmpDir) {
+    return path.join(dir, 'tests', 'eval-regressions', 'accepted');
+  }
+
+  function archivedDirPath(dir = tmpDir) {
+    return path.join(dir, 'tests', 'eval-regressions', 'archived');
+  }
+
+  function validCandidate(overrides = {}) {
+    return {
+      id: 'cand-valid-1',
+      source: 'debugger',
+      created_at: '2026-01-01T00:00:00.000Z',
+      title: 'A valid candidate',
+      context: { phase: null, root_cause: 'x', gap_description: null, debug_file: null, verification_file: null },
+      expected: { type: 'file_exists', file: 'src/foo.js' },
+      status: 'pending',
+      ...overrides,
+    };
+  }
+
+  function seedQueueFile(id, content) {
+    const dir = queueDirPath();
+    fs.mkdirSync(dir, { recursive: true });
+    const filePath = path.join(dir, `${id}.json`);
+    fs.writeFileSync(filePath, content, 'utf-8');
+    return filePath;
+  }
+
+  function seedQueueCandidate(candidate) {
+    return seedQueueFile(candidate.id, JSON.stringify(candidate, null, 2));
+  }
+
+  // Category 1: Happy path.
+  test('happy path: fully valid candidate object -> validateEvalCandidateSchema returns {valid:true, errors:[]}', () => {
+    const result = validateEvalCandidateSchema(validCandidate());
+    assert.deepStrictEqual(result, { valid: true, errors: [] });
+  });
+
+  test('happy path: `eval-candidate accept` moves a valid queued candidate to accepted/ with status:"accepted" and removes it from queue/', () => {
+    seedQueueCandidate(validCandidate({ id: 'cand-happy' }));
+
+    const result = runGsdTools('eval-candidate accept cand-happy --raw', tmpDir);
+    assert.ok(result.success, `expected CLI success, got: ${result.error}`);
+
+    const acceptedPath = path.join(acceptedDirPath(), 'cand-happy.json');
+    assert.ok(fs.existsSync(acceptedPath), 'expected candidate to exist in accepted/');
+    const accepted = JSON.parse(fs.readFileSync(acceptedPath, 'utf-8'));
+    assert.strictEqual(accepted.status, 'accepted');
+    assert.ok(accepted.accepted_at, 'expected an accepted_at timestamp');
+
+    const queuePath = path.join(queueDirPath(), 'cand-happy.json');
+    assert.ok(!fs.existsSync(queuePath), 'expected candidate to no longer exist in queue/');
+  });
+
+  // Category 2: Missing/malformed input.
+  test('missing/malformed: candidate missing `expected` -> valid:false with "missing required key: expected"', () => {
+    const candidate = validCandidate();
+    delete candidate.expected;
+    const result = validateEvalCandidateSchema(candidate);
+    assert.strictEqual(result.valid, false);
+    assert.ok(result.errors.includes('missing required key: expected'), `expected "missing required key: expected" in ${JSON.stringify(result.errors)}`);
+  });
+
+  test('missing/malformed: `eval-candidate accept` on invalid JSON in queue/ exits non-zero, leaves file untouched, stdout mentions malformed_candidate', () => {
+    seedQueueFile('cand-broken', '{ not valid json');
+
+    const result = runGsdTools('eval-candidate accept cand-broken --raw', tmpDir);
+    assert.strictEqual(result.success, false, 'expected non-zero exit');
+    assert.ok(result.output.includes('malformed_candidate'), `expected "malformed_candidate" in output: ${result.output}`);
+
+    const queuePath = path.join(queueDirPath(), 'cand-broken.json');
+    assert.ok(fs.existsSync(queuePath), 'expected the malformed file to remain in queue/ untouched');
+    assert.strictEqual(fs.readFileSync(queuePath, 'utf-8'), '{ not valid json');
+  });
+
+  // Category 3: Edge case.
+  test('edge case: expected.type "file_contains" without expected.needle -> valid:false with the needle-specific error', () => {
+    const candidate = validCandidate({ expected: { type: 'file_contains', file: 'src/foo.js' } });
+    const result = validateEvalCandidateSchema(candidate);
+    assert.strictEqual(result.valid, false);
+    assert.ok(
+      result.errors.includes('expected.needle is required for file_contains/file_not_contains'),
+      `expected the needle-specific error in ${JSON.stringify(result.errors)}`
+    );
+  });
+
+  test('edge case: `eval-candidate accept` re-validates and REJECTS a hand-edited candidate that is now schema-invalid, leaving it in queue/', () => {
+    // Hand-edited to a previously-valid-looking but now-broken shape: file_contains with no needle.
+    seedQueueCandidate(validCandidate({ id: 'cand-hand-edited', expected: { type: 'file_contains', file: 'src/foo.js' } }));
+
+    const result = runGsdTools('eval-candidate accept cand-hand-edited --raw', tmpDir);
+    assert.strictEqual(result.success, false, 'expected non-zero exit on schema-invalid hand-edited candidate');
+    assert.ok(result.output.includes('invalid_candidate_schema'), `expected "invalid_candidate_schema" in output: ${result.output}`);
+    const parsedOutput = JSON.parse(result.output);
+    assert.ok(Array.isArray(parsedOutput.errors) && parsedOutput.errors.length > 0, 'expected a non-empty errors array');
+
+    const queuePath = path.join(queueDirPath(), 'cand-hand-edited.json');
+    assert.ok(fs.existsSync(queuePath), 'expected the invalid hand-edited candidate to remain in queue/');
+    const acceptedPath = path.join(acceptedDirPath(), 'cand-hand-edited.json');
+    assert.ok(!fs.existsSync(acceptedPath), 'expected the invalid hand-edited candidate to NOT be promoted to accepted/');
+  });
+
+  // Category 4: Boundary.
+  test('boundary: `eval-candidate reject` on a candidate that already has a `reason` appends (never overwrites) the new reason', () => {
+    seedQueueCandidate(validCandidate({ id: 'cand-reasoned', reason: 'first reason' }));
+
+    const result = runGsdTools('eval-candidate reject cand-reasoned --reason "second reason" --raw', tmpDir);
+    assert.ok(result.success, `expected CLI success, got: ${result.error}`);
+
+    const archivedPath = path.join(archivedDirPath(), 'cand-reasoned.json');
+    assert.ok(fs.existsSync(archivedPath), 'expected candidate to exist in archived/');
+    const archived = JSON.parse(fs.readFileSync(archivedPath, 'utf-8'));
+    assert.strictEqual(archived.status, 'rejected');
+    assert.strictEqual(archived.reason, 'first reason; second reason');
+    assert.ok(archived.rejected_at, 'expected a rejected_at timestamp');
+
+    const queuePath = path.join(queueDirPath(), 'cand-reasoned.json');
+    assert.ok(!fs.existsSync(queuePath), 'expected candidate to no longer exist in queue/ (moved, not copied)');
+  });
+
+  // Category 5: Wiring/integration.
+  test('wiring: `eval-candidate list` reflects queue/accepted/archived contents correctly after one accept and one reject', () => {
+    seedQueueCandidate(validCandidate({ id: 'cand-list-accept' }));
+    seedQueueCandidate(validCandidate({ id: 'cand-list-reject' }));
+    seedQueueCandidate(validCandidate({ id: 'cand-list-remains' }));
+
+    const acceptResult = runGsdTools('eval-candidate accept cand-list-accept --raw', tmpDir);
+    assert.ok(acceptResult.success, `expected accept success, got: ${acceptResult.error}`);
+    const rejectResult = runGsdTools('eval-candidate reject cand-list-reject --reason "not reproducible" --raw', tmpDir);
+    assert.ok(rejectResult.success, `expected reject success, got: ${rejectResult.error}`);
+
+    const queueListResult = runGsdTools('eval-candidate list --raw', tmpDir);
+    assert.ok(queueListResult.success, `expected list success, got: ${queueListResult.error}`);
+    const queueList = JSON.parse(queueListResult.output);
+    assert.strictEqual(queueList.dir, 'queue');
+    assert.strictEqual(queueList.count, 1);
+    assert.strictEqual(queueList.candidates[0].id, 'cand-list-remains');
+
+    const acceptedListResult = runGsdTools('eval-candidate list accepted --raw', tmpDir);
+    assert.ok(acceptedListResult.success, `expected list success, got: ${acceptedListResult.error}`);
+    const acceptedList = JSON.parse(acceptedListResult.output);
+    assert.strictEqual(acceptedList.count, 1);
+    assert.strictEqual(acceptedList.candidates[0].id, 'cand-list-accept');
+    assert.strictEqual(acceptedList.candidates[0].status, 'accepted');
+
+    const archivedListResult = runGsdTools('eval-candidate list archived --raw', tmpDir);
+    assert.ok(archivedListResult.success, `expected list success, got: ${archivedListResult.error}`);
+    const archivedList = JSON.parse(archivedListResult.output);
+    assert.strictEqual(archivedList.count, 1);
+    assert.strictEqual(archivedList.candidates[0].id, 'cand-list-reject');
+    assert.strictEqual(archivedList.candidates[0].status, 'rejected');
+  });
+
+  // Category 6: Regression guard.
+  test('regression guard: `eval-candidate from-debug`/`from-verification` (55-01) still land fresh candidates in queue/ unmodified', () => {
+    const debugFixture = path.join(tmpDir, '.planning', 'debug', 'fixture.md');
+    fs.mkdirSync(path.dirname(debugFixture), { recursive: true });
+    fs.writeFileSync(debugFixture, `---
+status: verifying
+trigger: "regression guard trigger"
+---
+
+## Resolution
+
+root_cause: still confirmed after 55-02 CLI additions
+fix: n/a
+verification: n/a
+files_changed: [src/regression-guard.js]
+`, 'utf-8');
+
+    const fromDebugResult = runGsdTools('eval-candidate from-debug .planning/debug/fixture.md --raw', tmpDir);
+    assert.ok(fromDebugResult.success, `expected from-debug CLI success, got: ${fromDebugResult.error}`);
+    const queueFilesAfterDebug = fs.readdirSync(queueDirPath()).filter((f) => f.endsWith('.json'));
+    assert.strictEqual(queueFilesAfterDebug.length, 1, 'expected exactly one candidate written by from-debug');
+
+    const verificationFixture = path.join(tmpDir, '.planning', 'phases', '55-test-phase', '55-VERIFICATION.md');
+    fs.mkdirSync(path.dirname(verificationFixture), { recursive: true });
+    fs.writeFileSync(verificationFixture, `---
+phase: 55-test-phase
+status: gaps_found
+gaps:
+  - truth: "Regression guard gap"
+    status: failed
+    failure_type: stub
+    reason: "still works after 55-02 CLI additions"
+    artifacts:
+      - path: "src/regression-guard-gap.js"
+        issue: "missing"
+---
+`, 'utf-8');
+
+    const fromVerificationResult = runGsdTools('eval-candidate from-verification .planning/phases/55-test-phase/55-VERIFICATION.md --raw', tmpDir);
+    assert.ok(fromVerificationResult.success, `expected from-verification CLI success, got: ${fromVerificationResult.error}`);
+    const queueFilesAfterBoth = fs.readdirSync(queueDirPath()).filter((f) => f.endsWith('.json'));
+    assert.strictEqual(queueFilesAfterBoth.length, 2, 'expected a second candidate written by from-verification, alongside the from-debug one');
+  });
+});
