@@ -9,9 +9,9 @@ See: .planning/PROJECT.md (updated 2026-07-02)
 
 ## Current Position
 
-Phase: 59 of 61 (Dormant Quality Agents Wired In) — COMPLETE (3/3 plans)
-Plan: 3 of 3 (59-03 complete)
-Status: Ready to execute
+Phase: 59 of 61 (Dormant Quality Agents Wired In) — COMPLETE (4/4 plans, incl. 59-04 gap closure)
+Plan: 4 of 4 (59-04 complete — MILE-38 gap closure)
+Status: Ready to execute (Phase 60 next)
 Last activity: 2026-07-06
 
 Progress: [██████████] 100%
@@ -96,6 +96,7 @@ Progress: [██████████] 100%
 | Phase 59 P01 | ~25min | 3 tasks | 5 files |
 | Phase 59 P02 | ~20min | 3 tasks | 4 files |
 | Phase 59 P03 | ~25min | 3 tasks | 7 files |
+| Phase 59 P04 | ~15min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -174,6 +175,7 @@ Recent decisions affecting current work:
 - [Phase 59]: [59-01]: appendVerificationGap composes with the EXISTING buildEvalCandidatesFromVerificationFile/eval-candidate from-verification reader rather than a second gap pipeline -- proven via a composition test running a real verify append-gap CLI call then re-reading the same file through the Phase 55 reader; both new quality.test_writer/quality.integration_tester config toggles default false (zero behavior change); agent drift refresh (content_firewall + MILE-26 telemetry) landed on gsd-test-writer.md/gsd-integration-tester.md ahead of their golden-path wiring in Plans 59-02/59-03; 577/577 gsd-tools.test.js passing (was 558), full npm test 781/781 green
 - [Phase 59]: [59-02]: computeTouchesSourceCode/isSourceFile/isTestOrSpecFile mirror isUIFile/computeHasUI's exact pure, no-I/O, extension+path-pattern style (Phase 45-02); new top-level `case 'quality':` CLI dispatch (not nested inside `case 'routing':`) hosts `quality touches-source`; executor-detail.md's new `<post_task_quality_spawn>` block sits strictly between `</inter_task_syntax_check>` and `<test_task_handling>` (which remains byte-for-byte unchanged), gated on the `quality.test_writer` toggle, treating 0-tests/missing-output as a loud `[Rule Quality-TW]` SUMMARY.md deviation that never blocks -- explicit, permanent contrast with `<test_task_handling>`'s tdd="true" hard-block contract; found+fixed two real Rule-1 bugs while writing tests: (1) the `config get test_writer_enabled` bash snippet was missing `--raw`, so the shell comparison against "true" could never match even with the toggle explicitly enabled, silently defeating the entire toggle-on path -- fixed by adding `--raw`; (2) the pre-existing 59-01 CHANGELOG-ordering regression test hardcoded "Phase 59-01 is the first bullet," which this plan's own (correctly newest-first) CHANGELOG addition broke -- rewrote it to check ordering against a durable older anchor (Phase 58) instead of assuming permanent first-bullet position; no Task/Agent tool was available in this executor run, so Task 2's tdd="true" spawn and the mandatory docs-update step were both completed inline; 801/801 npm test passing (was 781); MILE-37 satisfied end-to-end -- golden path spawns gsd-test-writer after every source-touching task when the toggle is on, treats missing coverage as a loud deviation never a silent skip or hard block, zero behavior change when off
 - [Phase 59]: [Phase 59-03]: cmdRoadmapGetPhase's depends_on field was never returned at all (a real pre-existing bug) -- fixed with a regex tolerant of both real-world ROADMAP.md dependency-line styles; parseRoadmapPhases's own narrower depends_on regex (feeds roadmap analyze) deliberately left untouched, out of scope, mirroring 54-02's precedent; coordinator-detail.md's new step 3b spawns gsd-integration-tester on a declared ROADMAP.md dependency independent of the file-overlap heuristic when quality.integration_tester is on, never for an independent phase, never double-spawning when step 3 already fired; step 4 rewritten to propagate a blocking mismatch into VERIFICATION.md via verify append-gap, composing with the existing Phase 55 eval-candidate from-verification pipeline; contract_mismatch added as the 8th failure_type in verifier-detail.md/planner-detail.md; new post-59 golden fixture proves both MILE-37/MILE-38 spawns via assertAgentsSpawned; 816/816 npm test passing (was 801); Phase 59 (Dormant Quality Agents Wired In) now COMPLETE across all 3 plans, MILE-37/MILE-38 both satisfied end-to-end
+- [Phase 59]: [59-04]: coordinator-detail.md's DEPENDS_ON snippet fixed by dropping a stray --raw flag (cmdRoadmapGetPhase's raw-markdown --raw semantics untouched); regression test extracts and executes the LITERAL bash line from the prose file rather than a hand-rolled equivalent, closing the one blocking contract_mismatch gap from 59-VERIFICATION.md -- Phase 59 (Dormant Quality Agents Wired In) now fully verified with zero open gaps across all 4 plans
 
 ### Roadmap Evolution
 
@@ -208,11 +210,11 @@ None.
 
 ### Next Steps
 
-- Phase 59 (Dormant Quality Agents Wired In) COMPLETE across all 3 plans — MILE-37 (Plan 59-02) and MILE-38 (Plan 59-03) both satisfied end-to-end, both marked Complete in REQUIREMENTS.md. Next: begin Phase 60 (Adversarial Plan Review, MILE-39).
+- Phase 59 (Dormant Quality Agents Wired In) COMPLETE across all 4 plans (59-01..59-04) — MILE-37 (Plan 59-02) and MILE-38 (Plan 59-03, gap-closed by Plan 59-04) both satisfied end-to-end, both marked Complete in REQUIREMENTS.md; the single blocking contract_mismatch gap from 59-VERIFICATION.md (coordinator DEPENDS_ON snippet's stray `--raw` flag) is now closed, so Phase 59 is fully verified with zero open gaps. Next: begin Phase 60 (Adversarial Plan Review, MILE-39).
 - Reconcile v1.13.0 status separately (see Pending Todos) — do not double-build during v1.15.0 execution
 
 ## Session Continuity
 
-Last session: 2026-07-06T12:51:47.793Z
-Stopped at: Completed 59-03-PLAN.md (coordinator declared-dependency gsd-integration-tester wiring, MILE-38 satisfied) -- Phase 59 (Dormant Quality Agents Wired In) COMPLETE across all 3 plans
+Last session: 2026-07-06T13:27:35.604Z
+Stopped at: Completed 59-04-PLAN.md (gap closure: dropped --raw from coordinator DEPENDS_ON snippet, MILE-38) -- Phase 59 fully verified, zero open gaps
 Resume file: None

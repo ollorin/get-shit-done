@@ -698,12 +698,13 @@ Plans:
   2. With the toggle enabled, the coordinator spawns gsd-integration-tester at phase completion when the phase declares dependencies on prior phases; eval harness asserts the spawn on a dependent-phase fixture. Phases with no dependencies never spawn it
   3. Integration-tester `gaps_found` feeds the existing verification failure path (and thus Phase 55's fixture generation)
   4. Integration tests cover: spawn-on-implementation assertion, toggle-off no-op, missing-output deviation path, dependent-phase spawn assertion, independent-phase no-spawn, gaps_found propagation
-**Plans:** 3/3 plans complete
+**Plans:** 4/4 plans complete
 
 Plans:
 - [x] 59-01: config toggles (quality.test_writer/quality.integration_tester, default off) + appendVerificationGap/verify append-gap CLI + gsd-test-writer.md/gsd-integration-tester.md agent drift refresh (content_firewall + telemetry)
 - [x] 59-02: computeTouchesSourceCode/quality touches-source CLI + post_task_quality_spawn block in executor-detail.md — additive gsd-test-writer spawn after every source-touching type="auto" task, gated on quality.test_writer, loud-deviation-not-block failure handling (MILE-37 COMPLETE)
 - [x] 59-03: fixed cmdRoadmapGetPhase's pre-existing missing depends_on bug + coordinator-detail.md's new declared-dependency gsd-integration-tester spawn (step 3b) + verify append-gap gaps_found propagation + contract_mismatch failure_type in verifier-detail.md/planner-detail.md + post-59 golden fixture (MILE-38 COMPLETE — Phase 59 COMPLETE)
+- [x] 59-04: gap closure — dropped a stray `--raw` flag from coordinator-detail.md's DEPENDS_ON bash snippet (JSON.parse was always throwing, silently defeating step 3b's spawn trigger); literal-snippet regression test + permanent grep-assertion lock added; closes the single blocking contract_mismatch gap from 59-VERIFICATION.md — Phase 59 fully verified, zero open gaps
 
 #### Phase 60: Adversarial Plan Review
 
@@ -796,7 +797,7 @@ Plans:
 | 56. Reflective Prompt Optimization | v1.15.0 | 3/3 | Complete | 2026-07-06 |
 | 57. Outcome-Informed Routing Ledger & Bounded Escalation | v1.15.0 | Complete    | 2026-07-06 | 2026-07-06 |
 | 58. Honest Token Accounting | v1.15.0 | 0/TBD | Not started | - |
-| 59. Dormant Quality Agents Wired In | v1.15.0 | 3/3 | Complete   | 2026-07-06 |
+| 59. Dormant Quality Agents Wired In | v1.15.0 | 4/4 | Complete   | 2026-07-06 |
 | 60. Adversarial Plan Review | v1.15.0 | 0/TBD | Not started | - |
 | 61. Project-Aware Pre-PR Gate | v1.15.0 | 0/TBD | Not started | - |
 
