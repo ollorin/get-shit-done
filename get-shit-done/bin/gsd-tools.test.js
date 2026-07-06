@@ -11376,3 +11376,218 @@ describe('Phase 57-01 [Rule 1 fix]: roadmap update-plan-progress preserves the M
     assert.strictEqual(row58, '| 58. Next Phase | v1.15.0 | 0/TBD | Not started | - |');
   });
 });
+
+describe('Phase 57-03: failure classification & escalation bound logic', () => {
+  const { classifyFailure, decideEscalation, NON_CAPABILITY_PATTERNS } = require(TOOLS_PATH);
+
+  describe('classifyFailure (pure)', () => {
+    const denyListCases = [
+      ['ENOENT', 'ENOENT: no such file or directory, open \'/tmp/missing.txt\''],
+      ['no such file', 'bash: foo: no such file'],
+      ['command not found', 'zsh: command not found: rtk'],
+      ['permission denied', 'cp: /etc/shadow: Permission denied'],
+      ['EACCES', 'Error: EACCES: access refused, open \'/root/secret\''],
+      ['ECONNREFUSED', 'connect ECONNREFUSED 127.0.0.1:5432'],
+      ['getaddrinfo', 'Error: getaddrinfo ENOTFOUND example.invalid'],
+      ['network error', 'fetch failed: network error'],
+      ['env var', 'missing required env var DATABASE_URL'],
+      ['environment variable', 'missing required environment variable API_KEY'],
+      ['.env', 'could not load .env file'],
+      ['ENOSPC', 'ENOSPC: no space left on device, write'],
+      ['disk full', 'write failed: disk full'],
+      ['git conflict', 'git conflict detected in src/index.js'],
+      ['merge conflict', 'CONFLICT (content): merge conflict in README.md'],
+    ];
+
+    for (const [pattern, sampleText] of denyListCases) {
+      test(`deny-list pattern "${pattern}" -> capability_related:false, matched_pattern:"${pattern}"`, () => {
+        const result = classifyFailure(sampleText);
+        assert.strictEqual(result.capability_related, false, `expected non-capability for: ${sampleText}`);
+        assert.strictEqual(result.matched_pattern, pattern);
+      });
+    }
+
+    // 57-RESEARCH.md/the plan's prose says "14 patterns" but the actual
+    // enumerated list (env var / environment variable counted as two
+    // distinct literal strings, per the plan's own code block) has 15
+    // entries -- asserting against denyListCases.length (not a hardcoded
+    // 14) keeps this test honest about the real array shape while still
+    // locking in that every documented pattern is present.
+    test('all documented deny-list patterns are present in NON_CAPABILITY_PATTERNS (regression guard against silent list drift)', () => {
+      assert.strictEqual(NON_CAPABILITY_PATTERNS.length, denyListCases.length);
+      for (const [pattern] of denyListCases) {
+        assert.ok(
+          NON_CAPABILITY_PATTERNS.some((p) => p.toLowerCase() === pattern.toLowerCase()),
+          `expected "${pattern}" to be present in NON_CAPABILITY_PATTERNS`
+        );
+      }
+    });
+
+    test('case-insensitivity: "Permission Denied" (mixed case) still matches', () => {
+      const result = classifyFailure('Error: Permission Denied while writing file');
+      assert.strictEqual(result.capability_related, false);
+      assert.strictEqual(result.matched_pattern, 'permission denied');
+    });
+
+    test('a genuine capability-shaped error ("assertion failed: expected true, got false") -> capability_related:true, matched_pattern:null', () => {
+      const result = classifyFailure('assertion failed: expected true, got false');
+      assert.strictEqual(result.capability_related, true);
+      assert.strictEqual(result.matched_pattern, null);
+    });
+
+    test('empty string input -> capability_related:true (safe default, never throws)', () => {
+      assert.doesNotThrow(() => {
+        const result = classifyFailure('');
+        assert.strictEqual(result.capability_related, true);
+        assert.strictEqual(result.matched_pattern, null);
+      });
+    });
+
+    test('undefined input -> capability_related:true (safe default, never throws)', () => {
+      assert.doesNotThrow(() => {
+        const result = classifyFailure(undefined);
+        assert.strictEqual(result.capability_related, true);
+        assert.strictEqual(result.matched_pattern, null);
+      });
+    });
+  });
+
+  describe('decideEscalation (pure, ladder-bounded)', () => {
+    test('non-capability classification -> escalate:false, reason:non_capability_failure, regardless of currentTier/escalationsUsed', () => {
+      const classification = { capability_related: false, matched_pattern: 'ENOENT' };
+      const result = decideEscalation('haiku', classification, 0);
+      assert.deepStrictEqual(result, { escalate: false, next_tier: null, reason: 'non_capability_failure' });
+    });
+
+    test('non-capability classification at a high escalationsUsed count still never escalates', () => {
+      const classification = { capability_related: false, matched_pattern: 'EACCES' };
+      const result = decideEscalation('sonnet', classification, 5);
+      assert.strictEqual(result.escalate, false);
+      assert.strictEqual(result.reason, 'non_capability_failure');
+    });
+
+    test('currentTier haiku, escalationsUsed 0, capability failure -> escalate:true, next_tier:sonnet', () => {
+      const classification = { capability_related: true, matched_pattern: null };
+      const result = decideEscalation('haiku', classification, 0);
+      assert.strictEqual(result.escalate, true);
+      assert.strictEqual(result.next_tier, 'sonnet');
+      assert.strictEqual(result.reason, 'capability_failure');
+    });
+
+    test('currentTier sonnet, escalationsUsed 1, capability failure -> escalate:true, next_tier:opus', () => {
+      const classification = { capability_related: true, matched_pattern: null };
+      const result = decideEscalation('sonnet', classification, 1);
+      assert.strictEqual(result.escalate, true);
+      assert.strictEqual(result.next_tier, 'opus');
+      assert.strictEqual(result.reason, 'capability_failure');
+    });
+
+    test('currentTier opus (ladder ceiling) -> escalate:false, reason:ladder_exhausted -- opus failure never attempts a 4th tier', () => {
+      const classification = { capability_related: true, matched_pattern: null };
+      const result = decideEscalation('opus', classification, 0);
+      assert.strictEqual(result.escalate, false);
+      assert.strictEqual(result.next_tier, null);
+      assert.strictEqual(result.reason, 'ladder_exhausted');
+    });
+
+    test('escalationsUsed already at getTiers().length - 1 (2) with currentTier haiku -> escalate:false, reason:escalation_bound_reached (explicit safety cap fires even though getNextTier(haiku) would otherwise return sonnet)', () => {
+      const { getTiers, getNextTier } = require('./model-registry.js');
+      const maxEscalations = getTiers().length - 1;
+      assert.strictEqual(maxEscalations, 2, 'sanity check: 3-tier ladder (haiku/sonnet/opus) has a bound of 2');
+      assert.strictEqual(getNextTier('haiku'), 'sonnet', 'sanity check: getNextTier would otherwise permit escalation');
+
+      const classification = { capability_related: true, matched_pattern: null };
+      const result = decideEscalation('haiku', classification, maxEscalations);
+      assert.strictEqual(result.escalate, false);
+      assert.strictEqual(result.next_tier, null);
+      assert.strictEqual(result.reason, 'escalation_bound_reached');
+    });
+
+    test('missing/null classification -> treated as non-capability, never escalates (defensive default)', () => {
+      const result = decideEscalation('haiku', null, 0);
+      assert.strictEqual(result.escalate, false);
+      assert.strictEqual(result.reason, 'non_capability_failure');
+    });
+  });
+
+  describe('CLI integration: routing classify-failure / routing escalation-decision', () => {
+    test('routing classify-failure "ENOENT: ..." --raw returns capability_related:false', () => {
+      const result = runGsdTools('routing classify-failure "ENOENT: no such file or directory" --raw');
+      assert.ok(result.success, `expected exit 0: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.capability_related, false);
+      assert.strictEqual(parsed.matched_pattern, 'ENOENT');
+    });
+
+    test('routing classify-failure with a capability-shaped error --raw returns capability_related:true', () => {
+      const result = runGsdTools('routing classify-failure "assertion failed: expected 200 got 500" --raw');
+      assert.ok(result.success, `expected exit 0: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.capability_related, true);
+      assert.strictEqual(parsed.matched_pattern, null);
+    });
+
+    test('composition: routing escalation-decision --current-tier haiku --error-summary "ENOENT: ..." --escalations-used 0 --raw agrees with classify-failure (non-capability text never escalates via the composed CLI either)', () => {
+      const classifyResult = runGsdTools('routing classify-failure "ENOENT: no such file" --raw');
+      const classifyParsed = JSON.parse(classifyResult.output);
+
+      const escalationResult = runGsdTools(
+        'routing escalation-decision --current-tier haiku --error-summary "ENOENT: no such file" --escalations-used 0 --raw'
+      );
+      assert.ok(escalationResult.success, `expected exit 0: ${escalationResult.error}`);
+      const escalationParsed = JSON.parse(escalationResult.output);
+
+      assert.strictEqual(escalationParsed.capability_related, classifyParsed.capability_related);
+      assert.strictEqual(escalationParsed.capability_related, false);
+      assert.strictEqual(escalationParsed.escalate, false);
+      assert.strictEqual(escalationParsed.reason, 'non_capability_failure');
+    });
+
+    test('composition: a capability-shaped error at haiku with 0 escalations used composes to escalate:true, next_tier:sonnet', () => {
+      const result = runGsdTools(
+        'routing escalation-decision --current-tier haiku --error-summary "assertion failed: expected true, got false" --escalations-used 0 --raw'
+      );
+      assert.ok(result.success, `expected exit 0: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.capability_related, true);
+      assert.strictEqual(parsed.escalate, true);
+      assert.strictEqual(parsed.next_tier, 'sonnet');
+    });
+
+    test('routing escalation-decision without --current-tier errors', () => {
+      const result = runGsdTools('routing escalation-decision --error-summary "assertion failed" --escalations-used 0 --raw');
+      assert.strictEqual(result.success, false);
+    });
+  });
+
+  describe('executor-detail.md grep-assertion + regression guard (failure-signaling block)', () => {
+    const executorDetailPath = path.join(__dirname, '..', 'references', 'executor-detail.md');
+    const content = fs.readFileSync(executorDetailPath, 'utf-8');
+
+    test('the failure-signaling block calls routing classify-failure', () => {
+      const blockStart = content.indexOf('Failure signaling for coordinator escalation');
+      assert.ok(blockStart !== -1, 'failure-signaling block not found');
+      const blockEnd = content.indexOf('Note: The executor does NOT switch tiers', blockStart);
+      const block = content.slice(blockStart, blockEnd !== -1 ? blockEnd : blockStart + 2000);
+      assert.match(block, /routing classify-failure/);
+    });
+
+    test('the [non-capability] marker string is present', () => {
+      assert.match(content, /\[non-capability\]/);
+    });
+
+    test('regression guard: the OLD unmarked format string is STILL present verbatim (backward compatibility with the pre-57-03 format for capability-related failures was not accidentally dropped)', () => {
+      assert.ok(
+        content.includes('"TASK FAILED: {task_name} [tier: {ROUTED_TIER}] — {error_summary}"'),
+        'the original unmarked TASK FAILED format string must remain present verbatim'
+      );
+    });
+
+    test('the new marked format string is present', () => {
+      assert.ok(
+        content.includes('"TASK FAILED: {task_name} [tier: {ROUTED_TIER}] [non-capability] — {error_summary}"'),
+        'the new [non-capability]-marked TASK FAILED format string must be present'
+      );
+    });
+  });
+});
