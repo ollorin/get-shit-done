@@ -1,0 +1,18 @@
+{
+  "id": "verify-59-dormant-quality-agents-coordinator-detail-md-s-depends-on-bash--1783343499081-0",
+  "source": "verifier",
+  "created_at": "2026-07-06T13:11:39.081Z",
+  "title": "coordinator-detail.md's DEPENDS_ON bash snippet parses roadmap get-phase JSON so the declared-dependency integration-tester spawn (step 3b) can actually fire at runtime",
+  "context": {
+    "phase": "59-dormant-quality-agents",
+    "root_cause": null,
+    "gap_description": "Snippet calls 'roadmap get-phase {N} --raw' but --raw on this subcommand prints raw markdown section text (by design), not JSON; JSON.parse always throws and the catch branch yields '[]' unconditionally, so DEPENDS_ON is always empty regardless of ROADMAP.md content. Pre-existing since Phase 54 (a87c17c) but load-bearing for MILE-38's new step 3b built directly on it. Found by gsd-integration-tester (blocking contract_mismatch). Fix: drop --raw from the DEPENDS_ON snippet (both step 3 shared block and step 3b) + regression test executing the literal bash line.",
+    "debug_file": null,
+    "verification_file": ".planning/phases/59-dormant-quality-agents/59-VERIFICATION.md"
+  },
+  "expected": {
+    "type": "file_exists",
+    "file": ".planning/phases/59-dormant-quality-agents/59-VERIFICATION.md"
+  },
+  "status": "pending"
+}
