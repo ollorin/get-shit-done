@@ -367,7 +367,16 @@ function loadConfig(cwd) {
     savings: { baseline_profile: 'quality' },
     test_writer_enabled: false,
     integration_tester_enabled: false,
-    quality: { test_writer: false, integration_tester: false },
+    adversarial_review_enabled: false,
+    adversarial_review_file_threshold: 8,
+    adversarial_review_security_patterns: ['auth', 'payment', 'secret', 'credential', 'crypto', 'security', 'token', 'password', '/api/', 'migration'],
+    quality: {
+      test_writer: false,
+      integration_tester: false,
+      adversarial_review: false,
+      adversarial_review_file_threshold: 8,
+      adversarial_review_security_patterns: ['auth', 'payment', 'secret', 'credential', 'crypto', 'security', 'token', 'password', '/api/', 'migration'],
+    },
   };
 
   try {
@@ -419,6 +428,9 @@ function loadConfig(cwd) {
       savings_baseline_profile: get('savings_baseline_profile', { section: 'savings', field: 'baseline_profile' }) ?? defaults.savings_baseline_profile,
       test_writer_enabled: get('test_writer_enabled', { section: 'quality', field: 'test_writer' }) ?? defaults.test_writer_enabled,
       integration_tester_enabled: get('integration_tester_enabled', { section: 'quality', field: 'integration_tester' }) ?? defaults.integration_tester_enabled,
+      adversarial_review_enabled: get('adversarial_review_enabled', { section: 'quality', field: 'adversarial_review' }) ?? defaults.adversarial_review_enabled,
+      adversarial_review_file_threshold: get('adversarial_review_file_threshold', { section: 'quality', field: 'adversarial_review_file_threshold' }) ?? defaults.adversarial_review_file_threshold,
+      adversarial_review_security_patterns: get('adversarial_review_security_patterns', { section: 'quality', field: 'adversarial_review_security_patterns' }) ?? defaults.adversarial_review_security_patterns,
       coordinator_model: get('coordinator_model') ?? null,
       dev_servers: parsed.dev_servers || null,
     };
@@ -5158,6 +5170,172 @@ function cmdVerifyAppendGap(cwd, verificationFileArg, options, raw) {
     return;
   }
   output({ appended: true, gaps_count: result.gaps_count, gap: result.gap }, raw);
+}
+
+// ─── Adversarial Plan Review (Phase 60, MILE-39) ────────────────────────────
+// computeHighRisk/computePresentationOrder are pure, no-I/O functions (mirror
+// isUIFile/computeHasUI's style, fail-soft like appendVerificationGap) gating whether a
+// plan gets the attacker/defender/judge trio instead of the single-pass gsd-plan-checker.
+// An explicit `high_risk: true` (or the string "true") plan frontmatter flag ALWAYS wins,
+// even when the `adversarial_review_enabled` toggle is off -- an explicit per-plan author
+// decision is a stronger signal than the global default and must never be silently
+// ignored. When the toggle is off and no explicit flag is set: high_risk is always false
+// (zero behavior change, matches the test_writer/integration_tester precedent). When the
+// toggle is on: any of (files_modified.length > threshold), a security-pattern substring
+// match against files_modified, or a tdd="true" task count >= 3 flags the plan high-risk,
+// one reason string per matched criterion.
+function computeHighRisk(fm, planContent, config) {
+  try {
+    const frontmatter = fm || {};
+    const cfg = config || {};
+    const explicitFlag = frontmatter.high_risk === true || frontmatter.high_risk === 'true';
+    if (explicitFlag) {
+      return { high_risk: true, reasons: ['explicit high_risk frontmatter flag'] };
+    }
+    if (cfg.adversarial_review_enabled !== true) {
+      return { high_risk: false, reasons: [] };
+    }
+
+    const reasons = [];
+    const filesModified = Array.isArray(frontmatter.files_modified)
+      ? frontmatter.files_modified
+      : (frontmatter.files_modified ? [String(frontmatter.files_modified)] : []);
+
+    const threshold = typeof cfg.adversarial_review_file_threshold === 'number'
+      ? cfg.adversarial_review_file_threshold
+      : 8;
+    if (filesModified.length > threshold) {
+      reasons.push(`files_modified count (${filesModified.length}) exceeds threshold (${threshold})`);
+    }
+
+    const patterns = Array.isArray(cfg.adversarial_review_security_patterns)
+      ? cfg.adversarial_review_security_patterns
+      : [];
+    const matchedPattern = patterns.find(p =>
+      filesModified.some(f => typeof f === 'string' && f.includes(p))
+    );
+    if (matchedPattern) {
+      reasons.push(`files_modified matches security pattern "${matchedPattern}"`);
+    }
+
+    const content = typeof planContent === 'string' ? planContent : '';
+    const tddMatches = content.match(/tdd=["']?true/g) || [];
+    if (tddMatches.length >= 3) {
+      reasons.push(`tdd="true" task count (${tddMatches.length}) >= 3`);
+    }
+
+    return { high_risk: reasons.length > 0, reasons };
+  } catch (e) {
+    // Never throws -- a malformed frontmatter/content combination degrades to
+    // "not high-risk" rather than crashing the caller (fail-soft, mirrors
+    // appendVerificationGap's {ok:false,...} convention adapted to this
+    // function's {high_risk, reasons} return shape).
+    return { high_risk: false, reasons: [] };
+  }
+}
+
+// "Randomized" attack/defense presentation order, implemented as a DETERMINISTIC
+// function of the plan's own content (a simple djb2-style string hash), NOT
+// Math.random() -- this is a deliberate, documented choice: it lets integration tests
+// assert a stable presentation_order for a fixed fixture (a flaky test that sometimes
+// gets attack_first and sometimes defense_first for identical input would be useless).
+// Same plan content -> same order, always. Different plan content -> ~50/50 split in
+// practice via the hash's parity.
+function computePresentationOrder(planContent) {
+  const content = typeof planContent === 'string' ? planContent : '';
+  let hash = 0;
+  for (let i = 0; i < content.length; i++) {
+    hash = (hash * 31 + content.charCodeAt(i)) | 0;
+  }
+  return (hash & 1) === 0 ? 'attack_first' : 'defense_first';
+}
+
+// Thin CLI wrapper over computeHighRisk/computePresentationOrder. Never throws
+// (fail-soft) -- a missing/malformed plan file is reported as its own failing result
+// (error:true + a safe high_risk:false/reasons:[] default) rather than a crash or
+// non-zero exit, so plan-phase.md's risk-triage step can iterate every *-PLAN.md in a
+// phase directory without a single bad file aborting the loop.
+function cmdQualityAssessRisk(cwd, filePath, raw) {
+  if (!filePath) {
+    output({ error: true, type: 'missing_argument', message: 'quality assess-risk: <plan-file> required', high_risk: false, reasons: [] }, raw);
+    return;
+  }
+  const fullPath = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath);
+  const content = safeReadFile(fullPath);
+  if (content === null) {
+    output({ error: true, type: 'file_not_found', message: `Plan file not found: ${filePath}`, high_risk: false, reasons: [] }, raw);
+    return;
+  }
+
+  let fm = {};
+  try {
+    const matter = require('gray-matter');
+    fm = matter(content).data || {};
+  } catch (e) {
+    output({ error: true, type: 'malformed_frontmatter', message: e.message, high_risk: false, reasons: [] }, raw);
+    return;
+  }
+
+  const config = loadConfig(cwd);
+  const { high_risk, reasons } = computeHighRisk(fm, content, config);
+  const presentation_order = computePresentationOrder(content);
+  output({ high_risk, reasons, presentation_order }, raw);
+}
+
+// verdictToIssues converts a judge's {plan}-VERDICT.md frontmatter into the EXACT
+// issues: shape gsd-plan-checker's ## ISSUES FOUND output already produces
+// ({ plan, dimension, severity, description, fix_hint }), so the EXISTING
+// plan-phase.md revision loop (step 12) can consume adversarial-review verdicts
+// without any new revision mechanism. approved (or missing verdict) -> [].
+// revise -> one warning-severity issue per required_change. critical -> one
+// blocker-severity issue per required_change.
+function verdictToIssues(verdictFrontmatter, planId) {
+  const fm = verdictFrontmatter || {};
+  const verdict = fm.verdict;
+  if (verdict === 'approved' || !verdict) return [];
+
+  const requiredChanges = Array.isArray(fm.required_changes) ? fm.required_changes : [];
+  const severity = verdict === 'critical' ? 'blocker' : 'warning';
+  const resolvedPlanId = planId || fm.plan || null;
+
+  return requiredChanges.map((change) => {
+    const description = typeof change === 'string' ? change : ((change && change.description) || JSON.stringify(change));
+    const fixHint = typeof change === 'string' ? change : ((change && change.fix_hint) || null);
+    return {
+      plan: resolvedPlanId,
+      dimension: 'adversarial_review',
+      severity,
+      description,
+      fix_hint: fixHint,
+    };
+  });
+}
+
+// Thin CLI wrapper over verdictToIssues. Never throws -- missing/malformed verdict
+// file reported as {error:true, issues:[]}.
+function cmdQualityVerdictToIssues(cwd, filePath, raw) {
+  if (!filePath) {
+    output({ error: true, type: 'missing_argument', message: 'quality verdict-to-issues: <verdict-file> required', issues: [] }, raw);
+    return;
+  }
+  const fullPath = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath);
+  const content = safeReadFile(fullPath);
+  if (content === null) {
+    output({ error: true, type: 'file_not_found', message: `Verdict file not found: ${filePath}`, issues: [] }, raw);
+    return;
+  }
+
+  let fm = {};
+  try {
+    const matter = require('gray-matter');
+    fm = matter(content).data || {};
+  } catch (e) {
+    output({ error: true, type: 'malformed_frontmatter', message: e.message, issues: [] }, raw);
+    return;
+  }
+
+  const issues = verdictToIssues(fm, fm.plan || null);
+  output({ issues, verdict: fm.verdict || null }, raw);
 }
 
 // Writes candidate(s) to the queue directory. Accepts a single candidate
@@ -14502,8 +14680,12 @@ Was ${model} the right choice for this task? (y/n): `;
         const filesArg = filesIdx !== -1 ? (args[filesIdx + 1] || '') : '';
         const fileList = filesArg.split(',').map(s => s.trim()).filter(Boolean);
         output({ touches_source_code: computeTouchesSourceCode(fileList), file_count: fileList.length }, raw);
+      } else if (subcommand === 'assess-risk') {
+        cmdQualityAssessRisk(cwd, args[2], raw);
+      } else if (subcommand === 'verdict-to-issues') {
+        cmdQualityVerdictToIssues(cwd, args[2], raw);
       } else {
-        error('Unknown quality subcommand. Available: touches-source');
+        error('Unknown quality subcommand. Available: touches-source, assess-risk, verdict-to-issues');
       }
       break;
     }
@@ -14603,6 +14785,9 @@ module.exports = {
   isSourceFile,
   isTestOrSpecFile,
   computeTouchesSourceCode,
+  computeHighRisk,
+  computePresentationOrder,
+  verdictToIssues,
 };
 
 // Only auto-run when invoked directly as a CLI (`node gsd-tools.js ...`), not
