@@ -1002,6 +1002,9 @@ For each incomplete plan (no SUMMARY.md):
           Log ONE task_outcome event:
             node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event --type task_outcome \
               --data '{"phase":{phase_number},"plan":"{plan_file}","task_index":{task_index},"task_name":"{task_name}","task_type":"{TASK_TYPE_FOR_LOGGING}","tier":"{TASK_TIER}","outcome":"success","capability_related":true}'
+          Record token usage (best-effort, never blocks -- if this command fails, log a warning and continue):
+            node ~/.claude/get-shit-done/bin/gsd-tools.js token-usage record \
+              --phase {phase_number} --plan "{plan_file}" --task-index {task_index} --task-name "{task_name}" --tier "{TASK_TIER}" --raw
           Continue to next task.
 
         If the executor's return output DOES contain "TASK FAILED:" — run the bounded escalation loop:
@@ -1025,6 +1028,9 @@ For each incomplete plan (no SUMMARY.md):
             Log ONE task_outcome event for this failed attempt:
               node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event --type task_outcome \
                 --data '{"phase":{phase_number},"plan":"{plan_file}","task_index":{task_index},"task_name":"{task_name}","task_type":"{TASK_TYPE_FOR_LOGGING}","tier":"{CURRENT_SIGNAL_TIER}","outcome":"failure","capability_related":{true if NOT IS_NON_CAPABILITY_TAGGED else false}}'
+            Record token usage for this failed attempt (best-effort, never blocks):
+              node ~/.claude/get-shit-done/bin/gsd-tools.js token-usage record \
+                --phase {phase_number} --plan "{plan_file}" --task-index {task_index} --task-name "{task_name}" --tier "{CURRENT_SIGNAL_TIER}" --raw
 
             If EFFECTIVE_ESCALATE is true AND quota allows (session_percent < 95, not in critical conservation):
               Log: "Task {task_index} failed at {CURRENT_SIGNAL_TIER} ({EFFECTIVE_REASON}) — re-spawning at {DECISION_JSON.next_tier} (coordinator escalation)"
@@ -1044,6 +1050,9 @@ For each incomplete plan (no SUMMARY.md):
                 Log ONE task_outcome success event at the FINAL tier:
                   node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event --type task_outcome \
                     --data '{"phase":{phase_number},"plan":"{plan_file}","task_index":{task_index},"task_name":"{task_name}","task_type":"{TASK_TYPE_FOR_LOGGING}","tier":"{TASK_TIER}","outcome":"success","capability_related":true}'
+                Record token usage at the FINAL tier (best-effort, never blocks):
+                  node ~/.claude/get-shit-done/bin/gsd-tools.js token-usage record \
+                    --phase {phase_number} --plan "{plan_file}" --task-index {task_index} --task-name "{task_name}" --tier "{TASK_TIER}" --raw
                 Continue to next task.
             Else:
               Log: "Task {task_index} failed at {CURRENT_SIGNAL_TIER} — {EFFECTIVE_REASON}, no further escalation"
