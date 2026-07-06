@@ -11827,3 +11827,104 @@ describe('Phase 57-04: bounded escalation loop & ledger recording', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 58-03: token-usage golden-path wiring (MILE-36)
+//
+// coordinator-detail.md is prose consumed by an LLM subagent, not executable
+// code -- so, mirroring Phase 57-04's precedent above, the wiring is locked in
+// via grep-assertion tests: read the file from disk once, compute the
+// <step name="execute"> boundaries via indexOf, and assert each literal call
+// site's index falls where the design says it must.
+// ---------------------------------------------------------------------------
+describe('Phase 58-03: token-usage golden-path wiring', () => {
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  const coordinatorDetailPath = path.join(__dirname, '..', 'references', 'coordinator-detail.md');
+  const content = fs.readFileSync(coordinatorDetailPath, 'utf-8');
+
+  const executeStart = content.indexOf('<step name="execute">');
+  const executeEnd = content.indexOf('</step>', executeStart);
+  const executeBlock = content.slice(executeStart, executeEnd);
+
+  // The exact command string each of the 3 task_outcome logging call sites uses.
+  const TASK_OUTCOME_CMD = 'execution-log event --type task_outcome';
+
+  // Category: presence + step-boundary.
+  test('token-usage record appears inside the execute step (presence + step-boundary)', () => {
+    assert.ok(executeStart !== -1, '<step name="execute"> not found');
+    assert.ok(executeEnd !== -1, 'execute step closing </step> not found');
+    const idx = content.indexOf('token-usage record', executeStart);
+    assert.ok(idx !== -1, 'token-usage record not found after executeStart');
+    assert.ok(idx < executeEnd, 'token-usage record must appear inside <step name="execute">');
+  });
+
+  // Category: count -- exactly 3 call sites, one per task_outcome logging point.
+  test('exactly 3 occurrences of token-usage record fall inside the execute step (one per task_outcome call site)', () => {
+    const matches = executeBlock.match(/token-usage record/g) || [];
+    assert.strictEqual(
+      matches.length,
+      3,
+      `expected exactly 3 token-usage record call sites inside <step name="execute">, found ${matches.length}`
+    );
+  });
+
+  // Category: adjacency -- each token-usage record call is genuinely adjacent to
+  // its corresponding task_outcome log: the nearest following occurrence appears
+  // BEFORE the next task_outcome command AND before the next tier_escalation
+  // event log (call site 2 sits between its failed-attempt task_outcome log and
+  // the escalation loop's tier_escalation log, so this bound is the strict one).
+  test('each of the 3 task_outcome call sites is immediately followed by a token-usage record call (adjacency)', () => {
+    const cmdIndexes = [];
+    let i = executeBlock.indexOf(TASK_OUTCOME_CMD);
+    while (i !== -1) {
+      cmdIndexes.push(i);
+      i = executeBlock.indexOf(TASK_OUTCOME_CMD, i + 1);
+    }
+    assert.strictEqual(
+      cmdIndexes.length,
+      3,
+      `expected exactly 3 '${TASK_OUTCOME_CMD}' call sites inside the execute step, found ${cmdIndexes.length}`
+    );
+
+    for (let k = 0; k < cmdIndexes.length; k++) {
+      const tuIdx = executeBlock.indexOf('token-usage record', cmdIndexes[k]);
+      const nextCmdIdx = k + 1 < cmdIndexes.length ? cmdIndexes[k + 1] : executeBlock.length;
+      let nextEscIdx = executeBlock.indexOf('--type tier_escalation', cmdIndexes[k]);
+      if (nextEscIdx === -1) nextEscIdx = executeBlock.length;
+      const boundary = Math.min(nextCmdIdx, nextEscIdx);
+
+      assert.ok(tuIdx !== -1, `call site ${k + 1}: no token-usage record found after its task_outcome log`);
+      assert.ok(
+        tuIdx < boundary,
+        `call site ${k + 1}: token-usage record (index ${tuIdx}) must appear before the next task_outcome/tier_escalation call site (index ${boundary}) -- not just somewhere later in the step`
+      );
+    }
+  });
+
+  // Category: design intent -- golden-path calls never pass explicit token counts;
+  // the CLI always derives an estimate via estimateTaskTokens (source:'estimated').
+  test('no golden-path call site passes --tokens-input or --tokens-output (CLI always estimates)', () => {
+    assert.ok(
+      !executeBlock.includes('--tokens-input'),
+      'golden-path token-usage record calls must not pass --tokens-input'
+    );
+    assert.ok(
+      !executeBlock.includes('--tokens-output'),
+      'golden-path token-usage record calls must not pass --tokens-output'
+    );
+  });
+
+  // Category: budget regression -- mirrors the existing 'wiring: checkAllBudgets
+  // reports pass:true...' precedent. coordinator-detail.md itself sits after the
+  // CORE_PREAMBLE_MARKER and is not directly budget-measured, but prompt-budget
+  // risk was an explicit design constraint, so the regression is verified anyway.
+  test('checkAllBudgets still reports pass:true for all agents after the coordinator-detail.md edit', () => {
+    const { checkAllBudgets } = require('./prompt-budget.js');
+    const result = checkAllBudgets(REPO_ROOT);
+
+    assert.strictEqual(result.pass, true, `expected checkAllBudgets to pass overall, got: ${JSON.stringify(result.results)}`);
+    for (const entry of result.results) {
+      assert.strictEqual(entry.pass, true, `expected ${entry.filePath} to pass its budget, got ${entry.estimatedTokens}/${entry.budget}`);
+    }
+  });
+});
