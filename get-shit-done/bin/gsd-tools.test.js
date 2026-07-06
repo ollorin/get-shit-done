@@ -12618,3 +12618,87 @@ describe('Phase 59-03: declared-dependency integration-tester spawn + gaps_found
     });
   });
 });
+
+describe('Phase 59-04: DEPENDS_ON snippet --raw contract-mismatch regression (MILE-38)', () => {
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  const COORDINATOR_DETAIL_PATH = path.join(REPO_ROOT, 'get-shit-done', 'references', 'coordinator-detail.md');
+
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  // Reads coordinator-detail.md from disk and extracts the LITERAL DEPENDS_ON=$(...) bash
+  // assignment line from inside <step name="cross_phase_integration">...</step>. This is
+  // deliberately NOT a hand-rolled equivalent -- 59-03's own computeSpawnDecision() simulation
+  // helper (above) calls `roadmap get-phase ${phaseNum}` directly and never caught the --raw
+  // bug because it never executed the prose file's actual bash line.
+  function extractDependsOnSnippet() {
+    const content = fs.readFileSync(COORDINATOR_DETAIL_PATH, 'utf-8');
+    const stepStart = content.indexOf('<step name="cross_phase_integration">');
+    const stepEnd = content.indexOf('</step>', stepStart);
+    assert.ok(stepStart !== -1 && stepEnd !== -1, 'expected cross_phase_integration step to exist in coordinator-detail.md');
+    const stepSlice = content.slice(stepStart, stepEnd);
+    const match = stepSlice.match(/^DEPENDS_ON=\$\(.*\)\s*$/m);
+    assert.ok(match, 'expected a literal DEPENDS_ON=$(...) bash assignment line inside cross_phase_integration -- fails loudly if the snippet\'s shape changes unexpectedly');
+    return match[0];
+  }
+
+  // Substitutes the installed-copy path for this repo's real gsd-tools.js and the literal
+  // {phase_number} placeholder for a real phase number (plain string substitution, not regex --
+  // the line contains literal `{`/`}` characters), writes the result to a temp .sh file inside
+  // tmpDir, and executes it via bash -- running the ACTUAL extracted pipeline, not a simulation.
+  function runExtractedSnippet(dir, phaseNum) {
+    const literalLine = extractDependsOnSnippet();
+    const substituted = literalLine
+      .split('~/.claude/get-shit-done/bin/gsd-tools.js').join(TOOLS_PATH)
+      .split('{phase_number}').join(String(phaseNum));
+    const scriptPath = path.join(dir, 'depends-on-snippet.sh');
+    fs.writeFileSync(scriptPath, `${substituted}\necho "$DEPENDS_ON"\n`);
+    const result = execSync(`bash "${scriptPath}"`, { cwd: dir, encoding: 'utf-8' });
+    return JSON.parse(result.trim());
+  }
+
+  test('extractDependsOnSnippet finds the literal DEPENDS_ON line inside cross_phase_integration', () => {
+    const line = extractDependsOnSnippet();
+    assert.ok(line.includes('roadmap get-phase'), 'expected the extracted line to call roadmap get-phase');
+    assert.ok(line.includes('JSON.parse'), 'expected the extracted line to pipe into a JSON.parse consumer');
+  });
+
+  test('literal snippet resolves a declared dependency to a real non-empty array (would have FAILED before the --raw fix)', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      `# Roadmap\n\n### Phase 20: Dependent\n**Goal:** g\n**Depends on:** Phase 10\n`
+    );
+    const result = runExtractedSnippet(tmpDir, 20);
+    assert.ok(Array.isArray(result) && result.length > 0, `expected a non-empty array, got: ${JSON.stringify(result)}`);
+    assert.deepStrictEqual(result, ['Phase 10']);
+  });
+
+  test('literal snippet resolves an independent phase (no Depends on line) to []', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      `# Roadmap\n\n### Phase 21: Independent\n**Goal:** g\n`
+    );
+    const result = runExtractedSnippet(tmpDir, 21);
+    assert.deepStrictEqual(result, []);
+  });
+
+  test('regression lock: no `roadmap get-phase` + `--raw` + `JSON.parse` combination remains anywhere inside cross_phase_integration', () => {
+    const content = fs.readFileSync(COORDINATOR_DETAIL_PATH, 'utf-8');
+    const stepStart = content.indexOf('<step name="cross_phase_integration">');
+    const stepEnd = content.indexOf('</step>', stepStart);
+    assert.ok(stepStart !== -1 && stepEnd !== -1, 'expected cross_phase_integration step to exist in coordinator-detail.md');
+    const lines = content.slice(stepStart, stepEnd).split('\n');
+    for (const line of lines) {
+      if (line.includes('roadmap get-phase') && line.includes('--raw') && line.includes('JSON.parse')) {
+        assert.fail(`found forbidden roadmap get-phase + --raw + JSON.parse combination inside cross_phase_integration: ${line}`);
+      }
+    }
+  });
+});
