@@ -994,22 +994,67 @@ For each incomplete plan (no SUMMARY.md):
      6. Wait for task executor to complete before spawning next task
         (sequential within a plan — tasks may have intra-plan dependencies)
 
-     6. On executor return, check for haiku-tier failure and escalate if needed:
-        If the executor's return output contains "TASK FAILED:" AND "[tier: haiku]":
-          If quota allows (session_percent < 95, i.e., not in critical conservation):
-            Log: "Task {task_index} failed at haiku — re-spawning at sonnet (coordinator escalation)"
-            TASK_TIER = "sonnet"
-            ROUTING_STATS["haiku"] -= 1  // remove the failed haiku attempt from stats
-            ROUTING_STATS["sonnet"] += 1
-            Re-spawn the same task using the same executor prompt with TASK_TIER = "sonnet"
-            Wait for sonnet executor to complete
-          Else (quota critical):
-            Log: "Task {task_index} failed at haiku — quota critical, skipping escalation"
-            Record task as failed, continue to next task
-        If the executor's return output contains "TASK FAILED:" AND tier is NOT haiku (sonnet/opus/unrouted):
-          Record task as failed, continue to next task (no escalation for sonnet/opus)
-        Escalation only for error/exception failures signaled by the executor.
-        Output quality issues do not trigger re-spawn.
+     7. On executor return, derive the task_type once (best-effort, never blocks):
+        TASK_TYPE_FOR_LOGGING = run: node ~/.claude/get-shit-done/bin/gsd-tools.js routing task-type "{task_name}" --raw
+        (If this command fails, use "other" as TASK_TYPE_FOR_LOGGING and continue.)
+
+        If the executor's return output does NOT contain "TASK FAILED:" (success):
+          Log ONE task_outcome event:
+            node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event --type task_outcome \
+              --data '{"phase":{phase_number},"plan":"{plan_file}","task_index":{task_index},"task_name":"{task_name}","task_type":"{TASK_TYPE_FOR_LOGGING}","tier":"{TASK_TIER}","outcome":"success","capability_related":true}'
+          Continue to next task.
+
+        If the executor's return output DOES contain "TASK FAILED:" — run the bounded escalation loop:
+          CURRENT_SIGNAL_TIER = the tier parsed from the signal's "[tier: X]" tag (X = haiku/sonnet/opus;
+            if absent, routing was not active for this task — record as failed, no escalation, continue
+            to next task)
+          ERROR_SUMMARY = the text after the final " — " in the signal
+          IS_NON_CAPABILITY_TAGGED = signal contains "[non-capability]"
+          ESCALATIONS_USED = 0
+
+          LOOP:
+            DECISION_JSON = run: node ~/.claude/get-shit-done/bin/gsd-tools.js routing escalation-decision \
+              --current-tier "{CURRENT_SIGNAL_TIER}" --error-summary "{ERROR_SUMMARY}" \
+              --escalations-used {ESCALATIONS_USED} --raw
+            // The executor's own [non-capability] tag is authoritative and cheaper than a re-derived
+            // classification — if present, this attempt is never escalable regardless of the CLI's
+            // own re-classification of the error text:
+            EFFECTIVE_ESCALATE = DECISION_JSON.escalate AND (NOT IS_NON_CAPABILITY_TAGGED)
+            EFFECTIVE_REASON = IS_NON_CAPABILITY_TAGGED ? "non_capability_failure" : DECISION_JSON.reason
+
+            Log ONE task_outcome event for this failed attempt:
+              node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event --type task_outcome \
+                --data '{"phase":{phase_number},"plan":"{plan_file}","task_index":{task_index},"task_name":"{task_name}","task_type":"{TASK_TYPE_FOR_LOGGING}","tier":"{CURRENT_SIGNAL_TIER}","outcome":"failure","capability_related":{true if NOT IS_NON_CAPABILITY_TAGGED else false}}'
+
+            If EFFECTIVE_ESCALATE is true AND quota allows (session_percent < 95, not in critical conservation):
+              Log: "Task {task_index} failed at {CURRENT_SIGNAL_TIER} ({EFFECTIVE_REASON}) — re-spawning at {DECISION_JSON.next_tier} (coordinator escalation)"
+              node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event --type tier_escalation \
+                --data '{"phase":{phase_number},"plan":"{plan_file}","task_index":{task_index},"task_name":"{task_name}","task_type":"{TASK_TYPE_FOR_LOGGING}","from_tier":"{CURRENT_SIGNAL_TIER}","to_tier":"{DECISION_JSON.next_tier}","reason":"{EFFECTIVE_REASON}"}'
+              ROUTING_STATS[CURRENT_SIGNAL_TIER] -= 1
+              ROUTING_STATS[DECISION_JSON.next_tier] += 1
+              ESCALATIONS_USED += 1
+              TASK_TIER = DECISION_JSON.next_tier
+              Re-spawn the same task using the same executor prompt with TASK_TIER = DECISION_JSON.next_tier
+              Wait for the re-spawned executor to complete
+              If the re-spawned executor's output contains "TASK FAILED:":
+                Update CURRENT_SIGNAL_TIER, ERROR_SUMMARY, IS_NON_CAPABILITY_TAGGED from the new signal
+                GOTO LOOP (bounded automatically — escalation-decision returns escalate:false once
+                  ESCALATIONS_USED reaches the ladder's bound, or once CURRENT_SIGNAL_TIER is opus)
+              Else (re-spawned executor succeeded):
+                Log ONE task_outcome success event at the FINAL tier:
+                  node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event --type task_outcome \
+                    --data '{"phase":{phase_number},"plan":"{plan_file}","task_index":{task_index},"task_name":"{task_name}","task_type":"{TASK_TYPE_FOR_LOGGING}","tier":"{TASK_TIER}","outcome":"success","capability_related":true}'
+                Continue to next task.
+            Else:
+              Log: "Task {task_index} failed at {CURRENT_SIGNAL_TIER} — {EFFECTIVE_REASON}, no further escalation"
+              Record task as failed, continue to next task (falls into the existing failure-handling
+                path — Spot-check result below, and the human-escalation path if this blocks phase
+                completion)
+
+        Escalation ONLY EVER applies to capability-related error/exception failures signaled by the
+        executor. Output quality issues never trigger this loop. A [non-capability]-tagged failure
+        (missing file, environment error) is recorded as failed immediately and NEVER escalated,
+        per MILE-35.
    ```
 
 4. **Spot-check result (MANDATORY — do NOT skip):**
@@ -1034,6 +1079,16 @@ For each incomplete plan (no SUMMARY.md):
 **On plan failure:** Create checkpoint, return failure state to parent coordinator. Do not attempt to continue if a critical dependency plan failed.
 
 **On classifyHandoffIfNeeded error:** Claude Code runtime bug — not a plan failure. Spot-check (SUMMARY.md + commits) to confirm success before treating as failed.
+
+6. **Rebuild the routing ledger (after ALL plans/waves in this phase have completed):**
+   ```bash
+   node ~/.claude/get-shit-done/bin/gsd-tools.js routing ledger build --raw
+   ```
+   Best-effort — if this command fails, log a warning and continue; it never blocks phase
+   completion. This folds every `task_outcome`/`tier_escalation` event this phase logged into
+   `.planning/routing-ledger.json`, satisfying "escalation is ... recorded ... in the routing
+   ledger" (MILE-35). The ledger is a rebuilt aggregate (not a live-appended log), so running
+   `routing ledger build` here is always safe and idempotent regardless of how the phase ended.
 </step>
 
 <checkpoint_ui_qa_loop>
