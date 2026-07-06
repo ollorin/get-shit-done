@@ -716,7 +716,7 @@ Plans:
   2. The judge verdict is a durable artifact attached to the plan, and presentation order of attack/defense is randomized
   3. A judge ruling of critical flaws routes into the existing plan-revision loop; non-high-risk plans keep the existing single plan-checker path unchanged
   4. Integration tests cover: trio spawn on a high-risk fixture, verdict artifact written, revision-loop routing on a critical verdict, single-checker path preserved otherwise
-**Plans:** TBD
+**Plans:** 1/3 plans executed
 
 Plans:
 - [ ] 60-01: TBD (planned during plan-phase)
@@ -798,7 +798,7 @@ Plans:
 | 57. Outcome-Informed Routing Ledger & Bounded Escalation | v1.15.0 | Complete    | 2026-07-06 | 2026-07-06 |
 | 58. Honest Token Accounting | v1.15.0 | 0/TBD | Not started | - |
 | 59. Dormant Quality Agents Wired In | v1.15.0 | Complete    | 2026-07-06 | 2026-07-06 |
-| 60. Adversarial Plan Review | v1.15.0 | 0/TBD | Not started | - |
+| 60. Adversarial Plan Review | v1.15.0 | 1/3 | In Progress|  |
 | 61. Project-Aware Pre-PR Gate | v1.15.0 | 0/TBD | Not started | - |
 
 ---

@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-07-02)
 
 **Core value:** Claude learns to make autonomous decisions based on user's reasoning patterns, only stopping for irreversible/external/costly actions
-**Current focus:** v1.15.0 — Self-Improving Quality Loop (roadmap created 2026-07-06, Phase 59 complete, Phase 60 next)
+**Current focus:** v1.15.0 — Self-Improving Quality Loop (roadmap created 2026-07-06, Phase 59 complete, Phase 60 in progress)
 
 ## Current Position
 
-Phase: 59 of 61 (Dormant Quality Agents Wired In) — COMPLETE (4/4 plans, incl. 59-04 gap closure)
-Plan: 4 of 4 (59-04 complete — MILE-38 gap closure)
-Status: Ready to execute (Phase 60 next)
+Phase: 60 of 61 (Adversarial Plan Review) — IN PROGRESS (1/3 plans)
+Plan: 1 of 3 (60-01 complete — MILE-39 foundation: config + risk-assessment CLI)
+Status: Ready to execute
 Last activity: 2026-07-06
 
-Progress: [██████████] 100%
+Progress: [██████████] 99%
 
 ## Performance Metrics
 
@@ -97,6 +97,7 @@ Progress: [██████████] 100%
 | Phase 59 P02 | ~20min | 3 tasks | 4 files |
 | Phase 59 P03 | ~25min | 3 tasks | 7 files |
 | Phase 59 P04 | ~15min | 2 tasks | 3 files |
+| Phase 60 P01 | 20min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -176,6 +177,7 @@ Recent decisions affecting current work:
 - [Phase 59]: [59-02]: computeTouchesSourceCode/isSourceFile/isTestOrSpecFile mirror isUIFile/computeHasUI's exact pure, no-I/O, extension+path-pattern style (Phase 45-02); new top-level `case 'quality':` CLI dispatch (not nested inside `case 'routing':`) hosts `quality touches-source`; executor-detail.md's new `<post_task_quality_spawn>` block sits strictly between `</inter_task_syntax_check>` and `<test_task_handling>` (which remains byte-for-byte unchanged), gated on the `quality.test_writer` toggle, treating 0-tests/missing-output as a loud `[Rule Quality-TW]` SUMMARY.md deviation that never blocks -- explicit, permanent contrast with `<test_task_handling>`'s tdd="true" hard-block contract; found+fixed two real Rule-1 bugs while writing tests: (1) the `config get test_writer_enabled` bash snippet was missing `--raw`, so the shell comparison against "true" could never match even with the toggle explicitly enabled, silently defeating the entire toggle-on path -- fixed by adding `--raw`; (2) the pre-existing 59-01 CHANGELOG-ordering regression test hardcoded "Phase 59-01 is the first bullet," which this plan's own (correctly newest-first) CHANGELOG addition broke -- rewrote it to check ordering against a durable older anchor (Phase 58) instead of assuming permanent first-bullet position; no Task/Agent tool was available in this executor run, so Task 2's tdd="true" spawn and the mandatory docs-update step were both completed inline; 801/801 npm test passing (was 781); MILE-37 satisfied end-to-end -- golden path spawns gsd-test-writer after every source-touching task when the toggle is on, treats missing coverage as a loud deviation never a silent skip or hard block, zero behavior change when off
 - [Phase 59]: [Phase 59-03]: cmdRoadmapGetPhase's depends_on field was never returned at all (a real pre-existing bug) -- fixed with a regex tolerant of both real-world ROADMAP.md dependency-line styles; parseRoadmapPhases's own narrower depends_on regex (feeds roadmap analyze) deliberately left untouched, out of scope, mirroring 54-02's precedent; coordinator-detail.md's new step 3b spawns gsd-integration-tester on a declared ROADMAP.md dependency independent of the file-overlap heuristic when quality.integration_tester is on, never for an independent phase, never double-spawning when step 3 already fired; step 4 rewritten to propagate a blocking mismatch into VERIFICATION.md via verify append-gap, composing with the existing Phase 55 eval-candidate from-verification pipeline; contract_mismatch added as the 8th failure_type in verifier-detail.md/planner-detail.md; new post-59 golden fixture proves both MILE-37/MILE-38 spawns via assertAgentsSpawned; 816/816 npm test passing (was 801); Phase 59 (Dormant Quality Agents Wired In) now COMPLETE across all 3 plans, MILE-37/MILE-38 both satisfied end-to-end
 - [Phase 59]: [59-04]: coordinator-detail.md's DEPENDS_ON snippet fixed by dropping a stray --raw flag (cmdRoadmapGetPhase's raw-markdown --raw semantics untouched); regression test extracts and executes the LITERAL bash line from the prose file rather than a hand-rolled equivalent, closing the one blocking contract_mismatch gap from 59-VERIFICATION.md -- Phase 59 (Dormant Quality Agents Wired In) now fully verified with zero open gaps across all 4 plans
+- [Phase 60]: [60-01]: computeHighRisk's explicit high_risk:true frontmatter flag always wins even when adversarial_review_enabled toggle is off; computePresentationOrder uses a deterministic content-hash (not Math.random()) for reproducible presentation-order fixtures; quality assess-risk/verdict-to-issues CLIs always output(...) and never process.exit on a bad input file; 850/850 npm test passing (was 820)
 
 ### Roadmap Evolution
 
@@ -210,11 +212,11 @@ None.
 
 ### Next Steps
 
-- Phase 59 (Dormant Quality Agents Wired In) COMPLETE across all 4 plans (59-01..59-04) — MILE-37 (Plan 59-02) and MILE-38 (Plan 59-03, gap-closed by Plan 59-04) both satisfied end-to-end, both marked Complete in REQUIREMENTS.md; the single blocking contract_mismatch gap from 59-VERIFICATION.md (coordinator DEPENDS_ON snippet's stray `--raw` flag) is now closed, so Phase 59 is fully verified with zero open gaps. Next: begin Phase 60 (Adversarial Plan Review, MILE-39).
+- Phase 60 (Adversarial Plan Review, MILE-39) IN PROGRESS: Plan 60-01 (config toggles + computeHighRisk/computePresentationOrder/verdictToIssues + quality assess-risk/verdict-to-issues CLI) complete, 850/850 npm test passing (was 820). Next: Plan 60-02 (three new adversarial-review agents), then Plan 60-03 (plan-phase.md risk-triage wiring on top of this plan's stable CLI contracts).
 - Reconcile v1.13.0 status separately (see Pending Todos) — do not double-build during v1.15.0 execution
 
 ## Session Continuity
 
-Last session: 2026-07-06T13:27:35.604Z
-Stopped at: Completed 59-04-PLAN.md (gap closure: dropped --raw from coordinator DEPENDS_ON snippet, MILE-38) -- Phase 59 fully verified, zero open gaps
+Last session: 2026-07-06T16:31:24.278Z
+Stopped at: Completed 60-01-PLAN.md (adversarial-review config toggles + assess-risk/verdict-to-issues CLI, MILE-39 foundation) -- 850/850 npm test passing
 Resume file: None
