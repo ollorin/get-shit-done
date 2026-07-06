@@ -339,6 +339,9 @@ function loadConfig(cwd) {
     routing: { min_sample_count: 5 },
     savings_baseline_profile: 'quality',
     savings: { baseline_profile: 'quality' },
+    test_writer_enabled: false,
+    integration_tester_enabled: false,
+    quality: { test_writer: false, integration_tester: false },
   };
 
   try {
@@ -388,6 +391,8 @@ function loadConfig(cwd) {
       staleness_threshold_minutes: get('staleness_threshold_minutes', { section: 'resilience', field: 'staleness_threshold_minutes' }) ?? defaults.staleness_threshold_minutes,
       routing_min_sample_count: get('routing_min_sample_count', { section: 'routing', field: 'min_sample_count' }) ?? defaults.routing_min_sample_count,
       savings_baseline_profile: get('savings_baseline_profile', { section: 'savings', field: 'baseline_profile' }) ?? defaults.savings_baseline_profile,
+      test_writer_enabled: get('test_writer_enabled', { section: 'quality', field: 'test_writer' }) ?? defaults.test_writer_enabled,
+      integration_tester_enabled: get('integration_tester_enabled', { section: 'quality', field: 'integration_tester' }) ?? defaults.integration_tester_enabled,
       coordinator_model: get('coordinator_model') ?? null,
       dev_servers: parsed.dev_servers || null,
     };
@@ -5026,6 +5031,92 @@ function buildEvalCandidatesFromVerificationFile(cwd, verificationFilePath) {
   } catch (e) {
     return [];
   }
+}
+
+// ─── Verification Gap Append (Phase 59-01, MILE-38 support) ────────────────
+// appendVerificationGap composes with buildEvalCandidatesFromVerificationFile above --
+// reads the SAME VERIFICATION.md frontmatter shape via gray-matter, appends one gap
+// object, flips status to 'gaps_found', writes back preserving the markdown BODY
+// untouched. Never throws -- returns {ok:false, error} instead, so a CLI caller can
+// decide its own exit code (mirrors cmdEvalCandidateAccept's structured-error
+// convention, not the generic error() helper). This is the ONLY new gap-write path in
+// the codebase; Plan 59-03's coordinator wiring calls this (via the CLI below) on a
+// blocking cross-phase integration mismatch, and the EXISTING
+// buildEvalCandidatesFromVerificationFile / `eval-candidate from-verification` reader
+// picks up the appended gap unmodified -- no second/parallel gap pipeline.
+function appendVerificationGap(cwd, verificationFilePath, gapEntry) {
+  try {
+    const content = safeReadFile(verificationFilePath);
+    if (content === null) {
+      return { ok: false, error: `VERIFICATION.md not found at ${verificationFilePath}` };
+    }
+
+    const matter = require('gray-matter');
+    const parsed = matter(content);
+    const data = parsed.data || {};
+
+    const gap = {
+      truth: (gapEntry && gapEntry.truth) || null,
+      status: 'failed',
+      failure_type: (gapEntry && gapEntry.failure_type) || 'contract_mismatch',
+      reason: (gapEntry && gapEntry.reason) || null,
+    };
+    if (gapEntry && Array.isArray(gapEntry.artifacts) && gapEntry.artifacts.length > 0) {
+      gap.artifacts = gapEntry.artifacts;
+    }
+
+    const existingGaps = Array.isArray(data.gaps) ? data.gaps : [];
+    const updatedData = { ...data, status: 'gaps_found', gaps: [...existingGaps, gap] };
+
+    const rebuilt = matter.stringify(parsed.content, updatedData);
+    atomicWriteFileSync(verificationFilePath, rebuilt);
+    return { ok: true, gap, gaps_count: updatedData.gaps.length };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+// Thin CLI wrapper. Structured JSON error + explicit exit code on failure (mirrors
+// cmdEvalCandidateAccept's convention) -- NOT the generic error() helper, so callers
+// can distinguish "missing required flag" (exit 2) from "write failed" (exit 1).
+function cmdVerifyAppendGap(cwd, verificationFileArg, options, raw) {
+  if (!verificationFileArg) {
+    process.stdout.write(JSON.stringify({ error: true, type: 'missing_argument', message: 'verify append-gap: <verification-file-path> required' }, null, 2));
+    process.exit(2);
+    return;
+  }
+  const opts = options || {};
+  if (!opts.truth || !opts.reason) {
+    process.stdout.write(JSON.stringify({ error: true, type: 'missing_flags', message: 'verify append-gap: --truth and --reason are required' }, null, 2));
+    process.exit(2);
+    return;
+  }
+
+  let artifacts;
+  if (opts.artifactsJson) {
+    try {
+      artifacts = JSON.parse(opts.artifactsJson);
+    } catch (e) {
+      process.stdout.write(JSON.stringify({ error: true, type: 'malformed_artifacts_json', message: e.message }, null, 2));
+      process.exit(2);
+      return;
+    }
+  }
+
+  const verificationFilePath = path.isAbsolute(verificationFileArg) ? verificationFileArg : path.join(cwd, verificationFileArg);
+  const result = appendVerificationGap(cwd, verificationFilePath, {
+    truth: opts.truth,
+    reason: opts.reason,
+    failure_type: opts.failureType || 'contract_mismatch',
+    artifacts,
+  });
+
+  if (!result.ok) {
+    process.stdout.write(JSON.stringify({ error: true, type: 'append_gap_failed', message: result.error }, null, 2));
+    process.exit(1);
+    return;
+  }
+  output({ appended: true, gaps_count: result.gaps_count, gap: result.gap }, raw);
 }
 
 // Writes candidate(s) to the queue directory. Accepts a single candidate
@@ -12560,8 +12651,19 @@ async function main() {
         cmdVerifyE2EGaps(cwd, args[2], raw);
       } else if (subcommand === 'test-content') {
         cmdVerifyTestContent(cwd, args[2], raw);
+      } else if (subcommand === 'append-gap') {
+        const truthIdx = args.indexOf('--truth');
+        const reasonIdx = args.indexOf('--reason');
+        const failureTypeIdx = args.indexOf('--failure-type');
+        const artifactsIdx = args.indexOf('--artifacts');
+        cmdVerifyAppendGap(cwd, args[2], {
+          truth: truthIdx !== -1 ? args[truthIdx + 1] : null,
+          reason: reasonIdx !== -1 ? args[reasonIdx + 1] : null,
+          failureType: failureTypeIdx !== -1 ? args[failureTypeIdx + 1] : null,
+          artifactsJson: artifactsIdx !== -1 ? args[artifactsIdx + 1] : null,
+        }, raw);
       } else {
-        error('Unknown verify subcommand. Available: plan-structure, phase-completeness, references, commits, artifacts, key-links, migration-timestamps, dependency-stability, phase-gate, e2e-gaps, test-content');
+        error('Unknown verify subcommand. Available: plan-structure, phase-completeness, references, commits, artifacts, key-links, migration-timestamps, dependency-stability, phase-gate, e2e-gaps, test-content, append-gap');
       }
       break;
     }
@@ -14431,6 +14533,7 @@ module.exports = {
   getPhaseInvariantsText,
   buildEvalCandidateFromDebugFile,
   buildEvalCandidatesFromVerificationFile,
+  appendVerificationGap,
   writeEvalCandidates,
   validateEvalCandidateSchema,
   deriveTaskType,
