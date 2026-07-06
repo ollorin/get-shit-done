@@ -663,7 +663,7 @@ Plans:
   2. Ledger absence or corruption degrades gracefully to heuristic-only routing (fail-open, loud warning); a ledger with fewer than a minimum sample count for a task type is ignored for that type
   3. A haiku-tier task failure signaled by the executor triggers a sonnet retry, sonnet failure triggers opus, opus failure escalates to the existing failure-handling path — escalation is bounded (one retry per tier) and recorded in the execution log and routing ledger; failures that are not tier-capability-related (missing file, environment error) never trigger tier escalation
   4. Integration tests cover: ledger build from seeded logs, router consultation changing a tier decision, corrupt-ledger fail-open, minimum-sample threshold, haiku→sonnet→opus chain, bound enforcement, non-capability failure exclusion, ledger recording of escalation outcome
-**Plans:** 1/4 plans executed
+**Plans:** 2/4 plans executed
 
 Plans:
 - [ ] 57-01: TBD (planned during plan-phase)
@@ -787,7 +787,7 @@ Plans:
 | 54. Structured Handoffs & Invariant Re-Injection | 4/4 | Complete   | 2026-07-06 | - |
 | 55. Failures-to-Regression Pipeline | 3/3 | Complete | 2026-07-06 | - |
 | 56. Reflective Prompt Optimization | v1.15.0 | 3/3 | Complete | 2026-07-06 |
-| 57. Outcome-Informed Routing Ledger & Bounded Escalation | v1.15.0 | 1/4 | In Progress | - |
+| 57. Outcome-Informed Routing Ledger & Bounded Escalation | v1.15.0 | 2/4 | In Progress|  |
 | 58. Honest Token Accounting | v1.15.0 | 0/TBD | Not started | - |
 | 59. Dormant Quality Agents Wired In | v1.15.0 | 0/TBD | Not started | - |
 | 60. Adversarial Plan Review | v1.15.0 | 0/TBD | Not started | - |

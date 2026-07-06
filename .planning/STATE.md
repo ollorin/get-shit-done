@@ -10,9 +10,9 @@ See: .planning/PROJECT.md (updated 2026-07-02)
 ## Current Position
 
 Phase: 57 of 61 (Outcome-Informed Routing Ledger & Bounded Tier Escalation)
-Plan: 1 of 4 (57-01 complete)
-Status: Plan 57-01 complete. Ready to execute 57-02.
-Last activity: 2026-07-06 — Phase 57 Plan 1 (routing ledger storage & build aggregation, MILE-34 storage half): deriveTaskType/buildRoutingLedger (pure) + readRoutingLedger/writeRoutingLedger (fail-open, mirrors readDeferredWaivers) added to gsd-tools.js; EVENT_TYPES gained task_outcome/tier_escalation; routing task-type / routing ledger build|show CLI subcommands extend the existing routing case block. 660/660 tests passing (was 638). Next: 57-02 (ledger consultation + task-router wiring).
+Plan: 2 of 4 (57-02 complete)
+Status: Ready to execute
+Last activity: 2026-07-06
 
 Progress: [██████████] 99%
 
@@ -87,6 +87,7 @@ Progress: [██████████] 99%
 | Phase 56 P02 | ~15min | 2 tasks | 4 files |
 | Phase 56 P03 | ~15min | 3 tasks | 2 files |
 | Phase 57 P01 | ~20min | 2 tasks | 3 files |
+| Phase 57 P02 | ~20min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -156,6 +157,7 @@ Recent decisions affecting current work:
 - [Phase 56]: [56-02]: checkBudgetForCandidate fails OPEN (pass:true+warning) on missing/malformed config/prompt-budgets.json or a missing per-agent entry, fails CLOSED only on a genuine measured overage; checkEvalForCandidate/executeEvalCandidateAgainstContent scope to exactly the target agent's relPath and execute entirely in-memory against the candidate revision (file_exists/file_not_exists trivially pass -- the target is already known to exist -- only file_contains/file_not_contains actually discriminate); writeReviewArtifacts is the ONLY write path in the whole feature (.planning/prompt-optimize/{agent}/{timestamp}/, rejected candidates tagged and still written for audit); runPromptOptimize composes 56-01's pure core with both gates into exactly one of {error, no_signal (nothing written), rejected (budget_exceeded|eval_failed), ready_for_review}; `prompt-optimize --agent <name>` is a new top-level gsd-tools.js CLI command, direct-exit like `eval regress`/`budget check`; found and fixed a real gap from 56-01 -- prompt-optimize.test.js existed but was never wired into package.json's `test` script, so its tests were silently excluded from every `npm test`/CI run; no Task/Agent tool was available in this executor run, so Task 2's tdd="true" spawn and the mandatory docs-update step were both completed inline; 630/630 npm test passing (was 597)
 - [Phase 56]: [56-03]: Task 1 (package.json test-chain wiring) was already satisfied by 56-02's own deviation-fix commit -- confirmed via grep before writing any new test, no redundant change made; 8 new cross-cutting integration tests in gsd-tools.test.js drive the real `prompt-optimize --agent` CLI subprocess against isolated temp-project fixtures (fixture agents/*.md, temp .planning/telemetry/agent-reports.jsonl, temp tests/eval-regressions/accepted/, temp get-shit-done/config/prompt-budgets.json), covering all 5 required MILE-33 scenarios exactly as specified; checkBudgetForCandidate's default config path resolves to `<cwd>/get-shit-done/config/prompt-budgets.json` (no override arg passed by runPromptOptimize), so budget-gate tests seed that exact relative path under the temp cwd; a real-repo smoke test (`prompt-optimize --agent gsd-test-writer` against the live repo root, no fixtures) confirms exit 0 (no_signal) and byte-identical `git status` before/after, proving the never-auto-apply guarantee holds against the live repo and not just temp fixtures; no Task/Agent tool was available in this executor run, so Task 2's tdd="true" spawn and the mandatory docs-update step were both completed inline; 638/638 npm test passing (was 630); Phase 56 (Reflective Prompt Optimization) now COMPLETE across all 3 plans, MILE-33 satisfied end-to-end
 - [Phase 57]: [Phase 57]: [57-01]: writeRoutingLedger uses plain fs.writeFileSync (not atomic) per 57-RESEARCH.md guidance -- coordinator-only-writer, low concurrent-write risk; loadConfig gains both flat routing_min_sample_count and nested routing.min_sample_count defaults (ENOENT branch returns raw defaults object directly); getNextTier/getTiers imported from model-registry.js now so Plan 57-03 needs no duplicate require; 660/660 npm test passing (was 638)
+- [Phase 57]: [57-02]: consultLedger single-hop-up-only (never haiku->opus in one call, never down); routing ledger consult CLI fails open loudly on missing/corrupt ledger, exit 0; gsd-task-router.md's consult_ledger step sits between check_quota and get_context; MILE-34 satisfied end-to-end across 57-01/57-02; found+fixed a real state record-session bug (bold-only field matching silently no-op'd against the real plain-prose STATE.md, now uses stateReplaceFieldTolerant); 679/679 npm test passing (was 662)
 
 ### Roadmap Evolution
 
@@ -190,11 +192,11 @@ None.
 
 ### Next Steps
 
-- Phase 57 Plan 1 (routing ledger storage & build aggregation) complete. Next: execute Phase 57 Plan 2 (routing ledger consultation + task-router wiring, MILE-34), then 57-03 (bounded escalation logic, MILE-35) and 57-04 (coordinator loop wiring, MILE-35).
+- Phase 57 Plan 2 (routing ledger consultation + task-router wiring) complete — MILE-34 satisfied end-to-end. Next: execute Phase 57 Plan 3 (bounded escalation logic, MILE-35), then 57-04 (coordinator loop wiring, MILE-35).
 - Reconcile v1.13.0 status separately (see Pending Todos) — do not double-build during v1.15.0 execution
 
 ## Session Continuity
 
-Last session: 2026-07-06
-Stopped at: Completed 57-01-PLAN.md (routing ledger storage & build aggregation, MILE-34 storage half). 660/660 tests passing (was 638). Next action: execute Phase 57 Plan 2 (routing ledger consultation + task-router wiring).
-Resume file: none — Plan 57-01 closed, no checkpoint pending.
+Last session: 2026-07-06T08:14:11.642Z
+Stopped at: Completed 57-02-PLAN.md (routing ledger consultation + task-router wiring, MILE-34 complete)
+Resume file: None
