@@ -9277,3 +9277,108 @@ describe('Phase 53-01: eval CLI (plan/assert)', () => {
     });
   });
 });
+
+// Phase 54-01: buildHandoffBrief (MILE-40). Pure function, required directly
+// off the same `resilience` alias used by the Phase 51-02 suite above (both
+// point at the same gsd-tools.js module.exports object).
+describe('buildHandoffBrief', () => {
+  const FULL_FIELDS = {
+    phase_number: 54,
+    phase_name: 'structured-handoffs',
+    phase_goal: 'stay on-constraint',
+    key_decisions: ['locked decision a', 'locked decision b'],
+    open_risks: 'a single open risk',
+    file_map: ['get-shit-done/bin/gsd-tools.js'],
+    hard_rules: ['never throw', 'always render 5 sections'],
+  };
+
+  const ALL_LABELS = ['PHASE GOAL', 'KEY DECISIONS', 'OPEN RISKS', 'FILE MAP', 'HARD RULES'];
+
+  // Category 1: Happy path.
+  test('happy path: fully-populated fields -> complete:true, all 5 labels + phase number/name present', () => {
+    const brief = resilience.buildHandoffBrief(FULL_FIELDS);
+    assert.strictEqual(brief.complete, true);
+    for (const label of ALL_LABELS) {
+      assert.ok(brief.brief_text.includes(label), `expected brief_text to include label "${label}"`);
+    }
+    assert.ok(brief.brief_text.includes('54'), 'expected phase number to appear in brief_text');
+    assert.ok(brief.brief_text.includes('structured-handoffs'), 'expected phase name to appear in brief_text');
+  });
+
+  // Category 2: Missing/malformed input.
+  test('missing/malformed input: fields={} -> complete:false, all 5 labels still present with "(none provided)"', () => {
+    const brief = resilience.buildHandoffBrief({});
+    assert.strictEqual(brief.complete, false);
+    for (const label of ALL_LABELS) {
+      assert.ok(brief.brief_text.includes(label), `expected brief_text to include label "${label}"`);
+    }
+    const noneProvidedCount = (brief.brief_text.match(/\(none provided\)/g) || []).length;
+    assert.strictEqual(noneProvidedCount, 5);
+  });
+
+  test('missing/malformed input: fields=null -> complete:false, no throw', () => {
+    assert.doesNotThrow(() => resilience.buildHandoffBrief(null));
+    const brief = resilience.buildHandoffBrief(null);
+    assert.strictEqual(brief.complete, false);
+  });
+
+  test('missing/malformed input: fields=undefined -> complete:false, no throw', () => {
+    assert.doesNotThrow(() => resilience.buildHandoffBrief(undefined));
+    const brief = resilience.buildHandoffBrief(undefined);
+    assert.strictEqual(brief.complete, false);
+  });
+
+  // Category 3: Edge case -- array-valued sections and mixed string/array input.
+  test('edge case: array-valued section renders one bullet per line', () => {
+    const brief = resilience.buildHandoffBrief(FULL_FIELDS);
+    assert.ok(brief.sections.key_decisions.includes('- locked decision a'));
+    assert.ok(brief.sections.key_decisions.includes('- locked decision b'));
+    assert.strictEqual(brief.sections.key_decisions.split('\n').length, 2);
+  });
+
+  test('edge case: a mix of string and array section inputs both normalize correctly', () => {
+    const brief = resilience.buildHandoffBrief(FULL_FIELDS);
+    // open_risks was supplied as a plain string -- normalizes to itself, no bullet.
+    assert.strictEqual(brief.sections.open_risks, 'a single open risk');
+    // file_map was supplied as an array -- normalizes to a bulleted line.
+    assert.strictEqual(brief.sections.file_map, '- get-shit-done/bin/gsd-tools.js');
+  });
+
+  // Category 4: Boundary conditions.
+  test('boundary: exactly one section blank -> complete:false but the other 4 render their real content', () => {
+    const fields = { ...FULL_FIELDS, open_risks: '' };
+    const brief = resilience.buildHandoffBrief(fields);
+    assert.strictEqual(brief.complete, false);
+    assert.strictEqual(brief.sections.open_risks, '');
+    assert.ok(brief.brief_text.includes('stay on-constraint'));
+    assert.ok(brief.brief_text.includes('- locked decision a'));
+    assert.ok(brief.brief_text.includes('- get-shit-done/bin/gsd-tools.js'));
+    assert.ok(brief.brief_text.includes('- never throw'));
+  });
+
+  test('boundary: whitespace-only string section is treated as empty -> complete:false', () => {
+    const fields = { ...FULL_FIELDS, hard_rules: '   ' };
+    const brief = resilience.buildHandoffBrief(fields);
+    assert.strictEqual(brief.complete, false);
+    assert.strictEqual(brief.sections.hard_rules, '');
+  });
+
+  // Category 5: Wiring/integration -- sections object matches brief_text content.
+  test('wiring: sections object exposes all 5 canonical keys, values match what appears in brief_text', () => {
+    const brief = resilience.buildHandoffBrief(FULL_FIELDS);
+    const canonicalKeys = ['phase_goal', 'key_decisions', 'open_risks', 'file_map', 'hard_rules'];
+    for (const key of canonicalKeys) {
+      assert.ok(Object.prototype.hasOwnProperty.call(brief.sections, key), `expected sections.${key} to exist`);
+      assert.ok(brief.brief_text.includes(brief.sections[key]), `expected brief_text to contain sections.${key}'s value`);
+    }
+  });
+
+  // Category 6: Regression guard -- buildResumeBrief unaffected by the new adjacent builder.
+  test('regression guard: buildResumeBrief still returns its expected shape', () => {
+    const checkpointData = { found: false, resume_from: null, last_step: null, step_status: null, plans_complete: null, plans_remaining: null, key_context: null };
+    const phaseInfo = { phase_number: '54', phase_name: 'structured-handoffs', directory: '.planning/phases/54-structured-handoffs' };
+    const brief = resilience.buildResumeBrief(checkpointData, phaseInfo);
+    assert.strictEqual(brief.resume_from, 'discuss');
+    assert.ok(typeof brief.brief_text === 'string' && brief.brief_text.length > 0);
+  });
+});
