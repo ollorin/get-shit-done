@@ -1693,7 +1693,43 @@ done
    )
    ```
 
-4. If blocking mismatches found: create gap closure plans (same pattern as verification gaps). This is a HARD BLOCK — do NOT proceed to phase complete with blocking integration mismatches.
+3b. **(NEW, MILE-38, additive) If step 3 above did NOT already spawn gsd-integration-tester
+    for this phase:** check the `quality.integration_tester` toggle:
+    ```bash
+    INTEGRATION_TESTER_ENABLED=$(node ~/.claude/get-shit-done/bin/gsd-tools.js config get integration_tester_enabled --raw 2>/dev/null || echo "false")
+    ```
+    If `INTEGRATION_TESTER_ENABLED` is `"true"` AND `DEPENDS_ON` (from the "Check explicit
+    depends_on" bash block above) has length > 0: spawn gsd-integration-tester anyway, using
+    the EXACT SAME `Agent()` call as step 3 (`depends_on_phases={DEPENDS_ON + overlapping
+    phases}`, `integration_points={derived overlap, may be empty if none was found}`) -- this
+    fires even when `SHARED_OVERLAP` is `false`, because a phase can legitimately depend on a
+    prior phase's schema/convention with zero raw file-name overlap. If `DEPENDS_ON` is empty:
+    NEVER spawn via this branch, regardless of the toggle state -- independent phases never
+    trigger it.
+
+4. If any `blocking: true` mismatch is returned by gsd-integration-tester (from EITHER the
+   step 3 spawn or the new step 3b spawn): this is a HARD BLOCK — do NOT proceed to phase
+   complete. For EACH blocking mismatch, propagate it into this phase's already-written
+   VERIFICATION.md so it composes with the EXISTING verification-gap pipeline (no second/
+   parallel gap-writing mechanism):
+
+   ```bash
+   node ~/.claude/get-shit-done/bin/gsd-tools.js verify append-gap "{phase_dir}/{verification_file}" \
+     --truth "Cross-phase integration boundary '{mismatch.boundary}' matches between producer and consumer" \
+     --reason "{mismatch.mismatch} (producer: {mismatch.producer_shape}, consumer: {mismatch.consumer_shape})" \
+     --failure-type contract_mismatch \
+     --raw
+   ```
+
+   This appends one gap entry per blocking mismatch and flips VERIFICATION.md's `status` to
+   `gaps_found` — the SAME frontmatter shape `eval-candidate from-verification` (Phase 55)
+   already reads, so a subsequent `eval-candidate from-verification` run picks up these gaps
+   automatically, and `/gsd:plan-phase --gaps` can build gap closure plans from them exactly as
+   it does for verifier-originated gaps. Do NOT build a separate gap-closure code path for
+   integration mismatches.
+
+   If gsd-integration-tester returns zero `blocking: true` mismatches: continue to phase
+   complete as normal (no VERIFICATION.md change).
 
 </step>
 

@@ -1952,12 +1952,27 @@ function cmdRoadmapGetPhase(cwd, phaseNum, raw) {
     const goalMatch = section.match(/\*\*Goal:\*\*\s*([^\n]+)/i);
     const goal = goalMatch ? goalMatch[1].trim() : null;
 
+    // Phase 59-03 (MILE-38): extract depends_on the same way parseRoadmapPhases does (~L7274),
+    // normalized into an array (empty when absent/"None"/"Nothing"), tolerant of BOTH real-world
+    // ROADMAP.md styles ("**Depends on:**" colon-inside-bold AND "**Depends on**:" colon-outside-
+    // bold -- the live .planning/ROADMAP.md uses both across different phases). This field was
+    // PREVIOUSLY MISSING from this function's return value entirely -- coordinator-detail.md's
+    // existing DEPENDS_ON bash parse (`d.depends_on||[]`) has therefore always silently resolved
+    // to "[]" regardless of the real ROADMAP.md content. This fix makes that pre-existing,
+    // unchanged bash snippet functionally correct for the first time.
+    const dependsMatch = section.match(/\*\*Depends on:?\*\*:?\s*([^\n]+)/i);
+    const dependsOnRaw = dependsMatch ? dependsMatch[1].trim() : null;
+    const depends_on = (!dependsOnRaw || /^(none|nothing)\b/i.test(dependsOnRaw))
+      ? []
+      : dependsOnRaw.split(',').map(s => s.trim()).filter(Boolean);
+
     output(
       {
         found: true,
         phase_number: phaseNum,
         phase_name: phaseName,
         goal,
+        depends_on,
         section,
       },
       raw,
