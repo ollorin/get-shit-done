@@ -646,11 +646,11 @@ Plans:
   2. The candidate is auto-rejected if it exceeds the agent's prompt budget or fails any existing eval assertion; the command never auto-applies a revision — output is always a diff for human approval
   3. Optimization is per-agent (one target agent per run), never whole-pipeline; a run with no eval failures and no telemetry for the target agent reports "no signal" and exits cleanly
   4. Integration tests cover: diagnosis generation from seeded failures, budget-violation rejection, eval-failure rejection, the no-signal path, diff format validity
-**Plans:** 3 planned
+**Plans:** 2/3 plans executed
 
 Plans:
-- [ ] 56-01: prompt-optimize.js core pure functions (agent resolution, telemetry/eval-failure signal collection, deterministic diagnosis, unified-diff engine) + prompt-budget.js measurePreambleFromContent refactor
-- [ ] 56-02: Gating (budget + eval-assertion checks against the in-memory candidate) + runPromptOptimize orchestration + review-dir writer + `prompt-optimize --agent` CLI wiring
+- [x] 56-01: prompt-optimize.js core pure functions (agent resolution, telemetry/eval-failure signal collection, deterministic diagnosis, unified-diff engine) + prompt-budget.js measurePreambleFromContent refactor
+- [x] 56-02: Gating (budget + eval-assertion checks against the in-memory candidate) + runPromptOptimize orchestration + review-dir writer + `prompt-optimize --agent` CLI wiring
 - [ ] 56-03: MILE-33 end-to-end integration tests (5 scenarios) + npm test wiring + full-suite gate
 
 #### Phase 57: Outcome-Informed Routing Ledger & Bounded Escalation
@@ -786,7 +786,7 @@ Plans:
 | 53. Eval Harness, Prompt Hygiene & Injection Hardening | v1.14.0 | 3/3 | Complete | 2026-07-05 |
 | 54. Structured Handoffs & Invariant Re-Injection | 4/4 | Complete   | 2026-07-06 | - |
 | 55. Failures-to-Regression Pipeline | 3/3 | Complete | 2026-07-06 | - |
-| 56. Reflective Prompt Optimization | v1.15.0 | 0/TBD | Not started | - |
+| 56. Reflective Prompt Optimization | 1/3 | In Progress|  | - |
 | 57. Outcome-Informed Routing Ledger & Bounded Escalation | v1.15.0 | 0/TBD | Not started | - |
 | 58. Honest Token Accounting | v1.15.0 | 0/TBD | Not started | - |
 | 59. Dormant Quality Agents Wired In | v1.15.0 | 0/TBD | Not started | - |

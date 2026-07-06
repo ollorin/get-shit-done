@@ -9,10 +9,10 @@ See: .planning/PROJECT.md (updated 2026-07-02)
 
 ## Current Position
 
-Phase: 55 of 61 (Failures-to-Regression Pipeline) — COMPLETE (VERIFIED passed 14/14)
-Plan: 3 of 3 (all complete)
-Status: Phase 55 complete — gsd-verifier passed 14/14 must-haves (55-VERIFICATION.md), deterministic phase-gate passed all 5 checks. MILE-32 fully satisfied: debugger/verifier failures generate candidates, review queue accepts/rejects durably, accepted candidates run in CI on every push/PR (npm test chain + eval-harness.yml eval-regress job), malformed committed fixtures fail loudly. 595/595 tests passing. Next: Phase 56 (Reflective Prompt Optimization, MILE-33).
-Last activity: 2026-07-06 — Phase 55 verified passed; ROADMAP.md/STATE.md/REQUIREMENTS.md all reconciled (MILE-32 [x] confirmed accurate).
+Phase: 56 of 61 (Reflective Prompt Optimization) — IN PROGRESS
+Plan: 2 of 3 (56-02 complete)
+Status: Ready to execute Plan 3
+Last activity: 2026-07-06 — Phase 56 Plan 2 (gating functions + runPromptOptimize orchestration + review-dir writer + `prompt-optimize --agent` CLI wiring) complete, 630/630 tests passing (was 597). Also fixed a 56-01 gap: prompt-optimize.test.js was never wired into package.json's test script. Next: Plan 3 (MILE-33 end-to-end integration tests + full-suite gate).
 
 Progress: [██████████] 99%
 
@@ -83,6 +83,8 @@ Progress: [██████████] 99%
 | Phase 55 P01 | 35min | 4 tasks | 8 files |
 | Phase 55 P02 | ~30min | 3 tasks | 3 files |
 | Phase 55 P03 | ~45min | 4 tasks | 6 files |
+| Phase 56 P01 | 15min | 2 tasks | 4 files |
+| Phase 56 P02 | ~15min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -148,6 +150,8 @@ Recent decisions affecting current work:
 - [Phase 55]: gray-matter used for debug-file and VERIFICATION.md frontmatter parsing instead of extending the hand-rolled extractFrontmatter, which cannot parse the nested gaps array-of-objects schema
 - [Phase 55]: [55-03]: eval-harness.js re-implements the candidate schema rules locally (validateEvalCandidateShape, bare error-string array) instead of requiring gsd-tools.js's validateEvalCandidateSchema -- gsd-tools.js already requires eval-harness.js so the reverse would be circular; the two rule sets must be kept in sync manually; malformed COMMITTED fixtures in accepted/ are the second documented deliberate deviation from eval-harness.js's fail-safe convention (loud valid:false entries + exit 1, never silently dropped); `eval regress` is dual-wired into CI (npm test chain via scripts.test AND a dedicated eval-harness.yml eval-regress job with tests/eval-regressions/** path triggers); Phase 55 (Failures-to-Regression Pipeline) now COMPLETE across all 3 plans, MILE-32 satisfied end-to-end and VERIFIED passed 14/14, 595/595 npm test passing (was 550 at phase start)
 - [Phase 55]: [55-02]: validateEvalCandidateSchema is re-run unconditionally at accept time (not only at 55-01's write time) -- closes the hand-edit bypass the must-haves called out, so a candidate that looked valid when queued but was hand-edited into an invalid shape before accepting is rejected and left in queue/; reject deliberately skips full schema re-validation (only requires successful JSON.parse) since a broken candidate must still be legitimately archivable; all accept/reject error paths write a typed JSON object directly to stdout + process.exit(1|2) rather than using output() (which always exits 0), guaranteeing a non-zero exit on every failure path; no Task/Agent tool was available in this executor run, so Task 2's tdd="true" spawn and the mandatory docs-update step were both completed inline per their respective agents' documented procedures (578/578 npm test passing, was 569)
+- [Phase 56]: [56-01]: prompt-optimize.js core functions (resolveAgentFile/readTelemetryForAgent/readEvalFailuresForAgent/hasSignal/buildDiagnosis/computeUnifiedDiff/isValidUnifiedDiff/buildRevisionCandidate) are pure/fail-safe/never-throw and require eval-harness.js + prompt-budget.js directly (never gsd-tools.js, avoiding a circular require since gsd-tools.js will require prompt-optimize.js in Plan 56-02); buildDiagnosis topIssue priority is ambiguity > instructions_not_followed.why > eval-failure > deterministic fallback; measurePreambleFromContent(content) is now the pure primitive prompt-budget.js's measurePreamble(filePath) delegates to, additive and backward-compatible
+- [Phase 56]: [56-02]: checkBudgetForCandidate fails OPEN (pass:true+warning) on missing/malformed config/prompt-budgets.json or a missing per-agent entry, fails CLOSED only on a genuine measured overage; checkEvalForCandidate/executeEvalCandidateAgainstContent scope to exactly the target agent's relPath and execute entirely in-memory against the candidate revision (file_exists/file_not_exists trivially pass -- the target is already known to exist -- only file_contains/file_not_contains actually discriminate); writeReviewArtifacts is the ONLY write path in the whole feature (.planning/prompt-optimize/{agent}/{timestamp}/, rejected candidates tagged and still written for audit); runPromptOptimize composes 56-01's pure core with both gates into exactly one of {error, no_signal (nothing written), rejected (budget_exceeded|eval_failed), ready_for_review}; `prompt-optimize --agent <name>` is a new top-level gsd-tools.js CLI command, direct-exit like `eval regress`/`budget check`; found and fixed a real gap from 56-01 -- prompt-optimize.test.js existed but was never wired into package.json's `test` script, so its tests were silently excluded from every `npm test`/CI run; no Task/Agent tool was available in this executor run, so Task 2's tdd="true" spawn and the mandatory docs-update step were both completed inline; 630/630 npm test passing (was 597)
 
 ### Roadmap Evolution
 
@@ -182,11 +186,11 @@ None.
 
 ### Next Steps
 
-- Phase 55 verified passed. Proceed to Phase 56 (Reflective Prompt Optimization, MILE-33) — depends on Phase 55's eval-failure signal, now live.
+- Phase 56 Plan 2 (gating + orchestration + CLI wiring) complete. Proceed to Plan 3 (MILE-33 end-to-end integration tests, 5 scenarios, + npm test wiring + full-suite gate).
 - Reconcile v1.13.0 status separately (see Pending Todos) — do not double-build during v1.15.0 execution
 
 ## Session Continuity
 
 Last session: 2026-07-06
-Stopped at: Phase 55 complete and verified (passed, 14/14). 595/595 tests passing. Next action: plan/execute Phase 56.
-Resume file: none — Phase 55 closed, no checkpoint pending.
+Stopped at: Completed 56-02-PLAN.md (gating functions + runPromptOptimize orchestration + review-dir writer + CLI wiring). 630/630 tests passing (was 597). Next action: execute Plan 3 (MILE-33 end-to-end integration tests + full-suite gate).
+Resume file: none — Plan 56-02 closed, no checkpoint pending.
