@@ -202,6 +202,7 @@ const { estimatePhaseSize, detectOversizedPhases, recommendSplit, validateSplitP
 const evalHarness = require('./eval-harness.js');
 const promptBudget = require('./prompt-budget.js');
 const promptOptimize = require('./prompt-optimize.js');
+const { getNextTier, getTiers } = require('./model-registry.js');
 
 // Phase 2: Auto Mode safety modules (lazy — gracefully absent if not installed)
 let circuitBreaker, validator, escalation, feedback, learning;
@@ -334,6 +335,8 @@ function loadConfig(cwd) {
     execution: { max_attempts: 4 },
     staleness_threshold_minutes: 30,
     resilience: { staleness_threshold_minutes: 30 },
+    routing_min_sample_count: 5,
+    routing: { min_sample_count: 5 },
   };
 
   try {
@@ -381,6 +384,7 @@ function loadConfig(cwd) {
       auto_consolidate: get('auto_consolidate') ?? defaults.auto_consolidate,
       max_attempts: get('max_attempts', { section: 'execution', field: 'max_attempts' }) ?? defaults.max_attempts,
       staleness_threshold_minutes: get('staleness_threshold_minutes', { section: 'resilience', field: 'staleness_threshold_minutes' }) ?? defaults.staleness_threshold_minutes,
+      routing_min_sample_count: get('routing_min_sample_count', { section: 'routing', field: 'min_sample_count' }) ?? defaults.routing_min_sample_count,
       coordinator_model: get('coordinator_model') ?? null,
       dev_servers: parsed.dev_servers || null,
     };
@@ -10821,6 +10825,28 @@ function cmdRoutingMatchWithQuota(cwd, taskDesc, raw) {
   output(result, raw);
 }
 
+function cmdRoutingTaskType(cwd, taskDesc, raw) {
+  if (!taskDesc) { error('task description required'); return; }
+  const taskType = deriveTaskType(taskDesc);
+  output({ task_type: taskType }, raw, taskType);
+}
+
+function cmdRoutingLedgerBuild(cwd, raw) {
+  const events = getHistory(cwd);
+  const config = loadConfig(cwd);
+  let telemetryReports = [];
+  try { telemetryReports = readTelemetryReports(cwd); } catch (_) { telemetryReports = []; }
+  const ledger = buildRoutingLedger(events, { minSampleCount: config.routing_min_sample_count, telemetryReports });
+  writeRoutingLedger(cwd, ledger);
+  output({ ok: true, built_at: ledger.built_at, source_event_count: ledger.source_event_count, min_sample_count: ledger.min_sample_count, task_type_count: Object.keys(ledger.task_types).length }, raw);
+}
+
+function cmdRoutingLedgerShow(cwd, raw) {
+  const result = readRoutingLedger(cwd);
+  if (!result.ok) { output({ ok: false, reason: result.reason, error: result.error }, raw); return; }
+  output(result.ledger || { built_at: null, source_event_count: 0, min_sample_count: 5, task_types: {} }, raw);
+}
+
 function extractKeywords(text) {
   const stopWords = new Set([
     'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
@@ -12034,6 +12060,100 @@ function summarizeTelemetryReports(reports) {
     instructions_not_followed_by_rule: byRule,
     top_ambiguities: topAmbiguities
   };
+}
+
+// ─── Routing Ledger (Phase 57-01, MILE-34) ────────────────────────────────────
+//
+// Storage: .planning/routing-ledger.json is a single REBUILDABLE JSON object
+// (like .context-index-cache.json), not a JSONL append log. `routing ledger
+// build` rebuilds it wholesale from EXECUTION_LOG.md's task_outcome events
+// plus optional telemetry enrichment; it is never appended to incrementally.
+
+// Fixed ordered verb vocabulary for task-type bucketing. First whole-word
+// match wins (scanned in this order) -- no match falls back to 'other'.
+const TASK_TYPE_VOCAB = ['write', 'fix', 'add', 'remove', 'refactor', 'debug', 'design', 'implement',
+  'wire', 'migrate', 'test', 'update', 'create', 'configure', 'document', 'investigate', 'review',
+  'verify', 'run', 'commit'];
+
+// Pure function -- no I/O. Buckets a task description into a fixed ordered
+// verb vocabulary via first whole-word match; unmatched descriptions fall
+// back to 'other'.
+function deriveTaskType(taskDescription) {
+  if (!taskDescription || typeof taskDescription !== 'string') return 'other';
+  const lower = taskDescription.toLowerCase();
+  for (const verb of TASK_TYPE_VOCAB) {
+    if (new RegExp(`\\b${verb}\\b`).test(lower)) return verb;
+  }
+  return 'other';
+}
+
+function getRoutingLedgerPath(cwd) {
+  return path.join(cwd, '.planning', 'routing-ledger.json');
+}
+
+// Thin I/O wrapper -- NEVER throws. Mirrors readDeferredWaivers's exact
+// fail-open shape: an absent ledger file is not an error (no history yet);
+// a malformed/corrupt file is always surfaced loudly, never silently
+// treated as "no ledger".
+function readRoutingLedger(cwd) {
+  const ledgerPath = getRoutingLedgerPath(cwd);
+  if (!fs.existsSync(ledgerPath)) return { ok: true, ledger: null, reason: 'missing' };
+  const content = safeReadFile(ledgerPath);
+  if (content === null) return { ok: false, ledger: null, reason: 'corrupt', error: 'Could not read routing-ledger.json' };
+  const parsed = safeJsonParse(content, 'routing-ledger.json');
+  if (!parsed.ok) return { ok: false, ledger: null, reason: 'corrupt', error: parsed.error.message };
+  if (!parsed.value || typeof parsed.value !== 'object' || !parsed.value.task_types || typeof parsed.value.task_types !== 'object') {
+    return { ok: false, ledger: null, reason: 'corrupt', error: 'routing-ledger.json missing required task_types key' };
+  }
+  return { ok: true, ledger: parsed.value, reason: null };
+}
+
+// Thin I/O wrapper. This file is coordinator-only-writer (rebuilt wholesale
+// on each `routing ledger build`), low concurrent-write risk unlike
+// STATE.md/ROADMAP.md/config.json -- a plain writeFileSync is acceptable
+// per 57-RESEARCH.md (documented choice, see 57-01-SUMMARY.md).
+function writeRoutingLedger(cwd, ledger) {
+  const ledgerPath = getRoutingLedgerPath(cwd);
+  fs.mkdirSync(path.dirname(ledgerPath), { recursive: true });
+  fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2), 'utf-8');
+  return { ok: true, path: ledgerPath };
+}
+
+// Pure function -- no I/O. Aggregates an array of EXECUTION_LOG.md events
+// (shape matches getHistory's return) into a per-(task_type, tier)
+// attempts/successes/failures ledger. Non-task_outcome events in the same
+// array are ignored. Optional best-effort telemetry enrichment folds
+// tool_errors_swallowed into a quality_flags counter when a telemetry
+// report's phase+plan matches a bucketed task_outcome event -- never
+// required for the core attempts/successes math to be valid.
+function buildRoutingLedger(events, options = {}) {
+  const minSampleCount = options.minSampleCount || 5;
+  const taskTypes = {};
+  let sourceEventCount = 0;
+  for (const e of (events || [])) {
+    if (!e || e.type !== 'task_outcome' || !e.tier) continue;
+    sourceEventCount++;
+    const taskType = e.task_type || 'other';
+    if (!taskTypes[taskType]) taskTypes[taskType] = {};
+    if (!taskTypes[taskType][e.tier]) taskTypes[taskType][e.tier] = { attempts: 0, successes: 0, failures: 0 };
+    const bucket = taskTypes[taskType][e.tier];
+    bucket.attempts++;
+    if (e.outcome === 'success') bucket.successes++;
+    else if (e.outcome === 'failure') bucket.failures++;
+  }
+  // Best-effort telemetry enrichment -- never required for the core math to be valid.
+  if (Array.isArray(options.telemetryReports)) {
+    for (const r of options.telemetryReports) {
+      if (!r || r.phase === undefined || r.plan === undefined) continue;
+      const matches = (events || []).filter(e => e.type === 'task_outcome' && e.phase === r.phase && e.plan === r.plan);
+      for (const m of matches) {
+        const bucket = taskTypes[m.task_type || 'other'] && taskTypes[m.task_type || 'other'][m.tier];
+        if (!bucket) continue;
+        bucket.quality_flags = (bucket.quality_flags || 0) + (typeof r.tool_errors_swallowed === 'number' ? r.tool_errors_swallowed : 0);
+      }
+    }
+  }
+  return { built_at: new Date().toISOString(), source_event_count: sourceEventCount, min_sample_count: minSampleCount, task_types: taskTypes };
 }
 
 // ─── CLI Router ───────────────────────────────────────────────────────────────
@@ -13979,8 +14099,15 @@ Was ${model} the right choice for this task? (y/n): `;
         cmdRoutingIndexRefresh(cwd, raw);
       } else if (subcommand === 'match-with-quota') {
         cmdRoutingMatchWithQuota(cwd, args.slice(2).join(' '), raw);
+      } else if (subcommand === 'task-type') {
+        cmdRoutingTaskType(cwd, args.slice(2).join(' '), raw);
+      } else if (subcommand === 'ledger') {
+        const ledgerSub = args[2];
+        if (ledgerSub === 'build') cmdRoutingLedgerBuild(cwd, raw);
+        else if (ledgerSub === 'show') cmdRoutingLedgerShow(cwd, raw);
+        else error('Unknown routing ledger subcommand. Available: build, show');
       } else {
-        error('Unknown routing subcommand. Available: match, match-with-quota, context, full, index-build, index-refresh');
+        error('Unknown routing subcommand. Available: match, match-with-quota, context, full, index-build, index-refresh, task-type, ledger');
       }
       break;
     }
@@ -14066,6 +14193,11 @@ module.exports = {
   buildEvalCandidatesFromVerificationFile,
   writeEvalCandidates,
   validateEvalCandidateSchema,
+  deriveTaskType,
+  buildRoutingLedger,
+  readRoutingLedger,
+  writeRoutingLedger,
+  getRoutingLedgerPath,
 };
 
 // Only auto-run when invoked directly as a CLI (`node gsd-tools.js ...`), not
