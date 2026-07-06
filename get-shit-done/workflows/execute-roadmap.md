@@ -682,7 +682,7 @@ cd apps/e2e-charlotte && deno task test:regression
 ```bash
 # Verify gate was passed
 GATE_CHECK=$(node ~/.claude/get-shit-done/bin/gsd-tools.js gate pre-pr)
-if echo "$GATE_CHECK" | grep -q '"passed":true'; then
+if echo "$GATE_CHECK" | grep -q '"passed": true'; then
   git push -u origin {CURRENT_BRANCH}
   gh pr create ...
 else

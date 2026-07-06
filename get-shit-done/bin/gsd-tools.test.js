@@ -13588,6 +13588,6 @@ go 1.21
     assert.ok(content.includes('action_required'), 'Should contain action_required field parse');
     assert.ok(content.includes('checks'), 'Should contain checks array reference');
     assert.ok(content.includes('gate pre-pr --mark-passed'), 'Should contain mark-passed command');
-    assert.ok(content.includes('"passed":true'), 'Should contain "passed":true verification');
+    assert.ok(content.includes('"passed": true'), 'Should contain "passed": true verification (space matches output()\'s JSON.stringify(result, null, 2) pretty-printing)');
   });
 });
