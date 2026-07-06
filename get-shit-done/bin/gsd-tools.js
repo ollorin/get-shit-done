@@ -4937,6 +4937,155 @@ function writeEvalCandidates(cwd, candidates) {
   return written;
 }
 
+// ─── Eval Candidate Review Queue (MILE-32, Phase 55-02) ──────────────────────
+// Human-in-the-loop lifecycle on top of Plan 55-01's queue/ writers:
+// list/accept/reject. A candidate is only "pending" until a human reviews
+// it; accept promotes it to a permanent, CI-visible fixture under accepted/;
+// reject archives it (never deletes) with an appended reason trail.
+const EVAL_CANDIDATE_REQUIRED_KEYS = ['id', 'source', 'created_at', 'title', 'context', 'expected', 'status'];
+const EVAL_CANDIDATE_ALLOWED_SOURCES = ['debugger', 'verifier'];
+const EVAL_CANDIDATE_ALLOWED_STATUSES = ['pending', 'accepted', 'rejected'];
+const EVAL_CANDIDATE_ALLOWED_EXPECTED_TYPES = ['file_exists', 'file_not_exists', 'file_contains', 'file_not_contains'];
+
+// Pure validator -- never throws. This is intentionally re-implemented
+// (identical rule set) by Plan 55-03's eval-harness.js loader for the
+// accepted-dir, to preserve eval-harness.js's zero-dependency-on-gsd-tools.js
+// convention. Keep both copies in sync: a candidate that passes here must
+// also pass there.
+function validateEvalCandidateSchema(candidate) {
+  const errors = [];
+
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+    return { valid: false, errors: ['candidate is not an object'] };
+  }
+
+  for (const key of EVAL_CANDIDATE_REQUIRED_KEYS) {
+    const value = candidate[key];
+    if (value === undefined || value === null || value === '') {
+      errors.push(`missing required key: ${key}`);
+    }
+  }
+
+  if (candidate.source !== undefined && candidate.source !== null && candidate.source !== '' && !EVAL_CANDIDATE_ALLOWED_SOURCES.includes(candidate.source)) {
+    errors.push(`invalid source: ${candidate.source}`);
+  }
+
+  if (candidate.status !== undefined && candidate.status !== null && candidate.status !== '' && !EVAL_CANDIDATE_ALLOWED_STATUSES.includes(candidate.status)) {
+    errors.push(`invalid status: ${candidate.status}`);
+  }
+
+  if (candidate.expected && typeof candidate.expected === 'object' && !Array.isArray(candidate.expected)) {
+    const expected = candidate.expected;
+    if (!EVAL_CANDIDATE_ALLOWED_EXPECTED_TYPES.includes(expected.type)) {
+      errors.push(`invalid expected.type: ${expected.type}`);
+    }
+    if (!expected.file || typeof expected.file !== 'string') {
+      errors.push('expected.file is required');
+    }
+    if ((expected.type === 'file_contains' || expected.type === 'file_not_contains') && !expected.needle) {
+      errors.push('expected.needle is required for file_contains/file_not_contains');
+    }
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+// Reads every `*.json` file in the resolved dir (queue/accepted/archived,
+// defaulting to queue for an unrecognized dirArg). Never throws, never skips
+// a malformed file silently -- it is surfaced in the candidates array with an
+// `error` field instead.
+function cmdEvalCandidateList(cwd, dirArg, raw) {
+  const dir = ['queue', 'accepted', 'archived'].includes(dirArg) ? dirArg : 'queue';
+  const dirPath = path.join(cwd, EVAL_REGRESSIONS_ROOT, dir); // dir is validated above against the same three names getEvalRegressions*Dir() hardcode
+
+  if (!fs.existsSync(dirPath)) {
+    output({ dir, count: 0, candidates: [] }, raw);
+    return;
+  }
+
+  const files = fs.readdirSync(dirPath).filter((f) => f.endsWith('.json'));
+  const candidates = [];
+  for (const file of files) {
+    const content = safeReadFile(path.join(dirPath, file));
+    const parsed = content === null ? { ok: false, error: { message: 'could not read file' } } : safeJsonParse(content, file);
+    if (parsed.ok) {
+      const value = parsed.value || {};
+      candidates.push({ file, id: value.id, title: value.title, status: value.status });
+    } else {
+      candidates.push({ file, error: 'malformed JSON' });
+    }
+  }
+
+  output({ dir, count: candidates.length, candidates }, raw);
+}
+
+function cmdEvalCandidateAccept(cwd, id, raw) {
+  if (!id) { error('eval-candidate accept: <id> required'); return; }
+
+  const queuePath = path.join(getEvalRegressionsQueueDir(cwd), `${id}.json`);
+  const content = safeReadFile(queuePath);
+  if (content === null) {
+    process.stdout.write(JSON.stringify({ error: true, type: 'candidate_not_found', id }, null, 2));
+    process.exit(1);
+    return;
+  }
+
+  const parsed = safeJsonParse(content, queuePath);
+  if (!parsed.ok) {
+    process.stdout.write(JSON.stringify({ error: true, type: 'malformed_candidate', id, message: parsed.error.message }, null, 2));
+    process.exit(2);
+    return;
+  }
+
+  const validation = validateEvalCandidateSchema(parsed.value);
+  if (!validation.valid) {
+    process.stdout.write(JSON.stringify({ error: true, type: 'invalid_candidate_schema', id, errors: validation.errors }, null, 2));
+    process.exit(2);
+    return;
+  }
+
+  const accepted = { ...parsed.value, status: 'accepted', accepted_at: new Date().toISOString() };
+  const acceptedDir = getEvalRegressionsAcceptedDir(cwd);
+  fs.mkdirSync(acceptedDir, { recursive: true });
+  const acceptedPath = path.join(acceptedDir, `${id}.json`);
+  atomicWriteFileSync(acceptedPath, JSON.stringify(accepted, null, 2));
+  fs.unlinkSync(queuePath);
+
+  output({ accepted: true, id, path: path.relative(cwd, acceptedPath) }, raw);
+}
+
+function cmdEvalCandidateReject(cwd, id, reason, raw) {
+  if (!id) { error('eval-candidate reject: <id> required'); return; }
+  if (!reason || !reason.trim()) { error('eval-candidate reject requires --reason'); return; }
+
+  const queuePath = path.join(getEvalRegressionsQueueDir(cwd), `${id}.json`);
+  const content = safeReadFile(queuePath);
+  if (content === null) {
+    process.stdout.write(JSON.stringify({ error: true, type: 'candidate_not_found', id }, null, 2));
+    process.exit(1);
+    return;
+  }
+
+  const parsed = safeJsonParse(content, queuePath);
+  if (!parsed.ok) {
+    process.stdout.write(JSON.stringify({ error: true, type: 'malformed_candidate', id, message: parsed.error.message }, null, 2));
+    process.exit(2);
+    return;
+  }
+
+  const existing = parsed.value;
+  const combinedReason = existing.reason ? `${existing.reason}; ${reason}` : reason;
+  const rejected = { ...existing, status: 'rejected', reason: combinedReason, rejected_at: new Date().toISOString() };
+
+  const archivedDir = getEvalRegressionsArchivedDir(cwd);
+  fs.mkdirSync(archivedDir, { recursive: true });
+  const archivedPath = path.join(archivedDir, `${id}.json`);
+  atomicWriteFileSync(archivedPath, JSON.stringify(rejected, null, 2));
+  fs.unlinkSync(queuePath);
+
+  output({ rejected: true, id, path: path.relative(cwd, archivedPath) }, raw);
+}
+
 function cmdEvalCandidateFromDebug(cwd, debugFileArg, raw) {
   if (!debugFileArg) {
     error('eval-candidate from-debug: <debug-file-path> required');
@@ -12705,8 +12854,16 @@ async function main() {
         cmdEvalCandidateFromDebug(cwd, args[2], raw);
       } else if (subcommand === 'from-verification') {
         cmdEvalCandidateFromVerification(cwd, args[2], raw);
+      } else if (subcommand === 'list') {
+        cmdEvalCandidateList(cwd, args[2], raw);
+      } else if (subcommand === 'accept') {
+        cmdEvalCandidateAccept(cwd, args[2], raw);
+      } else if (subcommand === 'reject') {
+        const reasonIndex = args.indexOf('--reason');
+        const reason = reasonIndex !== -1 ? args[reasonIndex + 1] : undefined;
+        cmdEvalCandidateReject(cwd, args[2], reason, raw);
       } else {
-        error('Unknown eval-candidate subcommand. Available: from-debug, from-verification');
+        error('Unknown eval-candidate subcommand. Available: from-debug, from-verification, list, accept, reject');
       }
       break;
     }
@@ -13859,6 +14016,7 @@ module.exports = {
   buildEvalCandidateFromDebugFile,
   buildEvalCandidatesFromVerificationFile,
   writeEvalCandidates,
+  validateEvalCandidateSchema,
 };
 
 // Only auto-run when invoked directly as a CLI (`node gsd-tools.js ...`), not
