@@ -12167,3 +12167,69 @@ this is not valid yaml: : :
     });
   });
 });
+
+// Phase 59-01 (MILE-37/MILE-38): structural grep-assertion tests locking in
+// the agent drift refresh -- gsd-test-writer.md/gsd-integration-tester.md
+// (about to join the golden path for the first time in Plans 59-02/59-03)
+// both gain a <content_firewall> block (mirroring gsd-executor.md's exact
+// convention) and the MILE-26 4-field telemetry self-report line.
+describe('Phase 59-01: agent drift refresh (content_firewall + telemetry)', () => {
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  const TEST_WRITER_PATH = path.join(REPO_ROOT, 'agents', 'gsd-test-writer.md');
+  const INTEGRATION_TESTER_PATH = path.join(REPO_ROOT, 'agents', 'gsd-integration-tester.md');
+  const TELEMETRY_LINE = '**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}';
+
+  function readRepoFile(relPath) {
+    return fs.readFileSync(relPath, 'utf-8');
+  }
+
+  test('gsd-test-writer.md gains a <content_firewall> block immediately after </role>', () => {
+    const content = readRepoFile(TEST_WRITER_PATH);
+    assert.ok(content.includes('<content_firewall>'), 'expected gsd-test-writer.md to contain a <content_firewall> block');
+    const roleEndIdx = content.indexOf('</role>');
+    const firewallIdx = content.indexOf('<content_firewall>');
+    assert.ok(roleEndIdx !== -1 && firewallIdx !== -1 && firewallIdx > roleEndIdx, 'expected <content_firewall> to appear after </role>');
+    assert.ok(content.includes('content-firewall.md'), 'expected gsd-test-writer.md to point at the content-firewall.md convention');
+  });
+
+  test('gsd-integration-tester.md gains a <content_firewall> block immediately after </role>', () => {
+    const content = readRepoFile(INTEGRATION_TESTER_PATH);
+    assert.ok(content.includes('<content_firewall>'), 'expected gsd-integration-tester.md to contain a <content_firewall> block');
+    const roleEndIdx = content.indexOf('</role>');
+    const firewallIdx = content.indexOf('<content_firewall>');
+    assert.ok(roleEndIdx !== -1 && firewallIdx !== -1 && firewallIdx > roleEndIdx, 'expected <content_firewall> to appear after </role>');
+    assert.ok(content.includes('content-firewall.md'), 'expected gsd-integration-tester.md to point at the content-firewall.md convention');
+  });
+
+  test('gsd-test-writer.md gains the exact MILE-26 4-field telemetry self-report line', () => {
+    const content = readRepoFile(TEST_WRITER_PATH);
+    assert.ok(content.includes(TELEMETRY_LINE), 'expected gsd-test-writer.md to contain the exact 4-field telemetry line');
+  });
+
+  test('gsd-integration-tester.md gains the exact MILE-26 4-field telemetry self-report line', () => {
+    const content = readRepoFile(INTEGRATION_TESTER_PATH);
+    assert.ok(content.includes(TELEMETRY_LINE), 'expected gsd-integration-tester.md to contain the exact 4-field telemetry line');
+  });
+
+  test('boundary: gsd-planner.md and gsd-debugger.md carry NO <content_firewall> block (blast radius confined to test-writer/integration-tester)', () => {
+    const plannerContent = readRepoFile(path.join(REPO_ROOT, 'agents', 'gsd-planner.md'));
+    const debuggerContent = readRepoFile(path.join(REPO_ROOT, 'agents', 'gsd-debugger.md'));
+    assert.ok(!plannerContent.includes('<content_firewall>'), 'expected gsd-planner.md to be untouched by this plan\'s drift refresh');
+    assert.ok(!debuggerContent.includes('<content_firewall>'), 'expected gsd-debugger.md to be untouched by this plan\'s drift refresh');
+  });
+
+  test('regression guard: CHANGELOG.md documents both new toggle defaults under Unreleased/Added', () => {
+    const changelog = readRepoFile(path.join(REPO_ROOT, 'CHANGELOG.md'));
+    const unreleasedIdx = changelog.indexOf('## [Unreleased]');
+    const addedIdx = changelog.indexOf('### Added', unreleasedIdx);
+    const nextSectionIdx = changelog.indexOf('\n## ', addedIdx);
+    const addedSection = changelog.slice(addedIdx, nextSectionIdx === -1 ? changelog.length : nextSectionIdx);
+
+    assert.ok(addedSection.includes('test_writer_enabled'), 'expected CHANGELOG.md Unreleased/Added to mention test_writer_enabled');
+    assert.ok(addedSection.includes('integration_tester_enabled'), 'expected CHANGELOG.md Unreleased/Added to mention integration_tester_enabled');
+    // Newest-first ordering: the Phase 59-01 bullet should be the first bullet.
+    const firstBulletIdx = addedSection.indexOf('\n- ');
+    const phase5901Idx = addedSection.indexOf('Phase 59-01');
+    assert.ok(firstBulletIdx !== -1 && phase5901Idx !== -1 && phase5901Idx < firstBulletIdx + 20, 'expected the Phase 59-01 bullet to be the first bullet under Unreleased/Added');
+  });
+});
