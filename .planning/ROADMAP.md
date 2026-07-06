@@ -629,10 +629,12 @@ Plans:
   2. A phase-verification failure (`gaps_found`) writes a candidate fixture describing the gap
   3. An accepted candidate becomes a permanent eval case executed by the existing eval harness in CI; a rejected candidate is archived, not silently deleted
   4. Integration tests cover: candidate generation from a seeded debug session, review-queue accept/reject transitions, CI pickup of an accepted fixture, malformed candidate file handled loudly
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans executed — VERIFIED passed (14/14 must-haves, 2026-07-06)
 
 Plans:
-- [ ] 55-01: TBD (planned during plan-phase)
+- [x] 55-01: Eval-candidate builders + from-debug/from-verification CLI + agent wiring
+- [x] 55-02: Review-queue lifecycle (list/accept/reject + schema re-validation)
+- [x] 55-03: Eval-regression loader/executor + `eval regress` CLI + CI wiring + MILE-32 e2e integration tests
 
 #### Phase 56: Reflective Prompt Optimization
 
@@ -781,7 +783,7 @@ Plans:
 | 52. Skew Detection, Telemetry & Model Registry | v1.14.0 | 4/4 | Complete | 2026-07-05 |
 | 53. Eval Harness, Prompt Hygiene & Injection Hardening | v1.14.0 | 3/3 | Complete | 2026-07-05 |
 | 54. Structured Handoffs & Invariant Re-Injection | 4/4 | Complete   | 2026-07-06 | - |
-| 55. Failures-to-Regression Pipeline | 1/3 | In Progress|  | - |
+| 55. Failures-to-Regression Pipeline | 3/3 | Complete | 2026-07-06 | - |
 | 56. Reflective Prompt Optimization | v1.15.0 | 0/TBD | Not started | - |
 | 57. Outcome-Informed Routing Ledger & Bounded Escalation | v1.15.0 | 0/TBD | Not started | - |
 | 58. Honest Token Accounting | v1.15.0 | 0/TBD | Not started | - |

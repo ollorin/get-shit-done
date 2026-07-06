@@ -9,10 +9,10 @@ See: .planning/PROJECT.md (updated 2026-07-02)
 
 ## Current Position
 
-Phase: 55 of 61 (Failures-to-Regression Pipeline) — EXECUTED, awaiting verification
-Plan: 3 of 3 (55-03 complete)
-Status: Plan 55-03 complete — loadAcceptedEvalCandidates/executeEvalCandidate/runEvalRegressions loader+executor in eval-harness.js, `eval regress` CLI (direct-exit), dual CI wiring (npm test chain + dedicated eval-harness.yml eval-regress job), 17 new tests including all 4 MILE-32 end-to-end integration scenarios via the real CLI; 595/595 tests passing. MILE-32 fully satisfied (all 4 success criteria). Phase 55 pending gsd-verifier.
-Last activity: 2026-07-06 — Executed 55-03-PLAN.md (resumed post-checkpoint): loader/executor + CI wiring landed pre-checkpoint (8bb56df), tests via 2 gsd-test-writer spawns (2b2cc6e, e6bd004), CHANGELOG entry (2a64a65).
+Phase: 55 of 61 (Failures-to-Regression Pipeline) — COMPLETE (VERIFIED passed 14/14)
+Plan: 3 of 3 (all complete)
+Status: Phase 55 complete — gsd-verifier passed 14/14 must-haves (55-VERIFICATION.md), deterministic phase-gate passed all 5 checks. MILE-32 fully satisfied: debugger/verifier failures generate candidates, review queue accepts/rejects durably, accepted candidates run in CI on every push/PR (npm test chain + eval-harness.yml eval-regress job), malformed committed fixtures fail loudly. 595/595 tests passing. Next: Phase 56 (Reflective Prompt Optimization, MILE-33).
+Last activity: 2026-07-06 — Phase 55 verified passed; ROADMAP.md/STATE.md/REQUIREMENTS.md all reconciled (MILE-32 [x] confirmed accurate).
 
 Progress: [██████████] 99%
 
@@ -146,6 +146,7 @@ Recent decisions affecting current work:
 - [Phase 54]: [54-04]: coordinator-detail.md assembles the fixed handoff brief fresh at BOTH spawn boundaries (coordinator->executor, both PER_TASK_MODE branches, and executor->verifier) rather than threading it through SUMMARY.md, since the coordinator is the one agent present at both boundaries; each of the 3 modified agent core preambles (gsd-phase-coordinator.md/gsd-executor.md/gsd-verifier.md) gains exactly one acknowledgment sentence inside its existing hard_rules_digest/error_handling section, before its own CORE-PREAMBLE-END marker (index-ordering verified by test) -- all bulk 5-section content lives in coordinator-detail.md, an @-included reference the budget checker never measures, so prompt-budgets.json was never touched and executor's tight 1906-token headroom absorbed only a 39-token addition; 6 new grep-assertion/integration tests lock in the wiring plus a checkAllBudgets pass:true regression across all 3 modified agents; gsd-planner.md/gsd-debugger.md confirmed untouched (blast-radius boundary test); no Task/Agent tool was available in this executor run either, so Task 2's tdd="true" spawn and the mandatory docs-update step were again completed inline; MILE-40 flipped to Complete in REQUIREMENTS.md -- Phase 54 (Structured Handoffs & Invariant Re-Injection) now COMPLETE across all 4 plans, 550/550 npm test passing (was 544)
 - [Phase 55]: Candidate fixtures live under tests/eval-regressions/{queue,accepted,archived}/ (git-tracked) rather than .planning/ (gitignored) so accepted candidates survive as permanent CI artifacts
 - [Phase 55]: gray-matter used for debug-file and VERIFICATION.md frontmatter parsing instead of extending the hand-rolled extractFrontmatter, which cannot parse the nested gaps array-of-objects schema
+- [Phase 55]: [55-03]: eval-harness.js re-implements the candidate schema rules locally (validateEvalCandidateShape, bare error-string array) instead of requiring gsd-tools.js's validateEvalCandidateSchema -- gsd-tools.js already requires eval-harness.js so the reverse would be circular; the two rule sets must be kept in sync manually; malformed COMMITTED fixtures in accepted/ are the second documented deliberate deviation from eval-harness.js's fail-safe convention (loud valid:false entries + exit 1, never silently dropped); `eval regress` is dual-wired into CI (npm test chain via scripts.test AND a dedicated eval-harness.yml eval-regress job with tests/eval-regressions/** path triggers); Phase 55 (Failures-to-Regression Pipeline) now COMPLETE across all 3 plans, MILE-32 satisfied end-to-end and VERIFIED passed 14/14, 595/595 npm test passing (was 550 at phase start)
 - [Phase 55]: [55-02]: validateEvalCandidateSchema is re-run unconditionally at accept time (not only at 55-01's write time) -- closes the hand-edit bypass the must-haves called out, so a candidate that looked valid when queued but was hand-edited into an invalid shape before accepting is rejected and left in queue/; reject deliberately skips full schema re-validation (only requires successful JSON.parse) since a broken candidate must still be legitimately archivable; all accept/reject error paths write a typed JSON object directly to stdout + process.exit(1|2) rather than using output() (which always exits 0), guaranteeing a non-zero exit on every failure path; no Task/Agent tool was available in this executor run, so Task 2's tdd="true" spawn and the mandatory docs-update step were both completed inline per their respective agents' documented procedures (578/578 npm test passing, was 569)
 
 ### Roadmap Evolution
@@ -181,11 +182,11 @@ None.
 
 ### Next Steps
 
-- Plan 55-03 (CI execution) is complete — all 3 Phase 55 plans executed. Spawn gsd-verifier for Phase 55, then proceed to Phase 56 (Reflective Prompt Optimization, MILE-33).
+- Phase 55 verified passed. Proceed to Phase 56 (Reflective Prompt Optimization, MILE-33) — depends on Phase 55's eval-failure signal, now live.
 - Reconcile v1.13.0 status separately (see Pending Todos) — do not double-build during v1.15.0 execution
 
 ## Session Continuity
 
 Last session: 2026-07-06
-Stopped at: Completed 55-03-PLAN.md (eval regression loader/executor + CI wiring). 595/595 tests passing. Next action: gsd-verifier for Phase 55.
-Resume file: .planning/phases/55-failures-to-regression/CHECKPOINT.json
+Stopped at: Phase 55 complete and verified (passed, 14/14). 595/595 tests passing. Next action: plan/execute Phase 56.
+Resume file: none — Phase 55 closed, no checkpoint pending.
