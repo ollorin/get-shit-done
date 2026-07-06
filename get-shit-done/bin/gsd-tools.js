@@ -4643,7 +4643,7 @@ function cmdEval(cwd, args, raw) {
   const subcommand = args[0];
 
   if (!subcommand) {
-    error('eval: subcommand required (plan|assert)');
+    error('eval: subcommand required (plan|assert|regress)');
     return;
   }
 
@@ -4720,7 +4720,28 @@ function cmdEval(cwd, args, raw) {
     return;
   }
 
-  error('Unknown eval subcommand. Available: plan, assert');
+  if (subcommand === 'regress') {
+    const acceptedDirArg = args[1];
+    if (!acceptedDirArg) {
+      error('eval regress: <accepted-dir> required');
+      return;
+    }
+    const acceptedDir = path.isAbsolute(acceptedDirArg) ? acceptedDirArg : path.join(cwd, acceptedDirArg);
+
+    const projectRootIdx = args.indexOf('--project-root');
+    const projectRootArg = projectRootIdx !== -1 ? args[projectRootIdx + 1] : cwd;
+    const projectRoot = path.isAbsolute(projectRootArg) ? projectRootArg : path.join(cwd, projectRootArg);
+
+    // Bypass output() (which always exits 0) and write the full JSON result
+    // directly to stdout, mirroring `assert`'s pattern exactly -- CI needs
+    // the real exit code (MILE-32, Phase 55-03).
+    const result = evalHarness.runEvalRegressions(acceptedDir, projectRoot);
+    process.stdout.write(JSON.stringify(result, null, 2));
+    process.exit(result.pass ? 0 : 1);
+    return;
+  }
+
+  error('Unknown eval subcommand. Available: plan, assert, regress');
 }
 
 // ─── Eval Regression Candidates (MILE-32, Phase 55) ──────────────────────────

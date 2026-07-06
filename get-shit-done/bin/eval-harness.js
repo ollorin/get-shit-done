@@ -14,7 +14,13 @@
  * reason -- it never throws for a data problem. The single intentional
  * exception is buildSpawnPlan's model-registry config-drift guard, which is
  * a deliberate throw on a genuine environment/config bug, not a data
- * problem with the fixture.
+ * problem with the fixture. A second, narrower exception is
+ * `loadAcceptedEvalCandidates`: a candidate file under
+ * tests/eval-regressions/accepted/ that fails to parse or fails schema
+ * validation is reported as an explicit `valid:false` entry in its results
+ * -- never silently dropped from the list -- because a malformed COMMITTED
+ * regression fixture is a real CI/data bug, not an expected 'missing data'
+ * case (MILE-32, Phase 55-03).
  */
 
 const fs = require('fs');
@@ -482,6 +488,155 @@ function runEvalAssertions(artifactsRoot, options) {
   return { pass, checks };
 }
 
+// ─── Eval Regression Candidates (MILE-32, Phase 55-03) ───────────────────────
+// Loader + executor for PERMANENT accepted regression candidates under
+// tests/eval-regressions/accepted/ -- the CI-facing half of MILE-32 (Plans
+// 55-01/55-02 built candidate generation and the review-queue CLI;
+// gsd-tools.js's `eval regress` command below is the thin CLI wrapper around
+// these three functions). Deliberately duplicates (in miniature) the shape
+// gsd-tools.js's validateEvalCandidateSchema (55-02) checks, rather than
+// importing it -- gsd-tools.js already `require`s this file, so the reverse
+// would be circular. Keep the two rule sets in sync if either changes.
+const EVAL_CANDIDATE_REQUIRED_KEYS = ['id', 'source', 'created_at', 'title', 'context', 'expected', 'status'];
+const EVAL_CANDIDATE_ALLOWED_EXPECTED_TYPES = ['file_exists', 'file_not_exists', 'file_contains', 'file_not_contains'];
+
+// Pure shape validator -- returns a plain array of error strings (not the
+// {valid,errors} object shape gsd-tools.js's validateEvalCandidateSchema
+// uses; this file's other validators return bare arrays/results, so this
+// stays idiomatic to THIS file). Never throws. Empty array means valid.
+function validateEvalCandidateShape(candidate) {
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+    return ['candidate is not an object'];
+  }
+
+  const errors = [];
+
+  for (const key of EVAL_CANDIDATE_REQUIRED_KEYS) {
+    const value = candidate[key];
+    if (value === undefined || value === null || value === '') {
+      errors.push(`missing required key: ${key}`);
+    }
+  }
+
+  const expected = candidate.expected;
+  if (expected && typeof expected === 'object' && !Array.isArray(expected)) {
+    if (!EVAL_CANDIDATE_ALLOWED_EXPECTED_TYPES.includes(expected.type)) {
+      errors.push(`invalid expected.type: ${expected.type}`);
+    }
+    if (!expected.file || typeof expected.file !== 'string') {
+      errors.push('expected.file is required');
+    }
+    if ((expected.type === 'file_contains' || expected.type === 'file_not_contains') && !expected.needle) {
+      errors.push('expected.needle is required for file_contains/file_not_contains');
+    }
+  }
+
+  return errors;
+}
+
+// Reads every `*.json` file directly under `acceptedDir` (sorted, deterministic
+// order) and validates each one. Returns { results, validCandidates }:
+//   - results: one entry per file -- { file, valid: true, candidate } or
+//     { file, valid: false, error } -- malformed/schema-invalid files are
+//     ALWAYS present here, never dropped (see file-header comment).
+//   - validCandidates: the parsed candidate objects for entries that passed
+//     both JSON parsing and shape validation, ready for executeEvalCandidate.
+// An absent acceptedDir is treated as zero candidates (NOT a failure) --
+// `{ results: [], validCandidates: [] }`. Never throws.
+function loadAcceptedEvalCandidates(acceptedDir) {
+  let files;
+  try {
+    files = fs.readdirSync(acceptedDir).filter((f) => f.endsWith('.json')).sort();
+  } catch (_e) {
+    return { results: [], validCandidates: [] };
+  }
+
+  const results = [];
+  const validCandidates = [];
+
+  for (const file of files) {
+    let content;
+    try {
+      content = fs.readFileSync(path.join(acceptedDir, file), 'utf8');
+    } catch (e) {
+      results.push({ file, valid: false, error: `Could not read file: ${e.message}` });
+      continue;
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(content);
+    } catch (e) {
+      results.push({ file, valid: false, error: `Malformed JSON: ${e.message}` });
+      continue;
+    }
+
+    const shapeErrors = validateEvalCandidateShape(parsed);
+    if (shapeErrors.length > 0) {
+      results.push({ file, valid: false, error: `Schema validation failed: ${shapeErrors.join('; ')}` });
+      continue;
+    }
+
+    results.push({ file, valid: true, candidate: parsed });
+    validCandidates.push(parsed);
+  }
+
+  return { results, validCandidates };
+}
+
+// Executes a single accepted candidate's `expected` assertion against a real
+// repo file under `projectRoot`. Always returns
+// { id: candidate.id, pass: boolean, reason: string }. Never throws.
+function executeEvalCandidate(candidate, projectRoot) {
+  const safeCandidate = (candidate && typeof candidate === 'object') ? candidate : {};
+  const expected = (safeCandidate.expected && typeof safeCandidate.expected === 'object') ? safeCandidate.expected : {};
+  const filePath = path.join(projectRoot || '', expected.file || '');
+
+  switch (expected.type) {
+    case 'file_exists': {
+      let exists = false;
+      try { exists = fs.existsSync(filePath); } catch (_e) { exists = false; }
+      return { id: safeCandidate.id, pass: exists, reason: exists ? `${expected.file} exists` : `${expected.file} does not exist` };
+    }
+    case 'file_not_exists': {
+      let exists = false;
+      try { exists = fs.existsSync(filePath); } catch (_e) { exists = false; }
+      return { id: safeCandidate.id, pass: !exists, reason: !exists ? `${expected.file} does not exist` : `${expected.file} unexpectedly exists` };
+    }
+    case 'file_contains':
+    case 'file_not_contains': {
+      let content;
+      try {
+        content = fs.readFileSync(filePath, 'utf8');
+      } catch (e) {
+        return { id: safeCandidate.id, pass: false, reason: `file not readable: ${expected.file} (${e.message})` };
+      }
+      const includesNeedle = content.includes(expected.needle);
+      const pass = expected.type === 'file_contains' ? includesNeedle : !includesNeedle;
+      return { id: safeCandidate.id, pass, reason: pass ? `assertion satisfied for ${expected.file}` : `assertion failed for ${expected.file} (needle: ${expected.needle})` };
+    }
+    default:
+      return { id: safeCandidate.id, pass: false, reason: `unknown expected.type: ${expected.type}` };
+  }
+}
+
+// Aggregate entry point: loads every accepted candidate, executes the valid
+// ones, and reports pass/fail. Returns
+// { pass, total, malformed, executed } where `total` is the total number of
+// files seen (valid + malformed), `malformed` is the array of invalid
+// results entries, and `executed` is the array of executeEvalCandidate
+// results for the valid candidates. An empty accepted dir (or absent dir)
+// yields the explicit trivial pass `{ pass: true, total: 0, malformed: [],
+// executed: [] }`. Never throws.
+function runEvalRegressions(acceptedDir, projectRoot) {
+  const { results, validCandidates } = loadAcceptedEvalCandidates(acceptedDir);
+  const malformed = results.filter((r) => !r.valid);
+  const executed = validCandidates.map((candidate) => executeEvalCandidate(candidate, projectRoot));
+  const pass = malformed.length === 0 && executed.every((r) => r.pass);
+
+  return { pass, total: results.length, malformed, executed };
+}
+
 module.exports = {
   buildSpawnPlan,
   parseSpawnTrace,
@@ -493,4 +648,8 @@ module.exports = {
   assertHandoffBriefPresent,
   assertResumeInvariantsReinjected,
   runEvalAssertions,
+  validateEvalCandidateShape,
+  loadAcceptedEvalCandidates,
+  executeEvalCandidate,
+  runEvalRegressions,
 };
