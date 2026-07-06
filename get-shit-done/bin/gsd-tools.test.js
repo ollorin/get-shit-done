@@ -11031,6 +11031,207 @@ describe('Phase 57-01: routing ledger storage & build', () => {
   });
 });
 
+describe('Phase 57-02: ledger consultation & task-router wiring', () => {
+  const { consultLedger } = require(TOOLS_PATH);
+
+  describe('consultLedger (pure)', () => {
+    test('null ledger -> fail-open heuristic passthrough', () => {
+      const result = consultLedger(null, 'write', 'haiku', 5);
+      assert.deepStrictEqual(result, { tier: 'haiku', adjusted: false, fail_open: true, reason: 'ledger_unavailable' });
+    });
+
+    test('ledger present but no bucket for the requested task_type -> not adjusted, reason no_data_for_task_type', () => {
+      const ledger = { task_types: { fix: { haiku: { attempts: 10, successes: 8, failures: 2 } } } };
+      const result = consultLedger(ledger, 'write', 'haiku', 5);
+      assert.strictEqual(result.adjusted, false);
+      assert.strictEqual(result.reason, 'no_data_for_task_type');
+      assert.strictEqual(result.tier, 'haiku');
+    });
+
+    test('total samples below min_sample_count -> not adjusted, reason insufficient_sample, EVEN when rates would otherwise justify adjustment', () => {
+      // haiku 0/2 successes, sonnet 5/5 successes -- total attempts 7 < minSampleCount 10
+      const ledger = {
+        task_types: {
+          write: {
+            haiku: { attempts: 2, successes: 0, failures: 2 },
+            sonnet: { attempts: 5, successes: 5, failures: 0 },
+          },
+        },
+      };
+      const result = consultLedger(ledger, 'write', 'haiku', 10);
+      assert.strictEqual(result.adjusted, false);
+      assert.strictEqual(result.reason, 'insufficient_sample');
+      assert.strictEqual(result.sample_count, 7);
+    });
+
+    test('heuristic tier success_rate >= 0.5 -> no adjustment even if a higher tier looks better', () => {
+      const ledger = {
+        task_types: {
+          write: {
+            haiku: { attempts: 10, successes: 6, failures: 4 }, // 60% -- not below the 0.5 contradiction threshold
+            sonnet: { attempts: 10, successes: 10, failures: 0 }, // 100%
+          },
+        },
+      };
+      const result = consultLedger(ledger, 'write', 'haiku', 5);
+      assert.strictEqual(result.adjusted, false);
+      assert.strictEqual(result.tier, 'haiku');
+    });
+
+    test('a genuine contradiction (haiku 20%, sonnet 90%, both >= min sample) -> adjusted:true, tier:sonnet, reason mentions both rates', () => {
+      const ledger = {
+        task_types: {
+          write: {
+            haiku: { attempts: 10, successes: 2, failures: 8 },
+            sonnet: { attempts: 10, successes: 9, failures: 1 },
+          },
+        },
+      };
+      const result = consultLedger(ledger, 'write', 'haiku', 5);
+      assert.strictEqual(result.adjusted, true);
+      assert.strictEqual(result.tier, 'sonnet');
+      assert.match(result.reason, /20%/);
+      assert.match(result.reason, /90%/);
+    });
+
+    test('heuristic tier is opus (ceiling, getNextTier("opus") === null) -> never adjusts regardless of data', () => {
+      const ledger = {
+        task_types: {
+          write: {
+            opus: { attempts: 10, successes: 1, failures: 9 },
+          },
+        },
+      };
+      const result = consultLedger(ledger, 'write', 'opus', 5);
+      assert.strictEqual(result.adjusted, false);
+      assert.strictEqual(result.tier, 'opus');
+    });
+
+    test('never adjusts DOWN -- sonnet with a worse rate than haiku still returns adjusted:false', () => {
+      const ledger = {
+        task_types: {
+          write: {
+            haiku: { attempts: 10, successes: 9, failures: 1 }, // 90% -- good, no reason to escalate
+            sonnet: { attempts: 10, successes: 2, failures: 8 }, // 20% -- worse, but consultLedger only ever compares heuristic vs the tier ABOVE it
+          },
+        },
+      };
+      const result = consultLedger(ledger, 'write', 'sonnet', 5);
+      assert.strictEqual(result.adjusted, false);
+      assert.strictEqual(result.tier, 'sonnet');
+    });
+  });
+
+  describe('CLI integration: routing ledger consult', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+      tmpDir = createTempProject();
+    });
+
+    afterEach(() => {
+      cleanup(tmpDir);
+    });
+
+    function seedLedger(ledger) {
+      const ledgerPath = path.join(tmpDir, '.planning', 'routing-ledger.json');
+      fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2), 'utf-8');
+    }
+
+    // runGsdTools (execSync-based) only captures stderr on a NON-zero exit --
+    // the fail-open path here exits 0 while still writing a stderr warning,
+    // so a synchronous spawnSync call (which always returns both streams
+    // regardless of exit code) is used instead for these two assertions.
+    function runGsdToolsCapturingStderr(args, cwd) {
+      const { spawnSync } = require('child_process');
+      const result = spawnSync(process.execPath, [TOOLS_PATH, ...args], { cwd, encoding: 'utf-8' });
+      return { success: result.status === 0, output: (result.stdout || '').trim(), error: (result.stderr || '').trim() };
+    }
+
+    // Integration-test scenario #2 from 57-RESEARCH.md: consultLedger
+    // changing a tier decision via the real CLI.
+    test('adjustment scenario: haiku-poor/sonnet-good bucket at sufficient sample count -> adjusted:true, tier:sonnet', () => {
+      seedLedger({
+        built_at: '2026-07-06T00:00:00.000Z',
+        source_event_count: 20,
+        min_sample_count: 5,
+        task_types: {
+          write: {
+            haiku: { attempts: 10, successes: 2, failures: 8 },
+            sonnet: { attempts: 10, successes: 9, failures: 1 },
+          },
+        },
+      });
+      const result = runGsdTools('routing ledger consult --task-type write --heuristic-tier haiku --raw', tmpDir);
+      assert.ok(result.success, `expected exit 0: ${result.error}`);
+      const decision = JSON.parse(result.output);
+      assert.strictEqual(decision.adjusted, true);
+      assert.strictEqual(decision.tier, 'sonnet');
+    });
+
+    // Integration-test scenario #3 from 57-RESEARCH.md: absent-ledger fail-open.
+    test('fail-open scenario: NO ledger file at all -> stderr WARNING + stdout fail_open:true', () => {
+      const result = runGsdToolsCapturingStderr(['routing', 'ledger', 'consult', '--task-type', 'write', '--heuristic-tier', 'haiku', '--raw'], tmpDir);
+      assert.ok(result.success, `expected exit 0 (fail-open, not an error): ${result.error}`);
+      assert.match(result.error, /WARNING: routing ledger unavailable/);
+      const decision = JSON.parse(result.output);
+      assert.strictEqual(decision.fail_open, true);
+    });
+
+    // Integration-test scenario #3 (corrupt half) from 57-RESEARCH.md's
+    // required coverage list.
+    test('fail-open scenario: corrupt (non-JSON) routing-ledger.json -> stderr WARNING + stdout fail_open:true', () => {
+      const ledgerPath = path.join(tmpDir, '.planning', 'routing-ledger.json');
+      fs.writeFileSync(ledgerPath, 'NOT VALID JSON{{{', 'utf-8');
+      const result = runGsdToolsCapturingStderr(['routing', 'ledger', 'consult', '--task-type', 'write', '--heuristic-tier', 'haiku', '--raw'], tmpDir);
+      assert.ok(result.success, `expected exit 0 (fail-open, not an error): ${result.error}`);
+      assert.match(result.error, /WARNING: routing ledger unavailable/);
+      const decision = JSON.parse(result.output);
+      assert.strictEqual(decision.fail_open, true);
+    });
+
+    test('missing --task-type or --heuristic-tier errors', () => {
+      const result = runGsdTools('routing ledger consult --heuristic-tier haiku --raw', tmpDir);
+      assert.strictEqual(result.success, false);
+    });
+  });
+
+  describe('gsd-task-router.md grep-assertion (prose wiring lock-in)', () => {
+    const routerPath = path.join(__dirname, '..', '..', 'agents', 'gsd-task-router.md');
+    const content = fs.readFileSync(routerPath, 'utf-8');
+
+    test('consult_ledger step name is present', () => {
+      assert.match(content, /<step name="consult_ledger">/);
+    });
+
+    test('ordering lock-in: check_quota < consult_ledger < get_context', () => {
+      const checkQuotaIdx = content.indexOf('name="check_quota"');
+      const consultLedgerIdx = content.indexOf('name="consult_ledger"');
+      const getContextIdx = content.indexOf('name="get_context"');
+      assert.ok(checkQuotaIdx !== -1, 'check_quota step not found');
+      assert.ok(consultLedgerIdx !== -1, 'consult_ledger step not found');
+      assert.ok(getContextIdx !== -1, 'get_context step not found');
+      assert.ok(checkQuotaIdx < consultLedgerIdx, 'consult_ledger must come after check_quota');
+      assert.ok(consultLedgerIdx < getContextIdx, 'consult_ledger must come before get_context');
+    });
+
+    test('routing task-type and routing ledger consult commands are both present inside the consult_ledger step body', () => {
+      const stepStart = content.indexOf('<step name="consult_ledger">');
+      const stepEnd = content.indexOf('</step>', stepStart);
+      const stepBody = content.slice(stepStart, stepEnd);
+      assert.match(stepBody, /routing task-type/);
+      assert.match(stepBody, /routing ledger consult/);
+    });
+
+    test('a Ledger: line template is present in the return_decision step output format section', () => {
+      const stepStart = content.indexOf('<step name="return_decision">');
+      const stepEnd = content.indexOf('</step>', stepStart);
+      const stepBody = content.slice(stepStart, stepEnd);
+      assert.match(stepBody, /Ledger:/);
+    });
+  });
+});
+
 // [Rule 1 - Bug] found during Phase 57-01's state_updates step: `roadmap
 // update-plan-progress`'s table regex assumed a 4-column progress table
 // (Phase | Plans | Status | Completed) but the real table has 5 columns
