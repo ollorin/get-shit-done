@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-07-02)
 
 **Core value:** Claude learns to make autonomous decisions based on user's reasoning patterns, only stopping for irreversible/external/costly actions
-**Current focus:** v1.15.0 — Self-Improving Quality Loop (roadmap created 2026-07-06, Phase 58 complete, Phase 59 in progress)
+**Current focus:** v1.15.0 — Self-Improving Quality Loop (roadmap created 2026-07-06, Phase 59 complete, Phase 60 next)
 
 ## Current Position
 
-Phase: 59 of 61 (Dormant Quality Agents Wired In) — IN PROGRESS (2/3 plans)
-Plan: 2 of 3 (59-02 complete)
+Phase: 59 of 61 (Dormant Quality Agents Wired In) — COMPLETE (3/3 plans)
+Plan: 3 of 3 (59-03 complete)
 Status: Ready to execute
 Last activity: 2026-07-06
 
-Progress: [██████████] 99%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -95,6 +95,7 @@ Progress: [██████████] 99%
 | Phase 58 P03 | ~10min | 3 tasks | 3 files |
 | Phase 59 P01 | ~25min | 3 tasks | 5 files |
 | Phase 59 P02 | ~20min | 3 tasks | 4 files |
+| Phase 59 P03 | ~25min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -172,6 +173,7 @@ Recent decisions affecting current work:
 - [Phase 58]: [58-03]: `token-usage record` wired into coordinator-detail.md's execute step immediately after each of the 3 task_outcome logging call sites (first-attempt success, per-attempt failure in escalation loop, final success after re-spawn), best-effort/never-blocking, reusing the same in-scope variables -- NO new field on the executor's return contract; golden-path calls never pass --tokens-input/--tokens-output so every real-execution record is source:'estimated', honestly; wiring locked in by 5 index-ordered grep-assertion tests (presence/count/adjacency/no-explicit-tokens/checkAllBudgets regression) mirroring Phase 57-04's precedent; no Task/Agent tool was available in this executor run, so the tdd="true" test task was completed inline per the sanctioned fallback; 762/762 npm test passing (was 726 at phase start); Phase 58 (Honest Token Accounting) now COMPLETE across all 3 plans, MILE-36 satisfied end-to-end
 - [Phase 59]: [59-01]: appendVerificationGap composes with the EXISTING buildEvalCandidatesFromVerificationFile/eval-candidate from-verification reader rather than a second gap pipeline -- proven via a composition test running a real verify append-gap CLI call then re-reading the same file through the Phase 55 reader; both new quality.test_writer/quality.integration_tester config toggles default false (zero behavior change); agent drift refresh (content_firewall + MILE-26 telemetry) landed on gsd-test-writer.md/gsd-integration-tester.md ahead of their golden-path wiring in Plans 59-02/59-03; 577/577 gsd-tools.test.js passing (was 558), full npm test 781/781 green
 - [Phase 59]: [59-02]: computeTouchesSourceCode/isSourceFile/isTestOrSpecFile mirror isUIFile/computeHasUI's exact pure, no-I/O, extension+path-pattern style (Phase 45-02); new top-level `case 'quality':` CLI dispatch (not nested inside `case 'routing':`) hosts `quality touches-source`; executor-detail.md's new `<post_task_quality_spawn>` block sits strictly between `</inter_task_syntax_check>` and `<test_task_handling>` (which remains byte-for-byte unchanged), gated on the `quality.test_writer` toggle, treating 0-tests/missing-output as a loud `[Rule Quality-TW]` SUMMARY.md deviation that never blocks -- explicit, permanent contrast with `<test_task_handling>`'s tdd="true" hard-block contract; found+fixed two real Rule-1 bugs while writing tests: (1) the `config get test_writer_enabled` bash snippet was missing `--raw`, so the shell comparison against "true" could never match even with the toggle explicitly enabled, silently defeating the entire toggle-on path -- fixed by adding `--raw`; (2) the pre-existing 59-01 CHANGELOG-ordering regression test hardcoded "Phase 59-01 is the first bullet," which this plan's own (correctly newest-first) CHANGELOG addition broke -- rewrote it to check ordering against a durable older anchor (Phase 58) instead of assuming permanent first-bullet position; no Task/Agent tool was available in this executor run, so Task 2's tdd="true" spawn and the mandatory docs-update step were both completed inline; 801/801 npm test passing (was 781); MILE-37 satisfied end-to-end -- golden path spawns gsd-test-writer after every source-touching task when the toggle is on, treats missing coverage as a loud deviation never a silent skip or hard block, zero behavior change when off
+- [Phase 59]: [Phase 59-03]: cmdRoadmapGetPhase's depends_on field was never returned at all (a real pre-existing bug) -- fixed with a regex tolerant of both real-world ROADMAP.md dependency-line styles; parseRoadmapPhases's own narrower depends_on regex (feeds roadmap analyze) deliberately left untouched, out of scope, mirroring 54-02's precedent; coordinator-detail.md's new step 3b spawns gsd-integration-tester on a declared ROADMAP.md dependency independent of the file-overlap heuristic when quality.integration_tester is on, never for an independent phase, never double-spawning when step 3 already fired; step 4 rewritten to propagate a blocking mismatch into VERIFICATION.md via verify append-gap, composing with the existing Phase 55 eval-candidate from-verification pipeline; contract_mismatch added as the 8th failure_type in verifier-detail.md/planner-detail.md; new post-59 golden fixture proves both MILE-37/MILE-38 spawns via assertAgentsSpawned; 816/816 npm test passing (was 801); Phase 59 (Dormant Quality Agents Wired In) now COMPLETE across all 3 plans, MILE-37/MILE-38 both satisfied end-to-end
 
 ### Roadmap Evolution
 
@@ -206,11 +208,11 @@ None.
 
 ### Next Steps
 
-- Phase 59 Plan 02 (touches-source detection + post_task_quality_spawn executor wiring) COMPLETE — MILE-37 fully satisfied and marked Complete in REQUIREMENTS.md. Next: execute 59-03-PLAN.md (coordinator/gsd-integration-tester wiring, MILE-38). Plan 59-03 is logically independent of 59-02 (sequenced after purely for shared-file safety on gsd-tools.js/gsd-tools.test.js).
+- Phase 59 (Dormant Quality Agents Wired In) COMPLETE across all 3 plans — MILE-37 (Plan 59-02) and MILE-38 (Plan 59-03) both satisfied end-to-end, both marked Complete in REQUIREMENTS.md. Next: begin Phase 60 (Adversarial Plan Review, MILE-39).
 - Reconcile v1.13.0 status separately (see Pending Todos) — do not double-build during v1.15.0 execution
 
 ## Session Continuity
 
-Last session: 2026-07-06T12:06:41.643Z
-Stopped at: Completed 59-02-PLAN.md (touches-source detection + post_task_quality_spawn executor wiring, MILE-37 satisfied) -- Phase 59 in progress (2/3 plans)
+Last session: 2026-07-06T12:51:47.793Z
+Stopped at: Completed 59-03-PLAN.md (coordinator declared-dependency gsd-integration-tester wiring, MILE-38 satisfied) -- Phase 59 (Dormant Quality Agents Wired In) COMPLETE across all 3 plans
 Resume file: None
