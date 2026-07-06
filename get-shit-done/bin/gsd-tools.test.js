@@ -12227,10 +12227,13 @@ describe('Phase 59-01: agent drift refresh (content_firewall + telemetry)', () =
 
     assert.ok(addedSection.includes('test_writer_enabled'), 'expected CHANGELOG.md Unreleased/Added to mention test_writer_enabled');
     assert.ok(addedSection.includes('integration_tester_enabled'), 'expected CHANGELOG.md Unreleased/Added to mention integration_tester_enabled');
-    // Newest-first ordering: the Phase 59-01 bullet should be the first bullet.
-    const firstBulletIdx = addedSection.indexOf('\n- ');
+    // [Rule 1 fix, Phase 59-02] Newest-first ordering: the Phase 59-01 bullet should sit ABOVE
+    // an older, still-present anchor bullet (Phase 58) rather than assuming it is literally the
+    // FIRST bullet ever -- a later phase's own newer entry (e.g. Phase 59-02) is expected to be
+    // inserted above it in the future, which is correct newest-first behavior, not a regression.
     const phase5901Idx = addedSection.indexOf('Phase 59-01');
-    assert.ok(firstBulletIdx !== -1 && phase5901Idx !== -1 && phase5901Idx < firstBulletIdx + 20, 'expected the Phase 59-01 bullet to be the first bullet under Unreleased/Added');
+    const phase58Idx = addedSection.indexOf('Phase 58');
+    assert.ok(phase5901Idx !== -1 && phase58Idx !== -1 && phase5901Idx < phase58Idx, 'expected the Phase 59-01 bullet to sit above the older Phase 58 bullet under Unreleased/Added');
   });
 });
 
@@ -12394,6 +12397,24 @@ describe('Phase 59-02: post-task quality test-writer spawn (MILE-37)', () => {
       const result = runGsdTools('config get test_writer_enabled --raw', tmpDir);
       assert.ok(result.success, `expected exit 0, got: ${result.error}`);
       assert.strictEqual(result.output, 'false', 'expected the --raw invocation to print a bare "false" so the bash comparison against "true" in the prose block resolves correctly');
+    });
+  });
+
+  describe('regression guard: CHANGELOG.md documents Phase 59-02 (MILE-37)', () => {
+    test('Phase 59-02 bullet is present under Unreleased/Added, sits above the Phase 59-01 bullet, and mentions the key deliverables', () => {
+      const changelog = fs.readFileSync(path.join(REPO_ROOT, 'CHANGELOG.md'), 'utf-8');
+      const unreleasedIdx = changelog.indexOf('## [Unreleased]');
+      const addedIdx = changelog.indexOf('### Added', unreleasedIdx);
+      const nextSectionIdx = changelog.indexOf('\n## ', addedIdx);
+      const addedSection = changelog.slice(addedIdx, nextSectionIdx === -1 ? changelog.length : nextSectionIdx);
+
+      const phase5902Idx = addedSection.indexOf('Phase 59-02');
+      const phase5901Idx = addedSection.indexOf('Phase 59-01');
+      assert.ok(phase5902Idx !== -1, 'expected CHANGELOG.md Unreleased/Added to mention Phase 59-02');
+      assert.ok(phase5901Idx !== -1 && phase5902Idx < phase5901Idx, 'expected the Phase 59-02 bullet to sit above the older Phase 59-01 bullet (newest-first)');
+      assert.ok(addedSection.includes('computeTouchesSourceCode'), 'expected the Phase 59-02 bullet to mention computeTouchesSourceCode');
+      assert.ok(addedSection.includes('post_task_quality_spawn'), 'expected the Phase 59-02 bullet to mention post_task_quality_spawn');
+      assert.ok(addedSection.includes('MILE-37'), 'expected the Phase 59-02 bullet to mention MILE-37');
     });
   });
 });
