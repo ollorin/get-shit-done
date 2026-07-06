@@ -614,7 +614,7 @@ Plans:
   2. On checkpoint resume, hard rules and phase invariants are re-read verbatim from source files — never from summaries — and an eval assertion proves the resume path includes them
   3. Prompt budgets still pass for all agents modified to carry the handoff brief
   4. Integration tests cover: handoff brief presence assertions on a golden fixture, resume-path invariant re-injection assertion, budget check on modified agents
-**Plans:** 1/4 plans executed
+**Plans:** 2/4 plans executed
 
 Plans:
 - [ ] 54-01: TBD (planned during plan-phase)
@@ -780,7 +780,7 @@ Plans:
 | 51. Run Resilience — Auto-Resume & State Sanity | v1.14.0 | 3/3 | Complete | 2026-07-05 |
 | 52. Skew Detection, Telemetry & Model Registry | v1.14.0 | 4/4 | Complete | 2026-07-05 |
 | 53. Eval Harness, Prompt Hygiene & Injection Hardening | v1.14.0 | 3/3 | Complete | 2026-07-05 |
-| 54. Structured Handoffs & Invariant Re-Injection | 1/4 | In Progress|  | - |
+| 54. Structured Handoffs & Invariant Re-Injection | 2/4 | In Progress|  | - |
 | 55. Failures-to-Regression Pipeline | v1.15.0 | 0/TBD | Not started | - |
 | 56. Reflective Prompt Optimization | v1.15.0 | 0/TBD | Not started | - |
 | 57. Outcome-Informed Routing Ledger & Bounded Escalation | v1.15.0 | 0/TBD | Not started | - |
