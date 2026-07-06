@@ -17,6 +17,7 @@ const { execSync } = require('child_process');
 
 const {
   measurePreamble,
+  measurePreambleFromContent,
   checkAllBudgets,
   CORE_PREAMBLE_MARKER,
 } = require('./prompt-budget.js');
@@ -79,6 +80,34 @@ describe('Phase 53-02: prompt-budget.js pure measurement functions', () => {
       const result = measurePreamble(filePath);
       assert.strictEqual(result.charCount, 101);
       assert.strictEqual(result.estimatedTokens, 26);
+    });
+  });
+
+  // --- measurePreambleFromContent (Phase 56-01, MILE-33 additive refactor) ---
+  describe('measurePreambleFromContent', () => {
+    test('pure content-string variant produces identical output to measurePreamble(filePath) for the same content', () => {
+      const preamble = 'x'.repeat(40);
+      const detail = 'y'.repeat(1000);
+      const content = `${preamble}${CORE_PREAMBLE_MARKER}${detail}`;
+
+      const filePath = path.join(tmpDir, 'content-parity.md');
+      fs.writeFileSync(filePath, content);
+
+      const fromFile = measurePreamble(filePath);
+      const fromContent = measurePreambleFromContent(content);
+
+      assert.strictEqual(fromContent.estimatedTokens, fromFile.estimatedTokens);
+      assert.strictEqual(fromContent.markerPresent, fromFile.markerPresent);
+      assert.strictEqual(fromContent.charCount, fromFile.charCount);
+      assert.ok(!('filePath' in fromContent), 'measurePreambleFromContent must not include a filePath key');
+    });
+
+    test('no marker present -> counts whole string, markerPresent:false', () => {
+      const content = 'no marker here at all';
+      const result = measurePreambleFromContent(content);
+      assert.strictEqual(result.markerPresent, false);
+      assert.strictEqual(result.charCount, content.length);
+      assert.strictEqual(result.estimatedTokens, Math.ceil(content.length / 4));
     });
   });
 
