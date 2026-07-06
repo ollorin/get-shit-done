@@ -143,3 +143,5 @@ None - no external service configuration required.
 - FOUND: `get-shit-done/references/handoff-brief.md`
 - FOUND: commit `b4a7d1a` (Task 1)
 - FOUND: commit `3bc0915` (Task 2)
+
+**Closeout re-verification (continuation session):** Re-confirmed all of the above plus the metadata commit itself. `handoff brief --json` CLI smoke-tested against both a full payload (complete:true, all 5 UPPERCASE labels) and `{}` (complete:false, 5x "(none provided)", no crash). Full suite re-run: 524 tests, 523 pass, 1 pre-existing failure (unchanged). Metadata commit: `365eff0`.
