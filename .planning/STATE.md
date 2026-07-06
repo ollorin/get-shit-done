@@ -9,8 +9,8 @@ See: .planning/PROJECT.md (updated 2026-07-02)
 
 ## Current Position
 
-Phase: 59 of 61 (Dormant Quality Agents Wired In) — IN PROGRESS (1/3 plans)
-Plan: 1 of 3 (59-01 complete)
+Phase: 59 of 61 (Dormant Quality Agents Wired In) — IN PROGRESS (2/3 plans)
+Plan: 2 of 3 (59-02 complete)
 Status: Ready to execute
 Last activity: 2026-07-06
 
@@ -94,6 +94,7 @@ Progress: [██████████] 99%
 | Phase 58 P02 | ~5min | 2 tasks | 3 files |
 | Phase 58 P03 | ~10min | 3 tasks | 3 files |
 | Phase 59 P01 | ~25min | 3 tasks | 5 files |
+| Phase 59 P02 | ~20min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -170,6 +171,7 @@ Recent decisions affecting current work:
 - [Phase 58]: [58-01/58-02]: token-usage-ledger.js is a NEW namespace deliberately distinct from the old `token` (TokenBudgetMonitor) command; appendTaskUsage/readTaskUsageRecords mirror the MILE-26 telemetry JSONL pattern (never throws, skip-and-warn malformed lines) against .planning/telemetry/token-usage.jsonl; resolveBaselineTier maps the CONFIGURED savings_baseline_profile (default 'quality') -- never a hardcoded all-Opus baseline; computeSavingsFromUsage explicitly distinguishes no-data/partial/full coverage and labels estimated records honestly; `savings report` retargeted from the phantom token_budget.json generateReport() onto the recorded-usage ledger, `savings calculate` untouched
 - [Phase 58]: [58-03]: `token-usage record` wired into coordinator-detail.md's execute step immediately after each of the 3 task_outcome logging call sites (first-attempt success, per-attempt failure in escalation loop, final success after re-spawn), best-effort/never-blocking, reusing the same in-scope variables -- NO new field on the executor's return contract; golden-path calls never pass --tokens-input/--tokens-output so every real-execution record is source:'estimated', honestly; wiring locked in by 5 index-ordered grep-assertion tests (presence/count/adjacency/no-explicit-tokens/checkAllBudgets regression) mirroring Phase 57-04's precedent; no Task/Agent tool was available in this executor run, so the tdd="true" test task was completed inline per the sanctioned fallback; 762/762 npm test passing (was 726 at phase start); Phase 58 (Honest Token Accounting) now COMPLETE across all 3 plans, MILE-36 satisfied end-to-end
 - [Phase 59]: [59-01]: appendVerificationGap composes with the EXISTING buildEvalCandidatesFromVerificationFile/eval-candidate from-verification reader rather than a second gap pipeline -- proven via a composition test running a real verify append-gap CLI call then re-reading the same file through the Phase 55 reader; both new quality.test_writer/quality.integration_tester config toggles default false (zero behavior change); agent drift refresh (content_firewall + MILE-26 telemetry) landed on gsd-test-writer.md/gsd-integration-tester.md ahead of their golden-path wiring in Plans 59-02/59-03; 577/577 gsd-tools.test.js passing (was 558), full npm test 781/781 green
+- [Phase 59]: [59-02]: computeTouchesSourceCode/isSourceFile/isTestOrSpecFile mirror isUIFile/computeHasUI's exact pure, no-I/O, extension+path-pattern style (Phase 45-02); new top-level `case 'quality':` CLI dispatch (not nested inside `case 'routing':`) hosts `quality touches-source`; executor-detail.md's new `<post_task_quality_spawn>` block sits strictly between `</inter_task_syntax_check>` and `<test_task_handling>` (which remains byte-for-byte unchanged), gated on the `quality.test_writer` toggle, treating 0-tests/missing-output as a loud `[Rule Quality-TW]` SUMMARY.md deviation that never blocks -- explicit, permanent contrast with `<test_task_handling>`'s tdd="true" hard-block contract; found+fixed two real Rule-1 bugs while writing tests: (1) the `config get test_writer_enabled` bash snippet was missing `--raw`, so the shell comparison against "true" could never match even with the toggle explicitly enabled, silently defeating the entire toggle-on path -- fixed by adding `--raw`; (2) the pre-existing 59-01 CHANGELOG-ordering regression test hardcoded "Phase 59-01 is the first bullet," which this plan's own (correctly newest-first) CHANGELOG addition broke -- rewrote it to check ordering against a durable older anchor (Phase 58) instead of assuming permanent first-bullet position; no Task/Agent tool was available in this executor run, so Task 2's tdd="true" spawn and the mandatory docs-update step were both completed inline; 801/801 npm test passing (was 781); MILE-37 satisfied end-to-end -- golden path spawns gsd-test-writer after every source-touching task when the toggle is on, treats missing coverage as a loud deviation never a silent skip or hard block, zero behavior change when off
 
 ### Roadmap Evolution
 
@@ -204,11 +206,11 @@ None.
 
 ### Next Steps
 
-- Phase 59 Plan 01 (config toggles + appendVerificationGap + verify append-gap CLI + agent drift refresh) COMPLETE — foundation for Plans 59-02 (executor/MILE-37 wiring) and 59-03 (coordinator/MILE-38 wiring). Next: execute 59-02-PLAN.md, then 59-03-PLAN.md. MILE-37/MILE-38 remain Pending in REQUIREMENTS.md until the full spawn-point wiring lands.
+- Phase 59 Plan 02 (touches-source detection + post_task_quality_spawn executor wiring) COMPLETE — MILE-37 fully satisfied and marked Complete in REQUIREMENTS.md. Next: execute 59-03-PLAN.md (coordinator/gsd-integration-tester wiring, MILE-38). Plan 59-03 is logically independent of 59-02 (sequenced after purely for shared-file safety on gsd-tools.js/gsd-tools.test.js).
 - Reconcile v1.13.0 status separately (see Pending Todos) — do not double-build during v1.15.0 execution
 
 ## Session Continuity
 
 Last session: 2026-07-06T12:06:41.643Z
-Stopped at: Completed 59-01-PLAN.md (config toggles + appendVerificationGap + verify append-gap CLI + agent drift refresh) -- Phase 59 in progress (1/3 plans)
+Stopped at: Completed 59-02-PLAN.md (touches-source detection + post_task_quality_spawn executor wiring, MILE-37 satisfied) -- Phase 59 in progress (2/3 plans)
 Resume file: None

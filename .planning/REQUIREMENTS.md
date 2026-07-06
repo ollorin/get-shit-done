@@ -155,7 +155,7 @@
 
 #### Dormant Quality Agents
 
-- [ ] **MILE-37**: With a config toggle enabled (default off, preserving current behavior), the executor spawns the existing `gsd-test-writer` agent after each implementation task that touches source code; a missing test-file output is a loud executor deviation, never a silent skip; toggle-off produces no spawn and no change to existing flows (US-6)
+- [x] **MILE-37**: With a config toggle enabled (default off, preserving current behavior), the executor spawns the existing `gsd-test-writer` agent after each implementation task that touches source code; a missing test-file output is a loud executor deviation, never a silent skip; toggle-off produces no spawn and no change to existing flows (US-6)
 - [ ] **MILE-38**: With a config toggle enabled (default off), the coordinator spawns the existing `gsd-integration-tester` agent at phase completion when the phase declares dependencies on prior phases; phases with no dependencies never spawn it; integration-tester `gaps_found` feeds the existing verification-failure path (and thus MILE-32's fixture generation) (US-7)
 
 #### Adversarial Review & Long-Run Integrity
@@ -240,7 +240,7 @@
 | MILE-34 | Phase 57 | Complete |
 | MILE-35 | Phase 57 | Complete |
 | MILE-36 | Phase 58 | Complete |
-| MILE-37 | Phase 59 | Pending |
+| MILE-37 | Phase 59 | Complete |
 | MILE-38 | Phase 59 | Pending |
 | MILE-39 | Phase 60 | Pending |
 | MILE-40 | Phase 54 | Complete |
