@@ -151,7 +151,7 @@
 
 #### Honest Economics
 
-- [ ] **MILE-36**: Actual per-task token usage is recorded during execution into a durable per-project record; the savings report computes savings from that recorded usage against the configured profile baseline, states explicitly when no recorded data exists instead of inventing numbers, and reports an explicit coverage percentage when only some tasks have recorded usage (US-5)
+- [x] **MILE-36**: Actual per-task token usage is recorded during execution into a durable per-project record; the savings report computes savings from that recorded usage against the configured profile baseline, states explicitly when no recorded data exists instead of inventing numbers, and reports an explicit coverage percentage when only some tasks have recorded usage (US-5)
 
 #### Dormant Quality Agents
 
@@ -239,7 +239,7 @@
 | MILE-33 | Phase 56 | Complete |
 | MILE-34 | Phase 57 | Complete |
 | MILE-35 | Phase 57 | Complete |
-| MILE-36 | Phase 58 | Pending |
+| MILE-36 | Phase 58 | Complete |
 | MILE-37 | Phase 59 | Pending |
 | MILE-38 | Phase 59 | Pending |
 | MILE-39 | Phase 60 | Pending |

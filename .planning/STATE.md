@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-07-02)
 
 **Core value:** Claude learns to make autonomous decisions based on user's reasoning patterns, only stopping for irreversible/external/costly actions
-**Current focus:** v1.15.0 — Self-Improving Quality Loop (roadmap created 2026-07-06, Phase 57 complete, ready to plan Phase 58)
+**Current focus:** v1.15.0 — Self-Improving Quality Loop (roadmap created 2026-07-06, Phase 58 complete, Phase 59 in progress)
 
 ## Current Position
 
-Phase: 57 of 61 (Outcome-Informed Routing Ledger & Bounded Tier Escalation) — COMPLETE (4/4 plans)
-Plan: 4 of 4 (57-04 complete)
-Status: Ready to plan Phase 58 (Honest Token Accounting)
+Phase: 59 of 61 (Dormant Quality Agents Wired In) — IN PROGRESS (1/3 plans)
+Plan: 1 of 3 (59-01 complete)
+Status: Ready to execute
 Last activity: 2026-07-06
 
-Progress: [██████████] 100%
+Progress: [██████████] 99%
 
 ## Performance Metrics
 
@@ -90,6 +90,10 @@ Progress: [██████████] 100%
 | Phase 57 P02 | ~20min | 2 tasks | 3 files |
 | Phase 57 P03 | ~20min | 2 tasks | 3 files |
 | Phase 57 P04 | ~20min | 3 tasks | 3 files |
+| Phase 58 P01 | ~5min | 2 tasks | 4 files |
+| Phase 58 P02 | ~5min | 2 tasks | 3 files |
+| Phase 58 P03 | ~10min | 3 tasks | 3 files |
+| Phase 59 P01 | ~25min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -163,6 +167,10 @@ Recent decisions affecting current work:
 - [Phase 57]: [57-03]: NON_CAPABILITY_PATTERNS has 15 entries (not 14 per the plan's prose -- env var/environment variable are two distinct literal strings); decideEscalation enforces two independent stop conditions (ladder null-terminator AND explicit escalationsUsed >= getTiers().length-1 bound); classifyFailure/decideEscalation placed adjacent to consultLedger in the same case 'routing' dispatch block; executor-detail.md's TASK FAILED signal gains a backward-compatible [non-capability] marker, old unmarked format preserved verbatim; 715/715 npm test passing (was 679); MILE-35 remains Pending -- spans this plan (decision logic) and 57-04 (coordinator-loop wiring)
 - [Phase 57]: [57-04]: coordinator-detail.md's PER_TASK_MODE escalation block rewritten from a haiku-only unconditional single-hop escalation into the full bounded loop that calls `routing escalation-decision` per attempt (never reasoning about ladder bounds inline), honors the executor's own [non-capability] tag as authoritative over the CLI's own re-classification, and logs one task_outcome event per terminal attempt plus one tier_escalation event per hop; a new final item in the execute step runs `routing ledger build --raw` once after all plans/waves complete, before post_phase_ux_sweep (best-effort, never blocking); since coordinator-detail.md is prose consumed by an LLM subagent, coverage split into 4 simulation tests driving the REAL escalation-decision/execution-log event/routing ledger build CLI through the full haiku->sonnet->opus chain (bound enforcement, non-capability exclusion, ledger recording) plus 7 index-bounded grep-assertion tests locking prose wiring/ordering; budget check --raw still pass:true for all 5 agents (coordinator-detail.md not budget-measured); 726/726 npm test passing (was 715); MILE-35 flipped to Complete -- Phase 57 (Outcome-Informed Routing Ledger & Bounded Escalation) now COMPLETE across all 4 plans, MILE-34/MILE-35 both satisfied end-to-end, all 8 required 57-RESEARCH.md integration-test scenarios covered across the phase's 4 plans
 
+- [Phase 58]: [58-01/58-02]: token-usage-ledger.js is a NEW namespace deliberately distinct from the old `token` (TokenBudgetMonitor) command; appendTaskUsage/readTaskUsageRecords mirror the MILE-26 telemetry JSONL pattern (never throws, skip-and-warn malformed lines) against .planning/telemetry/token-usage.jsonl; resolveBaselineTier maps the CONFIGURED savings_baseline_profile (default 'quality') -- never a hardcoded all-Opus baseline; computeSavingsFromUsage explicitly distinguishes no-data/partial/full coverage and labels estimated records honestly; `savings report` retargeted from the phantom token_budget.json generateReport() onto the recorded-usage ledger, `savings calculate` untouched
+- [Phase 58]: [58-03]: `token-usage record` wired into coordinator-detail.md's execute step immediately after each of the 3 task_outcome logging call sites (first-attempt success, per-attempt failure in escalation loop, final success after re-spawn), best-effort/never-blocking, reusing the same in-scope variables -- NO new field on the executor's return contract; golden-path calls never pass --tokens-input/--tokens-output so every real-execution record is source:'estimated', honestly; wiring locked in by 5 index-ordered grep-assertion tests (presence/count/adjacency/no-explicit-tokens/checkAllBudgets regression) mirroring Phase 57-04's precedent; no Task/Agent tool was available in this executor run, so the tdd="true" test task was completed inline per the sanctioned fallback; 762/762 npm test passing (was 726 at phase start); Phase 58 (Honest Token Accounting) now COMPLETE across all 3 plans, MILE-36 satisfied end-to-end
+- [Phase 59]: [59-01]: appendVerificationGap composes with the EXISTING buildEvalCandidatesFromVerificationFile/eval-candidate from-verification reader rather than a second gap pipeline -- proven via a composition test running a real verify append-gap CLI call then re-reading the same file through the Phase 55 reader; both new quality.test_writer/quality.integration_tester config toggles default false (zero behavior change); agent drift refresh (content_firewall + MILE-26 telemetry) landed on gsd-test-writer.md/gsd-integration-tester.md ahead of their golden-path wiring in Plans 59-02/59-03; 577/577 gsd-tools.test.js passing (was 558), full npm test 781/781 green
+
 ### Roadmap Evolution
 
 - v1.12.0 roadmap created 2026-03-11: Phases 34-40 (7 phases, 20 requirements, ~16 plans) — COMPLETE
@@ -196,11 +204,11 @@ None.
 
 ### Next Steps
 
-- Phase 57 (Outcome-Informed Routing Ledger & Bounded Escalation) COMPLETE across all 4 plans — MILE-34/MILE-35 both satisfied end-to-end. Next: plan Phase 58 (Honest Token Accounting, MILE-36) — depends on Phase 57's per-task execution records (task_outcome events / routing ledger), which this phase now provides.
+- Phase 59 Plan 01 (config toggles + appendVerificationGap + verify append-gap CLI + agent drift refresh) COMPLETE — foundation for Plans 59-02 (executor/MILE-37 wiring) and 59-03 (coordinator/MILE-38 wiring). Next: execute 59-02-PLAN.md, then 59-03-PLAN.md. MILE-37/MILE-38 remain Pending in REQUIREMENTS.md until the full spawn-point wiring lands.
 - Reconcile v1.13.0 status separately (see Pending Todos) — do not double-build during v1.15.0 execution
 
 ## Session Continuity
 
-Last session: 2026-07-06T08:38:14.132Z
-Stopped at: Completed 57-04-PLAN.md (bounded coordinator escalation-loop rewrite + ledger-build trigger + phase-closing integration tests) — Phase 57 now COMPLETE
-Resume file: none
+Last session: 2026-07-06T12:06:41.643Z
+Stopped at: Completed 59-01-PLAN.md (config toggles + appendVerificationGap + verify append-gap CLI + agent drift refresh) -- Phase 59 in progress (1/3 plans)
+Resume file: None

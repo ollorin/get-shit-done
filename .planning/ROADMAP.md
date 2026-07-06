@@ -681,10 +681,12 @@ Plans:
   2. The savings report computes savings from recorded usage against the configured profile baseline, and explicitly states when no recorded data exists instead of inventing numbers
   3. Partial data (some tasks recorded, some not) is reported with an explicit coverage percentage
   4. Integration tests cover: usage recording during a seeded run, report computation from recorded data, the empty-data honesty path, partial-coverage reporting
-**Plans:** TBD
+**Plans:** 3/3 plans complete
 
 Plans:
-- [ ] 58-01: TBD (planned during plan-phase)
+- [x] 58-01: token-usage ledger module + savings_baseline_profile config key (appendTaskUsage/readTaskUsageRecords, estimateTaskTokens, resolveBaselineTier, computeSavingsFromUsage, formatUsageSavingsTable)
+- [x] 58-02: `token-usage record` CLI + `savings report` retargeted onto recorded usage (empty/partial/full coverage honesty)
+- [x] 58-03: golden-path wiring — token-usage record called from all 3 task_outcome call sites in coordinator-detail.md's execute step + grep-assertion/budget-regression tests + MILE-36 CHANGELOG closure (Phase 58 COMPLETE)
 
 #### Phase 59: Dormant Quality Agents Wired In
 
@@ -696,7 +698,7 @@ Plans:
   2. With the toggle enabled, the coordinator spawns gsd-integration-tester at phase completion when the phase declares dependencies on prior phases; eval harness asserts the spawn on a dependent-phase fixture. Phases with no dependencies never spawn it
   3. Integration-tester `gaps_found` feeds the existing verification failure path (and thus Phase 55's fixture generation)
   4. Integration tests cover: spawn-on-implementation assertion, toggle-off no-op, missing-output deviation path, dependent-phase spawn assertion, independent-phase no-spawn, gaps_found propagation
-**Plans:** TBD
+**Plans:** 1/3 plans executed
 
 Plans:
 - [ ] 59-01: TBD (planned during plan-phase)
@@ -790,9 +792,9 @@ Plans:
 | 54. Structured Handoffs & Invariant Re-Injection | 4/4 | Complete   | 2026-07-06 | - |
 | 55. Failures-to-Regression Pipeline | 3/3 | Complete | 2026-07-06 | - |
 | 56. Reflective Prompt Optimization | v1.15.0 | 3/3 | Complete | 2026-07-06 |
-| 57. Outcome-Informed Routing Ledger & Bounded Escalation | v1.15.0 | 4/4 | Complete | 2026-07-06 |
+| 57. Outcome-Informed Routing Ledger & Bounded Escalation | v1.15.0 | Complete    | 2026-07-06 | 2026-07-06 |
 | 58. Honest Token Accounting | v1.15.0 | 0/TBD | Not started | - |
-| 59. Dormant Quality Agents Wired In | v1.15.0 | 0/TBD | Not started | - |
+| 59. Dormant Quality Agents Wired In | v1.15.0 | 1/3 | In Progress|  |
 | 60. Adversarial Plan Review | v1.15.0 | 0/TBD | Not started | - |
 | 61. Project-Aware Pre-PR Gate | v1.15.0 | 0/TBD | Not started | - |
 
