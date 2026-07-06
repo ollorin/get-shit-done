@@ -797,7 +797,7 @@ Plans:
 | 56. Reflective Prompt Optimization | v1.15.0 | 3/3 | Complete | 2026-07-06 |
 | 57. Outcome-Informed Routing Ledger & Bounded Escalation | v1.15.0 | Complete    | 2026-07-06 | 2026-07-06 |
 | 58. Honest Token Accounting | v1.15.0 | 0/TBD | Not started | - |
-| 59. Dormant Quality Agents Wired In | v1.15.0 | 4/4 | Complete   | 2026-07-06 |
+| 59. Dormant Quality Agents Wired In | v1.15.0 | Complete    | 2026-07-06 | 2026-07-06 |
 | 60. Adversarial Plan Review | v1.15.0 | 0/TBD | Not started | - |
 | 61. Project-Aware Pre-PR Gate | v1.15.0 | 0/TBD | Not started | - |
 
