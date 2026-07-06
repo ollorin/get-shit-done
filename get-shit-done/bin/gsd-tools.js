@@ -203,6 +203,7 @@ const evalHarness = require('./eval-harness.js');
 const promptBudget = require('./prompt-budget.js');
 const promptOptimize = require('./prompt-optimize.js');
 const { getNextTier, getTiers } = require('./model-registry.js');
+const { deriveCheckSet } = require('./pre-pr-checks.js');
 
 // Phase 2: Auto Mode safety modules (lazy — gracefully absent if not installed)
 let circuitBreaker, validator, escalation, feedback, learning;
@@ -3201,29 +3202,23 @@ function cmdGatePrePr(cwd, args, raw) {
     return;
   }
 
-  // Output instructions for the coordinator to run checks
-  // The coordinator must run each check and report back
-  output({
+  // Derive checks from project type
+  const { checks, degraded, notice, detected_types } = deriveCheckSet(cwd);
+
+  const result = {
     gate: 'pre-pr',
     passed: false,
     action_required: true,
-    checks: [
-      { id: 'db-reset', command: 'cd apps/api && npx supabase db reset', required: true },
-      { id: 'integration-tests', command: 'cd apps/api && NODE_ENV=test DENO_ENV=test deno test --allow-all --env-file=.env.test functions/__tests__/*.integration.test.ts', required: true },
-      { id: 'backend-unit-tests', command: 'cd apps/api && NODE_ENV=test DENO_ENV=test deno task test:ci', required: true },
-      { id: 'deno-lint', command: 'cd apps/api && deno lint', required: true },
-      { id: 'deno-check', command: 'cd apps/api && deno check --quiet functions/*/index.ts', required: true },
-      { id: 'player-web-test', command: 'CI=true npx nx test player-web', required: true },
-      { id: 'operator-web-test', command: 'CI=true npx nx test operator-web', required: true },
-      { id: 'player-web-build', command: 'npx nx build player-web', required: true },
-      { id: 'operator-web-build', command: 'npx nx build operator-web', required: true },
-      { id: 'player-web-lint', command: 'npx nx lint player-web', required: true },
-      { id: 'operator-web-lint', command: 'npx nx lint operator-web', required: true },
-      { id: 'charlotte-regression', command: 'cd apps/e2e-charlotte && deno task test:regression', required: 'if_web_project' },
-    ],
+    checks,
     instructions: 'Run each check. If ALL pass, call: gsd-tools gate pre-pr --mark-passed. If any fail, fix and re-run.',
-    mark_command: 'node ~/.claude/get-shit-done/bin/gsd-tools.js gate pre-pr --mark-passed'
-  }, raw);
+    mark_command: 'node ~/.claude/get-shit-done/bin/gsd-tools.js gate pre-pr --mark-passed',
+    detected_types
+  };
+  if (degraded) {
+    result.degraded = true;
+    result.notice = notice;
+  }
+  output(result, raw);
 }
 
 function cmdSummaryExtract(cwd, summaryPath, fields, raw) {
