@@ -1263,16 +1263,35 @@ function parseCheckpointForResume(checkpointPath) {
 // Assembles a resume-brief text/object from checkpoint data + phase info,
 // suitable for injecting directly into a respawned coordinator's Agent()
 // prompt string (plain text, no markdown tables).
-function buildResumeBrief(checkpointData, phaseInfo) {
+//
+// invariantsText (optional, third arg, default null) carries VERBATIM
+// phase-invariant text read straight from ROADMAP.md by getPhaseInvariantsText
+// (see below). Design rationale (MILE-40 criterion 2): key_context above is an
+// LLM-authored summary written at checkpoint time -- it can drift, be
+// paraphrased, or omit a hard rule. On resume, the hard rules/success criteria
+// that actually govern the phase MUST be re-read byte-for-byte from their
+// source (ROADMAP.md), never reconstructed from a summary. key_context is
+// NOT removed -- it stays for narrative continuity -- but it is demoted from
+// being the resume brief's sole "what matters" authority. When invariantsText
+// is omitted/null/empty, behavior is 100% unchanged from before this
+// parameter existed (backward compatible with all two-arg callers/tests).
+function buildResumeBrief(checkpointData, phaseInfo, invariantsText = null) {
   const phaseNumber = phaseInfo && phaseInfo.phase_number;
   const phaseName = phaseInfo && phaseInfo.phase_name;
+  const hasInvariants = typeof invariantsText === 'string' && invariantsText.trim() !== '';
 
   if (!checkpointData || !checkpointData.found) {
-    const briefText = `No prior checkpoint found -- starting phase ${phaseNumber} (${phaseName}) from scratch.`;
+    const briefLines = [`No prior checkpoint found -- starting phase ${phaseNumber} (${phaseName}) from scratch.`];
+    if (hasInvariants) {
+      briefLines.push('');
+      briefLines.push('PHASE INVARIANTS (verbatim from ROADMAP.md -- DO NOT paraphrase):');
+      briefLines.push(invariantsText);
+    }
     return {
       resume_from: 'discuss',
-      brief_text: briefText,
+      brief_text: briefLines.join('\n'),
       checkpoint: checkpointData || null,
+      invariants: hasInvariants ? invariantsText : null,
     };
   }
 
@@ -1291,11 +1310,17 @@ function buildResumeBrief(checkpointData, phaseInfo) {
     lines.push('Key context:');
     lines.push(checkpointData.key_context);
   }
+  if (hasInvariants) {
+    lines.push('');
+    lines.push('PHASE INVARIANTS (verbatim from ROADMAP.md -- DO NOT paraphrase):');
+    lines.push(invariantsText);
+  }
 
   return {
     resume_from: checkpointData.resume_from,
     brief_text: lines.join('\n'),
     checkpoint: checkpointData,
+    invariants: hasInvariants ? invariantsText : null,
   };
 }
 
@@ -1310,7 +1335,8 @@ function cmdResilienceResumeBrief(cwd, phase, raw) {
   }
   const checkpointPath = path.join(cwd, phaseInfo.directory, 'CHECKPOINT.json');
   const checkpointData = parseCheckpointForResume(checkpointPath);
-  const brief = buildResumeBrief(checkpointData, phaseInfo);
+  const invariantsText = getPhaseInvariantsText(cwd, phaseInfo.phase_number);
+  const brief = buildResumeBrief(checkpointData, phaseInfo, invariantsText);
   output(brief, raw);
 }
 
@@ -1794,6 +1820,54 @@ function cmdPhasesList(cwd, options, raw) {
     output({ directories: dirs, count: dirs.length }, raw, dirs.join('\n'));
   } catch (e) {
     error('Failed to list phases: ' + e.message);
+  }
+}
+
+// Reads a phase's own ROADMAP.md section VERBATIM (byte-for-byte, no
+// reformatting/summarizing) for injection into a checkpoint resume brief.
+// Design rationale (MILE-40 criterion 2): the resume path must re-read hard
+// rules/invariants from a real source file, never from an LLM-authored
+// summary (CHECKPOINT.json's key_context, or any SUMMARY.md). ROADMAP.md's
+// phase section already contains the phase Goal + numbered Success Criteria
+// -- these ARE the phase invariants. Reuses the exact section-slice logic
+// cmdRoadmapGetPhase uses (phase header -> next "### Phase" header or EOF)
+// rather than duplicating a second regex convention. A pure helper (no
+// output()/process side effects) so it composes directly into
+// buildResumeBrief's third argument. Never throws: any failure (missing
+// ROADMAP.md, missing phase section, read/regex error) returns null, and
+// callers must treat null as "no invariants available" (graceful
+// degradation), never as an error to surface.
+function getPhaseInvariantsText(cwd, phaseNum) {
+  try {
+    const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
+    if (!fs.existsSync(roadmapPath)) return null;
+
+    const content = fs.readFileSync(roadmapPath, 'utf-8');
+    const escapedPhase = String(phaseNum).replace(/\./g, '\\.');
+    // Capture the actual heading level (##, ###, ####, ...) used for this
+    // phase's header rather than hardcoding 3 hashes: this repo's own live
+    // ROADMAP.md uses "#### Phase N:" (4 hashes), not "### Phase N:" (3) --
+    // hardcoding 3 would either mis-slice (partial match starting mid-hash-run)
+    // or fail to find a same-level boundary, running the "section" all the
+    // way to EOF. Reusing the SAME captured hash-run for the next-header
+    // boundary guarantees the slice stops at the next phase heading
+    // regardless of which heading level a given ROADMAP.md happens to use.
+    const phasePattern = new RegExp(`(#{2,6})\\s*Phase\\s+${escapedPhase}:\\s*([^\\n]+)`, 'i');
+    const headerMatch = content.match(phasePattern);
+    if (!headerMatch) return null;
+
+    const hashRun = headerMatch[1];
+    const headerIndex = headerMatch.index;
+    const restOfContent = content.slice(headerIndex);
+    const nextHeaderMatch = restOfContent.match(new RegExp(`\\n${hashRun}\\s+Phase\\s+\\d`, 'i'));
+    const sectionEnd = nextHeaderMatch
+      ? headerIndex + nextHeaderMatch.index
+      : content.length;
+
+    const section = content.slice(headerIndex, sectionEnd).trim();
+    return section || null;
+  } catch (e) {
+    return null;
   }
 }
 
@@ -13520,6 +13594,7 @@ module.exports = {
   milestoneAlreadyRecorded,
   buildHandoffBrief,
   cmdHandoffBrief,
+  getPhaseInvariantsText,
 };
 
 // Only auto-run when invoked directly as a CLI (`node gsd-tools.js ...`), not
