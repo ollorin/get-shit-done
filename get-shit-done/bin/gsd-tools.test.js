@@ -9631,3 +9631,311 @@ describe('Phase 54 handoff-brief wiring', () => {
     }
   });
 });
+
+// Phase 55-01 (MILE-32): eval-candidate generation. Pure builders required
+// directly off the same `resilience` alias used by the Phase 51-02/54-01
+// suites above (both point at the same gsd-tools.js module.exports object).
+// Fixtures are built in a temp dir per test, mirroring createTempProject's
+// pattern, so builders are exercised against real files on disk (they read
+// via safeReadFile / gray-matter, not in-memory strings).
+describe('eval-candidate generation (Phase 55-01)', () => {
+  const {
+    buildEvalCandidateFromDebugFile,
+    buildEvalCandidatesFromVerificationFile,
+    writeEvalCandidates,
+  } = resilience;
+
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function writeDebugFixture(relPath, content) {
+    const fullPath = path.join(tmpDir, relPath);
+    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    fs.writeFileSync(fullPath, content, 'utf-8');
+    return fullPath;
+  }
+
+  const CONFIRMED_DEBUG_CONTENT = `---
+status: verifying
+trigger: "login button does nothing"
+created: 2026-01-01T00:00:00Z
+updated: 2026-01-01T00:05:00Z
+---
+
+## Current Focus
+
+hypothesis: n/a
+
+## Resolution
+
+root_cause: onClick handler never attached to the button element
+fix: attached onClick handler
+verification: manually clicked and it worked
+files_changed: [src/components/LoginButton.jsx]
+`;
+
+  const CONFIRMED_DEBUG_NO_FILES_CONTENT = `---
+status: verifying
+trigger: "some other trigger"
+---
+
+## Resolution
+
+root_cause: a different confirmed root cause
+fix: applied a fix
+verification: verified
+files_changed: []
+`;
+
+  const INCONCLUSIVE_DEBUG_CONTENT = `---
+status: investigating
+trigger: "still looking"
+---
+
+## Resolution
+
+root_cause: [empty until found]
+fix: [empty until applied]
+verification: [empty until verified]
+files_changed: []
+`;
+
+  const GAPS_FOUND_2_CONTENT = `---
+phase: 55-test-phase
+verified: 2026-01-01T00:00:00Z
+status: gaps_found
+score: 3/5 must-haves verified
+gaps:
+  - truth: "First truth failed"
+    status: failed
+    failure_type: stub
+    reason: "reason one"
+    artifacts:
+      - path: "src/a.js"
+        issue: "missing"
+    missing:
+      - "thing one"
+  - truth: "Second truth failed"
+    status: failed
+    failure_type: unwired
+    reason: "reason two"
+    artifacts:
+      - path: "src/b.js"
+        issue: "missing"
+    missing:
+      - "thing two"
+---
+
+# Verification Report
+`;
+
+  const STATUS_PASSED_CONTENT = `---
+phase: 55-test-phase
+verified: 2026-01-01T00:00:00Z
+status: passed
+score: 5/5 must-haves verified
+---
+
+# Verification Report
+`;
+
+  const GAP_NO_ARTIFACTS_CONTENT = `---
+phase: 55-test-phase
+status: gaps_found
+gaps:
+  - truth: "No artifacts truth"
+    status: failed
+    failure_type: missing_artifact
+    reason: "no artifacts recorded on this gap"
+    missing:
+      - "something"
+---
+`;
+
+  const GAPS_FOUND_EMPTY_ARRAY_CONTENT = `---
+phase: 55-test-phase
+status: gaps_found
+gaps: []
+---
+`;
+
+  const SAME_TRUTH_3_GAPS_CONTENT = `---
+phase: 55-test-phase
+status: gaps_found
+gaps:
+  - truth: "Duplicate truth text"
+    status: failed
+    failure_type: stub
+    reason: "reason a"
+    artifacts:
+      - path: "src/a.js"
+        issue: "missing"
+  - truth: "Duplicate truth text"
+    status: failed
+    failure_type: stub
+    reason: "reason b"
+    artifacts:
+      - path: "src/b.js"
+        issue: "missing"
+  - truth: "Duplicate truth text"
+    status: failed
+    failure_type: stub
+    reason: "reason c"
+    artifacts:
+      - path: "src/c.js"
+        issue: "missing"
+---
+`;
+
+  // Category 1: Happy path.
+  test('happy path: confirmed root_cause + files_changed -> candidate with all 7 schema keys, correct expected/status', () => {
+    const debugPath = writeDebugFixture('.planning/debug/fixture.md', CONFIRMED_DEBUG_CONTENT);
+    const candidate = buildEvalCandidateFromDebugFile(tmpDir, debugPath);
+
+    assert.ok(candidate, 'expected a non-null candidate');
+    const expectedKeys = ['id', 'source', 'created_at', 'title', 'context', 'expected', 'status'];
+    for (const key of expectedKeys) {
+      assert.ok(Object.prototype.hasOwnProperty.call(candidate, key), `expected candidate to have key "${key}"`);
+    }
+    assert.strictEqual(candidate.source, 'debugger');
+    assert.strictEqual(candidate.status, 'pending');
+    assert.deepStrictEqual(candidate.expected, { type: 'file_exists', file: 'src/components/LoginButton.jsx' });
+    assert.strictEqual(candidate.context.root_cause, 'onClick handler never attached to the button element');
+  });
+
+  test('happy path: status:gaps_found with 2 gaps -> exactly 2 candidates with distinct ids', () => {
+    const verificationPath = writeDebugFixture('.planning/phases/55-test-phase/55-VERIFICATION.md', GAPS_FOUND_2_CONTENT);
+    const candidates = buildEvalCandidatesFromVerificationFile(tmpDir, verificationPath);
+
+    assert.strictEqual(candidates.length, 2);
+    const ids = candidates.map((c) => c.id);
+    assert.strictEqual(new Set(ids).size, 2, 'expected 2 distinct ids');
+    for (const c of candidates) {
+      assert.strictEqual(c.source, 'verifier');
+      assert.strictEqual(c.status, 'pending');
+    }
+  });
+
+  // Category 2: Missing/malformed input.
+  test('missing/malformed: debug file with placeholder root_cause "[empty until found]" -> null', () => {
+    const debugPath = writeDebugFixture('.planning/debug/inconclusive.md', INCONCLUSIVE_DEBUG_CONTENT);
+    const candidate = buildEvalCandidateFromDebugFile(tmpDir, debugPath);
+    assert.strictEqual(candidate, null);
+  });
+
+  test('missing/malformed: VERIFICATION.md with status:passed (no gaps key) -> []', () => {
+    const verificationPath = writeDebugFixture('.planning/phases/55-test-phase/55-VERIFICATION.md', STATUS_PASSED_CONTENT);
+    const candidates = buildEvalCandidatesFromVerificationFile(tmpDir, verificationPath);
+    assert.deepStrictEqual(candidates, []);
+  });
+
+  test('missing/malformed: nonexistent debug/verification file paths -> null/[] respectively, no throw', () => {
+    const missingDebugPath = path.join(tmpDir, '.planning', 'debug', 'does-not-exist.md');
+    const missingVerificationPath = path.join(tmpDir, '.planning', 'phases', '55-test-phase', '55-VERIFICATION.md');
+
+    assert.doesNotThrow(() => buildEvalCandidateFromDebugFile(tmpDir, missingDebugPath));
+    assert.strictEqual(buildEvalCandidateFromDebugFile(tmpDir, missingDebugPath), null);
+
+    assert.doesNotThrow(() => buildEvalCandidatesFromVerificationFile(tmpDir, missingVerificationPath));
+    assert.deepStrictEqual(buildEvalCandidatesFromVerificationFile(tmpDir, missingVerificationPath), []);
+  });
+
+  // Category 3: Edge case.
+  test('edge case: debug file with root_cause set but no files_changed -> expected.file falls back to debug file\'s own relative path', () => {
+    const debugPath = writeDebugFixture('.planning/debug/no-files.md', CONFIRMED_DEBUG_NO_FILES_CONTENT);
+    const candidate = buildEvalCandidateFromDebugFile(tmpDir, debugPath);
+
+    assert.ok(candidate);
+    assert.deepStrictEqual(candidate.expected, { type: 'file_exists', file: path.relative(tmpDir, debugPath) });
+  });
+
+  test('edge case: gap with no artifacts entry -> expected.file falls back to VERIFICATION.md\'s own relative path', () => {
+    const verificationPath = writeDebugFixture('.planning/phases/55-test-phase/55-VERIFICATION.md', GAP_NO_ARTIFACTS_CONTENT);
+    const candidates = buildEvalCandidatesFromVerificationFile(tmpDir, verificationPath);
+
+    assert.strictEqual(candidates.length, 1);
+    assert.deepStrictEqual(candidates[0].expected, { type: 'file_exists', file: path.relative(tmpDir, verificationPath) });
+  });
+
+  // Category 4: Boundary.
+  test('boundary: status:gaps_found with an EMPTY gaps:[] array -> [] (no crash on contradictory-but-defensive case)', () => {
+    const verificationPath = writeDebugFixture('.planning/phases/55-test-phase/55-VERIFICATION.md', GAPS_FOUND_EMPTY_ARRAY_CONTENT);
+    assert.doesNotThrow(() => buildEvalCandidatesFromVerificationFile(tmpDir, verificationPath));
+    const candidates = buildEvalCandidatesFromVerificationFile(tmpDir, verificationPath);
+    assert.deepStrictEqual(candidates, []);
+  });
+
+  test('boundary: multiple gaps with IDENTICAL truth text in one call still produce non-colliding ids', () => {
+    const verificationPath = writeDebugFixture('.planning/phases/55-test-phase/55-VERIFICATION.md', SAME_TRUTH_3_GAPS_CONTENT);
+    const candidates = buildEvalCandidatesFromVerificationFile(tmpDir, verificationPath);
+
+    assert.strictEqual(candidates.length, 3);
+    const ids = candidates.map((c) => c.id);
+    assert.strictEqual(new Set(ids).size, ids.length, 'expected all 3 ids to be distinct even with identical truth text');
+  });
+
+  // Category 5: Wiring/integration.
+  test('wiring: `eval-candidate from-debug` CLI creates exactly one file under tests/eval-regressions/queue/', () => {
+    writeDebugFixture('.planning/debug/fixture.md', CONFIRMED_DEBUG_CONTENT);
+    const result = runGsdTools('eval-candidate from-debug .planning/debug/fixture.md --raw', tmpDir);
+    assert.ok(result.success, `expected CLI success, got: ${result.error}`);
+
+    const queueDir = path.join(tmpDir, 'tests', 'eval-regressions', 'queue');
+    const files = fs.readdirSync(queueDir).filter((f) => f.endsWith('.json'));
+    assert.strictEqual(files.length, 1);
+  });
+
+  test('wiring: `eval-candidate from-debug` CLI on placeholder root_cause creates zero files', () => {
+    writeDebugFixture('.planning/debug/inconclusive.md', INCONCLUSIVE_DEBUG_CONTENT);
+    const result = runGsdTools('eval-candidate from-debug .planning/debug/inconclusive.md --raw', tmpDir);
+    assert.ok(result.success, `expected CLI success (valid no-op), got: ${result.error}`);
+
+    const queueDir = path.join(tmpDir, 'tests', 'eval-regressions', 'queue');
+    const files = fs.existsSync(queueDir) ? fs.readdirSync(queueDir).filter((f) => f.endsWith('.json')) : [];
+    assert.strictEqual(files.length, 0);
+  });
+
+  test('wiring: `eval-candidate from-verification` CLI creates N files matching gap count, zero for status:passed', () => {
+    writeDebugFixture('.planning/phases/55-test-phase/55-VERIFICATION.md', GAPS_FOUND_2_CONTENT);
+    const gapsResult = runGsdTools('eval-candidate from-verification .planning/phases/55-test-phase/55-VERIFICATION.md --raw', tmpDir);
+    assert.ok(gapsResult.success, `expected CLI success, got: ${gapsResult.error}`);
+
+    const queueDir = path.join(tmpDir, 'tests', 'eval-regressions', 'queue');
+    const filesAfterGaps = fs.readdirSync(queueDir).filter((f) => f.endsWith('.json'));
+    assert.strictEqual(filesAfterGaps.length, 2);
+
+    // Second temp project for the zero-file passed case (isolated queue dir).
+    const passedTmpDir = createTempProject();
+    try {
+      const passedFullPath = path.join(passedTmpDir, '.planning', 'phases', '55-test-phase', '55-VERIFICATION.md');
+      fs.mkdirSync(path.dirname(passedFullPath), { recursive: true });
+      fs.writeFileSync(passedFullPath, STATUS_PASSED_CONTENT, 'utf-8');
+      const passedResult = runGsdTools('eval-candidate from-verification .planning/phases/55-test-phase/55-VERIFICATION.md --raw', passedTmpDir);
+      assert.ok(passedResult.success, `expected CLI success (valid no-op), got: ${passedResult.error}`);
+
+      const passedQueueDir = path.join(passedTmpDir, 'tests', 'eval-regressions', 'queue');
+      const filesAfterPassed = fs.existsSync(passedQueueDir) ? fs.readdirSync(passedQueueDir).filter((f) => f.endsWith('.json')) : [];
+      assert.strictEqual(filesAfterPassed.length, 0);
+    } finally {
+      cleanup(passedTmpDir);
+    }
+  });
+
+  // Category 6: Regression guard.
+  test('regression guard: buildHandoffBrief still returns its expected shape when required alongside the new eval-candidate builders', () => {
+    assert.strictEqual(typeof buildEvalCandidateFromDebugFile, 'function');
+    assert.strictEqual(typeof buildEvalCandidatesFromVerificationFile, 'function');
+    assert.strictEqual(typeof writeEvalCandidates, 'function');
+
+    const brief = resilience.buildHandoffBrief({ phase_number: 55, phase_name: 'failures-to-regression' });
+    assert.strictEqual(typeof brief.complete, 'boolean');
+    assert.ok(brief.brief_text.includes('55'));
+  });
+});
