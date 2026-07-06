@@ -2421,23 +2421,27 @@ function cmdStateRecordSession(cwd, options, raw) {
   const now = new Date().toISOString();
   const updated = [];
 
-  // Update Last session / Last Date
-  let result = stateReplaceField(content, 'Last session', now);
+  // Update Last session / Last Date -- stateReplaceFieldTolerant (bold-first,
+  // plain-prose-fallback, per the 51-01 STATE.md-tolerance convention) since
+  // the real STATE.md's "## Session Continuity" section is plain prose
+  // ("Last session: ..."), not bold ("**Last session:**"). The bold-only
+  // stateReplaceField silently no-ops against the real file's shape.
+  let result = stateReplaceFieldTolerant(content, 'Last session', now);
   if (result) { content = result; updated.push('Last session'); }
-  result = stateReplaceField(content, 'Last Date', now);
+  result = stateReplaceFieldTolerant(content, 'Last Date', now);
   if (result) { content = result; updated.push('Last Date'); }
 
   // Update Stopped at
   if (options.stopped_at) {
-    result = stateReplaceField(content, 'Stopped At', options.stopped_at);
-    if (!result) result = stateReplaceField(content, 'Stopped at', options.stopped_at);
+    result = stateReplaceFieldTolerant(content, 'Stopped At', options.stopped_at);
+    if (!result) result = stateReplaceFieldTolerant(content, 'Stopped at', options.stopped_at);
     if (result) { content = result; updated.push('Stopped At'); }
   }
 
   // Update Resume file
   const resumeFile = options.resume_file || 'None';
-  result = stateReplaceField(content, 'Resume File', resumeFile);
-  if (!result) result = stateReplaceField(content, 'Resume file', resumeFile);
+  result = stateReplaceFieldTolerant(content, 'Resume File', resumeFile);
+  if (!result) result = stateReplaceFieldTolerant(content, 'Resume file', resumeFile);
   if (result) { content = result; updated.push('Resume File'); }
 
   if (updated.length > 0) {

@@ -11232,6 +11232,82 @@ describe('Phase 57-02: ledger consultation & task-router wiring', () => {
   });
 });
 
+// [Rule 1 - Bug] found during Phase 57-02's own mandatory state_updates step:
+// `state record-session` used the bold-only `stateReplaceField` for all 4 of
+// its fields (Last session/Last Date/Stopped At/Resume File), but the real
+// STATE.md's "## Session Continuity" section is plain prose ("Last session:
+// ..."), not bold ("**Last session:**") -- every field silently failed to
+// match, so every real invocation returned `{recorded: false, reason: "No
+// session fields found in STATE.md"}` and STATE.md was never actually
+// updated. Fixed by switching to `stateReplaceFieldTolerant` (bold-first,
+// plain-prose-fallback), matching the established 51-01 STATE.md-tolerance
+// convention already used by `state advance-plan`'s Status/Last-activity
+// fields.
+describe("Phase 57-02 [Rule 1 fix]: state record-session tolerates plain-prose STATE.md fields", () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function writePlainProseState() {
+    const statePath = path.join(tmpDir, '.planning', 'STATE.md');
+    const content = [
+      '# Project State',
+      '',
+      '## Session Continuity',
+      '',
+      'Last session: 2026-01-01',
+      'Stopped at: some prior stopping point',
+      'Resume file: none',
+      '',
+    ].join('\n');
+    fs.writeFileSync(statePath, content, 'utf-8');
+    return statePath;
+  }
+
+  test('record-session updates plain-prose Last session/Stopped at/Resume file lines (regression guard for the discard bug)', () => {
+    const statePath = writePlainProseState();
+    const result = runGsdTools('state record-session --stopped-at "Completed 57-02-PLAN.md" --resume-file none', tmpDir);
+    assert.ok(result.success, `expected exit 0: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.recorded, true);
+    assert.ok(parsed.updated.includes('Last session'));
+    assert.ok(parsed.updated.includes('Stopped At'));
+    assert.ok(parsed.updated.includes('Resume File'));
+
+    const updatedContent = fs.readFileSync(statePath, 'utf-8');
+    assert.match(updatedContent, /Stopped at: Completed 57-02-PLAN\.md/);
+    assert.doesNotMatch(updatedContent, /some prior stopping point/);
+  });
+
+  test('bold-format STATE.md (pre-existing convention) still works after the fix', () => {
+    const statePath = path.join(tmpDir, '.planning', 'STATE.md');
+    fs.writeFileSync(statePath, [
+      '# Project State',
+      '',
+      '## Session Continuity',
+      '',
+      '**Last session:** 2026-01-01',
+      '**Stopped At:** old value',
+      '**Resume File:** old-resume.md',
+      '',
+    ].join('\n'), 'utf-8');
+
+    const result = runGsdTools('state record-session --stopped-at "new stopped value"', tmpDir);
+    assert.ok(result.success, `expected exit 0: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.recorded, true);
+
+    const updatedContent = fs.readFileSync(statePath, 'utf-8');
+    assert.match(updatedContent, /\*\*Stopped At:\*\* new stopped value/);
+  });
+});
+
 // [Rule 1 - Bug] found during Phase 57-01's state_updates step: `roadmap
 // update-plan-progress`'s table regex assumed a 4-column progress table
 // (Phase | Plans | Status | Completed) but the real table has 5 columns
