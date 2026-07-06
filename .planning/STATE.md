@@ -9,8 +9,8 @@ See: .planning/PROJECT.md (updated 2026-07-02)
 
 ## Current Position
 
-Phase: 60 of 61 (Adversarial Plan Review) — IN PROGRESS (1/3 plans)
-Plan: 1 of 3 (60-01 complete — MILE-39 foundation: config + risk-assessment CLI)
+Phase: 60 of 61 (Adversarial Plan Review) — IN PROGRESS (2/3 plans)
+Plan: 2 of 3 (60-02 complete — MILE-39 agent trio: gsd-plan-attacker/defender/judge)
 Status: Ready to execute
 Last activity: 2026-07-06
 
@@ -98,6 +98,7 @@ Progress: [██████████] 99%
 | Phase 59 P03 | ~25min | 3 tasks | 7 files |
 | Phase 59 P04 | ~15min | 2 tasks | 3 files |
 | Phase 60 P01 | 20min | 2 tasks | 3 files |
+| Phase 60 P02 | ~10min | 2 tasks | 4 files (3 created, 1 modified) |
 
 ## Accumulated Context
 
@@ -178,6 +179,7 @@ Recent decisions affecting current work:
 - [Phase 59]: [Phase 59-03]: cmdRoadmapGetPhase's depends_on field was never returned at all (a real pre-existing bug) -- fixed with a regex tolerant of both real-world ROADMAP.md dependency-line styles; parseRoadmapPhases's own narrower depends_on regex (feeds roadmap analyze) deliberately left untouched, out of scope, mirroring 54-02's precedent; coordinator-detail.md's new step 3b spawns gsd-integration-tester on a declared ROADMAP.md dependency independent of the file-overlap heuristic when quality.integration_tester is on, never for an independent phase, never double-spawning when step 3 already fired; step 4 rewritten to propagate a blocking mismatch into VERIFICATION.md via verify append-gap, composing with the existing Phase 55 eval-candidate from-verification pipeline; contract_mismatch added as the 8th failure_type in verifier-detail.md/planner-detail.md; new post-59 golden fixture proves both MILE-37/MILE-38 spawns via assertAgentsSpawned; 816/816 npm test passing (was 801); Phase 59 (Dormant Quality Agents Wired In) now COMPLETE across all 3 plans, MILE-37/MILE-38 both satisfied end-to-end
 - [Phase 59]: [59-04]: coordinator-detail.md's DEPENDS_ON snippet fixed by dropping a stray --raw flag (cmdRoadmapGetPhase's raw-markdown --raw semantics untouched); regression test extracts and executes the LITERAL bash line from the prose file rather than a hand-rolled equivalent, closing the one blocking contract_mismatch gap from 59-VERIFICATION.md -- Phase 59 (Dormant Quality Agents Wired In) now fully verified with zero open gaps across all 4 plans
 - [Phase 60]: [60-01]: computeHighRisk's explicit high_risk:true frontmatter flag always wins even when adversarial_review_enabled toggle is off; computePresentationOrder uses a deterministic content-hash (not Math.random()) for reproducible presentation-order fixtures; quality assess-risk/verdict-to-issues CLIs always output(...) and never process.exit on a bad input file; 850/850 npm test passing (was 820)
+- [Phase 60]: [60-02]: gsd-plan-attacker.md (Read, Grep, Glob, Bash — no Write/Edit) finds severity-tagged flaws with plan/task references; gsd-plan-defender.md (same read-only tool set) rebuts each flaw strictly from cited plan text/task ID/must_haves entry/codebase file-line, never inventing facts; gsd-plan-judge.md (Read, Write, Bash, Grep, Glob — the only one with Write) reads whichever of attacker_flaws/defender_rebuttals its presentation_order input names first, independently re-verifies every flaw, and writes its own {phase_dir}/{plan_id}-VERDICT.md mirroring gsd-verifier's VERIFICATION.md pattern; all 3 carry content_firewall + the exact 4-field MILE-26 Telemetry line; new Phase 60-02 describe block in gsd-tools.test.js parses all 3 files' frontmatter via gray-matter directly against the real files on disk (not fixtures); no Task/Agent tool was available in this executor run, so Task 2's tdd="true" spawn and the mandatory docs-update step were both completed inline; 865/865 npm test passing (was 850); MILE-39 remains Pending — spans this plan plus 60-03's plan-phase.md risk-triage wiring
 
 ### Roadmap Evolution
 
@@ -212,11 +214,11 @@ None.
 
 ### Next Steps
 
-- Phase 60 (Adversarial Plan Review, MILE-39) IN PROGRESS: Plan 60-01 (config toggles + computeHighRisk/computePresentationOrder/verdictToIssues + quality assess-risk/verdict-to-issues CLI) complete, 850/850 npm test passing (was 820). Next: Plan 60-02 (three new adversarial-review agents), then Plan 60-03 (plan-phase.md risk-triage wiring on top of this plan's stable CLI contracts).
+- Phase 60 (Adversarial Plan Review, MILE-39) IN PROGRESS: Plan 60-01 (config toggles + computeHighRisk/computePresentationOrder/verdictToIssues + quality assess-risk/verdict-to-issues CLI) complete; Plan 60-02 (gsd-plan-attacker/defender/judge agent trio + structural validation tests) complete, 865/865 npm test passing (was 850). Next: Plan 60-03 (plan-phase.md risk-triage wiring spawning all 3 agents on top of these stable contracts).
 - Reconcile v1.13.0 status separately (see Pending Todos) — do not double-build during v1.15.0 execution
 
 ## Session Continuity
 
 Last session: 2026-07-06T16:31:24.278Z
-Stopped at: Completed 60-01-PLAN.md (adversarial-review config toggles + assess-risk/verdict-to-issues CLI, MILE-39 foundation) -- 850/850 npm test passing
+Stopped at: Completed 60-02-PLAN.md (adversarial-review agent trio: gsd-plan-attacker/gsd-plan-defender/gsd-plan-judge, MILE-39) -- 865/865 npm test passing
 Resume file: None
