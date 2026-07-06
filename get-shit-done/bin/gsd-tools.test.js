@@ -13132,3 +13132,222 @@ describe('Phase 60-02: adversarial-review trio agent files structural validation
     });
   });
 });
+
+// Phase 60-03 (MILE-39): plan-phase.md's risk-triage wiring (Step 9.5's `quality
+// assess-risk` decision, Step 10's trio-vs-checker branch with the EXACT
+// pre-existing checker spawn preserved byte-identical, Step 11's verdict routing
+// into `quality verdict-to-issues`, Step 12's re-triage-on-revision). Prose is
+// consumed by an LLM subagent, not executed as code -- coverage splits into
+// (a) index-ordered/byte-identical grep-assertions proving the prose
+// wiring/ordering (mirrors Phase 59-03/59-04's coordinator-detail.md pattern),
+// and (b) integration-style tests driving the real `quality
+// assess-risk`/`quality verdict-to-issues` CLI + gray-matter against real
+// on-disk fixtures (never a live Agent() spawn).
+describe('Phase 60-03: plan-phase.md adversarial-review risk-triage wiring (MILE-39)', () => {
+  const matter = require('gray-matter');
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  const PLAN_PHASE_PATH = path.join(REPO_ROOT, 'get-shit-done', 'workflows', 'plan-phase.md');
+
+  function readPlanPhase() {
+    return fs.readFileSync(PLAN_PHASE_PATH, 'utf-8');
+  }
+
+  // Exact pre-Phase-60 checker banner + <verification_context> prompt block +
+  // Agent() call, copied verbatim from the checker branch of plan-phase.md's
+  // Step 10. Must remain a byte-identical substring of the live file --
+  // proves criterion 3 (non-high-risk plans keep the existing single
+  // plan-checker path completely unchanged).
+  const EXACT_ORIGINAL_CHECKER_BLOCK = [
+    'Display banner:',
+    '```',
+    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+    ' GSD ► VERIFYING PLANS',
+    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+    '',
+    '◆ Spawning plan checker...',
+    '```',
+    '',
+    'Checker prompt:',
+    '',
+    '```markdown',
+    '<verification_context>',
+    '**Phase:** {phase_number}',
+    '**Phase Goal:** {goal from ROADMAP}',
+    '',
+    '<files_to_read>',
+    '- {PHASE_DIR}/*-PLAN.md (Plans to verify)',
+    '- {roadmap_path} (Roadmap)',
+    '- {requirements_path} (Requirements)',
+    '- {context_path} (USER DECISIONS from /gsd:discuss-phase)',
+    '- {research_path} (Technical Research — includes Validation Architecture)',
+    '</files_to_read>',
+    '',
+    '**Phase requirement IDs (MUST ALL be covered):** {phase_req_ids}',
+    '',
+    '**Project instructions:** Read ./CLAUDE.md if exists — verify plans honor project guidelines',
+    '**Project skills:** Check .claude/skills/ or .agents/skills/ directory (if either exists) — verify plans account for project skill rules',
+    '</verification_context>',
+    '',
+    '<expected_output>',
+    '- ## VERIFICATION PASSED — all checks pass',
+    '- ## ISSUES FOUND — structured issue list',
+    '</expected_output>',
+    '```',
+    '',
+    '```',
+    'Agent(',
+    '  prompt=checker_prompt,',
+    '  subagent_type="gsd-plan-checker",',
+    '  model="{checker_model}",',
+    '  description="Verify Phase {phase} plans"',
+    ')',
+    '```',
+  ].join('\n');
+
+  describe('index-ordered + byte-identical grep-assertions (real file on disk)', () => {
+    test('Step 9.5 heading exists and appears BEFORE Step 10\'s trio-vs-checker heading', () => {
+      const content = readPlanPhase();
+      const step95Idx = content.indexOf('## 9.5. Risk Triage (Adversarial Review, MILE-39)');
+      const step10Idx = content.indexOf('## 10. Spawn gsd-plan-checker Agent (or Adversarial Review Trio, MILE-39)');
+      assert.ok(step95Idx > -1, 'expected Step 9.5 heading to exist');
+      assert.ok(step10Idx > -1, 'expected the new Step 10 heading to exist');
+      assert.ok(step95Idx < step10Idx, 'expected Step 9.5 to be wired BEFORE Step 10');
+    });
+
+    test('fail-open fallback text is present', () => {
+      const content = readPlanPhase();
+      assert.ok(content.includes('Falling back to standard gsd-plan-checker for the entire phase'));
+    });
+
+    test('byte-identical regression guard: the EXACT pre-existing checker banner + prompt + Agent() block is still present unmodified', () => {
+      const content = readPlanPhase();
+      assert.ok(
+        content.includes(EXACT_ORIGINAL_CHECKER_BLOCK),
+        'expected the pre-Phase-60 checker spawn block to remain byte-identical inside the checker branch'
+      );
+    });
+
+    test('Step 11\'s heading appears AFTER Step 10\'s heading (ordering)', () => {
+      const content = readPlanPhase();
+      const step10Idx = content.indexOf('## 10. Spawn gsd-plan-checker Agent (or Adversarial Review Trio, MILE-39)');
+      const step11Idx = content.indexOf('## 11. Handle Checker Return');
+      assert.ok(step11Idx > step10Idx, 'expected Step 11 to appear after Step 10');
+    });
+
+    test('Step 11 branches on TRIAGE_MODE (checker vs trio) and calls quality verdict-to-issues', () => {
+      const content = readPlanPhase();
+      const step11Idx = content.indexOf('## 11. Handle Checker Return');
+      const step12Idx = content.indexOf('## 12. Revision Loop (Max 3 Iterations)');
+      const step11Text = content.slice(step11Idx, step12Idx);
+      assert.ok(step11Text.includes('`TRIAGE_MODE` is `checker`'), 'expected the checker-mode branch label');
+      assert.ok(step11Text.includes('`TRIAGE_MODE` is `trio`'), 'expected the trio-mode branch label');
+      assert.ok(step11Text.includes('quality verdict-to-issues'), 'expected the verdict-to-issues CLI call');
+    });
+
+    test('Step 12 re-runs Step 9.5\'s triage before re-spawning step 10, while the existing gsd-planner revision spawn remains unmodified', () => {
+      const content = readPlanPhase();
+      assert.ok(content.includes('re-run Step 9.5'), 'expected the re-triage-on-revision text');
+      assert.ok(
+        content.includes('subagent_type="gsd-planner"'),
+        'expected the existing Step 12 gsd-planner revision spawn to remain present unmodified'
+      );
+    });
+  });
+
+  describe('integration-style tests via the CLI/pure-function layer (real subprocess, no live Agent() spawn)', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+      tmpDir = createTempProject();
+    });
+
+    afterEach(() => {
+      cleanup(tmpDir);
+    });
+
+    function writeFixture(relPath, content) {
+      const fullPath = path.join(tmpDir, relPath);
+      fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+      fs.writeFileSync(fullPath, content, 'utf-8');
+      return fullPath;
+    }
+
+    function computeTriageMode(highRisk) {
+      return highRisk ? 'trio' : 'checker';
+    }
+
+    test('trio spawn decision: a real high-risk *-PLAN.md fixture drives quality assess-risk to high_risk:true, resolving TRIAGE_MODE=trio', () => {
+      const planPath = writeFixture(
+        '.planning/phases/60-adversarial-plan-review/60-99-PLAN.md',
+        '---\nphase: 60\nplan: "99"\nhigh_risk: true\n---\n\n# Plan\n'
+      );
+      const relPath = path.relative(tmpDir, planPath);
+      const result = runGsdTools(`quality assess-risk "${relPath}" --raw`, tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.high_risk, true);
+      assert.strictEqual(computeTriageMode(parsed.high_risk), 'trio');
+    });
+
+    test('single-checker path preserved: a real non-high-risk *-PLAN.md fixture (no high_risk flag, few files_modified, default config) drives quality assess-risk to high_risk:false, resolving TRIAGE_MODE=checker', () => {
+      const planPath = writeFixture(
+        '.planning/phases/60-adversarial-plan-review/60-98-PLAN.md',
+        '---\nphase: 60\nplan: "98"\nfiles_modified:\n  - src/lib/util.js\n---\n\n# Plan\n'
+      );
+      const relPath = path.relative(tmpDir, planPath);
+      const result = runGsdTools(`quality assess-risk "${relPath}" --raw`, tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.high_risk, false);
+      assert.strictEqual(computeTriageMode(parsed.high_risk), 'checker');
+    });
+
+    test('verdict artifact written: a real {plan_id}-VERDICT.md is constructed via matter.stringify, written to disk, and round-trips through a SEPARATE gray-matter parse call', () => {
+      const verdictDir = path.join(tmpDir, '.planning', 'phases', '60-adversarial-plan-review');
+      fs.mkdirSync(verdictDir, { recursive: true });
+      const verdictPath = path.join(verdictDir, '60-99-VERDICT.md');
+
+      const frontmatter = {
+        verdict: 'critical',
+        plan: '60-99',
+        timestamp: '2026-07-06T00:00:00Z',
+        presentation_order: 'attack_first',
+        required_changes: ['Fix the race condition', 'Add missing null check'],
+      };
+      const written = matter.stringify('# Verdict\n\nJudge findings go here.\n', frontmatter);
+      fs.writeFileSync(verdictPath, written, 'utf-8');
+
+      // Separate read-back parse call -- not reusing the write-time object.
+      const readBack = matter(fs.readFileSync(verdictPath, 'utf-8'));
+      assert.strictEqual(readBack.data.verdict, 'critical');
+      assert.strictEqual(readBack.data.plan, '60-99');
+      assert.strictEqual(readBack.data.timestamp, frontmatter.timestamp);
+      assert.strictEqual(readBack.data.presentation_order, 'attack_first');
+      assert.deepStrictEqual(readBack.data.required_changes, frontmatter.required_changes);
+    });
+
+    test('revision-loop routing: quality verdict-to-issues against that same critical VERDICT.md fixture produces one blocker-severity issue per required_changes entry, feeding the existing revision-prompt placeholder with zero shape translation', () => {
+      const verdictDir = path.join(tmpDir, '.planning', 'phases', '60-adversarial-plan-review');
+      fs.mkdirSync(verdictDir, { recursive: true });
+      const verdictPath = path.join(verdictDir, '60-99-VERDICT.md');
+      const frontmatter = {
+        verdict: 'critical',
+        plan: '60-99',
+        timestamp: '2026-07-06T00:00:00Z',
+        presentation_order: 'attack_first',
+        required_changes: ['Fix the race condition', 'Add missing null check'],
+      };
+      fs.writeFileSync(verdictPath, matter.stringify('# Verdict\n', frontmatter), 'utf-8');
+
+      const relPath = path.relative(tmpDir, verdictPath);
+      const result = runGsdTools(`quality verdict-to-issues "${relPath}" --raw`, tmpDir);
+      assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.issues.length, frontmatter.required_changes.length);
+      for (const issue of parsed.issues) {
+        assert.strictEqual(issue.severity, 'blocker');
+        assert.strictEqual(issue.dimension, 'adversarial_review');
+      }
+    });
+  });
+});
