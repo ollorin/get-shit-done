@@ -716,12 +716,12 @@ Plans:
   2. The judge verdict is a durable artifact attached to the plan, and presentation order of attack/defense is randomized
   3. A judge ruling of critical flaws routes into the existing plan-revision loop; non-high-risk plans keep the existing single plan-checker path unchanged
   4. Integration tests cover: trio spawn on a high-risk fixture, verdict artifact written, revision-loop routing on a critical verdict, single-checker path preserved otherwise
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 Plans:
 - [x] 60-01: adversarial-review config toggles (quality.adversarial_review/*, default off) + computeHighRisk/computePresentationOrder/verdictToIssues pure functions + quality assess-risk/verdict-to-issues CLI subcommands (MILE-39 foundation)
 - [x] 60-02: gsd-plan-attacker.md (read-only flaw-finder)/gsd-plan-defender.md (read-only evidence-only rebuttal)/gsd-plan-judge.md (rules + writes its own {plan_id}-VERDICT.md) agent trio, each carrying content_firewall + MILE-26 Telemetry — structural validation test suite proves all 3 well-formed
-- [ ] 60-03: TBD (planned during plan-phase)
+- [x] 60-03: plan-phase.md Step 9.5 risk-triage (quality assess-risk per plan) + Step 10 trio-vs-checker branch (checker branch byte-identical to pre-Phase-60 form, fail-open on any trio-member failure) + Step 11 verdict routing (quality verdict-to-issues into the existing checker issues shape) + Step 12 re-triage-on-revision — Phase 60 COMPLETE, MILE-39 satisfied end-to-end
 
 #### Phase 61: Project-Aware Pre-PR Gate
 
@@ -800,7 +800,7 @@ Plans:
 | 57. Outcome-Informed Routing Ledger & Bounded Escalation | v1.15.0 | Complete    | 2026-07-06 | 2026-07-06 |
 | 58. Honest Token Accounting | v1.15.0 | 0/TBD | Not started | - |
 | 59. Dormant Quality Agents Wired In | v1.15.0 | Complete    | 2026-07-06 | 2026-07-06 |
-| 60. Adversarial Plan Review | v1.15.0 | 2/3 | In Progress|  |
+| 60. Adversarial Plan Review | v1.15.0 | 3/3 | Complete   | 2026-07-06 |
 | 61. Project-Aware Pre-PR Gate | v1.15.0 | 0/TBD | Not started | - |
 
 ---
