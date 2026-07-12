@@ -137,6 +137,21 @@
  *   quota check                        Check warnings and wait status
  *   quota wait                         Check if should wait for quota
  *
+ * Resilience Operations (coordinator + executor death/recovery — see
+ * get-shit-done/references/resilience.md for the full protocol):
+ *   resilience check-staleness <file>  Report whether a checkpoint file's
+ *     [--threshold-minutes N]            mtime exceeds the staleness threshold
+ *   resilience parse-death --text ..   Detect a session/usage/quota/rate-limit
+ *                                         death message, extract reset time
+ *   resilience resume-brief <phase>    Assemble a resume brief from a phase's
+ *                                         CHECKPOINT.json for a respawned agent
+ *   resilience estimate-quota          Estimate token cost of N remaining
+ *     [--phases N]                       phases against the current quota budget
+ *   resilience usage-window            Sum actual token usage across all
+ *     [--hours N]                        ~/.claude/projects/ transcripts in
+ *                                         the last N hours (default 5) — an
+ *                                         ESTIMATE, not a billed-usage source of truth
+ *
  * Knowledge Operations:
  *   knowledge status [--scope project|global]   Show knowledge DB status
  *   knowledge add <content> --type <type>       Add knowledge entry
@@ -361,7 +376,8 @@ function loadConfig(cwd) {
     max_attempts: 4,
     execution: { max_attempts: 4 },
     staleness_threshold_minutes: 30,
-    resilience: { staleness_threshold_minutes: 30 },
+    usage_pause_threshold_tokens: null,
+    resilience: { staleness_threshold_minutes: 30, usage_pause_threshold_tokens: null },
     routing_min_sample_count: 5,
     routing: { min_sample_count: 5 },
     savings_baseline_profile: 'quality',
@@ -425,6 +441,7 @@ function loadConfig(cwd) {
       auto_consolidate: get('auto_consolidate') ?? defaults.auto_consolidate,
       max_attempts: get('max_attempts', { section: 'execution', field: 'max_attempts' }) ?? defaults.max_attempts,
       staleness_threshold_minutes: get('staleness_threshold_minutes', { section: 'resilience', field: 'staleness_threshold_minutes' }) ?? defaults.staleness_threshold_minutes,
+      usage_pause_threshold_tokens: get('usage_pause_threshold_tokens', { section: 'resilience', field: 'usage_pause_threshold_tokens' }) ?? defaults.usage_pause_threshold_tokens,
       routing_min_sample_count: get('routing_min_sample_count', { section: 'routing', field: 'min_sample_count' }) ?? defaults.routing_min_sample_count,
       savings_baseline_profile: get('savings_baseline_profile', { section: 'savings', field: 'baseline_profile' }) ?? defaults.savings_baseline_profile,
       test_writer_enabled: get('test_writer_enabled', { section: 'quality', field: 'test_writer' }) ?? defaults.test_writer_enabled,
@@ -1515,6 +1532,132 @@ function estimateQuotaForRemainingPhases(cwd, phaseCount) {
 function cmdResilienceEstimateQuota(cwd, phaseCount, raw) {
   const count = Number.isFinite(phaseCount) && phaseCount > 0 ? phaseCount : 1;
   const result = estimateQuotaForRemainingPhases(cwd, count);
+  output(result, raw);
+}
+
+// Scans ~/.claude/projects/**/*.jsonl (every project, not just cwd's) for
+// assistant message entries with a `timestamp` inside the trailing
+// `hours`-hour window, summing their `message.usage` token fields. This is
+// an ESTIMATE of real usage, not a billed-usage source of truth -- Claude
+// Code transcript `usage` blocks are per-API-call, may double-count retried
+// calls, and this function has no visibility into weekly/plan-level limits.
+// The caller (execute-phase.md) treats a threshold miss as a signal to
+// pause proactively, never as an authoritative quota figure.
+//
+// `options.projectsDir` and `options.referenceNow` (both optional) exist
+// purely for deterministic unit testing -- the CLI entry point
+// (cmdResilienceUsageWindow) never passes them, so real usage always scans
+// the real ~/.claude/projects/ against the real current time.
+function scanUsageWindow(hours, options = {}) {
+  const windowHours = typeof hours === 'number' && Number.isFinite(hours) && hours > 0 ? hours : 5;
+  const projectsDir = options.projectsDir || path.join(require('os').homedir(), '.claude', 'projects');
+  const nowMs = options.referenceNow instanceof Date && !Number.isNaN(options.referenceNow.getTime())
+    ? options.referenceNow.getTime()
+    : Date.now();
+  const cutoffMs = nowMs - windowHours * 3600 * 1000;
+
+  const result = {
+    window_hours: windowHours,
+    total_tokens: 0,
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_creation_tokens: 0,
+    cache_read_tokens: 0,
+    by_model_family: {},
+    messages_count: 0,
+  };
+
+  if (!fs.existsSync(projectsDir)) return result;
+
+  let slugDirs;
+  try {
+    slugDirs = fs.readdirSync(projectsDir).filter((d) => {
+      try { return fs.statSync(path.join(projectsDir, d)).isDirectory(); } catch { return false; }
+    });
+  } catch {
+    return result;
+  }
+
+  const familyOf = (model) => {
+    if (typeof model !== 'string') return 'unknown';
+    const m = model.toLowerCase();
+    if (m.includes('opus')) return 'opus';
+    if (m.includes('sonnet')) return 'sonnet';
+    if (m.includes('haiku')) return 'haiku';
+    if (m.includes('fable')) return 'fable';
+    return 'other';
+  };
+
+  for (const slug of slugDirs) {
+    const slugPath = path.join(projectsDir, slug);
+    let files;
+    try {
+      files = fs.readdirSync(slugPath).filter((f) => f.endsWith('.jsonl'));
+    } catch {
+      continue;
+    }
+
+    for (const file of files) {
+      const filePath = path.join(slugPath, file);
+      let stat;
+      try {
+        stat = fs.statSync(filePath);
+      } catch {
+        continue;
+      }
+      // A file's mtime is its last-written line's write time -- if that is
+      // already before the window, every line in it is too. Cheap prefilter
+      // that avoids reading files that can't possibly contribute.
+      if (stat.mtimeMs < cutoffMs) continue;
+
+      let content;
+      try {
+        content = fs.readFileSync(filePath, 'utf-8');
+      } catch {
+        continue;
+      }
+
+      for (const line of content.split('\n')) {
+        if (!line.trim()) continue;
+        let entry;
+        try {
+          entry = JSON.parse(line);
+        } catch {
+          continue;
+        }
+
+        const ts = entry.timestamp ? new Date(entry.timestamp).getTime() : NaN;
+        if (!Number.isFinite(ts) || ts < cutoffMs || ts > nowMs) continue;
+
+        const usage = entry.message && entry.message.usage;
+        if (!usage || typeof usage !== 'object') continue;
+
+        const inputTokens = usage.input_tokens || 0;
+        const outputTokens = usage.output_tokens || 0;
+        const cacheCreate = usage.cache_creation_input_tokens || 0;
+        const cacheRead = usage.cache_read_input_tokens || 0;
+
+        result.input_tokens += inputTokens;
+        result.output_tokens += outputTokens;
+        result.cache_creation_tokens += cacheCreate;
+        result.cache_read_tokens += cacheRead;
+        result.messages_count += 1;
+
+        const family = familyOf(entry.message && entry.message.model);
+        const msgTotal = inputTokens + outputTokens + cacheCreate + cacheRead;
+        result.by_model_family[family] = (result.by_model_family[family] || 0) + msgTotal;
+      }
+    }
+  }
+
+  result.total_tokens = result.input_tokens + result.output_tokens
+    + result.cache_creation_tokens + result.cache_read_tokens;
+
+  return result;
+}
+
+function cmdResilienceUsageWindow(hours, raw) {
+  const result = scanUsageWindow(hours);
   output(result, raw);
 }
 
@@ -13347,8 +13490,12 @@ async function main() {
         const phasesIdx = args.indexOf('--phases');
         const phaseCount = phasesIdx !== -1 ? parseInt(args[phasesIdx + 1], 10) : 1;
         cmdResilienceEstimateQuota(cwd, phaseCount, raw);
+      } else if (subCommand === 'usage-window') {
+        const hoursIdx = args.indexOf('--hours');
+        const hours = hoursIdx !== -1 ? parseFloat(args[hoursIdx + 1]) : 5;
+        cmdResilienceUsageWindow(hours, raw);
       } else {
-        error('Unknown resilience subcommand. Available: check-staleness, parse-death, resume-brief, estimate-quota');
+        error('Unknown resilience subcommand. Available: check-staleness, parse-death, resume-brief, estimate-quota, usage-window');
       }
       break;
     }
@@ -14752,6 +14899,7 @@ module.exports = {
   parseCheckpointForResume,
   buildResumeBrief,
   estimateQuotaForRemainingPhases,
+  scanUsageWindow,
   computeManifestDrift,
   summarizeTelemetryReports,
   appendTelemetryReport,
