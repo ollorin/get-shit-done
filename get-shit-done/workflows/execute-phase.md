@@ -120,6 +120,37 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
 
 **For each wave:**
 
+0. **Proactive usage-window check (Executor Resilience Protocol — only when configured, default OFF):**
+
+   ```bash
+   USAGE_THRESHOLD=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" config get usage_pause_threshold_tokens --raw 2>/dev/null)
+   ```
+   If `USAGE_THRESHOLD` is empty/`null`: skip this check entirely — zero overhead, the default state.
+
+   Otherwise:
+   ```bash
+   USAGE=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" resilience usage-window --hours 5)
+   TOTAL_TOKENS=$(node -e "console.log(JSON.parse(process.argv[1]).total_tokens)" "$USAGE")
+   ```
+   If `TOTAL_TOKENS >= USAGE_THRESHOLD`: do NOT start this wave. Write `.planning/phases/{phase_dir}/PAUSED.json` (`type: "usage_estimate"`, the `$USAGE` JSON, `resume_instruction: "retry once usage drops or the session window rolls over"`) and return `status: "paused_session_limit"` to this coordinator's own caller — same contract as the reactive death-detection path in step 5 below, just triggered before a wave that would likely die mid-flight rather than after.
+
+   This is an ESTIMATE, not a hard limit — see `@get-shit-done/references/resilience.md` for the calibration caveat before setting `resilience.usage_pause_threshold_tokens`.
+
+0.5. **Check for a prior interrupted executor run, per plan about to be spawned (Executor Resilience Protocol):**
+
+   ```bash
+   HANDOFF_PATH=".planning/phases/{phase_dir}/EXECUTOR-HANDOFF.json"
+   TASK_CKPT_PATH=".planning/phases/{phase_dir}/TASK-CHECKPOINT.json"
+   ```
+   If `HANDOFF_PATH` exists, OR `TASK_CKPT_PATH` exists with no matching `{plan_id}-SUMMARY.md` (a death with no clean handoff):
+   1. Verify every commit hash it claims actually exists: `git log --oneline --all | grep -F "{hash}"` for each. If any is missing, the state is unverifiable — log loudly and fall back to a normal fresh spawn instead of trusting it.
+   2. Archive it: `mkdir -p .planning/phases/{phase_dir}/resolved-handoffs && mv "$HANDOFF_PATH" ".planning/phases/{phase_dir}/resolved-handoffs/{plan_id}-$(date -u +%Y%m%dT%H%M%SZ).json"` (skip the `mv` if only TASK-CHECKPOINT.json existed).
+   3. Spawn with a `<prior_executor_handoff>` block PREPENDED to the normal spawn prompt below (step 2) — completed tasks + commit hashes, resume-from task index, key decisions, files modified. Do NOT re-run completed tasks.
+
+   Exact `<prior_executor_handoff>` block format and both JSON schemas: `@get-shit-done/references/resilience.md`.
+
+   If neither file exists: proceed to a normal fresh spawn (step 2, unchanged).
+
 1. **Describe what's being built (BEFORE spawning):**
 
    Read each plan's `<objective>`. Extract what's being built and why.
@@ -293,7 +324,25 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
 
    **Known Claude Code bug (classifyHandoffIfNeeded):** If an agent reports "failed" with error containing `classifyHandoffIfNeeded is not defined`, this is a Claude Code runtime bug — not a GSD or agent issue. The error fires in the completion handler AFTER all tool calls finish. In this case: run the same spot-checks as step 4 (SUMMARY.md exists, git commits present, no Self-Check: FAILED). If spot-checks PASS → treat as **successful**. If spot-checks FAIL → treat as real failure below.
 
-   For real failures (not the classifyHandoffIfNeeded runtime bug), call execution-state to get the auto-retry/debug/escalate decision:
+   **Executor death / clean interruption detection (Executor Resilience Protocol — runs before the retry ladder below, for EVERY executor return):** An executor's return means one of three distinct things. Only the last is a genuine task-logic failure; the first two must never touch the retry counter below.
+
+   1. **Clean interruption** — the return is `## PLAN INTERRUPTED — continuation needed` (the executor self-stopped at a context-pressure boundary and wrote EXECUTOR-HANDOFF.json). Handle identically to the pre-spawn handoff case (step 0.5 above): archive the handoff, spawn a continuation executor immediately with a `<prior_executor_handoff>` block. Log `--type executor_clean_interruption`. Do NOT call `execution-state record-failure`.
+
+   2. **Genuine death** — `Agent()` threw, OR the return doesn't parse as `## PLAN COMPLETE`, a checkpoint, or `## PLAN INTERRUPTED` (e.g. it IS a raw death message):
+      ```bash
+      DEATH_CHECK=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" resilience parse-death --text "{raw returned text or error message}")
+      IS_DEATH=$(node -e "console.log(JSON.parse(process.argv[1]).is_death)" "$DEATH_CHECK")
+      RESET_TIME_ISO=$(node -e "console.log(JSON.parse(process.argv[1]).reset_time_iso || '')" "$DEATH_CHECK")
+      STALENESS_CHECK=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" resilience check-staleness ".planning/phases/{phase_dir}/TASK-CHECKPOINT.json")
+      IS_STALE=$(node -e "console.log(JSON.parse(process.argv[1]).stale)" "$STALENESS_CHECK")
+      ```
+      - **`IS_DEATH` true AND `RESET_TIME_ISO` non-empty** (session/quota-limit death): write `.planning/phases/{phase_dir}/PAUSED.json` (`type: "session_limit"`, `reset_time_iso`, `plan`, the last known TASK-CHECKPOINT.json contents, `resume_instruction`). Compute the wait, capped at 6 hours, using the identical epoch-math pattern as `execute-roadmap.md`'s 4a step. If the wait is **under 30 minutes**: sleep-loop (same pattern), then spawn a continuation executor directly. If **30 minutes or longer**, or the reset time is implausible/unparseable: do NOT sleep here — return `status: "paused_session_limit"` with `reset_time_iso` to this coordinator's own caller instead of blocking this coordinator's context for hours. Log `--type executor_death_detected`.
+      - **`IS_DEATH` true with no reset time, OR `IS_STALE` true** (context-overflow death — no clean handoff, but committed work exists on disk): handle identically to the pre-spawn handoff case (step 0.5 above) — spawn a continuation executor from TASK-CHECKPOINT.json immediately, no waiting. Log `--type executor_death_detected`.
+      - **Neither matches:** fall through to the retry/debug/escalate ladder below — this is a genuine task-logic failure.
+
+   Full wait/respawn/bubble-up decision tree and the PAUSED.json schema: `@get-shit-done/references/resilience.md`.
+
+   For real failures (not the classifyHandoffIfNeeded runtime bug, and not an executor death/interruption handled above), call execution-state to get the auto-retry/debug/escalate decision:
 
    ```bash
    STATE_RESULT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" execution-state record-failure \
