@@ -302,6 +302,20 @@ ROUTING_TIERS_USED+=("$TASK_ROUTING_TIER")  # append to running list
 RETRY_ESCALATED=false  # set to true if task was escalated to sonnet from haiku
 ```
 
+**6. Write per-task checkpoint (Executor Resilience Protocol):** After every task commit, overwrite `.planning/phases/{phase_dir}/TASK-CHECKPOINT.json` with the Write tool (plain file write — same overwrite-latest convention as the coordinator's CHECKPOINT.json, see `checkpoints.md`):
+```json
+{
+  "phase": {N},
+  "plan": "{phase}-{plan}",
+  "last_completed_task": { "index": {N}, "name": "{task name}" },
+  "task_commit_hash": "{TASK_COMMIT}",
+  "completed_tasks": [{ "index": 1, "name": "...", "commit": "..." }],
+  "next_task_index": {N+1},
+  "timestamp": "{ISO timestamp}"
+}
+```
+This file is NOT committed per-task (too noisy) — it rides along in the plan's final SUMMARY.md commit, or is committed immediately if a checkpoint/handoff fires (see `<executor_resilience_protocol>` below). Its purpose: a continuation agent respawned after this executor dies reads it to know exactly which task to resume from, without re-deriving state from `git log`.
+
 **ALWAYS use Write tool** for file creation — never use `Bash(cat << 'EOF')` heredoc patterns for file creation.
 </task_commit_protocol>
 
@@ -344,10 +358,60 @@ Include ALL commits (previous + new if continuation agent).
 Self-report telemetry (MILE-26): populate these from your own run — an ambiguous task instruction you had to interpret counts as an ambiguity; a tool call that errored and was silently retried/skipped counts toward tool_errors_swallowed. Best-effort, never blocks completion.
 </completion_format>
 
+<executor_resilience_protocol>
+
+## Executor Resilience Protocol (context self-stop)
+
+Long plans can outlive a single executor's context window, or the account's session limit, mid-execution. **Stopping cleanly at a task boundary is CORRECT behavior — never a failure.** The failure mode this protocol prevents is pushing past a near-full context window and dying mid-task: that loses uncommitted work and leaves no trail for a continuation agent to resume from. A clean stop with a handoff written is strictly better than a longer run that dies silently.
+
+**At every task boundary** (right after a task's commit + TASK-CHECKPOINT.json write, before starting the next task), self-assess context pressure. This is a best-effort estimate, not a tool call: weigh long tool outputs you've read, files read, and tasks completed vs. tasks remaining in the plan.
+
+**At >= 80% estimated context usage, with tasks still remaining in the plan: STOP. Do NOT start the next task.**
+
+1. Write `.planning/phases/{phase_dir}/EXECUTOR-HANDOFF.json`:
+   ```json
+   {
+     "phase": {N},
+     "plan": "{phase}-{plan}",
+     "reason": "context_pressure",
+     "last_completed_task": { "index": {N}, "name": "{task name}" },
+     "next_task_index": {N+1},
+     "completed_task_commits": ["{hash}", "{hash}"],
+     "files_modified": ["path/a.ts", "path/b.ts"],
+     "deviations": ["[Rule N - Type] description", "..."],
+     "key_decisions": ["...", "..."],
+     "verification_state": "{what has/hasn't been verified so far}",
+     "resume_instructions": "{precise instructions for the continuation agent}"
+   }
+   ```
+2. `git add` the handoff file plus `TASK-CHECKPOINT.json` and commit as a `chore` commit: `chore({phase}-{plan}): executor handoff at task {N} — context pressure`.
+3. Return the completion below **instead of** `## PLAN COMPLETE`:
+
+```markdown
+## PLAN INTERRUPTED — continuation needed
+
+**Plan:** {phase}-{plan}
+**Progress:** {completed}/{total} tasks complete
+**Reason:** context_pressure
+**Handoff:** {phase_dir}/EXECUTOR-HANDOFF.json
+
+**Commits:**
+- {hash}: {message}
+- {hash}: {message}
+
+**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}
+```
+
+**This is not a failure and must not be reported as one.** The orchestrator treats `## PLAN INTERRUPTED` exactly like a pre-spawn handoff: an immediate continuation respawn, never counted against the plan's retry/debug/escalate ladder. See `execute-phase.md`'s executor resilience handling and `@get-shit-done/references/resilience.md` for the full protocol, the coordinator-side continuation-spawn contract, and every artifact schema.
+
+**If spawned as a continuation agent** with a `<prior_executor_handoff>` block in your prompt: this supersedes `<continuation_handling>` above for the resilience case specifically — verify the listed commits exist (`git log --oneline -20`), do NOT redo any completed task, and resume from `next_task_index`. Treat `key_decisions` and `deviations` from the handoff as established fact, not open questions.
+
+</executor_resilience_protocol>
+
 <success_criteria>
 Plan execution complete when:
 
-- [ ] All tasks executed (or paused at checkpoint with full state returned)
+- [ ] All tasks executed (or paused at checkpoint with full state returned, or interrupted cleanly at a context-pressure boundary via `<executor_resilience_protocol>` with EXECUTOR-HANDOFF.json written)
 - [ ] Cross-boundary tasks verified end-to-end (not just local build/unit pass)
 - [ ] Each task committed individually with proper format
 - [ ] All deviations documented
