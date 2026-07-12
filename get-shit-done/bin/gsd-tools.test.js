@@ -8410,6 +8410,177 @@ describe('Phase 51-02: resilience CLI subcommands', () => {
   });
 });
 
+// Executor Resilience Protocol: scanUsageWindow (task-level extension of the
+// Phase 51-02 resilience module -- coordinator-death recovery extended one
+// level down to plan-executors, see get-shit-done/references/resilience.md).
+describe('Executor Resilience Protocol: scanUsageWindow', () => {
+  let projectsDir;
+
+  beforeEach(() => {
+    projectsDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-usage-window-'));
+  });
+
+  afterEach(() => {
+    cleanup(projectsDir);
+  });
+
+  // mtimeOverride defaults to the latest entry timestamp (real transcript
+  // files are last-modified when their last line is appended) -- the real
+  // OS clock the test runs under has no fixed relationship to the fictional
+  // `referenceNow` timestamps used in these fixtures, so every write must
+  // pin its own mtime rather than rely on the OS's real "now".
+  function writeTranscript(slug, sessionId, entries, mtimeOverride) {
+    const slugDir = path.join(projectsDir, slug);
+    fs.mkdirSync(slugDir, { recursive: true });
+    const jsonlPath = path.join(slugDir, `${sessionId}.jsonl`);
+    fs.writeFileSync(jsonlPath, entries.map((e) => JSON.stringify(e)).join('\n') + '\n', 'utf-8');
+    const mtime = mtimeOverride || new Date(Math.max(...entries.map((e) => new Date(e.timestamp).getTime())));
+    fs.utimesSync(jsonlPath, mtime, mtime);
+    return jsonlPath;
+  }
+
+  function usageEntry(timestamp, model, usage) {
+    return { timestamp, message: { model, usage } };
+  }
+
+  test('sums input/output/cache tokens across all entries inside the window, by model family', () => {
+    const now = new Date('2026-07-13T12:00:00Z');
+    writeTranscript('-Users-foo-bar', 'sess1', [
+      usageEntry('2026-07-13T11:00:00Z', 'claude-sonnet-4-5', {
+        input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 20, cache_read_input_tokens: 10,
+      }),
+      usageEntry('2026-07-13T11:30:00Z', 'claude-opus-4', {
+        input_tokens: 200, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0,
+      }),
+    ]);
+
+    const result = resilience.scanUsageWindow(5, { projectsDir, referenceNow: now });
+    assert.strictEqual(result.messages_count, 2);
+    assert.strictEqual(result.input_tokens, 300);
+    assert.strictEqual(result.output_tokens, 150);
+    assert.strictEqual(result.cache_creation_tokens, 20);
+    assert.strictEqual(result.cache_read_tokens, 10);
+    assert.strictEqual(result.total_tokens, 480);
+    assert.strictEqual(result.by_model_family.sonnet, 180);
+    assert.strictEqual(result.by_model_family.opus, 300);
+  });
+
+  test('entries outside the window (too old or in the future) are excluded', () => {
+    const now = new Date('2026-07-13T12:00:00Z');
+    writeTranscript('-Users-foo-bar', 'sess2', [
+      usageEntry('2026-07-13T06:00:00Z', 'claude-sonnet-4-5', { input_tokens: 1000, output_tokens: 1000 }), // 6h ago, outside 5h window
+      usageEntry('2026-07-13T11:30:00Z', 'claude-sonnet-4-5', { input_tokens: 10, output_tokens: 10 }), // inside window
+      usageEntry('2026-07-13T13:00:00Z', 'claude-sonnet-4-5', { input_tokens: 999, output_tokens: 999 }), // in the future relative to referenceNow
+    ]);
+    // Force the stale entry's file mtime to be old so the mtime prefilter
+    // doesn't accidentally exclude it for the wrong reason (it should be
+    // excluded by its own timestamp, not by file mtime).
+    const filePath = path.join(projectsDir, '-Users-foo-bar', 'sess2.jsonl');
+    fs.utimesSync(filePath, now, now);
+
+    const result = resilience.scanUsageWindow(5, { projectsDir, referenceNow: now });
+    assert.strictEqual(result.messages_count, 1, 'only the one in-window entry should count');
+    assert.strictEqual(result.input_tokens, 10);
+  });
+
+  test('malformed JSON lines and entries without a usage block are skipped without throwing', () => {
+    const now = new Date('2026-07-13T12:00:00Z');
+    const slugDir = path.join(projectsDir, '-Users-foo-bar');
+    fs.mkdirSync(slugDir, { recursive: true });
+    const jsonlPath = path.join(slugDir, 'sess3.jsonl');
+    const goodEntry = usageEntry('2026-07-13T11:45:00Z', 'claude-haiku-4-5', { input_tokens: 5, output_tokens: 5 });
+    const noUsageEntry = { timestamp: '2026-07-13T11:46:00Z', message: { model: 'claude-haiku-4-5' } };
+    const lines = ['{ not valid json ][', JSON.stringify(goodEntry), JSON.stringify(noUsageEntry), ''];
+    fs.writeFileSync(jsonlPath, lines.join('\n'), 'utf-8');
+    fs.utimesSync(jsonlPath, now, now);
+
+    assert.doesNotThrow(() => resilience.scanUsageWindow(5, { projectsDir, referenceNow: now }));
+    const result = resilience.scanUsageWindow(5, { projectsDir, referenceNow: now });
+    assert.strictEqual(result.messages_count, 1);
+    assert.strictEqual(result.by_model_family.haiku, 10);
+  });
+
+  test('missing projects dir -> zeroed result, no throw', () => {
+    const missingDir = path.join(projectsDir, 'does-not-exist');
+    assert.doesNotThrow(() => resilience.scanUsageWindow(5, { projectsDir: missingDir }));
+    const result = resilience.scanUsageWindow(5, { projectsDir: missingDir });
+    assert.strictEqual(result.total_tokens, 0);
+    assert.strictEqual(result.messages_count, 0);
+    assert.deepStrictEqual(result.by_model_family, {});
+  });
+
+  test('a file whose mtime is entirely before the window is skipped by the cheap prefilter', () => {
+    const now = new Date('2026-07-13T12:00:00Z');
+    const filePath = writeTranscript('-Users-foo-bar', 'sess4', [
+      usageEntry('2026-07-13T11:45:00Z', 'claude-sonnet-4-5', { input_tokens: 50, output_tokens: 50 }),
+    ]);
+    const oldMtime = new Date('2026-07-13T05:00:00Z'); // 7h before referenceNow, well outside 5h window
+    fs.utimesSync(filePath, oldMtime, oldMtime);
+
+    const result = resilience.scanUsageWindow(5, { projectsDir, referenceNow: now });
+    assert.strictEqual(result.messages_count, 0, 'stale-mtime file must be skipped entirely, even though its one entry has a fabricated in-window timestamp');
+  });
+
+  test('non-numeric/absent --hours defaults to 5', () => {
+    const result = resilience.scanUsageWindow(NaN, { projectsDir });
+    assert.strictEqual(result.window_hours, 5);
+  });
+
+  test('CLI: resilience usage-window --hours N against a fake HOME scans ~/.claude/projects', () => {
+    const fakeHome = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-fakehome-usage-'));
+    const tmpDir = createTempProject();
+    try {
+      const slugDir = path.join(fakeHome, '.claude', 'projects', '-fake-project');
+      fs.mkdirSync(slugDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(slugDir, 'sess.jsonl'),
+        JSON.stringify(usageEntry(new Date().toISOString(), 'claude-sonnet-4-5', { input_tokens: 42, output_tokens: 8 })) + '\n',
+        'utf-8'
+      );
+
+      const result = runGsdTools('resilience usage-window --hours 24 --raw', tmpDir, { HOME: fakeHome });
+      assert.ok(result.success, `command should succeed: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.messages_count, 1);
+      assert.strictEqual(parsed.total_tokens, 50);
+    } finally {
+      cleanup(tmpDir);
+      cleanup(fakeHome);
+    }
+  });
+});
+
+// Config plumbing for the Executor Resilience Protocol's proactive
+// usage-window pause: default OFF (null), overridable via
+// resilience.usage_pause_threshold_tokens in config.json.
+describe('Executor Resilience Protocol: usage_pause_threshold_tokens config', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  test('default (no config.json) -> null, zero behavior change', () => {
+    const result = runGsdTools('config get usage_pause_threshold_tokens --raw', tmpDir);
+    assert.ok(result.success, `command should succeed: ${result.error}`);
+    assert.strictEqual(result.output.trim(), 'null');
+  });
+
+  test('resilience.usage_pause_threshold_tokens in config.json overrides the null default', () => {
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'config.json'), JSON.stringify({
+      resilience: { usage_pause_threshold_tokens: 500000 },
+    }, null, 2));
+
+    const result = runGsdTools('config get usage_pause_threshold_tokens --raw', tmpDir);
+    assert.ok(result.success, `command should succeed: ${result.error}`);
+    assert.strictEqual(result.output.trim(), '500000');
+  });
+});
+
 describe('execute-roadmap.md resilience wiring (Phase 51-03)', () => {
   // Prose isn't unit-testable -- these are structural regression guards
   // proving the workflow file's text actually contains the CLI call
@@ -8495,6 +8666,143 @@ describe('execute-roadmap.md resilience wiring (Phase 51-03)', () => {
     assert.match(section, /"debug"/, 'handle_failure must retain the debug branch');
     assert.match(section, /"escalate"/, 'handle_failure must retain the escalate branch');
     assert.match(section, /entered ONLY for genuine `status: "failed"` task-logic failures/, 'handle_failure must have the new clarifying scope note distinguishing it from coordinator deaths');
+  });
+});
+
+describe('Executor Resilience Protocol: execute-phase.md coordinator-side wiring', () => {
+  // Prose isn't unit-testable -- these are structural regression guards
+  // proving execute-phase.md's text actually contains the CLI call
+  // references and structural pieces this protocol's coordinator-side
+  // handling claims to add, following the exact precedent set by the
+  // execute-roadmap.md resilience-wiring tests above.
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+
+  function readExecutePhase() {
+    return fs.readFileSync(path.join(REPO_ROOT, 'get-shit-done', 'workflows', 'execute-phase.md'), 'utf-8');
+  }
+
+  test('execute_waves pre-spawn handoff check exists, checks both artifacts, and is positioned before the executor spawn step', () => {
+    const content = readExecutePhase();
+
+    assert.match(content, /EXECUTOR-HANDOFF\.json/, 'must reference EXECUTOR-HANDOFF.json');
+    assert.match(content, /TASK-CHECKPOINT\.json/, 'must reference TASK-CHECKPOINT.json');
+    assert.match(content, /resolved-handoffs/, 'must archive resolved handoffs');
+    assert.match(content, /<prior_executor_handoff>/, 'must document the prior_executor_handoff prompt block');
+
+    const preSpawnIdx = content.indexOf('Check for a prior interrupted executor run');
+    const spawnStepIdx = content.indexOf('**Spawn executor agents:**');
+    assert.notStrictEqual(preSpawnIdx, -1, 'pre-spawn handoff check must exist');
+    assert.notStrictEqual(spawnStepIdx, -1, 'executor spawn step must exist');
+    assert.ok(preSpawnIdx < spawnStepIdx, 'pre-spawn handoff check must be positioned before the executor spawn step');
+  });
+
+  test('executor death / clean interruption detection exists inside handle_failures and precedes the retry ladder', () => {
+    const content = readExecutePhase();
+
+    const handleFailuresIdx = content.indexOf('**Handle failures:**');
+    const deathDetectionIdx = content.indexOf('Executor death / clean interruption detection');
+    const retryLadderIdx = content.indexOf('For real failures (not the classifyHandoffIfNeeded runtime bug, and not an executor death');
+
+    assert.notStrictEqual(handleFailuresIdx, -1, 'Handle failures step must exist');
+    assert.notStrictEqual(deathDetectionIdx, -1, 'executor death/clean interruption detection subsection must exist');
+    assert.notStrictEqual(retryLadderIdx, -1, 'retry ladder entry point must still exist, now scoped to exclude death/interruption');
+
+    assert.ok(handleFailuresIdx < deathDetectionIdx, 'death detection must be inside Handle failures');
+    assert.ok(deathDetectionIdx < retryLadderIdx, 'death detection must run before the retry ladder');
+  });
+
+  test('death detection calls parse-death, check-staleness, and branches on session_limit vs context-overflow', () => {
+    const content = readExecutePhase();
+    const deathDetectionIdx = content.indexOf('Executor death / clean interruption detection');
+    const retryLadderIdx = content.indexOf('For real failures (not the classifyHandoffIfNeeded runtime bug, and not an executor death');
+    const section = content.slice(deathDetectionIdx, retryLadderIdx);
+
+    assert.match(section, /resilience parse-death/, 'must call resilience parse-death');
+    assert.match(section, /resilience check-staleness/, 'must call resilience check-staleness');
+    assert.match(section, /PAUSED\.json/, 'must write PAUSED.json for a session-limit death');
+    assert.match(section, /"session_limit"/, 'PAUSED.json type must include session_limit');
+    assert.match(section, /paused_session_limit/, 'must be able to bubble up status: paused_session_limit');
+    assert.match(section, /30 minutes/, 'must document the 30-minute wait-vs-bubble-up threshold');
+    assert.match(section, /## PLAN INTERRUPTED — continuation needed/, 'must recognize the executor clean-interruption completion format');
+  });
+
+  test('proactive usage-window pause check exists, is OFF by default, and is positioned before each wave spawns', () => {
+    const content = readExecutePhase();
+
+    assert.match(content, /resilience usage-window/, 'must call resilience usage-window');
+    assert.match(content, /usage_pause_threshold_tokens/, 'must read the usage_pause_threshold_tokens config key');
+    assert.match(content, /skip this check entirely/, 'must document the default-OFF zero-overhead skip path');
+    assert.match(content, /"usage_estimate"/, 'PAUSED.json type must include usage_estimate for the proactive path');
+
+    const usageCheckIdx = content.indexOf('Proactive usage-window check');
+    const waveDescribeIdx = content.indexOf('Describe what\'s being built (BEFORE spawning)');
+    assert.notStrictEqual(usageCheckIdx, -1, 'proactive usage-window check must exist');
+    assert.notStrictEqual(waveDescribeIdx, -1, 'per-wave describe step must exist');
+    assert.ok(usageCheckIdx < waveDescribeIdx, 'usage-window check must run before wave work begins');
+  });
+
+  test('references/resilience.md is linked from execute-phase.md', () => {
+    const content = readExecutePhase();
+    assert.match(content, /@get-shit-done\/references\/resilience\.md/, 'execute-phase.md must point to the resilience protocol reference doc');
+  });
+});
+
+describe('Executor Resilience Protocol: agents/gsd-executor.md self-stop wiring', () => {
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+
+  function readGsdExecutor() {
+    return fs.readFileSync(path.join(REPO_ROOT, 'agents', 'gsd-executor.md'), 'utf-8');
+  }
+
+  test('executor_resilience_protocol block exists between completion_format and success_criteria', () => {
+    const content = readGsdExecutor();
+
+    const completionFormatEndIdx = content.indexOf('</completion_format>');
+    // Search starting at completionFormatEndIdx, not from 0 -- task_commit_protocol
+    // (earlier in the file) references "<executor_resilience_protocol>" inline in
+    // backticks as a forward-pointer, which is a different occurrence than the
+    // actual block-opening tag this test is locating.
+    const resilienceBlockIdx = content.indexOf('<executor_resilience_protocol>', completionFormatEndIdx);
+    const successCriteriaIdx = content.indexOf('<success_criteria>');
+
+    assert.notStrictEqual(completionFormatEndIdx, -1, 'completion_format block must still exist');
+    assert.notStrictEqual(resilienceBlockIdx, -1, 'executor_resilience_protocol block must exist');
+    assert.notStrictEqual(successCriteriaIdx, -1, 'success_criteria block must still exist');
+
+    assert.ok(completionFormatEndIdx < resilienceBlockIdx, 'resilience protocol must come after completion_format');
+    assert.ok(resilienceBlockIdx < successCriteriaIdx, 'resilience protocol must come before success_criteria');
+  });
+
+  test('self-stop threshold is 80%, documents stopping as correct behavior (not a failure), and writes EXECUTOR-HANDOFF.json', () => {
+    const content = readGsdExecutor();
+    const resilienceBlockIdx = content.indexOf('<executor_resilience_protocol>');
+    const resilienceBlockEndIdx = content.indexOf('</executor_resilience_protocol>');
+    const section = content.slice(resilienceBlockIdx, resilienceBlockEndIdx);
+
+    assert.match(section, />= 80%/, 'must document the 80% context-pressure threshold');
+    assert.match(section, /CORRECT behavior/, 'must state that stopping cleanly is correct behavior');
+    assert.match(section, /never a failure/, 'must explicitly state this is never a failure');
+    assert.match(section, /EXECUTOR-HANDOFF\.json/, 'must write EXECUTOR-HANDOFF.json');
+    assert.match(section, /TASK-CHECKPOINT\.json/, 'must also commit TASK-CHECKPOINT.json alongside the handoff');
+    assert.match(section, /## PLAN INTERRUPTED — continuation needed/, 'must return the PLAN INTERRUPTED completion format instead of PLAN COMPLETE');
+    assert.match(section, /"reason": "context_pressure"/, 'EXECUTOR-HANDOFF.json schema must include reason: context_pressure');
+  });
+
+  test('task_commit_protocol step 6 writes TASK-CHECKPOINT.json after every task commit', () => {
+    const content = readGsdExecutor();
+    const protocolIdx = content.indexOf('<task_commit_protocol>');
+    const protocolEndIdx = content.indexOf('</task_commit_protocol>');
+    assert.notStrictEqual(protocolIdx, -1, 'task_commit_protocol block must exist');
+    const section = content.slice(protocolIdx, protocolEndIdx);
+
+    assert.match(section, /TASK-CHECKPOINT\.json/, 'task_commit_protocol must write TASK-CHECKPOINT.json');
+    assert.match(section, /overwrite-latest/, 'must document the overwrite-latest convention');
+    assert.match(section, /NOT committed per-task/, 'must document that this file is not committed per-task');
+  });
+
+  test('references/resilience.md is linked from agents/gsd-executor.md', () => {
+    const content = readGsdExecutor();
+    assert.match(content, /@get-shit-done\/references\/resilience\.md/, 'gsd-executor.md must point to the resilience protocol reference doc');
   });
 });
 
