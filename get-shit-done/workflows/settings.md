@@ -12,8 +12,10 @@ Read all files referenced by the invoking prompt's execution_context before star
 Ensure config exists and load current state:
 
 ```bash
-node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" config-ensure-section
-INIT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" state load)
+# Prefer a project-local install, fall back to the global one (LOCAL vs GLOBAL).
+GSD_TOOLS=$([ -f ./.claude/get-shit-done/bin/gsd-tools.js ] && echo ./.claude/get-shit-done/bin/gsd-tools.js || echo "$HOME/.claude/get-shit-done/bin/gsd-tools.js")
+node "$GSD_TOOLS" config-ensure-section
+INIT=$(node "$GSD_TOOLS" state load)
 if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
 ```
 

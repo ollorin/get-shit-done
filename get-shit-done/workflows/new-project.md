@@ -157,7 +157,7 @@ AskUserQuestion([
     question: "Which AI models for planning agents?",
     multiSelect: false,
     options: [
-      { label: "Balanced (Recommended)", description: "Sonnet for most agents — good quality/cost ratio" },
+      { label: "Balanced (Recommended)", description: "Opus for planning, Sonnet for execution/verification — good quality/cost ratio (see references/model-profiles.md)" },
       { label: "Quality", description: "Opus for research/roadmap — higher cost, deeper analysis" },
       { label: "Budget", description: "Haiku where possible — fastest, lowest cost" }
     ]
@@ -457,7 +457,7 @@ questions: [
     question: "Which AI models for planning agents?",
     multiSelect: false,
     options: [
-      { label: "Balanced (Recommended)", description: "Sonnet for most agents — good quality/cost ratio" },
+      { label: "Balanced (Recommended)", description: "Opus for planning, Sonnet for execution/verification — good quality/cost ratio (see references/model-profiles.md)" },
       { label: "Quality", description: "Opus for research/roadmap — higher cost, deeper analysis" },
       { label: "Budget", description: "Haiku where possible — fastest, lowest cost" }
     ]
@@ -700,7 +700,25 @@ Use template: ~/.claude/get-shit-done/templates/research-project/PITFALLS.md
 ", subagent_type="gsd-project-researcher", model="{researcher_model}", description="Pitfalls research", run_in_background=true)
 ```
 
-After all 4 agents complete, spawn synthesizer to create SUMMARY.md:
+**Fan-out completion gate (verify all 4 artifacts exist on disk BEFORE spawning the synthesizer).**
+"After all 4 agents complete" is not enough — an agent can return without having written its file.
+Confirm every expected artifact exists and is non-empty:
+
+```bash
+MISSING=""
+for f in STACK FEATURES ARCHITECTURE PITFALLS; do
+  [ -s ".planning/research/$f.md" ] || MISSING="$MISSING $f.md"
+done
+if [ -n "$MISSING" ]; then
+  echo "Research fan-out incomplete — missing/empty:$MISSING"
+fi
+```
+
+If any are missing/empty: re-spawn ONLY the researcher(s) for the missing file(s) once, then re-check.
+If still missing after the retry, STOP and report which research files were not produced — do NOT
+spawn the synthesizer against an incomplete input set (it would silently synthesize from partial data).
+
+Only once all 4 files exist and are non-empty, spawn the synthesizer to create SUMMARY.md:
 
 ```
 Agent(prompt="

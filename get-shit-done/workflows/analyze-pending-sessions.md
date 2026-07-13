@@ -29,8 +29,12 @@ Invocation:
 Discover sessions that have been flagged for analysis by the MCP server.
 
 ```bash
-PENDING_JSON=$(node ~/.claude/get-shit-done/bin/gsd-tools.js list-pending-sessions)
+# Prefer a project-local install, fall back to the global one (LOCAL vs GLOBAL).
+GSD_TOOLS=$([ -f ./.claude/get-shit-done/bin/gsd-tools.js ] && echo ./.claude/get-shit-done/bin/gsd-tools.js || echo "$HOME/.claude/get-shit-done/bin/gsd-tools.js")
+PENDING_JSON=$(node "$GSD_TOOLS" list-pending-sessions)
 ```
+
+(Reuse the same `GSD_TOOLS` resolution in every bash block below — each block runs in a fresh shell, so re-derive it rather than assuming it persists.)
 
 Parse the JSON output. Extract `count` and `pending` array.
 
@@ -107,7 +111,8 @@ Process each session sequentially to extract knowledge.
 5. **Store the results** by passing the temp FILE PATH (store-analysis-result reads a JSON string
    OR a file path — the file path avoids putting arbitrary text on the command line at all):
    ```bash
-   STORE_RESULT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js \
+   GSD_TOOLS=$([ -f ./.claude/get-shit-done/bin/gsd-tools.js ] && echo ./.claude/get-shit-done/bin/gsd-tools.js || echo "$HOME/.claude/get-shit-done/bin/gsd-tools.js")
+   STORE_RESULT=$(node "$GSD_TOOLS" \
      store-analysis-result "{sessionId}" "$TMPDIR/results.json")
    rm -rf "$TMPDIR"
    ```
@@ -145,7 +150,8 @@ normal — partial analysis is expected for sessions with unusual content.
 This step applies when invoked AFTER running `historical-extract`:
 
 ```bash
-HISTORICAL_JSON=$(node ~/.claude/get-shit-done/bin/gsd-tools.js \
+GSD_TOOLS=$([ -f ./.claude/get-shit-done/bin/gsd-tools.js ] && echo ./.claude/get-shit-done/bin/gsd-tools.js || echo "$HOME/.claude/get-shit-done/bin/gsd-tools.js")
+HISTORICAL_JSON=$(node "$GSD_TOOLS" \
   historical-extract "/path/to/project/.planning")
 ```
 
