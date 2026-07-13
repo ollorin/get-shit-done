@@ -366,11 +366,13 @@ Long plans can outlive a single executor's context window, or the account's sess
 
 **At every task boundary** (right after a task's commit + TASK-CHECKPOINT.json write, before starting the next task), self-assess context pressure. This is a best-effort estimate, not a tool call: weigh long tool outputs you've read, files read, and tasks completed vs. tasks remaining in the plan.
 
-**Stop rule — headroom, not a flat percentage.** What matters is whether the NEXT task plus a handoff fits in the context you have left. Current-generation models have a 1M-token window (Haiku: 200K) — a flat "stop at 80%" would strand hundreds of thousands of usable tokens. STOP (do NOT start the next task) when EITHER:
-- your estimated **remaining** context is smaller than ~2× what the next task will plausibly consume (test runs and preflight output can dump 50-100K tokens in one tool result — budget for the expensive case, not the average), PLUS ~15K reserved for writing the handoff cleanly; or
+**Stop rule — headroom, not a flat percentage.** What matters is whether the NEXT task plus a handoff fits in the context you have left. Windows differ by model (current-generation ~1M tokens; Haiku 200K) — reason in absolute tokens, not percentages; a flat "stop at 80%" would strand hundreds of thousands of tokens on a 1M model. STOP (do NOT start the next task) when EITHER:
+- your estimated **remaining** context is smaller than the next task's plausible cost (its file reads plus expected tool output — a test-suite or preflight run can dump 50–100K tokens in a single result) PLUS ~15K reserved for writing the handoff cleanly; or
 - you estimate >= 95% of the window is used, regardless of the next task's size.
 
-When in doubt between "probably fits" and "might not," stop — a clean handoff costs one respawn; dying mid-task costs the work.
+**Anti-stall guard — a handoff must always buy progress.** This rule must never loop a plan into permanent handoffs: if you are a freshly spawned executor (little context consumed yet) and the next task's estimated cost ALREADY exceeds the stop rule, do NOT hand off — a continuation agent would face identical math and the plan would stall forever. Instead, attack the task context-lean: read only the exact file sections needed, pipe long command output through grep/tail instead of ingesting it raw, and split the task into separately-committed sub-steps. Only if the task is genuinely impossible within the window, return `## PLAN BLOCKED` recommending the plan be re-split into smaller tasks — an honest block beats an infinite handoff chain.
+
+When in doubt between "probably fits" and "might not" — and you HAVE completed at least one task this run — stop: a clean handoff costs one respawn; dying mid-task costs the work.
 
 1. Write `.planning/phases/{phase_dir}/EXECUTOR-HANDOFF.json`:
    ```json

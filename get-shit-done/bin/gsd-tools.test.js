@@ -8773,13 +8773,16 @@ describe('Executor Resilience Protocol: agents/gsd-executor.md self-stop wiring'
     assert.ok(resilienceBlockIdx < successCriteriaIdx, 'resilience protocol must come before success_criteria');
   });
 
-  test('self-stop threshold is 80%, documents stopping as correct behavior (not a failure), and writes EXECUTOR-HANDOFF.json', () => {
+  test('self-stop rule is headroom-based with a 95% ceiling and anti-stall guard, documents stopping as correct behavior (not a failure), and writes EXECUTOR-HANDOFF.json', () => {
     const content = readGsdExecutor();
     const resilienceBlockIdx = content.indexOf('<executor_resilience_protocol>');
     const resilienceBlockEndIdx = content.indexOf('</executor_resilience_protocol>');
     const section = content.slice(resilienceBlockIdx, resilienceBlockEndIdx);
 
-    assert.match(section, />= 80%/, 'must document the 80% context-pressure threshold');
+    assert.match(section, /headroom, not a flat percentage/, 'must document the headroom-based stop rule');
+    assert.match(section, />= 95%/, 'must document the 95% absolute ceiling');
+    assert.match(section, /Anti-stall guard/, 'must include the anti-stall guard so small-window models cannot loop into permanent handoffs');
+    assert.match(section, /## PLAN BLOCKED/, 'anti-stall guard must define the PLAN BLOCKED escape for tasks that cannot fit any window');
     assert.match(section, /CORRECT behavior/, 'must state that stopping cleanly is correct behavior');
     assert.match(section, /never a failure/, 'must explicitly state this is never a failure');
     assert.match(section, /EXECUTOR-HANDOFF\.json/, 'must write EXECUTOR-HANDOFF.json');
