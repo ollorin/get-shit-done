@@ -264,6 +264,16 @@ Structured gaps in VERIFICATION.md frontmatter for `/gsd:plan-phase --gaps`.
 Automated checks passed. Awaiting human verification.
 ```
 
+**Machine-parseable status trailer (REQUIRED).** End your return with a fenced JSON block as its final content — the coordinator (and any MILE-26 aggregator) reads THIS, not the prose `## Verification Complete` header, which a reworded line or a missing em-dash could silently break:
+
+````
+```json
+{"status": "passed|gaps_found|human_needed", "phase": "{phase}", "score": "{N}/{M}", "report": ".planning/phases/{phase_dir}/{phase}-VERIFICATION.md"}
+```
+````
+
+`status` is one of `"passed"` | `"gaps_found"` | `"human_needed"` and MUST equal the VERIFICATION.md frontmatter `status` field exactly — the prose header and the JSON status must always agree.
+
 Self-report telemetry (MILE-26): populate these from your own run — an ambiguous must-have derivation counts as an ambiguity; a grep/tool call that failed and was silently skipped during verification counts toward tool_errors_swallowed. Best-effort, never blocks completion.
 
 </output>

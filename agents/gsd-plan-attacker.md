@@ -80,6 +80,18 @@ Return with:
 ```
 
 If zero real flaws are found after genuinely attempting all 4 attack_surface categories: return `flaws: []` and say so plainly. An empty flaw list is a valid, honest outcome -- never pad it to look thorough.
+
+## Machine-parseable status trailer (REQUIRED)
+
+End your return with a fenced JSON block as its final content — the orchestrator reads THIS, not the prose `## ATTACK COMPLETE` header:
+
+````
+```json
+{"status": "attack_complete", "plan": "{plan_id}", "flaws": {N}, "critical": {X}, "major": {Y}, "minor": {Z}}
+```
+````
+
+`flaws: 0` with `status: "attack_complete"` is the honest empty-list outcome — never inflate the counts.
 </output>
 
 <anti_patterns>

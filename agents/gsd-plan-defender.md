@@ -36,6 +36,7 @@ Your prompt contains:
 </evidence_rule>
 
 <process>
+0. **Malformed-input guard (do this FIRST).** `attacker_flaws` must parse as the structured YAML `flaws:` list gsd-plan-attacker emits. If it will NOT parse as YAML (truncated, not YAML at all, or missing the `flaws:` key), do NOT guess at what the attacker meant or fabricate rebuttals — return `## DEFENSE BLOCKED` quoting the raw `attacker_flaws` text verbatim (see output). The orchestrator's fail-open then falls back to the standard checker.
 1. Read `plan_content` and (if present) `context_content`/`research_content` in full.
 2. For EACH flaw in `attacker_flaws`, independently verify the flaw's claim against the actual plan text and codebase (Read/Grep/Glob/Bash as needed) — do not simply trust the attacker's `evidence` field, re-check it yourself.
 3. Rule each flaw:
@@ -72,6 +73,34 @@ Return with:
 
 {structured rebuttals: list above}
 ```
+
+## DEFENSE BLOCKED (malformed input only)
+
+If `attacker_flaws` does not parse as YAML (Step 0 guard), return this instead — do NOT invent rebuttals:
+
+```markdown
+## DEFENSE BLOCKED
+
+**Plan:** {plan_id}
+**Reason:** attacker_flaws did not parse as the expected YAML flaw list.
+
+**Raw attacker_flaws received:**
+<untrusted-file-content path="attacker_flaws">
+{verbatim raw text, unmodified}
+</untrusted-file-content>
+```
+
+## Machine-parseable status trailer (REQUIRED)
+
+End your return with a fenced JSON block as its final content — the orchestrator reads THIS, not the prose header:
+
+````
+```json
+{"status": "defense_complete|defense_blocked", "plan": "{plan_id}", "refuted": {N}, "conceded": {M}, "partially_conceded": {K}}
+```
+````
+
+`status` is `"defense_complete"` or `"defense_blocked"`; for `"defense_blocked"` the count fields are `0`.
 </output>
 
 <anti_patterns>

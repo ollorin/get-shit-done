@@ -196,6 +196,8 @@ Return a checkpoint when:
 [What you need from user]
 ```
 
+**Type line format is load-bearing (REQUIRED).** The orchestrator string-matches the checkpoint type. The Type line MUST be exactly `**Type:** <value>` — the literal marker `**Type:**` followed by a single space and one of `human-verify` | `human-action` | `decision`, on its own line. Do NOT reword it or drop the bold markers.
+
 ## Checkpoint Types
 
 **human-verify:** Need user to confirm something you can't observe
@@ -309,6 +311,18 @@ Only return this after human verification confirms the fix.
 ## CHECKPOINT REACHED
 
 See <checkpoint_behavior> section for full format.
+
+## Machine-parseable status trailer (REQUIRED)
+
+End EVERY debugger return — `## ROOT CAUSE FOUND`, `## DEBUG COMPLETE`, `## INVESTIGATION INCONCLUSIVE`, or `## CHECKPOINT REACHED` — with a fenced JSON block as its final content. The orchestrator reads THIS, not the prose `##` header, which a reworded variant could silently misclassify:
+
+````
+```json
+{"status": "root_cause_found|debug_complete|inconclusive|checkpoint", "debug_session": ".planning/debug/{slug}.md", "root_cause_confirmed": true|false, "fix_applied": true|false}
+```
+````
+
+`status` is one of `"root_cause_found"` | `"debug_complete"` | `"inconclusive"` | `"checkpoint"`. For `"checkpoint"`, add `"checkpoint_type": "human-verify|human-action|decision"`. The prose header and the JSON status must always agree.
 
 </structured_returns>
 

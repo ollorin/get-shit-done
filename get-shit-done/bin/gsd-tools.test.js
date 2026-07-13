@@ -2880,6 +2880,69 @@ describe('gsd-verifier — hard-fail rules for QA and test coverage (Phase 35-03
   });
 });
 
+// ─── B-9: checkpoint Type-line format pin (coordinator string-matches it) ──────
+
+describe('checkpoint Type-line format is pinned in return contracts (B-9)', () => {
+  const AGENTS = path.join('/Users/ollorin/get-shit-done', 'agents');
+
+  test('gsd-executor pins the exact `**Type:** <value>` line format', () => {
+    const content = readEffectiveAgentContent(path.join(AGENTS, 'gsd-executor.md'));
+    // The literal marker the coordinator matches must be documented verbatim.
+    assert.ok(content.includes('**Type:**'), 'executor must contain the literal **Type:** marker');
+    assert.ok(
+      /Type line (format )?is load-bearing/i.test(content),
+      'executor must document that the Type line format is load-bearing/pinned'
+    );
+    assert.ok(content.includes('ui-qa'), 'executor Type contract must list the ui-qa value the coordinator dispatches on');
+  });
+
+  test('gsd-debugger pins the exact `**Type:** <value>` line format', () => {
+    const content = readEffectiveAgentContent(path.join(AGENTS, 'gsd-debugger.md'));
+    assert.ok(content.includes('**Type:**'), 'debugger must contain the literal **Type:** marker');
+    assert.ok(
+      /Type line (format )?is load-bearing/i.test(content),
+      'debugger must document that the Type line format is load-bearing/pinned'
+    );
+  });
+});
+
+// ─── B-1: machine-parseable JSON status trailers on prose-header returns ───────
+
+describe('return-emitting agents carry a machine-parseable JSON status trailer (B-1)', () => {
+  const AGENTS = path.join('/Users/ollorin/get-shit-done', 'agents');
+  const cases = [
+    ['gsd-verifier.md', ['passed', 'gaps_found', 'human_needed']],
+    ['gsd-planner.md', ['planning_complete', 'plan_rejected']],
+    ['gsd-debugger.md', ['root_cause_found', 'debug_complete', 'inconclusive']],
+    ['gsd-plan-attacker.md', ['attack_complete']],
+    ['gsd-plan-defender.md', ['defense_complete', 'defense_blocked']],
+    ['gsd-plan-judge.md', ['judgment_complete', 'judgment_blocked']],
+  ];
+
+  for (const [file, statuses] of cases) {
+    test(`${file} documents a fenced JSON status trailer with expected status values`, () => {
+      const content = readEffectiveAgentContent(path.join(AGENTS, file));
+      assert.ok(
+        /status trailer \(REQUIRED\)/i.test(content),
+        `${file} must document a REQUIRED machine-parseable status trailer`
+      );
+      assert.ok(content.includes('"status"'), `${file} trailer must key on "status"`);
+      for (const s of statuses) {
+        assert.ok(content.includes(s), `${file} trailer must be able to emit status "${s}"`);
+      }
+    });
+  }
+
+  test('gsd-plan-defender and gsd-plan-judge have a malformed-YAML BLOCKED guard (B-11)', () => {
+    const defender = readEffectiveAgentContent(path.join(AGENTS, 'gsd-plan-defender.md'));
+    const judge = readEffectiveAgentContent(path.join(AGENTS, 'gsd-plan-judge.md'));
+    assert.ok(defender.includes('## DEFENSE BLOCKED'), 'defender must define a ## DEFENSE BLOCKED return');
+    assert.ok(/parse as YAML/i.test(defender), 'defender must condition BLOCKED on YAML parse failure');
+    assert.ok(judge.includes('## JUDGMENT BLOCKED'), 'judge must define a ## JUDGMENT BLOCKED return');
+    assert.ok(/parse as YAML/i.test(judge), 'judge must condition BLOCKED on YAML parse failure');
+  });
+});
+
 
 describe('verify migration-timestamps command', () => {
   let tmpDir;

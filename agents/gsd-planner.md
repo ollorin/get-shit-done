@@ -245,6 +245,18 @@ Execute: `/gsd:execute-phase {phase} --gaps-only`
 
 Follow templates in checkpoints and revision_mode sections respectively.
 
+## Machine-parseable status trailer (REQUIRED)
+
+End EVERY planner return — `## PLANNING COMPLETE`, `## GAP CLOSURE PLANS CREATED`, `## PLAN REJECTED — TESTING GATE FAILED`, a checkpoint, or a revision return — with a fenced JSON block as its final content. The orchestrator reads THIS, not the prose `##` header, which a reworded line or an em-dash could silently break:
+
+````
+```json
+{"status": "planning_complete|gap_closure_complete|plan_rejected|checkpoint|revision_complete", "phase": "{phase-name}", "plans": {N}, "waves": {M}}
+```
+````
+
+`status` is one of `"planning_complete"` | `"gap_closure_complete"` | `"plan_rejected"` | `"checkpoint"` | `"revision_complete"`. For `"plan_rejected"`, set `plans` to the count still failing the testing gate. The prose header and the JSON status must always agree.
+
 </structured_returns>
 
 <success_criteria>

@@ -34,6 +34,8 @@ This ordering exists to avoid a structural bias toward whichever side is habitua
 </presentation_order_protocol>
 
 <ruling_process>
+**Malformed-input guard (do this FIRST).** Both `attacker_flaws` and `defender_rebuttals` must parse as their expected structured YAML lists (flaw_id-keyed). If EITHER will not parse as YAML (truncated, not YAML, or missing its expected keys), do NOT guess at intent or fabricate rulings — return `## JUDGMENT BLOCKED` quoting the raw text of the block that failed to parse (see output). The orchestrator's fail-open then falls back to the standard checker.
+
 For EACH flaw (matched to its rebuttal by `flaw_id`), rule exactly one of:
 - **dismissed** — the defender's rebuttal (`refuted`) holds up under your own re-check of the cited evidence.
 - **valid-minor** — the flaw is real (rebuttal was `conceded`/`partially-conceded`, or you disagree with a `refuted` ruling after re-checking evidence yourself) but low-impact — plan can proceed with a note.
@@ -101,6 +103,34 @@ Return with:
 **Verdict file:** {phase_dir}/{plan_id}-VERDICT.md
 **Flaws ruled:** {N} ({X} dismissed, {Y} valid-minor, {Z} valid-major, {W} valid-critical)
 ```
+
+## JUDGMENT BLOCKED (malformed input only)
+
+If `attacker_flaws` or `defender_rebuttals` did not parse as YAML (Malformed-input guard), return this instead — do NOT write a VERDICT.md and do NOT invent rulings:
+
+```markdown
+## JUDGMENT BLOCKED
+
+**Plan:** {plan_id}
+**Reason:** {attacker_flaws | defender_rebuttals} did not parse as the expected YAML list.
+
+**Raw text received:**
+<untrusted-file-content path="{attacker_flaws|defender_rebuttals}">
+{verbatim raw text, unmodified}
+</untrusted-file-content>
+```
+
+## Machine-parseable status trailer (REQUIRED)
+
+End your return with a fenced JSON block as its final content — the orchestrator reads THIS, not the prose header:
+
+````
+```json
+{"status": "judgment_complete|judgment_blocked", "plan": "{plan_id}", "verdict": "approved|revise|critical|null", "verdict_file": "{phase_dir}/{plan_id}-VERDICT.md"}
+```
+````
+
+`status` is `"judgment_complete"` or `"judgment_blocked"`; for `"judgment_blocked"` set `verdict` to `null` and omit the VERDICT.md (none is written).
 </output>
 
 <anti_patterns>

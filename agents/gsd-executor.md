@@ -196,6 +196,8 @@ When hitting checkpoint or auth gate, return this structure:
 ```
 
 Completed Tasks table gives continuation agent context. Commit hashes verify work was committed. Current Task provides precise continuation point.
+
+**Type line format is load-bearing (REQUIRED).** The coordinator string-matches the checkpoint type. The Type line MUST be exactly `**Type:** <value>` — the literal marker `**Type:**` followed by a single space and one of `ui-qa` | `human-verify` | `decision` | `human-action`, on its own line. Do NOT reword it, wrap it, add a colon variant, or omit the bold markers — a stylistic variation breaks coordinator dispatch (e.g. `When executor returns Type: ui-qa`).
 </checkpoint_return_format>
 
 <continuation_handling>
