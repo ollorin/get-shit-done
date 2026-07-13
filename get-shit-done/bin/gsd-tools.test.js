@@ -8723,7 +8723,8 @@ describe('Executor Resilience Protocol: execute-phase.md coordinator-side wiring
     assert.match(section, /"session_limit"/, 'PAUSED.json type must include session_limit');
     assert.match(section, /paused_session_limit/, 'must be able to bubble up status: paused_session_limit');
     assert.match(section, /30 minutes/, 'must document the 30-minute wait-vs-bubble-up threshold');
-    assert.match(section, /## PLAN INTERRUPTED — continuation needed/, 'must recognize the executor clean-interruption completion format');
+    assert.match(section, /status.*is.*"interrupted"/, 'must recognize the executor clean-interruption via the JSON status trailer');
+    assert.match(section, /Parse the machine-readable status FIRST/, 'must parse the JSON status trailer before string-matching the prose header');
   });
 
   test('proactive usage-window pause check exists, is OFF by default, and is positioned before each wave spawns', () => {
