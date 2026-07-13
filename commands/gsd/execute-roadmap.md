@@ -20,6 +20,8 @@ Execute the full ROADMAP.md autonomously. Coordinator stays lean — parses road
 </execution_context>
 
 <context>
+**Version-skew preflight:** Before executing, read `~/.claude/cache/gsd-skew-check.json` if it exists. If `drifted_count > 0`, the installed GSD copy has drifted from its source — warn the user (name the drifted files if listed) and offer to stop and re-run the installer before proceeding.
+
 @.planning/ROADMAP.md
 @.planning/STATE.md
 </context>

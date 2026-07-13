@@ -23,11 +23,7 @@ Quick mode is the same system with a shorter path:
 
 **Default:** Skips research, discussion, plan-checker, verifier. Use when you know exactly what to do.
 
-**`--discuss` flag:** Lightweight discussion phase before planning. Surfaces assumptions, clarifies gray areas, captures decisions in CONTEXT.md. Use when the task has ambiguity worth resolving upfront.
-
-**`--full` flag:** Enables plan-checking (max 2 iterations) and post-execution verification. Use when you want quality guarantees without full milestone ceremony.
-
-Flags are composable: `--discuss --full` gives discussion + plan-checking + verification.
+The `--discuss` and `--full` flags (composable) are defined and handled in the workflow file — pass `$ARGUMENTS` through verbatim. The workflow is the single source of truth for their semantics; do NOT duplicate them here.
 </objective>
 
 <execution_context>

@@ -29,6 +29,8 @@ Context budget: ~15% orchestrator, 100% fresh per subagent.
 <context>
 Phase: $ARGUMENTS
 
+**Version-skew preflight:** Before executing, read `~/.claude/cache/gsd-skew-check.json` if it exists. If `drifted_count > 0`, the installed GSD copy has drifted from its source — warn the user (name the drifted files if listed) and offer to stop and re-run the installer before proceeding.
+
 **Flags:**
 - `--gaps-only` — Execute only gap closure plans (plans with `gap_closure: true` in frontmatter). Use after verify-work creates fix plans.
 

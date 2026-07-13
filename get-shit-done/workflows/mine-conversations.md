@@ -31,9 +31,21 @@ Invocation:
 <step name="discover_conversations">
 Discover conversation JSONL files that are ready to be mined for knowledge.
 
+**This workflow is the single source of truth for flags** — the command only advertises them in
+its `argument-hint`. Thread the user's `$ARGUMENTS` through to the CLI verbatim so every advertised
+flag (`--all-projects`, `--include-subagents`, and user overrides of `--max-age-days` / `--limit`)
+actually takes effect; apply the defaults ONLY when the user did not supply that flag:
+
 ```bash
-MINE_JSON=$(node ~/.claude/get-shit-done/bin/gsd-tools.js mine-conversations --max-age-days 30 --limit 10)
+MINE_ARGS="$ARGUMENTS"
+case "$MINE_ARGS" in *--max-age-days*) ;; *) MINE_ARGS="$MINE_ARGS --max-age-days 30" ;; esac
+case "$MINE_ARGS" in *--limit*)        ;; *) MINE_ARGS="$MINE_ARGS --limit 10" ;; esac
+MINE_JSON=$(node ~/.claude/get-shit-done/bin/gsd-tools.js mine-conversations $MINE_ARGS)
 ```
+
+Supported flags (handled entirely by the `mine-conversations` CLI): `--max-age-days N` (default 30),
+`--limit N` (default 10), `--include-subagents`, `--all-projects` (scan all `~/.claude/projects/`
+slug dirs instead of the current project only).
 
 Parse the JSON output. Extract `status`, `sessionsReady`, `sessionsSkipped`, `sessions`, `skipped`.
 
