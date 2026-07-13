@@ -9131,6 +9131,141 @@ describe('Phase 52-01: SessionStart skew-check helpers + execute-roadmap.md pref
   });
 });
 
+describe('Hook hardening (C-1/C-3/C-4): fail-open + bounded + distinguishable-failure', () => {
+  const { spawnSync } = require('child_process');
+  const os = require('os');
+  const HOOKS_DIR = path.join(__dirname, 'hooks'); // get-shit-done/bin/hooks
+  const CHECK_UPDATE_HOOK = path.join(__dirname, '..', '..', 'hooks', 'gsd-check-update.js');
+  const PROTECT_HOOK = path.join(HOOKS_DIR, 'gsd-protect-managed-files.js');
+  const SESSION_END_HOOK = path.join(HOOKS_DIR, 'session-end-standalone.js');
+
+  function runHook(hookPath, payload, extraEnv, args) {
+    const res = spawnSync(process.execPath, [hookPath, ...(args || [])], {
+      input: payload,
+      encoding: 'utf-8',
+      env: { ...process.env, ...(extraEnv || {}) },
+      timeout: 20000,
+    });
+    return { exitCode: res.status, stdout: res.stdout || '', stderr: res.stderr || '' };
+  }
+
+  // C-4: buildUpdateCachePayload — a genuine failure must be distinguishable
+  // from "up to date" via a non-null error field; a clean success stays null.
+  describe('C-4 buildUpdateCachePayload', () => {
+    const { buildUpdateCachePayload } = require(CHECK_UPDATE_HOOK);
+
+    test('up-to-date: update_available false, error null', () => {
+      const p = buildUpdateCachePayload('1.2.0', '1.2.0', null);
+      assert.strictEqual(p.update_available, false);
+      assert.strictEqual(p.error, null);
+      assert.strictEqual(p.latest, '1.2.0');
+      assert.strictEqual(typeof p.checked, 'number');
+    });
+
+    test('update available: update_available true, error null', () => {
+      const p = buildUpdateCachePayload('1.1.0', '1.2.0', null);
+      assert.strictEqual(p.update_available, true);
+      assert.strictEqual(p.error, null);
+    });
+
+    test('fetch failure is distinguishable: error set, update_available false, latest "unknown"', () => {
+      const p = buildUpdateCachePayload('1.1.0', null, 'ENOTFOUND registry.npmjs.org');
+      assert.strictEqual(p.update_available, false, 'a failed check must NOT look like an available update');
+      assert.strictEqual(p.error, 'ENOTFOUND registry.npmjs.org');
+      assert.strictEqual(p.latest, 'unknown');
+    });
+
+    test('missing installed version never spuriously reports an update', () => {
+      const p = buildUpdateCachePayload(null, '1.2.0', null);
+      assert.strictEqual(p.update_available, false);
+      assert.strictEqual(p.installed, 'unknown');
+    });
+  });
+
+  // C-1: a corrupt manifest must fail OPEN (exit 0) but VISIBLY warn on stderr,
+  // never silently disable protection.
+  describe('C-1 gsd-protect-managed-files corrupt-manifest signal', () => {
+    test('corrupt manifest → exit 0 + stderr warning that protection is disabled', () => {
+      const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-protect-corrupt-'));
+      try {
+        fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+        fs.writeFileSync(path.join(home, '.claude', 'gsd-file-manifest.json'), 'garbage{{ not json');
+        const payload = JSON.stringify({
+          tool_name: 'Edit',
+          tool_input: { file_path: path.join(home, '.claude', 'agents', 'x.md') },
+        });
+        const r = runHook(PROTECT_HOOK, payload, { HOME: home });
+        assert.strictEqual(r.exitCode, 0, 'corrupt manifest must fail open (exit 0)');
+        assert.match(r.stderr, /\[gsd-protect\].*protection is DISABLED/i, 'must visibly warn protection is off');
+      } finally {
+        cleanup(home);
+      }
+    });
+
+    test('malformed stdin fails open (exit 0)', () => {
+      const r = runHook(PROTECT_HOOK, 'not json {{{');
+      assert.strictEqual(r.exitCode, 0);
+    });
+  });
+
+  // C-3: session-end must always exit 0, and expose the bounded --run-maintenance
+  // subcommand that the parent invokes under a kill deadline.
+  describe('C-3 session-end-standalone bounded maintenance', () => {
+    test('minimal Stop payload exits 0', () => {
+      const r = runHook(SESSION_END_HOOK, JSON.stringify({ session_id: 'abc' }));
+      assert.strictEqual(r.exitCode, 0);
+    });
+
+    test('empty stdin exits 0', () => {
+      const r = runHook(SESSION_END_HOOK, '');
+      assert.strictEqual(r.exitCode, 0);
+    });
+
+    test('--run-maintenance subcommand exits 0 even when knowledge DB modules are unavailable', () => {
+      const r = runHook(SESSION_END_HOOK, '', null, ['--run-maintenance']);
+      assert.strictEqual(r.exitCode, 0, 'maintenance worker must be best-effort and never fail the stop');
+    });
+
+    test('source wires a hard kill deadline and an async watchdog', () => {
+      const src = fs.readFileSync(SESSION_END_HOOK, 'utf-8');
+      assert.match(src, /execFileSync/, 'must bound synchronous maintenance in a child process');
+      assert.match(src, /--run-maintenance/, 'must route the child subcommand');
+      assert.match(src, /setTimeout\(\(\)\s*=>\s*process\.exit\(0\)/, 'must have an absolute watchdog');
+    });
+  });
+
+  // C-2: expected conditions must not spray a full stack trace into stderr.
+  describe('C-2 doc-compression-hook quiet errors + single enable-check', () => {
+    const DOC_HOOK = path.join(HOOKS_DIR, 'doc-compression-hook.js');
+
+    test('no error.stack dump remains in the catch handler', () => {
+      const src = fs.readFileSync(DOC_HOOK, 'utf-8');
+      assert.ok(!/console\.error\(error\.stack\)/.test(src), 'stack-trace dump must be removed');
+    });
+
+    test('the redundant second config.enabled/compression.enabled check is gone', () => {
+      const src = fs.readFileSync(DOC_HOOK, 'utf-8');
+      const enabledChecks = (src.match(/!config\.enabled\s*\|\|\s*!config\.compression\.enabled/g) || []).length;
+      assert.strictEqual(enabledChecks, 0, 'the post-load enabled re-check should be collapsed away');
+    });
+  });
+
+  // C-5: shared quota/dedup state must be written atomically (temp + rename) so
+  // concurrent statusline renders can never read torn JSON.
+  describe('C-5 gsd-statusline atomic shared-state writes', () => {
+    const STATUSLINE_HOOK = path.join(__dirname, '..', '..', 'hooks', 'gsd-statusline.js');
+
+    test('defines atomicWriteFileSync and uses rename for the shared quota state', () => {
+      const src = fs.readFileSync(STATUSLINE_HOOK, 'utf-8');
+      assert.match(src, /function atomicWriteFileSync/, 'must define an atomic write helper');
+      assert.match(src, /fs\.renameSync/, 'atomic write must rename over the target');
+      assert.match(src, /atomicWriteFileSync\(quotaStatePath/, 'shared quota state must be written atomically');
+      assert.match(src, /atomicWriteFileSync\(dedupFile/, 'dedup state must be written atomically');
+      assert.ok(!/fs\.writeFileSync\(quotaStatePath/.test(src), 'no non-atomic write of the shared quota state');
+    });
+  });
+});
+
 describe('Phase 52-02: telemetry append/summarize', () => {
   const { summarizeTelemetryReports, appendTelemetryReport, readTelemetryReports } = require(TOOLS_PATH);
 
