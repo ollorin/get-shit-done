@@ -383,6 +383,8 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
      3. If that tool is not available in this execution context (e.g. a standalone `/gsd:execute-phase` run without roadmap-level Telegram wiring): fall back to `AskUserQuestion` if interactive, or the existing fire-and-forget notification + `FAILURE.md` write if fully autonomous — document which path was taken in SUMMARY.md.
      4. Mark this plan failed, report partial completion, continue with non-dependent plans only.
 
+5.5. **Live course-correction relay (App #3, `@get-shit-done/references/agent-messaging.md`):** if a checker or QA agent (gsd-plan-checker, gsd-charlotte-qa) that is running while an executor is STILL producing work `SendMessage`s you (`to: "main"`) a mid-run finding, you MAY relay a correction to the in-flight executor: `SendMessage(to: <EXECUTOR_AGENT_IDS[{plan_id}]>, …)` with the finding so it can adjust before finishing wrong, instead of letting the plan complete and be redone. This stays coordinator-mediated (the checker/QA agent never messages the executor directly). It is additive — the checker/QA agent's structured return is still the durable record, and delivery is at the executor's next tool round (hard semantic #1), so treat the relay as a best-effort tightening, never a guaranteed real-time halt. If the executor's agentId is unavailable, fall back to normal post-run handling (its next return, or the checker/QA report driving a fix pass).
+
 6. **Execute checkpoint plans between waves** — see `<checkpoint_handling>`.
 
 7. **Proceed to next wave.**

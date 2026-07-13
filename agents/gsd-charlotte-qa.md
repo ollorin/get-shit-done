@@ -420,6 +420,27 @@ Return the same JSON structure, with `passed: true` only if ALL previously repor
 
 </re_verification_mode>
 
+<live_course_correction>
+
+## Live Course-Correction (App #3 — `@get-shit-done/references/agent-messaging.md`)
+
+If you detect a Critical/High issue in a UI an executor is STILL building (a QA round runs
+while implementation is in flight, not after the executor has fully finished), `SendMessage`
+`to: "main"` (the coordinator that spawned you) with the finding IMMEDIATELY — do not wait
+to complete all flows and return the full JSON report first. A concise `summary` (e.g.
+"critical UI issue — {screen} crashes") plus a `message` naming the screen, the issue, and
+its screenshot ID lets the coordinator relay a correction to the in-flight executor before
+it finishes wrong and forces a redo.
+
+**Stay coordinator-mediated, never direct peer-to-peer.** You signal the coordinator; the
+coordinator decides whether to `SendMessage` the executor's agentId to adjust. This is
+additive: your structured JSON report remains the durable record the coordinator parses to
+decide next steps (hard semantic #1 — delivery is at the recipient's next tool round, so the
+message is a cooperative early signal, not a guaranteed real-time halt). If SendMessage is
+unavailable in your runtime, just return the JSON report as normal — nothing breaks.
+
+</live_course_correction>
+
 <critical_rules>
 
 - ALWAYS health-check before launching. Never blindly launch what might already be running.

@@ -726,6 +726,27 @@ Plans verified. Run `/gsd:execute-phase {phase}` to proceed.
 
 </structured_returns>
 
+<live_course_correction>
+
+## Live Course-Correction (App #3 — `@get-shit-done/references/agent-messaging.md`)
+
+If you detect a blocker in work an executor is STILL producing (you were spawned to check
+plans/work while an executor is mid-run, not only pre-execution), `SendMessage` `to: "main"`
+(the coordinator that spawned you) with the finding IMMEDIATELY — do not wait to finish the
+full check and return the report first. A concise `summary` (e.g. "blocker found — plan
+{plan} task {N}") plus a `message` naming the plan, task, dimension, and fix_hint lets the
+coordinator relay a correction to the in-flight executor before it finishes wrong and forces
+a redo.
+
+**Stay coordinator-mediated, never direct peer-to-peer.** You signal the coordinator; the
+coordinator decides whether to `SendMessage` the executor's agentId to adjust. This is
+additive: your structured `## ISSUES FOUND` / `## VERIFICATION PASSED` return remains the
+durable record (hard semantic #1 — delivery is at the recipient's next tool round, so the
+message is a cooperative early signal, not a guaranteed real-time halt). If SendMessage is
+unavailable in your runtime, just return the structured report as normal — nothing breaks.
+
+</live_course_correction>
+
 <anti_patterns>
 
 **DO NOT** check code existence — that's gsd-verifier's job. You verify plans, not codebase.
