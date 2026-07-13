@@ -151,7 +151,7 @@ For full automation-first patterns, server lifecycle, CLI handling:
 
 When encountering `type="checkpoint:*"`: Check auto mode first (see auto_mode_detection). If not auto-approving, **STOP immediately.** Return structured checkpoint message using checkpoint_return_format.
 
-**Human relay fast-path (App #6 — `@get-shit-done/references/agent-messaging.md`):** when you hit a `checkpoint:decision` or `checkpoint:human-action` that is NOT auto-approved, ALSO `SendMessage` `to: "main"` (your spawner — the coordinator/orchestrator) with a concise `summary` (e.g. "decision needed — auth provider") and a `message` carrying the decision/action and what you await. This surfaces the checkpoint to the orchestrator/user immediately, and lets you stay alive awaiting the answer rather than only ending your turn. It COMPOSES with — does not replace — the structured `## CHECKPOINT REACHED` return below: the message is the fast path that gets a human's attention sooner; the structured return remains the durable record the coordinator dispatches on (its `**Type:**` line is still load-bearing). If SendMessage is unavailable in your runtime, just emit the structured return as normal.
+**Human relay fast-path (App #6 — see `<agent_messaging>`):** on a non-auto-approved `checkpoint:decision`/`checkpoint:human-action`, ALSO `SendMessage` `to: "main"` with the decision and what you await, then stay alive for the answer. Composes with — never replaces — the structured `## CHECKPOINT REACHED` return below (its `**Type:**` line stays load-bearing). Skip if SendMessage is unavailable.
 
 **checkpoint:ui-qa** — Automated web UI/UX QA. STOP and return structured message. The coordinator spawns gsd-charlotte-qa to handle testing. Provide: what was built, test flows (from the checkpoint task).
 
@@ -320,7 +320,7 @@ RETRY_ESCALATED=false  # set to true if task was escalated to sonnet from haiku
 ```
 This file is NOT committed per-task (too noisy) — it rides along in the plan's final SUMMARY.md commit, or is committed immediately if a checkpoint/handoff fires (see `<executor_resilience_protocol>` below). Its purpose: a continuation agent respawned after this executor dies reads it to know exactly which task to resume from, without re-deriving state from `git log`.
 
-**7. Optional progress heartbeat (App #5 — `@get-shit-done/references/agent-messaging.md`):** on a LONG plan (say > 4 tasks), you MAY `SendMessage` `to: "main"` a one-line heartbeat after a task commit — `summary` like "task N/M complete, green". This is OPTIONAL, rate-limited (NOT every task, NOT on short plans — e.g. at most every few tasks), and purely a coordinator-visibility aid. It never blocks, is never required, and its absence changes nothing about recovery (TASK-CHECKPOINT.json + the final trailer remain the record). Do NOT heartbeat on short plans or send one per task — that is noise. Skip silently if SendMessage is unavailable.
+**7. Optional progress heartbeat (App #5):** on a long plan you MAY send a rate-limited upward heartbeat after a task commit — see `<agent_messaging>` after the core-preamble marker.
 
 **ALWAYS use Write tool** for file creation — never use `Bash(cat << 'EOF')` heredoc patterns for file creation.
 </task_commit_protocol>
@@ -397,7 +397,7 @@ When in doubt between "probably fits" and "might not" — and you HAVE completed
    }
    ```
 2. `git add` the handoff file plus `TASK-CHECKPOINT.json` and commit as a `chore` commit: `chore({phase}-{plan}): executor handoff at task {N} — context pressure`.
-3. **Upward continuation signal (additive — App #1, `@get-shit-done/references/agent-messaging.md`).** `SendMessage` `to: "main"` (your spawner — the coordinator) with `summary: "continuation needed — handoff written"` and a `message` naming the plan (`{phase}-{plan}`), the last-completed-task index (`{N}`), and the handoff path (`{phase_dir}/EXECUTOR-HANDOFF.json`). This is an out-of-band EARLY signal so the coordinator can start the continuation respawn without waiting for this turn to fully unwind. It is strictly ADDITIVE: the EXECUTOR-HANDOFF.json + JSON status trailer below remain the durable record, and if the message is never delivered the coordinator still recovers from the handoff file (the upward-only rule of hard semantic #2 — the signal originates FROM you, the agent hitting the limit). If SendMessage is unavailable in your runtime, skip this step silently and rely on the handoff + trailer.
+3. **Upward continuation signal (App #1 — see `<agent_messaging>`).** ALSO `SendMessage` `to: "main"` with `summary: "continuation needed — handoff written"` and a `message` naming the plan, the last-completed-task index, and the handoff path (`EXECUTOR-HANDOFF.json`). Additive early signal — the handoff + JSON trailer below stay the durable record; skip silently if SendMessage is unavailable.
 4. Return the completion below **instead of** `## PLAN COMPLETE`:
 
 ```markdown
@@ -431,31 +431,6 @@ When in doubt between "probably fits" and "might not" — and you HAVE completed
 
 </executor_resilience_protocol>
 
-<wave_peer_awareness>
-
-## Wave Peer Awareness (App #4 — `@get-shit-done/references/agent-messaging.md`)
-
-If your spawn prompt contains a `<wave_peers>` block, you are running in a parallel wave
-alongside other executors. Each peer entry lists that peer's agent name and its plan's
-`files_modified`.
-
-**When to signal a peer:** ONLY when you actually modify a file that a specific wave-peer's
-`files_modified` list names — a genuine shared-file mutation that could collide with work
-that peer is producing concurrently. In that case `SendMessage` that peer (by its name, or
-its agentId if you were given one) with a concise `summary` (e.g. "shared-file edit —
-{path}") and a `message` naming the exact file and what you changed, so the peer can re-read
-before it writes.
-
-**Do NOT be chatty.** Do not message peers about files not in their `files_modified`, about
-reads, or as a general progress ping (that is App #5, a separate upward signal). Silence is
-correct unless there is a true shared-file overlap. This is a cooperative heads-up — delivery
-is at the peer's next tool round (hard semantic #1), not a real-time lock, so still write
-defensively (re-check a shared file's current state before editing it yourself). If
-SendMessage is unavailable in your runtime, proceed normally — the atomic per-task commits
-and the coordinator's post-wave spot-checks remain the backstop against collisions.
-
-</wave_peer_awareness>
-
 <success_criteria>
 Plan execution complete when:
 
@@ -474,6 +449,42 @@ Plan execution complete when:
 </success_criteria>
 
 <!-- GSD:CORE-PREAMBLE-END -->
+
+<agent_messaging>
+
+## Agent Messaging (SendMessage) — detail for the preamble hooks above
+
+Full patterns and the three hard semantics: `@get-shit-done/references/agent-messaging.md`.
+Messaging is ADDITIVE signalling on top of the Executor Resilience Protocol — every path has
+an intact file-based fallback, and delivery is at the recipient's NEXT tool round (a
+cooperative signal, never a real-time halt). Skip any of these silently if SendMessage is
+unavailable in your runtime.
+
+### App #4 — Wave peer awareness
+
+If your spawn prompt contains a `<wave_peers>` block, you are running in a parallel wave
+alongside other executors; each peer entry lists that peer's agent name and its plan's
+`files_modified`. **Signal a peer ONLY when you modify a file that a specific wave-peer's
+`files_modified` list names** — a genuine shared-file mutation that could collide with work
+that peer is producing concurrently. `SendMessage` that peer (by its name, or its agentId if
+you were given one) with a concise `summary` (e.g. "shared-file edit — {path}") and a
+`message` naming the exact file and what you changed, so the peer can re-read before it
+writes. **Do NOT be chatty** — no messages about files outside that peer's `files_modified`,
+about reads, or as a general progress ping (that is App #5). Silence is correct unless there
+is a true shared-file overlap. It is a cooperative heads-up, not a lock, so still write
+defensively (re-check a shared file's current state before editing). Atomic per-task commits
+and the coordinator's post-wave spot-checks remain the collision backstop.
+
+### App #5 — Optional progress heartbeat
+
+On a LONG plan (say > 4 tasks), after a task commit you MAY `SendMessage` `to: "main"` a
+one-line heartbeat — `summary` like "task N/M complete, green". This is OPTIONAL,
+rate-limited (NOT every task, NOT on short plans — at most every few tasks), and purely a
+coordinator-visibility aid. It never blocks, is never required, and its absence changes
+nothing about recovery (TASK-CHECKPOINT.json + the final JSON trailer remain the record).
+Sending one per task, or any heartbeat on a short plan, is noise — don't.
+
+</agent_messaging>
 
 The full execution_flow (load_project_state, load_plan,
 load_user_reasoning_context, record_start_time, determine_execution_pattern,

@@ -14377,3 +14377,139 @@ describe('A-2: shared dispatcher-contract reference exists and thin dispatchers 
     }
   });
 });
+
+// Agent-to-agent messaging layer (SendMessage). Structural/prose guards for the
+// messaging patterns that compose on top of the Executor Resilience Protocol.
+// SendMessage cannot be runtime-simulated here, so these assert the wiring is
+// documented in the agent/workflow/reference .md files — same style as the
+// resilience prose guards above. Repo root is two levels up from this file's
+// __dirname (get-shit-done/bin/ -> get-shit-done/ -> repo root).
+describe('Agent messaging (SendMessage) — prompt-layer wiring', () => {
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  function readRepoFile(rel) {
+    return fs.readFileSync(path.join(REPO_ROOT, rel), 'utf-8');
+  }
+
+  test('references/agent-messaging.md exists and documents the 3 hard semantics + 6 application patterns', () => {
+    const p = path.join(REPO_ROOT, 'get-shit-done', 'references', 'agent-messaging.md');
+    assert.ok(fs.existsSync(p), 'get-shit-done/references/agent-messaging.md must exist as the single source');
+    const content = fs.readFileSync(p, 'utf-8');
+
+    // Hard semantic #1 — delivery at next tool round, cooperative not preemptive
+    assert.match(content, /next tool round/i, 'must document semantic #1: delivery at the recipient next tool round');
+    assert.match(content, /COOPERATIVE/i, 'must document that messaging is a cooperative signal, not a preemptive halt');
+    // Hard semantic #2 — upward-only limit signals
+    assert.match(content, /cannot observe another agent/i, 'must document semantic #2: a subagent cannot observe another agent context/session');
+    assert.match(content, /flow UP|UPWARD|to: "main"/i, 'must document that limit signals flow upward (to: "main")');
+    // Hard semantic #3 — resume-by-agentId same-session-only
+    assert.match(content, /SAME-SESSION only/i, 'must document semantic #3: resume-by-agentId is same-session only');
+    assert.match(content, /PAUSED\.json|handoff-doc/i, 'must state the handoff-doc + PAUSED.json path is the durable cross-session fallback');
+
+    // All 6 application patterns named
+    for (let n = 1; n <= 6; n++) {
+      assert.match(content, new RegExp(`App #${n}`), `agent-messaging.md must document App #${n}`);
+    }
+
+    // Recipient forms
+    assert.match(content, /agentId/, 'must document the agentId recipient form');
+    assert.match(content, /teammate NAME/i, 'must document the teammate NAME recipient form');
+  });
+
+  test('the 5 signalling/coordinating agents have SendMessage in their tools frontmatter', () => {
+    const agents = [
+      'gsd-executor', 'gsd-phase-coordinator', 'gsd-plan-checker',
+      'gsd-charlotte-qa', 'gsd-verifier',
+    ];
+    for (const name of agents) {
+      const content = readRepoFile(path.join('agents', `${name}.md`));
+      const toolsLine = content.split('\n').find((l) => l.startsWith('tools:'));
+      assert.ok(toolsLine, `${name}.md must have a tools: frontmatter line`);
+      assert.match(toolsLine, /\bSendMessage\b/, `${name}.md tools: line must include SendMessage`);
+    }
+  });
+
+  test('read-only mapper/researcher agents did NOT get SendMessage', () => {
+    // Guard against over-broad application — the tool goes only on signalling agents.
+    for (const name of ['gsd-codebase-mapper', 'gsd-project-researcher']) {
+      const content = readRepoFile(path.join('agents', `${name}.md`));
+      const toolsLine = content.split('\n').find((l) => l.startsWith('tools:'));
+      if (toolsLine) {
+        assert.doesNotMatch(toolsLine, /\bSendMessage\b/, `${name}.md must NOT have SendMessage in tools`);
+      }
+    }
+  });
+
+  test('App #1: executor self-stop path emits the upward continuation signal to "main"', () => {
+    const content = readRepoFile(path.join('agents', 'gsd-executor.md'));
+    const protoStart = content.indexOf('<executor_resilience_protocol>');
+    const protoEnd = content.indexOf('</executor_resilience_protocol>');
+    assert.ok(protoStart !== -1 && protoEnd > protoStart, 'executor_resilience_protocol block must exist');
+    const proto = content.slice(protoStart, protoEnd);
+    assert.match(proto, /SendMessage/, 'self-stop path must SendMessage');
+    assert.match(proto, /to: "main"/, 'self-stop signal must go upward to "main"');
+    assert.match(proto, /continuation needed — handoff written/, 'must carry the App #1 summary');
+    // Additive, not a replacement — handoff + trailer remain
+    assert.match(proto, /EXECUTOR-HANDOFF\.json/, 'handoff file must remain the durable record');
+  });
+
+  test('App #2: execute-phase.md documents resume-by-agentId vs cold-spawn and captures agentId', () => {
+    const content = readRepoFile('get-shit-done/workflows/execute-phase.md');
+    assert.match(content, /EXECUTOR_AGENT_IDS/, 'coordinator must capture/retain executor agentIds');
+    assert.match(content, /resume-by-agentId/i, 'must document the resume-by-agentId path');
+    assert.match(content, /cold (fresh-)?spawn/i, 'must document the cold-spawn fallback');
+    assert.match(content, /<prior_executor_handoff>/, 'cold-spawn fallback must use the existing prior_executor_handoff block');
+    assert.match(content, /same session/i, 'decision must hinge on same-session availability of the agentId');
+  });
+
+  test('App #3: plan-checker + charlotte-qa signal mid-run; execute-phase relays coordinator-mediated', () => {
+    for (const name of ['gsd-plan-checker', 'gsd-charlotte-qa']) {
+      const content = readRepoFile(path.join('agents', `${name}.md`));
+      assert.match(content, /<live_course_correction>/, `${name}.md must have a live_course_correction block`);
+      assert.match(content, /to: "main"/, `${name}.md must SendMessage findings upward to "main"`);
+      assert.match(content, /coordinator-mediated/i, `${name}.md must keep the relay coordinator-mediated, not direct peer`);
+    }
+    const phase = readRepoFile('get-shit-done/workflows/execute-phase.md');
+    assert.match(phase, /App #3/, 'execute-phase.md must document the App #3 relay');
+    assert.match(phase, /EXECUTOR_AGENT_IDS/, 'coordinator relay uses the captured executor agentId');
+  });
+
+  test('App #4: wave peer awareness — executor <agent_messaging> block + coordinator injects <wave_peers>', () => {
+    const executor = readRepoFile(path.join('agents', 'gsd-executor.md'));
+    assert.match(executor, /<agent_messaging>/, 'gsd-executor.md must have an <agent_messaging> section');
+    assert.match(executor, /App #4\b[\s\S]*Wave peer awareness/i, 'agent_messaging must document App #4 wave peer awareness');
+    assert.match(executor, /files_modified/, 'wave peer signalling must key off a peer plan files_modified overlap');
+    assert.match(executor, /chatty/i, 'must warn against chatty peer messaging');
+    const phase = readRepoFile('get-shit-done/workflows/execute-phase.md');
+    assert.match(phase, /<wave_peers>/, 'execute-phase.md must inject a <wave_peers> block for parallel waves');
+  });
+
+  test('App #5: executor has an OPTIONAL rate-limited upward heartbeat', () => {
+    const content = readRepoFile(path.join('agents', 'gsd-executor.md'));
+    assert.match(content, /heartbeat/i, 'gsd-executor.md must document the progress heartbeat');
+    assert.match(content, /OPTIONAL/, 'heartbeat must be explicitly optional');
+    assert.match(content, /rate-limited/i, 'heartbeat must be rate-limited (not every task)');
+  });
+
+  test('the agent-messaging additions kept the executor core preamble within its (bumped) budget', () => {
+    const { checkAllBudgets } = require('./prompt-budget.js');
+    const res = checkAllBudgets(REPO_ROOT);
+    assert.ok(res.pass, `all core-preamble budgets must pass, got: ${JSON.stringify(res.results)}`);
+    const exec = res.results.find((r) => r.filePath === 'agents/gsd-executor.md');
+    assert.ok(exec && exec.pass, 'gsd-executor.md must be within its core-preamble budget');
+  });
+
+  test('App #6: human relay at checkpoints in gsd-executor.md and references/checkpoints.md, composing with the structured return', () => {
+    const executor = readRepoFile(path.join('agents', 'gsd-executor.md'));
+    const cpStart = executor.indexOf('<checkpoint_protocol>');
+    const cpEnd = executor.indexOf('</checkpoint_protocol>');
+    assert.ok(cpStart !== -1 && cpEnd > cpStart, 'checkpoint_protocol block must exist');
+    const cp = executor.slice(cpStart, cpEnd);
+    assert.match(cp, /App #6/, 'checkpoint_protocol must document App #6 human relay');
+    assert.match(cp, /to: "main"/, 'checkpoint human relay must go upward to "main"');
+    assert.match(cp, /CHECKPOINT REACHED|structured .*return/i, 'must compose with — not replace — the structured checkpoint return');
+
+    const checkpoints = readRepoFile('get-shit-done/references/checkpoints.md');
+    assert.match(checkpoints, /App #6/, 'references/checkpoints.md must document the App #6 human relay fast-path');
+    assert.match(checkpoints, /SendMessage/, 'references/checkpoints.md must reference SendMessage');
+  });
+});
