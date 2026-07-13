@@ -284,7 +284,7 @@ Orchestrator presents checkpoint to user, gets response, spawns fresh continuati
 **Commit:** {hash}
 ```
 
-Only return this after human verification confirms the fix.
+In interactive modes, only return this after human verification confirms the fix. In **`interactive: false`** mode (see `<modes>`), self-verification (re-running the reproduction and confirming the symptom is gone) replaces the human-verify step — note `**Verification:** self-verified (non-interactive)`.
 
 ## INVESTIGATION INCONCLUSIVE
 
@@ -349,6 +349,12 @@ Check for mode flags in prompt context:
 - Complete full debugging cycle
 - Require human-verify checkpoint after self-verification
 - Archive session only after user confirmation
+
+**interactive: false + goal: find_and_fix** (autonomous recovery — e.g. execute-phase.md's failure ladder)
+- There is NO human on the other end to answer a human-verify checkpoint — returning one here stalls the automated recovery ladder.
+- **Self-verification REPLACES the human-verify checkpoint:** re-run the exact reproduction from Symptoms and confirm the symptom is gone (and, if a test reproduces it, that the test now passes).
+- If self-verification PASSES: return `## DEBUG COMPLETE` with `**Verification:** self-verified (non-interactive)` — do NOT return a CHECKPOINT the caller cannot answer.
+- If self-verification FAILS or the fix cannot be confirmed without a human: return `## INVESTIGATION INCONCLUSIVE` (with a `needs_human_verification` note in the recommendation) so the caller routes it, rather than emitting an unanswerable checkpoint.
 
 **Default mode (no flags):**
 - Interactive debugging with user

@@ -889,6 +889,8 @@ Update status to "fixing".
 <step name="request_human_verification">
 **Require user confirmation before marking resolved.**
 
+**Non-interactive skip (`interactive: false + goal: find_and_fix`).** When spawned autonomously (e.g. execute-phase.md's failure ladder) there is no human to answer this checkpoint — emitting one stalls recovery. In that mode, SKIP this step: your self-verification in `fix_and_verify` (re-run the reproduction, confirm the symptom is gone) stands in for human confirmation. Proceed directly to `archive_session` and return `## DEBUG COMPLETE` with `**Verification:** self-verified (non-interactive)`. If self-verification did not pass, return `## INVESTIGATION INCONCLUSIVE` (noting `needs_human_verification`) instead — never a checkpoint the caller cannot answer.
+
 Update status to "awaiting_human_verify".
 
 Return:
@@ -928,7 +930,7 @@ Do NOT move file to `resolved/` in this step.
 <step name="archive_session">
 **Archive resolved debug session after human confirmation.**
 
-Only run this step when checkpoint response confirms the fix works end-to-end.
+Only run this step when checkpoint response confirms the fix works end-to-end. **Exception — `interactive: false` mode:** there is no checkpoint response; passing self-verification (`fix_and_verify`) is the confirmation, so archive here after it passes.
 
 Update status to "resolved".
 
