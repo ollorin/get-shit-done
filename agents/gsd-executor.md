@@ -393,7 +393,8 @@ When in doubt between "probably fits" and "might not" — and you HAVE completed
    }
    ```
 2. `git add` the handoff file plus `TASK-CHECKPOINT.json` and commit as a `chore` commit: `chore({phase}-{plan}): executor handoff at task {N} — context pressure`.
-3. Return the completion below **instead of** `## PLAN COMPLETE`:
+3. **Upward continuation signal (additive — App #1, `@get-shit-done/references/agent-messaging.md`).** `SendMessage` `to: "main"` (your spawner — the coordinator) with `summary: "continuation needed — handoff written"` and a `message` naming the plan (`{phase}-{plan}`), the last-completed-task index (`{N}`), and the handoff path (`{phase_dir}/EXECUTOR-HANDOFF.json`). This is an out-of-band EARLY signal so the coordinator can start the continuation respawn without waiting for this turn to fully unwind. It is strictly ADDITIVE: the EXECUTOR-HANDOFF.json + JSON status trailer below remain the durable record, and if the message is never delivered the coordinator still recovers from the handoff file (the upward-only rule of hard semantic #2 — the signal originates FROM you, the agent hitting the limit). If SendMessage is unavailable in your runtime, skip this step silently and rely on the handoff + trailer.
+4. Return the completion below **instead of** `## PLAN COMPLETE`:
 
 ```markdown
 ## PLAN INTERRUPTED — continuation needed
