@@ -58,7 +58,7 @@ rebuttals:
     evidence: "No task or must_haves entry in this plan defines a measurable latency target — the attacker is correct, this truth is not testable as written"
 ```
 
-**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}
+**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed=[{rule, why}, ...], ambiguities={count}, tool_errors_swallowed={count}
 
 Self-report telemetry (MILE-26 pattern, extended here per MILE-39): populate these from your own run -- best-effort, never blocks completion.
 

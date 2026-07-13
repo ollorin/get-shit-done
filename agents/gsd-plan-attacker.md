@@ -63,7 +63,7 @@ flaws:
     evidence: "No artifact or key_link in this plan produces a measurable latency number"
 ```
 
-**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}
+**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed=[{rule, why}, ...], ambiguities={count}, tool_errors_swallowed={count}
 
 Self-report telemetry (MILE-26 pattern, extended here per MILE-39): populate these from your own run -- best-effort, never blocks completion.
 

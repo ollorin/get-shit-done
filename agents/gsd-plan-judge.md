@@ -88,7 +88,7 @@ required_changes: # Only if verdict is revise or critical — one entry per vali
 
 Use the Bash tool (`date -u +"%Y-%m-%dT%H:%M:%SZ"`) for the timestamp. Write the file directly with the Write tool — do not ask the orchestrator to write it for you.
 
-**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}
+**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed=[{rule, why}, ...], ambiguities={count}, tool_errors_swallowed={count}
 
 Self-report telemetry (MILE-26 pattern, extended here per MILE-39): populate these from your own run -- best-effort, never blocks completion.
 

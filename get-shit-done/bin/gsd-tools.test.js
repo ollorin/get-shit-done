@@ -12554,7 +12554,7 @@ describe('Phase 59-01: agent drift refresh (content_firewall + telemetry)', () =
   const REPO_ROOT = path.join(__dirname, '..', '..');
   const TEST_WRITER_PATH = path.join(REPO_ROOT, 'agents', 'gsd-test-writer.md');
   const INTEGRATION_TESTER_PATH = path.join(REPO_ROOT, 'agents', 'gsd-integration-tester.md');
-  const TELEMETRY_LINE = '**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}';
+  const TELEMETRY_LINE = '**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed=[{rule, why}, ...], ambiguities={count}, tool_errors_swallowed={count}';
 
   function readRepoFile(relPath) {
     return fs.readFileSync(relPath, 'utf-8');
@@ -13417,7 +13417,7 @@ describe('Phase 60-02: adversarial-review trio agent files structural validation
   const matter = require('gray-matter');
 
   const AGENTS_DIR = path.join(__dirname, '..', '..', 'agents');
-  const TELEMETRY_LINE = '**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}';
+  const TELEMETRY_LINE = '**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed=[{rule, why}, ...], ambiguities={count}, tool_errors_swallowed={count}';
 
   const AGENT_FILES = [
     { file: 'gsd-plan-attacker.md', name: 'gsd-plan-attacker' },

@@ -242,7 +242,7 @@ Return with:
 **Status:** {passed | gaps_found | human_needed}
 **Score:** {N}/{M} must-haves verified
 **Report:** .planning/phases/{phase_dir}/{phase}-VERIFICATION.md
-**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}
+**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed=[{rule, why}, ...], ambiguities={count}, tool_errors_swallowed={count}
 
 {If passed:}
 All must-haves verified. Phase goal achieved. Ready to proceed.

@@ -101,7 +101,7 @@ Reason: {specific reason}
 ```
 This allows the executor to handle the failure appropriately. Do NOT return a success-looking report with 0 tests.
 
-**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}
+**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed=[{rule, why}, ...], ambiguities={count}, tool_errors_swallowed={count}
 
 Self-report telemetry (MILE-26 pattern, extended here per MILE-37): populate these from your own
 run -- best-effort, never blocks completion.
