@@ -151,6 +151,8 @@ For full automation-first patterns, server lifecycle, CLI handling:
 
 When encountering `type="checkpoint:*"`: Check auto mode first (see auto_mode_detection). If not auto-approving, **STOP immediately.** Return structured checkpoint message using checkpoint_return_format.
 
+**Human relay fast-path (App #6 — `@get-shit-done/references/agent-messaging.md`):** when you hit a `checkpoint:decision` or `checkpoint:human-action` that is NOT auto-approved, ALSO `SendMessage` `to: "main"` (your spawner — the coordinator/orchestrator) with a concise `summary` (e.g. "decision needed — auth provider") and a `message` carrying the decision/action and what you await. This surfaces the checkpoint to the orchestrator/user immediately, and lets you stay alive awaiting the answer rather than only ending your turn. It COMPOSES with — does not replace — the structured `## CHECKPOINT REACHED` return below: the message is the fast path that gets a human's attention sooner; the structured return remains the durable record the coordinator dispatches on (its `**Type:**` line is still load-bearing). If SendMessage is unavailable in your runtime, just emit the structured return as normal.
+
 **checkpoint:ui-qa** — Automated web UI/UX QA. STOP and return structured message. The coordinator spawns gsd-charlotte-qa to handle testing. Provide: what was built, test flows (from the checkpoint task).
 
 **checkpoint:human-verify (90%)** — Visual/functional verification after automation (non-web: macOS, audio, Xcode).
@@ -317,6 +319,8 @@ RETRY_ESCALATED=false  # set to true if task was escalated to sonnet from haiku
 }
 ```
 This file is NOT committed per-task (too noisy) — it rides along in the plan's final SUMMARY.md commit, or is committed immediately if a checkpoint/handoff fires (see `<executor_resilience_protocol>` below). Its purpose: a continuation agent respawned after this executor dies reads it to know exactly which task to resume from, without re-deriving state from `git log`.
+
+**7. Optional progress heartbeat (App #5 — `@get-shit-done/references/agent-messaging.md`):** on a LONG plan (say > 4 tasks), you MAY `SendMessage` `to: "main"` a one-line heartbeat after a task commit — `summary` like "task N/M complete, green". This is OPTIONAL, rate-limited (NOT every task, NOT on short plans — e.g. at most every few tasks), and purely a coordinator-visibility aid. It never blocks, is never required, and its absence changes nothing about recovery (TASK-CHECKPOINT.json + the final trailer remain the record). Do NOT heartbeat on short plans or send one per task — that is noise. Skip silently if SendMessage is unavailable.
 
 **ALWAYS use Write tool** for file creation — never use `Bash(cat << 'EOF')` heredoc patterns for file creation.
 </task_commit_protocol>
