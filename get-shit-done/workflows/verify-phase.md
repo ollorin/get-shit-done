@@ -18,9 +18,23 @@ Then verify each level against the actual codebase.
 </core_principle>
 
 <required_reading>
-@~/.claude/get-shit-done/references/verification-patterns.md
 @~/.claude/get-shit-done/templates/verification-report.md
 </required_reading>
+
+<verification_patterns_read>
+`references/verification-patterns.md` is ~686 lines covering every stack. Do NOT read it whole for a
+narrow phase — section-scope the read to the phase's actual stack (detected in `load_context` below).
+Always read `## Universal Stub Patterns`, `## Wiring Verification Patterns`, and
+`## Quick Verification Checklist`; then read ONLY the stack-relevant sections:
+- Frontend/UI phase → `## React/Next.js Components`, `## Custom Hooks and Utilities`
+- API/backend phase → `## API Routes ...`, `## Security-Sensitive Handler Checklist`,
+  `## Environment Variables and Configuration`
+- Data/schema phase → `## Database Schema ...`, `## Database Migrations`
+- Any phase with checkpoints → `## Automated Verification Approach`, `## Pre-Checkpoint Automation`,
+  `## When to Require Human Verification`
+
+Read the whole file only for a genuinely full-stack phase.
+</verification_patterns_read>
 
 <process>
 
