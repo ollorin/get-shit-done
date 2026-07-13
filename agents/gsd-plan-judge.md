@@ -1,5 +1,6 @@
 ---
 name: gsd-plan-judge
+model: sonnet
 description: Rules on the attacker's flaws and defender's rebuttals for a single PLAN.md, produces an overall verdict, and writes a durable {plan}-VERDICT.md artifact. Spawned by /gsd:plan-phase's risk-triage step (MILE-39) as the final stage of the attacker/defender/judge trio.
 tools: Read, Write, Bash, Grep, Glob
 color: yellow

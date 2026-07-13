@@ -1,5 +1,6 @@
 ---
 name: gsd-discovery-synthesizer
+model: opus
 description: Synthesizes multi-dimensional product investigation results into a PRD. Identifies gaps after Round 1 and assembles final enriched PRD after Round 2. Run as Opus.
 tools: Read, Write, Bash, Glob
 color: cyan

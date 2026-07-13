@@ -1,5 +1,6 @@
 ---
 name: gsd-meta-answerer
+model: haiku
 description: Answers phase implementation questions by querying the global knowledge DB, returning structured answers with confidence scores and source references
 tools: Read, Bash
 color: purple

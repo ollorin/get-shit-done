@@ -1,5 +1,6 @@
 ---
 name: gsd-docs-updater
+model: sonnet
 description: Reads /docs conventions from the target project, classifies build scope from SUMMARY.md, and writes proportionally-scoped documentation. Spawned by gsd-executor as the last mandatory task after SUMMARY.md is committed, and by the documentation_hard_gate in execute-plan.md. Returns a structured written_files/commit/errors contract — never bare prose — so callers can parse pass/fail deterministically.
 tools: Read, Write, Edit, Bash, Grep, Glob
 color: blue

@@ -1,5 +1,6 @@
 ---
 name: gsd-charlotte-qa
+model: haiku
 description: Automated web QA agent with 3 modes: ui-qa (does it work?), ux-audit (is it well-designed?), e2e (does the full user journey work?). Uses Charlotte browser tools. Spawned by gsd-phase-coordinator.
 tools: Read, Bash, mcp__charlotte__charlotte_navigate, mcp__charlotte__charlotte_observe, mcp__charlotte__charlotte_screenshot, mcp__charlotte__charlotte_screenshot_get, mcp__charlotte__charlotte_find, mcp__charlotte__charlotte_click, mcp__charlotte__charlotte_type, mcp__charlotte__charlotte_console, mcp__charlotte__charlotte_requests, mcp__charlotte__charlotte_scroll
 color: purple
