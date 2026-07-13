@@ -32,6 +32,8 @@ ls .planning/debug/*.md 2>/dev/null | grep -v resolved | head -5
 
 <process>
 Execute the debug workflow from @~/.claude/get-shit-done/workflows/debug.md end-to-end, in interactive mode (mode.interactive: true).
+
+On any failure to load or execute the workflow, follow @~/.claude/get-shit-done/references/dispatcher-contract.md — STOP, do not improvise, report what failed and what state was written.
 </process>
 
 <success_criteria>

@@ -29,4 +29,6 @@ Execute the full ROADMAP.md autonomously. Coordinator stays lean — parses road
 <process>
 Execute the execute-roadmap workflow from @~/.claude/get-shit-done/workflows/execute-roadmap.md end-to-end.
 Preserve all workflow gates (user confirmation, dependency checking, checkpoint handling, completion logging).
+
+On any failure to load or execute the workflow, follow @~/.claude/get-shit-done/references/dispatcher-contract.md — STOP, do not improvise, report what failed and what state was written.
 </process>

@@ -38,4 +38,6 @@ The workflow handles all logic including:
 6. Action offering and execution
 7. STATE.md updates
 8. Git commits
+
+On any failure to load or execute the workflow, follow @~/.claude/get-shit-done/references/dispatcher-contract.md — STOP, do not improvise, report what failed and what state was written.
 </process>

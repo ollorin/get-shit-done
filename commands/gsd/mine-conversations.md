@@ -25,4 +25,6 @@ The workflow handles all logic including:
 3. Storing results via store-conversation-result
 4. Skipping already-analyzed conversations
 5. Reporting a summary of stored, evolved, skipped, and failed results
+
+On any failure to load or execute the workflow, follow @~/.claude/get-shit-done/references/dispatcher-contract.md — STOP, do not improvise, report what failed and what state was written.
 </process>

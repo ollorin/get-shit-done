@@ -14347,3 +14347,33 @@ describe('D-6: complete-milestone.md — one ROADMAP-reorganization step, bound 
     assert.ok(!/ FIRST_COMMIT\.\.LAST_COMMIT/.test(content), 'bare unbound FIRST_COMMIT..LAST_COMMIT usage must be gone');
   });
 });
+
+describe('A-2: shared dispatcher-contract reference exists and thin dispatchers @-reference it', () => {
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  const CONTRACT_PATH = path.join(REPO_ROOT, 'get-shit-done', 'references', 'dispatcher-contract.md');
+  const COMMANDS_DIR = path.join(REPO_ROOT, 'commands', 'gsd');
+
+  test('references/dispatcher-contract.md exists with the STOP-do-not-improvise failure path', () => {
+    assert.ok(fs.existsSync(CONTRACT_PATH), 'dispatcher-contract.md must exist');
+    const content = fs.readFileSync(CONTRACT_PATH, 'utf-8');
+    assert.ok(/STOP/.test(content), 'contract must tell the dispatcher to STOP on load failure');
+    assert.ok(/improvis/i.test(content), 'contract must forbid improvising the workflow');
+    assert.ok(/installer|install\.js/i.test(content), 'contract must point at re-running the installer on load failure');
+    assert.ok(/state/i.test(content), 'contract must require reporting what state was written on an unrecoverable error');
+  });
+
+  test('the thin dispatcher commands @-reference the shared contract', () => {
+    const dispatchers = [
+      'execute-phase', 'execute-roadmap', 'plan-phase', 'quick', 'new-project',
+      'new-milestone', 'audit-milestone', 'plan-milestone-gaps', 'insert-phase',
+      'debug', 'verify-work', 'add-phase', 'add-todo', 'check-todos', 'mine-conversations',
+    ];
+    for (const name of dispatchers) {
+      const content = fs.readFileSync(path.join(COMMANDS_DIR, `${name}.md`), 'utf-8');
+      assert.ok(
+        content.includes('references/dispatcher-contract.md'),
+        `${name}.md must @-reference the shared dispatcher-contract for its failure path`
+      );
+    }
+  });
+});

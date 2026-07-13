@@ -37,4 +37,6 @@ The `--discuss` and `--full` flags (composable) are defined and handled in the w
 <process>
 Execute the quick workflow from @~/.claude/get-shit-done/workflows/quick.md end-to-end.
 Preserve all workflow gates (validation, task description, planning, execution, state updates, commits).
+
+On any failure to load or execute the workflow, follow @~/.claude/get-shit-done/references/dispatcher-contract.md — STOP, do not improvise, report what failed and what state was written.
 </process>

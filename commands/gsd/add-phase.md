@@ -36,4 +36,6 @@ The workflow handles all logic including:
 6. Phase directory creation
 7. Roadmap entry insertion
 8. STATE.md updates
+
+On any failure to load or execute the workflow, follow @~/.claude/get-shit-done/references/dispatcher-contract.md — STOP, do not improvise, report what failed and what state was written.
 </process>
