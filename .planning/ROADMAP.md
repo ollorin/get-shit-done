@@ -16,7 +16,7 @@
 - ✅ **v1.14.0 Enforcement & Integration** — Phases 44-53 (shipped 2026-07-06, PR #3) — full details: `.planning/milestones/v1.14.0-ROADMAP.md`
   - 44: Reliability Foundations · 45: Phase-Gate & Deferral · 46: Artifact & Coverage Gates · 47: Telegram Reliability · 48: Satellite Injections
   - 49: Knowledge Auto-Wiring · 50: Final Sweep & Hook Fixes · 51: Run Resilience · 52: Skew/Telemetry/Registry · 53: Eval Harness/Prompt Hygiene/Injection
-- 🚧 **v1.15.0 Self-Improving Quality Loop** — Phases 54-61 (roadmap created 2026-07-06)
+- ✅ **v1.15.0 Self-Improving Quality Loop** — Phases 54-61 (shipped 2026-07-06) — full details: `.planning/milestones/v1.15.0-ROADMAP.md`
   - 54: Structured Handoffs & Invariant Re-Injection · 55: Failures-to-Regression Pipeline · 56: Reflective Prompt Optimization
   - 57: Outcome-Informed Routing Ledger & Bounded Escalation · 58: Honest Token Accounting · 59: Dormant Quality Agents Wired In
   - 60: Adversarial Plan Review · 61: Project-Aware Pre-PR Gate
@@ -594,7 +594,9 @@ Plans:
 - [ ] 53-02-PLAN.md — Prompt budgets: budget-check script + hard-rules-first restructure of the 5 oversized agents, verified via the eval harness (MILE-30)
 - [ ] 53-03-PLAN.md — Injection hardening: content-firewall convention, knowledge-write injection screening, adversarial eval fixture (MILE-31)
 
-### 🚧 v1.15.0 Self-Improving Quality Loop (Phases 54-61)
+### ✅ v1.15.0 Self-Improving Quality Loop (Phases 54-61) — SHIPPED 2026-07-06
+
+> Full phase details archived to `.planning/milestones/v1.15.0-ROADMAP.md`. All 8 phases verified (gsd-verifier) and passed their phase gate; tests 514 → 905/905. Section retained below for in-place history.
 
 **Milestone Goal:** Close every feedback loop v1.14.0 left open — failures become regression evals, eval results drive human-approved prompt optimization, routing learns from recorded outcomes, and the quality agents that were designed but never spawned get wired into the golden path.
 
@@ -617,7 +619,10 @@ Plans:
 **Plans:** 4/4 plans complete
 
 Plans:
-- [ ] 54-01: TBD (planned during plan-phase)
+- [x] 54-01: Fixed handoff brief structure (buildHandoffBrief mirroring buildResumeBrief) — foundation
+- [x] 54-02: getPhaseInvariantsText verbatim ROADMAP source-reader + buildResumeBrief invariants param
+- [x] 54-03: eval-harness assertions (assertHandoffBriefPresent, assertResumeInvariantsReinjected) + golden fixture
+- [x] 54-04: coordinator/executor/verifier boundary wiring — MILE-40 complete, Phase 54 COMPLETE (550/550 tests)
 
 #### Phase 55: Failures-to-Regression Pipeline
 
@@ -733,12 +738,12 @@ Plans:
   2. The gate passes on the GSD repo itself (self-hosting proof)
   3. Unknown project types degrade to a minimal universal check set with a loud notice, never a crash
   4. Integration tests cover: detection across at least two project types, GSD self-run pass, unknown-type degradation
-**Plans:** 3
+**Plans:** 3/3 plans complete
 
 Plans:
 - [x] 61-01: get-shit-done/config/pre-pr-checks.json (config-as-data, mirrors model-registry.json) + get-shit-done/bin/pre-pr-checks.js (fail-open accessor: loadRegistry/detectProjectTypes/getDeclaredNodeScripts/checksForNode/discoverMakeTestCommand/deriveCheckSet) — pure detection/derivation module only, verified deriveCheckSet(process.cwd()) against this repo returns single node-test check with degraded:false; 896/896 tests passing
-- [ ] 61-02: TBD (planned during plan-phase)
-- [ ] 61-03: TBD (planned during plan-phase)
+- [x] 61-02: Wired deriveCheckSet into cmdGatePrePr (preserving output contract) + 8 integration tests across project-type fixtures; 904/904 tests passing
+- [x] 61-03: Permanent self-hosting regression test + evidence capture + CHANGELOG — MILE-41 closure, Phase 61 COMPLETE (905/905 tests)
 
 ## Progress
 
@@ -796,14 +801,14 @@ Plans:
 | 51. Run Resilience — Auto-Resume & State Sanity | v1.14.0 | 3/3 | Complete | 2026-07-05 |
 | 52. Skew Detection, Telemetry & Model Registry | v1.14.0 | 4/4 | Complete | 2026-07-05 |
 | 53. Eval Harness, Prompt Hygiene & Injection Hardening | v1.14.0 | 3/3 | Complete | 2026-07-05 |
-| 54. Structured Handoffs & Invariant Re-Injection | 4/4 | Complete   | 2026-07-06 | - |
-| 55. Failures-to-Regression Pipeline | 3/3 | Complete | 2026-07-06 | - |
+| 54. Structured Handoffs & Invariant Re-Injection | v1.15.0 | 4/4 | Complete | 2026-07-06 |
+| 55. Failures-to-Regression Pipeline | v1.15.0 | 3/3 | Complete | 2026-07-06 |
 | 56. Reflective Prompt Optimization | v1.15.0 | 3/3 | Complete | 2026-07-06 |
-| 57. Outcome-Informed Routing Ledger & Bounded Escalation | v1.15.0 | Complete    | 2026-07-06 | 2026-07-06 |
-| 58. Honest Token Accounting | v1.15.0 | 0/TBD | Not started | - |
-| 59. Dormant Quality Agents Wired In | v1.15.0 | Complete    | 2026-07-06 | 2026-07-06 |
+| 57. Outcome-Informed Routing Ledger & Bounded Escalation | v1.15.0 | 4/4 | Complete | 2026-07-06 |
+| 58. Honest Token Accounting | v1.15.0 | 3/3 | Complete | 2026-07-06 |
+| 59. Dormant Quality Agents Wired In | v1.15.0 | 4/4 | Complete | 2026-07-06 |
 | 60. Adversarial Plan Review | v1.15.0 | 3/3 | Complete | 2026-07-06 |
-| 61. Project-Aware Pre-PR Gate | v1.15.0 | 1/3 | In Progress | - |
+| 61. Project-Aware Pre-PR Gate | v1.15.0 | 3/3 | Complete | 2026-07-06 |
 
 ---
-*Roadmap created: 2026-02-15 | Last updated: 2026-07-06 — v1.15.0 Self-Improving Quality Loop roadmap created: phases 54-61 (MILE-32..41 from self-improving-quality-loop PRD)*
+*Roadmap created: 2026-02-15 | Last updated: 2026-07-06 — v1.15.0 Self-Improving Quality Loop SHIPPED: phases 54-61 complete (MILE-32..41 from self-improving-quality-loop PRD), 27 plans, 905/905 tests. Full details archived to `.planning/milestones/v1.15.0-ROADMAP.md`.*

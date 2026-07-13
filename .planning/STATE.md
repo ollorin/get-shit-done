@@ -2,16 +2,16 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-02)
+See: .planning/PROJECT.md (updated 2026-07-06)
 
 **Core value:** Claude learns to make autonomous decisions based on user's reasoning patterns, only stopping for irreversible/external/costly actions
-**Current focus:** v1.15.0 — Self-Improving Quality Loop (roadmap created 2026-07-06, Phase 60 complete, Phase 61 next)
+**Current focus:** Planning next milestone (v1.15.0 — Self-Improving Quality Loop shipped 2026-07-06)
 
 ## Current Position
 
 Phase: 61 of 61 (Project-Aware Pre-PR Gate) — COMPLETE (3/3 plans)
 Plan: 3 of 3 (61-03 complete — permanent self-hosting regression test + evidence capture + MILE-41 closure)
-Status: Phase 61 COMPLETE; v1.15.0 COMPLETE across all 8 phases (54-61)
+Status: v1.15.0 milestone complete and archived (8 phases, 27 plans, 905/905 tests)
 Last activity: 2026-07-06
 
 Progress: [████████████] 100%
@@ -218,13 +218,13 @@ None.
 
 ### Next Steps
 
-- Phase 61 (Project-Aware Pre-PR Gate, MILE-41) IN PROGRESS: 61-01 complete (pre-pr-checks.json + pre-pr-checks.js detection/derivation module, pure and independently unit-tested, 896/896 npm test passing). Next: Plan 61-02 wires deriveCheckSet into gsd-tools.js's cmdGatePrePr (single require + one call site swap per 61-01's design); Plan 61-03 covers self-hosting proof + unknown-type degradation integration tests per the phase's success criteria.
-- Reconcile v1.13.0 status separately (see Pending Todos) — do not double-build during v1.15.0 execution
+- v1.15.0 archived (2026-07-06): `.planning/milestones/v1.15.0-ROADMAP.md`, `.planning/milestones/v1.15.0-REQUIREMENTS.md`. Run `/gsd:new-milestone` to start the next milestone (fresh REQUIREMENTS.md created there).
+- Reconcile v1.13.0 status separately (see Pending Todos) — still unresolved, carried forward across v1.14.0 and v1.15.0 archival; do not double-build.
 
 ## Session Continuity
 
 Last session: 2026-07-06T16:57:17.016Z
-Stopped at: Phase 61-03 COMPLETE -- Self-hosting proof (permanent regression test + evidence capture) delivered; MILE-41 satisfied end-to-end; v1.15.0 COMPLETE across all 8 phases
-Current: Phase 61-03 in execution (continuation session)
-Status: Phase 61 (3/3 plans) COMPLETE; v1.15.0 COMPLETE (all 8 phases); 905/905 npm test passing
+Stopped at: v1.15.0 milestone completion workflow — archived to .planning/milestones/, MILESTONES.md entry corrected (8 phases 54-61, 27 plans, 905/905 tests — auto-generated all-time counts overridden), ROADMAP.md collapsed, REQUIREMENTS.md archived+deleted, PROJECT.md evolution review pending next
+Current: Awaiting next milestone kickoff (/gsd:new-milestone)
+Status: v1.15.0 COMPLETE (all 8 phases, 27 plans); 905/905 npm test passing
 Resume file: None
