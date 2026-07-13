@@ -145,7 +145,11 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
    If `HANDOFF_PATH` exists, OR `TASK_CKPT_PATH` exists with no matching `{plan_id}-SUMMARY.md` (a death with no clean handoff):
    1. Verify every commit hash it claims actually exists: `git log --oneline --all | grep -F "{hash}"` for each. If any is missing, the state is unverifiable — log loudly and fall back to a normal fresh spawn instead of trusting it.
    2. Archive it: `mkdir -p .planning/phases/{phase_dir}/resolved-handoffs && mv "$HANDOFF_PATH" ".planning/phases/{phase_dir}/resolved-handoffs/{plan_id}-$(date -u +%Y%m%dT%H%M%SZ).json"` (skip the `mv` if only TASK-CHECKPOINT.json existed).
-   3. Spawn with a `<prior_executor_handoff>` block PREPENDED to the normal spawn prompt below (step 2) — completed tasks + commit hashes, resume-from task index, key decisions, files modified. Do NOT re-run completed tasks.
+   3. **Prefer resume-by-agentId over cold fresh-spawn when in-session (App #2, `@get-shit-done/references/agent-messaging.md`).** Decide by this rule:
+      - **agentId present AND same session** (`EXECUTOR_AGENT_IDS[{plan_id}]` is set — the interrupted executor ran in THIS coordinator session, not across a quota/launchd resume): `SendMessage(to: <agentId>, …)` to RESUME that same executor from its transcript, telling it to continue from `next_task_index`. Its transcript carries richer context (already-loaded files, key decisions) than a handoff doc can. This is the preferred path.
+      - **else → cold spawn from handoff** (agentId not captured, or crossed a session boundary — a fresh `claude -p` after a quota/launchd resume, where the agentId is gone per hard semantic #3): spawn a NEW executor with a `<prior_executor_handoff>` block PREPENDED to the normal spawn prompt below (step 2) — completed tasks + commit hashes, resume-from task index, key decisions, files modified. Do NOT re-run completed tasks.
+
+      Either way the handoff file remains the durable record; resume-by-agentId is an in-session optimization, never a replacement for it.
 
    Exact `<prior_executor_handoff>` block format and both JSON schemas: `@get-shit-done/references/resilience.md`.
 
@@ -173,6 +177,15 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
 
    Pass paths only — executors read files themselves with their fresh 200k context.
    This keeps orchestrator context lean (~10-15%).
+
+   **Capture each executor's `agentId` from its spawn result and retain it** (keyed by
+   `{plan_id}`, e.g. `EXECUTOR_AGENT_IDS[{plan_id}] = <agentId>`). This enables
+   resume-by-agentId (App #2 below and step 0.5 / step 5.1) — an in-session SendMessage
+   resume of the SAME executor from its transcript is richer than a cold handoff respawn.
+   The agentId is SAME-SESSION only (hard semantic #3, `@get-shit-done/references/agent-messaging.md`):
+   across a quota/launchd resume it is gone, and the handoff-doc + PAUSED.json path is the
+   ONLY durable cross-session recovery. Retaining it costs nothing; if unavailable, every
+   path below falls back to the existing cold fresh-spawn.
 
    **For Wave 1 executors** (wave_number == 1, no prior context):
    ```
@@ -328,7 +341,7 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
 
    **Parse the machine-readable status FIRST — do not string-match the prose header.** Every non-dead executor return ends with a fenced ```json trailer carrying `{"status": "complete"|"interrupted"|"blocked", ...}`. Extract the last fenced JSON block and read `.status`; the `## PLAN …` header is human-readable garnish that a reworded line or an em-dash could break. Only if NO parseable JSON trailer exists do you fall through to the raw-death path (2). This is the fix for the class of coordinator-parse failures where a prose-only return was misread as a death.
 
-   1. **Clean interruption** — the trailer's `status` is `"interrupted"` (the executor self-stopped at a context-pressure boundary and wrote EXECUTOR-HANDOFF.json; header reads `## PLAN INTERRUPTED`). Handle identically to the pre-spawn handoff case (step 0.5 above): archive the handoff, spawn a continuation executor immediately with a `<prior_executor_handoff>` block. Log `--type executor_clean_interruption`. Do NOT call `execution-state record-failure`. A `status: "blocked"` trailer is NOT an interruption — surface it to the user with its `recommended_split`; the plan needs re-splitting before it can proceed.
+   1. **Clean interruption** — the trailer's `status` is `"interrupted"` (the executor self-stopped at a context-pressure boundary and wrote EXECUTOR-HANDOFF.json; header reads `## PLAN INTERRUPTED`; it may also have sent an App #1 `to: "main"` continuation signal). Handle identically to the pre-spawn handoff case (step 0.5 above), INCLUDING its resume-by-agentId-vs-cold-spawn decision (App #2): since this interruption just happened in THIS session, `EXECUTOR_AGENT_IDS[{plan_id}]` is normally still set — PREFER `SendMessage(to: <agentId>, …)` to resume that same executor from its transcript from `next_task_index`; FALL BACK to archiving the handoff and cold-spawning a continuation executor with a `<prior_executor_handoff>` block when the agentId is unavailable. Log `--type executor_clean_interruption`. Do NOT call `execution-state record-failure`. A `status: "blocked"` trailer is NOT an interruption — surface it to the user with its `recommended_split`; the plan needs re-splitting before it can proceed.
 
    2. **Genuine death** — `Agent()` threw, OR the return has NO parseable JSON status trailer at all (e.g. it IS a raw death message):
       ```bash
