@@ -125,11 +125,18 @@ Wait for confirmation.
 Calculate milestone statistics:
 
 ```bash
+# Bind the commit range first — these were unbound placeholders.
+# First/last feat( commit of the milestone; fall back to repo root / HEAD.
+FIRST_COMMIT=$(git log --reverse --grep="feat(" --format="%H" 2>/dev/null | head -1)
+LAST_COMMIT=$(git log --grep="feat(" --format="%H" 2>/dev/null | head -1)
+FIRST_COMMIT=${FIRST_COMMIT:-$(git rev-list --max-parents=0 HEAD 2>/dev/null | head -1)}
+LAST_COMMIT=${LAST_COMMIT:-HEAD}
+
 git log --oneline --grep="feat(" | head -20
-git diff --stat FIRST_COMMIT..LAST_COMMIT | tail -1
+git diff --stat "$FIRST_COMMIT".."$LAST_COMMIT" | tail -1
 find . -name "*.swift" -o -name "*.ts" -o -name "*.py" | xargs wc -l 2>/dev/null
-git log --format="%ai" FIRST_COMMIT | tail -1
-git log --format="%ai" LAST_COMMIT | head -1
+git log --format="%ai" "$FIRST_COMMIT" | tail -1
+git log --format="%ai" "$LAST_COMMIT" | head -1
 ```
 
 Present:
@@ -315,50 +322,6 @@ Initial user testing showed demand for shape tools.
 - [ ] Context updated with current state
 - [ ] All milestone decisions added to Key Decisions
 - [ ] "Last updated" footer reflects milestone completion
-
-</step>
-
-<step name="reorganize_roadmap">
-
-Update `.planning/ROADMAP.md` — group completed milestone phases:
-
-```markdown
-# Roadmap: [Project Name]
-
-## Milestones
-
-- ✅ **v1.0 MVP** — Phases 1-4 (shipped YYYY-MM-DD)
-- 🚧 **v1.1 Security** — Phases 5-6 (in progress)
-- 📋 **v2.0 Redesign** — Phases 7-10 (planned)
-
-## Phases
-
-<details>
-<summary>✅ v1.0 MVP (Phases 1-4) — SHIPPED YYYY-MM-DD</summary>
-
-- [x] Phase 1: Foundation (2/2 plans) — completed YYYY-MM-DD
-- [x] Phase 2: Authentication (2/2 plans) — completed YYYY-MM-DD
-- [x] Phase 3: Core Features (3/3 plans) — completed YYYY-MM-DD
-- [x] Phase 4: Polish (1/1 plan) — completed YYYY-MM-DD
-
-</details>
-
-### 🚧 v[Next] [Name] (In Progress / Planned)
-
-- [ ] Phase 5: [Name] ([N] plans)
-- [ ] Phase 6: [Name] ([N] plans)
-
-## Progress
-
-| Phase             | Milestone | Plans Complete | Status      | Completed  |
-| ----------------- | --------- | -------------- | ----------- | ---------- |
-| 1. Foundation     | v1.0      | 2/2            | Complete    | YYYY-MM-DD |
-| 2. Authentication | v1.0      | 2/2            | Complete    | YYYY-MM-DD |
-| 3. Core Features  | v1.0      | 3/3            | Complete    | YYYY-MM-DD |
-| 4. Polish         | v1.0      | 1/1            | Complete    | YYYY-MM-DD |
-| 5. Security Audit | v1.1      | 0/1            | Not started | -          |
-| 6. Hardening      | v1.1      | 0/2            | Not started | -          |
-```
 
 </step>
 

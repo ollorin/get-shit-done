@@ -155,6 +155,51 @@ Use AskUserQuestion:
 **If user cancels:** Exit.
 </step>
 
+<step name="check_active_sessions">
+**Concurrency guard — run BEFORE the destructive install.** `install.js` wipes and
+replaces `commands/gsd/`, `get-shit-done/`, and `agents/gsd-*`. If another GSD session is
+mid-operation and reading those files, the reinstall can corrupt its in-flight state (this is
+the exact scenario a self-updating session runs under).
+
+Scan the current project's `.planning/` for recently-touched in-progress markers:
+
+```bash
+ACTIVE_MARKERS=$(find .planning -type f \( \
+    -name 'TASK-CHECKPOINT.json' -o \
+    -name 'EXECUTOR-HANDOFF.json' -o \
+    -name 'PAUSED.json' -o \
+    -name 'CHECKPOINT.json' \
+  \) -mmin -30 2>/dev/null)
+```
+
+Also treat an EXECUTION_LOG entry written in the last 30 minutes as an active session:
+
+```bash
+RECENT_LOG=$(find .planning -type f -name 'EXECUTION_LOG*' -mmin -30 2>/dev/null)
+```
+
+**If `ACTIVE_MARKERS` or `RECENT_LOG` is non-empty:** another GSD session appears active. Show the
+paths and require explicit confirmation before proceeding:
+
+```
+⚠️  Active GSD session detected — updating now can corrupt in-flight state:
+
+{list ACTIVE_MARKERS and RECENT_LOG paths}
+
+Reinstalling wipes and replaces GSD's own files while that session may be reading them.
+```
+
+Use AskUserQuestion:
+- Question: "Another GSD session looks active. Update anyway?"
+- Options:
+  - "Wait — cancel the update" (recommended)
+  - "Update anyway — I confirm no other session is running"
+
+**If the user does not explicitly confirm "Update anyway": Exit.** Do NOT proceed to `run_update`.
+
+**If no markers found:** Continue to `run_update`.
+</step>
+
 <step name="run_update">
 Run the install script from the fork clone (already up to date from the pull in step 2):
 
@@ -214,6 +259,7 @@ Run /gsd:reapply-patches to merge your modifications into the new version.
 - [ ] Update skipped if already current
 - [ ] Changelog fetched and displayed BEFORE update
 - [ ] Clean install warning shown
+- [ ] Active-session concurrency guard run before install (blocks/confirms on recent CHECKPOINT/HANDOFF/PAUSED/EXECUTION_LOG markers)
 - [ ] User confirmation obtained
 - [ ] Update executed successfully
 - [ ] Restart reminder shown

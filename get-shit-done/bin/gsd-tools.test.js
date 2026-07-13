@@ -14282,3 +14282,68 @@ describe('D-5: shared-file-writes.md exists and is @-referenced from shared-plan
     }
   });
 });
+
+describe('D-3: health.md targets a real validate subcommand, not the fictional `validate health`', () => {
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  const HEALTH_PATH = path.join(REPO_ROOT, 'get-shit-done', 'workflows', 'health.md');
+
+  test('the dispatcher rejects `validate health` (only `consistency` exists)', () => {
+    const tmpDir = createTempProject();
+    try {
+      const result = runGsdTools('validate health', tmpDir);
+      const combined = result.output + (result.error || '');
+      assert.ok(!result.success, '`validate health` must not succeed');
+      assert.ok(/Available: consistency/.test(combined), `error must name the only real subcommand, got: ${combined}`);
+    } finally {
+      cleanup(tmpDir);
+    }
+  });
+
+  test('health.md no longer calls the nonexistent `validate health` subcommand', () => {
+    const content = fs.readFileSync(HEALTH_PATH, 'utf-8');
+    assert.ok(!/validate health/.test(content), 'health.md must not call `validate health`');
+  });
+
+  test('health.md calls the real `validate consistency` subcommand', () => {
+    const content = fs.readFileSync(HEALTH_PATH, 'utf-8');
+    assert.ok(content.includes('validate consistency'), 'health.md must call `validate consistency`');
+  });
+
+  test('health.md drops the fictional error-code table and nonexistent repair actions', () => {
+    const content = fs.readFileSync(HEALTH_PATH, 'utf-8');
+    for (const code of ['E001', 'E002', 'E003', 'E004', 'E005', 'W001', 'W007']) {
+      assert.ok(!content.includes(code), `health.md must not document fictional code ${code}`);
+    }
+    for (const action of ['createConfig', 'resetConfig', 'regenerateState']) {
+      assert.ok(!content.includes(action), `health.md must not reference nonexistent repair action ${action}`);
+    }
+  });
+});
+
+describe('D-6: complete-milestone.md — one ROADMAP-reorganization step, bound commit vars', () => {
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  const CM_PATH = path.join(REPO_ROOT, 'get-shit-done', 'workflows', 'complete-milestone.md');
+
+  test('the duplicate early reorganize_roadmap step (pre-archival) is removed', () => {
+    const content = fs.readFileSync(CM_PATH, 'utf-8');
+    // Only the idempotent post-archival step may remain.
+    assert.ok(!/<step name="reorganize_roadmap">/.test(content), 'early reorganize_roadmap step must be deleted (it archived a stripped ROADMAP)');
+    assert.ok(content.includes('<step name="reorganize_roadmap_and_delete_originals">'), 'the idempotent post-archival reorganize step must remain');
+  });
+
+  test('the post-archival reorganize step runs after archive_milestone (correct ordering)', () => {
+    const content = fs.readFileSync(CM_PATH, 'utf-8');
+    const archiveIdx = content.indexOf('<step name="archive_milestone">');
+    const reorgIdx = content.indexOf('<step name="reorganize_roadmap_and_delete_originals">');
+    assert.ok(archiveIdx > -1 && reorgIdx > -1, 'both steps must exist');
+    assert.ok(reorgIdx > archiveIdx, 'reorganize must run AFTER archival so the archive keeps full ROADMAP detail');
+  });
+
+  test('FIRST_COMMIT and LAST_COMMIT are bound, not bare placeholders', () => {
+    const content = fs.readFileSync(CM_PATH, 'utf-8');
+    assert.ok(/FIRST_COMMIT=\$\(git log/.test(content), 'FIRST_COMMIT must be bound from git log');
+    assert.ok(/LAST_COMMIT=\$\(git log/.test(content), 'LAST_COMMIT must be bound from git log');
+    // The old unbound usage `FIRST_COMMIT..LAST_COMMIT` (bare, unquoted) must be gone.
+    assert.ok(!/ FIRST_COMMIT\.\.LAST_COMMIT/.test(content), 'bare unbound FIRST_COMMIT..LAST_COMMIT usage must be gone');
+  });
+});

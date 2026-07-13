@@ -1,5 +1,5 @@
 <purpose>
-Validate `.planning/` directory integrity and report actionable issues. Checks for missing files, invalid configurations, inconsistent state, and orphaned plans. Optionally repairs auto-fixable issues.
+Validate `.planning/` directory integrity and report actionable issues. Checks that the ROADMAP, phase directories on disk, plan/summary numbering, and plan frontmatter are consistent with each other.
 </purpose>
 
 <required_reading>
@@ -8,37 +8,29 @@ Read all files referenced by the invoking prompt's execution_context before star
 
 <process>
 
-<step name="parse_args">
-**Parse arguments:**
-
-Check if `--repair` flag is present in the command arguments.
-
-```
-REPAIR_FLAG=""
-if arguments contain "--repair"; then
-  REPAIR_FLAG="--repair"
-fi
-```
-</step>
-
 <step name="run_health_check">
-**Run health validation:**
+**Run consistency validation:**
 
 ```bash
-node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" validate health $REPAIR_FLAG
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" validate consistency
 ```
 
-Parse JSON output:
-- `status`: "healthy" | "degraded" | "broken"
-- `errors[]`: Critical issues (code, message, fix, repairable)
-- `warnings[]`: Non-critical issues
-- `info[]`: Informational notes
-- `repairable_count`: Number of auto-fixable issues
-- `repairs_performed[]`: Actions taken if --repair was used
+This is the only validation subcommand the dispatcher implements. It emits JSON:
+- `passed`: `true` | `false`
+- `errors[]`: array of message strings (structural problems that stop validation, e.g. ROADMAP.md missing)
+- `warnings[]`: array of message strings (roadmap/disk drift, numbering gaps, orphaned summaries, missing plan frontmatter)
+- `warning_count`: number of warnings
+
+There is no `--repair` flag and no auto-fix machinery — this check is read-only and reports what a human must reconcile.
 </step>
 
 <step name="format_output">
 **Format and display results:**
+
+Derive the header status from the JSON:
+- `errors.length > 0` → **BROKEN**
+- `errors.length === 0 && warnings.length > 0` → **DEGRADED**
+- otherwise → **HEALTHY**
 
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -46,114 +38,35 @@ Parse JSON output:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Status: HEALTHY | DEGRADED | BROKEN
-Errors: N | Warnings: N | Info: N
+Errors: N | Warnings: N
 ```
 
-**If repairs were performed:**
-```
-## Repairs Performed
-
-- ✓ config.json: Created with defaults
-- ✓ STATE.md: Regenerated from roadmap
-```
-
-**If errors exist:**
+**If errors exist**, list each `errors[]` string:
 ```
 ## Errors
 
-- [E001] config.json: JSON parse error at line 5
-  Fix: Run /gsd:health --repair to reset to defaults
-
-- [E002] PROJECT.md not found
-  Fix: Run /gsd:new-project to create
+- ROADMAP.md not found
 ```
 
-**If warnings exist:**
+**If warnings exist**, list each `warnings[]` string:
 ```
 ## Warnings
 
-- [W001] STATE.md references phase 5, but only phases 1-3 exist
-  Fix: Run /gsd:health --repair to regenerate
-
-- [W005] Phase directory "1-setup" doesn't follow NN-name format
-  Fix: Rename to match pattern (e.g., 01-setup)
-```
-
-**If info exists:**
-```
-## Info
-
-- [I001] 02-implementation/02-01-PLAN.md has no SUMMARY.md
-  Note: May be in progress
-```
-
-**Footer (if repairable issues exist and --repair was NOT used):**
-```
----
-N issues can be auto-repaired. Run: /gsd:health --repair
+- Phase 5 in ROADMAP.md but no directory on disk
+- Gap in phase numbering: 3 → 5
+- 02-implementation/02-01-PLAN.md: missing 'wave' in frontmatter
 ```
 </step>
 
-<step name="offer_repair">
-**If repairable issues exist and --repair was NOT used:**
+<step name="suggest_fixes">
+**If any errors or warnings exist**, tell the user what to reconcile by hand — this workflow does NOT mutate `.planning/`:
 
-Ask user if they want to run repairs:
+- ROADMAP/disk drift → add the missing phase to ROADMAP.md, or create/remove the phase directory.
+- Phase- or plan-numbering gaps → renumber with `/gsd:remove-phase` / `/gsd:insert-phase`, or rename directories to the `NN-name` pattern.
+- Missing `wave` frontmatter → re-plan the phase (`/gsd:plan-phase`) so the planner regenerates well-formed PLAN.md frontmatter.
+- Orphaned SUMMARY.md → confirm whether the plan was deleted intentionally.
 
-```
-Would you like to run /gsd:health --repair to fix N issues automatically?
-```
-
-If yes, re-run with --repair flag and display results.
-</step>
-
-<step name="verify_repairs">
-**If repairs were performed:**
-
-Re-run health check without --repair to confirm issues are resolved:
-
-```bash
-node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" validate health
-```
-
-Report final status.
+If `passed` is `true` and there are no warnings, report a clean bill of health and stop.
 </step>
 
 </process>
-
-<error_codes>
-
-| Code | Severity | Description | Repairable |
-|------|----------|-------------|------------|
-| E001 | error | .planning/ directory not found | No |
-| E002 | error | PROJECT.md not found | No |
-| E003 | error | ROADMAP.md not found | No |
-| E004 | error | STATE.md not found | Yes |
-| E005 | error | config.json parse error | Yes |
-| W001 | warning | PROJECT.md missing required section | No |
-| W002 | warning | STATE.md references invalid phase | Yes |
-| W003 | warning | config.json not found | Yes |
-| W004 | warning | config.json invalid field value | No |
-| W005 | warning | Phase directory naming mismatch | No |
-| W006 | warning | Phase in ROADMAP but no directory | No |
-| W007 | warning | Phase on disk but not in ROADMAP | No |
-| W008 | warning | config.json: workflow.nyquist_validation absent (defaults to enabled but agents may skip) | Yes |
-| W009 | warning | Phase has Validation Architecture in RESEARCH.md but no VALIDATION.md | No |
-| I001 | info | Plan without SUMMARY (may be in progress) | No |
-
-</error_codes>
-
-<repair_actions>
-
-| Action | Effect | Risk |
-|--------|--------|------|
-| createConfig | Create config.json with defaults | None |
-| resetConfig | Delete + recreate config.json | Loses custom settings |
-| regenerateState | Create STATE.md from ROADMAP structure | Loses session history |
-| addNyquistKey | Add workflow.nyquist_validation: true to config.json | None — matches existing default |
-
-**Not repairable (too risky):**
-- PROJECT.md, ROADMAP.md content
-- Phase directory renaming
-- Orphaned plan cleanup
-
-</repair_actions>
