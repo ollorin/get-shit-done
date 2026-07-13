@@ -395,9 +395,13 @@ Agent(
 
 ## 9. Handle Planner Return
 
-- **`## PLANNING COMPLETE`:** Display plan count. If `--skip-verify` or `plan_checker_enabled` is false (from init): skip to step 13. Otherwise: step 10.
-- **`## CHECKPOINT REACHED`:** Present to user, get response, spawn continuation (step 12)
-- **`## PLANNING INCONCLUSIVE`:** Show attempts, offer: Add context / Retry / Manual
+**Parse the machine-readable status FIRST — do not string-match the prose header.** Every planner return ends with a fenced ```json trailer carrying `{"status": "planning_complete"|"gap_closure_complete"|"plan_rejected"|"checkpoint"|"revision_complete", ...}`. Extract the last fenced JSON block and read `.status`; the `## …` header is human-readable garnish that a reworded line or an em-dash could break. Route on `.status`:
+
+- **`planning_complete` / `gap_closure_complete`** (header `## PLANNING COMPLETE` / `## GAP CLOSURE PLANS CREATED`): Display plan count. If `--skip-verify` or `plan_checker_enabled` is false (from init): skip to step 13. Otherwise: step 10.
+- **`checkpoint`** (header `## CHECKPOINT REACHED`): Present to user, get response, spawn continuation (step 12).
+- **`plan_rejected`** (header `## PLAN REJECTED — TESTING GATE FAILED`): Show the failing plan count, offer: Add context / Retry / Manual (same handling as an inconclusive return).
+
+**Malformed/absent return (mirror of execute-phase.md's executor-trailer fallback):** If `Agent()` threw, OR there is NO parseable JSON status trailer AND no recognizable `##` header, do NOT improvise the plan outcome. Retry the planner `Agent()` call once. If the retry is still unrecognized, surface the raw output to the user with retry/abort options — never silently proceed as if planning succeeded.
 
 ## 9.5. Risk Triage (Adversarial Review, MILE-39)
 
@@ -525,6 +529,7 @@ After all trio passes complete successfully with no fallback triggered (or after
 **If `TRIAGE_MODE` is `checker`:**
 - **`## VERIFICATION PASSED`:** Display confirmation, proceed to step 13.
 - **`## ISSUES FOUND`:** Display issues, check iteration count, proceed to step 12.
+- **Malformed/absent return** (Agent() threw, or the return carries neither expected header): mirror the trio's fail-open — do NOT improvise a pass. Retry the `gsd-plan-checker` `Agent()` call once. If the retry still parses as neither `## VERIFICATION PASSED` nor `## ISSUES FOUND`, surface the raw checker output to the user with retry/abort options. Never treat an unparseable checker return as a silent pass.
 
 **If `TRIAGE_MODE` is `trio`:**
 - Read every `{PHASE_DIR}/{plan_id}-VERDICT.md` written in step 10.

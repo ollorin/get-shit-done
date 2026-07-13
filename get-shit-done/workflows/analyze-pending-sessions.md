@@ -83,21 +83,33 @@ Process each session sequentially to extract knowledge.
    If Agent() throws or returns empty: log the error and continue with remaining
    extraction types for this session.
 
-4. **Assemble results array** from all successful Agent() outputs:
-   ```json
-   [
-     {"type": "decision", "result": "{haikuOutput1}"},
-     {"type": "reasoning_pattern", "result": "{haikuOutput2}"},
-     {"type": "meta_knowledge", "result": "{haikuOutput3}"}
-   ]
+4. **Assemble results array — temp-file + programmatic JSON encoding is MANDATORY.**
+   Haiku output is arbitrary free text (may contain quotes, newlines, backslashes). NEVER
+   string-interpolate it into a JSON literal or a shell argument — that produces malformed JSON
+   or shell-injection. Instead, write each raw output to its own temp file and let `jq` encode
+   it (jq escapes strings correctly):
+   ```bash
+   TMPDIR=$(mktemp -d)
+   # For each successful extraction, write its RAW output verbatim to a file:
+   #   printf '%s' "$HAIKU_OUTPUT_1" > "$TMPDIR/decision.txt"   (etc.)
+   # Then build the JSON array programmatically — --rawfile reads the file as a JSON-safe string:
+   jq -n \
+     --rawfile decision "$TMPDIR/decision.txt" \
+     --rawfile reasoning "$TMPDIR/reasoning_pattern.txt" \
+     --rawfile meta "$TMPDIR/meta_knowledge.txt" \
+     '[{type:"decision",result:$decision},
+       {type:"reasoning_pattern",result:$reasoning},
+       {type:"meta_knowledge",result:$meta}]' > "$TMPDIR/results.json"
    ```
+   Include only the entries whose extraction actually succeeded (omit the `--rawfile`/object for
+   any that threw or returned empty).
 
-   Serialize to JSON string (or write to a temp file).
-
-5. **Store the results** by calling gsd-tools.js:
+5. **Store the results** by passing the temp FILE PATH (store-analysis-result reads a JSON string
+   OR a file path — the file path avoids putting arbitrary text on the command line at all):
    ```bash
    STORE_RESULT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js \
-     store-analysis-result "{sessionId}" '{resultsJson}')
+     store-analysis-result "{sessionId}" "$TMPDIR/results.json")
+   rm -rf "$TMPDIR"
    ```
 
    Parse `STORE_RESULT` for `stored`, `skipped`, `evolved`, `errors`.

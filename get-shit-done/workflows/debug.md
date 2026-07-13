@@ -105,7 +105,9 @@ Task(
 </step>
 
 <step name="handle_return">
-Branch on the agent's structured return.
+**Parse the machine-readable status FIRST — do not string-match the prose header.** Every non-dead debugger return ends with a fenced ```json trailer carrying `{"status": "root_cause_found"|"debug_complete"|"inconclusive"|"checkpoint", ...}` (a `checkpoint` status also carries `"checkpoint_type"`). Extract the last fenced JSON block and read `.status`; the `## …` header is human-readable garnish that a reworded line or an em-dash could break. Branch on `.status` (headers below name the matching prose form):
+
+**Malformed/absent return (mirror of execute-phase.md's executor-trailer fallback):** If `Agent()` threw, OR there is NO parseable JSON status trailer AND no recognizable `##` header, do NOT improvise a debug outcome. Retry the debugger `Agent()` call once. If still unrecognized: in interactive mode, surface the raw output to the user with retry/abort options; in non-interactive mode, return an `INVESTIGATION INCONCLUSIVE`-shaped result to the caller (note "debugger return unparseable" as the remaining-possibility) so its escalation ladder proceeds rather than hangs.
 
 **If `## ROOT CAUSE FOUND`:**
 - **Interactive:** Display root cause and evidence summary. Offer options: "Fix now" (spawn fix subagent), "Plan fix" (suggest `/gsd:plan-phase --gaps`), "Manual fix" (done).

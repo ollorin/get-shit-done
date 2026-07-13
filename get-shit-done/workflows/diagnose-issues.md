@@ -23,6 +23,24 @@ With diagnosis: "Comment doesn't refresh" → "useEffect missing dependency" →
 
 <process>
 
+<step name="resolve_phase">
+**Bind the phase and its UAT.md path FIRST** — every later step (gap parsing, the diagnosis commit) needs a real path, not the `XX-name`/`{phase}` placeholders that were previously never assigned.
+
+```bash
+# $ARGUMENTS carries the phase (e.g. "42" or "42-comments").
+PHASE_INFO=$(node ~/.claude/get-shit-done/bin/gsd-tools.js find-phase "${ARGUMENTS}")
+FOUND=$(echo "$PHASE_INFO" | jq -r '.found')
+if [ "$FOUND" != "true" ]; then
+  echo "ERROR: could not resolve phase from '${ARGUMENTS}'"; exit 1
+fi
+PHASE_DIR=$(echo "$PHASE_INFO" | jq -r '.directory')
+PHASE_NUM=$(echo "$PHASE_INFO" | jq -r '.phase_number')
+UAT_FILE="${PHASE_DIR}/${PHASE_NUM}-UAT.md"
+```
+
+Use `$UAT_FILE` as the gaps source in `parse_gaps` and as the commit target in `update_uat`.
+</step>
+
 <step name="parse_gaps">
 **Extract gaps from UAT.md:**
 
@@ -156,9 +174,9 @@ For each gap in the Gaps section, add artifacts and missing fields:
 
 Update status in frontmatter to "diagnosed".
 
-Commit the updated UAT.md:
+Commit the updated UAT.md (path bound in `resolve_phase`):
 ```bash
-node ~/.claude/get-shit-done/bin/gsd-tools.js commit "docs({phase}): add root causes from diagnosis" --files ".planning/phases/XX-name/{phase}-UAT.md"
+node ~/.claude/get-shit-done/bin/gsd-tools.js commit "docs(${PHASE_NUM}): add root causes from diagnosis" --files "$UAT_FILE"
 ```
 </step>
 
