@@ -11,6 +11,24 @@ const os = require('os');
 const DIM = '\x1b[2m', RESET = '\x1b[0m', CYAN = '\x1b[36m';
 const GREEN = '\x1b[32m', YELLOW = '\x1b[33m', ORANGE = '\x1b[38;5;208m', RED = '\x1b[31m';
 
+// Atomic write: serialise to a per-process temp file on the SAME directory, then
+// rename over the target. rename(2) is atomic on a single volume, so a
+// concurrently-rendering statusline in another terminal never reads a half-
+// written (torn) JSON file. These counters are deliberately best-effort and
+// repo-shared: a genuinely simultaneous read-modify-write from two sessions can
+// still lose an increment (last writer wins) — that is accepted for a display
+// counter. What we prevent here is corruption, not lost updates.
+function atomicWriteFileSync(filePath, data) {
+  const tmp = filePath + '.' + process.pid + '.tmp';
+  fs.writeFileSync(tmp, data);
+  try {
+    fs.renameSync(tmp, filePath);
+  } catch (e) {
+    try { fs.unlinkSync(tmp); } catch (_) {}
+    throw e;
+  }
+}
+
 // Parse unprocessed assistant turns from a JSONL file, starting at a line offset.
 // Returns { entries, newLineCount } where newLineCount is the updated position.
 function processJsonlFrom(filePath, fromLine) {
@@ -151,7 +169,7 @@ process.stdin.on('end', () => {
           });
 
           fs.mkdirSync(path.dirname(quotaStatePath), { recursive: true });
-          fs.writeFileSync(quotaStatePath, JSON.stringify(state, null, 2));
+          atomicWriteFileSync(quotaStatePath, JSON.stringify(state, null, 2));
 
           // Invalidate quota display cache so row2 updates immediately
           try { fs.unlinkSync(path.join(cacheDir, 'gsd-statusline-quota.json')); } catch (_) {}
@@ -167,7 +185,7 @@ process.stdin.on('end', () => {
           for (const k of dkeys.slice(0, dkeys.length - 200)) delete dedup[k];
         }
         fs.mkdirSync(cacheDir, { recursive: true });
-        fs.writeFileSync(dedupFile, JSON.stringify(dedup));
+        atomicWriteFileSync(dedupFile, JSON.stringify(dedup));
       }
     } catch (_) {}
 
@@ -188,7 +206,7 @@ process.stdin.on('end', () => {
           .trim().split('\n').filter(Boolean).length;
         gitInfo = { branch, staged, cwd, ts: Date.now() };
         fs.mkdirSync(cacheDir, { recursive: true });
-        fs.writeFileSync(gitCacheFile, JSON.stringify(gitInfo));
+        atomicWriteFileSync(gitCacheFile, JSON.stringify(gitInfo));
       }
       if (gitInfo.branch) {
         gitPart = ` │ ${CYAN}${gitInfo.branch}${RESET}`;
@@ -196,8 +214,19 @@ process.stdin.on('end', () => {
       }
     } catch (e) {}
 
+    // --- Update-check signal (best-effort) ---
+    // Surface a distinct, dim marker ONLY when the background update check
+    // genuinely FAILED (error field set) — so a persistently broken check no
+    // longer masquerades as "up to date" forever. On success-with-no-update we
+    // stay quiet. A single dim glyph is not spammy even if the error persists.
+    let updPart = '';
+    try {
+      const updRaw = JSON.parse(fs.readFileSync(path.join(cacheDir, 'gsd-update-check.json'), 'utf8'));
+      if (updRaw && updRaw.error) updPart = ` │ ${DIM}upd?${RESET}`;
+    } catch (_) {}
+
     // --- Row 1 ---
-    const row1 = `${DIM}${model}${RESET} │ ${DIM}${dir}${RESET}${gitPart} │ ${ctx}`;
+    const row1 = `${DIM}${model}${RESET} │ ${DIM}${dir}${RESET}${gitPart} │ ${ctx}${updPart}`;
 
     // --- GSD quota data (cached 10s) ---
     let row2 = '';
@@ -216,7 +245,7 @@ process.stdin.on('end', () => {
           const parsed = JSON.parse(result);
           quotaInfo = { bar: parsed.status_bar || '', ts: Date.now() };
           fs.mkdirSync(cacheDir, { recursive: true });
-          fs.writeFileSync(quotaCacheFile, JSON.stringify(quotaInfo));
+          atomicWriteFileSync(quotaCacheFile, JSON.stringify(quotaInfo));
         }
       }
       row2 = quotaInfo?.bar || '';
