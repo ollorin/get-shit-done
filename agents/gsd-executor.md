@@ -366,7 +366,11 @@ Long plans can outlive a single executor's context window, or the account's sess
 
 **At every task boundary** (right after a task's commit + TASK-CHECKPOINT.json write, before starting the next task), self-assess context pressure. This is a best-effort estimate, not a tool call: weigh long tool outputs you've read, files read, and tasks completed vs. tasks remaining in the plan.
 
-**At >= 80% estimated context usage, with tasks still remaining in the plan: STOP. Do NOT start the next task.**
+**Stop rule — headroom, not a flat percentage.** What matters is whether the NEXT task plus a handoff fits in the context you have left. Current-generation models have a 1M-token window (Haiku: 200K) — a flat "stop at 80%" would strand hundreds of thousands of usable tokens. STOP (do NOT start the next task) when EITHER:
+- your estimated **remaining** context is smaller than ~2× what the next task will plausibly consume (test runs and preflight output can dump 50-100K tokens in one tool result — budget for the expensive case, not the average), PLUS ~15K reserved for writing the handoff cleanly; or
+- you estimate >= 95% of the window is used, regardless of the next task's size.
+
+When in doubt between "probably fits" and "might not," stop — a clean handoff costs one respawn; dying mid-task costs the work.
 
 1. Write `.planning/phases/{phase_dir}/EXECUTOR-HANDOFF.json`:
    ```json
