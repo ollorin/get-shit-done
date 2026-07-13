@@ -2943,6 +2943,27 @@ describe('return-emitting agents carry a machine-parseable JSON status trailer (
   });
 });
 
+// ─── B-6: content_firewall coverage for content-ingesting agents ──────────────
+
+describe('content-ingesting agents carry a content_firewall block (B-6)', () => {
+  const AGENTS = path.join('/Users/ollorin/get-shit-done', 'agents');
+  const NEED_FIREWALL = [
+    'gsd-debugger.md', 'gsd-docs-updater.md', 'gsd-codebase-mapper.md',
+    'gsd-planner.md', 'gsd-verifier.md', 'gsd-plan-checker.md', 'gsd-roadmapper.md',
+  ];
+
+  for (const file of NEED_FIREWALL) {
+    test(`${file} has a <content_firewall> block after </role> pointing at the convention`, () => {
+      const raw = fs.readFileSync(path.join(AGENTS, file), 'utf8');
+      assert.ok(raw.includes('<content_firewall>'), `${file} missing <content_firewall> block`);
+      const roleEnd = raw.indexOf('</role>');
+      const fw = raw.indexOf('<content_firewall>');
+      assert.ok(roleEnd !== -1 && fw > roleEnd, `${file} <content_firewall> must appear after </role>`);
+      assert.ok(raw.includes('content-firewall.md'), `${file} must point at the content-firewall.md convention`);
+    });
+  }
+});
+
 
 describe('verify migration-timestamps command', () => {
   let tmpDir;
@@ -12588,11 +12609,17 @@ describe('Phase 59-01: agent drift refresh (content_firewall + telemetry)', () =
     assert.ok(content.includes(TELEMETRY_LINE), 'expected gsd-integration-tester.md to contain the exact 4-field telemetry line');
   });
 
-  test('boundary: gsd-planner.md and gsd-debugger.md carry NO <content_firewall> block (blast radius confined to test-writer/integration-tester)', () => {
+  test('gsd-planner.md and gsd-debugger.md now carry a <content_firewall> block (B-6 coverage extension)', () => {
+    // Phase 59-01 originally confined the firewall to test-writer/integration-tester.
+    // B-6 (gsd-prompts review) extended coverage to all content-ingesting agents,
+    // debugger first (it has Write/Edit and ingests target-repo content). This
+    // assertion is intentionally inverted from the original boundary test.
     const plannerContent = readRepoFile(path.join(REPO_ROOT, 'agents', 'gsd-planner.md'));
     const debuggerContent = readRepoFile(path.join(REPO_ROOT, 'agents', 'gsd-debugger.md'));
-    assert.ok(!plannerContent.includes('<content_firewall>'), 'expected gsd-planner.md to be untouched by this plan\'s drift refresh');
-    assert.ok(!debuggerContent.includes('<content_firewall>'), 'expected gsd-debugger.md to be untouched by this plan\'s drift refresh');
+    assert.ok(plannerContent.includes('<content_firewall>'), 'expected gsd-planner.md to carry a <content_firewall> block (B-6)');
+    assert.ok(plannerContent.includes('content-firewall.md'), 'expected gsd-planner.md to point at the content-firewall.md convention');
+    assert.ok(debuggerContent.includes('<content_firewall>'), 'expected gsd-debugger.md to carry a <content_firewall> block (B-6)');
+    assert.ok(debuggerContent.includes('content-firewall.md'), 'expected gsd-debugger.md to point at the content-firewall.md convention');
   });
 
   test('regression guard: CHANGELOG.md documents both new toggle defaults under Unreleased/Added', () => {
