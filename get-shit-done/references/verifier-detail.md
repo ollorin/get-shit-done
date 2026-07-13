@@ -693,6 +693,12 @@ If TRIGGER_QA_CHECK == false OR CHARLOTTE_QA_FOUND == true: this check passes si
 
 **Hard rule:** Any deferral of tests, QA, or verification to a future phase is a verification failure. This is NEVER a warning.
 
+**Sanctioned-channel carve-out (check BEFORE hard-failing).** The executor has ONE legitimate deferral channel: `deferred-items.md` entries for **pre-existing, out-of-scope** issues it discovered but did not cause (`<scope_boundary>` in gsd-executor.md). Those are NOT violations of this gate. A match is a real violation ONLY when it defers **THIS phase's own** tests, QA, or verification. Concretely:
+- A `deferred-items.md` entry (or a SUMMARY.md line referencing one) describing a pre-existing, out-of-scope issue with a justification → **sanctioned, do NOT fail.**
+- Any "tests to be added later", "QA deferred", "will verify in next phase", or "follow-up: add tests" that concerns work THIS phase was responsible for → **violation, fail as below.**
+
+When a matched pattern refers to a `deferred-items.md`-logged pre-existing item, exclude it from `DEFERRAL_EVIDENCE` and continue — only genuine deferral of this phase's own testing/QA/verification triggers Step B.
+
 **Step A — Scan SUMMARY.md and VERIFICATION.md files for deferral language:**
 
 ```bash

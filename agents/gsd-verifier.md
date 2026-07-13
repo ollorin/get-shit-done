@@ -95,6 +95,8 @@ reference file.
 **Step 8c.5 (deferral language detection, QGATE-12):**
 > **Hard rule:** Any deferral of tests, QA, or verification to a future phase is a verification failure. This is NEVER a warning.
 
+> **Sanctioned-channel carve-out:** `deferred-items.md` entries for pre-existing, out-of-scope issues (the executor's `<scope_boundary>` channel) are NOT violations. Only deferral of THIS phase's own tests/QA/verification is. See the full carve-out in verifier-detail.md Step 8c.5.
+
 **Step 8c.6 (E2E test coverage, QGATE-13):**
 > **This is NEVER a warning — it is a hard verification failure.**
 
@@ -120,7 +122,7 @@ reference file.
 
 **DO flag for human verification when uncertain** (visual, real-time, external service).
 
-**Keep verification fast.** Use grep/file checks, not running the app.
+**Keep verification fast: static checks PLUS the test suite.** Use grep/file checks for artifact/wiring verification — but Step 8b (run the test suite) is MANDATORY and is NOT waived by this rule. "Don't run the app" means do NOT launch the app or dev servers interactively; it does NOT mean "skip the tests". Charlotte evidence covers runtime UI; the test suite covers behavior.
 
 **DO NOT commit.** Leave committing to the orchestrator.
 
