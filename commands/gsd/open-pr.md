@@ -91,25 +91,22 @@ Otherwise derive from branch name: replace `-` with spaces, capitalize words.
 ## Create Pull Request
 
 ```bash
-gh pr create \
-  --title "$PR_TITLE" \
-  --body "$(cat <<'PREOF'
-## Summary
+# Assemble the body with printf (NOT a heredoc): a quoted-delimiter heredoc
+# ships the literal string "$PR_BODY", and an unquoted one would re-interpret
+# any `$` or backtick inside the git-derived commit text. printf '%s' expands
+# each variable exactly once and never re-parses its contents.
+PR_FULL_BODY=$(printf '%s\n\n%s\n\n%s\n%s\n\n%s\n%s\n' \
+  "## Summary" \
+  "$PR_BODY" \
+  "## Commits" "$COMMITS" \
+  "## Changed files" "$CHANGED_FILES")
+PR_FULL_BODY=$(printf '%s\n\n%s\n- [x] `scripts/preflight.sh` passed twice\n- [x] `.preflight-passed` marker present and fresh\n\n%s\n- [ ] Reviewer: pull branch, run `scripts/preflight.sh --skip-twice` and verify green\n' \
+  "$PR_FULL_BODY" "## Preflight" "## Test plan")
 
-$PR_BODY
-
-## Preflight
-- [x] `scripts/preflight.sh` passed twice
-- [x] `.preflight-passed` marker present and fresh
-
-## Test plan
-- [ ] Reviewer: pull branch, run `scripts/preflight.sh --skip-twice` and verify green
-
-PREOF
-)"
+gh pr create --title "$PR_TITLE" --body "$PR_FULL_BODY"
 ```
 
-Print the created PR URL.
+Print the created PR URL. Verify the created PR body contains the actual summary text, not a literal `$PR_BODY` — if it shows the literal variable name, the body assembly regressed.
 </step>
 
 </process>

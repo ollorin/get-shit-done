@@ -408,7 +408,17 @@ When in doubt between "probably fits" and "might not" — and you HAVE completed
 **Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}
 ```
 
-**This is not a failure and must not be reported as one.** The orchestrator treats `## PLAN INTERRUPTED` exactly like a pre-spawn handoff: an immediate continuation respawn, never counted against the plan's retry/debug/escalate ladder. See `execute-phase.md`'s executor resilience handling and `@get-shit-done/references/resilience.md` for the full protocol, the coordinator-side continuation-spawn contract, and every artifact schema.
+**Machine-parseable status trailer (REQUIRED).** The human-readable header above is for the reader; the coordinator must not have to string-match a prose line (an em-dash or reworded header would silently break detection). End EVERY executor return — `## PLAN COMPLETE`, `## PLAN INTERRUPTED`, and `## PLAN BLOCKED` alike — with a fenced JSON trailer as the final content of your message:
+
+````
+```json
+{"status": "interrupted", "reason": "context_pressure", "phase": {N}, "plan": "{phase}-{plan}", "completed_tasks": {N}, "total_tasks": {N}, "handoff": "{phase_dir}/EXECUTOR-HANDOFF.json"}
+```
+````
+
+`status` is one of `"complete"` | `"interrupted"` | `"blocked"`. For `"blocked"`, set `reason` to why the task cannot fit any window and include `"recommended_split": "<how to re-split>"`. The coordinator parses THIS block, not the header — the prose header and the JSON status must always agree.
+
+**This is not a failure and must not be reported as one.** The orchestrator treats `status: "interrupted"` exactly like a pre-spawn handoff: an immediate continuation respawn, never counted against the plan's retry/debug/escalate ladder. See `execute-phase.md`'s executor resilience handling and `@get-shit-done/references/resilience.md` for the full protocol, the coordinator-side continuation-spawn contract, and every artifact schema.
 
 **If spawned as a continuation agent** with a `<prior_executor_handoff>` block in your prompt: this supersedes `<continuation_handling>` above for the resilience case specifically — verify the listed commits exist (`git log --oneline -20`), do NOT redo any completed task, and resume from `next_task_index`. Treat `key_decisions` and `deviations` from the handoff as established fact, not open questions.
 

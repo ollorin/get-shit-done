@@ -8783,6 +8783,8 @@ describe('Executor Resilience Protocol: agents/gsd-executor.md self-stop wiring'
     assert.match(section, />= 95%/, 'must document the 95% absolute ceiling');
     assert.match(section, /Anti-stall guard/, 'must include the anti-stall guard so small-window models cannot loop into permanent handoffs');
     assert.match(section, /## PLAN BLOCKED/, 'anti-stall guard must define the PLAN BLOCKED escape for tasks that cannot fit any window');
+    assert.match(section, /Machine-parseable status trailer/, 'must require a machine-parseable JSON status trailer so coordinators do not string-match the prose header');
+    assert.match(section, /"status": "interrupted"/, 'the JSON status trailer must document the interrupted status value');
     assert.match(section, /CORRECT behavior/, 'must state that stopping cleanly is correct behavior');
     assert.match(section, /never a failure/, 'must explicitly state this is never a failure');
     assert.match(section, /EXECUTOR-HANDOFF\.json/, 'must write EXECUTOR-HANDOFF.json');
