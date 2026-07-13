@@ -13905,3 +13905,155 @@ go 1.21
     assert.ok(content.includes('"passed": true'), 'Should contain "passed": true verification (space matches output()\'s JSON.stringify(result, null, 2) pretty-printing)');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GSD prompts review — D-1/D-2/D-4/D-5 fixes (gsd-prompts-review.md)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('D-1: config get reads nested dotted keys + --default (auto-advance/auto-chain no longer dead)', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function writeConfig(obj) {
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'config.json'),
+      JSON.stringify(obj, null, 2)
+    );
+  }
+
+  test('config get workflow.auto_advance --raw returns the nested value "true" (regression: flat lookup returned "Unknown config key")', () => {
+    writeConfig({ workflow: { auto_advance: true, _auto_chain_active: false } });
+    const result = runGsdTools('config get workflow.auto_advance --raw --default false', tmpDir);
+    assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+    assert.strictEqual(result.output, 'true');
+  });
+
+  test('config get workflow._auto_chain_active --raw returns the nested "false"', () => {
+    writeConfig({ workflow: { auto_advance: true, _auto_chain_active: false } });
+    const result = runGsdTools('config get workflow._auto_chain_active --raw --default false', tmpDir);
+    assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+    assert.strictEqual(result.output, 'false');
+  });
+
+  test('config get git.branching_strategy --raw returns the nested git.* value', () => {
+    writeConfig({ git: { branching_strategy: 'milestone' } });
+    const result = runGsdTools('config get git.branching_strategy --raw --default none', tmpDir);
+    assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+    assert.strictEqual(result.output, 'milestone');
+  });
+
+  test('--default is emitted (exit 0) when the key is absent, so callers no longer need `|| echo "false"` masking', () => {
+    writeConfig({ workflow: {} });
+    const result = runGsdTools('config get workflow.auto_advance --raw --default false', tmpDir);
+    assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+    assert.strictEqual(result.output, 'false');
+  });
+
+  test('missing key WITHOUT --default still errors (exit 1) so genuine failures surface', () => {
+    writeConfig({ workflow: {} });
+    const result = runGsdTools('config get workflow.auto_advance --raw', tmpDir);
+    assert.strictEqual(result.success, false, 'expected non-zero exit for an unknown key with no default');
+  });
+
+  test('normalized flat keys (e.g. test_writer_enabled) still resolve unchanged', () => {
+    const result = runGsdTools('config get test_writer_enabled --raw', tmpDir);
+    assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+    assert.strictEqual(result.output, 'false');
+  });
+
+  test('no workflow/agent file uses the nonexistent hyphenated `config-get` subcommand', () => {
+    const REPO_ROOT = path.join(__dirname, '..', '..');
+    const files = [
+      'get-shit-done/workflows/execute-phase.md',
+      'get-shit-done/workflows/execute-roadmap.md',
+      'get-shit-done/workflows/plan-phase.md',
+      'get-shit-done/workflows/discuss-phase.md',
+      'get-shit-done/workflows/execute-plan.md',
+      'agents/gsd-executor.md',
+    ];
+    for (const f of files) {
+      const content = fs.readFileSync(path.join(REPO_ROOT, f), 'utf-8');
+      assert.ok(!/config-get\b/.test(content), `${f} must not call the nonexistent \`config-get\` subcommand`);
+    }
+  });
+
+  test('the auto-advance call sites use the corrected `config get workflow.auto_advance --raw` form', () => {
+    const REPO_ROOT = path.join(__dirname, '..', '..');
+    for (const f of ['get-shit-done/workflows/execute-phase.md', 'get-shit-done/workflows/plan-phase.md', 'get-shit-done/workflows/discuss-phase.md']) {
+      const content = fs.readFileSync(path.join(REPO_ROOT, f), 'utf-8');
+      assert.ok(content.includes('config get workflow.auto_advance --raw'), `${f} should use the corrected \`config get workflow.auto_advance --raw\` invocation`);
+    }
+  });
+});
+
+describe('D-2: audit-milestone.md writes the single-prefix filename complete-milestone reads', () => {
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  const AUDIT_PATH = path.join(REPO_ROOT, 'get-shit-done', 'workflows', 'audit-milestone.md');
+  const COMPLETE_CMD_PATH = path.join(REPO_ROOT, 'commands', 'gsd', 'complete-milestone.md');
+
+  test('audit-milestone.md no longer contains the doubled-prefix v{version}-v{version}- filename', () => {
+    const content = fs.readFileSync(AUDIT_PATH, 'utf-8');
+    assert.ok(!content.includes('v{version}-v{version}-MILESTONE-AUDIT.md'), 'the doubled-prefix output path must be gone');
+  });
+
+  test('audit-milestone.md step-6 Create instruction targets the single-prefix .planning/v{version}-MILESTONE-AUDIT.md', () => {
+    const content = fs.readFileSync(AUDIT_PATH, 'utf-8');
+    assert.ok(content.includes('Create `.planning/v{version}-MILESTONE-AUDIT.md`'), 'step 6 must Create the single-prefix report path');
+  });
+
+  test('the writer path matches what complete-milestone.md reads (single-prefix MILESTONE-AUDIT.md)', () => {
+    const cmd = fs.readFileSync(COMPLETE_CMD_PATH, 'utf-8');
+    assert.ok(cmd.includes('v{{version}}-MILESTONE-AUDIT.md'), 'reader should look for the single-prefix filename');
+    assert.ok(!cmd.includes('v{{version}}-v{{version}}-MILESTONE-AUDIT.md'), 'reader must not expect a doubled prefix');
+  });
+});
+
+describe('D-4: verify-phase.md wiring grep is not hardcoded to src/ + .ts/.tsx', () => {
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  const VERIFY_PATH = path.join(REPO_ROOT, 'get-shit-done', 'workflows', 'verify-phase.md');
+
+  test('the Level-3 wiring grep no longer hardcodes `src/ --include="*.ts" --include="*.tsx"`', () => {
+    const content = fs.readFileSync(VERIFY_PATH, 'utf-8');
+    assert.ok(!content.includes('src/ --include="*.ts" --include="*.tsx"'), 'the src/-only, ts/tsx-only grep must be generalized (false ORPHANED on apps/libs layouts)');
+  });
+
+  test('verify-phase.md derives search roots from the repo layout (handles apps/libs/functions)', () => {
+    const content = fs.readFileSync(VERIFY_PATH, 'utf-8');
+    assert.ok(content.includes('SEARCH_ROOTS'), 'should derive SEARCH_ROOTS from the actual layout');
+    assert.ok(/apps/.test(content) && /libs/.test(content) && /functions/.test(content), 'should consider apps/libs/functions layouts');
+  });
+});
+
+describe('D-5: shared-file-writes.md exists and is @-referenced from shared-planning-file mutators', () => {
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  const REF_PATH = path.join(REPO_ROOT, 'get-shit-done', 'references', 'shared-file-writes.md');
+
+  test('references/shared-file-writes.md exists with the canonical re-read-before-write rule', () => {
+    assert.ok(fs.existsSync(REF_PATH), 'shared-file-writes.md must exist');
+    const content = fs.readFileSync(REF_PATH, 'utf-8');
+    assert.ok(/re-?read/i.test(content), 'must state the re-read-before-write rule');
+    assert.ok(content.includes('STATE.md') && content.includes('ROADMAP.md') && content.includes('config.json'), 'must name the shared planning files');
+    assert.ok(/config-set|mutator/i.test(content), 'must prefer atomic gsd-tools mutators');
+  });
+
+  test('every shared-planning-file mutator @-references shared-file-writes.md', () => {
+    const mutators = [
+      'get-shit-done/workflows/transition.md',
+      'get-shit-done/workflows/settings.md',
+      'get-shit-done/workflows/new-milestone.md',
+      'get-shit-done/workflows/quick.md',
+      'get-shit-done/references/executor-detail.md',
+    ];
+    for (const f of mutators) {
+      const content = fs.readFileSync(path.join(REPO_ROOT, f), 'utf-8');
+      assert.ok(content.includes('references/shared-file-writes.md'), `${f} must @-reference shared-file-writes.md before mutating a shared planning file`);
+    }
+  });
+});

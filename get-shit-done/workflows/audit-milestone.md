@@ -218,7 +218,7 @@ Never render a table with a header row and no data rows — the presence or abse
 
 ## 6. Aggregate into v{version}-MILESTONE-AUDIT.md
 
-Create `.planning/v{version}-v{version}-MILESTONE-AUDIT.md` with:
+Create `.planning/v{version}-MILESTONE-AUDIT.md` with:
 
 ```yaml
 ---

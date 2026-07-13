@@ -108,6 +108,8 @@ Update Active requirements section and "Last updated" footer.
 
 ## 5. Update STATE.md
 
+Re-Read STATE.md fresh before editing — the read in step 1 predates any research spawn and a concurrent session may have advanced it; apply only the Current Position change to the current contents. **See @~/.claude/get-shit-done/references/shared-file-writes.md.**
+
 ```markdown
 ## Current Position
 

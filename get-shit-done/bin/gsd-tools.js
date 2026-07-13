@@ -1848,16 +1848,54 @@ function cmdConfigSet(cwd, keyPath, value, raw) {
   }
 }
 
-function cmdConfigGet(cwd, key, raw) {
+// Read a dotted key path (e.g. "workflow.auto_advance") straight out of the
+// raw config.json, mirroring how cmdConfigSet WRITES nested paths. loadConfig()
+// only surfaces a normalized whitelist of keys, so nested/opt-in keys such as
+// workflow.auto_advance, workflow._auto_chain_active and testing.test_command
+// are invisible to it — this fallback makes get/set symmetric. Returns
+// undefined for a missing path or unreadable/corrupt config (loadConfig already
+// prints a parse warning to stderr in the corrupt case).
+function readRawConfigPath(cwd, keyPath) {
+  const configPath = path.join(cwd, '.planning', 'config.json');
+  try {
+    if (!fs.existsSync(configPath)) return undefined;
+    let current = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    for (const k of keyPath.split('.')) {
+      if (current === null || typeof current !== 'object' || !(k in current)) {
+        return undefined;
+      }
+      current = current[k];
+    }
+    return current;
+  } catch {
+    return undefined;
+  }
+}
+
+function cmdConfigGet(cwd, key, raw, defaultValue) {
   if (!key) {
-    error('Usage: config get <key>');
+    error('Usage: config get <key> [--default <value>]');
   }
   const config = loadConfig(cwd);
-  const value = config[key];
+  let value = config[key];
+  // Fall back to a raw nested lookup for dotted paths the normalized config
+  // doesn't expose (workflow.auto_advance, git.branching_strategy, etc.).
+  if (value === undefined && key.includes('.')) {
+    value = readRawConfigPath(cwd, key);
+  }
   if (value === undefined) {
+    // A supplied default lets callers express "unset means this" without the
+    // `|| echo "false"` shell mask that also swallowed genuine dispatch/crash
+    // failures — a real error now surfaces as a non-zero exit + empty stdout.
+    if (defaultValue !== undefined) {
+      output({ key, value: defaultValue }, raw, defaultValue);
+      return;
+    }
     error(`Unknown config key: ${key}`);
   }
-  const strValue = String(value);
+  const strValue = value !== null && typeof value === 'object'
+    ? JSON.stringify(value)
+    : String(value);
   output({ key, value }, raw, strValue);
 }
 
@@ -13107,7 +13145,9 @@ async function main() {
     case 'config': {
       const subcommand = args[1];
       if (subcommand === 'get') {
-        cmdConfigGet(cwd, args[2], raw);
+        const defaultIdx = args.indexOf('--default');
+        const defaultValue = defaultIdx !== -1 ? args[defaultIdx + 1] : undefined;
+        cmdConfigGet(cwd, args[2], raw, defaultValue);
       } else {
         error('Unknown config subcommand. Available: get');
       }

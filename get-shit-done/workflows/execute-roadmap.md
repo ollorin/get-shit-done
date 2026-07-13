@@ -41,7 +41,7 @@ Parse JSON for:
 
 ```bash
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-BRANCHING_STRATEGY=$(node ~/.claude/get-shit-done/bin/gsd-tools.js config-get git.branching_strategy 2>/dev/null || echo "none")
+BRANCHING_STRATEGY=$(node ~/.claude/get-shit-done/bin/gsd-tools.js config get git.branching_strategy --raw --default none)
 MILESTONE_VERSION=$(grep -m1 "^## Milestone" .planning/ROADMAP.md | sed 's/.*v\([0-9.]*\).*/\1/' || echo "")
 MILESTONE_SLUG=$(grep -m1 "^## Milestone" .planning/ROADMAP.md | sed 's/## Milestone [^ ]* — //' | tr '[:upper:] ' '[:lower:]-' | tr -cd '[:alnum:]-' | cut -c1-40 || echo "work")
 ```

@@ -669,7 +669,7 @@ On any of the above:
 
 
 <state_updates>
-After SUMMARY.md, update STATE.md using gsd-tools:
+After SUMMARY.md, update STATE.md using the atomic gsd-tools `state` mutators below — never a raw whole-file Write, since parallel executors in the same wave touch STATE.md concurrently. **See @~/.claude/get-shit-done/references/shared-file-writes.md.**
 
 ```bash
 # Advance plan counter (handles edge cases automatically)

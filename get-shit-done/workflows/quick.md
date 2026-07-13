@@ -474,7 +474,7 @@ Store as `$VERIFICATION_STATUS`.
 
 **Step 7: Update STATE.md**
 
-Update STATE.md with quick task completion record.
+Update STATE.md with quick task completion record. **See @~/.claude/get-shit-done/references/shared-file-writes.md** — the Read in 7a must be the fresh, immediately-before-write read, and you merge only the Quick Tasks row into the current contents.
 
 **7a. Check if "Quick Tasks Completed" section exists:**
 

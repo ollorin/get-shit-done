@@ -109,6 +109,8 @@ AskUserQuestion([
 </step>
 
 <step name="update_config">
+Re-Read `.planning/config.json` NOW (the snapshot from the load step was taken before the interactive Q&A — a concurrent session may have changed it) and merge only the keys the user just chose into the fresh contents; prefer `config-set <key.path> <value>` over a whole-file rewrite so untouched fields can't be clobbered. **See @~/.claude/get-shit-done/references/shared-file-writes.md.**
+
 Merge new settings into existing config.json:
 
 ```json

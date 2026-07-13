@@ -40,7 +40,7 @@ When executing tasks you will discover issues in the codebase. Apply this rule:
 Detect whether auto mode is active:
 
 ```bash
-AUTO_ADVANCE=$(node ~/.claude/get-shit-done/bin/gsd-tools.js config get workflow.auto_advance 2>/dev/null || echo "false")
+AUTO_ADVANCE=$(node ~/.claude/get-shit-done/bin/gsd-tools.js config get workflow.auto_advance --raw --default false)
 ```
 
 **Auto mode behavior for checkpoints:**
