@@ -35,6 +35,22 @@ function buildSkewCachePayload(doctorResult) {
   };
 }
 
+// Build the update-check cache payload. The `error` field is the key signal:
+// without it, a persistently broken `npm view` lookup (offline, registry down,
+// package renamed) renders IDENTICALLY to "up to date" forever — update_available
+// stays false and no one can tell the check is silently dead. When error is a
+// non-null string, consumers (e.g. the statusline) surface a distinct marker; on
+// a clean success it is null and consumers stay quiet.
+function buildUpdateCachePayload(installed, latest, error) {
+  return {
+    update_available: !!(latest && installed && installed !== latest),
+    installed: installed || 'unknown',
+    latest: latest || 'unknown',
+    checked: Math.floor(Date.now() / 1000),
+    error: error || null
+  };
+}
+
 if (require.main === module) {
   // Run check in background (spawn background process, windowsHide prevents console flash)
   const child = spawn(process.execPath, ['-e', `
@@ -56,18 +72,17 @@ if (require.main === module) {
     } catch (e) {}
 
     let latest = null;
+    let updateError = null;
     try {
       latest = execSync('npm view get-shit-done-cc version', { encoding: 'utf8', timeout: 10000, windowsHide: true }).trim();
-    } catch (e) {}
+    } catch (e) {
+      // Capture a short, single-line reason so a persistently failing check is
+      // distinguishable from "no update available" — never swallow silently.
+      updateError = (e && e.message ? String(e.message).split('\\n')[0] : 'npm view failed').slice(0, 200);
+    }
 
-    const result = {
-      update_available: latest && installed !== latest,
-      installed,
-      latest: latest || 'unknown',
-      checked: Math.floor(Date.now() / 1000)
-    };
-
-    fs.writeFileSync(cacheFile, JSON.stringify(result));
+    const { buildUpdateCachePayload } = require(${JSON.stringify(__filename)});
+    fs.writeFileSync(cacheFile, JSON.stringify(buildUpdateCachePayload(installed, latest, updateError)));
 
     // MILE-25: opportunistic skew-check caching, independent of the update
     // check above -- never break SessionStart over a skew-check failure.
@@ -95,4 +110,4 @@ if (require.main === module) {
   child.unref();
 }
 
-module.exports = { shouldCheckSkew, buildSkewCachePayload };
+module.exports = { shouldCheckSkew, buildSkewCachePayload, buildUpdateCachePayload };
