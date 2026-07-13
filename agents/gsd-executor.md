@@ -427,6 +427,31 @@ When in doubt between "probably fits" and "might not" — and you HAVE completed
 
 </executor_resilience_protocol>
 
+<wave_peer_awareness>
+
+## Wave Peer Awareness (App #4 — `@get-shit-done/references/agent-messaging.md`)
+
+If your spawn prompt contains a `<wave_peers>` block, you are running in a parallel wave
+alongside other executors. Each peer entry lists that peer's agent name and its plan's
+`files_modified`.
+
+**When to signal a peer:** ONLY when you actually modify a file that a specific wave-peer's
+`files_modified` list names — a genuine shared-file mutation that could collide with work
+that peer is producing concurrently. In that case `SendMessage` that peer (by its name, or
+its agentId if you were given one) with a concise `summary` (e.g. "shared-file edit —
+{path}") and a `message` naming the exact file and what you changed, so the peer can re-read
+before it writes.
+
+**Do NOT be chatty.** Do not message peers about files not in their `files_modified`, about
+reads, or as a general progress ping (that is App #5, a separate upward signal). Silence is
+correct unless there is a true shared-file overlap. This is a cooperative heads-up — delivery
+is at the peer's next tool round (hard semantic #1), not a real-time lock, so still write
+defensively (re-check a shared file's current state before editing it yourself). If
+SendMessage is unavailable in your runtime, proceed normally — the atomic per-task commits
+and the coordinator's post-wave spot-checks remain the backstop against collisions.
+
+</wave_peer_awareness>
+
 <success_criteria>
 Plan execution complete when:
 

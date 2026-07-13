@@ -187,6 +187,19 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
    ONLY durable cross-session recovery. Retaining it costs nothing; if unavailable, every
    path below falls back to the existing cold fresh-spawn.
 
+   **Wave peer awareness (App #4, `@get-shit-done/references/agent-messaging.md`).** When a
+   wave spawns MORE THAN ONE executor in parallel, inject a `<wave_peers>` block into each
+   executor's spawn prompt listing the OTHER plans in this wave — for each peer, its agent
+   name (recipient forms accept a teammate NAME) and that plan's `files_modified` list (from
+   `phase-plan-index`). Instruct each executor: per your `<wave_peer_awareness>`, if you
+   modify a file another wave-peer's plan lists in its `files_modified`, `SendMessage` that
+   peer to warn of the shared-file mutation. This fires ONLY on genuine shared-file overlap
+   — it is the highest-value collision-prevention win in a parallel wave, but must not be
+   chatty. Names are known at spawn time; peers' agentIds only become available once their
+   spawn results return (a simultaneous parallel spawn returns all agentIds together), so use
+   the peer NAME as the primary handle and relay an agentId later only if a peer needs it.
+   Skip this block entirely for a single-executor wave — there are no peers to collide with.
+
    **For Wave 1 executors** (wave_number == 1, no prior context):
    ```
    Agent(
