@@ -12,6 +12,10 @@ Flags are composable: `--discuss --full` gives discussion + plan-checking + veri
 Read all files referenced by the invoking prompt's execution_context before starting.
 </required_reading>
 
+<honesty>
+Do not report a quick task complete until the executor actually committed the work and its SUMMARY.md marks every task done. A missing summary, a task count that doesn't match the commits, or an unresolved failure means the task is NOT complete — surface it honestly rather than papering over it (see the classifyHandoffIfNeeded rule in Step 6). "Skip optional agents" never means "skip the truth about what shipped."
+</honesty>
+
 <process>
 **Step 1: Parse arguments and get task description**
 
@@ -419,7 +423,7 @@ After executor returns:
 2. Extract commit hash from executor output
 3. Report completion status
 
-**Known Claude Code bug (classifyHandoffIfNeeded):** If executor reports "failed" with error `classifyHandoffIfNeeded is not defined`, this is a Claude Code runtime bug — not a real failure. Check if summary file exists and git log shows commits. If so, treat as successful.
+**Known Claude Code bug (classifyHandoffIfNeeded):** If executor reports "failed" with error `classifyHandoffIfNeeded is not defined`, this is a Claude Code runtime bug — not a real failure. But do NOT treat the mere existence of *any* commit as success (that hides genuinely-incomplete runs). Only override the "failed" status when ALL of these hold: (a) `${QUICK_DIR}/${next_num}-SUMMARY.md` exists, (b) the number of task commits for this quick task is >= the task count in the plan, AND (c) every task in the SUMMARY.md is marked done. If any of these fails, the run is genuinely incomplete — surface it as a real failure, do not paper over it.
 
 If summary not found, error: "Executor failed to create ${next_num}-SUMMARY.md"
 

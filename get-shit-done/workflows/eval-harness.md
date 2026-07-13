@@ -87,8 +87,15 @@ diff results) and 53-03 (adversarial fixture extension).
    ```bash
    node get-shit-done/bin/gsd-tools.js eval assert <artifacts-dir> --raw
    ```
-   Confirm `"pass": true`. Non-zero exit means a real discrepancy was found —
-   fix the underlying run, do not hand-edit the artifacts to force a pass.
+   Confirm `"pass": true`. The two non-zero exit codes mean different things and
+   demand different fixes — do NOT treat them identically:
+   - **Exit 1 (`"pass": false`):** a real behavioral discrepancy — the run's
+     artifacts don't match `expectations.json`. Fix the underlying plan→execute→
+     verify run; do NOT hand-edit the artifacts to force a pass.
+   - **Exit 2 (`error: true`, type `artifacts_dir_not_found` / `missing_expectations`
+     / `malformed_expectations`):** a harness setup problem — the assertion never
+     ran. Fix the artifacts-dir assembly (step 5) or the `expectations.json` manifest;
+     this is NOT a signal about run quality and does NOT mean the run failed.
 
 ## Producing `golden-artifacts/`
 

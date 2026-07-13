@@ -123,6 +123,20 @@ For each REQ-ID, determine status using all three sources:
 | missing                | listed              | any             | **partial** (verification gap) |
 | missing                | missing             | any             | **unsatisfied** |
 
+**On-disk artifact spot-check (REQUIRED before accepting `satisfied`).** The matrix above reads only
+self-reported documents (VERIFICATION.md ↔ SUMMARY.md ↔ REQUIREMENTS.md) — a phase can report itself
+satisfied without the code existing. For each REQ-ID resolving to `satisfied`, spot-check on disk that
+at least one concrete artifact the phase claims (a file path named in its SUMMARY.md/VERIFICATION.md, or
+a `verify artifacts`-style check against the plan's stated deliverables) actually exists:
+
+```bash
+# For each artifact path the phase's SUMMARY.md/VERIFICATION.md names as delivered:
+[ -e "$artifact_path" ] || echo "SPOT-CHECK FAIL: ${REQ_ID} reports satisfied but ${artifact_path} is absent on disk"
+```
+
+If a `satisfied` requirement's claimed artifacts are absent on disk, downgrade it to `partial (verify
+manually)` and note the discrepancy — never accept a paper-only `satisfied`.
+
 ### 5e. FAIL Gate and Orphan Detection
 
 **REQUIRED:** Any `unsatisfied` requirement MUST force `gaps_found` status on the milestone audit.

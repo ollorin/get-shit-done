@@ -446,6 +446,12 @@ Proceed directly to commit step below.
 
 **Commit roadmap and PRD lifecycle (after approval and files written):**
 
+**Confirm the artifact before committing — do NOT commit on the roadmapper's say-so.** Read the
+files the agent claims to have written and verify they exist and contain their required sections
+(ROADMAP.md: a `## Phases` section with at least one `### Phase`; REQUIREMENTS.md: a traceability
+table with MILE-XX → Phase rows). If a required section is missing or the file is empty, do NOT
+commit — re-spawn the roadmapper or surface the gap to the user.
+
 **If PRD_DRIVEN=true:**
 ```bash
 mkdir -p .planning/prds/done
