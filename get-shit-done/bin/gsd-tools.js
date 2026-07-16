@@ -8724,7 +8724,11 @@ function cmdPhaseComplete(cwd, phaseNum, raw) {
       }
 
       // 2. Every PLAN.md must have a matching SUMMARY.md
-      const planFiles = dirFiles.filter(f => f.match(/-PLAN.md$/i));
+      // Match only numbered task plans ({phase}-{NN}-PLAN.md), not artifact
+      // files like E2E-TEST-PLAN.md which have no matching -SUMMARY.md and would
+      // otherwise wrongly block phase completion. Mirrors the phase-gate pattern
+      // (/-\d{2}-PLAN\.md$/i) used by cmdVerifyPhaseGate.
+      const planFiles = dirFiles.filter(f => f.match(/-\d{2}-PLAN\.md$/i));
       const summarySet = new Set(dirFiles.filter(f => f.match(/-SUMMARY.md$/i)).map(f => f.replace(/-SUMMARY.md$/i, '')));
       for (const planFile of planFiles) {
         const planId = planFile.replace(/-PLAN.md$/i, '');
@@ -9776,7 +9780,10 @@ function findPhaseInternal(cwd, phase) {
     const phaseDir = path.join(phasesDir, match);
     const phaseFiles = fs.readdirSync(phaseDir);
 
-    const plans = phaseFiles.filter(f => f.endsWith('-PLAN.md') || f === 'PLAN.md').sort();
+    // Require a 2-digit plan number before -PLAN.md (or the legacy bare
+    // PLAN.md) so artifact files like E2E-TEST-PLAN.md are not miscounted as
+    // task plans or flagged as incomplete. Mirrors the phase-gate pattern.
+    const plans = phaseFiles.filter(f => f.match(/-\d{2}-PLAN\.md$/i) || f === 'PLAN.md').sort();
     const summaries = phaseFiles.filter(f => f.endsWith('-SUMMARY.md') || f === 'SUMMARY.md').sort();
     const hasResearch = phaseFiles.some(f => f.endsWith('-RESEARCH.md') || f === 'RESEARCH.md');
     const hasContext = phaseFiles.some(f => f.endsWith('-CONTEXT.md') || f === 'CONTEXT.md');

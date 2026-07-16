@@ -2702,6 +2702,22 @@ Plans:
     const parsed = JSON.parse(result.output);
     assert.ok(parsed.validation_errors.some(e => e.includes('last_step')), 'Should report wrong last_step');
   });
+
+  test('phase complete: E2E-TEST-PLAN.md is not treated as an incomplete numbered plan (Phase 283.1 item 4)', () => {
+    const phaseDir = createPhaseDir({ hasPlan: true, hasSummary: true, verStatus: 'passed', checkpointLastStep: 'verify' });
+    // Artifact file that ends with -PLAN.md but is NOT a numbered task plan
+    fs.writeFileSync(path.join(phaseDir, 'E2E-TEST-PLAN.md'), '# E2E Test Plan\n');
+    const result = runGsdTools('phase complete 1', tmpDir);
+    // Must NOT fail with a "no matching SUMMARY.md" completeness error for the E2E artifact
+    if (!result.success) {
+      const parsed = JSON.parse(result.output);
+      const errs = parsed.validation_errors || [];
+      assert.ok(
+        !errs.some(e => e.includes('E2E-TEST-PLAN.md')),
+        'E2E-TEST-PLAN.md must not be flagged as a plan missing its SUMMARY.md: ' + JSON.stringify(errs)
+      );
+    }
+  });
 });
 
 
