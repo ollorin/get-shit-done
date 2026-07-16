@@ -118,6 +118,17 @@ If any check fails: fix the plan before returning it. Do NOT return `## PLANNING
 
 Gap closure plans (created from `--gaps` flag) are NOT exempt from mandates 1-4. A gap closure plan that adds implementation code MUST include a tdd="true" task. A gap closure plan that modifies UI MUST include checkpoint:ui-qa. "It's just a fix" is NOT an exception.
 
+**MANDATE-6: Money/auth plans require a threat-model + idempotency task (MONEY/AUTH THREAT-MODEL MANDATE)**
+
+Any plan that touches money movement (wallet, payments, bonus credit, win-credit, refunds, transfers) OR authentication/authorization MUST include, as explicit tasks:
+
+- (a) A **threat-model task** — enumerate the abuse cases (replay, double-spend, race between concurrent requests, missing server-side authz, privilege escalation) and the control that closes each. A plan that moves money or gates access without naming its threats is incomplete.
+- (b) An **idempotency / all-or-nothing atomicity task** — the money mutation MUST be a single RPC or an explicit database transaction so that a partial failure leaves NO half-applied state. An app-level compensating saga (credit here, decrement there, hope both land) is NOT acceptable — it is precisely the pattern that produced the double-credit escape.
+
+Cite the escapes closed inline in the plan: POSTMORTEM class 9 (T2-004 wallet saga → double-win-credit, non-atomic money movement) and class 4 (missing server-side authorization).
+
+"The transaction is implied" / "auth is handled elsewhere" — INVALID. If a plan touches money or auth and lacks either task, it does NOT ship. This mandate is checked in MANDATE-4's validation loop: if the plan touches money/auth, confirm both (a) and (b) are present before returning `## PLANNING COMPLETE`.
+
 </absolute_mandates>
 
 <hard_rules_digest>

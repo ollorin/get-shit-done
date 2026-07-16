@@ -544,6 +544,31 @@ After all waves:
     <fail>BLOCKING — .planning/audit/phase-{N}-audit.jsonl does not exist. Phase cannot be marked complete without an audit entry. Verify all plans wrote their audit entries (check CPGATE-04 in each plan's execution). See ~/.claude/get-shit-done/references/audit-log.md.</fail>
   </item>
 
+  <!-- FPGATE-01 / SECGATE-01 / DFGATE-01: prevention-infrastructure lifecycle gates. -->
+  <!-- Each closes a documented POSTMORTEM escape class. If the target repo ships the -->
+  <!-- corresponding Layer-1 script (scripts/fp-gate.ts etc.), the gate RUNS it; if the -->
+  <!-- repo has no such script, the gate degrades to the static check described inline. -->
+
+  <item id="FPGATE-01" severity="blocking">
+    <check>The FP/routing/sizing violation-ratchet diff for this phase's changes is &lt;= 0 (no directory's violation count exceeds its recorded baseline)</check>
+    <command>deno run --allow-read --allow-run scripts/fp-gate.ts 2>&1 || echo FPGATE_FAIL</command>
+    <pass>Gate exits 0 — every directory's measured violation count is at or below its `scripts/fp-violation-baseline.json` baseline (the ratchet is DOWN-only: a phase may reduce or hold counts, never raise them). If the repo has no `scripts/fp-gate.ts`, PASS only when no new empty-catch, non-`match()` handler, or oversized file was introduced by this phase.</pass>
+    <fail>BLOCKING — a directory's violation count rose above baseline (`FPGATE_FAIL`, or the gate's `exceeded[]` array is non-empty). A phase may NEVER raise the ratchet. Closes POSTMORTEM FP classes 1 (swallowed errors), 2 (mutation), 7 (god-files/size), 8 (non-`match()` branching). Fix the new violations or, for a seeded pre-existing count, re-baseline deliberately — do NOT bypass.</fail>
+  </item>
+
+  <item id="SECGATE-01" severity="blocking">
+    <check>Every new endpoint (edge function route / HTTP handler) added by this phase wires auth middleware AND ships an authorization test asserting an unauthorized caller is rejected</check>
+    <pass>For each new route/handler in the phase diff: (a) an auth/authorization middleware is applied server-side (not client-only), AND (b) a test exists asserting a 401/403 for an unauthenticated/unauthorized caller. No new endpoint lands without BOTH.</pass>
+    <fail>BLOCKING — a new endpoint shipped without server-side auth middleware and/or without an authz-rejection test. Closes POSTMORTEM class 4 (T6-001 fraud-RPC authorization S0 — authz enforced only client-side). Add the middleware and the authz test before the phase completes; do NOT defer either to a later phase.</fail>
+  </item>
+
+  <item id="DFGATE-01" severity="blocking">
+    <check>No plan or SUMMARY in this phase contains deferral language for this phase's own tests/QA/verification</check>
+    <command>grep -rniE "tests? to be added later|QA deferred|will verify in (the )?next phase|deferred to (post-milestone|future phase)|TODO:? add auth|follow-?up:? (add )?tests|test later|verify later" .planning/phases/{phase_dir}/ 2>/dev/null || echo NONE</command>
+    <pass>Output is NONE. The `deferred-items.md` sanctioned channel (pre-existing, out-of-scope issues from the executor's `&lt;scope_boundary&gt;`) is exempt — only deferral of THIS phase's own tests/QA/verification trips the gate.</pass>
+    <fail>BLOCKING — deferral language found. This is exactly how the "premature stopping" and "verifier never looked" escapes happened: work marked done while its verification was pushed to a phase that never came. Convert every match into a concrete test/QA task in THIS phase, or move a genuinely out-of-scope item into `deferred-items.md` with an approver. Never `--no-verify` past it.</fail>
+  </item>
+
 </checkpoint>
 
 <step name="e2e_coverage_closure">

@@ -110,6 +110,22 @@ reference file.
 **Step 8e (migration timestamp conflict check, QGATE-05):**
 > **Hard rule:** Unresolved duplicate migration timestamps detected by this check cause `gaps_found`. This is NEVER a warning.
 
+**Step 8g (Layer-1 machine-gate execution, QGATE-14):**
+
+RUN — do not merely check for the existence of — the target repo's Layer-1 machine gates against the phase's tree, when the repo ships them:
+- `scripts/fp-gate.ts` (FP/routing/sizing violation-ratchet — down-only)
+- `scripts/migration-security-gate.ts` (migration RLS/security gate)
+- `scripts/cve-scan-gate.ts` (dependency CVE-scan gate)
+- the `--no-check` re-introduction guard (`! grep -n "no-check" apps/api/deno.json apps/api/project.json`)
+
+Capture each gate's exit code and stdout. A gate that is present in the repo but not run is treated as a FAIL for this step — the verifier may not skip a gate the repo defines.
+
+**Step 8h (Layer-1 machine-gate result reading, QGATE-15):**
+
+> **Hard rule:** READ the output captured in Step 8g and set STATUS = `gaps_found` if ANY Layer-1 gate exits non-zero. This is NEVER a warning.
+
+This closes the escape class where a gate existed but the verifier never ran it or never read its result — POSTMORTEM classes 4 (authz), 5, 8 (routing/size), and 10. "The gate is in CI" is not evidence the phase passed it: the verifier confirms the gate ran green against THIS phase's tree, or the phase is `gaps_found`.
+
 **Handoff brief:** A present `<handoff_brief>` block's HARD RULES / phase goal are the constraints the phase is verified against.
 
 </hard_rules_digest>
@@ -304,6 +320,8 @@ Self-report telemetry (MILE-26): populate these from your own run — an ambiguo
 - [ ] Test file coverage checked (Step 8d) — implementation files without test counterparts → gaps_found (never warning)
 - [ ] Migration timestamp conflicts checked (Step 8e) — unresolved conflicts → gaps_found (never warning)
 - [ ] Docs coverage validated (Step 8f) — docs missing for scope → gaps_found (never warning)
+- [ ] Layer-1 machine gates RUN (Step 8g / QGATE-14) — fp-gate, migration-security-gate, cve-scan-gate, `--no-check` guard executed against the phase tree (a present-but-unrun gate → gaps_found)
+- [ ] Layer-1 gate output READ (Step 8h / QGATE-15) — any non-zero Layer-1 gate → gaps_found (never warning)
 - [ ] Overall status determined
 - [ ] Gaps structured in YAML frontmatter (if gaps_found) — each gap includes failure_type field
 - [ ] Re-verification metadata included (if previous existed)

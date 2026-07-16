@@ -432,6 +432,48 @@ Overall: ✅ PASS / ❌ FAIL
 
 If FAIL: return to planner with specific fixes. Same revision loop as other dimensions (max 3 loops).
 
+## Dimension 10: File Size & Routing Discipline
+
+**Question:** Does any task plan a file that grows past ~500 LOC without a decomposition task, or introduce if/else/switch request dispatch instead of `match()` in an edge handler?
+
+**Process:**
+
+**Check 10-S1 — File-size ceiling:**
+
+For each `<task>` whose `<files>` names a file that already exists, estimate the resulting size from the task's described additions; for a new file, estimate from the described scope.
+
+1. If a task would create or grow a single file past ~500 LOC AND the plan contains no paired decomposition/extraction task, it is a **BLOCKING FAIL**.
+2. God-files hide untested branches and defeat review. A plan that knowingly grows a file past the ceiling must split it.
+
+```yaml
+issue:
+  dimension: file_size_routing
+  severity: blocker
+  description: "Task {N} in plan {plan} grows {file} past ~500 LOC with no decomposition task"
+  plan: "{plan}"
+  task: {N}
+  fix_hint: "Add a task that extracts cohesive units so no single file exceeds ~500 LOC, or split the work across files"
+```
+
+**Check 10-R1 — `match()` routing in handlers:**
+
+For each task touching `functions/**/index.ts` (or any request-dispatch entry point):
+
+1. If the task's description introduces if/else chains or a `switch` on method/pathname for request dispatch instead of `match([method, pathname])`, it is a **BLOCKING FAIL**.
+2. Routing must go through `match()` — no if/else/switch dispatch in handlers (per `.claude/rules/fp.md`).
+
+```yaml
+issue:
+  dimension: file_size_routing
+  severity: blocker
+  description: "Task {N} in plan {plan} introduces if/else/switch dispatch in {file} instead of match()"
+  plan: "{plan}"
+  task: {N}
+  fix_hint: "Route via match([method, pathname]); no if/else/switch request dispatch in handlers"
+```
+
+Closes POSTMORTEM class 7 (god-files — no size gate ever existed, so files grew unbounded) and class 8 (fp.md named the exact violator yet branching dispatch was added anyway). Same revision loop as other dimensions (max 3 loops).
+
 </verification_dimensions>
 
 <verification_process>
