@@ -227,6 +227,13 @@ human_verification: # Only if status: human_needed
 
 ### Anti-Patterns Found
 
+When scanning, also ask the logical-cohesion question directly: does any file the phase touched end
+up holding two or more unrelated responsibilities (e.g. request-routing bolted onto a new business-
+rule engine) that plan-time Dimension 11 (gsd-plan-checker.md) should have split, but drifted back
+together during execution? A cohesive-but-large file is not this finding — a small-but-tangled one
+is. Record any such finding as its own row in this table (Pattern: `logical_cohesion`) even if the
+file is under the ~500 LOC ceiling — LOC and cohesion are independent checks.
+
 | File | Line | Pattern | Severity | Impact |
 | ---- | ---- | ------- | -------- | ------ |
 
@@ -311,7 +318,7 @@ Self-report telemetry (MILE-26): populate these from your own run — an ambiguo
 - [ ] Done-criteria traced backward to implementation (Step 5b) — semantic completeness confirmed
 - [ ] Requirements coverage assessed (if applicable)
 - [ ] PRD intent alignment checked (Step 6b) — fires only if PRD-TRACE.md present; mismatches → gaps_found (never warning)
-- [ ] Anti-patterns scanned and categorized
+- [ ] Anti-patterns scanned and categorized — including a logical-cohesion check (unrelated responsibilities re-tangled into one file post-execution, independent of LOC)
 - [ ] Human verification items identified
 - [ ] Test suite executed (Step 8b) — failures recorded as gaps, no-tests for code-producing phases → gaps_found (NEVER a warning), timeouts → gaps_found (NEVER a pass)
 - [ ] Charlotte QA coverage checked (Step 8c) — UI files without Charlotte QA → gaps_found (never warning)

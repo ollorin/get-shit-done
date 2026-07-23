@@ -474,6 +474,30 @@ issue:
 
 Closes POSTMORTEM class 7 (god-files — no size gate ever existed, so files grew unbounded) and class 8 (fp.md named the exact violator yet branching dispatch was added anyway). Same revision loop as other dimensions (max 3 loops).
 
+## Dimension 11: Logical Cohesion
+
+**Question:** Does any task's planned file changes combine two or more unrelated responsibilities — e.g. a handler file gaining both request-routing AND a new business-rule engine — that should be separate files regardless of resulting LOC?
+
+**Process:**
+
+For each `<task>`, reason from the task's described action and `<files>` list — not from estimated size:
+
+1. Identify the distinct responsibilities the task's action asks each named file to hold (e.g. "adds request validation" + "adds a new pricing engine" + "adds persistence mapping" are three responsibilities, not one).
+2. If a single file is asked to hold two or more responsibilities that have no natural reason to change together (different triggers, different owners, different failure domains), it is a **BLOCKING FAIL** — regardless of whether the file stays under the ~500 LOC ceiling from Dimension 10.
+3. A cohesive-but-large file is not a Dimension 11 violation (that is Dimension 10's job); a small-but-tangled file is exactly what this dimension exists to catch.
+
+```yaml
+issue:
+  dimension: logical_cohesion
+  severity: blocker
+  description: "Task {N} in plan {plan} combines {responsibility A} and {responsibility B} in {file}, which should be separate files"
+  plan: "{plan}"
+  task: {N}
+  fix_hint: "Split {file} so each file holds one responsibility; add a task per responsibility, or route the second responsibility to a new file"
+```
+
+Row count is a lagging proxy: a file can sit comfortably under the ~500 LOC ceiling while still being a god-module holding unrelated responsibilities that a pure LOC gate (`scripts/fp-gate.ts`'s `oversizeFiles` check) can never catch. Cohesion is a judgment call, not machine-gateable, so it is enforced here at plan-check time instead. Same revision loop as other dimensions (max 3 loops).
+
 </verification_dimensions>
 
 <verification_process>
