@@ -1364,15 +1364,29 @@ function installHookDependencies(gsdDir) {
     // If package-lock.json exists from a prior install, use npm ci for reproducibility.
     // Otherwise, use npm install for the first-ever install (no lockfile exists yet).
     const hasLockfile = fs.existsSync(lockfilePath);
-    const command = hasLockfile
-      ? 'npm ci --silent'
-      : 'npm install --prefer-offline --silent';
-
-    execSync(command, {
-      cwd: gsdDir,
-      stdio: 'pipe',
-      timeout: 30000
-    });
+    // npm ci HARD-FAILS if package.json and package-lock.json disagree — and we rewrite
+    // package.json above on every run, so a version pin change here guarantees that
+    // disagreement exactly once. Without this retry the failure falls through to the outer
+    // catch and silently disables the hooks, which reads as "install worked, features are
+    // just off". Retry once with npm install to regenerate the lock, then it is reproducible
+    // again from the next run onward.
+    if (hasLockfile) {
+      try {
+        execSync('npm ci --silent', { cwd: gsdDir, stdio: 'pipe', timeout: 30000 });
+      } catch (ciError) {
+        execSync('npm install --prefer-offline --silent', {
+          cwd: gsdDir,
+          stdio: 'pipe',
+          timeout: 30000
+        });
+      }
+    } else {
+      execSync('npm install --prefer-offline --silent', {
+        cwd: gsdDir,
+        stdio: 'pipe',
+        timeout: 30000
+      });
+    }
 
     // Post-install: prune unused protobufjs/cli subtree
     // Rationale: @xenova/transformers → onnx-proto → protobufjs@6.11.6 ships protobufjs/cli (18MB)
