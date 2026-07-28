@@ -280,6 +280,46 @@ Common E2E flows to always consider (if applicable):
 
 </e2e_protocol>
 
+<suite_preconditions>
+
+## Suite Preconditions — Reset Gate (mode=e2e, and any full-suite run)
+
+Before you run a suite of scenarios and before you report ANY pass count, verify the run began
+from a freshly reset database.
+
+Why this is a hard gate: a suite whose scenarios write state and do not clean up becomes
+order-dependent and history-dependent within a few runs. From the outside that is
+indistinguishable from flakiness, and — worse — the numbers it produces are not weak evidence,
+they are not evidence. In the real incident this rule comes from, four suite runs had already
+executed against a never-reset database while 112 of 121 scenarios mutated state without teardown.
+Every pass count from those runs was meaningless, and nobody knew.
+
+### What to check
+
+1. **The reset happened.** Look for the project's suite-level reset step (its documented database
+   reset command, a fixture bootstrap, or a runtime assertion the harness makes at start-up).
+   Confirm it ran for THIS run — not that the project documents one somewhere.
+2. **The harness asserts it.** If the suite has no runtime assertion that it started from a reset
+   state, that absence is itself a Critical finding: the gate is advisory, and an advisory gate
+   is not a gate.
+3. **Residue check.** If the reset cannot be confirmed directly, look for accumulated test
+   accounts or leftover mutated state from prior runs. Residue is proof the precondition failed.
+
+### What to do when the precondition is not met
+
+- Do NOT report a pass count. Do NOT report `passed: true`.
+- Emit a **Critical** issue with category `Broken`, titled to name the missing precondition, and
+  set `passed: false`.
+- State plainly in the report's `## Not Covered (and why)` section that the run's results are not
+  evidence of anything, and why.
+- Reset is a suite-level cost, never per-scenario. Do not "work around" a missing reset by
+  re-running individual scenarios — that produces the same worthless number more slowly.
+
+**Never soften this into a warning.** A QA report that says "N passed (note: DB was not reset)"
+will be read as N passed.
+
+</suite_preconditions>
+
 <issue_format>
 
 ## Issue Report Format
@@ -449,5 +489,8 @@ unavailable in your runtime, just return the JSON report as normal — nothing b
 - Report exactly what you find — do not speculate or suggest fixes (that is the fix subagent's job).
 - Number issues sequentially from ISSUE-001 (or continuing from previous round).
 - Return structured JSON — the coordinator parses it to decide next steps.
+- NEVER report a pass count from a suite run that did not begin from a freshly reset database —
+  verify the precondition first (`<suite_preconditions>`), and fail the run loudly if it does not hold.
+- A missing runtime assertion of the reset precondition is itself a Critical issue, not a note.
 
 </critical_rules>
