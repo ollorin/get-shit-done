@@ -1325,35 +1325,72 @@ function wrapWithTimeout(command, seconds = 10) {
 
 /**
  * Install npm dependencies needed by the doc-compression hook.
- * Writes a minimal package.json to gsdDir and runs npm install.
+ * Writes a minimal package.json to gsdDir with pinned versions and runs npm install.
+ * Uses npm ci if package-lock.json exists (reproducible), falls back to npm install (first install).
  * Fails gracefully — compression just stays disabled if install fails.
+ *
+ * Versions pinned from ~/.claude/get-shit-done/package-lock.json as of 2026-07-28:
+ * - dotenv: 17.4.2 (was ^17.0.0, resolved from package-lock.json line ~75)
+ * - markdown-it: 14.3.0 (was ^14.0.0, resolved from package-lock.json)
+ * - gray-matter: 4.0.3 (was ^4.0.3, already stable)
+ * - minimatch: 9.0.9 (was ^9.0.0, resolved from package-lock.json)
+ * - better-sqlite3: 11.10.0 (was ^11.0.0, resolved from package-lock.json)
+ * - sqlite-vec: 0.1.9 (was ^0.1.0, resolved from package-lock.json)
+ * - @xenova/transformers: 2.17.2 (was ^2.17.2, already stable)
  */
 function installHookDependencies(gsdDir) {
   const packageJsonPath = path.join(gsdDir, 'package.json');
+  const lockfilePath = path.join(gsdDir, 'package-lock.json');
 
   // Always write package.json so updates add new dependencies
+  // Pinned to exact versions for reproducibility
   fs.writeFileSync(packageJsonPath, JSON.stringify({
     name: 'gsd-hooks',
     version: '1.0.0',
     private: true,
     description: 'Dependencies for GSD hooks',
     dependencies: {
-      'dotenv': '^17.0.0',
-      'markdown-it': '^14.0.0',
-      'gray-matter': '^4.0.3',
-      'minimatch': '^9.0.0',
-      'better-sqlite3': '^11.0.0',
-      'sqlite-vec': '^0.1.0',
-      '@xenova/transformers': '^2.17.2'
+      'dotenv': '17.4.2',
+      'markdown-it': '14.3.0',
+      'gray-matter': '4.0.3',
+      'minimatch': '9.0.9',
+      'better-sqlite3': '11.10.0',
+      'sqlite-vec': '0.1.9',
+      '@xenova/transformers': '2.17.2'
     }
   }, null, 2));
 
   try {
-    execSync('npm install --prefer-offline --silent', {
+    // If package-lock.json exists from a prior install, use npm ci for reproducibility.
+    // Otherwise, use npm install for the first-ever install (no lockfile exists yet).
+    const hasLockfile = fs.existsSync(lockfilePath);
+    const command = hasLockfile
+      ? 'npm ci --silent'
+      : 'npm install --prefer-offline --silent';
+
+    execSync(command, {
       cwd: gsdDir,
       stdio: 'pipe',
       timeout: 30000
     });
+
+    // Post-install: prune unused protobufjs/cli subtree
+    // Rationale: @xenova/transformers → onnx-proto → protobufjs@6.11.6 ships protobufjs/cli (18MB)
+    // which contains brace-expansion@1.1.14 (CVE GHSA-3jxr-9vmj-r5cp, HIGH, DoS, vulnerable range <1.1.16).
+    // Only protobufjs/minimal (runtime) is used; cli (code-generation tooling) is dead weight.
+    // Safe to remove: verified no dependencies reference it. Fail-open: a prune error must not break the install.
+    const cliPath = path.join(gsdDir, 'node_modules', 'protobufjs', 'cli');
+    try {
+      if (fs.existsSync(cliPath)) {
+        fs.rmSync(cliPath, { recursive: true, force: true });
+      }
+    } catch (pruneErr) {
+      // Prune failure is non-fatal: log and continue
+      if (process.env.DEBUG) {
+        console.warn(`       ⚠️  Warning: Could not prune protobufjs/cli: ${pruneErr.message}`);
+      }
+    }
+
     return true;
   } catch (e) {
     return false;
