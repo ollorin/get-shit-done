@@ -10,6 +10,25 @@ Coordinator stays lean — parses roadmap, tracks DAG, spawns phases. Each phase
 Read STATE.md before any operation to load project context.
 </required_reading>
 
+<autonomous_resumption>
+**Why this exists:** a long roadmap can outlive a single Claude session/quota window. An external process supervisor (outside this Claude process entirely — e.g. a consuming project's `scripts/session-supervisor.sh`) can wrap the invocation, detect a session/quota death of the WHOLE `claude` process, wait for the reset, and relaunch a fresh headless process:
+
+```bash
+session-supervisor.sh --max-resumes 8 -- claude -p "/gsd:execute-roadmap" --permission-mode bypassPermissions
+```
+
+Each relaunch is a brand-new process with no human present and no memory of the prior one — it only has what's on disk (`.planning/EXECUTION_LOG.md`, `ROADMAP.md`, `STATE.md`). This is a categorically different mechanism from the in-process death/respawn handling in the `execute_phases` step's 4a sub-step below (which recovers a *spawned sub-agent* dying while THIS orchestrator survives) — see `references/resilience.md` for that distinction. Nothing internal to this workflow can detect or recover from the top-level orchestrator process itself dying; only an external supervisor can.
+
+**The `GSD_AUTONOMOUS=1` environment variable** signals that this run may be an unattended relaunch with no human able to answer a prompt. It changes behavior at exactly two gates, both defined further below, and nowhere else in this file:
+
+- the `resume_capability` step — if `GSD_AUTONOMOUS=1` AND `resume_state` is set (a prior incomplete execution exists), auto-select **"resume"**. Never "restart" — restart discards completed-phase history and would be catastrophic to auto-select unattended; it stays reachable only via an interactive human response.
+- the `confirm_execution` step — if `GSD_AUTONOMOUS=1` AND `resume_state` is set, auto-proceed as if the human had typed "yes" — the human already authorized this roadmap when they originally started it; a relaunch continuing it is not a new decision.
+
+**Both conditions must hold.** A **fresh** run (no `resume_state` — nothing to resume) ALWAYS requires a human to type "yes" at the confirm-execution prompt, even with `GSD_AUTONOMOUS=1` set — this variable resumes authorized work, it never starts unauthorized work. An interactive run with a stale `EXECUTION_LOG.md` lying around but `GSD_AUTONOMOUS` unset also prompts normally — the variable, not the mere presence of a log file, is what signals "no human is present to answer."
+
+**Every auto-decision is logged, unconditionally** — a silently auto-answered human gate is exactly the failure mode this project's dispatcher-contract forbids. See the `autonomous_resume_auto_selected` and `autonomous_confirm_auto_proceeded` events logged inline in each step below.
+</autonomous_resumption>
+
 <process>
 
 <step name="initialize" priority="first">
@@ -33,7 +52,7 @@ Parse JSON for:
 
 **If `roadmap_exists` is false:** Error — ".planning/ROADMAP.md not found. Initialize project first."
 
-**If `resume_state` is set:** Present resume prompt before continuing (see `<step name="resume_capability">`).
+**If `resume_state` is set:** Present resume prompt before continuing (see `<step name="resume_capability">`). Under `GSD_AUTONOMOUS=1` (see `<autonomous_resumption>` below) this gate auto-resolves to "resume" instead of blocking on human input.
 </step>
 
 <step name="branch_guard">
@@ -146,7 +165,15 @@ fi
 </step>
 
 <step name="confirm_execution">
-Present execution plan to user before any autonomous action:
+**Autonomous auto-proceed (checked first — see `<autonomous_resumption>`):** if `GSD_AUTONOMOUS=1` is set AND `resume_state` was set at `initialize` (this run is resuming a roadmap a human already authorized when they originally started it) — skip the prompt below entirely and proceed as if the human had typed "yes". A fresh run (`resume_state` not set) is NEVER auto-proceeded this way, regardless of `GSD_AUTONOMOUS` — a human must still approve work nobody has authorized yet. Log the auto-decision before continuing:
+```bash
+node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
+  --type autonomous_confirm_auto_proceeded \
+  --data '{"total_phases": {total_phases}, "execution_order": [...], "reason": "GSD_AUTONOMOUS=1 and resume_state present at initialize — human already authorized this roadmap at original start; auto-proceeding as yes for unattended resumption"}'
+```
+Then proceed directly to `initialize_execution_log`.
+
+**Otherwise (interactive — the default):** present execution plan to user before any autonomous action:
 
 ```
 ## Roadmap Execution Plan
@@ -554,6 +581,15 @@ if telegram_topic_id is not null:
 
 <step name="resume_capability">
 If previous execution incomplete (resume_state set):
+
+**Autonomous auto-select (checked first — see `<autonomous_resumption>`):** if `GSD_AUTONOMOUS=1` is set, skip the prompt below entirely and auto-select **"resume"**. NEVER auto-select "restart" — it overwrites EXECUTION_LOG.md and discards completed-phase history; on an unattended relaunch that would silently destroy prior work, so "restart" remains reachable only through an interactive human response. Log the auto-decision, then go straight to **Resume flow** below as if the human had typed "resume":
+```bash
+node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
+  --type autonomous_resume_auto_selected \
+  --data '{"phase": {resume_state.phase}, "phase_name": "{resume_state.phase_name}", "status": "{resume_state.status}", "reason": "GSD_AUTONOMOUS=1 set — auto-selected resume (never restart) so an unattended supervisor relaunch continues without a human present"}'
+```
+
+**Otherwise (interactive — the default):**
 
 ```
 ## Resume Previous Execution
