@@ -318,7 +318,8 @@ Report the gate result explicitly: scenarios checked, scenarios blocked, and why
 - ALWAYS include visual verification steps (check for NaN, undefined, layout issues)
 - ALWAYS check console errors after interactions
 - Tests must be self-contained — each scenario handles its own auth and seeding
-- Use existing auth helpers (loginAsPlayer, loginAsOperator) and seeders
+- Use existing auth helpers and seeders — but seeders are for **Tier 0 reference data ONLY**. Never
+  reach for a seeder to create money, limits, verification status or session state (see R2)
 - Prefer specific assertions ("deposit amount shows $50.00") over vague ones ("page looks correct")
 - NEVER let two mutating scenarios share an account — Tier 2 is per-scenario, always
 - NEVER hand-type an account identifier into a scenario file — it comes from the naming helper
