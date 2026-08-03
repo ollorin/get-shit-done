@@ -2561,6 +2561,32 @@ function cmdStateUpdateProgress(cwd, raw) {
   const boldProgressPattern = /(\*\*Progress:\*\*\s*).*/i;
   const plainProgressPattern = /^(\s*Progress:\s*).*/im;
 
+  // Some projects track progress in a non-percentage convention (e.g.
+  // "N/M phases \u00b7 N/M requirements (notes...)") instead of a "[bar] N%"
+  // string. totalPlans/totalSummaries here counts PLAN.md/SUMMARY.md files
+  // across every phase directory on disk -- an entirely different metric
+  // from that convention. Blindly overwriting a non-percentage line with a
+  // computed percentage silently destroys real content (observed: a
+  // hand-maintained "1/22 phases * 1/32 requirements (...)" note replaced
+  // with a bogus "103%"/"104%" on repeated calls). Detect this up front and
+  // skip rather than guess -- callers that want the percent format can still
+  // get it by writing an initial "[bar] N%"-shaped line themselves.
+  const existingBoldMatch = content.match(/\*\*Progress:\*\*\s*(.*)/i);
+  const existingPlainMatch = content.match(/^\s*Progress:\s*(.*)$/im);
+  const existingValue = existingBoldMatch ? existingBoldMatch[1] : (existingPlainMatch ? existingPlainMatch[1] : null);
+  const looksLikePercentFormat = existingValue === null
+    || /^\s*$/.test(existingValue)
+    || /\d+%/.test(existingValue);
+
+  if (existingValue !== null && !looksLikePercentFormat) {
+    output({
+      updated: false,
+      reason: 'Progress line uses a non-percentage format -- skipped to avoid overwriting it with a computed percentage. Update it manually or with a project-specific mutator.',
+      existing: existingValue,
+    }, raw, 'false');
+    return;
+  }
+
   if (boldProgressPattern.test(content)) {
     content = content.replace(boldProgressPattern, `$1${progressStr}`);
     atomicWriteFileSync(statePath, content);
@@ -8558,15 +8584,52 @@ function cmdRoadmapUpdatePlanProgress(cwd, phaseNum, raw) {
   // Milestone cell's value on every run (found + fixed during Phase 57-01;
   // see deferred-items.md for pre-existing rows this bug corrupted before
   // this fix landed).
-  const tablePattern = new RegExp(
-    `(\\|\\s*${phaseEscaped}\\.?\\s[^|]*\\|)([^|]*\\|)[^|]*(\\|)\\s*[^|]*(\\|)\\s*[^|]*(\\|)`,
-    'i'
-  );
+  // The 5-column shape above is one convention among several this framework's
+  // consuming projects actually use in practice -- some track a 3-column
+  // table instead (e.g. "| Phase | Requirements | Status |", no Milestone/
+  // Completed columns at all). Applying the 5-column regex to a differently-
+  // shaped table doesn't fail loudly -- it matches SOMETHING (the row-start
+  // anchor `\|\s*${phaseEscaped}` still hits) and then consumes pipe
+  // delimiters past the row's actual end, spilling into and corrupting the
+  // NEXT row (observed: a neighboring phase's row name silently absorbed
+  // into the updated row under concurrent execution). Detect the real column
+  // count of the header immediately governing this row before touching
+  // anything, and only apply the 5-column rewrite when it actually has 5
+  // columns -- for any other shape, skip the table rewrite (the Plans: line
+  // and checkbox updates below are format-agnostic and still safe to apply).
+  const rowLineMatch = roadmapContent.match(new RegExp(`^\\|\\s*${phaseEscaped}\\.?\\s.*\\|\\s*$`, 'im'));
+  let headerColumnCount = null;
+  if (rowLineMatch) {
+    const rowStart = roadmapContent.indexOf(rowLineMatch[0]);
+    const before = roadmapContent.slice(0, rowStart);
+    const linesBefore = before.split('\n');
+    // Walk backward past the row's own separator line (e.g. |---|---|) to
+    // the actual header row directly above it.
+    for (let i = linesBefore.length - 1; i >= 0; i--) {
+      const line = linesBefore[i].trim();
+      if (line === '') continue;
+      if (/^\|[\s:|-]+\|$/.test(line)) continue; // separator row, keep going up
+      if (line.startsWith('|') && line.endsWith('|')) {
+        headerColumnCount = line.split('|').filter((_, idx, arr) => idx > 0 && idx < arr.length - 1).length;
+      }
+      break; // first non-separator, non-blank line above the row -- header or not, stop here
+    }
+  }
+
   const dateField = isComplete ? ` ${today} ` : '  ';
-  roadmapContent = roadmapContent.replace(
-    tablePattern,
-    `$1$2 ${summaryCount}/${planCount} $3 ${status.padEnd(11)}$4${dateField}$5`
-  );
+  let tableUpdated = false;
+  if (headerColumnCount === 5) {
+    const tablePattern = new RegExp(
+      `(\\|\\s*${phaseEscaped}\\.?\\s[^|]*\\|)([^|]*\\|)[^|]*(\\|)\\s*[^|]*(\\|)\\s*[^|]*(\\|)`,
+      'i'
+    );
+    const before = roadmapContent;
+    roadmapContent = roadmapContent.replace(
+      tablePattern,
+      `$1$2 ${summaryCount}/${planCount} $3 ${status.padEnd(11)}$4${dateField}$5`
+    );
+    tableUpdated = roadmapContent !== before;
+  }
 
   // Update plan count in phase detail section
   const planCountPattern = new RegExp(
@@ -8596,6 +8659,8 @@ function cmdRoadmapUpdatePlanProgress(cwd, phaseNum, raw) {
     summary_count: summaryCount,
     status,
     complete: isComplete,
+    table_updated: tableUpdated,
+    table_header_columns: headerColumnCount,
   }, raw, `${summaryCount}/${planCount} ${status}`);
 }
 

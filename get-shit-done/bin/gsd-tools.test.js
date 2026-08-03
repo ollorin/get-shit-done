@@ -8112,6 +8112,29 @@ describe('Phase 51-01: STATE.md tolerant parsing (state advance-plan / state upd
     assert.deepStrictEqual(parsed, { updated: false, reason: 'Progress field not found in STATE.md' });
   });
 
+  test('regression: a non-percentage Progress convention (e.g. "N/M phases * N/M requirements") is left untouched, not overwritten with a computed percentage', () => {
+    const original = 'Progress: `[-......................] 1/22 phases · 1/32 requirements (MILE-01 complete)`';
+    writeState([
+      '# Project State',
+      '',
+      '## Current Position',
+      '',
+      'Plan: 1 of 2 in current phase',
+      original,
+      'Status: In progress',
+      '',
+    ].join('\n'));
+
+    const result = runGsdTools('state update-progress', tmpDir);
+    assert.ok(result.success, `update-progress must not throw: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.updated, false, 'a non-percentage Progress line must not be reported as updated');
+    assert.match(parsed.reason, /non-percentage format/);
+
+    const after = readState();
+    assert.ok(after.includes(original), 'the original non-percentage Progress line must survive verbatim');
+  });
+
   test('case-insensitivity: "last activity" vs "Last Activity" vs "Last activity" all match via the tolerant replacer', () => {
     const cases = ['last activity', 'Last Activity', 'Last activity'];
     for (const fieldCasing of cases) {
@@ -11923,6 +11946,39 @@ describe('Phase 57-01 [Rule 1 fix]: roadmap update-plan-progress preserves the M
     const updated = fs.readFileSync(roadmapPath, 'utf-8');
     const row58 = updated.split('\n').find((l) => l.startsWith('| 58.'));
     assert.strictEqual(row58, '| 58. Next Phase | v1.15.0 | 0/TBD | Not started | - |');
+  });
+
+  test('regression: a 3-column table (Phase | Requirements | Status -- no Milestone/Completed columns) is left untouched, not corrupted by the 5-column rewrite', () => {
+    const phaseDir = path.join(tmpDir, '.planning', 'phases', '57-routing-ledger-escalation');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    fs.writeFileSync(path.join(phaseDir, '57-01-PLAN.md'), '# plan 1');
+    fs.writeFileSync(path.join(phaseDir, '57-02-PLAN.md'), '# plan 2');
+    fs.writeFileSync(path.join(phaseDir, '57-01-SUMMARY.md'), '# summary 1');
+
+    const roadmapPath = path.join(tmpDir, '.planning', 'ROADMAP.md');
+    const row57 = '| 57 Outcome-Informed Routing Ledger | MILE-01/02 | Not started |';
+    const row58 = '| 58 Next Phase | MILE-03 | Not started |';
+    fs.writeFileSync(roadmapPath, [
+      '# Roadmap',
+      '',
+      '#### Progress',
+      '',
+      '| Phase | Requirements | Status |',
+      '| --- | --- | --- |',
+      row57,
+      row58,
+      '',
+    ].join('\n'), 'utf-8');
+
+    const result = runGsdTools('roadmap update-plan-progress 57', tmpDir);
+    assert.ok(result.success, `expected exit 0: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.table_header_columns, 3, 'must detect the real 3-column header');
+    assert.strictEqual(parsed.table_updated, false, 'must not attempt the 5-column rewrite against a 3-column table');
+
+    const updated = fs.readFileSync(roadmapPath, 'utf-8');
+    assert.ok(updated.includes(row57), 'the 3-column Phase 57 row must survive verbatim, untouched');
+    assert.ok(updated.includes(row58), 'the neighboring Phase 58 row must not be corrupted or merged into');
   });
 });
 
