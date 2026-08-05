@@ -106,55 +106,82 @@ HANDSHAKE=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" verify gate-hand
 If this fails, the remedy is `npm run install:gsd` from `~/get-shit-done` — never `/gsd:update`
 (may pull upstream and clobber fork-local patches).
 
-**`qa_verdict_gate`** — QA verdict + drill-log hard stop. Existence-gated: skip this entire check —
-no gap, no warning — when `scripts/qa-verdict.ts` is absent from the repo. There is NO config flag
-to disable this check when the script IS present: a gate with an off switch is not a gate.
+**`qa_verdict_gate`** — QA verdict + drill-log hard stop. Run this check ONLY when
+`scripts/qa-verdict.ts` exists in the target repo — same "run when the repo ships it" convention as
+the Layer-1 gates.
 
-Resolve the run dir:
+```bash
+[ -f scripts/qa-verdict.ts ] || echo "SKIP qa_verdict_gate — scripts/qa-verdict.ts not present in this repo"
+```
+
+Skip the entire check — no gap, no warning — when the file is absent. Unlike some config-gated
+checks elsewhere in this workflow, there is **no config flag** to disable this check when the script
+IS present — a gate with an off switch is not a gate.
+
+**Resolve the run dir and the milestone number.**
+
 ```bash
 RUN_DIR=$(ls -d apps/e2e-charlotte/results/*/ 2>/dev/null \
   | grep -E '/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}/$' \
   | sort | tail -1)
 ```
-The regex deliberately excludes `results/test/`. Empty `RUN_DIR` → **HARD STOP** ("no run manifest —
-cannot close a milestone against no evidence").
 
-Derive `MILESTONE_N` from the already-captured `$ROADMAP` (this step has no `init milestone-op`
-bootstrap the way `audit-milestone.md` does — never re-derive the number from ROADMAP.md/STATE.md
-prose; `qa-verdict.ts`'s own header explicitly refuses that, and so must its caller):
+**Milestone-number resolution differs from `audit-milestone.md` here — by design.** That workflow
+derives `$MILESTONE_N` from `milestone_version`, already resolved by its Step 0 `init milestone-op`
+bootstrap. This step has no such bootstrap (`init milestone-op` is not called until much later in
+`complete-milestone.md`, for an unrelated purpose). Derive it instead from the already-captured
+`$ROADMAP` (`roadmap analyze`, captured above) — never re-derive the number from ROADMAP.md/STATE.md
+prose; `qa-verdict.ts`'s own header explicitly refuses that, and so must its caller:
+
 ```bash
 MILESTONE_HEADING=$(echo "$ROADMAP" | jq -r '.milestones[0].heading // ""')
 MILESTONE_N=$(echo "$MILESTONE_HEADING" | grep -oE 'v[0-9]+(\.[0-9]+)+' | head -1 | sed 's/^v//' | awk -F. '{print $NF}')
 ```
-Empty `MILESTONE_N` → **HARD STOP** ("cannot resolve the milestone number to evaluate against").
 
-Invoke and parse:
+The regex deliberately excludes `results/test/`.
+
+**REQUIRED:** If `RUN_DIR` is empty, this MUST force a **HARD STOP** ("no run manifest to evaluate
+the milestone against") — never a skip. An existence-gated check that finds no manifest is not the
+same as a repo that never shipped the script. Empty `MILESTONE_N` MUST also force a **HARD STOP**
+("cannot resolve the milestone number to evaluate against").
+
+**Invoke and parse.**
+
 ```bash
 VERDICT=$(deno run --allow-read --allow-env scripts/qa-verdict.ts "${RUN_DIR%/}" \
   --current-milestone "$MILESTONE_N" --json)
 ```
-Exit 2 (bad input) → **HARD STOP**. `deno` missing while the script exists → **HARD STOP** (the repo
-shipped the gate; this workflow may not decline to run it).
 
-**The three blocking conditions — REQUIRED: each one, independently, MUST force a HARD STOP:**
-1. `p0Exceptions.length > 0` → HARD STOP. These are P0 features NOT in `EXECUTED_GREEN` or
-   `GAP_ACCEPTED`.
-2. `manifestStale: true` → HARD STOP. The verdict's manifest is not reset-stamped, so the evidence
-   does not describe the tree being shipped.
-3. Any `guardHealth[]` entry with `resolvedCount < totalCount` **or** `canaryPassed: true` → HARD
-   STOP. `canaryPassed: true` is the BAD case — the guard failed to fail on a mutation it was built
-   to catch — the inverted-looking field name is exactly where a reader mis-implements this.
+Exit 2 (bad input) MUST force a **HARD STOP**. `deno` missing while `scripts/qa-verdict.ts` exists
+MUST also force a **HARD STOP** — the repo shipped the gate; the workflow may not decline to run it
+just because its runtime isn't on `PATH`.
 
-**Drill log.** Check `.planning/qa/drill-log.json` (the path convention this phase establishes;
-Phase 312 / MILE-15 is the future producer). Validate loosely against the frozen `DrillLog` shape
-(`milestoneId`, `ranAt`, `entries[]`, `allEntriesCaught`). Rules:
-- File absent → **HARD STOP**. Quote PRD F3.3 verbatim: *"A missing drill = gaps_found."*
-- Present but unparseable, or missing `allEntriesCaught` → HARD STOP (a corrupt drill log is not a
-  passing drill log).
-- Present with `allEntriesCaught: false` → HARD STOP.
-- Present with `allEntriesCaught: true` → pass.
-Until Phase 312 ships the producer, this condition will fire on every real milestone close — that
-is the gate working as designed, not a bug to route around.
+**REQUIRED: the three blocking conditions.** Any one of the following MUST force a **HARD STOP** on
+closing the milestone:
+
+1. `p0Exceptions.length > 0` MUST force a **HARD STOP**. Definition inline (`verdict.ts`'s own
+   comment): `p0Exceptions` are P0-risk features NOT in `EXECUTED_GREEN` or `GAP_ACCEPTED`.
+2. `manifestStale: true` MUST force a **HARD STOP**. The verdict's manifest is not reset-stamped, so
+   the evidence does not describe the tree being shipped.
+3. Any `guardHealth[]` entry with `resolvedCount < totalCount` **or** `canaryPassed: true` MUST
+   force a **HARD STOP**. **`canaryPassed: true` is the BAD case** — it means the guard failed to
+   fail on a mutation it was built to catch (`verdict.ts`'s own comment: "true here means the guard
+   passed a mutation it was supposed to catch, which is the BAD case"). The inverted-looking field
+   name is exactly where a reader mis-implements this — do not treat `true` as good.
+
+**Drill log (four rules).** Check `.planning/qa/drill-log.json` — the path convention this phase
+establishes; Phase 312 / MILE-15 is the future producer. Validate loosely against the frozen
+`DrillLog` shape (`milestoneId`, `ranAt`, `entries[]`, `allEntriesCaught`).
+
+| Condition | Result |
+|-----------|--------|
+| File absent | **HARD STOP.** PRD F3.3 verbatim: *"A missing drill = `gaps_found`."* |
+| Present but unparseable, or missing `allEntriesCaught` | **HARD STOP** — a corrupt drill log is not a passing drill log |
+| Present with `allEntriesCaught: false` | **HARD STOP** |
+| Present with `allEntriesCaught: true` | pass |
+
+Until Phase 312 ships the producer, this condition will fire on every real milestone close today —
+that is the gate working as designed, not a bug to route around.
 
 **This gate has NO "Proceed anyway" option.** The 3-option menu above (for generic unchecked
 requirements) does NOT apply here. F3.3 says `complete-milestone` *blocks on* these conditions,
