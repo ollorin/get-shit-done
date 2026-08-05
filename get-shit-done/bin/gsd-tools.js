@@ -6403,6 +6403,67 @@ function cmdFrontmatterValidate(cwd, filePath, schemaName, raw) {
 
 // ─── Verification Suite ──────────────────────────────────────────────────────
 
+// Phase 299 (SC-2): P0 tier-assignment plan gate. Shells out to the target repo's ONE frozen
+// classifier engine (igaming-platform scripts/check-p0-tier-assignment.ts, Phase 296-05) —
+// never reimplements classifyPath()/hasTierAssignmentWork() in JS, because two independent
+// copies would drift and the planning-time and verification-time hooks would then disagree
+// about whether the same route is P0 (296-05-SUMMARY.md).
+//
+// LOAD-BEARING: execFileSync THROWS on the script's exit-1 violations path — the violations
+// JSON arrives on the thrown error's `.stdout`, not on a return value. The catch block below
+// MUST distinguish a real violation (status 1 + parseable {violations:[...]}) from every other
+// failure shape (ENOENT, status 2, unparseable stdout) — the latter must degrade to warnings[],
+// never errors[], so a missing `deno` binary or unreadable input never silently neuters the gate
+// AND never hard-fails a repo that simply doesn't have deno installed.
+function runP0TierAssignmentGate(cwd, fullPath, deps = {}) {
+  const exec = deps.exec || execFileSync;          // execFileSync already imported (line 209)
+  const exists = deps.existsSync || fs.existsSync;
+  const errors = [];
+  const warnings = [];
+  const scriptRel = 'scripts/check-p0-tier-assignment.ts';
+  if (!exists(path.join(cwd, scriptRel))) return { errors, warnings };  // repo doesn't ship the classifier — inert
+
+  const formatViolation = (v) =>
+    `P0 surface class "${v.p0SurfaceClass}" touched (${v.path}) with no tier-assignment work — ${v.issue}`;
+
+  let stdout;
+  try {
+    stdout = exec('deno', ['run', '--allow-read', scriptRel, '--plan', fullPath, '--json'], { cwd, encoding: 'utf8' });
+  } catch (err) {
+    if (err && err.status === 1 && typeof err.stdout === 'string') {
+      try {
+        const parsed = JSON.parse(err.stdout);
+        if (Array.isArray(parsed.violations)) {
+          for (const v of parsed.violations) errors.push(formatViolation(v));
+        } else {
+          warnings.push('P0 tier-assignment gate: script exited 1 but stdout had no violations array — treating as unparseable');
+        }
+      } catch (parseErr) {
+        warnings.push('P0 tier-assignment gate: script exited 1 but stdout was not valid JSON — treating as unparseable');
+      }
+    } else if (err && err.code === 'ENOENT') {
+      warnings.push('P0 tier-assignment gate: deno binary not found on PATH — skipping check');
+    } else {
+      warnings.push(`P0 tier-assignment gate: check-p0-tier-assignment.ts failed unexpectedly (${err && err.message ? err.message : 'unknown error'})`);
+    }
+    return { errors, warnings };
+  }
+
+  // Success path (no throw) — parse stdout for the clean/violation-free contract.
+  try {
+    const parsed = JSON.parse(stdout);
+    if (Array.isArray(parsed.violations)) {
+      for (const v of parsed.violations) errors.push(formatViolation(v));
+    } else if (!('violations' in parsed)) {
+      warnings.push('P0 tier-assignment gate: script output had no violations array — treating as unparseable');
+    }
+  } catch (parseErr) {
+    warnings.push('P0 tier-assignment gate: script output was not valid JSON — treating as unparseable');
+  }
+
+  return { errors, warnings };
+}
+
 function cmdVerifyPlanStructure(cwd, filePath, raw) {
   if (!filePath) { error('file path required'); }
   const fullPath = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath);
@@ -6490,6 +6551,12 @@ function cmdVerifyPlanStructure(cwd, filePath, raw) {
   if (hasApiFiles && !hasTddTask) {
     errors.push('Plan modifies API/route files but has no tdd="true" task');
   }
+
+  // P0 tier-assignment check (Phase 299 SC-2): shells out to the target repo's frozen classifier
+  // engine, if it ships one. Inert (zero errors, zero warnings) for repos without the script.
+  const p0Gate = runP0TierAssignmentGate(cwd, fullPath);
+  errors.push(...p0Gate.errors);
+  warnings.push(...p0Gate.warnings);
 
   // Output result and exit with code reflecting validation status
   // Exit 1 when errors exist so bash callers can gate on this
@@ -15043,6 +15110,7 @@ module.exports = {
   computeHighRisk,
   computePresentationOrder,
   verdictToIssues,
+  runP0TierAssignmentGate,
 };
 
 // Only auto-run when invoked directly as a CLI (`node gsd-tools.js ...`), not
