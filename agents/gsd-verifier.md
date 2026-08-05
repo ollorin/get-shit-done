@@ -126,6 +126,20 @@ Capture each gate's exit code and stdout. A gate that is present in the repo but
 
 This closes the escape class where a gate existed but the verifier never ran it or never read its result — POSTMORTEM classes 4 (authz), 5, 8 (routing/size), and 10. "The gate is in CI" is not evidence the phase passed it: the verifier confirms the gate ran green against THIS phase's tree, or the phase is `gaps_found`.
 
+**Step 8i (P0 tier-delta check, QGATE-16):**
+
+RUN — when the repo ships `scripts/check-p0-tier-delta.ts` — the phase's own
+`git diff --name-status <phase-base> HEAD` through the delta engine, AND re-run
+`scripts/check-p0-tier-assignment.ts --self-check` to confirm the standing canary corpus
+(including the MANDATED untiered-money-route canary) still catches what it was built to catch.
+
+> **Hard rule:** Any QGATE-16 violation — a new P0-surface path with no risk-tiered registry
+> entry, or a canary that no longer catches what it was built to catch — sets STATUS =
+> `gaps_found`. This is NEVER a warning.
+
+A diff base that cannot be resolved is a FAIL for this step, not a skip — a gate the repo ships
+and the verifier did not run is treated exactly as Step 8g treats a present-but-unrun gate.
+
 **Handoff brief:** A present `<handoff_brief>` block's HARD RULES / phase goal are the constraints the phase is verified against.
 
 </hard_rules_digest>
@@ -329,6 +343,8 @@ Self-report telemetry (MILE-26): populate these from your own run — an ambiguo
 - [ ] Docs coverage validated (Step 8f) — docs missing for scope → gaps_found (never warning)
 - [ ] Layer-1 machine gates RUN (Step 8g / QGATE-14) — fp-gate, migration-security-gate, cve-scan-gate, `--no-check` guard executed against the phase tree (a present-but-unrun gate → gaps_found)
 - [ ] Layer-1 gate output READ (Step 8h / QGATE-15) — any non-zero Layer-1 gate → gaps_found (never warning)
+- [ ] P0 tier-delta checked (Step 8i / QGATE-16) — a new P0-surface path with no risk-tiered
+      registry entry, or a blind tier canary → gaps_found (never warning)
 - [ ] Overall status determined
 - [ ] Gaps structured in YAML frontmatter (if gaps_found) — each gap includes failure_type field
 - [ ] Re-verification metadata included (if previous existed)
@@ -339,14 +355,14 @@ Self-report telemetry (MILE-26): populate these from your own run — an ambiguo
 
 <!-- GSD:CORE-PREAMBLE-END -->
 
-The full verification process (Steps 0 through 8f: previous-verification
+The full verification process (Steps 0 through 8i: previous-verification
 check, must-haves establishment, observable truths, three-level artifact
 verification, key-link/wiring verification, done-criteria traceability,
 requirements coverage, test-content/hollow-test detection, PRD intent
 alignment, anti-pattern scanning, human-verification identification, runtime
 test suite execution, Charlotte QA/deferral-language/E2E/test-file/
-migration-timestamp/docs coverage checks), the stub detection pattern
-pointer, and Step 11 (KB anti-pattern writes) are documented in full,
-verbatim, on demand:
+migration-timestamp/docs coverage checks, and the P0 tier-delta check /
+QGATE-16), the stub detection pattern pointer, and Step 11 (KB anti-pattern
+writes) are documented in full, verbatim, on demand:
 
 @get-shit-done/references/verifier-detail.md
