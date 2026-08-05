@@ -6464,6 +6464,87 @@ function runP0TierAssignmentGate(cwd, fullPath, deps = {}) {
   return { errors, warnings };
 }
 
+// Phase 299 (SC-5). Pure — no I/O. `required` is the consuming repo's declared list
+// (.planning/config.json quality.required_gsd_gates — absent/null/[] all mean "no
+// requirement"); `provided` is this fork's config/gate-capabilities.json manifest.
+// Returns {ok, missing} on success paths (exact shape — no extra keys, so callers can
+// deepStrictEqual against it), or {ok:false, missing:[], reason} when `required` itself
+// is malformed (not an array) — a bad declaration must be loud, never a silent pass.
+function compareGateCapabilities(required, provided) {
+  if (required === undefined || required === null) {
+    return { ok: true, missing: [] };
+  }
+  if (!Array.isArray(required)) {
+    return { ok: false, missing: [], reason: 'quality.required_gsd_gates must be an array of capability IDs' };
+  }
+  const providedList = Array.isArray(provided) ? provided : [];
+  const providedSet = new Set(providedList);
+  const missing = [];
+  const seen = new Set();
+  for (const id of required) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    if (!providedSet.has(id)) missing.push(id);
+  }
+  return { ok: missing.length === 0, missing };
+}
+
+// Phase 299 (SC-5): the preflight version handshake. A consuming repo's
+// .planning/config.json can declare quality.required_gsd_gates -- a list of
+// capability IDs it depends on. This command fails loudly (non-zero exit) when
+// the INSTALLED fork's config/gate-capabilities.json manifest doesn't provide
+// one of them, closing the silent-pass class where a repo runs
+// audit-milestone/complete-milestone against an old fork whose gate never
+// existed and gets a green result anyway. Absent/null/[] required list is
+// always a clean pass -- existing non-QA GSD projects are unaffected.
+function cmdVerifyGateHandshake(cwd, raw) {
+  // model-registry.js:25 convention -- resolves from the INSTALLED copy
+  // (~/.claude/get-shit-done/bin/) as well as the fork source tree.
+  const manifestPath = path.join(__dirname, '..', 'config', 'gate-capabilities.json');
+  let provided = [];
+  let manifestReason = null;
+  try {
+    const parsedManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    if (Array.isArray(parsedManifest.capabilities)) {
+      provided = parsedManifest.capabilities;
+    } else {
+      manifestReason = 'gate-capabilities.json missing a capabilities array -- treating installed fork as providing zero capabilities';
+    }
+  } catch (err) {
+    // Missing/unparseable manifest must never crash this command -- degrade to
+    // "provides nothing" and say why, same fail-open discipline as model-registry.js.
+    manifestReason = `gate-capabilities.json unreadable or unparseable -- treating installed fork as providing zero capabilities (${err && err.message ? err.message : 'unknown error'})`;
+  }
+
+  // readRawConfigPath, NOT `config get` -- cmdConfigGet errors on an undefined
+  // dotted key with no --default, which would make "field absent" (a clean
+  // pass) indistinguishable from a crash. See design_decisions #2 in
+  // 299-02-PLAN.md.
+  const required = readRawConfigPath(cwd, 'quality.required_gsd_gates');
+  const comparison = compareGateCapabilities(required, provided);
+
+  const messages = [];
+  if (comparison.reason) messages.push(comparison.reason);
+  if (manifestReason) messages.push(manifestReason);
+  for (const id of comparison.missing) {
+    messages.push(
+      `Installed GSD fork lacks required gate capability: ${id}. Roll out the fork with ` +
+      `\`npm run install:gsd\` from ~/get-shit-done, or remove the requirement from ` +
+      `.planning/config.json quality.required_gsd_gates.`
+    );
+  }
+
+  const resultData = {
+    ok: comparison.ok,
+    missing: comparison.missing,
+    required: required === undefined || required === null ? [] : required,
+    provided,
+    messages,
+  };
+  process.stdout.write(JSON.stringify(resultData, null, 2));
+  process.exit(comparison.ok ? 0 : 1);
+}
+
 function cmdVerifyPlanStructure(cwd, filePath, raw) {
   if (!filePath) { error('file path required'); }
   const fullPath = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath);
@@ -13196,8 +13277,10 @@ async function main() {
           failureType: failureTypeIdx !== -1 ? args[failureTypeIdx + 1] : null,
           artifactsJson: artifactsIdx !== -1 ? args[artifactsIdx + 1] : null,
         }, raw);
+      } else if (subcommand === 'gate-handshake') {
+        cmdVerifyGateHandshake(cwd, raw);
       } else {
-        error('Unknown verify subcommand. Available: plan-structure, phase-completeness, references, commits, artifacts, key-links, migration-timestamps, dependency-stability, phase-gate, e2e-gaps, test-content, append-gap');
+        error('Unknown verify subcommand. Available: plan-structure, phase-completeness, references, commits, artifacts, key-links, migration-timestamps, dependency-stability, phase-gate, e2e-gaps, test-content, append-gap, gate-handshake');
       }
       break;
     }
@@ -15111,6 +15194,7 @@ module.exports = {
   computePresentationOrder,
   verdictToIssues,
   runP0TierAssignmentGate,
+  compareGateCapabilities,
 };
 
 // Only auto-run when invoked directly as a CLI (`node gsd-tools.js ...`), not

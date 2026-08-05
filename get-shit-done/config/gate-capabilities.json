@@ -1,0 +1,6 @@
+{
+  "_comment": "Capability-grained manifest of quality gates THIS fork version implements. A consuming repo declares what it needs in .planning/config.json quality.required_gsd_gates; `gsd-tools.js verify gate-handshake` fails when a required ID is absent here. Add an ID only when the gate it names is actually implemented AND rolled out via `npm run install:gsd` — never speculatively, or the handshake starts certifying gates that do not run.",
+  "capabilities": [
+    "qa-verdict-lifecycle-v1"
+  ]
+}
