@@ -85,6 +85,91 @@ MUST present 3 options:
 
 If user selects "Proceed anyway": note incomplete requirements in MILESTONES.md under `### Known Gaps` with REQ-IDs and descriptions.
 
+<qa-verdict-gate>
+
+**Fork capability handshake (hard stop).** The `qa_verdict_gate` check below only exists in a fork
+version that declares `qa-verdict-lifecycle-v1`. Closing a milestone with an older installed fork
+would silently skip a gate this repo depends on and still let the milestone close — exactly the
+silent-pass class this phase closes — so a capability shortfall aborts the close outright rather
+than degrading quietly. A repo declaring no `quality.required_gsd_gates` exits 0 here and is
+unaffected.
+
+```bash
+HANDSHAKE=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" verify gate-handshake 2>&1) || {
+  echo "$HANDSHAKE"
+  # HARD STOP — closing a milestone with a fork that lacks the gates this repo requires would
+  # certify a QA gate that never ran.
+  exit 1
+}
+```
+
+If this fails, the remedy is `npm run install:gsd` from `~/get-shit-done` — never `/gsd:update`
+(may pull upstream and clobber fork-local patches).
+
+**`qa_verdict_gate`** — QA verdict + drill-log hard stop. Existence-gated: skip this entire check —
+no gap, no warning — when `scripts/qa-verdict.ts` is absent from the repo. There is NO config flag
+to disable this check when the script IS present: a gate with an off switch is not a gate.
+
+Resolve the run dir:
+```bash
+RUN_DIR=$(ls -d apps/e2e-charlotte/results/*/ 2>/dev/null \
+  | grep -E '/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}/$' \
+  | sort | tail -1)
+```
+The regex deliberately excludes `results/test/`. Empty `RUN_DIR` → **HARD STOP** ("no run manifest —
+cannot close a milestone against no evidence").
+
+Derive `MILESTONE_N` from the already-captured `$ROADMAP` (this step has no `init milestone-op`
+bootstrap the way `audit-milestone.md` does — never re-derive the number from ROADMAP.md/STATE.md
+prose; `qa-verdict.ts`'s own header explicitly refuses that, and so must its caller):
+```bash
+MILESTONE_HEADING=$(echo "$ROADMAP" | jq -r '.milestones[0].heading // ""')
+MILESTONE_N=$(echo "$MILESTONE_HEADING" | grep -oE 'v[0-9]+(\.[0-9]+)+' | head -1 | sed 's/^v//' | awk -F. '{print $NF}')
+```
+Empty `MILESTONE_N` → **HARD STOP** ("cannot resolve the milestone number to evaluate against").
+
+Invoke and parse:
+```bash
+VERDICT=$(deno run --allow-read --allow-env scripts/qa-verdict.ts "${RUN_DIR%/}" \
+  --current-milestone "$MILESTONE_N" --json)
+```
+Exit 2 (bad input) → **HARD STOP**. `deno` missing while the script exists → **HARD STOP** (the repo
+shipped the gate; this workflow may not decline to run it).
+
+**The three blocking conditions — REQUIRED: each one, independently, MUST force a HARD STOP:**
+1. `p0Exceptions.length > 0` → HARD STOP. These are P0 features NOT in `EXECUTED_GREEN` or
+   `GAP_ACCEPTED`.
+2. `manifestStale: true` → HARD STOP. The verdict's manifest is not reset-stamped, so the evidence
+   does not describe the tree being shipped.
+3. Any `guardHealth[]` entry with `resolvedCount < totalCount` **or** `canaryPassed: true` → HARD
+   STOP. `canaryPassed: true` is the BAD case — the guard failed to fail on a mutation it was built
+   to catch — the inverted-looking field name is exactly where a reader mis-implements this.
+
+**Drill log.** Check `.planning/qa/drill-log.json` (the path convention this phase establishes;
+Phase 312 / MILE-15 is the future producer). Validate loosely against the frozen `DrillLog` shape
+(`milestoneId`, `ranAt`, `entries[]`, `allEntriesCaught`). Rules:
+- File absent → **HARD STOP**. Quote PRD F3.3 verbatim: *"A missing drill = gaps_found."*
+- Present but unparseable, or missing `allEntriesCaught` → HARD STOP (a corrupt drill log is not a
+  passing drill log).
+- Present with `allEntriesCaught: false` → HARD STOP.
+- Present with `allEntriesCaught: true` → pass.
+Until Phase 312 ships the producer, this condition will fire on every real milestone close — that
+is the gate working as designed, not a bug to route around.
+
+**This gate has NO "Proceed anyway" option.** The 3-option menu above (for generic unchecked
+requirements) does NOT apply here. F3.3 says `complete-milestone` *blocks on* these conditions,
+full stop. Print the blocking reasons — each quoting the verdict field it came from — and STOP.
+Do not proceed to `gather_stats`. Do not offer a confirmation prompt. Do not write MILESTONES.md.
+
+Remedy to print: run `/gsd:audit-milestone` to see the full QA picture, then
+`/gsd:plan-milestone-gaps` to close the P0 gaps. Re-run `/gsd:complete-milestone` once the
+verdict is clean and the drill log is green.
+
+Every number printed by this check is COPIED from the verdict JSON — this step computes no QA
+figure of its own, the same anti-confabulation rule `gsd-qa-analyst` obeys.
+
+</qa-verdict-gate>
+
 <config-check>
 
 ```bash
