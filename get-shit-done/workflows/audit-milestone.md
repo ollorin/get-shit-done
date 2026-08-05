@@ -22,6 +22,24 @@ Resolve integration checker model:
 integration_checker_model=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" resolve-model gsd-integration-checker --raw)
 ```
 
+**Fork capability handshake (hard stop).** This workflow's later gates (Step 5.7) only exist in a
+fork version that declares `qa-verdict-lifecycle-v1`. Auditing with an older installed fork would
+silently skip a gate the consuming repo depends on and still report "Audit Passed" — exactly the
+silent-pass class this phase closes — so a capability shortfall aborts the audit outright rather
+than degrading quietly. A repo declaring no `quality.required_gsd_gates` is unaffected: the check
+exits 0 and is inert for every existing GSD project.
+
+```bash
+HANDSHAKE=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" verify gate-handshake 2>&1) || {
+  echo "$HANDSHAKE"
+  # HARD STOP — do not audit a milestone with a fork that lacks the gates this repo requires.
+  exit 1
+}
+```
+
+If this fails, the remedy is `npm run install:gsd` from `~/get-shit-done` — never `/gsd:update`
+(may pull upstream and clobber fork-local patches).
+
 ## 1. Determine Milestone Scope
 
 ```bash
