@@ -1019,6 +1019,109 @@ Log: "Docs validation — expected scope: {DOCS_EXPECTED_SCOPE} | agent ran: {DO
 
 </check_docs_coverage>
 
+<check_p0_tier_delta>
+
+## Step 8i: P0 Tier-Delta Check (QGATE-16)
+
+**Trigger:** `scripts/check-p0-tier-delta.ts` exists at the repo root. Most GSD-fork consumers do
+not ship this script — when it is absent, this entire step is skipped silently: no gap, no
+warning, nothing added to VERIFICATION.md.
+
+```bash
+P0_DELTA_SCRIPT="scripts/check-p0-tier-delta.ts"
+P0_ASSIGN_SCRIPT="scripts/check-p0-tier-assignment.ts"
+if [ ! -f "$P0_DELTA_SCRIPT" ]; then
+  : # Step 8i does not apply to this repo — skip the remainder of this step, continue to Step 9
+fi
+```
+
+If `$P0_DELTA_SCRIPT` is absent, this check passes silently and Step 8i ends here.
+
+**Step A — Derive the phase's diff base.** The step must diff the PHASE's own changes, not the
+whole tree.
+
+1. `BASE=$(git merge-base HEAD "$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || echo origin/main)" 2>/dev/null)`
+2. If `$BASE` is empty, retry: `BASE=$(git merge-base HEAD origin/main 2>/dev/null)`
+3. If still empty, retry: `BASE=$(git merge-base HEAD main 2>/dev/null)`
+4. If NO base resolves after all three attempts, this is a FAILED gate, not a skip. Add gap:
+   ```yaml
+   - truth: "P0 tier-delta check (QGATE-16) ran against the phase's own diff"
+     status: failed
+     failure_type: broken_chain
+     reason: "could not establish the phase diff base for QGATE-16"
+     missing:
+       - "Ensure origin/main (or a local main branch) is reachable so the phase diff can be derived"
+   ```
+   Set STATUS = gaps_found. Do NOT fall back to an arbitrary commit range and do NOT skip the gate
+   — an unrunnable gate is a failed gate, exactly as Step 8g treats a present-but-unrun gate.
+
+**Step B — Build the diff file:**
+
+```bash
+DIFF_TMP=$(mktemp)
+git diff --name-status "$BASE" HEAD -- . > "$DIFF_TMP"
+```
+
+The temp file is removed (`rm -f "$DIFF_TMP"`) after Step C completes.
+
+**Step C — Run both invocations, cwd = repo root:**
+
+```bash
+deno run --allow-read scripts/check-p0-tier-delta.ts --diff-file "$DIFF_TMP" --json
+deno run --allow-read scripts/check-p0-tier-assignment.ts --self-check --json
+```
+
+Both run, always, when `$P0_DELTA_SCRIPT` exists:
+- The **first** checks THIS phase's own diff for newly added (`A`-status) P0-surface paths with
+  no matching entry in the risk-tiered registry. Modified (`M`-status) paths are out of scope by
+  design — the delta rule is about new surfaces.
+- The **second** re-runs the standing canary corpus (`MECHANISM_CANARIES` in
+  `scripts/validation/canaries/p0-tier-assignment.canaries.ts`, including the MANDATED "the
+  untiered money route" fixture) to confirm the delta engine itself has not gone blind. A phase
+  whose own diff is clean but whose canary corpus has gone blind is NOT verified — this is the
+  guard-degradation failure class this whole milestone exists to close.
+
+**Step D — Parse results:**
+
+- Delta run: any non-empty `violations[]` → one gap per violation, quoting `path`,
+  `p0SurfaceClass`, and `issue` verbatim from the JSON:
+  ```yaml
+  - truth: "New P0-surface paths in this phase's diff have a matching risk-tiered registry entry"
+    status: failed
+    failure_type: missing_artifact
+    reason: "{issue}"
+    artifacts:
+      - path: "{path}"
+        issue: "new P0 surface class \"{p0SurfaceClass}\" path with no matching registry entry"
+    missing:
+      - "Add a risk-tiered registry entry for {path} before this phase can pass QGATE-16"
+  ```
+- Delta run exits `2` (unreadable input): add a gap ("QGATE-16 input unreadable") — never a pass.
+- Self-check run: any `results[].pass === false` → a gap naming the blind canary's `name` and
+  `hookId`:
+  ```yaml
+  - truth: "The P0 tier-assignment canary corpus still catches what it was built to catch"
+    status: failed
+    failure_type: regression
+    reason: "canary \"{name}\" (hookId: {hookId}) no longer behaves as expected"
+    missing:
+      - "Restore the tier-assignment mechanism so the canary corpus passes --self-check again"
+  ```
+- `deno` not found on PATH while `$P0_DELTA_SCRIPT` and `$P0_ASSIGN_SCRIPT` DO exist on disk: this
+  is a gap ("QGATE-16 could not run — deno not on PATH"), never a skip. The repo shipped the gate;
+  the verifier may not silently decline to run it.
+
+**Hard rule:** Any QGATE-16 violation — a new P0-surface path with no risk-tiered registry entry,
+or a canary that no longer catches what it was built to catch — sets STATUS = `gaps_found`. This
+is NEVER a warning.
+
+This closes the escape where a money-movement route or edge function ships with no risk tier and
+therefore no P0 coverage obligation attached to it — the risk-inverted gap this milestone exists
+to close. `scripts/check-p0-tier-delta.ts` and `scripts/check-p0-tier-assignment.ts` have existed
+since Phase 296-05, fully tested, and until this step, entirely unwired. A guard nothing invokes
+is not a guard.
+
+</check_p0_tier_delta>
 
 </verification_process>
 
