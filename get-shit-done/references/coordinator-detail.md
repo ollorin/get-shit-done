@@ -1233,7 +1233,7 @@ while round <= MAX_ROUNDS AND qa_passed == false:
 
   // --- STEP D: Spawn fix subagent ---
   // Determine fix subagent tier based on worst severity
-  if severity_counts.critical > 0 OR severity_counts.high > 0:
+  if severity_counts.critical > 0 OR severity_counts.high > 0 OR severity_counts.medium > 0:
     FIX_TIER = "sonnet"
   else:
     FIX_TIER = "haiku"
