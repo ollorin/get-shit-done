@@ -335,8 +335,38 @@ Each issue uses this structure:
 - **Steps to Reproduce:** 1. Go to... 2. Click... 3. Observe...
 - **Screenshot:** ss-ID or filename (required for Visual/UX issues)
 - **Expected:** What a well-designed interface should do
-- **Actual / Suggested Fix:** What actually happens + specific improvement suggestion
+- **Actual:** The literal observation — what the page/console/network actually showed
+- **Evidence:** The `charlotte_console` line(s) and the `charlotte_requests` entry (method, path,
+  status, response body excerpt) captured at the moment of the failure
 ```
+
+### Observation Contract — description and Actual are measurements, never explanations
+
+`description` and `Actual` state WHAT you observed. They never state WHY it happened. You are in a
+browser: you can observe the DOM, the console, the network responses and the rendered pixels. You
+cannot observe a backend handler, a database query, or a developer's intent — so you must not write
+a sentence that claims to.
+
+Forbidden in `description` and `Actual`: "because", "due to", "caused by", "as a result of",
+"owing to", and any claim about an unobserved component ("the backend is missing X", "the API
+returns undefined", "the endpoint failed to save", "the component never mounts").
+
+Allowed and encouraged: quoting a literal string the PAGE itself displayed, even one containing
+those words. Reading the page's own text is a measurement.
+
+BAD
+  description: "Player detail page crashes because the API returns an undefined name field"
+
+GOOD
+  description: "Player detail page renders the error boundary on load"
+  Actual: "TypeError: Cannot read properties of undefined (reading 'name')"
+  Evidence: "charlotte_console: `TypeError: Cannot read properties of undefined (reading 'name')
+             at PlayerDetail (players/[id]/page.tsx:41)`; charlotte_requests: GET /players/abc123
+             -> 200, body `{\"data\":{}}`"
+
+The BAD line asserts a cause. The GOOD lines contain strictly MORE information and let the reader
+derive that cause themselves in one step — which is the point: a fix must come from an independent
+path-trace, not from trusting a diagnosis the observer was not positioned to make.
 
 ### Severity Guide
 
@@ -399,7 +429,9 @@ When issues are found:
       "screen": "/players/abc123",
       "category": "Broken",
       "severity": "Critical",
-      "description": "TypeError: Cannot read properties of undefined (reading 'name')",
+      "description": "Player detail page renders the error boundary on load",
+      "actual": "TypeError: Cannot read properties of undefined (reading 'name')",
+      "evidence": "charlotte_console: TypeError: Cannot read properties of undefined (reading 'name') at PlayerDetail (players/[id]/page.tsx:41); charlotte_requests: GET /players/abc123 -> 200, body {\"data\":{}}",
       "screenshot_id": "ss-20260307120001-def456",
       "steps": "1. Go to /players\n2. Click any player row\n3. Observe: page shows error boundary"
     }
@@ -409,6 +441,9 @@ When issues are found:
   "report_markdown": "# QA Report — Round 1\n\n## Coverage Log\n| Screen | Status | Notes |\n|--------|--------|-------|\n| /players | ✅ Tested | ... |\n| /players/abc123 | ❌ Crashed | ISSUE-001 |\n\n## Issues Found\n\n### [ISSUE-001] Player detail page crashes on load\n..."
 }
 ```
+
+`description`, `actual` and `evidence` are governed by the Observation Contract in
+`<issue_format>` — no causal connectives.
 
 ## Report Structure (in report_markdown)
 
@@ -486,7 +521,7 @@ unavailable in your runtime, just return the JSON report as normal — nothing b
 - ALWAYS health-check before launching. Never blindly launch what might already be running.
 - Screenshot every distinct state. Always call `charlotte_screenshot_get` immediately after saving to visually analyze.
 - Check `charlotte_console` and `charlotte_requests` after every interaction.
-- Report exactly what you find — do not speculate or suggest fixes (that is the fix subagent's job).
+- Report exactly what you find — do not speculate, diagnose, or suggest fixes (that is the fix subagent's job). "Because"/"due to"/"caused by" in a description is a defect in the report, not a helpful detail; replace the causal clause with the console and network observations that let a reader trace it themselves. See the Observation Contract in <issue_format>.
 - Number issues sequentially from ISSUE-001 (or continuing from previous round).
 - Return structured JSON — the coordinator parses it to decide next steps.
 - NEVER report a pass count from a suite run that did not begin from a freshly reset database —
