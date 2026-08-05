@@ -1216,14 +1216,14 @@ while round <= MAX_ROUNDS AND qa_passed == false:
     {report_markdown}
 
     ────────────────────────────────────────────────────────
-    → Type "continue" to proceed (Critical/High issues will be recorded as verification gaps),
+    → Type "continue" to proceed (Critical/High/Medium issues will be recorded as verification gaps),
       or describe what to fix
     ────────────────────────────────────────────────────────
     ```
     Wait for user response.
     If "continue":
-      - If severity_counts.critical > 0 OR severity_counts.high > 0:
-        Log: "WARNING: Proceeding with {critical} critical and {high} high QA issues — these WILL cause verification failure"
+      - If severity_counts.critical > 0 OR severity_counts.high > 0 OR severity_counts.medium > 0:
+        Log: "WARNING: Proceeding with {critical} critical, {high} high, and {medium} medium QA issues — these WILL cause verification failure"
         Write QA issues to a file in the phase directory: `{phase_dir}/{phase}-QA-ISSUES.md` with the full report_markdown
         // The verifier will detect this file and hard-fail the phase via QGATE-07
         // This ensures "continue" does NOT silently bypass quality gates — it merely defers the block to verification
