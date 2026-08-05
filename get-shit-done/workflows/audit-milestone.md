@@ -248,6 +248,116 @@ No deferred/waived items this milestone
 
 Never render a table with a header row and no data rows — the presence or absence of the table itself is the signal.
 
+## 5.7. QA Verdict Gate
+
+**Existence gate.** Run this step ONLY when `scripts/qa-verdict.ts` exists in the target repo —
+same "run when the repo ships it" convention as the Layer-1 gates. Skip the entire step — no gap,
+no warning — when the file is absent.
+
+```bash
+[ -f scripts/qa-verdict.ts ] || echo "SKIP 5.7 — scripts/qa-verdict.ts not present in this repo"
+```
+
+Unlike Step 5.5's `workflow.nyquist_validation` skip, there is **no config flag** to disable this
+step when the script IS present — a gate with an off switch is not a gate.
+
+**Resolve the run dir and the milestone number.**
+
+```bash
+RUN_DIR=$(ls -d apps/e2e-charlotte/results/*/ 2>/dev/null \
+  | grep -E '/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}/$' \
+  | sort | tail -1)
+```
+
+`--current-milestone` comes from `milestone_version` already resolved in Step 0 (major/minor
+stripped to its integer milestone number). The regex deliberately excludes `results/test/`.
+
+**REQUIRED:** If `RUN_DIR` is empty, this MUST force `gaps_found` ("no run manifest to evaluate the
+milestone against") — never a skip. An existence-gated step that finds no manifest is not the same
+as a repo that never shipped the script.
+
+**Invoke and parse.**
+
+```bash
+VERDICT=$(deno run --allow-read --allow-env scripts/qa-verdict.ts "${RUN_DIR%/}" \
+  --current-milestone "$MILESTONE_N" --json)
+```
+
+Exit 2 (bad input) MUST force `gaps_found`. `deno` missing while `scripts/qa-verdict.ts` exists
+MUST also force `gaps_found` — the repo shipped the gate; the workflow may not decline to run it
+just because its runtime isn't on `PATH`.
+
+**REQUIRED: the three blocking conditions.** Any one of the following MUST force `gaps_found` on
+the milestone audit:
+
+1. `p0Exceptions.length > 0` MUST force `gaps_found`. Definition inline (`verdict.ts`'s own
+   comment): `p0Exceptions` are P0-risk features NOT in `EXECUTED_GREEN` or `GAP_ACCEPTED`.
+2. `manifestStale: true` MUST force `gaps_found`. The verdict's manifest is not reset-stamped, so
+   the evidence does not describe the tree being audited.
+3. Any `guardHealth[]` entry with `resolvedCount < totalCount` **or** `canaryPassed: true` MUST
+   force `gaps_found`. **`canaryPassed: true` is the BAD case** — it means the guard failed to fail
+   on a mutation it was built to catch (`verdict.ts`'s own comment: "true here means the guard
+   passed a mutation it was supposed to catch, which is the BAD case"). The inverted-looking field
+   name is exactly where a reader mis-implements this — do not treat `true` as good.
+
+**Drill log (four rules).** Check `.planning/qa/drill-log.json` — the path convention this phase
+establishes; Phase 312 / MILE-15 is the future producer. Validate loosely against the frozen
+`DrillLog` shape (`milestoneId`, `ranAt`, `entries[]`, `allEntriesCaught`).
+
+| Condition | Result |
+|-----------|--------|
+| File absent | **`gaps_found`.** PRD F3.3 verbatim: *"A missing drill = `gaps_found`."* |
+| Present but unparseable, or missing `allEntriesCaught` | **`gaps_found`** — a corrupt drill log is not a passing drill log |
+| Present with `allEntriesCaught: false` | **`gaps_found`** |
+| Present with `allEntriesCaught: true` | pass |
+
+Until Phase 312 ships the producer, this condition will fire on every real milestone audit run
+today — that is the gate working as designed, not a bug to route around.
+
+**Conditional `gsd-qa-analyst` spawn.** Immediately after parsing the verdict, spawn ONLY when the
+trigger holds:
+
+- `p0Exceptions` is non-empty, OR
+- some `features[]` entry has `state: "GAP"` with no `riskTier` in
+  `apps/e2e-charlotte/coverage-registry.json`
+
+Do NOT spawn on a clean verdict. Do NOT spawn when the only failures are `manifestStale` and/or
+`guardHealth` problems — those are infra-shaped findings, not feature-shaped ones, and there is no
+judgment call left for `gsd-qa-analyst` to add on top.
+
+Resolve the model with the same `resolve-model` call shape Step 0 uses for the integration
+checker:
+
+```bash
+qa_analyst_model=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" resolve-model gsd-qa-analyst --raw)
+```
+
+Mirror Step 3's exact `Agent(...)` call shape:
+
+```
+Agent(
+  prompt="Analyse this milestone's QA verdict. Quote it; compute nothing.
+
+Verdict JSON path: {path}
+Run dir: {RUN_DIR}
+Milestone: {milestone_version}
+Registry: apps/e2e-charlotte/coverage-registry.json
+
+Duties: propose risk tiers for NEW registry entries (human confirms in PR review), prioritize gap closure, draft gap-closure phase inputs in the shape plan-milestone-gaps consumes.",
+  subagent_type="gsd-qa-analyst",
+  model="{qa_analyst_model}",
+  description="QA verdict analysis"
+)
+```
+
+**The analyst's output NEVER changes the gate verdict.** The deterministic script decides
+`gaps_found`; the analyst only proposes and drafts. An agent that could soften a gate is exactly
+the confabulation channel this design exists to remove.
+
+**Feed Step 6.** Every value in Step 6's `qa: {...}` aggregate block (below) is COPIED verbatim
+from this step's verdict JSON — the workflow computes no QA number of its own, the same
+anti-confabulation rule the analyst obeys.
+
 ## 6. Aggregate into v{version}-MILESTONE-AUDIT.md
 
 Create `.planning/v{version}-MILESTONE-AUDIT.md` with:
@@ -282,6 +392,13 @@ tech_debt:  # Non-critical, deferred
   - phase: 03-dashboard
     items:
       - "Deferred: mobile responsive layout"
+qa:  # Step 5.7 — omit entirely if scripts/qa-verdict.ts is absent (existence-gated)
+  manifest_run_id: {manifestRunId}
+  manifest_stale: {manifestStale}
+  p0_exceptions: [{featureIds}]
+  guard_health: [{guardId, resolvedCount, totalCount, canaryPassed}]
+  drill_log: { present: bool, all_entries_caught: bool|null }
+  qa_analyst_ran: bool
 ---
 ```
 
