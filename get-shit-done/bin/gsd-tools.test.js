@@ -2791,6 +2791,127 @@ must_haves:
   });
 });
 
+describe('verify gate-handshake — fork capability handshake (Phase 299 SC-5)', () => {
+  describe('compareGateCapabilities (pure unit)', () => {
+    test('required=[] — {ok:true, missing:[]}', () => {
+      const { compareGateCapabilities } = require(TOOLS_PATH);
+      const result = compareGateCapabilities([], ['qa-verdict-lifecycle-v1']);
+      assert.deepStrictEqual(result, { ok: true, missing: [] });
+    });
+
+    test('required=undefined (field absent in config) — {ok:true, missing:[]}', () => {
+      const { compareGateCapabilities } = require(TOOLS_PATH);
+      const result = compareGateCapabilities(undefined, ['qa-verdict-lifecycle-v1']);
+      assert.deepStrictEqual(result, { ok: true, missing: [] });
+    });
+
+    test('required=null — {ok:true, missing:[]}', () => {
+      const { compareGateCapabilities } = require(TOOLS_PATH);
+      const result = compareGateCapabilities(null, ['qa-verdict-lifecycle-v1']);
+      assert.deepStrictEqual(result, { ok: true, missing: [] });
+    });
+
+    test('required fully satisfied by provided — {ok:true, missing:[]}', () => {
+      const { compareGateCapabilities } = require(TOOLS_PATH);
+      const result = compareGateCapabilities(['qa-verdict-lifecycle-v1'], ['qa-verdict-lifecycle-v1']);
+      assert.deepStrictEqual(result, { ok: true, missing: [] });
+    });
+
+    test('one required capability missing from provided — {ok:false, missing:["future-gate-v9"]}', () => {
+      const { compareGateCapabilities } = require(TOOLS_PATH);
+      const result = compareGateCapabilities(
+        ['qa-verdict-lifecycle-v1', 'future-gate-v9'],
+        ['qa-verdict-lifecycle-v1']
+      );
+      assert.strictEqual(result.ok, false);
+      assert.deepStrictEqual(result.missing, ['future-gate-v9']);
+    });
+
+    test('provided=[] and required has entries — all missing, order preserved', () => {
+      const { compareGateCapabilities } = require(TOOLS_PATH);
+      const result = compareGateCapabilities(['a', 'b'], []);
+      assert.strictEqual(result.ok, false);
+      assert.deepStrictEqual(result.missing, ['a', 'b']);
+    });
+
+    test('non-array required (malformed declaration) — {ok:false} with a shape complaint, not a crash', () => {
+      const { compareGateCapabilities } = require(TOOLS_PATH);
+      const result = compareGateCapabilities('qa-verdict-lifecycle-v1', ['qa-verdict-lifecycle-v1']);
+      assert.strictEqual(result.ok, false);
+      assert.ok(result.reason && typeof result.reason === 'string' && result.reason.length > 0, 'must explain the shape problem');
+    });
+
+    test('duplicate IDs in required are de-duplicated in missing', () => {
+      const { compareGateCapabilities } = require(TOOLS_PATH);
+      const result = compareGateCapabilities(['a', 'a', 'b'], []);
+      assert.strictEqual(result.ok, false);
+      assert.deepStrictEqual(result.missing, ['a', 'b']);
+    });
+  });
+
+  describe('verify gate-handshake CLI', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+      tmpDir = createTempProject();
+    });
+
+    afterEach(() => {
+      cleanup(tmpDir);
+    });
+
+    test('no quality block in config.json — exit 0, ok:true, missing:[]', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'config.json'),
+        JSON.stringify({ workflow: { auto_advance: false } }, null, 2)
+      );
+      const result = runGsdTools('verify gate-handshake', tmpDir);
+      assert.ok(result.success, `expected exit 0: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.ok, true);
+      assert.deepStrictEqual(parsed.missing, []);
+    });
+
+    test('config declares only qa-verdict-lifecycle-v1 (which the fork provides) — exit 0, ok:true', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'config.json'),
+        JSON.stringify({ quality: { required_gsd_gates: ['qa-verdict-lifecycle-v1'] } }, null, 2)
+      );
+      const result = runGsdTools('verify gate-handshake', tmpDir);
+      assert.ok(result.success, `expected exit 0: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.ok, true);
+    });
+
+    test('config declares a capability the fork lacks — NON-ZERO exit, ok:false, names the missing capability', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'config.json'),
+        JSON.stringify({ quality: { required_gsd_gates: ['qa-verdict-lifecycle-v1', 'gate-that-does-not-exist-v1'] } }, null, 2)
+      );
+      const result = runGsdTools('verify gate-handshake', tmpDir);
+      assert.strictEqual(result.success, false, 'expected non-zero exit for a missing capability');
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.ok, false);
+      assert.ok(parsed.missing.includes('gate-that-does-not-exist-v1'));
+      const combined = result.output + result.error;
+      assert.ok(combined.includes('gate-that-does-not-exist-v1'), 'output must name the missing capability');
+    });
+
+    test('no .planning/config.json at all — exit 0 (no requirement declared)', () => {
+      const result = runGsdTools('verify gate-handshake', tmpDir);
+      assert.ok(result.success, `expected exit 0 with no config.json: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.ok, true);
+    });
+
+    test('gate-handshake is listed in the "Unknown verify subcommand" help string', () => {
+      const result = runGsdTools('verify bogus-subcommand', tmpDir);
+      assert.strictEqual(result.success, false);
+      assert.ok(result.error.includes('gate-handshake'), `help string must list gate-handshake: ${result.error}`);
+    });
+  });
+});
+
 // ─── Phase 34: phase complete pre-condition validation tests ─────────────────
 
 describe('phase complete — pre-condition validation (Phase 34)', () => {
