@@ -1363,8 +1363,8 @@ Parse ux_result JSON:
 
 Log: "UX Audit: {ux_issue_count} issues (Critical: {ux_severity_counts.critical}, High: {ux_severity_counts.high}, Medium: {ux_severity_counts.medium}, Low: {ux_severity_counts.low})"
 
-// If Critical or High UX issues found: spawn fix subagent (same model logic as ui-qa loop)
-if ux_severity_counts.critical > 0 OR ux_severity_counts.high > 0:
+// If Critical, High, or Medium UX issues found: spawn fix subagent (same model logic as ui-qa loop)
+if ux_severity_counts.critical > 0 OR ux_severity_counts.high > 0 OR ux_severity_counts.medium > 0:
   ux_fix_result = Agent(
     subagent_type="general-purpose",
     model="sonnet",
@@ -1378,7 +1378,7 @@ if ux_severity_counts.critical > 0 OR ux_severity_counts.high > 0:
       {ux_report}
       </issues>
 
-      Fix all Critical and High severity UX issues. Medium and Low are optional. Commit your fixes.
+      Fix all Critical, High, and Medium severity UX issues. Low is optional. Commit your fixes.
     "
   )
 
@@ -1398,8 +1398,8 @@ if ux_severity_counts.critical > 0 OR ux_severity_counts.high > 0:
 
   Parse ux_recheck JSON. Log results.
 
-  // If Critical/High still present after fix: write UX-ISSUES.md so verifier catches it
-  if ux_recheck.severity_counts.critical > 0 OR ux_recheck.severity_counts.high > 0:
+  // If Critical/High/Medium still present after fix: write UX-ISSUES.md so verifier catches it
+  if ux_recheck.severity_counts.critical > 0 OR ux_recheck.severity_counts.high > 0 OR ux_recheck.severity_counts.medium > 0:
     Write `.planning/phases/{phase_dir}/UX-ISSUES.md` with the remaining issues
     Log: "UX issues persist after fix attempt — recorded in UX-ISSUES.md for verifier"
 
@@ -1409,7 +1409,7 @@ Write `.planning/phases/{phase_dir}/{phase}-{plan}-UX-AUDIT.md` with ux_result.r
 // Continue plan execution from the next task after the checkpoint:ui-qa task
 ```
 
-**HARD RULE: The UX audit cannot be skipped when UI tests run.** It runs on the same surface, same service URL, immediately after ui-qa passes. Medium and Low UX issues are logged but do not block execution. Critical and High issues trigger a fix-and-recheck loop.
+**HARD RULE: The UX audit cannot be skipped when UI tests run.** It runs on the same surface, same service URL, immediately after ui-qa passes. Low UX issues are logged but do not block execution. Critical, High, and Medium issues trigger a fix-and-recheck loop.
 
 **Note on commit handling:** The fix subagent commits its own changes atomically per fix. The coordinator does not make additional commits for the QA loop — only the executor's per-task commits and the final summary commit exist.
 
