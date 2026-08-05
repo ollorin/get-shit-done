@@ -2598,6 +2598,199 @@ must_haves:
   });
 });
 
+// ─── Phase 299 SC-2: P0 tier-assignment plan-structure gate ─────────────────
+// runP0TierAssignmentGate shells out to igaming-platform's ONE frozen classifier
+// engine (scripts/check-p0-tier-assignment.ts, Phase 296-05) -- never
+// reimplements classifyPath()/hasTierAssignmentWork() in JS. See
+// <frozen_contract> in 299-01-PLAN.md: execFileSync THROWS on the script's
+// exit-1 violations path, so the catch block MUST distinguish a real
+// violation (status 1 + parseable {violations:[...]}) from every other
+// failure shape (ENOENT, status 2, unparseable stdout) -- the latter must
+// degrade to warnings[], never errors[], and must never be silently dropped.
+describe('verify plan-structure — P0 tier-assignment gate (Phase 299 SC-2)', () => {
+  describe('runP0TierAssignmentGate (unit, injected deps)', () => {
+    test('script absent — returns {errors:[],warnings:[]} and NEVER calls exec', () => {
+      const { runP0TierAssignmentGate } = require(TOOLS_PATH);
+      let execCalls = 0;
+      const result = runP0TierAssignmentGate('/fake/cwd', '/fake/cwd/plan.md', {
+        existsSync: () => false,
+        exec: () => { execCalls++; return ''; },
+      });
+      assert.deepStrictEqual(result, { errors: [], warnings: [] });
+      assert.strictEqual(execCalls, 0, 'exec must never be called when the script is absent');
+    });
+
+    test('script present, no violations — returns {errors:[],warnings:[]}', () => {
+      const { runP0TierAssignmentGate } = require(TOOLS_PATH);
+      const result = runP0TierAssignmentGate('/fake/cwd', '/fake/cwd/plan.md', {
+        existsSync: () => true,
+        exec: () => '{"violations":[],"exitCode":0}',
+      });
+      assert.deepStrictEqual(result, { errors: [], warnings: [] });
+    });
+
+    test('script present, exec throws with one violation — ONE errors[] entry naming path/surface class/issue, ZERO warnings (anti-neutering test)', () => {
+      const { runP0TierAssignmentGate } = require(TOOLS_PATH);
+      const err = new Error('Command failed');
+      err.status = 1;
+      err.stdout = '{"violations":[{"path":"apps/api/functions/wallet/deposit-v2.ts","p0SurfaceClass":"money-movement","issue":"P0 surface class \\"money-movement\\" touched with no tier-assignment work in scope"}],"exitCode":1}';
+      const result = runP0TierAssignmentGate('/fake/cwd', '/fake/cwd/plan.md', {
+        existsSync: () => true,
+        exec: () => { throw err; },
+      });
+      assert.strictEqual(result.errors.length, 1, 'a real violation must produce exactly one error, never a warning');
+      assert.strictEqual(result.warnings.length, 0, 'a real violation must never be downgraded to a warning');
+      assert.ok(result.errors[0].includes('apps/api/functions/wallet/deposit-v2.ts'), 'error must name the path');
+      assert.ok(result.errors[0].includes('money-movement'), 'error must name the surface class');
+      assert.ok(result.errors[0].includes('P0 surface class "money-movement" touched with no tier-assignment work in scope'), 'error must include the issue text');
+    });
+
+    test('script present, exec throws with two violations — exactly two errors[] entries, order preserved', () => {
+      const { runP0TierAssignmentGate } = require(TOOLS_PATH);
+      const err = new Error('Command failed');
+      err.status = 1;
+      err.stdout = JSON.stringify({
+        violations: [
+          { path: 'apps/api/functions/wallet/deposit-v2.ts', p0SurfaceClass: 'money-movement', issue: 'first issue' },
+          { path: 'apps/api/functions/kyc/verify.ts', p0SurfaceClass: 'kyc', issue: 'second issue' },
+        ],
+        exitCode: 1,
+      });
+      const result = runP0TierAssignmentGate('/fake/cwd', '/fake/cwd/plan.md', {
+        existsSync: () => true,
+        exec: () => { throw err; },
+      });
+      assert.strictEqual(result.errors.length, 2, 'two violations must produce exactly two errors');
+      assert.strictEqual(result.warnings.length, 0);
+      assert.ok(result.errors[0].includes('deposit-v2.ts'), 'first error must correspond to the first violation');
+      assert.ok(result.errors[1].includes('verify.ts'), 'second error must correspond to the second violation (order preserved)');
+    });
+
+    test('exec throws ENOENT (no deno on PATH) — zero errors, one warnings[] entry naming deno', () => {
+      const { runP0TierAssignmentGate } = require(TOOLS_PATH);
+      const err = new Error('spawn deno ENOENT');
+      err.code = 'ENOENT';
+      const result = runP0TierAssignmentGate('/fake/cwd', '/fake/cwd/plan.md', {
+        existsSync: () => true,
+        exec: () => { throw err; },
+      });
+      assert.strictEqual(result.errors.length, 0, 'a missing deno binary must never hard-fail the gate');
+      assert.strictEqual(result.warnings.length, 1);
+      assert.ok(result.warnings[0].toLowerCase().includes('deno'), 'warning must name deno as the missing binary');
+    });
+
+    test('exec throws status 2 (unreadable/unparseable input) — zero errors, one warnings[] entry', () => {
+      const { runP0TierAssignmentGate } = require(TOOLS_PATH);
+      const err = new Error('Command failed');
+      err.status = 2;
+      err.stdout = '';
+      const result = runP0TierAssignmentGate('/fake/cwd', '/fake/cwd/plan.md', {
+        existsSync: () => true,
+        exec: () => { throw err; },
+      });
+      assert.strictEqual(result.errors.length, 0);
+      assert.strictEqual(result.warnings.length, 1);
+    });
+
+    test('exec throws status 1 with unparseable stdout — zero errors, one warnings[] entry (must not fake a violation)', () => {
+      const { runP0TierAssignmentGate } = require(TOOLS_PATH);
+      const err = new Error('Command failed');
+      err.status = 1;
+      err.stdout = 'not json';
+      const result = runP0TierAssignmentGate('/fake/cwd', '/fake/cwd/plan.md', {
+        existsSync: () => true,
+        exec: () => { throw err; },
+      });
+      assert.strictEqual(result.errors.length, 0, 'unparseable stdout must never be treated as a violation');
+      assert.strictEqual(result.warnings.length, 1);
+    });
+
+    test('exec returns valid JSON with violations key absent entirely — zero errors, one warnings[] entry', () => {
+      const { runP0TierAssignmentGate } = require(TOOLS_PATH);
+      const result = runP0TierAssignmentGate('/fake/cwd', '/fake/cwd/plan.md', {
+        existsSync: () => true,
+        exec: () => '{"exitCode":0}',
+      });
+      assert.strictEqual(result.errors.length, 0);
+      assert.strictEqual(result.warnings.length, 1);
+    });
+  });
+
+  describe('verify plan-structure CLI — inertness regression (no scripts/check-p0-tier-assignment.ts in tmpDir)', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+      tmpDir = createTempProject();
+    });
+
+    afterEach(() => {
+      cleanup(tmpDir);
+    });
+
+    test('regression: existing valid plan fixture still exits 0 with valid:true (new gate is inert for non-QA repos)', () => {
+      const planPath = path.join(tmpDir, 'valid-plan.md');
+      fs.writeFileSync(planPath, `---
+phase: 299
+plan: "01"
+type: execute
+wave: 1
+depends_on: []
+files_modified:
+  - src/utils/helper.js
+autonomous: true
+must_haves:
+  truths:
+    - "helper.js exports a function"
+---
+<tasks>
+<task type="auto">
+<name>Task 1</name>
+<files>src/utils/helper.js</files>
+<action>Write a helper function</action>
+<verify>node -c src/utils/helper.js</verify>
+<done>helper.js exists and exports a function</done>
+</task>
+</tasks>
+`);
+      const result = runGsdTools(`verify plan-structure "${planPath}"`, tmpDir);
+      assert.ok(result.success, `Command should exit 0 on a valid plan: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.valid, true, `expected valid plan, got errors: ${JSON.stringify(parsed.errors)}`);
+      assert.strictEqual(parsed.errors.length, 0);
+    });
+
+    test('regression: .tsx plan with no checkpoint:ui-qa still exits 1 with the existing ui-qa error (new code does not disturb existing gates)', () => {
+      const planPath = path.join(tmpDir, 'tsx-plan.md');
+      fs.writeFileSync(planPath, `---
+phase: 299
+plan: "02"
+type: implementation
+wave: 1
+depends_on: []
+files_modified:
+  - src/components/Dashboard.tsx
+autonomous: true
+must_haves:
+  - Dashboard renders
+---
+
+<task type="auto">
+  <name>Build dashboard</name>
+  <files>src/components/Dashboard.tsx</files>
+  <action>Create dashboard component</action>
+  <verify>Build succeeds</verify>
+  <done>Dashboard built</done>
+</task>
+`);
+      const result = runGsdTools(`verify plan-structure "${planPath}"`, tmpDir);
+      assert.strictEqual(result.success, false, 'should still exit 1 for missing checkpoint:ui-qa');
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.valid, false);
+      assert.ok(parsed.errors.some(e => e.includes('checkpoint:ui-qa')), 'existing ui-qa error must still fire');
+    });
+  });
+});
+
 // ─── Phase 34: phase complete pre-condition validation tests ─────────────────
 
 describe('phase complete — pre-condition validation (Phase 34)', () => {
