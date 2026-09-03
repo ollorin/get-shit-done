@@ -9318,6 +9318,112 @@ function milestoneAlreadyRecorded(milestonesContent, version) {
   return heading.test(milestonesContent);
 }
 
+// ─── Milestone Phase Scoping ────────────────────────────────────────────────
+//
+// Recurring bug (igaming-platform RETROSPECTIVE.md: v0.1.8, v0.1.20, v0.1.28,
+// v0.1.29): cmdMilestoneComplete counted EVERY directory under
+// .planning/phases/, including phase directories left over from prior
+// milestones that were never archived away. This silently produced wildly
+// inflated phase/plan/task counts in the auto-generated MILESTONES.md entry
+// every single time it recurred (e.g. v0.1.29: 73 phases / 389 plans / 154
+// tasks reported instead of the milestone's actual 10 phases / 46 plans),
+// and had to be hand-corrected after the fact each time. v0.1.20's
+// retrospective additionally found that the CLI dispatcher accepted a
+// `--phases N-M` flag on `milestone complete` but silently dropped it before
+// ever reaching this function.
+//
+// The fix scopes phase counting two ways, in priority order:
+//   1. An explicit `--phases N-M` flag (now actually wired through by the
+//      CLI dispatcher -- see the `case 'milestone':` branch below).
+//   2. When no explicit range is given, phase numbers parsed directly out of
+//      ROADMAP.md's own "### Phase N: ..." headings -- the current
+//      milestone's own roadmap section, per this repo's own
+//      templates/roadmap.md convention (confirmed against every real
+//      ROADMAP.md this fork ships against: a completed milestone's
+//      ROADMAP.md only ever lists that milestone's own phases before it is
+//      reorganized/archived).
+//
+// It deliberately does NOT fall back to scanning every directory in
+// .planning/phases/ when neither source is available -- that silent
+// fallback is the exact defect being fixed, so resolveMilestonePhaseScope
+// errors out (exit 1) instead, asking the operator to pass --phases
+// explicitly rather than risk another silently-wrong MILESTONES.md entry.
+
+// Pure function -- no I/O. Extracts phase-number strings (e.g. "338",
+// "2.1", "3A") from ROADMAP.md "### Phase N: ..." headings.
+function parseRoadmapPhaseNumbers(roadmapContent) {
+  const nums = [];
+  if (!roadmapContent) return nums;
+  const phasePattern = /^#{2,4}\s*Phase\s+(\d+[A-Za-z]?(?:\.\d+)*)\s*:/gm;
+  let m;
+  while ((m = phasePattern.exec(roadmapContent)) !== null) {
+    nums.push(m[1]);
+  }
+  return nums;
+}
+
+// Pure function -- no I/O. Builds a directory-name matcher for a set of
+// phase-number strings. Handles leading zeros ("01" -> "1"), letter
+// suffixes ("3A"/"3a"), decimal phases ("3.1"), and guards against prefix
+// collisions ("1" must not match directory "10-scaling").
+function buildMilestonePhaseMatcher(phaseNumbers) {
+  const normalized = new Set(
+    phaseNumbers.map(n => String(n).replace(/^0+(?=\d)/, '').toLowerCase())
+  );
+  return function isDirInMilestone(dirName) {
+    const m = dirName.match(/^0*(\d+[A-Za-z]?(?:\.\d+)*)/);
+    if (!m) return false; // not a phase directory (e.g. "notes/", "misc/")
+    return normalized.has(m[1].toLowerCase());
+  };
+}
+
+// Determines which .planning/phases/ directories belong to the milestone
+// being completed. Returns { matcher, source, range } where matcher(dirName)
+// is a predicate. Exits 1 (via error()) if scoping cannot be determined --
+// see the block comment above for why this never falls back to "scan
+// everything".
+function resolveMilestonePhaseScope(cwd, options) {
+  if (options.phases) {
+    const pm = String(options.phases).match(/^(\d+)(?:-(\d+))?$/);
+    if (!pm) {
+      error(`--phases value "${options.phases}" is not a valid range (expected N or N-M, e.g. --phases 338-347)`);
+    }
+    const min = parseInt(pm[1], 10);
+    const max = pm[2] ? parseInt(pm[2], 10) : min;
+    return {
+      source: 'explicit --phases flag',
+      range: pm[2] ? `${min}-${max}` : String(min),
+      matcher: function isDirInMilestone(dirName) {
+        const dm = dirName.match(/^0*(\d+)/);
+        if (!dm) return false;
+        const n = parseInt(dm[1], 10);
+        return n >= min && n <= max;
+      },
+    };
+  }
+
+  const roadmapPathForScope = path.join(cwd, '.planning', 'ROADMAP.md');
+  let roadmapContentForScope = '';
+  if (fs.existsSync(roadmapPathForScope)) {
+    try { roadmapContentForScope = fs.readFileSync(roadmapPathForScope, 'utf-8'); } catch {}
+  }
+  const phaseNumbers = parseRoadmapPhaseNumbers(roadmapContentForScope);
+  if (phaseNumbers.length === 0) {
+    error(
+      'milestone complete cannot determine which phases belong to this milestone: ' +
+      'no --phases N-M flag was given and ROADMAP.md has no "### Phase N: ..." headings to derive it from. ' +
+      'Re-run with an explicit --phases N-M (e.g. --phases 338-347) rather than risk counting every ' +
+      'directory in .planning/phases/, including phases from prior milestones ' +
+      '(see RETROSPECTIVE.md v0.1.8/v0.1.20/v0.1.28/v0.1.29).'
+    );
+  }
+  return {
+    source: 'ROADMAP.md "### Phase N:" headings',
+    range: phaseNumbers.join(','),
+    matcher: buildMilestonePhaseMatcher(phaseNumbers),
+  };
+}
+
 function cmdMilestoneComplete(cwd, version, options, raw) {
   if (!version) {
     error('version required for milestone complete (e.g., v1.0)');
@@ -9335,7 +9441,13 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
   // Ensure archive directory exists
   fs.mkdirSync(archiveDir, { recursive: true });
 
-  // Gather stats from phases
+  // Gather stats from phases (scoped to this milestone only -- see the
+  // "Milestone Phase Scoping" block comment above). Scoping is only
+  // resolved (and only errors out on ambiguity) when there is actually at
+  // least one phase directory on disk to scope -- an empty/absent
+  // .planning/phases/ has nothing to over-count, so there is no ambiguity
+  // to reject.
+  let phaseScope = null;
   let phaseCount = 0;
   let totalPlans = 0;
   let totalTasks = 0;
@@ -9345,7 +9457,12 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
     const entries = fs.readdirSync(phasesDir, { withFileTypes: true });
     const dirs = entries.filter(e => e.isDirectory()).map(e => e.name).sort();
 
+    if (dirs.length > 0) {
+      phaseScope = resolveMilestonePhaseScope(cwd, options);
+    }
+
     for (const dir of dirs) {
+      if (phaseScope && !phaseScope.matcher(dir)) continue;
       phaseCount++;
       const phaseFiles = fs.readdirSync(path.join(phasesDir, dir));
       const plans = phaseFiles.filter(f => f.endsWith('-PLAN.md') || f === 'PLAN.md');
@@ -9367,6 +9484,10 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
       }
     }
   } catch {}
+
+  if (!phaseScope) {
+    phaseScope = { source: 'no phase directories present', range: '' };
+  }
 
   // Archive ROADMAP.md
   if (fs.existsSync(roadmapPath)) {
@@ -9430,6 +9551,7 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
     plans: totalPlans,
     tasks: totalTasks,
     accomplishments,
+    phase_scope: { source: phaseScope.source, range: phaseScope.range },
     archived: {
       roadmap: fs.existsSync(path.join(archiveDir, `${version}-ROADMAP.md`)),
       requirements: fs.existsSync(path.join(archiveDir, `${version}-REQUIREMENTS.md`)),
@@ -13451,10 +13573,14 @@ async function main() {
       if (subcommand === 'complete') {
         const nameIndex = args.indexOf('--name');
         const milestoneName = nameIndex !== -1 ? args.slice(nameIndex + 1).join(' ') : null;
-        cmdMilestoneComplete(cwd, args[2], { name: milestoneName }, raw);
-        const msVersion = args[2];
         const msPhasesIndex = args.indexOf('--phases');
         const msPhasesRange = msPhasesIndex !== -1 ? args[msPhasesIndex + 1] : null;
+        // --phases must be threaded through to cmdMilestoneComplete itself,
+        // not just to the summarize/archive-phases calls below -- this was
+        // exactly the v0.1.20 regression (silently dropped before reaching
+        // cmdMilestoneComplete's own phase/plan/task counting).
+        cmdMilestoneComplete(cwd, args[2], { name: milestoneName, phases: msPhasesRange }, raw);
+        const msVersion = args[2];
         if (msVersion) {
           cmdMilestoneSummarize(cwd, msVersion, { name: milestoneName, phases: msPhasesRange }, raw);
           cmdMilestoneArchivePhases(cwd, msVersion, { phases: msPhasesRange }, raw);

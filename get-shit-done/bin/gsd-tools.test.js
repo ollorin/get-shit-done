@@ -1871,6 +1871,167 @@ describe('milestone complete command', () => {
     const headingMatches = milestones.match(/^##\s+v2\.0\b/gm) || [];
     assert.strictEqual(headingMatches.length, 1, 'MILESTONES.md should contain exactly one v2.0 heading after both calls');
   });
+
+  // ── Phase-scoping regression (igaming-platform RETROSPECTIVE.md v0.1.8,
+  // v0.1.20, v0.1.28, v0.1.29): cmdMilestoneComplete counted EVERY directory
+  // under .planning/phases/, including phase directories left over from
+  // prior milestones that were never archived. Real-world shape: several
+  // milestones' worth of un-archived phase directories coexist on disk
+  // because "skip phase archival" is a routine choice, so the bug recurred
+  // identically every time a new milestone was completed. ──
+
+  test('milestone complete scopes phase/plan/task counts to the milestone being completed, not every phase dir on disk (regression: v0.1.8/v0.1.20/v0.1.28/v0.1.29)', () => {
+    // ROADMAP.md as it looks when a milestone is actually being completed:
+    // only the CURRENT milestone's own phases are listed (matches this
+    // repo's own templates/roadmap.md convention and every real ROADMAP.md
+    // this bug was observed against).
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      `# Roadmap v3.0\n\n### Phase 8: New Feature A\n**Goal:** Build A\n\n### Phase 9: New Feature B\n**Goal:** Build B\n`
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'STATE.md'),
+      `# State\n\n**Status:** In progress\n**Last Activity:** 2025-01-01\n**Last Activity Description:** Working\n`
+    );
+
+    // Milestone v1.0's phases (1-2), never archived -- "skip phase archival"
+    // is a routine real-world choice, per the retrospective's own framing.
+    for (const [dir, plan, oneLiner] of [
+      ['01-old-milestone-a', '01-01-PLAN.md', 'v1.0 phase 1 work'],
+      ['02-old-milestone-a', '02-01-PLAN.md', 'v1.0 phase 2 work'],
+    ]) {
+      const p = path.join(tmpDir, '.planning', 'phases', dir);
+      fs.mkdirSync(p, { recursive: true });
+      fs.writeFileSync(path.join(p, plan), '# Plan\n\n## Task 1\n\n## Task 2\n');
+      fs.writeFileSync(
+        path.join(p, plan.replace('-PLAN.md', '-SUMMARY.md')),
+        `---\none-liner: ${oneLiner}\n---\n# Summary\n\n## Task 1\n`
+      );
+    }
+
+    // Milestone v2.0's phases (3-5), ALSO never archived.
+    for (const [dir, plan, oneLiner] of [
+      ['03-old-milestone-b', '03-01-PLAN.md', 'v2.0 phase 3 work'],
+      ['04-old-milestone-b', '04-01-PLAN.md', 'v2.0 phase 4 work'],
+      ['05-old-milestone-b', '05-01-PLAN.md', 'v2.0 phase 5 work'],
+    ]) {
+      const p = path.join(tmpDir, '.planning', 'phases', dir);
+      fs.mkdirSync(p, { recursive: true });
+      fs.writeFileSync(path.join(p, plan), '# Plan\n\n## Task 1\n');
+      fs.writeFileSync(
+        path.join(p, plan.replace('-PLAN.md', '-SUMMARY.md')),
+        `---\none-liner: ${oneLiner}\n---\n# Summary\n\n## Task 1\n`
+      );
+    }
+
+    // The CURRENT milestone (v3.0) being completed now: phases 8-9 only.
+    // Deliberately non-contiguous with the old milestones' numbers (1-5)
+    // to prove this isn't just "highest N phases" heuristic luck.
+    const p8 = path.join(tmpDir, '.planning', 'phases', '08-new-feature-a');
+    fs.mkdirSync(p8, { recursive: true });
+    fs.writeFileSync(path.join(p8, '08-01-PLAN.md'), '# Plan\n\n## Task 1\n');
+    fs.writeFileSync(
+      path.join(p8, '08-01-SUMMARY.md'),
+      '---\none-liner: v3.0 phase 8 work\n---\n# Summary\n\n## Task 1\n\n## Task 2\n\n## Task 3\n'
+    );
+    const p9 = path.join(tmpDir, '.planning', 'phases', '09-new-feature-b');
+    fs.mkdirSync(p9, { recursive: true });
+    fs.writeFileSync(path.join(p9, '09-01-PLAN.md'), '# Plan\n\n## Task 1\n');
+    fs.writeFileSync(path.join(p9, '09-02-PLAN.md'), '# Plan 2\n\n## Task 1\n');
+    fs.writeFileSync(
+      path.join(p9, '09-01-SUMMARY.md'),
+      '---\none-liner: v3.0 phase 9 work\n---\n# Summary\n\n## Task 1\n'
+    );
+
+    // Complete v3.0 WITHOUT an explicit --phases flag -- this is exactly
+    // how this fork's own complete-milestone.md workflow invokes the CLI
+    // in production (`milestone complete "v[X.Y]" --name "[Milestone
+    // Name]"`, no --phases), so the ROADMAP.md-derived fallback is what
+    // must carry this, not just the explicit-flag path.
+    const result = runGsdTools('milestone complete v3.0 --name "New Feature Set"', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const output = JSON.parse(result.output);
+
+    // The whole backlog on disk is 5 old phases + 2 current = 7 phases,
+    // 8 plans, and old+new totals a mix of tasks. Before the fix, phases
+    // would report 7 (all directories) instead of 2. This is the exact
+    // failure shape from the retrospective (e.g. v0.1.29: 73 reported vs.
+    // 10 actual; v0.1.20: 21 reported vs. 8 actual).
+    assert.strictEqual(output.phases, 2, 'should count only the current milestone\'s 2 phases, not all 5 old + 2 new on disk');
+    assert.strictEqual(output.plans, 3, 'should count only plans from phases 8 and 9 (1 + 2), not the old milestones\' plans');
+    assert.strictEqual(output.tasks, 4, 'should count only tasks from phases 8 and 9 SUMMARY.md files (3 + 1), not the old milestones\' tasks');
+
+    assert.ok(output.accomplishments.includes('v3.0 phase 8 work'), 'should include the current milestone\'s own accomplishment');
+    assert.ok(output.accomplishments.includes('v3.0 phase 9 work'), 'should include the current milestone\'s own accomplishment');
+    assert.ok(!output.accomplishments.includes('v1.0 phase 1 work'), 'must NOT include a prior, un-archived milestone\'s accomplishment');
+    assert.ok(!output.accomplishments.includes('v1.0 phase 2 work'), 'must NOT include a prior, un-archived milestone\'s accomplishment');
+    assert.ok(!output.accomplishments.includes('v2.0 phase 3 work'), 'must NOT include a prior, un-archived milestone\'s accomplishment');
+    assert.ok(!output.accomplishments.includes('v2.0 phase 4 work'), 'must NOT include a prior, un-archived milestone\'s accomplishment');
+    assert.ok(!output.accomplishments.includes('v2.0 phase 5 work'), 'must NOT include a prior, un-archived milestone\'s accomplishment');
+
+    // Scoping metadata should show this was derived from ROADMAP.md, not a
+    // silent "scan everything" fallback.
+    assert.strictEqual(output.phase_scope.source, 'ROADMAP.md "### Phase N:" headings');
+    assert.strictEqual(output.phase_scope.range, '8,9');
+
+    // The auto-generated MILESTONES.md permanent record must reflect the
+    // scoped, correct numbers -- this is the artifact the retrospective
+    // says had to be hand-corrected every time this bug recurred.
+    const milestones = fs.readFileSync(path.join(tmpDir, '.planning', 'MILESTONES.md'), 'utf-8');
+    assert.ok(milestones.includes('2 phases, 3 plans, 4 tasks'), 'MILESTONES.md entry should record the scoped counts, not the whole backlog');
+    assert.ok(!milestones.includes('7 phases'), 'MILESTONES.md entry must not record the unscoped whole-backlog phase count');
+  });
+
+  test('milestone complete honors an explicit --phases flag over ROADMAP.md derivation', () => {
+    // ROADMAP.md intentionally omits any parseable phase headings, and even
+    // if it had some, --phases should take priority (parity with milestone
+    // summarize / milestone archive-phases, which already honor --phases).
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), `# Roadmap v4.0\n`);
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'STATE.md'),
+      `# State\n\n**Status:** In progress\n**Last Activity:** 2025-01-01\n**Last Activity Description:** Working\n`
+    );
+
+    const pOld = path.join(tmpDir, '.planning', 'phases', '01-old');
+    fs.mkdirSync(pOld, { recursive: true });
+    fs.writeFileSync(path.join(pOld, '01-01-PLAN.md'), '# Plan\n');
+
+    const pNew = path.join(tmpDir, '.planning', 'phases', '12-current');
+    fs.mkdirSync(pNew, { recursive: true });
+    fs.writeFileSync(path.join(pNew, '12-01-PLAN.md'), '# Plan\n');
+    fs.writeFileSync(
+      path.join(pNew, '12-01-SUMMARY.md'),
+      '---\none-liner: current work\n---\n# Summary\n'
+    );
+
+    const result = runGsdTools('milestone complete v4.0 --name Explicit --phases 12-12', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const output = JSON.parse(result.output);
+    assert.strictEqual(output.phases, 1, 'should count only phase 12 per the explicit --phases flag');
+    assert.strictEqual(output.phase_scope.source, 'explicit --phases flag');
+    assert.strictEqual(output.phase_scope.range, '12-12');
+    assert.ok(output.accomplishments.includes('current work'));
+  });
+
+  test('milestone complete errors out (does not silently scan every phase dir) when neither --phases nor a parseable ROADMAP.md is available', () => {
+    // No "### Phase N:" headings anywhere in ROADMAP.md, and no --phases
+    // flag given, but there IS at least one real phase directory on disk --
+    // this is the exact ambiguity that must never silently resolve to
+    // "count everything".
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), `# Roadmap\n\nNo phase headings here.\n`);
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'STATE.md'),
+      `# State\n\n**Status:** In progress\n**Last Activity:** 2025-01-01\n**Last Activity Description:** Working\n`
+    );
+    const p = path.join(tmpDir, '.planning', 'phases', '01-something');
+    fs.mkdirSync(p, { recursive: true });
+    fs.writeFileSync(path.join(p, '01-01-PLAN.md'), '# Plan\n');
+
+    const result = runGsdTools('milestone complete v5.0 --name Ambiguous', tmpDir);
+    assert.strictEqual(result.success, false, 'should fail rather than silently scan every phase directory');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
