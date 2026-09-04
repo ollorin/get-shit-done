@@ -8,6 +8,7 @@ tools:
   - Bash
   - Glob
   - Grep
+  - LSP
 color: "#8B5CF6"
 skills:
   - gsd-nyquist-auditor-workflow

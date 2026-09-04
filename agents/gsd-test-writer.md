@@ -1,7 +1,7 @@
 ---
 name: gsd-test-writer
 description: QA-focused test writing agent. Writes comprehensive tests with QA intuition — auth, boundaries, errors, wiring. Spawned by executor after implementation tasks. Does NOT write happy-path-only tests.
-tools: Read, Write, Edit, Bash, Grep, Glob
+tools: Read, Write, Edit, Bash, Grep, Glob, LSP
 color: red
 ---
 

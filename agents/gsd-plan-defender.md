@@ -1,7 +1,7 @@
 ---
 name: gsd-plan-defender
 description: Rebuts the attacker's flaw list for a single PLAN.md strictly from plan/codebase evidence. Spawned by /gsd:plan-phase's risk-triage step (MILE-39) for high-risk plans, paired with gsd-plan-attacker and gsd-plan-judge.
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, LSP
 color: blue
 ---
 

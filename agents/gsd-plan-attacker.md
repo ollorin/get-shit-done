@@ -1,7 +1,7 @@
 ---
 name: gsd-plan-attacker
 description: Adversarially attacks a single PLAN.md, finding concrete flaws (logical fallacies, missed edge cases, missed dependencies, untestable success criteria) before execution. Spawned by /gsd:plan-phase's risk-triage step (MILE-39) for high-risk plans, paired with gsd-plan-defender and gsd-plan-judge.
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, LSP
 color: red
 ---
 
