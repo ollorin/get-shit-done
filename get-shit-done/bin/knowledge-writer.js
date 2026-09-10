@@ -372,7 +372,7 @@ async function storeInsights(insights, options = {}) {
             content: safeContent,
             type: knowledgeType,
             scope,
-            embedding: null,
+            embedding,
             project_slug: projectSlug,
             metadata: {
               ...contextMetadata,
@@ -419,7 +419,7 @@ async function storeInsights(insights, options = {}) {
         content: safeContent,
         type: knowledgeType,
         scope,
-        embedding: null,
+        embedding,
         project_slug: projectSlug,
         metadata: {
           ...contextMetadata,

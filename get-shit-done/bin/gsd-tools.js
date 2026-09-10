@@ -3500,7 +3500,7 @@ function cmdKnowledgeStatus(args, raw) {
   output(result, raw);
 }
 
-function cmdKnowledgeAdd(cwd, args, raw) {
+async function cmdKnowledgeAdd(cwd, args, raw) {
   const content = args[0];
   if (!content) {
     error('knowledge add: content required');
@@ -3513,12 +3513,22 @@ function cmdKnowledgeAdd(cwd, args, raw) {
   const { resolveProjectSlug } = require('./knowledge-writer.js');
   const project_slug = resolveProjectSlug(cwd);
 
+  // Generate an embedding so manually-added entries are semantic-search
+  // reachable, same as any other knowledge insert. Falls back to null on
+  // failure — never blocks the add.
+  let embedding = null;
+  try {
+    const { generateEmbeddingCached } = require('./embeddings.js');
+    embedding = await generateEmbeddingCached(content);
+  } catch (_) { /* embeddings unavailable — fall back to null */ }
+
   const { knowledge } = require('./knowledge.js');
   const result = knowledge.add({
     content,
     type,
     scope,
     ttlCategory: ttl,
+    embedding,
     project_slug
   });
 
@@ -3818,7 +3828,7 @@ function cmdMarkWrong(args, raw) {
   output(result, raw);
 }
 
-function cmdMarkOutdated(args, raw) {
+async function cmdMarkOutdated(args, raw) {
   const id = parseInt(args[0]);
   if (isNaN(id)) {
     error('mark-outdated: principle-id required (integer)');
@@ -3838,7 +3848,7 @@ function cmdMarkOutdated(args, raw) {
   const result = markPrincipleOutdated(conn.db, id);
 
   if (replacement) {
-    const replacementResult = createReplacementPrinciple(conn.db, id, replacement);
+    const replacementResult = await createReplacementPrinciple(conn.db, id, replacement);
     result.replacement_id = replacementResult.new_principle_id;
   }
 
@@ -13945,7 +13955,7 @@ async function main() {
           cmdKnowledgeStatus(knowledgeArgs, raw);
           break;
         case 'add':
-          cmdKnowledgeAdd(cwd, knowledgeArgs, raw);
+          await cmdKnowledgeAdd(cwd, knowledgeArgs, raw);
           break;
         case 'search':
           cmdKnowledgeSearch(knowledgeArgs, raw);
@@ -14005,7 +14015,7 @@ async function main() {
     }
 
     case 'mark-outdated': {
-      cmdMarkOutdated(args.slice(1), raw);
+      await cmdMarkOutdated(args.slice(1), raw);
       break;
     }
 
