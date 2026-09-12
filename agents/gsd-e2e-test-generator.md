@@ -10,6 +10,7 @@ tools:
   - Grep
   - Glob
   - Agent
+  - Task
 ---
 
 # E2E Test Generator Agent

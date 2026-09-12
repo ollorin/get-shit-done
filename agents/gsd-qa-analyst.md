@@ -1,7 +1,7 @@
 ---
 name: gsd-qa-analyst
 description: Judges a QA verdict it never computes. Proposes risk tiers for NEW registry entries, prioritizes gap closure, and drafts plan-milestone-gaps inputs. Spawned conditionally by audit-milestone when the verdict reports new/changed features or gaps.
-tools: Read, Write, Bash, Grep, Glob
+tools: Read, Write, Bash, Grep, Glob, Agent, Task
 color: yellow
 ---
 

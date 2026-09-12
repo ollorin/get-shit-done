@@ -471,6 +471,44 @@ Verify: `✅ Phase directories archived to .planning/milestones/v[X.Y]-phases/`
 
 If "Skip": Phase directories remain in `.planning/phases/` as raw execution history. Use `/gsd:cleanup` later to archive retroactively.
 
+**Orphaned prior-milestone phase check (MANDATORY, runs regardless of the Yes/Skip answer above).**
+A "Skip" answer for the CURRENT milestone is normal and fine — but `.planning/phases/` can also
+silently accumulate phase directories from OLDER milestones that were shipped, archived in
+MILESTONES.md/`v[X.Y]-ROADMAP.md`, yet never physically moved out of `.planning/phases/` (found
+live in production during the v0.1.30 close, 2026-09-05: 8 consecutive prior milestones — v0.1.22
+through v0.1.29 — had ~75 orphaned phase directories sitting unarchived, some going back weeks).
+This check is cheap and prevents that backlog from ever growing again:
+
+```bash
+# Every phase directory currently in .planning/phases/ that is NOT part of the milestone just archived.
+ls .planning/phases/ 2>/dev/null
+```
+
+For each remaining phase number, determine which (already-shipped) milestone it belongs to by
+checking that milestone's own archived `v[X.Y]-ROADMAP.md` for a `### Phase {N}` heading or a
+`Phases {start}-{end}` range line — **never guess the boundary from phase-number proximity alone**,
+always confirm against the archived roadmap text itself. If a phase number belongs to a milestone
+that already has its own `v[X.Y]-ROADMAP.md`/MILESTONES.md entry (i.e. it already shipped), it is
+orphaned and must be archived now:
+
+```bash
+mkdir -p .planning/milestones/v[owning-X.Y]-phases
+mv .planning/phases/{phase-dir} .planning/milestones/v[owning-X.Y]-phases/
+```
+
+**Partial-archival reconciliation:** if `.planning/milestones/v[owning-X.Y]-phases/` already exists
+AND already contains a directory with the same phase number, do NOT blindly overwrite. Run
+`diff -rq .planning/phases/{phase-dir} .planning/milestones/v[owning-X.Y]-phases/{phase-dir}` first.
+If the only difference is a stray `CHECKPOINT.json`/`TASK-CHECKPOINT.json` bookkeeping file in the
+`.planning/phases/` copy (the real content — PLAN/SUMMARY/VERIFICATION/etc. — already lives in the
+archive), the `.planning/phases/` copy is a safe-to-delete leftover fragment from an earlier partial
+archival — delete it. If the diff shows any OTHER file present only in `.planning/phases/`, STOP and
+surface it for human review rather than deleting anything.
+
+Only phases belonging to the milestone actively being closed right now, or to a milestone with no
+archived roadmap yet (i.e. still genuinely in-flight), should remain in `.planning/phases/` when
+this check completes.
+
 After archival, the AI still handles:
 - Reorganizing ROADMAP.md with milestone grouping (requires judgment)
 - Full PROJECT.md evolution review (requires understanding)

@@ -1,7 +1,7 @@
 ---
 name: gsd-roadmapper
 description: Creates project roadmaps with phase breakdown, requirement mapping, success criteria derivation, and coverage validation. Spawned by /gsd:new-project orchestrator.
-tools: Read, Write, Bash, Glob, Grep, LSP
+tools: Read, Write, Bash, Glob, Grep, LSP, Agent, Task
 color: purple
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: gsd-integration-tester
 description: Tests cross-phase integration boundaries. Verifies contracts match at API/schema/component boundaries between phases. Writes and runs integration tests. Spawned after phase completion when dependencies on prior phases exist.
-tools: Read, Write, Edit, Bash, Grep, Glob, LSP
+tools: Read, Write, Edit, Bash, Grep, Glob, LSP, Agent, Task
 color: red
 ---
 
