@@ -428,6 +428,16 @@ I'll verify: vercel whoami returns your account
 → YOUR ACTION: Type "done" when authenticated
 ────────────────────────────────────────────────────────
 ```
+
+**Human relay fast-path (App #6 — `@get-shit-done/references/agent-messaging.md`):** a
+subagent that hits a `checkpoint:decision` / `checkpoint:human-action` which is NOT
+auto-approved may ALSO `SendMessage` `to: "main"` (its spawner) with a concise summary of the
+decision/action, to surface it to the orchestrator/user immediately and stay alive awaiting
+the answer instead of only ending its turn. This COMPOSES with the structured checkpoint
+return above — it does not replace it. The structured return (with its load-bearing `Type:`
+line) remains the durable record the coordinator dispatches on; the message is only the fast
+path that gets a human's attention sooner. If SendMessage is unavailable in the runtime, the
+structured return alone is fully sufficient.
 </execution_protocol>
 
 <authentication_gates>

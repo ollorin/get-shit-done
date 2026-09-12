@@ -8,6 +8,9 @@ tools:
   - Bash
   - Glob
   - Grep
+  - LSP
+  - Agent
+  - Task
 color: "#8B5CF6"
 skills:
   - gsd-nyquist-auditor-workflow

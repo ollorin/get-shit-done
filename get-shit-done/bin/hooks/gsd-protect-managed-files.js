@@ -48,9 +48,21 @@ function run() {
       const claudePrefix = CLAUDE_DIR + path.sep;
       if (!filePath.startsWith(claudePrefix)) { process.exit(0); }
 
-      // Load manifest — fail open if absent
+      // Load manifest — fail open if absent, but VISIBLY warn on corruption.
+      // A silently-unparseable manifest disables ALL protection with zero
+      // signal; the operator must know protection is off, not merely assume it.
       if (!fs.existsSync(MANIFEST_PATH)) { process.exit(0); }
-      const manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'));
+      let manifest;
+      try {
+        manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'));
+      } catch (parseErr) {
+        process.stderr.write(
+          '[gsd-protect] managed-file manifest is unreadable/corrupt (' +
+          MANIFEST_PATH + '): ' + (parseErr && parseErr.message) +
+          ' — file protection is DISABLED until it is regenerated (re-run install.js)\n'
+        );
+        process.exit(0); // fail open — never hard-block on a bad manifest
+      }
       if (!manifest || !manifest.files) { process.exit(0); }
 
       // Relative path from ~/.claude/ — used as manifest key
@@ -59,15 +71,18 @@ function run() {
       // Not a managed file — allow
       if (!(relPath in manifest.files)) { process.exit(0); }
 
-      // Resolve source project root
-      let sourceRoot = '/Users/ollorin/get-shit-done'; // safe fallback
+      // Resolve source project root strictly from gsd-source-path.txt — no
+      // machine-specific hardcoded fallback (that silently misdirects edits on
+      // any other machine). If the pointer is missing, say so honestly.
+      let sourceRoot = null;
       if (fs.existsSync(SOURCE_PATH_FILE)) {
         const stored = fs.readFileSync(SOURCE_PATH_FILE, 'utf8').trim();
         if (stored) { sourceRoot = stored; }
       }
-
-      const sourceFile    = path.join(sourceRoot, relPath);
-      const installScript = path.join(sourceRoot, 'bin', 'install.js');
+      const knownSource   = sourceRoot !== null;
+      const displayRoot   = knownSource ? sourceRoot : '<GSD source root>';
+      const sourceFile    = path.join(displayRoot, relPath);
+      const installScript = path.join(displayRoot, 'bin', 'install.js');
 
       const message = [
         '⛔  GSD PROTECTED FILE — EDIT BLOCKED',
@@ -80,10 +95,13 @@ function run() {
         'Make the change in the source project instead:',
         '',
         `  1. Edit source:  ${sourceFile}`,
-        `  2. Commit:       git -C "${sourceRoot}" add -A && git -C "${sourceRoot}" commit -m "your message"`,
+        `  2. Commit:       git -C "${displayRoot}" add -A && git -C "${displayRoot}" commit -m "your message"`,
         `  3. Deploy:       node "${installScript}"`,
         '',
-        'The installer will copy the updated file to ~/.claude/ automatically.',
+        'Nothing deploys until step 3 runs — the edit is NOT live until install.js is re-run.',
+        ...(knownSource
+          ? []
+          : ['', '(source path unknown — check ~/.claude/gsd-source-path.txt)']),
       ].join('\n');
 
       process.stderr.write(message + '\n');

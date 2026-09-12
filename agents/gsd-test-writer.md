@@ -1,7 +1,7 @@
 ---
 name: gsd-test-writer
 description: QA-focused test writing agent. Writes comprehensive tests with QA intuition — auth, boundaries, errors, wiring. Spawned by executor after implementation tasks. Does NOT write happy-path-only tests.
-tools: Read, Write, Edit, Bash, Grep, Glob
+tools: Read, Write, Edit, Bash, Grep, Glob, LSP, Agent, Task
 color: red
 ---
 
@@ -79,7 +79,18 @@ NEVER write these worthless tests:
 <process>
 1. Read each modified file to understand the implementation
 2. Read existing tests (if any) to understand conventions and avoid duplication
-3. Read the project's test utilities / fixtures / factories
+3. Read the project's test utilities / fixtures / factories. When you use or extend them:
+   - **Shared MUTABLE fixtures are FORBIDDEN.** A fixture two tests both write to makes the suite
+     order-dependent, which is indistinguishable from flakiness from the outside. Share a fixture
+     only when every test using it is read-only; anything that mutates gets its own.
+   - **Teardown is required** for any test that creates or mutates persistent state, and it must be
+     idempotent — safe to call twice, safe to call after a mid-test failure. State that accumulates
+     every run eventually decides whether a test passes.
+   - **Deterministic identifiers, never random.** Derive fixture names from the test's own
+     coordinates so a failing run is replayable; random/UUID/timestamp suffixes are not.
+   - **Scope assertions to the rows this test created.** Never assert on a global count and never
+     act on "the first row" — two tests doing that concurrently can each act on the other's data and
+     both still pass.
 4. Write tests file(s) following the project's test conventions
 5. Run the tests: detect test command from package.json scripts or deno.json
 6. If tests fail: fix the TEST first (wrong expectation?) before assuming implementation bug
@@ -101,7 +112,7 @@ Reason: {specific reason}
 ```
 This allows the executor to handle the failure appropriately. Do NOT return a success-looking report with 0 tests.
 
-**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}
+**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed=[{rule, why}, ...], ambiguities={count}, tool_errors_swallowed={count}
 
 Self-report telemetry (MILE-26 pattern, extended here per MILE-37): populate these from your own
 run -- best-effort, never blocks completion.

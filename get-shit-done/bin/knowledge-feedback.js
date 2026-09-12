@@ -279,7 +279,7 @@ function promptForReplacement(principleContent) {
  * @param {number} [options.confidence=0.7] - Initial confidence for new principle
  * @returns {object} Result with creation details
  */
-function createReplacementPrinciple(db, oldPrincipleId, newContent, options = {}) {
+async function createReplacementPrinciple(db, oldPrincipleId, newContent, options = {}) {
   // Get old principle
   const oldRow = db.prepare('SELECT * FROM knowledge WHERE id = ?').get(oldPrincipleId)
   if (!oldRow) {
@@ -295,10 +295,20 @@ function createReplacementPrinciple(db, oldPrincipleId, newContent, options = {}
     confidence: options.confidence !== undefined ? options.confidence : 0.7
   }
 
+  // Generate an embedding so the replacement stays discoverable via semantic
+  // search, same as any other knowledge insert. Falls back to null (hash-only
+  // dedup/search) on failure — never blocks the replacement from being created.
+  let embedding = null
+  try {
+    const { generateEmbeddingCached } = require('./embeddings.js')
+    embedding = await generateEmbeddingCached(newContent)
+  } catch (_) { /* embeddings unavailable — fall back to null */ }
+
   const result = insertKnowledge(db, {
     content: newContent,
     type: 'principle',
     scope: oldRow.scope,
+    embedding,
     metadata: newMetadata
   })
 

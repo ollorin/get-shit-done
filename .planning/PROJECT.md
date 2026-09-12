@@ -6,26 +6,23 @@ A fork of the Get Shit Done framework (glittercowboy/get-shit-done) with major e
 
 ## Current State
 
-**Shipped:** v1.14.0 — Enforcement & Integration (2026-07-06, PR #3). 10 phases (44-53), 37 plans, all verified + deployed; tests 155 → 514. Built autonomously via prd → new-milestone → execute-roadmap.
+**Shipped:** v1.15.0 — Self-Improving Quality Loop (2026-07-06). 8 phases (54-61), 27 plans, all verified + deployed; tests 514 → 905. Built autonomously via new-milestone → execute-roadmap in a single ~17.6-hour run.
 
-The framework now enforces its own mandatory steps deterministically (git-diff-derived phase-gate + DEFERRED.json waivers), auto-invokes its previously-orphaned satellite capabilities from the golden path, auto-maintains the knowledge system, survives its own coordinator deaths (auto-resume), and is self-observable (skew detection, telemetry, eval harness). The doc-compression hook — dead since it was built — now fires at ~90% measured reduction.
+Every feedback loop the framework produces now closes itself: failures (debugger root-causes + verification gaps) become permanent CI regression evals; eval failures + telemetry drive diagnosed, budget-and-eval-gated prompt-revision diffs (human-approved, never auto-applied); the task-router consults a real outcome ledger and bounded-escalates failing tasks up the tier ladder; token savings are reported from actually-recorded usage instead of theoretical baselines; gsd-test-writer and gsd-integration-tester — designed in earlier milestones but never spawned — are now wired into the golden path (toggleable); high-risk plans get adversarial attacker/defender/judge review; structured handoff briefs and verbatim invariant re-injection keep long runs on-constraint across agent boundaries and resumes; and the pre-PR gate is project-aware, self-hosting on GSD's own repo.
 
-## Current Milestone: v1.15.0 Self-Improving Quality Loop
+## Current Milestone: Planning next
+
+No active milestone. Run `/gsd:new-milestone` to start the next cycle (questioning → research → requirements → roadmap).
+
+**Still-open candidates for later:** reconcile v1.13.0 (phases 41-43 completed on disk but never formally verified/archived through this workflow — still unreconciled after two milestone closures); gsd-tools.js module split + coverage raise; knowledge-system file consolidation (19 → ~6 files); Charlotte QA 3-mode (ui-qa/ux-audit/e2e) end-to-end wiring; cross-process file locking for STATE.md/ROADMAP.md/config.json; auto-applied prompt revisions (currently human-approved by deliberate MVP boundary); judge-panel calibration against human corrections; Windows path handling.
+
+<details>
+<summary>v1.15.0 milestone goal & target features (shipped)</summary>
 
 **Goal:** Close every feedback loop v1.14.0 left open — failures become regression evals, eval results drive human-approved prompt optimization, routing learns from recorded outcomes, and the quality agents that were designed but never spawned get wired into the golden path.
 
-**Target features:**
-- Failures-to-regression pipeline: debugger sessions and verification failures auto-generate candidate eval fixtures (US-1)
-- Reflective prompt optimization: eval failures + telemetry → diagnosed, budget-compliant, eval-gated prompt-revision diffs for human approval (US-2)
-- Outcome-informed routing: per-tier outcome ledger consulted by task-router, bounded failure escalation haiku→sonnet→opus, honest token accounting from recorded usage (US-3/4/5)
-- Dormant quality agents wired in: gsd-test-writer after implementation tasks, gsd-integration-tester on dependent phases (toggleable) (US-6/7)
-- Adversarial attacker/defender/judge review for high-risk plans (US-8)
-- Structured handoff briefs + verbatim invariant re-injection after checkpoint resume (US-9)
-- Project-aware pre-PR gate that passes on GSD itself (US-10)
-
-**Source PRD:** `.planning/prds/pending/self-improving-quality-loop.md` (promoted to done/ at roadmap creation)
-
-**Still-open candidates for later:** reconcile v1.13.0 (phases 41-43 unreconciled — scope already in codebase); gsd-tools module split; prompt-dedup pass; knowledge-system consolidation; Charlotte QA 3-mode wiring.
+**Delivered:** failures-to-regression pipeline (debugger + verification → CI eval cases); reflective prompt optimization (per-agent diagnosis → human-approved diff, budget/eval-gated); outcome-informed routing ledger + bounded haiku→sonnet→opus escalation; honest token accounting from recorded usage; gsd-test-writer/gsd-integration-tester wired into the golden path (toggleable); adversarial attacker/defender/judge review for high-risk plans; structured handoff briefs + verbatim invariant re-injection; project-aware pre-PR gate self-hosting on GSD. Full details: `.planning/milestones/v1.15.0-ROADMAP.md`.
+</details>
 
 <details>
 <summary>v1.14.0 milestone goal & target features (shipped)</summary>
@@ -89,26 +86,29 @@ Claude learns to make autonomous decisions based on the user's reasoning pattern
 - ✓ Compression observability: metrics JSONL, token estimates, semantic paragraph scoring — v1.11.0
 - ✓ Session-end Stop hook (replaces broken SIGTERM approach) — v1.11.0
 - ✓ Milestone summarize & archive-phases commands — v1.11.0
+- ✓ Debugger sessions and verification failures auto-generate candidate eval fixtures; accepted candidates run permanently in CI (MILE-32) — v1.15.0
+- ✓ Prompt-optimize command produces diagnosed, budget-compliant, eval-gated revision diffs, human-approved per-agent (MILE-33) — v1.15.0
+- ✓ Task-router consults a historical per-tier outcome ledger; failed cheap-tier tasks escalate bounded haiku→sonnet→opus (MILE-34/35) — v1.15.0
+- ✓ Actual token usage recorded per task; savings reported from real data with explicit coverage (MILE-36) — v1.15.0
+- ✓ gsd-test-writer spawned after implementation tasks and gsd-integration-tester on dependent phases, config-toggleable and eval-asserted (MILE-37/38) — v1.15.0
+- ✓ High-risk plans reviewed by attacker/defender/judge trio with durable verdict artifact (MILE-39) — v1.15.0
+- ✓ Fixed handoff briefs at agent boundaries; invariants re-injected verbatim after checkpoint resume (MILE-40) — v1.15.0
+- ✓ `gate pre-pr` detects project type from manifests and passes on GSD itself (MILE-41) — v1.15.0
 
 ### Active
 
-**Target: v1.15.0 — Self-Improving Quality Loop (Phases 54+)**
-- [ ] Debugger sessions and verification failures auto-generate candidate eval fixtures; accepted candidates run permanently in CI
-- [ ] Prompt-optimize command produces diagnosed, budget-compliant, eval-gated revision diffs (human-approved, per-agent)
-- [ ] Task-router consults a historical per-tier outcome ledger; failed cheap-tier tasks escalate bounded (haiku→sonnet→opus)
-- [ ] Actual token usage recorded per task; savings reported from real data with explicit coverage
-- [ ] gsd-test-writer spawned after implementation tasks and gsd-integration-tester on dependent phases (config-toggleable, eval-asserted)
-- [ ] High-risk plans reviewed by attacker/defender/judge trio with durable verdict artifact
-- [ ] Fixed handoff briefs at agent boundaries; invariants re-injected verbatim after checkpoint resume
-- [ ] `gate pre-pr` detects project type from manifests and passes on GSD itself
+(None yet — requirements for the next milestone are defined via `/gsd:new-milestone`.)
 
-**Note:** v1.13.0 (phases 41-43) was defined 2026-03-11 but never formally executed; its scope (gsd:prd, new-milestone PRD integration, docs-updater) is present in the codebase today. Reconcile/audit v1.13 status separately — do not double-build.
+**Note:** v1.13.0 (phases 41-43) was defined 2026-03-11 but never formally executed; its scope (gsd:prd, new-milestone PRD integration, docs-updater) is present in the codebase today. This has now carried across two milestone closures (v1.14.0 and v1.15.0) without being reconciled. Reconcile/audit v1.13 status separately before it goes stale further — do not double-build.
 
 **Deferred:**
 - [ ] Savings analytics vs actual profile baselines (not just all-Opus) — AUTO-10
 - [ ] Synthesis passes: consolidate knowledge entries → higher-level principles
 - [ ] Real 40-60% token savings verified against balanced profile (not theoretical)
 - [ ] Notification flow live test with active Telegram forum topic (NOTIF-02–06 code verified, not live-tested)
+- [ ] Auto-applied prompt revisions (human approval is a deliberate MVP boundary in v1.15.0, not a technical limitation)
+- [ ] Judge-panel calibration against human corrections (needs a corpus of human rulings that doesn't exist yet)
+- [ ] gsd-tools.js module split / knowledge-system consolidation (structural refactors orthogonal to feedback-loop closure)
 
 ### Out of Scope
 
@@ -119,15 +119,15 @@ Claude learns to make autonomous decisions based on the user's reasoning pattern
 
 ## Context
 
-### Current State (v1.10.0 + v1.11.0)
+### Current State (post-v1.15.0)
 
-- `gsd-tools.js`: ~10,000+ lines — routing, quota, knowledge (global + project-tagged), compression, installation, milestone management
+- `gsd-tools.js`: ~14,800 lines — routing (+ outcome ledger + bounded escalation), quota, knowledge (global + project-tagged, consolidation/synthesis), compression, installation, milestone management, eval harness, prompt-optimize, token-usage ledger, pre-pr-checks/gate
 - `mcp-servers/telegram-mcp/`: Daemon+adapter TypeScript — IPC server, Telegraf bot, forum threads, whisper, `create_topic`, blocking escalation, question-state persistence
-- `agents/gsd-phase-coordinator.md`: 624+ lines — includes discuss step (gray-area analysis → Q&A → meta-answerer → CONTEXT.md), escalation block, 6 lifecycle notification events
-- `agents/gsd-meta-answerer.md`: 189 lines — queries `query-knowledge`, 5-tier confidence scoring with bump rules, multi-pass fallback
-- `get-shit-done/hooks/`: PreToolUse doc compression (with metrics + token estimates + semantic scoring), SessionStart initialization, Stop hook for session-end extraction
-- Knowledge DB at `~/.claude/knowledge/{user}.db` (global, all projects share)
-- **v1.10.0 delivered:** Autonomous discuss loop live-validated (27 questions, 26 autonomous, 1 Telegram-escalated)
+- `agents/`: 5 largest agents (coordinator/planner/verifier/debugger/executor) restructured hard-rules-first (v1.14.0) and now carry structured handoff briefs + verbatim invariant re-injection at boundaries (v1.15.0); gsd-plan-attacker/gsd-plan-defender/gsd-plan-judge trio added for high-risk plan review; gsd-test-writer/gsd-integration-tester wired into the golden path (config-toggleable)
+- `get-shit-done/hooks/`: PreToolUse doc compression (metrics + token estimates + semantic scoring, ~90% measured reduction), SessionStart initialization, Stop hook for session-end extraction
+- Knowledge DB at `~/.claude/knowledge/{user}.db` (global, all projects share); milestone-cadence consolidation now runs real cluster→principle synthesis (not stub text)
+- Test suite: 905/905 passing (was 155 at start of v1.14.0, 514 at start of v1.15.0)
+- **Known unresolved:** v1.13.0 (phases 41-43) built but never formally verified/archived through complete-milestone — carried across two subsequent milestone closures as-is in REQUIREMENTS.md history
 
 ### Tech Stack
 
@@ -163,6 +163,15 @@ Node.js (CommonJS gsd-tools.js + ESM modules), TypeScript (telegram-mcp), SQLite
 | `create_topic` returns threadId verbatim; null-guards all send_message calls | Forum topic creation is non-fatal; notifications gracefully degrade | ✓ Good — resilient to Telegram unavailability |
 | Phase 25 validation ran with null telegram_topic_id | Deliberately decoupled discuss/escalation test from notification test | ✓ Good — tested each concern independently |
 | `confidence: 0.7` float fallback (not string 'medium') | Type contract between query-knowledge and meta-answerer numeric scoring | ✓ Good — fixes silent failure on KB hits |
+| Phase 54 (structured handoffs) ordered first in v1.15.0, foundation for 55/57/60 | Coordinator/executor/verifier return-contract plumbing every later phase builds on | ✓ Good — no rework needed downstream |
+| Requirement IDs continue shared MILE- prefix (not new US- prefix) for v1.15.0 | MILE-32..41 map 1:1 to PRD US-1..US-10, consistent with v1.13.0/v1.14.0 numbering space | ✓ Good — single traceability table across milestones |
+| Candidate eval fixtures live under `tests/eval-regressions/` (git-tracked), not `.planning/` (gitignored) | Accepted candidates must survive as permanent CI artifacts | ✓ Good — verified via dual CI wiring (npm test + eval-harness.yml) |
+| Prompt-optimize never auto-applies a revision — always outputs a diff for human approval | Deliberate MVP safety boundary; auto-apply deferred to v2 | ✓ Good — verified: real-repo smoke test showed byte-identical git status before/after |
+| Bounded escalation is one retry per tier (haiku→sonnet→opus), only for capability-related failures | Non-capability failures (missing file, env error) must never trigger a wasted tier escalation | ✓ Good — classifyFailure/decideEscalation enforce this with 15 non-capability patterns |
+| Token usage recorded as `source:'estimated'` when the golden path doesn't pass explicit token counts | Honest accounting means never fabricating precision the system doesn't have | ✓ Good — savings report surfaces coverage percentage explicitly |
+| gsd-test-writer/gsd-integration-tester spawns are config-toggleable, default off | Zero behavior change for existing projects unless explicitly opted in | ✓ Good — toggle-off path proven a no-op by regression tests |
+| Adversarial trio (attacker/defender/judge) only engages for high-risk plans; presentation order randomized via content-hash (not `Math.random()`) | Reproducible fixtures for testing while still avoiding order bias in practice | ✓ Good — non-high-risk plans keep the unchanged single-checker path |
+| Pre-PR gate derives checks from the project's own manifest files (package.json scripts etc.) rather than a hardcoded tool list | Must self-host on GSD and degrade gracefully on unknown project types | ✓ Good — self-hosting proof passed against the real repo root, 905/905 |
 
 ---
-*Last updated: 2026-07-06 v1.15.0 Self-Improving Quality Loop started (from self-improving-quality-loop PRD) — previously: 2026-07-06 v1.14.0 shipped (PR #3); 2026-07-02 deep-dive audit in docs/analysis/*
+*Last updated: 2026-07-06 after v1.15.0 milestone (Self-Improving Quality Loop, 8 phases 54-61, 27 plans, 905/905 tests) — previously: 2026-07-06 v1.15.0 started; 2026-07-06 v1.14.0 shipped (PR #3); 2026-07-02 deep-dive audit in docs/analysis/*

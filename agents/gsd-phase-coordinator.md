@@ -1,7 +1,7 @@
 ---
 name: gsd-phase-coordinator
 description: Executes full phase lifecycle (discuss, research, plan, execute, verify) with checkpoints
-tools: Read, Write, Bash, Glob, Grep, WebFetch, Task
+tools: Read, Write, Bash, Glob, Grep, WebFetch, Task, Agent, SendMessage
 color: blue
 ---
 
@@ -77,7 +77,7 @@ still appears unchanged, in full context, in the reference file.
 
 > - Wait for user response. Do NOT mark phase complete without Charlotte QA running.
 
-> **HARD RULE: The UX audit cannot be skipped when UI tests run.** It runs on the same surface, same service URL, immediately after ui-qa passes. Medium and Low UX issues are logged but do not block execution. Critical and High issues trigger a fix-and-recheck loop.
+> **HARD RULE: The UX audit cannot be skipped when UI tests run.** It runs on the same surface, same service URL, immediately after ui-qa passes. Low UX issues are logged but do not block execution. Critical, High, and Medium issues trigger a fix-and-recheck loop.
 
 **Web framework detection / UX sweep:**
 > **HARD RULE: Charlotte UX sweep is MANDATORY for web projects.**

@@ -120,6 +120,41 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
 
 **For each wave:**
 
+0. **Proactive usage-window check (Executor Resilience Protocol — only when configured, default OFF):**
+
+   ```bash
+   USAGE_THRESHOLD=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" config get usage_pause_threshold_tokens --raw 2>/dev/null)
+   ```
+   If `USAGE_THRESHOLD` is empty/`null`: skip this check entirely — zero overhead, the default state.
+
+   Otherwise:
+   ```bash
+   USAGE=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" resilience usage-window --hours 5)
+   TOTAL_TOKENS=$(node -e "console.log(JSON.parse(process.argv[1]).total_tokens)" "$USAGE")
+   ```
+   If `TOTAL_TOKENS >= USAGE_THRESHOLD`: do NOT start this wave. Write `.planning/phases/{phase_dir}/PAUSED.json` (`type: "usage_estimate"`, the `$USAGE` JSON, `resume_instruction: "retry once usage drops or the session window rolls over"`) and return `status: "paused_session_limit"` to this coordinator's own caller — same contract as the reactive death-detection path in step 5 below, just triggered before a wave that would likely die mid-flight rather than after.
+
+   This is an ESTIMATE, not a hard limit — see `@get-shit-done/references/resilience.md` for the calibration caveat before setting `resilience.usage_pause_threshold_tokens`.
+
+0.5. **Check for a prior interrupted executor run, per plan about to be spawned (Executor Resilience Protocol):**
+
+   ```bash
+   HANDOFF_PATH=".planning/phases/{phase_dir}/EXECUTOR-HANDOFF.json"
+   TASK_CKPT_PATH=".planning/phases/{phase_dir}/TASK-CHECKPOINT.json"
+   ```
+   If `HANDOFF_PATH` exists, OR `TASK_CKPT_PATH` exists with no matching `{plan_id}-SUMMARY.md` (a death with no clean handoff):
+   1. Verify every commit hash it claims actually exists: `git log --oneline --all | grep -F "{hash}"` for each. If any is missing, the state is unverifiable — log loudly and fall back to a normal fresh spawn instead of trusting it.
+   2. Archive it: `mkdir -p .planning/phases/{phase_dir}/resolved-handoffs && mv "$HANDOFF_PATH" ".planning/phases/{phase_dir}/resolved-handoffs/{plan_id}-$(date -u +%Y%m%dT%H%M%SZ).json"` (skip the `mv` if only TASK-CHECKPOINT.json existed).
+   3. **Prefer resume-by-agentId over cold fresh-spawn when in-session (App #2, `@get-shit-done/references/agent-messaging.md`).** Decide by this rule:
+      - **agentId present AND same session** (`EXECUTOR_AGENT_IDS[{plan_id}]` is set — the interrupted executor ran in THIS coordinator session, not across a quota/launchd resume): `SendMessage(to: <agentId>, …)` to RESUME that same executor from its transcript, telling it to continue from `next_task_index`. Its transcript carries richer context (already-loaded files, key decisions) than a handoff doc can. This is the preferred path.
+      - **else → cold spawn from handoff** (agentId not captured, or crossed a session boundary — a fresh `claude -p` after a quota/launchd resume, where the agentId is gone per hard semantic #3): spawn a NEW executor with a `<prior_executor_handoff>` block PREPENDED to the normal spawn prompt below (step 2) — completed tasks + commit hashes, resume-from task index, key decisions, files modified. Do NOT re-run completed tasks.
+
+      Either way the handoff file remains the durable record; resume-by-agentId is an in-session optimization, never a replacement for it.
+
+   Exact `<prior_executor_handoff>` block format and both JSON schemas: `@get-shit-done/references/resilience.md`.
+
+   If neither file exists: proceed to a normal fresh spawn (step 2, unchanged).
+
 1. **Describe what's being built (BEFORE spawning):**
 
    Read each plan's `<objective>`. Extract what's being built and why.
@@ -142,6 +177,28 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
 
    Pass paths only — executors read files themselves with their fresh 200k context.
    This keeps orchestrator context lean (~10-15%).
+
+   **Capture each executor's `agentId` from its spawn result and retain it** (keyed by
+   `{plan_id}`, e.g. `EXECUTOR_AGENT_IDS[{plan_id}] = <agentId>`). This enables
+   resume-by-agentId (App #2 below and step 0.5 / step 5.1) — an in-session SendMessage
+   resume of the SAME executor from its transcript is richer than a cold handoff respawn.
+   The agentId is SAME-SESSION only (hard semantic #3, `@get-shit-done/references/agent-messaging.md`):
+   across a quota/launchd resume it is gone, and the handoff-doc + PAUSED.json path is the
+   ONLY durable cross-session recovery. Retaining it costs nothing; if unavailable, every
+   path below falls back to the existing cold fresh-spawn.
+
+   **Wave peer awareness (App #4, `@get-shit-done/references/agent-messaging.md`).** When a
+   wave spawns MORE THAN ONE executor in parallel, inject a `<wave_peers>` block into each
+   executor's spawn prompt listing the OTHER plans in this wave — for each peer, its agent
+   name (recipient forms accept a teammate NAME) and that plan's `files_modified` list (from
+   `phase-plan-index`). Instruct each executor: per your `<wave_peer_awareness>`, if you
+   modify a file another wave-peer's plan lists in its `files_modified`, `SendMessage` that
+   peer to warn of the shared-file mutation. This fires ONLY on genuine shared-file overlap
+   — it is the highest-value collision-prevention win in a parallel wave, but must not be
+   chatty. Names are known at spawn time; peers' agentIds only become available once their
+   spawn results return (a simultaneous parallel spawn returns all agentIds together), so use
+   the peer NAME as the primary handle and relay an agentId later only if a peer needs it.
+   Skip this block entirely for a single-executor wave — there are no peers to collide with.
 
    **For Wave 1 executors** (wave_number == 1, no prior context):
    ```
@@ -293,7 +350,27 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
 
    **Known Claude Code bug (classifyHandoffIfNeeded):** If an agent reports "failed" with error containing `classifyHandoffIfNeeded is not defined`, this is a Claude Code runtime bug — not a GSD or agent issue. The error fires in the completion handler AFTER all tool calls finish. In this case: run the same spot-checks as step 4 (SUMMARY.md exists, git commits present, no Self-Check: FAILED). If spot-checks PASS → treat as **successful**. If spot-checks FAIL → treat as real failure below.
 
-   For real failures (not the classifyHandoffIfNeeded runtime bug), call execution-state to get the auto-retry/debug/escalate decision:
+   **Executor death / clean interruption detection (Executor Resilience Protocol — runs before the retry ladder below, for EVERY executor return):** An executor's return means one of three distinct things. Only the last is a genuine task-logic failure; the first two must never touch the retry counter below.
+
+   **Parse the machine-readable status FIRST — do not string-match the prose header.** Every non-dead executor return ends with a fenced ```json trailer carrying `{"status": "complete"|"interrupted"|"blocked", ...}`. Extract the last fenced JSON block and read `.status`; the `## PLAN …` header is human-readable garnish that a reworded line or an em-dash could break. Only if NO parseable JSON trailer exists do you fall through to the raw-death path (2). This is the fix for the class of coordinator-parse failures where a prose-only return was misread as a death.
+
+   1. **Clean interruption** — the trailer's `status` is `"interrupted"` (the executor self-stopped at a context-pressure boundary and wrote EXECUTOR-HANDOFF.json; header reads `## PLAN INTERRUPTED`; it may also have sent an App #1 `to: "main"` continuation signal). Handle identically to the pre-spawn handoff case (step 0.5 above), INCLUDING its resume-by-agentId-vs-cold-spawn decision (App #2): since this interruption just happened in THIS session, `EXECUTOR_AGENT_IDS[{plan_id}]` is normally still set — PREFER `SendMessage(to: <agentId>, …)` to resume that same executor from its transcript from `next_task_index`; FALL BACK to archiving the handoff and cold-spawning a continuation executor with a `<prior_executor_handoff>` block when the agentId is unavailable. Log `--type executor_clean_interruption`. Do NOT call `execution-state record-failure`. A `status: "blocked"` trailer is NOT an interruption — surface it to the user with its `recommended_split`; the plan needs re-splitting before it can proceed.
+
+   2. **Genuine death** — `Agent()` threw, OR the return has NO parseable JSON status trailer at all (e.g. it IS a raw death message):
+      ```bash
+      DEATH_CHECK=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" resilience parse-death --text "{raw returned text or error message}")
+      IS_DEATH=$(node -e "console.log(JSON.parse(process.argv[1]).is_death)" "$DEATH_CHECK")
+      RESET_TIME_ISO=$(node -e "console.log(JSON.parse(process.argv[1]).reset_time_iso || '')" "$DEATH_CHECK")
+      STALENESS_CHECK=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" resilience check-staleness ".planning/phases/{phase_dir}/TASK-CHECKPOINT.json")
+      IS_STALE=$(node -e "console.log(JSON.parse(process.argv[1]).stale)" "$STALENESS_CHECK")
+      ```
+      - **`IS_DEATH` true AND `RESET_TIME_ISO` non-empty** (session/quota-limit death): write `.planning/phases/{phase_dir}/PAUSED.json` (`type: "session_limit"`, `reset_time_iso`, `plan`, the last known TASK-CHECKPOINT.json contents, `resume_instruction`). Compute the wait, capped at 6 hours, using the identical epoch-math pattern as `execute-roadmap.md`'s 4a step. If the wait is **under 30 minutes**: sleep-loop (same pattern), then spawn a continuation executor directly. If **30 minutes or longer**, or the reset time is implausible/unparseable: do NOT sleep here — return `status: "paused_session_limit"` with `reset_time_iso` to this coordinator's own caller instead of blocking this coordinator's context for hours. Log `--type executor_death_detected`.
+      - **`IS_DEATH` true with no reset time, OR `IS_STALE` true** (context-overflow death — no clean handoff, but committed work exists on disk): handle identically to the pre-spawn handoff case (step 0.5 above) — spawn a continuation executor from TASK-CHECKPOINT.json immediately, no waiting. Log `--type executor_death_detected`.
+      - **Neither matches:** fall through to the retry/debug/escalate ladder below — this is a genuine task-logic failure.
+
+   Full wait/respawn/bubble-up decision tree and the PAUSED.json schema: `@get-shit-done/references/resilience.md`.
+
+   For real failures (not the classifyHandoffIfNeeded runtime bug, and not an executor death/interruption handled above), call execution-state to get the auto-retry/debug/escalate decision:
 
    ```bash
    STATE_RESULT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" execution-state record-failure \
@@ -319,6 +396,8 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
      3. If that tool is not available in this execution context (e.g. a standalone `/gsd:execute-phase` run without roadmap-level Telegram wiring): fall back to `AskUserQuestion` if interactive, or the existing fire-and-forget notification + `FAILURE.md` write if fully autonomous — document which path was taken in SUMMARY.md.
      4. Mark this plan failed, report partial completion, continue with non-dependent plans only.
 
+5.5. **Live course-correction relay (App #3, `@get-shit-done/references/agent-messaging.md`):** if a checker or QA agent (gsd-plan-checker, gsd-charlotte-qa) that is running while an executor is STILL producing work `SendMessage`s you (`to: "main"`) a mid-run finding, you MAY relay a correction to the in-flight executor: `SendMessage(to: <EXECUTOR_AGENT_IDS[{plan_id}]>, …)` with the finding so it can adjust before finishing wrong, instead of letting the plan complete and be redone. This stays coordinator-mediated (the checker/QA agent never messages the executor directly). It is additive — the checker/QA agent's structured return is still the durable record, and delivery is at the executor's next tool round (hard semantic #1), so treat the relay as a best-effort tightening, never a guaranteed real-time halt. If the executor's agentId is unavailable, fall back to normal post-run handling (its next return, or the checker/QA report driving a fix pass).
+
 6. **Execute checkpoint plans between waves** — see `<checkpoint_handling>`.
 
 7. **Proceed to next wave.**
@@ -331,8 +410,8 @@ Plans with `autonomous: false` require user interaction.
 
 Read auto-advance config (chain flag + user preference):
 ```bash
-AUTO_CHAIN=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" config-get workflow._auto_chain_active 2>/dev/null || echo "false")
-AUTO_CFG=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" config-get workflow.auto_advance 2>/dev/null || echo "false")
+AUTO_CHAIN=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" config get workflow._auto_chain_active --raw --default false)
+AUTO_CFG=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" config get workflow.auto_advance --raw --default false)
 ```
 
 When executor returns a checkpoint AND (`AUTO_CHAIN` is `"true"` OR `AUTO_CFG` is `"true"`):
@@ -463,6 +542,31 @@ After all waves:
     <check>Audit log file exists for this phase</check>
     <pass>phase-{N}-audit.jsonl exists in .planning/audit/</pass>
     <fail>BLOCKING — .planning/audit/phase-{N}-audit.jsonl does not exist. Phase cannot be marked complete without an audit entry. Verify all plans wrote their audit entries (check CPGATE-04 in each plan's execution). See ~/.claude/get-shit-done/references/audit-log.md.</fail>
+  </item>
+
+  <!-- FPGATE-01 / SECGATE-01 / DFGATE-01: prevention-infrastructure lifecycle gates. -->
+  <!-- Each closes a documented POSTMORTEM escape class. If the target repo ships the -->
+  <!-- corresponding Layer-1 script (scripts/fp-gate.ts etc.), the gate RUNS it; if the -->
+  <!-- repo has no such script, the gate degrades to the static check described inline. -->
+
+  <item id="FPGATE-01" severity="blocking">
+    <check>The FP/routing/sizing violation-ratchet diff for this phase's changes is &lt;= 0 (no directory's violation count exceeds its recorded baseline)</check>
+    <command>deno run --allow-read --allow-run scripts/fp-gate.ts 2>&1 || echo FPGATE_FAIL</command>
+    <pass>Gate exits 0 — every directory's measured violation count is at or below its `scripts/fp-violation-baseline.json` baseline (the ratchet is DOWN-only: a phase may reduce or hold counts, never raise them). If the repo has no `scripts/fp-gate.ts`, PASS only when no new empty-catch, non-`match()` handler, or oversized file was introduced by this phase.</pass>
+    <fail>BLOCKING — a directory's violation count rose above baseline (`FPGATE_FAIL`, or the gate's `exceeded[]` array is non-empty). A phase may NEVER raise the ratchet. Closes POSTMORTEM FP classes 1 (swallowed errors), 2 (mutation), 7 (god-files/size), 8 (non-`match()` branching). Fix the new violations or, for a seeded pre-existing count, re-baseline deliberately — do NOT bypass.</fail>
+  </item>
+
+  <item id="SECGATE-01" severity="blocking">
+    <check>Every new endpoint (edge function route / HTTP handler) added by this phase wires auth middleware AND ships an authorization test asserting an unauthorized caller is rejected</check>
+    <pass>For each new route/handler in the phase diff: (a) an auth/authorization middleware is applied server-side (not client-only), AND (b) a test exists asserting a 401/403 for an unauthenticated/unauthorized caller. No new endpoint lands without BOTH.</pass>
+    <fail>BLOCKING — a new endpoint shipped without server-side auth middleware and/or without an authz-rejection test. Closes POSTMORTEM class 4 (T6-001 fraud-RPC authorization S0 — authz enforced only client-side). Add the middleware and the authz test before the phase completes; do NOT defer either to a later phase.</fail>
+  </item>
+
+  <item id="DFGATE-01" severity="blocking">
+    <check>No plan or SUMMARY in this phase contains deferral language for this phase's own tests/QA/verification</check>
+    <command>grep -rniE "tests? to be added later|QA deferred|will verify in (the )?next phase|deferred to (post-milestone|future phase)|TODO:? add auth|follow-?up:? (add )?tests|test later|verify later" .planning/phases/{phase_dir}/ 2>/dev/null || echo NONE</command>
+    <pass>Output is NONE. The `deferred-items.md` sanctioned channel (pre-existing, out-of-scope issues from the executor's `&lt;scope_boundary&gt;`) is exempt — only deferral of THIS phase's own tests/QA/verification trips the gate.</pass>
+    <fail>BLOCKING — deferral language found. This is exactly how the "premature stopping" and "verifier never looked" escapes happened: work marked done while its verification was pushed to a phase that never came. Convert every match into a concrete test/QA task in THIS phase, or move a genuinely out-of-scope item into `deferred-items.md` with an approver. Never `--no-verify` past it.</fail>
   </item>
 
 </checkpoint>
@@ -734,8 +838,8 @@ STOP. Do not proceed to auto-advance or transition.
 1. Parse `--auto` flag from $ARGUMENTS
 2. Read both the chain flag and user preference (chain flag already synced in init step):
    ```bash
-   AUTO_CHAIN=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" config-get workflow._auto_chain_active 2>/dev/null || echo "false")
-   AUTO_CFG=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" config-get workflow.auto_advance 2>/dev/null || echo "false")
+   AUTO_CHAIN=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" config get workflow._auto_chain_active --raw --default false)
+   AUTO_CFG=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" config get workflow.auto_advance --raw --default false)
    ```
 
 **If `--auto` flag present OR `AUTO_CHAIN` is true OR `AUTO_CFG` is true (AND verification passed with no gaps):**

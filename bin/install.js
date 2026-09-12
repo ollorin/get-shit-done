@@ -1325,35 +1325,86 @@ function wrapWithTimeout(command, seconds = 10) {
 
 /**
  * Install npm dependencies needed by the doc-compression hook.
- * Writes a minimal package.json to gsdDir and runs npm install.
+ * Writes a minimal package.json to gsdDir with pinned versions and runs npm install.
+ * Uses npm ci if package-lock.json exists (reproducible), falls back to npm install (first install).
  * Fails gracefully — compression just stays disabled if install fails.
+ *
+ * Versions pinned from ~/.claude/get-shit-done/package-lock.json as of 2026-07-28:
+ * - dotenv: 17.4.2 (was ^17.0.0, resolved from package-lock.json line ~75)
+ * - markdown-it: 14.3.0 (was ^14.0.0, resolved from package-lock.json)
+ * - gray-matter: 4.0.3 (was ^4.0.3, already stable)
+ * - minimatch: 9.0.9 (was ^9.0.0, resolved from package-lock.json)
+ * - better-sqlite3: 11.10.0 (was ^11.0.0, resolved from package-lock.json)
+ * - sqlite-vec: 0.1.9 (was ^0.1.0, resolved from package-lock.json)
+ * - @xenova/transformers: 2.17.2 (was ^2.17.2, already stable)
  */
 function installHookDependencies(gsdDir) {
   const packageJsonPath = path.join(gsdDir, 'package.json');
+  const lockfilePath = path.join(gsdDir, 'package-lock.json');
 
   // Always write package.json so updates add new dependencies
+  // Pinned to exact versions for reproducibility
   fs.writeFileSync(packageJsonPath, JSON.stringify({
     name: 'gsd-hooks',
     version: '1.0.0',
     private: true,
     description: 'Dependencies for GSD hooks',
     dependencies: {
-      'dotenv': '^17.0.0',
-      'markdown-it': '^14.0.0',
-      'gray-matter': '^4.0.3',
-      'minimatch': '^9.0.0',
-      'better-sqlite3': '^11.0.0',
-      'sqlite-vec': '^0.1.0',
-      '@xenova/transformers': '^2.17.2'
+      'dotenv': '17.4.2',
+      'markdown-it': '14.3.0',
+      'gray-matter': '4.0.3',
+      'minimatch': '9.0.9',
+      'better-sqlite3': '11.10.0',
+      'sqlite-vec': '0.1.9',
+      '@xenova/transformers': '2.17.2'
     }
   }, null, 2));
 
   try {
-    execSync('npm install --prefer-offline --silent', {
-      cwd: gsdDir,
-      stdio: 'pipe',
-      timeout: 30000
-    });
+    // If package-lock.json exists from a prior install, use npm ci for reproducibility.
+    // Otherwise, use npm install for the first-ever install (no lockfile exists yet).
+    const hasLockfile = fs.existsSync(lockfilePath);
+    // npm ci HARD-FAILS if package.json and package-lock.json disagree — and we rewrite
+    // package.json above on every run, so a version pin change here guarantees that
+    // disagreement exactly once. Without this retry the failure falls through to the outer
+    // catch and silently disables the hooks, which reads as "install worked, features are
+    // just off". Retry once with npm install to regenerate the lock, then it is reproducible
+    // again from the next run onward.
+    if (hasLockfile) {
+      try {
+        execSync('npm ci --silent', { cwd: gsdDir, stdio: 'pipe', timeout: 30000 });
+      } catch (ciError) {
+        execSync('npm install --prefer-offline --silent', {
+          cwd: gsdDir,
+          stdio: 'pipe',
+          timeout: 30000
+        });
+      }
+    } else {
+      execSync('npm install --prefer-offline --silent', {
+        cwd: gsdDir,
+        stdio: 'pipe',
+        timeout: 30000
+      });
+    }
+
+    // Post-install: prune unused protobufjs/cli subtree
+    // Rationale: @xenova/transformers → onnx-proto → protobufjs@6.11.6 ships protobufjs/cli (18MB)
+    // which contains brace-expansion@1.1.14 (CVE GHSA-3jxr-9vmj-r5cp, HIGH, DoS, vulnerable range <1.1.16).
+    // Only protobufjs/minimal (runtime) is used; cli (code-generation tooling) is dead weight.
+    // Safe to remove: verified no dependencies reference it. Fail-open: a prune error must not break the install.
+    const cliPath = path.join(gsdDir, 'node_modules', 'protobufjs', 'cli');
+    try {
+      if (fs.existsSync(cliPath)) {
+        fs.rmSync(cliPath, { recursive: true, force: true });
+      }
+    } catch (pruneErr) {
+      // Prune failure is non-fatal: log and continue
+      if (process.env.DEBUG) {
+        console.warn(`       ⚠️  Warning: Could not prune protobufjs/cli: ${pruneErr.message}`);
+      }
+    }
+
     return true;
   } catch (e) {
     return false;
@@ -1499,6 +1550,37 @@ function install(isGlobal, runtime = 'claude') {
       console.log(`  ${green}✓${reset} Installed agents`);
     } else {
       failures.push('agents');
+    }
+  }
+
+  // Copy skills/ (fork-tracked skill definitions, e.g. task-context/SKILL.md).
+  // Deliberately scoped PER SKILL SUBDIRECTORY (never wipes the parent skills/ dir as a
+  // whole) — a user's global ~/.claude/skills/ can contain skills this fork does not own
+  // at all (e.g. gsd-task-router's learned-rules.md/routing-rules.md, or an entirely
+  // unrelated personal skill like thinking-partner/) and a destructive whole-directory
+  // wipe would silently delete those. Mirrors copyWithPathReplacement's existing use for
+  // the get-shit-done skill directory above — same recursive copy + path-prefix
+  // replacement + clean-install-per-target-dir semantics, just fanned out over every
+  // subdirectory this fork's own skills/ tree tracks, one copyWithPathReplacement call
+  // (and therefore one wipe-and-recreate) per skill, targeting only that skill's own
+  // destination folder.
+  const skillsSrc = path.join(src, 'skills');
+  if (fs.existsSync(skillsSrc)) {
+    const skillsDest = path.join(targetDir, 'skills');
+    fs.mkdirSync(skillsDest, { recursive: true });
+
+    const skillEntries = fs.readdirSync(skillsSrc, { withFileTypes: true });
+    for (const entry of skillEntries) {
+      if (!entry.isDirectory()) continue; // skills/ only ever contains skill subdirectories
+      const skillSrcDir = path.join(skillsSrc, entry.name);
+      const skillDestDir = path.join(skillsDest, entry.name);
+      copyWithPathReplacement(skillSrcDir, skillDestDir, pathPrefix, runtime);
+    }
+
+    if (verifyInstalled(skillsDest, 'skills')) {
+      console.log(`  ${green}✓${reset} Installed skills`);
+    } else {
+      failures.push('skills');
     }
   }
 

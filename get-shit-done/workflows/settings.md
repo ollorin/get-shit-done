@@ -12,8 +12,10 @@ Read all files referenced by the invoking prompt's execution_context before star
 Ensure config exists and load current state:
 
 ```bash
-node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" config-ensure-section
-INIT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" state load)
+# Prefer a project-local install, fall back to the global one (LOCAL vs GLOBAL).
+GSD_TOOLS=$([ -f ./.claude/get-shit-done/bin/gsd-tools.js ] && echo ./.claude/get-shit-done/bin/gsd-tools.js || echo "$HOME/.claude/get-shit-done/bin/gsd-tools.js")
+node "$GSD_TOOLS" config-ensure-section
+INIT=$(node "$GSD_TOOLS" state load)
 if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
 ```
 
@@ -109,6 +111,8 @@ AskUserQuestion([
 </step>
 
 <step name="update_config">
+Re-Read `.planning/config.json` NOW (the snapshot from the load step was taken before the interactive Q&A — a concurrent session may have changed it) and merge only the keys the user just chose into the fresh contents; prefer `config-set <key.path> <value>` over a whole-file rewrite so untouched fields can't be clobbered. **See @~/.claude/get-shit-done/references/shared-file-writes.md.**
+
 Merge new settings into existing config.json:
 
 ```json

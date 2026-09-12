@@ -36,4 +36,6 @@ Phase: $ARGUMENTS (optional)
 <process>
 Execute the verify-work workflow from @~/.claude/get-shit-done/workflows/verify-work.md end-to-end.
 Preserve all workflow gates (session management, test presentation, diagnosis, fix planning, routing).
+
+On any failure to load or execute the workflow, follow @~/.claude/get-shit-done/references/dispatcher-contract.md — STOP, do not improvise, report what failed and what state was written.
 </process>

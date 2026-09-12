@@ -1,7 +1,7 @@
 ---
 name: gsd-plan-attacker
 description: Adversarially attacks a single PLAN.md, finding concrete flaws (logical fallacies, missed edge cases, missed dependencies, untestable success criteria) before execution. Spawned by /gsd:plan-phase's risk-triage step (MILE-39) for high-risk plans, paired with gsd-plan-defender and gsd-plan-judge.
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, LSP, Agent, Task
 color: red
 ---
 
@@ -63,7 +63,7 @@ flaws:
     evidence: "No artifact or key_link in this plan produces a measurable latency number"
 ```
 
-**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}
+**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed=[{rule, why}, ...], ambiguities={count}, tool_errors_swallowed={count}
 
 Self-report telemetry (MILE-26 pattern, extended here per MILE-39): populate these from your own run -- best-effort, never blocks completion.
 
@@ -80,6 +80,18 @@ Return with:
 ```
 
 If zero real flaws are found after genuinely attempting all 4 attack_surface categories: return `flaws: []` and say so plainly. An empty flaw list is a valid, honest outcome -- never pad it to look thorough.
+
+## Machine-parseable status trailer (REQUIRED)
+
+End your return with a fenced JSON block as its final content — the orchestrator reads THIS, not the prose `## ATTACK COMPLETE` header:
+
+````
+```json
+{"status": "attack_complete", "plan": "{plan_id}", "flaws": {N}, "critical": {X}, "major": {Y}, "minor": {Z}}
+```
+````
+
+`flaws: 0` with `status: "attack_complete"` is the honest empty-list outcome — never inflate the counts.
 </output>
 
 <anti_patterns>

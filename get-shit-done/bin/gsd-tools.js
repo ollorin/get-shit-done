@@ -137,6 +137,21 @@
  *   quota check                        Check warnings and wait status
  *   quota wait                         Check if should wait for quota
  *
+ * Resilience Operations (coordinator + executor death/recovery — see
+ * get-shit-done/references/resilience.md for the full protocol):
+ *   resilience check-staleness <file>  Report whether a checkpoint file's
+ *     [--threshold-minutes N]            mtime exceeds the staleness threshold
+ *   resilience parse-death --text ..   Detect a session/usage/quota/rate-limit
+ *                                         death message, extract reset time
+ *   resilience resume-brief <phase>    Assemble a resume brief from a phase's
+ *                                         CHECKPOINT.json for a respawned agent
+ *   resilience estimate-quota          Estimate token cost of N remaining
+ *     [--phases N]                       phases against the current quota budget
+ *   resilience usage-window            Sum actual token usage across all
+ *     [--hours N]                        ~/.claude/projects/ transcripts in
+ *                                         the last N hours (default 5) — an
+ *                                         ESTIMATE, not a billed-usage source of truth
+ *
  * Knowledge Operations:
  *   knowledge status [--scope project|global]   Show knowledge DB status
  *   knowledge add <content> --type <type>       Add knowledge entry
@@ -361,7 +376,8 @@ function loadConfig(cwd) {
     max_attempts: 4,
     execution: { max_attempts: 4 },
     staleness_threshold_minutes: 30,
-    resilience: { staleness_threshold_minutes: 30 },
+    usage_pause_threshold_tokens: null,
+    resilience: { staleness_threshold_minutes: 30, usage_pause_threshold_tokens: null },
     routing_min_sample_count: 5,
     routing: { min_sample_count: 5 },
     savings_baseline_profile: 'quality',
@@ -425,6 +441,7 @@ function loadConfig(cwd) {
       auto_consolidate: get('auto_consolidate') ?? defaults.auto_consolidate,
       max_attempts: get('max_attempts', { section: 'execution', field: 'max_attempts' }) ?? defaults.max_attempts,
       staleness_threshold_minutes: get('staleness_threshold_minutes', { section: 'resilience', field: 'staleness_threshold_minutes' }) ?? defaults.staleness_threshold_minutes,
+      usage_pause_threshold_tokens: get('usage_pause_threshold_tokens', { section: 'resilience', field: 'usage_pause_threshold_tokens' }) ?? defaults.usage_pause_threshold_tokens,
       routing_min_sample_count: get('routing_min_sample_count', { section: 'routing', field: 'min_sample_count' }) ?? defaults.routing_min_sample_count,
       savings_baseline_profile: get('savings_baseline_profile', { section: 'savings', field: 'baseline_profile' }) ?? defaults.savings_baseline_profile,
       test_writer_enabled: get('test_writer_enabled', { section: 'quality', field: 'test_writer' }) ?? defaults.test_writer_enabled,
@@ -1518,6 +1535,132 @@ function cmdResilienceEstimateQuota(cwd, phaseCount, raw) {
   output(result, raw);
 }
 
+// Scans ~/.claude/projects/**/*.jsonl (every project, not just cwd's) for
+// assistant message entries with a `timestamp` inside the trailing
+// `hours`-hour window, summing their `message.usage` token fields. This is
+// an ESTIMATE of real usage, not a billed-usage source of truth -- Claude
+// Code transcript `usage` blocks are per-API-call, may double-count retried
+// calls, and this function has no visibility into weekly/plan-level limits.
+// The caller (execute-phase.md) treats a threshold miss as a signal to
+// pause proactively, never as an authoritative quota figure.
+//
+// `options.projectsDir` and `options.referenceNow` (both optional) exist
+// purely for deterministic unit testing -- the CLI entry point
+// (cmdResilienceUsageWindow) never passes them, so real usage always scans
+// the real ~/.claude/projects/ against the real current time.
+function scanUsageWindow(hours, options = {}) {
+  const windowHours = typeof hours === 'number' && Number.isFinite(hours) && hours > 0 ? hours : 5;
+  const projectsDir = options.projectsDir || path.join(require('os').homedir(), '.claude', 'projects');
+  const nowMs = options.referenceNow instanceof Date && !Number.isNaN(options.referenceNow.getTime())
+    ? options.referenceNow.getTime()
+    : Date.now();
+  const cutoffMs = nowMs - windowHours * 3600 * 1000;
+
+  const result = {
+    window_hours: windowHours,
+    total_tokens: 0,
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_creation_tokens: 0,
+    cache_read_tokens: 0,
+    by_model_family: {},
+    messages_count: 0,
+  };
+
+  if (!fs.existsSync(projectsDir)) return result;
+
+  let slugDirs;
+  try {
+    slugDirs = fs.readdirSync(projectsDir).filter((d) => {
+      try { return fs.statSync(path.join(projectsDir, d)).isDirectory(); } catch { return false; }
+    });
+  } catch {
+    return result;
+  }
+
+  const familyOf = (model) => {
+    if (typeof model !== 'string') return 'unknown';
+    const m = model.toLowerCase();
+    if (m.includes('opus')) return 'opus';
+    if (m.includes('sonnet')) return 'sonnet';
+    if (m.includes('haiku')) return 'haiku';
+    if (m.includes('fable')) return 'fable';
+    return 'other';
+  };
+
+  for (const slug of slugDirs) {
+    const slugPath = path.join(projectsDir, slug);
+    let files;
+    try {
+      files = fs.readdirSync(slugPath).filter((f) => f.endsWith('.jsonl'));
+    } catch {
+      continue;
+    }
+
+    for (const file of files) {
+      const filePath = path.join(slugPath, file);
+      let stat;
+      try {
+        stat = fs.statSync(filePath);
+      } catch {
+        continue;
+      }
+      // A file's mtime is its last-written line's write time -- if that is
+      // already before the window, every line in it is too. Cheap prefilter
+      // that avoids reading files that can't possibly contribute.
+      if (stat.mtimeMs < cutoffMs) continue;
+
+      let content;
+      try {
+        content = fs.readFileSync(filePath, 'utf-8');
+      } catch {
+        continue;
+      }
+
+      for (const line of content.split('\n')) {
+        if (!line.trim()) continue;
+        let entry;
+        try {
+          entry = JSON.parse(line);
+        } catch {
+          continue;
+        }
+
+        const ts = entry.timestamp ? new Date(entry.timestamp).getTime() : NaN;
+        if (!Number.isFinite(ts) || ts < cutoffMs || ts > nowMs) continue;
+
+        const usage = entry.message && entry.message.usage;
+        if (!usage || typeof usage !== 'object') continue;
+
+        const inputTokens = usage.input_tokens || 0;
+        const outputTokens = usage.output_tokens || 0;
+        const cacheCreate = usage.cache_creation_input_tokens || 0;
+        const cacheRead = usage.cache_read_input_tokens || 0;
+
+        result.input_tokens += inputTokens;
+        result.output_tokens += outputTokens;
+        result.cache_creation_tokens += cacheCreate;
+        result.cache_read_tokens += cacheRead;
+        result.messages_count += 1;
+
+        const family = familyOf(entry.message && entry.message.model);
+        const msgTotal = inputTokens + outputTokens + cacheCreate + cacheRead;
+        result.by_model_family[family] = (result.by_model_family[family] || 0) + msgTotal;
+      }
+    }
+  }
+
+  result.total_tokens = result.input_tokens + result.output_tokens
+    + result.cache_creation_tokens + result.cache_read_tokens;
+
+  return result;
+}
+
+function cmdResilienceUsageWindow(hours, raw) {
+  const result = scanUsageWindow(hours);
+  output(result, raw);
+}
+
 // ─── Commands ─────────────────────────────────────────────────────────────────
 
 function cmdGenerateSlug(text, raw) {
@@ -1705,16 +1848,54 @@ function cmdConfigSet(cwd, keyPath, value, raw) {
   }
 }
 
-function cmdConfigGet(cwd, key, raw) {
+// Read a dotted key path (e.g. "workflow.auto_advance") straight out of the
+// raw config.json, mirroring how cmdConfigSet WRITES nested paths. loadConfig()
+// only surfaces a normalized whitelist of keys, so nested/opt-in keys such as
+// workflow.auto_advance, workflow._auto_chain_active and testing.test_command
+// are invisible to it — this fallback makes get/set symmetric. Returns
+// undefined for a missing path or unreadable/corrupt config (loadConfig already
+// prints a parse warning to stderr in the corrupt case).
+function readRawConfigPath(cwd, keyPath) {
+  const configPath = path.join(cwd, '.planning', 'config.json');
+  try {
+    if (!fs.existsSync(configPath)) return undefined;
+    let current = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    for (const k of keyPath.split('.')) {
+      if (current === null || typeof current !== 'object' || !(k in current)) {
+        return undefined;
+      }
+      current = current[k];
+    }
+    return current;
+  } catch {
+    return undefined;
+  }
+}
+
+function cmdConfigGet(cwd, key, raw, defaultValue) {
   if (!key) {
-    error('Usage: config get <key>');
+    error('Usage: config get <key> [--default <value>]');
   }
   const config = loadConfig(cwd);
-  const value = config[key];
+  let value = config[key];
+  // Fall back to a raw nested lookup for dotted paths the normalized config
+  // doesn't expose (workflow.auto_advance, git.branching_strategy, etc.).
+  if (value === undefined && key.includes('.')) {
+    value = readRawConfigPath(cwd, key);
+  }
   if (value === undefined) {
+    // A supplied default lets callers express "unset means this" without the
+    // `|| echo "false"` shell mask that also swallowed genuine dispatch/crash
+    // failures — a real error now surfaces as a non-zero exit + empty stdout.
+    if (defaultValue !== undefined) {
+      output({ key, value: defaultValue }, raw, defaultValue);
+      return;
+    }
     error(`Unknown config key: ${key}`);
   }
-  const strValue = String(value);
+  const strValue = value !== null && typeof value === 'object'
+    ? JSON.stringify(value)
+    : String(value);
   output({ key, value }, raw, strValue);
 }
 
@@ -2379,6 +2560,32 @@ function cmdStateUpdateProgress(cwd, raw) {
   // fall back to the real plain (non-bold) `Progress:` line.
   const boldProgressPattern = /(\*\*Progress:\*\*\s*).*/i;
   const plainProgressPattern = /^(\s*Progress:\s*).*/im;
+
+  // Some projects track progress in a non-percentage convention (e.g.
+  // "N/M phases \u00b7 N/M requirements (notes...)") instead of a "[bar] N%"
+  // string. totalPlans/totalSummaries here counts PLAN.md/SUMMARY.md files
+  // across every phase directory on disk -- an entirely different metric
+  // from that convention. Blindly overwriting a non-percentage line with a
+  // computed percentage silently destroys real content (observed: a
+  // hand-maintained "1/22 phases * 1/32 requirements (...)" note replaced
+  // with a bogus "103%"/"104%" on repeated calls). Detect this up front and
+  // skip rather than guess -- callers that want the percent format can still
+  // get it by writing an initial "[bar] N%"-shaped line themselves.
+  const existingBoldMatch = content.match(/\*\*Progress:\*\*\s*(.*)/i);
+  const existingPlainMatch = content.match(/^\s*Progress:\s*(.*)$/im);
+  const existingValue = existingBoldMatch ? existingBoldMatch[1] : (existingPlainMatch ? existingPlainMatch[1] : null);
+  const looksLikePercentFormat = existingValue === null
+    || /^\s*$/.test(existingValue)
+    || /\d+%/.test(existingValue);
+
+  if (existingValue !== null && !looksLikePercentFormat) {
+    output({
+      updated: false,
+      reason: 'Progress line uses a non-percentage format -- skipped to avoid overwriting it with a computed percentage. Update it manually or with a project-specific mutator.',
+      existing: existingValue,
+    }, raw, 'false');
+    return;
+  }
 
   if (boldProgressPattern.test(content)) {
     content = content.replace(boldProgressPattern, `$1${progressStr}`);
@@ -3293,7 +3500,7 @@ function cmdKnowledgeStatus(args, raw) {
   output(result, raw);
 }
 
-function cmdKnowledgeAdd(cwd, args, raw) {
+async function cmdKnowledgeAdd(cwd, args, raw) {
   const content = args[0];
   if (!content) {
     error('knowledge add: content required');
@@ -3306,12 +3513,22 @@ function cmdKnowledgeAdd(cwd, args, raw) {
   const { resolveProjectSlug } = require('./knowledge-writer.js');
   const project_slug = resolveProjectSlug(cwd);
 
+  // Generate an embedding so manually-added entries are semantic-search
+  // reachable, same as any other knowledge insert. Falls back to null on
+  // failure — never blocks the add.
+  let embedding = null;
+  try {
+    const { generateEmbeddingCached } = require('./embeddings.js');
+    embedding = await generateEmbeddingCached(content);
+  } catch (_) { /* embeddings unavailable — fall back to null */ }
+
   const { knowledge } = require('./knowledge.js');
   const result = knowledge.add({
     content,
     type,
     scope,
     ttlCategory: ttl,
+    embedding,
     project_slug
   });
 
@@ -3611,7 +3828,7 @@ function cmdMarkWrong(args, raw) {
   output(result, raw);
 }
 
-function cmdMarkOutdated(args, raw) {
+async function cmdMarkOutdated(args, raw) {
   const id = parseInt(args[0]);
   if (isNaN(id)) {
     error('mark-outdated: principle-id required (integer)');
@@ -3631,7 +3848,7 @@ function cmdMarkOutdated(args, raw) {
   const result = markPrincipleOutdated(conn.db, id);
 
   if (replacement) {
-    const replacementResult = createReplacementPrinciple(conn.db, id, replacement);
+    const replacementResult = await createReplacementPrinciple(conn.db, id, replacement);
     result.replacement_id = replacementResult.new_principle_id;
   }
 
@@ -6196,6 +6413,148 @@ function cmdFrontmatterValidate(cwd, filePath, schemaName, raw) {
 
 // ─── Verification Suite ──────────────────────────────────────────────────────
 
+// Phase 299 (SC-2): P0 tier-assignment plan gate. Shells out to the target repo's ONE frozen
+// classifier engine (igaming-platform scripts/check-p0-tier-assignment.ts, Phase 296-05) —
+// never reimplements classifyPath()/hasTierAssignmentWork() in JS, because two independent
+// copies would drift and the planning-time and verification-time hooks would then disagree
+// about whether the same route is P0 (296-05-SUMMARY.md).
+//
+// LOAD-BEARING: execFileSync THROWS on the script's exit-1 violations path — the violations
+// JSON arrives on the thrown error's `.stdout`, not on a return value. The catch block below
+// MUST distinguish a real violation (status 1 + parseable {violations:[...]}) from every other
+// failure shape (ENOENT, status 2, unparseable stdout) — the latter must degrade to warnings[],
+// never errors[], so a missing `deno` binary or unreadable input never silently neuters the gate
+// AND never hard-fails a repo that simply doesn't have deno installed.
+function runP0TierAssignmentGate(cwd, fullPath, deps = {}) {
+  const exec = deps.exec || execFileSync;          // execFileSync already imported (line 209)
+  const exists = deps.existsSync || fs.existsSync;
+  const errors = [];
+  const warnings = [];
+  const scriptRel = 'scripts/check-p0-tier-assignment.ts';
+  if (!exists(path.join(cwd, scriptRel))) return { errors, warnings };  // repo doesn't ship the classifier — inert
+
+  const formatViolation = (v) =>
+    `P0 surface class "${v.p0SurfaceClass}" touched (${v.path}) with no tier-assignment work — ${v.issue}`;
+
+  let stdout;
+  try {
+    stdout = exec('deno', ['run', '--allow-read', scriptRel, '--plan', fullPath, '--json'], { cwd, encoding: 'utf8' });
+  } catch (err) {
+    if (err && err.status === 1 && typeof err.stdout === 'string') {
+      try {
+        const parsed = JSON.parse(err.stdout);
+        if (Array.isArray(parsed.violations)) {
+          for (const v of parsed.violations) errors.push(formatViolation(v));
+        } else {
+          warnings.push('P0 tier-assignment gate: script exited 1 but stdout had no violations array — treating as unparseable');
+        }
+      } catch (parseErr) {
+        warnings.push('P0 tier-assignment gate: script exited 1 but stdout was not valid JSON — treating as unparseable');
+      }
+    } else if (err && err.code === 'ENOENT') {
+      warnings.push('P0 tier-assignment gate: deno binary not found on PATH — skipping check');
+    } else {
+      warnings.push(`P0 tier-assignment gate: check-p0-tier-assignment.ts failed unexpectedly (${err && err.message ? err.message : 'unknown error'})`);
+    }
+    return { errors, warnings };
+  }
+
+  // Success path (no throw) — parse stdout for the clean/violation-free contract.
+  try {
+    const parsed = JSON.parse(stdout);
+    if (Array.isArray(parsed.violations)) {
+      for (const v of parsed.violations) errors.push(formatViolation(v));
+    } else if (!('violations' in parsed)) {
+      warnings.push('P0 tier-assignment gate: script output had no violations array — treating as unparseable');
+    }
+  } catch (parseErr) {
+    warnings.push('P0 tier-assignment gate: script output was not valid JSON — treating as unparseable');
+  }
+
+  return { errors, warnings };
+}
+
+// Phase 299 (SC-5). Pure — no I/O. `required` is the consuming repo's declared list
+// (.planning/config.json quality.required_gsd_gates — absent/null/[] all mean "no
+// requirement"); `provided` is this fork's config/gate-capabilities.json manifest.
+// Returns {ok, missing} on success paths (exact shape — no extra keys, so callers can
+// deepStrictEqual against it), or {ok:false, missing:[], reason} when `required` itself
+// is malformed (not an array) — a bad declaration must be loud, never a silent pass.
+function compareGateCapabilities(required, provided) {
+  if (required === undefined || required === null) {
+    return { ok: true, missing: [] };
+  }
+  if (!Array.isArray(required)) {
+    return { ok: false, missing: [], reason: 'quality.required_gsd_gates must be an array of capability IDs' };
+  }
+  const providedList = Array.isArray(provided) ? provided : [];
+  const providedSet = new Set(providedList);
+  const missing = [];
+  const seen = new Set();
+  for (const id of required) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    if (!providedSet.has(id)) missing.push(id);
+  }
+  return { ok: missing.length === 0, missing };
+}
+
+// Phase 299 (SC-5): the preflight version handshake. A consuming repo's
+// .planning/config.json can declare quality.required_gsd_gates -- a list of
+// capability IDs it depends on. This command fails loudly (non-zero exit) when
+// the INSTALLED fork's config/gate-capabilities.json manifest doesn't provide
+// one of them, closing the silent-pass class where a repo runs
+// audit-milestone/complete-milestone against an old fork whose gate never
+// existed and gets a green result anyway. Absent/null/[] required list is
+// always a clean pass -- existing non-QA GSD projects are unaffected.
+function cmdVerifyGateHandshake(cwd, raw) {
+  // model-registry.js:25 convention -- resolves from the INSTALLED copy
+  // (~/.claude/get-shit-done/bin/) as well as the fork source tree.
+  const manifestPath = path.join(__dirname, '..', 'config', 'gate-capabilities.json');
+  let provided = [];
+  let manifestReason = null;
+  try {
+    const parsedManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    if (Array.isArray(parsedManifest.capabilities)) {
+      provided = parsedManifest.capabilities;
+    } else {
+      manifestReason = 'gate-capabilities.json missing a capabilities array -- treating installed fork as providing zero capabilities';
+    }
+  } catch (err) {
+    // Missing/unparseable manifest must never crash this command -- degrade to
+    // "provides nothing" and say why, same fail-open discipline as model-registry.js.
+    manifestReason = `gate-capabilities.json unreadable or unparseable -- treating installed fork as providing zero capabilities (${err && err.message ? err.message : 'unknown error'})`;
+  }
+
+  // readRawConfigPath, NOT `config get` -- cmdConfigGet errors on an undefined
+  // dotted key with no --default, which would make "field absent" (a clean
+  // pass) indistinguishable from a crash. See design_decisions #2 in
+  // 299-02-PLAN.md.
+  const required = readRawConfigPath(cwd, 'quality.required_gsd_gates');
+  const comparison = compareGateCapabilities(required, provided);
+
+  const messages = [];
+  if (comparison.reason) messages.push(comparison.reason);
+  if (manifestReason) messages.push(manifestReason);
+  for (const id of comparison.missing) {
+    messages.push(
+      `Installed GSD fork lacks required gate capability: ${id}. Roll out the fork with ` +
+      `\`npm run install:gsd\` from ~/get-shit-done, or remove the requirement from ` +
+      `.planning/config.json quality.required_gsd_gates.`
+    );
+  }
+
+  const resultData = {
+    ok: comparison.ok,
+    missing: comparison.missing,
+    required: required === undefined || required === null ? [] : required,
+    provided,
+    messages,
+  };
+  process.stdout.write(JSON.stringify(resultData, null, 2));
+  process.exit(comparison.ok ? 0 : 1);
+}
+
 function cmdVerifyPlanStructure(cwd, filePath, raw) {
   if (!filePath) { error('file path required'); }
   const fullPath = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath);
@@ -6283,6 +6642,12 @@ function cmdVerifyPlanStructure(cwd, filePath, raw) {
   if (hasApiFiles && !hasTddTask) {
     errors.push('Plan modifies API/route files but has no tdd="true" task');
   }
+
+  // P0 tier-assignment check (Phase 299 SC-2): shells out to the target repo's frozen classifier
+  // engine, if it ships one. Inert (zero errors, zero warnings) for repos without the script.
+  const p0Gate = runP0TierAssignmentGate(cwd, fullPath);
+  errors.push(...p0Gate.errors);
+  warnings.push(...p0Gate.warnings);
 
   // Output result and exit with code reflecting validation status
   // Exit 1 when errors exist so bash callers can gate on this
@@ -8377,15 +8742,52 @@ function cmdRoadmapUpdatePlanProgress(cwd, phaseNum, raw) {
   // Milestone cell's value on every run (found + fixed during Phase 57-01;
   // see deferred-items.md for pre-existing rows this bug corrupted before
   // this fix landed).
-  const tablePattern = new RegExp(
-    `(\\|\\s*${phaseEscaped}\\.?\\s[^|]*\\|)([^|]*\\|)[^|]*(\\|)\\s*[^|]*(\\|)\\s*[^|]*(\\|)`,
-    'i'
-  );
+  // The 5-column shape above is one convention among several this framework's
+  // consuming projects actually use in practice -- some track a 3-column
+  // table instead (e.g. "| Phase | Requirements | Status |", no Milestone/
+  // Completed columns at all). Applying the 5-column regex to a differently-
+  // shaped table doesn't fail loudly -- it matches SOMETHING (the row-start
+  // anchor `\|\s*${phaseEscaped}` still hits) and then consumes pipe
+  // delimiters past the row's actual end, spilling into and corrupting the
+  // NEXT row (observed: a neighboring phase's row name silently absorbed
+  // into the updated row under concurrent execution). Detect the real column
+  // count of the header immediately governing this row before touching
+  // anything, and only apply the 5-column rewrite when it actually has 5
+  // columns -- for any other shape, skip the table rewrite (the Plans: line
+  // and checkbox updates below are format-agnostic and still safe to apply).
+  const rowLineMatch = roadmapContent.match(new RegExp(`^\\|\\s*${phaseEscaped}\\.?\\s.*\\|\\s*$`, 'im'));
+  let headerColumnCount = null;
+  if (rowLineMatch) {
+    const rowStart = roadmapContent.indexOf(rowLineMatch[0]);
+    const before = roadmapContent.slice(0, rowStart);
+    const linesBefore = before.split('\n');
+    // Walk backward past the row's own separator line (e.g. |---|---|) to
+    // the actual header row directly above it.
+    for (let i = linesBefore.length - 1; i >= 0; i--) {
+      const line = linesBefore[i].trim();
+      if (line === '') continue;
+      if (/^\|[\s:|-]+\|$/.test(line)) continue; // separator row, keep going up
+      if (line.startsWith('|') && line.endsWith('|')) {
+        headerColumnCount = line.split('|').filter((_, idx, arr) => idx > 0 && idx < arr.length - 1).length;
+      }
+      break; // first non-separator, non-blank line above the row -- header or not, stop here
+    }
+  }
+
   const dateField = isComplete ? ` ${today} ` : '  ';
-  roadmapContent = roadmapContent.replace(
-    tablePattern,
-    `$1$2 ${summaryCount}/${planCount} $3 ${status.padEnd(11)}$4${dateField}$5`
-  );
+  let tableUpdated = false;
+  if (headerColumnCount === 5) {
+    const tablePattern = new RegExp(
+      `(\\|\\s*${phaseEscaped}\\.?\\s[^|]*\\|)([^|]*\\|)[^|]*(\\|)\\s*[^|]*(\\|)\\s*[^|]*(\\|)`,
+      'i'
+    );
+    const before = roadmapContent;
+    roadmapContent = roadmapContent.replace(
+      tablePattern,
+      `$1$2 ${summaryCount}/${planCount} $3 ${status.padEnd(11)}$4${dateField}$5`
+    );
+    tableUpdated = roadmapContent !== before;
+  }
 
   // Update plan count in phase detail section
   const planCountPattern = new RegExp(
@@ -8415,6 +8817,8 @@ function cmdRoadmapUpdatePlanProgress(cwd, phaseNum, raw) {
     summary_count: summaryCount,
     status,
     complete: isComplete,
+    table_updated: tableUpdated,
+    table_header_columns: headerColumnCount,
   }, raw, `${summaryCount}/${planCount} ${status}`);
 }
 
@@ -8543,7 +8947,11 @@ function cmdPhaseComplete(cwd, phaseNum, raw) {
       }
 
       // 2. Every PLAN.md must have a matching SUMMARY.md
-      const planFiles = dirFiles.filter(f => f.match(/-PLAN.md$/i));
+      // Match only numbered task plans ({phase}-{NN}-PLAN.md), not artifact
+      // files like E2E-TEST-PLAN.md which have no matching -SUMMARY.md and would
+      // otherwise wrongly block phase completion. Mirrors the phase-gate pattern
+      // (/-\d{2}-PLAN\.md$/i) used by cmdVerifyPhaseGate.
+      const planFiles = dirFiles.filter(f => f.match(/-\d{2}-PLAN\.md$/i));
       const summarySet = new Set(dirFiles.filter(f => f.match(/-SUMMARY.md$/i)).map(f => f.replace(/-SUMMARY.md$/i, '')));
       for (const planFile of planFiles) {
         const planId = planFile.replace(/-PLAN.md$/i, '');
@@ -8920,6 +9328,112 @@ function milestoneAlreadyRecorded(milestonesContent, version) {
   return heading.test(milestonesContent);
 }
 
+// ─── Milestone Phase Scoping ────────────────────────────────────────────────
+//
+// Recurring bug (igaming-platform RETROSPECTIVE.md: v0.1.8, v0.1.20, v0.1.28,
+// v0.1.29): cmdMilestoneComplete counted EVERY directory under
+// .planning/phases/, including phase directories left over from prior
+// milestones that were never archived away. This silently produced wildly
+// inflated phase/plan/task counts in the auto-generated MILESTONES.md entry
+// every single time it recurred (e.g. v0.1.29: 73 phases / 389 plans / 154
+// tasks reported instead of the milestone's actual 10 phases / 46 plans),
+// and had to be hand-corrected after the fact each time. v0.1.20's
+// retrospective additionally found that the CLI dispatcher accepted a
+// `--phases N-M` flag on `milestone complete` but silently dropped it before
+// ever reaching this function.
+//
+// The fix scopes phase counting two ways, in priority order:
+//   1. An explicit `--phases N-M` flag (now actually wired through by the
+//      CLI dispatcher -- see the `case 'milestone':` branch below).
+//   2. When no explicit range is given, phase numbers parsed directly out of
+//      ROADMAP.md's own "### Phase N: ..." headings -- the current
+//      milestone's own roadmap section, per this repo's own
+//      templates/roadmap.md convention (confirmed against every real
+//      ROADMAP.md this fork ships against: a completed milestone's
+//      ROADMAP.md only ever lists that milestone's own phases before it is
+//      reorganized/archived).
+//
+// It deliberately does NOT fall back to scanning every directory in
+// .planning/phases/ when neither source is available -- that silent
+// fallback is the exact defect being fixed, so resolveMilestonePhaseScope
+// errors out (exit 1) instead, asking the operator to pass --phases
+// explicitly rather than risk another silently-wrong MILESTONES.md entry.
+
+// Pure function -- no I/O. Extracts phase-number strings (e.g. "338",
+// "2.1", "3A") from ROADMAP.md "### Phase N: ..." headings.
+function parseRoadmapPhaseNumbers(roadmapContent) {
+  const nums = [];
+  if (!roadmapContent) return nums;
+  const phasePattern = /^#{2,4}\s*Phase\s+(\d+[A-Za-z]?(?:\.\d+)*)\s*:/gm;
+  let m;
+  while ((m = phasePattern.exec(roadmapContent)) !== null) {
+    nums.push(m[1]);
+  }
+  return nums;
+}
+
+// Pure function -- no I/O. Builds a directory-name matcher for a set of
+// phase-number strings. Handles leading zeros ("01" -> "1"), letter
+// suffixes ("3A"/"3a"), decimal phases ("3.1"), and guards against prefix
+// collisions ("1" must not match directory "10-scaling").
+function buildMilestonePhaseMatcher(phaseNumbers) {
+  const normalized = new Set(
+    phaseNumbers.map(n => String(n).replace(/^0+(?=\d)/, '').toLowerCase())
+  );
+  return function isDirInMilestone(dirName) {
+    const m = dirName.match(/^0*(\d+[A-Za-z]?(?:\.\d+)*)/);
+    if (!m) return false; // not a phase directory (e.g. "notes/", "misc/")
+    return normalized.has(m[1].toLowerCase());
+  };
+}
+
+// Determines which .planning/phases/ directories belong to the milestone
+// being completed. Returns { matcher, source, range } where matcher(dirName)
+// is a predicate. Exits 1 (via error()) if scoping cannot be determined --
+// see the block comment above for why this never falls back to "scan
+// everything".
+function resolveMilestonePhaseScope(cwd, options) {
+  if (options.phases) {
+    const pm = String(options.phases).match(/^(\d+)(?:-(\d+))?$/);
+    if (!pm) {
+      error(`--phases value "${options.phases}" is not a valid range (expected N or N-M, e.g. --phases 338-347)`);
+    }
+    const min = parseInt(pm[1], 10);
+    const max = pm[2] ? parseInt(pm[2], 10) : min;
+    return {
+      source: 'explicit --phases flag',
+      range: pm[2] ? `${min}-${max}` : String(min),
+      matcher: function isDirInMilestone(dirName) {
+        const dm = dirName.match(/^0*(\d+)/);
+        if (!dm) return false;
+        const n = parseInt(dm[1], 10);
+        return n >= min && n <= max;
+      },
+    };
+  }
+
+  const roadmapPathForScope = path.join(cwd, '.planning', 'ROADMAP.md');
+  let roadmapContentForScope = '';
+  if (fs.existsSync(roadmapPathForScope)) {
+    try { roadmapContentForScope = fs.readFileSync(roadmapPathForScope, 'utf-8'); } catch {}
+  }
+  const phaseNumbers = parseRoadmapPhaseNumbers(roadmapContentForScope);
+  if (phaseNumbers.length === 0) {
+    error(
+      'milestone complete cannot determine which phases belong to this milestone: ' +
+      'no --phases N-M flag was given and ROADMAP.md has no "### Phase N: ..." headings to derive it from. ' +
+      'Re-run with an explicit --phases N-M (e.g. --phases 338-347) rather than risk counting every ' +
+      'directory in .planning/phases/, including phases from prior milestones ' +
+      '(see RETROSPECTIVE.md v0.1.8/v0.1.20/v0.1.28/v0.1.29).'
+    );
+  }
+  return {
+    source: 'ROADMAP.md "### Phase N:" headings',
+    range: phaseNumbers.join(','),
+    matcher: buildMilestonePhaseMatcher(phaseNumbers),
+  };
+}
+
 function cmdMilestoneComplete(cwd, version, options, raw) {
   if (!version) {
     error('version required for milestone complete (e.g., v1.0)');
@@ -8937,7 +9451,13 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
   // Ensure archive directory exists
   fs.mkdirSync(archiveDir, { recursive: true });
 
-  // Gather stats from phases
+  // Gather stats from phases (scoped to this milestone only -- see the
+  // "Milestone Phase Scoping" block comment above). Scoping is only
+  // resolved (and only errors out on ambiguity) when there is actually at
+  // least one phase directory on disk to scope -- an empty/absent
+  // .planning/phases/ has nothing to over-count, so there is no ambiguity
+  // to reject.
+  let phaseScope = null;
   let phaseCount = 0;
   let totalPlans = 0;
   let totalTasks = 0;
@@ -8947,7 +9467,12 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
     const entries = fs.readdirSync(phasesDir, { withFileTypes: true });
     const dirs = entries.filter(e => e.isDirectory()).map(e => e.name).sort();
 
+    if (dirs.length > 0) {
+      phaseScope = resolveMilestonePhaseScope(cwd, options);
+    }
+
     for (const dir of dirs) {
+      if (phaseScope && !phaseScope.matcher(dir)) continue;
       phaseCount++;
       const phaseFiles = fs.readdirSync(path.join(phasesDir, dir));
       const plans = phaseFiles.filter(f => f.endsWith('-PLAN.md') || f === 'PLAN.md');
@@ -8969,6 +9494,10 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
       }
     }
   } catch {}
+
+  if (!phaseScope) {
+    phaseScope = { source: 'no phase directories present', range: '' };
+  }
 
   // Archive ROADMAP.md
   if (fs.existsSync(roadmapPath)) {
@@ -9032,6 +9561,7 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
     plans: totalPlans,
     tasks: totalTasks,
     accomplishments,
+    phase_scope: { source: phaseScope.source, range: phaseScope.range },
     archived: {
       roadmap: fs.existsSync(path.join(archiveDir, `${version}-ROADMAP.md`)),
       requirements: fs.existsSync(path.join(archiveDir, `${version}-REQUIREMENTS.md`)),
@@ -9595,7 +10125,10 @@ function findPhaseInternal(cwd, phase) {
     const phaseDir = path.join(phasesDir, match);
     const phaseFiles = fs.readdirSync(phaseDir);
 
-    const plans = phaseFiles.filter(f => f.endsWith('-PLAN.md') || f === 'PLAN.md').sort();
+    // Require a 2-digit plan number before -PLAN.md (or the legacy bare
+    // PLAN.md) so artifact files like E2E-TEST-PLAN.md are not miscounted as
+    // task plans or flagged as incomplete. Mirrors the phase-gate pattern.
+    const plans = phaseFiles.filter(f => f.match(/-\d{2}-PLAN\.md$/i) || f === 'PLAN.md').sort();
     const summaries = phaseFiles.filter(f => f.endsWith('-SUMMARY.md') || f === 'SUMMARY.md').sort();
     const hasResearch = phaseFiles.some(f => f.endsWith('-RESEARCH.md') || f === 'RESEARCH.md');
     const hasContext = phaseFiles.some(f => f.endsWith('-CONTEXT.md') || f === 'CONTEXT.md');
@@ -12876,8 +13409,10 @@ async function main() {
           failureType: failureTypeIdx !== -1 ? args[failureTypeIdx + 1] : null,
           artifactsJson: artifactsIdx !== -1 ? args[artifactsIdx + 1] : null,
         }, raw);
+      } else if (subcommand === 'gate-handshake') {
+        cmdVerifyGateHandshake(cwd, raw);
       } else {
-        error('Unknown verify subcommand. Available: plan-structure, phase-completeness, references, commits, artifacts, key-links, migration-timestamps, dependency-stability, phase-gate, e2e-gaps, test-content, append-gap');
+        error('Unknown verify subcommand. Available: plan-structure, phase-completeness, references, commits, artifacts, key-links, migration-timestamps, dependency-stability, phase-gate, e2e-gaps, test-content, append-gap, gate-handshake');
       }
       break;
     }
@@ -12964,7 +13499,9 @@ async function main() {
     case 'config': {
       const subcommand = args[1];
       if (subcommand === 'get') {
-        cmdConfigGet(cwd, args[2], raw);
+        const defaultIdx = args.indexOf('--default');
+        const defaultValue = defaultIdx !== -1 ? args[defaultIdx + 1] : undefined;
+        cmdConfigGet(cwd, args[2], raw, defaultValue);
       } else {
         error('Unknown config subcommand. Available: get');
       }
@@ -13046,10 +13583,14 @@ async function main() {
       if (subcommand === 'complete') {
         const nameIndex = args.indexOf('--name');
         const milestoneName = nameIndex !== -1 ? args.slice(nameIndex + 1).join(' ') : null;
-        cmdMilestoneComplete(cwd, args[2], { name: milestoneName }, raw);
-        const msVersion = args[2];
         const msPhasesIndex = args.indexOf('--phases');
         const msPhasesRange = msPhasesIndex !== -1 ? args[msPhasesIndex + 1] : null;
+        // --phases must be threaded through to cmdMilestoneComplete itself,
+        // not just to the summarize/archive-phases calls below -- this was
+        // exactly the v0.1.20 regression (silently dropped before reaching
+        // cmdMilestoneComplete's own phase/plan/task counting).
+        cmdMilestoneComplete(cwd, args[2], { name: milestoneName, phases: msPhasesRange }, raw);
+        const msVersion = args[2];
         if (msVersion) {
           cmdMilestoneSummarize(cwd, msVersion, { name: milestoneName, phases: msPhasesRange }, raw);
           cmdMilestoneArchivePhases(cwd, msVersion, { phases: msPhasesRange }, raw);
@@ -13347,8 +13888,12 @@ async function main() {
         const phasesIdx = args.indexOf('--phases');
         const phaseCount = phasesIdx !== -1 ? parseInt(args[phasesIdx + 1], 10) : 1;
         cmdResilienceEstimateQuota(cwd, phaseCount, raw);
+      } else if (subCommand === 'usage-window') {
+        const hoursIdx = args.indexOf('--hours');
+        const hours = hoursIdx !== -1 ? parseFloat(args[hoursIdx + 1]) : 5;
+        cmdResilienceUsageWindow(hours, raw);
       } else {
-        error('Unknown resilience subcommand. Available: check-staleness, parse-death, resume-brief, estimate-quota');
+        error('Unknown resilience subcommand. Available: check-staleness, parse-death, resume-brief, estimate-quota, usage-window');
       }
       break;
     }
@@ -13410,7 +13955,7 @@ async function main() {
           cmdKnowledgeStatus(knowledgeArgs, raw);
           break;
         case 'add':
-          cmdKnowledgeAdd(cwd, knowledgeArgs, raw);
+          await cmdKnowledgeAdd(cwd, knowledgeArgs, raw);
           break;
         case 'search':
           cmdKnowledgeSearch(knowledgeArgs, raw);
@@ -13470,7 +14015,7 @@ async function main() {
     }
 
     case 'mark-outdated': {
-      cmdMarkOutdated(args.slice(1), raw);
+      await cmdMarkOutdated(args.slice(1), raw);
       break;
     }
 
@@ -14752,6 +15297,7 @@ module.exports = {
   parseCheckpointForResume,
   buildResumeBrief,
   estimateQuotaForRemainingPhases,
+  scanUsageWindow,
   computeManifestDrift,
   summarizeTelemetryReports,
   appendTelemetryReport,
@@ -14783,6 +15329,8 @@ module.exports = {
   computeHighRisk,
   computePresentationOrder,
   verdictToIssues,
+  runP0TierAssignmentGate,
+  compareGateCapabilities,
 };
 
 // Only auto-run when invoked directly as a CLI (`node gsd-tools.js ...`), not

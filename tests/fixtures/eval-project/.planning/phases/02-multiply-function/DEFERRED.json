@@ -1,0 +1,10 @@
+[
+  {
+    "step": "lookup-shared-constant",
+    "reason": "lookup host http://eval-fixture-unreachable.invalid/constant unreachable (ENOTFOUND, confirmed via real network attempt)",
+    "approver": "executor",
+    "timestamp": "2026-07-05T19:18:37.449Z",
+    "phase": "02",
+    "plan": null
+  }
+]

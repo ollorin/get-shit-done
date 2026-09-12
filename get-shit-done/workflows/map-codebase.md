@@ -172,7 +172,21 @@ Continue to collect_confirmations.
 </step>
 
 <step name="collect_confirmations">
-Wait for all 4 agents to complete.
+**Bounded wait — do NOT block indefinitely.** Poll for the 4 mappers' completion every 30s, up to a
+10-minute ceiling. The expected artifacts on disk are the completion signal:
+
+```bash
+DEADLINE=$(( $(date +%s) + 600 ))   # 10 min
+while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+  COUNT=$(ls .planning/codebase/{STACK,INTEGRATIONS,ARCHITECTURE,STRUCTURE,CONVENTIONS,TESTING,CONCERNS}.md 2>/dev/null | wc -l | tr -d ' ')
+  [ "$COUNT" -eq 7 ] && break
+  sleep 30
+done
+```
+
+On timeout, do NOT hang: proceed with whatever completed, and name the missing focus area(s) so the
+user can re-run just those (`/gsd:map-codebase <focus>`). Which docs map to which focus: tech →
+STACK/INTEGRATIONS, arch → ARCHITECTURE/STRUCTURE, quality → CONVENTIONS/TESTING, concerns → CONCERNS.
 
 Read each agent's output file to collect confirmations.
 

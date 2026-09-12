@@ -22,6 +22,9 @@ animation/
 *.db-shm
 *.db-wal
 
+# Local vector-grep search index cache
+.zvec-grep/
+
 # Project planning/state (local only)
 .planning/
 get-shit-done/.planning/

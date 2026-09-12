@@ -336,6 +336,96 @@ describe('missing hooks/dist build-if-missing', () => {
   });
 });
 
+describe('skills/ installation (Phase 292.1 gap closure -- 292-VERIFICATION.md SC4)', () => {
+  let scratchRepo;
+  let scratchTarget;
+
+  beforeEach(() => {
+    // Full scratch repo copy, including skills/ this time (the earlier
+    // "missing hooks/dist" describe block above deliberately omits skills/ --
+    // it is testing an unrelated code path). hooks/ is copied whole (dist
+    // included) so this test exercises ONLY the skills copy step, not the
+    // inline hooks/dist build fallback.
+    scratchRepo = createScratchDir('gsd-repo-copy-skills-');
+    copyDirRecursive(path.join(REPO_ROOT, 'hooks'), path.join(scratchRepo, 'hooks'));
+    copyDirRecursive(path.join(REPO_ROOT, 'bin'), path.join(scratchRepo, 'bin'));
+    copyDirRecursive(path.join(REPO_ROOT, 'scripts'), path.join(scratchRepo, 'scripts'));
+    copyDirRecursive(path.join(REPO_ROOT, 'commands'), path.join(scratchRepo, 'commands'));
+    copyDirRecursive(path.join(REPO_ROOT, 'get-shit-done'), path.join(scratchRepo, 'get-shit-done'));
+    copyDirRecursive(path.join(REPO_ROOT, 'agents'), path.join(scratchRepo, 'agents'));
+    copyDirRecursive(path.join(REPO_ROOT, 'skills'), path.join(scratchRepo, 'skills'));
+    fs.copyFileSync(path.join(REPO_ROOT, 'package.json'), path.join(scratchRepo, 'package.json'));
+    if (fs.existsSync(path.join(REPO_ROOT, 'CHANGELOG.md'))) {
+      fs.copyFileSync(path.join(REPO_ROOT, 'CHANGELOG.md'), path.join(scratchRepo, 'CHANGELOG.md'));
+    }
+
+    scratchTarget = createScratchDir('gsd-install-target-skills-');
+  });
+
+  afterEach(() => {
+    cleanup(scratchRepo);
+    cleanup(scratchTarget);
+  });
+
+  test('install copies skills/task-context/SKILL.md into the install target, with path-prefix replacement applied', () => {
+    const scratchInstallJs = path.join(scratchRepo, 'bin', 'install.js');
+    const result = runInstall(scratchTarget, { installJsPath: scratchInstallJs });
+    assert.ok(result.success, `install should succeed: ${result.error || ''}\n${result.output}`);
+    assert.ok(
+      result.output.includes('Installed skills'),
+      `install output should report the skills copy: ${result.output}`
+    );
+
+    const installedSkillPath = path.join(scratchTarget, '.claude', 'skills', 'task-context', 'SKILL.md');
+    assert.ok(
+      fs.existsSync(installedSkillPath),
+      'skills/task-context/SKILL.md should have been installed -- this is the exact gap ' +
+        '292-VERIFICATION.md found (grep for "skills" in bin/install.js/scripts/install-modules.js ' +
+        'returned zero matches)'
+    );
+
+    const installedContent = fs.readFileSync(installedSkillPath, 'utf-8');
+    // Path-prefix replacement: the fork's tracked ~/.claude/ literal must be replaced with
+    // the actual install target's absolute path -- mirrors agentsSrc/agentsDest and the
+    // pre-existing get-shit-done skill directory's own copyWithPathReplacement behavior.
+    assert.ok(
+      !installedContent.includes('~/.claude/'),
+      'installed SKILL.md should not retain the literal ~/.claude/ placeholder'
+    );
+    // runInstall() invokes install.js with --local, so pathPrefix is the RELATIVE
+    // './.claude/' form (see install()'s isGlobal ternary), not an absolute path --
+    // this mirrors exactly what a local install's other copied assets (agents,
+    // commands) resolve to as well.
+    assert.ok(
+      installedContent.includes('./.claude/'),
+      'installed SKILL.md should reference the local install target path prefix (./.claude/)'
+    );
+  });
+
+  test('install does not delete pre-existing sibling skill directories it does not own', () => {
+    // Simulate a user who already has OTHER skills installed that this fork's own
+    // skills/ tree does not track at all (e.g. a learned-state skill, or an unrelated
+    // personal skill) -- the installer must never wipe the whole skills/ directory,
+    // only manage the specific subdirectories it ships.
+    const preExistingSkillDir = path.join(scratchTarget, '.claude', 'skills', 'unrelated-skill');
+    fs.mkdirSync(preExistingSkillDir, { recursive: true });
+    fs.writeFileSync(path.join(preExistingSkillDir, 'learned-state.md'), 'do-not-delete-me');
+
+    const scratchInstallJs = path.join(scratchRepo, 'bin', 'install.js');
+    const result = runInstall(scratchTarget, { installJsPath: scratchInstallJs });
+    assert.ok(result.success, `install should succeed: ${result.error || ''}\n${result.output}`);
+
+    const preservedFile = path.join(preExistingSkillDir, 'learned-state.md');
+    assert.ok(fs.existsSync(preservedFile), 'pre-existing sibling skill directory must survive install');
+    assert.strictEqual(fs.readFileSync(preservedFile, 'utf-8'), 'do-not-delete-me');
+
+    assert.ok(
+      fs.existsSync(path.join(scratchTarget, '.claude', 'skills', 'task-context', 'SKILL.md')),
+      'the fork-tracked skill should still be installed alongside the untouched sibling'
+    );
+  });
+});
+
 describe('require.main === module guard', () => {
   test('requiring install.js does not print the interactive banner or --help text', () => {
     const escapedPath = INSTALL_JS_PATH.replace(/\\/g, '\\\\');

@@ -1,8 +1,8 @@
 {
-  "_comment": "Core-preamble token budgets (chars/4 heuristic) per MILE-30. Measures ONLY the section before CORE_PREAMBLE_MARKER -- @-included reference content is excluded by design. Coordinator gets the largest budget since it owns orchestration/return-contract complexity that can't be fully delegated to references without losing hard-rule visibility; planner is next given its goal-backward derivation logic; verifier/debugger/executor get progressively smaller budgets proportionate to their current sizes, since they have narrower single-purpose roles.",
+  "_comment": "Core-preamble token budgets (chars/4 heuristic) per MILE-30. Measures ONLY the section before CORE_PREAMBLE_MARKER -- @-included reference content is excluded by design. Coordinator gets the largest budget since it owns orchestration/return-contract complexity that can't be fully delegated to references without losing hard-rule visibility; planner is next given its goal-backward derivation logic; verifier/debugger/executor get progressively smaller budgets proportionate to their current sizes, since they have narrower single-purpose roles. Executor carries a modestly larger budget (6300) than debugger because the agent-messaging layer adds two hard-rule-adjacent SendMessage hooks that MUST stay visible in the preamble to be reliable -- the App #1 upward continuation signal inside the self-stop path and the App #6 human-relay fast-path inside the checkpoint protocol; the fuller App #4/App #5 detail lives after the marker (unbudgeted) and in references/agent-messaging.md.",
   "agents/gsd-phase-coordinator.md": 8000,
   "agents/gsd-planner.md": 7000,
   "agents/gsd-verifier.md": 7000,
   "agents/gsd-debugger.md": 6000,
-  "agents/gsd-executor.md": 6000
+  "agents/gsd-executor.md": 6300
 }

@@ -18,9 +18,23 @@ Then verify each level against the actual codebase.
 </core_principle>
 
 <required_reading>
-@~/.claude/get-shit-done/references/verification-patterns.md
 @~/.claude/get-shit-done/templates/verification-report.md
 </required_reading>
+
+<verification_patterns_read>
+`references/verification-patterns.md` is ~686 lines covering every stack. Do NOT read it whole for a
+narrow phase — section-scope the read to the phase's actual stack (detected in `load_context` below).
+Always read `## Universal Stub Patterns`, `## Wiring Verification Patterns`, and
+`## Quick Verification Checklist`; then read ONLY the stack-relevant sections:
+- Frontend/UI phase → `## React/Next.js Components`, `## Custom Hooks and Utilities`
+- API/backend phase → `## API Routes ...`, `## Security-Sensitive Handler Checklist`,
+  `## Environment Variables and Configuration`
+- Data/schema phase → `## Database Schema ...`, `## Database Migrations`
+- Any phase with checkpoints → `## Automated Verification Approach`, `## Pre-Checkpoint Automation`,
+  `## When to Require Human Verification`
+
+Read the whole file only for a genuinely full-stack phase.
+</verification_patterns_read>
 
 <process>
 
@@ -128,11 +142,24 @@ Parse JSON result: `{ all_passed, passed, total, artifacts: [{path, exists, issu
 - `passed=true` → VERIFIED (Levels 1-2 pass)
 
 **Level 3 — Wired (manual check for artifacts that pass Levels 1-2):**
+
+Derive the search roots from the actual layout — do NOT assume `src/` or a `.ts/.tsx`-only
+codebase (many repos use `apps/`, `libs/`, `functions/`, `packages/`, or plain `.js`/`.py`/`.go`
+sources; a hardcoded `src/ --include="*.ts"` greps to zero and reports a false `ORPHANED`).
+
 ```bash
-grep -r "import.*$artifact_name" src/ --include="*.ts" --include="*.tsx"  # IMPORTED
-grep -r "$artifact_name" src/ --include="*.ts" --include="*.tsx" | grep -v "import"  # USED
+# Prefer the source dirs that actually exist in this repo; if none of the common
+# ones are present, search from the repo root and prune noise directories.
+SEARCH_ROOTS=$(for d in src apps libs functions packages app lib; do [ -d "$d" ] && printf '%s ' "$d"; done)
+[ -z "$SEARCH_ROOTS" ] && SEARCH_ROOTS="."
+grep -rEn "import.*$artifact_name|from ['\"].*$artifact_name" $SEARCH_ROOTS \
+  --exclude-dir={node_modules,.git,dist,build,.next,coverage,vendor,target}  # IMPORTED
+grep -rEn "$artifact_name" $SEARCH_ROOTS \
+  --exclude-dir={node_modules,.git,dist,build,.next,coverage,vendor,target} | grep -v "import"  # USED
 ```
 WIRED = imported AND used. ORPHANED = exists but not imported/used.
+(An artifact referenced only via a non-JS import mechanism — e.g. an import map, a route
+registry, or a config manifest — is WIRED, not ORPHANED; check those before failing.)
 
 | Exists | Substantive | Wired | Status |
 |--------|-------------|-------|--------|

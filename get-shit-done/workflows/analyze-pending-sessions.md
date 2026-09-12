@@ -29,8 +29,12 @@ Invocation:
 Discover sessions that have been flagged for analysis by the MCP server.
 
 ```bash
-PENDING_JSON=$(node ~/.claude/get-shit-done/bin/gsd-tools.js list-pending-sessions)
+# Prefer a project-local install, fall back to the global one (LOCAL vs GLOBAL).
+GSD_TOOLS=$([ -f ./.claude/get-shit-done/bin/gsd-tools.js ] && echo ./.claude/get-shit-done/bin/gsd-tools.js || echo "$HOME/.claude/get-shit-done/bin/gsd-tools.js")
+PENDING_JSON=$(node "$GSD_TOOLS" list-pending-sessions)
 ```
+
+(Reuse the same `GSD_TOOLS` resolution in every bash block below — each block runs in a fresh shell, so re-derive it rather than assuming it persists.)
 
 Parse the JSON output. Extract `count` and `pending` array.
 
@@ -83,21 +87,34 @@ Process each session sequentially to extract knowledge.
    If Agent() throws or returns empty: log the error and continue with remaining
    extraction types for this session.
 
-4. **Assemble results array** from all successful Agent() outputs:
-   ```json
-   [
-     {"type": "decision", "result": "{haikuOutput1}"},
-     {"type": "reasoning_pattern", "result": "{haikuOutput2}"},
-     {"type": "meta_knowledge", "result": "{haikuOutput3}"}
-   ]
-   ```
-
-   Serialize to JSON string (or write to a temp file).
-
-5. **Store the results** by calling gsd-tools.js:
+4. **Assemble results array — temp-file + programmatic JSON encoding is MANDATORY.**
+   Haiku output is arbitrary free text (may contain quotes, newlines, backslashes). NEVER
+   string-interpolate it into a JSON literal or a shell argument — that produces malformed JSON
+   or shell-injection. Instead, write each raw output to its own temp file and let `jq` encode
+   it (jq escapes strings correctly):
    ```bash
-   STORE_RESULT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js \
-     store-analysis-result "{sessionId}" '{resultsJson}')
+   TMPDIR=$(mktemp -d)
+   # For each successful extraction, write its RAW output verbatim to a file:
+   #   printf '%s' "$HAIKU_OUTPUT_1" > "$TMPDIR/decision.txt"   (etc.)
+   # Then build the JSON array programmatically — --rawfile reads the file as a JSON-safe string:
+   jq -n \
+     --rawfile decision "$TMPDIR/decision.txt" \
+     --rawfile reasoning "$TMPDIR/reasoning_pattern.txt" \
+     --rawfile meta "$TMPDIR/meta_knowledge.txt" \
+     '[{type:"decision",result:$decision},
+       {type:"reasoning_pattern",result:$reasoning},
+       {type:"meta_knowledge",result:$meta}]' > "$TMPDIR/results.json"
+   ```
+   Include only the entries whose extraction actually succeeded (omit the `--rawfile`/object for
+   any that threw or returned empty).
+
+5. **Store the results** by passing the temp FILE PATH (store-analysis-result reads a JSON string
+   OR a file path — the file path avoids putting arbitrary text on the command line at all):
+   ```bash
+   GSD_TOOLS=$([ -f ./.claude/get-shit-done/bin/gsd-tools.js ] && echo ./.claude/get-shit-done/bin/gsd-tools.js || echo "$HOME/.claude/get-shit-done/bin/gsd-tools.js")
+   STORE_RESULT=$(node "$GSD_TOOLS" \
+     store-analysis-result "{sessionId}" "$TMPDIR/results.json")
+   rm -rf "$TMPDIR"
    ```
 
    Parse `STORE_RESULT` for `stored`, `skipped`, `evolved`, `errors`.
@@ -133,7 +150,8 @@ normal — partial analysis is expected for sessions with unusual content.
 This step applies when invoked AFTER running `historical-extract`:
 
 ```bash
-HISTORICAL_JSON=$(node ~/.claude/get-shit-done/bin/gsd-tools.js \
+GSD_TOOLS=$([ -f ./.claude/get-shit-done/bin/gsd-tools.js ] && echo ./.claude/get-shit-done/bin/gsd-tools.js || echo "$HOME/.claude/get-shit-done/bin/gsd-tools.js")
+HISTORICAL_JSON=$(node "$GSD_TOOLS" \
   historical-extract "/path/to/project/.planning")
 ```
 

@@ -102,15 +102,22 @@ function insertKnowledge(db, {
     const id = info.lastInsertRowid
 
     // 6. Insert embedding if provided (FTS5 handled by trigger)
-    // Note: vec0 auto-assigns rowid sequentially, so it will match knowledge.id
-    // as long as we insert in same transaction immediately after knowledge insert
+    // Note: vec0's own rowid autoincrement is NOT relied upon here. Any knowledge
+    // insert that skips the embedding (e.g. knowledge-feedback.js's
+    // createReplacementPrinciple, or callers of knowledge.add() that don't pass
+    // one) leaves a gap in knowledge_vec that would otherwise permanently desync
+    // vec0's next auto-assigned rowid from knowledge.id — that desync is what
+    // caused the historical "Rowid mismatch" crash. Explicitly pinning the vec
+    // row's rowid to `id` makes each insert self-contained and immune to gaps
+    // left by prior inserts. vec0 only accepts an explicit rowid as a SQL
+    // literal, not as a bound parameter, so `id` (an integer from
+    // lastInsertRowid, never user input) is interpolated directly.
     if (embedding && db.vectorEnabled) {
       const normalized = normalizeEmbedding(embedding)
-      const vecResult = db.prepare('INSERT INTO knowledge_vec (embedding) VALUES (?)').run(normalized)
+      const vecResult = db.prepare(`INSERT INTO knowledge_vec (rowid, embedding) VALUES (${id}, ?)`).run(normalized)
 
-      // Verify rowid matches (sanity check)
-      if (vecResult.lastInsertRowid !== id) {
-        throw new Error(`Rowid mismatch: knowledge=${id}, vec=${vecResult.lastInsertRowid}`)
+      if (vecResult.changes !== 1) {
+        throw new Error(`Failed to insert vector row for knowledge id=${id}`)
       }
     }
 

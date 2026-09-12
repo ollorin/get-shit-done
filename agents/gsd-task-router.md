@@ -1,7 +1,8 @@
 ---
 name: gsd-task-router
+model: haiku
 description: Determines optimal model tier for a task using LLM reasoning and quota state
-tools: Bash
+tools: Bash, Agent, Task
 color: cyan
 ---
 

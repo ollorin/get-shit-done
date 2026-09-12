@@ -7,6 +7,9 @@ tools:
   - Bash
   - Grep
   - Glob
+  - LSP
+  - Agent
+  - Task
 ---
 
 # UI Inventory Agent

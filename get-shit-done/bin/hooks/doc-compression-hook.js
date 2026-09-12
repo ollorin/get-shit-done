@@ -36,6 +36,18 @@ try {
  * Purpose: Intercept Read operations on GSD documentation files and return compressed summaries
  * Input: JSON via stdin { tool_name, tool_input }
  * Output: JSON via stdout { additionalContext, metadata } or exit 0 (pass-through)
+ *
+ * Delivery-verification limitation (do NOT assume the model saw the summary):
+ *   This hook can PROVE it fired — every compression appends an entry to
+ *   ~/.claude/get-shit-done/compression-metrics.jsonl (self-reported counter).
+ *   It CANNOT prove the harness actually injected `additionalContext` into the
+ *   model's context; that is entirely on the Claude Code side. The stdout shape
+ *   emitted here is the legacy `{ additionalContext, metadata }` contract. Newer
+ *   harness versions read `hookSpecificOutput.additionalContext` instead — if a
+ *   harness upgrade makes compression appear to no-op, verify the expected
+ *   PreToolUse output schema for the running version before assuming a bug here.
+ *   The metrics file is the ground truth for "did compression run"; there is no
+ *   in-hook signal for "did the model receive it".
  */
 
 // Quick pattern check for documentation files
@@ -110,13 +122,11 @@ async function main() {
       process.exit(0);
     }
 
-    // Load configuration
+    // Load configuration. The enabled/compression.enabled gate is already
+    // enforced by the cheap early-exit guard at the top of this file (reading
+    // the same hook-config.json), so re-checking it here is redundant and adds
+    // a second source of truth that can silently disagree on schema drift.
     const config = loadHookConfig();
-
-    // Check if compression is enabled
-    if (!config.enabled || !config.compression.enabled) {
-      process.exit(0);
-    }
 
     // Check circuit breaker BEFORE attempting compression
     if (!checkCircuitBreaker()) {
@@ -224,9 +234,10 @@ async function main() {
     process.exit(0);
 
   } catch (error) {
-    // Log error to stderr (not stdout which is hook output)
-    console.error(`[doc-compression-hook] Error: ${error.message}`);
-    console.error(error.stack);
+    // Log a single-line error to stderr (not stdout which is hook output).
+    // Deliberately no stack dump — expected conditions (missing file, transient
+    // read error) shouldn't spray a full trace the session may ingest as noise.
+    console.error(`[doc-compression-hook] ${error.message}`);
 
     // Record failure in circuit breaker
     recordFailure();

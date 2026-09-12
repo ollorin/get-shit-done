@@ -108,6 +108,8 @@ Update Active requirements section and "Last updated" footer.
 
 ## 5. Update STATE.md
 
+Re-Read STATE.md fresh before editing — the read in step 1 predates any research spawn and a concurrent session may have advanced it; apply only the Current Position change to the current contents. **See @~/.claude/get-shit-done/references/shared-file-writes.md.**
+
 ```markdown
 ## Current Position
 
@@ -443,6 +445,12 @@ Wait for ROADMAP CREATED signal before continuing.
 Proceed directly to commit step below.
 
 **Commit roadmap and PRD lifecycle (after approval and files written):**
+
+**Confirm the artifact before committing — do NOT commit on the roadmapper's say-so.** Read the
+files the agent claims to have written and verify they exist and contain their required sections
+(ROADMAP.md: a `## Phases` section with at least one `### Phase`; REQUIREMENTS.md: a traceability
+table with MILE-XX → Phase rows). If a required section is missing or the file is empty, do NOT
+commit — re-spawn the roadmapper or surface the gap to the user.
 
 **If PRD_DRIVEN=true:**
 ```bash

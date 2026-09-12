@@ -85,6 +85,118 @@ MUST present 3 options:
 
 If user selects "Proceed anyway": note incomplete requirements in MILESTONES.md under `### Known Gaps` with REQ-IDs and descriptions.
 
+<qa-verdict-gate>
+
+**Fork capability handshake (hard stop).** The `qa_verdict_gate` check below only exists in a fork
+version that declares `qa-verdict-lifecycle-v1`. Closing a milestone with an older installed fork
+would silently skip a gate this repo depends on and still let the milestone close — exactly the
+silent-pass class this phase closes — so a capability shortfall aborts the close outright rather
+than degrading quietly. A repo declaring no `quality.required_gsd_gates` exits 0 here and is
+unaffected.
+
+```bash
+HANDSHAKE=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" verify gate-handshake 2>&1) || {
+  echo "$HANDSHAKE"
+  # HARD STOP — closing a milestone with a fork that lacks the gates this repo requires would
+  # certify a QA gate that never ran.
+  exit 1
+}
+```
+
+If this fails, the remedy is `npm run install:gsd` from `~/get-shit-done` — never `/gsd:update`
+(may pull upstream and clobber fork-local patches).
+
+**`qa_verdict_gate`** — QA verdict + drill-log hard stop. Run this check ONLY when
+`scripts/qa-verdict.ts` exists in the target repo — same "run when the repo ships it" convention as
+the Layer-1 gates.
+
+```bash
+[ -f scripts/qa-verdict.ts ] || echo "SKIP qa_verdict_gate — scripts/qa-verdict.ts not present in this repo"
+```
+
+Skip the entire check — no gap, no warning — when the file is absent. Unlike some config-gated
+checks elsewhere in this workflow, there is **no config flag** to disable this check when the script
+IS present — a gate with an off switch is not a gate.
+
+**Resolve the run dir and the milestone number.**
+
+```bash
+RUN_DIR=$(ls -d apps/e2e-charlotte/results/*/ 2>/dev/null \
+  | grep -E '/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}/$' \
+  | sort | tail -1)
+```
+
+**Milestone-number resolution differs from `audit-milestone.md` here — by design.** That workflow
+derives `$MILESTONE_N` from `milestone_version`, already resolved by its Step 0 `init milestone-op`
+bootstrap. This step has no such bootstrap (`init milestone-op` is not called until much later in
+`complete-milestone.md`, for an unrelated purpose). Derive it instead from the already-captured
+`$ROADMAP` (`roadmap analyze`, captured above) — never re-derive the number from ROADMAP.md/STATE.md
+prose; `qa-verdict.ts`'s own header explicitly refuses that, and so must its caller:
+
+```bash
+MILESTONE_HEADING=$(echo "$ROADMAP" | jq -r '.milestones[0].heading // ""')
+MILESTONE_N=$(echo "$MILESTONE_HEADING" | grep -oE 'v[0-9]+(\.[0-9]+)+' | head -1 | sed 's/^v//' | awk -F. '{print $NF}')
+```
+
+The regex deliberately excludes `results/test/`.
+
+**REQUIRED:** If `RUN_DIR` is empty, this MUST force a **HARD STOP** ("no run manifest to evaluate
+the milestone against") — never a skip. An existence-gated check that finds no manifest is not the
+same as a repo that never shipped the script. Empty `MILESTONE_N` MUST also force a **HARD STOP**
+("cannot resolve the milestone number to evaluate against").
+
+**Invoke and parse.**
+
+```bash
+VERDICT=$(deno run --allow-read --allow-env scripts/qa-verdict.ts "${RUN_DIR%/}" \
+  --current-milestone "$MILESTONE_N" --json)
+```
+
+Exit 2 (bad input) MUST force a **HARD STOP**. `deno` missing while `scripts/qa-verdict.ts` exists
+MUST also force a **HARD STOP** — the repo shipped the gate; the workflow may not decline to run it
+just because its runtime isn't on `PATH`.
+
+**REQUIRED: the three blocking conditions.** Any one of the following MUST force a **HARD STOP** on
+closing the milestone:
+
+1. `p0Exceptions.length > 0` MUST force a **HARD STOP**. Definition inline (`verdict.ts`'s own
+   comment): `p0Exceptions` are P0-risk features NOT in `EXECUTED_GREEN` or `GAP_ACCEPTED`.
+2. `manifestStale: true` MUST force a **HARD STOP**. The verdict's manifest is not reset-stamped, so
+   the evidence does not describe the tree being shipped.
+3. Any `guardHealth[]` entry with `resolvedCount < totalCount` **or** `canaryPassed: true` MUST
+   force a **HARD STOP**. **`canaryPassed: true` is the BAD case** — it means the guard failed to
+   fail on a mutation it was built to catch (`verdict.ts`'s own comment: "true here means the guard
+   passed a mutation it was supposed to catch, which is the BAD case"). The inverted-looking field
+   name is exactly where a reader mis-implements this — do not treat `true` as good.
+
+**Drill log (four rules).** Check `.planning/qa/drill-log.json` — the path convention this phase
+establishes; Phase 312 / MILE-15 is the future producer. Validate loosely against the frozen
+`DrillLog` shape (`milestoneId`, `ranAt`, `entries[]`, `allEntriesCaught`).
+
+| Condition | Result |
+|-----------|--------|
+| File absent | **HARD STOP.** PRD F3.3 verbatim: *"A missing drill = `gaps_found`."* |
+| Present but unparseable, or missing `allEntriesCaught` | **HARD STOP** — a corrupt drill log is not a passing drill log |
+| Present with `allEntriesCaught: false` | **HARD STOP** |
+| Present with `allEntriesCaught: true` | pass |
+
+Until Phase 312 ships the producer, this condition will fire on every real milestone close today —
+that is the gate working as designed, not a bug to route around.
+
+**This gate has NO "Proceed anyway" option.** The 3-option menu above (for generic unchecked
+requirements) does NOT apply here. F3.3 says `complete-milestone` *blocks on* these conditions,
+full stop. Print the blocking reasons — each quoting the verdict field it came from — and STOP.
+Do not proceed to `gather_stats`. Do not offer a confirmation prompt. Do not write MILESTONES.md.
+
+Remedy to print: run `/gsd:audit-milestone` to see the full QA picture, then
+`/gsd:plan-milestone-gaps` to close the P0 gaps. Re-run `/gsd:complete-milestone` once the
+verdict is clean and the drill log is green.
+
+Every number printed by this check is COPIED from the verdict JSON — this step computes no QA
+figure of its own, the same anti-confabulation rule `gsd-qa-analyst` obeys.
+
+</qa-verdict-gate>
+
 <config-check>
 
 ```bash
@@ -125,11 +237,18 @@ Wait for confirmation.
 Calculate milestone statistics:
 
 ```bash
+# Bind the commit range first — these were unbound placeholders.
+# First/last feat( commit of the milestone; fall back to repo root / HEAD.
+FIRST_COMMIT=$(git log --reverse --grep="feat(" --format="%H" 2>/dev/null | head -1)
+LAST_COMMIT=$(git log --grep="feat(" --format="%H" 2>/dev/null | head -1)
+FIRST_COMMIT=${FIRST_COMMIT:-$(git rev-list --max-parents=0 HEAD 2>/dev/null | head -1)}
+LAST_COMMIT=${LAST_COMMIT:-HEAD}
+
 git log --oneline --grep="feat(" | head -20
-git diff --stat FIRST_COMMIT..LAST_COMMIT | tail -1
+git diff --stat "$FIRST_COMMIT".."$LAST_COMMIT" | tail -1
 find . -name "*.swift" -o -name "*.ts" -o -name "*.py" | xargs wc -l 2>/dev/null
-git log --format="%ai" FIRST_COMMIT | tail -1
-git log --format="%ai" LAST_COMMIT | head -1
+git log --format="%ai" "$FIRST_COMMIT" | tail -1
+git log --format="%ai" "$LAST_COMMIT" | head -1
 ```
 
 Present:
@@ -318,50 +437,6 @@ Initial user testing showed demand for shape tools.
 
 </step>
 
-<step name="reorganize_roadmap">
-
-Update `.planning/ROADMAP.md` — group completed milestone phases:
-
-```markdown
-# Roadmap: [Project Name]
-
-## Milestones
-
-- ✅ **v1.0 MVP** — Phases 1-4 (shipped YYYY-MM-DD)
-- 🚧 **v1.1 Security** — Phases 5-6 (in progress)
-- 📋 **v2.0 Redesign** — Phases 7-10 (planned)
-
-## Phases
-
-<details>
-<summary>✅ v1.0 MVP (Phases 1-4) — SHIPPED YYYY-MM-DD</summary>
-
-- [x] Phase 1: Foundation (2/2 plans) — completed YYYY-MM-DD
-- [x] Phase 2: Authentication (2/2 plans) — completed YYYY-MM-DD
-- [x] Phase 3: Core Features (3/3 plans) — completed YYYY-MM-DD
-- [x] Phase 4: Polish (1/1 plan) — completed YYYY-MM-DD
-
-</details>
-
-### 🚧 v[Next] [Name] (In Progress / Planned)
-
-- [ ] Phase 5: [Name] ([N] plans)
-- [ ] Phase 6: [Name] ([N] plans)
-
-## Progress
-
-| Phase             | Milestone | Plans Complete | Status      | Completed  |
-| ----------------- | --------- | -------------- | ----------- | ---------- |
-| 1. Foundation     | v1.0      | 2/2            | Complete    | YYYY-MM-DD |
-| 2. Authentication | v1.0      | 2/2            | Complete    | YYYY-MM-DD |
-| 3. Core Features  | v1.0      | 3/3            | Complete    | YYYY-MM-DD |
-| 4. Polish         | v1.0      | 1/1            | Complete    | YYYY-MM-DD |
-| 5. Security Audit | v1.1      | 0/1            | Not started | -          |
-| 6. Hardening      | v1.1      | 0/2            | Not started | -          |
-```
-
-</step>
-
 <step name="archive_milestone">
 
 **Delegate archival to gsd-tools:**
@@ -395,6 +470,44 @@ mv .planning/phases/{phase-dir} .planning/milestones/v[X.Y]-phases/
 Verify: `✅ Phase directories archived to .planning/milestones/v[X.Y]-phases/`
 
 If "Skip": Phase directories remain in `.planning/phases/` as raw execution history. Use `/gsd:cleanup` later to archive retroactively.
+
+**Orphaned prior-milestone phase check (MANDATORY, runs regardless of the Yes/Skip answer above).**
+A "Skip" answer for the CURRENT milestone is normal and fine — but `.planning/phases/` can also
+silently accumulate phase directories from OLDER milestones that were shipped, archived in
+MILESTONES.md/`v[X.Y]-ROADMAP.md`, yet never physically moved out of `.planning/phases/` (found
+live in production during the v0.1.30 close, 2026-09-05: 8 consecutive prior milestones — v0.1.22
+through v0.1.29 — had ~75 orphaned phase directories sitting unarchived, some going back weeks).
+This check is cheap and prevents that backlog from ever growing again:
+
+```bash
+# Every phase directory currently in .planning/phases/ that is NOT part of the milestone just archived.
+ls .planning/phases/ 2>/dev/null
+```
+
+For each remaining phase number, determine which (already-shipped) milestone it belongs to by
+checking that milestone's own archived `v[X.Y]-ROADMAP.md` for a `### Phase {N}` heading or a
+`Phases {start}-{end}` range line — **never guess the boundary from phase-number proximity alone**,
+always confirm against the archived roadmap text itself. If a phase number belongs to a milestone
+that already has its own `v[X.Y]-ROADMAP.md`/MILESTONES.md entry (i.e. it already shipped), it is
+orphaned and must be archived now:
+
+```bash
+mkdir -p .planning/milestones/v[owning-X.Y]-phases
+mv .planning/phases/{phase-dir} .planning/milestones/v[owning-X.Y]-phases/
+```
+
+**Partial-archival reconciliation:** if `.planning/milestones/v[owning-X.Y]-phases/` already exists
+AND already contains a directory with the same phase number, do NOT blindly overwrite. Run
+`diff -rq .planning/phases/{phase-dir} .planning/milestones/v[owning-X.Y]-phases/{phase-dir}` first.
+If the only difference is a stray `CHECKPOINT.json`/`TASK-CHECKPOINT.json` bookkeeping file in the
+`.planning/phases/` copy (the real content — PLAN/SUMMARY/VERIFICATION/etc. — already lives in the
+archive), the `.planning/phases/` copy is a safe-to-delete leftover fragment from an earlier partial
+archival — delete it. If the diff shows any OTHER file present only in `.planning/phases/`, STOP and
+surface it for human review rather than deleting anything.
+
+Only phases belonging to the milestone actively being closed right now, or to a milestone with no
+archived roadmap yet (i.e. still genuinely in-flight), should remain in `.planning/phases/` when
+this check completes.
 
 After archival, the AI still handles:
 - Reorganizing ROADMAP.md with milestone grouping (requires judgment)

@@ -1,7 +1,7 @@
 ---
 name: gsd-executor
 description: Executes GSD plans with atomic commits, deviation handling, checkpoint protocols, and state management. Spawned by execute-phase orchestrator or execute-plan command.
-tools: Read, Write, Edit, Bash, Grep, Glob
+tools: Read, Write, Edit, Bash, Grep, Glob, LSP, SendMessage, Agent, Task
 color: yellow
 ---
 
@@ -40,7 +40,7 @@ When executing tasks you will discover issues in the codebase. Apply this rule:
 Detect whether auto mode is active:
 
 ```bash
-AUTO_ADVANCE=$(node ~/.claude/get-shit-done/bin/gsd-tools.js config get workflow.auto_advance 2>/dev/null || echo "false")
+AUTO_ADVANCE=$(node ~/.claude/get-shit-done/bin/gsd-tools.js config get workflow.auto_advance --raw --default false)
 ```
 
 **Auto mode behavior for checkpoints:**
@@ -151,6 +151,8 @@ For full automation-first patterns, server lifecycle, CLI handling:
 
 When encountering `type="checkpoint:*"`: Check auto mode first (see auto_mode_detection). If not auto-approving, **STOP immediately.** Return structured checkpoint message using checkpoint_return_format.
 
+**Human relay fast-path (App #6 — see `<agent_messaging>`):** on a non-auto-approved `checkpoint:decision`/`checkpoint:human-action`, ALSO `SendMessage` `to: "main"` with the decision and what you await, then stay alive for the answer. Composes with — never replaces — the structured `## CHECKPOINT REACHED` return below (its `**Type:**` line stays load-bearing). Skip if SendMessage is unavailable.
+
 **checkpoint:ui-qa** — Automated web UI/UX QA. STOP and return structured message. The coordinator spawns gsd-charlotte-qa to handle testing. Provide: what was built, test flows (from the checkpoint task).
 
 **checkpoint:human-verify (90%)** — Visual/functional verification after automation (non-web: macOS, audio, Xcode).
@@ -196,6 +198,8 @@ When hitting checkpoint or auth gate, return this structure:
 ```
 
 Completed Tasks table gives continuation agent context. Commit hashes verify work was committed. Current Task provides precise continuation point.
+
+**Type line format is load-bearing (REQUIRED).** The coordinator string-matches the checkpoint type. The Type line MUST be exactly `**Type:** <value>` — the literal marker `**Type:**` followed by a single space and one of `ui-qa` | `human-verify` | `decision` | `human-action`, on its own line. Do NOT reword it, wrap it, add a colon variant, or omit the bold markers — a stylistic variation breaks coordinator dispatch (e.g. `When executor returns Type: ui-qa`).
 </checkpoint_return_format>
 
 <continuation_handling>
@@ -302,6 +306,22 @@ ROUTING_TIERS_USED+=("$TASK_ROUTING_TIER")  # append to running list
 RETRY_ESCALATED=false  # set to true if task was escalated to sonnet from haiku
 ```
 
+**6. Write per-task checkpoint (Executor Resilience Protocol):** After every task commit, overwrite `.planning/phases/{phase_dir}/TASK-CHECKPOINT.json` with the Write tool (plain file write — same overwrite-latest convention as the coordinator's CHECKPOINT.json, see `checkpoints.md`):
+```json
+{
+  "phase": {N},
+  "plan": "{phase}-{plan}",
+  "last_completed_task": { "index": {N}, "name": "{task name}" },
+  "task_commit_hash": "{TASK_COMMIT}",
+  "completed_tasks": [{ "index": 1, "name": "...", "commit": "..." }],
+  "next_task_index": {N+1},
+  "timestamp": "{ISO timestamp}"
+}
+```
+This file is NOT committed per-task (too noisy) — it rides along in the plan's final SUMMARY.md commit, or is committed immediately if a checkpoint/handoff fires (see `<executor_resilience_protocol>` below). Its purpose: a continuation agent respawned after this executor dies reads it to know exactly which task to resume from, without re-deriving state from `git log`.
+
+**7. Optional progress heartbeat (App #5):** on a long plan you MAY send a rate-limited upward heartbeat after a task commit — see `<agent_messaging>` after the core-preamble marker.
+
 **ALWAYS use Write tool** for file creation — never use `Bash(cat << 'EOF')` heredoc patterns for file creation.
 </task_commit_protocol>
 
@@ -344,10 +364,77 @@ Include ALL commits (previous + new if continuation agent).
 Self-report telemetry (MILE-26): populate these from your own run — an ambiguous task instruction you had to interpret counts as an ambiguity; a tool call that errored and was silently retried/skipped counts toward tool_errors_swallowed. Best-effort, never blocks completion.
 </completion_format>
 
+<executor_resilience_protocol>
+
+## Executor Resilience Protocol (context self-stop)
+
+Long plans can outlive a single executor's context window, or the account's session limit, mid-execution. **Stopping cleanly at a task boundary is CORRECT behavior — never a failure.** The failure mode this protocol prevents is pushing past a near-full context window and dying mid-task: that loses uncommitted work and leaves no trail for a continuation agent to resume from. A clean stop with a handoff written is strictly better than a longer run that dies silently.
+
+**At every task boundary** (right after a task's commit + TASK-CHECKPOINT.json write, before starting the next task), self-assess context pressure. This is a best-effort estimate, not a tool call: weigh long tool outputs you've read, files read, and tasks completed vs. tasks remaining in the plan.
+
+**Stop rule — headroom, not a flat percentage.** What matters is whether the NEXT task plus a handoff fits in the context you have left. Windows differ by model (current-generation ~1M tokens; Haiku 200K) — reason in absolute tokens, not percentages; a flat "stop at 80%" would strand hundreds of thousands of tokens on a 1M model. STOP (do NOT start the next task) when EITHER:
+- your estimated **remaining** context is smaller than the next task's plausible cost (its file reads plus expected tool output — a test-suite or preflight run can dump 50–100K tokens in a single result) PLUS ~15K reserved for writing the handoff cleanly; or
+- you estimate >= 95% of the window is used, regardless of the next task's size.
+
+**Anti-stall guard — a handoff must always buy progress.** This rule must never loop a plan into permanent handoffs: if you are a freshly spawned executor (little context consumed yet) and the next task's estimated cost ALREADY exceeds the stop rule, do NOT hand off — a continuation agent would face identical math and the plan would stall forever. Instead, attack the task context-lean: read only the exact file sections needed, pipe long command output through grep/tail instead of ingesting it raw, and split the task into separately-committed sub-steps. Only if the task is genuinely impossible within the window, return `## PLAN BLOCKED` recommending the plan be re-split into smaller tasks — an honest block beats an infinite handoff chain.
+
+When in doubt between "probably fits" and "might not" — and you HAVE completed at least one task this run — stop: a clean handoff costs one respawn; dying mid-task costs the work.
+
+1. Write `.planning/phases/{phase_dir}/EXECUTOR-HANDOFF.json`:
+   ```json
+   {
+     "phase": {N},
+     "plan": "{phase}-{plan}",
+     "reason": "context_pressure",
+     "last_completed_task": { "index": {N}, "name": "{task name}" },
+     "next_task_index": {N+1},
+     "completed_task_commits": ["{hash}", "{hash}"],
+     "files_modified": ["path/a.ts", "path/b.ts"],
+     "deviations": ["[Rule N - Type] description", "..."],
+     "key_decisions": ["...", "..."],
+     "verification_state": "{what has/hasn't been verified so far}",
+     "resume_instructions": "{precise instructions for the continuation agent}"
+   }
+   ```
+2. `git add` the handoff file plus `TASK-CHECKPOINT.json` and commit as a `chore` commit: `chore({phase}-{plan}): executor handoff at task {N} — context pressure`.
+3. **Upward continuation signal (App #1 — see `<agent_messaging>`).** ALSO `SendMessage` `to: "main"` with `summary: "continuation needed — handoff written"` and a `message` naming the plan, the last-completed-task index, and the handoff path (`EXECUTOR-HANDOFF.json`). Additive early signal — the handoff + JSON trailer below stay the durable record; skip silently if SendMessage is unavailable.
+4. Return the completion below **instead of** `## PLAN COMPLETE`:
+
+```markdown
+## PLAN INTERRUPTED — continuation needed
+
+**Plan:** {phase}-{plan}
+**Progress:** {completed}/{total} tasks complete
+**Reason:** context_pressure
+**Handoff:** {phase_dir}/EXECUTOR-HANDOFF.json
+
+**Commits:**
+- {hash}: {message}
+- {hash}: {message}
+
+**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}
+```
+
+**Machine-parseable status trailer (REQUIRED).** The human-readable header above is for the reader; the coordinator must not have to string-match a prose line (an em-dash or reworded header would silently break detection). End EVERY executor return — `## PLAN COMPLETE`, `## PLAN INTERRUPTED`, and `## PLAN BLOCKED` alike — with a fenced JSON trailer as the final content of your message:
+
+````
+```json
+{"status": "interrupted", "reason": "context_pressure", "phase": {N}, "plan": "{phase}-{plan}", "completed_tasks": {N}, "total_tasks": {N}, "handoff": "{phase_dir}/EXECUTOR-HANDOFF.json"}
+```
+````
+
+`status` is one of `"complete"` | `"interrupted"` | `"blocked"`. For `"blocked"`, set `reason` to why the task cannot fit any window and include `"recommended_split": "<how to re-split>"`. The coordinator parses THIS block, not the header — the prose header and the JSON status must always agree.
+
+**This is not a failure and must not be reported as one.** The orchestrator treats `status: "interrupted"` exactly like a pre-spawn handoff: an immediate continuation respawn, never counted against the plan's retry/debug/escalate ladder. See `execute-phase.md`'s executor resilience handling and `@get-shit-done/references/resilience.md` for the full protocol, the coordinator-side continuation-spawn contract, and every artifact schema.
+
+**If spawned as a continuation agent** with a `<prior_executor_handoff>` block in your prompt: this supersedes `<continuation_handling>` above for the resilience case specifically — verify the listed commits exist (`git log --oneline -20`), do NOT redo any completed task, and resume from `next_task_index`. Treat `key_decisions` and `deviations` from the handoff as established fact, not open questions.
+
+</executor_resilience_protocol>
+
 <success_criteria>
 Plan execution complete when:
 
-- [ ] All tasks executed (or paused at checkpoint with full state returned)
+- [ ] All tasks executed (or paused at checkpoint with full state returned, or interrupted cleanly at a context-pressure boundary via `<executor_resilience_protocol>` with EXECUTOR-HANDOFF.json written)
 - [ ] Cross-boundary tasks verified end-to-end (not just local build/unit pass)
 - [ ] Each task committed individually with proper format
 - [ ] All deviations documented
@@ -362,6 +449,42 @@ Plan execution complete when:
 </success_criteria>
 
 <!-- GSD:CORE-PREAMBLE-END -->
+
+<agent_messaging>
+
+## Agent Messaging (SendMessage) — detail for the preamble hooks above
+
+Full patterns and the three hard semantics: `@get-shit-done/references/agent-messaging.md`.
+Messaging is ADDITIVE signalling on top of the Executor Resilience Protocol — every path has
+an intact file-based fallback, and delivery is at the recipient's NEXT tool round (a
+cooperative signal, never a real-time halt). Skip any of these silently if SendMessage is
+unavailable in your runtime.
+
+### App #4 — Wave peer awareness
+
+If your spawn prompt contains a `<wave_peers>` block, you are running in a parallel wave
+alongside other executors; each peer entry lists that peer's agent name and its plan's
+`files_modified`. **Signal a peer ONLY when you modify a file that a specific wave-peer's
+`files_modified` list names** — a genuine shared-file mutation that could collide with work
+that peer is producing concurrently. `SendMessage` that peer (by its name, or its agentId if
+you were given one) with a concise `summary` (e.g. "shared-file edit — {path}") and a
+`message` naming the exact file and what you changed, so the peer can re-read before it
+writes. **Do NOT be chatty** — no messages about files outside that peer's `files_modified`,
+about reads, or as a general progress ping (that is App #5). Silence is correct unless there
+is a true shared-file overlap. It is a cooperative heads-up, not a lock, so still write
+defensively (re-check a shared file's current state before editing). Atomic per-task commits
+and the coordinator's post-wave spot-checks remain the collision backstop.
+
+### App #5 — Optional progress heartbeat
+
+On a LONG plan (say > 4 tasks), after a task commit you MAY `SendMessage` `to: "main"` a
+one-line heartbeat — `summary` like "task N/M complete, green". This is OPTIONAL,
+rate-limited (NOT every task, NOT on short plans — at most every few tasks), and purely a
+coordinator-visibility aid. It never blocks, is never required, and its absence changes
+nothing about recovery (TASK-CHECKPOINT.json + the final JSON trailer remain the record).
+Sending one per task, or any heartbeat on a short plan, is noise — don't.
+
+</agent_messaging>
 
 The full execution_flow (load_project_state, load_plan,
 load_user_reasoning_context, record_start_time, determine_execution_pattern,

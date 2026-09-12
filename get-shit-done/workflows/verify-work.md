@@ -4,6 +4,10 @@ Validate built features through conversational testing with persistent state. Cr
 User tests, Claude records. One test at a time. Plain text responses.
 </purpose>
 
+<honesty>
+Record only what the user actually observed. Never mark a test passed the user did not confirm, never infer a pass from silence-plus-optimism, and never declare the feature "verified" or "done" while any test is unrun or any gap is open. A partial UAT is a partial UAT — say so. Premature "it works" here ships broken features.
+</honesty>
+
 <philosophy>
 **Show expected, ask if reality matches.**
 

@@ -1871,6 +1871,167 @@ describe('milestone complete command', () => {
     const headingMatches = milestones.match(/^##\s+v2\.0\b/gm) || [];
     assert.strictEqual(headingMatches.length, 1, 'MILESTONES.md should contain exactly one v2.0 heading after both calls');
   });
+
+  // ── Phase-scoping regression (igaming-platform RETROSPECTIVE.md v0.1.8,
+  // v0.1.20, v0.1.28, v0.1.29): cmdMilestoneComplete counted EVERY directory
+  // under .planning/phases/, including phase directories left over from
+  // prior milestones that were never archived. Real-world shape: several
+  // milestones' worth of un-archived phase directories coexist on disk
+  // because "skip phase archival" is a routine choice, so the bug recurred
+  // identically every time a new milestone was completed. ──
+
+  test('milestone complete scopes phase/plan/task counts to the milestone being completed, not every phase dir on disk (regression: v0.1.8/v0.1.20/v0.1.28/v0.1.29)', () => {
+    // ROADMAP.md as it looks when a milestone is actually being completed:
+    // only the CURRENT milestone's own phases are listed (matches this
+    // repo's own templates/roadmap.md convention and every real ROADMAP.md
+    // this bug was observed against).
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      `# Roadmap v3.0\n\n### Phase 8: New Feature A\n**Goal:** Build A\n\n### Phase 9: New Feature B\n**Goal:** Build B\n`
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'STATE.md'),
+      `# State\n\n**Status:** In progress\n**Last Activity:** 2025-01-01\n**Last Activity Description:** Working\n`
+    );
+
+    // Milestone v1.0's phases (1-2), never archived -- "skip phase archival"
+    // is a routine real-world choice, per the retrospective's own framing.
+    for (const [dir, plan, oneLiner] of [
+      ['01-old-milestone-a', '01-01-PLAN.md', 'v1.0 phase 1 work'],
+      ['02-old-milestone-a', '02-01-PLAN.md', 'v1.0 phase 2 work'],
+    ]) {
+      const p = path.join(tmpDir, '.planning', 'phases', dir);
+      fs.mkdirSync(p, { recursive: true });
+      fs.writeFileSync(path.join(p, plan), '# Plan\n\n## Task 1\n\n## Task 2\n');
+      fs.writeFileSync(
+        path.join(p, plan.replace('-PLAN.md', '-SUMMARY.md')),
+        `---\none-liner: ${oneLiner}\n---\n# Summary\n\n## Task 1\n`
+      );
+    }
+
+    // Milestone v2.0's phases (3-5), ALSO never archived.
+    for (const [dir, plan, oneLiner] of [
+      ['03-old-milestone-b', '03-01-PLAN.md', 'v2.0 phase 3 work'],
+      ['04-old-milestone-b', '04-01-PLAN.md', 'v2.0 phase 4 work'],
+      ['05-old-milestone-b', '05-01-PLAN.md', 'v2.0 phase 5 work'],
+    ]) {
+      const p = path.join(tmpDir, '.planning', 'phases', dir);
+      fs.mkdirSync(p, { recursive: true });
+      fs.writeFileSync(path.join(p, plan), '# Plan\n\n## Task 1\n');
+      fs.writeFileSync(
+        path.join(p, plan.replace('-PLAN.md', '-SUMMARY.md')),
+        `---\none-liner: ${oneLiner}\n---\n# Summary\n\n## Task 1\n`
+      );
+    }
+
+    // The CURRENT milestone (v3.0) being completed now: phases 8-9 only.
+    // Deliberately non-contiguous with the old milestones' numbers (1-5)
+    // to prove this isn't just "highest N phases" heuristic luck.
+    const p8 = path.join(tmpDir, '.planning', 'phases', '08-new-feature-a');
+    fs.mkdirSync(p8, { recursive: true });
+    fs.writeFileSync(path.join(p8, '08-01-PLAN.md'), '# Plan\n\n## Task 1\n');
+    fs.writeFileSync(
+      path.join(p8, '08-01-SUMMARY.md'),
+      '---\none-liner: v3.0 phase 8 work\n---\n# Summary\n\n## Task 1\n\n## Task 2\n\n## Task 3\n'
+    );
+    const p9 = path.join(tmpDir, '.planning', 'phases', '09-new-feature-b');
+    fs.mkdirSync(p9, { recursive: true });
+    fs.writeFileSync(path.join(p9, '09-01-PLAN.md'), '# Plan\n\n## Task 1\n');
+    fs.writeFileSync(path.join(p9, '09-02-PLAN.md'), '# Plan 2\n\n## Task 1\n');
+    fs.writeFileSync(
+      path.join(p9, '09-01-SUMMARY.md'),
+      '---\none-liner: v3.0 phase 9 work\n---\n# Summary\n\n## Task 1\n'
+    );
+
+    // Complete v3.0 WITHOUT an explicit --phases flag -- this is exactly
+    // how this fork's own complete-milestone.md workflow invokes the CLI
+    // in production (`milestone complete "v[X.Y]" --name "[Milestone
+    // Name]"`, no --phases), so the ROADMAP.md-derived fallback is what
+    // must carry this, not just the explicit-flag path.
+    const result = runGsdTools('milestone complete v3.0 --name "New Feature Set"', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const output = JSON.parse(result.output);
+
+    // The whole backlog on disk is 5 old phases + 2 current = 7 phases,
+    // 8 plans, and old+new totals a mix of tasks. Before the fix, phases
+    // would report 7 (all directories) instead of 2. This is the exact
+    // failure shape from the retrospective (e.g. v0.1.29: 73 reported vs.
+    // 10 actual; v0.1.20: 21 reported vs. 8 actual).
+    assert.strictEqual(output.phases, 2, 'should count only the current milestone\'s 2 phases, not all 5 old + 2 new on disk');
+    assert.strictEqual(output.plans, 3, 'should count only plans from phases 8 and 9 (1 + 2), not the old milestones\' plans');
+    assert.strictEqual(output.tasks, 4, 'should count only tasks from phases 8 and 9 SUMMARY.md files (3 + 1), not the old milestones\' tasks');
+
+    assert.ok(output.accomplishments.includes('v3.0 phase 8 work'), 'should include the current milestone\'s own accomplishment');
+    assert.ok(output.accomplishments.includes('v3.0 phase 9 work'), 'should include the current milestone\'s own accomplishment');
+    assert.ok(!output.accomplishments.includes('v1.0 phase 1 work'), 'must NOT include a prior, un-archived milestone\'s accomplishment');
+    assert.ok(!output.accomplishments.includes('v1.0 phase 2 work'), 'must NOT include a prior, un-archived milestone\'s accomplishment');
+    assert.ok(!output.accomplishments.includes('v2.0 phase 3 work'), 'must NOT include a prior, un-archived milestone\'s accomplishment');
+    assert.ok(!output.accomplishments.includes('v2.0 phase 4 work'), 'must NOT include a prior, un-archived milestone\'s accomplishment');
+    assert.ok(!output.accomplishments.includes('v2.0 phase 5 work'), 'must NOT include a prior, un-archived milestone\'s accomplishment');
+
+    // Scoping metadata should show this was derived from ROADMAP.md, not a
+    // silent "scan everything" fallback.
+    assert.strictEqual(output.phase_scope.source, 'ROADMAP.md "### Phase N:" headings');
+    assert.strictEqual(output.phase_scope.range, '8,9');
+
+    // The auto-generated MILESTONES.md permanent record must reflect the
+    // scoped, correct numbers -- this is the artifact the retrospective
+    // says had to be hand-corrected every time this bug recurred.
+    const milestones = fs.readFileSync(path.join(tmpDir, '.planning', 'MILESTONES.md'), 'utf-8');
+    assert.ok(milestones.includes('2 phases, 3 plans, 4 tasks'), 'MILESTONES.md entry should record the scoped counts, not the whole backlog');
+    assert.ok(!milestones.includes('7 phases'), 'MILESTONES.md entry must not record the unscoped whole-backlog phase count');
+  });
+
+  test('milestone complete honors an explicit --phases flag over ROADMAP.md derivation', () => {
+    // ROADMAP.md intentionally omits any parseable phase headings, and even
+    // if it had some, --phases should take priority (parity with milestone
+    // summarize / milestone archive-phases, which already honor --phases).
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), `# Roadmap v4.0\n`);
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'STATE.md'),
+      `# State\n\n**Status:** In progress\n**Last Activity:** 2025-01-01\n**Last Activity Description:** Working\n`
+    );
+
+    const pOld = path.join(tmpDir, '.planning', 'phases', '01-old');
+    fs.mkdirSync(pOld, { recursive: true });
+    fs.writeFileSync(path.join(pOld, '01-01-PLAN.md'), '# Plan\n');
+
+    const pNew = path.join(tmpDir, '.planning', 'phases', '12-current');
+    fs.mkdirSync(pNew, { recursive: true });
+    fs.writeFileSync(path.join(pNew, '12-01-PLAN.md'), '# Plan\n');
+    fs.writeFileSync(
+      path.join(pNew, '12-01-SUMMARY.md'),
+      '---\none-liner: current work\n---\n# Summary\n'
+    );
+
+    const result = runGsdTools('milestone complete v4.0 --name Explicit --phases 12-12', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const output = JSON.parse(result.output);
+    assert.strictEqual(output.phases, 1, 'should count only phase 12 per the explicit --phases flag');
+    assert.strictEqual(output.phase_scope.source, 'explicit --phases flag');
+    assert.strictEqual(output.phase_scope.range, '12-12');
+    assert.ok(output.accomplishments.includes('current work'));
+  });
+
+  test('milestone complete errors out (does not silently scan every phase dir) when neither --phases nor a parseable ROADMAP.md is available', () => {
+    // No "### Phase N:" headings anywhere in ROADMAP.md, and no --phases
+    // flag given, but there IS at least one real phase directory on disk --
+    // this is the exact ambiguity that must never silently resolve to
+    // "count everything".
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), `# Roadmap\n\nNo phase headings here.\n`);
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'STATE.md'),
+      `# State\n\n**Status:** In progress\n**Last Activity:** 2025-01-01\n**Last Activity Description:** Working\n`
+    );
+    const p = path.join(tmpDir, '.planning', 'phases', '01-something');
+    fs.mkdirSync(p, { recursive: true });
+    fs.writeFileSync(path.join(p, '01-01-PLAN.md'), '# Plan\n');
+
+    const result = runGsdTools('milestone complete v5.0 --name Ambiguous', tmpDir);
+    assert.strictEqual(result.success, false, 'should fail rather than silently scan every phase directory');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2598,6 +2759,320 @@ must_haves:
   });
 });
 
+// ─── Phase 299 SC-2: P0 tier-assignment plan-structure gate ─────────────────
+// runP0TierAssignmentGate shells out to igaming-platform's ONE frozen classifier
+// engine (scripts/check-p0-tier-assignment.ts, Phase 296-05) -- never
+// reimplements classifyPath()/hasTierAssignmentWork() in JS. See
+// <frozen_contract> in 299-01-PLAN.md: execFileSync THROWS on the script's
+// exit-1 violations path, so the catch block MUST distinguish a real
+// violation (status 1 + parseable {violations:[...]}) from every other
+// failure shape (ENOENT, status 2, unparseable stdout) -- the latter must
+// degrade to warnings[], never errors[], and must never be silently dropped.
+describe('verify plan-structure — P0 tier-assignment gate (Phase 299 SC-2)', () => {
+  describe('runP0TierAssignmentGate (unit, injected deps)', () => {
+    test('script absent — returns {errors:[],warnings:[]} and NEVER calls exec', () => {
+      const { runP0TierAssignmentGate } = require(TOOLS_PATH);
+      let execCalls = 0;
+      const result = runP0TierAssignmentGate('/fake/cwd', '/fake/cwd/plan.md', {
+        existsSync: () => false,
+        exec: () => { execCalls++; return ''; },
+      });
+      assert.deepStrictEqual(result, { errors: [], warnings: [] });
+      assert.strictEqual(execCalls, 0, 'exec must never be called when the script is absent');
+    });
+
+    test('script present, no violations — returns {errors:[],warnings:[]}', () => {
+      const { runP0TierAssignmentGate } = require(TOOLS_PATH);
+      const result = runP0TierAssignmentGate('/fake/cwd', '/fake/cwd/plan.md', {
+        existsSync: () => true,
+        exec: () => '{"violations":[],"exitCode":0}',
+      });
+      assert.deepStrictEqual(result, { errors: [], warnings: [] });
+    });
+
+    test('script present, exec throws with one violation — ONE errors[] entry naming path/surface class/issue, ZERO warnings (anti-neutering test)', () => {
+      const { runP0TierAssignmentGate } = require(TOOLS_PATH);
+      const err = new Error('Command failed');
+      err.status = 1;
+      err.stdout = '{"violations":[{"path":"apps/api/functions/wallet/deposit-v2.ts","p0SurfaceClass":"money-movement","issue":"P0 surface class \\"money-movement\\" touched with no tier-assignment work in scope"}],"exitCode":1}';
+      const result = runP0TierAssignmentGate('/fake/cwd', '/fake/cwd/plan.md', {
+        existsSync: () => true,
+        exec: () => { throw err; },
+      });
+      assert.strictEqual(result.errors.length, 1, 'a real violation must produce exactly one error, never a warning');
+      assert.strictEqual(result.warnings.length, 0, 'a real violation must never be downgraded to a warning');
+      assert.ok(result.errors[0].includes('apps/api/functions/wallet/deposit-v2.ts'), 'error must name the path');
+      assert.ok(result.errors[0].includes('money-movement'), 'error must name the surface class');
+      assert.ok(result.errors[0].includes('P0 surface class "money-movement" touched with no tier-assignment work in scope'), 'error must include the issue text');
+    });
+
+    test('script present, exec throws with two violations — exactly two errors[] entries, order preserved', () => {
+      const { runP0TierAssignmentGate } = require(TOOLS_PATH);
+      const err = new Error('Command failed');
+      err.status = 1;
+      err.stdout = JSON.stringify({
+        violations: [
+          { path: 'apps/api/functions/wallet/deposit-v2.ts', p0SurfaceClass: 'money-movement', issue: 'first issue' },
+          { path: 'apps/api/functions/kyc/verify.ts', p0SurfaceClass: 'kyc', issue: 'second issue' },
+        ],
+        exitCode: 1,
+      });
+      const result = runP0TierAssignmentGate('/fake/cwd', '/fake/cwd/plan.md', {
+        existsSync: () => true,
+        exec: () => { throw err; },
+      });
+      assert.strictEqual(result.errors.length, 2, 'two violations must produce exactly two errors');
+      assert.strictEqual(result.warnings.length, 0);
+      assert.ok(result.errors[0].includes('deposit-v2.ts'), 'first error must correspond to the first violation');
+      assert.ok(result.errors[1].includes('verify.ts'), 'second error must correspond to the second violation (order preserved)');
+    });
+
+    test('exec throws ENOENT (no deno on PATH) — zero errors, one warnings[] entry naming deno', () => {
+      const { runP0TierAssignmentGate } = require(TOOLS_PATH);
+      const err = new Error('spawn deno ENOENT');
+      err.code = 'ENOENT';
+      const result = runP0TierAssignmentGate('/fake/cwd', '/fake/cwd/plan.md', {
+        existsSync: () => true,
+        exec: () => { throw err; },
+      });
+      assert.strictEqual(result.errors.length, 0, 'a missing deno binary must never hard-fail the gate');
+      assert.strictEqual(result.warnings.length, 1);
+      assert.ok(result.warnings[0].toLowerCase().includes('deno'), 'warning must name deno as the missing binary');
+    });
+
+    test('exec throws status 2 (unreadable/unparseable input) — zero errors, one warnings[] entry', () => {
+      const { runP0TierAssignmentGate } = require(TOOLS_PATH);
+      const err = new Error('Command failed');
+      err.status = 2;
+      err.stdout = '';
+      const result = runP0TierAssignmentGate('/fake/cwd', '/fake/cwd/plan.md', {
+        existsSync: () => true,
+        exec: () => { throw err; },
+      });
+      assert.strictEqual(result.errors.length, 0);
+      assert.strictEqual(result.warnings.length, 1);
+    });
+
+    test('exec throws status 1 with unparseable stdout — zero errors, one warnings[] entry (must not fake a violation)', () => {
+      const { runP0TierAssignmentGate } = require(TOOLS_PATH);
+      const err = new Error('Command failed');
+      err.status = 1;
+      err.stdout = 'not json';
+      const result = runP0TierAssignmentGate('/fake/cwd', '/fake/cwd/plan.md', {
+        existsSync: () => true,
+        exec: () => { throw err; },
+      });
+      assert.strictEqual(result.errors.length, 0, 'unparseable stdout must never be treated as a violation');
+      assert.strictEqual(result.warnings.length, 1);
+    });
+
+    test('exec returns valid JSON with violations key absent entirely — zero errors, one warnings[] entry', () => {
+      const { runP0TierAssignmentGate } = require(TOOLS_PATH);
+      const result = runP0TierAssignmentGate('/fake/cwd', '/fake/cwd/plan.md', {
+        existsSync: () => true,
+        exec: () => '{"exitCode":0}',
+      });
+      assert.strictEqual(result.errors.length, 0);
+      assert.strictEqual(result.warnings.length, 1);
+    });
+  });
+
+  describe('verify plan-structure CLI — inertness regression (no scripts/check-p0-tier-assignment.ts in tmpDir)', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+      tmpDir = createTempProject();
+    });
+
+    afterEach(() => {
+      cleanup(tmpDir);
+    });
+
+    test('regression: existing valid plan fixture still exits 0 with valid:true (new gate is inert for non-QA repos)', () => {
+      const planPath = path.join(tmpDir, 'valid-plan.md');
+      fs.writeFileSync(planPath, `---
+phase: 299
+plan: "01"
+type: execute
+wave: 1
+depends_on: []
+files_modified:
+  - src/utils/helper.js
+autonomous: true
+must_haves:
+  truths:
+    - "helper.js exports a function"
+---
+<tasks>
+<task type="auto">
+<name>Task 1</name>
+<files>src/utils/helper.js</files>
+<action>Write a helper function</action>
+<verify>node -c src/utils/helper.js</verify>
+<done>helper.js exists and exports a function</done>
+</task>
+</tasks>
+`);
+      const result = runGsdTools(`verify plan-structure "${planPath}"`, tmpDir);
+      assert.ok(result.success, `Command should exit 0 on a valid plan: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.valid, true, `expected valid plan, got errors: ${JSON.stringify(parsed.errors)}`);
+      assert.strictEqual(parsed.errors.length, 0);
+    });
+
+    test('regression: .tsx plan with no checkpoint:ui-qa still exits 1 with the existing ui-qa error (new code does not disturb existing gates)', () => {
+      const planPath = path.join(tmpDir, 'tsx-plan.md');
+      fs.writeFileSync(planPath, `---
+phase: 299
+plan: "02"
+type: implementation
+wave: 1
+depends_on: []
+files_modified:
+  - src/components/Dashboard.tsx
+autonomous: true
+must_haves:
+  - Dashboard renders
+---
+
+<task type="auto">
+  <name>Build dashboard</name>
+  <files>src/components/Dashboard.tsx</files>
+  <action>Create dashboard component</action>
+  <verify>Build succeeds</verify>
+  <done>Dashboard built</done>
+</task>
+`);
+      const result = runGsdTools(`verify plan-structure "${planPath}"`, tmpDir);
+      assert.strictEqual(result.success, false, 'should still exit 1 for missing checkpoint:ui-qa');
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.valid, false);
+      assert.ok(parsed.errors.some(e => e.includes('checkpoint:ui-qa')), 'existing ui-qa error must still fire');
+    });
+  });
+});
+
+describe('verify gate-handshake — fork capability handshake (Phase 299 SC-5)', () => {
+  describe('compareGateCapabilities (pure unit)', () => {
+    test('required=[] — {ok:true, missing:[]}', () => {
+      const { compareGateCapabilities } = require(TOOLS_PATH);
+      const result = compareGateCapabilities([], ['qa-verdict-lifecycle-v1']);
+      assert.deepStrictEqual(result, { ok: true, missing: [] });
+    });
+
+    test('required=undefined (field absent in config) — {ok:true, missing:[]}', () => {
+      const { compareGateCapabilities } = require(TOOLS_PATH);
+      const result = compareGateCapabilities(undefined, ['qa-verdict-lifecycle-v1']);
+      assert.deepStrictEqual(result, { ok: true, missing: [] });
+    });
+
+    test('required=null — {ok:true, missing:[]}', () => {
+      const { compareGateCapabilities } = require(TOOLS_PATH);
+      const result = compareGateCapabilities(null, ['qa-verdict-lifecycle-v1']);
+      assert.deepStrictEqual(result, { ok: true, missing: [] });
+    });
+
+    test('required fully satisfied by provided — {ok:true, missing:[]}', () => {
+      const { compareGateCapabilities } = require(TOOLS_PATH);
+      const result = compareGateCapabilities(['qa-verdict-lifecycle-v1'], ['qa-verdict-lifecycle-v1']);
+      assert.deepStrictEqual(result, { ok: true, missing: [] });
+    });
+
+    test('one required capability missing from provided — {ok:false, missing:["future-gate-v9"]}', () => {
+      const { compareGateCapabilities } = require(TOOLS_PATH);
+      const result = compareGateCapabilities(
+        ['qa-verdict-lifecycle-v1', 'future-gate-v9'],
+        ['qa-verdict-lifecycle-v1']
+      );
+      assert.strictEqual(result.ok, false);
+      assert.deepStrictEqual(result.missing, ['future-gate-v9']);
+    });
+
+    test('provided=[] and required has entries — all missing, order preserved', () => {
+      const { compareGateCapabilities } = require(TOOLS_PATH);
+      const result = compareGateCapabilities(['a', 'b'], []);
+      assert.strictEqual(result.ok, false);
+      assert.deepStrictEqual(result.missing, ['a', 'b']);
+    });
+
+    test('non-array required (malformed declaration) — {ok:false} with a shape complaint, not a crash', () => {
+      const { compareGateCapabilities } = require(TOOLS_PATH);
+      const result = compareGateCapabilities('qa-verdict-lifecycle-v1', ['qa-verdict-lifecycle-v1']);
+      assert.strictEqual(result.ok, false);
+      assert.ok(result.reason && typeof result.reason === 'string' && result.reason.length > 0, 'must explain the shape problem');
+    });
+
+    test('duplicate IDs in required are de-duplicated in missing', () => {
+      const { compareGateCapabilities } = require(TOOLS_PATH);
+      const result = compareGateCapabilities(['a', 'a', 'b'], []);
+      assert.strictEqual(result.ok, false);
+      assert.deepStrictEqual(result.missing, ['a', 'b']);
+    });
+  });
+
+  describe('verify gate-handshake CLI', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+      tmpDir = createTempProject();
+    });
+
+    afterEach(() => {
+      cleanup(tmpDir);
+    });
+
+    test('no quality block in config.json — exit 0, ok:true, missing:[]', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'config.json'),
+        JSON.stringify({ workflow: { auto_advance: false } }, null, 2)
+      );
+      const result = runGsdTools('verify gate-handshake', tmpDir);
+      assert.ok(result.success, `expected exit 0: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.ok, true);
+      assert.deepStrictEqual(parsed.missing, []);
+    });
+
+    test('config declares only qa-verdict-lifecycle-v1 (which the fork provides) — exit 0, ok:true', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'config.json'),
+        JSON.stringify({ quality: { required_gsd_gates: ['qa-verdict-lifecycle-v1'] } }, null, 2)
+      );
+      const result = runGsdTools('verify gate-handshake', tmpDir);
+      assert.ok(result.success, `expected exit 0: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.ok, true);
+    });
+
+    test('config declares a capability the fork lacks — NON-ZERO exit, ok:false, names the missing capability', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'config.json'),
+        JSON.stringify({ quality: { required_gsd_gates: ['qa-verdict-lifecycle-v1', 'gate-that-does-not-exist-v1'] } }, null, 2)
+      );
+      const result = runGsdTools('verify gate-handshake', tmpDir);
+      assert.strictEqual(result.success, false, 'expected non-zero exit for a missing capability');
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.ok, false);
+      assert.ok(parsed.missing.includes('gate-that-does-not-exist-v1'));
+      const combined = result.output + result.error;
+      assert.ok(combined.includes('gate-that-does-not-exist-v1'), 'output must name the missing capability');
+    });
+
+    test('no .planning/config.json at all — exit 0 (no requirement declared)', () => {
+      const result = runGsdTools('verify gate-handshake', tmpDir);
+      assert.ok(result.success, `expected exit 0 with no config.json: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.ok, true);
+    });
+
+    test('gate-handshake is listed in the "Unknown verify subcommand" help string', () => {
+      const result = runGsdTools('verify bogus-subcommand', tmpDir);
+      assert.strictEqual(result.success, false);
+      assert.ok(result.error.includes('gate-handshake'), `help string must list gate-handshake: ${result.error}`);
+    });
+  });
+});
+
 // ─── Phase 34: phase complete pre-condition validation tests ─────────────────
 
 describe('phase complete — pre-condition validation (Phase 34)', () => {
@@ -2701,6 +3176,22 @@ Plans:
     assert.strictEqual(result.success, false, 'Should fail when last_step is not verify');
     const parsed = JSON.parse(result.output);
     assert.ok(parsed.validation_errors.some(e => e.includes('last_step')), 'Should report wrong last_step');
+  });
+
+  test('phase complete: E2E-TEST-PLAN.md is not treated as an incomplete numbered plan (Phase 283.1 item 4)', () => {
+    const phaseDir = createPhaseDir({ hasPlan: true, hasSummary: true, verStatus: 'passed', checkpointLastStep: 'verify' });
+    // Artifact file that ends with -PLAN.md but is NOT a numbered task plan
+    fs.writeFileSync(path.join(phaseDir, 'E2E-TEST-PLAN.md'), '# E2E Test Plan\n');
+    const result = runGsdTools('phase complete 1', tmpDir);
+    // Must NOT fail with a "no matching SUMMARY.md" completeness error for the E2E artifact
+    if (!result.success) {
+      const parsed = JSON.parse(result.output);
+      const errs = parsed.validation_errors || [];
+      assert.ok(
+        !errs.some(e => e.includes('E2E-TEST-PLAN.md')),
+        'E2E-TEST-PLAN.md must not be flagged as a plan missing its SUMMARY.md: ' + JSON.stringify(errs)
+      );
+    }
   });
 });
 
@@ -2878,6 +3369,90 @@ describe('gsd-verifier — hard-fail rules for QA and test coverage (Phase 35-03
     assert.ok(testIdx >= 0, 'check_test_file_coverage not found');
     assert.ok(outputIdx >= 0, '<output> section not found');
   });
+});
+
+// ─── B-9: checkpoint Type-line format pin (coordinator string-matches it) ──────
+
+describe('checkpoint Type-line format is pinned in return contracts (B-9)', () => {
+  const AGENTS = path.join('/Users/ollorin/get-shit-done', 'agents');
+
+  test('gsd-executor pins the exact `**Type:** <value>` line format', () => {
+    const content = readEffectiveAgentContent(path.join(AGENTS, 'gsd-executor.md'));
+    // The literal marker the coordinator matches must be documented verbatim.
+    assert.ok(content.includes('**Type:**'), 'executor must contain the literal **Type:** marker');
+    assert.ok(
+      /Type line (format )?is load-bearing/i.test(content),
+      'executor must document that the Type line format is load-bearing/pinned'
+    );
+    assert.ok(content.includes('ui-qa'), 'executor Type contract must list the ui-qa value the coordinator dispatches on');
+  });
+
+  test('gsd-debugger pins the exact `**Type:** <value>` line format', () => {
+    const content = readEffectiveAgentContent(path.join(AGENTS, 'gsd-debugger.md'));
+    assert.ok(content.includes('**Type:**'), 'debugger must contain the literal **Type:** marker');
+    assert.ok(
+      /Type line (format )?is load-bearing/i.test(content),
+      'debugger must document that the Type line format is load-bearing/pinned'
+    );
+  });
+});
+
+// ─── B-1: machine-parseable JSON status trailers on prose-header returns ───────
+
+describe('return-emitting agents carry a machine-parseable JSON status trailer (B-1)', () => {
+  const AGENTS = path.join('/Users/ollorin/get-shit-done', 'agents');
+  const cases = [
+    ['gsd-verifier.md', ['passed', 'gaps_found', 'human_needed']],
+    ['gsd-planner.md', ['planning_complete', 'plan_rejected']],
+    ['gsd-debugger.md', ['root_cause_found', 'debug_complete', 'inconclusive']],
+    ['gsd-plan-attacker.md', ['attack_complete']],
+    ['gsd-plan-defender.md', ['defense_complete', 'defense_blocked']],
+    ['gsd-plan-judge.md', ['judgment_complete', 'judgment_blocked']],
+  ];
+
+  for (const [file, statuses] of cases) {
+    test(`${file} documents a fenced JSON status trailer with expected status values`, () => {
+      const content = readEffectiveAgentContent(path.join(AGENTS, file));
+      assert.ok(
+        /status trailer \(REQUIRED\)/i.test(content),
+        `${file} must document a REQUIRED machine-parseable status trailer`
+      );
+      assert.ok(content.includes('"status"'), `${file} trailer must key on "status"`);
+      for (const s of statuses) {
+        assert.ok(content.includes(s), `${file} trailer must be able to emit status "${s}"`);
+      }
+    });
+  }
+
+  test('gsd-plan-defender and gsd-plan-judge have a malformed-YAML BLOCKED guard (B-11)', () => {
+    const defender = readEffectiveAgentContent(path.join(AGENTS, 'gsd-plan-defender.md'));
+    const judge = readEffectiveAgentContent(path.join(AGENTS, 'gsd-plan-judge.md'));
+    assert.ok(defender.includes('## DEFENSE BLOCKED'), 'defender must define a ## DEFENSE BLOCKED return');
+    assert.ok(/parse as YAML/i.test(defender), 'defender must condition BLOCKED on YAML parse failure');
+    assert.ok(judge.includes('## JUDGMENT BLOCKED'), 'judge must define a ## JUDGMENT BLOCKED return');
+    assert.ok(/parse as YAML/i.test(judge), 'judge must condition BLOCKED on YAML parse failure');
+  });
+});
+
+// ─── B-6: content_firewall coverage for content-ingesting agents ──────────────
+
+describe('content-ingesting agents carry a content_firewall block (B-6)', () => {
+  const AGENTS = path.join('/Users/ollorin/get-shit-done', 'agents');
+  const NEED_FIREWALL = [
+    'gsd-debugger.md', 'gsd-docs-updater.md', 'gsd-codebase-mapper.md',
+    'gsd-planner.md', 'gsd-verifier.md', 'gsd-plan-checker.md', 'gsd-roadmapper.md',
+  ];
+
+  for (const file of NEED_FIREWALL) {
+    test(`${file} has a <content_firewall> block after </role> pointing at the convention`, () => {
+      const raw = fs.readFileSync(path.join(AGENTS, file), 'utf8');
+      assert.ok(raw.includes('<content_firewall>'), `${file} missing <content_firewall> block`);
+      const roleEnd = raw.indexOf('</role>');
+      const fw = raw.indexOf('<content_firewall>');
+      assert.ok(roleEnd !== -1 && fw > roleEnd, `${file} <content_firewall> must appear after </role>`);
+      assert.ok(raw.includes('content-firewall.md'), `${file} must point at the content-firewall.md convention`);
+    });
+  }
 });
 
 
@@ -8012,6 +8587,29 @@ describe('Phase 51-01: STATE.md tolerant parsing (state advance-plan / state upd
     assert.deepStrictEqual(parsed, { updated: false, reason: 'Progress field not found in STATE.md' });
   });
 
+  test('regression: a non-percentage Progress convention (e.g. "N/M phases * N/M requirements") is left untouched, not overwritten with a computed percentage', () => {
+    const original = 'Progress: `[-......................] 1/22 phases · 1/32 requirements (MILE-01 complete)`';
+    writeState([
+      '# Project State',
+      '',
+      '## Current Position',
+      '',
+      'Plan: 1 of 2 in current phase',
+      original,
+      'Status: In progress',
+      '',
+    ].join('\n'));
+
+    const result = runGsdTools('state update-progress', tmpDir);
+    assert.ok(result.success, `update-progress must not throw: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.updated, false, 'a non-percentage Progress line must not be reported as updated');
+    assert.match(parsed.reason, /non-percentage format/);
+
+    const after = readState();
+    assert.ok(after.includes(original), 'the original non-percentage Progress line must survive verbatim');
+  });
+
   test('case-insensitivity: "last activity" vs "Last Activity" vs "Last activity" all match via the tolerant replacer', () => {
     const cases = ['last activity', 'Last Activity', 'Last activity'];
     for (const fieldCasing of cases) {
@@ -8410,6 +9008,177 @@ describe('Phase 51-02: resilience CLI subcommands', () => {
   });
 });
 
+// Executor Resilience Protocol: scanUsageWindow (task-level extension of the
+// Phase 51-02 resilience module -- coordinator-death recovery extended one
+// level down to plan-executors, see get-shit-done/references/resilience.md).
+describe('Executor Resilience Protocol: scanUsageWindow', () => {
+  let projectsDir;
+
+  beforeEach(() => {
+    projectsDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-usage-window-'));
+  });
+
+  afterEach(() => {
+    cleanup(projectsDir);
+  });
+
+  // mtimeOverride defaults to the latest entry timestamp (real transcript
+  // files are last-modified when their last line is appended) -- the real
+  // OS clock the test runs under has no fixed relationship to the fictional
+  // `referenceNow` timestamps used in these fixtures, so every write must
+  // pin its own mtime rather than rely on the OS's real "now".
+  function writeTranscript(slug, sessionId, entries, mtimeOverride) {
+    const slugDir = path.join(projectsDir, slug);
+    fs.mkdirSync(slugDir, { recursive: true });
+    const jsonlPath = path.join(slugDir, `${sessionId}.jsonl`);
+    fs.writeFileSync(jsonlPath, entries.map((e) => JSON.stringify(e)).join('\n') + '\n', 'utf-8');
+    const mtime = mtimeOverride || new Date(Math.max(...entries.map((e) => new Date(e.timestamp).getTime())));
+    fs.utimesSync(jsonlPath, mtime, mtime);
+    return jsonlPath;
+  }
+
+  function usageEntry(timestamp, model, usage) {
+    return { timestamp, message: { model, usage } };
+  }
+
+  test('sums input/output/cache tokens across all entries inside the window, by model family', () => {
+    const now = new Date('2026-07-13T12:00:00Z');
+    writeTranscript('-Users-foo-bar', 'sess1', [
+      usageEntry('2026-07-13T11:00:00Z', 'claude-sonnet-4-5', {
+        input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 20, cache_read_input_tokens: 10,
+      }),
+      usageEntry('2026-07-13T11:30:00Z', 'claude-opus-4', {
+        input_tokens: 200, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0,
+      }),
+    ]);
+
+    const result = resilience.scanUsageWindow(5, { projectsDir, referenceNow: now });
+    assert.strictEqual(result.messages_count, 2);
+    assert.strictEqual(result.input_tokens, 300);
+    assert.strictEqual(result.output_tokens, 150);
+    assert.strictEqual(result.cache_creation_tokens, 20);
+    assert.strictEqual(result.cache_read_tokens, 10);
+    assert.strictEqual(result.total_tokens, 480);
+    assert.strictEqual(result.by_model_family.sonnet, 180);
+    assert.strictEqual(result.by_model_family.opus, 300);
+  });
+
+  test('entries outside the window (too old or in the future) are excluded', () => {
+    const now = new Date('2026-07-13T12:00:00Z');
+    writeTranscript('-Users-foo-bar', 'sess2', [
+      usageEntry('2026-07-13T06:00:00Z', 'claude-sonnet-4-5', { input_tokens: 1000, output_tokens: 1000 }), // 6h ago, outside 5h window
+      usageEntry('2026-07-13T11:30:00Z', 'claude-sonnet-4-5', { input_tokens: 10, output_tokens: 10 }), // inside window
+      usageEntry('2026-07-13T13:00:00Z', 'claude-sonnet-4-5', { input_tokens: 999, output_tokens: 999 }), // in the future relative to referenceNow
+    ]);
+    // Force the stale entry's file mtime to be old so the mtime prefilter
+    // doesn't accidentally exclude it for the wrong reason (it should be
+    // excluded by its own timestamp, not by file mtime).
+    const filePath = path.join(projectsDir, '-Users-foo-bar', 'sess2.jsonl');
+    fs.utimesSync(filePath, now, now);
+
+    const result = resilience.scanUsageWindow(5, { projectsDir, referenceNow: now });
+    assert.strictEqual(result.messages_count, 1, 'only the one in-window entry should count');
+    assert.strictEqual(result.input_tokens, 10);
+  });
+
+  test('malformed JSON lines and entries without a usage block are skipped without throwing', () => {
+    const now = new Date('2026-07-13T12:00:00Z');
+    const slugDir = path.join(projectsDir, '-Users-foo-bar');
+    fs.mkdirSync(slugDir, { recursive: true });
+    const jsonlPath = path.join(slugDir, 'sess3.jsonl');
+    const goodEntry = usageEntry('2026-07-13T11:45:00Z', 'claude-haiku-4-5', { input_tokens: 5, output_tokens: 5 });
+    const noUsageEntry = { timestamp: '2026-07-13T11:46:00Z', message: { model: 'claude-haiku-4-5' } };
+    const lines = ['{ not valid json ][', JSON.stringify(goodEntry), JSON.stringify(noUsageEntry), ''];
+    fs.writeFileSync(jsonlPath, lines.join('\n'), 'utf-8');
+    fs.utimesSync(jsonlPath, now, now);
+
+    assert.doesNotThrow(() => resilience.scanUsageWindow(5, { projectsDir, referenceNow: now }));
+    const result = resilience.scanUsageWindow(5, { projectsDir, referenceNow: now });
+    assert.strictEqual(result.messages_count, 1);
+    assert.strictEqual(result.by_model_family.haiku, 10);
+  });
+
+  test('missing projects dir -> zeroed result, no throw', () => {
+    const missingDir = path.join(projectsDir, 'does-not-exist');
+    assert.doesNotThrow(() => resilience.scanUsageWindow(5, { projectsDir: missingDir }));
+    const result = resilience.scanUsageWindow(5, { projectsDir: missingDir });
+    assert.strictEqual(result.total_tokens, 0);
+    assert.strictEqual(result.messages_count, 0);
+    assert.deepStrictEqual(result.by_model_family, {});
+  });
+
+  test('a file whose mtime is entirely before the window is skipped by the cheap prefilter', () => {
+    const now = new Date('2026-07-13T12:00:00Z');
+    const filePath = writeTranscript('-Users-foo-bar', 'sess4', [
+      usageEntry('2026-07-13T11:45:00Z', 'claude-sonnet-4-5', { input_tokens: 50, output_tokens: 50 }),
+    ]);
+    const oldMtime = new Date('2026-07-13T05:00:00Z'); // 7h before referenceNow, well outside 5h window
+    fs.utimesSync(filePath, oldMtime, oldMtime);
+
+    const result = resilience.scanUsageWindow(5, { projectsDir, referenceNow: now });
+    assert.strictEqual(result.messages_count, 0, 'stale-mtime file must be skipped entirely, even though its one entry has a fabricated in-window timestamp');
+  });
+
+  test('non-numeric/absent --hours defaults to 5', () => {
+    const result = resilience.scanUsageWindow(NaN, { projectsDir });
+    assert.strictEqual(result.window_hours, 5);
+  });
+
+  test('CLI: resilience usage-window --hours N against a fake HOME scans ~/.claude/projects', () => {
+    const fakeHome = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-fakehome-usage-'));
+    const tmpDir = createTempProject();
+    try {
+      const slugDir = path.join(fakeHome, '.claude', 'projects', '-fake-project');
+      fs.mkdirSync(slugDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(slugDir, 'sess.jsonl'),
+        JSON.stringify(usageEntry(new Date().toISOString(), 'claude-sonnet-4-5', { input_tokens: 42, output_tokens: 8 })) + '\n',
+        'utf-8'
+      );
+
+      const result = runGsdTools('resilience usage-window --hours 24 --raw', tmpDir, { HOME: fakeHome });
+      assert.ok(result.success, `command should succeed: ${result.error}`);
+      const parsed = JSON.parse(result.output);
+      assert.strictEqual(parsed.messages_count, 1);
+      assert.strictEqual(parsed.total_tokens, 50);
+    } finally {
+      cleanup(tmpDir);
+      cleanup(fakeHome);
+    }
+  });
+});
+
+// Config plumbing for the Executor Resilience Protocol's proactive
+// usage-window pause: default OFF (null), overridable via
+// resilience.usage_pause_threshold_tokens in config.json.
+describe('Executor Resilience Protocol: usage_pause_threshold_tokens config', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  test('default (no config.json) -> null, zero behavior change', () => {
+    const result = runGsdTools('config get usage_pause_threshold_tokens --raw', tmpDir);
+    assert.ok(result.success, `command should succeed: ${result.error}`);
+    assert.strictEqual(result.output.trim(), 'null');
+  });
+
+  test('resilience.usage_pause_threshold_tokens in config.json overrides the null default', () => {
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'config.json'), JSON.stringify({
+      resilience: { usage_pause_threshold_tokens: 500000 },
+    }, null, 2));
+
+    const result = runGsdTools('config get usage_pause_threshold_tokens --raw', tmpDir);
+    assert.ok(result.success, `command should succeed: ${result.error}`);
+    assert.strictEqual(result.output.trim(), '500000');
+  });
+});
+
 describe('execute-roadmap.md resilience wiring (Phase 51-03)', () => {
   // Prose isn't unit-testable -- these are structural regression guards
   // proving the workflow file's text actually contains the CLI call
@@ -8495,6 +9264,149 @@ describe('execute-roadmap.md resilience wiring (Phase 51-03)', () => {
     assert.match(section, /"debug"/, 'handle_failure must retain the debug branch');
     assert.match(section, /"escalate"/, 'handle_failure must retain the escalate branch');
     assert.match(section, /entered ONLY for genuine `status: "failed"` task-logic failures/, 'handle_failure must have the new clarifying scope note distinguishing it from coordinator deaths');
+  });
+});
+
+describe('Executor Resilience Protocol: execute-phase.md coordinator-side wiring', () => {
+  // Prose isn't unit-testable -- these are structural regression guards
+  // proving execute-phase.md's text actually contains the CLI call
+  // references and structural pieces this protocol's coordinator-side
+  // handling claims to add, following the exact precedent set by the
+  // execute-roadmap.md resilience-wiring tests above.
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+
+  function readExecutePhase() {
+    return fs.readFileSync(path.join(REPO_ROOT, 'get-shit-done', 'workflows', 'execute-phase.md'), 'utf-8');
+  }
+
+  test('execute_waves pre-spawn handoff check exists, checks both artifacts, and is positioned before the executor spawn step', () => {
+    const content = readExecutePhase();
+
+    assert.match(content, /EXECUTOR-HANDOFF\.json/, 'must reference EXECUTOR-HANDOFF.json');
+    assert.match(content, /TASK-CHECKPOINT\.json/, 'must reference TASK-CHECKPOINT.json');
+    assert.match(content, /resolved-handoffs/, 'must archive resolved handoffs');
+    assert.match(content, /<prior_executor_handoff>/, 'must document the prior_executor_handoff prompt block');
+
+    const preSpawnIdx = content.indexOf('Check for a prior interrupted executor run');
+    const spawnStepIdx = content.indexOf('**Spawn executor agents:**');
+    assert.notStrictEqual(preSpawnIdx, -1, 'pre-spawn handoff check must exist');
+    assert.notStrictEqual(spawnStepIdx, -1, 'executor spawn step must exist');
+    assert.ok(preSpawnIdx < spawnStepIdx, 'pre-spawn handoff check must be positioned before the executor spawn step');
+  });
+
+  test('executor death / clean interruption detection exists inside handle_failures and precedes the retry ladder', () => {
+    const content = readExecutePhase();
+
+    const handleFailuresIdx = content.indexOf('**Handle failures:**');
+    const deathDetectionIdx = content.indexOf('Executor death / clean interruption detection');
+    const retryLadderIdx = content.indexOf('For real failures (not the classifyHandoffIfNeeded runtime bug, and not an executor death');
+
+    assert.notStrictEqual(handleFailuresIdx, -1, 'Handle failures step must exist');
+    assert.notStrictEqual(deathDetectionIdx, -1, 'executor death/clean interruption detection subsection must exist');
+    assert.notStrictEqual(retryLadderIdx, -1, 'retry ladder entry point must still exist, now scoped to exclude death/interruption');
+
+    assert.ok(handleFailuresIdx < deathDetectionIdx, 'death detection must be inside Handle failures');
+    assert.ok(deathDetectionIdx < retryLadderIdx, 'death detection must run before the retry ladder');
+  });
+
+  test('death detection calls parse-death, check-staleness, and branches on session_limit vs context-overflow', () => {
+    const content = readExecutePhase();
+    const deathDetectionIdx = content.indexOf('Executor death / clean interruption detection');
+    const retryLadderIdx = content.indexOf('For real failures (not the classifyHandoffIfNeeded runtime bug, and not an executor death');
+    const section = content.slice(deathDetectionIdx, retryLadderIdx);
+
+    assert.match(section, /resilience parse-death/, 'must call resilience parse-death');
+    assert.match(section, /resilience check-staleness/, 'must call resilience check-staleness');
+    assert.match(section, /PAUSED\.json/, 'must write PAUSED.json for a session-limit death');
+    assert.match(section, /"session_limit"/, 'PAUSED.json type must include session_limit');
+    assert.match(section, /paused_session_limit/, 'must be able to bubble up status: paused_session_limit');
+    assert.match(section, /30 minutes/, 'must document the 30-minute wait-vs-bubble-up threshold');
+    assert.match(section, /status.*is.*"interrupted"/, 'must recognize the executor clean-interruption via the JSON status trailer');
+    assert.match(section, /Parse the machine-readable status FIRST/, 'must parse the JSON status trailer before string-matching the prose header');
+  });
+
+  test('proactive usage-window pause check exists, is OFF by default, and is positioned before each wave spawns', () => {
+    const content = readExecutePhase();
+
+    assert.match(content, /resilience usage-window/, 'must call resilience usage-window');
+    assert.match(content, /usage_pause_threshold_tokens/, 'must read the usage_pause_threshold_tokens config key');
+    assert.match(content, /skip this check entirely/, 'must document the default-OFF zero-overhead skip path');
+    assert.match(content, /"usage_estimate"/, 'PAUSED.json type must include usage_estimate for the proactive path');
+
+    const usageCheckIdx = content.indexOf('Proactive usage-window check');
+    const waveDescribeIdx = content.indexOf('Describe what\'s being built (BEFORE spawning)');
+    assert.notStrictEqual(usageCheckIdx, -1, 'proactive usage-window check must exist');
+    assert.notStrictEqual(waveDescribeIdx, -1, 'per-wave describe step must exist');
+    assert.ok(usageCheckIdx < waveDescribeIdx, 'usage-window check must run before wave work begins');
+  });
+
+  test('references/resilience.md is linked from execute-phase.md', () => {
+    const content = readExecutePhase();
+    assert.match(content, /@get-shit-done\/references\/resilience\.md/, 'execute-phase.md must point to the resilience protocol reference doc');
+  });
+});
+
+describe('Executor Resilience Protocol: agents/gsd-executor.md self-stop wiring', () => {
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+
+  function readGsdExecutor() {
+    return fs.readFileSync(path.join(REPO_ROOT, 'agents', 'gsd-executor.md'), 'utf-8');
+  }
+
+  test('executor_resilience_protocol block exists between completion_format and success_criteria', () => {
+    const content = readGsdExecutor();
+
+    const completionFormatEndIdx = content.indexOf('</completion_format>');
+    // Search starting at completionFormatEndIdx, not from 0 -- task_commit_protocol
+    // (earlier in the file) references "<executor_resilience_protocol>" inline in
+    // backticks as a forward-pointer, which is a different occurrence than the
+    // actual block-opening tag this test is locating.
+    const resilienceBlockIdx = content.indexOf('<executor_resilience_protocol>', completionFormatEndIdx);
+    const successCriteriaIdx = content.indexOf('<success_criteria>');
+
+    assert.notStrictEqual(completionFormatEndIdx, -1, 'completion_format block must still exist');
+    assert.notStrictEqual(resilienceBlockIdx, -1, 'executor_resilience_protocol block must exist');
+    assert.notStrictEqual(successCriteriaIdx, -1, 'success_criteria block must still exist');
+
+    assert.ok(completionFormatEndIdx < resilienceBlockIdx, 'resilience protocol must come after completion_format');
+    assert.ok(resilienceBlockIdx < successCriteriaIdx, 'resilience protocol must come before success_criteria');
+  });
+
+  test('self-stop rule is headroom-based with a 95% ceiling and anti-stall guard, documents stopping as correct behavior (not a failure), and writes EXECUTOR-HANDOFF.json', () => {
+    const content = readGsdExecutor();
+    const resilienceBlockIdx = content.indexOf('<executor_resilience_protocol>');
+    const resilienceBlockEndIdx = content.indexOf('</executor_resilience_protocol>');
+    const section = content.slice(resilienceBlockIdx, resilienceBlockEndIdx);
+
+    assert.match(section, /headroom, not a flat percentage/, 'must document the headroom-based stop rule');
+    assert.match(section, />= 95%/, 'must document the 95% absolute ceiling');
+    assert.match(section, /Anti-stall guard/, 'must include the anti-stall guard so small-window models cannot loop into permanent handoffs');
+    assert.match(section, /## PLAN BLOCKED/, 'anti-stall guard must define the PLAN BLOCKED escape for tasks that cannot fit any window');
+    assert.match(section, /Machine-parseable status trailer/, 'must require a machine-parseable JSON status trailer so coordinators do not string-match the prose header');
+    assert.match(section, /"status": "interrupted"/, 'the JSON status trailer must document the interrupted status value');
+    assert.match(section, /CORRECT behavior/, 'must state that stopping cleanly is correct behavior');
+    assert.match(section, /never a failure/, 'must explicitly state this is never a failure');
+    assert.match(section, /EXECUTOR-HANDOFF\.json/, 'must write EXECUTOR-HANDOFF.json');
+    assert.match(section, /TASK-CHECKPOINT\.json/, 'must also commit TASK-CHECKPOINT.json alongside the handoff');
+    assert.match(section, /## PLAN INTERRUPTED — continuation needed/, 'must return the PLAN INTERRUPTED completion format instead of PLAN COMPLETE');
+    assert.match(section, /"reason": "context_pressure"/, 'EXECUTOR-HANDOFF.json schema must include reason: context_pressure');
+  });
+
+  test('task_commit_protocol step 6 writes TASK-CHECKPOINT.json after every task commit', () => {
+    const content = readGsdExecutor();
+    const protocolIdx = content.indexOf('<task_commit_protocol>');
+    const protocolEndIdx = content.indexOf('</task_commit_protocol>');
+    assert.notStrictEqual(protocolIdx, -1, 'task_commit_protocol block must exist');
+    const section = content.slice(protocolIdx, protocolEndIdx);
+
+    assert.match(section, /TASK-CHECKPOINT\.json/, 'task_commit_protocol must write TASK-CHECKPOINT.json');
+    assert.match(section, /overwrite-latest/, 'must document the overwrite-latest convention');
+    assert.match(section, /NOT committed per-task/, 'must document that this file is not committed per-task');
+  });
+
+  test('references/resilience.md is linked from agents/gsd-executor.md', () => {
+    const content = readGsdExecutor();
+    assert.match(content, /@get-shit-done\/references\/resilience\.md/, 'gsd-executor.md must point to the resilience protocol reference doc');
   });
 });
 
@@ -8729,6 +9641,141 @@ describe('Phase 52-01: SessionStart skew-check helpers + execute-roadmap.md pref
       const content = readExecuteRoadmap();
       assert.match(content, /resilience estimate-quota/, 'preflight_quota_estimate content must still be present');
       assert.match(content, /quota_preflight_ok/, 'preflight_quota_estimate content must still be present');
+    });
+  });
+});
+
+describe('Hook hardening (C-1/C-3/C-4): fail-open + bounded + distinguishable-failure', () => {
+  const { spawnSync } = require('child_process');
+  const os = require('os');
+  const HOOKS_DIR = path.join(__dirname, 'hooks'); // get-shit-done/bin/hooks
+  const CHECK_UPDATE_HOOK = path.join(__dirname, '..', '..', 'hooks', 'gsd-check-update.js');
+  const PROTECT_HOOK = path.join(HOOKS_DIR, 'gsd-protect-managed-files.js');
+  const SESSION_END_HOOK = path.join(HOOKS_DIR, 'session-end-standalone.js');
+
+  function runHook(hookPath, payload, extraEnv, args) {
+    const res = spawnSync(process.execPath, [hookPath, ...(args || [])], {
+      input: payload,
+      encoding: 'utf-8',
+      env: { ...process.env, ...(extraEnv || {}) },
+      timeout: 20000,
+    });
+    return { exitCode: res.status, stdout: res.stdout || '', stderr: res.stderr || '' };
+  }
+
+  // C-4: buildUpdateCachePayload — a genuine failure must be distinguishable
+  // from "up to date" via a non-null error field; a clean success stays null.
+  describe('C-4 buildUpdateCachePayload', () => {
+    const { buildUpdateCachePayload } = require(CHECK_UPDATE_HOOK);
+
+    test('up-to-date: update_available false, error null', () => {
+      const p = buildUpdateCachePayload('1.2.0', '1.2.0', null);
+      assert.strictEqual(p.update_available, false);
+      assert.strictEqual(p.error, null);
+      assert.strictEqual(p.latest, '1.2.0');
+      assert.strictEqual(typeof p.checked, 'number');
+    });
+
+    test('update available: update_available true, error null', () => {
+      const p = buildUpdateCachePayload('1.1.0', '1.2.0', null);
+      assert.strictEqual(p.update_available, true);
+      assert.strictEqual(p.error, null);
+    });
+
+    test('fetch failure is distinguishable: error set, update_available false, latest "unknown"', () => {
+      const p = buildUpdateCachePayload('1.1.0', null, 'ENOTFOUND registry.npmjs.org');
+      assert.strictEqual(p.update_available, false, 'a failed check must NOT look like an available update');
+      assert.strictEqual(p.error, 'ENOTFOUND registry.npmjs.org');
+      assert.strictEqual(p.latest, 'unknown');
+    });
+
+    test('missing installed version never spuriously reports an update', () => {
+      const p = buildUpdateCachePayload(null, '1.2.0', null);
+      assert.strictEqual(p.update_available, false);
+      assert.strictEqual(p.installed, 'unknown');
+    });
+  });
+
+  // C-1: a corrupt manifest must fail OPEN (exit 0) but VISIBLY warn on stderr,
+  // never silently disable protection.
+  describe('C-1 gsd-protect-managed-files corrupt-manifest signal', () => {
+    test('corrupt manifest → exit 0 + stderr warning that protection is disabled', () => {
+      const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-protect-corrupt-'));
+      try {
+        fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+        fs.writeFileSync(path.join(home, '.claude', 'gsd-file-manifest.json'), 'garbage{{ not json');
+        const payload = JSON.stringify({
+          tool_name: 'Edit',
+          tool_input: { file_path: path.join(home, '.claude', 'agents', 'x.md') },
+        });
+        const r = runHook(PROTECT_HOOK, payload, { HOME: home });
+        assert.strictEqual(r.exitCode, 0, 'corrupt manifest must fail open (exit 0)');
+        assert.match(r.stderr, /\[gsd-protect\].*protection is DISABLED/i, 'must visibly warn protection is off');
+      } finally {
+        cleanup(home);
+      }
+    });
+
+    test('malformed stdin fails open (exit 0)', () => {
+      const r = runHook(PROTECT_HOOK, 'not json {{{');
+      assert.strictEqual(r.exitCode, 0);
+    });
+  });
+
+  // C-3: session-end must always exit 0, and expose the bounded --run-maintenance
+  // subcommand that the parent invokes under a kill deadline.
+  describe('C-3 session-end-standalone bounded maintenance', () => {
+    test('minimal Stop payload exits 0', () => {
+      const r = runHook(SESSION_END_HOOK, JSON.stringify({ session_id: 'abc' }));
+      assert.strictEqual(r.exitCode, 0);
+    });
+
+    test('empty stdin exits 0', () => {
+      const r = runHook(SESSION_END_HOOK, '');
+      assert.strictEqual(r.exitCode, 0);
+    });
+
+    test('--run-maintenance subcommand exits 0 even when knowledge DB modules are unavailable', () => {
+      const r = runHook(SESSION_END_HOOK, '', null, ['--run-maintenance']);
+      assert.strictEqual(r.exitCode, 0, 'maintenance worker must be best-effort and never fail the stop');
+    });
+
+    test('source wires a hard kill deadline and an async watchdog', () => {
+      const src = fs.readFileSync(SESSION_END_HOOK, 'utf-8');
+      assert.match(src, /execFileSync/, 'must bound synchronous maintenance in a child process');
+      assert.match(src, /--run-maintenance/, 'must route the child subcommand');
+      assert.match(src, /setTimeout\(\(\)\s*=>\s*process\.exit\(0\)/, 'must have an absolute watchdog');
+    });
+  });
+
+  // C-2: expected conditions must not spray a full stack trace into stderr.
+  describe('C-2 doc-compression-hook quiet errors + single enable-check', () => {
+    const DOC_HOOK = path.join(HOOKS_DIR, 'doc-compression-hook.js');
+
+    test('no error.stack dump remains in the catch handler', () => {
+      const src = fs.readFileSync(DOC_HOOK, 'utf-8');
+      assert.ok(!/console\.error\(error\.stack\)/.test(src), 'stack-trace dump must be removed');
+    });
+
+    test('the redundant second config.enabled/compression.enabled check is gone', () => {
+      const src = fs.readFileSync(DOC_HOOK, 'utf-8');
+      const enabledChecks = (src.match(/!config\.enabled\s*\|\|\s*!config\.compression\.enabled/g) || []).length;
+      assert.strictEqual(enabledChecks, 0, 'the post-load enabled re-check should be collapsed away');
+    });
+  });
+
+  // C-5: shared quota/dedup state must be written atomically (temp + rename) so
+  // concurrent statusline renders can never read torn JSON.
+  describe('C-5 gsd-statusline atomic shared-state writes', () => {
+    const STATUSLINE_HOOK = path.join(__dirname, '..', '..', 'hooks', 'gsd-statusline.js');
+
+    test('defines atomicWriteFileSync and uses rename for the shared quota state', () => {
+      const src = fs.readFileSync(STATUSLINE_HOOK, 'utf-8');
+      assert.match(src, /function atomicWriteFileSync/, 'must define an atomic write helper');
+      assert.match(src, /fs\.renameSync/, 'atomic write must rename over the target');
+      assert.match(src, /atomicWriteFileSync\(quotaStatePath/, 'shared quota state must be written atomically');
+      assert.match(src, /atomicWriteFileSync\(dedupFile/, 'dedup state must be written atomically');
+      assert.ok(!/fs\.writeFileSync\(quotaStatePath/.test(src), 'no non-atomic write of the shared quota state');
     });
   });
 });
@@ -11375,6 +12422,39 @@ describe('Phase 57-01 [Rule 1 fix]: roadmap update-plan-progress preserves the M
     const row58 = updated.split('\n').find((l) => l.startsWith('| 58.'));
     assert.strictEqual(row58, '| 58. Next Phase | v1.15.0 | 0/TBD | Not started | - |');
   });
+
+  test('regression: a 3-column table (Phase | Requirements | Status -- no Milestone/Completed columns) is left untouched, not corrupted by the 5-column rewrite', () => {
+    const phaseDir = path.join(tmpDir, '.planning', 'phases', '57-routing-ledger-escalation');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    fs.writeFileSync(path.join(phaseDir, '57-01-PLAN.md'), '# plan 1');
+    fs.writeFileSync(path.join(phaseDir, '57-02-PLAN.md'), '# plan 2');
+    fs.writeFileSync(path.join(phaseDir, '57-01-SUMMARY.md'), '# summary 1');
+
+    const roadmapPath = path.join(tmpDir, '.planning', 'ROADMAP.md');
+    const row57 = '| 57 Outcome-Informed Routing Ledger | MILE-01/02 | Not started |';
+    const row58 = '| 58 Next Phase | MILE-03 | Not started |';
+    fs.writeFileSync(roadmapPath, [
+      '# Roadmap',
+      '',
+      '#### Progress',
+      '',
+      '| Phase | Requirements | Status |',
+      '| --- | --- | --- |',
+      row57,
+      row58,
+      '',
+    ].join('\n'), 'utf-8');
+
+    const result = runGsdTools('roadmap update-plan-progress 57', tmpDir);
+    assert.ok(result.success, `expected exit 0: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.table_header_columns, 3, 'must detect the real 3-column header');
+    assert.strictEqual(parsed.table_updated, false, 'must not attempt the 5-column rewrite against a 3-column table');
+
+    const updated = fs.readFileSync(roadmapPath, 'utf-8');
+    assert.ok(updated.includes(row57), 'the 3-column Phase 57 row must survive verbatim, untouched');
+    assert.ok(updated.includes(row58), 'the neighboring Phase 58 row must not be corrupted or merged into');
+  });
 });
 
 describe('Phase 57-03: failure classification & escalation bound logic', () => {
@@ -12177,7 +13257,7 @@ describe('Phase 59-01: agent drift refresh (content_firewall + telemetry)', () =
   const REPO_ROOT = path.join(__dirname, '..', '..');
   const TEST_WRITER_PATH = path.join(REPO_ROOT, 'agents', 'gsd-test-writer.md');
   const INTEGRATION_TESTER_PATH = path.join(REPO_ROOT, 'agents', 'gsd-integration-tester.md');
-  const TELEMETRY_LINE = '**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}';
+  const TELEMETRY_LINE = '**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed=[{rule, why}, ...], ambiguities={count}, tool_errors_swallowed={count}';
 
   function readRepoFile(relPath) {
     return fs.readFileSync(relPath, 'utf-8');
@@ -12211,11 +13291,17 @@ describe('Phase 59-01: agent drift refresh (content_firewall + telemetry)', () =
     assert.ok(content.includes(TELEMETRY_LINE), 'expected gsd-integration-tester.md to contain the exact 4-field telemetry line');
   });
 
-  test('boundary: gsd-planner.md and gsd-debugger.md carry NO <content_firewall> block (blast radius confined to test-writer/integration-tester)', () => {
+  test('gsd-planner.md and gsd-debugger.md now carry a <content_firewall> block (B-6 coverage extension)', () => {
+    // Phase 59-01 originally confined the firewall to test-writer/integration-tester.
+    // B-6 (gsd-prompts review) extended coverage to all content-ingesting agents,
+    // debugger first (it has Write/Edit and ingests target-repo content). This
+    // assertion is intentionally inverted from the original boundary test.
     const plannerContent = readRepoFile(path.join(REPO_ROOT, 'agents', 'gsd-planner.md'));
     const debuggerContent = readRepoFile(path.join(REPO_ROOT, 'agents', 'gsd-debugger.md'));
-    assert.ok(!plannerContent.includes('<content_firewall>'), 'expected gsd-planner.md to be untouched by this plan\'s drift refresh');
-    assert.ok(!debuggerContent.includes('<content_firewall>'), 'expected gsd-debugger.md to be untouched by this plan\'s drift refresh');
+    assert.ok(plannerContent.includes('<content_firewall>'), 'expected gsd-planner.md to carry a <content_firewall> block (B-6)');
+    assert.ok(plannerContent.includes('content-firewall.md'), 'expected gsd-planner.md to point at the content-firewall.md convention');
+    assert.ok(debuggerContent.includes('<content_firewall>'), 'expected gsd-debugger.md to carry a <content_firewall> block (B-6)');
+    assert.ok(debuggerContent.includes('content-firewall.md'), 'expected gsd-debugger.md to point at the content-firewall.md convention');
   });
 
   test('regression guard: CHANGELOG.md documents both new toggle defaults under Unreleased/Added', () => {
@@ -13040,7 +14126,7 @@ describe('Phase 60-02: adversarial-review trio agent files structural validation
   const matter = require('gray-matter');
 
   const AGENTS_DIR = path.join(__dirname, '..', '..', 'agents');
-  const TELEMETRY_LINE = '**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}';
+  const TELEMETRY_LINE = '**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed=[{rule, why}, ...], ambiguities={count}, tool_errors_swallowed={count}';
 
   const AGENT_FILES = [
     { file: 'gsd-plan-attacker.md', name: 'gsd-plan-attacker' },
@@ -13589,5 +14675,388 @@ go 1.21
     assert.ok(content.includes('checks'), 'Should contain checks array reference');
     assert.ok(content.includes('gate pre-pr --mark-passed'), 'Should contain mark-passed command');
     assert.ok(content.includes('"passed": true'), 'Should contain "passed": true verification (space matches output()\'s JSON.stringify(result, null, 2) pretty-printing)');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GSD prompts review — D-1/D-2/D-4/D-5 fixes (gsd-prompts-review.md)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('D-1: config get reads nested dotted keys + --default (auto-advance/auto-chain no longer dead)', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function writeConfig(obj) {
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'config.json'),
+      JSON.stringify(obj, null, 2)
+    );
+  }
+
+  test('config get workflow.auto_advance --raw returns the nested value "true" (regression: flat lookup returned "Unknown config key")', () => {
+    writeConfig({ workflow: { auto_advance: true, _auto_chain_active: false } });
+    const result = runGsdTools('config get workflow.auto_advance --raw --default false', tmpDir);
+    assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+    assert.strictEqual(result.output, 'true');
+  });
+
+  test('config get workflow._auto_chain_active --raw returns the nested "false"', () => {
+    writeConfig({ workflow: { auto_advance: true, _auto_chain_active: false } });
+    const result = runGsdTools('config get workflow._auto_chain_active --raw --default false', tmpDir);
+    assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+    assert.strictEqual(result.output, 'false');
+  });
+
+  test('config get git.branching_strategy --raw returns the nested git.* value', () => {
+    writeConfig({ git: { branching_strategy: 'milestone' } });
+    const result = runGsdTools('config get git.branching_strategy --raw --default none', tmpDir);
+    assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+    assert.strictEqual(result.output, 'milestone');
+  });
+
+  test('--default is emitted (exit 0) when the key is absent, so callers no longer need `|| echo "false"` masking', () => {
+    writeConfig({ workflow: {} });
+    const result = runGsdTools('config get workflow.auto_advance --raw --default false', tmpDir);
+    assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+    assert.strictEqual(result.output, 'false');
+  });
+
+  test('missing key WITHOUT --default still errors (exit 1) so genuine failures surface', () => {
+    writeConfig({ workflow: {} });
+    const result = runGsdTools('config get workflow.auto_advance --raw', tmpDir);
+    assert.strictEqual(result.success, false, 'expected non-zero exit for an unknown key with no default');
+  });
+
+  test('normalized flat keys (e.g. test_writer_enabled) still resolve unchanged', () => {
+    const result = runGsdTools('config get test_writer_enabled --raw', tmpDir);
+    assert.ok(result.success, `expected exit 0, got: ${result.error}`);
+    assert.strictEqual(result.output, 'false');
+  });
+
+  test('no workflow/agent file uses the nonexistent hyphenated `config-get` subcommand', () => {
+    const REPO_ROOT = path.join(__dirname, '..', '..');
+    const files = [
+      'get-shit-done/workflows/execute-phase.md',
+      'get-shit-done/workflows/execute-roadmap.md',
+      'get-shit-done/workflows/plan-phase.md',
+      'get-shit-done/workflows/discuss-phase.md',
+      'get-shit-done/workflows/execute-plan.md',
+      'agents/gsd-executor.md',
+    ];
+    for (const f of files) {
+      const content = fs.readFileSync(path.join(REPO_ROOT, f), 'utf-8');
+      assert.ok(!/config-get\b/.test(content), `${f} must not call the nonexistent \`config-get\` subcommand`);
+    }
+  });
+
+  test('the auto-advance call sites use the corrected `config get workflow.auto_advance --raw` form', () => {
+    const REPO_ROOT = path.join(__dirname, '..', '..');
+    for (const f of ['get-shit-done/workflows/execute-phase.md', 'get-shit-done/workflows/plan-phase.md', 'get-shit-done/workflows/discuss-phase.md']) {
+      const content = fs.readFileSync(path.join(REPO_ROOT, f), 'utf-8');
+      assert.ok(content.includes('config get workflow.auto_advance --raw'), `${f} should use the corrected \`config get workflow.auto_advance --raw\` invocation`);
+    }
+  });
+});
+
+describe('D-2: audit-milestone.md writes the single-prefix filename complete-milestone reads', () => {
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  const AUDIT_PATH = path.join(REPO_ROOT, 'get-shit-done', 'workflows', 'audit-milestone.md');
+  const COMPLETE_CMD_PATH = path.join(REPO_ROOT, 'commands', 'gsd', 'complete-milestone.md');
+
+  test('audit-milestone.md no longer contains the doubled-prefix v{version}-v{version}- filename', () => {
+    const content = fs.readFileSync(AUDIT_PATH, 'utf-8');
+    assert.ok(!content.includes('v{version}-v{version}-MILESTONE-AUDIT.md'), 'the doubled-prefix output path must be gone');
+  });
+
+  test('audit-milestone.md step-6 Create instruction targets the single-prefix .planning/v{version}-MILESTONE-AUDIT.md', () => {
+    const content = fs.readFileSync(AUDIT_PATH, 'utf-8');
+    assert.ok(content.includes('Create `.planning/v{version}-MILESTONE-AUDIT.md`'), 'step 6 must Create the single-prefix report path');
+  });
+
+  test('the writer path matches what complete-milestone.md reads (single-prefix MILESTONE-AUDIT.md)', () => {
+    const cmd = fs.readFileSync(COMPLETE_CMD_PATH, 'utf-8');
+    assert.ok(cmd.includes('v{{version}}-MILESTONE-AUDIT.md'), 'reader should look for the single-prefix filename');
+    assert.ok(!cmd.includes('v{{version}}-v{{version}}-MILESTONE-AUDIT.md'), 'reader must not expect a doubled prefix');
+  });
+});
+
+describe('D-4: verify-phase.md wiring grep is not hardcoded to src/ + .ts/.tsx', () => {
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  const VERIFY_PATH = path.join(REPO_ROOT, 'get-shit-done', 'workflows', 'verify-phase.md');
+
+  test('the Level-3 wiring grep no longer hardcodes `src/ --include="*.ts" --include="*.tsx"`', () => {
+    const content = fs.readFileSync(VERIFY_PATH, 'utf-8');
+    assert.ok(!content.includes('src/ --include="*.ts" --include="*.tsx"'), 'the src/-only, ts/tsx-only grep must be generalized (false ORPHANED on apps/libs layouts)');
+  });
+
+  test('verify-phase.md derives search roots from the repo layout (handles apps/libs/functions)', () => {
+    const content = fs.readFileSync(VERIFY_PATH, 'utf-8');
+    assert.ok(content.includes('SEARCH_ROOTS'), 'should derive SEARCH_ROOTS from the actual layout');
+    assert.ok(/apps/.test(content) && /libs/.test(content) && /functions/.test(content), 'should consider apps/libs/functions layouts');
+  });
+});
+
+describe('D-5: shared-file-writes.md exists and is @-referenced from shared-planning-file mutators', () => {
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  const REF_PATH = path.join(REPO_ROOT, 'get-shit-done', 'references', 'shared-file-writes.md');
+
+  test('references/shared-file-writes.md exists with the canonical re-read-before-write rule', () => {
+    assert.ok(fs.existsSync(REF_PATH), 'shared-file-writes.md must exist');
+    const content = fs.readFileSync(REF_PATH, 'utf-8');
+    assert.ok(/re-?read/i.test(content), 'must state the re-read-before-write rule');
+    assert.ok(content.includes('STATE.md') && content.includes('ROADMAP.md') && content.includes('config.json'), 'must name the shared planning files');
+    assert.ok(/config-set|mutator/i.test(content), 'must prefer atomic gsd-tools mutators');
+  });
+
+  test('every shared-planning-file mutator @-references shared-file-writes.md', () => {
+    const mutators = [
+      'get-shit-done/workflows/transition.md',
+      'get-shit-done/workflows/settings.md',
+      'get-shit-done/workflows/new-milestone.md',
+      'get-shit-done/workflows/quick.md',
+      'get-shit-done/references/executor-detail.md',
+    ];
+    for (const f of mutators) {
+      const content = fs.readFileSync(path.join(REPO_ROOT, f), 'utf-8');
+      assert.ok(content.includes('references/shared-file-writes.md'), `${f} must @-reference shared-file-writes.md before mutating a shared planning file`);
+    }
+  });
+});
+
+describe('D-3: health.md targets a real validate subcommand, not the fictional `validate health`', () => {
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  const HEALTH_PATH = path.join(REPO_ROOT, 'get-shit-done', 'workflows', 'health.md');
+
+  test('the dispatcher rejects `validate health` (only `consistency` exists)', () => {
+    const tmpDir = createTempProject();
+    try {
+      const result = runGsdTools('validate health', tmpDir);
+      const combined = result.output + (result.error || '');
+      assert.ok(!result.success, '`validate health` must not succeed');
+      assert.ok(/Available: consistency/.test(combined), `error must name the only real subcommand, got: ${combined}`);
+    } finally {
+      cleanup(tmpDir);
+    }
+  });
+
+  test('health.md no longer calls the nonexistent `validate health` subcommand', () => {
+    const content = fs.readFileSync(HEALTH_PATH, 'utf-8');
+    assert.ok(!/validate health/.test(content), 'health.md must not call `validate health`');
+  });
+
+  test('health.md calls the real `validate consistency` subcommand', () => {
+    const content = fs.readFileSync(HEALTH_PATH, 'utf-8');
+    assert.ok(content.includes('validate consistency'), 'health.md must call `validate consistency`');
+  });
+
+  test('health.md drops the fictional error-code table and nonexistent repair actions', () => {
+    const content = fs.readFileSync(HEALTH_PATH, 'utf-8');
+    for (const code of ['E001', 'E002', 'E003', 'E004', 'E005', 'W001', 'W007']) {
+      assert.ok(!content.includes(code), `health.md must not document fictional code ${code}`);
+    }
+    for (const action of ['createConfig', 'resetConfig', 'regenerateState']) {
+      assert.ok(!content.includes(action), `health.md must not reference nonexistent repair action ${action}`);
+    }
+  });
+});
+
+describe('D-6: complete-milestone.md — one ROADMAP-reorganization step, bound commit vars', () => {
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  const CM_PATH = path.join(REPO_ROOT, 'get-shit-done', 'workflows', 'complete-milestone.md');
+
+  test('the duplicate early reorganize_roadmap step (pre-archival) is removed', () => {
+    const content = fs.readFileSync(CM_PATH, 'utf-8');
+    // Only the idempotent post-archival step may remain.
+    assert.ok(!/<step name="reorganize_roadmap">/.test(content), 'early reorganize_roadmap step must be deleted (it archived a stripped ROADMAP)');
+    assert.ok(content.includes('<step name="reorganize_roadmap_and_delete_originals">'), 'the idempotent post-archival reorganize step must remain');
+  });
+
+  test('the post-archival reorganize step runs after archive_milestone (correct ordering)', () => {
+    const content = fs.readFileSync(CM_PATH, 'utf-8');
+    const archiveIdx = content.indexOf('<step name="archive_milestone">');
+    const reorgIdx = content.indexOf('<step name="reorganize_roadmap_and_delete_originals">');
+    assert.ok(archiveIdx > -1 && reorgIdx > -1, 'both steps must exist');
+    assert.ok(reorgIdx > archiveIdx, 'reorganize must run AFTER archival so the archive keeps full ROADMAP detail');
+  });
+
+  test('FIRST_COMMIT and LAST_COMMIT are bound, not bare placeholders', () => {
+    const content = fs.readFileSync(CM_PATH, 'utf-8');
+    assert.ok(/FIRST_COMMIT=\$\(git log/.test(content), 'FIRST_COMMIT must be bound from git log');
+    assert.ok(/LAST_COMMIT=\$\(git log/.test(content), 'LAST_COMMIT must be bound from git log');
+    // The old unbound usage `FIRST_COMMIT..LAST_COMMIT` (bare, unquoted) must be gone.
+    assert.ok(!/ FIRST_COMMIT\.\.LAST_COMMIT/.test(content), 'bare unbound FIRST_COMMIT..LAST_COMMIT usage must be gone');
+  });
+});
+
+describe('A-2: shared dispatcher-contract reference exists and thin dispatchers @-reference it', () => {
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  const CONTRACT_PATH = path.join(REPO_ROOT, 'get-shit-done', 'references', 'dispatcher-contract.md');
+  const COMMANDS_DIR = path.join(REPO_ROOT, 'commands', 'gsd');
+
+  test('references/dispatcher-contract.md exists with the STOP-do-not-improvise failure path', () => {
+    assert.ok(fs.existsSync(CONTRACT_PATH), 'dispatcher-contract.md must exist');
+    const content = fs.readFileSync(CONTRACT_PATH, 'utf-8');
+    assert.ok(/STOP/.test(content), 'contract must tell the dispatcher to STOP on load failure');
+    assert.ok(/improvis/i.test(content), 'contract must forbid improvising the workflow');
+    assert.ok(/installer|install\.js/i.test(content), 'contract must point at re-running the installer on load failure');
+    assert.ok(/state/i.test(content), 'contract must require reporting what state was written on an unrecoverable error');
+  });
+
+  test('the thin dispatcher commands @-reference the shared contract', () => {
+    const dispatchers = [
+      'execute-phase', 'execute-roadmap', 'plan-phase', 'quick', 'new-project',
+      'new-milestone', 'audit-milestone', 'plan-milestone-gaps', 'insert-phase',
+      'debug', 'verify-work', 'add-phase', 'add-todo', 'check-todos', 'mine-conversations',
+    ];
+    for (const name of dispatchers) {
+      const content = fs.readFileSync(path.join(COMMANDS_DIR, `${name}.md`), 'utf-8');
+      assert.ok(
+        content.includes('references/dispatcher-contract.md'),
+        `${name}.md must @-reference the shared dispatcher-contract for its failure path`
+      );
+    }
+  });
+});
+
+// Agent-to-agent messaging layer (SendMessage). Structural/prose guards for the
+// messaging patterns that compose on top of the Executor Resilience Protocol.
+// SendMessage cannot be runtime-simulated here, so these assert the wiring is
+// documented in the agent/workflow/reference .md files — same style as the
+// resilience prose guards above. Repo root is two levels up from this file's
+// __dirname (get-shit-done/bin/ -> get-shit-done/ -> repo root).
+describe('Agent messaging (SendMessage) — prompt-layer wiring', () => {
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  function readRepoFile(rel) {
+    return fs.readFileSync(path.join(REPO_ROOT, rel), 'utf-8');
+  }
+
+  test('references/agent-messaging.md exists and documents the 3 hard semantics + 6 application patterns', () => {
+    const p = path.join(REPO_ROOT, 'get-shit-done', 'references', 'agent-messaging.md');
+    assert.ok(fs.existsSync(p), 'get-shit-done/references/agent-messaging.md must exist as the single source');
+    const content = fs.readFileSync(p, 'utf-8');
+
+    // Hard semantic #1 — delivery at next tool round, cooperative not preemptive
+    assert.match(content, /next tool round/i, 'must document semantic #1: delivery at the recipient next tool round');
+    assert.match(content, /COOPERATIVE/i, 'must document that messaging is a cooperative signal, not a preemptive halt');
+    // Hard semantic #2 — upward-only limit signals
+    assert.match(content, /cannot observe another agent/i, 'must document semantic #2: a subagent cannot observe another agent context/session');
+    assert.match(content, /flow UP|UPWARD|to: "main"/i, 'must document that limit signals flow upward (to: "main")');
+    // Hard semantic #3 — resume-by-agentId same-session-only
+    assert.match(content, /SAME-SESSION only/i, 'must document semantic #3: resume-by-agentId is same-session only');
+    assert.match(content, /PAUSED\.json|handoff-doc/i, 'must state the handoff-doc + PAUSED.json path is the durable cross-session fallback');
+
+    // All 6 application patterns named
+    for (let n = 1; n <= 6; n++) {
+      assert.match(content, new RegExp(`App #${n}`), `agent-messaging.md must document App #${n}`);
+    }
+
+    // Recipient forms
+    assert.match(content, /agentId/, 'must document the agentId recipient form');
+    assert.match(content, /teammate NAME/i, 'must document the teammate NAME recipient form');
+  });
+
+  test('the 5 signalling/coordinating agents have SendMessage in their tools frontmatter', () => {
+    const agents = [
+      'gsd-executor', 'gsd-phase-coordinator', 'gsd-plan-checker',
+      'gsd-charlotte-qa', 'gsd-verifier',
+    ];
+    for (const name of agents) {
+      const content = readRepoFile(path.join('agents', `${name}.md`));
+      const toolsLine = content.split('\n').find((l) => l.startsWith('tools:'));
+      assert.ok(toolsLine, `${name}.md must have a tools: frontmatter line`);
+      assert.match(toolsLine, /\bSendMessage\b/, `${name}.md tools: line must include SendMessage`);
+    }
+  });
+
+  test('read-only mapper/researcher agents did NOT get SendMessage', () => {
+    // Guard against over-broad application — the tool goes only on signalling agents.
+    for (const name of ['gsd-codebase-mapper', 'gsd-project-researcher']) {
+      const content = readRepoFile(path.join('agents', `${name}.md`));
+      const toolsLine = content.split('\n').find((l) => l.startsWith('tools:'));
+      if (toolsLine) {
+        assert.doesNotMatch(toolsLine, /\bSendMessage\b/, `${name}.md must NOT have SendMessage in tools`);
+      }
+    }
+  });
+
+  test('App #1: executor self-stop path emits the upward continuation signal to "main"', () => {
+    const content = readRepoFile(path.join('agents', 'gsd-executor.md'));
+    const protoStart = content.indexOf('<executor_resilience_protocol>');
+    const protoEnd = content.indexOf('</executor_resilience_protocol>');
+    assert.ok(protoStart !== -1 && protoEnd > protoStart, 'executor_resilience_protocol block must exist');
+    const proto = content.slice(protoStart, protoEnd);
+    assert.match(proto, /SendMessage/, 'self-stop path must SendMessage');
+    assert.match(proto, /to: "main"/, 'self-stop signal must go upward to "main"');
+    assert.match(proto, /continuation needed — handoff written/, 'must carry the App #1 summary');
+    // Additive, not a replacement — handoff + trailer remain
+    assert.match(proto, /EXECUTOR-HANDOFF\.json/, 'handoff file must remain the durable record');
+  });
+
+  test('App #2: execute-phase.md documents resume-by-agentId vs cold-spawn and captures agentId', () => {
+    const content = readRepoFile('get-shit-done/workflows/execute-phase.md');
+    assert.match(content, /EXECUTOR_AGENT_IDS/, 'coordinator must capture/retain executor agentIds');
+    assert.match(content, /resume-by-agentId/i, 'must document the resume-by-agentId path');
+    assert.match(content, /cold (fresh-)?spawn/i, 'must document the cold-spawn fallback');
+    assert.match(content, /<prior_executor_handoff>/, 'cold-spawn fallback must use the existing prior_executor_handoff block');
+    assert.match(content, /same session/i, 'decision must hinge on same-session availability of the agentId');
+  });
+
+  test('App #3: plan-checker + charlotte-qa signal mid-run; execute-phase relays coordinator-mediated', () => {
+    for (const name of ['gsd-plan-checker', 'gsd-charlotte-qa']) {
+      const content = readRepoFile(path.join('agents', `${name}.md`));
+      assert.match(content, /<live_course_correction>/, `${name}.md must have a live_course_correction block`);
+      assert.match(content, /to: "main"/, `${name}.md must SendMessage findings upward to "main"`);
+      assert.match(content, /coordinator-mediated/i, `${name}.md must keep the relay coordinator-mediated, not direct peer`);
+    }
+    const phase = readRepoFile('get-shit-done/workflows/execute-phase.md');
+    assert.match(phase, /App #3/, 'execute-phase.md must document the App #3 relay');
+    assert.match(phase, /EXECUTOR_AGENT_IDS/, 'coordinator relay uses the captured executor agentId');
+  });
+
+  test('App #4: wave peer awareness — executor <agent_messaging> block + coordinator injects <wave_peers>', () => {
+    const executor = readRepoFile(path.join('agents', 'gsd-executor.md'));
+    assert.match(executor, /<agent_messaging>/, 'gsd-executor.md must have an <agent_messaging> section');
+    assert.match(executor, /App #4\b[\s\S]*Wave peer awareness/i, 'agent_messaging must document App #4 wave peer awareness');
+    assert.match(executor, /files_modified/, 'wave peer signalling must key off a peer plan files_modified overlap');
+    assert.match(executor, /chatty/i, 'must warn against chatty peer messaging');
+    const phase = readRepoFile('get-shit-done/workflows/execute-phase.md');
+    assert.match(phase, /<wave_peers>/, 'execute-phase.md must inject a <wave_peers> block for parallel waves');
+  });
+
+  test('App #5: executor has an OPTIONAL rate-limited upward heartbeat', () => {
+    const content = readRepoFile(path.join('agents', 'gsd-executor.md'));
+    assert.match(content, /heartbeat/i, 'gsd-executor.md must document the progress heartbeat');
+    assert.match(content, /OPTIONAL/, 'heartbeat must be explicitly optional');
+    assert.match(content, /rate-limited/i, 'heartbeat must be rate-limited (not every task)');
+  });
+
+  test('the agent-messaging additions kept the executor core preamble within its (bumped) budget', () => {
+    const { checkAllBudgets } = require('./prompt-budget.js');
+    const res = checkAllBudgets(REPO_ROOT);
+    assert.ok(res.pass, `all core-preamble budgets must pass, got: ${JSON.stringify(res.results)}`);
+    const exec = res.results.find((r) => r.filePath === 'agents/gsd-executor.md');
+    assert.ok(exec && exec.pass, 'gsd-executor.md must be within its core-preamble budget');
+  });
+
+  test('App #6: human relay at checkpoints in gsd-executor.md and references/checkpoints.md, composing with the structured return', () => {
+    const executor = readRepoFile(path.join('agents', 'gsd-executor.md'));
+    const cpStart = executor.indexOf('<checkpoint_protocol>');
+    const cpEnd = executor.indexOf('</checkpoint_protocol>');
+    assert.ok(cpStart !== -1 && cpEnd > cpStart, 'checkpoint_protocol block must exist');
+    const cp = executor.slice(cpStart, cpEnd);
+    assert.match(cp, /App #6/, 'checkpoint_protocol must document App #6 human relay');
+    assert.match(cp, /to: "main"/, 'checkpoint human relay must go upward to "main"');
+    assert.match(cp, /CHECKPOINT REACHED|structured .*return/i, 'must compose with — not replace — the structured checkpoint return');
+
+    const checkpoints = readRepoFile('get-shit-done/references/checkpoints.md');
+    assert.match(checkpoints, /App #6/, 'references/checkpoints.md must document the App #6 human relay fast-path');
+    assert.match(checkpoints, /SendMessage/, 'references/checkpoints.md must reference SendMessage');
   });
 });

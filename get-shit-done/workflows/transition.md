@@ -281,6 +281,8 @@ Run this command once per decision. Log each write: "KB: wrote decision entry fo
 
 **Note:** Basic position updates (Current Phase, Status, Current Plan, Last Activity) were already handled by `gsd-tools phase complete` in the update_roadmap_and_state step.
 
+Before each manual STATE.md edit in this and the following steps, re-Read STATE.md fresh (`phase complete` and possibly a concurrent session already changed it) and apply only your section. **See @~/.claude/get-shit-done/references/shared-file-writes.md.**
+
 Verify the updates are correct by reading STATE.md. If the progress bar needs updating, use:
 
 ```bash

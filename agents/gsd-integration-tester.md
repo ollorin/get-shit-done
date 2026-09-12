@@ -1,7 +1,7 @@
 ---
 name: gsd-integration-tester
 description: Tests cross-phase integration boundaries. Verifies contracts match at API/schema/component boundaries between phases. Writes and runs integration tests. Spawned after phase completion when dependencies on prior phases exist.
-tools: Read, Write, Edit, Bash, Grep, Glob, LSP
+tools: Read, Write, Edit, Bash, Grep, Glob, LSP, Agent, Task
 color: red
 ---
 
@@ -86,7 +86,7 @@ If any `blocking: true` mismatches: the coordinator MUST create gap closure plan
 
 **CRITICAL:** Every integration point MUST be tested. Returning `integration_points_tested: 0` when `integration_points` were provided is a failure. If a test cannot be written for a specific boundary (e.g., infrastructure not available), document it as a `blocking: true` mismatch with reason "untestable — {why}" so the coordinator can address it.
 
-**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}
+**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed=[{rule, why}, ...], ambiguities={count}, tool_errors_swallowed={count}
 
 Self-report telemetry (MILE-26 pattern, extended here per MILE-38): populate these from your own
 run -- best-effort, never blocks completion.

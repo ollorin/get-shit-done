@@ -37,4 +37,6 @@ Glob: .planning/v*-MILESTONE-AUDIT.md (use most recent)
 <process>
 Execute the plan-milestone-gaps workflow from @~/.claude/get-shit-done/workflows/plan-milestone-gaps.md end-to-end.
 Preserve all workflow gates (audit loading, prioritization, phase grouping, user confirmation, roadmap updates).
+
+On any failure to load or execute the workflow, follow @~/.claude/get-shit-done/references/dispatcher-contract.md — STOP, do not improvise, report what failed and what state was written.
 </process>
