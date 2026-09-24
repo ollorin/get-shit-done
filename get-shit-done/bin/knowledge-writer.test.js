@@ -61,6 +61,13 @@ describe('storeInsights embedding persistence (regression)', () => {
     const { storeInsights } = require('./knowledge-writer.js');
     const { openKnowledgeDB } = require('./knowledge-db.js');
     const tmpCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-test-cwd-'));
+    // The 2s production embedding timeout loses to a cold model load when the
+    // full suite saturates the CPU, silently yielding a null embedding.
+    fs.mkdirSync(path.join(tmpCwd, '.planning'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpCwd, '.planning', 'config.json'),
+      JSON.stringify({ knowledge: { embedding_timeout_ms: 60000 } })
+    );
 
     try {
       const uniqueContent = `always verify embeddings are persisted before trusting semantic search ${Date.now()}-${Math.random()}`;
