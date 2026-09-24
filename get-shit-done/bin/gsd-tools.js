@@ -6918,7 +6918,9 @@ function evaluatePhaseGateCheck(type, required, computeSatisfied, waivers, phase
 // fields.
 function loadPhaseGateInputs(cwd, phaseArg) {
   const phaseInfo = findPhaseInternal(cwd, phaseArg);
-  if (!phaseInfo || !phaseInfo.found) {
+  // findPhaseInternal prefix-matches ("38" -> "381-..."); gate only the exact phase.
+  if (!phaseInfo || !phaseInfo.found ||
+      normalizePhaseName(String(phaseInfo.phase_number)) !== normalizePhaseName(String(phaseArg))) {
     return { error: { error: true, type: 'phase_not_found', phase: phaseArg } };
   }
 
@@ -10242,6 +10244,14 @@ function findPhaseInternal(cwd, phase) {
 // warnings: [...] } where warnings flag plans with zero matching commits, plus
 // optional cross-check warnings when a plan's self-reported files_modified
 // disagrees with the real diff (informational only -- never affects `files`).
+// ERE matching the {phase}-{plan} tag as a whole token: "83-01" must not match
+// "383-01", "09-01" must not match a date like 2026-09-01, and a decimal
+// phase's "." is literal.
+function planTagGrepPattern(phaseNumber, planNum) {
+  const esc = v => String(v).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return `(^|[^0-9.-])${esc(phaseNumber)}-${esc(planNum)}([^0-9]|$)`;
+}
+
 function collectPhaseTouchedFiles(cwd, phaseNumber, plans) {
   const fileSet = new Set();
   const warnings = [];
@@ -10251,8 +10261,7 @@ function collectPhaseTouchedFiles(cwd, phaseNumber, plans) {
     const planNum = plan.planNum || (plan.fm && plan.fm.plan);
     if (!planNum) continue;
 
-    const grepTag = `${phaseNumber}-${planNum}`;
-    const logResult = execGit(cwd, ['log', '--oneline', '--all', '--grep', grepTag]);
+    const logResult = execGit(cwd, ['log', '--oneline', '--all', '-E', '--grep', planTagGrepPattern(phaseNumber, planNum)]);
     const commitLines = (logResult.stdout || '')
       .split('\n')
       .map(l => l.trim())
@@ -15397,6 +15406,7 @@ module.exports = {
   isTestOrSpecFile,
   evaluateSummarySelfCheck,
   collectPhaseEvidenceErrors,
+  planTagGrepPattern,
   isApiFile,
   computeHasApi,
   computeTouchesSourceCode,

@@ -3458,6 +3458,58 @@ describe('charlotte_qa_ran from VERIFICATION.md frontmatter, required for UI or 
   });
 });
 
+describe('review fixes: exact phase match in phase-gate + anchored plan-tag grep', () => {
+  const { planTagGrepPattern, collectPhaseEvidenceErrors } = require('./gsd-tools.js');
+  let tmpDir;
+  beforeEach(() => { tmpDir = createTempProject(); });
+  afterEach(() => cleanup(tmpDir));
+
+  function gate(arg) {
+    try {
+      return { exitCode: 0, parsed: JSON.parse(execSync(`node "${TOOLS_PATH}" verify phase-gate ${arg}`, { cwd: tmpDir, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] })) };
+    } catch (err) {
+      return { exitCode: err.status, parsed: JSON.parse(err.stdout.toString()) };
+    }
+  }
+
+  test('negative: verify phase-gate 38 does not gate phase 384', () => {
+    fs.mkdirSync(path.join(tmpDir, '.planning', 'phases', '384-other'), { recursive: true });
+    const g = gate('38');
+    assert.strictEqual(g.exitCode, 1);
+    assert.strictEqual(g.parsed.type, 'phase_not_found');
+  });
+
+  test('planTagGrepPattern escapes the decimal point and anchors both ends', () => {
+    const re = new RegExp(planTagGrepPattern('383.1', '05'));
+    assert.ok(re.test('fix(383.1-05): x'));
+    assert.ok(!re.test('fix(38301-05): x'));
+    assert.ok(!re.test('fix(383.1-050): x'));
+    assert.ok(!new RegExp(planTagGrepPattern('83', '01')).test('docs(383-01): x'));
+    assert.ok(!new RegExp(planTagGrepPattern('09', '01')).test('chore: release 2026-09-01'));
+  });
+
+  function evidenceWithCommit(message) {
+    const dir = path.join(tmpDir, '.planning', 'phases', '83-x');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, '83-01-PLAN.md'), '# p\n');
+    fs.writeFileSync(path.join(dir, '83-01-SUMMARY.md'), SELF_CHECK_PASSED_SUMMARY);
+    gitCommitAll(tmpDir, message);
+    return collectPhaseEvidenceErrors(tmpDir, '83', dir, fs.readdirSync(dir)).errors;
+  }
+
+  test('negative: a commit tagged for phase 383 is not evidence for phase 83', () => {
+    assert.ok(evidenceWithCommit('feat(383-01): other phase').some(e => e.includes('Plan 83-01 has no commits')));
+  });
+
+  test('negative: a date string is not evidence', () => {
+    assert.ok(evidenceWithCommit('chore: snapshot 2026-83-01').some(e => e.includes('Plan 83-01 has no commits')));
+  });
+
+  test('positive: a correctly tagged commit is evidence', () => {
+    assert.ok(!evidenceWithCommit('feat(83-01): real work').some(e => e.includes('has no commits')));
+  });
+});
+
 // ─── Phase 35-01: gsd-executor post-plan test gate ───────────────────────────
 
 describe('gsd-executor — post-plan test gate section (Phase 35-01)', () => {
