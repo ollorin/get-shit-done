@@ -1,5 +1,5 @@
 <purpose>
-Execute entire ROADMAP.md autonomously with Opus coordinator spawning sub-coordinators per phase.
+Execute entire ROADMAP.md autonomously with a Sonnet coordinator spawning sub-coordinators per phase.
 </purpose>
 
 <core_principle>
@@ -48,7 +48,7 @@ Parse JSON for:
 - `blocked_phases`: phases with unmet dependencies
 - `has_execution_log`: whether previous execution exists
 - `resume_state`: if previous incomplete execution found, resume context
-- `coordinator_model`: model for this coordinator (opus)
+- `coordinator_model`: model for this coordinator (sonnet unless the user explicitly asks for opus)
 
 **If `roadmap_exists` is false:** Error — ".planning/ROADMAP.md not found. Initialize project first."
 
@@ -297,15 +297,12 @@ node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
 
 **4. Spawn sub-coordinator (fresh context window):**
 
-Read coordinator model from config (fallback to sonnet):
-```bash
-COORDINATOR_MODEL=$(jq -r '.coordinator_model // "sonnet"' .planning/config.json 2>/dev/null || echo "sonnet")
-```
+Coordinators (roadmap, phase, death-resume) run on Sonnet. Use `model="opus"` only when the user explicitly asks for it.
 
 ```
 Agent(
   subagent_type="gsd-phase-coordinator",
-  model="{COORDINATOR_MODEL}",
+  model="sonnet",
   description="Execute phase {N}",
   prompt="Execute Phase {N}: {name}
 
@@ -404,7 +401,7 @@ IS_STALE=$(node -e "console.log(JSON.parse(process.argv[1]).stale)" "$STALENESS_
      ```
      Agent(
        subagent_type="gsd-phase-coordinator",
-       model="{COORDINATOR_MODEL}",
+       model="sonnet",
        description="Execute phase {N} (auto-resume)",
        prompt="{BRIEF_TEXT}
 
@@ -434,7 +431,7 @@ IS_STALE=$(node -e "console.log(JSON.parse(process.argv[1]).stale)" "$STALENESS_
 **5. Handle result:**
 - `status: "completed"`: proceed to **5a** (Charlotte gate) then **5b** (integration gate)
 - `status: "completed_with_deferrals"`: coordinator hit context limits. Spawn fresh agents for deferred steps:
-  - If `"verify"` in deferred: spawn `gsd-verifier` with handoff_summary from return
+  - If `"verify"` in deferred: spawn `gsd-verifier` with `model="opus"` and handoff_summary from return
   - If `"charlotte_qa"` in deferred: will be caught by 5a gate
   - After all deferrals resolved: proceed to 5a → 5b
 - `status: "failed"`: see `<step name="handle_failure">`
@@ -622,7 +619,18 @@ node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
   --data '{"completed_phases": [...], "skipped_phases": [...], "timestamp": "..."}'
 ```
 
-1a. **Auto-run analytics report:**
+1a. **Opus milestone audit (MANDATORY):** run `/gsd:audit-milestone` as a cross-phase review on Opus:
+```
+Agent(
+  subagent_type="general-purpose",
+  model="opus",
+  description="Milestone audit",
+  prompt="Execute the audit-milestone workflow from @~/.claude/get-shit-done/workflows/audit-milestone.md end-to-end for the current milestone. Return its status and gap list."
+)
+```
+Include the audit status and gaps in the completion summary. `gaps_found` → next step is `/gsd:plan-milestone-gaps`, not `/gsd:complete-milestone`.
+
+1b. **Auto-run analytics report:**
 
 Run the analytics report immediately after logging roadmap_complete, and print it to coordinator output for the user to review:
 

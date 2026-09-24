@@ -1557,13 +1557,10 @@ If the coordinator DOES write inline (e.g., timeout fallback), it MUST set `veri
 
 Spawn verifier agent to create VERIFICATION.md:
 ```
-// Pick verifier tier based on phase complexity
-MUST_HAVES_COUNT = sum of (must_haves.truths.length + must_haves.artifacts.length) across all PLAN.md files in {phase_dir}
-VERIFIER_MODEL = MUST_HAVES_COUNT >= 8 ? "opus" : "sonnet"
-
+// The verifier always runs on Opus, whatever tier implemented the phase
 Agent(
   subagent_type="gsd-verifier",
-  model={VERIFIER_MODEL},
+  model="opus",
   description="Verify phase {phase_number}",
   prompt="Verify phase {phase_number} goal achievement.
 Phase directory: {phase_dir}

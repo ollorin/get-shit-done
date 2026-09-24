@@ -2,6 +2,7 @@
 name: gsd-phase-coordinator
 description: Executes full phase lifecycle (discuss, research, plan, execute, verify) with checkpoints
 tools: Read, Write, Bash, Glob, Grep, WebFetch, Task, Agent, SendMessage
+model: sonnet
 color: blue
 ---
 

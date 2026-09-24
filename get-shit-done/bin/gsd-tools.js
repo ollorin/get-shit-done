@@ -242,7 +242,7 @@ const MODEL_PROFILES = {
   'gsd-research-synthesizer': { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku', auto: 'sonnet' },
   'gsd-debugger':             { quality: 'opus', balanced: 'sonnet', budget: 'sonnet', auto: 'sonnet' },
   'gsd-codebase-mapper':      { quality: 'sonnet', balanced: 'haiku', budget: 'haiku', auto: 'haiku'  },
-  'gsd-verifier':             { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku', auto: 'sonnet' },
+  'gsd-verifier':             { quality: 'opus', balanced: 'opus', budget: 'opus', auto: 'opus' },
   'gsd-plan-checker':         { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku', auto: 'sonnet' },
   'gsd-nyquist-auditor':      { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku', auto: 'sonnet' },
   'gsd-integration-checker':  { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku', auto: 'sonnet' },
@@ -11064,13 +11064,7 @@ function cmdInitExecuteRoadmap(cwd, raw) {
   }
 
   const config = loadConfig(cwd);
-  const profileToCoordinatorModel = {
-    quality: 'opus',
-    balanced: 'sonnet',
-    budget: 'haiku',
-    auto: 'haiku'
-  };
-  const coordinatorModel = config.coordinator_model ?? profileToCoordinatorModel[config.model_profile] ?? 'haiku';
+  const coordinatorModel = config.coordinator_model ?? 'sonnet';
 
   // Reuse shared phase parsing (avoids duplicating 60+ lines from cmdRoadmapAnalyze)
   const content = fs.readFileSync(roadmapPath, 'utf-8');

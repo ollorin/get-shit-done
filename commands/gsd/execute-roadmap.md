@@ -1,6 +1,6 @@
 ---
 name: gsd:execute-roadmap
-description: Execute entire roadmap autonomously with Opus coordinator spawning fresh sub-coordinators per phase
+description: Execute entire roadmap autonomously with Sonnet coordinator spawning fresh sub-coordinators per phase
 allowed-tools:
   - Read
   - Write

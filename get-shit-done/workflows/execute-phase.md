@@ -734,7 +734,7 @@ Check must_haves against actual codebase.
 Cross-reference requirement IDs from PLAN frontmatter against REQUIREMENTS.md — every ID MUST be accounted for.
 Create VERIFICATION.md.",
   subagent_type="gsd-verifier",
-  model="{verifier_model}",
+  model="opus",
   description="Verify phase {phase_number}"
 )
 ```
