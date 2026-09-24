@@ -3196,6 +3196,46 @@ Plans:
 });
 
 
+describe('phase complete — phase-dir resolution + exact VERIFICATION name (rule 0)', () => {
+  let tmpDir;
+  beforeEach(() => {
+    tmpDir = createTempProject();
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), '# Roadmap\n\n- [ ] Phase 2.1: Hotfix\n- [ ] Phase 38: X\n');
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'STATE.md'), '**Current Phase:** 2.1\n**Status:** In progress\n');
+  });
+  afterEach(() => cleanup(tmpDir));
+
+  test('decimal phase with no VERIFICATION.md is refused (was silently skipped)', () => {
+    const dir = path.join(tmpDir, '.planning', 'phases', '02.1-hotfix');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, '02.1-01-PLAN.md'), '# Plan\n');
+    const result = runGsdTools('phase complete 02.1', tmpDir);
+    assert.strictEqual(result.success, false, 'decimal phase must not bypass completeness checks');
+    const parsed = JSON.parse(result.output);
+    assert.ok(parsed.validation_errors.some(e => e.includes('02.1-VERIFICATION.md not found')), JSON.stringify(parsed.validation_errors));
+    const roadmap = fs.readFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), 'utf-8');
+    assert.ok(!roadmap.includes('[x]'), 'ROADMAP must be untouched on refusal');
+  });
+
+  test('phase whose dir only prefix-matches another phase is refused', () => {
+    fs.mkdirSync(path.join(tmpDir, '.planning', 'phases', '384-other'), { recursive: true });
+    const result = runGsdTools('phase complete 38', tmpDir);
+    assert.strictEqual(result.success, false);
+    assert.ok(result.error.includes('directory not found'), result.error);
+  });
+
+  test('plan-level or prefixed *-VERIFICATION.md does not satisfy the phase VERIFICATION', () => {
+    const dir = path.join(tmpDir, '.planning', 'phases', '02.1-hotfix');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, '02.1-01-VERIFICATION.md'), '---\nstatus: passed\n---\n');
+    fs.writeFileSync(path.join(dir, 'E2E-VERIFICATION.md'), '---\nstatus: passed\n---\n');
+    const result = runGsdTools('phase complete 02.1', tmpDir);
+    assert.strictEqual(result.success, false);
+    const parsed = JSON.parse(result.output);
+    assert.ok(parsed.validation_errors.some(e => e.includes('02.1-VERIFICATION.md not found')), JSON.stringify(parsed.validation_errors));
+  });
+});
+
 // ─── Phase 35-01: gsd-executor post-plan test gate ───────────────────────────
 
 describe('gsd-executor — post-plan test gate section (Phase 35-01)', () => {

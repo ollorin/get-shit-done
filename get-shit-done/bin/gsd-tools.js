@@ -8913,28 +8913,24 @@ function cmdPhaseComplete(cwd, phaseNum, raw) {
   // Refuse to mark phase complete unless all required artifacts are present and valid.
   // This prevents phases being marked done without a passing VERIFICATION.md.
   {
-    // Find phase directory on disk
-    let phaseDirPath = null;
-    try {
-      const entries = fs.readdirSync(phasesDir, { withFileTypes: true });
-      // Normalize phase number for directory matching (e.g., "1" -> "01")
-      const normalizedPhaseNum = phaseNum.includes('.') ? phaseNum : String(parseInt(phaseNum, 10)).padStart(2, '0');
-      const safePhase = normalizedPhaseNum.replace(/[.]/g, String.fromCharCode(92) + String.fromCharCode(92) + '.');
-      const safePhaseOrig = phaseNum.replace(/[.]/g, String.fromCharCode(92) + String.fromCharCode(92) + '.');
-      const re = new RegExp('^(' + safePhase + '|' + safePhaseOrig + ')-');
-      const match = entries.find(e => e.isDirectory() && re.test(e.name));
-      if (match) phaseDirPath = path.join(phasesDir, match.name);
-    } catch {}
-
-    if (phaseDirPath) {
-      let dirFiles;
-      try { dirFiles = fs.readdirSync(phaseDirPath); } catch { dirFiles = []; }
+    // Resolve the phase dir from findPhaseInternal and refuse to proceed when it
+    // is missing or resolves to a different phase (its prefix match maps "38"
+    // onto "384-..."): a missing dir used to skip every check below.
+    const phaseDirPath = path.join(cwd, phaseInfo.directory);
+    if (normalizePhaseName(String(phaseInfo.phase_number)) !== normalizePhaseName(String(phaseNum))) {
+      error(`Phase ${phaseNum} directory not found (nearest match: ${phaseInfo.directory}) — refusing to mark complete without on-disk evidence`);
+    }
+    let dirFiles;
+    try { dirFiles = fs.readdirSync(phaseDirPath); } catch (e) {
+      error(`Phase ${phaseNum} directory unreadable (${phaseInfo.directory}): ${e.message} — refusing to mark complete`);
+    }
+    {
       const completenessErrors = [];
 
       // 1. VERIFICATION.md must exist with status: passed
-      const verFile = dirFiles.find(f => f.match(/-VERIFICATION.md$/i));
+      const verFile = dirFiles.find(f => f === `${phaseInfo.phase_number}-VERIFICATION.md`);
       if (!verFile) {
-        completenessErrors.push('VERIFICATION.md not found — verifier must run before phase can be marked complete');
+        completenessErrors.push(`${phaseInfo.phase_number}-VERIFICATION.md not found — verifier must run before phase can be marked complete`);
       } else {
         try {
           const verContent = fs.readFileSync(path.join(phaseDirPath, verFile), 'utf-8');
