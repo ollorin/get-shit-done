@@ -162,20 +162,37 @@ describe('installHookDependencies + compression hook gating', () => {
 });
 
 describe('wrapWithTimeout', () => {
-  test('wraps a command with a 10s POSIX timeout, preserving the original command verbatim', () => {
-    const { wrapWithTimeout } = require(INSTALL_JS_PATH);
-    const command = 'node "/some/path/hook.js"';
-    const wrapped = wrapWithTimeout(command);
+  const { wrapWithTimeout, resolveTimeoutBinary, rewrapGsdHookCommands } = require(INSTALL_JS_PATH);
+  const command = 'node "/some/path/hook.js"';
 
-    if (process.platform === 'win32') {
-      assert.strictEqual(wrapped, command, 'on win32 the command should be left unwrapped');
-    } else {
-      assert.ok(
-        wrapped.startsWith('timeout 10s '),
-        `expected wrapped command to start with "timeout 10s ", got: ${wrapped}`
-      );
-      assert.ok(wrapped.includes(command), 'original command should be present verbatim inside the wrapped string');
+  test('wraps with the resolved absolute timeout binary, preserving the command verbatim', () => {
+    assert.strictEqual(wrapWithTimeout(command, 10, '/opt/bin/gtimeout'), `"/opt/bin/gtimeout" 10s ${command}`);
+  });
+
+  test('negative: no timeout binary -> command left bare (never a wrapper that exits 127)', () => {
+    assert.strictEqual(wrapWithTimeout(command, 10, null), command);
+  });
+
+  test('resolveTimeoutBinary only returns an executable found on PATH', () => {
+    if (process.platform === 'win32') return;
+    const dir = createScratchDir('gsd-timeout-bin-');
+    try {
+      assert.strictEqual(resolveTimeoutBinary(dir), null);
+      fs.writeFileSync(path.join(dir, 'gtimeout'), '#!/bin/sh\n', { mode: 0o755 });
+      assert.strictEqual(resolveTimeoutBinary(dir), path.join(dir, 'gtimeout'));
+    } finally {
+      cleanup(dir);
     }
+  });
+
+  test('rewrapGsdHookCommands repairs legacy "timeout 10s" GSD entries and leaves foreign hooks alone', () => {
+    const settings = { hooks: { PreToolUse: [
+      { matcher: 'Write', hooks: [{ type: 'command', command: 'timeout 10s node "/h/.claude/get-shit-done/bin/hooks/gsd-protect-managed-files.js"' }] },
+      { matcher: 'Bash', hooks: [{ type: 'command', command: 'timeout 5s /h/.claude/hooks/other.sh' }] },
+    ] } };
+    rewrapGsdHookCommands(settings, c => c);
+    assert.strictEqual(settings.hooks.PreToolUse[0].hooks[0].command, 'node "/h/.claude/get-shit-done/bin/hooks/gsd-protect-managed-files.js"');
+    assert.strictEqual(settings.hooks.PreToolUse[1].hooks[0].command, 'timeout 5s /h/.claude/hooks/other.sh');
   });
 });
 
@@ -236,9 +253,11 @@ describe('Stop hook timeout wrap and per-turn.js removal', () => {
     if (process.platform === 'win32') {
       assert.ok(sessionEndCommand.includes('session-end-standalone'), 'command should still reference session-end-standalone.js on win32 (no wrap)');
     } else {
-      assert.ok(
-        sessionEndCommand.startsWith('timeout 10s '),
-        `expected Stop hook command to start with "timeout 10s ", got: ${sessionEndCommand}`
+      const { wrapWithTimeout } = require(INSTALL_JS_PATH);
+      assert.strictEqual(
+        sessionEndCommand,
+        wrapWithTimeout(sessionEndCommand.slice(sessionEndCommand.indexOf('node '))),
+        `Stop hook command should use the shared wrapper, got: ${sessionEndCommand}`
       );
       assert.ok(sessionEndCommand.includes('session-end-standalone'), 'wrapped command should still reference session-end-standalone.js');
     }
@@ -265,15 +284,15 @@ describe('Stop hook timeout wrap and per-turn.js removal', () => {
       .flatMap((entry) => entry.hooks || [])
       .find((h) => h.command && h.command.includes('gsd-protect-managed-files')).command;
 
-    const timeoutPrefixPattern = /^timeout \d+s /;
-    const sessionEndMatch = sessionEndCommand.match(timeoutPrefixPattern);
-    const protectMatch = protectCommand.match(timeoutPrefixPattern);
+    const { resolveTimeoutBinary } = require(INSTALL_JS_PATH);
+    const bin = resolveTimeoutBinary();
+    const expectedPrefix = bin ? `"${bin}" 10s ` : '';
+    const prefixOf = c => c.slice(0, c.indexOf('node '));
 
-    assert.ok(sessionEndMatch, `Stop hook command should carry a "timeout Ns " prefix, got: ${sessionEndCommand}`);
-    assert.ok(protectMatch, `protect-managed-files command should carry a "timeout Ns " prefix, got: ${protectCommand}`);
+    assert.strictEqual(prefixOf(sessionEndCommand), expectedPrefix, `Stop hook prefix, got: ${sessionEndCommand}`);
     assert.strictEqual(
-      sessionEndMatch[0],
-      protectMatch[0],
+      prefixOf(sessionEndCommand),
+      prefixOf(protectCommand),
       'the Stop hook and the PreToolUse protect-managed-files hook should share the exact same timeout prefix (same seconds value, same shape) -- proving one shared wrapWithTimeout() helper was reused, not a second bespoke wrapping mechanism'
     );
   });
@@ -540,5 +559,28 @@ describe('protect-managed-files hook covers Bash', () => {
         .sort();
       assert.deepStrictEqual(matchers, ['Bash', 'Edit', 'Write'], `run ${i + 1}`);
     }
+  });
+});
+
+describe('registered hook commands actually execute', () => {
+  let scratchDir;
+  beforeEach(() => { scratchDir = createScratchDir('gsd-install-exec-'); });
+  afterEach(() => cleanup(scratchDir));
+
+  test('the installed protect-managed-files command string blocks a settings.json Write with exit 2 (not 127)', () => {
+    if (process.platform === 'win32') return;
+    const result = runInstall(scratchDir);
+    assert.ok(result.success, result.output);
+    const settings = JSON.parse(fs.readFileSync(path.join(scratchDir, '.claude', 'settings.json'), 'utf-8'));
+    const command = settings.hooks.PreToolUse
+      .filter(e => e.matcher === 'Write')
+      .flatMap(e => e.hooks)
+      .find(h => h.command.includes('gsd-protect-managed-files')).command;
+    const r = require('child_process').spawnSync('/bin/sh', ['-c', command], {
+      cwd: scratchDir,
+      input: JSON.stringify({ tool_name: 'Write', tool_input: { file_path: '/repo/.claude/settings.json' } }),
+      encoding: 'utf8',
+    });
+    assert.strictEqual(r.status, 2, `registered command must run and block: ${command}\n${r.stderr}`);
   });
 });

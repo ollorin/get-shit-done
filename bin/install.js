@@ -1313,14 +1313,46 @@ function reportLocalPatches(configDir) {
   return meta.files || [];
 }
 
+// Absolute path of `timeout`/`gtimeout` on PATH, or null. macOS ships neither,
+// and a missing wrapper makes the hook exit 127 (non-blocking), silently
+// disabling every guard.
+function resolveTimeoutBinary(envPath = process.env.PATH) {
+  if (process.platform === 'win32') return null;
+  for (const dir of String(envPath || '').split(path.delimiter).filter(Boolean)) {
+    for (const name of ['timeout', 'gtimeout']) {
+      const candidate = path.join(dir, name);
+      try {
+        fs.accessSync(candidate, fs.constants.X_OK);
+        return candidate;
+      } catch { /* keep looking */ }
+    }
+  }
+  return null;
+}
+
 /**
- * Wrap a hook command with a POSIX `timeout` guard so a hung/crashed hook
- * cannot block Read/Write/Edit indefinitely. Windows has no reliable
- * equivalent shipped by default, so the command is left unwrapped there
- * rather than introducing a fragile cross-platform shim.
+ * Wrap a hook command with a `timeout` guard when one exists; otherwise
+ * leave it bare (Claude Code's own hook timeout still bounds it).
  */
-function wrapWithTimeout(command, seconds = 10) {
-  return process.platform === 'win32' ? command : `timeout ${seconds}s ${command}`;
+function wrapWithTimeout(command, seconds = 10, timeoutBin = resolveTimeoutBinary()) {
+  return timeoutBin ? `"${timeoutBin}" ${seconds}s ${command}` : command;
+}
+
+const GSD_HOOK_TIMEOUT_PREFIX_RE = /^(?:"[^"]*g?timeout"|\S*g?timeout)\s+\d+s\s+(?=node\s)/;
+
+// Re-wraps already-registered GSD hook commands, repairing entries written by
+// older installs as `timeout 10s node ...` on machines without `timeout`.
+function rewrapGsdHookCommands(settings, wrap = wrapWithTimeout) {
+  for (const entries of Object.values((settings && settings.hooks) || {})) {
+    if (!Array.isArray(entries)) continue;
+    for (const entry of entries) {
+      for (const h of (entry && entry.hooks) || []) {
+        if (!h || typeof h.command !== 'string' || !h.command.includes('get-shit-done/bin/hooks/')) continue;
+        h.command = wrap(h.command.replace(GSD_HOOK_TIMEOUT_PREFIX_RE, ''));
+      }
+    }
+  }
+  return settings;
 }
 
 /**
@@ -1810,6 +1842,8 @@ function install(isGlobal, runtime = 'claude') {
       settings.hooks[event] = entries;
     }
     console.log(`  ${green}✓${reset} Configured Charlotte DB-reset lock hooks`);
+
+    rewrapGsdHookCommands(settings);
   }
 
   // Write source project path so the protection hook can reference it
@@ -2080,4 +2114,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { installHookDependencies, wrapWithTimeout, writeManifest };
+module.exports = { installHookDependencies, wrapWithTimeout, resolveTimeoutBinary, rewrapGsdHookCommands, writeManifest };
