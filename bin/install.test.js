@@ -523,3 +523,22 @@ describe('Charlotte DB-reset lock hook registration', () => {
     assert.ok(fs.existsSync(path.join(scratchDir, '.claude', 'get-shit-done', 'bin', 'hooks', 'gsd-charlotte-lock.js')), 'hook file must be deployed');
   });
 });
+
+describe('protect-managed-files hook covers Bash', () => {
+  let scratchDir;
+  beforeEach(() => { scratchDir = createScratchDir('gsd-install-protect-'); });
+  afterEach(() => cleanup(scratchDir));
+
+  test('registers Write, Edit and Bash matchers exactly once each, idempotently', () => {
+    for (let i = 0; i < 2; i++) {
+      const result = runInstall(scratchDir);
+      assert.ok(result.success, `install should succeed: ${result.error || ''}\n${result.output}`);
+      const settings = JSON.parse(fs.readFileSync(path.join(scratchDir, '.claude', 'settings.json'), 'utf-8'));
+      const matchers = settings.hooks.PreToolUse
+        .filter(e => e.hooks && e.hooks.some(h => h.command && h.command.includes('gsd-protect-managed-files')))
+        .map(e => e.matcher)
+        .sort();
+      assert.deepStrictEqual(matchers, ['Bash', 'Edit', 'Write'], `run ${i + 1}`);
+    }
+  });
+});

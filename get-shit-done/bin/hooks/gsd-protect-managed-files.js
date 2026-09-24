@@ -5,6 +5,10 @@
  * PreToolUse hook (Write | Edit) that blocks direct edits to files
  * managed by the GSD installer inside ~/.claude/.
  *
+ * Also (Write | Edit | Bash) blocks any agent write to a .claude/settings*.json
+ * file or .claude/hooks/ tree at any depth, and any Bash command mentioning disableAllHooks:
+ * hooks are the enforcement layer, so an agent must not be able to edit them.
+ *
  * The authoritative file list comes from ~/.claude/gsd-file-manifest.json,
  * which is rewritten on every `node bin/install.js` run. This means the
  * protection always reflects exactly what the installer owns — no manual
@@ -26,6 +30,79 @@ const CLAUDE_DIR      = path.join(os.homedir(), '.claude');
 const MANIFEST_PATH   = path.join(CLAUDE_DIR, 'gsd-file-manifest.json');
 const SOURCE_PATH_FILE = path.join(CLAUDE_DIR, 'gsd-source-path.txt');
 
+// .claude/settings*.json and .claude/hooks/ at any depth, in any project.
+function isProtectedConfigPath(p) {
+  if (typeof p !== 'string' || !p) return false;
+  const norm = p.replace(/\\/g, '/');
+  return /(^|\/)\.claude\/settings[^/]*\.json$/.test(norm) || /(^|\/)\.claude\/hooks(\/|$)/.test(norm);
+}
+
+// Resolves symlinks on the nearest existing ancestor so a link into .claude/
+// cannot launder the path.
+function realPathLoose(p) {
+  let dir = p;
+  const tail = [];
+  for (let i = 0; i < 64; i++) {
+    try {
+      return path.join(fs.realpathSync(dir), ...tail.reverse());
+    } catch {
+      const parent = path.dirname(dir);
+      if (parent === dir) return p;
+      tail.push(path.basename(dir));
+      dir = parent;
+    }
+  }
+  return p;
+}
+
+const CONFIG_MENTION_RE = /(?:^|[\s"'=:(<>])((?:~|\$\{?HOME\}?|[^\s"';&|<>]*)?\.claude\/(?:settings[^\s"';&|<>/]*\.json|hooks(?:\/[^\s"';&|<>]*)?)(?=$|[\s"';&|<>)]))/;
+const WRITE_VERB_RE = /(?:^|[\s(])(?:rm|rmdir|unlink|mv|truncate|chmod|chown|tee|sponge)\b/;
+// Copy-like verbs only write their last argument; copying config OUT is a read.
+const COPY_VERB_RE = /(?:^|[\s(])(?:cp|ln|install|rsync)\b/;
+const SED_INPLACE_RE = /\b(?:sed|gsed)\b[^|]*\s-(?:[a-zA-Z]*i|-in-place)/;
+const PERL_INPLACE_RE = /\bperl\b[^|]*\s-[a-zA-Z]*i/;
+const REDIRECT_TO_CONFIG_RE = />{1,2}\|?\s*["']?(?:~|\$\{?HOME\}?|[^\s"';&|<>]*)?\.claude\/(?:settings[^\s"';&|<>/]*\.json|hooks)/;
+const GIT_WRITE_RE = /\bgit\b[^|]*\b(?:checkout|restore|rm|mv|apply|stash)\b/;
+const SCRIPT_WRITE_RE = /\b(?:writeFile|appendFile|rmSync|unlinkSync|renameSync|copyFile|open\([^)]*["'][wa])/;
+
+// Returns a reason string when a Bash command would write to protected
+// config or disable hooks, else null. Read-only use (cat, jq ., grep) passes.
+function bashConfigViolation(command) {
+  if (typeof command !== 'string' || !command) return null;
+  if (/disableAllHooks/.test(command)) return 'mentions disableAllHooks';
+  if (REDIRECT_TO_CONFIG_RE.test(command)) return 'redirects output into a protected path';
+  for (const seg of command.split(/&&|\|\||;|\n|\|(?!\|)/)) {
+    if (!CONFIG_MENTION_RE.test(seg)) continue;
+    if (SED_INPLACE_RE.test(seg) || PERL_INPLACE_RE.test(seg)) return 'edits a protected path in place';
+    if (WRITE_VERB_RE.test(seg)) return 'modifies or removes a protected path';
+    if (COPY_VERB_RE.test(seg)) {
+      const args = seg.trim().split(/\s+/);
+      if (CONFIG_MENTION_RE.test(' ' + args[args.length - 1])) return 'overwrites a protected path';
+    }
+    if (/\bdd\b[^|]*\bof=\S*\.claude\//.test(seg)) return 'overwrites a protected path';
+    if (GIT_WRITE_RE.test(seg)) return 'rewrites a protected path via git';
+    if (SCRIPT_WRITE_RE.test(seg)) return 'writes a protected path from a script';
+  }
+  return null;
+}
+
+function configBlockMessage(target, reason) {
+  return [
+    '⛔  PROTECTED CLAUDE CONFIG — BLOCKED',
+    '',
+    `  Target: ${target}`,
+    `  Reason: ${reason}`,
+    '',
+    'Claude settings (.claude/settings*.json) and hooks (.claude/hooks/**) are the enforcement',
+    'layer and are human-owned; agents may read them but not change or disable them.',
+    '',
+    'Allowed path:',
+    '  - GSD-managed hooks/registrations: change the GSD source (bin/install.js, get-shit-done/bin/hooks/)',
+    '    and have the user run the installer.',
+    '  - Anything else: stop and ask the user to apply the change themselves, with the exact diff.',
+  ].join('\n');
+}
+
 function run() {
   let raw = '';
   process.stdin.on('data', chunk => { raw += chunk; });
@@ -33,6 +110,15 @@ function run() {
     try {
       const data      = JSON.parse(raw);
       const toolInput = data.tool_input || {};
+
+      if (data.tool_name === 'Bash') {
+        const reason = bashConfigViolation(toolInput.command);
+        if (reason) {
+          process.stderr.write(configBlockMessage(String(toolInput.command).slice(0, 200), reason) + '\n');
+          process.exit(2);
+        }
+        process.exit(0);
+      }
 
       // Both Write and Edit carry file_path
       let filePath = toolInput.file_path;
@@ -42,7 +128,12 @@ function run() {
       if (filePath.startsWith('~')) {
         filePath = path.join(os.homedir(), filePath.slice(1));
       }
-      filePath = path.resolve(filePath);
+      filePath = path.resolve(data.cwd || process.cwd(), filePath);
+
+      if (isProtectedConfigPath(filePath) || isProtectedConfigPath(realPathLoose(filePath))) {
+        process.stderr.write(configBlockMessage(filePath, `${data.tool_name || 'write'} to protected Claude config`) + '\n');
+        process.exit(2);
+      }
 
       // Only intercept paths inside ~/.claude/
       const claudePrefix = CLAUDE_DIR + path.sep;
@@ -114,4 +205,6 @@ function run() {
   });
 }
 
-run();
+module.exports = { isProtectedConfigPath, bashConfigViolation };
+
+if (require.main === module) run();

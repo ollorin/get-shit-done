@@ -1779,10 +1779,15 @@ function install(isGlobal, runtime = 'claude') {
       matcher: 'Edit',
       hooks: [{ type: 'command', command: protectHookCommand }]
     });
+    // Bash: blocks shell writes to .claude/settings*.json / .claude/hooks/ and disableAllHooks
+    settings.hooks.PreToolUse.push({
+      matcher: 'Bash',
+      hooks: [{ type: 'command', command: protectHookCommand }]
+    });
     if (removed > 0) {
-      console.log(`  ${green}✓${reset} Updated managed file protection hook (Write + Edit)`);
+      console.log(`  ${green}✓${reset} Updated managed file protection hook (Write + Edit + Bash)`);
     } else {
-      console.log(`  ${green}✓${reset} Configured managed file protection hook (Write + Edit)`);
+      console.log(`  ${green}✓${reset} Configured managed file protection hook (Write + Edit + Bash)`);
     }
 
     // Charlotte DB-reset lock: take the lock on Charlotte MCP calls and around
