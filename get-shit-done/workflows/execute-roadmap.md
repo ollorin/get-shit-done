@@ -460,7 +460,7 @@ PHASE_GATE_RESULT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js verify phase-g
 NEEDS_QA=$(node -e "console.log(JSON.parse(process.argv[1]).charlotte_qa_required === true ? 'true' : '')" "$PHASE_GATE_RESULT")
 ```
 
-`charlotte_qa_required` is `has_ui || has_api`, computed from the phase's actual touched files: UI (extension + route-path detection) or API paths (`apps/api/functions/**`, `supabase/functions/**`, `pages|app/api/**`, excluding tests and docs). It is independent of what any PLAN.md/SUMMARY.md self-reports — a `.tsx` file omitted from a plan's key-files still triggers this gate.
+`charlotte_qa_required` is `has_ui || has_api`, computed from the phase's actual touched files: UI (extension + route-path detection) or API paths (`apps/api/functions/**`, `supabase/functions/**`, `pages|app/api/**`, excluding tests and docs). It is independent of what any PLAN.md/SUMMARY.md self-reports — a `.tsx` file omitted from a plan's key-files still triggers this gate. Phases verified before `charlotte_qa_ran` existed (API phases in particular) fail this check on any re-gate or milestone audit: re-run Charlotte + gsd-verifier, or record a `deferred add --step charlotte_qa` waiver.
 
 **If NEEDS_QA is non-empty:**
 

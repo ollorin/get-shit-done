@@ -44,6 +44,14 @@ describe('bashConfigViolation', () => {
     'node -e "require(\'fs\').writeFileSync(\'.claude/settings.json\', \'{}\')"',
     'claude config set disableAllHooks true',
     'echo \'{"disableAllHooks": true}\' > /tmp/x.json',
+    'rm -rf .claude',
+    'rm -rf ~/.claude/',
+    'mv .claude .claude.bak',
+    'cd .claude && echo {} > settings.json',
+    'cd ~/.claude && rm settings.json',
+    'cd ~/.claude/hooks && echo x > guard.sh',
+    'touch .claude/settings.json',
+    'dd if=/tmp/x of=.claude/settings.json',
   ];
   for (const c of blocked) {
     test(`blocks: ${c}`, () => assert.ok(bashConfigViolation(c), c));
@@ -58,6 +66,12 @@ describe('bashConfigViolation', () => {
     'rm -rf node_modules && cat .claude/settings.json',
     'echo x > .claude/rules/notes.md',
     'npm test',
+    'echo x > .claude/settings.json.new',
+    'grep -rn disableAllHooks docs/',
+    'cd .claude && cat settings.json',
+    'cd .claude/rules && echo x > a.md',
+    'rm -rf .claude-backup',
+    'ls ~/.claude',
   ];
   for (const c of allowed) {
     test(`allows: ${c}`, () => assert.strictEqual(bashConfigViolation(c), null, c));

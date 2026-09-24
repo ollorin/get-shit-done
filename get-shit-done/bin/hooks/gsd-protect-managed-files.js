@@ -55,33 +55,69 @@ function realPathLoose(p) {
   return p;
 }
 
-const CONFIG_MENTION_RE = /(?:^|[\s"'=:(<>])((?:~|\$\{?HOME\}?|[^\s"';&|<>]*)?\.claude\/(?:settings[^\s"';&|<>/]*\.json|hooks(?:\/[^\s"';&|<>]*)?)(?=$|[\s"';&|<>)]))/;
-const WRITE_VERB_RE = /(?:^|[\s(])(?:rm|rmdir|unlink|mv|truncate|chmod|chown|tee|sponge)\b/;
+const END = String.raw`(?=$|[\s"';&|<>)])`;
+const HOME_OR_PATH = String.raw`(?:~|\$\{?HOME\}?|[^\s"';&|<>]*)?`;
+const CONFIG_TAIL = String.raw`(?:settings[^\s"';&|<>/]*\.json|hooks(?:\/[^\s"';&|<>]*)?)`;
+const CONFIG_MENTION_RE = new RegExp(String.raw`(?:^|[\s"'=:(<>])(${HOME_OR_PATH}\.claude\/${CONFIG_TAIL})` + END);
+// The .claude directory itself: removing or renaming it takes settings and hooks with it.
+const CLAUDE_DIR_RE = new RegExp(String.raw`(?:^|[\s"'=])${HOME_OR_PATH}\.claude\/?` + END);
+// After "cd <...>/.claude", bare names refer to the protected files.
+const BARE_CONFIG_RE = new RegExp(String.raw`(?:^|[\s"'=:(<>])(?:\.\/)?${CONFIG_TAIL}` + END);
+const CD_INTO_CLAUDE_RE = new RegExp(String.raw`(?:^|[\s(])cd\s+["']?${HOME_OR_PATH}\.claude\/?["']?` + END);
+const CD_INTO_HOOKS_RE = new RegExp(String.raw`(?:^|[\s(])cd\s+["']?${HOME_OR_PATH}\.claude\/hooks\/?["']?` + END);
+const WRITE_VERB_RE = /(?:^|[\s(])(?:rm|rmdir|unlink|mv|truncate|chmod|chown|tee|sponge|touch)\b/;
+const DIR_VERB_RE = /(?:^|[\s(])(?:rm|rmdir|mv|chmod|chown)\b/;
 // Copy-like verbs only write their last argument; copying config OUT is a read.
 const COPY_VERB_RE = /(?:^|[\s(])(?:cp|ln|install|rsync)\b/;
 const SED_INPLACE_RE = /\b(?:sed|gsed)\b[^|]*\s-(?:[a-zA-Z]*i|-in-place)/;
 const PERL_INPLACE_RE = /\bperl\b[^|]*\s-[a-zA-Z]*i/;
-const REDIRECT_TO_CONFIG_RE = />{1,2}\|?\s*["']?(?:~|\$\{?HOME\}?|[^\s"';&|<>]*)?\.claude\/(?:settings[^\s"';&|<>/]*\.json|hooks)/;
+const REDIRECT_TO_CONFIG_RE = new RegExp(String.raw`>{1,2}\|?\s*["']?${HOME_OR_PATH}\.claude\/${CONFIG_TAIL}` + END);
+const REDIRECT_BARE_RE = new RegExp(String.raw`>{1,2}\|?\s*["']?(?:\.\/)?${CONFIG_TAIL}` + END);
+const ANY_REDIRECT_RE = /(?:^|[^>&0-9])>{1,2}\|?\s*[^\s&>]/;
 const GIT_WRITE_RE = /\bgit\b[^|]*\b(?:checkout|restore|rm|mv|apply|stash)\b/;
 const SCRIPT_WRITE_RE = /\b(?:writeFile|appendFile|rmSync|unlinkSync|renameSync|copyFile|open\([^)]*["'][wa])/;
+const READ_ONLY_CMD_RE = /^\s*(?:grep|egrep|rg|zg|cat|head|tail|less|wc|git\s+(?:log|grep|diff|show))\b/;
+
+function segmentWrites(seg, mentionRe) {
+  if (!mentionRe.test(seg)) return null;
+  if (SED_INPLACE_RE.test(seg) || PERL_INPLACE_RE.test(seg)) return 'edits a protected path in place';
+  if (WRITE_VERB_RE.test(seg)) return 'modifies or removes a protected path';
+  if (COPY_VERB_RE.test(seg)) {
+    const args = seg.trim().split(/\s+/);
+    if (mentionRe.test(' ' + args[args.length - 1])) return 'overwrites a protected path';
+  }
+  if (/\bdd\b[^|]*\bof=/.test(seg) && mentionRe.test(seg.replace(/.*\bof=/, ' '))) return 'overwrites a protected path';
+  if (GIT_WRITE_RE.test(seg)) return 'rewrites a protected path via git';
+  if (SCRIPT_WRITE_RE.test(seg)) return 'writes a protected path from a script';
+  return null;
+}
 
 // Returns a reason string when a Bash command would write to protected
 // config or disable hooks, else null. Read-only use (cat, jq ., grep) passes.
 function bashConfigViolation(command) {
   if (typeof command !== 'string' || !command) return null;
-  if (/disableAllHooks/.test(command)) return 'mentions disableAllHooks';
+  const segments = command.split(/&&|\|\||;|\n|\|(?!\|)/);
+  if (/disableAllHooks/.test(command)) {
+    const readOnly = segments.every(seg => !seg.trim() || READ_ONLY_CMD_RE.test(seg)) && !ANY_REDIRECT_RE.test(command);
+    if (!readOnly) return 'sets or writes disableAllHooks';
+  }
   if (REDIRECT_TO_CONFIG_RE.test(command)) return 'redirects output into a protected path';
-  for (const seg of command.split(/&&|\|\||;|\n|\|(?!\|)/)) {
-    if (!CONFIG_MENTION_RE.test(seg)) continue;
-    if (SED_INPLACE_RE.test(seg) || PERL_INPLACE_RE.test(seg)) return 'edits a protected path in place';
-    if (WRITE_VERB_RE.test(seg)) return 'modifies or removes a protected path';
-    if (COPY_VERB_RE.test(seg)) {
-      const args = seg.trim().split(/\s+/);
-      if (CONFIG_MENTION_RE.test(' ' + args[args.length - 1])) return 'overwrites a protected path';
+  let cwdClaude = false;
+  let cwdHooks = false;
+  for (const seg of segments) {
+    if (CD_INTO_HOOKS_RE.test(seg)) { cwdClaude = true; cwdHooks = true; continue; }
+    if (CD_INTO_CLAUDE_RE.test(seg)) { cwdClaude = true; continue; }
+    if (DIR_VERB_RE.test(seg) && CLAUDE_DIR_RE.test(seg)) return 'removes or renames the .claude directory';
+    const direct = segmentWrites(seg, CONFIG_MENTION_RE);
+    if (direct) return direct;
+    if (cwdHooks && (ANY_REDIRECT_RE.test(seg) || WRITE_VERB_RE.test(seg) || SED_INPLACE_RE.test(seg) || PERL_INPLACE_RE.test(seg) || COPY_VERB_RE.test(seg))) {
+      return 'writes inside .claude/hooks after cd';
     }
-    if (/\bdd\b[^|]*\bof=\S*\.claude\//.test(seg)) return 'overwrites a protected path';
-    if (GIT_WRITE_RE.test(seg)) return 'rewrites a protected path via git';
-    if (SCRIPT_WRITE_RE.test(seg)) return 'writes a protected path from a script';
+    if (cwdClaude) {
+      if (REDIRECT_BARE_RE.test(seg)) return 'redirects output into a protected path after cd';
+      const rel = segmentWrites(seg, BARE_CONFIG_RE);
+      if (rel) return rel + ' (after cd into .claude)';
+    }
   }
   return null;
 }
