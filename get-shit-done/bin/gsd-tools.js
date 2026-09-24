@@ -2837,6 +2837,35 @@ function cmdCommit(cwd, message, files, raw, amend) {
   output(result, raw, hash || 'committed');
 }
 
+// Returns { status: 'passed'|'failed'|'not_found', source: 'self_check'|'legacy'|null }.
+// The executor's contract is an explicit `## Self-Check: PASSED|FAILED` heading
+// (last one wins, since it is appended); only that source counts as on-disk
+// evidence for phase completion. Without it, falls back to the legacy
+// Verification/Quality Check heuristic, which false-fails on any "fail" word.
+function evaluateSummarySelfCheck(content) {
+  const text = typeof content === 'string' ? content : '';
+  const headings = [...text.matchAll(/^##[ \t]*Self[- ]?Check\b[^\n]*/gim)];
+  if (headings.length > 0) {
+    const last = headings[headings.length - 1];
+    const rest = text.slice(last.index + last[0].length);
+    const next = rest.search(/\n#{1,2}[ \t]/);
+    const body = next >= 0 ? rest.slice(0, next) : rest;
+    const heading = last[0];
+    let status = 'not_found';
+    if (/\bFAIL(?:ED|S|URE)?\b|❌|✗/i.test(heading)) status = 'failed';
+    else if (/\bPASS(?:ED)?\b|✅|✓/i.test(heading)) status = 'passed';
+    else if (/\bFAILED\b|❌|✗/.test(body)) status = 'failed';
+    else if (/\bPASSED\b|✅|✓/.test(body)) status = 'passed';
+    return { status, source: 'self_check' };
+  }
+  const legacyPattern = /##\s*(?:Verification|Quality Check)/i;
+  if (!legacyPattern.test(text)) return { status: 'not_found', source: null };
+  const checkSection = text.slice(text.search(legacyPattern));
+  if (/(?:fail|✗|❌|incomplete|blocked)/i.test(checkSection)) return { status: 'failed', source: 'legacy' };
+  if (/(?:all\s+)?(?:pass|✓|✅|complete|succeeded)/i.test(checkSection)) return { status: 'passed', source: 'legacy' };
+  return { status: 'not_found', source: 'legacy' };
+}
+
 function cmdVerifySummary(cwd, summaryPath, checkFileCount, raw) {
   if (!summaryPath) {
     error('summary-path required');
@@ -2904,18 +2933,7 @@ function cmdVerifySummary(cwd, summaryPath, checkFileCount, raw) {
   }
 
   // Check 4: Self-check section
-  let selfCheck = 'not_found';
-  const selfCheckPattern = /##\s*(?:Self[- ]?Check|Verification|Quality Check)/i;
-  if (selfCheckPattern.test(content)) {
-    const passPattern = /(?:all\s+)?(?:pass|✓|✅|complete|succeeded)/i;
-    const failPattern = /(?:fail|✗|❌|incomplete|blocked)/i;
-    const checkSection = content.slice(content.search(selfCheckPattern));
-    if (failPattern.test(checkSection)) {
-      selfCheck = 'failed';
-    } else if (passPattern.test(checkSection)) {
-      selfCheck = 'passed';
-    }
-  }
+  const selfCheck = evaluateSummarySelfCheck(content).status;
 
   if (missing.length > 0) errors.push('Missing files: ' + missing.join(', '));
   if (!commitsExist && hashes.length > 0) errors.push('Referenced commit hashes not found in git history');
@@ -6934,6 +6952,65 @@ function loadPhaseGateInputs(cwd, phaseArg) {
   return { phaseInfo, phaseDir, dirFiles, touchedFiles, touchedWarnings, filesByPlan, hasUi, malformedPlans, validPlans };
 }
 
+// Parses {N}-VERIFICATION.md. Frontmatter via gray-matter; a file without a
+// frontmatter block falls back to the first `status:` line (legacy format).
+function readPhaseVerification(phaseDir, phaseNumber) {
+  const fileName = `${phaseNumber}-VERIFICATION.md`;
+  const content = safeReadFile(path.join(phaseDir, fileName));
+  if (content === null) return { exists: false, fileName, status: null, data: {} };
+  let data = {};
+  try {
+    data = require('gray-matter')(content).data || {};
+  } catch (e) {
+    return { exists: true, fileName, status: 'unparseable', data: {}, parseError: e.message };
+  }
+  let status = data.status !== undefined ? String(data.status).trim() : null;
+  if (status === null) {
+    const m = content.match(/^status:\s*(\S+)/m);
+    status = m ? m[1].trim() : 'unknown';
+  }
+  return { exists: true, fileName, status, data };
+}
+
+// On-disk evidence a phase must carry before it can be gated or completed:
+// every numbered PLAN has a SUMMARY whose Self-Check is PASSED, every plan has
+// at least one commit tagged {N}-{NN}, and {N}-VERIFICATION.md says passed.
+// Shared by cmdPhaseComplete and cmdVerifyPhaseGate so they cannot disagree.
+function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles) {
+  const errors = [];
+  const planFiles = dirFiles.filter(f => /-\d{2}-PLAN\.md$/i.test(f)).sort();
+  if (planFiles.length === 0) {
+    errors.push('No numbered {N}-{NN}-PLAN.md files — a phase with no plans has no evidence to complete');
+  }
+  for (const planFile of planFiles) {
+    const summaryFile = planFile.replace(/-PLAN\.md$/i, '-SUMMARY.md');
+    const summary = dirFiles.includes(summaryFile) ? safeReadFile(path.join(phaseDir, summaryFile)) : null;
+    if (summary === null) {
+      errors.push(`Plan ${planFile} has no matching SUMMARY.md`);
+      continue;
+    }
+    const selfCheck = evaluateSummarySelfCheck(summary);
+    if (selfCheck.source !== 'self_check' || selfCheck.status !== 'passed') {
+      const found = selfCheck.source === 'self_check' ? selfCheck.status : 'missing';
+      errors.push(`${summaryFile} Self-Check is ${found} — must contain "## Self-Check: PASSED"`);
+    }
+  }
+  const plans = planFiles.map(f => ({ planNum: f.match(/-(\d{2})-PLAN\.md$/i)[1] }));
+  const { warnings } = collectPhaseTouchedFiles(cwd, phaseNumber, plans);
+  for (const w of warnings) {
+    if (w.warning === 'no_commits_found') {
+      errors.push(`Plan ${phaseNumber}-${w.plan} has no commits (git log --all --grep "${phaseNumber}-${w.plan}" is empty)`);
+    }
+  }
+  const verification = readPhaseVerification(phaseDir, phaseNumber);
+  if (!verification.exists) {
+    errors.push(`${verification.fileName} not found — verifier must run before phase can be marked complete`);
+  } else if (verification.status !== 'passed') {
+    errors.push(`${verification.fileName} status is ${verification.status} — must be passed before phase complete`);
+  }
+  return { errors, verification };
+}
+
 function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
   const inputs = loadPhaseGateInputs(cwd, phaseArg);
   if (inputs.error) {
@@ -6942,6 +7019,7 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
     return;
   }
   const { phaseInfo, phaseDir, dirFiles, touchedFiles, touchedWarnings, hasUi, malformedPlans, validPlans } = inputs;
+  const evidence = collectPhaseEvidenceErrors(cwd, phaseInfo.phase_number, phaseDir, dirFiles);
 
   // Waiver lookup -- shared with `deferred add`/`deferred list` (45-03) via
   // readDeferredWaivers(), so all three code paths agree on what counts as a
@@ -7003,12 +7081,15 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
     ),
     evaluatePhaseGateCheck(
       'verification', true,
-      () => dirFiles.some(f => f.match(/-VERIFICATION\.md$/i)),
+      () => evidence.verification.exists,
       waivers, phaseInfo.phase_number
     ),
   ];
 
+  // Evidence is never waivable: DEFERRED.json cannot stand in for commits,
+  // Self-Check PASSED summaries, or a passed verification.
   const failures = checks.filter(c => c.failure_type).map(c => c.failure_type);
+  if (evidence.errors.length > 0) failures.push('missing_evidence');
   const passed = failures.length === 0 && malformedPlans.length === 0 && !malformedWaiver;
 
   const result = {
@@ -7020,6 +7101,7 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
     touched_files_count: touchedFiles.length,
     has_ui: hasUi,
     e2e_gaps: e2eGapResult.gaps,
+    evidence_errors: evidence.errors,
   };
   if (malformedWaiver) result.malformed_waiver = malformedWaiver;
   if (touchedWarnings.length > 0) result.touched_file_warnings = touchedWarnings;
@@ -8927,34 +9009,9 @@ function cmdPhaseComplete(cwd, phaseNum, raw) {
     {
       const completenessErrors = [];
 
-      // 1. VERIFICATION.md must exist with status: passed
-      const verFile = dirFiles.find(f => f === `${phaseInfo.phase_number}-VERIFICATION.md`);
-      if (!verFile) {
-        completenessErrors.push(`${phaseInfo.phase_number}-VERIFICATION.md not found — verifier must run before phase can be marked complete`);
-      } else {
-        try {
-          const verContent = fs.readFileSync(path.join(phaseDirPath, verFile), 'utf-8');
-          const statusMatch = verContent.match(/^status:\s*(\S+)/m);
-          const verStatus = statusMatch ? statusMatch[1].trim() : 'unknown';
-          if (verStatus !== 'passed') {
-            completenessErrors.push(`VERIFICATION.md status is ${verStatus} — must be passed before phase complete`);
-          }
-        } catch { completenessErrors.push('Cannot read VERIFICATION.md'); }
-      }
-
-      // 2. Every PLAN.md must have a matching SUMMARY.md
-      // Match only numbered task plans ({phase}-{NN}-PLAN.md), not artifact
-      // files like E2E-TEST-PLAN.md which have no matching -SUMMARY.md and would
-      // otherwise wrongly block phase completion. Mirrors the phase-gate pattern
-      // (/-\d{2}-PLAN\.md$/i) used by cmdVerifyPhaseGate.
-      const planFiles = dirFiles.filter(f => f.match(/-\d{2}-PLAN\.md$/i));
-      const summarySet = new Set(dirFiles.filter(f => f.match(/-SUMMARY.md$/i)).map(f => f.replace(/-SUMMARY.md$/i, '')));
-      for (const planFile of planFiles) {
-        const planId = planFile.replace(/-PLAN.md$/i, '');
-        if (!summarySet.has(planId)) {
-          completenessErrors.push(`Plan ${planFile} has no matching SUMMARY.md`);
-        }
-      }
+      // 1-2. Shared on-disk evidence: SUMMARY + Self-Check PASSED per plan,
+      // tagged commits per plan, {N}-VERIFICATION.md status passed.
+      completenessErrors.push(...collectPhaseEvidenceErrors(cwd, phaseInfo.phase_number, phaseDirPath, dirFiles).errors);
 
       // 3. CHECKPOINT.json must exist with last_step: verify
       const checkpointPath = path.join(phaseDirPath, 'CHECKPOINT.json');
@@ -15321,6 +15378,8 @@ module.exports = {
   loadConfig,
   isSourceFile,
   isTestOrSpecFile,
+  evaluateSummarySelfCheck,
+  collectPhaseEvidenceErrors,
   computeTouchesSourceCode,
   computeHighRisk,
   computePresentationOrder,

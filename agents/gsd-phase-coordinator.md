@@ -156,7 +156,7 @@ After each step (discuss, research, plan, execute, verify):
 
 **Outcome authority:** VERIFICATION.md `status` is the authoritative judgment on whether the phase achieved its goal. CHECKPOINT.json only tracks execution lifecycle (what ran), not quality outcome (did it succeed). A coordinator MUST NOT mark a phase as roadmap-complete based on CHECKPOINT.json alone — it must read VERIFICATION.md `status: "passed"`.
 
-**Invariant enforced by tooling:** `gsd-tools.js phase complete` refuses to mark a phase done unless VERIFICATION.md has `status: "passed"`, all PLAN.md files have matching SUMMARY.md files, and CHECKPOINT.json has `last_step: "verify"`. This contract is not advisory — it is a hard gate.
+**Invariant enforced by tooling:** `gsd-tools.js phase complete` refuses to mark a phase done unless `{N}-VERIFICATION.md` has `status: "passed"`, every PLAN.md has a SUMMARY.md containing `## Self-Check: PASSED`, every plan has at least one `{N}-{NN}`-tagged commit, and CHECKPOINT.json has `last_step: "verify"`. `verify phase-gate` applies the same evidence checks (non-waivable `missing_evidence`). This contract is not advisory — it is a hard gate.
 </checkpoint_protocol>
 
 <return_state>

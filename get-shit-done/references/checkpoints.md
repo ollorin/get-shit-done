@@ -893,9 +893,12 @@ Never infer phase success from CHECKPOINT.json alone. A coordinator MUST read VE
 
 `gsd-tools.js phase complete` enforces this contract — it REFUSES to mark a phase done unless:
 
-1. VERIFICATION.md exists with `status: "passed"`
-2. Every PLAN.md in the phase directory has a matching SUMMARY.md
-3. CHECKPOINT.json has `last_step: "verify"`
+1. `{N}-VERIFICATION.md` (exact name) exists with `status: "passed"`
+2. Every PLAN.md in the phase directory has a matching SUMMARY.md whose `## Self-Check` is PASSED
+3. Every plan has at least one commit tagged `{N}-{NN}`
+4. CHECKPOINT.json has `last_step: "verify"`
+
+A missing phase directory is a hard failure, never a silent skip.
 
 The command exits 1 with a `validation_errors` JSON response if any check fails.
 

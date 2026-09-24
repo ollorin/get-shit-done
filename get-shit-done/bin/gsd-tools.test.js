@@ -39,6 +39,20 @@ function createTempProject() {
   return tmpDir;
 }
 
+// Initializes a git repo in dir and commits everything with `message` (tag it
+// {phase}-{plan} so the phase evidence gate's git log --grep finds it).
+function gitCommitAll(dir, message) {
+  if (!fs.existsSync(path.join(dir, '.git'))) {
+    execSync('git init -q', { cwd: dir, stdio: 'pipe' });
+    execSync('git config user.email "gsd-test@example.com"', { cwd: dir, stdio: 'pipe' });
+    execSync('git config user.name "GSD Test"', { cwd: dir, stdio: 'pipe' });
+  }
+  execSync('git add -A', { cwd: dir, stdio: 'pipe' });
+  execSync(`git commit -q --allow-empty -m "${message}"`, { cwd: dir, stdio: 'pipe' });
+}
+
+const SELF_CHECK_PASSED_SUMMARY = '# Summary\n\n## Self-Check: PASSED\n';
+
 function cleanup(tmpDir) {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 }
@@ -1264,7 +1278,7 @@ describe('roadmap analyze command', () => {
     const p1 = path.join(tmpDir, '.planning', 'phases', '01-foundation');
     fs.mkdirSync(p1, { recursive: true });
     fs.writeFileSync(path.join(p1, '01-01-PLAN.md'), '# Plan');
-    fs.writeFileSync(path.join(p1, '01-01-SUMMARY.md'), '# Summary');
+    fs.writeFileSync(path.join(p1, '01-01-SUMMARY.md'), SELF_CHECK_PASSED_SUMMARY);
 
     const p2 = path.join(tmpDir, '.planning', 'phases', '02-authentication');
     fs.mkdirSync(p2, { recursive: true });
@@ -1537,7 +1551,7 @@ describe('phase remove command', () => {
     const p1 = path.join(tmpDir, '.planning', 'phases', '01-test');
     fs.mkdirSync(p1, { recursive: true });
     fs.writeFileSync(path.join(p1, '01-01-PLAN.md'), '# Plan');
-    fs.writeFileSync(path.join(p1, '01-01-SUMMARY.md'), '# Summary');
+    fs.writeFileSync(path.join(p1, '01-01-SUMMARY.md'), SELF_CHECK_PASSED_SUMMARY);
     fs.writeFileSync(
       path.join(tmpDir, '.planning', 'ROADMAP.md'),
       `# Roadmap\n### Phase 1: Test\n**Goal:** Test\n`
@@ -1636,10 +1650,11 @@ describe('phase complete command', () => {
     const p1 = path.join(tmpDir, '.planning', 'phases', '01-foundation');
     fs.mkdirSync(p1, { recursive: true });
     fs.writeFileSync(path.join(p1, '01-01-PLAN.md'), '# Plan');
-    fs.writeFileSync(path.join(p1, '01-01-SUMMARY.md'), '# Summary');
+    fs.writeFileSync(path.join(p1, '01-01-SUMMARY.md'), SELF_CHECK_PASSED_SUMMARY);
     fs.writeFileSync(path.join(p1, '01-VERIFICATION.md'), 'status: passed\n# Verification\n');
     fs.writeFileSync(path.join(p1, 'CHECKPOINT.json'), JSON.stringify({ last_step: 'verify', step_status: 'complete' }));
     fs.mkdirSync(path.join(tmpDir, '.planning', 'phases', '02-api'), { recursive: true });
+    gitCommitAll(tmpDir, 'feat(01-01): foundation');
 
     const result = runGsdTools('phase complete 1', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
@@ -1675,9 +1690,10 @@ describe('phase complete command', () => {
     const p1 = path.join(tmpDir, '.planning', 'phases', '01-only-phase');
     fs.mkdirSync(p1, { recursive: true });
     fs.writeFileSync(path.join(p1, '01-01-PLAN.md'), '# Plan');
-    fs.writeFileSync(path.join(p1, '01-01-SUMMARY.md'), '# Summary');
+    fs.writeFileSync(path.join(p1, '01-01-SUMMARY.md'), SELF_CHECK_PASSED_SUMMARY);
     fs.writeFileSync(path.join(p1, '01-VERIFICATION.md'), 'status: passed\n# Verification\n');
     fs.writeFileSync(path.join(p1, 'CHECKPOINT.json'), JSON.stringify({ last_step: 'verify', step_status: 'complete' }));
+    gitCommitAll(tmpDir, 'feat(01-01): only phase');
 
     const result = runGsdTools('phase complete 1', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
@@ -3236,6 +3252,121 @@ describe('phase complete — phase-dir resolution + exact VERIFICATION name (rul
   });
 });
 
+describe('phase evidence gate — phase complete + verify phase-gate (rule 2)', () => {
+  const { evaluateSummarySelfCheck } = require('./gsd-tools.js');
+  let tmpDir;
+  beforeEach(() => {
+    tmpDir = createTempProject();
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), '# Roadmap\n\n- [ ] Phase 7: Evidence\n');
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'STATE.md'), '**Current Phase:** 07\n**Status:** In progress\n');
+  });
+  afterEach(() => cleanup(tmpDir));
+
+  const PLAN = '---\nphase: "07"\nplan: "01"\ntype: execute\nfiles_modified: []\n---\n<tasks></tasks>\n';
+
+  function buildPhase({ summary = SELF_CHECK_PASSED_SUMMARY, commitMsg = 'feat(07-01): work', verStatus = 'passed', plan = true } = {}) {
+    const dir = path.join(tmpDir, '.planning', 'phases', '07-evidence');
+    fs.mkdirSync(dir, { recursive: true });
+    if (plan) fs.writeFileSync(path.join(dir, '07-01-PLAN.md'), PLAN);
+    if (summary !== null) fs.writeFileSync(path.join(dir, '07-01-SUMMARY.md'), summary);
+    fs.writeFileSync(path.join(dir, 'impl.js'), 'module.exports = {};\n');
+    gitCommitAll(tmpDir, commitMsg);
+    if (verStatus) fs.writeFileSync(path.join(dir, '07-VERIFICATION.md'), `---\nphase: "07"\nstatus: ${verStatus}\n---\n`);
+    fs.writeFileSync(path.join(dir, 'CHECKPOINT.json'), JSON.stringify({ last_step: 'verify' }));
+    return dir;
+  }
+
+  function complete() {
+    const r = runGsdTools('phase complete 7', tmpDir);
+    return { ...r, parsed: r.output ? JSON.parse(r.output) : null };
+  }
+
+  function gate() {
+    try {
+      const out = execSync(`node "${TOOLS_PATH}" verify phase-gate 7`, { cwd: tmpDir, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+      return { exitCode: 0, parsed: JSON.parse(out) };
+    } catch (err) {
+      return { exitCode: err.status, parsed: JSON.parse(err.stdout.toString()) };
+    }
+  }
+
+  describe('evaluateSummarySelfCheck (unit)', () => {
+    test('explicit PASSED heading -> passed/self_check', () => {
+      assert.deepStrictEqual(evaluateSummarySelfCheck('# S\n## Self-Check: PASSED\n'), { status: 'passed', source: 'self_check' });
+    });
+    test('explicit FAILED heading -> failed', () => {
+      assert.strictEqual(evaluateSummarySelfCheck('## Self-Check: FAILED\n- missing x\n').status, 'failed');
+    });
+    test('an earlier Verification section mentioning "fail" does not override an explicit PASSED Self-Check', () => {
+      const c = '## Verification\n0 failed, 12 passed\n\n## Self-Check: PASSED\n';
+      assert.deepStrictEqual(evaluateSummarySelfCheck(c), { status: 'passed', source: 'self_check' });
+    });
+    test('last Self-Check heading wins (re-run after a failure)', () => {
+      assert.strictEqual(evaluateSummarySelfCheck('## Self-Check: FAILED\n\n## Self-Check: PASSED\n').status, 'passed');
+      assert.strictEqual(evaluateSummarySelfCheck('## Self-Check: PASSED\n\n## Self-Check: FAILED\n').status, 'failed');
+    });
+    test('bare heading reads the marker from its own section body only', () => {
+      assert.strictEqual(evaluateSummarySelfCheck('## Self-Check\n**PASSED**\n## Next\nFAILED elsewhere\n').status, 'passed');
+      assert.strictEqual(evaluateSummarySelfCheck('## Self-Check\nsee below\n## Next\nPASSED\n').status, 'not_found');
+    });
+    test('no Self-Check heading -> legacy source, never self_check', () => {
+      assert.strictEqual(evaluateSummarySelfCheck('## Verification\nall pass\n').source, 'legacy');
+      assert.deepStrictEqual(evaluateSummarySelfCheck('# nothing\n'), { status: 'not_found', source: null });
+    });
+  });
+
+  test('positive: full evidence -> phase complete succeeds and phase-gate evidence_errors is empty', () => {
+    buildPhase();
+    const g = gate();
+    assert.deepStrictEqual(g.parsed.evidence_errors, []);
+    const r = complete();
+    assert.ok(r.success, r.error + ' ' + r.output);
+  });
+
+  test('negative: SUMMARY without a Self-Check section is refused by both commands', () => {
+    buildPhase({ summary: '# Summary\n\n## Verification\nall pass\n' });
+    const r = complete();
+    assert.strictEqual(r.success, false);
+    assert.ok(r.parsed.validation_errors.some(e => e.includes('07-01-SUMMARY.md Self-Check is missing')), JSON.stringify(r.parsed));
+    const g = gate();
+    assert.strictEqual(g.exitCode, 1);
+    assert.ok(g.parsed.failures.includes('missing_evidence'));
+  });
+
+  test('negative: Self-Check: FAILED is refused by both commands', () => {
+    buildPhase({ summary: '# Summary\n\n## Self-Check: FAILED\n' });
+    const r = complete();
+    assert.strictEqual(r.success, false);
+    assert.ok(r.parsed.validation_errors.some(e => e.includes('Self-Check is failed')), JSON.stringify(r.parsed));
+    assert.ok(gate().parsed.failures.includes('missing_evidence'));
+  });
+
+  test('negative: plan with no {N}-{NN}-tagged commit is refused by both commands', () => {
+    buildPhase({ commitMsg: 'chore: untagged work' });
+    const r = complete();
+    assert.strictEqual(r.success, false);
+    assert.ok(r.parsed.validation_errors.some(e => e.includes('Plan 07-01 has no commits')), JSON.stringify(r.parsed));
+    const g = gate();
+    assert.ok(g.parsed.evidence_errors.some(e => e.includes('Plan 07-01 has no commits')), JSON.stringify(g.parsed));
+  });
+
+  test('negative: VERIFICATION status gaps_found fails phase-gate evidence (existence alone no longer passes)', () => {
+    buildPhase({ verStatus: 'gaps_found' });
+    const g = gate();
+    assert.strictEqual(g.exitCode, 1);
+    assert.ok(g.parsed.evidence_errors.some(e => e.includes('status is gaps_found')), JSON.stringify(g.parsed));
+    const verificationCheck = g.parsed.checks.find(c => c.type === 'verification');
+    assert.strictEqual(verificationCheck.satisfied, true, 'existence check alone is satisfied; evidence is what blocks');
+  });
+
+  test('negative: phase with no numbered plans cannot be completed', () => {
+    buildPhase({ plan: false, summary: null });
+    const r = complete();
+    assert.strictEqual(r.success, false);
+    assert.ok(r.parsed.validation_errors.some(e => e.includes('No numbered')), JSON.stringify(r.parsed));
+  });
+});
+
 // ─── Phase 35-01: gsd-executor post-plan test gate ───────────────────────────
 
 describe('gsd-executor — post-plan test gate section (Phase 35-01)', () => {
@@ -4438,6 +4569,7 @@ describe('verify phase-gate command (Phase 45-01)', () => {
       path.join(phaseDir, '45-01-PLAN.md'),
       `---\nphase: "45"\nplan: "01"\ntype: execute\nfiles_modified: []\n---\n<tasks>\n<task type="auto">\n<name>Task 1</name>\n<action>do stuff</action>\n</task>\n</tasks>\n`
     );
+    fs.writeFileSync(path.join(phaseDir, '45-01-SUMMARY.md'), SELF_CHECK_PASSED_SUMMARY);
     commitAll('feat(45-01): plain task, no tdd, no ui');
     fs.writeFileSync(
       path.join(phaseDir, '45-VERIFICATION.md'),
@@ -4604,7 +4736,7 @@ describe('verify phase-gate command (Phase 45-01)', () => {
     assert.strictEqual(parsed.malformed_plans[0].failure_type, 'malformed_frontmatter');
   });
 
-  test('valid DEFERRED.json entry waives a missing check (verification) -> satisfied true, waived true, not in failures', () => {
+  test('DEFERRED.json waives the verification check but NOT the evidence gate -> missing_evidence, exit 1', () => {
     const phaseDir = phaseDirPath('45-waived');
     fs.mkdirSync(phaseDir, { recursive: true });
     fs.writeFileSync(
@@ -4616,13 +4748,15 @@ describe('verify phase-gate command (Phase 45-01)', () => {
       path.join(phaseDir, 'DEFERRED.json'),
       JSON.stringify([{ step: 'verification', reason: 'mid-execution dry run', approver: 'ollorin', phase: '45' }])
     );
+    fs.writeFileSync(path.join(phaseDir, '45-01-SUMMARY.md'), SELF_CHECK_PASSED_SUMMARY);
     commitAll('feat(45-01): plain task, verification deferred via DEFERRED.json');
 
     const result = runPhaseGate('45', tmpDir);
-    assert.ok(result.success, `Command should exit 0 with a valid waiver: ${result.error}`);
-    assert.strictEqual(result.exitCode, 0);
+    assert.strictEqual(result.exitCode, 1, 'a waiver must not stand in for on-disk verification evidence');
     const parsed = JSON.parse(result.output);
-    assert.strictEqual(parsed.passed, true);
+    assert.strictEqual(parsed.passed, false);
+    assert.deepStrictEqual(parsed.failures, ['missing_evidence']);
+    assert.ok(parsed.evidence_errors.some(e => e.includes('45-VERIFICATION.md not found')), JSON.stringify(parsed.evidence_errors));
     assert.ok(!parsed.failures.includes('missing_verification'), `waived check should not appear in failures: ${JSON.stringify(parsed.failures)}`);
     const verificationCheck = parsed.checks.find(c => c.type === 'verification');
     assert.strictEqual(verificationCheck.satisfied, true);
@@ -5261,7 +5395,7 @@ describe('phase-gate full matrix + HAS_UI integration (Phase 45-05 Task 1)', () 
     checkpoint = null,        // null | object
     e2eTestPlan = undefined,  // undefined = omit file, string = write ('' -> default content)
     verification = undefined, // undefined = omit file, string = write ('' -> default content)
-    summary = undefined,      // undefined = omit file, string = write as 45-{planNum}-SUMMARY.md content
+    summary = SELF_CHECK_PASSED_SUMMARY, // null = omit file, string = write as 45-{planNum}-SUMMARY.md content
     deferred = undefined,     // undefined = omit file, string = write raw (possibly malformed), array = JSON.stringify
   } = {}) {
     const phaseDir = phaseDirPath(phaseDirName);
@@ -5292,11 +5426,11 @@ describe('phase-gate full matrix + HAS_UI integration (Phase 45-05 Task 1)', () 
     }
     if (verification !== undefined) {
       fs.writeFileSync(
-        path.join(phaseDir, `45-${planNum}-VERIFICATION.md`),
+        path.join(phaseDir, '45-VERIFICATION.md'),
         verification || `---\nphase: "45"\nstatus: passed\n---\n# Verification\n`
       );
     }
-    if (summary !== undefined) {
+    if (summary !== null) {
       fs.writeFileSync(path.join(phaseDir, `45-${planNum}-SUMMARY.md`), summary);
     }
     if (deferred !== undefined) {
@@ -5433,7 +5567,7 @@ describe('phase-gate full matrix + HAS_UI integration (Phase 45-05 Task 1)', () 
     assert.strictEqual(parsed.has_ui, true);
   });
 
-  test('valid DEFERRED.json waiver for the missing check -> satisfied true, waived true, overall passed true, exit 0', () => {
+  test('valid DEFERRED.json waiver marks the verification check waived, but the non-waivable evidence gate still fails', () => {
     buildFixture('45-int-waived', {
       extraFiles: { 'impl.js': 'module.exports = {};\n' },
       // No verification file -- would normally fail missing_verification.
@@ -5441,10 +5575,10 @@ describe('phase-gate full matrix + HAS_UI integration (Phase 45-05 Task 1)', () 
     });
 
     const result = runPhaseGate('45', tmpDir);
-    assert.ok(result.success, `expected exit 0 with a valid waiver: ${result.error}`);
+    assert.strictEqual(result.exitCode, 1);
     const parsed = JSON.parse(result.output);
-    assert.strictEqual(parsed.passed, true);
-    assert.ok(!parsed.failures.includes('missing_verification'));
+    assert.strictEqual(parsed.passed, false);
+    assert.deepStrictEqual(parsed.failures, ['missing_evidence']);
     const verificationCheck = parsed.checks.find(c => c.type === 'verification');
     assert.strictEqual(verificationCheck.satisfied, true);
     assert.strictEqual(verificationCheck.waived, true);
@@ -5598,6 +5732,7 @@ describe('deferred add/list <-> phase-gate composition integration (Phase 45-05 
     fs.writeFileSync(path.join(phaseDir, 'impl.js'), 'module.exports = {};\n');
     execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
     execSync('git commit -q --allow-empty -m "feat(45-01): fixture missing verification"', { cwd: tmpDir, stdio: 'pipe' });
+    fs.writeFileSync(path.join(phaseDir, '45-01-SUMMARY.md'), SELF_CHECK_PASSED_SUMMARY);
     return phaseDir;
   }
 
@@ -5615,9 +5750,9 @@ describe('deferred add/list <-> phase-gate composition integration (Phase 45-05 
     assert.ok(addResult.success, `deferred add should exit 0: ${addResult.error}`);
 
     const after = runPhaseGate('45', tmpDir);
-    assert.ok(after.success, `phase-gate should now pass via the on-disk waiver: ${after.error}`);
     const afterParsed = JSON.parse(after.output);
-    assert.strictEqual(afterParsed.passed, true);
+    assert.ok(!afterParsed.failures.includes('missing_verification'), 'the on-disk waiver must reach the verification check');
+    assert.deepStrictEqual(afterParsed.failures, ['missing_evidence'], 'evidence is never waivable');
     const verificationCheck = afterParsed.checks.find(c => c.type === 'verification');
     assert.strictEqual(verificationCheck.satisfied, true);
     assert.strictEqual(verificationCheck.waived, true);
@@ -5651,9 +5786,8 @@ describe('deferred add/list <-> phase-gate composition integration (Phase 45-05 
     );
 
     const result = runPhaseGate('45', tmpDir);
-    assert.ok(result.success, `phase-wide waiver should satisfy the check: ${result.error}`);
     const parsed = JSON.parse(result.output);
-    assert.strictEqual(parsed.passed, true);
+    assert.deepStrictEqual(parsed.failures, ['missing_evidence'], 'waiver satisfies the check; evidence still blocks');
     const verificationCheck = parsed.checks.find(c => c.type === 'verification');
     assert.strictEqual(verificationCheck.waived, true);
   });
@@ -5946,6 +6080,7 @@ describe('verify e2e-gaps + gap-aware e2e_plan check (Phase 46-01)', () => {
     fs.writeFileSync(path.join(phaseDir, 'Dashboard.tsx'), 'export default function Dashboard() { return null; }\n');
     fs.writeFileSync(path.join(phaseDir, 'Settings.tsx'), 'export default function Settings() { return null; }\n');
     // Deliberately no E2E-TEST-PLAN.md at all -- every UI file is a gap.
+    fs.writeFileSync(path.join(phaseDir, '46-01-SUMMARY.md'), SELF_CHECK_PASSED_SUMMARY);
     commitAll('feat(46-01): two UI files, no e2e plan, about to be waived');
     fs.writeFileSync(
       path.join(phaseDir, 'E2E-GENERATION-FAILED.json'),
@@ -6509,6 +6644,7 @@ describe('Phase 46 cross-cutting integration (Phase 46-04 Task 2)', () => {
     // UI file -> has_ui true, e2e_plan + charlotte_qa become required.
     fs.writeFileSync(path.join(phaseDir, 'Dashboard.tsx'), 'export default function Dashboard() { return null; }\n');
     fs.writeFileSync(path.join(phaseDir, 'E2E-TEST-PLAN.md'), '# E2E Test Plan\n\n- Dashboard loads correctly\n');
+    fs.writeFileSync(path.join(phaseDir, '46-01-SUMMARY.md'), SELF_CHECK_PASSED_SUMMARY);
     commitAll('feat(46-01): full matrix fixture -- covered test, docs signal, e2e coverage, ui file');
     fs.writeFileSync(path.join(phaseDir, 'CHECKPOINT.json'), JSON.stringify({ charlotte_qa_ran: true }));
     fs.writeFileSync(path.join(phaseDir, '46-VERIFICATION.md'), `---\nphase: "46"\nstatus: passed\n---\n# Verification\n`);
