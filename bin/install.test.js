@@ -531,6 +531,18 @@ describe('Charlotte DB-reset lock hook registration', () => {
     return out.sort();
   }
 
+  test('negative: a stale lock entry under a renamed matcher is removed on reinstall', () => {
+    const claudeDir = path.join(scratchDir, '.claude');
+    fs.mkdirSync(claudeDir, { recursive: true });
+    fs.writeFileSync(path.join(claudeDir, 'settings.json'), JSON.stringify({ hooks: { PreToolUse: [
+      { matcher: 'mcp__charlotte_old__.*', hooks: [{ type: 'command', command: 'node "/x/get-shit-done/bin/hooks/gsd-charlotte-lock.js"' }] },
+    ] } }));
+    const result = runInstall(scratchDir);
+    assert.ok(result.success, result.output);
+    const settings = JSON.parse(fs.readFileSync(path.join(claudeDir, 'settings.json'), 'utf-8'));
+    assert.ok(!lockEntries(settings).includes('PreToolUse:mcp__charlotte_old__.*'), JSON.stringify(lockEntries(settings)));
+  });
+
   test('registers MCP, Bash, SubagentStart and SubagentStop entries exactly once, idempotently', () => {
     const expected = ['PreToolUse:Bash', 'PreToolUse:mcp__charlotte__.*', 'SubagentStart:gsd-charlotte-qa', 'SubagentStop:gsd-charlotte-qa'];
     for (let i = 0; i < 2; i++) {

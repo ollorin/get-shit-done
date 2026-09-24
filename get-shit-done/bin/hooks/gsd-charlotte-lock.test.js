@@ -29,6 +29,17 @@ describe('isDbResetCommand', () => {
     'echo start; supabase db reset',
     'scripts/preflight.sh --backend',
     'bash scripts/preflight.sh',
+    'timeout 600 supabase db reset',
+    'gtimeout 10m npx supabase db reset',
+    'nohup supabase db reset',
+    '/usr/bin/env supabase db reset',
+    'if true; then supabase db reset; fi',
+    'eval supabase db reset',
+    'nice -n 10 supabase db reset',
+    'deno task --cwd apps/api db:reset',
+    'npm --prefix apps/api run db:reset',
+    'cd apps/e2e-charlotte && deno task test' + ':regression',
+    'deno run --allow-all runner/run.ts --tags=regression --reset-db',
   ];
   for (const cmd of positives) {
     test(`blocks: ${cmd}`, () => assert.strictEqual(isDbResetCommand(cmd), true));
@@ -41,6 +52,8 @@ describe('isDbResetCommand', () => {
     'grep -rn "supabase db reset" docs',
     'cat docs/db-reset.md',
     'nx run api:test',
+    'deno task test' + ':unit',
+    'npm run build',
     '',
     undefined,
   ];
@@ -91,7 +104,8 @@ describe('handle', () => {
     assert.strictEqual(r.exitCode, 0);
     const lock = JSON.parse(fs.readFileSync(lockFile, 'utf8'));
     assert.strictEqual(lock.pid, 4242);
-    assert.strictEqual(lock.agent_id, 'a1');
+    assert.deepStrictEqual(lock.holders, ['a1']);
+    assert.strictEqual(lock.main_thread, false);
     assert.strictEqual(Date.parse(lock.expires_at) - NOW, 120000);
   });
 
@@ -124,13 +138,34 @@ describe('handle', () => {
     assert.strictEqual(handle(bash('supabase db reset'), deps()).exitCode, 0);
   });
 
-  test('SubagentStop releases only the lock held by the stopping agent', () => {
-    writeLock(buildLock({ pid: 4242, nowMs: NOW, ttlSec: 600, source: 'subagent', agentId: 'other' }));
-    handle({ hook_event_name: 'SubagentStop', agent_type: 'gsd-charlotte-qa', agent_id: 'q1', cwd: root }, deps());
+  const start = id => handle({ hook_event_name: 'SubagentStart', agent_type: 'gsd-charlotte-qa', agent_id: id, cwd: root }, deps());
+  const stop = id => handle({ hook_event_name: 'SubagentStop', agent_type: 'gsd-charlotte-qa', agent_id: id, cwd: root }, deps());
+
+  test('SubagentStop releases only the stopping agent', () => {
+    start('other');
+    stop('q1');
     assert.strictEqual(fs.existsSync(lockFile), true);
-    writeLock(buildLock({ pid: 4242, nowMs: NOW, ttlSec: 600, source: 'subagent', agentId: 'q1' }));
-    handle({ hook_event_name: 'SubagentStop', agent_type: 'gsd-charlotte-qa', agent_id: 'q1', cwd: root }, deps());
+    stop('other');
     assert.strictEqual(fs.existsSync(lockFile), false);
+  });
+
+  test('negative: overlapping Charlotte agents -- the first stop must not release the lock the second still needs', () => {
+    start('A');
+    start('B');
+    stop('B');
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(lockFile, 'utf8')).holders, ['A']);
+    assert.strictEqual(handle(bash('supabase db reset'), deps()).exitCode, 2, 'A is still running');
+    stop('A');
+    assert.strictEqual(fs.existsSync(lockFile), false);
+  });
+
+  test('a main-thread Charlotte call keeps the lock after the last agent stops (TTL-only release)', () => {
+    start('A');
+    handle({ hook_event_name: 'PreToolUse', tool_name: 'mcp__charlotte__charlotte_click', cwd: root }, deps());
+    stop('A');
+    const lock = JSON.parse(fs.readFileSync(lockFile, 'utf8'));
+    assert.deepStrictEqual(lock.holders, []);
+    assert.strictEqual(lock.main_thread, true);
   });
 
   test('a corrupt lock file fails open', () => {

@@ -24,12 +24,16 @@ const DEFAULT_TTL_SEC = 1800;
 const CHARLOTTE_AGENT = 'gsd-charlotte-qa';
 const WRAPPER_COMMS = new Set(['sh', 'bash', 'zsh', 'dash', 'fish', 'timeout', 'gtimeout', 'env']);
 
-const PREFIX = String.raw`(?:^|[;&|\n(\x60]|\$\(|(?:-c|eval)\s+["'])\s*`;
-const RUNNER = String.raw`(?:(?:npx|pnpx|bunx|sudo|exec|time|command)\s+(?:-{1,2}[\w-]+(?:=\S+)?\s+)*|(?:pnpm|yarn|npm)\s+(?:exec\s+|dlx\s+)?(?:-{1,2}[\w-]+(?:=\S+)?\s+)*|env\s+(?:\w+=\S*\s+)*|\w+=\S*\s+)*`;
+const PREFIX = String.raw`(?:^|[;&|\n(\x60{]|\$\(|\b(?:then|do|else)\s|(?:-c|eval)\s+["'])\s*`;
+const FLAGS = String.raw`(?:-{1,2}[\w-]+(?:=\S+)?\s+)*`;
+const RUNNER = String.raw`(?:(?:\S*/)?(?:npx|pnpx|bunx|sudo|exec|time|command|nohup|eval|xargs)\s+${FLAGS}|(?:\S*/)?g?timeout\s+${FLAGS}\d+[smhd]?\s+|(?:\S*/)?nice\s+(?:-n\s*)?(?:-?\d+\s+)?|(?:pnpm|yarn|npm)\s+(?:exec\s+|dlx\s+)?${FLAGS}|(?:\S*/)?env\s+${FLAGS}(?:\w+=\S*\s+)*|\w+=\S*\s+)*`;
+const TASK_FLAGS = String.raw`(?:-{1,2}[\w-]+(?:[= ](?!run\b|task\b)[^\s-]\S*)?\s+)*`;
 const RESET_PATTERNS = [
   new RegExp(PREFIX + RUNNER + String.raw`(?:\S*/)?supabase(?:@\S+)?\s+(?:[^;&|\n]*?\s)?db\s+reset\b`),
   new RegExp(PREFIX + RUNNER + String.raw`(?:\S*/)?nx\s+[^;&|\n]*?\b(?:supabase|db)[:-]reset\b`),
-  new RegExp(PREFIX + String.raw`(?:npm|pnpm|yarn|bun|deno)\s+(?:run|task)\s+[\w:.-]*\b(?:supabase|db)[:-]reset\b`),
+  new RegExp(PREFIX + RUNNER + String.raw`(?:npm|pnpm|yarn|bun|deno)\s+${TASK_FLAGS}(?:run|task)\s+${TASK_FLAGS}(?:[\w:.-]*\b(?:supabase|db)[:-]reset|test:regression)\b`),
+  // test:regression and --reset-db: the Charlotte runner's own suite-level reset.
+  /(?:^|\s)--reset-db\b/,
   new RegExp(PREFIX + String.raw`(?:(?:ba)?sh\s+)?(?:\S*/)?preflight\.sh\b`),
 ];
 
@@ -104,13 +108,17 @@ function isLockLive(lock, nowMs, pidAlive = isPidAlive) {
   return pidAlive(lock.pid);
 }
 
-function buildLock({ pid, nowMs, ttlSec, source, agentId, sessionId }) {
+// holders: agent_ids of live gsd-charlotte-qa subagents (released on their
+// SubagentStop). main_thread: a Charlotte call outside any subagent, which has
+// no stop event and is released only by TTL expiry.
+function buildLock({ pid, nowMs, ttlSec, source, agentId, sessionId, holders, mainThread }) {
   return {
     pid,
     acquired_at: new Date(nowMs).toISOString(),
     expires_at: new Date(nowMs + ttlSec * 1000).toISOString(),
     source,
-    agent_id: agentId || null,
+    holders: holders || (agentId ? [agentId] : []),
+    main_thread: mainThread !== undefined ? mainThread : !agentId,
     session_id: sessionId || null,
   };
 }
@@ -127,13 +135,15 @@ function blockMessage(file, lock) {
     'BLOCKED: database reset while a Charlotte QA run holds the DB lock.',
     '',
     `  Lock:    ${file}`,
-    `  Holder:  pid ${lock.pid} (${lock.source}${lock.agent_id ? `, agent ${lock.agent_id}` : ''})`,
+    `  Holder:  pid ${lock.pid} (${lock.source}; agents: ${(lock.holders || []).join(', ') || 'none'}${lock.main_thread ? '; main-thread' : ''})`,
     `  Expires: ${lock.expires_at}`,
     '',
     'A reset mid-run wipes the state Charlotte scenarios depend on and turns their results into noise.',
     'Allowed path: run the suite-start reset BEFORE spawning gsd-charlotte-qa or making the first',
     'Charlotte tool call, then wait for the run to finish (the lock is released on SubagentStop,',
-    'expires at the time above, or is ignored once the holder PID exits). Do not delete the lock file.',
+    'expires at the time above, or is ignored once the holder PID exits). A main-thread Charlotte',
+    'session has no stop event, so its lock lasts until the expiry (GSD_CHARLOTTE_LOCK_TTL_SEC).',
+    'Do not delete the lock file.',
   ].join('\n');
 }
 
@@ -164,24 +174,29 @@ function handle(input, deps = {}) {
     (event === 'SubagentStart' && isCharlotteAgent(input));
   if (acquire) {
     const existing = readLock(file);
-    // Refresh keeps an agent-held lock attributed to that agent so its
-    // SubagentStop can release it.
-    const keepAgent = existing && isLockLive(existing, nowMs, pidAlive) && !input.agent_id ? existing.agent_id : null;
+    const live = isLockLive(existing, nowMs, pidAlive);
+    const prevHolders = live && Array.isArray(existing.holders) ? existing.holders : [];
+    const holders = input.agent_id && !prevHolders.includes(input.agent_id) ? [...prevHolders, input.agent_id] : prevHolders;
     writeLock(file, buildLock({
       pid: holderPid(),
       nowMs,
       ttlSec: ttlSeconds(env),
       source: event === 'SubagentStart' ? 'subagent' : 'mcp',
-      agentId: input.agent_id || keepAgent,
       sessionId: input.session_id,
+      holders,
+      mainThread: (live && existing.main_thread === true) || !input.agent_id,
     }));
     return { exitCode: 0 };
   }
 
   if (event === 'SubagentStop' && isCharlotteAgent(input)) {
     const lock = readLock(file);
-    if (lock && lock.agent_id && lock.agent_id === input.agent_id) {
+    if (!lock || !Array.isArray(lock.holders) || !lock.holders.includes(input.agent_id)) return { exitCode: 0 };
+    const holders = lock.holders.filter(h => h !== input.agent_id);
+    if (holders.length === 0 && lock.main_thread !== true) {
       fs.rmSync(file, { force: true });
+    } else {
+      writeLock(file, { ...lock, holders });
     }
     return { exitCode: 0 };
   }

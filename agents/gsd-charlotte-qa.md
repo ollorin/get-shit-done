@@ -322,8 +322,10 @@ will be read as N passed.
 
 GSD hooks hold `.tmp/charlotte.lock` for the whole Charlotte run: SubagentStart takes it when
 `gsd-charlotte-qa` is spawned and every Charlotte tool call refreshes it. While it is live,
-`supabase db reset` (direct, via npx/pnpm, nx `*:supabase:reset`/`db:reset` targets, or
-`scripts/preflight.sh`) is blocked for every agent, including you. So the suite-start reset is the
+`supabase db reset` (direct or wrapped: npx/pnpm/timeout/nohup/env, nx `*:supabase:reset`/`db:reset`
+targets, `db:reset` tasks, `test:regression`/`--reset-db`, or `scripts/preflight.sh`) is blocked for every
+agent, including you. Subagent locks release on SubagentStop; a main-thread Charlotte lock lasts until
+its TTL (`GSD_CHARLOTTE_LOCK_TTL_SEC`, default 30 min). So the suite-start reset is the
 spawner's job, done before spawning you (main-thread runs: before the first Charlotte tool call).
 Never try to reset mid-run; if the reset did not happen, apply the rule above.
 

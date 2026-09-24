@@ -1834,12 +1834,13 @@ function install(isGlobal, runtime = 'claude') {
       ['SubagentStart', 'gsd-charlotte-qa'],
       ['SubagentStop', 'gsd-charlotte-qa'],
     ];
-    for (const [event, matcher] of charlotteLockRegistrations) {
-      const entries = (settings.hooks[event] || []).filter(entry =>
-        !(entry.hooks && entry.hooks.some(h => h.command && h.command.includes('gsd-charlotte-lock')) && entry.matcher === matcher)
+    for (const event of new Set(charlotteLockRegistrations.map(([e]) => e))) {
+      settings.hooks[event] = (settings.hooks[event] || []).filter(entry =>
+        !(entry.hooks && entry.hooks.some(h => h.command && h.command.includes('gsd-charlotte-lock')))
       );
-      entries.push({ matcher, hooks: [{ type: 'command', command: charlotteLockCommand }] });
-      settings.hooks[event] = entries;
+    }
+    for (const [event, matcher] of charlotteLockRegistrations) {
+      settings.hooks[event].push({ matcher, hooks: [{ type: 'command', command: charlotteLockCommand }] });
     }
     console.log(`  ${green}✓${reset} Configured Charlotte DB-reset lock hooks`);
 
