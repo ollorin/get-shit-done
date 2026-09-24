@@ -124,7 +124,7 @@ When spawning the verifier subagent (verify step), if fresh_subagent_notified is
 
 If you reach 80% context and have NOT yet completed the verify step:
 1. Write CHECKPOINT.json with `resume_from: "verify"` (or whatever step is next)
-2. Set `charlotte_qa_ran: false` in CHECKPOINT.json if Charlotte was not run
+2. Do not record Charlotte evidence yourself: `charlotte_qa_ran` is written by gsd-verifier into `{N}-VERIFICATION.md` frontmatter
 3. Return to orchestrator with `status: "completed_with_deferrals"` and include in the return:
    ```json
    {

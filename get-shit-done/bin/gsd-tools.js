@@ -281,6 +281,23 @@ function computeHasUI(touchedFiles) {
   return touchedFiles.some(isUIFile);
 }
 
+// Server endpoints whose behaviour a Charlotte QA run exercises through the UI.
+const API_PATH_PATTERNS = [
+  /^apps\/api\/functions\//,
+  /(^|\/)supabase\/functions\//,
+  /(^|\/)(app|pages)\/api\//,
+];
+
+function isApiFile(filePath) {
+  if (typeof filePath !== 'string' || !filePath) return false;
+  if (isTestOrSpecFile(filePath) || /\.md$/i.test(filePath)) return false;
+  return API_PATH_PATTERNS.some(re => re.test(filePath));
+}
+
+function computeHasApi(touchedFiles) {
+  return touchedFiles.some(isApiFile);
+}
+
 // ─── Source-Touch Detection (Phase 59-02, MILE-37) ──────────────────────────
 // isSourceFile/computeTouchesSourceCode are pure functions -- no I/O -- gating the new
 // post-task gsd-test-writer spawn point in executor-detail.md. Mirrors isUIFile/
@@ -6413,7 +6430,7 @@ function cmdFrontmatterMerge(cwd, filePath, data, raw) {
 const FRONTMATTER_SCHEMAS = {
   plan: { required: ['phase', 'plan', 'type', 'wave', 'depends_on', 'files_modified', 'autonomous', 'must_haves'] },
   summary: { required: ['phase', 'plan', 'subsystem', 'tags', 'duration', 'completed'] },
-  verification: { required: ['phase', 'verified', 'status', 'score'] },
+  verification: { required: ['phase', 'verified', 'status', 'score', 'charlotte_qa_ran'] },
 };
 
 function cmdFrontmatterValidate(cwd, filePath, schemaName, raw) {
@@ -7020,6 +7037,7 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
   }
   const { phaseInfo, phaseDir, dirFiles, touchedFiles, touchedWarnings, hasUi, malformedPlans, validPlans } = inputs;
   const evidence = collectPhaseEvidenceErrors(cwd, phaseInfo.phase_number, phaseDir, dirFiles);
+  const hasApi = computeHasApi(touchedFiles);
 
   // Waiver lookup -- shared with `deferred add`/`deferred list` (45-03) via
   // readDeferredWaivers(), so all three code paths agree on what counts as a
@@ -7058,14 +7076,11 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
       () => touchedFiles.some(f => TEST_FILE_RE.test(f)),
       waivers, phaseInfo.phase_number
     ),
+    // Evidence comes from the verifier's {N}-VERIFICATION.md frontmatter, not
+    // the coordinator-written CHECKPOINT.json; only a YAML boolean true counts.
     evaluatePhaseGateCheck(
-      'charlotte_qa', hasUi,
-      () => {
-        const checkpointContent = safeReadFile(path.join(phaseDir, 'CHECKPOINT.json'));
-        if (checkpointContent === null) return false;
-        const parsed = safeJsonParse(checkpointContent, 'CHECKPOINT.json');
-        return parsed.ok && parsed.value && parsed.value.charlotte_qa_ran === true;
-      },
+      'charlotte_qa', hasUi || hasApi,
+      () => evidence.verification.data.charlotte_qa_ran === true,
       waivers, phaseInfo.phase_number
     ),
     evaluatePhaseGateCheck(
@@ -7100,6 +7115,8 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
     malformed_plans: malformedPlans,
     touched_files_count: touchedFiles.length,
     has_ui: hasUi,
+    has_api: hasApi,
+    charlotte_qa_required: hasUi || hasApi,
     e2e_gaps: e2eGapResult.gaps,
     evidence_errors: evidence.errors,
   };
@@ -15380,6 +15397,8 @@ module.exports = {
   isTestOrSpecFile,
   evaluateSummarySelfCheck,
   collectPhaseEvidenceErrors,
+  isApiFile,
+  computeHasApi,
   computeTouchesSourceCode,
   computeHighRisk,
   computePresentationOrder,

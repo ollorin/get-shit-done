@@ -95,6 +95,7 @@ reference file.
 
 **Step 8c (Charlotte QA coverage, QGATE-07):**
 > **Hard rule:** If UI files were produced OR the project is a web project, Charlotte QA MUST have run. If no Charlotte QA session is recorded, mark the phase `gaps_found`. This is NEVER a warning — never emit a warning for missing Charlotte QA on UI-producing phases or web projects.
+> Record the outcome as `charlotte_qa_ran: true|false` in the VERIFICATION.md frontmatter (always present). `verify phase-gate` fails `missing_charlotte_qa` for UI or API phases unless it is `true`.
 
 **Step 8c.5 (deferral language detection, QGATE-12):**
 > **Hard rule:** Any deferral of tests, QA, or verification to a future phase is a verification failure. This is NEVER a warning.
@@ -174,6 +175,7 @@ phase: XX-name
 verified: YYYY-MM-DDTHH:MM:SSZ
 status: passed | gaps_found | human_needed
 score: N/M must-haves verified
+charlotte_qa_ran: true | false # REQUIRED YAML boolean. true only if a Charlotte QA run for this phase is recorded (Step 8c). verify phase-gate reads this for phases touching UI or API paths.
 re_verification: # Only if previous VERIFICATION.md existed
   previous_status: gaps_found
   previous_score: 2/5

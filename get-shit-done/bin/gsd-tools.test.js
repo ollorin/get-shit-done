@@ -3367,6 +3367,97 @@ describe('phase evidence gate — phase complete + verify phase-gate (rule 2)', 
   });
 });
 
+describe('charlotte_qa_ran from VERIFICATION.md frontmatter, required for UI or API phases (rule 3)', () => {
+  const { isApiFile, computeHasApi } = require('./gsd-tools.js');
+  let tmpDir;
+  beforeEach(() => { tmpDir = createTempProject(); });
+  afterEach(() => cleanup(tmpDir));
+
+  function buildPhase({ files, verificationFm = 'status: passed', checkpoint = null }) {
+    const dir = path.join(tmpDir, '.planning', 'phases', '08-cq');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, '08-01-PLAN.md'), '---\nphase: "08"\nplan: "01"\ntype: execute\n---\n<tasks></tasks>\n');
+    fs.writeFileSync(path.join(dir, '08-01-SUMMARY.md'), SELF_CHECK_PASSED_SUMMARY);
+    fs.writeFileSync(path.join(dir, 'E2E-TEST-PLAN.md'), '# E2E\n- Dashboard\n');
+    for (const [rel, content] of Object.entries(files)) {
+      fs.mkdirSync(path.dirname(path.join(tmpDir, rel)), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, rel), content);
+    }
+    gitCommitAll(tmpDir, 'feat(08-01): work');
+    fs.writeFileSync(path.join(dir, '08-VERIFICATION.md'), `---\nphase: "08"\n${verificationFm}\n---\n`);
+    if (checkpoint) fs.writeFileSync(path.join(dir, 'CHECKPOINT.json'), JSON.stringify(checkpoint));
+  }
+
+  function gate() {
+    try {
+      const out = execSync(`node "${TOOLS_PATH}" verify phase-gate 8`, { cwd: tmpDir, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+      return { exitCode: 0, parsed: JSON.parse(out) };
+    } catch (err) {
+      return { exitCode: err.status, parsed: JSON.parse(err.stdout.toString()) };
+    }
+  }
+
+  const API_FILE = { 'apps/api/functions/games/index.ts': 'export {};\n' };
+
+  test('isApiFile / computeHasApi (unit)', () => {
+    assert.strictEqual(isApiFile('apps/api/functions/games/index.ts'), true);
+    assert.strictEqual(isApiFile('supabase/functions/auth/index.ts'), true);
+    assert.strictEqual(isApiFile('apps/web/pages/api/login.ts'), true);
+    assert.strictEqual(isApiFile('apps/api/functions/__tests__/games.integration.test.ts'), false, 'test-only change');
+    assert.strictEqual(isApiFile('apps/api/functions/README.md'), false);
+    assert.strictEqual(isApiFile('apps/api/libs/domain/x.ts'), false);
+    assert.strictEqual(computeHasApi(['docs/a.md', 'apps/api/functions/x/y.ts']), true);
+    assert.strictEqual(computeHasApi(['docs/a.md']), false);
+  });
+
+  test('positive: API phase with charlotte_qa_ran: true in VERIFICATION frontmatter passes the check', () => {
+    buildPhase({ files: API_FILE, verificationFm: 'status: passed\ncharlotte_qa_ran: true' });
+    const g = gate();
+    assert.strictEqual(g.parsed.has_api, true);
+    assert.strictEqual(g.parsed.charlotte_qa_required, true);
+    const cq = g.parsed.checks.find(c => c.type === 'charlotte_qa');
+    assert.strictEqual(cq.satisfied, true, JSON.stringify(g.parsed));
+  });
+
+  test('negative: API-only phase (no UI) without charlotte_qa_ran -> missing_charlotte_qa', () => {
+    buildPhase({ files: API_FILE });
+    const g = gate();
+    assert.strictEqual(g.parsed.has_ui, false);
+    assert.strictEqual(g.exitCode, 1);
+    assert.ok(g.parsed.failures.includes('missing_charlotte_qa'), JSON.stringify(g.parsed.failures));
+  });
+
+  test('negative: CHECKPOINT.json charlotte_qa_ran true no longer counts as evidence', () => {
+    buildPhase({ files: API_FILE, checkpoint: { charlotte_qa_ran: true, last_step: 'verify' } });
+    assert.ok(gate().parsed.failures.includes('missing_charlotte_qa'));
+  });
+
+  test('negative: charlotte_qa_ran: false or quoted "true" is not evidence', () => {
+    buildPhase({ files: API_FILE, verificationFm: 'status: passed\ncharlotte_qa_ran: false' });
+    assert.ok(gate().parsed.failures.includes('missing_charlotte_qa'));
+    cleanup(tmpDir); tmpDir = createTempProject();
+    buildPhase({ files: API_FILE, verificationFm: 'status: passed\ncharlotte_qa_ran: "true"' });
+    assert.ok(gate().parsed.failures.includes('missing_charlotte_qa'));
+  });
+
+  test('not required when the phase touched neither UI nor API paths', () => {
+    buildPhase({ files: { 'apps/api/libs/domain/x.ts': 'export {};\n' } });
+    const g = gate();
+    const cq = g.parsed.checks.find(c => c.type === 'charlotte_qa');
+    assert.strictEqual(cq.required, false);
+  });
+
+  test('frontmatter validate --schema verification requires charlotte_qa_ran', () => {
+    const p = path.join(tmpDir, 'V.md');
+    fs.writeFileSync(p, '---\nphase: 08\nverified: 2026-01-01\nstatus: passed\nscore: 1/1\n---\n');
+    const bad = JSON.parse(runGsdTools(`frontmatter validate "${p}" --schema verification`, tmpDir).output);
+    assert.strictEqual(bad.valid, false);
+    assert.deepStrictEqual(bad.missing, ['charlotte_qa_ran']);
+    fs.writeFileSync(p, '---\nphase: 08\nverified: 2026-01-01\nstatus: passed\nscore: 1/1\ncharlotte_qa_ran: false\n---\n');
+    assert.strictEqual(JSON.parse(runGsdTools(`frontmatter validate "${p}" --schema verification`, tmpDir).output).valid, true);
+  });
+});
+
 // ─── Phase 35-01: gsd-executor post-plan test gate ───────────────────────────
 
 describe('gsd-executor — post-plan test gate section (Phase 35-01)', () => {
@@ -4645,11 +4736,10 @@ describe('verify phase-gate command (Phase 45-01)', () => {
       `---\nphase: "45"\nplan: "01"\ntype: execute\nfiles_modified: []\n---\n<tasks>\n<task type="auto">\n<name>Task 1</name>\n<action>do stuff</action>\n</task>\n</tasks>\n`
     );
     fs.writeFileSync(path.join(phaseDir, 'Dashboard.tsx'), 'export default function Dashboard() { return null; }\n');
-    fs.writeFileSync(path.join(phaseDir, 'CHECKPOINT.json'), JSON.stringify({ charlotte_qa_ran: true }));
     commitAll('feat(45-01): add Dashboard.tsx, charlotte ran, no E2E plan');
     fs.writeFileSync(
       path.join(phaseDir, '45-VERIFICATION.md'),
-      `---\nphase: "45"\nstatus: passed\n---\n# Verification\n`
+      `---\nphase: "45"\nstatus: passed\ncharlotte_qa_ran: true\n---\n# Verification\n`
     );
 
     const result = runPhaseGate('45', tmpDir);
@@ -4874,12 +4964,11 @@ describe('diff-based HAS_UI detection matrix (Phase 45-02)', () => {
       path.join(phaseDir, '45-01-SUMMARY.md'),
       `---\nphase: 45-01\nkey-files:\n  created:\n    - src/utils/helper.js\n  modified: []\n---\n# Summary\nNo mention of the tsx file here.\n`
     );
-    fs.writeFileSync(path.join(phaseDir, 'CHECKPOINT.json'), JSON.stringify({ charlotte_qa_ran: true }));
     fs.writeFileSync(path.join(phaseDir, 'E2E-TEST-PLAN.md'), '# E2E Test Plan\n');
     commitAll('feat(45-01): add Widget.tsx, SUMMARY omits it from key-files');
     fs.writeFileSync(
       path.join(phaseDir, '45-VERIFICATION.md'),
-      `---\nphase: "45"\nstatus: passed\n---\n# Verification\n`
+      `---\nphase: "45"\nstatus: passed\ncharlotte_qa_ran: true\n---\n# Verification\n`
     );
 
     const result = runPhaseGate('45', tmpDir);
@@ -4917,12 +5006,11 @@ describe('diff-based HAS_UI detection matrix (Phase 45-02)', () => {
     fs.writeFileSync(path.join(phaseDir, 'Widget.tsx'), 'export default function Widget() { return null; }\n');
     fs.writeFileSync(path.join(phaseDir, 'service.ts'), 'export function service() {}\n');
     fs.writeFileSync(path.join(phaseDir, 'utils.ts'), 'export function util() {}\n');
-    fs.writeFileSync(path.join(phaseDir, 'CHECKPOINT.json'), JSON.stringify({ charlotte_qa_ran: true }));
     fs.writeFileSync(path.join(phaseDir, 'E2E-TEST-PLAN.md'), '# E2E Test Plan\n');
     commitAll('feat(45-01): mixed .tsx + .ts files');
     fs.writeFileSync(
       path.join(phaseDir, '45-VERIFICATION.md'),
-      `---\nphase: "45"\nstatus: passed\n---\n# Verification\n`
+      `---\nphase: "45"\nstatus: passed\ncharlotte_qa_ran: true\n---\n# Verification\n`
     );
 
     const result = runPhaseGate('45', tmpDir);
@@ -4979,12 +5067,11 @@ describe('diff-based HAS_UI detection matrix (Phase 45-02)', () => {
       `---\nphase: "45"\nplan: "01"\ntype: execute\nfiles_modified: []\n---\n<tasks>\n<task type="auto">\n<name>Task 1</name>\n<action>do stuff</action>\n</task>\n</tasks>\n`
     );
     fs.writeFileSync(path.join(phaseDir, 'routes', 'checkout.astro'), '---\n---\n<h1>Checkout</h1>\n');
-    fs.writeFileSync(path.join(phaseDir, 'CHECKPOINT.json'), JSON.stringify({ charlotte_qa_ran: true }));
     fs.writeFileSync(path.join(phaseDir, 'E2E-TEST-PLAN.md'), '# E2E Test Plan\n');
     commitAll('feat(45-01): add routes/checkout.astro');
     fs.writeFileSync(
       path.join(phaseDir, '45-VERIFICATION.md'),
-      `---\nphase: "45"\nstatus: passed\n---\n# Verification\n`
+      `---\nphase: "45"\nstatus: passed\ncharlotte_qa_ran: true\n---\n# Verification\n`
     );
 
     const result = runPhaseGate('45', tmpDir);
@@ -5483,11 +5570,10 @@ describe('phase-gate full matrix + HAS_UI integration (Phase 45-05 Task 1)', () 
     assert.ok(parsed.failures.includes('missing_charlotte_qa'));
   });
 
-  test('missing_e2e_plan: .tsx in diff, CHECKPOINT.json present, E2E-TEST-PLAN.md absent -> missing_e2e_plan', () => {
+  test('missing_e2e_plan: .tsx in diff, Charlotte evidence present, E2E-TEST-PLAN.md absent -> missing_e2e_plan', () => {
     buildFixture('45-int-noe2e', {
       extraFiles: { 'Dashboard.tsx': 'export default function Dashboard() { return null; }\n' },
-      checkpoint: { charlotte_qa_ran: true },
-      verification: '',
+      verification: `---\nphase: "45"\nstatus: passed\ncharlotte_qa_ran: true\n---\n# Verification\n`,
     });
 
     const result = runPhaseGate('45', tmpDir);
@@ -5524,9 +5610,8 @@ describe('phase-gate full matrix + HAS_UI integration (Phase 45-05 Task 1)', () 
   test('HAS_UI: .tsx touched but omitted from *-SUMMARY.md key-files text -> has_ui true (independent of self-report)', () => {
     buildFixture('45-int-uiomitted', {
       extraFiles: { 'Dashboard.tsx': 'export default function Dashboard() { return null; }\n' },
-      checkpoint: { charlotte_qa_ran: true },
       e2eTestPlan: '',
-      verification: '',
+      verification: `---\nphase: "45"\nstatus: passed\ncharlotte_qa_ran: true\n---\n# Verification\n`,
       summary: `---\nphase: "45"\nplan: "01"\nkey-files:\n  created:\n    - impl.js\n---\n# Summary\nNo mention of the UI file here.\n`,
     });
 
@@ -5557,9 +5642,8 @@ describe('phase-gate full matrix + HAS_UI integration (Phase 45-05 Task 1)', () 
         'src/repository.ts': 'export const repository = {};\n',
         'src/utils.ts': 'export const utils = {};\n',
       },
-      checkpoint: { charlotte_qa_ran: true },
       e2eTestPlan: '',
-      verification: '',
+      verification: `---\nphase: "45"\nstatus: passed\ncharlotte_qa_ran: true\n---\n# Verification\n`,
     });
 
     const result = runPhaseGate('45', tmpDir);
@@ -6090,8 +6174,7 @@ describe('verify e2e-gaps + gap-aware e2e_plan check (Phase 46-01)', () => {
     // test isolates the e2e_plan waiver behavior instead of also failing on
     // missing_charlotte_qa (which every UI-bearing fixture in this suite would
     // otherwise trip).
-    fs.writeFileSync(path.join(phaseDir, 'CHECKPOINT.json'), JSON.stringify({ charlotte_qa_ran: true }));
-    fs.writeFileSync(path.join(phaseDir, '46-VERIFICATION.md'), `---\nphase: "46"\nstatus: passed\n---\n# Verification\n`);
+    fs.writeFileSync(path.join(phaseDir, '46-VERIFICATION.md'), `---\nphase: "46"\nstatus: passed\ncharlotte_qa_ran: true\n---\n# Verification\n`);
 
     const addResult = runDeferred(
       `add 46-waived --step e2e_plan --reason "E2E generator unavailable in this environment" --approver ollorin --raw`,
@@ -6555,8 +6638,7 @@ describe('Phase 46 cross-cutting integration (Phase 46-04 Task 2)', () => {
       path.join(phaseDir, 'E2E-GENERATION-FAILED.json'),
       JSON.stringify({ error: 'gsd-e2e-test-generator threw during spawn', timestamp: '2026-07-04T00:00:00Z' })
     );
-    fs.writeFileSync(path.join(phaseDir, 'CHECKPOINT.json'), JSON.stringify({ charlotte_qa_ran: true }));
-    fs.writeFileSync(path.join(phaseDir, '46-VERIFICATION.md'), `---\nphase: "46"\nstatus: passed\n---\n# Verification\n`);
+    fs.writeFileSync(path.join(phaseDir, '46-VERIFICATION.md'), `---\nphase: "46"\nstatus: passed\ncharlotte_qa_ran: true\n---\n# Verification\n`);
 
     const gateResult = runPhaseGate('46', tmpDir);
     assert.strictEqual(gateResult.exitCode, 1);
@@ -6646,8 +6728,7 @@ describe('Phase 46 cross-cutting integration (Phase 46-04 Task 2)', () => {
     fs.writeFileSync(path.join(phaseDir, 'E2E-TEST-PLAN.md'), '# E2E Test Plan\n\n- Dashboard loads correctly\n');
     fs.writeFileSync(path.join(phaseDir, '46-01-SUMMARY.md'), SELF_CHECK_PASSED_SUMMARY);
     commitAll('feat(46-01): full matrix fixture -- covered test, docs signal, e2e coverage, ui file');
-    fs.writeFileSync(path.join(phaseDir, 'CHECKPOINT.json'), JSON.stringify({ charlotte_qa_ran: true }));
-    fs.writeFileSync(path.join(phaseDir, '46-VERIFICATION.md'), `---\nphase: "46"\nstatus: passed\n---\n# Verification\n`);
+    fs.writeFileSync(path.join(phaseDir, '46-VERIFICATION.md'), `---\nphase: "46"\nstatus: passed\ncharlotte_qa_ran: true\n---\n# Verification\n`);
 
     const gateResult = runPhaseGate('46', tmpDir);
     assert.ok(gateResult.success, `expected phase-gate exit 0: ${gateResult.error} :: ${gateResult.output}`);

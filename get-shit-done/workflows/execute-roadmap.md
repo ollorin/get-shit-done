@@ -332,8 +332,8 @@ Agent(
   - Charlotte QA + UX audit CANNOT be skipped for web projects
   - Individual plans MUST stay under 400 lines. If a plan exceeds 400 lines, split it.
     DB migrations, edge function handlers, and integration tests are three separate plans — not one.
-  - Before writing SUMMARY.md, set charlotte_qa_ran in CHECKPOINT.json (true if Charlotte ran, false if no UI).
-    The orchestrator validates this after you return.
+  - charlotte_qa_ran lives in {N}-VERIFICATION.md frontmatter, written by gsd-verifier (true only if a
+    Charlotte QA run is recorded). CHECKPOINT.json is not evidence. The orchestrator validates this after you return.
 
   CONTEXT OVERFLOW PREVENTION:
   - Do NOT read the full edge function file if it exceeds 1000 lines. Use LSP or grep for the specific handler.
@@ -454,22 +454,22 @@ fi
 
 **5a. Charlotte QA gate (BLOCKING — owned by orchestrator, not coordinator):**
 
-Check if the phase has UI work using the deterministic, git-diff-derived phase gate (never a markdown/frontmatter self-report scan):
+Check if the phase needs Charlotte QA using the deterministic, git-diff-derived phase gate (never a markdown/frontmatter self-report scan):
 ```bash
 PHASE_GATE_RESULT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js verify phase-gate {N})
-HAS_UI=$(node -e "console.log(JSON.parse(process.argv[1]).has_ui === true ? 'true' : '')" "$PHASE_GATE_RESULT")
+NEEDS_QA=$(node -e "console.log(JSON.parse(process.argv[1]).charlotte_qa_required === true ? 'true' : '')" "$PHASE_GATE_RESULT")
 ```
 
-`has_ui` is computed from the phase's actual touched files (extension + route-path detection), independent of what any PLAN.md/SUMMARY.md self-reports — a `.tsx` file omitted from a plan's key-files still triggers this gate.
+`charlotte_qa_required` is `has_ui || has_api`, computed from the phase's actual touched files: UI (extension + route-path detection) or API paths (`apps/api/functions/**`, `supabase/functions/**`, `pages|app/api/**`, excluding tests and docs). It is independent of what any PLAN.md/SUMMARY.md self-reports — a `.tsx` file omitted from a plan's key-files still triggers this gate.
 
-**If HAS_UI is non-empty:**
+**If NEEDS_QA is non-empty:**
 
-Check CHECKPOINT.json for `charlotte_qa_ran: true`. If missing or false:
+The evidence is `charlotte_qa_ran: true` (a YAML boolean) in `{N}-VERIFICATION.md` frontmatter. CHECKPOINT.json is not read. If the phase-gate `failures` contain `missing_charlotte_qa`:
 
 ```
 ⛔ CHARLOTTE QA GATE — BLOCKING
 
-Phase {N} has UI work but no Charlotte QA evidence.
+Phase {N} touched UI or API paths but VERIFICATION.md has no charlotte_qa_ran: true.
 Running Charlotte QA now...
 ```
 
@@ -477,7 +477,7 @@ Running Charlotte QA now...
 2. Spawn `gsd-charlotte-qa` with `mode=ui-qa` on phase UI pages
 3. If critical/high issues → spawn fix agent → re-run (max 3 rounds)
 4. Run regression: all `regression`-tagged Charlotte scenarios must pass
-5. Only after pass → set `charlotte_qa_ran: true` in CHECKPOINT.json → proceed to 5b
+5. Only after pass → re-spawn `gsd-verifier` so it re-issues `{N}-VERIFICATION.md` with `charlotte_qa_ran: true` (never hand-edit the frontmatter) → re-run `verify phase-gate` → proceed to 5b
 
 If Charlotte QA genuinely cannot be run (e.g. dev environment unavailable) and proceeding anyway is a deliberate, approved decision: this is a genuine mandatory-step skip, not a routine no-UI skip. Run `node ~/.claude/get-shit-done/bin/gsd-tools.js deferred add {N} --step charlotte_qa --reason <reason> --approver <approver>` as part of the skip — never logged-and-forgotten afterward. Do not set `charlotte_qa_ran: true` for QA that did not actually happen; record the waiver instead and let `verify phase-gate` honor it.
 
