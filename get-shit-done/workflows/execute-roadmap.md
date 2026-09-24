@@ -473,7 +473,7 @@ Phase {N} touched UI or API paths but VERIFICATION.md has no charlotte_qa_ran: t
 Running Charlotte QA now...
 ```
 
-1. Start dev servers (detect from CLAUDE.md or plan files)
+1. Start dev servers (detect from CLAUDE.md or plan files) and run the project's suite-start DB reset NOW — once `gsd-charlotte-qa` spawns, the Charlotte lock hook blocks DB resets until it stops
 2. Spawn `gsd-charlotte-qa` with `mode=ui-qa` on phase UI pages
 3. If critical/high issues → spawn fix agent → re-run (max 3 rounds)
 4. Run regression: all `regression`-tagged Charlotte scenarios must pass

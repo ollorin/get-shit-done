@@ -318,6 +318,15 @@ Every pass count from those runs was meaningless, and nobody knew.
 **Never soften this into a warning.** A QA report that says "N passed (note: DB was not reset)"
 will be read as N passed.
 
+### Ordering: the reset runs BEFORE the DB-reset lock is taken
+
+GSD hooks hold `.tmp/charlotte.lock` for the whole Charlotte run: SubagentStart takes it when
+`gsd-charlotte-qa` is spawned and every Charlotte tool call refreshes it. While it is live,
+`supabase db reset` (direct, via npx/pnpm, nx `*:supabase:reset`/`db:reset` targets, or
+`scripts/preflight.sh`) is blocked for every agent, including you. So the suite-start reset is the
+spawner's job, done before spawning you (main-thread runs: before the first Charlotte tool call).
+Never try to reset mid-run; if the reset did not happen, apply the rule above.
+
 </suite_preconditions>
 
 <issue_format>

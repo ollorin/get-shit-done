@@ -494,3 +494,32 @@ describe('Phase 52-01: writeManifest source_git_sha capture', () => {
     assert.doesNotThrow(() => writeManifest(scratchConfigDir));
   });
 });
+
+describe('Charlotte DB-reset lock hook registration', () => {
+  let scratchDir;
+  beforeEach(() => { scratchDir = createScratchDir('gsd-install-charlotte-'); });
+  afterEach(() => cleanup(scratchDir));
+
+  function lockEntries(settings) {
+    const out = [];
+    for (const [event, entries] of Object.entries(settings.hooks || {})) {
+      for (const entry of entries) {
+        if (entry.hooks && entry.hooks.some(h => h.command && h.command.includes('gsd-charlotte-lock'))) {
+          out.push(`${event}:${entry.matcher}`);
+        }
+      }
+    }
+    return out.sort();
+  }
+
+  test('registers MCP, Bash, SubagentStart and SubagentStop entries exactly once, idempotently', () => {
+    const expected = ['PreToolUse:Bash', 'PreToolUse:mcp__charlotte__.*', 'SubagentStart:gsd-charlotte-qa', 'SubagentStop:gsd-charlotte-qa'];
+    for (let i = 0; i < 2; i++) {
+      const result = runInstall(scratchDir);
+      assert.ok(result.success, `install should succeed: ${result.error || ''}\n${result.output}`);
+      const settings = JSON.parse(fs.readFileSync(path.join(scratchDir, '.claude', 'settings.json'), 'utf-8'));
+      assert.deepStrictEqual(lockEntries(settings), expected, `run ${i + 1}`);
+    }
+    assert.ok(fs.existsSync(path.join(scratchDir, '.claude', 'get-shit-done', 'bin', 'hooks', 'gsd-charlotte-lock.js')), 'hook file must be deployed');
+  });
+});

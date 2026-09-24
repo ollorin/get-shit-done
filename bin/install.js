@@ -1784,6 +1784,27 @@ function install(isGlobal, runtime = 'claude') {
     } else {
       console.log(`  ${green}✓${reset} Configured managed file protection hook (Write + Edit)`);
     }
+
+    // Charlotte DB-reset lock: take the lock on Charlotte MCP calls and around
+    // gsd-charlotte-qa subagents; block DB resets from Bash while it is live.
+    const charlotteLockHookPath = isGlobal
+      ? path.join(targetDir, 'get-shit-done', 'bin', 'hooks', 'gsd-charlotte-lock.js').replace(/\\/g, '/')
+      : path.join(dirName, 'get-shit-done', 'bin', 'hooks', 'gsd-charlotte-lock.js').replace(/\\/g, '/');
+    const charlotteLockCommand = wrapWithTimeout(`node "${charlotteLockHookPath}"`);
+    const charlotteLockRegistrations = [
+      ['PreToolUse', 'mcp__charlotte__.*'],
+      ['PreToolUse', 'Bash'],
+      ['SubagentStart', 'gsd-charlotte-qa'],
+      ['SubagentStop', 'gsd-charlotte-qa'],
+    ];
+    for (const [event, matcher] of charlotteLockRegistrations) {
+      const entries = (settings.hooks[event] || []).filter(entry =>
+        !(entry.hooks && entry.hooks.some(h => h.command && h.command.includes('gsd-charlotte-lock')) && entry.matcher === matcher)
+      );
+      entries.push({ matcher, hooks: [{ type: 'command', command: charlotteLockCommand }] });
+      settings.hooks[event] = entries;
+    }
+    console.log(`  ${green}✓${reset} Configured Charlotte DB-reset lock hooks`);
   }
 
   // Write source project path so the protection hook can reference it
