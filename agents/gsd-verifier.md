@@ -83,7 +83,7 @@ reference file.
 > This step's hard-fail is NEVER a warning — matches the existing convention for Step 8b/8c/8d's hard rules elsewhere in this file.
 
 **Step 6d (Defect Classes coverage):**
-> Every plan's SUMMARY.md must carry a `## Defect Classes` section (rows, or an explicit `None found.` — a missing or empty heading is a fail), and every finding in this phase's review/ruling artifacts must appear in one of them. **You FIX the record rather than merely reporting it:** append each missing entry yourself as a `| class | instance | caught_by | severity | rule_gap |` row with `caught_by: verifier`. `class` is a general reusable name, not an incident story. An unrecorded defect is one the next milestone repeats.
+> Every plan's SUMMARY.md must carry a `## Defect Classes` section (rows, or `None found. (reviewed by: <caught_by values>)` — a missing/empty heading, a shipped template placeholder, or a BARE `None found.` are all fails), and every finding in this phase's review/ruling artifacts (`{N}-PLAN-CHECK.md`, `*-VERDICT.md`, `deferred-items.md`, VERIFICATION.md) must appear in one of them. **You FIX the record rather than merely reporting it:** append each missing entry yourself as a `| class | instance | caught_by | severity | rule_gap |` row with `caught_by: verifier`; only a miss you genuinely cannot repair becomes a `gaps_found` gap. `class` is a general reusable name, not an incident story. An unrecorded defect is one the next milestone repeats.
 
 **Step 6b (PRD intent alignment):**
 > 3. For each MISMATCH: add a gap entry and set STATUS = gaps_found (hard-fail — NEVER a warning):

@@ -490,10 +490,9 @@ nothing else.
 
 | class | instance | caught_by | severity | rule_gap |
 |---|---|---|---|---|
-| [general class name] | [path/file.ext:line] | plan-check | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
+| [general class name] | [path/file.ext:line] | plan-check\|opus-ruling | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
 
-`class` is a general reusable name, not an incident story. Return exactly `None found.` if your
-check surfaced nothing — never omit the block.
+`class` is a general reusable name, not an incident story. Return exactly `None found. (reviewed by: plan-check)` if your check surfaced nothing — a bare `None found.` fails the phase gate, and the block is never omitted.
 ```
 
 **If `TRIAGE_MODE` is `trio`** (one or more plans flagged high-risk by Step 9.5):
@@ -548,9 +547,25 @@ The judge WRITES `{PHASE_DIR}/{plan_id}-VERDICT.md` itself and returns `## JUDGM
 ```
 Discard any partial trio results already produced this pass, set `TRIAGE_MODE=checker`, and immediately re-run this step's `checker` branch above for the WHOLE phase (byte-identical single-checker spawn) — never block planning on a broken new feature.
 
-After all trio passes complete successfully with no fallback triggered (or after the checker branch returns): collect the `## Defect Classes` rows from every pass (each agent's return carries one, and each `{plan_id}-VERDICT.md` records its own) and append them to the matching plan's `## Defect Classes` in its SUMMARY.md once the plans execute — the phase coordinator owns that write, and Step 13's dispatch hands it the rows. Proceed to step 11.
+After all trio passes complete successfully with no fallback triggered (or after the checker branch returns), the Defect Classes rows are already durable: the checker's are written to `{PHASE_DIR}/{N}-PLAN-CHECK.md` in Step 11, and each judge's are in the `{plan_id}-VERDICT.md` it writes itself. The verifier's Step 6d and the milestone audit's Step 7 both read those files — nothing depends on an in-memory handoff here. Proceed to step 11.
 
 ## 11. Handle Checker Return
+
+**Persist the checker's Defect Classes (do this on BOTH `TRIAGE_MODE` branches, before any
+proceed-to-step-12/13 line).** The rows are the milestone-end distillation's input, and a review
+finding that lives only in this transcript is lost. Write the checker's returned
+`## Defect Classes` block verbatim to `{PHASE_DIR}/{N}-PLAN-CHECK.md` — one file per phase,
+appending the block on each revision-loop iteration so nothing is overwritten:
+
+```bash
+# Create on the first pass with a header; append on later iterations.
+[ -f "{PHASE_DIR}/{N}-PLAN-CHECK.md" ] || \
+  printf '# Plan check — phase %s\n\n' "{phase_number}" > "{PHASE_DIR}/{N}-PLAN-CHECK.md"
+```
+
+Then append the returned block. The verifier's Step 6d and `audit-milestone.md`'s Step 7 both
+scan this file. A checker that returned `None found. (reviewed by: …)` writes that line — the
+"which reviews ran" suffix is what makes a clean pass auditable, so never strip it.
 
 **If `TRIAGE_MODE` is `checker`:**
 - **`## VERIFICATION PASSED`:** Display confirmation, proceed to step 13.

@@ -232,7 +232,7 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
        - [ ] All tasks executed
        - [ ] Each task committed individually
        - [ ] SUMMARY.md created in plan directory
-       - [ ] `## Defect Classes` present in each SUMMARY.md (rows, or an explicit `None found.`)
+       - [ ] `## Defect Classes` present in each SUMMARY.md (rows, or an explicit `None found. (reviewed by: …)`)
        - [ ] STATE.md updated with position and decisions
        - [ ] ROADMAP.md updated with plan progress (via `roadmap update-plan-progress`)
        </success_criteria>
@@ -278,7 +278,7 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
        - [ ] All tasks executed
        - [ ] Each task committed individually
        - [ ] SUMMARY.md created in plan directory
-       - [ ] `## Defect Classes` present in each SUMMARY.md (rows, or an explicit `None found.`)
+       - [ ] `## Defect Classes` present in each SUMMARY.md (rows, or an explicit `None found. (reviewed by: …)`)
        - [ ] STATE.md updated with position and decisions
        - [ ] ROADMAP.md updated with plan progress (via `roadmap update-plan-progress`)
        </success_criteria>
@@ -448,7 +448,7 @@ When executor returns `Type: ui-qa` — regardless of AUTO_CHAIN or AUTO_CFG:
        subagent_type="gsd-charlotte-qa",
        model="haiku",
        description="UI QA round {round}",
-       prompt="mode=ui-qa\n<what_built>{what_built}</what_built>\n<test_flows>{test_flows}</test_flows>\n<round>{round}</round>{IF round > 1: <previous_issues>{previous_report}</previous_issues>}\nAlso return a `## Defect Classes` block — one `| class | instance | caught_by | severity | rule_gap |` row per issue, `caught_by` fixed to `charlotte`, `class` a general reusable name. Write exactly `None found.` if the pass surfaced none. The coordinator pastes these into the plan's SUMMARY.md."
+       prompt="mode=ui-qa\n<what_built>{what_built}</what_built>\n<test_flows>{test_flows}</test_flows>\n<round>{round}</round>{IF round > 1: <previous_issues>{previous_report}</previous_issues>}\nAlso return a `## Defect Classes` block — one `| class | instance | caught_by | severity | rule_gap |` row per issue, `caught_by` fixed to `charlotte`, `class` a general reusable name. Write exactly `None found. (reviewed by: charlotte)` if the pass surfaced none — a bare `None found.` fails the phase gate. The coordinator pastes these into the plan's SUMMARY.md."
      )
 
      if qa_result.passed:
@@ -723,8 +723,50 @@ node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs(phase-${PARENT_
 ```
 </step>
 
+<step name="record_defect_classes">
+Runs BEFORE `verify_phase_goal`. Findings that belong to the phase rather than to one plan have
+no other home, and `/gsd:audit-milestone`'s Defect Classes Distillation reads nothing else. If
+you drop them here, they are lost.
+
+Append every finding surfaced during this phase — plan-checker issues (from
+`{phase_dir}/{N}-PLAN-CHECK.md`), the adversarial judge's ruling rows, Charlotte QA issues,
+Opus review findings, re-review findings — to the `## Defect Classes` section of the SUMMARY.md of
+the plan they relate to (a phase-wide finding goes to the last plan's SUMMARY). Each is one row:
+
+| class | instance | caught_by | severity | rule_gap |
+|---|---|---|---|---|
+| [general class name] | [path/file.ext:line] | [plan-check\|opus-diff-review\|opus-ruling\|verifier\|charlotte\|other] | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
+
+`class` is a general reusable name, not an incident story — the milestone-end distillation
+clusters on that column. Never overwrite existing rows, only append. If a plan's section has
+neither rows nor an explicit none-found entry, write `None found. (reviewed by: <caught_by
+values>)` — the suffix is required, and a bare `None found.` fails the phase gate. Write it only
+when this phase's review/ruling artifacts genuinely contain nothing for that plan.
+
+Then commit the edits:
+
+```bash
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs(phase-{X}): record defect classes in plan summaries" --files {phase_dir}/*-SUMMARY.md
+```
+
+**The verifier's own rows are committed by `verify_phase_goal`, not by you** — the verifier runs
+after this step and its Step 6d may add entries. `verify_phase_goal`'s commit includes
+`{phase_dir}/*-SUMMARY.md` on both the `passed` and `gaps_found` paths, so nothing it writes is
+left uncommitted.
+</step>
 <step name="verify_phase_goal">
 Verify phase achieved its GOAL, not just completed tasks.
+
+**Runs AFTER `record_defect_classes`**, so the coordinator's rows are already in the SUMMARYs when
+the verifier's Step 6d scans them. The verifier may add further rows; commit them here on BOTH
+the `passed` and `gaps_found` paths, before presenting either outcome:
+
+```bash
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs(phase-${PHASE_NUMBER}): record verifier defect classes in plan summaries" --files {phase_dir}/*-SUMMARY.md
+```
+
+A `gaps_found` phase still owes the milestone a Defect Classes record — the gap IS the finding, and
+the gap-closure plans run a verifier that scans the same summaries.
 
 ```
 Agent(
@@ -809,31 +851,6 @@ node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs(phase-{X}): com
 ```
 </step>
 
-<step name="record_defect_classes">
-Findings that belong to the phase rather than to one plan have no other home, and
-`/gsd:audit-milestone`'s Defect Classes Distillation reads nothing else. If you drop them here,
-they are lost.
-
-Append every finding surfaced during this phase — plan-checker issues, the adversarial judge's
-ruling rows, Charlotte QA issues, verifier gaps, Opus review findings, re-review findings — to the
-`## Defect Classes` section of the SUMMARY.md of the plan they relate to (a phase-wide finding
-goes to the last plan's SUMMARY). Each is one row:
-
-| class | instance | caught_by | severity | rule_gap |
-|---|---|---|---|---|
-| [general class name] | [path/file.ext:line] | [plan-check\|opus-diff-review\|verifier\|charlotte\|other] | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
-
-`class` is a general reusable name, not an incident story — the milestone-end distillation
-clusters on that column. Never overwrite existing rows, only append. If a plan's section has
-neither rows nor an explicit `None found.`, write `None found.` — but only when this phase's
-review/ruling artifacts genuinely contain nothing for it.
-
-Then commit the edits:
-
-```bash
-node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs(phase-{X}): record defect classes in plan summaries" --files {phase_dir}/*-SUMMARY.md
-```
-</step>
 
 <step name="offer_next">
 

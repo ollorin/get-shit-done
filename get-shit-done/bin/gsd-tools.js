@@ -404,6 +404,14 @@ function loadConfig(cwd) {
     adversarial_review_enabled: false,
     adversarial_review_file_threshold: 8,
     adversarial_review_security_patterns: ['auth', 'payment', 'secret', 'credential', 'crypto', 'security', 'token', 'password', '/api/', 'migration'],
+    // QGATE-17 (Defect Classes). `defect_classes_gate_enabled` is the master
+    // switch; `defect_classes_gate_since` is the ISO date after which a phase
+    // becomes subject to the gate (compared against the phase directory's first
+    // commit date). Both exist so the section can be enforced going forward
+    // WITHOUT retroactively failing an in-flight milestone whose phases were
+    // planned before the section existed.
+    defect_classes_gate_enabled: true,
+    defect_classes_gate_since: '2026-09-26',
     quality: {
       test_writer: false,
       integration_tester: false,
@@ -466,6 +474,8 @@ function loadConfig(cwd) {
       adversarial_review_enabled: get('adversarial_review_enabled', { section: 'quality', field: 'adversarial_review' }) ?? defaults.adversarial_review_enabled,
       adversarial_review_file_threshold: get('adversarial_review_file_threshold', { section: 'quality', field: 'adversarial_review_file_threshold' }) ?? defaults.adversarial_review_file_threshold,
       adversarial_review_security_patterns: get('adversarial_review_security_patterns', { section: 'quality', field: 'adversarial_review_security_patterns' }) ?? defaults.adversarial_review_security_patterns,
+      defect_classes_gate_enabled: get('defect_classes_gate_enabled', { section: 'quality', field: 'defect_classes_gate_enabled' }) ?? defaults.defect_classes_gate_enabled,
+      defect_classes_gate_since: get('defect_classes_gate_since', { section: 'quality', field: 'defect_classes_gate_since' }) ?? defaults.defect_classes_gate_since,
       coordinator_model: get('coordinator_model') ?? null,
       dev_servers: parsed.dev_servers || null,
     };
@@ -2883,6 +2893,104 @@ function evaluateSummarySelfCheck(content) {
   return { status: 'not_found', source: 'legacy' };
 }
 
+// QGATE-17 (Defect Classes). Pure evaluator shared by cmdPhaseComplete and
+// cmdVerifyPhaseGate so the two can never disagree about whether a SUMMARY
+// records its defect classes. The section is REQUIRED (not advisory): the
+// milestone-end rules distillation reads these rows and nothing else, so a
+// missing entry is a defect that the next milestone repeats.
+//
+// Four distinct failure modes, each with its own canary in the test suite --
+// they are not collapsed into one "invalid" because the fix differs:
+//   missing   -- no `## Defect Classes` heading at all.
+//   empty     -- heading present, body has neither rows nor a None-found entry.
+//   placeholder -- the template's `[bracket]` guidance row was shipped verbatim.
+//   malformed_none_found -- a None-found entry that does not name the reviews
+//               that actually ran, which is how a silent gap gets re-blessed.
+function evaluateDefectClasses(content) {
+  const text = typeof content === 'string' ? content : '';
+  const heading = /^##[ \t]+Defect Classes[ \t]*$/im.exec(text);
+  if (!heading) {
+    return { source: null, status: 'missing', body: '', rows: 0 };
+  }
+  // Body runs from the end of the heading line to the next H2 (or EOF).
+  const rest = text.slice(heading.index + heading[0].length);
+  const nextH2 = rest.search(/\n#{1,2}[ \t]/);
+  const body = (nextH2 >= 0 ? rest.slice(0, nextH2) : rest).trim();
+
+  if (body.length === 0) {
+    return { source: 'defect_classes', status: 'empty', body, rows: 0 };
+  }
+
+  // A shipped template placeholder. Any bracketed guidance cell means the
+  // author copied the header/example row instead of writing real entries.
+  const placeholderCells = body.match(/\|\s*(\[[^\]\n]*\]|XX-name|YYYY-MM-DD)\s*(?=\|)/g) || [];
+  if (placeholderCells.length > 0) {
+    return { source: 'defect_classes', status: 'placeholder', body, rows: 0 };
+  }
+
+  // `None found.` is a valid, COMPLETE entry -- but only when it says which
+  // reviews ran. A bare `None found.` is indistinguishable from a section
+  // nobody looked at, which is exactly the silent-pass this gate closes.
+  const noneFound = /^None found\.\s*(\(reviewed by:[^)\n]*\))?\s*$/im.exec(body);
+  if (noneFound) {
+    if (!noneFound[1]) {
+      return { source: 'defect_classes', status: 'malformed_none_found', body, rows: 0 };
+    }
+    const reviewers = noneFound[1]
+      .replace(/^\(reviewed by:/, '')
+      .replace(/\)$/, '')
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+    if (reviewers.length === 0) {
+      return { source: 'defect_classes', status: 'malformed_none_found', body, rows: 0 };
+    }
+    return { source: 'defect_classes', status: 'ok', body, rows: 0, reviewers };
+  }
+
+  // Data rows: the 5-column table the template defines. Count only rows that
+  // look like records (>= 5 cells) so a header/separator row can't fake a pass.
+  const rows = body
+    .split('\n')
+    .map(l => l.trim())
+    .filter(l => l.startsWith('|') && l.endsWith('|'))
+    .map(l => l.slice(1, -1).split('|').map(c => c.trim()))
+    .filter(cells => cells.length >= 5 && !cells.every(c => /^:?-{2,}:?$/.test(c)))
+    .filter(cells => !cells[0].toLowerCase().startsWith('class'));
+
+  if (rows.length === 0) {
+    return { source: 'defect_classes', status: 'empty', body, rows: 0 };
+  }
+  return { source: 'defect_classes', status: 'ok', body, rows: rows.length };
+}
+
+// The gate's exemption rule, also pure so the test suite can canary it: a phase
+// is subject to the gate only if its directory's FIRST commit postdates
+// `sinceIso`. A phase with no commits has no date, so the gate does not apply --
+// phase-gate already fails such a phase on the per-plan commit check, so nothing
+// escapes by being unmeasurable, and fail-open here cannot mask a real phase.
+function phaseSubjectToDefectClassesGate(firstCommitDateIso, cfg) {
+  if (!cfg || cfg.defect_classes_gate_enabled !== true) return false;
+  const since = typeof cfg.defect_classes_gate_since === 'string' ? cfg.defect_classes_gate_since : null;
+  if (!since || !/^\d{4}-\d{2}-\d{2}$/.test(since)) return false;
+  if (typeof firstCommitDateIso !== 'string' || !firstCommitDateIso.trim()) return false;
+  const firstDay = firstCommitDateIso.trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(firstDay)) return false;
+  return firstDay >= since;
+}
+
+// Git creation date of a phase directory: the author date of the EARLIEST
+// commit that touched it. Returns null when git is unavailable or the directory
+// has no history (an uncommitted in-flight phase).
+function phaseDirFirstCommitDate(cwd, phaseDir) {
+  const rel = path.relative(cwd, phaseDir);
+  if (!rel || rel.startsWith('..')) return null;
+  const res = execGit(cwd, ['log', '--reverse', '--format=%aI', '--', rel]);
+  if (res.exitCode !== 0 || !res.stdout) return null;
+  const first = res.stdout.split('\n').find(l => /^\d{4}-\d{2}-\d{2}T/.test(l.trim()));
+  return first ? first.trim() : null;
+}
+
 function cmdVerifySummary(cwd, summaryPath, checkFileCount, raw) {
   if (!summaryPath) {
     error('summary-path required');
@@ -3070,6 +3178,14 @@ function cmdTemplateFill(cwd, templateType, options, raw) {
         '',
         '## Decisions & Deviations',
         '[Key decisions or "None - followed plan as specified"]',
+        '',
+        '## Defect Classes',
+        '| class | instance | caught_by | severity | rule_gap |',
+        '|---|---|---|---|---|',
+        '| [general class name] | [path/file.ext:line] | [plan-check\\|test-writer\\|mutation-proof\\|opus-diff-review\\|opus-ruling\\|verifier\\|charlotte\\|other] | [critical\\|major\\|minor] | [rule that should have prevented it, or "none — new rule needed"] |',
+        '',
+        '<!-- Replace the row above with real entries, or delete the table and write exactly:',
+        '     None found. (reviewed by: <caught_by values>) -->',
         '',
         '## Next Phase Readiness',
         '[What\'s ready for next phase]',
@@ -7001,6 +7117,14 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles) {
   if (planFiles.length === 0) {
     errors.push('No numbered {N}-{NN}-PLAN.md files — a phase with no plans has no evidence to complete');
   }
+  // QGATE-17: the Defect Classes gate, resolved ONCE per phase and applied to
+  // every SUMMARY below. Exempt phases (created before the section existed)
+  // are reported as exempt rather than silently skipped, so a reader of the
+  // gate output can see the gate was considered and why it did not apply.
+  const cfg = loadConfig(cwd);
+  const firstCommitDate = phaseDirFirstCommitDate(cwd, phaseDir);
+  const defectClassesRequired = phaseSubjectToDefectClassesGate(firstCommitDate, cfg);
+  const defectClassesExempt = cfg.defect_classes_gate_enabled === true && !defectClassesRequired;
   for (const planFile of planFiles) {
     const summaryFile = planFile.replace(/-PLAN\.md$/i, '-SUMMARY.md');
     const summary = dirFiles.includes(summaryFile) ? safeReadFile(path.join(phaseDir, summaryFile)) : null;
@@ -7012,6 +7136,21 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles) {
     if (selfCheck.source !== 'self_check' || selfCheck.status !== 'passed') {
       const found = selfCheck.source === 'self_check' ? selfCheck.status : 'missing';
       errors.push(`${summaryFile} Self-Check is ${found} — must contain "## Self-Check: PASSED"`);
+    }
+    if (defectClassesRequired) {
+      const dc = evaluateDefectClasses(summary);
+      if (dc.status !== 'ok') {
+        errors.push(
+          `${summaryFile} Defect Classes is ${dc.status.replace(/_/g, ' ')} — ` +
+          (dc.status === 'missing'
+            ? 'must contain a "## Defect Classes" section'
+            : dc.status === 'empty'
+              ? 'section must hold 5-column rows or "None found. (reviewed by: <caught_by values>)"'
+              : dc.status === 'placeholder'
+                ? 'template placeholder row shipped verbatim — replace it with real entries'
+                : 'a "None found." entry must name the reviews that ran: "None found. (reviewed by: <caught_by values>)"')
+        );
+      }
     }
   }
   const plans = planFiles.map(f => ({ planNum: f.match(/-(\d{2})-PLAN\.md$/i)[1] }));
@@ -7027,7 +7166,7 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles) {
   } else if (verification.status !== 'passed') {
     errors.push(`${verification.fileName} status is ${verification.status} — must be passed before phase complete`);
   }
-  return { errors, verification };
+  return { errors, verification, defect_classes: { required: defectClassesRequired, exempt: defectClassesExempt, since: firstCommitDate } };
 }
 
 function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
@@ -7121,6 +7260,9 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
     charlotte_qa_required: hasUi || hasApi,
     e2e_gaps: e2eGapResult.gaps,
     evidence_errors: evidence.errors,
+    // QGATE-17: surfaced explicitly so an exempt phase reads as "considered
+    // and waived by date", not as "the gate does not exist".
+    defect_classes: evidence.defect_classes,
   };
   if (malformedWaiver) result.malformed_waiver = malformedWaiver;
   if (touchedWarnings.length > 0) result.touched_file_warnings = touchedWarnings;
@@ -15399,6 +15541,8 @@ module.exports = {
   isSourceFile,
   isTestOrSpecFile,
   evaluateSummarySelfCheck,
+  evaluateDefectClasses,
+  phaseSubjectToDefectClassesGate,
   collectPhaseEvidenceErrors,
   planTagGrepPattern,
   isApiFile,

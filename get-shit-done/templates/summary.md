@@ -122,9 +122,9 @@ Required — one row per defect this plan's review, test, mutation-proof, verifi
 
 | class | instance | caught_by | severity | rule_gap |
 |---|---|---|---|---|
-| [general class name, e.g. "security read fails open on DB error"] | [path/file.ext:line] | [plan-check\|test-writer\|mutation-proof\|opus-diff-review\|verifier\|charlotte\|other] | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
+| [general class name, e.g. "security read fails open on DB error"] | [path/file.ext:line] | [plan-check\|test-writer\|mutation-proof\|opus-diff-review\|opus-ruling\|verifier\|charlotte\|other] | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
 
-Nothing found? Delete the table and leave exactly `None found.` — never omit the section; silence is not a record.
+Nothing found? Delete the table and leave exactly `None found. (reviewed by: <caught_by values>)` — a bare `None found.` is a gate failure, and never omit the section; silence is not a record.
 
 ## User Setup Required
 

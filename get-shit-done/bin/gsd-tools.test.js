@@ -51,7 +51,14 @@ function gitCommitAll(dir, message) {
   execSync(`git commit -q --allow-empty -m "${message}"`, { cwd: dir, stdio: 'pipe' });
 }
 
-const SELF_CHECK_PASSED_SUMMARY = '# Summary\n\n## Self-Check: PASSED\n';
+// Phase 62-02 (QGATE-17): the shared "good summary" fixture. A temp project
+// created by these tests is committed TODAY, so it falls after the gate's
+// cutoff and its summaries must carry a Defect Classes section -- otherwise
+// every pre-existing phase-gate test fails on the new gate instead of the
+// gate it means to exercise. Tests that are ABOUT the Defect Classes gate
+// build their own summary and are unaffected by this default.
+const SELF_CHECK_PASSED_SUMMARY =
+  '# Summary\n\n## Defect Classes\n\nNone found. (reviewed by: plan-check, verifier)\n\n## Self-Check: PASSED\n';
 
 function cleanup(tmpDir) {
   fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -15474,15 +15481,22 @@ describe('Phase 62-01: Defect Classes capture + rules distillation wiring (MILE-
       const section = tail.slice(promptIdx, tail.indexOf('## Defect Classes\n', promptIdx) + 2000);
       assert.ok(ctx > promptIdx && tail.slice(ctx, ctx + 200).includes('## Defect Classes'), 'the checker return must declare a Defect Classes block in expected_output');
       assert.ok(section.includes(TABLE_HEADER), 'the checker return must use the 5-column shape');
-      assert.match(section, /\| plan-check \|/, 'the checker return must fix caught_by to plan-check');
+      assert.match(section, /\| plan-check\\\|opus-ruling \|/, 'the checker return must fix caught_by to plan-check|opus-ruling');
     });
 
     test('plan-phase.md routes trio verdict findings to the coordinator', () => {
       const raw = readRepoFile('get-shit-done/workflows/plan-phase.md');
+      // Post-review: the rows must be DURABLE in named files, not handed off in
+      // memory (an Opus review found the in-memory handoff lost on any resume).
       assert.match(
         raw,
-        /collect the `## Defect Classes` rows[\s\S]{0,600}phase coordinator owns that write/,
-        'the trio branch must hand its Defect Classes rows to the coordinator'
+        /the Defect Classes rows are already durable:[\s\S]{0,400}\{N\}-PLAN-CHECK\.md[\s\S]{0,300}\{plan_id\}-VERDICT\.md/,
+        'the trio branch must state where its Defect Classes rows are durably written'
+      );
+      assert.match(
+        raw,
+        /nothing depends on an in-memory handoff here/,
+        'the trio branch must explicitly disclaim the in-memory handoff'
       );
     });
 
@@ -15490,7 +15504,7 @@ describe('Phase 62-01: Defect Classes capture + rules distillation wiring (MILE-
       const raw = readRepoFile('agents/gsd-plan-judge.md');
       assert.ok(raw.includes('## Defect Classes'), 'the judge must write a Defect Classes block into VERDICT.md');
       assert.ok(raw.includes(TABLE_HEADER), 'the judge block must use the 5-column shape');
-      assert.ok(raw.includes('opus-diff-review'), 'the judge block must fix caught_by to opus-diff-review');
+      assert.match(raw, /\| \[general class name\][^\n]*\| opus-ruling \|/, 'the judge block must fix caught_by to opus-ruling');
     });
 
     test('execute-phase.md asks Charlotte and the verifier for Defect Classes', () => {
@@ -15521,12 +15535,13 @@ describe('Phase 62-01: Defect Classes capture + rules distillation wiring (MILE-
       const raw = readRepoFile('get-shit-done/references/verifier-detail.md');
       const start = raw.indexOf('## Step 6d: Defect Classes Coverage');
       assert.ok(start !== -1, 'verifier-detail.md must define Step 6d');
-      const step = raw.slice(start, start + 3500);
+      // Include the 6b heading itself so the ordering assertion can see it.
+      const step = raw.slice(start, raw.indexOf('## Step 6b:', start) + 200);
       assert.ok(step.includes('## Step 6b: PRD Intent Alignment'), 'Step 6d must end before Step 6b starts');
       assert.ok(step.includes(TABLE_HEADER), 'Step 6d must show the 5-column shape');
       assert.match(step, /Section present/, 'Step 6d must check that the section is present');
       assert.match(step, /Findings represented/, 'Step 6d must check that ruling-artifact findings are represented');
-      assert.match(step, /catch it yourself|add the missing entry yourself/i, 'Step 6d must make the verifier fix the record');
+      assert.match(step, /you ADD the entry yourself|add the entry yourself/i, 'Step 6d must make the verifier fix the record');
     });
   });
 
@@ -15547,9 +15562,16 @@ describe('Phase 62-01: Defect Classes capture + rules distillation wiring (MILE-
       assert.match(step, /Do NOT edit anything; return findings only/, 'the review dispatch must be read-only');
       assert.match(step, /RULES-DISTILL\.md` in \{project_root\}|\.claude\/rules\/\*\.md/, 'the review must scope the rules diff');
       assert.match(step, /NO incident narratives/, 'Step 7 must forbid incident narratives in rules');
-      assert.match(step, /PREFER TRIMMING existing text to adding/, 'Step 7 must enforce the project length discipline');
+      // Post-review the vague "prefer trimming" became a MEASURED budget the
+      // orchestrator enforces; assert the mechanism, not the old phrasing.
+      assert.match(step, /NET LINE GROWTH ACROSS `\.claude\/rules\/\*\.md` MUST BE ≤ 0/, 'Step 7 must enforce the project length discipline');
       assert.match(step, /cite the defect class\(es\) justifying it/, 'every rule change must cite its justifying classes');
-      assert.match(step, /Never commit the consuming repo's source code, tests, settings\.json, or any hook config/, 'Step 7 must protect the consuming repo');
+      assert.match(step, /WRITE SCOPE — edit nothing outside these paths/, 'Step 7 must bound the author\'s write scope');
+      assert.match(step, /git diff --name-only/, 'the orchestrator must verify the write scope itself');
+      assert.ok(
+        !/settings\.json|hook config/.test(step.slice(step.indexOf('WRITE SCOPE'), step.indexOf('TASK: cluster'))),
+        'the write-scope list must be exactly rules + CLAUDE.md + the report'
+      );
     });
 
     test('audit-milestone.md Step 7 runs before Present Results and inside <process>', () => {
@@ -15565,7 +15587,7 @@ describe('Phase 62-01: Defect Classes capture + rules distillation wiring (MILE-
     test('audit-milestone.md purpose and success criteria both mention the distillation', () => {
       const raw = readRepoFile('get-shit-done/workflows/audit-milestone.md');
       assert.match(raw, /<purpose>[\s\S]{0,1200}Defect Classes/, 'the workflow purpose must advertise the distillation');
-      assert.match(raw, /RULES-DISTILL\.md` written and committed/, 'success criteria must require the committed report');
+      assert.match(raw, /RULES-DISTILL\.md` written AND committed/, 'success criteria must require the committed report');
       assert.match(raw, /SECOND, separate Opus review of the rules diff/, 'success criteria must require the independent review');
     });
 
@@ -15587,5 +15609,350 @@ describe('Phase 62-01: Defect Classes capture + rules distillation wiring (MILE-
     const { checkAllBudgets } = require('./prompt-budget.js');
     const res = checkAllBudgets(REPO_ROOT);
     assert.ok(res.pass, `all core-preamble budgets must pass, got: ${JSON.stringify(res.results)}`);
+  });
+});
+
+// Phase 62-02 (MILE-42): QGATE-17 — the Defect Classes machine gate, plus the
+// Opus-review fixes to the capture/distillation wiring. The gate is a real
+// code path (phase complete + verify phase-gate both call
+// collectPhaseEvidenceErrors), so this block canaries each failure mode against
+// the pure evaluator AND drives the real CLI on a real temp project, the way
+// Phase 60-03's integration half does.
+describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
+  const os = require('os');
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+  const {
+    evaluateDefectClasses,
+    phaseSubjectToDefectClassesGate,
+  } = require('./gsd-tools.js');
+
+  const TABLE_HEADER = '| class | instance | caught_by | severity | rule_gap |';
+  const SEPARATOR = '|---|---|---|---|---|';
+  const REAL_ROW = '| security read fails open on DB error | apps/api/functions/_shared/authz.ts:41 | opus-ruling | critical | security.md — fail-closed reads |';
+
+  // A SUMMARY that is otherwise complete, so a canary failure can only be the
+  // Defect Classes section under test.
+  function summaryWith(defectClassesSection) {
+    return [
+      '---',
+      'phase: 1',
+      'plan: "01"',
+      '---',
+      '',
+      '# Phase 1: Test Summary',
+      '',
+      '## Accomplishments',
+      '- did a thing',
+      '',
+      defectClassesSection,
+      '## Self-Check: PASSED',
+      '',
+    ].join('\n');
+  }
+
+  describe('failure-mode canaries — one per mode, plus the two passes', () => {
+    // Each case is an ISOLATED canary: one defect, one expected status. A test
+    // that asserted "not ok" for all of them would pass if the function simply
+    // rejected everything, so each is paired with a positive control below.
+    const CANARIES = [
+      {
+        mode: 'missing',
+        summary: summaryWith('## Accomplishments\n- (none)'),
+        why: 'no `## Defect Classes` heading at all',
+      },
+      {
+        mode: 'empty',
+        summary: summaryWith(`## Defect Classes\n\n## Next Phase Readiness\n- ready`),
+        why: 'heading present, body has neither rows nor a none-found entry',
+      },
+      {
+        mode: 'empty',
+        summary: summaryWith(`## Defect Classes\n\n${TABLE_HEADER}\n${SEPARATOR}\n\n## Next`),
+        why: 'a header+separator with no data rows must not fake a pass',
+      },
+      {
+        mode: 'placeholder',
+        summary: summaryWith(`## Defect Classes\n\n${TABLE_HEADER}\n${SEPARATOR}\n| [general class name] | [path/file.ext:line] | [plan-check] | [major] | [rule] |`),
+        why: 'the template guidance row shipped verbatim',
+      },
+      {
+        mode: 'malformed_none_found',
+        summary: summaryWith('## Defect Classes\n\nNone found.'),
+        why: 'a bare None found. names no review — indistinguishable from nobody looking',
+      },
+      {
+        mode: 'malformed_none_found',
+        summary: summaryWith('## Defect Classes\n\nNone found. (reviewed by:)'),
+        why: 'the reviewed-by suffix is present but names nobody',
+      },
+    ];
+
+    for (const c of CANARIES) {
+      test(`rejects ${c.mode} — ${c.why}`, () => {
+        const r = evaluateDefectClasses(c.summary);
+        assert.strictEqual(r.status, c.mode, `expected status '${c.mode}', got '${r.status}'`);
+        assert.notStrictEqual(r.status, 'ok', 'this canary must NOT pass');
+      });
+    }
+
+    test('positive control: real rows pass', () => {
+      const r = evaluateDefectClasses(summaryWith(`## Defect Classes\n\n${TABLE_HEADER}\n${SEPARATOR}\n${REAL_ROW}`));
+      assert.strictEqual(r.status, 'ok');
+      assert.strictEqual(r.rows, 1);
+    });
+
+    test('positive control: a named None-found entry passes and reports its reviewers', () => {
+      const r = evaluateDefectClasses(summaryWith('## Defect Classes\n\nNone found. (reviewed by: plan-check, verifier)'));
+      assert.strictEqual(r.status, 'ok');
+      assert.deepStrictEqual(r.reviewers, ['plan-check', 'verifier']);
+    });
+
+    test('multiple real rows are all counted', () => {
+      const two = `${REAL_ROW}\n| idempotency key not scoped to the player | apps/api/functions/pay.ts:88 | verifier | critical | none — new rule needed |`;
+      const r = evaluateDefectClasses(summaryWith(`## Defect Classes\n\n${TABLE_HEADER}\n${SEPARATOR}\n${two}`));
+      assert.strictEqual(r.status, 'ok');
+      assert.strictEqual(r.rows, 2);
+    });
+
+    test('the section body stops at the next H2 (later sections cannot pad it)', () => {
+      const s = summaryWith('## Defect Classes\n\n## Next Phase Readiness\n- ready');
+      const r = evaluateDefectClasses(s);
+      assert.strictEqual(r.status, 'empty', 'content after the next H2 must not count as defect rows');
+    });
+  });
+
+  describe('phase-exemption rule (retroactive-failure protection)', () => {
+    const cfg = { defect_classes_gate_enabled: true, defect_classes_gate_since: '2026-09-26' };
+
+    test('a phase created after the cutoff IS gated', () => {
+      assert.strictEqual(phaseSubjectToDefectClassesGate('2026-10-01T10:00:00+00:00', cfg), true);
+    });
+    test('a phase created before the cutoff is EXEMPT (in-flight v0.1.33 phases)', () => {
+      assert.strictEqual(phaseSubjectToDefectClassesGate('2026-09-25T23:59:59+00:00', cfg), false);
+    });
+    test('the cutoff date itself is gated (inclusive boundary)', () => {
+      assert.strictEqual(phaseSubjectToDefectClassesGate('2026-09-26T00:00:01+00:00', cfg), true);
+    });
+    test('a phase with no commit date is not gated — phase-gate already fails it on commits', () => {
+      assert.strictEqual(phaseSubjectToDefectClassesGate(null, cfg), false);
+      assert.strictEqual(phaseSubjectToDefectClassesGate('', cfg), false);
+    });
+    test('the master switch off disables the gate entirely', () => {
+      assert.strictEqual(
+        phaseSubjectToDefectClassesGate('2026-10-01T10:00:00+00:00', { ...cfg, defect_classes_gate_enabled: false }),
+        false
+      );
+    });
+    test('a missing or malformed cutoff disables the gate rather than gating everything', () => {
+      assert.strictEqual(phaseSubjectToDefectClassesGate('2026-10-01T10:00:00+00:00', { ...cfg, defect_classes_gate_since: null }), false);
+      assert.strictEqual(phaseSubjectToDefectClassesGate('2026-10-01T10:00:00+00:00', { ...cfg, defect_classes_gate_since: 'soon' }), false);
+    });
+    test('a missing config disables the gate rather than throwing', () => {
+      assert.strictEqual(phaseSubjectToDefectClassesGate('2026-10-01T10:00:00+00:00', null), false);
+    });
+  });
+
+  describe('the gate is wired into loadConfig with the documented defaults', () => {
+    test('defect_classes_gate_enabled defaults true and defect_classes_gate_since to the ship date', () => {
+      const { loadConfig } = require('./gsd-tools.js');
+      const cfg = loadConfig(path.join(os.tmpdir(), 'gsd-qgate17-nonexistent-project'));
+      assert.strictEqual(cfg.defect_classes_gate_enabled, true);
+      assert.strictEqual(cfg.defect_classes_gate_since, '2026-09-26');
+    });
+
+    test('a project config can override both, flat or nested under quality:', () => {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-qgate17-cfg-'));
+      try {
+        fs.mkdirSync(path.join(tmp, '.planning'), { recursive: true });
+        fs.writeFileSync(path.join(tmp, '.planning', 'config.json'), JSON.stringify({ quality: { defect_classes_gate_enabled: false } }));
+        const { loadConfig } = require('./gsd-tools.js');
+        const cfg = loadConfig(tmp);
+        assert.strictEqual(cfg.defect_classes_gate_enabled, false);
+        assert.strictEqual(cfg.defect_classes_gate_since, '2026-09-26', 'an unset field keeps its default');
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('the gate is wired into the real evidence path', () => {
+    test('collectPhaseEvidenceErrors reports a missing section and an exemption, not silence', () => {
+      const { collectPhaseEvidenceErrors } = require('./gsd-tools.js');
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-qgate17-evidence-'));
+      try {
+        const phaseDir = path.join(tmp, '.planning', 'phases', '99-test');
+        fs.mkdirSync(phaseDir, { recursive: true });
+        fs.writeFileSync(path.join(phaseDir, '99-01-PLAN.md'), '---\nphase: 99\nplan: "01"\n---\n');
+        fs.writeFileSync(path.join(phaseDir, '99-01-SUMMARY.md'), summaryWith('## Accomplishments\n- x'));
+        const dirFiles = fs.readdirSync(phaseDir);
+        // No git history for a temp dir → the gate is exempt, and must SAY so.
+        const res = collectPhaseEvidenceErrors(tmp, '99', phaseDir, dirFiles);
+        assert.ok(res.defect_classes, 'evidence must carry a defect_classes verdict');
+        assert.strictEqual(res.defect_classes.required, false);
+        assert.ok(
+          res.errors.every(e => !e.includes('Defect Classes')),
+          `an exempt phase must not report a Defect Classes error, got: ${JSON.stringify(res.errors)}`
+        );
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
+    test('the gsd-tools summary scaffold emits a Defect Classes section', () => {
+      const source = fs.readFileSync(path.join(__dirname, 'gsd-tools.js'), 'utf-8');
+      const start = source.indexOf("'## Defect Classes'");
+      assert.ok(start > -1, 'the scaffold must emit a Defect Classes section');
+      const block = source.slice(start, start + 900);
+      assert.ok(block.includes('None found. (reviewed by:'), 'the scaffold must document the named none-found format');
+      assert.ok(block.includes('opus-ruling'), 'the scaffold must name the opus-ruling caught_by value');
+    });
+
+    test('verify phase-gate surfaces the defect_classes verdict in its output', () => {
+      const source = fs.readFileSync(path.join(__dirname, 'gsd-tools.js'), 'utf-8');
+      assert.match(
+        source,
+        /defect_classes: evidence\.defect_classes/,
+        'phase-gate output must surface the gate verdict so an exemption reads as waived-by-date, not absent'
+      );
+    });
+  });
+
+  describe('Opus review fixes to the capture wiring', () => {
+    function readRepoFile(rel) {
+      return fs.readFileSync(path.join(REPO_ROOT, rel), 'utf-8');
+    }
+
+    test('the author dispatch does NOT commit — the orchestrator commits after review', () => {
+      const raw = readRepoFile('get-shit-done/workflows/audit-milestone.md');
+      const start = raw.indexOf('<rules_distill_prompt>');
+      const prompt = raw.slice(start, raw.indexOf('</rules_distill_prompt>'));
+      assert.ok(prompt.length > 0, 'the author prompt must exist');
+      assert.match(prompt, /YOU DO NOT COMMIT/, 'the author prompt must forbid committing');
+      assert.ok(
+        !/gsd-tools\.js" commit/.test(prompt),
+        'the author prompt must not contain a gsd-tools commit — that silently no-ops when commit_docs is off'
+      );
+      assert.match(prompt, /Any commit you make will be rejected/, 'the consequence must be stated');
+      assert.match(prompt, /## Fork follow-ups/, 'GSD process defects belong in the report, not project rules');
+    });
+
+    test('the orchestrator measures the budget and commits with git, path-scoped', () => {
+      const raw = readRepoFile('get-shit-done/workflows/audit-milestone.md');
+      const start = raw.indexOf('## 7. Distil Defect Classes into Project Rules');
+      const step = raw.slice(start, raw.indexOf('## 8. Present Results'));
+      assert.match(step, /wc -l \.claude\/rules\/\*\.md CLAUDE\.md/, 'the orchestrator measures before/after itself');
+      assert.match(step, /NET LINE GROWTH ACROSS `\.claude\/rules\/\*\.md` MUST BE ≤ 0/, 'the net-growth rule must be stated');
+      assert.match(step, /the author does not get to set its own budget/, 'the author must not grade itself');
+      assert.match(step, /git commit -m/, 'the orchestrator commits with git');
+      assert.match(step, /git commit -m[\s\S]{0,200}-- \\/, 'the commit must be path-scoped');
+      assert.match(step, /silently no-ops when the repo's `commit_docs` is off/, 'the reason for not using gsd-tools commit must be stated');
+      assert.match(step, /Cap at 2 rounds/, 'the fix loop must be capped');
+      assert.match(step, /STOP and escalate to the user/, 'exceeding the cap must escalate');
+      assert.match(step, /FRESH author with this reviewer's findings verbatim/, 'fixes go to a fresh author, not a patch-up');
+    });
+
+    test('collection loops Step 1 phase_dirs, not all of .planning/phases', () => {
+      const raw = readRepoFile('get-shit-done/workflows/audit-milestone.md');
+      const start = raw.indexOf('## 7. Distil Defect Classes into Project Rules');
+      const collect = raw.slice(start, raw.indexOf('**Dispatch (fresh Opus'));
+      assert.match(collect, /\{phase_dirs\}/, 'collection must loop Step 1 phase_dirs');
+      assert.match(collect, /not every directory under `\.planning\/phases\/`/, 'the cross-milestone sweep must be called out as wrong');
+      assert.match(collect, /v\{version\}-DEFECT-ROWS\.md/, 'rows must be written to a durable file the author reads');
+      assert.match(collect, /heading to the next `\^## `/, 'the section BODY must be extracted, not a grep of headings');
+      for (const art of ['*-SWEEP.md', '*-FINDING.md', '*-MUTATION-PROOF.md', '*-DECISIONS.md', '*-RECONCILIATION.md', '*-RULING*.md', 'deferred-items.md', 'debug/resolved', 'quick/', 'AUDIT-INPUTS.md']) {
+        assert.ok(collect.includes(art), `collection must name the ${art} artifact`);
+      }
+      assert.match(collect, /reconstructed: true/, 'reconstructed rows must be marked');
+      assert.match(collect, /\*\*never\*\* on its own justify\s+deleting/, 'a reconstructed row must not justify deleting a rule');
+    });
+
+    test('the author READ list includes deferred-items.md', () => {
+      const raw = readRepoFile('get-shit-done/workflows/audit-milestone.md');
+      const start = raw.indexOf('<rules_distill_prompt>');
+      const prompt = raw.slice(start, raw.indexOf('</rules_distill_prompt>'));
+      assert.match(prompt, /deferred-items\.md/, 'deferred-items.md must be in the author READ list');
+    });
+
+    test('plan-checker rows are durable in {N}-PLAN-CHECK.md on both TRIAGE_MODE branches', () => {
+      const raw = readRepoFile('get-shit-done/workflows/plan-phase.md');
+      const start = raw.indexOf('## 11. Handle Checker Return');
+      const step = raw.slice(start, raw.indexOf('## 12. Revision Loop'));
+      assert.match(step, /BOTH `TRIAGE_MODE` branches/, 'the write must precede both proceed lines');
+      assert.match(step, /\{N\}-PLAN-CHECK\.md/, 'the checker rows must land in a file');
+      assert.ok(
+        !/Step 13'?s? dispatch hands it the rows/.test(raw),
+        'the dangling "Step 13 hands it the rows" reference must be gone'
+      );
+    });
+
+    test('record_defect_classes runs BEFORE verify_phase_goal', () => {
+      const raw = readRepoFile('get-shit-done/workflows/execute-phase.md');
+      const rdc = raw.indexOf('<step name="record_defect_classes">');
+      const vpg = raw.indexOf('<step name="verify_phase_goal">');
+      assert.ok(rdc > -1 && vpg > -1, 'both steps must exist');
+      assert.ok(rdc < vpg, 'record_defect_classes must run before verify_phase_goal');
+    });
+
+    test('the verifier path commits SUMMARY.md on BOTH passed and gaps_found', () => {
+      const raw = readRepoFile('get-shit-done/workflows/execute-phase.md');
+      const start = raw.indexOf('<step name="verify_phase_goal">');
+      const step = raw.slice(start, raw.indexOf('<step name="update_roadmap">'));
+      assert.match(step, /\{phase_dir\}\/\*-SUMMARY\.md/, 'the verifier path must commit the summaries');
+      assert.match(step, /BOTH/, 'the commit must be unconditional across both status paths');
+      assert.match(step, /Runs AFTER `record_defect_classes`/, 'the ordering must be stated');
+    });
+
+    test('the coordinator detail reference mirrors the Charlotte + verifier dispatch suffixes', () => {
+      const raw = readRepoFile('get-shit-done/references/coordinator-detail.md');
+      const occurrences = raw.split('## Defect Classes').length - 1;
+      assert.ok(
+        occurrences >= 6,
+        `all 5 Charlotte dispatch sites + the verifier dispatch must request Defect Classes, found ${occurrences}`
+      );
+      assert.match(raw, /Also run Step 6d/, 'the verifier dispatch must request Step 6d');
+      assert.match(raw, /None found\. \(reviewed by: charlotte\)/, 'Charlotte must be told the named none-found format');
+    });
+
+    test('the new rules file obligations are stated (paths: frontmatter + Domain Rules row)', () => {
+      const raw = readRepoFile('get-shit-done/workflows/audit-milestone.md');
+      const start = raw.indexOf('<rules_distill_prompt>');
+      const prompt = raw.slice(start, raw.indexOf('</rules_distill_prompt>'));
+      assert.match(prompt, /`paths:` frontmatter/, 'a new rules file needs paths: frontmatter');
+      assert.match(prompt, /CLAUDE\.md's Domain Rules\s+table/, 'a new rules file needs a Domain Rules row');
+      assert.match(prompt, /WRITE SCOPE/, 'the write scope must be explicit');
+    });
+
+    test('the "None found." format and opus-ruling value are consistent everywhere', () => {
+      const files = [
+        'get-shit-done/templates/summary.md',
+        'get-shit-done/templates/summary-standard.md',
+        'get-shit-done/templates/summary-minimal.md',
+        'get-shit-done/templates/summary-complex.md',
+        'get-shit-done/workflows/execute-plan.md',
+        'get-shit-done/workflows/execute-phase.md',
+        'agents/gsd-executor.md',
+        'agents/gsd-verifier.md',
+      ];
+      for (const f of files) {
+        const raw = readRepoFile(f);
+        assert.ok(
+          raw.includes('None found. (reviewed by:'),
+          `${f} must document the named none-found format`
+        );
+        // Any mention of a BARE `None found.` must be paired with the warning
+        // that it fails the gate -- otherwise the file teaches the failing form.
+        const bareMentions = [...raw.matchAll(/bare `None found\.`/gi)];
+        for (const m of bareMentions) {
+          const window = raw.slice(Math.max(0, m.index - 260), m.index + 260);
+          assert.match(
+            window,
+            /fail|error/i,
+            `${f} says "bare \`None found.\`" without warning that it fails the gate`
+          );
+        }
+      }
+      assert.ok(readRepoFile('agents/gsd-executor.md').includes('opus-ruling'), 'the executor must name opus-ruling');
+      assert.ok(readRepoFile('agents/gsd-plan-judge.md').includes('opus-ruling'), 'the judge must record caught_by: opus-ruling');
+    });
   });
 });

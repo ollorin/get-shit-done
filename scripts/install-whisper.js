@@ -5,9 +5,12 @@
  * Automatically downloads Whisper models for voice transcription.
  * Called by install-orchestrator.js during installation.
  *
- * Model selection:
- * - base.en: English-only, 244MB (proven in Phase 8/08.1)
- * - base: Multilingual (including Russian), ~300MB
+ * Model selection (both are installed -- see MODELS below for which consumer
+ * resolves which):
+ * - base.en: English-only, ~141MB. Resolved by get-shit-done/bin/whisper-transcribe.js
+ *   and telegram-mcp's transcription.js.
+ * - base: Multilingual (including Russian), ~141MB. Resolved by telegram-mcp's
+ *   daemon/bot/whisper.js.
  *
  * Storage path: ~/.cache/whisper/ggml-{model}.bin
  */

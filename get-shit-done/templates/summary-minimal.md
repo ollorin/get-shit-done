@@ -40,9 +40,13 @@ completed: YYYY-MM-DD
 ## Defect Classes
 | class | instance | caught_by | severity | rule_gap |
 |---|---|---|---|---|
-| [general class name] | [path/file.ext:line] | [plan-check\|test-writer\|mutation-proof\|opus-diff-review\|verifier\|charlotte\|other] | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
+| [general class name] | [path/file.ext:line] | [plan-check\|test-writer\|mutation-proof\|opus-diff-review\|opus-ruling\|verifier\|charlotte\|other] | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
 
-Nothing found? Delete the table and leave exactly `None found.` — never omit the section.
+Nothing found? Delete the table and leave exactly:
+
+`None found. (reviewed by: <caught_by values>)`
+
+A bare `None found.` is a gate failure — an unnamed review is indistinguishable from a section nobody read. Never omit the section.
 
 ## Next Phase Readiness
 [Ready for next phase]

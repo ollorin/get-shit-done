@@ -438,16 +438,43 @@ milestone.
 Skip this step when the milestone's phases have no `## Defect Classes` sections and no review
 artifacts at all (nothing to distil) — say so in the report rather than inventing entries.
 
-**Collect.** Every `## Defect Classes` row across the milestone's phases:
+**Collect — YOU do this, before any dispatch.** Write every row to
+`.planning/v{version}-DEFECT-ROWS.md`; the author dispatch reads that one file, never the phase
+tree. Three sources, in order:
+
+**(a) The `## Defect Classes` section bodies.** Loop over the `{phase_dirs}` Step 1 resolved for
+THIS milestone — not every directory under `.planning/phases/`, which sweeps in other
+milestones' phases. For each `*-SUMMARY.md` in those directories, extract the section BODY
+(heading to the next `^## `, inclusive of the heading line for identification):
 
 ```bash
-grep -rn "^## Defect Classes" .planning/phases/ --include="*-SUMMARY.md"
+# One block per SUMMARY; empty output means the phase predates the section.
+awk '/^## Defect Classes$/{f=1} f && /^## / && !/^## Defect Classes$/{f=0} f' \
+  .planning/phases/{phase_dir}/{N}-{NN}-SUMMARY.md
 ```
 
-For phases that predate the section, fall back to their `deferred-items.md`, any
-`*-REVIEW.md` / `*-VERDICT.md` / other ruling artifacts, and `{N}-VERIFICATION.md` gaps — read
-those and reconstruct the same 5 columns. Mark such rows `reconstructed` in the report; a
-reconstructed row is weaker evidence and must not by itself justify deleting an existing rule.
+Also read each phase's `{N}-PLAN-CHECK.md` if present (the plan-checker's Defect Classes block,
+written there by `plan-phase.md` Step 11) and `{N}-{NN}-VERDICT.md` (the judge's own block).
+
+**(b) Pre-section phases.** A phase with no `## Defect Classes` anywhere predates the
+requirement. Read EVERY artifact in its directory except `*-PLAN.md`, `*-RESEARCH.md` and
+`*-CONTEXT.md`, and reconstruct the same 5 columns from what they record. In practice that
+means the real artifact names a project accumulates: `*-SWEEP.md`, `*-FINDING.md`,
+`*-MUTATION-PROOF.md`, `*-DECISIONS.md`, `*-RECONCILIATION.md`, `*-RULING*.md`,
+`*-VERIFICATION.md`, `deferred-items.md`, and the prose sections of the `*-SUMMARY.md` itself (Issues Encountered,
+Decisions & Deviations, Deviations from Plan). Also read `.planning/debug/resolved/` and the
+milestone's `.planning/quick/*/` directories — defects found there belong to no phase directory
+at all. If `.planning/v{version}-AUDIT-INPUTS.md` exists, read it too.
+
+Mark every reconstructed row `reconstructed: true` in the rows file. A reconstructed row is
+weaker evidence: it may justify adding or tightening a rule, but **never** on its own justify
+deleting an existing rule.
+
+**(c) Nothing else.** Do not read the milestone's own source, tests, or git history for defects
+— this step distils what review already recorded, it does not run a new review.
+
+Write the rows file as a table with a `reconstructed` column, one row per defect, plus a trailing
+count. If it comes out empty, say so and skip the dispatch.
 
 **Dispatch (fresh Opus, model `"opus"`).** The author of a rule set does not review it. Spawn:
 
@@ -466,10 +493,17 @@ You are updating the CONSUMING REPO's Claude rules from the defect classes recor
 milestone {version}. The project is: {project_root}
 
 READ:
-- Every `## Defect Classes` row across this milestone's phases' *-SUMMARY.md
-- The milestone's review/ruling artifacts (*-REVIEW.md, *-VERDICT.md) and {N}-VERIFICATION.md
-  for phases that predate the section
-- The existing `.claude/rules/*.md` and CLAUDE.md, in full
+- `.planning/v{version}-DEFECT-ROWS.md` — the collected rows. This is your primary input.
+- `.planning/phases/*/deferred-items.md` — anything deferred that reads as a real defect.
+- The existing `.claude/rules/*.md` and CLAUDE.md, in full.
+
+YOU DO NOT COMMIT. You write files and stop. The orchestrator measures, reviews, and commits.
+Any commit you make will be rejected.
+
+WRITE SCOPE — edit nothing outside these paths:
+- `.claude/rules/*.md`
+- `CLAUDE.md` (only for a genuinely cross-cutting class)
+- `.planning/v{version}-RULES-DISTILL.md` (your report — the ONLY new file you create)
 
 TASK: cluster the rows into general defect classes, then for EACH class decide exactly one of:
 1. **already-covered** — an existing rule already forbids it. Change nothing; record the
@@ -479,8 +513,9 @@ TASK: cluster the rows into general defect classes, then for EACH class decide e
 3. **new** — no rule covers it. Add a general rule to the most specific existing
    `.claude/rules/*.md` file (create the file only if nothing fits an existing one).
 
-WHERE: `.claude/rules/*.md`. Touch CLAUDE.md only if the class is genuinely cross-cutting —
-it applies to every layer, not just the paths one rules file covers.
+A NEW rules file must carry BOTH the project's `paths:` frontmatter (it decides when the file
+auto-loads — a rules file with no paths never loads) AND a row in CLAUDE.md's Domain Rules
+table. A new file missing either is a review finding, not a detail.
 
 RULE-WRITING CONSTRAINTS (all binding):
 - Write GENERAL principles as checkable directives. "Every security-gating read treats a
@@ -488,35 +523,70 @@ RULE-WRITING CONSTRAINTS (all binding):
 - NO incident narratives. A defect is a class, not a story. At most a one-line pointer to the
   milestone record (e.g. "seen in v0.1.33") — never the file, the incident, or the timeline.
 - Merge duplicates. Delete any rule that is obsolete or contradicted by the code as it stands.
-- Respect the project's own token/length discipline (see its CLAUDE.md): keep every file under
-  a stated budget you set in the report, and PREFER TRIMMING existing text to adding.
+- NET LINE GROWTH ACROSS `.claude/rules/*.md` MUST BE ≤ 0. If you can only justify a class by
+  adding text, you must delete or compress equivalent text elsewhere in the same commit. State
+  in the report, for every file you grew, which specific existing lines you removed and why the
+  trade is worth it. A report entry that does not name the removals is an invalid justification.
 - Every change you make MUST cite the defect class(es) justifying it, in the report.
 - Do not invent classes that no row supports. "None found" everywhere is a valid, complete
   outcome — say so.
+- **GSD process defects go in the report, not in the project's rules.** Some rows describe
+  defects in the GSD workflow itself ("the coordinator made a high-stakes ruling itself", "the
+  test double's semantics diverged from the DB"). Those are THIS FORK's follow-ups, not the
+  consuming project's engineering rules. Record them in a `## Fork follow-ups` section of your
+  report and do NOT add them to `.claude/rules/`.
 
-WRITE: `.planning/v{version}-RULES-DISTILL.md` with a table —
+WRITE `.planning/v{version}-RULES-DISTILL.md` with a table —
 class | decision (already-covered / tighten / new) | file changed | justification (the rows
-that justify it) | enforcement-gap note for already-covered.
+that justify it, and the removals that paid for any added lines) | enforcement-gap note for
+already-covered — plus a `## Fork follow-ups` section.
 
-COMMIT: only the rules files you changed plus the report. Use
-`node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs({version}): distil defect
-classes into project rules" --files <the rules files> .planning/v{version}-RULES-DISTILL.md`.
-Never commit the consuming repo's source code, tests, settings.json, or any hook config.
-
-RETURN: the changed files, the per-class decisions, the before/after line count of each rules
-file, and the report path.
+RETURN: the changed files, the per-class decisions, and the report path. Do not report your own
+before/after line counts as if they were a budget check; the orchestrator measures those.
 </rules_distill_prompt>
 ```
 
+**Measure the budget (YOU do this, not the author).** Before the author dispatch, record
+`wc -l .claude/rules/*.md CLAUDE.md`. After it returns, measure again. The rules budget is:
+
+- **Net line growth across `.claude/rules/*.md` must be ≤ 0.** A positive net is a blocking
+  finding regardless of what the report claims — the author does not get to set its own budget
+  and then grade itself against it.
+- **Per-file ceiling:** no single `.claude/rules/*.md` file may exceed its pre-dispatch line
+  count by more than the number of lines the report justifies with named removals, and no file
+  may exceed 400 lines absolute.
+- `CLAUDE.md` is exempt from the ≤ 0 rule (it is the index, not a rules body) but is still
+  write-scoped and still reviewed.
+
 **Second, separate Opus check (mandatory).** The author does not review its own work. Spawn a
-*different* fresh Opus dispatch with `model="opus"` to review the rules diff:
+*different* fresh Opus dispatch with `model="opus"`. Give it the `git diff` of exactly the named
+paths plus the before/after line counts you measured — not the whole repo diff:
 
 ```
 Agent(
   subagent_type="general-purpose",
   model="opus",
   description="Review milestone {version} rules distillation",
-  prompt="Review the uncommitted `.claude/rules/*.md` diff and .planning/v{version}-RULES-DISTILL.md in {project_root} for three things ONLY: (a) GENERALITY — is each rule a checkable general principle, or is it an incident story in rule clothing? (b) CONTRADICTION — does any new rule contradict an existing rule, or contradict the code as it stands? (c) BLOAT — did the diff grow any file past its stated budget when trimming was available? Report defects with file:line. Do NOT edit anything; return findings only. If the diff is clean, say so plainly — do not manufacture findings."
+  prompt="Review a proposed rules diff in {project_root} for three things ONLY.
+
+(a) GENERALITY — is each added/changed rule a checkable general principle, or an incident story
+    in rule clothing?
+(b) CONTRADICTION — does any new rule contradict an existing rule, or contradict the code as it
+    stands?
+(c) BLOAT — given the before/after line counts below, was trimming available where text was
+    added? Did the author set its own budget instead of meeting the ≤ 0 net-growth rule?
+
+Here is the `git diff` of the named paths:
+
+<diff>
+{git diff -- .claude/rules/ CLAUDE.md .planning/v{version}-RULES-DISTILL.md}
+</diff>
+
+Line counts before → after:
+{before} → {after}
+
+Report defects with file:line. Do NOT edit anything; return findings only. If the diff is clean,
+say so plainly — do not manufacture findings."
 )
 ```
 
@@ -524,11 +594,34 @@ Route the result:
 
 | Review finding | Action |
 |---|---|
-| None | Commit the rules files + report. |
-| Generality / contradiction / bloat defect | Send it back to the author dispatch to fix, then re-run the review on the corrected diff. Do not review-and-patch in the same dispatch — that is the self-review the split exists to prevent. |
+| None | Commit (see below). |
+| Generality / contradiction / bloat defect | **Fix loop:** dispatch a FRESH author with this reviewer's findings verbatim, then re-run the review on the corrected diff. Do not patch in the reviewer or the original author — a fresh author given the findings is the loop. **Cap at 2 rounds.** If round 2's review still reports findings, STOP and escalate to the user with both rounds' findings; do not open a third round. |
 
-Commit the report either way, so the milestone record shows whether the rules were reviewed
-clean or revised.
+**Verify the write scope (YOU do this, before the review).** A prompt is not a sandbox; the
+author can drift outside the three permitted paths. Check what actually changed on disk and
+refuse the commit if anything else was touched:
+
+```bash
+git diff --name-only
+```
+
+Every path in that output must be one of: a file under `.claude/rules/`, `CLAUDE.md`, or
+`.planning/v{version}-RULES-DISTILL.md`. If anything else appears, STOP and escalate to the
+user with the offending paths listed — do not revert the author's work yourself and do not
+commit a partial selection, because a partial commit hides exactly the drift you are checking
+for.
+
+**Commit (YOU do this, only after a clean review).** Never use `gsd-tools.js commit` here — it
+silently no-ops when the repo's `commit_docs` is off, which would drop the rules change from the
+milestone PR without any error. Use git directly, path-scoped:
+
+```bash
+git commit -m "docs({version}): distil defect classes into project rules" -- \
+  .claude/rules/ CLAUDE.md .planning/v{version}-RULES-DISTILL.md
+```
+
+Include `CLAUDE.md` in the path list if it was edited. Commit the report even when the review
+was not clean, so the milestone record shows whether the rules were reviewed clean or escalated.
 
 ## 8. Present Results
 
@@ -665,9 +758,12 @@ All requirements met. No critical blockers. Accumulated tech debt needs review.
 - [ ] Missing VALIDATION.md phases flagged (test-content coverage now enforced automatically by gsd-verifier's Step 6c gate — no manual command needed)
 - [ ] PRD-TRACE.md cross-reference run for each phase with PRD Express Path (Step 5f) — optional, skipped if absent; NOT a blocker when absent
 - [ ] MILESTONE-AUDIT.md includes PRD Traceability section and prd_traceability score (if any phases used PRD Express Path)
-- [ ] Every milestone phase's `## Defect Classes` collected (pre-section phases reconstructed from their review/VERIFICATION artifacts)
+- [ ] Every milestone phase's `## Defect Classes` collected into `v{version}-DEFECT-ROWS.md` (pre-section phases reconstructed from every non-PLAN/RESEARCH/CONTEXT artifact, `.planning/debug/resolved/`, and `.planning/quick/*/`)
 - [ ] Fresh Opus distillation dispatched; per class an already-covered / tighten / new decision recorded
-- [ ] `v{version}-RULES-DISTILL.md` written and committed alongside the rules files it justifies
-- [ ] A SECOND, separate Opus review of the rules diff run; findings (if any) routed back to the author dispatch, not self-patched
+- [ ] Net line growth across `.claude/rules/*.md` measured by the orchestrator and ≤ 0 (or the run escalates)
+- [ ] Write scope held: only `.claude/rules/`, CLAUDE.md, and the report were edited
+- [ ] `v{version}-RULES-DISTILL.md` written AND committed (after a clean review)
+- [ ] A SECOND, separate Opus review of the rules diff run on the named paths; findings routed to a FRESH author, capped at 2 rounds, then escalated
+- [ ] Committed with `git commit -- <paths>` only after a clean review
 - [ ] Results presented with actionable next steps
 </success_criteria>

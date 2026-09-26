@@ -180,13 +180,15 @@ paste them, don't re-derive them.
   affects. If none fits, put it in the last plan's SUMMARY.
 - Never edit a plan's existing rows — append.
 - Never leave a plan's `## Defect Classes` heading without either rows or an explicit
-  `None found.`
+  `None found. (reviewed by: <caught_by values>)` — a BARE `None found.` fails the phase gate
 - Commit the SUMMARY edit with the same `docs({phase}-{plan}):` pattern used for the plan's own
   SUMMARY commit.
+- Commit on the verifier path too: `verify_phase_goal` runs after you and may add its own rows,
+  so it commits `{phase_dir}/*-SUMMARY.md` on both `passed` and `gaps_found`.
 
 **Ruling on your own dispatch is not allowed.** A judgement call that would dispose of a
 `critical` finding, loosen an assertion, or accept a plan deviation goes to a fresh Opus
-dispatch — you record its ruling verbatim as a `caught_by: opus-diff-review` row.
+dispatch — you record its ruling verbatim as a `caught_by: opus-ruling` row.
 
 </defect_class_recording>
 

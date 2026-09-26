@@ -1171,6 +1171,7 @@ while round <= MAX_ROUNDS AND qa_passed == false:
       <test_flows>{test_flows}</test_flows>
       <round>{round}</round>
       {IF round > 1: <previous_issues>{previous_report}</previous_issues>}
+      Also return a `## Defect Classes` block — one `| class | instance | caught_by | severity | rule_gap |` row per issue, `caught_by` fixed to `charlotte`, `class` a general reusable name. Write exactly `None found. (reviewed by: charlotte)` if the pass surfaced none — a bare `None found.` fails the phase gate. The coordinator pastes these into the plan's SUMMARY.md.
     "
   )
 
@@ -1351,6 +1352,7 @@ ux_result = Agent(
     <what_built>{what_built}</what_built>
     <test_flows>{test_flows}</test_flows>
     <round>1</round>
+      Also return a `## Defect Classes` block — one `| class | instance | caught_by | severity | rule_gap |` row per issue, `caught_by` fixed to `charlotte`, `class` a general reusable name. Write exactly `None found. (reviewed by: charlotte)` if the pass surfaced none — a bare `None found.` fails the phase gate. The coordinator pastes these into the plan's SUMMARY.md.
   "
 )
 
@@ -1393,6 +1395,7 @@ if ux_severity_counts.critical > 0 OR ux_severity_counts.high > 0 OR ux_severity
       <test_flows>{test_flows}</test_flows>
       <round>2</round>
       <previous_issues>{ux_report}</previous_issues>
+      Also return a `## Defect Classes` block — one `| class | instance | caught_by | severity | rule_gap |` row per issue, `caught_by` fixed to `charlotte`, `class` a general reusable name. Write exactly `None found. (reviewed by: charlotte)` if the pass surfaced none — a bare `None found.` fails the phase gate. The coordinator pastes these into the plan's SUMMARY.md.
     "
   )
 
@@ -1491,6 +1494,7 @@ After ALL plans in this phase have completed execution:
           what_built={phase goal + key UI files from SUMMARYs}
           test_flows={derive from phase success criteria}
           round=1
+          Also return a `## Defect Classes` block — one `| class | instance | caught_by | severity | rule_gap |` row per issue, `caught_by` fixed to `charlotte`, `class` a general reusable name. Write exactly `None found. (reviewed by: charlotte)` if none. The coordinator pastes these into the plan's SUMMARY.md.
         "
       )
       ```
@@ -1528,6 +1532,7 @@ After post_phase_ux_sweep and before verify_phase_goal:
           e2e_flows={E2E_FLOWS}
           project_dir={project_dir}
           round=1
+          Also return a `## Defect Classes` block — one `| class | instance | caught_by | severity | rule_gap |` row per issue, `caught_by` fixed to `charlotte`, `class` a general reusable name. Write exactly `None found. (reviewed by: charlotte)` if none. The coordinator pastes these into the plan's SUMMARY.md.
         "
       )
       ```
@@ -1566,6 +1571,7 @@ Agent(
 Phase directory: {phase_dir}
 Phase goal: {goal from ROADMAP.md}
 Check must_haves against actual codebase. Create VERIFICATION.md.
+Also run Step 6d: every plan's SUMMARY.md must have a populated `## Defect Classes` section (rows, or `None found. (reviewed by: <caught_by values>)`), and any finding from this phase's review/ruling artifacts with no row is yours to add.
 
 @/Users/ollorin/.claude/get-shit-done/references/handoff-brief.md
 

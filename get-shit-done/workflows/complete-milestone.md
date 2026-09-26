@@ -204,15 +204,21 @@ milestone went through `/gsd:audit-milestone`, the rules it produces are already
 this gate is satisfied — verify only that `.planning/v{X.Y}-RULES-DISTILL.md` exists.
 
 **If the milestone skipped the audit**, the milestone would otherwise close with its recorded
-defect classes undistilled, and the same class of defect gets made again next milestone. Route to
-the audit's Step 7 before committing:
+defect classes undistilled, and the same class of defect gets made again next milestone. Run the
+audit's Step 7 before committing. `audit-milestone.md` has no per-step CLI entry point, so
+`/gsd:audit-milestone` (which runs steps 0-8) is the invocation — or read
+`~/.claude/get-shit-done/workflows/audit-milestone.md` §7 and run those substeps directly:
 
 ```
-/gsd:audit-milestone {version}   # Step 7 only — or read
-# ~/.claude/get-shit-done/workflows/audit-milestone.md §7 and run it directly
+/gsd:audit-milestone {version}
 ```
 
-Then verify `.planning/v{X.Y}-RULES-DISTILL.md` exists. A milestone with no `## Defect Classes`
+Whatever route you take, Step 7's own rules apply unchanged: the orchestrator collects into
+`v{X.Y}-DEFECT-ROWS.md`, the author dispatch only WRITES (it never commits), the net-growth
+budget is measured by the orchestrator, a separate Opus reviews the diff, and the commit happens
+only after a clean review.
+
+Then verify `.planning/v[X.Y]-RULES-DISTILL.md` exists. A milestone with no `## Defect Classes`
 sections and no review artifacts at all has nothing to distil — record that and continue.
 
 </defect-classes-distillation>

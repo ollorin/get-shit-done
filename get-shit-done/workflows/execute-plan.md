@@ -106,7 +106,7 @@ Pattern B only (verify-only checkpoints). Skip for A/C.
    - Verify key-files.created exist on disk with `[ -f ]`
    - Check `git log --oneline --all --grep="{phase}-{plan}"` returns ≥1 commit
    - Append `## Self-Check: PASSED` or `## Self-Check: FAILED` to SUMMARY
-   - Confirm `## Defect Classes` exists (rows, or an explicit `None found.`) — a missing section fails the self-check
+   - Confirm `## Defect Classes` exists (rows, or an explicit `None found. (reviewed by: …)`) — a missing section fails the self-check
 
    **Known Claude Code bug (classifyHandoffIfNeeded):** If any segment agent reports "failed" with `classifyHandoffIfNeeded is not defined`, this is a Claude Code runtime bug — not a real failure. Run spot-checks; if they pass, treat as successful.
 
@@ -380,10 +380,10 @@ Include: duration, start/end times, task count, file count.
 
 | class | instance | caught_by | severity | rule_gap |
 |---|---|---|---|---|
-| [general class name] | [path/file.ext:line] | [plan-check\|test-writer\|mutation-proof\|opus-diff-review\|verifier\|charlotte\|other] | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
+| [general class name] | [path/file.ext:line] | [plan-check\|test-writer\|mutation-proof\|opus-diff-review\|opus-ruling\|verifier\|charlotte\|other] | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
 ```
 
-`class` is a reusable name, not a story. A clean plan writes exactly `None found.` — the section is never omitted, because the milestone-end distillation reads these rows to update the project's `.claude/rules/*.md`.
+`class` is a reusable name, not a story. A clean plan writes exactly `None found. (reviewed by: <caught_by values>)` — a BARE `None found.` fails the phase gate. The section is never omitted, because the milestone-end distillation reads these rows to update the project's `.claude/rules/*.md`.
 
 Next: more plans → "Ready for {next-plan}" | last → "Phase complete, ready for transition".
 </step>
@@ -577,7 +577,7 @@ All routes: `/clear` first for fresh context.
 - All verifications pass
 - USER-SETUP.md generated if user_setup in frontmatter
 - SUMMARY.md created with substantive content
-- SUMMARY.md `## Defect Classes` section present — rows, or an explicit `None found.`
+- SUMMARY.md `## Defect Classes` section present — rows, or an explicit `None found. (reviewed by: …)`
 - STATE.md updated (position, decisions, issues, session)
 - ROADMAP.md updated
 - If codebase map exists: map updated with execution changes (or skipped if no significant changes)

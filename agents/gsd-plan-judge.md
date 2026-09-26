@@ -90,12 +90,12 @@ required_changes: # Only if verdict is revise or critical — one entry per vali
 
 | class | instance | caught_by | severity | rule_gap |
 |---|---|---|---|---|
-| [general class name] | [path/file.ext:line] | opus-diff-review | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
+| [general class name] | [path/file.ext:line] | opus-ruling | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
 ```
 
 Use the Bash tool (`date -u +"%Y-%m-%dT%H:%M:%SZ"`) for the timestamp. Write the file directly with the Write tool — do not ask the orchestrator to write it for you.
 
-**The `## Defect Classes` block is required** — the phase coordinator pastes its rows verbatim into the plan's SUMMARY.md, and the milestone-end distillation reads nothing else. `class` is a general reusable name ("plan assumed a soft-delete view is an atomic claim"), not a one-off story. A verdict with no defect-class insight writes exactly `None found.` rather than omitting the section.
+**The `## Defect Classes` block is required** — the phase coordinator pastes its rows verbatim into the plan's SUMMARY.md, and the milestone-end distillation reads nothing else. `class` is a general reusable name ("plan assumed a soft-delete view is an atomic claim"), not a one-off story. A verdict with no defect-class insight writes exactly `None found. (reviewed by: opus-ruling)` rather than omitting the section — a bare `None found.` fails the phase gate.
 
 **Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed=[{rule, why}, ...], ambiguities={count}, tool_errors_swallowed={count}
 
