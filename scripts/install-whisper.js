@@ -17,7 +17,11 @@ const path = require('path');
 const os = require('os');
 const https = require('https');
 
-const MODELS = ['base']; // Multilingual (includes English and Russian)
+// Both models are actually consumed: `get-shit-done/bin/whisper-transcribe.js` and
+// telegram-mcp's transcription.js resolve `base.en`, the telegram daemon's whisper.js
+// resolves `base`. Pre-seeding only one of them left the health check red and left the
+// other consumer to lazy-download on first use.
+const MODELS = ['base', 'base.en']; // multilingual (includes English and Russian) + English-only
 const WHISPER_CACHE_DIR = path.join(os.homedir(), '.cache', 'whisper');
 const MAX_RETRIES = 3;
 const RETRY_DELAY_BASE = 2000; // 2 seconds, exponential backoff
