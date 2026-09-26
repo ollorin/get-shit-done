@@ -2903,22 +2903,36 @@ const DEFECT_CLASSES_CAUGHT_BY = [
   'opus-ruling', 'verifier', 'charlotte', 'other',
 ];
 
+// The 5-column schema, in order. The milestone-end distillation reads these by
+// NAME, so a table that renames or reorders a column is not a variant — it is
+// unreadable, and a table that uses entirely different headers is the same
+// failure wearing a plausible shape.
+const DEFECT_CLASSES_COLUMNS = ['class', 'instance', 'caught_by', 'severity', 'rule_gap'];
+const DEFECT_CLASSES_SEVERITY = ['critical', 'major', 'minor'];
+
 // QGATE-17 (Defect Classes). Pure evaluator shared by cmdPhaseComplete and
 // cmdVerifyPhaseGate so the two can never disagree about whether a SUMMARY
 // records its defect classes. The section is REQUIRED (not advisory): the
 // milestone-end rules distillation reads these rows and nothing else, so a
 // missing entry is a defect that the next milestone repeats.
 //
-// Six distinct failure modes, each with its own canary in the test suite --
+// Nine distinct failure modes, each with its own canary in the test suite --
 // they are not collapsed into one "invalid" because the fix differs:
 //   missing   -- no `## Defect Classes` heading at all.
-//   empty     -- heading present, body has neither rows nor a None-found entry.
+//   empty     -- heading present, body has neither rows nor a None-found entry,
+//                 or a valid header+separator with zero data rows under it.
 //   placeholder -- the template's `[bracket]` guidance row was shipped verbatim.
+//   bad_header -- the table's header is not exactly class|instance|caught_by|
+//                 severity|rule_gap, or its separator row is missing. A custom
+//                 table parses as cells and reads as a filled-in record while
+//                 being unreadable to the distillation.
+//   row_arity -- a data row whose cell count differs from the header's.
 //   malformed_none_found -- a None-found entry that does not name the reviews
 //               that actually ran, which is how a silent gap gets re-blessed.
-//   invalid_caught_by -- a named review that is not in the closed `caught_by`
-//               set. Catches the template's own literal `<caught_by values>`
-//               and prose like `nobody` shipped as if it were a reviewer.
+//   invalid_caught_by -- a named review (or a row's caught_by) that is not in
+//               the closed set. Catches the template's own literal
+//               `<caught_by values>` and prose like `nobody`.
+//   invalid_severity -- a row's severity outside critical|major|minor.
 //   empty_cells -- a data row with a blank or `-` cell in any of the 5 required
 //               columns, which reads as a recorded defect but records nothing.
 function evaluateDefectClasses(content) {
@@ -2969,27 +2983,55 @@ function evaluateDefectClasses(content) {
     return { source: 'defect_classes', status: 'ok', body, rows: 0, reviewers };
   }
 
-  // Data rows: the 5-column table the template defines. Count only rows that
-  // look like records (>= 5 cells) so a header/separator row can't fake a pass.
-  const rows = body
+  // Data rows: the 5-column table, validated against its OWN header. The header
+  // is the contract — a custom table (`| # | Defect | Evidence | ... |`) parses
+  // fine as cells and would sail through any row-shape check, so the header is
+  // matched against the required names before a single data row is read.
+  const tableLines = body
     .split('\n')
     .map(l => l.trim())
-    .filter(l => l.startsWith('|') && l.endsWith('|'))
-    .map(l => l.slice(1, -1).split('|').map(c => c.trim()))
-    .filter(cells => cells.length >= 5 && !cells.every(c => /^:?-{2,}:?$/.test(c)))
-    .filter(cells => !cells[0].toLowerCase().startsWith('class'));
+    .filter(l => l.startsWith('|') && l.endsWith('|'));
+  const cellsOf = l => l.slice(1, -1).split('|').map(c => c.trim());
+  const isSeparator = cells => cells.length > 0 && cells.every(c => /^:?-{2,}:?$/.test(c));
 
+  if (tableLines.length === 0) {
+    return { source: 'defect_classes', status: 'empty', body, rows: 0 };
+  }
+
+  const header = cellsOf(tableLines[0]).map(c => c.toLowerCase().replace(/[`*]/g, '').trim());
+  if (header.length !== DEFECT_CLASSES_COLUMNS.length ||
+      !DEFECT_CLASSES_COLUMNS.every((c, i) => header[i] === c)) {
+    return { source: 'defect_classes', status: 'bad_header', body, rows: 0, header };
+  }
+  if (tableLines.length < 2 || !isSeparator(cellsOf(tableLines[1]))) {
+    return { source: 'defect_classes', status: 'bad_header', body, rows: 0, header, reason: 'missing separator row' };
+  }
+
+  const rows = tableLines.slice(2).map(cellsOf);
   if (rows.length === 0) {
     return { source: 'defect_classes', status: 'empty', body, rows: 0 };
   }
 
-  // A row only counts as a record if all five required columns carry a value.
-  // `rule_gap` has a documented real value ("none — new rule needed"), so a
-  // blank or a bare `-` in any column is a hole, not a value.
+  // A row only counts as a record if it has the header's arity and every one of
+  // the five required columns carries a value. `rule_gap` has a documented real
+  // value ("none — new rule needed"), so a blank or a bare `-` in any column is
+  // a hole, not a value.
   const BLANK_CELL = /^(?:-{1,3}|—|–)?$/;
-  const badRow = rows.find(cells => cells.slice(0, 5).some(c => BLANK_CELL.test(c)));
+  const arity = rows.find(cells => cells.length !== DEFECT_CLASSES_COLUMNS.length);
+  if (arity) {
+    return { source: 'defect_classes', status: 'row_arity', body, rows: rows.length, row: arity };
+  }
+  const badRow = rows.find(cells => cells.some(c => BLANK_CELL.test(c)));
   if (badRow) {
     return { source: 'defect_classes', status: 'empty_cells', body, rows: rows.length, row: badRow };
+  }
+  const badCaughtBy = rows.find(cells => !DEFECT_CLASSES_CAUGHT_BY.includes(cells[2].toLowerCase()));
+  if (badCaughtBy) {
+    return { source: 'defect_classes', status: 'invalid_caught_by', body, rows: rows.length, row: badCaughtBy, unknown: [badCaughtBy[2]] };
+  }
+  const badSeverity = rows.find(cells => !DEFECT_CLASSES_SEVERITY.includes(cells[3].toLowerCase()));
+  if (badSeverity) {
+    return { source: 'defect_classes', status: 'invalid_severity', body, rows: rows.length, row: badSeverity, unknown: [badSeverity[3]] };
   }
   return { source: 'defect_classes', status: 'ok', body, rows: rows.length };
 }
@@ -3000,42 +3042,107 @@ function evaluateDefectClasses(content) {
 // earliest commit is inherited from its first plan, so a directory-level
 // decision gates (or exempts) every later plan in it regardless of when that
 // plan's SUMMARY was actually written -- which is how a day-granularity
-// comparison failed every SUMMARY written on the cutoff's own calendar day,
-// including ones an hour old.
+// comparison failed every SUMMARY written on the cutoff's own calendar day.
 //
-// FAIL CLOSED. An uncommitted SUMMARY, one with no measurable git history, a
-// missing cutoff or an unparsable one are all GATED. The only way out is the
-// explicit `defect_classes_gate_enabled: false` opt-out, which is a decision
-// someone makes on purpose rather than an accident of measurement.
-function summarySubjectToDefectClassesGate(firstCommitInstantIso, cfg) {
-  if (!cfg || cfg.defect_classes_gate_enabled !== true) return false;
+// The rule is POSITIONAL, not "when was this file first created". "Earliest
+// add wins" has three holes, each of which exempts a summary that was in fact
+// written after the cutoff:
+//   reuse      -- an old SUMMARY is deleted and a brand-new one written at the
+//                 same path. The earliest add is still the old file's.
+//   rename-in  -- `git mv notes.md 386-01-SUMMARY.md`. `--follow` walks back to
+//                 whatever the source file's creation was and inherits that.
+//   copy       -- `git log --find-copies` treats a copy as the original.
+// So the question is not "does a path with this name once exist" but "was THIS
+// file here before the cutoff, continuously". Hence: exempt only if the path
+// existed at the last commit before the cutoff AND has not been deleted since.
+// A rename or copy into the path after the cutoff means the path did not exist
+// before it, so it is GATED -- which is the fail-closed answer, and also the
+// truthful one: a renumbered phase's summary is a new artifact.
+//
+// FAIL CLOSED, without exception. A missing config, an uncommitted SUMMARY, no
+// measurable history, a missing cutoff, an unparsable cutoff, and unmeasurable
+// facts are ALL GATED. The only way out is the explicit
+// `defect_classes_gate_enabled: false`, which is a decision someone makes on
+// purpose rather than an accident of measurement.
+function summarySubjectToDefectClassesGate(facts, cfg) {
+  // `cfg == null` is a MEASUREMENT FAILURE, not an opt-out — gating is the
+  // safe default and only an explicit `false` disables the gate.
+  if (!cfg || cfg.defect_classes_gate_enabled !== true) {
+    return cfg != null && cfg.defect_classes_gate_enabled === false ? false : true;
+  }
   const cutoff = cfg.defect_classes_gate_since;
   if (typeof cutoff !== 'string' || !cutoff.trim()) return true;
-  const cutoffMs = Date.parse(cutoff.trim());
-  if (!Number.isFinite(cutoffMs)) return true;
-  if (typeof firstCommitInstantIso !== 'string' || !firstCommitInstantIso.trim()) return true;
-  const firstMs = Date.parse(firstCommitInstantIso.trim());
-  if (!Number.isFinite(firstMs)) return true;
-  return firstMs >= cutoffMs;
+  if (!Number.isFinite(Date.parse(cutoff.trim()))) return true;
+  if (!facts) return true;
+  return !(facts.existedBeforeCutoff === true && facts.deletedAfterCutoff === false);
 }
 
-// Git creation instant of a SUMMARY FILE: the author date of the earliest
-// commit that ADDED it. `--follow` survives a rename (a phase removed and
-// renumbered, or a SUMMARY moved between directories) so a renamed file keeps
-// its original birth date instead of looking brand new and being gated.
-// Returns null when git is unavailable or the file has no history -- which
-// `summarySubjectToDefectClassesGate` reads as GATED, not exempt.
-function summaryFirstCommitInstant(cwd, summaryAbsPath) {
+// Git facts about ONE SUMMARY path, needed to decide exemption. Walks the
+// path's own history (newest first from git, replayed oldest-first here) and
+// records, for the create/delete events that touched it:
+//   existedBeforeCutoff -- the path was present at the last commit before the
+//               cutoff. False for a rename-in or a copy, because the path
+//               itself did not exist back then.
+//   deletedAfterCutoff  -- the path was removed at or after the cutoff, which
+//               is what makes a reused path look old.
+// Returns null when the path has no history at all, or git is unavailable.
+function summaryExemptionFacts(cwd, summaryAbsPath, cutoffIso) {
   const rel = path.relative(cwd, summaryAbsPath);
   if (!rel || rel.startsWith('..')) return null;
-  const res = execGit(cwd, ['log', '--follow', '--diff-filter=A', '--format=%aI', '--', rel]);
+  // SECONDS throughout: `%ct` is an epoch in seconds, so the cutoff is
+  // converted to seconds too. Comparing a seconds figure against a
+  // milliseconds one makes every timestamp look older than the cutoff, which
+  // silently exempts everything.
+  const cutoffMs = Date.parse(String(cutoffIso || '').trim());
+  if (!Number.isFinite(cutoffMs)) return null;
+  const cutoffSec = Math.floor(cutoffMs / 1000);
+
+  // One commit per record: an `@@`-prefixed epoch, then that commit's
+  // name-status lines for this path. `--name-status` is what distinguishes a
+  // create from a delete from a modify; `%ct` is an integer epoch, so no string
+  // comparison and no timezone can go wrong. The marker is `@@` rather than a
+  // NUL because `execGit` trims its stdout, which would eat a leading NUL.
+  const res = execGit(cwd, ['log', '--name-status', '--format=@@%ct', '--', rel]);
   if (res.exitCode !== 0 || !res.stdout) return null;
-  const stamps = res.stdout
-    .split('\n')
-    .map(s => s.trim())
-    .filter(s => /^\d{4}-\d{2}-\d{2}T/.test(s))
-    .sort((a, b) => Date.parse(a) - Date.parse(b));
-  return stamps.length > 0 ? stamps[0] : null;
+
+  const events = [];
+  let ms = null;
+  for (const raw of res.stdout.split('\n')) {
+    const line = raw.trim();
+    const head = /^@@(\d+)$/.exec(line);
+    if (head) { ms = Number.parseInt(head[1], 10); continue; }
+    const m = /^([ACMRDT])\d*\t(.*)$/.exec(line);
+    if (!m || ms === null) continue;
+    const status = m[1];
+    const paths = m[2].split('\t');
+    // For R/C the FIRST path is the source and the SECOND the destination, so
+    // the same line can be a create for one path and a delete for the other.
+    if (status === 'R' || status === 'C') {
+      if (paths[1] === rel) events.push({ ms, kind: 'create' });
+      if (paths[0] === rel) events.push({ ms, kind: 'delete' });
+    } else if (status === 'A') {
+      events.push({ ms, kind: 'create' });
+    } else if (status === 'D') {
+      events.push({ ms, kind: 'delete' });
+    }
+  }
+  if (events.length === 0) return null;
+
+  // git log emits newest-first; replay oldest-first to get the file's timeline.
+  events.sort((a, b) => a.ms - b.ms);
+  let present = false;
+  let existedBeforeCutoff = false;
+  let deletedAfterCutoff = false;
+  for (const e of events) {
+    if (e.ms < cutoffSec) {
+      if (e.kind === 'create') present = true;
+      else present = false;
+      existedBeforeCutoff = present;
+    } else if (e.kind === 'delete') {
+      deletedAfterCutoff = true;
+    }
+  }
+  return { existedBeforeCutoff, deletedAfterCutoff, events: events.length };
 }
 
 function cmdVerifySummary(cwd, summaryPath, checkFileCount, raw) {
@@ -7164,14 +7271,17 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles) {
   if (planFiles.length === 0) {
     errors.push('No numbered {N}-{NN}-PLAN.md files — a phase with no plans has no evidence to complete');
   }
-  // QGATE-17: the Defect Classes gate, resolved PER SUMMARY against that file's
-  // own first-add commit. A phase directory's birth date is inherited from its
-  // first plan, so a directory-level decision would gate or exempt every later
-  // plan in the phase regardless of when its SUMMARY was actually written.
-  // Exempt summaries are reported as exempt rather than silently skipped, so a
-  // reader of the gate output can see the gate was considered and why it did not
-  // apply. The old output field `since` (which held a phase-dir date) is gone;
-  // each entry carries its own `summary_first_committed`.
+  // QGATE-17: the Defect Classes gate, resolved PER SUMMARY against that path's
+  // own position in history (see `summaryExemptionFacts`). A phase directory's
+  // birth date is inherited from its first plan, so a directory-level decision
+  // would gate or exempt every later plan in the phase regardless of when its
+  // SUMMARY was actually written. Exempt summaries are reported as exempt
+  // rather than silently skipped, so a reader of the gate output can see the
+  // gate was considered and why it did not apply. The old output field `since`
+  // (which held a phase-dir date under a name implying a global cutoff) and
+  // then `summary_first_committed` (the earliest ADD, which the reuse/rename/
+  // copy holes made unsound) are both gone; each entry now carries the two
+  // positional facts the verdict is derived from.
   const cfg = loadConfig(cwd);
   const defectClassesEnabled = cfg.defect_classes_gate_enabled === true;
   const defectSummaries = [];
@@ -7187,11 +7297,12 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles) {
       const found = selfCheck.source === 'self_check' ? selfCheck.status : 'missing';
       errors.push(`${summaryFile} Self-Check is ${found} — must contain "## Self-Check: PASSED"`);
     }
-    const summaryFirstCommitted = summaryFirstCommitInstant(cwd, path.join(phaseDir, summaryFile));
-    const dcRequired = summarySubjectToDefectClassesGate(summaryFirstCommitted, cfg);
+    const summaryFacts = summaryExemptionFacts(cwd, path.join(phaseDir, summaryFile), cfg.defect_classes_gate_since);
+    const dcRequired = summarySubjectToDefectClassesGate(summaryFacts, cfg);
     defectSummaries.push({
       file: summaryFile,
-      summary_first_committed: summaryFirstCommitted,
+      existed_before_cutoff: summaryFacts ? summaryFacts.existedBeforeCutoff : null,
+      deleted_after_cutoff: summaryFacts ? summaryFacts.deletedAfterCutoff : null,
       required: dcRequired,
       exempt: defectClassesEnabled && !dcRequired,
     });
@@ -7203,14 +7314,20 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles) {
           (dc.status === 'missing'
             ? 'must contain a "## Defect Classes" section'
             : dc.status === 'empty'
-              ? 'section must hold 5-column rows or "None found. (reviewed by: <caught_by values>)"'
+              ? 'section must hold 5-column rows under the required header, or "None found. (reviewed by: <caught_by values>)"'
               : dc.status === 'placeholder'
                 ? 'template placeholder row shipped verbatim — replace it with real entries'
-                : dc.status === 'invalid_caught_by'
-                  ? `"None found." names a review that is not a caught_by value: ${(dc.unknown || []).join(', ')} — use one of ${DEFECT_CLASSES_CAUGHT_BY.join(', ')}`
-                  : dc.status === 'empty_cells'
-                    ? `a Defect Classes row has a blank or "-" required cell: | ${(dc.row || []).join(' | ')} | — all five columns (class, instance, caught_by, severity, rule_gap) must carry a value`
-                    : 'a "None found." entry must name the reviews that ran: "None found. (reviewed by: <caught_by values>)"')
+                : dc.status === 'bad_header'
+                  ? `the table header must be exactly "| class | instance | caught_by | severity | rule_gap |" — the distillation reads these columns by name${dc.reason ? ` (${dc.reason})` : ''}, got: | ${(dc.header || []).join(' | ')} |`
+                  : dc.status === 'row_arity'
+                    ? `a Defect Classes row has ${(dc.row || []).length} cells, not 5: | ${(dc.row || []).join(' | ')} |`
+                    : dc.status === 'invalid_caught_by'
+                      ? `"caught_by" is not a valid value: ${(dc.unknown || []).join(', ')} — use one of ${DEFECT_CLASSES_CAUGHT_BY.join(', ')}`
+                      : dc.status === 'invalid_severity'
+                        ? `"severity" is not a valid value: ${(dc.unknown || []).join(', ')} — use one of ${DEFECT_CLASSES_SEVERITY.join(', ')}`
+                        : dc.status === 'empty_cells'
+                          ? `a Defect Classes row has a blank or "-" required cell: | ${(dc.row || []).join(' | ')} | — all five columns (class, instance, caught_by, severity, rule_gap) must carry a value`
+                          : 'a "None found." entry must name the reviews that ran: "None found. (reviewed by: <caught_by values>)"')
         );
       }
     }
@@ -15616,8 +15733,10 @@ module.exports = {
   evaluateSummarySelfCheck,
   evaluateDefectClasses,
   DEFECT_CLASSES_CAUGHT_BY,
+  DEFECT_CLASSES_COLUMNS,
+  DEFECT_CLASSES_SEVERITY,
   summarySubjectToDefectClassesGate,
-  summaryFirstCommitInstant,
+  summaryExemptionFacts,
   collectPhaseEvidenceErrors,
   planTagGrepPattern,
   isApiFile,

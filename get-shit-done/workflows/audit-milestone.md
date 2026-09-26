@@ -469,19 +469,49 @@ question gets answered two different ways in the same milestone):
 
 > **The milestone's quick dirs** = the directories under `.planning/quick/` whose own earliest
 > commit is at-or-after the previous milestone's release tag. Resolve it deterministically, not
-> by listing whatever directories happen to exist:
+> by listing whatever directories happen to exist.
+>
+> **Step 1 — the cutoff.** The tag must be the *previous* milestone's, NOT the latest tag: a
+> project can be several milestones ahead of its newest release tag, and the latest tag then
+> belongs to this milestone or a later one. `v{version}`'s predecessor is defined in
+> `MILESTONES.md` (the milestone section immediately preceding `{version}`); take that section's
+> own `shipped:`/`completed:` date, or the milestone BEFORE it if `{version}` itself is tagged.
+> Then:
 >
 > ```bash
-> # The cutoff: the previous milestone's tag commit. If this is the FIRST
-> # milestone in the repo, use the repo's first commit instead (no tag filter
-> # yields an empty list — say so and fall back, rather than reading everything).
-> PREV_TAG=$(git tag -l 'v*' --sort=-v:refname | grep -vxF "v{version}" | head -1)
-> CUTOFF=$(git log -1 --format=%aI "$PREV_TAG")
+> # Run this as ONE bash script — see the shebang note below.
+> # PREV_VERSION = the milestone preceding {version} in MILESTONES.md.
+> PREV_TAG="v$PREV_VERSION"
+> if git rev-parse -q --verify "refs/tags/$PREV_TAG" >/dev/null; then
+>   CUTOFF_AT=$(git log -1 --format=%at "$PREV_TAG")
+> else
+>   # EXPLICIT FALLBACK: the tag is missing. Say so in the report, and fall back to
+>   # the shipped date recorded in MILESTONES.md for $PREV_VERSION. If THAT is
+>   # missing too, STOP and escalate — do not silently read every quick dir,
+>   # which would sweep in other milestones' work and justify this milestone's
+>   # rules with defects it never had.
+>   echo "MISSING TAG $PREV_TAG — falling back to the MILESTONES.md ship date" >&2
+>   CUTOFF_AT=$(date -j -f '%Y-%m-%d' '{prev_milestone_ship_date}' +%s)   # BSD date
+> fi
+> ```
 >
+> **Step 2 — the quick dirs.** Run under **bash**, not the login shell: `[ "$a" -ge "$b" ]`,
+> `head`, and the shebang below are all bash/zsh-sh portable, but `${CUTOFF_AT:-}` guards and
+> `>&2` behave differently under `sh`. Either save the block as a script with the shebang and
+> run `bash ./script.sh`, or wrap it in `bash -c '...'`.
+>
+> ```bash
+> #!/usr/bin/env bash
+> set -euo pipefail
 > for d in .planning/quick/*/; do
->   first=$(git log --reverse --diff-filter=A --format=%aI -- "$d" | tail -1)
->   # Keep the dir when it has a history and that history starts at/after $CUTOFF.
->   [ -n "$first" ] && [ "$first" \> "$CUTOFF" ] && echo "$d"
+>   # FIRST add, not the last: `git log` emits newest-first, so `head -1` is the
+>   # earliest. A `%at` epoch compared with -ge is an integer compare, so no
+>   # timezone, locale, or string-collation question can go wrong.
+>   first_at=$(git log --diff-filter=A --format=%at -- "$d" 2>/dev/null | head -1 || true)
+>   [ -n "$first_at" ] || continue                       # no commits → EXCLUDED
+>   if [ "$first_at" -ge "${CUTOFF_AT:-0}" ]; then
+>     echo "$d"
+>   fi
 > done
 > ```
 >
@@ -638,28 +668,57 @@ refuse the commit if anything else is touched. Snapshot BEFORE the author dispat
 a tree that was already dirty would otherwise make every unrelated path look like the author's:
 
 ```bash
-# BEFORE the author dispatch:
-git rev-parse HEAD        > .tmp/step7-head-before
-git status --porcelain    > .tmp/step7-status-before
+#!/usr/bin/env bash
+# BEFORE the author dispatch. A content hash per path, not a porcelain line:
+# porcelain encodes a path's state in its STATUS LETTER, so the same path can
+# produce different lines before and after for reasons that have nothing to do
+# with who wrote it (staged -> unstaged, or a rename's -> rename). Comparing
+# the two sets then reports a change that never happened.
+mkdir -p .tmp
+snapshot() {           # $1 = output file
+  : > "$1"
+  for p in CLAUDE.md .claude/rules/*.md .planning/v{version}-RULES-DISTILL.md; do
+    [ -e "$p" ] || continue
+    printf '%s %s\n' "$(git hash-object "$p")" "$p" >> "$1"
+  done
+  git status --porcelain > "$1.status"   # for the changed-PATH set only
+}
+git rev-parse HEAD > .tmp/step7-head-before
+snapshot .tmp/step7-hash-before
 ```
 
 ```bash
 # AFTER the author dispatch:
-git rev-parse HEAD        > .tmp/step7-head-after
-git status --porcelain    > .tmp/step7-status-after
+git rev-parse HEAD > .tmp/step7-head-after
+snapshot .tmp/step7-hash-after
 ```
 
-Then compute the changed-path set as **`status-after` MINUS `status-before`** (a set difference
-over the porcelain lines, path column included) and require **`git rev-parse HEAD` to be
-unchanged** between the two snapshots — the author was told `YOU DO NOT COMMIT`, so a new commit
-is a breach, not a convenience. Comparing against a BEFORE snapshot is what makes both of these
-correct, and both are failures a bare `git diff --name-only` gets wrong:
+**Refuse up front if a permitted path was already dirty.** If the BEFORE snapshot shows
+`CLAUDE.md` or any `.claude/rules/**` path already modified, staged, or untracked, STOP and
+escalate before dispatching the author at all. A step whose permitted paths start dirty cannot
+attribute any later change to the author, so the scope check below has nothing to stand on; and
+the eventual `git add --`/`git commit --` would sweep the pre-existing edits into the milestone
+PR under the rules commit's message. Get a clean tree first.
+
+Then:
+
+- require `git rev-parse HEAD` to be **unchanged** — the author was told `YOU DO NOT COMMIT`, so
+  a new commit is a breach, not a convenience; and
+- compute the changed-path set as the **set difference of the two `git status --porcelain`
+  files** (path column included) — this is what catches drift, because porcelain is the only
+  thing that names a path the author created; and
+- compute the changed-CONTENT set as the **`git hash-object` line set difference** — this is
+  what decides whether a permitted file actually changed, and it cannot be fooled by a status
+  letter changing for an unrelated reason.
+
+Two failure modes the BEFORE snapshot is what closes:
 
 - **Untracked new files.** The author's report is a NEW file, and a rules file it creates is also
   new. `git diff` never shows an untracked file, so `git diff --name-only` alone reported the
   author as clean while it wrote a brand-new `.claude/rules/*.md` that nobody ever looked at.
 - **A pre-dirty tree.** A repo already carrying unrelated uncommitted work makes every one of
-  those paths look like the author's. The set difference attributes them correctly instead.
+  those paths look like the author's. The set difference attributes them correctly instead —
+  which is exactly why a dirty permitted path is refused up front rather than subtracted away.
 
 Make the new files visible to the reviewer as well — an untracked file has no diff, so the
 reviewer would be reviewing nothing at all:
@@ -669,7 +728,7 @@ git add -N -- .claude/rules/ CLAUDE.md .planning/v{version}-RULES-DISTILL.md
 git diff -- .claude/rules/ CLAUDE.md .planning/v{version}-RULES-DISTILL.md
 ```
 
-Every path in the computed changed-path set must be one of: a file under `.claude/rules/`,
+Every path in the computed changed-PATH set must be one of: a file under `.claude/rules/`,
 `CLAUDE.md`, or `.planning/v{version}-RULES-DISTILL.md`. If anything else appears, STOP and
 escalate to the user with the offending paths listed — do not revert the author's work yourself
 and do not commit a partial selection, because a partial commit hides exactly the drift you are
@@ -686,10 +745,20 @@ Either one missing is a blocking finding, routed through the same fix loop as a 
 
 **Commit (YOU do this, only after a clean review).** Never use `gsd-tools.js commit` here — it
 silently no-ops when the repo's `commit_docs` is off, which would drop the rules change from the
-milestone PR without any error. Use git directly, path-scoped. The `git add --` is REQUIRED, not
-cosmetic: `git commit -- <paths>` commits only what is already in the index, so without the
-explicit add the NEW report file and any NEW rules file are silently left uncommitted while the
-command still exits 0 and prints an ordinary success line.
+milestone PR without any error. Use git directly, path-scoped, and **stage first**. The exact
+git behaviour (measured on git 2.39.1, not assumed) is:
+
+- A **tracked** path in the list commits its current working-tree state, whether or not it was
+  staged. So editing an existing `.claude/rules/*.md` needs no `add`.
+- An **untracked FILE** pathspec (`.planning/v{version}-RULES-DISTILL.md` before it is ever
+  added) makes git **exit 1** with `pathspec … did not match any file(s) known to git`, and
+  commits nothing at all — loud, and the whole commit is refused.
+- A **DIRECTORY** pathspec (`.claude/rules/`) that CONTAINS an untracked new file is the silent
+  one: git commits the modified tracked files, **exits 0**, and leaves the new file uncommitted
+  with no warning. This is the case that loses a new rules file from the milestone PR.
+
+So `git add --` is REQUIRED, not cosmetic: without it the directory-pathspec case loses the new
+rules file silently.
 
 ```bash
 git add -- .claude/rules/ CLAUDE.md .planning/v{version}-RULES-DISTILL.md

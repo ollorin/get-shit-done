@@ -15628,8 +15628,9 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
   const {
     evaluateDefectClasses,
     summarySubjectToDefectClassesGate,
-    summaryFirstCommitInstant,
+    summaryExemptionFacts,
     DEFECT_CLASSES_CAUGHT_BY,
+    DEFECT_CLASSES_SEVERITY,
   } = require('./gsd-tools.js');
 
   const TABLE_HEADER = '| class | instance | caught_by | severity | rule_gap |';
@@ -15737,6 +15738,50 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
         summary: summaryWith(`## Defect Classes\n\n${TABLE_HEADER}\n${SEPARATOR}\n${REAL_ROW}\n| another class | apps/x.ts:1 | verifier | major |  |`),
         why: 'a blank trailing cell in an otherwise valid second row',
       },
+      // Item 1: the distillation clusters on `class` and `caught_by` and ranks
+      // by `severity`. A custom-shaped table is not a stricter version of the
+      // schema — it is a DIFFERENT table the clustering cannot read, so it must
+      // be rejected rather than accepted as "rows present".
+      {
+        mode: 'bad_header',
+        summary: summaryWith('## Defect Classes\n\n| # | Defect | Evidence | Why | Fix |\n|---|---|---|---|---|\n| 1 | something | a.ts:1 | because | edit |'),
+        why: 'a header-only custom 5-column table with a full data row',
+      },
+      {
+        mode: 'bad_header',
+        summary: summaryWith('## Defect Classes\n\n| # | Defect | Evidence | Why it survived | Detection that would have caught it | Status |\n|---|---|---|---|---|---|\n| 1 | x | y | z | w | fixed |'),
+        why: 'the 6-column incident table (the real shape igaming 387-06 ships)',
+      },
+      {
+        mode: 'bad_header',
+        summary: summaryWith(`## Defect Classes\n\n| caught_by | class | instance | severity | rule_gap |\n${SEPARATOR}\n${REAL_ROW}`),
+        why: 'the right five columns in the WRONG order — the distillation reads positionally',
+      },
+      {
+        mode: 'bad_header',
+        summary: summaryWith(`## Defect Classes\n\n${TABLE_HEADER}\n${REAL_ROW}`),
+        why: 'a correct header with NO separator row',
+      },
+      {
+        mode: 'invalid_caught_by',
+        summary: summaryWith(`## Defect Classes\n\n${TABLE_HEADER}\n${SEPARATOR}\n| security | a.ts:1 | nobody | critical | none — new rule needed |`),
+        why: 'a ROW whose caught_by names no real review',
+      },
+      {
+        mode: 'invalid_severity',
+        summary: summaryWith(`## Defect Classes\n\n${TABLE_HEADER}\n${SEPARATOR}\n| security | a.ts:1 | verifier | huge | none — new rule needed |`),
+        why: 'a ROW whose severity is outside critical/major/minor',
+      },
+      {
+        mode: 'row_arity',
+        summary: summaryWith(`## Defect Classes\n\n${TABLE_HEADER}\n${SEPARATOR}\n| security | a.ts:1 | verifier | major |`),
+        why: 'a row missing its fifth cell',
+      },
+      {
+        mode: 'row_arity',
+        summary: summaryWith(`## Defect Classes\n\n${TABLE_HEADER}\n${SEPARATOR}\n| security | a.ts:1 | verifier | major | gap | extra |`),
+        why: 'a row with an extra sixth cell',
+      },
     ];
 
     for (const c of CANARIES) {
@@ -15796,6 +15841,29 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
       assert.strictEqual(r.rows, 2);
     });
 
+    test('positive control: EVERY severity value is accepted in a row', () => {
+      for (const sev of DEFECT_CLASSES_SEVERITY) {
+        const row = `| a class | apps/x.ts:1 | verifier | ${sev} | none — new rule needed |`;
+        const r = evaluateDefectClasses(summaryWith(`## Defect Classes\n\n${TABLE_HEADER}\n${SEPARATOR}\n${row}`));
+        assert.strictEqual(r.status, 'ok', `severity '${sev}' must be accepted`);
+      }
+    });
+
+    test('positive control: the exact 5-column header, in order, with a separator and rows, passes', () => {
+      const r = evaluateDefectClasses(summaryWith(`## Defect Classes\n\n${TABLE_HEADER}\n${SEPARATOR}\n${REAL_ROW}`));
+      assert.strictEqual(r.status, 'ok', 'the documented schema must remain accepted');
+      assert.strictEqual(r.rows, 1);
+    });
+
+    test('positive control: a separatorless-looking but well-formed table still passes when the separator is present', () => {
+      // Guards against the header canaries over-tightening: `:---:` alignment
+      // markers are cosmetic and must not be read as a data row.
+      const r = evaluateDefectClasses(summaryWith(
+        `## Defect Classes\n\n| class | instance | caught_by | severity | rule_gap |\n|:---|:---|:---|:---|:---|\n${REAL_ROW}`));
+      assert.strictEqual(r.status, 'ok');
+      assert.strictEqual(r.rows, 1, 'the alignment row must be consumed as a separator, not counted');
+    });
+
     test('the section body stops at the next H2 (later sections cannot pad it)', () => {
       const s = summaryWith('## Defect Classes\n\n## Next Phase Readiness\n- ready');
       const r = evaluateDefectClasses(s);
@@ -15810,8 +15878,18 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
   // gated regardless of the hour, and phases 386/387 of the consuming project
   // failed `phase complete` for a rule that did not exist when they were
   // written. The decision is now per SUMMARY, at full instant precision.
+  // The rule is POSITIONAL, not "when was this file first created". "Earliest
+  // add wins" had three holes, each exempting a summary that was in fact written
+  // after the cutoff: path reuse (delete + re-add at the same path), rename-in
+  // (`git mv notes.md 386-01-SUMMARY.md`, which `--follow` walks back to the
+  // source file's creation), and copy (`--find-copies` treats the copy as the
+  // original). So the test surface is the two POSITIONAL facts the verdict is
+  // derived from, not a date.
   describe('per-SUMMARY exemption rule (retroactive-failure protection)', () => {
     const cfg = { defect_classes_gate_enabled: true, defect_classes_gate_since: '2026-09-26T22:37:28+02:00' };
+    const OLD = { existedBeforeCutoff: true, deletedAfterCutoff: false };   // exempt
+    const NEW = { existedBeforeCutoff: false, deletedAfterCutoff: false };  // gated
+    const REUSED = { existedBeforeCutoff: true, deletedAfterCutoff: true }; // gated
 
     test('the cutoff instant is 2b99f5b author date and the default config carries it verbatim', () => {
       const { loadConfig } = require('./gsd-tools.js');
@@ -15819,142 +15897,204 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
       assert.strictEqual(loaded.defect_classes_gate_since, '2026-09-26T22:37:28+02:00');
     });
 
-    test('SAME DAY, BEFORE the cutoff hour: EXEMPT (the 386/387 regression)', () => {
-      // 386-05-SUMMARY.md was first added at 22:33:28, four minutes early.
-      assert.strictEqual(summarySubjectToDefectClassesGate('2026-09-26T22:33:28+02:00', cfg), false);
-      // 387-04-SUMMARY.md, six and a half hours early.
-      assert.strictEqual(summarySubjectToDefectClassesGate('2026-09-26T15:01:24+02:00', cfg), false);
+    test('a summary that was continuously present before the cutoff is EXEMPT', () => {
+      assert.strictEqual(summarySubjectToDefectClassesGate(OLD, cfg), false);
     });
 
-    test('SAME DAY, AFTER the cutoff: GATED (387-06, written 34 minutes later)', () => {
-      assert.strictEqual(summarySubjectToDefectClassesGate('2026-09-26T23:11:15+02:00', cfg), true);
+    test('a summary whose path did not exist before the cutoff is GATED', () => {
+      assert.strictEqual(summarySubjectToDefectClassesGate(NEW, cfg), true);
     });
 
-    test('the cutoff instant itself is gated (inclusive boundary)', () => {
-      assert.strictEqual(summarySubjectToDefectClassesGate('2026-09-26T22:37:28+02:00', cfg), true);
+    test('a REUSED path — an old summary deleted, a new one written at the same path — is GATED', () => {
+      // The shape that beat "earliest add wins": the earliest add is still the
+      // old file's, so a date-based rule would have exempted this.
+      assert.strictEqual(summarySubjectToDefectClassesGate(REUSED, cfg), true);
     });
 
-    test('the comparison is instant-based, not lexicographic — a UTC-offset summary on the same day is judged by its real time', () => {
-      // 20:37Z is 22:37+02:00 — the cutoff. One second earlier is exempt even
-      // though its DATE component sorts after a same-day exempt summary.
-      assert.strictEqual(summarySubjectToDefectClassesGate('2026-09-26T20:37:27+00:00', cfg), false);
-      assert.strictEqual(summarySubjectToDefectClassesGate('2026-09-26T20:37:29+00:00', cfg), true);
+    test('the deleted flag dominates even when the path existed before the cutoff', () => {
+      assert.strictEqual(summarySubjectToDefectClassesGate({ existedBeforeCutoff: true, deletedAfterCutoff: true }, cfg), true);
     });
 
-    test('a summary committed days after the cutoff is gated', () => {
-      assert.strictEqual(summarySubjectToDefectClassesGate('2026-10-01T10:00:00+02:00', cfg), true);
-    });
-
-    test('an UNCOMMITTED summary is GATED, not exempt (fail closed)', () => {
+    test('unmeasurable facts are GATED, not exempt (fail closed)', () => {
       assert.strictEqual(summarySubjectToDefectClassesGate(null, cfg), true);
-      assert.strictEqual(summarySubjectToDefectClassesGate('', cfg), true);
-      assert.strictEqual(summarySubjectToDefectClassesGate('   ', cfg), true);
-    });
-
-    test('a summary with UNMEASURABLE history is GATED, not exempt (fail closed)', () => {
-      assert.strictEqual(summarySubjectToDefectClassesGate('not-a-date', cfg), true);
-      assert.strictEqual(summarySubjectToDefectClassesGate('2026-13-45T99:00:00+02:00', cfg), true);
+      assert.strictEqual(summarySubjectToDefectClassesGate(undefined, cfg), true);
+      assert.strictEqual(summarySubjectToDefectClassesGate({}, cfg), true);
+      assert.strictEqual(summarySubjectToDefectClassesGate({ existedBeforeCutoff: null }, cfg), true);
+      // A missing flag is not the same claim as `false`.
+      assert.strictEqual(summarySubjectToDefectClassesGate({ existedBeforeCutoff: true }, cfg), true);
     });
 
     test('a missing or malformed cutoff GATES rather than silently disabling (fail closed)', () => {
-      assert.strictEqual(summarySubjectToDefectClassesGate('2026-10-01T10:00:00+02:00', { ...cfg, defect_classes_gate_since: null }), true);
-      assert.strictEqual(summarySubjectToDefectClassesGate('2026-10-01T10:00:00+02:00', { ...cfg, defect_classes_gate_since: 'soon' }), true);
-      assert.strictEqual(summarySubjectToDefectClassesGate('2026-10-01T10:00:00+02:00', { ...cfg, defect_classes_gate_since: '2026-09-26' }), true);
+      assert.strictEqual(summarySubjectToDefectClassesGate(NEW, { ...cfg, defect_classes_gate_since: null }), true);
+      assert.strictEqual(summarySubjectToDefectClassesGate(NEW, { ...cfg, defect_classes_gate_since: 'soon' }), true);
+      assert.strictEqual(summarySubjectToDefectClassesGate(NEW, { ...cfg, defect_classes_gate_since: '2026-09-26' }), true);
     });
 
-    test('the master switch off is the ONLY opt-out — an explicit decision, not an accident', () => {
+    test('cfg == null is a MEASUREMENT FAILURE, not an opt-out — it fails closed', () => {
+      assert.strictEqual(summarySubjectToDefectClassesGate(OLD, null), true,
+        'a missing config must not read as "no gate configured, carry on"');
+      assert.strictEqual(summarySubjectToDefectClassesGate(OLD, undefined), true);
+    });
+
+    test('the master switch off is the ONLY opt-out', () => {
       assert.strictEqual(
-        summarySubjectToDefectClassesGate('2026-10-01T10:00:00+02:00', { ...cfg, defect_classes_gate_enabled: false }),
-        false
-      );
-      assert.strictEqual(
-        summarySubjectToDefectClassesGate(null, { ...cfg, defect_classes_gate_enabled: false }),
+        summarySubjectToDefectClassesGate(NEW, { ...cfg, defect_classes_gate_enabled: false }),
         false,
-        'a disabled gate stays disabled even for an unmeasurable summary'
+        'an explicit false disables the gate for every fact shape'
       );
-    });
-
-    test('a missing config is the disabled case, not a throw', () => {
-      assert.strictEqual(summarySubjectToDefectClassesGate('2026-10-01T10:00:00+02:00', null), false);
-      assert.strictEqual(summarySubjectToDefectClassesGate('2026-10-01T10:00:00+02:00', undefined), false);
+      assert.strictEqual(summarySubjectToDefectClassesGate(null, { ...cfg, defect_classes_gate_enabled: false }), false);
     });
   });
 
-  // summaryFirstCommitInstant is what makes the per-SUMMARY rule real, and
-  // `--follow` is what makes it survive the one rename that would otherwise
-  // re-gate an exempt file.
-  describe('summaryFirstCommitInstant measures the file, following renames', () => {
+  // summaryExemptionFacts is what makes the positional rule real against an
+  // actual git history. The three loopholes are reproduced, not simulated.
+  describe('summaryExemptionFacts measures POSITION, closing the reuse/rename/copy holes', () => {
+    const CUTOFF = '2026-09-26T22:37:28+02:00';
+    const OLD_ISO = '2026-09-20T10:00:00+02:00';
+    const NEW_ISO = '2026-10-05T10:00:00+02:00';
+    const SUMMARY_REL = '.planning/phases/42-x/42-01-SUMMARY.md';
+
     function tempRepo() {
-      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-qgate17-git-'));
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-qgate17-git2-'));
       const g = (...args) => execFileSync('git', args, { cwd: tmp, stdio: 'pipe' }).toString().trim();
       g('init', '-q', '-b', 'main');
       g('config', 'user.email', 't@t.t');
       g('config', 'user.name', 't');
       return { tmp, g };
     }
-    function commitFile(g, tmp, rel, isoDate) {
+    // `spec` is {date, msg}; the file body is derived from the path so a
+    // rewrite of the same path is a real content change, not a no-op commit.
+    function write(g, tmp, rel, spec) {
       const abs = path.join(tmp, rel);
       fs.mkdirSync(path.dirname(abs), { recursive: true });
-      fs.writeFileSync(abs, `# ${rel}\n`);
-      execFileSync('git', ['add', '--', rel], { cwd: tmp, stdio: 'pipe' });
-      const env = { ...process.env, GIT_AUTHOR_DATE: isoDate, GIT_COMMITTER_DATE: isoDate };
-      execFileSync('git', ['commit', '-q', '-m', `add ${rel}`], { cwd: tmp, stdio: 'pipe', env });
+      fs.writeFileSync(abs, `content for ${rel} at ${spec.date}\n`);
+      execFileSync('git', ['add', '-A'], { cwd: tmp, stdio: 'pipe' });
+      const env = { ...process.env, GIT_AUTHOR_DATE: spec.date, GIT_COMMITTER_DATE: spec.date };
+      execFileSync('git', ['commit', '-q', '-m', spec.msg || 'c'], { cwd: tmp, stdio: 'pipe', env });
+    }
+    const iso = (d, m) => ({ date: d, msg: m });
+    const factsOf = (tmp, rel = SUMMARY_REL) => summaryExemptionFacts(tmp, path.join(tmp, rel), CUTOFF);
+    const gated = (tmp, why) => assert.strictEqual(
+      summarySubjectToDefectClassesGate(factsOf(tmp), cfgFor()), true, why
+    );
+    function cfgFor() {
+      return { defect_classes_gate_enabled: true, defect_classes_gate_since: CUTOFF };
     }
 
-    test('a RENAME keeps the original birth date — a renumbered phase is not re-gated', () => {
+    test('a summary committed before the cutoff and untouched since is EXEMPT', () => {
       const { tmp, g } = tempRepo();
       try {
-        commitFile(g, tmp, '.planning/phases/42-old/42-01-SUMMARY.md', '2026-09-20T10:00:00+02:00');
-        execFileSync('git', ['mv', '.planning/phases/42-old', '.planning/phases/43-new'], { cwd: tmp, stdio: 'pipe' });
-        const env = { ...process.env, GIT_AUTHOR_DATE: '2026-10-05T10:00:00+02:00', GIT_COMMITTER_DATE: '2026-10-05T10:00:00+02:00' };
-        execFileSync('git', ['commit', '-q', '-m', 'renumber'], { cwd: tmp, stdio: 'pipe', env });
-        const cfg = { defect_classes_gate_enabled: true, defect_classes_gate_since: '2026-09-26T22:37:28+02:00' };
-        const moved = summaryFirstCommitInstant(tmp, path.join(tmp, '.planning/phases/43-new/42-01-SUMMARY.md'));
-        assert.strictEqual(moved, '2026-09-20T10:00:00+02:00', '--follow must report the file it was renamed FROM');
-        assert.strictEqual(
-          summarySubjectToDefectClassesGate(moved, cfg),
-          false,
-          'a summary committed before the cutoff and merely renumbered afterwards stays exempt'
-        );
+        write(g, tmp, SUMMARY_REL, iso(OLD_ISO, 'add summary'));
+        const f = factsOf(tmp);
+        assert.strictEqual(f.existedBeforeCutoff, true);
+        assert.strictEqual(f.deletedAfterCutoff, false);
+        assert.strictEqual(summarySubjectToDefectClassesGate(f, cfgFor()), false);
       } finally {
         fs.rmSync(tmp, { recursive: true, force: true });
       }
     });
 
-    test('the EARLIEST add commit wins, not the most recent touch', () => {
+    test('a summary committed before the cutoff and MODIFIED after is still EXEMPT (not a delete)', () => {
       const { tmp, g } = tempRepo();
       try {
-        commitFile(g, tmp, 'a.md', '2026-09-10T10:00:00+02:00');
-        commitFile(g, tmp, 'b.md', '2026-11-01T10:00:00+02:00');
-        const cfg = { defect_classes_gate_enabled: true, defect_classes_gate_since: '2026-09-26T22:37:28+02:00' };
-        assert.strictEqual(summarySubjectToDefectClassesGate(summaryFirstCommitInstant(tmp, path.join(tmp, 'a.md')), cfg), false);
-        assert.strictEqual(summarySubjectToDefectClassesGate(summaryFirstCommitInstant(tmp, path.join(tmp, 'b.md')), cfg), true);
+        write(g, tmp, SUMMARY_REL, iso(OLD_ISO, 'add summary'));
+        write(g, tmp, SUMMARY_REL, iso(NEW_ISO, 'edit summary'));
+        const f = factsOf(tmp);
+        assert.strictEqual(f.existedBeforeCutoff, true);
+        assert.strictEqual(f.deletedAfterCutoff, false, 'a modification is not a delete');
+        assert.strictEqual(summarySubjectToDefectClassesGate(f, cfgFor()), false);
       } finally {
         fs.rmSync(tmp, { recursive: true, force: true });
       }
     });
 
-    test('an UNCOMMITTED summary measures null, which the rule reads as GATED', () => {
+    test('PATH REUSE: an old summary deleted, a new one written at the same path, is GATED', () => {
+      const { tmp, g } = tempRepo();
+      try {
+        write(g, tmp, SUMMARY_REL, iso(OLD_ISO, 'add old summary'));
+        execFileSync('git', ['rm', '-q', '--', SUMMARY_REL], { cwd: tmp, stdio: 'pipe' });
+        const env = { ...process.env, GIT_AUTHOR_DATE: NEW_ISO, GIT_COMMITTER_DATE: NEW_ISO };
+        execFileSync('git', ['commit', '-q', '-m', 'delete summary'], { cwd: tmp, stdio: 'pipe', env });
+        write(g, tmp, SUMMARY_REL, iso(NEW_ISO, 'add new summary at the same path'));
+
+        const f = factsOf(tmp);
+        assert.strictEqual(f.existedBeforeCutoff, true, 'the path did exist before the cutoff');
+        assert.strictEqual(f.deletedAfterCutoff, true, 'and it was deleted after — so this is a new file');
+        gated(tmp, 'a reused path must not inherit the old file\'s exemption');
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
+    test('RENAME-IN from a pre-cutoff non-SUMMARY file is GATED', () => {
+      const { tmp, g } = tempRepo();
+      try {
+        const src = '.planning/phases/42-x/notes.md';
+        write(g, tmp, src, iso(OLD_ISO, 'add an old unrelated file'));
+        const env = { ...process.env, GIT_AUTHOR_DATE: NEW_ISO, GIT_COMMITTER_DATE: NEW_ISO };
+        execFileSync('git', ['mv', src, SUMMARY_REL], { cwd: tmp, stdio: 'pipe' });
+        execFileSync('git', ['commit', '-q', '-m', 'rename into the summary slot'], { cwd: tmp, stdio: 'pipe', env });
+
+        const f = factsOf(tmp);
+        assert.strictEqual(f.existedBeforeCutoff, false,
+          'the PATH did not exist before the cutoff, however old its contents are');
+        gated(tmp, 'a renamed-in file must not inherit the source file\'s birth date');
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
+    test('RENAME-OUT after the cutoff is a delete, so the path stops being exempt', () => {
+      const { tmp, g } = tempRepo();
+      try {
+        write(g, tmp, SUMMARY_REL, iso(OLD_ISO, 'add summary'));
+        const env = { ...process.env, GIT_AUTHOR_DATE: NEW_ISO, GIT_COMMITTER_DATE: NEW_ISO };
+        execFileSync('git', ['mv', SUMMARY_REL, '.planning/phases/42-x/renamed-away.md'], { cwd: tmp, stdio: 'pipe' });
+        execFileSync('git', ['commit', '-q', '-m', 'rename away'], { cwd: tmp, stdio: 'pipe', env });
+        const f = factsOf(tmp);
+        assert.strictEqual(f.deletedAfterCutoff, true, 'renaming the path away is a delete of that path');
+        gated(tmp, 'a path that was renamed away after the cutoff is not a live exempt summary');
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
+    test('COPY: a pre-cutoff file copied into the summary slot after the cutoff is GATED', () => {
+      const { tmp, g } = tempRepo();
+      try {
+        write(g, tmp, '.planning/phases/42-x/old-notes.md', iso(OLD_ISO, 'add an old file'));
+        fs.mkdirSync(path.join(tmp, '.planning', 'phases', '42-x'), { recursive: true });
+        fs.copyFileSync(path.join(tmp, '.planning/phases/42-x/old-notes.md'), path.join(tmp, SUMMARY_REL));
+        const env = { ...process.env, GIT_AUTHOR_DATE: NEW_ISO, GIT_COMMITTER_DATE: NEW_ISO };
+        execFileSync('git', ['add', '-A'], { cwd: tmp, stdio: 'pipe' });
+        execFileSync('git', ['commit', '-q', '-m', 'copy into the summary slot'], { cwd: tmp, stdio: 'pipe', env });
+        const f = factsOf(tmp);
+        assert.strictEqual(f.existedBeforeCutoff, false, 'the destination path is new regardless of the source\'s age');
+        gated(tmp, 'a copied-in summary must not inherit the source file\'s birth date');
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
+    test('an UNCOMMITTED summary has no history, so the facts are null and the rule GATES', () => {
       const { tmp } = tempRepo();
       try {
-        const cfg = { defect_classes_gate_enabled: true, defect_classes_gate_since: '2026-09-26T22:37:28+02:00' };
         const untracked = path.join(tmp, 'never-committed.md');
         fs.writeFileSync(untracked, '# x\n');
-        assert.strictEqual(summaryFirstCommitInstant(tmp, untracked), null);
-        assert.strictEqual(summarySubjectToDefectClassesGate(summaryFirstCommitInstant(tmp, untracked), cfg), true);
+        assert.strictEqual(summaryExemptionFacts(tmp, untracked, CUTOFF), null);
+        assert.strictEqual(summarySubjectToDefectClassesGate(summaryExemptionFacts(tmp, untracked, CUTOFF), cfgFor()), true);
       } finally {
         fs.rmSync(tmp, { recursive: true, force: true });
       }
     });
 
-    test('a NON-GIT directory measures null, which the rule reads as GATED (commit_docs off / no history)', () => {
-      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-qgate17-nogit-'));
+    test('a NON-GIT directory has no history, so the facts are null and the rule GATES (commit_docs off / no history)', () => {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-qgate17-nogit2-'));
       try {
         const f = path.join(tmp, 'a.md');
         fs.writeFileSync(f, '# x\n');
-        const cfg = { defect_classes_gate_enabled: true, defect_classes_gate_since: '2026-09-26T22:37:28+02:00' };
-        assert.strictEqual(summaryFirstCommitInstant(tmp, f), null);
-        assert.strictEqual(summarySubjectToDefectClassesGate(summaryFirstCommitInstant(tmp, f), cfg), true);
+        assert.strictEqual(summaryExemptionFacts(tmp, f, CUTOFF), null);
+        assert.strictEqual(summarySubjectToDefectClassesGate(summaryExemptionFacts(tmp, f, CUTOFF), cfgFor()), true);
       } finally {
         fs.rmSync(tmp, { recursive: true, force: true });
       }
@@ -15963,7 +16103,17 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
     test('a path outside the project root measures null rather than leaking another repo history', () => {
       const { tmp } = tempRepo();
       try {
-        assert.strictEqual(summaryFirstCommitInstant(tmp, path.join(os.tmpdir(), 'elsewhere', 'a.md')), null);
+        assert.strictEqual(summaryExemptionFacts(tmp, path.join(os.tmpdir(), 'elsewhere', 'a.md'), CUTOFF), null);
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
+    test('a malformed cutoff makes the facts unmeasurable (null), not a silent exemption', () => {
+      const { tmp, g } = tempRepo();
+      try {
+        write(g, tmp, SUMMARY_REL, iso(OLD_ISO, 'add summary'));
+        assert.strictEqual(summaryExemptionFacts(tmp, path.join(tmp, SUMMARY_REL), 'not-a-date'), null);
       } finally {
         fs.rmSync(tmp, { recursive: true, force: true });
       }
@@ -16007,6 +16157,51 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
         fs.rmSync(tmp2, { recursive: true, force: true });
       }
     });
+
+    // Item 3: an override of ONE key must not blank the other. A config that
+    // turns the gate off and forgets the cutoff would otherwise leave
+    // `defect_classes_gate_since` undefined; the fail-closed path then reads as
+    // "no cutoff" and gates everything, or — worse — if it were defaulted to
+    // epoch 0, exempts nothing for the wrong reason. The default must survive.
+    test('a PARTIAL override leaves the other key at its default', () => {
+      const { loadConfig } = require('./gsd-tools.js');
+      const DEFAULT_SINCE = '2026-09-26T22:37:28+02:00';
+      // [config, expected enabled, expected since]
+      const cases = [
+        [{ quality: { defect_classes_gate_enabled: false } }, false, DEFAULT_SINCE],
+        [{ defect_classes_gate_enabled: false }, false, DEFAULT_SINCE],
+        [{ quality: { defect_classes_gate_since: '2031-06-01T12:00:00+00:00' } }, true, '2031-06-01T12:00:00+00:00'],
+        [{}, true, DEFAULT_SINCE],
+      ];
+      for (const [partial, wantEnabled, wantSince] of cases) {
+        const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-qgate17-partial-'));
+        try {
+          fs.mkdirSync(path.join(tmp, '.planning'), { recursive: true });
+          fs.writeFileSync(path.join(tmp, '.planning', 'config.json'), JSON.stringify(partial));
+          const cfg = loadConfig(tmp);
+          assert.strictEqual(cfg.defect_classes_gate_enabled, wantEnabled,
+            `config ${JSON.stringify(partial)}: enabled`);
+          assert.strictEqual(cfg.defect_classes_gate_since, wantSince,
+            `config ${JSON.stringify(partial)}: since`);
+        } finally {
+          fs.rmSync(tmp, { recursive: true, force: true });
+        }
+      }
+    });
+
+    // `cfg == null` is a MEASUREMENT FAILURE, not an opt-out. Dropping the
+    // config entirely must gate, never exempt.
+    test('a null config GATES (fails closed) rather than silently exempting', () => {
+      assert.strictEqual(summarySubjectToDefectClassesGate({ existedBeforeCutoff: true, deletedAfterCutoff: false }, null), true);
+      assert.strictEqual(summarySubjectToDefectClassesGate({ existedBeforeCutoff: true, deletedAfterCutoff: false }, undefined), true);
+      // A config that predates the key (neither field present) is likewise gated.
+      assert.strictEqual(summarySubjectToDefectClassesGate({ existedBeforeCutoff: true, deletedAfterCutoff: false }, {}), true);
+      // Only an explicit `false` is an opt-out.
+      assert.strictEqual(
+        summarySubjectToDefectClassesGate({ existedBeforeCutoff: true, deletedAfterCutoff: false }, { defect_classes_gate_enabled: false }),
+        false,
+      );
+    });
   });
 
   describe('the gate is wired into the real evidence path', () => {
@@ -16025,7 +16220,8 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
         assert.strictEqual(res.defect_classes.required, true, 'an unmeasurable summary is gated, not exempt');
         assert.strictEqual(res.defect_classes.summaries.length, 1);
         assert.strictEqual(res.defect_classes.summaries[0].file, '99-01-SUMMARY.md');
-        assert.strictEqual(res.defect_classes.summaries[0].summary_first_committed, null);
+        assert.strictEqual(res.defect_classes.summaries[0].existed_before_cutoff, null);
+        assert.strictEqual(res.defect_classes.summaries[0].deleted_after_cutoff, null);
         assert.ok(
           res.errors.some(e => e.includes('99-01-SUMMARY.md Defect Classes is missing')),
           `a gated summary with no section must be reported, got: ${JSON.stringify(res.errors)}`
@@ -16035,7 +16231,7 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
       }
     });
 
-    test('the output field is summary_first_committed, not the misleading phase-dir "since"', () => {
+    test('the output carries positional facts, not a phase-dir "since" nor the hole-prone "summary_first_committed"', () => {
       const { collectPhaseEvidenceErrors } = require('./gsd-tools.js');
       const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-qgate17-evidence2-'));
       try {
@@ -16045,7 +16241,10 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
         fs.writeFileSync(path.join(phaseDir, '99-01-SUMMARY.md'), summaryWith('## Accomplishments\n- x'));
         const dc = collectPhaseEvidenceErrors(tmp, '99', phaseDir, fs.readdirSync(phaseDir)).defect_classes;
         assert.ok(!('since' in dc), 'the old `since` field held a PHASE-DIR date; it must be gone');
-        assert.ok('summary_first_committed' in dc.summaries[0], 'each summary carries its own first-committed instant');
+        assert.ok(!('summary_first_committed' in dc.summaries[0]),
+          'the earliest-ADD field is exactly the figure the reuse/rename/copy holes made unsound; it must be gone');
+        assert.ok('existed_before_cutoff' in dc.summaries[0] && 'deleted_after_cutoff' in dc.summaries[0],
+          'each summary carries the two positional facts its verdict is derived from');
         assert.strictEqual(dc.cutoff, '2026-09-26T22:37:28+02:00', 'the config cutoff is reported verbatim');
       } finally {
         fs.rmSync(tmp, { recursive: true, force: true });
@@ -16083,7 +16282,10 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
         assert.strictEqual(byFile['99-01-SUMMARY.md'].required, false, 'the pre-cutoff summary is exempt');
         assert.strictEqual(byFile['99-01-SUMMARY.md'].exempt, true);
         assert.strictEqual(byFile['99-02-SUMMARY.md'].required, true, 'the post-cutoff summary is gated');
-        assert.strictEqual(byFile['99-02-SUMMARY.md'].summary_first_committed, '2026-09-27T09:00:00+02:00');
+        assert.strictEqual(byFile['99-01-SUMMARY.md'].existed_before_cutoff, true);
+        assert.strictEqual(byFile['99-01-SUMMARY.md'].deleted_after_cutoff, false);
+        assert.strictEqual(byFile['99-02-SUMMARY.md'].existed_before_cutoff, false);
+        assert.strictEqual(byFile['99-02-SUMMARY.md'].deleted_after_cutoff, false);
         assert.strictEqual(res.defect_classes.required, true, 'one gated summary makes the phase gated');
         const dcErrors = res.errors.filter(e => e.includes('Defect Classes'));
         assert.strictEqual(dcErrors.length, 1, `only the gated summary may be reported, got: ${JSON.stringify(dcErrors)}`);
@@ -16193,7 +16395,10 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
       const start = raw.indexOf('<step name="verify_phase_goal">');
       const step = raw.slice(start, raw.indexOf('<step name="update_roadmap">'));
       assert.match(step, /\{phase_dir\}\/\*-SUMMARY\.md/, 'the verifier path must commit the summaries');
-      assert.match(step, /BOTH/, 'the commit must be unconditional across both status paths');
+      assert.match(step, /ALL THREE paths \(`passed`, `human_needed` and\s+`gaps_found`\)/,
+        'the commit must be unconditional across ALL THREE status paths');
+      assert.match(step, /\*\*before acting on the routing\*\*/,
+        'the commit must be stated as happening before the routing is acted on');
       // Ordering is the load-bearing part: the verifier's Step 6d ADDS the rows,
       // so a commit placed before the dispatch captures the coordinator's rows a
       // second time and misses the verifier's entirely.
@@ -16440,6 +16645,139 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
       }
     });
 
+    // Item 2: the quick-dir recipe is EXECUTED here, under bash AND zsh, on a
+    // real repo. The old `--reverse … | tail -1` form was prose that had never
+    // been run; `git log` emits newest-first, so `tail -1` is the OLDEST add
+    // and the OLD form was in fact picking the first add — but by accident, and
+    // with no test that would have noticed. A never-executed shell recipe in a
+    // workflow is exactly the class of defect this milestone is distilling.
+    test('the quick-dir recipe, run verbatim, selects the RIGHT dirs — under bash and zsh', () => {
+      const { tmp, g } = tempRepo();
+      // The recipe body, copied character-for-character from the fenced block
+      // in audit-milestone.md Step 2 (the `for` loop and the shebang above it).
+      const RECIPE = [
+        'for d in .planning/quick/*/; do',
+        '  first_at=$(git log --diff-filter=A --format=%at -- "$d" 2>/dev/null | head -1 || true)',
+        '  [ -n "$first_at" ] || continue',
+        '  if [ "$first_at" -ge "${CUTOFF_AT:-0}" ]; then',
+        '    echo "$d"',
+        '  fi',
+        'done',
+      ].join('\n');
+      // Keep the recipe honest: the workflow's block must still contain it.
+      const raw = readRepoFile('get-shit-done/workflows/audit-milestone.md');
+      for (const line of RECIPE.split('\n')) {
+        assert.ok(raw.includes(line.trim()), `the recipe under test must exist verbatim in the workflow: ${line}`);
+      }
+      assert.ok(!raw.includes('--reverse'), 'the `--reverse | tail -1` form must be gone');
+
+      try {
+        const commitAt = (rel, iso) => {
+          fs.mkdirSync(path.join(tmp, path.dirname(rel)), { recursive: true });
+          fs.writeFileSync(path.join(tmp, rel), `x for ${rel}\n`);
+          g('add', '-A');
+          execFileSync('git', ['commit', '-q', '-m', `add ${rel}`], {
+            cwd: tmp, stdio: 'pipe',
+            env: { ...process.env, GIT_AUTHOR_DATE: iso, GIT_COMMITTER_DATE: iso },
+          });
+        };
+        // BEFORE the tag: must be EXCLUDED.
+        commitAt('.planning/quick/1-old-before/PLAN.md', '2026-08-01T10:00:00+00:00');
+        // The tag sits on its OWN commit, strictly after 1-old-before. (Tagging
+        // the commit that CREATED the pre-tag dir would give that dir a `%at`
+        // equal to CUTOFF_AT, and `-ge` would correctly include it — a fixture
+        // that hides the very thing it is testing.)
+        commitAt('RELEASE.md', '2026-08-15T10:00:00+00:00');
+        g('tag', 'v9.8');
+        const CUTOFF_AT = g('log', '-1', '--format=%at', 'v9.8').trim();
+
+        // AT the tag instant: `-ge` is at-or-after, so this one is INCLUDED.
+        commitAt('.planning/quick/2-at-the-tag/PLAN.md', '2026-08-15T10:00:00+00:00');
+        // AFTER the tag: INCLUDED.
+        commitAt('.planning/quick/3-after/PLAN.md', '2026-09-20T10:00:00+00:00');
+        // NEVER COMMITTED: EXCLUDED (an in-flight quick dir).
+        fs.mkdirSync(path.join(tmp, '.planning', 'quick', '4-uncommitted'), { recursive: true });
+        fs.writeFileSync(path.join(tmp, '.planning', 'quick', '4-uncommitted', 'PLAN.md'), 'in flight\n');
+
+        const expected = ['.planning/quick/2-at-the-tag/', '.planning/quick/3-after/'];
+        for (const shell of ['bash', 'zsh']) {
+          const script = `CUTOFF_AT=${CUTOFF_AT}\n${RECIPE}\n`;
+          const out = execFileSync(shell, ['-c', script], { cwd: tmp, encoding: 'utf8' })
+            .split('\n').map(s => s.trim()).filter(Boolean);
+          assert.deepStrictEqual(out, expected,
+            `under ${shell} the recipe must select exactly ${JSON.stringify(expected)}, got ${JSON.stringify(out)}`);
+        }
+
+        // A LATER cutoff drops the exactly-at-the-tag dir, proving `-ge` is
+        // genuinely being evaluated rather than everything always passing.
+        const futureCut = g('log', '-1', '--format=%at', 'HEAD').trim();
+        const futureOut = execFileSync('bash', ['-c', `CUTOFF_AT=${futureCut}\n${RECIPE}\n`], { cwd: tmp, encoding: 'utf8' })
+          .split('\n').map(s => s.trim()).filter(Boolean);
+        assert.deepStrictEqual(futureOut, ['.planning/quick/3-after/'],
+          'pushing the cutoff forward must drop the at-the-tag dir — the comparison is live');
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
+    // Item 5: pin the THREE-way git behaviour the prose now claims, measured.
+    // The round-3 claim ("a new rules file is silently left uncommitted at exit
+    // 0") was WRONG for a FILE pathspec: git exits 1. Only a DIRECTORY
+    // pathspec is silent. Both directions are asserted so the prose cannot
+    // drift back toward the false claim.
+    test('the measured git pathspec semantics: tracked commits, untracked FILE exits 1, DIRECTORY exits 0 silently', () => {
+      const { tmp, g } = tempRepo();
+      try {
+        fs.mkdirSync(path.join(tmp, '.claude', 'rules'), { recursive: true });
+        fs.mkdirSync(path.join(tmp, '.planning'), { recursive: true });
+        fs.writeFileSync(path.join(tmp, '.claude', 'rules', 'tracked.md'), 'old\n');
+        fs.writeFileSync(path.join(tmp, '.planning', 'tracked-report.md'), 'old\n');
+        g('add', '-A');
+        g('commit', '-q', '-m', 'base');
+
+        // (a) TRACKED path, unstaged edit, NO `git add` → commits the working tree.
+        fs.writeFileSync(path.join(tmp, '.claude', 'rules', 'tracked.md'), 'edited\n');
+        g('commit', '-q', '-m', 'tracked only', '--', '.claude/rules/tracked.md');
+        assert.ok(g('show', 'HEAD:.claude/rules/tracked.md').includes('edited'),
+          'a tracked pathspec commits the working-tree state without an add');
+
+        // (b) UNTRACKED FILE pathspec, NO `git add` → exit 1, nothing committed.
+        fs.writeFileSync(path.join(tmp, '.planning', 'new-report.md'), 'brand new\n');
+        let exit1 = false;
+        try {
+          g('commit', '-q', '-m', 'untracked file', '--', '.planning/new-report.md');
+        } catch (e) {
+          exit1 = true;
+          assert.match(String(e.stderr || e.message), /did not match any file|pathspec/i,
+            'the failure must be the pathspec error, not something incidental');
+        }
+        assert.ok(exit1, 'an untracked FILE pathspec must make git exit 1');
+        assert.strictEqual(g('status', '--porcelain', '.planning/new-report.md').trim(), '?? .planning/new-report.md',
+          'nothing is committed when the untracked-file pathspec hard-errors');
+
+        // (c) DIRECTORY pathspec CONTAINING an untracked file → exit 0, the new
+        // file is SILENTLY dropped. This is the case that loses a new rules file.
+        // A tracked file in the SAME directory must also be modified, or git
+        // exits 1 for "nothing added to commit" and the test would pass for the
+        // wrong reason.
+        fs.writeFileSync(path.join(tmp, '.planning', 'tracked-report.md'), 'edited\n');
+        let exit0 = false;
+        try {
+          g('commit', '-q', '-m', 'dir with new file', '--', '.planning/');
+          exit0 = true;
+        } catch (e) {
+          assert.fail(`a directory pathspec must exit 0, got: ${e.message}`);
+        }
+        assert.ok(exit0, 'a DIRECTORY pathspec containing an untracked file exits 0');
+        assert.ok(g('show', 'HEAD:.planning/tracked-report.md').includes('edited'),
+          'the tracked sibling in the directory DID commit — the commit really happened');
+        assert.ok(g('status', '--porcelain').includes('?? .planning/new-report.md'),
+          'the new file is silently left uncommitted at exit 0 — hence the mandatory `git add --`');
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
     test('git add -N makes an untracked file visible to the reviewing diff', () => {
       const { tmp, g } = tempRepo();
       try {
@@ -16460,8 +16798,18 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
     test('audit-milestone.md states all four scope-check obligations', () => {
       const raw = readRepoFile('get-shit-done/workflows/audit-milestone.md');
       assert.match(raw, /git rev-parse HEAD/, 'HEAD must be snapshotted before the dispatch');
-      assert.match(raw, /status-after` MINUS `status-before/, 'the changed set must be the porcelain set-difference');
-      assert.match(raw, /HEAD` to be\s+unchanged/, 'a commit by the author is a breach');
+      assert.match(raw, /\*\*set difference of the two `git status --porcelain`\s+files\*\*/,
+        'the changed-PATH set must be the porcelain set-difference');
+      assert.match(raw, /`git hash-object` line set difference/,
+        'the changed-CONTENT set must be a hash comparison, not porcelain lines');
+      assert.match(raw, /snapshot\(\) \{/, 'the snapshot must be an executable function, not prose');
+      assert.match(raw, /git rev-parse HEAD > \.tmp\/step7-head-before/,
+        'HEAD must be snapshotted BEFORE the author dispatch');
+      assert.match(raw, /git rev-parse HEAD > \.tmp\/step7-head-after/,
+        'HEAD must be re-read AFTER the author dispatch');
+      assert.match(raw, /HEAD` to be\s+\*\*unchanged\*\*/, 'a commit by the author is a breach');
+      assert.match(raw, /Refuse up front if a permitted path was already dirty/,
+        'a pre-dirty permitted path must escalate BEFORE the dispatch, not be subtracted away');
       assert.match(raw, /git add -N/, 'new files must be made visible to the reviewer');
       assert.match(raw, /paths:` key/, 'the orchestrator verifies paths: frontmatter on a new rules file');
       assert.match(raw, /Domain Rules table has a row/, 'the orchestrator verifies the CLAUDE.md Domain Rules row');
@@ -16485,7 +16833,22 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
         'the collection step must define the term once');
       assert.match(raw, /previous milestone's release tag/,
         'the definition must be concrete (previous tag), not a bare glob');
-      assert.match(raw, /PREV_TAG=\$\(git tag -l/, 'the definition must be resolvable by a command');
+      // The tag is named by the PREDECESSOR VERSION (PREV_VERSION), never picked
+      // by `git tag -l | tail -1` — a project can be several milestones ahead of
+      // its newest tag, and the newest tag then leaks a FUTURE milestone's quick
+      // dirs into this one.
+      assert.match(raw, /PREV_TAG="v\$PREV_VERSION"/,
+        'the tag must be derived from the predecessor version, not from the latest tag');
+      assert.ok(!/git tag -l [^|]*\| *(tail|head) -1/.test(raw),
+        'the tag must never be selected by taking the latest (or earliest) of `git tag -l`');
+      // The missing-tag path must be explicit, not silent.
+      assert.match(raw, /MISSING TAG \$PREV_TAG/,
+        'the missing-tag fallback must announce itself, not silently widen the sweep');
+      // The sweep must be run under bash, and compare epoch integers.
+      assert.match(raw, /#!\/usr\/bin\/env bash/, 'the recipe must state it runs under bash');
+      assert.match(raw, /-ge "\$\{CUTOFF_AT:-0\}"/, 'the comparison must be an integer epoch compare');
+      assert.match(raw, /--diff-filter=A --format=%at -- "\$d"[^]*\| head -1/,
+        'the cutoff must be the FIRST add (git log is newest-first), not the last');
       // The author prompt and the collection step must use the SAME set.
       const start = raw.indexOf('<rules_distill_prompt>');
       const prompt = raw.slice(start, raw.indexOf('</rules_distill_prompt>'));
@@ -16500,8 +16863,12 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
       const section = raw.slice(start, raw.indexOf('## 12.', start));
       assert.match(section, /git add -- "\$F" && git commit -m [^\n]*-- "\$F"/,
         'the PLAN-CHECK file must be added AND committed, path-scoped, in one recipe');
-      assert.match(section, /commits\s+only what is already staged/,
-        'the reason the add is required must be stated where the recipe is');
+      // Item 5: the git semantics must be stated as MEASURED, and the reason the
+      // add is required is specifically the untracked-first-append case.
+      assert.match(section, /`git commit -- <file>`\s+\*\*exit 1\*\*/,
+        'the untracked-file exit-1 behaviour must be stated where the recipe is');
+      assert.match(section, /created fresh by the `printf`/,
+        'the reason the add is required (first-append is untracked) must be stated');
     });
   });
 });

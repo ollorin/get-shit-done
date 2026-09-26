@@ -580,9 +580,11 @@ EOF
 git add -- "$F" && git commit -m "docs(phase-{X}): record plan-check defect classes" -- "$F"
 ```
 
-Use `git add -- <file>` before `git commit -- <file>`, always. `git commit -- <path>` commits
-only what is already staged, so a brand-new `{N}-PLAN-CHECK.md` with no explicit `add` is
-silently left uncommitted while git prints an ordinary success line.
+Use `git add -- <file>` before `git commit -- <file>`, always. Exact git behaviour (measured on
+git 2.39.1): a **tracked** path commits its working-tree state without needing an `add`, but an
+**untracked** one makes `git commit -- <file>` **exit 1** with `pathspec … did not match any
+file(s) known to git` and commit nothing. `{N}-PLAN-CHECK.md` is created fresh by the `printf`
+above, so without the explicit `add` the first append of the loop fails the whole step.
 
 The verifier's Step 6d and `audit-milestone.md`'s Step 7 both
 scan this file. A checker that returned `None found. (reviewed by: …)` writes that line — the

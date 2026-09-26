@@ -786,12 +786,15 @@ grep "^status:" "$PHASE_DIR"/*-VERIFICATION.md | cut -d: -f2 | tr -d ' '
 
 **Commit the verifier's Defect Classes rows — AFTER the dispatch and AFTER the status routing
 above, never before the `Agent(...)` call.** Order matters here: the verifier's Step 6d is what
-ADDS entries to `{phase_dir}/*-SUMMARY.md`, and the `passed` / `gaps_found` routing above is what
-decides whether you are still the one driving. A commit placed before the dispatch captures the
-coordinator's rows a second time and misses the verifier's entirely — it looks like the step ran,
-exits 0, and leaves the phase with an unrecorded finding that the milestone distillation then
-reads as "clean". The commit is unconditional — it runs on BOTH the `passed` and the
-`gaps_found` path, before presenting either outcome:
+ADDS entries to `{phase_dir}/*-SUMMARY.md`, and the status routing above is what decides whether
+you are still the one driving. A commit placed before the dispatch captures the coordinator's rows
+a second time and misses the verifier's entirely — it looks like the step ran, exits 0, and
+leaves the phase with an unrecorded finding that the milestone distillation then reads as
+"clean". The commit is unconditional — it runs on ALL THREE paths (`passed`, `human_needed` and
+`gaps_found`) and **before acting on the routing** (before the `update_roadmap` handoff, before
+presenting items for human testing, and before offering `/gsd:plan-phase --gaps`). Every one of
+those paths ends the step or hands control elsewhere, and a session that is interrupted
+mid-routing must not be the reason the verifier's findings stay uncommitted:
 
 ```bash
 node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs(phase-${PHASE_NUMBER}): record verifier defect classes in plan summaries" --files {phase_dir}/*-SUMMARY.md
