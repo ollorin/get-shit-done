@@ -297,6 +297,41 @@ This step's hard-fail is NEVER a warning — matches the existing convention for
 
 Note: Step 8d (Implementation File Test Coverage, below) is a coarser, complementary, file-existence-only check and stays unchanged — Step 6c adds requirement-level classification and content-quality (hollow/stale) detection on top of it, it does not replace it.
 
+## Step 6d: Defect Classes Coverage (QGATE-17)
+
+Every plan's SUMMARY.md must carry a `## Defect Classes` section, and every finding recorded in
+this phase's review/ruling artifacts must appear in one of them. A missing entry is a **gap in
+the record**, and the record is what the milestone-end rules distillation reads — an unrecorded
+defect is a defect that gets made again next milestone.
+
+**This is a gate you FIX, not one you report.** Unlike the other steps, a miss here does not
+necessarily fail the phase: add the missing entry yourself, using the same 5-column shape the
+template defines:
+
+```markdown
+| class | instance | caught_by | severity | rule_gap |
+|---|---|---|---|---|
+| [general class name] | [path/file.ext:line] | [verifier] | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
+```
+
+Two checks:
+
+1. **Section present** — every `*-SUMMARY.md` in the phase directory has a `## Defect Classes`
+   heading containing either rows or the literal `None found.` A missing heading is a fail of
+   this check; an empty heading (neither rows nor `None found.`) is also a fail. Write
+   `None found.` only when the review/ruling artifacts for that plan genuinely contain nothing —
+   if they do contain findings, add them as rows instead.
+2. **Findings represented** — cross-check this phase's `*-REVIEW.md`, `*-VERDICT.md`, other
+   ruling artifacts, and your own gaps against the collected rows. Any finding with no
+   corresponding row is a fail: append it.
+
+Where you add rows, they enter the record whether or not the phase passes. Do not withhold them
+pending a status you think the coordinator will like.
+
+**`class` must be general.** "idempotency key not scoped to the player" — not "bug in
+verify endpoint". A class that names one incident cannot be clustered with its future recurrences
+and is therefore worthless as distillation input.
+
 ## Step 6b: PRD Intent Alignment Check (Optional — fires only if PRD-TRACE.md present)
 
 ```bash

@@ -470,6 +470,32 @@ Agent(
 )
 ```
 
+**Append to `checker_prompt` before spawning** (the checker spawn block itself is
+byte-identical to its pre-trio form and must stay that way — add this as a trailing section,
+never by editing the block above):
+
+```
+<expected_output>
+- ## VERIFICATION PASSED — all checks pass
+- ## ISSUES FOUND — structured issue list
+- ## Defect Classes — in BOTH returns
+</expected_output>
+
+## Defect Classes
+
+One row per defect-class insight your check surfaced — including "the plan asks for X but the
+existing code does the opposite" findings, not only outright issues. The phase coordinator pastes
+these verbatim into the related plan's SUMMARY.md, and the milestone-end rules distillation reads
+nothing else.
+
+| class | instance | caught_by | severity | rule_gap |
+|---|---|---|---|---|
+| [general class name] | [path/file.ext:line] | plan-check | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
+
+`class` is a general reusable name, not an incident story. Return exactly `None found.` if your
+check surfaced nothing — never omit the block.
+```
+
 **If `TRIAGE_MODE` is `trio`** (one or more plans flagged high-risk by Step 9.5):
 
 Display banner:
@@ -522,7 +548,7 @@ The judge WRITES `{PHASE_DIR}/{plan_id}-VERDICT.md` itself and returns `## JUDGM
 ```
 Discard any partial trio results already produced this pass, set `TRIAGE_MODE=checker`, and immediately re-run this step's `checker` branch above for the WHOLE phase (byte-identical single-checker spawn) — never block planning on a broken new feature.
 
-After all trio passes complete successfully with no fallback triggered (or after the checker branch returns): proceed to step 11.
+After all trio passes complete successfully with no fallback triggered (or after the checker branch returns): collect the `## Defect Classes` rows from every pass (each agent's return carries one, and each `{plan_id}-VERDICT.md` records its own) and append them to the matching plan's `## Defect Classes` in its SUMMARY.md once the plans execute — the phase coordinator owns that write, and Step 13's dispatch hands it the rows. Proceed to step 11.
 
 ## 11. Handle Checker Return
 

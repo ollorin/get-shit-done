@@ -441,6 +441,7 @@ Plan execution complete when:
 - [ ] Authentication gates handled and documented
 - [ ] Post-plan test suite gate passed (test suite ran, no failures, coverage threshold met if configured)
 - [ ] SUMMARY.md created with substantive content
+- [ ] SUMMARY.md `## Defect Classes` section present — rows, or an explicit `None found.`
 - [ ] STATE.md updated (position, decisions, issues, session)
 - [ ] Requirements marked complete in REQUIREMENTS.md (if plan has requirements)
 - [ ] ROADMAP.md progress updated
@@ -495,3 +496,33 @@ requirements / final commit procedures are documented in full, verbatim, on
 demand:
 
 @get-shit-done/references/executor-detail.md
+
+<defect_classes>
+
+## Defect Classes in SUMMARY.md — detail
+
+Every SUMMARY.md you write carries a `## Defect Classes` section. It is the milestone's
+only durable record of what review caught, so it must exist even when the plan was clean —
+`None found.` written explicitly, never a silently missing section.
+
+One row per defect surfaced by anything that reviewed this plan's work — the plan-checker,
+the test-writer, a mutation proof, an Opus diff review, the verifier, Charlotte:
+
+| class | instance | caught_by | severity | rule_gap |
+|---|---|---|---|---|
+| security read fails open on DB error | apps/api/functions/_shared/authz.ts:41 | opus-diff-review | critical | security.md — fail-closed reads |
+
+- `class` — a **general, reusable** name ("idempotency key not scoped to the actor"), never a
+  one-off story. The milestone-end distillation clusters on this column, so a vague class
+  ("bug in auth") is worse than no row at all.
+- `instance` — `file:line`, one line, so a reader can go look.
+- `caught_by` — one of `plan-check`, `test-writer`, `mutation-proof`, `opus-diff-review`,
+  `verifier`, `charlotte`, `other`.
+- `severity` — `critical` / `major` / `minor`.
+- `rule_gap` — which existing project rule should have prevented it, or
+  `none — new rule needed`.
+
+Defects the plan-checker or a QA pass finds *after* you wrote SUMMARY.md are appended by the
+phase coordinator, not by you.
+
+</defect_classes>

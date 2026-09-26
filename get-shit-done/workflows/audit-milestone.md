@@ -1,5 +1,5 @@
 <purpose>
-Verify milestone achieved its definition of done by aggregating phase verifications, checking cross-phase integration, and assessing requirements coverage. Reads existing VERIFICATION.md files (phases already verified during execute-phase), aggregates tech debt and deferred gaps, then spawns integration checker for cross-phase wiring.
+Verify milestone achieved its definition of done by aggregating phase verifications, checking cross-phase integration, and assessing requirements coverage. Reads existing VERIFICATION.md files (phases already verified during execute-phase), aggregates tech debt and deferred gaps, then spawns integration checker for cross-phase wiring. Finally distils the milestone's recorded `## Defect Classes` into general preventive rules in the consuming repo's `.claude/rules/*.md` (Step 7) so the defects review caught are not made again.
 </purpose>
 
 <required_reading>
@@ -427,7 +427,110 @@ Plus full markdown report with tables for requirements, phases, integration, tec
 - `gaps_found` — critical blockers exist
 - `tech_debt` — no blockers but accumulated deferred items need review
 
-## 7. Present Results
+## 7. Distil Defect Classes into Project Rules
+
+The milestone's phases recorded what review actually caught. Without this step those findings
+live only in SUMMARY.md files, get read once, and the same class of defect gets made again next
+milestone. This step converts them into general preventive rules in the consuming repo's own
+`.claude/rules/*.md` — and it is the LAST thing before the PR, so the rules ship with the
+milestone.
+
+Skip this step when the milestone's phases have no `## Defect Classes` sections and no review
+artifacts at all (nothing to distil) — say so in the report rather than inventing entries.
+
+**Collect.** Every `## Defect Classes` row across the milestone's phases:
+
+```bash
+grep -rn "^## Defect Classes" .planning/phases/ --include="*-SUMMARY.md"
+```
+
+For phases that predate the section, fall back to their `deferred-items.md`, any
+`*-REVIEW.md` / `*-VERDICT.md` / other ruling artifacts, and `{N}-VERIFICATION.md` gaps — read
+those and reconstruct the same 5 columns. Mark such rows `reconstructed` in the report; a
+reconstructed row is weaker evidence and must not by itself justify deleting an existing rule.
+
+**Dispatch (fresh Opus, model `"opus"`).** The author of a rule set does not review it. Spawn:
+
+```
+Agent(
+  subagent_type="general-purpose",
+  model="opus",
+  description="Distil milestone {version} defect classes",
+  prompt=<see block below>
+)
+```
+
+```
+<rules_distill_prompt>
+You are updating the CONSUMING REPO's Claude rules from the defect classes recorded during
+milestone {version}. The project is: {project_root}
+
+READ:
+- Every `## Defect Classes` row across this milestone's phases' *-SUMMARY.md
+- The milestone's review/ruling artifacts (*-REVIEW.md, *-VERDICT.md) and {N}-VERIFICATION.md
+  for phases that predate the section
+- The existing `.claude/rules/*.md` and CLAUDE.md, in full
+
+TASK: cluster the rows into general defect classes, then for EACH class decide exactly one of:
+1. **already-covered** — an existing rule already forbids it. Change nothing; record the
+   enforcement gap (what let it through) in the report.
+2. **tighten** — a rule exists but is too vague to be violated. Rewrite it as a checkable
+   directive, quoting the defect class(es) that justify the change.
+3. **new** — no rule covers it. Add a general rule to the most specific existing
+   `.claude/rules/*.md` file (create the file only if nothing fits an existing one).
+
+WHERE: `.claude/rules/*.md`. Touch CLAUDE.md only if the class is genuinely cross-cutting —
+it applies to every layer, not just the paths one rules file covers.
+
+RULE-WRITING CONSTRAINTS (all binding):
+- Write GENERAL principles as checkable directives. "Every security-gating read treats a
+  returned `error` as deny" — not "be careful with error handling".
+- NO incident narratives. A defect is a class, not a story. At most a one-line pointer to the
+  milestone record (e.g. "seen in v0.1.33") — never the file, the incident, or the timeline.
+- Merge duplicates. Delete any rule that is obsolete or contradicted by the code as it stands.
+- Respect the project's own token/length discipline (see its CLAUDE.md): keep every file under
+  a stated budget you set in the report, and PREFER TRIMMING existing text to adding.
+- Every change you make MUST cite the defect class(es) justifying it, in the report.
+- Do not invent classes that no row supports. "None found" everywhere is a valid, complete
+  outcome — say so.
+
+WRITE: `.planning/v{version}-RULES-DISTILL.md` with a table —
+class | decision (already-covered / tighten / new) | file changed | justification (the rows
+that justify it) | enforcement-gap note for already-covered.
+
+COMMIT: only the rules files you changed plus the report. Use
+`node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs({version}): distil defect
+classes into project rules" --files <the rules files> .planning/v{version}-RULES-DISTILL.md`.
+Never commit the consuming repo's source code, tests, settings.json, or any hook config.
+
+RETURN: the changed files, the per-class decisions, the before/after line count of each rules
+file, and the report path.
+</rules_distill_prompt>
+```
+
+**Second, separate Opus check (mandatory).** The author does not review its own work. Spawn a
+*different* fresh Opus dispatch with `model="opus"` to review the rules diff:
+
+```
+Agent(
+  subagent_type="general-purpose",
+  model="opus",
+  description="Review milestone {version} rules distillation",
+  prompt="Review the uncommitted `.claude/rules/*.md` diff and .planning/v{version}-RULES-DISTILL.md in {project_root} for three things ONLY: (a) GENERALITY — is each rule a checkable general principle, or is it an incident story in rule clothing? (b) CONTRADICTION — does any new rule contradict an existing rule, or contradict the code as it stands? (c) BLOAT — did the diff grow any file past its stated budget when trimming was available? Report defects with file:line. Do NOT edit anything; return findings only. If the diff is clean, say so plainly — do not manufacture findings."
+)
+```
+
+Route the result:
+
+| Review finding | Action |
+|---|---|
+| None | Commit the rules files + report. |
+| Generality / contradiction / bloat defect | Send it back to the author dispatch to fix, then re-run the review on the corrected diff. Do not review-and-patch in the same dispatch — that is the self-review the split exists to prevent. |
+
+Commit the report either way, so the milestone record shows whether the rules were reviewed
+clean or revised.
+
+## 8. Present Results
 
 Route by status (see `<offer_next>`).
 
@@ -562,5 +665,9 @@ All requirements met. No critical blockers. Accumulated tech debt needs review.
 - [ ] Missing VALIDATION.md phases flagged (test-content coverage now enforced automatically by gsd-verifier's Step 6c gate — no manual command needed)
 - [ ] PRD-TRACE.md cross-reference run for each phase with PRD Express Path (Step 5f) — optional, skipped if absent; NOT a blocker when absent
 - [ ] MILESTONE-AUDIT.md includes PRD Traceability section and prd_traceability score (if any phases used PRD Express Path)
+- [ ] Every milestone phase's `## Defect Classes` collected (pre-section phases reconstructed from their review/VERIFICATION artifacts)
+- [ ] Fresh Opus distillation dispatched; per class an already-covered / tighten / new decision recorded
+- [ ] `v{version}-RULES-DISTILL.md` written and committed alongside the rules files it justifies
+- [ ] A SECOND, separate Opus review of the rules diff run; findings (if any) routed back to the author dispatch, not self-patched
 - [ ] Results presented with actionable next steps
 </success_criteria>

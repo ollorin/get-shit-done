@@ -160,6 +160,36 @@ After each step (discuss, research, plan, execute, verify):
 **Invariant enforced by tooling:** `gsd-tools.js phase complete` refuses to mark a phase done unless `{N}-VERIFICATION.md` has `status: "passed"`, every PLAN.md has a SUMMARY.md containing `## Self-Check: PASSED`, every plan has at least one `{N}-{NN}`-tagged commit, and CHECKPOINT.json has `last_step: "verify"`. `verify phase-gate` applies the same evidence checks (non-waivable `missing_evidence`). This contract is not advisory — it is a hard gate.
 </checkpoint_protocol>
 
+<defect_class_recording>
+
+## You are the backstop for `## Defect Classes`
+
+The executor records what IT caught while building a plan. Findings that belong to the phase
+rather than to one plan — plan-check issues, Charlotte findings, verifier gaps, Opus rulings on
+plan attacks, re-review findings — have no other home, and the milestone-end distillation
+(`/gsd:audit-milestone` → Defect Classes Distillation) reads nothing else. If you drop them they
+are gone.
+
+**After any finding-producing step** (plan-check, risk-triage judge ruling, test-writer,
+mutation proof, Opus diff review, verifier, Charlotte QA), append the findings to the
+`## Defect Classes` section of the SUMMARY.md of the plan they relate to, in the template's
+5-column shape. The dispatch templates for those steps return findings already in that shape —
+paste them, don't re-derive them.
+
+- A finding that concerns the phase but not one plan goes into the SUMMARY of the plan it most
+  affects. If none fits, put it in the last plan's SUMMARY.
+- Never edit a plan's existing rows — append.
+- Never leave a plan's `## Defect Classes` heading without either rows or an explicit
+  `None found.`
+- Commit the SUMMARY edit with the same `docs({phase}-{plan}):` pattern used for the plan's own
+  SUMMARY commit.
+
+**Ruling on your own dispatch is not allowed.** A judgement call that would dispose of a
+`critical` finding, loosen an assertion, or accept a plan deviation goes to a fresh Opus
+dispatch — you record its ruling verbatim as a `caught_by: opus-diff-review` row.
+
+</defect_class_recording>
+
 <return_state>
 **HARD RULE: Status "completed" requires VERIFICATION.md with status "passed".**
 

@@ -232,6 +232,7 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
        - [ ] All tasks executed
        - [ ] Each task committed individually
        - [ ] SUMMARY.md created in plan directory
+       - [ ] `## Defect Classes` present in each SUMMARY.md (rows, or an explicit `None found.`)
        - [ ] STATE.md updated with position and decisions
        - [ ] ROADMAP.md updated with plan progress (via `roadmap update-plan-progress`)
        </success_criteria>
@@ -277,6 +278,7 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
        - [ ] All tasks executed
        - [ ] Each task committed individually
        - [ ] SUMMARY.md created in plan directory
+       - [ ] `## Defect Classes` present in each SUMMARY.md (rows, or an explicit `None found.`)
        - [ ] STATE.md updated with position and decisions
        - [ ] ROADMAP.md updated with plan progress (via `roadmap update-plan-progress`)
        </success_criteria>
@@ -446,7 +448,7 @@ When executor returns `Type: ui-qa` — regardless of AUTO_CHAIN or AUTO_CFG:
        subagent_type="gsd-charlotte-qa",
        model="haiku",
        description="UI QA round {round}",
-       prompt="mode=ui-qa\n<what_built>{what_built}</what_built>\n<test_flows>{test_flows}</test_flows>\n<round>{round}</round>{IF round > 1: <previous_issues>{previous_report}</previous_issues>}"
+       prompt="mode=ui-qa\n<what_built>{what_built}</what_built>\n<test_flows>{test_flows}</test_flows>\n<round>{round}</round>{IF round > 1: <previous_issues>{previous_report}</previous_issues>}\nAlso return a `## Defect Classes` block — one `| class | instance | caught_by | severity | rule_gap |` row per issue, `caught_by` fixed to `charlotte`, `class` a general reusable name. Write exactly `None found.` if the pass surfaced none. The coordinator pastes these into the plan's SUMMARY.md."
      )
 
      if qa_result.passed:
@@ -732,6 +734,7 @@ Phase goal: {goal from ROADMAP.md}
 Phase requirement IDs: {phase_req_ids}
 Check must_haves against actual codebase.
 Cross-reference requirement IDs from PLAN frontmatter against REQUIREMENTS.md — every ID MUST be accounted for.
+Also run Step 6d: every plan's SUMMARY.md must have a populated `## Defect Classes` section, and any finding from this phase's review/ruling artifacts with no row is yours to add.
 Create VERIFICATION.md.",
   subagent_type="gsd-verifier",
   model="opus",
@@ -803,6 +806,32 @@ Extract from result: `next_phase`, `next_phase_name`, `is_last_phase`.
 
 ```bash
 node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs(phase-{X}): complete phase execution" --files .planning/ROADMAP.md .planning/STATE.md .planning/REQUIREMENTS.md {phase_dir}/*-VERIFICATION.md
+```
+</step>
+
+<step name="record_defect_classes">
+Findings that belong to the phase rather than to one plan have no other home, and
+`/gsd:audit-milestone`'s Defect Classes Distillation reads nothing else. If you drop them here,
+they are lost.
+
+Append every finding surfaced during this phase — plan-checker issues, the adversarial judge's
+ruling rows, Charlotte QA issues, verifier gaps, Opus review findings, re-review findings — to the
+`## Defect Classes` section of the SUMMARY.md of the plan they relate to (a phase-wide finding
+goes to the last plan's SUMMARY). Each is one row:
+
+| class | instance | caught_by | severity | rule_gap |
+|---|---|---|---|---|
+| [general class name] | [path/file.ext:line] | [plan-check\|opus-diff-review\|verifier\|charlotte\|other] | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
+
+`class` is a general reusable name, not an incident story — the milestone-end distillation
+clusters on that column. Never overwrite existing rows, only append. If a plan's section has
+neither rows nor an explicit `None found.`, write `None found.` — but only when this phase's
+review/ruling artifacts genuinely contain nothing for it.
+
+Then commit the edits:
+
+```bash
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs(phase-{X}): record defect classes in plan summaries" --files {phase_dir}/*-SUMMARY.md
 ```
 </step>
 

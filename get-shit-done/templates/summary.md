@@ -116,6 +116,16 @@ _Note: TDD tasks may have multiple commits (test → feat → refactor)_
 
 [Note: "Deviations from Plan" documents unplanned work that was handled automatically via deviation rules. "Issues Encountered" documents problems during planned work that required problem-solving.]
 
+## Defect Classes
+
+Required — one row per defect this plan's review, test, mutation-proof, verification, or QA pass surfaced. The rows feed the milestone-end rules distillation (`/gsd:audit-milestone` → Defect Classes Distillation), so `class` must be a general, reusable name — not a one-off story.
+
+| class | instance | caught_by | severity | rule_gap |
+|---|---|---|---|---|
+| [general class name, e.g. "security read fails open on DB error"] | [path/file.ext:line] | [plan-check\|test-writer\|mutation-proof\|opus-diff-review\|verifier\|charlotte\|other] | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
+
+Nothing found? Delete the table and leave exactly `None found.` — never omit the section; silence is not a record.
+
 ## User Setup Required
 
 [If USER-SETUP.md was generated:]
@@ -233,6 +243,11 @@ The one-liner should tell someone what actually shipped.
 
 ## Issues Encountered
 - jsonwebtoken CommonJS import failed in Edge runtime - switched to jose (planned library change, worked as expected)
+
+## Defect Classes
+| class | instance | caught_by | severity | rule_gap |
+|---|---|---|---|---|
+| security read fails open on DB error | apps/api/functions/_shared/authz.ts:41 | opus-diff-review | critical | security.md — fail-closed reads |
 
 ## Next Phase Readiness
 - Auth foundation complete, ready for feature development

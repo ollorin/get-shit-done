@@ -15369,3 +15369,223 @@ describe('Agent messaging (SendMessage) — prompt-layer wiring', () => {
     assert.match(checkpoints, /SendMessage/, 'references/checkpoints.md must reference SendMessage');
   });
 });
+
+// Phase 62-01 (MILE-42): Defect Classes capture (templates + executor/coordinator/
+// verifier/execute workflows) and the milestone-end rules-distillation step in
+// audit-milestone.md. Prose consumed by an LLM subagent, not executed as code --
+// coverage is index-ordered substring assertions proving the wiring exists and
+// the required 5-column shape is named everywhere it must be.
+describe('Phase 62-01: Defect Classes capture + rules distillation wiring (MILE-42)', () => {
+  const REPO_ROOT = path.join(__dirname, '..', '..');
+
+  function readRepoFile(relPath) {
+    return fs.readFileSync(path.join(REPO_ROOT, relPath), 'utf-8');
+  }
+
+  const TABLE_HEADER = '| class | instance | caught_by | severity | rule_gap |';
+  const CAUGHT_BY_ENUM = ['plan-check', 'test-writer', 'mutation-proof', 'opus-diff-review', 'verifier', 'charlotte', 'other'];
+  const SUMMARY_TEMPLATES = [
+    'get-shit-done/templates/summary.md',
+    'get-shit-done/templates/summary-standard.md',
+    'get-shit-done/templates/summary-minimal.md',
+    'get-shit-done/templates/summary-complex.md',
+  ];
+
+  describe('every SUMMARY template carries the required section', () => {
+    for (const tpl of SUMMARY_TEMPLATES) {
+      test(`${tpl} has a Defect Classes section with the 5-column shape and the explicit "None found." escape`, () => {
+        const raw = readRepoFile(tpl);
+        assert.ok(raw.includes('## Defect Classes'), `${tpl} must contain a '## Defect Classes' heading`);
+        assert.ok(raw.includes(TABLE_HEADER), `${tpl} must contain the exact 5-column table header`);
+        assert.ok(raw.includes('None found.'), `${tpl} must document the explicit 'None found.' no-defects entry`);
+        assert.ok(
+          raw.includes('none — new rule needed'),
+          `${tpl} must document the 'none — new rule needed' rule_gap value`
+        );
+      });
+    }
+
+    test('the caught_by enum is spelled out in the master template so executors cannot invent values', () => {
+      const raw = readRepoFile('get-shit-done/templates/summary.md');
+      for (const value of CAUGHT_BY_ENUM) {
+        assert.ok(raw.includes(value), `summary.md must name the caught_by value '${value}'`);
+      }
+    });
+
+    test('the Defect Classes section precedes Next Phase Readiness in the master template', () => {
+      const raw = readRepoFile('get-shit-done/templates/summary.md');
+      const dc = raw.indexOf('## Defect Classes');
+      const next = raw.indexOf('## Next Phase Readiness');
+      assert.ok(dc !== -1 && next > dc, 'Defect Classes must be declared before Next Phase Readiness');
+    });
+  });
+
+  describe('capture path: the executor and the phase coordinator', () => {
+    test('execute-plan.md requires the section when creating SUMMARY.md and when self-checking', () => {
+      const raw = readRepoFile('get-shit-done/workflows/execute-plan.md');
+      const dc = raw.indexOf('## Defect Classes', raw.indexOf('<step name="create_summary">'));
+      assert.ok(dc !== -1, 'execute-plan.md must require a Defect Classes section');
+      assert.ok(dc > raw.indexOf('<step name="create_summary">'), 'the requirement must sit in the create_summary step');
+      assert.match(raw, /Append `## Self-Check: PASSED`[\s\S]{0,400}Defect Classes/, 'the post-segment self-check must confirm the section');
+    });
+
+    test('agents/gsd-executor.md carries a post-marker defect_classes detail block with the shape', () => {
+      const raw = readRepoFile('agents/gsd-executor.md');
+      assert.ok(raw.includes('<defect_classes>') && raw.includes('</defect_classes>'), 'executor must document a defect_classes block');
+      const start = raw.indexOf('<defect_classes>');
+      const marker = raw.indexOf('<!-- GSD:CORE-PREAMBLE-END -->');
+      assert.ok(start > marker, 'the detail block must sit AFTER the core-preamble marker (unbudgeted) so the preamble budget holds');
+      const block = raw.slice(start, raw.indexOf('</defect_classes>'));
+      assert.ok(block.includes(TABLE_HEADER), 'the detail block must show the 5-column shape');
+      assert.ok(block.includes('None found.'), 'the detail block must document the explicit None found. entry');
+    });
+
+    test('execute-phase.md has a record_defect_classes step that appends and commits', () => {
+      const raw = readRepoFile('get-shit-done/workflows/execute-phase.md');
+      assert.ok(raw.includes('<step name="record_defect_classes">'), 'execute-phase.md must have a record_defect_classes step');
+      const start = raw.indexOf('<step name="record_defect_classes">');
+      const step = raw.slice(start, start + 3000);
+      assert.ok(step.includes('Defect Classes'), 'the step must target the Defect Classes section');
+      assert.ok(step.includes('gsd-tools.js" commit'), 'the step must commit the SUMMARY.md edits');
+      assert.ok(step.includes('only append') || step.includes('Never overwrite existing rows'), 'the step must be append-only');
+    });
+
+    test('agents/gsd-phase-coordinator.md makes the coordinator the backstop for phase-level findings', () => {
+      const raw = readRepoFile('agents/gsd-phase-coordinator.md');
+      assert.ok(raw.includes('<defect_class_recording>'), 'coordinator must document a defect_class_recording block');
+      const block = raw.slice(raw.indexOf('<defect_class_recording>'), raw.indexOf('</defect_class_recording>'));
+      assert.match(block, /plan-check/, 'the block must name the finding-producing steps that route through the coordinator');
+      assert.match(block, /verifier/, 'the block must name the verifier');
+      assert.match(block, /Never edit a plan's existing rows — append/, 'the block must require append-only edits');
+      assert.match(block, /Ruling on your own dispatch is not allowed/, 'the block must forbid the coordinator from self-ruling high-stakes findings');
+    });
+  });
+
+  describe('capture path: the finding-producing dispatch templates return the shape', () => {
+    test('plan-phase.md plan-checker prompt appends a Defect Classes block without editing the byte-identical spawn block', () => {
+      const raw = readRepoFile('get-shit-done/workflows/plan-phase.md');
+      const spawn = raw.indexOf('  description="Verify Phase {phase} plans"\n)\n```');
+      assert.ok(spawn !== -1, 'the byte-identical checker spawn block must still be present');
+      const tail = raw.slice(spawn);
+      assert.match(tail, /Append to `checker_prompt` before spawning/, 'the requirement must be a documented append, not an in-block edit');
+      const promptIdx = tail.indexOf('Append to `checker_prompt` before spawning');
+      const ctx = tail.indexOf('<expected_output>', promptIdx);
+      assert.ok(ctx > promptIdx, 'the appended prompt section must follow the spawn block');
+      const section = tail.slice(promptIdx, tail.indexOf('## Defect Classes\n', promptIdx) + 2000);
+      assert.ok(ctx > promptIdx && tail.slice(ctx, ctx + 200).includes('## Defect Classes'), 'the checker return must declare a Defect Classes block in expected_output');
+      assert.ok(section.includes(TABLE_HEADER), 'the checker return must use the 5-column shape');
+      assert.match(section, /\| plan-check \|/, 'the checker return must fix caught_by to plan-check');
+    });
+
+    test('plan-phase.md routes trio verdict findings to the coordinator', () => {
+      const raw = readRepoFile('get-shit-done/workflows/plan-phase.md');
+      assert.match(
+        raw,
+        /collect the `## Defect Classes` rows[\s\S]{0,600}phase coordinator owns that write/,
+        'the trio branch must hand its Defect Classes rows to the coordinator'
+      );
+    });
+
+    test('agents/gsd-plan-judge.md writes a Defect Classes block into its own VERDICT.md', () => {
+      const raw = readRepoFile('agents/gsd-plan-judge.md');
+      assert.ok(raw.includes('## Defect Classes'), 'the judge must write a Defect Classes block into VERDICT.md');
+      assert.ok(raw.includes(TABLE_HEADER), 'the judge block must use the 5-column shape');
+      assert.ok(raw.includes('opus-diff-review'), 'the judge block must fix caught_by to opus-diff-review');
+    });
+
+    test('execute-phase.md asks Charlotte and the verifier for Defect Classes', () => {
+      const raw = readRepoFile('get-shit-done/workflows/execute-phase.md');
+      assert.match(
+        raw,
+        /mode=ui-qa[\s\S]{0,600}Also return a `## Defect Classes` block/,
+        'the Charlotte QA prompt must request a Defect Classes block'
+      );
+      assert.match(
+        raw,
+        /Also return a `## Defect Classes` block[\s\S]{0,400}caught_by` fixed to `charlotte`/,
+        'the Charlotte request must fix caught_by to charlotte'
+      );
+      assert.ok(raw.includes('Also run Step 6d'), 'the verifier dispatch must run the Defect Classes coverage step');
+    });
+  });
+
+  describe('capture path: the verifier is the gate that fixes the record', () => {
+    test('agents/gsd-verifier.md surfaces Step 6d in the preamble digest', () => {
+      const raw = readRepoFile('agents/gsd-verifier.md');
+      assert.match(raw, /\*\*Step 6d \(Defect Classes coverage\):\*\*/, 'the verifier preamble must digest Step 6d');
+      assert.match(raw, /None found\./, 'the digest must document the explicit None found. escape');
+      assert.match(raw, /You FIX the record rather than merely reporting it/, 'the digest must tell the verifier to fix, not just report');
+    });
+
+    test('references/verifier-detail.md defines Step 6d as a two-part check with the table shape', () => {
+      const raw = readRepoFile('get-shit-done/references/verifier-detail.md');
+      const start = raw.indexOf('## Step 6d: Defect Classes Coverage');
+      assert.ok(start !== -1, 'verifier-detail.md must define Step 6d');
+      const step = raw.slice(start, start + 3500);
+      assert.ok(step.includes('## Step 6b: PRD Intent Alignment'), 'Step 6d must end before Step 6b starts');
+      assert.ok(step.includes(TABLE_HEADER), 'Step 6d must show the 5-column shape');
+      assert.match(step, /Section present/, 'Step 6d must check that the section is present');
+      assert.match(step, /Findings represented/, 'Step 6d must check that ruling-artifact findings are represented');
+      assert.match(step, /catch it yourself|add the missing entry yourself/i, 'Step 6d must make the verifier fix the record');
+    });
+  });
+
+  describe('distillation: audit-milestone Step 7 and the complete-milestone reference', () => {
+    test('audit-milestone.md Step 7 distils, writes a RULES-DISTILL report, and commits rules + report only', () => {
+      const raw = readRepoFile('get-shit-done/workflows/audit-milestone.md');
+      const start = raw.indexOf('## 7. Distil Defect Classes into Project Rules');
+      assert.ok(start !== -1, 'audit-milestone.md must add a Step 7 distillation step');
+      const step = raw.slice(start, raw.indexOf('## 8. Present Results'));
+      assert.ok(step.length > 0, 'Step 8 (Present Results) must follow Step 7');
+      assert.match(step, /model="opus"/, 'the distillation must run on a fresh Opus dispatch');
+      assert.ok(step.includes('RULES-DISTILL.md'), 'Step 7 must write the RULES-DISTILL report');
+      assert.match(step, /already-covered[\s\S]*tighten[\s\S]*new/, 'Step 7 must offer exactly the three per-class decisions');
+      assert.match(step, /deferred-items\.md/, 'Step 7 must fall back to deferred-items.md for pre-section phases');
+      assert.match(step, /VERIFICATION\.md/, 'Step 7 must fall back to VERIFICATION.md for pre-section phases');
+      assert.match(step, /Second, separate Opus check \(mandatory\)/, 'Step 7 must mandate a second, separate review');
+      assert.match(step, /The author does not review its own work/, 'Step 7 must state the independence rule');
+      assert.match(step, /Do NOT edit anything; return findings only/, 'the review dispatch must be read-only');
+      assert.match(step, /RULES-DISTILL\.md` in \{project_root\}|\.claude\/rules\/\*\.md/, 'the review must scope the rules diff');
+      assert.match(step, /NO incident narratives/, 'Step 7 must forbid incident narratives in rules');
+      assert.match(step, /PREFER TRIMMING existing text to adding/, 'Step 7 must enforce the project length discipline');
+      assert.match(step, /cite the defect class\(es\) justifying it/, 'every rule change must cite its justifying classes');
+      assert.match(step, /Never commit the consuming repo's source code, tests, settings\.json, or any hook config/, 'Step 7 must protect the consuming repo');
+    });
+
+    test('audit-milestone.md Step 7 runs before Present Results and inside <process>', () => {
+      const raw = readRepoFile('get-shit-done/workflows/audit-milestone.md');
+      const distill = raw.indexOf('## 7. Distil Defect Classes into Project Rules');
+      const present = raw.indexOf('## 8. Present Results');
+      const processEnd = raw.indexOf('</process>');
+      assert.ok(distill < present, 'Step 7 must precede Present Results');
+      assert.ok(present < processEnd, 'both steps must live inside <process>');
+      assert.ok(!raw.includes('## 7. Present Results'), 'the old Step 7 heading must be renumbered, not duplicated');
+    });
+
+    test('audit-milestone.md purpose and success criteria both mention the distillation', () => {
+      const raw = readRepoFile('get-shit-done/workflows/audit-milestone.md');
+      assert.match(raw, /<purpose>[\s\S]{0,1200}Defect Classes/, 'the workflow purpose must advertise the distillation');
+      assert.match(raw, /RULES-DISTILL\.md` written and committed/, 'success criteria must require the committed report');
+      assert.match(raw, /SECOND, separate Opus review of the rules diff/, 'success criteria must require the independent review');
+    });
+
+    test('complete-milestone.md references the distillation for milestones that skip the audit', () => {
+      const raw = readRepoFile('get-shit-done/workflows/complete-milestone.md');
+      assert.ok(raw.includes('<defect-classes-distillation>'), 'complete-milestone.md must document the gate');
+      const block = raw.slice(raw.indexOf('<defect-classes-distillation>'), raw.indexOf('</defect-classes-distillation>'));
+      assert.match(block, /audit-milestone\.md \(Step 7\)|Step 7/, 'the block must point at the audit Step 7');
+      assert.match(block, /skipped the audit/, 'the block must cover the skip-the-audit case');
+      assert.match(block, /RULES-DISTILL\.md/, 'the block must verify the report exists');
+      assert.ok(
+        raw.includes('.planning/milestones/v[X.Y]-RULES-DISTILL.md'),
+        'the milestone commit must include the RULES-DISTILL report'
+      );
+    });
+  });
+
+  test('the Defect Classes additions kept every core-preamble budget green', () => {
+    const { checkAllBudgets } = require('./prompt-budget.js');
+    const res = checkAllBudgets(REPO_ROOT);
+    assert.ok(res.pass, `all core-preamble budgets must pass, got: ${JSON.stringify(res.results)}`);
+  });
+});

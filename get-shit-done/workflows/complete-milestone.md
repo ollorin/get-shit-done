@@ -197,6 +197,26 @@ figure of its own, the same anti-confabulation rule `gsd-qa-analyst` obeys.
 
 </qa-verdict-gate>
 
+<defect-classes-distillation>
+
+**The audit's distillation step runs inside `audit-milestone.md` (Step 7), not here.** If this
+milestone went through `/gsd:audit-milestone`, the rules it produces are already committed and
+this gate is satisfied — verify only that `.planning/v{X.Y}-RULES-DISTILL.md` exists.
+
+**If the milestone skipped the audit**, the milestone would otherwise close with its recorded
+defect classes undistilled, and the same class of defect gets made again next milestone. Route to
+the audit's Step 7 before committing:
+
+```
+/gsd:audit-milestone {version}   # Step 7 only — or read
+# ~/.claude/get-shit-done/workflows/audit-milestone.md §7 and run it directly
+```
+
+Then verify `.planning/v{X.Y}-RULES-DISTILL.md` exists. A milestone with no `## Defect Classes`
+sections and no review artifacts at all has nothing to distil — record that and continue.
+
+</defect-classes-distillation>
+
 <config-check>
 
 ```bash
@@ -456,6 +476,14 @@ The CLI handles:
 Extract from result: `version`, `date`, `phases`, `plans`, `tasks`, `accomplishments`, `archived`.
 
 Verify: `✅ Milestone archived to .planning/milestones/`
+
+Move the rules-distillation report alongside the audit (the CLI's audit-file move does not cover it):
+
+```bash
+[ -f .planning/v[X.Y]-RULES-DISTILL.md ] && \
+  mv .planning/v[X.Y]-RULES-DISTILL.md .planning/milestones/v[X.Y]-RULES-DISTILL.md
+```
+
 
 **Phase archival (optional):** After archival completes, ask the user:
 
@@ -913,7 +941,7 @@ git push origin v[X.Y]
 Commit milestone completion.
 
 ```bash
-node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "chore: complete v[X.Y] milestone" --files .planning/milestones/v[X.Y]-ROADMAP.md .planning/milestones/v[X.Y]-REQUIREMENTS.md .planning/milestones/v[X.Y]-MILESTONE-AUDIT.md .planning/milestones/v[X.Y]-KNOWLEDGE.md .planning/MILESTONES.md .planning/PROJECT.md .planning/STATE.md
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "chore: complete v[X.Y] milestone" --files .planning/milestones/v[X.Y]-ROADMAP.md .planning/milestones/v[X.Y]-REQUIREMENTS.md .planning/milestones/v[X.Y]-MILESTONE-AUDIT.md .planning/milestones/v[X.Y]-RULES-DISTILL.md .planning/milestones/v[X.Y]-KNOWLEDGE.md .planning/MILESTONES.md .planning/PROJECT.md .planning/STATE.md
 ```
 ```
 
@@ -991,6 +1019,7 @@ Milestone completion is successful when:
 - [ ] Git tag created (v[X.Y])
 - [ ] Milestone commit made (includes archive files and deletion)
 - [ ] Requirements completion checked against REQUIREMENTS.md traceability table
+- [ ] `.planning/v[X.Y]-RULES-DISTILL.md` exists — milestone defect classes distilled into `.claude/rules/*.md` (audit Step 7, or run directly if the audit was skipped)
 - [ ] Incomplete requirements surfaced with proceed/audit/abort options
 - [ ] Known gaps recorded in MILESTONES.md if user proceeded with incomplete requirements
 - [ ] RETROSPECTIVE.md updated with milestone section

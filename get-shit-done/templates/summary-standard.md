@@ -44,5 +44,12 @@ completed: YYYY-MM-DD
 [Key decisions or "None - followed plan as specified"]
 [Minor deviations if any, or "None"]
 
+## Defect Classes
+| class | instance | caught_by | severity | rule_gap |
+|---|---|---|---|---|
+| [general class name] | [path/file.ext:line] | [plan-check\|test-writer\|mutation-proof\|opus-diff-review\|verifier\|charlotte\|other] | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
+
+Nothing found? Delete the table and leave exactly `None found.`
+
 ## Next Phase Readiness
 [What's ready for next phase]

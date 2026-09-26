@@ -37,5 +37,12 @@ completed: YYYY-MM-DD
 ## Files Created/Modified
 - `path/to/file.ts` - What it does
 
+## Defect Classes
+| class | instance | caught_by | severity | rule_gap |
+|---|---|---|---|---|
+| [general class name] | [path/file.ext:line] | [plan-check\|test-writer\|mutation-proof\|opus-diff-review\|verifier\|charlotte\|other] | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
+
+Nothing found? Delete the table and leave exactly `None found.` — never omit the section.
+
 ## Next Phase Readiness
 [Ready for next phase]

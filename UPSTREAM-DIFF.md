@@ -41,6 +41,18 @@ quarterly review should perform a full re-diff).
 
 ---
 
+## Fork-Only Additions (no upstream counterpart)
+
+Recorded here so a future re-diff can tell fork divergence from un-ported upstream work.
+These have **no upstream commit to port** — a re-diff must never "restore" upstream's version
+of these files over the fork's.
+
+| Addition | Files | Upstream status |
+|----------|-------|-----------------|
+| **Defect Classes capture + milestone-end rules distillation (2026-09-26, CEO-requested from v0.1.33 of `~/igaming-platform`)** — a required `## Defect Classes` section in every SUMMARY.md (5-column row: `class`/`instance`/`caught_by`/`severity`/`rule_gap`), the coordinator appending phase-level findings, the verifier fixing the record via Step 6d, and a new Opus-dispatched Step 7 in `audit-milestone.md` distilling the milestone's rows into general `.claude/rules/*.md` principles (with a separate, read-only Opus review of the rules diff) | `get-shit-done/templates/summary{,-standard,-minimal,-complex}.md`, `get-shit-done/workflows/{execute-plan,execute-phase,plan-phase,audit-milestone,complete-milestone}.md`, `get-shit-done/references/verifier-detail.md`, `agents/{gsd-executor,gsd-phase-coordinator,gsd-verifier,gsd-plan-judge}.md` | Fork-only. Upstream has no equivalent — if a future upstream release adds anything resembling per-SUMMARY defect capture, reconcile rather than duplicate. |
+
+---
+
 ## Structural Note: gsd-tools.js vs gsd-tools.js
 
 Upstream renamed `get-shit-done/bin/gsd-tools.js` (while our fork keeps `get-shit-done/bin/gsd-tools.js`). All upstream agent and workflow references use `gsd-tools.js`; our fork uses `gsd-tools.js`. When porting, every `gsd-tools.js` reference in upstream diffs must remain `gsd-tools.js` in this fork. This is a mechanical substitution that applies to all patches.
