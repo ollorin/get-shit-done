@@ -757,17 +757,6 @@ left uncommitted.
 <step name="verify_phase_goal">
 Verify phase achieved its GOAL, not just completed tasks.
 
-**Runs AFTER `record_defect_classes`**, so the coordinator's rows are already in the SUMMARYs when
-the verifier's Step 6d scans them. The verifier may add further rows; commit them here on BOTH
-the `passed` and `gaps_found` paths, before presenting either outcome:
-
-```bash
-node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs(phase-${PHASE_NUMBER}): record verifier defect classes in plan summaries" --files {phase_dir}/*-SUMMARY.md
-```
-
-A `gaps_found` phase still owes the milestone a Defect Classes record — the gap IS the finding, and
-the gap-closure plans run a verifier that scans the same summaries.
-
 ```
 Agent(
   prompt="Verify phase {phase_number} goal achievement.
@@ -794,6 +783,22 @@ grep "^status:" "$PHASE_DIR"/*-VERIFICATION.md | cut -d: -f2 | tr -d ' '
 | `passed` | → update_roadmap |
 | `human_needed` | Present items for human testing, get approval or feedback |
 | `gaps_found` | Present gap summary, offer `/gsd:plan-phase {phase} --gaps` |
+
+**Commit the verifier's Defect Classes rows — AFTER the dispatch and AFTER the status routing
+above, never before the `Agent(...)` call.** Order matters here: the verifier's Step 6d is what
+ADDS entries to `{phase_dir}/*-SUMMARY.md`, and the `passed` / `gaps_found` routing above is what
+decides whether you are still the one driving. A commit placed before the dispatch captures the
+coordinator's rows a second time and misses the verifier's entirely — it looks like the step ran,
+exits 0, and leaves the phase with an unrecorded finding that the milestone distillation then
+reads as "clean". The commit is unconditional — it runs on BOTH the `passed` and the
+`gaps_found` path, before presenting either outcome:
+
+```bash
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs(phase-${PHASE_NUMBER}): record verifier defect classes in plan summaries" --files {phase_dir}/*-SUMMARY.md
+```
+
+A `gaps_found` phase still owes the milestone a Defect Classes record — the gap IS the finding, and
+the gap-closure plans run a verifier that scans the same summaries.
 
 **If human_needed:**
 ```

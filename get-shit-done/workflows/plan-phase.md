@@ -490,7 +490,7 @@ nothing else.
 
 | class | instance | caught_by | severity | rule_gap |
 |---|---|---|---|---|
-| [general class name] | [path/file.ext:line] | plan-check\|opus-ruling | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
+| [general class name] | [path/file.ext:line] | plan-check | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
 
 `class` is a general reusable name, not an incident story. Return exactly `None found. (reviewed by: plan-check)` if your check surfaced nothing — a bare `None found.` fails the phase gate, and the block is never omitted.
 ```
@@ -563,7 +563,28 @@ appending the block on each revision-loop iteration so nothing is overwritten:
   printf '# Plan check — phase %s\n\n' "{phase_number}" > "{PHASE_DIR}/{N}-PLAN-CHECK.md"
 ```
 
-Then append the returned block. The verifier's Step 6d and `audit-milestone.md`'s Step 7 both
+Then append the returned block, and commit it **path-scoped, immediately** — on every
+iteration, not once at the end of the loop. A revision loop that is interrupted, resumed, or dies
+between iterations otherwise leaves the uncommitted block only in the transcript, and the
+resumed pass has no way to know whether it already appended:
+
+```bash
+F="{PHASE_DIR}/{N}-PLAN-CHECK.md"
+[ -f "$F" ] || printf '# Plan check — phase %s\n\n' "{phase_number}" > "$F"
+cat >> "$F" <<'EOF'
+
+## Defect Classes (iteration {n})
+
+<the checker's returned block, verbatim>
+EOF
+git add -- "$F" && git commit -m "docs(phase-{X}): record plan-check defect classes" -- "$F"
+```
+
+Use `git add -- <file>` before `git commit -- <file>`, always. `git commit -- <path>` commits
+only what is already staged, so a brand-new `{N}-PLAN-CHECK.md` with no explicit `add` is
+silently left uncommitted while git prints an ordinary success line.
+
+The verifier's Step 6d and `audit-milestone.md`'s Step 7 both
 scan this file. A checker that returned `None found. (reviewed by: …)` writes that line — the
 "which reviews ran" suffix is what makes a clean pass auditable, so never strip it.
 

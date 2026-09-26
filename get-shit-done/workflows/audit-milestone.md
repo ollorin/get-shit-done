@@ -462,9 +462,36 @@ requirement. Read EVERY artifact in its directory except `*-PLAN.md`, `*-RESEARC
 means the real artifact names a project accumulates: `*-SWEEP.md`, `*-FINDING.md`,
 `*-MUTATION-PROOF.md`, `*-DECISIONS.md`, `*-RECONCILIATION.md`, `*-RULING*.md`,
 `*-VERIFICATION.md`, `deferred-items.md`, and the prose sections of the `*-SUMMARY.md` itself (Issues Encountered,
-Decisions & Deviations, Deviations from Plan). Also read `.planning/debug/resolved/` and the
-milestone's `.planning/quick/*/` directories — defects found there belong to no phase directory
-at all. If `.planning/v{version}-AUDIT-INPUTS.md` exists, read it too.
+Decisions & Deviations, Deviations from Plan). Also read `.planning/debug/resolved/` and **the
+milestone's quick dirs**, defined here once and used everywhere in this step (including the
+author prompt below — a definition that drifts between two prompts is how a "which quick dirs?"
+question gets answered two different ways in the same milestone):
+
+> **The milestone's quick dirs** = the directories under `.planning/quick/` whose own earliest
+> commit is at-or-after the previous milestone's release tag. Resolve it deterministically, not
+> by listing whatever directories happen to exist:
+>
+> ```bash
+> # The cutoff: the previous milestone's tag commit. If this is the FIRST
+> # milestone in the repo, use the repo's first commit instead (no tag filter
+> # yields an empty list — say so and fall back, rather than reading everything).
+> PREV_TAG=$(git tag -l 'v*' --sort=-v:refname | grep -vxF "v{version}" | head -1)
+> CUTOFF=$(git log -1 --format=%aI "$PREV_TAG")
+>
+> for d in .planning/quick/*/; do
+>   first=$(git log --reverse --diff-filter=A --format=%aI -- "$d" | tail -1)
+>   # Keep the dir when it has a history and that history starts at/after $CUTOFF.
+>   [ -n "$first" ] && [ "$first" \> "$CUTOFF" ] && echo "$d"
+> done
+> ```
+>
+> A quick dir with **no commits is EXCLUDED** — it is in flight and has not contributed a
+> finding yet. (Contrast the Defect Classes gate itself, which fails CLOSED on an uncommitted
+> file: collection is a sweep over what exists, the gate is a check on one file's compliance.
+> An in-flight quick dir simply has nothing to contribute to this distillation.)
+
+Defects found in those directories belong to no phase directory at all, which is exactly why
+they need naming. If `.planning/v{version}-AUDIT-INPUTS.md` exists, read it too.
 
 Mark every reconstructed row `reconstructed: true` in the rows file. A reconstructed row is
 weaker evidence: it may justify adding or tightening a rule, but **never** on its own justify
@@ -494,7 +521,15 @@ milestone {version}. The project is: {project_root}
 
 READ:
 - `.planning/v{version}-DEFECT-ROWS.md` — the collected rows. This is your primary input.
-- `.planning/phases/*/deferred-items.md` — anything deferred that reads as a real defect.
+- `deferred-items.md` in the `{phase_dirs}` Step 1 resolved for THIS milestone — anything
+  deferred that reads as a real defect. Scope it exactly as the collection step scoped it: do
+  NOT read `.planning/phases/*/deferred-items.md` with a wildcard. That glob sweeps in every
+  other milestone's deferred items, so a rule distil for this milestone would be justified by
+  defects the milestone never had. The orchestrator passes you the resolved list; read only
+  those paths.
+- The milestone's quick dirs, as DEFINED in the collection step above (earliest commit at or
+  after the previous milestone's tag) — the orchestrator passes you that resolved list too.
+  Never glob `.planning/quick/*/` and assume the contents are this milestone's.
 - The existing `.claude/rules/*.md` and CLAUDE.md, in full.
 
 YOU DO NOT COMMIT. You write files and stop. The orchestrator measures, reviews, and commits.
@@ -599,23 +634,65 @@ Route the result:
 
 **Verify the write scope (YOU do this, before the review).** A prompt is not a sandbox; the
 author can drift outside the three permitted paths. Check what actually changed on disk and
-refuse the commit if anything else was touched:
+refuse the commit if anything else is touched. Snapshot BEFORE the author dispatch, not after —
+a tree that was already dirty would otherwise make every unrelated path look like the author's:
 
 ```bash
-git diff --name-only
+# BEFORE the author dispatch:
+git rev-parse HEAD        > .tmp/step7-head-before
+git status --porcelain    > .tmp/step7-status-before
 ```
 
-Every path in that output must be one of: a file under `.claude/rules/`, `CLAUDE.md`, or
-`.planning/v{version}-RULES-DISTILL.md`. If anything else appears, STOP and escalate to the
-user with the offending paths listed — do not revert the author's work yourself and do not
-commit a partial selection, because a partial commit hides exactly the drift you are checking
-for.
+```bash
+# AFTER the author dispatch:
+git rev-parse HEAD        > .tmp/step7-head-after
+git status --porcelain    > .tmp/step7-status-after
+```
+
+Then compute the changed-path set as **`status-after` MINUS `status-before`** (a set difference
+over the porcelain lines, path column included) and require **`git rev-parse HEAD` to be
+unchanged** between the two snapshots — the author was told `YOU DO NOT COMMIT`, so a new commit
+is a breach, not a convenience. Comparing against a BEFORE snapshot is what makes both of these
+correct, and both are failures a bare `git diff --name-only` gets wrong:
+
+- **Untracked new files.** The author's report is a NEW file, and a rules file it creates is also
+  new. `git diff` never shows an untracked file, so `git diff --name-only` alone reported the
+  author as clean while it wrote a brand-new `.claude/rules/*.md` that nobody ever looked at.
+- **A pre-dirty tree.** A repo already carrying unrelated uncommitted work makes every one of
+  those paths look like the author's. The set difference attributes them correctly instead.
+
+Make the new files visible to the reviewer as well — an untracked file has no diff, so the
+reviewer would be reviewing nothing at all:
+
+```bash
+git add -N -- .claude/rules/ CLAUDE.md .planning/v{version}-RULES-DISTILL.md
+git diff -- .claude/rules/ CLAUDE.md .planning/v{version}-RULES-DISTILL.md
+```
+
+Every path in the computed changed-path set must be one of: a file under `.claude/rules/`,
+`CLAUDE.md`, or `.planning/v{version}-RULES-DISTILL.md`. If anything else appears, STOP and
+escalate to the user with the offending paths listed — do not revert the author's work yourself
+and do not commit a partial selection, because a partial commit hides exactly the drift you are
+checking for.
+
+**Verify a new rules file is actually wired (YOU do this, before the review).** A rules file the
+author CREATED loads never if it is not registered. For every path in the changed set that did
+not exist before the dispatch, assert BOTH:
+
+- the file's frontmatter carries a `paths:` key — a rules file with no `paths:` never auto-loads; and
+- `CLAUDE.md`'s Domain Rules table has a row naming it, so a human can find it.
+
+Either one missing is a blocking finding, routed through the same fix loop as a review defect.
 
 **Commit (YOU do this, only after a clean review).** Never use `gsd-tools.js commit` here — it
 silently no-ops when the repo's `commit_docs` is off, which would drop the rules change from the
-milestone PR without any error. Use git directly, path-scoped:
+milestone PR without any error. Use git directly, path-scoped. The `git add --` is REQUIRED, not
+cosmetic: `git commit -- <paths>` commits only what is already in the index, so without the
+explicit add the NEW report file and any NEW rules file are silently left uncommitted while the
+command still exits 0 and prints an ordinary success line.
 
 ```bash
+git add -- .claude/rules/ CLAUDE.md .planning/v{version}-RULES-DISTILL.md
 git commit -m "docs({version}): distil defect classes into project rules" -- \
   .claude/rules/ CLAUDE.md .planning/v{version}-RULES-DISTILL.md
 ```

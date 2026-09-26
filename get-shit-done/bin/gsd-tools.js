@@ -405,13 +405,15 @@ function loadConfig(cwd) {
     adversarial_review_file_threshold: 8,
     adversarial_review_security_patterns: ['auth', 'payment', 'secret', 'credential', 'crypto', 'security', 'token', 'password', '/api/', 'migration'],
     // QGATE-17 (Defect Classes). `defect_classes_gate_enabled` is the master
-    // switch; `defect_classes_gate_since` is the ISO date after which a phase
-    // becomes subject to the gate (compared against the phase directory's first
-    // commit date). Both exist so the section can be enforced going forward
-    // WITHOUT retroactively failing an in-flight milestone whose phases were
-    // planned before the section existed.
+    // switch. `defect_classes_gate_since` is the cutoff INSTANT (2b99f5b's own
+    // author date) after which a SUMMARY.md becomes subject to the gate; the
+    // decision is made per SUMMARY file, not per phase directory, because a
+    // phase directory's first commit is inherited from its first plan and so
+    // would gate (or exempt) later plans written on either side of the cutoff.
+    // Both exist so the section can be enforced going forward WITHOUT
+    // retroactively failing an in-flight milestone's already-written summaries.
     defect_classes_gate_enabled: true,
-    defect_classes_gate_since: '2026-09-26',
+    defect_classes_gate_since: '2026-09-26T22:37:28+02:00',
     quality: {
       test_writer: false,
       integration_tester: false,
@@ -2893,19 +2895,32 @@ function evaluateSummarySelfCheck(content) {
   return { status: 'not_found', source: 'legacy' };
 }
 
+// The closed set of `caught_by` values. Anything outside it cannot be clustered
+// by the milestone-end distillation, so a name that is not in here is as
+// useless as no row at all -- the gate rejects it rather than storing a lie.
+const DEFECT_CLASSES_CAUGHT_BY = [
+  'plan-check', 'test-writer', 'mutation-proof', 'opus-diff-review',
+  'opus-ruling', 'verifier', 'charlotte', 'other',
+];
+
 // QGATE-17 (Defect Classes). Pure evaluator shared by cmdPhaseComplete and
 // cmdVerifyPhaseGate so the two can never disagree about whether a SUMMARY
 // records its defect classes. The section is REQUIRED (not advisory): the
 // milestone-end rules distillation reads these rows and nothing else, so a
 // missing entry is a defect that the next milestone repeats.
 //
-// Four distinct failure modes, each with its own canary in the test suite --
+// Six distinct failure modes, each with its own canary in the test suite --
 // they are not collapsed into one "invalid" because the fix differs:
 //   missing   -- no `## Defect Classes` heading at all.
 //   empty     -- heading present, body has neither rows nor a None-found entry.
 //   placeholder -- the template's `[bracket]` guidance row was shipped verbatim.
 //   malformed_none_found -- a None-found entry that does not name the reviews
 //               that actually ran, which is how a silent gap gets re-blessed.
+//   invalid_caught_by -- a named review that is not in the closed `caught_by`
+//               set. Catches the template's own literal `<caught_by values>`
+//               and prose like `nobody` shipped as if it were a reviewer.
+//   empty_cells -- a data row with a blank or `-` cell in any of the 5 required
+//               columns, which reads as a recorded defect but records nothing.
 function evaluateDefectClasses(content) {
   const text = typeof content === 'string' ? content : '';
   const heading = /^##[ \t]+Defect Classes[ \t]*$/im.exec(text);
@@ -2929,8 +2944,10 @@ function evaluateDefectClasses(content) {
   }
 
   // `None found.` is a valid, COMPLETE entry -- but only when it says which
-  // reviews ran. A bare `None found.` is indistinguishable from a section
-  // nobody looked at, which is exactly the silent-pass this gate closes.
+  // reviews ran, AND every name it gives is a real `caught_by` value. A bare
+  // `None found.` is indistinguishable from a section nobody looked at; a
+  // `None found. (reviewed by: <caught_by values>)` copied straight out of the
+  // template is the same lie wearing the template's own clothes.
   const noneFound = /^None found\.\s*(\(reviewed by:[^)\n]*\))?\s*$/im.exec(body);
   if (noneFound) {
     if (!noneFound[1]) {
@@ -2944,6 +2961,10 @@ function evaluateDefectClasses(content) {
       .filter(Boolean);
     if (reviewers.length === 0) {
       return { source: 'defect_classes', status: 'malformed_none_found', body, rows: 0 };
+    }
+    const unknown = reviewers.filter(r => !DEFECT_CLASSES_CAUGHT_BY.includes(r.toLowerCase()));
+    if (unknown.length > 0) {
+      return { source: 'defect_classes', status: 'invalid_caught_by', body, rows: 0, reviewers, unknown };
     }
     return { source: 'defect_classes', status: 'ok', body, rows: 0, reviewers };
   }
@@ -2961,34 +2982,60 @@ function evaluateDefectClasses(content) {
   if (rows.length === 0) {
     return { source: 'defect_classes', status: 'empty', body, rows: 0 };
   }
+
+  // A row only counts as a record if all five required columns carry a value.
+  // `rule_gap` has a documented real value ("none — new rule needed"), so a
+  // blank or a bare `-` in any column is a hole, not a value.
+  const BLANK_CELL = /^(?:-{1,3}|—|–)?$/;
+  const badRow = rows.find(cells => cells.slice(0, 5).some(c => BLANK_CELL.test(c)));
+  if (badRow) {
+    return { source: 'defect_classes', status: 'empty_cells', body, rows: rows.length, row: badRow };
+  }
   return { source: 'defect_classes', status: 'ok', body, rows: rows.length };
 }
 
-// The gate's exemption rule, also pure so the test suite can canary it: a phase
-// is subject to the gate only if its directory's FIRST commit postdates
-// `sinceIso`. A phase with no commits has no date, so the gate does not apply --
-// phase-gate already fails such a phase on the per-plan commit check, so nothing
-// escapes by being unmeasurable, and fail-open here cannot mask a real phase.
-function phaseSubjectToDefectClassesGate(firstCommitDateIso, cfg) {
+// The gate's exemption rule, also pure so the test suite can canary it.
+//
+// DECIDED PER SUMMARY FILE, not per phase directory. A phase directory's
+// earliest commit is inherited from its first plan, so a directory-level
+// decision gates (or exempts) every later plan in it regardless of when that
+// plan's SUMMARY was actually written -- which is how a day-granularity
+// comparison failed every SUMMARY written on the cutoff's own calendar day,
+// including ones an hour old.
+//
+// FAIL CLOSED. An uncommitted SUMMARY, one with no measurable git history, a
+// missing cutoff or an unparsable one are all GATED. The only way out is the
+// explicit `defect_classes_gate_enabled: false` opt-out, which is a decision
+// someone makes on purpose rather than an accident of measurement.
+function summarySubjectToDefectClassesGate(firstCommitInstantIso, cfg) {
   if (!cfg || cfg.defect_classes_gate_enabled !== true) return false;
-  const since = typeof cfg.defect_classes_gate_since === 'string' ? cfg.defect_classes_gate_since : null;
-  if (!since || !/^\d{4}-\d{2}-\d{2}$/.test(since)) return false;
-  if (typeof firstCommitDateIso !== 'string' || !firstCommitDateIso.trim()) return false;
-  const firstDay = firstCommitDateIso.trim().slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(firstDay)) return false;
-  return firstDay >= since;
+  const cutoff = cfg.defect_classes_gate_since;
+  if (typeof cutoff !== 'string' || !cutoff.trim()) return true;
+  const cutoffMs = Date.parse(cutoff.trim());
+  if (!Number.isFinite(cutoffMs)) return true;
+  if (typeof firstCommitInstantIso !== 'string' || !firstCommitInstantIso.trim()) return true;
+  const firstMs = Date.parse(firstCommitInstantIso.trim());
+  if (!Number.isFinite(firstMs)) return true;
+  return firstMs >= cutoffMs;
 }
 
-// Git creation date of a phase directory: the author date of the EARLIEST
-// commit that touched it. Returns null when git is unavailable or the directory
-// has no history (an uncommitted in-flight phase).
-function phaseDirFirstCommitDate(cwd, phaseDir) {
-  const rel = path.relative(cwd, phaseDir);
+// Git creation instant of a SUMMARY FILE: the author date of the earliest
+// commit that ADDED it. `--follow` survives a rename (a phase removed and
+// renumbered, or a SUMMARY moved between directories) so a renamed file keeps
+// its original birth date instead of looking brand new and being gated.
+// Returns null when git is unavailable or the file has no history -- which
+// `summarySubjectToDefectClassesGate` reads as GATED, not exempt.
+function summaryFirstCommitInstant(cwd, summaryAbsPath) {
+  const rel = path.relative(cwd, summaryAbsPath);
   if (!rel || rel.startsWith('..')) return null;
-  const res = execGit(cwd, ['log', '--reverse', '--format=%aI', '--', rel]);
+  const res = execGit(cwd, ['log', '--follow', '--diff-filter=A', '--format=%aI', '--', rel]);
   if (res.exitCode !== 0 || !res.stdout) return null;
-  const first = res.stdout.split('\n').find(l => /^\d{4}-\d{2}-\d{2}T/.test(l.trim()));
-  return first ? first.trim() : null;
+  const stamps = res.stdout
+    .split('\n')
+    .map(s => s.trim())
+    .filter(s => /^\d{4}-\d{2}-\d{2}T/.test(s))
+    .sort((a, b) => Date.parse(a) - Date.parse(b));
+  return stamps.length > 0 ? stamps[0] : null;
 }
 
 function cmdVerifySummary(cwd, summaryPath, checkFileCount, raw) {
@@ -7117,14 +7164,17 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles) {
   if (planFiles.length === 0) {
     errors.push('No numbered {N}-{NN}-PLAN.md files — a phase with no plans has no evidence to complete');
   }
-  // QGATE-17: the Defect Classes gate, resolved ONCE per phase and applied to
-  // every SUMMARY below. Exempt phases (created before the section existed)
-  // are reported as exempt rather than silently skipped, so a reader of the
-  // gate output can see the gate was considered and why it did not apply.
+  // QGATE-17: the Defect Classes gate, resolved PER SUMMARY against that file's
+  // own first-add commit. A phase directory's birth date is inherited from its
+  // first plan, so a directory-level decision would gate or exempt every later
+  // plan in the phase regardless of when its SUMMARY was actually written.
+  // Exempt summaries are reported as exempt rather than silently skipped, so a
+  // reader of the gate output can see the gate was considered and why it did not
+  // apply. The old output field `since` (which held a phase-dir date) is gone;
+  // each entry carries its own `summary_first_committed`.
   const cfg = loadConfig(cwd);
-  const firstCommitDate = phaseDirFirstCommitDate(cwd, phaseDir);
-  const defectClassesRequired = phaseSubjectToDefectClassesGate(firstCommitDate, cfg);
-  const defectClassesExempt = cfg.defect_classes_gate_enabled === true && !defectClassesRequired;
+  const defectClassesEnabled = cfg.defect_classes_gate_enabled === true;
+  const defectSummaries = [];
   for (const planFile of planFiles) {
     const summaryFile = planFile.replace(/-PLAN\.md$/i, '-SUMMARY.md');
     const summary = dirFiles.includes(summaryFile) ? safeReadFile(path.join(phaseDir, summaryFile)) : null;
@@ -7137,7 +7187,15 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles) {
       const found = selfCheck.source === 'self_check' ? selfCheck.status : 'missing';
       errors.push(`${summaryFile} Self-Check is ${found} — must contain "## Self-Check: PASSED"`);
     }
-    if (defectClassesRequired) {
+    const summaryFirstCommitted = summaryFirstCommitInstant(cwd, path.join(phaseDir, summaryFile));
+    const dcRequired = summarySubjectToDefectClassesGate(summaryFirstCommitted, cfg);
+    defectSummaries.push({
+      file: summaryFile,
+      summary_first_committed: summaryFirstCommitted,
+      required: dcRequired,
+      exempt: defectClassesEnabled && !dcRequired,
+    });
+    if (dcRequired) {
       const dc = evaluateDefectClasses(summary);
       if (dc.status !== 'ok') {
         errors.push(
@@ -7148,7 +7206,11 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles) {
               ? 'section must hold 5-column rows or "None found. (reviewed by: <caught_by values>)"'
               : dc.status === 'placeholder'
                 ? 'template placeholder row shipped verbatim — replace it with real entries'
-                : 'a "None found." entry must name the reviews that ran: "None found. (reviewed by: <caught_by values>)"')
+                : dc.status === 'invalid_caught_by'
+                  ? `"None found." names a review that is not a caught_by value: ${(dc.unknown || []).join(', ')} — use one of ${DEFECT_CLASSES_CAUGHT_BY.join(', ')}`
+                  : dc.status === 'empty_cells'
+                    ? `a Defect Classes row has a blank or "-" required cell: | ${(dc.row || []).join(' | ')} | — all five columns (class, instance, caught_by, severity, rule_gap) must carry a value`
+                    : 'a "None found." entry must name the reviews that ran: "None found. (reviewed by: <caught_by values>)"')
         );
       }
     }
@@ -7166,7 +7228,18 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles) {
   } else if (verification.status !== 'passed') {
     errors.push(`${verification.fileName} status is ${verification.status} — must be passed before phase complete`);
   }
-  return { errors, verification, defect_classes: { required: defectClassesRequired, exempt: defectClassesExempt, since: firstCommitDate } };
+  const anyDefectRequired = defectSummaries.some(s => s.required);
+  return {
+    errors,
+    verification,
+    defect_classes: {
+      enabled: defectClassesEnabled,
+      cutoff: typeof cfg.defect_classes_gate_since === 'string' ? cfg.defect_classes_gate_since : null,
+      required: anyDefectRequired,
+      exempt: defectClassesEnabled && !anyDefectRequired,
+      summaries: defectSummaries,
+    },
+  };
 }
 
 function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
@@ -15542,7 +15615,9 @@ module.exports = {
   isTestOrSpecFile,
   evaluateSummarySelfCheck,
   evaluateDefectClasses,
-  phaseSubjectToDefectClassesGate,
+  DEFECT_CLASSES_CAUGHT_BY,
+  summarySubjectToDefectClassesGate,
+  summaryFirstCommitInstant,
   collectPhaseEvidenceErrors,
   planTagGrepPattern,
   isApiFile,

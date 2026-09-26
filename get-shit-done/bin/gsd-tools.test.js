@@ -6,7 +6,7 @@ const { test, describe, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 
 const TOOLS_PATH = path.join(__dirname, 'gsd-tools.js');
 
@@ -15481,7 +15481,11 @@ describe('Phase 62-01: Defect Classes capture + rules distillation wiring (MILE-
       const section = tail.slice(promptIdx, tail.indexOf('## Defect Classes\n', promptIdx) + 2000);
       assert.ok(ctx > promptIdx && tail.slice(ctx, ctx + 200).includes('## Defect Classes'), 'the checker return must declare a Defect Classes block in expected_output');
       assert.ok(section.includes(TABLE_HEADER), 'the checker return must use the 5-column shape');
-      assert.match(section, /\| plan-check\\\|opus-ruling \|/, 'the checker return must fix caught_by to plan-check|opus-ruling');
+      assert.match(section, /\| plan-check \|/, 'the checker return must fix caught_by to plan-check');
+      assert.ok(
+        !section.includes('plan-check\\|opus-ruling'),
+        'the checker return must not offer opus-ruling — the judge block is the only place that value is legal, and a checker row claiming it is a mis-attributed finding'
+      );
     });
 
     test('plan-phase.md routes trio verdict findings to the coordinator', () => {
@@ -15623,7 +15627,9 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
   const REPO_ROOT = path.join(__dirname, '..', '..');
   const {
     evaluateDefectClasses,
-    phaseSubjectToDefectClassesGate,
+    summarySubjectToDefectClassesGate,
+    summaryFirstCommitInstant,
+    DEFECT_CLASSES_CAUGHT_BY,
   } = require('./gsd-tools.js');
 
   const TABLE_HEADER = '| class | instance | caught_by | severity | rule_gap |';
@@ -15685,6 +15691,52 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
         summary: summaryWith('## Defect Classes\n\nNone found. (reviewed by:)'),
         why: 'the reviewed-by suffix is present but names nobody',
       },
+      // The next four are the "which reviews ran" suffix laundering a real
+      // pass through a name that is not a `caught_by` value. A reviewer string
+      // the distillation cannot cluster is indistinguishable from no reviewer,
+      // so these must fail exactly as a bare `None found.` does.
+      {
+        mode: 'invalid_caught_by',
+        summary: summaryWith('## Defect Classes\n\nNone found. (reviewed by: <caught_by values>)'),
+        why: 'the template\'s own literal placeholder shipped as if it named the reviews that ran',
+      },
+      {
+        mode: 'invalid_caught_by',
+        summary: summaryWith('## Defect Classes\n\nNone found. (reviewed by: …)'),
+        why: 'an ellipsis stands in for a reviewer list that was never written',
+      },
+      {
+        mode: 'invalid_caught_by',
+        summary: summaryWith('## Defect Classes\n\nNone found. (reviewed by: nobody)'),
+        why: 'prose, not a caught_by value',
+      },
+      {
+        mode: 'invalid_caught_by',
+        summary: summaryWith('## Defect Classes\n\nNone found. (reviewed by: plan-check, nobody)'),
+        why: 'one real value does not launder a second invalid one',
+      },
+      {
+        mode: 'invalid_caught_by',
+        summary: summaryWith('## Defect Classes\n\nNone found. (reviewed by: <caught_by values>, verifier)'),
+        why: 'the placeholder canaries even when a genuine value is mixed in',
+      },
+      // A row whose required cells are blank records a defect that cannot be
+      // read, clustered, or traced — the row exists, the information does not.
+      {
+        mode: 'empty_cells',
+        summary: summaryWith(`## Defect Classes\n\n${TABLE_HEADER}\n${SEPARATOR}\n|  |  |  |  |  |`),
+        why: 'an all-empty row',
+      },
+      {
+        mode: 'empty_cells',
+        summary: summaryWith(`## Defect Classes\n\n${TABLE_HEADER}\n${SEPARATOR}\n| security read fails open | - | opus-ruling | critical | - |`),
+        why: 'a dash in `instance` and `rule_gap`',
+      },
+      {
+        mode: 'empty_cells',
+        summary: summaryWith(`## Defect Classes\n\n${TABLE_HEADER}\n${SEPARATOR}\n${REAL_ROW}\n| another class | apps/x.ts:1 | verifier | major |  |`),
+        why: 'a blank trailing cell in an otherwise valid second row',
+      },
     ];
 
     for (const c of CANARIES) {
@@ -15707,6 +15759,36 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
       assert.deepStrictEqual(r.reviewers, ['plan-check', 'verifier']);
     });
 
+    test('positive control: EVERY caught_by value is accepted in a None-found entry', () => {
+      for (const value of DEFECT_CLASSES_CAUGHT_BY) {
+        const r = evaluateDefectClasses(summaryWith(`## Defect Classes\n\nNone found. (reviewed by: ${value})`));
+        assert.strictEqual(r.status, 'ok', `'${value}' is a real caught_by value and must pass`);
+        assert.deepStrictEqual(r.reviewers, [value]);
+      }
+      // Guard the canaries above: if the enum shrank to a value none of them
+      // uses, the invalid_caught_by canaries would start passing for free.
+      assert.ok(DEFECT_CLASSES_CAUGHT_BY.includes('opus-ruling'), 'opus-ruling must stay in the enum');
+      assert.strictEqual(DEFECT_CLASSES_CAUGHT_BY.length, 8, 'the enum is a closed set of 8');
+    });
+
+    test('positive control: a case variant of a caught_by value is accepted', () => {
+      const r = evaluateDefectClasses(summaryWith('## Defect Classes\n\nNone found. (reviewed by: Plan-Check)'));
+      assert.strictEqual(r.status, 'ok');
+    });
+
+    test('positive control: a real `rule_gap` value of "none — new rule needed" is not read as an empty cell', () => {
+      const row = '| idempotency key not scoped to the player | apps/api/functions/pay.ts:88 | verifier | critical | none — new rule needed |';
+      const r = evaluateDefectClasses(summaryWith(`## Defect Classes\n\n${TABLE_HEADER}\n${SEPARATOR}\n${row}`));
+      assert.strictEqual(r.status, 'ok', 'the documented no-rule-yet value is a value, not a hole');
+    });
+
+    test('positive control: "other" is a legal caught_by value in a row', () => {
+      const row = '| something odd | apps/x.ts:1 | other | minor | none — new rule needed |';
+      const r = evaluateDefectClasses(summaryWith(`## Defect Classes\n\n${TABLE_HEADER}\n${SEPARATOR}\n${row}`));
+      assert.strictEqual(r.status, 'ok');
+      assert.strictEqual(r.rows, 1);
+    });
+
     test('multiple real rows are all counted', () => {
       const two = `${REAL_ROW}\n| idempotency key not scoped to the player | apps/api/functions/pay.ts:88 | verifier | critical | none — new rule needed |`;
       const r = evaluateDefectClasses(summaryWith(`## Defect Classes\n\n${TABLE_HEADER}\n${SEPARATOR}\n${two}`));
@@ -15721,34 +15803,170 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
     });
   });
 
-  describe('phase-exemption rule (retroactive-failure protection)', () => {
-    const cfg = { defect_classes_gate_enabled: true, defect_classes_gate_since: '2026-09-26' };
+  // The cutoff is 2b99f5b's own author date — the instant the Defect Classes
+  // mechanism shipped. The regression this block exists for: the gate used to
+  // compare the PHASE DIRECTORY's first-commit DAY against a `YYYY-MM-DD`
+  // cutoff, so every summary written on the cutoff's own calendar day was
+  // gated regardless of the hour, and phases 386/387 of the consuming project
+  // failed `phase complete` for a rule that did not exist when they were
+  // written. The decision is now per SUMMARY, at full instant precision.
+  describe('per-SUMMARY exemption rule (retroactive-failure protection)', () => {
+    const cfg = { defect_classes_gate_enabled: true, defect_classes_gate_since: '2026-09-26T22:37:28+02:00' };
 
-    test('a phase created after the cutoff IS gated', () => {
-      assert.strictEqual(phaseSubjectToDefectClassesGate('2026-10-01T10:00:00+00:00', cfg), true);
+    test('the cutoff instant is 2b99f5b author date and the default config carries it verbatim', () => {
+      const { loadConfig } = require('./gsd-tools.js');
+      const loaded = loadConfig(path.join(os.tmpdir(), 'gsd-qgate17-nonexistent-project-2'));
+      assert.strictEqual(loaded.defect_classes_gate_since, '2026-09-26T22:37:28+02:00');
     });
-    test('a phase created before the cutoff is EXEMPT (in-flight v0.1.33 phases)', () => {
-      assert.strictEqual(phaseSubjectToDefectClassesGate('2026-09-25T23:59:59+00:00', cfg), false);
+
+    test('SAME DAY, BEFORE the cutoff hour: EXEMPT (the 386/387 regression)', () => {
+      // 386-05-SUMMARY.md was first added at 22:33:28, four minutes early.
+      assert.strictEqual(summarySubjectToDefectClassesGate('2026-09-26T22:33:28+02:00', cfg), false);
+      // 387-04-SUMMARY.md, six and a half hours early.
+      assert.strictEqual(summarySubjectToDefectClassesGate('2026-09-26T15:01:24+02:00', cfg), false);
     });
-    test('the cutoff date itself is gated (inclusive boundary)', () => {
-      assert.strictEqual(phaseSubjectToDefectClassesGate('2026-09-26T00:00:01+00:00', cfg), true);
+
+    test('SAME DAY, AFTER the cutoff: GATED (387-06, written 34 minutes later)', () => {
+      assert.strictEqual(summarySubjectToDefectClassesGate('2026-09-26T23:11:15+02:00', cfg), true);
     });
-    test('a phase with no commit date is not gated — phase-gate already fails it on commits', () => {
-      assert.strictEqual(phaseSubjectToDefectClassesGate(null, cfg), false);
-      assert.strictEqual(phaseSubjectToDefectClassesGate('', cfg), false);
+
+    test('the cutoff instant itself is gated (inclusive boundary)', () => {
+      assert.strictEqual(summarySubjectToDefectClassesGate('2026-09-26T22:37:28+02:00', cfg), true);
     });
-    test('the master switch off disables the gate entirely', () => {
+
+    test('the comparison is instant-based, not lexicographic — a UTC-offset summary on the same day is judged by its real time', () => {
+      // 20:37Z is 22:37+02:00 — the cutoff. One second earlier is exempt even
+      // though its DATE component sorts after a same-day exempt summary.
+      assert.strictEqual(summarySubjectToDefectClassesGate('2026-09-26T20:37:27+00:00', cfg), false);
+      assert.strictEqual(summarySubjectToDefectClassesGate('2026-09-26T20:37:29+00:00', cfg), true);
+    });
+
+    test('a summary committed days after the cutoff is gated', () => {
+      assert.strictEqual(summarySubjectToDefectClassesGate('2026-10-01T10:00:00+02:00', cfg), true);
+    });
+
+    test('an UNCOMMITTED summary is GATED, not exempt (fail closed)', () => {
+      assert.strictEqual(summarySubjectToDefectClassesGate(null, cfg), true);
+      assert.strictEqual(summarySubjectToDefectClassesGate('', cfg), true);
+      assert.strictEqual(summarySubjectToDefectClassesGate('   ', cfg), true);
+    });
+
+    test('a summary with UNMEASURABLE history is GATED, not exempt (fail closed)', () => {
+      assert.strictEqual(summarySubjectToDefectClassesGate('not-a-date', cfg), true);
+      assert.strictEqual(summarySubjectToDefectClassesGate('2026-13-45T99:00:00+02:00', cfg), true);
+    });
+
+    test('a missing or malformed cutoff GATES rather than silently disabling (fail closed)', () => {
+      assert.strictEqual(summarySubjectToDefectClassesGate('2026-10-01T10:00:00+02:00', { ...cfg, defect_classes_gate_since: null }), true);
+      assert.strictEqual(summarySubjectToDefectClassesGate('2026-10-01T10:00:00+02:00', { ...cfg, defect_classes_gate_since: 'soon' }), true);
+      assert.strictEqual(summarySubjectToDefectClassesGate('2026-10-01T10:00:00+02:00', { ...cfg, defect_classes_gate_since: '2026-09-26' }), true);
+    });
+
+    test('the master switch off is the ONLY opt-out — an explicit decision, not an accident', () => {
       assert.strictEqual(
-        phaseSubjectToDefectClassesGate('2026-10-01T10:00:00+00:00', { ...cfg, defect_classes_gate_enabled: false }),
+        summarySubjectToDefectClassesGate('2026-10-01T10:00:00+02:00', { ...cfg, defect_classes_gate_enabled: false }),
         false
       );
+      assert.strictEqual(
+        summarySubjectToDefectClassesGate(null, { ...cfg, defect_classes_gate_enabled: false }),
+        false,
+        'a disabled gate stays disabled even for an unmeasurable summary'
+      );
     });
-    test('a missing or malformed cutoff disables the gate rather than gating everything', () => {
-      assert.strictEqual(phaseSubjectToDefectClassesGate('2026-10-01T10:00:00+00:00', { ...cfg, defect_classes_gate_since: null }), false);
-      assert.strictEqual(phaseSubjectToDefectClassesGate('2026-10-01T10:00:00+00:00', { ...cfg, defect_classes_gate_since: 'soon' }), false);
+
+    test('a missing config is the disabled case, not a throw', () => {
+      assert.strictEqual(summarySubjectToDefectClassesGate('2026-10-01T10:00:00+02:00', null), false);
+      assert.strictEqual(summarySubjectToDefectClassesGate('2026-10-01T10:00:00+02:00', undefined), false);
     });
-    test('a missing config disables the gate rather than throwing', () => {
-      assert.strictEqual(phaseSubjectToDefectClassesGate('2026-10-01T10:00:00+00:00', null), false);
+  });
+
+  // summaryFirstCommitInstant is what makes the per-SUMMARY rule real, and
+  // `--follow` is what makes it survive the one rename that would otherwise
+  // re-gate an exempt file.
+  describe('summaryFirstCommitInstant measures the file, following renames', () => {
+    function tempRepo() {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-qgate17-git-'));
+      const g = (...args) => execFileSync('git', args, { cwd: tmp, stdio: 'pipe' }).toString().trim();
+      g('init', '-q', '-b', 'main');
+      g('config', 'user.email', 't@t.t');
+      g('config', 'user.name', 't');
+      return { tmp, g };
+    }
+    function commitFile(g, tmp, rel, isoDate) {
+      const abs = path.join(tmp, rel);
+      fs.mkdirSync(path.dirname(abs), { recursive: true });
+      fs.writeFileSync(abs, `# ${rel}\n`);
+      execFileSync('git', ['add', '--', rel], { cwd: tmp, stdio: 'pipe' });
+      const env = { ...process.env, GIT_AUTHOR_DATE: isoDate, GIT_COMMITTER_DATE: isoDate };
+      execFileSync('git', ['commit', '-q', '-m', `add ${rel}`], { cwd: tmp, stdio: 'pipe', env });
+    }
+
+    test('a RENAME keeps the original birth date — a renumbered phase is not re-gated', () => {
+      const { tmp, g } = tempRepo();
+      try {
+        commitFile(g, tmp, '.planning/phases/42-old/42-01-SUMMARY.md', '2026-09-20T10:00:00+02:00');
+        execFileSync('git', ['mv', '.planning/phases/42-old', '.planning/phases/43-new'], { cwd: tmp, stdio: 'pipe' });
+        const env = { ...process.env, GIT_AUTHOR_DATE: '2026-10-05T10:00:00+02:00', GIT_COMMITTER_DATE: '2026-10-05T10:00:00+02:00' };
+        execFileSync('git', ['commit', '-q', '-m', 'renumber'], { cwd: tmp, stdio: 'pipe', env });
+        const cfg = { defect_classes_gate_enabled: true, defect_classes_gate_since: '2026-09-26T22:37:28+02:00' };
+        const moved = summaryFirstCommitInstant(tmp, path.join(tmp, '.planning/phases/43-new/42-01-SUMMARY.md'));
+        assert.strictEqual(moved, '2026-09-20T10:00:00+02:00', '--follow must report the file it was renamed FROM');
+        assert.strictEqual(
+          summarySubjectToDefectClassesGate(moved, cfg),
+          false,
+          'a summary committed before the cutoff and merely renumbered afterwards stays exempt'
+        );
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
+    test('the EARLIEST add commit wins, not the most recent touch', () => {
+      const { tmp, g } = tempRepo();
+      try {
+        commitFile(g, tmp, 'a.md', '2026-09-10T10:00:00+02:00');
+        commitFile(g, tmp, 'b.md', '2026-11-01T10:00:00+02:00');
+        const cfg = { defect_classes_gate_enabled: true, defect_classes_gate_since: '2026-09-26T22:37:28+02:00' };
+        assert.strictEqual(summarySubjectToDefectClassesGate(summaryFirstCommitInstant(tmp, path.join(tmp, 'a.md')), cfg), false);
+        assert.strictEqual(summarySubjectToDefectClassesGate(summaryFirstCommitInstant(tmp, path.join(tmp, 'b.md')), cfg), true);
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
+    test('an UNCOMMITTED summary measures null, which the rule reads as GATED', () => {
+      const { tmp } = tempRepo();
+      try {
+        const cfg = { defect_classes_gate_enabled: true, defect_classes_gate_since: '2026-09-26T22:37:28+02:00' };
+        const untracked = path.join(tmp, 'never-committed.md');
+        fs.writeFileSync(untracked, '# x\n');
+        assert.strictEqual(summaryFirstCommitInstant(tmp, untracked), null);
+        assert.strictEqual(summarySubjectToDefectClassesGate(summaryFirstCommitInstant(tmp, untracked), cfg), true);
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
+    test('a NON-GIT directory measures null, which the rule reads as GATED (commit_docs off / no history)', () => {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-qgate17-nogit-'));
+      try {
+        const f = path.join(tmp, 'a.md');
+        fs.writeFileSync(f, '# x\n');
+        const cfg = { defect_classes_gate_enabled: true, defect_classes_gate_since: '2026-09-26T22:37:28+02:00' };
+        assert.strictEqual(summaryFirstCommitInstant(tmp, f), null);
+        assert.strictEqual(summarySubjectToDefectClassesGate(summaryFirstCommitInstant(tmp, f), cfg), true);
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
+    test('a path outside the project root measures null rather than leaking another repo history', () => {
+      const { tmp } = tempRepo();
+      try {
+        assert.strictEqual(summaryFirstCommitInstant(tmp, path.join(os.tmpdir(), 'elsewhere', 'a.md')), null);
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
     });
   });
 
@@ -15757,26 +15975,42 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
       const { loadConfig } = require('./gsd-tools.js');
       const cfg = loadConfig(path.join(os.tmpdir(), 'gsd-qgate17-nonexistent-project'));
       assert.strictEqual(cfg.defect_classes_gate_enabled, true);
-      assert.strictEqual(cfg.defect_classes_gate_since, '2026-09-26');
+      assert.strictEqual(cfg.defect_classes_gate_since, '2026-09-26T22:37:28+02:00');
     });
 
     test('a project config can override both, flat or nested under quality:', () => {
       const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-qgate17-cfg-'));
       try {
         fs.mkdirSync(path.join(tmp, '.planning'), { recursive: true });
-        fs.writeFileSync(path.join(tmp, '.planning', 'config.json'), JSON.stringify({ quality: { defect_classes_gate_enabled: false } }));
+        fs.writeFileSync(path.join(tmp, '.planning', 'config.json'), JSON.stringify({
+          defect_classes_gate_since: '2030-01-01T00:00:00+00:00',
+          quality: { defect_classes_gate_enabled: false },
+        }));
         const { loadConfig } = require('./gsd-tools.js');
         const cfg = loadConfig(tmp);
-        assert.strictEqual(cfg.defect_classes_gate_enabled, false);
-        assert.strictEqual(cfg.defect_classes_gate_since, '2026-09-26', 'an unset field keeps its default');
+        assert.strictEqual(cfg.defect_classes_gate_enabled, false, 'the quality. override must be honoured');
+        assert.strictEqual(cfg.defect_classes_gate_since, '2030-01-01T00:00:00+00:00', 'the flat override must be honoured');
       } finally {
         fs.rmSync(tmp, { recursive: true, force: true });
+      }
+
+      // The quality.-nested cutoff override, which is the other documented shape.
+      const tmp2 = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-qgate17-cfg2-'));
+      try {
+        fs.mkdirSync(path.join(tmp2, '.planning'), { recursive: true });
+        fs.writeFileSync(path.join(tmp2, '.planning', 'config.json'), JSON.stringify({
+          quality: { defect_classes_gate_since: '2031-06-01T12:00:00+00:00' },
+        }));
+        const { loadConfig } = require('./gsd-tools.js');
+        assert.strictEqual(loadConfig(tmp2).defect_classes_gate_since, '2031-06-01T12:00:00+00:00');
+      } finally {
+        fs.rmSync(tmp2, { recursive: true, force: true });
       }
     });
   });
 
   describe('the gate is wired into the real evidence path', () => {
-    test('collectPhaseEvidenceErrors reports a missing section and an exemption, not silence', () => {
+    test('collectPhaseEvidenceErrors reports a missing section and the per-summary exemption, not silence', () => {
       const { collectPhaseEvidenceErrors } = require('./gsd-tools.js');
       const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-qgate17-evidence-'));
       try {
@@ -15785,14 +16019,75 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
         fs.writeFileSync(path.join(phaseDir, '99-01-PLAN.md'), '---\nphase: 99\nplan: "01"\n---\n');
         fs.writeFileSync(path.join(phaseDir, '99-01-SUMMARY.md'), summaryWith('## Accomplishments\n- x'));
         const dirFiles = fs.readdirSync(phaseDir);
-        // No git history for a temp dir → the gate is exempt, and must SAY so.
+        // No git history for a temp dir → unmeasurable → GATED (fail closed).
         const res = collectPhaseEvidenceErrors(tmp, '99', phaseDir, dirFiles);
         assert.ok(res.defect_classes, 'evidence must carry a defect_classes verdict');
-        assert.strictEqual(res.defect_classes.required, false);
+        assert.strictEqual(res.defect_classes.required, true, 'an unmeasurable summary is gated, not exempt');
+        assert.strictEqual(res.defect_classes.summaries.length, 1);
+        assert.strictEqual(res.defect_classes.summaries[0].file, '99-01-SUMMARY.md');
+        assert.strictEqual(res.defect_classes.summaries[0].summary_first_committed, null);
         assert.ok(
-          res.errors.every(e => !e.includes('Defect Classes')),
-          `an exempt phase must not report a Defect Classes error, got: ${JSON.stringify(res.errors)}`
+          res.errors.some(e => e.includes('99-01-SUMMARY.md Defect Classes is missing')),
+          `a gated summary with no section must be reported, got: ${JSON.stringify(res.errors)}`
         );
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
+    test('the output field is summary_first_committed, not the misleading phase-dir "since"', () => {
+      const { collectPhaseEvidenceErrors } = require('./gsd-tools.js');
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-qgate17-evidence2-'));
+      try {
+        const phaseDir = path.join(tmp, '.planning', 'phases', '99-test');
+        fs.mkdirSync(phaseDir, { recursive: true });
+        fs.writeFileSync(path.join(phaseDir, '99-01-PLAN.md'), '---\nphase: 99\nplan: "01"\n---\n');
+        fs.writeFileSync(path.join(phaseDir, '99-01-SUMMARY.md'), summaryWith('## Accomplishments\n- x'));
+        const dc = collectPhaseEvidenceErrors(tmp, '99', phaseDir, fs.readdirSync(phaseDir)).defect_classes;
+        assert.ok(!('since' in dc), 'the old `since` field held a PHASE-DIR date; it must be gone');
+        assert.ok('summary_first_committed' in dc.summaries[0], 'each summary carries its own first-committed instant');
+        assert.strictEqual(dc.cutoff, '2026-09-26T22:37:28+02:00', 'the config cutoff is reported verbatim');
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
+    test('the gate is decided PER SUMMARY — a phase dir old enough to exempt some plans still gates its new ones', () => {
+      const { collectPhaseEvidenceErrors } = require('./gsd-tools.js');
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-qgate17-mixed-'));
+      try {
+        const g = (...args) => execFileSync('git', args, { cwd: tmp, stdio: 'pipe' }).toString().trim();
+        g('init', '-q', '-b', 'main');
+        g('config', 'user.email', 't@t.t');
+        g('config', 'user.name', 't');
+        const phaseDir = path.join(tmp, '.planning', 'phases', '99-mixed');
+        fs.mkdirSync(phaseDir, { recursive: true });
+        for (const p of ['01', '02']) {
+          fs.writeFileSync(path.join(phaseDir, `99-${p}-PLAN.md`), `---\nphase: 99\nplan: "${p}"\n---\n`);
+        }
+        const withSection = summaryWith(`## Defect Classes\n\n${TABLE_HEADER}\n${SEPARATOR}\n${REAL_ROW}`);
+        const withoutSection = summaryWith('## Accomplishments\n- x');
+        // Plan 01 is written before the cutoff and is complete; plan 02 is
+        // written after the cutoff and has no Defect Classes section.
+        for (const [name, body, iso] of [
+          ['99-01-SUMMARY.md', withSection, '2026-09-26T20:00:00+02:00'],
+          ['99-02-SUMMARY.md', withoutSection, '2026-09-27T09:00:00+02:00'],
+        ]) {
+          fs.writeFileSync(path.join(phaseDir, name), body);
+          execFileSync('git', ['add', '--', `.planning/phases/99-mixed/${name}`], { cwd: tmp, stdio: 'pipe' });
+          const env = { ...process.env, GIT_AUTHOR_DATE: iso, GIT_COMMITTER_DATE: iso };
+          execFileSync('git', ['commit', '-q', '-m', `add ${name}`], { cwd: tmp, stdio: 'pipe', env });
+        }
+        const res = collectPhaseEvidenceErrors(tmp, '99', phaseDir, fs.readdirSync(phaseDir));
+        const byFile = Object.fromEntries(res.defect_classes.summaries.map(s => [s.file, s]));
+        assert.strictEqual(byFile['99-01-SUMMARY.md'].required, false, 'the pre-cutoff summary is exempt');
+        assert.strictEqual(byFile['99-01-SUMMARY.md'].exempt, true);
+        assert.strictEqual(byFile['99-02-SUMMARY.md'].required, true, 'the post-cutoff summary is gated');
+        assert.strictEqual(byFile['99-02-SUMMARY.md'].summary_first_committed, '2026-09-27T09:00:00+02:00');
+        assert.strictEqual(res.defect_classes.required, true, 'one gated summary makes the phase gated');
+        const dcErrors = res.errors.filter(e => e.includes('Defect Classes'));
+        assert.strictEqual(dcErrors.length, 1, `only the gated summary may be reported, got: ${JSON.stringify(dcErrors)}`);
+        assert.ok(dcErrors[0].startsWith('99-02-SUMMARY.md'), dcErrors[0]);
       } finally {
         fs.rmSync(tmp, { recursive: true, force: true });
       }
@@ -15893,13 +16188,26 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
       assert.ok(rdc < vpg, 'record_defect_classes must run before verify_phase_goal');
     });
 
-    test('the verifier path commits SUMMARY.md on BOTH passed and gaps_found', () => {
+    test('the verifier path commits SUMMARY.md on BOTH passed and gaps_found, AFTER the dispatch and the status routing', () => {
       const raw = readRepoFile('get-shit-done/workflows/execute-phase.md');
       const start = raw.indexOf('<step name="verify_phase_goal">');
       const step = raw.slice(start, raw.indexOf('<step name="update_roadmap">'));
       assert.match(step, /\{phase_dir\}\/\*-SUMMARY\.md/, 'the verifier path must commit the summaries');
       assert.match(step, /BOTH/, 'the commit must be unconditional across both status paths');
-      assert.match(step, /Runs AFTER `record_defect_classes`/, 'the ordering must be stated');
+      // Ordering is the load-bearing part: the verifier's Step 6d ADDS the rows,
+      // so a commit placed before the dispatch captures the coordinator's rows a
+      // second time and misses the verifier's entirely.
+      const dispatch = step.indexOf('Agent(');
+      const commit = step.indexOf('record verifier defect classes in plan summaries');
+      const statusTable = step.indexOf('| `gaps_found` |');
+      assert.ok(dispatch > -1 && commit > -1 && statusTable > -1,
+        `all three landmarks must exist (dispatch=${dispatch} commit=${commit} statusTable=${statusTable})`);
+      assert.ok(commit > dispatch,
+        'the verifier-rows commit must come AFTER the Agent(...) dispatch — the dispatch is what writes the rows');
+      assert.ok(commit > statusTable,
+        'the verifier-rows commit must come AFTER the passed/gaps_found status routing');
+      assert.match(step, /AFTER the dispatch and AFTER the status routing/,
+        'the ordering constraint must be stated in the workflow, not left implicit in the recipe');
     });
 
     test('the coordinator detail reference mirrors the Charlotte + verifier dispatch suffixes', () => {
@@ -15953,6 +16261,247 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
       }
       assert.ok(readRepoFile('agents/gsd-executor.md').includes('opus-ruling'), 'the executor must name opus-ruling');
       assert.ok(readRepoFile('agents/gsd-plan-judge.md').includes('opus-ruling'), 'the judge must record caught_by: opus-ruling');
+    });
+  });
+
+  // Review round 2 (Opus): the distillation's COMMIT recipe and its SCOPE CHECK
+  // were both prose. The recipe omitted `git add`, so a brand-new report file
+  // and a brand-new rules file were left uncommitted while git printed a normal
+  // success line; the scope check used `git diff --name-only`, which cannot see
+  // an untracked file at all — i.e. it was blind to exactly the two things the
+  // author is most likely to create. These tests EXECUTE the recipe.
+  describe('the distillation commit recipe and scope check are executable, not prose (Opus review round 2)', () => {
+    function readRepoFile(rel) {
+      return fs.readFileSync(path.join(REPO_ROOT, rel), 'utf-8');
+    }
+
+    function tempRepo() {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-step7-'));
+      const g = (...args) => execFileSync('git', args, { cwd: tmp, stdio: 'pipe' }).toString().trim();
+      g('init', '-q', '-b', 'main');
+      g('config', 'user.email', 't@t.t');
+      g('config', 'user.name', 't');
+      return { tmp, g };
+    }
+
+    test('the exact Step 7 commit recipe commits a NEW report and a NEW rules file, exit 0', () => {
+      const { tmp, g } = tempRepo();
+      try {
+        // A pre-existing rules file, so the path list spans existing + new.
+        fs.mkdirSync(path.join(tmp, '.claude', 'rules'), { recursive: true });
+        fs.mkdirSync(path.join(tmp, '.planning'), { recursive: true });
+        fs.writeFileSync(path.join(tmp, '.claude', 'rules', 'existing.md'), '---\npaths: ["src/**"]\n---\n\nold\n');
+        fs.writeFileSync(path.join(tmp, 'CLAUDE.md'), '# Project\n');
+        g('add', '-A');
+        g('commit', '-q', '-m', 'base');
+
+        // The author's output: a NEW rules file and a NEW report, both untracked.
+        fs.writeFileSync(path.join(tmp, '.claude', 'rules', 'new-rule.md'), '---\npaths: ["apps/**"]\n---\n\nbe careful\n');
+        fs.writeFileSync(path.join(tmp, '.planning', 'v9.9-RULES-DISTILL.md'), '# Distill\n\n| class | decision |\n|---|---|\n| x | new |\n');
+
+        // THE RECIPE, verbatim from audit-milestone.md. The `git add --` line is
+        // the fix: without it `git commit -- <paths>` commits nothing new.
+        const add = execFileSync('git', ['add', '--', '.claude/rules/', 'CLAUDE.md', '.planning/v9.9-RULES-DISTILL.md'],
+          { cwd: tmp, stdio: 'pipe' });
+        const commit = execFileSync(
+          'git',
+          ['commit', '-m', 'docs(9.9): distil defect classes into project rules', '--',
+            '.claude/rules/', 'CLAUDE.md', '.planning/v9.9-RULES-DISTILL.md'],
+          { cwd: tmp, stdio: 'pipe' }
+        );
+        void add;
+        assert.ok(commit.toString().length > 0, 'the recipe must exit 0 with output');
+
+        // Both NEW files must be IN the commit, not merely present in the tree.
+        const inCommit = g('show', '--name-only', '--format=', 'HEAD').split('\n').map(s => s.trim());
+        assert.ok(inCommit.includes('.planning/v9.9-RULES-DISTILL.md'),
+          `the new report must be committed — without the git add it is silently dropped. Committed: ${JSON.stringify(inCommit)}`);
+        assert.ok(inCommit.includes('.claude/rules/new-rule.md'),
+          `the new rules file must be committed. Committed: ${JSON.stringify(inCommit)}`);
+        assert.strictEqual(g('status', '--porcelain'), '', 'the recipe must leave a clean tree');
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
+    // Two distinct failure modes of the old recipe, both measured on this git
+    // (2.39.1) rather than assumed:
+    //   (a) a FILE pathspec that is untracked -> git hard-errors, exit 1;
+    //   (b) a DIRECTORY pathspec (`.claude/rules/`) that CONTAINS an untracked
+    //       new file -> git commits the modified tracked files, exits 0, and
+    //       leaves the new file behind with no warning at all.
+    // (b) is the one that actually loses a new rules file, and it is the shape
+    // the Step 7 recipe uses. `git add --` before the commit closes both.
+    test('WITHOUT the git add, a new rules file is silently left uncommitted at exit 0 — the add is load-bearing', () => {
+      const { tmp, g } = tempRepo();
+      try {
+        fs.mkdirSync(path.join(tmp, '.claude', 'rules'), { recursive: true });
+        fs.writeFileSync(path.join(tmp, '.claude', 'rules', 'existing.md'), 'old\n');
+        g('add', '-A');
+        g('commit', '-q', '-m', 'base');
+
+        // The author's output: an edit to an existing rule PLUS a brand-new one.
+        fs.writeFileSync(path.join(tmp, '.claude', 'rules', 'existing.md'), 'edited\n');
+        fs.writeFileSync(path.join(tmp, '.claude', 'rules', 'new-rule.md'), 'x\n');
+
+        // The OLD recipe, verbatim minus the `git add --`.
+        execFileSync('git', ['commit', '-m', 'docs(9.9): distil', '--', '.claude/rules/'], { cwd: tmp, stdio: 'pipe' });
+
+        const inCommit = g('show', '--name-only', '--format=', 'HEAD').split('\n').map(s => s.trim());
+        assert.ok(inCommit.includes('.claude/rules/existing.md'),
+          'the pre-existing rules edit IS committed — which is exactly why the data loss passes unnoticed');
+        assert.ok(!inCommit.includes('.claude/rules/new-rule.md'),
+          'the new rules file is silently dropped while git exits 0');
+        assert.ok(g('status', '--porcelain').includes('new-rule.md'),
+          'the new rules file is still sitting uncommitted in the tree');
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
+    test('WITHOUT the git add, an untracked report FILE pathspec makes git hard-error (exit 1)', () => {
+      const { tmp, g } = tempRepo();
+      try {
+        fs.mkdirSync(path.join(tmp, '.claude', 'rules'), { recursive: true });
+        fs.mkdirSync(path.join(tmp, '.planning'), { recursive: true });
+        fs.writeFileSync(path.join(tmp, '.claude', 'rules', 'existing.md'), 'old\n');
+        g('add', '-A');
+        g('commit', '-q', '-m', 'base');
+        fs.writeFileSync(path.join(tmp, '.claude', 'rules', 'existing.md'), 'edited\n');
+        fs.writeFileSync(path.join(tmp, '.planning', 'v9.9-RULES-DISTILL.md'), '# Distill\n');
+
+        let exitCode = 0;
+        try {
+          execFileSync('git', ['commit', '-m', 'docs(9.9): distil', '--', '.claude/rules/', '.planning/v9.9-RULES-DISTILL.md'],
+            { cwd: tmp, stdio: 'pipe' });
+        } catch (e) {
+          exitCode = e.status;
+        }
+        assert.strictEqual(exitCode, 1, 'git rejects an untracked file pathspec — so the report is loud, not silent');
+        assert.strictEqual(g('status', '--porcelain').includes('existing.md'), true,
+          'the whole commit is refused, so the edited rules file is not half-committed either');
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
+    test('the scope check catches an UNTRACKED new rules file that `git diff --name-only` cannot see', () => {
+      const { tmp, g } = tempRepo();
+      try {
+        fs.writeFileSync(path.join(tmp, 'CLAUDE.md'), '# Project\n');
+        g('add', '-A');
+        g('commit', '-q', '-m', 'base');
+
+        // Snapshot BEFORE the author dispatch — the clean tree it starts from.
+        const before = new Set(g('status', '--porcelain').split('\n').filter(Boolean));
+
+        // Drift: a file OUTSIDE the write scope, brand new and untracked.
+        fs.mkdirSync(path.join(tmp, '.claude', 'rules'), { recursive: true });
+        fs.mkdirSync(path.join(tmp, 'src'), { recursive: true });
+        fs.writeFileSync(path.join(tmp, 'src', 'sneaky.ts'), 'x\n');
+
+        const oldCheck = g('diff', '--name-only');               // the old recipe
+        assert.strictEqual(oldCheck, '', 'git diff --name-only is blind to the untracked drift — this is the bug');
+
+        const after = g('status', '--porcelain').split('\n').filter(Boolean);
+        const changed = after.filter(l => !before.has(l));
+        // Plain porcelain collapses an untracked directory to `?? src/`; the
+        // recipe must still catch it. `-uall` names the file, so assert on both
+        // shapes — collapsing is a display convenience, not a detection gap.
+        assert.ok(changed.some(l => l.includes('src')),
+          `the porcelain set-difference is what actually catches the drift, got: ${JSON.stringify(changed)}`);
+        const afterUall = g('status', '--porcelain', '-uall').split('\n').filter(Boolean);
+        assert.ok(afterUall.filter(l => !before.has(l)).some(l => l.includes('src/sneaky.ts')),
+          '-uall names the exact untracked file');
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
+    test('the porcelain set-difference does NOT blame a pre-existing dirty path on the author', () => {
+      const { tmp, g } = tempRepo();
+      try {
+        fs.writeFileSync(path.join(tmp, 'CLAUDE.md'), '# Project\n');
+        fs.writeFileSync(path.join(tmp, 'pre-existing.md'), '# already dirty\n');
+        g('add', '-A');
+        g('commit', '-q', '-m', 'base');
+        // The tree was ALREADY dirty before the author dispatch.
+        fs.writeFileSync(path.join(tmp, 'pre-existing.md'), '# already dirty, edited further\n');
+
+        const before = new Set(g('status', '--porcelain').split('\n').filter(Boolean));
+        fs.writeFileSync(path.join(tmp, 'author-new.md'), '# by the author\n');
+        const after = g('status', '--porcelain').split('\n').filter(Boolean);
+        const changed = after.filter(l => !before.has(l));
+        assert.ok(changed.some(l => l.includes('author-new.md')), 'the author\'s own new path is still caught');
+        assert.ok(!changed.some(l => l.includes('pre-existing.md')),
+          'a path dirty BEFORE the dispatch must not be attributed to the author');
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
+    test('git add -N makes an untracked file visible to the reviewing diff', () => {
+      const { tmp, g } = tempRepo();
+      try {
+        fs.writeFileSync(path.join(tmp, 'CLAUDE.md'), '# Project\n');
+        g('add', '-A');
+        g('commit', '-q', '-m', 'base');
+        fs.mkdirSync(path.join(tmp, '.planning'), { recursive: true });
+        fs.writeFileSync(path.join(tmp, '.planning', 'v9.9-RULES-DISTILL.md'), '# Distill\n\n| class |\n');
+        assert.strictEqual(g('diff', '--name-only'), '', 'no diff without intent-to-add');
+        g('add', '-N', '--', '.planning/v9.9-RULES-DISTILL.md');
+        assert.ok(g('diff', '--name-only').includes('v9.9-RULES-DISTILL.md'),
+          'git add -N must make the new file reviewable — otherwise the reviewer reviews nothing');
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
+    test('audit-milestone.md states all four scope-check obligations', () => {
+      const raw = readRepoFile('get-shit-done/workflows/audit-milestone.md');
+      assert.match(raw, /git rev-parse HEAD/, 'HEAD must be snapshotted before the dispatch');
+      assert.match(raw, /status-after` MINUS `status-before/, 'the changed set must be the porcelain set-difference');
+      assert.match(raw, /HEAD` to be\s+unchanged/, 'a commit by the author is a breach');
+      assert.match(raw, /git add -N/, 'new files must be made visible to the reviewer');
+      assert.match(raw, /paths:` key/, 'the orchestrator verifies paths: frontmatter on a new rules file');
+      assert.match(raw, /Domain Rules table has a row/, 'the orchestrator verifies the CLAUDE.md Domain Rules row');
+    });
+
+    test('the deferred-items read is scoped to {phase_dirs}, not a phases/* wildcard', () => {
+      const raw = readRepoFile('get-shit-done/workflows/audit-milestone.md');
+      const start = raw.indexOf('<rules_distill_prompt>');
+      const prompt = raw.slice(start, raw.indexOf('</rules_distill_prompt>'));
+      assert.ok(!prompt.includes('`.planning/phases/*/deferred-items.md` —'),
+        'the author prompt must not instruct a phases/* wildcard read of deferred items');
+      assert.match(prompt, /\{phase_dirs\}/,
+        'the author prompt must scope deferred items to the milestone\'s resolved phase dirs');
+      assert.match(prompt, /Never glob `\.planning\/quick\/\*\/`/,
+        'the author prompt must not assume every quick dir is this milestone\'s');
+    });
+
+    test('the milestone\'s quick dirs are defined concretely and consistently in the collection step', () => {
+      const raw = readRepoFile('get-shit-done/workflows/audit-milestone.md');
+      assert.match(raw, /The milestone's quick dirs\*\* = the directories under `\.planning\/quick\/`/,
+        'the collection step must define the term once');
+      assert.match(raw, /previous milestone's release tag/,
+        'the definition must be concrete (previous tag), not a bare glob');
+      assert.match(raw, /PREV_TAG=\$\(git tag -l/, 'the definition must be resolvable by a command');
+      // The author prompt and the collection step must use the SAME set.
+      const start = raw.indexOf('<rules_distill_prompt>');
+      const prompt = raw.slice(start, raw.indexOf('</rules_distill_prompt>'));
+      assert.match(prompt, /as DEFINED in the collection step above/,
+        'the author prompt must point at the one definition rather than restating a second one');
+    });
+
+    test('plan-phase.md commits {N}-PLAN-CHECK.md path-scoped after each append', () => {
+      const raw = readRepoFile('get-shit-done/workflows/plan-phase.md');
+      const start = raw.indexOf('## 11. Handle Checker Return');
+      assert.ok(start > -1, 'step 11 must exist');
+      const section = raw.slice(start, raw.indexOf('## 12.', start));
+      assert.match(section, /git add -- "\$F" && git commit -m [^\n]*-- "\$F"/,
+        'the PLAN-CHECK file must be added AND committed, path-scoped, in one recipe');
+      assert.match(section, /commits\s+only what is already staged/,
+        'the reason the add is required must be stated where the recipe is');
     });
   });
 });
