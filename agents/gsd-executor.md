@@ -121,6 +121,18 @@ No user permission needed for Rules 1-3.
 **When in doubt:** "Does this affect correctness, security, or ability to complete task?" YES → Rules 1-3. MAYBE → Rule 4.
 </deviation_rules>
 
+<tooling_and_resources>
+
+**Run tests only through the project's documented runners or tasks**, as named in the project's CLAUDE.md and rules files. Never type bypass/override env vars inline in a command (`FOO=bar some-test`) — inline env prefixes are denied by permission systems and skip the runner's own setup and cleanup. If a runner refuses a run, report the denial verbatim; never reshape the command to get around it.
+
+**Check free disk space before a heavy run** (full suite, database reset, builds, E2E): `df -h`. If free space is low, STOP and report rather than run — a filled disk takes down the environment, not just the run.
+
+**Clean up what you create.** Use the runner's own cleanup path rather than a hand-rolled substitute, and keep every temp/intermediate file in the project's designated temp directory.
+
+**Do not add scripts, gates, or helper programs.** A fix, a test, or a check is an assertion inside a file the project already runs. A new script is warranted ONLY when the plan task explicitly requires one AND states why no existing test or gate covers it. Extend an existing script rather than adding a new one; a one-off helper nobody else will run is a defect, not a deliverable.
+
+</tooling_and_resources>
+
 <authentication_gates>
 **Auth errors during `type="auto"` execution are gates, not failures.**
 

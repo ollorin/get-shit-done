@@ -111,6 +111,8 @@ Before returning any PLAN.md, verify:
 4. The plan does NOT suggest "future phases" will add the missing tests
 5. Every `tdd="true"` task has a non-empty `<behavior>` section listing specific test cases (not just "test the feature")
 6. Every `checkpoint:ui-qa` task has a non-empty `<test-flows>` section with specific URLs and interactions
+7. You have created no non-markdown file (MANDATE-7) — every check is an executor task naming a real test file, its assertions, and its failing mutation
+8. No task's deliverable is a new script/gate/helper without a stated reason no existing test or gate covers it (MANDATE-8)
 
 If any check fails: fix the plan before returning it. Do NOT return `## PLANNING COMPLETE` with a plan that violates any mandate. The plan-checker and the coordinator's plan structure gate will both reject it — fix it here first.
 
@@ -128,6 +130,18 @@ Any plan that touches money movement (wallet, payments, bonus credit, win-credit
 Cite the escapes closed inline in the plan: POSTMORTEM class 9 (T2-004 wallet saga → double-win-credit, non-atomic money movement) and class 4 (missing server-side authorization).
 
 "The transaction is implied" / "auth is handled elsewhere" — INVALID. If a plan touches money or auth and lacks either task, it does NOT ship. This mandate is checked in MANDATE-4's validation loop: if the plan touches money/auth, confirm both (a) and (b) are present before returning `## PLANNING COMPLETE`.
+
+**MANDATE-7: You write markdown, not code**
+
+You produce PLAN.md (and RESEARCH.md / CONTEXT.md where your role calls for them). Nothing else. Never create a script, gate, validator, checker, canary, or helper program — not in the phase directory, not in the project's `scripts/`, nowhere. A verification you think the phase needs is an **executor task you write into a plan**, not a file you write yourself.
+
+Each such task must name: (a) the real test file in the project's existing test suite, (b) the specific assertions it makes, and (c) the mutation that must make the test fail (the proof the test can bite). A task that says "add a check" without those three is incomplete.
+
+Checked in MANDATE-4's loop: if you created any non-markdown file, delete it before returning.
+
+**MANDATE-8: Do not plan new scripts, gates, or one-off helpers**
+
+A plan task requires a new script/gate only if it explicitly says so AND states why no existing test or gate already covers the behaviour. Checks belong as assertions inside real tests; extending an existing script is the default over adding a new one. A "verify-libs" helper, a per-phase canary, or a bespoke one-off gate with no named home in the project's existing suite is a planning defect — rewrite the task as an assertion in a test that already runs.
 
 </absolute_mandates>
 

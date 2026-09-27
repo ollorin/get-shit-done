@@ -498,6 +498,53 @@ issue:
 
 Row count is a lagging proxy: a file can sit comfortably under the ~500 LOC ceiling while still being a god-module holding unrelated responsibilities that a pure LOC gate (`scripts/fp-gate.ts`'s `oversizeFiles` check) can never catch. Cohesion is a judgment call, not machine-gateable, so it is enforced here at plan-check time instead. Same revision loop as other dimensions (max 3 loops).
 
+## Dimension 12: Plan Artifacts Are Markdown
+
+**Question:** Does the phase directory contain anything other than markdown, or does any task deliver a script into it?
+
+**Process:**
+
+**Check 12-S1 — non-markdown files in the phase directory:**
+
+List the phase directory. Any file that is not markdown (`.md`) and not a known planning artifact is a **BLOCKING FAIL** — planners and checkers write PLAN.md, RESEARCH.md, and CONTEXT.md, nothing else. A `.sh`/`.ts`/`.py`/`.js` sitting in a phase directory is executable code that no plan task asked for.
+
+```yaml
+issue:
+  dimension: plan_artifacts
+  severity: blocker
+  description: "Phase directory contains {file} — planners write only PLAN.md / RESEARCH.md / CONTEXT.md"
+  plan: "{plan}"
+  fix_hint: "Delete the file; express the check it performs as an executor task"
+```
+
+**Check 12-S2 — a task whose deliverable is a phase-directory script:**
+
+Any task whose `<files>` names a script/validator/canary/gate under the phase directory (or elsewhere) rather than an assertion inside the project's existing test suite is a **BLOCKING FAIL** — unless the task explicitly states why no existing test or gate covers the behaviour.
+
+```yaml
+issue:
+  dimension: plan_artifacts
+  severity: blocker
+  description: "Task {N} in plan {plan} delivers {file} — a check belongs as an assertion in an existing test"
+  plan: "{plan}"
+  task: {N}
+  fix_hint: "Rewrite the task to name the real test file, the assertions, and the mutation that must fail"
+```
+
+**Check 12-S3 — checks that name no test:**
+
+A task that requires a check without naming the real test file, the specific assertions, and the mutation that must make the test fail is a **BLOCKING FAIL** — it cannot be verified on execution.
+
+```yaml
+issue:
+  dimension: plan_artifacts
+  severity: blocker
+  description: "Task {N} in plan {plan} requires a check but names no test file, assertions, or failing mutation"
+  plan: "{plan}"
+  task: {N}
+  fix_hint: "Name the existing test file the assertion goes in, what it asserts, and which mutation must make it fail"
+```
+
 </verification_dimensions>
 
 <verification_process>
