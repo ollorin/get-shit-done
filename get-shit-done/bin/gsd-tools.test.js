@@ -16119,13 +16119,15 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
       }
     });
 
-    // `git log` orders TOPOLOGICALLY (a parent is always emitted after its
-    // children) and only breaks ties by commit date — it is NOT a strict sort by
-    // `%ct`, which has 1-second granularity. So `reverse()` and
-    // `events.sort((a, b) => a.ms - b.ms)` DISAGREE whenever an add and a later
-    // removal of the same path share a sort key, and the old sort was the wrong
-    // one: a stable sort is a no-op on equal keys, so it left those events in
-    // newest-first order and replayed them backwards.
+    // The DEFAULT `git log` order is reverse CHRONOLOGICAL, not topological — a
+    // skewed child sorts ahead of its parent. `--topo-order` (asserted in its own
+    // test below) makes git emit a parent only after all of its children, so the
+    // array reaches the replay in causal, newest-first order and `reverse()`
+    // restores oldest-first. `reverse()` and
+    // `events.sort((a, b) => a.ms - b.ms)` therefore DISAGREE whenever an add and
+    // a later removal of the same path share a sort key, and the old sort was the
+    // wrong one: a stable sort is a no-op on equal keys, so it left those events
+    // in git's newest-first order and replayed them backwards.
     describe('reverse() beats sorting by ms when the two disagree', () => {
       // The path is added by a parent commit and removed by the child commit,
       // both before the cutoff, so its real state at the cutoff is GONE.
@@ -16187,6 +16189,71 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
         assert.match(body, /events\.reverse\(\)/, 'the timeline must be replayed with reverse()');
         assert.ok(!/events\.sort\(/.test(body),
           'a sort by ms reorders the timeline by wall clock instead of by history order');
+      });
+
+      // Item: the default `git log` order is reverse CHRONOLOGICAL, so a skewed
+      // child sorts ahead of its own parent. `--topo-order` is what prevents the
+      // replay from walking a child before its parent.
+      //
+      // HONEST SCOPE, measured rather than assumed: on the exact topology below
+      // (X@1000, children B1@500 and A1@2000, merged at M@3000) the two orders
+      // DO differ over the whole history —
+      //   default      M(3000) A1(2000) X(1000) B1(500)   <- parent X before child B1
+      //   --topo-order M(3000) B1(500) A1(2000) X(1000)
+      // but once a `-- <path>` pathspec is applied git's history simplification
+      // walks the path's own history, and the per-path event order came out
+      // IDENTICAL with and without the flag in every shape probed (plain skewed
+      // child, the reviewer's merge, all-three-touch, skew-on-main, three
+      // generations, edit/remove-across-a-merge). So this test pins the FLAG —
+      // removing `--topo-order` from the execGit call turns it red — and the
+      // value of the flag is that it makes the causal order a guarantee rather
+      // than an incidental property of history simplification. It is not a
+      // demonstrated behaviour change on the per-path output, and this comment
+      // says so rather than implying otherwise.
+      test('the git log call carries --topo-order, and it is load-bearing on a skewed merge', () => {
+        const src = fs.readFileSync(TOOLS_PATH, 'utf8');
+        const fnAt = src.indexOf('function summaryExemptionFacts');
+        const body = src.slice(fnAt, src.indexOf('\nfunction ', fnAt + 10))
+          .split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
+        assert.match(body, /'--topo-order'/,
+          'git log must be asked for topological order — the default is reverse ' +
+          'chronological, which lists a skewed parent ahead of its own child');
+
+        // Build the topology and MEASURE that the flag changes the commit order,
+        // so the assertion above is anchored to a real behaviour rather than to
+        // the flag's name.
+        const { tmp, g } = tempRepo();
+        try {
+          const C = (iso, msg) => execFileSync('git', ['commit', '-q', '--allow-empty', '-m', msg], {
+            cwd: tmp, stdio: 'pipe',
+            env: { ...process.env, GIT_AUTHOR_DATE: iso, GIT_COMMITTER_DATE: iso },
+          });
+          const A = '1970-01-01T00:16:40+0000'; // t=1000, the parent
+          const B = '1970-01-01T00:08:20+0000'; // t=500,  a skewed child
+          const D = '1970-01-01T00:33:20+0000'; // t=2000, the other child
+          const M = '1970-01-01T00:50:00+0000'; // t=3000, the merge
+          C(A, 'X');
+          g('checkout', '-q', '-b', 'b1'); C(B, 'B1');
+          g('checkout', '-q', 'main');  C(D, 'A1');
+          execFileSync('git', ['merge', '-q', '--no-commit', '--no-ff', 'b1'], { cwd: tmp, stdio: 'pipe' });
+          C(M, 'M');
+
+          const order = (...extra) => execFileSync('git', ['log', ...extra, '--format=%s'],
+            { cwd: tmp, encoding: 'utf8' }).trim().split('\n');
+          const defaultOrder = order();
+          const topoOrder = order('--topo-order');
+          // X is the PARENT of B1. A topological listing never shows a parent
+          // before all of its children.
+          assert.ok(defaultOrder.indexOf('X') < defaultOrder.indexOf('B1'),
+            `the default (chronological) order is expected to list the parent X before its ` +
+            `child B1, otherwise this fixture is not testing the skew: ${defaultOrder.join(' > ')}`);
+          assert.ok(topoOrder.indexOf('X') > topoOrder.indexOf('B1'),
+            `--topo-order must list the child B1 before its parent X, got: ${topoOrder.join(' > ')}`);
+          assert.notDeepStrictEqual(topoOrder, defaultOrder,
+            'the flag must actually change the order on this topology');
+        } finally {
+          fs.rmSync(tmp, { recursive: true, force: true });
+        }
       });
     });
   });
@@ -16734,9 +16801,10 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
       const RECIPE = [
         'set -euo pipefail',
         'shopt -s nullglob',
+        'cd "$(git rev-parse --show-toplevel)"',
         'for d in .planning/quick/*/; do',
         '  log=$(git log --reverse --diff-filter=A --format=%at -- "$d")',
-        '  first_at=$(printf \'%s\' "$log" | head -1)',
+        '  first_at=${log%%$\'\\n\'*}',
         '  [ -n "$first_at" ] || continue',
         '  if [ "$first_at" -ge "$CUTOFF_AT" ]; then',
         '    echo "$d"',
@@ -16806,6 +16874,135 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
           .split('\n').map(s => s.trim()).filter(Boolean);
         assert.deepStrictEqual(futureOut, ['.planning/quick/3-after/'],
           'pushing the cutoff forward must drop the at-the-tag dir — the comparison is live');
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
+    // Item: the trim must not be a pipeline. `printf '%s' "$log" | head -1` is
+    // still a pipe, and once `$log` passes the 64 KB pipe buffer `printf` can
+    // take SIGPIPE from `head` — the same class of bug as the original
+    // `git log | head -1`, one step downstream. `${log%%$'\n'*}` is a pure
+    // parameter expansion. macOS still ships bash 3.2 as /bin/bash, and the two
+    // versions disagree about SIGPIPE in a subshell, so the test pins BOTH:
+    // same answer, exit 0, on a quick dir with a genuinely large log.
+    test('a >40 KB $log is trimmed by parameter expansion, not a pipe — under bash 3.2 and bash 5', () => {
+      const block = extractSweepBlock(readRepoFile('get-shit-done/workflows/audit-milestone.md'));
+      assert.ok(block.includes("first_at=${log%%$'\\n'*}"),
+        'the trim must be a pure parameter expansion — a pipe here can SIGPIPE `printf`');
+      assert.ok(!/first_at=\$\(printf/.test(block),
+        'the printf-into-head form is the pipe this replaces');
+
+      const { tmp, g } = tempRepo();
+      try {
+        // One quick dir whose history is 4000 commits, so `git log … --format=%at`
+        // emits 4000 lines (~44 KB) — comfortably past the 64 KB pipe buffer's
+        // useful range and past any small-buffer SIGPIPE threshold. Built with
+        // `git fast-import` rather than 4000 `git commit` processes: this is a
+        // linear history, so fast-import is exact and the fixture costs
+        // milliseconds instead of a minute. No merges, no branches.
+        const dir = '.planning/quick/1-big';
+        const N = 4000;
+        const parts = [['blob', 'mark :1', 'data 2', 'x', ''].join('\n')];
+        for (let i = 0; i < N; i++) {
+          const msg = 'c' + i;
+          parts.push([
+            'commit refs/heads/main',
+            'mark :' + (i + 2),
+            'committer t <t@t.t> ' + (1756000000 + i) + ' +0000',
+            'data ' + msg.length,
+            msg,
+            `M 100644 :1 ${dir}/note-${i}.md`,
+            '',
+          ].join('\n'));
+        }
+        parts.push('done\n');
+        // Fed from a file, not a pipe: a ~360 KB stdin write races git's exit
+        // and intermittently lands as EPIPE in the child, which is a fixture
+        // bug masquerading as a product bug.
+        fs.writeFileSync(path.join(tmp, 'stream.fi'), parts.join(''));
+        execFileSync('bash', ['-c', 'git fast-import --quiet < stream.fi'],
+          { cwd: tmp, stdio: ['pipe', 'pipe', 'pipe'] });
+        // fast-import writes the object store and refs only; the sweep globs the
+        // WORKING TREE, so the files have to be materialised or nullglob sees
+        // an empty `.planning/quick/`.
+        execFileSync('git', ['checkout', '-q', '-f', 'main'], { cwd: tmp, stdio: 'pipe' });
+
+        // The whole history is one path, so `$log` is 4000 epoch lines.
+        const logSize = Number(execFileSync('bash', ['-c',
+          `git log --reverse --diff-filter=A --format=%at -- ${JSON.stringify(dir)} | wc -c`],
+          { cwd: tmp, encoding: 'utf8' }).trim());
+        assert.ok(logSize > 40 * 1024,
+          `the fixture must produce a $log over 40 KB for this to mean anything, got ${logSize} bytes`);
+
+        // macOS's system bash is 3.2 — the one an operator on this machine
+        // actually runs. Name it explicitly rather than trusting PATH.
+        const bash32 = '/bin/bash';
+        const v32 = execFileSync(bash32, ['--version'], { encoding: 'utf8' }).split('\n')[0];
+        assert.match(v32, /version 3\.2/, `expected macOS bash 3.2 at ${bash32}, got: ${v32}`);
+
+        const script = "PREV_VERSION=9.8\n" +
+          block.split("SHIP='{prev_milestone_ship_date}T00:00:00'")
+            .join("SHIP='2020-01-01T00:00:00'") + '\n';
+        // Every commit is well after 2020, so the dir must be selected, and the
+        // first line of the reversed log is its birth.
+        for (const shell of ['/bin/bash', 'bash']) {
+          const out = execFileSync(shell, ['-c', script], { cwd: tmp, encoding: 'utf8' })
+            .split('\n').map(s => s.trim()).filter(Boolean);
+          assert.deepStrictEqual(out, [`${dir}/`],
+            `under ${shell} the big-$log dir must be selected at its birth, got ${JSON.stringify(out)}`);
+        }
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
+    // Item: the sweep reads RELATIVE paths, so a run started from a subdirectory
+    // finds nothing and reports "no quick dirs" for a milestone that has plenty.
+    // The block must move to the work-tree root first. Inside `.git/` the guard
+    // above is not looking at a checkout at all, and the block must stop.
+    test('the block runs correctly from a SUBDIRECTORY and refuses to run inside .git/', () => {
+      const block = extractSweepBlock(readRepoFile('get-shit-done/workflows/audit-milestone.md'));
+      assert.match(block, /cd "\$\(git rev-parse --show-toplevel\)"/,
+        'the block must move to the work-tree root before reading the relative quick-dir glob');
+      const script = () => "PREV_VERSION=9.8\n" +
+        block.split("SHIP='{prev_milestone_ship_date}T00:00:00'")
+          .join("SHIP='2020-01-01T00:00:00'") + '\n';
+
+      const { tmp, g } = tempRepo();
+      try {
+        fs.mkdirSync(path.join(tmp, '.planning', 'quick', '1-here'), { recursive: true });
+        fs.writeFileSync(path.join(tmp, '.planning', 'quick', '1-here', 'PLAN.md'), 'x\n');
+        g('add', '-A');
+        g('commit', '-q', '-m', 'add quick dir');
+
+        // FROM A SUBDIRECTORY: must still find the quick dir, not report none.
+        const sub = path.join(tmp, '.planning');
+        assert.ok(fs.statSync(sub).isDirectory(), 'the subdirectory must exist');
+        const out = execFileSync('bash', ['-c', script()], { cwd: sub, encoding: 'utf8' })
+          .split('\n').map(s => s.trim()).filter(Boolean);
+        assert.deepStrictEqual(out, ['.planning/quick/1-here/'],
+          'run from a subdirectory the block must still resolve the repo root and find the quick dir');
+
+        // FROM INSIDE .git/: not a work tree — must exit non-zero, not sweep.
+        // The guard must compare rev-parse's OUTPUT, not its exit status: with
+        // cwd in .git/ it prints `false` and still exits 0, so a status-only
+        // `git rev-parse --is-inside-work-tree >/dev/null || …` sails straight
+        // through the one directory that is not a checkout at all.
+        assert.ok(block.includes('[ "$(git rev-parse --is-inside-work-tree 2>/dev/null || true)" = true ]'),
+          'the work-tree guard must compare the OUTPUT of --is-inside-work-tree, not its exit status');
+        let failed = false;
+        let stderr = '';
+        try {
+          execFileSync('bash', ['-c', script()],
+            { cwd: path.join(tmp, '.git'), encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+        } catch (e) {
+          failed = true;
+          stderr = String(e.stderr || '');
+        }
+        assert.ok(failed, 'inside .git/ the block must exit non-zero — there is no work tree to sweep');
+        assert.match(stderr, /NOT a git work tree/,
+          'the refusal must name the cause rather than leak git\'s raw message');
       } finally {
         fs.rmSync(tmp, { recursive: true, force: true });
       }
@@ -16895,7 +17092,7 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
         // separates them. Los Angeles local midnight is 08-15T07:00Z, so a
         // TZ-dependent cutoff would pull BOTH of these in or push both out.
         commitAt('.planning/quick/0b-west-of-boundary/PLAN.md', '2026-08-14T20:00:00+00:00'); // EXCLUDED
-        commitAt('.planning/quick/2-at-the-fallback/PLAN.md', '2026-08-15T00:00:00+00:00');  // EXCLUDED? no: INCLUDED (-ge)
+        commitAt('.planning/quick/2-at-the-fallback/PLAN.md', '2026-08-15T00:00:00+00:00');  // INCLUDED (-ge)
         commitAt('.planning/quick/2b-east-of-boundary/PLAN.md', '2026-08-15T03:00:00+00:00'); // INCLUDED
         commitAt('.planning/quick/3-after/PLAN.md', '2026-09-20T10:00:00+00:00');
 

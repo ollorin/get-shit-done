@@ -3102,7 +3102,16 @@ function summaryExemptionFacts(cwd, summaryAbsPath, cutoffIso) {
   // create from a delete from a modify; `%ct` is an integer epoch, so no string
   // comparison and no timezone can go wrong. The marker is `@@` rather than a
   // NUL because `execGit` trims its stdout, which would eat a leading NUL.
-  const res = execGit(cwd, ['log', '--name-status', '--format=@@%ct', '--', rel]);
+  //
+  // `--topo-order` is REQUIRED, not an optimisation. The default `git log` order
+  // is reverse CHRONOLOGICAL, and a chronologically-skewed child (a clock that
+  // stepped back, a rebased or cherry-picked history) sorts ahead of its own
+  // parent. Measured on X@1000 with children B1@500 and A1@2000 merged at
+  // M@3000, the default order is M, A1, X, B1 — the parent X is listed BEFORE
+  // its child B1. `--topo-order` gives M, B1, A1, X, which never shows a parent
+  // ahead of a child. Without the flag the replay below walks a child before its
+  // parent and concludes a file went away before it ever arrived.
+  const res = execGit(cwd, ['log', '--topo-order', '--name-status', '--format=@@%ct', '--', rel]);
   if (res.exitCode !== 0 || !res.stdout) return null;
 
   const events = [];
@@ -3128,19 +3137,18 @@ function summaryExemptionFacts(cwd, summaryAbsPath, cutoffIso) {
   }
   if (events.length === 0) return null;
 
-  // `git log` orders commits TOPOLOGICALLY — a parent is always emitted after its
-  // children — and only breaks ties by commit date. It is NOT a strict sort by
-  // `%ct`. So the array arriving here is in newest-in-history order, which is
-  // exactly the causal order this replay needs, and `reverse()` restores
-  // oldest-first. Two consequences, both of which make `reverse()` MORE correct
-  // than the `events.sort((a, b) => a.ms - b.ms)` it replaced:
-  //   - CLOCK SKEW: a child commit can carry an earlier `%ct` than its parent, so
+  // `--topo-order` (above) makes git emit a parent only after ALL of its
+  // children, so the array arriving here is in newest-in-history order, and
+  // `reverse()` restores oldest-first. Replaying in git's own order rather than
+  // by wall clock is what makes `reverse()` MORE correct than the
+  // `events.sort((a, b) => a.ms - b.ms)` it replaced, in two ways:
+  //   - SKEWED CLOCKS: a child can carry an earlier `%ct` than its parent, so
   //     sorting by `ms` replays the child BEFORE the parent — the file then looks
   //     as though it never existed, or as though it went away before it arrived.
-  //   - SAME-SECOND TIES: `%ct` is 1-second granularity, so an add and a later
+  //   - SAME-SECOND TIES: `%ct` has 1-second granularity, so an add and a later
   //     removal of the same path can share a key. A stable sort is a no-op on
-  //     equal keys, so it leaves those events in newest-first order and replays
-  //     them backwards. `reverse()` fixes it.
+  //     equal keys, so it leaves those events in git's newest-first order and
+  //     replays them backwards. `reverse()` fixes it.
   events.reverse();
   let present = false;
   let existedBeforeCutoff = false;

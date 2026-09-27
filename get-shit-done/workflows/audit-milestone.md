@@ -493,11 +493,23 @@ question gets answered two different ways in the same milestone):
 > # the loop), so without this guard the run dies with git's raw message and no
 > # statement of what was wrong; against a project that is not yet a repo the
 > # whole sweep is UNMEASURABLE, not empty.
-> git rev-parse --is-inside-work-tree >/dev/null \
+> #
+> # The OUTPUT must be compared, not the exit status. Run with cwd inside `.git/`,
+> # `git rev-parse --is-inside-work-tree` prints `false` and still exits 0 — a
+> # status-only guard sails straight through the one directory that is not a
+> # checkout, and `git rev-parse --show-toplevel` then dies of its own
+> # "must be run in a work tree" fatal, which is a raw git message rather than
+> # the statement of intent this gate needs.
+> [ "$(git rev-parse --is-inside-work-tree 2>/dev/null || true)" = true ] \
 >   || { echo "NOT a git work tree — the cutoff is unmeasurable. Escalate." >&2; exit 1; }
 > # An absent or empty .planning/quick/ must iterate ZERO times. Without this the
 > # glob stays literal and the loop runs once on the string `.planning/quick/*/`.
 > shopt -s nullglob
+> # Then move to the ROOT. The sweep reads RELATIVE paths (`.planning/quick/*/`,
+> # and the tag lookup resolves against the current directory), so a run started
+> # from a subdirectory would find nothing and report "no quick dirs" for a
+> # milestone that has plenty. The guard above already refused `.git/` itself.
+> cd "$(git rev-parse --show-toplevel)"
 > # PREV_VERSION = the milestone preceding {version} in MILESTONES.md.
 > PREV_TAG="v$PREV_VERSION"
 > if git rev-parse -q --verify "refs/tags/$PREV_TAG" >/dev/null; then
@@ -531,16 +543,22 @@ question gets answered two different ways in the same milestone):
 >   # A `%at` epoch compared with -ge is an integer compare, so no timezone,
 >   # locale, or string-collation question can go wrong.
 >   #
->   # git's output is captured FIRST and trimmed afterwards. Piping git straight
->   # into `head -1` closes the pipe after one line and git dies of SIGPIPE, which
->   # under `pipefail` is indistinguishable from a real failure — so the previous
->   # `… | head -1 || true` swallowed BOTH the SIGPIPE and a genuine git failure,
->   # and a broken or missing repo swept clean. Capturing keeps the SIGPIPE out of
->   # the status and leaves a real git failure FATAL, which is the fail-closed
->   # behaviour this gate exists to have. No `2>/dev/null` either: a failure must
->   # be readable, not silent.
+>   # git's output is captured FIRST, then trimmed with parameter expansion.
+>   # Two earlier forms were wrong, in different ways:
+>   #   `git log … | head -1 || true` — `head` closes the pipe after one line and
+>   #   git dies of SIGPIPE, which under `pipefail` is indistinguishable from a
+>   #   real failure, so `|| true` swallowed both and a broken repo swept clean.
+>   #   `printf '%s' "$log" | head -1` — git is safely out of the pipeline by then,
+>   #   but it is one more pipe to break: `printf` can take SIGPIPE from `head`
+>   #   once `$log` exceeds the 64 KB pipe buffer (a quick dir with many commits),
+>   #   and it does so differently under bash 3.2 and bash 5.
+>   # `${log%%$'\n'*}` is a pure expansion — no subprocess, no pipe, no signal —
+>   # and it yields the same first line in both bashes. Capturing the git call
+>   # first is also what leaves a real git failure FATAL, which is the fail-closed
+>   # behaviour this gate exists to have. No stderr redirection either: a failure
+>   # must be readable, not silent.
 >   log=$(git log --reverse --diff-filter=A --format=%at -- "$d")
->   first_at=$(printf '%s' "$log" | head -1)
+>   first_at=${log%%$'\n'*}
 >   [ -n "$first_at" ] || continue                       # no commits → EXCLUDED
 >   if [ "$first_at" -ge "$CUTOFF_AT" ]; then
 >     echo "$d"
