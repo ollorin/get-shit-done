@@ -3128,8 +3128,12 @@ function summaryExemptionFacts(cwd, summaryAbsPath, cutoffIso) {
   }
   if (events.length === 0) return null;
 
-  // git log emits newest-first; replay oldest-first to get the file's timeline.
-  events.sort((a, b) => a.ms - b.ms);
+  // git log emits newest-first, so `events` already arrives strictly newest-first
+  // by `ms` (a commit contributes at most one event per path — the R/C branch
+  // pushes a create and a delete for DIFFERENT paths, never twice for `rel`).
+  // `reverse()` therefore replays the identical oldest-first order the sort
+  // produced, without the comparator.
+  events.reverse();
   let present = false;
   let existedBeforeCutoff = false;
   let deletedAfterCutoff = false;

@@ -471,15 +471,24 @@ question gets answered two different ways in the same milestone):
 > commit is at-or-after the previous milestone's release tag. Resolve it deterministically, not
 > by listing whatever directories happen to exist.
 >
-> **Step 1 — the cutoff.** The tag must be the *previous* milestone's, NOT the latest tag: a
-> project can be several milestones ahead of its newest release tag, and the latest tag then
-> belongs to this milestone or a later one. `v{version}`'s predecessor is defined in
-> `MILESTONES.md` (the milestone section immediately preceding `{version}`); take that section's
-> own `shipped:`/`completed:` date, or the milestone BEFORE it if `{version}` itself is tagged.
-> Then:
+> **Step 1 + Step 2 — resolve the cutoff, then sweep, in ONE script.** They are not two
+> blocks: a cutoff that fails to resolve must abort the sweep, and it can only do that if the
+> resolution and the sweep share one shell's `set -e` and one `CUTOFF_AT`. Run it under **bash**,
+> not the login shell — `[ "$a" -ge "$b" ]` and `head` are portable, but the `${VAR:?...}` guard
+> and `>&2` behave differently under `sh`. Either save it as a script with the shebang and run
+> `bash ./script.sh`, or wrap it in `bash -c '...'`.
+>
+> The tag must be the *previous* milestone's, NOT the latest tag: a project can be several
+> milestones ahead of its newest release tag, and the latest tag then belongs to this milestone
+> or a later one. `v{version}`'s predecessor is defined in `MILESTONES.md` (the milestone section
+> immediately preceding `{version}`); take that section's own `shipped:`/`completed:` date, or the
+> milestone BEFORE it if `{version}` itself is tagged.
 >
 > ```bash
-> # Run this as ONE bash script — see the shebang note below.
+> #!/usr/bin/env bash
+> # One script: resolution and sweep share `set -euo pipefail`, so an unresolved
+> # cutoff kills the run instead of silently widening the sweep to every quick dir.
+> set -euo pipefail
 > # PREV_VERSION = the milestone preceding {version} in MILESTONES.md.
 > PREV_TAG="v$PREV_VERSION"
 > if git rev-parse -q --verify "refs/tags/$PREV_TAG" >/dev/null; then
@@ -487,29 +496,32 @@ question gets answered two different ways in the same milestone):
 > else
 >   # EXPLICIT FALLBACK: the tag is missing. Say so in the report, and fall back to
 >   # the shipped date recorded in MILESTONES.md for $PREV_VERSION. If THAT is
->   # missing too, STOP and escalate — do not silently read every quick dir,
->   # which would sweep in other milestones' work and justify this milestone's
->   # rules with defects it never had.
+>   # missing too, the `date` call below fails and `set -e` stops the script —
+>   # do not silently read every quick dir, which would sweep in other
+>   # milestones' work and justify this milestone's rules with defects it never had.
+>   #
+>   # The date is PINNED to 00:00:00 UTC. A bare `date -j -f '%Y-%m-%d'` resolves
+>   # at local midnight, so the same shipped date yields a different instant on
+>   # every machine and a cutoff that moves by hours with the operator's TZ.
 >   echo "MISSING TAG $PREV_TAG — falling back to the MILESTONES.md ship date" >&2
->   CUTOFF_AT=$(date -j -f '%Y-%m-%d' '{prev_milestone_ship_date}' +%s)   # BSD date
+>   SHIP='{prev_milestone_ship_date}T00:00:00'
+>   CUTOFF_AT=$(date -u -j -f '%Y-%m-%dT%H:%M:%S' "$SHIP" +%s 2>/dev/null \
+               || date -u -d "$SHIP" +%s)                 # BSD date, then GNU
 > fi
-> ```
->
-> **Step 2 — the quick dirs.** Run under **bash**, not the login shell: `[ "$a" -ge "$b" ]`,
-> `head`, and the shebang below are all bash/zsh-sh portable, but `${CUTOFF_AT:-}` guards and
-> `>&2` behave differently under `sh`. Either save the block as a script with the shebang and
-> run `bash ./script.sh`, or wrap it in `bash -c '...'`.
->
-> ```bash
-> #!/usr/bin/env bash
-> set -euo pipefail
+> # Unresolved cutoff is fatal, never a default: the old fail-open default
+> # widened the sweep to every quick dir in the repo on any resolution failure.
+> : "${CUTOFF_AT:?cutoff unresolved - escalate}"
 > for d in .planning/quick/*/; do
->   # FIRST add, not the last: `git log` emits newest-first, so `head -1` is the
->   # earliest. A `%at` epoch compared with -ge is an integer compare, so no
->   # timezone, locale, or string-collation question can go wrong.
->   first_at=$(git log --diff-filter=A --format=%at -- "$d" 2>/dev/null | head -1 || true)
+>   # EARLIEST add, which is the directory's own birth. `git log` emits
+>   # newest-first, so a bare `head -1` returns the NEWEST add of ANY file in the
+>   # dir — a dir whose files were added across several commits gets dated by its
+>   # last one, and a later-added file can pull a genuinely older dir past the
+>   # cutoff. `--reverse` puts the oldest add first, so `head -1` is the birth.
+>   # A `%at` epoch compared with -ge is an integer compare, so no timezone,
+>   # locale, or string-collation question can go wrong.
+>   first_at=$(git log --reverse --diff-filter=A --format=%at -- "$d" 2>/dev/null | head -1 || true)
 >   [ -n "$first_at" ] || continue                       # no commits → EXCLUDED
->   if [ "$first_at" -ge "${CUTOFF_AT:-0}" ]; then
+>   if [ "$first_at" -ge "$CUTOFF_AT" ]; then
 >     echo "$d"
 >   fi
 > done
@@ -687,18 +699,36 @@ git rev-parse HEAD > .tmp/step7-head-before
 snapshot .tmp/step7-hash-before
 ```
 
+**Refuse up front if a permitted path was already dirty — this must be EXECUTED, not read.**
+Immediately after the BEFORE snapshot, run this; it exits non-zero and you do not dispatch on a
+non-zero exit. A step whose permitted paths start dirty cannot attribute any later change to the
+author, so the scope check below has nothing to stand on; and the eventual `git add --`/
+`git commit --` would sweep the pre-existing edits into the milestone PR under the rules commit's
+message. Get a clean tree first.
+
+```bash
+#!/usr/bin/env bash
+# The refusal itself. `-uall` so an untracked file is named, not collapsed to its
+# directory, and no permitted path is checked at a coarser grain than the write
+# scope actually is. A dirty path is a STOP, not something to subtract away later.
+set -euo pipefail
+dirty=$(git status --porcelain -uall -- CLAUDE.md .claude/rules/)
+if [ -n "$dirty" ]; then
+  {
+    echo "REFUSING to dispatch: permitted paths are already dirty."
+    echo "Get a clean tree first — a dirty permitted path cannot be attributed"
+    echo "to the author, and the eventual git add -- would commit it as theirs:"
+    echo "$dirty"
+  } >&2
+  exit 1
+fi
+```
+
 ```bash
 # AFTER the author dispatch:
 git rev-parse HEAD > .tmp/step7-head-after
 snapshot .tmp/step7-hash-after
 ```
-
-**Refuse up front if a permitted path was already dirty.** If the BEFORE snapshot shows
-`CLAUDE.md` or any `.claude/rules/**` path already modified, staged, or untracked, STOP and
-escalate before dispatching the author at all. A step whose permitted paths start dirty cannot
-attribute any later change to the author, so the scope check below has nothing to stand on; and
-the eventual `git add --`/`git commit --` would sweep the pre-existing edits into the milestone
-PR under the rules commit's message. Get a clean tree first.
 
 Then:
 

@@ -16646,20 +16646,21 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
     });
 
     // Item 2: the quick-dir recipe is EXECUTED here, under bash AND zsh, on a
-    // real repo. The old `--reverse … | tail -1` form was prose that had never
-    // been run; `git log` emits newest-first, so `tail -1` is the OLDEST add
-    // and the OLD form was in fact picking the first add — but by accident, and
-    // with no test that would have noticed. A never-executed shell recipe in a
-    // workflow is exactly the class of defect this milestone is distilling.
+    // real repo. The shipped form was `git log --diff-filter=A … | head -1`,
+    // which is the NEWEST add of any file in the dir — not the dir's own birth.
+    // A never-executed shell recipe in a workflow is exactly the class of defect
+    // this milestone is distilling, and this one WAS executed and was still
+    // wrong: the fixture below adds a dir's second file in a LATER commit, which
+    // a bare `head -1` would have used as the dir's birth date.
     test('the quick-dir recipe, run verbatim, selects the RIGHT dirs — under bash and zsh', () => {
       const { tmp, g } = tempRepo();
       // The recipe body, copied character-for-character from the fenced block
-      // in audit-milestone.md Step 2 (the `for` loop and the shebang above it).
+      // in audit-milestone.md (the `for` loop).
       const RECIPE = [
         'for d in .planning/quick/*/; do',
-        '  first_at=$(git log --diff-filter=A --format=%at -- "$d" 2>/dev/null | head -1 || true)',
+        '  first_at=$(git log --reverse --diff-filter=A --format=%at -- "$d" 2>/dev/null | head -1 || true)',
         '  [ -n "$first_at" ] || continue',
-        '  if [ "$first_at" -ge "${CUTOFF_AT:-0}" ]; then',
+        '  if [ "$first_at" -ge "$CUTOFF_AT" ]; then',
         '    echo "$d"',
         '  fi',
         'done',
@@ -16669,7 +16670,8 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
       for (const line of RECIPE.split('\n')) {
         assert.ok(raw.includes(line.trim()), `the recipe under test must exist verbatim in the workflow: ${line}`);
       }
-      assert.ok(!raw.includes('--reverse'), 'the `--reverse | tail -1` form must be gone');
+      assert.ok(raw.includes('--reverse --diff-filter=A --format=%at'),
+        'the cutoff must use `--reverse … | head -1` — a bare `head -1` is the NEWEST add, not the dir\'s birth');
 
       try {
         const commitAt = (rel, iso) => {
@@ -16690,6 +16692,13 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
         commitAt('RELEASE.md', '2026-08-15T10:00:00+00:00');
         g('tag', 'v9.8');
         const CUTOFF_AT = g('log', '-1', '--format=%at', 'v9.8').trim();
+
+        // A dir BORN BEFORE the cutoff whose files were added again AFTER it.
+        // This is the case the bare `head -1` form got wrong: its newest add is
+        // post-cutoff, so it would be swept in as this milestone's work even
+        // though the dir predates the milestone. It must be EXCLUDED.
+        commitAt('.planning/quick/0-multi-add/PLAN.md', '2026-08-05T10:00:00+00:00');
+        commitAt('.planning/quick/0-multi-add/REPORT.md', '2026-09-25T10:00:00+00:00');
 
         // AT the tag instant: `-ge` is at-or-after, so this one is INCLUDED.
         commitAt('.planning/quick/2-at-the-tag/PLAN.md', '2026-08-15T10:00:00+00:00');
@@ -16715,6 +16724,90 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
           .split('\n').map(s => s.trim()).filter(Boolean);
         assert.deepStrictEqual(futureOut, ['.planning/quick/3-after/'],
           'pushing the cutoff forward must drop the at-the-tag dir — the comparison is live');
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
+    // The cutoff resolution and the sweep are ONE script, so an unresolved
+    // cutoff aborts the sweep instead of widening it. The missing-tag path is
+    // the one that actually goes unresolved in practice (a project several
+    // milestones ahead of its tags), so it is executed here, not described.
+    test('the merged cutoff+sweep block resolves the cutoff and, on a MISSING tag, uses the ship date; unresolved aborts', () => {
+      const raw = readRepoFile('get-shit-done/workflows/audit-milestone.md');
+      // The block is a blockquote in the workflow, so flatten the `> ` markers
+      // before locating anything — otherwise `done` never matches `\ndone`.
+      const flat = raw.split('\n').map(l => l.replace(/^> ?/, '')).join('\n');
+      // Extract the merged block verbatim: from the `set -euo pipefail` that
+      // precedes the tag resolution, through the sweep loop's closing `done`.
+      const tagAt = flat.indexOf('PREV_TAG="v$PREV_VERSION"');
+      assert.ok(tagAt > -1, 'the cutoff resolution must be in the workflow');
+      const setAt = flat.lastIndexOf('set -euo pipefail', tagAt);
+      const endAt = flat.indexOf('\ndone', flat.indexOf('for d in .planning/quick/', tagAt));
+      assert.ok(setAt > -1 && endAt > setAt, 'the sweep and the cutoff resolution must be ONE block');
+      const block = flat.slice(setAt, endAt + '\ndone'.length);
+      // The gap between the two must be pure bash — the old two-block form left
+      // prose and a second fence inside this span.
+      assert.ok(!/\*\*Step 2|CUTOFF_AT:-0/.test(block),
+        'the merged block must contain no leftover prose or fail-open default from the two-block form');
+
+      const { tmp, g } = tempRepo();
+      try {
+        const commitAt = (rel, iso) => {
+          fs.mkdirSync(path.join(tmp, path.dirname(rel)), { recursive: true });
+          fs.writeFileSync(path.join(tmp, rel), `x for ${rel}\n`);
+          g('add', '-A');
+          execFileSync('git', ['commit', '-q', '-m', `add ${rel}`], {
+            cwd: tmp, stdio: 'pipe',
+            env: { ...process.env, GIT_AUTHOR_DATE: iso, GIT_COMMITTER_DATE: iso },
+          });
+        };
+        commitAt('.planning/quick/1-old-before/PLAN.md', '2026-08-01T10:00:00+00:00');
+        // EXACTLY at the fallback instant (2026-08-15T00:00:00Z): `-ge` includes it.
+        commitAt('.planning/quick/2-at-the-fallback/PLAN.md', '2026-08-15T00:00:00+00:00');
+        commitAt('.planning/quick/3-after/PLAN.md', '2026-09-20T10:00:00+00:00');
+
+        // NO `v9.8` tag exists in this repo — the missing-tag path, verbatim.
+        const substitute = (ship) => 'PREV_VERSION=9.8\n' +
+          block.split("SHIP='{prev_milestone_ship_date}T00:00:00'")
+            .join(`SHIP='${ship}T00:00:00'`) + '\n';
+        const out = execFileSync('bash', ['-c', substitute('2026-08-15')],
+          { cwd: tmp, encoding: 'utf8' }).split('\n').map(s => s.trim()).filter(Boolean);
+        assert.deepStrictEqual(out,
+          ['.planning/quick/2-at-the-fallback/', '.planning/quick/3-after/'],
+          'the fallback ship date must be the cutoff, pinned at 00:00:00Z');
+
+        // The fallback is TZ-INDEPENDENT: the same date under a wildly
+        // non-UTC TZ must select the same dirs. A bare `date -j -f` (local
+        // midnight) would shift this by the operator's offset.
+        const outTz = execFileSync('bash', ['-c', 'TZ=Pacific/Kiritimati\n' + substitute('2026-08-15')],
+          { cwd: tmp, encoding: 'utf8' }).split('\n').map(s => s.trim()).filter(Boolean);
+        assert.deepStrictEqual(outTz, out, 'the cutoff must not move with the operator\'s timezone');
+
+        // UNRESOLVED fallback date: `set -e` must kill the script, and the
+        // sweep must produce NOTHING rather than defaulting to epoch 0 (which
+        // would sweep in every quick dir in the repo, across all milestones).
+        let failed = false;
+        let stderr = '';
+        try {
+          execFileSync('bash', ['-c', substitute('not-a-real-date')],
+            { cwd: tmp, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+        } catch (e) {
+          failed = true;
+          stderr = String(e.stderr || '');
+        }
+        assert.ok(failed, 'an unparseable fallback ship date must exit non-zero, not sweep everything');
+        assert.match(stderr, /MISSING TAG v9\.8/,
+          'the missing tag must be announced before the fallback is attempted');
+
+        // The `:?` guard itself, executed: an unset CUTOFF_AT is fatal, never 0.
+        const guard = block.split('\n').find(l => l.includes(': "${CUTOFF_AT:?'));
+        assert.ok(guard, 'the unresolved-cutoff guard must be in the block');
+        let guardFailed = false;
+        try {
+          execFileSync('bash', ['-c', `set -euo pipefail\n${guard.trim()}\n`], { cwd: tmp, stdio: 'pipe' });
+        } catch { guardFailed = true; }
+        assert.ok(guardFailed, 'an unset CUTOFF_AT must abort the script, not default to 0');
       } finally {
         fs.rmSync(tmp, { recursive: true, force: true });
       }
@@ -16810,6 +16903,8 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
       assert.match(raw, /HEAD` to be\s+\*\*unchanged\*\*/, 'a commit by the author is a breach');
       assert.match(raw, /Refuse up front if a permitted path was already dirty/,
         'a pre-dirty permitted path must escalate BEFORE the dispatch, not be subtracted away');
+      assert.match(raw, /REFUSING to dispatch/,
+        'the refusal must be an executed command that announces itself, not prose');
       assert.match(raw, /git add -N/, 'new files must be made visible to the reviewer');
       assert.match(raw, /paths:` key/, 'the orchestrator verifies paths: frontmatter on a new rules file');
       assert.match(raw, /Domain Rules table has a row/, 'the orchestrator verifies the CLAUDE.md Domain Rules row');
@@ -16846,14 +16941,89 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
         'the missing-tag fallback must announce itself, not silently widen the sweep');
       // The sweep must be run under bash, and compare epoch integers.
       assert.match(raw, /#!\/usr\/bin\/env bash/, 'the recipe must state it runs under bash');
-      assert.match(raw, /-ge "\$\{CUTOFF_AT:-0\}"/, 'the comparison must be an integer epoch compare');
-      assert.match(raw, /--diff-filter=A --format=%at -- "\$d"[^]*\| head -1/,
-        'the cutoff must be the FIRST add (git log is newest-first), not the last');
+      assert.match(raw, /-ge "\$CUTOFF_AT"/, 'the comparison must be an integer epoch compare');
+      assert.match(raw, /--reverse --diff-filter=A --format=%at -- "\$d"/,
+        'the cutoff must be the EARLIEST add — `--reverse` then `head -1`; a bare `head -1` is the newest');
+      // The fail-open `${CUTOFF_AT:-0}` widened the sweep to EVERY quick dir in
+      // the repo on any resolution failure. It is replaced by a fatal guard.
+      assert.ok(!raw.includes('${CUTOFF_AT:-0}'),
+        'the fail-open `${CUTOFF_AT:-0}` default must be gone');
+      assert.match(raw, /: "\$\{CUTOFF_AT:\?cutoff unresolved - escalate\}"/,
+        'an unresolved cutoff must be fatal, not defaulted');
+      // The fallback date must be pinned to 00:00:00 UTC — a bare local-midnight
+      // `date` moves the cutoff by the operator's UTC offset.
+      assert.match(raw, /SHIP='\{prev_milestone_ship_date\}T00:00:00'/,
+        'the fallback ship date must be pinned to 00:00:00');
+      assert.match(raw, /date -u -j -f/, 'the fallback date must be resolved in UTC');
+      // ONE block: resolution and sweep share a shell, so `set -e` can abort.
+      const tagAt = raw.indexOf('PREV_TAG="v$PREV_VERSION"');
+      const flat = raw.split('\n').map(l => l.replace(/^> ?/, '')).join('\n');
+      const block = flat.slice(flat.indexOf('PREV_TAG="v$PREV_VERSION"'),
+        flat.indexOf('\ndone', flat.indexOf('for d in .planning/quick/', flat.indexOf('PREV_TAG="v$PREV_VERSION"'))) + '\ndone'.length);
+      assert.ok(tagAt > -1, 'the cutoff resolution must exist');
+      assert.match(block, /CUTOFF_AT=\$\(git log -1 --format=%at "\$PREV_TAG"\)/,
+        'the tag resolution and the sweep must live in the same block');
       // The author prompt and the collection step must use the SAME set.
       const start = raw.indexOf('<rules_distill_prompt>');
       const prompt = raw.slice(start, raw.indexOf('</rules_distill_prompt>'));
       assert.match(prompt, /as DEFINED in the collection step above/,
         'the author prompt must point at the one definition rather than restating a second one');
+    });
+
+    // The dirty-path refusal was PROSE. Prose does not exit non-zero, so an
+    // orchestrator that skipped it would still dispatch, and the pre-existing
+    // edit would be swept into the rules commit. The block is extracted
+    // verbatim from the workflow and executed in both directions.
+    test('the dirty-permitted-path refusal is an EXECUTED non-zero exit, not prose', () => {
+      const raw = readRepoFile('get-shit-done/workflows/audit-milestone.md');
+      const start = raw.indexOf('dirty=$(git status --porcelain -uall');
+      assert.ok(start > -1, 'the refusal must be an executed command in the workflow');
+      const end = raw.indexOf('\n```', start);
+      const block = raw.slice(start, end).split('\n').map(l => l.replace(/^> ?/, '')).join('\n');
+      assert.match(block, /exit 1/, 'a dirty permitted path must exit non-zero');
+      assert.match(block, /-uall/, 'an untracked permitted file must be named, not collapsed to its directory');
+
+      const { tmp, g } = tempRepo();
+      try {
+        fs.mkdirSync(path.join(tmp, '.planning'), { recursive: true });
+        fs.writeFileSync(path.join(tmp, 'CLAUDE.md'), '# Project\n');
+        fs.writeFileSync(path.join(tmp, '.planning', 'README.md'), 'x\n');
+        g('add', '-A');
+        g('commit', '-q', '-m', 'base');
+
+        // CLEAN permitted paths → exit 0, and the dispatch may proceed.
+        assert.strictEqual(
+          execFileSync('bash', ['-c', block], { cwd: tmp, encoding: 'utf8' }), '',
+          'a clean permitted set must not block the dispatch');
+
+        // A dirty TRACKED permitted path → exit 1.
+        fs.writeFileSync(path.join(tmp, 'CLAUDE.md'), '# Project, edited\n');
+        let exit1 = false;
+        try { execFileSync('bash', ['-c', block], { cwd: tmp, stdio: 'pipe' }); }
+        catch (e) { exit1 = true; assert.match(String(e.stderr), /REFUSING to dispatch/); }
+        assert.ok(exit1, 'a modified CLAUDE.md must make the refusal exit 1');
+        execFileSync('git', ['checkout', '--', 'CLAUDE.md'], { cwd: tmp, stdio: 'pipe' });
+
+        // An UNTRACKED permitted file → exit 1 (this is the case a directory
+        // pathspec would have hidden, and the one the eventual `git add --`
+        // would have committed as the author's).
+        fs.mkdirSync(path.join(tmp, '.claude', 'rules'), { recursive: true });
+        fs.writeFileSync(path.join(tmp, '.claude', 'rules', 'brand-new.md'), 'new\n');
+        let exit2 = false;
+        try { execFileSync('bash', ['-c', block], { cwd: tmp, stdio: 'pipe' }); }
+        catch { exit2 = true; }
+        assert.ok(exit2, 'an untracked .claude/rules file must make the refusal exit 1');
+
+        // A dirty path OUTSIDE the write scope must NOT block — only the
+        // permitted paths are the author's to be blamed for.
+        fs.rmSync(path.join(tmp, '.claude', 'rules', 'brand-new.md'));
+        fs.writeFileSync(path.join(tmp, '.planning', 'README.md'), 'edited elsewhere\n');
+        assert.strictEqual(
+          execFileSync('bash', ['-c', block], { cwd: tmp, encoding: 'utf8' }), '',
+          'a dirty path outside the write scope must not trigger the refusal');
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
     });
 
     test('plan-phase.md commits {N}-PLAN-CHECK.md path-scoped after each append', () => {
