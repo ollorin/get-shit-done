@@ -16118,6 +16118,77 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
         fs.rmSync(tmp, { recursive: true, force: true });
       }
     });
+
+    // `git log` orders TOPOLOGICALLY (a parent is always emitted after its
+    // children) and only breaks ties by commit date — it is NOT a strict sort by
+    // `%ct`, which has 1-second granularity. So `reverse()` and
+    // `events.sort((a, b) => a.ms - b.ms)` DISAGREE whenever an add and a later
+    // removal of the same path share a sort key, and the old sort was the wrong
+    // one: a stable sort is a no-op on equal keys, so it left those events in
+    // newest-first order and replayed them backwards.
+    describe('reverse() beats sorting by ms when the two disagree', () => {
+      // The path is added by a parent commit and removed by the child commit,
+      // both before the cutoff, so its real state at the cutoff is GONE.
+      // The discriminator: replaying backwards (oldest-first → add, remove)
+      // ends with present=false; replaying newest-first (remove, add) ends with
+      // present=true, which would EXEMPT a summary that did not exist.
+      const addThenRemove = ({ tmp, g }, addIso, removeIso) => {
+        write(g, tmp, SUMMARY_REL, iso(addIso, 'add summary'));
+        g('rm', '-q', '--', SUMMARY_REL);
+        execFileSync('git', ['commit', '-q', '-m', 'remove summary'], {
+          cwd: tmp, stdio: 'pipe',
+          env: { ...process.env, GIT_AUTHOR_DATE: removeIso, GIT_COMMITTER_DATE: removeIso },
+        });
+      };
+      const goneBeforeCutoff = (repo, why) => assert.strictEqual(
+        factsOf(repo.tmp).existedBeforeCutoff, false, why
+      );
+
+      test('an add and a removal sharing ONE SECOND are replayed in causal order', () => {
+        const repo = tempRepo();
+        try {
+          addThenRemove(repo, '2026-09-20T10:00:00+02:00', '2026-09-20T10:00:00+02:00');
+          // Precondition: the two commits really do share an `%ct`, or this case
+          // is not testing what it claims to.
+          const { execFileSync: ex } = require('child_process');
+          const secs = ex('git', ['log', '--format=%ct', '--', SUMMARY_REL],
+            { cwd: repo.tmp, encoding: 'utf8' }).trim().split('\n');
+          assert.strictEqual(secs.length, 2, 'the fixture must be exactly two commits');
+          assert.strictEqual(secs[0], secs[1],
+            `the two commits must share an epoch second for this case to bite, got ${secs.join(' vs ')}`);
+          goneBeforeCutoff(repo,
+            'a same-second add/remove must replay oldest-first; sorting by ms is a no-op on ' +
+            'equal keys and would leave it newest-first, reporting the path as present');
+        } finally {
+          fs.rmSync(repo.tmp, { recursive: true, force: true });
+        }
+      });
+
+      test('a child commit with an EARLIER %ct than its parent (clock skew) is still replayed in causal order', () => {
+        const repo = tempRepo();
+        try {
+          addThenRemove(repo, '2026-09-20T10:00:00+02:00', '2026-09-19T10:00:00+02:00');
+          goneBeforeCutoff(repo,
+            'under clock skew a sort by ms replays the child before the parent — the path then ' +
+            'looks present at the cutoff when its parent added it and its child removed it');
+        } finally {
+          fs.rmSync(repo.tmp, { recursive: true, force: true });
+        }
+      });
+
+      test('the code actually uses reverse(), not a sort by ms', () => {
+        const src = fs.readFileSync(TOOLS_PATH, 'utf8');
+        const fnAt = src.indexOf('function summaryExemptionFacts');
+        assert.ok(fnAt > -1, 'summaryExemptionFacts must exist');
+        // Comments are stripped first: the comment above the call NAMES the old
+        // `events.sort(...)` form, and a raw scan would match its own rationale.
+        const body = src.slice(fnAt, src.indexOf('\nfunction ', fnAt + 10))
+          .split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
+        assert.match(body, /events\.reverse\(\)/, 'the timeline must be replayed with reverse()');
+        assert.ok(!/events\.sort\(/.test(body),
+          'a sort by ms reorders the timeline by wall clock instead of by history order');
+      });
+    });
   });
 
   describe('the gate is wired into loadConfig with the documented defaults', () => {
@@ -16652,13 +16723,20 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
     // this milestone is distilling, and this one WAS executed and was still
     // wrong: the fixture below adds a dir's second file in a LATER commit, which
     // a bare `head -1` would have used as the dir's birth date.
-    test('the quick-dir recipe, run verbatim, selects the RIGHT dirs — under bash and zsh', () => {
+    test('the quick-dir recipe, run verbatim, selects the RIGHT dirs', () => {
       const { tmp, g } = tempRepo();
       // The recipe body, copied character-for-character from the fenced block
-      // in audit-milestone.md (the `for` loop).
+      // in audit-milestone.md (the sweep loop, plus the two settings it needs).
+      // BASH ONLY, deliberately: `shopt` and `set -o pipefail` are bash, and the
+      // workflow now says so and carries a `#!/usr/bin/env bash` shebang. An
+      // earlier version of this test also ran the block under zsh, which was
+      // checking a shell the block is no longer written for.
       const RECIPE = [
+        'set -euo pipefail',
+        'shopt -s nullglob',
         'for d in .planning/quick/*/; do',
-        '  first_at=$(git log --reverse --diff-filter=A --format=%at -- "$d" 2>/dev/null | head -1 || true)',
+        '  log=$(git log --reverse --diff-filter=A --format=%at -- "$d")',
+        '  first_at=$(printf \'%s\' "$log" | head -1)',
         '  [ -n "$first_at" ] || continue',
         '  if [ "$first_at" -ge "$CUTOFF_AT" ]; then',
         '    echo "$d"',
@@ -16672,6 +16750,13 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
       }
       assert.ok(raw.includes('--reverse --diff-filter=A --format=%at'),
         'the cutoff must use `--reverse … | head -1` — a bare `head -1` is the NEWEST add, not the dir\'s birth');
+      // Scoped to the executable block, comments stripped — the block's own
+      // comment NAMES the old piped form to explain why it is gone.
+      const sweepCode = extractSweepBlock(raw).split('\n')
+        .filter(l => !l.trim().startsWith('#')).join('\n');
+      assert.ok(!sweepCode.includes('| head -1 || true'),
+        'git output must be captured before trimming — piping git into `head` under ' +
+        '`pipefail` makes its SIGPIPE indistinguishable from a real git failure');
 
       try {
         const commitAt = (rel, iso) => {
@@ -16709,13 +16794,10 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
         fs.writeFileSync(path.join(tmp, '.planning', 'quick', '4-uncommitted', 'PLAN.md'), 'in flight\n');
 
         const expected = ['.planning/quick/2-at-the-tag/', '.planning/quick/3-after/'];
-        for (const shell of ['bash', 'zsh']) {
-          const script = `CUTOFF_AT=${CUTOFF_AT}\n${RECIPE}\n`;
-          const out = execFileSync(shell, ['-c', script], { cwd: tmp, encoding: 'utf8' })
-            .split('\n').map(s => s.trim()).filter(Boolean);
-          assert.deepStrictEqual(out, expected,
-            `under ${shell} the recipe must select exactly ${JSON.stringify(expected)}, got ${JSON.stringify(out)}`);
-        }
+        const out = execFileSync('bash', ['-c', `CUTOFF_AT=${CUTOFF_AT}\n${RECIPE}\n`],
+          { cwd: tmp, encoding: 'utf8' }).split('\n').map(s => s.trim()).filter(Boolean);
+        assert.deepStrictEqual(out, expected,
+          `the recipe must select exactly ${JSON.stringify(expected)}, got ${JSON.stringify(out)}`);
 
         // A LATER cutoff drops the exactly-at-the-tag dir, proving `-ge` is
         // genuinely being evaluated rather than everything always passing.
@@ -16733,13 +16815,53 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
     // cutoff aborts the sweep instead of widening it. The missing-tag path is
     // the one that actually goes unresolved in practice (a project several
     // milestones ahead of its tags), so it is executed here, not described.
-    test('the merged cutoff+sweep block resolves the cutoff and, on a MISSING tag, uses the ship date; unresolved aborts', () => {
-      const raw = readRepoFile('get-shit-done/workflows/audit-milestone.md');
-      // The block is a blockquote in the workflow, so flatten the `> ` markers
-      // before locating anything — otherwise `done` never matches `\ndone`.
+    // The real git, resolved once, so a PATH shim can delegate to it.
+    const REAL_GIT = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
+
+    // Slice a fenced code block out of the workflow WHOLE — from its opening
+    // fence to its closing one — so the shebang and `set -euo pipefail` are part
+    // of what the test executes, not silently cropped away. Handles both a
+    // blockquoted fence (`> ```bash`) and a top-level one.
+    const sliceFencedBlock = (raw, needle) => {
+      const lines = raw.split('\n');
+      const at = lines.findIndex(l => l.includes(needle));
+      assert.ok(at > -1, `the workflow must contain: ${needle}`);
+      const isFence = (l) => /^\s*(>\s*)?```/.test(l);
+      let open = at;
+      while (open >= 0 && !isFence(lines[open])) open--;
+      assert.ok(open > -1, `${needle} must live inside a fenced code block`);
+      let close = at;
+      while (close + 1 < lines.length && !isFence(lines[close + 1])) close++;
+      assert.ok(close + 1 < lines.length, `the fence holding ${needle} must be closed`);
+      return lines.slice(open + 1, close + 1).map(l => l.replace(/^> ?/, '')).join('\n');
+    };
+
+    // Item 4: a line that loses its `> ` prefix inside a blockquoted fence drops
+    // out of the blockquote and renders as body prose — the recipe stops being a
+    // recipe. One such line shipped (`|| date -u -d "$SHIP" +%s`), so the whole
+    // file is now checked rather than the one block.
+    test('every line inside a blockquoted fence in audit-milestone.md carries its `> ` prefix', () => {
+      const lines = readRepoFile('get-shit-done/workflows/audit-milestone.md').split('\n');
+      const unprefixed = [];
+      let insideBlockquoteFence = false;
+      lines.forEach((l, i) => {
+        const fence = /^(>\s*)?```/.exec(l);
+        if (fence) {
+          insideBlockquoteFence = !insideBlockquoteFence && Boolean(fence[1]);
+          return;
+        }
+        if (insideBlockquoteFence && !l.startsWith('>')) unprefixed.push(`line ${i + 1}: ${JSON.stringify(l)}`);
+      });
+      assert.deepStrictEqual(unprefixed, [],
+        'an unprefixed line inside a blockquoted fence breaks out of the blockquote and ' +
+        'renders as prose instead of code:\n' + unprefixed.join('\n'));
+    });
+
+    // Pull the merged cutoff+sweep block out of the workflow verbatim. The block
+    // is a blockquote in the markdown, so flatten the `> ` markers first —
+    // otherwise `done` never matches `\ndone`.
+    const extractSweepBlock = (raw) => {
       const flat = raw.split('\n').map(l => l.replace(/^> ?/, '')).join('\n');
-      // Extract the merged block verbatim: from the `set -euo pipefail` that
-      // precedes the tag resolution, through the sweep loop's closing `done`.
       const tagAt = flat.indexOf('PREV_TAG="v$PREV_VERSION"');
       assert.ok(tagAt > -1, 'the cutoff resolution must be in the workflow');
       const setAt = flat.lastIndexOf('set -euo pipefail', tagAt);
@@ -16750,6 +16872,11 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
       // prose and a second fence inside this span.
       assert.ok(!/\*\*Step 2|CUTOFF_AT:-0/.test(block),
         'the merged block must contain no leftover prose or fail-open default from the two-block form');
+      return block;
+    };
+
+    test('the merged cutoff+sweep block resolves the cutoff and, on a MISSING tag, uses the ship date; unresolved aborts', () => {
+      const block = extractSweepBlock(readRepoFile('get-shit-done/workflows/audit-milestone.md'));
 
       const { tmp, g } = tempRepo();
       try {
@@ -16763,26 +16890,47 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
           });
         };
         commitAt('.planning/quick/1-old-before/PLAN.md', '2026-08-01T10:00:00+00:00');
-        // EXACTLY at the fallback instant (2026-08-15T00:00:00Z): `-ge` includes it.
-        commitAt('.planning/quick/2-at-the-fallback/PLAN.md', '2026-08-15T00:00:00+00:00');
+        // Boundary fixtures around the fallback instant 2026-08-15T00:00:00Z, one
+        // on each side and close enough that only a correct UTC-midnight cutoff
+        // separates them. Los Angeles local midnight is 08-15T07:00Z, so a
+        // TZ-dependent cutoff would pull BOTH of these in or push both out.
+        commitAt('.planning/quick/0b-west-of-boundary/PLAN.md', '2026-08-14T20:00:00+00:00'); // EXCLUDED
+        commitAt('.planning/quick/2-at-the-fallback/PLAN.md', '2026-08-15T00:00:00+00:00');  // EXCLUDED? no: INCLUDED (-ge)
+        commitAt('.planning/quick/2b-east-of-boundary/PLAN.md', '2026-08-15T03:00:00+00:00'); // INCLUDED
         commitAt('.planning/quick/3-after/PLAN.md', '2026-09-20T10:00:00+00:00');
 
         // NO `v9.8` tag exists in this repo — the missing-tag path, verbatim.
         const substitute = (ship) => 'PREV_VERSION=9.8\n' +
           block.split("SHIP='{prev_milestone_ship_date}T00:00:00'")
             .join(`SHIP='${ship}T00:00:00'`) + '\n';
-        const out = execFileSync('bash', ['-c', substitute('2026-08-15')],
-          { cwd: tmp, encoding: 'utf8' }).split('\n').map(s => s.trim()).filter(Boolean);
-        assert.deepStrictEqual(out,
-          ['.planning/quick/2-at-the-fallback/', '.planning/quick/3-after/'],
-          'the fallback ship date must be the cutoff, pinned at 00:00:00Z');
+        // TZ goes in the CHILD'S ENVIRONMENT. A `TZ=…` line inside `bash -c` is
+        // a shell variable that is never exported, so `date` never saw it and the
+        // previous version of this test asserted nothing at all.
+        const run = (ship, env) => execFileSync('bash', ['-c', substitute(ship)], {
+          cwd: tmp, encoding: 'utf8', env: { ...process.env, ...env },
+        }).split('\n').map(s => s.trim()).filter(Boolean);
 
-        // The fallback is TZ-INDEPENDENT: the same date under a wildly
-        // non-UTC TZ must select the same dirs. A bare `date -j -f` (local
-        // midnight) would shift this by the operator's offset.
-        const outTz = execFileSync('bash', ['-c', 'TZ=Pacific/Kiritimati\n' + substitute('2026-08-15')],
-          { cwd: tmp, encoding: 'utf8' }).split('\n').map(s => s.trim()).filter(Boolean);
-        assert.deepStrictEqual(outTz, out, 'the cutoff must not move with the operator\'s timezone');
+        const expected = [
+          '.planning/quick/2-at-the-fallback/',
+          '.planning/quick/2b-east-of-boundary/',
+          '.planning/quick/3-after/',
+        ];
+        assert.deepStrictEqual(run('2026-08-15', {}), expected,
+          'the fallback ship date must be the cutoff, pinned at 00:00:00Z');
+        // One zone WEST of UTC and one EAST, both large enough that a local
+        // midnight would move the boundary past the two fixtures above.
+        for (const tz of ['America/Los_Angeles', 'Pacific/Kiritimati', 'UTC']) {
+          assert.deepStrictEqual(run('2026-08-15', { TZ: tz }), expected,
+            `under TZ=${tz} the cutoff must still be 2026-08-15T00:00:00Z — ` +
+            '`date` parses a zone-less input in the LOCAL zone unless -u is passed');
+        }
+        // And the boundary fixtures really do sit either side of the cutoff —
+        // otherwise the TZ assertion above would pass on any cutoff.
+        assert.ok(Date.parse('2026-08-15T00:00:00Z') < Date.parse('2026-08-15T03:00:00Z') &&
+          Date.parse('2026-08-15T00:00:00Z') > Date.parse('2026-08-14T20:00:00Z'),
+          'the boundary fixtures must straddle the fallback instant');
+        assert.ok(!expected.includes('.planning/quick/0b-west-of-boundary/'),
+          'the west-of-boundary fixture must stay excluded, or the TZ check is vacuous');
 
         // UNRESOLVED fallback date: `set -e` must kill the script, and the
         // sweep must produce NOTHING rather than defaulting to epoch 0 (which
@@ -16790,8 +16938,7 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
         let failed = false;
         let stderr = '';
         try {
-          execFileSync('bash', ['-c', substitute('not-a-real-date')],
-            { cwd: tmp, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+          run('not-a-real-date', {});
         } catch (e) {
           failed = true;
           stderr = String(e.stderr || '');
@@ -16810,6 +16957,119 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
         assert.ok(guardFailed, 'an unset CUTOFF_AT must abort the script, not default to 0');
       } finally {
         fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
+    // Item 5: a failed `git` is a MEASUREMENT FAILURE, not an empty result. The
+    // shipped `git log … | head -1 || true` under `pipefail` swallowed the
+    // SIGPIPE from `head` AND a real git failure indistinguishably, and the
+    // `2>/dev/null` hid the evidence.
+    test('a failed git is FATAL: outside a repo the block exits non-zero, and git failures in the loop are not swallowed', () => {
+      const block = extractSweepBlock(readRepoFile('get-shit-done/workflows/audit-milestone.md'));
+      const substitute = (ship) => 'PREV_VERSION=9.8\n' +
+        block.split("SHIP='{prev_milestone_ship_date}T00:00:00'")
+          .join(`SHIP='${ship}T00:00:00'`) + '\n';
+
+      // (a) NOT a git repo at all. The block must say so and exit 1, not sweep
+      // zero dirs and report "no quick dirs for this milestone".
+      const notARepo = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-norepo-'));
+      try {
+        let failed = false;
+        let stderr = '';
+        try {
+          execFileSync('bash', ['-c', substitute('2026-08-15')],
+            { cwd: notARepo, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+        } catch (e) {
+          failed = true;
+          stderr = String(e.stderr || '');
+        }
+        assert.ok(failed, 'outside a git repo the block must exit non-zero — the cutoff is unmeasurable');
+        assert.match(stderr, /NOT a git work tree/,
+          'the failure must name the cause, not leak git\'s raw message');
+      } finally {
+        fs.rmSync(notARepo, { recursive: true, force: true });
+      }
+
+      // (b) A repo, but the loop's `git log` FAILS. A shim `git` on PATH fails
+      // only for the `log … -- <quickdir>` call, so the cutoff resolves and only
+      // the loop hits the failure. The block must abort on it.
+      const { tmp, g } = tempRepo();
+      const shim = path.join(tmp, 'shim');
+      fs.mkdirSync(shim, { recursive: true });
+      fs.writeFileSync(path.join(shim, 'git'), [
+        '#!/usr/bin/env bash',
+        'if [ "$1" = "log" ] && [[ " $* " == *" .planning/quick/"* ]]; then',
+        '  echo "simulated git failure" >&2',
+        '  exit 128',
+        'fi',
+        `exec ${REAL_GIT} "$@"`,
+      ].join('\n'), { mode: 0o755 });
+      try {
+        fs.mkdirSync(path.join(tmp, '.planning', 'quick', '1-d'), { recursive: true });
+        fs.writeFileSync(path.join(tmp, '.planning', 'quick', '1-d', 'PLAN.md'), 'x\n');
+        g('add', '-A');
+        g('commit', '-q', '-m', 'add quick dir');
+        let loopFailed = false;
+        let loopErr = '';
+        try {
+          execFileSync('bash', ['-c', substitute('2026-08-15')], {
+            cwd: tmp, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'],
+            env: { ...process.env, PATH: `${shim}:${process.env.PATH}` },
+          });
+        } catch (e) {
+          loopFailed = true;
+          loopErr = String(e.stderr || '');
+        }
+        assert.ok(loopFailed, 'a git failure inside the sweep loop must abort the block, not yield an empty sweep');
+        assert.match(loopErr, /simulated git failure/,
+          'the git failure must reach stderr — the block must not redirect it away');
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
+    // Item 6: without `nullglob` an empty `.planning/quick/` leaves the pattern
+    // literal, so the loop runs once on the string `.planning/quick/*/`. The
+    // git shim is how that is made observable — git itself exits 0 for a
+    // pathspec that matches nothing, so only the invocation can tell.
+    test('shopt -s nullglob: an empty or absent .planning/quick/ iterates ZERO times', () => {
+      const block = extractSweepBlock(readRepoFile('get-shit-done/workflows/audit-milestone.md'));
+      assert.match(block, /shopt -s nullglob/,
+        'the block must set nullglob so an empty quick dir iterates zero times');
+      const substitute = () => 'PREV_VERSION=9.8\n' +
+        block.split("SHIP='{prev_milestone_ship_date}T00:00:00'")
+          .join("SHIP='2026-08-15T00:00:00'") + '\n';
+
+      for (const shape of ['absent', 'empty']) {
+        const { tmp, g } = tempRepo();
+        const shim = path.join(tmp, 'shim');
+        try {
+          fs.mkdirSync(shim, { recursive: true });
+          const trace = path.join(tmp, 'git-calls.log');
+          fs.writeFileSync(path.join(shim, 'git'), [
+            '#!/usr/bin/env bash',
+            `printf '%s\\n' "$*" >> ${JSON.stringify(trace)}`,
+            `exec ${REAL_GIT} "$@"`,
+          ].join('\n'), { mode: 0o755 });
+          fs.writeFileSync(path.join(tmp, 'README.md'), 'base\n');
+          g('add', '-A');
+          g('commit', '-q', '-m', 'base');
+          if (shape === 'empty') {
+            fs.mkdirSync(path.join(tmp, '.planning', 'quick'), { recursive: true });
+          }
+
+          const out = execFileSync('bash', ['-c', substitute()], {
+            cwd: tmp, encoding: 'utf8',
+            env: { ...process.env, PATH: `${shim}:${process.env.PATH}` },
+          });
+          assert.strictEqual(out.trim(), '', `an ${shape} .planning/quick/ must select nothing`);
+          const calls = fs.existsSync(trace) ? fs.readFileSync(trace, 'utf8') : '';
+          assert.ok(!calls.includes('.planning/quick/*/'),
+            `an ${shape} .planning/quick/ must never be passed to git as a literal glob — ` +
+            `nullglob must collapse the loop to zero iterations. git calls were:\n${calls}`);
+        } finally {
+          fs.rmSync(tmp, { recursive: true, force: true });
+        }
       }
     });
 
@@ -16957,12 +17217,15 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
       assert.match(raw, /date -u -j -f/, 'the fallback date must be resolved in UTC');
       // ONE block: resolution and sweep share a shell, so `set -e` can abort.
       const tagAt = raw.indexOf('PREV_TAG="v$PREV_VERSION"');
-      const flat = raw.split('\n').map(l => l.replace(/^> ?/, '')).join('\n');
-      const block = flat.slice(flat.indexOf('PREV_TAG="v$PREV_VERSION"'),
-        flat.indexOf('\ndone', flat.indexOf('for d in .planning/quick/', flat.indexOf('PREV_TAG="v$PREV_VERSION"'))) + '\ndone'.length);
       assert.ok(tagAt > -1, 'the cutoff resolution must exist');
+      const block = extractSweepBlock(raw);
       assert.match(block, /CUTOFF_AT=\$\(git log -1 --format=%at "\$PREV_TAG"\)/,
         'the tag resolution and the sweep must live in the same block');
+      // Outside a repo the sweep is UNMEASURABLE, not empty — it must say so.
+      assert.match(block, /git rev-parse --is-inside-work-tree/,
+        'the block must fail closed outside a git work tree');
+      assert.match(block, /shopt -s nullglob/,
+        'an empty .planning/quick/ must iterate zero times, not once on a literal glob');
       // The author prompt and the collection step must use the SAME set.
       const start = raw.indexOf('<rules_distill_prompt>');
       const prompt = raw.slice(start, raw.indexOf('</rules_distill_prompt>'));
@@ -16972,16 +17235,31 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
 
     // The dirty-path refusal was PROSE. Prose does not exit non-zero, so an
     // orchestrator that skipped it would still dispatch, and the pre-existing
-    // edit would be swept into the rules commit. The block is extracted
-    // verbatim from the workflow and executed in both directions.
+    // edit would be swept into the rules commit. The block is sliced whole out
+    // of its ```bash fence — shebang and `set -euo pipefail` included — so the
+    // test executes the operator would actually run, not a fragment of it.
     test('the dirty-permitted-path refusal is an EXECUTED non-zero exit, not prose', () => {
       const raw = readRepoFile('get-shit-done/workflows/audit-milestone.md');
-      const start = raw.indexOf('dirty=$(git status --porcelain -uall');
-      assert.ok(start > -1, 'the refusal must be an executed command in the workflow');
-      const end = raw.indexOf('\n```', start);
-      const block = raw.slice(start, end).split('\n').map(l => l.replace(/^> ?/, '')).join('\n');
+      const block = sliceFencedBlock(raw, 'dirty=$(git status --porcelain -uall');
+      // Sliced from the FENCE, so the shebang and `set -euo pipefail` are part of
+      // what is executed. Without `set -e` the non-git case below cannot fail.
+      assert.match(block, /^#!\/usr\/bin\/env bash$/m, 'the sliced block must include its shebang');
+      assert.match(block, /^set -euo pipefail$/m, 'the sliced block must include set -euo pipefail');
       assert.match(block, /exit 1/, 'a dirty permitted path must exit non-zero');
       assert.match(block, /-uall/, 'an untracked permitted file must be named, not collapsed to its directory');
+
+      // (0) NOT a git repo: `git status` fails, and without `set -e` the failure
+      // would be swallowed into an empty `dirty` and the block would exit 0 —
+      // i.e. it would wave through a dispatch on a repo it cannot even read.
+      const notARepo = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-refuse-norepo-'));
+      try {
+        let failed = false;
+        try { execFileSync('bash', ['-c', block], { cwd: notARepo, stdio: 'pipe' }); }
+        catch { failed = true; }
+        assert.ok(failed, 'outside a git repo the refusal must exit non-zero, not report a clean tree');
+      } finally {
+        fs.rmSync(notARepo, { recursive: true, force: true });
+      }
 
       const { tmp, g } = tempRepo();
       try {

@@ -3128,11 +3128,19 @@ function summaryExemptionFacts(cwd, summaryAbsPath, cutoffIso) {
   }
   if (events.length === 0) return null;
 
-  // git log emits newest-first, so `events` already arrives strictly newest-first
-  // by `ms` (a commit contributes at most one event per path — the R/C branch
-  // pushes a create and a delete for DIFFERENT paths, never twice for `rel`).
-  // `reverse()` therefore replays the identical oldest-first order the sort
-  // produced, without the comparator.
+  // `git log` orders commits TOPOLOGICALLY — a parent is always emitted after its
+  // children — and only breaks ties by commit date. It is NOT a strict sort by
+  // `%ct`. So the array arriving here is in newest-in-history order, which is
+  // exactly the causal order this replay needs, and `reverse()` restores
+  // oldest-first. Two consequences, both of which make `reverse()` MORE correct
+  // than the `events.sort((a, b) => a.ms - b.ms)` it replaced:
+  //   - CLOCK SKEW: a child commit can carry an earlier `%ct` than its parent, so
+  //     sorting by `ms` replays the child BEFORE the parent — the file then looks
+  //     as though it never existed, or as though it went away before it arrived.
+  //   - SAME-SECOND TIES: `%ct` is 1-second granularity, so an add and a later
+  //     removal of the same path can share a key. A stable sort is a no-op on
+  //     equal keys, so it leaves those events in newest-first order and replays
+  //     them backwards. `reverse()` fixes it.
   events.reverse();
   let present = false;
   let existedBeforeCutoff = false;

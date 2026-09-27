@@ -489,6 +489,15 @@ question gets answered two different ways in the same milestone):
 > # One script: resolution and sweep share `set -euo pipefail`, so an unresolved
 > # cutoff kills the run instead of silently widening the sweep to every quick dir.
 > set -euo pipefail
+> # Fail CLOSED outside a repo. Every `git` call below is fatal on failure (see
+> # the loop), so without this guard the run dies with git's raw message and no
+> # statement of what was wrong; against a project that is not yet a repo the
+> # whole sweep is UNMEASURABLE, not empty.
+> git rev-parse --is-inside-work-tree >/dev/null \
+>   || { echo "NOT a git work tree — the cutoff is unmeasurable. Escalate." >&2; exit 1; }
+> # An absent or empty .planning/quick/ must iterate ZERO times. Without this the
+> # glob stays literal and the loop runs once on the string `.planning/quick/*/`.
+> shopt -s nullglob
 > # PREV_VERSION = the milestone preceding {version} in MILESTONES.md.
 > PREV_TAG="v$PREV_VERSION"
 > if git rev-parse -q --verify "refs/tags/$PREV_TAG" >/dev/null; then
@@ -500,13 +509,15 @@ question gets answered two different ways in the same milestone):
 >   # do not silently read every quick dir, which would sweep in other
 >   # milestones' work and justify this milestone's rules with defects it never had.
 >   #
->   # The date is PINNED to 00:00:00 UTC. A bare `date -j -f '%Y-%m-%d'` resolves
->   # at local midnight, so the same shipped date yields a different instant on
->   # every machine and a cutoff that moves by hours with the operator's TZ.
+>   # The date is PINNED to 00:00:00 UTC, via `-u` on BOTH the BSD and the GNU
+>   # call. `date` parses a zone-less input in the LOCAL zone, so without `-u` the
+>   # same shipped date yields a different instant on every machine and a cutoff
+>   # that moves by hours with the operator's TZ. Dropping `-u` from EITHER call
+>   # lets that branch fall back to local midnight.
 >   echo "MISSING TAG $PREV_TAG — falling back to the MILESTONES.md ship date" >&2
 >   SHIP='{prev_milestone_ship_date}T00:00:00'
 >   CUTOFF_AT=$(date -u -j -f '%Y-%m-%dT%H:%M:%S' "$SHIP" +%s 2>/dev/null \
-               || date -u -d "$SHIP" +%s)                 # BSD date, then GNU
+>              || date -u -d "$SHIP" +%s)                 # BSD date, then GNU
 > fi
 > # Unresolved cutoff is fatal, never a default: the old fail-open default
 > # widened the sweep to every quick dir in the repo on any resolution failure.
@@ -519,7 +530,17 @@ question gets answered two different ways in the same milestone):
 >   # cutoff. `--reverse` puts the oldest add first, so `head -1` is the birth.
 >   # A `%at` epoch compared with -ge is an integer compare, so no timezone,
 >   # locale, or string-collation question can go wrong.
->   first_at=$(git log --reverse --diff-filter=A --format=%at -- "$d" 2>/dev/null | head -1 || true)
+>   #
+>   # git's output is captured FIRST and trimmed afterwards. Piping git straight
+>   # into `head -1` closes the pipe after one line and git dies of SIGPIPE, which
+>   # under `pipefail` is indistinguishable from a real failure — so the previous
+>   # `… | head -1 || true` swallowed BOTH the SIGPIPE and a genuine git failure,
+>   # and a broken or missing repo swept clean. Capturing keeps the SIGPIPE out of
+>   # the status and leaves a real git failure FATAL, which is the fail-closed
+>   # behaviour this gate exists to have. No `2>/dev/null` either: a failure must
+>   # be readable, not silent.
+>   log=$(git log --reverse --diff-filter=A --format=%at -- "$d")
+>   first_at=$(printf '%s' "$log" | head -1)
 >   [ -n "$first_at" ] || continue                       # no commits → EXCLUDED
 >   if [ "$first_at" -ge "$CUTOFF_AT" ]; then
 >     echo "$d"
