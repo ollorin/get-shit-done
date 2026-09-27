@@ -16195,22 +16195,75 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
       // child sorts ahead of its own parent. `--topo-order` is what prevents the
       // replay from walking a child before its parent.
       //
-      // HONEST SCOPE, measured rather than assumed: on the exact topology below
-      // (X@1000, children B1@500 and A1@2000, merged at M@3000) the two orders
-      // DO differ over the whole history —
-      //   default      M(3000) A1(2000) X(1000) B1(500)   <- parent X before child B1
-      //   --topo-order M(3000) B1(500) A1(2000) X(1000)
-      // but once a `-- <path>` pathspec is applied git's history simplification
-      // walks the path's own history, and the per-path event order came out
-      // IDENTICAL with and without the flag in every shape probed (plain skewed
-      // child, the reviewer's merge, all-three-touch, skew-on-main, three
-      // generations, edit/remove-across-a-merge). So this test pins the FLAG —
-      // removing `--topo-order` from the execGit call turns it red — and the
-      // value of the flag is that it makes the causal order a guarantee rather
-      // than an incidental property of history simplification. It is not a
-      // demonstrated behaviour change on the per-path output, and this comment
-      // says so rather than implying otherwise.
-      test('the git log call carries --topo-order, and it is load-bearing on a skewed merge', () => {
+      // The fixture is the reviewer's: X ADDS S.md @1000; a skewed child B1
+      // DELETES it @500; A1 modifies it @2000; M @3000 merges the two with a new
+      // resolution, so the merge itself touches the path. Measured per path:
+      //   default       M(2000) A(1000) D(500)   -> replay oldest-first: A, D, M -> present
+      //   --topo-order  D(500)  M(2000) A(1000)  -> replay oldest-first: A, M, D -> ABSENT
+      // So the flag is a demonstrated behaviour change on the PER-PATH output,
+      // not merely a guarantee about whole-history order: without it this gate
+      // reports a path as existing at the cutoff when its own topology says the
+      // last thing that happened to it was a deletion.
+      //
+      // Built with `git fast-import` rather than `git merge`: it declares merge
+      // parents declaratively (`from`/`merge`), so the fixture is exact and no
+      // merge is run in a scratch repo.
+      test('the git log call carries --topo-order, and it flips the per-path replay on a skewed merge', () => {
+        const { tmp } = tempRepo();
+        try {
+          fs.writeFileSync(path.join(tmp, 'stream.fi'), [
+            'blob', 'mark :1', 'data 2', 'x', '',
+            'blob', 'mark :2', 'data 2', 'y', '',
+            'blob', 'mark :3', 'data 2', 'z', '',
+            // X adds S.md @1000
+            'commit refs/heads/main', 'mark :4',
+            'committer t <t@t.t> 1000 +0000', 'data 1', 'X', 'M 100644 :1 S.md', '',
+            // skewed child B1 deletes it @500
+            'commit refs/heads/b1', 'mark :5',
+            'committer t <t@t.t> 500 +0000', 'data 2', 'B1', 'from :4', 'D S.md', '',
+            // A1 modifies it @2000
+            'commit refs/heads/main', 'mark :6',
+            'committer t <t@t.t> 2000 +0000', 'data 2', 'A1', 'from :4', 'M 100644 :2 S.md', '',
+            // M merges, resolving to a new blob so the merge touches the path
+            'commit refs/heads/main', 'mark :7',
+            'committer t <t@t.t> 3000 +0000', 'data 1', 'M',
+            'from :6', 'merge :5', 'M 100644 :3 S.md', '',
+            'done', '',
+          ].join('\n'));
+          execFileSync('bash', ['-c', 'git fast-import --quiet < stream.fi'],
+            { cwd: tmp, stdio: ['pipe', 'pipe', 'pipe'] });
+          execFileSync('git', ['checkout', '-q', '-f', 'main'], { cwd: tmp, stdio: 'pipe' });
+
+          // MEASURE the per-path event order, so the claim above is anchored to
+          // observed output rather than to an assumption about history
+          // simplification.
+          const perPath = (...extra) => execFileSync('git',
+            ['log', ...extra, '--name-status', '--format=@@%ct', '--', 'S.md'],
+            { cwd: tmp, encoding: 'utf8' })
+            .split('\n').filter(l => l && !l.startsWith('@@')).map(l => l.split('\t')[0]);
+          assert.deepStrictEqual(perPath(), ['M', 'A', 'D'],
+            'the default (chronological) order must list the parent-side events ahead of ' +
+            "the skewed child's deletion, otherwise this fixture is not testing the skew");
+          assert.deepStrictEqual(perPath('--topo-order'), ['D', 'M', 'A'],
+            '--topo-order must replay the deletion last, so the path reads as absent');
+
+          // And the function itself must agree: with the flag it says the path
+          // did NOT exist at the cutoff. This assertion comes FIRST so that
+          // removing `--topo-order` surfaces as a behaviour failure — the
+          // wrong exemption — rather than as a source-text mismatch, which
+          // would hide the fact that the replay itself changed.
+          const cutoffAfterAll = '1970-01-01T01:00:00+0000';
+          assert.strictEqual(
+            summaryExemptionFacts(tmp, path.join(tmp, 'S.md'), cutoffAfterAll).existedBeforeCutoff,
+            false,
+            'with --topo-order the last event for S.md is B1\'s deletion, so the path must read absent; ' +
+            "without it the deletion is replayed before the add and this gate EXEMPTS a path that was gone");
+        } finally {
+          fs.rmSync(tmp, { recursive: true, force: true });
+        }
+
+        // Last, so the behavioural assertion above reports first: the flag must
+        // be in the execGit call, not merely true of git.
         const src = fs.readFileSync(TOOLS_PATH, 'utf8');
         const fnAt = src.indexOf('function summaryExemptionFacts');
         const body = src.slice(fnAt, src.indexOf('\nfunction ', fnAt + 10))
@@ -16218,42 +16271,6 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
         assert.match(body, /'--topo-order'/,
           'git log must be asked for topological order — the default is reverse ' +
           'chronological, which lists a skewed parent ahead of its own child');
-
-        // Build the topology and MEASURE that the flag changes the commit order,
-        // so the assertion above is anchored to a real behaviour rather than to
-        // the flag's name.
-        const { tmp, g } = tempRepo();
-        try {
-          const C = (iso, msg) => execFileSync('git', ['commit', '-q', '--allow-empty', '-m', msg], {
-            cwd: tmp, stdio: 'pipe',
-            env: { ...process.env, GIT_AUTHOR_DATE: iso, GIT_COMMITTER_DATE: iso },
-          });
-          const A = '1970-01-01T00:16:40+0000'; // t=1000, the parent
-          const B = '1970-01-01T00:08:20+0000'; // t=500,  a skewed child
-          const D = '1970-01-01T00:33:20+0000'; // t=2000, the other child
-          const M = '1970-01-01T00:50:00+0000'; // t=3000, the merge
-          C(A, 'X');
-          g('checkout', '-q', '-b', 'b1'); C(B, 'B1');
-          g('checkout', '-q', 'main');  C(D, 'A1');
-          execFileSync('git', ['merge', '-q', '--no-commit', '--no-ff', 'b1'], { cwd: tmp, stdio: 'pipe' });
-          C(M, 'M');
-
-          const order = (...extra) => execFileSync('git', ['log', ...extra, '--format=%s'],
-            { cwd: tmp, encoding: 'utf8' }).trim().split('\n');
-          const defaultOrder = order();
-          const topoOrder = order('--topo-order');
-          // X is the PARENT of B1. A topological listing never shows a parent
-          // before all of its children.
-          assert.ok(defaultOrder.indexOf('X') < defaultOrder.indexOf('B1'),
-            `the default (chronological) order is expected to list the parent X before its ` +
-            `child B1, otherwise this fixture is not testing the skew: ${defaultOrder.join(' > ')}`);
-          assert.ok(topoOrder.indexOf('X') > topoOrder.indexOf('B1'),
-            `--topo-order must list the child B1 before its parent X, got: ${topoOrder.join(' > ')}`);
-          assert.notDeepStrictEqual(topoOrder, defaultOrder,
-            'the flag must actually change the order on this topology');
-        } finally {
-          fs.rmSync(tmp, { recursive: true, force: true });
-        }
       });
     });
   });
@@ -16880,13 +16897,14 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
     });
 
     // Item: the trim must not be a pipeline. `printf '%s' "$log" | head -1` is
-    // still a pipe, and once `$log` passes the 64 KB pipe buffer `printf` can
-    // take SIGPIPE from `head` — the same class of bug as the original
-    // `git log | head -1`, one step downstream. `${log%%$'\n'*}` is a pure
-    // parameter expansion. macOS still ships bash 3.2 as /bin/bash, and the two
-    // versions disagree about SIGPIPE in a subshell, so the test pins BOTH:
-    // same answer, exit 0, on a quick dir with a genuinely large log.
-    test('a >40 KB $log is trimmed by parameter expansion, not a pipe — under bash 3.2 and bash 5', () => {
+    // still a pipe, and once `$log` is large `printf` can take SIGPIPE from
+    // `head` — the same class of bug as the original `git log | head -1`, one
+    // step downstream. `${log%%$'\n'*}` is a pure parameter expansion. macOS
+    // ships bash 3.2 as /bin/bash and it disagrees with bash 5 about SIGPIPE in
+    // a subshell, so the test runs the block under every bash on the host and
+    // asserts bash 3.2 is among them: same answer, exit 0, on a quick dir with
+    // a genuinely large log.
+    test('a large $log is trimmed by parameter expansion, not a pipe, under every bash on the host', () => {
       const block = extractSweepBlock(readRepoFile('get-shit-done/workflows/audit-milestone.md'));
       assert.ok(block.includes("first_at=${log%%$'\\n'*}"),
         'the trim must be a pure parameter expansion — a pipe here can SIGPIPE `printf`');
@@ -16896,10 +16914,12 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
       const { tmp, g } = tempRepo();
       try {
         // One quick dir whose history is 4000 commits, so `git log … --format=%at`
-        // emits 4000 lines (~44 KB) — comfortably past the 64 KB pipe buffer's
-        // useful range and past any small-buffer SIGPIPE threshold. Built with
-        // `git fast-import` rather than 4000 `git commit` processes: this is a
-        // linear history, so fast-import is exact and the fixture costs
+        // emits 4000 lines (~44 KB) — large enough that `head` can close the pipe
+        // while `printf` is still writing. (44 KB is under Linux's 64 KB pipe
+        // buffer; it still bites on macOS, which starts pipes with a much
+        // smaller buffer, and the test asserts the measured size rather than
+        // assuming one.) Built with `git fast-import` rather than 4000 `git
+        // commit` processes: a linear history is exact, and the fixture costs
         // milliseconds instead of a minute. No merges, no branches.
         const dir = '.planning/quick/1-big';
         const N = 4000;
@@ -16935,22 +16955,36 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
         assert.ok(logSize > 40 * 1024,
           `the fixture must produce a $log over 40 KB for this to mean anything, got ${logSize} bytes`);
 
-        // macOS's system bash is 3.2 — the one an operator on this machine
-        // actually runs. Name it explicitly rather than trusting PATH.
-        const bash32 = '/bin/bash';
-        const v32 = execFileSync(bash32, ['--version'], { encoding: 'utf8' }).split('\n')[0];
-        assert.match(v32, /version 3\.2/, `expected macOS bash 3.2 at ${bash32}, got: ${v32}`);
+        // Every `bash` reachable on this host, found rather than assumed.
+        // Naming `/bin/bash` and `bash` in a hand-written list is not enough:
+        // on a machine where `bash` on PATH IS `/bin/bash` that loop silently
+        // runs the same shell twice and the "both versions agree" claim passes
+        // without a second version ever having executed. Resolve the list, then
+        // assert what was actually covered.
+        const found = execFileSync('sh', ['-c',
+          'for b in /bin/bash /opt/homebrew/bin/bash /usr/local/bin/bash /nix/var/nix/profiles/default/bin/bash; do ' +
+          '[ -x "$b" ] && printf "%s\\n" "$b"; done; command -v bash 2>/dev/null'],
+          { encoding: 'utf8' }).trim().split('\n').filter(Boolean);
+        const shells = [...new Set(found)];
+        assert.ok(shells.length > 0, 'at least one bash must be found to run the block');
+        const versions = shells.map(s =>
+          [s, execFileSync(s, ['--version'], { encoding: 'utf8' }).split('\n')[0]]);
+        // The oldest bash on the box is where a SIGPIPE disagreement would show
+        // first; this suite runs on macOS, whose /bin/bash is 3.2.
+        assert.ok(versions.some(([, v]) => /version 3\.2/.test(v)),
+          `this suite must exercise bash 3.2, the version whose SIGPIPE behaviour differs; ` +
+          `found: ${versions.map(([s, v]) => `${s} -> ${v}`).join('; ')}`);
 
         const script = "PREV_VERSION=9.8\n" +
           block.split("SHIP='{prev_milestone_ship_date}T00:00:00'")
             .join("SHIP='2020-01-01T00:00:00'") + '\n';
         // Every commit is well after 2020, so the dir must be selected, and the
         // first line of the reversed log is its birth.
-        for (const shell of ['/bin/bash', 'bash']) {
+        for (const [shell, ver] of versions) {
           const out = execFileSync(shell, ['-c', script], { cwd: tmp, encoding: 'utf8' })
             .split('\n').map(s => s.trim()).filter(Boolean);
           assert.deepStrictEqual(out, [`${dir}/`],
-            `under ${shell} the big-$log dir must be selected at its birth, got ${JSON.stringify(out)}`);
+            `under ${ver} the big-$log dir must be selected at its birth, got ${JSON.stringify(out)}`);
         }
       } finally {
         fs.rmSync(tmp, { recursive: true, force: true });
