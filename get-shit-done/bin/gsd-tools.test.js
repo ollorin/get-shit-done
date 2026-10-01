@@ -12739,7 +12739,7 @@ describe('Phase 57-01 [Rule 1 fix]: roadmap update-plan-progress preserves the M
     assert.strictEqual(row58, '| 58. Next Phase | v1.15.0 | 0/TBD | Not started | - |');
   });
 
-  test('regression: a 3-column table (Phase | Requirements | Status -- no Milestone/Completed columns) is left untouched, not corrupted by the 5-column rewrite', () => {
+  test('regression: a 3-column table (Phase | Requirements | Status -- no Milestone/Completed columns) updates ONLY its Status cell', () => {
     const phaseDir = path.join(tmpDir, '.planning', 'phases', '57-routing-ledger-escalation');
     fs.mkdirSync(phaseDir, { recursive: true });
     fs.writeFileSync(path.join(phaseDir, '57-01-PLAN.md'), '# plan 1');
@@ -12747,7 +12747,6 @@ describe('Phase 57-01 [Rule 1 fix]: roadmap update-plan-progress preserves the M
     fs.writeFileSync(path.join(phaseDir, '57-01-SUMMARY.md'), '# summary 1');
 
     const roadmapPath = path.join(tmpDir, '.planning', 'ROADMAP.md');
-    const row57 = '| 57 Outcome-Informed Routing Ledger | MILE-01/02 | Not started |';
     const row58 = '| 58 Next Phase | MILE-03 | Not started |';
     fs.writeFileSync(roadmapPath, [
       '# Roadmap',
@@ -12756,7 +12755,7 @@ describe('Phase 57-01 [Rule 1 fix]: roadmap update-plan-progress preserves the M
       '',
       '| Phase | Requirements | Status |',
       '| --- | --- | --- |',
-      row57,
+      '| 57 Outcome-Informed Routing Ledger | MILE-01/02 | Not started |',
       row58,
       '',
     ].join('\n'), 'utf-8');
@@ -12765,11 +12764,254 @@ describe('Phase 57-01 [Rule 1 fix]: roadmap update-plan-progress preserves the M
     assert.ok(result.success, `expected exit 0: ${result.error}`);
     const parsed = JSON.parse(result.output);
     assert.strictEqual(parsed.table_header_columns, 3, 'must detect the real 3-column header');
-    assert.strictEqual(parsed.table_updated, false, 'must not attempt the 5-column rewrite against a 3-column table');
+    assert.strictEqual(parsed.table_updated, true, 'must update the Status cell it actually found');
 
     const updated = fs.readFileSync(roadmapPath, 'utf-8');
-    assert.ok(updated.includes(row57), 'the 3-column Phase 57 row must survive verbatim, untouched');
+    const row57 = updated.split('\n').find((l) => l.startsWith('| 57'));
+    assert.ok(row57.includes('MILE-01/02'), `Requirements cell must be preserved, got: ${row57}`);
+    assert.ok(row57.includes('In Progress'), `Status cell must be rewritten, got: ${row57}`);
+    assert.ok(row57.includes('1/2'), `Status cell must carry the plan tally, got: ${row57}`);
     assert.ok(updated.includes(row58), 'the neighboring Phase 58 row must not be corrupted or merged into');
+  });
+});
+
+// [Rule 1 - Bug] iGaming ROADMAP.md phase 389: `roadmap update-plan-progress`
+// (and `phase complete`, same code path) rewrote the summary-table row with
+// HARDCODED column positions -- the 5-column writer assumed Status=column 5 and
+// `phase complete` assumed Status=column 3 / date=column 4. On the real
+// 4-column-shaped 389 row that wrote the plan tally into the wrong cell and
+// DELETED the row's status text. Fixed by resolving the governing header,
+// locating the progress/status column BY HEADER NAME, and splicing every other
+// cell back verbatim.
+describe('roadmap progress-table rewrite is header-driven, not positional', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function seedPhaseDir(summaryCount = 1, planCount = 2) {
+    const phaseDir = path.join(tmpDir, '.planning', 'phases', '57-routing-ledger-escalation');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    for (let i = 1; i <= planCount; i++) {
+      fs.writeFileSync(path.join(phaseDir, `57-0${i}-PLAN.md`), '# plan');
+      if (i <= summaryCount) fs.writeFileSync(path.join(phaseDir, `57-0${i}-SUMMARY.md`), '# summary');
+    }
+    return phaseDir;
+  }
+
+  function seedTable(headerLine, separatorLine, row57, row58) {
+    const roadmapPath = path.join(tmpDir, '.planning', 'ROADMAP.md');
+    fs.writeFileSync(roadmapPath, [
+      '# Roadmap',
+      '',
+      '## Progress',
+      '',
+      headerLine,
+      separatorLine,
+      row57,
+      row58,
+      '',
+      '## Notes',
+      '',
+      'trailing prose that must never be absorbed into a table row',
+      '',
+    ].join('\n'), 'utf-8');
+    return roadmapPath;
+  }
+
+  const row58 = '| 58 Next Phase | Next | v1.15.0 | Not started |';
+
+  test('4-column table (Phase | Name | Plans | Status): the tally lands in Plans, Status is rewritten, Name is byte-preserved', () => {
+    seedPhaseDir(1, 2);
+    const roadmapPath = seedTable(
+      '| Phase | Name | Plans | Status |',
+      '| --- | --- | --- | --- |',
+      '| 57 Outcome-Informed Routing Ledger | Routing | 0/TBD | Not started |',
+      '| 58 Next Phase | Next | v1.15.0 | Not started |',
+    );
+
+    const result = runGsdTools('roadmap update-plan-progress 57', tmpDir);
+    assert.ok(result.success, `expected exit 0: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.table_header_columns, 4, 'must detect the real 4-column header');
+    assert.strictEqual(parsed.table_updated, true);
+
+    const row = fs.readFileSync(roadmapPath, 'utf-8').split('\n').find((l) => l.startsWith('| 57'));
+    const cells = row.split('|').slice(1, -1);
+    assert.strictEqual(cells.length, 4, `row must keep 4 cells, got: ${row}`);
+    assert.strictEqual(cells[0], ' 57 Outcome-Informed Routing Ledger ', `Phase cell must be byte-preserved, got: ${row}`);
+    assert.strictEqual(cells[1], ' Routing ', `Name cell must be byte-preserved, got: ${row}`);
+    assert.strictEqual(cells[2].trim(), '1/2', `Plans cell must carry the tally, got: ${row}`);
+    assert.match(cells[3], /In Progress/, `Status cell must be rewritten, got: ${row}`);
+  });
+
+  test('5-column table: the Requirements and Flag cells survive an update (the real-world 389 shape)', () => {
+    seedPhaseDir(2, 2);
+    const roadmapPath = seedTable(
+      '| Phase | Name | Requirements | Flag | Status |',
+      '|-------|------|--------------|------|--------|',
+      '| 57 Outcome-Informed Routing Ledger | Routing | MILE-01/02 | MONEY | Complete (1/2 plans) |',
+      '| 58 Next Phase | Next | MILE-03 | MONEY | Not started |',
+    );
+
+    runGsdTools('roadmap update-plan-progress 57', tmpDir);
+
+    const row = fs.readFileSync(roadmapPath, 'utf-8').split('\n').find((l) => l.startsWith('| 57'));
+    assert.ok(row.includes(' MILE-01/02 '), `Requirements cell must be preserved, got: ${row}`);
+    assert.ok(row.includes(' MONEY '), `Flag cell must be preserved, got: ${row}`);
+    assert.ok(row.includes(' Routing '), `Name cell must be preserved, got: ${row}`);
+    assert.ok(row.includes('Complete (2/2 plans)'), `existing tally must be retargeted in place, got: ${row}`);
+    const cells = row.split('|').slice(1, -1);
+    assert.strictEqual(cells.length, 5, `row must keep 5 cells, got: ${row}`);
+  });
+
+  test('6-column table with a trailing Completed column: only Plans/Status move, Completed is untouched', () => {
+    seedPhaseDir(1, 2);
+    const roadmapPath = seedTable(
+      '| Phase | Name | Milestone | Plans | Status | Completed |',
+      '|-------|------|-----------|-------|--------|-----------|',
+      '| 57 Outcome-Informed Routing Ledger | Routing | v1.15.0 | 0/TBD | Not started | - |',
+      '| 58 Next Phase | Next | v1.15.0 | 0/TBD | Not started | - |',
+    );
+
+    runGsdTools('roadmap update-plan-progress 57', tmpDir);
+
+    const row = fs.readFileSync(roadmapPath, 'utf-8').split('\n').find((l) => l.startsWith('| 57'));
+    const cells = row.split('|').slice(1, -1);
+    assert.strictEqual(cells.length, 6, `row must keep 6 cells, got: ${row}`);
+    assert.strictEqual(cells[2], ' v1.15.0 ', `Milestone cell must be preserved, got: ${row}`);
+    assert.strictEqual(cells[5], ' - ', `Completed cell must be preserved, got: ${row}`);
+    assert.strictEqual(cells[3].trim(), '1/2', `Plans cell must carry the tally, got: ${row}`);
+  });
+
+  test('a malformed row (cell count != header) is left untouched and reported, never positionally corrupted', () => {
+    seedPhaseDir(1, 2);
+    const roadmapPath = seedTable(
+      '| Phase | Name | Requirements | Flag | Status |',
+      '|-------|------|--------------|------|--------|',
+      // 4 cells under a 5-column header -- the shape an older positional
+      // writer leaves behind.
+      '| 57 Outcome-Informed Routing Ledger | MILE-01/02 | Complete | 2026-10-01 |',
+      '| 58 Next Phase | MILE-03 | MONEY | Not started |',
+    );
+    const before = fs.readFileSync(roadmapPath, 'utf-8');
+
+    const result = runGsdTools('roadmap update-plan-progress 57', tmpDir);
+    assert.ok(result.success, `expected exit 0: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.table_updated, false);
+    assert.match(parsed.table_update_skipped, /malformed row left untouched/);
+
+    const after = fs.readFileSync(roadmapPath, 'utf-8');
+    assert.strictEqual(
+      after.split('\n').find((l) => l.startsWith('| 57')),
+      before.split('\n').find((l) => l.startsWith('| 57')),
+      'the malformed row must survive byte-identical',
+    );
+  });
+
+  test('a header with no Status/Progress/Plans column is reported, not guessed at', () => {
+    seedPhaseDir(1, 2);
+    const roadmapPath = seedTable(
+      '| Phase | Name | Flag |',
+      '| --- | --- | --- |',
+      '| 57 Outcome-Informed Routing Ledger | MONEY |',
+      '| 58 Next Phase | MONEY |',
+    );
+    const before = fs.readFileSync(roadmapPath, 'utf-8').split('\n').find((l) => l.startsWith('| 57'));
+
+    const result = runGsdTools('roadmap update-plan-progress 57', tmpDir);
+    assert.ok(result.success, `expected exit 0: ${result.error}`);
+    const parsed = JSON.parse(result.output);
+    assert.strictEqual(parsed.table_updated, false);
+    assert.match(parsed.table_update_skipped, /no Status\/Progress\/Plans column/);
+    assert.strictEqual(
+      fs.readFileSync(roadmapPath, 'utf-8').split('\n').find((l) => l.startsWith('| 57')),
+      before,
+    );
+  });
+
+  test('prose after the table and the neighbouring row are never absorbed', () => {
+    seedPhaseDir(1, 2);
+    const roadmapPath = seedTable(
+      '| Phase | Name | Plans | Status |',
+      '| --- | --- | --- | --- |',
+      '| 57 Outcome-Informed Routing Ledger | Routing | 0/TBD | Not started |',
+      row58,
+    );
+
+    runGsdTools('roadmap update-plan-progress 57', tmpDir);
+
+    const updated = fs.readFileSync(roadmapPath, 'utf-8');
+    assert.ok(updated.includes(row58), 'neighbouring row must survive verbatim');
+    assert.ok(updated.includes('trailing prose that must never be absorbed into a table row'));
+    assert.ok(!updated.includes('Next | v1.15.0 | 1/2'), 'no spillover into the next row');
+  });
+
+  test('phase complete rewrites ONLY the Status cell of a 4-column table', () => {
+    const phaseDir = path.join(tmpDir, '.planning', 'phases', '01-foundation');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    fs.writeFileSync(path.join(phaseDir, '01-01-PLAN.md'), '# Plan');
+    fs.writeFileSync(path.join(phaseDir, '01-01-SUMMARY.md'), SELF_CHECK_PASSED_SUMMARY);
+    fs.writeFileSync(path.join(phaseDir, '01-VERIFICATION.md'), 'status: passed\n# Verification\n');
+    fs.writeFileSync(path.join(phaseDir, 'CHECKPOINT.json'), JSON.stringify({ last_step: 'verify', step_status: 'complete' }));
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'STATE.md'),
+      '# State\n\n**Current Phase:** 01\n**Status:** In progress\n**Current Plan:** 01-01\n**Last Activity:** 2025-01-01\n**Last Activity Description:** Working\n'
+    );
+    const roadmapPath = seedTable(
+      '| Phase | Name | Plans | Status |',
+      '| --- | --- | --- | --- |',
+      '| 01 Foundation | Foundation Setup | 1/1 | In progress |',
+      '| 02 Api | Api Setup | 0/1 | Not started |',
+    );
+    gitCommitAll(tmpDir, 'feat(01-01): foundation');
+
+    const result = runGsdTools('phase complete 1', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const row = fs.readFileSync(roadmapPath, 'utf-8').split('\n').find((l) => l.startsWith('| 01'));
+    const cells = row.split('|').slice(1, -1);
+    assert.strictEqual(cells.length, 4, `row must keep 4 cells, got: ${row}`);
+    assert.strictEqual(cells[1], ' Foundation Setup ', `Name cell must be byte-preserved, got: ${row}`);
+    assert.strictEqual(cells[2], ' 1/1 ', `Plans cell must be untouched, got: ${row}`);
+    assert.match(cells[3], /^ Complete/, `Status cell must be rewritten in place, got: ${row}`);
+    assert.ok(!cells[3].includes('Api'), `the next phase's name must never land in this row: ${row}`);
+  });
+
+  test('phase complete rewrites ONLY the Status cell of a 5-column table (Flag cell survives)', () => {
+    const phaseDir = path.join(tmpDir, '.planning', 'phases', '01-foundation');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    fs.writeFileSync(path.join(phaseDir, '01-01-PLAN.md'), '# Plan');
+    fs.writeFileSync(path.join(phaseDir, '01-01-SUMMARY.md'), SELF_CHECK_PASSED_SUMMARY);
+    fs.writeFileSync(path.join(phaseDir, '01-VERIFICATION.md'), 'status: passed\n# Verification\n');
+    fs.writeFileSync(path.join(phaseDir, 'CHECKPOINT.json'), JSON.stringify({ last_step: 'verify', step_status: 'complete' }));
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'STATE.md'),
+      '# State\n\n**Current Phase:** 01\n**Status:** In progress\n**Current Plan:** 01-01\n**Last Activity:** 2025-01-01\n**Last Activity Description:** Working\n'
+    );
+    const roadmapPath = seedTable(
+      '| Phase | Name | Requirements | Flag | Status |',
+      '|-------|------|--------------|------|--------|',
+      '| 01 Foundation | Foundation Setup | MILE-01 | MONEY | In progress |',
+      '| 02 Api | Api Setup | MILE-02 | MONEY | Not started |',
+    );
+    gitCommitAll(tmpDir, 'feat(01-01): foundation');
+
+    const result = runGsdTools('phase complete 1', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const row = fs.readFileSync(roadmapPath, 'utf-8').split('\n').find((l) => l.startsWith('| 01'));
+    const cells = row.split('|').slice(1, -1);
+    assert.strictEqual(cells.length, 5, `row must keep 5 cells, got: ${row}`);
+    assert.strictEqual(cells[2], ' MILE-01 ', `Requirements cell must be preserved, got: ${row}`);
+    assert.strictEqual(cells[3], ' MONEY ', `Flag cell must be preserved, got: ${row}`);
+    assert.match(cells[4], /^ Complete/, `Status cell must be rewritten in place, got: ${row}`);
   });
 });
 

@@ -9154,7 +9154,149 @@ function cmdPhaseRemove(cwd, targetPhase, options, raw) {
   output(result, raw);
 }
 
-// ─── Roadmap Update Plan Progress ───────────────────────────────────────────
+// ─── Roadmap Progress-Table Row Rewriter ────────────────────────────────────
+//
+// Every ROADMAP phase summary table this framework's consuming projects use
+// has a DIFFERENT column layout: 3-column (`| Phase | Requirements | Status |`),
+// 4-column (`| Phase | Name | Plans | Status |`), 5-column
+// (`| Phase | Name | Requirements | Flag | Status |`), and so on. Two previous
+// implementations rewrote these rows with hardcoded column positions:
+// `phase complete` assumed Status=column 3 / date=column 4, and
+// `roadmap update-plan-progress` assumed a 5-column shape. Both are silent
+// corrupters: applied to a row with a different layout they write the progress
+// cell into whatever column happened to sit at that index (a Requirements or
+// Flag cell, or a neighbouring row's name) and drop the row's real status text.
+//
+// The helpers below resolve the row's governing header FIRST, locate the
+// progress/status column BY HEADER NAME, and rewrite only that cell — every
+// other cell is spliced back byte-for-byte. A row whose cell count disagrees
+// with its header is a pre-existing malformed row (already corrupted by an
+// older version); positionally rewriting it cannot be made safe, so it is left
+// untouched and reported instead.
+
+function splitTableCells(line) {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith('|') || !trimmed.endsWith('|') || trimmed.length < 2) return null;
+  const inner = trimmed.slice(1, -1);
+  const cells = [];
+  let cur = '';
+  for (let i = 0; i < inner.length; i++) {
+    const ch = inner[i];
+    if (ch === '\\' && inner[i + 1] === '|') { cur += '\\|'; i++; continue; }
+    if (ch === '|') { cells.push(cur); cur = ''; continue; }
+    cur += ch;
+  }
+  cells.push(cur);
+  return cells;
+}
+
+function headerColumnIndex(headerCells, re) {
+  for (let i = 0; i < headerCells.length; i++) {
+    const label = headerCells[i].replace(/[*_`]/g, '').trim();
+    if (re.test(label)) return i;
+  }
+  return -1;
+}
+
+// Locates the phase row and the header row governing it. Returns null when
+// either is absent or malformed.
+function findProgressTableRow(content, phaseEscaped) {
+  const lines = content.split('\n');
+  // `0*` so a zero-padded row label ("| 01 Foundation |") matches phase 1.
+  const rowRe = new RegExp(`^\\|\\s*0*${phaseEscaped}\\.?(\\s|\\|)`);
+  let rowIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (rowRe.test(lines[i])) { rowIdx = i; break; }
+  }
+  if (rowIdx === -1) return null;
+  const rowCells = splitTableCells(lines[rowIdx]);
+  if (!rowCells) return null;
+
+  let headerCells = null;
+  for (let i = rowIdx - 1; i >= 0 && i > rowIdx - 500; i--) {
+    const t = lines[i].trim();
+    if (t === '') continue;
+    if (t.startsWith('#')) break; // reached the section heading — header is above it, not below
+    if (/^\|[\s:|-]+\|$/.test(t)) continue; // separator row
+    const cells = splitTableCells(t);
+    // Real ROADMAP tables in the wild contain rows missing their trailing pipe
+    // (hand-edited), so an unparseable line is skipped rather than treated as
+    // the end of the table.
+    if (!cells) continue;
+    if (/^\d+(\.\d+)?(\s|$)/.test(cells[0].trim())) continue; // a neighbouring DATA row, keep walking up
+    headerCells = cells;
+    break;
+  }
+  if (!headerCells) return null;
+  return { lines, rowIdx, rowCells, headerCells };
+}
+
+function replaceTableRowCells(found, edits) {
+  const cells = found.rowCells.slice();
+  for (const [idx, text] of edits) cells[idx] = ` ${text} `;
+  found.lines[found.rowIdx] = '|' + cells.join('|') + '|';
+  return found.lines.join('\n');
+}
+
+const STATUS_HEADER_RE = /^(status|progress|state)\b/i;
+const PLANS_HEADER_RE = /^(plans?|progress)\b/i;
+
+/**
+ * Rewrites only the progress/status cell of a phase row, located by header
+ * name. `renderStatus(existingText)` returns the new status cell text, or null
+ * to leave that column alone. `renderPlans(existingText)` does the same for a
+ * separate Plans column when the table has one.
+ *
+ * Returns { content, updated, reason?, column?, header_columns?, row_cells? }.
+ */
+function updateProgressTableRow(content, phaseEscaped, renderStatus, renderPlans) {
+  const found = findProgressTableRow(content, phaseEscaped);
+  if (!found) return { content, updated: false, reason: 'phase row or its header not found in a progress table' };
+
+  const { headerCells, rowCells } = found;
+  const statusIdx = headerColumnIndex(headerCells, STATUS_HEADER_RE);
+  const plansIdx = renderPlans && headerColumnIndex(headerCells, PLANS_HEADER_RE) !== statusIdx
+    ? headerColumnIndex(headerCells, PLANS_HEADER_RE)
+    : -1;
+
+  if (statusIdx === -1 && plansIdx === -1) {
+    return {
+      content, updated: false, reason: 'header has no Status/Progress/Plans column',
+      header_columns: headerCells.length,
+    };
+  }
+  if (headerCells.length !== rowCells.length) {
+    // Row was already corrupted by an older positional writer — it has a
+    // different number of cells than its header. Any positional write would
+    // compound the damage, so leave the row alone and report it.
+    return {
+      content,
+      updated: false,
+      reason: `row has ${rowCells.length} cells but its header declares ${headerCells.length} — malformed row left untouched (needs manual repair)`,
+      header_columns: headerCells.length,
+      row_cells: rowCells.length,
+    };
+  }
+
+  const edits = [];
+  if (plansIdx !== -1) {
+    const plansText = renderPlans(rowCells[plansIdx]);
+    if (plansText !== null && plansText !== undefined) edits.push([plansIdx, plansText]);
+  }
+  if (statusIdx !== -1) {
+    const statusText = renderStatus(rowCells[statusIdx]);
+    if (statusText !== null && statusText !== undefined) edits.push([statusIdx, statusText]);
+  }
+  if (edits.length === 0) return { content, updated: false, reason: 'no cell change requested', header_columns: headerCells.length };
+
+  const next = replaceTableRowCells(found, edits);
+  return {
+    content: next,
+    updated: next !== content,
+    column: statusIdx !== -1 ? statusIdx : plansIdx,
+    header_columns: headerCells.length,
+  };
+}
 
 function cmdRoadmapUpdatePlanProgress(cwd, phaseNum, raw) {
   if (!phaseNum) {
@@ -9188,59 +9330,46 @@ function cmdRoadmapUpdatePlanProgress(cwd, phaseNum, raw) {
   let roadmapContent = fs.readFileSync(roadmapPath, 'utf-8');
   const phaseEscaped = phaseNum.replace('.', '\\.');
 
-  // Progress table row: | Phase Name | Milestone | Plans | Status | Completed |
-  // (5 columns). The Milestone column (2nd) must be preserved verbatim --
-  // only Plans/Status/Completed (columns 3-5) are rewritten. A prior version
-  // of this regex only accounted for 4 columns and silently discarded the
-  // Milestone cell's value on every run (found + fixed during Phase 57-01;
-  // see deferred-items.md for pre-existing rows this bug corrupted before
-  // this fix landed).
-  // The 5-column shape above is one convention among several this framework's
-  // consuming projects actually use in practice -- some track a 3-column
-  // table instead (e.g. "| Phase | Requirements | Status |", no Milestone/
-  // Completed columns at all). Applying the 5-column regex to a differently-
-  // shaped table doesn't fail loudly -- it matches SOMETHING (the row-start
-  // anchor `\|\s*${phaseEscaped}` still hits) and then consumes pipe
-  // delimiters past the row's actual end, spilling into and corrupting the
-  // NEXT row (observed: a neighboring phase's row name silently absorbed
-  // into the updated row under concurrent execution). Detect the real column
-  // count of the header immediately governing this row before touching
-  // anything, and only apply the 5-column rewrite when it actually has 5
-  // columns -- for any other shape, skip the table rewrite (the Plans: line
-  // and checkbox updates below are format-agnostic and still safe to apply).
-  const rowLineMatch = roadmapContent.match(new RegExp(`^\\|\\s*${phaseEscaped}\\.?\\s.*\\|\\s*$`, 'im'));
-  let headerColumnCount = null;
-  if (rowLineMatch) {
-    const rowStart = roadmapContent.indexOf(rowLineMatch[0]);
-    const before = roadmapContent.slice(0, rowStart);
-    const linesBefore = before.split('\n');
-    // Walk backward past the row's own separator line (e.g. |---|---|) to
-    // the actual header row directly above it.
-    for (let i = linesBefore.length - 1; i >= 0; i--) {
-      const line = linesBefore[i].trim();
-      if (line === '') continue;
-      if (/^\|[\s:|-]+\|$/.test(line)) continue; // separator row, keep going up
-      if (line.startsWith('|') && line.endsWith('|')) {
-        headerColumnCount = line.split('|').filter((_, idx, arr) => idx > 0 && idx < arr.length - 1).length;
-      }
-      break; // first non-separator, non-blank line above the row -- header or not, stop here
-    }
-  }
-
-  const dateField = isComplete ? ` ${today} ` : '  ';
-  let tableUpdated = false;
-  if (headerColumnCount === 5) {
-    const tablePattern = new RegExp(
-      `(\\|\\s*${phaseEscaped}\\.?\\s[^|]*\\|)([^|]*\\|)[^|]*(\\|)\\s*[^|]*(\\|)\\s*[^|]*(\\|)`,
-      'i'
-    );
-    const before = roadmapContent;
-    roadmapContent = roadmapContent.replace(
-      tablePattern,
-      `$1$2 ${summaryCount}/${planCount} $3 ${status.padEnd(11)}$4${dateField}$5`
-    );
-    tableUpdated = roadmapContent !== before;
-  }
+  // Progress table row: rewrite ONLY the progress/status cell, located by the
+  // header row that governs it. Positional/fixed-column assumptions corrupted
+  // rows in 3-, 4-, and 5-column layouts (wrote the count into the
+  // Requirements or Flag cell and dropped the row's real status text); see the
+  // Roadmap Progress-Table Row Rewriter block above.
+  const progressToken = `${summaryCount}/${planCount}`;
+  const tableResult = updateProgressTableRow(
+    roadmapContent,
+    phaseEscaped,
+    (existing) => {
+      const text = existing.trim();
+      if (text === '') return `${status} (${progressToken} plans)`;
+      // Retarget an existing tally in place; otherwise append one. The
+      // lifecycle word is re-stated from disk (plans vs summaries), the prose
+      // after it is the roadmap author's and is preserved verbatim.
+      const lifecycle = text.match(/^(\W*)(not started|in progress|complete|completed|planned|blocked)\b/i);
+      const rest = (lifecycle ? text.slice(lifecycle[0].length) : text).trim();
+      // Keep any markdown emphasis wrapping the lifecycle word, drop the word.
+      const leadWithWord = lifecycle
+        ? text.slice(0, lifecycle[0].length) + (text[lifecycle[0].length] === ' ' ? ' ' : '')
+        : '';
+      const leadPrefix = lifecycle ? lifecycle[1] : '';
+      const sameWord = lifecycle && lifecycle[2].toLowerCase() === status.toLowerCase();
+      const head = sameWord ? leadWithWord : `${leadPrefix}${status} `;
+      if (rest === '') return `${head}(${progressToken} plans)`.trim();
+      const retargeted = /\b\d+\s*\/\s*\d+/.test(rest)
+        ? rest.replace(/\b\d+\s*\/\s*\d+\s+plans?\b/i, `${progressToken} plans`).replace(/\b\d+\s*\/\s*\d+\b/, progressToken)
+        : `${rest} (${progressToken} plans)`;
+      return `${head}${retargeted}`.trim();
+    },
+    (existing) => {
+      const text = existing.trim();
+      const tally = /\b\d+\s*(?:\/|of\s+)\s*(?:\d+|TBD)\b/i;
+      if (tally.test(text)) return text.replace(tally, progressToken);
+      return text === '' ? progressToken : `${progressToken} — ${text}`;
+    },
+  );
+  roadmapContent = tableResult.content;
+  const tableUpdated = tableResult.updated;
+  const headerColumnCount = tableResult.header_columns ?? null;
 
   // Update plan count in phase detail section
   const planCountPattern = new RegExp(
@@ -9268,6 +9397,7 @@ function cmdRoadmapUpdatePlanProgress(cwd, phaseNum, raw) {
     phase: phaseNum,
     plan_count: planCount,
     summary_count: summaryCount,
+    table_update_skipped: tableResult.updated ? null : (tableResult.reason || null),
     status,
     complete: isComplete,
     table_updated: tableUpdated,
@@ -9421,16 +9551,33 @@ function cmdPhaseComplete(cwd, phaseNum, raw) {
     );
     roadmapContent = roadmapContent.replace(checkboxPattern, `$1x$2 (completed ${today})`);
 
-    // Progress table: update Status to Complete, add date
+    // Progress table: update ONLY the status cell, located by header name.
+    // The previous regex hardcoded Status=column 3 / date=column 4, so on any
+    // other layout it overwrote a Requirements or Flag cell and deleted the
+    // row's real status text.
     const phaseEscaped = phaseNum.replace('.', '\\.');
-    const tablePattern = new RegExp(
-      `(\\|\\s*${phaseEscaped}\\.?\\s[^|]*\\|[^|]*\\|)\\s*[^|]*(\\|)\\s*[^|]*(\\|)`,
-      'i'
+    const tableResult = updateProgressTableRow(
+      roadmapContent,
+      phaseEscaped,
+      (existing) => {
+        const text = existing.trim();
+        if (text === '') return `Complete (${today})`;
+        const lifecycle = text.match(/^(\W*)(not started|in progress|complete|completed|planned|blocked)\b/i);
+        const rest = (lifecycle ? text.slice(lifecycle[0].length) : text).trim();
+        const leadWithWord = lifecycle
+          ? text.slice(0, lifecycle[0].length) + (text[lifecycle[0].length] === ' ' ? ' ' : '')
+          : '';
+        const leadPrefix = lifecycle ? lifecycle[1] : '';
+        const sameWord = lifecycle && lifecycle[2].toLowerCase() === 'complete';
+        const dated = /\d{4}-\d{2}-\d{2}/.test(text);
+        return `${leadPrefix}${sameWord ? '' : 'Complete '}${rest}${dated ? '' : ` (completed ${today})`}`.trim();
+      },
+      null,
     );
-    roadmapContent = roadmapContent.replace(
-      tablePattern,
-      `$1 Complete    $2 ${today} $3`
-    );
+    roadmapContent = tableResult.content;
+    if (!tableResult.updated && tableResult.reason) {
+      process.stderr.write(`[gsd] ROADMAP progress row for phase ${phaseNum} left untouched: ${tableResult.reason}\n`);
+    }
 
     // Update plan count in phase section
     const planCountPattern = new RegExp(
