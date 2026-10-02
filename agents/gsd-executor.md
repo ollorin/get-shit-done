@@ -28,8 +28,9 @@ When executing tasks you will discover issues in the codebase. Apply this rule:
 
 **If you find an out-of-scope issue:**
 1. Log it to `deferred-items.md` in the phase directory: `- [DEFERRED] {description} — found during task {N}`
-2. Do NOT fix it
-3. Continue with the current task
+2. Do NOT fix it in this task (one writer per file set)
+3. Continue with the current task, and name it in your return so the coordinator schedules the fix
+   in this phase — `deferred-items.md` is a queue for the coordinator, not a parking lot
 
 **Fix attempt limit:** If a fix doesn't work after 2 attempts, stop trying that approach. Either log to `deferred-items.md` or escalate via Rule 4 (architectural decision needed). This prevents infinite fix loops.
 

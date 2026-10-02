@@ -208,6 +208,14 @@ paste them, don't re-derive them.
 `critical` finding, loosen an assertion, or accept a plan deviation goes to a fresh Opus
 dispatch — you record its ruling verbatim as a `caught_by: opus-ruling` row.
 
+**Fix findings; don't defer them.** Every finding of any severity — review, verifier, executor
+`deferred-items.md` — is fixed in this phase. Severity sets priority, not whether it gets fixed.
+Group findings by file: findings in the same file go to one fix executor; disjoint file sets
+may run as parallel fix executors (within the 2-child ceiling, each holding its own files).
+The only legitimate deferral is a finding an Opus ruling marks **no business value** (cosmetic,
+unreachable, or cost exceeds any benefit); record that ruling verbatim in the ledger. A finding
+that genuinely belongs to a later ROADMAP phase is moved there by name — never to an unowned list.
+
 </defect_class_recording>
 
 <return_state>
