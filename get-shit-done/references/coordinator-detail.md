@@ -1560,6 +1560,8 @@ Writing VERIFICATION.md inline (coordinator writes it directly without spawning 
 
 If the coordinator DOES write inline (e.g., timeout fallback), it MUST set `verifier: coordinator` in the frontmatter. When gsd-verifier runs in re-verification mode and sees `verifier: coordinator`, it MUST re-run all QA-related QGATEs (07, 10, 12) regardless of what the coordinator's inline report said.
 
+**Review tiering:** Sonnet implements AND runs every review/verify loop, a fresh Sonnet agent each round (never the implementer), every severity fixed, until a round reports zero findings. Opus runs only at mandatory points, once each: (1) plans for money/auth/security/RNG/KYC work, (2) ONE batched diff review after Sonnet reports zero findings, (3) the phase-end `gsd-verifier`, preceded by a Sonnet pre-verification of all must-haves with on-disk evidence, (4) rulings on judgment calls (deferral, assertion loosening, high-stakes design). Further Opus rounds only re-check HIGH/money-path fixes. Milestone audit stays Opus.
+
 Spawn verifier agent to create VERIFICATION.md:
 ```
 // The verifier always runs on Opus, whatever tier implemented the phase

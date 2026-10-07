@@ -443,7 +443,7 @@ IS_STALE=$(node -e "console.log(JSON.parse(process.argv[1]).stale)" "$STALENESS_
 **5. Handle result:**
 - `status: "completed"`: proceed to **5a** (Charlotte gate) then **5b** (integration gate)
 - `status: "completed_with_deferrals"`: coordinator hit context limits. Spawn fresh agents for deferred steps:
-  - If `"verify"` in deferred: spawn `gsd-verifier` with `model="opus"` and handoff_summary from return
+  - If `"verify"` in deferred: spawn `gsd-verifier` with `model="opus"` and handoff_summary from return; run a Sonnet pre-verification of all must-haves first (on-disk evidence)
   - If `"charlotte_qa"` in deferred: will be caught by 5a gate
   - After all deferrals resolved: proceed to 5a → 5b
 - `status: "failed"`: see `<step name="handle_failure">`

@@ -178,6 +178,12 @@ After each step (discuss, research, plan, execute, verify):
 **Invariant enforced by tooling:** `gsd-tools.js phase complete` refuses to mark a phase done unless `{N}-VERIFICATION.md` has `status: "passed"`, every PLAN.md has a SUMMARY.md containing `## Self-Check: PASSED`, every plan has at least one `{N}-{NN}`-tagged commit, and CHECKPOINT.json has `last_step: "verify"`. `verify phase-gate` applies the same evidence checks (non-waivable `missing_evidence`). This contract is not advisory — it is a hard gate.
 </checkpoint_protocol>
 
+<review_tiering>
+
+**Review tiering:** Sonnet implements AND runs every review/verify loop, a fresh Sonnet agent each round (never the implementer), every severity fixed, until a round reports zero findings. Opus runs only at mandatory points, once each: (1) plans for money/auth/security/RNG/KYC work, (2) ONE batched diff review after Sonnet reports zero findings, (3) the phase-end `gsd-verifier`, preceded by a Sonnet pre-verification of all must-haves with on-disk evidence, (4) rulings on judgment calls (deferral, assertion loosening, high-stakes design). Further Opus rounds only re-check HIGH/money-path fixes. Milestone audit stays Opus.
+
+</review_tiering>
+
 <defect_class_recording>
 
 ## You are the backstop for `## Defect Classes`
