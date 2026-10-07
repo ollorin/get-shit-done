@@ -1,6 +1,6 @@
 ---
 name: gsd-e2e-test-generator
-model: sonnet
+model: haiku
 description: Generates comprehensive e2e test scenarios from UI module inventory using QA methodologies (equivalence partitioning, boundary values, pairwise testing)
 tools:
   - Read

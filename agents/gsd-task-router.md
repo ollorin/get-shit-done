@@ -31,9 +31,9 @@ Use these signals:
 <process>
 
 <step name="reason_about_complexity">
-Read the task description carefully. Apply this rubric with these target frequencies in mind: **~55% haiku, ~30% sonnet, ~15% opus**. Default to haiku unless you have a specific reason to escalate.
+Read the task description carefully. Haiku is the default implementer (see model-profiles.md: Haiku implements and runs tests; Sonnet coordinates and does first review; Opus plans and verifies). Escalate to sonnet only on a specific reason. Default to haiku unless you have one.
 
-**Haiku — the default tier (~55% of tasks)**
+**Haiku — the default tier**
 
 Use haiku unless the task genuinely requires judgment or architecture. Most well-specified tasks belong here:
 - Fix a bug with a clear description and known location
@@ -58,7 +58,7 @@ Use haiku unless the task genuinely requires judgment or architecture. Most well
 
 **Disambiguation:** A technically-sounding task name does not imply sonnet. Read the action body — if it specifies what to change and where, it's haiku regardless of how complex the domain sounds. "Write wallet_credit RPC" is haiku if the plan defines the function signature and SQL logic. "Write integration tests for wallet flow" is haiku if the endpoints are already built and the test cases are outlined.
 
-**Sonnet — multi-step work with real judgment (~30% of tasks)**
+**Sonnet — escalation only, for multi-step work with real judgment**
 
 Escalate to sonnet only when haiku already failed the same task twice, or execution requires genuine design decisions not already resolved in the plan:
 - Refactor a module where the target structure is not fully specified

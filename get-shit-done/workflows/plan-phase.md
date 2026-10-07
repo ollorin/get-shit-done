@@ -281,7 +281,7 @@ test -f "${PHASE_DIR}/${PADDED_PHASE}-VALIDATION.md" && echo "VALIDATION_CREATED
 **Process:**
 1. Read RESEARCH.md to understand what UI will be built/changed
 2. Spawn gsd-ui-inventory (haiku) focused on the affected modules (not full app scan)
-3. Spawn gsd-e2e-test-generator (sonnet) with:
+3. Spawn gsd-e2e-test-generator (haiku) with:
    - Focused UI inventory
    - Phase requirements
    - Existing test coverage for affected areas

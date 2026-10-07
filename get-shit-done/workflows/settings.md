@@ -47,8 +47,8 @@ AskUserQuestion([
     multiSelect: false,
     options: [
       { label: "Quality", description: "Opus everywhere except verification (highest cost)" },
-      { label: "Balanced (Recommended)", description: "Opus for planning, Sonnet for execution/verification" },
-      { label: "Budget", description: "Sonnet for writing, Haiku for research/verification (lowest cost)" }
+      { label: "Balanced (Recommended)", description: "Opus for planning/verification, Haiku for execution, Sonnet for coordination and first review" },
+      { label: "Budget", description: "Haiku for writing, Haiku/Sonnet for research and review (lowest cost)" }
     ]
   },
   {
