@@ -236,7 +236,7 @@ require('dotenv').config({ path: path.join(__dirname, '../../.env'), quiet: true
 const MODEL_PROFILES = {
   'gsd-planner':              { quality: 'opus', balanced: 'opus',   budget: 'sonnet', auto: 'sonnet' },
   'gsd-roadmapper':           { quality: 'opus', balanced: 'sonnet', budget: 'sonnet', auto: 'sonnet' },
-  'gsd-executor':             { quality: 'opus', balanced: 'sonnet', budget: 'sonnet', auto: 'sonnet' },
+  'gsd-executor':             { quality: 'opus', balanced: 'haiku', budget: 'haiku', auto: 'haiku' },
   'gsd-phase-researcher':     { quality: 'opus', balanced: 'sonnet', budget: 'haiku',  auto: 'sonnet' },
   'gsd-project-researcher':   { quality: 'opus', balanced: 'sonnet', budget: 'haiku',  auto: 'sonnet' },
   'gsd-research-synthesizer': { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku', auto: 'sonnet' },
@@ -244,7 +244,13 @@ const MODEL_PROFILES = {
   'gsd-codebase-mapper':      { quality: 'sonnet', balanced: 'haiku', budget: 'haiku', auto: 'haiku'  },
   'gsd-verifier':             { quality: 'opus', balanced: 'opus', budget: 'opus', auto: 'opus' },
   'gsd-plan-checker':         { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku', auto: 'sonnet' },
-  'gsd-nyquist-auditor':      { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku', auto: 'sonnet' },
+  'gsd-nyquist-auditor':      { quality: 'sonnet', balanced: 'haiku', budget: 'haiku', auto: 'haiku' },
+  'gsd-test-writer':          { quality: 'sonnet', balanced: 'haiku', budget: 'haiku', auto: 'haiku' },
+  'gsd-docs-updater':         { quality: 'sonnet', balanced: 'haiku', budget: 'haiku', auto: 'haiku' },
+  'gsd-integration-tester':   { quality: 'sonnet', balanced: 'haiku', budget: 'haiku', auto: 'haiku' },
+  'gsd-phase-coordinator':    { quality: 'sonnet', balanced: 'sonnet', budget: 'sonnet', auto: 'sonnet' },
+  'gsd-plan-attacker':        { quality: 'opus', balanced: 'opus', budget: 'sonnet', auto: 'opus' },
+  'gsd-plan-judge':           { quality: 'opus', balanced: 'opus', budget: 'sonnet', auto: 'opus' },
   'gsd-integration-checker':  { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku', auto: 'sonnet' },
 };
 

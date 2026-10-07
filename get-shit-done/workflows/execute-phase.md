@@ -724,7 +724,7 @@ node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs(phase-${PARENT_
 </step>
 
 <step name="record_defect_classes">
-**Review tiering:** Sonnet implements and runs every review/verify loop (fresh Sonnet per round, never the implementer, every severity fixed) until zero findings; Opus only once each at: plans for money/auth/security/RNG/KYC, ONE batched diff review after Sonnet hits zero, the `gsd-verifier` (after a Sonnet pre-verification of all must-haves with on-disk evidence), and rulings on judgment calls. Further Opus rounds only re-check HIGH/money-path fixes.
+**Review tiering:** Haiku implements (Sonnet only after two Haiku failures on a task, or if undecomposed/ambiguous, unclear-RCA, architecture); Sonnet runs every review/verify loop (fresh Sonnet per round, never the implementer, every severity fixed) until zero findings; Opus only once each at: plans for money/auth/security/RNG/KYC, ONE batched diff review after Sonnet hits zero, the `gsd-verifier` (after a Sonnet pre-verification of all must-haves with on-disk evidence), and rulings on judgment calls. Further Opus rounds only re-check HIGH/money-path fixes.
 
 Runs BEFORE `verify_phase_goal`. Findings that belong to the phase rather than to one plan have
 no other home, and `/gsd:audit-milestone`'s Defect Classes Distillation reads nothing else. If

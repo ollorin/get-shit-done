@@ -2557,7 +2557,7 @@ describe('resolve-model — gsd-nyquist-auditor model profiles', () => {
     cleanup(tmpDir);
   });
 
-  test('balanced profile returns sonnet', () => {
+  test('balanced profile returns haiku', () => {
     fs.writeFileSync(
       path.join(tmpDir, '.planning', 'config.json'),
       JSON.stringify({ model_profile: 'balanced' })
@@ -2566,7 +2566,7 @@ describe('resolve-model — gsd-nyquist-auditor model profiles', () => {
     const result = runGsdTools('resolve-model gsd-nyquist-auditor', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
     const parsed = JSON.parse(result.output);
-    assert.strictEqual(parsed.model, 'sonnet');
+    assert.strictEqual(parsed.model, 'haiku');
   });
 
   test('budget profile returns haiku', () => {

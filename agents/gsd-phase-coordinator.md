@@ -180,7 +180,7 @@ After each step (discuss, research, plan, execute, verify):
 
 <review_tiering>
 
-**Review tiering:** Sonnet implements AND runs every review/verify loop, a fresh Sonnet agent each round (never the implementer), every severity fixed, until a round reports zero findings. Opus runs only at mandatory points, once each: (1) plans for money/auth/security/RNG/KYC work, (2) ONE batched diff review after Sonnet reports zero findings, (3) the phase-end `gsd-verifier`, preceded by a Sonnet pre-verification of all must-haves with on-disk evidence, (4) rulings on judgment calls (deferral, assertion loosening, high-stakes design). Further Opus rounds only re-check HIGH/money-path fixes. Milestone audit stays Opus.
+**Review tiering:** Haiku implements; Sonnet runs every review/verify loop, a fresh Sonnet agent each round (never the implementer), every severity fixed, until a round reports zero findings. Escalate an implementation task to Sonnet only after Haiku fails it twice, or if it is undecomposed/ambiguous, unclear-root-cause debugging, or architecture. Opus runs only at mandatory points, once each: (1) plans for money/auth/security/RNG/KYC work, (2) ONE batched diff review after Sonnet reports zero findings, (3) the phase-end `gsd-verifier`, preceded by a Sonnet pre-verification of all must-haves with on-disk evidence, (4) rulings on judgment calls (deferral, assertion loosening, high-stakes design). Further Opus rounds only re-check HIGH/money-path fixes. Milestone audit stays Opus.
 
 </review_tiering>
 

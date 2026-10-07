@@ -8,16 +8,22 @@ Model profiles control which Claude model each GSD agent uses. This allows balan
 |-------|-----------|------------|----------|
 | gsd-planner | opus | opus | sonnet |
 | gsd-roadmapper | opus | sonnet | sonnet |
-| gsd-executor | opus | sonnet | sonnet |
+| gsd-executor | opus | haiku | haiku |
 | gsd-phase-researcher | opus | sonnet | haiku |
 | gsd-project-researcher | opus | sonnet | haiku |
 | gsd-research-synthesizer | sonnet | sonnet | haiku |
 | gsd-debugger | opus | sonnet | sonnet |
 | gsd-codebase-mapper | sonnet | haiku | haiku |
-| gsd-verifier | sonnet | sonnet | haiku |
+| gsd-verifier | opus | opus | opus |
 | gsd-plan-checker | sonnet | sonnet | haiku |
 | gsd-integration-checker | sonnet | sonnet | haiku |
-| gsd-nyquist-auditor | sonnet | sonnet | haiku |
+| gsd-nyquist-auditor | sonnet | haiku | haiku |
+| gsd-test-writer | sonnet | haiku | haiku |
+| gsd-docs-updater | sonnet | haiku | haiku |
+| gsd-integration-tester | sonnet | haiku | haiku |
+| gsd-phase-coordinator | sonnet | sonnet | sonnet |
+| gsd-plan-attacker | opus | opus | sonnet |
+| gsd-plan-judge | opus | opus | sonnet |
 
 ## Profile Philosophy
 
@@ -28,12 +34,12 @@ Model profiles control which Claude model each GSD agent uses. This allows balan
 
 **balanced** (default) - Smart allocation
 - Opus only for planning (where architecture decisions happen)
-- Sonnet for execution and research (follows explicit instructions)
-- Sonnet for verification (needs reasoning, not just pattern matching)
+- Haiku for execution and test/doc writing (Opus plans are already decomposed)
+- Sonnet for coordinators, research and first-pass review; Opus for the phase verifier
 - Use when: normal development, good balance of quality and cost
 
 **budget** - Minimal Opus usage
-- Sonnet for anything that writes code
+- Haiku for anything that writes code
 - Haiku for research and verification
 - Use when: conserving quota, high-volume work, less critical phases
 
@@ -64,11 +70,11 @@ Per-project default: Set in `.planning/config.json`:
 **Why Opus for gsd-planner?**
 Planning involves architecture decisions, goal decomposition, and task design. This is where model quality has the highest impact.
 
-**Why Sonnet for gsd-executor?**
-Executors follow explicit PLAN.md instructions. The plan already contains the reasoning; execution is implementation.
+**Why Haiku for gsd-executor?**
+Executors follow explicit PLAN.md instructions. The plan already contains the reasoning; execution is implementation. A miss is caught by Sonnet reviews and Opus phase verification; escalate to Sonnet after two failures on the same task.
 
-**Why Sonnet (not Haiku) for verifiers in balanced?**
-Verification requires goal-backward reasoning - checking if code *delivers* what the phase promised, not just pattern matching. Sonnet handles this well; Haiku may miss subtle gaps.
+**Why Opus for the verifier?**
+Verification requires goal-backward reasoning - checking if code *delivers* what the phase promised. Sonnet pre-verifies; Opus rules at phase end.
 
 **Why Haiku for gsd-codebase-mapper?**
 Read-only exploration and pattern extraction. No reasoning required, just structured output from file contents.

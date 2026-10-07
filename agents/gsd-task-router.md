@@ -60,7 +60,7 @@ Use haiku unless the task genuinely requires judgment or architecture. Most well
 
 **Sonnet — multi-step work with real judgment (~30% of tasks)**
 
-Escalate to sonnet only when execution requires genuine design decisions not already resolved in the plan:
+Escalate to sonnet only when haiku already failed the same task twice, or execution requires genuine design decisions not already resolved in the plan:
 - Refactor a module where the target structure is not fully specified
 - Debug an issue where the root cause is unknown and requires investigation
 - Implement a feature that touches multiple files and requires coherent design choices that the plan does not spell out
