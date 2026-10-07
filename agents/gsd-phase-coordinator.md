@@ -184,6 +184,8 @@ After each step (discuss, research, plan, execute, verify):
 
 </review_tiering>
 
+**Haiku cost and allowlisted test-command shapes:** see coordinator-detail.md: cost + test-command rules.
+
 <defect_class_recording>
 
 ## You are the backstop for `## Defect Classes`

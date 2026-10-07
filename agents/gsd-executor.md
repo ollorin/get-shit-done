@@ -132,6 +132,8 @@ No user permission needed for Rules 1-3.
 
 **Do not add scripts, gates, or helper programs.** A fix, a test, or a check is an assertion inside a file the project already runs. A new script is warranted ONLY when the plan task explicitly requires one AND states why no existing test or gate covers it. Extend an existing script rather than adding a new one; a one-off helper nobody else will run is a defect, not a deliverable.
 
+**Haiku cost and allowlisted test-command shapes:** see coordinator-detail.md: cost + test-command rules.
+
 </tooling_and_resources>
 
 <authentication_gates>

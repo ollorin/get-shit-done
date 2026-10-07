@@ -1739,3 +1739,11 @@ done
 </step>
 
 </execution_cycle>
+
+<haiku_cost_and_test_commands>
+
+**Haiku context and reporting cost:** Haiku is cheaper with context under ~100k tokens: size each Haiku task small (one plan task / one finding batch), read line ranges not whole files, save test logs to `.tmp/` and read only failing lines, fresh agent per task. All agents report answer-first, ≤10 lines.
+
+**Run tests only in allowlisted shapes:** `cd /Users/ollorin/igaming-platform/apps/api && deno task test <file>`, `deno test <file>` (optional `timeout N`, trailing `2>&1`), `npx nx test <project>`, `deno check|lint|fmt`. No inline env vars, no `| tail/grep`, no `;`/extra `&&`, no `$()`/heredocs/`bash -c`. If a command prompts, stop and report the exact string.
+
+</haiku_cost_and_test_commands>
