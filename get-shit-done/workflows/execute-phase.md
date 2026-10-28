@@ -200,6 +200,8 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
    the peer NAME as the primary handle and relay an agentId later only if a peer needs it.
    Skip this block entirely for a single-executor wave — there are no peers to collide with.
 
+   **Model rule:** every spawn passes `model` explicitly (never omit; an omitted model inherits the spawner's tier). Executor and test-writer: `haiku`, `sonnet` only after 2 Haiku failures/ambiguous plan/unclear root cause. Planner and plan-checker: `opus` for money/auth/security/RNG/KYC plans, else `sonnet`. Per-plan review: fresh Sonnet rounds to zero findings; phase end: Opus verifier.
+
    **For Wave 1 executors** (wave_number == 1, no prior context):
    ```
    Agent(

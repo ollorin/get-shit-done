@@ -384,6 +384,8 @@ Output consumed by /gsd:execute-phase. Plans need:
 </quality_gate>
 ```
 
+**Model rule:** every spawn passes `model` explicitly (an omitted model inherits the spawner's tier). Planner and plan-checker: `opus` for money/auth/security/RNG/KYC plans and the plan-ahead coordinator, else `sonnet`; executor and test-writer: `haiku`.
+
 ```
 Agent(
   prompt=filled_prompt,
