@@ -129,6 +129,8 @@ Any plan that touches money movement (wallet, payments, bonus credit, win-credit
 
 Cite the escapes closed inline in the plan: POSTMORTEM class 9 (T2-004 wallet saga → double-win-credit, non-atomic money movement) and class 4 (missing server-side authorization).
 
+Tag every behaviour on a money, auth, RNG, KYC, payment, ledger or settlement path T0 (real-DB, mutation-proven); T1/T2 or "0 tests" there is rejected by the plan-checker (8-T4).
+
 "The transaction is implied" / "auth is handled elsewhere" — INVALID. If a plan touches money or auth and lacks either task, it does NOT ship. This mandate is checked in MANDATE-4's validation loop: if the plan touches money/auth, confirm both (a) and (b) are present before returning `## PLANNING COMPLETE`.
 
 **MANDATE-7: You write markdown, not code**

@@ -379,7 +379,8 @@ issue:
 For each `tdd="true"` task:
 1. BLOCKING if `<behavior>` has no `existing:` inventory line per behaviour (file:line or none, plus REUSE / UPDATE / MERGE / DELETE / ADD+reason).
 2. BLOCKING if the goal or `<done>` is a count ("N tests", "at least", "comprehensive") instead of a list of behaviours.
-3. WARNING: a T2 behaviour is ADD at unit layer, or a behaviour is asserted at a second layer without a wire-shape reason.
+3. BLOCKING: any behaviour on a money, auth, RNG, KYC, payment, ledger or settlement path must be tagged T0 (real-DB, mutation-proven); a plan that tags such a behaviour T1/T2 or "0 tests" is rejected.
+4. WARNING: a T2 behaviour is ADD at unit layer, or a behaviour is asserted at a second layer without a wire-shape reason.
 
 ## Dimension 9: Nyquist Compliance
 

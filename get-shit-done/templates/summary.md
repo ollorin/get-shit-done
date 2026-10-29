@@ -60,9 +60,22 @@ completed: YYYY-MM-DD
 
 ## Test Delta
 
-- **Added / updated / merged / deleted:** [n / n / n / n] (REUSE file:line for each behaviour not added)
-- **Net test LOC:** [n] (`git diff --shortstat <plan-base> -- '*.test.*'`)
-- **Bucket seconds (before → after):** [bucket: s → s] from timing-*.log; `none` if no integration bucket ran
+Machine-parsed by `gsd-tools verify test-content`; keep this exact format:
+
+```
+added: [n]
+updated: [n]
+merged: [n]
+deleted: [n]
+net_test_loc: [n]   (git diff --shortstat <plan-base> -- '*.test.*')
+bucket_seconds: [bucket] [before] -> [after]   (repeatable, from timing-*.log; omit if no bucket ran)
+
+| DISPOSITION | file | covered by |
+|---|---|---|
+| REUSE/UPDATE/MERGE/DELETE | [test or impl file] | [existing *.test.* path:line, or mutant id mXX1 / RED <sha>] |
+```
+
+One row per reused/updated/merged/deleted test file. A DELETE or MERGE row without a real existing test path (or mutant id) cite is rejected by the verifier.
 
 ## Accomplishments
 - [Most important outcome]

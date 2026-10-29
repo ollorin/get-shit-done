@@ -260,7 +260,7 @@ Run the deterministic classifier:
 TEST_CONTENT_RESULT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js verify test-content "$PHASE_NUM")
 ```
 
-Parse `requirements` (each with `req_id`/`status`/`source_plans`/`matched_files`), `hollow_tests`, `net_zero_assertion_files`, `passed`.
+Parse `requirements` (each with `req_id`/`status`/`source_plans`/`matched_files`), `hollow_tests`, `hollow_test_cases`, `net_zero_assertion_files`, `test_delta`, `passed`. A hollow test case or an uncited DELETE/MERGE row in `test_delta` is a gap entry.
 
 **If `passed` is true:** log "Test-content coverage: all applicable requirements COVERED" and continue to Step 6b/7.
 
@@ -269,7 +269,7 @@ Parse `requirements` (each with `req_id`/`status`/`source_plans`/`matched_files`
 Build a `<gaps>` list from the JSON:
 - Each `MISSING` requirement with zero test files → `{ gap_id: req_id, requirement: req_id, type: "no_test_file", reason: "no test file found for this requirement" }`
 - Each entry in `hollow_tests` → `{ gap_id: req_id (owning requirement), requirement: req_id, type: "hollow_test", file, reason: "test file has zero non-skipped test()/it() calls, or zero assertions" }`
-- Each entry in `net_zero_assertion_files` → `{ gap_id: req_id, requirement: req_id, type: "stale_assertions", file, before_count, after_count, reason: "assertion count did not increase since the phase's first commit touching this file" }`
+- Each entry in `net_zero_assertion_files` → `{ gap_id: req_id, requirement: req_id, type: "stale_assertions", file, before_count, after_count, reason: "assertion count fell since the phase's first commit touching this file with no cited MERGE/DELETE row" }` (only a fall without a cited MERGE/DELETE row is flagged)
 
 Spawn:
 ```
@@ -838,7 +838,9 @@ If DEFERRAL_FOUND=false: this check passes silently.
 
 **Trigger:** One or more `.ts`, `.tsx`, or `.js` implementation files appear in SUMMARY.md key-files.
 
-**Hard rule:** Every implementation file must be exercised by a test. A file passes if any test file (unit or integration) imports it or calls its exported route/RPC, or the SUMMARY `## Test Delta` cites a REUSE for it. Unexercised files → `gaps_found`. This is NEVER a warning — never emit a warning for missing test coverage. Files that only re-export or route (≤ 100 LOC, no branches) are exempt.
+**Hard rule:** Every implementation file must be exercised by a test. A file passes if any test file (unit or integration) imports it or calls its exported route/RPC, or the SUMMARY `## Test Delta` cites a REUSE for it. Unexercised files → `gaps_found`. This is NEVER a warning — never emit a warning for missing test coverage. The exemption applies only to pure `export ... from` re-export files (≤ 100 LOC, no branches), never to wallet/auth/rng/kyc/payment/ledger/settlement paths.
+
+Run `gsd-tools verify test-content "$PHASE_NUM"` and read `impl_files_without_tests` (each is a gap), `impl_files_covered` and `impl_files_exempt` (confirm each exempt file is a pure re-export outside the P0 paths above); the manual Steps A-C below are the fallback cross-check.
 
 **Implementation files** are `.ts`, `.tsx`, `.js` files that are NOT:
 - Test files themselves: `*.test.ts`, `*.spec.ts`, `*.test.js`, `*.spec.js`, `*.test.tsx`, `*.spec.tsx`
@@ -1192,13 +1194,13 @@ is not a guard.
 
 ## Step 8j: Test Delta Gates
 
-Measured from the phase diff and the SUMMARY `## Test Delta` sections. Any failure → `gaps_found`, never a warning.
+Measured from the phase diff and the SUMMARY `## Test Delta` fields (`added/updated/merged/deleted/net_test_loc/bucket_seconds` lines and DISPOSITION rows), as reported by `gsd-tools verify test-content` (`test_delta`, `bucket_time_regressed`, `net_test_loc_over_threshold`, `hollow_test_cases`). Any failure → `gaps_found`, never a warning.
 
 - **(a) Net test LOC:** `git diff --shortstat "$BASE" HEAD -- '*.test.*'`. A positive delta over +3,000 needs a cited T0 justification per file.
-- **(b) Touched-bucket time:** the median seconds of each touched bucket must not rise more than 15% over the pre-phase `timing-*.log` without a cited justification.
-- **(c) Hollow scan:** the Step 6c detector reports 0 new hits.
-- **(d) Mutation rows:** every T0 test added or rewritten has a mutation row, and the red log names it.
-- **(e) Deleted/merged:** every deleted or merged test is counted in Test Delta and listed with its covering test.
+- **(b) Touched-bucket time:** read from the `bucket_seconds: <bucket> <before> -> <after>` lines; `bucket_time_regressed` true (rise over 15%) without a cited justification is a gap.
+- **(c) Hollow scan:** the Step 6c detector reports 0 new `hollow_test_cases`.
+- **(d) Mutation rows:** every T0 test added or rewritten has a Test Delta row citing a mutant id (mXX1) or RED sha, and the red log names it.
+- **(e) Deleted/merged:** every deleted or merged test has a DELETE/MERGE row citing an existing test path:line (or mutant id); `deleted`/`merged` counts must match the rows. An uncited row is a gap.
 
 Mutation cap: one mutant per guarded predicate or lock. Equivalents are argued, not run. A T1 rewrite may run its mutant against the single file; T0 keeps full-bucket runs.
 

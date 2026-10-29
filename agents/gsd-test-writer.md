@@ -105,7 +105,7 @@ NEVER write these worthless tests:
    - Tests added/updated/merged/deleted, net test LOC, per-test layer, and REUSE citations
    - Tests passing: N
    - Tests failing: N (with reason if any remain failing)
-   - Coverage of each category above: covered / skipped (reason)
+   - Tier used (T0/T1/T2) per behaviour, with tests added / merged / deleted / reused counts
    - Test files created: [list of file paths]
 
 **CRITICAL: You must ALWAYS run the tests you write.** Never report tests as "written" without executing them. Every test must have a verified pass/fail status from an actual test run.

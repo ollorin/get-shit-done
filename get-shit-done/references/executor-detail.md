@@ -387,8 +387,8 @@ Plan context: complexity=medium, depends_on=0 prior plans, must_haves=1 criteria
 6. Record in SUMMARY.md:
    ```
    Tests (Task N+1): {passed} passing, {failed} failing
-   Test Delta: added {n} / updated {n} / merged {n} / deleted {n}; net test LOC {n} (git diff --shortstat <plan-base> -- '*.test.*'); buckets {name: seconds before→after}
    ```
+   Then fill `## Test Delta` in the exact machine-parsed format of the summary template: lines `added: n`, `updated: n`, `merged: n`, `deleted: n`, `net_test_loc: n` (`git diff --shortstat <plan-base> -- '*.test.*'`), `bucket_seconds: <bucket> <before> -> <after>` (repeatable), then rows `| DISPOSITION | file | covered by (existing *.test.* path:line, or mutant id mXX1 / RED <sha>) |` with DISPOSITION in REUSE/UPDATE/MERGE/DELETE, one row per reused/updated/merged/deleted test file. A DELETE/MERGE row without a real existing test path (or mutant id) cite is rejected by the verifier.
 
 6. Commit (stage test files individually, per task_commit_protocol):
    ```bash

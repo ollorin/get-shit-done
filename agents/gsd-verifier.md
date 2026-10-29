@@ -110,7 +110,7 @@ reference file.
 > **This is NEVER a warning — it is a hard verification failure.**
 
 **Step 8d (implementation file test coverage, QGATE-10):**
-> **Hard rule:** Every implementation file must be exercised by a test: a unit or integration test imports it or calls its exported route/RPC, or the SUMMARY `## Test Delta` cites a REUSE. Re-export/routing files (≤ 100 LOC, no branches) are exempt. Unexercised files → `gaps_found`. This is NEVER a warning.
+> **Hard rule:** Every implementation file must be exercised by a test: a unit or integration test imports it or calls its exported route/RPC, or the SUMMARY `## Test Delta` cites a REUSE. Only pure `export ... from` re-export files (≤ 100 LOC, no branches) are exempt, never wallet/auth/rng/kyc/payment/ledger/settlement paths. Unexercised files → `gaps_found`. This is NEVER a warning.
 
 **Step 8e (migration timestamp conflict check, QGATE-05):**
 > **Hard rule:** Unresolved duplicate migration timestamps detected by this check cause `gaps_found`. This is NEVER a warning.
@@ -347,13 +347,15 @@ Self-report telemetry (MILE-26): populate these from your own run — an ambiguo
 - [ ] Charlotte QA coverage checked (Step 8c) — UI files without Charlotte QA → gaps_found (never warning)
 - [ ] Deferral language check (Step 8c.5 / QGATE-12) — deferral of tests/QA to future phases → gaps_found (never warning)
 - [ ] E2E test coverage check (Step 8c.6 / QGATE-13) — web projects must have E2E-TEST-PLAN.md and scenario files → gaps_found (never warning)
-- [ ] Test file coverage checked (Step 8d) — implementation files without test counterparts → gaps_found (never warning)
+- [ ] Test file coverage checked (Step 8d) — `gsd-tools verify test-content` `impl_files_without_tests` → gaps_found (never warning)
 - [ ] Migration timestamp conflicts checked (Step 8e) — unresolved conflicts → gaps_found (never warning)
 - [ ] Docs coverage validated (Step 8f) — docs missing for scope → gaps_found (never warning)
 - [ ] Layer-1 machine gates RUN (Step 8g / QGATE-14) — fp-gate, migration-security-gate, cve-scan-gate, `--no-check` guard executed against the phase tree (a present-but-unrun gate → gaps_found)
 - [ ] Layer-1 gate output READ (Step 8h / QGATE-15) — any non-zero Layer-1 gate → gaps_found (never warning)
 - [ ] P0 tier-delta checked (Step 8i / QGATE-16) — a new P0-surface path with no risk-tiered
       registry entry, or a blind tier canary → gaps_found (never warning)
+- [ ] Test Delta gates checked (Step 8j) — `hollow_test_cases`, uncited DELETE/MERGE rows, `bucket_time_regressed`,
+      `net_test_loc_over_threshold`, missing mutant rows for T0 tests → gaps_found (never warning)
 - [ ] Overall status determined
 - [ ] Gaps structured in YAML frontmatter (if gaps_found) — each gap includes failure_type field
 - [ ] Re-verification metadata included (if previous existed)
