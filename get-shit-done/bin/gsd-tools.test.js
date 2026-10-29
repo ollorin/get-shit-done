@@ -6454,7 +6454,7 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
     fs.writeFileSync(path.join(phaseDir, `46-${planNum}-SUMMARY.md`), `# Summary\n\n## Test Delta\n${testDeltaBody}\n\n## Next\nnothing\n${extraSections}`);
   }
   const relIn = (phaseDir, f) => path.relative(tmpDir, path.join(phaseDir, f)).split(path.sep).join('/');
-  const MUTATION_TABLE = (id) => `\n## Mutation table\n\n| id | mutation | result |\n|---|---|---|\n| ${id} | flip cancel branch | killed (RED) |\n`;
+  const MUTATION_TABLE = (id, file = 'impl.test.js') => `\n## Mutation table\n\n| id | mutation | test | result |\n|---|---|---|---|\n| ${id} | flip cancel branch | ${file} | killed (RED) |\n`;
   const TWO_ASSERT_BASELINE = `const { test } = require('node:test');\nconst assert = require('node:assert');\ntest('cancel a', () => { assert.equal(1 + 0, 1); });\ntest('cancel b', () => { assert.equal(2 + 0, 2); });\ntest('cancel c', () => { assert.equal(3 + 0, 3); });\n`;
 
   test('equal assertion count on a touched file is NOT net-zero (no strict rise required) -> COVERED', () => {
@@ -6802,7 +6802,13 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
     writeSummary(phaseDir, '01', `merged: 1\n| MERGE | ${f} | 3 variants -> 1 table; RED deadbeef |`);
     commitAll('feat(46-01): fake red');
     assert.strictEqual(JSON.parse(runTestContent('46', tmpDir).output).requirements[0].status, 'PARTIAL');
+    // H2: an existing but unrelated (untagged) base commit is not a valid RED
     writeSummary(phaseDir, '01', `merged: 1\n| MERGE | ${f} | 3 variants -> 1 table; RED ${baseSha} |`);
+    commitAll('feat(46-01): unrelated red');
+    assert.strictEqual(JSON.parse(runTestContent('46', tmpDir).output).requirements[0].status, 'PARTIAL');
+    // A plan-tagged commit that touches the merged test file passes
+    const tagged = execSync('git log --format=%h --grep="fake mutant"', { cwd: tmpDir, encoding: 'utf-8' }).trim();
+    writeSummary(phaseDir, '01', `merged: 1\n| MERGE | ${f} | 3 variants -> 1 table; RED ${tagged} |`);
     commitAll('feat(46-01): real red');
     assert.strictEqual(runTestContent('46', tmpDir).exitCode, 0);
   });
@@ -6833,7 +6839,7 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
     assert.strictEqual(r.exitCode, 1);
     assert.ok(JSON.parse(r.output).hollow_tests.some(h => h.file.endsWith('wallet.test.js')));
     const phaseDir = phaseDirPath('46-t35-sensitive');
-    writeSummary(phaseDir, '01', `merged: 1\n| MERGE | ${relIn(phaseDir, 'wallet.test.js')} | ${relIn(phaseDir, 'owner.integration.test.js')}:1; mWALLET1 |`, MUTATION_TABLE('mWALLET1'));
+    writeSummary(phaseDir, '01', `merged: 1\n| MERGE | ${relIn(phaseDir, 'wallet.test.js')} | ${relIn(phaseDir, 'owner.integration.test.js')}:1; mWALLET1 |`, MUTATION_TABLE('mWALLET1', 'wallet.test.js'));
     execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
     execSync('git commit -q -m "feat(46-01): verified merge"', { cwd: tmpDir, stdio: 'pipe' });
     const r2 = runTestContent('46', tmpDir);
@@ -6899,6 +6905,132 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
     assert.strictEqual(parsed.test_delta.deleted_test_files.length, 1, 'the filled table row must parse as a DELETE disposition');
     assert.strictEqual(parsed.test_delta.declared_rows_mismatch, false, 'header/prose rows must not count as dispositions');
     assert.strictEqual(r.exitCode, 0, r.output);
+  });
+
+  // ── Round-3 review fixes: house mutation table, tied cites, sensitive 8d coverage, uncited_rows ──
+  const HOUSE_TABLE = [
+    '## Tests', '',
+    '| Mutant | Hunk | Failing assertion (file:line) | Log |', '|---|---|---|---|',
+    '| M-PAR | final `return` in toLedgerDecimal replaced by `String(value)` | PAR1 wallet-amount-scale-normalize.integration.test.ts:1424 (1.000000005 at s=8, and :1438) | `.tmp/400-45-mPAR.log`, revert green `400-45-mPAR-revert-unit.log` |',
+    '| mS3 | crash split legs | crash-multiplayer-handlers.test.ts:991 (SP1), :1005 (SP-SUM) | `400-45-mS3*.log` |',
+    '| mC-SW3 | slots wallet | slots-wallet.test.ts:195 | `400-45-mC-SW3*.log` |',
+  ].join('\n');
+
+  test('H1: the real house mutation-table rows (M-PAR, mS3, mC-SW3) verify a cite only for the test file their row names', () => {
+    const { hasVerifiedMutantCite } = require('./gsd-tools.js');
+    const delta = { outside_text: HOUSE_TABLE };
+    const ok = (id, file) => hasVerifiedMutantCite(tmpDir, delta, `| MERGE | ${file} | folded; ${id} |`, file, null);
+    assert.strictEqual(ok('M-PAR', 'apps/api/wallet-amount-scale-normalize.integration.test.ts'), true);
+    assert.strictEqual(ok('mS3', 'apps/api/crash-multiplayer-handlers.test.ts'), true);
+    assert.strictEqual(ok('mC-SW3', 'apps/api/slots-wallet.test.ts'), true);
+    assert.strictEqual(ok('mS3', 'apps/api/slots-wallet.test.ts'), false, 'id from another file\'s row must not verify');
+    assert.strictEqual(ok('M-NOPE', 'apps/api/slots-wallet.test.ts'), false);
+  });
+
+  test('H1+H4 end-to-end: sensitive MERGE citing house-table id M-PAR with prose naming folded cases (no N -> M) -> COVERED', () => {
+    const phaseDir = setupPhase('46-t40-house', 'MILE-W1');
+    const f = 'wallet-amount-scale-normalize.integration.test.js';
+    fs.writeFileSync(path.join(phaseDir, f), TWO_ASSERT_BASELINE);
+    execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git commit -q -m "chore: baseline"', { cwd: tmpDir, stdio: 'pipe' });
+    fs.writeFileSync(path.join(phaseDir, f), "const assert = require('node:assert');\ntest('scale table', () => { assert.equal(1 + 0, 1); });\n");
+    const row = `merged: 1\n| MERGE | ${relIn(phaseDir, f)} | M-PAR; folded the s=2, s=8 and carry cases |`;
+    writeSummary(phaseDir, '01', row, HOUSE_TABLE.replace('.test.ts:1424', '.test.js:1424'));
+    commitAll('feat(46-01): fold scale cases');
+    const r = runTestContent('46', tmpDir);
+    assert.strictEqual(r.exitCode, 0, r.output);
+    assert.deepStrictEqual(JSON.parse(r.output).test_delta.uncited_rows, []);
+  });
+
+  test('H2: sensitive MERGE with a mutant id from ANOTHER file\'s row fails; RED sha of a plan commit not touching the file fails; tagged commit touching it passes', () => {
+    const phaseDir = setupPhase('46-t41-tied', 'MILE-W2');
+    fs.writeFileSync(path.join(phaseDir, 'wallet.test.js'), TWO_ASSERT_BASELINE);
+    fs.writeFileSync(path.join(phaseDir, 'other.test.js'), REAL_TEST('other'));
+    execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git commit -q -m "chore: baseline"', { cwd: tmpDir, stdio: 'pipe' });
+    fs.writeFileSync(path.join(phaseDir, 'other.test.js'), REAL_TEST('other2'));
+    commitAll('feat(46-01): touch other only');
+    const shaA = execSync('git rev-parse --short HEAD', { cwd: tmpDir, encoding: 'utf-8' }).trim();
+    fs.writeFileSync(path.join(phaseDir, 'wallet.test.js'), "const assert = require('node:assert');\ntest('table', () => { assert.equal(1 + 0, 1); });\n");
+    const w = relIn(phaseDir, 'wallet.test.js');
+    writeSummary(phaseDir, '01', `merged: 1\n| MERGE | ${w} | folded a, b, c; mOTHER1 |`, MUTATION_TABLE('mOTHER1', 'other.test.js'));
+    commitAll('feat(46-01): merge wallet');
+    const shaB = execSync('git rev-parse --short HEAD', { cwd: tmpDir, encoding: 'utf-8' }).trim();
+    const status = () => JSON.parse(runTestContent('46', tmpDir).output).requirements[0].status;
+    assert.strictEqual(status(), 'PARTIAL', 'id from other.test.js row must not verify wallet.test.js');
+    writeSummary(phaseDir, '01', `merged: 1\n| MERGE | ${w} | folded a, b, c; RED ${shaA} |`);
+    commitAll('feat(46-01): cite red A');
+    assert.strictEqual(status(), 'PARTIAL', 'RED commit that does not touch the merged file must not verify');
+    writeSummary(phaseDir, '01', `merged: 1\n| MERGE | ${w} | folded a, b, c; RED ${shaB} |`);
+    commitAll('feat(46-01): cite red B');
+    assert.strictEqual(status(), 'COVERED');
+  });
+
+  test('H3: sensitive impl file is covered only by an exact-path import; local const handler, quoted word, and same-stem file elsewhere do not; REUSE needs a verified cite', () => {
+    const phaseDir = setupPhase('46-t42-h3', 'MILE-W3');
+    for (const d of ['wallet', 'other', 'a', 'b']) fs.mkdirSync(path.join(tmpDir, 'src', d), { recursive: true });
+    const impl = (n) => `export function ${n}(x) {\n  if (x) { return 1; }\n  return 2;\n}\n`;
+    fs.writeFileSync(path.join(tmpDir, 'src', 'wallet', 'handler.js'), impl('creditHandler'));
+    fs.writeFileSync(path.join(tmpDir, 'src', 'wallet', 'ledger.js'), impl('ledgerStep'));
+    fs.writeFileSync(path.join(tmpDir, 'src', 'a', 'util.js'), impl('utilThing'));
+    fs.writeFileSync(path.join(tmpDir, 'src', 'other', 'unrelated.test.js'), "const assert = require('node:assert');\nconst creditHandler = () => 1;\nconst w = 'handler'; const l = 'ledger';\ntest('u', () => { assert.equal(creditHandler(), 1); });\n");
+    fs.writeFileSync(path.join(tmpDir, 'src', 'b', 'uses-own-util.test.js'), "import { run } from './util.js';\nconst assert = require('node:assert');\ntest('b', () => { assert.equal(1 + 0, 1); });\n");
+    fs.writeFileSync(path.join(tmpDir, 'src', 'wallet', 'ledger-flow.test.js'), "import { ledgerStep } from './ledger.js';\nconst assert = require('node:assert');\ntest('l', () => { assert.equal(ledgerStep(1), 1); });\n");
+    oneTestFile(phaseDir, "test('a', () => { assert.equal(1 + 0, 1); });");
+    commitAll('feat(46-01): impl files');
+    const parsed = JSON.parse(runTestContent('46', tmpDir).output);
+    assert.deepStrictEqual([...parsed.impl_files_without_tests].sort(), ['src/a/util.js', 'src/wallet/handler.js']);
+    assert.ok(parsed.impl_files_covered.some(c => c.file === 'src/wallet/ledger.js' && c.covered_by === 'src/wallet/ledger-flow.test.js'));
+    const reuse = '| REUSE | src/wallet/handler.js | src/other/unrelated.test.js:4 |';
+    writeSummary(phaseDir, '01', reuse);
+    commitAll('feat(46-01): unverified reuse');
+    assert.ok(JSON.parse(runTestContent('46', tmpDir).output).impl_files_without_tests.includes('src/wallet/handler.js'));
+    writeSummary(phaseDir, '01', `${reuse.slice(0, -2)}; mHANDLER1 |`, MUTATION_TABLE('mHANDLER1', 'src/other/unrelated.test.js'));
+    commitAll('feat(46-01): verified reuse');
+    assert.ok(JSON.parse(runTestContent('46', tmpDir).output).impl_files_covered.some(c => c.file === 'src/wallet/handler.js'));
+  });
+
+  test('H4: >50% drop accepts "N → M" and "N -> M" mappings; declared merged counts FILES (two rows, one file -> no mismatch)', () => {
+    const phaseDir = setupPhase('46-t43-arrow', 'MILE-W4');
+    fs.writeFileSync(path.join(phaseDir, 'impl.test.js'), TWO_ASSERT_BASELINE);
+    fs.writeFileSync(path.join(phaseDir, 'owner.integration.test.js'), REAL_TEST('owner'));
+    execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git commit -q -m "chore: baseline"', { cwd: tmpDir, stdio: 'pipe' });
+    oneTestFile(phaseDir, "test('one', () => { assert.equal(1 + 0, 1); });");
+    const f = relIn(phaseDir, 'impl.test.js');
+    const owner = relIn(phaseDir, 'owner.integration.test.js');
+    writeSummary(phaseDir, '01', `merged: 1\n| MERGE | ${f} | ${owner} | 3 → 1 |\n| MERGE | ${f} | ${owner} | 3 -> 1 |`);
+    commitAll('feat(46-01): arrow mapping');
+    const r = runTestContent('46', tmpDir);
+    assert.strictEqual(r.exitCode, 0, r.output);
+    assert.strictEqual(JSON.parse(r.output).test_delta.declared_rows_mismatch, false);
+  });
+
+  test('M: uncited_rows lists uncited MERGE and sensitive DELETE rows with reasons; hollow_tests kept', () => {
+    const phaseDir = setupPhase('46-t44-uncited', 'MILE-W5');
+    fs.writeFileSync(path.join(phaseDir, 'wallet.test.js'), REAL_TEST('w'));
+    fs.writeFileSync(path.join(phaseDir, 'impl.test.js'), TWO_ASSERT_BASELINE);
+    commitAll('feat(46-01): add tests');
+    fs.rmSync(path.join(phaseDir, 'wallet.test.js'));
+    const w = relIn(phaseDir, 'wallet.test.js');
+    const f = relIn(phaseDir, 'impl.test.js');
+    writeSummary(phaseDir, '01', `| DELETE | ${w} | covered by ${f}:1 |\n| MERGE | ${f} | trust me |`);
+    commitAll('feat(46-01): deletes');
+    const parsed = JSON.parse(runTestContent('46', tmpDir).output);
+    assert.deepStrictEqual(parsed.test_delta.uncited_rows.map(u => [u.file, u.kind, u.reason]), [
+      [w, 'DELETE', 'sensitive_path_requires_merge_row'], [f, 'MERGE', 'no_valid_cite'],
+    ]);
+    assert.ok(parsed.hollow_tests.some(h => h.file === w));
+  });
+
+  test('M: SENSITIVE_PATH_RE covers credit/debit/cashout/bonus/refund/login/jwt/password/token; bet/stake match on word boundaries only', () => {
+    const { SENSITIVE_PATH_RE } = require('./gsd-tools.js');
+    for (const p of ['a/credit.ts', 'debit.test.ts', 'cashout.ts', 'bonus-engine.ts', 'refund.ts', 'login.ts', 'jwt.ts', 'password.ts', 'token.ts', 'src/placeBet.ts', 'src/bet-slip.ts', 'src/bets/x.ts', 'src/stake/x.ts', 'Stake.ts', 'betting.ts']) {
+      assert.strictEqual(SENSITIVE_PATH_RE.test(p), true, p);
+    }
+    for (const p of ['src/better.ts', 'src/orange.ts', 'betterquery.test.js', 'src/stakeholder.ts', 'src/alphabet.ts', 'src/util.ts']) {
+      assert.strictEqual(SENSITIVE_PATH_RE.test(p), false, p);
+    }
   });
 
   test('barrel exemption: pure export-from barrel exempt; 90-line Result-chained wallet handler (match/andThen/else/try) is NOT; non-pure non-wallet file is NOT', () => {
