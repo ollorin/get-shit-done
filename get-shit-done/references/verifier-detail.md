@@ -260,7 +260,7 @@ Run the deterministic classifier:
 TEST_CONTENT_RESULT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js verify test-content "$PHASE_NUM")
 ```
 
-Parse `requirements` (each with `req_id`/`status`/`source_plans`/`matched_files`), `hollow_tests`, `hollow_test_cases`, `net_zero_assertion_files`, `test_delta`, `passed`. A hollow test case or an uncited DELETE/MERGE row in `test_delta` is a gap entry.
+Parse `requirements` (each with `req_id`/`status`/`source_plans`/`matched_files`), `hollow_tests`, `hollow_test_cases`, `net_zero_assertion_files`, `test_delta`, `passed`. A hollow test case (`hollow_test_cases`), a hollow file (`hollow_tests`) or an uncited DELETE/MERGE row (`test_delta.uncited_rows`) is a gap entry.
 
 **If `passed` is true:** log "Test-content coverage: all applicable requirements COVERED" and continue to Step 6b/7.
 
@@ -271,7 +271,7 @@ Build a `<gaps>` list from the JSON:
 - Each entry in `hollow_tests` → `{ gap_id: req_id (owning requirement), requirement: req_id, type: "hollow_test", file, reason: "test file has zero non-skipped test()/it() calls, or zero assertions" }`
 - Each entry in `net_zero_assertion_files` → `{ gap_id: req_id, requirement: req_id, type: "stale_assertions", file, before_count, after_count, reason: "assertion count fell since the phase's first commit touching this file with no cited MERGE/DELETE row" }` (only a fall without a cited MERGE/DELETE row is flagged)
 - Each item in `hollow_test_cases` → `{ gap_id: req_id, requirement: req_id, type: "hollow_test_case", file, reason: "test case has no real assertion" }`
-- Each uncited DELETE/MERGE row in `test_delta` → `{ gap_id: req_id, requirement: req_id, type: "uncited_delete_merge", reason: "DELETE/MERGE row cites no existing test path:line or mutant id" }`
+- Each entry in `test_delta.uncited_rows` (uncited DELETE/MERGE row) → `{ gap_id: req_id, requirement: req_id, type: "uncited_delete_merge", reason: "DELETE/MERGE row cites no existing test path:line or mutant id" }`
 - `test_delta.declared_rows_mismatch: true` → `{ gap_id: phase, requirement: phase, type: "declared_rows_mismatch", reason: "declared deleted/merged counts differ from Test Delta rows" }`
 - `test_delta.bucket_time_regressed: true` without a cited justification → `{ gap_id: phase, requirement: phase, type: "bucket_time_regressed", reason: "touched-bucket time rose over 10%" }`
 

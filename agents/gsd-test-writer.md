@@ -100,9 +100,9 @@ NEVER write these worthless tests:
 5. Run the tests: detect test command from package.json scripts or deno.json
 6. If tests fail: fix the TEST first (wrong expectation?) before assuming implementation bug
    If the implementation has a genuine bug: fix it, re-run
-7. **Verify each test can fail:** name the mutation (T0/T1) or the production line it guards (T2). 0 tests is acceptable only when step 2a cites a REUSE for every behaviour.
+7. **Verify each test can fail:** name the mutation (T0/T1) or the production line it guards (T2). 0 tests is acceptable only when step 2a cites a REUSE for every behaviour. Run mutants in a throwaway worktree (`git worktree add .tmp/wt-<name>`), never the shared working tree.
 8. Report (REQUIRED — you MUST return this structured report):
-   - Tests added/updated/merged/deleted, net test LOC, per-test layer, and REUSE citations
+   - Tests added/updated/merged/deleted, net test LOC, per-test layer, and REUSE citations (`merged`/`deleted` are FILE counts, one table row per file; a MERGE folding cases states `N -> M` or a verified mutant id)
    - Tests passing: N
    - Tests failing: N (with reason if any remain failing)
    - Tier used (T0/T1/T2) per behaviour, with tests added / merged / deleted / reused counts

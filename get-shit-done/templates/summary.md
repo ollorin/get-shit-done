@@ -75,7 +75,13 @@ bucket_seconds: [bucket] [before] -> [after]   (repeatable, from timing-*.log; o
 | REUSE/UPDATE/MERGE/DELETE | [test or impl file] | [existing *.test.* path:line, or mutant id mXX1 / RED <sha>] |
 ```
 
-One row per reused/updated/merged/deleted test file. A DELETE or MERGE row without a real existing test path (or mutant id) cite is rejected by the verifier.
+One row per reused/updated/merged/deleted test file. `merged:`/`deleted:` are FILE counts matching the rows; a MERGE folding many cases into fewer states the case mapping `N -> M` (or cites a verified mutant id). A DELETE or MERGE row without a real existing test path (or mutant id) cite is rejected by the verifier.
+
+Mutation proof (T0 tests; one hunk each, reverted, in a throwaway worktree; house format):
+
+| Mutant | Hunk | Failing assertion (file:line) | Log |
+|---|---|---|---|
+| mXX1 | [what the one-hunk mutant changed] | [target test file:line (test id)] | [`.tmp/<plan>-mXX1.log`, revert green log] |
 
 ## Accomplishments
 - [Most important outcome]

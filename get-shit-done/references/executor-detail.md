@@ -284,7 +284,7 @@ Agent(
 **Step 4 -- handle the result as a LOUD DEVIATION, never a block (this is the key contrast
 with the `tdd="true"` contract above):**
 
-If gsd-test-writer reports 0 tests written OR returns no identifiable test-file output:
+If gsd-test-writer reports 0 tests written OR returns no identifiable test-file output, and no REUSE citation is present (a REUSE cite is not a deviation):
   Append to the plan's SUMMARY.md `## Deviations from Plan` section:
   ```
   **[Rule Quality-TW] gsd-test-writer produced no test output for task {task_name}**
@@ -388,7 +388,7 @@ Plan context: complexity=medium, depends_on=0 prior plans, must_haves=1 criteria
    ```
    Tests (Task N+1): {passed} passing, {failed} failing
    ```
-   Then fill `## Test Delta` in the exact machine-parsed format of the summary template: lines `added: n`, `updated: n`, `merged: n`, `deleted: n`, `net_test_loc: n` (`git diff --shortstat <plan-base> -- '*.test.*'`), `bucket_seconds: <bucket> <before> -> <after>` (repeatable), then rows `| DISPOSITION | file | covered by (existing *.test.* path:line, or mutant id mXX1 / RED <sha>) |` with DISPOSITION in REUSE/UPDATE/MERGE/DELETE, one row per reused/updated/merged/deleted test file. A DELETE/MERGE row without a real existing test path (or mutant id) cite is rejected by the verifier.
+   Then fill `## Test Delta` in the exact machine-parsed format of the summary template: lines `added: n`, `updated: n`, `merged: n`, `deleted: n`, `net_test_loc: n` (`git diff --shortstat <plan-base> -- '*.test.*'`), `bucket_seconds: <bucket> <before> -> <after>` (repeatable), then rows `| DISPOSITION | file | covered by (existing *.test.* path:line, or mutant id mXX1 / RED <sha>) |` with DISPOSITION in REUSE/UPDATE/MERGE/DELETE, one row per reused/updated/merged/deleted test file (`merged:`/`deleted:` are FILE counts; a MERGE folding many cases into fewer states the case mapping `N -> M` or cites a verified mutant id). Add the template's mutation table (`| Mutant | Hunk | Failing assertion (file:line) | Log |`, id + target test file:line). Run mutants in a throwaway worktree (`git worktree add .tmp/wt-<name>`), never the shared working tree. A DELETE/MERGE row without a real existing test path (or mutant id) cite is rejected by the verifier.
 
 6. Commit (stage test files individually, per task_commit_protocol):
    ```bash
@@ -572,7 +572,7 @@ Or: "None - plan executed exactly as written."
 **Test Results table (include when any tdd="true" tasks were executed):**
 
 ```markdown
-| Task | Tests Written | Tests Passing | Categories |
+| Task | Added/Updated/Merged/Deleted/Reused | Tests Passing | Tier |
 |------|--------------|---------------|-----------|
 ```
 

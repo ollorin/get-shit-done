@@ -58,6 +58,8 @@ Action by gap type:
 - `test_fails` → Diagnose and fix the test (not impl)
 - `no_automated_command` → Determine command, update map
 - `hollow_test` → Rewrite the test file's body to add real, non-skipped test()/it() calls with genuine expect()/assert() assertions covering the requirement's behavior — do not just add a trivial always-true assertion
+- `hollow_test_case` → Rewrite the test with a real assertion
+- `uncited_delete_merge` / `declared_rows_mismatch` / `bucket_time_regressed` → SUMMARY/plan fixes, not test edits: route back to the executor/verifier (you edit tests only)
 - `stale_assertions` → Restore coverage of the requirement's behavior; the assertion count must not fall without a cited MERGE/DELETE row; prefer updating or merging an existing test over adding a new one
 </step>
 

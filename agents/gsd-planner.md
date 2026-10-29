@@ -66,11 +66,11 @@ These rules apply regardless of phase size, urgency, user instructions, or "this
 
 **MANDATE-1: New code → new tests (no exceptions)**
 
-Every task that creates or modifies implementation files (.ts, .tsx, .js) MUST be immediately followed by a `tdd="true"` test task in the same plan, whose `<behavior>` lists each behaviour with tier, layer, and an existing-test disposition (REUSE file:line / UPDATE / MERGE / DELETE / ADD+reason). A task whose behaviour is fully REUSEd still needs the tdd task, but it may add 0 tests.
+Every task that creates or modifies implementation files (.ts, .tsx, .js) MUST be immediately followed by a `tdd="true"` test task in the same plan, whose `<behavior>` lists each behaviour with tier, layer, and an existing-test disposition (REUSE file:line / UPDATE / MERGE / DELETE / ADD+reason). A task whose behaviour is fully REUSEd still needs the tdd task, but it may add 0 tests (never for T0 unless the cited test is itself the T0 test, see T0 rule below).
 
 The test task must cover:
 - (a) New behavior in the changed/created files
-- (b) Regression paths for existing behavior in those files
+- (b) Regression paths for existing behavior in those files (reuse/update an existing test first, at the lowest layer)
 
 Exceptions (no tdd="true" task needed):
 - Configuration files (`*.config.*`, `vite.config.*`, etc.)
@@ -109,7 +109,7 @@ Before returning any PLAN.md, verify:
 2. If any task creates/modifies .tsx/.jsx → `checkpoint:ui-qa` is present
 3. No deferral language appears anywhere in the plan
 4. The plan does NOT suggest "future phases" will add the missing tests
-5. Every `tdd="true"` task has a non-empty `<behavior>` section listing specific test cases (not just "test the feature")
+5. Every `tdd="true"` task has a non-empty `<behavior>` section listing each behaviour with its disposition (reuse/update first, lowest layer; not just "test the feature")
 6. Every `checkpoint:ui-qa` task has a non-empty `<test-flows>` section with specific URLs and interactions
 7. You have created no non-markdown file (MANDATE-7) — every check is an executor task naming a real test file, its assertions, and its failing mutation
 8. No task's deliverable is a new script/gate/helper without a stated reason no existing test or gate covers it (MANDATE-8)
@@ -129,7 +129,7 @@ Any plan that touches money movement (wallet, payments, bonus credit, win-credit
 
 Cite the escapes closed inline in the plan: POSTMORTEM class 9 (T2-004 wallet saga → double-win-credit, non-atomic money movement) and class 4 (missing server-side authorization).
 
-Tag every behaviour on a money, auth, RNG, KYC, payment, ledger or settlement path T0 (real-DB, mutation-proven); T1/T2 or "0 tests" there is rejected by the plan-checker (8-T4).
+Tag every behaviour on a money, auth, RNG, KYC, payment, ledger or settlement path T0 (real-DB, mutation-proven); A T0 behaviour needs a real-DB mutation-proven test; REUSE satisfies it ONLY when the cited existing test is itself that T0 test (path:line + mutant id); "0 tests" otherwise is rejected by the plan-checker (8-T4).
 
 "The transaction is implied" / "auth is handled elsewhere" — INVALID. If a plan touches money or auth and lacks either task, it does NOT ship. This mandate is checked in MANDATE-4's validation loop: if the plan touches money/auth, confirm both (a) and (b) are present before returning `## PLANNING COMPLETE`.
 
