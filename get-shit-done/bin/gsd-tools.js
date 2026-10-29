@@ -7072,7 +7072,8 @@ function countAssertions(content) {
   // Recognize namespace-style calls (assert.equal(, assert.deepStrictEqual(, ...)
   // in addition to bare expect(/assert( -- the optional (?:\.\w+)? group matches
   // a single method segment after `assert` before the opening paren (MILE-27).
-  const matches = content.match(/\b(?:expect|assert(?:\.\w+)?)\s*\(/g);
+  // Deno-style assertEquals(/assertExists(/helper assertFoo2( and expect*/verify*/check*/should* helpers count too.
+  const matches = content.match(/\b(?:expect|assert\w*(?:\.\w+)?|(?:expect|verify|check|should)[A-Z_]\w*)\s*\(/g);
   return matches ? matches.length : 0;
 }
 
@@ -7697,12 +7698,11 @@ function splitTopLevelArgs(callText) {
 }
 
 function splitTestCases(content) {
-  const re = /\b(?:Deno\.test|test|it)\s*\(/g;
+  const re = /^[ \t]*((?:Deno\.)?(?:test|it)\s*\()/gm;
   const starts = [];
   let m;
   while ((m = re.exec(content || '')) !== null) {
-    if (m.index > 0 && content[m.index - 1] === '.') continue;
-    starts.push(m.index);
+    starts.push(m.index + m[0].length - m[1].length);
   }
   return starts.map((s, i) => {
     const body = content.slice(s, i + 1 < starts.length ? starts[i + 1] : content.length);
@@ -7733,13 +7733,15 @@ function isLiteralSelfComparison(stmt) {
   return !!m && LITERAL_RE.test(m[1]) && m[1] === m[2];
 }
 
+// Report-only reasons: listed with severity 'info', never a gap/PARTIAL.
+const HOLLOW_INFO_REASONS = new Set(['status_only_assertions', 'concurrency_title_without_concurrency']);
 // Per-test hollow-pattern scan: returns the reasons a single test body is
 // hollow (empty list = fine). Regex-based like countAssertions (accepted bar).
 function scanHollowReasons(testCase) {
   const body = testCase.body;
   const reasons = [];
   const stmts = [];
-  const re = /\b(?:(?:expect|verify|check|should)[A-Z_]\w*|(?:expect|assert[A-Za-z]*)(?:\.\w+)?)\s*\(/g;
+  const re = /\b(?:(?:expect|verify|check|should)[A-Z_]\w*|(?:expect|assert\w*)(?:\.\w+)?)\s*\(/g;
   let m;
   while ((m = re.exec(body)) !== null) {
     const openIdx = m.index + m[0].length - 1;
@@ -7749,8 +7751,10 @@ function scanHollowReasons(testCase) {
   }
   if (stmts.length === 0) {
     reasons.push('no_assertion');
-  } else if (stmts.every(s => WEAK_ASSERT_RES.some(r => r.test(s.text)) || STATUS_ASSERT_RE.test(s.text) || isLiteralSelfComparison(s))) {
+  } else if (stmts.every(s => WEAK_ASSERT_RES.some(r => r.test(s.text)) || isLiteralSelfComparison(s))) {
     reasons.push('weak_assertions_only');
+  } else if (stmts.every(s => WEAK_ASSERT_RES.some(r => r.test(s.text)) || STATUS_ASSERT_RE.test(s.text) || isLiteralSelfComparison(s))) {
+    reasons.push('status_only_assertions');
   }
   const refusal = stmts.filter(s => /^assert(?:Rejects|Throws)$/.test(s.name));
   if (refusal.some(s => splitTopLevelArgs(s.call).length === 1) || /\.toThrow\s*\(\s*\)/.test(body)) {
@@ -7774,7 +7778,7 @@ function scanNewHollowCases(afterContent, beforeContent) {
   for (const tc of splitTestCases(afterContent)) {
     if (before.has(tc.name) && before.get(tc.name) === tc.body.trim()) continue;
     const reasons = scanHollowReasons(tc);
-    if (reasons.length > 0) out.push({ test: tc.name, reasons });
+    if (reasons.length > 0) out.push({ test: tc.name, reasons, severity: reasons.every(r => HOLLOW_INFO_REASONS.has(r)) ? 'info' : 'gap' });
   }
   return out;
 }
@@ -7821,7 +7825,8 @@ function importsExactFile(testFile, testText, implFile) {
 function computeImplTestCoverage(cwd, touchedFiles, testDeltaRows, outsideText) {
   const isTest = f => TEST_FILE_RE.test(f) || /(^|\/)__tests__\//.test(f) || /_test\.(ts|js)$/.test(f);
   const impls = touchedFiles.filter(f => IMPL_FILE_RE.test(f) && !isTest(f) && !/\.d\.ts$/.test(f) &&
-    !/(^|\/)(\.planning|node_modules|dist|build)\//.test(f) && !/\.config\.\w+$/.test(f) && fs.existsSync(path.join(cwd, f)));
+    !/(^|\/)(\.planning|node_modules|dist|build|testing-utils)\//.test(f) && !/^apps\/e2e-charlotte\/scenarios\//.test(f) &&
+    !/\.types\.ts$/.test(f) && !/\.config\.\w+$/.test(f) && fs.existsSync(path.join(cwd, f)));
   if (impls.length === 0) return { impl_files_without_tests: [], impl_files_covered: [], impl_files_exempt: [] };
   const ls = execGit(cwd, ['ls-files']);
   const testFiles = (ls.stdout || '').split('\n').map(l => l.trim()).filter(f => f && isTest(f));
@@ -7887,6 +7892,8 @@ function computeTestContentCoverage(cwd, phaseNumber, validPlans, filesByPlan, p
   const mergedFiles = [];
   const deletedFiles = [];
   const hollowCaseList = [];
+  const legacyHollowList = [];
+  const isChecked = pn => !!(deltaByPlan[pn] && deltaByPlan[pn].found);
   // reqId -> [{ planNum, hasTdd }] -- every declaring plan, tdd or not.
   const reqToPlans = {};
   for (const plan of validPlans || []) {
@@ -7964,9 +7971,12 @@ function computeTestContentCoverage(cwd, phaseNumber, validPlans, filesByPlan, p
         const firstH = ((logH.stdout || '').split('\n').map(l => l.trim()).filter(l => l.length > 0)[0] || '').split(/\s+/)[0];
         const beforeH = firstH ? execGit(cwd, ['show', `${firstH}^:${file}`]) : null;
         const beforeText = beforeH && beforeH.exitCode === 0 ? beforeH.stdout : null;
+        const planChecked = !!(deltaByPlan[tddPlan.planNum] && deltaByPlan[tddPlan.planNum].found);
         for (const hc of scanNewHollowCases(content, beforeText)) {
-          hollowCaseCount += 1;
-          hollowCaseList.push({ file, source_plan: tddPlan.planNum, test: hc.test, reasons: hc.reasons });
+          const entry = { file, source_plan: tddPlan.planNum, test: hc.test, reasons: hc.reasons, severity: hc.severity };
+          if (!planChecked) { legacyHollowList.push(entry); continue; }
+          if (hc.severity === 'gap') hollowCaseCount += 1;
+          hollowCaseList.push(entry);
         }
 
         // Net-zero-new-assertions check: only meaningful for a non-hollow
@@ -8031,6 +8041,7 @@ function computeTestContentCoverage(cwd, phaseNumber, validPlans, filesByPlan, p
   const rowCount = k => new Set(allRows.filter(r => r.kind === k).map(r => r.paths[0])).size;
   const uncitedRows = [];
   for (const planNum of Object.keys(deltaByPlan)) {
+    if (!isChecked(planNum)) continue;
     for (const row of deltaByPlan[planNum].rows) {
       if (row.kind !== 'MERGE' && row.kind !== 'DELETE') continue;
       const v = dispositionRowVerdict(cwd, deltaByPlan[planNum], row, row.paths[0], null, { phaseNumber, planNum });
@@ -8040,12 +8051,14 @@ function computeTestContentCoverage(cwd, phaseNumber, validPlans, filesByPlan, p
   const declaredRowsMismatch = declared.merged !== rowCount('MERGE') || declared.deleted !== rowCount('DELETE');
   if (declaredRowsMismatch) for (const r of requirements) if (r.status === 'COVERED') r.status = 'PARTIAL';
   const t0MutantRowsMissing = [];
+  const legacyT0Missing = [];
   for (const plan of validPlans || []) {
     const planNum = plan.planNum || (plan.fm && plan.fm.plan);
+    const t0List = isChecked(planNum) ? t0MutantRowsMissing : legacyT0Missing;
     const outside = ((deltaByPlan[planNum] || {}).outside_text || '').split('\n').filter(l => /^\s*\|/.test(l) && (MUTANT_KILLED_RE.test(l) || /mutant|mutation/i.test(l) || (l.match(MUTANT_TOKEN_RE) || []).length > 0));
     for (const f of (filesByPlan[planNum] || []).filter(x => TEST_FILE_RE.test(x) && SENSITIVE_PATH_RE.test(x))) {
       const names = [f, path.basename(f), path.basename(f).split('.')[0]];
-      if (!outside.some(l => names.some(n => l.includes(n))) && !t0MutantRowsMissing.includes(f)) t0MutantRowsMissing.push(f);
+      if (!outside.some(l => names.some(n => l.includes(n))) && !t0List.includes(f)) t0List.push(f);
     }
   }
 
@@ -8053,11 +8066,28 @@ function computeTestContentCoverage(cwd, phaseNumber, validPlans, filesByPlan, p
   const net_zero_assertion_files = [...netZeroFilesMap.values()];
   const passed = requirements.filter(r => r.status !== 'not_applicable').every(r => r.status === 'COVERED');
 
-  const metrics = computeTestDeltaMetrics(cwd, phaseNumber, validPlans, declared, deletedFiles, mergedFiles, bucketSeconds, { declared_rows_mismatch: declaredRowsMismatch, t0_mutant_rows_missing: t0MutantRowsMissing, uncited_rows: uncitedRows });
-  const touched = [...new Set(Object.values(filesByPlan || {}).flat())];
-  const impl = computeImplTestCoverage(cwd, touched, allRows, Object.values(deltaByPlan).map(d => d.outside_text || '').join('\n'));
+  const planNumOf = p => p.planNum || (p.fm && p.fm.plan);
+  const checkedPlans = (validPlans || []).filter(p => isChecked(planNumOf(p)));
+  const legacyPlans = (validPlans || []).filter(p => !isChecked(planNumOf(p)));
+  const metrics = computeTestDeltaMetrics(cwd, phaseNumber, checkedPlans, declared, deletedFiles, mergedFiles, bucketSeconds, { declared_rows_mismatch: declaredRowsMismatch, t0_mutant_rows_missing: t0MutantRowsMissing, uncited_rows: uncitedRows });
+  const touchedOf = plans => [...new Set(plans.flatMap(p => filesByPlan[planNumOf(p)] || []))];
+  const outsideOf = plans => plans.map(p => (deltaByPlan[planNumOf(p)] || {}).outside_text || '').join('\n');
+  const impl = computeImplTestCoverage(cwd, touchedOf(checkedPlans), allRows, outsideOf(checkedPlans));
+  const legacy = { legacy_unchecked: legacyPlans.length > 0 };
+  if (legacyPlans.length > 0) {
+    const legacyMetrics = computeTestDeltaMetrics(cwd, phaseNumber, legacyPlans, declared, [], [], [], {});
+    const legacyImpl = computeImplTestCoverage(cwd, touchedOf(legacyPlans), [], outsideOf(legacyPlans));
+    legacy.legacy_data = {
+      plans: legacyPlans.map(planNumOf),
+      hollow_test_cases: legacyHollowList,
+      t0_mutant_rows_missing: legacyT0Missing,
+      net_test_loc: legacyMetrics.net_test_loc,
+      net_test_loc_over_threshold: legacyMetrics.net_test_loc_over_threshold,
+      impl_files_without_tests: legacyImpl.impl_files_without_tests,
+    };
+  }
 
-  return { requirements, hollow_tests, net_zero_assertion_files, hollow_test_cases: hollowCaseList, test_delta: metrics, ...impl, passed };
+  return { requirements, hollow_tests, net_zero_assertion_files, hollow_test_cases: hollowCaseList, test_delta: metrics, ...impl, ...legacy, passed };
 }
 
 // Net test LOC (git numstat over each plan's tagged commits, test files only)
@@ -8110,14 +8140,14 @@ function computeTestDeltaMetrics(cwd, phaseNumber, validPlans, declared, deleted
 function cmdVerifyTestContent(cwd, phaseArg, raw) {
   const inputs = loadPhaseGateInputs(cwd, phaseArg);
   if (inputs.error) {
-    process.stdout.write(JSON.stringify(inputs.error, null, 2));
+    writeStdoutSync(JSON.stringify(inputs.error, null, 2));
     process.exit(2);
     return;
   }
   const { phaseInfo, phaseDir, validPlans, malformedPlans, filesByPlan } = inputs;
 
   if (malformedPlans.length > 0) {
-    process.stdout.write(JSON.stringify({ error: true, type: 'malformed_plan', phase: phaseInfo.phase_number, malformed_plans: malformedPlans }, null, 2));
+    writeStdoutSync(JSON.stringify({ error: true, type: 'malformed_plan', phase: phaseInfo.phase_number, malformed_plans: malformedPlans }, null, 2));
     process.exit(2);
     return;
   }
@@ -8134,10 +8164,12 @@ function cmdVerifyTestContent(cwd, phaseArg, raw) {
     impl_files_without_tests: coverage.impl_files_without_tests,
     impl_files_covered: coverage.impl_files_covered,
     impl_files_exempt: coverage.impl_files_exempt,
+    legacy_unchecked: coverage.legacy_unchecked,
+    ...(coverage.legacy_data ? { legacy_data: coverage.legacy_data } : {}),
     passed: coverage.passed,
   };
 
-  process.stdout.write(JSON.stringify(result, null, 2));
+  writeStdoutSync(JSON.stringify(result, null, 2));
 
   process.exit(coverage.passed ? 0 : 1);
 }
@@ -16342,6 +16374,9 @@ module.exports = {
   planTagGrepPattern,
   hasVerifiedMutantCite,
   parseTestDelta,
+  splitTestCases,
+  scanHollowReasons,
+  scanNewHollowCases,
   SENSITIVE_PATH_RE,
   isApiFile,
   computeHasApi,

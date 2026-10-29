@@ -61,6 +61,13 @@ async function main() {
 
   console.log('📁 Detected: Direct repository installation\n');
 
+  const problems = require('./install-preflight.js').preflight(context.projectRoot);
+  if (problems.length > 0) {
+    console.error('❌ Install pre-flight failed; nothing was copied:');
+    for (const p of problems) console.error(`   - ${p}`);
+    process.exit(1);
+  }
+
   try {
     // Step 1: Install npm dependencies via workspaces
     console.log('📥 1/6 Installing npm dependencies...');

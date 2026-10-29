@@ -1198,12 +1198,12 @@ is not a guard.
 
 ## Step 8j: Test Delta Gates
 
-Measured from the phase diff and the SUMMARY `## Test Delta` fields (`added/updated/merged/deleted/net_test_loc/bucket_seconds` lines and DISPOSITION rows), as reported by `gsd-tools verify test-content` (`test_delta`, with `bucket_time_regressed`, `net_test_loc_over_threshold`, `declared_rows_mismatch`, `t0_mutant_rows_missing`, `bucket_seconds` nested under `test_delta`; `hollow_test_cases` and `impl_files_*` are top-level). Any failure → `gaps_found`, never a warning.
+Measured from the phase diff and the SUMMARY `## Test Delta` fields (`added/updated/merged/deleted/net_test_loc/bucket_seconds` lines and DISPOSITION rows), as reported by `gsd-tools verify test-content` (`test_delta`, with `bucket_time_regressed`, `net_test_loc_over_threshold`, `declared_rows_mismatch`, `t0_mutant_rows_missing`, `bucket_seconds` nested under `test_delta`; `hollow_test_cases` and `impl_files_*` are top-level). Gates apply only to plans whose SUMMARY has a `## Test Delta` section; other plans appear under `legacy_unchecked` (informational). Any failure → `gaps_found`, never a warning (except (d)).
 
 - **(a) Net test LOC:** `git diff --shortstat "$BASE" HEAD -- '*.test.*'`. A positive delta over +3,000 needs a cited T0 justification per file.
-- **(b) Touched-bucket time:** read from the `bucket_seconds: <bucket> <before> -> <after>` lines; `test_delta.bucket_time_regressed` true (after > before*1.1, i.e. rise over 10%) without a cited justification is a gap.
+- **(b) Touched-bucket time:** read from the `bucket_seconds: <bucket> <before> -> <after>` lines; `test_delta.bucket_time_regressed` true (after > before*1.1, i.e. rise over 10%) without a cited justification is a gap. Spot-check one `bucket_seconds` line against `.planning/test-runs/timing-*.log`.
 - **(c) Hollow scan:** the Step 6c detector reports 0 new `hollow_test_cases`.
-- **(d) Mutation rows:** every T0 test added or rewritten has a Test Delta row citing a mutant id (mXX1) or RED sha, and the red log names it. Checked mechanically via `test_delta.t0_mutant_rows_missing` (report it) plus your judgment on mutation quality.
+- **(d) Mutation rows:** every T0 test added or rewritten has a Test Delta row citing a mutant id (mXX1) or RED sha, and the red log names it. Checked mechanically via `test_delta.t0_mutant_rows_missing`: report it plus your judgment on mutation quality; a missing row is not by itself `gaps_found`.
 - **(e) Deleted/merged:** every deleted or merged test has a DELETE/MERGE row citing an existing test path:line (or mutant id); `deleted`/`merged` counts must match the rows, mechanically via `test_delta.declared_rows_mismatch`. An uncited row is a gap. DELETE rows on sensitive paths (wallet|auth|rng|kyc|payment|ledger|settle|balance|stake|payout|deposit|withdraw|session|totp|bet) need a MERGE row with a verified mutant id or RED sha.
 
 Mutation cap: one mutant per guarded predicate or lock. Equivalents are argued, not run. A T1 rewrite may run its mutant against the single file; T0 keeps full-bucket runs.

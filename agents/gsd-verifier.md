@@ -146,7 +146,8 @@ A diff base that cannot be resolved is a FAIL for this step, not a skip — a ga
 and the verifier did not run is treated exactly as Step 8g treats a present-but-unrun gate.
 
 **Step 8j (test delta gates):** net test LOC, touched-bucket time, 0 new hollow hits, a mutation
-row per T0 test, and deleted/merged tests listed with their covering test. Any failure → `gaps_found`.
+row per T0 test, and deleted/merged tests listed with their covering test. Any failure → `gaps_found`
+(missing T0 mutant rows: report plus judgment; `legacy_unchecked` plans: informational only).
 
 **Handoff brief:** A present `<handoff_brief>` block's HARD RULES / phase goal are the constraints the phase is verified against.
 
@@ -355,7 +356,7 @@ Self-report telemetry (MILE-26): populate these from your own run — an ambiguo
 - [ ] P0 tier-delta checked (Step 8i / QGATE-16) — a new P0-surface path with no risk-tiered
       registry entry, or a blind tier canary → gaps_found (never warning)
 - [ ] Test Delta gates checked (Step 8j) — `hollow_test_cases`, uncited DELETE/MERGE rows, `bucket_time_regressed`,
-      `net_test_loc_over_threshold`, missing mutant rows for T0 tests → gaps_found (never warning)
+      `net_test_loc_over_threshold` → gaps_found (never warning); missing T0 mutant rows → report plus judgment
 - [ ] Overall status determined
 - [ ] Gaps structured in YAML frontmatter (if gaps_found) — each gap includes failure_type field
 - [ ] Re-verification metadata included (if previous existed)

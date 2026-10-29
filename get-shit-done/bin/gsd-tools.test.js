@@ -6550,6 +6550,7 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
     const phaseDir = phaseDirPath('46-t15-pertest');
     fs.mkdirSync(phaseDir, { recursive: true });
     writePlan(phaseDir, '01', { tdd: true, requirements: ['MILE-P'] });
+    writeSummary(phaseDir, '01', 'added: 1');
     fs.writeFileSync(path.join(phaseDir, 'impl.test.js'), [
       "const { test } = require('node:test');",
       "const assert = require('node:assert');",
@@ -6569,7 +6570,7 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
     assert.ok(byName['view is queryable'].includes('weak_assertions_only'));
     assert.ok(byName['refusal'].includes('refusal_passes_on_any_error'));
     assert.ok(byName['race on debit'].includes('concurrency_title_without_concurrency'));
-    assert.ok(byName['status only'].includes('weak_assertions_only'));
+    assert.ok(byName['status only'].includes('status_only_assertions'));
     assert.strictEqual(byName['real balance check'], undefined, 'the real test must not be flagged');
   });
 
@@ -6647,6 +6648,7 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
     const phaseDir = phaseDirPath(dirName);
     fs.mkdirSync(phaseDir, { recursive: true });
     writePlan(phaseDir, '01', { tdd: true, requirements: [req] });
+    writeSummary(phaseDir, '01', 'added: 0');
     return phaseDir;
   }
   function oneTestFile(phaseDir, body) {
@@ -7074,7 +7076,8 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
     assert.ok(byName['self compare'].includes('weak_assertions_only'));
     assert.ok(byName['self compare strings'].includes('weak_assertions_only'));
     assert.ok(byName['no assertion at all'].includes('no_assertion'));
-    assert.ok(byName['status only'].includes('weak_assertions_only'));
+    assert.ok(byName['status only'].includes('status_only_assertions'));
+    assert.strictEqual(parsed.hollow_test_cases.find(c => c.test === 'status only').severity, 'info');
   });
 
   test('impl coverage: comment-only mention, unrelated index.test, and REUSE row citing a non-test file do NOT cover', () => {
@@ -18436,5 +18439,127 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
       assert.match(section, /created fresh by the `printf`/,
         'the reason the add is required (first-append is untracked) must be stated');
     });
+  });
+});
+
+describe('Opus final-ruling fixes: Deno assertions, legacy grandfathering, sync stdout, precise test scan', () => {
+  const g = require('./gsd-tools.js');
+  let tmp;
+  beforeEach(() => {
+    tmp = createTempProject();
+    execSync('git init -q', { cwd: tmp, stdio: 'pipe' });
+    execSync('git config user.email "t@example.com"', { cwd: tmp, stdio: 'pipe' });
+    execSync('git config user.name "T"', { cwd: tmp, stdio: 'pipe' });
+  });
+  afterEach(() => { fs.rmSync(tmp, { recursive: true, force: true }); });
+
+  function commit(msg) {
+    execSync('git add -A', { cwd: tmp, stdio: 'pipe' });
+    execSync(`git commit -q --allow-empty -m "${msg}"`, { cwd: tmp, stdio: 'pipe' });
+  }
+  function setup(name, testSrc, { summary = null, extra = {} } = {}) {
+    const dir = path.join(tmp, '.planning', 'phases', name);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, '46-01-PLAN.md'), '---\nphase: "46"\nplan: "01"\ntype: execute\nrequirements: [R-1]\nfiles_modified: []\n---\n<tasks>\n<task type="auto" tdd="true">\n<name>T</name>\n<action>x</action>\n</task>\n</tasks>\n');
+    fs.writeFileSync(path.join(dir, 'impl.test.js'), testSrc);
+    for (const [f, c] of Object.entries(extra)) { fs.mkdirSync(path.dirname(path.join(tmp, f)), { recursive: true }); fs.writeFileSync(path.join(tmp, f), c); }
+    if (summary !== null) fs.writeFileSync(path.join(dir, '46-01-SUMMARY.md'), `# Summary\n\n## Test Delta\n${summary}\n\n## Next\nnone\n`);
+    commit('feat(46-01): work');
+    return dir;
+  }
+  function run() {
+    try {
+      return { exitCode: 0, out: execFileSync('node', [TOOLS_PATH, 'verify', 'test-content', '46'], { cwd: tmp, encoding: 'utf-8', maxBuffer: 64 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] }) };
+    } catch (e) { return { exitCode: e.status, out: e.stdout.toString() }; }
+  }
+
+  test('F1: Deno assertEquals/assertExists/digit-named helpers count as assertions', () => {
+    assert.strictEqual(g.countAssertions('assertEquals(a, b); assertExists(x); assertReturns401WithNoSession(r); expectRefused(r); verifyBalance(r);'), 5);
+    const src = Array.from({ length: 21 }, (_, i) => `Deno.test('t${i}', () => { assertEquals(${i} + 0, ${i}); });`).join('\n') + '\n';
+    const dir = setup('46-f1', src, { summary: 'added: 21' });
+    assert.ok(dir);
+    const r = JSON.parse(run().out);
+    assert.deepStrictEqual(r.hollow_tests, []);
+    assert.strictEqual(r.requirements[0].status, 'COVERED');
+  });
+
+  test('F2: plan without Test Delta is legacy_unchecked (never PARTIAL); same plan with Test Delta raises the gap', () => {
+    const src = "test('empty one', () => { run(); });\ntest('real', () => { assert.equal(1 + 0, 1); });\n";
+    setup('46-f2a', src);
+    const legacy = JSON.parse(run().out);
+    assert.strictEqual(legacy.legacy_unchecked, true);
+    assert.strictEqual(legacy.passed, true);
+    assert.strictEqual(legacy.requirements[0].status, 'COVERED');
+    assert.deepStrictEqual(legacy.hollow_test_cases, []);
+    assert.ok(legacy.legacy_data.hollow_test_cases.some(c => c.test === 'empty one'));
+    fs.writeFileSync(path.join(tmp, '.planning', 'phases', '46-f2a', '46-01-SUMMARY.md'), '# S\n\n## Test Delta\nadded: 2\n');
+    commit('feat(46-01): summary');
+    const checked = run();
+    const parsed = JSON.parse(checked.out);
+    assert.strictEqual(parsed.legacy_unchecked, false);
+    assert.strictEqual(parsed.requirements[0].status, 'PARTIAL');
+    assert.strictEqual(checked.exitCode, 1);
+  });
+
+  test('F3: >200 KB output arrives complete through a pipe', () => {
+    const src = Array.from({ length: 1800 }, (_, i) => `test('hollow case number ${i}', () => { run(); });`).join('\n') + "\ntest('real', () => { assert.equal(1 + 0, 1); });\n";
+    setup('46-f3', src, { summary: 'added: 1801' });
+    const r = run();
+    assert.ok(r.out.length > 200 * 1024, `output ${r.out.length}`);
+    assert.strictEqual(JSON.parse(r.out).hollow_test_cases.length, 1800);
+  });
+
+  test('F4: splitTestCases only matches line-start test(/it(/Deno.test(', () => {
+    const src = "test('real (it (MN-G2) inside name)', () => {\n  // see test (line ~530\n  assert.ok(1 + 0);\n});\n  it('nested', () => {});\nDeno.test('d', () => {});\nfoo.test('x', () => {});\n";
+    assert.deepStrictEqual(g.splitTestCases(src).map(t => t.name), ['real (it (MN-G2) inside name)', 'nested', 'd']);
+  });
+
+  test('F4: assert\\w* digit helpers satisfy no_assertion; status-only and concurrency-title are info; no_assertion/bare_sqlstate stay gaps', () => {
+    assert.deepStrictEqual(g.scanHollowReasons({ name: 'a', body: "test('a', () => { assertReturns401WithNoSession2(res.body, 'x'); });" }), []);
+    const src = "test('status only', () => { expect(res.status).toBe(401); });\ntest('race x', () => { assert.equal(1 + 0, 1); });\ntest('none', () => { run(); });\ntest('sql', () => { assert.equal(err.code, 'P0001'); });\n";
+    const by = Object.fromEntries(g.scanNewHollowCases(src, null).map(c => [c.test, c]));
+    assert.strictEqual(by['status only'].severity, 'info');
+    assert.strictEqual(by['race x'].severity, 'info');
+    assert.strictEqual(by['none'].severity, 'gap');
+    assert.ok(by['sql'].reasons.includes('bare_sqlstate_refusal'));
+    assert.strictEqual(by['sql'].severity, 'gap');
+  });
+
+  test('F4: info-only hollow cases never make the requirement PARTIAL', () => {
+    setup('46-f4i', "test('status only', () => { expect(res.status).toBe(401); });\ntest('real', () => { assert.equal(1 + 0, 1); });\n", { summary: 'added: 2' });
+    const r = JSON.parse(run().out);
+    assert.strictEqual(r.requirements[0].status, 'COVERED');
+    assert.strictEqual(r.hollow_test_cases[0].severity, 'info');
+  });
+
+  test('F4: impl coverage excludes e2e-charlotte scenarios, *.types.ts and testing-utils', () => {
+    setup('46-f4impl', "test('real', () => { assert.equal(1 + 0, 1); });\n", {
+      summary: 'added: 1',
+      extra: {
+        'apps/e2e-charlotte/scenarios/s1.ts': 'export function scenarioOne() { return 1; }\n',
+        'src/foo.types.ts': 'export function typeHelperFoo() { return 1; }\n',
+        'src/testing-utils/h.ts': 'export function helperThing() { return 1; }\n',
+        'src/plain.ts': 'export function plainThing() { return 1; }\n',
+      },
+    });
+    const r = JSON.parse(run().out);
+    assert.deepStrictEqual(r.impl_files_without_tests, ['src/plain.ts']);
+  });
+
+  test('G1: installer preflight rejects dirty tree, 0-byte bin js, and syntax errors; passes a clean fixture', () => {
+    const { preflight } = require('../../scripts/install-preflight.js');
+    const bin = path.join(tmp, 'get-shit-done', 'bin');
+    fs.mkdirSync(bin, { recursive: true });
+    fs.writeFileSync(path.join(bin, 'gsd-tools.js'), 'const a = 1;\n');
+    commit('chore: fixture');
+    assert.deepStrictEqual(preflight(tmp), []);
+    fs.writeFileSync(path.join(tmp, 'dirty.txt'), 'x');
+    assert.ok(preflight(tmp).some(p => /dirty/.test(p)));
+    commit('chore: clean');
+    fs.writeFileSync(path.join(bin, 'other.js'), '');
+    assert.ok(preflight(tmp).some(p => /other\.js is 0 bytes/.test(p)));
+    fs.rmSync(path.join(bin, 'other.js'));
+    fs.writeFileSync(path.join(bin, 'gsd-tools.js'), 'const = ;\n');
+    assert.ok(preflight(tmp).some(p => /node --check/.test(p)));
   });
 });
