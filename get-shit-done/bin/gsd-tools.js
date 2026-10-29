@@ -7580,8 +7580,10 @@ function parseTestDelta(text) {
     const kind = line.match(/\b(REUSE|UPDATE|MERGE|DELETE|ADD)\b/);
     if (!kind) continue;
     const tokens = (line.match(/[\w@.\/-]+\.[A-Za-z]{1,4}(?::\d+)?/g) || []).map(t => t.replace(/:\d+$/, ''));
+    if (tokens.length === 0) continue;
     out.rows.push({ kind: kind[1], line, paths: tokens });
   }
+  out.outside_text = text.replace(sec[0], '');
   return out;
 }
 
@@ -7593,20 +7595,52 @@ function isValidCoverCite(cwd, p, file) {
   if (!COVER_TEST_RE.test(p)) return false;
   return fs.existsSync(path.join(cwd, p)) || fs.existsSync(path.join(cwd, path.dirname(file), p));
 }
-const MUTANT_ID_RE = /\bm[A-Z]+\d+\b|\bM-[A-Z]+(?:-[A-Z0-9]+)*-?\d+\b|\bRED\s+[0-9a-f]{7,40}\b/;
+const MUTANT_TOKEN_RE = /\bm[A-Z]+\d+\b|\bM-[A-Z]+(?:-[A-Z0-9]+)*-?\d+\b/g;
+const RED_SHA_RE = /\bRED\s+([0-9a-f]{7,40})\b/g;
+const MUTANT_KILLED_RE = /\bkilled\b|\bRED\b|\bred\s*(?:->|\u2192)\s*green\b/i;
 const MERGE_ASSERTION_FLOOR = 0.5;
-// A MERGE/DELETE row for `file` with a verifiable cite: an existing covering
-// test path, or (MERGE only) a mutant/RED id. counts = {before, after}: under
-// a MERGE a >50% assertion drop needs a per-test mapping ("N ... -> M").
-function findCitedDispositionRow(cwd, rows, file, kinds, counts) {
-  const base = path.basename(file);
-  for (const row of rows) {
-    if (!kinds.includes(row.kind)) continue;
-    if (!row.line.includes(file) && !row.line.includes(base)) continue;
+const TEST_DIR_SEGMENTS = new Set(['__tests__', '__test__', 'tests', 'test']);
+// Package/domain root of a test file: everything above its test dir (null when it has none).
+function testPackageRoot(file) {
+  const segs = file.split('/');
+  const i = segs.findIndex(sg => TEST_DIR_SEGMENTS.has(sg));
+  return i > 0 ? segs.slice(0, i).join('/') : null;
+}
+// DELETE/MERGE cite: an existing, different *.test.* file in the deleted file's
+// own directory or its package/domain root (a far-away test proves nothing).
+function isValidDispositionCite(cwd, p, file) {
+  if (!isValidCoverCite(cwd, p, file)) return false;
+  const resolved = fs.existsSync(path.join(cwd, p)) ? p : path.posix.join(path.posix.dirname(file), p);
+  const dir = path.posix.dirname(resolved);
+  const root = testPackageRoot(file);
+  return dir === path.posix.dirname(file) || (root !== null && (dir === root || dir.startsWith(`${root}/`)));
+}
+// A mutant id counts only with a killed/RED row in the SAME SUMMARY's mutation
+// table (outside the Test Delta section); a RED sha only if it resolves in the repo.
+function hasVerifiedMutantCite(cwd, delta, line) {
+  const tableLines = (delta.outside_text || '').split('\n').filter(l => /^\s*\|/.test(l) && MUTANT_KILLED_RE.test(l));
+  const ids = line.match(MUTANT_TOKEN_RE) || [];
+  if (ids.some(id => tableLines.some(l => new RegExp(`(?<![\\w-])${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`).test(l)))) return true;
+  for (const m of line.matchAll(RED_SHA_RE)) {
+    if (execGit(cwd, ['cat-file', '-e', `${m[1]}^{commit}`]).exitCode === 0) return true;
+  }
+  return false;
+}
+// A MERGE/DELETE row (matched by full relative path) for `file` with a verified
+// cite. Sensitive paths need a MERGE row with a verified mutant id or RED sha;
+// a DELETE row alone is never enough. counts = {before, after}: under a MERGE a
+// >50% assertion drop needs a per-test mapping ("N ... -> M").
+function findCitedDispositionRow(cwd, delta, file, kinds, counts) {
+  const sensitive = SENSITIVE_PATH_RE.test(file);
+  for (const row of (delta && delta.rows) || []) {
+    if (!kinds.includes(row.kind) || !row.paths.includes(file)) continue;
+    if (sensitive && row.kind !== 'MERGE') continue;
     if (row.kind === 'MERGE' && counts && counts.before > 0 && counts.after < counts.before * MERGE_ASSERTION_FLOOR &&
-        !/\b\d+\b[^|\n]*(?:->|\u2192|=>)/.test(row.line.replace(file, '').replace(base, ''))) continue;
-    if (row.paths.some(p => isValidCoverCite(cwd, p, file))) return row;
-    if (row.kind === 'MERGE' && MUTANT_ID_RE.test(row.line)) return row;
+        !/\b\d+\b[^|\n]*(?:->|\u2192|=>)/.test(row.line.split(file).join(''))) continue;
+    const verified = row.kind === 'MERGE' && hasVerifiedMutantCite(cwd, delta, row.line);
+    if (sensitive) { if (verified) return row; continue; }
+    if (row.paths.some(p => p !== file && isValidDispositionCite(cwd, p, file))) return row;
+    if (verified) return row;
   }
   return null;
 }
@@ -7730,7 +7764,7 @@ const IMPL_FILE_RE = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
 // Only pure `export ... from` barrels outside money/auth paths are exempt.
 // Comments are stripped before matching; generic stems (index/mod/main) only
 // match a same-directory test or a parent-qualified import.
-const SENSITIVE_PATH_RE = /wallet|auth|rng|kyc|payment|ledger|settle/i;
+const SENSITIVE_PATH_RE = /wallet|auth|rng|kyc|payment|ledger|settle|balance|stake|payout|deposit|withdraw|session|totp|bet/i;
 const GENERIC_STEMS = new Set(['index', 'mod', 'main']);
 function isPureReexportBarrel(f, src) {
   if (SENSITIVE_PATH_RE.test(f)) return false;
@@ -7852,7 +7886,7 @@ function computeTestContentCoverage(cwd, phaseNumber, validPlans, filesByPlan, p
           // SUMMARY lists as DELETE/MERGE with a covering cite that exists on
           // disk is a legitimate consolidation, not hollow; otherwise it
           // contributes nothing, equivalent to hollow.
-          const delRow = findCitedDispositionRow(cwd, (deltaByPlan[tddPlan.planNum] || { rows: [] }).rows, file, ['DELETE', 'MERGE']);
+          const delRow = findCitedDispositionRow(cwd, deltaByPlan[tddPlan.planNum], file, ['DELETE', 'MERGE']);
           if (delRow) {
             if (!deletedFiles.some(d => d.file === file)) deletedFiles.push({ file, source_plan: tddPlan.planNum, cite: delRow.line.trim() });
             continue;
@@ -7907,7 +7941,7 @@ function computeTestContentCoverage(cwd, phaseNumber, validPlans, filesByPlan, p
             // Consolidation is not regression: only a FALL in assertion
             // count with no cited MERGE/DELETE row is flagged. Equal count
             // (table-driven rewrite, touched file) is fine.
-            const mergeRow = findCitedDispositionRow(cwd, (deltaByPlan[tddPlan.planNum] || { rows: [] }).rows, file, ['MERGE', 'DELETE'], { before: beforeCount, after: assertionCount });
+            const mergeRow = findCitedDispositionRow(cwd, deltaByPlan[tddPlan.planNum], file, ['MERGE', 'DELETE'], { before: beforeCount, after: assertionCount });
             netZero = assertionCount < beforeCount && !mergeRow;
             if (mergeRow && assertionCount < beforeCount && !mergedFiles.some(d => d.file === file)) {
               mergedFiles.push({ file, source_plan: tddPlan.planNum, before_count: beforeCount, after_count: assertionCount, cite: mergeRow.line.trim() });
@@ -7945,11 +7979,24 @@ function computeTestContentCoverage(cwd, phaseNumber, validPlans, filesByPlan, p
     });
   }
 
+  const rowCount = k => allRows.filter(r => r.kind === k).length;
+  const declaredRowsMismatch = declared.merged !== rowCount('MERGE') || declared.deleted !== rowCount('DELETE');
+  if (declaredRowsMismatch) for (const r of requirements) if (r.status === 'COVERED') r.status = 'PARTIAL';
+  const t0MutantRowsMissing = [];
+  for (const plan of validPlans || []) {
+    const planNum = plan.planNum || (plan.fm && plan.fm.plan);
+    const outside = ((deltaByPlan[planNum] || {}).outside_text || '').split('\n').filter(l => /^\s*\|/.test(l) && (MUTANT_KILLED_RE.test(l) || /mutant|mutation/i.test(l) || (l.match(MUTANT_TOKEN_RE) || []).length > 0));
+    for (const f of (filesByPlan[planNum] || []).filter(x => TEST_FILE_RE.test(x) && SENSITIVE_PATH_RE.test(x))) {
+      const names = [f, path.basename(f), path.basename(f).split('.')[0]];
+      if (!outside.some(l => names.some(n => l.includes(n))) && !t0MutantRowsMissing.includes(f)) t0MutantRowsMissing.push(f);
+    }
+  }
+
   const hollow_tests = [...hollowFilesMap.values()];
   const net_zero_assertion_files = [...netZeroFilesMap.values()];
   const passed = requirements.filter(r => r.status !== 'not_applicable').every(r => r.status === 'COVERED');
 
-  const metrics = computeTestDeltaMetrics(cwd, phaseNumber, validPlans, declared, deletedFiles, mergedFiles, bucketSeconds);
+  const metrics = computeTestDeltaMetrics(cwd, phaseNumber, validPlans, declared, deletedFiles, mergedFiles, bucketSeconds, { declared_rows_mismatch: declaredRowsMismatch, t0_mutant_rows_missing: t0MutantRowsMissing });
   const touched = [...new Set(Object.values(filesByPlan || {}).flat())];
   const impl = computeImplTestCoverage(cwd, touched, allRows);
 
@@ -7961,7 +8008,8 @@ function computeTestContentCoverage(cwd, phaseNumber, validPlans, filesByPlan, p
 // gated here: a positive delta over TEST_LOC_JUSTIFY_THRESHOLD needs a cited
 // T0 justification per file (verifier Step 8j).
 const TEST_LOC_JUSTIFY_THRESHOLD = 3000;
-function computeTestDeltaMetrics(cwd, phaseNumber, validPlans, declared, deletedFiles, mergedFiles, bucketSeconds) {
+const BUCKET_REGRESSION_FACTOR = 1.1;
+function computeTestDeltaMetrics(cwd, phaseNumber, validPlans, declared, deletedFiles, mergedFiles, bucketSeconds, extra) {
   let added = 0; let deleted = 0;
   const seen = new Set();
   for (const plan of validPlans || []) {
@@ -7990,7 +8038,10 @@ function computeTestDeltaMetrics(cwd, phaseNumber, validPlans, declared, deleted
     deleted_test_files: deletedFiles,
     merged_test_files: mergedFiles,
     bucket_seconds: bucketSeconds || [],
-    bucket_time_regressed: (bucketSeconds || []).some(b => b.after > b.before * 1.1),
+    bucket_time_regressed_threshold: BUCKET_REGRESSION_FACTOR,
+    bucket_time_regressed: (bucketSeconds || []).some(b => b.after > b.before * BUCKET_REGRESSION_FACTOR),
+    declared_rows_mismatch: !!(extra && extra.declared_rows_mismatch),
+    t0_mutant_rows_missing: (extra && extra.t0_mutant_rows_missing) || [],
   };
 }
 

@@ -6450,9 +6450,11 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
   });
 
   // ── Test-bloat changes: merges/deletes with cites pass; hollow tests are flagged ──
-  function writeSummary(phaseDir, planNum, testDeltaBody) {
-    fs.writeFileSync(path.join(phaseDir, `46-${planNum}-SUMMARY.md`), `# Summary\n\n## Test Delta\n${testDeltaBody}\n\n## Next\nnothing\n`);
+  function writeSummary(phaseDir, planNum, testDeltaBody, extraSections = '') {
+    fs.writeFileSync(path.join(phaseDir, `46-${planNum}-SUMMARY.md`), `# Summary\n\n## Test Delta\n${testDeltaBody}\n\n## Next\nnothing\n${extraSections}`);
   }
+  const relIn = (phaseDir, f) => path.relative(tmpDir, path.join(phaseDir, f)).split(path.sep).join('/');
+  const MUTATION_TABLE = (id) => `\n## Mutation table\n\n| id | mutation | result |\n|---|---|---|\n| ${id} | flip cancel branch | killed (RED) |\n`;
   const TWO_ASSERT_BASELINE = `const { test } = require('node:test');\nconst assert = require('node:assert');\ntest('cancel a', () => { assert.equal(1 + 0, 1); });\ntest('cancel b', () => { assert.equal(2 + 0, 2); });\ntest('cancel c', () => { assert.equal(3 + 0, 3); });\n`;
 
   test('equal assertion count on a touched file is NOT net-zero (no strict rise required) -> COVERED', () => {
@@ -6480,7 +6482,7 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
     execSync('git commit -q -m "chore: baseline"', { cwd: tmpDir, stdio: 'pipe' });
     writePlan(phaseDir, '01', { tdd: true, requirements: ['MILE-L'] });
     fs.writeFileSync(path.join(phaseDir, 'impl.test.js'), `const { test } = require('node:test');\nconst assert = require('node:assert');\ntest('cancel table', () => { for (const n of [1, 2, 3]) assert.equal(n, n); });\n`);
-    writeSummary(phaseDir, '01', 'merged: 1\n| MERGE | impl.test.js | 3 cancel variants -> 1 table; mutant M-CANCEL-1 red in RED.txt |');
+    writeSummary(phaseDir, '01', `merged: 1\n| MERGE | ${relIn(phaseDir, 'impl.test.js')} | 3 cancel variants -> 1 table; mutant M-CANCEL-1 |`, MUTATION_TABLE('M-CANCEL-1'));
     commitAll('feat(46-01): table-drive cancel variants');
     const result = runTestContent('46', tmpDir);
     assert.strictEqual(result.exitCode, 0, result.output);
@@ -6499,7 +6501,7 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
     execSync('git commit -q -m "chore: baseline"', { cwd: tmpDir, stdio: 'pipe' });
     writePlan(phaseDir, '01', { tdd: true, requirements: ['MILE-M'] });
     fs.writeFileSync(path.join(phaseDir, 'impl.test.js'), `const { test } = require('node:test');\nconst assert = require('node:assert');\ntest('cancel table', () => { assert.equal(1 + 0, 1); });\n`);
-    writeSummary(phaseDir, '01', '| MERGE | impl.test.js | trust me |');
+    writeSummary(phaseDir, '01', `| MERGE | ${relIn(phaseDir, 'impl.test.js')} | trust me |`);
     commitAll('feat(46-01): dropped assertions, uncited');
     const result = runTestContent('46', tmpDir);
     assert.strictEqual(result.exitCode, 1);
@@ -6516,7 +6518,7 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
     fs.writeFileSync(path.join(phaseDir, 'owner.integration.test.js'), `const assert = require('node:assert');\ntest('owner', () => { assert.equal(1 + 0, 1); });\n`);
     commitAll('feat(46-01): add tests');
     fs.rmSync(path.join(phaseDir, 'redundant.test.js'));
-    writeSummary(phaseDir, '01', 'deleted: 1\n| DELETE | redundant.test.js | covered by owner.integration.test.js:2 |');
+    writeSummary(phaseDir, '01', `deleted: 1\n| DELETE | ${relIn(phaseDir, 'redundant.test.js')} | covered by ${relIn(phaseDir, 'owner.integration.test.js')}:2 |`);
     execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
     execSync('git commit -q -m "feat(46-01): delete redundant test, cite owner"', { cwd: tmpDir, stdio: 'pipe' });
     const result = runTestContent('46', tmpDir);
@@ -6534,7 +6536,7 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
     fs.writeFileSync(path.join(phaseDir, 'redundant.test.js'), `const assert = require('node:assert');\ntest('dup', () => { assert.equal(1 + 0, 1); });\n`);
     commitAll('feat(46-01): add test');
     fs.rmSync(path.join(phaseDir, 'redundant.test.js'));
-    writeSummary(phaseDir, '01', '| DELETE | redundant.test.js | covered by ghost.integration.test.js:9 |');
+    writeSummary(phaseDir, '01', `| DELETE | ${relIn(phaseDir, 'redundant.test.js')} | covered by ${relIn(phaseDir, 'ghost.integration.test.js')}:9 |`);
     execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
     execSync('git commit -q -m "feat(46-01): delete with bogus cite"', { cwd: tmpDir, stdio: 'pipe' });
     const result = runTestContent('46', tmpDir);
@@ -6694,7 +6696,7 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
     fs.writeFileSync(path.join(phaseDir, 'redundant.test.js'), REAL_TEST('dup'));
     commitAll('feat(46-01): add test');
     fs.rmSync(path.join(phaseDir, 'redundant.test.js'));
-    writeSummary(phaseDir, '01', '| DELETE | redundant.test.js | covered by package.json |');
+    writeSummary(phaseDir, '01', `| DELETE | ${relIn(phaseDir, 'redundant.test.js')} | covered by package.json |`);
     execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
     execSync('git commit -q -m "feat(46-01): delete, cite package.json"', { cwd: tmpDir, stdio: 'pipe' });
     const result = runTestContent('46', tmpDir);
@@ -6708,12 +6710,12 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
     execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
     execSync('git commit -q -m "chore: baseline"', { cwd: tmpDir, stdio: 'pipe' });
     oneTestFile(phaseDir, "test('cancel table', () => { for (const n of [1, 2, 3]) assert.equal(n, n); });");
-    writeSummary(phaseDir, '01', '| MERGE | impl.test.js | 3 variants -> 1 table; mutant killed it, red |');
+    writeSummary(phaseDir, '01', `| MERGE | ${relIn(phaseDir, 'impl.test.js')} | 3 variants -> 1 table; mutant killed it, red |`);
     commitAll('feat(46-01): merge with words only');
     const result = runTestContent('46', tmpDir);
     assert.strictEqual(result.exitCode, 1);
     assert.strictEqual(JSON.parse(result.output).requirements[0].status, 'PARTIAL');
-    writeSummary(phaseDir, '01', '| MERGE | impl.test.js | 3 variants -> 1 table; mCANCEL1 red in RED 1a2b3c4d |');
+    writeSummary(phaseDir, '01', `merged: 1\n| MERGE | ${relIn(phaseDir, 'impl.test.js')} | 3 variants -> 1 table; mCANCEL1 |`, MUTATION_TABLE('mCANCEL1'));
     commitAll('feat(46-01): merge with mutant id');
     assert.strictEqual(runTestContent('46', tmpDir).exitCode, 0);
   });
@@ -6725,11 +6727,178 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
     execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
     execSync('git commit -q -m "chore: baseline"', { cwd: tmpDir, stdio: 'pipe' });
     oneTestFile(phaseDir, "test('one', () => { assert.equal(1 + 0, 1); });");
-    writeSummary(phaseDir, '01', '| MERGE | impl.test.js | owner.integration.test.js |');
+    writeSummary(phaseDir, '01', `| MERGE | ${relIn(phaseDir, 'impl.test.js')} | ${relIn(phaseDir, 'owner.integration.test.js')} |`);
     commitAll('feat(46-01): big drop, no mapping');
     const result = runTestContent('46', tmpDir);
     assert.strictEqual(result.exitCode, 1);
     assert.strictEqual(JSON.parse(result.output).requirements[0].status, 'PARTIAL');
+  });
+
+  // ── Round-2 review fixes: verified cites, sensitive-path deletion, template drift, declared rows ──
+  function deleteScenario(dirName, req, { victim = 'redundant.test.js', files = {}, row, extra = '' }) {
+    const phaseDir = setupPhase(dirName, req);
+    fs.writeFileSync(path.join(phaseDir, victim), REAL_TEST('dup'));
+    for (const [f, body] of Object.entries(files)) {
+      fs.mkdirSync(path.dirname(path.join(phaseDir, f)), { recursive: true });
+      fs.writeFileSync(path.join(phaseDir, f), body);
+    }
+    commitAll('feat(46-01): add tests');
+    fs.rmSync(path.join(phaseDir, victim));
+    writeSummary(phaseDir, '01', row(phaseDir), extra);
+    execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git commit -q -m "feat(46-01): delete"', { cwd: tmpDir, stdio: 'pipe' });
+    return runTestContent('46', tmpDir);
+  }
+
+  test('DEMONSTRATED FAILURE: DELETE citing an existing but unrelated test in another directory -> MISSING', () => {
+    const r = deleteScenario('46-t30-unrelated', 'MILE-V1', {
+      files: { 'other/unrelated.test.js': REAL_TEST('x') },
+      row: (d) => `| DELETE | ${relIn(d, 'redundant.test.js')} | ${relIn(d, 'other/unrelated.test.js')}:1 |`,
+    });
+    assert.strictEqual(r.exitCode, 1);
+    assert.ok(JSON.parse(r.output).hollow_tests.some(h => h.file.endsWith('redundant.test.js')));
+  });
+
+  test('DEMONSTRATED FAILURE: DELETE with the deleted file cited as its own cite / sibling that is also deleted -> MISSING', () => {
+    const phaseDir = setupPhase('46-t31-sibling', 'MILE-V2');
+    fs.writeFileSync(path.join(phaseDir, 'a.test.js'), REAL_TEST('a'));
+    fs.writeFileSync(path.join(phaseDir, 'b.test.js'), REAL_TEST('b'));
+    commitAll('feat(46-01): add tests');
+    fs.rmSync(path.join(phaseDir, 'a.test.js'));
+    fs.rmSync(path.join(phaseDir, 'b.test.js'));
+    writeSummary(phaseDir, '01', [`| DELETE | ${relIn(phaseDir, 'a.test.js')} | ${relIn(phaseDir, 'a.test.js')} |`, `| DELETE | ${relIn(phaseDir, 'b.test.js')} | ${relIn(phaseDir, 'a.test.js')} |`].join('\n'));
+    execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git commit -q -m "feat(46-01): delete both"', { cwd: tmpDir, stdio: 'pipe' });
+    const r = runTestContent('46', tmpDir);
+    assert.strictEqual(r.exitCode, 1);
+    assert.strictEqual(JSON.parse(r.output).requirements[0].status, 'MISSING');
+  });
+
+  test('DEMONSTRATED FAILURE: same-basename test in ANOTHER directory is not a valid cite; row naming only the basename does not match', () => {
+    const r = deleteScenario('46-t32-basename', 'MILE-V3', {
+      files: { 'other/redundant.test.js': REAL_TEST('x') },
+      row: (d) => `| DELETE | ${relIn(d, 'redundant.test.js')} | ${relIn(d, 'other/redundant.test.js')} |`,
+    });
+    assert.strictEqual(r.exitCode, 1);
+    assert.ok(JSON.parse(r.output).hollow_tests.some(h => h.file.endsWith('redundant.test.js')));
+    const r2 = deleteScenario('46-t32b-basename-only', 'MILE-V3B', {
+      files: { 'owner.integration.test.js': REAL_TEST('o') },
+      row: () => '| DELETE | redundant.test.js | owner.integration.test.js |',
+    });
+    assert.strictEqual(r2.exitCode, 1, 'basename-only row must not match the full-path deleted file');
+  });
+
+  test('DEMONSTRATED FAILURE: MERGE citing fake M-XXX-1 (no mutation-table row) and fake RED deadbeef -> PARTIAL; table-backed id and a real RED sha pass', () => {
+    const phaseDir = setupPhase('46-t33-fake-ids', 'MILE-V4');
+    fs.writeFileSync(path.join(phaseDir, 'impl.test.js'), TWO_ASSERT_BASELINE);
+    execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git commit -q -m "chore: baseline"', { cwd: tmpDir, stdio: 'pipe' });
+    const baseSha = execSync('git rev-parse HEAD', { cwd: tmpDir, encoding: 'utf-8' }).trim();
+    oneTestFile(phaseDir, "test('cancel table', () => { for (const n of [1, 2, 3]) assert.equal(n, n); });");
+    const f = relIn(phaseDir, 'impl.test.js');
+    writeSummary(phaseDir, '01', `merged: 1\n| MERGE | ${f} | 3 variants -> 1 table; M-XXX-1 |`);
+    commitAll('feat(46-01): fake mutant');
+    assert.strictEqual(JSON.parse(runTestContent('46', tmpDir).output).requirements[0].status, 'PARTIAL');
+    writeSummary(phaseDir, '01', `merged: 1\n| MERGE | ${f} | 3 variants -> 1 table; RED deadbeef |`);
+    commitAll('feat(46-01): fake red');
+    assert.strictEqual(JSON.parse(runTestContent('46', tmpDir).output).requirements[0].status, 'PARTIAL');
+    writeSummary(phaseDir, '01', `merged: 1\n| MERGE | ${f} | 3 variants -> 1 table; RED ${baseSha} |`);
+    commitAll('feat(46-01): real red');
+    assert.strictEqual(runTestContent('46', tmpDir).exitCode, 0);
+  });
+
+  test('legitimate same-dir MERGE with a table-backed mutant id -> COVERED; id present only in Test Delta row (no table) -> PARTIAL', () => {
+    const phaseDir = setupPhase('46-t34-merge-table', 'MILE-V5');
+    fs.writeFileSync(path.join(phaseDir, 'impl.test.js'), TWO_ASSERT_BASELINE);
+    execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git commit -q -m "chore: baseline"', { cwd: tmpDir, stdio: 'pipe' });
+    oneTestFile(phaseDir, "test('cancel table', () => { for (const n of [1, 2, 3]) assert.equal(n, n); });");
+    const row = `merged: 1\n| MERGE | ${relIn(phaseDir, 'impl.test.js')} | 3 variants -> 1 table; mCANCEL7 |`;
+    writeSummary(phaseDir, '01', row);
+    commitAll('feat(46-01): no table');
+    assert.strictEqual(JSON.parse(runTestContent('46', tmpDir).output).requirements[0].status, 'PARTIAL');
+    writeSummary(phaseDir, '01', row, MUTATION_TABLE('mCANCEL7'));
+    commitAll('feat(46-01): with table');
+    const r = runTestContent('46', tmpDir);
+    assert.strictEqual(r.exitCode, 0, r.output);
+    assert.strictEqual(JSON.parse(r.output).test_delta.declared_rows_mismatch, false);
+  });
+
+  test('DEMONSTRATED FAILURE: sensitive-path DELETE with a valid same-dir cite is still hollow; a verified MERGE row on it is accepted', () => {
+    const r = deleteScenario('46-t35-sensitive', 'MILE-V6', {
+      victim: 'wallet.test.js',
+      files: { 'owner.integration.test.js': REAL_TEST('o') },
+      row: (d) => `| DELETE | ${relIn(d, 'wallet.test.js')} | ${relIn(d, 'owner.integration.test.js')}:1 |`,
+    });
+    assert.strictEqual(r.exitCode, 1);
+    assert.ok(JSON.parse(r.output).hollow_tests.some(h => h.file.endsWith('wallet.test.js')));
+    const phaseDir = phaseDirPath('46-t35-sensitive');
+    writeSummary(phaseDir, '01', `merged: 1\n| MERGE | ${relIn(phaseDir, 'wallet.test.js')} | ${relIn(phaseDir, 'owner.integration.test.js')}:1; mWALLET1 |`, MUTATION_TABLE('mWALLET1'));
+    execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git commit -q -m "feat(46-01): verified merge"', { cwd: tmpDir, stdio: 'pipe' });
+    const r2 = runTestContent('46', tmpDir);
+    assert.strictEqual(r2.exitCode, 0, r2.output);
+  });
+
+  test('legitimate same-dir DELETE of a non-sensitive file still passes (cite in same directory)', () => {
+    const r = deleteScenario('46-t36-del-ok', 'MILE-V7', {
+      files: { 'owner.integration.test.js': REAL_TEST('o') },
+      row: (d) => `deleted: 1\n| DELETE | ${relIn(d, 'redundant.test.js')} | ${relIn(d, 'owner.integration.test.js')}:1 |`,
+    });
+    assert.strictEqual(r.exitCode, 0, r.output);
+  });
+
+  test('declared counts vs rows: merged/deleted counts that differ from MERGE/DELETE row counts -> declared_rows_mismatch true, requirement PARTIAL', () => {
+    const r = deleteScenario('46-t37-mismatch', 'MILE-V8', {
+      files: { 'owner.integration.test.js': REAL_TEST('o') },
+      row: (d) => `deleted: 2\n| DELETE | ${relIn(d, 'redundant.test.js')} | ${relIn(d, 'owner.integration.test.js')}:1 |`,
+    });
+    const parsed = JSON.parse(r.output);
+    assert.strictEqual(parsed.test_delta.declared_rows_mismatch, true);
+    assert.strictEqual(parsed.requirements[0].status, 'PARTIAL');
+    assert.strictEqual(r.exitCode, 1);
+  });
+
+  test('t0_mutant_rows_missing lists sensitive-path plan tests without a mutation-table row; a table row naming the file clears it; threshold exposed', () => {
+    const phaseDir = setupPhase('46-t38-t0', 'MILE-V9');
+    fs.writeFileSync(path.join(phaseDir, 'ledger.test.js'), REAL_TEST('ledger'));
+    writeSummary(phaseDir, '01', 'added: 1');
+    commitAll('feat(46-01): sensitive test');
+    const parsed = JSON.parse(runTestContent('46', tmpDir).output);
+    assert.deepStrictEqual(parsed.test_delta.t0_mutant_rows_missing, [relIn(phaseDir, 'ledger.test.js')]);
+    assert.strictEqual(parsed.test_delta.bucket_time_regressed_threshold, 1.1);
+    writeSummary(phaseDir, '01', 'added: 1', '\n## Mutation table\n\n| id | mutation | test | result |\n|---|---|---|---|\n| mLEDGER1 | drop credit | ledger.test.js | killed |\n');
+    commitAll('feat(46-01): with mutation row');
+    assert.deepStrictEqual(JSON.parse(runTestContent('46', tmpDir).output).test_delta.t0_mutant_rows_missing, []);
+  });
+
+  test('template drift: the REAL templates/summary.md Test Delta example, placeholders filled, parses (counts, bucket_seconds, row); header/prose rows ignored', () => {
+    const tpl = fs.readFileSync(path.join(__dirname, '..', 'templates', 'summary.md'), 'utf-8');
+    const block = tpl.match(/## Test Delta[\s\S]*?```\n([\s\S]*?)```/);
+    assert.ok(block, 'template must carry a fenced Test Delta example');
+    const phaseDir = setupPhase('46-t39-template', 'MILE-V10');
+    fs.writeFileSync(path.join(phaseDir, 'redundant.test.js'), REAL_TEST('dup'));
+    fs.writeFileSync(path.join(phaseDir, 'owner.integration.test.js'), REAL_TEST('o'));
+    commitAll('feat(46-01): add tests');
+    fs.rmSync(path.join(phaseDir, 'redundant.test.js'));
+    const nums = { added: 2, updated: 1, merged: 0, deleted: 1, net_test_loc: -5 };
+    const filled = block[1]
+      .replace(/^(\w+): \[n\]/gm, (_m, k) => `${k}: ${nums[k]}`)
+      .replace('[bucket]', 'B3a').replace('[before]', '100').replace('[after]', '120')
+      .replace('REUSE/UPDATE/MERGE/DELETE', 'DELETE')
+      .replace(/\[test or impl file\]/, relIn(phaseDir, 'redundant.test.js'))
+      .replace(/\[existing[^\]]*\]/, `${relIn(phaseDir, 'owner.integration.test.js')}:1`);
+    assert.ok(!/\[(?:n|bucket|before|after)\]/.test(filled), `unfilled placeholder left (template format drifted?): ${filled}`);
+    writeSummary(phaseDir, '01', filled);
+    execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git commit -q -m "feat(46-01): template summary"', { cwd: tmpDir, stdio: 'pipe' });
+    const r = runTestContent('46', tmpDir);
+    const parsed = JSON.parse(r.output);
+    assert.deepStrictEqual(parsed.test_delta.declared_tests, { added: 2, updated: 1, merged: 0, deleted: 1 });
+    assert.deepStrictEqual(parsed.test_delta.bucket_seconds, [{ bucket: 'B3a', before: 100, after: 120 }]);
+    assert.strictEqual(parsed.test_delta.deleted_test_files.length, 1, 'the filled table row must parse as a DELETE disposition');
+    assert.strictEqual(parsed.test_delta.declared_rows_mismatch, false, 'header/prose rows must not count as dispositions');
+    assert.strictEqual(r.exitCode, 0, r.output);
   });
 
   test('barrel exemption: pure export-from barrel exempt; 90-line Result-chained wallet handler (match/andThen/else/try) is NOT; non-pure non-wallet file is NOT', () => {
