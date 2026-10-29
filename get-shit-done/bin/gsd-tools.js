@@ -7064,7 +7064,8 @@ const E2E_GENERATION_FAILED_FILENAME = 'E2E-GENERATION-FAILED.json';
 // them with no extra logic.
 function countTestCalls(content) {
   if (!content) return 0;
-  const matches = content.match(/\b(?:it|test)\s*\(/g);
+  // Also counts camelCase wrappers around Deno.test/test (pausedTest(, integrationTest(); an in-file `function xTest(` definition is not a call.
+  const matches = content.match(/(?<!function\s)\b(?:it|test|[a-z]\w*Test)\s*\(/g);
   return matches ? matches.length : 0;
 }
 function countAssertions(content) {
@@ -7910,6 +7911,7 @@ function computeTestContentCoverage(cwd, phaseNumber, validPlans, filesByPlan, p
   const requirements = [];
   const hollowFilesMap = new Map();
   const netZeroFilesMap = new Map();
+  const legacyNetZeroMap = new Map();
 
   for (const reqId of Object.keys(reqToPlans)) {
     const declaringPlans = reqToPlans[reqId];
@@ -8008,9 +8010,13 @@ function computeTestContentCoverage(cwd, phaseNumber, validPlans, filesByPlan, p
         }
 
         if (netZero) {
-          netZeroCount += 1;
-          if (!netZeroFilesMap.has(file)) {
-            netZeroFilesMap.set(file, { file, source_plan: tddPlan.planNum, before_count: beforeCount, after_count: assertionCount });
+          const entry = { file, source_plan: tddPlan.planNum, before_count: beforeCount, after_count: assertionCount };
+          if (!planChecked) {
+            // Legacy plan (no Test Delta): no cite can exist, so informational only.
+            if (!legacyNetZeroMap.has(file)) legacyNetZeroMap.set(file, entry);
+          } else {
+            netZeroCount += 1;
+            if (!netZeroFilesMap.has(file)) netZeroFilesMap.set(file, entry);
           }
         }
       }
@@ -8080,6 +8086,7 @@ function computeTestContentCoverage(cwd, phaseNumber, validPlans, filesByPlan, p
     legacy.legacy_data = {
       plans: legacyPlans.map(planNumOf),
       hollow_test_cases: legacyHollowList,
+      net_zero_assertion_files: [...legacyNetZeroMap.values()],
       t0_mutant_rows_missing: legacyT0Missing,
       net_test_loc: legacyMetrics.net_test_loc,
       net_test_loc_over_threshold: legacyMetrics.net_test_loc_over_threshold,

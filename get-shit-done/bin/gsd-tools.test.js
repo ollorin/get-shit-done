@@ -6410,6 +6410,7 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
       path.join(phaseDir, 'impl.test.js'),
       `const { test } = require('node:test');\nconst assert = require('node:assert');\n// touched during 46-01, a test silently dropped\ntest('baseline a', () => { assert(1 === 1); });\n`
     );
+    fs.writeFileSync(path.join(phaseDir, '46-01-SUMMARY.md'), '# Summary\n\n## Test Delta\nupdated: 1\n\n## Next\nnone\n');
     commitAll('feat(46-01): touch test file, no new assertions');
 
     const result = runTestContent('46', tmpDir);
@@ -18530,6 +18531,43 @@ describe('Opus final-ruling fixes: Deno assertions, legacy grandfathering, sync 
     const r = JSON.parse(run().out);
     assert.strictEqual(r.requirements[0].status, 'COVERED');
     assert.strictEqual(r.hollow_test_cases[0].severity, 'info');
+  });
+
+  test('G1: camelCase test wrappers (pausedTest) count as test calls; a wrapper definition does not', () => {
+    assert.strictEqual(g.countTestCalls("pausedTest('a', async () => {});\nintegrationTest('b', () => {});"), 2);
+    assert.strictEqual(g.countTestCalls('export const pausedTest = (n) => Deno.test(n);\nfunction slowTest(n) {}'), 1);
+    assert.strictEqual(g.countTestCalls("Test('x', () => {}); skipTest.x();"), 0);
+    setup('46-g1', "import { assertEquals } from 'x';\npausedTest('w', async () => { assertEquals(1 + 0, 1); });\n", { summary: 'added: 1' });
+    const r = JSON.parse(run().out);
+    assert.deepStrictEqual(r.hollow_tests, []);
+    assert.strictEqual(r.requirements[0].status, 'COVERED');
+  });
+
+  function setupFall(name, summary) {
+    const dir = path.join(tmp, '.planning', 'phases', name);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'impl.test.js'), "test('a', () => { assert.equal(1 + 0, 1); });\ntest('b', () => { assert.equal(2 + 0, 2); });\n");
+    commit('chore: baseline');
+    return setup(name, "test('a', () => { assert.equal(1 + 0, 1); });\n", { summary });
+  }
+
+  test('G2: assertion FALL in a legacy plan (no Test Delta) is informational, never PARTIAL', () => {
+    setupFall('46-g2legacy', null);
+    const r = JSON.parse(run().out);
+    assert.strictEqual(r.passed, true);
+    assert.strictEqual(r.requirements[0].status, 'COVERED');
+    assert.deepStrictEqual(r.net_zero_assertion_files, []);
+    assert.strictEqual(r.legacy_data.net_zero_assertion_files.length, 1);
+    assert.strictEqual(r.legacy_data.net_zero_assertion_files[0].before_count, 2);
+  });
+
+  test('G2: assertion FALL in a plan with Test Delta and no cite stays PARTIAL', () => {
+    setupFall('46-g2checked', 'updated: 1');
+    const out = run();
+    const r = JSON.parse(out.out);
+    assert.strictEqual(r.requirements[0].status, 'PARTIAL');
+    assert.strictEqual(r.net_zero_assertion_files.length, 1);
+    assert.strictEqual(out.exitCode, 1);
   });
 
   test('F4: impl coverage excludes e2e-charlotte scenarios, *.types.ts and testing-utils', () => {
