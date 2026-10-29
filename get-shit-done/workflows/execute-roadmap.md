@@ -326,7 +326,7 @@ Agent(
   2. Plan — MUST include tdd='true' tasks for API work, checkpoint:ui-qa for UI work.
      Planner MUST run validate_testing_gate before returning plans.
      If phase touches UI: generate E2E-TEST-PLAN.md via gsd-ui-inventory + gsd-e2e-test-generator.
-  3. Execute — tdd tasks spawn gsd-test-writer (min 6 tests, 6 categories).
+  3. Execute — tdd tasks spawn gsd-test-writer (tiered budget, inventory-first).
      checkpoint:ui-qa tasks trigger Charlotte QA loop (3 rounds) + MANDATORY ux-audit.
      Post-plan test gate: full test suite must pass before SUMMARY.md.
   4. Post-execution — If web project: run post_phase_ux_sweep (Charlotte ux-audit, unconditional).

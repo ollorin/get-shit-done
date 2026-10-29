@@ -137,7 +137,7 @@ Deviations are normal — handle via rules below.
 
 1. Read @context files from prompt
 2. Per task:
-   - `type="auto"`: if `tdd="true"` → TDD execution. Implement with deviation rules + auth gates. Verify done criteria. Commit (see task_commit). Track hash for Summary.
+   - `type="auto"`: if `tdd="true"` → TDD execution. Implement with deviation rules + auth gates. Verify done criteria. Commit (see task_commit). Track hash for Summary. Record `## Test Delta` in the Summary.
    - `type="checkpoint:*"`: STOP → checkpoint_protocol → wait for user → continue only after confirmation.
 3. Run `<verification>` checks
 4. Confirm `<success_criteria>` met

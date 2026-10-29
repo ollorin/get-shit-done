@@ -110,7 +110,7 @@ reference file.
 > **This is NEVER a warning — it is a hard verification failure.**
 
 **Step 8d (implementation file test coverage, QGATE-10):**
-> **Hard rule:** Every implementation file must have a corresponding test file. Missing test files → `gaps_found`. This is NEVER a warning — never emit a warning for missing test files.
+> **Hard rule:** Every implementation file must be exercised by a test: a unit or integration test imports it or calls its exported route/RPC, or the SUMMARY `## Test Delta` cites a REUSE. Re-export/routing files (≤ 100 LOC, no branches) are exempt. Unexercised files → `gaps_found`. This is NEVER a warning.
 
 **Step 8e (migration timestamp conflict check, QGATE-05):**
 > **Hard rule:** Unresolved duplicate migration timestamps detected by this check cause `gaps_found`. This is NEVER a warning.
@@ -144,6 +144,9 @@ RUN — when the repo ships `scripts/check-p0-tier-delta.ts` — the phase's own
 
 A diff base that cannot be resolved is a FAIL for this step, not a skip — a gate the repo ships
 and the verifier did not run is treated exactly as Step 8g treats a present-but-unrun gate.
+
+**Step 8j (test delta gates):** net test LOC, touched-bucket time, 0 new hollow hits, a mutation
+row per T0 test, and deleted/merged tests listed with their covering test. Any failure → `gaps_found`.
 
 **Handoff brief:** A present `<handoff_brief>` block's HARD RULES / phase goal are the constraints the phase is verified against.
 

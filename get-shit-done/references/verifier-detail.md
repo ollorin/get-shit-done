@@ -252,7 +252,7 @@ Aggregate all requirement IDs across plans. For each requirement ID:
 
 ## Step 6c: Test-Content Coverage & Hollow-Test Detection (QGATE-14)
 
-Closes Loophole 7 / Issue 8: Step 8d (below) only proves a `.test.ts` file EXISTS — it never checks whether the file actually tests anything. This step classifies each requirement's real, non-hollow test coverage and blocking-spawns `gsd-nyquist-auditor` to fill any gap before verification continues.
+Closes Loophole 7 / Issue 8: Step 8d (below) only proves an impl file is imported or routed by some test — it never checks whether the file actually tests anything. This step classifies each requirement's real, non-hollow test coverage and blocking-spawns `gsd-nyquist-auditor` to fill any gap before verification continues.
 
 Run the deterministic classifier:
 
@@ -295,7 +295,7 @@ After it returns, re-run `verify test-content "$PHASE_NUM"` to confirm gaps are 
 
 This step's hard-fail is NEVER a warning — matches the existing convention for Step 8b/8c/8d's hard rules elsewhere in this file.
 
-Note: Step 8d (Implementation File Test Coverage, below) is a coarser, complementary, file-existence-only check and stays unchanged — Step 6c adds requirement-level classification and content-quality (hollow/stale) detection on top of it, it does not replace it.
+Note: Step 8d (Implementation File Test Coverage, below) is a coarser, complementary, import/route-match check and stays unchanged in scope — Step 6c adds requirement-level classification and content-quality (hollow/stale) detection on top of it, it does not replace it.
 
 ## Step 6d: Defect Classes Coverage (QGATE-17)
 
@@ -838,7 +838,7 @@ If DEFERRAL_FOUND=false: this check passes silently.
 
 **Trigger:** One or more `.ts`, `.tsx`, or `.js` implementation files appear in SUMMARY.md key-files.
 
-**Hard rule:** Every implementation file must have a corresponding test file. Missing test files → `gaps_found`. This is NEVER a warning — never emit a warning for missing test files.
+**Hard rule:** Every implementation file must be exercised by a test. A file passes if any test file (unit or integration) imports it or calls its exported route/RPC, or the SUMMARY `## Test Delta` cites a REUSE for it. Unexercised files → `gaps_found`. This is NEVER a warning — never emit a warning for missing test coverage. Files that only re-export or route (≤ 100 LOC, no branches) are exempt.
 
 **Implementation files** are `.ts`, `.tsx`, `.js` files that are NOT:
 - Test files themselves: `*.test.ts`, `*.spec.ts`, `*.test.js`, `*.spec.js`, `*.test.tsx`, `*.spec.tsx`
@@ -880,6 +880,7 @@ For each file in IMPL_FILES_RAW:
    - `tests/{name}.test.{ext}`
    - `__tests__/{basename}.test.{ext}`
 2. Check if any candidate exists on disk
+3. Match mechanically, not by name: search `*.test.*` (unit and integration) for an import of the module path or a call to its exported route/RPC; a SUMMARY `## Test Delta` REUSE citation also passes
 
 **Step C — Hard-fail if any implementation file lacks test:**
 
@@ -892,10 +893,9 @@ For each implementation file that has no test counterpart:
     reason: "Implementation file has no test counterpart"
     artifacts:
       - path: "{impl_file}"
-        issue: "No test file found (checked: .test.ts, .spec.ts, __tests__/)"
+        issue: "No test imports or exercises it, and no SUMMARY Test Delta REUSE cites it"
     missing:
-      - "Add test file for {impl_file}"
-      - "Acceptable locations: {dir}/{name}.test.ts, {dir}/__tests__/{name}.test.ts"
+      - "Add a test (or cite the existing one in Test Delta) that exercises {impl_file}"
   ```
 - Set STATUS = gaps_found (hard-fail — NOT a warning — NEVER emit a warning for missing tests)
 
@@ -1188,6 +1188,21 @@ since Phase 296-05, fully tested, and until this step, entirely unwired. A guard
 is not a guard.
 
 </check_p0_tier_delta>
+<check_test_delta>
+
+## Step 8j: Test Delta Gates
+
+Measured from the phase diff and the SUMMARY `## Test Delta` sections. Any failure → `gaps_found`, never a warning.
+
+- **(a) Net test LOC:** `git diff --shortstat "$BASE" HEAD -- '*.test.*'`. A positive delta over +3,000 needs a cited T0 justification per file.
+- **(b) Touched-bucket time:** the median seconds of each touched bucket must not rise more than 15% over the pre-phase `timing-*.log` without a cited justification.
+- **(c) Hollow scan:** the Step 6c detector reports 0 new hits.
+- **(d) Mutation rows:** every T0 test added or rewritten has a mutation row, and the red log names it.
+- **(e) Deleted/merged:** every deleted or merged test is counted in Test Delta and listed with its covering test.
+
+Mutation cap: one mutant per guarded predicate or lock. Equivalents are argued, not run. A T1 rewrite may run its mutant against the single file; T0 keeps full-bucket runs.
+
+</check_test_delta>
 
 </verification_process>
 

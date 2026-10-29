@@ -374,6 +374,13 @@ issue:
   fix_hint: "Replace deferral language with a concrete test task or checkpoint"
 ```
 
+**Check 8-T4 — test inventory and behaviour-based goals:**
+
+For each `tdd="true"` task:
+1. BLOCKING if `<behavior>` has no `existing:` inventory line per behaviour (file:line or none, plus REUSE / UPDATE / MERGE / DELETE / ADD+reason).
+2. BLOCKING if the goal or `<done>` is a count ("N tests", "at least", "comprehensive") instead of a list of behaviours.
+3. WARNING: a T2 behaviour is ADD at unit layer, or a behaviour is asserted at a second layer without a wire-shape reason.
+
 ## Dimension 9: Nyquist Compliance
 
 Skip if: `workflow.nyquist_validation` is explicitly set to `false` in config.json (absent key = enabled), phase has no RESEARCH.md, or RESEARCH.md has no "Validation Architecture" section. Output: "Dimension 9: SKIPPED (nyquist_validation disabled or not applicable)"
@@ -696,7 +703,7 @@ Thresholds: 2-3 tasks/plan good, 4 warning, 5+ blocker (split required).
 
 ## Step 10: Determine Overall Status
 
-**passed:** All requirements covered, all tasks complete, dependency graph valid, key links planned, scope within budget, must_haves properly derived, testing mandate satisfied (all implementation tasks have tdd="true" pairs, all UI plans have checkpoint:ui-qa, no deferral language).
+**passed:** All requirements covered, all tasks complete, dependency graph valid, key links planned, scope within budget, must_haves properly derived, testing mandate satisfied (all implementation tasks have tdd="true" pairs with inventory, all UI plans have checkpoint:ui-qa, no deferral language).
 
 **issues_found:** One or more blockers or warnings. Plans need revision.
 
@@ -890,7 +897,7 @@ Plan verification complete when:
 - [ ] Dependency graph verified (no cycles, valid references)
 - [ ] Key links checked (wiring planned, not just artifacts)
 - [ ] Scope assessed (within context budget)
-- [ ] Testing mandate verified: all implementation tasks have tdd="true" pairs
+- [ ] Testing mandate verified: all implementation tasks have tdd="true" pairs with inventory
 - [ ] Testing mandate verified: all UI-producing plans have checkpoint:ui-qa
 - [ ] Testing mandate verified: no deferral language in any plan
 - [ ] must_haves derivation verified (user-observable truths)

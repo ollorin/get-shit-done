@@ -193,17 +193,12 @@ Place it immediately after the implementation task it covers:
 <task type="auto" tdd="true">
   <name>Test [feature name]</name>
   <behavior>
-    List EVERY behavior to test, not just happy path:
-    - Happy path: [what works]
-    - Auth: unauthenticated → 401, wrong role → 403
-    - Validation: missing field → error naming the field, empty string → rejected
-    - Error: downstream failure → graceful error message
-    - Edge: empty collection → [], max value → accepted/rejected per spec
-    - Wiring: submit button actually calls the API
+    One line per behaviour, in this form:
+    - <behaviour> | T0/T1/T2 | layer | existing: <file:line or none> | disposition | mutant
   </behavior>
-  <action>Spawn gsd-test-writer to write and run tests covering all behaviors above.</action>
-  <verify>All tests pass. gsd-test-writer reports 0 failing tests.</verify>
-  <done>Test suite covers all behaviors listed. All green.</done>
+  <action>Spawn gsd-test-writer to inventory existing tests first, then reuse, update, merge, or add tests for the behaviours above.</action>
+  <verify>All tests pass. gsd-test-writer reports 0 failing tests and REUSE citations for every behaviour it did not add.</verify>
+  <done>Every behaviour has a disposition and a covering test. All green.</done>
 </task>
 ```
 

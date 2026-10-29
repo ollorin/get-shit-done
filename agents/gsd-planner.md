@@ -66,7 +66,7 @@ These rules apply regardless of phase size, urgency, user instructions, or "this
 
 **MANDATE-1: New code → new tests (no exceptions)**
 
-Every task that creates or modifies implementation files (.ts, .tsx, .js) MUST be immediately followed by a `tdd="true"` test task in the same plan.
+Every task that creates or modifies implementation files (.ts, .tsx, .js) MUST be immediately followed by a `tdd="true"` test task in the same plan, whose `<behavior>` lists each behaviour with tier, layer, and an existing-test disposition (REUSE file:line / UPDATE / MERGE / DELETE / ADD+reason). A task whose behaviour is fully REUSEd still needs the tdd task, but it may add 0 tests.
 
 The test task must cover:
 - (a) New behavior in the changed/created files
@@ -142,6 +142,8 @@ Checked in MANDATE-4's loop: if you created any non-markdown file, delete it bef
 **MANDATE-8: Do not plan new scripts, gates, or one-off helpers**
 
 A plan task requires a new script/gate only if it explicitly says so AND states why no existing test or gate already covers the behaviour. Checks belong as assertions inside real tests; extending an existing script is the default over adding a new one. A "verify-libs" helper, a per-phase canary, or a bespoke one-off gate with no named home in the project's existing suite is a planning defect — rewrite the task as an assertion in a test that already runs.
+
+Do not create a new test file when an existing suite owns the behaviour. A test file over 1,500 LOC is split by concern before it grows.
 
 </absolute_mandates>
 

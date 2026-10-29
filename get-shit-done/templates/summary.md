@@ -58,6 +58,12 @@ completed: YYYY-MM-DD
 - **Tasks:** [count completed]
 - **Files modified:** [count]
 
+## Test Delta
+
+- **Added / updated / merged / deleted:** [n / n / n / n] (REUSE file:line for each behaviour not added)
+- **Net test LOC:** [n] (`git diff --shortstat <plan-base> -- '*.test.*'`)
+- **Bucket seconds (before → after):** [bucket: s → s] from timing-*.log; `none` if no integration bucket ran
+
 ## Accomplishments
 - [Most important outcome]
 - [Second key accomplishment]

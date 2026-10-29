@@ -255,7 +255,7 @@ still appears unchanged, in full context, in the reference file.
 > Do NOT log as a "gap" and continue. Do NOT create SUMMARY.md. Failing tests on a tdd="true" task are a hard blocker.
 
 > If gsd-test-writer returns 0 tests written:
->    - BLOCK — this is a failure, not a skip. A tdd="true" task that produces no tests has not been completed.
+>    - BLOCK unless every behaviour has a REUSE citation. A tdd="true" task that produces no tests and no REUSE citation has not been completed.
 
 **Post-plan test suite gate:**
 > SUMMARY.md creation is BLOCKED if:**

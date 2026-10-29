@@ -335,10 +335,10 @@ DO NOT execute the task inline. Instead:
      prompt="Route this task: Test {task_name}
 
 Task action:
-Write and run comprehensive tests covering: {behavior_description}
+Inventory existing tests first, then reuse, update, merge, or add tests covering: {behavior_description}
 
 Done criteria:
-All tests pass. gsd-test-writer reports 0 failing tests across all categories (auth, validation, error handling, edge cases, wiring).
+All tests pass. gsd-test-writer reports 0 failing tests and a disposition (REUSE file:line, UPDATE, MERGE, or ADD+reason) for every behaviour.
 
 Verification:
 Run test suite and confirm 0 failing tests.
@@ -380,14 +380,14 @@ Plan context: complexity=medium, depends_on=0 prior plans, must_haves=1 criteria
      Do NOT log as a "gap" and continue. Do NOT create SUMMARY.md. Failing tests on a tdd="true" task are a hard blocker.
 
 5. If gsd-test-writer returns 0 tests written:
-   - BLOCK — this is a failure, not a skip. A tdd="true" task that produces no tests has not been completed.
-   - Re-spawn gsd-test-writer once with explicit instruction: "You MUST write at least 6 tests. 0 tests is not acceptable."
+   - BLOCK — this is a failure, not a skip. A tdd="true" task that produces no tests and no REUSE citations has not been completed.
+   - Re-spawn gsd-test-writer once with explicit instruction: "Return REUSE citations or the tests the behaviour needs. 0 tests without REUSE citations is not acceptable."
    - If second attempt also returns 0 tests: BLOCK execution. Return failure as above.
 
 6. Record in SUMMARY.md:
    ```
    Tests (Task N+1): {passed} passing, {failed} failing
-   Categories covered: {list}
+   Test Delta: added {n} / updated {n} / merged {n} / deleted {n}; net test LOC {n} (git diff --shortstat <plan-base> -- '*.test.*'); buckets {name: seconds before→after}
    ```
 
 6. Commit (stage test files individually, per task_commit_protocol):
