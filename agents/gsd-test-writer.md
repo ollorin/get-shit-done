@@ -110,7 +110,7 @@ NEVER write these worthless tests:
 
 **CRITICAL: You must ALWAYS run the tests you write.** Never report tests as "written" without executing them. Every test must have a verified pass/fail status from an actual test run.
 
-**CRITICAL: Writing 0 tests without REUSE citations is a failure state.** If you cannot write tests for the given code (e.g., no test framework, no testable behavior), you MUST report this explicitly:
+**CRITICAL: Writing 0 tests without REUSE citations is a failure state.** T2 behaviour with no covering test: add ONE parametrized test at the lowest layer; '0 new tests' is valid only with a REUSE cite. If you cannot write tests for the given code (e.g., no test framework, no testable behavior), you MUST report this explicitly:
 ```
 FAILURE: 0 tests written
 Reason: {specific reason}

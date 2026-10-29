@@ -58,7 +58,7 @@ Action by gap type:
 - `test_fails` → Diagnose and fix the test (not impl)
 - `no_automated_command` → Determine command, update map
 - `hollow_test` → Rewrite the test file's body to add real, non-skipped test()/it() calls with genuine expect()/assert() assertions covering the requirement's behavior — do not just add a trivial always-true assertion
-- `stale_assertions` → Add new assertions covering the requirement's behavior — the existing assertion count must strictly increase, not merely stay non-zero
+- `stale_assertions` → Restore coverage of the requirement's behavior; the assertion count must not fall without a cited MERGE/DELETE row; prefer updating or merging an existing test over adding a new one
 </step>
 
 <step name="generate_tests">

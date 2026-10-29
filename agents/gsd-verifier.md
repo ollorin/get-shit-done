@@ -110,7 +110,7 @@ reference file.
 > **This is NEVER a warning — it is a hard verification failure.**
 
 **Step 8d (implementation file test coverage, QGATE-10):**
-> **Hard rule:** Every implementation file must be exercised by a test: a unit or integration test imports it or calls its exported route/RPC, or the SUMMARY `## Test Delta` cites a REUSE. Only pure `export ... from` re-export files (≤ 100 LOC, no branches) are exempt, never wallet/auth/rng/kyc/payment/ledger/settlement paths. Unexercised files → `gaps_found`. This is NEVER a warning.
+> **Hard rule:** Every implementation file must be exercised by a test: a unit or integration test imports it or calls its exported route/RPC, or the SUMMARY `## Test Delta` cites a REUSE. Only a file that consists solely of `export ... from` re-export statements (any length), and never matches wallet|auth|rng|kyc|payment|ledger|settle|balance|stake|payout|deposit|withdraw|session|totp|bet paths is exempt. Unexercised files → `gaps_found`. This is NEVER a warning.
 
 **Step 8e (migration timestamp conflict check, QGATE-05):**
 > **Hard rule:** Unresolved duplicate migration timestamps detected by this check cause `gaps_found`. This is NEVER a warning.

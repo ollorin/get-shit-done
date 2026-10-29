@@ -270,13 +270,17 @@ Build a `<gaps>` list from the JSON:
 - Each `MISSING` requirement with zero test files → `{ gap_id: req_id, requirement: req_id, type: "no_test_file", reason: "no test file found for this requirement" }`
 - Each entry in `hollow_tests` → `{ gap_id: req_id (owning requirement), requirement: req_id, type: "hollow_test", file, reason: "test file has zero non-skipped test()/it() calls, or zero assertions" }`
 - Each entry in `net_zero_assertion_files` → `{ gap_id: req_id, requirement: req_id, type: "stale_assertions", file, before_count, after_count, reason: "assertion count fell since the phase's first commit touching this file with no cited MERGE/DELETE row" }` (only a fall without a cited MERGE/DELETE row is flagged)
+- Each item in `hollow_test_cases` → `{ gap_id: req_id, requirement: req_id, type: "hollow_test_case", file, reason: "test case has no real assertion" }`
+- Each uncited DELETE/MERGE row in `test_delta` → `{ gap_id: req_id, requirement: req_id, type: "uncited_delete_merge", reason: "DELETE/MERGE row cites no existing test path:line or mutant id" }`
+- `test_delta.declared_rows_mismatch: true` → `{ gap_id: phase, requirement: phase, type: "declared_rows_mismatch", reason: "declared deleted/merged counts differ from Test Delta rows" }`
+- `test_delta.bucket_time_regressed: true` without a cited justification → `{ gap_id: phase, requirement: phase, type: "bucket_time_regressed", reason: "touched-bucket time rose over 10%" }`
 
 Spawn:
 ```
 Agent(
   subagent_type="gsd-nyquist-auditor",
   model="{verifier_model}",
-  prompt="Phase {phase_number} test-content gaps.\n<gaps>{gap list above}</gaps>\nImplementation files are READ-ONLY. Fill each gap with a real test covering the requirement's observable behavior. Report GAPS FILLED / PARTIAL / ESCALATE."
+  prompt="Phase {phase_number} test-content gaps.\n<gaps>{gap list above}</gaps>\nImplementation files are READ-ONLY. Fill each gap covering the requirement's observable behavior; for stale_assertions merge/update an existing test first, add a new test only if none can cover it. Report GAPS FILLED / PARTIAL / ESCALATE."
 )
 ```
 
@@ -838,7 +842,7 @@ If DEFERRAL_FOUND=false: this check passes silently.
 
 **Trigger:** One or more `.ts`, `.tsx`, or `.js` implementation files appear in SUMMARY.md key-files.
 
-**Hard rule:** Every implementation file must be exercised by a test. A file passes if any test file (unit or integration) imports it or calls its exported route/RPC, or the SUMMARY `## Test Delta` cites a REUSE for it. Unexercised files → `gaps_found`. This is NEVER a warning — never emit a warning for missing test coverage. The exemption applies only to pure `export ... from` re-export files (≤ 100 LOC, no branches), never to wallet/auth/rng/kyc/payment/ledger/settlement paths.
+**Hard rule:** Every implementation file must be exercised by a test. A file passes if any test file (unit or integration) imports it or calls its exported route/RPC, or the SUMMARY `## Test Delta` cites a REUSE for it. Unexercised files → `gaps_found`. This is NEVER a warning — never emit a warning for missing test coverage. The exemption applies only to a file that consists solely of `export ... from` re-export statements (any length), and never matches wallet|auth|rng|kyc|payment|ledger|settle|balance|stake|payout|deposit|withdraw|session|totp|bet paths.
 
 Run `gsd-tools verify test-content "$PHASE_NUM"` and read `impl_files_without_tests` (each is a gap), `impl_files_covered` and `impl_files_exempt` (confirm each exempt file is a pure re-export outside the P0 paths above); the manual Steps A-C below are the fallback cross-check.
 
@@ -889,7 +893,7 @@ For each file in IMPL_FILES_RAW:
 For each implementation file that has no test counterpart:
 - Add gap:
   ```yaml
-  - truth: "Every implementation file (.ts/.tsx/.js) has a corresponding test file"
+  - truth: "Every implementation file (.ts/.tsx/.js) has a test (unit or integration) that exercises it"
     status: failed
     failure_type: missing_test
     reason: "Implementation file has no test counterpart"
@@ -1194,13 +1198,13 @@ is not a guard.
 
 ## Step 8j: Test Delta Gates
 
-Measured from the phase diff and the SUMMARY `## Test Delta` fields (`added/updated/merged/deleted/net_test_loc/bucket_seconds` lines and DISPOSITION rows), as reported by `gsd-tools verify test-content` (`test_delta`, `bucket_time_regressed`, `net_test_loc_over_threshold`, `hollow_test_cases`). Any failure → `gaps_found`, never a warning.
+Measured from the phase diff and the SUMMARY `## Test Delta` fields (`added/updated/merged/deleted/net_test_loc/bucket_seconds` lines and DISPOSITION rows), as reported by `gsd-tools verify test-content` (`test_delta`, with `bucket_time_regressed`, `net_test_loc_over_threshold`, `declared_rows_mismatch`, `t0_mutant_rows_missing`, `bucket_seconds` nested under `test_delta`; `hollow_test_cases` and `impl_files_*` are top-level). Any failure → `gaps_found`, never a warning.
 
 - **(a) Net test LOC:** `git diff --shortstat "$BASE" HEAD -- '*.test.*'`. A positive delta over +3,000 needs a cited T0 justification per file.
-- **(b) Touched-bucket time:** read from the `bucket_seconds: <bucket> <before> -> <after>` lines; `bucket_time_regressed` true (rise over 15%) without a cited justification is a gap.
+- **(b) Touched-bucket time:** read from the `bucket_seconds: <bucket> <before> -> <after>` lines; `test_delta.bucket_time_regressed` true (after > before*1.1, i.e. rise over 10%) without a cited justification is a gap.
 - **(c) Hollow scan:** the Step 6c detector reports 0 new `hollow_test_cases`.
-- **(d) Mutation rows:** every T0 test added or rewritten has a Test Delta row citing a mutant id (mXX1) or RED sha, and the red log names it.
-- **(e) Deleted/merged:** every deleted or merged test has a DELETE/MERGE row citing an existing test path:line (or mutant id); `deleted`/`merged` counts must match the rows. An uncited row is a gap.
+- **(d) Mutation rows:** every T0 test added or rewritten has a Test Delta row citing a mutant id (mXX1) or RED sha, and the red log names it. Checked mechanically via `test_delta.t0_mutant_rows_missing` (report it) plus your judgment on mutation quality.
+- **(e) Deleted/merged:** every deleted or merged test has a DELETE/MERGE row citing an existing test path:line (or mutant id); `deleted`/`merged` counts must match the rows, mechanically via `test_delta.declared_rows_mismatch`. An uncited row is a gap. DELETE rows on sensitive paths (wallet|auth|rng|kyc|payment|ledger|settle|balance|stake|payout|deposit|withdraw|session|totp|bet) need a MERGE row with a verified mutant id or RED sha.
 
 Mutation cap: one mutant per guarded predicate or lock. Equivalents are argued, not run. A T1 rewrite may run its mutant against the single file; T0 keeps full-bucket runs.
 
