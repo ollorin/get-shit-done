@@ -7550,15 +7550,31 @@ function cmdVerifyE2EGaps(cwd, phaseArg, raw) {
 // deleted counts (`added: 3` or `3 added`) plus per-file disposition rows
 // (a line carrying REUSE|UPDATE|MERGE|DELETE|ADD and file paths / cites).
 function parseTestDelta(text) {
-  const out = { found: false, added: 0, updated: 0, merged: 0, deleted: 0, rows: [] };
+  const out = { found: false, added: 0, updated: 0, merged: 0, deleted: 0, net_test_loc: null, bucket_seconds: [], rows: [] };
   if (!text) return out;
   const sec = text.match(/^##\s+Test Delta\b[^\n]*\n([\s\S]*?)(?=^##\s|(?![\s\S]))/mi);
   if (!sec) return out;
   out.found = true;
-  for (const key of ['added', 'updated', 'merged', 'deleted']) {
-    const re = new RegExp(`\\b${key}\\b\\s*[:=|]\\s*(\\d+)|\\b(\\d+)\\s+${key}\\b`, 'gi');
+  const KEYS = ['added', 'updated', 'merged', 'deleted'];
+  const countText = [];
+  for (const line of sec[1].split('\n')) {
+    const bm = line.match(/^\s*[-*]?\s*bucket_seconds\s*:\s*(\S+)\s+(\d+(?:\.\d+)?)\s*(?:->|\u2192)\s*(\d+(?:\.\d+)?)/i);
+    if (bm) { out.bucket_seconds.push({ bucket: bm[1], before: parseFloat(bm[2]), after: parseFloat(bm[3]) }); continue; }
+    const nm = line.match(/^\s*[-*]?\s*net_test_loc\s*[:=]\s*(-?\d+)/i);
+    if (nm) { out.net_test_loc = parseInt(nm[1], 10); continue; }
+    if (/^\s*\|/.test(line)) continue;
+    const sl = line.match(/\b(added|updated|merged|deleted)\s*\/\s*(updated|merged|deleted)(?:\s*\/\s*(merged|deleted))?(?:\s*\/\s*(deleted))?\s*[:=]\s*(\d+(?:\s*\/\s*\d+)+)/i);
+    if (sl) {
+      const names = [sl[1], sl[2], sl[3], sl[4]].filter(Boolean).map(n => n.toLowerCase());
+      const nums = sl[5].split('/').map(n => parseInt(n.trim(), 10));
+      if (names.length === nums.length) { names.forEach((n, i) => { out[n] += nums[i]; }); continue; }
+    }
+    countText.push(line);
+  }
+  for (const key of KEYS) {
+    const re = new RegExp(`\\b${key}\\b\\s*[:=|]\\s*(\\d+)|\\b(\\d+)[ \\t]+${key}\\b`, 'gi');
     let m;
-    while ((m = re.exec(sec[1])) !== null) out[key] += parseInt(m[1] || m[2], 10);
+    while ((m = re.exec(countText.join('\n'))) !== null) out[key] += parseInt(m[1] || m[2], 10);
   }
   for (const line of sec[1].split('\n')) {
     const kind = line.match(/\b(REUSE|UPDATE|MERGE|DELETE|ADD)\b/);
@@ -7569,19 +7585,35 @@ function parseTestDelta(text) {
   return out;
 }
 
-// A MERGE/DELETE row for `file` that carries a verifiable cite: another path
-// that exists on disk at HEAD (the covering test), or an explicit mutation /
-// red-log reference. Returns the row or null.
-function findCitedDispositionRow(cwd, rows, file, kinds) {
+const COVER_TEST_RE = /\.(?:test|spec)\.[A-Za-z]+$|_test\.(?:ts|js)$/;
+// A cite path is valid only if it is an existing test file (*.test.*, incl.
+// *.integration.test.*) other than the file being deleted/merged/reused.
+function isValidCoverCite(cwd, p, file) {
+  if (p === file || path.basename(p) === path.basename(file)) return false;
+  if (!COVER_TEST_RE.test(p)) return false;
+  return fs.existsSync(path.join(cwd, p)) || fs.existsSync(path.join(cwd, path.dirname(file), p));
+}
+const MUTANT_ID_RE = /\bm[A-Z]+\d+\b|\bM-[A-Z]+(?:-[A-Z0-9]+)*-?\d+\b|\bRED\s+[0-9a-f]{7,40}\b/;
+const MERGE_ASSERTION_FLOOR = 0.5;
+// A MERGE/DELETE row for `file` with a verifiable cite: an existing covering
+// test path, or (MERGE only) a mutant/RED id. counts = {before, after}: under
+// a MERGE a >50% assertion drop needs a per-test mapping ("N ... -> M").
+function findCitedDispositionRow(cwd, rows, file, kinds, counts) {
   const base = path.basename(file);
   for (const row of rows) {
     if (!kinds.includes(row.kind)) continue;
     if (!row.line.includes(file) && !row.line.includes(base)) continue;
-    const coverOnDisk = row.paths.some(p => p !== file && path.basename(p) !== base && (fs.existsSync(path.join(cwd, p)) || fs.existsSync(path.join(cwd, path.dirname(file), p))));
-    if (coverOnDisk) return row;
-    if (row.kind === 'MERGE' && /\b(mutant|mutation|RED)\b|\bM-[A-Z0-9]+/i.test(row.line)) return row;
+    if (row.kind === 'MERGE' && counts && counts.before > 0 && counts.after < counts.before * MERGE_ASSERTION_FLOOR &&
+        !/\b\d+\b[^|\n]*(?:->|\u2192|=>)/.test(row.line.replace(file, '').replace(base, ''))) continue;
+    if (row.paths.some(p => isValidCoverCite(cwd, p, file))) return row;
+    if (row.kind === 'MERGE' && MUTANT_ID_RE.test(row.line)) return row;
   }
   return null;
+}
+
+// Blanks string-aware // and /* */ comments.
+function stripJsComments(src) {
+  return (src || '').replace(/("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`)|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m, str) => str || ' ');
 }
 
 // Extracts the balanced `(...)` call text starting at the `(` at/after idx.
@@ -7629,8 +7661,20 @@ const WEAK_ASSERT_RES = [
   /\bArray\.isArray\b|\bisArray\b/,
   /\.error\s*(?:===?|,)\s*null\b|\.error\)\.toBeNull/,
   /!==?\s*undefined/,
-  /\b(?:status|statusCode)\b[^\n]*\b[1-5]\d\d\b/,
 ];
+// Status-code-only assertion: weak ONLY when no other assertion exists on the
+// response body/headers (any non-status assertion in the test makes the whole
+// test non-weak via the every() below).
+const STATUS_ASSERT_RE = /\b(?:status|statusCode)\b[^\n]*\b[1-5]\d\d\b/;
+const LITERAL_RE = /^(?:-?\d+(?:\.\d+)?|'[^']*'|"[^"]*"|true|false|null|undefined)$/;
+function isLiteralSelfComparison(stmt) {
+  if (/^assert/.test(stmt.name)) {
+    const args = splitTopLevelArgs(stmt.call).map(x => x.trim());
+    return args.length >= 2 && LITERAL_RE.test(args[0]) && args[0] === args[1];
+  }
+  const m = stmt.text.match(/^expect\s*\(\s*([^()]+?)\s*\)\s*\.(?:toBe|toEqual|toStrictEqual)\s*\(\s*([^()]+?)\s*\)/);
+  return !!m && LITERAL_RE.test(m[1]) && m[1] === m[2];
+}
 
 // Per-test hollow-pattern scan: returns the reasons a single test body is
 // hollow (empty list = fine). Regex-based like countAssertions (accepted bar).
@@ -7638,7 +7682,7 @@ function scanHollowReasons(testCase) {
   const body = testCase.body;
   const reasons = [];
   const stmts = [];
-  const re = /\b(?:expect|assert[A-Za-z]*)(?:\.\w+)?\s*\(/g;
+  const re = /\b(?:(?:expect|verify|check|should)[A-Z_]\w*|(?:expect|assert[A-Za-z]*)(?:\.\w+)?)\s*\(/g;
   let m;
   while ((m = re.exec(body)) !== null) {
     const openIdx = m.index + m[0].length - 1;
@@ -7648,7 +7692,7 @@ function scanHollowReasons(testCase) {
   }
   if (stmts.length === 0) {
     reasons.push('no_assertion');
-  } else if (stmts.every(s => WEAK_ASSERT_RES.some(r => r.test(s.text)))) {
+  } else if (stmts.every(s => WEAK_ASSERT_RES.some(r => r.test(s.text)) || STATUS_ASSERT_RE.test(s.text) || isLiteralSelfComparison(s))) {
     reasons.push('weak_assertions_only');
   }
   const refusal = stmts.filter(s => /^assert(?:Rejects|Throws)$/.test(s.name));
@@ -7679,12 +7723,20 @@ function scanNewHollowCases(afterContent, beforeContent) {
 }
 
 const IMPL_FILE_RE = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
-const BRANCH_RE = /\b(if|switch|for|while|catch)\b\s*\(|\?\s*[^.?\s]|&&|\|\|/;
 // Implementation files from the phase diff with no covering test. Covered when
 // ANY test in the repo (unit OR integration) imports the module, or references
 // one of its exported symbols / its basename as a quoted RPC/route name, or a
-// touched test shares its stem, or a SUMMARY REUSE row cites it. Thin
-// re-export/barrel files (<=100 LOC, no branches) are exempt.
+// touched test shares its stem, or a SUMMARY REUSE row cites an existing test.
+// Only pure `export ... from` barrels outside money/auth paths are exempt.
+// Comments are stripped before matching; generic stems (index/mod/main) only
+// match a same-directory test or a parent-qualified import.
+const SENSITIVE_PATH_RE = /wallet|auth|rng|kyc|payment|ledger|settle/i;
+const GENERIC_STEMS = new Set(['index', 'mod', 'main']);
+function isPureReexportBarrel(f, src) {
+  if (SENSITIVE_PATH_RE.test(f)) return false;
+  const rest = stripJsComments(src).replace(/\bexport\s+(?:type\s+)?(?:\*(?:\s+as\s+[\w$]+)?|\{[^}]*\})\s+from\s+['"][^'"]+['"]\s*;?/g, '');
+  return rest.trim().length === 0;
+}
 function computeImplTestCoverage(cwd, touchedFiles, testDeltaRows) {
   const isTest = f => TEST_FILE_RE.test(f) || /(^|\/)__tests__\//.test(f) || /_test\.(ts|js)$/.test(f);
   const impls = touchedFiles.filter(f => IMPL_FILE_RE.test(f) && !isTest(f) && !/\.d\.ts$/.test(f) &&
@@ -7692,25 +7744,28 @@ function computeImplTestCoverage(cwd, touchedFiles, testDeltaRows) {
   if (impls.length === 0) return { impl_files_without_tests: [], impl_files_covered: [], impl_files_exempt: [] };
   const ls = execGit(cwd, ['ls-files']);
   const testFiles = (ls.stdout || '').split('\n').map(l => l.trim()).filter(f => f && isTest(f));
-  const corpus = testFiles.map(f => ({ file: f, text: safeReadFile(path.join(cwd, f)) || '' }));
+  const corpus = testFiles.map(f => ({ file: f, text: stripJsComments(safeReadFile(path.join(cwd, f)) || '') }));
   const without = []; const covered = []; const exempt = [];
   for (const f of impls) {
-    const src = safeReadFile(path.join(cwd, f)) || '';
+    const src = stripJsComments(safeReadFile(path.join(cwd, f)) || '');
     const stem = path.basename(f).replace(/\.[^.]+$/, '');
-    if (src.split('\n').length <= 100 && !BRANCH_RE.test(src)) { exempt.push(f); continue; }
+    if (isPureReexportBarrel(f, src)) { exempt.push(f); continue; }
+    const generic = GENERIC_STEMS.has(stem);
+    const dirName = path.basename(path.dirname(f));
     const esc = stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const importRe = new RegExp(`(?:from|require\\(|import\\()\\s*['"][^'"]*/${esc}(?:\\.\\w+)?['"]`);
-    const quotedRe = new RegExp(`['"\`]${esc}['"\`]`);
+    const escDir = dirName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const importRe = new RegExp(`(?:from|require\\(|import\\()\\s*['"][^'"]*/${generic ? escDir + '/' : ''}${esc}(?:\\.\\w+)?['"]`);
+    const quotedRe = generic ? /(?!)/ : new RegExp(`['"\`]${esc}['"\`]`);
     const symbols = [];
     const symRe = /export\s+(?:async\s+)?(?:function\*?|const|class|let)\s+([A-Za-z_$][\w$]*)/g;
     let sm;
     while ((sm = symRe.exec(src)) !== null) if (sm[1].length >= 5) symbols.push(sm[1]);
-    let by = corpus.find(t => path.basename(t.file).startsWith(`${stem}.`) || path.basename(t.file).startsWith(`${stem}_`))
+    let by = corpus.find(t => (!generic || path.dirname(t.file) === path.dirname(f)) && (path.basename(t.file).startsWith(`${stem}.`) || path.basename(t.file).startsWith(`${stem}_`)))
       || corpus.find(t => importRe.test(t.text) || quotedRe.test(t.text))
       || corpus.find(t => symbols.some(s => new RegExp(`\\b${s.replace(/\$/g, '\\$')}\\b`).test(t.text)));
     let via = by ? by.file : null;
     if (!via) {
-      const reuse = (testDeltaRows || []).find(r => r.kind === 'REUSE' && (r.line.includes(f) || r.line.includes(path.basename(f))));
+      const reuse = (testDeltaRows || []).find(r => r.kind === 'REUSE' && (r.line.includes(f) || r.line.includes(path.basename(f))) && r.paths.some(pp => isValidCoverCite(cwd, pp, f)));
       if (reuse) via = 'SUMMARY Test Delta REUSE';
     }
     if (via) covered.push({ file: f, covered_by: via }); else without.push(f);
@@ -7737,6 +7792,7 @@ function computeTestContentCoverage(cwd, phaseNumber, validPlans, filesByPlan, p
   const deltaByPlan = {};
   const declared = { added: 0, updated: 0, merged: 0, deleted: 0 };
   const allRows = [];
+  const bucketSeconds = [];
   for (const plan of validPlans || []) {
     const planNum = plan.planNum || (plan.fm && plan.fm.plan);
     if (!planNum || !phaseDir || !plan.file) continue;
@@ -7744,6 +7800,7 @@ function computeTestContentCoverage(cwd, phaseNumber, validPlans, filesByPlan, p
     deltaByPlan[planNum] = delta;
     for (const k of Object.keys(declared)) declared[k] += delta[k];
     allRows.push(...delta.rows);
+    bucketSeconds.push(...delta.bucket_seconds);
   }
   const mergedFiles = [];
   const deletedFiles = [];
@@ -7850,7 +7907,7 @@ function computeTestContentCoverage(cwd, phaseNumber, validPlans, filesByPlan, p
             // Consolidation is not regression: only a FALL in assertion
             // count with no cited MERGE/DELETE row is flagged. Equal count
             // (table-driven rewrite, touched file) is fine.
-            const mergeRow = findCitedDispositionRow(cwd, (deltaByPlan[tddPlan.planNum] || { rows: [] }).rows, file, ['MERGE', 'DELETE']);
+            const mergeRow = findCitedDispositionRow(cwd, (deltaByPlan[tddPlan.planNum] || { rows: [] }).rows, file, ['MERGE', 'DELETE'], { before: beforeCount, after: assertionCount });
             netZero = assertionCount < beforeCount && !mergeRow;
             if (mergeRow && assertionCount < beforeCount && !mergedFiles.some(d => d.file === file)) {
               mergedFiles.push({ file, source_plan: tddPlan.planNum, before_count: beforeCount, after_count: assertionCount, cite: mergeRow.line.trim() });
@@ -7892,7 +7949,7 @@ function computeTestContentCoverage(cwd, phaseNumber, validPlans, filesByPlan, p
   const net_zero_assertion_files = [...netZeroFilesMap.values()];
   const passed = requirements.filter(r => r.status !== 'not_applicable').every(r => r.status === 'COVERED');
 
-  const metrics = computeTestDeltaMetrics(cwd, phaseNumber, validPlans, declared, deletedFiles, mergedFiles);
+  const metrics = computeTestDeltaMetrics(cwd, phaseNumber, validPlans, declared, deletedFiles, mergedFiles, bucketSeconds);
   const touched = [...new Set(Object.values(filesByPlan || {}).flat())];
   const impl = computeImplTestCoverage(cwd, touched, allRows);
 
@@ -7902,9 +7959,9 @@ function computeTestContentCoverage(cwd, phaseNumber, validPlans, filesByPlan, p
 // Net test LOC (git numstat over each plan's tagged commits, test files only)
 // plus the SUMMARY-declared added/updated/merged/deleted counts. Reported, not
 // gated here: a positive delta over TEST_LOC_JUSTIFY_THRESHOLD needs a cited
-// T0 justification per file (verifier Step 8i).
+// T0 justification per file (verifier Step 8j).
 const TEST_LOC_JUSTIFY_THRESHOLD = 3000;
-function computeTestDeltaMetrics(cwd, phaseNumber, validPlans, declared, deletedFiles, mergedFiles) {
+function computeTestDeltaMetrics(cwd, phaseNumber, validPlans, declared, deletedFiles, mergedFiles, bucketSeconds) {
   let added = 0; let deleted = 0;
   const seen = new Set();
   for (const plan of validPlans || []) {
@@ -7932,6 +7989,8 @@ function computeTestDeltaMetrics(cwd, phaseNumber, validPlans, declared, deleted
     declared_tests: declared,
     deleted_test_files: deletedFiles,
     merged_test_files: mergedFiles,
+    bucket_seconds: bucketSeconds || [],
+    bucket_time_regressed: (bucketSeconds || []).some(b => b.after > b.before * 1.1),
   };
 }
 

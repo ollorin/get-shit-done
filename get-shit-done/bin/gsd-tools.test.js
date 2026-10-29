@@ -6453,7 +6453,7 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
   function writeSummary(phaseDir, planNum, testDeltaBody) {
     fs.writeFileSync(path.join(phaseDir, `46-${planNum}-SUMMARY.md`), `# Summary\n\n## Test Delta\n${testDeltaBody}\n\n## Next\nnothing\n`);
   }
-  const TWO_ASSERT_BASELINE = `const { test } = require('node:test');\nconst assert = require('node:assert');\ntest('cancel a', () => { assert.equal(1, 1); });\ntest('cancel b', () => { assert.equal(2, 2); });\ntest('cancel c', () => { assert.equal(3, 3); });\n`;
+  const TWO_ASSERT_BASELINE = `const { test } = require('node:test');\nconst assert = require('node:assert');\ntest('cancel a', () => { assert.equal(1 + 0, 1); });\ntest('cancel b', () => { assert.equal(2 + 0, 2); });\ntest('cancel c', () => { assert.equal(3 + 0, 3); });\n`;
 
   test('equal assertion count on a touched file is NOT net-zero (no strict rise required) -> COVERED', () => {
     const phaseDir = phaseDirPath('46-t10-equal');
@@ -6475,7 +6475,7 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
     const phaseDir = phaseDirPath('46-t11-merge');
     fs.mkdirSync(phaseDir, { recursive: true });
     fs.writeFileSync(path.join(phaseDir, 'impl.test.js'), TWO_ASSERT_BASELINE);
-    fs.writeFileSync(path.join(phaseDir, 'owner.integration.test.js'), `const assert = require('node:assert');\ntest('owns cancel', () => { assert.equal(1, 1); });\n`);
+    fs.writeFileSync(path.join(phaseDir, 'owner.integration.test.js'), `const assert = require('node:assert');\ntest('owns cancel', () => { assert.equal(1 + 0, 1); });\n`);
     execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
     execSync('git commit -q -m "chore: baseline"', { cwd: tmpDir, stdio: 'pipe' });
     writePlan(phaseDir, '01', { tdd: true, requirements: ['MILE-L'] });
@@ -6498,7 +6498,7 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
     execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
     execSync('git commit -q -m "chore: baseline"', { cwd: tmpDir, stdio: 'pipe' });
     writePlan(phaseDir, '01', { tdd: true, requirements: ['MILE-M'] });
-    fs.writeFileSync(path.join(phaseDir, 'impl.test.js'), `const { test } = require('node:test');\nconst assert = require('node:assert');\ntest('cancel table', () => { assert.equal(1, 1); });\n`);
+    fs.writeFileSync(path.join(phaseDir, 'impl.test.js'), `const { test } = require('node:test');\nconst assert = require('node:assert');\ntest('cancel table', () => { assert.equal(1 + 0, 1); });\n`);
     writeSummary(phaseDir, '01', '| MERGE | impl.test.js | trust me |');
     commitAll('feat(46-01): dropped assertions, uncited');
     const result = runTestContent('46', tmpDir);
@@ -6512,8 +6512,8 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
     const phaseDir = phaseDirPath('46-t13-delete-ok');
     fs.mkdirSync(phaseDir, { recursive: true });
     writePlan(phaseDir, '01', { tdd: true, requirements: ['MILE-N'] });
-    fs.writeFileSync(path.join(phaseDir, 'redundant.test.js'), `const assert = require('node:assert');\ntest('dup', () => { assert.equal(1, 1); });\n`);
-    fs.writeFileSync(path.join(phaseDir, 'owner.integration.test.js'), `const assert = require('node:assert');\ntest('owner', () => { assert.equal(1, 1); });\n`);
+    fs.writeFileSync(path.join(phaseDir, 'redundant.test.js'), `const assert = require('node:assert');\ntest('dup', () => { assert.equal(1 + 0, 1); });\n`);
+    fs.writeFileSync(path.join(phaseDir, 'owner.integration.test.js'), `const assert = require('node:assert');\ntest('owner', () => { assert.equal(1 + 0, 1); });\n`);
     commitAll('feat(46-01): add tests');
     fs.rmSync(path.join(phaseDir, 'redundant.test.js'));
     writeSummary(phaseDir, '01', 'deleted: 1\n| DELETE | redundant.test.js | covered by owner.integration.test.js:2 |');
@@ -6531,7 +6531,7 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
     const phaseDir = phaseDirPath('46-t14-delete-badcite');
     fs.mkdirSync(phaseDir, { recursive: true });
     writePlan(phaseDir, '01', { tdd: true, requirements: ['MILE-O'] });
-    fs.writeFileSync(path.join(phaseDir, 'redundant.test.js'), `const assert = require('node:assert');\ntest('dup', () => { assert.equal(1, 1); });\n`);
+    fs.writeFileSync(path.join(phaseDir, 'redundant.test.js'), `const assert = require('node:assert');\ntest('dup', () => { assert.equal(1 + 0, 1); });\n`);
     commitAll('feat(46-01): add test');
     fs.rmSync(path.join(phaseDir, 'redundant.test.js'));
     writeSummary(phaseDir, '01', '| DELETE | redundant.test.js | covered by ghost.integration.test.js:9 |');
@@ -6554,7 +6554,7 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
       "test('real balance check', () => { assert.equal(1 + 1, 2); });",
       "test('view is queryable', () => { assertExists(view); });",
       "test('refusal', async () => { await assertRejects(() => call()); });",
-      "test('race on debit', () => { assert.equal(2, 2); });",
+      "test('race on debit', () => { assert.equal(2 + 0, 2); });",
       "test('status only', () => { expect(res.status).toBe(400); });",
       '',
     ].join('\n'));
@@ -6599,7 +6599,7 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
     execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
     execSync('git commit -q -m "chore: baseline"', { cwd: tmpDir, stdio: 'pipe' });
     writePlan(phaseDir, '01', { tdd: true, requirements: ['MILE-R'] });
-    fs.writeFileSync(path.join(phaseDir, 'impl.test.js'), `${old}test('new real', () => { assert.equal(1, 1); });\n`);
+    fs.writeFileSync(path.join(phaseDir, 'impl.test.js'), `${old}test('new real', () => { assert.equal(1 + 0, 1); });\n`);
     commitAll('feat(46-01): add a real test next to an old weak one');
     const parsed = JSON.parse(runTestContent('46', tmpDir).output);
     assert.deepStrictEqual(parsed.hollow_test_cases, []);
@@ -6609,7 +6609,7 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
     const phaseDir = phaseDirPath('46-t18-metrics');
     fs.mkdirSync(phaseDir, { recursive: true });
     writePlan(phaseDir, '01', { tdd: true, requirements: ['MILE-S'] });
-    fs.writeFileSync(path.join(phaseDir, 'impl.test.js'), "const assert = require('node:assert');\ntest('a', () => { assert.equal(1, 1); });\ntest('b', () => { assert.equal(2, 2); });\n");
+    fs.writeFileSync(path.join(phaseDir, 'impl.test.js'), "const assert = require('node:assert');\ntest('a', () => { assert.equal(1 + 0, 1); });\ntest('b', () => { assert.equal(2 + 0, 2); });\n");
     writeSummary(phaseDir, '01', 'added: 2, updated: 1, merged: 0, deleted: 3');
     commitAll('feat(46-01): add tests');
     const parsed = JSON.parse(runTestContent('46', tmpDir).output);
@@ -6629,7 +6629,7 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
     fs.writeFileSync(path.join(tmpDir, 'src', 'reused.js'), branchy('reused'));
     fs.writeFileSync(path.join(tmpDir, 'src', 'barrel.js'), "export * from './covered.js';\n");
     fs.writeFileSync(path.join(tmpDir, 'src', 'flow.integration.test.js'), "import { coveredHandler } from './covered.js';\nconst assert = require('node:assert');\ntest('flow', () => { assert.equal(coveredHandler(1), 1); });\n");
-    fs.writeFileSync(path.join(phaseDir, 'impl.test.js'), "const assert = require('node:assert');\ntest('x', () => { assert.equal(1, 1); });\n");
+    fs.writeFileSync(path.join(phaseDir, 'impl.test.js'), "const assert = require('node:assert');\ntest('x', () => { assert.equal(1 + 0, 1); });\n");
     writeSummary(phaseDir, '01', '| REUSE | src/reused.js | owned by src/flow.integration.test.js:3 |');
     commitAll('feat(46-01): impl files');
     const parsed = JSON.parse(runTestContent('46', tmpDir).output);
@@ -6637,6 +6637,160 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
     assert.ok(parsed.impl_files_covered.some(c => c.file === 'src/covered.js' && c.covered_by === 'src/flow.integration.test.js'));
     assert.ok(parsed.impl_files_covered.some(c => c.file === 'src/reused.js'));
     assert.deepStrictEqual(parsed.impl_files_exempt, ['src/barrel.js']);
+  });
+
+  // ── Review-fix tests: parser contract, cite validation, barrel, hollow scan, impl coverage ──
+  const REAL_TEST = (name) => "const assert = require('node:assert');\ntest('" + name + "', () => { assert.equal(1 + 0, 1); });\n";
+  function setupPhase(dirName, req) {
+    const phaseDir = phaseDirPath(dirName);
+    fs.mkdirSync(phaseDir, { recursive: true });
+    writePlan(phaseDir, '01', { tdd: true, requirements: [req] });
+    return phaseDir;
+  }
+  function oneTestFile(phaseDir, body) {
+    fs.writeFileSync(path.join(phaseDir, 'impl.test.js'), "const { test } = require('node:test');\nconst assert = require('node:assert');\n" + body + '\n');
+  }
+
+  test('Test Delta contract: literal template example (counts, net_test_loc, repeatable bucket_seconds, table rows) parses; bucket regression surfaced', () => {
+    const phaseDir = setupPhase('46-t20-contract', 'MILE-U1');
+    oneTestFile(phaseDir, "test('a', () => { assert.equal(1 + 0, 1); });");
+    writeSummary(phaseDir, '01', [
+      'added: 2', 'updated: 1', 'merged: 1', 'deleted: 3', 'net_test_loc: -40',
+      'bucket_seconds: B3a-payments 100 -> 105', 'bucket_seconds: B1-auth 50 -> 80',
+      '', '| DISPOSITION | file | covered by |', '|---|---|---|',
+      '| UPDATE | impl.test.js | n/a |',
+    ].join('\n'));
+    commitAll('feat(46-01): contract');
+    const parsed = JSON.parse(runTestContent('46', tmpDir).output);
+    assert.deepStrictEqual(parsed.test_delta.declared_tests, { added: 2, updated: 1, merged: 1, deleted: 3 });
+    assert.deepStrictEqual(parsed.test_delta.bucket_seconds, [
+      { bucket: 'B3a-payments', before: 100, after: 105 }, { bucket: 'B1-auth', before: 50, after: 80 },
+    ]);
+    assert.strictEqual(parsed.test_delta.bucket_time_regressed, true);
+  });
+
+  test('Test Delta contract: bucket within 10% is not a regression', () => {
+    const phaseDir = setupPhase('46-t21-bucket-ok', 'MILE-U2');
+    oneTestFile(phaseDir, "test('a', () => { assert.equal(1 + 0, 1); });");
+    writeSummary(phaseDir, '01', 'bucket_seconds: B3a 100 -> 110');
+    commitAll('feat(46-01): bucket ok');
+    const parsed = JSON.parse(runTestContent('46', tmpDir).output);
+    assert.strictEqual(parsed.test_delta.bucket_time_regressed, false);
+    assert.strictEqual(parsed.test_delta.bucket_seconds.length, 1);
+  });
+
+  test('Test Delta contract: slash form "Added / updated / merged / deleted: 2 / 1 / 0 / 3" parses (was 0/0/0/0)', () => {
+    const phaseDir = setupPhase('46-t22-slash', 'MILE-U3');
+    oneTestFile(phaseDir, "test('a', () => { assert.equal(1 + 0, 1); });");
+    writeSummary(phaseDir, '01', 'Added / updated / merged / deleted: 2 / 1 / 0 / 3');
+    commitAll('feat(46-01): slash');
+    const parsed = JSON.parse(runTestContent('46', tmpDir).output);
+    assert.deepStrictEqual(parsed.test_delta.declared_tests, { added: 2, updated: 1, merged: 0, deleted: 3 });
+  });
+
+  test('DEMONSTRATED FAILURE: DELETE row citing package.json (exists, not a test) -> still hollow, MISSING', () => {
+    const phaseDir = setupPhase('46-t23-del-pkg', 'MILE-U4');
+    fs.writeFileSync(path.join(tmpDir, 'package.json'), '{}');
+    fs.writeFileSync(path.join(phaseDir, 'redundant.test.js'), REAL_TEST('dup'));
+    commitAll('feat(46-01): add test');
+    fs.rmSync(path.join(phaseDir, 'redundant.test.js'));
+    writeSummary(phaseDir, '01', '| DELETE | redundant.test.js | covered by package.json |');
+    execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git commit -q -m "feat(46-01): delete, cite package.json"', { cwd: tmpDir, stdio: 'pipe' });
+    const result = runTestContent('46', tmpDir);
+    assert.strictEqual(result.exitCode, 1);
+    assert.strictEqual(JSON.parse(result.output).requirements[0].status, 'MISSING');
+  });
+
+  test('DEMONSTRATED FAILURE: MERGE row whose only cite is the bare word "mutant" -> still PARTIAL; a real mutant id passes', () => {
+    const phaseDir = setupPhase('46-t24-merge-word', 'MILE-U5');
+    fs.writeFileSync(path.join(phaseDir, 'impl.test.js'), TWO_ASSERT_BASELINE);
+    execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git commit -q -m "chore: baseline"', { cwd: tmpDir, stdio: 'pipe' });
+    oneTestFile(phaseDir, "test('cancel table', () => { for (const n of [1, 2, 3]) assert.equal(n, n); });");
+    writeSummary(phaseDir, '01', '| MERGE | impl.test.js | 3 variants -> 1 table; mutant killed it, red |');
+    commitAll('feat(46-01): merge with words only');
+    const result = runTestContent('46', tmpDir);
+    assert.strictEqual(result.exitCode, 1);
+    assert.strictEqual(JSON.parse(result.output).requirements[0].status, 'PARTIAL');
+    writeSummary(phaseDir, '01', '| MERGE | impl.test.js | 3 variants -> 1 table; mCANCEL1 red in RED 1a2b3c4d |');
+    commitAll('feat(46-01): merge with mutant id');
+    assert.strictEqual(runTestContent('46', tmpDir).exitCode, 0);
+  });
+
+  test('DEMONSTRATED FAILURE: MERGE with a valid test cite but >50% assertion drop and no per-test mapping -> PARTIAL', () => {
+    const phaseDir = setupPhase('46-t25-merge-floor', 'MILE-U6');
+    fs.writeFileSync(path.join(phaseDir, 'impl.test.js'), TWO_ASSERT_BASELINE);
+    fs.writeFileSync(path.join(phaseDir, 'owner.integration.test.js'), REAL_TEST('owner'));
+    execSync('git add -A', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git commit -q -m "chore: baseline"', { cwd: tmpDir, stdio: 'pipe' });
+    oneTestFile(phaseDir, "test('one', () => { assert.equal(1 + 0, 1); });");
+    writeSummary(phaseDir, '01', '| MERGE | impl.test.js | owner.integration.test.js |');
+    commitAll('feat(46-01): big drop, no mapping');
+    const result = runTestContent('46', tmpDir);
+    assert.strictEqual(result.exitCode, 1);
+    assert.strictEqual(JSON.parse(result.output).requirements[0].status, 'PARTIAL');
+  });
+
+  test('barrel exemption: pure export-from barrel exempt; 90-line Result-chained wallet handler (match/andThen/else/try) is NOT; non-pure non-wallet file is NOT', () => {
+    const phaseDir = setupPhase('46-t26-barrel', 'MILE-U7');
+    fs.mkdirSync(path.join(tmpDir, 'src', 'wallet'), { recursive: true });
+    const lines = ['export function debitHandler(input) {', '  try {'];
+    for (let i = 0; i < 40; i++) lines.push('    const r' + i + ' = step' + i + "(input).andThen(v => ok(v)).match(v => v, e => err(e)); // chained");
+    lines.push('  } catch (e) { return err(e); }', '  return ok(1);', '}');
+    fs.writeFileSync(path.join(tmpDir, 'src', 'wallet', 'handler.js'), lines.join('\n') + '\n');
+    fs.writeFileSync(path.join(tmpDir, 'src', 'wallet', 'index.js'), "// barrel\nexport * from './handler.js';\nexport { a, b } from './other.js';\n");
+    fs.writeFileSync(path.join(tmpDir, 'src', 'wallet', 'reexport-with-body.js'), "export { a } from './other.js';\nexport const helperValue = () => 1;\n");
+    fs.writeFileSync(path.join(tmpDir, 'src', 'plainbarrel.js'), "export * from './x.js';\nexport type { T } from './t.js';\n");
+    oneTestFile(phaseDir, "test('a', () => { assert.equal(1 + 0, 1); });");
+    commitAll('feat(46-01): barrels');
+    const parsed = JSON.parse(runTestContent('46', tmpDir).output);
+    assert.deepStrictEqual(parsed.impl_files_exempt, ['src/plainbarrel.js']);
+    assert.ok(parsed.impl_files_without_tests.includes('src/wallet/handler.js'));
+    assert.ok(parsed.impl_files_without_tests.includes('src/wallet/index.js'), 'wallet-path barrel is never exempt');
+    assert.ok(parsed.impl_files_without_tests.includes('src/wallet/reexport-with-body.js'));
+  });
+
+  test('hollow scan: helper-wrapped assertions are assertions; literal self-comparison and status-only are flagged; status + body/header checks pass', () => {
+    const phaseDir = setupPhase('46-t27-hollow', 'MILE-U8');
+    oneTestFile(phaseDir, [
+      "test('real', () => { assert.equal(2 + 0, 2); });",
+      "test('helper wrapped', () => { verifyLedgerBalanced(rows); });",
+      "test('expect helper', () => { expectRefused(res, 'E_LIMIT'); });",
+      "test('self compare', () => { assert.equal(1, 1); });",
+      "test('self compare strings', () => { assertEquals('ok', 'ok'); });",
+      "test('no assertion at all', () => { run(); });",
+      "test('status only', () => { expect(res.status).toBe(200); });",
+      "test('wire shape', () => { expect(res.status).toBe(200); expect(res.headers.get('content-type')).toBe('application/json'); expect(body.code).toBe('E_LIMIT'); });",
+    ].join('\n'));
+    commitAll('feat(46-01): hollow variants');
+    const parsed = JSON.parse(runTestContent('46', tmpDir).output);
+    const byName = Object.fromEntries(parsed.hollow_test_cases.map(c => [c.test, c.reasons]));
+    assert.strictEqual(byName['real'], undefined);
+    assert.strictEqual(byName['helper wrapped'], undefined);
+    assert.strictEqual(byName['expect helper'], undefined);
+    assert.strictEqual(byName['wire shape'], undefined);
+    assert.ok(byName['self compare'].includes('weak_assertions_only'));
+    assert.ok(byName['self compare strings'].includes('weak_assertions_only'));
+    assert.ok(byName['no assertion at all'].includes('no_assertion'));
+    assert.ok(byName['status only'].includes('weak_assertions_only'));
+  });
+
+  test('impl coverage: comment-only mention, unrelated index.test, and REUSE row citing a non-test file do NOT cover', () => {
+    const phaseDir = setupPhase('46-t28-impl-strict', 'MILE-U9');
+    fs.mkdirSync(path.join(tmpDir, 'src', 'a'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, 'src', 'b'), { recursive: true });
+    const branchy = (n) => 'export function ' + n + 'Handler(x) {\n  if (x) { return 1; }\n  return 2;\n}\n';
+    fs.writeFileSync(path.join(tmpDir, 'src', 'commented.js'), branchy('commented'));
+    fs.writeFileSync(path.join(tmpDir, 'src', 'a', 'index.js'), branchy('aIndex'));
+    fs.writeFileSync(path.join(tmpDir, 'src', 'reusebad.js'), branchy('reusebad'));
+    fs.writeFileSync(path.join(tmpDir, 'src', 'b', 'index.test.js'), "const assert = require('node:assert');\n// commentedHandler is mentioned only in a comment\n/* import from './commented.js' */\ntest('b', () => { assert.equal(1 + 0, 1); });\n");
+    fs.writeFileSync(path.join(tmpDir, 'package.json'), '{}');
+    oneTestFile(phaseDir, "test('a', () => { assert.equal(1 + 0, 1); });");
+    writeSummary(phaseDir, '01', '| REUSE | src/reusebad.js | package.json |');
+    commitAll('feat(46-01): impl strict');
+    const parsed = JSON.parse(runTestContent('46', tmpDir).output);
+    assert.deepStrictEqual([...parsed.impl_files_without_tests].sort(), ['src/a/index.js', 'src/commented.js', 'src/reusebad.js']);
   });
 
   test('requirement declared by both a tdd plan (substantive tests) and a non-tdd plan -> classified using only the tdd plan\'s files', () => {
