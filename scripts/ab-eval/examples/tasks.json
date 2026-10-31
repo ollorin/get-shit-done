@@ -1,0 +1,34 @@
+{
+  "_comment": "Task registry (DESIGN §7.2, JSON instead of YAML: stdlib only). Copy to ~/ab-eval/tasks.json. Only E6 is registered for the smoke run.",
+  "tasks": [
+    {
+      "id": "E6",
+      "role": "executor",
+      "agent": "gsd-executor",
+      "model": "haiku",
+      "tier": "T0-adjacent",
+      "plan": ".planning/phases/399-auth-sweep-a1-a4/399-20-PLAN.md",
+      "phase_dir": ".planning/phases/399-auth-sweep-a1-a4",
+      "phase_number": "399",
+      "phase_name": "auth-sweep-a1-a4",
+      "plan_number": "20",
+      "task_range": "1",
+      "task_names": ["Task 1: lockout-policy.ts (RED then GREEN) + barrel line"],
+      "tasks": [1],
+      "base": "1f2010f81",
+      "ref": ["bf282bc41", "8ec92a323"],
+      "scope_files": [
+        "apps/api/libs/domain/src/lib/auth/lockout-policy.ts",
+        "apps/api/libs/domain/src/lib/auth/lockout-policy.test.ts",
+        "apps/api/libs/domain/src/index.ts"
+      ],
+      "verify": [["deno", "task", "test", "libs/domain/src/lib/auth/lockout-policy.test.ts"]],
+      "hidden": ["apps/api/libs/domain/src/lib/auth/lockout-policy.test.ts@8ec92a323"],
+      "tdd": true,
+      "budget_usd": 8,
+      "timeout_min": 90,
+      "scrub_terms": ["399-20", "lockout-policy", "PLAYER_LOCKOUT", "OPERATOR_LOCKOUT",
+                      "normalizeLoginCredential", "reserveLoginAttempt", "LOGIN_ATTEMPT_RESERVE"]
+    }
+  ]
+}
