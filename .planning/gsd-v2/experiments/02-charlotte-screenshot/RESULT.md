@@ -79,5 +79,5 @@ Live copy: `/Users/ollorin/.claude-mcp-servers/charlotte` (git clone at b94eb19,
 - Peer v0.1.34 orchestrator gave "go" (no Charlotte run active). `~/charlotte` main fast-forwarded to `6defd8d`.
 - Live copy `~/.claude-mcp-servers/charlotte`: dist backed up to `backup/dist-b94eb19`, fast-forwarded b94eb19 → 6defd8d (also ships 2818665), `npm run build` ok.
 - `chrome-headless-shell@145.0.7632.67` installed to `~/.cache/puppeteer` (no fallback warning on launch).
-- Smoke on the live build, display on: 10/10, p50 192 ms, p95 255 ms (`bench.mjs ... live-after-deploy 10`). Fills the "after, display on" gap above.
+- Smoke on the live build, **display OFF** (pmset: last event 17:54 local "turned off"; CEO confirmed the screen was dark): 10/10, p50 192 ms, p95 255 ms (`live-after-deploy`) and 10/10, p50 183 ms, p95 217 ms (`live-dark-screen`). The bench JSON's `display:"on"` is the unreliable ioreg probe (see Method). The "after, display on" measurement is still open.
 - Keep the dist backup until a real Charlotte run is seen working. Rollback: copy `backup/dist-b94eb19` over `dist/`, or set `CHARLOTTE_HEADLESS=new`.
