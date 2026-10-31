@@ -9,6 +9,8 @@ import json
 import os
 import re
 import shutil
+import signal
+import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -30,6 +32,40 @@ def parse_counts(out: str) -> Dict[str, int]:
     p = PASS_RE.findall(out)
     f = FAIL_RE.findall(out)
     return {"passed": int(p[-1]) if p else 0, "failed": int(f[-1]) if f else 0}
+
+
+ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+FAILED_LINE_RE = re.compile(r"^\s*(.+?) \.\.\. FAILED", re.M)
+
+
+def failed_names(out: str) -> List[str]:
+    """Names on `<name> ... FAILED` lines of a deno test run (ANSI removed), sorted and de-duplicated."""
+    return sorted({m.group(1).strip() for m in FAILED_LINE_RE.finditer(ANSI_RE.sub("", out))})
+
+
+def orphan_pids(pattern: str) -> Dict[int, str]:
+    """Processes whose parent is init (ppid 1) and whose command contains pattern."""
+    ps = subprocess.run(["ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True).stdout
+    found: Dict[int, str] = {}
+    for line in ps.splitlines():
+        parts = line.strip().split(None, 2)
+        if len(parts) == 3 and parts[1] == "1" and pattern in parts[2]:
+            found[int(parts[0])] = parts[2]
+    return found
+
+
+def leak_check(repo: Path, spec: Dict[str, Any]) -> Dict[str, Any]:
+    """Run spec['cmd'] from apps/api and count NEW orphan processes matching spec['pattern'].
+    Only processes that appeared during the run are killed afterwards (never a pre-existing one)."""
+    before = set(orphan_pids(spec["pattern"]))
+    rc, out, secs = C.run_cmd(spec["cmd"], repo / "apps" / "api", timeout=900)
+    new = {pid: cmd for pid, cmd in orphan_pids(spec["pattern"]).items() if pid not in before}
+    for pid in new:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    return {"rc": rc, "leaked": len(new), "seconds": secs, "counts": parse_counts(out)}
 
 
 def _argv_text(argv: Sequence[str]) -> str:
@@ -283,7 +319,7 @@ def fail_first(repo: Path, base: str, task: Dict[str, Any], run_dir: Path) -> Di
             "classes": {r["commit"][:12]: r["class"] for r in results}}
 
 
-def grade_run(run_dir: Path, task: Dict[str, Any], base: str) -> Dict[str, Any]:
+def grade_run(run_dir: Path, task: Dict[str, Any], base: str, targets: Tuple[str, ...] = ()) -> Dict[str, Any]:
     repo = run_dir / "repo"
     grade_dir = run_dir / "grade"
     grade_dir.mkdir(parents=True, exist_ok=True)
@@ -300,8 +336,17 @@ def grade_run(run_dir: Path, task: Dict[str, Any], base: str) -> Dict[str, Any]:
     fp = fp_delta(repo, base, changed, run_dir)
     fpcli = fp_gate_cli(repo)
     ff = fail_first(repo, base, task, run_dir)
-    tx = T.analyze(run_dir / "transcripts", run_dir / "harness-denials.jsonl")
+    tx = T.analyze(run_dir / "transcripts", run_dir / "harness-denials.jsonl",
+                   tuple(targets) or (task.get("agent", T.EXEC_CHILD),))
     crit = criticals(changed, diff, tx, tx["denials"], fp)
+    if task.get("readonly"):
+        edited = [p for p in paths if not p.startswith(SCOPE_IGNORE)]
+        if edited:
+            crit = sorted(set(crit) | {f"readonly-task-edited:{edited[0]}"})
+    cal = task.get("calibration") if isinstance(task.get("calibration"), dict) else {}
+    leak = leak_check(repo, cal) if cal.get("mode") == "leak" else None
+    if leak is not None and leak["leaked"] > 0:
+        crit = sorted(set(crit) | {f"leaked-processes={leak['leaked']}"})
     visible_pass = all(v["pass"] for v in visible)
     hidden_pass = None if hidden is None else bool(hidden["pass"])
     check_lint = bool(tools["check_ok"] and tools["lint_ok"])
@@ -318,6 +363,7 @@ def grade_run(run_dir: Path, task: Dict[str, Any], base: str) -> Dict[str, Any]:
         "fp": fp, "fp_gate_rc": fpcli["rc"],
         "fail_first": ff,
         "criticals": crit,
+        "leak": leak,
         "acceptance_pass": acceptance,
         "diff_added_lines": sum(1 for ln in diff.splitlines() if ln.startswith("+") and not ln.startswith("+++")),
         "transcript": {k: tx[k] for k in ("models", "api_turns", "usage", "max_ctx", "compactions",
@@ -327,6 +373,11 @@ def grade_run(run_dir: Path, task: Dict[str, Any], base: str) -> Dict[str, Any]:
         "harness_denials": {"count": len(tx["denials"]),
                             "by_cat": _count_by(tx["denials"], "cat")},
     }
+    import ab_role_grade as RG
+    rg = RG.role_grade(run_dir, task, result, base)
+    result["role_checks"] = rg
+    if rg["acceptance"] is not None:
+        result["acceptance_pass"] = bool(rg["acceptance"] and (leak is None or leak["leaked"] == 0))
     C.write_json(grade_dir / "summary.json", result)
     (grade_dir / "visible.log").write_text("\n".join(f"{v['cmd']} rc={v['rc']}\n{v['tail']}" for v in visible))
     return result

@@ -23,6 +23,11 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 HOOKS = SCRIPT_DIR / "hooks"
 PROMPTS = SCRIPT_DIR / "prompts"
 FIXTURES = SCRIPT_DIR / "fixtures"
+EXAMPLES = SCRIPT_DIR / "examples"
+BRIEFS = EXAMPLES / "briefs"        # task-specific brief text (<ID>.md), committed
+ARTIFACTS = EXAMPLES / "artifacts"  # authored per-task inputs (overlays, patches, mutants, scenarios)
+HARNESS_SRC = SCRIPT_DIR / "harness"
+V2_DRAFTS = Path.home() / "get-shit-done" / "agents" / "v2"
 
 GIB = 1024 ** 3
 MAX_CONCURRENT = 2          # CLAUDE.md parallelism ceiling / host memory (DESIGN §4.5)
@@ -168,9 +173,15 @@ def run_cmd(argv: Sequence[str], cwd: Path, timeout: int = 900) -> Tuple[int, st
 
 
 def ensure_harness() -> None:
-    """Write the run-time harness config (DESIGN S4.3, S4.4): deny hook via --settings, empty MCP config."""
+    """Write the run-time harness config (DESIGN S4.3, S4.4): deny hook via --settings, empty MCP config,
+    the stub child used by coordinator tasks, and the Charlotte MCP config for charlotte-qa tasks."""
     harness = AB_HOME / "harness"
     harness.mkdir(parents=True, exist_ok=True)
+    stub_src = HARNESS_SRC / "stub_child.py"
+    if stub_src.exists():
+        shutil.copy2(stub_src, harness / "stub_child.py")
+    write_json(harness / "charlotte-mcp.json", {"mcpServers": {"charlotte": {
+        "command": "node", "args": [str(Path.home() / ".claude-mcp-servers" / "charlotte" / "dist" / "index.js")]}}})
     write_json(harness / "settings.json", {"hooks": {"PreToolUse": [{
         "matcher": "Bash|Read|Edit|Write|Agent",
         "hooks": [{"type": "command", "command": str(HOOKS / "harness-deny.py")}]}]}})

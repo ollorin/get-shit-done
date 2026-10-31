@@ -1,0 +1,1 @@
+Investigate one dimension of the pending PRD at `.planning/prds/pending/ai-game-master.md`: TECHNICAL FEASIBILITY AND COMPLIANCE RISK. Return the structured report required by your output format. Every claim needs a source (repository file and line, or a URL); mark unsourced claims as assumptions.

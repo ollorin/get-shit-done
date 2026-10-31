@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Catalog - Gadget Shop</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<header><a href="index.html">Home</a><a href="catalog.html">Catalog</a><a href="contact.html">Contact</a></header>
+<main>
+<h1>Catalog</h1>
+<label for="q">Search</label>
+<input id="q" type="search" placeholder="Search gadgets">
+<table id="items" style="width:640px;border-collapse:collapse">
+<thead><tr><th align="left">Name</th><th align="left">Price</th><th align="left">Stock</th><th align="left">Ships from</th></tr></thead>
+<tbody id="rows"></tbody>
+</table>
+</main>
+<script>
+const ITEMS = [
+  { name: 'Solar lantern', price: '19.00', stock: 12, from: 'Rotterdam' },
+  { name: 'Pocket router', price: '49.00', stock: 3, from: 'Gdansk' },
+  { name: 'Mesh speaker', price: '79.00', stock: 0, from: 'Lisbon' },
+];
+const rows = document.getElementById('rows');
+function render(list) {
+  rows.innerHTML = list.map(i => `<tr><td>${i.name}</td><td>${i.price}</td><td>${i.stock}</td><td>${i.from}</td></tr>`).join('');
+}
+render(ITEMS);
+document.getElementById('q').addEventListener('input', e => {
+  const term = e.target.value.toLowerCase();
+  render(ITEMS.filter(i => i.name.toLowerCase().includes(term)));
+});
+fetch('/assets/promo-banner.json').then(r => r.json()).catch(err => console.error('promo banner failed to load: ' + err.message));
+</script>
+</body>
+</html>

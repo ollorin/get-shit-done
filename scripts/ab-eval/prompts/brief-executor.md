@@ -1,4 +1,4 @@
-Make exactly one Agent call: `subagent_type: gsd-executor`, `model: haiku`, `run_in_background: false`, description `Execute plan {{PLAN_NUMBER}} tasks {{TASK_RANGE}}`, prompt = the block between the lines `<<<PROMPT` and `PROMPT>>>` below, verbatim. When it returns, print its final report verbatim and stop.
+Make exactly one Agent call: `subagent_type: {{SUBAGENT_TYPE}}`, `model: {{MODEL}}`, `run_in_background: false`, description `{{DESCRIPTION}}`, prompt = the block between the lines `<<<PROMPT` and `PROMPT>>>` below, verbatim. When it returns, print its final report verbatim and stop.
 
 <<<PROMPT
 <objective>

@@ -12,12 +12,14 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
+import json
 import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Sequence, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ab_common as C  # noqa: E402
@@ -62,6 +64,12 @@ def agent_entry(def_text: str, name: str) -> Dict[str, Any]:
     entry: Dict[str, Any] = {"description": fm["description"], "tools": tools, "prompt": body}
     if "model" in fm:  # absent = inherit the spawner's tier (DESIGN S4.3; the Agent call passes model)
         entry["model"] = fm["model"]
+    if fm.get("omitClaudeMd", "").lower() == "true":  # PROBES S13
+        entry["omitClaudeMd"] = True
+    if fm.get("maxTurns", "").isdigit():
+        entry["maxTurns"] = int(fm["maxTurns"])
+    if fm.get("effort"):
+        entry["effort"] = fm["effort"]
     return entry
 
 
@@ -115,6 +123,65 @@ def cmd_freeze_variant(args: argparse.Namespace) -> None:
     print(f"frozen variant A at {head}; {len(files)} overlay files, {len(mem_files)} memory files")
 
 
+def cmd_freeze_agents(args: argparse.Namespace) -> None:
+    """Add every installed agent def missing from variants/<V>/agents.json (children of the coordinator and the
+    roles under test). Existing entries are never changed, so the frozen control arm stays byte-identical."""
+    vdir = C.variant_dir(args.variant)
+    agents = C.read_json(vdir / "agents.json", None)
+    if agents is None:
+        raise C.Refused(f"variants/{args.variant} is not frozen")
+    added = []
+    for src in sorted(C.CLAUDE_AGENTS.glob("*.md")):
+        name = src.stem
+        if name in agents:
+            continue
+        agents[name] = agent_entry(src.read_text(), name)
+        added.append((name, C.sha256_file(src)))
+    C.write_json(vdir / "agents.json", agents)
+    manifest = vdir / "MANIFEST.md"
+    with open(manifest, "a") as fh:
+        fh.write(f"\n## Agent defs added by freeze-agents ({C.utc_now()}, installed defs, sha256)\n\n")
+        fh.writelines(f"- {n}: {h}\n" for n, h in added)
+    print(f"variant {args.variant}: {len(added)} agent defs added, {len(agents)} total")
+
+
+DRAFT_ROLES = {  # draft agent -> the registry role it replaces in the B arm
+    "gsd2-runner": "runner", "gsd2-docs-updater": "docs-updater", "gsd2-phase-coordinator": "coordinator",
+    "gsd2-executor": "executor", "gsd2-planner": "planner", "gsd2-plan-checker": "plancheck",
+    "gsd2-verifier": "verifier", "gsd2-reviewer": "review", "gsd2-test-writer": "test-writer",
+    "gsd2-debugger": "debugger",
+}
+
+
+def cmd_variant_from_drafts(args: argparse.Namespace) -> None:
+    """Variant B for the roles that have a draft: variants/<V> = a copy of variants/<FROM> (identical overlay,
+    memory and agents) plus the drafts in agents/v2 as extra agents, with roles.json mapping role -> draft."""
+    src, dst = C.variant_dir(args.base_variant), C.variant_dir(args.variant)
+    if not (src / "agents.json").exists():
+        raise C.Refused(f"variants/{args.base_variant} is not frozen")
+    if dst.exists():
+        if not args.force:
+            raise C.Refused(f"variants/{args.variant} exists; --force rebuilds it")
+        shutil.rmtree(dst)
+    shutil.copytree(src, dst)
+    agents = C.read_json(dst / "agents.json", {})
+    roles, lines = {}, []
+    for name, role in sorted(DRAFT_ROLES.items()):
+        draft = Path(args.drafts) / f"{name}{args.suffix}.md"
+        if not draft.exists():
+            continue
+        agents[name] = agent_entry(draft.read_text(), name)  # the B arm always calls the agent by its base name
+        lines.append(f"- {name} <- {draft.name}: {C.sha256_file(draft)}")
+        roles[role] = name
+    C.write_json(dst / "agents.json", agents)
+    C.write_json(dst / "roles.json", roles)
+    with open(dst / "MANIFEST.md", "a") as fh:
+        fh.write(f"\n## Variant {args.variant}: copy of {args.base_variant} plus drafts ({C.utc_now()})\n\n"
+                 "Overlay, memory and the existing agent defs are identical to the source variant.\n\n"
+                 + "\n".join(lines) + f"\n\nroles.json: {json.dumps(roles)}\n")
+    print(f"variant {args.variant} from drafts: roles {roles}")
+
+
 def _expected_inherited(overlay: Path, memory: Path) -> int:
     """CLAUDE.md + unscoped rules, as the instructions attachments measure them (G1; memory is checked by path)."""
     total = len((overlay / "CLAUDE.md").read_text(errors="replace"))
@@ -135,9 +202,10 @@ def extract_rev_paths(repo: Path, rev: str, paths: List[str], dest: Path) -> Non
     tar.unlink()
 
 
-def scrub_planning(raw: Path, phase_dir: str, target_plan: str) -> None:
+def scrub_planning(raw: Path, phase_dir: str, target_plan: str, keep: Sequence[str] = ()) -> None:
     """Keep base-era state and the phase's context; drop other PLAN files (later plans describe the
-    future design), checkpoints, and any post-plan artifacts. The target plan itself stays."""
+    future design), checkpoints, and any post-plan artifacts. The target plan itself stays, and so does
+    every phase-dir file matching a `keep` glob (a task's `planning_keep`)."""
     pdir = raw / ".planning"
     if not pdir.exists():
         return
@@ -151,7 +219,9 @@ def scrub_planning(raw: Path, phase_dir: str, target_plan: str) -> None:
                 if ph.name == phase_name:
                     for f in list(ph.iterdir()):
                         is_other_plan = f.name.endswith("-PLAN.md") and f.name != target_name
-                        if f.is_file() and (PLANNING_DROP.search(f.name) or is_other_plan or f.name in CHECKPOINTS):
+                        kept = any(fnmatch.fnmatch(f.name, g) for g in keep)
+                        if f.is_file() and not kept and (PLANNING_DROP.search(f.name) or is_other_plan
+                                                         or f.name in CHECKPOINTS):
                             f.unlink()
                 elif ph.is_dir():
                     shutil.rmtree(ph)
@@ -162,6 +232,45 @@ def scrub_planning(raw: Path, phase_dir: str, target_plan: str) -> None:
             shutil.rmtree(child)
         else:
             child.unlink()
+
+
+def apply_patch(raw: Path, patch: Path) -> None:
+    proc = subprocess.run(["git", "apply", "--whitespace=nowarn", str(patch)], cwd=str(raw),
+                          capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise C.Refused(f"patch {patch.name} does not apply to the base tree: {proc.stderr.strip()[:300]}")
+
+
+def apply_task_inputs(t: Dict[str, Any], raw: Path) -> None:
+    """Task-specific snapshot content, applied after the planning scrub (ab_roles/README: task schema):
+    restore (paths re-extracted from base or a named rev), overlay (examples/artifacts/<dir> copied onto the tree),
+    patches (planted defects), fixture (seeded qa app), review_diff (`.review/change.diff` for reviewers)."""
+    for item in t.get("restore", []):
+        rev, path = (item["rev"], item["path"]) if isinstance(item, dict) else (t["base"], item)
+        try:
+            extract_rev_paths(C.LIVE_REPO, rev, [path], raw)
+        except subprocess.CalledProcessError as exc:
+            raise C.Refused(f"restore {path}@{rev} failed: {exc}") from exc
+        except RuntimeError as exc:
+            raise C.Refused(f"restore {path}@{rev} failed: {exc}") from exc
+    for name in t.get("overlay", []):
+        src = C.ARTIFACTS / name
+        if not src.is_dir():
+            raise C.Refused(f"overlay dir {src} does not exist")
+        shutil.copytree(src, raw, dirs_exist_ok=True)
+    for name in t.get("patches", []):
+        apply_patch(raw, C.ARTIFACTS / name)
+    if t.get("fixture"):
+        dest = raw / "qa-fixture" / "qa-app"
+        shutil.rmtree(dest, ignore_errors=True)
+        shutil.copytree(C.FIXTURES / t["fixture"], dest)
+    if t.get("review_diff"):
+        target = t["base"]
+        specs = list(t.get("scope_files", []))
+        diff = C.git(C.LIVE_REPO, "diff", f"{target}^", target, "--", *specs) if specs \
+            else C.git(C.LIVE_REPO, "diff", f"{target}^", target, "--", ".", ":(exclude).planning")
+        (raw / ".review").mkdir(exist_ok=True)
+        (raw / ".review" / "change.diff").write_text(diff)
 
 
 def cmd_base(args: argparse.Namespace, cfg: Dict[str, Any]) -> None:
@@ -196,7 +305,9 @@ def cmd_base(args: argparse.Namespace, cfg: Dict[str, Any]) -> None:
         shutil.copy2(C.GSD_HOME / src_rel, gsd / name)
     shutil.copytree(C.FIXTURES / "qa-app", raw / "qa-fixture" / "qa-app")
     shutil.rmtree(raw / "apps" / "mobile", ignore_errors=True)
-    scrub_planning(raw, t["phase_dir"], t["plan"])
+    if t.get("scrub") != "none":
+        scrub_planning(raw, t["phase_dir"], t["plan"], t.get("planning_keep", []))
+    apply_task_inputs(t, raw)
     print(f"base {t['base']} -> {raw} ({C.dir_bytes(raw) // 1048576} MiB)")
 
 
@@ -307,46 +418,28 @@ def cmd_oracle(args: argparse.Namespace, cfg: Dict[str, Any]) -> None:
         (hidden_dir / src_name).write_bytes(C.git_bytes(C.LIVE_REPO, "show", f"{sha}:{path}"))
         entries.append({"dest": path, "src": src_name, "sha": sha})
     C.write_json(odir / "hidden.json", entries)
-    ref_sha = t["ref"][-1]
+    known = [{k: v for k, v in item.items() if k != "evidence"} for item in t.get("known", [])]
+    if known:
+        C.write_json(odir / "known.json", known)
     C.git(C.LIVE_REPO, "cat-file", "-e", t["base"])
-    C.git(C.LIVE_REPO, "cat-file", "-e", ref_sha)
-    (odir / "ref.diff").write_text(C.git(C.LIVE_REPO, "diff", t["base"], ref_sha, "--", *t["scope_files"]))
-    print(f"oracle: {len(entries)} hidden files, ref.diff from {t['base']}..{ref_sha}")
+    if t.get("ref"):
+        ref_sha = t["ref"][-1]
+        C.git(C.LIVE_REPO, "cat-file", "-e", ref_sha)
+        specs = t["scope_files"] or ["."]
+        (odir / "ref.diff").write_text(C.git(C.LIVE_REPO, "diff", t["base"], ref_sha, "--", *specs))
+    print(f"oracle: {len(entries)} hidden files, {len(known)} known items")
 
 
 def cmd_calibrate(args: argparse.Namespace, cfg: Dict[str, Any]) -> None:
+    import ab_calib as K  # local import: ab_calib imports this module's helpers
     t = C.find_task(cfg, args.task)
     tdir = C.task_dir(t["id"])
-    pristine = tdir / "pristine-A"
-    if not pristine.exists():
-        raise C.Refused("build pristine-A first (variant --variant A)")
-    calib = tdir / "calib"
-    if calib.exists():
-        shutil.rmtree(calib)
-    calib.mkdir(parents=True)
-    ref_rev = t["ref"][-1]
-    result: Dict[str, Any] = {"ts": C.utc_now(), "repeat": args.repeat, "base": {}, "ref": {"visible": [], "hidden": []}}
-    base_copy = calib / "base"
-    C.clone_tree(pristine, base_copy)
-    result["base"]["visible"] = G.run_visible(base_copy, t["verify"], retries=0)
-    result["base"]["hidden"] = G.run_hidden(base_copy, tdir / "oracle", t)
-    ref_copy = calib / "ref"
-    extract_rev_paths(C.LIVE_REPO, ref_rev, ["."], ref_copy)
-    env_src = pristine / "apps" / "api" / ".env.test"
-    if env_src.exists():
-        shutil.copy2(env_src, ref_copy / "apps" / "api" / ".env.test")
-    for _ in range(args.repeat):
-        result["ref"]["visible"].append(G.run_visible(ref_copy, t["verify"], retries=0))
-        result["ref"]["hidden"].append(G.run_hidden(ref_copy, tdir / "oracle", t))
-    base_fail = all(not v["pass"] for v in result["base"]["visible"]) and not result["base"]["hidden"]["pass"]
-    ref_pass = all(all(v["pass"] for v in batch) for batch in result["ref"]["visible"]) and all(
-        h["pass"] for h in result["ref"]["hidden"])
-    result["ok"] = bool(base_fail and ref_pass)
+    result = K.calibrate(t, tdir, args.repeat)
     C.write_json(tdir / "calib.json", result)
-    shutil.rmtree(calib)
-    print(f"calibration {'PASS' if result['ok'] else 'FAIL'}: base_fail={base_fail} ref_pass={ref_pass}")
+    print(f"calibration {'PASS' if result['ok'] else 'FAIL'} (mode {result['mode']}): "
+          + "; ".join(f"{c['name']}={'ok' if c['ok'] else 'FAIL'}" for c in result["checks"]))
     if not result["ok"]:
-        raise C.Refused("calibration failed; the oracle is not valid, replace the task (DESIGN S4.6)")
+        raise C.Refused("calibration failed; the oracle is not valid, replace the task or disable it (DESIGN S4.6)")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -359,6 +452,14 @@ def build_parser() -> argparse.ArgumentParser:
         s = sub.add_parser(name)
         s.add_argument("--task", required=True)
         s.add_argument("--force", action="store_true")
+    fa = sub.add_parser("freeze-agents")
+    fa.add_argument("--variant", default="A")
+    vd = sub.add_parser("variant-from-drafts")
+    vd.add_argument("--variant", required=True)
+    vd.add_argument("--base-variant", default="A")
+    vd.add_argument("--drafts", default=str(C.V2_DRAFTS))
+    vd.add_argument("--suffix", default="", help="'.c' selects the quality-arm drafts (gsd2-<name>.c.md)")
+    vd.add_argument("--force", action="store_true")
     v = sub.add_parser("variant")
     v.add_argument("--task", required=True)
     v.add_argument("--variant", required=True)
@@ -376,6 +477,10 @@ def main(argv: List[str]) -> int:
     cfg = C.load_tasks()
     if args.cmd == "freeze-variant":
         cmd_freeze_variant(args)
+    elif args.cmd == "freeze-agents":
+        cmd_freeze_agents(args)
+    elif args.cmd == "variant-from-drafts":
+        cmd_variant_from_drafts(args)
     elif args.cmd == "base":
         cmd_base(args, cfg)
     elif args.cmd == "index":

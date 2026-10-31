@@ -16,6 +16,7 @@ import ab_common as C  # noqa: E402
 import ab_grade as G  # noqa: E402
 import ab_judge as J  # noqa: E402
 import ab_match as M  # noqa: E402
+import ab_roles as RO  # noqa: E402
 import ab_run as R  # noqa: E402
 import ab_setup as S  # noqa: E402
 import ab_transcript as T  # noqa: E402
@@ -287,9 +288,10 @@ class HarnessDenyTests(unittest.TestCase):
 
 class BriefTests(unittest.TestCase):
     def test_placeholders_filled(self):
-        task = {"plan_number": "20", "task_range": "1", "phase_number": "399", "phase_name": "p",
-                "plan": "a/b.md", "task_names": ["Task 1: x"], "scope_files": ["f.ts"]}
-        text = R.render_brief(task)
+        task = {"id": "T", "role": "executor", "agent": "gsd-executor", "model": "haiku", "plan_number": "20",
+                "task_range": "1", "phase_number": "399", "phase_name": "p", "plan": "a/b.md",
+                "task_names": ["Task 1: x"], "scope_files": ["f.ts"]}
+        text = RO.render_brief(task)
         self.assertIn("Execute plan 20 tasks 1", text)
         self.assertNotIn("{{", text)
 
@@ -406,6 +408,10 @@ class HiddenArgTests(unittest.TestCase):
                          "../../scripts/validation/g.test.ts")
 
 
+SYNTHETIC_ROLES = {"coordinator", "charlotte-qa", "runner"}  # no reference commit: the oracle is built, not inherited
+SYNTHETIC_IDS = {"S-PJ", "S-PI", "S-CM"}  # frozen-HEAD smoke tasks, setup calibration only
+
+
 class RegistryTests(unittest.TestCase):
     def test_registry_entries_are_well_formed(self):
         tasks = json.loads((ROOT / "examples" / "tasks.json").read_text())["tasks"]
@@ -417,7 +423,8 @@ class RegistryTests(unittest.TestCase):
                 self.assertTrue(t.get("reason") or t.get("blocked"), f"{t['id']} disabled without a reason")
             if t["enabled"]:
                 self.assertIsInstance(t.get("base"), str, t["id"])
-                self.assertTrue(t.get("ref"), t["id"])
+                if t["role"] not in SYNTHETIC_ROLES and t["id"] not in SYNTHETIC_IDS:
+                    self.assertTrue(t.get("ref"), t["id"])
 
 
 if __name__ == "__main__":

@@ -1,0 +1,11 @@
+--- a/apps/api/functions/games/handlers/slots/slots-spin-handler.ts
++++ b/apps/api/functions/games/handlers/slots/slots-spin-handler.ts
+@@ -225,7 +225,7 @@
+       spinNonce,
+       corsHeaders,
+     );
+-    if (replay) return replay;
++    if (false) return replay;
+ 
+     // Step 1: RG gate — pre-spin blocking check.
+     // 321-02/MILE-01: bet + resolved sessionCurrency route to amount-aware rg_check_bet_allowed.

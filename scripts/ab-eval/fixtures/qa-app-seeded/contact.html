@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Contact - Gadget Shop</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<header><a href="index.html">Home</a><a href="catalog.html">Catalog</a><a href="contact.html">Contact</a></header>
+<main>
+<h1>Contact us</h1>
+<form id="contact" novalidate>
+<label for="name">Your name</label><br>
+<input id="name" name="name" type="text"><br>
+<input id="email" name="email" type="email" placeholder="you@example.com"><br>
+<button id="send" type="submit">Send message</button>
+</form>
+<p id="result" class="err"></p>
+</main>
+<script>
+document.getElementById('contact').addEventListener('submit', e => {
+  e.preventDefault();
+  const email = document.getElementById('email').value.trim();
+  const out = document.getElementById('result');
+  if (!email) { out.textContent = 'Invalid input'; return; }
+  out.textContent = 'Error 500: Internal Server Error';
+});
+</script>
+</body>
+</html>

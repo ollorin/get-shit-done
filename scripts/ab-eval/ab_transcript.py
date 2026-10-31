@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import ab_common as C
 
@@ -34,7 +34,7 @@ def _subagent_type(path: Path) -> Optional[str]:
     return None
 
 
-def analyze(tdir: Path, denials_path: Path) -> Dict[str, Any]:
+def analyze(tdir: Path, denials_path: Path, targets: Tuple[str, ...] = (EXEC_CHILD,)) -> Dict[str, Any]:
     files = sorted(tdir.rglob("*.jsonl")) if tdir.exists() else []
     main_files = [f for f in files if "subagents" not in f.parts]
     sub_files = [f for f in files if "subagents" in f.parts]
@@ -116,17 +116,17 @@ def analyze(tdir: Path, denials_path: Path) -> Dict[str, Any]:
                     res = results.get(block.get("id", ""), {"text": "", "is_error": False})
                     if "HARNESS-DENY" not in res["text"]:
                         out["contaminated"].append({"tool": name, "input": text[:200], "agent": sub_type or "main"})
-    out["first_turn_tok"], out["first_turn_source"] = _first_turn(first_turn_candidates)
+    out["first_turn_tok"], out["first_turn_source"] = _first_turn(first_turn_candidates, targets)
     out["denials"] = _denials(denials_path)
     out["models"] = sorted(out["models"])
     out["instructions"] = [{"path": k, "chars": v} for k, v in sorted(out["instructions"].items())]
     return out
 
 
-def _first_turn(cands: List[Any]):
-    """Executor subagent's first API turn, else the main session's first turn (DESIGN §5.1 cost)."""
+def _first_turn(cands: List[Any], targets: Tuple[str, ...] = (EXEC_CHILD,)):
+    """The role-under-test subagent's first API turn, else the main session's first turn (DESIGN §5.1 cost)."""
     for is_sub, sub_type, tok, name in cands:
-        if is_sub and sub_type == EXEC_CHILD:
+        if is_sub and sub_type in targets:
             return tok, f"subagent:{name}"
     for is_sub, _sub_type, tok, name in cands:
         if not is_sub:

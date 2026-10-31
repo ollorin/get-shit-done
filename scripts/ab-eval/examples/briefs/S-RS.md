@@ -1,0 +1,1 @@
+Synthesize the research outputs `.planning/research/STACK.md`, `FEATURES.md`, `ARCHITECTURE.md` and `PITFALLS.md` into `.planning/research/SUMMARY.md`: an executive summary, key findings per file, roadmap implications (suggested phase structure with rationale), confidence assessment and open gaps. Every section must trace to one of the four files. Do not edit the four inputs.

@@ -1,0 +1,11 @@
+--- a/apps/api/functions/auth/handlers/operator-login.ts
++++ b/apps/api/functions/auth/handlers/operator-login.ts
+@@ -101,7 +101,7 @@
+     },
+   )
+   if (admission === 'unavailable') return AUTH_UNAVAILABLE(ctx.corsHeaders)
+-  if (admission === 'refused') return operatorErrorResponse(INVALID_CREDENTIALS, ctx.corsHeaders)
++  if (admission === 'refused' && false) return operatorErrorResponse(INVALID_CREDENTIALS, ctx.corsHeaders)
+ 
+   const loginResult = await operatorLogin(email, password, ctx.ipAddress)
+ 

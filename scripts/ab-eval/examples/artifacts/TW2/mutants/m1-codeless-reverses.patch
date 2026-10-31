@@ -1,0 +1,11 @@
+--- a/apps/api/functions/games/handlers/mines-start-handlers.ts
++++ b/apps/api/functions/games/handlers/mines-start-handlers.ts
+@@ -321,7 +321,7 @@
+ 
+   if (roundInsertErr || !roundRow) {
+     // A codeless error may have committed a free round: no reversal, the sweep decides.
+-    if (!isDefinitiveInsertError(roundInsertErr)) {
++    if (false && !isDefinitiveInsertError(roundInsertErr)) {
+       console.error(
+         "[mines] game_rounds insert outcome unknown — debit kept for the orphan sweep",
+       );

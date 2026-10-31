@@ -1,0 +1,65 @@
+[
+ {
+  "id": "F1",
+  "kind": "functional",
+  "file": "index.html",
+  "regex": "<button id=\"wishlist\" type=\"button\">",
+  "summary": "Add to wishlist button on the home page does nothing (no handler, no feedback)"
+ },
+ {
+  "id": "F2",
+  "kind": "functional",
+  "file": "catalog.html",
+  "regex": "fetch\\('/assets/promo-banner\\.json'\\)",
+  "summary": "Catalog page logs a console error: /assets/promo-banner.json fails to load (404)"
+ },
+ {
+  "id": "F3",
+  "kind": "functional",
+  "file": "contact.html",
+  "regex": "Error 500: Internal Server Error",
+  "summary": "Contact form submit with a valid email shows 'Error 500: Internal Server Error' and nothing is sent"
+ },
+ {
+  "id": "F4",
+  "kind": "functional",
+  "file": "contact.html",
+  "regex": "<input id=\"email\" name=\"email\" type=\"email\" placeholder",
+  "summary": "Contact email field has no label (placeholder only)"
+ },
+ {
+  "id": "F5",
+  "kind": "functional",
+  "file": "catalog.html",
+  "regex": "render\\(ITEMS\\.filter",
+  "summary": "Catalog search with no match shows an empty table, no empty-state message"
+ },
+ {
+  "id": "F6",
+  "kind": "functional",
+  "file": "catalog.html",
+  "regex": "style=\"width:640px",
+  "summary": "Catalog table is fixed 640px wide and overflows horizontally at a 375px viewport"
+ },
+ {
+  "id": "U1",
+  "kind": "ux",
+  "file": "style.css",
+  "regex": "\\.muted \\{ color: #bbbbbb",
+  "summary": "Muted text (#bbb on white) fails WCAG contrast"
+ },
+ {
+  "id": "U2",
+  "kind": "ux",
+  "file": "style.css",
+  "regex": "\\*:focus \\{ outline: none",
+  "summary": "Focus outline removed globally; keyboard focus is invisible"
+ },
+ {
+  "id": "U3",
+  "kind": "ux",
+  "file": "contact.html",
+  "regex": "'Invalid input'",
+  "summary": "Empty-email error copy 'Invalid input' does not say which field or how to fix it"
+ }
+]

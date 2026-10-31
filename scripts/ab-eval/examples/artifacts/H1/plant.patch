@@ -1,0 +1,11 @@
+--- a/apps/api/functions/configurations/handlers/delete-config.test.ts
++++ b/apps/api/functions/configurations/handlers/delete-config.test.ts
+@@ -122,7 +122,7 @@
+     expect(body.success).toBe(true);
+     expect(body.data.action).toBe('delete');
+     expect(body.data.is_active).toBe(false);
+-    expect(body.data.deleted_at).toBe('2026-01-03T00:00:00Z');
++    expect(body.data.deleted_at).toBe('2026-01-04T00:00:00Z');
+   });
+ 
+   // Phase 384.1 SC1 — the generic DELETE must never soft-delete a money-bearing key.

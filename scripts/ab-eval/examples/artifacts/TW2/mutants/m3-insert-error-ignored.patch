@@ -1,0 +1,11 @@
+--- a/apps/api/functions/games/handlers/slots/slots-spin-handler.ts
++++ b/apps/api/functions/games/handlers/slots/slots-spin-handler.ts
+@@ -510,7 +510,7 @@
+           bet_latency_ms: Math.max(0, Date.now() - requestReceivedAt),
+         },
+       });
+-    if (roundInsertErr) {
++    if (false && roundInsertErr) {
+       console.error(
+         "[slots/spin] game_rounds insert failed — no outcome returned:",
+         roundInsertErr.message,

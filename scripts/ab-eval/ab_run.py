@@ -17,11 +17,12 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ab_common as C  # noqa: E402
 import ab_grade as G  # noqa: E402
+import ab_roles as R  # noqa: E402
 import ab_transcript as T  # noqa: E402
 
 QUOTA_FILE = C.AB_HOME / "results" / "quota.json"
@@ -55,20 +56,6 @@ def write_quota(util: Optional[float], run_id: str, resets_at: Any) -> None:
                               "ts": C.utc_now()})
 
 
-def render_brief(task: Dict[str, Any]) -> str:
-    text = (C.PROMPTS / "brief-executor.md").read_text()
-    subs = {
-        "PLAN_NUMBER": task["plan_number"], "TASK_RANGE": task["task_range"],
-        "PHASE_NUMBER": task["phase_number"], "PHASE_NAME": task["phase_name"], "PLAN_FILE": task["plan"],
-        "TASK_NAMES": "; ".join(task["task_names"]), "SCOPE_FILES": ", ".join(task["scope_files"]),
-    }
-    for key, value in subs.items():
-        text = text.replace("{{" + key + "}}", str(value))
-    if "{{" in text:
-        raise C.Refused("brief template has unfilled placeholders")
-    return text
-
-
 def build_snapshot(task: Dict[str, Any], variant: str, run_dir: Path) -> Dict[str, Any]:
     if task.get("enabled") is False:
         raise C.Refused(f"{task['id']} is registered enabled:false ({task.get('blocked') or task.get('reason')})")
@@ -86,19 +73,22 @@ def build_snapshot(task: Dict[str, Any], variant: str, run_dir: Path) -> Dict[st
     shutil.copytree(tdir / f"memory-{variant}", memory)
     (repo / ".claude" / "settings.local.json").write_text(
         json.dumps({"autoMemoryEnabled": True, "autoMemoryDirectory": str(memory)}))
-    (run_dir / "brief.md").write_text(render_brief(task))
+    (run_dir / "brief.md").write_text(R.render_brief(task, variant))
+    if task["role"] == "coordinator":
+        (run_dir / "stub").mkdir(exist_ok=True)
+        C.write_json(run_dir / "stub" / "scenario.json", task["scenario"])
     return {"base_commit": base_commit, "repo": repo}
 
 
 def execute(run_dir: Path, task: Dict[str, Any], variant: str, session: str, budget: float) -> Dict[str, Any]:
     repo = run_dir / "repo"
-    agents_text = (C.variant_dir(variant) / "agents.json").read_text()
+    agents_text = json.dumps(R.build_agents(task, variant))
     harness = C.AB_HOME / "harness"
     argv = ["claude", "-p", (run_dir / "brief.md").read_text(), "--model", "haiku",
             "--agents", agents_text,
             "--setting-sources", "project,local",
             "--settings", str(harness / "settings.json"),
-            "--strict-mcp-config", "--mcp-config", str(harness / "empty-mcp.json"),
+            "--strict-mcp-config", "--mcp-config", str(R.mcp_config(task)),
             "--permission-mode", "bypassPermissions",
             "--session-id", session,
             "--max-budget-usd", str(budget),
@@ -148,12 +138,13 @@ def mirror_transcripts(repo: Path, run_dir: Path) -> List[str]:
     return sorted(str(p.relative_to(run_dir)) for p in dst.rglob("*.jsonl"))
 
 
-def status_of(res: Optional[Dict[str, Any]], run: Dict[str, Any], contaminated: bool, models: List[str]) -> tuple:
+def status_of(res: Optional[Dict[str, Any]], run: Dict[str, Any], contaminated: bool, models: List[str],
+              allowed: Sequence[str] = ("haiku",)) -> tuple:
     if res is None:
         return "void", "no result line in stream"
     if contaminated:
         return "void", "contaminated: denied root reached by another path"
-    extra = [m for m in models if "haiku" not in m and not m.startswith("<")]
+    extra = [m for m in models if not any(a in m for a in allowed) and not m.startswith("<")]
     if extra:
         return "void", f"model fallback or extra model: {extra}"
     if run["timed_out"] or res.get("is_error") or str(res.get("subtype", "")).startswith("error"):
@@ -177,13 +168,15 @@ def run_one(task: Dict[str, Any], variant: str, rep: int, keep: bool) -> Dict[st
     if res and res.get("result"):
         (run_dir / "report.md").write_text(str(res["result"]))
     transcripts = mirror_transcripts(snap["repo"], run_dir)
-    graded = G.grade_run(run_dir, task, snap["base_commit"])
+    graded = G.grade_run(run_dir, task, snap["base_commit"],
+                         (R.subagent_type(task, variant), task["agent"]))
     tx = graded["transcript"]
     model_keys = sorted((res or {}).get("modelUsage", {}).keys())
-    status, reason = status_of(res, run, bool(tx["contaminated"]), sorted(set(tx["models"]) | set(model_keys)))
+    status, reason = status_of(res, run, bool(tx["contaminated"]), sorted(set(tx["models"]) | set(model_keys)),
+                               R.allowed_models(task))
     row = {
         "run_id": run_id, "task_id": task["id"], "variant": variant, "rep": rep, "role": task["role"],
-        "agent": task["agent"], "model": "haiku", "tier": task["tier"], "base": task["base"],
+        "agent": R.subagent_type(task, variant), "model": task.get("model", "haiku"), "tier": task["tier"], "base": task["base"],
         "base_commit": snap["base_commit"], "status": status, "void_reason": reason,
         "start_ts": start, "end_ts": C.utc_now(), "wall_s": run["wall_s"], "exit_code": run["exit_code"],
         "timed_out": run["timed_out"], "session_id": session, "transcripts": transcripts,
@@ -208,6 +201,8 @@ def run_one(task: Dict[str, Any], variant: str, rep: int, keep: bool) -> Dict[st
         "fp": graded["fp"], "fp_gate_rc": graded["fp_gate_rc"], "scope_out": graded["scope_out"],
         "fail_first": graded["fail_first"]["status"], "fail_first_detail": graded["fail_first"],
         "criticals": graded["criticals"], "acceptance_pass": graded["acceptance_pass"],
+        "role_checks": {k: v["ok"] for k, v in graded["role_checks"]["checks"].items()},
+        "leak": graded.get("leak"),
         "files_touched": graded["files_touched"], "commits": graded["commits"],
         "diff_added_lines": graded["diff_added_lines"],
     }
@@ -231,7 +226,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     cfg = C.load_tasks()
     task = C.find_task(cfg, args.task)
     if args.dry_run:
-        print(render_brief(task))
+        print(R.render_brief(task, args.variant))
         return 0
     C.check_eval_cap()
     C.ensure_harness()

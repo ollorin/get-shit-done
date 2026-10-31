@@ -1,0 +1,11 @@
+--- a/apps/api/functions/games/handlers/slots/slots-spin-handler.ts
++++ b/apps/api/functions/games/handlers/slots/slots-spin-handler.ts
+@@ -503,7 +503,7 @@
+         idempotency_key: spinNonce
+           ? `slots:spin:${sessionId}:${spinNonce}`
+           : `slots:spin:${sessionId}:${Date.now()}`,
+-        debit_idempotency_key: isBonusFreeSpin ? null : debitIdempotencyKey,
++        debit_idempotency_key: null,
+         // Phase 222: timing analysis — bot detection
+         timing_data: {
+           round_started_at: new Date(requestReceivedAt).toISOString(),

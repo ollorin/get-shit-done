@@ -1,0 +1,11 @@
+--- a/apps/api/functions/auth/handlers/operator-login.ts
++++ b/apps/api/functions/auth/handlers/operator-login.ts
+@@ -93,7 +93,7 @@
+   // 399-23: the per-email lockout counts the attempt BEFORE the password is checked, and
+   // ignores every env flag (RATE_LIMIT_BYPASS included). A refused attempt answers the
+   // wrong-password body, so a locked email is indistinguishable from a bad password.
+-  const admission = await reserveLoginAttempt(email, OPERATOR_LOCKOUT, { scope: 'operator' }).match(
++  const admission = await reserveLoginAttempt(email, OPERATOR_LOCKOUT, { scope: 'player' }).match(
+     (reservation): 'admitted' | 'refused' => (reservation.admitted ? 'admitted' : 'refused'),
+     (): 'unavailable' => {
+       console.error('[handleOperatorLogin] login lockout reservation failed')
