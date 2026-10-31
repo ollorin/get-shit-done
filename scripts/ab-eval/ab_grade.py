@@ -6,6 +6,7 @@ deno check/lint/fmt, fp-gate counters (base vs final) and the criticals list, an
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 from pathlib import Path
@@ -56,6 +57,11 @@ def run_visible(repo: Path, verify: List[List[str]], retries: int = 1) -> List[D
     return results
 
 
+def hidden_arg(placed: Path, cwd: Path) -> str:
+    """Path of a hidden test as seen from apps/api; scripts/ tests need the ../../ form (ValueError otherwise)."""
+    return os.path.relpath(placed, cwd)
+
+
 def run_hidden(repo: Path, oracle_dir: Path, task: Dict[str, Any]) -> Dict[str, Any]:
     """Copy each calibrated ref test in (as <name>.hidden.test.ts when the run created the same path),
     run it from apps/api, then remove the copy so the grade does not alter the run's own files."""
@@ -75,8 +81,7 @@ def run_hidden(repo: Path, oracle_dir: Path, task: Dict[str, Any]) -> Dict[str, 
         placed.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(oracle_dir / "hidden" / it["src"], placed)
         try:
-            rel = str(placed.relative_to(repo / "apps" / "api"))
-            rc, out, secs = C.run_cmd(["deno", "task", "test", rel], cwd, timeout=900)
+            rc, out, secs = C.run_cmd(["deno", "task", "test", hidden_arg(placed, cwd)], cwd, timeout=900)
         finally:
             placed.unlink()
         counts = parse_counts(out)

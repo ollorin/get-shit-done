@@ -70,6 +70,8 @@ def render_brief(task: Dict[str, Any]) -> str:
 
 
 def build_snapshot(task: Dict[str, Any], variant: str, run_dir: Path) -> Dict[str, Any]:
+    if task.get("enabled") is False:
+        raise C.Refused(f"{task['id']} is registered enabled:false ({task.get('blocked') or task.get('reason')})")
     tdir = C.task_dir(task["id"])
     calib = C.read_json(tdir / "calib.json", {})
     if not calib.get("ok"):

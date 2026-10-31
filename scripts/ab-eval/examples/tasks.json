@@ -1,34 +1,394 @@
 {
-  "_comment": "Task registry (DESIGN §7.2, JSON instead of YAML: stdlib only). Copy to ~/ab-eval/tasks.json. Only E6 is registered for the smoke run.",
+  "_comment": "Task registry (DESIGN §7.2, JSON instead of YAML: stdlib only). Copy to ~/ab-eval/tasks.json. enabled:false tasks are never run (ab_run.build_snapshot refuses); reason = calibration result, blocked = missing artifact. Non-executor entries are calibration records only: the runner renders executor briefs only (ab_run.render_brief).",
   "tasks": [
     {
-      "id": "E6",
-      "role": "executor",
-      "agent": "gsd-executor",
-      "model": "haiku",
-      "tier": "T0-adjacent",
+      "id": "E6", "role": "executor", "agent": "gsd-executor", "model": "haiku", "tier": "T0-adjacent",
       "plan": ".planning/phases/399-auth-sweep-a1-a4/399-20-PLAN.md",
-      "phase_dir": ".planning/phases/399-auth-sweep-a1-a4",
-      "phase_number": "399",
-      "phase_name": "auth-sweep-a1-a4",
-      "plan_number": "20",
-      "task_range": "1",
-      "task_names": ["Task 1: lockout-policy.ts (RED then GREEN) + barrel line"],
-      "tasks": [1],
-      "base": "1f2010f81",
-      "ref": ["bf282bc41", "8ec92a323"],
-      "scope_files": [
-        "apps/api/libs/domain/src/lib/auth/lockout-policy.ts",
-        "apps/api/libs/domain/src/lib/auth/lockout-policy.test.ts",
-        "apps/api/libs/domain/src/index.ts"
-      ],
+      "phase_dir": ".planning/phases/399-auth-sweep-a1-a4", "phase_number": "399", "phase_name": "auth-sweep-a1-a4",
+      "plan_number": "20", "task_range": "1", "task_names": ["Task 1: lockout-policy.ts (RED then GREEN) + barrel line"],
+      "tasks": [1], "base": "1f2010f81", "ref": ["bf282bc41", "8ec92a323"],
+      "scope_files": ["apps/api/libs/domain/src/lib/auth/lockout-policy.ts", "apps/api/libs/domain/src/lib/auth/lockout-policy.test.ts", "apps/api/libs/domain/src/index.ts"],
       "verify": [["deno", "task", "test", "libs/domain/src/lib/auth/lockout-policy.test.ts"]],
       "hidden": ["apps/api/libs/domain/src/lib/auth/lockout-policy.test.ts@8ec92a323"],
-      "tdd": true,
-      "budget_usd": 8,
-      "timeout_min": 90,
-      "scrub_terms": ["399-20", "lockout-policy", "PLAYER_LOCKOUT", "OPERATOR_LOCKOUT",
-                      "normalizeLoginCredential", "reserveLoginAttempt", "LOGIN_ATTEMPT_RESERVE"]
+      "tdd": true, "budget_usd": 8, "timeout_min": 90,
+      "scrub_terms": ["399-20", "lockout-policy", "PLAYER_LOCKOUT", "OPERATOR_LOCKOUT", "normalizeLoginCredential", "reserveLoginAttempt", "LOGIN_ATTEMPT_RESERVE"],
+      "enabled": true, "calibration": "ok, see RUNNER.md"
+    },
+    {
+      "id": "E1", "role": "executor", "agent": "gsd-executor", "model": "haiku", "tier": "T1",
+      "plan": ".planning/phases/398-findings-register-reverification-program-substrate/398-02-PLAN.md",
+      "phase_dir": ".planning/phases/398-findings-register-reverification-program-substrate", "phase_number": "398",
+      "phase_name": "findings-register-reverification-program-substrate", "plan_number": "02", "task_range": "1-3",
+      "task_names": ["Task 1: RED tests, planted bad grids and canary fixtures", "Task 2: Implement normaliser, checker and telemetry (GREEN)", "Task 3: Mutation + regression tests for the checker"],
+      "tasks": [1, 2, 3], "base": "ed0a7bec5", "ref": ["c593162eb"],
+      "scope_files": ["scripts/validation/grid-check.test.ts", "scripts/validation/grid-check.ts", "scripts/validation/lib/grid-model.ts", "scripts/validation/fixtures/grid/comment-adjacent.md", "scripts/validation/fixtures/grid/no-grid.md", "scripts/validation/fixtures/grid/realistic-sec.md"],
+      "verify": [["deno", "test", "../../scripts/validation/grid-check.test.ts"]],
+      "hidden": ["scripts/validation/grid-check.test.ts@c593162eb"],
+      "tdd": true, "budget_usd": 8, "timeout_min": 90,
+      "scrub_terms": ["398-02", "grid-check", "grid-model"],
+      "enabled": false, "reason": "pending calibration"
+    },
+    {
+      "id": "E2", "role": "executor", "agent": "gsd-executor", "model": "haiku", "tier": "T1",
+      "plan": ".planning/phases/394-cache-invalidation-without-keyspace-scans/394-01-PLAN.md",
+      "phase_dir": ".planning/phases/394-cache-invalidation-without-keyspace-scans", "phase_number": "394",
+      "phase_name": "cache-invalidation-without-keyspace-scans", "plan_number": "01", "task_range": "3",
+      "task_names": ["Generation primitive + versioned key generators + config TTL (V1, RED then GREEN)"],
+      "tasks": [3], "base": "6ea48f652", "ref": ["af08b8edb"],
+      "scope_files": ["apps/api/libs/infrastructure/src/index.ts", "apps/api/libs/infrastructure/src/barrel-surface.test.ts", "apps/api/libs/infrastructure/src/lib/cache/cache-generation.ts", "apps/api/libs/infrastructure/src/lib/cache/cache-generation.test.ts", "apps/api/libs/infrastructure/src/lib/cache/redis-client.ts", "apps/api/libs/infrastructure/src/lib/cache/redis-client-upstash.test.ts"],
+      "verify": [["deno", "task", "test", "libs/infrastructure/src/lib/cache/cache-generation.test.ts"]],
+      "hidden": ["apps/api/libs/infrastructure/src/lib/cache/cache-generation.test.ts@af08b8edb", "apps/api/libs/infrastructure/src/lib/cache/redis-client-upstash.test.ts@af08b8edb"],
+      "tdd": true, "budget_usd": 8, "timeout_min": 90,
+      "scrub_terms": ["394-01", "cache-generation", "MockRedisClient"],
+      "enabled": false, "reason": "pending calibration"
+    },
+    {
+      "id": "E3", "role": "executor", "agent": "gsd-executor", "model": "haiku", "tier": "T1",
+      "plan": ".planning/phases/394-cache-invalidation-without-keyspace-scans/394-03-PLAN.md",
+      "phase_dir": ".planning/phases/394-cache-invalidation-without-keyspace-scans", "phase_number": "394",
+      "phase_name": "cache-invalidation-without-keyspace-scans", "plan_number": "03", "task_range": "3",
+      "task_names": ["One bump helper; six writers await it; legacy-key DEL; R10 failure semantics (V2/V3, RED then GREEN)"],
+      "tasks": [3], "base": "fd5396a8b", "ref": ["83bc133e4"],
+      "scope_files": ["apps/api/functions/configurations/handlers/arena-config-cache.ts", "apps/api/functions/configurations/handlers/config-cache-invalidation.ts", "apps/api/functions/configurations/handlers/config-cache-invalidation.test.ts", "apps/api/functions/configurations/handlers/create-config.ts", "apps/api/functions/configurations/handlers/create-config.test.ts", "apps/api/functions/configurations/handlers/delete-config.ts", "apps/api/functions/configurations/handlers/delete-config.test.ts", "apps/api/functions/configurations/handlers/patch-arena-config.ts", "apps/api/functions/configurations/handlers/patch-arena-config.test.ts", "apps/api/functions/configurations/handlers/patch-market-config.ts", "apps/api/functions/configurations/handlers/patch-market-config.test.ts", "apps/api/functions/configurations/handlers/rollback-config.ts", "apps/api/functions/configurations/handlers/rollback-config.test.ts", "apps/api/functions/configurations/handlers/update-config.ts", "apps/api/functions/configurations/handlers/update-config.test.ts", "docs/api/endpoints/configurations.md"],
+      "verify": [["deno", "task", "test", "functions/configurations/handlers/config-cache-invalidation.test.ts"]],
+      "hidden": ["apps/api/functions/configurations/handlers/config-cache-invalidation.test.ts@83bc133e4", "apps/api/functions/configurations/handlers/patch-arena-config.test.ts@83bc133e4"],
+      "tdd": true, "budget_usd": 8, "timeout_min": 90,
+      "scrub_terms": ["394-03", "config-cache-invalidation", "arena-config-cache"],
+      "enabled": false, "reason": "pending calibration"
+    },
+    {
+      "id": "E4", "role": "executor", "agent": "gsd-executor", "model": "haiku", "tier": "T1 (test-only)",
+      "plan": ".planning/phases/390-docs-milestone-e2e-regression/390-01-PLAN.md",
+      "phase_dir": ".planning/phases/390-docs-milestone-e2e-regression", "phase_number": "390",
+      "phase_name": "docs-milestone-e2e-regression", "plan_number": "01", "task_range": "2-4",
+      "task_names": ["Task 2: Cluster A: array-shaped player_balances fixtures (22 tests)", "Task 3: Cluster B: valid mock_config in 9 tests + service-layer refusal pins [390-B1..B4]", "Task 4: Cluster C: session_replication_role write patterns P1-P4 in MC-R5 + fixtures"],
+      "tasks": [2, 3, 4], "base": "2ae3b723d", "ref": ["7a9557c59", "21a986873", "b28e12836"],
+      "scope_files": ["apps/api/functions/games/handlers/crash-multiplayer-characterization.test.ts", "apps/api/functions/games/handlers/crash-multiplayer-handlers.test.ts", "apps/api/functions/games/index.test.ts", "apps/api/functions/payments/mock-capability-invariants.test.ts", "apps/api/functions/payments/services/operator-payment-service-characterization.test.ts", "apps/api/functions/payments/services/operator-payment-service.test.ts"],
+      "verify": [["deno", "task", "test", "functions/games/handlers/crash-multiplayer-characterization.test.ts"], ["deno", "task", "test", "functions/games/handlers/crash-multiplayer-handlers.test.ts"], ["deno", "task", "test", "functions/games/index.test.ts"], ["deno", "task", "test", "functions/payments/mock-capability-invariants.test.ts"], ["deno", "task", "test", "functions/payments/services/operator-payment-service-characterization.test.ts"], ["deno", "task", "test", "functions/payments/services/operator-payment-service.test.ts"]],
+      "hidden": ["apps/api/functions/games/handlers/crash-multiplayer-characterization.test.ts@b28e12836", "apps/api/functions/games/handlers/crash-multiplayer-handlers.test.ts@b28e12836", "apps/api/functions/games/index.test.ts@b28e12836", "apps/api/functions/payments/mock-capability-invariants.test.ts@b28e12836", "apps/api/functions/payments/services/operator-payment-service-characterization.test.ts@b28e12836", "apps/api/functions/payments/services/operator-payment-service.test.ts@b28e12836"],
+      "tdd": false, "budget_usd": 8, "timeout_min": 90,
+      "scrub_terms": ["390-01", "player_balances", "mock_config", "session_replication_role"],
+      "enabled": false, "reason": "pending calibration"
+    },
+    {
+      "id": "E5", "role": "executor", "agent": "gsd-executor", "model": "haiku", "tier": "T0-path, mechanical",
+      "plan": ".planning/phases/399-auth-sweep-a1-a4/399-15-PLAN.md",
+      "phase_dir": ".planning/phases/399-auth-sweep-a1-a4", "phase_number": "399", "phase_name": "auth-sweep-a1-a4",
+      "plan_number": "15", "task_range": "2-3",
+      "task_names": ["Task 2: Characterization tests for enabled-TOTP verification (pre-move)", "Task 3: Move the enabled-TOTP block into totp-login-verify.ts"],
+      "tasks": [2, 3], "base": "c5f843d33", "ref": ["7b1f46eac", "41405fc25"],
+      "scope_files": ["apps/api/libs/infrastructure/src/lib/facades/two-factor/totp-login-verify.test.ts", "apps/api/libs/infrastructure/src/lib/facades/two-factor/totp-login-verify.ts", "apps/api/libs/infrastructure/src/lib/facades/two-factor/totp-provider.ts"],
+      "verify": [["deno", "task", "test", "libs/infrastructure/src/lib/facades/two-factor/totp-login-verify.test.ts"]],
+      "hidden": ["apps/api/libs/infrastructure/src/lib/facades/two-factor/totp-login-verify.test.ts@41405fc25"],
+      "tdd": false, "budget_usd": 8, "timeout_min": 90,
+      "scrub_terms": ["399-15", "totp-login-verify"],
+      "enabled": false, "reason": "pending calibration"
+    },
+    {
+      "id": "E7", "role": "executor", "agent": "gsd-executor", "model": "haiku", "tier": "T0-adjacent (money/reconciliation)",
+      "plan": ".planning/phases/400-wallet-sweep-w1-w2/400-14-PLAN.md",
+      "phase_dir": ".planning/phases/400-wallet-sweep-w1-w2", "phase_number": "400", "phase_name": "wallet-sweep-w1-w2",
+      "plan_number": "14", "task_range": "1-2",
+      "task_names": ["Task 1: Threat model + RED tests (unit + live race)", "Task 2: Compare-and-set fix + GREEN"],
+      "tasks": [1, 2], "base": "42093fcf9", "ref": ["e918b69a8", "a398dbaf7"],
+      "scope_files": ["apps/api/functions/reconciliation/handlers/resolve-gap.ts", "apps/api/functions/reconciliation/handlers/resolve-gap.test.ts"],
+      "verify": [["deno", "task", "test", "functions/reconciliation/handlers/resolve-gap.test.ts"]],
+      "hidden": ["apps/api/functions/reconciliation/handlers/resolve-gap.test.ts@a398dbaf7"],
+      "tdd": true, "budget_usd": 8, "timeout_min": 90,
+      "scrub_terms": ["400-14", "resolve-gap"],
+      "enabled": false, "reason": "pending calibration"
+    },
+    {
+      "id": "D1", "role": "debugger", "agent": "gsd-debugger", "model": "sonnet", "tier": "T2 (tooling)",
+      "plan": "", "phase_dir": "", "base": "3cf806c04", "ref": ["5698409cb"],
+      "scope_files": ["apps/api/scripts/coverage-gate.ts", "apps/api/scripts/coverage-gate.test.ts"],
+      "verify": [], "hidden": ["apps/api/scripts/coverage-gate.test.ts@5698409cb"],
+      "tdd": false, "budget_usd": 5, "timeout_min": 30, "scrub_terms": ["coverage-gate"],
+      "enabled": false, "reason": "pending calibration",
+      "blocked": "debugger brief (symptom text from transcript agent-adf5172e9f67bc424.jsonl) not built; render_brief is executor-only"
+    },
+    {
+      "id": "D2", "role": "debugger", "agent": "gsd-debugger", "model": "sonnet", "tier": "T2 (test infra)",
+      "plan": "", "phase_dir": "", "base": "d6f93fb60", "ref": ["39e80115a"],
+      "scope_files": ["scripts/reap-stale-test-processes.test.ts"],
+      "verify": [], "hidden": ["scripts/reap-stale-test-processes.test.ts@39e80115a"],
+      "tdd": false, "budget_usd": 5, "timeout_min": 30, "scrub_terms": ["reap-stale-test-processes"],
+      "enabled": false, "reason": "pending calibration",
+      "blocked": "debugger brief (symptom text from transcript agent-ab9d57516901959fe.jsonl) not built; render_brief is executor-only"
+    },
+    {
+      "id": "D3", "role": "debugger", "agent": "gsd-debugger", "model": "sonnet", "tier": "T0-adjacent (2FA)",
+      "plan": "", "phase_dir": "", "base": "0076ad324", "ref": ["b8761c1fe"],
+      "scope_files": [], "verify": [], "hidden": [], "tdd": false, "budget_usd": 5, "timeout_min": 30,
+      "scrub_terms": ["loginOperatorThrough2FA", "PENDING_2FA_MODE"],
+      "enabled": false,
+      "reason": "diagnose-only (zero edits) with a matcher-only oracle (root cause named); no hidden or visible test exists, so §4.6 cannot calibrate",
+      "blocked": "oracle/known.json (root-cause item) and debugger brief (transcript agent-a428fa306f771a23f.jsonl) not built"
+    },
+    {
+      "id": "DU1", "role": "docs-updater", "agent": "gsd-docs-updater", "model": "haiku", "tier": "T2",
+      "plan": "", "phase_dir": "", "base": "f107b6d43", "ref": ["125eb6c90"],
+      "scope_files": ["docs/authentication.md"], "verify": [], "hidden": [], "tdd": false, "budget_usd": 2, "timeout_min": 30,
+      "scrub_terms": ["399-16"],
+      "enabled": false,
+      "reason": "no executable oracle: contract, writable-path and grounded-claim checks only; §4.6 needs a hidden test failing at base",
+      "blocked": "docs-updater brief (399-16-SUMMARY.md path) not built; Sonnet grounded-claim check not built"
+    },
+    {
+      "id": "DU2", "role": "docs-updater", "agent": "gsd-docs-updater", "model": "haiku", "tier": "T2",
+      "plan": "", "phase_dir": "", "base": "670435d11", "ref": ["e4f53986e"],
+      "scope_files": ["docs/"], "verify": [], "hidden": [], "tdd": false, "budget_usd": 2, "timeout_min": 30,
+      "scrub_terms": ["400-12"],
+      "enabled": false,
+      "reason": "no executable oracle: contract, writable-path and grounded-claim checks only; §4.6 needs a hidden test failing at base",
+      "blocked": "docs-updater brief (400-12-SUMMARY.md path) not built; Sonnet grounded-claim check not built"
+    },
+    {
+      "id": "DU3", "role": "docs-updater", "agent": "gsd-docs-updater", "model": "haiku", "tier": "T2 (negative control)",
+      "plan": "", "phase_dir": "", "base": "ab5333de8", "ref": ["ab5333de8"],
+      "scope_files": [], "verify": [], "hidden": [], "tdd": false, "budget_usd": 2, "timeout_min": 30,
+      "scrub_terms": ["400-41"],
+      "enabled": false,
+      "reason": "negative control: the reference wrote nothing, so the reference tree equals base and there is nothing to calibrate",
+      "blocked": "docs-updater brief (400-41-SUMMARY.md path) not built; empty-contract check not built"
+    },
+    {
+      "id": "P2", "role": "planner", "agent": "gsd-planner", "model": "opus", "tier": "T1",
+      "plan": ".planning/phases/390-docs-milestone-e2e-regression/390-01-PLAN.md",
+      "phase_dir": ".planning/phases/390-docs-milestone-e2e-regression", "base": "7dabd66f1", "ref": ["2ae3b723d"],
+      "scope_files": [".planning/phases/390-docs-milestone-e2e-regression/390-01-PLAN.md"],
+      "verify": [], "hidden": [], "tdd": false, "budget_usd": 8, "timeout_min": 30, "scrub_terms": ["390-01"],
+      "enabled": false,
+      "reason": "revision-mode planner: matcher-only oracle (HIGH-1, PC1-PC5 addressed) plus gsd-tools verify; no hidden test, so §4.6 cannot calibrate",
+      "blocked": "revision brief (planner-detail.md revision mode) not built; oracle/known.json not built; render_brief is executor-only"
+    },
+    {
+      "id": "R1", "role": "review", "agent": "general-purpose", "model": "sonnet", "tier": "T0 (wallet)",
+      "plan": "", "phase_dir": ".planning/phases/400-wallet-sweep-w1-w2", "base": "6f59d662e", "ref": ["f861f5852"],
+      "scope_files": ["apps/api/libs/domain/src/lib/wallet/player-transaction-view.ts", "apps/api/libs/domain/src/lib/wallet/player-transaction-view.test.ts"],
+      "verify": [], "hidden": [], "tdd": false, "budget_usd": 5, "timeout_min": 30, "scrub_terms": ["player-transaction-view"],
+      "known": [{"id": "K1", "required": true, "where": "apps/api/libs/domain/src/lib/wallet/player-transaction-view.ts (projection)", "mechanism": "reads inherited properties (k in metadata, unguarded source[k]); fix is Object.hasOwn"}],
+      "enabled": false,
+      "reason": "no executable oracle: §4.6 needs a hidden test failing at base; known_recall needs the reviewer brief and oracle/known.json",
+      "blocked": "reviewer brief (historical prompt from files.jsonl) not built; render_brief is executor-only; oracle/known.json not materialised from this registry"
+    },
+    {
+      "id": "R2", "role": "review", "agent": "general-purpose", "model": "sonnet", "tier": "T0 (money)",
+      "plan": "", "phase_dir": ".planning/phases/400-wallet-sweep-w1-w2", "base": "41b074edb", "ref": ["828a89223"],
+      "scope_files": ["apps/api/libs/infrastructure/src/lib/security/adjustment-authority.ts", "apps/api/libs/infrastructure/src/lib/security/adjustment-authority.test.ts"],
+      "verify": [], "hidden": [], "tdd": false, "budget_usd": 5, "timeout_min": 30, "scrub_terms": ["adjustment-authority"],
+      "known": [
+        {"id": "K1", "required": true, "where": "apps/api/libs/infrastructure/src/lib/security/adjustment-authority.ts amount parser", "mechanism": "unbounded ^\\d+(\\.\\d+)?$ digit runs before BigInt scaling"},
+        {"id": "K2", "required": true, "where": "apps/api/libs/infrastructure/src/lib/security/adjustment-authority.ts amount check", "mechanism": "non-string amount throws a TypeError at amount.startsWith"}
+      ],
+      "enabled": false,
+      "reason": "no executable oracle: §4.6 needs a hidden test failing at base; known_recall needs the reviewer brief and oracle/known.json",
+      "blocked": "reviewer brief not built; render_brief is executor-only; oracle/known.json not materialised from this registry"
+    },
+    {
+      "id": "R3", "role": "plancheck", "agent": "gsd-plan-checker", "model": "opus", "tier": "T1",
+      "plan": ".planning/phases/390-docs-milestone-e2e-regression/390-01-PLAN.md",
+      "phase_dir": ".planning/phases/390-docs-milestone-e2e-regression", "base": "19fa2f0ef", "ref": ["7dabd66f1"],
+      "scope_files": [".planning/phases/390-docs-milestone-e2e-regression/390-01-PLAN.md"],
+      "verify": [], "hidden": [], "tdd": false, "budget_usd": 5, "timeout_min": 30, "scrub_terms": ["390-01"],
+      "known": [
+        {"id": "HIGH-1", "required": true, "where": "390-01-PLAN.md MC-R5 pattern (narrowed)", "mechanism": "narrowed MC-R5 misses UPDATE pg_settings, EXECUTE format(...), and concatenated or variable GUC writes"},
+        {"id": "PC1", "required": false, "where": "390-01-PLAN.md :119/:125/:138/:140 and Task 5 automated check", "mechanism": "bash rg triggers a human-approval prompt in this repo (CLAUDE.md)"},
+        {"id": "PC2", "required": false, "where": "390-01-PLAN.md Task 5 step 3", "mechanism": "git status --porcelain only prints, so the clean-tree check is never enforced"},
+        {"id": "PC3", "required": false, "where": "390-01-PLAN.md M-B3", "mechanism": "mutation also reds D1-U3 (operator-processors.test.ts:606) while the plan says only B4"},
+        {"id": "PC4", "required": false, "where": "390-01-PLAN.md task count", "mechanism": "5 tasks, above the 2-3 norm"},
+        {"id": "PC5", "required": false, "where": "390-01-PLAN.md Task 5 commit", "mechanism": ".planning/v0.1.33-DEFERRED/README.md committed but not in files_modified"}
+      ],
+      "enabled": false,
+      "reason": "no executable oracle: §4.6 needs a hidden test failing at base; known_recall needs the checker brief and oracle/known.json",
+      "blocked": "plan-checker brief not built; render_brief is executor-only; oracle/known.json not materialised from this registry"
+    },
+    {
+      "id": "P1", "role": "planner", "agent": "gsd-planner", "model": "opus", "tier": "T0 (auth)",
+      "plan": ".planning/phases/399-auth-sweep-a1-a4/399-11-PLAN.md",
+      "phase_dir": ".planning/phases/399-auth-sweep-a1-a4", "phase_number": "399", "phase_name": "auth-sweep-a1-a4",
+      "plan_number": "11", "base": "816216617", "ref": ["ff82da998"],
+      "scope_files": [".planning/phases/399-auth-sweep-a1-a4/399-11-PLAN.md"],
+      "verify": [], "hidden": [], "tdd": false, "budget_usd": 8, "timeout_min": 30, "scrub_terms": ["399-11", "A3a-C9-1"],
+      "known": [
+        {"id": "C1", "required": false, "where": "libs/domain (72-byte helper)", "mechanism": "C1 72-byte UTF-8 helper in libs/domain"},
+        {"id": "C2", "required": false, "where": "PasswordSchema and shared validator", "mechanism": "refuse more than 72 UTF-8 bytes"},
+        {"id": "C3", "required": false, "where": "SQL hash_password plus ROLLBACK migration", "mechanism": "RAISE and ROLLBACK for the SQL limit"},
+        {"id": "C4", "required": false, "where": "real-stack test for the SQL limit and register route", "mechanism": "integration coverage of the SQL limit and register route"},
+        {"id": "C5", "required": false, "where": "docs/authentication.md", "mechanism": "policy text for the 72-byte limit"},
+        {"id": "C6", "required": false, "where": "SQL guard mutation proof", "mechanism": "mutation proof of the SQL guard (T0)"}
+      ],
+      "enabled": false,
+      "reason": "no executable oracle: plan_ok (verify plan-structure/references) is not a hidden test, so §4.6 cannot calibrate; coverage items need the matcher",
+      "blocked": "planner brief not built; render_brief is executor-only; oracle/known.json not materialised from this registry"
+    },
+    {
+      "id": "V1", "role": "verifier", "agent": "gsd-verifier", "model": "opus", "tier": "T1 (tooling)",
+      "plan": "", "phase_dir": ".planning/phases/398-findings-register-reverification-program-substrate", "phase_number": "398",
+      "base": "17400ddbf", "ref": ["238023d5d"],
+      "scope_files": [".planning/phases/398-findings-register-reverification-program-substrate/398-VERIFICATION.md"],
+      "verify": [], "hidden": [], "tdd": false, "budget_usd": 8, "timeout_min": 30, "scrub_terms": ["398-VERIFICATION", "MAX_CONCURRENT_BUCKETS"],
+      "known": [
+        {"id": "G1", "required": false, "where": "398 T0.md:22-25,36", "mechanism": "SC4 T0 timings missing"},
+        {"id": "G2a", "required": false, "where": "398 findings register (3 rows)", "mechanism": "blank severities"},
+        {"id": "G2b", "required": false, "where": "run-integration-tests.sh:1733", "mechanism": "unvalidated env MAX_CONCURRENT_BUCKETS"},
+        {"id": "G2c", "required": false, "where": "398 Defect Classes section", "mechanism": "missing Defect Classes rows"}
+      ],
+      "enabled": false,
+      "reason": "no executable oracle: verify_ok is a frontmatter read and gap recall is matcher-only; §4.6 cannot calibrate",
+      "blocked": "verifier brief not built; render_brief is executor-only; oracle/known.json not materialised from this registry"
+    },
+    {
+      "id": "S-PR", "role": "smoke", "agent": "gsd-phase-researcher", "model": "sonnet", "tier": "E2",
+      "plan": "", "phase_dir": ".planning/phases/399-auth-sweep-a1-a4", "base": "4739bf24b", "ref": ["816216617"],
+      "scope_files": [".planning/phases/399-auth-sweep-a1-a4/399-RESEARCH.md"], "verify": [], "hidden": [],
+      "tdd": false, "budget_usd": 3, "timeout_min": 30, "scrub_terms": ["399-RESEARCH"],
+      "enabled": false,
+      "reason": "E2 smoke: rubric and pairwise judge only; no hidden test, so §4.6 cannot calibrate",
+      "blocked": "spawn-prompt brief (agent-ac78119adf41c8e85.jsonl) not built; render_brief is executor-only; rubric judge not built"
+    },
+    {
+      "id": "S-PJ", "role": "smoke", "agent": "gsd-project-researcher", "model": "sonnet", "tier": "E2",
+      "plan": "", "phase_dir": "", "base": "7142f1ca6", "ref": ["7142f1ca6"],
+      "scope_files": [], "verify": [], "hidden": [], "tdd": false, "budget_usd": 3, "timeout_min": 30, "scrub_terms": ["PITFALLS"],
+      "enabled": false,
+      "reason": "E2 smoke: rubric and pairwise judge only; no hidden test, and no outcome commit (ref is the frozen HEAD)",
+      "blocked": "pending PRD under .planning/prds/pending/ not frozen into the snapshot; brief not built; rubric judge not built"
+    },
+    {
+      "id": "S-RS", "role": "smoke", "agent": "gsd-research-synthesizer", "model": "sonnet", "tier": "E2",
+      "plan": "", "phase_dir": "", "base": "ea1fdf9e3", "ref": ["ea1fdf9e3"],
+      "scope_files": [".planning/research/SUMMARY.md"], "verify": [], "hidden": [], "tdd": false, "budget_usd": 3, "timeout_min": 30,
+      "scrub_terms": ["SUMMARY.md"],
+      "enabled": false,
+      "reason": "E2 smoke: rubric and pairwise judge only; no hidden test (ref is the base commit with research/SUMMARY.md removed by the scrub)",
+      "blocked": "new-project synthesizer prompt not built; render_brief is executor-only; rubric judge not built"
+    },
+    {
+      "id": "S-RM", "role": "smoke", "agent": "gsd-roadmapper", "model": "sonnet", "tier": "E2",
+      "plan": "", "phase_dir": "", "base": "a227e1134", "ref": ["b580c954e"],
+      "scope_files": [".planning/ROADMAP.md"], "verify": [], "hidden": [], "tdd": false, "budget_usd": 3, "timeout_min": 30,
+      "scrub_terms": ["v0.1.34"],
+      "enabled": false,
+      "reason": "E2 smoke: coverage rubric only (every requirement mapped); no hidden test, so §4.6 cannot calibrate",
+      "blocked": "roadmapper prompt (agent-a5d6418f64f28c833.jsonl) not built; render_brief is executor-only; rubric judge not built"
+    },
+    {
+      "id": "S-CM", "role": "smoke", "agent": "gsd-codebase-mapper", "model": "sonnet", "tier": "E2",
+      "plan": "", "phase_dir": "", "base": "7142f1ca6", "ref": ["7142f1ca6"],
+      "scope_files": [".planning/codebase/CONVENTIONS.md", ".planning/codebase/TESTING.md"], "verify": [], "hidden": [],
+      "tdd": false, "budget_usd": 3, "timeout_min": 30, "scrub_terms": ["CONVENTIONS"],
+      "enabled": false,
+      "reason": "E2 smoke: citation rubric only; no hidden test and no outcome commit (ref is the frozen HEAD)",
+      "blocked": "focus-quality mapper prompt not built; render_brief is executor-only; forbidden-files check not built"
+    },
+    {
+      "id": "S-IC", "role": "smoke", "agent": "gsd-integration-checker", "model": "sonnet", "tier": "E2",
+      "plan": "", "phase_dir": "", "base": "4e0a498dd", "ref": ["4e0a498dd"],
+      "scope_files": [], "verify": [], "hidden": [], "tdd": false, "budget_usd": 3, "timeout_min": 30,
+      "scrub_terms": ["integration-checker"],
+      "enabled": false,
+      "reason": "E2 smoke: recall of 3 FAIL items is matcher-only; no hidden test and the ref is a verdict transcript, not a commit",
+      "blocked": "check prompt (agent-aa49ae0b46db6ef69.jsonl) not built; oracle/known.json (3 FAIL items) not built; render_brief is executor-only"
+    },
+    {
+      "id": "S-EG", "role": "smoke", "agent": "gsd-e2e-test-generator", "model": "sonnet", "tier": "E2",
+      "plan": "", "phase_dir": ".planning/phases/399-auth-sweep-a1-a4", "base": "21e935fc0", "ref": ["6629fae1f"],
+      "scope_files": [".planning/phases/399-auth-sweep-a1-a4/E2E-TEST-PLAN.md"], "verify": [], "hidden": [],
+      "tdd": false, "budget_usd": 3, "timeout_min": 30, "scrub_terms": ["E2E-TEST-PLAN"],
+      "enabled": false,
+      "reason": "E2 smoke: UI-flow coverage and R1-R7 rubric only; no hidden test, so §4.6 cannot calibrate",
+      "blocked": "generator prompt (agent-aa1a73bb0b26b1232.jsonl) not built; merged inventory step not built; render_brief is executor-only"
+    },
+    {
+      "id": "S-PI", "role": "smoke", "agent": "gsd-product-investigator", "model": "sonnet", "tier": "E2",
+      "plan": "", "phase_dir": "", "base": "7142f1ca6", "ref": ["7142f1ca6"],
+      "scope_files": [], "verify": [], "hidden": [], "tdd": false, "budget_usd": 3, "timeout_min": 30,
+      "scrub_terms": ["product-investigator"],
+      "enabled": false,
+      "reason": "E2 smoke: structured-report rubric only; no hidden test and no outcome commit (ref is the frozen HEAD)",
+      "blocked": "one-dimension PRD investigation brief not built; pending PRD not frozen into the snapshot; render_brief is executor-only"
+    },
+    {
+      "id": "S-DS", "role": "smoke", "agent": "gsd-discovery-synthesizer", "model": "opus", "tier": "E2",
+      "plan": "", "phase_dir": "", "base": "7142f1ca6", "ref": ["7142f1ca6"],
+      "scope_files": [], "verify": [], "hidden": [], "tdd": false, "budget_usd": 3, "timeout_min": 30,
+      "scrub_terms": ["discovery-synthesizer"],
+      "enabled": false,
+      "reason": "E2 smoke: PRD section rubric only; no hidden test",
+      "blocked": "needs S-PI outputs from both arms (not yet produced); prd.md:148 template brief not built; render_brief is executor-only"
+    },
+    {
+      "id": "TW1", "role": "test-writer", "agent": "gsd-test-writer", "model": "haiku", "tier": "T0 (auth)",
+      "plan": ".planning/phases/399-auth-sweep-a1-a4/399-23-PLAN.md", "phase_dir": ".planning/phases/399-auth-sweep-a1-a4",
+      "base": "d9c763d07", "ref": ["dc276d613", "2e4942b38"],
+      "scope_files": ["operator-login-m1.test.ts"], "verify": [], "hidden": [], "tdd": true, "budget_usd": 5, "timeout_min": 30,
+      "scrub_terms": ["399-23", "operator-login-m1"],
+      "enabled": false,
+      "reason": "not calibrated: the seeded-mutant check (kill count vs ref) cannot run without the mutants",
+      "blocked": "oracle/mutants/*.patch (3 seeded mutants of the GREEN operator-login change) not authored; Sonnet drafter and main-session review required (DESIGN-ALL §2.4)"
+    },
+    {
+      "id": "TW2", "role": "test-writer", "agent": "gsd-test-writer", "model": "haiku", "tier": "T0 (money)",
+      "plan": ".planning/phases/400-wallet-sweep-w1-w2/400-30-PLAN.md", "phase_dir": ".planning/phases/400-wallet-sweep-w1-w2",
+      "base": "71af0a621", "ref": ["5e729b744", "73ee91bb4", "97ce31615"],
+      "scope_files": ["apps/api/functions/games/handlers/mines-handlers.test.ts", "apps/api/functions/games/handlers/slots-handlers.test.ts"],
+      "verify": [], "hidden": [], "tdd": true, "budget_usd": 5, "timeout_min": 30,
+      "scrub_terms": ["400-30", "mines-handlers", "slots-handlers"],
+      "enabled": false,
+      "reason": "not calibrated: the seeded-mutant check (kill count vs ref) cannot run without the mutants",
+      "blocked": "oracle/mutants/*.patch (3 seeded mutants of the GREEN slots and mines change) not authored; Sonnet drafter and main-session review required (DESIGN-ALL §2.4)"
+    },
+    {
+      "id": "H1", "role": "runner", "agent": "general-purpose", "model": "haiku", "tier": "T2",
+      "plan": "", "phase_dir": "", "base": "fd5396a8b", "ref": [],
+      "scope_files": [], "verify": [], "hidden": [], "tdd": false, "budget_usd": 1, "timeout_min": 10, "scrub_terms": ["configurations"],
+      "enabled": false,
+      "reason": "not calibrated: the planted failing assertion is the oracle and does not exist yet",
+      "blocked": "planted failing assertion in configurations handler tests not authored; gsd2-runner def (omitClaudeMd) not authored; exact-count oracle not built"
+    },
+    {
+      "id": "C1", "role": "coordinator", "agent": "gsd-phase-coordinator", "model": "sonnet", "tier": "T1",
+      "plan": ".planning/phases/398-findings-register-reverification-program-substrate/398-02-PLAN.md",
+      "phase_dir": ".planning/phases/398-findings-register-reverification-program-substrate", "base": "ed0a7bec5", "ref": [],
+      "scope_files": [], "verify": [], "hidden": [], "tdd": false, "budget_usd": 5, "timeout_min": 60, "scrub_terms": ["398-02"],
+      "enabled": false,
+      "reason": "not calibrated: synthetic-phase decision oracle, no reference outcome",
+      "blocked": "harness/stubs/*.json and stub_child.py not built; scenario.yaml not built; decision oracle (ab_grade --coord) not built"
+    },
+    {
+      "id": "C2", "role": "coordinator", "agent": "gsd-phase-coordinator", "model": "sonnet", "tier": "T1",
+      "plan": ".planning/phases/398-findings-register-reverification-program-substrate/398-02-PLAN.md",
+      "phase_dir": ".planning/phases/398-findings-register-reverification-program-substrate", "base": "ed0a7bec5", "ref": [],
+      "scope_files": [], "verify": [], "hidden": [], "tdd": false, "budget_usd": 5, "timeout_min": 60, "scrub_terms": ["398-02"],
+      "enabled": false,
+      "reason": "not calibrated: synthetic-phase decision oracle, no reference outcome",
+      "blocked": "harness/stubs and stub_child.py not built; scenario 398-02 [lie, ok] not built; decision oracle not built"
+    },
+    {
+      "id": "C3", "role": "coordinator", "agent": "gsd-phase-coordinator", "model": "sonnet", "tier": "T1",
+      "plan": ".planning/phases/398-findings-register-reverification-program-substrate/398-02-PLAN.md",
+      "phase_dir": ".planning/phases/398-findings-register-reverification-program-substrate", "base": "ed0a7bec5", "ref": [],
+      "scope_files": [], "verify": [], "hidden": [], "tdd": false, "budget_usd": 5, "timeout_min": 60, "scrub_terms": ["398-02"],
+      "enabled": false,
+      "reason": "not calibrated: synthetic-phase decision oracle, no reference outcome",
+      "blocked": "harness/stubs and stub_child.py not built; scenario 398-02 [die, ok] and 420 s duration not built; decision oracle not built"
+    },
+    {
+      "id": "Q1", "role": "charlotte-qa", "agent": "gsd-charlotte-qa", "model": "haiku", "tier": "T2",
+      "plan": "", "phase_dir": "", "base": null, "ref": [],
+      "scope_files": [], "verify": [], "hidden": [], "tdd": false, "budget_usd": 2, "timeout_min": 30, "scrub_terms": ["qa-app"],
+      "enabled": false,
+      "reason": "not calibrated: seeded-defect recall needs the seeded fixture app, and base is not specified in DESIGN-ALL §2.1",
+      "blocked": "harness/fixtures/qa-app with 6 seeded defects not authored (the existing fixtures/qa-app is a clean probe page); probe S9 (Charlotte under harness) not run"
+    },
+    {
+      "id": "Q2", "role": "charlotte-qa", "agent": "gsd-charlotte-qa", "model": "haiku", "tier": "T2",
+      "plan": "", "phase_dir": "", "base": null, "ref": [],
+      "scope_files": [], "verify": [], "hidden": [], "tdd": false, "budget_usd": 2, "timeout_min": 30, "scrub_terms": ["qa-app"],
+      "enabled": false,
+      "reason": "not calibrated: UX-defect recall needs the seeded fixture app, and base is not specified in DESIGN-ALL §2.1",
+      "blocked": "harness/fixtures/qa-app with 3 seeded UX defects not authored; probe S9 not run"
     }
   ]
 }

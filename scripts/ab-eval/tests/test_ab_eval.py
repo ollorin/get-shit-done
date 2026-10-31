@@ -395,5 +395,30 @@ class G3Tests(unittest.TestCase):
         self.assertEqual(AG.latest_matches(matches), {"a1": matches[1]})
 
 
+class HiddenArgTests(unittest.TestCase):
+    def test_apps_api_tests_keep_the_short_form(self):
+        repo = Path("/r")
+        self.assertEqual(G.hidden_arg(repo / "apps/api/libs/x.test.ts", repo / "apps/api"), "libs/x.test.ts")
+
+    def test_scripts_tests_resolve_from_apps_api(self):
+        repo = Path("/r")
+        self.assertEqual(G.hidden_arg(repo / "scripts/validation/g.test.ts", repo / "apps/api"),
+                         "../../scripts/validation/g.test.ts")
+
+
+class RegistryTests(unittest.TestCase):
+    def test_registry_entries_are_well_formed(self):
+        tasks = json.loads((ROOT / "examples" / "tasks.json").read_text())["tasks"]
+        ids = [t["id"] for t in tasks]
+        self.assertEqual(len(ids), len(set(ids)))
+        for t in tasks:
+            self.assertIsInstance(t.get("enabled"), bool, t["id"])
+            if not t["enabled"]:
+                self.assertTrue(t.get("reason") or t.get("blocked"), f"{t['id']} disabled without a reason")
+            if t["enabled"]:
+                self.assertIsInstance(t.get("base"), str, t["id"])
+                self.assertTrue(t.get("ref"), t["id"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
