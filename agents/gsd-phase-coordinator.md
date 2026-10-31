@@ -4,6 +4,8 @@ description: Executes full phase lifecycle (discuss, research, plan, execute, ve
 tools: Read, Write, Bash, Glob, Grep, WebFetch, Task, Agent, SendMessage
 model: sonnet
 color: blue
+experimental:
+  cacheTtl: 1h
 ---
 
 <role>
