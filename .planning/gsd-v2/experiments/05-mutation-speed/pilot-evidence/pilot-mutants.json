@@ -1,0 +1,83 @@
+[
+ {
+  "id": "M1",
+  "file": "apps/api/functions/payments/services/payment-method-limits.ts",
+  "old": "if (value === null || value === undefined) return null;",
+  "new": "if (value === null) return null;",
+  "test": "apps/api/functions/payments/services/payment-method-limits.test.ts",
+  "expect": "survived"
+ },
+ {
+  "id": "M2",
+  "file": "apps/api/functions/payments/services/payment-method-limits.ts",
+  "old": "return Number.isFinite(parsed) ? parsed : null;",
+  "new": "return parsed;",
+  "test": "apps/api/functions/payments/services/payment-method-limits.test.ts",
+  "expect": "survived"
+ },
+ {
+  "id": "M3",
+  "file": "apps/api/functions/payments/services/payment-method-limits.ts",
+  "old": "typeof methodType !== 'string' || methodType === ''",
+  "new": "typeof methodType !== 'string'",
+  "test": "apps/api/functions/payments/services/payment-method-limits.test.ts",
+  "expect": "killed",
+  "expect_failing_test": "missing, empty"
+ },
+ {
+  "id": "M4",
+  "file": "apps/api/functions/payments/services/payment-method-limits.ts",
+  "old": "typeof methodType !== 'string' || methodType === ''",
+  "new": "methodType === ''",
+  "test": "apps/api/functions/payments/services/payment-method-limits.test.ts"
+ },
+ {
+  "id": "M5",
+  "file": "apps/api/functions/payments/services/payment-method-limits.ts",
+  "old": ".eq('is_active', true)\n",
+  "new": "\n",
+  "test": "apps/api/functions/payments/services/payment-method-limits.test.ts",
+  "expect": "survived"
+ },
+ {
+  "id": "M6",
+  "file": "apps/api/functions/payments/services/payment-method-limits.ts",
+  "old": "    }\n    if (!data) {\n      // Unknown or inactive",
+  "new": "    }\n    if (data) {\n      // Unknown or inactive",
+  "test": "apps/api/functions/payments/services/payment-method-limits.test.ts"
+ },
+ {
+  "id": "M7",
+  "file": "apps/api/functions/payments/services/payment-method-limits.ts",
+  "old": ".eq('is_active', true)\n      .maybeSingle(),\n    (e) => PaymentDatabaseError({ table: 'payment_methods', operation: 'select', cause: e as Error })\n  ).andThen(({ data, error }) => {\n    if (error) {",
+  "new": ".eq('is_active', true)\n      .maybeSingle(),\n    (e) => PaymentDatabaseError({ table: 'payment_methods', operation: 'select', cause: e as Error })\n  ).andThen(({ data, error }) => {\n    if (!error) {",
+  "test": "apps/api/functions/payments/services/payment-method-limits.test.ts"
+ },
+ {
+  "id": "M8",
+  "file": "apps/api/functions/payments/services/payment-method-limits.ts",
+  "old": "minAmount: toNullableNumber(row['min_amount']),",
+  "new": "minAmount: toNullableNumber(row['max_amount']),",
+  "test": "apps/api/functions/payments/services/payment-method-limits.test.ts",
+  "expect": "killed",
+  "expect_failing_test": "returns the payment_method_type"
+ },
+ {
+  "id": "M9",
+  "file": "apps/api/functions/payments/services/payment-method-limits.ts",
+  "old": "methodType,\n    });",
+  "new": "methodType: 'card',\n    });",
+  "test": "apps/api/functions/payments/services/payment-method-limits.test.ts",
+  "expect": "killed",
+  "expect_failing_test": "returns the payment_method_type"
+ },
+ {
+  "id": "M10",
+  "file": "apps/api/functions/payments/services/payment-method-limits.ts",
+  "old": ".select('min_amount, max_amount, payment_method_type')",
+  "new": ".select('min_amount, max_amount')",
+  "test": "apps/api/functions/payments/services/payment-method-limits.test.ts",
+  "expect": "killed",
+  "expect_failing_test": "returns the payment_method_type"
+ }
+]
