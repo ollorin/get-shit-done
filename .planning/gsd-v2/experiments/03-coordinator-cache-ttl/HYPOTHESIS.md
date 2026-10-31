@@ -5,3 +5,6 @@ Change: `experimental: cacheTtl: 1h` in `agents/gsd-phase-coordinator.md` (fork 
 Baseline (`research/01-SESSION-ANALYSIS.md` F2): coordinators wrote 333M cache tokens, 325M (98%) of them re-writes after a poll > 5 min; ~$767 premium over 34 days.
 
 Check on the first new coordinator transcript: `usage.cache_creation.ephemeral_1h_input_tokens` > 0 and cache-write / cache-read ratio well below baseline. If the 1h bucket stays 0, the frontmatter key is not honoured → try `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL=1h` scoped narrowly, or revert.
+
+## Probe result (2026-10-31, `research/06-PROBES.md` P4)
+Frontmatter `experimental.cacheTtl: 1h` honoured for subagents in a sandbox: `ephemeral_1h` 5207 vs `ephemeral_5m` 5207 on the plain subagent. Production confirmation still pending on the first new coordinator transcript.

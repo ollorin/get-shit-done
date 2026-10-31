@@ -1,0 +1,7 @@
+A_main_headlessTrue            ["FAIL:20002:Page.captureScreenshot timed out. Increa","FAIL:20001:Page.captureScreenshot timed out. Increa"]
+B_headless_shell               [200,342]
+C_true_bgflags                 ["FAIL:20006:Page.captureScreenshot timed out. Increa","FAIL:20003:Page.captureScreenshot timed out. Increa"]
+D_true_bgflags_noOcclusion     ["FAIL:20002:Page.captureScreenshot timed out. Increa","FAIL:20001:Page.captureScreenshot timed out. Increa"]
+E_true_bringToFront            ["FAIL:20003:Page.captureScreenshot timed out. Increa","FAIL:20021:Page.captureScreenshot timed out. Increa"]
+F_true_viewportOnly            ["FAIL:20002:Page.captureScreenshot timed out. Increa","FAIL:20003:Page.captureScreenshot timed out. Increa"]
+G_true_noBeyondViewport        ["FAIL:20064:Page.captureScreenshot timed out. Increa","FAIL:20007:Page.captureScreenshot timed out. Increa"]

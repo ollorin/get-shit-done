@@ -1,0 +1,306 @@
+{"timestamp":"2026-10-31T17:27:52.729Z","level":"info","message":"Charlotte starting"}
+{"timestamp":"2026-10-31T17:27:52.735Z","level":"info","message":"Launching Chromium","data":{"userDataDir":"/var/folders/86/1g7kwhj95xb5llbkxd7s4_gw0000gp/T/shot-bench-8egpj5/profiles/74383-1"}}
+{"timestamp":"2026-10-31T17:27:56.229Z","level":"info","message":"Chromium launched","data":{"pid":74481}}
+{"timestamp":"2026-10-31T17:27:56.490Z","level":"info","message":"Opened tab tab-1","data":{}}
+{"timestamp":"2026-10-31T17:27:56.492Z","level":"info","message":"Artifact store initialized","data":{"dir":"/var/folders/86/1g7kwhj95xb5llbkxd7s4_gw0000gp/T/charlotte-screenshots"}}
+{"timestamp":"2026-10-31T17:27:56.494Z","level":"info","message":"Video artifact store initialized","data":{"dir":"/var/folders/86/1g7kwhj95xb5llbkxd7s4_gw0000gp/T/charlotte-screencasts"}}
+Tool name validation warning for "charlotte:instance_launch":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:instance_list":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:instance_kill":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:evaluate":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:navigate":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:back":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:forward":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:reload":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:observe":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:find":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:screenshot":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:screenshots":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:screenshot_get":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:screenshot_delete":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:diff":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:click":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:type":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:select":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:toggle":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:submit":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:scroll":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:hover":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:drag":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:key":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:wait_for":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:dialog":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:get_cookies":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:clear_cookies":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:set_cookies":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:set_headers":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:configure":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:tabs":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:tab_open":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:tab_switch":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:tab_close":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:viewport":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:network":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:console":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:requests":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:dev_serve":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:dev_inject":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:dev_audit":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:screencast_start":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:screencast_stop":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:screencasts":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+Tool name validation warning for "charlotte:screencast_delete":
+  - Tool name contains invalid characters: ":"
+  - Allowed characters are: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
+Tool registration will proceed, but this may cause compatibility issues.
+Consider updating the tool name to conform to the MCP tool naming standard.
+See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.
+{"timestamp":"2026-10-31T17:27:56.616Z","level":"info","message":"Charlotte MCP server running on stdio"}
+{"timestamp":"2026-10-31T17:27:56.858Z","level":"info","message":"Opened tab tab-2","data":{}}
+{"timestamp":"2026-10-31T17:27:56.858Z","level":"info","message":"Opened new tab","data":{"tabId":"tab-2"}}
+fixed-off-8 charlotte:tab_open true 242 {
+  "tab_id": "tab-2",
+  "url": "about:blank",
+  "title": "",
+  "viewport": {
+  
+{"timestamp":"2026-10-31T17:27:56.878Z","level":"info","message":"Configuring Charlotte","data":{"screenshot_dir":"/var/folders/86/1g7kwhj95xb5llbkxd7s4_gw0000gp/T/shot-bench-8egpj5/shots"}}
+{"timestamp":"2026-10-31T17:27:56.878Z","level":"info","message":"Artifact store initialized","data":{"dir":"/var/folders/86/1g7kwhj95xb5llbkxd7s4_gw0000gp/T/shot-bench-8egpj5/shots"}}
+fixed-off-8 charlotte:configure true 3 {"success":true,"config":{"snapshot_depth":50,"auto_snapshot":"every_action","sc
+{"timestamp":"2026-10-31T17:27:56.881Z","level":"info","message":"Navigating","data":{"url":"http://localhost:3000","waitUntil":"load"}}
+fixed-off-8 charlotte:navigate false 32103 {"error":{"code":"TIMEOUT","message":"Navigation to 'http://localhost:3000' time
+{"timestamp":"2026-10-31T17:28:29.200Z","level":"info","message":"Reloading page","data":{"hard":false}}
+fixed-off-8 charlotte:reload true 27270 {"url":"http://localhost:3000/","title":"Nigerian Casino - Premium Online Gaming
+{"timestamp":"2026-10-31T17:28:56.366Z","level":"info","message":"Waiting for condition","data":{"js":"document.readyState === 'complete'","timeout":3000}}
+fixed-off-8 charlotte:wait_for true 301 {"url":"http://localhost:3000/","title":"Nigerian Casino - Premium Online Gaming
+{"timestamp":"2026-10-31T17:28:56.763Z","level":"info","message":"Taking screenshot","data":{"format":"png","save":true}}
+{"timestamp":"2026-10-31T17:28:57.218Z","level":"info","message":"Screenshot saved","data":{"id":"ss-20261031172857-1db66a","filename":"ss-20261031172857-1db66a.png","size":1032782}}
+fixed-off-8 shot 1 OK 696 ms 1377044
+{"timestamp":"2026-10-31T17:28:57.582Z","level":"info","message":"Shutting down"}
+{"timestamp":"2026-10-31T17:28:57.583Z","level":"info","message":"Destroying instance","data":{"id":"default"}}
+{"timestamp":"2026-10-31T17:28:57.583Z","level":"info","message":"Closing Chromium"}

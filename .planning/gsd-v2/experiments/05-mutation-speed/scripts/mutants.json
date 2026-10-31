@@ -1,0 +1,12 @@
+[
+{"id":"M1","old":"if (value === null || value === undefined) return null;","new":"if (value === null) return null;","first_failing":null},
+{"id":"M2","old":"return Number.isFinite(parsed) ? parsed : null;","new":"return parsed;","first_failing":null},
+{"id":"M3","old":"typeof methodType !== 'string' || methodType === ''","new":"typeof methodType !== 'string'","first_failing":"missing, empty"},
+{"id":"M4","old":"typeof methodType !== 'string' || methodType === ''","new":"methodType === ''","first_failing":"missing, empty"},
+{"id":"M5","old":".eq('is_active', true)\n","new":"\n","first_failing":"unknown or inactive"},
+{"id":"M6","old":"if (!data) {","new":"if (data) {","first_failing":"unknown or inactive"},
+{"id":"M7","old":"    if (error) {","new":"    if (!error) {","first_failing":"read error"},
+{"id":"M8","old":"minAmount: toNullableNumber(row['min_amount']),","new":"minAmount: toNullableNumber(row['max_amount']),","first_failing":"returns the payment_method_type"},
+{"id":"M9","old":"methodType,\n    });","new":"methodType: 'card',\n    });","first_failing":"returns the payment_method_type"},
+{"id":"M10","old":".select('min_amount, max_amount, payment_method_type')","new":".select('min_amount, max_amount')","first_failing":"returns the payment_method_type"}
+]

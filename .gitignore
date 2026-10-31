@@ -42,3 +42,4 @@ tests/fixtures/eval-project/.git/
 reports/
 RAILROAD_ARCHITECTURE.md
 .env
+.tmp/

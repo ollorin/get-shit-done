@@ -1,0 +1,10 @@
+   1       Tests  7 failed | 17 passed (24)
+   1    × Observation integration > screenshot > takes a full page screenshot 30005ms
+   1    × Observation integration > screenshot > takes a screenshot of a specific element 30002ms
+   1    × Screenshot artifacts integration > lists, retrieves, and deletes artifacts 30001ms
+   1    × Screenshot artifacts integration > persists artifacts across store instances 30002ms
+   1    × Screenshot artifacts integration > saves a full-page screenshot as an artifact 30006ms
+   1    × Screenshot artifacts integration > saves an element screenshot with selector metadata 30002ms
+   1    × Screenshot artifacts integration > saves screenshots in different formats 30002ms
+   1  Test Files  2 failed (2)
+   1 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
