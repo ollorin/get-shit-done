@@ -316,6 +316,18 @@ class RedClassificationTests(unittest.TestCase):
         self.assertEqual(G._combine_red(["green-at-red"]), "green-at-red")
 
 
+class FpGateTests(unittest.TestCase):
+    def test_missing_gate_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            res = G.fp_delta(Path(tmp), "HEAD", [("M", "apps/api/x.ts")], Path(tmp))
+            self.assertEqual(res["increase"], 1)
+            self.assertIn("missing", res["error"])
+
+    def test_no_typescript_change_is_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(G.fp_delta(Path(tmp), "HEAD", [("M", "README.md")], Path(tmp))["increase"], 0)
+
+
 class MatcherTests(unittest.TestCase):
     KNOWN = [{"id": "K1", "required": True, "where": "a.ts f", "mechanism": "m1"},
              {"id": "K2", "required": False, "where": "b.ts g", "mechanism": "m2"}]

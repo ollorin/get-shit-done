@@ -132,8 +132,10 @@ def fp_delta(repo: Path, base: str, changed: List[Tuple[str, str]], run_dir: Pat
     cfg = repo / "scripts" / "fp-gate-config.json"
     rels = [p for st, p in changed if p.endswith(".ts") and st != "D"]
     empty = {"increase": 0, "net": 0, "error": None, "per_file": {}}
-    if not rels or not gate.exists() or not cfg.exists():
+    if not rels:
         return empty
+    if not gate.exists() or not cfg.exists():
+        return {"increase": 1, "net": 0, "error": "fp-gate or fp-gate-config.json missing from snapshot", "per_file": {}}
     base_dir = run_dir / "fp-base"
     if base_dir.exists():
         shutil.rmtree(base_dir)
