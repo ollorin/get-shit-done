@@ -133,11 +133,11 @@ No user permission needed for Rules 1-3.
 
 **Do not add scripts, gates, or helper programs.** A fix, a test, or a check is an assertion inside a file the project already runs. A new script is warranted ONLY when the plan task explicitly requires one AND states why no existing test or gate covers it. Extend an existing script rather than adding a new one; a one-off helper nobody else will run is a defect, not a deliverable.
 
-**Run tests only in allowlisted shapes:** from `apps/api`: `deno task test <file>`, `deno test <file>` (optional `timeout N`, trailing `2>&1`), `npx nx test <project>`, `deno check|lint|fmt`. No inline env vars, no `| tail/grep`, no `;`/extra `&&`, no `$()`/heredocs/`bash -c`. If a command prompts, stop and report the exact string.
+**Run tests only in allowlisted shapes:** from `apps/api`: `deno task test <file>`, `deno test <file>`, `npx nx test <project>`, `deno check|lint|fmt`, each with at most one trailing log redirect or `2>&1`. No `timeout` command on this host: use the Bash `timeout` parameter. No inline env vars, no `| tail/grep`, no `;`/extra `&&`, no `$()`/heredocs/`bash -c`. If a command prompts, stop and report the exact string.
 
-**Keep test output short without a pipe:** `deno task test <file> > .tmp/<name>.log 2>&1`, then Read only the failing lines. The tool result already carries the exit code. Do not re-run a test to see output you cut off; read the log.
+**Keep test output short without a pipe:** `deno task test <file> > ../../.tmp/<name>.log 2>&1` (repo-root `.tmp/`), then Read only the failing lines. The tool result already carries the exit code. Do not re-run a test to see output you cut off; read the log.
 
-**Wait in slices of at most 4 minutes.** The prompt cache expires after 5 idle minutes, and one longer wait rewrites your whole context at 12x the price of a read. Run anything that can outlast 4 minutes in the background with its output in a `.tmp/` log, then repeat a bounded poll until it is done: `for i in $(seq 1 40); do grep -qE '(ok|FAILED) \|' .tmp/x.log && break; sleep 5; done`. Never an unbounded `until` loop, never `sleep N; cmd` (blocked), and the Monitor tool is not available to you.
+**Wait in slices of at most 9 minutes** (Bash allows 10). The cap is per wait, not per job. Start anything that can outlast that with `run_in_background` and a `.tmp/` log, then repeat this poll with the Bash `timeout` set to 540000, matching the runner's last line: `for i in {1..100}; do grep -qE '\| [0-9]+ passed|Found [0-9]+ error|stack-lock: timed out' ../../.tmp/x.log && break; sleep 5; done`. No output for 65 minutes: stop it, return `## PLAN BLOCKED`. Never an unbounded `until` loop, never `sleep N; cmd` (blocked); no Monitor tool.
 
 </tooling_and_resources>
 
@@ -240,6 +240,7 @@ Procedures: `~/.claude/get-shit-done/references/executor-detail.md`. Read the se
 
 **A brief narrower than the plan wins.** If your brief limits you to named tasks, a chunk or a file list:
 - Edit only those files plus `.planning/**` and `.tmp/**`. Anything else that breaks or looks stale (a test another plan owns, a doc, a lockfile) goes to `deferred-items.md` and your report, even when a plan step points at it.
+- A resume or continuation brief is not narrower if it runs to the plan's last task.
 - Skip `gsd-docs-updater`. In place of the post-plan suite, run the tests of the files you touched and of direct consumers of what you changed (`zg query`). List the rest under `NOT RUN` with the reason.
 - Still write what the brief asks for (SUMMARY, STATE, ROADMAP), and say plainly that the plan is unfinished: the first line of your report names the tasks done and the tasks left, `**Tasks:**` and the JSON trailer carry real counts of the whole plan, and the header `## PLAN COMPLETE` is used only when every task of the plan is done. Do not list a requirement as completed while a remaining task still owes it. `Self-Check: PASSED` covers files and commits only.
 
@@ -251,6 +252,7 @@ Procedures: `~/.claude/get-shit-done/references/executor-detail.md`. Read the se
 3. Commit them as `test(...)` before any implementation exists.
 4. Implement, go green, commit. Run the stack-free mutations the plan lists, restore the file, and check `git diff` before committing: a mutant in a commit is a defect.
 5. A case you did not write is `NOT WRITTEN` in the report, and the task is not done. Still failing after 2 retries: BLOCK, do not start the next task, and create no SUMMARY. If `gsd-test-writer` ran and reports 0 tests: BLOCK unless every behaviour has a REUSE citation.
+6. If the plan changes auth, money movement or payments, fraud/AML, KYC gates, RNG/fairness, game config values or game logic: after your last GREEN commit spawn `gsd-test-writer` once (model haiku) with the plan's case list and your test files, write only to those files, and commit what it adds.
 
 **Before claiming a task done:** `deno check`, `deno lint` and `deno run --allow-read scripts/fp-gate.ts` on the touched paths. Do not reflow a file you only patch: format your own lines, so the diff stays readable.
 
@@ -295,13 +297,6 @@ git commit -m "{type}({phase}-{plan}): {concise task description}
 ```
 
 **5. Record hash:** `TASK_COMMIT=$(git rev-parse --short HEAD)` — track for SUMMARY.
-
-```bash
-# Track routing tier for SUMMARY
-TASK_ROUTING_TIER="${ROUTED_TIER:-unrouted}"
-ROUTING_TIERS_USED+=("$TASK_ROUTING_TIER")  # append to running list
-RETRY_ESCALATED=false  # set to true if task was escalated to sonnet from haiku
-```
 
 **6. Write per-task checkpoint (Executor Resilience Protocol):** After every task commit, overwrite `.planning/phases/{phase_dir}/TASK-CHECKPOINT.json` with the Write tool (plain file write — same overwrite-latest convention as the coordinator's CHECKPOINT.json, see `checkpoints.md`):
 ```json
@@ -373,7 +368,7 @@ Long plans can outlive a single executor's context window, or the account's sess
 - your estimated **remaining** context is smaller than the next task's plausible cost (its file reads plus expected tool output — a test-suite or preflight run can dump 50–100K tokens in a single result) PLUS ~15K reserved for writing the handoff cleanly; or
 - you estimate >= 95% of the window is used, regardless of the next task's size.
 
-**Anti-stall guard — a handoff must always buy progress.** This rule must never loop a plan into permanent handoffs: if you are a freshly spawned executor (little context consumed yet) and the next task's estimated cost ALREADY exceeds the stop rule, do NOT hand off — a continuation agent would face identical math and the plan would stall forever. Instead, attack the task context-lean: read only the exact file sections needed, pipe long command output through grep/tail instead of ingesting it raw, and split the task into separately-committed sub-steps. Only if the task is genuinely impossible within the window, return `## PLAN BLOCKED` recommending the plan be re-split into smaller tasks — an honest block beats an infinite handoff chain.
+**Anti-stall guard — a handoff must always buy progress.** This rule must never loop a plan into permanent handoffs: if you are a freshly spawned executor (little context consumed yet) and the next task's estimated cost ALREADY exceeds the stop rule, do NOT hand off — a continuation agent would face identical math and the plan would stall forever. Instead, attack the task context-lean: read only the exact file sections needed, send long command output to a `.tmp/` log and read only the lines you need, and split the task into separately-committed sub-steps. Only if the task is genuinely impossible within the window, return `## PLAN BLOCKED` recommending the plan be re-split into smaller tasks — an honest block beats an infinite handoff chain.
 
 When in doubt between "probably fits" and "might not" — and you HAVE completed at least one task this run — stop: a clean handoff costs one respawn; dying mid-task costs the work.
 
@@ -458,7 +453,11 @@ an intact file-based fallback, and delivery is at the recipient's NEXT tool roun
 cooperative signal, never a real-time halt). Skip any of these silently if SendMessage is
 unavailable in your runtime.
 
-### App #5 — Optional progress heartbeat
+### App #4 — Wave peer awareness
+
+If your prompt has a `<wave_peers>` block, `SendMessage` a peer only when you edit a file in its `files_modified`. Never chatty.
+
+### App #5 — OPTIONAL progress heartbeat
 
 On a plan of more than 4 tasks you MAY send `to: "main"` a one-line heartbeat after a task commit, at most every few tasks. Its absence changes nothing about recovery (TASK-CHECKPOINT.json + the final JSON trailer remain the record).
 
