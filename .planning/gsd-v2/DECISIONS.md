@@ -20,3 +20,5 @@
 | 2026-11-01 | Hooks must be enabled; broken ones fixed; flip at a joint 401+402 plan boundary | CEO; `disableAllHooks: true` in igaming `.claude/settings.local.json:76` | `experiments/09-hooks-audit/` |
 | 2026-11-01 | `gsd-test-writer` is the specialist and should do the test work and curb test volume; supersedes inline-testing in executor candidate D | CEO; 1,401 test files, 749k LOC; 687 test files added vs 10 deleted in 60 days | `RULING-executor-d.md` R3 superseded |
 | 2026-11-01 | Reviewer v2 not shipped until a larger A/B on real review tasks gives confidence | CEO | `RESULTS-wave3-reviewer.md` |
+| 2026-11-01 | Full OrbStack restart approved at the nearest joint 401+402 plan boundary; memory limit unchanged | CEO; OrbStack Helper at 20 GiB after 10 h, about 2 GiB/h | `experiments/08-orbstack-memory/samples.tsv` |
+| 2026-11-01 | RTK disabled globally | CEO; it alters command output (`experiments/09-hooks-audit/RULING.md`) | applied by `flip.sh --apply` |
