@@ -6,7 +6,7 @@
 
 - Name and range: `bashOutputMaxChars` is in the settings schema of the installed `claude` 2.1.304 (binary string search; description: "How many characters of a successful Bash or PowerShell command's output Claude receives inline (default 30000; values clamp to 4000-128000). Output past this is saved to a file and Claude receives a short preview plus the path. When set, this also replaces BASH_MAX_OUTPUT_LENGTH"). The changelog (`~/.claude/cache/changelog.md:2924`) lists it.
 - How it is passed: a `--settings <file>` JSON `{"bashOutputMaxChars": N}`, the same route as the window arm. The harness drops user settings (`--setting-sources project,local`), so the key must be in that file.
-- Probe (2 runs, Haiku, about $0.008 total, scratch `~/ab-eval/scratch/bc-probe/`): a Bash command printing 9,009 characters, run by the main thread and by a subagent defined through `--agents`.
+- Probe (2 runs, cheapest tier, about $0.008 total, scratch `~/ab-eval/scratch/bc-probe/`): a Bash command printing 9,009 characters, run by the main thread and by a subagent defined through `--agents`.
 
 | arm | main thread tool result | subagent tool result (transcript `subagents/agent-*.jsonl`) |
 |---|---|---|
@@ -25,7 +25,7 @@ So the cap applies inside the subagent. Not probed: the failure-output path (des
 
 ## 4. Baseline and bound from the existing A rows (no LLM calls)
 
-`ab_bashcap.py`, from the 12 A transcripts. Cost at tier prices (Haiku list, x5 above 100k), sum of per-task medians: **$2.169** (E3 1.164, E4 0.767, E6 0.109, E7 0.129; flat prices $0.525). Pooled share of executor calls above 100k: **0.862** (613 of 711).
+`ab_bashcap.py`, from the 12 A transcripts. Cost at tier prices (executor-tier list, x5 above 100k), sum of per-task medians: **$2.169** (E3 1.164, E4 0.767, E6 0.109, E7 0.129; flat prices $0.525). Pooled share of executor calls above 100k: **0.862** (613 of 711).
 
 Exposure of the cap: 21 of 515 Bash results exceed 8,000 chars (4.1%), carrying 245,683 of 826,436 Bash chars (29.7%), matching the design's 4.85% and 30.1%. By task: E3 13 results (164,850 chars), E7 4, E6 2, E4 2. Read-back already happens at the default cap: 20 results saved to files and 30 later Read/Bash calls naming them (E3 19/28, E7 1/2).
 

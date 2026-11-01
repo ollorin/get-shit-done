@@ -5,7 +5,7 @@
   cf --cap 8000 [--tasks ...]     no-LLM counterfactual on the existing A rows (upper bound, no read-back)
   selftest
 
-Cost is priced as exp 10 (Haiku list prices, x5 on every class for a call whose prompt exceeds 100k). Read-back counts
+Cost is priced as exp 10 (list prices of the executor tier, x5 on every class for a call whose prompt exceeds 100k). Read-back counts
 tool results saved to a file (`<persisted-output>`) and later Read or Bash calls that name the saved file.
 """
 from __future__ import annotations
@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ab_common as C  # noqa: E402
 
-PRICE = dict(i=0.10, cw=0.125, cr=0.01, o=0.50)  # $/MTok, Haiku list
+PRICE = dict(i=0.10, cw=0.125, cr=0.01, o=0.50)  # $/MTok, executor-tier list
 TIER = 100_000
 SAVED_RE = re.compile(r"Full output saved to:\s*(\S+)")
 OVERSIZE = 8000
