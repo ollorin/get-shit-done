@@ -19,7 +19,7 @@ The orchestrator gives user decisions in `<user_decisions>` from discuss-phase. 
 
 These hold whatever the phase size or urgency, including gap-closure plans (mandate 5).
 
-1. New code needs new tests. Every task that creates or modifies .ts/.tsx/.js files is immediately followed by a `tdd="true"` task in the same plan. Its `<behavior>` lists each behaviour with tier, layer and an existing-test disposition (REUSE file:line / UPDATE / MERGE / DELETE / ADD+reason). It covers new behaviour and regression paths for existing behaviour, reusing or updating an existing test first at the lowest layer. A fully REUSEd task still needs the tdd task but may add 0 tests (never for T0 unless the cited test is itself the T0 test). Exempt: config files (`*.config.*`), `*.d.ts`, build or tooling scripts. "Simple" and "one-line" changes are not exempt. Test tasks are required for API endpoints, database RPCs, form submit handlers and business logic; pure UI components with no logic and migration files are skipped (Charlotte and wiring tests cover them).
+1. New code needs new tests. Every task that creates or modifies .ts/.tsx/.js files is immediately followed by a `tdd="true"` task in the same plan. Its `<behavior>` lists each behaviour with tier, layer and an existing-test disposition (REUSE file:line / UPDATE / MERGE / DELETE / ADD+reason). It covers new behaviour and regression paths for existing behaviour, reusing or updating an existing test first at the lowest layer. A fully REUSEd task still needs the tdd task but may add 0 tests (never for T0 unless the cited test is itself the T0 test). Exempt: config files (`*.config.*`), `*.d.ts`, build or tooling scripts. "Simple" and "one-line" changes are not exempt. Test tasks are required for API endpoints, database RPCs, form submit handlers and business logic; pure UI components with no logic and logic-free migration files are skipped (Charlotte and wiring tests cover them); a migration that creates or changes an RPC, trigger, RLS policy or grant needs a real-DB tdd task.
 2. UI changes need Charlotte QA. A plan that creates or modifies .tsx/.jsx, or adds or changes API routes that a frontend consumes, includes a `checkpoint:ui-qa` task with specific URLs and interactions in `<test-flows>` and populates `e2e_flows` with at least one user journey (also an "existing UI still works" flow when a backend plan changes a response shape the frontend consumes). Exception: CSS-only changes with no structural markup change. For web UI use ui-qa; `checkpoint:human-verify` is only for non-web work (macOS, audio, Xcode). If Claude can do a step by CLI or API, it does; checkpoints verify after automation.
 3. No deferral language: "tests to be added later", "QA deferred", "will verify in next phase", "deferred to post-milestone", "follow-up: add tests", or any variant. Write a concrete test task or checkpoint instead.
 4. Validate before returning. Check: every implementation task has its paired tdd task; ui-qa is present for UI; no deferral language and no "future phases will add tests"; every tdd `<behavior>` lists behaviours with dispositions, not "test the feature"; every ui-qa has `<test-flows>`; `must_haves` has at least one truth and one artifact; no non-markdown file created (mandate 7); no new script or gate without a stated reason (mandate 8). If anything fails, fix the plan, or return the rejection:
@@ -75,7 +75,7 @@ Executors run on Haiku by default. Do not write `<model>` tags. Mark a task `esc
 
 ## Finish
 
-Return, then the JSON line as the last content of your message. The orchestrator reads the JSON; the header and `status` must agree.
+Commit the PLAN files before returning a complete status (git_commit step ~1345). Then return this block and the JSON line as the last content of your message. The orchestrator reads the JSON; the header and `status` must agree.
 
 ```markdown
 ## PLANNING COMPLETE       (or: ## GAP CLOSURE PLANS CREATED / ## PLAN REJECTED / ## REVISION COMPLETE)
@@ -85,8 +85,6 @@ Return, then the JSON line as the last content of your message. The orchestrator
 | Plan | Objective | Tasks | Files |
 Next: /gsd:execute-phase {phase}
 ```
-
-Commit the PLAN files before returning a complete status (git_commit step ~1345).
 
 ```json
 {"status": "planning_complete|gap_closure_complete|plan_rejected|checkpoint|revision_complete", "phase": "{phase-name}", "plans": N, "waves": M}

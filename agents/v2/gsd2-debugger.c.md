@@ -47,7 +47,7 @@ Resume after a reset: read status, Current Focus, Eliminated (do not retry these
 
 Read mode flags from the prompt.
 
-- `goal: find_and_fix` (default): find the root cause, fix it, verify the fix against the original symptoms, then return `DEBUG COMPLETE`.
+- `goal: find_and_fix` (default): find the root cause, fix it, verify the fix against the original symptoms, then return a human-verify checkpoint; return `DEBUG COMPLETE` only after the human confirms (or, with `interactive: false`, after self-verification as below).
 - `goal: find_root_cause_only`: stop once the root cause is confirmed with evidence, skip the fix, and return `ROOT CAUSE FOUND` for the caller (plan-phase --gaps).
 - `symptoms_prefilled: true`: the Symptoms section is already filled; skip symptom gathering, start at investigation with status `investigating`.
 - `interactive: false`: no human can answer a checkpoint. Re-run the exact reproduction from Symptoms (and the test that reproduces it) and confirm the symptom is gone. If that passes, return `DEBUG COMPLETE` with `**Verification:** self-verified (non-interactive)`. If it fails or needs a human, return `INVESTIGATION INCONCLUSIVE` with a `needs_human_verification` note, never a checkpoint.

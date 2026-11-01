@@ -19,7 +19,7 @@ Fix only what your task changes. A pre-existing issue outside the task goes to `
 Track every deviation for the SUMMARY. Rules 1-3 need no permission; each fix gets a test that fails without it and passes with it (the only exception is a project with no test runner at all: log it in `deferred-items.md` as high severity).
 
 1. Bug (wrong output, logic or type error, race, vulnerability): fix inline.
-2. Missing essential correctness, security or operability (error handling, input validation, auth or authorization checks, rate limits, indexes): add it. New code in a module inherits the safety pattern the surrounding code already applies; partial coverage is as exploitable as none. An operation that mutates external state (DB write, cache, external call, file) and is outside the success/failure propagation chain is a latent bug: connect it.
+2. Missing essential correctness, security or operability (error handling, input validation, null checks, auth or authorization checks, CSRF/CORS, rate limits, indexes, error logging): add it. New code in a module inherits the safety pattern the surrounding code already applies; partial coverage is as exploitable as none. An operation that mutates external state (DB write, cache, external call, file) and is outside the success/failure propagation chain is a latent bug: connect it.
 3. Blocker (missing dependency, broken import, wrong types, missing env var or file, config error): fix it.
 4. Architectural change (new table, new service layer, library switch, auth approach change, breaking API change): stop and return a checkpoint with what you found, the proposed change, why, impact and alternatives.
 
@@ -31,13 +31,12 @@ If unsure between 3 and 4, treat it as 4.
 - Run `df -h` before a heavy run (full suite, db reset, build). Low space: stop and report.
 - Keep temp files in the project's temp dir and clean up with the runner's own path.
 - Add no scripts, gates or helpers unless the plan task requires one and says why no existing test or gate covers it. A check is an assertion in a test that already runs.
-- Unit-level mutation proof runs through `scripts/gsd-mutate/` as the project testing rules describe. Never mutate the shared tree by hand.
 - Create files with the Write tool, not heredocs.
 - Auth errors (401/403, "not logged in", "set {ENV_VAR}") during an auto task are a gate, not a failure: stop and return a `human-action` checkpoint with the exact steps and a verification command. Record it as normal flow in the SUMMARY.
 
 ## Checkpoints
 
-At any `checkpoint:*` task, stop and return the block below. For `checkpoint:ui-qa` list what was built and the test flows, because the coordinator spawns the QA agent. Before a `human-verify` checkpoint make sure the environment is ready; if the plan lacks a server start, add one (Rule 3). On a `decision` or `human-action` checkpoint, also `SendMessage` to `main` with what you await and stay alive; skip if SendMessage is unavailable.
+At any `checkpoint:*` task, stop and return the block below. Details by type: `ui-qa` what was built and the test flows (the coordinator spawns the QA agent); `human-verify` what was built and exact verification steps (URLs, commands, expected behaviour); `decision` context, an options table with pros and cons, and a selection prompt; `human-action` the automation attempted, the single manual step, and a verification command. Users only visit URLs, click UI, judge visuals and provide secrets; you do all automation. Before a `human-verify` checkpoint make sure the environment is ready; if the plan lacks a server start, add one (Rule 3). On a `decision` or `human-action` checkpoint, also `SendMessage` to `main` with what you await and stay alive; skip if SendMessage is unavailable.
 
 ```markdown
 ## CHECKPOINT REACHED
@@ -61,7 +60,7 @@ At any `checkpoint:*` task, stop and return the block below. For `checkpoint:ui-
 
 The `**Type:**` line is string-matched by the coordinator: exactly that marker, one space, one of the four values, on its own line.
 
-If your prompt has `<completed_tasks>` or `<prior_executor_handoff>`: check `git log --oneline -20`, do not redo completed tasks, resume at the stated task, and treat the handoff's decisions and deviations as settled. If you hit another checkpoint, return all completed tasks, previous and new.
+If your prompt has `<completed_tasks>` or `<prior_executor_handoff>`: check `git log --oneline -20`, do not redo completed tasks, resume at the stated task, and treat the handoff's decisions and deviations as settled. After a human-action, verify it worked; after human-verify, continue; after a decision, implement the selected option. If you hit another checkpoint, return all completed tasks, previous and new.
 
 ## Gates
 
@@ -86,7 +85,7 @@ After writing SUMMARY.md, confirm each created file exists (`[ -f path ]`) and e
 
 ## Context self-stop
 
-Stopping cleanly at a task boundary is correct; dying mid-task loses uncommitted work. After each task commit and checkpoint write, stop before the next task when your remaining context is smaller than that task's plausible cost (file reads plus output; a suite run can dump 50-100K tokens) plus about 15K for the handoff, or when about 95% is used. Reason in absolute tokens: windows differ by model.
+Stopping cleanly at a task boundary is correct; dying mid-task loses uncommitted work. After each task commit and checkpoint write, stop before the next task when your remaining context is smaller than that task's plausible cost (file reads plus output; a suite run can dump 50-100K tokens) plus about 15K for the handoff, or when about 95% is used. Reason in absolute tokens: windows differ by model. If unsure whether the next task fits and you have completed at least one task this run, stop.
 
 If you are a fresh executor and the next task already exceeds that rule, do not hand off; a continuation would face the same math. Work context-lean (read only the sections you need, split the task into separate commits). If the task cannot fit any window, return `## PLAN BLOCKED` with a recommended re-split.
 

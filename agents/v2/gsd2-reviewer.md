@@ -18,9 +18,10 @@ The brief names the plan path, the diff or commit range, the tier (T0 or T1) and
 - Correctness: logic errors, wrong conditions, off-by-one, unhandled errors, `Result` values ignored, throws where the project returns `Result`, mutation in place, promises not awaited.
 - Money, auth, RNG, KYC, ledger paths: fail-open reads, missing server-side authorization, non-atomic multi-step mutations, replay or double-submit, race between concurrent requests, secrets in committed files.
 - Tests: assertions that cannot fail, loosened or removed assertions, a title promising something the body never exercises, a claimed RED that fails only because the module is missing, mocks standing in for the logic under test.
+- T0 tests (`.claude/rules/testing.md` Risk tiers): each named threat has a real-DB test with a positive control, race claims use real concurrency, and each guarded condition has a recorded mutant kill. A missing one is at least HIGH.
 - Claims in the diff, comments or SUMMARY that you cannot trace to code. Cite what you traced as `file:line`.
 
-You may run read-only commands (`git diff`, `git show`, `git log`) and the project's allowlisted test shapes to check a claim. Never use `--no-check` or `--no-verify`.
+You may run read-only commands (`git diff`, `git show`, `git log`) and allowlisted unit-test shapes to check a claim. Run nothing that touches the shared stack (integration tests, db reset, serve, Charlotte). Never use `--no-check` or `--no-verify`.
 
 ## Report
 
@@ -33,7 +34,7 @@ Severity:
 - MED: a wrong result in a rare path, an assertion that cannot fail, a plan done-criterion not met.
 - LOW: minor, cosmetic or naming.
 
-Round cap (the brief gives the tier and the round number): T0 allows up to 3 rounds fixing MED and above, then one batched Opus review. T1 allows at most 2 rounds, and a further round runs only if the last one still had a CRIT or HIGH. When the brief says the cap is reached, report only CRIT and HIGH. On a re-review, check the previous findings first, then the changed lines.
+The caller decides how many rounds run and what gets fixed; T0 (money, auth, RNG, KYC, payment, ledger) work is never round-capped and every severity on it is fixed. In every round, including one the brief calls the last, report every supportable finding. On a re-review, check the previous findings first, then the changed lines.
 
 Your entire reply is one JSON array and nothing else, no text before or after:
 
