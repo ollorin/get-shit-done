@@ -14,3 +14,9 @@
 | 2026-10-31 | Remove the plan-ahead coordinator | CEO | 05 Q4 |
 | 2026-10-31 | Plan is Claude Max/Ultra (largest) since ~2026-10-27 — explains wk3 spend without a limit hit; governor must use the real meter | CEO | 05-M6, P8 |
 | 2026-10-31 | Phase cap ≤15 plans adopted as default (CEO did not object) | 01-F11 | 05 Q5 |
+| 2026-11-01 | Agents: test each new version by A/B on enough examples; orchestrator may ship a replacement alone when confident, Fable allowed as second opinion; always with backups and git history | CEO | `experiments/07-instruction-ab-eval/` |
+| 2026-11-01 | 1h cache for roles with visible savings; Charlotte scenario sessions back to 5m | CEO | `experiments/03-coordinator-cache-ttl/RESULT-BREAKEVEN.md` |
+| 2026-11-01 | Always newest model via aliases; Haiku tasks must fit under 100k context | CEO; 85% of Haiku executor spawns exceed it, ~$215 vs ~$50 per 21 days | measured from transcripts |
+| 2026-11-01 | Hooks must be enabled; broken ones fixed; flip at a joint 401+402 plan boundary | CEO; `disableAllHooks: true` in igaming `.claude/settings.local.json:76` | `experiments/09-hooks-audit/` |
+| 2026-11-01 | `gsd-test-writer` is the specialist and should do the test work and curb test volume; supersedes inline-testing in executor candidate D | CEO; 1,401 test files, 749k LOC; 687 test files added vs 10 deleted in 60 days | `RULING-executor-d.md` R3 superseded |
+| 2026-11-01 | Reviewer v2 not shipped until a larger A/B on real review tasks gives confidence | CEO | `RESULTS-wave3-reviewer.md` |
