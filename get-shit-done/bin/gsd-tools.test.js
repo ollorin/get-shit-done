@@ -10681,9 +10681,10 @@ describe('Hook hardening (C-1/C-3/C-4): fail-open + bounded + distinguishable-fa
       }
     });
 
-    test('malformed stdin fails open (exit 0)', () => {
+    test('malformed stdin fails closed (exit 2, RULING A8)', () => {
       const r = runHook(PROTECT_HOOK, 'not json {{{');
-      assert.strictEqual(r.exitCode, 0);
+      assert.strictEqual(r.exitCode, 2);
+      assert.match(r.stderr, /not valid JSON/);
     });
   });
 

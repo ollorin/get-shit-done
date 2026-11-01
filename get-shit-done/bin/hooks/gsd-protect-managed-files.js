@@ -8,6 +8,13 @@
  * Also (Write | Edit | Bash) blocks any agent write to a .claude/settings*.json
  * file or .claude/hooks/ tree at any depth, and any Bash command mentioning disableAllHooks:
  * hooks are the enforcement layer, so an agent must not be able to edit them.
+ * Bash writes to the GSD-managed hooks directory (.claude/get-shit-done/bin/hooks/),
+ * script-interpreter writes (python/node/perl) and `git apply` / `patch` of a patch
+ * that targets those paths are blocked too.
+ *
+ * This is a guardrail for honest agents, NOT a security boundary: it matches command
+ * text and does not chase shell variables, indirection or scripts it cannot read
+ * (`D=.claude; echo x > $D/settings.json` passes). Unparseable stdin fails closed.
  *
  * The authoritative file list comes from ~/.claude/gsd-file-manifest.json,
  * which is rewritten on every `node bin/install.js` run. This means the
@@ -57,15 +64,15 @@ function realPathLoose(p) {
 
 const END = String.raw`(?=$|[\s"';&|<>)])`;
 const HOME_OR_PATH = String.raw`(?:~|\$\{?HOME\}?|[^\s"';&|<>]*)?`;
-const CONFIG_TAIL = String.raw`(?:settings[^\s"';&|<>/]*\.json|hooks(?:\/[^\s"';&|<>]*)?)`;
+const CONFIG_TAIL = String.raw`(?:settings[^\s"';&|<>/]*\.json|(?:get-shit-done\/bin\/)?hooks(?:\/[^\s"';&|<>]*)?)`;
 const CONFIG_MENTION_RE = new RegExp(String.raw`(?:^|[\s"'=:(<>])(${HOME_OR_PATH}\.claude\/${CONFIG_TAIL})` + END);
 // The .claude directory itself: removing or renaming it takes settings and hooks with it.
 const CLAUDE_DIR_RE = new RegExp(String.raw`(?:^|[\s"'=])${HOME_OR_PATH}\.claude\/?` + END);
 // After "cd <...>/.claude", bare names refer to the protected files.
 const BARE_CONFIG_RE = new RegExp(String.raw`(?:^|[\s"'=:(<>])(?:\.\/)?${CONFIG_TAIL}` + END);
 const CD_INTO_CLAUDE_RE = new RegExp(String.raw`(?:^|[\s(])cd\s+["']?${HOME_OR_PATH}\.claude\/?["']?` + END);
-const CD_INTO_HOOKS_RE = new RegExp(String.raw`(?:^|[\s(])cd\s+["']?${HOME_OR_PATH}\.claude\/hooks\/?["']?` + END);
-const WRITE_VERB_RE = /(?:^|[\s(])(?:rm|rmdir|unlink|mv|truncate|chmod|chown|tee|sponge|touch)\b/;
+const CD_INTO_HOOKS_RE = new RegExp(String.raw`(?:^|[\s(])cd\s+["']?${HOME_OR_PATH}\.claude\/(?:get-shit-done\/bin\/)?hooks\/?["']?` + END);
+const WRITE_VERB_RE = /(?:^|[\s(])(?:rm|rmdir|unlink|mv|truncate|chmod|chown|tee|sponge|touch|patch)\b/;
 const DIR_VERB_RE = /(?:^|[\s(])(?:rm|rmdir|mv|chmod|chown)\b/;
 // Copy-like verbs only write their last argument; copying config OUT is a read.
 const COPY_VERB_RE = /(?:^|[\s(])(?:cp|ln|install|rsync)\b/;
@@ -75,7 +82,19 @@ const REDIRECT_TO_CONFIG_RE = new RegExp(String.raw`>{1,2}\|?\s*["']?${HOME_OR_P
 const REDIRECT_BARE_RE = new RegExp(String.raw`>{1,2}\|?\s*["']?(?:\.\/)?${CONFIG_TAIL}` + END);
 const ANY_REDIRECT_RE = /(?:^|[^>&0-9])>{1,2}\|?\s*[^\s&>]/;
 const GIT_WRITE_RE = /\bgit\b[^|]*\b(?:checkout|restore|rm|mv|apply|stash)\b/;
-const SCRIPT_WRITE_RE = /\b(?:writeFile|appendFile|rmSync|unlinkSync|renameSync|copyFile|open\([^)]*["'][wa])/;
+const SCRIPT_WRITE_RE = new RegExp([
+  String.raw`\b(?:writeFile|appendFile|rmSync|unlinkSync|renameSync|copyFile|cpSync|createWriteStream|truncateSync|chmodSync|symlinkSync)`,
+  String.raw`\b(?:write_text|write_bytes|symlink_to|hardlink_to)\b`,
+  String.raw`\b(?:shutil\.(?:copy\w*|move|rmtree)|os\.(?:remove|unlink|rename|replace|truncate))\(`,
+  String.raw`\b(?:Path|pathlib\.Path)\([^)]*\)\.(?:unlink|rename|replace|touch|rmdir|chmod)\(`,
+  // open(path, 'w'|'a'|'x'|'r+') and Path(...).open('w'); a bare open('a.json') is a read.
+  String.raw`\bopen\((?:[^)]*,\s*(?:mode\s*=\s*)?)?["'](?:[wax]|r\+)`,
+  String.raw`\bopen\s*\(?\s*\w+\s*,\s*["']\s*\+?>`,
+].join('|'));
+const INTERPRETER_RE = /(?:^|[\s(;&|])(?:python[\d.]*|node|nodejs|perl|ruby|deno|bun)\b/;
+const PATCH_CMD_RE = /(?:^|[\s(;&|])(?:git\b[^|;&]*\bapply|patch)\b/;
+const PATCH_TARGET_RE = /^(?:\+\+\+|---|diff --git)\s.*(?:\.claude\/(?:settings[^\s/]*\.json|hooks(?:\/|\s|$)|get-shit-done\/bin\/hooks(?:\/|\s|$)))/m;
+const PATCH_READ_BYTES = 262144;
 const READ_ONLY_CMD_RE = /^\s*(?:grep|egrep|rg|zg|cat|head|tail|less|wc|git\s+(?:log|grep|diff|show))\b/;
 
 function segmentWrites(seg, mentionRe) {
@@ -92,9 +111,43 @@ function segmentWrites(seg, mentionRe) {
   return null;
 }
 
+function expandHome(p) {
+  return p.startsWith('~/') ? path.join(os.homedir(), p.slice(2)) : p;
+}
+
+// Patch files named in a `git apply` / `patch` segment (plain args, -i/--input, `< file`).
+function patchFileCandidates(seg) {
+  const toks = seg.trim().split(/\s+/).map(t => t.replace(/^["']|["']$/g, ''));
+  const out = [];
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i];
+    if (t === '<' || t === '-i' || t === '--input') { if (toks[i + 1]) out.push(toks[i + 1]); continue; }
+    if (t.startsWith('<') && t.length > 1) { out.push(t.slice(1)); continue; }
+    if (t.startsWith('--input=')) { out.push(t.slice(8)); continue; }
+    if (!t.startsWith('-') && !/^(?:git|apply|patch)$/.test(t)) out.push(t);
+  }
+  return out;
+}
+
+function patchFileTargetsProtected(file, cwd) {
+  try {
+    const abs = path.resolve(cwd || process.cwd(), expandHome(file));
+    const fd = fs.openSync(abs, 'r');
+    try {
+      const buf = Buffer.alloc(PATCH_READ_BYTES);
+      const n = fs.readSync(fd, buf, 0, PATCH_READ_BYTES, 0);
+      return PATCH_TARGET_RE.test(buf.toString('utf8', 0, n));
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return false; // unreadable or not a file: cannot tell
+  }
+}
+
 // Returns a reason string when a Bash command would write to protected
 // config or disable hooks, else null. Read-only use (cat, jq ., grep) passes.
-function bashConfigViolation(command) {
+function bashConfigViolation(command, cwd) {
   if (typeof command !== 'string' || !command) return null;
   const segments = command.split(/&&|\|\||;|\n|\|(?!\|)/);
   if (/disableAllHooks/.test(command)) {
@@ -102,6 +155,10 @@ function bashConfigViolation(command) {
     if (!readOnly) return 'sets or writes disableAllHooks';
   }
   if (REDIRECT_TO_CONFIG_RE.test(command)) return 'redirects output into a protected path';
+  // Interpreter one-liners and heredocs span ';' and newlines, so check the whole command.
+  if (INTERPRETER_RE.test(command) && CONFIG_MENTION_RE.test(command) && SCRIPT_WRITE_RE.test(command)) {
+    return 'writes a protected path from a script';
+  }
   let cwdClaude = false;
   let cwdHooks = false;
   for (const seg of segments) {
@@ -110,6 +167,9 @@ function bashConfigViolation(command) {
     if (DIR_VERB_RE.test(seg) && CLAUDE_DIR_RE.test(seg)) return 'removes or renames the .claude directory';
     const direct = segmentWrites(seg, CONFIG_MENTION_RE);
     if (direct) return direct;
+    if (PATCH_CMD_RE.test(seg) && patchFileCandidates(seg).some(f => patchFileTargetsProtected(f, cwd))) {
+      return 'applies a patch that targets a protected path';
+    }
     if (cwdHooks && (ANY_REDIRECT_RE.test(seg) || WRITE_VERB_RE.test(seg) || SED_INPLACE_RE.test(seg) || PERL_INPLACE_RE.test(seg) || COPY_VERB_RE.test(seg))) {
       return 'writes inside .claude/hooks after cd';
     }
@@ -143,12 +203,21 @@ function run() {
   let raw = '';
   process.stdin.on('data', chunk => { raw += chunk; });
   process.stdin.on('end', () => {
+    let data;
     try {
-      const data      = JSON.parse(raw);
+      data = JSON.parse(raw);
+    } catch (parseErr) {
+      data = null;
+    }
+    if (!data || typeof data !== 'object') {
+      process.stderr.write('[gsd-protect] BLOCKED: hook input is not valid JSON, so the command cannot be checked (fail closed)\n');
+      process.exit(2);
+    }
+    try {
       const toolInput = data.tool_input || {};
 
       if (data.tool_name === 'Bash') {
-        const reason = bashConfigViolation(toolInput.command);
+        const reason = bashConfigViolation(toolInput.command, data.cwd);
         if (reason) {
           process.stderr.write(configBlockMessage(String(toolInput.command).slice(0, 200), reason) + '\n');
           process.exit(2);
