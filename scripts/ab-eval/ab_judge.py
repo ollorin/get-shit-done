@@ -213,6 +213,12 @@ def _run_rows() -> Dict[str, Dict[str, Any]]:
             if line.strip():
                 r = json.loads(line)
                 rows[r["run_id"]] = dict(r, variant="W")
+    bpath = C.AB_HOME / "results" / "runs-bashcap.jsonl"  # exp 11 X2 arm BC rows (variant A + bashOutputMaxChars), judged as arm "BC"
+    if bpath.exists():
+        for line in bpath.read_text().splitlines():
+            if line.strip():
+                r = json.loads(line)
+                rows[r["run_id"]] = dict(r, variant="BC")
     return rows
 
 

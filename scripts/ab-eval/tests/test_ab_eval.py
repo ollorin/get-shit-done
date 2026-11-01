@@ -144,6 +144,58 @@ class QuotaTests(unittest.TestCase):
                 R.QUOTA_FILE = old
 
 
+class BashCapArmTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.old = C.AB_HOME
+        C.AB_HOME = Path(self.tmp.name)
+        (C.AB_HOME / "harness").mkdir()
+        C.write_json(C.AB_HOME / "harness" / "settings.json", {"hooks": {"PreToolUse": []}})
+
+    def tearDown(self):
+        C.AB_HOME = self.old
+        self.tmp.cleanup()
+
+    def test_settings_carry_cap_and_hook_but_not_compaction(self):
+        cfg = C.read_json(R.settings_path(None, 8000), {})
+        self.assertEqual(cfg["bashOutputMaxChars"], 8000)
+        self.assertIn("hooks", cfg)
+        self.assertNotIn("autoCompactEnabled", cfg)
+        self.assertEqual(R.settings_path(None, 8000).name, "settings-bc8000.json")
+
+    def test_no_arm_uses_plain_harness_settings(self):
+        self.assertEqual(R.settings_path(None, None), C.AB_HOME / "harness" / "settings.json")
+
+    def test_cap_outside_clamp_range_refused(self):
+        for bad in (100, 3999, 128001):
+            with self.assertRaises(C.Refused):
+                R.settings_path(None, bad)
+
+    def test_window_and_cap_are_separate_arms(self):
+        with self.assertRaises(C.Refused):
+            R.settings_path(130000, 8000)
+
+    def test_cli_flag_parses_and_batch_ceilings(self):
+        args = R.build_parser().parse_args(["run", "--task", "E4", "--variant", "A", "--bash-cap", "8000"])
+        self.assertEqual(args.bash_cap, 8000)
+        self.assertLess(R.BASHCAP_START_CEILING, 0.81)
+        self.assertLess(R.BASHCAP_STOP_CEILING, 0.82)
+        old = R.QUOTA_FILE
+        R.QUOTA_FILE = Path(self.tmp.name, "quota.json")
+        try:
+            C.write_json(R.QUOTA_FILE, {"seven_day_utilization": 0.81})
+            with self.assertRaises(C.Refused):
+                R.check_quota(R.BASHCAP_START_CEILING)
+            C.write_json(R.QUOTA_FILE, {"seven_day_utilization": 0.80})
+            self.assertEqual(R.check_quota(R.BASHCAP_START_CEILING), 0.80)
+        finally:
+            R.QUOTA_FILE = old
+
+    def test_metrics_selftest(self):
+        import ab_bashcap
+        self.assertEqual(ab_bashcap.selftest(), 0)
+
+
 class TranscriptTests(unittest.TestCase):
     def _write(self, path: Path, lines):
         path.parent.mkdir(parents=True, exist_ok=True)

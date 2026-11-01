@@ -29,6 +29,10 @@ QUOTA_FILE = C.AB_HOME / "results" / "quota.json"
 RUNS_LOG = C.AB_HOME / "results" / "runs.jsonl"
 WINDOW_LOG = C.AB_HOME / "results" / "runs-haiku100k.jsonl"  # exp 10: window arm W rows, kept apart from runs.jsonl
 WINDOW_QUOTA_CEILING = 0.8199  # brief: no new batch at 0.82 or above
+BASHCAP_LOG = C.AB_HOME / "results" / "runs-bashcap.jsonl"  # exp 11 X2: arm BC rows, kept apart from runs.jsonl
+BASHCAP_START_CEILING = 0.8099  # no new batch at 0.81 or above
+BASHCAP_STOP_CEILING = 0.8199   # stop between runs at 0.82
+BASHCAP_RANGE = (4000, 128000)  # binary schema: values clamp to 4000-128000, default 30000
 
 
 def seven_day_util(rate: Optional[Dict[str, Any]]) -> Optional[float]:
@@ -92,15 +96,35 @@ def window_settings(window: int) -> Path:
     return path
 
 
+def bashcap_settings(cap: int) -> Path:
+    """Harness settings plus bashOutputMaxChars (exp 11 X2). Subagents share the session settings (probe 2026-11-01), so the
+    cap applies to the executor. The window arm's autoCompact keys are NOT set: arm A never compacts."""
+    lo, hi = BASHCAP_RANGE
+    if not lo <= cap <= hi:
+        raise C.Refused(f"--bash-cap {cap} outside {lo}-{hi}; the CLI would clamp it silently")
+    base = C.read_json(C.AB_HOME / "harness" / "settings.json", {})
+    path = C.AB_HOME / "harness" / f"settings-bc{cap}.json"
+    C.write_json(path, dict(base, bashOutputMaxChars=cap))
+    return path
+
+
+def settings_path(window: Optional[int], bash_cap: Optional[int]) -> Path:
+    if window and bash_cap:
+        raise C.Refused("--window and --bash-cap are separate arms")
+    if bash_cap:
+        return bashcap_settings(bash_cap)
+    return window_settings(window) if window else C.AB_HOME / "harness" / "settings.json"
+
+
 def execute(run_dir: Path, task: Dict[str, Any], variant: str, session: str, budget: float,
-            window: Optional[int] = None) -> Dict[str, Any]:
+            window: Optional[int] = None, bash_cap: Optional[int] = None) -> Dict[str, Any]:
     repo = run_dir / "repo"
     agents_text = json.dumps(R.build_agents(task, variant))
     harness = C.AB_HOME / "harness"
     argv = ["claude", "-p", (run_dir / "brief.md").read_text(), "--model", "haiku",
             "--agents", agents_text,
             "--setting-sources", "project,local",
-            "--settings", str(window_settings(window) if window else harness / "settings.json"),
+            "--settings", str(settings_path(window, bash_cap)),
             "--strict-mcp-config", "--mcp-config", str(R.mcp_config(task)),
             "--permission-mode", "bypassPermissions",
             "--session-id", session,
@@ -167,8 +191,9 @@ def status_of(res: Optional[Dict[str, Any]], run: Dict[str, Any], contaminated: 
     return "done", None
 
 
-def run_one(task: Dict[str, Any], variant: str, rep: int, keep: bool, window: Optional[int] = None) -> Dict[str, Any]:
-    arm = f"{variant}w{window // 1000}k" if window else variant
+def run_one(task: Dict[str, Any], variant: str, rep: int, keep: bool, window: Optional[int] = None,
+            bash_cap: Optional[int] = None) -> Dict[str, Any]:
+    arm = f"{variant}w{window // 1000}k" if window else f"{variant}bc{bash_cap // 1000}k" if bash_cap else variant
     run_id = f"{task['id']}-{arm}-r{rep}-{C.run_stamp()}-{uuid.uuid4().hex[:6]}"
     run_dir = C.AB_HOME / "runs" / run_id
     run_dir.mkdir(parents=True)
@@ -179,7 +204,7 @@ def run_one(task: Dict[str, Any], variant: str, rep: int, keep: bool, window: Op
     snap = build_snapshot(task, variant, run_dir)
     quota_before = check_quota_value()
     budget = float(task.get("budget_usd", 8))
-    run = execute(run_dir, task, variant, session, budget, window)
+    run = execute(run_dir, task, variant, session, budget, window, bash_cap)
     parsed = parse_stream(run_dir / "stream.jsonl")
     res = parsed["result"]
     if res and res.get("result"):
@@ -225,7 +250,9 @@ def run_one(task: Dict[str, Any], variant: str, rep: int, keep: bool, window: Op
     }
     if window:
         row.update(arm="W", window=window)
-    C.append_jsonl(WINDOW_LOG if window else RUNS_LOG, row)
+    if bash_cap:
+        row.update(arm="BC", bash_cap=bash_cap)
+    C.append_jsonl(WINDOW_LOG if window else BASHCAP_LOG if bash_cap else RUNS_LOG, row)
     write_quota(parsed["util"], run_id, ((parsed["rate"] or {}).get("rate_limit_info") or {}).get("resetsAt"))
     if not keep:
         shutil.rmtree(snap["repo"], ignore_errors=True)
@@ -240,8 +267,9 @@ def check_quota_value() -> Optional[float]:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    if args.window:
-        C.SOURCE_DRIFT_OK = True  # entry hash still enforced: W runs the exact frozen agent text the control used
+    if args.window or args.bash_cap:
+        C.SOURCE_DRIFT_OK = True  # entry hash still enforced: W/BC run the exact frozen agent text the control used
+    settings_path(args.window, args.bash_cap)  # refuses a bad cap or both arms before any work
     if args.parallel > C.MAX_CONCURRENT:
         raise C.Refused(f"--parallel capped at {C.MAX_CONCURRENT}")
     cfg = C.load_tasks()
@@ -251,9 +279,9 @@ def cmd_run(args: argparse.Namespace) -> int:
         return 0
     C.check_eval_cap()
     C.ensure_harness()
-    check_quota(WINDOW_QUOTA_CEILING if args.window else C.QUOTA_CEILING)
+    check_quota(BASHCAP_START_CEILING if args.bash_cap else WINDOW_QUOTA_CEILING if args.window else C.QUOTA_CEILING)
     R.agent_provenance(task, args.variant)  # refuses before any snapshot work when the variant build is stale
-    jobs = [(task, args.variant, rep, args.keep, args.window) for rep in range(args.rep_start, args.rep_start + args.reps)]
+    jobs = [(task, args.variant, rep, args.keep, args.window, args.bash_cap) for rep in range(args.rep_start, args.rep_start + args.reps)]
     with ThreadPoolExecutor(max_workers=args.parallel) as pool:
         futures = [pool.submit(_guarded, *job) for job in jobs]
         for fut in futures:
@@ -261,9 +289,10 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
-def _guarded(task: Dict[str, Any], variant: str, rep: int, keep: bool, window: Optional[int] = None) -> Dict[str, Any]:
-    check_quota(WINDOW_QUOTA_CEILING if window else C.QUOTA_CEILING)
-    return run_one(task, variant, rep, keep, window)
+def _guarded(task: Dict[str, Any], variant: str, rep: int, keep: bool, window: Optional[int] = None,
+             bash_cap: Optional[int] = None) -> Dict[str, Any]:
+    check_quota(BASHCAP_STOP_CEILING if bash_cap else WINDOW_QUOTA_CEILING if window else C.QUOTA_CEILING)
+    return run_one(task, variant, rep, keep, window, bash_cap)
 
 
 def cmd_quota(_args: argparse.Namespace) -> int:
@@ -288,6 +317,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--parallel", type=int, default=1)
     r.add_argument("--keep", action="store_true", help="keep runs/<RUN>/repo after grading")
     r.add_argument("--window", type=int, default=None, help="exp 10: haiku-5-5 autoCompactWindow (100000-1000000); rows go to runs-haiku100k.jsonl")
+    r.add_argument("--bash-cap", type=int, default=None, help="exp 11 X2: bashOutputMaxChars (4000-128000); rows go to runs-bashcap.jsonl")
     r.add_argument("--dry-run", action="store_true", help="print the rendered brief and exit")
     sub.add_parser("quota")
     return p
