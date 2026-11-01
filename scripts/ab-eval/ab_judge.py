@@ -207,6 +207,12 @@ def _run_rows() -> Dict[str, Dict[str, Any]]:
             if line.strip():
                 r = json.loads(line)
                 rows[r["run_id"]] = r
+    wpath = C.AB_HOME / "results" / "runs-haiku100k.jsonl"  # exp 10 arm W rows are variant A with a window; judged as arm "W"
+    if wpath.exists():
+        for line in wpath.read_text().splitlines():
+            if line.strip():
+                r = json.loads(line)
+                rows[r["run_id"]] = dict(r, variant="W")
     return rows
 
 

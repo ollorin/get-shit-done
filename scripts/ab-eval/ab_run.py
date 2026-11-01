@@ -240,6 +240,8 @@ def check_quota_value() -> Optional[float]:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
+    if args.window:
+        C.SOURCE_DRIFT_OK = True  # entry hash still enforced: W runs the exact frozen agent text the control used
     if args.parallel > C.MAX_CONCURRENT:
         raise C.Refused(f"--parallel capped at {C.MAX_CONCURRENT}")
     cfg = C.load_tasks()

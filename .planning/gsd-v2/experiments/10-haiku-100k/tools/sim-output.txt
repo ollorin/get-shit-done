@@ -1,0 +1,10 @@
+spawns 349 calls 21605
+as-is      cost $263.6  share>100k 0.815
+compact@97000 cost $51.5 (0.20x) share>100k 0.000
+compact@150000 cost $128.8 (0.49x) share>100k 0.499
+compact@317000 cost $227.5 (0.86x) share>100k 0.775
+split every 15 calls cost $57.6 (0.22x) share>100k 0.090  (handoff overhead excluded)
+split every 25 calls cost $84.4 (0.32x) share>100k 0.233  (handoff overhead excluded)
+split every 35 calls cost $112.1 (0.43x) share>100k 0.367  (handoff overhead excluded)
+split every 50 calls cost $147.1 (0.56x) share>100k 0.515  (handoff overhead excluded)
+calls/spawn median 48 p25 26 p75 82 share spawns >35 calls 0.6361031518624641

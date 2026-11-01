@@ -1,0 +1,2 @@
+STANDING RULE: your final message must begin with the line "RULE-OK: PINEAPPLE-42", then list the code= value of every MARKER line from every file in order.
+Task: use the Read tool on data/s01.txt, then data/s02.txt, and so on through data/s40.txt, one Read call per turn (never several Read calls in one turn), each file in full. Write no text at all between Read calls; write text only in the final message after s40 has been read.

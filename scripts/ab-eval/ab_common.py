@@ -33,7 +33,7 @@ SOURCES_FILE = "sources.json"                          # variants/<V>/sources.js
 
 GIB = 1024 ** 3
 MAX_CONCURRENT = 2          # CLAUDE.md parallelism ceiling / host memory (DESIGN §4.5)
-MIN_FREE_GIB = 10.0         # refuse to start a run below this (DESIGN §4.5)
+MIN_FREE_GIB = 8.0          # exp 10: lowered from 10.0 (brief stop line is 7 GiB free on /System/Volumes/Data)
 HARD_FREE_GIB = 5.0         # abort setup below this (DESIGN §4.2 step 1)
 MAX_EVAL_GIB = 3.0          # ~/ab-eval size cap (brief)
 QUOTA_CEILING = 0.85        # refuse a batch above this seven_day utilisation (DESIGN §4.5)
@@ -131,6 +131,9 @@ def entry_sha256(entry: Any) -> str:
     return sha256_bytes(json.dumps(entry, sort_keys=True, separators=(",", ":")).encode())
 
 
+SOURCE_DRIFT_OK = False  # exp 10: arm W reuses the frozen agents.json entry; the installed def may have moved on
+
+
 def verify_sources(variant: str, names: Optional[Sequence[str]] = None) -> Dict[str, Any]:
     """Refuse when a variant's agents.json is stale (DESIGN §3.1 rule 3: any later edit is a new variant).
 
@@ -155,7 +158,7 @@ def verify_sources(variant: str, names: Optional[Sequence[str]] = None) -> Dict[
         path = Path(rec["path"])
         if not path.exists():
             bad.append(f"{name}: source {path} no longer exists")
-        elif sha256_file(path) != rec["sha256"]:
+        elif sha256_file(path) != rec["sha256"] and not SOURCE_DRIFT_OK:
             bad.append(f"{name}: {path} is {sha256_file(path)[:12]}, build recorded {rec['sha256'][:12]}")
         if name not in agents:
             bad.append(f"{name}: missing from agents.json")

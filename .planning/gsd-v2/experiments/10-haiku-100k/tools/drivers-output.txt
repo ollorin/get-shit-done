@@ -1,0 +1,24 @@
+top20 cost share 0.2374252196806997
+new-content tokens (cache-write) by tool category, top20:
+   bash:other 8646 k tok 34.1 %
+   bash:test/gates/mutation 4545 k tok 17.9 %
+   bash:file-inspect 3690 k tok 14.6 %
+   bash:search 2512 k tok 9.9 %
+   read:planning-docs 2285 k tok 9.0 %
+   edit 1492 k tok 5.9 %
+   read:code/test 1439 k tok 5.7 %
+   spawn 501 k tok 2.0 %
+   noTool 181 k tok 0.7 %
+   tool 41 k tok 0.2 %
+   msg 10 k tok 0.0 %
+   wait 0 k tok 0.0 %
+calls med 185.5 max_ctx med 315883.0
+first-turn med 38874.5
+instr chars med 41313.0 (~tok 10328.0 )
+nested rule chars med 2090.0
+Read result chars med 108478.0 Bash 190225.5
+first_prompt chars med 1500.0
+spawns w/ compact boundary 17 of 20; max_ctx>=288k 20
+all 349: share peaking 288k-330k 0.23209169054441262
+median per-call growth tok 1306.5 mean 2865
+descs ['400-26 CA4b, MU3, buckets', 'Finish plan 402-02', '401-07 fix C1: split and Q1/', '402-03 review fixes', '401-07 fix C3a: Round 4 sett', 'Finish plan 402-04 live part', '400-18 review fix pass', 'Resume plan 400-45 per rulin', '401-07 fix C2 retry', 'Resume plan 402-03', '401-07 fix B2: R4 and review', '401-07 fix C4b: finish runs', '400-08 Task 3 mutations and ', 'Resume plan 402-02', 'Resume 400-25 executor', 'Execute plan 400-26', '401-07 C9: close all remaini', 'Resume execute plan 400-18 (', 'Execute plan 399-04', 'Resume plan 402-01 from task']

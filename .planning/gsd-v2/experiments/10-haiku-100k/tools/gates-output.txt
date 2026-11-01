@@ -1,0 +1,21 @@
+TASK  arm  n  acc  commits  compactions  sub_calls  share>100k  peak_med  tier$med  flat$med  wall_med
+E4 A 3 3 [5, 4, 3] [0, 0, 0] 254 0.913 217526 0.767 0.174 667
+E4 W 3 1 [1, 1, 4] [8, 12, 7] 224 0.004 99380 0.241 0.241 578
+E6 A 3 3 [3, 3, 3] [0, 0, 0] 64 0.594 123041 0.109 0.044 115
+E6 W 3 3 [6, 2, 3] [2, 2, 3] 66 0.03 100246 0.087 0.075 153
+E7 A 3 3 [3, 3, 3] [0, 0, 0] 99 0.646 118316 0.129 0.056 180
+E7 W 3 3 [3, 3, 3] [1, 2, 2] 76 0.0 95912 0.076 0.076 221
+SUM of task medians tier A 1.005 W 0.404 ratio 0.402
+SUM of task medians flat A 0.273 W 0.392 ratio 1.434
+SUM of task medians wall A 963.8 W 953.5 ratio 0.989
+W pooled share>100k (executor calls) 0.008 | A 0.801
+W compaction extra $ total 0.3712
+E4-Aw130k-r1-20261101-190134-c done acc False commits 1 loss: []
+E4-Aw130k-r2-20261101-190134-6 done acc False commits 1 loss: []
+E6-Aw130k-r1-20261101-191226-d done acc True commits 6 loss: []
+E6-Aw130k-r2-20261101-191510-b done acc True commits 2 loss: []
+E6-Aw130k-r3-20261101-191737-e done acc True commits 3 loss: []
+E4-Aw130k-r3-20261101-191158-e done acc True commits 4 loss: []
+E7-Aw130k-r1-20261101-192254-a done acc True commits 3 loss: []
+E7-Aw130k-r2-20261101-192607-7 done acc True commits 3 loss: []
+E7-Aw130k-r3-20261101-193018-6 done acc True commits 3 loss: []

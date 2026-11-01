@@ -1,0 +1,3 @@
+t_max 2026-11-01 spawns 349
+spawns>100k 297 / 349 calls above share 0.803 (series calls 21605 )
+cost at tier prices 261.1 cost if all below-tier 57.3   below-line part 6.4 above-line part at 5x 254.7
