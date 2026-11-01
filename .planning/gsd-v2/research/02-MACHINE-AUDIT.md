@@ -10,7 +10,7 @@ Sizes are `du` values (G = GiB). Measured in units of the tool output; no TCC-pr
 | Macintosh HD (System, sealed) | 12.0 GB | |
 | Preboot | 7.7 GB | |
 | Recovery | 1.2 GB | |
-| Data (`/System/Volumes/Data`) | 199.9 GB (186 GiB) | includes `/Users/karina`, `/Users/mac` (other accounts, not measured) |
+| Data (`/System/Volumes/Data`) | 199.9 GB (186 GiB) | includes other macOS accounts (not measured) |
 | VM (`/System/Volumes/VM`) | 5.4 GB | 5 x 1 GiB swapfiles |
 | **Container free** | **18.8 GB (17.5 GiB)** | `df` shows 18Gi avail |
 
@@ -161,7 +161,7 @@ Config: `apps/api/supabase/config.toml` (project id `api`). Section `enabled` va
 ## (6) Not measured
 
 - TCC-protected folders: `~/Desktop` (6.8 MB incidental from home depth-1 pass, not drilled), `~/Documents` (not sized), `~/Downloads` (378 MB incidental), `~/Pictures` (371 MB incidental), `~/Movies`, `~/Music` (376 KB incidental), `~/Library/Mail`, `~/Library/Messages`, `~/Library/Safari`, Photos library.
-- Other accounts: `/Users/karina`, `/Users/mac` (not ours; not measured).
+- Other macOS accounts: not ours; not measured.
 - Unexplained Data-volume remainder ≈ 70 GiB (see Disk section). Probe would need root or `diskutil` detail; not attempted.
 - `/private/var/db` 1.9G and `/private/var/folders/*/C` 512 MB: top level only, not drilled.
 - `~/Library/Containers` (449 MB), `~/Library/Logs` (88 MB), `~/Library/Application Support/Claude` non-VM parts (~0.7 GB): top level only.
