@@ -178,6 +178,11 @@ def parse_docs_contract(text: str) -> Optional[Dict[str, Any]]:
             "reason": found.get("reason", ""), "form": "text"}
 
 
+# prose that explains an empty result: "Reason no files were written:", "already documented", "no docs needed"
+NO_WRITE_REASON = re.compile(r"\breason\b[^\n]*\b(no|not)\b|already (documented|covered|has|have|exists?)|"
+                             r"no (doc|write|file|change)s?\b|nothing to (write|document|update)", re.I)
+
+
 def grade_docs(run_dir: Path, task: Dict[str, Any], generic: Dict[str, Any]) -> Dict[str, Any]:
     report = _report(run_dir)
     contract = parse_docs_contract(report)
@@ -203,7 +208,7 @@ def grade_docs(run_dir: Path, task: Dict[str, Any], generic: Dict[str, Any]) -> 
         else:
             reason = contract["reason"] or " ".join(contract["errors"])
             checks["negative_control_empty_with_reason"] = _chk(
-                not written and not touched and (bool(reason) or bool(re.search(r"no (doc|write)s?", report, re.I))),
+                not written and not touched and (bool(reason) or bool(NO_WRITE_REASON.search(report))),
                 f"written_files={written} touched={touched[:3]} reason={'yes' if reason else 'no'}")
     return _finish("docs", checks, generic)
 

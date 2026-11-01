@@ -487,3 +487,32 @@ class StackFalsePositive(unittest.TestCase):
         for c in ["supabase status", "npx supabase db reset", "cd x && docker ps", "psql -h localhost",
                   "ls; supabase start", "bash <<'EOF'\ndocker ps\nEOF"]:
             self.assertTrue(self.stack(c), c)
+
+
+class NegativeControlReason(unittest.TestCase):
+    """DU3-A-r1: nothing written, contract `[]`/`no-changes`/`[]`, the reason given in prose (not in errors)."""
+
+    def test_prose_reason_accepted(self):
+        import ab_role_grade as RG
+        report = (ROOT / "tests" / "data" / "du3-arm-A-empty-with-prose-reason.md").read_text()
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "report.md").write_text(report)
+            task = {"role": "docs-updater", "expect_writes": False}
+            out = RG.grade_docs(Path(d), task, {"files_touched": [], "commits": [], "criticals": []})
+        self.assertTrue(out["checks"]["negative_control_empty_with_reason"]["ok"], out["checks"])
+
+    def test_empty_without_reason_rejected(self):
+        import ab_role_grade as RG
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "report.md").write_text("written_files: []\ncommit: none\nerrors: []\n")
+            out = RG.grade_docs(Path(d), {"role": "docs-updater", "expect_writes": False},
+                                {"files_touched": [], "commits": [], "criticals": []})
+        self.assertFalse(out["checks"]["negative_control_empty_with_reason"]["ok"])
+
+    def test_writes_rejected(self):
+        import ab_role_grade as RG
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "report.md").write_text("written_files: [/x/docs/a.md]\ncommit: abc1234\nerrors: []\nno docs needed\n")
+            out = RG.grade_docs(Path(d), {"role": "docs-updater", "expect_writes": False},
+                                {"files_touched": ["docs/a.md"], "commits": ["abc"], "criticals": []})
+        self.assertFalse(out["checks"]["negative_control_empty_with_reason"]["ok"])
