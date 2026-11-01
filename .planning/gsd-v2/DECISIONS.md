@@ -30,4 +30,7 @@
 | 2026-11-02 | Measure test redundancy by mutation before deleting any test | CEO | `experiments/12-test-redundancy/` |
 | 2026-11-02 | Fable is not used, including as an A/B judge; a second opinion is a fresh Opus. Replaces the earlier allowance. Fable judgments already in `RESULTS-X0-X1.md` stay as a record | CEO | n/a |
 | 2026-11-02 | Round-5 Opus ruling on high-stakes loops applied | CEO condition met by `experiments/13-review-rounds/RESULT.md` | `docs/v2/CHANGES.md` |
+| 2026-11-02 | Push the fork and Charlotte to their public repos; approved over the recommendation of a private repo | CEO: "Пуш в паблик репо. Апрувед" | fork `d8a5cfc`, Charlotte `73b4151` |
+| 2026-11-02 | X2 budget approved | CEO | `experiments/11-test-writer-executor-e/DESIGN.md` |
+| 2026-11-02 | Remove `Agent` from the executor; coordinator takes over its children. Approved over the recommendation to wait for a better test-writer. Ship at a phase boundary, separate from the hook flip. X4 budget not approved, so no A/B before shipping | CEO: "Убрать агента у эксекьютора тоже апрувед" | to be planned |
 
