@@ -115,10 +115,22 @@ def prepare_copies(t: Dict[str, Any], tdir: Path) -> Tuple[Path, Path, Path]:
     return pristine, calib, calib / "base"
 
 
+def apply_ref_overlay(t: Dict[str, Any], tree: Path) -> None:
+    """Task key `ref_overlay`: an examples/artifacts dir copied over the extracted reference tree (the authored
+    reference solution: test files, and the production change when the task's behaviour is synthetic)."""
+    name = t.get("ref_overlay")
+    if name:
+        src = C.ARTIFACTS / name
+        if not src.is_dir():
+            raise C.Refused(f"ref_overlay dir {src} does not exist")
+        shutil.copytree(src, tree, dirs_exist_ok=True)
+
+
 def extract_ref(t: Dict[str, Any], pristine: Path, calib: Path, rev: Optional[str] = None) -> Path:
     import ab_setup as S
     ref_copy = calib / "ref"
     S.extract_rev_paths(C.LIVE_REPO, rev or t["ref"][-1], ["."], ref_copy)
+    apply_ref_overlay(t, ref_copy)
     env_src = pristine / "apps" / "api" / ".env.test"
     if env_src.exists():
         shutil.copy2(env_src, ref_copy / "apps" / "api" / ".env.test")

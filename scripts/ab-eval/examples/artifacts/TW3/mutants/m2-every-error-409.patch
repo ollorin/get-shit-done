@@ -1,0 +1,11 @@
+--- a/apps/api/functions/payments/services/operator/methods-service.ts
++++ b/apps/api/functions/payments/services/operator/methods-service.ts
+@@ -211,7 +211,7 @@
+   ).andThen(({ data, error }) => {
+     if (error) {
+       return errAsync(
+-        error.message === PAYMENT_METHOD_TYPE_IMMUTABLE
++        typeof error.message === 'string'
+           ? PAYMENT_METHOD_TYPE_IMMUTABLE_ERROR
+           : PaymentDatabaseError({ table: 'payment_methods', operation: 'update', cause: error as Error }),
+       );

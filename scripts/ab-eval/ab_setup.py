@@ -530,6 +530,22 @@ def cmd_variant(args: argparse.Namespace, cfg: Dict[str, Any]) -> None:
           f"files, {scrub['memory_md_lines_removed']} index lines")
 
 
+def ref_diff_text(t: Dict[str, Any], ref_sha: str, specs: List[str]) -> str:
+    """Reference diff shown to judges. With `ref_overlay` it is the authored solution: base file vs overlay file."""
+    name = t.get("ref_overlay")
+    if not name:
+        return C.git(C.LIVE_REPO, "diff", t["base"], ref_sha, "--", *specs)
+    import difflib
+    out = []
+    root = C.ARTIFACTS / name
+    for f in sorted(p for p in root.rglob("*") if p.is_file()):
+        rel = str(f.relative_to(root))
+        proc = subprocess.run(["git", "show", f"{t['base']}:{rel}"], cwd=str(C.LIVE_REPO), capture_output=True, text=True)
+        old = proc.stdout.splitlines(keepends=True) if proc.returncode == 0 else []
+        out += list(difflib.unified_diff(old, f.read_text().splitlines(keepends=True), f"a/{rel}", f"b/{rel}"))
+    return "".join(out)
+
+
 def cmd_oracle(args: argparse.Namespace, cfg: Dict[str, Any]) -> None:
     t = C.find_task(cfg, args.task)
     odir = C.task_dir(t["id"]) / "oracle"
@@ -553,7 +569,7 @@ def cmd_oracle(args: argparse.Namespace, cfg: Dict[str, Any]) -> None:
         ref_sha = t["ref"][-1]
         C.git(C.LIVE_REPO, "cat-file", "-e", ref_sha)
         specs = t["scope_files"] or ["."]
-        (odir / "ref.diff").write_text(C.git(C.LIVE_REPO, "diff", t["base"], ref_sha, "--", *specs))
+        (odir / "ref.diff").write_text(ref_diff_text(t, ref_sha, specs))
     print(f"oracle: {len(entries)} hidden files, {len(known)} known items")
 
 

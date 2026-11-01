@@ -221,13 +221,16 @@ def cmd_pack(args: argparse.Namespace) -> int:
     a, b = rows.get(args.a), rows.get(args.b)
     if not a or not b:
         raise C.Refused("both runs must be in results/runs.jsonl")
-    if a["task_id"] != b["task_id"] or a["variant"] == b["variant"]:
-        raise C.Refused("pairs need the same task and two different arms")
+    same_arm = bool(getattr(args, "same_arm", False))  # exp 11 X0: A-vs-A noise pairs, arms relabelled A1 / A2
+    if a["task_id"] != b["task_id"] or (a["variant"] == b["variant"]) != same_arm or (same_arm and args.a == args.b):
+        raise C.Refused("pairs need the same task and two different arms (--same-arm: two different runs of one arm)")
+    if same_arm:
+        a, b = dict(a, variant="A1"), dict(b, variant="A2")
     if a["status"] != "done" or b["status"] != "done":
         raise C.Refused("only done runs are judged (void/failed runs are re-run or reported)")
     cfg = C.load_tasks()
     task = C.find_task(cfg, a["task_id"])
-    extra = _extra_redactions(a["variant"]) + _extra_redactions(b["variant"])
+    extra = ([] if same_arm else _extra_redactions(a["variant"]) + _extra_redactions(b["variant"]))
     pid = pair_id(task["id"], args.rep, args.a, args.b)
     jdir = C.AB_HOME / "judge" / pid
     if jdir.exists():
@@ -443,6 +446,7 @@ def build_parser() -> argparse.ArgumentParser:
     pk.add_argument("--rep", type=int, required=True)
     pk.add_argument("--second-judge", choices=["fable", "sonnet"], default=None)
     pk.add_argument("--sample", type=float, default=0.25)
+    pk.add_argument("--same-arm", action="store_true", help="two runs of the same arm (noise pairs); arms A1 / A2")
     jd = sub.add_parser("judge")
     jd.add_argument("--pair", required=True)
     jd.add_argument("--model", default="opus")

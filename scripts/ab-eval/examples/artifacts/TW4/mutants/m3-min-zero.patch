@@ -1,0 +1,11 @@
+--- a/apps/api/functions/games/handlers/crash/crash-round-handlers.ts
++++ b/apps/api/functions/games/handlers/crash/crash-round-handlers.ts
+@@ -180,7 +180,7 @@
+   if (refusedVariant) return refusedVariant;
+   const vId = variantId || "00000000-0000-0000-0000-000000000006";
+   const whole = Number.isFinite(limit) ? Math.floor(limit) : 0;
+-  const safeLimit = Math.min(Math.max(1, whole || 20), 50);
++  const safeLimit = Math.min(Math.max(0, whole || 20), 50);
+ 
+   const { data: rounds, error } = await supabase
+     .schema("game" as never)

@@ -1,0 +1,11 @@
+--- a/apps/api/functions/payments/handlers/operator-methods.ts
++++ b/apps/api/functions/payments/handlers/operator-methods.ts
+@@ -445,7 +445,7 @@
+       if ((err as { _tag?: string })._tag === "PaymentMethodTypeImmutableError") {
+         return createErrorResponse({
+           _tag: "ConflictError",
+-          code: "PAYMENT_METHOD_TYPE_IMMUTABLE",
++          code: "CONFLICT",
+           message: "payment_method_type cannot be changed; create a new payment method instead",
+           statusCode: 409,
+         }, corsHeaders);

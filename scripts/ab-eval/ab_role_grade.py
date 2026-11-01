@@ -256,6 +256,7 @@ def grade_mutants(run_dir: Path, task: Dict[str, Any], generic: Dict[str, Any], 
     if tests:
         import shutil
         S.extract_rev_paths(C.LIVE_REPO, task["ref"][-1], ["."], scratch)
+        K.apply_ref_overlay(task, scratch)
         env_src = repo / "apps" / "api" / ".env.test"
         if env_src.exists():
             shutil.copy2(env_src, scratch / "apps" / "api" / ".env.test")
