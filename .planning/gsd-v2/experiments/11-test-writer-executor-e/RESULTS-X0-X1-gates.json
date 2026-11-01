@@ -1,0 +1,1153 @@
+{
+ "acceptance": {
+  "pass": false,
+  "detail": {
+   "TW1": {
+    "E": 1.0,
+    "A": 0.6666666666666666,
+    "n_E": 3,
+    "n_A": 3
+   },
+   "TW2": {
+    "E": 0.0,
+    "A": 0.6666666666666666,
+    "n_E": 3,
+    "n_A": 3
+   },
+   "TW3": {
+    "E": 1.0,
+    "A": 1.0,
+    "n_E": 3,
+    "n_A": 3
+   },
+   "TW4": {
+    "E": 1.0,
+    "A": 1.0,
+    "n_E": 3,
+    "n_A": 3
+   }
+  },
+  "flips": [
+   "TW2"
+  ]
+ },
+ "mutants_survived": {
+  "pass": false,
+  "E": {
+   "TW1": 0.0,
+   "TW2": 4.0,
+   "TW3": 0.0,
+   "TW4": 0.0
+  },
+  "A": {
+   "TW1": 0.0,
+   "TW2": 0.0,
+   "TW3": 0.0,
+   "TW4": 0.0
+  },
+  "sumE": 4.0,
+  "sumA": 0.0
+ },
+ "volume": {
+  "pass": true,
+  "loc_E": {
+   "TW1": 78.0,
+   "TW2": 246.0,
+   "TW3": -22.0,
+   "TW4": 24.0
+  },
+  "loc_A": {
+   "TW1": 96.0,
+   "TW2": 350.0,
+   "TW3": 3.0,
+   "TW4": 43.0
+  },
+  "sum_loc_E": 326.0,
+  "sum_loc_A": 492.0,
+  "ratio": 0.663,
+  "cases_E": {
+   "TW1": 3.0,
+   "TW2": 4.0,
+   "TW3": -3.0,
+   "TW4": 2.0
+  },
+  "cases_A": {
+   "TW1": 3.0,
+   "TW2": 7.0,
+   "TW3": -2.0,
+   "TW4": 2.0
+  },
+  "sum_cases_E": 6.0,
+  "sum_cases_A": 10.0
+ },
+ "bloated_start": {
+  "pass": false,
+  "detail": {
+   "TW3": {
+    "median_net_loc_E": -22.0,
+    "covered_reps": "3/3",
+    "ok": true
+   },
+   "TW4": {
+    "median_net_loc_E": 24.0,
+    "covered_reps": "3/3",
+    "ok": false
+   }
+  },
+  "A_median_net_loc": {
+   "TW3": 3.0,
+   "TW4": 43.0
+  }
+ },
+ "kills_per_added_case": {
+  "pass": true,
+  "E": {
+   "TW1": 1.0,
+   "TW2": 0.0,
+   "TW3": 1.3333,
+   "TW4": 2.0
+  },
+  "A": {
+   "TW1": 1.0,
+   "TW2": 0.5714,
+   "TW3": 1.0,
+   "TW4": 1.3333
+  },
+  "sumE": 4.333,
+  "sumA": 3.905
+ },
+ "judges": {
+  "opus": {
+   "pairs": 12,
+   "errors": 0,
+   "test_quality": {
+    "cand": 1,
+    "ctl": 7,
+    "tie": 4
+   },
+   "delta": -0.5,
+   "noise_margin": 0.3,
+   "test_quality_pass": false,
+   "overall": {
+    "cand": 2,
+    "ctl": 8,
+    "tie": 2
+   },
+   "honesty_rows": {
+    "E_loses": 12,
+    "A_loses": 0
+   },
+   "honesty_pass": false,
+   "per_pair": {
+    "TW1-r1-81a5c466": {
+     "task": "TW1",
+     "rep": 1,
+     "tq": "A",
+     "overall": "A",
+     "tq_dims": {
+      "o1": "A",
+      "o2": "A"
+     }
+    },
+    "TW1-r2-15132276": {
+     "task": "TW1",
+     "rep": 2,
+     "tq": "A",
+     "overall": "A",
+     "tq_dims": {
+      "o1": "A",
+      "o2": "A"
+     }
+    },
+    "TW1-r3-5c9c3448": {
+     "task": "TW1",
+     "rep": 3,
+     "tq": "tie",
+     "overall": "tie",
+     "tq_dims": {
+      "o1": "tie",
+      "o2": "A"
+     }
+    },
+    "TW2-r1-6315c4fb": {
+     "task": "TW2",
+     "rep": 1,
+     "tq": "A",
+     "overall": "A",
+     "tq_dims": {
+      "o1": "A",
+      "o2": "A"
+     }
+    },
+    "TW2-r2-e7039665": {
+     "task": "TW2",
+     "rep": 2,
+     "tq": "tie",
+     "overall": "A",
+     "tq_dims": {
+      "o1": "A",
+      "o2": "tie"
+     }
+    },
+    "TW2-r3-ba35489f": {
+     "task": "TW2",
+     "rep": 3,
+     "tq": "tie",
+     "overall": "A",
+     "tq_dims": {
+      "o1": "tie",
+      "o2": "A"
+     }
+    },
+    "TW3-r1-f1090cff": {
+     "task": "TW3",
+     "rep": 1,
+     "tq": "A",
+     "overall": "A",
+     "tq_dims": {
+      "o1": "A",
+      "o2": "A"
+     }
+    },
+    "TW3-r2-b7564505": {
+     "task": "TW3",
+     "rep": 2,
+     "tq": "A",
+     "overall": "A",
+     "tq_dims": {
+      "o1": "A",
+      "o2": "A"
+     }
+    },
+    "TW3-r3-5edf764c": {
+     "task": "TW3",
+     "rep": 3,
+     "tq": "A",
+     "overall": "tie",
+     "tq_dims": {
+      "o1": "A",
+      "o2": "A"
+     }
+    },
+    "TW4-r1-1f367927": {
+     "task": "TW4",
+     "rep": 1,
+     "tq": "E",
+     "overall": "E",
+     "tq_dims": {
+      "o1": "E",
+      "o2": "E"
+     }
+    },
+    "TW4-r2-797d85c3": {
+     "task": "TW4",
+     "rep": 2,
+     "tq": "tie",
+     "overall": "E",
+     "tq_dims": {
+      "o1": "tie",
+      "o2": "E"
+     }
+    },
+    "TW4-r3-75fba3a3": {
+     "task": "TW4",
+     "rep": 3,
+     "tq": "A",
+     "overall": "A",
+     "tq_dims": {
+      "o1": "A",
+      "o2": "A"
+     }
+    }
+   }
+  },
+  "claude-fable-5-1": {
+   "pairs": 12,
+   "errors": 0,
+   "test_quality": {
+    "cand": 1,
+    "ctl": 6,
+    "tie": 5
+   },
+   "delta": -0.417,
+   "noise_margin": 0.5,
+   "test_quality_pass": true,
+   "overall": {
+    "cand": 5,
+    "ctl": 6,
+    "tie": 1
+   },
+   "honesty_rows": {
+    "E_loses": 9,
+    "A_loses": 0
+   },
+   "honesty_pass": false,
+   "per_pair": {
+    "TW1-r1-81a5c466": {
+     "task": "TW1",
+     "rep": 1,
+     "tq": "A",
+     "overall": "A",
+     "tq_dims": {
+      "o1": "A",
+      "o2": "A"
+     }
+    },
+    "TW1-r2-15132276": {
+     "task": "TW1",
+     "rep": 2,
+     "tq": "tie",
+     "overall": "E",
+     "tq_dims": {
+      "o1": "E",
+      "o2": "tie"
+     }
+    },
+    "TW1-r3-5c9c3448": {
+     "task": "TW1",
+     "rep": 3,
+     "tq": "tie",
+     "overall": "E",
+     "tq_dims": {
+      "o1": "E",
+      "o2": "A"
+     }
+    },
+    "TW2-r1-6315c4fb": {
+     "task": "TW2",
+     "rep": 1,
+     "tq": "A",
+     "overall": "A",
+     "tq_dims": {
+      "o1": "A",
+      "o2": "A"
+     }
+    },
+    "TW2-r2-e7039665": {
+     "task": "TW2",
+     "rep": 2,
+     "tq": "tie",
+     "overall": "tie",
+     "tq_dims": {
+      "o1": "E",
+      "o2": "A"
+     }
+    },
+    "TW2-r3-ba35489f": {
+     "task": "TW2",
+     "rep": 3,
+     "tq": "A",
+     "overall": "A",
+     "tq_dims": {
+      "o1": "A",
+      "o2": "A"
+     }
+    },
+    "TW3-r1-f1090cff": {
+     "task": "TW3",
+     "rep": 1,
+     "tq": "A",
+     "overall": "A",
+     "tq_dims": {
+      "o1": "A",
+      "o2": "A"
+     }
+    },
+    "TW3-r2-b7564505": {
+     "task": "TW3",
+     "rep": 2,
+     "tq": "A",
+     "overall": "A",
+     "tq_dims": {
+      "o1": "A",
+      "o2": "A"
+     }
+    },
+    "TW3-r3-5edf764c": {
+     "task": "TW3",
+     "rep": 3,
+     "tq": "A",
+     "overall": "A",
+     "tq_dims": {
+      "o1": "A",
+      "o2": "A"
+     }
+    },
+    "TW4-r1-1f367927": {
+     "task": "TW4",
+     "rep": 1,
+     "tq": "tie",
+     "overall": "E",
+     "tq_dims": {
+      "o1": "tie",
+      "o2": "tie"
+     }
+    },
+    "TW4-r2-797d85c3": {
+     "task": "TW4",
+     "rep": 2,
+     "tq": "tie",
+     "overall": "E",
+     "tq_dims": {
+      "o1": "tie",
+      "o2": "tie"
+     }
+    },
+    "TW4-r3-75fba3a3": {
+     "task": "TW4",
+     "rep": 3,
+     "tq": "E",
+     "overall": "E",
+     "tq_dims": {
+      "o1": "E",
+      "o2": "E"
+     }
+    }
+   }
+  }
+ },
+ "cost": {
+  "pass": true,
+  "E": {
+   "TW1": 0.05024650499999999,
+   "TW2": 0.22799205500000003,
+   "TW3": 0.035060015,
+   "TW4": 0.024190404999999998
+  },
+  "A": {
+   "TW1": 0.11126258000000001,
+   "TW2": 0.37223750999999994,
+   "TW3": 0.15978083499999998,
+   "TW4": 0.102368365
+  },
+  "sumE": 0.337,
+  "sumA": 0.746
+ },
+ "share_above_100k": {
+  "pass": true,
+  "E": {
+   "calls_hi": 171,
+   "calls": 646,
+   "share": 0.2647
+  },
+  "A": {
+   "calls_hi": 399,
+   "calls": 737,
+   "share": 0.5414
+  }
+ },
+ "first_turn_tokens": {
+  "E": {
+   "TW1": 20872.0,
+   "TW2": 20979.0,
+   "TW3": 20979.0,
+   "TW4": 20970.0
+  },
+  "A": {
+   "TW1": 22772.0,
+   "TW2": 22882.0,
+   "TW3": 22882.0,
+   "TW4": 22874.0
+  }
+ },
+ "n_runs": {
+  "A": {
+   "TW1": 3,
+   "TW2": 3,
+   "TW3": 3,
+   "TW4": 3
+  },
+  "E": {
+   "TW1": 3,
+   "TW2": 3,
+   "TW3": 3,
+   "TW4": 3
+  }
+ },
+ "per_run": {
+  "A": {
+   "TW1": [
+    {
+     "cases_added": 3,
+     "cases_removed": 0,
+     "loc_added": 85,
+     "loc_removed": 1,
+     "test_files": 1,
+     "net_loc": 84,
+     "net_cases": 3,
+     "run_id": "TW1-A-r1-20261101-201649-bacce1",
+     "mutants_killed": 0,
+     "mutants_total": 3,
+     "mutants_survived": 3,
+     "kills_per_added_case": 0.0,
+     "behaviours": 3,
+     "loc_per_behaviour": 28.33,
+     "cases_per_behaviour": 1.0,
+     "task": "TW1",
+     "rep": 1,
+     "accepted": false,
+     "cost": 0.11126258000000001,
+     "first_turn_tok": 22772,
+     "calls_hi": 23,
+     "calls": 51,
+     "covered": false,
+     "honest_claims": null
+    },
+    {
+     "cases_added": 3,
+     "cases_removed": 0,
+     "loc_added": 98,
+     "loc_removed": 2,
+     "test_files": 1,
+     "net_loc": 96,
+     "net_cases": 3,
+     "run_id": "TW1-A-r2-20261101-201649-4956d0",
+     "mutants_killed": 3,
+     "mutants_total": 3,
+     "mutants_survived": 0,
+     "kills_per_added_case": 1.0,
+     "behaviours": 3,
+     "loc_per_behaviour": 32.67,
+     "cases_per_behaviour": 1.0,
+     "task": "TW1",
+     "rep": 2,
+     "accepted": true,
+     "cost": 0.12334645,
+     "first_turn_tok": 22772,
+     "calls_hi": 18,
+     "calls": 50,
+     "covered": true,
+     "honest_claims": null
+    },
+    {
+     "cases_added": 3,
+     "cases_removed": 0,
+     "loc_added": 189,
+     "loc_removed": 17,
+     "test_files": 1,
+     "net_loc": 172,
+     "net_cases": 3,
+     "run_id": "TW1-A-r3-20261101-201913-39dc1d",
+     "mutants_killed": 3,
+     "mutants_total": 3,
+     "mutants_survived": 0,
+     "kills_per_added_case": 1.0,
+     "behaviours": 3,
+     "loc_per_behaviour": 63.0,
+     "cases_per_behaviour": 1.0,
+     "task": "TW1",
+     "rep": 3,
+     "accepted": true,
+     "cost": 0.085236445,
+     "first_turn_tok": 22775,
+     "calls_hi": 13,
+     "calls": 54,
+     "covered": true,
+     "honest_claims": null
+    }
+   ],
+   "TW2": [
+    {
+     "cases_added": 7,
+     "cases_removed": 0,
+     "loc_added": 363,
+     "loc_removed": 13,
+     "test_files": 2,
+     "net_loc": 350,
+     "net_cases": 7,
+     "run_id": "TW2-A-r1-20261101-202153-bb28f5",
+     "mutants_killed": 4,
+     "mutants_total": 4,
+     "mutants_survived": 0,
+     "kills_per_added_case": 0.5714,
+     "behaviours": 6,
+     "loc_per_behaviour": 60.5,
+     "cases_per_behaviour": 1.17,
+     "task": "TW2",
+     "rep": 1,
+     "accepted": true,
+     "cost": 0.49506951499999996,
+     "first_turn_tok": 22882,
+     "calls_hi": 81,
+     "calls": 86,
+     "covered": true,
+     "honest_claims": null
+    },
+    {
+     "cases_added": 1,
+     "cases_removed": 0,
+     "loc_added": 398,
+     "loc_removed": 6,
+     "test_files": 2,
+     "net_loc": 392,
+     "net_cases": 1,
+     "run_id": "TW2-A-r2-20261101-202153-2a1ab4",
+     "mutants_killed": 0,
+     "mutants_total": 4,
+     "mutants_survived": 4,
+     "kills_per_added_case": 0.0,
+     "behaviours": 6,
+     "loc_per_behaviour": 66.33,
+     "cases_per_behaviour": 0.17,
+     "task": "TW2",
+     "rep": 2,
+     "accepted": false,
+     "cost": 0.37223750999999994,
+     "first_turn_tok": 22891,
+     "calls_hi": 71,
+     "calls": 117,
+     "covered": false,
+     "honest_claims": null
+    },
+    {
+     "cases_added": 7,
+     "cases_removed": 0,
+     "loc_added": 340,
+     "loc_removed": 25,
+     "test_files": 2,
+     "net_loc": 315,
+     "net_cases": 7,
+     "run_id": "TW2-A-r3-20261101-202729-eb8333",
+     "mutants_killed": 4,
+     "mutants_total": 4,
+     "mutants_survived": 0,
+     "kills_per_added_case": 0.5714,
+     "behaviours": 6,
+     "loc_per_behaviour": 56.67,
+     "cases_per_behaviour": 1.17,
+     "task": "TW2",
+     "rep": 3,
+     "accepted": true,
+     "cost": 0.32502979,
+     "first_turn_tok": 22879,
+     "calls_hi": 62,
+     "calls": 104,
+     "covered": true,
+     "honest_claims": null
+    }
+   ],
+   "TW3": [
+    {
+     "cases_added": 4,
+     "cases_removed": 6,
+     "loc_added": 59,
+     "loc_removed": 56,
+     "test_files": 1,
+     "net_loc": 3,
+     "net_cases": -2,
+     "run_id": "TW3-A-r1-20261101-203129-f84002",
+     "mutants_killed": 4,
+     "mutants_total": 4,
+     "mutants_survived": 0,
+     "kills_per_added_case": 1.0,
+     "behaviours": 2,
+     "loc_per_behaviour": 29.5,
+     "cases_per_behaviour": 2.0,
+     "task": "TW3",
+     "rep": 1,
+     "accepted": true,
+     "cost": 0.07440285999999999,
+     "first_turn_tok": 22882,
+     "calls_hi": 14,
+     "calls": 35,
+     "covered": true,
+     "honest_claims": null
+    },
+    {
+     "cases_added": 3,
+     "cases_removed": 6,
+     "loc_added": 63,
+     "loc_removed": 77,
+     "test_files": 1,
+     "net_loc": -14,
+     "net_cases": -3,
+     "run_id": "TW3-A-r2-20261101-203129-cb4923",
+     "mutants_killed": 4,
+     "mutants_total": 4,
+     "mutants_survived": 0,
+     "kills_per_added_case": 1.3333,
+     "behaviours": 2,
+     "loc_per_behaviour": 31.5,
+     "cases_per_behaviour": 1.5,
+     "task": "TW3",
+     "rep": 2,
+     "accepted": true,
+     "cost": 0.15978083499999998,
+     "first_turn_tok": 22879,
+     "calls_hi": 25,
+     "calls": 51,
+     "covered": true,
+     "honest_claims": null
+    },
+    {
+     "cases_added": 4,
+     "cases_removed": 6,
+     "loc_added": 91,
+     "loc_removed": 74,
+     "test_files": 1,
+     "net_loc": 17,
+     "net_cases": -2,
+     "run_id": "TW3-A-r3-20261101-203327-d7a3cf",
+     "mutants_killed": 4,
+     "mutants_total": 4,
+     "mutants_survived": 0,
+     "kills_per_added_case": 1.0,
+     "behaviours": 2,
+     "loc_per_behaviour": 45.5,
+     "cases_per_behaviour": 2.0,
+     "task": "TW3",
+     "rep": 3,
+     "accepted": true,
+     "cost": 0.252843775,
+     "first_turn_tok": 22885,
+     "calls_hi": 47,
+     "calls": 79,
+     "covered": true,
+     "honest_claims": null
+    }
+   ],
+   "TW4": [
+    {
+     "cases_added": 3,
+     "cases_removed": 0,
+     "loc_added": 48,
+     "loc_removed": 0,
+     "test_files": 1,
+     "net_loc": 48,
+     "net_cases": 3,
+     "run_id": "TW4-A-r1-20261101-203610-3bd7fd",
+     "mutants_killed": 4,
+     "mutants_total": 4,
+     "mutants_survived": 0,
+     "kills_per_added_case": 1.3333,
+     "behaviours": 2,
+     "loc_per_behaviour": 24.0,
+     "cases_per_behaviour": 1.5,
+     "task": "TW4",
+     "rep": 1,
+     "accepted": true,
+     "cost": 0.047356369999999995,
+     "first_turn_tok": 22883,
+     "calls_hi": 5,
+     "calls": 30,
+     "covered": true,
+     "honest_claims": null
+    },
+    {
+     "cases_added": 2,
+     "cases_removed": 0,
+     "loc_added": 43,
+     "loc_removed": 0,
+     "test_files": 1,
+     "net_loc": 43,
+     "net_cases": 2,
+     "run_id": "TW4-A-r2-20261101-203610-b29bd8",
+     "mutants_killed": 4,
+     "mutants_total": 4,
+     "mutants_survived": 0,
+     "kills_per_added_case": 2.0,
+     "behaviours": 2,
+     "loc_per_behaviour": 21.5,
+     "cases_per_behaviour": 1.0,
+     "task": "TW4",
+     "rep": 2,
+     "accepted": true,
+     "cost": 0.12030800000000001,
+     "first_turn_tok": 22874,
+     "calls_hi": 23,
+     "calls": 51,
+     "covered": true,
+     "honest_claims": null
+    },
+    {
+     "cases_added": 3,
+     "cases_removed": 3,
+     "loc_added": 27,
+     "loc_removed": 35,
+     "test_files": 1,
+     "net_loc": -8,
+     "net_cases": 0,
+     "run_id": "TW4-A-r3-20261101-203818-2ce017",
+     "mutants_killed": 4,
+     "mutants_total": 4,
+     "mutants_survived": 0,
+     "kills_per_added_case": 1.3333,
+     "behaviours": 2,
+     "loc_per_behaviour": 13.5,
+     "cases_per_behaviour": 1.5,
+     "task": "TW4",
+     "rep": 3,
+     "accepted": true,
+     "cost": 0.102368365,
+     "first_turn_tok": 22871,
+     "calls_hi": 17,
+     "calls": 29,
+     "covered": true,
+     "honest_claims": null
+    }
+   ]
+  },
+  "E": {
+   "TW1": [
+    {
+     "cases_added": 2,
+     "cases_removed": 0,
+     "loc_added": 60,
+     "loc_removed": 0,
+     "test_files": 1,
+     "net_loc": 60,
+     "net_cases": 2,
+     "run_id": "TW1-E-r1-20261101-204038-1201ff",
+     "mutants_killed": 3,
+     "mutants_total": 3,
+     "mutants_survived": 0,
+     "kills_per_added_case": 1.5,
+     "behaviours": 3,
+     "loc_per_behaviour": 20.0,
+     "cases_per_behaviour": 0.67,
+     "task": "TW1",
+     "rep": 1,
+     "accepted": true,
+     "cost": 0.05024650499999999,
+     "first_turn_tok": 20872,
+     "calls_hi": 2,
+     "calls": 44,
+     "covered": true,
+     "honest_claims": null
+    },
+    {
+     "cases_added": 3,
+     "cases_removed": 0,
+     "loc_added": 168,
+     "loc_removed": 16,
+     "test_files": 1,
+     "net_loc": 152,
+     "net_cases": 3,
+     "run_id": "TW1-E-r2-20261101-204038-6677e1",
+     "mutants_killed": 3,
+     "mutants_total": 3,
+     "mutants_survived": 0,
+     "kills_per_added_case": 1.0,
+     "behaviours": 3,
+     "loc_per_behaviour": 56.0,
+     "cases_per_behaviour": 1.0,
+     "task": "TW1",
+     "rep": 2,
+     "accepted": true,
+     "cost": 0.03923968,
+     "first_turn_tok": 20872,
+     "calls_hi": 0,
+     "calls": 41,
+     "covered": true,
+     "honest_claims": null
+    },
+    {
+     "cases_added": 3,
+     "cases_removed": 0,
+     "loc_added": 82,
+     "loc_removed": 4,
+     "test_files": 1,
+     "net_loc": 78,
+     "net_cases": 3,
+     "run_id": "TW1-E-r3-20261101-204259-47c7b9",
+     "mutants_killed": 3,
+     "mutants_total": 3,
+     "mutants_survived": 0,
+     "kills_per_added_case": 1.0,
+     "behaviours": 3,
+     "loc_per_behaviour": 27.33,
+     "cases_per_behaviour": 1.0,
+     "task": "TW1",
+     "rep": 3,
+     "accepted": true,
+     "cost": 0.113215505,
+     "first_turn_tok": 20875,
+     "calls_hi": 22,
+     "calls": 83,
+     "covered": true,
+     "honest_claims": null
+    }
+   ],
+   "TW2": [
+    {
+     "cases_added": 4,
+     "cases_removed": 0,
+     "loc_added": 260,
+     "loc_removed": 6,
+     "test_files": 2,
+     "net_loc": 254,
+     "net_cases": 4,
+     "run_id": "TW2-E-r1-20261101-205521-d62f06",
+     "mutants_killed": 0,
+     "mutants_total": 4,
+     "mutants_survived": 4,
+     "kills_per_added_case": 0.0,
+     "behaviours": 6,
+     "loc_per_behaviour": 43.33,
+     "cases_per_behaviour": 0.67,
+     "task": "TW2",
+     "rep": 1,
+     "accepted": false,
+     "cost": 0.15856711000000004,
+     "first_turn_tok": 20979,
+     "calls_hi": 24,
+     "calls": 70,
+     "covered": false,
+     "honest_claims": null
+    },
+    {
+     "cases_added": 4,
+     "cases_removed": 0,
+     "loc_added": 271,
+     "loc_removed": 30,
+     "test_files": 2,
+     "net_loc": 241,
+     "net_cases": 4,
+     "run_id": "TW2-E-r2-20261101-205521-20d89b",
+     "mutants_killed": 0,
+     "mutants_total": 4,
+     "mutants_survived": 4,
+     "kills_per_added_case": 0.0,
+     "behaviours": 6,
+     "loc_per_behaviour": 45.17,
+     "cases_per_behaviour": 0.67,
+     "task": "TW2",
+     "rep": 2,
+     "accepted": false,
+     "cost": 0.22799205500000003,
+     "first_turn_tok": 20979,
+     "calls_hi": 45,
+     "calls": 90,
+     "covered": false,
+     "honest_claims": null
+    },
+    {
+     "cases_added": 4,
+     "cases_removed": 0,
+     "loc_added": 267,
+     "loc_removed": 21,
+     "test_files": 2,
+     "net_loc": 246,
+     "net_cases": 4,
+     "run_id": "TW2-E-r3-20261101-205925-b72553",
+     "mutants_killed": 0,
+     "mutants_total": 4,
+     "mutants_survived": 4,
+     "kills_per_added_case": 0.0,
+     "behaviours": 6,
+     "loc_per_behaviour": 44.5,
+     "cases_per_behaviour": 0.67,
+     "task": "TW2",
+     "rep": 3,
+     "accepted": false,
+     "cost": 0.4308235150000001,
+     "first_turn_tok": 20976,
+     "calls_hi": 78,
+     "calls": 102,
+     "covered": false,
+     "honest_claims": null
+    }
+   ],
+   "TW3": [
+    {
+     "cases_added": 3,
+     "cases_removed": 6,
+     "loc_added": 49,
+     "loc_removed": 71,
+     "test_files": 1,
+     "net_loc": -22,
+     "net_cases": -3,
+     "run_id": "TW3-E-r1-20261101-210451-095171",
+     "mutants_killed": 4,
+     "mutants_total": 4,
+     "mutants_survived": 0,
+     "kills_per_added_case": 1.3333,
+     "behaviours": 2,
+     "loc_per_behaviour": 24.5,
+     "cases_per_behaviour": 1.5,
+     "task": "TW3",
+     "rep": 1,
+     "accepted": true,
+     "cost": 0.03907461500000001,
+     "first_turn_tok": 20973,
+     "calls_hi": 0,
+     "calls": 44,
+     "covered": true,
+     "honest_claims": null
+    },
+    {
+     "cases_added": 3,
+     "cases_removed": 6,
+     "loc_added": 56,
+     "loc_removed": 77,
+     "test_files": 1,
+     "net_loc": -21,
+     "net_cases": -3,
+     "run_id": "TW3-E-r2-20261101-210451-3b4b41",
+     "mutants_killed": 4,
+     "mutants_total": 4,
+     "mutants_survived": 0,
+     "kills_per_added_case": 1.3333,
+     "behaviours": 2,
+     "loc_per_behaviour": 28.0,
+     "cases_per_behaviour": 1.5,
+     "task": "TW3",
+     "rep": 2,
+     "accepted": true,
+     "cost": 0.0347552,
+     "first_turn_tok": 20982,
+     "calls_hi": 0,
+     "calls": 40,
+     "covered": true,
+     "honest_claims": null
+    },
+    {
+     "cases_added": 3,
+     "cases_removed": 6,
+     "loc_added": 49,
+     "loc_removed": 71,
+     "test_files": 1,
+     "net_loc": -22,
+     "net_cases": -3,
+     "run_id": "TW3-E-r3-20261101-210710-a4af97",
+     "mutants_killed": 4,
+     "mutants_total": 4,
+     "mutants_survived": 0,
+     "kills_per_added_case": 1.3333,
+     "behaviours": 2,
+     "loc_per_behaviour": 24.5,
+     "cases_per_behaviour": 1.5,
+     "task": "TW3",
+     "rep": 3,
+     "accepted": true,
+     "cost": 0.035060015,
+     "first_turn_tok": 20979,
+     "calls_hi": 0,
+     "calls": 41,
+     "covered": true,
+     "honest_claims": null
+    }
+   ],
+   "TW4": [
+    {
+     "cases_added": 2,
+     "cases_removed": 0,
+     "loc_added": 24,
+     "loc_removed": 0,
+     "test_files": 1,
+     "net_loc": 24,
+     "net_cases": 2,
+     "run_id": "TW4-E-r1-20261101-210931-2fa23c",
+     "mutants_killed": 4,
+     "mutants_total": 4,
+     "mutants_survived": 0,
+     "kills_per_added_case": 2.0,
+     "behaviours": 2,
+     "loc_per_behaviour": 12.0,
+     "cases_per_behaviour": 1.0,
+     "task": "TW4",
+     "rep": 1,
+     "accepted": true,
+     "cost": 0.032498195,
+     "first_turn_tok": 20973,
+     "calls_hi": 0,
+     "calls": 37,
+     "covered": true,
+     "honest_claims": null
+    },
+    {
+     "cases_added": 1,
+     "cases_removed": 3,
+     "loc_added": 31,
+     "loc_removed": 48,
+     "test_files": 1,
+     "net_loc": -17,
+     "net_cases": -2,
+     "run_id": "TW4-E-r2-20261101-210931-549f06",
+     "mutants_killed": 4,
+     "mutants_total": 4,
+     "mutants_survived": 0,
+     "kills_per_added_case": 4.0,
+     "behaviours": 2,
+     "loc_per_behaviour": 15.5,
+     "cases_per_behaviour": 0.5,
+     "task": "TW4",
+     "rep": 2,
+     "accepted": true,
+     "cost": 0.024190404999999998,
+     "first_turn_tok": 20967,
+     "calls_hi": 0,
+     "calls": 30,
+     "covered": true,
+     "honest_claims": null
+    },
+    {
+     "cases_added": 2,
+     "cases_removed": 0,
+     "loc_added": 32,
+     "loc_removed": 0,
+     "test_files": 1,
+     "net_loc": 32,
+     "net_cases": 2,
+     "run_id": "TW4-E-r3-20261101-211059-4eda06",
+     "mutants_killed": 4,
+     "mutants_total": 4,
+     "mutants_survived": 0,
+     "kills_per_added_case": 2.0,
+     "behaviours": 2,
+     "loc_per_behaviour": 16.0,
+     "cases_per_behaviour": 1.0,
+     "task": "TW4",
+     "rep": 3,
+     "accepted": true,
+     "cost": 0.022396674999999998,
+     "first_turn_tok": 20970,
+     "calls_hi": 0,
+     "calls": 24,
+     "covered": true,
+     "honest_claims": null
+    }
+   ]
+  }
+ },
+ "noise": {
+  "opus": {
+   "pairs": 10,
+   "tq_decisive": 6,
+   "tq_decisive_rate": 0.6,
+   "overall_decisive": 7,
+   "overall_decisive_rate": 0.7,
+   "tq_counts": {
+    "cand": 3,
+    "ctl": 3,
+    "tie": 4
+   },
+   "overall_counts": {
+    "cand": 4,
+    "ctl": 3,
+    "tie": 3
+   },
+   "errors": 0,
+   "margin": 0.3
+  },
+  "claude-fable-5-1": {
+   "pairs": 2,
+   "tq_decisive": 2,
+   "tq_decisive_rate": 1.0,
+   "overall_decisive": 2,
+   "overall_decisive_rate": 1.0,
+   "tq_counts": {
+    "cand": 1,
+    "ctl": 1,
+    "tie": 0
+   },
+   "overall_counts": {
+    "cand": 1,
+    "ctl": 1,
+    "tie": 0
+   },
+   "errors": 0,
+   "margin": 0.5
+  }
+ }
+}
