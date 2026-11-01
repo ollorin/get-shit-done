@@ -272,15 +272,20 @@ if telegram_topic_id is not null:
 </step>
 
 <step name="arm_watchdogs">
-Long unattended runs fail silently: children stall mid-tool-call, coordinators end their turn early, orphans and caches fill the disk. Arm two recurring `CronCreate` jobs before the first phase (`CronList` first — never duplicate). They are session-only and expire after 7 days: re-arm on resume and on expiry; `CronDelete` both in `completion`.
+Long unattended runs fail silently: children stall mid-tool-call, coordinators end their turn early, orphans and caches fill the disk. Arm these recurring `CronCreate` jobs before the first phase (`CronList` first — never duplicate). They are session-only and expire after 7 days: re-arm on resume and on expiry; `CronDelete` them in `completion`.
 
-**1. Status tick — every 30 min, off the :00/:30 marks (e.g. `6,36 * * * *`).** Prompt:
-> Roadmap status tick ({milestone}). Cheaply: `git log --oneline -5`, the stack-lock owner file (if the project has one), the current phase's VERIFICATION status line, ListAgents. If an agent has had no commit/file change for >45 min or loops on the same failure: TaskStop it, then dispatch a fresh agent of the matching GSD `subagent_type` from on-disk state (2-parallel and one-writer rules apply). TaskStop any "completed" agent that still has background tasks (they wake it into stale work). If a phase closed, verify on disk and launch the next — run independent phases in parallel up to the project's ceiling, with file claims and the stack lock. Send ONE 1–2 line report: phase, progress since last tick, blocker.
+**1. Status tick — every 45 min, off round marks (e.g. `6,51 * * * *` style).** Prompt:
+> Roadmap status tick ({milestone}). In one batched turn: `git log --format='%h %cr %s' -3`, the stack-lock owner file (if the project has one), ListAgents, `df -h /`, `sysctl vm.swapusage`. If an agent has had no commit/file change for >45 min or loops on the same failure: TaskStop it, then dispatch a fresh agent of the matching GSD `subagent_type` from on-disk state (2-parallel and one-writer rules apply); never SendMessage a handed-back coordinator. TaskStop any "completed" agent that still has background tasks (they wake it into stale work). If a plan or phase closed, verify on disk (SUMMARY Self-Check, VERIFICATION) and launch the next — run independent phases in parallel up to the project's ceiling, with file claims and the stack lock. Host restart: only when free disk < ~3 GiB or docker/a test bucket stalls, never for swap alone, always at a plan boundary, through one owner (`docs/host-setup.md` in the GSD fork). Send ONE 1–2 line report: phase, progress, blocker, disk, swap GB.
 
-**2. Disk/process cleanup — every 2 h (e.g. `36 */2 * * *`).** Prompt:
-> Periodic cleanup ({milestone}). Kill ppid-1 orphans: `sleep`, test fixture processes, and Claude `zsh -c` `until` wait shells >2h old (TaskStop the owning agent first — killing a wait shell re-invokes it). Delete scratch-dir (`.tmp/`) entries >2 days old, keeping lock/claims/shared-run dirs. `docker builder prune -f` + `docker image prune -f` (never `-a`, never volumes). Report free disk in 1 line; if under the project's floor, also clear package-manager and build caches, only when no build runs. Never touch running agents' processes, the dev server, or stack containers.
+**2. Delivery report — every 4 h.** Prompt:
+> Delivery report ({milestone}), as ONE Haiku agent (read-only). Using `git log --since="4 hours ago" --oneline` and SUMMARY/VERIFICATION files modified in that window (first ~40 lines plus the Self-Check result with its line number), report in 3-5 lines: plans/phases closed, commit count, notable fixes, next up, blockers; note a CHECKPOINT.json stale against the SUMMARYs. Facts only; cite only what was read. Relay it to the user, correcting anything the disk contradicts.
+
+**3. Disk/process cleanup — every 12 h.** Prompt:
+> Periodic cleanup ({milestone}), as ONE Haiku agent, at most 8 tool calls. `df -h /`. Only if free disk is under 12 GiB, kill ppid-1 orphans: `sleep`, test fixture processes, Claude `zsh -c` `until` wait shells >2h old (TaskStop the owning agent first — killing a wait shell re-invokes it). List scratch-dir (`.tmp/`) top-level entries >2 days old, drop every name matching `.planning/cleanup-keep.txt` (always keep lock, claims and shared-run dirs; if that file is missing, delete nothing), write the remaining names to `.tmp/cleanup-deleted-names.txt`, delete exactly those. `docker builder prune -f` + `docker image prune -f` (never `-a`, never volumes, never pull). Never touch running agents' processes, the dev server, or stack containers. Report in 2 lines: names deleted, disk before/after.
 
 Ticks are the orchestrator's only liveness signal — never disable them to save tokens; keep each report to 1–2 lines instead.
+
+**Outside the roadmap session:** a weekly KPI row via `scripts/gsd-metrics/` is a scheduled task, not a session cron (`docs/host-setup.md`).
 </step>
 
 <step name="execute_phases">
