@@ -99,8 +99,10 @@ def run_metrics(run_id: str, behaviours: Optional[int] = None) -> Dict[str, Any]
     summary = C.read_json(run_dir / "grade" / "summary.json", {}) or {}
     kills = (summary.get("role_checks") or {}).get("kills") or []
     applied = [k for k in kills if k.get("applied")]
-    m["mutants_total"] = len(applied)
     m["mutants_killed"] = sum(1 for k in applied if k.get("killed"))
+    # A run whose tests fail on the GREEN tree never reaches the mutation step: every seeded mutant counts as survived
+    # (clarification committed before the first E run completed; applies to both arms)
+    m["mutants_total"] = len(applied) or len(C.find_task(C.load_tasks(), run_id.split("-")[0]).get("mutants", []))
     m["mutants_survived"] = m["mutants_total"] - m["mutants_killed"]
     m["kills_per_added_case"] = round(m["mutants_killed"] / max(m["cases_added"], 1), 4)
     if behaviours:

@@ -21,7 +21,7 @@ Registry `behaviours`: TW1 3, TW2 6, TW3 2, TW4 2 (counted from the brief). TW4'
 
 ## Metrics (`ab_volume.py`, from `grade/diff.patch` on test files)
 
-`cases_added/removed` (regex `Deno.test(`, `it(`, `test(`, `t.step(` at line start), `loc_added/removed` (non-blank lines; hunks that only re-indent or re-wrap are excluded), `net_loc`, `net_cases`, `loc_per_behaviour = loc_added / behaviours`, `cases_per_behaviour`, `mutants_killed`, `mutants_survived`, `kills_per_added_case = killed / max(cases_added, 1)`. Case counts miss wrappers and count a table loop as one case: merging into a table lowers `net_cases` by design.
+`cases_added/removed` (regex `Deno.test(`, `it(`, `test(`, `t.step(` at line start), `loc_added/removed` (non-blank lines; hunks that only re-indent or re-wrap are excluded), `net_loc`, `net_cases`, `loc_per_behaviour = loc_added / behaviours`, `cases_per_behaviour`, `mutants_killed`, `mutants_survived` (a run whose tests fail on the GREEN tree never reaches the mutation step; all seeded mutants then count as survived, both arms; clarification committed before the first E run finished), `kills_per_added_case = killed / max(cases_added, 1)`. Case counts miss wrappers and count a table loop as one case: merging into a table lowers `net_cases` by design.
 
 ## Gates (X1, all must pass; stat = sum over tasks of per-task medians unless stated)
 
