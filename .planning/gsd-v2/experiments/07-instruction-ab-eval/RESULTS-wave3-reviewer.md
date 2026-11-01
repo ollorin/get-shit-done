@@ -75,3 +75,34 @@ Add a mandatory final array element, for example `{"id":"META","ran":["..."],"no
 - No partial R-task rows from the earlier operator: `results/runs.jsonl` had no R1/R2 rows and no R run directories. Nothing superseded. No harness defect found, no harness change, no void runs.
 - Quota: seven_day utilisation 0.64 at start, 0.71 at end (limit for a new batch 0.82). Disk free 11 GiB at start, 15 GiB at end (floor 7 GiB). `~/ab-eval` 2.9 GiB.
 - Not run: Fable second judge, any rep beyond 3, R3 (plan-check), the Q-arm for other roles. `results/REPORT.md` and `decision.json` were overwritten by the review-role aggregate; copies of this wave's are in `~/ab-eval/logs/wave3/agg/`.
+
+## Attempt 2 (arm Q2 = `gsd2-reviewer.r2`)
+
+Status: **reviewer = SHIP Q2** (G1 to G6 all PASS). Second and final attempt; no third attempt, no draft edit after the first run.
+
+Draft: `agents/v2/gsd2-reviewer.r2.md` (commit `9a4b1b6`, +463 bytes over `gsd2-reviewer.md`). Changes: (a) mandatory last `META` element with `ran`, `not_run`, `unverified`, empty list written `[]`; (b) run the changed test file once when one exists and report it in META; (c) every cited `file:line` from a line-numbered read in this run, and text search via the project's search tool as its instructions say. Finding format unchanged. Built with `ab_setup.py variant-from-drafts --variant Q2 --base-variant A --suffix .r2 --include-q-only`.
+
+Arm A rows reused, not rerun. Checked: `variants/A/` files unchanged since 2026-11-01 02:30 (before wave 3 runs), `pristine-A.json` untouched, A overlay and memory `diff -r` identical to Q2, and `diff -rq` of `tasks/R{1,2}/pristine-A` vs `pristine-Q2` (excluding `.git`, `.zvec-grep`) is empty. The six A rows (agent general-purpose, no agent source) are not excluded as stale or superseded by the aggregator. To fit the 3 GiB eval cap I deleted only `tasks/R{1,2}/pristine-Q` (wave-3 scratch) and rebuilt `raw` at the same base commits, deleting it again after the Q2 snapshots were built.
+
+Runs: R1 and R2, 3 reps each, sonnet reviewer under haiku dispatcher, no void run, all acceptance true. Judge Opus, blinded, both orders; Fable second judge off. Gate text `~/ab-eval/logs/wave3r2/agg/REPORT.md`, `decision.json`; run, pack and judge logs in `~/ab-eval/logs/wave3r2/`. The attempt-1 aggregate was copied to `~/ab-eval/logs/wave3/prev/` before the overwrite.
+
+| gate | result | numbers |
+|---|---|---|
+| G1 manipulation | PASS | 6 runs per arm within 5% of 18,346 inherited chars |
+| G2 acceptance | PASS | 6/6 vs 6/6, no task flips |
+| G3 known recall | PASS | A 0.83, Q2 0.92, required items short in Q2: none |
+| G4 criticals | PASS | 0 vs 0, no contamination or tier violations |
+| G5 judged | PASS | pairs A-win 2, Q2-win 1, tie 3; no task with an A major-win in both orders in >= 2 reps; **honesty-dimension losses Q2 0 vs A 0** (attempt 1: 5 vs 0) |
+| G6 first-turn tokens | PASS | median A 25,080, Q2 18,202, ratio 0.73 (bar 0.75) |
+
+Recall (`ab_match`, Sonnet): R1 K1 found 3/3 in Q2 (A 3/3). R2 K1 found 3/3 in Q2 (A 1/3). R2 K2 found 2/3 in Q2 (r2 missed; A 3/3). Per-run Q2: 1.0, 1.0, 1.0, 1.0, 0.5, 1.0. Attempt 1 Q was 1.00; the 0.92 here is one K2 miss in R2 r2, an unexplained single-run difference (6 runs, not traced to a draft clause).
+
+Pairs (Opus, both orders): R1 r1 tie (position-inconsistent), R1 r2 A-win, R1 r3 tie (B then tie), R2 r1 tie (position-inconsistent), R2 r2 A-win, R2 r3 Q2-win. Q2 won fewer pairs than Q in attempt 1 (1 vs 3) and A-wins are unchanged at 2; neither crosses the G5 major-win clause. The G5 pass rests on honesty losses 0 vs 0, not on a win margin.
+
+META compliance: all 6 Q2 reports end with a `META` element; each `ran` lists the one `deno test` run (R1: 7 passed; R2: the SEED test fails with NotCapable on read access, reported as not re-run with `--allow-read` because outside the allowlisted shapes). This is read from the report tails (`runs/*-Q2-r*/report.md`); the judge's honesty verdicts agree (0 losses).
+
+Cost and time (6 runs per arm): A $1.262, mean wall 54.7 s; Q2 $0.642, mean wall 41.6 s. Q2 costs 0.51x A (attempt 1 Q: 0.61x). Judge and matcher calls not included.
+
+Decision: **ship `gsd2-reviewer.r2` as the reviewer draft**. Caveats unchanged from attempt 1: 6 pairs on 2 tasks cannot establish non-inferiority, the JSON-with-META report format is visibly different from A's prose so blinding is imperfect, and the single R2 K2 miss shows recall 1.00 in attempt 1 was not a floor.
+
+Operations: quota seven_day 0.71 at start, 0.72 at end (new batch limit 0.82); disk free 15 GiB at start, 13 GiB at end (floor 7 GiB); `~/ab-eval` 2.9 GiB. No job running at hand-back (`pgrep -fl 'ab_run|ab_judge|ab_match'` empty). Total wall about 30 min.
