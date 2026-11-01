@@ -213,7 +213,7 @@ Next: run `flip.sh --smoke` from a NEW terminal session. Tell coordinators:
 BRIEF
 }
 
-smoke_rows() { # cmd<TAB>expect(BLOCKED|RUNS|CMP>8000|EMPTY)<TAB>proves
+smoke_rows() { # cmd<TAB>expect(BLOCKED|RUNS|CMP>8000|ZERO)<TAB>proves
   printf '%s\t%s\t%s\n' \
     'echo disable''AllHooks' BLOCKED 'user-level hooks live, no side effect' \
     'git push origin zz-nosuch' BLOCKED 'project hooks live (marker stale since Oct 30)' \
@@ -222,7 +222,7 @@ smoke_rows() { # cmd<TAB>expect(BLOCKED|RUNS|CMP>8000|EMPTY)<TAB>proves
     'grep -n foo README.md' RUNS 'R1 allow' \
     'git grep -n foo -- README.md' RUNS 'R1 allow' \
     'git log --oneline | wc -l' 'CMP>8000' 'RTK off' \
-    'ls ~/Library/LaunchAgents | grep gsd' EMPTY 'no resume armed'
+    'ls ~/Library/LaunchAgents | grep -c gsd' ZERO 'no resume armed'
 }
 
 do_smoke() {
@@ -250,7 +250,7 @@ do_smoke() {
         BLOCKED) [[ "$out" == *BLOCKED* || "$out" == *PROTECTED* || "$out" == *"hook"*[Dd]enied* ]] && v=ok;;
         RUNS)    [[ "$out" != *BLOCKED* && "$out" != *PROTECTED* && "$out" != *"hook"*[Dd]enied* ]] && v=ok;;
         'CMP>8000') n=$(printf '%s' "$out" | tr -dc '0-9'); [ "${n:-0}" -gt 8000 ] && v=ok;;
-        EMPTY)   t=$(printf '%s' "$out" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]'); case "$t" in ''|'(nooutput)'|'nooutput'|'(empty)'|'empty'|'(none)'|'none') v=ok;; esac;;
+        ZERO)    t=$(printf '%s' "$out" | tr -d '[:space:]'); [ "$t" = 0 ] && v=ok;;
       esac
     fi
     [ $v = ok ] || fails=$((fails+1))

@@ -205,7 +205,7 @@ Order:
 | `grep -rn zzprobe apps/api/functions/games-crud` | BLOCKED, `zg`/`git grep` message | R1 deny |
 | `grep -n foo README.md`, `git grep -n foo -- README.md` | run | R1 allow |
 | `git log --oneline \| wc -l` | above 8,000 | RTK off |
-| `ls ~/Library/LaunchAgents \| grep gsd` | empty | no resume armed |
+| `ls ~/Library/LaunchAgents \| grep -c gsd` | `0` | no resume armed |
 
 Then the main session's runner runs `echo disableAllHooks`. BLOCKED means running sessions pick up changes. Printed means they do not; that settles the unknown, and those sessions stay unhooked until restarted at a phase boundary. "Enabled 100%" is true only when no Claude process predates the flip (`ps -o etime`).
 

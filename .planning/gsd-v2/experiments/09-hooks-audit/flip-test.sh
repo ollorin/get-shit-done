@@ -132,7 +132,7 @@ case "$prompt" in
   *"git grep -n foo"*) echo "no match";;
   *"grep -n foo"*) echo "no match";;
   *"wc -l"*) [ "$mode" = rtkon ] && echo "10" || echo "9999";;
-  *LaunchAgents*) echo "(no output)";;
+  *LaunchAgents*) echo 0;;
 esac
 STUB
   chmod +x "$1/claude"
@@ -146,14 +146,14 @@ r=$(smoke "$D" good)
 [ "$r" = 0 ] && grep -q "flip: smoke ok" "$D/smoke.out" && ok "10a smoke passes against a CLI that behaves like the real one" || bad "10a smoke rc=$r: $(tail -3 "$D/smoke.out")"
 [ "$(grep -c '^CALL' "$D/stub.log")" = 8 ] && ok "10b smoke made all 8 calls (the loop's stdin was not consumed)" || bad "10b calls: $(grep -c '^CALL' "$D/stub.log")"
 [ "$(grep -c 'stdin=0 ' "$D/stub.log")" = 8 ] && grep -q 'prompt=yes' "$D/stub.log" && ! grep -q 'prompt=no' "$D/stub.log" && ok "10c every call had empty stdin and a prompt not swallowed by --allowedTools" || bad "10c stub log: $(sort "$D/stub.log" | uniq -c | tr '\n' ';')"
-grep -q "^ok .*EMPTY" "$D/smoke.out" && ok "10d CLI warnings on stderr do not turn the EMPTY row into WRONG" || bad "10d EMPTY row: $(grep EMPTY "$D/smoke.out")"
+grep -q "^ok .*ZERO" "$D/smoke.out" && ok "10d CLI warnings on stderr do not turn the ZERO row into WRONG" || bad "10d ZERO row: $(grep ZERO "$D/smoke.out")"
 grep -q "final step" "$D/smoke.out" && ok "10e the main-session final step is printed in a live run too" || bad "10e final step missing from a live smoke run"
 D="$T/s2"; mkfix "$D"
 r=$(smoke "$D" rtkon)
 [ "$r" != 0 ] && grep -q "^WRONG .*CMP>8000" "$D/smoke.out" && [ "$(grep -c '^WRONG' "$D/smoke.out")" = 1 ] && ok "10f RTK-on output with stderr digits (2121) is WRONG, nothing else is" || bad "10f rc=$r: $(cat "$D/smoke.out" | tr '\n' '|')"
 D="$T/s3"; mkfix "$D"
 r=$(smoke "$D" fail)
-[ "$r" != 0 ] && grep -q "^WRONG .*EMPTY" "$D/smoke.out" && ok "10g a failing claude makes every row WRONG, including EMPTY (rc=$r)" || bad "10g rc=$r: $(cat "$D/smoke.out" | tr '\n' '|')"
+[ "$r" != 0 ] && grep -q "^WRONG .*ZERO" "$D/smoke.out" && ok "10g a failing claude makes every row WRONG, including ZERO (rc=$r)" || bad "10g rc=$r: $(cat "$D/smoke.out" | tr '\n' '|')"
 D="$T/s4"; mkfix "$D"
 r=$(smoke "$D" noblock)
 [ "$r" != 0 ] && ok "10h a hook that does not block makes smoke exit non-zero" || bad "10h smoke passed although the grep row was not blocked"
@@ -216,8 +216,8 @@ D="$T/n9e"; mkfix "$D"
 sleep 1; r=$(fapp "$D" --apply "$Q"); kill $CP 2>/dev/null; wait $CP 2>/dev/null
 [ "$r" != 0 ] && same_as_original "$D" && ok "14e a running Charlotte runner (runner/run.ts) refuses the apply" || bad "14e apply ran beside a Charlotte runner (rc=$r)"
 
-# 6. smoke wording: "(no output)" counts as EMPTY (F10)
-out=$(bash "$FLIP_SH" --smoke --dry-run 2>&1); echo "$out" | grep -q "EMPTY" && ok "6 smoke dry-run lists the EMPTY row" || bad "6 smoke dry-run"
+# 6. smoke dry-run lists the ZERO row (the launch-agent count must print 0, M2)
+out=$(bash "$FLIP_SH" --smoke --dry-run 2>&1); echo "$out" | grep -q "ZERO" && ok "6 smoke dry-run lists the ZERO row" || bad "6 smoke dry-run"
 # 15. real paths (no fixture): --rollback refuses an agent and refuses the flag from anyone
 d=$(mktemp -d); mkdir -p "$d/.claude" "$d/igaming-platform/.claude"
 o=$(env -u CLAUDE_HOME -u PROJECT_DIR HOME="$d" bash "$FLIP_SH" --rollback --approved-by-ceo "any eight chars" </dev/null 2>&1); r=$?
