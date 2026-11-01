@@ -43,3 +43,6 @@ reports/
 RAILROAD_ARCHITECTURE.md
 .env
 .tmp/
+
+# Deno-generated lockfile (scripts/ab-eval/*.ts and test runs create it at the repo root)
+deno.lock
