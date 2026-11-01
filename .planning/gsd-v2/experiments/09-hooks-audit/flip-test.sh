@@ -139,7 +139,7 @@ STUB
 }
 smoke() { # smoke <dir> <mode> : prints rc; output in $1/smoke.out, stub log in $1/stub.log
   local d="$1"; : > "$d/stub.log"; mkstub "$d/stubbin" "$d/stub.log" "$2"
-  PATH="$d/stubbin:$PATH" STUB_LOG="$d/stub.log" CLAUDE_HOME="$d/claude" PROJECT_DIR="$d/proj" bash "$FLIP_SH" --smoke </dev/null >"$d/smoke.out" 2>&1; echo $?
+  printf ROWDATA | PATH="$d/stubbin:$PATH" STUB_LOG="$d/stub.log" CLAUDE_HOME="$d/claude" PROJECT_DIR="$d/proj" bash "$FLIP_SH" --smoke >"$d/smoke.out" 2>&1; echo $?
 }
 D="$T/s1"; mkfix "$D"
 r=$(smoke "$D" good)
