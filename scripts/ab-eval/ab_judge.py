@@ -227,7 +227,8 @@ def cmd_pack(args: argparse.Namespace) -> int:
     sampled = bool(args.second_judge) and (int(hashlib.sha256(pid.encode()).hexdigest()[:8], 16) / 2 ** 32
                                            < args.sample)
     C.write_json(jdir / "index.json", {"pair_id": pid, "task": task["id"], "rep": args.rep, "a": args.a,
-                                       "b": args.b, "orders": orders, "second_judge_sampled": sampled})
+                                       "b": args.b, "a_arm": a["variant"], "b_arm": b["variant"], "orders": orders,
+                                       "second_judge_sampled": sampled})
     print(f"packed {pid}: both orders under {jdir} (second judge sampled: {sampled})")
     return 0
 
@@ -330,6 +331,8 @@ def _judgment_rows(pair: str, order: str, idx: Dict[str, Any], key: Dict[str, An
                    role: str, model: str, error: Optional[str]) -> List[Dict[str, Any]]:
     base = {"pair_id": pair, "task": idx["task"], "rep": idx["rep"], "order": order, "role": role,
             "judge_model": model, "x_arm": key["X"], "y_arm": key["Y"], "error": error}
+    if idx.get("a_arm") and idx.get("b_arm"):  # control = the pack's --a arm, candidate = its --b arm
+        base.update(ctl_arm=idx["a_arm"], cand_arm=idx["b_arm"])
     if verdict is None:
         return [dict(base, overall_pref=None, winner=None, dims={})]
     dims = {k: {"pref": d["pref"], "winner": _arm_of(d["pref"], key["X"], key["Y"]),
@@ -344,13 +347,27 @@ def collapse_pair(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     o1, o2 = by_order.get("o1"), by_order.get("o2")
     if not o1 or not o2 or o1["error"] or o2["error"] or o1["winner"] is None or o2["winner"] is None:
         return {"verdict": "error", "winners": None, "position_inconsistent": False}
-    w1, w2 = o1["winner"], o2["winner"]
+    w1, w2 = _relative_winner(o1), _relative_winner(o2)
     if w1 == w2 and w1 in ("A", "B"):
         verdict = f"{w1}-win"
     else:
         verdict = "tie"
     same_position = o1["overall_pref"] in ("X", "Y") and o1["overall_pref"] == o2["overall_pref"]
-    return {"verdict": verdict, "winners": [w1, w2], "position_inconsistent": same_position}
+    out = {"verdict": verdict, "winners": [w1, w2], "position_inconsistent": same_position}
+    if o1.get("cand_arm"):
+        out["cand_arm"] = o1["cand_arm"]
+    return out
+
+
+def _relative_winner(row: Dict[str, Any]) -> Optional[str]:
+    """Winner as 'A' (control) / 'B' (candidate, whatever its arm name) / 'tie'; rows without arm fields already
+    carry 'A' and 'B'."""
+    w = row["winner"]
+    if row.get("cand_arm") and w == row["cand_arm"]:
+        return "B"
+    if row.get("ctl_arm") and w == row["ctl_arm"]:
+        return "A"
+    return w
 
 
 def cmd_collapse(args: argparse.Namespace) -> int:

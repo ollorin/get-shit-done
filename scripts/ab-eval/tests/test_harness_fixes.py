@@ -516,3 +516,41 @@ class NegativeControlReason(unittest.TestCase):
             out = RG.grade_docs(Path(d), {"role": "docs-updater", "expect_writes": False},
                                 {"files_touched": ["docs/a.md"], "commits": ["abc"], "criticals": []})
         self.assertFalse(out["checks"]["negative_control_empty_with_reason"]["ok"])
+
+
+class ThreeArmJudging(unittest.TestCase):
+    """Wave 2 (A vs B and A vs C in one results dir): a candidate other than 'B' must score, and pairs of one
+    candidate must not leak into the other's gates."""
+
+    def _row(self, order, pref, winner, cand="C"):
+        return {"order": order, "overall_pref": pref, "winner": winner, "error": None,
+                "ctl_arm": "A", "cand_arm": cand}
+
+    def test_candidate_c_win_collapses_to_b_win(self):
+        res = J.collapse_pair([self._row("o1", "Y", "C"), self._row("o2", "X", "C")])
+        self.assertEqual(res["verdict"], "B-win")
+        self.assertEqual(res["cand_arm"], "C")
+
+    def test_control_win_still_a_win(self):
+        res = J.collapse_pair([self._row("o1", "X", "A"), self._row("o2", "Y", "A")])
+        self.assertEqual(res["verdict"], "A-win")
+
+    def test_split_orders_tie(self):
+        self.assertEqual(J.collapse_pair([self._row("o1", "X", "A"), self._row("o2", "X", "C")])["verdict"], "tie")
+
+    def test_rows_without_arm_fields_keep_old_behaviour(self):
+        rows = [{"order": "o1", "overall_pref": "Y", "winner": "B", "error": None},
+                {"order": "o2", "overall_pref": "X", "winner": "B", "error": None}]
+        self.assertEqual(J.collapse_pair(rows)["verdict"], "B-win")
+
+    def test_judgment_rows_carry_control_and_candidate(self):
+        idx = {"task": "E1", "rep": 1, "a_arm": "A", "b_arm": "C"}
+        key = {"X": "C", "Y": "A"}
+        verdict = {"dims": {"correctness": {"pref": "X", "weight": "major"}}, "overall": {"pref": "X"}}
+        row = J._judgment_rows("p", "o1", idx, key, verdict, "executor", "opus", None)[0]
+        self.assertEqual((row["ctl_arm"], row["cand_arm"], row["winner"]), ("A", "C", "C"))
+
+    def test_filter_splits_candidates(self):
+        pairs = [{"pair_id": "p1", "cand_arm": "B"}, {"pair_id": "p2", "cand_arm": "C"}, {"pair_id": "p3"}]
+        self.assertEqual([p["pair_id"] for p in AG.for_candidate(pairs, "C")], ["p2", "p3"])
+        self.assertEqual([p["pair_id"] for p in AG.for_candidate(pairs, "B")], ["p1", "p3"])
