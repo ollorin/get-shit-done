@@ -601,3 +601,40 @@ describe('registered hook commands actually execute', () => {
     assert.strictEqual(r.status, 2, `registered command must run and block: ${command}\n${r.stderr}`);
   });
 });
+
+describe('pruneIdenticalPatches: a backup identical to the fresh install is not a local patch', () => {
+  const { pruneIdenticalPatches } = require('./install.js');
+  let dir;
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-prune-')); });
+  afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
+
+  function seed(files, backups) {
+    for (const [rel, content] of Object.entries(files)) {
+      fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+      fs.writeFileSync(path.join(dir, rel), content);
+    }
+    const pd = path.join(dir, 'gsd-local-patches');
+    for (const [rel, content] of Object.entries(backups)) {
+      fs.mkdirSync(path.dirname(path.join(pd, rel)), { recursive: true });
+      fs.writeFileSync(path.join(pd, rel), content);
+    }
+    fs.writeFileSync(path.join(pd, 'backup-meta.json'), JSON.stringify({ from_version: '1', files: Object.keys(backups) }));
+    return pd;
+  }
+
+  test('drops identical and missing backups, keeps a real difference', () => {
+    const pd = seed({ 'agents/a.md': 'same', 'agents/b.md': 'new', 'agents/c.md': 'x' }, { 'agents/a.md': 'same', 'agents/b.md': 'old', 'agents/gone.md': 'orphan' });
+    fs.unlinkSync(path.join(pd, 'agents/gone.md'));
+    pruneIdenticalPatches(dir);
+    assert.ok(!fs.existsSync(path.join(pd, 'agents/a.md')), 'identical backup removed');
+    assert.ok(fs.existsSync(path.join(pd, 'agents/b.md')), 'real difference kept');
+    const meta = JSON.parse(fs.readFileSync(path.join(pd, 'backup-meta.json'), 'utf8'));
+    assert.deepStrictEqual(meta.files, ['agents/b.md']);
+  });
+
+  test('removes the meta file when nothing remains', () => {
+    const pd = seed({ 'agents/a.md': 'same' }, { 'agents/a.md': 'same' });
+    pruneIdenticalPatches(dir);
+    assert.ok(!fs.existsSync(path.join(pd, 'backup-meta.json')));
+  });
+});

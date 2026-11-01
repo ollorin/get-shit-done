@@ -1313,6 +1313,33 @@ function reportLocalPatches(configDir) {
   return meta.files || [];
 }
 
+/**
+ * After install: a backup byte-identical to the freshly installed file (stale manifest, not a real
+ * edit) or listed but missing is not a patch. Drops it from backup-meta.json so the "Local patches
+ * detected" notice only names files that differ from the new install.
+ */
+function pruneIdenticalPatches(configDir) {
+  const patchesDir = path.join(configDir, PATCHES_DIR_NAME);
+  const metaPath = path.join(patchesDir, 'backup-meta.json');
+  if (!fs.existsSync(metaPath)) return [];
+  let meta;
+  try { meta = JSON.parse(fs.readFileSync(metaPath, 'utf8')); } catch { return []; }
+  const keep = [];
+  for (const rel of meta.files || []) {
+    const backup = path.join(patchesDir, rel);
+    const installed = path.join(configDir, rel);
+    if (!fs.existsSync(backup)) continue;
+    if (fs.existsSync(installed) && fs.readFileSync(backup).equals(fs.readFileSync(installed))) {
+      fs.unlinkSync(backup);
+      continue;
+    }
+    keep.push(rel);
+  }
+  if (keep.length === 0) fs.unlinkSync(metaPath);
+  else fs.writeFileSync(metaPath, JSON.stringify({ ...meta, files: keep }, null, 2));
+  return keep;
+}
+
 // Absolute path of `timeout`/`gtimeout` on PATH, or null. macOS ships neither,
 // and a missing wrapper makes the hook exit 127 (non-blocking), silently
 // disabling every guard.
@@ -1814,7 +1841,8 @@ function install(isGlobal, runtime = 'claude') {
   writeManifest(targetDir, process.cwd());
   console.log(`  ${green}✓${reset} Wrote file manifest (${MANIFEST_NAME})`);
 
-  // Report any backed-up local patches
+  // Report any backed-up local patches that differ from what was just installed
+  pruneIdenticalPatches(targetDir);
   reportLocalPatches(targetDir);
 
   return { settingsPath, settings, statuslineCommand, runtime };
@@ -2074,4 +2102,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { installHookDependencies, wrapWithTimeout, resolveTimeoutBinary, rewrapGsdHookCommands, writeManifest };
+module.exports = { installHookDependencies, wrapWithTimeout, resolveTimeoutBinary, rewrapGsdHookCommands, writeManifest, pruneIdenticalPatches };
