@@ -14,7 +14,7 @@ Worktrees still present: `wt-392`/`wt-393` (5k+ dirty paths, not inspected), `me
 
 | Item | Reason |
 |---|---|
-| Other macOS accounts (`/Users/karina`, `/Users/mac`) | CEO: do not touch |
+| Other macOS accounts  | CEO: do not touch |
 | `igaming-platform/dist` (2.8G) | in use: `next start dist/apps/{player,operator}-web` on :3000/:3001 |
 | `.tmp/wt-401-07-base`, `.tmp/wt-404-*` | Phase 401-07 comparison base; Phase 404 parked and may reuse |
 | `.tmp/400-evidence-hold-20261029/` | hold until 2026-11-02 |
