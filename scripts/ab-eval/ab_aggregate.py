@@ -29,6 +29,15 @@ MANIFEST_TOL = 0.05       # G1: loaded chars within 5 % of the variant's expecte
 BOOT_RESAMPLES = 10000
 
 
+def drop_superseded(items: List[Dict[str, Any]], superseded: set, judge_dir: Path) -> List[Dict[str, Any]]:
+    """Pairs and judgments are packed from two run ids (judge/<pair>/index.json); one that was superseded after
+    packing is not evidence."""
+    def runs(pair_id: str) -> List[str]:
+        idx = C.read_json(judge_dir / pair_id / "index.json", {})
+        return [idx.get("a", ""), idx.get("b", "")]
+    return [i for i in items if not (set(runs(i.get("pair_id", ""))) & superseded)]
+
+
 def for_candidate(items: List[Dict[str, Any]], cand: str) -> List[Dict[str, Any]]:
     """Pairs and judgments of one candidate arm; rows from before three-arm judging (no cand_arm) count for any."""
     return [i for i in items if i.get("cand_arm", cand) == cand]
@@ -426,11 +435,12 @@ def main(argv: List[str]) -> int:
     all_rows = load_runs()
     rows, excluded = split_rows(all_rows)
     pairs_path = C.AB_HOME / "results" / f"pairs-{args.judge_model}.json"
-    pairs = for_candidate(C.read_json(pairs_path, []), b)
+    sup_ids = set(load_superseded())
+    pairs = drop_superseded(for_candidate(C.read_json(pairs_path, []), b), sup_ids, C.AB_HOME / "judge")
     jpath = C.AB_HOME / "results" / "judgments.jsonl"
     judgments = [json.loads(ln) for ln in jpath.read_text().splitlines()
                  if ln.strip() and json.loads(ln)["judge_model"] == args.judge_model] if jpath.exists() else []
-    judgments = for_candidate(judgments, b)
+    judgments = drop_superseded(for_candidate(judgments, b), sup_ids, C.AB_HOME / "judge")
     matches = C.read_jsonl(C.AB_HOME / "results" / "matches.jsonl")
     roles = sorted({r["role"] for r in rows if r["variant"] in (a, b)})
     if args.role:

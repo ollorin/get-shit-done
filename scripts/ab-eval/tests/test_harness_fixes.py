@@ -733,3 +733,14 @@ class RegradeKeepsFailedRowsFailed(unittest.TestCase):
                "visible": {"pass": True}, "check_ok": True, "lint_ok": True, "fp": {"increase": 0}, "hidden": None}
         self.assertFalse(RGD.corrected(row)["acceptance_pass"])
         self.assertTrue(RGD.corrected({**row, "status": "done"})["acceptance_pass"])
+
+
+class SupersededPairs(unittest.TestCase):
+    def test_pair_with_superseded_run_dropped(self):
+        import ab_aggregate as AG
+        with tempfile.TemporaryDirectory() as d:
+            for pid, a, b in (("P1", "A1", "B1"), ("P2", "A2", "B2")):
+                (Path(d) / pid).mkdir()
+                (Path(d) / pid / "index.json").write_text(json.dumps({"a": a, "b": b}))
+            items = [{"pair_id": "P1"}, {"pair_id": "P2"}, {"pair_id": "P2"}]
+            self.assertEqual(AG.drop_superseded(items, {"B1"}, Path(d)), [{"pair_id": "P2"}, {"pair_id": "P2"}])
