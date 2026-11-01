@@ -686,3 +686,19 @@ class RegradeOverlay(unittest.TestCase):
         self.assertEqual(rows[0]["criticals"], [])
         self.assertTrue(rows[0]["acceptance_pass"])
         self.assertEqual(rows[0]["regraded"], "x")
+
+
+class DirBytesRace(unittest.TestCase):
+    def test_vanishing_file_is_skipped(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "a").write_bytes(b"12345")
+            (Path(d) / "b").write_bytes(b"678")
+            real = Path.stat
+
+            def flaky(self, *a, **k):
+                if self.name == "b":
+                    raise FileNotFoundError(str(self))
+                return real(self, *a, **k)
+
+            with mock.patch.object(Path, "stat", flaky):
+                self.assertEqual(C.dir_bytes(Path(d)), 5)

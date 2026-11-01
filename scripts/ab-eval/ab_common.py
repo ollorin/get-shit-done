@@ -178,8 +178,11 @@ def dir_bytes(path: Path) -> int:
     for root, _dirs, files in os.walk(path):
         for name in files:
             fp = Path(root) / name
-            if not fp.is_symlink():
-                total += fp.stat().st_size
+            try:  # a concurrent run's temp files (deno coverage) can vanish between listing and stat
+                if not fp.is_symlink():
+                    total += fp.stat().st_size
+            except FileNotFoundError:
+                continue
     return total
 
 
