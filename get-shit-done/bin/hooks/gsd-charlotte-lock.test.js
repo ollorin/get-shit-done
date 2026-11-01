@@ -40,6 +40,11 @@ describe('isDbResetCommand', () => {
     'npm --prefix apps/api run db:reset',
     'cd apps/e2e-charlotte && deno task test' + ':regression',
     'deno run --allow-all runner/run.ts --tags=regression --reset-db',
+    'scripts/stack-lock.sh --label q -- npx supabase db reset',
+    'scripts/stack-lock.sh --label q -- scripts/preflight.sh',
+    'scripts/stack-lock.sh --label q -- bash scripts/preflight.sh --all',
+    'deno run -A scripts/stack-lock.ts --label q -- supabase db reset',
+    'cd /repo && ./scripts/stack-lock.sh --label q --timeout 30 -- npx supabase db reset',
   ];
   for (const cmd of positives) {
     test(`blocks: ${cmd}`, () => assert.strictEqual(isDbResetCommand(cmd), true));
@@ -54,6 +59,13 @@ describe('isDbResetCommand', () => {
     'nx run api:test',
     'deno task test' + ':unit',
     'npm run build',
+    'git commit -- scripts/preflight.sh',
+    'git commit -m x -- scripts/preflight.sh',
+    'git add -- scripts/preflight.sh',
+    'git diff HEAD -- scripts/preflight.sh',
+    'scripts/stack-lock.sh --label q -- git commit -- scripts/preflight.sh',
+    'scripts/stack-lock.sh --label q -- npx supabase status',
+    'stack-lock.sh --help; git log -- scripts/preflight.sh',
     '',
     undefined,
   ];

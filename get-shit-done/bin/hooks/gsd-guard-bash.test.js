@@ -90,6 +90,12 @@ describe('no-verify', () => {
     'git -c user.name=x commit --no-verify',
     '/usr/bin/git commit --no-verify',
     'git commit -o --no-verify',
+    'git merge --no-verify x',
+    'git merge x --no-verify',
+    'git merge --no-ff --no-verify x',
+    'git merge -s ours --no-verify x',
+    'git -C /tmp merge x --no-verify',
+    'git merge --no-ver x',
   ]) test(`denies: ${c}`, () => assertDeny(c, 'no-verify'));
 
   for (const c of [
@@ -99,6 +105,10 @@ describe('no-verify', () => {
     'git commit -m x --amend --no-edit',
     'git push -o --no-verify origin',
     'git commit --no-edit',
+    'git merge x',
+    'git merge --no-ff x',
+    'git merge -m "--no-verify" x',
+    'git merge -s ours -X theirs x',
   ]) test(`allows: ${c}`, () => assertAllow(c));
 });
 

@@ -215,6 +215,176 @@ describe('bashConfigViolation: script writes and patches (RULING A16)', () => {
   });
 });
 
+describe('bashConfigViolation: pre-flip fixes (OPUS-PREFLIP-CHECK N3, N5, N6, N7)', () => {
+  const FLIP = '~/get-shit-done/.planning/gsd-v2/experiments/09-hooks-audit/flip.sh';
+  const run = (cmds, cwd) => cmds.map(c => [c, bashConfigViolation(c, cwd)]);
+  const blockedAll = (name, cmds, cwd) => {
+    for (const c of cmds) test(`${name} blocks: ${c.replace(/\n/g, ' ')}`, () => assert.ok(bashConfigViolation(c, cwd), c));
+  };
+  const allowedAll = (name, cmds, cwd) => {
+    for (const c of cmds) test(`${name} allows: ${c.replace(/\n/g, ' ')}`, () => assert.strictEqual(bashConfigViolation(c, cwd), null, c));
+  };
+
+  // N3: only a person in a terminal may run flip.sh --apply / --rollback once hooks are on
+  blockedAll('N3', [
+    `bash ${FLIP} --apply`,
+    `bash ${FLIP} --rollback`,
+    `bash ${FLIP} --rollback --approved-by-ceo "hook blocks my test"`,
+    `bash ${FLIP} --apply --approved-by-ceo "ok, go on"`,
+    `script -q /dev/null bash ${FLIP} --rollback`,
+    `printf 'FLIP\\n' | script -q /dev/null bash ${FLIP} --apply`,
+    `sudo bash flip.sh --rollback`,
+    `env X=1 bash ./flip.sh --apply`,
+    `./flip.sh --rollback --dry-run`,
+    `./flip.sh --apply --rollback --dry-run`,
+    `bash -c "${FLIP} --apply"`,
+    `cd /tmp && bash "${FLIP}" --rollback`,
+    `zsh flip.sh --smoke --apply`,
+  ]);
+  allowedAll('N3', [
+    `bash ${FLIP} --smoke`,
+    `bash ${FLIP} --smoke --dry-run`,
+    `bash ${FLIP} --apply --dry-run`,
+    `CLAUDE_HOME=/tmp/f/home PROJECT_DIR=/tmp/f/proj bash ${FLIP} --apply --dry-run 2>&1 | head -20`,
+    `cat >> RESULT.md <<'EOF'\nbash ${FLIP} --apply\nbash ${FLIP} --rollback\nEOF`,
+    `python3 - <<'EOF'\ns=s.replace("""#   flip.sh --apply""","x")\nEOF`,
+    `cat ${FLIP}`,
+    `sed -n 1,20p flip.sh`,
+    `grep -n -- --apply flip.sh`,
+    `git diff -- ${FLIP}`,
+    `git commit -m "docs: flip.sh --apply is TTY-gated, flip.sh --rollback too"`,
+    `echo "run flip.sh --apply in a terminal"`,
+    `bash flip-test.sh`,
+    `git add -f .planning/gsd-v2/experiments/09-hooks-audit/flip.sh`,
+  ]);
+
+  // N5: protect gaps
+  blockedAll('N5 trailing redirect', [
+    'cp /tmp/x .claude/settings.json 2>/dev/null',
+    'cp /tmp/x .claude/settings.json 2>&1',
+    'cp /tmp/x .claude/hooks/a.sh >/dev/null 2>&1',
+    'cp /tmp/x .claude/hooks/a.sh 2> /dev/null',
+    'ln -s /tmp/x .claude/settings.json 2>/dev/null',
+    'install -m 644 /tmp/x ~/.claude/hooks/a.sh &>/dev/null',
+    'cp /tmp/x .claude/hooks/a.sh --verbose',
+    'cp -t .claude/hooks /tmp/x',
+  ]);
+  blockedAll('N5 directory target', [
+    'cp /tmp/settings.json .claude/',
+    'cp -R /tmp/hooks .claude/',
+    'cp -r /tmp/hooks ~/.claude/',
+    'cp -R /tmp/hooks .claude 2>/dev/null',
+    'rsync -a /tmp/hooks .claude/',
+    'install -m 644 /tmp/x .claude/',
+    'sudo cp /tmp/x /repo/.claude/',
+  ]);
+  allowedAll('N5 reads and look-alikes', [
+    'cp .claude/settings.json /tmp/backup.json 2>/dev/null',
+    'cp -R .claude/hooks /tmp/hooks-copy',
+    'rsync -a .claude/hooks /tmp/copy/',
+    'cp /tmp/x .claude/rules/a.md',
+    'cp /tmp/x .claude-backup/',
+    'echo cp a .claude/',
+    'grep -n "cp x .claude/" docs/a.md',
+    'ls -la .claude/',
+    'ln -sfn /tmp/rv2/cfg /tmp/rv2/ihome2/.claude',
+    'cp /tmp/a.json /var/folders/xx/T/fixture/.claude/',
+    'cp ~/.claude/settings.json $H/.claude/',
+  ]);
+  test('N5 persisted cwd: payload cwd inside .claude/hooks', () => {
+    const cwd = '/repo/.claude/hooks';
+    for (const c of ['echo 1 > check-test-command.sh', "sed -i '' s/a/b/ check-test-command.sh", 'rm check-test-command.sh', 'dd if=/tmp/x of=check-test-command.sh',
+      `python3 -c "open('zz','w').write('x')"`]) {
+      assert.ok(bashConfigViolation(c, cwd), c);
+    }
+    for (const c of ['cat check-test-command.sh', 'ls', 'bash check-test-command.sh < /dev/null'.replace(' < /dev/null', ''), 'git status']) {
+      assert.strictEqual(bashConfigViolation(c, cwd), null, c);
+    }
+  });
+  test('N5 persisted cwd: payload cwd is .claude itself', () => {
+    const cwd = '/repo/.claude';
+    assert.ok(bashConfigViolation('echo {} > settings.json', cwd));
+    assert.ok(bashConfigViolation('rm settings.local.json', cwd));
+    assert.strictEqual(bashConfigViolation('cat settings.json', cwd), null);
+    assert.strictEqual(bashConfigViolation('echo x > rules/a.md', cwd), null);
+  });
+  test('N5 persisted cwd: other directories are unaffected', () => {
+    for (const cwd of ['/repo', '/repo/.claude/rules', '/repo/.claude-backup', '/repo/hooks', '', undefined]) {
+      assert.strictEqual(bashConfigViolation('echo 1 > check-test-command.sh', cwd), null, String(cwd));
+    }
+  });
+  blockedAll('N5 chained cd', [
+    'cd .claude; cd hooks; echo 1 > check-test-command.sh',
+    "cd .claude && cd hooks && sed -i '' s/a/b/ x.sh",
+    'cd .claude && cd ./hooks/lib && touch ShellParse.pm',
+    'pushd .claude/hooks && echo 1 > a.sh',
+    'pushd .claude; cd hooks; touch a',
+    'cd .claude/hooks && dd if=/tmp/x of=a.sh',
+    'cd ~/.claude/hooks/lib && dd if=/tmp/x of=y',
+  ]);
+  allowedAll('N5 chained cd', [
+    'cd .claude; cd rules; echo x > a.md',
+    'cd .claude && cd hooks && cat a.sh',
+    'pushd .claude/rules && echo x > a.md',
+    'cd hooks && echo 1 > a.sh',
+  ]);
+  blockedAll('N5 interpreter calls', [
+    `deno eval "Deno.writeTextFileSync('.claude/hooks/a.sh','x')"`,
+    `deno eval "await Deno.writeTextFile('.claude/settings.json','{}')"`,
+    `deno eval "Deno.removeSync('.claude/hooks/a.sh')"`,
+    `deno eval "Deno.writeFileSync('.claude/hooks/a.sh', new Uint8Array())"`,
+    `bun -e "Bun.write('.claude/hooks/a.sh','x')"`,
+    `ruby -e "File.write('.claude/hooks/a.sh','x')"`,
+    `ruby -e "FileUtils.rm_rf('.claude/hooks')"`,
+    `perl -e 'open(my $fh, ">", ".claude/settings.json"); print $fh "{}"'`,
+    `perl -e "open(FH, '>>', '.claude/hooks/a.sh'); print FH 1"`,
+  ]);
+  allowedAll('N5 interpreter calls', [
+    `deno eval "Deno.writeTextFileSync('/tmp/x','1')"`,
+    `deno eval "console.log(Deno.readTextFileSync('.claude/settings.json'))"`,
+    `bun -e "Bun.write('/tmp/x','1')"`,
+    `ruby -e "puts File.read('.claude/settings.json')"`,
+    `perl -e 'open(my $fh, "<", ".claude/settings.json"); print <$fh>'`,
+  ]);
+
+  // N6: git write verbs count only in the subcommand position
+  allowedAll('N6', [
+    'git diff A B -- .claude/hooks scripts/hooks-apply.sh',
+    'git log --stat -- .claude/hooks scripts/hooks-apply.sh',
+    'git show HEAD -- .claude/settings.json scripts/rm-old.sh',
+    'git -C /repo diff -- .claude/hooks scripts/hooks-apply.sh',
+    'git diff --stat -- .claude/hooks/lib/stash.pl',
+  ]);
+  blockedAll('N6', [
+    'git checkout -- .claude/settings.json',
+    'git -C /repo restore .claude/hooks/x',
+    'git --no-pager checkout -- .claude/hooks',
+    'git -c a=b apply .claude/hooks/p.patch',
+    '/usr/bin/git rm .claude/hooks/x',
+    'git stash push -- .claude/settings.json',
+    'cd /repo && git mv .claude/hooks/a .claude/hooks/b',
+  ]);
+
+  // N7: F4 coverage restored for chdir, receiver Path and $D assignment
+  blockedAll('N7', [
+    `python3 -c "from pathlib import Path; y=Path('.claude/hooks/a'); x=Path('/tmp/a'); y.write_text('2')"`,
+    `python3 -c "import os; os.chdir('.claude/hooks'); open('a','w').write('x')"`,
+    `python3 - <<'EOF'\nimport os\nos.chdir('.claude/hooks')\nopen('a','w').write('x')\nEOF`,
+    `node -e "process.chdir('.claude/hooks'); require('fs').writeFileSync('a','1')"`,
+    `D=.claude/hooks; python3 -c "open('$D/a','w').write('x')"`,
+    `D=.claude/hooks; python3 -c "import sys; open(sys.argv[1],'w').write('x')" $D/a`,
+    `export D=~/.claude/settings.json; node -e "require('fs').writeFileSync(process.argv[1],'x')" $D`,
+  ]);
+  allowedAll('N7', [
+    `python3 -c "open('/tmp/a','w').write(open('.claude/hooks/x').read())"`,
+    `python3 -c "from pathlib import Path; Path('/tmp/a').write_text(Path('.claude/hooks/x').read_text())"`,
+    `python3 -c "import os; os.chdir('/tmp'); open('a','w').write('x')"`,
+    `D=/tmp; python3 -c "open('$D/a','w').write('x')"`,
+    `D=/tmp; python3 -c "import sys; open(sys.argv[1],'w').write('x')" $D/a`,
+    `python3 -c "from pathlib import Path; y=Path('/tmp/a'); y.write_text('2')"`,
+  ]);
+});
+
 describe('hook process', () => {
   test('negative: Edit of a project .claude/settings.json exits 2 and names the allowed path', () => {
     const r = runHook({ tool_name: 'Edit', tool_input: { file_path: '/repo/.claude/settings.json' } });

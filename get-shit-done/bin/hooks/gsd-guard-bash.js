@@ -3,7 +3,7 @@
  * GSD Bash guard (PreToolUse, Bash).
  *
  * Deny (exit 2, reason names the rule):
- *   no-verify      git commit|push --no-verify, git commit -n
+ *   no-verify      git commit|push|merge --no-verify, git commit -n
  *   no-check       deno test|task --no-check
  *   hooks-path     core.hooksPath set via git -c, --config-env, `git config`, or
  *                  GIT_CONFIG_COUNT/KEY_n / GIT_CONFIG_PARAMETERS assignments (hook bypass)
@@ -266,18 +266,23 @@ function commitHasShortN(args) {
 }
 
 const PUSH_VALUE_LONG = new Set(['--push-option', '--repo', '--receive-pack', '--exec']);
+const MERGE_VALUE_SHORT = new Set(['m', 'F', 's', 'X']);
+const MERGE_VALUE_LONG = new Set(['--message', '--file', '--strategy', '--strategy-option', '--into-name']);
 
 // Option values (`-m "--no-verify"`) are data, not flags.
 function hasNoVerify(args, sub) {
   const push = sub === 'push';
+  const merge = sub === 'merge';
+  const longValues = push ? PUSH_VALUE_LONG : merge ? MERGE_VALUE_LONG : COMMIT_VALUE_LONG;
+  const shortValues = merge ? MERGE_VALUE_SHORT : COMMIT_VALUE_SHORT;
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--') return false;
-    if (push ? (PUSH_VALUE_LONG.has(a) || a === '-o') : COMMIT_VALUE_LONG.has(a)) { i++; continue; }
+    if (longValues.has(a) || (push && a === '-o')) { i++; continue; }
     if (a.length >= 8 && a.startsWith('--no-ver') && '--no-verify'.startsWith(a)) return true;
     if (/^-[A-Za-z]+$/.test(a)) {
       const last = a[a.length - 1];
-      if (push ? last === 'o' : COMMIT_VALUE_SHORT.has(last)) i++;
+      if (push ? last === 'o' : shortValues.has(last)) i++;
     }
   }
   return false;
@@ -315,7 +320,7 @@ function contextFreeRule(rest, facts) {
   }
   if (head === 'git') {
     const { sub, args } = parseGit(rest);
-    if ((sub === 'commit' || sub === 'push') && hasNoVerify(args, sub)) {
+    if ((sub === 'commit' || sub === 'push' || sub === 'merge') && hasNoVerify(args, sub)) {
       return { rule: 'no-verify', reason: `git ${sub} --no-verify skips the pre-commit/pre-push checks. Fix the failing hook instead; never bypass it.` };
     }
     if (sub === 'commit' && commitHasShortN(args)) {

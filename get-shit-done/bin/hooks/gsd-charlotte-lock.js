@@ -24,7 +24,7 @@ const DEFAULT_TTL_SEC = 1800;
 const CHARLOTTE_AGENT = 'gsd-charlotte-qa';
 const WRAPPER_COMMS = new Set(['sh', 'bash', 'zsh', 'dash', 'fish', 'timeout', 'gtimeout', 'env']);
 
-const PREFIX = String.raw`(?:^|[;&|\n(\x60{]|\$\(|\b(?:then|do|else)\s|(?:-c|eval)\s+["'])\s*`;
+const PREFIX = String.raw`(?:^|[;&|\n(\x60{]|\$\(|\b(?:then|do|else)\s|(?:-c|eval)\s+["']|stack-lock\.(?:sh|ts)\b(?:(?!\s--\s)[^;&|\n])*\s--\s)\s*`;
 const FLAGS = String.raw`(?:-{1,2}[\w-]+(?:=\S+)?\s+)*`;
 const RUNNER = String.raw`(?:(?:\S*/)?(?:npx|pnpx|bunx|sudo|exec|time|command|nohup|eval|xargs)\s+${FLAGS}|(?:\S*/)?g?timeout\s+${FLAGS}\d+[smhd]?\s+|(?:\S*/)?nice\s+(?:-n\s*)?(?:-?\d+\s+)?|(?:pnpm|yarn|npm)\s+(?:exec\s+|dlx\s+)?${FLAGS}|(?:\S*/)?env\s+${FLAGS}(?:\w+=\S*\s+)*|\w+=\S*\s+)*`;
 const TASK_FLAGS = String.raw`(?:-{1,2}[\w-]+(?:[= ](?!run\b|task\b)[^\s-]\S*)?\s+)*`;
