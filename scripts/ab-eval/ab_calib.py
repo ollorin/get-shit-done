@@ -218,13 +218,15 @@ def run_mutants(tree: Path, tests: List[str], mutants: List[Path]) -> List[Dict[
             out.append({"mutant": m.name, "applied": False, "killed": False, "error": err})
             continue
         try:
-            rcs = []
+            rcs, classes = [], []
             for test in tests:
-                rc, _o, _s = C.run_cmd(["deno", "task", "test", os.path.relpath(tree / test, cwd)], cwd, timeout=900)
+                rc, text, _s = C.run_cmd(["deno", "task", "test", os.path.relpath(tree / test, cwd)], cwd, timeout=900)
                 rcs.append(rc)
+                classes.append(G.classify_red(rc, text))
         finally:
             revert_mutant(tree, m)
-        out.append({"mutant": m.name, "applied": True, "killed": any(rc != 0 for rc in rcs), "rcs": rcs})
+        # a kill counts only when a test failed by assertion; a type or module error is no kill (gsd-mutate README)
+        out.append({"mutant": m.name, "applied": True, "killed": "proven" in classes, "rcs": rcs, "classes": classes})
     return out
 
 
@@ -348,15 +350,45 @@ def mode_fixture(t: Dict[str, Any], tdir: Path, cfg: Dict[str, Any], repeat: int
     return checks
 
 
-def mode_setup(t: Dict[str, Any], tdir: Path, cfg: Dict[str, Any], repeat: int) -> List[Dict[str, Any]]:
+def snapshot_checks(t: Dict[str, Any], tdir: Path, cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """What the task promises about the snapshot, checked on pristine-A when it exists (every mode):
+    cfg inputs present and outputs absent, review diff, kept planning files, restored paths, overlay, planted patches."""
     snap = tdir / "pristine-A"
     if not snap.exists():
-        raise C.Refused("build pristine-A first (variant --variant A)")
-    checks = []
+        return []
+    checks: List[Dict[str, Any]] = []
     for rel in cfg.get("inputs", []):
         checks.append(check(f"input:{rel}", (snap / rel).exists(), "present in snapshot"))
     for rel in cfg.get("absent", []):
         checks.append(check(f"absent:{rel}", not (snap / rel).exists(), "output absent from snapshot (agent must write it)"))
+    if t.get("review_diff"):
+        diff = snap / ".review" / "change.diff"
+        text = diff.read_text(errors="replace") if diff.exists() else ""
+        checks.append(check("review_diff", "diff --git" in text, f".review/change.diff {len(text)} chars"))
+    pdir = t.get("phase_dir")
+    for name in t.get("planning_keep", []):
+        if pdir and not any(ch in name for ch in "*?["):
+            checks.append(check(f"kept:{name}", (snap / pdir / name).exists(), "kept planning file in snapshot"))
+    for item in t.get("restore", []):
+        rel = item["path"] if isinstance(item, dict) else item
+        checks.append(check(f"restored:{rel}", (snap / rel).exists(), "restored path in snapshot"))
+    for name in t.get("overlay", []):
+        src = C.ARTIFACTS / name
+        missing = [str(f.relative_to(src)) for f in src.rglob("*")
+                   if f.is_file() and (not (snap / f.relative_to(src)).exists()
+                                       or (snap / f.relative_to(src)).read_bytes() != f.read_bytes())]
+        checks.append(check(f"overlay:{name}", not missing, f"overlay files differing or missing: {missing[:3]}"))
+    for name in t.get("patches", []):
+        rc = subprocess.run(["git", "apply", "-R", "--check", str(C.ARTIFACTS / name)], cwd=str(snap),
+                            capture_output=True).returncode
+        checks.append(check(f"patch_applied:{name}", rc == 0, "reverse patch applies, so the patch is in the snapshot"))
+    return checks
+
+
+def mode_setup(t: Dict[str, Any], tdir: Path, cfg: Dict[str, Any], repeat: int) -> List[Dict[str, Any]]:
+    if not (tdir / "pristine-A").exists():
+        raise C.Refused("build pristine-A first (variant --variant A)")
+    checks = []
     for rel in cfg.get("ref_outputs", []):
         rev = rev_of(t, "ref")
         checks.append(check(f"ref_output:{rel}", file_at(rev, rel) is not None, f"exists at ref {rev[:9]}"))
@@ -384,8 +416,6 @@ def calibrate(t: Dict[str, Any], tdir: Path, repeat: int = 3) -> Dict[str, Any]:
         raise C.Refused(f"{t['id']}: unknown calibration mode {mode!r}")
     # evidence/fixture-only modes need no snapshot, but the brief must render for every mode
     R.render_brief(t, "A")
-    checks = MODES[mode](t, tdir, cfg, repeat)
-    if mode in ("evidence", "tests") and cfg.get("also_setup") and (tdir / "pristine-A").exists():
-        checks += mode_setup(t, tdir, cfg, repeat)
+    checks = MODES[mode](t, tdir, cfg, repeat) + snapshot_checks(t, tdir, cfg)
     return {"ts": C.utc_now(), "mode": mode, "repeat": repeat, "checks": checks,
             "ok": bool(checks) and all(c["ok"] for c in checks)}

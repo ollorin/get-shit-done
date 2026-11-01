@@ -5,7 +5,7 @@
          },
        });
 -    if (roundInsertErr) {
-+    if (false && roundInsertErr) {
++    if (roundInsertErr && Date.now() < 0) {
        console.error(
          "[slots/spin] game_rounds insert failed — no outcome returned:",
          roundInsertErr.message,

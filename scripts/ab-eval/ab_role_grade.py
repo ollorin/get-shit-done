@@ -108,7 +108,10 @@ def grade_runner(run_dir: Path, task: Dict[str, Any], generic: Dict[str, Any]) -
     expect = task.get("expect") or {}
     passed = [int(x) for x in re.findall(r"(\d+)\s+passed", report, re.I)]
     failed = [int(x) for x in re.findall(r"(\d+)\s+failed", report, re.I)]
-    names_ok = all(n in report for n in expect.get("failed_names", []))
+    full = expect.get("failed_names", [])
+    steps = [n for n in full if not any(o.startswith(n + " ... ") for o in full)]  # a suite name is not a failing test
+    leaves = {n.split(" ... ")[-1].split(" => ")[-1].strip() for n in steps}
+    names_ok = all(n in report for n in leaves)
     checks = {
         "counts_exact": _chk(expect.get("passed") in passed and expect.get("failed") in failed,
                              f"expect passed={expect.get('passed')} failed={expect.get('failed')}; "

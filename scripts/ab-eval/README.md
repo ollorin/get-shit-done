@@ -10,7 +10,12 @@ judges matched pairs blind, and applies the six decision gates from
 | file | role |
 |---|---|
 | `ab_common.py` | paths, guards (disk, eval cap, quota, harness config), git and process helpers |
-| `ab_setup.py` | `freeze-variant`, `base`, `index`, `variant`, `oracle`, `calibrate`, `all` |
+| `ab_setup.py` | `freeze-variant`, `freeze-agents`, `variant-from-drafts`, `base`, `index`, `variant`, `oracle`, `calibrate`, `all` |
+| `ab_roles.py` | role table (brief, default calibration mode, grader), per-variant role-to-agent map (`variants/<V>/roles.json`), brief rendering, `--agents` JSON incl. stub children for coordinator tasks |
+| `ab_calib.py` | no-LLM calibration by mode: `tests`, `leak`, `evidence`, `planted`, `mutants`, `coord`, `fixture`, `setup`, plus snapshot checks for every task |
+| `ab_role_grade.py` | role acceptance: report roles, docs-updater contract, runner exact counts, test-writer mutation kill, coordinator decision oracle |
+| `harness/stub_child.py` | deterministic stand-in for a coordinator's child agents (scenario actions `ok`, `lie`, `die`) |
+| `mkmutant.py` | writes a one-hunk mutant patch from `<rev>:<path>` and an exact old/new string |
 | `ab_run.py` | per-run snapshot, headless `claude -p`, stream parsing, grading, one JSONL row |
 | `ab_grade.py` | objective grade of a run: visible and hidden tests, deno check/lint/fmt, fp-gate counters, criticals, fail-first (RED re-run at the commit that lacks the implementation) |
 | `ab_transcript.py` | facts from transcripts: instruction chars, first-turn tokens, tier and contamination checks |
@@ -19,11 +24,13 @@ judges matched pairs blind, and applies the six decision gates from
 | `ab_aggregate.py` | six gates G1-G6, decision table, `REPORT.md`, `decision.json` |
 | `hooks/harness-deny.py` | PreToolUse deny hook for runs (DESIGN §4.4, tightened in probe S2). Traversal is judged by where a path resolves after the command's `cd` steps, so in-snapshot `../../.tmp/x` is allowed and anything outside `runs/<RUN>/repo` is denied |
 | `hooks/judge-deny.py` | PreToolUse deny hook for judge calls (hides `key.json` and the live tree) |
-| `prompts/brief-executor.md` | dispatcher brief plus the Wave-1 executor prompt (`execute-phase.md:206-240`) |
+| `prompts/brief-<role>.md` | dispatcher envelope plus the role prompt, one per role (executor, debugger, test-writer, docs-updater, reviewer, plancheck, planner, verifier, runner, coordinator, charlotte-qa, smoke); the task text is `examples/briefs/<ID>.md` or the task's `brief` |
+| `examples/briefs/`, `examples/artifacts/` | per-task brief text; planted patch, mutant patches, coordinator overlay, seeded-defect truth file |
 | `prompts/judge.md` | judge rubric template (DESIGN §7.5), dimensions filled per role |
-| `fixtures/qa-app/` | clean static page copied into every snapshot (Charlotte probes) |
-| `examples/tasks.json` | task registry used for the smoke run (E6 only) |
-| `tests/test_ab_eval.py` | unit tests (45): redaction, verdicts, collapse, bootstrap, scrub, transcripts, gates, deny-hook traversal, RED classification, matcher parse, G3 |
+| `fixtures/qa-app/` | clean static page (Charlotte probes) and the control for the seeded app |
+| `fixtures/qa-app-seeded/` | three-page shop app with 6 functional and 3 UX seeded defects (Q1, Q2); truth file `examples/artifacts/Q/defects.json` |
+| `examples/tasks.json` | task registry (36 tasks, 35 enabled) |
+| `tests/test_ab_eval.py`, `tests/test_roles.py` | unit tests: redaction, verdicts, collapse, bootstrap, scrub, transcripts, gates, deny-hook traversal, RED classification, matcher parse, G3, registry/role consistency, brief rendering for every enabled task, role graders, stub child, evidence engine |
 
 ## Data layout (`~/ab-eval/`)
 
@@ -72,10 +79,25 @@ python3 ab_match.py selftest --model sonnet                    # fake report, wr
 python3 ab_aggregate.py --judge-model opus --variant-b B
 
 # Unit tests
-python3 tests/test_ab_eval.py
+python3 -m unittest discover -s tests
 ```
 
 Exit status 2 with `REFUSED:` means a guard stopped the command before any work was done.
+
+## Task schema additions (roles)
+
+`role` selects brief, calibration mode and grader (`ab_roles.ROLES`). Optional per-task keys:
+
+| key | meaning |
+|---|---|
+| `calibration` | `{mode, ...}`: `tests` (`base_red`: both, visible, hidden), `leak` (`cmd`, `pattern`), `evidence` (regexes at base/ref over `known[].evidence` and `evidence`), `planted`, `mutants`, `coord`, `fixture`, `setup`; `inputs` and `absent` snapshot paths apply to every mode |
+| `planning_keep` | globs of phase-dir files kept through the planning scrub |
+| `restore` | paths (or `{rev, path}`) re-extracted into the snapshot after the scrub |
+| `overlay`, `patches`, `fixture`, `review_diff`, `scrub: "none"` | examples/artifacts dirs copied in, planted patches applied, seeded app copied to `qa-fixture/qa-app`, `.review/change.diff` for reviewers, skip the planning scrub |
+| `readonly`, `expect_writes`, `expect`, `run_cmd`, `scenario`, `test_files`, `mutants`, `kill_bar`, `defects_file`, `defect_ids`, `mode`, `brief` | grader inputs per role |
+
+Arm B uses `variants/B/roles.json` (role to agent name, e.g. `runner` to `gsd2-runner`); arm A uses the task's `agent`.
+`ab_setup.py variant-from-drafts` builds B from the drafts in `~/get-shit-done/agents/v2`.
 
 ## Guards
 

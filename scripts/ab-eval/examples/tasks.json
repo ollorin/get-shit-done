@@ -515,7 +515,11 @@
    "enabled": true,
    "readonly": true,
    "calibration": {
-    "mode": "evidence"
+    "mode": "evidence",
+    "inputs": [
+     "apps/api/libs/infrastructure/src/lib/facades/operator-2fa-pending-facade.ts",
+     "apps/api/functions/__tests__/auth-helpers.ts"
+    ]
    },
    "known": [
     {
@@ -575,7 +579,10 @@
    ],
    "expect_writes": true,
    "calibration": {
-    "mode": "evidence"
+    "mode": "evidence",
+    "inputs": [
+     ".planning/phases/399-auth-sweep-a1-a4/399-16-SUMMARY.md"
+    ]
    },
    "evidence": [
     {
@@ -627,7 +634,11 @@
    ],
    "expect_writes": true,
    "calibration": {
-    "mode": "evidence"
+    "mode": "evidence",
+    "inputs": [
+     ".planning/phases/400-wallet-sweep-w1-w2/400-12-SUMMARY.md",
+     "docs/wallet/currency-attributes.md"
+    ]
    },
    "evidence": [
     {
@@ -677,7 +688,11 @@
    ],
    "expect_writes": false,
    "calibration": {
-    "mode": "evidence"
+    "mode": "evidence",
+    "inputs": [
+     ".planning/phases/400-wallet-sweep-w1-w2/400-41-SUMMARY.md",
+     "docs/game-engine/games/pvp-arena.md"
+    ]
    },
    "evidence": [
     {
@@ -727,7 +742,10 @@
     }
    ],
    "calibration": {
-    "mode": "evidence"
+    "mode": "evidence",
+    "inputs": [
+     ".planning/phases/390-docs-milestone-e2e-regression/390-01-PLAN.md"
+    ]
    },
    "known": [
     {
@@ -837,7 +855,11 @@
    "enabled": true,
    "review_diff": true,
    "calibration": {
-    "mode": "evidence"
+    "mode": "evidence",
+    "inputs": [
+     "apps/api/libs/domain/src/lib/wallet/player-transaction-view.ts",
+     "apps/api/libs/domain/src/lib/wallet/player-transaction-view.test.ts"
+    ]
    }
   },
   {
@@ -915,7 +937,11 @@
    "enabled": true,
    "review_diff": true,
    "calibration": {
-    "mode": "evidence"
+    "mode": "evidence",
+    "inputs": [
+     "apps/api/libs/infrastructure/src/lib/security/adjustment-authority.ts",
+     "apps/api/libs/infrastructure/src/lib/security/adjustment-authority.test.ts"
+    ]
    }
   },
   {
@@ -1005,7 +1031,13 @@
    "phase_number": "390",
    "phase_name": "docs-milestone-e2e-regression",
    "calibration": {
-    "mode": "evidence"
+    "mode": "evidence",
+    "inputs": [
+     ".planning/phases/390-docs-milestone-e2e-regression/390-01-PLAN.md"
+    ],
+    "absent": [
+     ".planning/phases/390-docs-milestone-e2e-regression/390-01-PLAN-CHECK-R1.md"
+    ]
    }
   },
   {
@@ -1163,7 +1195,16 @@
     ".planning/codebase-review/FINDINGS.tsv"
    ],
    "calibration": {
-    "mode": "evidence"
+    "mode": "evidence",
+    "inputs": [
+     ".planning/phases/399-auth-sweep-a1-a4/399-CONTEXT.md",
+     ".planning/phases/399-auth-sweep-a1-a4/399-RESEARCH.md",
+     ".planning/codebase-review/FINDINGS.tsv",
+     ".planning/REQUIREMENTS.md"
+    ],
+    "absent": [
+     ".planning/phases/399-auth-sweep-a1-a4/399-11-PLAN.md"
+    ]
    }
   },
   {
@@ -1262,7 +1303,15 @@
     ".planning/REQUIREMENTS.md"
    ],
    "calibration": {
-    "mode": "evidence"
+    "mode": "evidence",
+    "inputs": [
+     ".planning/phases/398-findings-register-reverification-program-substrate/398-07-SUMMARY.md",
+     ".planning/phases/398-findings-register-reverification-program-substrate/398-02-PLAN.md",
+     ".planning/codebase-review/FINDINGS.tsv"
+    ],
+    "absent": [
+     ".planning/phases/398-findings-register-reverification-program-substrate/398-VERIFICATION.md"
+    ]
    }
   },
   {
@@ -1650,7 +1699,11 @@
    ],
    "kill_bar": 3,
    "calibration": {
-    "mode": "mutants"
+    "mode": "mutants",
+    "inputs": [
+     "apps/api/functions/auth/handlers/operator-login-m1.test.ts",
+     "apps/api/functions/auth/handlers/operator-login.ts"
+    ]
    }
   },
   {
@@ -1697,7 +1750,11 @@
    ],
    "kill_bar": 3,
    "calibration": {
-    "mode": "mutants"
+    "mode": "mutants",
+    "inputs": [
+     "apps/api/functions/games/handlers/mines-handlers.test.ts",
+     "apps/api/functions/games/handlers/slots-handlers.test.ts"
+    ]
    }
   },
   {
@@ -1717,25 +1774,31 @@
    "budget_usd": 1,
    "timeout_min": 10,
    "scrub_terms": [
-    "configurations"
+    "arena-config-keys"
    ],
    "enabled": true,
    "run_cmd": [
     "deno",
     "task",
     "test",
-    "functions/configurations/handlers/delete-config.test.ts"
+    "functions/configurations/handlers/arena-config-keys.test.ts"
    ],
    "patches": [
     "H1/plant.patch"
    ],
    "expect": {
-    "passed": null,
-    "failed": null,
-    "failed_names": []
+    "passed": 4,
+    "failed": 1,
+    "failed_names": [
+     "./functions/configurations/handlers/arena-config-keys.test.ts => R-384-1: the 16 seeded coin keys are on the operator surface",
+     "./functions/configurations/handlers/arena-config-keys.test.ts => R-384-1: the 16 seeded coin keys are on the operator surface ... TEST_COIN_SEED_KEYS really does hold 16 distinct keys"
+    ]
    },
    "calibration": {
-    "mode": "planted"
+    "mode": "planted",
+    "inputs": [
+     "apps/api/functions/configurations/handlers/arena-config-keys.test.ts"
+    ]
    }
   },
   {
@@ -1778,7 +1841,18 @@
     "CHECKPOINT.json"
    ],
    "calibration": {
-    "mode": "coord"
+    "mode": "coord",
+    "inputs": [
+     ".planning/phases/398-findings-register-reverification-program-substrate/398-01-SUMMARY.md",
+     ".planning/phases/398-findings-register-reverification-program-substrate/398-02-PLAN.md",
+     ".planning/phases/398-findings-register-reverification-program-substrate/398-03-PLAN.md",
+     ".planning/phases/398-findings-register-reverification-program-substrate/CHECKPOINT.json"
+    ],
+    "absent": [
+     ".planning/phases/398-findings-register-reverification-program-substrate/398-04-PLAN.md",
+     ".planning/phases/398-findings-register-reverification-program-substrate/398-02-SUMMARY.md",
+     ".planning/phases/398-findings-register-reverification-program-substrate/398-VERIFICATION.md"
+    ]
    }
   },
   {
@@ -1823,7 +1897,18 @@
     "CHECKPOINT.json"
    ],
    "calibration": {
-    "mode": "coord"
+    "mode": "coord",
+    "inputs": [
+     ".planning/phases/398-findings-register-reverification-program-substrate/398-01-SUMMARY.md",
+     ".planning/phases/398-findings-register-reverification-program-substrate/398-02-PLAN.md",
+     ".planning/phases/398-findings-register-reverification-program-substrate/398-03-PLAN.md",
+     ".planning/phases/398-findings-register-reverification-program-substrate/CHECKPOINT.json"
+    ],
+    "absent": [
+     ".planning/phases/398-findings-register-reverification-program-substrate/398-04-PLAN.md",
+     ".planning/phases/398-findings-register-reverification-program-substrate/398-02-SUMMARY.md",
+     ".planning/phases/398-findings-register-reverification-program-substrate/398-VERIFICATION.md"
+    ]
    }
   },
   {
@@ -1871,7 +1956,18 @@
     "CHECKPOINT.json"
    ],
    "calibration": {
-    "mode": "coord"
+    "mode": "coord",
+    "inputs": [
+     ".planning/phases/398-findings-register-reverification-program-substrate/398-01-SUMMARY.md",
+     ".planning/phases/398-findings-register-reverification-program-substrate/398-02-PLAN.md",
+     ".planning/phases/398-findings-register-reverification-program-substrate/398-03-PLAN.md",
+     ".planning/phases/398-findings-register-reverification-program-substrate/CHECKPOINT.json"
+    ],
+    "absent": [
+     ".planning/phases/398-findings-register-reverification-program-substrate/398-04-PLAN.md",
+     ".planning/phases/398-findings-register-reverification-program-substrate/398-02-SUMMARY.md",
+     ".planning/phases/398-findings-register-reverification-program-substrate/398-VERIFICATION.md"
+    ]
    }
   },
   {

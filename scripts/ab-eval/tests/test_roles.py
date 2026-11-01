@@ -121,6 +121,13 @@ class RunnerGradeTests(unittest.TestCase):
     def test_exact_counts_and_name_pass(self):
         self.assertTrue(self._run("11 passed | 1 failed. Failing: soft-deletes an active configuration")["acceptance"])
 
+    def test_suite_name_is_not_a_required_failing_test(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "report.md").write_text("4 passed | 1 failed. Failing: hold 16 distinct keys")
+            task = {"expect": {"passed": 4, "failed": 1, "failed_names": [
+                "./f.test.ts => Suite", "./f.test.ts => Suite ... hold 16 distinct keys"]}}
+            self.assertTrue(RG.grade_runner(Path(tmp), task, generic())["acceptance"])
+
     def test_wrong_count_fails(self):
         out = self._run("12 passed | 0 failed")
         self.assertFalse(out["checks"]["counts_exact"]["ok"])
@@ -243,6 +250,45 @@ class CoordGradeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             run, task = self._setup(tmp, events, {"398-02": True, "398-03": True}, True, {"status": "completed"})
             self.assertFalse(RG.grade_coord(run, task, generic())["checks"]["wave_order"]["ok"])
+
+
+class MutantKillTests(unittest.TestCase):
+    def _run(self, out_by_call):
+        calls = iter(out_by_call)
+        with tempfile.TemporaryDirectory() as tmp:
+            tree = Path(tmp)
+            (tree / "apps" / "api").mkdir(parents=True)
+            with mock.patch.object(K, "apply_mutant", return_value=(True, "")), \
+                    mock.patch.object(K, "revert_mutant"), mock.patch.object(C, "run_cmd", side_effect=lambda *a, **k: next(calls)):
+                return K.run_mutants(tree, ["t.test.ts"], [Path("m.patch")])[0]
+
+    def test_assertion_failure_is_a_kill(self):
+        self.assertTrue(self._run([(1, "x ... FAILED\n0 passed | 1 failed", 1.0)])["killed"])
+
+    def test_type_error_is_not_a_kill(self):
+        self.assertFalse(self._run([(1, "TS18047 [ERROR]: 'x' is possibly 'null'.\nerror: Type checking failed.", 1.0)])["killed"])
+
+    def test_green_run_is_a_survivor(self):
+        self.assertFalse(self._run([(0, "ok | 3 passed | 0 failed", 1.0)])["killed"])
+
+
+class SnapshotCheckTests(unittest.TestCase):
+    def test_inputs_absent_review_diff_and_kept_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tdir = Path(tmp)
+            snap = tdir / "pristine-A"
+            (snap / "p").mkdir(parents=True)
+            (snap / "p" / "S.md").write_text("x")
+            (snap / ".review").mkdir()
+            (snap / ".review" / "change.diff").write_text("diff --git a/x b/x\n")
+            task = {"review_diff": True, "phase_dir": "p", "planning_keep": ["S.md", "*.txt"]}
+            checks = K.snapshot_checks(task, tdir, {"inputs": ["p/S.md"], "absent": ["p/OUT.md"]})
+            self.assertTrue(all(c["ok"] for c in checks), checks)
+            bad = K.snapshot_checks({}, tdir, {"inputs": ["nope"]})
+            self.assertFalse(bad[0]["ok"])
+
+    def test_no_snapshot_means_no_checks(self):
+        self.assertEqual(K.snapshot_checks({}, Path("/nonexistent"), {"inputs": ["x"]}), [])
 
 
 class EvidenceTests(unittest.TestCase):

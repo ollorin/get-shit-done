@@ -1,11 +1,11 @@
---- a/apps/api/functions/configurations/handlers/delete-config.test.ts
-+++ b/apps/api/functions/configurations/handlers/delete-config.test.ts
-@@ -122,7 +122,7 @@
-     expect(body.success).toBe(true);
-     expect(body.data.action).toBe('delete');
-     expect(body.data.is_active).toBe(false);
--    expect(body.data.deleted_at).toBe('2026-01-03T00:00:00Z');
-+    expect(body.data.deleted_at).toBe('2026-01-04T00:00:00Z');
+--- a/apps/api/functions/configurations/handlers/arena-config-keys.test.ts
++++ b/apps/api/functions/configurations/handlers/arena-config-keys.test.ts
+@@ -149,7 +149,7 @@
    });
  
-   // Phase 384.1 SC1 — the generic DELETE must never soft-delete a money-bearing key.
+   it('TEST_COIN_SEED_KEYS really does hold 16 distinct keys', () => {
+-    assertStrictEquals(TEST_COIN_SEED_KEYS.length, 16);
++    assertStrictEquals(TEST_COIN_SEED_KEYS.length, 17);
+     assertStrictEquals(new Set(TEST_COIN_SEED_KEYS).size, 16);
+   });
+ 

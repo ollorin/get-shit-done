@@ -5,7 +5,7 @@
        corsHeaders,
      );
 -    if (replay) return replay;
-+    if (false) return replay;
++    if (replay && Date.now() < 0) return replay;
  
      // Step 1: RG gate — pre-spin blocking check.
      // 321-02/MILE-01: bet + resolved sessionCurrency route to amount-aware rg_check_bet_allowed.
