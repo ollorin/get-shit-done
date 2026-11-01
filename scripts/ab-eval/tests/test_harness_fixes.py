@@ -744,3 +744,21 @@ class SupersededPairs(unittest.TestCase):
                 (Path(d) / pid / "index.json").write_text(json.dumps({"a": a, "b": b}))
             items = [{"pair_id": "P1"}, {"pair_id": "P2"}, {"pair_id": "P2"}]
             self.assertEqual(AG.drop_superseded(items, {"B1"}, Path(d)), [{"pair_id": "P2"}, {"pair_id": "P2"}])
+
+
+class JudgePacketUsesRegrade(unittest.TestCase):
+    def test_false_critical_not_shown(self):
+        import ab_judge as J
+        import ab_common as CM
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "results").mkdir()
+            (Path(d) / "results" / "regraded.jsonl").write_text(json.dumps(
+                {"run_id": "R1", "set": {"criticals": []}}) + "\n")
+            old = CM.AB_HOME
+            CM.AB_HOME = Path(d)
+            try:
+                self.assertEqual(J.regraded_summary({"criticals": ["shared-stack-attempted"], "x": 1}, "R1"),
+                                 {"criticals": [], "x": 1})
+                self.assertEqual(J.regraded_summary({"criticals": ["c"]}, "R2"), {"criticals": ["c"]})
+            finally:
+                CM.AB_HOME = old

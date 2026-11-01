@@ -118,10 +118,20 @@ def ensure_judge_settings() -> Path:
     return path
 
 
+def regraded_summary(summary: Dict[str, Any], run_id: str) -> Dict[str, Any]:
+    """The packet shows the run's criticals after the regrade overlay (results/regraded.jsonl): a critical that a
+    later harness fix showed to be a false positive must not be argued by the judge."""
+    out = dict(summary)
+    for row in C.read_jsonl(C.AB_HOME / "results" / "regraded.jsonl"):
+        if row.get("run_id") == run_id and "criticals" in row.get("set", {}):
+            out["criticals"] = row["set"]["criticals"]
+    return out
+
+
 def _side_files(run_dir: Path, run_id: str, repo_path: str, extra: List[str],
                 role_checks: bool = False) -> Dict[str, str]:
     grade = run_dir / "grade"
-    summary = C.read_json(grade / "summary.json", {})
+    summary = regraded_summary(C.read_json(grade / "summary.json", {}), run_id)
     diff = (grade / "diff.patch").read_text() if (grade / "diff.patch").exists() else "(no diff)"
     report = (run_dir / "report.md").read_text() if (run_dir / "report.md").exists() else "(no final report)"
     gates_lines = [
