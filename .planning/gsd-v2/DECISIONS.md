@@ -23,3 +23,4 @@
 | 2026-11-01 | Full OrbStack restart approved at the nearest joint 401+402 plan boundary; memory limit unchanged | CEO; OrbStack Helper at 20 GiB after 10 h, about 2 GiB/h | `experiments/08-orbstack-memory/samples.tsv` |
 | 2026-11-01 | RTK disabled globally | CEO; it alters command output (`experiments/09-hooks-audit/RULING.md`) | applied by `flip.sh --apply` |
 | 2026-11-01 | Orchestrator runs the hook flip itself instead of the CEO, after the fix batch, the Opus check and the peer's boundary | CEO: "Фикс хуков запусти сам, не жди меня" | `experiments/09-hooks-audit/` |
+| 2026-11-01 | Test-writer E rejected, not shipped; `gsd-test-writer` stays as installed. X2-X4 parked until after the 2026-11-03 quota reset | 5 of 9 gates fail at 3 reps per arm (design said 5). `660d4d0` affects only the mutants gate, so the verdict holds without it | `experiments/11-test-writer-executor-e/RESULTS-X0-X1.md` |
