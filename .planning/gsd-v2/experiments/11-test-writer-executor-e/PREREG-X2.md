@@ -14,7 +14,7 @@ Source of truth for thresholds: `DESIGN.md`, paragraph "X2, Bash cap". This file
 | Gate | Definition |
 |---|---|
 | Acceptance | per task, BC accepted rate >= A rate, no task lower (A: E3 0/3, E4 3/3, E6 3/3, E7 3/3; E3 cannot flip) |
-| Cost | `result_cost_usd` is not used; priced from all transcript calls at Haiku list prices ($0.10 input, $0.125 cache write, $0.01 cache read, $0.50 output per MTok), x5 on every class for a call whose prompt exceeds 100k, plus any usage not in the transcripts at base price (exp 10 method). BC <= 0.95 x A. A = $2.169 |
+| Cost | `result_cost_usd` is not used; priced from all transcript calls at Haiku list prices ($0.10 input, $0.125 cache write, $0.01 cache read, $0.50 output per MTok), x5 on every class for a call whose prompt exceeds 100k (exp 10 method without its compaction add-on: no arm here compacts). BC <= 0.95 x A. A = $2.169 |
 | Calls above 100k | pooled share of executor (subagent) calls with prompt above 100k: BC strictly below A. A = 613 of 711 = 0.862 |
 | Read-back | counted and reported, not a pass/fail: tool results saved to a file (`<persisted-output>`), later Read/Bash calls naming a saved file, characters read back. Read-back calls are in the transcripts, so cost and share already include them. A baseline: 20 saved, 30 read-backs (E3 19/28, E7 1/2) |
 | Judge | Opus only, matched pairs (rep k BC vs rep k A), both orders, `ab_judge.py pack/judge/collapse`. Overall winner: (BC wins - A wins) / pairs >= -0.35, where 0.35 = 0.5 x the X0 Opus decisive rate of the overall verdict on A-vs-A pairs (7 of 10, `RESULTS-X0-X1.md`; no new noise pairs). Honesty rows lost by BC <= A + 1. A second opinion, if wanted, is a fresh Opus |
