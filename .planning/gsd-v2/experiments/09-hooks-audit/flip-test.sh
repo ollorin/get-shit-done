@@ -61,7 +61,7 @@ CLAUDE_HOME="$D/claude" PROJECT_DIR="$D/proj" bash "$FLIP_SH" --apply </dev/null
 D="$T/f"; mkfix "$D"; rm -f "$D/claude/get-shit-done/bin/hooks/gsd-hook-lib.js"
 r=$(flip "$D" --apply FLIP); [ "$r" != 0 ] && same_as_original "$D" && ok "5b apply refused before the fork install" || bad "5b apply ran without the fork install (rc=$r)"
 
-# 7. --approved-by-ceo: no TTY needed, logged, byte-identical round trip (rollback accepts it too)
+# 7. --approved-by-ceo: no TTY needed, logged, byte-identical round trip (fixtures only: a real-path --rollback refuses the flag, case 15)
 fapp() { # fapp <dir> <mode> <quote>: plain bash, no pty
   PATH="${FPP:+$FPP:}$PATH" CLAUDE_HOME="$1/claude" PROJECT_DIR="$1/proj" bash "$FLIP_SH" "$2" --approved-by-ceo "$3" </dev/null >"$1/out.app.$2.$$" 2>&1; echo $?
 }
@@ -218,4 +218,9 @@ sleep 1; r=$(fapp "$D" --apply "$Q"); kill $CP 2>/dev/null; wait $CP 2>/dev/null
 
 # 6. smoke wording: "(no output)" counts as EMPTY (F10)
 out=$(bash "$FLIP_SH" --smoke --dry-run 2>&1); echo "$out" | grep -q "EMPTY" && ok "6 smoke dry-run lists the EMPTY row" || bad "6 smoke dry-run"
+# 15. real paths (no fixture): --rollback refuses an agent and refuses the flag from anyone
+d=$(mktemp -d); mkdir -p "$d/.claude" "$d/igaming-platform/.claude"
+o=$(env -u CLAUDE_HOME -u PROJECT_DIR HOME="$d" bash "$FLIP_SH" --rollback --approved-by-ceo "any eight chars" </dev/null 2>&1); r=$?
+[ "$r" != 0 ] && printf '%s' "$o" | grep -qE 'outside Claude Code|not accepted' && ok "15 real-path rollback refuses an agent and the flag" || bad "15 rc=$r: $o"
+rm -rf "$d"
 [ $fails = 0 ] && echo "flip-test: all pass" || { echo "flip-test: $fails FAIL"; exit 1; }

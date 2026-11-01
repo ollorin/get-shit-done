@@ -3,13 +3,15 @@
 #   flip.sh --apply     [--dry-run] [--approved-by-ceo "<quoted approval>"]   unregister the hooks that must not come back, then remove the project
 #                                     hook-disable flag + local hooks block. Needs a TTY and the typed word FLIP.
 #   flip.sh --smoke     [--dry-run]   new-session probes of the live hook set (claude -p, haiku); --dry-run lists them
-#   flip.sh --rollback  [--approved-by-ceo "<quoted approval>"]   restore both settings files (and RTK.md) from the latest backup. TTY + typed word.
-# --approved-by-ceo "<quote>" replaces ONLY the TTY and the typed word (the CEO delegated the run to an agent). The quote must be
+#   flip.sh --rollback                restore both settings files (and RTK.md) from the latest backup. TTY + typed word, from a terminal
+#                                     outside Claude Code: it refuses when CLAUDECODE is set or a claude process is an ancestor, and refuses --approved-by-ceo.
+#                                     This steers rather than enforces: a deliberately detached process with a faked pty still passes.
+# --approved-by-ceo "<quote>" (--apply only) replaces ONLY the TTY and the typed word (the CEO delegated the run to an agent). The quote must be
 #   the CEO's own words (min 8 chars); one line (date, mode, flag, quote) is appended to $PROJECT_DIR/.tmp/gsd-v2/hooks-flip-backup/approvals.log
 #   before anything changes. Every refusal below still applies to --apply (rollback has none besides nothing applied / a missing backup).
 #   The quote cannot be verified, so once hooks are on the protect hook denies any agent command that runs flip.sh with --apply or
-#   --rollback (gsd-protect-managed-files.js, FLIP_APPLY_RE): only a person in a terminal can run them. --smoke stays allowed.
-#   The first --apply still works from an agent because hooks are off at that moment.
+#   --rollback (gsd-protect-managed-files.js, FLIP_APPLY_RE), a literal-spelling steer; --rollback itself refuses agents. --smoke stays allowed.
+#   The first --apply still works from an agent because hooks are off at that moment; a second --apply is refused ("already applied").
 # Install step BEFORE --apply (agents, commands, get-shit-done, hooks only; no whisper/MCP/.env.template):
 #   cd ~/get-shit-done && node bin/install.js --global --claude      (needs a clean fork tree only for npm run install:gsd)
 #   It runs `npm ci` for the hook dependencies inside ~/.claude/get-shit-done (npm cache or network) and refreshes the
@@ -25,12 +27,15 @@ while [ $# -gt 0 ]; do
     --apply|--smoke|--rollback) MODE="$1";;
     --dry-run) SUB="--dry-run";;
     --approved-by-ceo) APPROVED=1; shift; APPROVAL="${1:-}";;
-    *) echo "usage: flip.sh --apply [--dry-run] [--approved-by-ceo \"<quote>\"] | --smoke [--dry-run] | --rollback [--approved-by-ceo \"<quote>\"]" >&2; exit 64;;
+    *) echo "usage: flip.sh --apply [--dry-run] [--approved-by-ceo \"<quote>\"] | --smoke [--dry-run] | --rollback" >&2; exit 64;;
   esac
   shift
 done
 CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
 PROJECT_DIR="${PROJECT_DIR:-$HOME/igaming-platform}"
+real() { python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$1"; }
+is_fixture() { [ "$(real "$CLAUDE_HOME")" != "$(real "$HOME/.claude")" ] && [ "$(real "$PROJECT_DIR")" != "$(real "$HOME/igaming-platform")" ]; } # both paths away from the real defaults: tests only
+under_agent() { [ -n "${CLAUDECODE:-}" ] || ps -axo pid=,ppid=,comm= | awk -v p=$$ '{pp[$1]=$2; x=$0; sub(/^ *[0-9]+ +[0-9]+ +/,"",x); c[$1]=x} END{while(p>1&&p in pp){n=c[p]; sub(/.*\//,"",n); if(n ~ /^claude/) exit 0; p=pp[p]} exit 1}'; }
 USER_SETTINGS="$CLAUDE_HOME/settings.json"
 LOCAL_SETTINGS="$PROJECT_DIR/.claude/settings.local.json"
 RTK_MD="$CLAUDE_HOME/RTK.md"
@@ -46,7 +51,7 @@ need_tty() { # need_tty <WORD>: a person at a TTY types WORD, or --approved-by-c
     mkdir -p "$BACKUP_ROOT" && printf '%s\t%s\t--approved-by-ceo\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$MODE" "$q" >> "$BACKUP_ROOT/approvals.log" || die "cannot write approvals.log; nothing changed"
     echo "flip: non-interactive run approved by the CEO (logged to $BACKUP_ROOT/approvals.log)"; return 0
   fi
-  [ -t 0 ] && [ -t 1 ] || die "needs a TTY (a person in a terminal) or --approved-by-ceo \"<quote>\""
+  [ -t 0 ] && [ -t 1 ] || die "needs a TTY (a person in a terminal)$([ "$MODE" = --rollback ] || echo ' or --approved-by-ceo "<quote>"')"
   printf 'Type %s to continue: ' "$1"; read -r w; [ "$w" = "$1" ] || die "aborted"
 }
 command -v python3 >/dev/null || die "python3 required"
@@ -259,6 +264,7 @@ do_smoke() {
 }
 
 do_rollback() {
+  is_fixture || { ! under_agent || die "rollback runs only from a terminal outside Claude Code"; [ "$APPROVED" = 0 ] || die "--approved-by-ceo is not accepted for --rollback"; }
   [ -f "$APPLIED" ] || die "nothing applied (no $APPLIED); nothing changed"
   local b; b=$(cat "$APPLIED"); [ -d "$b" ] || die "backup dir $b missing"
   for f in settings.json settings.local.json; do python3 -c 'import json,sys;json.load(open(sys.argv[1]))' "$b/$f" || die "backup $f is not valid JSON"; done
