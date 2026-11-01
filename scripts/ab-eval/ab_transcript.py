@@ -34,6 +34,16 @@ def _subagent_type(path: Path) -> Optional[str]:
     return None
 
 
+_HOOK = None
+
+
+def _deny_hook():
+    global _HOOK
+    if _HOOK is None:
+        _HOOK = C.deny_hook()
+    return _HOOK
+
+
 def analyze(tdir: Path, denials_path: Path, targets: Tuple[str, ...] = (EXEC_CHILD,)) -> Dict[str, Any]:
     files = sorted(tdir.rglob("*.jsonl")) if tdir.exists() else []
     main_files = [f for f in files if "subagents" not in f.parts]
@@ -45,6 +55,7 @@ def analyze(tdir: Path, denials_path: Path, targets: Tuple[str, ...] = (EXEC_CHI
         "first_turn_source": None,
     }
     own = ".claude/projects/" + str((tdir.parent / "repo").resolve()).replace("/", "-")  # this run's own project dir
+    hook = _deny_hook()
     seen_msg_ids = set()
     first_turn_candidates: List[Any] = []
     for f in main_files + sub_files:
@@ -113,7 +124,8 @@ def analyze(tdir: Path, denials_path: Path, targets: Tuple[str, ...] = (EXEC_CHI
                                                    "description": desc})
             if name in C.TOOLS_WITH_PATHS:
                 out["tool_calls"].append({"name": name, "input": text, "agent": sub_type or "main"})
-                if any(root in text.replace(own, "<own-project>") for root in C.ROOTS):
+                scan = hook.contamination_scan_text(name, inp)
+                if any(root in scan.replace(own, "<own-project>") for root in C.ROOTS):
                     res = results.get(block.get("id", ""), {"text": "", "is_error": False})
                     if "HARNESS-DENY" not in res["text"]:
                         out["contaminated"].append({"tool": name, "input": text[:200], "agent": sub_type or "main"})

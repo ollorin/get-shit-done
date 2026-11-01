@@ -554,3 +554,70 @@ class ThreeArmJudging(unittest.TestCase):
         pairs = [{"pair_id": "p1", "cand_arm": "B"}, {"pair_id": "p2", "cand_arm": "C"}, {"pair_id": "p3"}]
         self.assertEqual([p["pair_id"] for p in AG.for_candidate(pairs, "C")], ["p2", "p3"])
         self.assertEqual([p["pair_id"] for p in AG.for_candidate(pairs, "B")], ["p1", "p3"])
+
+
+class InstalledReferencesAndWriteContent(unittest.TestCase):
+    """Wave 2 (executor family): B/C point to ~/.claude/get-shit-done/references/*-detail.md, which the `get-shit-done`
+    root match denied; and a Write whose CONTENT mentions a denied root path voided the run as contaminated."""
+
+    def setUp(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("hd2", ROOT / "hooks" / "harness-deny.py")
+        self.hd = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.hd)
+        self.run_dir, self.repo = "/x/ab-eval/runs/RUN1", "/x/ab-eval/runs/RUN1/repo"
+        self.refs = os.path.expanduser("~/.claude/get-shit-done/references/executor-detail.md")
+
+    def test_read_of_installed_reference_allowed(self):
+        for p in (self.refs, "~/.claude/get-shit-done/references/debugger-detail.md"):
+            self.assertIsNone(self.hd.decide("Read", {"file_path": p}, self.repo, self.run_dir), p)
+
+    def test_bash_read_of_installed_reference_allowed(self):
+        self.assertIsNone(self.hd.decide("Bash", {"command": f"sed -n 107,300p {self.refs}"}, self.repo, self.run_dir))
+
+    def test_rest_of_installed_gsd_and_live_repo_still_denied(self):
+        for p in (os.path.expanduser("~/.claude/get-shit-done/bin/gsd-tools.js"),
+                  os.path.expanduser("~/.claude/get-shit-done/references/../bin/gsd-tools.js"),
+                  "/Users/o/get-shit-done/agents/v2/gsd2-executor.md", "/Users/o/igaming-platform/CLAUDE.md"):
+            self.assertEqual(self.hd.decide("Read", {"file_path": p}, self.repo, self.run_dir)[0], "root", p)
+            self.assertEqual(self.hd.decide("Bash", {"command": f"cat {p}"}, self.repo, self.run_dir)[0], "root", p)
+
+    def test_bash_mutation_of_installed_reference_denied(self):
+        for cmd in (f"echo x > {self.refs}", f"rm {self.refs}", f"cp {self.refs} /tmp/x", f"sed -i s/a/b/ {self.refs}"):
+            self.assertEqual(self.hd.decide("Bash", {"command": cmd}, self.repo, self.run_dir)[0], "root", cmd)
+
+    def test_write_to_installed_reference_still_denied(self):
+        self.assertEqual(self.hd.decide("Write", {"file_path": self.refs}, self.repo, self.run_dir)[0], "write")
+
+    def _scan(self, uses):
+        import ab_transcript as T
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp, "runs", "RUN1")
+            tdir = run / "transcripts"
+            tdir.mkdir(parents=True)
+            blocks = [dict(type="tool_use", id=f"u{i}", name=n, input=i_) for i, (n, i_) in enumerate(uses)]
+            rows = [{"type": "assistant", "message": {"id": "m1", "model": "claude-haiku-5-5",
+                                                      "usage": {"input_tokens": 1}, "content": blocks}}]
+            (tdir / "main.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+            return T.analyze(tdir, Path(tmp, "none"))
+
+    def test_write_content_mentioning_a_root_is_not_contamination(self):
+        out = self._scan([("Write", {"file_path": "/x/ab-eval/runs/RUN1/repo/S.md",
+                                     "content": "plan paths point at /Users/o/igaming-platform; see ~/.claude/get-shit-done/x"}),
+                          ("Edit", {"file_path": "/x/ab-eval/runs/RUN1/repo/S.md", "old_string": "a",
+                                    "new_string": "/Users/o/igaming-platform"})])
+        self.assertEqual(out["contaminated"], [])
+
+    def test_write_to_a_root_path_still_contamination(self):
+        out = self._scan([("Write", {"file_path": "/Users/o/igaming-platform/x.md", "content": "c"})])
+        self.assertEqual(len(out["contaminated"]), 1)
+
+    def test_installed_reference_read_is_not_contamination_but_bin_is(self):
+        out = self._scan([("Read", {"file_path": self.refs}),
+                          ("Read", {"file_path": os.path.expanduser("~/.claude/get-shit-done/bin/gsd-tools.js")})])
+        self.assertEqual(len(out["contaminated"]), 1)
+        self.assertIn("gsd-tools.js", out["contaminated"][0]["input"])
+
+    def test_bash_heredoc_body_is_not_contamination(self):
+        out = self._scan([("Bash", {"command": "cat > S.md <<'EOF'\nsee /Users/o/igaming-platform\nEOF"})])
+        self.assertEqual(out["contaminated"], [])

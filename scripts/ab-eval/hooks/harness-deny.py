@@ -56,6 +56,46 @@ def _scrub_own(text, run_dir):
     return text.replace(own_project(run_dir), "<own-project>")
 
 
+# The installed GSD reference docs (`~/.claude/get-shit-done/references/*-detail.md`) are what a v2 agent's on-demand
+# pointers name, so they are readable; the rest of that tree (bin/, templates) and the live repo stay denied.
+INSTALLED_REFS = re.compile(r"(?:~|%s)/\.claude/get-shit-done/references(?:/[\w.\-]*)*" % re.escape(HOME))
+MUTATING = re.compile(r">|\btee\b|\brm\b|\bmv\b|\bcp\b|\bln\b|\bchmod\b|\bsed\s+-\w*i")
+REDIRECT_NOISE = re.compile(r"\d*>&\d+|\d*>\s*/dev/null")
+
+
+def scrub_refs(text, mutating=False):
+    """Replace read-only mentions of the installed references dir by a marker; a `..` segment or a command that
+    writes/removes/copies keeps the path visible to the ROOTS check."""
+    if mutating:
+        return text
+    return INSTALLED_REFS.sub(lambda m: m.group(0) if ".." in m.group(0) else "<installed-refs>", text)
+
+
+def scrub_for_roots(tool, text, run_dir, code=""):
+    """Text the ROOTS check sees: the run's own project dir and (read-only) installed references removed."""
+    mutating = tool == "Bash" and bool(MUTATING.search(REDIRECT_NOISE.sub("", code or text)))
+    return scrub_refs(_scrub_own(text, run_dir), mutating)
+
+
+def contamination_scan_text(tool, tool_input):
+    """What the transcript scan matches ROOTS against: contamination_text with read-only installed-reference
+    mentions removed."""
+    text = contamination_text(tool, tool_input)
+    return scrub_refs(text, tool == "Bash" and bool(MUTATING.search(REDIRECT_NOISE.sub("", text))))
+
+
+def contamination_text(tool, tool_input):
+    """The part of a tool call that names where it reads or runs: paths and commands, not the content a Write or
+    Edit puts into a file (a SUMMARY quoting `/Users/o/igaming-platform` opens nothing). `cat/tee` heredoc bodies are
+    data too (strip_heredocs)."""
+    g = tool_input.get
+    if tool == "Bash":
+        return strip_heredocs(g("command", "") or "")
+    if tool in ("Read", "Write", "Edit"):
+        return " ".join(str(g(k, "") or "") for k in ("file_path", "notebook_path"))
+    return " ".join(str(g(k, "") or "") for k in ("path", "pattern", "glob", "file_path"))
+
+
 def _resolve(base, path):
     return os.path.normpath(path if os.path.isabs(path) else os.path.join(base or os.sep, path))
 
@@ -103,12 +143,12 @@ def decide(tool, tool_input, cwd, run_dir):
             return "stack", MSG_STACK
         if NET.search(code):
             return "net", MSG_NET
-        if any(r in _scrub_own(cmd, run_dir) for r in ROOTS) or _other_run(cmd, runid) \
+        if any(r in scrub_for_roots("Bash", cmd, run_dir, code) for r in ROOTS) or _other_run(cmd, runid) \
                 or escape_reason(code, cwd, root):
             return "root", MSG_ROOT
     elif tool == "Read":
         path = tool_input.get("file_path", "")
-        if any(r in _scrub_own(path, run_dir) for r in ROOTS) or _other_run(path, runid) or \
+        if any(r in scrub_for_roots("Read", path, run_dir) for r in ROOTS) or _other_run(path, runid) or \
                 (DOTDOT.search(path) and not _inside(_resolve(cwd, path), root)):
             return "root", MSG_ROOT
     elif tool in ("Edit", "Write"):

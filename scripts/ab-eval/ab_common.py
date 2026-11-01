@@ -45,6 +45,16 @@ ROOTS = (  # mirror of harness-deny.py ROOTS; used by the transcript contaminati
 TOOLS_WITH_PATHS = ("Bash", "Read", "Edit", "Write", "Glob", "Grep")
 
 
+def deny_hook():
+    """The PreToolUse deny hook as a module: its path/command scrubbing is the single definition the transcript
+    contamination scan reuses."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("harness_deny_hook", Path(__file__).resolve().parent / "hooks" / "harness-deny.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 class Refused(RuntimeError):
     """A guard stopped the command before it did any work (budget, disk, calibration)."""
 
