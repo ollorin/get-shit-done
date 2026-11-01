@@ -143,6 +143,11 @@ describe('bashConfigViolation: script writes and patches (RULING A16)', () => {
     `git apply .claude/hooks/fix.patch`,
     `git apply --3way x.patch .claude/settings.json`,
     `patch .claude/hooks/check.sh fix.diff`,
+    `ls .claude/hooks; python3 -c "open('.claude/settings.json','w').write('{}')"`,
+    `timeout 5 python3 -c "open('.claude/settings.json','w').write('{}')"`,
+    `env X=1 node -e "require('fs').writeFileSync('.claude/hooks/a.sh','x')"`,
+    `echo go && node -e "require('fs').writeFileSync('.claude/hooks/a.sh','x')"`,
+    "grep -n X /tmp/y; python3 - <<'EOF'\nimport pathlib\np=pathlib.Path('.claude/hooks/a.sh')\np.write_text('x')\nEOF",
     `patch -p1 .claude/settings.json < /tmp/nonexistent.diff`,
   ];
   for (const c of blocked) {
@@ -159,6 +164,13 @@ describe('bashConfigViolation: script writes and patches (RULING A16)', () => {
     `git apply .tmp/harmless.patch`,
     `git apply --check src.patch`,
     `patch -p1 < /tmp/does-not-exist.diff`,
+    // REVIEW-ROUND-2 F4: a protected path only READ elsewhere in the command, interpreter writes elsewhere
+    `ls .claude/hooks; python3 -c "open('/tmp/x','w').write('1')"`,
+    `git log --oneline -3 -- .claude/hooks; node -e "require('fs').writeFileSync('/tmp/x','1')"`,
+    `ls .claude/settings.local.json && python3 -c "open('.tmp/a','a').write('x')"`,
+    "cd ~/get-shit-done; grep -n X ~/.claude/get-shit-done/bin/hooks/compression-cache.js; python3 -I - \"$F\" <<'EOF'\nimport sys\np=sys.argv[1]\nopen(p,'w').write('x')\nEOF",
+    "cat > scripts/x.sh <<'EOF'\n# patch prepared by an agent for .claude/hooks/** paths\necho ok\nEOF",
+    `cat .claude/settings.json | python3 -c "import sys;open('/tmp/o','w').write(sys.stdin.read())"`,
     `git diff -- .claude/hooks`,
     `git log --stat -- .claude/settings.json`,
   ];

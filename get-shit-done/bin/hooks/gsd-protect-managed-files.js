@@ -71,11 +71,15 @@ const CLAUDE_DIR_RE = new RegExp(String.raw`(?:^|[\s"'=])${HOME_OR_PATH}\.claude
 // After "cd <...>/.claude", bare names refer to the protected files.
 const BARE_CONFIG_RE = new RegExp(String.raw`(?:^|[\s"'=:(<>])(?:\.\/)?${CONFIG_TAIL}` + END);
 const CD_INTO_CLAUDE_RE = new RegExp(String.raw`(?:^|[\s(])cd\s+["']?${HOME_OR_PATH}\.claude\/?["']?` + END);
-const CD_INTO_HOOKS_RE = new RegExp(String.raw`(?:^|[\s(])cd\s+["']?${HOME_OR_PATH}\.claude\/(?:get-shit-done\/bin\/)?hooks\/?["']?` + END);
-const WRITE_VERB_RE = /(?:^|[\s(])(?:rm|rmdir|unlink|mv|truncate|chmod|chown|tee|sponge|touch|patch)\b/;
+const CD_INTO_HOOKS_RE = new RegExp(String.raw`(?:^|[\s(])cd\s+["']?${HOME_OR_PATH}\.claude\/(?:get-shit-done\/bin\/)?hooks(?:\/[^\s"';&|<>)]*)?["']?` + END);
+const WRITE_VERB_RE = /(?:^|[\s(])(?:rm|rmdir|unlink|mv|truncate|chmod|chown|tee|sponge|touch)\b/;
+// `patch` is a write only as the command word; prose such as "patch prepared by an agent" in a heredoc is not.
+const PATCH_WORD_RE = /^\s*\(?\s*(?:(?:sudo|env|command|nohup)\s+)*patch\b/;
 const DIR_VERB_RE = /(?:^|[\s(])(?:rm|rmdir|mv|chmod|chown)\b/;
 // Copy-like verbs only write their last argument; copying config OUT is a read.
 const COPY_VERB_RE = /(?:^|[\s(])(?:cp|ln|install|rsync)\b/;
+// matches every string literal: used when the cwd itself is protected, so any relative write target is protected
+const BARE_ANY_RE = /^ (?![\/~$])(?![rwax][bt+]*$)\S+/;
 const SED_INPLACE_RE = /\b(?:sed|gsed)\b[^|]*\s-(?:[a-zA-Z]*i|-in-place)/;
 const PERL_INPLACE_RE = /\bperl\b[^|]*\s-[a-zA-Z]*i/;
 const REDIRECT_TO_CONFIG_RE = new RegExp(String.raw`>{1,2}\|?\s*["']?${HOME_OR_PATH}\.claude\/${CONFIG_TAIL}` + END);
@@ -97,17 +101,114 @@ const PATCH_TARGET_RE = /^(?:\+\+\+|---|diff --git)\s.*(?:\.claude\/(?:settings[
 const PATCH_READ_BYTES = 262144;
 const READ_ONLY_CMD_RE = /^\s*(?:grep|egrep|rg|zg|cat|head|tail|less|wc|git\s+(?:log|grep|diff|show))\b/;
 
+// A script write call counts only when it can target a protected path (09-hooks-audit REVIEW-ROUND-2 F4):
+// literal arguments decide (`open('/tmp/x','w')` is safe, `open('.claude/hooks/a','w')` is protected); a call whose
+// target is a variable or expression is unknown and counts when the text mentions a protected path anywhere.
+// Variables are not chased across statements (guardrail, not a boundary).
+const KWARG_RE = /\b(?:mode|encoding|newline|exist_ok|parents|flags|errors|buffering|True|False|None|utf-?8)\b/g;
+function balancedArgs(text, openIdx) {
+  let depth = 0;
+  let q = '';
+  const end = Math.min(text.length, openIdx + 600);
+  for (let i = openIdx; i < end; i++) {
+    const c = text[i];
+    if (q) { if (c === '\\') i++; else if (c === q) q = ''; continue; }
+    if (c === '"' || c === "'" || c === '`') { q = c; continue; }
+    if (c === '(') depth++;
+    else if (c === ')' && --depth === 0) return text.slice(openIdx + 1, i);
+  }
+  return text.slice(openIdx + 1, end);
+}
+function classifyArgs(args, mentionRe) {
+  const lits = [...args.matchAll(/(["'`])((?:\\.|(?!\1).)*)\1/g)].map(m => m[2]);
+  if (lits.some(l => mentionRe.test(' ' + l))) return 'protected';
+  const rest = args.replace(/(["'`])(?:\\.|(?!\1).)*\1/g, '').replace(KWARG_RE, '').replace(/[\s,=+()]/g, '');
+  return lits.length > 0 && rest === '' ? 'safe' : 'unknown';
+}
+function scriptWriteNearMention(text, mentionRe) {
+  const re = new RegExp(SCRIPT_WRITE_RE.source, 'g');
+  const anywhere = mentionRe.test(text);
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    if (m[0].length === 0) { re.lastIndex++; continue; }
+    const rest = text.slice(m.index);
+    const open = rest.search(/[\w.]*\(/) >= 0 && rest.slice(0, 48).indexOf('(') >= 0 ? m.index + rest.indexOf('(') : -1;
+    let kind;
+    if (/^(?:write_text|write_bytes|symlink_to|hardlink_to|unlink|rename|replace|touch|rmdir|chmod)/.test(m[0]) || /^\.?(?:write_text|write_bytes)/.test(m[0])) {
+      // method on a receiver: classify the nearest `Path(...)` before the call
+      const before = text.slice(Math.max(0, m.index - 200), m.index);
+      const pi = before.lastIndexOf('Path(');
+      kind = pi < 0 ? 'unknown' : classifyArgs(balancedArgs(before, pi + 4), mentionRe);
+    } else if (open >= 0) {
+      kind = classifyArgs(balancedArgs(text, open), mentionRe);
+    } else {
+      kind = classifyArgs(text.slice(m.index, m.index + 200), mentionRe);
+    }
+    if (kind === 'protected' || (kind === 'unknown' && anywhere)) return true;
+  }
+  return false;
+}
+
+// Top-level simple commands of `command` whose command word is an interpreter, each with its quoted
+// arguments and heredoc bodies (they span ';' and newlines), so mentions elsewhere do not count.
+function interpreterRegions(command) {
+  const regions = [];
+  let cur = '';
+  let heredocs = [];
+  const flush = () => { if (cur.trim()) regions.push(cur); cur = ''; };
+  const n = command.length;
+  for (let i = 0; i < n; i++) {
+    const c = command[i];
+    if (c === "'" ) { const j = command.indexOf("'", i + 1); const e = j < 0 ? n : j + 1; cur += command.slice(i, e); i = e - 1; continue; }
+    if (c === '"') {
+      let j = i + 1;
+      while (j < n && command[j] !== '"') j += command[j] === '\\' ? 2 : 1;
+      cur += command.slice(i, Math.min(j + 1, n)); i = Math.min(j, n - 1); continue;
+    }
+    if (c === '\\') { cur += command.slice(i, i + 2); i++; continue; }
+    if (c === '<' && command[i + 1] === '<' && command[i + 2] !== '<') {
+      const m = /^<<-?\s*(["']?)([^\s"'|;&<>()]+)\1/.exec(command.slice(i));
+      if (m) heredocs.push({ delim: m[2], strip: command[i + 2] === '-' });
+      cur += '<<'; i++; continue;
+    }
+    if (c === '\n') {
+      cur += c;
+      if (heredocs.length) {
+        for (const h of heredocs) {
+          let body = '';
+          while (i + 1 < n) {
+            const nl = command.indexOf('\n', i + 1);
+            const end = nl < 0 ? n : nl;
+            const line = command.slice(i + 1, end);
+            i = end;
+            body += line + '\n';
+            if ((h.strip ? line.replace(/^\t+/, '') : line) === h.delim) break;
+          }
+          cur += body;
+        }
+        heredocs = [];
+      }
+      flush(); continue;
+    }
+    if (c === ';' || c === '|' || c === '&') { flush(); continue; }
+    cur += c;
+  }
+  flush();
+  // wrappers (timeout 5 python3, env X=1 node, sudo perl) put the interpreter within the first few words
+  return regions.filter(r => INTERPRETER_RE.test(' ' + r.trim().split(/\s+/).slice(0, 5).join(' ') + ' '));
+}
+
 function segmentWrites(seg, mentionRe) {
   if (!mentionRe.test(seg)) return null;
   if (SED_INPLACE_RE.test(seg) || PERL_INPLACE_RE.test(seg)) return 'edits a protected path in place';
-  if (WRITE_VERB_RE.test(seg)) return 'modifies or removes a protected path';
+  if (WRITE_VERB_RE.test(seg) || PATCH_WORD_RE.test(seg)) return 'modifies or removes a protected path';
   if (COPY_VERB_RE.test(seg)) {
     const args = seg.trim().split(/\s+/);
     if (mentionRe.test(' ' + args[args.length - 1])) return 'overwrites a protected path';
   }
   if (/\bdd\b[^|]*\bof=/.test(seg) && mentionRe.test(seg.replace(/.*\bof=/, ' '))) return 'overwrites a protected path';
   if (GIT_WRITE_RE.test(seg)) return 'rewrites a protected path via git';
-  if (SCRIPT_WRITE_RE.test(seg)) return 'writes a protected path from a script';
+  if (scriptWriteNearMention(seg, mentionRe)) return 'writes a protected path from a script';
   return null;
 }
 
@@ -155,9 +256,13 @@ function bashConfigViolation(command, cwd) {
     if (!readOnly) return 'sets or writes disableAllHooks';
   }
   if (REDIRECT_TO_CONFIG_RE.test(command)) return 'redirects output into a protected path';
-  // Interpreter one-liners and heredocs span ';' and newlines, so check the whole command.
-  if (INTERPRETER_RE.test(command) && CONFIG_MENTION_RE.test(command) && SCRIPT_WRITE_RE.test(command)) {
+  // Interpreter one-liners and heredocs span ';' and newlines, so check each interpreter command as a whole region.
+  if (interpreterRegions(command).some(r => CONFIG_MENTION_RE.test(r) && scriptWriteNearMention(r, CONFIG_MENTION_RE))) {
     return 'writes a protected path from a script';
+  }
+  // After `cd .../.claude/hooks[/sub]` a script write to a bare relative name lands in the protected tree.
+  if (CD_INTO_HOOKS_RE.test(command) && interpreterRegions(command).some(r => scriptWriteNearMention(r, BARE_ANY_RE))) {
+    return 'writes inside .claude/hooks after cd';
   }
   let cwdClaude = false;
   let cwdHooks = false;
