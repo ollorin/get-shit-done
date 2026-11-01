@@ -36,7 +36,13 @@ def for_candidate(items: List[Dict[str, Any]], cand: str) -> List[Dict[str, Any]
 
 def load_runs() -> List[Dict[str, Any]]:
     path = C.AB_HOME / "results" / "runs.jsonl"
-    return [json.loads(ln) for ln in path.read_text().splitlines() if ln.strip()] if path.exists() else []
+    rows = [json.loads(ln) for ln in path.read_text().splitlines() if ln.strip()] if path.exists() else []
+    patches = {p["run_id"]: p for p in C.read_jsonl(C.AB_HOME / "results" / "regraded.jsonl")}  # ab_regrade.py
+    for r in rows:
+        if r["run_id"] in patches:
+            r.update(patches[r["run_id"]]["set"])
+            r["regraded"] = patches[r["run_id"]]["reason"]
+    return rows
 
 
 def usable(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

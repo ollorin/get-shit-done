@@ -650,3 +650,39 @@ class ScopeNote(unittest.TestCase):
         e3 = C.find_task(C.load_tasks(), "E3")
         self.assertIn("PREDECESSOR_NOT_LANDED", e3["scope_note"])
         self.assertIn("PREDECESSOR_NOT_LANDED", R.render_brief(e3))
+
+
+class RegradeOverlay(unittest.TestCase):
+    """Rows graded with a false `shared-stack-attempted` are patched by results/regraded.jsonl, not rewritten."""
+
+    def base_row(self, **kw):
+        row = {"run_id": "R1", "status": "done", "criticals": ["shared-stack-attempted"], "acceptance_pass": False,
+               "visible": {"pass": True}, "check_ok": True, "lint_ok": True, "fp": {"increase": 0}, "scope_out": [],
+               "hidden": {"pass": True}, "leak": None, "harness_denials": {"by_cat": {"stack": 1}, "count": 1}}
+        row.update(kw)
+        return row
+
+    def test_recompute_drops_stack_critical_and_accepts(self):
+        import ab_regrade as RGD
+        patch = RGD.corrected(self.base_row())
+        self.assertEqual(patch["criticals"], [])
+        self.assertTrue(patch["acceptance_pass"])
+        self.assertEqual(patch["harness_denials"], {"by_cat": {}, "count": 0})
+
+    def test_other_failures_still_block_acceptance(self):
+        import ab_regrade as RGD
+        self.assertFalse(RGD.corrected(self.base_row(hidden={"pass": False}))["acceptance_pass"])
+        self.assertFalse(RGD.corrected(self.base_row(scope_out=["x"]))["acceptance_pass"])
+        self.assertFalse(RGD.corrected(self.base_row(criticals=["shared-stack-attempted", "secret-pattern-in-diff"]))["acceptance_pass"])
+
+    def test_aggregator_applies_overlay(self):
+        with tempfile.TemporaryDirectory() as d:
+            res = Path(d, "results")
+            res.mkdir()
+            (res / "runs.jsonl").write_text(json.dumps(self.base_row()) + "\n")
+            (res / "regraded.jsonl").write_text(json.dumps({"run_id": "R1", "reason": "x", "set": {"criticals": [], "acceptance_pass": True}}) + "\n")
+            with mock.patch.object(C, "AB_HOME", Path(d)):
+                rows = AG.load_runs()
+        self.assertEqual(rows[0]["criticals"], [])
+        self.assertTrue(rows[0]["acceptance_pass"])
+        self.assertEqual(rows[0]["regraded"], "x")
