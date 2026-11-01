@@ -97,6 +97,11 @@ class VariantMappingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(C, "AB_HOME", Path(tmp)):
             (Path(tmp) / "variants" / "A").mkdir(parents=True)
             (Path(tmp) / "variants" / "A" / "agents.json").write_text(json.dumps({"gsd-phase-coordinator": {"prompt": "p"}}))
+            src = Path(tmp) / "gsd-phase-coordinator.md"
+            src.write_text("def")
+            C.write_json(Path(tmp) / "variants" / "A" / C.SOURCES_FILE, {"agents": {"gsd-phase-coordinator": {
+                "path": str(src), "sha256": C.sha256_file(src), "kind": "draft",
+                "entry_sha256": C.entry_sha256({"prompt": "p"})}}})
             task = {"id": "C", "role": "coordinator", "agent": "gsd-phase-coordinator"}
             agents = R.build_agents(task, "A")
             for child in ("gsd-executor", "gsd-verifier", "general-purpose"):
@@ -143,7 +148,7 @@ class DocsGradeTests(unittest.TestCase):
             return RG.grade_docs(Path(tmp), {"expect_writes": expect_writes}, generic(touched))
 
     def test_contract_and_docs_write_accepted(self):
-        rep = '```json\n{"written_files": ["docs/a.md"], "commit": "abc", "errors": []}\n```'
+        rep = '```json\n{"written_files": ["docs/a.md"], "commit": "abc1234", "errors": []}\n```'
         self.assertTrue(self._grade(rep, ["docs/a.md"])["acceptance"])
 
     def test_bare_prose_has_no_contract(self):

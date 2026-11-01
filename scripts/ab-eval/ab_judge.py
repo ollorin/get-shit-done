@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ab_common as C  # noqa: E402
+from ab_roles import task_brief_text  # noqa: E402
 
 PREFS = ("X", "Y", "tie")
 FENCE_RE = re.compile(r"```(?:json)?[ \t]*\n(.*?)\n```", re.S)
@@ -72,6 +73,16 @@ DIMS: Dict[str, List[Tuple[str, str]]] = {
         ("claims_traced", "claims traced to code"),
         ("honesty", "report honesty"),
     ],
+    "docs-updater": [
+        ("accuracy", "accuracy and grounding (each statement matches the source and SUMMARY in inputs/ and the "
+                     "reference; nothing invented)"),
+        ("coverage", "coverage of what the SUMMARY says was built, within the requested scope"),
+        ("conventions", "docs conventions (frontmatter, tables for reference, no filler or padding, DRY links, "
+                        "thin and focused)"),
+        ("scope", "scope discipline (only the requested section and paths; surgical; no unrelated edits)"),
+        ("honesty", "contract and report honesty (written_files, commit and errors match the diff and gates.md; "
+                    "failed or unrun steps declared; an empty write justified when nothing was needed)"),
+    ],
 }
 
 
@@ -107,7 +118,8 @@ def ensure_judge_settings() -> Path:
     return path
 
 
-def _side_files(run_dir: Path, run_id: str, repo_path: str, extra: List[str]) -> Dict[str, str]:
+def _side_files(run_dir: Path, run_id: str, repo_path: str, extra: List[str],
+                role_checks: bool = False) -> Dict[str, str]:
     grade = run_dir / "grade"
     summary = C.read_json(grade / "summary.json", {})
     diff = (grade / "diff.patch").read_text() if (grade / "diff.patch").exists() else "(no diff)"
@@ -122,6 +134,11 @@ def _side_files(run_dir: Path, run_id: str, repo_path: str, extra: List[str]) ->
         f"out-of-scope files: {', '.join(summary.get('scope_out', [])) or '(none)'}",
         f"criticals: {', '.join(summary.get('criticals', [])) or '(none)'}",
     ]
+    role_lines = [f"{name}: {'ok' if c.get('ok') else 'FAILED'} ({c.get('detail', '')})"
+                  for name, c in (summary.get("role_checks", {}) or {}).get("checks", {}).items()
+                  if name not in ("contract_parses",)] if role_checks else []
+    if role_lines:
+        gates_lines += ["role checks:"] + [f"  {ln}" for ln in role_lines]
     return {
         "diff.patch": redact(diff, run_id, repo_path, extra),
         "report.md": redact(report, run_id, repo_path, extra),
@@ -139,19 +156,28 @@ def build_packet(pdir: Path, a_run: str, b_run: str, x_run: str, y_run: str, tas
         run_dir = C.AB_HOME / "runs" / run_id
         repo_path = str(run_dir / "repo")
         (sb / side).mkdir(parents=True)
-        for name, text in _side_files(run_dir, run_id, repo_path, extra).items():
+        for name, text in _side_files(run_dir, run_id, repo_path, extra, task["role"] == "docs-updater").items():
             (sb / side / name).write_text(text)
     (sb / "reference").mkdir(parents=True)
     ref = (C.task_dir(task["id"]) / "oracle" / "ref.diff")
     (sb / "reference" / "ref.diff").write_text(ref.read_text() if ref.exists() else "(no reference)\n")
-    scope = "\n".join(f"- {p}" for p in task["scope_files"])
-    tasks = "\n".join(f"- {t}" for t in task["task_names"])
+    scope = "\n".join(f"- {p}" for p in task.get("scope_files", [])) or "(none: a negative control)"
+    tasks = "\n".join(f"- {t}" for t in task.get("task_names", [])) or "(see the brief)"
+    brief = task_brief_text(task)
     (sb / "task.md").write_text(
         f"# Task {task['id']} ({task['role']})\n\n"
-        f"Plan: {task['plan']}\n\nTasks in scope:\n{tasks}\n\nScope files:\n{scope}\n\n"
-        f"Visible verify: {'; '.join(' '.join(v) for v in task['verify'])}\n\n"
+        f"Plan: {task.get('plan') or '(none)'}\n\nTasks in scope:\n{tasks}\n\nScope files:\n{scope}\n\n"
+        f"Visible verify: {'; '.join(' '.join(v) for v in task.get('verify', [])) or '(none)'}\n\n"
+        f"Brief given to the agent:\n\n{brief}\n\n"
         "Constraints: the shared stack (Supabase, Docker, integration, Charlotte) was unavailable; steps that "
-        "need it must be reported as not run.\n")
+        "need it must be reported as not run. The repository was a one-commit snapshot, so shas and commit ranges "
+        "named in the brief do not resolve there.\n")
+    if task["role"] == "docs-updater":
+        for rel in (task.get("calibration") or {}).get("inputs", []):
+            src = C.task_dir(task["id"]) / "pristine-A" / rel
+            if src.is_file() and src.suffix == ".md":
+                (sb / "inputs").mkdir(exist_ok=True)
+                (sb / "inputs" / src.name).write_text(src.read_text(errors="replace"))
     role_dims = dims_for(task["role"])
     prompt = (C.PROMPTS / "judge.md").read_text()
     prompt = prompt.replace("{{ROLE}}", task["role"]).replace(

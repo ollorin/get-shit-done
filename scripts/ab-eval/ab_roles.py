@@ -126,8 +126,17 @@ def stub_agents(run_stub_path: str) -> Dict[str, Any]:
     return out
 
 
+def agent_provenance(task: Dict[str, Any], variant: str) -> Dict[str, Any]:
+    """Refuse a stale or hand-edited build of the agent a run will use; return its recorded provenance."""
+    need = subagent_type(task, variant)
+    if need == "general-purpose":
+        return {}
+    return C.verify_sources(variant, [need])
+
+
 def build_agents(task: Dict[str, Any], variant: str) -> Dict[str, Any]:
     """Agents JSON for the run: the variant's defs, plus stubs for coordinator tasks (children by name)."""
+    agent_provenance(task, variant)
     agents = C.read_json(C.variant_dir(variant) / "agents.json", {})
     need = subagent_type(task, variant)
     if need != "general-purpose" and need not in agents:

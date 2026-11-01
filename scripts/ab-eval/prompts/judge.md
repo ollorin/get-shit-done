@@ -6,6 +6,7 @@ Role of the attempts: {{ROLE}}
 Your working directory holds the packet. Read, in this order:
 - task.md: the task and the scope the agents were given (plan excerpt, constraints). The project
   instructions in the attempts may postdate the tree they were given; judge against what was asked.
+- inputs/ (only for some roles): source documents the agents were told to work from, for example a SUMMARY.md.
 - reference/: a known-good historical solution. It is one correct answer, not the only one;
   a different design that meets the task is not worse.
 - X/ and Y/: each has diff.patch (code), planning.patch (bookkeeping, may be truncated),

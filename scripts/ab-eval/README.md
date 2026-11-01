@@ -10,7 +10,7 @@ judges matched pairs blind, and applies the six decision gates from
 | file | role |
 |---|---|
 | `ab_common.py` | paths, guards (disk, eval cap, quota, harness config), git and process helpers |
-| `ab_setup.py` | `freeze-variant`, `freeze-agents`, `variant-from-drafts`, `base`, `index`, `variant`, `oracle`, `calibrate`, `all` |
+| `ab_setup.py` | `freeze-variant`, `freeze-agents`, `record-sources`, `variant-from-drafts` (`--refresh`, `--include-q-only`, `--suffix .c`), `base`, `index`, `variant`, `hook`, `oracle`, `calibrate`, `all` |
 | `ab_roles.py` | role table (brief, default calibration mode, grader), per-variant role-to-agent map (`variants/<V>/roles.json`), brief rendering, `--agents` JSON incl. stub children for coordinator tasks |
 | `ab_calib.py` | no-LLM calibration by mode: `tests`, `leak`, `evidence`, `planted`, `mutants`, `coord`, `fixture`, `setup`, plus snapshot checks for every task |
 | `ab_role_grade.py` | role acceptance: report roles, docs-updater contract, runner exact counts, test-writer mutation kill, coordinator decision oracle |
@@ -21,7 +21,7 @@ judges matched pairs blind, and applies the six decision gates from
 | `ab_transcript.py` | facts from transcripts: instruction chars, first-turn tokens, tier and contamination checks |
 | `ab_judge.py` | blinded packets (both orders), Opus judge call, verdict parse, pair collapse, selftest |
 | `ab_match.py` | known-defect recall: Sonnet matcher of a review/plan/verify report against `oracle/known.json`, selftest |
-| `ab_aggregate.py` | six gates G1-G6, decision table, `REPORT.md`, `decision.json` |
+| `ab_aggregate.py` | per-role gates (`ROLE_POLICY`: which of G1-G6 apply, small-role G5, exact-oracle G2/G6), `REPORT.md` with one section per role, `decision.json`; drops superseded and stale-build rows; `--supersede` |
 | `hooks/harness-deny.py` | PreToolUse deny hook for runs (DESIGN §4.4, tightened in probe S2). Traversal is judged by where a path resolves after the command's `cd` steps, so in-snapshot `../../.tmp/x` is allowed and anything outside `runs/<RUN>/repo` is denied |
 | `hooks/judge-deny.py` | PreToolUse deny hook for judge calls (hides `key.json` and the live tree) |
 | `prompts/brief-<role>.md` | dispatcher envelope plus the role prompt, one per role (executor, debugger, test-writer, docs-updater, reviewer, plancheck, planner, verifier, runner, coordinator, charlotte-qa, smoke); the task text is `examples/briefs/<ID>.md` or the task's `brief` |
@@ -37,7 +37,9 @@ judges matched pairs blind, and applies the six decision gates from
 ```
 tasks.json                       copy of examples/tasks.json (task registry)
 harness/                         settings.json, empty-mcp.json, judge-settings.json (written by the tools)
-variants/A/                      overlay/ (CLAUDE.md, .claude/rules), memory/, agents.json, expected.json, MANIFEST.md
+variants/A/                      overlay/ (CLAUDE.md, .claude/rules), memory/, agents.json, expected.json, MANIFEST.md,
+                                 sources.json (build provenance: source commit, sha256 of every agent's source file and entry)
+variants/B/, variants/Q/         copy of A plus the gsd2 drafts; roles.json maps role -> draft (B has no `review`; Q adds gsd2-reviewer)
 tasks/<ID>/raw/                  base tree: git archive base + harness overlay + planning scrub + zg index
 tasks/<ID>/pristine-<V>/         one-commit snapshot per arm (cloned per run with cp -cR)
 tasks/<ID>/memory-<V>/           scrubbed memory per arm; scrub-<V>.json logs removals
@@ -45,7 +47,7 @@ tasks/<ID>/oracle/               hidden.json, hidden/, ref.diff, known.json (nev
 tasks/<ID>/calib.json            calibration result; runs refuse without ok=true
 runs/<RUN>/                      brief.md, stream.jsonl, stderr.log, transcripts/, grade/, report.md, repo/ (deleted unless --keep)
 judge/<PAIR>/                    o1/ and o2/ (sandbox/, key.json, out-<model>.json), index.json
-results/                         runs.jsonl, judgments.jsonl, pairs-<model>.json, matches.jsonl, quota.json, REPORT.md, decision.json
+results/                         runs.jsonl, judgments.jsonl, pairs-<model>.json, matches.jsonl, quota.json, superseded.jsonl, REPORT.md, decision.json
 ```
 
 ## Commands
@@ -75,8 +77,15 @@ python3 ab_judge.py selftest --model haiku                     # fake packet, ha
 python3 ab_match.py run --run <RUN_ID> [--model sonnet]        # appends results/matches.jsonl
 python3 ab_match.py selftest --model sonnet                    # fake report, writes nothing to results/
 
-# 6. Gates and decision table
-python3 ab_aggregate.py --judge-model opus --variant-b B
+# 6. Gates and per-role decision (rows in superseded.jsonl or built from a changed agent def are excluded)
+python3 ab_aggregate.py --judge-model opus --variant-b B [--role runner]
+python3 ab_aggregate.py --supersede RUN_ID [RUN_ID ...] --reason "why"
+
+# Variant B / Q from the drafts (reads ~/get-shit-done at HEAD; refuses drafts that differ from HEAD unless --allow-dirty)
+python3 ab_setup.py record-sources --variant A                 # provenance of the frozen control, agents.json unchanged
+python3 ab_setup.py variant-from-drafts --variant B --refresh  # B: gsd2-reviewer never mapped (DESIGN §3.1 rule 2)
+python3 ab_setup.py variant-from-drafts --variant Q --suffix .c --include-q-only
+python3 ab_setup.py hook --task DU1 --variant A                # reinstall the snapshot pre-commit hook
 
 # Unit tests
 python3 -m unittest discover -s tests
@@ -97,7 +106,9 @@ Exit status 2 with `REFUSED:` means a guard stopped the command before any work 
 | `readonly`, `expect_writes`, `expect`, `run_cmd`, `scenario`, `test_files`, `mutants`, `kill_bar`, `defects_file`, `defect_ids`, `mode`, `brief` | grader inputs per role |
 
 Arm B uses `variants/B/roles.json` (role to agent name, e.g. `runner` to `gsd2-runner`); arm A uses the task's `agent`.
-`ab_setup.py variant-from-drafts` builds B from the drafts in `~/get-shit-done/agents/v2`.
+A role absent from roles.json (B: `review`) runs the task's own agent (general-purpose) under the arm's instructions.
+`ab_setup.py variant-from-drafts` builds B from the drafts in `~/get-shit-done/agents/v2`; `gsd2-reviewer` is Q-only
+(DESIGN §3.1 rule 2) and is evaluated as its own role in the Q arm.
 
 ## Guards
 
@@ -110,11 +121,17 @@ Arm B uses `variants/B/roles.json` (role to agent name, e.g. `runner` to `gsd2-r
 | calibration | `ab_run.build_snapshot` | refuse a task without `calib.json` `ok: true` |
 | contamination | `ab_transcript.analyze` | a denied root reached by another path voids the run |
 | model | `ab_run.status_of` | any model other than haiku (ignoring `<synthetic>`) voids the run |
+| stale build | `ab_common.verify_sources` (via `ab_roles.agent_provenance`, at `cmd_run` and again at `execute`) | refuse when the agent's source file (draft or installed def) no longer hashes to `variants/<V>/sources.json`, or its `agents.json` entry was edited, or `sources.json` is missing; each run row stores `agent_src` and the aggregator drops rows whose hash no longer matches |
 
 ## Notes on the design
 
 - Snapshots never contain git history beyond one commit (`git archive` plus `git init`). The live repo is read with
   `git show`/`git archive` only; it is never checked out or modified.
+- The snapshot's `.git/hooks/pre-commit` is the live repo's hook with one change (`ab_setup.snapshot_precommit`): the
+  link step still runs, but broken links whose target is under `.planning/` are tolerated, because the planning scrub
+  removes those files from every snapshot. Other broken links, anchors, unprocessable files and validator crashes still
+  block the commit; frontmatter, markdownlint, vale and secret scans are untouched, and the scrub itself is unchanged.
+  The docs-updater brief states that the snapshot has one commit, so SUMMARY commit ranges do not resolve.
 - The project `hooks` key is stripped from the snapshot `settings.json` (probe S6); the harness hook comes in via
   `--settings`.
 - Each run uses `--setting-sources project,local` and supplies every role through `--agents` (probe S3).

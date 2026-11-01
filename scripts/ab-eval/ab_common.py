@@ -27,7 +27,9 @@ EXAMPLES = SCRIPT_DIR / "examples"
 BRIEFS = EXAMPLES / "briefs"        # task-specific brief text (<ID>.md), committed
 ARTIFACTS = EXAMPLES / "artifacts"  # authored per-task inputs (overlays, patches, mutants, scenarios)
 HARNESS_SRC = SCRIPT_DIR / "harness"
-V2_DRAFTS = Path.home() / "get-shit-done" / "agents" / "v2"
+GSD_REPO = Path.home() / "get-shit-done"             # source repo of the B/Q drafts (read-only here)
+V2_DRAFTS = GSD_REPO / "agents" / "v2"
+SOURCES_FILE = "sources.json"                          # variants/<V>/sources.json: build provenance (commit, hashes)
 
 GIB = 1024 ** 3
 MAX_CONCURRENT = 2          # CLAUDE.md parallelism ceiling / host memory (DESIGN §4.5)
@@ -108,6 +110,53 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: fh.read(1 << 16), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def entry_sha256(entry: Any) -> str:
+    """Hash of one agents.json entry in canonical form (detects hand edits of agents.json)."""
+    return sha256_bytes(json.dumps(entry, sort_keys=True, separators=(",", ":")).encode())
+
+
+def verify_sources(variant: str, names: Optional[Sequence[str]] = None) -> Dict[str, Any]:
+    """Refuse when a variant's agents.json is stale (DESIGN §3.1 rule 3: any later edit is a new variant).
+
+    Compares the recorded sha256 of each agent's source file (draft in the gsd repo or installed def) with the file
+    now, and the recorded entry hash with the entry now in agents.json. `names` limits the check to the agents a run
+    will use; None checks every recorded agent. Returns the provenance of the checked agents."""
+    vdir = variant_dir(variant)
+    src = read_json(vdir / SOURCES_FILE, None)
+    if src is None:
+        raise Refused(f"variants/{variant}/{SOURCES_FILE} missing: the build predates provenance tracking; rebuild "
+                      "(`ab_setup.py variant-from-drafts --variant B --refresh` for B/Q, `record-sources` for A)")
+    agents = read_json(vdir / "agents.json", {})
+    recorded = src.get("agents", {})
+    bad: List[str] = []
+    out: Dict[str, Any] = {}
+    for name in (list(names) if names is not None else sorted(recorded)):
+        rec = recorded.get(name)
+        if rec is None:
+            if name in agents:
+                bad.append(f"{name}: in agents.json but not in {SOURCES_FILE}")
+            continue
+        path = Path(rec["path"])
+        if not path.exists():
+            bad.append(f"{name}: source {path} no longer exists")
+        elif sha256_file(path) != rec["sha256"]:
+            bad.append(f"{name}: {path} is {sha256_file(path)[:12]}, build recorded {rec['sha256'][:12]}")
+        if name not in agents:
+            bad.append(f"{name}: missing from agents.json")
+        elif entry_sha256(agents[name]) != rec["entry_sha256"]:
+            bad.append(f"{name}: agents.json entry differs from the recorded build")
+        out[name] = {"sha256": rec["sha256"], "source_commit": src.get("source_commit"), "kind": rec.get("kind")}
+    if bad:
+        raise Refused(f"variant {variant} is stale or edited ({'; '.join(bad)}); rebuild it: "
+                      "`ab_setup.py variant-from-drafts --variant B --refresh` (B/Q) or `record-sources` (A), "
+                      "then re-run; results from the old build are superseded")
+    return out
 
 
 def free_gib(path: Path) -> float:

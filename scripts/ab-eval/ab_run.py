@@ -159,6 +159,7 @@ def run_one(task: Dict[str, Any], variant: str, rep: int, keep: bool) -> Dict[st
     C.check_disk(C.AB_HOME, C.MIN_FREE_GIB)
     session = str(uuid.uuid4())
     start = C.utc_now()
+    provenance = R.agent_provenance(task, variant)
     snap = build_snapshot(task, variant, run_dir)
     quota_before = check_quota_value()
     budget = float(task.get("budget_usd", 8))
@@ -176,7 +177,7 @@ def run_one(task: Dict[str, Any], variant: str, rep: int, keep: bool) -> Dict[st
                                R.allowed_models(task))
     row = {
         "run_id": run_id, "task_id": task["id"], "variant": variant, "rep": rep, "role": task["role"],
-        "agent": R.subagent_type(task, variant), "model": task.get("model", "haiku"), "tier": task["tier"], "base": task["base"],
+        "agent": R.subagent_type(task, variant), "agent_src": provenance, "model": task.get("model", "haiku"), "tier": task["tier"], "base": task["base"],
         "base_commit": snap["base_commit"], "status": status, "void_reason": reason,
         "start_ts": start, "end_ts": C.utc_now(), "wall_s": run["wall_s"], "exit_code": run["exit_code"],
         "timed_out": run["timed_out"], "session_id": session, "transcripts": transcripts,
@@ -231,6 +232,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     C.check_eval_cap()
     C.ensure_harness()
     check_quota()
+    R.agent_provenance(task, args.variant)  # refuses before any snapshot work when the variant build is stale
     jobs = [(task, args.variant, rep, args.keep) for rep in range(args.rep_start, args.rep_start + args.reps)]
     with ThreadPoolExecutor(max_workers=args.parallel) as pool:
         futures = [pool.submit(_guarded, *job) for job in jobs]

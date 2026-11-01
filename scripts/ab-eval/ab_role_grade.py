@@ -75,25 +75,107 @@ def grade_report(run_dir: Path, task: Dict[str, Any], generic: Dict[str, Any]) -
 
 # ------------------------------------------------------------------ docs-updater
 
+KEY_LINE = {k: re.compile(r"^[ \t>*`_-]*" + k + r"[*`_]*[ \t]*:[*`_ \t]*(.*)$", re.M)
+            for k in ("written_files", "commit", "errors", "reason")}
+COMMIT_HASH_RE = re.compile(r"^[0-9a-f]{7,40}$")
+
+
+def _balanced_value(text: str, start: int) -> str:
+    """Value that begins at `start`. A value opening with `[` runs to its matching `]` (strings may hold brackets and
+    span lines); anything else is the rest of the line."""
+    if start >= len(text) or text[start] != "[":
+        end = text.find("\n", start)
+        return text[start:end if end >= 0 else len(text)]
+    depth, quote = 0, ""
+    for i in range(start, len(text)):
+        ch = text[i]
+        if quote:
+            if ch == "\\":
+                continue
+            if ch == quote and text[i - 1] != "\\":
+                quote = ""
+        elif ch in "\"'" and text[i - 1] in "[, \n\t":
+            quote = ch
+        elif ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return text[start:]
+
+
+def _items(raw: str, split: bool) -> List[str]:
+    """Entries of a `[...]` value: a JSON list, else quoted strings, else comma-separated (paths) or one string."""
+    body = raw.strip()
+    if body.startswith("[") and body.endswith("]"):
+        try:
+            obj = json.loads(body)
+            if isinstance(obj, list):
+                return [str(x) for x in obj]
+        except ValueError:
+            pass
+        body = body[1:-1].strip()
+    quoted = re.findall(r'"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\'', body)
+    if quoted:
+        return [a or b for a, b in quoted]
+    if not body:
+        return []
+    return [x.strip().strip("`") for x in body.split(",") if x.strip()] if split else [body]
+
+
+def parse_docs_contract(text: str) -> Optional[Dict[str, Any]]:
+    """The docs-updater contract (`written_files`, `commit`, `errors`), in either form the agents emit:
+    a JSON object, or the key-value block both arm definitions specify
+    (gsd-docs-updater.md Step 5: `written_files: [...]`, `commit: <hash|none>`, `errors: [...]`;
+    gsd2-docs-updater.md the same). Returns {written_files: list, commit: str, errors: list, reason?: str} or None
+    when any of the three fields is missing. The last block in the report wins."""
+    obj = last_json(text, "written_files")
+    if obj is not None:
+        return {"written_files": list(obj.get("written_files") or []), "commit": str(obj.get("commit", "")),
+                "errors": list(obj.get("errors") or []), "reason": obj.get("reason") or obj.get("note") or "",
+                "form": "json"} if all(k in obj for k in ("written_files", "commit", "errors")) else None
+    starts = [m for m in KEY_LINE["written_files"].finditer(text)]
+    if not starts:
+        return None
+    tail = text[starts[-1].start():]
+    found: Dict[str, str] = {}
+    for key in ("written_files", "commit", "errors", "reason"):
+        m = KEY_LINE[key].search(tail)
+        if m:
+            found[key] = _balanced_value(tail, m.start(1)).strip()
+    if not all(k in found for k in ("written_files", "commit", "errors")):
+        return None
+    raw_commit = found["commit"].strip("`\"'* ")
+    commit = raw_commit.split()[0].strip("`\"'*,") if raw_commit else ""
+    return {"written_files": _items(found["written_files"], split=True), "commit": commit.lower(),
+            "errors": _items(found["errors"], split=False), "reason": found.get("reason", ""), "form": "text"}
+
 
 def grade_docs(run_dir: Path, task: Dict[str, Any], generic: Dict[str, Any]) -> Dict[str, Any]:
     report = _report(run_dir)
-    contract = last_json(report, "written_files")
+    contract = parse_docs_contract(report)
     touched = [p for p in generic["files_touched"] if not p.startswith((".tmp/", ".claude/settings.local"))]
     bad = [p for p in touched if not p.startswith(DOC_PREFIXES)]
     checks: Dict[str, Dict[str, Any]] = {
-        "contract_parses": _chk(contract is not None and all(k in contract for k in ("written_files", "commit", "errors")),
-                                "written_files/commit/errors present" if contract else "no JSON contract in report"),
+        "contract_parses": _chk(contract is not None,
+                                f"written_files/commit/errors present ({contract['form']})" if contract
+                                else "no written_files/commit/errors contract in report"),
         "writes_only_docs": _chk(not bad, f"outside docs/CHANGELOG: {bad[:5]}"),
         "no_claude_dir_writes": _chk(not [p for p in touched if p.startswith(".claude/")], "no write under .claude/"),
     }
     if contract is not None:
-        written = contract.get("written_files") or []
+        written = contract["written_files"]
         if task.get("expect_writes", True):
             checks["wrote_docs"] = _chk(bool(written) and bool([p for p in touched if p.startswith(DOC_PREFIXES)]),
                                         f"written_files={written[:3]} touched={touched[:3]}")
+            commits = generic.get("commits")
+            checks["committed"] = _chk(bool(COMMIT_HASH_RE.match(contract["commit"]))
+                                       and (commits is None or bool(commits)),
+                                       f"commit={contract['commit']!r} repo_commits={len(commits or [])} "
+                                       f"errors={contract['errors'][:1]}")
         else:
-            reason = contract.get("reason") or contract.get("note") or ""
+            reason = contract["reason"] or " ".join(contract["errors"])
             checks["negative_control_empty_with_reason"] = _chk(
                 not written and not touched and (bool(reason) or bool(re.search(r"no (doc|write)s?", report, re.I))),
                 f"written_files={written} touched={touched[:3]} reason={'yes' if reason else 'no'}")

@@ -2,6 +2,9 @@
 """Build variant, task and oracle snapshots for the A/B eval (DESIGN §3.1, §4.2, §4.6).
 
   freeze-variant --variant A            variants/A from live HEAD + ~/.claude (read-only)
+  record-sources --variant A            write variants/A/sources.json (provenance) without changing agents.json
+  variant-from-drafts --variant B       variants/B = A + the gsd2 drafts; --refresh rebuilds only the agent set
+  hook --task ID --variant V            reinstall the snapshot pre-commit hook (link check tolerates .planning/)
   base --task ID                        git archive base sha -> tasks/ID/raw (harness overlay, scrub)
   index --task ID                       zg index once on raw (copied to every arm, DESIGN S5)
   variant --task ID --variant V         tasks/ID/pristine-V = raw + variant overlay + scrubbed memory, one commit
@@ -30,6 +33,21 @@ INDEX_PREFIXES = ("apps/api/functions/", "apps/api/libs/", "scripts/", "docs/")
 PLANNING_KEEP = ("STATE.md", "ROADMAP.md", "config.json")
 PLANNING_DROP = re.compile(r"(SUMMARY|VERIFICATION|REVIEW|VERDICT|PLAN-CHECK)", re.IGNORECASE)
 CHECKPOINTS = ("CHECKPOINT.json", "TASK-CHECKPOINT.json", "EXECUTION_LOG.md")
+LINK_LINE = "deno task validate:links $CHANGED_DOCS_ABS"
+# The planning scrub deletes .planning/ files from every snapshot, so docs that link into .planning/ always fail the
+# repo's link check there. Only broken links whose target is under .planning/ are tolerated; any other broken link,
+# a heading/anchor failure, an unprocessable file or a validator crash still blocks the commit (the scrub is untouched).
+LINK_SNIPPET = """LINK_OUT=$(deno task validate:links $CHANGED_DOCS_ABS 2>&1) && LINK_RC=0 || LINK_RC=$?
+echo "$LINK_OUT"
+if [ "$LINK_RC" != "0" ]; then
+  LINK_ERRS=$(echo "$LINK_OUT" | grep -E ':[0-9]+:[0-9]+ - ' || true)
+  LINK_BAD=$(echo "$LINK_ERRS" | grep -v -E 'Broken file link: [^ ]*\.planning/' || true)
+  LINK_UNPROC=$(echo "$LINK_OUT" | grep -E 'unprocessable files: [1-9]' || true)
+  if [ -z "$LINK_ERRS" ] || [ -n "$LINK_BAD" ] || [ -n "$LINK_UNPROC" ]; then
+    exit 1
+  fi
+  echo "ab-eval: broken links into .planning/ tolerated (scrubbed from this snapshot only)"
+fi"""
 GSD_FILES = {  # Wave-1 execution_context and references (execute-phase.md:206-240), constant in both arms
     "workflows/execute-plan.md": "execute-plan.md",
     "templates/summary.md": "summary.md",
@@ -120,6 +138,7 @@ def cmd_freeze_variant(args: argparse.Namespace) -> None:
               f"- CLAUDE.md + unscoped rules + MEMORY.md = `{_expected_inherited(overlay, vdir / 'memory')}`"]
     C.write_json(vdir / "expected.json", {"inherited_chars": _expected_inherited(overlay, vdir / "memory")})
     (vdir / "MANIFEST.md").write_text("\n".join(lines) + "\n")
+    record_installed_sources("A")
     print(f"frozen variant A at {head}; {len(files)} overlay files, {len(mem_files)} memory files")
 
 
@@ -142,6 +161,7 @@ def cmd_freeze_agents(args: argparse.Namespace) -> None:
     with open(manifest, "a") as fh:
         fh.write(f"\n## Agent defs added by freeze-agents ({C.utc_now()}, installed defs, sha256)\n\n")
         fh.writelines(f"- {n}: {h}\n" for n, h in added)
+    record_installed_sources(args.variant)
     print(f"variant {args.variant}: {len(added)} agent defs added, {len(agents)} total")
 
 
@@ -151,35 +171,120 @@ DRAFT_ROLES = {  # draft agent -> the registry role it replaces in the B arm
     "gsd2-verifier": "verifier", "gsd2-reviewer": "review", "gsd2-test-writer": "test-writer",
     "gsd2-debugger": "debugger",
 }
+# DESIGN §3.1 rule 2: B must not replace the general-purpose reviewer with a new def. These drafts exist only in the
+# Q/C arms (`--include-q-only`) and are evaluated as their own role there.
+Q_ONLY_DRAFTS = {"gsd2-reviewer"}
+
+
+def source_state(repo: Path, paths: Sequence[Path]) -> Tuple[str, List[str]]:
+    """(HEAD sha, repo-relative paths whose bytes differ from HEAD) for files inside repo."""
+    head = C.git(repo, "rev-parse", "HEAD").strip()
+    dirty: List[str] = []
+    for path in paths:
+        try:
+            rel = str(path.resolve().relative_to(repo.resolve()))
+        except ValueError:
+            continue  # a drafts dir outside the repo (tests) has no HEAD to compare with
+        try:
+            committed = C.git_bytes(repo, "show", f"{head}:{rel}")
+        except RuntimeError:
+            dirty.append(rel)
+            continue
+        if committed != path.read_bytes():
+            dirty.append(rel)
+    return head, dirty
+
+
+def write_sources(variant: str, drafts: Dict[str, Path], extra: Dict[str, Any]) -> Dict[str, Any]:
+    """variants/<V>/sources.json: for every agents.json entry the source file and its sha256, the entry hash, and the
+    source repo commit. `ab_common.verify_sources` compares these with the files now (stale-build detection).
+    Entries without a draft must equal the installed def (the control arm's definition)."""
+    vdir = C.variant_dir(variant)
+    agents = C.read_json(vdir / "agents.json", {})
+    rows: Dict[str, Any] = {}
+    drift: List[str] = []
+    for name, entry in sorted(agents.items()):
+        if name in drafts:
+            path, kind = drafts[name], "draft"
+        else:
+            path, kind = C.CLAUDE_AGENTS / f"{name}.md", "installed"
+            if not path.exists() or agent_entry(path.read_text(), name) != entry:
+                drift.append(name)
+                continue
+        rows[name] = {"kind": kind, "path": str(path), "sha256": C.sha256_file(path),
+                      "entry_sha256": C.entry_sha256(entry)}
+    if drift:
+        raise C.Refused(f"variant {variant}: agents.json differs from the installed defs for {drift}; the control "
+                        "arm drifted. Re-freeze A with --force only if the control is meant to change")
+    head, dirty = source_state(C.GSD_REPO, [p for p in drafts.values()])
+    doc = {"variant": variant, "built": C.utc_now(), "source_repo": str(C.GSD_REPO), "source_commit": head,
+           "dirty_sources": dirty, "agents": rows, **extra}
+    C.write_json(vdir / C.SOURCES_FILE, doc)
+    return doc
+
+
+def record_installed_sources(variant: str) -> Dict[str, Any]:
+    return write_sources(variant, {}, {"drafts_dir": None})
+
+
+def cmd_record_sources(args: argparse.Namespace) -> None:
+    if not (C.variant_dir(args.variant) / "agents.json").exists():
+        raise C.Refused(f"variants/{args.variant} is not frozen")
+    doc = record_installed_sources(args.variant)
+    print(f"variant {args.variant}: sources.json for {len(doc['agents'])} agents at {doc['source_commit'][:12]}")
 
 
 def cmd_variant_from_drafts(args: argparse.Namespace) -> None:
-    """Variant B for the roles that have a draft: variants/<V> = a copy of variants/<FROM> (identical overlay,
-    memory and agents) plus the drafts in agents/v2 as extra agents, with roles.json mapping role -> draft."""
+    """Variant B (or Q): variants/<V> = a copy of variants/<FROM> (identical overlay and memory) whose agents.json is
+    the source variant's agents plus the drafts in agents/v2 as extra `gsd2-*` agents, roles.json mapping role ->
+    draft, and sources.json recording the drafts' repo commit and file hashes. `--refresh` rebuilds only those three
+    files of an existing variant; `--force` rebuilds the directory. Dirty drafts (differing from HEAD) are refused
+    unless `--allow-dirty`."""
     src, dst = C.variant_dir(args.base_variant), C.variant_dir(args.variant)
     if not (src / "agents.json").exists():
         raise C.Refused(f"variants/{args.base_variant} is not frozen")
-    if dst.exists():
-        if not args.force:
-            raise C.Refused(f"variants/{args.variant} exists; --force rebuilds it")
-        shutil.rmtree(dst)
-    shutil.copytree(src, dst)
-    agents = C.read_json(dst / "agents.json", {})
-    roles, lines = {}, []
+    agents = dict(C.read_json(src / "agents.json", {}))
+    roles: Dict[str, str] = {}
+    drafts: Dict[str, Path] = {}
     for name, role in sorted(DRAFT_ROLES.items()):
+        if name in Q_ONLY_DRAFTS and not args.include_q_only:
+            continue
         draft = Path(args.drafts) / f"{name}{args.suffix}.md"
         if not draft.exists():
+            draft = Path(args.drafts) / f"{name}.md"  # a suffix arm falls back to the base draft
+        if not draft.exists():
             continue
-        agents[name] = agent_entry(draft.read_text(), name)  # the B arm always calls the agent by its base name
-        lines.append(f"- {name} <- {draft.name}: {C.sha256_file(draft)}")
+        agents[name] = agent_entry(draft.read_text(), name)  # the arm always calls the agent by its base name
+        drafts[name] = draft
         roles[role] = name
+    _head, dirty = source_state(C.GSD_REPO, list(drafts.values()))
+    if dirty and not args.allow_dirty:
+        raise C.Refused(f"drafts differ from {C.GSD_REPO} HEAD: {dirty}; commit them or pass --allow-dirty")
+    if dst.exists():
+        if args.force:
+            shutil.rmtree(dst)
+        elif not args.refresh:
+            raise C.Refused(f"variants/{args.variant} exists; --refresh rebuilds its agent set, --force the directory")
+    if not dst.exists():
+        shutil.copytree(src, dst)
     C.write_json(dst / "agents.json", agents)
     C.write_json(dst / "roles.json", roles)
-    with open(dst / "MANIFEST.md", "a") as fh:
-        fh.write(f"\n## Variant {args.variant}: copy of {args.base_variant} plus drafts ({C.utc_now()})\n\n"
-                 "Overlay, memory and the existing agent defs are identical to the source variant.\n\n"
-                 + "\n".join(lines) + f"\n\nroles.json: {json.dumps(roles)}\n")
-    print(f"variant {args.variant} from drafts: roles {roles}")
+    doc = write_sources(args.variant, drafts, {"base_variant": args.base_variant, "suffix": args.suffix,
+                                               "include_q_only": bool(args.include_q_only),
+                                               "drafts_dir": str(args.drafts)})
+    manifest = dst / "MANIFEST.md"
+    text = manifest.read_text() if manifest.exists() else ""
+    marker = f"\n## Variant {args.variant}:"
+    if marker in text:
+        text = text[:text.index(marker)]
+    lines = [f"- {n} <- {drafts[n].name}: {doc['agents'][n]['sha256']}" for n in sorted(drafts)]
+    manifest.write_text(text.rstrip("\n") + "\n" + f"\n## Variant {args.variant}: copy of {args.base_variant} plus "
+                        f"drafts ({doc['built']})\n\nOverlay, memory and the existing agent defs are identical to the "
+                        f"source variant. Drafts read from `{C.GSD_REPO}` at commit `{doc['source_commit']}`"
+                        f"{' (dirty: ' + ', '.join(dirty) + ')' if dirty else ''}; provenance and hashes in "
+                        f"`{C.SOURCES_FILE}` (runs refuse when a source file changes).\n\n"
+                        + "\n".join(lines) + f"\n\nroles.json: {json.dumps(roles)}\n")
+    print(f"variant {args.variant} from drafts at {doc['source_commit'][:12]}: roles {roles}")
 
 
 def _expected_inherited(overlay: Path, memory: Path) -> int:
@@ -359,6 +464,30 @@ def overlay_files(overlay: Path) -> List[Path]:
     return sorted(p for p in overlay.rglob("*") if p.is_file())
 
 
+def snapshot_precommit(text: str) -> str:
+    """The live repo's pre-commit hook with the link step relaxed for .planning/ targets (see LINK_SNIPPET)."""
+    if text.count(LINK_LINE) != 1:
+        raise C.Refused(f"live pre-commit hook has {text.count(LINK_LINE)} occurrences of {LINK_LINE!r}; "
+                        "update ab_setup.LINK_LINE before building snapshots")
+    return text.replace(LINK_LINE, LINK_SNIPPET)
+
+
+def install_hook(pristine: Path, raw_hook: Path) -> None:
+    hook = pristine / ".git" / "hooks" / "pre-commit"
+    hook.write_text(snapshot_precommit(raw_hook.read_text()))
+    hook.chmod(0o755)
+
+
+def cmd_hook(args: argparse.Namespace, cfg: Dict[str, Any]) -> None:
+    t = C.find_task(cfg, args.task)
+    tdir = C.task_dir(t["id"])
+    pristine = tdir / f"pristine-{args.variant}"
+    if not (pristine / ".git").exists():
+        raise C.Refused(f"{pristine} has no snapshot repo")
+    install_hook(pristine, tdir / "pre-commit")
+    print(f"pre-commit hook reinstalled in {pristine}")
+
+
 def cmd_variant(args: argparse.Namespace, cfg: Dict[str, Any]) -> None:
     t = C.find_task(cfg, args.task)
     tdir = C.task_dir(t["id"])
@@ -393,9 +522,7 @@ def cmd_variant(args: argparse.Namespace, cfg: Dict[str, Any]) -> None:
     C.git(pristine, "-c", "user.name=ab-eval", "-c", "user.email=ab-eval@localhost",
           "commit", "-q", "-m", f"base {t['base']}")
     base_commit = C.git(pristine, "rev-parse", "HEAD").strip()
-    hook = pristine / ".git" / "hooks" / "pre-commit"
-    hook.write_bytes((tdir / "pre-commit").read_bytes())
-    hook.chmod(0o755)
+    install_hook(pristine, tdir / "pre-commit")
     C.write_json(tdir / f"pristine-{args.variant}.json",
                  {"base_commit": base_commit, "variant": args.variant, "built": C.utc_now(),
                   "reindexed": touched_index, "memory_scrub": scrub})
@@ -459,7 +586,15 @@ def build_parser() -> argparse.ArgumentParser:
     vd.add_argument("--base-variant", default="A")
     vd.add_argument("--drafts", default=str(C.V2_DRAFTS))
     vd.add_argument("--suffix", default="", help="'.c' selects the quality-arm drafts (gsd2-<name>.c.md)")
+    vd.add_argument("--include-q-only", action="store_true", help="add Q-only drafts (gsd2-reviewer); never for B")
+    vd.add_argument("--allow-dirty", action="store_true", help="build from drafts that differ from the repo HEAD")
+    vd.add_argument("--refresh", action="store_true", help="rebuild agents.json, roles.json, sources.json only")
     vd.add_argument("--force", action="store_true")
+    rs = sub.add_parser("record-sources")
+    rs.add_argument("--variant", default="A")
+    hk = sub.add_parser("hook")
+    hk.add_argument("--task", required=True)
+    hk.add_argument("--variant", required=True)
     v = sub.add_parser("variant")
     v.add_argument("--task", required=True)
     v.add_argument("--variant", required=True)
@@ -481,6 +616,10 @@ def main(argv: List[str]) -> int:
         cmd_freeze_agents(args)
     elif args.cmd == "variant-from-drafts":
         cmd_variant_from_drafts(args)
+    elif args.cmd == "record-sources":
+        cmd_record_sources(args)
+    elif args.cmd == "hook":
+        cmd_hook(args, cfg)
     elif args.cmd == "base":
         cmd_base(args, cfg)
     elif args.cmd == "index":
