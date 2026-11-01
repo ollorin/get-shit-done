@@ -1704,9 +1704,6 @@ function install(isGlobal, runtime = 'claude') {
   const statuslineCommand = isGlobal
     ? buildHookCommand(targetDir, 'gsd-statusline.js')
     : 'node ' + dirName + '/hooks/gsd-statusline.js';
-  const updateCheckCommand = isGlobal
-    ? buildHookCommand(targetDir, 'gsd-check-update.js')
-    : 'node ' + dirName + '/hooks/gsd-check-update.js';
 
   // Enable experimental agents for Gemini CLI (required for custom sub-agents)
   if (isGemini) {
@@ -1724,48 +1721,10 @@ function install(isGlobal, runtime = 'claude') {
     if (!settings.hooks) {
       settings.hooks = {};
     }
-    if (!settings.hooks.SessionStart) {
-      settings.hooks.SessionStart = [];
-    }
-
-    const hasGsdUpdateHook = settings.hooks.SessionStart.some(entry =>
-      entry.hooks && entry.hooks.some(h => h.command && h.command.includes('gsd-check-update'))
-    );
-
-    if (!hasGsdUpdateHook) {
-      settings.hooks.SessionStart.push({
-        hooks: [
-          {
-            type: 'command',
-            command: updateCheckCommand
-          }
-        ]
-      });
-      console.log(`  ${green}✓${reset} Configured update check hook`);
-    }
-
-    // Register PreToolUse:Read hook for doc compression
-    const compressionHookPath = isGlobal
-      ? path.join(targetDir, 'get-shit-done', 'bin', 'hooks', 'doc-compression-hook.js').replace(/\\/g, '/')
-      : path.join(dirName, 'get-shit-done', 'bin', 'hooks', 'doc-compression-hook.js').replace(/\\/g, '/');
-    const compressionHookCommand = wrapWithTimeout(`node "${compressionHookPath}"`);
-
+    // gsd-check-update (SessionStart) and doc-compression-hook (PreToolUse:Read) are no
+    // longer registered (09-hooks-audit RULING R4). Existing user entries are left in place.
     if (!settings.hooks.PreToolUse) {
       settings.hooks.PreToolUse = [];
-    }
-
-    const hasCompressionHook = settings.hooks.PreToolUse.some(entry =>
-      entry.hooks && entry.hooks.some(h => h.command && h.command.includes('doc-compression-hook'))
-    );
-
-    if (!hasCompressionHook && depsOk) {
-      settings.hooks.PreToolUse.push({
-        matcher: 'Read',
-        hooks: [{ type: 'command', command: compressionHookCommand }]
-      });
-      console.log(`  ${green}✓${reset} Configured doc compression hook`);
-    } else if (!hasCompressionHook && !depsOk) {
-      console.warn(`  ${yellow}⚠ Compression hook NOT registered — hook dependencies failed to install. Doc compression is disabled until 'npm install' succeeds in get-shit-done/.${reset}`);
     }
 
     // Register Stop hook for session knowledge extraction

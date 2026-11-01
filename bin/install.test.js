@@ -5,9 +5,8 @@
  *  1. hooks/dist is built inline (via scripts/build-hooks.js) if missing at install time.
  *  2. PreToolUse hook commands (doc-compression, protect-managed-files) are wrapped
  *     with a POSIX `timeout` guard.
- *  3. The doc-compression hook is only registered when installHookDependencies()
- *     succeeds; a loud warning is printed otherwise instead of a silent partial
- *     registration.
+ *  3. gsd-check-update and the doc-compression hook are no longer registered
+ *     (09-hooks-audit RULING R4).
  *  4. install.js is requireable for testing without triggering the interactive/
  *     global install flow (require.main === module guard).
  *
@@ -120,7 +119,7 @@ function hasCompressionHook(settingsPath) {
   );
 }
 
-describe('installHookDependencies + compression hook gating', () => {
+describe('check-update and doc-compression hooks are no longer registered (RULING R4)', () => {
   let scratchDir;
 
   beforeEach(() => {
@@ -131,33 +130,39 @@ describe('installHookDependencies + compression hook gating', () => {
     cleanup(scratchDir);
   });
 
-  test('failed hook dependency install does NOT register compression hook, and warns loudly', () => {
-    const result = runInstall(scratchDir, { mockNpmFail: true });
-    assert.ok(result.success, `install should still complete overall: ${result.error || ''}\n${result.output}`);
-    assert.match(
-      result.output,
-      /NOT registered/,
-      'expected a loud warning that the compression hook was NOT registered'
-    );
+  function allCommands(settings) {
+    return Object.values(settings.hooks || {})
+      .flat()
+      .flatMap((entry) => (entry.hooks || []).map((h) => h.command || ''));
+  }
 
-    const settingsPath = path.join(scratchDir, '.claude', 'settings.json');
-    assert.strictEqual(
-      hasCompressionHook(settingsPath),
-      false,
-      'compression hook must NOT be present in settings.json when hook deps failed to install'
-    );
-  });
+  for (const mockNpmFail of [false, true]) {
+    test(`fresh install (npm ${mockNpmFail ? 'fails' : 'ok'}) registers no check-update / doc-compression, keeps protect, charlotte-lock, session-end`, () => {
+      const result = runInstall(scratchDir, { mockNpmFail });
+      assert.ok(result.success, `install should succeed: ${result.error || ''}\n${result.output}`);
+      const settingsPath = path.join(scratchDir, '.claude', 'settings.json');
+      const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+      const cmds = allCommands(settings);
+      assert.ok(!cmds.some((c) => c.includes('gsd-check-update')), 'gsd-check-update must not be registered');
+      assert.ok(!cmds.some((c) => c.includes('doc-compression-hook')), 'doc-compression-hook must not be registered');
+      assert.strictEqual(hasCompressionHook(settingsPath), false);
+      assert.ok(!(settings.hooks.SessionStart || []).length, 'no SessionStart entries expected');
+      for (const needle of ['gsd-protect-managed-files', 'gsd-charlotte-lock', 'session-end-standalone']) {
+        assert.ok(cmds.some((c) => c.includes(needle)), `${needle} must still be registered`);
+      }
+      assert.ok(!cmds.some((c) => c.includes('gsd-guard-bash')), 'gsd-guard-bash stays unregistered');
+    });
+  }
 
-  test('successful hook dependency install registers compression hook (regression)', () => {
-    const result = runInstall(scratchDir, { mockNpmFail: false });
-    assert.ok(result.success, `install should succeed: ${result.error || ''}\n${result.output}`);
-
-    const settingsPath = path.join(scratchDir, '.claude', 'settings.json');
-    assert.strictEqual(
-      hasCompressionHook(settingsPath),
-      true,
-      'compression hook should be registered when hook deps succeeded'
-    );
+  test('reinstall does not delete a pre-existing user entry and does not add duplicates', () => {
+    const claudeDir = path.join(scratchDir, '.claude');
+    fs.mkdirSync(claudeDir, { recursive: true });
+    const userEntry = { hooks: [{ type: 'command', command: 'node "/u/hooks/gsd-check-update.js"' }] };
+    fs.writeFileSync(path.join(claudeDir, 'settings.json'), JSON.stringify({ hooks: { SessionStart: [userEntry] } }));
+    const result = runInstall(scratchDir);
+    assert.ok(result.success, result.output);
+    const settings = JSON.parse(fs.readFileSync(path.join(claudeDir, 'settings.json'), 'utf-8'));
+    assert.deepStrictEqual(settings.hooks.SessionStart, [userEntry]);
   });
 });
 
