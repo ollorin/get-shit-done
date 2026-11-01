@@ -19,7 +19,13 @@ ROOTS = [
     "stream.jsonl", "harness-denials",
 ]
 # tool names count as the stack only as words of their own: `ls supabase/migrations` or `docs/docker.md` is a path
-STACK = re.compile(r"((?<![\w/.\-])(?:supabase|docker|orbctl|colima|psql)(?![\w/])|db reset|functions serve|nx start|run-integration-tests|test:integration|preflight|stack-lock|:5432[0-9]|integration\.test\.ts)")
+STACK_TOOLS = {"supabase", "docker", "orbctl", "colima", "psql"}
+SHELL_C = re.compile(r"\b(?:bash|sh|zsh)\s+-\w*c\s+(['\"])(.*?)\1", re.S)
+# these name the stack's scripts and tests; a command that runs them is denied, one that only reads the file is not
+STACK_TEXT = re.compile(r"(db reset|functions serve|nx start|run-integration-tests|test:integration|preflight|stack-lock|:5432[0-9]|integration\.test\.ts)")
+READ_ONLY = {"ls", "cat", "head", "tail", "sed", "awk", "wc", "grep", "rg", "zg", "git", "diff", "file", "stat", "less",
+             "more", "find", "echo", "printf", "test", "[", "tree", "cut", "sort", "uniq", "realpath", "basename", "dirname"}
+WRAPPERS = {"sudo", "npx", "env", "time", "exec", "nohup", "command", "xargs", "bunx", "nice"}
 NET = re.compile(r"(\bgit push\b|\bgh |\bcurl\b|\bwget\b)")
 DOTDOT = re.compile(r"(^|/)\.\.(/|$)")
 SEGMENTS = re.compile(r"&&|\|\||;|\||\n")
@@ -45,6 +51,60 @@ def strip_heredocs(cmd):
         head = re.split(r"&&|\|\||;|\|", cmd[:m.start()])[-1].split("\n")[-1].split()
         return "<<HEREDOC" if head and head[0] in DATA_WRITERS else m.group(0)
     return HEREDOC.sub(repl, cmd)
+
+
+def _command_word(segment):
+    """First word of a shell segment after env assignments and wrappers, as a bare name (path stripped)."""
+    for tok in segment.split():
+        if "=" in tok.split("/")[0] and not tok.startswith(("-", "/", ".")):
+            continue
+        if tok.startswith("-") or tok in WRAPPERS:
+            continue
+        return os.path.basename(tok)
+    return ""
+
+
+def split_unquoted(code):
+    """Shell segments split at `&&`, `||`, `;`, `|` and newlines outside quotes (a grep pattern `a\\|b` stays whole)."""
+    out, cur, quote, i = [], [], "", 0
+    while i < len(code):
+        ch = code[i]
+        if quote:
+            if ch == "\\" and quote == '"' and i + 1 < len(code):
+                cur.append(code[i:i + 2])
+                i += 2
+                continue
+            if ch == quote:
+                quote = ""
+        elif ch == "\\" and i + 1 < len(code):
+            cur.append(code[i:i + 2])
+            i += 2
+            continue
+        elif ch in "'\"":
+            quote = ch
+        elif ch in ";|&\n" and (ch != "&" or code[i:i + 2] == "&&"):
+            out.append("".join(cur))
+            cur = []
+            i += 2 if code[i:i + 2] in ("&&", "||") else 1
+            continue
+        cur.append(ch)
+        i += 1
+    out.append("".join(cur))
+    return out
+
+
+def stack_hit(code):
+    """True when `code` runs a shared-stack tool or script. A tool name (STACK_TOOLS) counts as the command word of a
+    segment (after env assignments and wrappers) or in the body of `bash -c '...'`; script and test names (STACK_TEXT)
+    count unless the segment's command only reads (ls, cat, sed, git, ...). Quotes are honoured: `grep "a\\|supabase"`
+    and `{ supabase }` in a sed replacement are text."""
+    for seg in split_unquoted(code):
+        cw = _command_word(seg)
+        if cw in STACK_TOOLS or (STACK_TEXT.search(seg) and cw not in READ_ONLY):
+            return True
+        if any(stack_hit(m.group(2)) for m in SHELL_C.finditer(seg)):
+            return True
+    return False
 
 
 def own_project(run_dir):
@@ -139,7 +199,7 @@ def decide(tool, tool_input, cwd, run_dir):
     if tool == "Bash":
         cmd = tool_input.get("command", "")
         code = strip_heredocs(cmd)
-        if STACK.search(code):
+        if stack_hit(code):
             return "stack", MSG_STACK
         if NET.search(code):
             return "net", MSG_NET

@@ -476,15 +476,26 @@ class StackFalsePositive(unittest.TestCase):
         spec.loader.exec_module(cls.hd)
 
     def stack(self, cmd):
-        return bool(self.hd.STACK.search(self.hd.strip_heredocs(cmd)))
+        return self.hd.stack_hit(self.hd.strip_heredocs(cmd))
 
     def test_paths_and_doc_names_allowed(self):
         for c in ["ls supabase/migrations 2>/dev/null | grep -i 400_wallet", "ls docs/docker.md",
                   "cat apps/api/supabase/config.toml", "cat > a.md <<'EOF'\nrun `supabase db reset`\nEOF"]:
             self.assertFalse(self.stack(c), c)
 
+    def test_identifier_in_code_and_read_only_listing_allowed(self):
+        """Wave 2: `{ supabase }` in a sed replacement (E5-A-r1, E5-C-r1) and `ls scripts/preflight.sh` (E1-A-r2)."""
+        for c in ["sed -i '' -e '299,398c\\\n      return await verifyEnabledTotp({ supabase }, id, code)' totp-provider.ts",
+                  "grep -rn supabase apps/api/libs | head", "echo 'use docker later'",
+                  "ls apps/api/deno.json 2>&1; ls scripts/preflight.sh 2>&1", "cat scripts/preflight.sh | head -20",
+                  "git log --oneline -- scripts/run-integration-tests.sh", "sed -n 1,40p apps/api/x.integration.test.ts"]:
+            self.assertFalse(self.stack(c), c)
+
     def test_commands_still_denied(self):
-        for c in ["supabase status", "npx supabase db reset", "cd x && docker ps", "psql -h localhost",
+        for c in ["scripts/preflight.sh", "bash scripts/preflight.sh --all", "deno test foo.integration.test.ts",
+                  "cd apps/api && npx supabase db reset", "scripts/run-integration-tests.sh", "FOO=1 supabase status",
+                  "sudo docker ps", "bash -c 'supabase status'", "ls | xargs docker rm",
+                  "supabase status", "npx supabase db reset", "cd x && docker ps", "psql -h localhost",
                   "ls; supabase start", "bash <<'EOF'\ndocker ps\nEOF"]:
             self.assertTrue(self.stack(c), c)
 
