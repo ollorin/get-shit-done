@@ -28,7 +28,7 @@ def corrected(row: Dict[str, Any]) -> Dict[str, Any]:
     crit = [c for c in row.get("criticals", []) if c != STACK_CRITICAL]
     by_cat = {k: v for k, v in (row.get("harness_denials") or {}).get("by_cat", {}).items() if k != "stack"}
     hidden = row.get("hidden")
-    acceptance = bool(row["visible"]["pass"] and row["check_ok"] and row["lint_ok"]
+    acceptance = bool(row.get("status", "done") == "done" and row["visible"]["pass"] and row["check_ok"] and row["lint_ok"]
                       and (row.get("fp") or {}).get("increase", 1) == 0 and not crit and not row.get("scope_out")
                       and (hidden is None or hidden["pass"])
                       and (row.get("leak") is None or row["leak"].get("leaked", 0) == 0))

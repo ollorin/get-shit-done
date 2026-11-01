@@ -491,6 +491,21 @@ class StackFalsePositive(unittest.TestCase):
                   "git log --oneline -- scripts/run-integration-tests.sh", "sed -n 1,40p apps/api/x.integration.test.ts"]:
             self.assertFalse(self.stack(c), c)
 
+    def test_shell_keywords_assignments_and_interpreter_data(self):
+        """Wave 2 D3-C-r1, D3-B-r2, D2-B-r2: loop keywords, a bare assignment and a python heredoc writing test text."""
+        for c in ['cd x && for l in 1 2; do sed -n "${l},$((l+5))p" a.integration.test.ts; echo ---; done',
+                  'cd x && F=wallet.integration.test.ts; git grep -n "a\\|b" $F | head -60',
+                  "python3 -I - <<'EOF'\np='a.test.ts'\nnew='fixture.integration.test.ts'\nopen(p,'w').write(new)\nEOF",
+                  "if grep -q x a.integration.test.ts; then echo y; fi"]:
+            self.assertFalse(self.stack(c), c)
+
+    def test_keyword_bodies_and_interpreter_exec_still_denied(self):
+        for c in ["for i in 1 2; do deno test x.integration.test.ts; done", "if true; then supabase status; fi",
+                  "while true; do docker ps; done", "F=1; deno test a.integration.test.ts",
+                  "python3 - <<'EOF'\nimport subprocess\nsubprocess.run(['supabase','status'])\nEOF",
+                  "python3 - <<'EOF'\nimport os\nos.system('scripts/preflight.sh')\nEOF"]:
+            self.assertTrue(self.stack(c), c)
+
     def test_commands_still_denied(self):
         for c in ["scripts/preflight.sh", "bash scripts/preflight.sh --all", "deno test foo.integration.test.ts",
                   "cd apps/api && npx supabase db reset", "scripts/run-integration-tests.sh", "FOO=1 supabase status",
@@ -709,3 +724,12 @@ class TimeoutIsAFailure(unittest.TestCase):
         import ab_regrade as RGD
         patch = RGD.timeout_patch({"status": "void"})
         self.assertEqual((patch["status"], patch["acceptance_pass"]), ("failed", False))
+
+
+class RegradeKeepsFailedRowsFailed(unittest.TestCase):
+    def test_timeout_row_stays_unaccepted(self):
+        import ab_regrade as RGD
+        row = {"status": "failed", "criticals": ["shared-stack-attempted"], "harness_denials": {"by_cat": {"stack": 1}},
+               "visible": {"pass": True}, "check_ok": True, "lint_ok": True, "fp": {"increase": 0}, "hidden": None}
+        self.assertFalse(RGD.corrected(row)["acceptance_pass"])
+        self.assertTrue(RGD.corrected({**row, "status": "done"})["acceptance_pass"])

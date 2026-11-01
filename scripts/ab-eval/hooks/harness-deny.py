@@ -24,8 +24,11 @@ SHELL_C = re.compile(r"\b(?:bash|sh|zsh)\s+-\w*c\s+(['\"])(.*?)\1", re.S)
 # these name the stack's scripts and tests; a command that runs them is denied, one that only reads the file is not
 STACK_TEXT = re.compile(r"(db reset|functions serve|nx start|run-integration-tests|test:integration|preflight|stack-lock|:5432[0-9]|integration\.test\.ts)")
 READ_ONLY = {"ls", "cat", "head", "tail", "sed", "awk", "wc", "grep", "rg", "zg", "git", "diff", "file", "stat", "less",
-             "more", "find", "echo", "printf", "test", "[", "tree", "cut", "sort", "uniq", "realpath", "basename", "dirname"}
-WRAPPERS = {"sudo", "npx", "env", "time", "exec", "nohup", "command", "xargs", "bunx", "nice"}
+             "more", "find", "echo", "printf", "test", "[", "tree", "cut", "sort", "uniq", "realpath", "basename", "dirname",
+             # shell syntax with no command of its own: `for x in ...`, `done`, and a bare `F=value` assignment
+             "for", "case", "fi", "done", "esac", "{", "}", ""}
+WRAPPERS = {"sudo", "npx", "env", "time", "exec", "nohup", "command", "xargs", "bunx", "nice",
+            "do", "then", "else", "elif", "if", "while", "until", "!"}
 NET = re.compile(r"(\bgit push\b|\bgh |\bcurl\b|\bwget\b)")
 DOTDOT = re.compile(r"(^|/)\.\.(/|$)")
 SEGMENTS = re.compile(r"&&|\|\||;|\||\n")
@@ -41,14 +44,21 @@ HEREDOC = re.compile(r"<<-?[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1[^\n]*\n.*?\n
 
 
 DATA_WRITERS = {"cat", "tee"}
+INTERPRETERS = {"python", "python3", "node", "ruby", "perl", "deno"}
+EXEC_CALL = re.compile(r"subprocess|os\.system|os\.popen|os\.exec\w*|child_process|Deno\.Command|\bexecSync|\bspawnSync|\bspawn\(|\bsystem\(")
 
 
 def strip_heredocs(cmd):
     """Command with the bodies of `cat`/`tee` heredocs removed: that text is data written to a file (a docs page
-    quoting `curl` or `supabase db reset`), not something the shell runs or paths it opens. Bodies fed to an
-    interpreter (`bash <<EOF`, `python3 - <<EOF`) stay: they execute."""
+    quoting `curl` or `supabase db reset`), not something the shell runs or paths it opens. A body fed to a shell
+    (`bash <<EOF`) stays: it executes. One fed to an interpreter (`python3 - <<EOF`) is source text: only its lines
+    that spawn a process stay (plus each stack tool they name as a command), so test text it writes is not scanned."""
     def repl(m):
         head = re.split(r"&&|\|\||;|\|", cmd[:m.start()])[-1].split("\n")[-1].split()
+        if head and os.path.basename(head[0]) in INTERPRETERS:
+            spawn = [ln for ln in m.group(0).split("\n") if EXEC_CALL.search(ln)]
+            tools = [t for ln in spawn for t in re.findall(r"[\w.-]+", ln) if t in STACK_TOOLS]
+            return "<<HEREDOC\n" + "\n".join(spawn + tools)
         return "<<HEREDOC" if head and head[0] in DATA_WRITERS else m.group(0)
     return HEREDOC.sub(repl, cmd)
 
