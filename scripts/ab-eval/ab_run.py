@@ -141,6 +141,8 @@ def mirror_transcripts(repo: Path, run_dir: Path) -> List[str]:
 def status_of(res: Optional[Dict[str, Any]], run: Dict[str, Any], contaminated: bool, models: List[str],
               allowed: Sequence[str] = ("haiku",)) -> tuple:
     if res is None:
+        if run["timed_out"]:  # the agent never finished: a failure of the arm, not a harness fault to re-run
+            return "failed", "timeout without a result line"
         return "void", "no result line in stream"
     if contaminated:
         return "void", "contaminated: denied root reached by another path"

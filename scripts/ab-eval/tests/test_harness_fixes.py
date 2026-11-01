@@ -702,3 +702,10 @@ class DirBytesRace(unittest.TestCase):
 
             with mock.patch.object(Path, "stat", flaky):
                 self.assertEqual(C.dir_bytes(Path(d)), 5)
+
+
+class TimeoutIsAFailure(unittest.TestCase):
+    def test_timeout_patch(self):
+        import ab_regrade as RGD
+        patch = RGD.timeout_patch({"status": "void"})
+        self.assertEqual((patch["status"], patch["acceptance_pass"]), ("failed", False))

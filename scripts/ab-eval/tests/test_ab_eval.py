@@ -206,6 +206,7 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(R.status_of(res, run, False, ["claude-opus-5"])[0], "void")
         self.assertEqual(R.status_of(res, run, True, ["claude-haiku-5-5"])[0], "void")
         self.assertEqual(R.status_of(None, run, False, [])[0], "void")
+        self.assertEqual(R.status_of(None, {"timed_out": True}, False, [])[0], "failed")
 
 
 class GateTests(unittest.TestCase):

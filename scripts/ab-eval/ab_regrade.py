@@ -36,6 +36,12 @@ def corrected(row: Dict[str, Any]) -> Dict[str, Any]:
             "harness_denials": {"by_cat": by_cat, "count": sum(by_cat.values())}}
 
 
+def timeout_patch(row: Dict[str, Any]) -> Dict[str, Any]:
+    """A run that hit the wall-clock limit without a result line was recorded void by the old classification; it is
+    a failed run of its arm (acceptance False)."""
+    return {"status": "failed", "void_reason": "timeout without a result line", "acceptance_pass": False}
+
+
 def bash_commands(run_dir: Path) -> List[str]:
     out: List[str] = []
     for f in sorted((run_dir / "transcripts").rglob("*.jsonl")):
@@ -58,6 +64,14 @@ def main(argv: List[str]) -> int:
     sup = {r["run_id"] for r in C.read_jsonl(C.AB_HOME / "results" / "superseded.jsonl")}
     done = {r["run_id"] for r in C.read_jsonl(C.AB_HOME / "results" / "regraded.jsonl")}
     for row in C.read_jsonl(C.AB_HOME / "results" / "runs.jsonl"):
+        if row["run_id"] not in sup and row["run_id"] not in done and row["status"] == "void" and row.get("timed_out") \
+                and row.get("void_reason") == "no result line in stream":
+            print(f"{row['run_id']}: timed out without a result line -> failed")
+            if args.apply:
+                C.append_jsonl(C.AB_HOME / "results" / "regraded.jsonl", {
+                    "run_id": row["run_id"], "ts": C.utc_now(), "set": timeout_patch(row),
+                    "reason": "timeout without a result line is a failed run, not a void (selection bias)"})
+            continue
         if row["run_id"] in sup or row["run_id"] in done or STACK_CRITICAL not in row.get("criticals", []):
             continue
         run_dir = C.AB_HOME / "runs" / row["run_id"]
