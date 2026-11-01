@@ -79,3 +79,53 @@ Not fixed, documented: a flaky test can yield a `killed` (use `expect_failing_te
 ## Sign-off
 
 Sign off for T0 evidence with conditions: run in a linked worktree, pin proof mutants with `expect_failing_test`, treat `timeout`/`errored` rows as unproven, and cite the JSONL. No open false-kill path that needs an adversarial test, and no path that leaves the source mutated except SIGKILL of the runner (backup in `<out>.restore/`, `git checkout` recovers).
+
+# Round 3 - independent review (on top of 34ded7656)
+
+Fresh reviewer, no part in writing the code. Tests 60 -> 79 (all green, ~36 s). Files <= 500 lines: new `guards.ts` (run-level guards moved out of `gsd-mutate.ts`, now 447), new `parse_cases.ts` and `run_cases.ts` (round-3 tests; `classify_cases.ts` 444, `gsd-mutate.test.ts` 426). "Reproduced" = I ran it on deno 2.5.2; "traced" = read from code.
+
+## Residual risks judged
+
+| round-2 residual | verdict |
+|---|---|
+| `timeout` alone exits 0 | FIXED (#1): exit 0 on an unproven mutant undermines evidence |
+| lone lookalike `FAILED` line then a crash | FIXED to "needs a crash AND the lookalike as the very last stdout bytes" (#2); remaining case accepted: only deliberate adversarial test code can produce it |
+| flaky test yields `killed` | FIXED (#3): a kill must reproduce on a second run |
+| `setsid` daemon survives, runner SIGKILL leaves the mutation, `deno.lock` rewrite | accepted (documented; SIGKILL leaves a modified target, so the next run's dirty check refuses it, and `<out>.restore/` holds the bytes) |
+
+## Findings
+
+| # | sev | finding | evidence | fix |
+|---|---|---|---|---|
+| 1 | MED | `timeout` was not inconclusive: a run of only timed-out mutants exited 0 (`inconclusive()` omitted it) | traced; old tests pinned `code 0` | `timeout` joins `invalid-snippet`/`errored` (exit 1) |
+| 2 | MED | Summary read from `stdout + stderr` and the last match anywhere; a lookalike line followed by a crash, or on stderr, could decide the verdict | traced (reproduced that Deno captures test stdout/stderr, even from inherited subprocess fds, into stdout, so a stderr lookalike is hard to produce) | summary from stdout only and only when nothing follows it; `TestRun.stdout` added |
+| 3 | MED | A flaky test red on one run produced `killed` (baseline runs only before/after the whole batch) | traced | a `killed` is re-run in the same mutation; must be a kill failing a common test (`killReproduced`) else `errored`, `kill_confirmed: false` |
+| 4 | MED | Only the target was tamper-checked: a mutant (or a concurrent agent) rewriting the TEST file produced a `killed` from a changed test; the record carried no test hash | traced; the old "post-run baseline" test relied on exactly this (mutant rewrote the test) and still asserted `survived` | `test_sha` recorded, verdict `errored` if the test file changed during the run; a test path must be a readable source file (dir/glob refused) |
+| 5 | MED | JSONL from a voided run (post-run baseline red, restore failed) looked citable; nothing in the evidence said so | traced | `<out>.run.json` {exit_code, mutants, baseline_before, baseline_after}; absent = cut short; `--out` and the stale summary cleared once guards pass (before: only after baseline, so a red-baseline abort left the previous run's JSONL in place) |
+| 6 | LOW | `--out` could be the mutants file, a target or a test file and was truncated (erasing source) | traced | refused, exit 2 |
+| 7 | LOW (tests) | untested: mutants-file missing/invalid/empty/non-array, non-git root, `--mutants` required, `exit 0` with a failed count, empty id/old, backup removal on success, survivor `first_failing_line` null, stale summary removal | mutation spot-checks (below) showed survivors only for stale-summary removal (now tested) | cases added |
+| 8 | LOW | README: timeout exit code, `--out` truncation timing, concurrent runs, watched files | read | rewritten |
+
+Spot-check method: scratch copy under the OS temp dir, one guard reverted per copy, `--filter`ed run. Killed by a test: anchoring, stdout-only wiring (2 sites), timeout-inconclusive, `killReproduced`, confirm run, flaky-void, test-tamper, source-tamper, backup removal, truncation, stale `run.json`, `failed === 0`, `passed > 0`, test source path, empty old, restore-failed break, `--ignored`, id sanitising, post-run baseline, survivor line, timeout bound, `isUnder`, canary clause 2, `notFlag`, symlink guard, dirty detection, classify order, `--out` guard. One survivor found and fixed: removing the stale `run.json` deletion (no test); a first attempt at the post-run-baseline mutation did not compile and was redone.
+
+## Sign-off
+
+Sign off for T0 evidence with the round-2 conditions plus: cite `<out>.jsonl` together with `<out>.run.json` (exit_code 0, both baselines green); kills cost two runs. Not covered: files other than target and test that the test imports are not watched (use a linked worktree no one else edits); `--allow-dirty` with two concurrent runs.
+
+# Opus final review (on top of 09e078ba1, fixes in af9633bc1)
+
+Question: can a documented run report a false `killed`/passing run, or leave source mutated silently? Traced: `classify` (classify.ts:149-168, summary anchored last-on-stdout :123-143), kill confirmation (gsd-mutate.ts runMutant, `killReproduced` classify.ts:254), source/test sha voiding, baselines (guards.ts `baselineError`), restore + sha check (process.ts:28-52), signal path (process.ts:183-245: `stopping` checked synchronously before apply, handler awaits in-flight apply then restores), guards (primary worktree, dirty, `--out`, forbidden flags). No CRIT/HIGH: every false-kill path needs adversarial test code or a flaky test; every source-left-mutated path except runner SIGKILL ends in exit 3 or is restored.
+
+| # | sev | finding | fix |
+|---|---|---|---|
+| 1 | MED | `expect_failing_test` was matched against the FIRST run's failing tests, while confirmation needed only ANY common test: pinned test failing once + an unrelated test failing twice passed the pin | fixed: on a confirmed kill `failing_tests` = tests failing in both runs; test reproduced red (pin passed, exit 0) then green |
+| 2 | MED | A leftover `<out>.restore/` (SIGKILL / failed restore) was reused: rerun with the same `--out` + `--allow-dirty` overwrote the only original-bytes backup with the still-mutated file, then "restored" to it, silently | fixed: non-empty `<out>.restore/` refused, exit 2 (with or without `--allow-dirty`); test red then green |
+| 3 | MED (accepted, condition) | A flaky test can still yield `killed`: green before, red twice mutated, green after (p=0.3 flake: ~9% per survivor) | condition of use below |
+| 4 | LOW (accepted) | `killed-typecheck` is single-run and REJECTED includes resolution errors (`Could not resolve`, `Unable to load`) that can be environmental, so a survivor can hide as `killed-typecheck` in an exit-0 run | condition: `killed-typecheck` is neither a kill nor proof of no survivor |
+| 5 | LOW (accepted) | `--allow-dirty` is not recorded in `<out>.run.json`; evidence against an uncommitted base looks the same | condition: never cite an `--allow-dirty` run |
+
+Tests 79 -> 81, green (~37 s); check/lint/fmt clean; max file 461 lines.
+
+## Verdict
+
+APPROVED for T0 evidence, conditions: linked worktree, no `--allow-dirty`; cite `<out>.jsonl` with `<out>.run.json` showing `exit_code: 0` and both baselines green; proof mutants carry `expect_failing_test` naming the asserting test; only `killed` with `kill_confirmed: true` counts as a kill (`killed-typecheck`, `errored`, `timeout` prove nothing); the pinned test is deterministic (no shared clock/network/order dependence) or ran green N times unmutated first.
