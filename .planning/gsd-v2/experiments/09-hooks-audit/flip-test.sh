@@ -223,4 +223,10 @@ d=$(mktemp -d); mkdir -p "$d/.claude" "$d/igaming-platform/.claude"
 o=$(env -u CLAUDE_HOME -u PROJECT_DIR HOME="$d" bash "$FLIP_SH" --rollback --approved-by-ceo "any eight chars" </dev/null 2>&1); r=$?
 [ "$r" != 0 ] && printf '%s' "$o" | grep -qE 'outside Claude Code|not accepted' && ok "15 real-path rollback refuses an agent and the flag" || bad "15 rc=$r: $o"
 rm -rf "$d"
+# 16. FLIP_PROCS_ROOT_PID is ignored on the real paths: a running Charlotte runner still refuses
+d=$(mktemp -d); mkdir -p "$d/.claude" "$d/igaming-platform/.claude"; cp "$REAL_CLAUDE/settings.json" "$d/.claude/"; cp "$REAL_PROJECT/.claude/settings.local.json" "$d/igaming-platform/.claude/"
+( exec -a "deno run --allow-all runner/run.ts --tags=regression" sleep 20 ) & CP=$!
+sleep 1; o=$(env -u CLAUDE_HOME -u PROJECT_DIR HOME="$d" FLIP_PROCS_ROOT_PID=999999 bash "$FLIP_SH" --apply --dry-run </dev/null 2>&1); kill $CP 2>/dev/null; wait $CP 2>/dev/null
+printf '%s' "$o" | grep -q 'a Charlotte runner (runner/run.ts) is running' && ok "16 FLIP_PROCS_ROOT_PID does not hide a runner on the real paths" || bad "16 runner refusal missing: $(printf '%s' "$o" | head -3 | tr '\n' '|')"
+rm -rf "$d"
 [ $fails = 0 ] && echo "flip-test: all pass" || { echo "flip-test: $fails FAIL"; exit 1; }

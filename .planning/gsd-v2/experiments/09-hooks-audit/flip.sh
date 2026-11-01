@@ -57,15 +57,15 @@ need_tty() { # need_tty <WORD>: a person at a TTY types WORD, or --approved-by-c
 command -v python3 >/dev/null || die "python3 required"
 
 # Running stack/OrbStack operations and the Charlotte runner, judged by the process's own argv (a `claude -p` prompt that merely
-# mentions "orbctl restart" is not one). Prints one reason per line. FLIP_PROCS_ROOT_PID (tests) limits the scan to one process tree.
+# mentions "orbctl restart" is not one). Prints one reason per line. FLIP_PROCS_ROOT_PID (tests, honoured only on fixture paths) limits the scan to one process tree.
 busy_processes() {
-  python3 -I - <<'PY'
+  FLIP_FIXTURE=$(is_fixture && echo 1 || echo 0) python3 -I - <<'PY'
 import os,re,subprocess
 rows=[]
 for l in subprocess.run(['ps','-axo','pid=,ppid=,command='],capture_output=True,text=True).stdout.splitlines():
     p=l.split(None,2)
     if len(p)==3 and p[0].isdigit() and p[1].isdigit(): rows.append((int(p[0]),int(p[1]),p[2]))
-root=os.environ.get('FLIP_PROCS_ROOT_PID')   # tests only: look at the descendants of this pid, not the whole host
+root=os.environ.get('FLIP_PROCS_ROOT_PID') if os.environ.get('FLIP_FIXTURE')=='1' else None   # tests on fixture paths only: look at the descendants of this pid, not the whole host
 if root and root.isdigit():
     keep={int(root)}
     while True:
