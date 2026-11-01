@@ -28,6 +28,22 @@ PASS, FAIL, NOT_EVALUATED = "PASS", "FAIL", "NOT_EVALUATED"
 MANIFEST_TOL = 0.05       # G1: loaded chars within 5 % of the variant's expected size
 BOOT_RESAMPLES = 10000
 
+# RULING-executor-d.md R2 (declared before any arm-D run, applies to every arm): hidden-oracle files whose names the
+# task plan never pins, so no executor could know them (E1-E3 had 1 accepted run of 27). They are reported per arm but
+# do not gate acceptance (G2) or the hidden mean (G3). Every other hidden file still gates.
+INFORMATIONAL_HIDDEN: Dict[str, Tuple[str, ...]] = {
+    "E1": ("scripts/validation/grid-check.test.ts",),
+    "E2": ("apps/api/libs/infrastructure/src/lib/cache/cache-generation.test.ts",),
+    "E3": ("apps/api/functions/configurations/handlers/config-cache-invalidation.test.ts",),
+}
+# RULING-executor-d.md R1, gate G6-Q (replaces G6 for the quality arm only; the G6 ratio is still printed).
+G6Q_COST_RATIO = 1.10
+G6Q_MAX_BYTES = 30704
+G6Q_TQ_NET_MIN = 10
+G6Q_TQ_EXPECTED = 42      # 21 pairs x 2 orders; the bootstrap statistic is the net rate scaled to this count
+G6Q_PROVEN_MIN = 3
+BOOT_SEED = 7
+
 
 def drop_superseded(items: List[Dict[str, Any]], superseded: set, judge_dir: Path) -> List[Dict[str, Any]]:
     """Pairs and judgments are packed from two run ids (judge/<pair>/index.json); one that was superseded after
@@ -63,6 +79,48 @@ def by(rows: List[Dict[str, Any]], variant: str) -> List[Dict[str, Any]]:
     return [r for r in rows if r["variant"] == variant]
 
 
+def hidden_files(row: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return (row.get("hidden") or {}).get("files") or []
+
+
+def is_informational(row: Dict[str, Any], f: Dict[str, Any]) -> bool:
+    return f.get("dest") in INFORMATIONAL_HIDDEN.get(row.get("task_id"), ())
+
+
+def hidden_gating_pass(row: Dict[str, Any]) -> Optional[bool]:
+    """Hidden result with the informational files left out; None when the run has no hidden oracle. Tasks without
+    informational files keep the stored `hidden.pass`."""
+    h = row.get("hidden")
+    if not h:
+        return None
+    if row.get("task_id") not in INFORMATIONAL_HIDDEN or not h.get("files"):
+        return bool(h.get("pass"))
+    return all(f["rc"] == 0 for f in h["files"] if not is_informational(row, f))
+
+
+def treated_acceptance(row: Dict[str, Any]) -> bool:
+    """`acceptance_pass` with informational hidden files excused. Only rows of tasks with informational files are
+    recomputed, with the same terms as ab_regrade.corrected; every other term (scope_out, criticals, visible, check,
+    lint, fp delta, status) is unchanged."""
+    if row.get("acceptance_pass") or row.get("task_id") not in INFORMATIONAL_HIDDEN or not row.get("hidden"):
+        return bool(row.get("acceptance_pass"))
+    return bool(row.get("status", "done") == "done" and (row.get("visible") or {}).get("pass")
+                and row.get("check_ok") and row.get("lint_ok") and (row.get("fp") or {}).get("increase", 1) == 0
+                and not row.get("criticals") and not row.get("scope_out") and hidden_gating_pass(row)
+                and (row.get("leak") is None or row["leak"].get("leaked", 0) == 0))
+
+
+def informational_rates(rows: List[Dict[str, Any]]) -> str:
+    """'task/file-name pass/n' for the informational files of these rows."""
+    out: Dict[str, List[int]] = {}
+    for r in rows:
+        for f in hidden_files(r):
+            if is_informational(r, f):
+                key = f"{r['task_id']}/{Path(f['dest']).name}"
+                out.setdefault(key, []).append(1 if f["rc"] == 0 else 0)
+    return ", ".join(f"{k} {sum(v)}/{len(v)}" for k, v in sorted(out.items())) or "none"
+
+
 def g1_manipulation(rows: List[Dict[str, Any]], variant: str) -> Tuple[str, str]:
     expected = C.read_json(C.variant_dir(variant) / "expected.json", {}).get("inherited_chars")
     vrows = by(rows, variant)
@@ -84,20 +142,25 @@ def g2_acceptance(rows: List[Dict[str, Any]], a: str, b: str) -> Tuple[str, str]
     ra, rb = usable(by(rows, a)), usable(by(rows, b))
     if not ra or not rb:
         return NOT_EVALUATED, f"needs both arms (A={len(ra)}, B={len(rb)})"
-    sa = sum(1 for r in ra if r["acceptance_pass"])
-    sb = sum(1 for r in rb if r["acceptance_pass"])
+    sa = sum(1 for r in ra if treated_acceptance(r))
+    sb = sum(1 for r in rb if treated_acceptance(r))
+    strict_a = sum(1 for r in ra if r["acceptance_pass"])
+    strict_b = sum(1 for r in rb if r["acceptance_pass"])
     flips = []
     for t in sorted({r["task_id"] for r in ra}):
         ta = [r for r in ra if r["task_id"] == t]
         tb = [r for r in rb if r["task_id"] == t]
         if not tb:
             continue
-        rate_a = sum(r["acceptance_pass"] for r in ta) / len(ta)
-        rate_b = sum(r["acceptance_pass"] for r in tb) / len(tb)
+        rate_a = sum(treated_acceptance(r) for r in ta) / len(ta)
+        rate_b = sum(treated_acceptance(r) for r in tb) / len(tb)
         if rate_a >= 2 / 3 and rate_b <= 1 / 3:
             flips.append(t)
     ok = sb >= sa - 1 and not flips
     detail = f"acceptance A={sa}/{len(ra)} B={sb}/{len(rb)}; task flips={flips or 'none'}"
+    if (sa, sb) != (strict_a, strict_b):
+        detail += (f"; treated (informational hidden files excused); strict A={strict_a}/{len(ra)} "
+                   f"B={strict_b}/{len(rb)}")
     return (PASS if ok else FAIL), detail
 
 
@@ -118,12 +181,15 @@ def g3_secondary(rows: List[Dict[str, Any]], a: str, b: str,
         return NOT_EVALUATED, "needs both arms"
     parts: List[str] = []
     ok = True
-    ha = [r["hidden"]["pass"] for r in ra if r.get("hidden")]
-    hb = [r["hidden"]["pass"] for r in rb if r.get("hidden")]
+    ha = [hidden_gating_pass(r) for r in ra if r.get("hidden")]
+    hb = [hidden_gating_pass(r) for r in rb if r.get("hidden")]
     if ha and hb:
         hidden_ok = statistics.mean(hb) >= statistics.mean(ha) - 0.05
         ok = ok and hidden_ok
         parts.append(f"hidden mean A={_mean(ha)} B={_mean(hb)} (ok={hidden_ok})")
+        if any(is_informational(r, f) for r in ra + rb for f in hidden_files(r)):
+            parts.append(f"informational hidden files (not gating) A: {informational_rates(ra)}; "
+                         f"B: {informational_rates(rb)}")
     else:
         parts.append("hidden: n/a (no calibrated hidden oracle on both arms)")
     fa = sum(1 for r in ra if r.get("fail_first") == "proven")
@@ -229,6 +295,76 @@ def g6_value(rows: List[Dict[str, Any]], a: str, b: str) -> Tuple[str, str]:
     ratio = statistics.median(tb) / statistics.median(ta)
     return (PASS if ratio <= 0.75 else FAIL), f"median first-turn tok A={statistics.median(ta):.0f} " \
                                               f"B={statistics.median(tb):.0f} ratio={ratio:.2f} (<=0.75)"
+
+
+def task_median_costs(rows: List[Dict[str, Any]]) -> Dict[str, float]:
+    per: Dict[str, List[float]] = {}
+    for r in usable(rows):
+        if r.get("result_cost_usd") is not None:
+            per.setdefault(r["task_id"], []).append(r["result_cost_usd"])
+    return {t: statistics.median(v) for t, v in per.items()}
+
+
+def bootstrap_lower10(per_task: Dict[str, List[int]], scale: int, resamples: int = BOOT_RESAMPLES,
+                      seed: int = BOOT_SEED) -> float:
+    """10th percentile of the net, resampling tasks (clusters) with replacement; the net rate of each resample is
+    scaled to `scale` judgments so resamples of different size compare (same seed and draw order as bootstrap_upper90)."""
+    tasks = sorted(per_task)
+    rng = random.Random(seed)
+    nets = []
+    for _ in range(resamples):
+        vals = [v for t in (rng.choice(tasks) for _ in tasks) for v in per_task[t]]
+        nets.append(sum(vals) / len(vals) * scale)
+    nets.sort()
+    return nets[max(0, math.ceil(0.10 * resamples) - 1)]
+
+
+def quality_net(judgments: List[Dict[str, Any]], a: str, b: str) -> Tuple[int, int, Dict[str, List[int]]]:
+    """(net b-win minus a-win, judgments counted, per-task +1/0/-1 list) over the `test_quality` dimension of every
+    valid judgment (both orders)."""
+    per: Dict[str, List[int]] = {}
+    for j in judgments:
+        tq = (j.get("dims") or {}).get("test_quality") if not j.get("error") else None
+        if not tq:
+            continue
+        per.setdefault(j["task"], []).append(1 if tq.get("winner") == b else -1 if tq.get("winner") == a else 0)
+    return sum(sum(v) for v in per.values()), sum(len(v) for v in per.values()), per
+
+
+def g6_quality(rows: List[Dict[str, Any]], pairs: List[Dict[str, Any]], judgments: List[Dict[str, Any]],
+               a: str, b: str, draft: Path) -> Tuple[str, str]:
+    """RULING-executor-d.md R1. All of: cost (sum over tasks of the per-task median result_cost_usd, b <= 1.10 x a,
+    and no failed b run without a cost line), size (draft bytes), and better: (a) test_quality net >= +10 of 42 with a
+    task-clustered bootstrap p10 > 0, (b) fail_first proven >= 3, (c) b-wins >= a-wins over the judged pairs."""
+    ra, rb = usable(by(rows, a)), usable(by(rows, b))
+    if not ra or not rb:
+        return NOT_EVALUATED, f"needs both arms (A={len(ra)}, B={len(rb)})"
+    ma, mb = task_median_costs(ra), task_median_costs(rb)
+    sum_a, sum_b = sum(ma.values()), sum(mb.values())
+    missing = sorted(r["run_id"] for r in rb if r["status"] == "failed" and r.get("result_cost_usd") is None)
+    cost_ok = sum_a > 0 and set(mb) >= set(ma) and sum_b <= G6Q_COST_RATIO * sum_a and not missing
+    size = draft.stat().st_size
+    size_ok = size <= G6Q_MAX_BYTES
+    net, n, per = quality_net(judgments, a, b)
+    p10 = bootstrap_lower10(per, G6Q_TQ_EXPECTED) if per else float("-inf")
+    a_ok = net >= G6Q_TQ_NET_MIN and p10 > 0
+    proven = sum(1 for r in rb if r.get("fail_first") == "proven")
+    b_ok = proven >= G6Q_PROVEN_MIN
+    valid = [p for p in pairs if p["verdict"] in ("A-win", "B-win", "tie")]
+    aw, bw = sum(1 for p in valid if p["verdict"] == "A-win"), sum(1 for p in valid if p["verdict"] == "B-win")
+    c_ok = bool(valid) and bw >= aw
+    ok = cost_ok and size_ok and a_ok and b_ok and c_ok
+    ra_tok = [r["first_turn_tok"] for r in ra if r.get("first_turn_tok")]
+    rb_tok = [r["first_turn_tok"] for r in rb if r.get("first_turn_tok")]
+    ratio = f"{statistics.median(rb_tok) / statistics.median(ra_tok):.2f}" if ra_tok and rb_tok else "n/a"
+    return (PASS if ok else FAIL), (
+        f"G6-Q cost: sum of task medians A=${sum_a:.2f} B=${sum_b:.2f} ratio={sum_b / sum_a if sum_a else float('nan'):.3f} "
+        f"(<= {G6Q_COST_RATIO}; failed without cost={missing or 'none'}) ok={cost_ok}; "
+        f"size {size} B (<= {G6Q_MAX_BYTES}) ok={size_ok}; "
+        f"better (a) test_quality net={net:+d} of {n} (>= {G6Q_TQ_NET_MIN:+d} of {G6Q_TQ_EXPECTED}), "
+        f"clustered p10={p10:+.1f} (> 0) ok={a_ok}; (b) fail_first proven B={proven} (>= {G6Q_PROVEN_MIN}) ok={b_ok}; "
+        f"(c) pairs A-win={aw} B-win={bw} (B >= A) ok={c_ok}; "
+        f"G6 first-turn ratio {ratio} (printed, not gating)")
 
 
 def _mean(xs: List[Any]) -> str:
@@ -378,8 +514,10 @@ def g3_applicable(rows: List[Dict[str, Any]], matches: List[Dict[str, Any]]) -> 
 
 
 def role_gates(role: str, rows: List[Dict[str, Any]], pairs: List[Dict[str, Any]], judgments: List[Dict[str, Any]],
-               matches: List[Dict[str, Any]], a: str, b: str) -> Dict[str, Tuple[str, str]]:
-    """Gate results for one role from that role's rows only; gates outside the role's policy are N/A."""
+               matches: List[Dict[str, Any]], a: str, b: str,
+               g6q_draft: Optional[Path] = None) -> Dict[str, Tuple[str, str]]:
+    """Gate results for one role from that role's rows only; gates outside the role's policy are N/A. With
+    `g6q_draft`, G6 is replaced by G6-Q for the executor role (RULING-executor-d.md R1)."""
     tasks = sorted({r["task_id"] for r in rows})
     pol = role_policy(role, len(tasks))
     ids = {r["run_id"] for r in rows}
@@ -405,7 +543,10 @@ def role_gates(role: str, rows: List[Dict[str, Any]], pairs: List[Dict[str, Any]
         elif gate == "G5":
             out[gate] = g5_small(rpairs, rjudg, a, b) if pol["g5"] == "small" else g5_judged(rpairs, rjudg, a, b)
         elif gate == "G6":
-            out[gate] = g6_abs(rows, a, b) if pol["g6"] == "abs8k" else g6_value(rows, a, b)
+            if g6q_draft is not None and role == "executor":
+                out[gate] = g6_quality(rows, rpairs, rjudg, a, b, g6q_draft)
+            else:
+                out[gate] = g6_abs(rows, a, b) if pol["g6"] == "abs8k" else g6_value(rows, a, b)
     return out
 
 
@@ -424,6 +565,8 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--variant-a", default="A")
     ap.add_argument("--variant-b", default="B")
     ap.add_argument("--role", action="append", default=None, help="limit to these roles (repeatable)")
+    ap.add_argument("--g6q-draft", type=Path, default=None,
+                    help="agent draft file under test: replaces G6 by G6-Q for the executor role (ruling R1)")
     ap.add_argument("--supersede", nargs="+", metavar="RUN_ID", help="mark runs superseded (needs --reason)")
     ap.add_argument("--reason", default="")
     args = ap.parse_args(argv)
@@ -451,7 +594,7 @@ def main(argv: List[str]) -> int:
     decisions: Dict[str, Any] = {}
     for role in roles:
         rrows = [r for r in rows if r["role"] == role]
-        gates = role_gates(role, rrows, pairs, judgments, matches, a, b)
+        gates = role_gates(role, rrows, pairs, judgments, matches, a, b, args.g6q_draft)
         verdict = role_decision(gates)
         tasks = sorted({r["task_id"] for r in rrows})
         decisions[role] = {"decision": verdict, "accepted": verdict == "SHIP B", "tasks": tasks,
