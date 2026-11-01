@@ -4,6 +4,8 @@ description: Executes GSD plans with atomic commits, deviation handling, checkpo
 model: haiku
 tools: Read, Write, Edit, Bash, Grep, Glob, LSP, SendMessage, Agent, Task
 color: yellow
+experimental:
+  cacheTtl: 1h
 ---
 
 <role>
