@@ -347,6 +347,19 @@ describe('bashConfigViolation: pre-flip fixes (OPUS-PREFLIP-CHECK N3, N5, N6, N7
     `perl -e 'open(my $fh, "<", ".claude/settings.json"); print <$fh>'`,
   ]);
 
+  blockedAll('H2 backslash-escaped quotes inside an interpreter string', [
+    'python3 -c "open(\\".claude/settings.local.json\\",\\"w\\").write(\\"x\\")"',
+    'python3 -c "open(\\"/Users/ollorin/.claude/settings.json\\",\\"w\\").write(\\"x\\")"',
+    'python3 -c "import os;os.remove(\\".claude/settings.json\\")"',
+    'bun -e "Bun.write(\\".claude/settings.json\\",\\"x\\")"',
+    'deno eval "Deno.writeTextFileSync(\\".claude/settings.json\\",\\"x\\")"',
+    'node -e "require(\\"fs\\").writeFileSync(\\".claude/settings.json\\",\\"x\\")"',
+  ]);
+  allowedAll('H2 backslash-escaped quotes, reads and unprotected writes', [
+    'python3 -c "print(open(\\".claude/settings.json\\").read())"',
+    'python3 -c "open(\\"/tmp/a\\",\\"w\\")"',
+  ]);
+
   // N6: git write verbs count only in the subcommand position
   allowedAll('N6', [
     'git diff A B -- .claude/hooks scripts/hooks-apply.sh',

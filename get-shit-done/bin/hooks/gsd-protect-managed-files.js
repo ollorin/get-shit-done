@@ -348,7 +348,7 @@ function bashConfigViolation(command, cwd) {
     if (flipRunsForReal(seg)) return 'runs flip.sh --apply/--rollback (only a person in a terminal may switch hooks on or off)';
   }
   // Interpreter one-liners and heredocs span ';' and newlines, so check each interpreter command as a whole region.
-  const regions = interpreterRegions(command);
+  const regions = interpreterRegions(command).map(r => r.replace(/\\(["'])/g, '$1'));
   const assigned = ASSIGN_PROTECTED_RE.test(command);
   if (regions.some(r => (assigned || CONFIG_MENTION_RE.test(r)) && scriptWriteNearMention(r, CONFIG_MENTION_RE, assigned))) {
     return 'writes a protected path from a script';
