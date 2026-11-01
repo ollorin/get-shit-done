@@ -29,4 +29,5 @@
 | 2026-11-02 | Round-5 Opus ruling on high-stakes loops agreed in principle, pending what rounds 6+ found | CEO | `experiments/13-review-rounds/` |
 | 2026-11-02 | Measure test redundancy by mutation before deleting any test | CEO | `experiments/12-test-redundancy/` |
 | 2026-11-02 | Fable is not used, including as an A/B judge; a second opinion is a fresh Opus. Replaces the earlier allowance. Fable judgments already in `RESULTS-X0-X1.md` stay as a record | CEO | n/a |
+| 2026-11-02 | Round-5 Opus ruling on high-stakes loops applied | CEO condition met by `experiments/13-review-rounds/RESULT.md` | `docs/v2/CHANGES.md` |
 
