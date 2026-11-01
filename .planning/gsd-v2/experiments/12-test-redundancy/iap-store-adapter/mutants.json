@@ -1,0 +1,177 @@
+[
+ {
+  "id": "M001",
+  "file": "apps/api/functions/payments/services/iap-store-adapter.ts",
+  "test": "apps/api/functions/payments/services/iap-store-adapter.test.ts",
+  "old": "  typeof value === 'string' && (STORES as readonly string[]).includes(value);",
+  "new": "  typeof value !== 'string' && (STORES as readonly string[]).includes(value);"
+ },
+ {
+  "id": "M002",
+  "file": "apps/api/functions/payments/services/iap-store-adapter.ts",
+  "test": "apps/api/functions/payments/services/iap-store-adapter.test.ts",
+  "old": "  typeof value === 'string' && (STORES as readonly string[]).includes(value);",
+  "new": "  typeof value === 'string' || (STORES as readonly string[]).includes(value);"
+ },
+ {
+  "id": "M003",
+  "file": "apps/api/functions/payments/services/iap-store-adapter.ts",
+  "test": "apps/api/functions/payments/services/iap-store-adapter.test.ts",
+  "old": "  ({ _tag: 'StoreAdapterError', code, retryable: code === 'STORE_UNAVAILABLE' });",
+  "new": "  ({ _tag: 'StoreAdapterError', code, retryable: code !== 'STORE_UNAVAILABLE' });"
+ },
+ {
+  "id": "M004",
+  "file": "apps/api/functions/payments/services/iap-store-adapter.ts",
+  "test": "apps/api/functions/payments/services/iap-store-adapter.test.ts",
+  "old": "    input: GetTransactionInput,",
+  "new": "    input: undefined as never,"
+ },
+ {
+  "id": "M005",
+  "file": "apps/api/functions/payments/services/iap-store-adapter.ts",
+  "test": "apps/api/functions/payments/services/iap-store-adapter.test.ts",
+  "old": "  get: (key: string) => string | undefined = Deno.env.get,",
+  "new": "  get: undefined as never,"
+ },
+ {
+  "id": "M006",
+  "file": "apps/api/functions/payments/services/iap-store-adapter.ts",
+  "test": "apps/api/functions/payments/services/iap-store-adapter.test.ts",
+  "old": "): boolean => get('NODE_ENV') === 'production' || get('DENO_ENV') === 'production';",
+  "new": "): boolean => get('NODE_ENV') !== 'production' || get('DENO_ENV') === 'production';"
+ },
+ {
+  "id": "M007",
+  "file": "apps/api/functions/payments/services/iap-store-adapter.ts",
+  "test": "apps/api/functions/payments/services/iap-store-adapter.test.ts",
+  "old": "): boolean => get('NODE_ENV') === 'production' || get('DENO_ENV') === 'production';",
+  "new": "): boolean => get('NODE_ENV') === 'production' || get('DENO_ENV') !== 'production';"
+ },
+ {
+  "id": "M008",
+  "file": "apps/api/functions/payments/services/iap-store-adapter.ts",
+  "test": "apps/api/functions/payments/services/iap-store-adapter.test.ts",
+  "old": "): boolean => get('NODE_ENV') === 'production' || get('DENO_ENV') === 'production';",
+  "new": "): boolean => get('NODE_ENV') === 'production' && get('DENO_ENV') === 'production';"
+ },
+ {
+  "id": "M009",
+  "file": "apps/api/functions/payments/services/iap-store-adapter.ts",
+  "test": "apps/api/functions/payments/services/iap-store-adapter.test.ts",
+  "old": "  adapterId: 'unconfigured',",
+  "new": "  adapterId: undefined as never,"
+ },
+ {
+  "id": "M010",
+  "file": "apps/api/functions/payments/services/iap-store-adapter.ts",
+  "test": "apps/api/functions/payments/services/iap-store-adapter.test.ts",
+  "old": "  verifyPurchase: () => errAsync(storeAdapterError('STORE_UNAVAILABLE')),",
+  "new": "  verifyPurchase: undefined as never,"
+ },
+ {
+  "id": "M011",
+  "file": "apps/api/functions/payments/services/iap-store-adapter.ts",
+  "test": "apps/api/functions/payments/services/iap-store-adapter.test.ts",
+  "old": "  getTransaction: () => errAsync(storeAdapterError('STORE_UNAVAILABLE')),",
+  "new": "  getTransaction: undefined as never,"
+ },
+ {
+  "id": "M012",
+  "file": "apps/api/functions/payments/services/iap-store-adapter.ts",
+  "test": "apps/api/functions/payments/services/iap-store-adapter.test.ts",
+  "old": "    console.error('[iap-store-adapter] alert transport failed:', cause);",
+  "new": ""
+ },
+ {
+  "id": "M013",
+  "file": "apps/api/functions/payments/services/iap-store-adapter.ts",
+  "test": "apps/api/functions/payments/services/iap-store-adapter.test.ts",
+  "old": "    console.error('[iap-store-adapter] alert transport failed:', cause);",
+  "new": "    console.error('', cause);"
+ },
+ {
+  "id": "M014",
+  "file": "apps/api/functions/payments/services/iap-store-adapter.ts",
+  "test": "apps/api/functions/payments/services/iap-store-adapter.test.ts",
+  "old": "    return null;",
+  "new": "    return undefined as never;"
+ },
+ {
+  "id": "M015",
+  "file": "apps/api/functions/payments/services/iap-store-adapter.ts",
+  "test": "apps/api/functions/payments/services/iap-store-adapter.test.ts",
+  "old": "    .with(true, () => {",
+  "new": "    .with(false, () => {"
+ },
+ {
+  "id": "M016",
+  "file": "apps/api/functions/payments/services/iap-store-adapter.ts",
+  "test": "apps/api/functions/payments/services/iap-store-adapter.test.ts",
+  "old": "        endpoint: 'payments/iap',",
+  "new": "        endpoint: undefined as never,"
+ },
+ {
+  "id": "M017",
+  "file": "apps/api/functions/payments/services/iap-store-adapter.ts",
+  "test": "apps/api/functions/payments/services/iap-store-adapter.test.ts",
+  "old": "        error_type: 'iap_store_adapter_unconfigured',",
+  "new": "        error_type: undefined as never,"
+ },
+ {
+  "id": "M018",
+  "file": "apps/api/functions/payments/services/iap-store-adapter.ts",
+  "test": "apps/api/functions/payments/services/iap-store-adapter.test.ts",
+  "old": "        severity_tier: 'critical',",
+  "new": "        severity_tier: undefined as never,"
+ },
+ {
+  "id": "M019",
+  "file": "apps/api/functions/payments/services/iap-store-adapter.ts",
+  "test": "apps/api/functions/payments/services/iap-store-adapter.test.ts",
+  "old": "        error_count: 1,",
+  "new": "        error_count: 2,"
+ },
+ {
+  "id": "M020",
+  "file": "apps/api/functions/payments/services/iap-store-adapter.ts",
+  "test": "apps/api/functions/payments/services/iap-store-adapter.test.ts",
+  "old": "        error_count: 1,",
+  "new": "        error_count: undefined as never,"
+ },
+ {
+  "id": "M021",
+  "file": "apps/api/functions/payments/services/iap-store-adapter.ts",
+  "test": "apps/api/functions/payments/services/iap-store-adapter.test.ts",
+  "old": "        window_minutes: 5,",
+  "new": "        window_minutes: 6,"
+ },
+ {
+  "id": "M022",
+  "file": "apps/api/functions/payments/services/iap-store-adapter.ts",
+  "test": "apps/api/functions/payments/services/iap-store-adapter.test.ts",
+  "old": "        window_minutes: 5,",
+  "new": "        window_minutes: undefined as never,"
+ },
+ {
+  "id": "M023",
+  "file": "apps/api/functions/payments/services/iap-store-adapter.ts",
+  "test": "apps/api/functions/payments/services/iap-store-adapter.test.ts",
+  "old": "          'No Apple/Google store client is configured: every IAP verification returns 503 IAP_STORE_UNAVAILABLE.',",
+  "new": "          '',"
+ },
+ {
+  "id": "M024",
+  "file": "apps/api/functions/payments/services/iap-store-adapter.ts",
+  "test": "apps/api/functions/payments/services/iap-store-adapter.test.ts",
+  "old": "      return UNCONFIGURED_STORE_ADAPTER;",
+  "new": "      return undefined as never;"
+ },
+ {
+  "id": "M025",
+  "file": "apps/api/functions/payments/services/iap-store-adapter.ts",
+  "test": "apps/api/functions/payments/services/iap-store-adapter.test.ts",
+  "old": "    .otherwise(() => createMockStoreAdapter(deps.supabase));",
+  "new": ""
+ }
+]

@@ -1,0 +1,25 @@
+case	loc	kills	unique	M001	M003	M004	M005	M013	M014	M015	M016	M017	M018	M019	M020	M021	M022	M023	M024	M025	M026	M027	M028	M029	M030	M031	M032
+BetterStackShipper ... fire-and-forget contract ... ship() returns void synchronously	5	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+BetterStackShipper ... fire-and-forget contract ... ship() is synchronous — fetch is initiated but return value is void	9	6	0	1	1	1	0	0	0	0	1	1	0	1	0	0	0	0	0	0	0	0	0	0	0	0	0
+BetterStackShipper ... graceful degradation ... does not call fetch when no source token configured	5	4	0	0	0	0	1	0	0	0	1	0	1	1	0	0	0	0	0	0	0	0	0	0	0	0	0
+BetterStackShipper ... graceful degradation ... still calls console.log when no source token	5	2	0	0	0	0	1	0	0	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+BetterStackShipper ... graceful degradation ... does not call fetch when empty string token configured	5	3	0	0	0	0	0	0	0	0	1	0	1	1	0	0	0	0	0	0	0	0	0	0	0	0	0
+BetterStackShipper ... HTTP payload shape ... calls correct Better Stack ingest URL	6	6	0	1	1	1	0	0	0	0	1	1	0	1	0	0	0	0	0	0	0	0	0	0	0	0	0
+BetterStackShipper ... HTTP payload shape ... sets correct Authorization header	6	7	1	1	1	1	0	0	0	0	1	1	0	1	0	0	0	0	0	0	0	0	0	0	1	0	0
+BetterStackShipper ... HTTP payload shape ... sets Content-Type: application/json	6	7	1	1	1	1	0	0	0	0	1	1	0	1	0	0	0	0	0	0	0	0	0	1	0	0	0
+BetterStackShipper ... HTTP payload shape ... payload body contains required structured fields	20	15	4	1	1	1	0	0	0	0	1	1	0	1	1	1	1	1	1	1	1	1	0	0	0	1	0
+BetterStackShipper ... slow_request warning ... emits level=warn and message=slow_request when duration_ms > 200	7	10	1	1	1	1	0	0	1	0	1	1	0	1	0	1	1	0	0	0	0	0	0	0	0	1	0
+BetterStackShipper ... slow_request warning ... does NOT override level for fast requests	7	9	0	1	1	1	0	0	0	0	1	1	0	1	0	1	1	0	0	0	0	0	0	0	0	1	0
+BetterStackShipper ... slow_request warning ... exactly 200ms is NOT slow (threshold is > 200, not >= 200)	7	10	1	1	1	1	0	1	0	0	1	1	0	1	0	1	1	0	0	0	0	0	0	0	0	1	0
+BetterStackShipper ... slow_request warning ... slow_request also emits via console.log	7	1	0	0	0	0	0	0	0	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+BetterStackShipper ... PII safety ... does not include email in shipped payload	7	7	0	1	1	1	0	0	0	0	1	1	0	1	0	0	0	0	0	0	0	0	0	0	0	1	0
+BetterStackShipper ... PII safety ... does not include ip_address in shipped payload	7	7	0	1	1	1	0	0	0	0	1	1	0	1	0	0	0	0	0	0	0	0	0	0	0	1	0
+BetterStackShipper ... PII safety ... does not include user_agent in shipped payload	7	7	0	1	1	1	0	0	0	0	1	1	0	1	0	0	0	0	0	0	0	0	0	0	0	1	0
+BetterStackShipper ... PII safety ... does not include token in shipped payload	7	7	0	1	1	1	0	0	0	0	1	1	0	1	0	0	0	0	0	0	0	0	0	0	0	1	0
+BetterStackShipper ... fetch failure resilience ... does not throw synchronously when fetch later rejects	11	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+BetterStackShipper ... fetch failure resilience ... logs error to console.error when fetch rejects	15	7	1	1	1	1	0	0	0	0	1	1	0	1	0	0	0	0	0	0	0	0	0	0	0	0	1
+BetterStackShipper ... multiple independent calls ... each ship() call produces a separate fetch POST	6	6	0	1	1	1	0	0	0	0	1	1	0	1	0	0	0	0	0	0	0	0	0	0	0	0	0
+BetterStackShipper ... multiple independent calls ... each call ships its own trace_id independently	9	8	0	1	1	1	0	0	0	0	1	1	0	1	0	0	0	1	0	0	0	0	0	0	0	1	0
+BetterStackShipper ... JSON serialisation ... body is valid JSON	5	7	0	1	1	1	0	0	0	0	1	1	0	1	0	0	0	0	0	0	0	0	0	0	0	1	0
+BetterStackShipper ... JSON serialisation ... dt is a valid ISO8601 timestamp	7	8	0	1	1	1	0	0	0	0	1	1	0	1	1	0	0	0	0	0	0	0	0	0	0	1	0
+BetterStackShipper ... JSON serialisation ... method is POST	5	7	1	1	1	1	0	0	0	0	1	1	0	1	0	0	0	0	0	0	0	0	1	0	0	0	0

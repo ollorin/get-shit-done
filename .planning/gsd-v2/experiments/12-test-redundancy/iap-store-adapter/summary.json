@@ -1,0 +1,388 @@
+{
+ "summary": {
+  "source": "apps/api/functions/payments/services/iap-store-adapter.ts",
+  "test": "apps/api/functions/payments/services/iap-store-adapter.test.ts",
+  "srcLoc": 120,
+  "testLoc": 480,
+  "nCases": 28,
+  "caseLocTotal": 265,
+  "baselineRunMs": 201,
+  "nMutants": 25,
+  "outcomes": {
+   "killed-typecheck": 5,
+   "killed": 16,
+   "survived": 4
+  },
+  "meanMsPerOutcome": {
+   "killed-typecheck": 583,
+   "killed": 232,
+   "survived": 200
+  },
+  "totalMutantMs": 7435,
+  "killedAttributed": 16,
+  "killedUnattributed": [],
+  "crossFiles": [],
+  "greedyCount": 4,
+  "droppableCount": 24,
+  "droppableLoc": 225,
+  "zeroKillCases": [
+   "verifyPurchase maps every field of the stored row when the token matches",
+   "verifyPurchase maps play_store rows and preserves a revoked purchase",
+   "a null app_account_token maps to null, not to an empty string",
+   "getTransaction on an unknown transaction is Ok(null), not an Err",
+   "getTransaction surfaces revoked_at as the exact ISO string",
+   "getTransaction maps revoked_at: null to null",
+   "getTransaction never compares the purchase token (no token argument exists)",
+   "the mock query is schema-qualified to payments and filtered on store + transaction_id",
+   "tokensMatch: empty-vs-empty is false (an absent receipt must not verify)",
+   "tokensMatch: one side empty is false",
+   "tokensMatch: no false positives on non-empty tokens"
+  ],
+  "zeroUniqueCases": [
+   "verifyPurchase maps every field of the stored row when the token matches",
+   "verifyPurchase maps play_store rows and preserves a revoked purchase",
+   "a null app_account_token maps to null, not to an empty string",
+   "verifyPurchase rejects a wholly wrong token as RECEIPT_INVALID (not retryable)",
+   "verifyPurchase rejects an unknown transaction (data: null) as RECEIPT_INVALID",
+   "an EMPTY presented token never verifies, whatever the stored row holds",
+   "a stored purchase_token of NULL is a failed compare, not an empty token",
+   "a token differing only in its LAST character is rejected",
+   "a token of a different LENGTH is rejected (length is folded in, not short-circuited)",
+   "a PostgREST PLAIN-OBJECT error becomes retryable STORE_UNAVAILABLE",
+   "a .schema() that THROWS synchronously yields an Err, not a rejected promise",
+   "a thenable transport that rejects becomes retryable STORE_UNAVAILABLE",
+   "getTransaction maps a transport failure to STORE_UNAVAILABLE, never to null",
+   "a THROWING alert transport still yields the unconfigured adapter",
+   "selectStoreAdapter in non-production returns the mock and fires NO alert",
+   "isProductionEnv is true for NODE_ENV=production",
+   "isProductionEnv is true for DENO_ENV=production (edge runtime)",
+   "isProductionEnv is false when both are unset and for near-miss values",
+   "getTransaction on an unknown transaction is Ok(null), not an Err",
+   "getTransaction surfaces revoked_at as the exact ISO string",
+   "getTransaction maps revoked_at: null to null",
+   "getTransaction never compares the purchase token (no token argument exists)",
+   "the mock query is schema-qualified to payments and filtered on store + transaction_id",
+   "tokensMatch: empty-vs-empty is false (an absent receipt must not verify)",
+   "tokensMatch: one side empty is false",
+   "tokensMatch: no false positives on non-empty tokens"
+  ],
+  "unmatchedLocCases": [],
+  "failingNamesNotInCaseList": [],
+  "mutateExit": 0,
+  "runInfo": {
+   "exit_code": 0,
+   "mutants": 25,
+   "baseline_before": "green",
+   "baseline_after": "green"
+  }
+ },
+ "perCase": [
+  {
+   "name": "verifyPurchase maps every field of the stored row when the token matches",
+   "kills": 0,
+   "unique": 0,
+   "loc": 7
+  },
+  {
+   "name": "verifyPurchase maps play_store rows and preserves a revoked purchase",
+   "kills": 0,
+   "unique": 0,
+   "loc": 22
+  },
+  {
+   "name": "a null app_account_token maps to null, not to an empty string",
+   "kills": 0,
+   "unique": 0,
+   "loc": 7
+  },
+  {
+   "name": "verifyPurchase rejects a wholly wrong token as RECEIPT_INVALID (not retryable)",
+   "kills": 1,
+   "unique": 0,
+   "loc": 8
+  },
+  {
+   "name": "verifyPurchase rejects an unknown transaction (data: null) as RECEIPT_INVALID",
+   "kills": 1,
+   "unique": 0,
+   "loc": 6
+  },
+  {
+   "name": "an EMPTY presented token never verifies, whatever the stored row holds",
+   "kills": 1,
+   "unique": 0,
+   "loc": 8
+  },
+  {
+   "name": "a stored purchase_token of NULL is a failed compare, not an empty token",
+   "kills": 1,
+   "unique": 0,
+   "loc": 6
+  },
+  {
+   "name": "a token differing only in its LAST character is rejected",
+   "kills": 1,
+   "unique": 0,
+   "loc": 10
+  },
+  {
+   "name": "a token of a different LENGTH is rejected (length is folded in, not short-circuited)",
+   "kills": 1,
+   "unique": 0,
+   "loc": 12
+  },
+  {
+   "name": "a PostgREST PLAIN-OBJECT error becomes retryable STORE_UNAVAILABLE",
+   "kills": 1,
+   "unique": 0,
+   "loc": 8
+  },
+  {
+   "name": "a .schema() that THROWS synchronously yields an Err, not a rejected promise",
+   "kills": 1,
+   "unique": 0,
+   "loc": 16
+  },
+  {
+   "name": "a thenable transport that rejects becomes retryable STORE_UNAVAILABLE",
+   "kills": 1,
+   "unique": 0,
+   "loc": 8
+  },
+  {
+   "name": "getTransaction maps a transport failure to STORE_UNAVAILABLE, never to null",
+   "kills": 1,
+   "unique": 0,
+   "loc": 8
+  },
+  {
+   "name": "selectStoreAdapter in production fails closed and fires EXACTLY ONE critical alert",
+   "kills": 10,
+   "unique": 6,
+   "loc": 19
+  },
+  {
+   "name": "a THROWING alert transport still yields the unconfigured adapter",
+   "kills": 4,
+   "unique": 0,
+   "loc": 21
+  },
+  {
+   "name": "selectStoreAdapter in non-production returns the mock and fires NO alert",
+   "kills": 1,
+   "unique": 0,
+   "loc": 9
+  },
+  {
+   "name": "isProductionEnv is true for NODE_ENV=production",
+   "kills": 2,
+   "unique": 0,
+   "loc": 6
+  },
+  {
+   "name": "isProductionEnv is true for DENO_ENV=production (edge runtime)",
+   "kills": 2,
+   "unique": 0,
+   "loc": 6
+  },
+  {
+   "name": "isProductionEnv is false when both are unset and for near-miss values",
+   "kills": 2,
+   "unique": 0,
+   "loc": 11
+  },
+  {
+   "name": "getTransaction on an unknown transaction is Ok(null), not an Err",
+   "kills": 0,
+   "unique": 0,
+   "loc": 7
+  },
+  {
+   "name": "getTransaction surfaces revoked_at as the exact ISO string",
+   "kills": 0,
+   "unique": 0,
+   "loc": 7
+  },
+  {
+   "name": "getTransaction maps revoked_at: null to null",
+   "kills": 0,
+   "unique": 0,
+   "loc": 7
+  },
+  {
+   "name": "getTransaction never compares the purchase token (no token argument exists)",
+   "kills": 0,
+   "unique": 0,
+   "loc": 9
+  },
+  {
+   "name": "UNCONFIGURED_STORE_ADAPTER fails closed on BOTH methods",
+   "kills": 4,
+   "unique": 2,
+   "loc": 9
+  },
+  {
+   "name": "the mock query is schema-qualified to payments and filtered on store + transaction_id",
+   "kills": 0,
+   "unique": 0,
+   "loc": 17
+  },
+  {
+   "name": "tokensMatch: empty-vs-empty is false (an absent receipt must not verify)",
+   "kills": 0,
+   "unique": 0,
+   "loc": 3
+  },
+  {
+   "name": "tokensMatch: one side empty is false",
+   "kills": 0,
+   "unique": 0,
+   "loc": 4
+  },
+  {
+   "name": "tokensMatch: no false positives on non-empty tokens",
+   "kills": 0,
+   "unique": 0,
+   "loc": 4
+  }
+ ],
+ "greedy": [
+  "selectStoreAdapter in production fails closed and fires EXACTLY ONE critical alert",
+  "UNCONFIGURED_STORE_ADAPTER fails closed on BOTH methods",
+  "isProductionEnv is true for NODE_ENV=production",
+  "isProductionEnv is true for DENO_ENV=production (edge runtime)"
+ ],
+ "droppable": [
+  "verifyPurchase maps every field of the stored row when the token matches",
+  "verifyPurchase maps play_store rows and preserves a revoked purchase",
+  "a null app_account_token maps to null, not to an empty string",
+  "verifyPurchase rejects a wholly wrong token as RECEIPT_INVALID (not retryable)",
+  "verifyPurchase rejects an unknown transaction (data: null) as RECEIPT_INVALID",
+  "an EMPTY presented token never verifies, whatever the stored row holds",
+  "a stored purchase_token of NULL is a failed compare, not an empty token",
+  "a token differing only in its LAST character is rejected",
+  "a token of a different LENGTH is rejected (length is folded in, not short-circuited)",
+  "a PostgREST PLAIN-OBJECT error becomes retryable STORE_UNAVAILABLE",
+  "a .schema() that THROWS synchronously yields an Err, not a rejected promise",
+  "a thenable transport that rejects becomes retryable STORE_UNAVAILABLE",
+  "getTransaction maps a transport failure to STORE_UNAVAILABLE, never to null",
+  "a THROWING alert transport still yields the unconfigured adapter",
+  "selectStoreAdapter in non-production returns the mock and fires NO alert",
+  "isProductionEnv is false when both are unset and for near-miss values",
+  "getTransaction on an unknown transaction is Ok(null), not an Err",
+  "getTransaction surfaces revoked_at as the exact ISO string",
+  "getTransaction maps revoked_at: null to null",
+  "getTransaction never compares the purchase token (no token argument exists)",
+  "the mock query is schema-qualified to payments and filtered on store + transaction_id",
+  "tokensMatch: empty-vs-empty is false (an absent receipt must not verify)",
+  "tokensMatch: one side empty is false",
+  "tokensMatch: no false positives on non-empty tokens"
+ ],
+ "survivors": [
+  {
+   "id": "M012",
+   "killedElsewhere": [],
+   "file": "apps/api/functions/payments/services/iap-store-adapter.ts",
+   "line": 92,
+   "op": "stmt-delete",
+   "old": "    console.error('[iap-store-adapter] alert transport failed:', cause);",
+   "new": ""
+  },
+  {
+   "id": "M013",
+   "killedElsewhere": [],
+   "file": "apps/api/functions/payments/services/iap-store-adapter.ts",
+   "line": 92,
+   "op": "str-empty",
+   "old": "    console.error('[iap-store-adapter] alert transport failed:', cause);",
+   "new": "    console.error('', cause);"
+  },
+  {
+   "id": "M014",
+   "killedElsewhere": [],
+   "file": "apps/api/functions/payments/services/iap-store-adapter.ts",
+   "line": 93,
+   "op": "return-undef",
+   "old": "    return null;",
+   "new": "    return undefined as never;"
+  },
+  {
+   "id": "M023",
+   "killedElsewhere": [],
+   "file": "apps/api/functions/payments/services/iap-store-adapter.ts",
+   "line": 115,
+   "op": "str-empty",
+   "old": "          'No Apple/Google store client is configured: every IAP verification returns 503 IAP_STORE_UNAVAILABLE.',",
+   "new": "          '',"
+  }
+ ],
+ "kills": {
+  "M003": [
+   "verifyPurchase rejects a wholly wrong token as RECEIPT_INVALID (not retryable)",
+   "verifyPurchase rejects an unknown transaction (data: null) as RECEIPT_INVALID",
+   "an EMPTY presented token never verifies, whatever the stored row holds",
+   "a stored purchase_token of NULL is a failed compare, not an empty token",
+   "a token differing only in its LAST character is rejected",
+   "a token of a different LENGTH is rejected (length is folded in, not short-circuited)",
+   "a PostgREST PLAIN-OBJECT error becomes retryable STORE_UNAVAILABLE",
+   "a .schema() that THROWS synchronously yields an Err, not a rejected promise",
+   "a thenable transport that rejects becomes retryable STORE_UNAVAILABLE",
+   "getTransaction maps a transport failure to STORE_UNAVAILABLE, never to null",
+   "UNCONFIGURED_STORE_ADAPTER fails closed on BOTH methods"
+  ],
+  "M006": [
+   "isProductionEnv is true for NODE_ENV=production",
+   "isProductionEnv is false when both are unset and for near-miss values"
+  ],
+  "M007": [
+   "isProductionEnv is true for DENO_ENV=production (edge runtime)",
+   "isProductionEnv is false when both are unset and for near-miss values"
+  ],
+  "M008": [
+   "isProductionEnv is true for NODE_ENV=production",
+   "isProductionEnv is true for DENO_ENV=production (edge runtime)"
+  ],
+  "M009": [
+   "selectStoreAdapter in production fails closed and fires EXACTLY ONE critical alert",
+   "a THROWING alert transport still yields the unconfigured adapter",
+   "UNCONFIGURED_STORE_ADAPTER fails closed on BOTH methods"
+  ],
+  "M010": [
+   "UNCONFIGURED_STORE_ADAPTER fails closed on BOTH methods"
+  ],
+  "M011": [
+   "UNCONFIGURED_STORE_ADAPTER fails closed on BOTH methods"
+  ],
+  "M015": [
+   "selectStoreAdapter in production fails closed and fires EXACTLY ONE critical alert",
+   "a THROWING alert transport still yields the unconfigured adapter",
+   "selectStoreAdapter in non-production returns the mock and fires NO alert"
+  ],
+  "M016": [
+   "selectStoreAdapter in production fails closed and fires EXACTLY ONE critical alert"
+  ],
+  "M017": [
+   "selectStoreAdapter in production fails closed and fires EXACTLY ONE critical alert",
+   "a THROWING alert transport still yields the unconfigured adapter"
+  ],
+  "M018": [
+   "selectStoreAdapter in production fails closed and fires EXACTLY ONE critical alert"
+  ],
+  "M019": [
+   "selectStoreAdapter in production fails closed and fires EXACTLY ONE critical alert"
+  ],
+  "M020": [
+   "selectStoreAdapter in production fails closed and fires EXACTLY ONE critical alert"
+  ],
+  "M021": [
+   "selectStoreAdapter in production fails closed and fires EXACTLY ONE critical alert"
+  ],
+  "M022": [
+   "selectStoreAdapter in production fails closed and fires EXACTLY ONE critical alert"
+  ],
+  "M024": [
+   "selectStoreAdapter in production fails closed and fires EXACTLY ONE critical alert",
+   "a THROWING alert transport still yields the unconfigured adapter"
+  ]
+ }
+}

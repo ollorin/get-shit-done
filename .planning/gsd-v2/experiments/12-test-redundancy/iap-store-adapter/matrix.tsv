@@ -1,0 +1,29 @@
+case	loc	kills	unique	M003	M006	M007	M008	M009	M010	M011	M015	M016	M017	M018	M019	M020	M021	M022	M024
+verifyPurchase maps every field of the stored row when the token matches	7	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+verifyPurchase maps play_store rows and preserves a revoked purchase	22	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+a null app_account_token maps to null, not to an empty string	7	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+verifyPurchase rejects a wholly wrong token as RECEIPT_INVALID (not retryable)	8	1	0	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+verifyPurchase rejects an unknown transaction (data: null) as RECEIPT_INVALID	6	1	0	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+an EMPTY presented token never verifies, whatever the stored row holds	8	1	0	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+a stored purchase_token of NULL is a failed compare, not an empty token	6	1	0	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+a token differing only in its LAST character is rejected	10	1	0	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+a token of a different LENGTH is rejected (length is folded in, not short-circuited)	12	1	0	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+a PostgREST PLAIN-OBJECT error becomes retryable STORE_UNAVAILABLE	8	1	0	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+a .schema() that THROWS synchronously yields an Err, not a rejected promise	16	1	0	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+a thenable transport that rejects becomes retryable STORE_UNAVAILABLE	8	1	0	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+getTransaction maps a transport failure to STORE_UNAVAILABLE, never to null	8	1	0	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+selectStoreAdapter in production fails closed and fires EXACTLY ONE critical alert	19	10	6	0	0	0	0	1	0	0	1	1	1	1	1	1	1	1	1
+a THROWING alert transport still yields the unconfigured adapter	21	4	0	0	0	0	0	1	0	0	1	0	1	0	0	0	0	0	1
+selectStoreAdapter in non-production returns the mock and fires NO alert	9	1	0	0	0	0	0	0	0	0	1	0	0	0	0	0	0	0	0
+isProductionEnv is true for NODE_ENV=production	6	2	0	0	1	0	1	0	0	0	0	0	0	0	0	0	0	0	0
+isProductionEnv is true for DENO_ENV=production (edge runtime)	6	2	0	0	0	1	1	0	0	0	0	0	0	0	0	0	0	0	0
+isProductionEnv is false when both are unset and for near-miss values	11	2	0	0	1	1	0	0	0	0	0	0	0	0	0	0	0	0	0
+getTransaction on an unknown transaction is Ok(null), not an Err	7	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+getTransaction surfaces revoked_at as the exact ISO string	7	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+getTransaction maps revoked_at: null to null	7	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+getTransaction never compares the purchase token (no token argument exists)	9	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+UNCONFIGURED_STORE_ADAPTER fails closed on BOTH methods	9	4	2	1	0	0	0	1	1	1	0	0	0	0	0	0	0	0	0
+the mock query is schema-qualified to payments and filtered on store + transaction_id	17	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+tokensMatch: empty-vs-empty is false (an absent receipt must not verify)	3	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+tokensMatch: one side empty is false	4	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+tokensMatch: no false positives on non-empty tokens	4	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0

@@ -1,0 +1,385 @@
+{
+ "summary": {
+  "source": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "srcLoc": 117,
+  "testLoc": 339,
+  "nCases": 17,
+  "caseLocTotal": 179,
+  "baselineRunMs": 90,
+  "nMutants": 53,
+  "outcomes": {
+   "killed-typecheck": 24,
+   "killed": 28,
+   "survived": 1
+  },
+  "meanMsPerOutcome": {
+   "killed-typecheck": 603,
+   "killed": 368,
+   "survived": 111
+  },
+  "totalMutantMs": 24877,
+  "killedAttributed": 28,
+  "killedUnattributed": [],
+  "crossFiles": [],
+  "greedyCount": 5,
+  "droppableCount": 12,
+  "droppableLoc": 130,
+  "zeroKillCases": [
+   "E8: the evaluator is pure — deterministic and non-mutating"
+  ],
+  "zeroUniqueCases": [
+   "E1: an absent row resolves to real_money [fiat] with reason absent",
+   "E1: an absent row with no fiat wagers nothing",
+   "E2: every malformed shape resolves to real_money, never a prize mode",
+   "E3: a real_money row resolves to [fiat] and never consults coins (T-382-19)",
+   "E6: empty activated_at / activated_by block sweepstakes",
+   "E6: an inactive sweepstakes row is social, not sweepstakes",
+   "E7: an NG-bound block evaluated for KE resolves to real_money binding_mismatch",
+   "E7: an empty jurisdiction never opens the gate",
+   "E9: coinCurrencies is {} for real_money and every fallback path",
+   "E9: coinCurrencies is {gold} for social and for a downgraded sweepstakes row",
+   "E9: coinCurrencies is {gold, sweeps} for a complete sweepstakes row",
+   "E8: the evaluator is pure — deterministic and non-mutating",
+   "E-389a [RED]: a javascript: rules URL resolves real_money/'malformed' with no officialRulesUrl",
+   "E-389b [regression]: the same row with an https URL still resolves sweepstakes"
+  ],
+  "unmatchedLocCases": [],
+  "failingNamesNotInCaseList": [],
+  "mutateExit": 0,
+  "runInfo": {
+   "exit_code": 0,
+   "mutants": 53,
+   "baseline_before": "green",
+   "baseline_after": "green"
+  }
+ },
+ "perCase": [
+  {
+   "name": "E1: an absent row resolves to real_money [fiat] with reason absent",
+   "kills": 6,
+   "unique": 0,
+   "loc": 8
+  },
+  {
+   "name": "E1: an absent row with no fiat wagers nothing",
+   "kills": 6,
+   "unique": 0,
+   "loc": 8
+  },
+  {
+   "name": "E2: every malformed shape resolves to real_money, never a prize mode",
+   "kills": 5,
+   "unique": 0,
+   "loc": 22
+  },
+  {
+   "name": "E3: a real_money row resolves to [fiat] and never consults coins (T-382-19)",
+   "kills": 9,
+   "unique": 0,
+   "loc": 9
+  },
+  {
+   "name": "E4: a social row resolves to the gold currency only (T-382-18)",
+   "kills": 9,
+   "unique": 3,
+   "loc": 9
+  },
+  {
+   "name": "E5: a complete sweepstakes row resolves to [gold, sweeps]",
+   "kills": 10,
+   "unique": 1,
+   "loc": 9
+  },
+  {
+   "name": "E6: each evidence field, individually empty, blocks sweepstakes (24 cases)",
+   "kills": 17,
+   "unique": 1,
+   "loc": 15
+  },
+  {
+   "name": "E6: empty activated_at / activated_by block sweepstakes",
+   "kills": 16,
+   "unique": 0,
+   "loc": 10
+  },
+  {
+   "name": "E6: an inactive sweepstakes row is social, not sweepstakes",
+   "kills": 9,
+   "unique": 0,
+   "loc": 15
+  },
+  {
+   "name": "E7: an NG-bound block evaluated for KE resolves to real_money binding_mismatch",
+   "kills": 10,
+   "unique": 0,
+   "loc": 8
+  },
+  {
+   "name": "E7: an empty jurisdiction never opens the gate",
+   "kills": 6,
+   "unique": 0,
+   "loc": 7
+  },
+  {
+   "name": "E9: coinCurrencies is {} for real_money and every fallback path",
+   "kills": 5,
+   "unique": 0,
+   "loc": 10
+  },
+  {
+   "name": "E9: coinCurrencies is {gold} for social and for a downgraded sweepstakes row",
+   "kills": 6,
+   "unique": 0,
+   "loc": 10
+  },
+  {
+   "name": "E9: coinCurrencies is {gold, sweeps} for a complete sweepstakes row",
+   "kills": 7,
+   "unique": 0,
+   "loc": 6
+  },
+  {
+   "name": "E8: the evaluator is pure — deterministic and non-mutating",
+   "kills": 0,
+   "unique": 0,
+   "loc": 18
+  },
+  {
+   "name": "E-389a [RED]: a javascript: rules URL resolves real_money/'malformed' with no officialRulesUrl",
+   "kills": 4,
+   "unique": 0,
+   "loc": 10
+  },
+  {
+   "name": "E-389b [regression]: the same row with an https URL still resolves sweepstakes",
+   "kills": 9,
+   "unique": 0,
+   "loc": 5
+  }
+ ],
+ "greedy": [
+  "E6: each evidence field, individually empty, blocks sweepstakes (24 cases)",
+  "E5: a complete sweepstakes row resolves to [gold, sweeps]",
+  "E7: an NG-bound block evaluated for KE resolves to real_money binding_mismatch",
+  "E4: a social row resolves to the gold currency only (T-382-18)",
+  "E1: an absent row resolves to real_money [fiat] with reason absent"
+ ],
+ "droppable": [
+  "E1: an absent row with no fiat wagers nothing",
+  "E2: every malformed shape resolves to real_money, never a prize mode",
+  "E3: a real_money row resolves to [fiat] and never consults coins (T-382-19)",
+  "E6: empty activated_at / activated_by block sweepstakes",
+  "E6: an inactive sweepstakes row is social, not sweepstakes",
+  "E7: an empty jurisdiction never opens the gate",
+  "E9: coinCurrencies is {} for real_money and every fallback path",
+  "E9: coinCurrencies is {gold} for social and for a downgraded sweepstakes row",
+  "E9: coinCurrencies is {gold, sweeps} for a complete sweepstakes row",
+  "E8: the evaluator is pure — deterministic and non-mutating",
+  "E-389a [RED]: a javascript: rules URL resolves real_money/'malformed' with no officialRulesUrl",
+  "E-389b [regression]: the same row with an https URL still resolves sweepstakes"
+ ],
+ "survivors": [
+  {
+   "id": "M004",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+   "line": 46,
+   "op": "num+1",
+   "old": "const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;",
+   "new": "const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 1;"
+  }
+ ],
+ "kills": {
+  "M003": [
+   "E6: each evidence field, individually empty, blocks sweepstakes (24 cases)",
+   "E6: empty activated_at / activated_by block sweepstakes"
+  ],
+  "M009": [
+   "E1: an absent row resolves to real_money [fiat] with reason absent",
+   "E1: an absent row with no fiat wagers nothing",
+   "E2: every malformed shape resolves to real_money, never a prize mode",
+   "E3: a real_money row resolves to [fiat] and never consults coins (T-382-19)",
+   "E6: each evidence field, individually empty, blocks sweepstakes (24 cases)",
+   "E6: empty activated_at / activated_by block sweepstakes",
+   "E7: an NG-bound block evaluated for KE resolves to real_money binding_mismatch",
+   "E7: an empty jurisdiction never opens the gate",
+   "E-389a [RED]: a javascript: rules URL resolves real_money/'malformed' with no officialRulesUrl"
+  ],
+  "M011": [
+   "E1: an absent row resolves to real_money [fiat] with reason absent",
+   "E1: an absent row with no fiat wagers nothing",
+   "E2: every malformed shape resolves to real_money, never a prize mode",
+   "E3: a real_money row resolves to [fiat] and never consults coins (T-382-19)",
+   "E6: each evidence field, individually empty, blocks sweepstakes (24 cases)",
+   "E6: empty activated_at / activated_by block sweepstakes",
+   "E7: an NG-bound block evaluated for KE resolves to real_money binding_mismatch"
+  ],
+  "M012": [
+   "E1: an absent row resolves to real_money [fiat] with reason absent",
+   "E1: an absent row with no fiat wagers nothing",
+   "E2: every malformed shape resolves to real_money, never a prize mode",
+   "E3: a real_money row resolves to [fiat] and never consults coins (T-382-19)",
+   "E6: each evidence field, individually empty, blocks sweepstakes (24 cases)",
+   "E6: empty activated_at / activated_by block sweepstakes",
+   "E7: an NG-bound block evaluated for KE resolves to real_money binding_mismatch",
+   "E-389a [RED]: a javascript: rules URL resolves real_money/'malformed' with no officialRulesUrl"
+  ],
+  "M013": [
+   "E1: an absent row resolves to real_money [fiat] with reason absent",
+   "E1: an absent row with no fiat wagers nothing",
+   "E2: every malformed shape resolves to real_money, never a prize mode",
+   "E3: a real_money row resolves to [fiat] and never consults coins (T-382-19)",
+   "E4: a social row resolves to the gold currency only (T-382-18)",
+   "E5: a complete sweepstakes row resolves to [gold, sweeps]",
+   "E6: each evidence field, individually empty, blocks sweepstakes (24 cases)",
+   "E6: empty activated_at / activated_by block sweepstakes",
+   "E6: an inactive sweepstakes row is social, not sweepstakes",
+   "E7: an NG-bound block evaluated for KE resolves to real_money binding_mismatch",
+   "E7: an empty jurisdiction never opens the gate",
+   "E9: coinCurrencies is {gold} for social and for a downgraded sweepstakes row",
+   "E9: coinCurrencies is {gold, sweeps} for a complete sweepstakes row",
+   "E-389a [RED]: a javascript: rules URL resolves real_money/'malformed' with no officialRulesUrl",
+   "E-389b [regression]: the same row with an https URL still resolves sweepstakes"
+  ],
+  "M015": [
+   "E1: an absent row resolves to real_money [fiat] with reason absent",
+   "E1: an absent row with no fiat wagers nothing"
+  ],
+  "M016": [
+   "E1: an absent row resolves to real_money [fiat] with reason absent",
+   "E1: an absent row with no fiat wagers nothing",
+   "E2: every malformed shape resolves to real_money, never a prize mode",
+   "E3: a real_money row resolves to [fiat] and never consults coins (T-382-19)",
+   "E4: a social row resolves to the gold currency only (T-382-18)",
+   "E5: a complete sweepstakes row resolves to [gold, sweeps]",
+   "E6: each evidence field, individually empty, blocks sweepstakes (24 cases)",
+   "E6: empty activated_at / activated_by block sweepstakes",
+   "E6: an inactive sweepstakes row is social, not sweepstakes",
+   "E7: an NG-bound block evaluated for KE resolves to real_money binding_mismatch",
+   "E7: an empty jurisdiction never opens the gate",
+   "E9: coinCurrencies is {gold} for social and for a downgraded sweepstakes row",
+   "E9: coinCurrencies is {gold, sweeps} for a complete sweepstakes row",
+   "E-389a [RED]: a javascript: rules URL resolves real_money/'malformed' with no officialRulesUrl",
+   "E-389b [regression]: the same row with an https URL still resolves sweepstakes"
+  ],
+  "M021": [
+   "E3: a real_money row resolves to [fiat] and never consults coins (T-382-19)",
+   "E4: a social row resolves to the gold currency only (T-382-18)",
+   "E5: a complete sweepstakes row resolves to [gold, sweeps]",
+   "E6: each evidence field, individually empty, blocks sweepstakes (24 cases)",
+   "E6: empty activated_at / activated_by block sweepstakes",
+   "E6: an inactive sweepstakes row is social, not sweepstakes",
+   "E7: an NG-bound block evaluated for KE resolves to real_money binding_mismatch",
+   "E9: coinCurrencies is {} for real_money and every fallback path",
+   "E9: coinCurrencies is {gold} for social and for a downgraded sweepstakes row",
+   "E9: coinCurrencies is {gold, sweeps} for a complete sweepstakes row",
+   "E-389b [regression]: the same row with an https URL still resolves sweepstakes"
+  ],
+  "M022": [
+   "E7: an NG-bound block evaluated for KE resolves to real_money binding_mismatch",
+   "E9: coinCurrencies is {} for real_money and every fallback path"
+  ],
+  "M023": [
+   "E3: a real_money row resolves to [fiat] and never consults coins (T-382-19)",
+   "E4: a social row resolves to the gold currency only (T-382-18)",
+   "E5: a complete sweepstakes row resolves to [gold, sweeps]",
+   "E6: each evidence field, individually empty, blocks sweepstakes (24 cases)",
+   "E6: empty activated_at / activated_by block sweepstakes",
+   "E6: an inactive sweepstakes row is social, not sweepstakes",
+   "E9: coinCurrencies is {gold} for social and for a downgraded sweepstakes row",
+   "E9: coinCurrencies is {gold, sweeps} for a complete sweepstakes row",
+   "E-389b [regression]: the same row with an https URL still resolves sweepstakes"
+  ],
+  "M024": [
+   "E3: a real_money row resolves to [fiat] and never consults coins (T-382-19)",
+   "E4: a social row resolves to the gold currency only (T-382-18)",
+   "E5: a complete sweepstakes row resolves to [gold, sweeps]",
+   "E6: each evidence field, individually empty, blocks sweepstakes (24 cases)",
+   "E6: empty activated_at / activated_by block sweepstakes",
+   "E6: an inactive sweepstakes row is social, not sweepstakes",
+   "E9: coinCurrencies is {gold} for social and for a downgraded sweepstakes row",
+   "E9: coinCurrencies is {gold, sweeps} for a complete sweepstakes row",
+   "E-389b [regression]: the same row with an https URL still resolves sweepstakes"
+  ],
+  "M025": [
+   "E7: an NG-bound block evaluated for KE resolves to real_money binding_mismatch",
+   "E7: an empty jurisdiction never opens the gate",
+   "E9: coinCurrencies is {} for real_money and every fallback path"
+  ],
+  "M026": [
+   "E3: a real_money row resolves to [fiat] and never consults coins (T-382-19)",
+   "E4: a social row resolves to the gold currency only (T-382-18)",
+   "E5: a complete sweepstakes row resolves to [gold, sweeps]",
+   "E6: each evidence field, individually empty, blocks sweepstakes (24 cases)",
+   "E6: empty activated_at / activated_by block sweepstakes",
+   "E6: an inactive sweepstakes row is social, not sweepstakes",
+   "E7: an NG-bound block evaluated for KE resolves to real_money binding_mismatch",
+   "E7: an empty jurisdiction never opens the gate",
+   "E9: coinCurrencies is {} for real_money and every fallback path",
+   "E9: coinCurrencies is {gold} for social and for a downgraded sweepstakes row",
+   "E9: coinCurrencies is {gold, sweeps} for a complete sweepstakes row",
+   "E-389b [regression]: the same row with an https URL still resolves sweepstakes"
+  ],
+  "M027": [
+   "E7: an NG-bound block evaluated for KE resolves to real_money binding_mismatch",
+   "E7: an empty jurisdiction never opens the gate",
+   "E9: coinCurrencies is {} for real_money and every fallback path"
+  ],
+  "M032": [
+   "E4: a social row resolves to the gold currency only (T-382-18)"
+  ],
+  "M033": [
+   "E4: a social row resolves to the gold currency only (T-382-18)"
+  ],
+  "M034": [
+   "E4: a social row resolves to the gold currency only (T-382-18)"
+  ],
+  "M041": [
+   "E5: a complete sweepstakes row resolves to [gold, sweeps]",
+   "E9: coinCurrencies is {gold, sweeps} for a complete sweepstakes row",
+   "E-389b [regression]: the same row with an https URL still resolves sweepstakes"
+  ],
+  "M042": [
+   "E6: each evidence field, individually empty, blocks sweepstakes (24 cases)",
+   "E6: empty activated_at / activated_by block sweepstakes"
+  ],
+  "M043": [
+   "E6: each evidence field, individually empty, blocks sweepstakes (24 cases)",
+   "E6: empty activated_at / activated_by block sweepstakes"
+  ],
+  "M044": [
+   "E6: each evidence field, individually empty, blocks sweepstakes (24 cases)"
+  ],
+  "M045": [
+   "E6: each evidence field, individually empty, blocks sweepstakes (24 cases)",
+   "E6: empty activated_at / activated_by block sweepstakes"
+  ],
+  "M047": [
+   "E5: a complete sweepstakes row resolves to [gold, sweeps]",
+   "E-389b [regression]: the same row with an https URL still resolves sweepstakes"
+  ],
+  "M048": [
+   "E5: a complete sweepstakes row resolves to [gold, sweeps]"
+  ],
+  "M049": [
+   "E5: a complete sweepstakes row resolves to [gold, sweeps]",
+   "E-389b [regression]: the same row with an https URL still resolves sweepstakes"
+  ],
+  "M050": [
+   "E6: each evidence field, individually empty, blocks sweepstakes (24 cases)",
+   "E6: empty activated_at / activated_by block sweepstakes",
+   "E6: an inactive sweepstakes row is social, not sweepstakes"
+  ],
+  "M051": [
+   "E6: each evidence field, individually empty, blocks sweepstakes (24 cases)",
+   "E6: empty activated_at / activated_by block sweepstakes",
+   "E6: an inactive sweepstakes row is social, not sweepstakes"
+  ],
+  "M052": [
+   "E6: each evidence field, individually empty, blocks sweepstakes (24 cases)",
+   "E6: empty activated_at / activated_by block sweepstakes",
+   "E6: an inactive sweepstakes row is social, not sweepstakes"
+  ]
+ }
+}

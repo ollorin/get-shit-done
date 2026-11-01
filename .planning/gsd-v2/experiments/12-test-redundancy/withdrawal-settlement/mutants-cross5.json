@@ -1,0 +1,1990 @@
+[
+ {
+  "id": "M001",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "const errorMessage = (error: unknown): string => {\n  if (typeof error === \"object\" && error !== null) {",
+  "new": "const errorMessage = (error: unknown): string => {\n  if (typeof error !== \"object\" && error !== null) {"
+ },
+ {
+  "id": "M003",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "const errorMessage = (error: unknown): string => {\n  if (typeof error === \"object\" && error !== null) {",
+  "new": "const errorMessage = (error: unknown): string => {\n  if (typeof error === \"object\" || error !== null) {"
+ },
+ {
+  "id": "M004",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "const errorMessage = (error: unknown): string => {\n  if (typeof error === \"object\" && error !== null) {",
+  "new": "const errorMessage = (error: unknown): string => {\n  if (true) {"
+ },
+ {
+  "id": "M006",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "const errorMessage = (error: unknown): string => {\n  if (typeof error === \"object\" && error !== null) {",
+  "new": "const errorMessage = (error: unknown): string => {\n  if (!(typeof error === \"object\" && error !== null)) {"
+ },
+ {
+  "id": "M011",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  return String(error);",
+  "new": "  return undefined as never;"
+ },
+ {
+  "id": "M012",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "const errorCode = (error: unknown): string => {\n  if (typeof error === \"object\" && error !== null) {",
+  "new": "const errorCode = (error: unknown): string => {\n  if (typeof error !== \"object\" && error !== null) {"
+ },
+ {
+  "id": "M014",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "const errorCode = (error: unknown): string => {\n  if (typeof error === \"object\" && error !== null) {",
+  "new": "const errorCode = (error: unknown): string => {\n  if (typeof error === \"object\" || error !== null) {"
+ },
+ {
+  "id": "M015",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "const errorCode = (error: unknown): string => {\n  if (typeof error === \"object\" && error !== null) {",
+  "new": "const errorCode = (error: unknown): string => {\n  if (true) {"
+ },
+ {
+  "id": "M017",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "const errorCode = (error: unknown): string => {\n  if (typeof error === \"object\" && error !== null) {",
+  "new": "const errorCode = (error: unknown): string => {\n  if (!(typeof error === \"object\" && error !== null)) {"
+ },
+ {
+  "id": "M022",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  return \"\";",
+  "new": "  return undefined as never;"
+ },
+ {
+  "id": "M027",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        p_tx: transactionId,",
+  "new": "        p_tx: undefined as never,"
+ },
+ {
+  "id": "M028",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        p_expected_player: expectedPlayerId,",
+  "new": "        p_expected_player: undefined as never,"
+ },
+ {
+  "id": "M029",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        p_updated_by: operatorId === \"\" ? null : operatorId,",
+  "new": "        p_updated_by: operatorId !== \"\" ? null : operatorId,"
+ },
+ {
+  "id": "M030",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        p_updated_by: operatorId === \"\" ? null : operatorId,",
+  "new": "        p_updated_by: undefined as never,"
+ },
+ {
+  "id": "M031",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      if (error === null || error === undefined) return { tag: \"settled\" };",
+  "new": "      if (error !== null || error === undefined) return { tag: \"settled\" };"
+ },
+ {
+  "id": "M032",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      if (error === null || error === undefined) return { tag: \"settled\" };",
+  "new": "      if (error === null || error !== undefined) return { tag: \"settled\" };"
+ },
+ {
+  "id": "M033",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      if (error === null || error === undefined) return { tag: \"settled\" };",
+  "new": "      if (error === null && error === undefined) return { tag: \"settled\" };"
+ },
+ {
+  "id": "M035",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      if (error === null || error === undefined) return { tag: \"settled\" };",
+  "new": "      if (false) return { tag: \"settled\" };"
+ },
+ {
+  "id": "M036",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      if (error === null || error === undefined) return { tag: \"settled\" };",
+  "new": "      if (!(error === null || error === undefined)) return { tag: \"settled\" };"
+ },
+ {
+  "id": "M038",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "          tag: \"refused\",",
+  "new": "          tag: undefined as never,"
+ },
+ {
+  "id": "M039",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "          refusal: mapped.value.refusal,",
+  "new": "          refusal: undefined as never,"
+ },
+ {
+  "id": "M040",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "          notPendingStatus: mapped.value.notPendingStatus,",
+  "new": "          notPendingStatus: undefined as never,"
+ },
+ {
+  "id": "M041",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        tag: \"transport\",",
+  "new": "        tag: undefined as never,"
+ },
+ {
+  "id": "M042",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        message: e.message,",
+  "new": "        message: undefined as never,"
+ },
+ {
+  "id": "M055",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  if (transactionId === null || transactionId.trim() === \"\") {",
+  "new": "  if (transactionId === null || transactionId.trim() !== \"\") {"
+ },
+ {
+  "id": "M060",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      tag: \"INVALID_TX_ID\",",
+  "new": "      tag: undefined as never,"
+ },
+ {
+  "id": "M061",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        \"the claimed withdrawal session has no linked wallet transaction\",",
+  "new": "        \"\","
+ },
+ {
+  "id": "M066",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        return holdForReconciliation(claimed, settled.message);",
+  "new": "        return undefined as never;"
+ },
+ {
+  "id": "M070",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    \"[withdrawal-settlement] CRITICAL: the settlement RPC did not resolve; the session stays `processing` for reconciliation\",",
+  "new": "    \"\","
+ },
+ {
+  "id": "M071",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    outcome: \"transport_error\",",
+  "new": "    outcome: undefined as never,"
+ },
+ {
+  "id": "M075",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  const sessionStatus = refused.notPendingStatus === COMPLETED",
+  "new": "  const sessionStatus = refused.notPendingStatus !== COMPLETED"
+ },
+ {
+  "id": "M076",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    outcome: \"refused\",",
+  "new": "    outcome: undefined as never,"
+ },
+ {
+  "id": "M077",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    refusal: refused.refusal,",
+  "new": "    refusal: undefined as never,"
+ },
+ {
+  "id": "M078",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    notPendingStatus: refused.notPendingStatus,",
+  "new": "    notPendingStatus: undefined as never,"
+ },
+ {
+  "id": "M080",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    httpStatus: 409,",
+  "new": "    httpStatus: undefined as never,"
+ },
+ {
+  "id": "M087",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        playerId: claimed.player_id,",
+  "new": "        playerId: undefined as never,"
+ },
+ {
+  "id": "M088",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        amount: claimed.amount,",
+  "new": "        amount: undefined as never,"
+ },
+ {
+  "id": "M089",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        currency: claimed.currency,",
+  "new": "        currency: undefined as never,"
+ },
+ {
+  "id": "M091",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        destinationAccount: claimed.processor_session_id ?? \"\",",
+  "new": "        destinationAccount: undefined as never,"
+ },
+ {
+  "id": "M092",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        idempotencyKey: `approve:${claimed.id}`,",
+  "new": "        idempotencyKey: undefined as never,"
+ },
+ {
+  "id": "M096",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    \"[withdrawal-settlement] CRITICAL: the payout outcome is unknown; NO reversal is issued and the session stays `processing` for reconciliation\",",
+  "new": "    \"\","
+ },
+ {
+  "id": "M097",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    outcome: \"payout_ambiguous\",",
+  "new": "    outcome: undefined as never,"
+ },
+ {
+  "id": "M101",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      final.outcome === \"transitioned\"",
+  "new": "      final.outcome !== \"transitioned\""
+ },
+ {
+  "id": "M102",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "          outcome: \"settled\",",
+  "new": "          outcome: undefined as never,"
+ },
+ {
+  "id": "M103",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "            sessionId: claimed.id,",
+  "new": "            sessionId: undefined as never,"
+ },
+ {
+  "id": "M104",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "          return { outcome: \"diverged\", observedStatus } as const;",
+  "new": "          return undefined as never;"
+ },
+ {
+  "id": "M108",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      reversal.outcome === \"not_found\"",
+  "new": "      reversal.outcome !== \"not_found\""
+ },
+ {
+  "id": "M109",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "            tag: \"REVERSAL_FAILED\",",
+  "new": "            tag: undefined as never,"
+ },
+ {
+  "id": "M110",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "            message: \"no completed withdrawal to reverse\",",
+  "new": "            message: undefined as never,"
+ },
+ {
+  "id": "M111",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "            message: \"no completed withdrawal to reverse\",",
+  "new": "            message: \"\","
+ },
+ {
+  "id": "M115",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    \"[withdrawal-settlement] CRITICAL: the reversal for a failed withdrawal payout did not succeed — the session stays `processing` for reconciliation\",",
+  "new": "    \"\","
+ },
+ {
+  "id": "M116",
+  "file": "apps/api/functions/payments/services/withdrawal-settlement.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    outcome: \"payout_failed\",",
+  "new": "    outcome: undefined as never,"
+ },
+ {
+  "id": "M117",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  \"id, player_id, payment_method_id, processor_id, amount, currency, idempotency_key, \" +",
+  "new": "  \"\" +"
+ },
+ {
+  "id": "M118",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  \"status, session_type, processor_session_id, processor_redirect_url, is_test, \" +",
+  "new": "  \"\" +"
+ },
+ {
+  "id": "M119",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  \"transaction_id, created_at, updated_at\";",
+  "new": "  \"\";"
+ },
+ {
+  "id": "M121",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  e instanceof Error ? e.message : typeof e === \"string\" ? e : \"unknown error\";",
+  "new": "  e instanceof Error ? e.message : typeof e === \"string\" ? e : \"\";"
+ },
+ {
+  "id": "M122",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  tag: \"DATABASE_ERROR\",",
+  "new": "  tag: undefined as never,"
+ },
+ {
+  "id": "M123",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  message: messageOf(e),",
+  "new": "  message: undefined as never,"
+ },
+ {
+  "id": "M125",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "): v is { readonly isErr: () => true; readonly error: unknown } =>",
+  "new": "): v is { readonly isErr: () => false; readonly error: unknown } =>"
+ },
+ {
+  "id": "M126",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "): v is { readonly isErr: () => true; readonly error: unknown } =>\n  typeof v === \"object\" && v !== null &&",
+  "new": "): v is { readonly isErr: () => true; readonly error: unknown } =>\n  typeof v !== \"object\" && v !== null &&"
+ },
+ {
+  "id": "M128",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "): v is { readonly isErr: () => true; readonly error: unknown } =>\n  typeof v === \"object\" && v !== null &&",
+  "new": "): v is { readonly isErr: () => true; readonly error: unknown } =>\n  typeof v === \"object\" || v !== null &&"
+ },
+ {
+  "id": "M129",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "): v is { readonly isErr: () => true; readonly error: unknown } =>\n  typeof v === \"object\" && v !== null &&",
+  "new": "): v is { readonly isErr: () => true; readonly error: unknown } =>\n  typeof v === \"object\" && v !== null ||"
+ },
+ {
+  "id": "M130",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  typeof (v as { readonly isErr?: unknown }).isErr === \"function\" &&",
+  "new": "  typeof (v as { readonly isErr?: unknown }).isErr !== \"function\" &&"
+ },
+ {
+  "id": "M131",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  typeof (v as { readonly isErr?: unknown }).isErr === \"function\" &&",
+  "new": "  typeof (v as { readonly isErr?: unknown }).isErr === \"function\" ||"
+ },
+ {
+  "id": "M132",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  (v as { readonly isErr: () => boolean }).isErr() === true;",
+  "new": "  (v as { readonly isErr: () => boolean }).isErr() !== true;"
+ },
+ {
+  "id": "M133",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  (v as { readonly isErr: () => boolean }).isErr() === true;",
+  "new": "  (v as { readonly isErr: () => boolean }).isErr() === false;"
+ },
+ {
+  "id": "M136",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "): v is { readonly isOk: () => true; readonly value: unknown } =>",
+  "new": "): v is { readonly isOk: () => false; readonly value: unknown } =>"
+ },
+ {
+  "id": "M137",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "): v is { readonly isOk: () => true; readonly value: unknown } =>\n  typeof v === \"object\" && v !== null &&",
+  "new": "): v is { readonly isOk: () => true; readonly value: unknown } =>\n  typeof v !== \"object\" && v !== null &&"
+ },
+ {
+  "id": "M139",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "): v is { readonly isOk: () => true; readonly value: unknown } =>\n  typeof v === \"object\" && v !== null &&",
+  "new": "): v is { readonly isOk: () => true; readonly value: unknown } =>\n  typeof v === \"object\" || v !== null &&"
+ },
+ {
+  "id": "M140",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "): v is { readonly isOk: () => true; readonly value: unknown } =>\n  typeof v === \"object\" && v !== null &&",
+  "new": "): v is { readonly isOk: () => true; readonly value: unknown } =>\n  typeof v === \"object\" && v !== null ||"
+ },
+ {
+  "id": "M141",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  typeof (v as { readonly isOk?: unknown }).isOk === \"function\" &&",
+  "new": "  typeof (v as { readonly isOk?: unknown }).isOk !== \"function\" &&"
+ },
+ {
+  "id": "M142",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  typeof (v as { readonly isOk?: unknown }).isOk === \"function\" &&",
+  "new": "  typeof (v as { readonly isOk?: unknown }).isOk === \"function\" ||"
+ },
+ {
+  "id": "M143",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  (v as { readonly isOk: () => boolean }).isOk() === true;",
+  "new": "  (v as { readonly isOk: () => boolean }).isOk() !== true;"
+ },
+ {
+  "id": "M144",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  (v as { readonly isOk: () => boolean }).isOk() === true;",
+  "new": "  (v as { readonly isOk: () => boolean }).isOk() === false;"
+ },
+ {
+  "id": "M146",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  const callThunk = typeof call === \"function\"",
+  "new": "  const callThunk = typeof call !== \"function\""
+ },
+ {
+  "id": "M147",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  typeof e === \"object\" && e !== null &&",
+  "new": "  typeof e !== \"object\" && e !== null &&"
+ },
+ {
+  "id": "M149",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  typeof e === \"object\" && e !== null &&",
+  "new": "  typeof e === \"object\" || e !== null &&"
+ },
+ {
+  "id": "M150",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  typeof e === \"object\" && e !== null &&",
+  "new": "  typeof e === \"object\" && e !== null ||"
+ },
+ {
+  "id": "M151",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  typeof (e as { tag?: unknown }).tag === \"string\";",
+  "new": "  typeof (e as { tag?: unknown }).tag !== \"string\";"
+ },
+ {
+  "id": "M157",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      return branch.isOk() ? branch.value : await Promise.reject(branch.error);",
+  "new": "      return undefined as never;"
+ },
+ {
+  "id": "M161",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  return trimmed === \"\"",
+  "new": "  return trimmed !== \"\""
+ },
+ {
+  "id": "M163",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  const text = typeof message === \"string\" ? message : \"\";",
+  "new": "  const text = typeof message !== \"string\" ? message : \"\";"
+ },
+ {
+  "id": "M164",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  if (text.includes(\"WITHDRAWAL_TX_OWNER_MISMATCH\")) {",
+  "new": "  if (true) {"
+ },
+ {
+  "id": "M165",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  if (text.includes(\"WITHDRAWAL_TX_OWNER_MISMATCH\")) {",
+  "new": "  if (false) {"
+ },
+ {
+  "id": "M166",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  if (text.includes(\"WITHDRAWAL_TX_OWNER_MISMATCH\")) {",
+  "new": "  if (!(text.includes(\"WITHDRAWAL_TX_OWNER_MISMATCH\"))) {"
+ },
+ {
+  "id": "M167",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      refusal: \"WITHDRAWAL_TX_OWNER_MISMATCH\",",
+  "new": "      refusal: undefined as never,"
+ },
+ {
+  "id": "M168",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      refusal: \"WITHDRAWAL_TX_OWNER_MISMATCH\",\n      notPendingStatus: null,",
+  "new": "      refusal: \"WITHDRAWAL_TX_OWNER_MISMATCH\",\n      notPendingStatus: undefined as never,"
+ },
+ {
+  "id": "M169",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  if (text.includes(\"WITHDRAWAL_TX_TYPE_MISMATCH\")) {",
+  "new": "  if (true) {"
+ },
+ {
+  "id": "M170",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  if (text.includes(\"WITHDRAWAL_TX_TYPE_MISMATCH\")) {",
+  "new": "  if (false) {"
+ },
+ {
+  "id": "M171",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  if (text.includes(\"WITHDRAWAL_TX_TYPE_MISMATCH\")) {",
+  "new": "  if (!(text.includes(\"WITHDRAWAL_TX_TYPE_MISMATCH\"))) {"
+ },
+ {
+  "id": "M172",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      refusal: \"WITHDRAWAL_TX_TYPE_MISMATCH\",",
+  "new": "      refusal: undefined as never,"
+ },
+ {
+  "id": "M173",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      refusal: \"WITHDRAWAL_TX_TYPE_MISMATCH\",\n      notPendingStatus: null,",
+  "new": "      refusal: \"WITHDRAWAL_TX_TYPE_MISMATCH\",\n      notPendingStatus: undefined as never,"
+ },
+ {
+  "id": "M174",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  if (text.includes(\"WITHDRAWAL_TX_NOT_FOUND\")) {",
+  "new": "  if (true) {"
+ },
+ {
+  "id": "M175",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  if (text.includes(\"WITHDRAWAL_TX_NOT_FOUND\")) {",
+  "new": "  if (false) {"
+ },
+ {
+  "id": "M176",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  if (text.includes(\"WITHDRAWAL_TX_NOT_FOUND\")) {",
+  "new": "  if (!(text.includes(\"WITHDRAWAL_TX_NOT_FOUND\"))) {"
+ },
+ {
+  "id": "M177",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    return ok({ refusal: \"WITHDRAWAL_TX_NOT_FOUND\", notPendingStatus: null });",
+  "new": "    return undefined as never;"
+ },
+ {
+  "id": "M178",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  if (text.includes(\"WITHDRAWAL_TX_NOT_PENDING\")) {",
+  "new": "  if (true) {"
+ },
+ {
+  "id": "M179",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  if (text.includes(\"WITHDRAWAL_TX_NOT_PENDING\")) {",
+  "new": "  if (false) {"
+ },
+ {
+  "id": "M180",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  if (text.includes(\"WITHDRAWAL_TX_NOT_PENDING\")) {",
+  "new": "  if (!(text.includes(\"WITHDRAWAL_TX_NOT_PENDING\"))) {"
+ },
+ {
+  "id": "M181",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      .replace(/^[:\\s]+/, \"\") || null;",
+  "new": "      .replace(/^[:\\s]+/, \"\") && null;"
+ },
+ {
+  "id": "M182",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      refusal: \"WITHDRAWAL_TX_NOT_PENDING\",",
+  "new": "      refusal: undefined as never,"
+ },
+ {
+  "id": "M183",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      notPendingStatus: status,",
+  "new": "      notPendingStatus: undefined as never,"
+ },
+ {
+  "id": "M184",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  return err(\"UNRECOGNISED_REFUSAL\");",
+  "new": "  return undefined as never;"
+ },
+ {
+  "id": "M185",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  TX_OWNER_MISMATCH: \"WITHDRAWAL_TX_OWNER_MISMATCH\",",
+  "new": "  TX_OWNER_MISMATCH: undefined as never,"
+ },
+ {
+  "id": "M186",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  TX_TYPE_MISMATCH: \"WITHDRAWAL_TX_TYPE_MISMATCH\",",
+  "new": "  TX_TYPE_MISMATCH: undefined as never,"
+ },
+ {
+  "id": "M187",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  TX_NOT_FOUND: \"WITHDRAWAL_TX_NOT_FOUND\",",
+  "new": "  TX_NOT_FOUND: undefined as never,"
+ },
+ {
+  "id": "M188",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  TX_NOT_PENDING: \"WITHDRAWAL_TX_NOT_PENDING\",",
+  "new": "  TX_NOT_PENDING: undefined as never,"
+ },
+ {
+  "id": "M191",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "): string | null => refusal === \"WITHDRAWAL_TX_NOT_PENDING\" ? status : null;",
+  "new": "): string | null => refusal !== \"WITHDRAWAL_TX_NOT_PENDING\" ? status : null;"
+ },
+ {
+  "id": "M193",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  id: String(row[\"id\"] ?? \"\"),",
+  "new": "  id: String(row[\"id\"] ),"
+ },
+ {
+  "id": "M194",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  id: String(row[\"id\"] ?? \"\"),",
+  "new": "  id: undefined as never,"
+ },
+ {
+  "id": "M195",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  player_id: String(row[\"player_id\"] ?? \"\"),",
+  "new": "  player_id: String(row[\"player_id\"] ),"
+ },
+ {
+  "id": "M196",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  player_id: String(row[\"player_id\"] ?? \"\"),",
+  "new": "  player_id: undefined as never,"
+ },
+ {
+  "id": "M197",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  payment_method_id: String(row[\"payment_method_id\"] ?? \"\"),",
+  "new": "  payment_method_id: String(row[\"payment_method_id\"] ),"
+ },
+ {
+  "id": "M198",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  payment_method_id: String(row[\"payment_method_id\"] ?? \"\"),",
+  "new": "  payment_method_id: undefined as never,"
+ },
+ {
+  "id": "M199",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  processor_id: String(row[\"processor_id\"] ?? \"\"),",
+  "new": "  processor_id: String(row[\"processor_id\"] ),"
+ },
+ {
+  "id": "M200",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  processor_id: String(row[\"processor_id\"] ?? \"\"),",
+  "new": "  processor_id: undefined as never,"
+ },
+ {
+  "id": "M201",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  amount: Number(row[\"amount\"] ?? 0),",
+  "new": "  amount: Number(row[\"amount\"] ?? 1),"
+ },
+ {
+  "id": "M202",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  amount: Number(row[\"amount\"] ?? 0),",
+  "new": "  amount: Number(row[\"amount\"] ),"
+ },
+ {
+  "id": "M203",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  amount: Number(row[\"amount\"] ?? 0),",
+  "new": "  amount: undefined as never,"
+ },
+ {
+  "id": "M204",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  currency: String(row[\"currency\"] ?? \"\"),",
+  "new": "  currency: String(row[\"currency\"] ),"
+ },
+ {
+  "id": "M205",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  currency: String(row[\"currency\"] ?? \"\"),",
+  "new": "  currency: undefined as never,"
+ },
+ {
+  "id": "M206",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  idempotency_key: String(row[\"idempotency_key\"] ?? \"\"),",
+  "new": "  idempotency_key: String(row[\"idempotency_key\"] ),"
+ },
+ {
+  "id": "M207",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  idempotency_key: String(row[\"idempotency_key\"] ?? \"\"),",
+  "new": "  idempotency_key: undefined as never,"
+ },
+ {
+  "id": "M208",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  status: String(row[\"status\"] ?? \"\"),",
+  "new": "  status: String(row[\"status\"] ),"
+ },
+ {
+  "id": "M209",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  status: String(row[\"status\"] ?? \"\"),",
+  "new": "  status: undefined as never,"
+ },
+ {
+  "id": "M210",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  session_type: String(row[\"session_type\"] ?? \"\"),",
+  "new": "  session_type: String(row[\"session_type\"] ),"
+ },
+ {
+  "id": "M211",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  session_type: String(row[\"session_type\"] ?? \"\"),",
+  "new": "  session_type: undefined as never,"
+ },
+ {
+  "id": "M212",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  processor_session_id: row[\"processor_session_id\"] === null ||",
+  "new": "  processor_session_id: row[\"processor_session_id\"] !== null ||"
+ },
+ {
+  "id": "M213",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  processor_session_id: row[\"processor_session_id\"] === null ||",
+  "new": "  processor_session_id: row[\"processor_session_id\"] === null &&"
+ },
+ {
+  "id": "M214",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      row[\"processor_session_id\"] === undefined",
+  "new": "      row[\"processor_session_id\"] !== undefined"
+ },
+ {
+  "id": "M215",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  processor_redirect_url: row[\"processor_redirect_url\"] === null ||",
+  "new": "  processor_redirect_url: row[\"processor_redirect_url\"] !== null ||"
+ },
+ {
+  "id": "M216",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  processor_redirect_url: row[\"processor_redirect_url\"] === null ||",
+  "new": "  processor_redirect_url: row[\"processor_redirect_url\"] === null &&"
+ },
+ {
+  "id": "M217",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      row[\"processor_redirect_url\"] === undefined",
+  "new": "      row[\"processor_redirect_url\"] !== undefined"
+ },
+ {
+  "id": "M218",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  is_test: row[\"is_test\"] === true,",
+  "new": "  is_test: row[\"is_test\"] !== true,"
+ },
+ {
+  "id": "M219",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  is_test: row[\"is_test\"] === true,",
+  "new": "  is_test: row[\"is_test\"] === false,"
+ },
+ {
+  "id": "M220",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  is_test: row[\"is_test\"] === true,",
+  "new": "  is_test: undefined as never,"
+ },
+ {
+  "id": "M221",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    row[\"transaction_id\"] === null || row[\"transaction_id\"] === undefined",
+  "new": "    row[\"transaction_id\"] !== null || row[\"transaction_id\"] === undefined"
+ },
+ {
+  "id": "M222",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    row[\"transaction_id\"] === null || row[\"transaction_id\"] === undefined",
+  "new": "    row[\"transaction_id\"] === null || row[\"transaction_id\"] !== undefined"
+ },
+ {
+  "id": "M223",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    row[\"transaction_id\"] === null || row[\"transaction_id\"] === undefined",
+  "new": "    row[\"transaction_id\"] === null && row[\"transaction_id\"] === undefined"
+ },
+ {
+  "id": "M224",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  created_at: String(row[\"created_at\"] ?? \"\"),",
+  "new": "  created_at: String(row[\"created_at\"] ),"
+ },
+ {
+  "id": "M225",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  created_at: String(row[\"created_at\"] ?? \"\"),",
+  "new": "  created_at: undefined as never,"
+ },
+ {
+  "id": "M226",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  updated_at: String(row[\"updated_at\"] ?? \"\"),",
+  "new": "  updated_at: String(row[\"updated_at\"] ),"
+ },
+ {
+  "id": "M227",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  updated_at: String(row[\"updated_at\"] ?? \"\"),",
+  "new": "  updated_at: undefined as never,"
+ },
+ {
+  "id": "M233",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (error !== null && error !== undefined) {\n      return errAsync<WithdrawalSessionTransition, SettlementError>(",
+  "new": "    if (error === null && error !== undefined) {\n      return errAsync<WithdrawalSessionTransition, SettlementError>("
+ },
+ {
+  "id": "M234",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (error !== null && error !== undefined) {\n      return errAsync<WithdrawalSessionTransition, SettlementError>(",
+  "new": "    if (error !== null && error === undefined) {\n      return errAsync<WithdrawalSessionTransition, SettlementError>("
+ },
+ {
+  "id": "M235",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (error !== null && error !== undefined) {\n      return errAsync<WithdrawalSessionTransition, SettlementError>(",
+  "new": "    if (error !== null || error !== undefined) {\n      return errAsync<WithdrawalSessionTransition, SettlementError>("
+ },
+ {
+  "id": "M236",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (error !== null && error !== undefined) {\n      return errAsync<WithdrawalSessionTransition, SettlementError>(",
+  "new": "    if (true) {\n      return errAsync<WithdrawalSessionTransition, SettlementError>("
+ },
+ {
+  "id": "M237",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (error !== null && error !== undefined) {\n      return errAsync<WithdrawalSessionTransition, SettlementError>(",
+  "new": "    if (false) {\n      return errAsync<WithdrawalSessionTransition, SettlementError>("
+ },
+ {
+  "id": "M238",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (error !== null && error !== undefined) {\n      return errAsync<WithdrawalSessionTransition, SettlementError>(",
+  "new": "    if (!(error !== null && error !== undefined)) {\n      return errAsync<WithdrawalSessionTransition, SettlementError>("
+ },
+ {
+  "id": "M239",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    return first === undefined",
+  "new": "    return first !== undefined"
+ },
+ {
+  "id": "M240",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        outcome: \"conflict\",",
+  "new": "        outcome: undefined as never,"
+ },
+ {
+  "id": "M241",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        outcome: \"transitioned\",",
+  "new": "        outcome: undefined as never,"
+ },
+ {
+  "id": "M242",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        session: toSnapshot(first),",
+  "new": "        session: undefined as never,"
+ },
+ {
+  "id": "M243",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "export const errorMessage = (error: unknown): string => {\n  if (typeof error === \"object\" && error !== null) {",
+  "new": "export const errorMessage = (error: unknown): string => {\n  if (typeof error !== \"object\" && error !== null) {"
+ },
+ {
+  "id": "M245",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "export const errorMessage = (error: unknown): string => {\n  if (typeof error === \"object\" && error !== null) {",
+  "new": "export const errorMessage = (error: unknown): string => {\n  if (typeof error === \"object\" || error !== null) {"
+ },
+ {
+  "id": "M246",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "export const errorMessage = (error: unknown): string => {\n  if (typeof error === \"object\" && error !== null) {",
+  "new": "export const errorMessage = (error: unknown): string => {\n  if (true) {"
+ },
+ {
+  "id": "M248",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "export const errorMessage = (error: unknown): string => {\n  if (typeof error === \"object\" && error !== null) {",
+  "new": "export const errorMessage = (error: unknown): string => {\n  if (!(typeof error === \"object\" && error !== null)) {"
+ },
+ {
+  "id": "M253",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  return String(error);",
+  "new": "  return undefined as never;"
+ },
+ {
+  "id": "M254",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "export const errorCode = (error: unknown): string => {\n  if (typeof error === \"object\" && error !== null) {",
+  "new": "export const errorCode = (error: unknown): string => {\n  if (typeof error !== \"object\" && error !== null) {"
+ },
+ {
+  "id": "M256",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "export const errorCode = (error: unknown): string => {\n  if (typeof error === \"object\" && error !== null) {",
+  "new": "export const errorCode = (error: unknown): string => {\n  if (typeof error === \"object\" || error !== null) {"
+ },
+ {
+  "id": "M257",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "export const errorCode = (error: unknown): string => {\n  if (typeof error === \"object\" && error !== null) {",
+  "new": "export const errorCode = (error: unknown): string => {\n  if (true) {"
+ },
+ {
+  "id": "M259",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "export const errorCode = (error: unknown): string => {\n  if (typeof error === \"object\" && error !== null) {",
+  "new": "export const errorCode = (error: unknown): string => {\n  if (!(typeof error === \"object\" && error !== null)) {"
+ },
+ {
+  "id": "M264",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  return \"\";",
+  "new": "  return undefined as never;"
+ },
+ {
+  "id": "M270",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        .limit(1),",
+  "new": "        .limit(2),"
+ },
+ {
+  "id": "M271",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (error !== null && error !== undefined) {\n      return okAsync<string | null, SettlementError>(null);",
+  "new": "    if (error === null && error !== undefined) {\n      return okAsync<string | null, SettlementError>(null);"
+ },
+ {
+  "id": "M272",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (error !== null && error !== undefined) {\n      return okAsync<string | null, SettlementError>(null);",
+  "new": "    if (error !== null && error === undefined) {\n      return okAsync<string | null, SettlementError>(null);"
+ },
+ {
+  "id": "M273",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (error !== null && error !== undefined) {\n      return okAsync<string | null, SettlementError>(null);",
+  "new": "    if (error !== null || error !== undefined) {\n      return okAsync<string | null, SettlementError>(null);"
+ },
+ {
+  "id": "M274",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (error !== null && error !== undefined) {\n      return okAsync<string | null, SettlementError>(null);",
+  "new": "    if (true) {\n      return okAsync<string | null, SettlementError>(null);"
+ },
+ {
+  "id": "M275",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (error !== null && error !== undefined) {\n      return okAsync<string | null, SettlementError>(null);",
+  "new": "    if (false) {\n      return okAsync<string | null, SettlementError>(null);"
+ },
+ {
+  "id": "M276",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (error !== null && error !== undefined) {\n      return okAsync<string | null, SettlementError>(null);",
+  "new": "    if (!(error !== null && error !== undefined)) {\n      return okAsync<string | null, SettlementError>(null);"
+ },
+ {
+  "id": "M277",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      return okAsync<string | null, SettlementError>(null);",
+  "new": "      return undefined as never;"
+ },
+ {
+  "id": "M278",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      first === undefined ? null : String(first[\"status\"] ?? \"\"),",
+  "new": "      first !== undefined ? null : String(first[\"status\"] ?? \"\"),"
+ },
+ {
+  "id": "M279",
+  "file": "apps/api/functions/payments/services/withdrawal-session-claim.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      first === undefined ? null : String(first[\"status\"] ?? \"\"),",
+  "new": "      first === undefined ? null : String(first[\"status\"] ),"
+ },
+ {
+  "id": "M295",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "          outcome: \"conflict\",",
+  "new": "          outcome: undefined as never,"
+ },
+ {
+  "id": "M297",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      if (transactionId === null || transactionId.trim() === \"\") {",
+  "new": "      if (transactionId === null || transactionId.trim() !== \"\") {"
+ },
+ {
+  "id": "M302",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        return releaseWithoutTransaction(client, claimed);",
+  "new": "        return undefined as never;"
+ },
+ {
+  "id": "M305",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    outcome: \"settled\",",
+  "new": "    outcome: undefined as never,"
+ },
+ {
+  "id": "M306",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    transactionId: \"\",",
+  "new": "    transactionId: undefined as never,"
+ },
+ {
+  "id": "M316",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      sessionPlayerId: claimed.player_id,",
+  "new": "      sessionPlayerId: undefined as never,"
+ },
+ {
+  "id": "M325",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      \"[withdrawal-settlement] CRITICAL: the withdrawal transaction could not be read; the session stays `processing` for reconciliation\",",
+  "new": "      \"\","
+ },
+ {
+  "id": "M326",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      {\n        sessionId: claimed.id,",
+  "new": "      {\n        sessionId: undefined as never,"
+ },
+ {
+  "id": "M327",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      outcome: \"transport_error\",",
+  "new": "      outcome: undefined as never,"
+ },
+ {
+  "id": "M329",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    outcome: \"refused\",",
+  "new": "    outcome: undefined as never,"
+ },
+ {
+  "id": "M330",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    httpStatus: outcome.httpStatus,",
+  "new": "    httpStatus: undefined as never,"
+ },
+ {
+  "id": "M341",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    claimed.processor_session_id.trim() !== \"\"",
+  "new": "    claimed.processor_session_id.trim() === \"\""
+ },
+ {
+  "id": "M342",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "          reason: processorReason,",
+  "new": "          reason: undefined as never,"
+ },
+ {
+  "id": "M343",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "          \"[withdrawal-settlement] CRITICAL: the processor cancel failed; the reserve is NOT released and the session stays `processing` for reconciliation\",",
+  "new": "          \"\","
+ },
+ {
+  "id": "M344",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "            sessionId: claimed.id,\n            processorReference,",
+  "new": "            sessionId: undefined as never,\n            processorReference,"
+ },
+ {
+  "id": "M345",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "            reason: messageOf(e),",
+  "new": "            reason: undefined as never,"
+ },
+ {
+  "id": "M346",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "          outcome: \"release_failed\",\n        });\n      },",
+  "new": "          outcome: undefined as never,\n        });\n      },"
+ },
+ {
+  "id": "M353",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        p_transaction_id: transactionId,",
+  "new": "        p_transaction_id: undefined as never,"
+ },
+ {
+  "id": "M354",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        p_new_status: walletStatus,",
+  "new": "        p_new_status: undefined as never,"
+ },
+ {
+  "id": "M355",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        p_reason: walletReason(note),",
+  "new": "        p_reason: undefined as never,"
+ },
+ {
+  "id": "M356",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      if (error !== null && error !== undefined) {",
+  "new": "      if (error === null && error !== undefined) {"
+ },
+ {
+  "id": "M357",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      if (error !== null && error !== undefined) {",
+  "new": "      if (error !== null && error === undefined) {"
+ },
+ {
+  "id": "M358",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      if (error !== null && error !== undefined) {",
+  "new": "      if (error !== null || error !== undefined) {"
+ },
+ {
+  "id": "M359",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      if (error !== null && error !== undefined) {",
+  "new": "      if (true) {"
+ },
+ {
+  "id": "M360",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      if (error !== null && error !== undefined) {",
+  "new": "      if (false) {"
+ },
+ {
+  "id": "M361",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      if (error !== null && error !== undefined) {",
+  "new": "      if (!(error !== null && error !== undefined)) {"
+ },
+ {
+  "id": "M362",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "          \"[withdrawal-settlement] CRITICAL: the reserve release failed; the session stays `processing` for reconciliation\",",
+  "new": "          \"\","
+ },
+ {
+  "id": "M363",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "            sessionId: claimed.id,\n            reason: errorMessage(error),",
+  "new": "            sessionId: undefined as never,\n            reason: errorMessage(error),"
+ },
+ {
+  "id": "M364",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "            reason: errorMessage(error),",
+  "new": "            reason: undefined as never,"
+ },
+ {
+  "id": "M365",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "          outcome: \"release_failed\",\n        });\n      }\n      return finaliseSession(client, claimed, CANCELLED)",
+  "new": "          outcome: undefined as never,\n        });\n      }\n      return finaliseSession(client, claimed, CANCELLED)"
+ },
+ {
+  "id": "M367",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        \"[withdrawal-settlement] CRITICAL: the reserve release threw; the session stays `processing` for reconciliation\",",
+  "new": "        \"\","
+ },
+ {
+  "id": "M368",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        {\n          sessionId: claimed.id,",
+  "new": "        {\n          sessionId: undefined as never,"
+ },
+ {
+  "id": "M369",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "          sessionId: claimed.id,\n          reason: messageOf(e),",
+  "new": "          sessionId: claimed.id,\n          reason: undefined as never,"
+ },
+ {
+  "id": "M370",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      return okAsync<SettlementOutcome, SettlementError>({\n        outcome: \"release_failed\",",
+  "new": "      return okAsync<SettlementOutcome, SettlementError>({\n        outcome: undefined as never,"
+ },
+ {
+  "id": "M377",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  // nothing (in flight, ambiguous, failed stamp, crashed isolate), at any age, marked or not.\n  session.processor_session_id === null ||\n    session.processor_session_id.trim() === \"\"",
+  "new": "  // nothing (in flight, ambiguous, failed stamp, crashed isolate), at any age, marked or not.\n  session.processor_session_id === null ||\n    session.processor_session_id.trim() !== \"\""
+ },
+ {
+  "id": "M378",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  // nothing (in flight, ambiguous, failed stamp, crashed isolate), at any age, marked or not.\n  session.processor_session_id === null ||\n    session.processor_session_id.trim() === \"\"\n    ? okAsync<SettlementOutcome, SettlementError>({\n      outcome: \"dispatch_unresolved\",",
+  "new": "  // nothing (in flight, ambiguous, failed stamp, crashed isolate), at any age, marked or not.\n  session.processor_session_id === null ||\n    session.processor_session_id.trim() === \"\"\n    ? okAsync<SettlementOutcome, SettlementError>({\n      outcome: undefined as never,"
+ },
+ {
+  "id": "M386",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  // must not release. Checked on the pre-claim snapshot: a stale null refuses.\n  session.processor_session_id === null ||\n    session.processor_session_id.trim() === \"\"",
+  "new": "  // must not release. Checked on the pre-claim snapshot: a stale null refuses.\n  session.processor_session_id === null ||\n    session.processor_session_id.trim() !== \"\""
+ },
+ {
+  "id": "M387",
+  "file": "apps/api/functions/payments/services/withdrawal-release.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  // must not release. Checked on the pre-claim snapshot: a stale null refuses.\n  session.processor_session_id === null ||\n    session.processor_session_id.trim() === \"\"\n    ? okAsync<SettlementOutcome, SettlementError>({\n      outcome: \"dispatch_unresolved\",",
+  "new": "  // must not release. Checked on the pre-claim snapshot: a stale null refuses.\n  session.processor_session_id === null ||\n    session.processor_session_id.trim() === \"\"\n    ? okAsync<SettlementOutcome, SettlementError>({\n      outcome: undefined as never,"
+ },
+ {
+  "id": "M388",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "const REVERSAL_COLUMNS = \"id, player_id, amount, currency, type, status\";",
+  "new": "const REVERSAL_COLUMNS = \"\";"
+ },
+ {
+  "id": "M392",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        tag: \"INVALID_TX_ID\",",
+  "new": "        tag: undefined as never,"
+ },
+ {
+  "id": "M393",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "          \"the settlement transaction id is not a UUID, so no reversal key can be built\",",
+  "new": "          \"\","
+ },
+ {
+  "id": "M396",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        .limit(1),",
+  "new": "        .limit(2),"
+ },
+ {
+  "id": "M397",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (error !== null && error !== undefined) {",
+  "new": "    if (error === null && error !== undefined) {"
+ },
+ {
+  "id": "M398",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (error !== null && error !== undefined) {",
+  "new": "    if (error !== null && error === undefined) {"
+ },
+ {
+  "id": "M399",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (error !== null && error !== undefined) {",
+  "new": "    if (error !== null || error !== undefined) {"
+ },
+ {
+  "id": "M400",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (error !== null && error !== undefined) {",
+  "new": "    if (true) {"
+ },
+ {
+  "id": "M401",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (error !== null && error !== undefined) {",
+  "new": "    if (false) {"
+ },
+ {
+  "id": "M402",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (error !== null && error !== undefined) {",
+  "new": "    if (!(error !== null && error !== undefined)) {"
+ },
+ {
+  "id": "M403",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        tag: \"REVERSAL_FAILED\",",
+  "new": "        tag: undefined as never,"
+ },
+ {
+  "id": "M404",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        message: errorMessage(error),",
+  "new": "        message: undefined as never,"
+ },
+ {
+  "id": "M405",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (first === undefined) {",
+  "new": "    if (first !== undefined) {"
+ },
+ {
+  "id": "M406",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (first === undefined) {",
+  "new": "    if (true) {"
+ },
+ {
+  "id": "M407",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (first === undefined) {",
+  "new": "    if (false) {"
+ },
+ {
+  "id": "M408",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (first === undefined) {",
+  "new": "    if (!(first === undefined)) {"
+ },
+ {
+  "id": "M409",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (first === undefined) {\n      return okAsync<ReversibleWithdrawal | null, SettlementError>(null);",
+  "new": "    if (first === undefined) {\n      return undefined as never;"
+ },
+ {
+  "id": "M410",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      first[\"type\"] !== WITHDRAWAL_TYPE || first[\"status\"] !== COMPLETED_STATUS",
+  "new": "      first[\"type\"] === WITHDRAWAL_TYPE || first[\"status\"] !== COMPLETED_STATUS"
+ },
+ {
+  "id": "M411",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      first[\"type\"] !== WITHDRAWAL_TYPE || first[\"status\"] !== COMPLETED_STATUS",
+  "new": "      first[\"type\"] !== WITHDRAWAL_TYPE || first[\"status\"] === COMPLETED_STATUS"
+ },
+ {
+  "id": "M412",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      first[\"type\"] !== WITHDRAWAL_TYPE || first[\"status\"] !== COMPLETED_STATUS",
+  "new": "      first[\"type\"] !== WITHDRAWAL_TYPE && first[\"status\"] !== COMPLETED_STATUS"
+ },
+ {
+  "id": "M413",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    ) {\n      return okAsync<ReversibleWithdrawal | null, SettlementError>(null);",
+  "new": "    ) {\n      return undefined as never;"
+ },
+ {
+  "id": "M414",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      playerId: String(first[\"player_id\"] ?? \"\"),",
+  "new": "      playerId: String(first[\"player_id\"] ),"
+ },
+ {
+  "id": "M415",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      playerId: String(first[\"player_id\"] ?? \"\"),",
+  "new": "      playerId: undefined as never,"
+ },
+ {
+  "id": "M416",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      amount: Number(first[\"amount\"] ?? 0),",
+  "new": "      amount: Number(first[\"amount\"] ?? 1),"
+ },
+ {
+  "id": "M417",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      amount: Number(first[\"amount\"] ?? 0),",
+  "new": "      amount: Number(first[\"amount\"] ),"
+ },
+ {
+  "id": "M418",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      amount: Number(first[\"amount\"] ?? 0),",
+  "new": "      amount: undefined as never,"
+ },
+ {
+  "id": "M419",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      currency: String(first[\"currency\"] ?? \"\"),",
+  "new": "      currency: String(first[\"currency\"] ),"
+ },
+ {
+  "id": "M420",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      currency: String(first[\"currency\"] ?? \"\"),",
+  "new": "      currency: undefined as never,"
+ },
+ {
+  "id": "M425",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        p_player_id: row.playerId,",
+  "new": "        p_player_id: undefined as never,"
+ },
+ {
+  "id": "M426",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        p_amount: row.amount,",
+  "new": "        p_amount: undefined as never,"
+ },
+ {
+  "id": "M427",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        p_currency: row.currency,",
+  "new": "        p_currency: undefined as never,"
+ },
+ {
+  "id": "M428",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        p_type: \"reversal\",",
+  "new": "        p_type: undefined as never,"
+ },
+ {
+  "id": "M429",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        p_related_tx_id: transactionId,",
+  "new": "        p_related_tx_id: undefined as never,"
+ },
+ {
+  "id": "M430",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        p_idempotency_key: key,",
+  "new": "        p_idempotency_key: undefined as never,"
+ },
+ {
+  "id": "M431",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (error === null || error === undefined) {",
+  "new": "    if (error !== null || error === undefined) {"
+ },
+ {
+  "id": "M432",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (error === null || error === undefined) {",
+  "new": "    if (error === null || error !== undefined) {"
+ },
+ {
+  "id": "M433",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (error === null || error === undefined) {",
+  "new": "    if (error === null && error === undefined) {"
+ },
+ {
+  "id": "M434",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (error === null || error === undefined) {",
+  "new": "    if (true) {"
+ },
+ {
+  "id": "M435",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (error === null || error === undefined) {",
+  "new": "    if (false) {"
+ },
+ {
+  "id": "M436",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (error === null || error === undefined) {",
+  "new": "    if (!(error === null || error === undefined)) {"
+ },
+ {
+  "id": "M437",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        outcome: \"reversed\",",
+  "new": "        outcome: undefined as never,"
+ },
+ {
+  "id": "M438",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (errorCode(error) === UNIQUE_VIOLATION) {",
+  "new": "    if (errorCode(error) !== UNIQUE_VIOLATION) {"
+ },
+ {
+  "id": "M439",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (errorCode(error) === UNIQUE_VIOLATION) {",
+  "new": "    if (true) {"
+ },
+ {
+  "id": "M440",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (errorCode(error) === UNIQUE_VIOLATION) {",
+  "new": "    if (false) {"
+ },
+ {
+  "id": "M441",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    if (errorCode(error) === UNIQUE_VIOLATION) {",
+  "new": "    if (!(errorCode(error) === UNIQUE_VIOLATION)) {"
+ },
+ {
+  "id": "M442",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "        outcome: \"already_reversed\",",
+  "new": "        outcome: undefined as never,"
+ },
+ {
+  "id": "M443",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "    return errAsync<ReverseOutcome, SettlementError>({\n      tag: \"REVERSAL_FAILED\",",
+  "new": "    return errAsync<ReverseOutcome, SettlementError>({\n      tag: undefined as never,"
+ },
+ {
+  "id": "M444",
+  "file": "apps/api/functions/payments/services/withdrawal-reversal.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "      tag: \"REVERSAL_FAILED\",\n      message: errorMessage(error),",
+  "new": "      tag: \"REVERSAL_FAILED\",\n      message: undefined as never,"
+ },
+ {
+  "id": "M448",
+  "file": "apps/api/functions/payments/services/payout-error-classification.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "export const refundablePayoutError = (error: unknown): boolean => {\n  if (typeof error !== 'object' || error === null) return false;",
+  "new": "export const refundablePayoutError = (error: unknown): boolean => {\n  if (typeof error === 'object' || error === null) return false;"
+ },
+ {
+  "id": "M449",
+  "file": "apps/api/functions/payments/services/payout-error-classification.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "export const refundablePayoutError = (error: unknown): boolean => {\n  if (typeof error !== 'object' || error === null) return false;",
+  "new": "export const refundablePayoutError = (error: unknown): boolean => {\n  if (typeof error !== 'object' && error === null) return false;"
+ },
+ {
+  "id": "M450",
+  "file": "apps/api/functions/payments/services/payout-error-classification.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "export const refundablePayoutError = (error: unknown): boolean => {\n  if (typeof error !== 'object' || error === null) return false;",
+  "new": "export const refundablePayoutError = (error: unknown): boolean => {\n  if (typeof error !== 'object' || error === null) return true;"
+ },
+ {
+  "id": "M451",
+  "file": "apps/api/functions/payments/services/payout-error-classification.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "export const refundablePayoutError = (error: unknown): boolean => {\n  if (typeof error !== 'object' || error === null) return false;",
+  "new": "export const refundablePayoutError = (error: unknown): boolean => {\n  if (true) return false;"
+ },
+ {
+  "id": "M452",
+  "file": "apps/api/functions/payments/services/payout-error-classification.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "export const refundablePayoutError = (error: unknown): boolean => {\n  if (typeof error !== 'object' || error === null) return false;",
+  "new": "export const refundablePayoutError = (error: unknown): boolean => {\n  if (false) return false;"
+ },
+ {
+  "id": "M453",
+  "file": "apps/api/functions/payments/services/payout-error-classification.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "export const refundablePayoutError = (error: unknown): boolean => {\n  if (typeof error !== 'object' || error === null) return false;",
+  "new": "export const refundablePayoutError = (error: unknown): boolean => {\n  if (!(typeof error !== 'object' || error === null)) return false;"
+ },
+ {
+  "id": "M454",
+  "file": "apps/api/functions/payments/services/payout-error-classification.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  return refundablePayoutCode((error as Record<string, unknown>)['code']);",
+  "new": "  return undefined as never;"
+ },
+ {
+  "id": "M456",
+  "file": "apps/api/functions/payments/services/payout-error-classification.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "export const definitiveProcessorDecline = (error: unknown): boolean => {\n  if (typeof error !== 'object' || error === null) return false;",
+  "new": "export const definitiveProcessorDecline = (error: unknown): boolean => {\n  if (typeof error === 'object' || error === null) return false;"
+ },
+ {
+  "id": "M457",
+  "file": "apps/api/functions/payments/services/payout-error-classification.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "export const definitiveProcessorDecline = (error: unknown): boolean => {\n  if (typeof error !== 'object' || error === null) return false;",
+  "new": "export const definitiveProcessorDecline = (error: unknown): boolean => {\n  if (typeof error !== 'object' && error === null) return false;"
+ },
+ {
+  "id": "M458",
+  "file": "apps/api/functions/payments/services/payout-error-classification.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "export const definitiveProcessorDecline = (error: unknown): boolean => {\n  if (typeof error !== 'object' || error === null) return false;",
+  "new": "export const definitiveProcessorDecline = (error: unknown): boolean => {\n  if (typeof error !== 'object' || error === null) return true;"
+ },
+ {
+  "id": "M460",
+  "file": "apps/api/functions/payments/services/payout-error-classification.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "export const definitiveProcessorDecline = (error: unknown): boolean => {\n  if (typeof error !== 'object' || error === null) return false;",
+  "new": "export const definitiveProcessorDecline = (error: unknown): boolean => {\n  if (false) return false;"
+ },
+ {
+  "id": "M461",
+  "file": "apps/api/functions/payments/services/payout-error-classification.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "export const definitiveProcessorDecline = (error: unknown): boolean => {\n  if (typeof error !== 'object' || error === null) return false;",
+  "new": "export const definitiveProcessorDecline = (error: unknown): boolean => {\n  if (!(typeof error !== 'object' || error === null)) return false;"
+ },
+ {
+  "id": "M462",
+  "file": "apps/api/functions/payments/services/payout-error-classification.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  if (record['_tag'] !== 'ProcessorDeclinedError') return false;",
+  "new": "  if (record['_tag'] === 'ProcessorDeclinedError') return false;"
+ },
+ {
+  "id": "M463",
+  "file": "apps/api/functions/payments/services/payout-error-classification.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  if (record['_tag'] !== 'ProcessorDeclinedError') return false;",
+  "new": "  if (record['_tag'] !== 'ProcessorDeclinedError') return true;"
+ },
+ {
+  "id": "M465",
+  "file": "apps/api/functions/payments/services/payout-error-classification.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  if (record['_tag'] !== 'ProcessorDeclinedError') return false;",
+  "new": "  if (false) return false;"
+ },
+ {
+  "id": "M466",
+  "file": "apps/api/functions/payments/services/payout-error-classification.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  if (record['_tag'] !== 'ProcessorDeclinedError') return false;",
+  "new": "  if (!(record['_tag'] !== 'ProcessorDeclinedError')) return false;"
+ },
+ {
+  "id": "M468",
+  "file": "apps/api/functions/payments/services/payout-error-classification.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  if (typeof context !== 'object' || context === null) return false;",
+  "new": "  if (typeof context === 'object' || context === null) return false;"
+ },
+ {
+  "id": "M469",
+  "file": "apps/api/functions/payments/services/payout-error-classification.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  if (typeof context !== 'object' || context === null) return false;",
+  "new": "  if (typeof context !== 'object' && context === null) return false;"
+ },
+ {
+  "id": "M470",
+  "file": "apps/api/functions/payments/services/payout-error-classification.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  if (typeof context !== 'object' || context === null) return false;",
+  "new": "  if (typeof context !== 'object' || context === null) return true;"
+ },
+ {
+  "id": "M472",
+  "file": "apps/api/functions/payments/services/payout-error-classification.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  if (typeof context !== 'object' || context === null) return false;",
+  "new": "  if (false) return false;"
+ },
+ {
+  "id": "M473",
+  "file": "apps/api/functions/payments/services/payout-error-classification.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  if (typeof context !== 'object' || context === null) return false;",
+  "new": "  if (!(typeof context !== 'object' || context === null)) return false;"
+ },
+ {
+  "id": "M476",
+  "file": "apps/api/functions/payments/services/payout-error-classification.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  return Array.isArray(attempted) && attempted.length > 0 && attempted.every(refundablePayoutCode);",
+  "new": "  return Array.isArray(attempted) && attempted.length >= 0 && attempted.every(refundablePayoutCode);"
+ },
+ {
+  "id": "M477",
+  "file": "apps/api/functions/payments/services/payout-error-classification.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  return Array.isArray(attempted) && attempted.length > 0 && attempted.every(refundablePayoutCode);",
+  "new": "  return Array.isArray(attempted) && attempted.length > 1 && attempted.every(refundablePayoutCode);"
+ },
+ {
+  "id": "M478",
+  "file": "apps/api/functions/payments/services/payout-error-classification.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  return Array.isArray(attempted) && attempted.length > 0 && attempted.every(refundablePayoutCode);",
+  "new": "  return Array.isArray(attempted) && attempted.length > 0 && attempted.some(refundablePayoutCode);"
+ },
+ {
+  "id": "M479",
+  "file": "apps/api/functions/payments/services/payout-error-classification.ts",
+  "test": "apps/api/functions/payments/handlers/initiate-withdrawal.test.ts",
+  "old": "  return Array.isArray(attempted) && attempted.length > 0 && attempted.every(refundablePayoutCode);",
+  "new": "  return undefined as never;"
+ }
+]

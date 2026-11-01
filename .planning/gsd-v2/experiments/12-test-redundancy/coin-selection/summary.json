@@ -1,0 +1,446 @@
+{
+ "summary": {
+  "source": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "srcLoc": 120,
+  "testLoc": 393,
+  "nCases": 23,
+  "caseLocTotal": 182,
+  "baselineRunMs": 92,
+  "nMutants": 63,
+  "outcomes": {
+   "killed-typecheck": 26,
+   "killed": 35,
+   "survived": 2
+  },
+  "meanMsPerOutcome": {
+   "killed-typecheck": 509,
+   "killed": 504,
+   "survived": 397
+  },
+  "totalMutantMs": 31692,
+  "killedAttributed": 35,
+  "killedUnattributed": [],
+  "crossFiles": [],
+  "greedyCount": 9,
+  "droppableCount": 14,
+  "droppableLoc": 100,
+  "zeroKillCases": [
+   "C11: selectCoinCurrency is pure — frozen inputs, deterministic output",
+   "B1: selectCoinCurrency never throws for the full resolution x selector cross product",
+   "B2: coin-selection.ts source contains no supabase/fetch/Deno./Date/let/throw"
+  ],
+  "zeroUniqueCases": [
+   "C6: sweepstakes + sweeps is Ok sweeps currency, requiresRegionGate true",
+   "C6: sweepstakes + absent is Ok gold currency, no region gate",
+   "C6: sweepstakes + explicit coin:\"gold\" is Ok XGC currency, no region gate (kills gold/sweeps swap)",
+   "C7: an unsupported market still rejects an invalid coin as CoinInvalid (shape first)",
+   "C8: a coinCurrencies entry outside allowedCurrencies fails closed as CoinUnavailable",
+   "C9: pinned — a currency in allowedCurrencies is Ok, requiresRegionGate iff sweeps",
+   "C9: pinned — a currency not in allowedCurrencies, empty, or non-string is CoinUnavailable",
+   "C9: pinned fiat under real_money is Ok (the queue rows of fiat markets)",
+   "C10: property — every Ok currency is allowed, every sweeps Ok requires a region gate",
+   "C11: selectCoinCurrency is pure — frozen inputs, deterministic output",
+   "isWageringCoin accepts exactly gold/sweeps and rejects everything else",
+   "A1: prototype-pollution-shaped coin values are CoinInvalid, never coerced to a string",
+   "A2: a smuggled sweeps entry in a social resolution coinCurrencies is still rejected",
+   "A3: pinned lowercase currency against an uppercase allowlist is CoinUnavailable",
+   "B1: selectCoinCurrency never throws for the full resolution x selector cross product",
+   "B2: coin-selection.ts source contains no supabase/fetch/Deno./Date/let/throw"
+  ],
+  "unmatchedLocCases": [],
+  "failingNamesNotInCaseList": [],
+  "mutateExit": 0,
+  "runInfo": {
+   "exit_code": 0,
+   "mutants": 63,
+   "baseline_before": "green",
+   "baseline_after": "green"
+  }
+ },
+ "perCase": [
+  {
+   "name": "C1: every invalid coin shape is CoinInvalid, for every mode, null counts as present",
+   "kills": 7,
+   "unique": 1,
+   "loc": 9
+  },
+  {
+   "name": "C2: real_money + a valid coin (gold or sweeps) is CoinNotAccepted",
+   "kills": 8,
+   "unique": 2,
+   "loc": 7
+  },
+  {
+   "name": "C3: real_money + absent coin is Ok allowedCurrencies[0], coin null, no region gate",
+   "kills": 7,
+   "unique": 2,
+   "loc": 4
+  },
+  {
+   "name": "C4: social + absent or gold resolves to the gold currency, coin gold",
+   "kills": 6,
+   "unique": 1,
+   "loc": 6
+  },
+  {
+   "name": "C5: sweeps on a social (or downgraded) resolution is CoinUnavailable",
+   "kills": 7,
+   "unique": 1,
+   "loc": 7
+  },
+  {
+   "name": "C6: sweepstakes + sweeps is Ok sweeps currency, requiresRegionGate true",
+   "kills": 6,
+   "unique": 0,
+   "loc": 4
+  },
+  {
+   "name": "C6: sweepstakes + absent is Ok gold currency, no region gate",
+   "kills": 5,
+   "unique": 0,
+   "loc": 4
+  },
+  {
+   "name": "C6: sweepstakes + explicit coin:\"gold\" is Ok XGC currency, no region gate (kills gold/sweeps swap)",
+   "kills": 5,
+   "unique": 0,
+   "loc": 4
+  },
+  {
+   "name": "C7: an unsupported market is MarketUnsupported for any valid or absent coin",
+   "kills": 10,
+   "unique": 3,
+   "loc": 7
+  },
+  {
+   "name": "C7: an unsupported market still rejects an invalid coin as CoinInvalid (shape first)",
+   "kills": 6,
+   "unique": 0,
+   "loc": 4
+  },
+  {
+   "name": "C8: a coinCurrencies entry outside allowedCurrencies fails closed as CoinUnavailable",
+   "kills": 5,
+   "unique": 0,
+   "loc": 4
+  },
+  {
+   "name": "C9: pinned — a currency in allowedCurrencies is Ok, requiresRegionGate iff sweeps",
+   "kills": 6,
+   "unique": 0,
+   "loc": 7
+  },
+  {
+   "name": "C9: pinned — a currency not in allowedCurrencies, empty, or non-string is CoinUnavailable",
+   "kills": 4,
+   "unique": 0,
+   "loc": 6
+  },
+  {
+   "name": "C9: pinned fiat under real_money is Ok (the queue rows of fiat markets)",
+   "kills": 7,
+   "unique": 0,
+   "loc": 4
+  },
+  {
+   "name": "C10: property — every Ok currency is allowed, every sweeps Ok requires a region gate",
+   "kills": 7,
+   "unique": 0,
+   "loc": 19
+  },
+  {
+   "name": "C11: selectCoinCurrency is pure — frozen inputs, deterministic output",
+   "kills": 0,
+   "unique": 0,
+   "loc": 9
+  },
+  {
+   "name": "C12: rejection messages match 384-CONTEXT.md <specifics> byte-for-byte",
+   "kills": 15,
+   "unique": 6,
+   "loc": 19
+  },
+  {
+   "name": "isWageringCoin accepts exactly gold/sweeps and rejects everything else",
+   "kills": 1,
+   "unique": 0,
+   "loc": 7
+  },
+  {
+   "name": "A1: prototype-pollution-shaped coin values are CoinInvalid, never coerced to a string",
+   "kills": 6,
+   "unique": 0,
+   "loc": 12
+  },
+  {
+   "name": "A2: a smuggled sweeps entry in a social resolution coinCurrencies is still rejected",
+   "kills": 5,
+   "unique": 0,
+   "loc": 10
+  },
+  {
+   "name": "A3: pinned lowercase currency against an uppercase allowlist is CoinUnavailable",
+   "kills": 3,
+   "unique": 0,
+   "loc": 10
+  },
+  {
+   "name": "B1: selectCoinCurrency never throws for the full resolution x selector cross product",
+   "kills": 0,
+   "unique": 0,
+   "loc": 13
+  },
+  {
+   "name": "B2: coin-selection.ts source contains no supabase/fetch/Deno./Date/let/throw",
+   "kills": 0,
+   "unique": 0,
+   "loc": 6
+  }
+ ],
+ "greedy": [
+  "C12: rejection messages match 384-CONTEXT.md <specifics> byte-for-byte",
+  "C10: property — every Ok currency is allowed, every sweeps Ok requires a region gate",
+  "C7: an unsupported market is MarketUnsupported for any valid or absent coin",
+  "C3: real_money + absent coin is Ok allowedCurrencies[0], coin null, no region gate",
+  "C9: pinned fiat under real_money is Ok (the queue rows of fiat markets)",
+  "C2: real_money + a valid coin (gold or sweeps) is CoinNotAccepted",
+  "C5: sweeps on a social (or downgraded) resolution is CoinUnavailable",
+  "C1: every invalid coin shape is CoinInvalid, for every mode, null counts as present",
+  "C4: social + absent or gold resolves to the gold currency, coin gold"
+ ],
+ "droppable": [
+  "C6: sweepstakes + sweeps is Ok sweeps currency, requiresRegionGate true",
+  "C6: sweepstakes + absent is Ok gold currency, no region gate",
+  "C6: sweepstakes + explicit coin:\"gold\" is Ok XGC currency, no region gate (kills gold/sweeps swap)",
+  "C7: an unsupported market still rejects an invalid coin as CoinInvalid (shape first)",
+  "C8: a coinCurrencies entry outside allowedCurrencies fails closed as CoinUnavailable",
+  "C9: pinned — a currency in allowedCurrencies is Ok, requiresRegionGate iff sweeps",
+  "C9: pinned — a currency not in allowedCurrencies, empty, or non-string is CoinUnavailable",
+  "C11: selectCoinCurrency is pure — frozen inputs, deterministic output",
+  "isWageringCoin accepts exactly gold/sweeps and rejects everything else",
+  "A1: prototype-pollution-shaped coin values are CoinInvalid, never coerced to a string",
+  "A2: a smuggled sweeps entry in a social resolution coinCurrencies is still rejected",
+  "A3: pinned lowercase currency against an uppercase allowlist is CoinUnavailable",
+  "B1: selectCoinCurrency never throws for the full resolution x selector cross product",
+  "B2: coin-selection.ts source contains no supabase/fetch/Deno./Date/let/throw"
+ ],
+ "survivors": [
+  {
+   "id": "M018",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+   "line": 54,
+   "op": "prop-undef",
+   "old": "  message: 'Wagering is not available in your market.',",
+   "new": "  message: undefined as never,"
+  },
+  {
+   "id": "M019",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+   "line": 54,
+   "op": "str-empty",
+   "old": "  message: 'Wagering is not available in your market.',",
+   "new": "  message: '',"
+  }
+ ],
+ "kills": {
+  "M002": [
+   "C1: every invalid coin shape is CoinInvalid, for every mode, null counts as present",
+   "C2: real_money + a valid coin (gold or sweeps) is CoinNotAccepted",
+   "C5: sweeps on a social (or downgraded) resolution is CoinUnavailable",
+   "C6: sweepstakes + sweeps is Ok sweeps currency, requiresRegionGate true",
+   "C7: an unsupported market is MarketUnsupported for any valid or absent coin",
+   "C7: an unsupported market still rejects an invalid coin as CoinInvalid (shape first)",
+   "C12: rejection messages match 384-CONTEXT.md <specifics> byte-for-byte",
+   "isWageringCoin accepts exactly gold/sweeps and rejects everything else",
+   "A1: prototype-pollution-shaped coin values are CoinInvalid, never coerced to a string",
+   "A2: a smuggled sweeps entry in a social resolution coinCurrencies is still rejected"
+  ],
+  "M004": [
+   "C1: every invalid coin shape is CoinInvalid, for every mode, null counts as present",
+   "C7: an unsupported market still rejects an invalid coin as CoinInvalid (shape first)",
+   "A1: prototype-pollution-shaped coin values are CoinInvalid, never coerced to a string"
+  ],
+  "M005": [
+   "C1: every invalid coin shape is CoinInvalid, for every mode, null counts as present"
+  ],
+  "M006": [
+   "C12: rejection messages match 384-CONTEXT.md <specifics> byte-for-byte"
+  ],
+  "M007": [
+   "C12: rejection messages match 384-CONTEXT.md <specifics> byte-for-byte"
+  ],
+  "M008": [
+   "C2: real_money + a valid coin (gold or sweeps) is CoinNotAccepted"
+  ],
+  "M009": [
+   "C2: real_money + a valid coin (gold or sweeps) is CoinNotAccepted"
+  ],
+  "M010": [
+   "C12: rejection messages match 384-CONTEXT.md <specifics> byte-for-byte"
+  ],
+  "M011": [
+   "C12: rejection messages match 384-CONTEXT.md <specifics> byte-for-byte"
+  ],
+  "M012": [
+   "C5: sweeps on a social (or downgraded) resolution is CoinUnavailable",
+   "C8: a coinCurrencies entry outside allowedCurrencies fails closed as CoinUnavailable",
+   "C9: pinned — a currency not in allowedCurrencies, empty, or non-string is CoinUnavailable",
+   "A2: a smuggled sweeps entry in a social resolution coinCurrencies is still rejected",
+   "A3: pinned lowercase currency against an uppercase allowlist is CoinUnavailable"
+  ],
+  "M013": [
+   "C5: sweeps on a social (or downgraded) resolution is CoinUnavailable"
+  ],
+  "M014": [
+   "C12: rejection messages match 384-CONTEXT.md <specifics> byte-for-byte"
+  ],
+  "M015": [
+   "C12: rejection messages match 384-CONTEXT.md <specifics> byte-for-byte"
+  ],
+  "M016": [
+   "C7: an unsupported market is MarketUnsupported for any valid or absent coin"
+  ],
+  "M017": [
+   "C7: an unsupported market is MarketUnsupported for any valid or absent coin"
+  ],
+  "M026": [
+   "C1: every invalid coin shape is CoinInvalid, for every mode, null counts as present",
+   "C3: real_money + absent coin is Ok allowedCurrencies[0], coin null, no region gate",
+   "C4: social + absent or gold resolves to the gold currency, coin gold",
+   "C6: sweepstakes + absent is Ok gold currency, no region gate",
+   "C7: an unsupported market is MarketUnsupported for any valid or absent coin",
+   "C7: an unsupported market still rejects an invalid coin as CoinInvalid (shape first)",
+   "C8: a coinCurrencies entry outside allowedCurrencies fails closed as CoinUnavailable",
+   "C12: rejection messages match 384-CONTEXT.md <specifics> byte-for-byte",
+   "A1: prototype-pollution-shaped coin values are CoinInvalid, never coerced to a string"
+  ],
+  "M030": [
+   "C1: every invalid coin shape is CoinInvalid, for every mode, null counts as present",
+   "C7: an unsupported market still rejects an invalid coin as CoinInvalid (shape first)",
+   "C12: rejection messages match 384-CONTEXT.md <specifics> byte-for-byte",
+   "A1: prototype-pollution-shaped coin values are CoinInvalid, never coerced to a string"
+  ],
+  "M032": [
+   "C1: every invalid coin shape is CoinInvalid, for every mode, null counts as present",
+   "C2: real_money + a valid coin (gold or sweeps) is CoinNotAccepted",
+   "C4: social + absent or gold resolves to the gold currency, coin gold",
+   "C5: sweeps on a social (or downgraded) resolution is CoinUnavailable",
+   "C6: sweepstakes + sweeps is Ok sweeps currency, requiresRegionGate true",
+   "C6: sweepstakes + explicit coin:\"gold\" is Ok XGC currency, no region gate (kills gold/sweeps swap)",
+   "C7: an unsupported market is MarketUnsupported for any valid or absent coin",
+   "C7: an unsupported market still rejects an invalid coin as CoinInvalid (shape first)",
+   "C12: rejection messages match 384-CONTEXT.md <specifics> byte-for-byte",
+   "A1: prototype-pollution-shaped coin values are CoinInvalid, never coerced to a string",
+   "A2: a smuggled sweeps entry in a social resolution coinCurrencies is still rejected"
+  ],
+  "M033": [
+   "C1: every invalid coin shape is CoinInvalid, for every mode, null counts as present",
+   "C7: an unsupported market still rejects an invalid coin as CoinInvalid (shape first)",
+   "C10: property — every Ok currency is allowed, every sweeps Ok requires a region gate",
+   "C12: rejection messages match 384-CONTEXT.md <specifics> byte-for-byte",
+   "A1: prototype-pollution-shaped coin values are CoinInvalid, never coerced to a string"
+  ],
+  "M034": [
+   "C2: real_money + a valid coin (gold or sweeps) is CoinNotAccepted",
+   "C3: real_money + absent coin is Ok allowedCurrencies[0], coin null, no region gate",
+   "C4: social + absent or gold resolves to the gold currency, coin gold",
+   "C5: sweeps on a social (or downgraded) resolution is CoinUnavailable",
+   "C6: sweepstakes + sweeps is Ok sweeps currency, requiresRegionGate true",
+   "C6: sweepstakes + absent is Ok gold currency, no region gate",
+   "C6: sweepstakes + explicit coin:\"gold\" is Ok XGC currency, no region gate (kills gold/sweeps swap)",
+   "C7: an unsupported market is MarketUnsupported for any valid or absent coin",
+   "C8: a coinCurrencies entry outside allowedCurrencies fails closed as CoinUnavailable",
+   "C9: pinned — a currency in allowedCurrencies is Ok, requiresRegionGate iff sweeps",
+   "C9: pinned — a currency not in allowedCurrencies, empty, or non-string is CoinUnavailable",
+   "C9: pinned fiat under real_money is Ok (the queue rows of fiat markets)",
+   "C12: rejection messages match 384-CONTEXT.md <specifics> byte-for-byte",
+   "A2: a smuggled sweeps entry in a social resolution coinCurrencies is still rejected",
+   "A3: pinned lowercase currency against an uppercase allowlist is CoinUnavailable"
+  ],
+  "M035": [
+   "C2: real_money + a valid coin (gold or sweeps) is CoinNotAccepted",
+   "C3: real_money + absent coin is Ok allowedCurrencies[0], coin null, no region gate",
+   "C4: social + absent or gold resolves to the gold currency, coin gold",
+   "C5: sweeps on a social (or downgraded) resolution is CoinUnavailable",
+   "C7: an unsupported market is MarketUnsupported for any valid or absent coin",
+   "C8: a coinCurrencies entry outside allowedCurrencies fails closed as CoinUnavailable",
+   "C9: pinned fiat under real_money is Ok (the queue rows of fiat markets)",
+   "C12: rejection messages match 384-CONTEXT.md <specifics> byte-for-byte"
+  ],
+  "M037": [
+   "C7: an unsupported market is MarketUnsupported for any valid or absent coin"
+  ],
+  "M038": [
+   "C2: real_money + a valid coin (gold or sweeps) is CoinNotAccepted",
+   "C3: real_money + absent coin is Ok allowedCurrencies[0], coin null, no region gate",
+   "C4: social + absent or gold resolves to the gold currency, coin gold",
+   "C5: sweeps on a social (or downgraded) resolution is CoinUnavailable",
+   "C6: sweepstakes + sweeps is Ok sweeps currency, requiresRegionGate true",
+   "C6: sweepstakes + absent is Ok gold currency, no region gate",
+   "C6: sweepstakes + explicit coin:\"gold\" is Ok XGC currency, no region gate (kills gold/sweeps swap)",
+   "C7: an unsupported market is MarketUnsupported for any valid or absent coin",
+   "C8: a coinCurrencies entry outside allowedCurrencies fails closed as CoinUnavailable",
+   "C9: pinned — a currency in allowedCurrencies is Ok, requiresRegionGate iff sweeps",
+   "C9: pinned — a currency not in allowedCurrencies, empty, or non-string is CoinUnavailable",
+   "C9: pinned fiat under real_money is Ok (the queue rows of fiat markets)",
+   "C12: rejection messages match 384-CONTEXT.md <specifics> byte-for-byte",
+   "A2: a smuggled sweeps entry in a social resolution coinCurrencies is still rejected",
+   "A3: pinned lowercase currency against an uppercase allowlist is CoinUnavailable"
+  ],
+  "M039": [
+   "C7: an unsupported market is MarketUnsupported for any valid or absent coin",
+   "C10: property — every Ok currency is allowed, every sweeps Ok requires a region gate"
+  ],
+  "M044": [
+   "C9: pinned — a currency in allowedCurrencies is Ok, requiresRegionGate iff sweeps",
+   "C9: pinned fiat under real_money is Ok (the queue rows of fiat markets)"
+  ],
+  "M050": [
+   "C9: pinned — a currency not in allowedCurrencies, empty, or non-string is CoinUnavailable",
+   "C10: property — every Ok currency is allowed, every sweeps Ok requires a region gate"
+  ],
+  "M051": [
+   "C9: pinned — a currency in allowedCurrencies is Ok, requiresRegionGate iff sweeps",
+   "C9: pinned fiat under real_money is Ok (the queue rows of fiat markets)"
+  ],
+  "M052": [
+   "C9: pinned — a currency in allowedCurrencies is Ok, requiresRegionGate iff sweeps",
+   "C9: pinned fiat under real_money is Ok (the queue rows of fiat markets)",
+   "C10: property — every Ok currency is allowed, every sweeps Ok requires a region gate"
+  ],
+  "M053": [
+   "C9: pinned — a currency in allowedCurrencies is Ok, requiresRegionGate iff sweeps",
+   "C9: pinned fiat under real_money is Ok (the queue rows of fiat markets)",
+   "C10: property — every Ok currency is allowed, every sweeps Ok requires a region gate"
+  ],
+  "M054": [
+   "C2: real_money + a valid coin (gold or sweeps) is CoinNotAccepted",
+   "C3: real_money + absent coin is Ok allowedCurrencies[0], coin null, no region gate",
+   "C12: rejection messages match 384-CONTEXT.md <specifics> byte-for-byte"
+  ],
+  "M055": [
+   "C3: real_money + absent coin is Ok allowedCurrencies[0], coin null, no region gate"
+  ],
+  "M056": [
+   "C3: real_money + absent coin is Ok allowedCurrencies[0], coin null, no region gate"
+  ],
+  "M058": [
+   "C4: social + absent or gold resolves to the gold currency, coin gold"
+  ],
+  "M061": [
+   "C6: sweepstakes + sweeps is Ok sweeps currency, requiresRegionGate true",
+   "C6: sweepstakes + absent is Ok gold currency, no region gate",
+   "C6: sweepstakes + explicit coin:\"gold\" is Ok XGC currency, no region gate (kills gold/sweeps swap)",
+   "C10: property — every Ok currency is allowed, every sweeps Ok requires a region gate"
+  ],
+  "M062": [
+   "C6: sweepstakes + sweeps is Ok sweeps currency, requiresRegionGate true",
+   "C6: sweepstakes + absent is Ok gold currency, no region gate",
+   "C6: sweepstakes + explicit coin:\"gold\" is Ok XGC currency, no region gate (kills gold/sweeps swap)",
+   "C10: property — every Ok currency is allowed, every sweeps Ok requires a region gate"
+  ]
+ }
+}

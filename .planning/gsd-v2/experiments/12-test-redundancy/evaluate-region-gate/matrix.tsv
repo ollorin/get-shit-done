@@ -1,0 +1,19 @@
+case	loc	kills	unique	M001	M002	M003	M004	M009	M010	M011	M013	M015	M023	M024	M025	M026	M027	M029	M030	M031	M036	M037	M038	M039	M041	M042	M043	M046	M047	M049	M051
+seedRow fixture satisfies WageringModeRowSchema	4	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+D1: an unverifiable region is REGION_UNVERIFIED even with a valid permissive row	12	4	0	0	0	0	0	1	1	0	0	0	1	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+D2: region null AND configValue undefined together resolves to REGION_UNVERIFIED, not policy-unavailable	4	2	0	0	0	0	0	1	0	0	0	0	0	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+D3: absent configValue (undefined/null) resolves reason absent	9	9	2	1	0	0	0	0	0	0	1	0	1	0	1	1	1	1	1	1	0	0	0	0	0	0	0	0	0	0	0
+D3: malformed shapes resolve reason malformed	19	7	0	1	0	0	0	0	0	0	1	0	1	0	1	1	0	0	1	0	1	0	0	0	0	0	0	0	0	0	0
+D3: a valid row bound to a different jurisdiction resolves reason binding_mismatch	11	11	0	1	0	0	0	0	0	0	1	0	1	0	1	1	0	0	1	0	0	1	1	0	1	1	1	0	0	0	0
+D3: empty jurisdiction ('' vs '') resolves binding_mismatch, not a match	13	9	0	1	0	0	0	0	0	0	1	0	1	0	1	1	0	0	1	0	0	0	0	0	1	1	1	0	0	0	0
+D4: an excluded region resolves REGION_EXCLUDED carrying the region	11	10	1	1	0	0	0	0	0	0	0	0	1	0	1	1	0	0	1	0	0	1	0	1	0	1	0	1	1	0	0
+D5: malformed region-code shapes are REGION_UNVERIFIED	12	6	0	1	0	0	1	1	1	0	0	0	1	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+D5: well-formed region codes are accepted (reach Ok, not UNVERIFIED)	7	12	0	1	1	1	0	0	0	0	0	0	1	0	1	1	0	0	1	0	0	1	0	1	0	1	0	1	0	0	1
+D6: a non-excluded region with a valid matching row resolves Ok	8	10	0	1	0	0	0	0	0	0	0	0	1	0	1	1	0	0	1	0	0	1	0	1	0	1	0	1	0	0	1
+D6: an empty excluded_regions list resolves Ok	8	10	0	1	0	0	0	0	0	0	0	0	1	0	1	1	0	0	1	0	0	1	0	1	0	1	0	1	0	0	1
+D7: region is a prefix of an excluded entry — no match, resolves Ok	8	11	0	1	0	1	0	0	0	0	0	0	1	0	1	1	0	0	1	0	0	1	0	1	0	1	0	1	0	0	1
+D7: an excluded entry is a prefix of the region — no match, resolves Ok	8	10	0	1	0	0	0	0	0	0	0	0	1	0	1	1	0	0	1	0	0	1	0	1	0	1	0	1	0	0	1
+D8: ISO_3166_2_REGION_PATTERN source is byte-identical to the migration CHECK constraint	3	4	0	1	1	1	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+D8: ISO_3166_2_REGION_PATTERN agrees with WageringModeRowSchema.excluded_regions on a >=15-string corpus	29	4	0	1	1	1	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+D9: evaluateRegionGate is pure — deterministic and non-mutating	22	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+D10: no rejection message leaks internal field names or echoes the input region	23	12	3	0	0	0	0	0	0	1	0	1	0	1	0	0	0	0	0	1	1	1	1	0	1	1	1	1	0	1	0

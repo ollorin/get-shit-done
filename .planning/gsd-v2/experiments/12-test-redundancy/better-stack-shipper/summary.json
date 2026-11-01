@@ -1,0 +1,503 @@
+{
+ "summary": {
+  "source": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "srcLoc": 110,
+  "testLoc": 303,
+  "nCases": 24,
+  "caseLocTotal": 181,
+  "baselineRunMs": 99,
+  "nMutants": 32,
+  "outcomes": {
+   "killed": 25,
+   "survived": 7
+  },
+  "meanMsPerOutcome": {
+   "killed": 92,
+   "survived": 133
+  },
+  "totalMutantMs": 3234,
+  "killedAttributed": 24,
+  "killedUnattributed": [
+   "M010"
+  ],
+  "crossFiles": [],
+  "greedyCount": 9,
+  "droppableCount": 15,
+  "droppableLoc": 105,
+  "zeroKillCases": [
+   "BetterStackShipper ... fire-and-forget contract ... ship() returns void synchronously",
+   "BetterStackShipper ... fetch failure resilience ... does not throw synchronously when fetch later rejects"
+  ],
+  "zeroUniqueCases": [
+   "BetterStackShipper ... fire-and-forget contract ... ship() returns void synchronously",
+   "BetterStackShipper ... fire-and-forget contract ... ship() is synchronous — fetch is initiated but return value is void",
+   "BetterStackShipper ... graceful degradation ... does not call fetch when no source token configured",
+   "BetterStackShipper ... graceful degradation ... still calls console.log when no source token",
+   "BetterStackShipper ... graceful degradation ... does not call fetch when empty string token configured",
+   "BetterStackShipper ... HTTP payload shape ... calls correct Better Stack ingest URL",
+   "BetterStackShipper ... slow_request warning ... does NOT override level for fast requests",
+   "BetterStackShipper ... slow_request warning ... slow_request also emits via console.log",
+   "BetterStackShipper ... PII safety ... does not include email in shipped payload",
+   "BetterStackShipper ... PII safety ... does not include ip_address in shipped payload",
+   "BetterStackShipper ... PII safety ... does not include user_agent in shipped payload",
+   "BetterStackShipper ... PII safety ... does not include token in shipped payload",
+   "BetterStackShipper ... fetch failure resilience ... does not throw synchronously when fetch later rejects",
+   "BetterStackShipper ... multiple independent calls ... each ship() call produces a separate fetch POST",
+   "BetterStackShipper ... multiple independent calls ... each call ships its own trace_id independently",
+   "BetterStackShipper ... JSON serialisation ... body is valid JSON",
+   "BetterStackShipper ... JSON serialisation ... dt is a valid ISO8601 timestamp"
+  ],
+  "unmatchedLocCases": [],
+  "failingNamesNotInCaseList": [
+   "./libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts (uncaught error)"
+  ],
+  "mutateExit": 0,
+  "runInfo": {
+   "exit_code": 0,
+   "mutants": 32,
+   "baseline_before": "green",
+   "baseline_after": "green"
+  }
+ },
+ "perCase": [
+  {
+   "name": "BetterStackShipper ... fire-and-forget contract ... ship() returns void synchronously",
+   "kills": 0,
+   "unique": 0,
+   "loc": 5
+  },
+  {
+   "name": "BetterStackShipper ... fire-and-forget contract ... ship() is synchronous — fetch is initiated but return value is void",
+   "kills": 6,
+   "unique": 0,
+   "loc": 9
+  },
+  {
+   "name": "BetterStackShipper ... graceful degradation ... does not call fetch when no source token configured",
+   "kills": 4,
+   "unique": 0,
+   "loc": 5
+  },
+  {
+   "name": "BetterStackShipper ... graceful degradation ... still calls console.log when no source token",
+   "kills": 2,
+   "unique": 0,
+   "loc": 5
+  },
+  {
+   "name": "BetterStackShipper ... graceful degradation ... does not call fetch when empty string token configured",
+   "kills": 3,
+   "unique": 0,
+   "loc": 5
+  },
+  {
+   "name": "BetterStackShipper ... HTTP payload shape ... calls correct Better Stack ingest URL",
+   "kills": 6,
+   "unique": 0,
+   "loc": 6
+  },
+  {
+   "name": "BetterStackShipper ... HTTP payload shape ... sets correct Authorization header",
+   "kills": 7,
+   "unique": 1,
+   "loc": 6
+  },
+  {
+   "name": "BetterStackShipper ... HTTP payload shape ... sets Content-Type: application/json",
+   "kills": 7,
+   "unique": 1,
+   "loc": 6
+  },
+  {
+   "name": "BetterStackShipper ... HTTP payload shape ... payload body contains required structured fields",
+   "kills": 15,
+   "unique": 4,
+   "loc": 20
+  },
+  {
+   "name": "BetterStackShipper ... slow_request warning ... emits level=warn and message=slow_request when duration_ms > 200",
+   "kills": 10,
+   "unique": 1,
+   "loc": 7
+  },
+  {
+   "name": "BetterStackShipper ... slow_request warning ... does NOT override level for fast requests",
+   "kills": 9,
+   "unique": 0,
+   "loc": 7
+  },
+  {
+   "name": "BetterStackShipper ... slow_request warning ... exactly 200ms is NOT slow (threshold is > 200, not >= 200)",
+   "kills": 10,
+   "unique": 1,
+   "loc": 7
+  },
+  {
+   "name": "BetterStackShipper ... slow_request warning ... slow_request also emits via console.log",
+   "kills": 1,
+   "unique": 0,
+   "loc": 7
+  },
+  {
+   "name": "BetterStackShipper ... PII safety ... does not include email in shipped payload",
+   "kills": 7,
+   "unique": 0,
+   "loc": 7
+  },
+  {
+   "name": "BetterStackShipper ... PII safety ... does not include ip_address in shipped payload",
+   "kills": 7,
+   "unique": 0,
+   "loc": 7
+  },
+  {
+   "name": "BetterStackShipper ... PII safety ... does not include user_agent in shipped payload",
+   "kills": 7,
+   "unique": 0,
+   "loc": 7
+  },
+  {
+   "name": "BetterStackShipper ... PII safety ... does not include token in shipped payload",
+   "kills": 7,
+   "unique": 0,
+   "loc": 7
+  },
+  {
+   "name": "BetterStackShipper ... fetch failure resilience ... does not throw synchronously when fetch later rejects",
+   "kills": 0,
+   "unique": 0,
+   "loc": 11
+  },
+  {
+   "name": "BetterStackShipper ... fetch failure resilience ... logs error to console.error when fetch rejects",
+   "kills": 7,
+   "unique": 1,
+   "loc": 15
+  },
+  {
+   "name": "BetterStackShipper ... multiple independent calls ... each ship() call produces a separate fetch POST",
+   "kills": 6,
+   "unique": 0,
+   "loc": 6
+  },
+  {
+   "name": "BetterStackShipper ... multiple independent calls ... each call ships its own trace_id independently",
+   "kills": 8,
+   "unique": 0,
+   "loc": 9
+  },
+  {
+   "name": "BetterStackShipper ... JSON serialisation ... body is valid JSON",
+   "kills": 7,
+   "unique": 0,
+   "loc": 5
+  },
+  {
+   "name": "BetterStackShipper ... JSON serialisation ... dt is a valid ISO8601 timestamp",
+   "kills": 8,
+   "unique": 0,
+   "loc": 7
+  },
+  {
+   "name": "BetterStackShipper ... JSON serialisation ... method is POST",
+   "kills": 7,
+   "unique": 1,
+   "loc": 5
+  }
+ ],
+ "greedy": [
+  "BetterStackShipper ... HTTP payload shape ... payload body contains required structured fields",
+  "BetterStackShipper ... graceful degradation ... does not call fetch when no source token configured",
+  "BetterStackShipper ... graceful degradation ... still calls console.log when no source token",
+  "BetterStackShipper ... JSON serialisation ... method is POST",
+  "BetterStackShipper ... HTTP payload shape ... sets correct Authorization header",
+  "BetterStackShipper ... HTTP payload shape ... sets Content-Type: application/json",
+  "BetterStackShipper ... slow_request warning ... emits level=warn and message=slow_request when duration_ms > 200",
+  "BetterStackShipper ... slow_request warning ... exactly 200ms is NOT slow (threshold is > 200, not >= 200)",
+  "BetterStackShipper ... fetch failure resilience ... logs error to console.error when fetch rejects"
+ ],
+ "droppable": [
+  "BetterStackShipper ... fire-and-forget contract ... ship() returns void synchronously",
+  "BetterStackShipper ... fire-and-forget contract ... ship() is synchronous — fetch is initiated but return value is void",
+  "BetterStackShipper ... graceful degradation ... does not call fetch when empty string token configured",
+  "BetterStackShipper ... HTTP payload shape ... calls correct Better Stack ingest URL",
+  "BetterStackShipper ... slow_request warning ... does NOT override level for fast requests",
+  "BetterStackShipper ... slow_request warning ... slow_request also emits via console.log",
+  "BetterStackShipper ... PII safety ... does not include email in shipped payload",
+  "BetterStackShipper ... PII safety ... does not include ip_address in shipped payload",
+  "BetterStackShipper ... PII safety ... does not include user_agent in shipped payload",
+  "BetterStackShipper ... PII safety ... does not include token in shipped payload",
+  "BetterStackShipper ... fetch failure resilience ... does not throw synchronously when fetch later rejects",
+  "BetterStackShipper ... multiple independent calls ... each ship() call produces a separate fetch POST",
+  "BetterStackShipper ... multiple independent calls ... each call ships its own trace_id independently",
+  "BetterStackShipper ... JSON serialisation ... body is valid JSON",
+  "BetterStackShipper ... JSON serialisation ... dt is a valid ISO8601 timestamp"
+ ],
+ "survivors": [
+  {
+   "id": "M002",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+   "line": 48,
+   "op": "cond-true",
+   "old": "    if (sourceToken !== undefined) {",
+   "new": "    if (true) {"
+  },
+  {
+   "id": "M006",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+   "line": 49,
+   "op": "cmp",
+   "old": "      this.sourceToken = sourceToken && sourceToken.length > 0 ? sourceToken : null;",
+   "new": "      this.sourceToken = sourceToken && sourceToken.length >= 0 ? sourceToken : null;"
+  },
+  {
+   "id": "M007",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+   "line": 49,
+   "op": "num+1",
+   "old": "      this.sourceToken = sourceToken && sourceToken.length > 0 ? sourceToken : null;",
+   "new": "      this.sourceToken = sourceToken && sourceToken.length > 1 ? sourceToken : null;"
+  },
+  {
+   "id": "M008",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+   "line": 52,
+   "op": "eq-flip",
+   "old": "      const envToken = typeof Deno !== \"undefined\"",
+   "new": "      const envToken = typeof Deno === \"undefined\""
+  },
+  {
+   "id": "M009",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+   "line": 53,
+   "op": "nullish-left",
+   "old": "        ? Deno.env.get(\"BETTER_STACK_SOURCE_TOKEN\") ?? null",
+   "new": "        ? Deno.env.get(\"BETTER_STACK_SOURCE_TOKEN\") "
+  },
+  {
+   "id": "M011",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+   "line": 55,
+   "op": "cmp",
+   "old": "      this.sourceToken = envToken && envToken.length > 0 ? envToken : null;",
+   "new": "      this.sourceToken = envToken && envToken.length >= 0 ? envToken : null;"
+  },
+  {
+   "id": "M012",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+   "line": 55,
+   "op": "num+1",
+   "old": "      this.sourceToken = envToken && envToken.length > 0 ? envToken : null;",
+   "new": "      this.sourceToken = envToken && envToken.length > 1 ? envToken : null;"
+  }
+ ],
+ "kills": {
+  "M001": [
+   "BetterStackShipper ... fire-and-forget contract ... ship() is synchronous — fetch is initiated but return value is void",
+   "BetterStackShipper ... HTTP payload shape ... calls correct Better Stack ingest URL",
+   "BetterStackShipper ... HTTP payload shape ... sets correct Authorization header",
+   "BetterStackShipper ... HTTP payload shape ... sets Content-Type: application/json",
+   "BetterStackShipper ... HTTP payload shape ... payload body contains required structured fields",
+   "BetterStackShipper ... slow_request warning ... emits level=warn and message=slow_request when duration_ms > 200",
+   "BetterStackShipper ... slow_request warning ... does NOT override level for fast requests",
+   "BetterStackShipper ... slow_request warning ... exactly 200ms is NOT slow (threshold is > 200, not >= 200)",
+   "BetterStackShipper ... PII safety ... does not include email in shipped payload",
+   "BetterStackShipper ... PII safety ... does not include ip_address in shipped payload",
+   "BetterStackShipper ... PII safety ... does not include user_agent in shipped payload",
+   "BetterStackShipper ... PII safety ... does not include token in shipped payload",
+   "BetterStackShipper ... fetch failure resilience ... logs error to console.error when fetch rejects",
+   "BetterStackShipper ... multiple independent calls ... each ship() call produces a separate fetch POST",
+   "BetterStackShipper ... multiple independent calls ... each call ships its own trace_id independently",
+   "BetterStackShipper ... JSON serialisation ... body is valid JSON",
+   "BetterStackShipper ... JSON serialisation ... dt is a valid ISO8601 timestamp",
+   "BetterStackShipper ... JSON serialisation ... method is POST"
+  ],
+  "M003": [
+   "BetterStackShipper ... fire-and-forget contract ... ship() is synchronous — fetch is initiated but return value is void",
+   "BetterStackShipper ... HTTP payload shape ... calls correct Better Stack ingest URL",
+   "BetterStackShipper ... HTTP payload shape ... sets correct Authorization header",
+   "BetterStackShipper ... HTTP payload shape ... sets Content-Type: application/json",
+   "BetterStackShipper ... HTTP payload shape ... payload body contains required structured fields",
+   "BetterStackShipper ... slow_request warning ... emits level=warn and message=slow_request when duration_ms > 200",
+   "BetterStackShipper ... slow_request warning ... does NOT override level for fast requests",
+   "BetterStackShipper ... slow_request warning ... exactly 200ms is NOT slow (threshold is > 200, not >= 200)",
+   "BetterStackShipper ... PII safety ... does not include email in shipped payload",
+   "BetterStackShipper ... PII safety ... does not include ip_address in shipped payload",
+   "BetterStackShipper ... PII safety ... does not include user_agent in shipped payload",
+   "BetterStackShipper ... PII safety ... does not include token in shipped payload",
+   "BetterStackShipper ... fetch failure resilience ... logs error to console.error when fetch rejects",
+   "BetterStackShipper ... multiple independent calls ... each ship() call produces a separate fetch POST",
+   "BetterStackShipper ... multiple independent calls ... each call ships its own trace_id independently",
+   "BetterStackShipper ... JSON serialisation ... body is valid JSON",
+   "BetterStackShipper ... JSON serialisation ... dt is a valid ISO8601 timestamp",
+   "BetterStackShipper ... JSON serialisation ... method is POST"
+  ],
+  "M004": [
+   "BetterStackShipper ... fire-and-forget contract ... ship() is synchronous — fetch is initiated but return value is void",
+   "BetterStackShipper ... HTTP payload shape ... calls correct Better Stack ingest URL",
+   "BetterStackShipper ... HTTP payload shape ... sets correct Authorization header",
+   "BetterStackShipper ... HTTP payload shape ... sets Content-Type: application/json",
+   "BetterStackShipper ... HTTP payload shape ... payload body contains required structured fields",
+   "BetterStackShipper ... slow_request warning ... emits level=warn and message=slow_request when duration_ms > 200",
+   "BetterStackShipper ... slow_request warning ... does NOT override level for fast requests",
+   "BetterStackShipper ... slow_request warning ... exactly 200ms is NOT slow (threshold is > 200, not >= 200)",
+   "BetterStackShipper ... PII safety ... does not include email in shipped payload",
+   "BetterStackShipper ... PII safety ... does not include ip_address in shipped payload",
+   "BetterStackShipper ... PII safety ... does not include user_agent in shipped payload",
+   "BetterStackShipper ... PII safety ... does not include token in shipped payload",
+   "BetterStackShipper ... fetch failure resilience ... logs error to console.error when fetch rejects",
+   "BetterStackShipper ... multiple independent calls ... each ship() call produces a separate fetch POST",
+   "BetterStackShipper ... multiple independent calls ... each call ships its own trace_id independently",
+   "BetterStackShipper ... JSON serialisation ... body is valid JSON",
+   "BetterStackShipper ... JSON serialisation ... dt is a valid ISO8601 timestamp",
+   "BetterStackShipper ... JSON serialisation ... method is POST"
+  ],
+  "M005": [
+   "BetterStackShipper ... graceful degradation ... does not call fetch when no source token configured",
+   "BetterStackShipper ... graceful degradation ... still calls console.log when no source token"
+  ],
+  "M013": [
+   "BetterStackShipper ... slow_request warning ... exactly 200ms is NOT slow (threshold is > 200, not >= 200)"
+  ],
+  "M014": [
+   "BetterStackShipper ... slow_request warning ... emits level=warn and message=slow_request when duration_ms > 200"
+  ],
+  "M015": [
+   "BetterStackShipper ... graceful degradation ... still calls console.log when no source token",
+   "BetterStackShipper ... slow_request warning ... slow_request also emits via console.log"
+  ],
+  "M016": [
+   "BetterStackShipper ... fire-and-forget contract ... ship() is synchronous — fetch is initiated but return value is void",
+   "BetterStackShipper ... graceful degradation ... does not call fetch when no source token configured",
+   "BetterStackShipper ... graceful degradation ... does not call fetch when empty string token configured",
+   "BetterStackShipper ... HTTP payload shape ... calls correct Better Stack ingest URL",
+   "BetterStackShipper ... HTTP payload shape ... sets correct Authorization header",
+   "BetterStackShipper ... HTTP payload shape ... sets Content-Type: application/json",
+   "BetterStackShipper ... HTTP payload shape ... payload body contains required structured fields",
+   "BetterStackShipper ... slow_request warning ... emits level=warn and message=slow_request when duration_ms > 200",
+   "BetterStackShipper ... slow_request warning ... does NOT override level for fast requests",
+   "BetterStackShipper ... slow_request warning ... exactly 200ms is NOT slow (threshold is > 200, not >= 200)",
+   "BetterStackShipper ... PII safety ... does not include email in shipped payload",
+   "BetterStackShipper ... PII safety ... does not include ip_address in shipped payload",
+   "BetterStackShipper ... PII safety ... does not include user_agent in shipped payload",
+   "BetterStackShipper ... PII safety ... does not include token in shipped payload",
+   "BetterStackShipper ... fetch failure resilience ... logs error to console.error when fetch rejects",
+   "BetterStackShipper ... multiple independent calls ... each ship() call produces a separate fetch POST",
+   "BetterStackShipper ... multiple independent calls ... each call ships its own trace_id independently",
+   "BetterStackShipper ... JSON serialisation ... body is valid JSON",
+   "BetterStackShipper ... JSON serialisation ... dt is a valid ISO8601 timestamp",
+   "BetterStackShipper ... JSON serialisation ... method is POST"
+  ],
+  "M017": [
+   "BetterStackShipper ... fire-and-forget contract ... ship() is synchronous — fetch is initiated but return value is void",
+   "BetterStackShipper ... HTTP payload shape ... calls correct Better Stack ingest URL",
+   "BetterStackShipper ... HTTP payload shape ... sets correct Authorization header",
+   "BetterStackShipper ... HTTP payload shape ... sets Content-Type: application/json",
+   "BetterStackShipper ... HTTP payload shape ... payload body contains required structured fields",
+   "BetterStackShipper ... slow_request warning ... emits level=warn and message=slow_request when duration_ms > 200",
+   "BetterStackShipper ... slow_request warning ... does NOT override level for fast requests",
+   "BetterStackShipper ... slow_request warning ... exactly 200ms is NOT slow (threshold is > 200, not >= 200)",
+   "BetterStackShipper ... PII safety ... does not include email in shipped payload",
+   "BetterStackShipper ... PII safety ... does not include ip_address in shipped payload",
+   "BetterStackShipper ... PII safety ... does not include user_agent in shipped payload",
+   "BetterStackShipper ... PII safety ... does not include token in shipped payload",
+   "BetterStackShipper ... fetch failure resilience ... logs error to console.error when fetch rejects",
+   "BetterStackShipper ... multiple independent calls ... each ship() call produces a separate fetch POST",
+   "BetterStackShipper ... multiple independent calls ... each call ships its own trace_id independently",
+   "BetterStackShipper ... JSON serialisation ... body is valid JSON",
+   "BetterStackShipper ... JSON serialisation ... dt is a valid ISO8601 timestamp",
+   "BetterStackShipper ... JSON serialisation ... method is POST"
+  ],
+  "M018": [
+   "BetterStackShipper ... graceful degradation ... does not call fetch when no source token configured",
+   "BetterStackShipper ... graceful degradation ... does not call fetch when empty string token configured"
+  ],
+  "M019": [
+   "BetterStackShipper ... fire-and-forget contract ... ship() is synchronous — fetch is initiated but return value is void",
+   "BetterStackShipper ... graceful degradation ... does not call fetch when no source token configured",
+   "BetterStackShipper ... graceful degradation ... does not call fetch when empty string token configured",
+   "BetterStackShipper ... HTTP payload shape ... calls correct Better Stack ingest URL",
+   "BetterStackShipper ... HTTP payload shape ... sets correct Authorization header",
+   "BetterStackShipper ... HTTP payload shape ... sets Content-Type: application/json",
+   "BetterStackShipper ... HTTP payload shape ... payload body contains required structured fields",
+   "BetterStackShipper ... slow_request warning ... emits level=warn and message=slow_request when duration_ms > 200",
+   "BetterStackShipper ... slow_request warning ... does NOT override level for fast requests",
+   "BetterStackShipper ... slow_request warning ... exactly 200ms is NOT slow (threshold is > 200, not >= 200)",
+   "BetterStackShipper ... PII safety ... does not include email in shipped payload",
+   "BetterStackShipper ... PII safety ... does not include ip_address in shipped payload",
+   "BetterStackShipper ... PII safety ... does not include user_agent in shipped payload",
+   "BetterStackShipper ... PII safety ... does not include token in shipped payload",
+   "BetterStackShipper ... fetch failure resilience ... logs error to console.error when fetch rejects",
+   "BetterStackShipper ... multiple independent calls ... each ship() call produces a separate fetch POST",
+   "BetterStackShipper ... multiple independent calls ... each call ships its own trace_id independently",
+   "BetterStackShipper ... JSON serialisation ... body is valid JSON",
+   "BetterStackShipper ... JSON serialisation ... dt is a valid ISO8601 timestamp",
+   "BetterStackShipper ... JSON serialisation ... method is POST"
+  ],
+  "M020": [
+   "BetterStackShipper ... HTTP payload shape ... payload body contains required structured fields",
+   "BetterStackShipper ... JSON serialisation ... dt is a valid ISO8601 timestamp"
+  ],
+  "M021": [
+   "BetterStackShipper ... HTTP payload shape ... payload body contains required structured fields",
+   "BetterStackShipper ... slow_request warning ... emits level=warn and message=slow_request when duration_ms > 200",
+   "BetterStackShipper ... slow_request warning ... does NOT override level for fast requests",
+   "BetterStackShipper ... slow_request warning ... exactly 200ms is NOT slow (threshold is > 200, not >= 200)"
+  ],
+  "M022": [
+   "BetterStackShipper ... HTTP payload shape ... payload body contains required structured fields",
+   "BetterStackShipper ... slow_request warning ... emits level=warn and message=slow_request when duration_ms > 200",
+   "BetterStackShipper ... slow_request warning ... does NOT override level for fast requests",
+   "BetterStackShipper ... slow_request warning ... exactly 200ms is NOT slow (threshold is > 200, not >= 200)"
+  ],
+  "M023": [
+   "BetterStackShipper ... HTTP payload shape ... payload body contains required structured fields",
+   "BetterStackShipper ... multiple independent calls ... each call ships its own trace_id independently"
+  ],
+  "M024": [
+   "BetterStackShipper ... HTTP payload shape ... payload body contains required structured fields"
+  ],
+  "M025": [
+   "BetterStackShipper ... HTTP payload shape ... payload body contains required structured fields"
+  ],
+  "M026": [
+   "BetterStackShipper ... HTTP payload shape ... payload body contains required structured fields"
+  ],
+  "M027": [
+   "BetterStackShipper ... HTTP payload shape ... payload body contains required structured fields"
+  ],
+  "M028": [
+   "BetterStackShipper ... JSON serialisation ... method is POST"
+  ],
+  "M029": [
+   "BetterStackShipper ... HTTP payload shape ... sets Content-Type: application/json"
+  ],
+  "M030": [
+   "BetterStackShipper ... HTTP payload shape ... sets correct Authorization header"
+  ],
+  "M031": [
+   "BetterStackShipper ... HTTP payload shape ... payload body contains required structured fields",
+   "BetterStackShipper ... slow_request warning ... emits level=warn and message=slow_request when duration_ms > 200",
+   "BetterStackShipper ... slow_request warning ... does NOT override level for fast requests",
+   "BetterStackShipper ... slow_request warning ... exactly 200ms is NOT slow (threshold is > 200, not >= 200)",
+   "BetterStackShipper ... PII safety ... does not include email in shipped payload",
+   "BetterStackShipper ... PII safety ... does not include ip_address in shipped payload",
+   "BetterStackShipper ... PII safety ... does not include user_agent in shipped payload",
+   "BetterStackShipper ... PII safety ... does not include token in shipped payload",
+   "BetterStackShipper ... multiple independent calls ... each call ships its own trace_id independently",
+   "BetterStackShipper ... JSON serialisation ... body is valid JSON",
+   "BetterStackShipper ... JSON serialisation ... dt is a valid ISO8601 timestamp"
+  ],
+  "M032": [
+   "BetterStackShipper ... fetch failure resilience ... logs error to console.error when fetch rejects"
+  ]
+ }
+}

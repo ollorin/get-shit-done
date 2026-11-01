@@ -1,0 +1,1298 @@
+{
+ "summary": {
+  "source": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "srcLoc": 42,
+  "testLoc": 115,
+  "nCases": 55,
+  "caseLocTotal": 62,
+  "baselineRunMs": 92,
+  "nMutants": 83,
+  "outcomes": {
+   "killed": 59,
+   "survived": 10,
+   "killed-typecheck": 14
+  },
+  "meanMsPerOutcome": {
+   "killed": 75,
+   "survived": 62,
+   "killed-typecheck": 342
+  },
+  "totalMutantMs": 9812,
+  "killedAttributed": 59,
+  "killedUnattributed": [],
+  "crossFiles": [],
+  "greedyCount": 14,
+  "droppableCount": 41,
+  "droppableLoc": 48,
+  "zeroKillCases": [
+   "isCalendarDay refuses \"2024-1-1\"",
+   "isCalendarDay refuses \"garbage\""
+  ],
+  "zeroUniqueCases": [
+   "isParseableDate accepts null",
+   "isParseableDate accepts \"\"",
+   "isParseableDate accepts \"2024-02-29\"",
+   "isParseableDate accepts \"2024-02-29T23:59:59Z\"",
+   "isParseableDate accepts \"2024-01-01T00:00:00.123456789+01:00\"",
+   "isParseableDate accepts \"2024-01-01T00:00-05:30\"",
+   "isParseableDate accepts \"0050-01-01\"",
+   "isParseableDate accepts \"0004-02-29\"",
+   "isParseableDate accepts \"2000-02-29\"",
+   "isParseableDate refuses \"1\"",
+   "isParseableDate refuses \"2024-02-30\"",
+   "isParseableDate refuses \"2023-02-29\"",
+   "isParseableDate refuses \"1900-02-29\"",
+   "isParseableDate refuses \"0050-02-29\"",
+   "isParseableDate refuses \"0000-01-01\"",
+   "isParseableDate refuses \"2024-13-01\"",
+   "isParseableDate refuses \"2024-04-31\"",
+   "isParseableDate refuses \"2024-01-01T24:00:00Z\"",
+   "isParseableDate refuses \"2024-01-01T00:00:00+0100\"",
+   "isParseableDate refuses \"2024-01-01T00:00:00+01\"",
+   "isParseableDate refuses \"2024-01-01T00:00:00+15:00\"",
+   "isParseableDate refuses \"2024-01-01T00:00:00+01:60\"",
+   "isParseableDate refuses \"2024-1-1\"",
+   "isParseableDate refuses \"2024-01-01 00:00:00\"",
+   "isParseableDate refuses \"garbage\"",
+   "isCalendarDay accepts 2024-02-29",
+   "isCalendarDay accepts 0050-01-01",
+   "isCalendarDay accepts 2023-12-31",
+   "isCalendarDay refuses \"\"",
+   "isCalendarDay refuses \"2024-02-30\"",
+   "isCalendarDay refuses \"2023-02-29\"",
+   "isCalendarDay refuses \"2024-13-01\"",
+   "isCalendarDay refuses \"0000-01-01\"",
+   "isCalendarDay refuses \"2024-01-01T00:00:00Z\"",
+   "isCalendarDay refuses \"2024-1-1\"",
+   "isCalendarDay refuses \"garbage\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00.123456+00\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00-04\"",
+   "isCursorTimestamp accepts \"2024-02-29 23:59:59\"",
+   "isCursorTimestamp refuses \"\"",
+   "isCursorTimestamp refuses \"2026-04-05\"",
+   "isCursorTimestamp refuses \"2026-04-05  12:00:00\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+0100\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+15\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+01:60\"",
+   "isCursorTimestamp refuses \"2026-02-30 12:00:00+00\"",
+   "isCursorTimestamp refuses \"2026-04-05 24:00:00+00\"",
+   "isCursorTimestamp refuses \"garbage\"",
+   "isParseableDate stays strict on the Postgres text form",
+   "isTimestamp refuses empty and malformed, accepts real timestamps"
+  ],
+  "unmatchedLocCases": [
+   "isParseableDate accepts null",
+   "isParseableDate accepts \"\"",
+   "isParseableDate accepts \"2024-02-29\"",
+   "isParseableDate accepts \"2024-02-29T23:59:59Z\"",
+   "isParseableDate accepts \"2024-01-01T00:00:00.123456789+01:00\"",
+   "isParseableDate accepts \"2024-01-01T00:00-05:30\"",
+   "isParseableDate accepts \"0050-01-01\"",
+   "isParseableDate accepts \"0004-02-29\"",
+   "isParseableDate accepts \"0001-01-01\"",
+   "isParseableDate accepts \"2000-02-29\"",
+   "isParseableDate refuses \"1\"",
+   "isParseableDate refuses \"2024-02-30\"",
+   "isParseableDate refuses \"2023-02-29\"",
+   "isParseableDate refuses \"1900-02-29\"",
+   "isParseableDate refuses \"0050-02-29\"",
+   "isParseableDate refuses \"0000-01-01\"",
+   "isParseableDate refuses \"2024-13-01\"",
+   "isParseableDate refuses \"2024-04-31\"",
+   "isParseableDate refuses \"2024-01-01T24:00:00Z\"",
+   "isParseableDate refuses \"2024-01-01T00:60:00Z\"",
+   "isParseableDate refuses \"2024-01-01T00:00:60Z\"",
+   "isParseableDate refuses \"2024-01-01T00:00:00+0100\"",
+   "isParseableDate refuses \"2024-01-01T00:00:00+01\"",
+   "isParseableDate refuses \"2024-01-01T00:00:00+15:00\"",
+   "isParseableDate refuses \"2024-01-01T00:00:00+01:60\"",
+   "isParseableDate refuses \"2024-1-1\"",
+   "isParseableDate refuses \"2024-01-01 00:00:00\"",
+   "isParseableDate refuses \"garbage\"",
+   "isCalendarDay accepts 2024-02-29",
+   "isCalendarDay accepts 0050-01-01",
+   "isCalendarDay accepts 2023-12-31",
+   "isCalendarDay refuses \"\"",
+   "isCalendarDay refuses \"2024-02-30\"",
+   "isCalendarDay refuses \"2023-02-29\"",
+   "isCalendarDay refuses \"2024-13-01\"",
+   "isCalendarDay refuses \"0000-01-01\"",
+   "isCalendarDay refuses \"2024-01-01T00:00:00Z\"",
+   "isCalendarDay refuses \"2024-1-1\"",
+   "isCalendarDay refuses \"garbage\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00.123456+00\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00+05:30\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00-04\"",
+   "isCursorTimestamp accepts \"2026-04-05T12:00:00.5Z\"",
+   "isCursorTimestamp accepts \"2024-02-29 23:59:59\"",
+   "isCursorTimestamp refuses \"\"",
+   "isCursorTimestamp refuses \"2026-04-05\"",
+   "isCursorTimestamp refuses \"2026-04-05  12:00:00\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+0100\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+15\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+01:60\"",
+   "isCursorTimestamp refuses \"2026-02-30 12:00:00+00\"",
+   "isCursorTimestamp refuses \"2026-04-05 24:00:00+00\"",
+   "isCursorTimestamp refuses \"garbage\""
+  ],
+  "failingNamesNotInCaseList": [],
+  "mutateExit": 0,
+  "runInfo": {
+   "exit_code": 0,
+   "mutants": 83,
+   "baseline_before": "green",
+   "baseline_after": "green"
+  }
+ },
+ "perCase": [
+  {
+   "name": "isParseableDate accepts null",
+   "kills": 1,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isParseableDate accepts \"\"",
+   "kills": 2,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isParseableDate accepts \"2024-02-29\"",
+   "kills": 13,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isParseableDate accepts \"2024-02-29T23:59:59Z\"",
+   "kills": 16,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isParseableDate accepts \"2024-01-01T00:00:00.123456789+01:00\"",
+   "kills": 18,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isParseableDate accepts \"2024-01-01T00:00-05:30\"",
+   "kills": 17,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isParseableDate accepts \"0050-01-01\"",
+   "kills": 13,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isParseableDate accepts \"0004-02-29\"",
+   "kills": 13,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isParseableDate accepts \"0001-01-01\"",
+   "kills": 15,
+   "unique": 2,
+   "loc": 1
+  },
+  {
+   "name": "isParseableDate accepts \"2000-02-29\"",
+   "kills": 13,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isParseableDate refuses \"1\"",
+   "kills": 2,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isParseableDate refuses \"2024-02-30\"",
+   "kills": 8,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isParseableDate refuses \"2023-02-29\"",
+   "kills": 8,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isParseableDate refuses \"1900-02-29\"",
+   "kills": 8,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isParseableDate refuses \"0050-02-29\"",
+   "kills": 8,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isParseableDate refuses \"0000-01-01\"",
+   "kills": 9,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isParseableDate refuses \"2024-13-01\"",
+   "kills": 8,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isParseableDate refuses \"2024-04-31\"",
+   "kills": 8,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isParseableDate refuses \"2024-01-01T24:00:00Z\"",
+   "kills": 12,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isParseableDate refuses \"2024-01-01T00:60:00Z\"",
+   "kills": 11,
+   "unique": 2,
+   "loc": 1
+  },
+  {
+   "name": "isParseableDate refuses \"2024-01-01T00:00:60Z\"",
+   "kills": 11,
+   "unique": 2,
+   "loc": 1
+  },
+  {
+   "name": "isParseableDate refuses \"2024-01-01T00:00:00+0100\"",
+   "kills": 2,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isParseableDate refuses \"2024-01-01T00:00:00+01\"",
+   "kills": 2,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isParseableDate refuses \"2024-01-01T00:00:00+15:00\"",
+   "kills": 10,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isParseableDate refuses \"2024-01-01T00:00:00+01:60\"",
+   "kills": 11,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isParseableDate refuses \"2024-1-1\"",
+   "kills": 2,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isParseableDate refuses \"2024-01-01 00:00:00\"",
+   "kills": 2,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isParseableDate refuses \"garbage\"",
+   "kills": 2,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isCalendarDay accepts 2024-02-29",
+   "kills": 16,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isCalendarDay accepts 0050-01-01",
+   "kills": 16,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isCalendarDay accepts 2023-12-31",
+   "kills": 16,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isCalendarDay refuses \"\"",
+   "kills": 1,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isCalendarDay refuses \"2024-02-30\"",
+   "kills": 9,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isCalendarDay refuses \"2023-02-29\"",
+   "kills": 9,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isCalendarDay refuses \"2024-13-01\"",
+   "kills": 9,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isCalendarDay refuses \"0000-01-01\"",
+   "kills": 10,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isCalendarDay refuses \"2024-01-01T00:00:00Z\"",
+   "kills": 1,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isCalendarDay refuses \"2024-1-1\"",
+   "kills": 0,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isCalendarDay refuses \"garbage\"",
+   "kills": 0,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isCursorTimestamp accepts \"2026-04-05 12:00:00.123456+00\"",
+   "kills": 27,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isCursorTimestamp accepts \"2026-04-05 12:00:00+05:30\"",
+   "kills": 28,
+   "unique": 1,
+   "loc": 1
+  },
+  {
+   "name": "isCursorTimestamp accepts \"2026-04-05 12:00:00-04\"",
+   "kills": 27,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isCursorTimestamp accepts \"2026-04-05T12:00:00.5Z\"",
+   "kills": 25,
+   "unique": 2,
+   "loc": 1
+  },
+  {
+   "name": "isCursorTimestamp accepts \"2024-02-29 23:59:59\"",
+   "kills": 24,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isCursorTimestamp refuses \"\"",
+   "kills": 1,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isCursorTimestamp refuses \"2026-04-05\"",
+   "kills": 1,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isCursorTimestamp refuses \"2026-04-05  12:00:00\"",
+   "kills": 1,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isCursorTimestamp refuses \"2026-04-05 12:00:00+0100\"",
+   "kills": 1,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isCursorTimestamp refuses \"2026-04-05 12:00:00+15\"",
+   "kills": 13,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isCursorTimestamp refuses \"2026-04-05 12:00:00+01:60\"",
+   "kills": 13,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isCursorTimestamp refuses \"2026-02-30 12:00:00+00\"",
+   "kills": 10,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isCursorTimestamp refuses \"2026-04-05 24:00:00+00\"",
+   "kills": 14,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isCursorTimestamp refuses \"garbage\"",
+   "kills": 1,
+   "unique": 0,
+   "loc": 1
+  },
+  {
+   "name": "isParseableDate stays strict on the Postgres text form",
+   "kills": 2,
+   "unique": 0,
+   "loc": 3
+  },
+  {
+   "name": "isTimestamp refuses empty and malformed, accepts real timestamps",
+   "kills": 27,
+   "unique": 0,
+   "loc": 6
+  }
+ ],
+ "greedy": [
+  "isCursorTimestamp accepts \"2026-04-05 12:00:00+05:30\"",
+  "isCursorTimestamp refuses \"2026-04-05 12:00:00+01:60\"",
+  "isCalendarDay accepts 2024-02-29",
+  "isParseableDate accepts \"0001-01-01\"",
+  "isParseableDate refuses \"2024-01-01T24:00:00Z\"",
+  "isParseableDate refuses \"2024-01-01T00:60:00Z\"",
+  "isParseableDate refuses \"2024-01-01T00:00:60Z\"",
+  "isCursorTimestamp accepts \"2026-04-05T12:00:00.5Z\"",
+  "isParseableDate accepts null",
+  "isParseableDate refuses \"1\"",
+  "isParseableDate refuses \"2024-01-01T00:00:00+15:00\"",
+  "isCalendarDay refuses \"\"",
+  "isCursorTimestamp accepts \"2026-04-05 12:00:00.123456+00\"",
+  "isCursorTimestamp refuses \"\""
+ ],
+ "droppable": [
+  "isParseableDate accepts \"\"",
+  "isParseableDate accepts \"2024-02-29\"",
+  "isParseableDate accepts \"2024-02-29T23:59:59Z\"",
+  "isParseableDate accepts \"2024-01-01T00:00:00.123456789+01:00\"",
+  "isParseableDate accepts \"2024-01-01T00:00-05:30\"",
+  "isParseableDate accepts \"0050-01-01\"",
+  "isParseableDate accepts \"0004-02-29\"",
+  "isParseableDate accepts \"2000-02-29\"",
+  "isParseableDate refuses \"2024-02-30\"",
+  "isParseableDate refuses \"2023-02-29\"",
+  "isParseableDate refuses \"1900-02-29\"",
+  "isParseableDate refuses \"0050-02-29\"",
+  "isParseableDate refuses \"0000-01-01\"",
+  "isParseableDate refuses \"2024-13-01\"",
+  "isParseableDate refuses \"2024-04-31\"",
+  "isParseableDate refuses \"2024-01-01T00:00:00+0100\"",
+  "isParseableDate refuses \"2024-01-01T00:00:00+01\"",
+  "isParseableDate refuses \"2024-01-01T00:00:00+01:60\"",
+  "isParseableDate refuses \"2024-1-1\"",
+  "isParseableDate refuses \"2024-01-01 00:00:00\"",
+  "isParseableDate refuses \"garbage\"",
+  "isCalendarDay accepts 0050-01-01",
+  "isCalendarDay accepts 2023-12-31",
+  "isCalendarDay refuses \"2024-02-30\"",
+  "isCalendarDay refuses \"2023-02-29\"",
+  "isCalendarDay refuses \"2024-13-01\"",
+  "isCalendarDay refuses \"0000-01-01\"",
+  "isCalendarDay refuses \"2024-01-01T00:00:00Z\"",
+  "isCalendarDay refuses \"2024-1-1\"",
+  "isCalendarDay refuses \"garbage\"",
+  "isCursorTimestamp accepts \"2026-04-05 12:00:00-04\"",
+  "isCursorTimestamp accepts \"2024-02-29 23:59:59\"",
+  "isCursorTimestamp refuses \"2026-04-05\"",
+  "isCursorTimestamp refuses \"2026-04-05  12:00:00\"",
+  "isCursorTimestamp refuses \"2026-04-05 12:00:00+0100\"",
+  "isCursorTimestamp refuses \"2026-04-05 12:00:00+15\"",
+  "isCursorTimestamp refuses \"2026-02-30 12:00:00+00\"",
+  "isCursorTimestamp refuses \"2026-04-05 24:00:00+00\"",
+  "isCursorTimestamp refuses \"garbage\"",
+  "isParseableDate stays strict on the Postgres text form",
+  "isTimestamp refuses empty and malformed, accepts real timestamps"
+ ],
+ "survivors": [
+  {
+   "id": "M008",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+   "line": 2,
+   "op": "num+1",
+   "old": "  /^(\\d{4})-(\\d{2})-(\\d{2})(?:T(\\d{2}):(\\d{2})(?::(\\d{2})(?:\\.\\d{1,9})?)?(?:Z|[+-](\\d{2}):(\\d{2}))?)?$/;",
+   "new": "  /^(\\d{4})-(\\d{2})-(\\d{2})(?:T(\\d{2}):(\\d{2})(?::(\\d{2})(?:\\.\\d{1,10})?)?(?:Z|[+-](\\d{2}):(\\d{2}))?)?$/;"
+  },
+  {
+   "id": "M023",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+   "line": 9,
+   "op": "num+1",
+   "old": "  const [y, mo, d, h = 0, mi = 0, sec = 0, oh = 0, om = 0] = m.slice(1).map((",
+   "new": "  const [y, mo, d, h = 1, mi = 0, sec = 0, oh = 0, om = 0] = m.slice(1).map(("
+  },
+  {
+   "id": "M024",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+   "line": 9,
+   "op": "num+1",
+   "old": "  const [y, mo, d, h = 0, mi = 0, sec = 0, oh = 0, om = 0] = m.slice(1).map((",
+   "new": "  const [y, mo, d, h = 0, mi = 1, sec = 0, oh = 0, om = 0] = m.slice(1).map(("
+  },
+  {
+   "id": "M025",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+   "line": 9,
+   "op": "num+1",
+   "old": "  const [y, mo, d, h = 0, mi = 0, sec = 0, oh = 0, om = 0] = m.slice(1).map((",
+   "new": "  const [y, mo, d, h = 0, mi = 0, sec = 1, oh = 0, om = 0] = m.slice(1).map(("
+  },
+  {
+   "id": "M026",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+   "line": 9,
+   "op": "num+1",
+   "old": "  const [y, mo, d, h = 0, mi = 0, sec = 0, oh = 0, om = 0] = m.slice(1).map((",
+   "new": "  const [y, mo, d, h = 0, mi = 0, sec = 0, oh = 1, om = 0] = m.slice(1).map(("
+  },
+  {
+   "id": "M027",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+   "line": 9,
+   "op": "num+1",
+   "old": "  const [y, mo, d, h = 0, mi = 0, sec = 0, oh = 0, om = 0] = m.slice(1).map((",
+   "new": "  const [y, mo, d, h = 0, mi = 0, sec = 0, oh = 0, om = 1] = m.slice(1).map(("
+  },
+  {
+   "id": "M030",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+   "line": 11,
+   "op": "num+1",
+   "old": "  ) => p === undefined ? 0 : Number(p));",
+   "new": "  ) => p === undefined ? 1 : Number(p));"
+  },
+  {
+   "id": "M031",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+   "line": 13,
+   "op": "num+1",
+   "old": "  const day = new Date(0);",
+   "new": "  const day = new Date(1);"
+  },
+  {
+   "id": "M050",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+   "line": 17,
+   "op": "cmp",
+   "old": "    h < 24 && mi < 60 && sec < 60 && oh <= 14 && om < 60;",
+   "new": "    h < 24 && mi < 60 && sec < 60 && oh < 14 && om < 60;"
+  },
+  {
+   "id": "M074",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+   "line": 31,
+   "op": "num+1",
+   "old": "  /^(\\d{4}-\\d{2}-\\d{2})[T ](\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,9})?)?)(Z|[+-]\\d{2}(?::\\d{2})?)?$/;",
+   "new": "  /^(\\d{4}-\\d{2}-\\d{2})[T ](\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,10})?)?)(Z|[+-]\\d{2}(?::\\d{2})?)?$/;"
+  }
+ ],
+ "kills": {
+  "M001": [
+   "isParseableDate accepts \"2024-02-29\"",
+   "isParseableDate accepts \"2024-02-29T23:59:59Z\"",
+   "isParseableDate accepts \"2024-01-01T00:00:00.123456789+01:00\"",
+   "isParseableDate accepts \"2024-01-01T00:00-05:30\"",
+   "isParseableDate accepts \"0050-01-01\"",
+   "isParseableDate accepts \"0004-02-29\"",
+   "isParseableDate accepts \"0001-01-01\"",
+   "isParseableDate accepts \"2000-02-29\"",
+   "isCalendarDay accepts 2024-02-29",
+   "isCalendarDay accepts 0050-01-01",
+   "isCalendarDay accepts 2023-12-31",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00.123456+00\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00+05:30\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00-04\"",
+   "isCursorTimestamp accepts \"2026-04-05T12:00:00.5Z\"",
+   "isCursorTimestamp accepts \"2024-02-29 23:59:59\"",
+   "isTimestamp refuses empty and malformed, accepts real timestamps"
+  ],
+  "M002": [
+   "isParseableDate accepts \"2024-02-29\"",
+   "isParseableDate accepts \"2024-02-29T23:59:59Z\"",
+   "isParseableDate accepts \"2024-01-01T00:00:00.123456789+01:00\"",
+   "isParseableDate accepts \"2024-01-01T00:00-05:30\"",
+   "isParseableDate accepts \"0050-01-01\"",
+   "isParseableDate accepts \"0004-02-29\"",
+   "isParseableDate accepts \"0001-01-01\"",
+   "isParseableDate accepts \"2000-02-29\"",
+   "isCalendarDay accepts 2024-02-29",
+   "isCalendarDay accepts 0050-01-01",
+   "isCalendarDay accepts 2023-12-31",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00.123456+00\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00+05:30\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00-04\"",
+   "isCursorTimestamp accepts \"2026-04-05T12:00:00.5Z\"",
+   "isCursorTimestamp accepts \"2024-02-29 23:59:59\"",
+   "isTimestamp refuses empty and malformed, accepts real timestamps"
+  ],
+  "M003": [
+   "isParseableDate accepts \"2024-02-29\"",
+   "isParseableDate accepts \"2024-02-29T23:59:59Z\"",
+   "isParseableDate accepts \"2024-01-01T00:00:00.123456789+01:00\"",
+   "isParseableDate accepts \"2024-01-01T00:00-05:30\"",
+   "isParseableDate accepts \"0050-01-01\"",
+   "isParseableDate accepts \"0004-02-29\"",
+   "isParseableDate accepts \"0001-01-01\"",
+   "isParseableDate accepts \"2000-02-29\"",
+   "isCalendarDay accepts 2024-02-29",
+   "isCalendarDay accepts 0050-01-01",
+   "isCalendarDay accepts 2023-12-31",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00.123456+00\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00+05:30\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00-04\"",
+   "isCursorTimestamp accepts \"2026-04-05T12:00:00.5Z\"",
+   "isCursorTimestamp accepts \"2024-02-29 23:59:59\"",
+   "isTimestamp refuses empty and malformed, accepts real timestamps"
+  ],
+  "M004": [
+   "isParseableDate accepts \"2024-02-29T23:59:59Z\"",
+   "isParseableDate accepts \"2024-01-01T00:00:00.123456789+01:00\"",
+   "isParseableDate accepts \"2024-01-01T00:00-05:30\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00.123456+00\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00+05:30\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00-04\"",
+   "isCursorTimestamp accepts \"2026-04-05T12:00:00.5Z\"",
+   "isCursorTimestamp accepts \"2024-02-29 23:59:59\"",
+   "isTimestamp refuses empty and malformed, accepts real timestamps"
+  ],
+  "M005": [
+   "isParseableDate accepts \"2024-02-29T23:59:59Z\"",
+   "isParseableDate accepts \"2024-01-01T00:00:00.123456789+01:00\"",
+   "isParseableDate accepts \"2024-01-01T00:00-05:30\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00.123456+00\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00+05:30\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00-04\"",
+   "isCursorTimestamp accepts \"2026-04-05T12:00:00.5Z\"",
+   "isCursorTimestamp accepts \"2024-02-29 23:59:59\"",
+   "isTimestamp refuses empty and malformed, accepts real timestamps"
+  ],
+  "M006": [
+   "isParseableDate accepts \"2024-02-29T23:59:59Z\"",
+   "isParseableDate accepts \"2024-01-01T00:00:00.123456789+01:00\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00.123456+00\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00+05:30\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00-04\"",
+   "isCursorTimestamp accepts \"2026-04-05T12:00:00.5Z\"",
+   "isCursorTimestamp accepts \"2024-02-29 23:59:59\"",
+   "isTimestamp refuses empty and malformed, accepts real timestamps"
+  ],
+  "M007": [
+   "isCursorTimestamp accepts \"2026-04-05T12:00:00.5Z\""
+  ],
+  "M009": [
+   "isParseableDate accepts \"2024-01-01T00:00:00.123456789+01:00\"",
+   "isParseableDate accepts \"2024-01-01T00:00-05:30\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00.123456+00\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00+05:30\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00-04\""
+  ],
+  "M010": [
+   "isParseableDate accepts \"2024-01-01T00:00:00.123456789+01:00\"",
+   "isParseableDate accepts \"2024-01-01T00:00-05:30\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00.123456+00\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00+05:30\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00-04\""
+  ],
+  "M012": [
+   "isParseableDate accepts \"\"",
+   "isParseableDate refuses \"1\"",
+   "isParseableDate refuses \"2024-02-30\"",
+   "isParseableDate refuses \"2023-02-29\"",
+   "isParseableDate refuses \"1900-02-29\"",
+   "isParseableDate refuses \"0050-02-29\"",
+   "isParseableDate refuses \"0000-01-01\"",
+   "isParseableDate refuses \"2024-13-01\"",
+   "isParseableDate refuses \"2024-04-31\"",
+   "isParseableDate refuses \"2024-01-01T24:00:00Z\"",
+   "isParseableDate refuses \"2024-01-01T00:60:00Z\"",
+   "isParseableDate refuses \"2024-01-01T00:00:60Z\"",
+   "isParseableDate refuses \"2024-01-01T00:00:00+0100\"",
+   "isParseableDate refuses \"2024-01-01T00:00:00+01\"",
+   "isParseableDate refuses \"2024-01-01T00:00:00+15:00\"",
+   "isParseableDate refuses \"2024-01-01T00:00:00+01:60\"",
+   "isParseableDate refuses \"2024-1-1\"",
+   "isParseableDate refuses \"2024-01-01 00:00:00\"",
+   "isParseableDate refuses \"garbage\"",
+   "isCalendarDay refuses \"2024-02-30\"",
+   "isCalendarDay refuses \"2023-02-29\"",
+   "isCalendarDay refuses \"2024-13-01\"",
+   "isCalendarDay refuses \"0000-01-01\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+15\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+01:60\"",
+   "isCursorTimestamp refuses \"2026-02-30 12:00:00+00\"",
+   "isCursorTimestamp refuses \"2026-04-05 24:00:00+00\"",
+   "isParseableDate stays strict on the Postgres text form",
+   "isTimestamp refuses empty and malformed, accepts real timestamps"
+  ],
+  "M014": [
+   "isParseableDate accepts null",
+   "isParseableDate accepts \"\""
+  ],
+  "M019": [
+   "isParseableDate refuses \"1\"",
+   "isParseableDate refuses \"2024-01-01T00:00:00+0100\"",
+   "isParseableDate refuses \"2024-01-01T00:00:00+01\"",
+   "isParseableDate refuses \"2024-1-1\"",
+   "isParseableDate refuses \"2024-01-01 00:00:00\"",
+   "isParseableDate refuses \"garbage\"",
+   "isParseableDate stays strict on the Postgres text form",
+   "isTimestamp refuses empty and malformed, accepts real timestamps"
+  ],
+  "M028": [
+   "isParseableDate accepts \"2024-02-29\"",
+   "isParseableDate accepts \"2024-02-29T23:59:59Z\"",
+   "isParseableDate accepts \"2024-01-01T00:00:00.123456789+01:00\"",
+   "isParseableDate accepts \"2024-01-01T00:00-05:30\"",
+   "isParseableDate accepts \"0050-01-01\"",
+   "isParseableDate accepts \"0004-02-29\"",
+   "isParseableDate accepts \"0001-01-01\"",
+   "isParseableDate accepts \"2000-02-29\"",
+   "isParseableDate refuses \"2024-01-01T24:00:00Z\"",
+   "isCalendarDay accepts 2024-02-29",
+   "isCalendarDay accepts 0050-01-01",
+   "isCalendarDay accepts 2023-12-31",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00+05:30\"",
+   "isCursorTimestamp accepts \"2024-02-29 23:59:59\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+15\"",
+   "isCursorTimestamp refuses \"2026-04-05 24:00:00+00\"",
+   "isTimestamp refuses empty and malformed, accepts real timestamps"
+  ],
+  "M029": [
+   "isParseableDate accepts \"2024-02-29\"",
+   "isParseableDate accepts \"2024-02-29T23:59:59Z\"",
+   "isParseableDate accepts \"2024-01-01T00:00:00.123456789+01:00\"",
+   "isParseableDate accepts \"2024-01-01T00:00-05:30\"",
+   "isParseableDate accepts \"0050-01-01\"",
+   "isParseableDate accepts \"0004-02-29\"",
+   "isParseableDate accepts \"0001-01-01\"",
+   "isParseableDate accepts \"2000-02-29\"",
+   "isCalendarDay accepts 2024-02-29",
+   "isCalendarDay accepts 0050-01-01",
+   "isCalendarDay accepts 2023-12-31",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00.123456+00\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00+05:30\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00-04\"",
+   "isCursorTimestamp accepts \"2026-04-05T12:00:00.5Z\"",
+   "isCursorTimestamp accepts \"2024-02-29 23:59:59\"",
+   "isTimestamp refuses empty and malformed, accepts real timestamps"
+  ],
+  "M032": [
+   "isParseableDate accepts \"2024-02-29\"",
+   "isParseableDate accepts \"2024-02-29T23:59:59Z\"",
+   "isParseableDate accepts \"2024-01-01T00:00:00.123456789+01:00\"",
+   "isParseableDate accepts \"2024-01-01T00:00-05:30\"",
+   "isParseableDate accepts \"0050-01-01\"",
+   "isParseableDate accepts \"0004-02-29\"",
+   "isParseableDate accepts \"0001-01-01\"",
+   "isParseableDate accepts \"2000-02-29\"",
+   "isCalendarDay accepts 2024-02-29",
+   "isCalendarDay accepts 0050-01-01",
+   "isCalendarDay accepts 2023-12-31",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00.123456+00\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00+05:30\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00-04\"",
+   "isCursorTimestamp accepts \"2026-04-05T12:00:00.5Z\"",
+   "isCursorTimestamp accepts \"2024-02-29 23:59:59\"",
+   "isTimestamp refuses empty and malformed, accepts real timestamps"
+  ],
+  "M033": [
+   "isParseableDate accepts \"2024-02-29\"",
+   "isParseableDate accepts \"2024-02-29T23:59:59Z\"",
+   "isParseableDate accepts \"2024-01-01T00:00:00.123456789+01:00\"",
+   "isParseableDate accepts \"2024-01-01T00:00-05:30\"",
+   "isParseableDate accepts \"0050-01-01\"",
+   "isParseableDate accepts \"0004-02-29\"",
+   "isParseableDate accepts \"0001-01-01\"",
+   "isParseableDate accepts \"2000-02-29\"",
+   "isCalendarDay accepts 2024-02-29",
+   "isCalendarDay accepts 0050-01-01",
+   "isCalendarDay accepts 2023-12-31",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00.123456+00\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00+05:30\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00-04\"",
+   "isCursorTimestamp accepts \"2026-04-05T12:00:00.5Z\"",
+   "isCursorTimestamp accepts \"2024-02-29 23:59:59\"",
+   "isTimestamp refuses empty and malformed, accepts real timestamps"
+  ],
+  "M034": [
+   "isParseableDate accepts \"2024-02-29\"",
+   "isParseableDate accepts \"2024-02-29T23:59:59Z\"",
+   "isParseableDate accepts \"2024-01-01T00:00:00.123456789+01:00\"",
+   "isParseableDate accepts \"2024-01-01T00:00-05:30\"",
+   "isParseableDate accepts \"0050-01-01\"",
+   "isParseableDate accepts \"0004-02-29\"",
+   "isParseableDate accepts \"0001-01-01\"",
+   "isParseableDate accepts \"2000-02-29\"",
+   "isCalendarDay accepts 2024-02-29",
+   "isCalendarDay accepts 0050-01-01",
+   "isCalendarDay accepts 2023-12-31",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00.123456+00\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00+05:30\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00-04\"",
+   "isCursorTimestamp accepts \"2026-04-05T12:00:00.5Z\"",
+   "isCursorTimestamp accepts \"2024-02-29 23:59:59\"",
+   "isTimestamp refuses empty and malformed, accepts real timestamps"
+  ],
+  "M035": [
+   "isParseableDate accepts \"2024-02-29\"",
+   "isParseableDate accepts \"2024-02-29T23:59:59Z\"",
+   "isParseableDate accepts \"2024-01-01T00:00:00.123456789+01:00\"",
+   "isParseableDate accepts \"2024-01-01T00:00-05:30\"",
+   "isParseableDate accepts \"0050-01-01\"",
+   "isParseableDate accepts \"0004-02-29\"",
+   "isParseableDate accepts \"0001-01-01\"",
+   "isParseableDate accepts \"2000-02-29\"",
+   "isCalendarDay accepts 2024-02-29",
+   "isCalendarDay accepts 0050-01-01",
+   "isCalendarDay accepts 2023-12-31",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00.123456+00\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00+05:30\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00-04\"",
+   "isCursorTimestamp accepts \"2026-04-05T12:00:00.5Z\"",
+   "isCursorTimestamp accepts \"2024-02-29 23:59:59\"",
+   "isTimestamp refuses empty and malformed, accepts real timestamps"
+  ],
+  "M036": [
+   "isParseableDate accepts \"2024-02-29\"",
+   "isParseableDate accepts \"2024-02-29T23:59:59Z\"",
+   "isParseableDate accepts \"2024-01-01T00:00:00.123456789+01:00\"",
+   "isParseableDate accepts \"2024-01-01T00:00-05:30\"",
+   "isParseableDate accepts \"0050-01-01\"",
+   "isParseableDate accepts \"0004-02-29\"",
+   "isParseableDate accepts \"0001-01-01\"",
+   "isParseableDate accepts \"2000-02-29\"",
+   "isCalendarDay accepts 2024-02-29",
+   "isCalendarDay accepts 0050-01-01",
+   "isCalendarDay accepts 2023-12-31",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00.123456+00\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00+05:30\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00-04\"",
+   "isCursorTimestamp accepts \"2026-04-05T12:00:00.5Z\"",
+   "isCursorTimestamp accepts \"2024-02-29 23:59:59\"",
+   "isTimestamp refuses empty and malformed, accepts real timestamps"
+  ],
+  "M037": [
+   "isParseableDate refuses \"2024-02-30\"",
+   "isParseableDate refuses \"2023-02-29\"",
+   "isParseableDate refuses \"1900-02-29\"",
+   "isParseableDate refuses \"0050-02-29\"",
+   "isParseableDate refuses \"0000-01-01\"",
+   "isParseableDate refuses \"2024-13-01\"",
+   "isParseableDate refuses \"2024-04-31\"",
+   "isParseableDate refuses \"2024-01-01T24:00:00Z\"",
+   "isParseableDate refuses \"2024-01-01T00:60:00Z\"",
+   "isParseableDate refuses \"2024-01-01T00:00:60Z\"",
+   "isParseableDate refuses \"2024-01-01T00:00:00+15:00\"",
+   "isParseableDate refuses \"2024-01-01T00:00:00+01:60\"",
+   "isCalendarDay refuses \"2024-02-30\"",
+   "isCalendarDay refuses \"2023-02-29\"",
+   "isCalendarDay refuses \"2024-13-01\"",
+   "isCalendarDay refuses \"0000-01-01\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+15\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+01:60\"",
+   "isCursorTimestamp refuses \"2026-02-30 12:00:00+00\"",
+   "isCursorTimestamp refuses \"2026-04-05 24:00:00+00\"",
+   "isTimestamp refuses empty and malformed, accepts real timestamps"
+  ],
+  "M038": [
+   "isParseableDate refuses \"2024-02-30\"",
+   "isParseableDate refuses \"2023-02-29\"",
+   "isParseableDate refuses \"1900-02-29\"",
+   "isParseableDate refuses \"0050-02-29\"",
+   "isParseableDate refuses \"0000-01-01\"",
+   "isParseableDate refuses \"2024-04-31\"",
+   "isParseableDate refuses \"2024-01-01T24:00:00Z\"",
+   "isParseableDate refuses \"2024-01-01T00:60:00Z\"",
+   "isParseableDate refuses \"2024-01-01T00:00:60Z\"",
+   "isParseableDate refuses \"2024-01-01T00:00:00+15:00\"",
+   "isParseableDate refuses \"2024-01-01T00:00:00+01:60\"",
+   "isCalendarDay refuses \"2024-02-30\"",
+   "isCalendarDay refuses \"2023-02-29\"",
+   "isCalendarDay refuses \"0000-01-01\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+15\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+01:60\"",
+   "isCursorTimestamp refuses \"2026-02-30 12:00:00+00\"",
+   "isCursorTimestamp refuses \"2026-04-05 24:00:00+00\"",
+   "isTimestamp refuses empty and malformed, accepts real timestamps"
+  ],
+  "M039": [
+   "isParseableDate refuses \"0000-01-01\"",
+   "isParseableDate refuses \"2024-13-01\"",
+   "isParseableDate refuses \"2024-01-01T24:00:00Z\"",
+   "isParseableDate refuses \"2024-01-01T00:60:00Z\"",
+   "isParseableDate refuses \"2024-01-01T00:00:60Z\"",
+   "isParseableDate refuses \"2024-01-01T00:00:00+15:00\"",
+   "isParseableDate refuses \"2024-01-01T00:00:00+01:60\"",
+   "isCalendarDay refuses \"2024-13-01\"",
+   "isCalendarDay refuses \"0000-01-01\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+15\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+01:60\"",
+   "isCursorTimestamp refuses \"2026-04-05 24:00:00+00\""
+  ],
+  "M040": [
+   "isParseableDate accepts \"0001-01-01\""
+  ],
+  "M041": [
+   "isParseableDate accepts \"2024-02-29\"",
+   "isParseableDate accepts \"2024-02-29T23:59:59Z\"",
+   "isParseableDate accepts \"2024-01-01T00:00:00.123456789+01:00\"",
+   "isParseableDate accepts \"2024-01-01T00:00-05:30\"",
+   "isParseableDate accepts \"0050-01-01\"",
+   "isParseableDate accepts \"0004-02-29\"",
+   "isParseableDate accepts \"0001-01-01\"",
+   "isParseableDate accepts \"2000-02-29\"",
+   "isCalendarDay accepts 2024-02-29",
+   "isCalendarDay accepts 0050-01-01",
+   "isCalendarDay accepts 2023-12-31",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00.123456+00\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00+05:30\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00-04\"",
+   "isCursorTimestamp accepts \"2026-04-05T12:00:00.5Z\"",
+   "isCursorTimestamp accepts \"2024-02-29 23:59:59\"",
+   "isTimestamp refuses empty and malformed, accepts real timestamps"
+  ],
+  "M042": [
+   "isParseableDate accepts \"0001-01-01\""
+  ],
+  "M043": [
+   "isParseableDate accepts \"2024-02-29\"",
+   "isParseableDate accepts \"2024-02-29T23:59:59Z\"",
+   "isParseableDate accepts \"2024-01-01T00:00:00.123456789+01:00\"",
+   "isParseableDate accepts \"2024-01-01T00:00-05:30\"",
+   "isParseableDate accepts \"0050-01-01\"",
+   "isParseableDate accepts \"0004-02-29\"",
+   "isParseableDate accepts \"0001-01-01\"",
+   "isParseableDate accepts \"2000-02-29\"",
+   "isCalendarDay accepts 2024-02-29",
+   "isCalendarDay accepts 0050-01-01",
+   "isCalendarDay accepts 2023-12-31",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00.123456+00\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00+05:30\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00-04\"",
+   "isCursorTimestamp accepts \"2026-04-05T12:00:00.5Z\"",
+   "isCursorTimestamp accepts \"2024-02-29 23:59:59\"",
+   "isTimestamp refuses empty and malformed, accepts real timestamps"
+  ],
+  "M044": [
+   "isParseableDate accepts \"2024-02-29\"",
+   "isParseableDate accepts \"2024-02-29T23:59:59Z\"",
+   "isParseableDate accepts \"2024-01-01T00:00:00.123456789+01:00\"",
+   "isParseableDate accepts \"2024-01-01T00:00-05:30\"",
+   "isParseableDate accepts \"0050-01-01\"",
+   "isParseableDate accepts \"0004-02-29\"",
+   "isParseableDate accepts \"0001-01-01\"",
+   "isParseableDate accepts \"2000-02-29\"",
+   "isCalendarDay accepts 2024-02-29",
+   "isCalendarDay accepts 0050-01-01",
+   "isCalendarDay accepts 2023-12-31",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00.123456+00\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00+05:30\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00-04\"",
+   "isCursorTimestamp accepts \"2026-04-05T12:00:00.5Z\"",
+   "isCursorTimestamp accepts \"2024-02-29 23:59:59\"",
+   "isTimestamp refuses empty and malformed, accepts real timestamps"
+  ],
+  "M045": [
+   "isParseableDate refuses \"2024-02-30\"",
+   "isParseableDate refuses \"2023-02-29\"",
+   "isParseableDate refuses \"1900-02-29\"",
+   "isParseableDate refuses \"0050-02-29\"",
+   "isParseableDate refuses \"0000-01-01\"",
+   "isParseableDate refuses \"2024-13-01\"",
+   "isParseableDate refuses \"2024-04-31\"",
+   "isParseableDate refuses \"2024-01-01T24:00:00Z\"",
+   "isParseableDate refuses \"2024-01-01T00:60:00Z\"",
+   "isParseableDate refuses \"2024-01-01T00:00:60Z\"",
+   "isParseableDate refuses \"2024-01-01T00:00:00+15:00\"",
+   "isParseableDate refuses \"2024-01-01T00:00:00+01:60\"",
+   "isCalendarDay refuses \"2024-02-30\"",
+   "isCalendarDay refuses \"2023-02-29\"",
+   "isCalendarDay refuses \"2024-13-01\"",
+   "isCalendarDay refuses \"0000-01-01\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+15\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+01:60\"",
+   "isCursorTimestamp refuses \"2026-02-30 12:00:00+00\"",
+   "isCursorTimestamp refuses \"2026-04-05 24:00:00+00\"",
+   "isTimestamp refuses empty and malformed, accepts real timestamps"
+  ],
+  "M046": [
+   "isParseableDate refuses \"2024-02-30\"",
+   "isParseableDate refuses \"2023-02-29\"",
+   "isParseableDate refuses \"1900-02-29\"",
+   "isParseableDate refuses \"0050-02-29\"",
+   "isParseableDate refuses \"0000-01-01\"",
+   "isParseableDate refuses \"2024-13-01\"",
+   "isParseableDate refuses \"2024-04-31\"",
+   "isParseableDate refuses \"2024-01-01T24:00:00Z\"",
+   "isParseableDate refuses \"2024-01-01T00:60:00Z\"",
+   "isParseableDate refuses \"2024-01-01T00:00:60Z\"",
+   "isParseableDate refuses \"2024-01-01T00:00:00+15:00\"",
+   "isParseableDate refuses \"2024-01-01T00:00:00+01:60\"",
+   "isCalendarDay refuses \"2024-02-30\"",
+   "isCalendarDay refuses \"2023-02-29\"",
+   "isCalendarDay refuses \"2024-13-01\"",
+   "isCalendarDay refuses \"0000-01-01\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+15\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+01:60\"",
+   "isCursorTimestamp refuses \"2026-02-30 12:00:00+00\"",
+   "isCursorTimestamp refuses \"2026-04-05 24:00:00+00\"",
+   "isTimestamp refuses empty and malformed, accepts real timestamps"
+  ],
+  "M047": [
+   "isParseableDate refuses \"2024-02-30\"",
+   "isParseableDate refuses \"2023-02-29\"",
+   "isParseableDate refuses \"1900-02-29\"",
+   "isParseableDate refuses \"0050-02-29\"",
+   "isParseableDate refuses \"0000-01-01\"",
+   "isParseableDate refuses \"2024-13-01\"",
+   "isParseableDate refuses \"2024-04-31\"",
+   "isParseableDate refuses \"2024-01-01T24:00:00Z\"",
+   "isParseableDate refuses \"2024-01-01T00:60:00Z\"",
+   "isParseableDate refuses \"2024-01-01T00:00:60Z\"",
+   "isParseableDate refuses \"2024-01-01T00:00:00+15:00\"",
+   "isParseableDate refuses \"2024-01-01T00:00:00+01:60\"",
+   "isCalendarDay refuses \"2024-02-30\"",
+   "isCalendarDay refuses \"2023-02-29\"",
+   "isCalendarDay refuses \"2024-13-01\"",
+   "isCalendarDay refuses \"0000-01-01\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+15\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+01:60\"",
+   "isCursorTimestamp refuses \"2026-02-30 12:00:00+00\"",
+   "isCursorTimestamp refuses \"2026-04-05 24:00:00+00\"",
+   "isTimestamp refuses empty and malformed, accepts real timestamps"
+  ],
+  "M048": [
+   "isParseableDate refuses \"2024-02-30\"",
+   "isParseableDate refuses \"2023-02-29\"",
+   "isParseableDate refuses \"1900-02-29\"",
+   "isParseableDate refuses \"0050-02-29\"",
+   "isParseableDate refuses \"0000-01-01\"",
+   "isParseableDate refuses \"2024-13-01\"",
+   "isParseableDate refuses \"2024-04-31\"",
+   "isParseableDate refuses \"2024-01-01T24:00:00Z\"",
+   "isParseableDate refuses \"2024-01-01T00:60:00Z\"",
+   "isParseableDate refuses \"2024-01-01T00:00:60Z\"",
+   "isParseableDate refuses \"2024-01-01T00:00:00+15:00\"",
+   "isParseableDate refuses \"2024-01-01T00:00:00+01:60\"",
+   "isCalendarDay refuses \"2024-02-30\"",
+   "isCalendarDay refuses \"2023-02-29\"",
+   "isCalendarDay refuses \"2024-13-01\"",
+   "isCalendarDay refuses \"0000-01-01\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+15\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+01:60\"",
+   "isCursorTimestamp refuses \"2026-02-30 12:00:00+00\"",
+   "isCursorTimestamp refuses \"2026-04-05 24:00:00+00\"",
+   "isTimestamp refuses empty and malformed, accepts real timestamps"
+  ],
+  "M049": [
+   "isParseableDate refuses \"2024-02-30\"",
+   "isParseableDate refuses \"2023-02-29\"",
+   "isParseableDate refuses \"1900-02-29\"",
+   "isParseableDate refuses \"0050-02-29\"",
+   "isParseableDate refuses \"0000-01-01\"",
+   "isParseableDate refuses \"2024-13-01\"",
+   "isParseableDate refuses \"2024-04-31\"",
+   "isParseableDate refuses \"2024-01-01T24:00:00Z\"",
+   "isParseableDate refuses \"2024-01-01T00:60:00Z\"",
+   "isParseableDate refuses \"2024-01-01T00:00:60Z\"",
+   "isParseableDate refuses \"2024-01-01T00:00:00+15:00\"",
+   "isParseableDate refuses \"2024-01-01T00:00:00+01:60\"",
+   "isCalendarDay refuses \"2024-02-30\"",
+   "isCalendarDay refuses \"2023-02-29\"",
+   "isCalendarDay refuses \"2024-13-01\"",
+   "isCalendarDay refuses \"0000-01-01\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+15\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+01:60\"",
+   "isCursorTimestamp refuses \"2026-02-30 12:00:00+00\"",
+   "isCursorTimestamp refuses \"2026-04-05 24:00:00+00\"",
+   "isTimestamp refuses empty and malformed, accepts real timestamps"
+  ],
+  "M051": [
+   "isParseableDate refuses \"2024-01-01T24:00:00Z\"",
+   "isCursorTimestamp refuses \"2026-04-05 24:00:00+00\""
+  ],
+  "M052": [
+   "isParseableDate refuses \"2024-01-01T00:60:00Z\""
+  ],
+  "M053": [
+   "isParseableDate refuses \"2024-01-01T00:00:60Z\""
+  ],
+  "M054": [
+   "isParseableDate refuses \"2024-01-01T00:00:00+01:60\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+01:60\""
+  ],
+  "M055": [
+   "isParseableDate refuses \"2024-01-01T24:00:00Z\"",
+   "isCursorTimestamp refuses \"2026-04-05 24:00:00+00\""
+  ],
+  "M056": [
+   "isParseableDate refuses \"2024-01-01T00:60:00Z\""
+  ],
+  "M057": [
+   "isParseableDate refuses \"2024-01-01T00:00:60Z\""
+  ],
+  "M058": [
+   "isParseableDate refuses \"2024-01-01T00:00:00+15:00\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+15\""
+  ],
+  "M059": [
+   "isParseableDate refuses \"2024-01-01T00:00:00+01:60\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+01:60\""
+  ],
+  "M060": [
+   "isCalendarDay accepts 2024-02-29",
+   "isCalendarDay accepts 0050-01-01",
+   "isCalendarDay accepts 2023-12-31"
+  ],
+  "M061": [
+   "isCalendarDay accepts 2024-02-29",
+   "isCalendarDay accepts 0050-01-01",
+   "isCalendarDay accepts 2023-12-31"
+  ],
+  "M062": [
+   "isCalendarDay accepts 2024-02-29",
+   "isCalendarDay accepts 0050-01-01",
+   "isCalendarDay accepts 2023-12-31"
+  ],
+  "M063": [
+   "isCalendarDay refuses \"\"",
+   "isCalendarDay refuses \"2024-02-30\"",
+   "isCalendarDay refuses \"2023-02-29\"",
+   "isCalendarDay refuses \"2024-13-01\"",
+   "isCalendarDay refuses \"0000-01-01\"",
+   "isCalendarDay refuses \"2024-01-01T00:00:00Z\""
+  ],
+  "M065": [
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00.123456+00\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00+05:30\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00-04\"",
+   "isCursorTimestamp accepts \"2026-04-05T12:00:00.5Z\"",
+   "isCursorTimestamp accepts \"2024-02-29 23:59:59\"",
+   "isTimestamp refuses empty and malformed, accepts real timestamps"
+  ],
+  "M066": [
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+15\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+01:60\"",
+   "isCursorTimestamp refuses \"2026-02-30 12:00:00+00\"",
+   "isCursorTimestamp refuses \"2026-04-05 24:00:00+00\"",
+   "isTimestamp refuses empty and malformed, accepts real timestamps"
+  ],
+  "M067": [
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00.123456+00\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00+05:30\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00-04\"",
+   "isCursorTimestamp accepts \"2026-04-05T12:00:00.5Z\"",
+   "isCursorTimestamp accepts \"2024-02-29 23:59:59\""
+  ],
+  "M068": [
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00.123456+00\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00+05:30\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00-04\"",
+   "isCursorTimestamp accepts \"2026-04-05T12:00:00.5Z\"",
+   "isCursorTimestamp accepts \"2024-02-29 23:59:59\""
+  ],
+  "M069": [
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00.123456+00\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00+05:30\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00-04\"",
+   "isCursorTimestamp accepts \"2026-04-05T12:00:00.5Z\"",
+   "isCursorTimestamp accepts \"2024-02-29 23:59:59\""
+  ],
+  "M070": [
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00.123456+00\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00+05:30\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00-04\"",
+   "isCursorTimestamp accepts \"2026-04-05T12:00:00.5Z\"",
+   "isCursorTimestamp accepts \"2024-02-29 23:59:59\""
+  ],
+  "M071": [
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00.123456+00\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00+05:30\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00-04\"",
+   "isCursorTimestamp accepts \"2026-04-05T12:00:00.5Z\"",
+   "isCursorTimestamp accepts \"2024-02-29 23:59:59\""
+  ],
+  "M072": [
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00.123456+00\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00+05:30\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00-04\"",
+   "isCursorTimestamp accepts \"2026-04-05T12:00:00.5Z\"",
+   "isCursorTimestamp accepts \"2024-02-29 23:59:59\""
+  ],
+  "M073": [
+   "isCursorTimestamp accepts \"2026-04-05T12:00:00.5Z\""
+  ],
+  "M075": [
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00.123456+00\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00+05:30\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00-04\""
+  ],
+  "M076": [
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00+05:30\""
+  ],
+  "M077": [
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00.123456+00\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00-04\""
+  ],
+  "M079": [
+   "isCursorTimestamp refuses \"\"",
+   "isCursorTimestamp refuses \"2026-04-05\"",
+   "isCursorTimestamp refuses \"2026-04-05  12:00:00\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+0100\"",
+   "isCursorTimestamp refuses \"garbage\""
+  ],
+  "M083": [
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00.123456+00\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00+05:30\"",
+   "isCursorTimestamp accepts \"2026-04-05 12:00:00-04\"",
+   "isCursorTimestamp accepts \"2026-04-05T12:00:00.5Z\"",
+   "isCursorTimestamp accepts \"2024-02-29 23:59:59\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+15\"",
+   "isCursorTimestamp refuses \"2026-04-05 12:00:00+01:60\"",
+   "isCursorTimestamp refuses \"2026-02-30 12:00:00+00\"",
+   "isCursorTimestamp refuses \"2026-04-05 24:00:00+00\""
+  ]
+ }
+}

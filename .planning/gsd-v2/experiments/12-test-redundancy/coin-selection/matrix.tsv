@@ -1,0 +1,24 @@
+case	loc	kills	unique	M002	M004	M005	M006	M007	M008	M009	M010	M011	M012	M013	M014	M015	M016	M017	M026	M030	M032	M033	M034	M035	M037	M038	M039	M044	M050	M051	M052	M053	M054	M055	M056	M058	M061	M062
+C1: every invalid coin shape is CoinInvalid, for every mode, null counts as present	9	7	1	1	1	1	0	0	0	0	0	0	0	0	0	0	0	0	1	1	1	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+C2: real_money + a valid coin (gold or sweeps) is CoinNotAccepted	7	8	2	1	0	0	0	0	1	1	0	0	0	0	0	0	0	0	0	0	1	0	1	1	0	1	0	0	0	0	0	0	1	0	0	0	0	0
+C3: real_money + absent coin is Ok allowedCurrencies[0], coin null, no region gate	4	7	2	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	1	0	0	0	1	1	0	1	0	0	0	0	0	0	1	1	1	0	0	0
+C4: social + absent or gold resolves to the gold currency, coin gold	6	6	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	1	0	1	0	1	1	0	1	0	0	0	0	0	0	0	0	0	1	0	0
+C5: sweeps on a social (or downgraded) resolution is CoinUnavailable	7	7	1	1	0	0	0	0	0	0	0	0	1	1	0	0	0	0	0	0	1	0	1	1	0	1	0	0	0	0	0	0	0	0	0	0	0	0
+C6: sweepstakes + sweeps is Ok sweeps currency, requiresRegionGate true	4	6	0	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	1	0	1	0	0	1	0	0	0	0	0	0	0	0	0	0	1	1
+C6: sweepstakes + absent is Ok gold currency, no region gate	4	5	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	1	0	0	0	1	0	0	1	0	0	0	0	0	0	0	0	0	0	1	1
+C6: sweepstakes + explicit coin:"gold" is Ok XGC currency, no region gate (kills gold/sweeps swap)	4	5	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	1	0	1	0	0	1	0	0	0	0	0	0	0	0	0	0	1	1
+C7: an unsupported market is MarketUnsupported for any valid or absent coin	7	10	3	1	0	0	0	0	0	0	0	0	0	0	0	0	1	1	1	0	1	0	1	1	1	1	1	0	0	0	0	0	0	0	0	0	0	0
+C7: an unsupported market still rejects an invalid coin as CoinInvalid (shape first)	4	6	0	1	1	0	0	0	0	0	0	0	0	0	0	0	0	0	1	1	1	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+C8: a coinCurrencies entry outside allowedCurrencies fails closed as CoinUnavailable	4	5	0	0	0	0	0	0	0	0	0	0	1	0	0	0	0	0	1	0	0	0	1	1	0	1	0	0	0	0	0	0	0	0	0	0	0	0
+C9: pinned — a currency in allowedCurrencies is Ok, requiresRegionGate iff sweeps	7	6	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	1	0	0	1	0	1	0	1	1	1	0	0	0	0	0	0
+C9: pinned — a currency not in allowedCurrencies, empty, or non-string is CoinUnavailable	6	4	0	0	0	0	0	0	0	0	0	0	1	0	0	0	0	0	0	0	0	0	1	0	0	1	0	0	1	0	0	0	0	0	0	0	0	0
+C9: pinned fiat under real_money is Ok (the queue rows of fiat markets)	4	7	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	1	1	0	1	0	1	0	1	1	1	0	0	0	0	0	0
+C10: property — every Ok currency is allowed, every sweeps Ok requires a region gate	19	7	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	1	0	0	0	0	1	0	1	0	1	1	0	0	0	0	1	1
+C11: selectCoinCurrency is pure — frozen inputs, deterministic output	9	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+C12: rejection messages match 384-CONTEXT.md <specifics> byte-for-byte	19	15	6	1	0	0	1	1	0	0	1	1	0	0	1	1	0	0	1	1	1	1	1	1	0	1	0	0	0	0	0	0	1	0	0	0	0	0
+isWageringCoin accepts exactly gold/sweeps and rejects everything else	7	1	0	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+A1: prototype-pollution-shaped coin values are CoinInvalid, never coerced to a string	12	6	0	1	1	0	0	0	0	0	0	0	0	0	0	0	0	0	1	1	1	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+A2: a smuggled sweeps entry in a social resolution coinCurrencies is still rejected	10	5	0	1	0	0	0	0	0	0	0	0	1	0	0	0	0	0	0	0	1	0	1	0	0	1	0	0	0	0	0	0	0	0	0	0	0	0
+A3: pinned lowercase currency against an uppercase allowlist is CoinUnavailable	10	3	0	0	0	0	0	0	0	0	0	0	1	0	0	0	0	0	0	0	0	0	1	0	0	1	0	0	0	0	0	0	0	0	0	0	0	0
+B1: selectCoinCurrency never throws for the full resolution x selector cross product	13	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+B2: coin-selection.ts source contains no supabase/fetch/Deno./Date/let/throw	6	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0

@@ -1,0 +1,443 @@
+[
+ {
+  "id": "M001",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "export const isWageringCoin = (v: unknown): v is WageringCoin => v === 'gold' || v === 'sweeps';",
+  "new": "export const isWageringCoin = (v: unknown): v is WageringCoin => v !== 'gold' || v === 'sweeps';"
+ },
+ {
+  "id": "M002",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "export const isWageringCoin = (v: unknown): v is WageringCoin => v === 'gold' || v === 'sweeps';",
+  "new": "export const isWageringCoin = (v: unknown): v is WageringCoin => v === 'gold' || v !== 'sweeps';"
+ },
+ {
+  "id": "M003",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "export const isWageringCoin = (v: unknown): v is WageringCoin => v === 'gold' || v === 'sweeps';",
+  "new": "export const isWageringCoin = (v: unknown): v is WageringCoin => v === 'gold' && v === 'sweeps';"
+ },
+ {
+  "id": "M004",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  _tag: 'CoinInvalid',",
+  "new": "  _tag: undefined as never,"
+ },
+ {
+  "id": "M005",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  code: 'COIN_INVALID',",
+  "new": "  code: undefined as never,"
+ },
+ {
+  "id": "M006",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  message: 'Unknown coin. Accepted coins: gold, sweeps.',",
+  "new": "  message: undefined as never,"
+ },
+ {
+  "id": "M007",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  message: 'Unknown coin. Accepted coins: gold, sweeps.',",
+  "new": "  message: '',"
+ },
+ {
+  "id": "M008",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  _tag: 'CoinNotAccepted',",
+  "new": "  _tag: undefined as never,"
+ },
+ {
+  "id": "M009",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  code: 'COIN_NOT_ACCEPTED',",
+  "new": "  code: undefined as never,"
+ },
+ {
+  "id": "M010",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  message: 'Coin selection is not available in your market.',",
+  "new": "  message: undefined as never,"
+ },
+ {
+  "id": "M011",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  message: 'Coin selection is not available in your market.',",
+  "new": "  message: '',"
+ },
+ {
+  "id": "M012",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  _tag: 'CoinUnavailable',",
+  "new": "  _tag: undefined as never,"
+ },
+ {
+  "id": "M013",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  code: 'COIN_UNAVAILABLE',",
+  "new": "  code: undefined as never,"
+ },
+ {
+  "id": "M014",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  message: 'Sweepstakes Coins are not available in your market.',",
+  "new": "  message: undefined as never,"
+ },
+ {
+  "id": "M015",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  message: 'Sweepstakes Coins are not available in your market.',",
+  "new": "  message: '',"
+ },
+ {
+  "id": "M016",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  _tag: 'MarketUnsupported',",
+  "new": "  _tag: undefined as never,"
+ },
+ {
+  "id": "M017",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  code: 'MARKET_UNSUPPORTED',",
+  "new": "  code: undefined as never,"
+ },
+ {
+  "id": "M018",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  message: 'Wagering is not available in your market.',",
+  "new": "  message: undefined as never,"
+ },
+ {
+  "id": "M019",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  message: 'Wagering is not available in your market.',",
+  "new": "  message: '',"
+ },
+ {
+  "id": "M020",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "const belt = (\n  r: WageringResolution,",
+  "new": "const belt = (\n  r: undefined as never,"
+ },
+ {
+  "id": "M021",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  selection: CoinSelection,",
+  "new": "  selection: undefined as never,"
+ },
+ {
+  "id": "M022",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  r.allowedCurrencies.includes(selection.currency) ? ok(selection) : err(coinUnavailable());",
+  "new": ""
+ },
+ {
+  "id": "M023",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "export const selectCoinCurrency = (\n  r: WageringResolution,",
+  "new": "export const selectCoinCurrency = (\n  r: undefined as never,"
+ },
+ {
+  "id": "M024",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  s: CoinSelector,",
+  "new": "  s: undefined as never,"
+ },
+ {
+  "id": "M025",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  if (s.kind === 'coin' && s.coin !== undefined && !isWageringCoin(s.coin)) {",
+  "new": "  if (s.kind !== 'coin' && s.coin !== undefined && !isWageringCoin(s.coin)) {"
+ },
+ {
+  "id": "M026",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  if (s.kind === 'coin' && s.coin !== undefined && !isWageringCoin(s.coin)) {",
+  "new": "  if (s.kind === 'coin' && s.coin === undefined && !isWageringCoin(s.coin)) {"
+ },
+ {
+  "id": "M027",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  if (s.kind === 'coin' && s.coin !== undefined && !isWageringCoin(s.coin)) {",
+  "new": "  if (s.kind === 'coin' || s.coin !== undefined && !isWageringCoin(s.coin)) {"
+ },
+ {
+  "id": "M028",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  if (s.kind === 'coin' && s.coin !== undefined && !isWageringCoin(s.coin)) {",
+  "new": "  if (s.kind === 'coin' && s.coin !== undefined || !isWageringCoin(s.coin)) {"
+ },
+ {
+  "id": "M029",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  if (s.kind === 'coin' && s.coin !== undefined && !isWageringCoin(s.coin)) {",
+  "new": "  if (true) {"
+ },
+ {
+  "id": "M030",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  if (s.kind === 'coin' && s.coin !== undefined && !isWageringCoin(s.coin)) {",
+  "new": "  if (false) {"
+ },
+ {
+  "id": "M031",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  if (s.kind === 'coin' && s.coin !== undefined && !isWageringCoin(s.coin)) {",
+  "new": "  if (!(s.kind === 'coin' && s.coin !== undefined && !isWageringCoin(s.coin))) {"
+ },
+ {
+  "id": "M032",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  if (s.kind === 'coin' && s.coin !== undefined && !isWageringCoin(s.coin)) {",
+  "new": "  if (s.kind === 'coin' && s.coin !== undefined && isWageringCoin(s.coin)) {"
+ },
+ {
+  "id": "M033",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "    return err(coinInvalid());",
+  "new": "    return undefined as never;"
+ },
+ {
+  "id": "M034",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  if (r.allowedCurrencies.length === 0) {",
+  "new": "  if (r.allowedCurrencies.length !== 0) {"
+ },
+ {
+  "id": "M035",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  if (r.allowedCurrencies.length === 0) {",
+  "new": "  if (r.allowedCurrencies.length === 1) {"
+ },
+ {
+  "id": "M036",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  if (r.allowedCurrencies.length === 0) {",
+  "new": "  if (true) {"
+ },
+ {
+  "id": "M037",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  if (r.allowedCurrencies.length === 0) {",
+  "new": "  if (false) {"
+ },
+ {
+  "id": "M038",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  if (r.allowedCurrencies.length === 0) {",
+  "new": "  if (!(r.allowedCurrencies.length === 0)) {"
+ },
+ {
+  "id": "M039",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "    return err(marketUnsupported());",
+  "new": "    return undefined as never;"
+ },
+ {
+  "id": "M040",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  if (s.kind === 'pinned') {",
+  "new": "  if (s.kind !== 'pinned') {"
+ },
+ {
+  "id": "M041",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  if (s.kind === 'pinned') {",
+  "new": "  if (true) {"
+ },
+ {
+  "id": "M042",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  if (s.kind === 'pinned') {",
+  "new": "  if (false) {"
+ },
+ {
+  "id": "M043",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "  if (s.kind === 'pinned') {",
+  "new": "  if (!(s.kind === 'pinned')) {"
+ },
+ {
+  "id": "M044",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "    if (typeof s.currency !== 'string' || s.currency === '') {",
+  "new": "    if (typeof s.currency !== 'string' || s.currency !== '') {"
+ },
+ {
+  "id": "M045",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "    if (typeof s.currency !== 'string' || s.currency === '') {",
+  "new": "    if (typeof s.currency === 'string' || s.currency === '') {"
+ },
+ {
+  "id": "M046",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "    if (typeof s.currency !== 'string' || s.currency === '') {",
+  "new": "    if (typeof s.currency !== 'string' && s.currency === '') {"
+ },
+ {
+  "id": "M047",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "    if (typeof s.currency !== 'string' || s.currency === '') {",
+  "new": "    if (true) {"
+ },
+ {
+  "id": "M048",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "    if (typeof s.currency !== 'string' || s.currency === '') {",
+  "new": "    if (false) {"
+ },
+ {
+  "id": "M049",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "    if (typeof s.currency !== 'string' || s.currency === '') {",
+  "new": "    if (!(typeof s.currency !== 'string' || s.currency === '')) {"
+ },
+ {
+  "id": "M050",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "      return err(coinUnavailable());",
+  "new": "      return undefined as never;"
+ },
+ {
+  "id": "M051",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "      coin: null,",
+  "new": "      coin: undefined as never,"
+ },
+ {
+  "id": "M052",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "      coin: null,\n      requiresRegionGate: currency === r.coinCurrencies.sweeps,",
+  "new": "      coin: null,\n      requiresRegionGate: currency !== r.coinCurrencies.sweeps,"
+ },
+ {
+  "id": "M053",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "      coin: null,\n      requiresRegionGate: currency === r.coinCurrencies.sweeps,",
+  "new": "      coin: null,\n      requiresRegionGate: undefined as never,"
+ },
+ {
+  "id": "M054",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "      s.coin !== undefined",
+  "new": "      s.coin === undefined"
+ },
+ {
+  "id": "M055",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "        : belt(r, { currency: r.allowedCurrencies[0], coin: null, requiresRegionGate: false }))",
+  "new": "        : belt(r, { currency: r.allowedCurrencies[0], coin: null, requiresRegionGate: true }))"
+ },
+ {
+  "id": "M056",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "        : belt(r, { currency: r.allowedCurrencies[0], coin: null, requiresRegionGate: false }))",
+  "new": "        : belt(r, { currency: r.allowedCurrencies[1], coin: null, requiresRegionGate: false }))"
+ },
+ {
+  "id": "M057",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "          return currency === undefined",
+  "new": "          return currency !== undefined"
+ },
+ {
+  "id": "M058",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "            : belt(r, { currency, coin: 'gold', requiresRegionGate: false });",
+  "new": "            : belt(r, { currency, coin: 'gold', requiresRegionGate: true });"
+ },
+ {
+  "id": "M059",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "      const coin: WageringCoin = s.coin === undefined ? 'gold' : (s.coin as WageringCoin);",
+  "new": "      const coin: WageringCoin = s.coin !== undefined ? 'gold' : (s.coin as WageringCoin);"
+ },
+ {
+  "id": "M060",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "      const currency = r.coinCurrencies[coin];\n      return currency === undefined",
+  "new": "      const currency = r.coinCurrencies[coin];\n      return currency !== undefined"
+ },
+ {
+  "id": "M061",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "          requiresRegionGate: currency === r.coinCurrencies.sweeps,",
+  "new": "          requiresRegionGate: currency !== r.coinCurrencies.sweeps,"
+ },
+ {
+  "id": "M062",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "          requiresRegionGate: currency === r.coinCurrencies.sweeps,",
+  "new": "          requiresRegionGate: undefined as never,"
+ },
+ {
+  "id": "M063",
+  "file": "apps/api/libs/domain/src/lib/market/coin-selection.ts",
+  "test": "apps/api/libs/domain/src/lib/market/coin-selection.test.ts",
+  "old": "    .exhaustive();",
+  "new": ""
+ }
+]

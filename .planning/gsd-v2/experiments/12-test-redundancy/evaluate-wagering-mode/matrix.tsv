@@ -1,0 +1,18 @@
+case	loc	kills	unique	M003	M009	M011	M012	M013	M015	M016	M021	M022	M023	M024	M025	M026	M027	M032	M033	M034	M041	M042	M043	M044	M045	M047	M048	M049	M050	M051	M052
+E1: an absent row resolves to real_money [fiat] with reason absent	8	6	0	0	1	1	1	1	1	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+E1: an absent row with no fiat wagers nothing	8	6	0	0	1	1	1	1	1	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+E2: every malformed shape resolves to real_money, never a prize mode	22	5	0	0	1	1	1	1	0	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+E3: a real_money row resolves to [fiat] and never consults coins (T-382-19)	9	9	0	0	1	1	1	1	0	1	1	0	1	1	0	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+E4: a social row resolves to the gold currency only (T-382-18)	9	9	3	0	0	0	0	1	0	1	1	0	1	1	0	1	0	1	1	1	0	0	0	0	0	0	0	0	0	0	0
+E5: a complete sweepstakes row resolves to [gold, sweeps]	9	10	1	0	0	0	0	1	0	1	1	0	1	1	0	1	0	0	0	0	1	0	0	0	0	1	1	1	0	0	0
+E6: each evidence field, individually empty, blocks sweepstakes (24 cases)	15	17	1	1	1	1	1	1	0	1	1	0	1	1	0	1	0	0	0	0	0	1	1	1	1	0	0	0	1	1	1
+E6: empty activated_at / activated_by block sweepstakes	10	16	0	1	1	1	1	1	0	1	1	0	1	1	0	1	0	0	0	0	0	1	1	0	1	0	0	0	1	1	1
+E6: an inactive sweepstakes row is social, not sweepstakes	15	9	0	0	0	0	0	1	0	1	1	0	1	1	0	1	0	0	0	0	0	0	0	0	0	0	0	0	1	1	1
+E7: an NG-bound block evaluated for KE resolves to real_money binding_mismatch	8	10	0	0	1	1	1	1	0	1	1	1	0	0	1	1	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+E7: an empty jurisdiction never opens the gate	7	6	0	0	1	0	0	1	0	1	0	0	0	0	1	1	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+E9: coinCurrencies is {} for real_money and every fallback path	10	5	0	0	0	0	0	0	0	0	1	1	0	0	1	1	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+E9: coinCurrencies is {gold} for social and for a downgraded sweepstakes row	10	6	0	0	0	0	0	1	0	1	1	0	1	1	0	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+E9: coinCurrencies is {gold, sweeps} for a complete sweepstakes row	6	7	0	0	0	0	0	1	0	1	1	0	1	1	0	1	0	0	0	0	1	0	0	0	0	0	0	0	0	0	0
+E8: the evaluator is pure — deterministic and non-mutating	18	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+E-389a [RED]: a javascript: rules URL resolves real_money/'malformed' with no officialRulesUrl	10	4	0	0	1	0	1	1	0	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+E-389b [regression]: the same row with an https URL still resolves sweepstakes	5	9	0	0	0	0	0	1	0	1	1	0	1	1	0	1	0	0	0	0	1	0	0	0	0	1	0	1	0	0	0

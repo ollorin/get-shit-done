@@ -1,0 +1,254 @@
+[
+ {
+  "id": "M001",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "          field: \"body\",",
+  "new": "          field: undefined as never,"
+ },
+ {
+  "id": "M002",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "          message: \"Invalid JSON in request body\",",
+  "new": "          message: undefined as never,"
+ },
+ {
+  "id": "M003",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "          message: \"Invalid JSON in request body\",",
+  "new": "          message: \"\","
+ },
+ {
+  "id": "M004",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "          code: \"INVALID_JSON\",",
+  "new": "          code: undefined as never,"
+ },
+ {
+  "id": "M005",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "export const validateRequest = <T extends z.ZodSchema>(\n  schema: T,",
+  "new": "export const validateRequest = <T extends z.ZodSchema>(\n  schema: undefined as never,"
+ },
+ {
+  "id": "M006",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "  if (!result.success) {",
+  "new": "  if (result.success) {"
+ },
+ {
+  "id": "M007",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "  if (!result.success) {",
+  "new": "  if (true) {"
+ },
+ {
+  "id": "M008",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "  if (!result.success) {",
+  "new": "  if (false) {"
+ },
+ {
+  "id": "M009",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "  if (!result.success) {",
+  "new": "  if (!(!result.success)) {"
+ },
+ {
+  "id": "M010",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "      field: issue.path.join(\".\"),",
+  "new": "      field: undefined as never,"
+ },
+ {
+  "id": "M011",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "      message: issue.message,",
+  "new": "      message: undefined as never,"
+ },
+ {
+  "id": "M012",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "      code: issue.code,",
+  "new": "      code: undefined as never,"
+ },
+ {
+  "id": "M013",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "    return err(ValidationErrorFP(issues));",
+  "new": "    return undefined as never;"
+ },
+ {
+  "id": "M014",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "  return ok(result.data);",
+  "new": "  return undefined as never;"
+ },
+ {
+  "id": "M015",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "export const validateRequestAsync = <T extends z.ZodSchema>(\n  schema: T,",
+  "new": "export const validateRequestAsync = <T extends z.ZodSchema>(\n  schema: undefined as never,"
+ },
+ {
+  "id": "M016",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "  if (syncResult.isOk()) {",
+  "new": "  if (syncResult.isErr()) {"
+ },
+ {
+  "id": "M017",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "  if (syncResult.isOk()) {",
+  "new": "  if (true) {"
+ },
+ {
+  "id": "M018",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "  if (syncResult.isOk()) {",
+  "new": "  if (false) {"
+ },
+ {
+  "id": "M019",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "  if (syncResult.isOk()) {",
+  "new": "  if (!(syncResult.isOk())) {"
+ },
+ {
+  "id": "M020",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "    return okAsync(syncResult.value);",
+  "new": "    return undefined as never;"
+ },
+ {
+  "id": "M021",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "  return errAsync(syncResult.error);",
+  "new": "  return undefined as never;"
+ },
+ {
+  "id": "M022",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "  ValidationErrorFP(issues);",
+  "new": ""
+ },
+ {
+  "id": "M023",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "  limiter: RateLimiter,",
+  "new": "  limiter: undefined as never,"
+ },
+ {
+  "id": "M024",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "  request: Request,",
+  "new": "  request: undefined as never,"
+ },
+ {
+  "id": "M025",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "  cs: ClientSourceConfig,",
+  "new": "  cs: undefined as never,"
+ },
+ {
+  "id": "M026",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "        cause: error instanceof Error ? error : new Error(String(error)),",
+  "new": "        cause: undefined as never,"
+ },
+ {
+  "id": "M027",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "    if (result.unavailable) {",
+  "new": "    if (true) {"
+ },
+ {
+  "id": "M028",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "    if (result.unavailable) {",
+  "new": "    if (false) {"
+ },
+ {
+  "id": "M029",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "    if (result.unavailable) {",
+  "new": "    if (!(result.unavailable)) {"
+ },
+ {
+  "id": "M030",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "        RedisUnavailableError('rate_limit', new Error('rate limiter counter unavailable'), 'rate_limit')",
+  "new": "        RedisUnavailableError('rate_limit', new Error(''), 'rate_limit')"
+ },
+ {
+  "id": "M031",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "    if (!result.allowed) {",
+  "new": "    if (result.allowed) {"
+ },
+ {
+  "id": "M032",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "    if (!result.allowed) {",
+  "new": "    if (true) {"
+ },
+ {
+  "id": "M033",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "    if (!result.allowed) {",
+  "new": "    if (false) {"
+ },
+ {
+  "id": "M034",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "    if (!result.allowed) {",
+  "new": "    if (!(!result.allowed)) {"
+ },
+ {
+  "id": "M035",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "          retryAfter: result.retryAfter,",
+  "new": "          retryAfter: undefined as never,"
+ },
+ {
+  "id": "M036",
+  "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "old": "    return okAsync(undefined);",
+  "new": "    return undefined as never;"
+ }
+]

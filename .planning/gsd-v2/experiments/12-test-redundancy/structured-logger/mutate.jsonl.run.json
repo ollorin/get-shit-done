@@ -1,0 +1,6 @@
+{
+  "exit_code": 0,
+  "mutants": 33,
+  "baseline_before": "green",
+  "baseline_after": "green"
+}

@@ -1,0 +1,35 @@
+case	loc	kills	unique	M004	M010	M012	M013	M014	M020	M021	M026	M027	M029	M031	M032	M033	M034	M035	M036
+parseRequestBody ... should return ok with parsed JSON for valid body	15	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+parseRequestBody ... should return ValidationError for invalid JSON	9	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+parseRequestBody ... should return ValidationError with INVALID_JSON code	12	1	0	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+parseRequestBody ... should preserve body type via generic	14	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+parseRequestBody ... should return ValidationError for empty body	10	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+parseRequestBody ... should handle null JSON body	9	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+parseRequestBody ... should work with expectOkAsync helper	6	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+parseRequestBody ... should work with expectErrAsync helper	6	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+validateRequest ... should return ok with validated data for valid input	10	1	0	0	0	0	0	1	0	0	0	0	0	0	0	0	0	0	0
+validateRequest ... should return ValidationError with all issues for invalid input	14	1	0	0	0	0	1	0	0	0	0	0	0	0	0	0	0	0	0
+validateRequest ... should map Zod issue paths correctly (nested.field format)	12	2	0	0	1	0	1	0	0	0	0	0	0	0	0	0	0	0	0
+validateRequest ... should include issue code from Zod	16	2	1	0	0	1	1	0	0	0	0	0	0	0	0	0	0	0	0
+validateRequest ... should handle empty object input	11	1	0	0	0	0	1	0	0	0	0	0	0	0	0	0	0	0	0
+validateRequest ... should work with expectOk helper for valid data	6	1	0	0	0	0	0	1	0	0	0	0	0	0	0	0	0	0	0
+validateRequest ... should work with expectErr helper for invalid data	6	1	0	0	0	0	1	0	0	0	0	0	0	0	0	0	0	0	0
+validateRequest ... should work with expectOkValue for value extraction	8	1	0	0	0	0	0	1	0	0	0	0	0	0	0	0	0	0	0
+validateRequest ... should work with expectErrValue for error extraction	8	1	0	0	0	0	1	0	0	0	0	0	0	0	0	0	0	0	0
+validateRequest ... should handle null input	5	1	0	0	0	0	1	0	0	0	0	0	0	0	0	0	0	0	0
+validateRequest ... should handle undefined input	5	1	0	0	0	0	1	0	0	0	0	0	0	0	0	0	0	0	0
+validateRequest ... should accumulate all field errors	20	2	0	0	1	0	1	0	0	0	0	0	0	0	0	0	0	0	0
+validateRequestAsync ... should return same result as validateRequest (async wrapper)	10	2	0	0	0	0	0	1	1	0	0	0	0	0	0	0	0	0	0
+validateRequestAsync ... should return ValidationError for invalid input (async)	9	2	0	0	0	0	1	0	0	1	0	0	0	0	0	0	0	0	0
+validateRequestAsync ... should work in andThen chains	14	2	0	0	0	0	0	1	1	0	0	0	0	0	0	0	0	0	0
+validateRequestAsync ... should short-circuit on parse failure in pipeline	15	1	0	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+validateRequestAsync ... should short-circuit on validation failure in pipeline	16	3	0	0	1	0	1	0	0	1	0	0	0	0	0	0	0	0	0
+checkRateLimitFP ... should return okAsync when rate limit not exceeded	9	6	0	0	0	0	0	0	0	0	0	1	1	1	1	0	1	0	1
+checkRateLimitFP ... should return RateLimitError when rate limit exceeded	9	5	0	0	0	0	0	0	0	0	0	1	1	1	0	1	1	0	0
+checkRateLimitFP ... should include retryAfter in error context	10	6	1	0	0	0	0	0	0	0	0	1	1	1	0	1	1	1	0
+checkRateLimitFP ... should handle limiter errors gracefully	11	1	0	0	0	0	0	0	0	0	1	0	0	0	0	0	0	0	0
+checkRateLimitFP ... should work in pipeline composition	16	8	0	0	0	0	0	1	1	0	0	1	1	1	1	0	1	0	1
+checkRateLimitFP ... should short-circuit pipeline when rate limited	23	5	0	0	0	0	0	0	0	0	0	1	1	1	0	1	1	0	0
+checkRateLimitFP ... should include correct error code for rate limiting	9	2	0	0	0	0	0	0	0	0	0	1	1	0	0	0	0	0	0
+checkRateLimitFP ... should preserve error cause as Error type	10	1	0	0	0	0	0	0	0	0	1	0	0	0	0	0	0	0	0
+checkRateLimitFP — identifier option forwarding (399-22 U2) ... forwards { identifier } as the third argument of limiter.checkLimit	29	6	0	0	0	0	0	0	0	0	0	1	1	1	1	0	1	0	1

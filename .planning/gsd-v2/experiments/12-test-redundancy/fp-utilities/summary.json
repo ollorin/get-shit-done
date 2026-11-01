@@ -1,0 +1,481 @@
+{
+ "summary": {
+  "source": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.test.ts",
+  "srcLoc": 163,
+  "testLoc": 554,
+  "nCases": 34,
+  "caseLocTotal": 392,
+  "baselineRunMs": 311,
+  "nMutants": 36,
+  "outcomes": {
+   "survived": 6,
+   "killed": 16,
+   "killed-typecheck": 14
+  },
+  "meanMsPerOutcome": {
+   "survived": 286,
+   "killed": 269,
+   "killed-typecheck": 611
+  },
+  "totalMutantMs": 14568,
+  "killedAttributed": 16,
+  "killedUnattributed": [],
+  "crossFiles": [],
+  "greedyCount": 6,
+  "droppableCount": 28,
+  "droppableLoc": 312,
+  "zeroKillCases": [
+   "parseRequestBody ... should return ok with parsed JSON for valid body",
+   "parseRequestBody ... should return ValidationError for invalid JSON",
+   "parseRequestBody ... should preserve body type via generic",
+   "parseRequestBody ... should return ValidationError for empty body",
+   "parseRequestBody ... should handle null JSON body",
+   "parseRequestBody ... should work with expectOkAsync helper",
+   "parseRequestBody ... should work with expectErrAsync helper"
+  ],
+  "zeroUniqueCases": [
+   "parseRequestBody ... should return ok with parsed JSON for valid body",
+   "parseRequestBody ... should return ValidationError for invalid JSON",
+   "parseRequestBody ... should return ValidationError with INVALID_JSON code",
+   "parseRequestBody ... should preserve body type via generic",
+   "parseRequestBody ... should return ValidationError for empty body",
+   "parseRequestBody ... should handle null JSON body",
+   "parseRequestBody ... should work with expectOkAsync helper",
+   "parseRequestBody ... should work with expectErrAsync helper",
+   "validateRequest ... should return ok with validated data for valid input",
+   "validateRequest ... should return ValidationError with all issues for invalid input",
+   "validateRequest ... should map Zod issue paths correctly (nested.field format)",
+   "validateRequest ... should handle empty object input",
+   "validateRequest ... should work with expectOk helper for valid data",
+   "validateRequest ... should work with expectErr helper for invalid data",
+   "validateRequest ... should work with expectOkValue for value extraction",
+   "validateRequest ... should work with expectErrValue for error extraction",
+   "validateRequest ... should handle null input",
+   "validateRequest ... should handle undefined input",
+   "validateRequest ... should accumulate all field errors",
+   "validateRequestAsync ... should return same result as validateRequest (async wrapper)",
+   "validateRequestAsync ... should return ValidationError for invalid input (async)",
+   "validateRequestAsync ... should work in andThen chains",
+   "validateRequestAsync ... should short-circuit on parse failure in pipeline",
+   "validateRequestAsync ... should short-circuit on validation failure in pipeline",
+   "checkRateLimitFP ... should return okAsync when rate limit not exceeded",
+   "checkRateLimitFP ... should return RateLimitError when rate limit exceeded",
+   "checkRateLimitFP ... should handle limiter errors gracefully",
+   "checkRateLimitFP ... should work in pipeline composition",
+   "checkRateLimitFP ... should short-circuit pipeline when rate limited",
+   "checkRateLimitFP ... should include correct error code for rate limiting",
+   "checkRateLimitFP ... should preserve error cause as Error type",
+   "checkRateLimitFP — identifier option forwarding (399-22 U2) ... forwards { identifier } as the third argument of limiter.checkLimit"
+  ],
+  "unmatchedLocCases": [],
+  "failingNamesNotInCaseList": [],
+  "mutateExit": 0,
+  "runInfo": {
+   "exit_code": 0,
+   "mutants": 36,
+   "baseline_before": "green",
+   "baseline_after": "green"
+  }
+ },
+ "perCase": [
+  {
+   "name": "parseRequestBody ... should return ok with parsed JSON for valid body",
+   "kills": 0,
+   "unique": 0,
+   "loc": 15
+  },
+  {
+   "name": "parseRequestBody ... should return ValidationError for invalid JSON",
+   "kills": 0,
+   "unique": 0,
+   "loc": 9
+  },
+  {
+   "name": "parseRequestBody ... should return ValidationError with INVALID_JSON code",
+   "kills": 1,
+   "unique": 0,
+   "loc": 12
+  },
+  {
+   "name": "parseRequestBody ... should preserve body type via generic",
+   "kills": 0,
+   "unique": 0,
+   "loc": 14
+  },
+  {
+   "name": "parseRequestBody ... should return ValidationError for empty body",
+   "kills": 0,
+   "unique": 0,
+   "loc": 10
+  },
+  {
+   "name": "parseRequestBody ... should handle null JSON body",
+   "kills": 0,
+   "unique": 0,
+   "loc": 9
+  },
+  {
+   "name": "parseRequestBody ... should work with expectOkAsync helper",
+   "kills": 0,
+   "unique": 0,
+   "loc": 6
+  },
+  {
+   "name": "parseRequestBody ... should work with expectErrAsync helper",
+   "kills": 0,
+   "unique": 0,
+   "loc": 6
+  },
+  {
+   "name": "validateRequest ... should return ok with validated data for valid input",
+   "kills": 1,
+   "unique": 0,
+   "loc": 10
+  },
+  {
+   "name": "validateRequest ... should return ValidationError with all issues for invalid input",
+   "kills": 1,
+   "unique": 0,
+   "loc": 14
+  },
+  {
+   "name": "validateRequest ... should map Zod issue paths correctly (nested.field format)",
+   "kills": 2,
+   "unique": 0,
+   "loc": 12
+  },
+  {
+   "name": "validateRequest ... should include issue code from Zod",
+   "kills": 2,
+   "unique": 1,
+   "loc": 16
+  },
+  {
+   "name": "validateRequest ... should handle empty object input",
+   "kills": 1,
+   "unique": 0,
+   "loc": 11
+  },
+  {
+   "name": "validateRequest ... should work with expectOk helper for valid data",
+   "kills": 1,
+   "unique": 0,
+   "loc": 6
+  },
+  {
+   "name": "validateRequest ... should work with expectErr helper for invalid data",
+   "kills": 1,
+   "unique": 0,
+   "loc": 6
+  },
+  {
+   "name": "validateRequest ... should work with expectOkValue for value extraction",
+   "kills": 1,
+   "unique": 0,
+   "loc": 8
+  },
+  {
+   "name": "validateRequest ... should work with expectErrValue for error extraction",
+   "kills": 1,
+   "unique": 0,
+   "loc": 8
+  },
+  {
+   "name": "validateRequest ... should handle null input",
+   "kills": 1,
+   "unique": 0,
+   "loc": 5
+  },
+  {
+   "name": "validateRequest ... should handle undefined input",
+   "kills": 1,
+   "unique": 0,
+   "loc": 5
+  },
+  {
+   "name": "validateRequest ... should accumulate all field errors",
+   "kills": 2,
+   "unique": 0,
+   "loc": 20
+  },
+  {
+   "name": "validateRequestAsync ... should return same result as validateRequest (async wrapper)",
+   "kills": 2,
+   "unique": 0,
+   "loc": 10
+  },
+  {
+   "name": "validateRequestAsync ... should return ValidationError for invalid input (async)",
+   "kills": 2,
+   "unique": 0,
+   "loc": 9
+  },
+  {
+   "name": "validateRequestAsync ... should work in andThen chains",
+   "kills": 2,
+   "unique": 0,
+   "loc": 14
+  },
+  {
+   "name": "validateRequestAsync ... should short-circuit on parse failure in pipeline",
+   "kills": 1,
+   "unique": 0,
+   "loc": 15
+  },
+  {
+   "name": "validateRequestAsync ... should short-circuit on validation failure in pipeline",
+   "kills": 3,
+   "unique": 0,
+   "loc": 16
+  },
+  {
+   "name": "checkRateLimitFP ... should return okAsync when rate limit not exceeded",
+   "kills": 6,
+   "unique": 0,
+   "loc": 9
+  },
+  {
+   "name": "checkRateLimitFP ... should return RateLimitError when rate limit exceeded",
+   "kills": 5,
+   "unique": 0,
+   "loc": 9
+  },
+  {
+   "name": "checkRateLimitFP ... should include retryAfter in error context",
+   "kills": 6,
+   "unique": 1,
+   "loc": 10
+  },
+  {
+   "name": "checkRateLimitFP ... should handle limiter errors gracefully",
+   "kills": 1,
+   "unique": 0,
+   "loc": 11
+  },
+  {
+   "name": "checkRateLimitFP ... should work in pipeline composition",
+   "kills": 8,
+   "unique": 0,
+   "loc": 16
+  },
+  {
+   "name": "checkRateLimitFP ... should short-circuit pipeline when rate limited",
+   "kills": 5,
+   "unique": 0,
+   "loc": 23
+  },
+  {
+   "name": "checkRateLimitFP ... should include correct error code for rate limiting",
+   "kills": 2,
+   "unique": 0,
+   "loc": 9
+  },
+  {
+   "name": "checkRateLimitFP ... should preserve error cause as Error type",
+   "kills": 1,
+   "unique": 0,
+   "loc": 10
+  },
+  {
+   "name": "checkRateLimitFP — identifier option forwarding (399-22 U2) ... forwards { identifier } as the third argument of limiter.checkLimit",
+   "kills": 6,
+   "unique": 0,
+   "loc": 29
+  }
+ ],
+ "greedy": [
+  "checkRateLimitFP ... should work in pipeline composition",
+  "validateRequestAsync ... should short-circuit on validation failure in pipeline",
+  "checkRateLimitFP ... should include retryAfter in error context",
+  "checkRateLimitFP ... should preserve error cause as Error type",
+  "parseRequestBody ... should return ValidationError with INVALID_JSON code",
+  "validateRequest ... should include issue code from Zod"
+ ],
+ "droppable": [
+  "parseRequestBody ... should return ok with parsed JSON for valid body",
+  "parseRequestBody ... should return ValidationError for invalid JSON",
+  "parseRequestBody ... should preserve body type via generic",
+  "parseRequestBody ... should return ValidationError for empty body",
+  "parseRequestBody ... should handle null JSON body",
+  "parseRequestBody ... should work with expectOkAsync helper",
+  "parseRequestBody ... should work with expectErrAsync helper",
+  "validateRequest ... should return ok with validated data for valid input",
+  "validateRequest ... should return ValidationError with all issues for invalid input",
+  "validateRequest ... should map Zod issue paths correctly (nested.field format)",
+  "validateRequest ... should handle empty object input",
+  "validateRequest ... should work with expectOk helper for valid data",
+  "validateRequest ... should work with expectErr helper for invalid data",
+  "validateRequest ... should work with expectOkValue for value extraction",
+  "validateRequest ... should work with expectErrValue for error extraction",
+  "validateRequest ... should handle null input",
+  "validateRequest ... should handle undefined input",
+  "validateRequest ... should accumulate all field errors",
+  "validateRequestAsync ... should return same result as validateRequest (async wrapper)",
+  "validateRequestAsync ... should return ValidationError for invalid input (async)",
+  "validateRequestAsync ... should work in andThen chains",
+  "validateRequestAsync ... should short-circuit on parse failure in pipeline",
+  "checkRateLimitFP ... should return okAsync when rate limit not exceeded",
+  "checkRateLimitFP ... should return RateLimitError when rate limit exceeded",
+  "checkRateLimitFP ... should handle limiter errors gracefully",
+  "checkRateLimitFP ... should short-circuit pipeline when rate limited",
+  "checkRateLimitFP ... should include correct error code for rate limiting",
+  "checkRateLimitFP — identifier option forwarding (399-22 U2) ... forwards { identifier } as the third argument of limiter.checkLimit"
+ ],
+ "survivors": [
+  {
+   "id": "M001",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+   "line": 43,
+   "op": "prop-undef",
+   "old": "          field: \"body\",",
+   "new": "          field: undefined as never,"
+  },
+  {
+   "id": "M002",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+   "line": 44,
+   "op": "prop-undef",
+   "old": "          message: \"Invalid JSON in request body\",",
+   "new": "          message: undefined as never,"
+  },
+  {
+   "id": "M003",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+   "line": 44,
+   "op": "str-empty",
+   "old": "          message: \"Invalid JSON in request body\",",
+   "new": "          message: \"\","
+  },
+  {
+   "id": "M011",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+   "line": 73,
+   "op": "prop-undef",
+   "old": "      message: issue.message,",
+   "new": "      message: undefined as never,"
+  },
+  {
+   "id": "M028",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+   "line": 149,
+   "op": "cond-false",
+   "old": "    if (result.unavailable) {",
+   "new": "    if (false) {"
+  },
+  {
+   "id": "M030",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/infrastructure/src/lib/response/fp-utilities.ts",
+   "line": 151,
+   "op": "str-empty",
+   "old": "        RedisUnavailableError('rate_limit', new Error('rate limiter counter unavailable'), 'rate_limit')",
+   "new": "        RedisUnavailableError('rate_limit', new Error(''), 'rate_limit')"
+  }
+ ],
+ "kills": {
+  "M004": [
+   "parseRequestBody ... should return ValidationError with INVALID_JSON code",
+   "validateRequestAsync ... should short-circuit on parse failure in pipeline"
+  ],
+  "M010": [
+   "validateRequest ... should map Zod issue paths correctly (nested.field format)",
+   "validateRequest ... should accumulate all field errors",
+   "validateRequestAsync ... should short-circuit on validation failure in pipeline"
+  ],
+  "M012": [
+   "validateRequest ... should include issue code from Zod"
+  ],
+  "M013": [
+   "validateRequest ... should return ValidationError with all issues for invalid input",
+   "validateRequest ... should map Zod issue paths correctly (nested.field format)",
+   "validateRequest ... should include issue code from Zod",
+   "validateRequest ... should handle empty object input",
+   "validateRequest ... should work with expectErr helper for invalid data",
+   "validateRequest ... should work with expectErrValue for error extraction",
+   "validateRequest ... should handle null input",
+   "validateRequest ... should handle undefined input",
+   "validateRequest ... should accumulate all field errors",
+   "validateRequestAsync ... should return ValidationError for invalid input (async)",
+   "validateRequestAsync ... should short-circuit on validation failure in pipeline"
+  ],
+  "M014": [
+   "validateRequest ... should return ok with validated data for valid input",
+   "validateRequest ... should work with expectOk helper for valid data",
+   "validateRequest ... should work with expectOkValue for value extraction",
+   "validateRequestAsync ... should return same result as validateRequest (async wrapper)",
+   "validateRequestAsync ... should work in andThen chains",
+   "checkRateLimitFP ... should work in pipeline composition"
+  ],
+  "M020": [
+   "validateRequestAsync ... should return same result as validateRequest (async wrapper)",
+   "validateRequestAsync ... should work in andThen chains",
+   "checkRateLimitFP ... should work in pipeline composition"
+  ],
+  "M021": [
+   "validateRequestAsync ... should return ValidationError for invalid input (async)",
+   "validateRequestAsync ... should short-circuit on validation failure in pipeline"
+  ],
+  "M026": [
+   "checkRateLimitFP ... should handle limiter errors gracefully",
+   "checkRateLimitFP ... should preserve error cause as Error type"
+  ],
+  "M027": [
+   "checkRateLimitFP ... should return okAsync when rate limit not exceeded",
+   "checkRateLimitFP ... should return RateLimitError when rate limit exceeded",
+   "checkRateLimitFP ... should include retryAfter in error context",
+   "checkRateLimitFP ... should work in pipeline composition",
+   "checkRateLimitFP ... should short-circuit pipeline when rate limited",
+   "checkRateLimitFP ... should include correct error code for rate limiting",
+   "checkRateLimitFP — identifier option forwarding (399-22 U2) ... forwards { identifier } as the third argument of limiter.checkLimit"
+  ],
+  "M029": [
+   "checkRateLimitFP ... should return okAsync when rate limit not exceeded",
+   "checkRateLimitFP ... should return RateLimitError when rate limit exceeded",
+   "checkRateLimitFP ... should include retryAfter in error context",
+   "checkRateLimitFP ... should work in pipeline composition",
+   "checkRateLimitFP ... should short-circuit pipeline when rate limited",
+   "checkRateLimitFP ... should include correct error code for rate limiting",
+   "checkRateLimitFP — identifier option forwarding (399-22 U2) ... forwards { identifier } as the third argument of limiter.checkLimit"
+  ],
+  "M031": [
+   "checkRateLimitFP ... should return okAsync when rate limit not exceeded",
+   "checkRateLimitFP ... should return RateLimitError when rate limit exceeded",
+   "checkRateLimitFP ... should include retryAfter in error context",
+   "checkRateLimitFP ... should work in pipeline composition",
+   "checkRateLimitFP ... should short-circuit pipeline when rate limited",
+   "checkRateLimitFP — identifier option forwarding (399-22 U2) ... forwards { identifier } as the third argument of limiter.checkLimit"
+  ],
+  "M032": [
+   "checkRateLimitFP ... should return okAsync when rate limit not exceeded",
+   "checkRateLimitFP ... should work in pipeline composition",
+   "checkRateLimitFP — identifier option forwarding (399-22 U2) ... forwards { identifier } as the third argument of limiter.checkLimit"
+  ],
+  "M033": [
+   "checkRateLimitFP ... should return RateLimitError when rate limit exceeded",
+   "checkRateLimitFP ... should include retryAfter in error context",
+   "checkRateLimitFP ... should short-circuit pipeline when rate limited"
+  ],
+  "M034": [
+   "checkRateLimitFP ... should return okAsync when rate limit not exceeded",
+   "checkRateLimitFP ... should return RateLimitError when rate limit exceeded",
+   "checkRateLimitFP ... should include retryAfter in error context",
+   "checkRateLimitFP ... should work in pipeline composition",
+   "checkRateLimitFP ... should short-circuit pipeline when rate limited",
+   "checkRateLimitFP — identifier option forwarding (399-22 U2) ... forwards { identifier } as the third argument of limiter.checkLimit"
+  ],
+  "M035": [
+   "checkRateLimitFP ... should include retryAfter in error context"
+  ],
+  "M036": [
+   "checkRateLimitFP ... should return okAsync when rate limit not exceeded",
+   "checkRateLimitFP ... should work in pipeline composition",
+   "checkRateLimitFP — identifier option forwarding (399-22 U2) ... forwards { identifier } as the third argument of limiter.checkLimit"
+  ]
+ }
+}

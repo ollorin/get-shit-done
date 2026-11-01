@@ -1,0 +1,226 @@
+[
+ {
+  "id": "M001",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "    if (sourceToken !== undefined) {",
+  "new": "    if (sourceToken === undefined) {"
+ },
+ {
+  "id": "M002",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "    if (sourceToken !== undefined) {",
+  "new": "    if (true) {"
+ },
+ {
+  "id": "M003",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "    if (sourceToken !== undefined) {",
+  "new": "    if (false) {"
+ },
+ {
+  "id": "M004",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "    if (sourceToken !== undefined) {",
+  "new": "    if (!(sourceToken !== undefined)) {"
+ },
+ {
+  "id": "M005",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "      this.sourceToken = sourceToken && sourceToken.length > 0 ? sourceToken : null;",
+  "new": "      this.sourceToken = sourceToken || sourceToken.length > 0 ? sourceToken : null;"
+ },
+ {
+  "id": "M006",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "      this.sourceToken = sourceToken && sourceToken.length > 0 ? sourceToken : null;",
+  "new": "      this.sourceToken = sourceToken && sourceToken.length >= 0 ? sourceToken : null;"
+ },
+ {
+  "id": "M007",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "      this.sourceToken = sourceToken && sourceToken.length > 0 ? sourceToken : null;",
+  "new": "      this.sourceToken = sourceToken && sourceToken.length > 1 ? sourceToken : null;"
+ },
+ {
+  "id": "M008",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "      const envToken = typeof Deno !== \"undefined\"",
+  "new": "      const envToken = typeof Deno === \"undefined\""
+ },
+ {
+  "id": "M009",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "        ? Deno.env.get(\"BETTER_STACK_SOURCE_TOKEN\") ?? null",
+  "new": "        ? Deno.env.get(\"BETTER_STACK_SOURCE_TOKEN\") "
+ },
+ {
+  "id": "M010",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "      this.sourceToken = envToken && envToken.length > 0 ? envToken : null;",
+  "new": "      this.sourceToken = envToken || envToken.length > 0 ? envToken : null;"
+ },
+ {
+  "id": "M011",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "      this.sourceToken = envToken && envToken.length > 0 ? envToken : null;",
+  "new": "      this.sourceToken = envToken && envToken.length >= 0 ? envToken : null;"
+ },
+ {
+  "id": "M012",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "      this.sourceToken = envToken && envToken.length > 0 ? envToken : null;",
+  "new": "      this.sourceToken = envToken && envToken.length > 1 ? envToken : null;"
+ },
+ {
+  "id": "M013",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "    const isSlow = entry.duration_ms > 200;",
+  "new": "    const isSlow = entry.duration_ms >= 200;"
+ },
+ {
+  "id": "M014",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "    const isSlow = entry.duration_ms > 200;",
+  "new": "    const isSlow = entry.duration_ms > 201;"
+ },
+ {
+  "id": "M015",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "    console.log(JSON.stringify(finalEntry));",
+  "new": ""
+ },
+ {
+  "id": "M016",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "    if (!this.sourceToken) return;",
+  "new": "    if (this.sourceToken) return;"
+ },
+ {
+  "id": "M017",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "    if (!this.sourceToken) return;",
+  "new": "    if (true) return;"
+ },
+ {
+  "id": "M018",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "    if (!this.sourceToken) return;",
+  "new": "    if (false) return;"
+ },
+ {
+  "id": "M019",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "    if (!this.sourceToken) return;",
+  "new": "    if (!(!this.sourceToken)) return;"
+ },
+ {
+  "id": "M020",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "      dt: entry.timestamp,",
+  "new": "      dt: undefined as never,"
+ },
+ {
+  "id": "M021",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "      level: finalEntry.level,",
+  "new": "      level: undefined as never,"
+ },
+ {
+  "id": "M022",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "      message: finalEntry.message,",
+  "new": "      message: undefined as never,"
+ },
+ {
+  "id": "M023",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "      trace_id: entry.trace_id,",
+  "new": "      trace_id: undefined as never,"
+ },
+ {
+  "id": "M024",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "      player_id: entry.player_id,",
+  "new": "      player_id: undefined as never,"
+ },
+ {
+  "id": "M025",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "      function_name: entry.function_name,",
+  "new": "      function_name: undefined as never,"
+ },
+ {
+  "id": "M026",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "      duration_ms: entry.duration_ms,",
+  "new": "      duration_ms: undefined as never,"
+ },
+ {
+  "id": "M027",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "      status_code: entry.status_code,",
+  "new": "      status_code: undefined as never,"
+ },
+ {
+  "id": "M028",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "      method: \"POST\",",
+  "new": "      method: undefined as never,"
+ },
+ {
+  "id": "M029",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "        \"Content-Type\": \"application/json\",",
+  "new": "        \"Content-Type\": undefined as never,"
+ },
+ {
+  "id": "M030",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "        \"Authorization\": `Bearer ${this.sourceToken}`,",
+  "new": "        \"Authorization\": undefined as never,"
+ },
+ {
+  "id": "M031",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "      body: JSON.stringify(payload),",
+  "new": "      body: undefined as never,"
+ },
+ {
+  "id": "M032",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/better-stack-shipper.test.ts",
+  "old": "      console.error(`[BetterStack] log ship failed: ${err.message}`);",
+  "new": ""
+ }
+]

@@ -1,0 +1,6 @@
+{
+  "exit_code": 2,
+  "mutants": 0,
+  "baseline_before": "red",
+  "baseline_after": "not-run"
+}

@@ -1,0 +1,184 @@
+[
+ {
+  "id": "M001",
+  "file": "apps/api/libs/domain/src/lib/auth/deletion-schedule.ts",
+  "test": "apps/api/libs/domain/src/lib/auth/deletion-schedule.test.ts",
+  "old": "export const DELETION_GRACE_MS: number = 30 * 24 * 60 * 60 * 1000;",
+  "new": "export const DELETION_GRACE_MS: number = 31 * 24 * 60 * 60 * 1000;"
+ },
+ {
+  "id": "M002",
+  "file": "apps/api/libs/domain/src/lib/auth/deletion-schedule.ts",
+  "test": "apps/api/libs/domain/src/lib/auth/deletion-schedule.test.ts",
+  "old": "export const DELETION_GRACE_MS: number = 30 * 24 * 60 * 60 * 1000;",
+  "new": "export const DELETION_GRACE_MS: number = 30 * 25 * 60 * 60 * 1000;"
+ },
+ {
+  "id": "M003",
+  "file": "apps/api/libs/domain/src/lib/auth/deletion-schedule.ts",
+  "test": "apps/api/libs/domain/src/lib/auth/deletion-schedule.test.ts",
+  "old": "export const DELETION_GRACE_MS: number = 30 * 24 * 60 * 60 * 1000;",
+  "new": "export const DELETION_GRACE_MS: number = 30 * 24 * 61 * 60 * 1000;"
+ },
+ {
+  "id": "M004",
+  "file": "apps/api/libs/domain/src/lib/auth/deletion-schedule.ts",
+  "test": "apps/api/libs/domain/src/lib/auth/deletion-schedule.test.ts",
+  "old": "export const DELETION_GRACE_MS: number = 30 * 24 * 60 * 60 * 1000;",
+  "new": "export const DELETION_GRACE_MS: number = 30 * 24 * 60 * 61 * 1000;"
+ },
+ {
+  "id": "M005",
+  "file": "apps/api/libs/domain/src/lib/auth/deletion-schedule.ts",
+  "test": "apps/api/libs/domain/src/lib/auth/deletion-schedule.test.ts",
+  "old": "export const DELETION_GRACE_MS: number = 30 * 24 * 60 * 60 * 1000;",
+  "new": "export const DELETION_GRACE_MS: number = 30 * 24 * 60 * 60 * 1001;"
+ },
+ {
+  "id": "M006",
+  "file": "apps/api/libs/domain/src/lib/auth/deletion-schedule.ts",
+  "test": "apps/api/libs/domain/src/lib/auth/deletion-schedule.test.ts",
+  "old": "export const deletionScheduleFor = (\n  prev: AccountStatus,",
+  "new": "export const deletionScheduleFor = (\n  prev: undefined as never,"
+ },
+ {
+  "id": "M007",
+  "file": "apps/api/libs/domain/src/lib/auth/deletion-schedule.ts",
+  "test": "apps/api/libs/domain/src/lib/auth/deletion-schedule.test.ts",
+  "old": "  next: AccountStatus,",
+  "new": "  next: undefined as never,"
+ },
+ {
+  "id": "M008",
+  "file": "apps/api/libs/domain/src/lib/auth/deletion-schedule.ts",
+  "test": "apps/api/libs/domain/src/lib/auth/deletion-schedule.test.ts",
+  "old": "  next: AccountStatus,\n  now: Date,",
+  "new": "  next: AccountStatus,\n  now: undefined as never,"
+ },
+ {
+  "id": "M009",
+  "file": "apps/api/libs/domain/src/lib/auth/deletion-schedule.ts",
+  "test": "apps/api/libs/domain/src/lib/auth/deletion-schedule.test.ts",
+  "old": "  next === \"active\"",
+  "new": "  next !== \"active\""
+ },
+ {
+  "id": "M010",
+  "file": "apps/api/libs/domain/src/lib/auth/deletion-schedule.ts",
+  "test": "apps/api/libs/domain/src/lib/auth/deletion-schedule.test.ts",
+  "old": "    : next !== \"pending_deletion\" || prev === \"pending_deletion\"",
+  "new": "    : next !== \"pending_deletion\" || prev !== \"pending_deletion\""
+ },
+ {
+  "id": "M011",
+  "file": "apps/api/libs/domain/src/lib/auth/deletion-schedule.ts",
+  "test": "apps/api/libs/domain/src/lib/auth/deletion-schedule.test.ts",
+  "old": "    : next !== \"pending_deletion\" || prev === \"pending_deletion\"",
+  "new": "    : next === \"pending_deletion\" || prev === \"pending_deletion\""
+ },
+ {
+  "id": "M012",
+  "file": "apps/api/libs/domain/src/lib/auth/deletion-schedule.ts",
+  "test": "apps/api/libs/domain/src/lib/auth/deletion-schedule.test.ts",
+  "old": "    : next !== \"pending_deletion\" || prev === \"pending_deletion\"",
+  "new": "    : next !== \"pending_deletion\" && prev === \"pending_deletion\""
+ },
+ {
+  "id": "M013",
+  "file": "apps/api/libs/domain/src/lib/auth/deletion-schedule.ts",
+  "test": "apps/api/libs/domain/src/lib/auth/deletion-schedule.test.ts",
+  "old": "      deletion_scheduled_at: new Date(now.getTime() + DELETION_GRACE_MS)",
+  "new": "      deletion_scheduled_at: new Date(now.getTime() - DELETION_GRACE_MS)"
+ },
+ {
+  "id": "M014",
+  "file": "apps/api/libs/domain/src/lib/auth/deletion-schedule.ts",
+  "test": "apps/api/libs/domain/src/lib/auth/deletion-schedule.test.ts",
+  "old": "export const resolveStatusTransition = (\n  prev: AccountStatus,",
+  "new": "export const resolveStatusTransition = (\n  prev: undefined as never,"
+ },
+ {
+  "id": "M015",
+  "file": "apps/api/libs/domain/src/lib/auth/deletion-schedule.ts",
+  "test": "apps/api/libs/domain/src/lib/auth/deletion-schedule.test.ts",
+  "old": "  requested: AccountStatus,",
+  "new": "  requested: undefined as never,"
+ },
+ {
+  "id": "M016",
+  "file": "apps/api/libs/domain/src/lib/auth/deletion-schedule.ts",
+  "test": "apps/api/libs/domain/src/lib/auth/deletion-schedule.test.ts",
+  "old": "  scheduledAt: string | null,",
+  "new": "  scheduledAt: undefined as never,"
+ },
+ {
+  "id": "M017",
+  "file": "apps/api/libs/domain/src/lib/auth/deletion-schedule.ts",
+  "test": "apps/api/libs/domain/src/lib/auth/deletion-schedule.test.ts",
+  "old": "  scheduledAt: string | null,\n  now: Date,",
+  "new": "  scheduledAt: string | null,\n  now: undefined as never,"
+ },
+ {
+  "id": "M018",
+  "file": "apps/api/libs/domain/src/lib/auth/deletion-schedule.ts",
+  "test": "apps/api/libs/domain/src/lib/auth/deletion-schedule.test.ts",
+  "old": "  requested === \"active\" &&",
+  "new": "  requested !== \"active\" &&"
+ },
+ {
+  "id": "M019",
+  "file": "apps/api/libs/domain/src/lib/auth/deletion-schedule.ts",
+  "test": "apps/api/libs/domain/src/lib/auth/deletion-schedule.test.ts",
+  "old": "  requested === \"active\" &&",
+  "new": "  requested === \"active\" ||"
+ },
+ {
+  "id": "M020",
+  "file": "apps/api/libs/domain/src/lib/auth/deletion-schedule.ts",
+  "test": "apps/api/libs/domain/src/lib/auth/deletion-schedule.test.ts",
+  "old": "    (prev === \"suspended\" || prev === \"banned\") &&",
+  "new": "    (prev !== \"suspended\" || prev === \"banned\") &&"
+ },
+ {
+  "id": "M021",
+  "file": "apps/api/libs/domain/src/lib/auth/deletion-schedule.ts",
+  "test": "apps/api/libs/domain/src/lib/auth/deletion-schedule.test.ts",
+  "old": "    (prev === \"suspended\" || prev === \"banned\") &&",
+  "new": "    (prev === \"suspended\" || prev !== \"banned\") &&"
+ },
+ {
+  "id": "M022",
+  "file": "apps/api/libs/domain/src/lib/auth/deletion-schedule.ts",
+  "test": "apps/api/libs/domain/src/lib/auth/deletion-schedule.test.ts",
+  "old": "    (prev === \"suspended\" || prev === \"banned\") &&",
+  "new": "    (prev === \"suspended\" || prev === \"banned\") ||"
+ },
+ {
+  "id": "M023",
+  "file": "apps/api/libs/domain/src/lib/auth/deletion-schedule.ts",
+  "test": "apps/api/libs/domain/src/lib/auth/deletion-schedule.test.ts",
+  "old": "    (prev === \"suspended\" || prev === \"banned\") &&",
+  "new": "    (prev === \"suspended\" && prev === \"banned\") &&"
+ },
+ {
+  "id": "M024",
+  "file": "apps/api/libs/domain/src/lib/auth/deletion-schedule.ts",
+  "test": "apps/api/libs/domain/src/lib/auth/deletion-schedule.test.ts",
+  "old": "    typeof scheduledAt === \"string\" && scheduledAt !== \"\"",
+  "new": "    typeof scheduledAt !== \"string\" && scheduledAt !== \"\""
+ },
+ {
+  "id": "M025",
+  "file": "apps/api/libs/domain/src/lib/auth/deletion-schedule.ts",
+  "test": "apps/api/libs/domain/src/lib/auth/deletion-schedule.test.ts",
+  "old": "    typeof scheduledAt === \"string\" && scheduledAt !== \"\"",
+  "new": "    typeof scheduledAt === \"string\" && scheduledAt === \"\""
+ },
+ {
+  "id": "M026",
+  "file": "apps/api/libs/domain/src/lib/auth/deletion-schedule.ts",
+  "test": "apps/api/libs/domain/src/lib/auth/deletion-schedule.test.ts",
+  "old": "    typeof scheduledAt === \"string\" && scheduledAt !== \"\"",
+  "new": "    typeof scheduledAt === \"string\" || scheduledAt !== \"\""
+ }
+]

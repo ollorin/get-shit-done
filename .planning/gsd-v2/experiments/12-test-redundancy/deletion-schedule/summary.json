@@ -1,0 +1,257 @@
+{
+ "summary": {
+  "source": "apps/api/libs/domain/src/lib/auth/deletion-schedule.ts",
+  "test": "apps/api/libs/domain/src/lib/auth/deletion-schedule.test.ts",
+  "srcLoc": 49,
+  "testLoc": 157,
+  "nCases": 16,
+  "caseLocTotal": 129,
+  "baselineRunMs": 70,
+  "nMutants": 26,
+  "outcomes": {
+   "killed": 16,
+   "killed-typecheck": 10
+  },
+  "meanMsPerOutcome": {
+   "killed": 74,
+   "killed-typecheck": 130
+  },
+  "totalMutantMs": 2492,
+  "killedAttributed": 16,
+  "killedUnattributed": [],
+  "crossFiles": [],
+  "greedyCount": 5,
+  "droppableCount": 11,
+  "droppableLoc": 98,
+  "zeroKillCases": [
+   "DS2 clear: any -> active sets the schedule to null",
+   "DS6 rule table: pending_deletion -> suspended/banned keeps the existing date (no key)",
+   "DS9 rule table: suspended -> active clears the schedule to null"
+  ],
+  "zeroUniqueCases": [
+   "DS1 set: any non-pending prev -> pending_deletion schedules now + grace",
+   "DS2 clear: any -> active sets the schedule to null",
+   "DS3 keep: pending_deletion -> pending_deletion emits no key (existing schedule untouched)",
+   "DS5 purity: now is not mutated and the fresh date is exactly now + grace",
+   "DS6 rule table: pending_deletion -> suspended/banned keeps the existing date (no key)",
+   "DS7 rule table: active -> suspended leaves the column untouched (no key)",
+   "DS8 rule table: suspended -> pending_deletion and banned -> pending_deletion stamp a fresh date",
+   "DS9 rule table: suspended -> active clears the schedule to null",
+   "RT1 resume: suspended -> active with a pending date resumes pending_deletion and keeps the date",
+   "RT2 resume: banned -> active with a pending date resumes pending_deletion and keeps the date",
+   "RT3 resume: a lapsed date is still kept (the cron, not the operator, decides erasure)",
+   "RT4 support cancellation: pending_deletion -> active still clears the date",
+   "RT5 no pending date: suspended/banned -> active stays active and clears the (absent) date",
+   "RT6 non-active requests equal the pure schedule rule for every prev",
+   "RT7 missing schedule: suspended/banned -> active with undefined or empty date stays active (never pending_deletion)"
+  ],
+  "unmatchedLocCases": [],
+  "failingNamesNotInCaseList": [],
+  "mutateExit": 0,
+  "runInfo": {
+   "exit_code": 0,
+   "mutants": 26,
+   "baseline_before": "green",
+   "baseline_after": "green"
+  }
+ },
+ "perCase": [
+  {
+   "name": "DS1 set: any non-pending prev -> pending_deletion schedules now + grace",
+   "kills": 3,
+   "unique": 0,
+   "loc": 9
+  },
+  {
+   "name": "DS2 clear: any -> active sets the schedule to null",
+   "kills": 0,
+   "unique": 0,
+   "loc": 11
+  },
+  {
+   "name": "DS3 keep: pending_deletion -> pending_deletion emits no key (existing schedule untouched)",
+   "kills": 2,
+   "unique": 0,
+   "loc": 5
+  },
+  {
+   "name": "DS4 grace constant is exactly 30 days",
+   "kills": 5,
+   "unique": 5,
+   "loc": 3
+  },
+  {
+   "name": "DS5 purity: now is not mutated and the fresh date is exactly now + grace",
+   "kills": 3,
+   "unique": 0,
+   "loc": 6
+  },
+  {
+   "name": "DS6 rule table: pending_deletion -> suspended/banned keeps the existing date (no key)",
+   "kills": 0,
+   "unique": 0,
+   "loc": 10
+  },
+  {
+   "name": "DS7 rule table: active -> suspended leaves the column untouched (no key)",
+   "kills": 2,
+   "unique": 0,
+   "loc": 5
+  },
+  {
+   "name": "DS8 rule table: suspended -> pending_deletion and banned -> pending_deletion stamp a fresh date",
+   "kills": 3,
+   "unique": 0,
+   "loc": 10
+  },
+  {
+   "name": "DS9 rule table: suspended -> active clears the schedule to null",
+   "kills": 0,
+   "unique": 0,
+   "loc": 6
+  },
+  {
+   "name": "RT1 resume: suspended -> active with a pending date resumes pending_deletion and keeps the date",
+   "kills": 3,
+   "unique": 0,
+   "loc": 6
+  },
+  {
+   "name": "RT2 resume: banned -> active with a pending date resumes pending_deletion and keeps the date",
+   "kills": 4,
+   "unique": 0,
+   "loc": 6
+  },
+  {
+   "name": "RT3 resume: a lapsed date is still kept (the cron, not the operator, decides erasure)",
+   "kills": 4,
+   "unique": 0,
+   "loc": 7
+  },
+  {
+   "name": "RT4 support cancellation: pending_deletion -> active still clears the date",
+   "kills": 4,
+   "unique": 0,
+   "loc": 6
+  },
+  {
+   "name": "RT5 no pending date: suspended/banned -> active stays active and clears the (absent) date",
+   "kills": 4,
+   "unique": 0,
+   "loc": 9
+  },
+  {
+   "name": "RT6 non-active requests equal the pure schedule rule for every prev",
+   "kills": 4,
+   "unique": 0,
+   "loc": 19
+  },
+  {
+   "name": "RT7 missing schedule: suspended/banned -> active with undefined or empty date stays active (never pending_deletion)",
+   "kills": 5,
+   "unique": 0,
+   "loc": 11
+  }
+ ],
+ "greedy": [
+  "DS4 grace constant is exactly 30 days",
+  "RT7 missing schedule: suspended/banned -> active with undefined or empty date stays active (never pending_deletion)",
+  "DS5 purity: now is not mutated and the fresh date is exactly now + grace",
+  "RT2 resume: banned -> active with a pending date resumes pending_deletion and keeps the date",
+  "DS3 keep: pending_deletion -> pending_deletion emits no key (existing schedule untouched)"
+ ],
+ "droppable": [
+  "DS1 set: any non-pending prev -> pending_deletion schedules now + grace",
+  "DS2 clear: any -> active sets the schedule to null",
+  "DS6 rule table: pending_deletion -> suspended/banned keeps the existing date (no key)",
+  "DS7 rule table: active -> suspended leaves the column untouched (no key)",
+  "DS8 rule table: suspended -> pending_deletion and banned -> pending_deletion stamp a fresh date",
+  "DS9 rule table: suspended -> active clears the schedule to null",
+  "RT1 resume: suspended -> active with a pending date resumes pending_deletion and keeps the date",
+  "RT3 resume: a lapsed date is still kept (the cron, not the operator, decides erasure)",
+  "RT4 support cancellation: pending_deletion -> active still clears the date",
+  "RT5 no pending date: suspended/banned -> active stays active and clears the (absent) date",
+  "RT6 non-active requests equal the pure schedule rule for every prev"
+ ],
+ "survivors": [],
+ "kills": {
+  "M001": [
+   "DS4 grace constant is exactly 30 days"
+  ],
+  "M002": [
+   "DS4 grace constant is exactly 30 days"
+  ],
+  "M003": [
+   "DS4 grace constant is exactly 30 days"
+  ],
+  "M004": [
+   "DS4 grace constant is exactly 30 days"
+  ],
+  "M005": [
+   "DS4 grace constant is exactly 30 days"
+  ],
+  "M010": [
+   "DS1 set: any non-pending prev -> pending_deletion schedules now + grace",
+   "DS3 keep: pending_deletion -> pending_deletion emits no key (existing schedule untouched)",
+   "DS5 purity: now is not mutated and the fresh date is exactly now + grace",
+   "DS8 rule table: suspended -> pending_deletion and banned -> pending_deletion stamp a fresh date"
+  ],
+  "M011": [
+   "DS1 set: any non-pending prev -> pending_deletion schedules now + grace",
+   "DS5 purity: now is not mutated and the fresh date is exactly now + grace",
+   "DS7 rule table: active -> suspended leaves the column untouched (no key)",
+   "DS8 rule table: suspended -> pending_deletion and banned -> pending_deletion stamp a fresh date"
+  ],
+  "M012": [
+   "DS3 keep: pending_deletion -> pending_deletion emits no key (existing schedule untouched)",
+   "DS7 rule table: active -> suspended leaves the column untouched (no key)"
+  ],
+  "M013": [
+   "DS1 set: any non-pending prev -> pending_deletion schedules now + grace",
+   "DS5 purity: now is not mutated and the fresh date is exactly now + grace",
+   "DS8 rule table: suspended -> pending_deletion and banned -> pending_deletion stamp a fresh date"
+  ],
+  "M018": [
+   "RT1 resume: suspended -> active with a pending date resumes pending_deletion and keeps the date",
+   "RT2 resume: banned -> active with a pending date resumes pending_deletion and keeps the date",
+   "RT3 resume: a lapsed date is still kept (the cron, not the operator, decides erasure)",
+   "RT6 non-active requests equal the pure schedule rule for every prev"
+  ],
+  "M019": [
+   "RT4 support cancellation: pending_deletion -> active still clears the date",
+   "RT5 no pending date: suspended/banned -> active stays active and clears the (absent) date",
+   "RT6 non-active requests equal the pure schedule rule for every prev",
+   "RT7 missing schedule: suspended/banned -> active with undefined or empty date stays active (never pending_deletion)"
+  ],
+  "M021": [
+   "RT2 resume: banned -> active with a pending date resumes pending_deletion and keeps the date",
+   "RT3 resume: a lapsed date is still kept (the cron, not the operator, decides erasure)",
+   "RT4 support cancellation: pending_deletion -> active still clears the date"
+  ],
+  "M022": [
+   "RT4 support cancellation: pending_deletion -> active still clears the date",
+   "RT5 no pending date: suspended/banned -> active stays active and clears the (absent) date",
+   "RT6 non-active requests equal the pure schedule rule for every prev",
+   "RT7 missing schedule: suspended/banned -> active with undefined or empty date stays active (never pending_deletion)"
+  ],
+  "M024": [
+   "RT1 resume: suspended -> active with a pending date resumes pending_deletion and keeps the date",
+   "RT2 resume: banned -> active with a pending date resumes pending_deletion and keeps the date",
+   "RT3 resume: a lapsed date is still kept (the cron, not the operator, decides erasure)",
+   "RT5 no pending date: suspended/banned -> active stays active and clears the (absent) date",
+   "RT7 missing schedule: suspended/banned -> active with undefined or empty date stays active (never pending_deletion)"
+  ],
+  "M025": [
+   "RT1 resume: suspended -> active with a pending date resumes pending_deletion and keeps the date",
+   "RT2 resume: banned -> active with a pending date resumes pending_deletion and keeps the date",
+   "RT3 resume: a lapsed date is still kept (the cron, not the operator, decides erasure)",
+   "RT7 missing schedule: suspended/banned -> active with undefined or empty date stays active (never pending_deletion)"
+  ],
+  "M026": [
+   "RT4 support cancellation: pending_deletion -> active still clears the date",
+   "RT5 no pending date: suspended/banned -> active stays active and clears the (absent) date",
+   "RT6 non-active requests equal the pure schedule rule for every prev",
+   "RT7 missing schedule: suspended/banned -> active with undefined or empty date stays active (never pending_deletion)"
+  ]
+ }
+}

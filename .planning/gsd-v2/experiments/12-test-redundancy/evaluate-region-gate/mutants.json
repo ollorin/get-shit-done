@@ -1,0 +1,359 @@
+[
+ {
+  "id": "M001",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "export const ISO_3166_2_REGION_PATTERN = /^[A-Z]{2}-[A-Z0-9]{1,3}$/;",
+  "new": "export const ISO_3166_2_REGION_PATTERN = /^[A-Z]{3}-[A-Z0-9]{1,3}$/;"
+ },
+ {
+  "id": "M002",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "export const ISO_3166_2_REGION_PATTERN = /^[A-Z]{2}-[A-Z0-9]{1,3}$/;",
+  "new": "export const ISO_3166_2_REGION_PATTERN = /^[A-Z]{2}-[A-Z0-10]{1,3}$/;"
+ },
+ {
+  "id": "M003",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "export const ISO_3166_2_REGION_PATTERN = /^[A-Z]{2}-[A-Z0-9]{1,3}$/;",
+  "new": "export const ISO_3166_2_REGION_PATTERN = /^[A-Z]{2}-[A-Z0-9]{2,3}$/;"
+ },
+ {
+  "id": "M004",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "export const ISO_3166_2_REGION_PATTERN = /^[A-Z]{2}-[A-Z0-9]{1,3}$/;",
+  "new": "export const ISO_3166_2_REGION_PATTERN = /^[A-Z]{2}-[A-Z0-9]{1,4}$/;"
+ },
+ {
+  "id": "M005",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;",
+  "new": "const isNonEmptyString = (v: unknown): v is string => typeof v !== 'string' && v.trim().length > 0;"
+ },
+ {
+  "id": "M006",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;",
+  "new": "const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' || v.trim().length > 0;"
+ },
+ {
+  "id": "M007",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;",
+  "new": "const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.trim().length >= 0;"
+ },
+ {
+  "id": "M008",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;",
+  "new": "const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 1;"
+ },
+ {
+  "id": "M009",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  _tag: 'RegionUnverified',",
+  "new": "  _tag: undefined as never,"
+ },
+ {
+  "id": "M010",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  code: 'REGION_UNVERIFIED',",
+  "new": "  code: undefined as never,"
+ },
+ {
+  "id": "M011",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  message: 'Verify your address to play with Sweepstakes Coins.',",
+  "new": "  message: undefined as never,"
+ },
+ {
+  "id": "M012",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  message: 'Verify your address to play with Sweepstakes Coins.',",
+  "new": "  message: '',"
+ },
+ {
+  "id": "M013",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  _tag: 'RegionPolicyUnavailable',",
+  "new": "  _tag: undefined as never,"
+ },
+ {
+  "id": "M014",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  code: 'REGION_POLICY_UNAVAILABLE',",
+  "new": "  code: undefined as never,"
+ },
+ {
+  "id": "M015",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  message: 'Sweepstakes Coin play is temporarily unavailable.',",
+  "new": "  message: undefined as never,"
+ },
+ {
+  "id": "M016",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  message: 'Sweepstakes Coin play is temporarily unavailable.',",
+  "new": "  message: '',"
+ },
+ {
+  "id": "M017",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  input: RegionGateInput,",
+  "new": "  input: undefined as never,"
+ },
+ {
+  "id": "M018",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  if (typeof region !== 'string' || !ISO_3166_2_REGION_PATTERN.test(region)) {",
+  "new": "  if (typeof region === 'string' || !ISO_3166_2_REGION_PATTERN.test(region)) {"
+ },
+ {
+  "id": "M019",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  if (typeof region !== 'string' || !ISO_3166_2_REGION_PATTERN.test(region)) {",
+  "new": "  if (typeof region !== 'string' && !ISO_3166_2_REGION_PATTERN.test(region)) {"
+ },
+ {
+  "id": "M020",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  if (typeof region !== 'string' || !ISO_3166_2_REGION_PATTERN.test(region)) {",
+  "new": "  if (true) {"
+ },
+ {
+  "id": "M021",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  if (typeof region !== 'string' || !ISO_3166_2_REGION_PATTERN.test(region)) {",
+  "new": "  if (false) {"
+ },
+ {
+  "id": "M022",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  if (typeof region !== 'string' || !ISO_3166_2_REGION_PATTERN.test(region)) {",
+  "new": "  if (!(typeof region !== 'string' || !ISO_3166_2_REGION_PATTERN.test(region))) {"
+ },
+ {
+  "id": "M023",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  if (typeof region !== 'string' || !ISO_3166_2_REGION_PATTERN.test(region)) {",
+  "new": "  if (typeof region !== 'string' || ISO_3166_2_REGION_PATTERN.test(region)) {"
+ },
+ {
+  "id": "M024",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "    return err(unverified());",
+  "new": "    return undefined as never;"
+ },
+ {
+  "id": "M025",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  if (configValue === undefined || configValue === null) {",
+  "new": "  if (configValue !== undefined || configValue === null) {"
+ },
+ {
+  "id": "M026",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  if (configValue === undefined || configValue === null) {",
+  "new": "  if (configValue === undefined || configValue !== null) {"
+ },
+ {
+  "id": "M027",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  if (configValue === undefined || configValue === null) {",
+  "new": "  if (configValue === undefined && configValue === null) {"
+ },
+ {
+  "id": "M028",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  if (configValue === undefined || configValue === null) {",
+  "new": "  if (true) {"
+ },
+ {
+  "id": "M029",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  if (configValue === undefined || configValue === null) {",
+  "new": "  if (false) {"
+ },
+ {
+  "id": "M030",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  if (configValue === undefined || configValue === null) {",
+  "new": "  if (!(configValue === undefined || configValue === null)) {"
+ },
+ {
+  "id": "M031",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "    return err(policyUnavailable('absent'));",
+  "new": "    return undefined as never;"
+ },
+ {
+  "id": "M032",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  if (!parsed.success) {",
+  "new": "  if (parsed.success) {"
+ },
+ {
+  "id": "M033",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  if (!parsed.success) {",
+  "new": "  if (true) {"
+ },
+ {
+  "id": "M034",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  if (!parsed.success) {",
+  "new": "  if (false) {"
+ },
+ {
+  "id": "M035",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  if (!parsed.success) {",
+  "new": "  if (!(!parsed.success)) {"
+ },
+ {
+  "id": "M036",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "    return err(policyUnavailable('malformed'));",
+  "new": "    return undefined as never;"
+ },
+ {
+  "id": "M037",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  if (!isNonEmptyString(jurisdiction) || row.jurisdiction_activation.jurisdiction_binding !== jurisdiction) {",
+  "new": "  if (!isNonEmptyString(jurisdiction) || row.jurisdiction_activation.jurisdiction_binding === jurisdiction) {"
+ },
+ {
+  "id": "M038",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  if (!isNonEmptyString(jurisdiction) || row.jurisdiction_activation.jurisdiction_binding !== jurisdiction) {",
+  "new": "  if (!isNonEmptyString(jurisdiction) && row.jurisdiction_activation.jurisdiction_binding !== jurisdiction) {"
+ },
+ {
+  "id": "M039",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  if (!isNonEmptyString(jurisdiction) || row.jurisdiction_activation.jurisdiction_binding !== jurisdiction) {",
+  "new": "  if (isNonEmptyString(jurisdiction) || row.jurisdiction_activation.jurisdiction_binding !== jurisdiction) {"
+ },
+ {
+  "id": "M040",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  if (!isNonEmptyString(jurisdiction) || row.jurisdiction_activation.jurisdiction_binding !== jurisdiction) {",
+  "new": "  if (true) {"
+ },
+ {
+  "id": "M041",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  if (!isNonEmptyString(jurisdiction) || row.jurisdiction_activation.jurisdiction_binding !== jurisdiction) {",
+  "new": "  if (false) {"
+ },
+ {
+  "id": "M042",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  if (!isNonEmptyString(jurisdiction) || row.jurisdiction_activation.jurisdiction_binding !== jurisdiction) {",
+  "new": "  if (!(!isNonEmptyString(jurisdiction) || row.jurisdiction_activation.jurisdiction_binding !== jurisdiction)) {"
+ },
+ {
+  "id": "M043",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "    return err(policyUnavailable('binding_mismatch'));",
+  "new": "    return undefined as never;"
+ },
+ {
+  "id": "M044",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  if (row.excluded_regions.includes(region)) {",
+  "new": "  if (true) {"
+ },
+ {
+  "id": "M045",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  if (row.excluded_regions.includes(region)) {",
+  "new": "  if (false) {"
+ },
+ {
+  "id": "M046",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  if (row.excluded_regions.includes(region)) {",
+  "new": "  if (!(row.excluded_regions.includes(region))) {"
+ },
+ {
+  "id": "M047",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "      _tag: 'RegionExcluded',",
+  "new": "      _tag: undefined as never,"
+ },
+ {
+  "id": "M048",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "      code: 'REGION_EXCLUDED',",
+  "new": "      code: undefined as never,"
+ },
+ {
+  "id": "M049",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "      message: 'Sweepstakes Coin play is not available in your region.',",
+  "new": "      message: undefined as never,"
+ },
+ {
+  "id": "M050",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "      message: 'Sweepstakes Coin play is not available in your region.',",
+  "new": "      message: '',"
+ },
+ {
+  "id": "M051",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "old": "  return ok({ region });",
+  "new": "  return undefined as never;"
+ }
+]

@@ -1,0 +1,17 @@
+case	loc	kills	unique	M003	M004	M005	M008	M009	M012	M018	M019	M020	M021	M022	M023	M025	M026	M027	M028	M029	M031	M033
+logInfo ... uses the generic [INFO] prefix with no context	10	3	0	0	1	1	0	0	0	0	0	0	0	0	0	0	0	1	0	0	0	0
+logInfo ... uses a [{handler}] prefix when context.handler is set, and serializes the rest of the context	12	6	0	0	1	1	0	1	1	0	0	0	0	0	0	0	1	1	0	0	0	0
+logInfo ... truncates a message longer than 8000 chars and appends the truncation marker	12	4	0	1	0	1	1	0	0	0	0	0	0	0	0	0	0	1	0	0	0	0
+logInfo ... truncates a string context value to 200 chars inside formatContext	11	7	0	1	0	1	1	1	1	0	0	0	0	0	0	0	1	1	0	0	0	0
+logInfo ... stringifies an object context value and caps it at 500 chars	12	9	3	0	0	0	0	1	1	1	1	0	0	1	1	1	1	1	0	0	0	0
+logInfo ... omits undefined context values from the serialized output	10	2	0	0	0	0	0	0	0	0	0	0	0	0	0	0	1	1	0	0	0	0
+logInfo ... passes through a plain number context value unchanged	10	8	2	0	0	0	0	1	1	1	0	1	1	0	1	0	1	1	0	0	0	0
+logWarn ... uses the generic [WARN] prefix with no context	9	3	0	0	1	1	0	0	0	0	0	0	0	0	0	0	0	0	1	0	0	0
+logWarn ... uses a [{handler}:WARN] prefix when context.handler is set	9	3	0	0	1	1	0	0	0	0	0	0	0	0	0	0	0	0	1	0	0	0
+logError ... logs with the generic [ERROR] prefix and no error/context	11	2	0	0	1	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+logError ... uses a [{handler}:ERROR] prefix and serializes error name/message/stack (each truncated)	14	4	1	0	1	1	0	0	0	0	0	0	0	0	0	0	0	0	0	1	1	0
+logError ... handles an Error with no stack property gracefully (stack becomes undefined, not thrown)	12	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+logError ... truncates a long stack trace to 1000 chars	12	4	1	1	0	1	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	1
+createRequestLogger ... info(): merges the base context with per-call extras and delegates to logInfo	13	6	0	0	1	1	0	1	1	0	0	0	0	0	0	0	1	1	0	0	0	0
+createRequestLogger ... warn(): merges context and delegates to logWarn	10	3	0	0	1	1	0	0	0	0	0	0	0	0	0	0	0	0	1	0	0	0
+createRequestLogger ... error(): merges context + error and delegates to logError	13	3	0	0	1	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	1	0

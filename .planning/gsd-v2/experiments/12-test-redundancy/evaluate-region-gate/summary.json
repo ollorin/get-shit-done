@@ -1,0 +1,445 @@
+{
+ "summary": {
+  "source": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.test.ts",
+  "srcLoc": 89,
+  "testLoc": 297,
+  "nCases": 18,
+  "caseLocTotal": 211,
+  "baselineRunMs": 100,
+  "nMutants": 51,
+  "outcomes": {
+   "killed": 28,
+   "killed-typecheck": 16,
+   "survived": 7
+  },
+  "meanMsPerOutcome": {
+   "killed": 98,
+   "killed-typecheck": 629,
+   "survived": 93
+  },
+  "totalMutantMs": 13464,
+  "killedAttributed": 28,
+  "killedUnattributed": [],
+  "crossFiles": [],
+  "greedyCount": 5,
+  "droppableCount": 13,
+  "droppableLoc": 149,
+  "zeroKillCases": [
+   "seedRow fixture satisfies WageringModeRowSchema",
+   "D9: evaluateRegionGate is pure — deterministic and non-mutating"
+  ],
+  "zeroUniqueCases": [
+   "seedRow fixture satisfies WageringModeRowSchema",
+   "D1: an unverifiable region is REGION_UNVERIFIED even with a valid permissive row",
+   "D2: region null AND configValue undefined together resolves to REGION_UNVERIFIED, not policy-unavailable",
+   "D3: malformed shapes resolve reason malformed",
+   "D3: a valid row bound to a different jurisdiction resolves reason binding_mismatch",
+   "D3: empty jurisdiction ('' vs '') resolves binding_mismatch, not a match",
+   "D5: malformed region-code shapes are REGION_UNVERIFIED",
+   "D5: well-formed region codes are accepted (reach Ok, not UNVERIFIED)",
+   "D6: a non-excluded region with a valid matching row resolves Ok",
+   "D6: an empty excluded_regions list resolves Ok",
+   "D7: region is a prefix of an excluded entry — no match, resolves Ok",
+   "D7: an excluded entry is a prefix of the region — no match, resolves Ok",
+   "D8: ISO_3166_2_REGION_PATTERN source is byte-identical to the migration CHECK constraint",
+   "D8: ISO_3166_2_REGION_PATTERN agrees with WageringModeRowSchema.excluded_regions on a >=15-string corpus",
+   "D9: evaluateRegionGate is pure — deterministic and non-mutating"
+  ],
+  "unmatchedLocCases": [],
+  "failingNamesNotInCaseList": [],
+  "mutateExit": 0,
+  "runInfo": {
+   "exit_code": 0,
+   "mutants": 51,
+   "baseline_before": "green",
+   "baseline_after": "green"
+  }
+ },
+ "perCase": [
+  {
+   "name": "seedRow fixture satisfies WageringModeRowSchema",
+   "kills": 0,
+   "unique": 0,
+   "loc": 4
+  },
+  {
+   "name": "D1: an unverifiable region is REGION_UNVERIFIED even with a valid permissive row",
+   "kills": 4,
+   "unique": 0,
+   "loc": 12
+  },
+  {
+   "name": "D2: region null AND configValue undefined together resolves to REGION_UNVERIFIED, not policy-unavailable",
+   "kills": 2,
+   "unique": 0,
+   "loc": 4
+  },
+  {
+   "name": "D3: absent configValue (undefined/null) resolves reason absent",
+   "kills": 9,
+   "unique": 2,
+   "loc": 9
+  },
+  {
+   "name": "D3: malformed shapes resolve reason malformed",
+   "kills": 7,
+   "unique": 0,
+   "loc": 19
+  },
+  {
+   "name": "D3: a valid row bound to a different jurisdiction resolves reason binding_mismatch",
+   "kills": 11,
+   "unique": 0,
+   "loc": 11
+  },
+  {
+   "name": "D3: empty jurisdiction ('' vs '') resolves binding_mismatch, not a match",
+   "kills": 9,
+   "unique": 0,
+   "loc": 13
+  },
+  {
+   "name": "D4: an excluded region resolves REGION_EXCLUDED carrying the region",
+   "kills": 10,
+   "unique": 1,
+   "loc": 11
+  },
+  {
+   "name": "D5: malformed region-code shapes are REGION_UNVERIFIED",
+   "kills": 6,
+   "unique": 0,
+   "loc": 12
+  },
+  {
+   "name": "D5: well-formed region codes are accepted (reach Ok, not UNVERIFIED)",
+   "kills": 12,
+   "unique": 0,
+   "loc": 7
+  },
+  {
+   "name": "D6: a non-excluded region with a valid matching row resolves Ok",
+   "kills": 10,
+   "unique": 0,
+   "loc": 8
+  },
+  {
+   "name": "D6: an empty excluded_regions list resolves Ok",
+   "kills": 10,
+   "unique": 0,
+   "loc": 8
+  },
+  {
+   "name": "D7: region is a prefix of an excluded entry — no match, resolves Ok",
+   "kills": 11,
+   "unique": 0,
+   "loc": 8
+  },
+  {
+   "name": "D7: an excluded entry is a prefix of the region — no match, resolves Ok",
+   "kills": 10,
+   "unique": 0,
+   "loc": 8
+  },
+  {
+   "name": "D8: ISO_3166_2_REGION_PATTERN source is byte-identical to the migration CHECK constraint",
+   "kills": 4,
+   "unique": 0,
+   "loc": 3
+  },
+  {
+   "name": "D8: ISO_3166_2_REGION_PATTERN agrees with WageringModeRowSchema.excluded_regions on a >=15-string corpus",
+   "kills": 4,
+   "unique": 0,
+   "loc": 29
+  },
+  {
+   "name": "D9: evaluateRegionGate is pure — deterministic and non-mutating",
+   "kills": 0,
+   "unique": 0,
+   "loc": 22
+  },
+  {
+   "name": "D10: no rejection message leaks internal field names or echoes the input region",
+   "kills": 12,
+   "unique": 3,
+   "loc": 23
+  }
+ ],
+ "greedy": [
+  "D5: well-formed region codes are accepted (reach Ok, not UNVERIFIED)",
+  "D10: no rejection message leaks internal field names or echoes the input region",
+  "D3: absent configValue (undefined/null) resolves reason absent",
+  "D5: malformed region-code shapes are REGION_UNVERIFIED",
+  "D4: an excluded region resolves REGION_EXCLUDED carrying the region"
+ ],
+ "droppable": [
+  "seedRow fixture satisfies WageringModeRowSchema",
+  "D1: an unverifiable region is REGION_UNVERIFIED even with a valid permissive row",
+  "D2: region null AND configValue undefined together resolves to REGION_UNVERIFIED, not policy-unavailable",
+  "D3: malformed shapes resolve reason malformed",
+  "D3: a valid row bound to a different jurisdiction resolves reason binding_mismatch",
+  "D3: empty jurisdiction ('' vs '') resolves binding_mismatch, not a match",
+  "D6: a non-excluded region with a valid matching row resolves Ok",
+  "D6: an empty excluded_regions list resolves Ok",
+  "D7: region is a prefix of an excluded entry — no match, resolves Ok",
+  "D7: an excluded entry is a prefix of the region — no match, resolves Ok",
+  "D8: ISO_3166_2_REGION_PATTERN source is byte-identical to the migration CHECK constraint",
+  "D8: ISO_3166_2_REGION_PATTERN agrees with WageringModeRowSchema.excluded_regions on a >=15-string corpus",
+  "D9: evaluateRegionGate is pure — deterministic and non-mutating"
+ ],
+ "survivors": [
+  {
+   "id": "M007",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+   "line": 37,
+   "op": "cmp",
+   "old": "const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;",
+   "new": "const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.trim().length >= 0;"
+  },
+  {
+   "id": "M008",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+   "line": 37,
+   "op": "num+1",
+   "old": "const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;",
+   "new": "const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 1;"
+  },
+  {
+   "id": "M012",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+   "line": 42,
+   "op": "str-empty",
+   "old": "  message: 'Verify your address to play with Sweepstakes Coins.',",
+   "new": "  message: '',"
+  },
+  {
+   "id": "M014",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+   "line": 47,
+   "op": "prop-undef",
+   "old": "  code: 'REGION_POLICY_UNAVAILABLE',",
+   "new": "  code: undefined as never,"
+  },
+  {
+   "id": "M016",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+   "line": 49,
+   "op": "str-empty",
+   "old": "  message: 'Sweepstakes Coin play is temporarily unavailable.',",
+   "new": "  message: '',"
+  },
+  {
+   "id": "M048",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+   "line": 81,
+   "op": "prop-undef",
+   "old": "      code: 'REGION_EXCLUDED',",
+   "new": "      code: undefined as never,"
+  },
+  {
+   "id": "M050",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/domain/src/lib/market/evaluate-region-gate.ts",
+   "line": 83,
+   "op": "str-empty",
+   "old": "      message: 'Sweepstakes Coin play is not available in your region.',",
+   "new": "      message: '',"
+  }
+ ],
+ "kills": {
+  "M001": [
+   "D3: absent configValue (undefined/null) resolves reason absent",
+   "D3: malformed shapes resolve reason malformed",
+   "D3: a valid row bound to a different jurisdiction resolves reason binding_mismatch",
+   "D3: empty jurisdiction ('' vs '') resolves binding_mismatch, not a match",
+   "D4: an excluded region resolves REGION_EXCLUDED carrying the region",
+   "D5: malformed region-code shapes are REGION_UNVERIFIED",
+   "D5: well-formed region codes are accepted (reach Ok, not UNVERIFIED)",
+   "D6: a non-excluded region with a valid matching row resolves Ok",
+   "D6: an empty excluded_regions list resolves Ok",
+   "D7: region is a prefix of an excluded entry — no match, resolves Ok",
+   "D7: an excluded entry is a prefix of the region — no match, resolves Ok",
+   "D8: ISO_3166_2_REGION_PATTERN source is byte-identical to the migration CHECK constraint",
+   "D8: ISO_3166_2_REGION_PATTERN agrees with WageringModeRowSchema.excluded_regions on a >=15-string corpus"
+  ],
+  "M002": [
+   "D5: well-formed region codes are accepted (reach Ok, not UNVERIFIED)",
+   "D8: ISO_3166_2_REGION_PATTERN source is byte-identical to the migration CHECK constraint",
+   "D8: ISO_3166_2_REGION_PATTERN agrees with WageringModeRowSchema.excluded_regions on a >=15-string corpus"
+  ],
+  "M003": [
+   "D5: well-formed region codes are accepted (reach Ok, not UNVERIFIED)",
+   "D7: region is a prefix of an excluded entry — no match, resolves Ok",
+   "D8: ISO_3166_2_REGION_PATTERN source is byte-identical to the migration CHECK constraint",
+   "D8: ISO_3166_2_REGION_PATTERN agrees with WageringModeRowSchema.excluded_regions on a >=15-string corpus"
+  ],
+  "M004": [
+   "D5: malformed region-code shapes are REGION_UNVERIFIED",
+   "D8: ISO_3166_2_REGION_PATTERN source is byte-identical to the migration CHECK constraint",
+   "D8: ISO_3166_2_REGION_PATTERN agrees with WageringModeRowSchema.excluded_regions on a >=15-string corpus"
+  ],
+  "M009": [
+   "D1: an unverifiable region is REGION_UNVERIFIED even with a valid permissive row",
+   "D2: region null AND configValue undefined together resolves to REGION_UNVERIFIED, not policy-unavailable",
+   "D5: malformed region-code shapes are REGION_UNVERIFIED"
+  ],
+  "M010": [
+   "D1: an unverifiable region is REGION_UNVERIFIED even with a valid permissive row",
+   "D5: malformed region-code shapes are REGION_UNVERIFIED"
+  ],
+  "M011": [
+   "D10: no rejection message leaks internal field names or echoes the input region"
+  ],
+  "M013": [
+   "D3: absent configValue (undefined/null) resolves reason absent",
+   "D3: malformed shapes resolve reason malformed",
+   "D3: a valid row bound to a different jurisdiction resolves reason binding_mismatch",
+   "D3: empty jurisdiction ('' vs '') resolves binding_mismatch, not a match"
+  ],
+  "M015": [
+   "D10: no rejection message leaks internal field names or echoes the input region"
+  ],
+  "M023": [
+   "D1: an unverifiable region is REGION_UNVERIFIED even with a valid permissive row",
+   "D3: absent configValue (undefined/null) resolves reason absent",
+   "D3: malformed shapes resolve reason malformed",
+   "D3: a valid row bound to a different jurisdiction resolves reason binding_mismatch",
+   "D3: empty jurisdiction ('' vs '') resolves binding_mismatch, not a match",
+   "D4: an excluded region resolves REGION_EXCLUDED carrying the region",
+   "D5: malformed region-code shapes are REGION_UNVERIFIED",
+   "D5: well-formed region codes are accepted (reach Ok, not UNVERIFIED)",
+   "D6: a non-excluded region with a valid matching row resolves Ok",
+   "D6: an empty excluded_regions list resolves Ok",
+   "D7: region is a prefix of an excluded entry — no match, resolves Ok",
+   "D7: an excluded entry is a prefix of the region — no match, resolves Ok"
+  ],
+  "M024": [
+   "D1: an unverifiable region is REGION_UNVERIFIED even with a valid permissive row",
+   "D2: region null AND configValue undefined together resolves to REGION_UNVERIFIED, not policy-unavailable",
+   "D5: malformed region-code shapes are REGION_UNVERIFIED",
+   "D10: no rejection message leaks internal field names or echoes the input region"
+  ],
+  "M025": [
+   "D3: absent configValue (undefined/null) resolves reason absent",
+   "D3: malformed shapes resolve reason malformed",
+   "D3: a valid row bound to a different jurisdiction resolves reason binding_mismatch",
+   "D3: empty jurisdiction ('' vs '') resolves binding_mismatch, not a match",
+   "D4: an excluded region resolves REGION_EXCLUDED carrying the region",
+   "D5: well-formed region codes are accepted (reach Ok, not UNVERIFIED)",
+   "D6: a non-excluded region with a valid matching row resolves Ok",
+   "D6: an empty excluded_regions list resolves Ok",
+   "D7: region is a prefix of an excluded entry — no match, resolves Ok",
+   "D7: an excluded entry is a prefix of the region — no match, resolves Ok"
+  ],
+  "M026": [
+   "D3: absent configValue (undefined/null) resolves reason absent",
+   "D3: malformed shapes resolve reason malformed",
+   "D3: a valid row bound to a different jurisdiction resolves reason binding_mismatch",
+   "D3: empty jurisdiction ('' vs '') resolves binding_mismatch, not a match",
+   "D4: an excluded region resolves REGION_EXCLUDED carrying the region",
+   "D5: well-formed region codes are accepted (reach Ok, not UNVERIFIED)",
+   "D6: a non-excluded region with a valid matching row resolves Ok",
+   "D6: an empty excluded_regions list resolves Ok",
+   "D7: region is a prefix of an excluded entry — no match, resolves Ok",
+   "D7: an excluded entry is a prefix of the region — no match, resolves Ok"
+  ],
+  "M027": [
+   "D3: absent configValue (undefined/null) resolves reason absent"
+  ],
+  "M029": [
+   "D3: absent configValue (undefined/null) resolves reason absent"
+  ],
+  "M030": [
+   "D3: absent configValue (undefined/null) resolves reason absent",
+   "D3: malformed shapes resolve reason malformed",
+   "D3: a valid row bound to a different jurisdiction resolves reason binding_mismatch",
+   "D3: empty jurisdiction ('' vs '') resolves binding_mismatch, not a match",
+   "D4: an excluded region resolves REGION_EXCLUDED carrying the region",
+   "D5: well-formed region codes are accepted (reach Ok, not UNVERIFIED)",
+   "D6: a non-excluded region with a valid matching row resolves Ok",
+   "D6: an empty excluded_regions list resolves Ok",
+   "D7: region is a prefix of an excluded entry — no match, resolves Ok",
+   "D7: an excluded entry is a prefix of the region — no match, resolves Ok"
+  ],
+  "M031": [
+   "D3: absent configValue (undefined/null) resolves reason absent",
+   "D10: no rejection message leaks internal field names or echoes the input region"
+  ],
+  "M036": [
+   "D3: malformed shapes resolve reason malformed",
+   "D10: no rejection message leaks internal field names or echoes the input region"
+  ],
+  "M037": [
+   "D3: a valid row bound to a different jurisdiction resolves reason binding_mismatch",
+   "D4: an excluded region resolves REGION_EXCLUDED carrying the region",
+   "D5: well-formed region codes are accepted (reach Ok, not UNVERIFIED)",
+   "D6: a non-excluded region with a valid matching row resolves Ok",
+   "D6: an empty excluded_regions list resolves Ok",
+   "D7: region is a prefix of an excluded entry — no match, resolves Ok",
+   "D7: an excluded entry is a prefix of the region — no match, resolves Ok",
+   "D10: no rejection message leaks internal field names or echoes the input region"
+  ],
+  "M038": [
+   "D3: a valid row bound to a different jurisdiction resolves reason binding_mismatch",
+   "D10: no rejection message leaks internal field names or echoes the input region"
+  ],
+  "M039": [
+   "D4: an excluded region resolves REGION_EXCLUDED carrying the region",
+   "D5: well-formed region codes are accepted (reach Ok, not UNVERIFIED)",
+   "D6: a non-excluded region with a valid matching row resolves Ok",
+   "D6: an empty excluded_regions list resolves Ok",
+   "D7: region is a prefix of an excluded entry — no match, resolves Ok",
+   "D7: an excluded entry is a prefix of the region — no match, resolves Ok"
+  ],
+  "M041": [
+   "D3: a valid row bound to a different jurisdiction resolves reason binding_mismatch",
+   "D3: empty jurisdiction ('' vs '') resolves binding_mismatch, not a match",
+   "D10: no rejection message leaks internal field names or echoes the input region"
+  ],
+  "M042": [
+   "D3: a valid row bound to a different jurisdiction resolves reason binding_mismatch",
+   "D3: empty jurisdiction ('' vs '') resolves binding_mismatch, not a match",
+   "D4: an excluded region resolves REGION_EXCLUDED carrying the region",
+   "D5: well-formed region codes are accepted (reach Ok, not UNVERIFIED)",
+   "D6: a non-excluded region with a valid matching row resolves Ok",
+   "D6: an empty excluded_regions list resolves Ok",
+   "D7: region is a prefix of an excluded entry — no match, resolves Ok",
+   "D7: an excluded entry is a prefix of the region — no match, resolves Ok",
+   "D10: no rejection message leaks internal field names or echoes the input region"
+  ],
+  "M043": [
+   "D3: a valid row bound to a different jurisdiction resolves reason binding_mismatch",
+   "D3: empty jurisdiction ('' vs '') resolves binding_mismatch, not a match",
+   "D10: no rejection message leaks internal field names or echoes the input region"
+  ],
+  "M046": [
+   "D4: an excluded region resolves REGION_EXCLUDED carrying the region",
+   "D5: well-formed region codes are accepted (reach Ok, not UNVERIFIED)",
+   "D6: a non-excluded region with a valid matching row resolves Ok",
+   "D6: an empty excluded_regions list resolves Ok",
+   "D7: region is a prefix of an excluded entry — no match, resolves Ok",
+   "D7: an excluded entry is a prefix of the region — no match, resolves Ok",
+   "D10: no rejection message leaks internal field names or echoes the input region"
+  ],
+  "M047": [
+   "D4: an excluded region resolves REGION_EXCLUDED carrying the region"
+  ],
+  "M049": [
+   "D10: no rejection message leaks internal field names or echoes the input region"
+  ],
+  "M051": [
+   "D5: well-formed region codes are accepted (reach Ok, not UNVERIFIED)",
+   "D6: a non-excluded region with a valid matching row resolves Ok",
+   "D6: an empty excluded_regions list resolves Ok",
+   "D7: region is a prefix of an excluded entry — no match, resolves Ok",
+   "D7: an excluded entry is a prefix of the region — no match, resolves Ok"
+  ]
+ }
+}

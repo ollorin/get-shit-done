@@ -1,0 +1,354 @@
+{
+ "summary": {
+  "source": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "srcLoc": 77,
+  "testLoc": 236,
+  "nCases": 16,
+  "caseLocTotal": 180,
+  "baselineRunMs": 75,
+  "nMutants": 33,
+  "outcomes": {
+   "survived": 8,
+   "killed": 19,
+   "killed-typecheck": 6
+  },
+  "meanMsPerOutcome": {
+   "survived": 76,
+   "killed": 82,
+   "killed-typecheck": 415
+  },
+  "totalMutantMs": 4661,
+  "killedAttributed": 19,
+  "killedUnattributed": [],
+  "crossFiles": [],
+  "greedyCount": 5,
+  "droppableCount": 11,
+  "droppableLoc": 123,
+  "zeroKillCases": [
+   "logError ... handles an Error with no stack property gracefully (stack becomes undefined, not thrown)"
+  ],
+  "zeroUniqueCases": [
+   "logInfo ... uses the generic [INFO] prefix with no context",
+   "logInfo ... uses a [{handler}] prefix when context.handler is set, and serializes the rest of the context",
+   "logInfo ... truncates a message longer than 8000 chars and appends the truncation marker",
+   "logInfo ... truncates a string context value to 200 chars inside formatContext",
+   "logInfo ... omits undefined context values from the serialized output",
+   "logWarn ... uses the generic [WARN] prefix with no context",
+   "logWarn ... uses a [{handler}:WARN] prefix when context.handler is set",
+   "logError ... logs with the generic [ERROR] prefix and no error/context",
+   "logError ... handles an Error with no stack property gracefully (stack becomes undefined, not thrown)",
+   "createRequestLogger ... info(): merges the base context with per-call extras and delegates to logInfo",
+   "createRequestLogger ... warn(): merges context and delegates to logWarn",
+   "createRequestLogger ... error(): merges context + error and delegates to logError"
+  ],
+  "unmatchedLocCases": [],
+  "failingNamesNotInCaseList": [],
+  "mutateExit": 0,
+  "runInfo": {
+   "exit_code": 0,
+   "mutants": 33,
+   "baseline_before": "green",
+   "baseline_after": "green"
+  }
+ },
+ "perCase": [
+  {
+   "name": "logInfo ... uses the generic [INFO] prefix with no context",
+   "kills": 3,
+   "unique": 0,
+   "loc": 10
+  },
+  {
+   "name": "logInfo ... uses a [{handler}] prefix when context.handler is set, and serializes the rest of the context",
+   "kills": 6,
+   "unique": 0,
+   "loc": 12
+  },
+  {
+   "name": "logInfo ... truncates a message longer than 8000 chars and appends the truncation marker",
+   "kills": 4,
+   "unique": 0,
+   "loc": 12
+  },
+  {
+   "name": "logInfo ... truncates a string context value to 200 chars inside formatContext",
+   "kills": 7,
+   "unique": 0,
+   "loc": 11
+  },
+  {
+   "name": "logInfo ... stringifies an object context value and caps it at 500 chars",
+   "kills": 9,
+   "unique": 3,
+   "loc": 12
+  },
+  {
+   "name": "logInfo ... omits undefined context values from the serialized output",
+   "kills": 2,
+   "unique": 0,
+   "loc": 10
+  },
+  {
+   "name": "logInfo ... passes through a plain number context value unchanged",
+   "kills": 8,
+   "unique": 2,
+   "loc": 10
+  },
+  {
+   "name": "logWarn ... uses the generic [WARN] prefix with no context",
+   "kills": 3,
+   "unique": 0,
+   "loc": 9
+  },
+  {
+   "name": "logWarn ... uses a [{handler}:WARN] prefix when context.handler is set",
+   "kills": 3,
+   "unique": 0,
+   "loc": 9
+  },
+  {
+   "name": "logError ... logs with the generic [ERROR] prefix and no error/context",
+   "kills": 2,
+   "unique": 0,
+   "loc": 11
+  },
+  {
+   "name": "logError ... uses a [{handler}:ERROR] prefix and serializes error name/message/stack (each truncated)",
+   "kills": 4,
+   "unique": 1,
+   "loc": 14
+  },
+  {
+   "name": "logError ... handles an Error with no stack property gracefully (stack becomes undefined, not thrown)",
+   "kills": 0,
+   "unique": 0,
+   "loc": 12
+  },
+  {
+   "name": "logError ... truncates a long stack trace to 1000 chars",
+   "kills": 4,
+   "unique": 1,
+   "loc": 12
+  },
+  {
+   "name": "createRequestLogger ... info(): merges the base context with per-call extras and delegates to logInfo",
+   "kills": 6,
+   "unique": 0,
+   "loc": 13
+  },
+  {
+   "name": "createRequestLogger ... warn(): merges context and delegates to logWarn",
+   "kills": 3,
+   "unique": 0,
+   "loc": 10
+  },
+  {
+   "name": "createRequestLogger ... error(): merges context + error and delegates to logError",
+   "kills": 3,
+   "unique": 0,
+   "loc": 13
+  }
+ ],
+ "greedy": [
+  "logInfo ... stringifies an object context value and caps it at 500 chars",
+  "logError ... truncates a long stack trace to 1000 chars",
+  "logError ... uses a [{handler}:ERROR] prefix and serializes error name/message/stack (each truncated)",
+  "logInfo ... passes through a plain number context value unchanged",
+  "logWarn ... uses the generic [WARN] prefix with no context"
+ ],
+ "droppable": [
+  "logInfo ... uses the generic [INFO] prefix with no context",
+  "logInfo ... uses a [{handler}] prefix when context.handler is set, and serializes the rest of the context",
+  "logInfo ... truncates a message longer than 8000 chars and appends the truncation marker",
+  "logInfo ... truncates a string context value to 200 chars inside formatContext",
+  "logInfo ... omits undefined context values from the serialized output",
+  "logWarn ... uses a [{handler}:WARN] prefix when context.handler is set",
+  "logError ... logs with the generic [ERROR] prefix and no error/context",
+  "logError ... handles an Error with no stack property gracefully (stack becomes undefined, not thrown)",
+  "createRequestLogger ... info(): merges the base context with per-call extras and delegates to logInfo",
+  "createRequestLogger ... warn(): merges context and delegates to logWarn",
+  "createRequestLogger ... error(): merges context + error and delegates to logError"
+ ],
+ "survivors": [
+  {
+   "id": "M001",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+   "line": 19,
+   "op": "num+1",
+   "old": "const MAX_MESSAGE_LENGTH = 8000; // Leave room for JSON overhead",
+   "new": "const MAX_MESSAGE_LENGTH = 8001; // Leave room for JSON overhead"
+  },
+  {
+   "id": "M002",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+   "line": 22,
+   "op": "cmp",
+   "old": "  if (str.length <= maxLen) return str;",
+   "new": "  if (str.length < maxLen) return str;"
+  },
+  {
+   "id": "M007",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+   "line": 23,
+   "op": "num+1",
+   "old": "  return str.slice(0, maxLen) + \"...[truncated]\";",
+   "new": "  return str.slice(1, maxLen) + \"...[truncated]\";"
+  },
+  {
+   "id": "M010",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+   "line": 29,
+   "op": "cond-true",
+   "old": "    if (value !== undefined) {",
+   "new": "    if (true) {"
+  },
+  {
+   "id": "M017",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+   "line": 31,
+   "op": "num+1",
+   "old": "        safe[key] = truncate(value, 200);",
+   "new": "        safe[key] = truncate(value, 201);"
+  },
+  {
+   "id": "M024",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+   "line": 33,
+   "op": "num+1",
+   "old": "        safe[key] = JSON.stringify(value).slice(0, 500);",
+   "new": "        safe[key] = JSON.stringify(value).slice(1, 500);"
+  },
+  {
+   "id": "M030",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+   "line": 56,
+   "op": "num+1",
+   "old": "    message: truncate(error.message, 500),",
+   "new": "    message: truncate(error.message, 501),"
+  },
+  {
+   "id": "M032",
+   "killedElsewhere": [],
+   "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+   "line": 57,
+   "op": "num+1",
+   "old": "    stack: error.stack ? truncate(error.stack, 1000) : undefined,",
+   "new": "    stack: error.stack ? truncate(error.stack, 1001) : undefined,"
+  }
+ ],
+ "kills": {
+  "M003": [
+   "logInfo ... truncates a message longer than 8000 chars and appends the truncation marker",
+   "logInfo ... truncates a string context value to 200 chars inside formatContext",
+   "logError ... truncates a long stack trace to 1000 chars"
+  ],
+  "M004": [
+   "logInfo ... uses the generic [INFO] prefix with no context",
+   "logInfo ... uses a [{handler}] prefix when context.handler is set, and serializes the rest of the context",
+   "logWarn ... uses the generic [WARN] prefix with no context",
+   "logWarn ... uses a [{handler}:WARN] prefix when context.handler is set",
+   "logError ... logs with the generic [ERROR] prefix and no error/context",
+   "logError ... uses a [{handler}:ERROR] prefix and serializes error name/message/stack (each truncated)",
+   "createRequestLogger ... info(): merges the base context with per-call extras and delegates to logInfo",
+   "createRequestLogger ... warn(): merges context and delegates to logWarn",
+   "createRequestLogger ... error(): merges context + error and delegates to logError"
+  ],
+  "M005": [
+   "logInfo ... uses the generic [INFO] prefix with no context",
+   "logInfo ... uses a [{handler}] prefix when context.handler is set, and serializes the rest of the context",
+   "logInfo ... truncates a message longer than 8000 chars and appends the truncation marker",
+   "logInfo ... truncates a string context value to 200 chars inside formatContext",
+   "logWarn ... uses the generic [WARN] prefix with no context",
+   "logWarn ... uses a [{handler}:WARN] prefix when context.handler is set",
+   "logError ... logs with the generic [ERROR] prefix and no error/context",
+   "logError ... uses a [{handler}:ERROR] prefix and serializes error name/message/stack (each truncated)",
+   "logError ... truncates a long stack trace to 1000 chars",
+   "createRequestLogger ... info(): merges the base context with per-call extras and delegates to logInfo",
+   "createRequestLogger ... warn(): merges context and delegates to logWarn",
+   "createRequestLogger ... error(): merges context + error and delegates to logError"
+  ],
+  "M008": [
+   "logInfo ... truncates a message longer than 8000 chars and appends the truncation marker",
+   "logInfo ... truncates a string context value to 200 chars inside formatContext",
+   "logError ... truncates a long stack trace to 1000 chars"
+  ],
+  "M009": [
+   "logInfo ... uses a [{handler}] prefix when context.handler is set, and serializes the rest of the context",
+   "logInfo ... truncates a string context value to 200 chars inside formatContext",
+   "logInfo ... stringifies an object context value and caps it at 500 chars",
+   "logInfo ... passes through a plain number context value unchanged",
+   "createRequestLogger ... info(): merges the base context with per-call extras and delegates to logInfo"
+  ],
+  "M012": [
+   "logInfo ... uses a [{handler}] prefix when context.handler is set, and serializes the rest of the context",
+   "logInfo ... truncates a string context value to 200 chars inside formatContext",
+   "logInfo ... stringifies an object context value and caps it at 500 chars",
+   "logInfo ... passes through a plain number context value unchanged",
+   "createRequestLogger ... info(): merges the base context with per-call extras and delegates to logInfo"
+  ],
+  "M018": [
+   "logInfo ... stringifies an object context value and caps it at 500 chars",
+   "logInfo ... passes through a plain number context value unchanged"
+  ],
+  "M019": [
+   "logInfo ... stringifies an object context value and caps it at 500 chars"
+  ],
+  "M020": [
+   "logInfo ... passes through a plain number context value unchanged"
+  ],
+  "M021": [
+   "logInfo ... passes through a plain number context value unchanged"
+  ],
+  "M022": [
+   "logInfo ... stringifies an object context value and caps it at 500 chars"
+  ],
+  "M023": [
+   "logInfo ... stringifies an object context value and caps it at 500 chars",
+   "logInfo ... passes through a plain number context value unchanged"
+  ],
+  "M025": [
+   "logInfo ... stringifies an object context value and caps it at 500 chars"
+  ],
+  "M026": [
+   "logInfo ... uses a [{handler}] prefix when context.handler is set, and serializes the rest of the context",
+   "logInfo ... truncates a string context value to 200 chars inside formatContext",
+   "logInfo ... stringifies an object context value and caps it at 500 chars",
+   "logInfo ... omits undefined context values from the serialized output",
+   "logInfo ... passes through a plain number context value unchanged",
+   "createRequestLogger ... info(): merges the base context with per-call extras and delegates to logInfo"
+  ],
+  "M027": [
+   "logInfo ... uses the generic [INFO] prefix with no context",
+   "logInfo ... uses a [{handler}] prefix when context.handler is set, and serializes the rest of the context",
+   "logInfo ... truncates a message longer than 8000 chars and appends the truncation marker",
+   "logInfo ... truncates a string context value to 200 chars inside formatContext",
+   "logInfo ... stringifies an object context value and caps it at 500 chars",
+   "logInfo ... omits undefined context values from the serialized output",
+   "logInfo ... passes through a plain number context value unchanged",
+   "createRequestLogger ... info(): merges the base context with per-call extras and delegates to logInfo"
+  ],
+  "M028": [
+   "logWarn ... uses the generic [WARN] prefix with no context",
+   "logWarn ... uses a [{handler}:WARN] prefix when context.handler is set",
+   "createRequestLogger ... warn(): merges context and delegates to logWarn"
+  ],
+  "M029": [
+   "logError ... uses a [{handler}:ERROR] prefix and serializes error name/message/stack (each truncated)"
+  ],
+  "M031": [
+   "logError ... uses a [{handler}:ERROR] prefix and serializes error name/message/stack (each truncated)",
+   "createRequestLogger ... error(): merges context + error and delegates to logError"
+  ],
+  "M033": [
+   "logError ... truncates a long stack trace to 1000 chars"
+  ]
+ }
+}

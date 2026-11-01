@@ -1,0 +1,373 @@
+[
+ {
+  "id": "M001",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;",
+  "new": "const isNonEmptyString = (v: unknown): v is string => typeof v !== 'string' && v.trim().length > 0;"
+ },
+ {
+  "id": "M002",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;",
+  "new": "const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' || v.trim().length > 0;"
+ },
+ {
+  "id": "M003",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;",
+  "new": "const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.trim().length >= 0;"
+ },
+ {
+  "id": "M004",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;",
+  "new": "const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 1;"
+ },
+ {
+  "id": "M005",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "  configValue: unknown,",
+  "new": "  configValue: undefined as never,"
+ },
+ {
+  "id": "M006",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "  jurisdiction: string,",
+  "new": "  jurisdiction: undefined as never,"
+ },
+ {
+  "id": "M007",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "  fiatCurrency: string | null,",
+  "new": "  fiatCurrency: undefined as never,"
+ },
+ {
+  "id": "M008",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "    reason: WageringResolutionReason,",
+  "new": "    reason: undefined as never,"
+ },
+ {
+  "id": "M009",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "    mode: 'real_money',",
+  "new": "    mode: undefined as never,"
+ },
+ {
+  "id": "M010",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "    allowedCurrencies: fiatCurrency === null ? [] : [fiatCurrency],",
+  "new": "    allowedCurrencies: fiatCurrency !== null ? [] : [fiatCurrency],"
+ },
+ {
+  "id": "M011",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "    allowedCurrencies: fiatCurrency === null ? [] : [fiatCurrency],",
+  "new": "    allowedCurrencies: undefined as never,"
+ },
+ {
+  "id": "M012",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "    ...(officialRulesUrl === undefined ? {} : { officialRulesUrl }),",
+  "new": "    ...(officialRulesUrl !== undefined ? {} : { officialRulesUrl }),"
+ },
+ {
+  "id": "M013",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "  if (configValue === undefined) return fallback('absent');",
+  "new": "  if (configValue !== undefined) return fallback('absent');"
+ },
+ {
+  "id": "M014",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "  if (configValue === undefined) return fallback('absent');",
+  "new": "  if (true) return fallback('absent');"
+ },
+ {
+  "id": "M015",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "  if (configValue === undefined) return fallback('absent');",
+  "new": "  if (false) return fallback('absent');"
+ },
+ {
+  "id": "M016",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "  if (configValue === undefined) return fallback('absent');",
+  "new": "  if (!(configValue === undefined)) return fallback('absent');"
+ },
+ {
+  "id": "M017",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "  if (!parsed.success) return fallback('malformed');",
+  "new": "  if (parsed.success) return fallback('malformed');"
+ },
+ {
+  "id": "M018",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "  if (!parsed.success) return fallback('malformed');",
+  "new": "  if (true) return fallback('malformed');"
+ },
+ {
+  "id": "M019",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "  if (!parsed.success) return fallback('malformed');",
+  "new": "  if (false) return fallback('malformed');"
+ },
+ {
+  "id": "M020",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "  if (!parsed.success) return fallback('malformed');",
+  "new": "  if (!(!parsed.success)) return fallback('malformed');"
+ },
+ {
+  "id": "M021",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "  if (!isNonEmptyString(jurisdiction) || activation.jurisdiction_binding !== jurisdiction) {",
+  "new": "  if (!isNonEmptyString(jurisdiction) || activation.jurisdiction_binding === jurisdiction) {"
+ },
+ {
+  "id": "M022",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "  if (!isNonEmptyString(jurisdiction) || activation.jurisdiction_binding !== jurisdiction) {",
+  "new": "  if (!isNonEmptyString(jurisdiction) && activation.jurisdiction_binding !== jurisdiction) {"
+ },
+ {
+  "id": "M023",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "  if (!isNonEmptyString(jurisdiction) || activation.jurisdiction_binding !== jurisdiction) {",
+  "new": "  if (isNonEmptyString(jurisdiction) || activation.jurisdiction_binding !== jurisdiction) {"
+ },
+ {
+  "id": "M024",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "  if (!isNonEmptyString(jurisdiction) || activation.jurisdiction_binding !== jurisdiction) {",
+  "new": "  if (true) {"
+ },
+ {
+  "id": "M025",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "  if (!isNonEmptyString(jurisdiction) || activation.jurisdiction_binding !== jurisdiction) {",
+  "new": "  if (false) {"
+ },
+ {
+  "id": "M026",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "  if (!isNonEmptyString(jurisdiction) || activation.jurisdiction_binding !== jurisdiction) {",
+  "new": "  if (!(!isNonEmptyString(jurisdiction) || activation.jurisdiction_binding !== jurisdiction)) {"
+ },
+ {
+  "id": "M027",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "    return fallback('binding_mismatch');",
+  "new": "    return undefined as never;"
+ },
+ {
+  "id": "M028",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "      if (gold === undefined) return fallback('malformed');",
+  "new": "      if (gold !== undefined) return fallback('malformed');"
+ },
+ {
+  "id": "M029",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "      if (gold === undefined) return fallback('malformed');",
+  "new": "      if (true) return fallback('malformed');"
+ },
+ {
+  "id": "M030",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "      if (gold === undefined) return fallback('malformed');",
+  "new": "      if (false) return fallback('malformed');"
+ },
+ {
+  "id": "M031",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "      if (gold === undefined) return fallback('malformed');",
+  "new": "      if (!(gold === undefined)) return fallback('malformed');"
+ },
+ {
+  "id": "M032",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "      return {\n        mode: 'social',",
+  "new": "      return {\n        mode: undefined as never,"
+ },
+ {
+  "id": "M033",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "        allowedCurrencies: [gold.currency],\n        reason: 'resolved',",
+  "new": "        allowedCurrencies: [gold.currency],\n        reason: undefined as never,"
+ },
+ {
+  "id": "M034",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "        coinCurrencies: { gold: gold.currency },\n        officialRulesUrl: row.official_rules_url,",
+  "new": "        coinCurrencies: { gold: gold.currency },\n        officialRulesUrl: undefined as never,"
+ },
+ {
+  "id": "M035",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "      if (gold === undefined || sweeps === undefined) return fallback('malformed');",
+  "new": "      if (gold !== undefined || sweeps === undefined) return fallback('malformed');"
+ },
+ {
+  "id": "M036",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "      if (gold === undefined || sweeps === undefined) return fallback('malformed');",
+  "new": "      if (gold === undefined || sweeps !== undefined) return fallback('malformed');"
+ },
+ {
+  "id": "M037",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "      if (gold === undefined || sweeps === undefined) return fallback('malformed');",
+  "new": "      if (gold === undefined && sweeps === undefined) return fallback('malformed');"
+ },
+ {
+  "id": "M038",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "      if (gold === undefined || sweeps === undefined) return fallback('malformed');",
+  "new": "      if (true) return fallback('malformed');"
+ },
+ {
+  "id": "M039",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "      if (gold === undefined || sweeps === undefined) return fallback('malformed');",
+  "new": "      if (false) return fallback('malformed');"
+ },
+ {
+  "id": "M040",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "      if (gold === undefined || sweeps === undefined) return fallback('malformed');",
+  "new": "      if (!(gold === undefined || sweeps === undefined)) return fallback('malformed');"
+ },
+ {
+  "id": "M041",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "      const complete = activation.status === 'active' &&",
+  "new": "      const complete = activation.status !== 'active' &&"
+ },
+ {
+  "id": "M042",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "      const complete = activation.status === 'active' &&",
+  "new": "      const complete = activation.status === 'active' ||"
+ },
+ {
+  "id": "M043",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "        WAGERING_MODE_EVIDENCE_FIELDS.every((f) => isNonEmptyString(activation.evidence[f])) &&",
+  "new": "        WAGERING_MODE_EVIDENCE_FIELDS.every((f) => isNonEmptyString(activation.evidence[f])) ||"
+ },
+ {
+  "id": "M044",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "        WAGERING_MODE_EVIDENCE_FIELDS.every((f) => isNonEmptyString(activation.evidence[f])) &&",
+  "new": "        WAGERING_MODE_EVIDENCE_FIELDS.some((f) => isNonEmptyString(activation.evidence[f])) &&"
+ },
+ {
+  "id": "M045",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "        isNonEmptyString(activation.activated_at) &&",
+  "new": "        isNonEmptyString(activation.activated_at) ||"
+ },
+ {
+  "id": "M046",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "        isNonEmptyString(activation.activated_by);",
+  "new": ""
+ },
+ {
+  "id": "M047",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "          mode: 'sweepstakes',",
+  "new": "          mode: undefined as never,"
+ },
+ {
+  "id": "M048",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "          reason: 'resolved',",
+  "new": "          reason: undefined as never,"
+ },
+ {
+  "id": "M049",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "          coinCurrencies: { gold: gold.currency, sweeps: sweeps.currency },\n          officialRulesUrl: row.official_rules_url,",
+  "new": "          coinCurrencies: { gold: gold.currency, sweeps: sweeps.currency },\n          officialRulesUrl: undefined as never,"
+ },
+ {
+  "id": "M050",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "          mode: 'social',",
+  "new": "          mode: undefined as never,"
+ },
+ {
+  "id": "M051",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "          reason: 'activation_incomplete',",
+  "new": "          reason: undefined as never,"
+ },
+ {
+  "id": "M052",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "          coinCurrencies: { gold: gold.currency },\n          officialRulesUrl: row.official_rules_url,",
+  "new": "          coinCurrencies: { gold: gold.currency },\n          officialRulesUrl: undefined as never,"
+ },
+ {
+  "id": "M053",
+  "file": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.ts",
+  "test": "apps/api/libs/domain/src/lib/market/evaluate-wagering-mode.test.ts",
+  "old": "    .exhaustive();",
+  "new": ""
+ }
+]

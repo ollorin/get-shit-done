@@ -1,0 +1,233 @@
+[
+ {
+  "id": "M001",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "const MAX_MESSAGE_LENGTH = 8000; // Leave room for JSON overhead",
+  "new": "const MAX_MESSAGE_LENGTH = 8001; // Leave room for JSON overhead"
+ },
+ {
+  "id": "M002",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "  if (str.length <= maxLen) return str;",
+  "new": "  if (str.length < maxLen) return str;"
+ },
+ {
+  "id": "M003",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "  if (str.length <= maxLen) return str;",
+  "new": "  if (true) return str;"
+ },
+ {
+  "id": "M004",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "  if (str.length <= maxLen) return str;",
+  "new": "  if (false) return str;"
+ },
+ {
+  "id": "M005",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "  if (str.length <= maxLen) return str;",
+  "new": "  if (!(str.length <= maxLen)) return str;"
+ },
+ {
+  "id": "M006",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "  return str.slice(0, maxLen) + \"...[truncated]\";",
+  "new": "  return str.slice(0, maxLen) - \"...[truncated]\";"
+ },
+ {
+  "id": "M007",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "  return str.slice(0, maxLen) + \"...[truncated]\";",
+  "new": "  return str.slice(1, maxLen) + \"...[truncated]\";"
+ },
+ {
+  "id": "M008",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "  return str.slice(0, maxLen) + \"...[truncated]\";",
+  "new": "  return undefined as never;"
+ },
+ {
+  "id": "M009",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "    if (value !== undefined) {",
+  "new": "    if (value === undefined) {"
+ },
+ {
+  "id": "M010",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "    if (value !== undefined) {",
+  "new": "    if (true) {"
+ },
+ {
+  "id": "M011",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "    if (value !== undefined) {",
+  "new": "    if (false) {"
+ },
+ {
+  "id": "M012",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "    if (value !== undefined) {",
+  "new": "    if (!(value !== undefined)) {"
+ },
+ {
+  "id": "M013",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "      if (typeof value === \"string\") {",
+  "new": "      if (typeof value !== \"string\") {"
+ },
+ {
+  "id": "M014",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "      if (typeof value === \"string\") {",
+  "new": "      if (true) {"
+ },
+ {
+  "id": "M015",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "      if (typeof value === \"string\") {",
+  "new": "      if (false) {"
+ },
+ {
+  "id": "M016",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "      if (typeof value === \"string\") {",
+  "new": "      if (!(typeof value === \"string\")) {"
+ },
+ {
+  "id": "M017",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "        safe[key] = truncate(value, 200);",
+  "new": "        safe[key] = truncate(value, 201);"
+ },
+ {
+  "id": "M018",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "      } else if (typeof value === \"object\" && value !== null) {",
+  "new": "      } else if (typeof value !== \"object\" && value !== null) {"
+ },
+ {
+  "id": "M019",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "      } else if (typeof value === \"object\" && value !== null) {",
+  "new": "      } else if (typeof value === \"object\" && value === null) {"
+ },
+ {
+  "id": "M020",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "      } else if (typeof value === \"object\" && value !== null) {",
+  "new": "      } else if (typeof value === \"object\" || value !== null) {"
+ },
+ {
+  "id": "M021",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "      } else if (typeof value === \"object\" && value !== null) {",
+  "new": "      } else if (true) {"
+ },
+ {
+  "id": "M022",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "      } else if (typeof value === \"object\" && value !== null) {",
+  "new": "      } else if (false) {"
+ },
+ {
+  "id": "M023",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "      } else if (typeof value === \"object\" && value !== null) {",
+  "new": "      } else if (!(typeof value === \"object\" && value !== null)) {"
+ },
+ {
+  "id": "M024",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "        safe[key] = JSON.stringify(value).slice(0, 500);",
+  "new": "        safe[key] = JSON.stringify(value).slice(1, 500);"
+ },
+ {
+  "id": "M025",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "        safe[key] = JSON.stringify(value).slice(0, 500);",
+  "new": "        safe[key] = JSON.stringify(value).slice(0, 501);"
+ },
+ {
+  "id": "M026",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "  return JSON.stringify(safe);",
+  "new": "  return undefined as never;"
+ },
+ {
+  "id": "M027",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "  console.log(`${prefix} ${truncate(message)}`, context ? formatContext(context) : \"\");",
+  "new": ""
+ },
+ {
+  "id": "M028",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "  console.warn(`${prefix} ${truncate(message)}`, context ? formatContext(context) : \"\");",
+  "new": ""
+ },
+ {
+  "id": "M029",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "    name: error.name,",
+  "new": "    name: undefined as never,"
+ },
+ {
+  "id": "M030",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "    message: truncate(error.message, 500),",
+  "new": "    message: truncate(error.message, 501),"
+ },
+ {
+  "id": "M031",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "    message: truncate(error.message, 500),",
+  "new": "    message: undefined as never,"
+ },
+ {
+  "id": "M032",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "    stack: error.stack ? truncate(error.stack, 1000) : undefined,",
+  "new": "    stack: error.stack ? truncate(error.stack, 1001) : undefined,"
+ },
+ {
+  "id": "M033",
+  "file": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/logging/structured-logger.test.ts",
+  "old": "    stack: error.stack ? truncate(error.stack, 1000) : undefined,",
+  "new": "    stack: undefined as never,"
+ }
+]

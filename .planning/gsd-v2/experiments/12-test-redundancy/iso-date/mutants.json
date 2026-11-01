@@ -1,0 +1,583 @@
+[
+ {
+  "id": "M001",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  /^(\\d{4})-(\\d{2})-(\\d{2})(?:T(\\d{2}):(\\d{2})(?::(\\d{2})(?:\\.\\d{1,9})?)?(?:Z|[+-](\\d{2}):(\\d{2}))?)?$/;",
+  "new": "  /^(\\d{5})-(\\d{2})-(\\d{2})(?:T(\\d{2}):(\\d{2})(?::(\\d{2})(?:\\.\\d{1,9})?)?(?:Z|[+-](\\d{2}):(\\d{2}))?)?$/;"
+ },
+ {
+  "id": "M002",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  /^(\\d{4})-(\\d{2})-(\\d{2})(?:T(\\d{2}):(\\d{2})(?::(\\d{2})(?:\\.\\d{1,9})?)?(?:Z|[+-](\\d{2}):(\\d{2}))?)?$/;",
+  "new": "  /^(\\d{4})-(\\d{3})-(\\d{2})(?:T(\\d{2}):(\\d{2})(?::(\\d{2})(?:\\.\\d{1,9})?)?(?:Z|[+-](\\d{2}):(\\d{2}))?)?$/;"
+ },
+ {
+  "id": "M003",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  /^(\\d{4})-(\\d{2})-(\\d{2})(?:T(\\d{2}):(\\d{2})(?::(\\d{2})(?:\\.\\d{1,9})?)?(?:Z|[+-](\\d{2}):(\\d{2}))?)?$/;",
+  "new": "  /^(\\d{4})-(\\d{2})-(\\d{3})(?:T(\\d{2}):(\\d{2})(?::(\\d{2})(?:\\.\\d{1,9})?)?(?:Z|[+-](\\d{2}):(\\d{2}))?)?$/;"
+ },
+ {
+  "id": "M004",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  /^(\\d{4})-(\\d{2})-(\\d{2})(?:T(\\d{2}):(\\d{2})(?::(\\d{2})(?:\\.\\d{1,9})?)?(?:Z|[+-](\\d{2}):(\\d{2}))?)?$/;",
+  "new": "  /^(\\d{4})-(\\d{2})-(\\d{2})(?:T(\\d{3}):(\\d{2})(?::(\\d{2})(?:\\.\\d{1,9})?)?(?:Z|[+-](\\d{2}):(\\d{2}))?)?$/;"
+ },
+ {
+  "id": "M005",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  /^(\\d{4})-(\\d{2})-(\\d{2})(?:T(\\d{2}):(\\d{2})(?::(\\d{2})(?:\\.\\d{1,9})?)?(?:Z|[+-](\\d{2}):(\\d{2}))?)?$/;",
+  "new": "  /^(\\d{4})-(\\d{2})-(\\d{2})(?:T(\\d{2}):(\\d{3})(?::(\\d{2})(?:\\.\\d{1,9})?)?(?:Z|[+-](\\d{2}):(\\d{2}))?)?$/;"
+ },
+ {
+  "id": "M006",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  /^(\\d{4})-(\\d{2})-(\\d{2})(?:T(\\d{2}):(\\d{2})(?::(\\d{2})(?:\\.\\d{1,9})?)?(?:Z|[+-](\\d{2}):(\\d{2}))?)?$/;",
+  "new": "  /^(\\d{4})-(\\d{2})-(\\d{2})(?:T(\\d{2}):(\\d{2})(?::(\\d{3})(?:\\.\\d{1,9})?)?(?:Z|[+-](\\d{2}):(\\d{2}))?)?$/;"
+ },
+ {
+  "id": "M007",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  /^(\\d{4})-(\\d{2})-(\\d{2})(?:T(\\d{2}):(\\d{2})(?::(\\d{2})(?:\\.\\d{1,9})?)?(?:Z|[+-](\\d{2}):(\\d{2}))?)?$/;",
+  "new": "  /^(\\d{4})-(\\d{2})-(\\d{2})(?:T(\\d{2}):(\\d{2})(?::(\\d{2})(?:\\.\\d{2,9})?)?(?:Z|[+-](\\d{2}):(\\d{2}))?)?$/;"
+ },
+ {
+  "id": "M008",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  /^(\\d{4})-(\\d{2})-(\\d{2})(?:T(\\d{2}):(\\d{2})(?::(\\d{2})(?:\\.\\d{1,9})?)?(?:Z|[+-](\\d{2}):(\\d{2}))?)?$/;",
+  "new": "  /^(\\d{4})-(\\d{2})-(\\d{2})(?:T(\\d{2}):(\\d{2})(?::(\\d{2})(?:\\.\\d{1,10})?)?(?:Z|[+-](\\d{2}):(\\d{2}))?)?$/;"
+ },
+ {
+  "id": "M009",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  /^(\\d{4})-(\\d{2})-(\\d{2})(?:T(\\d{2}):(\\d{2})(?::(\\d{2})(?:\\.\\d{1,9})?)?(?:Z|[+-](\\d{2}):(\\d{2}))?)?$/;",
+  "new": "  /^(\\d{4})-(\\d{2})-(\\d{2})(?:T(\\d{2}):(\\d{2})(?::(\\d{2})(?:\\.\\d{1,9})?)?(?:Z|[+-](\\d{3}):(\\d{2}))?)?$/;"
+ },
+ {
+  "id": "M010",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  /^(\\d{4})-(\\d{2})-(\\d{2})(?:T(\\d{2}):(\\d{2})(?::(\\d{2})(?:\\.\\d{1,9})?)?(?:Z|[+-](\\d{2}):(\\d{2}))?)?$/;",
+  "new": "  /^(\\d{4})-(\\d{2})-(\\d{2})(?:T(\\d{2}):(\\d{2})(?::(\\d{2})(?:\\.\\d{1,9})?)?(?:Z|[+-](\\d{2}):(\\d{3}))?)?$/;"
+ },
+ {
+  "id": "M011",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  if (value === null || value === \"\") return true;",
+  "new": "  if (value !== null || value === \"\") return true;"
+ },
+ {
+  "id": "M012",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  if (value === null || value === \"\") return true;",
+  "new": "  if (value === null || value !== \"\") return true;"
+ },
+ {
+  "id": "M013",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  if (value === null || value === \"\") return true;",
+  "new": "  if (value === null && value === \"\") return true;"
+ },
+ {
+  "id": "M014",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  if (value === null || value === \"\") return true;",
+  "new": "  if (value === null || value === \"\") return false;"
+ },
+ {
+  "id": "M015",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  if (value === null || value === \"\") return true;",
+  "new": "  if (true) return true;"
+ },
+ {
+  "id": "M016",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  if (value === null || value === \"\") return true;",
+  "new": "  if (false) return true;"
+ },
+ {
+  "id": "M017",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  if (value === null || value === \"\") return true;",
+  "new": "  if (!(value === null || value === \"\")) return true;"
+ },
+ {
+  "id": "M018",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  const m = ISO_DATE.exec(value);\n  if (m === null) return false;",
+  "new": "  const m = ISO_DATE.exec(value);\n  if (m !== null) return false;"
+ },
+ {
+  "id": "M019",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  const m = ISO_DATE.exec(value);\n  if (m === null) return false;",
+  "new": "  const m = ISO_DATE.exec(value);\n  if (m === null) return true;"
+ },
+ {
+  "id": "M020",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  const m = ISO_DATE.exec(value);\n  if (m === null) return false;",
+  "new": "  const m = ISO_DATE.exec(value);\n  if (true) return false;"
+ },
+ {
+  "id": "M021",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  const m = ISO_DATE.exec(value);\n  if (m === null) return false;",
+  "new": "  const m = ISO_DATE.exec(value);\n  if (false) return false;"
+ },
+ {
+  "id": "M022",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  const m = ISO_DATE.exec(value);\n  if (m === null) return false;",
+  "new": "  const m = ISO_DATE.exec(value);\n  if (!(m === null)) return false;"
+ },
+ {
+  "id": "M023",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  const [y, mo, d, h = 0, mi = 0, sec = 0, oh = 0, om = 0] = m.slice(1).map((",
+  "new": "  const [y, mo, d, h = 1, mi = 0, sec = 0, oh = 0, om = 0] = m.slice(1).map(("
+ },
+ {
+  "id": "M024",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  const [y, mo, d, h = 0, mi = 0, sec = 0, oh = 0, om = 0] = m.slice(1).map((",
+  "new": "  const [y, mo, d, h = 0, mi = 1, sec = 0, oh = 0, om = 0] = m.slice(1).map(("
+ },
+ {
+  "id": "M025",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  const [y, mo, d, h = 0, mi = 0, sec = 0, oh = 0, om = 0] = m.slice(1).map((",
+  "new": "  const [y, mo, d, h = 0, mi = 0, sec = 1, oh = 0, om = 0] = m.slice(1).map(("
+ },
+ {
+  "id": "M026",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  const [y, mo, d, h = 0, mi = 0, sec = 0, oh = 0, om = 0] = m.slice(1).map((",
+  "new": "  const [y, mo, d, h = 0, mi = 0, sec = 0, oh = 1, om = 0] = m.slice(1).map(("
+ },
+ {
+  "id": "M027",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  const [y, mo, d, h = 0, mi = 0, sec = 0, oh = 0, om = 0] = m.slice(1).map((",
+  "new": "  const [y, mo, d, h = 0, mi = 0, sec = 0, oh = 0, om = 1] = m.slice(1).map(("
+ },
+ {
+  "id": "M028",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  const [y, mo, d, h = 0, mi = 0, sec = 0, oh = 0, om = 0] = m.slice(1).map((",
+  "new": "  const [y, mo, d, h = 0, mi = 0, sec = 0, oh = 0, om = 0] = m.slice(2).map(("
+ },
+ {
+  "id": "M029",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  ) => p === undefined ? 0 : Number(p));",
+  "new": "  ) => p !== undefined ? 0 : Number(p));"
+ },
+ {
+  "id": "M030",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  ) => p === undefined ? 0 : Number(p));",
+  "new": "  ) => p === undefined ? 1 : Number(p));"
+ },
+ {
+  "id": "M031",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  const day = new Date(0);",
+  "new": "  const day = new Date(1);"
+ },
+ {
+  "id": "M032",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  day.setUTCFullYear(y, mo - 1, d);",
+  "new": "  day.setUTCFullYear(y, mo + 1, d);"
+ },
+ {
+  "id": "M033",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  day.setUTCFullYear(y, mo - 1, d);",
+  "new": "  day.setUTCFullYear(y, mo - 2, d);"
+ },
+ {
+  "id": "M034",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  day.setUTCFullYear(y, mo - 1, d);",
+  "new": ""
+ },
+ {
+  "id": "M035",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  return y >= 1 && day.getUTCFullYear() === y && day.getUTCMonth() === mo - 1 &&",
+  "new": "  return y >= 1 && day.getUTCFullYear() !== y && day.getUTCMonth() === mo - 1 &&"
+ },
+ {
+  "id": "M036",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  return y >= 1 && day.getUTCFullYear() === y && day.getUTCMonth() === mo - 1 &&",
+  "new": "  return y >= 1 && day.getUTCFullYear() === y && day.getUTCMonth() !== mo - 1 &&"
+ },
+ {
+  "id": "M037",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  return y >= 1 && day.getUTCFullYear() === y && day.getUTCMonth() === mo - 1 &&",
+  "new": "  return y >= 1 || day.getUTCFullYear() === y && day.getUTCMonth() === mo - 1 &&"
+ },
+ {
+  "id": "M038",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  return y >= 1 && day.getUTCFullYear() === y && day.getUTCMonth() === mo - 1 &&",
+  "new": "  return y >= 1 && day.getUTCFullYear() === y || day.getUTCMonth() === mo - 1 &&"
+ },
+ {
+  "id": "M039",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  return y >= 1 && day.getUTCFullYear() === y && day.getUTCMonth() === mo - 1 &&",
+  "new": "  return y >= 1 && day.getUTCFullYear() === y && day.getUTCMonth() === mo - 1 ||"
+ },
+ {
+  "id": "M040",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  return y >= 1 && day.getUTCFullYear() === y && day.getUTCMonth() === mo - 1 &&",
+  "new": "  return y > 1 && day.getUTCFullYear() === y && day.getUTCMonth() === mo - 1 &&"
+ },
+ {
+  "id": "M041",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  return y >= 1 && day.getUTCFullYear() === y && day.getUTCMonth() === mo - 1 &&",
+  "new": "  return y >= 1 && day.getUTCFullYear() === y && day.getUTCMonth() === mo + 1 &&"
+ },
+ {
+  "id": "M042",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  return y >= 1 && day.getUTCFullYear() === y && day.getUTCMonth() === mo - 1 &&",
+  "new": "  return y >= 2 && day.getUTCFullYear() === y && day.getUTCMonth() === mo - 1 &&"
+ },
+ {
+  "id": "M043",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  return y >= 1 && day.getUTCFullYear() === y && day.getUTCMonth() === mo - 1 &&",
+  "new": "  return y >= 1 && day.getUTCFullYear() === y && day.getUTCMonth() === mo - 2 &&"
+ },
+ {
+  "id": "M044",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "    day.getUTCDate() === d &&",
+  "new": "    day.getUTCDate() !== d &&"
+ },
+ {
+  "id": "M045",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "    day.getUTCDate() === d &&",
+  "new": "    day.getUTCDate() === d ||"
+ },
+ {
+  "id": "M046",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "    h < 24 && mi < 60 && sec < 60 && oh <= 14 && om < 60;",
+  "new": "    h < 24 || mi < 60 && sec < 60 && oh <= 14 && om < 60;"
+ },
+ {
+  "id": "M047",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "    h < 24 && mi < 60 && sec < 60 && oh <= 14 && om < 60;",
+  "new": "    h < 24 && mi < 60 || sec < 60 && oh <= 14 && om < 60;"
+ },
+ {
+  "id": "M048",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "    h < 24 && mi < 60 && sec < 60 && oh <= 14 && om < 60;",
+  "new": "    h < 24 && mi < 60 && sec < 60 || oh <= 14 && om < 60;"
+ },
+ {
+  "id": "M049",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "    h < 24 && mi < 60 && sec < 60 && oh <= 14 && om < 60;",
+  "new": "    h < 24 && mi < 60 && sec < 60 && oh <= 14 || om < 60;"
+ },
+ {
+  "id": "M050",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "    h < 24 && mi < 60 && sec < 60 && oh <= 14 && om < 60;",
+  "new": "    h < 24 && mi < 60 && sec < 60 && oh < 14 && om < 60;"
+ },
+ {
+  "id": "M051",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "    h < 24 && mi < 60 && sec < 60 && oh <= 14 && om < 60;",
+  "new": "    h <= 24 && mi < 60 && sec < 60 && oh <= 14 && om < 60;"
+ },
+ {
+  "id": "M052",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "    h < 24 && mi < 60 && sec < 60 && oh <= 14 && om < 60;",
+  "new": "    h < 24 && mi <= 60 && sec < 60 && oh <= 14 && om < 60;"
+ },
+ {
+  "id": "M053",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "    h < 24 && mi < 60 && sec < 60 && oh <= 14 && om < 60;",
+  "new": "    h < 24 && mi < 60 && sec <= 60 && oh <= 14 && om < 60;"
+ },
+ {
+  "id": "M054",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "    h < 24 && mi < 60 && sec < 60 && oh <= 14 && om < 60;",
+  "new": "    h < 24 && mi < 60 && sec < 60 && oh <= 14 && om <= 60;"
+ },
+ {
+  "id": "M055",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "    h < 24 && mi < 60 && sec < 60 && oh <= 14 && om < 60;",
+  "new": "    h < 25 && mi < 60 && sec < 60 && oh <= 14 && om < 60;"
+ },
+ {
+  "id": "M056",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "    h < 24 && mi < 60 && sec < 60 && oh <= 14 && om < 60;",
+  "new": "    h < 24 && mi < 61 && sec < 60 && oh <= 14 && om < 60;"
+ },
+ {
+  "id": "M057",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "    h < 24 && mi < 60 && sec < 60 && oh <= 14 && om < 60;",
+  "new": "    h < 24 && mi < 60 && sec < 61 && oh <= 14 && om < 60;"
+ },
+ {
+  "id": "M058",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "    h < 24 && mi < 60 && sec < 60 && oh <= 14 && om < 60;",
+  "new": "    h < 24 && mi < 60 && sec < 60 && oh <= 15 && om < 60;"
+ },
+ {
+  "id": "M059",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "    h < 24 && mi < 60 && sec < 60 && oh <= 14 && om < 60;",
+  "new": "    h < 24 && mi < 60 && sec < 60 && oh <= 14 && om < 61;"
+ },
+ {
+  "id": "M060",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "const CALENDAR_DAY = /^\\d{4}-\\d{2}-\\d{2}$/;",
+  "new": "const CALENDAR_DAY = /^\\d{5}-\\d{2}-\\d{2}$/;"
+ },
+ {
+  "id": "M061",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "const CALENDAR_DAY = /^\\d{4}-\\d{2}-\\d{2}$/;",
+  "new": "const CALENDAR_DAY = /^\\d{4}-\\d{3}-\\d{2}$/;"
+ },
+ {
+  "id": "M062",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "const CALENDAR_DAY = /^\\d{4}-\\d{2}-\\d{2}$/;",
+  "new": "const CALENDAR_DAY = /^\\d{4}-\\d{2}-\\d{3}$/;"
+ },
+ {
+  "id": "M063",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  CALENDAR_DAY.test(value) && isParseableDate(value);",
+  "new": "  CALENDAR_DAY.test(value) || isParseableDate(value);"
+ },
+ {
+  "id": "M064",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  CALENDAR_DAY.test(value) && isParseableDate(value);",
+  "new": ""
+ },
+ {
+  "id": "M065",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  value !== \"\" && isParseableDate(value);",
+  "new": "  value === \"\" && isParseableDate(value);"
+ },
+ {
+  "id": "M066",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  value !== \"\" && isParseableDate(value);",
+  "new": "  value !== \"\" || isParseableDate(value);"
+ },
+ {
+  "id": "M067",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  /^(\\d{4}-\\d{2}-\\d{2})[T ](\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,9})?)?)(Z|[+-]\\d{2}(?::\\d{2})?)?$/;",
+  "new": "  /^(\\d{5}-\\d{2}-\\d{2})[T ](\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,9})?)?)(Z|[+-]\\d{2}(?::\\d{2})?)?$/;"
+ },
+ {
+  "id": "M068",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  /^(\\d{4}-\\d{2}-\\d{2})[T ](\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,9})?)?)(Z|[+-]\\d{2}(?::\\d{2})?)?$/;",
+  "new": "  /^(\\d{4}-\\d{3}-\\d{2})[T ](\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,9})?)?)(Z|[+-]\\d{2}(?::\\d{2})?)?$/;"
+ },
+ {
+  "id": "M069",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  /^(\\d{4}-\\d{2}-\\d{2})[T ](\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,9})?)?)(Z|[+-]\\d{2}(?::\\d{2})?)?$/;",
+  "new": "  /^(\\d{4}-\\d{2}-\\d{3})[T ](\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,9})?)?)(Z|[+-]\\d{2}(?::\\d{2})?)?$/;"
+ },
+ {
+  "id": "M070",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  /^(\\d{4}-\\d{2}-\\d{2})[T ](\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,9})?)?)(Z|[+-]\\d{2}(?::\\d{2})?)?$/;",
+  "new": "  /^(\\d{4}-\\d{2}-\\d{2})[T ](\\d{3}:\\d{2}(?::\\d{2}(?:\\.\\d{1,9})?)?)(Z|[+-]\\d{2}(?::\\d{2})?)?$/;"
+ },
+ {
+  "id": "M071",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  /^(\\d{4}-\\d{2}-\\d{2})[T ](\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,9})?)?)(Z|[+-]\\d{2}(?::\\d{2})?)?$/;",
+  "new": "  /^(\\d{4}-\\d{2}-\\d{2})[T ](\\d{2}:\\d{3}(?::\\d{2}(?:\\.\\d{1,9})?)?)(Z|[+-]\\d{2}(?::\\d{2})?)?$/;"
+ },
+ {
+  "id": "M072",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  /^(\\d{4}-\\d{2}-\\d{2})[T ](\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,9})?)?)(Z|[+-]\\d{2}(?::\\d{2})?)?$/;",
+  "new": "  /^(\\d{4}-\\d{2}-\\d{2})[T ](\\d{2}:\\d{2}(?::\\d{3}(?:\\.\\d{1,9})?)?)(Z|[+-]\\d{2}(?::\\d{2})?)?$/;"
+ },
+ {
+  "id": "M073",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  /^(\\d{4}-\\d{2}-\\d{2})[T ](\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,9})?)?)(Z|[+-]\\d{2}(?::\\d{2})?)?$/;",
+  "new": "  /^(\\d{4}-\\d{2}-\\d{2})[T ](\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{2,9})?)?)(Z|[+-]\\d{2}(?::\\d{2})?)?$/;"
+ },
+ {
+  "id": "M074",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  /^(\\d{4}-\\d{2}-\\d{2})[T ](\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,9})?)?)(Z|[+-]\\d{2}(?::\\d{2})?)?$/;",
+  "new": "  /^(\\d{4}-\\d{2}-\\d{2})[T ](\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,10})?)?)(Z|[+-]\\d{2}(?::\\d{2})?)?$/;"
+ },
+ {
+  "id": "M075",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  /^(\\d{4}-\\d{2}-\\d{2})[T ](\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,9})?)?)(Z|[+-]\\d{2}(?::\\d{2})?)?$/;",
+  "new": "  /^(\\d{4}-\\d{2}-\\d{2})[T ](\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,9})?)?)(Z|[+-]\\d{3}(?::\\d{2})?)?$/;"
+ },
+ {
+  "id": "M076",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  /^(\\d{4}-\\d{2}-\\d{2})[T ](\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,9})?)?)(Z|[+-]\\d{2}(?::\\d{2})?)?$/;",
+  "new": "  /^(\\d{4}-\\d{2}-\\d{2})[T ](\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,9})?)?)(Z|[+-]\\d{2}(?::\\d{3})?)?$/;"
+ },
+ {
+  "id": "M077",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "const HOUR_ONLY_OFFSET = /^[+-]\\d{2}$/;",
+  "new": "const HOUR_ONLY_OFFSET = /^[+-]\\d{3}$/;"
+ },
+ {
+  "id": "M078",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  const m = PG_TIMESTAMP_TEXT.exec(value);\n  if (m === null) return false;",
+  "new": "  const m = PG_TIMESTAMP_TEXT.exec(value);\n  if (m !== null) return false;"
+ },
+ {
+  "id": "M079",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  const m = PG_TIMESTAMP_TEXT.exec(value);\n  if (m === null) return false;",
+  "new": "  const m = PG_TIMESTAMP_TEXT.exec(value);\n  if (m === null) return true;"
+ },
+ {
+  "id": "M080",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  const m = PG_TIMESTAMP_TEXT.exec(value);\n  if (m === null) return false;",
+  "new": "  const m = PG_TIMESTAMP_TEXT.exec(value);\n  if (true) return false;"
+ },
+ {
+  "id": "M081",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  const m = PG_TIMESTAMP_TEXT.exec(value);\n  if (m === null) return false;",
+  "new": "  const m = PG_TIMESTAMP_TEXT.exec(value);\n  if (false) return false;"
+ },
+ {
+  "id": "M082",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  const m = PG_TIMESTAMP_TEXT.exec(value);\n  if (m === null) return false;",
+  "new": "  const m = PG_TIMESTAMP_TEXT.exec(value);\n  if (!(m === null)) return false;"
+ },
+ {
+  "id": "M083",
+  "file": "apps/api/libs/infrastructure/src/lib/utils/iso-date.ts",
+  "test": "apps/api/libs/infrastructure/src/lib/utils/iso-date.test.ts",
+  "old": "  return isTimestamp(`${date}T${time}${iso}`);",
+  "new": "  return undefined as never;"
+ }
+]
