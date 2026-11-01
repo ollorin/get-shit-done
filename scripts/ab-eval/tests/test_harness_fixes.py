@@ -463,3 +463,27 @@ class DocsJudgeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StackFalsePositive(unittest.TestCase):
+    """Tool names are the stack only as commands: a path like supabase/migrations is not (DU2-A-r1 false critical)."""
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("hd_stack", str(Path(__file__).resolve().parents[1] / "hooks" / "harness-deny.py"))
+        cls.hd = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.hd)
+
+    def stack(self, cmd):
+        return bool(self.hd.STACK.search(self.hd.strip_heredocs(cmd)))
+
+    def test_paths_and_doc_names_allowed(self):
+        for c in ["ls supabase/migrations 2>/dev/null | grep -i 400_wallet", "ls docs/docker.md",
+                  "cat apps/api/supabase/config.toml", "cat > a.md <<'EOF'\nrun `supabase db reset`\nEOF"]:
+            self.assertFalse(self.stack(c), c)
+
+    def test_commands_still_denied(self):
+        for c in ["supabase status", "npx supabase db reset", "cd x && docker ps", "psql -h localhost",
+                  "ls; supabase start", "bash <<'EOF'\ndocker ps\nEOF"]:
+            self.assertTrue(self.stack(c), c)

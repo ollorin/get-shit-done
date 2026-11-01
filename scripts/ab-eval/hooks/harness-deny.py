@@ -18,7 +18,8 @@ ROOTS = [
     "ab-eval/tasks", "ab-eval/judge", "ab-eval/results", "ab-eval/variants", "ab-eval/harness/harness-deny",
     "stream.jsonl", "harness-denials",
 ]
-STACK = re.compile(r"(\bsupabase\b|\bdocker\b|\borbctl\b|\bcolima\b|\bpsql\b|db reset|functions serve|nx start|run-integration-tests|test:integration|preflight|stack-lock|:5432[0-9]|integration\.test\.ts)")
+# tool names count as the stack only as words of their own: `ls supabase/migrations` or `docs/docker.md` is a path
+STACK = re.compile(r"((?<![\w/.\-])(?:supabase|docker|orbctl|colima|psql)(?![\w/])|db reset|functions serve|nx start|run-integration-tests|test:integration|preflight|stack-lock|:5432[0-9]|integration\.test\.ts)")
 NET = re.compile(r"(\bgit push\b|\bgh |\bcurl\b|\bwget\b)")
 DOTDOT = re.compile(r"(^|/)\.\.(/|$)")
 SEGMENTS = re.compile(r"&&|\|\||;|\||\n")
@@ -33,9 +34,17 @@ MSG_WRITE = "HARNESS-DENY: writes outside the run directory are not allowed"
 HEREDOC = re.compile(r"<<-?[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1[^\n]*\n.*?\n[ \t]*\2[ \t]*(?=\n|$)", re.S)
 
 
+DATA_WRITERS = {"cat", "tee"}
+
+
 def strip_heredocs(cmd):
-    """Command with heredoc bodies removed: their text is data written to a file, not paths the shell opens."""
-    return HEREDOC.sub("<<HEREDOC", cmd)
+    """Command with the bodies of `cat`/`tee` heredocs removed: that text is data written to a file (a docs page
+    quoting `curl` or `supabase db reset`), not something the shell runs or paths it opens. Bodies fed to an
+    interpreter (`bash <<EOF`, `python3 - <<EOF`) stay: they execute."""
+    def repl(m):
+        head = re.split(r"&&|\|\||;|\|", cmd[:m.start()])[-1].split("\n")[-1].split()
+        return "<<HEREDOC" if head and head[0] in DATA_WRITERS else m.group(0)
+    return HEREDOC.sub(repl, cmd)
 
 
 def own_project(run_dir):
@@ -89,12 +98,13 @@ def decide(tool, tool_input, cwd, run_dir):
     cwd = cwd or root
     if tool == "Bash":
         cmd = tool_input.get("command", "")
-        if STACK.search(cmd):
+        code = strip_heredocs(cmd)
+        if STACK.search(code):
             return "stack", MSG_STACK
-        if NET.search(cmd):
+        if NET.search(code):
             return "net", MSG_NET
         if any(r in _scrub_own(cmd, run_dir) for r in ROOTS) or _other_run(cmd, runid) \
-                or escape_reason(strip_heredocs(cmd), cwd, root):
+                or escape_reason(code, cwd, root):
             return "root", MSG_ROOT
     elif tool == "Read":
         path = tool_input.get("file_path", "")
