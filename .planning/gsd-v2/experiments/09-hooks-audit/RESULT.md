@@ -72,3 +72,52 @@ Must-allow shapes verified allowed by canaries (all rows pass): `cd apps/api && 
 - R5 Add `/path/.../supabase start` (path-prefixed binary) to check-supabase-command, and `a; git commit` / `git -C x commit` to check-api-contract-drift? Both are small anchors, deferred because they could newly block current operator flows.
 - R6 schedule-resume: keep launchd auto-resume of paused phases in the shared tree, given it triggers on any mention of PAUSED.json?
 - R7 Register an extended gsd-guard-bash (needs core.hooksPath handling) to cover `--no-verify`, `--no-check`, stash/reset/rebase.
+
+## After fix batch (2026-11-01, RULING section C)
+
+Nothing was flipped: the project flag, every real `settings*.json` and the real `~/.claude` are untouched. The installer was tested only against a temp config dir; `flip.sh` and `hooks-apply.sh` were run only in dry-run or against copies.
+
+### Section C status
+
+| C item | Status | Evidence |
+|---|---|---|
+| 1 hook patch A1-A3, A4/R2, A6-A8, R1, R3, R5 (A10-A14) | done (igaming `bb68dceb7`, review fixes in the next commit, see hand-back) | Bash hooks are now tokenised (`.claude/hooks/lib/ShellParse.pm`, Perl port of the `gsd-guard-bash.js` parser); wrappers `.claude/hooks/*.sh` call `lib/<hook>.pl`; all fail closed on unreadable input (`lib/run-perl.sh`, `lib/fail-closed.sh`) |
+| 2 canaries moved, bypass + per-task rows, reason check, preflight wiring | done (`bb68dceb7`, preflight `7b71e906b`) | `scripts/validation/hook-canaries/`; 349 rows; every deny/ask row must carry a `reason` substring; mutant killed (below) |
+| 3 re-replay | done | table below |
+| 4 fork: stop registering check-update + doc-compression, A15/A16 in protect | done (fork `1fb2e26`, `7c0499d`) | `npm run install:gsd` against the REAL `~/.claude` is still the CEO's step before the flip |
+| 5 `hooks-apply.sh`, `flip.sh` | done (`scripts/hooks-apply.sh` in `bb68dceb7`; `flip.sh` here) | dry-run on fixtures: unregisters 5 entries (check-update, rtk-rewrite, doc-compression, schedule-resume x2), drops flag + local hooks block, refuses on charlotte owner label / PAUSED.json, non-TTY apply refused |
+| 6 CLAUDE.md grep line, RTK.md text | done (`7b71e906b`; RTK.md rewrite is inside `flip.sh --apply`) | |
+| R7 gsd-guard-bash | committed, unregistered (fork `25c4168`) | adds `hooks-path` rule; 123 unit tests; canary rows use `fork:gsd-guard-bash.js` |
+
+### Replay: same 9,000 calls (`corpus3.jsonl`; 6,000 Bash)
+
+| Hook | Before (`076610d36`) | After | Notes |
+|---|---|---|---|
+| redirect-recursive-search | 494 deny | **130 deny** (target 103-138) | after: 66 recursive grep/rg, 55 `rtk grep` (lossy), 9 `rg` on a directory/without file. 104 of the old 494 stay denied; 26 are newly denied chained recursive greps the old first-pipe truncation hid (A7); 390 old denials are now allowed (named-file grep, `git grep`, wait loops, pipe-fed `rg`) |
+| check-test-command | 3 deny | **2 deny**, 14 reminders | both denials are un-locked `deno task test:scenario` runs (400-43 triage); no stack-locked shape denied. 14 = direct `deno test *.integration.test.ts` without stack-lock (R3 reminder; ruling counted 14 of 33) |
+| check-supabase-command | 1 deny | 2 deny | the stack-locked bare `npx supabase start` (401-review-fix-r2) and the path-prefixed `node_modules/.bin/supabase start` (R5) |
+| block-push, check-git-merge-target | 0 | 0 | |
+| 4 Write/Edit hooks | 0 over 2,500 | 0 | |
+
+p50 latency 31-32 ms per Bash hook (Perl start included). A9: a 336 KB single-line command takes 0.26 s (was 9.2 s). Final replay (after the review fixes) covers all 9,000 calls with zero harness errors; numbers identical.
+
+### Canaries
+
+- New hooks: `canaries: pass=349 fail=0`. Prior hooks (`076610d36`) against the same corpus: `pass=209 fail=86`, so every section A bypass row fails first (RED) and passes after (GREEN). Rows that deliberately pass on the prior hook: per-task R2 rows and the lock-wrapped allow rows (they pin the behaviour).
+- Mutant killed: narrowing the task list to `test:(regression|smoke)` now gives `pass=287 fail=8` (test:player, operator, e2e, scenario, rg, tags, two-scenarios-under-lock, one-scenario-without-lock).
+- Reason check: a deny row without `reason`, or whose substring is absent from stderr/ask-JSON, fails; `verdict` also distinguishes a granted `allow` decision from no decision (A13).
+- Peer must-allow shapes are explicit `peer-must-allow` rows through every Bash hook, all green.
+
+### Fork test summary
+
+`npm test` in the fork: `tests 1523, pass 1523, fail 0` (after `25c4168`).
+
+### Rulings applied with a deviation
+
+- R1: pipe-fed `rg` (`git log | rg x`) is allowed. `rg` reads stdin when piped and never walks the cwd; denying it would contradict "pipe-fed grep allowed". It does not change the replay target (130). `rg -r` is rg's replace flag, not recursion, so only grep-family `-r/-R/--recursive` counts.
+- R8 detective control (preflight failing on `.claude/hooks` diffs without a `Hook-Patch:` trailer) is NOT built: it is outside section C and the preflight scope of this batch.
+- Review: one fresh Sonnet read-only review of `bb68dceb7` found 14 issues (stack-lock/supervisor tokens as data, `<(..)`, `$'..'`, stdin shells, shell injection through `-C` dirs, supabase@version, gh `-R`, `+main`, marker forging variants, rg option values); all fixed and each pinned as a `review-r1` canary row (52 of the new rows fail on `bb68dceb7`). A second Sonnet round to zero and the Opus diff check from section C were NOT run; recommended before relying on the hooks as more than a guardrail for honest agents. Known unfixed: aliases (`git -c alias.p=push p`), runtime-assembled marker paths.
+
+### CEO command
+
+`cd ~/get-shit-done && npm run install:gsd && bash .planning/gsd-v2/experiments/09-hooks-audit/flip.sh --apply` in a terminal, type `FLIP`, then `flip.sh --smoke` from a new terminal. `flip.sh --rollback` undoes it. Dry-run first: `flip.sh --apply --dry-run`.
