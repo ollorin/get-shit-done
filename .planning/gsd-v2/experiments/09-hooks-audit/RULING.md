@@ -116,7 +116,7 @@ Hook changes are made by a person's one command, prepared by agents.
 
 1. Agent writes `.planning/hook-patches/<id>.patch` plus canary rows in `scripts/validation/hook-canaries/`, and tests against a copy with `HOOKS_DIR=$PWD/.tmp/hook-try/<id>` (the path must not contain `.claude/hooks`).
 2. A fresh Sonnet reviews to zero findings. A fresh Opus reviews anything that narrows a deny.
-3. CEO runs `bash scripts/hooks-apply.sh <id>` in a terminal. It requires a TTY and a typed word, checks the patch hash against the review file, applies, runs canaries, commits only `.claude/hooks` paths, and reverts on any failure. Bash tool calls have no TTY.
+3. CEO runs `bash scripts/hooks-apply.sh <id>` in a terminal outside Claude Code. It refuses under Claude Code (`CLAUDECODE` set or a `claude` ancestor), requires a TTY and a typed word, checks the patch hash against the review file, applies, runs canaries, commits only `.claude/hooks` paths, and reverts on any failure.
 4. GSD-managed hooks (`~/.claude/get-shit-done/bin/hooks/*`): edit in the fork, review, `npm run install:gsd`, as the protect message says. Non-manifest files (`~/.claude/hooks/*`): `hooks-apply.sh`.
 5. Emergency: `flip.sh --rollback` (section C).
 
