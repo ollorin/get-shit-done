@@ -118,6 +118,59 @@ p50 latency 31-32 ms per Bash hook (Perl start included). A9: a 336 KB single-li
 - R8 detective control (preflight failing on `.claude/hooks` diffs without a `Hook-Patch:` trailer) is NOT built: it is outside section C and the preflight scope of this batch.
 - Review: one fresh Sonnet read-only review of `bb68dceb7` found 14 issues (stack-lock/supervisor tokens as data, `<(..)`, `$'..'`, stdin shells, shell injection through `-C` dirs, supabase@version, gh `-R`, `+main`, marker forging variants, rg option values); all fixed and each pinned as a `review-r1` canary row (52 of the new rows fail on `bb68dceb7`). A second Sonnet round to zero and the Opus diff check from section C were NOT run; recommended before relying on the hooks as more than a guardrail for honest agents. Known unfixed: aliases (`git -c alias.p=push p`), runtime-assembled marker paths.
 
-### CEO command
+### CEO command (superseded by "Round-2 fixes" below)
 
-`cd ~/get-shit-done && npm run install:gsd && bash .planning/gsd-v2/experiments/09-hooks-audit/flip.sh --apply` in a terminal, type `FLIP`, then `flip.sh --smoke` from a new terminal. `flip.sh --rollback` undoes it. Dry-run first: `flip.sh --apply --dry-run`.
+See the end of this file.
+
+## Round-2 fixes (2026-11-01, REVIEW-ROUND-2.md)
+
+| Finding | Result |
+|---|---|
+| F1 | `flip.sh` keeps an `applied` marker and refuses a second `--apply` (also when the flag is gone or the fork install is missing); rollback clears it. `flip-test.sh` on temp copies: apply, apply, rollback is byte-identical (RED on the old script: 1b, 1c, 3a, 3b, 4 failed) |
+| F2 | fork tree clean: PILOT.md committed (`97c0c62`), `deno.lock` is Deno-generated and now in `.gitignore` (`3c68fbb`). Narrowest install: `cd ~/get-shit-done && node bin/install.js --global --claude` (agents, commands, get-shit-done, bin/hooks; no whisper, MCP merge or `.env.template`; it still runs `npm ci` for the hook dependencies inside `~/.claude/get-shit-done`, which needs the npm cache or network). Verified in a temp config dir with `HOME` redirected: the diff against the real tree is exactly the review's list (coordinator agent, execute-phase and execute-roadmap workflows, protect hook and tests, new guard-bash files, removed compression-cache, local-patches). Spurious `gsd-local-patches`: `pruneIdenticalPatches` (`512c799`) drops backups identical to the fresh install; after it only `gsd-phase-coordinator.md` (a real difference: the F3 text) is reported |
+| F3 | disproved, no change (`CLAUDE.md:164-168`, `886db7087`); recorded in REVIEW-ROUND-2.md |
+| F4 | fork `ddec5a4`: interpreter writes are judged per interpreter command region and per call target (literal protected/safe, variable unknown), `cd .claude/hooks/<sub>` covered, `patch` only as a command word. 1,500-command replay: old hook 16 denials, `7c0499d` 31, now 24; the 8 beyond the old hook are all hook-edit-session commands writing into `.claude/hooks` (python heredocs and `cat >` after `cd .../hooks/lib`), true positives; the 9 false denials of `7c0499d` (read-only greps, `cp` out, git add/commit, scripts under `.tmp`, a fork edit) are allowed again |
+| F5 | 3 mutants now killed: stale marker (m1 2 rows fail), find -execdir/-ok/-okdir (m4 3 rows), perl marker writer (m6 2 rows). Real gap fixed: versioned interpreters (`python3.12`, `php`, `lua`, `ruby3`) did not count as marker writers |
+| F6 | `nx e2e`/`regression`, `nx run <p>:e2e|regression`, `run-many`/`affected -t e2e|regression`, `affected:e2e`, `npm|pnpm|yarn run e2e`, `nx test:integration`, wrapped forms: denied; `npx nx test|typecheck|run api:test`, `run-many -t test`, `nx show project e2e-charlotte` allowed; supervisor still exempt (19 + 2 deny and 12 allow canaries) |
+| F7 | `e2e-charlotte` matched as a path component; worktree `wt-e2e-charlotte-fix` no longer denied |
+| F8 | fixed: unambiguous long-option prefixes (`--rec`, `--recurs`, `--dere`, `--dir=recurse`, `-drecurse`), quoted command words (`"gr"ep`), `command -p`, `sudo -u/-E`, `stdbuf`, `caffeinate`, `watch`, `env --split-string=`, `function f {}`, `ugrep`/`ug`/`rgrep`, nesting depth 4 to 12. Recorded, not fixed: runtime-assembled command words (`G=grep; $G -r`, `os.system("grep -r")`): chasing variables is out of scope per the ruling, no replay command uses them |
+| F9 | `hooks-apply.sh` prints `git apply --stat` and the full patch before the typed word |
+| F10 | smoke: `(no output)`/`none`/`empty` count as EMPTY; BLOCKED/RUNS look for `BLOCKED`, `PROTECTED` or "hook ... denied", not any "denied" |
+| F11 | `/tmp/flip-canaries.out` replaced by `mktemp`; `gate-estate.md` row states preflight-only, machine-bound, not in CI. Not changed: the 60 s serial runtime (a parallel runner is a rewrite) |
+| F12 | ask added for bare `git push`/`push origin HEAD` while on main, `git checkout|switch main` followed by `git merge`, `gh api graphql ... mergePullRequest|enablePullRequestAutoMerge`. Kept by design: a lone `git merge` into a non-main branch emits `allow` (the hook's stated contract, `check-git-merge-target.pl` header) |
+| F13 | `supabase start -x gotrue` and `-xgotrue` allowed; bare `-x` still denied |
+| F14 | not changed (harness never sends BOM or a top-level array; the Perl hooks fail closed, harmless) |
+| F15 | `flip.sh` records an absent `RTK.md` and rollback removes the file the apply created |
+| F16 | the R3 reminder is judged per entry via `locked`, not by the text `stack-lock` |
+
+### Replay (6,000 Bash commands of `corpus3.jsonl`, five project Bash hooks; before = `bb68dceb7`/`fea0a00f4` hooks, after = this batch)
+
+| Hook | Before | After |
+|---|---|---|
+| redirect-recursive-search | 130 deny | 130 deny |
+| check-test-command | 2 deny, 14 reminders | 2 deny, 14 reminders |
+| check-supabase-command | 2 deny | 2 deny |
+| block-push, check-git-merge-target | 0 | 0 |
+
+Per-record comparison: 0 verdict differences (the only two differing records, #714 and #1294, were harness timeouts in the before run under host load and are `ok` in the after run). The 1,500-command recent sample through the same five hooks: 28 redirect denials and 1 merge ask before and after, 0 differences. Latency p50 35-36 ms, max 190 ms.
+
+### Tests
+
+- Canaries: `pass=431 fail=0` (was 349; 82 new rows, 49 of them fail on the previous hooks, the rest are mutant-killing or must-allow pins).
+- Fork `npm test`: `tests 1536, pass 1536, fail 0` (was 1523).
+- `flip-test.sh` (temp copies, pty via `script`): all pass, 25 cases (apply/rollback round trips, double apply, half-applied state, absent RTK.md, non-TTY, fork-not-installed refusal, `--approved-by-ceo` without TTY, short quote, charlotte owner, stack owner, PAUSED.json, charlotte lock, held flock, OrbStack restart).
+
+### `--approved-by-ceo` (coordinator scope addition)
+
+`flip.sh --apply|--rollback --approved-by-ceo "<CEO's quoted approval>"` replaces only the TTY and the typed word. The quote must be at least 8 characters; one tab-separated line (UTC date, mode, flag, quote) is appended to `<project>/.tmp/hooks-flip-backup/approvals.log` before anything changes. All `--apply` refusals still hold (charlotte owner label, live `.tmp/charlotte.lock`, PAUSED.json, resume plist, failing canaries, fork hooks not installed, already applied) and two are new for every apply: an OrbStack/docker/supabase start-stop-restart process, and the stack lock held (non-empty `owner.txt` or a held `.tmp/local-stack.flock`). Rollback has no refusals besides a missing backup. `hooks-apply.sh` stays TTY-gated.
+
+### CEO command lines
+
+```
+cd ~/get-shit-done && node bin/install.js --global --claude
+bash ~/get-shit-done/.planning/gsd-v2/experiments/09-hooks-audit/flip.sh --apply --dry-run
+bash ~/get-shit-done/.planning/gsd-v2/experiments/09-hooks-audit/flip.sh --apply            # TTY, type FLIP   (or: --approved-by-ceo "<quote>")
+bash ~/get-shit-done/.planning/gsd-v2/experiments/09-hooks-audit/flip.sh --smoke            # new terminal
+bash ~/get-shit-done/.planning/gsd-v2/experiments/09-hooks-audit/flip.sh --rollback         # undo
+```
+`npm run install:gsd` also works now (clean tree) but adds npm install, whisper models, the telegram MCP merge and `.env.template`.

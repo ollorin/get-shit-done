@@ -1,38 +1,71 @@
 #!/bin/bash
 # flip.sh - enable Claude Code hooks for igaming-platform (experiments/09-hooks-audit RULING section C).
-#   flip.sh --apply     [--dry-run]   unregister the hooks that must not come back, then remove the project
+#   flip.sh --apply     [--dry-run] [--approved-by-ceo "<quoted approval>"]   unregister the hooks that must not come back, then remove the project
 #                                     hook-disable flag + local hooks block. Needs a TTY and the typed word FLIP.
 #   flip.sh --smoke     [--dry-run]   new-session probes of the live hook set (claude -p, haiku); --dry-run lists them
-#   flip.sh --rollback                restore both settings files (and RTK.md) from the latest backup. TTY + typed word.
+#   flip.sh --rollback  [--approved-by-ceo "<quoted approval>"]   restore both settings files (and RTK.md) from the latest backup. TTY + typed word.
+# --approved-by-ceo "<quote>" replaces ONLY the TTY and the typed word (the CEO delegated the run to an agent). The quote must be
+#   the CEO's own words (min 8 chars); one line (date, mode, flag, quote) is appended to $PROJECT_DIR/.tmp/hooks-flip-backup/approvals.log
+#   before anything changes. Every refusal below still applies to --apply (rollback has none besides a missing backup).
+# Install step BEFORE --apply (agents, commands, get-shit-done, hooks only; no whisper/MCP/.env.template):
+#   cd ~/get-shit-done && node bin/install.js --global --claude      (needs a clean fork tree only for npm run install:gsd)
+#   It runs `npm ci` for the hook dependencies inside ~/.claude/get-shit-done (npm cache or network) and refreshes the
+#   protect/charlotte-lock registrations in settings.json (idempotent). `npm run install:gsd` adds npm install, whisper
+#   models, the telegram MCP merge into ~/.claude/.claude.json and .env.template: not needed for the flip.
 # --dry-run mutates nothing real: it transforms COPIES in a temp dir, validates the JSON and prints the diff.
 # Env overrides for testing on fixtures: CLAUDE_HOME (default ~/.claude), PROJECT_DIR (default ~/igaming-platform).
 set -u
-MODE="${1:-}"; SUB="${2:-}"
+MODE=""; SUB=""; APPROVED=0; APPROVAL=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --apply|--smoke|--rollback) MODE="$1";;
+    --dry-run) SUB="--dry-run";;
+    --approved-by-ceo) APPROVED=1; shift; APPROVAL="${1:-}";;
+    *) echo "usage: flip.sh --apply [--dry-run] [--approved-by-ceo \"<quote>\"] | --smoke [--dry-run] | --rollback [--approved-by-ceo \"<quote>\"]" >&2; exit 64;;
+  esac
+  shift
+done
 CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
 PROJECT_DIR="${PROJECT_DIR:-$HOME/igaming-platform}"
 USER_SETTINGS="$CLAUDE_HOME/settings.json"
 LOCAL_SETTINGS="$PROJECT_DIR/.claude/settings.local.json"
 RTK_MD="$CLAUDE_HOME/RTK.md"
 BACKUP_ROOT="$PROJECT_DIR/.tmp/hooks-flip-backup"
+APPLIED="$BACKUP_ROOT/applied"   # holds the backup dir of an apply that was not rolled back yet
 FLAG="disable""AllHooks"   # split so this file never trips the protect hook's substring match when read via Bash
 
 die() { echo "flip: $*" >&2; exit 1; }
-need_tty() {
-  [ -t 0 ] && [ -t 1 ] || die "needs a TTY (a person in a terminal); Bash tool calls cannot run this"
+need_tty() { # need_tty <WORD>: a person at a TTY types WORD, or --approved-by-ceo "<quote>" is logged instead
+  if [ "$APPROVED" = 1 ]; then
+    local q; q=$(printf '%s' "$APPROVAL" | tr '\n\r' '  ')
+    [ "${#q}" -ge 8 ] || die "--approved-by-ceo needs the CEO's quoted approval (at least 8 characters) as its value"
+    mkdir -p "$BACKUP_ROOT" && printf '%s\t%s\t--approved-by-ceo\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$MODE" "$q" >> "$BACKUP_ROOT/approvals.log" || die "cannot write approvals.log; nothing changed"
+    echo "flip: non-interactive run approved by the CEO (logged to $BACKUP_ROOT/approvals.log)"; return 0
+  fi
+  [ -t 0 ] && [ -t 1 ] || die "needs a TTY (a person in a terminal) or --approved-by-ceo \"<quote>\""
   printf 'Type %s to continue: ' "$1"; read -r w; [ "$w" = "$1" ] || die "aborted"
 }
 command -v python3 >/dev/null || die "python3 required"
 
 refusals() { # prints one reason per line when the flip must not happen now
+  [ -f "$CLAUDE_HOME/get-shit-done/bin/hooks/gsd-hook-lib.js" ] || echo "fork hooks not installed in $CLAUDE_HOME (protect hook is the old one): run  cd ~/get-shit-done && node bin/install.js --global --claude"
+  [ -f "$APPLIED" ] && echo "already applied (backup $(cat "$APPLIED")): run --rollback first; a second apply would overwrite the original backup"
+  python3 -c 'import json,sys;sys.exit(0 if sys.argv[2] in json.load(open(sys.argv[1])) else 1)' "$LOCAL_SETTINGS" "$FLAG" 2>/dev/null || echo "hook-disable flag is not set in $LOCAL_SETTINGS: nothing to flip (already applied?)"
   local owner="$PROJECT_DIR/.tmp/local-stack.lock/owner.txt" lock="$PROJECT_DIR/.tmp/charlotte.lock"
   [ -f "$owner" ] && grep -qi charlotte "$owner" && echo "local-stack lock owner label contains 'charlotte': $(head -c 120 "$owner")"
   if [ -f "$lock" ]; then
     local pid; pid=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("pid",""))' "$lock" 2>/dev/null)
     if [ -z "$pid" ] || kill -0 "$pid" 2>/dev/null; then echo ".tmp/charlotte.lock is live (pid ${pid:-unknown})"; fi
   fi
-  pgrep -fl 'orbctl (stop|start|restart)' >/dev/null 2>&1 && echo "an OrbStack restart is running"
+  pgrep -fl 'orbctl (stop|start|restart)|docker (stop|start|restart|kill)|supabase (start|stop)|nx (start|stop):dev' >/dev/null 2>&1 && echo "an OrbStack/docker/supabase restart or start/stop is running"
+  if [ -s "$owner" ]; then echo "local-stack lock is held (owner.txt non-empty): $(head -c 120 "$owner")"
+  elif [ -f "$PROJECT_DIR/.tmp/local-stack.flock" ] && ! python3 -c 'import fcntl,sys;f=open(sys.argv[1]);fcntl.flock(f,fcntl.LOCK_SH|fcntl.LOCK_NB)' "$PROJECT_DIR/.tmp/local-stack.flock" 2>/dev/null; then
+    echo "local-stack flock is held (.tmp/local-stack.flock)"
+  fi
   if [ -x "$PROJECT_DIR/scripts/validation/hook-canaries/run-canaries.sh" ]; then
-    "$PROJECT_DIR/scripts/validation/hook-canaries/run-canaries.sh" >/tmp/flip-canaries.out 2>&1 || echo "canaries fail: $(tail -1 /tmp/flip-canaries.out)"
+    local co; co=$(mktemp)
+    "$PROJECT_DIR/scripts/validation/hook-canaries/run-canaries.sh" >"$co" 2>&1 || echo "canaries fail: $(tail -1 "$co")"
+    rm -f "$co"
   else echo "canary runner missing"; fi
   find "$PROJECT_DIR/.planning/phases" -name PAUSED.json 2>/dev/null | head -3 | sed 's/^/PAUSED.json exists: /'
   ls "$HOME"/Library/LaunchAgents/com.gsd.resume* 2>/dev/null | head -3 | sed 's/^/resume plist exists: /'
@@ -92,8 +125,9 @@ do_apply() {
   if [ $dry = 1 ]; then echo "flip: dry-run complete (nothing changed; copies in $tmp)"; return 0; fi
   need_tty FLIP
   local b="$BACKUP_ROOT/$(date +%Y%m%dT%H%M%S)"; mkdir -p "$b"
-  cp "$USER_SETTINGS" "$b/settings.json"; cp "$LOCAL_SETTINGS" "$b/settings.local.json"; [ -f "$RTK_MD" ] && cp "$RTK_MD" "$b/RTK.md"
-  echo "$b" > "$BACKUP_ROOT/latest"
+  cp "$USER_SETTINGS" "$b/settings.json"; cp "$LOCAL_SETTINGS" "$b/settings.local.json"
+  if [ -f "$RTK_MD" ]; then cp "$RTK_MD" "$b/RTK.md"; else : > "$b/RTK.md.absent"; fi
+  echo "$b" > "$BACKUP_ROOT/latest"; echo "$b" > "$APPLIED"
   # order matters: unregister the user-level hooks first, only then drop the flag (no session sees the old set)
   cp "$tmp/settings.json" "$USER_SETTINGS" || die "write user settings failed; backup in $b"
   cp "$tmp/RTK.md" "$RTK_MD"
@@ -133,10 +167,10 @@ do_smoke() {
     out=$(cd "$PROJECT_DIR" && claude -p --model haiku --permission-mode acceptEdits --allowedTools Bash \
       "Run exactly this one Bash command and reply with only its raw output or the exact BLOCKED/denial text, nothing else: $cmd" 2>&1)
     case "$expect" in
-      BLOCKED) [[ "$out" == *BLOCKED* || "$out" == *denied* || "$out" == *PROTECTED* ]] && v=ok || v=WRONG;;
-      RUNS)    [[ "$out" != *BLOCKED* && "$out" != *denied* ]] && v=ok || v=WRONG;;
+      BLOCKED) [[ "$out" == *BLOCKED* || "$out" == *PROTECTED* || "$out" == *"hook"*[Dd]enied* ]] && v=ok || v=WRONG;;
+      RUNS)    [[ "$out" != *BLOCKED* && "$out" != *PROTECTED* && "$out" != *"hook"*[Dd]enied* ]] && v=ok || v=WRONG;;
       'CMP>8000') n=$(printf '%s' "$out" | tr -dc '0-9'); [ "${n:-0}" -gt 8000 ] && v=ok || v=WRONG;;
-      EMPTY)   [ -z "$(printf '%s' "$out" | tr -d '[:space:]')" ] && v=ok || v=WRONG;;
+      EMPTY)   t=$(printf '%s' "$out" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]'); case "$t" in ''|'(nooutput)'|'nooutput'|'(empty)'|'empty'|'(none)'|'none') v=ok;; *) v=WRONG;; esac;;
     esac
     [ $v = ok ] || fails=$((fails+1))
     printf '%-6s %-9s %s\n' "$v" "$expect" "$cmd"
@@ -151,7 +185,9 @@ do_rollback() {
   local b; b=$(cat "$BACKUP_ROOT/latest"); [ -d "$b" ] || die "backup dir $b missing"
   for f in settings.json settings.local.json; do python3 -c 'import json,sys;json.load(open(sys.argv[1]))' "$b/$f" || die "backup $f is not valid JSON"; done
   need_tty ROLLBACK
-  cp "$b/settings.json" "$USER_SETTINGS"; cp "$b/settings.local.json" "$LOCAL_SETTINGS"; [ -f "$b/RTK.md" ] && cp "$b/RTK.md" "$RTK_MD"
+  cp "$b/settings.json" "$USER_SETTINGS"; cp "$b/settings.local.json" "$LOCAL_SETTINGS"
+  if [ -f "$b/RTK.md" ]; then cp "$b/RTK.md" "$RTK_MD"; elif [ -f "$b/RTK.md.absent" ]; then rm -f "$RTK_MD"; fi
+  rm -f "$APPLIED"
   echo "flip: rolled back from $b (the project flag is back; it applies to user-level hooks too). Restart or open new sessions."
 }
 

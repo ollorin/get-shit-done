@@ -45,7 +45,7 @@ GO for the hook logic and for `flip.sh` as a single run. Not zero findings: **0 
 
 **F2. `npm run install:gsd` aborts on the fork's current state, so the CEO one-liner stops before `flip.sh`.** `scripts/install-preflight.js:8-10` fails on any non-empty `git status --porcelain`; the fork now has ` M .planning/gsd-v2/experiments/05-mutation-speed/PILOT.md` and `?? deno.lock`. The `&&` chain stops (safe, nothing copied). The same orchestrator then, in steps 1,3,4,5 that I did not run, does `npm install` (network), whisper model fetch, merges the telegram MCP entry into `~/.claude/.claude.json` (writing `.claude.json.backup`), and writes `.env.template` into the fork root (not gitignored, so it dirties the tree after install). Only `bin/install.js --global --claude` (step 2) was tested. Fix: commit or discard the two files before the chain, or document `node bin/install.js --global --claude` as the install step.
 
-**F3. The install ships unrelated v2 policy changes that contradict igaming's CLAUDE.md and alter live-run behaviour.** Path-normalised `diff -r` of the real `~/.claude/{agents,commands/gsd,get-shit-done,hooks}` against the temp install has these content changes:
+**F3 (DISPROVED, no change; see "Round-2 fix batch" below). The install ships unrelated v2 policy changes that contradict igaming's CLAUDE.md and alter live-run behaviour.** Path-normalised `diff -r` of the real `~/.claude/{agents,commands/gsd,get-shit-done,hooks}` against the temp install has these content changes:
 - `agents/gsd-phase-coordinator.md` and `workflows/execute-phase.md` (`record_defect_classes`): review loops to zero only for high-stakes plans, otherwise at most 2 rounds (fork `ad0bd1c`, "CEO decision"). igaming CLAUDE.md still says "fresh Sonnet agent each round ... until a round reports zero findings" and "fix review findings of every severity". Coordinators of 401/402 would pick up the new text on their next spawn.
 - `workflows/execute-roadmap.md` `arm_watchdogs`: status tick 30 to 45 min, adds a 4 h delivery report and a 12 h Haiku cleanup replacing the 2 h cleanup.
 Not hooks-related, but it rides the same install. Decide intentionally before the run.
@@ -125,3 +125,9 @@ No changes to `commands/gsd/*`, `references/*`, `hooks/` (`~/.claude/hooks` unto
 ## Suggested order for the CEO command
 
 Commit or discard the two dirty fork files (F2), decide F3, then `npm run install:gsd`, then `flip.sh --apply --dry-run`, then `--apply` once (F1), then `--smoke`. F4 and F5 can follow as a hook patch through `hooks-apply.sh` / a fork commit; neither blocks the flip.
+
+## Round-2 fix batch (2026-11-01, fix agent)
+
+F3 disproved: igaming `CLAUDE.md:164-168` carries the cap ("High-stakes plans loop until a round reports zero findings. Other plans get at most 2 rounds ... only a CRITICAL/HIGH in round 2 earns a third round"), added by `886db7087` (docs(claude): cap review rounds at 2 outside high-stakes domains). The review compared against the older line. The coordinator/execute-phase text and the `arm_watchdogs` change (45 min tick, 4 h report, 12 h Haiku cleanup) are intended policy. Nothing changed for F3.
+
+Results per finding are in RESULT.md section "Round-2 fixes".
