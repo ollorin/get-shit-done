@@ -174,3 +174,25 @@ bash ~/get-shit-done/.planning/gsd-v2/experiments/09-hooks-audit/flip.sh --smoke
 bash ~/get-shit-done/.planning/gsd-v2/experiments/09-hooks-audit/flip.sh --rollback         # undo
 ```
 `npm run install:gsd` also works now (clean tree) but adds npm install, whisper models, the telegram MCP merge and `.env.template`.
+
+## Pre-flip fixes (2026-11-01, OPUS-PREFLIP-CHECK)
+
+Fork commits: hooks `a59c3fe`, flip tooling `060a6ad`. Tests: `node --test get-shit-done/bin/hooks/*.test.js` = `# tests 446 / # pass 446 / # fail 0`; `flip-test.sh` = `flip-test: all pass` (47 cases, was 25). Demonstrated failure: the new `flip-test.sh` against the previous `flip.sh` = `flip-test: 21 FAIL` (cases 7b 7e 10a-g 10i 11a-c 11e 12 13 14a-e); the new hook tests against the previous hook files fail 55 (protect), 5 (charlotte-lock), 6 (guard-bash). Nothing real was touched: all flip runs used fixture copies, real `settings*.json` and `RTK.md` keep their mtimes.
+
+| Finding | Fix | Test |
+|---|---|---|
+| B1 smoke | prompt before `--allowedTools`, `</dev/null`, stderr dropped, claude rc checked, row count must equal rows run, final step printed live; a fresh `.preflight-passed` (under 30 min) makes row 2 `SKIP`, not WRONG (N9) | `flip-test.sh` 10a-10i (stub `claude` that swallows prompts after `--allowedTools`, reads stdin, warns on stderr) |
+| B2 backup | `mkdir`/`cp`/`cmp` checked, apply aborts with "nothing changed"; rollback needs `applied`, each restore checked, marker kept on failure | 11a-11e |
+| B3 path | `BACKUP_ROOT` is `$PROJECT_DIR/.tmp/gsd-v2/hooks-flip-backup`; header, RESULT, REVIEW-ROUND-2 updated | 7b, 12 |
+| N2 | lock checks run first in `refusals` and again after the TTY prompt, before the first write | 13 (lock taken by the canary stub) |
+| N3 | protect denies `flip.sh --rollback` and `--apply` without `--dry-run` (`flipRunsForReal`); RULING, RESULT sentences updated; `--smoke` allowed | protect tests "N3" |
+| N5 | trailing redirects, `.claude/` directory targets (`/tmp` and `$VAR` scratch trees exempt), payload cwd, `cd .claude; cd hooks`/`pushd`, `dd of=` after cd, Deno/Bun/Ruby/perl 3-arg writes | protect tests "N5 ..." |
+| N6 | `GIT_WRITE_RE` needs the write verb in the subcommand position | protect tests "N6" |
+| N7 (F4 part) | `chdir`, receiver `Path`, `$D` assignment and `$D` inside literals; first literal of a bare-target call counts even when it looks like a mode | protect tests "N7" |
+| N1 | `stack-lock.(sh\|ts)` up to its own first `--` added to `PREFIX` (tempered so a later `-- scripts/preflight.sh` of an unrelated command stays allowed) | charlotte-lock tests, incl. `git commit -- scripts/preflight.sh` |
+| N8 | `git merge --no-verify` denied (merge value options `-m -F -s -X` skipped) | guard-bash tests |
+| N9 | `applied` cleared when the first write fails; RTK.md write failure warns; temp+`mv` writes; Charlotte runner (`runner/run.ts`) refuses; process check reads argv[0] and `bash -c` strings, not `claude -p` prompt text | 14a-14f |
+
+Replay (same corpora as above: `corpus3.jsonl` 6,000 Bash, plus the 4,007 newest unique session-log commands): protect `corpus3` 5 denials before, 5 after, none new. Session-log corpus 79 before, 77 after: 3 new, all real `flip.sh --apply|--rollback` runs on fixtures by the audit agents (the N3 denial, as designed); 5 lost, all `git log|status|add -- .claude/hooks ... scripts/hooks-apply.sh` (N6 false positives). charlotte-lock: `corpus3` 11 before, 28 after; log corpus 27 before, 30 after; 17+1 new are `stack-lock ... -- supabase db reset|preflight.sh` (N1, designed) and 2 are `stack-lock.sh --label x -- ...` strings inside audit scripts' heredocs (same text-in-heredoc limit the old patterns have; matters only under a live Charlotte lock).
+
+Not fixed: the gap between OrbStack restart steps (no process exists to see; needs a restart marker); `hooks-apply.sh` has the same `script` pty gap as flip.sh (outside this scope; protect does not yet deny it); N4, N10 and the other N7 items (`nx e2e-charlotte:regression`, `cd runner && deno run`, `run-perl.sh` canary) belong to the igaming repo; N2 was done as "lock checks first, re-checked before the first write" (canaries stay in `refusals` after them).
