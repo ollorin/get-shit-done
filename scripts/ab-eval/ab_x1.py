@@ -4,8 +4,8 @@
 Gates are fixed in `.planning/gsd-v2/experiments/11-test-writer-executor-e/PREREG-X0-X1.md`, committed before the first
 scored E run. Nothing here reads a result to choose a threshold.
 
-  python3 ab_x1.py gates [--cand E] [--judges opus,claude-fable-5-1] [--out PATH.json]
-  python3 ab_x1.py noise [--judges opus,claude-fable-5-1]
+  python3 ab_x1.py gates [--cand E] [--judges opus] [--out PATH.json]
+  python3 ab_x1.py noise [--judges opus]
   python3 ab_x1.py table                      per-run volume table (markdown)
 """
 from __future__ import annotations
@@ -225,7 +225,7 @@ def main(argv: List[str]) -> int:
     for name in ("gates", "noise", "table"):
         s = sub.add_parser(name)
         s.add_argument("--cand", default="E")
-        s.add_argument("--judges", default="opus,claude-fable-5-1")
+        s.add_argument("--judges", default="opus")
         s.add_argument("--out", default=None)
     a = p.parse_args(argv)
     judges = a.judges.split(",")

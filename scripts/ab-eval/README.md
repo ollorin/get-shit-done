@@ -67,7 +67,7 @@ python3 ab_run.py quota
 python3 ab_run.py run --task E6 --variant A --reps 1 [--parallel 2] [--keep]
 python3 ab_run.py run --task E6 --variant A --dry-run          # print the brief only
 
-# 4. Judge matched pairs (both orders are judged; Fable is off unless --second-judge is set)
+# 4. Judge matched pairs (both orders are judged; a second judge, a fresh Opus, is off unless --second-judge is set)
 python3 ab_judge.py pack --a <RUN_A> --b <RUN_B> --rep 1
 python3 ab_judge.py judge --pair <PAIR_ID> --model opus
 python3 ab_judge.py collapse --judge-model opus

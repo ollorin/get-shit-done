@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Blinded pairwise judging of two runs (DESIGN §5.2, §7.3, §7.5).
 
-  pack --a RUN_A --b RUN_B --rep N [--second-judge fable|sonnet --sample 0.25]
+  pack --a RUN_A --b RUN_B --rep N [--second-judge opus|sonnet --sample 0.25]
                                  blinded packets for both orders; key.json stays outside the sandbox
   judge --pair PAIR_ID [--model opus] [--second]
                                  one Claude call per order; verdict JSON stored per packet
@@ -444,7 +444,7 @@ def build_parser() -> argparse.ArgumentParser:
     pk.add_argument("--a", required=True)
     pk.add_argument("--b", required=True)
     pk.add_argument("--rep", type=int, required=True)
-    pk.add_argument("--second-judge", choices=["fable", "sonnet"], default=None)
+    pk.add_argument("--second-judge", choices=["opus", "sonnet"], default=None)
     pk.add_argument("--sample", type=float, default=0.25)
     pk.add_argument("--same-arm", action="store_true", help="two runs of the same arm (noise pairs); arms A1 / A2")
     jd = sub.add_parser("judge")
