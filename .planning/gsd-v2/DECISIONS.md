@@ -22,3 +22,4 @@
 | 2026-11-01 | Reviewer v2 not shipped until a larger A/B on real review tasks gives confidence | CEO | `RESULTS-wave3-reviewer.md` |
 | 2026-11-01 | Full OrbStack restart approved at the nearest joint 401+402 plan boundary; memory limit unchanged | CEO; OrbStack Helper at 20 GiB after 10 h, about 2 GiB/h | `experiments/08-orbstack-memory/samples.tsv` |
 | 2026-11-01 | RTK disabled globally | CEO; it alters command output (`experiments/09-hooks-audit/RULING.md`) | applied by `flip.sh --apply` |
+| 2026-11-01 | Orchestrator runs the hook flip itself instead of the CEO, after the fix batch, the Opus check and the peer's boundary | CEO: "Фикс хуков запусти сам, не жди меня" | `experiments/09-hooks-audit/` |
