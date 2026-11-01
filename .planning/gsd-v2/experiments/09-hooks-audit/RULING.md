@@ -211,7 +211,7 @@ Then the main session's runner runs `echo disableAllHooks`. BLOCKED means runnin
 
 ### Rollback
 
-`flip.sh --rollback` restores both backups (the flag returns; it applies to user-level hooks too per RESULT's probe). A person runs it; agents cannot, by TTY gate. Triggers: any smoke row wrong; a coordinator reports a CLAUDE.md shape denied; a phase unable to progress for 15 minutes on a hook deny. A single wrong deny with a retype path goes to R8, not rollback.
+`flip.sh --rollback` restores both backups (the flag returns; it applies to user-level hooks too per RESULT's probe). A person in a terminal runs it. The TTY gate alone does not stop an agent (`script -q /dev/null bash flip.sh` supplies a pty; the `--approved-by-ceo` quote cannot be verified), so once hooks are on the protect hook denies any Bash command that runs `flip.sh` with `--rollback`, or with `--apply` unless `--dry-run` is also given (`gsd-protect-managed-files.js`, `flipRunsForReal`). The first `--apply` still works from an agent because hooks are off at that moment; `--smoke` stays allowed. Triggers: any smoke row wrong; a coordinator reports a CLAUDE.md shape denied; a phase unable to progress for 15 minutes on a hook deny. A single wrong deny with a retype path goes to R8, not rollback.
 
 ## What is the CEO's
 
