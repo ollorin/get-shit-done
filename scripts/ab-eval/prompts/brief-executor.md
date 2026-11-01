@@ -8,7 +8,7 @@ Commit each task atomically. Create SUMMARY.md. Update STATE.md and ROADMAP.md.
 
 <scope>
 Execute ONLY these tasks of the plan: {{TASK_NAMES}}. Other tasks of the plan are out of scope; do not execute or edit them.
-Files in scope: {{SCOPE_FILES}}.
+Files in scope: {{SCOPE_FILES}}.{{SCOPE_NOTE}}
 The shared stack (Supabase, Docker, integration tests, Charlotte, db reset, preflight) is unavailable in this run. Any step that needs it must be reported as NOT RUN, never as passed.
 </scope>
 

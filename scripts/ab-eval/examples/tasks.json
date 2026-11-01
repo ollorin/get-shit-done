@@ -167,6 +167,7 @@
   {
    "id": "E3",
    "role": "executor",
+   "scope_note": "Snapshot note: this checkout is one commit and other phases' planning directories are removed, so the plan's git-ancestry and SUMMARY-presence checks for predecessors 394-02, 392-05 and 393-01 cannot pass here. Treat those predecessors as landed: their code is in the tree (for example isProtectedConfigKey in apps/api/functions/configurations/money-config-namespace.ts, bumpGeneration in apps/api/libs/infrastructure/src/lib/cache/cache-generation.ts). Verify by reading the code, record the T0 line count you measure, and do not stop with PREDECESSOR_NOT_LANDED.",
    "agent": "gsd-executor",
    "model": "haiku",
    "tier": "T1",

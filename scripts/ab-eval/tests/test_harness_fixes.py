@@ -621,3 +621,21 @@ class InstalledReferencesAndWriteContent(unittest.TestCase):
     def test_bash_heredoc_body_is_not_contamination(self):
         out = self._scan([("Bash", {"command": "cat > S.md <<'EOF'\nsee /Users/o/igaming-platform\nEOF"})])
         self.assertEqual(out["contaminated"], [])
+
+
+class ScopeNote(unittest.TestCase):
+    """E3: the plan's T0 git-ancestry gate cannot pass in a one-commit snapshot; the task brief says so."""
+
+    def test_note_rendered_only_when_present(self):
+        base = {"id": "X1", "role": "executor", "agent": "gsd-executor", "model": "haiku", "plan": "p.md",
+                "phase_number": "1", "phase_name": "n", "plan_number": "01", "task_range": "1", "task_names": ["t"],
+                "scope_files": ["a.ts"]}
+        plain = R.render_brief(base)
+        noted = R.render_brief(dict(base, scope_note="Snapshot note: X."))
+        self.assertIn("Files in scope: a.ts.\nThe shared stack", plain)
+        self.assertIn("Files in scope: a.ts. Snapshot note: X.\nThe shared stack", noted)
+
+    def test_e3_registry_entry_carries_the_note(self):
+        e3 = C.find_task(C.load_tasks(), "E3")
+        self.assertIn("PREDECESSOR_NOT_LANDED", e3["scope_note"])
+        self.assertIn("PREDECESSOR_NOT_LANDED", R.render_brief(e3))
