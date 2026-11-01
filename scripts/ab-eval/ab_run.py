@@ -27,6 +27,8 @@ import ab_transcript as T  # noqa: E402
 
 QUOTA_FILE = C.AB_HOME / "results" / "quota.json"
 RUNS_LOG = C.AB_HOME / "results" / "runs.jsonl"
+WINDOW_LOG = C.AB_HOME / "results" / "runs-haiku100k.jsonl"  # exp 10: window arm W rows, kept apart from runs.jsonl
+WINDOW_QUOTA_CEILING = 0.8199  # brief: no new batch at 0.82 or above
 
 
 def seven_day_util(rate: Optional[Dict[str, Any]]) -> Optional[float]:
@@ -80,14 +82,25 @@ def build_snapshot(task: Dict[str, Any], variant: str, run_dir: Path) -> Dict[st
     return {"base_commit": base_commit, "repo": repo}
 
 
-def execute(run_dir: Path, task: Dict[str, Any], variant: str, session: str, budget: float) -> Dict[str, Any]:
+def window_settings(window: int) -> Path:
+    """Harness settings plus autoCompactEnabled and a haiku-5-5 autoCompactWindow (exp 10).
+    --setting-sources project,local drops the user file, and ~/.claude.json has autoCompactEnabled=false, so it is set here."""
+    base = C.read_json(C.AB_HOME / "harness" / "settings.json", {})
+    cfg = dict(base, autoCompactEnabled=True, modelSettings={"claude-haiku-5-5": {"autoCompactWindow": window}})
+    path = C.AB_HOME / "harness" / f"settings-w{window}.json"
+    C.write_json(path, cfg)
+    return path
+
+
+def execute(run_dir: Path, task: Dict[str, Any], variant: str, session: str, budget: float,
+            window: Optional[int] = None) -> Dict[str, Any]:
     repo = run_dir / "repo"
     agents_text = json.dumps(R.build_agents(task, variant))
     harness = C.AB_HOME / "harness"
     argv = ["claude", "-p", (run_dir / "brief.md").read_text(), "--model", "haiku",
             "--agents", agents_text,
             "--setting-sources", "project,local",
-            "--settings", str(harness / "settings.json"),
+            "--settings", str(window_settings(window) if window else harness / "settings.json"),
             "--strict-mcp-config", "--mcp-config", str(R.mcp_config(task)),
             "--permission-mode", "bypassPermissions",
             "--session-id", session,
@@ -154,8 +167,9 @@ def status_of(res: Optional[Dict[str, Any]], run: Dict[str, Any], contaminated: 
     return "done", None
 
 
-def run_one(task: Dict[str, Any], variant: str, rep: int, keep: bool) -> Dict[str, Any]:
-    run_id = f"{task['id']}-{variant}-r{rep}-{C.run_stamp()}-{uuid.uuid4().hex[:6]}"
+def run_one(task: Dict[str, Any], variant: str, rep: int, keep: bool, window: Optional[int] = None) -> Dict[str, Any]:
+    arm = f"{variant}w{window // 1000}k" if window else variant
+    run_id = f"{task['id']}-{arm}-r{rep}-{C.run_stamp()}-{uuid.uuid4().hex[:6]}"
     run_dir = C.AB_HOME / "runs" / run_id
     run_dir.mkdir(parents=True)
     C.check_disk(C.AB_HOME, C.MIN_FREE_GIB)
@@ -165,7 +179,7 @@ def run_one(task: Dict[str, Any], variant: str, rep: int, keep: bool) -> Dict[st
     snap = build_snapshot(task, variant, run_dir)
     quota_before = check_quota_value()
     budget = float(task.get("budget_usd", 8))
-    run = execute(run_dir, task, variant, session, budget)
+    run = execute(run_dir, task, variant, session, budget, window)
     parsed = parse_stream(run_dir / "stream.jsonl")
     res = parsed["result"]
     if res and res.get("result"):
@@ -209,7 +223,9 @@ def run_one(task: Dict[str, Any], variant: str, rep: int, keep: bool) -> Dict[st
         "files_touched": graded["files_touched"], "commits": graded["commits"],
         "diff_added_lines": graded["diff_added_lines"],
     }
-    C.append_jsonl(RUNS_LOG, row)
+    if window:
+        row.update(arm="W", window=window)
+    C.append_jsonl(WINDOW_LOG if window else RUNS_LOG, row)
     write_quota(parsed["util"], run_id, ((parsed["rate"] or {}).get("rate_limit_info") or {}).get("resetsAt"))
     if not keep:
         shutil.rmtree(snap["repo"], ignore_errors=True)
@@ -233,9 +249,9 @@ def cmd_run(args: argparse.Namespace) -> int:
         return 0
     C.check_eval_cap()
     C.ensure_harness()
-    check_quota()
+    check_quota(WINDOW_QUOTA_CEILING if args.window else C.QUOTA_CEILING)
     R.agent_provenance(task, args.variant)  # refuses before any snapshot work when the variant build is stale
-    jobs = [(task, args.variant, rep, args.keep) for rep in range(args.rep_start, args.rep_start + args.reps)]
+    jobs = [(task, args.variant, rep, args.keep, args.window) for rep in range(args.rep_start, args.rep_start + args.reps)]
     with ThreadPoolExecutor(max_workers=args.parallel) as pool:
         futures = [pool.submit(_guarded, *job) for job in jobs]
         for fut in futures:
@@ -243,9 +259,9 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
-def _guarded(task: Dict[str, Any], variant: str, rep: int, keep: bool) -> Dict[str, Any]:
-    check_quota()
-    return run_one(task, variant, rep, keep)
+def _guarded(task: Dict[str, Any], variant: str, rep: int, keep: bool, window: Optional[int] = None) -> Dict[str, Any]:
+    check_quota(WINDOW_QUOTA_CEILING if window else C.QUOTA_CEILING)
+    return run_one(task, variant, rep, keep, window)
 
 
 def cmd_quota(_args: argparse.Namespace) -> int:
@@ -269,6 +285,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--rep-start", type=int, default=1)
     r.add_argument("--parallel", type=int, default=1)
     r.add_argument("--keep", action="store_true", help="keep runs/<RUN>/repo after grading")
+    r.add_argument("--window", type=int, default=None, help="exp 10: haiku-5-5 autoCompactWindow (100000-1000000); rows go to runs-haiku100k.jsonl")
     r.add_argument("--dry-run", action="store_true", help="print the rendered brief and exit")
     sub.add_parser("quota")
     return p
