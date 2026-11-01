@@ -77,6 +77,7 @@ def grade_report(run_dir: Path, task: Dict[str, Any], generic: Dict[str, Any]) -
 
 KEY_LINE = {k: re.compile(r"^[ \t>*`_-]*" + k + r"[*`_]*[ \t]*:[*`_ \t]*(.*)$", re.M)
             for k in ("written_files", "commit", "errors", "reason")}
+NONE_WORDS = {"none", "n/a", "na", "-", "null", "empty", "no errors", "[]"}
 COMMIT_HASH_RE = re.compile(r"^[0-9a-f]{7,40}$")
 
 
@@ -105,6 +106,26 @@ def _balanced_value(text: str, start: int) -> str:
     return text[start:]
 
 
+BULLET = re.compile(r"^[ \t]*[-*+][ \t]+(.*)$")
+
+
+def _block_items(text: str, after: int) -> List[str]:
+    """YAML-style block list: `key:` with nothing after it, then `- item` lines (indented continuation lines belong
+    to the previous item; blank lines inside the list are skipped). Ends at the first other unindented line."""
+    items: List[str] = []
+    for line in text[after:].split("\n")[1:]:  # [0] is the rest of the key line
+        if not line.strip():
+            continue
+        b = BULLET.match(line)
+        if b:
+            items.append(b.group(1).strip())
+        elif line[:1] in (" ", "\t") and items:
+            items[-1] += " " + line.strip()
+        else:
+            break
+    return items
+
+
 def _items(raw: str, split: bool) -> List[str]:
     """Entries of a `[...]` value: a JSON list, else quoted strings, else comma-separated (paths) or one string."""
     body = raw.strip()
@@ -119,7 +140,7 @@ def _items(raw: str, split: bool) -> List[str]:
     quoted = re.findall(r'"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\'', body)
     if quoted:
         return [a or b for a, b in quoted]
-    if not body:
+    if not body or body.strip("`*_ ").lower() in NONE_WORDS:
         return []
     return [x.strip().strip("`") for x in body.split(",") if x.strip()] if split else [body]
 
@@ -140,16 +161,21 @@ def parse_docs_contract(text: str) -> Optional[Dict[str, Any]]:
         return None
     tail = text[starts[-1].start():]
     found: Dict[str, str] = {}
+    blocks: Dict[str, List[str]] = {}
     for key in ("written_files", "commit", "errors", "reason"):
         m = KEY_LINE[key].search(tail)
         if m:
             found[key] = _balanced_value(tail, m.start(1)).strip()
+            if not found[key] and key in ("written_files", "errors"):
+                blocks[key] = _block_items(tail, m.end())
     if not all(k in found for k in ("written_files", "commit", "errors")):
         return None
     raw_commit = found["commit"].strip("`\"'* ")
     commit = raw_commit.split()[0].strip("`\"'*,") if raw_commit else ""
-    return {"written_files": _items(found["written_files"], split=True), "commit": commit.lower(),
-            "errors": _items(found["errors"], split=False), "reason": found.get("reason", ""), "form": "text"}
+    written = blocks["written_files"] if "written_files" in blocks else _items(found["written_files"], split=True)
+    errors = blocks["errors"] if "errors" in blocks else _items(found["errors"], split=False)
+    return {"written_files": [w.strip("`") for w in written], "commit": commit.lower(), "errors": errors,
+            "reason": found.get("reason", ""), "form": "text"}
 
 
 def grade_docs(run_dir: Path, task: Dict[str, Any], generic: Dict[str, Any]) -> Dict[str, Any]:

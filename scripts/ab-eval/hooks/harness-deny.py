@@ -2,7 +2,9 @@
 """PreToolUse deny hook for A/B eval runs (DESIGN §4.4). Reads hook JSON on stdin.
 
 Traversal is judged by where a path resolves, not by its spelling: `cd apps/api && ... > ../../.tmp/x`
-resolves inside the run's snapshot repo and is allowed; anything resolving outside it is denied.
+resolves inside the run's snapshot repo and is allowed; anything resolving outside it is denied. Two literal-text
+cases are not traversal: a heredoc body (`cat >> docs/x.md <<'EOF'` with `../` links in the text) and the run's own
+Claude project dir (`~/.claude/projects/<encoded run repo>/`, where the tool-result overflow files of this run live).
 """
 import json
 import os
@@ -26,6 +28,23 @@ MSG_STACK = "HARNESS-DENY: shared stack commands are unavailable in this eval"
 MSG_NET = "HARNESS-DENY: network/remote commands are unavailable in this eval"
 MSG_ROOT = "HARNESS-DENY: path outside the run snapshot is off limits; use paths relative to your working directory"
 MSG_WRITE = "HARNESS-DENY: writes outside the run directory are not allowed"
+
+
+HEREDOC = re.compile(r"<<-?[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1[^\n]*\n.*?\n[ \t]*\2[ \t]*(?=\n|$)", re.S)
+
+
+def strip_heredocs(cmd):
+    """Command with heredoc bodies removed: their text is data written to a file, not paths the shell opens."""
+    return HEREDOC.sub("<<HEREDOC", cmd)
+
+
+def own_project(run_dir):
+    """The run's own `.claude/projects/<encoded cwd>` marker (Claude keys transcripts by cwd with '/' -> '-')."""
+    return ".claude/projects/" + os.path.normpath(os.path.join(run_dir, "repo")).replace("/", "-")
+
+
+def _scrub_own(text, run_dir):
+    return text.replace(own_project(run_dir), "<own-project>")
 
 
 def _resolve(base, path):
@@ -74,11 +93,12 @@ def decide(tool, tool_input, cwd, run_dir):
             return "stack", MSG_STACK
         if NET.search(cmd):
             return "net", MSG_NET
-        if any(r in cmd for r in ROOTS) or _other_run(cmd, runid) or escape_reason(cmd, cwd, root):
+        if any(r in _scrub_own(cmd, run_dir) for r in ROOTS) or _other_run(cmd, runid) \
+                or escape_reason(strip_heredocs(cmd), cwd, root):
             return "root", MSG_ROOT
     elif tool == "Read":
         path = tool_input.get("file_path", "")
-        if any(r in path for r in ROOTS) or _other_run(path, runid) or \
+        if any(r in _scrub_own(path, run_dir) for r in ROOTS) or _other_run(path, runid) or \
                 (DOTDOT.search(path) and not _inside(_resolve(cwd, path), root)):
             return "root", MSG_ROOT
     elif tool in ("Edit", "Write"):

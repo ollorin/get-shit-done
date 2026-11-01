@@ -78,6 +78,25 @@ class DocsContractTests(unittest.TestCase):
                               {"files_touched": ["docs/a.md"], "criticals": [], "scope_out": [], "commits": []})
         self.assertFalse(g["checks"]["committed"]["ok"])
 
+    def test_block_list_form_from_the_rerun(self):
+        c = RG.parse_docs_contract((DATA / "du2-arm-B-block-list-report.md").read_text())
+        self.assertEqual(c["form"], "text")
+        self.assertEqual(len(c["written_files"]), 3)
+        self.assertTrue(c["written_files"][0].endswith("docs/wallet/currency-attributes.md"))
+        self.assertEqual(c["commit"], "1cbfd8e")
+        self.assertEqual(len(c["errors"]), 3)  # three bullets, each one error
+        self.assertIn("Not written: `.claude/rules/database.md`", c["errors"][2])
+
+    def test_arm_a_inline_list_with_commit(self):
+        c = RG.parse_docs_contract((DATA / "du2-arm-A-report.md").read_text())
+        self.assertTrue(c["commit"] and c["commit"] != "none")
+        self.assertEqual([w.rsplit("/", 1)[-1] for w in c["written_files"]], ["currency-attributes.md", "pvp-arena.md"])
+        self.assertEqual(c["errors"], [])  # `errors: none`
+
+    def test_empty_block_list_is_an_empty_list(self):
+        c = RG.parse_docs_contract("written_files:\n- /r/docs/a.md\n\ncommit: abc1234\n\nerrors:\n\n**Build scope:** x\n")
+        self.assertEqual((c["written_files"], c["commit"], c["errors"]), (["/r/docs/a.md"], "abc1234", []))
+
     def test_other_shapes(self):
         p = RG.parse_docs_contract
         c = p("## Docs Update Result\n\n**written_files:** [/a/docs/x.md, /a/docs/y.md]\n**commit:** `abc1234`\n"
@@ -101,6 +120,56 @@ class DocsContractTests(unittest.TestCase):
                                                                       "criticals": [], "scope_out": []})
         self.assertTrue(ok["acceptance"], ok["checks"])
         self.assertFalse(bad["acceptance"])
+
+
+class DenyHookFalsePositiveTests(unittest.TestCase):
+    """Wave-1 rerun: docs written through a heredoc and reads of the run's own tool-result files were denied."""
+
+    def setUp(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("hd", ROOT / "hooks" / "harness-deny.py")
+        self.hd = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.hd)
+        self.run_dir, self.repo = "/x/ab-eval/runs/RUN1", "/x/ab-eval/runs/RUN1/repo"
+
+    def bash(self, cmd):
+        return self.hd.decide("Bash", {"command": cmd}, self.repo, self.run_dir)
+
+    def test_heredoc_body_with_relative_links_is_data(self):
+        cmd = "cat >> docs/a.md <<'EOF'\nsee [x](../../docs/b.md) and ../../../etc\nEOF\ngit status --short"
+        self.assertIsNone(self.bash(cmd))
+
+    def test_traversal_outside_the_heredoc_still_denied(self):
+        self.assertEqual(self.bash("cat ../../../x <<'EOF'\nhi\nEOF")[0], "root")
+        self.assertEqual(self.bash("cat <<'EOF'\nhi\nEOF\ncat ../../../x")[0], "root")
+
+    def test_roots_inside_a_heredoc_are_still_denied(self):
+        self.assertEqual(self.bash("python3 - <<'EOF'\nopen('/Users/o/igaming-platform/CLAUDE.md')\nEOF")[0], "root")
+
+    def test_own_tool_results_are_readable_other_runs_and_projects_are_not(self):
+        own = "/Users/o/" + self.hd.own_project(self.run_dir)
+        self.assertIsNone(self.bash(f"tail -c 600 {own}/s/tool-results/b.txt"))
+        self.assertIsNone(self.hd.decide("Read", {"file_path": f"{own}/s/tool-results/b.txt"}, self.repo, self.run_dir))
+        self.assertEqual(self.bash("tail /Users/o/.claude/projects/-x-ab-eval-runs-RUN2-repo/s/b.txt")[0], "root")
+        self.assertEqual(self.bash("ls /Users/o/.claude/projects/")[0], "root")
+        self.assertEqual(self.bash(f"cat {own}/../-other/x")[0], "root")
+
+    def test_transcript_scan_does_not_flag_the_runs_own_tool_results(self):
+        import ab_transcript as T
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp, "runs", "RUN1")
+            tdir = run / "transcripts"
+            tdir.mkdir(parents=True)
+            own = ".claude/projects/" + str((run / "repo").resolve()).replace("/", "-")
+            rows = [{"type": "assistant", "message": {"id": "m1", "model": "claude-haiku-5-5", "usage": {"input_tokens": 1},
+                                                      "content": [
+                {"type": "tool_use", "id": "u1", "name": "Bash", "input": {"command": f"tail /Users/o/{own}/s/b.txt"}},
+                {"type": "tool_use", "id": "u2", "name": "Bash",
+                 "input": {"command": "tail /Users/o/.claude/projects/-other-repo/s/b.txt"}}]}}]
+            (tdir / "main.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+            out = T.analyze(tdir, Path(tmp, "none"))
+        self.assertEqual(len(out["contaminated"]), 1)
+        self.assertIn("-other-repo", out["contaminated"][0]["input"])
 
 
 class PrecommitHookTests(unittest.TestCase):

@@ -44,6 +44,7 @@ def analyze(tdir: Path, denials_path: Path, targets: Tuple[str, ...] = (EXEC_CHI
         "tier_violations": [], "contaminated": [], "tool_calls": [], "first_turn_tok": None, "memory_paths": [],
         "first_turn_source": None,
     }
+    own = ".claude/projects/" + str((tdir.parent / "repo").resolve()).replace("/", "-")  # this run's own project dir
     seen_msg_ids = set()
     first_turn_candidates: List[Any] = []
     for f in main_files + sub_files:
@@ -112,7 +113,7 @@ def analyze(tdir: Path, denials_path: Path, targets: Tuple[str, ...] = (EXEC_CHI
                                                    "description": desc})
             if name in C.TOOLS_WITH_PATHS:
                 out["tool_calls"].append({"name": name, "input": text, "agent": sub_type or "main"})
-                if any(root in text for root in C.ROOTS):
+                if any(root in text.replace(own, "<own-project>") for root in C.ROOTS):
                     res = results.get(block.get("id", ""), {"text": "", "is_error": False})
                     if "HARNESS-DENY" not in res["text"]:
                         out["contaminated"].append({"tool": name, "input": text[:200], "agent": sub_type or "main"})
