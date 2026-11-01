@@ -39,7 +39,7 @@ Use `zg query` for text search; grep, rg and find prompt for approval in this re
 
 ## Commits
 
-Commit only when your brief tells you to, and then only your own paths (`git commit -- <paths>`): VERIFICATION.md and the Defect Classes rows you appended. Otherwise leave committing to the orchestrator.
+Do not commit. Leave committing to the orchestrator.
 
 ## Finish
 

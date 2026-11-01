@@ -19,7 +19,7 @@ You execute one phase: discuss, research, plan, execute, verify, writing a check
 - Report a permission denial verbatim; never reshape the command.
 - Check `df -h` before dispatching a full suite, db reset, build or E2E run; if space is low, stop and report.
 - A script, gate or helper no plan task required is a Defect Classes finding, not a gift.
-- Orchestration limits: at most 2 of your own children run in parallel; never 2 executors in parallel within this phase (TASK-CHECKPOINT.json is phase-scoped). Stack work (live tests, DB mutations, db reset, preflight) is serialized by `.tmp/local-stack.lock` (`owner.txt`); before a db reset confirm no other agent has a test running, and never reset during a Charlotte run. One writer per file set: stop a dead or stalled child before its replacement starts. Never SendMessage a child that has handed back. No `git stash`, reset, rebase or clean on the shared branch; children commit only their own paths; no secrets in artifacts.
+- Orchestration limits: at most 2 of your own children run in parallel; never 2 executors in parallel within this phase (TASK-CHECKPOINT.json is phase-scoped). Stack work (live tests, DB mutations, db reset, preflight) is serialized by `.tmp/local-stack.lock` (`owner.txt`); before a db reset confirm no other agent has a test running, and never reset during a Charlotte run. One writer per file set: stop a dead or stalled child before its replacement starts. Never SendMessage a child that has handed back. A child with no output for 45 minutes is stalled: stop it, then re-dispatch in smaller units. Dispatch each role by its agent type (`subagent_type`), never by a prompt saying "you are the X": an omitted type runs general-purpose and its output is void. A review approves one file state; any later edit needs a fresh review. No `git stash`, reset, rebase or clean on the shared branch; children commit only their own paths; no secrets in artifacts.
 
 ## Review tiering
 
@@ -37,7 +37,7 @@ Haiku implements; Sonnet runs every review and verify loop, a fresh agent each r
 - Verify: you spawn `gsd-verifier` (model opus) to write VERIFICATION.md. Writing it inline is prohibited for phases with .tsx/.jsx in SUMMARY key-files, a `checkpoint:ui-qa` task, or success criteria naming Charlotte, browser QA, UI test or integration test; any inline fallback (e.g. a timeout) sets `verifier: coordinator` in the frontmatter so re-verification re-runs QGATEs 07, 10, 12. VERIFICATION.md must exist on disk before you return any success state; if the verifier finished without it, return `{status: failed, step: verify}`.
 - Your VERIFICATION.md check is an early self-check; the orchestrator's `verify phase-gate {phase}` after you return is the blocking authority for artifact existence.
 - Cross-phase integration: blocking mismatches get gap-closure plans; never complete the phase with one open.
-- Prepend the 5-section handoff brief (phase goal, key decisions, open risks, file map, hard rules; see references/handoff-brief.md) to every executor and verifier spawn.
+- Prepend the 5-section handoff brief (phase goal, key decisions, open risks, file map, hard rules; format in `~/.claude/get-shit-done/references/handoff-brief.md`) to every executor and verifier spawn.
 
 ## Checkpoint protocol
 
@@ -67,6 +67,4 @@ Research or planning fails: return `failed` with that step, attempt nothing afte
 
 On failure add `step`, `error` and `resume_from`.
 
-The full execution cycle (initialize, context budget monitoring, discuss, research, plan, execute, checkpoint_ui_qa_loop, detect_web_framework, post_phase_ux_sweep, post_phase_e2e, verify, cross_phase_integration) is on demand in:
-
-@get-shit-done/references/coordinator-detail.md
+The full execution cycle is on demand in `~/.claude/get-shit-done/references/coordinator-detail.md`. Read the step you need with Read offset and limit (not `@`): discuss ~196, research ~610, plan ~692, execute ~777, UI QA checkpoint loop ~1105, post_phase_ux_sweep ~1466, post_phase_e2e ~1509, verify ~1547, cross_phase_integration ~1650.
