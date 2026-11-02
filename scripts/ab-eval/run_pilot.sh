@@ -17,5 +17,5 @@ run() { # task variant reps
 for t in R1 R2; do run "$t" Q2 3; run "$t" P 3; done
 for t in TW4 TW3 TW1; do run "$t" P 3; done
 run TW2 P 2
-for t in E1 E3; do run "$t" P 2; done
+run E1 P 3
 echo PILOT-QUEUE-DONE

@@ -13,7 +13,7 @@ Do Ponytail's rules give less code and fewer empty review findings on our tasks,
 | control | Q2 (`gsd2-reviewer.r2.md`) at Haiku, re-run here | frozen A, rows already in `runs.jsonl` | frozen A, rows already in `runs.jsonl` |
 | P | `gsd2-reviewer.p.md` | `gsd2-test-writer.p.md` | `gsd2-executor.p.md` |
 
-P is the control text plus one section, so a difference points to that section. Test-writer and executor start from the frozen A text, because the installed text has drifted since the freeze and the control rows were made with A. Variant P exists only for these three roles.
+P is the control text plus one section, so a difference points to that section. Test-writer and executor start from the frozen A text, which the control rows used and which still equals the installed text. Variant P exists only for these three roles; its debugger and coordinator entries are the installed ones and are not used.
 
 ## Model
 
@@ -28,7 +28,7 @@ Prices are means from `runs.jsonl`.
 | 1 reviewer, both arms | R1, R2 x 3 | 12 | about $0.5 at most |
 | 2 test-writer, P | TW4, TW3, TW1 x 3 | 9 | about $0.5 |
 | 3 test-writer, P | TW2 x 2 | 2 | about $0.8 |
-| 4 executor, P | E1, E3 x 2 | 4 | about $2.5 |
+| 4 executor, P | E1 x 3 | 3 | about $1.7 |
 
 The driver `run_pilot.sh` stops by itself at 99% weekly use. Calibration: $20.8 of runs moved use 60% to 79% while phases also ran, so 1% is at least $1.1; the true figure is unmeasured.
 
