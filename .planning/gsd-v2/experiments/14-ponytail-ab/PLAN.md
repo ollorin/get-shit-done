@@ -48,8 +48,8 @@ Past failures (executor B, test-writer E) passed on cost and failed on acceptanc
 ## After the reset
 
 0. Run every control in the same period as its arm. TW2 is a real check (see results); `green.log` now records it.
-1. Full A/B with Opus blind judges, DESIGN §6 gates, at least 3 reps per task: test-writer P, then reviewer P after step 2.
-2. Reviewer: Sonnet confirmation, as an extra arm of the larger reviewer A/B already planned.
+1. Full A/B with Opus blind judges, DESIGN §6 gates, at least 3 reps per task: test-writer P, then reviewer P. TW2 needs 10-20 control reps first: A scored 5/6 and then 0/3 with identical inputs.
+2. Reviewer: Sonnet pilot done (see results); P becomes an extra arm of the larger reviewer A/B already planned.
 3. Executor: only if a narrower draft appears (for example the frontend only). Needs 2-3 non-money tasks with an over-build trap.
 4. Option: the vendor's 18 hidden-check tasks as a cheap pre-screen. They are not on our stack, so a coarse filter only, and fit is unverified.
 5. Ship only per the usual route: backup, `docs/v2/CHANGES.md`, narrow installer.

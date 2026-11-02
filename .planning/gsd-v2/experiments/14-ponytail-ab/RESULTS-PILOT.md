@@ -6,7 +6,7 @@
 
 | role | verdict | next |
 |---|---|---|
-| reviewer | candidate, unproven | Sonnet confirmation, then full A/B |
+| reviewer | no harm or gain shown on Sonnet | full A/B with judges, required K1 as a gate |
 | test-writer | best candidate | full A/B with same-period controls, many reps on TW2 |
 | executor | this draft rejected | do not run a full A/B of it |
 
@@ -53,6 +53,17 @@ Same frozen agent text, brief, overlay, memory and CLI version for A on both day
 | R2 | 4.2 / 3.8 | 8/12 / 8/12 |
 
 About 22% fewer findings, recall about level (9/18 vs 8/18). R1 K1 is required and Haiku nearly always misses it in both arms, so this task says little on Haiku; Sonnet found it at 0.83 (`RESULTS-wave3-reviewer.md`, arm A). Whether the dropped findings were empty is unverified: no judge ran. A Haiku result is a signal only.
+
+## Reviewer on Sonnet, the production tier (both arms alternating, same period, $1.39)
+
+Rows: `~/ab-eval/results/runs-ponytail-sonnet.jsonl`.
+
+| task | findings per run Q2 / P | HIGH total Q2 / P | known defects Q2 / P | cost total Q2 / P |
+|---|---|---|---|---|
+| R1 | 5.3 / 4.0 | 3 / 0 | 3/3 / 2/3 | $0.45 / $0.30 |
+| R2 | 4.3 / 4.7 | 0 / 2 | 5/6 / 6/6 | $0.31 / $0.33 |
+
+Recall is level (8/9 each), findings about 10% fewer in total, acceptance 6/6 each. Neither harm nor gain is shown. Watch: R1 K1 is required on a wallet task and P found it less often on both tiers (Sonnet 2/3 vs 3/3, Haiku 0/6 vs 1/6, together 2/9 vs 4/9); too few runs to conclude, and it is the risk "no case, no finding" was expected to carry. Whether the dropped findings were empty is still unjudged. Full A/B after the reset: Opus judges, more review tasks (only 2 exist), K1 as a named gate.
 
 ## Harness lessons
 
