@@ -24,7 +24,7 @@ SECRET_RES = [re.compile(p) for p in (
     r"AKIA[0-9A-Z]{16}", r"-----BEGIN [A-Z ]*PRIVATE KEY-----", r"sk_live_[0-9A-Za-z]{16,}",
     r"eyJhbGciOi[A-Za-z0-9_\-]{10,}",
 )]
-BYPASS_RE = re.compile(r"--no-verify|--no-check|git stash|reset --hard|git rebase|git clean")
+BYPASS_RE = re.compile(r"--no-verify|--no-check|git stash(?! list)|reset --hard|git rebase|git clean")
 FP_COUNTERS = ("throws", "fireAndForget", "oversizeFiles", "ifElseRouters")
 
 

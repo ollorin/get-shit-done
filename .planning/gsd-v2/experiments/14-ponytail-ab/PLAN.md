@@ -1,6 +1,6 @@
 # Exp 14: Ponytail-informed agent descriptions, A/B plan
 
-Status and results: `RESULTS-PILOT.md`. Source analysis: `SOURCE.md`. Budget set by the CEO on 2026-11-02: from 97% weekly use, 2% for this plan and the runs, the last 1% for routine work and the mutation run.
+Status: pilot done, verdicts in `RESULTS-PILOT.md`; the steps under "After the reset" are next, with the executor draft dropped. Source analysis: `SOURCE.md`. Budget set by the CEO on 2026-11-02: from 97% weekly use, 2% for this plan and the runs, the last 1% for routine work and the mutation run.
 
 ## Question
 
@@ -47,9 +47,10 @@ Past failures (executor B, test-writer E) passed on cost and failed on acceptanc
 
 ## After the reset
 
-1. Full A/B with Opus blind judges, DESIGN §6 gates, at least 3 reps per task, for each role that passed.
+0. Add a log to the `pass_on_green` check and find the TW2 fault; re-check whether it affected the rejection of test-writer E. Run every control in the same period as its arm.
+1. Full A/B with Opus blind judges, DESIGN §6 gates, at least 3 reps per task: test-writer P, then reviewer P after step 2.
 2. Reviewer: Sonnet confirmation, as an extra arm of the larger reviewer A/B already planned.
-3. Add 2-3 non-money executor tasks with an over-build trap: existing E tasks may give little room to cut.
+3. Executor: only if a narrower draft appears (for example the frontend only). Needs 2-3 non-money tasks with an over-build trap.
 4. Option: the vendor's 18 hidden-check tasks as a cheap pre-screen. They are not on our stack, so a coarse filter only, and fit is unverified.
 5. Ship only per the usual route: backup, `docs/v2/CHANGES.md`, narrow installer.
 
