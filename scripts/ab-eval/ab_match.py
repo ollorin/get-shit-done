@@ -92,7 +92,7 @@ def recall(found: Dict[str, bool]) -> float:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    runs = {r["run_id"]: r for r in C.read_jsonl(C.AB_HOME / "results" / "runs.jsonl")}
+    runs = {r["run_id"]: r for r in C.read_jsonl(C.AB_HOME / "results" / args.runs_log)}
     row = runs.get(args.run)
     if row is None:
         raise C.Refused(f"{args.run} is not in results/runs.jsonl")
@@ -135,6 +135,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run")
     r.add_argument("--run", required=True)
+    r.add_argument("--runs-log", default="runs.jsonl")
     r.add_argument("--model", default="sonnet")
     st = sub.add_parser("selftest")
     st.add_argument("--model", default="sonnet")

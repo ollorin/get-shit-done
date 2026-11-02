@@ -267,6 +267,11 @@ def check_quota_value() -> Optional[float]:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
+    global RUNS_LOG
+    if args.log:  # exp 14: a pilot keeps its rows apart from runs.jsonl
+        RUNS_LOG = C.AB_HOME / "results" / args.log
+    if args.quota_ceiling is not None:
+        C.QUOTA_CEILING = args.quota_ceiling
     if args.window or args.bash_cap:
         C.SOURCE_DRIFT_OK = True  # entry hash still enforced: W/BC run the exact frozen agent text the control used
     settings_path(args.window, args.bash_cap)  # refuses a bad cap or both arms before any work
@@ -274,6 +279,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         raise C.Refused(f"--parallel capped at {C.MAX_CONCURRENT}")
     cfg = C.load_tasks()
     task = C.find_task(cfg, args.task)
+    if args.model:  # exp 14: run a role on another tier than the registry's; a stray model voids the run
+        task = dict(task, model=args.model)
     if args.dry_run:
         print(R.render_brief(task, args.variant))
         return 0
@@ -318,6 +325,9 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--keep", action="store_true", help="keep runs/<RUN>/repo after grading")
     r.add_argument("--window", type=int, default=None, help="exp 10: haiku-5-5 autoCompactWindow (100000-1000000); rows go to runs-haiku100k.jsonl")
     r.add_argument("--bash-cap", type=int, default=None, help="exp 11 X2: bashOutputMaxChars (4000-128000); rows go to runs-bashcap.jsonl")
+    r.add_argument("--model", default=None, help="exp 14: override the task's model")
+    r.add_argument("--log", default=None, help="exp 14: results/<name> instead of runs.jsonl")
+    r.add_argument("--quota-ceiling", type=float, default=None, help="exp 14: refuse above this seven_day utilisation")
     r.add_argument("--dry-run", action="store_true", help="print the rendered brief and exit")
     sub.add_parser("quota")
     return p
