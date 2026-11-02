@@ -31,6 +31,7 @@ def main():
     a.add_argument("--list", action="store_true")
     a.add_argument("--min-free-gib", type=float, default=7)
     a.add_argument("--timeout", type=int, default=1800)
+    a.add_argument("--reverse", action="store_true", help="walk from the end; a second process in its own worktree shares --out")
     o = a.parse_args()
     here = os.path.dirname(os.path.abspath(__file__))
     ps = pairs(o.root)
@@ -40,7 +41,7 @@ def main():
     os.makedirs(o.out, exist_ok=True)
     log = open(os.path.join(o.out, "progress.tsv"), "a", buffering=1)
     done = 0
-    for src, test in ps:
+    for src, test in reversed(ps) if o.reverse else ps:
         label = src.replace("/", "__")[:-3]
         out = os.path.join(o.out, label)
         if os.path.exists(os.path.join(out, "summary.json")) or os.path.exists(out + ".failed"):
