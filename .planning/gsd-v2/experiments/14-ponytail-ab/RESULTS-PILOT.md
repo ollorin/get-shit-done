@@ -7,7 +7,7 @@
 | role | verdict | next |
 |---|---|---|
 | reviewer | candidate, unproven | Sonnet confirmation, then full A/B |
-| test-writer | best candidate, TW2 unusable | fix the TW2 grading fault, then full A/B |
+| test-writer | best candidate | full A/B with same-period controls, many reps on TW2 |
 | executor | this draft rejected | do not run a full A/B of it |
 
 ## Executor (same-load comparison)
@@ -30,13 +30,20 @@
 | TW1 | 3/6 / 3/3 | 160 / 107 |
 | TW3 | 3/3 / 3/3 | 73 / 63 |
 | TW4 | 3/3 / 3/3 | 42 / 33 |
-| TW2 | see below | 353 / 347 |
+| TW2 | 0/3 / 1/6, same period, see below | 353 / 347 |
 
 Controls for TW1, TW3, TW4 are from 2026-11-01, so this is not a same-load comparison. The section is scoped to non-T0, yet TW1 and TW3 (T0) also shrank; that may be noise or leakage, and needs a look.
 
-TW2 is unusable: same-load control 0/3, P 1/6, while A was 5/6 on 2026-11-01. Failing check: `pass_on_green` (`ab_role_grade.py:266`), which also zeroes mutant kills. A failed control's test passes on the reference tree when run alone (rc 0, without `.env.test`), so the fault looks environmental; cause unverified. Load is one suspect; TW2 r1 passed and r2 failed four minutes later under similar load, which does not support it strongly. The grader keeps no log of this check: add one first.
+TW2 is a real, hard check, not a grader or environment fault (the first reading here was wrong). The new behaviour contradicts an existing test: `[RV3-mines-2]` expects 500 and a reversal on a codeless insert failure, while the reference fix returns 503 and keeps the debit. The grader copies the agent's test file onto the reference tree (`ab_role_grade.py:255-266`), so the check passes only if the agent also updates that old test. Reproduced with the exact flow: 503 vs 500 at that assertion, 83 passed, 1 failed; the reference test file alone passes 86/86 with or without `.env.test` and with Redis unreachable.
 
-Open question: test-writer E was rejected on 2026-11-01 partly on TW2 (0/3 vs 2/3). If this fault was already active, that gate is doubtful. Unverified. Other E failures (honesty, test quality) stand.
+Across all 24 completed TW2 runs the split is exact: the 6 that passed edited the RV3 tests (A 5, P 1), and the 18 that did not all failed (A 4, P 5, E 3, B 3, C 3).
+
+| period | A | P | E |
+|---|---|---|---|
+| 2026-11-01 | 5/6 | | 0/3 |
+| 2026-11-02 | 0/3 | 1/6 | |
+
+Same frozen agent text, brief, overlay, memory and CLI version for A on both days (compared on disk). The swing is unexplained: run variance or a server-side model change, unverified. Consequences: P is not shown to be worse than A here, and test-writer E's TW2 gate (0/3 vs 2/3) is weaker than it looked, though it did fail this check for real, and its other failures stand. This task needs many more reps and same-period controls.
 
 ## Reviewer (both arms re-run on Haiku)
 
@@ -49,5 +56,5 @@ About 22% fewer findings, recall about level (9/18 vs 8/18). R1 K1 is required a
 
 ## Harness lessons
 
-- Controls must run under the same conditions. Controls from the day before made TW2 look like a 5/6 to 1/6 regression caused by P; a same-day control showed otherwise. Round 1 and 2 readings of executor acceptance were also too harsh (5/9 vs 11/11).
+- Controls must run under the same conditions. Controls from the day before made TW2 look like a 5/6 to 1/6 regression caused by P; a same-day control scored 0/3. Round 1 and 2 readings of executor acceptance were also too harsh (5/9 vs 11/11).
 - `git stash list` was graded as a bypass (`BYPASS_RE`); fixed. It appeared in 5 P runs and in no same-load A run, reason unknown, harmless.

@@ -263,8 +263,10 @@ def grade_mutants(run_dir: Path, task: Dict[str, Any], generic: Dict[str, Any], 
         for p in tests:
             shutil.copy2(repo / p, scratch / p)
         gcwd = scratch / "apps" / "api"
-        green_ok = all(C.run_cmd(["deno", "task", "test", G.hidden_arg(scratch / p, gcwd)], gcwd, timeout=900)[0] == 0
-                       for p in tests)
+        green_runs = [(p, C.run_cmd(["deno", "task", "test", G.hidden_arg(scratch / p, gcwd)], gcwd, timeout=900))
+                      for p in tests]
+        green_ok = all(res[0] == 0 for _p, res in green_runs)
+        (run_dir / "green.log").write_text("".join(f"== {p} rc={res[0]}\n{res[1]}\n{res[2]}\n" for p, res in green_runs))
         kills = K.run_mutants(scratch, tests, K.mutant_paths(task)) if green_ok else []
         shutil.rmtree(scratch, ignore_errors=True)
     killed = sum(1 for k in kills if k["killed"])

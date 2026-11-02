@@ -47,7 +47,7 @@ Past failures (executor B, test-writer E) passed on cost and failed on acceptanc
 
 ## After the reset
 
-0. Add a log to the `pass_on_green` check and find the TW2 fault; re-check whether it affected the rejection of test-writer E. Run every control in the same period as its arm.
+0. Run every control in the same period as its arm. TW2 is a real check (see results); `green.log` now records it.
 1. Full A/B with Opus blind judges, DESIGN §6 gates, at least 3 reps per task: test-writer P, then reviewer P after step 2.
 2. Reviewer: Sonnet confirmation, as an extra arm of the larger reviewer A/B already planned.
 3. Executor: only if a narrower draft appears (for example the frontend only). Needs 2-3 non-money tasks with an over-build trap.
