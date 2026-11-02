@@ -30,6 +30,8 @@ Prices are means from `runs.jsonl`.
 | 3 test-writer, P | TW2 x 2 | 2 | about $0.8 |
 | 4 executor, P | E1 x 3 | 3 | about $1.7 |
 
+Round 2, added when round 1 ended at 97% use: E6, E7 x 3, TW2 up to 6, R1 and R2 up to 6 per arm, E4 x 3. E1 fails hidden tests in both arms, so it cannot show acceptance; the round 2 tasks can.
+
 The driver `run_pilot.sh` stops by itself at 99% weekly use. Calibration: $20.8 of runs moved use 60% to 79% while phases also ran, so 1% is at least $1.1; the true figure is unmeasured.
 
 ## Gates
