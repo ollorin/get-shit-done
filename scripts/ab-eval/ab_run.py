@@ -270,6 +270,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     global RUNS_LOG
     if args.log:  # exp 14: a pilot keeps its rows apart from runs.jsonl
         RUNS_LOG = C.AB_HOME / "results" / args.log
+        C.SOURCE_DRIFT_OK = True  # entry hash still enforced: a pilot control runs the exact frozen text
     if args.quota_ceiling is not None:
         C.QUOTA_CEILING = args.quota_ceiling
     if args.window or args.bash_cap:
