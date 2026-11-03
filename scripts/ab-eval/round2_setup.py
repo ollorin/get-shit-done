@@ -62,8 +62,9 @@ def build_task(task_id):
     tdir = C.task_dir(task_id)
     pristine = tdir / "pristine-A"
     if not pristine.exists() or pristine.is_symlink():
-        for cmd in ("base", "index"):
-            subprocess.run(["python3", "ab_setup.py", cmd, "--task", task_id], check=True, capture_output=True)
+        for cmd, have in (("base", tdir / "raw"), ("index", tdir / "index.log")):
+            if not have.exists():
+                subprocess.run(["python3", "ab_setup.py", cmd, "--task", task_id], check=True, capture_output=True)
         subprocess.run(["python3", "ab_setup.py", "variant", "--task", task_id, "--variant", "A"],
                        check=True, capture_output=True)
         shutil.rmtree(tdir / "raw", ignore_errors=True)
