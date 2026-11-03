@@ -17,16 +17,16 @@ LIMIT_S = 105 * 60  # under the 2 h limit of a background command
 
 
 def plan(spec, seed):
+    """Per task the arm order is random once, then rotates each rep, so every arm leads equally often (PLAN 0.5)."""
     rng, jobs = random.Random(seed), []
-    for s in spec:
+    for si, s in enumerate(spec):
         start = s.get("rep_start", 1)
-        for rep in range(start, start + s["reps"]):
-            block = []
-            for t in s["tasks"]:
-                arms = list(s["arms"])
-                rng.shuffle(arms)
-                block += [(t, a, rep, s.get("model")) for a in arms]
-            jobs += block
+        orders = {t: rng.sample(list(s["arms"]), len(s["arms"])) for t in s["tasks"]}
+        for i, rep in enumerate(range(start, start + s["reps"])):
+            tasks = rng.sample(list(s["tasks"]), len(s["tasks"]))
+            for t in tasks:
+                k = (i + start) % len(s["arms"])
+                jobs += [(t, a, rep, s.get("model")) for a in orders[t][k:] + orders[t][:k]]
     return jobs
 
 
