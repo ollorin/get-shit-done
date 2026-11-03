@@ -35,7 +35,7 @@ GIB = 1024 ** 3
 MAX_CONCURRENT = 2          # CLAUDE.md parallelism ceiling / host memory (DESIGN §4.5)
 MIN_FREE_GIB = 8.0          # exp 10: lowered from 10.0 (brief stop line is 7 GiB free on /System/Volumes/Data)
 HARD_FREE_GIB = 5.0         # abort setup below this (DESIGN §4.2 step 1)
-MAX_EVAL_GIB = 3.0          # ~/ab-eval size cap (brief)
+MAX_EVAL_GIB = 6.0          # ~/ab-eval size cap; exp 15: 18 task snapshots (clones, so real disk is lower), disk floor still applies
 QUOTA_CEILING = 0.85        # refuse a batch above this seven_day utilisation (DESIGN §4.5)
 AGENT_DEFS = ("gsd-executor", "gsd-planner", "gsd-plan-checker", "gsd-verifier")
 ROOTS = (  # mirror of harness-deny.py ROOTS; used by the transcript contamination scan
@@ -68,7 +68,11 @@ def run_stamp() -> str:
 
 
 def load_tasks(path: Optional[Path] = None) -> Dict[str, Any]:
-    return json.loads((path or AB_HOME / "tasks.json").read_text())
+    cfg = json.loads((path or AB_HOME / "tasks.json").read_text())
+    if path is None:  # exp 15: task sets kept in their own files, one writer each
+        for frag in sorted((Path(__file__).parent / "examples" / "tasks.d").glob("*.json")):
+            cfg["tasks"].extend(json.loads(frag.read_text()))
+    return cfg
 
 
 def find_task(cfg: Dict[str, Any], task_id: str) -> Dict[str, Any]:
