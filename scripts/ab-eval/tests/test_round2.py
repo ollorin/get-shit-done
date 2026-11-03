@@ -1,9 +1,14 @@
+import json
 import random
 import sys
+import tempfile
+import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import ab_run  # noqa: E402
 import round2_report as R  # noqa: E402
 import run_round2 as D  # noqa: E402
 
@@ -33,6 +38,25 @@ class Bootstrap(unittest.TestCase):
     def test_tasks_without_both_arms_are_ignored(self):
         self.assertIsNone(R.bootstrap({"a": 1.0}, {"b": 1.0}))
         self.assertIsNone(R.bootstrap({"a": None}, {"a": 1.0}))
+
+
+class Quota(unittest.TestCase):
+    def check(self, state, ceiling=.045):
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "quota.json"
+            f.write_text(json.dumps(state))
+            with mock.patch.object(ab_run, "QUOTA_FILE", f):
+                return ab_run.check_quota(ceiling)
+
+    def test_reading_from_a_finished_week_does_not_block(self):
+        self.assertIsNone(self.check({"seven_day_utilization": .98, "resets_at": time.time() - 60}))
+
+    def test_current_reading_over_the_ceiling_refuses(self):
+        with self.assertRaises(ab_run.C.Refused):
+            self.check({"seven_day_utilization": .05, "resets_at": time.time() + 60})
+
+    def test_current_reading_under_the_ceiling_passes(self):
+        self.assertEqual(self.check({"seven_day_utilization": .04, "resets_at": time.time() + 60}), .04)
 
 
 class Driver(unittest.TestCase):

@@ -46,6 +46,8 @@ def seven_day_util(rate: Optional[Dict[str, Any]]) -> Optional[float]:
 
 def check_quota(ceiling: float = C.QUOTA_CEILING) -> Optional[float]:
     state = C.read_json(QUOTA_FILE, None)
+    if state and float(state.get("resets_at") or 0) and time.time() >= float(state["resets_at"]):
+        state = None  # that reading's week is over
     if not state or state.get("seven_day_utilization") is None:
         print("quota: no rate_limit_event recorded yet; allowing the first batch", file=sys.stderr)
         return None
