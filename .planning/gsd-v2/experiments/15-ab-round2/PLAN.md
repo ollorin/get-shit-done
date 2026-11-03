@@ -56,14 +56,25 @@ New metrics:
 
 No go: stop and report to the CEO, no stage 3. About $20, 3 h including stage 1 tasks (estimate). Go: tell the CEO in one message and start stage 3.
 
-## Stage 3: full runs, one role at a time
+## Stage 3: several variants, screen then decide
 
-| order | role | arms | size | est. cost |
+CEO, 2026-11-03: test both shorter and better instructions, keep the best by price and quality. Each role has the current text as control plus three kinds of variant. New drafts are written after the reset and frozen before any run.
+
+| role | control | quality added | shorter | shorter and better |
 |---|---|---|---|---|
-| 1 | test-writer, Haiku | A, P | 8 tasks x 8 per arm | $26 |
-| 2 | reviewer, Sonnet | Q2, P | 10 tasks x 6 per arm, judges on a sample | $30 |
+| test-writer, Haiku | A | P: A + one good test per behaviour. K: A + each new test names the break it catches and proves it with a mutant | E: rejected earlier, not re-run | E2: E + find old tests the new behaviour contradicts (its TW2 failure) |
+| reviewer, Sonnet | A | V: Q2 + read every caller, without "no case, no finding" | Q2 | P: Q2 + all check-before-report rules |
 
-Executor (A, E, P, no-`Agent`) waits for next week's budget. The test-writer goes first because of the "too many tests" goal; a clear stage 2 failure in one role moves its budget to the other.
+Screen: all four arms, 2 reps per task, arms alternating. This only removes clearly weak arms; it cannot rank close ones. Final: control and the best new arm, extra reps, screen runs count.
+
+| role | screen | final | est. cost |
+|---|---|---|---|
+| test-writer | A, P, K, E2: 8 tasks x 2 | 2 arms: 8 tasks x 5 more, 56 runs per arm | $29 |
+| reviewer | A, V, Q2, P: 10 tasks x 2 | 2 arms: 10 tasks x 4 more, 60 runs per arm, judges on a sample | $30 |
+
+Pick by price and quality: drop any arm that fails a guard or is worse on the primary metric. Among the rest, a clearly better arm wins even if it costs more, up to 1.5x; with no clear quality gap, the cheapest wins. Above 1.5x goes to the CEO. Sizes see differences of about 20 points or d=0.5 and up.
+
+Executor (A, E, P, no-`Agent`) waits for next week's budget. A clear stage 2 failure in one role moves its budget to the other.
 
 Later, not today: docs-updater B2, planner and other roles, Bladebro.
 
@@ -81,7 +92,7 @@ Task-clustered bootstrap, 95% interval, primary metric.
 
 ## Budget and safety
 
-Hard stop at 5% weekly use, read after every run (`--quota-ceiling 0.05` refuses from 0.06, so set 0.045 to stop at 5%; the reading is rounded to 1%). Plan: stage 1 about $10, stage 2 about $10, stage 3 $56, reserve $14, total $90 at $18 per 1%. That rate comes from one rounded step; re-measure it at the first 1% and scale stage 3 down, tasks first kept, if it is lower. This chat's own turns count too. When the stop hits, whatever finished is reported, with what it can and cannot decide.
+Hard stop at 5% weekly use, read after every run (`--quota-ceiling 0.05` refuses from 0.06, so set 0.045 to stop at 5%; the reading is rounded to 1%). Plan: stage 1 about $10, stage 2 about $10, stage 3 $59, reserve $11, total $90 at $18 per 1%. That rate comes from one rounded step; re-measure it at the first 1% and scale stage 3 down, tasks first kept, if it is lower. This chat's own turns count too. When the stop hits, whatever finished is reported, with what it can and cannot decide.
 
 Concurrency at most 2; no stack, so `db reset` and the lock are not involved. Rows in `results/runs-round2.jsonl`.
 
