@@ -1,6 +1,6 @@
 # Exp 15: A/B round 2, bench first
 
-CEO, 2026-11-03: after the weekly reset (18:00 CET) run A/B tests; prove on a small sample that tests and grading are right, then run full samples large enough to decide. Development stays stopped until the CEO's command. Status: plan, awaiting approval.
+CEO, 2026-11-03: after the weekly reset (18:00 CET) run A/B tests; prove on a small sample that tests and grading are right, then run full samples large enough to decide. Development stays stopped until the CEO's command. Status: approved by the CEO on 2026-11-03: start 18:01 CET, budget 5% of the week, trial first and then batches without a word per batch. This budget replaces the larger sizes and costs below where they conflict.
 
 ## Why earlier rounds showed no gain
 
@@ -31,7 +31,7 @@ Mutation run and development stay off while anything runs.
 
 A task is kept only if the control scores 30-80% on its metric, or the metric is continuous.
 
-- Executor: fix E1-E3 by giving the API in the brief, or drop them. Add 3 tasks from real plans where the review loop later found HIGH defects (hidden tests = those fixes). Add 2 non-money tasks with room to over-build.
+- Executor: postponed with its stage 3 runs.
 - Reviewer: add 8 tasks from real 401/402 findings with confirmed fixes, plus 2 clean final diffs for false positives.
 - Test-writer: add 4 tasks from exp 12 modules with many survivors. Keep TW1-TW4.
 
@@ -48,22 +48,22 @@ New metrics:
 | # | check | size | must show |
 |---|---|---|---|
 | V1 | known answers (no LLM) | every new task | reference passes, known-bad fails, on every new metric |
-| V2 | A/A: same text under two labels | TW2 6+6, TW1, E6, E7, R1, R2 3+3, 2 new tasks per role 3+3 | no material gap; the spread sets N for stage 3 |
-| V3 | sabotage arm: "skip reading callers, skip tests" | 4 tasks x 3 | bench catches it clearly |
-| V4 | stronger model as positive control: Sonnet vs Haiku | TW2 and 1 executor task x 3 | Sonnet scores higher, else that task has no headroom and goes |
+| V2 | A/A: same text under two labels | TW2 4+4, TW1, R1, R2 3+3, 2 new tasks per role 3+3 | no material gap; the spread sets N for stage 3 |
+| V3 | sabotage arm: "skip reading callers, skip tests" | TW1, R2, 2 new x 2 | bench catches it clearly |
+| V4 | stronger model as positive control: Sonnet vs Haiku | reviewer tasks only, from the Haiku and Sonnet rows plus new tasks x 2; other roles skipped, too costly in this budget | Sonnet scores higher, else that task has no headroom and goes |
 | V5 | judge and matcher | selftests, 4 A/A pairs, 4 planted pairs | planted pairs resolved, A/A even |
 | V6 | end-to-end read | 3 runs per role read by hand | numbers match what the agent did |
 
-No go: stop and report to the CEO, no stage 3. About $50, 3 h including stage 1 tasks (estimate).
+No go: stop and report to the CEO, no stage 3. About $20, 3 h including stage 1 tasks (estimate). Go: tell the CEO in one message and start stage 3.
 
 ## Stage 3: full runs, one role at a time
 
 | order | role | arms | size | est. cost |
 |---|---|---|---|---|
-| 1 | test-writer | A, P | 8 tasks x 10 per arm | $32 |
-| 2 | reviewer, Sonnet | A, Q2, P | 10 tasks x 6 per arm | $60 with judging |
-| 3 | executor, Haiku | A, E, P | 8 tasks x 6 per arm | $75 |
-| 4 | executor without `Agent` (already approved) | A, no-Agent | E6, E7, 2 new x 6 | $20 |
+| 1 | test-writer, Haiku | A, P | 8 tasks x 8 per arm | $26 |
+| 2 | reviewer, Sonnet | Q2, P | 10 tasks x 6 per arm, judges on a sample | $30 |
+
+Executor (A, E, P, no-`Agent`) waits for next week's budget. The test-writer goes first because of the "too many tests" goal; a clear stage 2 failure in one role moves its budget to the other.
 
 Later, not today: docs-updater B2, planner and other roles, Bladebro.
 
@@ -81,7 +81,9 @@ Task-clustered bootstrap, 95% interval, primary metric.
 
 ## Budget and safety
 
-Total about $320 (estimate). 1% of the week measured at about $18 from one rounded step (97 to 98), so about 18% of the week, with a wide margin. Hard stop at 20% used by this experiment. Concurrency at most 2; no stack, so `db reset` and the lock are not involved. Rows in `results/runs-round2.jsonl`.
+Hard stop at 5% weekly use, read after every run (`--quota-ceiling 0.05` refuses from 0.06, so set 0.045 to stop at 5%; the reading is rounded to 1%). Plan: stage 1 about $10, stage 2 about $10, stage 3 $56, reserve $14, total $90 at $18 per 1%. That rate comes from one rounded step; re-measure it at the first 1% and scale stage 3 down, tasks first kept, if it is lower. This chat's own turns count too. When the stop hits, whatever finished is reported, with what it can and cannot decide.
+
+Concurrency at most 2; no stack, so `db reset` and the lock are not involved. Rows in `results/runs-round2.jsonl`.
 
 ## Resume
 
