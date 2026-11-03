@@ -1,0 +1,669 @@
+[
+  {
+    "id": "R4",
+    "role": "review",
+    "agent": "general-purpose",
+    "model": "sonnet",
+    "tier": "T0 (money)",
+    "plan": "",
+    "phase_dir": ".planning/phases/402-games-money-paths",
+    "base": "f12c4c3b8",
+    "ref": [
+      "0dfbd94bf",
+      "ce65e17e8"
+    ],
+    "scope_files": [
+      "apps/api/functions/games/handlers/crash/crash-bet-insert.ts"
+    ],
+    "verify": [],
+    "hidden": [],
+    "tdd": false,
+    "budget_usd": 5,
+    "timeout_min": 30,
+    "scrub_terms": [
+      "crash-bet-insert",
+      "crash_place_bet_if_betting"
+    ],
+    "known": [
+      {
+        "id": "K1",
+        "required": true,
+        "where": "apps/api/functions/games/handlers/crash/crash-bet-insert.ts insertCrashBet RPC call",
+        "mechanism": "p_bet_amount is sent as the raw JS number args.betAmount instead of the ledger decimal string toLedgerDecimal(betAmount, 8) that the debit leg of the same bet sends, violating the money-values wire rule",
+        "evidence": [
+          {
+            "at": "base",
+            "file": "apps/api/functions/games/handlers/crash/crash-bet-insert.ts",
+            "regex": "p_bet_amount: args\\.betAmount,",
+            "expect": true
+          },
+          {
+            "at": "ref",
+            "file": "apps/api/functions/games/handlers/crash/crash-bet-insert.ts",
+            "regex": "p_bet_amount: args\\.betAmount,",
+            "expect": false
+          },
+          {
+            "at": "ref",
+            "file": "apps/api/functions/games/handlers/crash/crash-bet-insert.ts",
+            "regex": "p_bet_amount: toLedgerDecimal\\(args\\.betAmount, 8\\)",
+            "expect": true
+          }
+        ]
+      },
+      {
+        "id": "K2",
+        "required": false,
+        "where": "apps/api/functions/games/handlers/crash/crash-bet-insert.ts insertedBetOf",
+        "mechanism": "an inserted reply is accepted when bet is any non-null object: it does not require a string id, so a malformed RPC reply is returned as a CrashBetRow",
+        "evidence": [
+          {
+            "at": "base",
+            "file": "apps/api/functions/games/handlers/crash/crash-bet-insert.ts",
+            "regex": "data\\.bet !== null\\s*\\?",
+            "expect": true
+          },
+          {
+            "at": "ref",
+            "file": "apps/api/functions/games/handlers/crash/crash-bet-insert.ts",
+            "regex": "data\\.bet !== null\\s*\\?",
+            "expect": false
+          }
+        ]
+      }
+    ],
+    "enabled": true,
+    "review_diff": true,
+    "calibration": {
+      "mode": "evidence",
+      "inputs": [
+        "apps/api/functions/games/handlers/crash/crash-bet-insert.ts"
+      ]
+    }
+  },
+  {
+    "id": "R5",
+    "role": "review",
+    "agent": "general-purpose",
+    "model": "sonnet",
+    "tier": "T0 (money)",
+    "plan": "",
+    "phase_dir": ".planning/phases/402-games-money-paths",
+    "base": "a4d35a151",
+    "ref": [
+      "9080bbb59"
+    ],
+    "scope_files": [
+      "apps/api/functions/games/handlers/mini-games-handlers.ts",
+      "apps/api/libs/application/src/lib/game/jackpot-service.ts"
+    ],
+    "verify": [],
+    "hidden": [],
+    "tdd": false,
+    "budget_usd": 5,
+    "timeout_min": 30,
+    "scrub_terms": [
+      "jackpot-service",
+      "contributeAndClaim",
+      "jackpot_contribute_and_claim"
+    ],
+    "known": [
+      {
+        "id": "K1",
+        "required": true,
+        "where": "apps/api/functions/games/handlers/mini-games-handlers.ts handleMiniGamePlay jackpot step",
+        "mechanism": "contributeAndClaim is called without await although the comment says the response waits for the durable claim: the claim runs detached after the response is built, so the edge runtime can end the request before the jackpot claim RPC commits",
+        "evidence": [
+          {
+            "at": "base",
+            "file": "apps/api/functions/games/handlers/mini-games-handlers.ts",
+            "regex": "^\\s+buildJackpotService\\(supabase\\)\\.contributeAndClaim",
+            "expect": true
+          },
+          {
+            "at": "ref",
+            "file": "apps/api/functions/games/handlers/mini-games-handlers.ts",
+            "regex": "^\\s+buildJackpotService\\(supabase\\)\\.contributeAndClaim",
+            "expect": false
+          },
+          {
+            "at": "ref",
+            "file": "apps/api/functions/games/handlers/mini-games-handlers.ts",
+            "regex": "await buildJackpotService\\(supabase\\)\\.contributeAndClaim",
+            "expect": true
+          }
+        ]
+      }
+    ],
+    "enabled": true,
+    "review_diff": true,
+    "calibration": {
+      "mode": "evidence",
+      "inputs": [
+        "apps/api/functions/games/handlers/mini-games-handlers.ts",
+        "apps/api/libs/application/src/lib/game/jackpot-service.ts"
+      ]
+    }
+  },
+  {
+    "id": "R6",
+    "role": "review",
+    "agent": "general-purpose",
+    "model": "sonnet",
+    "tier": "T0 (money)",
+    "plan": "",
+    "phase_dir": ".planning/phases/401-payments-iap-fraud-withdrawal-resolution",
+    "base": "4022d617d",
+    "ref": [
+      "4f3541bc7"
+    ],
+    "scope_files": [
+      "apps/api/functions/payments/handlers/initiate-withdrawal.ts",
+      "apps/api/functions/payments/services/withdrawal-dispatch.ts"
+    ],
+    "verify": [],
+    "hidden": [],
+    "tdd": false,
+    "budget_usd": 5,
+    "timeout_min": 30,
+    "scrub_terms": [
+      "withdrawal-dispatch",
+      "WITHDRAWAL_DESTINATION_REQUIRED",
+      "canonicalDestination"
+    ],
+    "known": [
+      {
+        "id": "K1",
+        "required": true,
+        "where": "apps/api/functions/payments/handlers/initiate-withdrawal.ts required-destination check",
+        "mechanism": "the non-card destination-required check tests the raw destinationAccount === \"\", but the step-up digest hashes canonicalDestination(destinationAccount); separator-only input such as '---' or '()' passes the check and canonicalises to an empty destination",
+        "evidence": [
+          {
+            "at": "base",
+            "file": "apps/api/functions/payments/handlers/initiate-withdrawal.ts",
+            "regex": "destinationAccount === \\\"\\\"",
+            "expect": true
+          },
+          {
+            "at": "ref",
+            "file": "apps/api/functions/payments/handlers/initiate-withdrawal.ts",
+            "regex": "destinationAccount === \\\"\\\"",
+            "expect": false
+          },
+          {
+            "at": "ref",
+            "file": "apps/api/functions/payments/handlers/initiate-withdrawal.ts",
+            "regex": "canonicalDestination\\(destinationAccount\\) === \\\"\\\"",
+            "expect": true
+          }
+        ]
+      },
+      {
+        "id": "K2",
+        "required": false,
+        "where": "apps/api/functions/payments/services/withdrawal-dispatch.ts release-pending 503 message",
+        "mechanism": "the WITHDRAWAL_RELEASE_PENDING response tells the player the funds are being returned automatically and no action is needed, but nothing in the system returns a pending-release session automatically (operator-resolved)",
+        "evidence": [
+          {
+            "at": "base",
+            "file": "apps/api/functions/payments/services/withdrawal-dispatch.ts",
+            "regex": "No action is needed",
+            "expect": true
+          },
+          {
+            "at": "ref",
+            "file": "apps/api/functions/payments/services/withdrawal-dispatch.ts",
+            "regex": "No action is needed",
+            "expect": false
+          }
+        ]
+      }
+    ],
+    "enabled": true,
+    "review_diff": true,
+    "calibration": {
+      "mode": "evidence",
+      "inputs": [
+        "apps/api/functions/payments/handlers/initiate-withdrawal.ts",
+        "apps/api/functions/payments/services/withdrawal-dispatch.ts"
+      ]
+    }
+  },
+  {
+    "id": "R7",
+    "role": "review",
+    "agent": "general-purpose",
+    "model": "sonnet",
+    "tier": "T0 (money, auth)",
+    "plan": "",
+    "phase_dir": ".planning/phases/401-payments-iap-fraud-withdrawal-resolution",
+    "base": "084e34800",
+    "ref": [
+      "6107d6ff8"
+    ],
+    "scope_files": [
+      "apps/api/functions/payments/services/withdrawal-claimant.ts",
+      "apps/api/functions/payments/handlers/operator-withdrawal-claim-gate.ts",
+      "apps/api/migrations/20261030470000_401_claim_rpc_four_eyes_hardening.sql"
+    ],
+    "verify": [],
+    "hidden": [],
+    "tdd": false,
+    "budget_usd": 5,
+    "timeout_min": 30,
+    "scrub_terms": [
+      "withdrawal-claimant",
+      "claim_rpc_four_eyes",
+      "four-eyes"
+    ],
+    "known": [
+      {
+        "id": "K1",
+        "required": true,
+        "where": "apps/api/functions/payments/services/withdrawal-claimant.ts staleClaimantOf and the claim RPC claimant predicate",
+        "mechanism": "a claimant counts as holding the claim while merely active; an operator demoted out of the approver roles still blocks every other approver and the reject CAS retry, because standing never checks the claimant's current role against the approver roles (SQL claimant EXISTS has the same gap)",
+        "evidence": [
+          {
+            "at": "base",
+            "file": "apps/api/functions/payments/services/withdrawal-claimant.ts",
+            "regex": "standing\\.active \\? null : claimedBy",
+            "expect": true
+          },
+          {
+            "at": "ref",
+            "file": "apps/api/functions/payments/services/withdrawal-claimant.ts",
+            "regex": "standing\\.active \\? null : claimedBy",
+            "expect": false
+          },
+          {
+            "at": "ref",
+            "file": "apps/api/functions/payments/services/withdrawal-claimant.ts",
+            "regex": "hasClaimStanding",
+            "expect": true
+          },
+          {
+            "at": "base",
+            "file": "apps/api/migrations",
+            "regex": "claimant\\.role::text = ANY",
+            "expect": false,
+            "search": true
+          },
+          {
+            "at": "ref",
+            "file": "apps/api/migrations",
+            "regex": "claimant\\.role::text = ANY",
+            "expect": true,
+            "search": true
+          }
+        ]
+      }
+    ],
+    "enabled": true,
+    "review_diff": true,
+    "calibration": {
+      "mode": "evidence",
+      "inputs": [
+        "apps/api/functions/payments/services/withdrawal-claimant.ts",
+        "apps/api/functions/payments/handlers/operator-withdrawal-claim-gate.ts",
+        "apps/api/migrations/20261030470000_401_claim_rpc_four_eyes_hardening.sql"
+      ]
+    }
+  },
+  {
+    "id": "R8",
+    "role": "review",
+    "agent": "general-purpose",
+    "model": "sonnet",
+    "tier": "T0 (auth)",
+    "plan": "",
+    "phase_dir": ".planning/phases/399-auth-sweep-a1-a4",
+    "base": "c5f843d33",
+    "ref": [
+      "aeca82da5"
+    ],
+    "scope_files": [
+      "apps/api/libs/domain/src/lib/auth/two-factor-login-rule.ts"
+    ],
+    "verify": [],
+    "hidden": [],
+    "tdd": false,
+    "budget_usd": 5,
+    "timeout_min": 30,
+    "scrub_terms": [
+      "two-factor-login-rule",
+      "selectLoginVerification",
+      "METHOD_REQUIRED"
+    ],
+    "known": [
+      {
+        "id": "K1",
+        "required": true,
+        "where": "apps/api/libs/domain/src/lib/auth/two-factor-login-rule.ts selectLoginVerification",
+        "mechanism": "with several second factors enabled and no method named, the plan is kind any over every enabled method, so one submitted code is tried against all factors under a single pending-token attempt, multiplying the guess space per attempt; the caller should have to name the method",
+        "evidence": [
+          {
+            "at": "base",
+            "file": "apps/api/libs/domain/src/lib/auth/two-factor-login-rule.ts",
+            "regex": "primary\\?: TwoFactorMethod \\| null",
+            "expect": true
+          },
+          {
+            "at": "ref",
+            "file": "apps/api/libs/domain/src/lib/auth/two-factor-login-rule.ts",
+            "regex": "primary\\?: TwoFactorMethod \\| null",
+            "expect": false
+          },
+          {
+            "at": "ref",
+            "file": "apps/api/libs/domain/src/lib/auth/two-factor-login-rule.ts",
+            "regex": "METHOD_REQUIRED",
+            "expect": true
+          }
+        ]
+      }
+    ],
+    "enabled": true,
+    "review_diff": true,
+    "calibration": {
+      "mode": "evidence",
+      "inputs": [
+        "apps/api/libs/domain/src/lib/auth/two-factor-login-rule.ts"
+      ]
+    }
+  },
+  {
+    "id": "R9",
+    "role": "review",
+    "agent": "general-purpose",
+    "model": "sonnet",
+    "tier": "T1 (game worker)",
+    "plan": "",
+    "phase_dir": ".planning/phases/402-games-money-paths",
+    "base": "4ad8a0e6e",
+    "ref": [
+      "d87748de5",
+      "381930f9f"
+    ],
+    "scope_files": [
+      "apps/api/functions/crash-worker/rounds-repo.ts",
+      "apps/api/functions/crash-worker/round-lifecycle.ts"
+    ],
+    "verify": [],
+    "hidden": [],
+    "tdd": false,
+    "budget_usd": 5,
+    "timeout_min": 30,
+    "scrub_terms": [
+      "crash-worker",
+      "crash_start_betting_round",
+      "round-lifecycle"
+    ],
+    "known": [
+      {
+        "id": "K1",
+        "required": true,
+        "where": "apps/api/functions/crash-worker/rounds-repo.ts startRound reply handling",
+        "mechanism": "the started reply is cast to StartedRpcReply with no check that round_id is a string and round_number an integer, so a malformed RPC reply is returned as a started round carrying undefined fields",
+        "evidence": [
+          {
+            "at": "base",
+            "file": "apps/api/functions/crash-worker/rounds-repo.ts",
+            "regex": "Number\\.isInteger\\(started\\.round_number\\)",
+            "expect": false
+          },
+          {
+            "at": "ref",
+            "file": "apps/api/functions/crash-worker/rounds-repo.ts",
+            "regex": "Number\\.isInteger\\(started\\.round_number\\)",
+            "expect": true
+          }
+        ]
+      },
+      {
+        "id": "K2",
+        "required": false,
+        "where": "apps/api/functions/crash-worker/rounds-repo.ts getCurrentRound and apps/api/functions/crash-worker/round-lifecycle.ts tryAdvisoryLock",
+        "mechanism": "read and lock RPC faults collapse into valid states: getCurrentRound returns null (no live round) and tryAdvisoryLock returns false (lock held) on error, so a dependency outage is indistinguishable from absence and the worker proceeds or skips silently instead of surfacing a fault",
+        "evidence": [
+          {
+            "at": "base",
+            "file": "apps/api/functions/crash-worker/rounds-repo.ts",
+            "regex": "Promise<CrashRound \\| null>",
+            "expect": true
+          },
+          {
+            "at": "ref",
+            "file": "apps/api/functions/crash-worker/rounds-repo.ts",
+            "regex": "Promise<CrashRound \\| null>",
+            "expect": false
+          },
+          {
+            "at": "ref",
+            "file": "apps/api/functions/crash-worker/rounds-repo.ts",
+            "regex": "round_read_failed",
+            "expect": true
+          }
+        ]
+      }
+    ],
+    "enabled": true,
+    "review_diff": true,
+    "calibration": {
+      "mode": "evidence",
+      "inputs": [
+        "apps/api/functions/crash-worker/rounds-repo.ts",
+        "apps/api/functions/crash-worker/round-lifecycle.ts"
+      ]
+    }
+  },
+  {
+    "id": "R10",
+    "role": "review",
+    "agent": "general-purpose",
+    "model": "sonnet",
+    "tier": "T1 (auth config)",
+    "plan": "",
+    "phase_dir": ".planning/phases/399-auth-sweep-a1-a4",
+    "base": "41405fc25",
+    "ref": [
+      "3263eca44"
+    ],
+    "scope_files": [
+      "apps/api/libs/infrastructure/src/lib/facades/two-factor/totp-login-verify.ts",
+      "apps/api/libs/infrastructure/src/lib/facades/two-factor/totp-provider.ts"
+    ],
+    "verify": [],
+    "hidden": [],
+    "tdd": false,
+    "budget_usd": 5,
+    "timeout_min": 30,
+    "scrub_terms": [
+      "totp-login-verify",
+      "utf8ByteLength"
+    ],
+    "known": [
+      {
+        "id": "K1",
+        "required": true,
+        "where": "apps/api/libs/infrastructure/src/lib/facades/two-factor/totp-login-verify.ts encryption key floor",
+        "mechanism": "the encryption-key length floor uses String.length (UTF-16 code units) while the message and the rule require bytes, so a short multi-byte key passes or an ASCII-equivalent floor is mis-measured; it must use the UTF-8 byte length",
+        "evidence": [
+          {
+            "at": "base",
+            "file": "apps/api/libs/infrastructure/src/lib/facades/two-factor/totp-login-verify.ts",
+            "regex": "encryptionKey\\.length < 32",
+            "expect": true
+          },
+          {
+            "at": "ref",
+            "file": "apps/api/libs/infrastructure/src/lib/facades/two-factor/totp-login-verify.ts",
+            "regex": "encryptionKey\\.length < 32",
+            "expect": false
+          },
+          {
+            "at": "ref",
+            "file": "apps/api/libs/infrastructure/src/lib/facades/two-factor/totp-login-verify.ts",
+            "regex": "utf8ByteLength\\(encryptionKey\\) < 32",
+            "expect": true
+          }
+        ]
+      }
+    ],
+    "enabled": true,
+    "review_diff": true,
+    "calibration": {
+      "mode": "evidence",
+      "inputs": [
+        "apps/api/libs/infrastructure/src/lib/facades/two-factor/totp-login-verify.ts",
+        "apps/api/libs/infrastructure/src/lib/facades/two-factor/totp-provider.ts"
+      ]
+    }
+  },
+  {
+    "id": "R11",
+    "role": "review",
+    "agent": "general-purpose",
+    "model": "sonnet",
+    "tier": "T1 (player-web bet UI)",
+    "plan": "",
+    "phase_dir": ".planning/phases/400-wallet-sweep-w1-w2",
+    "base": "2debcbbaf",
+    "ref": [
+      "95c2f2c0a"
+    ],
+    "scope_files": [
+      "apps/player-web/src/lib/games/bet-amount.ts",
+      "apps/player-web/src/components/games/BetControls.tsx"
+    ],
+    "verify": [],
+    "hidden": [],
+    "tdd": false,
+    "budget_usd": 5,
+    "timeout_min": 30,
+    "scrub_terms": [
+      "bet-amount",
+      "ceilToStep",
+      "noValidStake"
+    ],
+    "known": [
+      {
+        "id": "K1",
+        "required": true,
+        "where": "apps/player-web/src/lib/games/bet-amount.ts ceilToStep and its use in BetControls bounds",
+        "mechanism": "ceilToStep has no guard for non-finite input and bumps with floating-point arithmetic; a NaN or Infinity minimum makes stepMin > stepMax false, so noValidStake stays false and the bet controls fail open instead of closed, and the float bump is not exact at the currency scale",
+        "evidence": [
+          {
+            "at": "base",
+            "file": "apps/player-web/src/lib/games/bet-amount.ts",
+            "regex": "Number\\(\\(floored \\+ 10 \\*\\* -digits\\)\\.toFixed",
+            "expect": true
+          },
+          {
+            "at": "ref",
+            "file": "apps/player-web/src/lib/games/bet-amount.ts",
+            "regex": "Number\\(\\(floored \\+ 10 \\*\\* -digits\\)\\.toFixed",
+            "expect": false
+          },
+          {
+            "at": "ref",
+            "file": "apps/player-web/src/lib/games/bet-amount.ts",
+            "regex": "Number\\.isFinite\\(value\\)",
+            "expect": true
+          }
+        ]
+      }
+    ],
+    "enabled": true,
+    "review_diff": true,
+    "calibration": {
+      "mode": "evidence",
+      "inputs": [
+        "apps/player-web/src/lib/games/bet-amount.ts",
+        "apps/player-web/src/components/games/BetControls.tsx"
+      ]
+    }
+  },
+  {
+    "id": "R12",
+    "role": "review",
+    "agent": "general-purpose",
+    "model": "sonnet",
+    "tier": "T0 (money display)",
+    "plan": "",
+    "phase_dir": ".planning/phases/401-payments-iap-fraud-withdrawal-resolution",
+    "base": "e1e9d9cae",
+    "ref": [],
+    "scope_files": [
+      "apps/operator-web/src/components/fraud/fraud-summary-card.tsx",
+      "apps/operator-web/src/lib/api/fraud.ts",
+      "apps/operator-web/src/components/fraud/fraud-currency.test.tsx"
+    ],
+    "verify": [],
+    "hidden": [],
+    "tdd": false,
+    "budget_usd": 5,
+    "timeout_min": 30,
+    "scrub_terms": [
+      "fraud-summary-card",
+      "fraud-currency"
+    ],
+    "known": [],
+    "enabled": true,
+    "review_diff": true,
+    "calibration": {
+      "mode": "evidence",
+      "inputs": [
+        "apps/operator-web/src/components/fraud/fraud-summary-card.tsx",
+        "apps/operator-web/src/lib/api/fraud.ts",
+        "apps/operator-web/src/components/fraud/fraud-currency.test.tsx"
+      ]
+    },
+    "evidence": [
+      {
+        "at": "base",
+        "file": "apps/operator-web/src/components/fraud/fraud-summary-card.tsx",
+        "regex": "(?i)currenc",
+        "expect": true
+      }
+    ]
+  },
+  {
+    "id": "R13",
+    "role": "review",
+    "agent": "general-purpose",
+    "model": "sonnet",
+    "tier": "T0 (money)",
+    "plan": "",
+    "phase_dir": ".planning/phases/401-payments-iap-fraud-withdrawal-resolution",
+    "base": "ffbd9e3d7",
+    "ref": [],
+    "scope_files": [
+      "apps/api/functions/payments/handlers/cancel-withdrawal.ts"
+    ],
+    "verify": [],
+    "hidden": [],
+    "tdd": false,
+    "budget_usd": 5,
+    "timeout_min": 30,
+    "scrub_terms": [
+      "cancel-withdrawal"
+    ],
+    "known": [],
+    "enabled": true,
+    "review_diff": true,
+    "calibration": {
+      "mode": "evidence",
+      "inputs": [
+        "apps/api/functions/payments/handlers/cancel-withdrawal.ts"
+      ]
+    },
+    "evidence": [
+      {
+        "at": "base",
+        "file": "apps/api/functions/payments/handlers/cancel-withdrawal.ts",
+        "regex": "handleCancelWithdrawal",
+        "expect": true
+      }
+    ]
+  }
+]
