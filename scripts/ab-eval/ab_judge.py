@@ -207,6 +207,9 @@ def _run_rows() -> Dict[str, Dict[str, Any]]:
             if line.strip():
                 r = json.loads(line)
                 rows[r["run_id"]] = r
+    for path in sorted((C.AB_HOME / "results").glob("runs-round2*.jsonl")):  # exp 15
+        for r in C.read_jsonl(path):
+            rows[r["run_id"]] = r
     wpath = C.AB_HOME / "results" / "runs-haiku100k.jsonl"  # exp 10 arm W rows are variant A with a window; judged as arm "W"
     if wpath.exists():
         for line in wpath.read_text().splitlines():
