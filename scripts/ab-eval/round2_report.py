@@ -82,9 +82,10 @@ def main():
     p.add_argument("--role", required=True, choices=["test-writer", "review"])
     p.add_argument("--control", default="A")
     p.add_argument("--tasks", nargs="*")
+    p.add_argument("--model", help="only rows of this model (V4)")
     o = p.parse_args()
     rows = [r for r in C.read_jsonl(C.AB_HOME / "results" / o.log) if r["role"] == o.role
-            and (not o.tasks or r["task_id"] in o.tasks)]
+            and (not o.tasks or r["task_id"] in o.tasks) and (not o.model or r.get("model") == o.model)]
     matches = {m["run_id"]: m for m in C.read_jsonl(C.AB_HOME / "results" / "matches.jsonl")}
     cells = table(rows, matches)
     names = (("recall", "required", "findings", "cost") if o.role == "review"

@@ -54,6 +54,17 @@ New metrics:
 | V5 | judge and matcher | selftests, 4 A/A pairs, 4 planted pairs | planted pairs resolved, A/A even |
 | V6 | end-to-end read | 3 runs per role read by hand | numbers match what the agent did |
 
+### Stage 2 gates, numeric, frozen before any run
+
+Rows: `results/runs-round2-stage2.jsonl`, never pooled into stage 3. Haiku rows of V4 use reps from 101.
+
+- V1: every new task's `calib.json` ok: reference passes, each mutant killed by the reference tests, known-bad fails. A task that fails goes.
+- V2 A vs A2, pooled over tasks: the bootstrap interval covers 0 on the primary metric (test-writer kills per 100 added lines, reviewer recall) and on acceptance; |gap| under 0.15 recall, under 25% of control kills per 100, under 20 points acceptance. A single task at 4+4 may swing more: a swing on one task only is a noise reading that sets N, a same-direction gap on most tasks is a no go. The spread of per-task gaps sets N: stage 3 keeps its planned N if a 10-point recall gap or 25% kills gap is resolvable at that spread, else tasks are added before reps.
+- V3 S vs A: S scores worse on the primary metric on at least 3 of the 4 tasks and pooled by more than the V2 gap. Fewer is a no go: the bench cannot see a bad prompt.
+- V4 Sonnet vs Haiku, reviewer: Sonnet pooled recall above Haiku. A task where neither model separates and recall sits at 0 or 1 for both goes as having no headroom. Fewer than 6 real-finding tasks left is a no go.
+- V5: `ab_match.py selftest` and `ab_judge.py selftest` pass; 4 A/A pairs show no 4-0 for either label; 4 pairs of S vs A go to A at least 3 of 4.
+- V6: 3 runs per role read by hand: the reported kills, recall, findings and added lines match the transcript and the diff. One mismatch is a no go until the metric is fixed and rerun.
+
 No go: stop and report to the CEO, no stage 3. About $20, 3 h including stage 1 tasks (estimate). Go: tell the CEO in one message and start stage 3.
 
 ## Stage 3: several variants, screen then decide
