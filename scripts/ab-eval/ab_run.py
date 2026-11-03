@@ -73,10 +73,10 @@ def build_snapshot(task: Dict[str, Any], variant: str, run_dir: Path) -> Dict[st
     if not pristine.exists():
         raise C.Refused(f"missing {pristine}; run ab_setup.py variant first")
     repo = run_dir / "repo"
-    C.clone_tree(pristine, repo)
+    C.clone_tree(pristine.resolve(), repo)  # exp 15: arms may share one snapshot through a symlink
     base_commit = C.git(repo, "rev-parse", "HEAD").strip()
     memory = run_dir / "memory"
-    shutil.copytree(tdir / f"memory-{variant}", memory)
+    shutil.copytree((tdir / f"memory-{variant}").resolve(), memory)
     (repo / ".claude" / "settings.local.json").write_text(
         json.dumps({"autoMemoryEnabled": True, "autoMemoryDirectory": str(memory)}))
     (run_dir / "brief.md").write_text(R.render_brief(task, variant))
