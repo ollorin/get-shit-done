@@ -1,0 +1,219 @@
+[
+  {
+    "id": "TW5",
+    "role": "test-writer",
+    "agent": "gsd-test-writer",
+    "model": "haiku",
+    "tier": "T0 (money)",
+    "plan": ".planning/phases/401-payments-iap-fraud-withdrawal-resolution/401-97-PLAN.md",
+    "phase_dir": ".planning/phases/401-payments-iap-fraud-withdrawal-resolution",
+    "base": "b9c4b6db0",
+    "ref": [
+      "b9c4b6db0"
+    ],
+    "scope_files": [
+      "apps/api/functions/payments/handlers/processor-validation.test.ts"
+    ],
+    "verify": [],
+    "hidden": [],
+    "tdd": false,
+    "characterize": true,
+    "commit_note": "The code under test already exists and is correct, so the new tests pass: commit the test file once they pass.",
+    "budget_usd": 5,
+    "timeout_min": 30,
+    "scrub_terms": [
+      "401-97",
+      "processor-validation"
+    ],
+    "enabled": true,
+    "test_files": [
+      "apps/api/functions/payments/handlers/processor-validation.test.ts"
+    ],
+    "phase_number": "401",
+    "phase_name": "payments-iap-fraud-withdrawal-resolution",
+    "plan_number": "97",
+    "mutants": [
+      "TW5/mutants/m1-octet-255-refused.patch",
+      "TW5/mutants/m2-octet-256-accepted.patch",
+      "TW5/mutants/m3-poll-one-refused.patch",
+      "TW5/mutants/m4-poll-max-refused.patch",
+      "TW5/mutants/m5-secret-max-refused.patch",
+      "TW5/mutants/m6-is-active-unchecked.patch"
+    ],
+    "kill_bar": 5,
+    "calibration": {
+      "mode": "mutants",
+      "inputs": [
+        "apps/api/functions/payments/handlers/processor-validation.test.ts"
+      ]
+    },
+    "behaviours": 5,
+    "ref_overlay": "TW5/ref",
+    "overlay": [
+      "TW5/overlay"
+    ]
+  },
+  {
+    "id": "TW6",
+    "role": "test-writer",
+    "agent": "gsd-test-writer",
+    "model": "haiku",
+    "tier": "T0 (auth)",
+    "plan": ".planning/phases/399-auth-sweep-a1-a4/399-97-PLAN.md",
+    "phase_dir": ".planning/phases/399-auth-sweep-a1-a4",
+    "base": "b9c4b6db0",
+    "ref": [
+      "b9c4b6db0"
+    ],
+    "scope_files": [
+      "apps/api/libs/infrastructure/src/lib/auth/totp-service.test.ts"
+    ],
+    "verify": [],
+    "hidden": [],
+    "tdd": false,
+    "characterize": true,
+    "commit_note": "The code under test already exists and is correct, so the new tests pass: commit the test file once they pass.",
+    "budget_usd": 5,
+    "timeout_min": 30,
+    "scrub_terms": [
+      "399-97",
+      "totp-service"
+    ],
+    "enabled": true,
+    "test_files": [
+      "apps/api/libs/infrastructure/src/lib/auth/totp-service.test.ts"
+    ],
+    "phase_number": "399",
+    "phase_name": "auth-sweep-a1-a4",
+    "plan_number": "97",
+    "mutants": [
+      "TW6/mutants/m1-little-endian-counter.patch",
+      "TW6/mutants/m2-modulo-off.patch",
+      "TW6/mutants/m3-truncation-last-byte.patch",
+      "TW6/mutants/m4-future-window-refused.patch",
+      "TW6/mutants/m5-default-window-2.patch",
+      "TW6/mutants/m6-hash-hex-pad.patch"
+    ],
+    "kill_bar": 5,
+    "calibration": {
+      "mode": "mutants",
+      "inputs": [
+        "apps/api/libs/infrastructure/src/lib/auth/totp-service.test.ts"
+      ]
+    },
+    "behaviours": 3,
+    "ref_overlay": "TW6/ref",
+    "overlay": [
+      "TW6/overlay"
+    ]
+  },
+  {
+    "id": "TW7",
+    "role": "test-writer",
+    "agent": "gsd-test-writer",
+    "model": "haiku",
+    "tier": "T2 (catalog validation)",
+    "plan": ".planning/phases/402-games-money-paths/402-97-PLAN.md",
+    "phase_dir": ".planning/phases/402-games-money-paths",
+    "base": "b9c4b6db0",
+    "ref": [
+      "b9c4b6db0"
+    ],
+    "scope_files": [
+      "apps/api/libs/domain/src/lib/schemas/validation.test.ts"
+    ],
+    "verify": [],
+    "hidden": [],
+    "tdd": false,
+    "characterize": true,
+    "commit_note": "The code under test already exists and is correct, so the new tests pass: commit the test file once they pass.",
+    "budget_usd": 5,
+    "timeout_min": 30,
+    "scrub_terms": [
+      "402-97",
+      "schemas/validation",
+      "normalizeInput"
+    ],
+    "enabled": true,
+    "test_files": [
+      "apps/api/libs/domain/src/lib/schemas/validation.test.ts"
+    ],
+    "phase_number": "402",
+    "phase_name": "games-money-paths",
+    "plan_number": "97",
+    "mutants": [
+      "TW7/mutants/m1-normalize-drops-first-char.patch",
+      "TW7/mutants/m2-normalize-default-201.patch",
+      "TW7/mutants/m3-uuid-v1-refused.patch",
+      "TW7/mutants/m4-game-id-unchecked.patch",
+      "TW7/mutants/m5-update-uses-create-schema.patch",
+      "TW7/mutants/m6-limit-max-101.patch"
+    ],
+    "kill_bar": 5,
+    "calibration": {
+      "mode": "mutants",
+      "inputs": [
+        "apps/api/libs/domain/src/lib/schemas/validation.test.ts"
+      ]
+    },
+    "behaviours": 5,
+    "ref_overlay": "TW7/ref",
+    "overlay": [
+      "TW7/overlay"
+    ]
+  },
+  {
+    "id": "TW8",
+    "role": "test-writer",
+    "agent": "gsd-test-writer",
+    "model": "haiku",
+    "tier": "T2 (notifications)",
+    "plan": ".planning/phases/398-findings-register-reverification-program-substrate/398-97-PLAN.md",
+    "phase_dir": ".planning/phases/398-findings-register-reverification-program-substrate",
+    "base": "b9c4b6db0",
+    "ref": [
+      "b9c4b6db0"
+    ],
+    "scope_files": [
+      "apps/api/functions/notifications/services/sms-provider.test.ts"
+    ],
+    "verify": [],
+    "hidden": [],
+    "tdd": false,
+    "characterize": true,
+    "commit_note": "The code under test already exists and is correct, so the new tests pass: commit the test file once they pass.",
+    "budget_usd": 5,
+    "timeout_min": 30,
+    "scrub_terms": [
+      "398-97",
+      "sms-provider"
+    ],
+    "enabled": true,
+    "test_files": [
+      "apps/api/functions/notifications/services/sms-provider.test.ts"
+    ],
+    "phase_number": "398",
+    "phase_name": "findings-register-reverification-program-substrate",
+    "plan_number": "97",
+    "mutants": [
+      "TW8/mutants/m1-bounce-phone-inverted.patch",
+      "TW8/mutants/m2-status-102-bounced.patch",
+      "TW8/mutants/m3-status-100-bounced.patch",
+      "TW8/mutants/m4-status-103-sent.patch",
+      "TW8/mutants/m5-recipient-dropped.patch",
+      "TW8/mutants/m6-sender-dropped.patch"
+    ],
+    "kill_bar": 5,
+    "calibration": {
+      "mode": "mutants",
+      "inputs": [
+        "apps/api/functions/notifications/services/sms-provider.test.ts"
+      ]
+    },
+    "behaviours": 3,
+    "ref_overlay": "TW8/ref",
+    "overlay": [
+      "TW8/overlay"
+    ]
+  }
+]

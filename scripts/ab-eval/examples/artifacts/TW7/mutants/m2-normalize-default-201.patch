@@ -1,0 +1,11 @@
+--- a/apps/api/libs/domain/src/lib/schemas/validation.ts
++++ b/apps/api/libs/domain/src/lib/schemas/validation.ts
+@@ -431,7 +431,7 @@
+  * and truncates to maximum length. Only performs normalization and truncation,
+  * does not remove valid characters. Security is enforced at the schema validation level.
+  */
+-export function normalizeInput(input: string, maxLength: number = 200): Result<string, ValidationErrorType> {
++export function normalizeInput(input: string, maxLength: number = 201): Result<string, ValidationErrorType> {
+   if (typeof input !== 'string') {
+     return err(FpValidationError([{ field: 'input', message: 'Input must be a string', code: 'INVALID_TYPE' }]))
+   }

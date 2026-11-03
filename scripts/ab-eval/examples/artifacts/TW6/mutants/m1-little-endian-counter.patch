@@ -1,0 +1,11 @@
+--- a/apps/api/libs/infrastructure/src/lib/auth/totp-service.ts
++++ b/apps/api/libs/infrastructure/src/lib/auth/totp-service.ts
+@@ -83,7 +83,7 @@
+   // Convert counter to 8-byte big-endian buffer
+   const counterBuffer = new ArrayBuffer(8)
+   const counterView = new DataView(counterBuffer)
+-  counterView.setBigUint64(0, BigInt(counter), false)
++  counterView.setBigUint64(0, BigInt(counter), true)
+ 
+   // HMAC-SHA1
+   const cryptoKey = await crypto.subtle.importKey(

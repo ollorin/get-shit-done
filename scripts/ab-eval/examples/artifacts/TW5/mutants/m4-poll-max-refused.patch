@@ -1,0 +1,11 @@
+--- a/apps/api/functions/payments/handlers/processor-validation.ts
++++ b/apps/api/functions/payments/handlers/processor-validation.ts
+@@ -82,7 +82,7 @@
+   if (
+     poll !== undefined &&
+     (typeof poll !== "number" || !Number.isInteger(poll) || poll < 1 ||
+-      poll > POLL_MINUTES_MAX)
++      poll >= POLL_MINUTES_MAX)
+   ) {
+     return "async_poll_timeout_minutes must be an integer between 1 and 10080";
+   }

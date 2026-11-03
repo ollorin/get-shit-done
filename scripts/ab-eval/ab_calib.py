@@ -246,7 +246,48 @@ def mutant_paths(t: Dict[str, Any]) -> List[Path]:
     return [C.ARTIFACTS / name for name in t.get("mutants", [])]
 
 
+def mode_mutants_existing(t: Dict[str, Any], tdir: Path, cfg: Dict[str, Any], repeat: int) -> List[Dict[str, Any]]:
+    """Characterization task (`characterize: true`): the code under test exists and is correct at base. The current
+    tests pass and kill no mutant; the reference tests (ref_overlay) pass and kill all of them. Needs no pristine."""
+    import ab_setup as S
+    calib = tdir / "calib"
+    if calib.exists():
+        shutil.rmtree(calib)
+    ref_tree = calib / "ref"
+    S.extract_rev_paths(C.LIVE_REPO, t["ref"][-1], ["."], ref_tree)
+    env_src = C.LIVE_REPO / "apps" / "api" / ".env.test"
+    if env_src.exists():
+        shutil.copy2(env_src, ref_tree / "apps" / "api" / ".env.test")
+    tests, cwd = t["test_files"], ref_tree / "apps" / "api"
+    muts_paths = mutant_paths(t)
+
+    def run_tests() -> List[int]:
+        return [C.run_cmd(["deno", "task", "test", os.path.relpath(ref_tree / x, cwd)], cwd, timeout=900)[0]
+                for x in tests]
+
+    cur_green = [run_tests() for _ in range(repeat)]
+    cur = run_mutants(ref_tree, tests, muts_paths)
+    apply_ref_overlay(t, ref_tree)
+    ref_green = [run_tests() for _ in range(repeat)]
+    ref = run_mutants(ref_tree, tests, muts_paths)
+    shutil.rmtree(calib)
+    bar = int(t.get("kill_bar", len(muts_paths)))
+    return [
+        check("current_tests_pass_x%d" % repeat, all(rc == 0 for b in cur_green for rc in b), f"rcs={cur_green}"),
+        check("mutants_apply", bool(cur) and all(m["applied"] for m in cur), f"{sum(m['applied'] for m in cur)}/{len(cur)}"),
+        check("current_tests_kill_zero", all(m["applied"] and not m["killed"] and m["rcs"] == [0] * len(tests) for m in cur),
+              f"killed {sum(m['killed'] for m in cur)}/{len(cur)}; every mutant must also compile and pass "
+              f"(rcs {[m.get('rcs') for m in cur]})", mutants=cur),
+        check("ref_tests_pass_x%d" % repeat, all(rc == 0 for b in ref_green for rc in b), f"rcs={ref_green}"),
+        check("ref_kills_all_mutants", bool(ref) and all(m["killed"] for m in ref),
+              f"killed {sum(m['killed'] for m in ref)}/{len(ref)}", mutants=ref),
+        check("kill_bar_valid", 0 < bar <= len(muts_paths), f"bar {bar} of {len(muts_paths)} mutants; empty change kills 0"),
+    ]
+
+
 def mode_mutants(t: Dict[str, Any], tdir: Path, cfg: Dict[str, Any], repeat: int) -> List[Dict[str, Any]]:
+    if t.get("characterize"):
+        return mode_mutants_existing(t, tdir, cfg, repeat)
     import ab_setup as S
     pristine, calib, base_copy = prepare_copies(t, tdir)
     tests = t["test_files"]

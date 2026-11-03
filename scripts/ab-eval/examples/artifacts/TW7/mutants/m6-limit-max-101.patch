@@ -1,0 +1,11 @@
+--- a/apps/api/libs/domain/src/lib/schemas/validation.ts
++++ b/apps/api/libs/domain/src/lib/schemas/validation.ts
+@@ -54,7 +54,7 @@
+   casino_brand: CasinoBrandSchema,
+   player_segment: PlayerSegmentSchema.default('BRONZE'),
+   game_types: z.array(GameTypeRequiredSchema).default([]),
+-  limit: z.number().int().min(1).max(100).default(50),
++  limit: z.number().int().min(1).max(101).default(50),
+   offset: z.number().int().min(0).default(0),
+   include_assets: z.boolean().default(true),
+   sort_by: z.enum(['published_at', 'title', 'popularity', 'rtp']).default('published_at'),

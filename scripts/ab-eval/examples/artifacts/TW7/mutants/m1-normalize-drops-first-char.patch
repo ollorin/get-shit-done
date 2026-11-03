@@ -1,0 +1,11 @@
+--- a/apps/api/libs/domain/src/lib/schemas/validation.ts
++++ b/apps/api/libs/domain/src/lib/schemas/validation.ts
+@@ -442,7 +442,7 @@
+       // deno-lint-ignore no-control-regex
+       .replace(/[\x00-\x1F\x7F-\x9F]/g, '') // Strip control characters
+       .trim()
+-      .slice(0, maxLength) // Truncate to max length
++      .slice(1, maxLength) // Truncate to max length
+   )
+ }
+ 

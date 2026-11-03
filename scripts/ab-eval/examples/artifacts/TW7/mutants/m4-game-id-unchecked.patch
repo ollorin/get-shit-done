@@ -1,0 +1,11 @@
+--- a/apps/api/libs/domain/src/lib/schemas/validation.ts
++++ b/apps/api/libs/domain/src/lib/schemas/validation.ts
+@@ -462,7 +462,7 @@
+     return err(FpValidationError([{ field: 'id', message: 'Game ID is required', code: 'REQUIRED' }]))
+   }
+ 
+-  if (!isValidUUID(gameId)) {
++  if (false) {
+     return err(FpValidationError([{ field: 'id', message: 'Game ID must be a valid UUID', code: 'INVALID_UUID' }]))
+   }
+ 

@@ -1,0 +1,11 @@
+--- a/apps/api/functions/notifications/services/sms-provider.ts
++++ b/apps/api/functions/notifications/services/sms-provider.ts
+@@ -147,7 +147,7 @@
+   const mapErr = (e: unknown) => (e instanceof Error ? e : new Error(String(e)));
+   const params = new URLSearchParams({
+     username,
+-    to: payload.to,
++    to: undefined as never,
+     message,
+     from: senderId,
+   });

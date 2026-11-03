@@ -1,0 +1,11 @@
+--- a/apps/api/libs/infrastructure/src/lib/auth/totp-service.ts
++++ b/apps/api/libs/infrastructure/src/lib/auth/totp-service.ts
+@@ -118,7 +118,7 @@
+ export async function verifyTOTP(
+   code: string,
+   secret: string,
+-  window: number = 1
++  window: number = 2
+ ): Promise<{ valid: boolean; usedCounter?: number }> {
+   const time = Math.floor(Date.now() / 1000)
+   const currentCounter = Math.floor(time / 30)

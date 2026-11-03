@@ -93,6 +93,8 @@ def _subs(task: Dict[str, Any], variant: str) -> Dict[str, str]:
             subs[key.upper() if key != "plan" else "PLAN_FILE"] = str(task[key])
     subs["PLAN_NUMBER"] = str(task.get("plan_number", ""))
     subs["TASK_NAMES"] = "; ".join(task.get("task_names", []))
+    subs["COMMIT_NOTE"] = str(task.get("commit_note") or "Commit each test file as its own RED commit before any "
+                              "implementation exists in the tree.")
     subs["SCOPE_NOTE"] = (" " + str(task["scope_note"]).strip()) if task.get("scope_note") else ""
     for key, value in task.items():
         if isinstance(value, (str, int)) and not isinstance(value, bool):

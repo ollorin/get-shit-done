@@ -1,0 +1,11 @@
+--- a/apps/api/libs/infrastructure/src/lib/auth/totp-service.ts
++++ b/apps/api/libs/infrastructure/src/lib/auth/totp-service.ts
+@@ -191,7 +191,7 @@
+ 
+   const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(normalizedCode))
+   return Array.from(new Uint8Array(signature))
+-    .map(b => b.toString(16).padStart(2, '0'))
++    .map(b => b.toString(16).padStart(3, '0'))
+     .join('')
+ }
+ 

@@ -1,0 +1,11 @@
+--- a/apps/api/functions/notifications/services/sms-provider.ts
++++ b/apps/api/functions/notifications/services/sms-provider.ts
+@@ -149,7 +149,7 @@
+     username,
+     to: payload.to,
+     message,
+-    from: senderId,
++    from: undefined as never,
+   });
+ 
+   return ResultAsync.fromPromise(

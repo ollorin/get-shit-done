@@ -1,0 +1,11 @@
+--- a/apps/api/libs/infrastructure/src/lib/auth/totp-service.ts
++++ b/apps/api/libs/infrastructure/src/lib/auth/totp-service.ts
+@@ -123,7 +123,7 @@
+   const time = Math.floor(Date.now() / 1000)
+   const currentCounter = Math.floor(time / 30)
+ 
+-  for (let i = -window; i <= window; i++) {
++  for (let i = -window; i < window; i++) {
+     const testCounter = currentCounter + i
+     const testTime = testCounter * 30
+     const expected = await generateTOTP(secret, testTime)

@@ -1,0 +1,11 @@
+--- a/apps/api/functions/notifications/services/sms-provider.ts
++++ b/apps/api/functions/notifications/services/sms-provider.ts
+@@ -208,7 +208,7 @@
+       const statusCode = first.statusCode ?? 0;
+ 
+       // AT status codes: 100-102 = success; 400-499 = client error (invalid number etc.)
+-      if (statusCode >= 100 && statusCode <= 102) {
++      if (statusCode >= 100 && statusCode <= 103) {
+         return okAsync<SmsSendResult>({
+           message_id: first.messageId ?? "",
+           status: "sent",

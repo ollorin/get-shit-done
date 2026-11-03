@@ -1,0 +1,11 @@
+--- a/apps/api/functions/payments/handlers/processor-validation.ts
++++ b/apps/api/functions/payments/handlers/processor-validation.ts
+@@ -15,7 +15,7 @@
+ const IPV6 = /^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$/;
+ 
+ export const isValidIp = (ip: string): boolean =>
+-  (IPV4.test(ip) && ip.split(".").every((octet) => Number(octet) <= 255)) ||
++  (IPV4.test(ip) && ip.split(".").every((octet) => Number(octet) < 255)) ||
+   IPV6.test(ip);
+ 
+ const isStringList = (

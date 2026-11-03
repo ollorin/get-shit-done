@@ -1,0 +1,11 @@
+--- a/apps/api/libs/infrastructure/src/lib/auth/totp-service.ts
++++ b/apps/api/libs/infrastructure/src/lib/auth/totp-service.ts
+@@ -102,7 +102,7 @@
+     ((hmac[offset] & 0x7f) << 24) |
+     ((hmac[offset + 1] & 0xff) << 16) |
+     ((hmac[offset + 2] & 0xff) << 8) |
+-    (hmac[offset + 3] & 0xff)
++    (hmac[offset + 4] & 0xff)
+ 
+   // 6-digit code
+   return (binary % 1000000).toString().padStart(6, '0')

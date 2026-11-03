@@ -250,7 +250,7 @@ def grade_mutants(run_dir: Path, task: Dict[str, Any], generic: Dict[str, Any], 
     base_runs = []
     for p in tests:
         rc, out, _ = C.run_cmd(["deno", "task", "test", G.hidden_arg(repo / p, cwd)], cwd, timeout=900)
-        base_runs.append(G.classify_red(rc, out))
+        base_runs.append(("green" if rc == 0 else "red") if task.get("characterize") else G.classify_red(rc, out))
     scratch = run_dir / "mutation"
     green_ok, kills = False, []
     if tests:
@@ -273,8 +273,11 @@ def grade_mutants(run_dir: Path, task: Dict[str, Any], generic: Dict[str, Any], 
     bar = int(task.get("kill_bar", len(K.mutant_paths(task))))
     checks = {
         "tests_written": _chk(bool(tests), f"test files present: {tests}"),
-        "fail_by_assertion_at_base": _chk(bool(base_runs) and all(c == "proven" for c in base_runs),
-                                          f"classes={base_runs}"),
+        **({"pass_at_base": _chk(bool(base_runs) and all(c == "green" for c in base_runs),
+                                f"classes={base_runs}; characterization task: the code under test exists")}
+           if task.get("characterize") else
+           {"fail_by_assertion_at_base": _chk(bool(base_runs) and all(c == "proven" for c in base_runs),
+                                              f"classes={base_runs}")}),
         "pass_on_green": _chk(green_ok, "agent tests pass on the reference GREEN tree"),
         "kill_count": _chk(killed >= bar and bar > 0, f"killed {killed}/{len(kills)} mutants; bar {bar}"),
         "no_prod_edits": _chk(not prod, f"non-test files touched: {prod[:5]}"),

@@ -7,6 +7,6 @@ Write the tests for plan {{PLAN_NUMBER}} of phase {{PHASE_NUMBER}} ({{PHASE_NAME
 
 {{TASK_BRIEF}}
 
-Plan: {{PLAN_FILE}}. Test files in scope: {{SCOPE_FILES}}. Commit each test file as its own RED commit before any implementation exists in the tree.
+Plan: {{PLAN_FILE}}. Test files in scope: {{SCOPE_FILES}}. {{COMMIT_NOTE}}
 The shared stack is unavailable in this run; integration tests are out of scope and must be reported NOT RUN.
 PROMPT>>>

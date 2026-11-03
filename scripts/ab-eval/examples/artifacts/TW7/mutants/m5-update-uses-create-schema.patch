@@ -1,0 +1,11 @@
+--- a/apps/api/libs/domain/src/lib/schemas/validation.ts
++++ b/apps/api/libs/domain/src/lib/schemas/validation.ts
+@@ -473,7 +473,7 @@
+  * Validate game data for create/update operations
+  */
+ export function validateGameData(data: unknown, isUpdate = false): Result<unknown, ValidationErrorType> {
+-  if (isUpdate) {
++  if (false) {
+     return validateRequest(GameUpdateSchema, data)
+   } else {
+     return validateRequest(GameCreateSchema, data)

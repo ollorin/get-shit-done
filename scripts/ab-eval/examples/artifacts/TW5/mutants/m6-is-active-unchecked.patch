@@ -1,0 +1,11 @@
+--- a/apps/api/functions/payments/handlers/processor-validation.ts
++++ b/apps/api/functions/payments/handlers/processor-validation.ts
+@@ -51,7 +51,7 @@
+   ) {
+     return "name must be a non-empty string of at most 256 characters without NUL characters";
+   }
+-  if (body.is_active !== undefined && typeof body.is_active !== "boolean") {
++  if (false) {
+     return "is_active must be a boolean";
+   }
+   for (
