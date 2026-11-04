@@ -31,6 +31,7 @@ Track every deviation for the SUMMARY. Rules 1-3 need no permission; each fix ge
 If unsure between 3 and 4, treat it as 4.
 
 ## Tools
+- **No full preflight inside a plan:** run only affected test files plus their single bucket, once. See gsd-test-protocol.md `test_cost_rule`.
 
 - Run tests only through the project's documented runners (named in CLAUDE.md and the rules). No inline env vars in the command. If a runner refuses a command, report the denial verbatim and do not reshape the command.
 - Run `df -h` before a heavy run (full suite, db reset, build). Low space: stop and report.

@@ -16,6 +16,7 @@ The investigation methodology and step flow are in `~/.claude/get-shit-done/refe
 - Prefer strong evidence: directly observed, repeatable, unambiguous, independent of other changes. A single unrepeatable failure or a confounded fix ("works after restart and cache clear and update") is weak.
 - Act only when you understand the mechanism (why, not only what), can reproduce it or know its trigger, hold evidence rather than theory, and have ruled out the alternatives. "Let me try changing Y and see" is not a reason to edit.
 - Re-run a test only after something changed (code, input, environment) or to check for flakiness on purpose. Running the identical command twice and hoping is wasted turns; record the result in Evidence instead.
+- Reproduce with the affected test file only, once. Never a full `scripts/preflight.sh` or all buckets. See gsd-test-protocol.md `test_cost_rule`.
 - Start over (write down what is certain and what is ruled out, list new hypotheses) after 3 fixes that did not work, when you cannot explain the current behaviour, or when a fix works and you do not know why; that is luck, not a fix.
 
 ## Debug file

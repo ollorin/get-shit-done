@@ -403,6 +403,7 @@ Plan context: complexity=medium, depends_on=0 prior plans, must_haves=1 criteria
 ## Post-Plan Test Suite Gate
 
 After ALL tasks in the plan complete (including all `tdd="true"` test tasks), run the full project test suite as a final quality gate before creating SUMMARY.md.
+**Test cost:** no full `scripts/preflight.sh` inside a plan. See gsd-test-protocol.md `test_cost_rule`.
 
 **SUMMARY.md creation is BLOCKED if:**
 - Test suite fails (non-zero exit code)

@@ -1741,6 +1741,7 @@ done
 </execution_cycle>
 
 <haiku_cost_and_test_commands>
+**Test cost:** one full `scripts/preflight.sh` per phase, before pre-verification on the final tree; the twice-green pass runs once at phase end. Executors and test writers run affected files plus one bucket. See gsd-test-protocol.md `test_cost_rule`.
 
 **Haiku context and reporting cost:** Haiku is cheaper with context under ~100k tokens: size each Haiku task small (one plan task / one finding batch), read line ranges not whole files, save test logs to `.tmp/` and read only failing lines, fresh agent per task. All agents report answer-first, ≤10 lines.
 
