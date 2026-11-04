@@ -402,13 +402,13 @@ Plan context: complexity=medium, depends_on=0 prior plans, must_haves=1 criteria
 
 ## Post-Plan Test Suite Gate
 
-After ALL tasks in the plan complete (including all `tdd="true"` test tasks), run the full project test suite as a final quality gate before creating SUMMARY.md.
+After ALL tasks in the plan complete (including all `tdd="true"` test tasks), run the plan's affected test files plus their single bucket, once, as a final quality gate before creating SUMMARY.md; the full suite runs once per phase at the phase-end gate per `test_cost_rule`.
 **Test cost:** no full `scripts/preflight.sh` inside a plan. See gsd-test-protocol.md `test_cost_rule`.
 
 **SUMMARY.md creation is BLOCKED if:**
 - Test suite fails (non-zero exit code)
 - Test suite times out (5-minute limit, exit code 124)
-- Measured coverage falls below `testing.coverage_threshold` (when set in config.json)
+- Measured coverage falls below `testing.coverage_threshold` on the touched libs/files (when set in config.json)
 
 **Step 1: Detect test command**
 
@@ -430,6 +430,8 @@ if [ -z "$TEST_CMD" ]; then
   fi
 fi
 ```
+
+Whichever command is detected, narrow it to the plan's affected test files plus their single bucket (`test_cost_rule` step 1); a whole-project command is never run inside a plan.
 
 If TEST_CMD is empty after all detection attempts AND this plan contains no `tdd="true"` tasks: log "No test command found and no tdd tasks — skipping post-plan test gate" and proceed to `<summary_creation>`.
 
