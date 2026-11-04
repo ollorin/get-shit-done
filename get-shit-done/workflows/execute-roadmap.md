@@ -704,6 +704,7 @@ Parse the JSON output. If `action_required` is true:
 - Run EVERY check listed in `checks` array
 - Each check must exit 0
 - Run the full suite TWICE — both runs must be green
+  (PR-time only. Within phases: one full preflight per phase on the final tree; per-plan runs are affected files plus one bucket. See gsd-test-protocol.md `test_cost_rule`.)
 - After both runs pass, mark the gate:
 ```bash
 node ~/.claude/get-shit-done/bin/gsd-tools.js gate pre-pr --mark-passed

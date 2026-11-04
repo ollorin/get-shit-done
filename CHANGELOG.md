@@ -6,6 +6,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- **Test-cost rule.** One full `scripts/preflight.sh` per phase (final tree, before pre-verification); plans and fix loops run affected files plus one bucket; the twice-green pass runs once at phase end / before the PR. Canonical text in `get-shit-done/references/gsd-test-protocol.md` (`test_cost_rule`); pointers in `gsd-executor`, `gsd-phase-coordinator`, `gsd2-runner`, `execute-roadmap.md` and the v2 executor/phase-coordinator/runner. Reason: five 25-minute preflights in one phase starved a parallel phase for ~60 min on the shared stack lock.
+
 ### Fixed
 - **QGATE-17 round 8 (final re-review of 9114f65).** The round-7 product code was confirmed correct on all four items; the two BLOCKERs were both **false claims in the tests and this changelog**, which is worse than a weak test because it documents behaviour that was never observed.
   - **"bash 5" was never run.** The big-`$log` test looped over `['/bin/bash', 'bash']` and asserted only the *first* shell's version. On this host `which -a bash` returns only `/bin/bash` (3.2.57) — no homebrew, `/usr/local` or nix bash — so the loop ran 3.2 twice and the "same answer under bash 3.2 and bash 5" claim in the test title, the test comment, the commit message and the round-7 changelog entry all passed without a second version ever executing. The test now **resolves** the bash binaries that exist, runs the block under each, and asserts that bash 3.2 is among them (the version whose SIGPIPE behaviour differs); the coverage claim is derived from what was actually executed rather than from a hand-written list.

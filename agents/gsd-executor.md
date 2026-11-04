@@ -127,6 +127,8 @@ No user permission needed for Rules 1-3.
 
 <tooling_and_resources>
 
+**No full preflight inside a plan:** run only affected test files plus their single bucket, once. See gsd-test-protocol.md `test_cost_rule`.
+
 **Run tests only through the project's documented runners or tasks**, as named in the project's CLAUDE.md and rules files. Never type bypass/override env vars inline in a command (`FOO=bar some-test`) — inline env prefixes are denied by permission systems and skip the runner's own setup and cleanup. If a runner refuses a run, report the denial verbatim; never reshape the command to get around it.
 
 **Check free disk space before a heavy run** (full suite, database reset, builds, E2E): `df -h`. If free space is low, STOP and report rather than run — a filled disk takes down the environment, not just the run.

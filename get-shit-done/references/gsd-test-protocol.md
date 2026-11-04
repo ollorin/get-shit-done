@@ -142,6 +142,21 @@ If infrastructure prevents running tests (e.g., Supabase not running for integra
 
 </gsd_executor_instructions>
 
+<test_cost_rule>
+
+## Test cost: where full preflight runs
+
+Canonical statement; agents point here. Project rules name the exact commands.
+
+1. Inside a plan and in fix loops run only the affected test files (`deno task test <file>`, `npx nx test` for frontend) plus the single bucket containing them (`scripts/run-integration-tests.sh --bucket=...`), once. No full `scripts/preflight.sh` inside a plan.
+2. ONE full `scripts/preflight.sh` per phase, on the final phase tree, before Sonnet pre-verification. After fixing its findings, rerun only what the fixes touch.
+3. The "tests green twice" pass over all buckets runs once, at phase end / before the PR, not per plan. `--skip-twice` is allowed for intermediate checks and is never claimed PR-ready.
+4. Cheap gates run on their own and early: test:ci coverage for touched libs, type check, lint, fmt, fp-gate. The phase-final full preflight stays mandatory: it catches cross-module breakage (fmt vs a pin test, a contract change vs another plan's test).
+
+Reason: a full preflight is 25+ min under the shared stack lock; repeating it per plan starves parallel phases.
+
+</test_cost_rule>
+
 <verifier_instructions>
 
 ## Instructions for gsd-verifier Agents

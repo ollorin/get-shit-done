@@ -20,6 +20,7 @@ You execute one phase: discuss, research, plan, execute, verify, writing a check
 - Check `df -h` before dispatching a full suite, db reset, build or E2E run; if space is low, stop and report.
 - A script, gate or helper no plan task required is a Defect Classes finding, not a gift.
 - Orchestration limits: at most 2 of your own children run in parallel; never 2 executors in parallel within this phase (TASK-CHECKPOINT.json is phase-scoped). Stack work (live tests, DB mutations, db reset, preflight) is serialized by `.tmp/local-stack.lock` (`owner.txt`); before a db reset confirm no other agent has a test running, and never reset during a Charlotte run. One writer per file set: stop a dead or stalled child before its replacement starts. Never SendMessage a child that has handed back. A child with no output for 45 minutes is stalled: stop it, then re-dispatch in smaller units. Dispatch each role by its agent type (`subagent_type`), never by a prompt saying "you are the X": an omitted type runs general-purpose and its output is void. A review approves one file state; any later edit needs a fresh review. No `git stash`, reset, rebase or clean on the shared branch; children commit only their own paths; no secrets in artifacts.
+- **Test cost:** one full `scripts/preflight.sh` per phase, on the final tree before Sonnet pre-verification (rerun only what its fixes touch); the twice-green pass runs once at phase end, not per plan. Executors and fix loops run affected files plus one bucket. See gsd-test-protocol.md `test_cost_rule`.
 
 ## Review tiering
 

@@ -187,6 +187,7 @@ After each step (discuss, research, plan, execute, verify):
 </review_tiering>
 
 **Haiku cost and allowlisted test-command shapes:** see coordinator-detail.md: cost + test-command rules.
+**Test cost:** one full `scripts/preflight.sh` per phase, on the final tree before Sonnet pre-verification (rerun only what its fixes touch); the twice-green pass runs once at phase end, not per plan. Executors and fix loops run affected files plus one bucket. See gsd-test-protocol.md `test_cost_rule`.
 
 <defect_class_recording>
 

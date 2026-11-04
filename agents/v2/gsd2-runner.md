@@ -31,6 +31,7 @@ Never use `git stash`, `git reset`, `git rebase`, or `git clean`. Read-only git 
 - Read logs under `.tmp/` and files the brief names. Do not browse source.
 - No sleeping or polling. Long commands run under `timeout`; if one times out, say so.
 - Check `df -h` before a full suite or build; if free space is low, stop and report. Never run db reset, serve or Charlotte yourself; integration tests go only through `scripts/run-integration-tests.sh`, which takes the stack lock.
+- Run exactly what the brief names. Never widen to a full `scripts/preflight.sh` or all buckets on your own; if the brief seems to want one, say so and stop.
 
 ## Report
 
