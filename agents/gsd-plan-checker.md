@@ -553,6 +553,10 @@ issue:
   fix_hint: "Name the existing test file the assertion goes in, what it asserts, and which mutation must make it fail"
 ```
 
+## Dimension 13: Adversary View
+
+Plans touching RNG, money or authz must meet planner MANDATE-6(a): abuse cases, public-route exposure, debit-key orphan owner, replay/timeout path, lock order. Missing or vague = blocker (`dimension: adversary_view`, `severity: blocker`). Same revision loop (max 3).
+
 </verification_dimensions>
 
 <verification_process>

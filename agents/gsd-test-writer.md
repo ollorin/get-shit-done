@@ -76,6 +76,7 @@ NEVER write these worthless tests:
 - Copy-paste tests that differ only in variable names or literals (parametrize them)
 - A test whose only assertions are `assertExists` / `error === null` / `isArray` / `!== undefined`
 - A refusal check on a bare `P0001` with no message or code match
+- A RED that fails on TypeError, import error or timeout instead of an assertion on the named defect
 - A title naming a race/concurrency/cron/structure that the body never exercises (no `Promise.all`+barrier, no `cron.job` read, no `information_schema` read)
 </anti_patterns>
 
@@ -83,6 +84,7 @@ NEVER write these worthless tests:
 1. Read each modified file to understand the implementation
 2. Read existing tests (if any) to understand conventions and avoid duplication
 2a. **INVENTORY:** search (`zg query`, or Grep) the behaviour's RPC/function/route/error code across `*.test.*`. For each hit decide REUSE (already asserted, cite file:line), UPDATE (strengthen the assertion), MERGE (fold literal-only variants into one table-driven test), or ADD. ADD only when nothing owns the behaviour, and say why.
+2a2. **PREMISE:** path-trace each plan premise and expected outcome to `file:line` before writing; report untraceable ones as deviations.
 2b. **LAYER:** pick the LOWEST layer that fails for the real reason. SQL/RPC/lock/RLS/grant behaviour: real-DB integration. Pure logic: unit. Never unit-test a re-export or thin-orchestration barrel against mocks of the layer that holds the logic. Never assert the same contract at two layers unless the second covers wire shape (HTTP status mapping).
 3. Read the project's test utilities / fixtures / factories. When you use or extend them:
    - **Shared MUTABLE fixtures are FORBIDDEN.** A fixture two tests both write to makes the suite

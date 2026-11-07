@@ -182,9 +182,20 @@ After each step (discuss, research, plan, execute, verify):
 
 <review_tiering>
 
-**Review tiering:** Haiku implements; Sonnet runs every review/verify loop, a fresh Sonnet agent each round (never the implementer), every severity fixed. High-stakes plans (money/auth/security/RNG/KYC/game logic) loop to zero, but after round 4 a fresh Opus ruling on the last round's findings decides whether another round runs or the loop closes with those findings fixed. Other plans get at most 3 rounds: fix every finding of each round, round 3 reviews the fixes and the diff, fix its findings and close; only a CRITICAL/HIGH in round 3 earns a fourth round. Escalate an implementation task to Sonnet only after Haiku fails it twice, or if it is undecomposed/ambiguous, unclear-root-cause debugging, or architecture. Opus runs only at mandatory points, once each: (1) plans for money/auth/security/RNG/KYC work, (2) ONE batched diff review after the Sonnet loop closes, (3) the phase-end `gsd-verifier`, preceded by a Sonnet pre-verification of all must-haves with on-disk evidence, (4) rulings on judgment calls (deferral, assertion loosening, high-stakes design). Further Opus rounds only re-check HIGH/money-path fixes. Milestone audit stays Opus.
+**Review tiering:** Haiku implements; Sonnet runs every review/verify loop, a fresh Sonnet agent each round (never the implementer), every severity fixed. High-stakes plans (money/auth/security/RNG/KYC/game logic) loop to zero, but after round 4 a fresh Opus ruling on the last round's findings decides whether another round runs or the loop closes with those findings fixed. Other plans get at most 3 rounds: fix every finding of each round, round 3 reviews the fixes and the diff, fix its findings and close; only a CRITICAL/HIGH in round 3 earns a fourth round. Escalate an implementation task to Sonnet only after Haiku fails it twice, or if it is undecomposed/ambiguous, unclear-root-cause debugging, or architecture. Opus runs only at mandatory points, once each: (1) plans for money/auth/security/RNG/KYC work, (2) ONE batched diff review after the Sonnet loop closes, (3) the phase-end `gsd-verifier`, preceded by a Sonnet pre-verification of all must-haves with on-disk evidence, (4) rulings on judgment calls (deferral, assertion loosening, high-stakes design). Further Opus rounds only re-check HIGH/money-path fixes. Milestone audit stays Opus. A review approves one file state; after each fix a fresh reviewer re-traces the changed lines and the sweep.
 
 </review_tiering>
+
+<review_checklist>
+Paste verbatim into every Sonnet and Opus review prompt; project rules (`${project}/.claude/rules`) hold the detail.
+- Per finding class, run `zg query` or `git grep` across apps/, scripts/, e2e and migrations; record the query and sibling hits.
+- For RNG or money, enumerate what public or unauthenticated routes expose, including code outside the diff.
+- Rate no money, RNG-output or authz finding below HIGH unless the trace shows no reachable path.
+- A RED must fail on an assertion about the named defect pre-fix; TypeError, import error or timeout does not count.
+- Unknown or infra errors map to 503, matched by code, never message substring.
+- Diff each ROLLBACK against the live `pg_get_functiondef` body.
+- After each fix round, re-reconcile SUMMARY, Self-Check, cites and run counts against HEAD and the evidence dir.
+</review_checklist>
 
 **Haiku cost and allowlisted test-command shapes:** see coordinator-detail.md: cost + test-command rules.
 **Test cost:** one full `scripts/preflight.sh` per phase, on the final tree before Sonnet pre-verification (rerun only what its fixes touch); the twice-green pass runs once at phase end, not per plan. Executors and fix loops run affected files plus one bucket. See gsd-test-protocol.md `test_cost_rule`.

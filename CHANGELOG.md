@@ -7,6 +7,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Changed
+- **Review checklist.** Shared `<review_checklist>` in `gsd-phase-coordinator` (sweep, public surface, severity floor, RED-on-defect, 503 mapping, ROLLBACK diff, bookkeeping reconcile); plan-premise tracing in `gsd-test-writer`/`gsd-executor`; adversary view in planner MANDATE-6 and plan-checker Dimension 13; post-fix reconcile in `execute-plan.md`.
 - **Post-plan test gate.** `executor-detail.md` `<post_plan_test_gate>` now runs the plan's affected test files plus their single bucket (not the full suite); the full suite stays at the phase-end gate per `test_cost_rule`.
 - **Test-cost rule.** One full `scripts/preflight.sh` per phase (final tree, before pre-verification); plans and fix loops run affected files plus one bucket; the twice-green pass runs once at phase end / before the PR. Canonical text in `get-shit-done/references/gsd-test-protocol.md` (`test_cost_rule`); pointers in `gsd-executor`, `gsd-phase-coordinator`, `gsd2-runner`, `execute-roadmap.md` and the v2 executor/phase-coordinator/runner. Reason: five 25-minute preflights in one phase starved a parallel phase for ~60 min on the shared stack lock.
 - **Test-cost pointers.** `test_cost_rule` pointers added to the remaining roles (gsd-test-writer and v2 k/p/s, gsd2-debugger.c, gsd2-executor c/d/p, gsd2-phase-coordinator.c, coordinator-detail, executor-detail); canonical text unchanged.

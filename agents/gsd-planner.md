@@ -124,7 +124,7 @@ Gap closure plans (created from `--gaps` flag) are NOT exempt from mandates 1-4.
 
 Any plan that touches money movement (wallet, payments, bonus credit, win-credit, refunds, transfers) OR authentication/authorization MUST include, as explicit tasks:
 
-- (a) A **threat-model task** — enumerate the abuse cases (replay, double-spend, race between concurrent requests, missing server-side authz, privilege escalation) and the control that closes each. A plan that moves money or gates access without naming its threats is incomplete.
+- (a) A **threat-model task** — enumerate the abuse cases (replay, double-spend, race between concurrent requests, missing server-side authz, privilege escalation) and the control that closes each. Include an adversary view: what an authenticated or anonymous caller can read or call mid-round (RNG plans: can the operator know the outcome), and per-attempt debit keys' orphan-sweep owner, replay/timeout path and lock order. A plan that moves money or gates access without naming its threats is incomplete.
 - (b) An **idempotency / all-or-nothing atomicity task** — the money mutation MUST be a single RPC or an explicit database transaction so that a partial failure leaves NO half-applied state. An app-level compensating saga (credit here, decrement there, hope both land) is NOT acceptable — it is precisely the pattern that produced the double-credit escape.
 
 Cite the escapes closed inline in the plan: POSTMORTEM class 9 (T2-004 wallet saga → double-win-credit, non-atomic money movement) and class 4 (missing server-side authorization).
