@@ -40,7 +40,7 @@ def stats(rs, tasks, variant):
         v = [r for r in rs if r["task_id"] == t and r["variant"] == variant]
         hp = [hidden(r) for r in v]
         out[t] = {"n": len(v), "acc": sum(1 for r in v if r["acceptance_pass"]), "hid_pass": sum(p for p, _ in hp), "hid_total": sum(t_ for _, t_ in hp),
-                  "all_hidden_green": sum(1 for p, t_ in hp if t_ and p == t_), "usd": round(sum(r.get("result_cost_usd") or 0 for r in v), 2),
+                  "all_hidden_green": sum(1 for p, t_ in hp if t_ and p == t_), "gates_green": sum(1 for r in v if r.get("check_ok") and r.get("lint_ok") and r.get("fmt_ok")), "criticals": sum(1 for r in v if r.get("criticals")), "usd": round(sum(r.get("result_cost_usd") or 0 for r in v), 2),
                   "first_turn_tok": round(sum(r.get("first_turn_tok") or 0 for r in v) / len(v)) if v else None}
     return out
 
@@ -71,7 +71,7 @@ def decide(args):
     with (HOME / "decisions.jsonl").open("a") as f: f.write(json.dumps(d) + "\n")
     print(json.dumps({k: v for k, v in d.items() if k != "per_task"}, indent=1))
     for t in corpus + canary:
-        print(f"{t}: control n={C[t]['n']} acc={C[t]['acc']} green={C[t]['all_hidden_green']} cases={C[t]['hid_pass']}/{C[t]['hid_total']} | arm n={A[t]['n']} acc={A[t]['acc']} green={A[t]['all_hidden_green']} cases={A[t]['hid_pass']}/{A[t]['hid_total']}")
+        print(f"{t}: control n={C[t]['n']} acc={C[t]['acc']} green={C[t]['all_hidden_green']} cases={C[t]['hid_pass']}/{C[t]['hid_total']} | arm n={A[t]['n']} acc={A[t]['acc']} green={A[t]['all_hidden_green']} cases={A[t]['hid_pass']}/{A[t]['hid_total']} | gates check+lint+fmt green: control {C[t]['gates_green']}/{C[t]['n']} arm {A[t]['gates_green']}/{A[t]['n']} | runs with criticals: control {C[t]['criticals']} arm {A[t]['criticals']}")
 
 def adopt(args):
     cand = json.loads((HOME / "drafts" / args.id / "candidate.json").read_text())

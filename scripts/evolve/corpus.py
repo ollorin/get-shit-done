@@ -57,7 +57,8 @@ def build(args):
             for k in classify(c["subject"]): cls[k] = cls.get(k, 0) + 1
         phase_dirs = git("ls-tree", "-d", "--name-only", cs[0]["sha"], ".planning/phases/").split()  # at the attempt, phases get archived later
         pd = next((d for d in phase_dirs if Path(d).name.startswith(plan.rsplit("-", 1)[0] + "-")), None)
-        e = {"plan": plan, "phase_dir": pd, "base": git("rev-parse", cs[0]["sha"] + "^").strip()[:12],
+        first_exec = next((c for c in cs[:si + 1] if c["type"] != "docs"), cs[0])  # plan/claim docs commits can precede predecessors
+        e = {"plan": plan, "phase_dir": pd, "base": git("rev-parse", first_exec["sha"] + "^").strip()[:12],
              "first_attempt": cs[si]["sha"], "fix_head": rework[-1]["sha"], "attempt_commits": si + 1,
              "rework_commits": len(rework), "rework_code_commits": len(code), "classes": cls,
              "rework_unit_tests": tests, "rework_subjects": [c["type"] + ": " + c["subject"][:110] for c in code][:25],

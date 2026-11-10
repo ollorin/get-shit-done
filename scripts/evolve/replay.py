@@ -30,6 +30,9 @@ def make(args):
             e["phase_dir"] = next((d for d in git("ls-tree", "-d", "--name-only", e["base"], ".planning/phases/").split() if Path(d).name.startswith(pre)), None)
             if not e["phase_dir"]: continue
         tid = "RP-" + e["plan"]
+        subj = [l.split("\t") for l in git("log", "--reverse", "--format=%H\t%s", "-F", f"--grep=({e['plan']}):", f"{e['first_attempt']}").splitlines()]
+        ex = next((h for h, s_ in subj if not s_.startswith("docs(")), None)
+        if ex: e["base"] = git("rev-parse", ex + "^").strip()[:12]
         if tid in have: continue
         phase, num = e["plan"].rsplit("-", 1)
         plan = f"{e['phase_dir']}/{e['plan']}-PLAN.md"
@@ -50,7 +53,7 @@ def make(args):
             "plan_number": num, "task_range": ",".join(str(i) for i, _ in sel), "task_names": names, "tasks": [i for i, _ in sel],
             "base": e["base"], "ref": [e["fix_head"]], "scope_files": sorted(set(files) | set(rep)), "verify": [],
             "hidden": [f"{f}@{e['fix_head']}" for f in rep], "tdd": False, "budget_usd": 8, "timeout_min": 60,
-            "scrub_terms": [e["plan"]], "enabled": True, "calibration": {"mode": "tests", "base_red": "hidden"},
+            "scrub_terms": [e["plan"]], "enabled": True, "scope_note": "Predecessor plans are complete and merged in this tree; their planning artifacts and commits are not visible here. Do not stop on a precondition that looks for them.", "calibration": {"mode": "tests", "base_red": "hidden"},
             "evolve": {"first_attempt": e["first_attempt"], "classes": e["classes"], "rework_commits": e["rework_commits"]}})
         made += 1; print(tid, f"tasks={len(names)} hidden={len(rep)} scope={len(set(files) | set(rep))}")
         if made >= args.max_tasks: break
