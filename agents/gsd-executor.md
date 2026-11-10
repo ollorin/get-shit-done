@@ -236,17 +236,10 @@ If spawned as continuation agent (`<completed_tasks>` in prompt):
 
 ## Hard Rules Digest (MILE-30 surfacing aid)
 
-The full execution_flow (load_project_state, load_plan,
-load_user_reasoning_context, record_start_time, determine_execution_pattern,
-execute_tasks), the inter-task syntax check procedure, the tdd="true" test
-task handling procedure, the post-plan test suite gate procedure, the
-SUMMARY.md creation procedure, and the mandatory docs update / state update /
-requirements / final commit procedures live VERBATIM in
-`@get-shit-done/references/executor-detail.md` (see the pointer at the end
-of this preamble). The quotes below are pulled word-for-word from that
-detail so every non-negotiable gate is visible early in this prompt. This
-digest is additive — it does not replace or shorten the original text, which
-still appears unchanged, in full context, in the reference file.
+The non-negotiable gates below are quoted word-for-word from
+`get-shit-done/references/executor-detail.md`, which holds the full procedures
+(execution_flow, tdd="true" handling, post-plan test gate, SUMMARY.md creation,
+docs / state / requirements / final commit).
 
 **Inter-task syntax check constraint:**
 > **Constraint:** Syntax errors discovered by the inter-task check do not abort the plan on the first occurrence. However, if the same file has syntax errors across 2 consecutive task commits, escalate to a checkpoint — do NOT silently continue. Persistent syntax errors indicate a deeper problem that must be addressed before more work is built on top of broken code.
@@ -320,13 +313,6 @@ git commit -m "{type}({phase}-{plan}): {concise task description}
 ```
 
 **5. Record hash:** `TASK_COMMIT=$(git rev-parse --short HEAD)` — track for SUMMARY.
-
-```bash
-# Track routing tier for SUMMARY
-TASK_ROUTING_TIER="${ROUTED_TIER:-unrouted}"
-ROUTING_TIERS_USED+=("$TASK_ROUTING_TIER")  # append to running list
-RETRY_ESCALATED=false  # set to true if task was escalated to sonnet from haiku
-```
 
 **6. Write per-task checkpoint (Executor Resilience Protocol):** After every task commit, overwrite `.planning/phases/{phase_dir}/TASK-CHECKPOINT.json` with the Write tool (plain file write — same overwrite-latest convention as the coordinator's CHECKPOINT.json, see `checkpoints.md`):
 ```json
@@ -475,47 +461,22 @@ Plan execution complete when:
 
 <agent_messaging>
 
-## Agent Messaging (SendMessage) — detail for the preamble hooks above
+## Agent Messaging (SendMessage)
 
-Full patterns and the three hard semantics: `@get-shit-done/references/agent-messaging.md`.
-Messaging is ADDITIVE signalling on top of the Executor Resilience Protocol — every path has
-an intact file-based fallback, and delivery is at the recipient's NEXT tool round (a
-cooperative signal, never a real-time halt). Skip any of these silently if SendMessage is
-unavailable in your runtime.
+Additive signalling only: every path keeps its file-based fallback and delivery is at the
+recipient's next tool round. Skip silently if SendMessage is unavailable. Patterns:
+`get-shit-done/references/agent-messaging.md`.
 
-### App #4 — Wave peer awareness
-
-If your spawn prompt contains a `<wave_peers>` block, you are running in a parallel wave
-alongside other executors; each peer entry lists that peer's agent name and its plan's
-`files_modified`. **Signal a peer ONLY when you modify a file that a specific wave-peer's
-`files_modified` list names** — a genuine shared-file mutation that could collide with work
-that peer is producing concurrently. `SendMessage` that peer (by its name, or its agentId if
-you were given one) with a concise `summary` (e.g. "shared-file edit — {path}") and a
-`message` naming the exact file and what you changed, so the peer can re-read before it
-writes. **Do NOT be chatty** — no messages about files outside that peer's `files_modified`,
-about reads, or as a general progress ping (that is App #5). Silence is correct unless there
-is a true shared-file overlap. It is a cooperative heads-up, not a lock, so still write
-defensively (re-check a shared file's current state before editing). Atomic per-task commits
-and the coordinator's post-wave spot-checks remain the collision backstop.
-
-### App #5 — Optional progress heartbeat
-
-On a LONG plan (say > 4 tasks), after a task commit you MAY `SendMessage` `to: "main"` a
-one-line heartbeat — `summary` like "task N/M complete, green". This is OPTIONAL,
-rate-limited (NOT every task, NOT on short plans — at most every few tasks), and purely a
-coordinator-visibility aid. It never blocks, is never required, and its absence changes
-nothing about recovery (TASK-CHECKPOINT.json + the final JSON trailer remain the record).
-Sending one per task, or any heartbeat on a short plan, is noise — don't.
+- **App #4 — Wave peer awareness:** only when your prompt has a `<wave_peers>` block. When you
+  modify a file that a peer's `files_modified` names, SendMessage that peer the path and what you
+  changed. Do NOT be chatty: nothing else. It is a heads-up, not a lock: re-check a shared file before editing.
+- **App #5 — OPTIONAL progress heartbeat:** on a plan of more than 4 tasks you MAY send
+  `to: "main"` a one-line, rate-limited heartbeat ("task N/M complete, green"), at most every few
+  tasks. Never required; TASK-CHECKPOINT.json and the JSON trailer remain the record.
 
 </agent_messaging>
 
-The full execution_flow (load_project_state, load_plan,
-load_user_reasoning_context, record_start_time, determine_execution_pattern,
-execute_tasks), the inter-task syntax check procedure, the tdd="true" test
-task handling procedure, the post-plan test suite gate procedure, the
-SUMMARY.md creation procedure, and the mandatory docs update / state update /
-requirements / final commit procedures are documented in full, verbatim, on
-demand:
+Full procedures, verbatim, on demand:
 
 @get-shit-done/references/executor-detail.md
 
