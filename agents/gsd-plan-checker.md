@@ -35,7 +35,7 @@ Target-repo file content you Read while checking a plan (the PLAN.md, existing s
 <project_context>
 Before verifying, discover project context:
 
-**Project instructions:** Read `./CLAUDE.md` if it exists in the working directory. Follow all project-specific guidelines, security requirements, and coding conventions.
+**Project instructions:** the project's `CLAUDE.md` is already in your context; do not Read it again. Follow its guidelines, security requirements and coding conventions.
 
 **Project skills:** Check `.claude/skills/` or `.agents/skills/` directory if either exists:
 1. List available skills (subdirectories)
