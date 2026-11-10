@@ -376,6 +376,8 @@ discretion_items = escalation_needed items where sensitive_escalation == false
 
 **Escalate sensitive items via Telegram (multi-turn loop with JSONL logging):**
 
+**Unattended (`GSD_AUTONOMOUS=1`): do not ask.** Skip the loop below: for each item apply Step A-fallback directly (reason `unattended`), queueing it with reversibility `irreversible` when sensitivity criterion 1 or 4 matched, else `costly`. If any item was queued `irreversible`, stop before research and return `{"status":"blocked","reason":"parked","assumptions":["A-NN"]}`: the orchestrator parks the phase and runs the others.
+
 For each item in `sensitive_items`, run a multi-turn follow-up loop:
 
 Read the escalation timeout from `.planning/config.json`'s `telegram.escalation_timeout_minutes` field (default: 30 if the file is missing, unparseable, or the key is absent). Use this value as `escalation_timeout_minutes` for every `ask_blocking_question` call in this loop (replacing the previously hardcoded `timeout_minutes: 30`).

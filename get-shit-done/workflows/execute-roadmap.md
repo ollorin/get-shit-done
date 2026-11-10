@@ -461,6 +461,7 @@ IS_STALE=$(node -e "console.log(JSON.parse(process.argv[1]).stale)" "$STALENESS_
   - If `"charlotte_qa"` in deferred: will be caught by 5a gate
   - After all deferrals resolved: proceed to 5a → 5b
 - `status: "failed"`: see `<step name="handle_failure">`
+- `status: "blocked"` with `reason: "parked"`: handle exactly like a `gate` exit 2 in step 1a (park, continue with the next phase, never wait)
 - `status: "blocked"`: present blocker, wait for resolution
 - `status: "gaps_found"`: offer gap closure cycle, then continue
 - `status: "human_needed"`: present human items, await approval
