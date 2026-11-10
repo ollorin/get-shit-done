@@ -10,6 +10,7 @@ allowed-tools:
   - WebFetch
   - WebSearch
   - AskUserQuestion
+  - mcp__telegram__send_message
 ---
 
 <objective>
@@ -19,6 +20,8 @@ Three sequential stages:
 1. PM Discovery — competitive research + confidence-driven Q&A
 2. PO/BA Scoping — codebase context + user stories + MVP boundary
 3. HL Tech Discovery — technology candidates (no schemas/routes/code)
+
+Then CEO approval: summary, decisions (`D-`), assumptions with defaults (`A-`), all recorded in `.planning/DECISIONS.jsonl`.
 
 **Concept input:** $ARGUMENTS (required) — one of:
 - Raw text: "Auth system for multi-tenant SaaS"

@@ -318,6 +318,14 @@ issue:
   fix_hint: "Remove search task - belongs in future phase per user decision"
 ```
 
+**Decision ledger (when `.planning/DECISIONS.jsonl` exists, with or without CONTEXT.md):** run
+
+```bash
+node "$HOME/.claude/get-shit-done/bin/decisions.js" check-plan --phase "$phase_number" "$phase_dir"/*-PLAN.md
+```
+
+Non-zero exit is a blocker per id (`dimension: context_compliance`): `missing` = a `D-`/`A-` naming this phase that no plan cites, `unknown` = a cited id that does not exist, `stale` = a cited id that was superseded (`use` names the replacement). The script proves citation only: also read each cited record (`decisions list --phase "$phase_number"`) and raise a blocker when a task contradicts it, or when a task built on an `A-` hard-wires the default instead of isolating it behind one named seam.
+
 ## Dimension 8: Testing Mandate Compliance
 
 **Question:** Does every implementation task have paired test coverage, and every UI-producing plan have Charlotte QA?
