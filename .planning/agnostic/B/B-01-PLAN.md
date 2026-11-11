@@ -35,7 +35,7 @@ e2e_flows: []
 <objective>
 Phase B1 + B6 (design: `/Users/ollorin/igaming-platform/.planning/fable-review/FABLE-AGNOSTIC-GSD.md` lines 203-234). B1: presets survive install unmodified. B6: the secret scanner that B-04 runs over rendered output and `npm test` runs over `get-shit-done/presets/`.
 
-`get-shit-done/presets/` does not exist yet (Phase C creates it). Do not create it.
+`get-shit-done/presets/` does not exist yet (Phase C creates it). Do not create it, not even temporarily.
 </objective>
 
 <executor_rules>
@@ -159,7 +159,7 @@ Commit: `feat(agnostic-B6): secret-pattern scanner (scanText, scanDir)`.
   <name>Task 4: secret scan tests, repo presets scan in npm test</name>
   <files>get-shit-done/bin/project-deploy-scan.test.js, package.json</files>
   <behavior>
-All ADD (`git grep -n project-deploy-scan -- '*.test.js'` is empty). Tier T1 (guardrail). Layer unit; 3 uses a tmp dir. `node:test` + `node:assert`.
+All ADD (`git grep -n project-deploy-scan -- '*.test.js'` is empty). Tier T1 (guardrail). Layer unit; 3 and 5b use a tmp dir. `node:test` + `node:assert`.
 
 Token builders (runtime concatenation only; `R = 'a1B2'`):
 `vcs_token`: `'gh' + 'p_' + R.repeat(9)`; `vcs_fine_grained_token`: `'github' + '_pat_' + 'a1B2_'.repeat(5)`; `cloud_access_key_id`: `'AK' + 'IA' + 'A1B2'.repeat(4)`; `chat_token`: `'xo' + 'xb-' + '1234567890-abcdef'`; `llm_api_key`: `'s' + 'k-' + R.repeat(6)`; `live_api_key`: `'s' + 'k_live_' + R.repeat(4)`; `maps_api_key`: `'AI' + 'za' + 'a1B2_'.repeat(7)`; `registry_token`: `'np' + 'm_' + R.repeat(9)`; `signed_token`: `['ey' + 'J' + R.repeat(3), 'ey' + 'J' + 'c3D4'.repeat(3), 'e5F6'.repeat(3)].join('.')`; `private_key_block`: `'-----BEGIN ' + 'RSA PRIVATE' + ' KEY-----'`.
@@ -168,7 +168,7 @@ Token builders (runtime concatenation only; `R = 'a1B2'`):
 2. Negatives, each → `[]`: `"${VCS_TOKEN}"`; `"API_KEY="`; a 64-char lowercase hex string (`'0123456789abcdef'.repeat(4)`); `'gh' + 'p_' + 'abc'`; `'task-' + R.repeat(8)`; `'-----BEGIN CERTIFICATE-----'`.
 3. `scanDir` on a tmp tree: `a/b/conf.txt` (token on line 2), `.env.example` (token on line 1), `node_modules/x.txt` (token), `clean.md` → `files_scanned === 3`, hits deep-equal `[{ file: '.env.example', pattern, line: 1 }, { file: 'a/b/conf.txt', pattern, line: 2 }]`. Absent dir → `{ files_scanned: 0, hits: [] }`.
 4. A Buffer `[0xff, 0xfe, ...Buffer.from(' ' + token + ' '), 0xff]` → one hit.
-5. Repo scan: `scanDir(path.join(__dirname, '..', 'presets')).hits` deep-equals `[]`. Test name: `5 repo presets contain no token-shaped string`.
+5. Presets scan through one local helper `presetHits(presetsRoot)` = `scanDir(presetsRoot).hits`; the root is always a parameter. (a) `presetHits(path.join(__dirname, '..', 'presets'))` deep-equals `[]`; test name `5 repo presets contain no token-shaped string`. (b) Demonstrated failure on a tmp presets root: `<tmp>/zz-probe/x.txt` holding a runtime-built `vcs_token` → `presetHits(tmp)` deep-equals `[{ file: 'zz-probe/x.txt', pattern: 'vcs_token', line: 1 }]`.
 6. Self-scan: `scanText(fs.readFileSync(<module>))` and `scanText(fs.readFileSync(__filename))` both `[]`.
   </behavior>
   <action>
@@ -178,14 +178,15 @@ Mutation proof (edit the module, run the file, confirm, revert; record in SUMMAR
 - M1: delete the `vcs_token` entry → 1 fails.
 - M2: add `match: m[0]` to each hit → 1 fails.
 - M3: `scanDir` skips names starting with `.` → 3 fails.
-- M4: `scanDir` does not recurse into subdirectories → 3 fails.
+- M4: `scanDir` does not recurse into subdirectories → 3, 5b fail.
 - M5: `scanText` reports `line: 1` always → 1 fails.
 - M6: `scanText` returns `[]` when given a Buffer → 4 fails.
+- M7 (test file, reverted there): `presetHits` ignores its argument and scans a fixed empty directory → 5b fails.
 
-Live probe for behaviour 5 (then remove): create `get-shit-done/presets/zz-probe/x.txt` whose content the probe script builds at runtime (`node -e` writing `'gh' + 'p_' + 'a1B2'.repeat(9)`), run the file → test 5 fails; delete `get-shit-done/presets/` again, run → passes. `git status --short` shows no `presets` entry afterwards.
+No live probe inside the repo. Test 5b on a tmp root is the proof that the presets scan can fail; nothing is created under `get-shit-done/presets/` at any point, and `git status --short` never shows a `presets` entry.
 
 After the last revert `git diff --stat -- get-shit-done/bin/project-deploy-scan.js` is empty. Then the full suite once.
-Commit: `test(agnostic-B6): secret scan tests (6 mutants killed, live probe), wired into npm test`.
+Commit: `test(agnostic-B6): secret scan tests (7 mutants killed), wired into npm test`.
 Then write `.planning/agnostic/B/B-01-SUMMARY.md` (format of `.planning/agnostic/A/A-02-SUMMARY.md`) and commit it the same way.
   </action>
   <verify>
@@ -193,7 +194,7 @@ Single-file run `# fail 0`, tests 1-6 present by name.
 `git grep -c "get-shit-done/bin/project-deploy-scan.test.js" -- package.json` → `package.json:1`.
 Full suite rc=0, `# fail 0`. `node scripts/agnostic-lint.js check` exit 0. `ls get-shit-done/presets` fails (directory absent).
   </verify>
-  <done>6 behaviours, 6 mutants killed and reverted, probe removed, suite green.</done>
+  <done>6 behaviours, 7 mutants killed and reverted, nothing written inside the repo outside `files_modified`, suite green.</done>
 </task>
 
 </tasks>
@@ -209,5 +210,5 @@ The must_haves truths hold, each backed by a named test and at least one killed 
 </success_criteria>
 
 <output>
-`.planning/agnostic/B/B-01-SUMMARY.md`: outcome, commits, tests by name, mutation table, live probe, deviations, Self-Check.
+`.planning/agnostic/B/B-01-SUMMARY.md`: outcome, commits, tests by name, mutation table, deviations, Self-Check.
 </output>

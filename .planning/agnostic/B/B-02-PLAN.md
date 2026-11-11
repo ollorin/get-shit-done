@@ -15,11 +15,12 @@ requirements: [AGN-B2, AGN-B3]
 must_haves:
   truths:
     - "A preset renders with `{{dot.path}}` substitution from the project's config object only; a missing or non-scalar key is an error, never an empty string or a default; there are no conditionals"
-    - "A preset cannot name a destination outside the project, a never-managed file (`.claude/settings.local.json`, `.mcp.json`, `.env*`), or `.claude/settings.json` as a whole file"
+    - "A preset cannot name a destination outside the project, a never-managed file (`.claude/settings.local.json`, `.mcp.json`, `.env*` other than `.env.example`), or `.claude/settings.json` as a whole file; the rules compare the lowercased NFC form, so a case variant on a case-insensitive volume is rejected too"
+    - "A preset source or settings fragment that is a symlink, or that resolves outside the preset directory, is an error and is never read"
     - "Whole-file decision: on-disk hash equals manifest hash → overwrite; edited → `git merge-file` result; conflict or unmanaged existing file → no content is produced"
   artifacts:
     - path: get-shit-done/bin/project-deploy-render.js
-      provides: "renderText, validateDest, loadPreset, renderPreset"
+      provides: "renderText, destKey, validateDest, loadPreset, renderPreset"
     - path: get-shit-done/bin/project-deploy-files.js
       provides: "sha256, gitMergeFile, planWholeFile"
     - path: get-shit-done/bin/project-deploy-render.test.js
@@ -36,6 +37,8 @@ e2e_flows: []
 
 <objective>
 Phase B2 (render) + B3 (whole-file three-way), design lines 203-227 of `/Users/ollorin/igaming-platform/.planning/fable-review/FABLE-AGNOSTIC-GSD.md`. Two pure-ish modules; nothing calls them until B-04. The manifest file itself is written by the engine in B-04; this plan fixes the data it needs (`sha256` of rendered content, rendered bytes as merge base).
+
+Scope: a preset here is one flat directory. Preset composition (`extends`, `packs`, for example a shared base plus `packs/charlotte`) is owned by Phase F (factor base); this loader rejects both keys until then. Phase C's igaming preset is a flat verbatim snapshot: every file entry carries `render: false`.
 </objective>
 
 <executor_rules>
@@ -76,16 +79,22 @@ Phase B2 (render) + B3 (whole-file three-way), design lines 203-227 of `/Users/o
 | `name` | string matching `^[a-z0-9][a-z0-9-]*$` |
 | `version` | non-empty string |
 | `files` | array (may be empty) |
-| `files[].src` | relative path with `/` separators, no empty, `.` or `..` segment, not absolute; must be a regular file inside `presetDir` |
-| `files[].dest` | `validateDest(dest)` returns `null`; no two entries share a `dest` |
+| `files[].src` | relative path with `/` separators, no empty, `.` or `..` segment, not absolute. On disk (`p = path.join(presetDir, src)`): `fs.lstatSync(p).isFile()` must hold, so a symlink, even one pointing at a file inside the preset, → `not a regular file: <src>`; and `fs.realpathSync(p)` must start with `fs.realpathSync(presetDir) + path.sep`, so a file reached through a symlinked directory → `escapes preset directory: <src>` |
+| `files[].dest` | `validateDest(dest)` returns `null`; no two entries share a `destKey(dest)` (`a/X.md` and `a/x.md` collide) |
 | `files[].kind` | `"whole"` (default) or `"block"` |
 | `files[].render` | boolean, default `true`. `false` = bytes copied untouched |
 | `files[].capability` | optional non-empty string. The file is included only when `config.stack.capabilities[capability]` is an object |
-| `settings_fragment` | optional; same path rules as `src` |
+| `settings_fragment` | optional; same path and on-disk rules as `src` |
 
-## `validateDest(dest)` → `null` or a reason string
+`preset.json` itself must be a regular file by `lstat`. `renderPreset` reads only paths that `loadPreset` validated in the same call.
 
-Reject: non-string or empty; contains `\`; absolute (starts with `/` or matches `^[A-Za-z]:`); any segment empty, `.` or `..`; equals `.claude/settings.json` (reason `set-managed: use the settings fragment`); never-managed: equals `.claude/settings.local.json`, equals `.mcp.json`, or basename starts with `.env`; equals `.planning/config.json` or `.planning/gsd-project-manifest.json`; starts with `.planning/.gsd-preset-base/`; first segment is `.git`.
+## `destKey(dest)` and `validateDest(dest)` → `null` or a reason string
+
+`destKey(dest)` = `dest.normalize('NFC').toLowerCase()` (exported; B-04 step 10 uses it for the guarded-path test). Every equality, prefix, basename and first-segment rule below is evaluated on the key, never on the raw string: a case-insensitive volume maps `.claude/Settings.json` onto the real settings file.
+
+Reject: non-string or empty; contains `\`; absolute (starts with `/` or matches `^[A-Za-z]:`); any segment empty, `.` or `..`; key equals `.claude/settings.json` (reason `set-managed: use the settings fragment`); never-managed: key equals `.claude/settings.local.json`, key equals `.mcp.json`, or the key's basename starts with `.env` and is not exactly `.env.example`; key equals `.planning/config.json` or `.planning/gsd-project-manifest.json`; key starts with `.planning/.gsd-preset-base/`; the key's first segment is `.git`.
+
+A dest under `.claude/hooks/` in any case (`.claude/Hooks/x.js`) is allowed here; B-04 step 10 treats it as a guarded path.
 
 ## `renderText(text, config)` → `{ text, missing: string[], invalid: string[] }`
 
@@ -95,11 +104,11 @@ Reject: non-string or empty; contains `\`; absolute (starts with `/` or matches 
 
 ## `loadPreset(presetDir)` → `{ ok, errors: string[], preset }`
 
-Reads and validates `preset.json` per the table. `preset` = `{ name, version, files: [{ src, dest, kind, render, capability }], settings_fragment }` with defaults applied. Missing dir or file, or invalid JSON → `ok: false` with one error. All violations are collected, not just the first.
+Reads and validates `preset.json` per the table, including the `lstat` and realpath rules. `preset` = `{ name, version, files: [{ src, dest, kind, render, capability }], settings_fragment }` with defaults applied. Missing dir or file, or invalid JSON → `ok: false` with one error. All violations are collected, not just the first.
 
 ## `renderPreset(presetDir, config)` → `{ ok, errors: [{ file, reason }], name, version, files, settings }`
 
-- `loadPreset` errors → `ok: false`, each as `{ file: 'preset.json', reason }`.
+- `loadPreset` errors → `ok: false`, each as `{ file: 'preset.json', reason }`; no source file is read in that case.
 - `files`: for each included entry, in `preset.json` order: `{ dest, kind, content: Buffer, mode }`. `mode` = `fs.statSync(src).mode & 0o777`. `render: false` → `content` is the raw Buffer. `render: true` → file read as `utf8`, `renderText`; each missing key → `{ file: src, reason: 'missing config key: <key>' }`, each invalid → `{ file: src, reason: 'config key is not a scalar: <key>' }`.
 - `settings`: `null` when there is no fragment. Otherwise `JSON.parse` the fragment FIRST, validate the shape, then apply `renderText` to every string leaf (so a config value containing `"` cannot break the JSON). Shape: top-level keys ⊆ `permissions`, `hooks`; `permissions` keys ⊆ `allow`, `deny`, `ask`, each an array of non-empty strings; `hooks` is an object `event → [ { matcher?: string, hooks: [ { type: 'command', command: <non-empty string>, timeout?: <number> } ] } ]`. Violations → `{ file: <fragment>, reason }` (unknown top-level key: `unsupported settings fragment key: <key>`). Missing/invalid keys in leaves → same reasons as for files.
 - `ok` = `errors.length === 0`. `config` is the parsed `.planning/config.json` object (any top-level block may be referenced).
@@ -129,12 +138,12 @@ A `conflict` result has no `content` key.
   <name>Task 1: project-deploy-render.js</name>
   <files>get-shit-done/bin/project-deploy-render.js</files>
   <action>
-Create the module per `<spec>` (target ≤ 220 lines). Exports `{ PLACEHOLDER_RE, renderText, validateDest, loadPreset, renderPreset }`. It reads only inside `presetDir`; it never reads the project and never writes.
+Create the module per `<spec>` (target ≤ 240 lines). Exports `{ PLACEHOLDER_RE, renderText, destKey, validateDest, loadPreset, renderPreset }`. It reads only inside `presetDir`; it never reads the project and never writes.
 
 Commit: `feat(agnostic-B2): preset loader and {{dot.path}} renderer`.
   </action>
   <verify>
-`node -e "const r=require('./get-shit-done/bin/project-deploy-render.js');console.log(JSON.stringify(r.renderText('a {{x.y}} {{x.z}}',{x:{y:1}})), r.validateDest('.mcp.json')!==null, r.validateDest('.claude/rules/a.md'))"` prints `{"text":"a 1 {{x.z}}","missing":["x.z"],"invalid":[]} true null`.
+`node -e "const r=require('./get-shit-done/bin/project-deploy-render.js');console.log(JSON.stringify(r.renderText('a {{x.y}} {{x.z}}',{x:{y:1}})), r.validateDest('.MCP.json')!==null, r.validateDest('.claude/rules/a.md'), r.validateDest('.env.example'))"` prints `{"text":"a 1 {{x.z}}","missing":["x.z"],"invalid":[]} true null null`.
 `node scripts/agnostic-lint.js check` → exit 0.
   </verify>
   <done>Module exists, smoke output as stated, lint at baseline.</done>
@@ -150,7 +159,12 @@ All ADD (`git grep -n project-deploy-render -- '*.test.js'` is empty). Layer uni
 2. Absent key → in `missing`, placeholder still in `text`; array, object and `null` values → in `invalid`; `{{__proto__.polluted}}` and `{{constructor.name}}` → in `missing`.
 3. Literal forms untouched and reported nowhere: `{{ spaced.key }}`, `${{ secrets.X }}`, `{{single}}`, `{dot.path}`, `{{#if a.b}}x{{/if}}`.
 4. `loadPreset` valid minimal (`name`, `version`, `files: []`) and full → `ok: true`, defaults `kind: 'whole'`, `render: true`.
-5. `loadPreset` / `validateDest` rejections, one case each (table-driven): name `Bad Name`; missing `version`; `src` absent on disk; `src` `../x`; duplicate `dest`; `kind: 'partial'`; key `extends`; key `packs`; key `foo`; and `dest` values `/abs/x`, `a/../b`, `a\\b`, `.claude/settings.json`, `.claude/settings.local.json`, `.mcp.json`, `.env`, `sub/.env.local`, `.planning/config.json`, `.planning/gsd-project-manifest.json`, `.planning/.gsd-preset-base/x`, `.git/hooks/x`. Each → `ok: false`. Two violations in one preset → both reported.
+5. `loadPreset` / `validateDest` rejections, table-driven, one case each, each → `ok: false` (or a non-null reason); two violations in one preset → both reported.
+   - 5a shape: name `Bad Name`; missing `version`; `src` absent on disk; `src` `../x`; duplicate `dest`; `kind: 'partial'`; key `extends`; key `packs`; key `foo`.
+   - 5b dest: `/abs/x`, `a/../b`, `a\\b`, `.claude/settings.json`, `.claude/settings.local.json`, `.mcp.json`, `.env`, `sub/.env.local`, `.env.example.local`, `.planning/config.json`, `.planning/gsd-project-manifest.json`, `.planning/.gsd-preset-base/x`, `.git/hooks/x`.
+   - 5c case and normalisation (rejected): `.claude/Settings.json`, `.claude/settings.LOCAL.json`, `.MCP.json`, `.ENV`, `sub/.Env.local`, `.GIT/hooks/x`, `.Planning/Config.json`; duplicate by case: `.claude/rules/A.md` + `.claude/rules/a.md` in one preset; duplicate by normalisation: `'café.md'` + `'café.md'` in one preset.
+   - 5d allowed (`validateDest` → `null`): `.env.example`, `sub/.env.example`, `.claude/Hooks/x.js`, `.claude/rules/Style.md`.
+   - 5e on disk (`fs.symlinkSync` in the tmp fixture): `src` is a symlink to a file outside the preset dir → `not a regular file: <src>`; `src` is a symlink to another file inside the preset dir → `not a regular file: <src>`; `src` `linkdir/x.md` where `linkdir` is a symlink to an outside directory holding `x.md` → `escapes preset directory: linkdir/x.md`; `settings_fragment` is a symlink to an outside JSON file → `not a regular file`. For each, `renderPreset` returns `ok: false` and the outside file's marker text appears nowhere in `JSON.stringify` of the result.
 6. `renderPreset`: `render: true` file substituted; `render: false` file with `{{a.b}}` text and bytes `0xff 0xfe` → `content` byte-equal to the source; file with `capability: 'ui_qa'` absent when `config.stack.capabilities` lacks it and present when `stack.capabilities.ui_qa` is `{}`; a source with mode `0o755` → `mode === 0o755`; order follows `preset.json`.
 7. Fragment: an allow string and a hook command with placeholders are rendered; a config value containing `"` and `\` renders into a permission string intact; fragment with top-level `env` or `disableAllHooks` → error `unsupported settings fragment key`; `permissions.allow` a string → error; hook entry without `command` → error; unparseable fragment → error; no fragment → `settings: null`.
 8. A missing key in one file → `ok: false`, error `{ file: <src>, reason: 'missing config key: stack.none' }`.
@@ -168,15 +182,20 @@ Mutation proof (edit the module, run the file, confirm, revert; record in SUMMAR
 - M6: fragment top-level keys not checked → 7 fails.
 - M7: fragment text rendered before `JSON.parse` → 7 fails (quote case).
 - M8: drop the `..` segment check on `dest` → 5 fails.
+- M9: `validateDest` compares the raw `dest` instead of `destKey(dest)` → 5 fails (5c case rows).
+- M10: `destKey` lowercases without `normalize('NFC')` → 5 fails (5c normalisation row).
+- M11: `fs.statSync` instead of `fs.lstatSync` for `src` and the fragment → 5 fails (5e symlink rows).
+- M12: realpath containment removed → 5 fails (5e `linkdir` row).
+- M13: `.env.example` exception removed → 5 fails (5d).
 
 After the last revert `git diff --stat -- get-shit-done/bin/project-deploy-render.js` is empty.
-Commit: `test(agnostic-B2): render and preset validation tests (8 mutants killed)`.
+Commit: `test(agnostic-B2): render and preset validation tests (13 mutants killed)`.
   </action>
   <verify>
 Single-file run `# fail 0`, tests 1-9 present by name.
 `git grep -c "project-deploy-render.test.js" -- package.json` → `package.json:1`.
   </verify>
-  <done>9 behaviours, 8 mutants killed and reverted.</done>
+  <done>9 behaviours, 13 mutants killed and reverted.</done>
 </task>
 
 <task type="auto">

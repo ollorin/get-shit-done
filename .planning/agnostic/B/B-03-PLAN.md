@@ -16,7 +16,7 @@ must_haves:
   truths:
     - "In a block-managed file only the text between `<!-- gsd:begin <id> -->` and `<!-- gsd:end <id> -->` is replaced; every byte outside the markers and every block the preset does not own is untouched; a project file with malformed markers yields no content"
     - "Settings set-merge: new = (current − previously deployed) ∪ newly rendered, for allow/deny/ask strings and hook commands; a project-added rule or hook survives; preset hooks come first in preset order; keys the fragment does not own are preserved"
-    - "The merge is idempotent and never mutates its inputs"
+    - "The merge is idempotent, never mutates its inputs, rejects a malformed settings file instead of coercing it, and reports every added and removed entry by value"
   artifacts:
     - path: get-shit-done/bin/project-deploy-files.js
       provides: "parseBlocks, planBlockFile, stripMarkerLines (added to the B-02 exports)"
@@ -29,6 +29,10 @@ must_haves:
       to: "manifest `settings` block written by B-04"
       via: "`{ permissions: { allow, deny, ask }, hooks: [{ event, matcher, command }] }`"
       pattern: "deployed"
+    - from: "mergeSettings `added` / `removed` results"
+      to: "B-04 `report.settings`"
+      via: "same by-value shape as `deployed`"
+      pattern: "removed"
 e2e_flows: []
 ---
 
@@ -75,7 +79,7 @@ begin `^<!-- gsd:begin ([a-z0-9][a-z0-9-]*) -->$`, end `^<!-- gsd:end ([a-z0-9][
 - `prev`: the manifest's `settings` block `{ permissions: { allow, deny, ask }, hooks: [{ event, matcher, command }] }` or `null` (nothing deployed before).
 - `fragment`: `renderPreset(...).settings` or `null` (treated as an empty fragment, so everything in `prev` is removed).
 
-Invalid `current` → `{ ok: false }`: root not a plain object (`settings root is not an object`); `permissions` present and not a plain object; `permissions.allow|deny|ask` present and not an array; `hooks` present and not a plain object; a `hooks[event]` that is not an array.
+Invalid `current` → `{ ok: false, reason }`, nothing skipped or coerced. The invalid list: root not a plain object (`settings root is not an object`); `permissions` present and not a plain object; `permissions.allow|deny|ask` present and not an array; `hooks` present and not a plain object; a `hooks[event]` that is not an array; a group in `hooks[event]` that is not a plain object (`null`, a string, an array); a group whose `hooks` key is present and not an array.
 
 Permissions, for each `k` of `allow`, `deny`, `ask`:
 `result[k]` = the entries of `current.permissions[k]` in their current order, first occurrence only, minus every entry that is in `prev.permissions[k]` and not in `fragment.permissions[k]`; then the entries of `fragment.permissions[k]` not already present, in fragment order. A `k` that ends empty and was absent in `current` is not created. Other keys of `current.permissions` (for example `defaultMode`, `additionalDirectories`) are kept as they are.
@@ -88,7 +92,7 @@ Everything else: every other top-level key of `current` is kept with its value, 
 
 - `deployed` = `{ permissions: { allow: [...], deny: [...], ask: [...] }, hooks: [{ event, matcher, command }] }` from the fragment (all three permission keys always present, `matcher` `''` when absent, hooks in fragment order).
 - `changed` = `JSON.stringify(settings) !== JSON.stringify(current === null ? {} : current)`, and `true` when `current === null` and `settings` is not `{}`.
-- `added` / `removed` = `{ permissions: <count>, hooks: <count> }` of strings and handlers added to / removed from `current`.
+- `added` / `removed`, by value, same shape as `deployed`: `added` = the permission strings and handler triples that are in `settings` and not in `current`; `removed` = those in `current` and not in `settings`. All three permission keys always present; order of first appearance. B-04 puts both in its report so the person running the command reads each rule and hook that changes (the manifest that drives removals is an editable file).
 - `serializeSettings(settings)` → `JSON.stringify(settings, null, 2) + '\n'`.
 
 Inputs are never mutated (build new objects and arrays).
@@ -159,12 +163,12 @@ Single-file run `# fail 0`; B-02 tests 1-10 and B4-1..B4-12 present by name.
   <name>Task 3: project-deploy-settings.js (set-merge)</name>
   <files>get-shit-done/bin/project-deploy-settings.js</files>
   <action>
-Create the module per `<spec>` section `project-deploy-settings.js` (target ≤ 170 lines). Exports `{ mergeSettings, serializeSettings }`. No file I/O.
+Create the module per `<spec>` section `project-deploy-settings.js` (target ≤ 190 lines). Exports `{ mergeSettings, serializeSettings }`. No file I/O.
 
 Commit: `feat(agnostic-B5): settings set-merge (permissions and hook commands)`.
   </action>
   <verify>
-`node -e "const s=require('./get-shit-done/bin/project-deploy-settings.js');const r=s.mergeSettings({permissions:{allow:['P','old']}},{permissions:{allow:['old'],deny:[],ask:[]},hooks:[]},{permissions:{allow:['new']}});console.log(JSON.stringify(r.settings.permissions.allow), r.changed)"` prints `["P","new"] true`.
+`node -e "const s=require('./get-shit-done/bin/project-deploy-settings.js');const r=s.mergeSettings({permissions:{allow:['P','old']}},{permissions:{allow:['old'],deny:[],ask:[]},hooks:[]},{permissions:{allow:['new']}});console.log(JSON.stringify(r.settings.permissions.allow), r.changed, JSON.stringify(r.removed.permissions.allow))"` prints `["P","new"] true ["old"]`.
 `node scripts/agnostic-lint.js check` → exit 0.
   </verify>
   <done>Module exists, smoke output as stated.</done>
@@ -178,19 +182,19 @@ All ADD (`git grep -n project-deploy-settings -- '*.test.js'` is empty). Tier T1
 
 Helpers: `grp(matcher, ...commands)` → `{ matcher, hooks: commands.map((command) => ({ type: 'command', command })) }`.
 
-1. `current: null`, `prev: null`, fragment with allow, deny, ask and one `PreToolUse` group → `settings` deep-equals the fragment; `deployed` lists the three arrays and the hook triple; `changed === true`.
-2. Project-added allow rule survives: `current.allow = ['A1', 'PROJECT', 'A2']`, `prev.allow = ['A1', 'A2']`, `fragment.allow = ['A1', 'A3']` → `['A1', 'PROJECT', 'A3']`; `removed.permissions === 1`, `added.permissions === 1`.
-3. Deny and ask: a project-added `deny` and `ask` entry survive; a `deny` entry that is in `current`, NOT in `prev` and not in the fragment is still there after the merge.
+1. `current: null`, `prev: null`, fragment with allow, deny, ask and one `PreToolUse` group → `settings` deep-equals the fragment; `deployed` lists the three arrays and the hook triple; `added` deep-equals `deployed`; `removed` is all-empty; `changed === true`.
+2. Project-added allow rule survives: `current.allow = ['A1', 'PROJECT', 'A2']`, `prev.allow = ['A1', 'A2']`, `fragment.allow = ['A1', 'A3']` → `['A1', 'PROJECT', 'A3']`; `removed` deep-equals `{ permissions: { allow: ['A2'], deny: [], ask: [] }, hooks: [] }`; `added` deep-equals `{ permissions: { allow: ['A3'], deny: [], ask: [] }, hooks: [] }`.
+3. Deny and ask: a project-added `deny` and `ask` entry survive; a `deny` entry that is in `current`, NOT in `prev` and not in the fragment is still there after the merge. A `deny` entry that IS in `prev` and not in the fragment is gone and is named in `removed.permissions.deny`.
 4. `prev: null`, `current.allow` already contains a fragment entry → present once.
-5. Hooks order and removal: `current.PreToolUse = [grp('Bash', 'preset-old'), grp('Write', 'project-hook')]`, `prev.hooks` has `('PreToolUse', 'Bash', 'preset-old')`, fragment `PreToolUse = [grp('Bash', 'preset-new'), grp('Edit', 'preset-2')]` → `[grp('Bash', 'preset-new'), grp('Edit', 'preset-2'), grp('Write', 'project-hook')]`.
+5. Hooks order and removal: `current.PreToolUse = [grp('Bash', 'preset-old'), grp('Write', 'project-hook')]`, `prev.hooks` has `('PreToolUse', 'Bash', 'preset-old')`, fragment `PreToolUse = [grp('Bash', 'preset-new'), grp('Edit', 'preset-2')]` → `[grp('Bash', 'preset-new'), grp('Edit', 'preset-2'), grp('Write', 'project-hook')]`; `removed.hooks` deep-equals `[{ event: 'PreToolUse', matcher: 'Bash', command: 'preset-old' }]`; `added.hooks` deep-equals the two preset triples in fragment order.
 6. Mixed group: `current` group `grp('Bash', 'preset-old', 'project-cmd')` with `preset-old` in `prev` and dropped from the fragment → the group remains with only `project-cmd`.
 7. `prev: null` and `current` already holds a handler with the same triple as the fragment → present once (in the fragment's position).
 8. Same command under a different matcher or event is a different identity: the project handler `('PostToolUse', 'Bash', 'preset-new')` survives.
 9. Preservation: `current` with top-level `env`, `statusLine`, `permissions.defaultMode`, `permissions.additionalDirectories`, a hook handler of `type: 'prompt'` → all deep-equal in the result; `Object.keys(settings)` keeps the current order.
-10. Idempotence: `r1 = merge(current, prev, fragment)`; `r2 = merge(r1.settings, r1.deployed, fragment)` → `r2.changed === false` and `serializeSettings(r2.settings) === serializeSettings(r1.settings)`.
+10. Idempotence: `r1 = merge(current, prev, fragment)`; `r2 = merge(r1.settings, r1.deployed, fragment)` → `r2.changed === false`, `r2.added` and `r2.removed` all-empty, and `serializeSettings(r2.settings) === serializeSettings(r1.settings)`.
 11. Inputs deep-frozen in every test above: no TypeError, inputs deep-equal to pristine copies afterwards.
 12. `fragment: null` with a `prev` → every previously deployed permission and handler is removed, project entries stay; an event left empty is omitted.
-13. Invalid `current`: `permissions.allow` a string; `hooks` an array; root an array → `ok: false` with a reason, no `settings` key.
+13. Invalid `current`, table-driven, one case each → `ok: false` with a non-empty `reason`, no `settings` key: `permissions.allow` a string; `hooks` an array; root an array; `hooks.PreToolUse` an object; `hooks.PreToolUse = ['x']`; `hooks.PreToolUse = [null]`; `hooks.PreToolUse = [[]]`; `hooks.PreToolUse = [{ matcher: 'Bash', hooks: 'cmd' }]`; `hooks.PreToolUse = [{ matcher: 'Bash', hooks: {} }]`.
 14. `serializeSettings` output ends with exactly one `\n` and parses back deep-equal.
   </behavior>
   <action>
@@ -206,9 +210,12 @@ Mutation proof (edit the module, run the file, confirm, revert; record in SUMMAR
 - M7: hook identity is the command alone → 8 fails.
 - M8: result built by mutating `current` in place → 11 fails (frozen input).
 - M9: invalid `current.permissions.allow` coerced to `[]` → 13 fails.
+- M10: a non-object hook group is skipped instead of rejected → 13 fails.
+- M11: a group whose `hooks` is not an array is treated as having no handlers → 13 fails.
+- M12: `removed` is always the all-empty shape → 2, 3, 5 fail.
 
 After the last revert `git diff --stat -- get-shit-done/bin/project-deploy-settings.js` is empty. Then the full suite once.
-Commit: `test(agnostic-B5): settings set-merge tests (9 mutants killed), wired into npm test`.
+Commit: `test(agnostic-B5): settings set-merge tests (12 mutants killed), wired into npm test`.
 Then write and commit `.planning/agnostic/B/B-03-SUMMARY.md` (format of `.planning/agnostic/A/A-02-SUMMARY.md`).
   </action>
   <verify>
@@ -216,7 +223,7 @@ Single-file run `# fail 0`, tests 1-14 present by name.
 `git grep -c "project-deploy-settings.test.js" -- package.json` → `package.json:1`.
 Full suite rc=0, `# fail 0`. `node scripts/agnostic-lint.js check` exit 0.
   </verify>
-  <done>14 behaviours, 9 mutants killed and reverted, suite green.</done>
+  <done>14 behaviours, 12 mutants killed and reverted, suite green.</done>
 </task>
 
 </tasks>
