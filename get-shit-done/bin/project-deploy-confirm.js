@@ -4,7 +4,7 @@ const fs = require('fs');
 const { sha256 } = require('./project-deploy-files.js');
 
 const PERM_KEYS = ['allow', 'deny', 'ask'];
-const CONTROL_RE = new RegExp('[\\u007f-\\u009f\\u2028\\u2029]', 'g');
+const CONTROL_RE = new RegExp('[\\u007f-\\u009f\\u2028\\u2029\\u202a-\\u202e\\u2066-\\u2069\\u200b-\\u200d\\u2060\\ufeff]', 'g');
 
 const show = (v) => JSON.stringify(v).replace(CONTROL_RE, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
 

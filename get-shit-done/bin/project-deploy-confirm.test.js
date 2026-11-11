@@ -7,6 +7,7 @@ const os = require('os');
 const path = require('path');
 const { runCli, CONFIG, SETTINGS, MANIFEST } = require('./project-deploy.js');
 const { sha256 } = require('./project-deploy-files.js');
+const { confirmationText } = require('./project-deploy-confirm.js');
 
 const HUMAN = Object.freeze({ stdin_tty: true, stdout_tty: true, agent_ancestor: false });
 const HOOK_DEST = ['.claude', 'hooks', 'guard.js'].join('/');
@@ -175,5 +176,38 @@ describe('M4 typed confirmation', () => {
     assert.strictEqual(asked.length, 1);
     assert.ok(fs.readFileSync(path.join(root, SETTINGS), 'utf8').includes('Bash(git:*)'));
     assert.ok(fs.existsSync(path.join(root, MANIFEST)));
+  });
+});
+
+describe('B-FIX2 bidi and zero-width escaping (3)', () => {
+  const BIDI_AND_ZERO_WIDTH = [
+    '\u202a', '\u202b', '\u202c', '\u202d', '\u202e',
+    '\u2066', '\u2067', '\u2068', '\u2069',
+    '\u200b', '\u200c', '\u200d', '\u2060', '\ufeff',
+  ];
+  const escaped = (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`;
+
+  for (const ch of BIDI_AND_ZERO_WIDTH) {
+    test(`3 U+${ch.charCodeAt(0).toString(16)} in the preset name is escaped, never printed raw`, () => {
+      const text = confirmationText({
+        report: { command: 'sync', preset: { name: `a${ch}b`, version: '1' }, settings: null },
+        presetPath: '/p',
+        shown: [],
+      });
+      assert.ok(!text.includes(ch));
+      assert.ok(text.includes(escaped(ch)));
+    });
+  }
+
+  test('3 a bidi character in a shown file line is escaped in the content line and the path', () => {
+    const text = confirmationText({
+      report: { command: 'sync', preset: { name: 'demo', version: '1' }, settings: null },
+      presetPath: '/p',
+      shown: [{ path: `x${'\u202e'}y.sh`, action: 'create', old: null, content: Buffer.from('a\u200bb\n') }],
+    });
+    assert.ok(!text.includes('\u202e'));
+    assert.ok(!text.includes('\u200b'));
+    assert.ok(text.includes(escaped('\u202e')));
+    assert.ok(text.includes(escaped('\u200b')));
   });
 });
