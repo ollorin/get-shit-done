@@ -111,3 +111,62 @@
 - Transitive script references stay unguarded, per the ruling's deferral.
 - Test runs need `NODE_PATH=$HOME/get-shit-done/node_modules` (no `node_modules` in this worktree).
 - Nothing pushed. No `install:gsd`. No stash, reset or clean.
+
+## Task 3 (M4+M3)
+
+### Commits
+- `cc7c84c` fix(agnostic-B-FIX1): M4 typed APPLY confirmation, M3 redacted report settings, H2 prev-manifest row
+
+### Outcome
+- `project-deploy-confirm.js` (new): `shownFiles`, `confirmationText(plan)`, `confirmed(plan, ask)`, `readTtyLine(text)`, `show` (JSON.stringify plus escaping of C1 controls, U+2028/9).
+- `project-deploy-redact.js` (new): `redactShape(shape)`, `settingsReport(settingsPlan, secretFound)`.
+- `project-deploy.js` (298 lines): `planDeploy` success result adds `exempt`, `presetPath` (realpath), `shown`; `planFile`/`planSettings` carry the current bytes as `old`; `report.settings` built by `settingsReport`. `runCli` gates after the diff return.
+- `package.json` `scripts.test`: added `project-deploy-confirm.test.js`, `project-deploy-redact.test.js`.
+- Existing human-session CLI calls now inject `APPLY_IO`: `project-deploy.test.js` (run helper, A12 line), `project-deploy-guard.test.js` (H2-k). No assertions changed.
+
+### Injected hook signatures (for C-03 deploy tests)
+- `runCli(cwd, args, env, session, io = {})`. `env`: plain object (`{}` for a human run). `session`: `{ stdin_tty, stdout_tty, agent_ancestor }`. `io.confirm(text: string) => string`: proceed only when it returns exactly `'APPLY'`. Default when `io.confirm` is absent: `readTtyLine`, which writes the text and one prompt line to `/dev/tty` and reads one line; open failure returns `''` (declined).
+- Test pattern: `const APPLY_IO = Object.freeze({ confirm: () => 'APPLY' })`; spy pattern: `const asked = []; io = { confirm: (t) => { asked.push(t); return answer; } }`.
+- `planDeploy({ root, command, presetDir, presetName, presetsRoot, env, session, presetFlag })` unchanged in input. Success result: `{ report, ops, exempt, presetPath, shown }`.
+- Refusal on decline: `exitCode 1`, `result.refused = { reason: 'confirmation declined', paths: guarded_changes }`, `written: []`.
+- `report.settings` shape: `{ action, added, removed }` with values redacted, or `{ action, added: null, removed: null, redacted: true }` when `secret_hits` is non-empty.
+
+### Test rows
+| Row | Case | Expectation |
+|---|---|---|
+| C1 | `APPLY` after a guarded hook change | exit 0, hook written |
+| C2 | `apply`, empty, `APPLY `, `yes` (4 rows) | exit 1, `confirmation declined`, `written: []`, tree unchanged |
+| C3 | `diff` with a guarded change and an answer of APPLY | exit 2, never prompts |
+| C4 | rule-only (unguarded) sync | never prompts |
+| C5 | init over an existing `{}` settings file | prompts (not exempt) |
+| C6 | settings fragment adds `Bash(git:*)`, drops the hook | text has `+ permission allow: "Bash(git:*)"` and `- hook: {json}` verbatim |
+| C7 | ESC byte in a guarded hook | text has `\u001b`, no raw ESC |
+| C8 | guarded hook change | shown `new sha256` equals the bytes written |
+| C9 | settings-only change (no hook) | prompts (settings is a guarded write) |
+| R1 | `redactShape` unit | token replaced by `<redacted:vcs_token>`; clean strings untouched |
+| R2 | token in a rendered hook command | ok false, `settings` `{added:null, removed:null, redacted:true}`, token absent from report |
+| R3 | token-bearing allow rule removed by sync | `removed.permissions.allow` = `['<redacted:vcs_token>']`, ok true, token absent from report |
+| H2-q | script named only by the previous manifest hook | `guarded_changes` = `['scripts/gate.sh']` (fills the Task 2 gap) |
+
+### Mutants (`.tmp/mutate-m4m3.js`, sha256 checked before and after each)
+| Mutant | Killed by (first failing row) | Restored identical |
+|---|---|---|
+| M4 drop the `confirmed` call in `runCli` | C1, C2 | yes |
+| M4 case-insensitive compare | C2 (`apply`) | yes |
+| M4 omit removed lines | C6 | yes |
+| M4 print raw values (no `show`) | C7 | yes |
+| M3 redact added only | R3 | yes |
+| M3 drop secret branch (added/removed nulled) | R2 | yes |
+| H2 drop previous-manifest hook-command clause | H2-q | yes |
+
+### Verification
+- `NODE_PATH=$HOME/get-shit-done/node_modules npm test`: rc=0, 1896 pass, 0 fail (Task 2 baseline 1880; +15 new, +1 H2-q). Log: `.tmp/agnostic-B-FIX1-M4M3-full.log`.
+- `node scripts/agnostic-lint.js check`: ok (869 denied, 338 allowed).
+- Unmutated baseline of the mutant run: rc=0.
+
+### Deviations and notes
+- `readTtyLine` (the real `/dev/tty` path, including open-failure = declined) is not exercised by a test: a live read would block the runner in a terminal. Covered by injection in every test; the TTY path is unverified-by-test and needs a manual check.
+- Settings writes count as guarded (`guarded_changes` already included SETTINGS), so any sync that changes `.claude/settings.json` requires `APPLY`. C9 pins this. Flagged as a UX cost, not changed here.
+- The confirmation text shows the redacted `report.settings` values, so a removed token is shown as `<redacted:...>`.
+- The `show` escape also covers DEL, C1 controls, U+2028/9 (beyond the ruling's ESC example), because a terminal can interpret those.
+- M5 and later tasks untouched. Nothing pushed. No `install:gsd`. No stash, reset or clean.
