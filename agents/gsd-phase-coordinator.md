@@ -194,6 +194,7 @@ Paste verbatim into every Sonnet and Opus review prompt; project rules (`${proje
 - A RED must fail on an assertion about the named defect pre-fix; TypeError, import error or timeout does not count.
 - Unknown or infra errors map to 503, matched by code, never message substring.
 - Diff each ROLLBACK against the live `pg_get_functiondef` body.
+- Test sufficiency: per requirement, a test that fails if the behaviour breaks (real assertion, not hollow, not net-zero assertions); `gsd-tools verify test-content <phase>` MISSING/hollow = finding.
 - After each fix round, re-reconcile SUMMARY, Self-Check, cites and run counts against HEAD and the evidence dir.
 </review_checklist>
 
