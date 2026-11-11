@@ -317,3 +317,35 @@ describe('repo tree', () => {
     assert.strictEqual(new Set(ids).size, 25);
   });
 });
+
+describe('presets/ is out of scope (agnostic-C1)', () => {
+  const ROOT = path.join(__dirname, '..');
+  const PRESET_PATHS = [
+    'get-shit-done/presets/igaming/CLAUDE.md',
+    'get-shit-done/presets/igaming/rules/database.md',
+    'get-shit-done/presets/igaming/hooks/check-test-command.sh',
+    'get-shit-done/presets/igaming/skills/create-migration/SKILL.md',
+    'get-shit-done/presets/igaming/settings.fragment.json',
+    'get-shit-done/presets/igaming/PRODUCT-BRIEF.md',
+  ];
+
+  test('L1 no scope matches a preset path, and the repo scope listing has none', () => {
+    for (const p of PRESET_PATHS) assert.ok(!lint.SCOPES.some((s) => s.match(p)), `a scope matches ${p}`);
+    const listed = Object.values(lint.listScopeFiles(ROOT)).flat();
+    assert.deepStrictEqual(listed.filter((p) => p.startsWith('get-shit-done/presets/')), []);
+    const tracked = execFileSync('git', ['ls-files', 'get-shit-done/presets'], { cwd: ROOT, encoding: 'utf8' })
+      .trim().split('\n');
+    assert.ok(tracked.length >= 50, `expected at least 50 tracked preset files, got ${tracked.length}`);
+  });
+
+  test('L2 a scan counts a template file and never a preset file, even one with hits', () => {
+    const root = mkRoot();
+    configure(root);
+    put(root, 'get-shit-done/presets/x/CLAUDE.md', 'deno\nCEO\n');
+    put(root, 'get-shit-done/templates/t.md', 'deno\n');
+    const res = lint.scan(root, compile(TERMS), []);
+    assert.deepStrictEqual(res.denied['get-shit-done/templates/t.md'], { deno: 1 });
+    const keys = [...Object.keys(res.denied), ...Object.keys(res.allowed)];
+    assert.deepStrictEqual(keys.filter((k) => k.startsWith('get-shit-done/presets/')), []);
+  });
+});
