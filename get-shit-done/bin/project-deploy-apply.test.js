@@ -164,3 +164,65 @@ describe('applyPlan is transactional (B-FIX1 L7)', () => {
     assert.strictEqual(fs.readFileSync(path.join(root, 'a.txt'), 'utf8'), 'NEW-A');
   });
 });
+
+describe('applyPlan re-checks containment before each rename (B-FIX2 L5a)', () => {
+  test('a dest dir swapped for a symlink between stage and rename is refused: rolled back, outside untouched', () => {
+    const root = mkTmp('gsd-apply-');
+    const outside = mkTmp('gsd-outside-');
+    writeAt(root, 'a.txt', 'OLD-A');
+    writeAt(root, 'deep/keep.txt', 'KEEP');
+    const rename = (from, to) => {
+      fs.renameSync(from, to);
+      if (to === path.join(root, 'a.txt')) {
+        fs.renameSync(path.join(root, 'deep'), path.join(root, 'deep.moved'));
+        fs.symlinkSync(outside, path.join(root, 'deep'));
+      }
+    };
+    const r = applyPlan(root, plan5(), 'sync', { rename });
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.failed.path, 'deep/c.txt');
+    assert.strictEqual(r.failed.reason, 'dest traverses a symlink');
+    assert.strictEqual(r.rolled_back, true);
+    assert.strictEqual(fs.readFileSync(path.join(root, 'a.txt'), 'utf8'), 'OLD-A');
+    assert.deepStrictEqual(fs.readdirSync(outside), []);
+  });
+});
+
+describe('applyPlan reports paths it could not restore (B-FIX2 L5b)', () => {
+  test('a restore that itself fails: ok false, rolled_back false, written lists exactly the unrestored path', () => {
+    const root = mkTmp('gsd-apply-');
+    writeAt(root, 'a.txt', 'OLD-A');
+    const aPath = path.join(root, 'a.txt');
+    let calls = 0;
+    const rename = (from, to) => {
+      calls += 1;
+      if (calls > 1) throw Object.assign(new Error('injected rename failure'), { code: 'EIO' });
+      fs.renameSync(from, to);
+      fs.unlinkSync(aPath);
+      fs.mkdirSync(aPath);
+      fs.writeFileSync(path.join(aPath, 'inside.txt'), 'KEEP');
+    };
+    const r = applyPlan(root, plan5(), 'sync', { rename });
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.rolled_back, false);
+    assert.deepStrictEqual(r.written, ['a.txt']);
+    assert.strictEqual(r.failed.path, 'b.txt');
+    assert.strictEqual(fs.statSync(aPath).isDirectory(), true);
+    assert.strictEqual(fs.readFileSync(path.join(aPath, 'inside.txt'), 'utf8'), 'KEEP');
+  });
+});
+
+describe('applyPlan sweeps crash leftovers in its dest directories (B-FIX2 L9b)', () => {
+  test('a stale 16-hex temp in a dest dir is removed; a non-matching name and an unrelated dir are untouched', () => {
+    const root = mkTmp('gsd-apply-');
+    writeAt(root, 'a.txt', 'OLD-A');
+    writeAt(root, `a.txt.gsd-tmp-${'0123456789abcdef'}`, 'STALE');
+    writeAt(root, 'notes.gsd-tmp-XYZ', 'KEEP-NAME');
+    writeAt(root, `other/x.gsd-tmp-${'fedcba9876543210'}`, 'KEEP-DIR');
+    const r = applyPlan(root, plan5(), 'sync');
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(fs.existsSync(path.join(root, `a.txt.gsd-tmp-${'0123456789abcdef'}`)), false);
+    assert.strictEqual(fs.readFileSync(path.join(root, 'notes.gsd-tmp-XYZ'), 'utf8'), 'KEEP-NAME');
+    assert.strictEqual(fs.readFileSync(path.join(root, `other/x.gsd-tmp-${'fedcba9876543210'}`), 'utf8'), 'KEEP-DIR');
+  });
+});

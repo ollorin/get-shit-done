@@ -112,8 +112,29 @@ function rollback(staged, done, dirs, rand) {
   return restoreFailed;
 }
 
+// Leftovers of a crashed apply: regular files named `.gsd-tmp-` + 16 hex, in this plan's dest directories.
+const STALE_TMP_RE = /\.gsd-tmp-[0-9a-f]{16}$/;
+
+function clearStaleTemps(root, steps) {
+  const dirs = new Set(steps.map((s) => path.dirname(path.join(root, s.rel))));
+  for (const dir of dirs) {
+    let names;
+    try {
+      names = fs.readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const name of names.filter((n) => STALE_TMP_RE.test(n))) {
+      const p = path.join(dir, name);
+      if (lstatOrNull(p)?.isFile()) quiet(() => fs.unlinkSync(p));
+    }
+  }
+}
+
 // Two phases: stage every changed file as a random-named temp (any failure changes nothing),
 // then rename in order with the manifest last. A failed rename restores everything already renamed.
+// Result `written`: on success the renamed rel paths; on failure the rel paths NOT restored, which is
+// empty exactly when `rolled_back` is true. A file that failed to restore keeps its new content.
 function applyPlan(root, plan, command, io = {}) {
   const rand = io.random ?? randomHex;
   const rename = io.rename ?? fs.renameSync;
@@ -133,6 +154,7 @@ function applyPlan(root, plan, command, io = {}) {
   const steps = buildSteps(plan, gitignore);
   const pre = steps.map((s) => ({ path: s.rel, r: canonicalRel(root, s.rel) })).find((x) => x.r.error);
   if (pre) return bail({ path: pre.path, reason: pre.r.error });
+  clearStaleTemps(root, steps);
 
   for (const step of steps) {
     try {
