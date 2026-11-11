@@ -6,6 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { planDeploy, CONFIG, MANIFEST, BASE_DIR, SETTINGS } = require('./project-deploy.js');
+const { agentAncestor, detectSession, guardFailures } = require('./project-deploy-session.js');
 const { renderPreset } = require('./project-deploy-render.js');
 const { sha256, planBlockFile } = require('./project-deploy-files.js');
 const { mergeSettings, serializeSettings } = require('./project-deploy-settings.js');
@@ -306,5 +307,107 @@ describe('planDeploy (agnostic-B)', () => {
     assert.strictEqual(r3.ops.files.some((f) => f.dest === rulePath), false);
     assert.deepStrictEqual(r3.ops.manifest.files[rulePath], manifest.files[rulePath]);
     assert.deepStrictEqual(snapshot(root), before3);
+  });
+});
+
+describe('guardrail refusal (agnostic-B7)', () => {
+  const CLAUDE_ENV = { CLAUDECODE: '1' };
+  const ALL_FAIL = { stdin_tty: false, stdout_tty: false, agent_ancestor: true };
+  const HOOK_DEST = '.claude/hooks/guard.js';
+
+  function refusalFixture(state, change) {
+    const dir = makePreset();
+    const root = makeProject();
+    if (state === 'seeded') seedDeployed(root, dir);
+    if (state === 'empty-settings') writeAt(root, SETTINGS, '{}');
+    if (change === 'H') writePreset(dir, { hook: `${HOOK}// changed\n` });
+    if (change === 'R') writePreset(dir, { rule: RULE.replace('line five', 'line five changed') });
+    if (change === 'X') {
+      writeAt(dir, 'extra.js', '// extra\n');
+      writePreset(dir, { files: [...DEFAULT_FILES, { src: 'extra.js', dest: '.claude/Hooks/extra.js', kind: 'whole' }] });
+    }
+    return { root, dir };
+  }
+
+  const ROWS = [
+    { id: 'a', name: 'first-time init without settings is allowed', state: 'fresh', change: null, command: 'init', env: CLAUDE_ENV, session: ALL_FAIL, refused: false, ok: true },
+    { id: 'b', name: 'init over an existing settings file is refused on env', state: 'empty-settings', change: null, command: 'init', env: CLAUDE_ENV, session: HUMAN, refused: true, paths: [HOOK_DEST, SETTINGS], failed: ['env'] },
+    { id: 'c', name: 'sync of a changed hook is refused', state: 'seeded', change: 'H', command: 'sync', env: CLAUDE_ENV, session: HUMAN, refused: true, paths: [HOOK_DEST] },
+    { id: 'd', name: 'sync of a rule only is never refused', state: 'seeded', change: 'R', command: 'sync', env: CLAUDE_ENV, session: ALL_FAIL, refused: false, ok: true, guarded: [] },
+    { id: 'e', name: 'sync of a changed hook passes when every gate holds', state: 'seeded', change: 'H', command: 'sync', env: {}, session: HUMAN, refused: false, ok: true },
+    { id: 'f', name: 'diff is never refused and lists the guarded change', state: 'seeded', change: 'H', command: 'diff', env: CLAUDE_ENV, session: ALL_FAIL, refused: false, ok: true, guarded: [HOOK_DEST] },
+    { id: 'g', name: 'present-but-empty CLAUDECODE refuses', state: 'seeded', change: 'H', command: 'sync', env: { CLAUDECODE: '' }, session: HUMAN, refused: true, failed: ['env'] },
+    { id: 'h', name: 'stdin not a TTY refuses', state: 'seeded', change: 'H', command: 'sync', env: {}, session: { ...HUMAN, stdin_tty: false }, refused: true, failed: ['stdin_tty'] },
+    { id: 'i', name: 'stdout not a TTY refuses', state: 'seeded', change: 'H', command: 'sync', env: {}, session: { ...HUMAN, stdout_tty: false }, refused: true, failed: ['stdout_tty'] },
+    { id: 'j', name: 'agent ancestor refuses', state: 'seeded', change: 'H', command: 'sync', env: {}, session: { ...HUMAN, agent_ancestor: true }, refused: true, failed: ['agent_ancestor'] },
+    { id: 'm', name: 'a new mixed-case hook dest is guarded', state: 'seeded', change: 'X', command: 'sync', env: CLAUDE_ENV, session: HUMAN, refused: true, paths: ['.claude/Hooks/extra.js'] },
+  ];
+
+  for (const row of ROWS) {
+    test(`P6${row.id} ${row.name}`, () => {
+      const { root, dir } = refusalFixture(row.state, row.change);
+      const before = snapshot(root);
+      const { report } = planDeploy({ root, command: row.command, presetDir: dir, env: row.env, session: row.session });
+      if (row.refused) {
+        assert.notStrictEqual(report.refused, null);
+        assert.strictEqual(report.ok, false);
+        if (row.paths) assert.deepStrictEqual(report.refused.paths, row.paths);
+        if (row.failed) assert.deepStrictEqual(report.refused.failed, row.failed);
+      } else {
+        assert.strictEqual(report.refused, null);
+        assert.strictEqual(report.ok, row.ok);
+        if (row.guarded) assert.deepStrictEqual(report.guarded_changes, row.guarded);
+      }
+      assert.deepStrictEqual(snapshot(root), before);
+    });
+  }
+
+  test('P6k omitted env reads process.env (CLAUDECODE set inside the test, restored after)', () => {
+    const { root, dir } = refusalFixture('seeded', 'H');
+    const before = snapshot(root);
+    const prior = process.env.CLAUDECODE;
+    process.env.CLAUDECODE = '1';
+    try {
+      const { report } = planDeploy({ root, command: 'sync', presetDir: dir, session: HUMAN });
+      assert.deepStrictEqual(report.refused.failed, ['env']);
+    } finally {
+      if (prior === undefined) delete process.env.CLAUDECODE;
+      else process.env.CLAUDECODE = prior;
+    }
+    assert.deepStrictEqual(snapshot(root), before);
+  });
+
+  test('P6l omitted session detects the real process; the test runner (piped stdout) is refused', () => {
+    const { root, dir } = refusalFixture('seeded', 'H');
+    const before = snapshot(root);
+    const { report } = planDeploy({ root, command: 'sync', presetDir: dir, env: {} });
+    assert.notStrictEqual(report.refused, null);
+    assert.ok(report.refused.failed.length > 0);
+    assert.deepStrictEqual(snapshot(root), before);
+  });
+
+  const ZSH_TABLE = '  300   200 /bin/zsh\n  200     1 /bin/zsh\n    1     0 /sbin/launchd\n';
+  const CLAUDE_TABLE = '  300   200 /bin/zsh\n  200     1 /usr/local/bin/claude\n    1     0 /sbin/launchd\n';
+  const SPACED_TABLE = '  300   200 /bin/zsh\n  200     1 /Applications/Claude Helper.app/Contents/MacOS/Claude Helper\n';
+  const CYCLE_TABLE = '  300   200 /bin/zsh\n  200   300 /bin/zsh\n';
+
+  test('P12 agentAncestor walks the parent chain and fails closed', () => {
+    assert.strictEqual(agentAncestor(CLAUDE_TABLE, 300), true);
+    assert.strictEqual(agentAncestor(ZSH_TABLE, 300), false);
+    assert.strictEqual(agentAncestor(SPACED_TABLE, 300), true);
+    assert.strictEqual(agentAncestor('', 300), true);
+    assert.strictEqual(agentAncestor(undefined, 300), true);
+    assert.strictEqual(agentAncestor(ZSH_TABLE, 999), true);
+    assert.strictEqual(agentAncestor(CYCLE_TABLE, 300), true);
+  });
+
+  test('P12 detectSession reads tty flags and the ps table; guardFailures orders the ids', () => {
+    const session = detectSession({ stdin: { isTTY: true }, stdout: {}, pid: 300, psOutput: ZSH_TABLE });
+    assert.deepStrictEqual(session, { stdin_tty: true, stdout_tty: false, agent_ancestor: false });
+    assert.deepStrictEqual(guardFailures({}, HUMAN), []);
+    assert.deepStrictEqual(
+      guardFailures({ CLAUDECODE: '1' }, { stdin_tty: false, stdout_tty: false, agent_ancestor: true }),
+      ['env', 'stdin_tty', 'stdout_tty', 'agent_ancestor'],
+    );
   });
 });
