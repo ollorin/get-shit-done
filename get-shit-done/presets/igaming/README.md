@@ -23,10 +23,9 @@ All 49 entries are `kind: whole`, `render: false`. `settings.snapshot.json` is t
 `settings.snapshot.json` is the verbatim file and is never deployed. `settings.fragment.json` is its `permissions` (allow/deny/ask) and `hooks`. The keys `env`, `enableAllProjectMcpServers`, `enabledPlugins`, `sandbox` are not deployed by the current engine. Deployed settings are set-equal to the snapshot, not byte-equal.
 Phase H must carry these four keys (env, enableAllProjectMcpServers, enabledPlugins, sandbox): the engine does not deploy them.
 
-## Redactions
+## Scan
 
-- `rules/edge-functions.md` line 126 (dest `.claude/rules/edge-functions.md`), pattern `assigned_secret`: the matched value is replaced by `<redacted:assigned_secret>`. The golden compares against the redacted form for this file.
-- Scan after redaction: `scanDir` 0 hits over 53 files.
+- `scanDir` over the 54 preset files: 0 hits. `rules/edge-functions.md` is byte-equal to the pin (the former `assigned_secret` false positive on `env(...)` is fixed in B-FIX2).
 
 ## Not changed in this snapshot
 
@@ -42,5 +41,5 @@ The fragment contains mutating allow rules scoped to the igaming checkout (for e
 
 ```
 git -C /Users/ollorin/igaming-platform archive 95a02959e5fa464f3bcce11378c803f7b86ec76d CLAUDE.md .claude scripts/validation/hook-canaries | tar -x -C <empty-dir>
-shasum -a 256 -c golden.sha256   (run inside <empty-dir>; expect one FAILED: .claude/rules/edge-functions.md, the redaction above)
+shasum -a 256 -c golden.sha256   (run inside <empty-dir>; expect every line OK)
 ```

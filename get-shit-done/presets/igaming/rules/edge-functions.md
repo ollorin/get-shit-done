@@ -123,7 +123,7 @@ baseline) fails preflight and CI on any unwrapped site.
 ```toml
 [edge_runtime.secrets]
 # SUPABASE_JWT_SECRET won't work — CLI strips it silently
-REALTIME_JWT_<redacted:assigned_secret>"
+REALTIME_JWT_SECRET = "env(REALTIME_JWT_SECRET)"
 ```
 
 This applies to local dev (`supabase functions serve`) and deployed functions. There is no error or warning — the variable is simply absent at runtime, causing silent failures (e.g., JWT verification returns invalid, middleware returns 401).

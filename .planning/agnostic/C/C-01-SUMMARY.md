@@ -75,3 +75,11 @@ REUSE (0 added): `project-deploy-scan.test.js` `5 repo presets contain no token-
 - Files present: `get-shit-done/presets/igaming/{preset.json,golden.sha256,README.md,settings.fragment.json,settings.snapshot.json}`, `get-shit-done/bin/preset-igaming.test.js`, `scripts/agnostic-lint.test.js`, `package.json`.
 - Commits present: `22f75a0`, `72880b0`, `0e31774`.
 - Tree clean for `get-shit-done/presets`, `package.json`, `get-shit-done/bin`, `scripts` after the last restore.
+
+## Follow-up: redaction removed
+- The pinned line 126 is `REALTIME_JWT_SECRET = "env(REALTIME_JWT_SECRET)"`, an env reference, not a credential. The fixed scanner (B-FIX2 `0bbd174`) returns 0 hits on it (`scanText`), so the redaction is not needed. The `Recommend a check against the igaming owner` item above is closed by this.
+- `rules/edge-functions.md` restored byte-equal to `95a02959e:.claude/rules/edge-functions.md` (sha256 `e5a2c449b894ff9f66df7a4fffce1cbf797ef7436ce930f3b39a4814aed2bed3`). `scanDir` over the 54 preset files: 0 hits.
+- Removed: the `<redacted:assigned_secret>` text, the README `## Redactions` section (now `## Scan`), the redacted-form golden line (`76664c0c…` replaced by `e5a2c449…`), and the G1 assertion that required a Redactions section.
+- New G7 in `get-shit-done/bin/preset-igaming.test.js`: every golden entry and every preset file equals the pinned archive bytes (`git -C /Users/ollorin/igaming-platform show 95a02959e:<dest>`). No skip path: the igaming checkout must exist at `IGAMING_ROOT`.
+- Mutant: flip bit 0x01 at byte 100 of `rules/edge-functions.md`. Killed by G3 and G7 (2 of 7 failing); file restored (sha re-checked).
+- `NODE_PATH=$HOME/get-shit-done/node_modules npm test`: rc=0, 1961/1961. `node scripts/agnostic-lint.js check`: ok.
