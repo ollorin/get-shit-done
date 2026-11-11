@@ -201,6 +201,18 @@ test('9 bad pattern: loadTerms throws an Error naming the file', () => {
   assert.throws(() => lint.loadTerms(file), (e) => e instanceof Error && e.message.includes(file));
 });
 
+test('13 lowercase security, auth and owner tokens are counted; SES and Resend stay case-sensitive', () => {
+  const classes = lint.loadTerms(path.join(__dirname, 'agnostic-lint', 'terms.json'));
+  const hits = (line) => lint.countLines(line, classes);
+  [
+    ['kyc check', 'reg'], ['aml hit', 'reg'], ['jwt verify', 'authtech'], ['totp secret', 'authtech'], ['2fa prompt', 'authtech'],
+    ['aws s3', 'cloud'], ['stripe key', 'cloud'], ['vercel deploy', 'cloud'], ['ceo ruling', 'owner'], ['nx run', 'nx'],
+  ].forEach(([line, cls]) => assert.strictEqual(hits(line)[cls], 1, `${line} -> ${cls}`));
+  assert.deepStrictEqual(hits('ses queue'), {});
+  assert.deepStrictEqual(hits('resend mail'), {});
+  assert.deepStrictEqual(hits('nexus and ceoless'), {});
+});
+
 describe('repo tree', () => {
   const ROOT = path.join(__dirname, '..');
   const DIR = path.join(ROOT, 'scripts', 'agnostic-lint');

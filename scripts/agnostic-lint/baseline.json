@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "inputs_sha256": "5df024ee3e208240a41e721dfd84165c5fbd0706f08afcd203c07926fbe46ba6",
+  "inputs_sha256": "d3e27ff16c07e0f9a030b32acdb2beaad07bfd6ab72a683a7addefbacc4a8fa3",
   "denied": {
     "agents/gsd-charlotte-qa.md": {
       "charlotte": 31,
@@ -66,7 +66,8 @@
       "charlotte": 1,
       "gates": 3,
       "money": 1,
-      "paths": 1
+      "paths": 1,
+      "reg": 1
     },
     "agents/gsd-roadmapper.md": {
       "charlotte": 7,
@@ -88,12 +89,14 @@
       "paths": 1
     },
     "agents/gsd-verifier.md": {
+      "authtech": 1,
       "charlotte": 11,
       "deno": 1,
       "gates": 6,
       "money": 2,
       "paths": 1,
-      "postgres": 1
+      "postgres": 1,
+      "reg": 1
     },
     "agents/gsd2-runner.md": {
       "abs": 1,
@@ -145,7 +148,7 @@
       "ports": 1
     },
     "get-shit-done/bin/decisions.js": {
-      "owner": 2
+      "owner": 3
     },
     "get-shit-done/bin/demo-check.js": {
       "charlotte": 14
@@ -157,13 +160,16 @@
       "money": 1
     },
     "get-shit-done/bin/gsd-feedback.js": {
+      "authtech": 1,
       "docker": 1
     },
     "get-shit-done/bin/gsd-learning.js": {
+      "authtech": 1,
       "frontend": 1
     },
     "get-shit-done/bin/gsd-tools.js": {
       "abs": 2,
+      "authtech": 1,
       "charlotte": 10,
       "deno": 7,
       "frontend": 1,
@@ -172,6 +178,7 @@
       "igaming": 3,
       "money": 5,
       "paths": 1,
+      "reg": 1,
       "supabase": 1,
       "telegram": 26
     },
@@ -191,16 +198,20 @@
       "deno": 3
     },
     "get-shit-done/bin/hooks/gsd-protect-managed-files.js": {
-      "deno": 2
+      "deno": 2,
+      "owner": 1
     },
     "get-shit-done/bin/knowledge-extraction.js": {
       "frontend": 1
+    },
+    "get-shit-done/bin/knowledge-permissions.js": {
+      "cloud": 1
     },
     "get-shit-done/bin/knowledge-principles.js": {
       "telegram": 2
     },
     "get-shit-done/bin/knowledge-safety.js": {
-      "cloud": 2
+      "cloud": 3
     },
     "get-shit-done/bin/knowledge-synthesis.js": {
       "game": 1
@@ -234,7 +245,7 @@
       "gates": 1,
       "igaming": 2,
       "money": 4,
-      "nx": 3,
+      "nx": 4,
       "owner": 1,
       "paths": 1,
       "ports": 4,
@@ -249,7 +260,7 @@
     },
     "get-shit-done/references/decisions-protocol.md": {
       "money": 3,
-      "owner": 9,
+      "owner": 10,
       "reg": 2
     },
     "get-shit-done/references/executor-detail.md": {
@@ -292,7 +303,7 @@
       "abs": 1,
       "authtech": 4,
       "charlotte": 6,
-      "cloud": 4,
+      "cloud": 8,
       "edgefn": 2,
       "frontend": 1,
       "game": 2,
@@ -316,12 +327,14 @@
       "postgres": 2
     },
     "get-shit-done/references/verifier-detail.md": {
+      "authtech": 2,
       "charlotte": 31,
       "deno": 7,
       "edgefn": 1,
       "frontend": 4,
       "gates": 7,
       "money": 4,
+      "reg": 2,
       "supabase": 1
     },
     "get-shit-done/templates/VALIDATION.md": {
@@ -439,6 +452,7 @@
   },
   "allowed": {
     "agents/gsd-codebase-mapper.md": {
+      "cloud": 1,
       "docker": 1,
       "frontend": 1,
       "supabase": 1
@@ -453,14 +467,14 @@
       "frontend": 2
     },
     "agents/gsd-plan-checker.md": {
-      "authtech": 1
+      "authtech": 2
     },
     "agents/gsd-planner.md": {
       "edgefn": 1
     },
     "get-shit-done/references/checkpoints.md": {
       "authtech": 2,
-      "cloud": 15,
+      "cloud": 33,
       "frontend": 2,
       "money": 1,
       "ports": 25,
@@ -472,7 +486,7 @@
       "authtech": 3
     },
     "get-shit-done/references/git-integration.md": {
-      "authtech": 6,
+      "authtech": 8,
       "cloud": 1,
       "frontend": 3,
       "money": 2
@@ -492,7 +506,7 @@
       "authtech": 1
     },
     "get-shit-done/templates/codebase/concerns.md": {
-      "cloud": 9,
+      "cloud": 14,
       "frontend": 3,
       "money": 6,
       "postgres": 2,
@@ -504,7 +518,7 @@
     },
     "get-shit-done/templates/codebase/integrations.md": {
       "authtech": 3,
-      "cloud": 17,
+      "cloud": 24,
       "docker": 1,
       "frontend": 1,
       "money": 6,
@@ -525,7 +539,7 @@
       "frontend": 13
     },
     "get-shit-done/templates/phase-prompt.md": {
-      "cloud": 3,
+      "cloud": 6,
       "frontend": 1,
       "money": 1,
       "ports": 4
@@ -537,14 +551,15 @@
       "frontend": 19
     },
     "get-shit-done/templates/summary.md": {
-      "authtech": 6,
+      "authtech": 7,
+      "cloud": 1,
       "edgefn": 1,
       "frontend": 1,
       "money": 2,
       "postgres": 1
     },
     "get-shit-done/templates/user-setup.md": {
-      "cloud": 13,
+      "cloud": 21,
       "money": 1,
       "ports": 4,
       "supabase": 12
@@ -557,7 +572,8 @@
       "frontend": 1
     },
     "get-shit-done/workflows/execute-plan.md": {
-      "authtech": 1
+      "authtech": 1,
+      "cloud": 1
     },
     "get-shit-done/workflows/new-project.md": {
       "authtech": 1
