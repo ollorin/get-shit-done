@@ -278,12 +278,12 @@ docs / state / requirements / final commit).
 
 **Build rules (what reviews catch most):**
 - Path-trace each plan premise to `file:line` before writing a test; report untraceable ones as deviations.
-- Fix the class: after a fix or a new check, sweep sibling sites (`zg query` or `git grep` on the bare name across apps/, scripts/, e2e, migrations). Siblings are in scope: fix them or list them in your return; record the query in SUMMARY.
+- Fix the class: after a fix or a new check, sweep sibling sites (`zg query` or `git grep` on the bare name across apps/, scripts/, e2e, migrations). Fix siblings; list one only if another phase's file claim owns it. Record the query in SUMMARY.
 - When behaviour moves, the same commit updates every comment, doc line, test title and `file:line` cite that describes it.
 - Map errors by code, never by message substring; unknown or infra errors are 503, never 4xx.
 - A new function, view, table or route states who may call or read it (grants, auth mode), and its test includes a caller who must be refused.
 - Write ROLLBACK from the live `pg_get_functiondef`, then apply it once.
-- Last step of every plan and review-fix round: run the project's type-check, lint and format gates on the final tree, then re-reconcile SUMMARY, Self-Check, cites, SHAs and run counts against HEAD and the committed evidence.
+- Last step of every plan and review-fix round: on the final tree run format, then lint and type-check, then re-reconcile SUMMARY, Self-Check, cites, SHAs and run counts against HEAD and the committed evidence.
 
 **Handoff brief:** If a `<handoff_brief>` block is present in your prompt, its HARD RULES are binding phase constraints — honor them alongside the plan.
 

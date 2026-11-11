@@ -149,7 +149,11 @@ describe('run log is written by the tool, inside a held stack lock', () => {
     fs.writeFileSync(lock, 'phase-404.1-demo\n');
     spawnSync('git', ['init', '-q'], { cwd: ph.dir });
     spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'x'], { cwd: ph.dir });
-    const ok = spawnSync('node', [TOOL, 'start', ph.dir, '--lock-file', lock], { encoding: 'utf8' });
+    const other = spawnSync('node', [TOOL, 'start', ph.dir, '--lock-file', lock, '--owner', 'phase-999'], { encoding: 'utf8' });
+    assert.strictEqual(other.status, 1);
+    assert.match(other.stderr, /held by "phase-404.1-demo", not "phase-999"/);
+    assert.strictEqual(spawnSync('node', [TOOL, 'start', ph.dir, '--lock-file', lock], { encoding: 'utf8' }).status, 1);
+    const ok = spawnSync('node', [TOOL, 'start', ph.dir, '--lock-file', lock, '--owner', 'phase-404.1-demo'], { encoding: 'utf8' });
     assert.strictEqual(ok.status, 0, ok.stderr);
     const run = JSON.parse(ok.stdout);
     assert.strictEqual(run.lock_owner, 'phase-404.1-demo');

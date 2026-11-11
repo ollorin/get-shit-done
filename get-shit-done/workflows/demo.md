@@ -27,11 +27,11 @@ Result on disk: `{phase_dir}/demo/scenario.json` and `{phase_dir}/{padded_phase}
 
 ## 2. Record (stack window only)
 
-Preconditions, all checked by the caller, never by the demo agent: the project's stack lock is held by this caller for the whole recording; app and API answer; no db reset and no other Charlotte run during it; fixture accounts named in `scenario.accounts` exist (provision through the project's API fixture path). One recording at a time: Charlotte drives one browser.
+Preconditions, all checked by the caller, never by the demo agent: the project's stack lock is held by this caller for the whole recording (`DC start --owner` fails if the lock file names anyone else); app and API answer; no db reset and no other Charlotte run during it; fixture accounts named in `scenario.accounts` exist (provision through the project's API fixture path). One recording at a time: Charlotte drives one browser.
 
 ```
 Agent(subagent_type="gsd-demo", model="haiku", description="Record demo phase {N}",
-  prompt="mode=record phase_dir={phase_dir} lock_file={project stack-lock owner file}")
+  prompt="mode=record phase_dir={phase_dir} lock_file={project stack-lock owner file} lock_owner={the owner string this caller wrote into it}")
 ```
 
 Then, yourself:
@@ -41,6 +41,7 @@ DC check {phase_dir}      # exit 0 and "recorded":true, or the demo does not exi
 git add {phase_dir}/demo/scenario.json {phase_dir}/demo/steps.jsonl {phase_dir}/demo/manifest.json {phase_dir}/demo/shots {phase_dir}/*-DEMO.md
 ```
 
+- Commit only the paths in the `git add` above (explicit paths, never a bare `.planning/` stage): `demo/video/` stays out even if the project `.gitignore` lacks `**/demo/video/` (report that gap). Before staging, read each `observed` text and drop any shot whose screen shows a TOTP code, token or password; write such text as `<redacted>`.
 - `check` non-zero: do not commit, do not notify; re-record once, then report the errors.
 - `result: failed` with a passing check is a real finding (the product did not do what the phase claims): the DEMO.md is committed as is and the failed step goes to the phase's gap list. Never re-script a step to make it pass.
 - `blocked`: the script-only DEMO.md stays; report why.

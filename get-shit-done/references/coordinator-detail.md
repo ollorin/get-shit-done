@@ -5,8 +5,8 @@ This file holds the FULL, VERBATIM `<execution_cycle>` block relocated from
 restructuring. Every step (discuss, research, plan, execute, verify,
 the context-budget-monitoring logic, and the
 checkpoint_ui_qa_loop / detect_web_framework / post_phase_ux_sweep /
-post_phase_e2e sub-steps are relocated here byte-for-byte -- nothing was
-reworded, summarized, or deleted.
+post_phase_e2e sub-steps were relocated here. Lifecycle Telegram notifications
+were removed; the orchestrator prints status to the chat.
 
 Several HARD RULE / MUST / CRITICAL statements embedded within these steps
 are ALSO quoted verbatim in the core preamble of `gsd-phase-coordinator.md`
@@ -19,34 +19,6 @@ every rule still lives here, in its original place, unchanged.
 
 <execution_cycle>
 
-Initialize:
-```
-telegram_topic_id = {value from prompt if provided, else null}
-// All mcp__telegram__send_message and mcp__telegram__send_status_update calls
-// below pass thread_id: telegram_topic_id (omit parameter if null)
-```
-
-// Parent coordinator passes telegram_topic_id in the prompt:
-// "telegram_topic_id: {telegram_topic_id}" or "telegram_topic_id: null"
-
-// Helper: append_notification_log(event, data)
-// After EVERY mcp__telegram__send_message call that is a lifecycle notification
-// (NOT escalation calls — those already log via the escalation block):
-//   Append JSON line to .planning/telegram-sessions/{YYYY-MM-DD}.jsonl
-//   Format: {"type":"notification","event":"{event}","timestamp":"{ISO}","phase":{N},...extra_data}
-//   Create the file if it does not exist. Use current date for filename.
-
-**Notification 1 — Phase start** (fires immediately after initialization, before any step):
-
-```
-if telegram_topic_id is not null:
-  mcp__telegram__send_message({
-    text: "Phase {phase_number} started: {phase_name}",
-    ...(telegram_topic_id ? { thread_id: telegram_topic_id } : {})
-  })
-  // JSONL: {"type":"notification","event":"phase_start","timestamp":"{ISO}","phase":{N},"phase_name":"{name}"}
-  // Append above line to .planning/telegram-sessions/{YYYY-MM-DD}.jsonl
-```
 
 
 <context_budget_monitoring>
@@ -73,15 +45,10 @@ When context_budget_pct >= COMPRESSED_MODE_THRESHOLD:
 - Switch to terse output: use bullet points only, skip verbose reasoning narration
 - Omit intermediate planning commentary -- act and report results concisely
 - Skip optional diagnostic log messages
-- Send ONE Telegram notification (on first threshold crossing only):
+- Note it once (first threshold crossing only):
 
 ```
 if context_budget_pct >= COMPRESSED_MODE_THRESHOLD AND NOT compressed_mode_notified:
-  if telegram_topic_id is not null:
-    mcp__telegram__send_message({
-      text: "Phase {phase_number}: context at {usage_pct}% -- switching to compressed mode",
-      ...(telegram_topic_id ? { thread_id: telegram_topic_id } : {})
-    })
   compressed_mode_notified = true
   // Log to JSONL: {"type":"context_budget","event":"compressed_mode","timestamp":"{ISO}","phase":{N},"usage_pct":{usage_pct}}
 ```
@@ -91,15 +58,10 @@ if context_budget_pct >= COMPRESSED_MODE_THRESHOLD AND NOT compressed_mode_notif
 When context_budget_pct >= FRESH_SUBAGENT_THRESHOLD:
 - Before spawning the verifier: create a compact handoff summary containing: phase goal, key decisions made, tasks completed, files modified
 - Pass this handoff summary in the verifier subagent prompt so the verifier has full context without relying on the coordinator context window
-- Send ONE Telegram notification (on first threshold crossing only):
+- Note it once (first threshold crossing only):
 
 ```
 if context_budget_pct >= FRESH_SUBAGENT_THRESHOLD AND NOT fresh_subagent_notified:
-  if telegram_topic_id is not null:
-    mcp__telegram__send_message({
-      text: "Phase {phase_number}: context at {usage_pct}% -- passing handoff summary to verifier",
-      ...(telegram_topic_id ? { thread_id: telegram_topic_id } : {})
-    })
   fresh_subagent_notified = true
   // Log to JSONL: {"type":"context_budget","event":"fresh_subagent","timestamp":"{ISO}","phase":{N},"usage_pct":{usage_pct}}
   // Build handoff_summary:
@@ -212,18 +174,6 @@ ls .planning/phases/{phase_dir}/*-CONTEXT.md 2>/dev/null || echo "NO_CONTEXT"
   "files_created": [],
   "context_file": null
 }
-```
-
-After creating the skipped checkpoint, send context_ready notification (skip variant):
-
-```
-if telegram_topic_id is not null:
-  mcp__telegram__send_message({
-    text: "Phase {phase_number} context ready — CONTEXT.md already exists (discuss step skipped)",
-    ...(telegram_topic_id ? { thread_id: telegram_topic_id } : {})
-  })
-  // JSONL: {"type":"notification","event":"context_ready","timestamp":"{ISO}","phase":{N},"autonomous_count":0,"escalated_count":0,"skipped":true}
-  // Append above line to .planning/telegram-sessions/{YYYY-MM-DD}.jsonl
 ```
 
 <!-- RUN PATH: No CONTEXT.md — run gray-area identification -->
@@ -604,18 +554,6 @@ node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js commit "docs({padded_
 
 6. Log the discuss completion.
 
-**Notification 2 — Context ready** (fires after discuss step completes — CONTEXT.md written and committed):
-
-```
-if telegram_topic_id is not null:
-  mcp__telegram__send_message({
-    text: "Phase {phase_number} context ready — {sufficient_count} KB answers, {discretion_count} Claude decisions, {escalated_count} Telegram-escalated",
-    ...(telegram_topic_id ? { thread_id: telegram_topic_id } : {})
-  })
-  // JSONL: {"type":"notification","event":"context_ready","timestamp":"{ISO}","phase":{N},"kb_count":{sufficient_count},"discretion_count":{discretion_count},"escalated_count":{escalated_count}}
-  // Append above line to .planning/telegram-sessions/{YYYY-MM-DD}.jsonl
-```
-
 The execution cycle then proceeds to the `research` step.
 </step>
 
@@ -688,17 +626,6 @@ Agent(
 }
 ```
 
-**Notification 3 — Research done** (fires only when status is "complete" — NOT when skipped):
-
-```
-if telegram_topic_id is not null AND research_status == "complete":
-  mcp__telegram__send_message({
-    text: "Phase {phase_number} research done",
-    ...(telegram_topic_id ? { thread_id: telegram_topic_id } : {})
-  })
-  // JSONL: {"type":"notification","event":"research_done","timestamp":"{ISO}","phase":{N}}
-  // Append above line to .planning/telegram-sessions/{YYYY-MM-DD}.jsonl
-```
 </step>
 
 <step name="plan">
@@ -747,6 +674,8 @@ echo "PLAN_COUNT=$PLAN_COUNT"
 { "status": "failed", "step": "plan", "reason": "gsd-planner returned success but no PLAN.md files found on disk" }
 ```
 
+**Decision citation gate:** when `.planning/DECISIONS.jsonl` exists, run `node "$HOME/.claude/get-shit-done/bin/decisions.js" check-plan --phase {phase_number} .planning/phases/{phase_dir}/*-PLAN.md`. Exit 1 (a binding `D-`/`A-` not cited, unknown or stale id) or 3 (corrupt ledger) is a failure like the structure gate: return `{ "status": "failed", "step": "plan", "reason": "decision citation gate: {output}" }` and re-plan with the output as revision context.
+
 **Plan structure gate:** After PLAN_COUNT check passes, run structural validation on each plan before proceeding:
 
 ```bash
@@ -773,17 +702,6 @@ Create checkpoint: `{ step: "plan", status: "complete", plan_count: N }`
 
 **Skip rationale:** Plans may already exist from a previous partial execution. Always prefer existing plans over re-planning to preserve prior decisions.
 
-**Notification 4 — Plans ready** (fires only when status is "complete" — NOT when skipped):
-
-```
-if telegram_topic_id is not null AND plan_status == "complete":
-  mcp__telegram__send_message({
-    text: "Phase {phase_number} plans ready — {plan_count} plan(s)",
-    ...(telegram_topic_id ? { thread_id: telegram_topic_id } : {})
-  })
-  // JSONL: {"type":"notification","event":"plans_ready","timestamp":"{ISO}","phase":{N},"plan_count":{N}}
-  // Append above line to .planning/telegram-sessions/{YYYY-MM-DD}.jsonl
-```
 </step>
 
 <step name="execute">
@@ -848,20 +766,23 @@ For each incomplete plan (no SUMMARY.md):
    For each <task> element in the plan (by task_index, 1-based):
      // Prefer <model> element (new format), fall back to [tier] name prefix (legacy)
      model_el = extract <model> element text if present (haiku|sonnet|opus)
+     tier_attr = extract the tier="..." attribute of the <task> tag if present
      task_name = extract <name> element text
      If model_el matches /^(haiku|sonnet|opus)$/i:
        TASK_TIERS[task_index] = model_el (lowercase)
+     Else If tier_attr matches /^(haiku|sonnet|opus)$/i:
+       TASK_TIERS[task_index] = tier_attr (lowercase)   // <task tier="Haiku"> is case-insensitive
      Else If task_name matches /^\[(haiku|sonnet|opus)\]/i:
        TASK_TIERS[task_index] = matched tier (lowercase)  // legacy compat
      Else:
-       TASK_TIERS[task_index] = "sonnet"  // default — no tier specified
+       TASK_TIERS[task_index] = PROJECT_DEFAULT_TIER  // the tier the project CLAUDE.md gives gsd-executor, else "haiku"
 
-   If at least one task has an explicit tier (via <model> or legacy prefix):
+If at least one task has an explicit tier (via <model> or legacy prefix):
      PER_TASK_MODE = true
    Else:
      // Fall back to plan-level routing (plan has no tier info — older plan format)
      PER_TASK_MODE = false
-     EXECUTOR_MODEL = "sonnet"  // no per-task tiers: CLAUDE.md default
+     EXECUTOR_MODEL = PROJECT_DEFAULT_TIER  // no per-task tiers: project CLAUDE.md executor tier, else "haiku"
    ```
 
    **If MODEL_PROFILE is NOT "auto":** PER_TASK_MODE = false, EXECUTOR_MODEL = "sonnet" (unchanged default behavior).
@@ -1187,12 +1108,6 @@ while round <= MAX_ROUNDS AND qa_passed == false:
   // --- STEP C: If round == MAX_ROUNDS and still failing, escalate to human ---
   if round == MAX_ROUNDS AND NOT qa_passed:
     // Build human escalation message
-    Send Telegram notification (if telegram_topic_id is not null):
-      mcp__telegram__send_message({
-        text: "UI QA: {issue_count} issues remain after {MAX_ROUNDS} rounds. Human review needed.\n\nCritical: {critical} | High: {high} | Medium: {medium} | Low: {low}\n\nResume to continue or 'stop' to halt.",
-        thread_id: telegram_topic_id (if set)
-      })
-
     // Return human checkpoint
     Return checkpoint message to parent:
     ```
@@ -1603,32 +1518,9 @@ fi
 **Phase-gate authority note:** This coordinator's own VERIFICATION.md-must-exist check above is a legitimate early self-check (fail fast before returning, so a missing artifact is caught here rather than surfacing later at the orchestrator). It does NOT replace the orchestrator's `verify phase-gate {phase}` call, which runs after this coordinator returns and is the actual blocking authority for artifact EXISTENCE across all 5 checks (test files, Charlotte QA evidence, docs commit, E2E-TEST-PLAN.md, VERIFICATION.md itself). Do not remove this coordinator's own hard rule — the coordinator still must spawn the verifier; phase-gate only re-confirms deterministically afterward.
 
 **Status routing:**
-- `passed` → send phase_complete notification, then return success state
+- `passed` → return success state
 - `gaps_found` → return gaps_found state with details from VERIFICATION.md
 - `human_needed` → return human_needed state with items requiring human testing
-
-**Notification 5 — Phase complete** (fires when verification status is "passed"):
-
-```
-if telegram_topic_id is not null:
-  duration_minutes = calculate from phase start timestamp to now (round to nearest minute)
-
-  // Build routing stats string if per-task routing was used
-  routing_stats_str = ""
-  if PER_TASK_MODE and ROUTING_STATS is non-empty:
-    parts = []
-    if ROUTING_STATS.haiku > 0: parts.push("{ROUTING_STATS.haiku} haiku")
-    if ROUTING_STATS.sonnet > 0: parts.push("{ROUTING_STATS.sonnet} sonnet")
-    if ROUTING_STATS.opus > 0: parts.push("{ROUTING_STATS.opus} opus")
-    routing_stats_str = " | " + parts.join(" / ")
-
-  mcp__telegram__send_message({
-    text: "Phase {phase_number} complete ({duration_minutes}m) — {phase_name}{routing_stats_str}",
-    ...(telegram_topic_id ? { thread_id: telegram_topic_id } : {})
-  })
-  // JSONL: {"type":"notification","event":"phase_complete","timestamp":"{ISO}","phase":{N},"duration_minutes":{N}}
-  // Append above line to .planning/telegram-sessions/{YYYY-MM-DD}.jsonl
-```
 
 **Create final checkpoint:**
 ```json

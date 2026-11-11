@@ -130,6 +130,8 @@ function start(phaseDir, opts) {
   if (!str(opts.lockFile) || !fs.existsSync(opts.lockFile)) throw new Error(`stack lock not held: ${opts.lockFile || '--lock-file missing'}`);
   const owner = fs.readFileSync(opts.lockFile, 'utf8').trim().split('\n')[0];
   if (!str(owner)) throw new Error(`${opts.lockFile} names no owner`);
+  if (!str(opts.owner)) throw new Error('--owner missing: pass the lock owner this recording runs under');
+  if (owner !== opts.owner) throw new Error(`stack lock held by "${owner}", not "${opts.owner}"`);
   const sha = require('child_process').execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: phaseDir, encoding: 'utf8' }).trim();
   const p = paths(phaseDir);
   if (fs.existsSync(p.log)) fs.rmSync(p.log);
@@ -321,7 +323,7 @@ function main(argv) {
     out({ pass: errors.length === 0, errors });
     return errors.length === 0 ? 0 : 1;
   }
-  if (cmd === 'start') { out(start(phaseDir, { lockFile: val('lock-file') })); return 0; }
+  if (cmd === 'start') { out(start(phaseDir, { lockFile: val('lock-file'), owner: val('owner') })); return 0; }
   if (cmd === 'stop') { out(appendLog(phaseDir, { type: 'run_end', finished_at: new Date().toISOString() })); return 0; }
   if (cmd === 'log') {
     if (val('video')) { out(appendLog(phaseDir, { type: 'video', id: val('video') })); return 0; }

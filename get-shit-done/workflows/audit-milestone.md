@@ -454,7 +454,7 @@ awk '/^## Defect Classes$/{f=1} f && /^## / && !/^## Defect Classes$/{f=0} f' \
 ```
 
 Also read each phase's `{N}-PLAN-CHECK.md` if present (the plan-checker's Defect Classes block,
-written there by `plan-phase.md` Step 11) and `{N}-{NN}-VERDICT.md` (the judge's own block).
+written there by `plan-phase.md` Step 11) and `{N}-{NN}-VERDICT.md` (the plan-checker adversarial pass's own block).
 
 **(b) Pre-section phases.** A phase with no `## Defect Classes` anywhere predates the
 requirement. Read EVERY artifact in its directory except `*-PLAN.md`, `*-RESEARCH.md` and

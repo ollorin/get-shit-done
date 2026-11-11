@@ -585,6 +585,8 @@ required_changes:   # only for revise/critical, one concrete fix per kept major/
 
 Write no VERDICT.md for plans not listed.
 
+**Write is limited to `{phase_dir}/{plan_id}-VERDICT.md`, and only when the prompt enables the adversarial pass. Never write or edit any other file, including the PLAN.md under review; in quick and verify-work dispatches write nothing.**
+
 </verification_dimensions>
 
 <verification_process>

@@ -307,7 +307,7 @@ defect is a defect that gets made again next milestone.
 |----------|---------------|
 | `{N}-{NN}-SUMMARY.md` | the `## Defect Classes` sections themselves |
 | `{N}-PLAN-CHECK.md` | the plan-checker's Defect Classes block, written by `plan-phase.md` Step 11 on every revision-loop iteration |
-| `{N}-{NN}-VERDICT.md` | the adversarial judge's own `## Defect Classes` block |
+| `{N}-{NN}-VERDICT.md` | the plan-checker adversarial pass's own `## Defect Classes` block |
 | `{N}-VERIFICATION.md` | your own gaps, on re-verification after gap closure |
 | `deferred-items.md` | anything deferred that reads as a real defect rather than a scope call |
 
@@ -582,7 +582,7 @@ gaps:
 | `broken_chain` | A multi-step causal chain has a gap — frontend calls route that doesn't exist, mutation has no persistence, step 1 runs but step 2 is absent |
 | `regression` | A truth that previously passed now fails — confirmed by re-verification mode or test that was previously green |
 | `missing_test` | Implementation exists and functions correctly but has no automated test coverage |
-| `contract_mismatch` | A cross-phase integration boundary produced by one phase disagrees with what a dependent phase consumes (API shape, schema, component props) -- written by the coordinator's `cross_phase_integration` step (Phase 59, MILE-38) via `verify append-gap`, NOT by the verifier itself |
+| `contract_mismatch` | A cross-phase integration boundary produced by one phase disagrees with what a dependent phase consumes (API shape, schema, component props) -- written by `execute-roadmap` step 5b via `verify append-gap`, NOT by the verifier itself |
 
 **Assign failure_type inline:** When writing each gap entry, determine which type best describes the root cause. A gap may have only one failure_type. When in doubt, choose the most specific type (e.g. prefer `semantic_stub` over `stub` when the artifact exists but behaves inertly).
 

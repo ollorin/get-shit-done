@@ -5629,7 +5629,7 @@ function buildEvalCandidatesFromVerificationFile(cwd, verificationFilePath) {
 // untouched. Never throws -- returns {ok:false, error} instead, so a CLI caller can
 // decide its own exit code (mirrors cmdEvalCandidateAccept's structured-error
 // convention, not the generic error() helper). This is the ONLY new gap-write path in
-// the codebase; Plan 59-03's coordinator wiring calls this (via the CLI below) on a
+// the codebase; execute-roadmap step 5b calls this (via the CLI below) on a
 // blocking cross-phase integration mismatch, and the EXISTING
 // buildEvalCandidatesFromVerificationFile / `eval-candidate from-verification` reader
 // picks up the appended gap unmodified -- no second/parallel gap pipeline.
@@ -5711,7 +5711,7 @@ function cmdVerifyAppendGap(cwd, verificationFileArg, options, raw) {
 // ─── Adversarial Plan Review (Phase 60, MILE-39) ────────────────────────────
 // computeHighRisk/computePresentationOrder are pure, no-I/O functions (mirror
 // isUIFile/computeHasUI's style, fail-soft like appendVerificationGap) gating whether a
-// plan gets the attacker/defender/judge trio instead of the single-pass gsd-plan-checker.
+// plan gets the plan-checker's adversarial pass (Dimension 14) in addition to the plain checks.
 // An explicit `high_risk: true` (or the string "true") plan frontmatter flag ALWAYS wins,
 // even when the `adversarial_review_enabled` toggle is off -- an explicit per-plan author
 // decision is a stronger signal than the global default and must never be silently
@@ -5818,7 +5818,7 @@ function cmdQualityAssessRisk(cwd, filePath, raw) {
   output({ high_risk, reasons, presentation_order }, raw);
 }
 
-// verdictToIssues converts a judge's {plan}-VERDICT.md frontmatter into the EXACT
+// verdictToIssues converts the plan-checker adversarial pass's {plan}-VERDICT.md frontmatter into the EXACT
 // issues: shape gsd-plan-checker's ## ISSUES FOUND output already produces
 // ({ plan, dimension, severity, description, fix_hint }), so the EXISTING
 // plan-phase.md revision loop (step 12) can consume adversarial-review verdicts
@@ -15859,7 +15859,7 @@ Was ${model} the right choice for this task? (y/n): `;
 
       } else if (subCommand === 'rules') {
         // Show current learned rules
-        const rulesPath = path.join(process.env.HOME, '.claude/skills/gsd-task-router/learned-rules.md');
+        const rulesPath = path.join(process.env.HOME, '.claude/gsd-learned-rules/learned-rules.md');
 
         if (!fs.existsSync(rulesPath)) {
           output({ rules: [], message: 'No learned rules file found' }, raw);
@@ -16016,7 +16016,7 @@ Was ${model} the right choice for this task? (y/n): `;
         }
 
         // Learning status
-        const learnedRulesPath = path.join(process.env.HOME, '.claude/skills/gsd-task-router/learned-rules.md');
+        const learnedRulesPath = path.join(process.env.HOME, '.claude/gsd-learned-rules/learned-rules.md');
         let rulesCount = 0;
         if (fs.existsSync(learnedRulesPath)) {
           const content = fs.readFileSync(learnedRulesPath, 'utf8');

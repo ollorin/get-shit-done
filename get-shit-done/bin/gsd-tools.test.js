@@ -15056,6 +15056,11 @@ describe('Phase 60-02: adversarial pass merged into gsd-plan-checker (MILE-39)',
   const AGENTS_DIR = path.join(__dirname, '..', '..', 'agents');
   const checker = matter(fs.readFileSync(path.join(AGENTS_DIR, 'gsd-plan-checker.md'), 'utf-8'));
 
+  test('gsd-plan-checker Write is limited to {plan_id}-VERDICT.md', () => {
+    assert.ok(/Write is limited to `\{phase_dir\}\/\{plan_id\}-VERDICT\.md`/.test(checker.content));
+    assert.ok(/never write or edit any other file/i.test(checker.content));
+  });
+
   test('gsd-plan-checker has Write and documents the adversarial pass writing {plan_id}-VERDICT.md', () => {
     const tools = String(checker.data.tools).split(',').map((t) => t.trim());
     assert.ok(tools.includes('Write'), 'checker must have Write to emit VERDICT.md');

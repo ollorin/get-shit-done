@@ -22,7 +22,7 @@ from pathlib import Path
 HOME = Path(os.environ.get("EVOLVE_HOME", str(Path.home() / "gsd-evolve")))
 AB = Path(os.environ.get("AB_HOME", str(Path.home() / "ab-eval")))
 MIN_SCORABLE = 3  # corpus tasks with hidden tests run in both arms before any ADOPT
-FORK = Path(__file__).resolve().parents[2]
+FORK = Path(os.environ.get("GSD_FORK_ROOT", str(Path(__file__).resolve().parents[2])))
 
 def rows():
     p = AB / "results" / "runs.jsonl"
@@ -84,6 +84,8 @@ def adopt(args):
     ad = json.loads((HOME / "adopted.json").read_text()) if (HOME / "adopted.json").exists() else []
     ad.append({**cand, "arm": args.arm, "adopted": time.strftime("%Y-%m-%d"), "decision": {k: last[k] for k in ("verdict", "p_run_level", "runs_all_hidden_green", "min_n")}})
     (HOME / "adopted.json").write_text(json.dumps(ad, indent=1))
+    if not (FORK / "agents").is_dir():
+        sys.exit(f"adopt: {FORK}/agents does not exist; set GSD_FORK_ROOT to the fork checkout")
     vf = FORK / "agents" / "VERSIONS.json"; v = json.loads(vf.read_text()) if vf.exists() else {}
     v[cand["target"]] = {"rev": v.get(cand["target"], {}).get("rev", 0) + 1, "candidate": cand["id"], "date": time.strftime("%Y-%m-%d")}
     vf.write_text(json.dumps(v, indent=1) + "\n")

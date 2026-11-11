@@ -371,7 +371,6 @@ Agent(
   - If you are approaching context limits, return a checkpoint with resume_from instead of trying to finish.
 
   Create checkpoint after each step.
-  telegram_topic_id: {telegram_topic_id}
   Return structured completion state as JSON."
 )
 ```
@@ -439,7 +438,7 @@ IS_STALE=$(node -e "console.log(JSON.parse(process.argv[1]).stale)" "$STALENESS_
        prompt="{BRIEF_TEXT}
 
        Execute Phase {N}: {name}
-       ... (identical remaining prompt body to step 4's spawn block above — full lifecycle, HARD RULES, CONTEXT OVERFLOW PREVENTION, telegram_topic_id, structured completion state) ...
+       ... (identical remaining prompt body to step 4's spawn block above — full lifecycle, HARD RULES, CONTEXT OVERFLOW PREVENTION, structured completion state) ...
        "
      )
      ```

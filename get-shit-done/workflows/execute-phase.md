@@ -733,7 +733,7 @@ no other home, and `/gsd:audit-milestone`'s Defect Classes Distillation reads no
 you drop them here, they are lost.
 
 Append every finding surfaced during this phase — plan-checker issues (from
-`{phase_dir}/{N}-PLAN-CHECK.md`), the adversarial judge's ruling rows, Charlotte QA issues,
+`{phase_dir}/{N}-PLAN-CHECK.md`), the plan-checker adversarial pass's rows, Charlotte QA issues,
 Opus review findings, re-review findings — to the `## Defect Classes` section of the SUMMARY.md of
 the plan they relate to (a phase-wide finding goes to the last plan's SUMMARY). Each is one row:
 
@@ -863,17 +863,12 @@ node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs(phase-{X}): com
 ```
 </step>
 
+<step name="demo_script">
+Skip when `gsd-tools.js config get demo.mode --raw` is `off`, when `gsd-tools.js verify phase-gate {X}` does not report `charlotte_qa_required: true`, or when the VERIFICATION status is not `passed`. Otherwise follow `@~/.claude/get-shit-done/workflows/demo.md` section 1 (script only, no stack, one Haiku call) and commit the two files with the phase docs. Recording happens later, in the stack window, per `demo.md` section 2.
+</step>
+
 <step name="evolve_corpus">
-**Grow the rework corpus (no LLM, no stack, under a minute per new plan).** Skip silently when the script is absent.
-
-```bash
-EVOLVE="$HOME/.claude/get-shit-done/scripts/evolve/run.py"
-[ -f "$EVOLVE" ] && python3 "$EVOLVE" --dry-run --calibrate-limit 5 > .tmp/evolve-phase-${PHASE_NUMBER}.log 2>&1 || true
-```
-
-This only records (base, first attempt, rework, hidden tests) for plans reworked after their SUMMARY and ranks
-finding classes. It never edits an agent file. A/B runs of a candidate are a separate, cost-capped command
-(`run.py --arm <variant> --corpus <RP ids> --max-usd N`) and an adoption is a reviewed commit, see `scripts/evolve/README.md`.
+**Skipped by this workflow.** The installer does not ship `scripts/evolve/`, so no path under `~/.claude/get-shit-done/` exists to run, and the calibrate step (`deno task test` per test, up to 90 runs) is far too slow for a phase-end hook. Log `evolve_corpus: skipped (manual only)` and continue. To grow the corpus, run `python3 <fork checkout>/scripts/evolve/run.py` by hand (see `scripts/evolve/README.md`); an adoption is a reviewed commit, never automatic.
 </step>
 
 

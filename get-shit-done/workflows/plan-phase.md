@@ -497,7 +497,7 @@ nothing else.
 `class` is a general reusable name, not an incident story. Return exactly `None found. (reviewed by: plan-check)` if your check surfaced nothing — a bare `None found.` fails the phase gate, and the block is never omitted.
 ```
 
-**If `TRIAGE_MODE` is `adversarial`:** also append to `checker_prompt`: `Adversarial pass: enabled for plans {HIGH_RISK_PLANS}; write {PHASE_DIR}/{plan_id}-VERDICT.md for each.` and spawn with `model="opus"`. The checker's Defect Classes rows go to `{PHASE_DIR}/{N}-PLAN-CHECK.md` in Step 11; each VERDICT.md carries its own.
+**If `TRIAGE_MODE` is `adversarial`:** also append to `checker_prompt`: `Adversarial pass: enabled for plans {HIGH_RISK_PLANS}; write {PHASE_DIR}/{plan_id}-VERDICT.md for each.` and spawn with the Opus tier (`model="fable"` while the Fable allowance lasts, `"opus"` otherwise or if fable is rejected; not `checker_model`). Before EVERY such spawn (including each revision iteration), delete the old verdicts: `rm -f {PHASE_DIR}/{plan_id}-VERDICT.md` for each id in `HIGH_RISK_PLANS`. The checker's Defect Classes rows go to `{PHASE_DIR}/{N}-PLAN-CHECK.md` in Step 11; each VERDICT.md carries its own.
 
 ## 11. Handle Checker Return
 
@@ -545,7 +545,7 @@ scan this file. A checker that returned `None found. (reviewed by: …)` writes 
 - **`## ISSUES FOUND`:** Display issues, check iteration count, proceed to step 12.
 - **Malformed/absent return** (Agent() threw, or the return carries neither expected header): do NOT improvise a pass. Retry the `gsd-plan-checker` `Agent()` call once. If the retry still parses as neither `## VERIFICATION PASSED` nor `## ISSUES FOUND`, surface the raw checker output to the user with retry/abort options. Never treat an unparseable checker return as a silent pass.
 
-**If `TRIAGE_MODE` is `adversarial`:** handle the return exactly as above, then read every `{PHASE_DIR}/{plan_id}-VERDICT.md` for `HIGH_RISK_PLANS`. A missing VERDICT.md is a malformed return (retry once). For each verdict `revise` or `critical`, call:
+**If `TRIAGE_MODE` is `adversarial`:** handle the return exactly as above, then read every `{PHASE_DIR}/{plan_id}-VERDICT.md` for `HIGH_RISK_PLANS`. A VERDICT.md is accepted only if it exists and is newer than its plan (`test {PHASE_DIR}/{plan_id}-VERDICT.md -nt {PHASE_DIR}/{plan_id}-PLAN.md`); a missing or stale one is a malformed return: delete it, re-spawn the checker once. If it is still missing or stale, do not prompt the user: fall back to the plain checker verdict, append `adversarial_review: unavailable for {plan_id}` to `{PHASE_DIR}/{N}-PLAN-CHECK.md`, and carry on with the checker's `## VERIFICATION PASSED`/`## ISSUES FOUND` result. For each verdict `revise` or `critical`, call:
   ```bash
   node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" quality verdict-to-issues "${PHASE_DIR}/${plan_id}-VERDICT.md" --raw
   ```
