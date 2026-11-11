@@ -10,7 +10,7 @@ const { scanText } = require('./project-deploy-scan.js');
 const { settingsReport } = require('./project-deploy-redact.js');
 const { shownFiles, confirmed } = require('./project-deploy-confirm.js');
 const { mergeSettings, serializeSettings } = require('./project-deploy-settings.js');
-const { applyPlan } = require('./project-deploy-apply.js');
+const { applyPlan, applyFailure } = require('./project-deploy-apply.js');
 const { isPlainObject, exists, contained, isDirectory, readRegular, readJsonObject } = require('./project-deploy-fs.js');
 const { manifestShapeError } = require('./project-deploy-manifest.js');
 
@@ -283,17 +283,7 @@ function runCli(cwd, args, env, session, io = {}) {
     };
   }
   const applied = applyPlan(root, plan, command);
-  if (!applied.ok) {
-    return {
-      exitCode: 1,
-      result: {
-        ...report,
-        ok: false,
-        errors: [...report.errors, { file: applied.failed.path, reason: `write failed: ${applied.failed.reason}` }],
-        written: applied.written,
-      },
-    };
-  }
+  if (!applied.ok) return { exitCode: 1, result: applyFailure(report, applied) };
   return { exitCode: report.conflicts > 0 ? 2 : 0, result: { ...report, written: applied.written } };
 }
 

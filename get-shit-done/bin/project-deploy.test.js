@@ -7,7 +7,7 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { planDeploy, runCli, CONFIG, MANIFEST, BASE_DIR, SETTINGS } = require('./project-deploy.js');
-const { applyPlan, writeAtomic } = require('./project-deploy-apply.js');
+const { applyPlan } = require('./project-deploy-apply.js');
 const { agentAncestor, detectSession, guardFailures } = require('./project-deploy-session.js');
 const { renderPreset } = require('./project-deploy-render.js');
 const { sha256, planBlockFile } = require('./project-deploy-files.js');
@@ -736,12 +736,9 @@ describe('project init|diff|sync (agnostic-B)', () => {
     assert.strictEqual(JSON.parse(bad.stdout).errors[0].reason, 'invalid preset name');
   });
 
-  test('A14 an I/O failure stops the apply at the failing path; no manifest and no temp file', () => {
+  test('A14 an I/O failure stops the apply at the failing path; the first write is rolled back; no manifest and no temp file', () => {
     const root = makeProject();
     writeAt(root, 'bad/child.txt', 'x');
-    const single = writeAtomic(abs(root, 'bad'), Buffer.from('x'));
-    assert.strictEqual(single.ok, false);
-    assert.ok(typeof single.reason === 'string' && single.reason.length > 0);
     const plan = {
       ops: {
         files: [
@@ -755,8 +752,10 @@ describe('project init|diff|sync (agnostic-B)', () => {
     };
     const r = applyPlan(root, plan, 'sync');
     assert.strictEqual(r.ok, false);
-    assert.deepStrictEqual(r.written, ['good.txt']);
+    assert.deepStrictEqual(r.written, []);
+    assert.strictEqual(r.rolled_back, true);
     assert.strictEqual(r.failed.path, 'bad');
+    assert.strictEqual(fs.existsSync(abs(root, 'good.txt')), false);
     assert.strictEqual(fs.existsSync(abs(root, MANIFEST)), false);
     assert.deepStrictEqual(snapshot(root).filter(([p]) => p.includes('.gsd-tmp-')), []);
   });
