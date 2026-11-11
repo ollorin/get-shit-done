@@ -24,18 +24,58 @@ const triplesCommands = (triples) => (Array.isArray(triples)
   ? triples.filter(isPlainObject).map((t) => t.command).filter((c) => typeof c === 'string')
   : []);
 
-function globToRegExp(glob) {
-  const src = [...glob.replace(/^\/+/, '')].map((c) => {
-    if (c === '*') return '[^/]*';
-    if (c === '?') return '[^/]';
-    if (c === '[' || c === ']') return c;
-    return c.replace(/[.+^${}()|\\]/g, '\\$&');
-  }).join('');
+// Matched by dynamic programming, not a regex: a regex for `*a*a*…` backtracks exponentially
+// (30 groups against a 70-char path ran past 3 s). Globs over GLOB_MAX chars match nothing.
+const GLOB_MAX = 256;
+
+function classItem(chars, i) {
+  const end = chars.indexOf(']', i + 1);
+  if (end < 0) return null;
   try {
-    return new RegExp(`(^|/)${src}$`);
+    return { item: { t: 'c', re: new RegExp(`^[${chars.slice(i + 1, end).join('')}]$`) }, next: end };
   } catch {
-    return /$^/;
+    return null;
   }
+}
+
+function parseGlob(glob) {
+  const chars = [...glob];
+  const items = [];
+  for (let i = 0; i < chars.length; i++) {
+    const c = chars[i];
+    if (c === '*') items.push({ t: '*' });
+    else if (c === '?') items.push({ t: '?' });
+    else if (c === '[') {
+      const cls = classItem(chars, i);
+      if (cls === null) return null;
+      items.push(cls.item);
+      i = cls.next;
+    } else items.push({ t: 'l', c });
+  }
+  return items;
+}
+
+function stepDp(item, dp, s) {
+  const next = new Array(dp.length).fill(false);
+  for (let j = 0; j < dp.length; j++) {
+    if (item.t === '*') next[j] = dp[j] || (j > 0 && s[j - 1] !== '/' && next[j - 1]);
+    else if (j > 0 && dp[j - 1]) {
+      const ch = s[j - 1];
+      next[j] = item.t === '?' ? ch !== '/'
+        : item.t === 'l' ? ch === item.c
+          : item.re.test(ch);
+    }
+  }
+  return next;
+}
+
+// Matches `glob` against `path` as the whole path or a `/`-aligned suffix of it (same meaning as the former regex).
+function globMatch(glob, path) {
+  const items = glob.length > GLOB_MAX ? null : parseGlob(glob.replace(/^\/+/, ''));
+  if (items === null) return false;
+  const s = [...path];
+  const starts = Array.from({ length: s.length + 1 }, (_, j) => j === 0 || s[j - 1] === '/');
+  return items.reduce((dp, item) => stepDp(item, dp, s), starts).at(-1);
 }
 
 function referencesDest(command, canon) {
@@ -47,7 +87,7 @@ function referencesDest(command, canon) {
   return cmd.includes(dest)
     || (dir !== null && cmd.includes(dir))
     || cmd.split(TOKEN_SPLIT_RE).includes(base)
-    || cmd.split(GLOB_SPLIT_RE).some((t) => GLOB_RE.test(t) && globToRegExp(t).test(dest));
+    || cmd.split(GLOB_SPLIT_RE).some((t) => GLOB_RE.test(t) && globMatch(t, dest));
 }
 
 function guardedSet({ canonDests, hookCommands, presetFlags }) {
@@ -69,4 +109,4 @@ function refusalOf({ command, guarded, env, session, presetFlag, exempt }) {
     : { reason: 'guardrail paths change only from a terminal outside an agent session', paths: guarded, failed };
 }
 
-module.exports = { hookCommandsOf, triplesCommands, guardedSet, refusalOf, globToRegExp };
+module.exports = { hookCommandsOf, triplesCommands, guardedSet, refusalOf, globMatch, GLOB_MAX };

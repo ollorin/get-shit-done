@@ -5,8 +5,9 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const { planDeploy, runCli, CONFIG, SETTINGS, MANIFEST, BASE_DIR } = require('./project-deploy.js');
-const { guardedSet, hookCommandsOf, triplesCommands } = require('./project-deploy-guard.js');
+const { guardedSet, hookCommandsOf, triplesCommands, globMatch, GLOB_MAX } = require('./project-deploy-guard.js');
 const { loadPreset } = require('./project-deploy-render.js');
 const { sha256 } = require('./project-deploy-files.js');
 
@@ -282,5 +283,56 @@ describe('B-FIX2 --preset-dir refused for every agent session (2)', () => {
     const res = runCli(root, ['init', '--preset-dir', dir], {}, HUMAN, APPLY_IO);
     assert.strictEqual(res.exitCode, 0);
     assert.ok(fs.existsSync(path.join(root, 'docs/a.md')));
+  });
+});
+
+describe('B-FIX3 F1 glob matching is bounded', () => {
+  const GLOB_MODULE = path.join(__dirname, 'project-deploy-guard.js');
+  const DEST = 'a'.repeat(70);
+  const SHAPES = [
+    '*'.repeat(30) + 'z',
+    '*a'.repeat(30) + 'z',
+    'a*'.repeat(30) + 'z',
+    '*?'.repeat(30) + 'z',
+    '?*'.repeat(30) + 'z',
+    '*/'.repeat(20) + 'z',
+    '*a*b'.repeat(15) + 'z',
+    '*b*'.repeat(25) + 'z',
+    '*'.repeat(255) + 'z',
+    '*a'.repeat(127) + 'z',
+    '*a'.repeat(200),
+  ];
+  // A child process, so a catastrophic match is stopped by the timeout instead of hanging the suite.
+  const CHILD = 'const { globMatch } = require(process.argv[1]); const shapes = JSON.parse(process.argv[2]);'
+    + ' process.stdout.write(JSON.stringify(shapes.map((g) => {'
+    + ' const t = process.hrtime.bigint(); const r = globMatch(g, process.argv[3]);'
+    + ' return [Number(process.hrtime.bigint() - t) / 1e6, r]; })));';
+
+  test('F1-a each adversarial glob completes under 100 ms and matches nothing against a 70-char path', () => {
+    const r = spawnSync(process.execPath, ['-e', CHILD, GLOB_MODULE, JSON.stringify(SHAPES), DEST],
+      { timeout: 10000, encoding: 'utf8' });
+    assert.strictEqual(r.error, undefined, `glob match did not finish: ${r.error && r.error.code}`);
+    const rows = JSON.parse(r.stdout);
+    assert.strictEqual(rows.length, SHAPES.length);
+    rows.forEach(([ms, matched], i) => {
+      assert.ok(ms < 100, `shape ${i} took ${ms} ms`);
+      assert.strictEqual(matched, false, `shape ${i} matched`);
+    });
+  });
+
+  test('F1-b a glob over GLOB_MAX chars matches nothing, one at the cap still matches', () => {
+    assert.strictEqual(GLOB_MAX, 256);
+    assert.strictEqual(globMatch('a'.repeat(GLOB_MAX), 'a'.repeat(GLOB_MAX)), true);
+    assert.strictEqual(globMatch('a'.repeat(GLOB_MAX + 1), 'a'.repeat(GLOB_MAX + 1)), false);
+  });
+
+  test('F1-c ordinary glob semantics are kept: ? and * stop at a slash, a class is one character, a malformed class matches nothing', () => {
+    assert.strictEqual(globMatch('g?te.sh', 'scripts/gate.sh'), true);
+    assert.strictEqual(globMatch('g*.sh', 'scripts/gate.sh'), true);
+    assert.strictEqual(globMatch('gate.sh', 'scripts/gate.sh'), true);
+    assert.strictEqual(globMatch('ga[st]e.sh', 'scripts/gate.sh'), true);
+    assert.strictEqual(globMatch('ga[xy]e.sh', 'scripts/gate.sh'), false);
+    assert.strictEqual(globMatch('scripts*gate.sh', 'scripts/gate.sh'), false);
+    assert.strictEqual(globMatch('[x.sh', 'x.sh'), false);
   });
 });
