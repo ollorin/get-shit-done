@@ -1,0 +1,302 @@
+{
+  "name": "igaming",
+  "version": "1",
+  "description": "Verbatim snapshot of the igaming project files at a pinned commit (see README.md)",
+  "files": [
+    {
+      "src": "hooks/block-push-without-local-tests.sh",
+      "dest": ".claude/hooks/block-push-without-local-tests.sh",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "hooks/check-api-contract-drift.sh",
+      "dest": ".claude/hooks/check-api-contract-drift.sh",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "hooks/check-deno-json-imports.sh",
+      "dest": ".claude/hooks/check-deno-json-imports.sh",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "hooks/check-flake-patterns.sh",
+      "dest": ".claude/hooks/check-flake-patterns.sh",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "hooks/check-git-merge-target.sh",
+      "dest": ".claude/hooks/check-git-merge-target.sh",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "hooks/check-migration-concurrently.sh",
+      "dest": ".claude/hooks/check-migration-concurrently.sh",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "hooks/check-migration-drop.sh",
+      "dest": ".claude/hooks/check-migration-drop.sh",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "hooks/check-supabase-command.sh",
+      "dest": ".claude/hooks/check-supabase-command.sh",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "hooks/check-test-command.sh",
+      "dest": ".claude/hooks/check-test-command.sh",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "hooks/lib/ShellParse.pm",
+      "dest": ".claude/hooks/lib/ShellParse.pm",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "hooks/lib/block-push-without-local-tests.pl",
+      "dest": ".claude/hooks/lib/block-push-without-local-tests.pl",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "hooks/lib/check-api-contract-drift.pl",
+      "dest": ".claude/hooks/lib/check-api-contract-drift.pl",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "hooks/lib/check-git-merge-target.pl",
+      "dest": ".claude/hooks/lib/check-git-merge-target.pl",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "hooks/lib/check-supabase-command.pl",
+      "dest": ".claude/hooks/lib/check-supabase-command.pl",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "hooks/lib/check-test-command.pl",
+      "dest": ".claude/hooks/lib/check-test-command.pl",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "hooks/lib/fail-closed.sh",
+      "dest": ".claude/hooks/lib/fail-closed.sh",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "hooks/lib/redirect-recursive-search.pl",
+      "dest": ".claude/hooks/lib/redirect-recursive-search.pl",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "hooks/lib/run-perl.sh",
+      "dest": ".claude/hooks/lib/run-perl.sh",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "hooks/redirect-recursive-search.sh",
+      "dest": ".claude/hooks/redirect-recursive-search.sh",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "rules/bonus-system.md",
+      "dest": ".claude/rules/bonus-system.md",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "rules/database.md",
+      "dest": ".claude/rules/database.md",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "rules/e2e-testing.md",
+      "dest": ".claude/rules/e2e-testing.md",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "rules/edge-functions.md",
+      "dest": ".claude/rules/edge-functions.md",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "rules/flutter.md",
+      "dest": ".claude/rules/flutter.md",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "rules/fp.md",
+      "dest": ".claude/rules/fp.md",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "rules/frontend-apps.md",
+      "dest": ".claude/rules/frontend-apps.md",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "rules/guard-authoring.md",
+      "dest": ".claude/rules/guard-authoring.md",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "rules/module-structure.md",
+      "dest": ".claude/rules/module-structure.md",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "rules/pre-pr-quality-gates.md",
+      "dest": ".claude/rules/pre-pr-quality-gates.md",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "rules/qa-exemptions.md",
+      "dest": ".claude/rules/qa-exemptions.md",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "rules/testing.md",
+      "dest": ".claude/rules/testing.md",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "skills/create-documentation/SKILL.md",
+      "dest": ".claude/skills/create-documentation/SKILL.md",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "skills/create-documentation/templates/api.md",
+      "dest": ".claude/skills/create-documentation/templates/api.md",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "skills/create-documentation/templates/guide.md",
+      "dest": ".claude/skills/create-documentation/templates/guide.md",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "skills/create-edge-function/SKILL.md",
+      "dest": ".claude/skills/create-edge-function/SKILL.md",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "skills/create-edge-function/template/deno.json",
+      "dest": ".claude/skills/create-edge-function/template/deno.json",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "skills/create-edge-function/template/index.ts",
+      "dest": ".claude/skills/create-edge-function/template/index.ts",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "skills/create-integration-test/SKILL.md",
+      "dest": ".claude/skills/create-integration-test/SKILL.md",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "skills/create-integration-test/template.test.ts",
+      "dest": ".claude/skills/create-integration-test/template.test.ts",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "skills/create-migration/SKILL.md",
+      "dest": ".claude/skills/create-migration/SKILL.md",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "skills/create-migration/examples/with-rls.sql",
+      "dest": ".claude/skills/create-migration/examples/with-rls.sql",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "skills/create-unit-test/SKILL.md",
+      "dest": ".claude/skills/create-unit-test/SKILL.md",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "skills/create-unit-test/template.test.ts",
+      "dest": ".claude/skills/create-unit-test/template.test.ts",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "skills/finishing-a-development-branch/SKILL.md",
+      "dest": ".claude/skills/finishing-a-development-branch/SKILL.md",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "skills/test-enforcement/SKILL.md",
+      "dest": ".claude/skills/test-enforcement/SKILL.md",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "skills/vibe-security/SKILL.md",
+      "dest": ".claude/skills/vibe-security/SKILL.md",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "CLAUDE.md",
+      "dest": "CLAUDE.md",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "canaries/canaries.jsonl",
+      "dest": "scripts/validation/hook-canaries/canaries.jsonl",
+      "kind": "whole",
+      "render": false
+    },
+    {
+      "src": "canaries/run-canaries.sh",
+      "dest": "scripts/validation/hook-canaries/run-canaries.sh",
+      "kind": "whole",
+      "render": false
+    }
+  ],
+  "settings_fragment": "settings.fragment.json"
+}
