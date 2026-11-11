@@ -167,3 +167,125 @@ describe('gitMergeFile', () => {
     assert.deepStrictEqual(fs.readdirSync(tmpRoot), []);
   });
 });
+
+describe('block-managed files (agnostic-B4)', () => {
+  const M = (id) => [`<!-- gsd:begin ${id} -->`, `<!-- gsd:end ${id} -->`];
+  const L = (...xs) => `${xs.join('\n')}\n`;
+
+  test('B4-1 parseBlocks returns ids in order with their inner text, empty inner as empty string', () => {
+    const r = F.parseBlocks(L(M('a')[0], 'a1', 'a2', M('a')[1], 'between', M('b')[0], M('b')[1]));
+    assert.strictEqual(r.ok, true);
+    assert.deepStrictEqual(r.blocks.map((b) => b.id), ['a', 'b']);
+    assert.strictEqual(r.blocks[0].inner, 'a1\na2');
+    assert.strictEqual(r.blocks[1].inner, '');
+  });
+
+  test('B4-2 malformed markers each fail with the stated reason', () => {
+    const cases = [
+      [L(M('a')[0], 'x'), 'unclosed block: a'],
+      [L('x', M('a')[1]), 'end without begin: a'],
+      [L(M('a')[0], M('b')[0], 'x', M('b')[1], M('a')[1]), 'nested begin: b'],
+      [L(M('a')[0], 'x', M('b')[1]), 'mismatched end: b'],
+      [L(M('a')[0], M('a')[1], M('a')[0], M('a')[1]), 'duplicate block id: a'],
+    ];
+    for (const [text, reason] of cases) {
+      assert.deepStrictEqual(F.parseBlocks(text), { ok: false, reason });
+    }
+  });
+
+  test('B4-3 marker-like text that is not a whole marker line is ordinary text, CRLF marker is a marker', () => {
+    assert.deepStrictEqual(F.parseBlocks(L('  <!-- gsd:begin a -->', '  <!-- gsd:end a -->')), { ok: true, blocks: [] });
+    assert.deepStrictEqual(F.parseBlocks(L('text <!-- gsd:begin a -->', 'text <!-- gsd:end a -->')), { ok: true, blocks: [] });
+    assert.deepStrictEqual(F.parseBlocks(L('<!-- gsd:begin A_B -->', '<!-- gsd:end A_B -->')), { ok: true, blocks: [] });
+    const crlf = F.parseBlocks('x\r\n<!-- gsd:begin a -->\r\n<!-- gsd:end a -->\r\n');
+    assert.strictEqual(crlf.ok, true);
+    assert.deepStrictEqual(crlf.blocks.map((b) => b.id), ['a']);
+  });
+
+  test('B4-4 current null creates the file from next', () => {
+    const next = L(M('a')[0], 'n', M('a')[1]);
+    const r = F.planBlockFile({ current: null, next, prevBlocks: null });
+    assert.strictEqual(r.action, 'create');
+    assert.strictEqual(r.content, next);
+  });
+
+  test('B4-5 replace changes only the inner text of the matching block', () => {
+    const current = L('head', M('a')[0], 'old1', 'old2', M('a')[1], 'mid', M('b')[0], 'bb', M('b')[1], 'tail');
+    const next = L(M('a')[0], 'n1', 'n2', 'n3', M('a')[1], M('b')[0], 'bb', M('b')[1]);
+    const expected = L('head', M('a')[0], 'n1', 'n2', 'n3', M('a')[1], 'mid', M('b')[0], 'bb', M('b')[1], 'tail');
+    const r = F.planBlockFile({ current, next, prevBlocks: null });
+    assert.strictEqual(r.action, 'update');
+    assert.strictEqual(r.content, expected);
+  });
+
+  test('B4-6 an absent block is appended after a separating empty line', () => {
+    const current = 'project text';
+    const next = L(M('c')[0], 'x1', M('c')[1]);
+    const r = F.planBlockFile({ current, next, prevBlocks: null });
+    assert.strictEqual(r.action, 'update');
+    assert.strictEqual(r.content, `${current}\n\n${M('c')[0]}\nx1\n${M('c')[1]}\n`);
+  });
+
+  test('B4-7 identical inner returns unchanged with no content', () => {
+    const current = L('p', M('a')[0], 'same', M('a')[1]);
+    const next = L(M('a')[0], 'same', M('a')[1]);
+    const r = F.planBlockFile({ current, next, prevBlocks: null });
+    assert.strictEqual(r.action, 'unchanged');
+    assert.strictEqual('content' in r, false);
+  });
+
+  test('B4-8 a project-only block is byte-identical in the result', () => {
+    const current = L(M('mine')[0], 'my own', 'x', M('mine')[1], M('a')[0], 'old', M('a')[1]);
+    const next = L(M('a')[0], 'new', M('a')[1]);
+    const expected = L(M('mine')[0], 'my own', 'x', M('mine')[1], M('a')[0], 'new', M('a')[1]);
+    const r = F.planBlockFile({ current, next, prevBlocks: null });
+    assert.strictEqual(r.action, 'update');
+    assert.strictEqual(r.content, expected);
+  });
+
+  test('B4-9 malformed current is a conflict, malformed next is an error', () => {
+    const conflict = F.planBlockFile({ current: L(M('a')[0], 'x'), next: L(M('a')[0], 'n', M('a')[1]), prevBlocks: null });
+    assert.strictEqual(conflict.action, 'conflict');
+    assert.strictEqual(conflict.reason, 'malformed markers: unclosed block: a');
+    assert.strictEqual('content' in conflict, false);
+
+    const noMarkers = F.planBlockFile({ current: 'x\n', next: 'plain\n', prevBlocks: null });
+    assert.strictEqual(noMarkers.action, 'error');
+    assert.strictEqual(noMarkers.reason, 'preset block file: no managed blocks');
+
+    const dup = F.planBlockFile({ current: 'x\n', next: L(M('a')[0], 'x', M('a')[1], M('a')[0], 'y', M('a')[1]), prevBlocks: null });
+    assert.strictEqual(dup.action, 'error');
+    assert.strictEqual(dup.reason, 'preset block file: duplicate block id: a');
+  });
+
+  test('B4-10 hand edit overwritten by a new preset inner warns; no warning when current matches the previous preset', () => {
+    const next = L(M('a')[0], 'new-preset', M('a')[1]);
+    const edited = F.planBlockFile({
+      current: L(M('a')[0], 'hand edit', M('a')[1]),
+      next,
+      prevBlocks: { a: F.sha256(Buffer.from('old-preset')) },
+    });
+    assert.strictEqual(edited.action, 'update');
+    assert.deepStrictEqual(edited.warnings, ['local edit in block overwritten: a']);
+
+    const clean = F.planBlockFile({
+      current: L(M('a')[0], 'old-preset', M('a')[1]),
+      next,
+      prevBlocks: { a: F.sha256(Buffer.from('old-preset')) },
+    });
+    assert.deepStrictEqual(clean.warnings, []);
+  });
+
+  test('B4-11 blocks maps each id of next to the sha256 of its inner text', () => {
+    const crypto = require('crypto');
+    const r = F.planBlockFile({ current: null, next: L(M('a')[0], 'x', M('a')[1], M('b')[0], 'y\nz', M('b')[1]), prevBlocks: null });
+    const hash = (s) => crypto.createHash('sha256').update(Buffer.from(s)).digest('hex');
+    assert.deepStrictEqual(r.blocks, { a: hash('x'), b: hash('y\nz') });
+  });
+
+  test('B4-12 stripMarkerLines removes marker lines with their line breaks and nothing else', () => {
+    const text = L('a', M('x')[0], 'b', M('x')[1], 'c', M('y')[0], 'd', M('y')[1]);
+    assert.strictEqual(F.stripMarkerLines(text), L('a', 'b', 'c', 'd'));
+    assert.strictEqual(F.stripMarkerLines('a\r\n<!-- gsd:begin x -->\r\nb\r\n<!-- gsd:end x -->\r\nc'), 'a\r\nb\r\nc');
+  });
+});
