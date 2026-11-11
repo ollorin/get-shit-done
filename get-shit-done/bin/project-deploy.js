@@ -66,18 +66,20 @@ function planFile(root, f, prev) {
     });
   }
   if (plan.action === 'error') return { dest: f.dest, error: { file: f.dest, reason: plan.reason } };
+  // An unmanaged file already byte-equal to the rendered output (a crashed init, say) is adopted, not conflicting.
+  const action = prev === undefined && cur.bytes !== null && cur.bytes.equals(f.content) ? 'adopt' : plan.action;
   const entry = { kind: f.kind, sha256: sha256(f.content), ...(plan.blocks ? { blocks: plan.blocks } : {}) };
-  const conflict = plan.action === 'conflict';
+  const conflict = action === 'conflict';
   return {
     dest: f.dest,
     report: {
       path: f.dest,
       kind: f.kind,
-      action: plan.action,
+      action,
       ...(conflict ? { reason: plan.reason } : {}),
       ...(plan.warnings && plan.warnings.length > 0 ? { warnings: plan.warnings } : {}),
     },
-    write: WRITE_ACTIONS.has(plan.action) ? { dest: f.dest, content: Buffer.from(plan.content), mode: f.mode } : null,
+    write: WRITE_ACTIONS.has(action) ? { dest: f.dest, content: Buffer.from(plan.content), mode: f.mode } : null,
     base: conflict ? null : { dest: f.dest, content: f.content },
     manifestEntry: conflict ? prev : entry,
     old: cur.bytes,

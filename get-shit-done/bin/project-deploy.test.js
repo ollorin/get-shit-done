@@ -760,3 +760,31 @@ describe('project init|diff|sync (agnostic-B)', () => {
     assert.deepStrictEqual(snapshot(root).filter(([p]) => p.includes('.gsd-tmp-')), []);
   });
 });
+
+describe('adopt of unmanaged files already equal to the render (B-FIX2 L9a)', () => {
+  const STYLE = '.claude/rules/style.md';
+
+  test('an unmanaged dest byte-equal to the rendered output is adopted: no conflict, no rewrite, manifest records it', () => {
+    const dir = makePreset();
+    const root = makeProject();
+    const content = plan(root, 'init', dir).ops.files.find((f) => f.dest === STYLE).content;
+    writeAt(root, STYLE, content);
+    const res = plan(root, 'init', dir);
+    assert.strictEqual(res.report.ok, true);
+    assert.strictEqual(actionOf(res.report, STYLE), 'adopt');
+    assert.strictEqual(res.report.conflicts, 0);
+    assert.strictEqual(res.ops.files.some((f) => f.dest === STYLE), false);
+    assert.strictEqual(applyPlan(root, res, 'init').ok, true);
+    assert.strictEqual(readManifest(root).files[STYLE].sha256, sha256(content));
+    assert.ok(fs.readFileSync(path.join(root, STYLE)).equals(content));
+  });
+
+  test('an unmanaged dest that differs from the render stays a conflict', () => {
+    const dir = makePreset();
+    const root = makeProject();
+    writeAt(root, STYLE, 'mine\n');
+    const res = plan(root, 'init', dir);
+    assert.strictEqual(actionOf(res.report, STYLE), 'conflict');
+    assert.strictEqual(res.report.conflicts, 1);
+  });
+});
