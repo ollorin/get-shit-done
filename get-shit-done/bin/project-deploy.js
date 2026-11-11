@@ -1,0 +1,280 @@
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const { renderPreset, destKey } = require('./project-deploy-render.js');
+const { sha256, planWholeFile, planBlockFile } = require('./project-deploy-files.js');
+const { scanText } = require('./project-deploy-scan.js');
+const { mergeSettings, serializeSettings } = require('./project-deploy-settings.js');
+const { detectSession, guardFailures } = require('./project-deploy-session.js');
+
+const CONFIG = '.planning/config.json';
+const MANIFEST = '.planning/gsd-project-manifest.json';
+const BASE_DIR = '.planning/.gsd-preset-base';
+const SETTINGS = '.claude/settings.json';
+const GITIGNORE = '.gitignore';
+const GUARDED_PREFIX = '.claude/hooks/';
+const WRITE_ACTIONS = new Set(['create', 'overwrite', 'merge', 'update']);
+const PRESET_NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
+const DEFAULT_PRESETS = path.join(__dirname, '..', 'presets');
+const EMPTY_OPS = Object.freeze({ files: [], bases: [], settingsText: null, manifest: null });
+const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+const exists = (abs) => {
+  try {
+    fs.lstatSync(abs);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+function contained(root, rel) {
+  try {
+    const realRoot = fs.realpathSync(root);
+    const tail = [];
+    let cur = path.join(root, rel);
+    while (!exists(cur)) {
+      tail.unshift(path.basename(cur));
+      cur = path.dirname(cur);
+    }
+    const real = path.join(fs.realpathSync(cur), ...tail);
+    return real === realRoot || real.startsWith(realRoot + path.sep);
+  } catch {
+    return false;
+  }
+}
+
+function isDirectory(abs) {
+  try {
+    return fs.statSync(abs).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function readRegular(abs) {
+  if (!exists(abs)) return { bytes: null };
+  try {
+    return fs.statSync(abs).isFile() ? { bytes: fs.readFileSync(abs) } : { error: 'not a regular file' };
+  } catch {
+    return { error: 'unreadable' };
+  }
+}
+
+function readJsonObject(abs) {
+  try {
+    const v = JSON.parse(fs.readFileSync(abs, 'utf8'));
+    return isPlainObject(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+const newReport = (command) => ({
+  command,
+  ok: false,
+  preset: null,
+  errors: [],
+  secret_hits: [],
+  refused: null,
+  files: [],
+  settings: null,
+  guarded_changes: [],
+  changes: 0,
+  conflicts: 0,
+});
+
+const stop = (command, reason, file) => ({
+  report: { ...newReport(command), errors: [file === undefined ? { reason } : { file, reason }] },
+  ops: EMPTY_OPS,
+});
+
+const sortKeys = (obj) => Object.fromEntries(Object.keys(obj).sort().map((k) => [k, obj[k]]));
+
+function planFile(root, f, prev) {
+  const cur = readRegular(path.join(root, f.dest));
+  if (cur.error) return { dest: f.dest, error: { file: f.dest, reason: cur.error } };
+  let plan;
+  if (f.kind === 'whole') {
+    const base = readRegular(path.join(root, BASE_DIR, f.dest));
+    if (base.error) return { dest: f.dest, error: { file: f.dest, reason: base.error } };
+    plan = planWholeFile({
+      current: cur.bytes,
+      base: base.bytes,
+      manifestHash: prev && prev.kind === 'whole' ? prev.sha256 : null,
+      next: f.content,
+    });
+  } else {
+    plan = planBlockFile({
+      current: cur.bytes === null ? null : cur.bytes.toString('utf8'),
+      next: f.content.toString('utf8'),
+      prevBlocks: prev && prev.blocks ? prev.blocks : null,
+    });
+  }
+  if (plan.action === 'error') return { dest: f.dest, error: { file: f.dest, reason: plan.reason } };
+  const entry = { kind: f.kind, sha256: sha256(f.content), ...(plan.blocks ? { blocks: plan.blocks } : {}) };
+  const conflict = plan.action === 'conflict';
+  return {
+    dest: f.dest,
+    report: {
+      path: f.dest,
+      kind: f.kind,
+      action: plan.action,
+      ...(conflict ? { reason: plan.reason } : {}),
+      ...(plan.warnings && plan.warnings.length > 0 ? { warnings: plan.warnings } : {}),
+    },
+    write: WRITE_ACTIONS.has(plan.action) ? { dest: f.dest, content: Buffer.from(plan.content), mode: f.mode } : null,
+    base: conflict ? null : { dest: f.dest, content: f.content },
+    manifestEntry: conflict ? prev : entry,
+  };
+}
+
+function planFiles(root, rendered, prevFiles) {
+  const results = rendered.files.map((f) => planFile(root, f, prevFiles.get(f.dest)));
+  const dests = new Set(rendered.files.map((f) => f.dest));
+  const orphans = [...prevFiles].filter(([dest]) => !dests.has(dest));
+  const manifestFiles = Object.fromEntries(
+    [...results.filter((r) => r.manifestEntry !== undefined && r.manifestEntry !== null).map((r) => [r.dest, r.manifestEntry]),
+      ...orphans],
+  );
+  return {
+    errors: results.filter((r) => r.error).map((r) => r.error),
+    files: [
+      ...results.filter((r) => r.report).map((r) => r.report),
+      ...orphans.map(([dest, e]) => ({ path: dest, kind: e.kind, action: 'orphan' })),
+    ],
+    writes: results.filter((r) => r.write).map((r) => r.write),
+    bases: results.filter((r) => r.base).map((r) => r.base),
+    manifestFiles: sortKeys(manifestFiles),
+  };
+}
+
+function planSettings(root, rendered, prevSettings) {
+  const cur = readRegular(path.join(root, SETTINGS));
+  if (cur.error) return { error: { file: SETTINGS, reason: cur.error } };
+  let current = null;
+  if (cur.bytes !== null) {
+    try {
+      current = JSON.parse(cur.bytes.toString('utf8'));
+    } catch {
+      current = undefined;
+    }
+    if (current === undefined || current === null) return { error: { file: SETTINGS, reason: 'not valid JSON' } };
+  }
+  const m = mergeSettings(current, prevSettings, rendered.settings);
+  if (!m.ok) return { error: { file: SETTINGS, reason: m.reason } };
+  const action = !m.changed ? 'unchanged' : current === null ? 'create' : 'update';
+  return {
+    action,
+    added: m.added,
+    removed: m.removed,
+    text: action === 'unchanged' ? null : serializeSettings(m.settings),
+    deployed: m.deployed,
+  };
+}
+
+function refusalOf(root, command, guarded, env, session) {
+  const settingsAbsent = !exists(path.join(root, SETTINGS));
+  if (command === 'diff' || guarded.length === 0 || (command === 'init' && settingsAbsent)) return null;
+  const failed = guardFailures(env, session === undefined ? detectSession() : session);
+  if (failed.length === 0) return null;
+  return {
+    reason: 'guardrail paths change only from a terminal outside an agent session',
+    paths: guarded,
+    failed,
+  };
+}
+
+function planDeploy(opts) {
+  const { root, command, presetDir, presetName, presetsRoot = DEFAULT_PRESETS } = opts;
+  const env = opts.env === undefined ? process.env : opts.env;
+
+  if (!isDirectory(root)) return stop(command, 'root is not a directory');
+  const config = exists(path.join(root, CONFIG)) ? readJsonObject(path.join(root, CONFIG)) : undefined;
+  if (config === undefined) return stop(command, 'missing .planning/config.json');
+  if (config === null) return stop(command, '.planning/config.json is not valid JSON');
+
+  let dir = presetDir;
+  if (dir === undefined) {
+    const name = presetName ?? (isPlainObject(config.stack) ? config.stack.preset : undefined);
+    if (name === undefined) return stop(command, 'no preset: pass --preset or set stack.preset');
+    if (typeof name !== 'string' || !PRESET_NAME_RE.test(name)) return stop(command, 'invalid preset name');
+    dir = path.join(presetsRoot, name);
+  }
+
+  const rendered = renderPreset(dir, config);
+  if (!rendered.ok) return { report: { ...newReport(command), errors: rendered.errors }, ops: EMPTY_OPS };
+  const report = { ...newReport(command), preset: { name: rendered.name, version: rendered.version } };
+
+  if (!contained(root, MANIFEST)) return stop(command, 'destination escapes project root', MANIFEST);
+  const manifest = exists(path.join(root, MANIFEST)) ? readJsonObject(path.join(root, MANIFEST)) : null;
+  if (exists(path.join(root, MANIFEST)) && manifest === null) return stop(command, 'manifest is not valid JSON');
+  if (command === 'init' && manifest) return stop(command, 'already initialised: run project sync');
+  if (command === 'sync' && !manifest) return stop(command, 'not initialised: run project init');
+  if (manifest && manifest.preset?.name !== rendered.name) {
+    return stop(command, `manifest preset is ${manifest.preset?.name}, not ${rendered.name}`);
+  }
+  const prevFiles = new Map(Object.entries(manifest && isPlainObject(manifest.files) ? manifest.files : {}));
+  const prevSettings = manifest && manifest.settings ? manifest.settings : null;
+
+  const secretHits = [
+    ...rendered.files.flatMap((f) => scanText(f.content).map((h) => ({ file: f.dest, ...h }))),
+    ...(rendered.settings === null ? [] : scanText(JSON.stringify(rendered.settings, null, 2))
+      .map((h) => ({ file: 'settings fragment', ...h }))),
+  ];
+  report.secret_hits = secretHits;
+  const errors = secretHits.length > 0 ? [{ reason: 'secret-shaped string in rendered output' }] : [];
+
+  const needSettings = rendered.settings !== null || prevSettings !== null;
+  const escapes = [
+    ...rendered.files.flatMap((f) => [f.dest, `${BASE_DIR}/${f.dest}`]),
+    ...(needSettings ? [SETTINGS] : []),
+    ...(command === 'init' ? [GITIGNORE] : []),
+  ].filter((rel) => !contained(root, rel)).map((file) => ({ file, reason: 'destination escapes project root' }));
+  if (escapes.length > 0) return { report: { ...report, errors: [...errors, ...escapes] }, ops: EMPTY_OPS };
+
+  const planned = planFiles(root, rendered, prevFiles);
+  errors.push(...planned.errors);
+  const settingsPlan = needSettings ? planSettings(root, rendered, prevSettings) : null;
+  if (settingsPlan && settingsPlan.error) errors.push(settingsPlan.error);
+
+  const settingsWrites = settingsPlan && !settingsPlan.error && (settingsPlan.action === 'create' || settingsPlan.action === 'update');
+  const guarded = [
+    ...planned.files.filter((f) => WRITE_ACTIONS.has(f.action) && destKey(f.path).startsWith(GUARDED_PREFIX)).map((f) => f.path),
+    ...(settingsWrites ? [SETTINGS] : []),
+  ].sort();
+  Object.assign(report, {
+    preset: { name: rendered.name, version: rendered.version },
+    files: planned.files,
+    settings: settingsPlan && !settingsPlan.error
+      ? { action: settingsPlan.action, added: settingsPlan.added, removed: settingsPlan.removed }
+      : null,
+    guarded_changes: guarded,
+    changes: planned.files.filter((f) => WRITE_ACTIONS.has(f.action)).length + (settingsWrites ? 1 : 0),
+    conflicts: planned.files.filter((f) => f.action === 'conflict').length,
+    errors,
+  });
+  if (errors.length > 0) return { report: { ...report, ok: false }, ops: EMPTY_OPS };
+
+  const refused = refusalOf(root, command, guarded, env, opts.session);
+  if (refused) return { report: { ...report, ok: false, refused }, ops: EMPTY_OPS };
+
+  const manifestOut = {
+    manifest_version: 1,
+    preset: { name: rendered.name, version: rendered.version },
+    files: planned.manifestFiles,
+    ...(needSettings ? { settings: settingsPlan.deployed } : {}),
+  };
+  return {
+    report: { ...report, ok: true },
+    ops: {
+      files: planned.writes,
+      bases: planned.bases,
+      settingsText: settingsWrites ? settingsPlan.text : null,
+      manifest: manifestOut,
+    },
+  };
+}
+
+module.exports = { planDeploy, CONFIG, MANIFEST, BASE_DIR, SETTINGS };
