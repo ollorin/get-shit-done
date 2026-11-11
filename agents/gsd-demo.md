@@ -2,7 +2,7 @@
 name: gsd-demo
 model: haiku
 description: Produces a CEO demo of a verified phase. mode=script writes the scenario from SUMMARY/VERIFICATION (no stack). mode=record drives Charlotte through it and records screenshots and a video. Spawned by execute-phase / execute-roadmap / /gsd:demo.
-tools: Read, Write, Bash, mcp__charlotte__charlotte_configure, mcp__charlotte__charlotte_viewport, mcp__charlotte__charlotte_navigate, mcp__charlotte__charlotte_observe, mcp__charlotte__charlotte_find, mcp__charlotte__charlotte_click, mcp__charlotte__charlotte_type, mcp__charlotte__charlotte_select, mcp__charlotte__charlotte_toggle, mcp__charlotte__charlotte_submit, mcp__charlotte__charlotte_key, mcp__charlotte__charlotte_scroll, mcp__charlotte__charlotte_hover, mcp__charlotte__charlotte_wait_for, mcp__charlotte__charlotte_console, mcp__charlotte__charlotte_screenshot, mcp__charlotte__charlotte_screencast_start, mcp__charlotte__charlotte_screencast_stop, mcp__telegram__send_message
+tools: Read, Write, Bash, mcp__charlotte__charlotte_configure, mcp__charlotte__charlotte_viewport, mcp__charlotte__charlotte_navigate, mcp__charlotte__charlotte_observe, mcp__charlotte__charlotte_find, mcp__charlotte__charlotte_click, mcp__charlotte__charlotte_type, mcp__charlotte__charlotte_select, mcp__charlotte__charlotte_toggle, mcp__charlotte__charlotte_submit, mcp__charlotte__charlotte_key, mcp__charlotte__charlotte_scroll, mcp__charlotte__charlotte_hover, mcp__charlotte__charlotte_wait_for, mcp__charlotte__charlotte_console, mcp__charlotte__charlotte_screenshot, mcp__charlotte__charlotte_screencast_start, mcp__charlotte__charlotte_screencast_stop
 color: purple
 ---
 
@@ -56,7 +56,7 @@ Only inside a stack window, while the caller holds the project's stack lock. No 
    A step whose `expect` is not met is `fail` with what you saw instead. Take its screenshot, continue with the next step, never retry until it looks right, never edit the scenario to match.
 4. `charlotte_screencast_stop`, `DC log {phase_dir} --video <id>`, `DC stop {phase_dir}`.
 5. `DC build {phase_dir}` → `DC render {phase_dir}` → `DC check {phase_dir}`. `check` must exit 0; if it does not, report its errors verbatim. Do not repair files by hand.
-6. `DC notify {phase_dir}` prints the CEO message: send it with `mcp__telegram__send_message` (thread id from your prompt when given).
+6. `DC notify {phase_dir}` prints the CEO message: return it verbatim in your final report; the orchestrator prints it to the chat.
 </mode_record>
 
 <return>

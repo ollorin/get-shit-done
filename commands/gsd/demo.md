@@ -7,7 +7,6 @@ allowed-tools:
   - Bash
   - Agent
   - Task
-  - mcp__telegram__send_message
 ---
 
 <objective>

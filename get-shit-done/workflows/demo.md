@@ -31,7 +31,7 @@ Preconditions, all checked by the caller, never by the demo agent: the project's
 
 ```
 Agent(subagent_type="gsd-demo", model="haiku", description="Record demo phase {N}",
-  prompt="mode=record phase_dir={phase_dir} lock_file={project stack-lock owner file} telegram_topic_id={id or null}")
+  prompt="mode=record phase_dir={phase_dir} lock_file={project stack-lock owner file}")
 ```
 
 Then, yourself:
@@ -52,7 +52,7 @@ git add {phase_dir}/demo/scenario.json {phase_dir}/demo/steps.jsonl {phase_dir}/
 DC rollup {phase_dir_1} {phase_dir_2} ... --out .planning/demos/{milestone}-DEMO.md
 ```
 
-Exit 1 = some phase's demo fails its check: fix or re-record before reporting. Send one `mcp__telegram__send_message`: the first three lines of the rollup file, its path, and the video paths.
+Exit 1 = some phase's demo fails its check: fix or re-record before reporting. Print to the chat: the first three lines of the rollup file, its path, and the video paths.
 
 </process>
 

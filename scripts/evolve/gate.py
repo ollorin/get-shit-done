@@ -10,6 +10,7 @@ Rules (all counts are runs, never rates alone):
   canary: arm acceptance < control acceptance - 1      -> REJECT (regression)
   corpus score = sum of hidden test cases passed / total, per arm
   Fisher exact one-sided p <= 0.10 for arm > control   -> ADOPT (quality gain)
+  fewer than MIN_SCORABLE corpus tasks with hidden tests in both arms -> INSUFFICIENT / MORE-REPS (never ADOPT)
   p > 0.10 and n < 10                                  -> MORE-REPS (to 10)
   no quality difference at n >= 10 and arm is smaller  -> ADOPT (token saving)   else REJECT
   spend so far > --max-usd                             -> STOP (reported, no decision)
@@ -20,6 +21,7 @@ from pathlib import Path
 
 HOME = Path(os.environ.get("EVOLVE_HOME", str(Path.home() / "gsd-evolve")))
 AB = Path(os.environ.get("AB_HOME", str(Path.home() / "ab-eval")))
+MIN_SCORABLE = 3  # corpus tasks with hidden tests run in both arms before any ADOPT
 FORK = Path(__file__).resolve().parents[2]
 
 def rows():
@@ -57,9 +59,11 @@ def decide(args):
     canary_reg = [t for t in canary if A[t]["acc"] < C[t]["acc"] - 1]
     tokA = [A[t]["first_turn_tok"] for t in corpus + canary if A[t]["first_turn_tok"]]; tokC = [C[t]["first_turn_tok"] for t in corpus + canary if C[t]["first_turn_tok"]]
     smaller = bool(tokA and tokC and sum(tokA) / len(tokA) < sum(tokC) / len(tokC))
+    scorable = sum(1 for t in corpus if C[t]["hid_total"] > 0 and A[t]["hid_total"] > 0)
     if spend > args.max_usd: verdict = "STOP (cost cap)"
     elif minn < 5: verdict = "MORE-REPS (to 5)"
     elif canary_reg: verdict = f"REJECT (canary regression {canary_reg})"
+    elif scorable < MIN_SCORABLE: verdict = f"INSUFFICIENT (MORE-REPS: {scorable} of {MIN_SCORABLE} scorable corpus tasks; an empty corpus never adopts)"
     elif p <= 0.10 and ra > rc: verdict = "ADOPT (quality gain)"
     elif minn < 10: verdict = "MORE-REPS (to 10)"
     elif ra >= rc and smaller: verdict = "ADOPT (token saving, no loss)"

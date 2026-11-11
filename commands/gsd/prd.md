@@ -10,7 +10,6 @@ allowed-tools:
   - WebFetch
   - WebSearch
   - AskUserQuestion
-  - mcp__telegram__send_message
 ---
 
 <objective>

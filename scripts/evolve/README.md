@@ -17,5 +17,7 @@ Gate rules are in the `gate.py` docstring: 5 reps minimum, 10 before a null resu
 test, canary tasks may not lose more than one acceptance, cost cap. Adoption = one commit that applies the draft,
 bumps `agents/VERSIONS.json` and adds a CHANGELOG line citing the decision; rollback = `git revert` of it.
 
+Auto-adopt is off: `decide` only prints a verdict; `adopt` is a manual command. Fewer than 3 scorable corpus tasks (hidden tests in both arms), including an empty corpus, gives INSUFFICIENT, never ADOPT (`gate.test.js`).
+
 Limits: classes come from commit subjects (regex), not from review files; hidden tests only score defects a unit
 test can see (not SUMMARY, cite or doc findings); a replay is scoped to the plan tasks that name the tested files.

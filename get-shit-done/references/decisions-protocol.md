@@ -28,7 +28,7 @@ Every `A-` carries `default`, `reversibility` (`cheap` = one plan or less to cha
 
 Unattended (`GSD_AUTONOMOUS=1`, or no reply within the step's own timeout) a workflow does not wait: it takes the default, writes the `A-`, and continues. The one exception is not a wait either: a phase with an open `irreversible` assumption is parked (`decisions gate --phase N` exits 2), the run goes on with the phases that do not depend on it, and the parked phase is reported at the end.
 
-Queue delivery: `decisions digest --mark` prints the open questions not yet sent; send that text with `mcp__telegram__send_message` (thread id when one exists) or print it. Never use `ask_blocking_question` for queue items: a timed-out question is deleted by the daemon and a late reply is lost.
+Queue delivery: `decisions digest --mark` prints the open questions not yet sent; the main orchestrator prints that text to the chat; CEO changes come back as chat messages. Never use `ask_blocking_question` for queue items: a timed-out question is deleted by the daemon and a late reply is lost.
 
 ## Answers
 
