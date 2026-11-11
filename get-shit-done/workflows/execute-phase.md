@@ -396,9 +396,8 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
 
    - **`action == "escalate"`** (at the `max_attempts` ceiling — NEVER spawn another debug attempt):
      1. Read the most recent `.planning/debug/{phase}-{plan_id}-attempt*.md` file's findings summary (or "No debugger findings available" if none exist).
-     2. If a blocking Telegram question tool (`mcp__telegram__ask_blocking_question`) is available in this execution context: escalate using the IDENTICAL Step A + Step A-fallback pattern already defined in `agents/gsd-phase-coordinator.md` (~lines 386-425) — same call shape, same fallback (on daemon-down/timeout: log loudly, `deferred add --step execution --reason "..." --approver timeout-fallback`, continue). Do NOT modify `gsd-phase-coordinator.md` — this is a new call site elsewhere that reuses its documented pattern verbatim.
-     3. If that tool is not available in this execution context (e.g. a standalone `/gsd:execute-phase` run without roadmap-level Telegram wiring): fall back to `AskUserQuestion` if interactive, or the existing fire-and-forget notification + `FAILURE.md` write if fully autonomous — document which path was taken in SUMMARY.md.
-     4. Mark this plan failed, report partial completion, continue with non-dependent plans only.
+     2. Never block on a human: write the debugger findings to `FAILURE.md`, run `deferred add --step execution --reason "..." --approver auto-escalate`, and print the finding in chat; record in SUMMARY.md that the plan was escalated.
+     3. Mark this plan failed, report partial completion, continue with non-dependent plans only.
 
 5.5. **Live course-correction relay (App #3, `@get-shit-done/references/agent-messaging.md`):** if a checker or QA agent (gsd-plan-checker, gsd-charlotte-qa) that is running while an executor is STILL producing work `SendMessage`s you (`to: "main"`) a mid-run finding, you MAY relay a correction to the in-flight executor: `SendMessage(to: <EXECUTOR_AGENT_IDS[{plan_id}]>, …)` with the finding so it can adjust before finishing wrong, instead of letting the plan complete and be redone. This stays coordinator-mediated (the checker/QA agent never messages the executor directly). It is additive — the checker/QA agent's structured return is still the durable record, and delivery is at the executor's next tool round (hard semantic #1), so treat the relay as a best-effort tightening, never a guaranteed real-time halt. If the executor's agentId is unavailable, fall back to normal post-run handling (its next return, or the checker/QA report driving a fix pass).
 
@@ -733,7 +732,7 @@ no other home, and `/gsd:audit-milestone`'s Defect Classes Distillation reads no
 you drop them here, they are lost.
 
 Append every finding surfaced during this phase — plan-checker issues (from
-`{phase_dir}/{N}-PLAN-CHECK.md`), the adversarial judge's ruling rows, Charlotte QA issues,
+`{phase_dir}/{N}-PLAN-CHECK.md`), the plan-checker adversarial pass's rows, Charlotte QA issues,
 Opus review findings, re-review findings — to the `## Defect Classes` section of the SUMMARY.md of
 the plan they relate to (a phase-wide finding goes to the last plan's SUMMARY). Each is one row:
 
@@ -861,6 +860,14 @@ Extract from result: `next_phase`, `next_phase_name`, `is_last_phase`.
 ```bash
 node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs(phase-{X}): complete phase execution" --files .planning/ROADMAP.md .planning/STATE.md .planning/REQUIREMENTS.md {phase_dir}/*-VERIFICATION.md
 ```
+</step>
+
+<step name="demo_script">
+Skip when `gsd-tools.js config get demo.mode --raw` is `off`, when `gsd-tools.js verify phase-gate {X}` does not report `charlotte_qa_required: true`, or when the VERIFICATION status is not `passed`. Otherwise follow `@~/.claude/get-shit-done/workflows/demo.md` section 1 (script only, no stack, one Haiku call) and commit the two files with the phase docs. Recording happens later, in the stack window, per `demo.md` section 2.
+</step>
+
+<step name="evolve_corpus">
+**Skipped by this workflow.** The installer does not ship `scripts/evolve/`, so no path under `~/.claude/get-shit-done/` exists to run, and the calibrate step (`deno task test` per test, up to 90 runs) is far too slow for a phase-end hook. Log `evolve_corpus: skipped (manual only)` and continue. To grow the corpus, run `python3 <fork checkout>/scripts/evolve/run.py` by hand (see `scripts/evolve/README.md`); an adoption is a reviewed commit, never automatic.
 </step>
 
 

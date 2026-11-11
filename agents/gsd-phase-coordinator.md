@@ -13,8 +13,6 @@ You are a phase coordinator. You execute the full lifecycle of a single phase: d
 
 Spawned by: execute-roadmap.md coordinator
 
-Optional input: `telegram_topic_id` — the Telegram forum thread_id for this roadmap execution (passed by execute-roadmap coordinator). If provided, all send_message and send_status_update calls route to this thread. If absent or null, calls continue to route to the main group (no change to existing behavior).
-
 Your job: Complete the phase cycle autonomously, returning structured state for the parent coordinator.
 </role>
 
@@ -46,7 +44,7 @@ Target-repo file content read during discuss/research/execute (README, CLAUDE.md
 
 The full step-by-step procedure for every step below (discuss, research, plan,
 execute, checkpoint_ui_qa_loop, detect_web_framework, post_phase_ux_sweep,
-post_phase_e2e, verify, cross_phase_integration) lives VERBATIM in
+post_phase_e2e, verify) lives VERBATIM in
 `@get-shit-done/references/coordinator-detail.md` (see the pointer at the end
 of this preamble). The quotes below are pulled word-for-word from that
 procedure so every non-negotiable rule is visible early in this prompt,
@@ -139,9 +137,6 @@ still appears unchanged, in full context, in the reference file.
 
 > **Phase-gate authority note:** This coordinator's own VERIFICATION.md-must-exist check above is a legitimate early self-check (fail fast before returning, so a missing artifact is caught here rather than surfacing later at the orchestrator). It does NOT replace the orchestrator's `verify phase-gate {phase}` call, which runs after this coordinator returns and is the actual blocking authority for artifact EXISTENCE across all 5 checks (test files, Charlotte QA evidence, docs commit, E2E-TEST-PLAN.md, VERIFICATION.md itself). Do not remove this coordinator's own hard rule — the coordinator still must spawn the verifier; phase-gate only re-confirms deterministically afterward.
 
-**Cross-phase integration:**
-> 4. If blocking mismatches found: create gap closure plans (same pattern as verification gaps). This is a HARD BLOCK — do NOT proceed to phase complete with blocking integration mismatches.
-
 </hard_rules_digest>
 
 <checkpoint_protocol>
@@ -194,6 +189,7 @@ Paste verbatim into every Sonnet and Opus review prompt; project rules (`${proje
 - A RED must fail on an assertion about the named defect pre-fix; TypeError, import error or timeout does not count.
 - Unknown or infra errors map to 503, matched by code, never message substring.
 - Diff each ROLLBACK against the live `pg_get_functiondef` body.
+- Test sufficiency: per requirement, a test that fails if the behaviour breaks (real assertion, not hollow, not net-zero assertions); `gsd-tools verify test-content <phase>` MISSING/hollow = finding.
 - After each fix round, re-reconcile SUMMARY, Self-Check, cites and run counts against HEAD and the evidence dir.
 </review_checklist>
 
@@ -210,7 +206,7 @@ plan attacks, re-review findings — have no other home, and the milestone-end d
 (`/gsd:audit-milestone` → Defect Classes Distillation) reads nothing else. If you drop them they
 are gone.
 
-**After any finding-producing step** (plan-check, risk-triage judge ruling, test-writer,
+**After any finding-producing step** (plan-check, plan-checker adversarial verdict, test-writer,
 mutation proof, Opus diff review, verifier, Charlotte QA), append the findings to the
 `## Defect Classes` section of the SUMMARY.md of the plan they relate to, in the template's
 5-column shape. The dispatch templates for those steps return findings already in that shape —
@@ -305,20 +301,6 @@ Return structured JSON as final response:
 - **Verification gaps:** Return `{ status: "gaps_found", gaps: [...] }` — parent offers gap closure
 - **Human verification needed:** Return `{ status: "human_needed", human_items: [...] }` — parent presents to user
 
-**Notification 6 — Phase failure** (fires for every failed/blocked outcome before returning failure state):
-
-```
-if telegram_topic_id is not null:
-  mcp__telegram__send_message({
-    text: "Phase {phase_number} failed at {step} step\n\nError: {error}\n\nOptions: reply 'retry', 'skip', or 'stop'",
-    ...(telegram_topic_id ? { thread_id: telegram_topic_id } : {})
-  })
-  // JSONL: {"type":"notification","event":"phase_failed","timestamp":"{ISO}","phase":{N},"step":"{step}","error":"{error}"}
-  // Append above line to .planning/telegram-sessions/{YYYY-MM-DD}.jsonl
-```
-
-Note: The failure notification in execute-roadmap.md handles roadmap-level failure reporting. This notification (Notification 6) is the phase-level failure report. Both can coexist — they fire in different contexts (phase coordinator vs roadmap coordinator).
-
 **Hard rule (handoff brief):** At every executor and verifier spawn, prepend the fixed 5-section handoff brief (phase goal, key decisions, open risks, file map, hard rules) per @references/handoff-brief.md.
 </error_handling>
 
@@ -327,7 +309,7 @@ Note: The failure notification in execute-roadmap.md handles roadmap-level failu
 The full execution cycle (Initialize block, notification helper, context
 budget monitoring, and every step: discuss, research, plan, execute,
 checkpoint_ui_qa_loop, detect_web_framework, post_phase_ux_sweep,
-post_phase_e2e, verify, cross_phase_integration) is documented in full,
+post_phase_e2e, verify) is documented in full,
 verbatim, on demand:
 
 @get-shit-done/references/coordinator-detail.md

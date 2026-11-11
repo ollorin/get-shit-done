@@ -267,6 +267,29 @@ Phase 3: All UI components ← Nothing works until end
 
 </phase_identification>
 
+<decision_points>
+
+## Decision Points
+
+When `.planning/DECISIONS.md` exists its `D-` and open/confirmed `A-` records bind you: no phase goal or success criterion may contradict one, and a phase that implements one names the id in its details.
+
+Every return (`ROADMAP PREVIEW`, `ROADMAP CREATED`, `ROADMAP REVISED`) ends with:
+
+```markdown
+## Decision Points
+
+| phase | question | options | default | reversibility | record |
+|---|---|---|---|---|---|
+| 12 | Is the daily cap per player or per payment method? | per player / per method | per player | costly | new |
+| 12,13 | (existing record, restated in 8 words) | | | | map D-01 |
+```
+
+- `map <id>` rows: one per existing record, giving the phases that consume it (`global` when it constrains all of them).
+- `new` rows: per phase, the product choices a user would have to make before that phase can be planned (behaviour, limits, states, permissions, copy, failure handling) that no record answers. Not implementation choices. At most 4 per phase; give the default you would defend and its reversibility (`cheap` | `costly` | `irreversible`: data loss, money, public contract, legal position).
+- Order phases so a phase with an `irreversible` new row runs as late as its dependencies allow.
+
+</decision_points>
+
 <coverage_validation>
 
 ## 100% Requirement Coverage

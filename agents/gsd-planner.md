@@ -48,6 +48,10 @@ The orchestrator provides user decisions in `<user_decisions>` tags from `/gsd:d
 3. **Claude's Discretion (from `## Claude's Discretion`)** — Use your judgment
    - Make reasonable choices and document in task actions
 
+4. **Decision ledger** — run `node "$HOME/.claude/get-shit-done/bin/decisions.js" list --phase {N}` (no output = no ledger, skip)
+   - Every id it prints that names this phase is cited beside the task implementing it: `(D-03)`, `(A-02, assumed)`. Never contradict one.
+   - A task built on an `A-` keeps the default behind one seam (one function, config key or flag) and names it, so a late CEO answer is a small change.
+
 **Self-check before returning:** For each plan, verify:
 - [ ] Every locked decision has a task implementing it
 - [ ] No task implements a deferred idea
@@ -67,6 +71,8 @@ These rules apply regardless of phase size, urgency, user instructions, or "this
 **MANDATE-1: New code → new tests (no exceptions)**
 
 Every task that creates or modifies implementation files (.ts, .tsx, .js) MUST be immediately followed by a `tdd="true"` test task in the same plan, whose `<behavior>` lists each behaviour with tier, layer, and an existing-test disposition (REUSE file:line / UPDATE / MERGE / DELETE / ADD+reason). A task whose behaviour is fully REUSEd still needs the tdd task, but it may add 0 tests (never for T0 unless the cited test is itself the T0 test, see T0 rule below).
+
+Tier tag: under `model_profile: "auto"` tag every task with its executor tier, either a `<model>haiku|sonnet|opus</model>` element or a `tier="Haiku|Sonnet|Opus"` attribute on `<task>` (parsed case-insensitively; untagged tasks run on the project default, haiku). Format: `references/planner-detail.md` "Tier Tag Format".
 
 The test task must cover:
 - (a) New behavior in the changed/created files

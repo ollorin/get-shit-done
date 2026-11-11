@@ -2,11 +2,11 @@
 
 This file holds the FULL, VERBATIM `<execution_cycle>` block relocated from
 `agents/gsd-phase-coordinator.md` during the MILE-30 hard-rules-first
-restructuring. Every step (discuss, research, plan, execute, verify,
-cross_phase_integration), the context-budget-monitoring logic, and the
-checkpoint_ui_qa_loop / detect_web_framework / post_phase_ux_sweep /
-post_phase_e2e sub-steps are relocated here byte-for-byte -- nothing was
-reworded, summarized, or deleted.
+restructuring. Every step (discuss, research, plan, execute, verify), the
+context-budget-monitoring logic, and the checkpoint_ui_qa_loop /
+detect_web_framework / post_phase_ux_sweep / post_phase_e2e sub-steps were
+relocated here. Lifecycle notifications were removed; the orchestrator prints
+status to the chat.
 
 Several HARD RULE / MUST / CRITICAL statements embedded within these steps
 are ALSO quoted verbatim in the core preamble of `gsd-phase-coordinator.md`
@@ -19,34 +19,6 @@ every rule still lives here, in its original place, unchanged.
 
 <execution_cycle>
 
-Initialize:
-```
-telegram_topic_id = {value from prompt if provided, else null}
-// All mcp__telegram__send_message and mcp__telegram__send_status_update calls
-// below pass thread_id: telegram_topic_id (omit parameter if null)
-```
-
-// Parent coordinator passes telegram_topic_id in the prompt:
-// "telegram_topic_id: {telegram_topic_id}" or "telegram_topic_id: null"
-
-// Helper: append_notification_log(event, data)
-// After EVERY mcp__telegram__send_message call that is a lifecycle notification
-// (NOT escalation calls — those already log via the escalation block):
-//   Append JSON line to .planning/telegram-sessions/{YYYY-MM-DD}.jsonl
-//   Format: {"type":"notification","event":"{event}","timestamp":"{ISO}","phase":{N},...extra_data}
-//   Create the file if it does not exist. Use current date for filename.
-
-**Notification 1 — Phase start** (fires immediately after initialization, before any step):
-
-```
-if telegram_topic_id is not null:
-  mcp__telegram__send_message({
-    text: "Phase {phase_number} started: {phase_name}",
-    ...(telegram_topic_id ? { thread_id: telegram_topic_id } : {})
-  })
-  // JSONL: {"type":"notification","event":"phase_start","timestamp":"{ISO}","phase":{N},"phase_name":"{name}"}
-  // Append above line to .planning/telegram-sessions/{YYYY-MM-DD}.jsonl
-```
 
 
 <context_budget_monitoring>
@@ -73,15 +45,10 @@ When context_budget_pct >= COMPRESSED_MODE_THRESHOLD:
 - Switch to terse output: use bullet points only, skip verbose reasoning narration
 - Omit intermediate planning commentary -- act and report results concisely
 - Skip optional diagnostic log messages
-- Send ONE Telegram notification (on first threshold crossing only):
+- Note it once (first threshold crossing only):
 
 ```
 if context_budget_pct >= COMPRESSED_MODE_THRESHOLD AND NOT compressed_mode_notified:
-  if telegram_topic_id is not null:
-    mcp__telegram__send_message({
-      text: "Phase {phase_number}: context at {usage_pct}% -- switching to compressed mode",
-      ...(telegram_topic_id ? { thread_id: telegram_topic_id } : {})
-    })
   compressed_mode_notified = true
   // Log to JSONL: {"type":"context_budget","event":"compressed_mode","timestamp":"{ISO}","phase":{N},"usage_pct":{usage_pct}}
 ```
@@ -91,15 +58,10 @@ if context_budget_pct >= COMPRESSED_MODE_THRESHOLD AND NOT compressed_mode_notif
 When context_budget_pct >= FRESH_SUBAGENT_THRESHOLD:
 - Before spawning the verifier: create a compact handoff summary containing: phase goal, key decisions made, tasks completed, files modified
 - Pass this handoff summary in the verifier subagent prompt so the verifier has full context without relying on the coordinator context window
-- Send ONE Telegram notification (on first threshold crossing only):
+- Note it once (first threshold crossing only):
 
 ```
 if context_budget_pct >= FRESH_SUBAGENT_THRESHOLD AND NOT fresh_subagent_notified:
-  if telegram_topic_id is not null:
-    mcp__telegram__send_message({
-      text: "Phase {phase_number}: context at {usage_pct}% -- passing handoff summary to verifier",
-      ...(telegram_topic_id ? { thread_id: telegram_topic_id } : {})
-    })
   fresh_subagent_notified = true
   // Log to JSONL: {"type":"context_budget","event":"fresh_subagent","timestamp":"{ISO}","phase":{N},"usage_pct":{usage_pct}}
   // Build handoff_summary:
@@ -214,18 +176,6 @@ ls .planning/phases/{phase_dir}/*-CONTEXT.md 2>/dev/null || echo "NO_CONTEXT"
 }
 ```
 
-After creating the skipped checkpoint, send context_ready notification (skip variant):
-
-```
-if telegram_topic_id is not null:
-  mcp__telegram__send_message({
-    text: "Phase {phase_number} context ready — CONTEXT.md already exists (discuss step skipped)",
-    ...(telegram_topic_id ? { thread_id: telegram_topic_id } : {})
-  })
-  // JSONL: {"type":"notification","event":"context_ready","timestamp":"{ISO}","phase":{N},"autonomous_count":0,"escalated_count":0,"skipped":true}
-  // Append above line to .planning/telegram-sessions/{YYYY-MM-DD}.jsonl
-```
-
 <!-- RUN PATH: No CONTEXT.md — run gray-area identification -->
 **If no CONTEXT.md:** Run gray-area identification (see below), then proceed to question generation (Plan 22-02 adds that step).
 
@@ -256,7 +206,9 @@ node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js roadmap get-phase {ph
    3. Question generation scope — how many questions per gray area and how to avoid redundant questions
    ```
 
-4. Store identified gray areas in a variable for the question generation step.
+4. Drop every gray area the decision ledger already answers (`node "$HOME/.claude/get-shit-done/bin/decisions.js" list --phase {phase_number}`, contract `@get-shit-done/references/decisions-protocol.md`): its `D-`/`A-` line goes into CONTEXT.md's decisions verbatim with the id, and no questions are generated for it.
+
+5. Store the remaining gray areas in a variable for the question generation step.
 
 **Question generation:**
 
@@ -352,128 +304,30 @@ escalation_needed = answers where evaluation == "needs-escalation"
 
 **Sensitivity check for escalation:**
 
-Before escalating any needs-escalation item to Telegram, evaluate it against six sensitivity criteria. Only escalate if ANY criterion is true:
+There is no interactive channel: nothing in discuss blocks on a human. Evaluate each needs-escalation item against six sensitivity criteria; if ANY is true it is sensitive:
 
-1. **Irreversible change** — Would implementing this answer result in a change that cannot be undone without significant effort? (e.g., deleting data, migrating schema, public API contract)
-2. **>1 phase rework risk** — If wrong, would this require reworking more than one future phase?
-3. **Major architectural decision** — Does this affect the overall system design, component boundaries, or data model in a non-trivial way?
-4. **Money/data loss potential** — Could a wrong decision lead to loss of user data, financial charges, or security breach?
-5. **Conflicting KB signals** — Do the knowledge DB results for this question directly contradict each other (different answers with similar confidence)?
-6. **Always-ask topic** — Does the question involve a topic the user has previously indicated they always want to decide personally?
+1. **Irreversible change** — cannot be undone without significant effort (deleting data, schema migration, public API contract)
+2. **>1 phase rework risk** — if wrong, more than one future phase is reworked
+3. **Major architectural decision** — system design, component boundaries, or data model in a non-trivial way
+4. **Money/data loss potential** — wrong decision could lose user data, cause financial charges, or a security breach
+5. **Conflicting KB signals** — knowledge DB results directly contradict each other at similar confidence
+6. **Always-ask topic** — a topic the user has said they always decide personally
 
-For each item in `escalation_needed`:
-- Apply the six criteria above based on the question text, gray_area, and answer.confidence
-- If NO criterion matches → move to Claude's Discretion (confidence >= 0.4 already handled by existing logic)
-- If ANY criterion matches → mark as `sensitive_escalation: true`
+Produce `sensitive_items` (any criterion true) and `discretion_items` (none true; Claude decides).
 
-Produce:
-```
-sensitive_items = escalation_needed items where sensitive_escalation == true
-discretion_items = escalation_needed items where sensitive_escalation == false
-```
+**Route each sensitive item by the criterion that matched (never `blocked/parked` from discuss, never a wait):**
+- Criterion 4, or criteria 2/3 in a money/auth/KYC/RNG domain, or criterion 5: dispatch a fresh Opus-tier ruling (`model: "fable"` while the Fable allowance lasts, fall back to `"opus"` and say so), per the project CLAUDE.md. Record it as `decisions.js add --kind decision --source opus-ruling ...` (phases = this phase) and proceed on it. If the ruling cannot be obtained, queue the item as an assumption (below) with reversibility `costly` and continue on the default.
+- Criteria 2/3 outside those domains: Sonnet-tier judgment by the coordinator, recorded as `decisions.js add --kind assumption --source coordinator-judgment` with its true reversibility, default taken, continue.
+- Criterion 1 or 6 that is a strategic or business/legal call only the CEO can make: queue `decisions.js add --kind assumption --source unattended --reversibility {true value} --phases {only the phases that consume this decision}` (never `--global` unless every phase consumes it), print the question in chat via the orchestrator, and continue on the default. Other phases are never held; `gate` parks only the consuming phases when the assumption is `irreversible` (see execute-roadmap `ledger_gate`).
+- Criterion 6 or 1 that touches money/auth/security: use the ruling route first, as above.
 
-**Escalate sensitive items via Telegram (multi-turn loop with JSONL logging):**
+Every routed item is documented in CONTEXT.md under Claude's Discretion (citing the `A-`/`D-` id) and, for the first two routes, in the Implementation Decisions section.
 
-For each item in `sensitive_items`, run a multi-turn follow-up loop:
-
-Read the escalation timeout from `.planning/config.json`'s `telegram.escalation_timeout_minutes` field (default: 30 if the file is missing, unparseable, or the key is absent). Use this value as `escalation_timeout_minutes` for every `ask_blocking_question` call in this loop (replacing the previously hardcoded `timeout_minutes: 30`).
-
-Initialize loop state: `turn = 1`, `max_turns = 3`, `sufficient = false`, `question_text = item.question`.
-
-Update session status to 'waiting' once before the loop begins:
-```
-mcp__telegram__update_session_status({ status: "waiting", question_title: item.question.slice(0, 50) })
-```
-
-**Loop (repeat while sufficient == false AND turn <= max_turns):**
-
-**Step A — Send question and receive reply:**
-Call ask_blocking_question — this BLOCKS until the user replies:
-```
-reply = mcp__telegram__ask_blocking_question({
-  question: question_text,
-  context: "Phase {phase_number} — {phase_name}\nGray area: {item.gray_area}\nMeta-answerer confidence: {item.confidence}\nSensitivity reason: {which criterion triggered}",
-  timeout_minutes: {escalation_timeout_minutes}
-})
-```
-
-Immediately after sending (before reply arrives), append a JSON line to `.planning/telegram-sessions/{YYYY-MM-DD}.jsonl` (where the date is the current date in YYYY-MM-DD format, creating the file if it does not exist):
-```
-{"type":"escalation_question","timestamp":"{ISO}","phase":{phase_number},"gray_area":"{item.gray_area}","question":"{question_text}","turn":{turn},"sensitivity_reason":"{which criterion triggered}"}
-```
-
-**Step A-fallback — daemon-down or timeout during escalation:** If the `ask_blocking_question` call in Step A throws or returns an error (IPC timeout, a `DAEMON_UNAVAILABLE`-coded error, or the daemon's own question-timeout bubbling back as an IPC error response) — covers BOTH "user didn't reply in time" and "daemon was down at escalation time," same handling for both, do not build two paths:
-
-1. Log the failure loudly (this failure must be visible in the milestone audit):
-   ```
-   "Telegram escalation failed for phase {phase_number}, gray_area: {item.gray_area} — {error message}. Applying timeout-fallback: writing DEFERRED.json waiver, parking to Claude's Discretion, continuing."
-   ```
-
-2. Write a DEFERRED.json waiver via the ONLY sanctioned mechanism (do not invent a parallel one):
-   ```bash
-   node get-shit-done/bin/gsd-tools.js deferred add {phase_number} --step discuss --reason "Telegram escalation timed out/unavailable for: {item.question}" --approver timeout-fallback
-   ```
-
-3. Append a JSON line to `.planning/telegram-sessions/{YYYY-MM-DD}.jsonl`:
-   ```
-   {"type":"escalation_complete","timestamp":"{ISO}","phase":{phase_number},"gray_area":"{item.gray_area}","final_answer":null,"turns_used":{turn},"escalated_to_discretion":true,"fallback_reason":"{error message}"}
-   ```
-
-4. Push item into `discretion_items` (NOT `escalated_answers`) so CONTEXT.md's Claude's Discretion subsection still documents it:
-   ```
-   discretion_items.push({ gray_area: item.gray_area, question: item.question, reason: "Telegram escalation timeout/unavailable — parked via timeout-fallback" })
-   ```
-
-5. Exit this item's loop immediately (do not attempt Step B/C for this item) and continue to the next item in `sensitive_items`.
-
-**Step B — Evaluate reply confidence:**
-Read the reply text inline and assign confidence using these rules:
-- If the reply contains a clear, actionable decision ("use X", "yes", "no", a specific path name, or a code identifier) → `confidence = 0.85`, `sufficient = true`
-- If the reply is a general direction or preference but lacks specific actionable detail → `confidence = 0.65`, `sufficient = false`
-- If the reply asks Claude to decide, defers the question, or is otherwise non-committal → `confidence = 0.5`, `sufficient = false`
-
-Append a JSON line to `.planning/telegram-sessions/{YYYY-MM-DD}.jsonl`:
-```
-{"type":"escalation_reply","timestamp":"{ISO}","phase":{phase_number},"gray_area":"{item.gray_area}","reply":"{reply text}","turn":{turn},"confidence_eval":{confidence},"sufficient":{true|false}}
-```
-
-**Step C — Decide whether to loop:**
-- If `sufficient == true` OR `turn >= max_turns` → exit loop, use current reply as final answer
-- If `sufficient == false` AND `turn < max_turns` → increment turn, construct a follow-up question:
-  ```
-  question_text = "Thanks for your reply. To be more specific: {synthesize what is still unclear from the original question and the reply received so far}"
-  ```
-  Then loop back to Step A with the follow-up question text
-
-**After loop exits:**
-
-Update session status back to 'busy':
-```
-mcp__telegram__update_session_status({ status: "busy" })
-```
-
-Append a JSON line to `.planning/telegram-sessions/{YYYY-MM-DD}.jsonl` recording the completed exchange:
-```
-{"type":"escalation_complete","timestamp":"{ISO}","phase":{phase_number},"gray_area":"{item.gray_area}","final_answer":"{last reply}","turns_used":{turn},"escalated_to_discretion":false}
-```
-
-Store the final reply (last reply received regardless of confidence):
-```
-escalated_answers.push({
-  gray_area: item.gray_area,
-  question: item.question,
-  answer: reply,
-  source: "telegram_escalation",
-  confidence: 1.0
-})
-```
-
-// Write to KB immediately after each answer so the DB is updated even if later escalations fail or timeout
-**Write escalated answer to knowledge DB (inside loop — non-fatal):**
+Write each ruling or confirmed default to the knowledge DB (non-fatal):
 
 ```bash
 GSD_KB_CONTENT="{item.question}: {item.answer}" \
-GSD_KB_CONTEXT="Phase {phase_number} Telegram escalation — {item.gray_area}" \
+GSD_KB_CONTEXT="Phase {phase_number} unattended ruling — {item.gray_area}" \
 node -e "
 const { storeInsights } = require(process.env.HOME + '/.claude/get-shit-done/bin/knowledge-writer.js');
 storeInsights([{
@@ -487,9 +341,9 @@ storeInsights([{
 " || true
 ```
 
-After all sensitive_items processed, `escalated_answers` holds human-provided answers.
+Rulings are appended to `escalated_answers` (`source: "opus-ruling"`, confidence 1.0).
 
-**Merge escalated answers with sufficient answers for CONTEXT.md:**
+**Merge ruled answers with sufficient answers for CONTEXT.md:**
 
 The CONTEXT.md writer below uses `sufficient_answers` to populate the Implementation Decisions section. Append `escalated_answers` to `sufficient_answers` before writing CONTEXT.md, so all answered questions (autonomous + human-escalated) appear in the decisions section.
 
@@ -542,8 +396,8 @@ mkdir -p ".planning/phases/{phase_dir}"
 ### Claude's Discretion
 {List questions from discretion_items (needs-escalation items with confidence >= 0.4 that did not trigger any sensitivity criterion). Claude decides these autonomously.}
 
-### Escalated Decisions (Human-Answered)
-{If escalated_answers.length > 0: list each item with format "- {answer.question}: {answer.answer} (answered via Telegram)". If none: omit this subsection.}
+### Escalated Decisions (Ruled)
+{If escalated_answers.length > 0: list each item with format "- {answer.question}: {answer.answer} (ruled by Opus/Fable)". If none: omit this subsection.}
 
 </decisions>
 
@@ -557,7 +411,7 @@ mkdir -p ".planning/phases/{phase_dir}"
 <deferred>
 ## Deferred Ideas
 
-{List questions from escalation_needed where confidence < 0.7 that require human input. Note: Phase 23 will escalate these via Telegram.}
+{List questions from escalation_needed where confidence < 0.7 that require human input. These are queued in the decisions ledger and surfaced in chat.}
 {If all answers sufficient: "None — all gray areas resolved autonomously"}
 
 </deferred>
@@ -585,24 +439,12 @@ node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js commit "docs({padded_
   "step_status": "complete",
   "timestamp": "...",
   "files_touched": ["{phase_dir}/{padded_phase}-CONTEXT.md"],
-  "key_context": "Autonomous discuss: {sufficient_count} KB answers, {discretion_count} Claude discretion, {escalated_count} Telegram-escalated",
+  "key_context": "Autonomous discuss: {sufficient_count} KB answers, {discretion_count} Claude discretion, {escalated_count} ruled",
   "resume_from": "research"
 }
 ```
 
 6. Log the discuss completion.
-
-**Notification 2 — Context ready** (fires after discuss step completes — CONTEXT.md written and committed):
-
-```
-if telegram_topic_id is not null:
-  mcp__telegram__send_message({
-    text: "Phase {phase_number} context ready — {sufficient_count} KB answers, {discretion_count} Claude decisions, {escalated_count} Telegram-escalated",
-    ...(telegram_topic_id ? { thread_id: telegram_topic_id } : {})
-  })
-  // JSONL: {"type":"notification","event":"context_ready","timestamp":"{ISO}","phase":{N},"kb_count":{sufficient_count},"discretion_count":{discretion_count},"escalated_count":{escalated_count}}
-  // Append above line to .planning/telegram-sessions/{YYYY-MM-DD}.jsonl
-```
 
 The execution cycle then proceeds to the `research` step.
 </step>
@@ -676,17 +518,6 @@ Agent(
 }
 ```
 
-**Notification 3 — Research done** (fires only when status is "complete" — NOT when skipped):
-
-```
-if telegram_topic_id is not null AND research_status == "complete":
-  mcp__telegram__send_message({
-    text: "Phase {phase_number} research done",
-    ...(telegram_topic_id ? { thread_id: telegram_topic_id } : {})
-  })
-  // JSONL: {"type":"notification","event":"research_done","timestamp":"{ISO}","phase":{N}}
-  // Append above line to .planning/telegram-sessions/{YYYY-MM-DD}.jsonl
-```
 </step>
 
 <step name="plan">
@@ -735,6 +566,8 @@ echo "PLAN_COUNT=$PLAN_COUNT"
 { "status": "failed", "step": "plan", "reason": "gsd-planner returned success but no PLAN.md files found on disk" }
 ```
 
+**Decision citation gate:** when `.planning/DECISIONS.jsonl` exists, run `node "$HOME/.claude/get-shit-done/bin/decisions.js" check-plan --phase {phase_number} .planning/phases/{phase_dir}/*-PLAN.md`. Exit 1 (a binding `D-`/`A-` not cited, unknown or stale id) or 3 (corrupt ledger) is a failure like the structure gate: return `{ "status": "failed", "step": "plan", "reason": "decision citation gate: {output}" }` and re-plan with the output as revision context.
+
 **Plan structure gate:** After PLAN_COUNT check passes, run structural validation on each plan before proceeding:
 
 ```bash
@@ -761,17 +594,6 @@ Create checkpoint: `{ step: "plan", status: "complete", plan_count: N }`
 
 **Skip rationale:** Plans may already exist from a previous partial execution. Always prefer existing plans over re-planning to preserve prior decisions.
 
-**Notification 4 — Plans ready** (fires only when status is "complete" — NOT when skipped):
-
-```
-if telegram_topic_id is not null AND plan_status == "complete":
-  mcp__telegram__send_message({
-    text: "Phase {phase_number} plans ready — {plan_count} plan(s)",
-    ...(telegram_topic_id ? { thread_id: telegram_topic_id } : {})
-  })
-  // JSONL: {"type":"notification","event":"plans_ready","timestamp":"{ISO}","phase":{N},"plan_count":{N}}
-  // Append above line to .planning/telegram-sessions/{YYYY-MM-DD}.jsonl
-```
 </step>
 
 <step name="execute">
@@ -830,44 +652,31 @@ For each incomplete plan (no SUMMARY.md):
 
    **If MODEL_PROFILE is "auto":** Parse task-level tier tags from PLAN.md.
 
+   `PROJECT_DEFAULT_TIER` = the tier the project CLAUDE.md assigns the default implementer (`gsd-executor`; the igaming project says Haiku), read once per run; if CLAUDE.md names none, `"haiku"`.
+
    ```
    TASK_TIERS = {}
    ROUTING_STATS = { haiku: 0, sonnet: 0, opus: 0 }
    For each <task> element in the plan (by task_index, 1-based):
      // Prefer <model> element (new format), fall back to [tier] name prefix (legacy)
      model_el = extract <model> element text if present (haiku|sonnet|opus)
+     tier_attr = extract the tier="..." attribute of the <task> tag if present
      task_name = extract <name> element text
      If model_el matches /^(haiku|sonnet|opus)$/i:
        TASK_TIERS[task_index] = model_el (lowercase)
+     Else If tier_attr matches /^(haiku|sonnet|opus)$/i:
+       TASK_TIERS[task_index] = tier_attr (lowercase)   // <task tier="Haiku"> is case-insensitive
      Else If task_name matches /^\[(haiku|sonnet|opus)\]/i:
        TASK_TIERS[task_index] = matched tier (lowercase)  // legacy compat
      Else:
-       TASK_TIERS[task_index] = "sonnet"  // default — no tier specified
+       TASK_TIERS[task_index] = PROJECT_DEFAULT_TIER  // the tier the project CLAUDE.md gives gsd-executor, else "haiku"
 
    If at least one task has an explicit tier (via <model> or legacy prefix):
      PER_TASK_MODE = true
    Else:
      // Fall back to plan-level routing (plan has no tier info — older plan format)
      PER_TASK_MODE = false
-     Read the plan objective (first line of <objective> tag in PLAN.md) as task description:
-       PLAN_OBJECTIVE=$(grep -A1 '<objective>' {plan_file} | tail -1 | tr -d '\n')
-     Spawn routing agent to get model recommendation:
-       Agent(
-         subagent_type="gsd-task-router",
-         description="Route plan",
-         max_turns=5,
-         prompt="Route this task: {PLAN_OBJECTIVE}"
-       )
-     Parse the ROUTING DECISION response to extract the Model: line.
-     Set EXECUTOR_MODEL to the returned model tier (haiku/sonnet/opus).
-     Also capture ROUTING_SCORE and ROUTING_CONTEXT from the response.
-
-     After extracting the decision, log it to EXECUTION_LOG.md (best-effort):
-     ```bash
-     node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
-       --type routing_decision \
-       --data "{\"phase\":{phase_number},\"plan\":\"{plan_number}\",\"model\":\"{EXECUTOR_MODEL}\",\"task\":\"{PLAN_OBJECTIVE}\"}"
-     ```
+     EXECUTOR_MODEL = PROJECT_DEFAULT_TIER  // no per-task tiers: project CLAUDE.md executor tier, else "haiku"
    ```
 
    **If MODEL_PROFILE is NOT "auto":** PER_TASK_MODE = false, EXECUTOR_MODEL = "sonnet" (unchanged default behavior).
@@ -1193,12 +1002,6 @@ while round <= MAX_ROUNDS AND qa_passed == false:
   // --- STEP C: If round == MAX_ROUNDS and still failing, escalate to human ---
   if round == MAX_ROUNDS AND NOT qa_passed:
     // Build human escalation message
-    Send Telegram notification (if telegram_topic_id is not null):
-      mcp__telegram__send_message({
-        text: "UI QA: {issue_count} issues remain after {MAX_ROUNDS} rounds. Human review needed.\n\nCritical: {critical} | High: {high} | Medium: {medium} | Low: {low}\n\nResume to continue or 'stop' to halt.",
-        thread_id: telegram_topic_id (if set)
-      })
-
     // Return human checkpoint
     Return checkpoint message to parent:
     ```
@@ -1609,32 +1412,9 @@ fi
 **Phase-gate authority note:** This coordinator's own VERIFICATION.md-must-exist check above is a legitimate early self-check (fail fast before returning, so a missing artifact is caught here rather than surfacing later at the orchestrator). It does NOT replace the orchestrator's `verify phase-gate {phase}` call, which runs after this coordinator returns and is the actual blocking authority for artifact EXISTENCE across all 5 checks (test files, Charlotte QA evidence, docs commit, E2E-TEST-PLAN.md, VERIFICATION.md itself). Do not remove this coordinator's own hard rule — the coordinator still must spawn the verifier; phase-gate only re-confirms deterministically afterward.
 
 **Status routing:**
-- `passed` → send phase_complete notification, then return success state
+- `passed` → return success state
 - `gaps_found` → return gaps_found state with details from VERIFICATION.md
 - `human_needed` → return human_needed state with items requiring human testing
-
-**Notification 5 — Phase complete** (fires when verification status is "passed"):
-
-```
-if telegram_topic_id is not null:
-  duration_minutes = calculate from phase start timestamp to now (round to nearest minute)
-
-  // Build routing stats string if per-task routing was used
-  routing_stats_str = ""
-  if PER_TASK_MODE and ROUTING_STATS is non-empty:
-    parts = []
-    if ROUTING_STATS.haiku > 0: parts.push("{ROUTING_STATS.haiku} haiku")
-    if ROUTING_STATS.sonnet > 0: parts.push("{ROUTING_STATS.sonnet} sonnet")
-    if ROUTING_STATS.opus > 0: parts.push("{ROUTING_STATS.opus} opus")
-    routing_stats_str = " | " + parts.join(" / ")
-
-  mcp__telegram__send_message({
-    text: "Phase {phase_number} complete ({duration_minutes}m) — {phase_name}{routing_stats_str}",
-    ...(telegram_topic_id ? { thread_id: telegram_topic_id } : {})
-  })
-  // JSONL: {"type":"notification","event":"phase_complete","timestamp":"{ISO}","phase":{N},"duration_minutes":{N}}
-  // Append above line to .planning/telegram-sessions/{YYYY-MM-DD}.jsonl
-```
 
 **Create final checkpoint:**
 ```json
@@ -1645,97 +1425,6 @@ if telegram_topic_id is not null:
   "verification_path": "..."
 }
 ```
-</step>
-
-<step name="cross_phase_integration">
-
-After verify_phase_goal, check for cross-phase integration boundaries.
-
-**Trigger conditions (ANY of these triggers integration testing — not just explicit depends_on):**
-
-1. **Explicit dependency:** Current phase `depends_on` has entries in ROADMAP.md
-2. **Shared artifact detection:** Current phase's SUMMARY.md key-files overlap with any previous phase's SUMMARY.md key-files (same API routes, same database tables, same shared components)
-3. **API producer/consumer:** Current phase creates or modifies API routes that are called by components from previous phases, OR current phase creates components that call API routes from previous phases
-
-```bash
-# Check explicit depends_on
-DEPENDS_ON=$(node ~/.claude/get-shit-done/bin/gsd-tools.js roadmap get-phase {phase_number} 2>/dev/null | node -e "try{const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(JSON.stringify(d.depends_on||[]))}catch{console.log('[]')}" 2>/dev/null || echo "[]")
-
-# Check for shared files with ANY completed phase (not just depends_on)
-CURRENT_FILES=$(grep -oE '[\w\-\/\.]+\.(ts|tsx|js|jsx)' .planning/phases/{phase_dir}/*-SUMMARY.md 2>/dev/null | sort -u)
-SHARED_OVERLAP=false
-for prev_phase_dir in .planning/phases/*/; do
-  if [ "$prev_phase_dir" != ".planning/phases/{phase_dir}/" ] && ls "$prev_phase_dir"*-SUMMARY.md >/dev/null 2>&1; then
-    PREV_FILES=$(grep -oE '[\w\-\/\.]+\.(ts|tsx|js|jsx)' "$prev_phase_dir"*-SUMMARY.md 2>/dev/null | sort -u)
-    OVERLAP=$(comm -12 <(echo "$CURRENT_FILES") <(echo "$PREV_FILES") 2>/dev/null)
-    if [ -n "$OVERLAP" ]; then
-      SHARED_OVERLAP=true
-      OVERLAPPING_PHASE="$prev_phase_dir"
-      break
-    fi
-  fi
-done
-```
-
-**If DEPENDS_ON is non-empty OR SHARED_OVERLAP is true:**
-
-1. Read SUMMARY.md of each depended-on phase AND any overlapping phase — collect exported artifacts
-2. Read SUMMARY.md of current phase — collect consumed artifacts
-3. If overlap found (same API routes, same tables, same component names):
-
-   Spawn gsd-integration-tester:
-   ```
-   Agent(
-     subagent_type="gsd-integration-tester",
-     model="sonnet",
-     description="Integration test phase {phase_number}",
-     prompt="
-       current_phase={phase_slug}
-       depends_on_phases={depends_on list + overlapping phases}
-       integration_points={derived overlap}
-       project_dir={project_dir}
-     "
-   )
-   ```
-
-3b. **(NEW, MILE-38, additive) If step 3 above did NOT already spawn gsd-integration-tester
-    for this phase:** check the `quality.integration_tester` toggle:
-    ```bash
-    INTEGRATION_TESTER_ENABLED=$(node ~/.claude/get-shit-done/bin/gsd-tools.js config get integration_tester_enabled --raw 2>/dev/null || echo "false")
-    ```
-    If `INTEGRATION_TESTER_ENABLED` is `"true"` AND `DEPENDS_ON` (from the "Check explicit
-    depends_on" bash block above) has length > 0: spawn gsd-integration-tester anyway, using
-    the EXACT SAME `Agent()` call as step 3 (`depends_on_phases={DEPENDS_ON + overlapping
-    phases}`, `integration_points={derived overlap, may be empty if none was found}`) -- this
-    fires even when `SHARED_OVERLAP` is `false`, because a phase can legitimately depend on a
-    prior phase's schema/convention with zero raw file-name overlap. If `DEPENDS_ON` is empty:
-    NEVER spawn via this branch, regardless of the toggle state -- independent phases never
-    trigger it.
-
-4. If any `blocking: true` mismatch is returned by gsd-integration-tester (from EITHER the
-   step 3 spawn or the new step 3b spawn): this is a HARD BLOCK — do NOT proceed to phase
-   complete. For EACH blocking mismatch, propagate it into this phase's already-written
-   VERIFICATION.md so it composes with the EXISTING verification-gap pipeline (no second/
-   parallel gap-writing mechanism):
-
-   ```bash
-   node ~/.claude/get-shit-done/bin/gsd-tools.js verify append-gap "{phase_dir}/{verification_file}" \
-     --truth "Cross-phase integration boundary '{mismatch.boundary}' matches between producer and consumer" \
-     --reason "{mismatch.mismatch} (producer: {mismatch.producer_shape}, consumer: {mismatch.consumer_shape})" \
-     --failure-type contract_mismatch \
-     --raw
-   ```
-
-   This appends one gap entry per blocking mismatch and flips VERIFICATION.md's `status` to
-   `gaps_found` — the SAME frontmatter shape `eval-candidate from-verification` (Phase 55)
-   already reads, so a subsequent `eval-candidate from-verification` run picks up these gaps
-   automatically, and `/gsd:plan-phase --gaps` can build gap closure plans from them exactly as
-   it does for verifier-originated gaps. Do NOT build a separate gap-closure code path for
-   integration mismatches.
-
-   If gsd-integration-tester returns zero `blocking: true` mismatches: continue to phase
-   complete as normal (no VERIFICATION.md change).
-
 </step>
 
 </execution_cycle>

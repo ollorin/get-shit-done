@@ -2544,54 +2544,6 @@ describe('health — W009 validation architecture warning', () => {
   });
 });
 
-// ─── resolve-model — gsd-nyquist-auditor profiles ────────────────────────────
-
-describe('resolve-model — gsd-nyquist-auditor model profiles', () => {
-  let tmpDir;
-
-  beforeEach(() => {
-    tmpDir = createTempProject();
-  });
-
-  afterEach(() => {
-    cleanup(tmpDir);
-  });
-
-  test('balanced profile returns haiku', () => {
-    fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'config.json'),
-      JSON.stringify({ model_profile: 'balanced' })
-    );
-    // Without --raw, output is JSON. With --raw, rawValue is the plain model string.
-    const result = runGsdTools('resolve-model gsd-nyquist-auditor', tmpDir);
-    assert.ok(result.success, `Command failed: ${result.error}`);
-    const parsed = JSON.parse(result.output);
-    assert.strictEqual(parsed.model, 'haiku');
-  });
-
-  test('budget profile returns haiku', () => {
-    fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'config.json'),
-      JSON.stringify({ model_profile: 'budget' })
-    );
-    const result = runGsdTools('resolve-model gsd-nyquist-auditor', tmpDir);
-    assert.ok(result.success, `Command failed: ${result.error}`);
-    const parsed = JSON.parse(result.output);
-    assert.strictEqual(parsed.model, 'haiku');
-  });
-
-  test('quality profile returns sonnet', () => {
-    fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'config.json'),
-      JSON.stringify({ model_profile: 'quality' })
-    );
-    const result = runGsdTools('resolve-model gsd-nyquist-auditor', tmpDir);
-    assert.ok(result.success, `Command failed: ${result.error}`);
-    const parsed = JSON.parse(result.output);
-    assert.strictEqual(parsed.model, 'sonnet');
-  });
-});
-
 // ─── Phase 34: verify plan-structure gate tests ──────────────────────────────
 
 describe('verify plan-structure — tdd/ui-qa gate checks (Phase 34)', () => {
@@ -3726,9 +3678,6 @@ describe('return-emitting agents carry a machine-parseable JSON status trailer (
     ['gsd-verifier.md', ['passed', 'gaps_found', 'human_needed']],
     ['gsd-planner.md', ['planning_complete', 'plan_rejected']],
     ['gsd-debugger.md', ['root_cause_found', 'debug_complete', 'inconclusive']],
-    ['gsd-plan-attacker.md', ['attack_complete']],
-    ['gsd-plan-defender.md', ['defense_complete', 'defense_blocked']],
-    ['gsd-plan-judge.md', ['judgment_complete', 'judgment_blocked']],
   ];
 
   for (const [file, statuses] of cases) {
@@ -3745,14 +3694,6 @@ describe('return-emitting agents carry a machine-parseable JSON status trailer (
     });
   }
 
-  test('gsd-plan-defender and gsd-plan-judge have a malformed-YAML BLOCKED guard (B-11)', () => {
-    const defender = readEffectiveAgentContent(path.join(AGENTS, 'gsd-plan-defender.md'));
-    const judge = readEffectiveAgentContent(path.join(AGENTS, 'gsd-plan-judge.md'));
-    assert.ok(defender.includes('## DEFENSE BLOCKED'), 'defender must define a ## DEFENSE BLOCKED return');
-    assert.ok(/parse as YAML/i.test(defender), 'defender must condition BLOCKED on YAML parse failure');
-    assert.ok(judge.includes('## JUDGMENT BLOCKED'), 'judge must define a ## JUDGMENT BLOCKED return');
-    assert.ok(/parse as YAML/i.test(judge), 'judge must condition BLOCKED on YAML parse failure');
-  });
 });
 
 // ─── B-6: content_firewall coverage for content-ingesting agents ──────────────
@@ -8077,26 +8018,15 @@ describe('Phase 48 cross-cutting trigger matrix — prompt-layer wiring (Phase 4
     );
   });
 
-  test('Debugger escalation composition: execute-phase.md references timeout-fallback, and gsd-phase-coordinator.md\'s Step A-fallback deferred-add invocation shape is unchanged', () => {
+  test('Debugger escalation: execute-phase.md escalates without a blocking channel (no Telegram), recording a deferred waiver', () => {
     const executePhase = readRepoFile('get-shit-done/workflows/execute-phase.md');
-    // Phase 53-02 (MILE-30): gsd-phase-coordinator.md's execution_cycle (incl.
-    // the discuss step's Step A-fallback) was relocated verbatim to
-    // @get-shit-done/references/coordinator-detail.md. Use the effective
-    // (core + resolved @-include) content so this still finds the unchanged
-    // invocation shape wherever it now physically lives.
     const phaseCoordinator = readEffectiveAgentContent(path.join(REPO_ROOT, 'agents/gsd-phase-coordinator.md'));
 
-    assert.match(
-      executePhase,
-      /timeout-fallback/,
-      'execute-phase.md must reference timeout-fallback, proving it composes with gsd-phase-coordinator.md\'s existing Step A-fallback pattern rather than duplicating it'
-    );
-
-    assert.match(
-      phaseCoordinator,
-      /deferred add \{phase_number\} --step discuss[\s\S]{0,120}--approver timeout-fallback/,
-      'gsd-phase-coordinator.md\'s Step A-fallback deferred-add invocation shape must remain unchanged (confirms 48-03 composed rather than overwrote it)'
-    );
+    assert.match(executePhase, /deferred add --step execution[\s\S]{0,80}--approver auto-escalate/);
+    assert.match(executePhase, /Never block on a human/);
+    for (const [name, text] of [['execute-phase.md', executePhase], ['gsd-phase-coordinator (effective)', phaseCoordinator]]) {
+      assert.doesNotMatch(text, /ask_blocking_question|mcp__telegram|telegram_topic_id/, `${name} must not use the Telegram channel`);
+    }
   });
 });
 
@@ -13044,7 +12974,7 @@ describe('Phase 57-01: routing ledger storage & build', () => {
   });
 });
 
-describe('Phase 57-02: ledger consultation & task-router wiring', () => {
+describe('Phase 57-02: ledger consultation', () => {
   const { consultLedger } = require(TOOLS_PATH);
 
   describe('consultLedger (pure)', () => {
@@ -13209,40 +13139,6 @@ describe('Phase 57-02: ledger consultation & task-router wiring', () => {
     });
   });
 
-  describe('gsd-task-router.md grep-assertion (prose wiring lock-in)', () => {
-    const routerPath = path.join(__dirname, '..', '..', 'agents', 'gsd-task-router.md');
-    const content = fs.readFileSync(routerPath, 'utf-8');
-
-    test('consult_ledger step name is present', () => {
-      assert.match(content, /<step name="consult_ledger">/);
-    });
-
-    test('ordering lock-in: check_quota < consult_ledger < get_context', () => {
-      const checkQuotaIdx = content.indexOf('name="check_quota"');
-      const consultLedgerIdx = content.indexOf('name="consult_ledger"');
-      const getContextIdx = content.indexOf('name="get_context"');
-      assert.ok(checkQuotaIdx !== -1, 'check_quota step not found');
-      assert.ok(consultLedgerIdx !== -1, 'consult_ledger step not found');
-      assert.ok(getContextIdx !== -1, 'get_context step not found');
-      assert.ok(checkQuotaIdx < consultLedgerIdx, 'consult_ledger must come after check_quota');
-      assert.ok(consultLedgerIdx < getContextIdx, 'consult_ledger must come before get_context');
-    });
-
-    test('routing task-type and routing ledger consult commands are both present inside the consult_ledger step body', () => {
-      const stepStart = content.indexOf('<step name="consult_ledger">');
-      const stepEnd = content.indexOf('</step>', stepStart);
-      const stepBody = content.slice(stepStart, stepEnd);
-      assert.match(stepBody, /routing task-type/);
-      assert.match(stepBody, /routing ledger consult/);
-    });
-
-    test('a Ledger: line template is present in the return_decision step output format section', () => {
-      const stepStart = content.indexOf('<step name="return_decision">');
-      const stepEnd = content.indexOf('</step>', stepStart);
-      const stepBody = content.slice(stepStart, stepEnd);
-      assert.match(stepBody, /Ledger:/);
-    });
-  });
 });
 
 // [Rule 1 - Bug] found during Phase 57-02's own mandatory state_updates step:
@@ -14284,13 +14180,12 @@ this is not valid yaml: : :
 `;
 
   describe('loadConfig defaults', () => {
-    test('test_writer_enabled/integration_tester_enabled both default false when config.json is absent (ENOENT branch)', () => {
+    test('test_writer_enabled defaults false when config.json is absent (ENOENT branch)', () => {
       const config = loadConfig(tmpDir);
       assert.strictEqual(config.test_writer_enabled, false);
-      assert.strictEqual(config.integration_tester_enabled, false);
     });
 
-    test('both default false when config.json exists but omits both keys', () => {
+    test('defaults false when config.json exists but omits the key', () => {
       fs.writeFileSync(
         path.join(tmpDir, '.planning', 'config.json'),
         JSON.stringify({ model_profile: 'balanced' }),
@@ -14298,10 +14193,9 @@ this is not valid yaml: : :
       );
       const config = loadConfig(tmpDir);
       assert.strictEqual(config.test_writer_enabled, false);
-      assert.strictEqual(config.integration_tester_enabled, false);
     });
 
-    test('flat override {"test_writer_enabled": true} resolves test_writer_enabled:true without affecting integration_tester_enabled', () => {
+    test('flat override {"test_writer_enabled": true} resolves test_writer_enabled:true', () => {
       fs.writeFileSync(
         path.join(tmpDir, '.planning', 'config.json'),
         JSON.stringify({ test_writer_enabled: true }),
@@ -14309,18 +14203,6 @@ this is not valid yaml: : :
       );
       const config = loadConfig(tmpDir);
       assert.strictEqual(config.test_writer_enabled, true);
-      assert.strictEqual(config.integration_tester_enabled, false);
-    });
-
-    test('nested override {"quality": {"integration_tester": true}} resolves integration_tester_enabled:true without affecting test_writer_enabled', () => {
-      fs.writeFileSync(
-        path.join(tmpDir, '.planning', 'config.json'),
-        JSON.stringify({ quality: { integration_tester: true } }),
-        'utf-8'
-      );
-      const config = loadConfig(tmpDir);
-      assert.strictEqual(config.integration_tester_enabled, true);
-      assert.strictEqual(config.test_writer_enabled, false);
     });
   });
 
@@ -14457,14 +14339,13 @@ this is not valid yaml: : :
 });
 
 // Phase 59-01 (MILE-37/MILE-38): structural grep-assertion tests locking in
-// the agent drift refresh -- gsd-test-writer.md/gsd-integration-tester.md
+// the agent drift refresh -- gsd-test-writer.md
 // (about to join the golden path for the first time in Plans 59-02/59-03)
 // both gain a <content_firewall> block (mirroring gsd-executor.md's exact
 // convention) and the MILE-26 4-field telemetry self-report line.
 describe('Phase 59-01: agent drift refresh (content_firewall + telemetry)', () => {
   const REPO_ROOT = path.join(__dirname, '..', '..');
   const TEST_WRITER_PATH = path.join(REPO_ROOT, 'agents', 'gsd-test-writer.md');
-  const INTEGRATION_TESTER_PATH = path.join(REPO_ROOT, 'agents', 'gsd-integration-tester.md');
   const TELEMETRY_LINE = '**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed=[{rule, why}, ...], ambiguities={count}, tool_errors_swallowed={count}';
 
   function readRepoFile(relPath) {
@@ -14480,23 +14361,9 @@ describe('Phase 59-01: agent drift refresh (content_firewall + telemetry)', () =
     assert.ok(content.includes('content-firewall.md'), 'expected gsd-test-writer.md to point at the content-firewall.md convention');
   });
 
-  test('gsd-integration-tester.md gains a <content_firewall> block immediately after </role>', () => {
-    const content = readRepoFile(INTEGRATION_TESTER_PATH);
-    assert.ok(content.includes('<content_firewall>'), 'expected gsd-integration-tester.md to contain a <content_firewall> block');
-    const roleEndIdx = content.indexOf('</role>');
-    const firewallIdx = content.indexOf('<content_firewall>');
-    assert.ok(roleEndIdx !== -1 && firewallIdx !== -1 && firewallIdx > roleEndIdx, 'expected <content_firewall> to appear after </role>');
-    assert.ok(content.includes('content-firewall.md'), 'expected gsd-integration-tester.md to point at the content-firewall.md convention');
-  });
-
   test('gsd-test-writer.md gains the exact MILE-26 4-field telemetry self-report line', () => {
     const content = readRepoFile(TEST_WRITER_PATH);
     assert.ok(content.includes(TELEMETRY_LINE), 'expected gsd-test-writer.md to contain the exact 4-field telemetry line');
-  });
-
-  test('gsd-integration-tester.md gains the exact MILE-26 4-field telemetry self-report line', () => {
-    const content = readRepoFile(INTEGRATION_TESTER_PATH);
-    assert.ok(content.includes(TELEMETRY_LINE), 'expected gsd-integration-tester.md to contain the exact 4-field telemetry line');
   });
 
   test('gsd-planner.md and gsd-debugger.md now carry a <content_firewall> block (B-6 coverage extension)', () => {
@@ -14520,7 +14387,6 @@ describe('Phase 59-01: agent drift refresh (content_firewall + telemetry)', () =
     const addedSection = changelog.slice(addedIdx, nextSectionIdx === -1 ? changelog.length : nextSectionIdx);
 
     assert.ok(addedSection.includes('test_writer_enabled'), 'expected CHANGELOG.md Unreleased/Added to mention test_writer_enabled');
-    assert.ok(addedSection.includes('integration_tester_enabled'), 'expected CHANGELOG.md Unreleased/Added to mention integration_tester_enabled');
     // [Rule 1 fix, Phase 59-02] Newest-first ordering: the Phase 59-01 bullet should sit ABOVE
     // an older, still-present anchor bullet (Phase 58) rather than assuming it is literally the
     // FIRST bullet ever -- a later phase's own newer entry (e.g. Phase 59-02) is expected to be
@@ -14809,43 +14675,6 @@ describe('Phase 59-03: declared-dependency integration-tester spawn + gaps_found
     });
   });
 
-  describe('spawn-decision boolean simulation (mirrors the new coordinator step 3b computation: toggle==="true" && depends_on.length>0)', () => {
-    function computeSpawnDecision(cwd, phaseNum) {
-      const toggleResult = runGsdTools('config get integration_tester_enabled --raw', cwd);
-      const toggle = toggleResult.success ? toggleResult.output.trim() : 'false';
-      const phaseResult = runGsdTools(`roadmap get-phase ${phaseNum}`, cwd);
-      const phaseOutput = phaseResult.success ? JSON.parse(phaseResult.output) : { depends_on: [] };
-      const dependsOn = Array.isArray(phaseOutput.depends_on) ? phaseOutput.depends_on : [];
-      return toggle === 'true' && dependsOn.length > 0;
-    }
-
-    test('dependent-phase (depends_on non-empty) + toggle on (via config.json) -> spawn decision true', () => {
-      fs.writeFileSync(path.join(tmpDir, '.planning', 'config.json'), JSON.stringify({ integration_tester_enabled: true }));
-      fs.writeFileSync(
-        path.join(tmpDir, '.planning', 'ROADMAP.md'),
-        `# Roadmap\n\n### Phase 5: Dependent\n**Goal:** g\n**Depends on:** Phase 1\n`
-      );
-      assert.strictEqual(computeSpawnDecision(tmpDir, 5), true);
-    });
-
-    test('independent-phase (depends_on empty) + toggle on -> spawn decision false regardless of toggle state', () => {
-      fs.writeFileSync(path.join(tmpDir, '.planning', 'config.json'), JSON.stringify({ integration_tester_enabled: true }));
-      fs.writeFileSync(
-        path.join(tmpDir, '.planning', 'ROADMAP.md'),
-        `# Roadmap\n\n### Phase 6: Independent\n**Goal:** g\n**Depends on**: Nothing (first phase of milestone)\n`
-      );
-      assert.strictEqual(computeSpawnDecision(tmpDir, 6), false);
-    });
-
-    test('dependent-phase (depends_on non-empty) + toggle off (default, no config.json) -> spawn decision false', () => {
-      fs.writeFileSync(
-        path.join(tmpDir, '.planning', 'ROADMAP.md'),
-        `# Roadmap\n\n### Phase 7: Dependent\n**Goal:** g\n**Depends on:** Phase 1\n`
-      );
-      assert.strictEqual(computeSpawnDecision(tmpDir, 7), false);
-    });
-  });
-
   describe('gaps_found propagation composition (real CLI, end-to-end, matching the exact new coordinator invocation form)', () => {
     test('verify append-gap --failure-type contract_mismatch flips status to gaps_found, and buildEvalCandidatesFromVerificationFile picks it up unmodified (1 candidate, matching --reason)', () => {
       const verificationDir = path.join(tmpDir, '.planning', 'phases', '59-dependent-phase');
@@ -14872,128 +14701,12 @@ describe('Phase 59-03: declared-dependency integration-tester spawn + gaps_found
   });
 
   describe('prose wiring grep-assertion tests (house convention, mirrors Phase 57-04/58-03)', () => {
-    function readCoordinatorDetail() {
-      return fs.readFileSync(COORDINATOR_DETAIL_PATH, 'utf-8');
-    }
-
-    test('integration_tester_enabled and verify append-gap both appear inside <step name="cross_phase_integration">', () => {
-      const content = readCoordinatorDetail();
-      const stepStartIdx = content.indexOf('<step name="cross_phase_integration">');
-      const stepEndIdx = content.indexOf('</step>', stepStartIdx);
-      assert.ok(stepStartIdx !== -1 && stepEndIdx !== -1, 'expected cross_phase_integration step to exist');
-      const toggleIdx = content.indexOf('integration_tester_enabled', stepStartIdx);
-      const gapIdx = content.indexOf('verify append-gap', stepStartIdx);
-      assert.ok(toggleIdx !== -1 && toggleIdx < stepEndIdx, 'expected integration_tester_enabled inside the cross_phase_integration step');
-      assert.ok(gapIdx !== -1 && gapIdx < stepEndIdx, 'expected verify append-gap inside the cross_phase_integration step');
-    });
-
-    test('the new step 3b branch text appears AFTER step 3\'s existing "Spawn gsd-integration-tester:" Agent() block (ordering lock-in)', () => {
-      const content = readCoordinatorDetail();
-      const step3Idx = content.indexOf('Spawn gsd-integration-tester:');
-      const newBranchIdx = content.indexOf('3b. **(NEW, MILE-38, additive)');
-      assert.ok(step3Idx !== -1, 'expected step 3\'s existing Agent() block to exist');
-      assert.ok(newBranchIdx !== -1, 'expected the new step 3b branch to exist');
-      assert.ok(newBranchIdx > step3Idx, 'expected the new step 3b branch to appear after step 3\'s existing Agent() block');
-    });
-
-    test('regression guard: step 3\'s EXISTING, untouched overlap-trigger text is still present unchanged', () => {
-      const content = readCoordinatorDetail();
-      assert.ok(
-        content.includes('If overlap found (same API routes, same tables, same component names)'),
-        'expected step 3\'s existing overlap-trigger text to be unchanged'
-      );
-    });
-
     test('contract_mismatch appears in both verifier-detail.md and planner-detail.md respective tables', () => {
       const verifierContent = fs.readFileSync(VERIFIER_DETAIL_PATH, 'utf-8');
       const plannerContent = fs.readFileSync(PLANNER_DETAIL_PATH, 'utf-8');
       assert.ok(verifierContent.includes('contract_mismatch'), 'expected contract_mismatch in verifier-detail.md');
       assert.ok(plannerContent.includes('contract_mismatch'), 'expected contract_mismatch in planner-detail.md');
     });
-  });
-});
-
-describe('Phase 59-04: DEPENDS_ON snippet --raw contract-mismatch regression (MILE-38)', () => {
-  const REPO_ROOT = path.join(__dirname, '..', '..');
-  const COORDINATOR_DETAIL_PATH = path.join(REPO_ROOT, 'get-shit-done', 'references', 'coordinator-detail.md');
-
-  let tmpDir;
-
-  beforeEach(() => {
-    tmpDir = createTempProject();
-  });
-
-  afterEach(() => {
-    cleanup(tmpDir);
-  });
-
-  // Reads coordinator-detail.md from disk and extracts the LITERAL DEPENDS_ON=$(...) bash
-  // assignment line from inside <step name="cross_phase_integration">...</step>. This is
-  // deliberately NOT a hand-rolled equivalent -- 59-03's own computeSpawnDecision() simulation
-  // helper (above) calls `roadmap get-phase ${phaseNum}` directly and never caught the --raw
-  // bug because it never executed the prose file's actual bash line.
-  function extractDependsOnSnippet() {
-    const content = fs.readFileSync(COORDINATOR_DETAIL_PATH, 'utf-8');
-    const stepStart = content.indexOf('<step name="cross_phase_integration">');
-    const stepEnd = content.indexOf('</step>', stepStart);
-    assert.ok(stepStart !== -1 && stepEnd !== -1, 'expected cross_phase_integration step to exist in coordinator-detail.md');
-    const stepSlice = content.slice(stepStart, stepEnd);
-    const match = stepSlice.match(/^DEPENDS_ON=\$\(.*\)\s*$/m);
-    assert.ok(match, 'expected a literal DEPENDS_ON=$(...) bash assignment line inside cross_phase_integration -- fails loudly if the snippet\'s shape changes unexpectedly');
-    return match[0];
-  }
-
-  // Substitutes the installed-copy path for this repo's real gsd-tools.js and the literal
-  // {phase_number} placeholder for a real phase number (plain string substitution, not regex --
-  // the line contains literal `{`/`}` characters), writes the result to a temp .sh file inside
-  // tmpDir, and executes it via bash -- running the ACTUAL extracted pipeline, not a simulation.
-  function runExtractedSnippet(dir, phaseNum) {
-    const literalLine = extractDependsOnSnippet();
-    const substituted = literalLine
-      .split('~/.claude/get-shit-done/bin/gsd-tools.js').join(TOOLS_PATH)
-      .split('{phase_number}').join(String(phaseNum));
-    const scriptPath = path.join(dir, 'depends-on-snippet.sh');
-    fs.writeFileSync(scriptPath, `${substituted}\necho "$DEPENDS_ON"\n`);
-    const result = execSync(`bash "${scriptPath}"`, { cwd: dir, encoding: 'utf-8' });
-    return JSON.parse(result.trim());
-  }
-
-  test('extractDependsOnSnippet finds the literal DEPENDS_ON line inside cross_phase_integration', () => {
-    const line = extractDependsOnSnippet();
-    assert.ok(line.includes('roadmap get-phase'), 'expected the extracted line to call roadmap get-phase');
-    assert.ok(line.includes('JSON.parse'), 'expected the extracted line to pipe into a JSON.parse consumer');
-  });
-
-  test('literal snippet resolves a declared dependency to a real non-empty array (would have FAILED before the --raw fix)', () => {
-    fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
-      `# Roadmap\n\n### Phase 20: Dependent\n**Goal:** g\n**Depends on:** Phase 10\n`
-    );
-    const result = runExtractedSnippet(tmpDir, 20);
-    assert.ok(Array.isArray(result) && result.length > 0, `expected a non-empty array, got: ${JSON.stringify(result)}`);
-    assert.deepStrictEqual(result, ['Phase 10']);
-  });
-
-  test('literal snippet resolves an independent phase (no Depends on line) to []', () => {
-    fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
-      `# Roadmap\n\n### Phase 21: Independent\n**Goal:** g\n`
-    );
-    const result = runExtractedSnippet(tmpDir, 21);
-    assert.deepStrictEqual(result, []);
-  });
-
-  test('regression lock: no `roadmap get-phase` + `--raw` + `JSON.parse` combination remains anywhere inside cross_phase_integration', () => {
-    const content = fs.readFileSync(COORDINATOR_DETAIL_PATH, 'utf-8');
-    const stepStart = content.indexOf('<step name="cross_phase_integration">');
-    const stepEnd = content.indexOf('</step>', stepStart);
-    assert.ok(stepStart !== -1 && stepEnd !== -1, 'expected cross_phase_integration step to exist in coordinator-detail.md');
-    const lines = content.slice(stepStart, stepEnd).split('\n');
-    for (const line of lines) {
-      if (line.includes('roadmap get-phase') && line.includes('--raw') && line.includes('JSON.parse')) {
-        assert.fail(`found forbidden roadmap get-phase + --raw + JSON.parse combination inside cross_phase_integration: ${line}`);
-      }
-    }
   });
 });
 
@@ -15307,6 +15020,21 @@ describe('Phase 60-01: adversarial-review config + assess-risk/verdict-to-issues
       assert.strictEqual(parsed.type, 'file_not_found');
     });
 
+    test('--require fails closed: missing verdict file, unreadable or verdict-less VERDICT.md -> one blocker issue; approved -> none', () => {
+      const missing = JSON.parse(runGsdTools('quality verdict-to-issues does-not-exist-60-01-VERDICT.md --require --raw', tmpDir).output);
+      assert.strictEqual(missing.issues.length, 1);
+      assert.strictEqual(missing.issues[0].severity, 'blocker');
+      assert.strictEqual(missing.issues[0].dimension, 'adversarial_review');
+      assert.match(missing.issues[0].description, /unavailable/);
+      const empty = writeFixture('.planning/phases/60-x/60-02-VERDICT.md', '---\nplan: "60-02"\n---\n\n# Verdict\n');
+      const e = JSON.parse(runGsdTools(`quality verdict-to-issues "${path.relative(tmpDir, empty)}" --require --raw`, tmpDir).output);
+      assert.strictEqual(e.issues.length, 1);
+      assert.strictEqual(e.issues[0].severity, 'blocker');
+      const ok = writeFixture('.planning/phases/60-x/60-03-VERDICT.md', '---\nplan: "60-03"\nverdict: approved\n---\n');
+      assert.deepStrictEqual(JSON.parse(runGsdTools(`quality verdict-to-issues "${path.relative(tmpDir, ok)}" --require --raw`, tmpDir).output).issues, []);
+      assert.deepStrictEqual(JSON.parse(runGsdTools(`quality verdict-to-issues "${path.relative(tmpDir, empty)}" --raw`, tmpDir).output).issues, []);
+    });
+
     test('real VERDICT.md fixture (verdict:critical, 2 required_changes) -> issues array of length 2, both blocker-severity, adversarial_review dimension', () => {
       const verdictPath = writeFixture(
         '.planning/phases/60-adversarial-plan-review/60-01-VERDICT.md',
@@ -15325,105 +15053,30 @@ describe('Phase 60-01: adversarial-review config + assess-risk/verdict-to-issues
   });
 });
 
-// Phase 60-02 (MILE-39): structural validation of the three new adversarial-review
-// trio agent files (gsd-plan-attacker/gsd-plan-defender/gsd-plan-judge). These tests
-// parse frontmatter via gray-matter directly against the real files on disk (not a
-// fixture copy) and lock in the house content_firewall/Telemetry conventions plus
-// each agent's read-only-vs-Write tool boundary and distinct output contract.
-describe('Phase 60-02: adversarial-review trio agent files structural validation (MILE-39)', () => {
+// Phase 60-02 (MILE-39): the attacker/defender/judge trio is merged into gsd-plan-checker's
+// "Dimension 14: Adversarial Pass"; lock in the merged contract and the removed agent files.
+describe('Phase 60-02: adversarial pass merged into gsd-plan-checker (MILE-39)', () => {
   const matter = require('gray-matter');
-
   const AGENTS_DIR = path.join(__dirname, '..', '..', 'agents');
-  const TELEMETRY_LINE = '**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed=[{rule, why}, ...], ambiguities={count}, tool_errors_swallowed={count}';
+  const checker = matter(fs.readFileSync(path.join(AGENTS_DIR, 'gsd-plan-checker.md'), 'utf-8'));
 
-  const AGENT_FILES = [
-    { file: 'gsd-plan-attacker.md', name: 'gsd-plan-attacker' },
-    { file: 'gsd-plan-defender.md', name: 'gsd-plan-defender' },
-    { file: 'gsd-plan-judge.md', name: 'gsd-plan-judge' },
-  ];
-
-  function readAgent(file) {
-    const fullPath = path.join(AGENTS_DIR, file);
-    const raw = fs.readFileSync(fullPath, 'utf-8');
-    const parsed = matter(raw);
-    return { raw, data: parsed.data, content: parsed.content, fullPath };
-  }
-
-  // Normalizes gray-matter's `tools` field (comma-separated string OR array) into
-  // an array of trimmed tool names, so assertions work regardless of YAML shape.
-  function normalizeTools(tools) {
-    if (Array.isArray(tools)) return tools.map((t) => String(t).trim());
-    if (typeof tools === 'string') return tools.split(',').map((t) => t.trim());
-    return [];
-  }
-
-  for (const { file, name } of AGENT_FILES) {
-    describe(file, () => {
-      test('frontmatter parses without throwing; name/description/tools well-formed', () => {
-        let agent;
-        assert.doesNotThrow(() => { agent = readAgent(file); });
-        assert.strictEqual(agent.data.name, name);
-        assert.strictEqual(typeof agent.data.description, 'string');
-        assert.ok(agent.data.description.length > 0, 'description must be non-empty');
-        const tools = normalizeTools(agent.data.tools);
-        assert.ok(tools.length > 0, 'tools must be non-empty');
-      });
-
-      test('raw content contains exact <content_firewall> substring', () => {
-        const agent = readAgent(file);
-        assert.ok(agent.raw.includes('<content_firewall>'), `${file} is missing the <content_firewall> tag`);
-      });
-
-      test('raw content contains the exact 4-field Telemetry self-report line', () => {
-        const agent = readAgent(file);
-        assert.ok(agent.raw.includes(TELEMETRY_LINE), `${file} is missing the exact Telemetry line substring`);
-      });
-    });
-  }
-
-  describe('read-only vs Write tool boundary', () => {
-    test('gsd-plan-attacker.md tools does NOT include Write or Edit', () => {
-      const agent = readAgent('gsd-plan-attacker.md');
-      const tools = normalizeTools(agent.data.tools);
-      assert.ok(!tools.includes('Write'), 'attacker must not have Write');
-      assert.ok(!tools.includes('Edit'), 'attacker must not have Edit');
-    });
-
-    test('gsd-plan-defender.md tools does NOT include Write or Edit', () => {
-      const agent = readAgent('gsd-plan-defender.md');
-      const tools = normalizeTools(agent.data.tools);
-      assert.ok(!tools.includes('Write'), 'defender must not have Write');
-      assert.ok(!tools.includes('Edit'), 'defender must not have Edit');
-    });
-
-    test('gsd-plan-judge.md tools DOES include Write', () => {
-      const agent = readAgent('gsd-plan-judge.md');
-      const tools = normalizeTools(agent.data.tools);
-      assert.ok(tools.includes('Write'), 'judge must have Write');
-    });
+  test('gsd-plan-checker Write is limited to {plan_id}-VERDICT.md', () => {
+    assert.ok(/Write is limited to `\{phase_dir\}\/\{plan_id\}-VERDICT\.md`/.test(checker.content));
+    assert.ok(/never write or edit any other file/i.test(checker.content));
   });
 
-  describe('per-agent distinct output contract', () => {
-    test('gsd-plan-judge.md body documents writing its own VERDICT.md and consuming presentation_order', () => {
-      const agent = readAgent('gsd-plan-judge.md');
-      assert.ok(agent.content.includes('VERDICT.md'), 'judge must document writing its own VERDICT.md artifact');
-      assert.ok(agent.content.includes('presentation_order'), 'judge must document consuming presentation_order');
-    });
+  test('gsd-plan-checker has Write and documents the adversarial pass writing {plan_id}-VERDICT.md', () => {
+    const tools = String(checker.data.tools).split(',').map((t) => t.trim());
+    assert.ok(tools.includes('Write'), 'checker must have Write to emit VERDICT.md');
+    assert.ok(checker.content.includes('## Dimension 14: Adversarial Pass'));
+    assert.ok(checker.content.includes('-VERDICT.md'));
+    assert.ok(/verdict: approved \| revise \| critical/.test(checker.content), 'verdict enum must match quality verdict-to-issues');
+  });
 
-    test('gsd-plan-attacker.md body has its own flaws: output contract and is not a gsd-plan-checker clone', () => {
-      const agent = readAgent('gsd-plan-attacker.md');
-      assert.ok(agent.content.includes('flaws:'), 'attacker must document its flaws: structured output');
-      assert.ok(!agent.content.includes('## VERIFICATION PASSED'), 'attacker must not be a gsd-plan-checker clone (VERIFICATION PASSED)');
-      assert.ok(!agent.content.includes('## ISSUES FOUND'), 'attacker must not be a gsd-plan-checker clone (ISSUES FOUND)');
-    });
-
-    test('gsd-plan-defender.md body has its own rebuttals: output contract with the 3 ruling enum values', () => {
-      const agent = readAgent('gsd-plan-defender.md');
-      assert.ok(agent.content.includes('rebuttals:'), 'defender must document its rebuttals: structured output');
-      assert.ok(agent.content.includes('refuted'), 'defender must document the refuted ruling value');
-      assert.ok(agent.content.includes('conceded'), 'defender must document the conceded ruling value');
-      assert.ok(agent.content.includes('partially-conceded'), 'defender must document the partially-conceded ruling value');
-    });
+  test('the attacker/defender/judge agent files are gone', () => {
+    for (const f of ['gsd-plan-attacker.md', 'gsd-plan-defender.md', 'gsd-plan-judge.md']) {
+      assert.ok(!fs.existsSync(path.join(AGENTS_DIR, f)), `${f} must be deleted`);
+    }
   });
 });
 
@@ -15502,15 +15155,10 @@ describe('Phase 60-03: plan-phase.md adversarial-review risk-triage wiring (MILE
     test('Step 9.5 heading exists and appears BEFORE Step 10\'s trio-vs-checker heading', () => {
       const content = readPlanPhase();
       const step95Idx = content.indexOf('## 9.5. Risk Triage (Adversarial Review, MILE-39)');
-      const step10Idx = content.indexOf('## 10. Spawn gsd-plan-checker Agent (or Adversarial Review Trio, MILE-39)');
+      const step10Idx = content.indexOf('## 10. Spawn gsd-plan-checker Agent');
       assert.ok(step95Idx > -1, 'expected Step 9.5 heading to exist');
       assert.ok(step10Idx > -1, 'expected the new Step 10 heading to exist');
       assert.ok(step95Idx < step10Idx, 'expected Step 9.5 to be wired BEFORE Step 10');
-    });
-
-    test('fail-open fallback text is present', () => {
-      const content = readPlanPhase();
-      assert.ok(content.includes('Falling back to standard gsd-plan-checker for the entire phase'));
     });
 
     test('byte-identical regression guard: the EXACT pre-existing checker banner + prompt + Agent() block is still present unmodified', () => {
@@ -15523,18 +15171,18 @@ describe('Phase 60-03: plan-phase.md adversarial-review risk-triage wiring (MILE
 
     test('Step 11\'s heading appears AFTER Step 10\'s heading (ordering)', () => {
       const content = readPlanPhase();
-      const step10Idx = content.indexOf('## 10. Spawn gsd-plan-checker Agent (or Adversarial Review Trio, MILE-39)');
+      const step10Idx = content.indexOf('## 10. Spawn gsd-plan-checker Agent');
       const step11Idx = content.indexOf('## 11. Handle Checker Return');
       assert.ok(step11Idx > step10Idx, 'expected Step 11 to appear after Step 10');
     });
 
-    test('Step 11 branches on TRIAGE_MODE (checker vs trio) and calls quality verdict-to-issues', () => {
+    test('Step 11 branches on TRIAGE_MODE (checker vs adversarial) and calls quality verdict-to-issues', () => {
       const content = readPlanPhase();
       const step11Idx = content.indexOf('## 11. Handle Checker Return');
       const step12Idx = content.indexOf('## 12. Revision Loop (Max 3 Iterations)');
       const step11Text = content.slice(step11Idx, step12Idx);
       assert.ok(step11Text.includes('`TRIAGE_MODE` is `checker`'), 'expected the checker-mode branch label');
-      assert.ok(step11Text.includes('`TRIAGE_MODE` is `trio`'), 'expected the trio-mode branch label');
+      assert.ok(step11Text.includes('`TRIAGE_MODE` is `adversarial`'), 'expected the adversarial-mode branch label');
       assert.ok(step11Text.includes('quality verdict-to-issues'), 'expected the verdict-to-issues CLI call');
     });
 
@@ -15567,10 +15215,10 @@ describe('Phase 60-03: plan-phase.md adversarial-review risk-triage wiring (MILE
     }
 
     function computeTriageMode(highRisk) {
-      return highRisk ? 'trio' : 'checker';
+      return highRisk ? 'adversarial' : 'checker';
     }
 
-    test('trio spawn decision: a real high-risk *-PLAN.md fixture drives quality assess-risk to high_risk:true, resolving TRIAGE_MODE=trio', () => {
+    test('trio spawn decision: a real high-risk *-PLAN.md fixture drives quality assess-risk to high_risk:true, resolving TRIAGE_MODE=adversarial', () => {
       const planPath = writeFixture(
         '.planning/phases/60-adversarial-plan-review/60-99-PLAN.md',
         '---\nphase: 60\nplan: "99"\nhigh_risk: true\n---\n\n# Plan\n'
@@ -15580,7 +15228,7 @@ describe('Phase 60-03: plan-phase.md adversarial-review risk-triage wiring (MILE
       assert.ok(result.success, `expected exit 0, got: ${result.error}`);
       const parsed = JSON.parse(result.output);
       assert.strictEqual(parsed.high_risk, true);
-      assert.strictEqual(computeTriageMode(parsed.high_risk), 'trio');
+      assert.strictEqual(computeTriageMode(parsed.high_risk), 'adversarial');
     });
 
     test('single-checker path preserved: a real non-high-risk *-PLAN.md fixture (no high_risk flag, few files_modified, default config) drives quality assess-risk to high_risk:false, resolving TRIAGE_MODE=checker', () => {
@@ -16380,27 +16028,22 @@ describe('Phase 62-01: Defect Classes capture + rules distillation wiring (MILE-
       );
     });
 
-    test('plan-phase.md routes trio verdict findings to the coordinator', () => {
+    test('plan-phase.md routes adversarial verdict findings to the coordinator', () => {
       const raw = readRepoFile('get-shit-done/workflows/plan-phase.md');
       // Post-review: the rows must be DURABLE in named files, not handed off in
       // memory (an Opus review found the in-memory handoff lost on any resume).
       assert.match(
         raw,
-        /the Defect Classes rows are already durable:[\s\S]{0,400}\{N\}-PLAN-CHECK\.md[\s\S]{0,300}\{plan_id\}-VERDICT\.md/,
-        'the trio branch must state where its Defect Classes rows are durably written'
-      );
-      assert.match(
-        raw,
-        /nothing depends on an in-memory handoff here/,
-        'the trio branch must explicitly disclaim the in-memory handoff'
+        /Defect Classes rows go to[\s\S]{0,100}\{N\}-PLAN-CHECK\.md[\s\S]{0,100}VERDICT\.md/,
+        'the adversarial branch must state where its Defect Classes rows are durably written'
       );
     });
 
-    test('agents/gsd-plan-judge.md writes a Defect Classes block into its own VERDICT.md', () => {
-      const raw = readRepoFile('agents/gsd-plan-judge.md');
-      assert.ok(raw.includes('## Defect Classes'), 'the judge must write a Defect Classes block into VERDICT.md');
-      assert.ok(raw.includes(TABLE_HEADER), 'the judge block must use the 5-column shape');
-      assert.match(raw, /\| \[general class name\][^\n]*\| opus-ruling \|/, 'the judge block must fix caught_by to opus-ruling');
+    test('agents/gsd-plan-checker.md adversarial pass writes a Defect Classes block into its VERDICT.md', () => {
+      const raw = readRepoFile('agents/gsd-plan-checker.md');
+      const dim = raw.slice(raw.indexOf('## Dimension 14: Adversarial Pass'));
+      assert.ok(dim.includes('## Defect Classes'), 'the VERDICT.md template must carry a Defect Classes block');
+      assert.ok(dim.includes('caught_by `plan-check`'), 'the VERDICT.md block must fix caught_by to plan-check');
     });
 
     test('execute-phase.md asks Charlotte and the verifier for Defect Classes', () => {
@@ -17512,7 +17155,6 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
         }
       }
       assert.ok(readRepoFile('agents/gsd-executor.md').includes('opus-ruling'), 'the executor must name opus-ruling');
-      assert.ok(readRepoFile('agents/gsd-plan-judge.md').includes('opus-ruling'), 'the judge must record caught_by: opus-ruling');
     });
   });
 

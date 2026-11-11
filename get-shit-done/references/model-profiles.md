@@ -17,13 +17,9 @@ Model profiles control which Claude model each GSD agent uses. This allows balan
 | gsd-verifier | opus | opus | opus |
 | gsd-plan-checker | sonnet | sonnet | haiku |
 | gsd-integration-checker | sonnet | sonnet | haiku |
-| gsd-nyquist-auditor | sonnet | haiku | haiku |
 | gsd-test-writer | sonnet | haiku | haiku |
 | gsd-docs-updater | sonnet | haiku | haiku |
-| gsd-integration-tester | sonnet | haiku | haiku |
 | gsd-phase-coordinator | sonnet | sonnet | sonnet |
-| gsd-plan-attacker | opus | opus | sonnet |
-| gsd-plan-judge | opus | opus | sonnet |
 
 ## Profile Philosophy
 

@@ -1615,7 +1615,7 @@ function install(isGlobal, runtime = 'claude') {
   // Copy skills/ (fork-tracked skill definitions, e.g. task-context/SKILL.md).
   // Deliberately scoped PER SKILL SUBDIRECTORY (never wipes the parent skills/ dir as a
   // whole) — a user's global ~/.claude/skills/ can contain skills this fork does not own
-  // at all (e.g. gsd-task-router's learned-rules.md/routing-rules.md, or an entirely
+  // at all (e.g. a task-router skill's learned-rules.md/routing-rules.md, or an entirely
   // unrelated personal skill like thinking-partner/) and a destructive whole-directory
   // wipe would silently delete those. Mirrors copyWithPathReplacement's existing use for
   // the get-shit-done skill directory above — same recursive copy + path-prefix

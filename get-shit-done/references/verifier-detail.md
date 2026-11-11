@@ -252,7 +252,7 @@ Aggregate all requirement IDs across plans. For each requirement ID:
 
 ## Step 6c: Test-Content Coverage & Hollow-Test Detection (QGATE-14)
 
-Closes Loophole 7 / Issue 8: Step 8d (below) only proves an impl file is imported or routed by some test — it never checks whether the file actually tests anything. This step classifies each requirement's real, non-hollow test coverage and blocking-spawns `gsd-nyquist-auditor` to fill any gap before verification continues.
+Closes Loophole 7 / Issue 8: Step 8d (below) only proves an impl file is imported or routed by some test — it never checks whether the file actually tests anything. This step classifies each requirement's real, non-hollow test coverage and records any gap; test-sufficiency is also an item in the per-plan review checklist.
 
 Run the deterministic classifier:
 
@@ -264,9 +264,7 @@ Parse `requirements` (each with `req_id`/`status`/`source_plans`/`matched_files`
 
 **If `passed` is true:** log "Test-content coverage: all applicable requirements COVERED" and continue to Step 6b/7.
 
-**If `passed` is false:** BEFORE continuing verification, blocking-spawn `gsd-nyquist-auditor` (synchronous — wait for it to return, do not continue verification in parallel):
-
-Build a `<gaps>` list from the JSON:
+**If `passed` is false:** build a `<gaps>` list from the JSON:
 - Each `MISSING` requirement with zero test files → `{ gap_id: req_id, requirement: req_id, type: "no_test_file", reason: "no test file found for this requirement" }`
 - Each entry in `hollow_tests` → `{ gap_id: req_id (owning requirement), requirement: req_id, type: "hollow_test", file, reason: "test file has zero non-skipped test()/it() calls, or zero assertions" }`
 - Each entry in `net_zero_assertion_files` → `{ gap_id: req_id, requirement: req_id, type: "stale_assertions", file, before_count, after_count, reason: "assertion count fell since the phase's first commit touching this file with no cited MERGE/DELETE row" }` (only a fall without a cited MERGE/DELETE row is flagged)
@@ -275,26 +273,15 @@ Build a `<gaps>` list from the JSON:
 - `test_delta.declared_rows_mismatch: true` → `{ gap_id: phase, requirement: phase, type: "declared_rows_mismatch", reason: "declared deleted/merged counts differ from Test Delta rows" }`
 - `test_delta.bucket_time_regressed: true` without a cited justification → `{ gap_id: phase, requirement: phase, type: "bucket_time_regressed", reason: "touched-bucket time rose over 10%" }`
 
-Spawn:
-```
-Agent(
-  subagent_type="gsd-nyquist-auditor",
-  model="{verifier_model}",
-  prompt="Phase {phase_number} test-content gaps.\n<gaps>{gap list above}</gaps>\nImplementation files are READ-ONLY. Fill each gap covering the requirement's observable behavior; for stale_assertions merge/update an existing test first, add a new test only if none can cover it. Report GAPS FILLED / PARTIAL / ESCALATE."
-)
-```
-
-After it returns, re-run `verify test-content "$PHASE_NUM"` to confirm gaps are closed.
-
-**If still not `passed` after the nyquist-auditor spawn (any requirement remains MISSING/PARTIAL, or the auditor's own report is PARTIAL/ESCALATE):** add one gap entry per remaining item to VERIFICATION.md and set STATUS = gaps_found — NEVER silently pass:
+Add one gap entry per item to VERIFICATION.md and set STATUS = gaps_found — NEVER silently pass:
 
 ```yaml
 - truth: "Requirement {req_id} has real, non-hollow test coverage"
   status: failed
-  failure_type: missing_test    # use `missing_test` for MISSING, `stub` for a hollow file the auditor could not fill, `regression` for stale_assertions the auditor could not fill
-  reason: "{nyquist-auditor's escalation reason, or 'still MISSING/PARTIAL after auto-fill attempt'}"
+  failure_type: missing_test    # use `missing_test` for MISSING, `stub` for a hollow file, `regression` for stale_assertions
+  reason: "{gap reason from the list above}"
   missing:
-    - "{specific fix the auditor could not complete}"
+    - "{specific test to add or repair}"
 ```
 
 This step's hard-fail is NEVER a warning — matches the existing convention for Step 8b/8c/8d's hard rules elsewhere in this file.
@@ -320,7 +307,7 @@ defect is a defect that gets made again next milestone.
 |----------|---------------|
 | `{N}-{NN}-SUMMARY.md` | the `## Defect Classes` sections themselves |
 | `{N}-PLAN-CHECK.md` | the plan-checker's Defect Classes block, written by `plan-phase.md` Step 11 on every revision-loop iteration |
-| `{N}-{NN}-VERDICT.md` | the adversarial judge's own `## Defect Classes` block |
+| `{N}-{NN}-VERDICT.md` | the plan-checker adversarial pass's own `## Defect Classes` block |
 | `{N}-VERIFICATION.md` | your own gaps, on re-verification after gap closure |
 | `deferred-items.md` | anything deferred that reads as a real defect rather than a scope call |
 
@@ -595,7 +582,7 @@ gaps:
 | `broken_chain` | A multi-step causal chain has a gap — frontend calls route that doesn't exist, mutation has no persistence, step 1 runs but step 2 is absent |
 | `regression` | A truth that previously passed now fails — confirmed by re-verification mode or test that was previously green |
 | `missing_test` | Implementation exists and functions correctly but has no automated test coverage |
-| `contract_mismatch` | A cross-phase integration boundary produced by one phase disagrees with what a dependent phase consumes (API shape, schema, component props) -- written by the coordinator's `cross_phase_integration` step (Phase 59, MILE-38) via `verify append-gap`, NOT by the verifier itself |
+| `contract_mismatch` | A cross-phase integration boundary produced by one phase disagrees with what a dependent phase consumes (API shape, schema, component props) -- written by `execute-roadmap` step 5b via `verify append-gap`, NOT by the verifier itself |
 
 **Assign failure_type inline:** When writing each gap entry, determine which type best describes the root cause. A gap may have only one failure_type. When in doubt, choose the most specific type (e.g. prefer `semantic_stub` over `stub` when the artifact exists but behaves inertly).
 

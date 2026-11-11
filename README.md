@@ -109,7 +109,7 @@ This fork extends the base GSD system with autonomous execution, a persistent kn
 ### What Was Built
 
 **Auto Mode**
-A Haiku subagent (`gsd-task-router`) reads each task description and uses LLM reasoning — not keyword matching — to pick the right tier. Haiku for mechanical one-step tasks, Sonnet for multi-step implementation, Opus for architecture and high-stakes decisions. Quota pressure adjusts selection downward at >80% and >95% usage. Top 3 relevant docs are injected into the executor prompt alongside the routing decision. ~40–60% token savings vs all-Opus.
+The planner writes a `<model>` tier on each task (CLAUDE.md tier table). Haiku for mechanical one-step tasks, Sonnet for multi-step implementation, Opus for architecture and high-stakes decisions. Quota pressure adjusts selection downward at >80% and >95% usage. Top 3 relevant docs are injected into the executor prompt alongside the routing decision. ~40–60% token savings vs all-Opus.
 
 Routing rules editable at `~/.claude/routing-rules.md`. Project overrides at `.planning/routing/project-rules.md`.
 
@@ -224,7 +224,7 @@ Switch profiles:
 
 Or configure via `/gsd:settings`.
 
-`auto` spawns a Haiku subagent (`gsd-task-router`) that reads each task description and reasons about which model tier to use — Haiku for mechanical single-step tasks, Sonnet for standard multi-step implementation, Opus for architecture and high-stakes decisions. Quota pressure downgrade: >80% usage drops Opus→Sonnet, >95% drops all to Haiku. Circuit breakers and error escalation ensure quality.
+`auto` runs each task on the tier the plan carries in `<model>` — Haiku for mechanical single-step tasks, Sonnet for standard multi-step implementation, Opus for architecture and high-stakes decisions. Quota pressure downgrade: >80% usage drops Opus→Sonnet, >95% drops all to Haiku. Circuit breakers and error escalation ensure quality.
 
 ---
 

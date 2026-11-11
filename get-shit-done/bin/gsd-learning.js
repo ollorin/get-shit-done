@@ -247,7 +247,7 @@ function extractPatterns(feedbackLog) {
 function loadBuiltInRules() {
   const rulesPath = path.join(
     process.env.HOME,
-    '.claude/skills/gsd-task-router/routing-rules.md'
+    '.claude/gsd-learned-rules/routing-rules.md'
   );
 
   if (!fs.existsSync(rulesPath)) {
@@ -463,7 +463,7 @@ To enable learning: \`gsd-tools feedback enable --mode human\`
  * @param {Array} patterns - Array of LearnedPattern objects
  */
 function writeLearnedRules(patterns) {
-  const rulesDir = path.join(process.env.HOME, '.claude/skills/gsd-task-router');
+  const rulesDir = path.join(process.env.HOME, '.claude/gsd-learned-rules');
   const rulesPath = path.join(rulesDir, 'learned-rules.md');
 
   // Ensure directory exists

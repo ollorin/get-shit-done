@@ -60,6 +60,7 @@ This PRD is still in progress (stage: {STAGE}). Key sections may be incomplete. 
 
 - Set `PRD_DRIVEN = true`
 - Display: "Using PRD: {SELECTED_PRD_SLUG} as milestone foundation."
+- If the PRD has no `<!-- approval: ... -->` line: run Step 4 (Approval) of `@~/.claude/get-shit-done/workflows/prd.md` now, before any roadmap work.
 
 **If user selects "Enter milestone goal manually":**
 - Set `PRD_DRIVEN = false`
@@ -341,6 +342,7 @@ Agent(prompt="
 - .planning/research/SUMMARY.md (if exists)
 - .planning/config.json
 - .planning/MILESTONES.md
+- .planning/DECISIONS.md (if exists — binding `D-`/`A-` records, see your <decision_points> section)
 </files_to_read>
 </planning_context>
 
@@ -364,7 +366,7 @@ Create roadmap for milestone v[X.Y] from the PRD provided in <prd_source>:
 5. Derive 2-5 success criteria per phase from the PRD Acceptance Criteria
 6. Order phases by technical dependency (data/infrastructure before API before UI is typical — adjust for the domain)
 7. DO NOT write any files yet — return ROADMAP PREVIEW with the proposed phase structure and generated requirements
-8. Format the return as: ## ROADMAP PREVIEW followed by the summary table and phase details
+8. Format the return as: ## ROADMAP PREVIEW followed by the summary table, phase details and `## Decision Points`
 
 {IF PRD_DRIVEN=false (non-PRD-driven — existing behavior):}
 Create roadmap for milestone v[X.Y]:
@@ -374,7 +376,7 @@ Create roadmap for milestone v[X.Y]:
 4. Derive 2-5 success criteria per phase (observable user behaviors)
 5. Validate 100% coverage
 6. Write files immediately (ROADMAP.md, STATE.md, update REQUIREMENTS.md traceability)
-7. Return ROADMAP CREATED with summary
+7. Return ROADMAP CREATED with summary and `## Decision Points`
 
 Write files first, then return.
 </instructions>
@@ -409,6 +411,14 @@ Success criteria:
 1. [criterion]
 2. [criterion]
 ```
+
+**Decision points (before approval).** Contract: `@~/.claude/get-shit-done/references/decisions-protocol.md`. The roadmapper's `## Decision Points` table holds, per phase, the questions `/gsd:discuss-phase` would otherwise ask later, and maps existing records to phases.
+
+1. Apply every `map` row: `decisions map <id> --phases <N,M>` (or `--global`).
+2. Rows about money, auth, security or RNG are not asked and not queued: dispatch the ruling route in `decisions-protocol.md` (fable/opus) and log the result as a `D-` (`--source opus-ruling`) before anything else. Ask the remaining new rows now, grouped by phase, irreversible and costly first, at most 4 per AskUserQuestion call and 12 in total. Answered: `decisions add --kind decision --source milestone-review --phases <N>`. Not asked or not answered: `decisions add --kind assumption --source milestone-review --default "<roadmapper default>" --reversibility <r> --phases <N>`.
+3. Unattended (`GSD_AUTONOMOUS=1`): ask nothing; every new row becomes an `A-`; skip the approval prompt below and treat the roadmap as approved.
+4. `decisions validate --mapped` must pass (every record names its consuming phases). If it fails with `no consuming phase` and `GSD_AUTONOMOUS=1`: run `decisions map <id> --global` for each id it names that is not `irreversible` (an `irreversible` id is mapped to the phases its roadmapper row names, else to the last roadmap phase, never global), log `unmapped_made_global` with the ids, and re-validate; interactively, ask which phases consume it. Then `decisions render`. Print `decisions digest` output to the chat, then run `decisions digest --mark-only`.
+5. An answer that changes phase scope or order: re-spawn the roadmapper with it as revision context before asking for approval.
 
 **Ask for approval** via AskUserQuestion:
 - "Approve" — Commit and continue
@@ -463,7 +473,7 @@ elif ! mv .planning/prds/pending/{SELECTED_PRD_SLUG}.md .planning/prds/done/{SEL
   echo "Then re-run the commit step once the file is in place."
   exit 1
 fi
-node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs: create milestone v[X.Y] roadmap — {SELECTED_PRD_SLUG} PRD promoted" --files .planning/ROADMAP.md .planning/STATE.md .planning/REQUIREMENTS.md .planning/prds/pending/{SELECTED_PRD_SLUG}.md .planning/prds/done/{SELECTED_PRD_SLUG}.md
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs: create milestone v[X.Y] roadmap — {SELECTED_PRD_SLUG} PRD promoted" --files .planning/ROADMAP.md .planning/STATE.md .planning/REQUIREMENTS.md .planning/DECISIONS.jsonl .planning/DECISIONS.md .planning/prds/pending/{SELECTED_PRD_SLUG}.md .planning/prds/done/{SELECTED_PRD_SLUG}.md
 ```
 
 Print after commit:
@@ -474,7 +484,7 @@ PRD promoted: .planning/prds/done/{SELECTED_PRD_SLUG}.md
 
 **If PRD_DRIVEN=false:**
 ```bash
-node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs: create milestone v[X.Y] roadmap ([N] phases)" --files .planning/ROADMAP.md .planning/STATE.md .planning/REQUIREMENTS.md
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs: create milestone v[X.Y] roadmap ([N] phases)" --files .planning/ROADMAP.md .planning/STATE.md .planning/REQUIREMENTS.md .planning/DECISIONS.jsonl .planning/DECISIONS.md
 ```
 
 ## 11. Done

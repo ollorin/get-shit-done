@@ -45,11 +45,6 @@
       "phase": "03-dependent-phase",
       "agent": "gsd-verifier",
       "tier": "haiku"
-    },
-    {
-      "phase": "03-dependent-phase",
-      "agent": "gsd-integration-tester",
-      "tier": "sonnet"
     }
   ]
 }

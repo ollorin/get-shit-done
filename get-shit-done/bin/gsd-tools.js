@@ -244,13 +244,9 @@ const MODEL_PROFILES = {
   'gsd-codebase-mapper':      { quality: 'sonnet', balanced: 'haiku', budget: 'haiku', auto: 'haiku'  },
   'gsd-verifier':             { quality: 'opus', balanced: 'opus', budget: 'opus', auto: 'opus' },
   'gsd-plan-checker':         { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku', auto: 'sonnet' },
-  'gsd-nyquist-auditor':      { quality: 'sonnet', balanced: 'haiku', budget: 'haiku', auto: 'haiku' },
   'gsd-test-writer':          { quality: 'sonnet', balanced: 'haiku', budget: 'haiku', auto: 'haiku' },
   'gsd-docs-updater':         { quality: 'sonnet', balanced: 'haiku', budget: 'haiku', auto: 'haiku' },
-  'gsd-integration-tester':   { quality: 'sonnet', balanced: 'haiku', budget: 'haiku', auto: 'haiku' },
   'gsd-phase-coordinator':    { quality: 'sonnet', balanced: 'sonnet', budget: 'sonnet', auto: 'sonnet' },
-  'gsd-plan-attacker':        { quality: 'opus', balanced: 'opus', budget: 'sonnet', auto: 'opus' },
-  'gsd-plan-judge':           { quality: 'opus', balanced: 'opus', budget: 'sonnet', auto: 'opus' },
   'gsd-integration-checker':  { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku', auto: 'sonnet' },
 };
 
@@ -406,7 +402,6 @@ function loadConfig(cwd) {
     savings_baseline_profile: 'quality',
     savings: { baseline_profile: 'quality' },
     test_writer_enabled: false,
-    integration_tester_enabled: false,
     adversarial_review_enabled: false,
     adversarial_review_file_threshold: 8,
     adversarial_review_security_patterns: ['auth', 'payment', 'secret', 'credential', 'crypto', 'security', 'token', 'password', '/api/', 'migration'],
@@ -422,7 +417,6 @@ function loadConfig(cwd) {
     defect_classes_gate_since: '2026-09-26T22:37:28+02:00',
     quality: {
       test_writer: false,
-      integration_tester: false,
       adversarial_review: false,
       adversarial_review_file_threshold: 8,
       adversarial_review_security_patterns: ['auth', 'payment', 'secret', 'credential', 'crypto', 'security', 'token', 'password', '/api/', 'migration'],
@@ -478,7 +472,6 @@ function loadConfig(cwd) {
       routing_min_sample_count: get('routing_min_sample_count', { section: 'routing', field: 'min_sample_count' }) ?? defaults.routing_min_sample_count,
       savings_baseline_profile: get('savings_baseline_profile', { section: 'savings', field: 'baseline_profile' }) ?? defaults.savings_baseline_profile,
       test_writer_enabled: get('test_writer_enabled', { section: 'quality', field: 'test_writer' }) ?? defaults.test_writer_enabled,
-      integration_tester_enabled: get('integration_tester_enabled', { section: 'quality', field: 'integration_tester' }) ?? defaults.integration_tester_enabled,
       adversarial_review_enabled: get('adversarial_review_enabled', { section: 'quality', field: 'adversarial_review' }) ?? defaults.adversarial_review_enabled,
       adversarial_review_file_threshold: get('adversarial_review_file_threshold', { section: 'quality', field: 'adversarial_review_file_threshold' }) ?? defaults.adversarial_review_file_threshold,
       adversarial_review_security_patterns: get('adversarial_review_security_patterns', { section: 'quality', field: 'adversarial_review_security_patterns' }) ?? defaults.adversarial_review_security_patterns,
@@ -5636,7 +5629,7 @@ function buildEvalCandidatesFromVerificationFile(cwd, verificationFilePath) {
 // untouched. Never throws -- returns {ok:false, error} instead, so a CLI caller can
 // decide its own exit code (mirrors cmdEvalCandidateAccept's structured-error
 // convention, not the generic error() helper). This is the ONLY new gap-write path in
-// the codebase; Plan 59-03's coordinator wiring calls this (via the CLI below) on a
+// the codebase; execute-roadmap step 5b calls this (via the CLI below) on a
 // blocking cross-phase integration mismatch, and the EXISTING
 // buildEvalCandidatesFromVerificationFile / `eval-candidate from-verification` reader
 // picks up the appended gap unmodified -- no second/parallel gap pipeline.
@@ -5718,12 +5711,12 @@ function cmdVerifyAppendGap(cwd, verificationFileArg, options, raw) {
 // ─── Adversarial Plan Review (Phase 60, MILE-39) ────────────────────────────
 // computeHighRisk/computePresentationOrder are pure, no-I/O functions (mirror
 // isUIFile/computeHasUI's style, fail-soft like appendVerificationGap) gating whether a
-// plan gets the attacker/defender/judge trio instead of the single-pass gsd-plan-checker.
+// plan gets the plan-checker's adversarial pass (Dimension 14) in addition to the plain checks.
 // An explicit `high_risk: true` (or the string "true") plan frontmatter flag ALWAYS wins,
 // even when the `adversarial_review_enabled` toggle is off -- an explicit per-plan author
 // decision is a stronger signal than the global default and must never be silently
 // ignored. When the toggle is off and no explicit flag is set: high_risk is always false
-// (zero behavior change, matches the test_writer/integration_tester precedent). When the
+// (zero behavior change, matches the test_writer precedent). When the
 // toggle is on: any of (files_modified.length > threshold), a security-pattern substring
 // match against files_modified, or a tdd="true" task count >= 3 flags the plan high-risk,
 // one reason string per matched criterion.
@@ -5825,16 +5818,31 @@ function cmdQualityAssessRisk(cwd, filePath, raw) {
   output({ high_risk, reasons, presentation_order }, raw);
 }
 
-// verdictToIssues converts a judge's {plan}-VERDICT.md frontmatter into the EXACT
+// verdictToIssues converts the plan-checker adversarial pass's {plan}-VERDICT.md frontmatter into the EXACT
 // issues: shape gsd-plan-checker's ## ISSUES FOUND output already produces
 // ({ plan, dimension, severity, description, fix_hint }), so the EXISTING
 // plan-phase.md revision loop (step 12) can consume adversarial-review verdicts
 // without any new revision mechanism. approved (or missing verdict) -> [].
 // revise -> one warning-severity issue per required_change. critical -> one
 // blocker-severity issue per required_change.
-function verdictToIssues(verdictFrontmatter, planId) {
+function unavailableVerdictIssue(planId, reason) {
+  return {
+    plan: planId || null,
+    dimension: 'adversarial_review',
+    severity: 'blocker',
+    description: `adversarial pass unavailable on a high-risk plan: ${reason}`,
+    fix_hint: 'Re-run the plan-checker adversarial pass; a high-risk plan is not approved without a valid VERDICT.md.',
+  };
+}
+
+// opts.required (high-risk plan): a missing or unrecognised verdict fails closed with a blocker
+// issue instead of passing; without it the lenient pre-existing behaviour is kept.
+function verdictToIssues(verdictFrontmatter, planId, opts) {
   const fm = verdictFrontmatter || {};
   const verdict = fm.verdict;
+  if (opts && opts.required === true && !['approved', 'revise', 'critical'].includes(verdict)) {
+    return [unavailableVerdictIssue(planId || fm.plan, verdict ? `unrecognised verdict "${verdict}"` : 'no verdict in VERDICT.md')];
+  }
   if (verdict === 'approved' || !verdict) return [];
 
   const requiredChanges = Array.isArray(fm.required_changes) ? fm.required_changes : [];
@@ -5856,7 +5864,8 @@ function verdictToIssues(verdictFrontmatter, planId) {
 
 // Thin CLI wrapper over verdictToIssues. Never throws -- missing/malformed verdict
 // file reported as {error:true, issues:[]}.
-function cmdQualityVerdictToIssues(cwd, filePath, raw) {
+function cmdQualityVerdictToIssues(cwd, filePath, raw, required) {
+  const planId = filePath ? path.basename(String(filePath)).replace(/-VERDICT\.md$/, '') : null;
   if (!filePath) {
     output({ error: true, type: 'missing_argument', message: 'quality verdict-to-issues: <verdict-file> required', issues: [] }, raw);
     return;
@@ -5864,7 +5873,7 @@ function cmdQualityVerdictToIssues(cwd, filePath, raw) {
   const fullPath = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath);
   const content = safeReadFile(fullPath);
   if (content === null) {
-    output({ error: true, type: 'file_not_found', message: `Verdict file not found: ${filePath}`, issues: [] }, raw);
+    output({ error: true, type: 'file_not_found', message: `Verdict file not found: ${filePath}`, issues: required ? [unavailableVerdictIssue(planId, 'VERDICT.md not found')] : [] }, raw);
     return;
   }
 
@@ -5873,11 +5882,11 @@ function cmdQualityVerdictToIssues(cwd, filePath, raw) {
     const matter = require('gray-matter');
     fm = matter(content).data || {};
   } catch (e) {
-    output({ error: true, type: 'malformed_frontmatter', message: e.message, issues: [] }, raw);
+    output({ error: true, type: 'malformed_frontmatter', message: e.message, issues: required ? [unavailableVerdictIssue(planId, 'VERDICT.md frontmatter unreadable')] : [] }, raw);
     return;
   }
 
-  const issues = verdictToIssues(fm, fm.plan || null);
+  const issues = verdictToIssues(fm, fm.plan || planId, { required });
   output({ issues, verdict: fm.verdict || null }, raw);
 }
 
@@ -15866,7 +15875,7 @@ Was ${model} the right choice for this task? (y/n): `;
 
       } else if (subCommand === 'rules') {
         // Show current learned rules
-        const rulesPath = path.join(process.env.HOME, '.claude/skills/gsd-task-router/learned-rules.md');
+        const rulesPath = path.join(process.env.HOME, '.claude/gsd-learned-rules/learned-rules.md');
 
         if (!fs.existsSync(rulesPath)) {
           output({ rules: [], message: 'No learned rules file found' }, raw);
@@ -16023,7 +16032,7 @@ Was ${model} the right choice for this task? (y/n): `;
         }
 
         // Learning status
-        const learnedRulesPath = path.join(process.env.HOME, '.claude/skills/gsd-task-router/learned-rules.md');
+        const learnedRulesPath = path.join(process.env.HOME, '.claude/gsd-learned-rules/learned-rules.md');
         let rulesCount = 0;
         if (fs.existsSync(learnedRulesPath)) {
           const content = fs.readFileSync(learnedRulesPath, 'utf8');
@@ -16268,7 +16277,7 @@ Was ${model} the right choice for this task? (y/n): `;
       } else if (subcommand === 'assess-risk') {
         cmdQualityAssessRisk(cwd, args[2], raw);
       } else if (subcommand === 'verdict-to-issues') {
-        cmdQualityVerdictToIssues(cwd, args[2], raw);
+        cmdQualityVerdictToIssues(cwd, args[2], raw, args.includes('--require'));
       } else {
         error('Unknown quality subcommand. Available: touches-source, assess-risk, verdict-to-issues');
       }
@@ -16276,7 +16285,7 @@ Was ${model} the right choice for this task? (y/n): `;
     }
 
     case 'log-feature-event': {
-      // CLI bridge for subagents (e.g. task-router) that cannot call appendEvent directly.
+      // CLI bridge for subagents that cannot call appendEvent directly.
       // Usage: node gsd-tools.js log-feature-event --project-path <path> --type <EVENT_TYPE> --data <json>
       const projectPathIdx = args.indexOf('--project-path');
       const typeIdx = args.indexOf('--type');
