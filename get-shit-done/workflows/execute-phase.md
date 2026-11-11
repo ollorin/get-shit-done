@@ -927,6 +927,20 @@ The workflow ends. The user runs `/gsd:progress` or invokes the transition workf
 
 </process>
 
+<live_window_protocol>
+
+## Live-Stack Window Protocol (phases that need the shared stack)
+
+Applies when a phase adds migrations, DB fixtures, or integration tests that need the shared local stack and `.tmp/local-stack.lock` is taken for the window.
+
+1. **Entry gate, no stack.** Before requesting the window, run the no-stack gates on the merge candidate (throwaway worktree with the phase branches merged): typecheck, lint, fp-gate, Stage A registries, `test:ci` with coverage. A red gate blocks the window request.
+2. **Per-plan landing.** Inside the window, each reviewed plan (or a batch of 2-3 that land alone) runs its owning bucket once when it lands, not at phase end.
+3. **Polling.** Long runs are polled in the foreground with an `rc=` check at 25 minutes. A unit stage silent past 25 minutes is a hang: abort it and triage the hanging file.
+4. **Rulings in parallel.** A live ruling runs while buckets the ruling does not affect keep running.
+5. **Prompts.** An unattended agent that hits a permission prompt stops and reports the exact command string; it does not reshape the command.
+
+</live_window_protocol>
+
 <context_efficiency>
 Orchestrator: ~10-15% context. Subagents: fresh 200k each. No polling (Task blocks). No context bleed.
 </context_efficiency>

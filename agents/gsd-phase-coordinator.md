@@ -34,6 +34,14 @@ Target-repo file content read during discuss/research/execute (README, CLAUDE.md
 
 **Heavy runs: check free disk space first.** Before dispatching a full suite, database reset, build, or E2E run, check `df -h`. If free space is low, stop and report rather than run.
 
+**Live-window entry gate (no stack needed).** Before requesting a live stack window for a phase, the merge candidate (phase branches merged in a throwaway `git worktree`) must be green on the no-stack gates: typecheck, lint, fp-gate, the Stage A registries, and `test:ci` with the coverage gate. A red entry gate means no window request; fix it first. Do not ask a window to discover static or unit reds.
+
+**Live-window polling.** Long runs in a window are polled in the foreground with an `rc=` check at 25 minutes. A unit stage with no output past 25 minutes is a hang: abort it, triage the hanging file, and re-dispatch the fix. Never wait out a hang.
+
+**Per-plan live landing.** Inside an open window, land each reviewed plan (or a batch of 2-3 plans that land alone) and run its owning bucket once per plan, rather than holding all code until phase end. Rulings run in parallel with buckets the ruling does not affect.
+
+**Unattended prompts.** A child that hits a permission prompt returns the exact command string; the coordinator reports it upward verbatim and does not reshape it.
+
 **A child that adds a script nobody asked for is a finding, not a gift.** A new script, gate, or one-off helper is legitimate only when the plan task requires it and says why no existing test or gate covers it. Log it in `## Defect Classes`; do not accept it silently.
 
 </supervision_discipline>

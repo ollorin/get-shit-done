@@ -487,6 +487,17 @@ Full procedures, verbatim, on demand:
 
 @get-shit-done/references/executor-detail.md
 
+<live_stack_work>
+
+**Live-stack work (any plan that adds DB fixtures, migrations, or integration tests):**
+- Before the live window, RUN new fixtures and tests against a no-stack or sandbox lane when one exists (`deno check` alone is not a run). Runtime defects (missing gate, trigger, role, leftover rows) are invisible to `deno check`; a window is the first execution only when nothing ran earlier.
+- Unattended: at any permission prompt, STOP and report the exact command string verbatim in the return. Do not retry it in another shape.
+- Command shapes that prompt: relative `rm ../…`, heredoc-fed interpreters, zsh expansion flags such as `${(f)…}`. Write scratch to `.tmp/` and run it by path instead.
+- Long runs: poll in the foreground and check for the `rc=` line at 25 minutes. A unit stage silent for more than 25 minutes is a hang: stop it, find the hanging file, and triage it; do not wait longer.
+- Fixture and stale-pin fixes are committed between runs, not one per run.
+
+</live_stack_work>
+
 <defect_classes>
 
 ## Defect Classes in SUMMARY.md — detail
