@@ -1,16 +1,22 @@
 'use strict';
 
 // Hooks defined only in .claude/settings.local.json are never read (design 4.4), so a script
-// run only by such a hook is not guarded. Clauses (b)-(d) of referencesDest widen matching for
+// run only by such a hook is not guarded. Clauses (a)-(d) of referencesDest widen matching for
 // hooks that are read, so a script named in another spelling is still caught.
+// Limits, left unguarded on purpose: a path assembled at run time (`NAME=gate; bash ./$NAME.sh`,
+// `node -e` with split strings) is not visible statically, and an option carrying a path
+// (`--config=scripts/`) is not a path token. The boundary there is human confirmation (identity
+// guard, typed APPLY) and the PreToolUse deny Phase H recommends.
 
 const { fsFold, isPlainObject } = require('./project-deploy-fs.js');
 const { detectSession, guardFailures } = require('./project-deploy-session.js');
 
 const GUARDED_TOPS = new Set(['.husky', '.githooks']);
 const TOKEN_SPLIT_RE = /[\s"'`/;&|$()]+/;
-const GLOB_SPLIT_RE = /[\s"'`;&|$()]+/;
+const PATH_SPLIT_RE = /[\s"'`;&|()]+/;
 const GLOB_RE = /[*?[]/;
+const LITERAL_RE = /[^*?[\]]/;
+const ROOT_PREFIX_RE = /^(?:\.\/|\$\{?\w+\}?\/)+/;
 
 const hookCommandsOf = (settings) => (isPlainObject(settings) && isPlainObject(settings.hooks)
   ? Object.values(settings.hooks)
@@ -78,16 +84,24 @@ function globMatch(glob, path) {
   return items.reduce((dp, item) => stepDp(item, dp, s), starts).at(-1);
 }
 
+// Command tokens keep their directories; a project-root prefix (`./`, `$CLAUDE_PROJECT_DIR/`) is dropped.
+const pathTokensOf = (cmd) => cmd.split(PATH_SPLIT_RE).map((t) => t.replace(ROOT_PREFIX_RE, ''));
+
 function referencesDest(command, canon) {
-  const cmd = fsFold(command);
+  const cmd = fsFold(command).replace(/\\/g, '/');
   const dest = fsFold(canon);
   const slash = dest.lastIndexOf('/');
   const base = dest.slice(slash + 1);
+  const dot = base.lastIndexOf('.');
+  const stem = dot > 0 ? base.slice(0, dot) : null;
   const dir = slash < 0 ? null : dest.slice(0, slash + 1);
+  const words = cmd.split(TOKEN_SPLIT_RE);
+  const paths = pathTokensOf(cmd);
   return cmd.includes(dest)
-    || (dir !== null && cmd.includes(dir))
-    || cmd.split(TOKEN_SPLIT_RE).includes(base)
-    || cmd.split(GLOB_SPLIT_RE).some((t) => GLOB_RE.test(t) && globMatch(t, dest));
+    || (dir !== null && paths.some((t) => t.startsWith(dir)))
+    || words.includes(base)
+    || (stem !== null && words.includes(stem))
+    || paths.some((t) => GLOB_RE.test(t) && LITERAL_RE.test(t) && globMatch(t, dest));
 }
 
 function guardedSet({ canonDests, hookCommands, presetFlags }) {

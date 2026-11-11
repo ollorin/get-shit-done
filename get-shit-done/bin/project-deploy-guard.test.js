@@ -336,3 +336,42 @@ describe('B-FIX3 F1 glob matching is bounded', () => {
     assert.strictEqual(globMatch('[x.sh', 'x.sh'), false);
   });
 });
+
+describe('B-FIX3 F4 hook-reference heuristics', () => {
+  const guards = (command, canon) => guardedSet({
+    canonDests: [canonDest(canon, canon)],
+    hookCommands: [command],
+    presetFlags: new Set(),
+  }).has(canon);
+
+  test('F4-a now matched: an extension-less name guards the file (node gate guards gate.js)', () => {
+    assert.strictEqual(guards('node gate', 'scripts/gate.js'), true);
+  });
+
+  test('F4-b now matched: backslashes are separators (bash scripts\\gate.sh, and the directory form)', () => {
+    assert.strictEqual(guards('bash scripts\\gate.sh', 'scripts/gate.sh'), true);
+    assert.strictEqual(guards('bash scripts\\', 'scripts/x.sh'), true);
+  });
+
+  test('F4-c removed: a directory name inside another path does not guard (/usr/bin/env does not guard bin/tool.md)', () => {
+    assert.strictEqual(guards('/usr/bin/env node', 'bin/tool.md'), false);
+    assert.strictEqual(guards('node ./bin/tool.md', 'bin/tool.md'), true);
+  });
+
+  test('F4-d removed: a bare * or a glob with no literal character guards nothing', () => {
+    assert.strictEqual(guards('node *', 'docs/a.md'), false);
+    assert.strictEqual(guards('bash *?', 'docs/a.md'), false);
+    assert.strictEqual(guards('bash *.*', 'docs/a.md'), true);
+  });
+
+  test('F4-e a project-root variable prefix is dropped before the directory check', () => {
+    assert.strictEqual(guards('$CLAUDE_PROJECT_DIR/scripts/gate.sh', 'scripts/other.sh'), true);
+  });
+
+  test('F4-f stays unguarded (documented limit): a path assembled at run time is not visible statically', () => {
+    // Variable expansion: the script name exists only after the shell expands $NAME.
+    assert.strictEqual(guards('NAME=gate; bash ./$NAME.sh', 'scripts/gate.sh'), false);
+    // Computed path: the joined string is never written as one token.
+    assert.strictEqual(guards("node -e \"run(['scr'+'ipts','gat'+'e.sh'].join('/'))\"", 'scripts/gate.sh'), false);
+  });
+});
