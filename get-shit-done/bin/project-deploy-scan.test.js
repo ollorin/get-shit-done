@@ -5,7 +5,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { SECRET_PATTERNS, scanText, scanDir } = require('./project-deploy-scan.js');
+const { SECRET_PATTERNS, scanText, scanDir, sliceLine, LINE_CAP, LINE_OVERLAP } = require('./project-deploy-scan.js');
 
 const MODULE_PATH = path.join(__dirname, 'project-deploy-scan.js');
 const R = 'a1B2';
@@ -121,5 +121,64 @@ describe('project-deploy-scan', () => {
   test('6 self-scan: the scanner module and this test file contain no token-shaped string', () => {
     assert.deepStrictEqual(scanText(fs.readFileSync(MODULE_PATH)), []);
     assert.deepStrictEqual(scanText(fs.readFileSync(__filename)), []);
+  });
+
+  test('7 ReDoS: every pattern and scanText finish 200k-char runs under 250 ms', () => {
+    for (const input of ['a'.repeat(200000), '1'.repeat(200000)]) {
+      for (const { id, re } of SECRET_PATTERNS) {
+        const t0 = performance.now();
+        re.test(input);
+        assert.ok(performance.now() - t0 < 250, `pattern ${id} is slow on a run`);
+      }
+      const t0 = performance.now();
+      scanText(input);
+      assert.ok(performance.now() - t0 < 250, 'scanText is slow on a run');
+    }
+  });
+
+  test('8 url_credentials: a scheme longer than 16 chars is not matched; a normal URL still is', () => {
+    assert.deepStrictEqual(scanText('x'.repeat(20) + '://' + 'admin:hunter2pass@db.internal'), []);
+    assert.deepStrictEqual(scanText(TOKENS.url_credentials), [{ pattern: 'url_credentials', line: 1 }]);
+  });
+
+  test('9 sliceLine: slices never exceed LINE_CAP, share LINE_OVERLAP chars, and rebuild the whole line', () => {
+    assert.deepStrictEqual(sliceLine('short'), ['short']);
+    const line = 'abcdefghijklmnopqrstuvwxyz'.repeat(1800);
+    const slices = sliceLine(line);
+    assert.ok(slices.length > 1);
+    assert.ok(slices.every((s) => s.length <= LINE_CAP));
+    const rebuilt = slices.slice(1).reduce((acc, s) => acc + s.slice(LINE_OVERLAP), slices[0]);
+    assert.strictEqual(rebuilt, line);
+  });
+
+  test('10 a token straddling the LINE_CAP boundary of a long line is found', () => {
+    const line = 'a'.repeat(19989) + ' ' + TOKENS.vcs_token + ' ' + 'b'.repeat(10);
+    assert.ok(line.length > LINE_CAP);
+    assert.deepStrictEqual(scanText(line), [{ pattern: 'vcs_token', line: 1 }]);
+  });
+
+  test('11 assigned_secret negatives: calls, env lookups, prose slugs and env placeholders are not secrets', () => {
+    const negatives = [
+      'password = getPasswordFromVault()',
+      'secret: process.env.SECRET_VALUE_X',
+      'Token: expiration-policy-document',
+      'secret = "env(SOME_NAME)"',
+      'TOKEN=${GITHUB_TOKEN}',
+      'password = Deno.env.get("SOME_NAME")',
+      'password = config.SECRET_VALUE_NAME_X',
+      'password = getenvKeyName_1',
+    ];
+    for (const text of negatives) assert.deepStrictEqual(scanText(text), [], `expected no hits for: ${text}`);
+  });
+
+  test('12 assigned_secret positives (runtime-built): quoted mixed value with a digit, 32-hex api key, and a secret after a rejected call', () => {
+    const quoted = 'pass' + 'word = "' + 'Qw3rTy7uIoPa5sDf9gHj2kLz' + '"';
+    const hex = 'api_' + 'key: ' + '0123456789abcdef'.repeat(2);
+    const afterCall = 'password = getPasswordFromVault() ' + TOKENS.assigned_secret;
+    const mixedCase = 'to' + 'ken = ' + 'AbCdEfGhIjKlMnOpQrStUvWxYz';
+    assert.deepStrictEqual(scanText(quoted), [{ pattern: 'assigned_secret', line: 1 }]);
+    assert.deepStrictEqual(scanText(hex), [{ pattern: 'assigned_secret', line: 1 }]);
+    assert.deepStrictEqual(scanText(afterCall), [{ pattern: 'assigned_secret', line: 1 }]);
+    assert.deepStrictEqual(scanText(mixedCase), [{ pattern: 'assigned_secret', line: 1 }]);
   });
 });
