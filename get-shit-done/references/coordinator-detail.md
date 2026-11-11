@@ -256,7 +256,9 @@ node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js roadmap get-phase {ph
    3. Question generation scope — how many questions per gray area and how to avoid redundant questions
    ```
 
-4. Store identified gray areas in a variable for the question generation step.
+4. Drop every gray area the decision ledger already answers (`node "$HOME/.claude/get-shit-done/bin/decisions.js" list --phase {phase_number}`, contract `@get-shit-done/references/decisions-protocol.md`): its `D-`/`A-` line goes into CONTEXT.md's decisions verbatim with the id, and no questions are generated for it.
+
+5. Store the remaining gray areas in a variable for the question generation step.
 
 **Question generation:**
 
@@ -374,6 +376,8 @@ discretion_items = escalation_needed items where sensitive_escalation == false
 
 **Escalate sensitive items via Telegram (multi-turn loop with JSONL logging):**
 
+**Unattended (`GSD_AUTONOMOUS=1`): do not ask.** Skip the loop below: for each item apply Step A-fallback directly (reason `unattended`), queueing it with reversibility `irreversible` when sensitivity criterion 1 or 4 matched, else `costly`. If any item was queued `irreversible`, stop before research and return `{"status":"blocked","reason":"parked","assumptions":["A-NN"]}`: the orchestrator parks the phase and runs the others.
+
 For each item in `sensitive_items`, run a multi-turn follow-up loop:
 
 Read the escalation timeout from `.planning/config.json`'s `telegram.escalation_timeout_minutes` field (default: 30 if the file is missing, unparseable, or the key is absent). Use this value as `escalation_timeout_minutes` for every `ask_blocking_question` call in this loop (replacing the previously hardcoded `timeout_minutes: 30`).
@@ -419,7 +423,12 @@ Immediately after sending (before reply arrives), append a JSON line to `.planni
    {"type":"escalation_complete","timestamp":"{ISO}","phase":{phase_number},"gray_area":"{item.gray_area}","final_answer":null,"turns_used":{turn},"escalated_to_discretion":true,"fallback_reason":"{error message}"}
    ```
 
-4. Push item into `discretion_items` (NOT `escalated_answers`) so CONTEXT.md's Claude's Discretion subsection still documents it:
+4. Queue it so a late answer has a home (the waiver above stays; this adds the question, the default taken and who consumes it):
+   ```bash
+   node "$HOME/.claude/get-shit-done/bin/decisions.js" add --kind assumption --source escalation-timeout --question "{item.question}" --default "{the default the phase proceeds on}" --reversibility {cheap|costly|irreversible} --phases {phase_number}
+   ```
+
+5. Push item into `discretion_items` (NOT `escalated_answers`) so CONTEXT.md's Claude's Discretion subsection still documents it, citing the `A-` id:
    ```
    discretion_items.push({ gray_area: item.gray_area, question: item.question, reason: "Telegram escalation timeout/unavailable — parked via timeout-fallback" })
    ```

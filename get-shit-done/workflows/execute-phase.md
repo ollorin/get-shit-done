@@ -863,6 +863,19 @@ node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs(phase-{X}): com
 ```
 </step>
 
+<step name="evolve_corpus">
+**Grow the rework corpus (no LLM, no stack, under a minute per new plan).** Skip silently when the script is absent.
+
+```bash
+EVOLVE="$HOME/.claude/get-shit-done/scripts/evolve/run.py"
+[ -f "$EVOLVE" ] && python3 "$EVOLVE" --dry-run --calibrate-limit 5 > .tmp/evolve-phase-${PHASE_NUMBER}.log 2>&1 || true
+```
+
+This only records (base, first attempt, rework, hidden tests) for plans reworked after their SUMMARY and ranks
+finding classes. It never edits an agent file. A/B runs of a candidate are a separate, cost-capped command
+(`run.py --arm <variant> --corpus <RP ids> --max-usd N`) and an adoption is a reviewed commit, see `scripts/evolve/README.md`.
+</step>
+
 
 <step name="offer_next">
 

@@ -294,6 +294,15 @@ For each phase in execution order:
 **1. Check skip list:**
 - If user skipped this phase: log `phase_skipped`, continue to next
 
+**1a. Decision queue sweep (never waits; contract `@~/.claude/get-shit-done/references/decisions-protocol.md`):**
+```bash
+DEC="$HOME/.claude/get-shit-done/bin/decisions.js"
+[ -f .planning/DECISIONS.jsonl ] && node "$DEC" digest --mark && node "$DEC" gate --phase {phase_number}
+```
+- Non-empty digest text: send it with `mcp__telegram__send_message` (thread `telegram_topic_id` when set). Do not wait for a reply and never ask it through `ask_blocking_question`.
+- `gate` exit 2 (an open irreversible assumption feeds this phase): log `phase_parked` with the ids, move this phase and its dependents to the end of the execution order and continue with the next phase. A phase still parked when every other phase is done is not executed: report it in `completion` as waiting for the CEO.
+- Rework tickets (`node "$DEC" reworks` prints the open `R-NN`, written when the CEO answered through `/gsd:decide` after a consumer was built): for each, insert the decimal rework phase the protocol describes after its last built consumer, before continuing; `node "$DEC" close R-NN --status done` when it verifies.
+
 **2. Check dependencies:**
 ```bash
 # For each dep in phase.depends_on:
@@ -452,6 +461,7 @@ IS_STALE=$(node -e "console.log(JSON.parse(process.argv[1]).stale)" "$STALENESS_
   - If `"charlotte_qa"` in deferred: will be caught by 5a gate
   - After all deferrals resolved: proceed to 5a → 5b
 - `status: "failed"`: see `<step name="handle_failure">`
+- `status: "blocked"` with `reason: "parked"`: handle exactly like a `gate` exit 2 in step 1a (park, continue with the next phase, never wait)
 - `status: "blocked"`: present blocker, wait for resolution
 - `status: "gaps_found"`: offer gap closure cycle, then continue
 - `status: "human_needed"`: present human items, await approval
@@ -740,6 +750,7 @@ cd apps/e2e-charlotte && deno task test:regression
    - Re-run regression
    - Max 3 attempts before escalating to user
 5. This gate is NON-NEGOTIABLE for web projects — no PR without green regression
+6. Demos (same stack window, after regression is green; skip when `demo.mode` is `off`): follow `@~/.claude/get-shit-done/workflows/demo.md` section 2 for every phase of this run whose `*-DEMO.md` says `demo_recorded: false`, one at a time, then section 3 (rollup + one Telegram message). A demo that cannot be recorded stays script-only and is reported; it does not block the PR.
 
 4. **Push branch and open PR (requires gate marker):**
 

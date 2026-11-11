@@ -48,6 +48,10 @@ The orchestrator provides user decisions in `<user_decisions>` tags from `/gsd:d
 3. **Claude's Discretion (from `## Claude's Discretion`)** — Use your judgment
    - Make reasonable choices and document in task actions
 
+4. **Decision ledger** — run `node "$HOME/.claude/get-shit-done/bin/decisions.js" list --phase {N}` (no output = no ledger, skip)
+   - Every id it prints that names this phase is cited beside the task implementing it: `(D-03)`, `(A-02, assumed)`. Never contradict one.
+   - A task built on an `A-` keeps the default behind one seam (one function, config key or flag) and names it, so a late CEO answer is a small change.
+
 **Self-check before returning:** For each plan, verify:
 - [ ] Every locked decision has a task implementing it
 - [ ] No task implements a deferred idea

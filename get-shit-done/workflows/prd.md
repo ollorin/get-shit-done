@@ -14,6 +14,13 @@ Detection order:
 3. Otherwise → raw text mode
 </input_modes>
 
+<decisions>
+Contract: @~/.claude/get-shit-done/references/decisions-protocol.md (`decisions` = `node "$HOME/.claude/get-shit-done/bin/decisions.js"`).
+
+- An answer that settles a product choice is written as a `D-` record when it is given (`--source prd:stage{N} --prd {slug}`). A gap left unresolved is written as an `A-` record with the default this PRD proceeds on. Open Questions and Assumptions bullets start with their id; neither section holds an item that has no record.
+- Unattended (`GSD_AUTONOMOUS=1`): wherever this workflow says STOP and wait, take the default, write the `A-`, continue. Slug: derive it from the concept. Step 4 approval: `assumed`.
+</decisions>
+
 <process>
 
 ## Step 0: Initialize
@@ -91,12 +98,13 @@ Set initial gaps list. For PM Discovery, standard blocking gaps are:
 - market_differentiation: "What makes this different from existing solutions?" (blocked if unclear)
 - success_definition: "What does user success look like 6 months after adoption?" (blocked if not stated)
 - business_model: "Who pays and how?" (blocked if this is a commercial product concept — skip if internal tool)
+- vision: "What must this feel like to its user, and what would make you reject the result even if every story passes?" (always blocked — the vision is never inferred)
+- non_goals: "What must this not do or become?" (blocked if not stated)
 
 Remove gaps that are already clearly answered by the concept or research.
 
 Set initial confidence:
-- 0 gaps: confidence = 0.85 (advance immediately)
-- 1-2 gaps: confidence = 0.65
+- 1-2 gaps: confidence = 0.65 (`vision` is always one of them, so Stage 1 always asks at least one round)
 - 3+ gaps: confidence = 0.50
 
 ### 1c. Q&A Loop
@@ -243,6 +251,7 @@ Set initial scoping gaps for the Q&A:
 - mvp_scope: "Which of these actions are essential for MVP vs deferred to Phase 2?" (always blocked — requires explicit user decision)
 - priority_story: "Which user story is the most critical to validate first?" (blocked if not clear)
 - acceptance_evidence: "How does the user know each story is complete? (concrete behavior, not feature description)" (blocked if vague)
+- decision_points: "Per MVP story, the product choices with more than one reasonable answer: limits, defaults, states, permissions, copy tone, failure behaviour" (always blocked — list them all, ask the ones most expensive to change first within the round budget, give each of the rest a default and an `A-` record)
 
 Set initial confidence:
 - 1 gap (mvp_scope only): confidence = 0.60 (ensures at least one focused Q&A round)
@@ -511,9 +520,33 @@ Update the stage marker at the top of the PRD file:
 - Find: `<!-- stage: po -->`
 - Replace with: `<!-- stage: complete -->`
 
-Then continue to Step 4: Finalize.
+Then continue to Step 4: Approval.
 
-## Step 4: Finalize
+## Step 4: Approval
+
+Run `decisions render`, then show the CEO one screen, nothing else:
+
+```
+PRD {slug} — approval
+
+Summary (max 12 lines): problem, who it is for, the MVP stories by title, what is deferred.
+
+Decided ({N}):  D-NN  {question} -> {answer}
+Assumed ({N}):  A-NN  {question} -> {default} [{reversibility}]   (irreversible: the phase that needs it waits for you)
+
+Reply: approve | A-NN <answer> ... | change <what>
+```
+
+Order the Assumed list by reversibility (irreversible, costly, cheap), at most 10 lines; the rest are in `.planning/DECISIONS.md`.
+
+- `A-NN <answer>`: `decisions answer A-NN --value "<answer>"`, update the PRD text the answer changes, show the screen again.
+- `change <what>`: edit the PRD, record the change as a `D-` (`--source prd:approval`), show the screen again.
+- `approve`: write `<!-- approval: approved {date} -->` on the line under the stage marker.
+- Unattended: write `<!-- approval: assumed {date} -->`, send `decisions digest --mark` output via `mcp__telegram__send_message` when available, continue.
+
+Commit the PRD, `.planning/DECISIONS.jsonl` and `.planning/DECISIONS.md` together.
+
+## Step 5: Finalize
 
 Display:
 ```
@@ -522,16 +555,8 @@ Display:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 PRD stored at: .planning/prds/pending/{slug}.md
-
-Sections complete:
-  - Problem Statement
-  - Goals
-  - User Stories ({N} stories)
-  - Acceptance Criteria
-  - MVP Boundary
-  - Tech Candidates
-  - Open Questions ({N} questions — from unresolved Q&A gaps)
-  - Assumptions
+Approval: {approved | assumed — {N} questions queued}
+Decisions: {N} decided, {N} assumed (.planning/DECISIONS.md)
 
 Next step:
   /gsd:new-milestone
@@ -546,7 +571,7 @@ If `.planning/prds/pending/{slug}.md` already exists with a stage marker, resume
 - `<!-- stage: initialized -->` → resume from Step 1 (PM Discovery)
 - `<!-- stage: pm -->` → resume from Step 2 (PO/BA Scoping)
 - `<!-- stage: po -->` → resume from Step 3 (HL Tech Discovery)
-- `<!-- stage: complete -->` → PRD is done, display finalize message
+- `<!-- stage: complete -->` → no `<!-- approval: ... -->` line: resume from Step 4 (Approval); otherwise the PRD is done, display the finalize message
 
 To check for existing PRD: ask user for slug first, then check if file exists.
 </resume_support>

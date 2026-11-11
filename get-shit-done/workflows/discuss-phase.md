@@ -196,6 +196,12 @@ For each CONTEXT.md where phase number < current phase:
 - Read `<specifics>` — particular references or "I want it like X" moments
 - Note any patterns (e.g., "user consistently prefers minimal UI", "user rejected single-key shortcuts")
 
+**Step 2b: Read the decision ledger** (`@~/.claude/get-shit-done/references/decisions-protocol.md`)
+```bash
+node "$HOME/.claude/get-shit-done/bin/decisions.js" list --phase "${PHASE}" 2>/dev/null
+```
+Each line is decided (`D-`) or assumed with a default (`A-`). Never re-ask a `D-`. Offer each open `A-` once ("assumed: {default} — keep or change?") and record the reply with `decisions answer`. A gray area the user settles in this session is also written with `decisions add --kind decision --source discuss-phase --phases ${PHASE}`, and CONTEXT.md `<decisions>` cites every id that applies. A phase whose gray areas are all answered by the ledger needs no discussion: write CONTEXT.md from the records.
+
 **Step 3: Build internal `<prior_decisions>` context**
 
 Structure the extracted information:

@@ -1,0 +1,76 @@
+{
+  "phase": "404.1",
+  "title": "A player without a confirmed country cannot move money, and is told how to fix it",
+  "summary": "Phase 404.1 gives every player a trusted country at sign-up. When the country could not be resolved (sentinel ZZ) every money gate refuses, and the wallet says why and links to identity verification instead of showing a raw error.",
+  "sources": [
+    "404.1-VERIFICATION.md success criterion 3 (NULL/ZZ refuses everywhere: deposit/withdrawal 403 COUNTRY_UNRESOLVED)",
+    "apps/player-web/messages/en.json:210,243 (the two refusal messages)",
+    "apps/player-web/src/components/wallet/DepositForm.tsx:80-82, WithdrawForm.tsx:61-68 (localised codes + KYC call to action)"
+  ],
+  "base_urls": { "player": "http://localhost:3000" },
+  "accounts": {
+    "zz_player": "a signed-in player whose kyc.player_kyc_status country is ZZ / source unresolved (provisioned through the API before the run; never by SQL)",
+    "ng_player": "a signed-in player whose country is NG / source ip"
+  },
+  "record": { "video": true, "format": "webm", "fps": 5, "viewport": "1280x800" },
+  "steps": [
+    {
+      "id": "s1",
+      "say": "A player whose country could not be confirmed opens the deposit page",
+      "as": "zz_player",
+      "do": [{ "tool": "navigate", "url": "{player}/en/wallet/deposit" }],
+      "expect": "The deposit form renders with an amount field and a payment method",
+      "shot_selector": "main",
+      "must_have": "SC3"
+    },
+    {
+      "id": "s2",
+      "say": "They try to deposit and are refused with a plain explanation",
+      "as": "zz_player",
+      "do": [
+        { "tool": "type", "target": "amount input", "text": "1000" },
+        { "tool": "submit", "target": "deposit form" },
+        { "tool": "wait_for", "text": "Complete identity verification to set your country before depositing." }
+      ],
+      "expect": "The message 'Complete identity verification to set your country before depositing.' and a link to identity verification; no balance change",
+      "shot_selector": "main",
+      "must_have": "SC3"
+    },
+    {
+      "id": "s3",
+      "say": "Withdrawal is refused the same way",
+      "as": "zz_player",
+      "do": [
+        { "tool": "navigate", "url": "{player}/en/wallet/withdraw" },
+        { "tool": "type", "target": "amount input", "text": "1000" },
+        { "tool": "submit", "target": "withdraw form" },
+        { "tool": "wait_for", "text": "Complete identity verification to set your country before withdrawing." }
+      ],
+      "expect": "The message 'Complete identity verification to set your country before withdrawing.' and the identity-verification link",
+      "shot_selector": "main",
+      "must_have": "SC3"
+    },
+    {
+      "id": "s4",
+      "say": "The link takes them to identity verification",
+      "as": "zz_player",
+      "do": [{ "tool": "click", "target": "identity verification link in the refusal message" }],
+      "expect": "The KYC page at /en/kyc",
+      "shot_selector": "main",
+      "must_have": "SC3"
+    },
+    {
+      "id": "s5",
+      "say": "A player with a confirmed country is not stopped by the country gate",
+      "as": "ng_player",
+      "do": [
+        { "tool": "navigate", "url": "{player}/en/wallet/deposit" },
+        { "tool": "type", "target": "amount input", "text": "1000" },
+        { "tool": "submit", "target": "deposit form" }
+      ],
+      "expect": "No country message; the deposit proceeds to the payment step",
+      "shot_selector": "main",
+      "must_have": "SC1"
+    }
+  ]
+}
