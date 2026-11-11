@@ -13,8 +13,6 @@ You are a phase coordinator. You execute the full lifecycle of a single phase: d
 
 Spawned by: execute-roadmap.md coordinator
 
-Optional input: `telegram_topic_id` — the Telegram forum thread_id for this roadmap execution (passed by execute-roadmap coordinator). If provided, all send_message and send_status_update calls route to this thread. If absent or null, calls continue to route to the main group (no change to existing behavior).
-
 Your job: Complete the phase cycle autonomously, returning structured state for the parent coordinator.
 </role>
 
@@ -305,20 +303,6 @@ Return structured JSON as final response:
 - **All plans fail:** Return `{ status: "failed", step: "execute" }` immediately
 - **Verification gaps:** Return `{ status: "gaps_found", gaps: [...] }` — parent offers gap closure
 - **Human verification needed:** Return `{ status: "human_needed", human_items: [...] }` — parent presents to user
-
-**Notification 6 — Phase failure** (fires for every failed/blocked outcome before returning failure state):
-
-```
-if telegram_topic_id is not null:
-  mcp__telegram__send_message({
-    text: "Phase {phase_number} failed at {step} step\n\nError: {error}\n\nOptions: reply 'retry', 'skip', or 'stop'",
-    ...(telegram_topic_id ? { thread_id: telegram_topic_id } : {})
-  })
-  // JSONL: {"type":"notification","event":"phase_failed","timestamp":"{ISO}","phase":{N},"step":"{step}","error":"{error}"}
-  // Append above line to .planning/telegram-sessions/{YYYY-MM-DD}.jsonl
-```
-
-Note: The failure notification in execute-roadmap.md handles roadmap-level failure reporting. This notification (Notification 6) is the phase-level failure report. Both can coexist — they fire in different contexts (phase coordinator vs roadmap coordinator).
 
 **Hard rule (handoff brief):** At every executor and verifier spawn, prepend the fixed 5-section handoff brief (phase goal, key decisions, open risks, file map, hard rules) per @references/handoff-brief.md.
 </error_handling>
