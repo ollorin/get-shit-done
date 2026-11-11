@@ -219,6 +219,7 @@ const promptBudget = require('./prompt-budget.js');
 const promptOptimize = require('./prompt-optimize.js');
 const { getNextTier, getTiers } = require('./model-registry.js');
 const { deriveCheckSet } = require('./pre-pr-checks.js');
+const projectProfile = require('./project-profile.js');
 
 // Phase 2: Auto Mode safety modules (lazy — gracefully absent if not installed)
 let circuitBreaker, validator, escalation, feedback, learning;
@@ -15165,6 +15166,17 @@ async function main() {
       } else {
         error('Unknown eval-candidate subcommand. Available: from-debug, from-verification, list, accept, reject');
       }
+      break;
+    }
+
+    case 'profile': {
+      const r = projectProfile.runCli(cwd, args.slice(1));
+      if (r.error) error(r.error);
+      if (r.exitCode !== 0) {
+        writeStdoutSync(JSON.stringify(r.result, null, 2));
+        process.exit(r.exitCode);
+      }
+      output(r.result, raw, r.rawValue);
       break;
     }
 
