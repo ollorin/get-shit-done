@@ -1,6 +1,6 @@
 'use strict';
 
-const { test, afterEach } = require('node:test');
+const { test, describe, afterEach } = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
@@ -199,4 +199,45 @@ test('9 bad pattern: loadTerms throws an Error naming the file', () => {
   configure(root, [{ id: 'bad', label: 'bad', pattern: '(', flags: '' }]);
   const file = path.join(root, 'scripts/agnostic-lint/terms.json');
   assert.throws(() => lint.loadTerms(file), (e) => e instanceof Error && e.message.includes(file));
+});
+
+describe('repo tree', () => {
+  const ROOT = path.join(__dirname, '..');
+  const DIR = path.join(ROOT, 'scripts', 'agnostic-lint');
+  const TERMS = path.join(DIR, 'terms.json');
+  const ALLOW = path.join(DIR, 'allowlist.json');
+  const IDS = [
+    'igaming', 'game', 'reg', 'money', 'owner', 'supabase', 'deno', 'edgefn', 'redis', 'charlotte', 'nx', 'pnpm', 'postgres',
+    'orbstack', 'email', 'telegram', 'docker', 'authtech', 'frontend', 'cloud', 'paths', 'gates', 'zg', 'abs', 'ports',
+  ];
+
+  test('10 repo at baseline: no rises, no drops, inputs hash matches', () => {
+    const base = JSON.parse(fs.readFileSync(path.join(DIR, 'baseline.json'), 'utf8'));
+    const res = lint.scan(ROOT, lint.loadTerms(TERMS), lint.loadAllowlist(ALLOW));
+    const { rises, drops } = lint.compare(res, base);
+    const lines = [...rises, ...drops].map((r) => `${r.file} ${r.class} ${r.baseline}→${r.current}`);
+    assert.strictEqual(lines.length, 0, lines.join('\n'));
+    assert.strictEqual(base.inputs_sha256, lint.inputsHash(TERMS, ALLOW));
+  });
+
+  test('11 allow-list hygiene: reason, integer max, known class, file on disk in a scope, no duplicates', () => {
+    const classes = new Set(lint.loadTerms(TERMS).map((c) => c.id));
+    const seen = new Set();
+    for (const e of lint.loadAllowlist(ALLOW)) {
+      const key = `${e.file} ${e.class}`;
+      assert.ok(e.reason, `${key}: empty reason`);
+      assert.ok(Number.isInteger(e.max) && e.max >= 1, `${key}: max must be an integer >= 1`);
+      assert.ok(classes.has(e.class), `${key}: unknown class`);
+      assert.ok(fs.existsSync(path.join(ROOT, e.file)), `${key}: file not on disk`);
+      assert.ok(lint.SCOPES.some((s) => s.match(e.file)), `${key}: file in no scope`);
+      assert.ok(!seen.has(key), `${key}: duplicate entry`);
+      seen.add(key);
+    }
+  });
+
+  test('12 denylist shape: exactly the 25 spec ids, unique, in order', () => {
+    const ids = JSON.parse(fs.readFileSync(TERMS, 'utf8')).classes.map((c) => c.id);
+    assert.deepStrictEqual(ids, IDS);
+    assert.strictEqual(new Set(ids).size, 25);
+  });
 });
