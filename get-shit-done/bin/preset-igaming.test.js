@@ -3,7 +3,7 @@
 const { test, describe, afterEach } = require('node:test');
 const assert = require('node:assert');
 const crypto = require('crypto');
-const { execFileSync } = require('child_process');
+const { execFileSync, spawnSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -13,7 +13,19 @@ const { mergeSettings } = require('./project-deploy-settings.js');
 const PRESET = path.join(__dirname, '..', 'presets', 'igaming');
 const IGAMING_ROOT = '/Users/ollorin/igaming-platform';
 const PIN_SHA = '95a02959e5fa464f3bcce11378c803f7b86ec76d';
-const pinnedGit = (args) => execFileSync('git', ['-C', IGAMING_ROOT, ...args], { maxBuffer: 1 << 26 });
+const GOLDEN_REPO = process.env.GSD_IGAMING_REPO || IGAMING_ROOT;
+const pinnedGit = (root, args) => execFileSync('git', ['-C', root, ...args], { maxBuffer: 1 << 26 });
+
+// Why the golden check cannot run, or null. Only a missing checkout or a missing pinned commit skips;
+// any other probe failure throws, so a broken check never passes silently.
+function goldenSkipReason(root, probe = (args) => spawnSync('git', ['-C', root, ...args], { encoding: 'utf8' })) {
+  if (!fs.existsSync(path.join(root, '.git'))) return `igaming checkout not found at ${root} (set GSD_IGAMING_REPO)`;
+  const r = probe(['rev-parse', '--verify', '-q', `${PIN_SHA}^{commit}`]);
+  if (r.error) throw r.error;
+  if (r.status === 0) return null;
+  if (r.status === 1) return `pinned commit ${PIN_SHA} is not in ${root}`;
+  throw new Error(`git probe failed (status ${r.status}) for ${root}`);
+}
 const IGAMING_VALUES = { project: { slug: 'igaming', root: IGAMING_ROOT } };
 const SETTINGS_DEST = '.claude/settings.json';
 const META = ['preset.json', 'README.md', 'golden.sha256', 'settings.fragment.json', 'settings.snapshot.json'];
@@ -156,15 +168,44 @@ describe('igaming preset snapshot (agnostic-C1)', () => {
     assert.ok(missing.errors.some((e) => e.reason === 'missing config key: project.root'));
   });
 
-  test('G7 every golden entry and preset file is byte-equal to the pinned igaming archive (no exceptions)', () => {
-    assert.strictEqual(pinnedGit(['rev-parse', '--verify', `${PIN_SHA}^{commit}`]).toString().trim(), PIN_SHA);
+  test('G7 every golden entry and preset file is byte-equal to the pinned igaming archive (no exceptions)', (t) => {
+    const reason = goldenSkipReason(GOLDEN_REPO);
+    if (reason !== null) {
+      t.skip(reason);
+      return;
+    }
+    assert.strictEqual(pinnedGit(GOLDEN_REPO, ['rev-parse', '--verify', `${PIN_SHA}^{commit}`]).toString().trim(), PIN_SHA);
     const { preset } = R.loadPreset(PRESET);
     const srcByDest = new Map([...preset.files.map((f) => [f.dest, f.src]), [SETTINGS_DEST, 'settings.snapshot.json']]);
     assert.strictEqual(srcByDest.size, 50);
     for (const [dest, want] of golden()) {
-      assert.strictEqual(sha(pinnedGit(['show', `${PIN_SHA}:${dest}`])), want, `golden differs from pin: ${dest}`);
+      assert.strictEqual(sha(pinnedGit(GOLDEN_REPO, ['show', `${PIN_SHA}:${dest}`])), want, `golden differs from pin: ${dest}`);
       const src = srcByDest.get(dest);
       assert.strictEqual(sha(fs.readFileSync(path.join(PRESET, src))), want, `preset file differs from pin: ${src}`);
     }
+  });
+});
+
+describe('G7 skip contract (B-FIX3 item 6)', () => {
+  const tmpDir = () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-igaming-g7-'));
+    tmps.push(d);
+    return d;
+  };
+
+  test('G7-skip only a missing checkout or a missing pinned commit gives a skip reason', () => {
+    assert.match(goldenSkipReason(tmpDir()), /igaming checkout not found/);
+    const repo = tmpDir();
+    execFileSync('git', ['init', '-q', repo]);
+    assert.match(goldenSkipReason(repo), /is not in/);
+    assert.strictEqual(goldenSkipReason(repo, () => ({ status: 0 })), null);
+  });
+
+  test('G7-skip any other probe failure throws instead of skipping', () => {
+    const repo = tmpDir();
+    fs.mkdirSync(path.join(repo, '.git'));
+    assert.throws(() => goldenSkipReason(repo, () => ({ error: new Error('spawn git EACCES') })), /EACCES/);
+    assert.throws(() => goldenSkipReason(repo, () => ({ status: 128 })), /status 128/);
+    assert.throws(() => goldenSkipReason(repo, () => ({ status: null })), /status null/);
   });
 });
