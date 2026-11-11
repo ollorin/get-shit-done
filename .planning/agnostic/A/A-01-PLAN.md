@@ -55,11 +55,11 @@ Output: lint script, denylist, allow-list, generated baseline, tests wired into 
 <executor_rules>
 - Work only in `/Users/ollorin/get-shit-done-agnostic` (branch `exp/agnostic`). Never touch `/Users/ollorin/igaming-platform`, `~/.claude`, `~/get-shit-done`.
 - Forbidden: `npm run install:gsd`, `npm install`, `git push`, `git stash`, `git reset`, `git clean`, `git checkout -- <file>`, `--no-verify`.
-- Full suite: `cd /Users/ollorin/get-shit-done-agnostic && NODE_PATH=$HOME/get-shit-done/node_modules npm test > /tmp/agnostic-A01.log 2>&1; echo rc=$?` then read only the last 15 lines (`# tests`, `# pass`, `# fail`). Baseline before this plan: 1683 pass, 0 fail.
+- Full suite: `cd /Users/ollorin/get-shit-done-agnostic && NODE_PATH=$HOME/get-shit-done/node_modules npm test > /tmp/agnostic-A01.log 2>&1; echo rc=$?` then read only the last 15 lines (`# tests`, `# pass`, `# fail`). Baseline before this plan: 1683 pass, 0 fail. Pass counts: one `it` per numbered behaviour; success is `# fail 0` plus the named tests present in the output (no numeric `# pass` threshold).
 - Single file: `NODE_PATH=$HOME/get-shit-done/node_modules node --test scripts/agnostic-lint.test.js`.
 - Do NOT read `get-shit-done/bin/gsd-tools.js` or the design doc in full; everything needed is in this plan.
-- Commit per task with `git add <paths>` + `git commit -m "<msg>" -- <paths>`. `.planning/` is gitignored: use `git add -f` for the SUMMARY. Every commit message ends with:
-  `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`
+- Commit per task with `git add -f <paths>` + `git commit -m "<msg>" -- <paths>` (the SUMMARY is committed the same way). Verify steps that run after a commit use `git show --stat HEAD -- <paths>`, never `git status`/`git diff` against HEAD; ignore the untracked `.audit/` directory. Every commit message ends with these trailers (Haiku executors use `Claude Haiku`):
+  `Co-Authored-By: Claude Haiku <noreply@anthropic.com>`
   `Claude-Session: https://claude.ai/code/session_012KdjXbyhjnRuXKgkn5MYj8`
 - Code style: CommonJS, `'use strict'`, no new dependencies (node built-ins only), comments only for non-obvious constraints.
 </executor_rules>
@@ -79,7 +79,7 @@ Output: lint script, denylist, allow-list, generated baseline, tests wired into 
 | `install` | `bin/install.js` |
 | `hook-config` | `hook-config.json` |
 
-Walk with `fs.readdirSync(..., { withFileTypes: true })`; skip directories named `node_modules` and entries whose name starts with `.`; a missing scope directory/file yields no files (fixtures rely on this). Paths are repo-relative with `/`, sorted. Everything else (`scripts/`, `tests/`, `docs/`, `mcp-servers/`, `hooks/`, `.planning/`) is out of scope.
+Enumerate candidate files with `git ls-files -z` run in `<root>` (so untracked or generated files can never cause a false RISE/STALE; files listed by git but absent on disk are skipped). Only when `<root>` is not a git work tree (a `--root` fixture without `.git`; detect with `fs.existsSync(path.join(root, '.git'))`) fall back to walking the disk with `fs.readdirSync(..., { withFileTypes: true })`. Both paths then apply the same scope rules: skip any path with a segment named `node_modules` or starting with `.`; a missing scope directory/file yields no files (fixtures rely on this). Paths are repo-relative with `/`, sorted. Everything else (`scripts/`, `tests/`, `docs/`, `mcp-servers/`, `hooks/`, `.planning/`) is out of scope.
 
 Expected file counts on the current tree: agents 23, commands 34, workflows 36, references 29, templates 36, bin 63, install 1, hook-config 1.
 
@@ -165,7 +165,7 @@ Exports (all pure except the fs readers and `main`):
 - `SCOPES` (the table above), `listScopeFiles(root)` → `{ [scopeId]: string[] }`
 - `loadTerms(file)`, `loadAllowlist(file)` (throw a plain `Error` naming the file on bad JSON or a pattern that `new RegExp` rejects)
 - `countLines(text, classes)` → `{ [classId]: n }` (non-zero only)
-- `scan(root, terms, allowlist)` → `{ denied: { [file]: { [classId]: n } }, allowed: { [file]: { [classId]: n } }, files: { [scopeId]: string[] } }` (non-zero entries only, keys sorted)
+- `scan(root, terms, allowlist)` (files enumerated via `git ls-files`, disk-walk fallback for non-git roots) → `{ denied: { [file]: { [classId]: n } }, allowed: { [file]: { [classId]: n } }, files: { [scopeId]: string[] } }` (non-zero entries only, keys sorted)
 - `inputsHash(termsFile, allowlistFile)` → sha256 hex of the two files' bytes concatenated
 - `compare(current, baseline)` → `{ rises: [{file, class, kind, baseline, current}], drops: [...] }` where `kind` is `denied` or `allowed`; a (file, class) absent from one side counts as 0
 - `totals(scanResult)` → `{ [classId]: { [scopeId]: { lines, files } } }` over denied + allowed
@@ -227,7 +227,7 @@ Commit: `feat(agnostic-A1): term denylist, allow-list and ratchet lint script`.
 `node scripts/agnostic-lint.js report` prints the table above (all 25 rows equal) and exits 0.
 `node -e "const a=require('./scripts/agnostic-lint/allowlist.json');console.log(a.entries.length)"` prints `70`.
 `node -e "const t=require('./scripts/agnostic-lint/terms.json');console.log(t.classes.length)"` prints `25`.
-`git status --short` shows only the three new files.
+`git show --stat HEAD -- scripts/agnostic-lint.js scripts/agnostic-lint/terms.json scripts/agnostic-lint/allowlist.json` lists exactly the three new files (ignore `.audit/`).
   </verify>
   <done>Report matrix equals the planner table; 25 classes; 70 allow-list entries; committed.</done>
 </task>
@@ -240,7 +240,8 @@ All ADD (no existing test covers this script; `git grep -n agnostic-lint -- '*.t
 
 1. `countLines` counts lines, not occurrences: a line with two matches counts 1; three matching lines count 3. ADD.
 2. Word boundary and case flags: with class `deno` (`\bdeno\b`, `i`) "denoise" = 0, "Deno task" = 1; with class `owner` (`\bCEO\b`, no flag) "CEO" = 1, "ceo" = 0. ADD.
-3. Scopes: `agents/a.md` counted; `agents/v2/b.md` not; `get-shit-done/bin/x.js` counted; `get-shit-done/bin/x.test.js` not; `get-shit-done/bin/hooks/y.js` counted (recursive); `bin/install.js` and `hook-config.json` counted; `scripts/z.js`, `docs/d.md`, `tests/t.md` not. ADD.
+3. Scopes (disk-walk fallback, tmp root without `.git`): `agents/a.md` counted; `agents/v2/b.md` not; `get-shit-done/bin/x.js` counted; `get-shit-done/bin/x.test.js` not; `get-shit-done/bin/hooks/y.js` counted (recursive); `bin/install.js` and `hook-config.json` counted; `scripts/z.js`, `docs/d.md`, `tests/t.md` not. ADD.
+3a. Git enumeration: in a tmp root that is a git repo (`git init`, `git add` the tracked fixture files; spawn git with `-c user.name=t -c user.email=t@t` where needed), a matching file that is untracked (never `git add`ed) is NOT counted by `scan` and does not make CLI `check` exit 1 after `write-baseline`; after `git add` it IS counted and `check` then exits 1 with `RISE`; a tracked file deleted from disk is skipped without error. The same tree without `.git` counts the file (disk-walk fallback). ADD.
 4. Allow-list cap: file with 3 matching lines and entry `max: 2` → `allowed` 2, `denied` 1; same file with no entry → `denied` 3. ADD.
 5. `compare`: +1 on an existing (file, class) → one rise; a new file with a hit → one rise with baseline 0; -1 → one drop; identical → both empty. A rise in `allowed` is reported with `kind: 'allowed'`. ADD.
 6. CLI `check` (spawn `process.execPath` with `[lintPath, 'check', '--root', tmp]` via `child_process.spawnSync`): after `write-baseline` exit 0; after appending a matching line to a scoped file exit 1 and stderr contains `RISE denied`, the file path and the class id. ADD.
@@ -259,16 +260,18 @@ Mutation proof (apply each by Edit, run the file, confirm the named test FAILS, 
 - M3: ignore `max` (count every allow-listed hit as allowed) → test 4 fails.
 - M4: count occurrences instead of lines → test 1 fails.
 - M5: skip the inputs-hash comparison in `check` → test 7 fails.
+- M6: in `compare`, never push to `drops` → the falling-baseline tests fail (test 5 drop case and test 7 STALE case).
+- M7: always use the disk walk, never `git ls-files` → test 3a fails.
 
 After the last revert `git diff --stat -- scripts/agnostic-lint.js` must be empty. Do not add the file to `package.json` yet (Task 3).
 
-Commit: `test(agnostic-A1): fixture tests for the ratchet lint (5 mutants killed)`.
+Commit: `test(agnostic-A1): fixture tests for the ratchet lint (7 mutants killed)`.
   </action>
   <verify>
-`NODE_PATH=$HOME/get-shit-done/node_modules node --test scripts/agnostic-lint.test.js` → `# fail 0`, at least 9 tests.
+`NODE_PATH=$HOME/get-shit-done/node_modules node --test scripts/agnostic-lint.test.js` → `# fail 0`, and tests 1-9 and 3a present by name in the output.
 `git diff --stat -- scripts/agnostic-lint.js` empty.
   </verify>
-  <done>9 behaviours covered, 5 mutants each killed by a named test, lint source unchanged after reverts.</done>
+  <done>10 behaviours covered (1-9 and 3a), 7 mutants each killed by a named test, lint source unchanged after reverts.</done>
 </task>
 
 <task type="auto" tdd="true">
@@ -287,9 +290,9 @@ All ADD, tier T2, layer integration (real repo tree), appended to `scripts/agnos
 3. `package.json`, `scripts.test`: insert ` scripts/agnostic-lint.test.js` immediately after `scripts/evolve/gate.test.js` and before ` && node get-shit-done/bin/gsd-tools.js eval regress`. Change nothing else in the file. (Tests are an explicit file list; a file not listed never runs.)
 4. Live mutation proof on the real tree (record outputs in the SUMMARY):
    - L1: append one line `Charlotte` to the end of `agents/gsd-executor.md` with Edit → `node scripts/agnostic-lint.js check` exits 1 with `RISE denied agents/gsd-executor.md charlotte`, and test 10 fails. Remove the line with Edit; `git diff --quiet -- agents/gsd-executor.md` must exit 0.
-   - L2: create `get-shit-done/references/zz-probe.md` containing `deno task test` → `check` exits 1 with `RISE denied get-shit-done/references/zz-probe.md deno baseline=0 current=1`. Delete the file with `rm get-shit-done/references/zz-probe.md`.
+   - L2: create `get-shit-done/references/zz-probe.md` containing `deno task test`; first run `check` and confirm exit 0 (untracked files are ignored), then `git add -N get-shit-done/references/zz-probe.md` and `check` exits 1 with `RISE denied get-shit-done/references/zz-probe.md deno baseline=0 current=1`. Remove with `git rm -f get-shit-done/references/zz-probe.md`.
    - L3: change one `max` in `allowlist.json` from its value to value-1 → `check` exits 1 with `STALE inputs hash`. Revert by Edit; `git diff --quiet -- scripts/agnostic-lint/allowlist.json` exits 0.
-5. Full suite (command in `<executor_rules>`): rc=0, `# fail 0`, `# pass` ≥ 1695 (1683 + 12).
+5. Full suite (command in `<executor_rules>`): rc=0, `# fail 0`, tests 10-12 present in the output.
 6. In the SUMMARY add a short "Delta vs FABLE-AGNOSTIC-GSD section 1.1" table: only the cells of the Task 1 table that differ from the design doc's table (the lint is deliberately a superset: case-insensitive `charlotte`/`money`, `p0-tier`/`qa-verdict` in `gates`, docker split from cloud). State counts only; do not tune patterns to match.
 
 Commit: `feat(agnostic-A1): committed baseline, repo-at-baseline test, wired into npm test`.
@@ -297,19 +300,19 @@ Commit: `feat(agnostic-A1): committed baseline, repo-at-baseline test, wired int
   <verify>
 `node scripts/agnostic-lint.js check` → exit 0.
 `git grep -c "scripts/agnostic-lint.test.js" -- package.json` → `package.json:1`.
-Full suite: rc=0, `# fail 0`, `# pass` ≥ 1695.
-`git status --short` shows nothing outside `.audit/` and this plan's files; `git diff --quiet db24beb -- agents commands get-shit-done bin hook-config.json` exits 0.
+Full suite: rc=0, `# fail 0`.
+`git show --stat HEAD -- scripts/agnostic-lint/baseline.json scripts/agnostic-lint.test.js package.json` lists exactly those three files (ignore `.audit/`); `git diff --quiet db24beb -- agents commands get-shit-done bin hook-config.json` exits 0.
   </verify>
-  <done>Baseline generated by the tool, 3 live mutations each failed the check and were reverted, suite green and larger, no installable file changed.</done>
+  <done>Baseline generated by the tool, 3 live mutations each failed the check and were reverted, suite green, no installable file changed.</done>
 </task>
 
 </tasks>
 
 <verification>
 - `node scripts/agnostic-lint.js check` exit 0; `report` equals the Task 1 table.
-- `NODE_PATH=$HOME/get-shit-done/node_modules npm test` rc 0, pass ≥ 1695, fail 0.
+- `NODE_PATH=$HOME/get-shit-done/node_modules npm test` rc 0, `# fail 0`.
 - `git diff --quiet db24beb -- agents commands get-shit-done bin hook-config.json` exits 0 (no behaviour change).
-- SUMMARY lists M1-M5 and L1-L3 with the failing test / stderr line for each.
+- SUMMARY lists M1-M7 and L1-L3 with the failing test / stderr line for each.
 </verification>
 
 <success_criteria>
@@ -317,5 +320,5 @@ A rise of one denylist line in any installable file fails `npm test` naming file
 </success_criteria>
 
 <output>
-After completion create `.planning/agnostic/A/A-01-SUMMARY.md` (`git add -f`).
+After completion create `.planning/agnostic/A/A-01-SUMMARY.md` (`git add -f`, new file under an ignore-listed dir).
 </output>

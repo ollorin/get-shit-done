@@ -45,12 +45,12 @@ Output: one module (target ≤ 260 lines), its test file, a 2-edit wiring in `gs
 <executor_rules>
 - Work only in `/Users/ollorin/get-shit-done-agnostic` (branch `exp/agnostic`). Never touch `/Users/ollorin/igaming-platform`, `~/.claude`, `~/get-shit-done`.
 - Forbidden: `npm run install:gsd`, `npm install`, `git push`, `git stash`, `git reset`, `git clean`, `git checkout -- <file>`, `--no-verify`.
-- Full suite: `cd /Users/ollorin/get-shit-done-agnostic && NODE_PATH=$HOME/get-shit-done/node_modules npm test > /tmp/agnostic-A02.log 2>&1; echo rc=$?` then read only the last 15 lines. Expected before this plan: pass ≥ 1695, fail 0.
-- `get-shit-done/bin/gsd-tools.js` is 16.4k lines. Read ONLY these ranges: 205-230 (requires), 745-748 and 780-806 (`output`, `writeStdoutSync`, `error`), 1886-1901 (`readRawConfigPath`), 15165-15175 (dispatch neighbourhood). Line numbers are from `db24beb`; locate by the quoted anchor text if they moved.
+- Full suite: `cd /Users/ollorin/get-shit-done-agnostic && NODE_PATH=$HOME/get-shit-done/node_modules npm test > /tmp/agnostic-A02.log 2>&1; echo rc=$?` then read only the last 15 lines. Expected before this plan: fail 0. Pass counts: one `it` per numbered behaviour; success is `# fail 0` plus the named tests present in the output (no numeric `# pass` threshold).
+- `get-shit-done/bin/gsd-tools.js` is 16.4k lines. Read ONLY these ranges: 205-230 (requires), 745-760 and 780-806 (`output`, `writeStdoutSync`, `error`), 1886-1901 (`readRawConfigPath`), 15165-15175 (dispatch neighbourhood). Line numbers are from `db24beb`; locate by the quoted anchor text if they moved.
 - `get-shit-done/bin/gsd-tools.test.js` is 18k lines: do not read or edit it. CLI tests go in the new test file (a file over 1,500 LOC is not grown).
 - The new module is inside the agnostic-lint `bin` scope: it must contain none of the denylist terms (no vendor, tool or product names, no `localhost:<port>`). `node scripts/agnostic-lint.js check` must stay at exit 0 without regenerating the baseline.
-- Commit per task with `git commit -m "<msg>" -- <paths>`; `git add -f` for the SUMMARY. Every commit message ends with:
-  `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`
+- Commit per task with `git add -f <paths>` + `git commit -m "<msg>" -- <paths>` (the SUMMARY is committed the same way). Verify steps that run after a commit use `git show --stat HEAD -- <paths>`, never `git status`/`git diff` against HEAD; ignore the untracked `.audit/` directory. Every commit message ends with these trailers (Haiku executors use `Claude Haiku`):
+  `Co-Authored-By: Claude Haiku <noreply@anthropic.com>`
   `Claude-Session: https://claude.ai/code/session_012KdjXbyhjnRuXKgkn5MYj8`
 - CommonJS, `'use strict'`, node built-ins only, no `throw` across the module boundary (return result objects), comments only for non-obvious constraints.
 </executor_rules>
@@ -140,7 +140,7 @@ Commit: `feat(agnostic-A2): project/stack profile loader and gsd-tools profile g
   <verify>
 The three smoke checks behave as stated.
 `node scripts/agnostic-lint.js check` → exit 0 (baseline untouched).
-`git diff --stat -- get-shit-done/bin/gsd-tools.js` shows 1 file, 11-12 insertions, 0 deletions.
+`git show --stat HEAD -- get-shit-done/bin/gsd-tools.js` shows 1 file, 11-12 insertions, 0 deletions (ignore `.audit/`).
   </verify>
   <done>Module exists, CLI wired at the two named anchors, lint still at baseline.</done>
 </task>
@@ -168,6 +168,8 @@ All ADD (new module; `git grep -n project-profile -- '*.test.js'` is empty befor
   <action>
 Write `get-shit-done/bin/project-profile.test.js` (`node:test`, `node:assert`; helper style: `get-shit-done/bin/pre-pr-checks.test.js` lines 1-30). Then in `package.json` `scripts.test` insert ` get-shit-done/bin/project-profile.test.js` immediately after `get-shit-done/bin/demo-check.test.js`; change nothing else.
 
+Before writing test 11, read `get-shit-done/bin/gsd-tools.js` lines 745-760 (`output`) and decide from the code whether `--raw` stdout carries a trailing newline; assert exact equality against what `output` really writes (trim in the test only if it does append one), never a guessed form.
+
 Run `NODE_PATH=$HOME/get-shit-done/node_modules node --test get-shit-done/bin/project-profile.test.js` → all pass.
 
 Mutation proof (Edit, run the file, confirm the named test fails, revert; record in SUMMARY):
@@ -178,16 +180,16 @@ Mutation proof (Edit, run the file, confirm the named test fails, revert; record
 - M5: skip the duplicate-id check for gates → test 6 fails.
 - M6: let `getProfileValue` accept any top-level key → test 9 fails.
 
-After the last revert `git diff --stat -- get-shit-done/bin/project-profile.js` is empty. Then the full suite: rc=0, `# fail 0`, `# pass` ≥ 1708 (1695 + 13).
+After the last revert `git diff --stat -- get-shit-done/bin/project-profile.js` is empty. Then the full suite: rc=0, `# fail 0`, tests 1-13 present in the output.
 
 Commit: `test(agnostic-A2): profile loader unit + CLI tests (6 mutants killed), wired into npm test`.
   </action>
   <verify>
-Single-file run `# fail 0`, ≥ 13 tests.
+Single-file run `# fail 0`, tests 1-13 present by name (one `it` per numbered behaviour).
 `git grep -c "get-shit-done/bin/project-profile.test.js" -- package.json` → `package.json:1`.
-Full suite rc=0, pass ≥ 1708, fail 0. `node scripts/agnostic-lint.js check` exit 0.
+Full suite rc=0, `# fail 0`. `node scripts/agnostic-lint.js check` exit 0.
   </verify>
-  <done>13 behaviours covered, 6 mutants killed and reverted, suite green and larger.</done>
+  <done>13 behaviours covered, 6 mutants killed and reverted, suite green.</done>
 </task>
 
 </tasks>
@@ -195,7 +197,7 @@ Full suite rc=0, pass ≥ 1708, fail 0. `node scripts/agnostic-lint.js check` ex
 <verification>
 - `gsd-tools profile check|get` behave per spec in a scratch project.
 - `git diff db24beb --stat -- get-shit-done/bin/gsd-tools.js`: insertions only, at the two anchors.
-- `NODE_PATH=$HOME/get-shit-done/node_modules npm test` rc 0, pass ≥ 1708; agnostic lint exit 0 with unchanged `baseline.json` (`git diff --quiet HEAD~2 -- scripts/agnostic-lint/baseline.json`).
+- `NODE_PATH=$HOME/get-shit-done/node_modules npm test` rc 0, `# fail 0`; agnostic lint exit 0 with unchanged `baseline.json`: `git diff --quiet <A01-T3-SHA> -- scripts/agnostic-lint/baseline.json` where `<A01-T3-SHA>` is the A-01 Task 3 commit SHA recorded in the A-01 SUMMARY (or `git log -1 --format=%H -- scripts/agnostic-lint/baseline.json`).
 </verification>
 
 <success_criteria>
@@ -203,5 +205,5 @@ A project's `project`/`stack` blocks can be validated and read through one CLI t
 </success_criteria>
 
 <output>
-After completion create `.planning/agnostic/A/A-02-SUMMARY.md` (`git add -f`).
+After completion create `.planning/agnostic/A/A-02-SUMMARY.md` (`git add -f`, new file under an ignore-listed dir).
 </output>

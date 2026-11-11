@@ -45,11 +45,11 @@ Phase A3 (design: FABLE-AGNOSTIC-GSD sections 4.1-4.2): add the two project temp
 <executor_rules>
 - Work only in `/Users/ollorin/get-shit-done-agnostic` (branch `exp/agnostic`). Never touch `/Users/ollorin/igaming-platform`, `~/.claude`, `~/get-shit-done`.
 - Forbidden: `npm run install:gsd`, `npm install`, `git push`, `git stash`, `git reset`, `git clean`, `git checkout -- <file>`, `--no-verify`.
-- Full suite: `cd /Users/ollorin/get-shit-done-agnostic && NODE_PATH=$HOME/get-shit-done/node_modules npm test > /tmp/agnostic-A03.log 2>&1; echo rc=$?` then read only the last 15 lines. Expected before this plan: pass ≥ 1708, fail 0.
+- Full suite: `cd /Users/ollorin/get-shit-done-agnostic && NODE_PATH=$HOME/get-shit-done/node_modules npm test > /tmp/agnostic-A03.log 2>&1; echo rc=$?` then read only the last 15 lines. Expected before this plan: fail 0. Pass counts: one `it` per numbered behaviour; success is `# fail 0` plus the named tests present in the output (no numeric `# pass` threshold).
 - The three markdown files are inside the agnostic-lint scopes. They must contain NO denylist term: no vendor/tool/product names (see `scripts/agnostic-lint/terms.json`), no `localhost:<port>` (write URLs as `http://127.0.0.1:<port>`), no words `payment`, `money`, `wallet`, `deposit`, `withdraw`, `bonus`, `docker`, `postgres`, `React`, `jest`, no `CEO`, no absolute home paths, no `~/.claude/` (the installer rewrites that string in `.md` files). `node scripts/agnostic-lint.js check` must exit 0 WITHOUT regenerating the baseline.
 - Style sample for templates, if needed: `get-shit-done/templates/project.md` lines 1-40 only.
-- Commit per task with `git commit -m "<msg>" -- <paths>`; `git add -f` for the SUMMARY. Every commit message ends with:
-  `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`
+- Commit per task with `git add -f <paths>` + `git commit -m "<msg>" -- <paths>` (the SUMMARY is committed the same way). Verify steps that run after a commit use `git show --stat HEAD -- <paths>`, never `git status`/`git diff` against HEAD; ignore the untracked `.audit/` directory. Every commit message ends with these trailers (Haiku executors use `Claude Haiku`):
+  `Co-Authored-By: Claude Haiku <noreply@anthropic.com>`
   `Claude-Session: https://claude.ai/code/session_012KdjXbyhjnRuXKgkn5MYj8`
 </executor_rules>
 
@@ -138,9 +138,9 @@ Then: `node scripts/agnostic-lint.js check` → exit 0. If it prints `RISE`, rew
 Commit: `docs(agnostic-A3): product-brief and stack-profile templates, project-context reference`.
   </action>
   <verify>
-`node scripts/agnostic-lint.js check` exit 0; `git diff --quiet HEAD -- scripts/agnostic-lint/baseline.json` exit 0.
+`node scripts/agnostic-lint.js check` exit 0; `git log -1 --format=%H -- scripts/agnostic-lint/baseline.json` equals the A-01 Task 3 commit SHA recorded in the A-01 SUMMARY.
 `wc -l` limits hold.
-`git status --short` shows no modified pre-existing file.
+`git show --stat HEAD` lists only the three new files (ignore `.audit/`).
   </verify>
   <done>Three files exist within size limits, zero lint hits, baseline untouched.</done>
 </task>
@@ -169,21 +169,21 @@ Mutation proof (Edit the markdown, run, confirm the named test fails, revert by 
 
 After reverts: `git diff --quiet HEAD -- get-shit-done/templates get-shit-done/references` exits 0.
 
-Full suite: rc=0, `# fail 0`, `# pass` ≥ 1713 (1708 + 5). `node scripts/agnostic-lint.js check` exit 0.
+Full suite: rc=0, `# fail 0`, tests 14-18 present in the output. `node scripts/agnostic-lint.js check` exit 0.
 
 Commit: `test(agnostic-A3): templates and project-context reference checked against the profile schema (5 mutants killed)`.
   </action>
   <verify>
-Single-file run `# fail 0`. Full suite rc=0, pass ≥ 1713, fail 0.
+Single-file run `# fail 0`, tests 14-18 present by name. Full suite rc=0, `# fail 0`.
 `git diff --quiet db24beb -- agents commands get-shit-done/workflows bin hook-config.json` exits 0.
   </verify>
-  <done>5 behaviours covered, 5 mutants killed and reverted, suite green and larger, no agent/workflow/command changed.</done>
+  <done>5 behaviours covered, 5 mutants killed and reverted, suite green, no agent/workflow/command changed.</done>
 </task>
 
 </tasks>
 
 <verification>
-- Phase A end state: `NODE_PATH=$HOME/get-shit-done/node_modules npm test` rc 0, pass ≥ 1713, fail 0.
+- Phase A end state: `NODE_PATH=$HOME/get-shit-done/node_modules npm test` rc 0, `# fail 0`.
 - `node scripts/agnostic-lint.js check` exit 0 with the baseline generated in A-01 (byte-identical since then).
 - `git diff --stat db24beb -- agents commands get-shit-done/workflows hook-config.json bin` empty; under `get-shit-done/` only new files plus the two insertions in `bin/gsd-tools.js`.
 </verification>
@@ -193,5 +193,5 @@ Templates and reference exist, are vendor-neutral by lint, and the documented ex
 </success_criteria>
 
 <output>
-After completion create `.planning/agnostic/A/A-03-SUMMARY.md` (`git add -f`).
+After completion create `.planning/agnostic/A/A-03-SUMMARY.md` (`git add -f`, new file under an ignore-listed dir).
 </output>
