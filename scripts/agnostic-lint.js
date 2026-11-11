@@ -17,6 +17,10 @@ const SCOPES = [
   { id: 'bin', match: (p) => p.startsWith('get-shit-done/bin/') && !p.endsWith('.test.js') },
   { id: 'install', match: (p) => p === 'bin/install.js' },
   { id: 'hook-config', match: (p) => p === 'hook-config.json' },
+  { id: 'hooks', match: (p) => /^hooks\/[^/]+\.js$/.test(p) },
+  { id: 'skills', match: (p) => p.startsWith('skills/') },
+  { id: 'routing', match: (p) => p === 'routing-rules.md' },
+  { id: 'config', match: (p) => /^get-shit-done\/config\/[^/]+\.json$/.test(p) },
 ];
 
 const scopeOf = (p) => (SCOPES.find((s) => s.match(p)) || { id: null }).id;

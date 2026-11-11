@@ -226,6 +226,9 @@
     "get-shit-done/bin/whisper-transcribe.js": {
       "telegram": 2
     },
+    "get-shit-done/config/gate-capabilities.json": {
+      "gates": 1
+    },
     "get-shit-done/references/agent-messaging.md": {
       "charlotte": 1
     },
@@ -448,6 +451,9 @@
     "hook-config.json": {
       "abs": 1,
       "igaming": 1
+    },
+    "routing-rules.md": {
+      "authtech": 1
     }
   },
   "allowed": {
