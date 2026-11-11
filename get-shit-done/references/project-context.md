@@ -18,7 +18,8 @@ If a key you need is missing, stop and report the key. Never substitute a defaul
 
 - `node get-shit-done/bin/gsd-tools.js profile get <key> --raw` prints one value. An absent key exits 1 with `profile key not set: <key>`.
 - `node get-shit-done/bin/gsd-tools.js profile check` validates the whole profile and exits 1 on any missing or invalid key.
-- Placeholders `{root}`, `{file}`, `{paths}` and `{project}` in command values are filled by the caller.
+- Placeholders `{root}`, `{file}`, `{paths}` and `{project}` in command values are filled by the caller. `stack.commands.test_file` must contain `{file}`.
+- A placeholder inside single quotes is shell text (an awk program, say) and is not read; `${name}` is shell expansion and is not read either. Write placeholders outside single quotes.
 
 ## Keys
 
@@ -32,7 +33,7 @@ If a key you need is missing, stop and report the key. Never substitute a defaul
 | `stack.commands.<name>` | no | `test_all`, `typecheck`, `lint`, `format`, `frontend_test`, `pre_pr_gate`, `search` |
 | `stack.preset`, `stack.preset_version` | no | preset name and version, non-empty strings |
 | `stack.paths` | no | `backend`, `migrations`, `api_globs`, `e2e_scenarios`, `frontends` |
-| `stack.test_command_shapes` | no | array of allowed test command shapes |
+| `stack.test_command_shapes` | no | array of allowed test command shapes; `<file>` is a literal token shown to agents, never substituted |
 | `stack.gates` | no | array of `{id, run}`; ids unique |
 | `stack.services` | no | array of `{name, url, health?, launch?, ready?}`; names unique |
 | `stack.capabilities` | no | `ui_qa: {driver, agent, tool_prefix?, reset_patterns?}` |

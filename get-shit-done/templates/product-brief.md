@@ -30,7 +30,7 @@ Template for `.planning/PRODUCT-BRIEF.md`: the domain facts of this project. Tec
 |--------|--------------------------|--------------------|-----------------|
 | [id] | [paths, flows or data that fall under this domain] | [tier from the test policy] | [yes or no] |
 
-[Ids in this table must equal `config.json` `project.risk_domains`. The ruling column must match `project.ruling_topics`.]
+[Intended: ids in this table equal `config.json` `project.risk_domains`, and the ruling column names ids from `project.ruling_topics`. `profile check` does not compare them yet; keep them in step by hand.]
 
 ## Compliance and Regulation
 

@@ -9,7 +9,7 @@ Template for `.planning/STACK-PROFILE.md`: the technology facts of this project 
 
 ## Commands
 
-The block below is rendered from `.planning/config.json` `stack.commands`; edit the config, not the table.
+The block below will be rendered from `.planning/config.json` `stack.commands` by the deploy engine (later phase, not built yet). Until then, keep this table in step with the config by hand.
 
 <!-- gsd:begin commands -->
 | Key | Command |
