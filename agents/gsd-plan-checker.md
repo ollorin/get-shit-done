@@ -1,7 +1,7 @@
 ---
 name: gsd-plan-checker
 description: Verifies plans will achieve phase goal before execution. Goal-backward analysis of plan quality. Spawned by /gsd:plan-phase orchestrator.
-tools: Read, Bash, Glob, Grep, LSP, SendMessage, Agent, Task
+tools: Read, Write, Bash, Glob, Grep, LSP, SendMessage, Agent, Task
 color: green
 skills:
   - gsd-plan-checker-workflow
@@ -556,6 +556,26 @@ issue:
 ## Dimension 13: Adversary View
 
 Plans touching RNG, money or authz must meet planner MANDATE-6(a): abuse cases, public-route exposure, debit-key orphan owner, replay/timeout path, lock order. Missing or vague = blocker (`dimension: adversary_view`, `severity: blocker`). Same revision loop (max 3).
+
+## Dimension 14: Adversarial Pass
+
+Only when the prompt says `Adversarial pass: enabled for plans {ids}`. For each listed plan: (1) attack it for logical fallacies, missed edge cases or dependencies, and untestable success criteria; (2) rebut each flaw strictly from plan or codebase evidence (cite `file:line`; re-read the evidence, do not assume); (3) keep a flaw only if the rebuttal fails, rated `minor|major|critical`. Write `{phase_dir}/{plan_id}-VERDICT.md`:
+
+```markdown
+---
+verdict: approved | revise | critical   # revise = any major, critical = any critical
+plan: {plan_id}
+required_changes:   # only for revise/critical, one concrete fix per kept major/critical flaw
+  - "..."
+---
+# Adversarial Review Verdict: Plan {plan_id}
+## Flaws
+| # | Flaw | Severity | Rebuttal | Kept |
+## Defect Classes
+(rows with caught_by `plan-check`, or `None found. (reviewed by: plan-check)`)
+```
+
+Write no VERDICT.md for plans not listed.
 
 </verification_dimensions>
 
