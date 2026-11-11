@@ -67,3 +67,8 @@ Deliberate scope choices: `pnpm`, `paths`, `gates`, `zg`, `abs`, `ports` stay ca
 Correction: the F1 commit body says 4 new allow-list entries; the count is 3 (70 to 73). The entry list in the commit is correct.
 
 Tests: `NODE_PATH=$HOME/get-shit-done/node_modules npm test`: 1729 pass, 0 fail (was 1714). A-03 tests 14-18 still pass; no pinned wording changed.
+
+## Review round 2 fixes
+
+- R2 LOW-1: `test_file` with `{file}` only inside single quotes now says so and asks for unquoted or double-quoted; test 27 fails on the old message (reverted, restored).
+- R2 LOW-1: an unpaired single quote no longer hides placeholders (quotes stripped only when balanced); test 27 fails with the guard reverted (reverted, restored).

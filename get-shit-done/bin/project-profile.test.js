@@ -305,6 +305,29 @@ describe('validators', () => {
     quotedFile.stack.commands.test_file = "npm test -- '{file}'";
     assert.ok(invalid(quotedFile).includes('stack.commands.test_file'));
   });
+
+  test('27 test_file reason names single quotes when {file} is only quoted; an unpaired quote hides no placeholder', () => {
+    const quotedFile = validProfile();
+    quotedFile.stack.commands.test_file = "npm test -- '{file}'";
+    const reason = profile.validateProfile(loaded(quotedFile)).invalid.find((i) => i.key === 'stack.commands.test_file').reason;
+    assert.match(reason, /only inside single quotes/);
+    assert.match(reason, /unquoted or double-quoted/);
+
+    const noFile = validProfile();
+    noFile.stack.commands.test_file = 'npm test';
+    const noFileReason = profile.validateProfile(loaded(noFile)).invalid.find((i) => i.key === 'stack.commands.test_file').reason;
+    assert.strictEqual(noFileReason, 'must contain the {file} placeholder');
+
+    const doubleQuoted = validProfile();
+    doubleQuoted.stack.commands.test_file = 'npm test -- "{file}"';
+    assert.deepStrictEqual(invalid(doubleQuoted), []);
+
+    const unpaired = validProfile();
+    unpaired.stack.commands.lint = "echo it's {bogus} 'x'";
+    assert.ok(invalid(unpaired).includes('stack.commands.lint'));
+    const unpairedReason = profile.validateProfile(loaded(unpaired)).invalid.find((i) => i.key === 'stack.commands.lint').reason;
+    assert.strictEqual(unpairedReason, 'unknown placeholder {bogus}');
+  });
 });
 
 describe('project-profile CLI', () => {

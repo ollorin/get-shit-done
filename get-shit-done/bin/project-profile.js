@@ -43,7 +43,9 @@ function uniqueStringsCheck(key, v) {
 }
 
 // Single-quoted text is shell literal (awk programs), so placeholders there are not read; `${NAME}` is shell expansion.
-const placeholdersIn = (v) => v.replace(SINGLE_QUOTED_RE, '').match(PLACEHOLDER_RE) || [];
+// With an odd number of quotes the pairing is unknowable, so nothing is stripped and every placeholder is read.
+const isBalancedQuotes = (v) => (v.split("'").length - 1) % 2 === 0;
+const placeholdersIn = (v) => (isBalancedQuotes(v) ? v.replace(SINGLE_QUOTED_RE, '') : v).match(PLACEHOLDER_RE) || [];
 
 function commandValueProblems(key, v) {
   if (!isNonEmptyString(v)) return [problem(key, 'must be a non-empty string')];
@@ -51,13 +53,20 @@ function commandValueProblems(key, v) {
   return unknown ? [problem(key, `unknown placeholder ${unknown}`)] : [];
 }
 
+function testFileProblems(key, value) {
+  if (!isNonEmptyString(value) || placeholdersIn(value).includes('{file}')) return [];
+  const reason = value.includes('{file}')
+    ? '{file} is present only inside single quotes; it must be unquoted or double-quoted'
+    : 'must contain the {file} placeholder';
+  return [problem(key, reason)];
+}
+
 function commandsCheck(key, v) {
   if (!isObject(v)) return [problem(key, 'must be an object')];
   return Object.keys(v).flatMap((name) => {
     const k = `${key}.${name}`;
     const value = v[name];
-    const needsFile = name === 'test_file' && isNonEmptyString(value) && !placeholdersIn(value).includes('{file}');
-    return [...commandValueProblems(k, value), ...(needsFile ? [problem(k, 'must contain the {file} placeholder')] : [])];
+    return [...commandValueProblems(k, value), ...(name === 'test_file' ? testFileProblems(k, value) : [])];
   });
 }
 

@@ -18,7 +18,7 @@ If a key you need is missing, stop and report the key. Never substitute a defaul
 
 - `node get-shit-done/bin/gsd-tools.js profile get <key> --raw` prints one value. An absent key exits 1 with `profile key not set: <key>`.
 - `node get-shit-done/bin/gsd-tools.js profile check` validates the whole profile and exits 1 on any missing or invalid key.
-- Placeholders `{root}`, `{file}`, `{paths}` and `{project}` in command values are filled by the caller. `stack.commands.test_file` must contain `{file}`.
+- Placeholders `{root}`, `{file}`, `{paths}` and `{project}` in command values are filled by the caller. `stack.commands.test_file` must contain `{file}` outside single quotes.
 - A placeholder inside single quotes is shell text (an awk program, say) and is not read; `${name}` is shell expansion and is not read either. Write placeholders outside single quotes.
 
 ## Keys
