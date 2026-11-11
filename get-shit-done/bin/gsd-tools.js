@@ -220,6 +220,7 @@ const promptOptimize = require('./prompt-optimize.js');
 const { getNextTier, getTiers } = require('./model-registry.js');
 const { deriveCheckSet } = require('./pre-pr-checks.js');
 const projectProfile = require('./project-profile.js');
+const projectDeploy = require('./project-deploy.js');
 
 // Phase 2: Auto Mode safety modules (lazy — gracefully absent if not installed)
 let circuitBreaker, validator, escalation, feedback, learning;
@@ -15177,6 +15178,13 @@ async function main() {
         process.exit(r.exitCode);
       }
       output(r.result, raw, r.rawValue);
+      break;
+    }
+
+    case 'project': {
+      const r = projectDeploy.runCli(cwd, args.slice(1), process.env);
+      writeStdoutSync(JSON.stringify(r.result, null, 2) + '\n');
+      process.exit(r.exitCode);
       break;
     }
 

@@ -7,6 +7,8 @@ const { sha256, planWholeFile, planBlockFile } = require('./project-deploy-files
 const { scanText } = require('./project-deploy-scan.js');
 const { mergeSettings, serializeSettings } = require('./project-deploy-settings.js');
 const { detectSession, guardFailures } = require('./project-deploy-session.js');
+const { applyPlan } = require('./project-deploy-apply.js');
+const { isPlainObject, exists, contained, isDirectory, readRegular, readJsonObject } = require('./project-deploy-fs.js');
 
 const CONFIG = '.planning/config.json';
 const MANIFEST = '.planning/gsd-project-manifest.json';
@@ -18,58 +20,6 @@ const WRITE_ACTIONS = new Set(['create', 'overwrite', 'merge', 'update']);
 const PRESET_NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
 const DEFAULT_PRESETS = path.join(__dirname, '..', 'presets');
 const EMPTY_OPS = Object.freeze({ files: [], bases: [], settingsText: null, manifest: null });
-const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
-
-const exists = (abs) => {
-  try {
-    fs.lstatSync(abs);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-function contained(root, rel) {
-  try {
-    const realRoot = fs.realpathSync(root);
-    const tail = [];
-    let cur = path.join(root, rel);
-    while (!exists(cur)) {
-      tail.unshift(path.basename(cur));
-      cur = path.dirname(cur);
-    }
-    const real = path.join(fs.realpathSync(cur), ...tail);
-    return real === realRoot || real.startsWith(realRoot + path.sep);
-  } catch {
-    return false;
-  }
-}
-
-function isDirectory(abs) {
-  try {
-    return fs.statSync(abs).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
-function readRegular(abs) {
-  if (!exists(abs)) return { bytes: null };
-  try {
-    return fs.statSync(abs).isFile() ? { bytes: fs.readFileSync(abs) } : { error: 'not a regular file' };
-  } catch {
-    return { error: 'unreadable' };
-  }
-}
-
-function readJsonObject(abs) {
-  try {
-    const v = JSON.parse(fs.readFileSync(abs, 'utf8'));
-    return isPlainObject(v) ? v : null;
-  } catch {
-    return null;
-  }
-}
 
 const newReport = (command) => ({
   command,
@@ -277,4 +227,47 @@ function planDeploy(opts) {
   };
 }
 
-module.exports = { planDeploy, CONFIG, MANIFEST, BASE_DIR, SETTINGS };
+const USAGE = 'Usage: project <init|diff|sync> [--root <dir>] [--preset <name>] [--preset-dir <dir>]';
+const COMMANDS = new Set(['init', 'diff', 'sync']);
+const FLAGS = new Set(['--root', '--preset', '--preset-dir']);
+
+function parseArgs(args) {
+  const [command, ...rest] = args;
+  if (!COMMANDS.has(command) || rest.length % 2 !== 0) return null;
+  const opts = {};
+  for (let i = 0; i < rest.length; i += 2) {
+    const [flag, value] = [rest[i], rest[i + 1]];
+    if (!FLAGS.has(flag) || value === undefined || value.startsWith('--')) return null;
+    opts[flag.slice(2)] = value;
+  }
+  return { command, opts };
+}
+
+function runCli(cwd, args, env, session) {
+  const parsed = parseArgs(args);
+  if (parsed === null) return { exitCode: 1, result: { ok: false, errors: [{ reason: USAGE }] } };
+  const { command, opts } = parsed;
+  const root = path.resolve(cwd, opts.root ?? '.');
+  const presetDir = opts['preset-dir'] === undefined ? undefined : path.resolve(cwd, opts['preset-dir']);
+  const plan = planDeploy({ root, command, presetDir, presetName: opts.preset, env, session });
+  const { report } = plan;
+  if (!report.ok) return { exitCode: 1, result: { ...report, written: [] } };
+  if (command === 'diff') {
+    return { exitCode: report.changes > 0 || report.conflicts > 0 ? 2 : 0, result: { ...report, written: [] } };
+  }
+  const applied = applyPlan(root, plan, command);
+  if (!applied.ok) {
+    return {
+      exitCode: 1,
+      result: {
+        ...report,
+        ok: false,
+        errors: [...report.errors, { file: applied.failed.path, reason: `write failed: ${applied.failed.reason}` }],
+        written: applied.written,
+      },
+    };
+  }
+  return { exitCode: report.conflicts > 0 ? 2 : 0, result: { ...report, written: applied.written } };
+}
+
+module.exports = { planDeploy, runCli, CONFIG, MANIFEST, BASE_DIR, SETTINGS };
