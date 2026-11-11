@@ -788,3 +788,36 @@ describe('adopt of unmanaged files already equal to the render (B-FIX2 L9a)', ()
     assert.strictEqual(res.report.conflicts, 1);
   });
 });
+
+describe('B-FIX3 F6 adopt counts as a change; a byte-equal file in another mode is an update', () => {
+  const STYLE = '.claude/rules/style.md';
+  const modeOf = (root, rel) => fs.statSync(path.join(root, rel)).mode & 0o777;
+
+  test('F6-a an adopt is counted in changes and writes no content (diff exits 2)', () => {
+    const dir = makePreset();
+    const root = makeProject();
+    seedDeployed(root, dir);
+    const manifest = readManifest(root);
+    delete manifest.files[STYLE];
+    writeAt(root, MANIFEST, JSON.stringify(manifest, null, 2) + '\n');
+    const res = plan(root, 'sync', dir);
+    assert.strictEqual(res.report.ok, true);
+    assert.strictEqual(actionOf(res.report, STYLE), 'adopt');
+    assert.strictEqual(res.report.changes, 1);
+    assert.strictEqual(res.ops.files.some((f) => f.dest === STYLE), false);
+    assert.strictEqual(runCli(root, ['diff', '--preset-dir', dir], {}, HUMAN).exitCode, 2);
+  });
+
+  test('F6-b a byte-equal unmanaged file in another mode is an update, not an adopt; apply sets the rendered mode and keeps the bytes', () => {
+    const dir = makePreset();
+    const root = makeProject();
+    const rendered = plan(root, 'init', dir).ops.files.find((f) => f.dest === STYLE);
+    writeAt(root, STYLE, rendered.content, rendered.mode === 0o600 ? 0o640 : 0o600);
+    const res = plan(root, 'init', dir);
+    assert.strictEqual(actionOf(res.report, STYLE), 'update');
+    assert.strictEqual(res.report.changes >= 1, true);
+    assert.strictEqual(applyPlan(root, res, 'init').ok, true);
+    assert.strictEqual(modeOf(root, STYLE), rendered.mode);
+    assert.ok(fs.readFileSync(path.join(root, STYLE)).equals(rendered.content));
+  });
+});

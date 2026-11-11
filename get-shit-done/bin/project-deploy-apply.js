@@ -82,17 +82,21 @@ function missingDirs(root, dir) {
   return out;
 }
 
+// An unchanged file with the rendered mode is skipped. Changed content keeps the file's own mode;
+// unchanged content with another mode takes the rendered mode (an update of mode only).
 function stageStep(root, step, rand, dirs) {
   const target = path.join(root, step.rel);
   const st = lstatOrNull(target);
   const regular = st !== null && st.isFile();
   const original = regular ? fs.readFileSync(target) : null;
-  if (regular && original.equals(step.content)) return null;
-  const mode = regular ? st.mode & 0o777 : step.mode;
+  const currentMode = regular ? st.mode & 0o777 : step.mode;
+  const sameBytes = regular && original.equals(step.content);
+  if (sameBytes && currentMode === step.mode) return null;
+  const mode = sameBytes || !regular ? step.mode : currentMode;
   dirs.push(...missingDirs(root, path.dirname(target)));
   fs.mkdirSync(path.dirname(target), { recursive: true });
   const tmp = makeTemp(target, step.content, mode, rand);
-  return { rel: step.rel, target, tmp, original, mode };
+  return { rel: step.rel, target, tmp, original, mode: currentMode };
 }
 
 // Undoes renames in reverse order, then discards staged temps and the directories this apply created.

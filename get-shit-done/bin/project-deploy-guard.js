@@ -104,6 +104,8 @@ function referencesDest(command, canon) {
     || paths.some((t) => GLOB_RE.test(t) && LITERAL_RE.test(t) && globMatch(t, dest));
 }
 
+// An adopt is intentionally unguarded: the file is byte-equal to the render, so no content is written.
+// The caller lists only writes (WRITE_ACTIONS) as guarded, so adopt never reaches this set.
 function guardedSet({ canonDests, hookCommands, presetFlags }) {
   return new Set(canonDests
     .filter(({ file, canon, h1 }) => h1

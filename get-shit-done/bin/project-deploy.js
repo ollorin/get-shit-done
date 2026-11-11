@@ -20,6 +20,8 @@ const BASE_DIR = '.planning/.gsd-preset-base';
 const SETTINGS = '.claude/settings.json';
 const GITIGNORE = '.gitignore';
 const WRITE_ACTIONS = new Set(['create', 'overwrite', 'merge', 'update']);
+// An adopt is a change: it records the file in the manifest, though it writes no content.
+const CHANGE_ACTIONS = new Set([...WRITE_ACTIONS, 'adopt']);
 const PRESET_NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
 const DEFAULT_PRESETS = path.join(__dirname, '..', 'presets');
 const EMPTY_OPS = Object.freeze({ files: [], bases: [], settingsText: null, manifest: null });
@@ -67,7 +69,11 @@ function planFile(root, f, prev) {
   }
   if (plan.action === 'error') return { dest: f.dest, error: { file: f.dest, reason: plan.reason } };
   // An unmanaged file already byte-equal to the rendered output (a crashed init, say) is adopted, not conflicting.
-  const action = prev === undefined && cur.bytes !== null && cur.bytes.equals(f.content) ? 'adopt' : plan.action;
+  // Adopt writes no content: a different mode is an update, so apply sets the rendered mode.
+  const byteEqual = prev === undefined && cur.bytes !== null && cur.bytes.equals(f.content);
+  const modeDiffers = byteEqual && (fs.statSync(path.join(root, f.dest)).mode & 0o777) !== f.mode;
+  const action = byteEqual ? (modeDiffers ? 'update' : 'adopt') : plan.action;
+  const content = byteEqual ? f.content : plan.content;
   const entry = { kind: f.kind, sha256: sha256(f.content), ...(plan.blocks ? { blocks: plan.blocks } : {}) };
   const conflict = action === 'conflict';
   return {
@@ -79,7 +85,7 @@ function planFile(root, f, prev) {
       ...(conflict ? { reason: plan.reason } : {}),
       ...(plan.warnings && plan.warnings.length > 0 ? { warnings: plan.warnings } : {}),
     },
-    write: WRITE_ACTIONS.has(action) ? { dest: f.dest, content: Buffer.from(plan.content), mode: f.mode } : null,
+    write: WRITE_ACTIONS.has(action) ? { dest: f.dest, content: Buffer.from(content), mode: f.mode } : null,
     base: conflict ? null : { dest: f.dest, content: f.content },
     manifestEntry: conflict ? prev : entry,
     old: cur.bytes,
@@ -212,7 +218,7 @@ function planDeploy(opts) {
     files: planned.files,
     settings: settingsPlan && !settingsPlan.error ? settingsReport(settingsPlan, secretHits.length > 0) : null,
     guarded_changes: guarded,
-    changes: planned.files.filter((f) => WRITE_ACTIONS.has(f.action)).length + (settingsWrites ? 1 : 0),
+    changes: planned.files.filter((f) => CHANGE_ACTIONS.has(f.action)).length + (settingsWrites ? 1 : 0),
     conflicts: planned.files.filter((f) => f.action === 'conflict').length,
     errors,
   });
