@@ -524,7 +524,7 @@ Then continue to Step 4: Approval.
 
 ## Step 4: Approval
 
-Run `decisions render`, then show the CEO one screen, nothing else:
+Before the screen: any open `A-` about money, auth, security or RNG goes to the ruling route in `decisions-protocol.md` (fable/opus) and is replaced by the `D-` it returns, so it never reaches the screen as an irreversible wait. Run `decisions render`, then show the CEO one screen, nothing else:
 
 ```
 PRD {slug} — approval

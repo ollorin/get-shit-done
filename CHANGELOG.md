@@ -6,6 +6,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **R2 review fixes.** No Telegram anywhere in coordinator/execute workflows: topic creation, escalation loop and 30-minute timeout removed; sensitive discuss items route to a fable/opus ruling or the ledger, never block. Strategic/irreversible items hold only their consuming phases (gate exit 2 prints the question in chat); prd/new-milestone rows about money/auth/security take the same ruling route. `decisions.js repair` (deterministic renumbering, marker removal, `.bak`) and an exit-3 repair hint. Lock stale threshold 5s < 10s waiter timeout with atomic takeover. `PROJECT_DEFAULT_TIER` defined; routes for criteria 2/3 outside money domains. `quality verdict-to-issues --require` fails closed (blocker) for an unavailable adversarial pass on a high-risk plan. Demo workflow states the `**/demo/video/` `.gitignore` requirement. Tests: repair, stale-lock takeover, fail-closed verdict.
+
 ### Changed
 - **Decision ledger, demo artifacts, evolve (exp/fable-agents-ab2, merged).** `decisions.js` ledger + `decisions-protocol.md`, `gsd-demo` agent + `demo.md` + `demo-check.js`, `scripts/evolve/`. Digests and demo summaries are printed to the chat by the main orchestrator (no Telegram in the new text). Evolve auto-adopt is off; `gate.py` returns INSUFFICIENT (never ADOPT) for an empty or <3-scorable-task corpus (`scripts/evolve/gate.test.js`); the `evolve_corpus` step stays a dry run.
 - **Deleted `gsd-task-router`.** Plans carry `<model>` per task (CLAUDE.md tier table); the routing pass in planner-detail, the coordinator plan-level fallback and the executor-detail test-writer routing no longer dispatch it.

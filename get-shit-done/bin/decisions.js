@@ -15,7 +15,10 @@ const STATUS = {
 };
 const PHASE_RE = /^\d+(\.\d+)?$/;
 const EXIT_CORRUPT = 3;
-const MUTATING = new Set(['add', 'map', 'answer', 'close']);
+const MUTATING = new Set(['add', 'map', 'answer', 'close', 'repair']);
+const LOCK_STALE_MS = 5000;
+const LOCK_WAIT_MS = 10000;
+const REPAIR_HINT = 'run: node decisions.js repair [--file F] (renumbers colliding ids, drops conflict markers, keeps every row)';
 const CITE_RE = /\b[DA]-\d{2,}\b/g;
 const DEFAULT_FILE = path.join('.planning', 'DECISIONS.jsonl');
 
@@ -95,22 +98,76 @@ function nextId(records, kind) {
 function sleepMs(ms) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
 
 // O_EXCL lock file: serialises read+append across processes sharing one ledger file.
+// A lock older than LOCK_STALE_MS (< LOCK_WAIT_MS) is a crashed holder: a waiter takes it over by an
+// atomic rename, so only one waiter wins the takeover.
 function withLock(file, fn) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const lock = `${file}.lock`;
-  const deadline = Date.now() + 10000;
+  const deadline = Date.now() + LOCK_WAIT_MS;
   let fd = null;
   while (fd === null) {
     try {
       fd = fs.openSync(lock, 'wx');
     } catch (e) {
       if (e.code !== 'EEXIST') throw e;
-      try { if (Date.now() - fs.statSync(lock).mtimeMs > 30000) fs.unlinkSync(lock); } catch (_) { /* raced */ }
-      if (Date.now() > deadline) throw new Error(`ledger lock ${lock} held for over 10s`);
+      try {
+        if (Date.now() - fs.statSync(lock).mtimeMs > LOCK_STALE_MS) {
+          const taken = `${lock}.stale.${process.pid}`;
+          fs.renameSync(lock, taken);
+          fs.unlinkSync(taken);
+          continue;
+        }
+      } catch (_) { /* raced: another waiter took it over or the holder released */ }
+      if (Date.now() > deadline) throw new Error(`ledger lock ${lock} held for over ${LOCK_WAIT_MS / 1000}s`);
       sleepMs(25);
     }
   }
   try { return fn(); } finally { fs.closeSync(fd); try { fs.unlinkSync(lock); } catch (_) { /* gone */ } }
+}
+
+// Deterministic repair: a row whose id was first used by a different (kind, ts) is renumbered to the
+// next free id of its kind; later updates of that same row follow it. Conflict-marker lines are dropped.
+function repair(file) {
+  const raw = fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n') : [];
+  const removedMarkers = [];
+  const rows = [];
+  raw.forEach((line, i) => {
+    if (line.trim() === '') return;
+    if (/^(<{7}|={7}|>{7})/.test(line)) { removedMarkers.push(i + 1); return; }
+    let rec;
+    try { rec = JSON.parse(line); } catch (e) { throw new Error(`line ${i + 1} is not JSON and not a conflict marker: cannot repair`); }
+    if (!rec || typeof rec !== 'object' || !str(rec.id)) throw new Error(`line ${i + 1} has no id: cannot repair`);
+    rows.push({ rec, line: i + 1 });
+  });
+  const used = new Set(rows.map((r) => r.rec.id));
+  const owner = new Map();
+  const remap = new Map();
+  const renumbered = [];
+  const out = rows.map(({ rec, line }) => {
+    const sig = `${rec.kind}|${rec.ts}`;
+    const first = owner.get(rec.id);
+    if (first === undefined) { owner.set(rec.id, sig); return rec; }
+    if (first === sig) return rec;
+    const key = `${rec.id}|${sig}`;
+    if (!remap.has(key)) {
+      const prefix = PREFIX[rec.kind] || String(rec.id).split('-')[0];
+      const max = [...used].filter((id) => id.startsWith(`${prefix}-`))
+        .reduce((m, id) => Math.max(m, parseInt(id.slice(prefix.length + 1), 10) || 0), 0);
+      const to = `${prefix}-${String(max + 1).padStart(2, '0')}`;
+      used.add(to);
+      owner.set(to, sig);
+      remap.set(key, to);
+      renumbered.push({ from: rec.id, to, kind: rec.kind, ts: rec.ts, line });
+    }
+    return { ...rec, id: remap.get(key) };
+  });
+  if (renumbered.length === 0 && removedMarkers.length === 0) return { repaired: false, renumbered, removedMarkers };
+  fs.copyFileSync(file, `${file}.bak`);
+  const tmp = `${file}.repair.${process.pid}`;
+  fs.writeFileSync(tmp, out.map((r) => JSON.stringify(r)).join('\n') + (out.length ? '\n' : ''));
+  fs.renameSync(tmp, file);
+  return { repaired: true, renumbered, removedMarkers, backup: `${file}.bak`,
+    note: 'ids referenced inside other rows (supersedes, resolved_by, superseded_by, assumption, decision) are not rewritten: run validate' };
 }
 
 function append(file, rec) {
@@ -242,7 +299,14 @@ function run(cmd, flags, pos, file) {
     out({ pass: errors.length === 0, records: records.length, errors });
     return errors.length === 0 ? 0 : 1;
   }
-  if (parseErrors.length) { out({ pass: false, corrupt: true, errors: parseErrors }); return EXIT_CORRUPT; }
+  if (cmd === 'repair') {
+    const res = repair(file);
+    const after = load(file);
+    const errors = [...after.errors, ...validate(after.records)];
+    out({ ...res, pass: errors.length === 0, errors });
+    return errors.length === 0 ? 0 : 1;
+  }
+  if (parseErrors.length) { out({ pass: false, corrupt: true, errors: parseErrors, hint: REPAIR_HINT }); return EXIT_CORRUPT; }
 
   if (cmd === 'add') {
     const kind = flags.kind;
@@ -288,7 +352,8 @@ function run(cmd, flags, pos, file) {
   }
   if (cmd === 'gate') {
     const park = forPhase(records, flags.phase).filter((r) => r.kind === 'assumption' && r.status === 'open' && r.reversibility === 'irreversible').map((r) => r.id);
-    out({ phase: String(flags.phase), park: park.length > 0, ids: park });
+    const ids = new Map(records.map((r) => [r.id, r.question]));
+    out({ phase: String(flags.phase), park: park.length > 0, ids: park, questions: park.map((id) => `${id} ${ids.get(id)}`) });
     return park.length > 0 ? 2 : 0;
   }
   if (cmd === 'check-plan') {
@@ -323,7 +388,7 @@ function run(cmd, flags, pos, file) {
     out({ written: target });
     return 0;
   }
-  process.stderr.write('usage: decisions.js validate|add|map|answer|list|gate|check-plan|digest|reworks|close|render [--file F]\n  exit 2 = gate parks the phase, 3 = ledger corrupt (treat as block)\n');
+  process.stderr.write('usage: decisions.js validate|add|map|answer|list|gate|check-plan|digest|reworks|close|render|repair [--file F]\n  exit 2 = gate parks the phase, 3 = ledger corrupt (treat as block; ' + REPAIR_HINT + ')\n');
   return 64;
 }
 
@@ -336,4 +401,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { EXIT_CORRUPT, withLock, load, validate, answer, checkPlan, digest, render, forPhase, nextId, detectPhaseState, main };
+module.exports = { EXIT_CORRUPT, LOCK_STALE_MS, LOCK_WAIT_MS, repair, withLock, load, validate, answer, checkPlan, digest, render, forPhase, nextId, detectPhaseState, main };

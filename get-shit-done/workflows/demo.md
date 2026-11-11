@@ -45,7 +45,7 @@ git add {phase_dir}/demo/scenario.json {phase_dir}/demo/steps.jsonl {phase_dir}/
 - `check` non-zero: do not commit, do not notify; re-record once, then report the errors.
 - `result: failed` with a passing check is a real finding (the product did not do what the phase claims): the DEMO.md is committed as is and the failed step goes to the phase's gap list. Never re-script a step to make it pass.
 - `blocked`: the script-only DEMO.md stays; report why.
-- Videos are not committed (`**/demo/video/` in `.gitignore`); their path, size and sha256 are in the manifest.
+- Videos are not committed. Requirement: the project `.gitignore` must contain `**/demo/video/`; check it before the first record and report a missing line to the orchestrator (this workflow never edits the project's `.gitignore`). Screenshot pixels are not scanned for secrets: only `observed` text is redacted, so record flows on test credentials; their path, size and sha256 are in the manifest.
 
 ## 3. Milestone rollup (after the last recording)
 

@@ -230,4 +230,42 @@ describe('ledger integrity and gate exit codes', () => {
     assert.strictEqual(bad.status, 1);
     assert.match(bad.stderr, /empty answer/);
   });
+
+  test('R2: repair renumbers the colliding id, keeps both rows, follows updates, reports the mapping, drops markers', () => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-dec-')), 'DECISIONS.jsonl');
+    const other = { ts: '2026-02-02T00:00:00.000Z', question: 'other', phases: ['13'] };
+    fs.writeFileSync(file, rec({}) + rec(other) + rec({ ...other, notified_ts: '2026-03-03T00:00:00.000Z' }) + '<<<<<<< HEAD\n' + rec({ id: 'A-02', ts: '2026-01-05T00:00:00.000Z' }));
+    const g = spawnSync('node', [TOOL, 'gate', '--phase', '12', '--file', file], { encoding: 'utf8' });
+    assert.strictEqual(g.status, 3);
+    assert.match(g.stdout, /decisions\.js repair/);
+    const r = spawnSync('node', [TOOL, 'repair', '--file', file], { encoding: 'utf8' });
+    assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+    const res = JSON.parse(r.stdout);
+    assert.deepStrictEqual(res.renumbered.map((m) => [m.from, m.to]), [['A-01', 'A-03']]);
+    assert.deepStrictEqual(res.removedMarkers, [4]);
+    const { records, errors } = load(file);
+    assert.deepStrictEqual(errors, []);
+    assert.deepStrictEqual(records.map((x) => x.id).sort(), ['A-01', 'A-02', 'A-03']);
+    assert.strictEqual(records.find((x) => x.id === 'A-03').notified_ts, '2026-03-03T00:00:00.000Z');
+    assert.strictEqual(records.find((x) => x.id === 'A-01').question, 'q');
+    assert.strictEqual(spawnSync('node', [TOOL, 'repair', '--file', file], { encoding: 'utf8' }).status, 0);
+    assert.strictEqual(JSON.parse(spawnSync('node', [TOOL, 'repair', '--file', file], { encoding: 'utf8' }).stdout).repaired, false);
+  });
+
+  test('N4: a crashed holder (stale lock) is taken over by a waiter, not a failure; a fresh lock still blocks', () => {
+    const { LOCK_STALE_MS, LOCK_WAIT_MS } = require('./decisions.js');
+    assert.ok(LOCK_STALE_MS <= LOCK_WAIT_MS);
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-dec-')), 'DECISIONS.jsonl');
+    const lock = `${file}.lock`;
+    fs.writeFileSync(lock, '');
+    const old = new Date(Date.now() - LOCK_STALE_MS - 2000);
+    fs.utimesSync(lock, old, old);
+    const args = ['add', '--file', file, '--kind', 'assumption', '--source', 's', '--question', 'q', '--default', 'd', '--reversibility', 'cheap', '--phases', '1'];
+    const t0 = Date.now();
+    const r = spawnSync('node', [TOOL, ...args], { encoding: 'utf8' });
+    assert.strictEqual(r.status, 0, r.stderr);
+    assert.ok(Date.now() - t0 < LOCK_WAIT_MS);
+    assert.strictEqual(load(file).records.length, 1);
+    assert.strictEqual(fs.existsSync(lock), false);
+  });
 });

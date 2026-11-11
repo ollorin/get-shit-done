@@ -2,11 +2,11 @@
 
 This file holds the FULL, VERBATIM `<execution_cycle>` block relocated from
 `agents/gsd-phase-coordinator.md` during the MILE-30 hard-rules-first
-restructuring. Every step (discuss, research, plan, execute, verify,
-the context-budget-monitoring logic, and the
-checkpoint_ui_qa_loop / detect_web_framework / post_phase_ux_sweep /
-post_phase_e2e sub-steps were relocated here. Lifecycle Telegram notifications
-were removed; the orchestrator prints status to the chat.
+restructuring. Every step (discuss, research, plan, execute, verify), the
+context-budget-monitoring logic, and the checkpoint_ui_qa_loop /
+detect_web_framework / post_phase_ux_sweep / post_phase_e2e sub-steps were
+relocated here. Lifecycle notifications were removed; the orchestrator prints
+status to the chat.
 
 Several HARD RULE / MUST / CRITICAL statements embedded within these steps
 are ALSO quoted verbatim in the core preamble of `gsd-phase-coordinator.md`
@@ -304,138 +304,30 @@ escalation_needed = answers where evaluation == "needs-escalation"
 
 **Sensitivity check for escalation:**
 
-Before escalating any needs-escalation item to Telegram, evaluate it against six sensitivity criteria. Only escalate if ANY criterion is true:
+There is no interactive channel: nothing in discuss blocks on a human. Evaluate each needs-escalation item against six sensitivity criteria; if ANY is true it is sensitive:
 
-1. **Irreversible change** — Would implementing this answer result in a change that cannot be undone without significant effort? (e.g., deleting data, migrating schema, public API contract)
-2. **>1 phase rework risk** — If wrong, would this require reworking more than one future phase?
-3. **Major architectural decision** — Does this affect the overall system design, component boundaries, or data model in a non-trivial way?
-4. **Money/data loss potential** — Could a wrong decision lead to loss of user data, financial charges, or security breach?
-5. **Conflicting KB signals** — Do the knowledge DB results for this question directly contradict each other (different answers with similar confidence)?
-6. **Always-ask topic** — Does the question involve a topic the user has previously indicated they always want to decide personally?
+1. **Irreversible change** — cannot be undone without significant effort (deleting data, schema migration, public API contract)
+2. **>1 phase rework risk** — if wrong, more than one future phase is reworked
+3. **Major architectural decision** — system design, component boundaries, or data model in a non-trivial way
+4. **Money/data loss potential** — wrong decision could lose user data, cause financial charges, or a security breach
+5. **Conflicting KB signals** — knowledge DB results directly contradict each other at similar confidence
+6. **Always-ask topic** — a topic the user has said they always decide personally
 
-For each item in `escalation_needed`:
-- Apply the six criteria above based on the question text, gray_area, and answer.confidence
-- If NO criterion matches → move to Claude's Discretion (confidence >= 0.4 already handled by existing logic)
-- If ANY criterion matches → mark as `sensitive_escalation: true`
+Produce `sensitive_items` (any criterion true) and `discretion_items` (none true; Claude decides).
 
-Produce:
-```
-sensitive_items = escalation_needed items where sensitive_escalation == true
-discretion_items = escalation_needed items where sensitive_escalation == false
-```
+**Route each sensitive item by the criterion that matched (never `blocked/parked` from discuss, never a wait):**
+- Criterion 4, or criteria 2/3 in a money/auth/KYC/RNG domain, or criterion 5: dispatch a fresh Opus-tier ruling (`model: "fable"` while the Fable allowance lasts, fall back to `"opus"` and say so), per the project CLAUDE.md. Record it as `decisions.js add --kind decision --source opus-ruling ...` (phases = this phase) and proceed on it. If the ruling cannot be obtained, queue the item as an assumption (below) with reversibility `costly` and continue on the default.
+- Criteria 2/3 outside those domains: Sonnet-tier judgment by the coordinator, recorded as `decisions.js add --kind assumption --source coordinator-judgment` with its true reversibility, default taken, continue.
+- Criterion 1 or 6 that is a strategic or business/legal call only the CEO can make: queue `decisions.js add --kind assumption --source unattended --reversibility {true value} --phases {only the phases that consume this decision}` (never `--global` unless every phase consumes it), print the question in chat via the orchestrator, and continue on the default. Other phases are never held; `gate` parks only the consuming phases when the assumption is `irreversible` (see execute-roadmap `ledger_gate`).
+- Criterion 6 or 1 that touches money/auth/security: use the ruling route first, as above.
 
-**Escalate sensitive items via Telegram (multi-turn loop with JSONL logging):**
+Every routed item is documented in CONTEXT.md under Claude's Discretion (citing the `A-`/`D-` id) and, for the first two routes, in the Implementation Decisions section.
 
-**Unattended (`GSD_AUTONOMOUS=1`): do not ask, and do not park the phase.** Skip the loop below and route each item by the criterion that matched:
-- Criterion 4 (money, data loss, security breach), or criteria 2/3 (rework, architecture) in a money/auth/KYC/RNG domain: dispatch a fresh Opus-tier ruling (`model: "fable"` while the Fable allowance lasts, fall back to `"opus"` and say so), per the project CLAUDE.md. Record the ruling as `decisions.js add --kind decision --source opus-ruling ...` (phases = this phase) and proceed on it. If the ruling cannot be obtained, apply Step A-fallback (reason `unattended`) and queue the item `costly`.
-- Criterion 1 (irreversible) or 6 (always-ask) that is a strategic or business/legal call only the CEO can make: apply Step A-fallback (reason `unattended`), queue it with its true reversibility, print the question in chat, and continue on the default. Never return `blocked/parked` from discuss.
-- Criterion 5 (conflicting KB signals): treat as a judgment call and use the ruling route above.
-
-For each item in `sensitive_items`, run a multi-turn follow-up loop:
-
-Read the escalation timeout from `.planning/config.json`'s `telegram.escalation_timeout_minutes` field (default: 30 if the file is missing, unparseable, or the key is absent). Use this value as `escalation_timeout_minutes` for every `ask_blocking_question` call in this loop (replacing the previously hardcoded `timeout_minutes: 30`).
-
-Initialize loop state: `turn = 1`, `max_turns = 3`, `sufficient = false`, `question_text = item.question`.
-
-Update session status to 'waiting' once before the loop begins:
-```
-mcp__telegram__update_session_status({ status: "waiting", question_title: item.question.slice(0, 50) })
-```
-
-**Loop (repeat while sufficient == false AND turn <= max_turns):**
-
-**Step A — Send question and receive reply:**
-Call ask_blocking_question — this BLOCKS until the user replies:
-```
-reply = mcp__telegram__ask_blocking_question({
-  question: question_text,
-  context: "Phase {phase_number} — {phase_name}\nGray area: {item.gray_area}\nMeta-answerer confidence: {item.confidence}\nSensitivity reason: {which criterion triggered}",
-  timeout_minutes: {escalation_timeout_minutes}
-})
-```
-
-Immediately after sending (before reply arrives), append a JSON line to `.planning/telegram-sessions/{YYYY-MM-DD}.jsonl` (where the date is the current date in YYYY-MM-DD format, creating the file if it does not exist):
-```
-{"type":"escalation_question","timestamp":"{ISO}","phase":{phase_number},"gray_area":"{item.gray_area}","question":"{question_text}","turn":{turn},"sensitivity_reason":"{which criterion triggered}"}
-```
-
-**Step A-fallback — daemon-down or timeout during escalation:** If the `ask_blocking_question` call in Step A throws or returns an error (IPC timeout, a `DAEMON_UNAVAILABLE`-coded error, or the daemon's own question-timeout bubbling back as an IPC error response) — covers BOTH "user didn't reply in time" and "daemon was down at escalation time," same handling for both, do not build two paths:
-
-1. Log the failure loudly (this failure must be visible in the milestone audit):
-   ```
-   "Telegram escalation failed for phase {phase_number}, gray_area: {item.gray_area} — {error message}. Applying timeout-fallback: writing DEFERRED.json waiver, parking to Claude's Discretion, continuing."
-   ```
-
-2. Write a DEFERRED.json waiver via the ONLY sanctioned mechanism (do not invent a parallel one):
-   ```bash
-   node get-shit-done/bin/gsd-tools.js deferred add {phase_number} --step discuss --reason "Telegram escalation timed out/unavailable for: {item.question}" --approver timeout-fallback
-   ```
-
-3. Append a JSON line to `.planning/telegram-sessions/{YYYY-MM-DD}.jsonl`:
-   ```
-   {"type":"escalation_complete","timestamp":"{ISO}","phase":{phase_number},"gray_area":"{item.gray_area}","final_answer":null,"turns_used":{turn},"escalated_to_discretion":true,"fallback_reason":"{error message}"}
-   ```
-
-4. Queue it so a late answer has a home (the waiver above stays; this adds the question, the default taken and who consumes it):
-   ```bash
-   node "$HOME/.claude/get-shit-done/bin/decisions.js" add --kind assumption --source escalation-timeout --question "{item.question}" --default "{the default the phase proceeds on}" --reversibility {cheap|costly|irreversible} --phases {phase_number}
-   ```
-
-5. Push item into `discretion_items` (NOT `escalated_answers`) so CONTEXT.md's Claude's Discretion subsection still documents it, citing the `A-` id:
-   ```
-   discretion_items.push({ gray_area: item.gray_area, question: item.question, reason: "Telegram escalation timeout/unavailable — parked via timeout-fallback" })
-   ```
-
-6. Exit this item's loop immediately (do not attempt Step B/C for this item) and continue to the next item in `sensitive_items`.
-
-**Step B — Evaluate reply confidence:**
-Read the reply text inline and assign confidence using these rules:
-- If the reply contains a clear, actionable decision ("use X", "yes", "no", a specific path name, or a code identifier) → `confidence = 0.85`, `sufficient = true`
-- If the reply is a general direction or preference but lacks specific actionable detail → `confidence = 0.65`, `sufficient = false`
-- If the reply asks Claude to decide, defers the question, or is otherwise non-committal → `confidence = 0.5`, `sufficient = false`
-
-Append a JSON line to `.planning/telegram-sessions/{YYYY-MM-DD}.jsonl`:
-```
-{"type":"escalation_reply","timestamp":"{ISO}","phase":{phase_number},"gray_area":"{item.gray_area}","reply":"{reply text}","turn":{turn},"confidence_eval":{confidence},"sufficient":{true|false}}
-```
-
-**Step C — Decide whether to loop:**
-- If `sufficient == true` OR `turn >= max_turns` → exit loop, use current reply as final answer
-- If `sufficient == false` AND `turn < max_turns` → increment turn, construct a follow-up question:
-  ```
-  question_text = "Thanks for your reply. To be more specific: {synthesize what is still unclear from the original question and the reply received so far}"
-  ```
-  Then loop back to Step A with the follow-up question text
-
-**After loop exits:**
-
-Update session status back to 'busy':
-```
-mcp__telegram__update_session_status({ status: "busy" })
-```
-
-Append a JSON line to `.planning/telegram-sessions/{YYYY-MM-DD}.jsonl` recording the completed exchange:
-```
-{"type":"escalation_complete","timestamp":"{ISO}","phase":{phase_number},"gray_area":"{item.gray_area}","final_answer":"{last reply}","turns_used":{turn},"escalated_to_discretion":false}
-```
-
-Store the final reply (last reply received regardless of confidence):
-```
-escalated_answers.push({
-  gray_area: item.gray_area,
-  question: item.question,
-  answer: reply,
-  source: "telegram_escalation",
-  confidence: 1.0
-})
-```
-
-// Write to KB immediately after each answer so the DB is updated even if later escalations fail or timeout
-**Write escalated answer to knowledge DB (inside loop — non-fatal):**
+Write each ruling or confirmed default to the knowledge DB (non-fatal):
 
 ```bash
 GSD_KB_CONTENT="{item.question}: {item.answer}" \
-GSD_KB_CONTEXT="Phase {phase_number} Telegram escalation — {item.gray_area}" \
+GSD_KB_CONTEXT="Phase {phase_number} unattended ruling — {item.gray_area}" \
 node -e "
 const { storeInsights } = require(process.env.HOME + '/.claude/get-shit-done/bin/knowledge-writer.js');
 storeInsights([{
@@ -449,9 +341,9 @@ storeInsights([{
 " || true
 ```
 
-After all sensitive_items processed, `escalated_answers` holds human-provided answers.
+Rulings are appended to `escalated_answers` (`source: "opus-ruling"`, confidence 1.0).
 
-**Merge escalated answers with sufficient answers for CONTEXT.md:**
+**Merge ruled answers with sufficient answers for CONTEXT.md:**
 
 The CONTEXT.md writer below uses `sufficient_answers` to populate the Implementation Decisions section. Append `escalated_answers` to `sufficient_answers` before writing CONTEXT.md, so all answered questions (autonomous + human-escalated) appear in the decisions section.
 
@@ -504,8 +396,8 @@ mkdir -p ".planning/phases/{phase_dir}"
 ### Claude's Discretion
 {List questions from discretion_items (needs-escalation items with confidence >= 0.4 that did not trigger any sensitivity criterion). Claude decides these autonomously.}
 
-### Escalated Decisions (Human-Answered)
-{If escalated_answers.length > 0: list each item with format "- {answer.question}: {answer.answer} (answered via Telegram)". If none: omit this subsection.}
+### Escalated Decisions (Ruled)
+{If escalated_answers.length > 0: list each item with format "- {answer.question}: {answer.answer} (ruled by Opus/Fable)". If none: omit this subsection.}
 
 </decisions>
 
@@ -519,7 +411,7 @@ mkdir -p ".planning/phases/{phase_dir}"
 <deferred>
 ## Deferred Ideas
 
-{List questions from escalation_needed where confidence < 0.7 that require human input. Note: Phase 23 will escalate these via Telegram.}
+{List questions from escalation_needed where confidence < 0.7 that require human input. These are queued in the decisions ledger and surfaced in chat.}
 {If all answers sufficient: "None — all gray areas resolved autonomously"}
 
 </deferred>
@@ -547,7 +439,7 @@ node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js commit "docs({padded_
   "step_status": "complete",
   "timestamp": "...",
   "files_touched": ["{phase_dir}/{padded_phase}-CONTEXT.md"],
-  "key_context": "Autonomous discuss: {sufficient_count} KB answers, {discretion_count} Claude discretion, {escalated_count} Telegram-escalated",
+  "key_context": "Autonomous discuss: {sufficient_count} KB answers, {discretion_count} Claude discretion, {escalated_count} ruled",
   "resume_from": "research"
 }
 ```
@@ -760,6 +652,8 @@ For each incomplete plan (no SUMMARY.md):
 
    **If MODEL_PROFILE is "auto":** Parse task-level tier tags from PLAN.md.
 
+   `PROJECT_DEFAULT_TIER` = the tier the project CLAUDE.md assigns the default implementer (`gsd-executor`; the igaming project says Haiku), read once per run; if CLAUDE.md names none, `"haiku"`.
+
    ```
    TASK_TIERS = {}
    ROUTING_STATS = { haiku: 0, sonnet: 0, opus: 0 }
@@ -777,7 +671,7 @@ For each incomplete plan (no SUMMARY.md):
      Else:
        TASK_TIERS[task_index] = PROJECT_DEFAULT_TIER  // the tier the project CLAUDE.md gives gsd-executor, else "haiku"
 
-If at least one task has an explicit tier (via <model> or legacy prefix):
+   If at least one task has an explicit tier (via <model> or legacy prefix):
      PER_TASK_MODE = true
    Else:
      // Fall back to plan-level routing (plan has no tier info — older plan format)

@@ -8018,26 +8018,15 @@ describe('Phase 48 cross-cutting trigger matrix — prompt-layer wiring (Phase 4
     );
   });
 
-  test('Debugger escalation composition: execute-phase.md references timeout-fallback, and gsd-phase-coordinator.md\'s Step A-fallback deferred-add invocation shape is unchanged', () => {
+  test('Debugger escalation: execute-phase.md escalates without a blocking channel (no Telegram), recording a deferred waiver', () => {
     const executePhase = readRepoFile('get-shit-done/workflows/execute-phase.md');
-    // Phase 53-02 (MILE-30): gsd-phase-coordinator.md's execution_cycle (incl.
-    // the discuss step's Step A-fallback) was relocated verbatim to
-    // @get-shit-done/references/coordinator-detail.md. Use the effective
-    // (core + resolved @-include) content so this still finds the unchanged
-    // invocation shape wherever it now physically lives.
     const phaseCoordinator = readEffectiveAgentContent(path.join(REPO_ROOT, 'agents/gsd-phase-coordinator.md'));
 
-    assert.match(
-      executePhase,
-      /timeout-fallback/,
-      'execute-phase.md must reference timeout-fallback, proving it composes with gsd-phase-coordinator.md\'s existing Step A-fallback pattern rather than duplicating it'
-    );
-
-    assert.match(
-      phaseCoordinator,
-      /deferred add \{phase_number\} --step discuss[\s\S]{0,120}--approver timeout-fallback/,
-      'gsd-phase-coordinator.md\'s Step A-fallback deferred-add invocation shape must remain unchanged (confirms 48-03 composed rather than overwrote it)'
-    );
+    assert.match(executePhase, /deferred add --step execution[\s\S]{0,80}--approver auto-escalate/);
+    assert.match(executePhase, /Never block on a human/);
+    for (const [name, text] of [['execute-phase.md', executePhase], ['gsd-phase-coordinator (effective)', phaseCoordinator]]) {
+      assert.doesNotMatch(text, /ask_blocking_question|mcp__telegram|telegram_topic_id/, `${name} must not use the Telegram channel`);
+    }
   });
 });
 
@@ -15029,6 +15018,21 @@ describe('Phase 60-01: adversarial-review config + assess-risk/verdict-to-issues
       const parsed = JSON.parse(result.output || result.error);
       assert.strictEqual(parsed.error, true);
       assert.strictEqual(parsed.type, 'file_not_found');
+    });
+
+    test('--require fails closed: missing verdict file, unreadable or verdict-less VERDICT.md -> one blocker issue; approved -> none', () => {
+      const missing = JSON.parse(runGsdTools('quality verdict-to-issues does-not-exist-60-01-VERDICT.md --require --raw', tmpDir).output);
+      assert.strictEqual(missing.issues.length, 1);
+      assert.strictEqual(missing.issues[0].severity, 'blocker');
+      assert.strictEqual(missing.issues[0].dimension, 'adversarial_review');
+      assert.match(missing.issues[0].description, /unavailable/);
+      const empty = writeFixture('.planning/phases/60-x/60-02-VERDICT.md', '---\nplan: "60-02"\n---\n\n# Verdict\n');
+      const e = JSON.parse(runGsdTools(`quality verdict-to-issues "${path.relative(tmpDir, empty)}" --require --raw`, tmpDir).output);
+      assert.strictEqual(e.issues.length, 1);
+      assert.strictEqual(e.issues[0].severity, 'blocker');
+      const ok = writeFixture('.planning/phases/60-x/60-03-VERDICT.md', '---\nplan: "60-03"\nverdict: approved\n---\n');
+      assert.deepStrictEqual(JSON.parse(runGsdTools(`quality verdict-to-issues "${path.relative(tmpDir, ok)}" --require --raw`, tmpDir).output).issues, []);
+      assert.deepStrictEqual(JSON.parse(runGsdTools(`quality verdict-to-issues "${path.relative(tmpDir, empty)}" --raw`, tmpDir).output).issues, []);
     });
 
     test('real VERDICT.md fixture (verdict:critical, 2 required_changes) -> issues array of length 2, both blocker-severity, adversarial_review dimension', () => {

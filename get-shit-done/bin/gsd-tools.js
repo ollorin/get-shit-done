@@ -5825,9 +5825,24 @@ function cmdQualityAssessRisk(cwd, filePath, raw) {
 // without any new revision mechanism. approved (or missing verdict) -> [].
 // revise -> one warning-severity issue per required_change. critical -> one
 // blocker-severity issue per required_change.
-function verdictToIssues(verdictFrontmatter, planId) {
+function unavailableVerdictIssue(planId, reason) {
+  return {
+    plan: planId || null,
+    dimension: 'adversarial_review',
+    severity: 'blocker',
+    description: `adversarial pass unavailable on a high-risk plan: ${reason}`,
+    fix_hint: 'Re-run the plan-checker adversarial pass; a high-risk plan is not approved without a valid VERDICT.md.',
+  };
+}
+
+// opts.required (high-risk plan): a missing or unrecognised verdict fails closed with a blocker
+// issue instead of passing; without it the lenient pre-existing behaviour is kept.
+function verdictToIssues(verdictFrontmatter, planId, opts) {
   const fm = verdictFrontmatter || {};
   const verdict = fm.verdict;
+  if (opts && opts.required === true && !['approved', 'revise', 'critical'].includes(verdict)) {
+    return [unavailableVerdictIssue(planId || fm.plan, verdict ? `unrecognised verdict "${verdict}"` : 'no verdict in VERDICT.md')];
+  }
   if (verdict === 'approved' || !verdict) return [];
 
   const requiredChanges = Array.isArray(fm.required_changes) ? fm.required_changes : [];
@@ -5849,7 +5864,8 @@ function verdictToIssues(verdictFrontmatter, planId) {
 
 // Thin CLI wrapper over verdictToIssues. Never throws -- missing/malformed verdict
 // file reported as {error:true, issues:[]}.
-function cmdQualityVerdictToIssues(cwd, filePath, raw) {
+function cmdQualityVerdictToIssues(cwd, filePath, raw, required) {
+  const planId = filePath ? path.basename(String(filePath)).replace(/-VERDICT\.md$/, '') : null;
   if (!filePath) {
     output({ error: true, type: 'missing_argument', message: 'quality verdict-to-issues: <verdict-file> required', issues: [] }, raw);
     return;
@@ -5857,7 +5873,7 @@ function cmdQualityVerdictToIssues(cwd, filePath, raw) {
   const fullPath = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath);
   const content = safeReadFile(fullPath);
   if (content === null) {
-    output({ error: true, type: 'file_not_found', message: `Verdict file not found: ${filePath}`, issues: [] }, raw);
+    output({ error: true, type: 'file_not_found', message: `Verdict file not found: ${filePath}`, issues: required ? [unavailableVerdictIssue(planId, 'VERDICT.md not found')] : [] }, raw);
     return;
   }
 
@@ -5866,11 +5882,11 @@ function cmdQualityVerdictToIssues(cwd, filePath, raw) {
     const matter = require('gray-matter');
     fm = matter(content).data || {};
   } catch (e) {
-    output({ error: true, type: 'malformed_frontmatter', message: e.message, issues: [] }, raw);
+    output({ error: true, type: 'malformed_frontmatter', message: e.message, issues: required ? [unavailableVerdictIssue(planId, 'VERDICT.md frontmatter unreadable')] : [] }, raw);
     return;
   }
 
-  const issues = verdictToIssues(fm, fm.plan || null);
+  const issues = verdictToIssues(fm, fm.plan || planId, { required });
   output({ issues, verdict: fm.verdict || null }, raw);
 }
 
@@ -16261,7 +16277,7 @@ Was ${model} the right choice for this task? (y/n): `;
       } else if (subcommand === 'assess-risk') {
         cmdQualityAssessRisk(cwd, args[2], raw);
       } else if (subcommand === 'verdict-to-issues') {
-        cmdQualityVerdictToIssues(cwd, args[2], raw);
+        cmdQualityVerdictToIssues(cwd, args[2], raw, args.includes('--require'));
       } else {
         error('Unknown quality subcommand. Available: touches-source, assess-risk, verdict-to-issues');
       }

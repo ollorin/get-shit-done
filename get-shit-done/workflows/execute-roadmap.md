@@ -130,7 +130,7 @@ This run may hit a session/quota limit mid-phase.
 
 Type "yes" to proceed anyway, "wait" to pause until quota resets, or "stop" to cancel.
 ```
-If autonomous (no human present — same convention as `gsd-phase-coordinator.md`'s no-Telegram/no-`ask_blocking_question` autonomous path): default to "yes" (proceed), but the loud log above still fires unconditionally — never silently downgrade or skip the warning.
+If autonomous (no human present): default to "yes" (proceed), but the loud log above still fires unconditionally — never silently downgrade or skip the warning.
 
 **4. If `SUFFICIENT` is `true`:** proceed silently (no extra prompt noise appended to `confirm_execution`), but still log for the analytics trail:
 ```bash
@@ -216,59 +216,9 @@ Log format: JSONL lines after markdown header, enabling streaming append:
 {"type":"roadmap_start","timestamp":"...","total_phases":8,"execution_order":[1,3,2,4,5,6,7,8]}
 ```
 
-**Create Telegram forum topic for this execution:**
+**Roadmap name and status channel:** derive `roadmap_name` from the first heading in ROADMAP.md (`# Roadmap: {name}` → strip "Roadmap: "; fallback "Roadmap"). There is no external notification channel: the main orchestrator prints status and any CEO question to the chat, and nothing blocks on a reply.
 
-Derive `roadmap_name` from the first heading in ROADMAP.md (`# Roadmap: {name}` → strip "Roadmap: " prefix). Fallback to "Roadmap" if not found.
-
-If the Telegram MCP is available, create a dedicated forum topic to receive all execution notifications:
-
-```
-telegram_topic_id = null
-try:
-  topic_result = mcp__telegram__create_topic({
-    title: "GSD: {roadmap_name} — {current_date}"
-  })
-  telegram_topic_id = topic_result.threadId
-  // Store thread_id in execution log so phase coordinators can read it
-  node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
-    --type telegram_topic_created \
-    --data '{"thread_id": {telegram_topic_id}, "title": "GSD: {roadmap_name} — {current_date}"}'
-except (MCP not available / TELEGRAM_BOT_TOKEN not set):
-  // No Telegram configured — silent, expected case
-  telegram_topic_id = null
-
-except (any other error — e.g. bot not admin, group not found, API error):
-  // Telegram IS configured but create_topic failed — notify user visibly
-  telegram_topic_id = null
-  node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
-    --type telegram_topic_failed \
-    --data '{"reason": "{error.message}", "timestamp": "{ISO}"}'
-  // Write a visible warning to the execution output:
-  console.warn("WARNING: Telegram notifications disabled for this run — create_topic failed: {error.message}")
-  // Also attempt to send a plain group message (no thread) if bot token is set:
-  try:
-    mcp__telegram__send_message({
-      text: "WARNING: Failed to create forum topic for this roadmap run. Notifications are disabled.\nReason: {error.message}"
-    })
-  except: pass  // Best-effort only
-```
-
-if telegram_topic_id is null AND TELEGRAM_BOT_TOKEN is set:
-  // Telegram is configured but not operational for this run
-  // All subsequent `if telegram_topic_id is not null:` guards will correctly suppress notifications
-  log.warn("Telegram topic creation failed — all thread-targeted notifications suppressed for this run")
-
-The `telegram_topic_id` variable persists in the coordinator's context for the duration of the execution. Pass `thread_id: telegram_topic_id` (when non-null) to all subsequent `mcp__telegram__send_message` calls.
-
-**Send execution start notification:**
-
-```
-if telegram_topic_id is not null:
-  mcp__telegram__send_message({
-    text: "Roadmap execution started\n\nPhases: {execution_order joined with ', '}\n\n{For each phase in execution_order: '- Phase {N}: {phase_name}'}\n\nTotal: {total_phases} phases",
-    thread_id: telegram_topic_id
-  })
-```
+**Execution start:** print "Roadmap execution started" with the phase list and total count to the chat.
 </step>
 
 <step name="arm_watchdogs">
@@ -305,8 +255,8 @@ node "$DEC" gate --phase {phase_number}
 node "$DEC" digest
 node "$DEC" digest --mark-only
 ```
-- `gate` exit 0: proceed. Exit 2 (an open irreversible assumption feeds this phase): log `phase_parked` with the ids, move this phase and its dependents to the end of the execution order and continue with the next phase. A phase still parked when every other phase is done is not executed: report it in `completion` as waiting for the CEO.
-- `gate` exit 3, or any other non-zero code (corrupt or unreadable ledger, e.g. a conflict-marker line or a duplicate id): fail closed. Treat it exactly like exit 2: park the phase, log `phase_parked` with reason `ledger_error` and the printed errors, and report it in `completion`. `decisions.js validate` prints the offending lines.
+- `gate` exit 0: proceed. Exit 2 (an open irreversible assumption feeds this phase): park only this phase and the phases that depend on it; every other phase continues. Log `phase_parked` with the ids and print each parked question (`decisions list --open`) in the chat. It never ends the run or blocks on a reply. A phase still parked when every other phase is done is not executed: report it in `completion` as waiting for the CEO.
+- `gate` exit 3, or any other non-zero code (corrupt or unreadable ledger, e.g. a conflict-marker line or a duplicate id): fail closed. Treat it exactly like exit 2: park the phase, log `phase_parked` with reason `ledger_error` and the printed errors, and report it in `completion`. `decisions.js validate` prints the offending lines; `decisions.js repair` fixes duplicate ids and conflict markers (the orchestrator may run it, then re-run `gate`).
 - `digest` non-empty text: print it to the chat. Do not wait for a reply and never ask it through `ask_blocking_question`. Only after printing, run `digest --mark-only` (a run that dies in between re-sends rather than loses the questions). A non-zero `digest` exit is handled like `gate` exit 3.
 - Rework tickets (`node "$DEC" reworks` prints the open `R-NN`, written when the CEO answered through `/gsd:decide` after a consumer was built): for each, insert the decimal rework phase the protocol describes after its last built consumer, before continuing; `node "$DEC" close R-NN --status done` when it verifies.
 
@@ -422,7 +372,7 @@ IS_STALE=$(node -e "console.log(JSON.parse(process.argv[1]).stale)" "$STALENESS_
          --type death_reset_time_implausible \
          --data '{"phase": {N}, "reset_time_iso": "'"${RESET_TIME_ISO}"'", "wait_seconds": '"${WAIT_SECONDS}"', "cap_seconds": '"${MAX_WAIT_SECONDS}"'}'
        ```
-       Escalate via the same fire-and-forget Telegram notification pattern used in `handle_failure` step 3 (if `telegram_topic_id` is not null) — do not respawn immediately in this case; treat it the same as a phase failure requiring human awareness (falls through to `handle_failure`).
+       Print the implausible reset time to the chat — do not respawn immediately in this case; treat it the same as a phase failure requiring human awareness (falls through to `handle_failure`).
      - Otherwise, actually pause with a polling sleep loop (matching the Charlotte QA health-check polling pattern used elsewhere in this codebase) until the reset time is reached, THEN proceed to respawn:
        ```bash
        while [ "$(date -u +%s)" -lt "${RESET_EPOCH}" ]; do
@@ -449,14 +399,7 @@ IS_STALE=$(node -e "console.log(JSON.parse(process.argv[1]).stale)" "$STALENESS_
        --data '{"phase": {N}, "resume_from": "'"${RESUME_FROM}"'"}'
      ```
    - After respawn, fall through to step 5's existing status-branching logic on the NEW return value (the respawned coordinator's actual completion status) — 4a itself never decides completed/failed/etc., it only gets a fresh attempt running.
-   - **No human input required for this path.** If Telegram is configured, send a fire-and-forget notification (matching this file's existing "zero blocking call sites" precedent) but do not wait for a reply before respawning:
-     ```
-     if telegram_topic_id is not null:
-       mcp__telegram__send_message({
-         text: "Phase {N}: coordinator death detected ({REASON}), auto-resuming from {RESUME_FROM}...",
-         thread_id: telegram_topic_id
-       })
-     ```
+   - **No human input required for this path.** Print one chat line (`Phase {N}: coordinator death detected ({REASON}), auto-resuming from {RESUME_FROM}`) and respawn without waiting.
 
 5. **If NOT presumed dead:** proceed directly to step 5's existing logic below, unchanged.
 
@@ -577,17 +520,10 @@ node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
    Branch on `action` (same retry/debug/escalate semantics as `execute-phase.md`, phase-level):
    - **"retry"** (1st failure): log auto-retry, re-run `execute-phase {N}` fresh, no user prompt.
    - **"debug"** (2nd+ failure, below the ceiling): auto-spawn @~/.claude/get-shit-done/workflows/debug.md non-interactively (`mode: symptoms_prefilled: true, interactive: false, goal: find_and_fix`) with phase-level context from `FAILURE.md` (error, last completed step, files touched), `debug_file: .planning/debug/phase-{N}-attempt{attempts}.md`, then re-run `execute-phase {N}`.
-   - **"escalate"** (at the ceiling — NEVER spawn another debug attempt): hard stop. This workflow's existing Telegram notification (the `mcp__telegram__send_message` call below) is fire-and-forget, NOT `ask_blocking_question` — per the confirmed finding that `execute-roadmap.md` has zero blocking call sites. Keep it fire-and-forget; just append the debugger's findings (from the most recent phase-level debug file, `.planning/debug/phase-{N}-attempt*.md`) to the notification text and to `FAILURE.md` below. Still offer the existing retry/skip/stop reply options.
+   - **"escalate"** (at the ceiling — NEVER spawn another debug attempt): hard stop. Append the debugger's findings (from the most recent phase-level debug file, `.planning/debug/phase-{N}-attempt*.md`) to the chat message and to `FAILURE.md` below. Never block on a reply: this phase is marked failed, dependents are skipped, and the roadmap continues with independent phases.
    - On success at any branch: `execution-state record-success --phase {N}`.
 
-3. **Send failure notification:**
-```
-if telegram_topic_id is not null:
-  mcp__telegram__send_message({
-    text: "Phase {N} failed\n\nError: {error}\nLast step: {step}\n{If action == escalate: Debugger findings: {findings}\n}\nOptions: reply 'retry', 'skip', or 'stop'",
-    thread_id: telegram_topic_id
-  })
-```
+3. **Report the failure in chat:** phase, error, last step, and (if escalated) the debugger findings. Do not wait for a reply.
 
 4. **Create detailed checkpoint:**
 ```
@@ -686,20 +622,7 @@ echo "========================"
 echo ""
 ```
 
-2. **Send execution complete notification:**
-```
-if telegram_topic_id is not null:
-  // Build one-liner per phase from SUMMARYs
-  phase_lines = []
-  for each completed_phase:
-    summary_oneliner = read first non-blank, non-heading line from .planning/phases/{phase_dir}/*-SUMMARY.md
-    phase_lines.push("- Phase {N} ({name}): {summary_oneliner}")
-
-  mcp__telegram__send_message({
-    text: "Roadmap execution complete\n\nCompleted: {completed_count}/{total_phases}\nSkipped: {skipped_count}\n\n{phase_lines joined with newline}",
-    thread_id: telegram_topic_id
-  })
-```
+2. **Print the execution-complete summary to the chat:** completed/total, skipped, and one line per completed phase (first non-blank, non-heading line of its `*-SUMMARY.md`).
 
 3. **Pre-PR quality gates (programmatic enforcement):**
 
@@ -794,13 +717,7 @@ Automated roadmap execution complete.
 
 Capture the PR URL from output. If `gh pr create` fails (no auth, no remote, etc.): log the error visibly and continue — don't abort the summary.
 
-If `telegram_topic_id` is not null and PR was created:
-```
-mcp__telegram__send_message({
-  text: "PR opened: {PR_URL}",
-  thread_id: telegram_topic_id
-})
-```
+If the PR was created, print `PR opened: {PR_URL}` in chat.
 
 4. **Present completion summary:**
 ```
