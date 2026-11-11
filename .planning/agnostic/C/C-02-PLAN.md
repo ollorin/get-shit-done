@@ -50,7 +50,7 @@ Phase C2: write the igaming PRODUCT-BRIEF.md, STACK-PROFILE.md and `config.stack
 
 <executor_rules>
 - Same rules as C-01 `<executor_rules>` (work dir, forbidden commands, hook limits, mutants by backup/restore under `/tmp/c02-bak/`, single-file test command, trailers). Task 1 trailer: `Co-Authored-By: Claude Sonnet <noreply@anthropic.com>`; Task 2: `Co-Authored-By: Claude Haiku <noreply@anthropic.com>`; both plus `Claude-Session: https://claude.ai/code/session_012KdjXbyhjnRuXKgkn5MYj8`.
-- Sources, in this order, all at the pinned SHA `e319843b09949980ccae17efd75c45553dce86aa`:
+- Sources, in this order, all at the pinned SHA `95a02959e5fa464f3bcce11378c803f7b86ec76d`:
   1. `get-shit-done/presets/igaming/CLAUDE.md` and `get-shit-done/presets/igaming/rules/*.md` (already in the fork; read by line range).
   2. Other igaming files only as `git -C /Users/ollorin/igaming-platform show <SHA>:<path> > /tmp/c02-src/<name>` and then Read by line range: `.planning/PROJECT.md` (761 lines: read 119-128, 510-518, 562-570 and the `Key Decisions` rows you cite), `.planning/config.json`, `docs/development/command-reference.md` (lines 15-60 and 765-775), `apps/api/supabase/config.toml` (lines 1-30). Never read the igaming working tree.
 - Every value in `config.stack.json` must be traceable to one of those files. Keep a list `key → file:line` and put it in the SUMMARY. A value you cannot trace is left out (optional keys) or reported as a blocker (required keys); never invent one.
@@ -93,7 +93,7 @@ Starting values (design 4.1). Trace each one and correct it where the source dif
       "pre_pr_gate": "scripts/preflight.sh",
       "search": "zg query"
     },
-    "test_command_shapes": ["<each allow-listed shape of presets/igaming/CLAUDE.md:37, one string per shape, verbatim, with {root} for the checkout path>"],
+    "test_command_shapes": ["<each allow-listed shape of presets/igaming/CLAUDE.md:37 (traced at the new pin: `**Run tests only in allowlisted shapes:**` is line 37), one string per shape, verbatim, with {root} for the checkout path>"],
     "gates": [
       { "id": "fp", "run": "deno run --allow-read scripts/fp-gate.ts" },
       { "id": "p0-tier-delta", "run": "deno run --allow-read scripts/check-p0-tier-delta.ts --diff-file <diff>" }
@@ -111,7 +111,8 @@ Starting values (design 4.1). Trace each one and correct it where the source dif
 ```
 
 Fixed, not open to judgment (Plan C-03 pins them against the prompts and an Opus-tier review follows): `project.risk_domains`, `project.ruling_topics`, `project.owner_title`. Fixed by the engine: `stack.preset`, `stack.preset_version` (must equal `preset.json` `name` and `version`).
-Rules: command values use only the placeholders `{root}`, `{file}`, `{paths}`, `{project}` (`project-profile.js:20`); no `|` character in a command value (it would break the rendered table); the gates list holds every gate command that `CLAUDE.md` "Before any plan, fix or SUMMARY claims done" names; add the backend service (API URL from `config.toml` port) if `command-reference.md` gives its launch command; `health` and `ready` only when a source states them.
+Trace exceptions: `isolation.port_base` 54320 is derived, not copied: `apps/api/supabase/config.toml:28` `shadow_port = 54320` is the lowest of the 5432x range (`:10` api 54321, `:26` db 54322). `isolation.machine_locks` `["container-runtime"]` is a design-4.1 value with no tracked igaming file: it is marked design-4.1 exempt from tracing in the SUMMARY trace list (the only exempt key), not invented elsewhere. Both values still appear in STACK-PROFILE.md Isolation (the port with the derivation in one clause, the lock with `(design 4.1)`), so P4 keeps checking `String(port_base)`; P4 does not check the lock name.
+Rules: command values use only the placeholders `{root}`, `{file}`, `{paths}`, `{project}` (`project-profile.js:20`); no `|` character in a command value (it would break the rendered table); the gates list holds every gate command that `CLAUDE.md` "Before any plan, fix or SUMMARY claims done" (:88-92 at the pin) names; add the backend service (API URL from `config.toml` port) if `command-reference.md` gives its launch command; `health` and `ready` only when a source states them.
 
 ## `PRODUCT-BRIEF.md` (≤ 120 lines, deployed verbatim)
 
@@ -122,7 +123,7 @@ The eight `## ` sections of `get-shit-done/templates/product-brief.md`, same nam
 - Risk Domains: the table with exactly one row per `project.risk_domains` id, in config order. Columns: `Domain | What counts as this path | Required test tier | Ruling required`. Tier is `T0` in every row. Ruling is `yes` for `money`, `auth`, `rng` and `no` for the others. The `auth` row's "what counts" names RLS policies (the test-writer prompt lists RLS as T0). Directly under the table one line: `Ruling topics: money, auth, security, rng` (the `project.ruling_topics` ids, same order).
 - Compliance and Regulation: only regimes a source names (for example GLI-19 responsible gaming, KYC/AML), one line each with its source.
 - Config Dimensions: market/jurisdiction, currency, provider, wagering mode (sweeps vs real money) with the rule "never hard-coded".
-- Owner Policies: decided autonomously / escalated / launch strategy, from CLAUDE.md "Judgment calls" and "High-stakes domains". Include one line `High-stakes domains (Opus-tier plan and review): ...` copying the list of `presets/igaming/CLAUDE.md` "High-stakes domains" verbatim (it contains "complex game logic"), and one line recording the Fable allowance ruling as an owner policy.
+- Owner Policies: decided autonomously / escalated / launch strategy, from CLAUDE.md "Rulings: a fresh Opus dispatch decides" (:139-141) and "High-stakes domains" (:119-120, list: auth, money movement / payments, fraud/AML, KYC gates, RNG/fairness, game configs, complex game logic, game UI/UX). Include one line `High-stakes domains (Opus-tier plan and review): ...` copying the list of `presets/igaming/CLAUDE.md` "High-stakes domains" verbatim (it contains "complex game logic"), and one line recording the Fable allowance as an owner policy, taken from `presets/igaming/CLAUDE.md` (= project `CLAUDE.md` at the pin): lines 113-117 "Fable allowance (CEO ruling 2026-11-10): while it lasts, every Opus-tier dispatch ... uses `model: "fable"`; if rejected for allowance/availability, fall back to `model: "opus"`" and the `opus` table row at :111 ("Runs as `fable` while the allowance lasts"). Do not write "Fable is no longer used": that sentence was in the previous pin (`e319843b:CLAUDE.md:158`) and is gone at `95a02959e`.
 - Out of Scope: from PROJECT.md "Out of Scope".
 
 ## `STACK-PROFILE.md` (≤ 150 lines, block-managed, rendered)

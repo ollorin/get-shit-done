@@ -13,7 +13,7 @@ autonomous: true
 requirements: [AGN-C1]
 must_haves:
   truths:
-    - "`get-shit-done/presets/igaming/` holds the 50 tracked igaming project files of commit `e319843b09949980ccae17efd75c45553dce86aa`: 49 deployable files byte-equal to the commit's blobs (or to their recorded redacted form), plus the verbatim settings file"
+    - "`get-shit-done/presets/igaming/` holds the 50 tracked igaming project files of commit `95a02959e5fa464f3bcce11378c803f7b86ec76d`: 49 deployable files byte-equal to the commit's blobs (or to their recorded redacted form), plus the verbatim settings file"
     - "Rendering the preset reproduces `golden.sha256` for rules, hooks, skills, canaries and CLAUDE.md (byte-equal, executable bits kept); the settings fragment equals the snapshot's allow/deny/ask as sets and its hook arrays in order"
     - "No untracked or ignored igaming file is in the preset, and the preset contains no token-shaped string"
     - "The agnostic lint does not count anything under `get-shit-done/presets/`, and a test fails if a scope starts to match it"
@@ -51,10 +51,10 @@ Run only after `.planning/agnostic/B/B-04-SUMMARY.md` exists and `git status --s
 <decisions>
 1. **Layout has no `.claude/` directory inside the preset.** `get-shit-done/bin/hooks/gsd-protect-managed-files.js:45-49` (`isProtectedConfigPath`) blocks agent writes to any `.claude/hooks/` or `.claude/settings*.json` path, so the snapshot lives at `rules/`, `hooks/`, `skills/`, `canaries/`, `CLAUDE.md`, and `preset.json` maps each to its project path. This is also the layout of design 4.4.
 2. **CLAUDE.md is `kind: whole`, `render: false`.** The snapshot has no marker lines, so this is the design's "byte-equal with `--no-markers`". Markers are added at cutover (Phase H).
-3. **Settings.** `get-shit-done/bin/project-deploy-render.js:9` allows only `permissions` and `hooks` in a fragment. `settings.snapshot.json` is the verbatim file (golden line `.claude/settings.json`, never deployed); `settings.fragment.json` is derived from it. The four other keys (`env`, `enableAllProjectMcpServers`, `enabledPlugins`, `sandbox`) are NOT deployed by the Phase B engine. G5 pins that exact list so a change is seen, and the README says so.
+3. **Settings.** `get-shit-done/bin/project-deploy-render.js:9` allows only `permissions` and `hooks` in a fragment. `settings.snapshot.json` is the verbatim file (golden line `.claude/settings.json`, never deployed); `settings.fragment.json` is derived from it. The four other keys (`env`, `enableAllProjectMcpServers`, `enabledPlugins`, `sandbox`) are NOT deployed by the Phase B engine. G5 pins that exact list so a change is seen. **Phase H must carry these four keys** (the README `## Settings` and the SUMMARY say so, and the G5 assertion message names it).
 4. **Hook canaries are included** (`canaries/canaries.jsonl`, `canaries/run-canaries.sh` → `scripts/validation/hook-canaries/`). Reason: Phase F1 parameterises the hooks and needs rows that match the hooks of the same commit. They are data in this phase: the runner needs `jq`, `perl`, macOS `date -v` and hooks under `~/.claude`, so it is not run by the fork's `npm test` until F1.
 5. **Lint scope.** No scope in `scripts/agnostic-lint.js:13-26` matches `get-shit-done/presets/`, so presets are already uncounted. No code change; Task 3 pins it with a test.
-6. **Planner measurement at the pinned SHA** (fork `58a50a5`): 50 files, `scanDir` 0 hits, no `{{dot.path}}` placeholder in any file, `renderPreset` ok, `planDeploy init` ok with 50 changes. Absolute `/Users/ollorin` strings: 10 in the settings file, 1 in CLAUDE.md, 122 in `canaries.jsonl`; kept verbatim (they become `{{project.root}}` in Phase F).
+6. **Planner measurement at the pinned SHA** (fork `58a50a5`; re-measured for counts at `95a02959e`, the repin of the revision pass: `git diff --stat e319843b 95a02959e -- CLAUDE.md .claude scripts/validation/hook-canaries` changes only `CLAUDE.md`, still 50 files, 228 lines, 1 absolute path; `scanDir` is re-run by Task 1): 50 files, `scanDir` 0 hits, no `{{dot.path}}` placeholder in any file, `renderPreset` ok, `planDeploy init` ok with 50 changes. Absolute `/Users/ollorin` strings: 10 in the settings file, 1 in CLAUDE.md, 122 in `canaries.jsonl`; kept verbatim (they become `{{project.root}}` in Phase F).
 </decisions>
 
 <threat_model>
@@ -93,7 +93,7 @@ The preset carries permissions and hooks, so it is a guardrail path. No money mu
 Run exactly (each line is one command; all were run by the planner against `/tmp` and exit 0):
 
 ```
-SHA=e319843b09949980ccae17efd75c45553dce86aa; I=/Users/ollorin/igaming-platform; P=/Users/ollorin/get-shit-done-agnostic/get-shit-done/presets/igaming; RAW=/tmp/igaming-raw-C01
+SHA=95a02959e5fa464f3bcce11378c803f7b86ec76d; I=/Users/ollorin/igaming-platform; P=/Users/ollorin/get-shit-done-agnostic/get-shit-done/presets/igaming; RAW=/tmp/igaming-raw-C01
 rm -rf $RAW; mkdir -p $RAW $P/canaries
 git -C $I archive $SHA CLAUDE.md .claude scripts/validation/hook-canaries | tar -x -C $RAW
 git -C $I archive $SHA CLAUDE.md .claude | tar -x -C $P -s '|^\.claude/||'
@@ -118,15 +118,15 @@ node -e "console.log(JSON.stringify(require('./get-shit-done/bin/project-deploy-
 Expected `{"files_scanned":53,"hits":[]}`. If `hits` is not empty, for each hit: in the preset copy only, replace the matched token on that line with `<redacted:PATTERN_ID>` (Edit tool; never print the token), recompute that file's golden line with `shasum -a 256` on the redacted copy and replace the line in `golden.sha256`, re-derive the fragment if the file was the settings snapshot, and record `file, line, pattern id` in the README. Re-run the scan until `hits` is `[]`.
 
 Write `get-shit-done/presets/igaming/README.md` (≤ 60 lines), sections in this order:
-- `# igaming preset (snapshot)`: source repo name, pinned SHA (full 40 hex), branch `wt/403`, snapshot date, "tracked files only, taken with `git archive`".
+- `# igaming preset (snapshot)`: source repo name, pinned SHA (full 40 hex), branch `feature/codebase-review-hardening`, snapshot date, "tracked files only, taken with `git archive`".
 - `## Layout`: the src → dest mapping (`CLAUDE.md`; `rules/` → `.claude/rules/`; `hooks/` → `.claude/hooks/`; `skills/` → `.claude/skills/`; `canaries/` → `scripts/validation/hook-canaries/`), file counts (1, 12, 19, 15, 2), all `render: false`.
-- `## Settings`: `settings.snapshot.json` is the verbatim file and is never deployed; `settings.fragment.json` is its `permissions` and `hooks`; the keys `env`, `enableAllProjectMcpServers`, `enabledPlugins`, `sandbox` are not deployed by the current engine; deployed settings are set-equal, not byte-equal.
+- `## Settings`: `settings.snapshot.json` is the verbatim file and is never deployed; `settings.fragment.json` is its `permissions` and `hooks`; the keys `env`, `enableAllProjectMcpServers`, `enabledPlugins`, `sandbox` are not deployed by the current engine; deployed settings are set-equal, not byte-equal; the line `Phase H must carry these four keys (env, enableAllProjectMcpServers, enabledPlugins, sandbox): the engine does not deploy them.`
 - `## Redactions`: `None. scanDir: 0 hits over <n> files at this SHA.` or one line per redaction (file, line, pattern id) and the sentence "the golden compares against the redacted form for these files".
 - `## Not changed in this snapshot`: absolute user paths are kept verbatim (counts from decision 6) until Phase F turns them into `{{project.root}}`; the Charlotte MCP allow rules stay in the fragment until the pack exists (Phase F); canaries are data until Phase F1.
 - `## Do not use for a new project`: the fragment contains mutating allow rules scoped to the igaming checkout.
 - `## Re-verify against the source`: the two `git archive` / `shasum -a 256 -c` commands from `<verify>`.
 
-Commit: `feat(agnostic-C1): igaming snapshot preset at e319843b (49 files, settings fragment, golden)`.
+Commit: `feat(agnostic-C1): igaming snapshot preset at 95a02959e (49 files, settings fragment, golden)`.
   </action>
   <verify>
 `cd /tmp/igaming-raw-C01 && shasum -a 256 -c --status /Users/ollorin/get-shit-done-agnostic/get-shit-done/presets/igaming/golden.sha256; echo rc=$?` → `rc=0` (with redactions: only the README-listed files fail).
@@ -156,7 +156,7 @@ G1. ADD. `loadPreset(PRESET)` is ok; `name === 'igaming'`, `version === '1'`, `s
 G2. ADD. File list: set of `src` deep-equals `walk(PRESET)` minus `META`; set of `dest` deep-equals golden keys minus `SETTINGS_DEST`; every entry satisfies `src === srcOf(dest)`; counts by dest prefix: `.claude/rules/` 12, `.claude/hooks/` 19, `.claude/skills/` 15, `scripts/validation/hook-canaries/` 2, `CLAUDE.md` 1; golden has 50 lines.
 G3. ADD. Byte equality: `renderPreset(PRESET, IGAMING_VALUES)` is ok with no errors; for every rendered file `sha256(content) === golden().get(dest)`; 49 files compared (assert the count so an empty loop cannot pass).
 G4. ADD. Modes: the dests whose rendered `mode & 0o111` is non-zero deep-equal (sorted) the 10 golden dests matching `/^\.claude\/hooks\/[^/]+\.sh$/` plus `scripts/validation/hook-canaries/run-canaries.sh`.
-G5. ADD. Settings (design 4.6 item 3): `sha256(settings.snapshot.json bytes) === golden().get(SETTINGS_DEST)`; fragment top-level keys deep-equal `['hooks', 'permissions']` (sorted); for each of `allow`, `deny`, `ask`: no duplicate in the fragment list, `new Set(fragment)` equals `new Set(snapshot)` (compare sorted arrays), sizes 289 / 19 / 3; `fragment.hooks` `deepStrictEqual` `snapshot.hooks` (order included); snapshot keys other than `permissions` and `hooks`, sorted, deep-equal `['enableAllProjectMcpServers', 'enabledPlugins', 'env', 'sandbox']`; `mergeSettings(null, null, rendered.settings)` is ok and its `settings` has the same three sets and `hooks` deep-equal to `snapshot.hooks`.
+G5. ADD. Settings (design 4.6 item 3): `sha256(settings.snapshot.json bytes) === golden().get(SETTINGS_DEST)`; fragment top-level keys deep-equal `['hooks', 'permissions']` (sorted); for each of `allow`, `deny`, `ask`: no duplicate in the fragment list, `new Set(fragment)` equals `new Set(snapshot)` (compare sorted arrays), sizes 289 / 19 / 3; `fragment.hooks` `deepStrictEqual` `snapshot.hooks` (order included); snapshot keys other than `permissions` and `hooks`, sorted, deep-equal `['enableAllProjectMcpServers', 'enabledPlugins', 'env', 'sandbox']`, with the assertion message `undeployed settings keys changed: Phase H must carry env, enableAllProjectMcpServers, enabledPlugins, sandbox (README ## Settings)`; `mergeSettings(null, null, rendered.settings)` is ok and its `settings` has the same three sets and `hooks` deep-equal to `snapshot.hooks`.
 G6. ADD. Render with igaming values: copy `PRESET` to a tmp dir (`fs.cpSync(..., { recursive: true })`); in the copy's `settings.fragment.json` text replace every `IGAMING_ROOT` with `{{project.root}}` and assert exactly 10 replacements; `renderPreset(copy, IGAMING_VALUES).settings` deep-equals the committed fragment; `renderPreset(copy, { project: { root: '/elsewhere' } }).settings` does NOT deep-equal it; `renderPreset(copy, {})` is not ok with reason `missing config key: project.root`.
 REUSE. Secret scan of `presets/`: `get-shit-done/bin/project-deploy-scan.test.js` tests `5 repo presets contain no token-shaped string` and `5b` (demonstrated failure). 0 tests added; test 5 stops being vacuous with Task 1.
 REUSE. Installer byte-copy of `presets/`: `bin/install.test.js` `describe 'presets/ is copied byte-for-byte (agnostic-B1)'` (line 642). 0 tests added.
@@ -205,7 +205,7 @@ Mutation proof (edit `scripts/agnostic-lint.js`, run the file, confirm, restore 
 
 After the restore `git diff --stat -- scripts/agnostic-lint.js scripts/agnostic-lint/` is empty. Then the full suite once.
 Commit: `test(agnostic-C1): presets/ stays outside the agnostic lint scope (2 mutants killed)`.
-Then write and commit `.planning/agnostic/C/C-01-SUMMARY.md` (format of `.planning/agnostic/B/B-01-SUMMARY.md`): outcome, pinned SHA, file counts, scan result and redaction list, commits, tests by name, mutation table, threat-model proof table, deviations, Self-Check.
+Then write and commit `.planning/agnostic/C/C-01-SUMMARY.md` (format of `.planning/agnostic/B/B-01-SUMMARY.md`): outcome, pinned SHA, file counts, the line `Phase H must carry the four undeployed settings keys: env, enableAllProjectMcpServers, enabledPlugins, sandbox`, scan result and redaction list, commits, tests by name, mutation table, threat-model proof table, deviations, Self-Check.
   </action>
   <verify>
 `NODE_PATH=$HOME/get-shit-done/node_modules node --test scripts/agnostic-lint.test.js` → `# fail 0`, L1 and L2 present.
@@ -219,7 +219,7 @@ Full suite `rc=0`, `# fail 0`. `node scripts/agnostic-lint.js check` → exit 0,
 
 <verification>
 - `cd /tmp/igaming-raw-C01 && shasum -a 256 -c --status <fork>/get-shit-done/presets/igaming/golden.sha256` → rc 0 (fresh `git archive` of the pinned SHA).
-- `git -C /Users/ollorin/igaming-platform log -1 --format=%H wt/403` may have moved on; the preset stays at the pinned SHA (design risk R2).
+- `git -C /Users/ollorin/igaming-platform log -1 --format=%H feature/codebase-review-hardening` may have moved on; the preset stays at the pinned SHA (design risk R2).
 - Full suite rc 0; agnostic lint exit 0 with the baseline file unchanged.
 - No file under `get-shit-done/presets/igaming` has a path segment starting with `.`.
 </verification>
