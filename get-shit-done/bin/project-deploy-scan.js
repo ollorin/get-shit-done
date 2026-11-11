@@ -3,13 +3,16 @@
 const fs = require('fs');
 const path = require('path');
 
-// A value is a secret only if it is not code (call, member access, env lookup) and carries
-// entropy: a digit, a `_+/=` separator, or mixed case at 20+ chars. Hyphen alone is prose.
-// Any runtime's `Name.member` form is code via CODE_RE, so no runtime name is listed here.
+// A value is a secret only if it is not code and carries entropy: a digit, a `_+/=` separator,
+// or mixed case at 20+ chars. Hyphen alone is prose. Code is a call `f(x)`, a chain of plain
+// names `a.b.c` (optionally called), or an env lookup; a value merely containing `(`, `)` or `.x`
+// is not code. Member chains are letters and `_` only, so a token with digits stays a secret.
+// Any runtime's `Name.member` form is code via MEMBER_RE, so no runtime name is listed here.
 const CODE_START_RE = /^(?:env\(|process\.|os\.|getenv)/i;
-const CODE_RE = /[()]|\.[A-Za-z_]/;
+const CALL_RE = /^[A-Za-z_]\w*\([^)]*\)$/;
+const MEMBER_RE = /^[A-Za-z_]+(?:\.[A-Za-z_]+)+(?:\(.*)?$/;
 const ENTROPY_RE = /\d|[_+/=]/;
-const looksLikeSecretValue = (v) => !CODE_START_RE.test(v) && !CODE_RE.test(v)
+const looksLikeSecretValue = (v) => !CODE_START_RE.test(v) && !CALL_RE.test(v) && !MEMBER_RE.test(v)
   && (ENTROPY_RE.test(v) || (v.length >= 20 && /[a-z]/.test(v) && /[A-Z]/.test(v)));
 
 const SECRET_PATTERNS = [

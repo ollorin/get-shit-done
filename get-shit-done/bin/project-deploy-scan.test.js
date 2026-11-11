@@ -213,3 +213,32 @@ describe('B-FIX3 F2 slice boundary overlap', () => {
     assert.deepStrictEqual(sliceLine('a'.repeat(LINE_CAP + 1)).map((s) => s.length), [LINE_CAP, LINE_OVERLAP + 1]);
   });
 });
+
+describe('B-FIX3 F3 assigned_secret: only call and member shapes are code', () => {
+  const POSITIVES = [
+    'pass' + 'word = "Xk9.Tz3abcdefgh"',
+    'sec' + 'ret: "Ab(12)cdefghijk!"',
+    'pass' + 'word = "Tr0ub4dor&3.xyzzy"',
+    'api' + '_key=Ab.Cd/Ef==ghij1234',
+    'pass' + 'word = "Abcdefgh1234"',
+  ];
+
+  test('F3-a values that merely contain parentheses or a dot-letter are secrets', () => {
+    for (const text of POSITIVES) {
+      assert.deepStrictEqual(scanText(text), [{ pattern: 'assigned_secret', line: 1 }], text);
+    }
+  });
+
+  test('F3-b call and member shapes stay code, with the B-FIX2 negatives', () => {
+    const negatives = [
+      'password = getPasswordFromVault()',
+      'pass' + 'word = vault.get' + 'Secret(key)',
+      'secret: process.env.SECRET_VALUE_X',
+      'pass' + 'word = a.b.c',
+      'Token: expiration-policy-document',
+      'secret = "env(SOME_NAME)"',
+      'TOKEN=${GITHUB_TOKEN}',
+    ];
+    for (const text of negatives) assert.deepStrictEqual(scanText(text), [], `expected no hits for: ${text}`);
+  });
+});
