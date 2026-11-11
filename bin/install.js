@@ -647,6 +647,16 @@ function copyFlattenedCommands(srcDir, destDir, prefix, pathPrefix, runtime) {
   }
 }
 
+function copyDirVerbatim(srcDir, destDir) {
+  fs.mkdirSync(destDir, { recursive: true });
+  for (const entry of fs.readdirSync(srcDir, { withFileTypes: true })) {
+    const srcPath = path.join(srcDir, entry.name);
+    const destPath = path.join(destDir, entry.name);
+    if (entry.isDirectory()) copyDirVerbatim(srcPath, destPath);
+    else if (entry.isFile()) fs.copyFileSync(srcPath, destPath);
+  }
+}
+
 /**
  * Recursively copy directory, replacing paths in .md files
  * Deletes existing destDir first to remove orphaned files from previous versions
@@ -654,8 +664,10 @@ function copyFlattenedCommands(srcDir, destDir, prefix, pathPrefix, runtime) {
  * @param {string} destDir - Destination directory
  * @param {string} pathPrefix - Path prefix for file references
  * @param {string} runtime - Target runtime ('claude', 'opencode', 'gemini')
+ * @param {{ verbatimDirs?: string[] }} [opts] - Top-level subdirectory names copied byte-for-byte
  */
-function copyWithPathReplacement(srcDir, destDir, pathPrefix, runtime) {
+function copyWithPathReplacement(srcDir, destDir, pathPrefix, runtime, opts) {
+  const verbatimDirs = (opts && opts.verbatimDirs) || [];
   const isOpencode = runtime === 'opencode';
   const dirName = getDirName(runtime);
 
@@ -672,7 +684,8 @@ function copyWithPathReplacement(srcDir, destDir, pathPrefix, runtime) {
     const destPath = path.join(destDir, entry.name);
 
     if (entry.isDirectory()) {
-      copyWithPathReplacement(srcPath, destPath, pathPrefix, runtime);
+      if (verbatimDirs.includes(entry.name)) copyDirVerbatim(srcPath, destPath);
+      else copyWithPathReplacement(srcPath, destPath, pathPrefix, runtime);
     } else if (entry.name.endsWith('.md')) {
       // Always replace ~/.claude/ as it is the source of truth in the repo
       let content = fs.readFileSync(srcPath, 'utf8');
@@ -1550,7 +1563,7 @@ function install(isGlobal, runtime = 'claude') {
   const existingHookConfigContent = fs.existsSync(existingHookConfigPath)
     ? fs.readFileSync(existingHookConfigPath, 'utf8')
     : null;
-  copyWithPathReplacement(skillSrc, skillDest, pathPrefix, runtime);
+  copyWithPathReplacement(skillSrc, skillDest, pathPrefix, runtime, { verbatimDirs: ['presets'] });
   if (verifyInstalled(skillDest, 'get-shit-done')) {
     console.log(`  ${green}✓${reset} Installed get-shit-done`);
   } else {
@@ -2102,4 +2115,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { installHookDependencies, wrapWithTimeout, resolveTimeoutBinary, rewrapGsdHookCommands, writeManifest, pruneIdenticalPatches };
+module.exports = { installHookDependencies, wrapWithTimeout, resolveTimeoutBinary, rewrapGsdHookCommands, writeManifest, pruneIdenticalPatches, copyWithPathReplacement, copyDirVerbatim };
