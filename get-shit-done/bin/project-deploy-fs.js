@@ -81,7 +81,7 @@ function isDirectory(abs) {
 function readRegular(abs) {
   if (!exists(abs)) return { bytes: null };
   try {
-    return fs.statSync(abs).isFile() ? { bytes: fs.readFileSync(abs) } : { error: 'not a regular file' };
+    return fs.lstatSync(abs).isFile() ? { bytes: fs.readFileSync(abs) } : { error: 'not a regular file' };
   } catch {
     return { error: 'unreadable' };
   }

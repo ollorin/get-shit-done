@@ -14,6 +14,9 @@ const SECRET_PATTERNS = [
   { id: 'registry_token', re: /\bnpm_[A-Za-z0-9]{36}\b/ },
   { id: 'signed_token', re: /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/ },
   { id: 'private_key_block', re: /-----BEGIN (?:[A-Z]+ )*PRIVATE KEY-----/ },
+  { id: 'url_credentials', re: /[a-z][a-z0-9+.-]*:\/\/[^\s\/:@]+:[^\s\/@]+@/i },
+  { id: 'bearer_token', re: /\bBearer\s+[A-Za-z0-9._~+\/-]{20,}/ },
+  { id: 'assigned_secret', re: /(password|secret|token|api[_-]?key)\s*[:=]\s*['"]?(?![${<])[^\s'"]{12,}/i },
 ];
 
 const SKIP_DIRS = new Set(['node_modules', '.git']);

@@ -21,6 +21,9 @@ const TOKENS = {
   registry_token: 'np' + 'm_' + R.repeat(9),
   signed_token: ['ey' + 'J' + R.repeat(3), 'ey' + 'J' + 'c3D4'.repeat(3), 'e5F6'.repeat(3)].join('.'),
   private_key_block: '-----BEGIN ' + 'RSA PRIVATE' + ' KEY-----',
+  url_credentials: 'postgres' + '://' + 'admin' + ':' + 'hunter2pass' + '@db.internal',
+  bearer_token: 'Bear' + 'er ' + 'Zq8Lm2VbKx' + 'Tr4PnW7dYs',
+  assigned_secret: 'api' + '_key' + '=' + 'Zq8Lm2' + 'VbKxTr4P',
 };
 
 const tmps = [];
@@ -71,6 +74,8 @@ describe('project-deploy-scan', () => {
       'gh' + 'p_' + 'abc',
       'task-' + R.repeat(8),
       '-----BEGIN CERTIFICATE-----',
+      'TOKEN=${GITHUB_TOKEN}',
+      'https://example.com/a@b',
     ];
     for (const text of negatives) {
       assert.deepStrictEqual(scanText(text), [], `expected no hits for: ${text}`);
@@ -79,11 +84,11 @@ describe('project-deploy-scan', () => {
 
   test('3 scanDir walks nested and dotfiles, skips node_modules, and reports sorted relative paths', () => {
     const root = mkTmp();
-    const token = TOKENS.vcs_token;
+    const planted = TOKENS.vcs_token;
     writeTree(root, {
-      'a/b/conf.txt': 'first line\n' + token + '\n',
-      '.env.example': token + '\n',
-      'node_modules/x.txt': token + '\n',
+      'a/b/conf.txt': 'first line\n' + planted + '\n',
+      '.env.example': planted + '\n',
+      'node_modules/x.txt': planted + '\n',
       'clean.md': 'nothing here\n',
     });
     const result = scanDir(root);
@@ -96,8 +101,8 @@ describe('project-deploy-scan', () => {
   });
 
   test('4 a Buffer with non-UTF-8 bytes around a token is scanned without loss', () => {
-    const token = TOKENS.vcs_token;
-    const buf = Buffer.from([0xff, 0xfe, ...Buffer.from(' ' + token + ' '), 0xff]);
+    const planted = TOKENS.vcs_token;
+    const buf = Buffer.from([0xff, 0xfe, ...Buffer.from(' ' + planted + ' '), 0xff]);
     assert.deepStrictEqual(scanText(buf), [{ pattern: 'vcs_token', line: 1 }]);
   });
 

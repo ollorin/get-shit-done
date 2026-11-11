@@ -206,3 +206,41 @@
 - M5 is steering: a pty-holding agent with a scrubbed env passes these checks. Stated in the module header; the real boundary remains the Phase H PreToolUse deny (B-FIX1 deferred list).
 - Args matching can refuse a human whose shell command line contains a `claude` path segment (safe direction).
 - Nothing pushed. No `install:gsd`. No stash, reset or clean.
+
+## Task 5 (L6+L8)
+
+### Commits
+- `710654b` fix(agnostic-B-FIX1): L6 malformed manifest shape stops planDeploy
+- L8 commit: `fix(agnostic-B-FIX1): L8 scan patterns for URL credentials, bearer and assigned secrets; readRegular lstat`
+
+### Outcome
+- L6: `project-deploy-manifest.js` (new, 26 lines) `manifestShapeError(manifest)` returns `'files'`, `'settings'` or `null`. Checks `files` entries are objects, `settings` is an object or null, `settings.hooks` elements are `{event:string, command:string, matcher?:string}`, `settings.permissions` allow/deny/ask are string arrays. `planDeploy` (`project-deploy.js`, 300 lines) stops with `manifest is malformed` right after the JSON parse.
+- L8: `project-deploy-scan.js` adds `url_credentials`, `bearer_token`, `assigned_secret` (ruling regexes). `project-deploy-fs.js` `readRegular` uses `lstatSync`, so a symlink is `not a regular file`.
+- Test-source hygiene: the `assigned_secret` pattern flags `const token = TOKENS.vcs_token;` in the scan test (self-scan, test 6), so the variable is renamed to `planted`. Token-shaped test strings are built at runtime (`'postgres' + '://' + ...`).
+
+### Test rows
+| Row | Case | Expectation |
+|---|---|---|
+| L6-a | well-formed manifest, null settings, empty manifest | `null` |
+| L6-b | `settings.hooks:[null]`, `hooks:[{event:1}]`, `files:{a:null}`, `settings:"x"`, `permissions.allow:[1]` | named shape error |
+| L6-c | planDeploy with `settings.hooks:[null]` | `manifest is malformed`, `ops.manifest` null, tree unchanged |
+| L8-a | one positive per new pattern (`url_credentials`, `bearer_token`, `assigned_secret`) | pattern id and line only, never the text (test 1 via `TOKENS`) |
+| L8-b | negatives `TOKEN=${GITHUB_TOKEN}`, `https://example.com/a@b` | no hits |
+| L8-c | symlink to a regular file through `readRegular` | `not a regular file`; target read; absent gives `bytes: null` |
+
+### Mutants (`.tmp/mutate-l6.js`, `.tmp/mutate-l8.js`, sha256 checked before and after)
+| Mutant | Killed by | Restored identical |
+|---|---|---|
+| L6 skip hooks element check | L6-b, L6-c | yes |
+| L8 drop placeholder lookahead in `assigned_secret` | L8-b (and self-scan) | yes |
+| L8 `readRegular` back to `statSync` | L8-c | yes |
+
+### Verification
+- `NODE_PATH=$HOME/get-shit-done/node_modules npm test`: rc=0, 1908 pass, 0 fail (Task 4 baseline 1901). Log: `.tmp/agnostic-B-FIX1-L8.log`.
+- `node scripts/agnostic-lint.js check`: ok (869 denied, 338 allowed).
+
+### Deviations and notes
+- L6 `files` non-object (for example a string) is now also malformed. Previously tolerated as empty. Intentional: the manifest is written only by this engine, so any other shape is corruption.
+- L6 `permissions` non-object is malformed; `mergeSettings` previously ignored it.
+- L8 `assigned_secret` will flag any source line with `token = <12+ non-space chars>`. The scanner runs over presets and rendered output, so this is the intended class; the repo's own test file needed the rename.
+- Nothing pushed. No `install:gsd`. No stash, reset or clean.
