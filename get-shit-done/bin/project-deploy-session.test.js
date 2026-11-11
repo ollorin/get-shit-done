@@ -37,4 +37,24 @@ describe('project deploy session guard (B-FIX1 M5)', () => {
     assert.deepStrictEqual(session, { stdin_tty: true, stdout_tty: true, agent_ancestor: false, orphan: false });
     assert.deepStrictEqual(guardFailures({}, session), []);
   });
+
+  test('M5 (B-FIX2 4) an ancestor named claudette is not an agent (exact basename, not prefix)', () => {
+    const psOutput = `  300   200 zsh zsh\n  200     1 claudette claudette --x\n${LAUNCHD}`;
+    assert.strictEqual(agentAncestor(psOutput, 300), false);
+  });
+
+  test('M5 (B-FIX2 4) a tmux process with -s claude-code in its args is not an agent', () => {
+    const psOutput = `  300   200 zsh zsh\n  200     1 tmux tmux new -s claude-code\n${LAUNCHD}`;
+    assert.strictEqual(agentAncestor(psOutput, 300), false);
+  });
+
+  test('M5 (B-FIX2 4) a real @anthropic-ai/claude-code cli.js ancestor is an agent', () => {
+    const psOutput = `  300   200 zsh zsh\n  200     1 node node /x/node_modules/@anthropic-ai/claude-code/cli.js\n${LAUNCHD}`;
+    assert.strictEqual(agentAncestor(psOutput, 300), true);
+  });
+
+  test('M5 (B-FIX2 4) an ancestor whose comm basename is exactly claude is an agent', () => {
+    const psOutput = `  300   200 zsh zsh\n  200     1 /usr/local/bin/claude claude\n${LAUNCHD}`;
+    assert.strictEqual(agentAncestor(psOutput, 300), true);
+  });
 });

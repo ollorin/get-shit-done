@@ -1,11 +1,14 @@
 'use strict';
 
 // Steering, not a boundary: an agent with a pty and a scrubbed env can still pass these checks.
+// A process whose parent is PID 1 is refused as orphan. In a container PID 1 is the init, so
+// every container run is refused too (fail closed).
 
 const { spawnSync } = require('child_process');
 
 const PS_LINE_RE = /^\s*(\d+)\s+(\d+)\s+(\S+)\s*(.*)$/;
-const AGENT_RE = /(^|\/)claude(\s|$)|claude-code|@anthropic-ai|^claude/i;
+const COMM_RE = /^claude$/i;
+const ARGS_RE = /(^|\/)@anthropic-ai\/claude-code(\/|$)|\/claude-code\/(cli|bin)\b/;
 const ENV_RE = /^(CLAUDECODE$|CLAUDE_CODE_|CLAUDE_PID$|CLAUDE_AGENT_SDK)/;
 const MAX_HOPS = 64;
 
@@ -20,7 +23,7 @@ function parsePs(psOutput) {
 
 function isAgent(entry) {
   const base = entry.comm.slice(entry.comm.lastIndexOf('/') + 1);
-  return AGENT_RE.test(base) || AGENT_RE.test(entry.args);
+  return COMM_RE.test(base) || ARGS_RE.test(entry.args);
 }
 
 function agentAncestor(psOutput, pid) {
