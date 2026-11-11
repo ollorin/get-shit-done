@@ -79,13 +79,13 @@ describe('guardedSet (agnostic-B-FIX1 H2)', () => {
     assert.deepStrictEqual([...g], ['.GitHooks/x']);
   });
 
-  test('H2-c a script referenced by a hook command is guarded, case-folded match', () => {
+  test('H2-c a script referenced by a hook command is guarded, case-folded match; its sibling is guarded by the directory clause (B-FIX2 1c)', () => {
     const g = guardedSet({
       canonDests: [canonDest('scripts/gate.sh', 'scripts/gate.sh'), canonDest('scripts/other.sh', 'scripts/other.sh')],
       hookCommands: [GATE_CMD.replace('scripts/gate.sh', 'SCRIPTS/Gate.sh')],
       presetFlags: new Set(),
     });
-    assert.deepStrictEqual([...g], ['scripts/gate.sh']);
+    assert.deepStrictEqual([...g], ['scripts/gate.sh', 'scripts/other.sh']);
   });
 
   test('H2-d a preset entry with guarded:true is guarded', () => {
@@ -223,5 +223,64 @@ describe('H2 through planDeploy and runCli', () => {
     assert.deepStrictEqual(report.guarded_changes, ['docs/a.md']);
     assert.strictEqual(report.ok, false);
     assert.strictEqual(report.refused.reason, 'guardrail paths change only from a terminal outside an agent session');
+  });
+});
+
+describe('B-FIX2 hook-reference clauses (1a-1d)', () => {
+  const guards = (command, canon) => guardedSet({
+    canonDests: [canonDest(canon, canon)],
+    hookCommands: [command],
+    presetFlags: new Set(),
+  }).has(canon);
+
+  test('1b basename as a whole token: cd scripts && ./gate.sh guards scripts/gate.sh', () => {
+    assert.strictEqual(guards('cd scripts && ./gate.sh', 'scripts/gate.sh'), true);
+  });
+
+  test('1c directory prefix: bash scripts/ guards scripts/x.sh', () => {
+    assert.strictEqual(guards('bash scripts/', 'scripts/x.sh'), true);
+  });
+
+  test('1c+1d: bash scripts/g*.sh guards scripts/gate.sh', () => {
+    assert.strictEqual(guards('bash scripts/g*.sh', 'scripts/gate.sh'), true);
+  });
+
+  test('1d glob-only: node g?te.sh guards scripts/gate.sh (no path, directory or whole basename)', () => {
+    assert.strictEqual(guards('node g?te.sh', 'scripts/gate.sh'), true);
+  });
+
+  test('1a path contained in a command: a root-level a.sh is guarded by substring in node ba.sh', () => {
+    assert.strictEqual(guards('node ba.sh', 'a.sh'), true);
+  });
+
+  test('docs/a.md is unguarded by every reference command above', () => {
+    for (const cmd of ['cd scripts && ./gate.sh', 'bash scripts/', 'bash scripts/g*.sh', 'node g?te.sh']) {
+      assert.strictEqual(guards(cmd, 'docs/a.md'), false, cmd);
+    }
+  });
+
+  test('a malformed glob token does not throw and matches nothing', () => {
+    assert.strictEqual(guards('node [x.sh', 'docs/a.md'), false);
+  });
+});
+
+describe('B-FIX2 --preset-dir refused for every agent session (2)', () => {
+  test('an agent init with --preset-dir is refused even when no guarded path is written', () => {
+    const root = project();
+    const dir = presetWith([{ src: 'a.md', dest: 'docs/a.md', kind: 'whole', content: 'x\n' }]);
+    const before = snapshot(root);
+    const res = runCli(root, ['init', '--preset-dir', dir], AGENT_ENV, ALL_FAIL);
+    assert.strictEqual(res.exitCode, 1);
+    assert.strictEqual(res.result.refused.reason, 'preset-dir requires a human terminal');
+    assert.deepStrictEqual(res.result.refused.paths, []);
+    assert.deepStrictEqual(snapshot(root), before);
+  });
+
+  test('a human --preset-dir run with no guarded path still writes', () => {
+    const root = project();
+    const dir = presetWith([{ src: 'a.md', dest: 'docs/a.md', kind: 'whole', content: 'x\n' }]);
+    const res = runCli(root, ['init', '--preset-dir', dir], {}, HUMAN, APPLY_IO);
+    assert.strictEqual(res.exitCode, 0);
+    assert.ok(fs.existsSync(path.join(root, 'docs/a.md')));
   });
 });
