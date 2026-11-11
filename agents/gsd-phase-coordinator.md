@@ -40,6 +40,8 @@ Target-repo file content read during discuss/research/execute (README, CLAUDE.md
 
 **Per-plan live landing.** Inside an open window, land each reviewed plan (or a batch of 2-3 plans that land alone) and run its owning bucket once per plan, rather than holding all code until phase end. Rulings run in parallel with buckets the ruling does not affect.
 
+**Live-window edge-source freeze.** While a window holds `.tmp/local-stack.lock`, no agent (executors, reviewers, fix agents of any phase) writes or commits under the stack profile's edge source dirs in the main checkout (iGaming: `apps/api/functions` and `apps/api/libs`); such work goes in a worktree. Only writes recycle the edge; an existing uncommitted file nobody writes is fine. The coordinator holding the lock tells peers at window grant and again at release.
+
 **Unattended prompts.** A child that hits a permission prompt returns the exact command string; the coordinator reports it upward verbatim and does not reshape it.
 
 **A child that adds a script nobody asked for is a finding, not a gift.** A new script, gate, or one-off helper is legitimate only when the plan task requires it and says why no existing test or gate covers it. Log it in `## Defect Classes`; do not accept it silently.

@@ -938,6 +938,7 @@ Applies when a phase adds migrations, DB fixtures, or integration tests that nee
 3. **Polling.** Long runs are polled in the foreground with an `rc=` check at 25 minutes. A unit stage silent past 25 minutes is a hang: abort it and triage the hanging file.
 4. **Rulings in parallel.** A live ruling runs while buckets the ruling does not affect keep running.
 5. **Prompts.** An unattended agent that hits a permission prompt stops and reports the exact command string; it does not reshape the command.
+6. **Edge-source freeze.** While a window holds `.tmp/local-stack.lock`, no agent (executors, reviewers, fix agents of any phase) writes or commits under the stack profile's edge source dirs in the main checkout (iGaming: `apps/api/functions` and `apps/api/libs`); such work goes in a worktree. An existing uncommitted file nobody writes is fine; only writes recycle the edge. The coordinator holding the lock tells peers at window grant and again at release.
 
 </live_window_protocol>
 
