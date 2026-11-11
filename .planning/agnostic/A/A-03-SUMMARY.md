@@ -39,3 +39,31 @@ None found. (reviewed by: mutation-proof, 5 mutants, all killed; no defect in th
 ## Self-Check: PASSED
 - Files exist: `get-shit-done/templates/product-brief.md`, `get-shit-done/templates/stack-profile.md`, `get-shit-done/references/project-context.md`, `get-shit-done/bin/project-profile.test.js`.
 - Commits exist: `2cb4ec0`, `5bffe4a`.
+
+## Review round 1 fixes
+
+Every Sonnet round-1 finding is fixed, with a test that fails on the pre-fix code (mutants reverted, file restored after each).
+
+| Finding | Sev | Fix | Commit |
+|---|---|---|---|
+| F1 | MEDIUM | reg, authtech, cloud, owner, nx classes case-insensitive; caps re-derived from upstream/main; test 13 | `3c15819` |
+| F2 | MEDIUM | validator tests 19-25; 10 mutants killed | `e60b1de` |
+| F3 | LOW-MED | scopes for `hooks/*.js`, `skills/`, `routing-rules.md`, `get-shit-done/config/*.json`; test 3b | `0efb30e` |
+| F4 | LOW | `g` and `y` flags rejected by name; test 14 | `8bd6d17` |
+| F5 | LOW | `--root` without a value and unknown flags exit 2; test 15 | `8bd6d17` |
+| F6 | LOW | usage text: check and write-baseline scan git-tracked files only | `8bd6d17` |
+| F7 | LOW | `test_file` must contain `{file}`; `<file>` in shapes documented as literal; test 26 | `e60b1de`, `c6b2639` |
+| F8 | LOW | placeholder scan skips single-quoted text and `${name}`; test 26 | `e60b1de` |
+| F9 | LOW | stack-profile and product-brief wording now matches what is checked | `c6b2639` |
+| F10 | LOW | tests 16-18: `report` matrix, bad pattern via CLI, unknown subcommand exit 2 | `8bd6d17` |
+
+Baseline recalibration (approved `--allow-raise`, used for F1 and F3 only):
+- F1: denied 846 to 867, allowed 290 to 338. Allow-list 70 to 73 entries.
+- F3: denied 867 to 869. Rises: `routing-rules.md` authtech 1, `config/gate-capabilities.json` gates 1. Both fork-only, no upstream count.
+- No drops in either step.
+
+Deliberate scope choices: `pnpm`, `paths`, `gates`, `zg`, `abs`, `ports` stay case-sensitive (lowercase tool and path names, no uppercase variant in the fork). `email` stays case-sensitive (SES, Resend).
+
+Correction: the F1 commit body says 4 new allow-list entries; the count is 3 (70 to 73). The entry list in the commit is correct.
+
+Tests: `NODE_PATH=$HOME/get-shit-done/node_modules npm test`: 1729 pass, 0 fail (was 1714). A-03 tests 14-18 still pass; no pinned wording changed.
