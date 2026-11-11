@@ -14,6 +14,7 @@ const { sha256, planBlockFile } = require('./project-deploy-files.js');
 const { mergeSettings, serializeSettings } = require('./project-deploy-settings.js');
 
 const HUMAN = Object.freeze({ stdin_tty: true, stdout_tty: true, agent_ancestor: false });
+const APPLY_IO = Object.freeze({ confirm: () => 'APPLY' });
 const DEFAULT_CONFIG = { project: { slug: 'demo' }, stack: { paths: { backend: 'srv' }, capabilities: {} } };
 const RULE = '# Style\n\nBackend lives in {{stack.paths.backend}}.\nline three\nline four\nline five\n';
 const HOOK = '// guard\nprocess.exit(0);\n';
@@ -430,7 +431,7 @@ describe('project init|diff|sync (agnostic-B)', () => {
     hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'node .claude/hooks/guard.js' }] }] },
   };
 
-  const run = (root, presetDir, cmd, env = {}, session = HUMAN) => runCli(root, [cmd, '--preset-dir', presetDir], env, session);
+  const run = (root, presetDir, cmd, env = {}, session = HUMAN) => runCli(root, [cmd, '--preset-dir', presetDir], env, session, APPLY_IO);
   const cli = (args, env) => spawnSync(process.execPath, [GSD_TOOLS, 'project', ...args], { encoding: 'utf8', env });
   const abs = (root, rel) => path.join(root, rel);
   const readSettings = (root) => JSON.parse(fs.readFileSync(abs(root, SETTINGS), 'utf8'));
@@ -705,7 +706,7 @@ describe('project init|diff|sync (agnostic-B)', () => {
     const prior = process.env.CLAUDECODE;
     process.env.CLAUDECODE = '1';
     try {
-      assert.strictEqual(runCli(root, ['sync', '--preset-dir', dir], {}, HUMAN).exitCode, 0);
+      assert.strictEqual(runCli(root, ['sync', '--preset-dir', dir], {}, HUMAN, APPLY_IO).exitCode, 0);
     } finally {
       if (prior === undefined) delete process.env.CLAUDECODE;
       else process.env.CLAUDECODE = prior;

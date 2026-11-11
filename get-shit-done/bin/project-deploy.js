@@ -7,6 +7,8 @@ const { resolvePaths } = require('./project-deploy-canon.js');
 const { hookCommandsOf, triplesCommands, guardedSet, refusalOf } = require('./project-deploy-guard.js');
 const { sha256, planWholeFile, planBlockFile } = require('./project-deploy-files.js');
 const { scanText } = require('./project-deploy-scan.js');
+const { settingsReport } = require('./project-deploy-redact.js');
+const { shownFiles, confirmed } = require('./project-deploy-confirm.js');
 const { mergeSettings, serializeSettings } = require('./project-deploy-settings.js');
 const { applyPlan } = require('./project-deploy-apply.js');
 const { isPlainObject, exists, contained, isDirectory, readRegular, readJsonObject } = require('./project-deploy-fs.js');
@@ -77,6 +79,7 @@ function planFile(root, f, prev) {
     write: WRITE_ACTIONS.has(plan.action) ? { dest: f.dest, content: Buffer.from(plan.content), mode: f.mode } : null,
     base: conflict ? null : { dest: f.dest, content: f.content },
     manifestEntry: conflict ? prev : entry,
+    old: cur.bytes,
   };
 }
 
@@ -96,6 +99,7 @@ function planFiles(root, rendered, prevFiles) {
     ],
     writes: results.filter((r) => r.write).map((r) => r.write),
     bases: results.filter((r) => r.base).map((r) => r.base),
+    olds: new Map(results.map((r) => [r.dest, r.old ?? null])),
     manifestFiles: sortKeys(manifestFiles),
   };
 }
@@ -121,6 +125,7 @@ function planSettings(root, rendered, prevSettings) {
     removed: m.removed,
     text: action === 'unchanged' ? null : serializeSettings(m.settings),
     deployed: m.deployed,
+    old: cur.bytes,
   };
 }
 
@@ -201,9 +206,7 @@ function planDeploy(opts) {
   Object.assign(report, {
     preset: { name: rendered.name, version: rendered.version },
     files: planned.files,
-    settings: settingsPlan && !settingsPlan.error
-      ? { action: settingsPlan.action, added: settingsPlan.added, removed: settingsPlan.removed }
-      : null,
+    settings: settingsPlan && !settingsPlan.error ? settingsReport(settingsPlan, secretHits.length > 0) : null,
     guarded_changes: guarded,
     changes: planned.files.filter((f) => WRITE_ACTIONS.has(f.action)).length + (settingsWrites ? 1 : 0),
     conflicts: planned.files.filter((f) => f.action === 'conflict').length,
@@ -230,6 +233,16 @@ function planDeploy(opts) {
       settingsText: settingsWrites ? settingsPlan.text : null,
       manifest: manifestOut,
     },
+    exempt,
+    presetPath: fs.realpathSync.native(dir),
+    shown: shownFiles({
+      writes: planned.writes,
+      files: planned.files,
+      olds: planned.olds,
+      guarded,
+      settingsPlan: settingsWrites ? settingsPlan : null,
+      settingsPath: SETTINGS,
+    }),
   };
 }
 
@@ -249,7 +262,7 @@ function parseArgs(args) {
   return { command, opts };
 }
 
-function runCli(cwd, args, env, session) {
+function runCli(cwd, args, env, session, io = {}) {
   const parsed = parseArgs(args);
   if (parsed === null) return { exitCode: 1, result: { ok: false, errors: [{ reason: USAGE }] } };
   const { command, opts } = parsed;
@@ -260,6 +273,12 @@ function runCli(cwd, args, env, session) {
   if (!report.ok) return { exitCode: 1, result: { ...report, written: [] } };
   if (command === 'diff') {
     return { exitCode: report.changes > 0 || report.conflicts > 0 ? 2 : 0, result: { ...report, written: [] } };
+  }
+  if (!confirmed(plan, io.confirm)) {
+    return {
+      exitCode: 1,
+      result: { ...report, ok: false, refused: { reason: 'confirmation declined', paths: report.guarded_changes }, written: [] },
+    };
   }
   const applied = applyPlan(root, plan, command);
   if (!applied.ok) {

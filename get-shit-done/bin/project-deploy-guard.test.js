@@ -5,7 +5,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { planDeploy, runCli, CONFIG, SETTINGS } = require('./project-deploy.js');
+const { planDeploy, runCli, CONFIG, SETTINGS, MANIFEST, BASE_DIR } = require('./project-deploy.js');
 const { guardedSet, hookCommandsOf, triplesCommands } = require('./project-deploy-guard.js');
 const { loadPreset } = require('./project-deploy-render.js');
 const { sha256 } = require('./project-deploy-files.js');
@@ -13,6 +13,7 @@ const { sha256 } = require('./project-deploy-files.js');
 const HUMAN = Object.freeze({ stdin_tty: true, stdout_tty: true, agent_ancestor: false });
 const ALL_FAIL = Object.freeze({ stdin_tty: false, stdout_tty: false, agent_ancestor: true });
 const AGENT_ENV = Object.freeze({ CLAUDECODE: '1' });
+const APPLY_IO = Object.freeze({ confirm: () => 'APPLY' });
 const HOOKS_DIR = ['.claude', 'hooks'].join('/');
 const HOOK_DEST = `${HOOKS_DIR}/guard.js`;
 const GATE_CMD = '$CLAUDE_PROJECT_DIR/scripts/gate.sh';
@@ -120,6 +121,26 @@ describe('guardedSet (agnostic-B-FIX1 H2)', () => {
 });
 
 describe('H2 through planDeploy and runCli', () => {
+  test('H2-q a script named only by the previous manifest hook is guarded (current settings and fragment no longer name it)', () => {
+    const root = project({ permissions: { allow: ['Bash(ls:*)'] } });
+    writeAt(root, 'scripts/gate.sh', 'old\n');
+    writeAt(root, `${BASE_DIR}/scripts/gate.sh`, 'old\n');
+    writeAt(root, MANIFEST, JSON.stringify({
+      manifest_version: 1,
+      preset: { name: 'demo', version: '1' },
+      files: { 'scripts/gate.sh': { kind: 'whole', sha256: sha256(Buffer.from('old\n')) } },
+      settings: {
+        permissions: { allow: ['Bash(ls:*)'], deny: [], ask: [] },
+        hooks: [{ event: 'PreToolUse', matcher: 'Bash', command: GATE_CMD }],
+      },
+    }));
+    const dir = presetWith([{ src: 'gate.sh', dest: 'scripts/gate.sh', kind: 'whole', content: 'new\n' }],
+      { permissions: { allow: ['Bash(ls:*)'] } });
+    const { report } = planDeploy({ root, command: 'sync', presetDir: dir, env: {}, session: HUMAN });
+    assert.strictEqual(report.ok, true);
+    assert.deepStrictEqual(report.guarded_changes, ['scripts/gate.sh']);
+  });
+
   test('H2-h a script named by a project-added settings hook is guarded (current settings are scanned)', () => {
     const root = project({ hooks: { PostToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'node scripts/gate.sh' }] }] } });
     const dir = presetWith([{ src: 'gate.sh', dest: 'scripts/gate.sh', kind: 'whole', content: 'x\n' }],
@@ -164,7 +185,7 @@ describe('H2 through planDeploy and runCli', () => {
   test('H2-k a human init with --preset-dir writes the guarded hook', () => {
     const root = project();
     const dir = presetWith([{ src: 'guard.js', dest: HOOK_DEST, kind: 'whole', content: 'x\n' }]);
-    const res = runCli(root, ['init', '--preset-dir', dir], {}, HUMAN);
+    const res = runCli(root, ['init', '--preset-dir', dir], {}, HUMAN, APPLY_IO);
     assert.strictEqual(res.exitCode, 0);
     assert.ok(fs.existsSync(path.join(root, HOOK_DEST)));
   });
