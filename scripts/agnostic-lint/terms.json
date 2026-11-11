@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "classes": [
+    { "id": "igaming", "label": "iGaming product name", "pattern": "igaming", "flags": "i" },
+    { "id": "game", "label": "Game and wagering vocabulary", "pattern": "casino|\\bslots?\\b|wager|jackpot|betting|sportsbook|\\bPVP\\b|crash game|bladebro|sweeps|\\bbonus", "flags": "i" },
+    { "id": "reg", "label": "Regulatory acronyms", "pattern": "\\bKYC\\b|\\bAML\\b|\\bRNG\\b|\\bRTP\\b|fairness", "flags": "" },
+    { "id": "money", "label": "Money movement", "pattern": "money|payment|wallet|withdraw|deposit", "flags": "i" },
+    { "id": "owner", "label": "Project owner title", "pattern": "\\bCEO\\b", "flags": "" },
+    { "id": "supabase", "label": "Supabase", "pattern": "supabase", "flags": "i" },
+    { "id": "deno", "label": "Deno", "pattern": "\\bdeno\\b", "flags": "i" },
+    { "id": "edgefn", "label": "Edge functions", "pattern": "edge function|edge-function|edge runtime", "flags": "i" },
+    { "id": "redis", "label": "Redis and Upstash", "pattern": "redis|upstash", "flags": "i" },
+    { "id": "charlotte", "label": "Charlotte QA tool", "pattern": "charlotte", "flags": "i" },
+    { "id": "nx", "label": "Nx monorepo tool", "pattern": "\\bnx\\b", "flags": "" },
+    { "id": "pnpm", "label": "pnpm", "pattern": "pnpm", "flags": "" },
+    { "id": "postgres", "label": "PostgreSQL", "pattern": "postgres|psql|\\bRLS\\b|pg_cron|plpgsql", "flags": "i" },
+    { "id": "orbstack", "label": "OrbStack and colima", "pattern": "orbstack|colima|orbctl", "flags": "i" },
+    { "id": "email", "label": "Email providers", "pattern": "\\bSES\\b|\\bResend\\b|Postmark", "flags": "" },
+    { "id": "telegram", "label": "Telegram", "pattern": "telegram", "flags": "i" },
+    { "id": "docker", "label": "Docker", "pattern": "docker", "flags": "i" },
+    { "id": "authtech", "label": "Auth technology", "pattern": "\\bKong\\b|\\bJWT\\b|\\bTOTP\\b|\\b2FA\\b", "flags": "" },
+    { "id": "frontend", "label": "Frontend framework and test tooling", "pattern": "Next\\.js|\\bReact\\b|flutter|Tailwind|vitest|playwright|\\bjest\\b", "flags": "i" },
+    { "id": "cloud", "label": "Cloud and payment vendors", "pattern": "\\bStripe\\b|\\bVercel\\b|\\bAWS\\b", "flags": "" },
+    { "id": "paths", "label": "Project app paths", "pattern": "apps/api|apps/e2e|player-web|operator-web", "flags": "" },
+    { "id": "gates", "label": "Project gate scripts", "pattern": "preflight|run-integration-tests|fp-gate|p0-tier|qa-verdict|migration-security-gate|cve-scan-gate", "flags": "" },
+    { "id": "zg", "label": "zg code search CLI", "pattern": "\\bzg (query|index)\\b", "flags": "" },
+    { "id": "abs", "label": "Absolute project paths", "pattern": "/Users/ollorin|igaming-platform", "flags": "" },
+    { "id": "ports", "label": "Local ports and lock files", "pattern": "localhost:\\d+|charlotte\\.lock|local-stack\\.lock", "flags": "" }
+  ]
+}
