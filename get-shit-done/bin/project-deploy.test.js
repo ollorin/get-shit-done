@@ -407,7 +407,7 @@ describe('guardrail refusal (agnostic-B7)', () => {
 
   test('P12 detectSession reads tty flags and the ps table; guardFailures orders the ids', () => {
     const session = detectSession({ stdin: { isTTY: true }, stdout: {}, pid: 300, psOutput: ZSH_TABLE });
-    assert.deepStrictEqual(session, { stdin_tty: true, stdout_tty: false, agent_ancestor: false });
+    assert.deepStrictEqual(session, { stdin_tty: true, stdout_tty: false, agent_ancestor: false, orphan: false });
     assert.deepStrictEqual(guardFailures({}, HUMAN), []);
     assert.deepStrictEqual(
       guardFailures({ CLAUDECODE: '1' }, { stdin_tty: false, stdout_tty: false, agent_ancestor: true }),

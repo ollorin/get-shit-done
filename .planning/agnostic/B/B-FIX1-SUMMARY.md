@@ -170,3 +170,39 @@
 - The confirmation text shows the redacted `report.settings` values, so a removed token is shown as `<redacted:...>`.
 - The `show` escape also covers DEL, C1 controls, U+2028/9 (beyond the ruling's ESC example), because a terminal can interpret those.
 - M5 and later tasks untouched. Nothing pushed. No `install:gsd`. No stash, reset or clean.
+
+## Task 4 (M5)
+
+### Commits
+- `fix(agnostic-B-FIX1): M5 ancestor and env checks hardened` (see `git log --oneline -1` on exp/agnostic)
+
+### Outcome
+- `project-deploy-session.js` (75 lines): steering, not a boundary (header comment). Missing ancestor now refuses (`agentAncestor` returns true). `ps` reads `args=`; an agent matches on basename or args with `/(^|\/)claude(\s|$)|claude-code|@anthropic-ai|^claude/i`. Env failure on any key matching `/^(CLAUDECODE$|CLAUDE_CODE_|CLAUDE_PID$|CLAUDE_AGENT_SDK)/` with a defined value. New `orphan` session field (own ppid is 1), new `orphan` guard failure.
+- `detectSession` now returns `{ stdin_tty, stdout_tty, agent_ancestor, orphan }`. The existing P12 assertion in `project-deploy.test.js` gains `orphan: false` (intentional).
+- Injected session shape for tests is unchanged for callers: `{ stdin_tty, stdout_tty, agent_ancestor }` (`orphan` absent means not orphan).
+- `project-deploy-session.test.js` (new, 5 rows), added to `package.json` `scripts.test`.
+
+### Test rows
+| Row | Case | Expectation |
+|---|---|---|
+| M5-a | node with ppid 1 | `orphan` refused |
+| M5-b | ancestor chain with a missing link | agent_ancestor refused |
+| M5-c | `node .../claude-code/cli.js` ancestor (args) | agent_ancestor refused |
+| M5-d | only `CLAUDE_CODE_SESSION_ID` set | `['env']` |
+| M5-e | clean zsh→login→Terminal→launchd | no failures |
+
+### Mutants (`.tmp/mutate-m5.js`, sha256 checked before and after)
+| Mutant | Killed by | Restored identical |
+|---|---|---|
+| revert missing-ancestor line | M5-b | yes |
+| drop orphan rule | M5-a | yes |
+| exact-match CLAUDECODE only | M5-d | yes |
+
+### Verification
+- `NODE_PATH=$HOME/get-shit-done/node_modules npm test`: rc=0, 1901 pass, 0 fail (Task 3 baseline 1896; +5 new). Log: `.tmp/agnostic-B-FIX1-M5.log`.
+- `node scripts/agnostic-lint.js check`: ok (869 denied, 338 allowed).
+
+### Deviations and notes
+- M5 is steering: a pty-holding agent with a scrubbed env passes these checks. Stated in the module header; the real boundary remains the Phase H PreToolUse deny (B-FIX1 deferred list).
+- Args matching can refuse a human whose shell command line contains a `claude` path segment (safe direction).
+- Nothing pushed. No `install:gsd`. No stash, reset or clean.
