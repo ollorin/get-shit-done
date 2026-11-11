@@ -297,10 +297,17 @@ For each phase in execution order:
 **1a. Decision queue sweep (never waits; contract `@~/.claude/get-shit-done/references/decisions-protocol.md`):**
 ```bash
 DEC="$HOME/.claude/get-shit-done/bin/decisions.js"
-[ -f .planning/DECISIONS.jsonl ] && node "$DEC" digest --mark && node "$DEC" gate --phase {phase_number}
+test -f .planning/DECISIONS.jsonl
 ```
-- Non-empty digest text: print it to the chat. Do not wait for a reply and never ask it through `ask_blocking_question`.
-- `gate` exit 2 (an open irreversible assumption feeds this phase): log `phase_parked` with the ids, move this phase and its dependents to the end of the execution order and continue with the next phase. A phase still parked when every other phase is done is not executed: report it in `completion` as waiting for the CEO.
+If the file exists, run each of these as its own command (never chained with `&&`), reading each exit code:
+```bash
+node "$DEC" gate --phase {phase_number}
+node "$DEC" digest
+node "$DEC" digest --mark-only
+```
+- `gate` exit 0: proceed. Exit 2 (an open irreversible assumption feeds this phase): log `phase_parked` with the ids, move this phase and its dependents to the end of the execution order and continue with the next phase. A phase still parked when every other phase is done is not executed: report it in `completion` as waiting for the CEO.
+- `gate` exit 3, or any other non-zero code (corrupt or unreadable ledger, e.g. a conflict-marker line or a duplicate id): fail closed. Treat it exactly like exit 2: park the phase, log `phase_parked` with reason `ledger_error` and the printed errors, and report it in `completion`. `decisions.js validate` prints the offending lines.
+- `digest` non-empty text: print it to the chat. Do not wait for a reply and never ask it through `ask_blocking_question`. Only after printing, run `digest --mark-only` (a run that dies in between re-sends rather than loses the questions). A non-zero `digest` exit is handled like `gate` exit 3.
 - Rework tickets (`node "$DEC" reworks` prints the open `R-NN`, written when the CEO answered through `/gsd:decide` after a consumer was built): for each, insert the decimal rework phase the protocol describes after its last built consumer, before continuing; `node "$DEC" close R-NN --status done` when it verifies.
 
 **2. Check dependencies:**

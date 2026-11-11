@@ -183,3 +183,51 @@ describe('non-blocking queue', () => {
     assert.match(md, /\| A-02 \| 14 \|.*\| irreversible \| open \|/);
   });
 });
+
+describe('ledger integrity and gate exit codes', () => {
+  const rec = (o) => JSON.stringify({ id: 'A-01', kind: 'assumption', ts: '2026-01-01T00:00:00.000Z', source: 's', question: 'q', default: 'd', reversibility: 'irreversible', phases: ['12'], status: 'open', ...o }) + '\n';
+
+  test('H1: a repeated id with a different ts is a parse error and validate fails', () => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-dec-')), 'DECISIONS.jsonl');
+    fs.writeFileSync(file, rec({}) + rec({ ts: '2026-02-02T00:00:00.000Z', phases: ['13'], reversibility: 'cheap' }));
+    assert.match(load(file).errors.join(), /duplicate id A-01/);
+    const v = spawnSync('node', [TOOL, 'validate', '--file', file], { encoding: 'utf8' });
+    assert.notStrictEqual(v.status, 0);
+    assert.strictEqual(spawnSync('node', [TOOL, 'gate', '--phase', '12', '--file', file], { encoding: 'utf8' }).status, 3);
+  });
+
+  test('H1: a same-ts update of the same id is still a legitimate update', () => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-dec-')), 'DECISIONS.jsonl');
+    fs.writeFileSync(file, rec({}) + rec({ notified_ts: '2026-03-03T00:00:00.000Z' }));
+    assert.deepStrictEqual(load(file).errors, []);
+  });
+
+  test('H1: concurrent adds never reuse an id', async () => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-dec-')), 'DECISIONS.jsonl');
+    const args = ['add', '--file', file, '--kind', 'assumption', '--source', 's', '--question', 'q', '--default', 'd', '--reversibility', 'cheap', '--phases', '1'];
+    const { spawn } = require('child_process');
+    await Promise.all(Array.from({ length: 8 }, () => new Promise((res) => spawn('node', [TOOL, ...args]).on('close', res))));
+    const { records, errors } = load(file);
+    assert.deepStrictEqual(errors, []);
+    assert.strictEqual(records.length, 8);
+    assert.strictEqual(fs.existsSync(`${file}.lock`), false);
+  });
+
+  test('H2: a conflict-marker line makes gate exit 3 (distinct from park=2), never 0/1', () => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-dec-')), 'DECISIONS.jsonl');
+    fs.writeFileSync(file, rec({}) + '<<<<<<< HEAD\n');
+    const g = spawnSync('node', [TOOL, 'gate', '--phase', '12', '--file', file], { encoding: 'utf8' });
+    assert.strictEqual(g.status, 3);
+    assert.strictEqual(spawnSync('node', [TOOL, 'digest', '--file', file], { encoding: 'utf8' }).status, 3);
+  });
+
+  test('L1/L2: digest --mark-only marks without printing; empty answer is refused', () => {
+    const file = tmpLedger();
+    const m = execFileSync('node', [TOOL, 'digest', '--file', file, '--mark-only'], { encoding: 'utf8' });
+    assert.strictEqual(m, '');
+    assert.strictEqual(digest(load(file).records).text, '');
+    const bad = spawnSync('node', [TOOL, 'answer', 'A-02', '--file', file, '--value', ''], { encoding: 'utf8' });
+    assert.strictEqual(bad.status, 1);
+    assert.match(bad.stderr, /empty answer/);
+  });
+});

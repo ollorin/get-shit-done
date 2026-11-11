@@ -376,7 +376,10 @@ discretion_items = escalation_needed items where sensitive_escalation == false
 
 **Escalate sensitive items via Telegram (multi-turn loop with JSONL logging):**
 
-**Unattended (`GSD_AUTONOMOUS=1`): do not ask.** Skip the loop below: for each item apply Step A-fallback directly (reason `unattended`), queueing it with reversibility `irreversible` when sensitivity criterion 1 or 4 matched, else `costly`. If any item was queued `irreversible`, stop before research and return `{"status":"blocked","reason":"parked","assumptions":["A-NN"]}`: the orchestrator parks the phase and runs the others.
+**Unattended (`GSD_AUTONOMOUS=1`): do not ask, and do not park the phase.** Skip the loop below and route each item by the criterion that matched:
+- Criterion 4 (money, data loss, security breach), or criteria 2/3 (rework, architecture) in a money/auth/KYC/RNG domain: dispatch a fresh Opus-tier ruling (`model: "fable"` while the Fable allowance lasts, fall back to `"opus"` and say so), per the project CLAUDE.md. Record the ruling as `decisions.js add --kind decision --source opus-ruling ...` (phases = this phase) and proceed on it. If the ruling cannot be obtained, apply Step A-fallback (reason `unattended`) and queue the item `costly`.
+- Criterion 1 (irreversible) or 6 (always-ask) that is a strategic or business/legal call only the CEO can make: apply Step A-fallback (reason `unattended`), queue it with its true reversibility, print the question in chat, and continue on the default. Never return `blocked/parked` from discuss.
+- Criterion 5 (conflicting KB signals): treat as a judgment call and use the ruling route above.
 
 For each item in `sensitive_items`, run a multi-turn follow-up loop:
 
@@ -433,7 +436,7 @@ Immediately after sending (before reply arrives), append a JSON line to `.planni
    discretion_items.push({ gray_area: item.gray_area, question: item.question, reason: "Telegram escalation timeout/unavailable — parked via timeout-fallback" })
    ```
 
-5. Exit this item's loop immediately (do not attempt Step B/C for this item) and continue to the next item in `sensitive_items`.
+6. Exit this item's loop immediately (do not attempt Step B/C for this item) and continue to the next item in `sensitive_items`.
 
 **Step B — Evaluate reply confidence:**
 Read the reply text inline and assign confidence using these rules:

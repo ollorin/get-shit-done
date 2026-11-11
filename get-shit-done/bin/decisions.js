@@ -14,6 +14,8 @@ const STATUS = {
   rework: ['open', 'accepted', 'done'],
 };
 const PHASE_RE = /^\d+(\.\d+)?$/;
+const EXIT_CORRUPT = 3;
+const MUTATING = new Set(['add', 'map', 'answer', 'close']);
 const CITE_RE = /\b[DA]-\d{2,}\b/g;
 const DEFAULT_FILE = path.join('.planning', 'DECISIONS.jsonl');
 
@@ -28,6 +30,10 @@ function load(file) {
     try {
       const rec = JSON.parse(line);
       if (!rec || typeof rec !== 'object' || !str(rec.id)) throw new Error('record has no id');
+      const first = byId.get(rec.id);
+      if (first && (first.ts !== rec.ts || first.kind !== rec.kind)) {
+        throw new Error(`duplicate id ${rec.id}: a different record (ts/kind differ from the first line)`);
+      }
       byId.delete(rec.id);
       byId.set(rec.id, rec);
     } catch (e) {
@@ -86,6 +92,27 @@ function nextId(records, kind) {
   return `${prefix}-${String(max + 1).padStart(2, '0')}`;
 }
 
+function sleepMs(ms) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
+
+// O_EXCL lock file: serialises read+append across processes sharing one ledger file.
+function withLock(file, fn) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const lock = `${file}.lock`;
+  const deadline = Date.now() + 10000;
+  let fd = null;
+  while (fd === null) {
+    try {
+      fd = fs.openSync(lock, 'wx');
+    } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+      try { if (Date.now() - fs.statSync(lock).mtimeMs > 30000) fs.unlinkSync(lock); } catch (_) { /* raced */ }
+      if (Date.now() > deadline) throw new Error(`ledger lock ${lock} held for over 10s`);
+      sleepMs(25);
+    }
+  }
+  try { return fn(); } finally { fs.closeSync(fd); try { fs.unlinkSync(lock); } catch (_) { /* gone */ } }
+}
+
 function append(file, rec) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.appendFileSync(file, JSON.stringify(rec) + '\n');
@@ -116,6 +143,7 @@ function detectPhaseState(phasesDir) {
 function answer(file, id, value, opts = {}) {
   const { records } = load(file);
   const a = records.find((r) => r.id === id);
+  if (opts.confirm !== true && String(value).trim() === '') throw new Error('empty answer: pass a value or --confirm');
   if (!a || a.kind !== 'assumption') throw new Error(`${id} is not an assumption in ${file}`);
   if (a.status !== 'open') throw new Error(`${id} is already ${a.status}`);
   const ts = opts.ts || new Date().toISOString();
@@ -199,6 +227,13 @@ function main(argv) {
   const [cmd, ...rest] = argv;
   const { flags, pos } = parseArgs(rest);
   const file = flags.file || DEFAULT_FILE;
+  if (MUTATING.has(cmd) || (cmd === 'digest' && (flags.mark === true || flags['mark-only'] === true))) {
+    return withLock(file, () => run(cmd, flags, pos, file));
+  }
+  return run(cmd, flags, pos, file);
+}
+
+function run(cmd, flags, pos, file) {
   const out = (o) => process.stdout.write((typeof o === 'string' ? o : JSON.stringify(o)) + '\n');
   const { records, errors: parseErrors } = load(file);
 
@@ -207,7 +242,7 @@ function main(argv) {
     out({ pass: errors.length === 0, records: records.length, errors });
     return errors.length === 0 ? 0 : 1;
   }
-  if (parseErrors.length) { out({ pass: false, errors: parseErrors }); return 1; }
+  if (parseErrors.length) { out({ pass: false, corrupt: true, errors: parseErrors }); return EXIT_CORRUPT; }
 
   if (cmd === 'add') {
     const kind = flags.kind;
@@ -275,11 +310,11 @@ function main(argv) {
   }
   if (cmd === 'digest') {
     const d = digest(records);
-    if (flags.mark === true) {
+    if (flags.mark === true || flags['mark-only'] === true) {
       const ts = new Date().toISOString();
       d.open.forEach((r) => append(file, { ...r, notified_ts: ts }));
     }
-    out(d.text);
+    if (flags['mark-only'] !== true) out(d.text);
     return 0;
   }
   if (cmd === 'render') {
@@ -288,7 +323,7 @@ function main(argv) {
     out({ written: target });
     return 0;
   }
-  process.stderr.write('usage: decisions.js validate|add|map|answer|list|gate|check-plan|digest|reworks|close|render [--file F]\n');
+  process.stderr.write('usage: decisions.js validate|add|map|answer|list|gate|check-plan|digest|reworks|close|render [--file F]\n  exit 2 = gate parks the phase, 3 = ledger corrupt (treat as block)\n');
   return 64;
 }
 
@@ -301,4 +336,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { load, validate, answer, checkPlan, digest, render, forPhase, nextId, detectPhaseState, main };
+module.exports = { EXIT_CORRUPT, withLock, load, validate, answer, checkPlan, digest, render, forPhase, nextId, detectPhaseState, main };

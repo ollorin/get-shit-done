@@ -417,7 +417,7 @@ Success criteria:
 1. Apply every `map` row: `decisions map <id> --phases <N,M>` (or `--global`).
 2. Ask the new rows now, grouped by phase, irreversible and costly first, at most 4 per AskUserQuestion call and 12 in total. Answered: `decisions add --kind decision --source milestone-review --phases <N>`. Not asked or not answered: `decisions add --kind assumption --source milestone-review --default "<roadmapper default>" --reversibility <r> --phases <N>`.
 3. Unattended (`GSD_AUTONOMOUS=1`): ask nothing; every new row becomes an `A-`; skip the approval prompt below and treat the roadmap as approved.
-4. `decisions validate --mapped` must pass (every record names its consuming phases), then `decisions render`. Print `decisions digest --mark` output to the chat.
+4. `decisions validate --mapped` must pass (every record names its consuming phases). If it fails with `no consuming phase` and `GSD_AUTONOMOUS=1`: run `decisions map <id> --global` for each id it names, log `unmapped_made_global` with the ids, and re-validate; interactively, ask which phases consume it. Then `decisions render`. Print `decisions digest` output to the chat, then run `decisions digest --mark-only`.
 5. An answer that changes phase scope or order: re-spawn the roadmapper with it as revision context before asking for approval.
 
 **Ask for approval** via AskUserQuestion:

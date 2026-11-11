@@ -542,7 +542,7 @@ Order the Assumed list by reversibility (irreversible, costly, cheap), at most 1
 - `A-NN <answer>`: `decisions answer A-NN --value "<answer>"`, update the PRD text the answer changes, show the screen again.
 - `change <what>`: edit the PRD, record the change as a `D-` (`--source prd:approval`), show the screen again.
 - `approve`: write `<!-- approval: approved {date} -->` on the line under the stage marker.
-- Unattended: write `<!-- approval: assumed {date} -->`, print `decisions digest --mark` output to the chat, continue.
+- Unattended: write `<!-- approval: assumed {date} -->`, print `decisions digest` output to the chat, run `decisions digest --mark-only`, continue.
 
 Commit the PRD, `.planning/DECISIONS.jsonl` and `.planning/DECISIONS.md` together.
 

@@ -26,9 +26,11 @@ Every `A-` carries `default`, `reversibility` (`cheap` = one plan or less to cha
 
 ## Never block
 
-Unattended (`GSD_AUTONOMOUS=1`, or no reply within the step's own timeout) a workflow does not wait: it takes the default, writes the `A-`, and continues. The one exception is not a wait either: a phase with an open `irreversible` assumption is parked (`decisions gate --phase N` exits 2), the run goes on with the phases that do not depend on it, and the parked phase is reported at the end.
+Money, auth, security and RNG questions are not parked for the CEO: they go to an Opus-tier ruling dispatch (project CLAUDE.md) and the ruling is recorded as a `D-` decision. Only strategic or business/legal calls are queued and shown in chat, with work continuing on the default.
 
-Queue delivery: `decisions digest --mark` prints the open questions not yet sent; the main orchestrator prints that text to the chat; CEO changes come back as chat messages. Never use `ask_blocking_question` for queue items: a timed-out question is deleted by the daemon and a late reply is lost.
+Unattended (`GSD_AUTONOMOUS=1`, or no reply within the step's own timeout) a workflow does not wait: it takes the default, writes the `A-`, and continues. The one exception is not a wait either: a phase with an open `irreversible` assumption is parked (`decisions gate --phase N` exits 2; exit 3 means a corrupt ledger and is treated as a park, never as a pass), the run goes on with the phases that do not depend on it, and the parked phase is reported at the end.
+
+Queue delivery: `decisions digest` prints the open questions not yet sent; the main orchestrator prints that text to the chat and only then runs `digest --mark-only`; CEO changes come back as chat messages. Never use `ask_blocking_question` for queue items: a timed-out question is deleted by the daemon and a late reply is lost.
 
 ## Answers
 
