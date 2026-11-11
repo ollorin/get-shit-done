@@ -638,3 +638,123 @@ describe('pruneIdenticalPatches: a backup identical to the fresh install is not 
     assert.ok(!fs.existsSync(path.join(pd, 'backup-meta.json')));
   });
 });
+
+describe('presets/ is copied byte-for-byte (agnostic-B1)', () => {
+  const MD =
+    '~/.claude/get-shit-done/x.md\n\nCo-Authored-By: Someone <someone@example.com>\n';
+  let tmpRoot;
+
+  beforeEach(() => {
+    tmpRoot = createScratchDir('gsd-presets-verbatim-');
+  });
+
+  afterEach(() => {
+    cleanup(tmpRoot);
+  });
+
+  function listFiles(dir, rel = '') {
+    if (!fs.existsSync(dir)) return [];
+    return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      return e.isDirectory() ? listFiles(path.join(dir, e.name), r) : [r];
+    });
+  }
+
+  function writeTree(root, files) {
+    for (const [rel, content] of Object.entries(files)) {
+      const p = path.join(root, rel);
+      fs.mkdirSync(path.dirname(p), { recursive: true });
+      fs.writeFileSync(p, content);
+    }
+  }
+
+  test('presets/ files survive copyWithPathReplacement byte-equal while other .md files are rewritten', () => {
+    const { copyWithPathReplacement } = require(INSTALL_JS_PATH);
+    const src = path.join(tmpRoot, 'src');
+    const dest = path.join(tmpRoot, 'dest');
+    writeTree(src, {
+      'a.md': MD,
+      'presets/demo/CLAUDE.md': MD,
+      'presets/demo/nested/r.md': MD,
+      'presets/demo/h.js': 'module.exports = 1;\n',
+    });
+    copyWithPathReplacement(src, dest, './.claude/', 'claude', { verbatimDirs: ['presets'] });
+
+    const aOut = fs.readFileSync(path.join(dest, 'a.md'), 'utf8');
+    assert.ok(aOut.includes('./.claude/get-shit-done/x.md'), 'top-level .md is path-rewritten');
+    assert.ok(!aOut.includes('~/.claude/'), 'top-level .md has no ~/.claude/ left');
+    for (const rel of ['presets/demo/CLAUDE.md', 'presets/demo/nested/r.md', 'presets/demo/h.js']) {
+      assert.ok(
+        fs.readFileSync(path.join(dest, rel)).equals(fs.readFileSync(path.join(src, rel))),
+        `${rel} must be byte-equal to its source`
+      );
+    }
+  });
+
+  test('verbatimDirs is top-level only: default call rewrites presets/, nested presets/ dirs are rewritten under the option', () => {
+    const { copyWithPathReplacement } = require(INSTALL_JS_PATH);
+    const src = path.join(tmpRoot, 'src');
+    writeTree(src, {
+      'presets/demo/CLAUDE.md': MD,
+      'sub/presets/x.md': MD,
+    });
+
+    const defaultDest = path.join(tmpRoot, 'dest-default');
+    copyWithPathReplacement(src, defaultDest, './.claude/', 'claude');
+    const defaultOut = fs.readFileSync(path.join(defaultDest, 'presets/demo/CLAUDE.md'), 'utf8');
+    assert.ok(!defaultOut.includes('~/.claude/'), 'without the option presets/ is rewritten as before');
+
+    const optDest = path.join(tmpRoot, 'dest-opt');
+    copyWithPathReplacement(src, optDest, './.claude/', 'claude', { verbatimDirs: ['presets'] });
+    const nestedOut = fs.readFileSync(path.join(optDest, 'sub/presets/x.md'), 'utf8');
+    assert.ok(!nestedOut.includes('~/.claude/'), 'a nested presets/ directory is not verbatim: still rewritten');
+    assert.ok(nestedOut.includes('./.claude/get-shit-done/x.md'));
+  });
+
+  test('gemini runtime: presets/ keeps its .md file and creates no .toml anywhere', () => {
+    const { copyWithPathReplacement } = require(INSTALL_JS_PATH);
+    const src = path.join(tmpRoot, 'src');
+    const dest = path.join(tmpRoot, 'dest');
+    writeTree(src, { 'presets/demo/CLAUDE.md': MD });
+    copyWithPathReplacement(src, dest, './.gemini/', 'gemini', { verbatimDirs: ['presets'] });
+
+    assert.ok(
+      fs.readFileSync(path.join(dest, 'presets/demo/CLAUDE.md')).equals(fs.readFileSync(path.join(src, 'presets/demo/CLAUDE.md'))),
+      'gemini presets/demo/CLAUDE.md must be byte-equal to its source'
+    );
+    assert.deepStrictEqual(
+      listFiles(dest).filter((f) => f.endsWith('.toml')),
+      [],
+      'no .toml file may be produced under dest'
+    );
+  });
+
+  test('CLI install copies get-shit-done/presets/ byte-for-byte and records its sha256 in the manifest', () => {
+    const scratchRepo = createScratchDir('gsd-repo-copy-presets-');
+    const scratchTarget = createScratchDir('gsd-install-target-presets-');
+    try {
+      for (const d of ['hooks', 'bin', 'scripts', 'commands', 'get-shit-done', 'agents', 'skills']) {
+        copyDirRecursive(path.join(REPO_ROOT, d), path.join(scratchRepo, d));
+      }
+      fs.copyFileSync(path.join(REPO_ROOT, 'package.json'), path.join(scratchRepo, 'package.json'));
+      if (fs.existsSync(path.join(REPO_ROOT, 'CHANGELOG.md'))) {
+        fs.copyFileSync(path.join(REPO_ROOT, 'CHANGELOG.md'), path.join(scratchRepo, 'CHANGELOG.md'));
+      }
+      const presetSrc = path.join(scratchRepo, 'get-shit-done', 'presets', 'demo', 'CLAUDE.md');
+      writeTree(path.join(scratchRepo, 'get-shit-done'), { 'presets/demo/CLAUDE.md': MD });
+
+      const result = runInstall(scratchTarget, { installJsPath: path.join(scratchRepo, 'bin', 'install.js') });
+      assert.ok(result.success, `install should succeed: ${result.error || ''}\n${result.output}`);
+
+      const installed = path.join(scratchTarget, '.claude', 'get-shit-done', 'presets', 'demo', 'CLAUDE.md');
+      assert.ok(fs.readFileSync(installed).equals(fs.readFileSync(presetSrc)), 'installed preset must be byte-equal to source');
+
+      const manifest = JSON.parse(fs.readFileSync(path.join(scratchTarget, '.claude', 'gsd-file-manifest.json'), 'utf8'));
+      const expected = require('crypto').createHash('sha256').update(fs.readFileSync(presetSrc)).digest('hex');
+      assert.strictEqual(manifest.files['get-shit-done/presets/demo/CLAUDE.md'], expected);
+    } finally {
+      cleanup(scratchRepo);
+      cleanup(scratchTarget);
+    }
+  });
+});
