@@ -1,8 +1,9 @@
 /**
  * project-profile.test.js — agnostic-A2
  *
- * Unit tests (1-9) for the project/stack profile validator and reader, and CLI
- * tests (10-13) that run gsd-tools.js against a scratch project directory.
+ * Unit tests (1-9) for the project/stack profile validator and reader, CLI
+ * tests (10-13) that run gsd-tools.js against a scratch project directory, and
+ * doc-vs-schema tests (14-18) for the templates and the project-context reference.
  */
 
 const { test, describe, afterEach } = require('node:test');
@@ -269,5 +270,69 @@ describe('project-profile CLI', () => {
     const bare = runGsd(dir, ['profile']);
     assert.strictEqual(bare.status, 1);
     assert.ok(bare.stderr.includes('Usage: profile'));
+  });
+});
+
+describe('templates and reference', () => {
+  const read = (rel) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf-8');
+  const REF = 'references/project-context.md';
+  const BRIEF = 'templates/product-brief.md';
+  const STACK = 'templates/stack-profile.md';
+  const BRIEF_H2 = ['## Identity', '## Domain Glossary', '## Users and Roles', '## Risk Domains',
+    '## Compliance and Regulation', '## Config Dimensions', '## Owner Policies', '## Out of Scope'];
+  const STACK_H2 = ['## Commands', '## Test Command Shapes', '## Paths', '## Gates',
+    '## Services', '## Capabilities', '## Isolation', '## Conventions'];
+
+  const headingPositions = (text, headings) => headings.map((h) => text.indexOf(`\n${h}\n`));
+  const assertOrdered = (positions, label) => {
+    assert.ok(positions.every((p) => p > 0), `${label}: heading missing`);
+    assert.ok(positions.every((p, i) => i === 0 || p > positions[i - 1]), `${label}: out of order`);
+  };
+  const lineCount = (text) => (text.match(/\n/g) || []).length;
+
+  test('14 profile-example in project-context.md parses and validates with zero warnings', () => {
+    const match = new RegExp('<!-- profile-example -->\\n```json\\n([\\s\\S]*?)\\n```').exec(read(REF));
+    assert.ok(match, 'profile-example json block missing');
+    const example = JSON.parse(match[1]);
+    const result = profile.validateProfile({ found: true, error: null, project: example.project, stack: example.stack });
+    assert.strictEqual(result.ok, true, JSON.stringify(result.missing.concat(result.invalid)));
+    assert.deepStrictEqual(result.warnings, []);
+  });
+
+  test('15 pointer block carries the project_context tags and sentences verbatim', () => {
+    const text = read(REF);
+    [
+      '<project_context>',
+      '`.planning/PRODUCT-BRIEF.md`. Commands, paths, services and tools: `.planning/STACK-PROFILE.md`.',
+      'Read the sections your role needs before acting. Every command, path and tool name comes from the profile.',
+      'If a key you need is missing, stop and report the key. Never substitute a default stack.',
+      '</project_context>',
+    ].forEach((s) => assert.ok(text.includes(s), `pointer block missing: ${s}`));
+  });
+
+  test('16 product-brief.md has the 8 H2 headings in the design order', () => {
+    assertOrdered(headingPositions(read(BRIEF), BRIEF_H2), 'product-brief');
+  });
+
+  test('17 stack-profile.md has the 8 H2 headings in order and a commands block matching KNOWN_COMMAND_KEYS', () => {
+    const text = read(STACK);
+    assertOrdered(headingPositions(text, STACK_H2), 'stack-profile');
+    const begin = '<!-- gsd:begin commands -->';
+    const end = '<!-- gsd:end commands -->';
+    assert.strictEqual(text.split(begin).length, 2, 'exactly one begin marker');
+    assert.strictEqual(text.split(end).length, 2, 'exactly one end marker');
+    const block = text.slice(text.indexOf(begin), text.indexOf(end));
+    const keys = block.split('\n')
+      .filter((l) => l.startsWith('|') && !l.startsWith('|-'))
+      .map((l) => l.split('|')[1].trim())
+      .filter((k) => k !== 'Key');
+    assert.deepStrictEqual([...keys].sort(), [...profile.KNOWN_COMMAND_KEYS].sort());
+  });
+
+  test('18 templates and reference stay within their line budgets', () => {
+    [[BRIEF, 120], [STACK, 150], [REF, 90]].forEach(([rel, limit]) => {
+      const n = lineCount(read(rel));
+      assert.ok(n <= limit, `${rel}: ${n} lines exceeds ${limit}`);
+    });
   });
 });
