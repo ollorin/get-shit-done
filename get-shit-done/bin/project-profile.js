@@ -23,7 +23,8 @@ const ARRAY_PATH_KEYS = Object.freeze(['api_globs', 'frontends']);
 const KNOWN_CAPABILITY_KEYS = Object.freeze(['ui_qa']);
 const ISOLATION_KEYS = Object.freeze(['port_base', 'container_suffix', 'lock_dir', 'machine_locks']);
 const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
-const PLACEHOLDER_RE = /\{[a-z_]+\}/g;
+const PLACEHOLDER_RE = /(?<!\$)\{[a-z_]+\}/g;
+const SINGLE_QUOTED_RE = /'[^']*'/g;
 
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const isNonEmptyString = (v) => typeof v === 'string' && v.trim().length > 0;
@@ -41,15 +42,23 @@ function uniqueStringsCheck(key, v) {
   return uniqueCheck(key, v, 'value');
 }
 
+// Single-quoted text is shell literal (awk programs), so placeholders there are not read; `${NAME}` is shell expansion.
+const placeholdersIn = (v) => v.replace(SINGLE_QUOTED_RE, '').match(PLACEHOLDER_RE) || [];
+
 function commandValueProblems(key, v) {
   if (!isNonEmptyString(v)) return [problem(key, 'must be a non-empty string')];
-  const unknown = (v.match(PLACEHOLDER_RE) || []).find((t) => !COMMAND_PLACEHOLDERS.includes(t));
+  const unknown = placeholdersIn(v).find((t) => !COMMAND_PLACEHOLDERS.includes(t));
   return unknown ? [problem(key, `unknown placeholder ${unknown}`)] : [];
 }
 
 function commandsCheck(key, v) {
   if (!isObject(v)) return [problem(key, 'must be an object')];
-  return Object.keys(v).flatMap((name) => commandValueProblems(`${key}.${name}`, v[name]));
+  return Object.keys(v).flatMap((name) => {
+    const k = `${key}.${name}`;
+    const value = v[name];
+    const needsFile = name === 'test_file' && isNonEmptyString(value) && !placeholdersIn(value).includes('{file}');
+    return [...commandValueProblems(k, value), ...(needsFile ? [problem(k, 'must contain the {file} placeholder')] : [])];
+  });
 }
 
 function pathsCheck(key, v) {

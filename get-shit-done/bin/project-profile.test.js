@@ -200,6 +200,113 @@ describe('project-profile', () => {
   });
 });
 
+describe('validators', () => {
+  const invalid = (config) => invalidKeys(profile.validateProfile(loaded(config)));
+
+  test('19 paths: array-only keys reject strings, other keys accept string or array, empty items invalid', () => {
+    for (const key of ['api_globs', 'frontends']) {
+      const str = validProfile();
+      str.stack.paths[key] = 'src/**';
+      assert.ok(invalid(str).includes(`stack.paths.${key}`), `${key} string`);
+      const arr = validProfile();
+      arr.stack.paths[key] = ['ok'];
+      assert.deepStrictEqual(invalid(arr), [], `${key} array`);
+    }
+    const scalarOk = validProfile();
+    scalarOk.stack.paths.backend = 'src';
+    scalarOk.stack.paths.migrations = ['db'];
+    assert.deepStrictEqual(invalid(scalarOk), []);
+    const emptyItem = validProfile();
+    emptyItem.stack.paths.migrations = ['db', ''];
+    assert.ok(invalid(emptyItem).includes('stack.paths.migrations'));
+    const numeric = validProfile();
+    numeric.stack.paths.backend = 7;
+    assert.ok(invalid(numeric).includes('stack.paths.backend'));
+  });
+
+  test('20 test_command_shapes must be an array of non-empty strings', () => {
+    const str = validProfile();
+    str.stack.test_command_shapes = 'npm test -- <file>';
+    assert.ok(invalid(str).includes('stack.test_command_shapes'));
+    const emptyItem = validProfile();
+    emptyItem.stack.test_command_shapes = ['npm test -- <file>', ''];
+    assert.ok(invalid(emptyItem).includes('stack.test_command_shapes'));
+  });
+
+  test('21 preset and preset_version must be non-empty strings', () => {
+    for (const key of ['preset', 'preset_version']) {
+      const empty = validProfile();
+      empty.stack[key] = '';
+      assert.ok(invalid(empty).includes(`stack.${key}`), `${key} empty`);
+      const numeric = validProfile();
+      numeric.stack[key] = 1;
+      assert.ok(invalid(numeric).includes(`stack.${key}`), `${key} number`);
+    }
+  });
+
+  test('22 config.json root that is an array, null or a scalar is invalid as config.json', () => {
+    for (const body of ['[]', 'null', '"text"', '42']) {
+      const dir = mkTmp();
+      fs.mkdirSync(path.join(dir, '.planning'), { recursive: true });
+      fs.writeFileSync(path.join(dir, '.planning', 'config.json'), body);
+      const r = profile.validateProfile(profile.loadProfile(dir));
+      assert.strictEqual(r.ok, false, body);
+      assert.deepStrictEqual(invalidKeys(r), ['config.json'], body);
+    }
+  });
+
+  test('23 project or stack that is null, an array or a scalar is invalid', () => {
+    for (const [section, value] of [['project', null], ['project', []], ['stack', 'x'], ['stack', [1]]]) {
+      const config = validProfile();
+      config[section] = value;
+      assert.ok(invalid(config).includes(section), `${section}=${JSON.stringify(value)}`);
+    }
+  });
+
+  test('24 port_base: 65536, 1.5 and 1023 invalid; 1024 and 65535 valid', () => {
+    for (const port of [65536, 1.5, 1023]) {
+      const config = validProfile();
+      config.stack.isolation.port_base = port;
+      assert.ok(invalid(config).includes('stack.isolation.port_base'), String(port));
+    }
+    for (const port of [1024, 65535]) {
+      const config = validProfile();
+      config.stack.isolation.port_base = port;
+      assert.deepStrictEqual(invalid(config), [], String(port));
+    }
+  });
+
+  test('25 service optional fields health, launch and ready must be non-empty when present', () => {
+    for (const field of ['health', 'launch', 'ready']) {
+      const config = validProfile();
+      config.stack.services = [{ name: 'api', url: 'http://127.0.0.1:3000', [field]: '' }];
+      assert.ok(invalid(config).includes('stack.services'), field);
+    }
+    const absent = validProfile();
+    absent.stack.services = [{ name: 'api', url: 'http://127.0.0.1:3000' }];
+    assert.deepStrictEqual(invalid(absent), []);
+  });
+
+  test('26 placeholders: awk and shell expansions pass; test_file must contain an unquoted {file}', () => {
+    const awk = validProfile();
+    awk.stack.commands.lint = "awk '{print $1}' {paths}";
+    awk.stack.commands.format = 'echo ${home} {root}';
+    assert.deepStrictEqual(invalid(awk), []);
+
+    const unknown = validProfile();
+    unknown.stack.commands.lint = 'x {files}';
+    assert.ok(invalid(unknown).includes('stack.commands.lint'));
+
+    const noFile = validProfile();
+    noFile.stack.commands.test_file = 'npm test';
+    assert.ok(invalid(noFile).includes('stack.commands.test_file'));
+
+    const quotedFile = validProfile();
+    quotedFile.stack.commands.test_file = "npm test -- '{file}'";
+    assert.ok(invalid(quotedFile).includes('stack.commands.test_file'));
+  });
+});
+
 describe('project-profile CLI', () => {
   function writeConfig(dir, content) {
     fs.mkdirSync(path.join(dir, '.planning'), { recursive: true });
