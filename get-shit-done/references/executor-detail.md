@@ -254,18 +254,7 @@ continue to the next task.
 **Step 3 -- spawn gsd-test-writer (same inputs/routing as the existing `tdd="true"` spawn in
 `<test_task_handling>` above):**
 ```
-route_result = Agent(
-  subagent_type="gsd-task-router",
-  description="Route quality test-writer spawn",
-  max_turns=5,
-  prompt="Route this task: Write tests for {task_name}
-
-Task action:
-Write and run tests covering the behavior just implemented: {task's <done> criteria text}
-
-Plan context: complexity=medium, depends_on=0 prior plans, must_haves=1 criteria"
-)
-test_writer_model = parse "Model:" line from route_result // default "sonnet" if parse fails
+test_writer_model = "haiku"  // CLAUDE.md tier table: test-writer runs on haiku unless the task carries <model>
 
 Agent(
   subagent_type="gsd-test-writer",
@@ -325,27 +314,9 @@ DO NOT execute the task inline. Instead:
    - `behavior_description`: the previous task's `<done>` criteria text
    - `project_dir`: current working directory
 
-2. Route then spawn gsd-test-writer:
+2. Spawn gsd-test-writer:
    ```
-   // Route first — test complexity varies by what's being tested
-   route_result = Agent(
-     subagent_type="gsd-task-router",
-     description="Route test task",
-     max_turns=5,
-     prompt="Route this task: Test {task_name}
-
-Task action:
-Inventory existing tests first, then reuse, update, merge, or add tests covering: {behavior_description}
-
-Done criteria:
-All tests pass. gsd-test-writer reports 0 failing tests and a disposition (REUSE file:line, UPDATE, MERGE, or ADD+reason) for every behaviour.
-
-Verification:
-Run test suite and confirm 0 failing tests.
-
-Plan context: complexity=medium, depends_on=0 prior plans, must_haves=1 criteria"
-   )
-   test_writer_model = parse "Model:" line from route_result // default "sonnet" if parse fails
+   test_writer_model = "haiku"  // CLAUDE.md tier table: test-writer runs on haiku unless the task carries <model>
 
    Agent(
      subagent_type="gsd-test-writer",

@@ -3,7 +3,7 @@
 This file holds the FULL, VERBATIM `<execution_cycle>` block relocated from
 `agents/gsd-phase-coordinator.md` during the MILE-30 hard-rules-first
 restructuring. Every step (discuss, research, plan, execute, verify,
-cross_phase_integration), the context-budget-monitoring logic, and the
+the context-budget-monitoring logic, and the
 checkpoint_ui_qa_loop / detect_web_framework / post_phase_ux_sweep /
 post_phase_e2e sub-steps are relocated here byte-for-byte -- nothing was
 reworded, summarized, or deleted.
@@ -849,25 +849,7 @@ For each incomplete plan (no SUMMARY.md):
    Else:
      // Fall back to plan-level routing (plan has no tier info — older plan format)
      PER_TASK_MODE = false
-     Read the plan objective (first line of <objective> tag in PLAN.md) as task description:
-       PLAN_OBJECTIVE=$(grep -A1 '<objective>' {plan_file} | tail -1 | tr -d '\n')
-     Spawn routing agent to get model recommendation:
-       Agent(
-         subagent_type="gsd-task-router",
-         description="Route plan",
-         max_turns=5,
-         prompt="Route this task: {PLAN_OBJECTIVE}"
-       )
-     Parse the ROUTING DECISION response to extract the Model: line.
-     Set EXECUTOR_MODEL to the returned model tier (haiku/sonnet/opus).
-     Also capture ROUTING_SCORE and ROUTING_CONTEXT from the response.
-
-     After extracting the decision, log it to EXECUTION_LOG.md (best-effort):
-     ```bash
-     node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
-       --type routing_decision \
-       --data "{\"phase\":{phase_number},\"plan\":\"{plan_number}\",\"model\":\"{EXECUTOR_MODEL}\",\"task\":\"{PLAN_OBJECTIVE}\"}"
-     ```
+     EXECUTOR_MODEL = "sonnet"  // no per-task tiers: CLAUDE.md default
    ```
 
    **If MODEL_PROFILE is NOT "auto":** PER_TASK_MODE = false, EXECUTOR_MODEL = "sonnet" (unchanged default behavior).
@@ -1645,97 +1627,6 @@ if telegram_topic_id is not null:
   "verification_path": "..."
 }
 ```
-</step>
-
-<step name="cross_phase_integration">
-
-After verify_phase_goal, check for cross-phase integration boundaries.
-
-**Trigger conditions (ANY of these triggers integration testing — not just explicit depends_on):**
-
-1. **Explicit dependency:** Current phase `depends_on` has entries in ROADMAP.md
-2. **Shared artifact detection:** Current phase's SUMMARY.md key-files overlap with any previous phase's SUMMARY.md key-files (same API routes, same database tables, same shared components)
-3. **API producer/consumer:** Current phase creates or modifies API routes that are called by components from previous phases, OR current phase creates components that call API routes from previous phases
-
-```bash
-# Check explicit depends_on
-DEPENDS_ON=$(node ~/.claude/get-shit-done/bin/gsd-tools.js roadmap get-phase {phase_number} 2>/dev/null | node -e "try{const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(JSON.stringify(d.depends_on||[]))}catch{console.log('[]')}" 2>/dev/null || echo "[]")
-
-# Check for shared files with ANY completed phase (not just depends_on)
-CURRENT_FILES=$(grep -oE '[\w\-\/\.]+\.(ts|tsx|js|jsx)' .planning/phases/{phase_dir}/*-SUMMARY.md 2>/dev/null | sort -u)
-SHARED_OVERLAP=false
-for prev_phase_dir in .planning/phases/*/; do
-  if [ "$prev_phase_dir" != ".planning/phases/{phase_dir}/" ] && ls "$prev_phase_dir"*-SUMMARY.md >/dev/null 2>&1; then
-    PREV_FILES=$(grep -oE '[\w\-\/\.]+\.(ts|tsx|js|jsx)' "$prev_phase_dir"*-SUMMARY.md 2>/dev/null | sort -u)
-    OVERLAP=$(comm -12 <(echo "$CURRENT_FILES") <(echo "$PREV_FILES") 2>/dev/null)
-    if [ -n "$OVERLAP" ]; then
-      SHARED_OVERLAP=true
-      OVERLAPPING_PHASE="$prev_phase_dir"
-      break
-    fi
-  fi
-done
-```
-
-**If DEPENDS_ON is non-empty OR SHARED_OVERLAP is true:**
-
-1. Read SUMMARY.md of each depended-on phase AND any overlapping phase — collect exported artifacts
-2. Read SUMMARY.md of current phase — collect consumed artifacts
-3. If overlap found (same API routes, same tables, same component names):
-
-   Spawn gsd-integration-tester:
-   ```
-   Agent(
-     subagent_type="gsd-integration-tester",
-     model="sonnet",
-     description="Integration test phase {phase_number}",
-     prompt="
-       current_phase={phase_slug}
-       depends_on_phases={depends_on list + overlapping phases}
-       integration_points={derived overlap}
-       project_dir={project_dir}
-     "
-   )
-   ```
-
-3b. **(NEW, MILE-38, additive) If step 3 above did NOT already spawn gsd-integration-tester
-    for this phase:** check the `quality.integration_tester` toggle:
-    ```bash
-    INTEGRATION_TESTER_ENABLED=$(node ~/.claude/get-shit-done/bin/gsd-tools.js config get integration_tester_enabled --raw 2>/dev/null || echo "false")
-    ```
-    If `INTEGRATION_TESTER_ENABLED` is `"true"` AND `DEPENDS_ON` (from the "Check explicit
-    depends_on" bash block above) has length > 0: spawn gsd-integration-tester anyway, using
-    the EXACT SAME `Agent()` call as step 3 (`depends_on_phases={DEPENDS_ON + overlapping
-    phases}`, `integration_points={derived overlap, may be empty if none was found}`) -- this
-    fires even when `SHARED_OVERLAP` is `false`, because a phase can legitimately depend on a
-    prior phase's schema/convention with zero raw file-name overlap. If `DEPENDS_ON` is empty:
-    NEVER spawn via this branch, regardless of the toggle state -- independent phases never
-    trigger it.
-
-4. If any `blocking: true` mismatch is returned by gsd-integration-tester (from EITHER the
-   step 3 spawn or the new step 3b spawn): this is a HARD BLOCK — do NOT proceed to phase
-   complete. For EACH blocking mismatch, propagate it into this phase's already-written
-   VERIFICATION.md so it composes with the EXISTING verification-gap pipeline (no second/
-   parallel gap-writing mechanism):
-
-   ```bash
-   node ~/.claude/get-shit-done/bin/gsd-tools.js verify append-gap "{phase_dir}/{verification_file}" \
-     --truth "Cross-phase integration boundary '{mismatch.boundary}' matches between producer and consumer" \
-     --reason "{mismatch.mismatch} (producer: {mismatch.producer_shape}, consumer: {mismatch.consumer_shape})" \
-     --failure-type contract_mismatch \
-     --raw
-   ```
-
-   This appends one gap entry per blocking mismatch and flips VERIFICATION.md's `status` to
-   `gaps_found` — the SAME frontmatter shape `eval-candidate from-verification` (Phase 55)
-   already reads, so a subsequent `eval-candidate from-verification` run picks up these gaps
-   automatically, and `/gsd:plan-phase --gaps` can build gap closure plans from them exactly as
-   it does for verifier-originated gaps. Do NOT build a separate gap-closure code path for
-   integration mismatches.
-
-   If gsd-integration-tester returns zero `blocking: true` mismatches: continue to phase
-   complete as normal (no VERIFICATION.md change).
-
 </step>
 
 </execution_cycle>

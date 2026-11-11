@@ -244,13 +244,9 @@ const MODEL_PROFILES = {
   'gsd-codebase-mapper':      { quality: 'sonnet', balanced: 'haiku', budget: 'haiku', auto: 'haiku'  },
   'gsd-verifier':             { quality: 'opus', balanced: 'opus', budget: 'opus', auto: 'opus' },
   'gsd-plan-checker':         { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku', auto: 'sonnet' },
-  'gsd-nyquist-auditor':      { quality: 'sonnet', balanced: 'haiku', budget: 'haiku', auto: 'haiku' },
   'gsd-test-writer':          { quality: 'sonnet', balanced: 'haiku', budget: 'haiku', auto: 'haiku' },
   'gsd-docs-updater':         { quality: 'sonnet', balanced: 'haiku', budget: 'haiku', auto: 'haiku' },
-  'gsd-integration-tester':   { quality: 'sonnet', balanced: 'haiku', budget: 'haiku', auto: 'haiku' },
   'gsd-phase-coordinator':    { quality: 'sonnet', balanced: 'sonnet', budget: 'sonnet', auto: 'sonnet' },
-  'gsd-plan-attacker':        { quality: 'opus', balanced: 'opus', budget: 'sonnet', auto: 'opus' },
-  'gsd-plan-judge':           { quality: 'opus', balanced: 'opus', budget: 'sonnet', auto: 'opus' },
   'gsd-integration-checker':  { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku', auto: 'sonnet' },
 };
 
@@ -406,7 +402,6 @@ function loadConfig(cwd) {
     savings_baseline_profile: 'quality',
     savings: { baseline_profile: 'quality' },
     test_writer_enabled: false,
-    integration_tester_enabled: false,
     adversarial_review_enabled: false,
     adversarial_review_file_threshold: 8,
     adversarial_review_security_patterns: ['auth', 'payment', 'secret', 'credential', 'crypto', 'security', 'token', 'password', '/api/', 'migration'],
@@ -422,7 +417,6 @@ function loadConfig(cwd) {
     defect_classes_gate_since: '2026-09-26T22:37:28+02:00',
     quality: {
       test_writer: false,
-      integration_tester: false,
       adversarial_review: false,
       adversarial_review_file_threshold: 8,
       adversarial_review_security_patterns: ['auth', 'payment', 'secret', 'credential', 'crypto', 'security', 'token', 'password', '/api/', 'migration'],
@@ -478,7 +472,6 @@ function loadConfig(cwd) {
       routing_min_sample_count: get('routing_min_sample_count', { section: 'routing', field: 'min_sample_count' }) ?? defaults.routing_min_sample_count,
       savings_baseline_profile: get('savings_baseline_profile', { section: 'savings', field: 'baseline_profile' }) ?? defaults.savings_baseline_profile,
       test_writer_enabled: get('test_writer_enabled', { section: 'quality', field: 'test_writer' }) ?? defaults.test_writer_enabled,
-      integration_tester_enabled: get('integration_tester_enabled', { section: 'quality', field: 'integration_tester' }) ?? defaults.integration_tester_enabled,
       adversarial_review_enabled: get('adversarial_review_enabled', { section: 'quality', field: 'adversarial_review' }) ?? defaults.adversarial_review_enabled,
       adversarial_review_file_threshold: get('adversarial_review_file_threshold', { section: 'quality', field: 'adversarial_review_file_threshold' }) ?? defaults.adversarial_review_file_threshold,
       adversarial_review_security_patterns: get('adversarial_review_security_patterns', { section: 'quality', field: 'adversarial_review_security_patterns' }) ?? defaults.adversarial_review_security_patterns,
@@ -5723,7 +5716,7 @@ function cmdVerifyAppendGap(cwd, verificationFileArg, options, raw) {
 // even when the `adversarial_review_enabled` toggle is off -- an explicit per-plan author
 // decision is a stronger signal than the global default and must never be silently
 // ignored. When the toggle is off and no explicit flag is set: high_risk is always false
-// (zero behavior change, matches the test_writer/integration_tester precedent). When the
+// (zero behavior change, matches the test_writer precedent). When the
 // toggle is on: any of (files_modified.length > threshold), a security-pattern substring
 // match against files_modified, or a tdd="true" task count >= 3 flags the plan high-risk,
 // one reason string per matched criterion.
@@ -16276,7 +16269,7 @@ Was ${model} the right choice for this task? (y/n): `;
     }
 
     case 'log-feature-event': {
-      // CLI bridge for subagents (e.g. task-router) that cannot call appendEvent directly.
+      // CLI bridge for subagents that cannot call appendEvent directly.
       // Usage: node gsd-tools.js log-feature-event --project-path <path> --type <EVENT_TYPE> --data <json>
       const projectPathIdx = args.indexOf('--project-path');
       const typeIdx = args.indexOf('--type');
