@@ -2,7 +2,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const { renderPreset, destKey } = require('./project-deploy-render.js');
+const { renderPreset } = require('./project-deploy-render.js');
+const { resolvePaths } = require('./project-deploy-canon.js');
 const { sha256, planWholeFile, planBlockFile } = require('./project-deploy-files.js');
 const { scanText } = require('./project-deploy-scan.js');
 const { mergeSettings, serializeSettings } = require('./project-deploy-settings.js');
@@ -15,7 +16,6 @@ const MANIFEST = '.planning/gsd-project-manifest.json';
 const BASE_DIR = '.planning/.gsd-preset-base';
 const SETTINGS = '.claude/settings.json';
 const GITIGNORE = '.gitignore';
-const GUARDED_PREFIX = '.claude/hooks/';
 const WRITE_ACTIONS = new Set(['create', 'overwrite', 'merge', 'update']);
 const PRESET_NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
 const DEFAULT_PRESETS = path.join(__dirname, '..', 'presets');
@@ -184,6 +184,13 @@ function planDeploy(opts) {
   ].filter((rel) => !contained(root, rel)).map((file) => ({ file, reason: 'destination escapes project root' }));
   if (escapes.length > 0) return { report: { ...report, errors: [...errors, ...escapes] }, ops: EMPTY_OPS };
 
+  const resolved = resolvePaths(root, {
+    dests: rendered.files.map((f) => f.dest),
+    bases: rendered.files.map((f) => `${BASE_DIR}/${f.dest}`),
+    extra: [...(needSettings ? [SETTINGS] : []), ...(command === 'init' ? [GITIGNORE] : [])],
+  });
+  if (resolved.errors.length > 0) return { report: { ...report, errors: [...errors, ...resolved.errors] }, ops: EMPTY_OPS };
+
   const planned = planFiles(root, rendered, prevFiles);
   errors.push(...planned.errors);
   const settingsPlan = needSettings ? planSettings(root, rendered, prevSettings) : null;
@@ -191,7 +198,7 @@ function planDeploy(opts) {
 
   const settingsWrites = settingsPlan && !settingsPlan.error && (settingsPlan.action === 'create' || settingsPlan.action === 'update');
   const guarded = [
-    ...planned.files.filter((f) => WRITE_ACTIONS.has(f.action) && destKey(f.path).startsWith(GUARDED_PREFIX)).map((f) => f.path),
+    ...planned.files.filter((f) => WRITE_ACTIONS.has(f.action) && resolved.guarded.has(f.path)).map((f) => f.path),
     ...(settingsWrites ? [SETTINGS] : []),
   ].sort();
   Object.assign(report, {

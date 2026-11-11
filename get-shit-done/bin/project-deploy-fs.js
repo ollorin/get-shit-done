@@ -30,6 +30,46 @@ function contained(root, rel) {
   }
 }
 
+const fsFold = (s) => s.normalize('NFKD').toUpperCase().toLowerCase();
+
+const toPosix = (p) => p.split(path.sep).join('/');
+
+function canonicalRel(root, rel) {
+  try {
+    const parts = rel.split('/');
+    let abs = root;
+    let i = 0;
+    for (; i < parts.length; i += 1) {
+      const next = path.join(abs, parts[i]);
+      let st;
+      try {
+        st = fs.lstatSync(next);
+      } catch (err) {
+        if (err.code === 'ENOENT') break;
+        throw err;
+      }
+      if (st.isSymbolicLink()) return { error: 'dest traverses a symlink' };
+      abs = next;
+    }
+    const head = toPosix(path.relative(fs.realpathSync.native(root), fs.realpathSync.native(abs)));
+    if (head === '..' || head.startsWith('../') || path.isAbsolute(head)) return { error: 'dest escapes project root' };
+    const tail = fsFold(parts.slice(i).join('/'));
+    return { canon: [head, tail].filter((s) => s !== '').join('/') };
+  } catch {
+    return { error: 'dest cannot be resolved' };
+  }
+}
+
+function sameFile(a, b) {
+  try {
+    const x = fs.statSync(a);
+    const y = fs.statSync(b);
+    return x.dev === y.dev && x.ino === y.ino;
+  } catch {
+    return false;
+  }
+}
+
 function isDirectory(abs) {
   try {
     return fs.statSync(abs).isDirectory();
@@ -56,4 +96,6 @@ function readJsonObject(abs) {
   }
 }
 
-module.exports = { isPlainObject, exists, contained, isDirectory, readRegular, readJsonObject };
+module.exports = {
+  isPlainObject, exists, contained, canonicalRel, sameFile, fsFold, isDirectory, readRegular, readJsonObject,
+};
