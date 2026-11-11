@@ -59,6 +59,7 @@ function listScopeFiles(root) {
 }
 
 function compileRe(file, pattern, flags) {
+  if (/[gy]/.test(flags || '')) throw new Error(`agnostic-lint: bad flags in ${file}: g and y are stateful and not allowed`);
   try {
     return new RegExp(pattern, flags || '');
   } catch (e) {
@@ -188,11 +189,18 @@ const stale = (d) =>
   `STALE ${d.kind} ${d.file} ${d.class} baseline=${d.baseline} current=${d.current} (run: node scripts/agnostic-lint.js write-baseline)`;
 const HASH_STALE = 'STALE inputs hash (terms.json or allowlist.json changed; run write-baseline)';
 
+const USAGE = 'usage: agnostic-lint.js <check|report|write-baseline> [--root <dir>] [--allow-raise]\n'
+  + 'check and write-baseline scan git-tracked files only: git add a new file before it is counted.\n';
+
 function parseFlags(args) {
-  const out = { root: null, allowRaise: false };
+  const out = { root: null, allowRaise: false, error: null };
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--root') out.root = args[++i];
-    else if (args[i] === '--allow-raise') out.allowRaise = true;
+    if (args[i] === '--root') {
+      const dir = args[++i];
+      if (dir === undefined || dir.startsWith('--')) return { error: '--root needs a directory' };
+      out.root = dir;
+    } else if (args[i] === '--allow-raise') out.allowRaise = true;
+    else return { error: `unknown flag: ${args[i]}` };
   }
   return out;
 }
@@ -230,10 +238,14 @@ function check(res, files) {
 function main(argv) {
   const [cmd, ...rest] = argv;
   if (!['check', 'report', 'write-baseline'].includes(cmd)) {
-    process.stderr.write('usage: agnostic-lint.js <check|report|write-baseline> [--root <dir>] [--allow-raise]\n');
+    process.stderr.write(USAGE);
     return 2;
   }
   const flags = parseFlags(rest);
+  if (flags.error) {
+    process.stderr.write(`${flags.error}\n${USAGE}`);
+    return 2;
+  }
   const root = flags.root ? path.resolve(flags.root) : ROOT;
   const dir = path.join(root, DIR_REL);
   const files = { terms: path.join(dir, 'terms.json'), allow: path.join(dir, 'allowlist.json'), base: path.join(dir, 'baseline.json') };

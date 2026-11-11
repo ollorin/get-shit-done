@@ -226,6 +226,57 @@ test('13 lowercase security, auth and owner tokens are counted; SES and Resend s
   assert.deepStrictEqual(hits('nexus and ceoless'), {});
 });
 
+test('14 pattern flags g and y are rejected by name', () => {
+  const root = mkRoot();
+  for (const flags of ['g', 'iy']) {
+    configure(root, [{ id: 'stateful', label: 'x', pattern: 'deno', flags }]);
+    const file = path.join(root, 'scripts/agnostic-lint/terms.json');
+    assert.throws(() => lint.loadTerms(file), (e) => e instanceof Error && e.message.includes(file) && /g and y/.test(e.message), flags);
+  }
+  assert.deepStrictEqual(lint.countLines('Deno', compile([{ id: 'ok', label: 'x', pattern: 'deno', flags: 'i' }])), { ok: 1 });
+});
+
+test('15 CLI flag errors exit 2: --root without a value, unknown flag', () => {
+  const root = baselinedRoot();
+  const noValue = spawnSync(process.execPath, [LINT, 'check', '--root'], { encoding: 'utf8' });
+  assert.strictEqual(noValue.status, 2);
+  assert.match(noValue.stderr, /--root needs a directory/);
+  const unknown = cli(root, 'check', '--allow-rise');
+  assert.strictEqual(unknown.status, 2);
+  assert.match(unknown.stderr, /unknown flag: --allow-rise/);
+  assert.match(unknown.stderr, /git add/);
+});
+
+test('16 unknown subcommand exits 2 with usage naming git add', () => {
+  const r = spawnSync(process.execPath, [LINT, 'frob'], { encoding: 'utf8' });
+  assert.strictEqual(r.status, 2);
+  assert.match(r.stderr, /^usage: agnostic-lint\.js <check\|report\|write-baseline>/);
+  assert.match(r.stderr, /git add a new file before it is counted/);
+});
+
+test('17 report subcommand prints the class matrix and totals, exit 0', () => {
+  const root = mkRoot();
+  configure(root);
+  put(root, 'agents/a.md', 'deno\nCEO\n');
+  const r = cli(root, 'report');
+  assert.strictEqual(r.status, 0);
+  const lines = r.stdout.trimEnd().split('\n');
+  assert.match(lines[0], /^class\s+agents\s+commands\s+workflows/);
+  assert.ok(lines.some((l) => /^deno\s+1\/1\b/.test(l)), r.stdout);
+  assert.ok(lines.some((l) => /^owner\s+1\/1\b/.test(l)), r.stdout);
+  assert.strictEqual(lines[lines.length - 1], 'denied=2 allowed=0');
+});
+
+test('18 bad pattern and bad flags through the CLI exit 2 naming terms.json', () => {
+  const root = mkRoot();
+  for (const cls of [{ id: 'bad', label: 'x', pattern: '(', flags: '' }, { id: 'bad', label: 'x', pattern: 'a', flags: 'g' }]) {
+    configure(root, [cls]);
+    const r = cli(root, 'report');
+    assert.strictEqual(r.status, 2);
+    assert.match(r.stderr, /agnostic-lint: .*terms\.json/);
+  }
+});
+
 describe('repo tree', () => {
   const ROOT = path.join(__dirname, '..');
   const DIR = path.join(ROOT, 'scripts', 'agnostic-lint');
