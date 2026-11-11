@@ -55,3 +55,59 @@
 ## Self-Check
 - Commit `1b50dda` present on `exp/agnostic`.
 - Ruling H1 spec rows and four mutants present; 17/17 rows pass.
+
+## Task 2 (H2)
+
+### Outcome
+- `project-deploy-guard.js` (new, 40 lines): `guardedSet({canonDests, hookCommands, presetFlags})` (pure), `hookCommandsOf(settings)`, `triplesCommands(triples)`, `refusalOf(...)` (moved out of `project-deploy.js` to keep it at 279 lines).
+- Guarded if any of: H1 identity flag (`resolved.guarded`); first segment folds to `.husky` or `.githooks`; `fsFold(canon)` is contained in `fsFold(command)` for any hook command from current settings, the fragment, or previous manifest triples; the preset entry has `guarded: true`.
+- `project-deploy-render.js`: `guarded` added to `FILE_KEYS`, boolean-validated, default `false`, carried on rendered files.
+- `project-deploy-canon.js`: `resolvePaths` also returns `canons` (managed dests with canonical paths).
+- `planDeploy`: `--preset-dir` refused (`preset-dir requires a human terminal`) when `guarded` is non-empty and the session is not a human, before the init exemption. The init exemption now requires `init`, settings absent, and every guarded file action `create`.
+- `runCli` passes `presetFlag: presetDir !== undefined`. `planDeploy` opts `presetFlag` defaults to false, so direct `planDeploy` callers are unaffected.
+- `package.json` `scripts.test`: added `project-deploy-guard.test.js`.
+
+### Test rows (`project-deploy-guard.test.js`, 16 rows)
+| Row | Case | Expectation |
+|---|---|---|
+| H2-a | `.husky/pre-commit` | guarded (first segment) |
+| H2-b | `.GitHooks/x`, canon `.githooks/x` | guarded, folded |
+| H2-c | `scripts/gate.sh` referenced by `$CLAUDE_PROJECT_DIR/SCRIPTS/Gate.sh` (case) | guarded; `scripts/other.sh` not |
+| H2-d | `docs/a.md` with preset flag | guarded |
+| H2-e | `docs/a.md` unreferenced; hook dir dest with h1 | docs unguarded, hook dir guarded |
+| H2-f | `scripts/x.sh` with h1 only | guarded |
+| H2-g | `hookCommandsOf` / `triplesCommands` malformed input | only string commands |
+| H2-h | project-added settings hook names `scripts/gate.sh`; agent init | guarded_changes includes it; refused |
+| H2-i | agent `--preset-dir` init updates existing `.husky/pre-commit` | refused, nothing written |
+| H2-j | agent `--preset-dir` init with a hook file | refused, `preset-dir requires a human terminal`, snapshot unchanged |
+| H2-k | human `--preset-dir` init | writes the hook |
+| H2-l | `diff` with agent session and `--preset-dir` | never refused |
+| H2-m | agent init, all creates, no flag | exempt, ok |
+| H2-n | `guarded: 'yes'` | preset error `guarded must be a boolean: a.md` |
+| H2-o | `guarded:true` docs file, agent init with settings present | refused |
+| H2-p | agent `planDeploy` init, existing `.husky` block update, no flag | refused by the exemption check alone |
+
+### Changed existing tests (intentional, per spec)
+- `project-deploy.test.js` A9: the agent `--preset-dir` fresh init now asserts refusal (`preset-dir requires a human terminal`) and no hook written. It previously asserted success, which the spec forbids.
+- `project-deploy-render.test.js` row 4: expected preset entries now carry `guarded: false`.
+
+### Mutants (`.tmp/mutate-h2.js`, sha256 checked before and after each; test files run: guard, deploy, render, canon)
+| Mutant | Killed by (first failing row) | Restored identical |
+|---|---|---|
+| M1 drop H1 identity clause | H1-a (and H2-e, H2-f) | yes |
+| M2 drop husky/githooks clause | H2-a | yes |
+| M3 drop hook-command clause | H2-c | yes |
+| M4 drop guarded:true clause | H2-d | yes |
+| M5 scan only fragment commands | H2-h | yes |
+| M6 drop create-only condition | H2-p (H2-i does not reach it: `--preset-dir` refuses first) | yes |
+| M7 preset-dir flag ignored under exemption (extra) | H2-j | yes |
+
+### Verification
+- `NODE_PATH=$HOME/get-shit-done/node_modules npm test`: rc=0, 1880 pass, 0 fail (H1 baseline 1864). Log: `.tmp/agnostic-B-FIX1-H2.log`.
+- `node scripts/agnostic-lint.js check`: ok (869 denied, 338 allowed).
+
+### Deviations and notes
+- The prev-manifest clause of the hook-command scan has no isolated `planDeploy` row. A project-added hook still appears in current settings, so the union is never separable at planDeploy level. The clause is covered only by the `triplesCommands` unit row (H2-g).
+- Transitive script references stay unguarded, per the ruling's deferral.
+- Test runs need `NODE_PATH=$HOME/get-shit-done/node_modules` (no `node_modules` in this worktree).
+- Nothing pushed. No `install:gsd`. No stash, reset or clean.

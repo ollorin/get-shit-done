@@ -644,7 +644,7 @@ describe('project init|diff|sync (agnostic-B)', () => {
     });
   }
 
-  test('A9 CLI: a guarded sync is refused under CLAUDECODE and without a TTY; a fresh init is allowed', () => {
+  test('A9 CLI: a guarded sync is refused under CLAUDECODE and without a TTY; an agent --preset-dir init is refused', () => {
     const { root, dir } = initialised();
     writePreset(dir, { rule: RULE_V2, hook: HOOK_V2 });
     const before = snapshot(root);
@@ -662,9 +662,9 @@ describe('project init|diff|sync (agnostic-B)', () => {
 
     const fresh = makeProject();
     const init = cli(['init', '--root', fresh, '--preset-dir', makePreset()], ENV_AGENT);
-    assert.strictEqual(init.status, 0);
-    assert.ok(fs.existsSync(abs(fresh, HOOK_DEST)));
-    assert.ok(fs.existsSync(abs(fresh, SETTINGS)));
+    assert.strictEqual(init.status, 1);
+    assert.strictEqual(JSON.parse(init.stdout).refused.reason, 'preset-dir requires a human terminal');
+    assert.ok(!fs.existsSync(abs(fresh, HOOK_DEST)));
 
     assert.strictEqual(run(root, dir, 'sync', {}, HUMAN).exitCode, 0);
     assert.strictEqual(fs.readFileSync(abs(root, HOOK_DEST), 'utf8'), HOOK_V2);

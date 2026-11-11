@@ -4,10 +4,10 @@ const fs = require('fs');
 const path = require('path');
 const { renderPreset } = require('./project-deploy-render.js');
 const { resolvePaths } = require('./project-deploy-canon.js');
+const { hookCommandsOf, triplesCommands, guardedSet, refusalOf } = require('./project-deploy-guard.js');
 const { sha256, planWholeFile, planBlockFile } = require('./project-deploy-files.js');
 const { scanText } = require('./project-deploy-scan.js');
 const { mergeSettings, serializeSettings } = require('./project-deploy-settings.js');
-const { detectSession, guardFailures } = require('./project-deploy-session.js');
 const { applyPlan } = require('./project-deploy-apply.js');
 const { isPlainObject, exists, contained, isDirectory, readRegular, readJsonObject } = require('./project-deploy-fs.js');
 
@@ -124,18 +124,6 @@ function planSettings(root, rendered, prevSettings) {
   };
 }
 
-function refusalOf(root, command, guarded, env, session) {
-  const settingsAbsent = !exists(path.join(root, SETTINGS));
-  if (command === 'diff' || guarded.length === 0 || (command === 'init' && settingsAbsent)) return null;
-  const failed = guardFailures(env, session === undefined ? detectSession() : session);
-  if (failed.length === 0) return null;
-  return {
-    reason: 'guardrail paths change only from a terminal outside an agent session',
-    paths: guarded,
-    failed,
-  };
-}
-
 function planDeploy(opts) {
   const { root, command, presetDir, presetName, presetsRoot = DEFAULT_PRESETS } = opts;
   const env = opts.env === undefined ? process.env : opts.env;
@@ -197,8 +185,17 @@ function planDeploy(opts) {
   if (settingsPlan && settingsPlan.error) errors.push(settingsPlan.error);
 
   const settingsWrites = settingsPlan && !settingsPlan.error && (settingsPlan.action === 'create' || settingsPlan.action === 'update');
+  const guardedFiles = guardedSet({
+    canonDests: resolved.canons.map((c) => ({ ...c, h1: resolved.guarded.has(c.file) })),
+    hookCommands: [
+      ...hookCommandsOf(readJsonObject(path.join(root, SETTINGS))),
+      ...hookCommandsOf(rendered.settings),
+      ...triplesCommands(prevSettings && prevSettings.hooks),
+    ],
+    presetFlags: new Set(rendered.files.filter((f) => f.guarded).map((f) => f.dest)),
+  });
   const guarded = [
-    ...planned.files.filter((f) => WRITE_ACTIONS.has(f.action) && resolved.guarded.has(f.path)).map((f) => f.path),
+    ...planned.files.filter((f) => WRITE_ACTIONS.has(f.action) && guardedFiles.has(f.path)).map((f) => f.path),
     ...(settingsWrites ? [SETTINGS] : []),
   ].sort();
   Object.assign(report, {
@@ -214,7 +211,9 @@ function planDeploy(opts) {
   });
   if (errors.length > 0) return { report: { ...report, ok: false }, ops: EMPTY_OPS };
 
-  const refused = refusalOf(root, command, guarded, env, opts.session);
+  const createOnly = planned.files.filter((f) => guarded.includes(f.path)).every((f) => f.action === 'create');
+  const exempt = command === 'init' && !exists(path.join(root, SETTINGS)) && createOnly;
+  const refused = refusalOf({ command, guarded, env, session: opts.session, presetFlag: opts.presetFlag === true, exempt });
   if (refused) return { report: { ...report, ok: false, refused }, ops: EMPTY_OPS };
 
   const manifestOut = {
@@ -256,7 +255,7 @@ function runCli(cwd, args, env, session) {
   const { command, opts } = parsed;
   const root = path.resolve(cwd, opts.root ?? '.');
   const presetDir = opts['preset-dir'] === undefined ? undefined : path.resolve(cwd, opts['preset-dir']);
-  const plan = planDeploy({ root, command, presetDir, presetName: opts.preset, env, session });
+  const plan = planDeploy({ root, command, presetDir, presetName: opts.preset, env, session, presetFlag: presetDir !== undefined });
   const { report } = plan;
   if (!report.ok) return { exitCode: 1, result: { ...report, written: [] } };
   if (command === 'diff') {

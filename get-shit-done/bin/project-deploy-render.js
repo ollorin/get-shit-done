@@ -5,7 +5,7 @@ const path = require('path');
 
 const PLACEHOLDER_RE = /\{\{([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+)\}\}/g;
 const PRESET_KEYS = new Set(['name', 'version', 'description', 'files', 'settings_fragment']);
-const FILE_KEYS = new Set(['src', 'dest', 'kind', 'render', 'capability']);
+const FILE_KEYS = new Set(['src', 'dest', 'kind', 'render', 'capability', 'guarded']);
 const FRAGMENT_KEYS = new Set(['permissions', 'hooks']);
 const PERMISSION_KEYS = new Set(['allow', 'deny', 'ask']);
 const NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
@@ -108,7 +108,7 @@ function checkSource(presetDir, realRoot, rel) {
 
 function normalizeFile(entry, presetDir, realRoot) {
   if (!isPlainObject(entry)) return { entry: null, errors: ['file entry must be an object'] };
-  const { src, dest, kind = 'whole', render = true, capability = null } = entry;
+  const { src, dest, kind = 'whole', render = true, capability = null, guarded = false } = entry;
   const errors = [
     ...Object.keys(entry).filter((k) => !FILE_KEYS.has(k)).map((k) => `unknown file key: ${k}`),
     ...[checkSource(presetDir, realRoot, src)].filter(Boolean),
@@ -116,8 +116,9 @@ function normalizeFile(entry, presetDir, realRoot) {
     ...(kind === 'whole' || kind === 'block' ? [] : [`invalid kind: ${String(kind)}`]),
     ...(typeof render === 'boolean' ? [] : [`render must be a boolean: ${String(src)}`]),
     ...(capability === null || isNonEmptyString(capability) ? [] : [`invalid capability: ${String(capability)}`]),
+    ...(typeof guarded === 'boolean' ? [] : [`guarded must be a boolean: ${String(src)}`]),
   ];
-  return { entry: errors.length === 0 ? { src, dest, kind, render, capability } : null, errors };
+  return { entry: errors.length === 0 ? { src, dest, kind, render, capability, guarded } : null, errors };
 }
 
 function duplicateDestErrors(dests) {
@@ -210,11 +211,11 @@ function renderFile(presetDir, entry, config) {
   const abs = path.join(presetDir, entry.src);
   const mode = fs.statSync(abs).mode & 0o777;
   if (!entry.render) {
-    return { file: { dest: entry.dest, kind: entry.kind, content: fs.readFileSync(abs), mode }, errors: [] };
+    return { file: { dest: entry.dest, kind: entry.kind, guarded: entry.guarded, content: fs.readFileSync(abs), mode }, errors: [] };
   }
   const r = renderText(fs.readFileSync(abs, 'utf8'), config);
   return {
-    file: { dest: entry.dest, kind: entry.kind, content: Buffer.from(r.text, 'utf8'), mode },
+    file: { dest: entry.dest, kind: entry.kind, guarded: entry.guarded, content: Buffer.from(r.text, 'utf8'), mode },
     errors: [
       ...r.missing.map((k) => ({ file: entry.src, reason: `missing config key: ${k}` })),
       ...r.invalid.map((k) => ({ file: entry.src, reason: `config key is not a scalar: ${k}` })),

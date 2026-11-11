@@ -37,6 +37,7 @@ function resolvePaths(root, { dests, bases, extra }) {
   return {
     errors: [...errors, ...dupes],
     guarded: new Set(managed.filter((r) => r.canon !== undefined && isGuardedCanon(root, r.canon)).map((r) => r.file)),
+    canons: managed.filter((r) => r.canon !== undefined).map((r) => ({ file: r.file, canon: r.canon })),
   };
 }
 

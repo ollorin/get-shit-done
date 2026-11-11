@@ -101,8 +101,8 @@ describe('loadPreset', () => {
     const r = R.loadPreset(full);
     assert.strictEqual(r.ok, true);
     assert.deepStrictEqual(r.preset.files, [
-      { src: 'a.md', dest: '.claude/rules/a.md', kind: 'whole', render: true, capability: null },
-      { src: 'b.bin', dest: '.claude/rules/b.bin', kind: 'block', render: false, capability: 'ui_qa' },
+      { src: 'a.md', dest: '.claude/rules/a.md', kind: 'whole', render: true, capability: null, guarded: false },
+      { src: 'b.bin', dest: '.claude/rules/b.bin', kind: 'block', render: false, capability: 'ui_qa', guarded: false },
     ]);
     assert.strictEqual(r.preset.settings_fragment, 'fragment.json');
   });
