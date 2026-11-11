@@ -416,6 +416,20 @@ describe('guardrail refusal (agnostic-B7)', () => {
   });
 });
 
+describe('malformed manifest stops planDeploy (B-FIX1 L6)', () => {
+  test('a null hook entry in the manifest is refused before any write', () => {
+    const dir = makePreset();
+    const root = makeProject();
+    writeAt(root, '.planning/gsd-project-manifest.json', JSON.stringify({ manifest_version: 1, preset: { name: 'demo', version: '1' }, files: {}, settings: { hooks: [null] } }));
+    const before = snapshot(root);
+    const { report, ops } = planDeploy({ root, command: 'sync', presetDir: dir, env: {}, session: HUMAN });
+    assert.strictEqual(report.ok, false);
+    assert.deepStrictEqual(report.errors, [{ reason: 'manifest is malformed' }]);
+    assert.strictEqual(ops.manifest, null);
+    assert.deepStrictEqual(snapshot(root), before);
+  });
+});
+
 describe('project init|diff|sync (agnostic-B)', () => {
   const GSD_TOOLS = path.join(__dirname, 'gsd-tools.js');
   const ENV_AGENT = { ...process.env, CLAUDECODE: '1' };

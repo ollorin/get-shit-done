@@ -12,6 +12,7 @@ const { shownFiles, confirmed } = require('./project-deploy-confirm.js');
 const { mergeSettings, serializeSettings } = require('./project-deploy-settings.js');
 const { applyPlan } = require('./project-deploy-apply.js');
 const { isPlainObject, exists, contained, isDirectory, readRegular, readJsonObject } = require('./project-deploy-fs.js');
+const { manifestShapeError } = require('./project-deploy-manifest.js');
 
 const CONFIG = '.planning/config.json';
 const MANIFEST = '.planning/gsd-project-manifest.json';
@@ -153,6 +154,7 @@ function planDeploy(opts) {
   if (!contained(root, MANIFEST)) return stop(command, 'destination escapes project root', MANIFEST);
   const manifest = exists(path.join(root, MANIFEST)) ? readJsonObject(path.join(root, MANIFEST)) : null;
   if (exists(path.join(root, MANIFEST)) && manifest === null) return stop(command, 'manifest is not valid JSON');
+  if (manifest && manifestShapeError(manifest)) return stop(command, 'manifest is malformed');
   if (command === 'init' && manifest) return stop(command, 'already initialised: run project sync');
   if (command === 'sync' && !manifest) return stop(command, 'not initialised: run project init');
   if (manifest && manifest.preset?.name !== rendered.name) {
