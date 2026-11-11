@@ -182,3 +182,34 @@ describe('project-deploy-scan', () => {
     assert.deepStrictEqual(scanText(mixedCase), [{ pattern: 'assigned_secret', line: 1 }]);
   });
 });
+
+describe('B-FIX3 F2 slice boundary overlap', () => {
+  const JWT = 'eyJ' + 'a1B2'.repeat(25) + '.eyJ' + 'c3D4'.repeat(25) + '.' + 'e5F6'.repeat(25);
+  // A value whose entropy (a digit) sits past the first slice: a truncated prefix alone is not a secret.
+  const LATE_VALUE = 'x'.repeat(300) + 'Q9';
+  const offsets = () => {
+    const out = [];
+    for (let p = 19500; p <= 20100; p += 37) out.push(p);
+    return out;
+  };
+
+  test('F2-a a JWT-shaped token (>= 300 chars) is found at every offset around the LINE_CAP boundary', () => {
+    assert.ok(JWT.length >= 300);
+    for (const p of offsets()) {
+      const line = ' '.repeat(p) + JWT + ' '.repeat(40);
+      assert.deepStrictEqual(scanText(line), [{ pattern: 'signed_token', line: 1 }], `offset ${p}`);
+    }
+  });
+
+  test('F2-b an assigned_secret value whose entropy lies past the boundary is found at every offset', () => {
+    for (const p of offsets()) {
+      const line = ' '.repeat(p) + 'password = "' + LATE_VALUE + '"';
+      assert.deepStrictEqual(scanText(line), [{ pattern: 'assigned_secret', line: 1 }], `offset ${p}`);
+    }
+  });
+
+  test('F2-c the overlap is 2048 chars, the step between slices is LINE_CAP minus it', () => {
+    assert.strictEqual(LINE_OVERLAP, 2048);
+    assert.deepStrictEqual(sliceLine('a'.repeat(LINE_CAP + 1)).map((s) => s.length), [LINE_CAP, LINE_OVERLAP + 1]);
+  });
+});

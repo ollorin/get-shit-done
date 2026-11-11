@@ -35,9 +35,9 @@ const SECRET_PATTERNS = [
 const SKIP_DIRS = new Set(['node_modules', '.git']);
 
 // Lines are scanned in slices so one huge line cannot stall a regex; the overlap keeps a
-// secret that straddles a slice boundary whole in the next slice (secrets here are under 100 chars).
+// token that straddles a slice boundary whole in the next slice (2048 covers a three-part signed token).
 const LINE_CAP = 20000;
-const LINE_OVERLAP = 100;
+const LINE_OVERLAP = 2048;
 
 function sliceLine(line) {
   if (line.length <= LINE_CAP) return [line];
