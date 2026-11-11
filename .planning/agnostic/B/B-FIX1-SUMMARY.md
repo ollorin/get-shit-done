@@ -244,3 +244,62 @@
 - L6 `permissions` non-object is malformed; `mergeSettings` previously ignored it.
 - L8 `assigned_secret` will flag any source line with `token = <12+ non-space chars>`. The scanner runs over presets and rendered output, so this is the intended class; the repo's own test file needed the rename.
 - Nothing pushed. No `install:gsd`. No stash, reset or clean.
+
+## Task 6 (L7)
+
+### Commits
+- `39c35ea` fix(agnostic-B-FIX1): L7 transactional applyPlan with random temp names and rollback
+
+### Outcome
+- `project-deploy-apply.js` (169 lines): `applyPlan(root, plan, command, io)`. Stage phase: each changed target becomes `${target}.gsd-tmp-${random}` opened with `'wx'`, with original bytes and mode captured; any failure unlinks the temps and removes directories this apply created. Commit phase: `canonicalRel` re-run per dest, then rename in order, manifest last. Any rename failure restores originals (temp plus `fs.renameSync`), unlinks created files and removes created dirs.
+- `applyFailure(report, applied)` exported; `project-deploy.js` runCli failure branch uses it (290 lines, down from 300).
+- `writeAtomic` and `ensureGitignore` removed. The `.gitignore` write is now a staged step of the same transaction.
+- `project-deploy-apply.test.js` (new, 5 rows), added to `package.json` `scripts.test`.
+- `project-deploy.test.js`: `writeAtomic` import dropped; A14 rewritten (see deviations).
+
+### Injected hooks (for C-03 tests)
+- `applyPlan(root, plan, command, io = {})`. `plan` is the whole `planDeploy` result (`{ ops, ... }`), not `ops`.
+- `io.rename(from, to)`: default `fs.renameSync`. Used only for commit-phase renames. Restores use the real `fs.renameSync`, so an injected failure cannot also break rollback.
+- `io.random()`: returns the hex suffix for temp names. Default `crypto.randomBytes(8).toString('hex')`.
+- Return: success `{ ok: true, written }`. Failure `{ ok: false, written, rolled_back, failed: { path, reason } }`. `written` lists rels left changed (`[]` when rolled back). `rolled_back` is `true` when nothing persists, including a stage-phase failure; `false` only when a restore itself failed.
+
+### Test rows (`project-deploy-apply.test.js`)
+| Row | Case | Expectation |
+|---|---|---|
+| L7-a | rename fails at step 3 of 5 (a, b, deep/c, settings, manifest); a.txt pre-exists mode 0600 | `ok false`, `rolled_back true`, `written []`, snapshot (hash and mode) byte-identical, `deep/` removed |
+| L7-b | success path rename order | `[a.txt, b.txt, deep/c.txt, settings, MANIFEST]`, manifest last |
+| L7-c | real init plan, rename fails at step 3, then re-plan and re-run | rolled back identical; second plan and apply succeed, manifest written |
+| L7-d | `random` fixed; sentinel planted at the first temp name | `ok false`, sentinel and whole tree unchanged |
+| L7-e | symlink planted at `${target}.gsd-tmp-${process.pid}` pointing outside | apply `ok`; outside victim unchanged; target has new bytes |
+
+### Mutants (`.tmp/mutate-l7.js`, copy-and-restore, sha256 checked before and after)
+| Mutant | Killed by (first failing row) | Restored identical |
+|---|---|---|
+| `'wx'` changed to `'w'` | L7-d | yes |
+| skip restore (`[...done].reverse()` replaced with `[]`) | L7-a (and L7-c) | yes |
+| manifest not last (commit loop reversed) | L7-b | yes |
+
+### Verification
+- `node --test get-shit-done/bin/project-deploy-apply.test.js`: 5 pass, 0 fail.
+- `NODE_PATH=$HOME/get-shit-done/node_modules npm test`: rc=0, 1913 pass, 0 fail (Task 5 baseline 1908, +5 new). Log: `.tmp/agnostic-B-FIX1-L7.log`.
+- `node scripts/agnostic-lint.js check`: ok (869 denied, 338 allowed).
+
+### Deviations and notes
+- A14 (`project-deploy.test.js`) asserted the old partial result (`written: ['good.txt']`, file kept). Under the transaction the first write is rolled back, so it now asserts `written []`, `rolled_back true`, and `good.txt` absent. Intentional, per L7.
+- The rollback path for a failed restore (`rolled_back: false`, `written` lists the stuck paths) has no test row. Unverified by test; the code path is `rollback()` `catch` branch in `project-deploy-apply.js`.
+- Directories created by an apply are removed on rollback. Covered by L7-a only.
+- Nothing pushed. No `install:gsd`. No stash, reset or clean.
+
+## B-FIX1 totals
+- Final test count: `NODE_PATH=$HOME/get-shit-done/node_modules npm test` rc=0, 1913 pass, 0 fail (baseline before B-FIX1 1847).
+- Ratchet lint: `node scripts/agnostic-lint.js check` ok (869 denied, 338 allowed).
+- Findings and fix commits:
+  - H1 name-based guard bypass: `1b50dda`
+  - H2 referenced hook and preset files unguarded: `43d5ff3`
+  - M3 secret echo via report.settings: `cc7c84c`
+  - M4 no human review step: `cc7c84c`
+  - M5 weak ancestor check: `d45751d`
+  - L6 null in manifest.settings.hooks: `710654b`
+  - L7 non-transactional applyPlan, predictable temp name: `39c35ea`
+  - L8 narrow secret scan, readRegular follows symlinks: `ed0bbcb`
+- Steering-only limit (M5) and transitive script references stay deferred, per the ruling (Phase H).
