@@ -5,7 +5,9 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { planDeploy, CONFIG, MANIFEST, BASE_DIR, SETTINGS } = require('./project-deploy.js');
+const { spawnSync } = require('child_process');
+const { planDeploy, runCli, CONFIG, MANIFEST, BASE_DIR, SETTINGS } = require('./project-deploy.js');
+const { applyPlan, writeAtomic } = require('./project-deploy-apply.js');
 const { agentAncestor, detectSession, guardFailures } = require('./project-deploy-session.js');
 const { renderPreset } = require('./project-deploy-render.js');
 const { sha256, planBlockFile } = require('./project-deploy-files.js');
@@ -401,6 +403,7 @@ describe('guardrail refusal (agnostic-B7)', () => {
     assert.strictEqual(agentAncestor(CYCLE_TABLE, 300), true);
   });
 
+
   test('P12 detectSession reads tty flags and the ps table; guardFailures orders the ids', () => {
     const session = detectSession({ stdin: { isTTY: true }, stdout: {}, pid: 300, psOutput: ZSH_TABLE });
     assert.deepStrictEqual(session, { stdin_tty: true, stdout_tty: false, agent_ancestor: false });
@@ -409,5 +412,337 @@ describe('guardrail refusal (agnostic-B7)', () => {
       guardFailures({ CLAUDECODE: '1' }, { stdin_tty: false, stdout_tty: false, agent_ancestor: true }),
       ['env', 'stdin_tty', 'stdout_tty', 'agent_ancestor'],
     );
+  });
+});
+
+describe('project init|diff|sync (agnostic-B)', () => {
+  const GSD_TOOLS = path.join(__dirname, 'gsd-tools.js');
+  const ENV_AGENT = { ...process.env, CLAUDECODE: '1' };
+  const { CLAUDECODE: _drop, ...NO_KEY } = process.env;
+  const STYLE_REL = '.claude/rules/style.md';
+  const HOOK_DEST = '.claude/hooks/guard.js';
+  const STYLE = RULE.replace('{{stack.paths.backend}}', 'srv');
+  const CLAUDE_RENDERED = CLAUDE_MD.replace('{{stack.paths.backend}}', 'srv');
+  const RULE_V2 = RULE.replace('line five', 'line five v2');
+  const HOOK_V2 = '// guard v2\nprocess.exit(0);\n';
+  const SETTINGS_RENDERED = {
+    permissions: { allow: ['Bash(ls:*)', 'Read(srv/**)'], deny: ['Read(./private/**)'] },
+    hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'node .claude/hooks/guard.js' }] }] },
+  };
+
+  const run = (root, presetDir, cmd, env = {}, session = HUMAN) => runCli(root, [cmd, '--preset-dir', presetDir], env, session);
+  const cli = (args, env) => spawnSync(process.execPath, [GSD_TOOLS, 'project', ...args], { encoding: 'utf8', env });
+  const abs = (root, rel) => path.join(root, rel);
+  const readSettings = (root) => JSON.parse(fs.readFileSync(abs(root, SETTINGS), 'utf8'));
+  const initialised = () => {
+    const root = makeProject();
+    const dir = makePreset();
+    assert.strictEqual(run(root, dir, 'init').exitCode, 0);
+    return { root, dir };
+  };
+
+  test('A1 init writes rendered files, base copies, settings, manifest and .gitignore', () => {
+    const root = makeProject();
+    const dir = makePreset();
+    const res = run(root, dir, 'init');
+    assert.strictEqual(res.exitCode, 0);
+    assert.strictEqual(fs.readFileSync(abs(root, STYLE_REL), 'utf8'), STYLE);
+    assert.strictEqual(fs.readFileSync(abs(root, HOOK_DEST), 'utf8'), HOOK);
+    assert.strictEqual(fs.readFileSync(abs(root, 'CLAUDE.md'), 'utf8'), CLAUDE_RENDERED);
+    assert.strictEqual(fs.statSync(abs(root, HOOK_DEST)).mode & 0o777, 0o755);
+    assert.deepStrictEqual(readSettings(root), SETTINGS_RENDERED);
+    assert.ok(fs.readFileSync(abs(root, `${BASE_DIR}/${STYLE_REL}`)).equals(Buffer.from(STYLE)));
+    assert.ok(fs.readFileSync(abs(root, `${BASE_DIR}/${HOOK_DEST}`)).equals(Buffer.from(HOOK)));
+    assert.ok(fs.readFileSync(abs(root, `${BASE_DIR}/CLAUDE.md`)).equals(Buffer.from(CLAUDE_RENDERED)));
+    assert.deepStrictEqual(readManifest(root), {
+      manifest_version: 1,
+      preset: { name: 'demo', version: '1' },
+      files: {
+        [HOOK_DEST]: { kind: 'whole', sha256: sha256(Buffer.from(HOOK)) },
+        [STYLE_REL]: { kind: 'whole', sha256: sha256(Buffer.from(STYLE)) },
+        'CLAUDE.md': { kind: 'block', sha256: sha256(Buffer.from(CLAUDE_RENDERED)), blocks: { core: sha256(Buffer.from('Run tests in srv.')) } },
+      },
+      settings: {
+        permissions: { allow: ['Bash(ls:*)', 'Read(srv/**)'], deny: ['Read(./private/**)'], ask: [] },
+        hooks: [{ event: 'PreToolUse', matcher: 'Bash', command: 'node .claude/hooks/guard.js' }],
+      },
+    });
+    const lines = fs.readFileSync(abs(root, '.gitignore'), 'utf8').split('\n');
+    for (const line of ['.claude/settings.local.json', '.mcp.json', '.env*', '!.env.example']) {
+      assert.strictEqual(lines.filter((l) => l === line).length, 1);
+    }
+    assert.ok(lines.indexOf('.env*') < lines.indexOf('!.env.example'));
+  });
+
+  test('A1b init appends gitignore lines to an existing file without a trailing newline', () => {
+    const root = makeProject();
+    writeAt(root, '.gitignore', 'node_modules\n!.env.example\n.mcp.json');
+    assert.strictEqual(run(root, makePreset(), 'init').exitCode, 0);
+    const lines = fs.readFileSync(abs(root, '.gitignore'), 'utf8').split('\n');
+    assert.deepStrictEqual(lines.slice(0, 3), ['node_modules', '!.env.example', '.mcp.json']);
+    assert.strictEqual(lines.filter((l) => l === '.mcp.json').length, 1);
+    assert.ok(lines.includes('.claude/settings.local.json'));
+    assert.ok(lines.indexOf('.env*') > 0);
+    assert.strictEqual(lines[lines.indexOf('.env*') + 1], '!.env.example');
+  });
+
+  test('A2 sync right after init writes nothing; diff reports zero changes', () => {
+    const { root, dir } = initialised();
+    const before = snapshot(root);
+    const s = run(root, dir, 'sync');
+    assert.strictEqual(s.exitCode, 0);
+    assert.deepStrictEqual(s.result.written, []);
+    assert.deepStrictEqual(snapshot(root), before);
+    const d = run(root, dir, 'diff');
+    assert.strictEqual(d.exitCode, 0);
+    assert.strictEqual(d.result.changes, 0);
+  });
+
+  test('A3 an unchanged file is overwritten when the preset changes', () => {
+    const { root, dir } = initialised();
+    writePreset(dir, { rule: RULE_V2 });
+    const newRendered = RULE_V2.replace('{{stack.paths.backend}}', 'srv');
+    assert.strictEqual(run(root, dir, 'sync').exitCode, 0);
+    assert.strictEqual(fs.readFileSync(abs(root, STYLE_REL), 'utf8'), newRendered);
+    assert.ok(fs.readFileSync(abs(root, `${BASE_DIR}/${STYLE_REL}`)).equals(Buffer.from(newRendered)));
+    assert.strictEqual(readManifest(root).files[STYLE_REL].sha256, sha256(Buffer.from(newRendered)));
+  });
+
+  test('A4 an edited file is merged: project and preset changes both survive', () => {
+    const { root, dir } = initialised();
+    writeAt(root, STYLE_REL, STYLE.replace('# Style', '# House style'));
+    writePreset(dir, { rule: RULE_V2 });
+    const newRendered = RULE_V2.replace('{{stack.paths.backend}}', 'srv');
+    const r = run(root, dir, 'sync');
+    assert.strictEqual(r.exitCode, 0);
+    const text = fs.readFileSync(abs(root, STYLE_REL), 'utf8');
+    assert.ok(text.includes('# House style'));
+    assert.ok(text.includes('line five v2'));
+    assert.ok(!text.includes('<<<<<<<'));
+    assert.ok(fs.readFileSync(abs(root, `${BASE_DIR}/${STYLE_REL}`)).equals(Buffer.from(newRendered)));
+    assert.strictEqual(readManifest(root).files[STYLE_REL].sha256, sha256(Buffer.from(newRendered)));
+    assert.deepStrictEqual(run(root, dir, 'sync').result.written, []);
+  });
+
+  test('A5 a conflicting file is left untouched and exits 2; other files still apply', () => {
+    const { root, dir } = initialised();
+    writeAt(root, STYLE_REL, STYLE.replace('line four', 'line four project'));
+    writePreset(dir, { rule: RULE.replace('line four', 'line four preset'), claude: CLAUDE_MD.replace('Run tests', 'Run all tests') });
+    const beforeRule = fs.readFileSync(abs(root, STYLE_REL));
+    const beforeBase = fs.readFileSync(abs(root, `${BASE_DIR}/${STYLE_REL}`));
+    const beforeEntry = readManifest(root).files[STYLE_REL];
+    const r = run(root, dir, 'sync');
+    assert.strictEqual(r.exitCode, 2);
+    assert.ok(r.result.files.some((f) => f.path === STYLE_REL && f.action === 'conflict'));
+    assert.ok(fs.readFileSync(abs(root, STYLE_REL)).equals(beforeRule));
+    assert.ok(fs.readFileSync(abs(root, `${BASE_DIR}/${STYLE_REL}`)).equals(beforeBase));
+    assert.deepStrictEqual(readManifest(root).files[STYLE_REL], beforeEntry);
+    assert.ok(fs.readFileSync(abs(root, 'CLAUDE.md'), 'utf8').includes('Run all tests in srv.'));
+  });
+
+  test('A6 a project-added allow rule and hook survive sync; removals are reported by value', () => {
+    const { root, dir } = initialised();
+    const settings = readSettings(root);
+    settings.permissions.allow.push('Bash(project:*)');
+    settings.hooks.PostToolUse = [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'echo project' }] }];
+    writeAt(root, SETTINGS, JSON.stringify(settings, null, 2));
+    writePreset(dir, {
+      fragment: {
+        permissions: { allow: ['Bash(pwd:*)', 'Read({{stack.paths.backend}}/**)'], deny: ['Read(./private/**)'] },
+        hooks: FRAGMENT.hooks,
+      },
+    });
+    const r = run(root, dir, 'sync');
+    assert.strictEqual(r.exitCode, 0);
+    const after = readSettings(root);
+    assert.ok(after.permissions.allow.includes('Bash(project:*)'));
+    assert.ok(after.permissions.allow.includes('Bash(pwd:*)'));
+    assert.ok(!after.permissions.allow.includes('Bash(ls:*)'));
+    assert.ok(after.hooks.PostToolUse.some((g) => g.hooks.some((h) => h.command === 'echo project')));
+    assert.ok(after.permissions.deny.includes('Read(./private/**)'));
+    assert.deepStrictEqual(r.result.settings, {
+      action: 'update',
+      added: { permissions: { allow: ['Bash(pwd:*)'], deny: [], ask: [] }, hooks: [] },
+      removed: { permissions: { allow: ['Bash(ls:*)'], deny: [], ask: [] }, hooks: [] },
+    });
+
+    const m = readManifest(root);
+    m.settings.permissions.deny.push('Read(./mine/**)');
+    writeAt(root, MANIFEST, JSON.stringify(m, null, 2) + '\n');
+    const s2 = readSettings(root);
+    s2.permissions.deny.push('Read(./mine/**)');
+    writeAt(root, SETTINGS, JSON.stringify(s2, null, 2));
+    const d = run(root, dir, 'diff');
+    assert.deepStrictEqual(d.result.settings.removed.permissions.deny, ['Read(./mine/**)']);
+  });
+
+  test('A7 project text around the managed block survives; the block inner is replaced', () => {
+    const { root, dir } = initialised();
+    writeAt(root, 'CLAUDE.md', `Project intro\n${CLAUDE_RENDERED}Project footer\n`);
+    writePreset(dir, { claude: CLAUDE_MD.replace('Run tests', 'Run all tests') });
+    assert.strictEqual(run(root, dir, 'sync').exitCode, 0);
+    const text = fs.readFileSync(abs(root, 'CLAUDE.md'), 'utf8');
+    assert.ok(text.startsWith('Project intro\n'));
+    assert.ok(text.endsWith('Project footer\n'));
+    assert.ok(text.includes('Run all tests in srv.'));
+  });
+
+  const TOKEN = `ghp_${'a'.repeat(36)}`;
+  const CAUSES = [
+    { name: 'secret-shaped string in a preset file', prep: (root, dir) => writePreset(dir, { rule: `${RULE_V2}token ${TOKEN}\n` }) },
+    {
+      name: 'stack.paths.backend removed from config',
+      prep: (root, dir) => {
+        writePreset(dir, { rule: RULE_V2 });
+        writeAt(root, CONFIG, JSON.stringify({ project: { slug: 'demo' }, stack: { capabilities: {} } }));
+      },
+    },
+    { name: 'guarded hook change under CLAUDECODE', prep: (root, dir) => writePreset(dir, { rule: RULE_V2, hook: HOOK_V2 }), env: { CLAUDECODE: '1' } },
+    {
+      name: 'guarded hook change without a TTY',
+      prep: (root, dir) => writePreset(dir, { rule: RULE_V2, hook: HOOK_V2 }),
+      session: { ...HUMAN, stdin_tty: false },
+    },
+    {
+      name: 'settings file overwritten with invalid JSON',
+      prep: (root, dir) => {
+        writePreset(dir, { rule: RULE_V2 });
+        writeAt(root, SETTINGS, '{');
+      },
+    },
+    {
+      name: '.claude/rules replaced by a symlink outside the root',
+      prep: (root, dir, outside) => {
+        writePreset(dir, { rule: RULE_V2 });
+        fs.rmSync(abs(root, '.claude/rules'), { recursive: true, force: true });
+        fs.symlinkSync(outside, abs(root, '.claude/rules'));
+      },
+    },
+    {
+      name: '.planning/.gsd-preset-base replaced by a symlink outside the root',
+      prep: (root, dir, outside) => {
+        writePreset(dir, { rule: RULE_V2 });
+        fs.renameSync(abs(root, BASE_DIR), abs(root, '.planning/aside'));
+        fs.symlinkSync(outside, abs(root, BASE_DIR));
+      },
+    },
+  ];
+
+  for (const cause of CAUSES) {
+    test(`A8 abort writes nothing: ${cause.name}`, () => {
+      const { root, dir } = initialised();
+      const outside = mkTmp('gsd-outside-');
+      writeAt(outside, 'keep.txt', 'x');
+      const outsideBefore = snapshot(outside);
+      cause.prep(root, dir, outside);
+      const before = snapshot(root);
+      const res = run(root, dir, 'sync', cause.env ?? {}, cause.session ?? HUMAN);
+      assert.strictEqual(res.exitCode, 1);
+      assert.deepStrictEqual(res.result.written, []);
+      assert.deepStrictEqual(snapshot(root), before);
+      assert.deepStrictEqual(snapshot(outside), outsideBefore);
+    });
+  }
+
+  test('A9 CLI: a guarded sync is refused under CLAUDECODE and without a TTY; a fresh init is allowed', () => {
+    const { root, dir } = initialised();
+    writePreset(dir, { rule: RULE_V2, hook: HOOK_V2 });
+    const before = snapshot(root);
+    const withKey = cli(['sync', '--root', root, '--preset-dir', dir], ENV_AGENT);
+    assert.strictEqual(withKey.status, 1);
+    const body = JSON.parse(withKey.stdout);
+    assert.ok(body.refused.paths.includes(HOOK_DEST));
+    assert.ok(body.refused.failed.includes('env'));
+    assert.deepStrictEqual(snapshot(root), before);
+
+    const noKey = cli(['sync', '--root', root, '--preset-dir', dir], NO_KEY);
+    assert.strictEqual(noKey.status, 1);
+    assert.ok(JSON.parse(noKey.stdout).refused.failed.includes('stdout_tty'));
+    assert.deepStrictEqual(snapshot(root), before);
+
+    const fresh = makeProject();
+    const init = cli(['init', '--root', fresh, '--preset-dir', makePreset()], ENV_AGENT);
+    assert.strictEqual(init.status, 0);
+    assert.ok(fs.existsSync(abs(fresh, HOOK_DEST)));
+    assert.ok(fs.existsSync(abs(fresh, SETTINGS)));
+
+    assert.strictEqual(run(root, dir, 'sync', {}, HUMAN).exitCode, 0);
+    assert.strictEqual(fs.readFileSync(abs(root, HOOK_DEST), 'utf8'), HOOK_V2);
+  });
+
+  test('A10 never-managed files are byte-identical after init and a changed-preset sync', () => {
+    const root = makeProject();
+    const dir = makePreset();
+    const marked = ['.claude/settings.local.json', '.mcp.json', '.env'];
+    writeAt(root, marked[0], '{"local":true}\n');
+    writeAt(root, marked[1], '{"mcp":1}\n');
+    writeAt(root, marked[2], 'MARK=1\n');
+    const bytes = marked.map((p) => fs.readFileSync(abs(root, p)));
+    assert.strictEqual(run(root, dir, 'init').exitCode, 0);
+    writePreset(dir, { rule: RULE_V2 });
+    assert.strictEqual(run(root, dir, 'sync').exitCode, 0);
+    marked.forEach((p, i) => assert.ok(fs.readFileSync(abs(root, p)).equals(bytes[i])));
+  });
+
+  test('A11 CLI: missing or unknown subcommand exits 1; a fresh diff exits 2 and writes nothing', () => {
+    const root = makeProject();
+    const dir = makePreset();
+    for (const args of [[], ['bogus']]) {
+      const r = cli(args, ENV_AGENT);
+      assert.strictEqual(r.status, 1);
+      assert.ok(JSON.parse(r.stdout).errors[0].reason.startsWith('Usage: project'));
+    }
+    const before = snapshot(root);
+    const d = cli(['diff', '--root', root, '--preset-dir', dir], ENV_AGENT);
+    assert.strictEqual(d.status, 2);
+    assert.ok(JSON.parse(d.stdout).changes > 0);
+    assert.deepStrictEqual(snapshot(root), before);
+  });
+
+  test('A12 an explicit env argument wins over process.env', () => {
+    const { root, dir } = initialised();
+    writePreset(dir, { hook: HOOK_V2 });
+    const prior = process.env.CLAUDECODE;
+    process.env.CLAUDECODE = '1';
+    try {
+      assert.strictEqual(runCli(root, ['sync', '--preset-dir', dir], {}, HUMAN).exitCode, 0);
+    } finally {
+      if (prior === undefined) delete process.env.CLAUDECODE;
+      else process.env.CLAUDECODE = prior;
+    }
+    assert.strictEqual(fs.readFileSync(abs(root, HOOK_DEST), 'utf8'), HOOK_V2);
+  });
+
+  test('A13 CLI: an unknown preset and an invalid preset name exit 1', () => {
+    const root = makeProject();
+    assert.strictEqual(cli(['diff', '--root', root, '--preset', 'demo'], ENV_AGENT).status, 1);
+    const bad = cli(['diff', '--root', root, '--preset', '../x'], ENV_AGENT);
+    assert.strictEqual(bad.status, 1);
+    assert.strictEqual(JSON.parse(bad.stdout).errors[0].reason, 'invalid preset name');
+  });
+
+  test('A14 an I/O failure stops the apply at the failing path; no manifest and no temp file', () => {
+    const root = makeProject();
+    writeAt(root, 'bad/child.txt', 'x');
+    const single = writeAtomic(abs(root, 'bad'), Buffer.from('x'));
+    assert.strictEqual(single.ok, false);
+    assert.ok(typeof single.reason === 'string' && single.reason.length > 0);
+    const plan = {
+      ops: {
+        files: [
+          { dest: 'good.txt', content: Buffer.from('ok'), mode: 0o644 },
+          { dest: 'bad', content: Buffer.from('y'), mode: 0o644 },
+        ],
+        bases: [],
+        settingsText: null,
+        manifest: { manifest_version: 1, preset: { name: 'demo', version: '1' }, files: {} },
+      },
+    };
+    const r = applyPlan(root, plan, 'sync');
+    assert.strictEqual(r.ok, false);
+    assert.deepStrictEqual(r.written, ['good.txt']);
+    assert.strictEqual(r.failed.path, 'bad');
+    assert.strictEqual(fs.existsSync(abs(root, MANIFEST)), false);
+    assert.deepStrictEqual(snapshot(root).filter(([p]) => p.includes('.gsd-tmp-')), []);
   });
 });
