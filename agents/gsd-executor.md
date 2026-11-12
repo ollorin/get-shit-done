@@ -460,6 +460,7 @@ Plan execution complete when:
 - [ ] Each task committed individually with proper format
 - [ ] All deviations documented
 - [ ] Authentication gates handled and documented
+- [ ] Configured `stack.gates` run, exit codes recorded in SUMMARY.md (`<run_stack_gates>`)
 - [ ] Post-plan test suite gate passed (test suite ran, no failures, coverage threshold met if configured)
 - [ ] SUMMARY.md created with substantive content
 - [ ] SUMMARY.md `## Defect Classes` section present — rows, or an explicit `None found. (reviewed by: …)`

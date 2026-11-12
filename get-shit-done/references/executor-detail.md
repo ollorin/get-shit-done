@@ -694,6 +694,16 @@ node ~/.claude/get-shit-done/bin/gsd-tools.js roadmap update-plan-progress "${PH
 If REQUIREMENTS.md doesn't exist or requirement not found, log and continue — do not fail.
 </update_requirements>
 
+<run_stack_gates>
+Before the final commit, run the configured gates so a failure surfaces during execution, not at the verifier:
+
+```bash
+node ~/.claude/get-shit-done/bin/gsd-tools.js profile get stack.gates
+```
+
+Run every entry's `command` (they are Layer-1 gates such as the FP ratchet, migration security and dependency scan), capture each exit code, and list `gate: exit N` in SUMMARY.md under `## Verification`. A non-zero gate caused by this plan's changes is fixed now (one writer, same task set); one that predates the plan goes to `deferred-items.md` and is named in your return. When `stack.gates` is absent, run the gate scripts the repo ships; when it is present but empty, record "no gates configured". Never report a gate as passed without its exit code.
+</run_stack_gates>
+
 <final_commit>
 ```bash
 node ~/.claude/get-shit-done/bin/gsd-tools.js commit "docs({phase}-{plan}): complete [plan-name] plan" --files .planning/phases/XX-name/{phase}-{plan}-SUMMARY.md .planning/STATE.md .planning/ROADMAP.md .planning/REQUIREMENTS.md
