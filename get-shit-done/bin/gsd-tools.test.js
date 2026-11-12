@@ -3650,6 +3650,26 @@ describe('charlotte_qa_ran from VERIFICATION.md frontmatter, required for UI or 
     fs.writeFileSync(p, '---\nphase: 08\nverified: 2026-01-01\nstatus: passed\nscore: 1/1\ncharlotte_qa_ran: false\n---\n');
     assert.strictEqual(JSON.parse(runGsdTools(`frontmatter validate "${p}" --schema verification`, tmpDir).output).valid, true);
   });
+
+  test('frontmatter validate --schema plan requires requirements (an empty list satisfies it)', () => {
+    const p = path.join(tmpDir, 'P.md');
+    const base = 'phase: 1\nplan: 1\ntype: execute\nwave: 1\ndepends_on: []\nfiles_modified: []\nautonomous: true\nmust_haves: {}\n';
+    fs.writeFileSync(p, `---\n${base}---\n`);
+    const bad = JSON.parse(runGsdTools(`frontmatter validate "${p}" --schema plan`, tmpDir).output);
+    assert.strictEqual(bad.valid, false);
+    assert.deepStrictEqual(bad.missing, ['requirements']);
+    fs.writeFileSync(p, `---\n${base}requirements: []\n---\n`);
+    assert.strictEqual(JSON.parse(runGsdTools(`frontmatter validate "${p}" --schema plan`, tmpDir).output).valid, true);
+  });
+
+  test('verify plan-structure treats every checkpoint type as a checkpoint and does not demand <action>', () => {
+    const p = path.join(tmpDir, 'S.md');
+    const task = (t) => `<task type="checkpoint:${t}"><name>${t}</name></task>\n`;
+    fs.writeFileSync(p, '---\nphase: 1\nplan: 1\ntype: execute\nwave: 1\ndepends_on: []\nfiles_modified: []\nautonomous: false\nmust_haves: {}\n---\n' + ['human-action', 'human-verify', 'decision', 'ui-qa'].map(task).join(''));
+    const r = JSON.parse(runGsdTools(`verify plan-structure "${p}"`, tmpDir).output);
+    assert.deepStrictEqual(r.errors, []);
+    assert.ok(r.tasks.every((t) => t.isCheckpoint));
+  });
 });
 
 describe('review fixes: exact phase match in phase-gate + anchored plan-tag grep', () => {

@@ -6826,7 +6826,7 @@ function cmdFrontmatterMerge(cwd, filePath, data, raw) {
 }
 
 const FRONTMATTER_SCHEMAS = {
-  plan: { required: ['phase', 'plan', 'type', 'wave', 'depends_on', 'files_modified', 'autonomous', 'must_haves'] },
+  plan: { required: ['phase', 'plan', 'type', 'wave', 'depends_on', 'files_modified', 'autonomous', 'requirements', 'must_haves'] },
   summary: { required: ['phase', 'plan', 'subsystem', 'tags', 'duration', 'completed'] },
   verification: { required: ['phase', 'verified', 'status', 'score'], any_of: [['ui_qa_ran', 'charlotte_qa_ran']] },
 };
