@@ -316,6 +316,8 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
    {What was built — from SUMMARY.md}
    {Notable deviations, if any}
 
+   **Deviation note:** every departure from a plan or from this workflow (a task skipped or changed, a rule not followed, a model or round count different from what the rigour level calls for) gets one `deviation: {plan} - {what} - {why}` line in this wave report and in the `### Deviations` list of the aggregate result below. When you commit planning files for it, add `--trailer "Deviation: {plan}: {what}"` to `gsd-tools commit` so the git history carries it. No deviation: write `deviation: none`.
+
    {If more waves: what this enables for next wave}
    ---
    ```
@@ -526,6 +528,9 @@ After all waves:
 
 ### Issues Encountered
 [Aggregate from SUMMARYs, or "None"]
+
+### Deviations
+[One `deviation:` line per deviation from the wave reports and SUMMARYs, or "none"]
 ```
 </step>
 

@@ -15,7 +15,7 @@
  *   state patch --field val ...        Batch update STATE.md fields
  *   resolve-model <agent-type>         Get model for agent based on profile
  *   find-phase <phase>                 Find phase directory by number
- *   commit <message> [--files f1 f2]   Commit planning docs
+ *   commit <message> [--files f1 f2] [--trailer "Token: value"]...   Commit planning docs
  *   verify-summary <path>              Verify a SUMMARY.md file
  *   generate-slug <text>               Convert text to URL-safe slug
  *   current-timestamp [format]         Get timestamp (full|date|filename)
@@ -2856,9 +2856,16 @@ function cmdFindPhase(cwd, phase, raw) {
   }
 }
 
-function cmdCommit(cwd, message, files, raw, amend) {
+function cmdCommit(cwd, message, files, raw, amend, trailers = []) {
   if (!message && !amend) {
     error('commit message required');
+  }
+  const badTrailer = trailers.find(t => !/^[A-Za-z][A-Za-z0-9-]*:\s*\S/.test(t));
+  if (badTrailer !== undefined) {
+    error(`--trailer expects "Token: value", got: ${badTrailer}`);
+  }
+  if (amend && trailers.length > 0) {
+    error('--trailer cannot be combined with --amend');
   }
 
   const config = loadConfig(cwd);
@@ -2884,7 +2891,9 @@ function cmdCommit(cwd, message, files, raw, amend) {
   }
 
   // Commit
-  const commitArgs = amend ? ['commit', '--amend', '--no-edit'] : ['commit', '-m', message];
+  const commitArgs = amend
+    ? ['commit', '--amend', '--no-edit']
+    : ['commit', '-m', message, ...(trailers.length > 0 ? ['-m', trailers.join('\n')] : [])];
   const commitResult = execGit(cwd, commitArgs);
   if (commitResult.exitCode !== 0) {
     if (commitResult.stdout.includes('nothing to commit') || commitResult.stderr.includes('nothing to commit')) {
@@ -14621,9 +14630,15 @@ async function main() {
       const amend = args.includes('--amend');
       const message = args[1];
       // Parse --files flag (collect args after --files, stopping at other flags)
-      const filesIndex = args.indexOf('--files');
-      const files = filesIndex !== -1 ? args.slice(filesIndex + 1).filter(a => !a.startsWith('--')) : [];
-      cmdCommit(cwd, message, files, raw, amend);
+      // --trailer <line> is repeatable and appends a trailer paragraph to the message.
+      const files = [];
+      const trailers = [];
+      for (let i = 2; i < args.length; i++) {
+        if (args[i] === '--trailer') { if (i + 1 < args.length) trailers.push(args[++i]); continue; }
+        if (args[i] !== '--files') continue;
+        while (i + 1 < args.length && !args[i + 1].startsWith('--')) files.push(args[++i]);
+      }
+      cmdCommit(cwd, message, files, raw, amend, trailers);
       break;
     }
 

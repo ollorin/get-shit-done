@@ -4291,6 +4291,20 @@ describe('commit command — execFileSync git argv-array hardening (Phase 44-01)
     assert.ok(parsed.hash, 'should return a commit hash from the execFileSync-based git rev-parse call');
   });
 
+  test('commit --trailer adds repeatable trailer lines after the message, keeps --files scoping, and rejects a malformed trailer', () => {
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'A.md'), 'a\n');
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'B.md'), 'b\n');
+    const result = runGsdTools('commit "docs: with trailers" --trailer "Deviation: plan-1: skipped x" --files .planning/A.md --trailer "Co-Authored-By: Someone <a@b.c>"', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+    assert.strictEqual(JSON.parse(result.output).committed, true);
+    const body = execSync('git log -1 --format=%B', { cwd: tmpDir, encoding: 'utf8' });
+    assert.match(body, /^docs: with trailers\n\nDeviation: plan-1: skipped x\nCo-Authored-By: Someone <a@b\.c>\n*$/);
+    const trailers = execSync('git log -1 --format="%(trailers:key=Deviation,valueonly)"', { cwd: tmpDir, encoding: 'utf8' }).trim();
+    assert.strictEqual(trailers, 'plan-1: skipped x');
+    assert.match(execSync('git status --short', { cwd: tmpDir, encoding: 'utf8' }), /B\.md/, 'B.md was not in --files and stays unstaged');
+    assert.strictEqual(runGsdTools('commit "x" --trailer "not a trailer"', tmpDir).success, false);
+  });
+
   test('git check-ignore (isGitIgnored) behavior is unchanged for a normal (non-ignored) .planning directory', () => {
     // No .gitignore present — .planning should not be reported as ignored,
     // so the commit should proceed rather than being skipped.
