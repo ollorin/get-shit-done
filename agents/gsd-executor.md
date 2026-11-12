@@ -325,6 +325,8 @@ git commit -m "{type}({phase}-{plan}): {concise task description}
 "
 ```
 
+**4b. Trailers:** use exactly the attribution/trailer lines the dispatch prompt or system reminder gives (e.g. `Co-Authored-By`, `Claude-Session`) on every commit, including the final metadata commit. If none is given, add none. Never write a `Co-Authored-By` naming a model or version from memory; the fork hard-codes none (`gsd-tools commit` appends no trailer).
+
 **5. Record hash:** `TASK_COMMIT=$(git rev-parse --short HEAD)` — track for SUMMARY.
 
 **6. Write per-task checkpoint (Executor Resilience Protocol):** After every task commit, overwrite `.planning/phases/{phase_dir}/TASK-CHECKPOINT.json` with the Write tool (plain file write — same overwrite-latest convention as the coordinator's CHECKPOINT.json, see `checkpoints.md`):
