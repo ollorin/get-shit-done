@@ -17,13 +17,17 @@ Load all context in one call (paths only to minimize orchestrator context):
 ```bash
 LEGACY_FLAG=""
 if [[ " $ARGUMENTS " == *" --legacy "* ]]; then LEGACY_FLAG="--legacy"; fi
-INIT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" init plan-phase "$PHASE" $LEGACY_FLAG)
+AUTO_FLAG=""
+if [[ " $ARGUMENTS " == *" --auto "* ]]; then AUTO_FLAG="--auto"; fi
+INIT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" init plan-phase "$PHASE" $LEGACY_FLAG $AUTO_FLAG)
 if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
 ```
 
 If the command exits 1 and INIT has `error: project_context_missing`: stop, print its `missing` list and `hint`. Do not continue without the brief and profile. An unattended run on a project without a brief exports `GSD_LEGACY=1` before the first command; the flag alone does not reach spawned agents: when `LEGACY_FLAG` is set, put `legacy: true` in every spawned agent's prompt (they pass `--legacy` to their own init call).
 
-Parse JSON for: `researcher_model`, `planner_model`, `checker_model`, `research_enabled`, `plan_checker_enabled`, `nyquist_validation_enabled`, `commit_docs`, `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `phase_slug`, `padded_phase`, `has_research`, `has_context`, `has_plans`, `plan_count`, `planning_exists`, `roadmap_exists`, `phase_req_ids`, `brief_path`, `stack_profile_path`, `stack_commands`. Every spawned agent receives `brief_path` and `stack_profile_path` (when not null) in its `<files_to_read>`, and `stack_commands` verbatim.
+**Auto mode:** `auto_mode` (init) is the one rule for "no human is answering"; `references/auto-mode.md` defines it and the prompt classes K1-K6. When it is true, AskUserQuestion is never called and nothing waits for a reply: each prompt below takes its class action and logs an `auto_decision` event. Put `auto: true` in every spawned agent's prompt (they pass `--auto` to their own init call; an exported variable may not reach them).
+
+Parse JSON for: `auto_mode`, `researcher_model`, `planner_model`, `checker_model`, `executor_model`, `ruling_model`, `ruling_model_fallback`, `utility_model`, `research_enabled`, `plan_checker_enabled`, `nyquist_validation_enabled`, `commit_docs`, `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `phase_slug`, `padded_phase`, `has_research`, `has_context`, `has_plans`, `plan_count`, `planning_exists`, `roadmap_exists`, `phase_req_ids`, `brief_path`, `stack_profile_path`, `stack_commands`. Every spawned agent receives `brief_path` and `stack_profile_path` (when not null) in its `<files_to_read>`, and `stack_commands` verbatim.
 
 **Rigour:** init also returns `rigour` (`standard` | `high` | `spike`), `rigour_source`, `rigour_decision`, `spike_roots`, `rigour_rejected_reason` and `phase_req_ids`. Pass `rigour` (and the spike roots) in every spawn prompt. `references/rigour.md` is the contract. `standard` is every rule below, unchanged. When `rigour_source` is `rejected`, print `rigour_rejected_reason` and continue as `standard`.
 
@@ -37,7 +41,7 @@ Parse JSON for: `researcher_model`, `planner_model`, `checker_model`, `research_
 
 ## 2. Parse and Normalize Arguments
 
-Extract from $ARGUMENTS: phase number (integer or decimal like `2.1`), flags (`--research`, `--skip-research`, `--gaps`, `--skip-verify`, `--prd <filepath>`).
+Extract from $ARGUMENTS: phase number (integer or decimal like `2.1`), flags (`--research`, `--skip-research`, `--gaps`, `--skip-verify`, `--auto`, `--no-advance`, `--prd <filepath>`). `--no-advance` makes step 14 return the planning status instead of launching execute-phase (a caller that drives execution itself, such as the phase coordinator, passes it).
 
 Extract `--prd <filepath>` from $ARGUMENTS. If present, set PRD_FILE to the filepath.
 
@@ -187,7 +191,7 @@ If `context_path` is not null, display: `Using phase context from: ${context_pat
 
 **If `context_path` is null (no CONTEXT.md exists):**
 
-**Auto/yolo mode** (`--auto` in $ARGUMENTS, `workflow._auto_chain_active` / `workflow.auto_advance` true, `GSD_AUTONOMOUS=1`, or yolo mode): do not ask. Proceed with research + requirements only and record `Planned without CONTEXT.md (auto mode)` in the first plan's `<context>` section and in `{PHASE_DIR}/{N}-PLAN-CHECK.md` when one is written.
+Auto (auto_mode, references/auto-mode.md K2): when `auto_mode` is true do not ask. Proceed with research + requirements only and record `Planned without CONTEXT.md (auto mode)` in the first plan's `<context>` section and in `{PHASE_DIR}/{N}-PLAN-CHECK.md` when one is written.
 
 Otherwise use AskUserQuestion:
 - header: "No context"
@@ -262,6 +266,7 @@ Agent(
 
 - **`## RESEARCH COMPLETE`:** Display confirmation, continue to step 6
 - **`## RESEARCH BLOCKED`:** Display blocker, offer: 1) Provide context, 2) Skip research, 3) Abort
+  Auto (auto_mode, references/auto-mode.md K2): skip research and continue with requirements only; record `research: skipped (blocked)` in `{PHASE_DIR}/{N}-PLAN-CHECK.md` when one is written.
 
 ## 5.5. Create Validation Strategy
 
@@ -293,8 +298,8 @@ test -f "${PHASE_DIR}/${PADDED_PHASE}-VALIDATION.md" && echo "VALIDATION_CREATED
 
 **Process:**
 1. Read RESEARCH.md to understand what UI will be built/changed
-2. Spawn gsd-ui-inventory (haiku) focused on the affected modules (not full app scan)
-3. Spawn gsd-e2e-test-generator (haiku) with:
+2. Spawn gsd-ui-inventory (`{utility_model}`) focused on the affected modules (not full app scan)
+3. Spawn gsd-e2e-test-generator (`{utility_model}`) with:
    - Focused UI inventory
    - Phase requirements
    - Existing test coverage for affected areas
@@ -315,6 +320,7 @@ ls "${PHASE_DIR}"/*-PLAN.md 2>/dev/null
 ```
 
 **If exists:** Offer: 1) Add more plans, 2) View existing, 3) Replan from scratch.
+Auto (auto_mode, references/auto-mode.md K2): take 2, use the existing plans as they are and continue to step 10; never replan from scratch.
 
 ## 7. Use Context Paths from INIT
 
@@ -338,7 +344,7 @@ Skip if `nyquist_validation_enabled` is false.
 VALIDATION_EXISTS=$(ls "${PHASE_DIR}"/*-VALIDATION.md 2>/dev/null | head -1)
 ```
 
-If missing and Nyquist enabled — ask user:
+If missing and Nyquist enabled — ask the user (Auto (auto_mode, references/auto-mode.md K2): take option 3, continue anyway, and record `nyquist: skipped (auto mode)` in `{PHASE_DIR}/{N}-PLAN-CHECK.md` when one is written):
 1. Re-run: `/gsd:plan-phase {PHASE} --research`
 2. Disable Nyquist in config
 3. Continue anyway (plans fail Dimension 8)
@@ -397,7 +403,7 @@ Output consumed by /gsd:execute-phase. Plans need:
 </quality_gate>
 ```
 
-**Model rule:** every spawn passes `model` explicitly (an omitted model inherits the spawner's tier). Planner and plan-checker: `planner_model` / `checker_model` from init (the model_profile baseline) by default, but `ruling_model` from init (top tier, `opus` unless config sets it) for risk-domain plans and the plan-ahead coordinator, whatever the profile; executor and test-writer: `haiku`. Rulings and adversarial passes also use `ruling_model`.
+**Model rule:** every spawn passes `model` explicitly (an omitted model inherits the spawner's tier). Planner and plan-checker: `planner_model` / `checker_model` from init (the model_profile baseline) by default, but `ruling_model` from init (top tier, `opus` unless config sets it) for risk-domain plans and the plan-ahead coordinator, whatever the profile; executor and test-writer: `executor_model` from init. Rulings and adversarial passes also use `ruling_model`.
 
 A risk-domain path is any path the product brief lists under Risk Domains (`risk_domains` in the init output); authentication/authorisation and security are always risk domains. When `risk_domains_source` is `builtin` (`project.risk_domains` in config.json is empty or absent), every path that mutates state is a risk-domain path. Tag every behaviour on a risk-domain path T0 (real-DB, mutation-proven).
 
@@ -420,9 +426,11 @@ When `--gaps` and the gap list holds at most 4 small, independent fixes (each a 
 
 - **`planning_complete` / `gap_closure_complete`** (a bare `complete` with `plans` > 0 is the same outcome: treat it as `gap_closure_complete` under `--gaps`, else `planning_complete`; the header `## PLANNING COMPLETE` / `## GAP CLOSURE PLANS CREATED`): Display plan count. If `--skip-verify` or `plan_checker_enabled` is false (from init): skip to step 13. Otherwise: step 10.
 - **`checkpoint`** (header `## CHECKPOINT REACHED`): Present to user, get response, spawn continuation (step 12).
+  Auto (auto_mode, references/auto-mode.md K5): do not present; spawn the planner once more with the checkpoint's recommended default, and if it checkpoints again return `status: failed` with the checkpoint text.
 - **`plan_rejected`** (header `## PLAN REJECTED — TESTING GATE FAILED`): Show the failing plan count, offer: Add context / Retry / Manual (same handling as an inconclusive return).
+  Auto (auto_mode, references/auto-mode.md K5): retry the planner once, then return `status: failed` naming the failing plan count.
 
-**Malformed/absent return (mirror of execute-phase.md's executor-trailer fallback):** If `Agent()` threw, OR there is NO parseable JSON status trailer AND no recognizable `##` header, do NOT improvise the plan outcome. Retry the planner `Agent()` call once. If the retry is still unrecognized, surface the raw output to the user with retry/abort options — never silently proceed as if planning succeeded.
+**Malformed/absent return (mirror of execute-phase.md's executor-trailer fallback):** If `Agent()` threw, OR there is NO parseable JSON status trailer AND no recognizable `##` header, do NOT improvise the plan outcome. Retry the planner `Agent()` call once. If the retry is still unrecognized, surface the raw output to the user with retry/abort options — never silently proceed as if planning succeeded. Auto (auto_mode, references/auto-mode.md K5): after the one retry return `status: failed` with the raw output.
 
 ## 9.5. Risk Triage (Adversarial Review, MILE-39)
 
@@ -436,11 +444,11 @@ for PLAN_FILE in "${PHASE_DIR}"/*-PLAN.md; do
 done
 ```
 
-Parse each result: `{ high_risk, reasons, presentation_order }` (or `{ error: true, ... }` on a missing/malformed file — treat an errored assessment as `high_risk: false` for that plan, never let one bad file abort the loop). Collect into `RISK_RESULTS` keyed by plan id.
+Parse each result: `{ high_risk, reasons, matched, presentation_order }` (`matched` lists `{domain, path, token}`; compare it with the planner's own `high_risk` flag and report a mismatch to the checker). An errored assessment (`{ error: true, ... }` on a missing/malformed file) already carries `high_risk: true`: it fails closed into the adversarial pass, and one bad file never aborts the loop. Collect into `RISK_RESULTS` keyed by plan id.
 
 **If ANY plan's `high_risk` is `true`:** set `TRIAGE_MODE=adversarial` and `HIGH_RISK_PLANS` to those plan ids. Step 10 still spawns one `gsd-plan-checker` for the phase, with its adversarial pass enabled.
 
-**If NO plan is high-risk (including when `quality assess-risk` errored for every plan):** set `TRIAGE_MODE=checker`; Step 10 runs the plain checker.
+**If NO plan is high-risk:** set `TRIAGE_MODE=checker`; Step 10 runs the plain checker.
 
 ## 10. Spawn gsd-plan-checker Agent
 
@@ -516,7 +524,7 @@ nothing else.
 `class` is a general reusable name, not an incident story. Return exactly `None found. (reviewed by: plan-check)` if your check surfaced nothing — a bare `None found.` fails the phase gate, and the block is never omitted.
 ```
 
-**If `TRIAGE_MODE` is `adversarial`:** also append to `checker_prompt`: `Adversarial pass: enabled for plans {HIGH_RISK_PLANS}; write {PHASE_DIR}/{plan_id}-VERDICT.md for each.` and spawn with the Opus tier (`model="fable"` while the Fable allowance lasts, `"opus"` otherwise or if fable is rejected; not `checker_model`). Before EVERY such spawn (including each revision iteration), delete the old verdicts: `rm -f {PHASE_DIR}/{plan_id}-VERDICT.md` for each id in `HIGH_RISK_PLANS`. The checker's Defect Classes rows go to `{PHASE_DIR}/{N}-PLAN-CHECK.md` in Step 11; each VERDICT.md carries its own.
+**If `TRIAGE_MODE` is `adversarial`:** also append to `checker_prompt`: `Adversarial pass: enabled for plans {HIGH_RISK_PLANS}; write {PHASE_DIR}/{plan_id}-VERDICT.md for each.` and spawn with `model="{ruling_model}"` (never `checker_model`); if that spawn is rejected for availability, retry it once with `model="{ruling_model_fallback}"` and say so. Before EVERY such spawn (including each revision iteration), delete the old verdicts: `rm -f {PHASE_DIR}/{plan_id}-VERDICT.md` for each id in `HIGH_RISK_PLANS`. The checker's Defect Classes rows go to `{PHASE_DIR}/{N}-PLAN-CHECK.md` in Step 11; each VERDICT.md carries its own.
 
 ## 11. Handle Checker Return
 
@@ -568,7 +576,7 @@ scan this file. A checker that returned `None found. (reviewed by: …)` writes 
 **If `TRIAGE_MODE` is `checker`:**
 - **`## VERIFICATION PASSED`:** Display confirmation, proceed to step 13.
 - **`## ISSUES FOUND`:** Display issues, check iteration count, proceed to step 12.
-- **Malformed/absent return** (Agent() threw, or the return carries neither expected header): do NOT improvise a pass. Retry the `gsd-plan-checker` `Agent()` call once. If the retry still parses as neither `## VERIFICATION PASSED` nor `## ISSUES FOUND`, surface the raw checker output to the user with retry/abort options. Never treat an unparseable checker return as a silent pass.
+- **Malformed/absent return** (Agent() threw, or the return carries neither expected header): do NOT improvise a pass. Retry the `gsd-plan-checker` `Agent()` call once. If the retry still parses as neither `## VERIFICATION PASSED` nor `## ISSUES FOUND`, surface the raw checker output to the user with retry/abort options. Never treat an unparseable checker return as a silent pass. Auto (auto_mode, references/auto-mode.md K5): after the one retry return `status: failed` with the raw output.
 
 **If `TRIAGE_MODE` is `adversarial`:** handle the return exactly as above, then read every `{PHASE_DIR}/{plan_id}-VERDICT.md` for `HIGH_RISK_PLANS`. A VERDICT.md is accepted only if it exists and is newer than its plan (`test {PHASE_DIR}/{plan_id}-VERDICT.md -nt {PHASE_DIR}/{plan_id}-PLAN.md`); a missing or stale one is a malformed return: delete it, re-spawn the checker once. If it is still missing or stale the adversarial pass is unavailable and the plan FAILS CLOSED: do not fall back to the plain checker's pass. Append `adversarial_review: unavailable for {plan_id}: {reason}` to `{PHASE_DIR}/{N}-PLAN-CHECK.md`; the blocker issue returned by the call below (`--require`) enters the revision loop (step 12), and the plan is not approved or executed until a valid verdict exists. Never prompt the user. For each high-risk plan (whatever its verdict), call:
   ```bash
@@ -623,7 +631,7 @@ Display: `Max iterations reached. {N} issues remain:` + issue list
 
 Offer: 1) Force proceed, 2) Provide guidance and retry, 3) Abandon
 
-**Auto mode** (`--auto` in $ARGUMENTS, or `workflow._auto_chain_active` / `workflow.auto_advance` true, read as in step 14): do not ask. Force proceed, and append this line to `{PHASE_DIR}/{N}-PLAN-CHECK.md` (committed path-scoped, like the Defect Classes block): `OVERRIDE: max iterations reached, force-proceeded in auto mode with unresolved: {issue ids and one-line summaries}`. List the same unresolved issues in the final status. Never proceed silently.
+Auto (auto_mode, references/auto-mode.md K6): when `auto_mode` is true do not ask. Force proceed, and append this line to `{PHASE_DIR}/{N}-PLAN-CHECK.md` (committed path-scoped, like the Defect Classes block): `OVERRIDE: max iterations reached, force-proceeded in auto mode with unresolved: {issue ids and one-line summaries}`. List the same unresolved issues in the final status. Never proceed silently.
 
 ## 13. Present Final Status
 
@@ -646,7 +654,9 @@ Check for auto-advance trigger:
    AUTO_CFG=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" config get workflow.auto_advance --raw --default false)
    ```
 
-**If `--auto` flag present OR `AUTO_CHAIN` is true OR `AUTO_CFG` is true:**
+**If `--no-advance` is in $ARGUMENTS:** do not launch execute-phase and do not display the auto-advance banner. Print the final status (step 13) and end with a fenced JSON trailer as the last content: `{"status": "planned", "phase": "{N}", "plan_count": {plan count}, "unresolved": [issue ids]}`; use `"status": "failed"` with an `error` field when a step above returned failed. This is the stop condition of a caller that runs execute-phase itself.
+
+**Otherwise, if `--auto` flag present OR `AUTO_CHAIN` is true OR `AUTO_CFG` is true** (chain-advance keeps its own trigger: `mode: yolo` alone does not start chaining):
 
 Display banner:
 ```

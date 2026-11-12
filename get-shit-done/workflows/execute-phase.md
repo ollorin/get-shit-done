@@ -30,19 +30,23 @@ Load all context in one call:
 ```bash
 LEGACY_FLAG=""
 if [[ " $ARGUMENTS " == *" --legacy "* ]]; then LEGACY_FLAG="--legacy"; fi
-INIT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" init execute-phase "${PHASE_ARG}" $LEGACY_FLAG)
+AUTO_FLAG=""
+if [[ " $ARGUMENTS " == *" --auto "* ]]; then AUTO_FLAG="--auto"; fi
+INIT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" init execute-phase "${PHASE_ARG}" $LEGACY_FLAG $AUTO_FLAG)
 if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
 ```
 
 If the command exits 1 and INIT has `error: project_context_missing`: stop, print its `missing` list and `hint`. Do not continue without the brief and profile. When `LEGACY_FLAG` is set, put `legacy: true` in every spawned agent's prompt (the flag alone does not reach them; they pass `--legacy` to their own init call).
 
-Parse JSON for: `executor_model`, `verifier_model`, `ruling_model`, `commit_docs`, `parallelization`, `branching_strategy`, `branch_name`, `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `phase_slug`, `plans`, `incomplete_plans`, `plan_count`, `incomplete_count`, `state_exists`, `roadmap_exists`, `phase_req_ids`, `brief_path`, `stack_profile_path`, `stack_commands`. Every spawned agent receives `brief_path` and `stack_profile_path` (when not null) in its `<files_to_read>`, and `stack_commands` verbatim.
+**Auto mode:** `auto_mode` (init) is the one rule for "no human is answering" (`references/auto-mode.md`, prompt classes K1-K6). When true, AskUserQuestion is never called and nothing waits for a reply: each prompt below takes its class action and logs an `auto_decision` event. Put `auto: true` in every spawned agent's prompt (they pass `--auto` to their own init call; an exported variable may not reach them). Chain-advance (`offer_next`) keeps its own trigger and is not part of this rule.
+
+Parse JSON for: `auto_mode`, `executor_model`, `verifier_model`, `ruling_model`, `ruling_model_fallback`, `utility_model`, `reviewer_model`, `ui_qa_mode`, `commit_docs`, `parallelization`, `branching_strategy`, `branch_name`, `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `phase_slug`, `plans`, `incomplete_plans`, `plan_count`, `incomplete_count`, `state_exists`, `roadmap_exists`, `phase_req_ids`, `brief_path`, `stack_profile_path`, `stack_commands`. Every spawned agent receives `brief_path` and `stack_profile_path` (when not null) in its `<files_to_read>`, and `stack_commands` verbatim.
 
 **Rigour:** init also returns `rigour`, `rigour_source`, `rigour_decision`, `spike_roots`, `rigour_rejected_reason` (see `references/rigour.md`). Pass `rigour` and the spike roots in every spawn prompt. `standard` changes nothing below. When `rigour` is `spike`: no test-writer spawn; one review round (secrets, spike-root containment, each capture matches its command) and no batched top-tier diff review in `record_defect_classes`; the verifier runs on a profile-tier model and its prompt carries the spike checks (each question answered yes/no/inconclusive with a capture file newer than the code it ran; containment; secret scan; a disproved hypothesis is `passed`); gap closure is the light path, once; the last spike phase writes `SPIKE-RESULT.md` (per question: answer, capture path, go/no-go, what must be rebuilt). When `rigour` is `high`: the review loop runs to zero findings, then a top-tier ruling.
 
 **If `phase_found` is false:** Error — phase directory not found.
 **If `plan_count` is 0:** Error — no plans found in phase.
-**If `state_exists` is false but `.planning/` exists:** Offer reconstruct or continue.
+**If `state_exists` is false but `.planning/` exists:** Offer reconstruct or continue. Auto (auto_mode, references/auto-mode.md K2): continue without reconstructing and log `auto_decision`.
 
 When `parallelization` is false, plans within a wave execute sequentially.
 
@@ -63,7 +67,7 @@ CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
 **If `CURRENT_BRANCH` is `main` or `master` AND `branching_strategy` is "none":**
 
-**Auto mode** (`--auto` in `$ARGUMENTS`, `GSD_AUTONOMOUS=1`, or `workflow.auto_advance`/`workflow._auto_chain_active` true) or any non-interactive run: do NOT ask. Take option A (create the phase branch), log `Auto: branch guard -> gsd/phase-{phase_number}-{phase_slug}`, and continue. Never auto-select "override".
+Auto (auto_mode, references/auto-mode.md K2): when `auto_mode` is true or the run is otherwise non-interactive, do NOT ask. Take option A (create the phase branch), log `Auto: branch guard -> gsd/phase-{phase_number}-{phase_slug}`, and continue. Never auto-select "override".
 
 Otherwise block with:
 ```
@@ -208,7 +212,7 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
    the peer NAME as the primary handle and relay an agentId later only if a peer needs it.
    Skip this block entirely for a single-executor wave — there are no peers to collide with.
 
-   **Model rule:** every spawn passes `model` explicitly (never omit; an omitted model inherits the spawner's tier). Executor and test-writer: `haiku`, `sonnet` only after 2 Haiku failures/ambiguous plan/unclear root cause. Planner and plan-checker: `opus` for risk-domain plans, else `sonnet`. Per-plan review: fresh Sonnet rounds to zero findings; phase end: Opus verifier.
+   **Model rule:** every spawn passes `model` explicitly (never omit; an omitted model inherits the spawner's tier), taken from init: executor and test-writer `executor_model` (escalate to `reviewer_model` only after 2 failures of the same task, an ambiguous plan or an unclear root cause); per-plan review rounds `reviewer_model`, fresh each round; the phase-end verifier and rulings `ruling_model` (a rejected spawn retries once on `ruling_model_fallback` and says so); watchdogs and reports `utility_model`. The project's CLAUDE.md holds the tiering policy; this workflow holds no model literals.
 
    **For Wave 1 executors** (wave_number == 1, no prior context):
    ```
@@ -306,6 +310,7 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
    - Check for `## Self-Check: FAILED` marker
 
    If ANY spot-check fails: report which plan failed, route to failure handler — ask "Retry plan?" or "Continue with remaining waves?"
+   Auto (auto_mode, references/auto-mode.md K5): do not ask; run the deterministic ladder below (`execution-state record-failure`) for the plan and continue with the waves that do not depend on it.
 
    If pass:
    ```
@@ -368,7 +373,7 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
 
    **Parse the machine-readable status FIRST — do not string-match the prose header.** Every non-dead executor return ends with a fenced ```json trailer carrying `{"status": "complete"|"interrupted"|"blocked", ...}`. Extract the last fenced JSON block and read `.status`; the `## PLAN …` header is human-readable garnish that a reworded line or an em-dash could break. Only if NO parseable JSON trailer exists do you fall through to the raw-death path (2). This is the fix for the class of coordinator-parse failures where a prose-only return was misread as a death.
 
-   1. **Clean interruption** — the trailer's `status` is `"interrupted"` (the executor self-stopped at a context-pressure boundary and wrote EXECUTOR-HANDOFF.json; header reads `## PLAN INTERRUPTED`; it may also have sent an App #1 `to: "main"` continuation signal). Handle identically to the pre-spawn handoff case (step 0.5 above), INCLUDING its resume-by-agentId-vs-cold-spawn decision (App #2): since this interruption just happened in THIS session, `EXECUTOR_AGENT_IDS[{plan_id}]` is normally still set — PREFER `SendMessage(to: <agentId>, …)` to resume that same executor from its transcript from `next_task_index`; FALL BACK to archiving the handoff and cold-spawning a continuation executor with a `<prior_executor_handoff>` block when the agentId is unavailable. Log `--type executor_clean_interruption`. Do NOT call `execution-state record-failure`. A `status: "blocked"` trailer is NOT an interruption — surface it to the user with its `recommended_split`; the plan needs re-splitting before it can proceed.
+   1. **Clean interruption** — the trailer's `status` is `"interrupted"` (the executor self-stopped at a context-pressure boundary and wrote EXECUTOR-HANDOFF.json; header reads `## PLAN INTERRUPTED`; it may also have sent an App #1 `to: "main"` continuation signal). Handle identically to the pre-spawn handoff case (step 0.5 above), INCLUDING its resume-by-agentId-vs-cold-spawn decision (App #2): since this interruption just happened in THIS session, `EXECUTOR_AGENT_IDS[{plan_id}]` is normally still set — PREFER `SendMessage(to: <agentId>, …)` to resume that same executor from its transcript from `next_task_index`; FALL BACK to archiving the handoff and cold-spawning a continuation executor with a `<prior_executor_handoff>` block when the agentId is unavailable. Log `--type executor_clean_interruption`. Do NOT call `execution-state record-failure`. A `status: "blocked"` trailer is NOT an interruption — surface it to the user with its `recommended_split`; the plan needs re-splitting before it can proceed. Auto (auto_mode, references/auto-mode.md K4): park the phase and return `status: blocked` with the `recommended_split`; never wait.
 
    2. **Genuine death** — `Agent()` threw, OR the return has NO parseable JSON status trailer at all (e.g. it IS a raw death message):
       ```bash
@@ -421,20 +426,14 @@ Plans with `autonomous: false` require user interaction.
 
 **Auto-mode checkpoint handling:**
 
-Read auto-advance config (chain flag + user preference):
-```bash
-AUTO_CHAIN=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" config get workflow._auto_chain_active --raw --default false)
-AUTO_CFG=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" config get workflow.auto_advance --raw --default false)
-```
-
-When executor returns a checkpoint AND (`AUTO_CHAIN` is `"true"` OR `AUTO_CFG` is `"true"`):
+`auto_mode` comes from init (no separate config reads). When executor returns a checkpoint AND `auto_mode` is true:
 - **human-verify** → Auto-spawn continuation agent with `{user_response}` = `"approved"`. Log `⚡ Auto-approved checkpoint`.
 - **decision** → Auto-spawn continuation agent with `{user_response}` = first option from checkpoint details. Log `⚡ Auto-selected: [option]`.
-- **human-action** → Present to user (existing behavior below). Auth gates cannot be automated.
+- **human-action** → Auto (auto_mode, references/auto-mode.md K4): never approve it. Park the phase, return `status: blocked` with the checkpoint's awaited action (auth gates cannot be automated), and report it in the final summary. When `auto_mode` is false, present it to the user (standard flow below).
 
 **UI QA checkpoints — always auto-run (the UI QA capability is the human here):**
 
-When executor returns `Type: ui-qa` — regardless of AUTO_CHAIN or AUTO_CFG:
+When executor returns `Type: ui-qa` — regardless of `auto_mode`:
 
 1. Log: `⚡ UI QA: Starting UI QA automated testing...`
 
@@ -455,7 +454,7 @@ When executor returns `Type: ui-qa` — regardless of AUTO_CHAIN or AUTO_CFG:
    while round <= MAX_ROUNDS AND qa_passed == false:
      qa_result = Agent(
        subagent_type="<UI QA agent: stack.capabilities.ui_qa.agent; legacy: the project's configured QA agent>",
-       model="haiku",
+       model="{utility_model}",
        description="UI QA round {round}",
        prompt="mode=ui-qa\n<what_built>{what_built}</what_built>\n<test_flows>{test_flows}</test_flows>\n<round>{round}</round>{IF round > 1: <previous_issues>{previous_report}</previous_issues>}\nAlso return a `## Defect Classes` block — one `| class | instance | caught_by | severity | rule_gap |` row per issue, `caught_by` fixed to `ui-qa`, `class` a general reusable name. Write exactly `None found. (reviewed by: ui-qa)` if the pass surfaced none — a bare `None found.` fails the phase gate. The coordinator pastes these into the plan's SUMMARY.md."
      )
@@ -468,9 +467,10 @@ When executor returns `Type: ui-qa` — regardless of AUTO_CHAIN or AUTO_CFG:
        Present ONLY the issue report — NOT server start instructions:
        "UI QA found {N} issues after {MAX_ROUNDS} rounds. Type 'continue' to proceed, or describe what to fix."
        Wait for user response. If 'continue': break. Else: spawn fix agent, re-run QA.
+       Auto (auto_mode, references/auto-mode.md K1/K4): do not wait. When a QA run is recorded in the round reports, take 'continue' and keep the issue list for the verifier (K1); when no run is recorded, park the phase (K4).
        break
 
-     FIX_TIER = qa_result.severity_counts.critical > 0 OR qa_result.severity_counts.high > 0 ? "sonnet" : "haiku"
+     FIX_TIER = qa_result.severity_counts.critical > 0 OR qa_result.severity_counts.high > 0 ? "{reviewer_model}" : "{executor_model}"
      Agent(subagent_type="general-purpose", model="{FIX_TIER}", description="Fix UI issues round {round}",
        prompt="Fix these UI issues: {qa_result.report_markdown}\nCommit each fix atomically.")
      round++
@@ -573,7 +573,7 @@ After all waves:
   <item id="SECGATE-01" severity="blocking">
     <check>Every new endpoint (route / HTTP handler) added by this phase wires auth middleware AND ships an authorization test asserting an unauthorized caller is rejected</check>
     <pass>For each new route/handler in the phase diff: (a) an auth/authorization middleware is applied server-side (not client-only), AND (b) a test exists asserting a 401/403 for an unauthenticated/unauthorized caller. No new endpoint lands without BOTH.</pass>
-    <fail>BLOCKING — a new endpoint shipped without server-side auth middleware and/or without an authz-rejection test. Closes POSTMORTEM class 4 (T6-001 fraud-RPC authorization S0 — authz enforced only client-side). Add the middleware and the authz test before the phase completes; do NOT defer either to a later phase.</fail>
+    <fail>BLOCKING — a new endpoint shipped without server-side auth middleware and/or without an authz-rejection test. Authorization enforced only on the client is the failure this check exists for. Add the middleware and the authz test before the phase completes; do NOT defer either to a later phase.</fail>
   </item>
 
   <item id="DFGATE-01" severity="blocking">
@@ -608,7 +608,7 @@ After all waves:
    ```
    Agent(
      subagent_type="gsd-e2e-test-generator",
-     model="sonnet",
+     model="{reviewer_model}",
      description="Close E2E coverage gaps for phase {PHASE}",
      prompt="
        Phase: {PHASE_NUMBER} - {PHASE_NAME}
@@ -648,6 +648,62 @@ After all waves:
 
 </step>
 
+<step name="post_phase_ux_sweep">
+
+After ALL plans in this phase have completed execution, before `pre_verify_gates`.
+
+**Skip** when `ui_qa_mode` (init) is `none`, or when this phase produced no web UI: `verify phase-gate "${PHASE}" --pre-verifier` reports `ui_qa_required: false` AND no SUMMARY.md `key-files` entry is a web-framework view file. Otherwise run the UX audit below; a project that declares the UI QA capability has no mechanism to skip it for a phase that changed UI.
+
+1. **Start the services** without asking:
+   ```bash
+   SH_RESULT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" service-health start default --raw 2>/dev/null)
+   SH_STATUS=$(echo "$SH_RESULT" | node -e "try{const r=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));process.stdout.write(r.status||'')}catch{}")
+   ```
+   `already_running` or `started`: continue. `no_config` or empty: probe each `stack.services[].url` and start a DOWN one with its `launch` command in the background, waiting up to 30s; with no `stack.services` and no CLAUDE.md section, stop and report `stack.services is not set`. `start_timeout`: read the project's CLAUDE.md startup instructions and retry; still failing after 60s returns a `human-action` checkpoint (never skip the sweep: the UI QA capability cannot test a dead server). Auto (auto_mode, references/auto-mode.md K4): park the phase and report the dead service; never wait.
+2. Derive the test scope from the phase success criteria and the SUMMARY.md `key-files`.
+3. Run the UI QA agent once with `mode=ux-audit`:
+   ```
+   Agent(
+     subagent_type="<UI QA agent: stack.capabilities.ui_qa.agent; legacy: the project's configured QA agent>",
+     model="{reviewer_model}",
+     description="UX audit phase {phase_number}",
+     prompt="mode=ux-audit\nwhat_built={phase goal + key UI files from the SUMMARYs}\ntest_flows={derived from the phase success criteria}\nround=1\nAlso return a `## Defect Classes` block: one `| class | instance | caught_by | severity | rule_gap |` row per issue, `caught_by` fixed to `ui-qa`, `class` a general reusable name. Write exactly `None found. (reviewed by: ui-qa)` if none. The orchestrator pastes these into the plan's SUMMARY.md."
+   )
+   ```
+4. Issues found: spawn a fix agent (`model` per the FIX_TIER rule in `checkpoint_handling`), then re-run the audit; at most 2 fix rounds for UX issues, critical/high blocking.
+
+This runs IN ADDITION to any `ui-qa` checkpoint inside individual plans: those test one plan's scope, this tests the whole phase's UI together.
+
+</step>
+
+<step name="post_phase_e2e">
+
+After `post_phase_ux_sweep` and before `pre_verify_gates`. Runs only when `stack.capabilities.ui_qa` and a `stack.services[].launch` command exist and `ui_qa_mode` is not `none`; otherwise skip.
+
+1. Collect `e2e_flows` from every plan frontmatter in this phase:
+   ```bash
+   E2E_FLOWS=$(for plan in {phase_dir}/*-PLAN.md; do
+     node ~/.claude/get-shit-done/bin/gsd-tools.js frontmatter get "$plan" --field e2e_flows 2>/dev/null
+   done | jq -s 'flatten | unique')
+   ```
+2. Empty or null: skip this step.
+3. Start the services exactly as in `post_phase_ux_sweep` step 1, then spawn the UI QA agent with `mode=e2e`:
+   ```
+   Agent(
+     subagent_type="<UI QA agent>",
+     model="{reviewer_model}",
+     description="E2E test phase {phase_number}",
+     prompt="mode=e2e\ne2e_flows={E2E_FLOWS}\nproject_dir={project_dir}\nround=1\nAlso return a `## Defect Classes` block as in the UX audit (`caught_by` fixed to `ui-qa`; `None found. (reviewed by: ui-qa)` if none)."
+   )
+   ```
+4. Parse the results:
+   - All flows pass: log `E2E: {N} flows passing` and continue.
+   - A flow fails with Critical or High severity: create a gap entry and spawn a gap-closure plan. BLOCKING: do not proceed to verification until the gaps are closed.
+   - A flow fails with Medium severity: create a gap entry and record it in the phase QA report; the verifier flags it as `gaps_found`. Never ignore it.
+   - A flow fails with Low severity: log it as informational and record it in the phase QA report.
+
+</step>
+
 <step name="pre_verify_gates">
 
 ### Step 6.4: Pre-Verification Gates (BLOCKING)
@@ -670,6 +726,7 @@ If `PHASE_GATE_EXIT` is non-zero: **BLOCKING** — do not proceed to verifier sp
 (b) for a legitimate, documented exception, run `node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" deferred add "${PHASE}" --step <step> --reason <reason> --approver <approver>`, then re-run `verify phase-gate` to confirm it now passes waived.
 
 Skipping a mandatory step requires calling `deferred add` as part of the skip — never logged-and-forgotten after the fact. Do not allow silent continuation past a non-zero exit.
+Auto (auto_mode, references/auto-mode.md K4): fix the failing artifact (a), then re-run the gate; never approve a waiver (b) yourself. When the gate still fails after one fix round, park the phase: return `status: blocked` naming the failures.
 
 **Gate 2 — Integration tests green:**
 
@@ -796,11 +853,16 @@ Read status:
 grep "^status:" "$PHASE_DIR"/*-VERIFICATION.md | cut -d: -f2 | tr -d ' '
 ```
 
+Record the lifecycle marker immediately, on all three statuses (`phase complete` in `update_roadmap` refuses a phase whose `CHECKPOINT.json` is not at `verify`; this command is its only writer):
+```bash
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" phase checkpoint "${PHASE_NUMBER}" --step verify --status {passed|human_needed|gaps_found}
+```
+
 | Status | Action |
 |--------|--------|
 | `passed` | → update_roadmap |
-| `human_needed` | Present items for human testing, get approval or feedback |
-| `gaps_found` | Present gap summary, offer `/gsd:plan-phase {phase} --gaps` |
+| `human_needed` | Present items for human testing, get approval or feedback. Auto (auto_mode, references/auto-mode.md K4): do not wait; park the phase and return `status: human_needed` with the items |
+| `gaps_found` | Present gap summary, offer `/gsd:plan-phase {phase} --gaps`. Auto (auto_mode, references/auto-mode.md K5): one closure cycle (`/gsd:plan-phase {phase} --gaps --auto --no-advance`, then `/gsd:execute-phase {phase} --gaps-only --auto --no-transition`); still `gaps_found` afterwards: return `status: gaps_found` |
 
 **Commit the verifier's Defect Classes rows — AFTER the dispatch and AFTER the status routing
 above, never before the `Agent(...)` call.** Order matters here: the verifier's Step 6d is what
@@ -896,7 +958,7 @@ Parse `--no-transition` flag from $ARGUMENTS.
 
 **If `--no-transition` flag present:**
 
-Execute-phase was spawned by plan-phase's auto-advance. Do NOT run transition.md.
+Execute-phase was spawned by a caller that sequences phases itself (plan-phase's auto-advance, or the phase coordinator). Do NOT run transition.md.
 After verification passes and roadmap is updated, return completion status to parent:
 
 ```
@@ -908,6 +970,8 @@ Verification: {Passed | Gaps Found}
 
 [Include aggregate_results output]
 ```
+
+End with a fenced JSON trailer as the last content: `{"status": "completed"|"gaps_found"|"human_needed"|"blocked"|"failed", "phase": "{N}", "completed_plans": {n}, "total_plans": {n}}`; `completed` only when `phase complete` exited 0.
 
 STOP. Do not proceed to auto-advance or transition.
 
@@ -963,10 +1027,10 @@ Orchestrator: ~10-15% context. Subagents: fresh 200k each. No polling (Task bloc
 
 <failure_handling>
 - **classifyHandoffIfNeeded false failure:** Agent reports "failed" but error is `classifyHandoffIfNeeded is not defined` → Claude Code bug, not GSD. Spot-check (SUMMARY exists, commits present) → if pass, treat as success
-- **Agent fails mid-plan:** Missing SUMMARY.md → report, ask user how to proceed
-- **Dependency chain breaks:** Wave 1 fails → Wave 2 dependents likely fail → user chooses attempt or skip
+- **Agent fails mid-plan:** Missing SUMMARY.md → report, ask user how to proceed. Auto (auto_mode, references/auto-mode.md K5): run the `execution-state record-failure` ladder instead of asking
+- **Dependency chain breaks:** Wave 1 fails → Wave 2 dependents likely fail → user chooses attempt or skip. Auto (auto_mode, references/auto-mode.md K5): skip the dependents and continue with independent plans
 - **All agents in wave fail:** Systemic issue → stop, report for investigation
-- **Checkpoint unresolvable:** "Skip this plan?" or "Abort phase execution?" → record partial progress in STATE.md
+- **Checkpoint unresolvable:** "Skip this plan?" or "Abort phase execution?" → record partial progress in STATE.md. Auto (auto_mode, references/auto-mode.md K4): park the phase
 </failure_handling>
 
 <resumption>

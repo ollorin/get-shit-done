@@ -103,6 +103,7 @@ Options:
 ```
 
 Wait for user decision.
+Auto (auto_mode, references/auto-mode.md K2): when the calling workflow's `auto_mode` is true, take option 1 (continue the current phase); never option 2.
 
 </step>
 

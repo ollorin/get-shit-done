@@ -16,15 +16,18 @@ Load execution context (paths only to minimize orchestrator context):
 
 ```bash
 LEGACY_FLAG=""  # "--legacy" when your spawn prompt says `legacy: true`
-INIT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" init execute-phase "${PHASE}" $LEGACY_FLAG)
+AUTO_FLAG=""    # "--auto" when your spawn prompt says `auto: true`
+INIT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" init execute-phase "${PHASE}" $LEGACY_FLAG $AUTO_FLAG)
 if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
 ```
 
 If the command exits 1 and INIT has `error: project_context_missing`: stop, print its `missing` list and `hint`. Do not continue without the brief and profile. A legacy project (no brief, no profile) runs with `--legacy` (`LEGACY_FLAG`, set when your spawn prompt says `legacy: true`) or `GSD_LEGACY=1` exported.
 
-Extract from init JSON: `executor_model`, `commit_docs`, `phase_dir`, `phase_number`, `plans`, `summaries`, `incomplete_plans`, `state_path`, `config_path`.
+Extract from init JSON: `auto_mode`, `executor_model`, `utility_model`, `commit_docs`, `phase_dir`, `phase_number`, `plans`, `summaries`, `incomplete_plans`, `state_path`, `config_path`.
 
 If `.planning/` missing: error.
+
+`auto_mode` (init) is the one rule for "no human is answering" (`references/auto-mode.md`): when true, AskUserQuestion is never called and nothing waits for a reply; each prompt below takes its class action and logs an `auto_decision` event.
 </step>
 
 <step name="identify_plan">
@@ -41,8 +44,8 @@ PHASE=$(echo "$PLAN_PATH" | grep -oE '[0-9]+(\.[0-9]+)?-[0-9]+')
 # config settings can be fetched via `gsd-tools config get <key>` if needed
 ```
 
-<if mode="yolo">
-Auto-approve: `⚡ Execute {phase}-{plan}-PLAN.md [Plan X of Y for Phase Z]` → parse_segments.
+<if mode="yolo" OR auto_mode="true">
+Auto (auto_mode, references/auto-mode.md K1): proceed. Auto-approve: `⚡ Execute {phase}-{plan}-PLAN.md [Plan X of Y for Phase Z]` → parse_segments.
 </if>
 
 <if mode="interactive" OR="custom with gates.execute_next_plan true">
@@ -70,7 +73,7 @@ grep -n "type=\"checkpoint" .planning/phases/XX-name/{phase}-{plan}-PLAN.md
 | Verify-only | B (segmented) | Segments between checkpoints. After none/human-verify → SUBAGENT. After decision/human-action → MAIN |
 | Decision | C (main) | Execute entirely in main context |
 
-**Pattern A:** init_agent_tracking → spawn Agent(subagent_type="gsd-executor", model=executor_model; always explicit, default `haiku`, `sonnet` only after 2 Haiku failures/ambiguous plan/unclear root cause; spawn gsd-test-writer with `model="haiku"`) with prompt: execute plan at [path], autonomous, all tasks + SUMMARY + commit, follow deviation/auth rules, report: plan name, tasks, SUMMARY path, commit hash → track agent_id → wait → update tracking → report.
+**Pattern A:** init_agent_tracking → spawn Agent(subagent_type="gsd-executor", model=executor_model; always explicit, taken from init; escalate one tier only after 2 failures of the same task, an ambiguous plan or an unclear root cause; spawn gsd-test-writer with `model=executor_model`) with prompt: execute plan at [path], autonomous, all tasks + SUMMARY + commit, follow deviation/auth rules, report: plan name, tasks, SUMMARY path, commit hash → track agent_id → wait → update tracking → report.
 
 **Pattern B:** Execute segment-by-segment. Autonomous segments: spawn subagent for assigned tasks only (no SUMMARY/commit). Checkpoints: main context. After all segments: aggregate, create SUMMARY, commit. See segment_execution.
 
@@ -133,7 +136,7 @@ This IS the execution instructions. Follow exactly. If plan references CONTEXT.m
 node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" phases list --type summaries --raw
 # Extract the second-to-last summary from the JSON result
 ```
-If previous SUMMARY has unresolved "Issues Encountered" or "Next Phase Readiness" blockers: AskUserQuestion(header="Previous Issues", options: "Proceed anyway" | "Address first" | "Review previous").
+If previous SUMMARY has unresolved "Issues Encountered" or "Next Phase Readiness" blockers: AskUserQuestion(header="Previous Issues", options: "Proceed anyway" | "Address first" | "Review previous"). Auto (auto_mode, references/auto-mode.md K1): proceed anyway, log the unresolved issues with `auto_decision`, and list them under "Issues Encountered" in the SUMMARY.
 </step>
 
 <step name="execute">
@@ -301,6 +304,7 @@ Orchestrator parses → presents to user → spawns fresh continuation with your
 
 <step name="verification_failure_gate">
 If verification fails: STOP. Present: "Verification failed for Task [X]: [name]. Expected: [criteria]. Actual: [result]." Options: Retry | Skip (mark incomplete) | Stop (investigate). If skipped → SUMMARY "Issues Encountered".
+Auto (auto_mode, references/auto-mode.md K5): do not present options; retry once, then stop the task and record it as failed so the caller's `execution-state` ladder decides.
 </step>
 
 <checkpoint type="verify" name="post-execution-audit">
@@ -321,7 +325,7 @@ If verification fails: STOP. Present: "Verification failed for Task [X]: [name].
 
   <item id="CPGATE-03" severity="advisory">
     <check>FP lint passes on modified TypeScript files (functions/, libs/ only)</check>
-    <command>bash scripts/fp-lint.sh functions/ libs/ 2>/dev/null || true</command>
+    <command>run only when the project ships an FP lint command (`stack.gates[]` or `stack.commands.lint`); otherwise skip this check</command>
     <pass>0 violations, or no TypeScript files modified in fp-lint scope</pass>
     <fail>FP violations found — document in SUMMARY.md deviations section and fix before PR</fail>
   </item>
@@ -436,7 +440,7 @@ Keep STATE.md under 150 lines.
 </step>
 
 <step name="issues_review_gate">
-If SUMMARY "Issues Encountered" ≠ "None": yolo → log and continue. Interactive → present issues, wait for acknowledgment.
+If SUMMARY "Issues Encountered" ≠ "None": yolo → log and continue. Interactive → present issues, wait for acknowledgment. Auto (auto_mode, references/auto-mode.md K1): log and continue.
 </step>
 
 <step name="update_roadmap">

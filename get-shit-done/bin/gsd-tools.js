@@ -11660,6 +11660,10 @@ function cmdInitExecutePhase(cwd, phase, includes, raw, gate) {
     verifier_model: resolveModelInternal(cwd, 'gsd-verifier'),
     // Top-tier alias for the phase-end verifier and rulings (config ruling_model, default opus)
     ruling_model: config.ruling_model || 'opus',
+    ruling_model_fallback: readRawConfig(cwd).ruling_model_fallback || 'opus',
+    utility_model: readRawConfig(cwd).utility_model || 'haiku',
+    reviewer_model: readRawConfig(cwd).reviewer_model || 'sonnet',
+    ui_qa_mode: projectContext.uiQaMode(cwd),
 
     // Config flags
     commit_docs: config.commit_docs,
@@ -11770,8 +11774,11 @@ function cmdInitPlanPhase(cwd, phase, includes, raw, gate) {
     researcher_model: resolveModelInternal(cwd, 'gsd-phase-researcher'),
     planner_model: resolveModelInternal(cwd, 'gsd-planner'),
     checker_model: resolveModelInternal(cwd, 'gsd-plan-checker'),
+    executor_model: resolveModelInternal(cwd, 'gsd-executor'),
     // Top-tier alias for risk-domain plans, rulings and adversarial passes (config ruling_model, default opus)
     ruling_model: config.ruling_model || 'opus',
+    ruling_model_fallback: readRawConfig(cwd).ruling_model_fallback || 'opus',
+    utility_model: readRawConfig(cwd).utility_model || 'haiku',
 
     // Workflow flags
     research_enabled: config.research,
