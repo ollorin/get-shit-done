@@ -84,7 +84,7 @@ Exit command.
 
 **If auto mode:** Collect config settings upfront before processing the idea document.
 
-YOLO mode is implicit (auto = YOLO). Ask remaining config questions:
+YOLO mode is implicit (auto = YOLO). Ask remaining config questions. If they cannot be asked (no interactive channel), apply exactly these defaults, the options labelled "(Recommended)": `granularity: "coarse"`, `parallelization.enabled: true`, `planning.commit_docs: true`, `model_profile: "balanced"`, `workflow.research`, `workflow.plan_check` and `workflow.verifier` all `true`. Never pick the cheaper option implicitly.
 
 **Round 1 — Core settings (3 questions, no Mode question):**
 
