@@ -448,8 +448,11 @@ function convertClaudeToGeminiAgent(content) {
 }
 
 // `~/.claude/` and `$HOME/.claude/` (shell blocks) both name the source-of-truth config dir.
+// Also anchors the repo-relative `@get-shit-done/...` references under the install dir, where they resolve.
 function rewriteClaudeDir(content, pathPrefix) {
-  return content.replace(/(?:~|\$HOME|\$\{HOME\})\/\.claude\//g, () => pathPrefix);
+  return content
+    .replace(/(?:~|\$HOME|\$\{HOME\})\/\.claude\//g, () => pathPrefix)
+    .replace(/(^|[^\w/.~-])@get-shit-done\//gm, (_m, lead) => `${lead}@${pathPrefix}get-shit-done/`);
 }
 
 function convertClaudeToOpencodeFrontmatter(content) {
@@ -2132,4 +2135,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { installHookDependencies, wrapWithTimeout, resolveTimeoutBinary, rewrapGsdHookCommands, writeManifest, pruneIdenticalPatches, copyWithPathReplacement, copyDirVerbatim };
+module.exports = { installHookDependencies, wrapWithTimeout, resolveTimeoutBinary, rewrapGsdHookCommands, writeManifest, pruneIdenticalPatches, copyWithPathReplacement, copyDirVerbatim, rewriteClaudeDir };

@@ -816,3 +816,11 @@ describe('shell blocks using $HOME/.claude are path-rewritten like ~/.claude', (
     }
   });
 });
+
+describe('rewriteClaudeDir anchors repo-relative @get-shit-done refs', () => {
+  const { rewriteClaudeDir } = require('./install.js');
+  test('rewrites bare @get-shit-done/ refs and ~/.claude/ paths, leaves already-anchored refs alone', () => {
+    const out = rewriteClaudeDir('see @get-shit-done/references/a.md and @~/.claude/get-shit-done/b.md and ~/.claude/x', '/h/.claude/');
+    assert.strictEqual(out, 'see @/h/.claude/get-shit-done/references/a.md and @/h/.claude/get-shit-done/b.md and /h/.claude/x');
+  });
+});
