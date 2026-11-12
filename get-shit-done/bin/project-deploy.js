@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { renderPreset } = require('./project-deploy-render.js');
+const { renderPreset, loadPreset } = require('./project-deploy-render.js');
 const { resolvePaths } = require('./project-deploy-canon.js');
 const { hookCommandsOf, triplesCommands, guardedSet, refusalOf } = require('./project-deploy-guard.js');
 const { sha256, planWholeFile, planBlockFile } = require('./project-deploy-files.js');
@@ -138,23 +138,48 @@ function planSettings(root, rendered, prevSettings) {
   };
 }
 
+const NOT_INITIALISED_NOTE = 'not initialised: .planning/config.json is absent; preview lists the preset files that do not depend on stack capabilities, all as would-create. Run /gsd:init-project to write the config.';
+
+// Preview before the interview has written config.json: nothing is rendered (placeholders need config), so every
+// capability-free preset file is reported as a create and nothing is written. Only `diff` previews.
+function previewUninitialised(root, dir, command) {
+  const loaded = loadPreset(dir);
+  if (!loaded.ok) return { report: { ...newReport(command), errors: loaded.errors.map((reason) => ({ file: 'preset.json', reason })) }, ops: EMPTY_OPS };
+  const { preset } = loaded;
+  const files = preset.files
+    .filter((f) => f.capability === null)
+    .map((f) => ({ path: f.dest, kind: f.kind, action: exists(path.join(root, f.dest)) ? 'exists' : 'create' }));
+  return {
+    report: {
+      ...newReport(command),
+      ok: true,
+      not_initialised: true,
+      note: NOT_INITIALISED_NOTE,
+      preset: { name: preset.name, version: preset.version },
+      files,
+    },
+    ops: EMPTY_OPS,
+  };
+}
+
 function planDeploy(opts) {
   const { root, command, presetDir, presetName, presetsRoot = DEFAULT_PRESETS } = opts;
   const env = opts.env === undefined ? process.env : opts.env;
 
   if (!isDirectory(root)) return stop(command, 'root is not a directory');
   const config = exists(path.join(root, CONFIG)) ? readJsonObject(path.join(root, CONFIG)) : undefined;
-  if (config === undefined) return stop(command, 'missing .planning/config.json');
+  if (config === undefined && command !== 'diff') return stop(command, 'missing .planning/config.json');
   if (config === null) return stop(command, '.planning/config.json is not valid JSON');
 
   let dir = presetDir;
   if (dir === undefined) {
-    const name = presetName ?? (isPlainObject(config.stack) ? config.stack.preset : undefined);
+    const name = presetName ?? (isPlainObject(config?.stack) ? config.stack.preset : undefined);
     if (name === undefined) return stop(command, 'no preset: pass --preset or set stack.preset');
     if (typeof name !== 'string' || !PRESET_NAME_RE.test(name)) return stop(command, 'invalid preset name');
     dir = path.join(presetsRoot, name);
   }
 
+  if (config === undefined) return previewUninitialised(root, dir, command);
   const rendered = renderPreset(dir, config);
   if (!rendered.ok) return { report: { ...newReport(command), errors: rendered.errors }, ops: EMPTY_OPS };
   const report = { ...newReport(command), preset: { name: rendered.name, version: rendered.version } };
@@ -282,6 +307,7 @@ function runCli(cwd, args, env, session, io = {}) {
   const { report } = plan;
   if (!report.ok) return { exitCode: 1, result: { ...report, written: [] } };
   if (command === 'diff') {
+    if (report.not_initialised) return { exitCode: 0, result: { ...report, written: [] } };
     return { exitCode: report.changes > 0 || report.conflicts > 0 ? 2 : 0, result: { ...report, written: [] } };
   }
   if (!confirmed(plan, io.confirm)) {

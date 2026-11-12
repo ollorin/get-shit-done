@@ -126,10 +126,27 @@ describe('planDeploy (agnostic-B)', () => {
     assert.deepStrictEqual(snapshot(root), before);
   });
 
+  test('P2a diff without config.json previews every capability-free file as create, rc 0, writes nothing', () => {
+    const root = mkTmp('gsd-empty-');
+    const dir = makePreset();
+    const before = snapshot(root);
+    const res = runCli(root, ['diff', '--preset-dir', dir], {}, HUMAN);
+    assert.strictEqual(res.exitCode, 0);
+    assert.strictEqual(res.result.ok, true);
+    assert.strictEqual(res.result.not_initialised, true);
+    assert.match(res.result.note, /not initialised/);
+    assert.deepStrictEqual(res.result.files.map((f) => f.action), ['create', 'create', 'create']);
+    assert.deepStrictEqual(snapshot(root), before);
+    const corrupt = runCli(makeProject('{'), ['diff', '--preset-dir', dir], {}, HUMAN);
+    assert.strictEqual(corrupt.exitCode, 1);
+    assert.strictEqual(corrupt.result.not_initialised, undefined);
+  });
+
   test('P2 config, preset selection and name errors; positive name via presetsRoot and stack.preset', () => {
     const preset = makePreset();
     const noConfig = mkTmp('gsd-empty-');
-    assert.deepStrictEqual(plan(noConfig, 'diff', preset).report.errors, [{ reason: 'missing .planning/config.json' }]);
+    assert.deepStrictEqual(plan(noConfig, 'init', preset).report.errors, [{ reason: 'missing .planning/config.json' }]);
+    assert.deepStrictEqual(plan(noConfig, 'sync', preset).report.errors, [{ reason: 'missing .planning/config.json' }]);
 
     const badJson = makeProject('{');
     const badRes = plan(badJson, 'diff', preset);
