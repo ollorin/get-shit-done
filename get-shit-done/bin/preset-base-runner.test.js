@@ -71,8 +71,8 @@ describe('base preset: canary runner (agnostic-M-03 3.4)', () => {
     assert.ok(r.stdout.includes('canaries: pass=892 fail=0'), r.stdout);
   });
 
-  // One run for every profile setting the hooks and the runner are rendered from or read at run time: the sections below
-  // (3.5, 3.8, 3.9, 3.11) assert their own hook behaviour on their own deployments and rely on this run for the green corpus.
+  // One run for every profile setting the hooks and the runner are rendered from or read at run time: sections 3.5, 3.8, 3.9 and 3.11
+  // (preset-base-hooks.test.js, preset-base-denied.test.js) assert their own hook behaviour and rely on this run for the green corpus.
   test('3.4 with a customised profile (search "rg -n", branch release/1.x, owner Founder, gate tools/gate.sh, locked commands and flake patterns of its own) the runner still exits 0 over every row', () => {
     const root = gitRepo({
       project: { slug: 'demo', owner_title: 'Founder' },

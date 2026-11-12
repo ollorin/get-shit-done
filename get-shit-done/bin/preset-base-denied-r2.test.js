@@ -55,7 +55,9 @@ describe('base preset: review round 2 mutants of the shared guard and the hooks 
     return env;
   };
   // A mutant is killed by its first failing row, so the rows run in chunks and the run stops at the first chunk that fails.
-  const firstFailingChunk = (root, rows, hooks) => {
+  // `likely` only orders the rows (the ones it picks run first); every row stays a candidate.
+  const firstFailingChunk = (root, allRows, hooks, likely = () => false) => {
+    const rows = [...allRows.filter((x) => likely(x)), ...allRows.filter((x) => !likely(x))];
     const corpus = path.join(mkTmp('gsd-base-corpus-'), 'canaries.jsonl');
     let r = { status: 0, stdout: '', stderr: 'no rows' };
     for (let at = 0; at < rows.length && r.status === 0; at += 40) {
@@ -100,7 +102,7 @@ describe('base preset: review round 2 mutants of the shared guard and the hooks 
       assert.ok(source.includes(needle), `mutation site present: ${needle}`);
       fs.writeFileSync(target, source.replace(needle, () => replacement));
       const all = fs.readFileSync(CORPUS_SRC, 'utf8').split('\n').filter((l) => l.trim() !== '').map((l) => JSON.parse(l));
-      const r = firstFailingChunk(root, all.filter((x) => x.class === 'review-r2'), mutated);
+      const r = firstFailingChunk(root, all.filter((x) => x.class === 'review-r2'), mutated, (x) => x.label.startsWith(`R2-${name.split(' ')[0]} `));
       assert.notStrictEqual(r.status, 0, `mutant survived: ${name}\n${r.stdout}`);
       assert.ok(/FAIL \[/.test(r.stdout), r.stdout);
     });

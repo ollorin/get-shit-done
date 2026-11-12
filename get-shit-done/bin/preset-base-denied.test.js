@@ -198,7 +198,9 @@ describe('base preset: check-denied-command hook (agnostic-M-03 3.8 C5)', () => 
   });
 
   // A mutant is killed by its first failing row, so the rows run in chunks and the run stops at the first chunk that fails.
-  const firstFailingChunk = (root, rows, hooks) => {
+  // `likely` only orders the rows (the ones it picks run first); every row stays a candidate.
+  const firstFailingChunk = (root, allRows, hooks, likely = () => false) => {
+    const rows = [...allRows.filter((x) => likely(x)), ...allRows.filter((x) => !likely(x))];
     const corpus = path.join(mkTmp('gsd-base-corpus-'), 'canaries.jsonl');
     let r = { status: 0, stdout: '', stderr: 'no rows' };
     for (let at = 0; at < rows.length && r.status === 0; at += 40) {
@@ -252,7 +254,9 @@ describe('base preset: check-denied-command hook (agnostic-M-03 3.8 C5)', () => 
       const source = fs.readFileSync(pl, 'utf8');
       assert.ok(source.includes(needle), `mutation site present: ${needle}`);
       fs.writeFileSync(pl, source.replace(needle, () => replacement));
-      const r = firstFailingChunk(root, ownRows(), mutated);
+      // A row label starts with the review item it was written for ("F4: ..."), as the mutant name does.
+      const item = name.split(' ')[0];
+      const r = firstFailingChunk(root, ownRows(), mutated, (x) => x.label.startsWith(`${item}:`) || x.label.startsWith(`${item} `));
       assert.notStrictEqual(r.status, 0, `mutant survived: ${name}\n${r.stdout}`);
       assert.ok(r.stdout.includes(`FAIL [${HOOK}]`), r.stdout);
     });
