@@ -1177,6 +1177,18 @@ describe('init commands with --include flag', () => {
     assert.ok(output.research_content, 'research_content included');
   });
 
+  test('init plan-phase derives slug and target dir from ROADMAP when the dir is absent', () => {
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), '# Roadmap\n\n### Phase 1: Core Setup & Auth\n**Goal**: x\n');
+    const result = runGsdTools('init plan-phase 1', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+    const output = JSON.parse(result.output);
+    assert.strictEqual(output.phase_found, false);
+    assert.strictEqual(output.phase_slug, 'core-setup-auth');
+    assert.strictEqual(output.padded_phase, '01');
+    assert.strictEqual(output.phase_dir_target, path.join('.planning', 'phases', '01-core-setup-auth'));
+    assert.strictEqual(output.phase_dir, null);
+  });
+
   test('init plan-phase includes verification and uat content', () => {
     const phaseDir = path.join(tmpDir, '.planning', 'phases', '03-api');
     fs.mkdirSync(phaseDir, { recursive: true });

@@ -37,7 +37,7 @@ Extract `--prd <filepath>` from $ARGUMENTS. If present, set PRD_FILE to the file
 
 **If no phase number:** Detect next unplanned phase from roadmap.
 
-**If `phase_found` is false:** Validate phase exists in ROADMAP.md. If valid, create the directory using `phase_slug` and `padded_phase` from init:
+**If `phase_found` is false:** Validate phase exists in ROADMAP.md. If valid, create the directory using `phase_slug` and `padded_phase` from init (derived from the ROADMAP header; `phase_dir_target` is the same path):
 ```bash
 mkdir -p ".planning/phases/${padded_phase}-${phase_slug}"
 ```

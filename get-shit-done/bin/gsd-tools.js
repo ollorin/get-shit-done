@@ -11510,6 +11510,22 @@ function cmdInitExecutePhase(cwd, phase, includes, raw, gate) {
   output(result, raw);
 }
 
+// Name/slug/number for a phase whose directory does not exist yet, taken from
+// the ROADMAP "### Phase N: Name" header, so callers can mkdir the target dir.
+function roadmapPhaseFallback(cwd, phase) {
+  const normalized = normalizePhaseName(phase);
+  const number = normalized.match(/^\d+(?:\.\d+)?/)?.[0];
+  if (!number) return null;
+  const content = safeReadFile(path.join(cwd, '.planning', 'ROADMAP.md'));
+  if (!content) return null;
+  const escaped = number.replace(/^0+(?=\d)/, '').replace(/\./g, '\\.');
+  const header = content.match(new RegExp(`###\\s*Phase\\s+0*${escaped}:\\s*([^\\n]+)`, 'i'));
+  if (!header) return null;
+  const name = header[1].trim();
+  const slug = generateSlugInternal(name);
+  return { phase_number: number, phase_name: name, phase_slug: slug, directory: path.join('.planning', 'phases', `${number.padStart(2, '0')}-${slug}`) };
+}
+
 function cmdInitPlanPhase(cwd, phase, includes, raw, gate) {
   if (!phase) {
     error('phase required for init plan-phase');
@@ -11517,6 +11533,7 @@ function cmdInitPlanPhase(cwd, phase, includes, raw, gate) {
 
   const config = loadConfig(cwd);
   const phaseInfo = findPhaseInternal(cwd, phase);
+  const planned = phaseInfo ? null : roadmapPhaseFallback(cwd, phase);
 
   const result = {
     ...projectContext.contextFields(cwd),
@@ -11536,9 +11553,11 @@ function cmdInitPlanPhase(cwd, phase, includes, raw, gate) {
     phase_found: !!phaseInfo,
     phase_dir: phaseInfo?.directory || null,
     phase_number: phaseInfo?.phase_number || null,
-    phase_name: phaseInfo?.phase_name || null,
-    phase_slug: phaseInfo?.phase_slug || null,
-    padded_phase: phaseInfo?.phase_number?.padStart(2, '0') || null,
+    phase_name: phaseInfo?.phase_name || planned?.phase_name || null,
+    phase_slug: phaseInfo?.phase_slug || planned?.phase_slug || null,
+    padded_phase: (phaseInfo?.phase_number || planned?.phase_number)?.padStart(2, '0') || null,
+    // Where the directory belongs; equals phase_dir once it exists
+    phase_dir_target: phaseInfo?.directory || planned?.directory || null,
 
     // Existing artifacts
     has_research: phaseInfo?.has_research || false,
