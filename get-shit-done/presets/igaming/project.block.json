@@ -74,6 +74,23 @@
     },
     "deploy": {
       "never_touch": []
-    }
+    },
+    "watchdogs": [
+      {
+        "name": "host_status",
+        "cron": "23 */3 * * *",
+        "prompt": "Host status tick ({milestone}), one batched turn: `df -h .`, `sysctl vm.swapusage`, the stack-lock owner file under `stack.isolation.lock_dir`, ListAgents. Apply the restart and pre-run rules of docs/gsd/host-ops.md (restart only below the disk threshold or on a stalled container or bucket, never for swap alone, through one owner at a plan boundary). One or two lines: disk, swap GB, lock owner."
+      },
+      {
+        "name": "delivery_report",
+        "cron": "37 */4 * * *",
+        "prompt": "Delivery report ({milestone}), as ONE `{utility_model}` agent (read-only): from `git log --since=\"4 hours ago\" --oneline` and the SUMMARY and VERIFICATION files modified in that window, report in 3-5 lines plans and phases closed, commit count, notable fixes, next up, blockers; note a CHECKPOINT.json stale against its SUMMARYs. Facts only; relay it to the chat, correcting anything the disk contradicts."
+      },
+      {
+        "name": "cleanup",
+        "cron": "11 */12 * * *",
+        "prompt": "Periodic cleanup ({milestone}), as ONE `{utility_model}` agent, at most 8 tool calls, following the Cleanup section of docs/gsd/host-ops.md: orphan processes, `.tmp/` entries older than the age limit minus every name in `.planning/cleanup-keep.txt` (no keep list means delete nothing), the container runtime's build-cache prune (never all images, never volumes). Never touch running agents' processes, the dev server or stack containers. Report names deleted and disk before and after in two lines."
+      }
+    ]
   }
 }

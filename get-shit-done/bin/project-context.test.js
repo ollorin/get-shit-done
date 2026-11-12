@@ -546,10 +546,13 @@ describe('risk-rule wording present in the eight prompt files (agnostic-M-06 R-f
     'get-shit-done/workflows/prd.md', 'get-shit-done/workflows/new-milestone.md',
   ];
 
+  // The coordinator's review checklist keeps the two risk-domain definitions; the T0 tagging sentence belongs to the
+  // plan-level files and the project's own rules (the coordinator is a thin dispatcher and tags nothing itself).
   for (const rel of FILES) {
-    test(`R-f ${rel} carries the three canonical sentences`, () => {
+    test(`R-f ${rel} carries the canonical sentences`, () => {
       const text = fs.readFileSync(path.join(ROOT, rel), 'utf8');
-      for (const sentence of SENTENCES) assert.ok(text.includes(sentence), `${rel} lacks: ${sentence.slice(0, 50)}`);
+      const wanted = rel === 'agents/gsd-phase-coordinator.md' ? SENTENCES.slice(0, 2) : SENTENCES;
+      for (const sentence of wanted) assert.ok(text.includes(sentence), `${rel} lacks: ${sentence.slice(0, 50)}`);
     });
   }
 
@@ -620,14 +623,15 @@ describe('Fable round 1: legacy gates, ui_qa_mode carve-outs, review-tiering sen
   });
 
   test('M2 UI QA is skipped only on ui_qa_mode none; legacy resolves the configured QA agent', () => {
-    for (const rel of ['agents/gsd-phase-coordinator.md', 'get-shit-done/references/coordinator-detail.md', 'get-shit-done/workflows/execute-roadmap.md']) {
+    for (const rel of ['get-shit-done/workflows/execute-phase.md', 'get-shit-done/workflows/execute-roadmap.md']) {
       const text = read(rel);
-      assert.match(text, /ui_qa_mode: none/, rel);
+      assert.match(text, /ui_qa_mode/, rel);
       assert.match(text, /legacy/, rel);
       assert.doesNotMatch(text, /if the profile declares (none|no `stack\.capabilities\.ui_qa`)/, rel);
     }
+    assert.match(read('get-shit-done/workflows/execute-roadmap.md'), /ui_qa_mode: legacy/);
+    assert.match(read('get-shit-done/workflows/execute-phase.md'), /legacy: the project's configured QA agent/);
     assert.doesNotMatch(read('get-shit-done/references/coordinator-detail.md'), /MANDATORY for web projects that declare the UI QA capability/);
-    assert.match(read('agents/gsd-phase-coordinator.md'), /legacy project .*uses the project's configured QA agent per the legacy gate/);
   });
 
   test('M3 the verifier skips UI QA coverage on ui_qa_mode none and keeps the rule for legacy', () => {
@@ -640,7 +644,8 @@ describe('Fable round 1: legacy gates, ui_qa_mode carve-outs, review-tiering sen
   });
 
   test('L8 the round-4 ruling cap attaches to "loop to zero"', () => {
-    for (const rel of ['agents/gsd-phase-coordinator.md', 'get-shit-done/workflows/execute-phase.md']) {
+    // The coordinator's tiering paragraph moved to the project's CLAUDE.md; execute-phase keeps the sentence.
+    for (const rel of ['get-shit-done/workflows/execute-phase.md']) {
       const text = read(rel);
       assert.doesNotMatch(text, /mutation-proven\)\., but/, rel);
       assert.match(text, /loop to zero, but after round 4 a fresh Opus ruling/, rel);

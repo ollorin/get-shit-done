@@ -11663,6 +11663,7 @@ function cmdInitExecutePhase(cwd, phase, includes, raw, gate) {
     ruling_model_fallback: readRawConfig(cwd).ruling_model_fallback || 'opus',
     utility_model: readRawConfig(cwd).utility_model || 'haiku',
     reviewer_model: readRawConfig(cwd).reviewer_model || 'sonnet',
+    base_branch: resolveBaseBranch(cwd),
     ui_qa_mode: projectContext.uiQaMode(cwd),
 
     // Config flags

@@ -518,12 +518,6 @@
       "reason": "legacy flag alias"
     },
     {
-      "file": "get-shit-done/references/coordinator-detail.md",
-      "class": "frontend",
-      "max": 1,
-      "reason": "generic web-framework detection list read from package.json (D:93)"
-    },
-    {
       "file": "get-shit-done/references/verifier-detail.md",
       "class": "frontend",
       "max": 2,
@@ -532,14 +526,14 @@
     {
       "file": "get-shit-done/workflows/execute-roadmap.md",
       "class": "gates",
-      "max": 4,
+      "max": 5,
       "reason": "generic quota-preflight step and event names, asserted by gsd-tools.test.js"
     },
     {
       "file": "get-shit-done/workflows/execute-roadmap.md",
       "class": "charlotte",
-      "max": 2,
-      "reason": "legacy alias key charlotte_qa_required and phase-gate failure code missing_charlotte_qa, kept for existing consumers"
+      "max": 1,
+      "reason": "phase-gate failure code missing_charlotte_qa, kept for existing consumers"
     },
     {
       "file": "get-shit-done/workflows/execute-phase.md",

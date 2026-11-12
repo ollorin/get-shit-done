@@ -15,12 +15,12 @@ const SCOPE = [
   'get-shit-done/workflows/execute-phase.md',
   'get-shit-done/workflows/execute-plan.md',
   'get-shit-done/workflows/transition.md',
+  'get-shit-done/workflows/execute-roadmap.md',
+  'get-shit-done/references/coordinator-detail.md',
+  'agents/gsd-phase-coordinator.md',
+  'commands/gsd/execute-roadmap.md',
 ];
 const PENDING = {
-  'get-shit-done/workflows/execute-roadmap.md': 'roadmap/coordinator build step',
-  'get-shit-done/references/coordinator-detail.md': 'roadmap/coordinator build step',
-  'agents/gsd-phase-coordinator.md': 'roadmap/coordinator build step',
-  'commands/gsd/execute-roadmap.md': 'roadmap/coordinator build step',
   'get-shit-done/workflows/new-milestone.md': 'milestone build step',
   'commands/gsd/new-milestone.md': 'milestone build step',
 };

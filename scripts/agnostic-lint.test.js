@@ -344,13 +344,15 @@ describe('repo tree', () => {
     assert.strictEqual(bad.status, 1, bad.stdout + bad.stderr);
   });
 
-  test('F1 freeze and lock rules in coordinator and execute-phase name real profile keys', () => {
+  test('F1 freeze and lock rules (shared-stack preset rule) name real profile keys; coordinator and execute-phase point at it', () => {
+    const rule = fs.readFileSync(path.join(ROOT, 'get-shit-done/presets/base/rules/shared-stack.md'), 'utf8');
+    assert.ok(rule.includes('stack.paths.backend'), 'missing stack.paths.backend');
+    assert.ok(rule.includes('stack.isolation.lock_dir'), 'missing stack.isolation.lock_dir');
+    assert.ok(!rule.includes('stack.paths.<key>'), 'placeholder key left');
+    assert.ok(rule.includes('that needs no running stack'), 'entry gate lost its no-stack restriction');
     for (const f of ['agents/gsd-phase-coordinator.md', 'get-shit-done/workflows/execute-phase.md']) {
       const txt = fs.readFileSync(path.join(ROOT, f), 'utf8');
-      assert.ok(txt.includes('stack.paths.backend'), `${f}: missing stack.paths.backend`);
-      assert.ok(txt.includes('stack.isolation.lock_dir'), `${f}: missing stack.isolation.lock_dir`);
-      assert.ok(!txt.includes('stack.paths.<key>'), `${f}: placeholder key left`);
-      assert.ok(txt.includes('that needs no running stack'), `${f}: entry gate lost its no-stack restriction`);
+      assert.ok(txt.includes('stack.isolation.lock_dir') && txt.includes('shared-stack.md'), `${f}: must point at the shared-stack rule under stack.isolation.lock_dir`);
     }
   });
 

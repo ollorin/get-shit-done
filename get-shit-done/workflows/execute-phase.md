@@ -40,7 +40,7 @@ If the command exits 1 and INIT has `error: project_context_missing`: stop, prin
 
 **Auto mode:** `auto_mode` (init) is the one rule for "no human is answering" (`references/auto-mode.md`, prompt classes K1-K6). When true, AskUserQuestion is never called and nothing waits for a reply: each prompt below takes its class action and logs an `auto_decision` event. Put `auto: true` in every spawned agent's prompt (they pass `--auto` to their own init call; an exported variable may not reach them). Chain-advance (`offer_next`) keeps its own trigger and is not part of this rule.
 
-Parse JSON for: `auto_mode`, `executor_model`, `verifier_model`, `ruling_model`, `ruling_model_fallback`, `utility_model`, `reviewer_model`, `ui_qa_mode`, `commit_docs`, `parallelization`, `branching_strategy`, `branch_name`, `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `phase_slug`, `plans`, `incomplete_plans`, `plan_count`, `incomplete_count`, `state_exists`, `roadmap_exists`, `phase_req_ids`, `brief_path`, `stack_profile_path`, `stack_commands`. Every spawned agent receives `brief_path` and `stack_profile_path` (when not null) in its `<files_to_read>`, and `stack_commands` verbatim.
+Parse JSON for: `auto_mode`, `executor_model`, `verifier_model`, `ruling_model`, `ruling_model_fallback`, `utility_model`, `reviewer_model`, `base_branch`, `ui_qa_mode`, `commit_docs`, `parallelization`, `branching_strategy`, `branch_name`, `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `phase_slug`, `plans`, `incomplete_plans`, `plan_count`, `incomplete_count`, `state_exists`, `roadmap_exists`, `phase_req_ids`, `brief_path`, `stack_profile_path`, `stack_commands`. Every spawned agent receives `brief_path` and `stack_profile_path` (when not null) in its `<files_to_read>`, and `stack_commands` verbatim.
 
 **Rigour:** init also returns `rigour`, `rigour_source`, `rigour_decision`, `spike_roots`, `rigour_rejected_reason` (see `references/rigour.md`). Pass `rigour` and the spike roots in every spawn prompt. `standard` changes nothing below. When `rigour` is `spike`: no test-writer spawn; one review round (secrets, spike-root containment, each capture matches its command) and no batched top-tier diff review in `record_defect_classes`; the verifier runs on a profile-tier model and its prompt carries the spike checks (each question answered yes/no/inconclusive with a capture file newer than the code it ran; containment; secret scan; a disproved hypothesis is `passed`); gap closure is the light path, once; the last spike phase writes `SPIKE-RESULT.md` (per question: answer, capture path, go/no-go, what must be rebuilt). When `rigour` is `high`: the review loop runs to zero findings, then a top-tier ruling.
 
@@ -59,13 +59,13 @@ fi
 </step>
 
 <step name="handle_branching">
-Check `branching_strategy` from init and guard against main/master:
+Check `branching_strategy` from init and guard against the base branch. The base branch is `base_branch` from init (config `git.base_branch`, else the remote's default branch); when it is null the protected names are `main` and `master`.
 
 ```bash
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 ```
 
-**If `CURRENT_BRANCH` is `main` or `master` AND `branching_strategy` is "none":**
+**If `CURRENT_BRANCH` is the base branch AND `branching_strategy` is "none":**
 
 Auto (auto_mode, references/auto-mode.md K2): when `auto_mode` is true or the run is otherwise non-interactive, do NOT ask. Take option A (create the phase branch), log `Auto: branch guard -> gsd/phase-{phase_number}-{phase_slug}`, and continue. Never auto-select "override".
 
@@ -73,17 +73,17 @@ Otherwise block with:
 ```
 ⛔ Branch Guard: You are on {CURRENT_BRANCH}
 
-Running on main is not allowed. Options:
+Running on the base branch is not allowed. Options:
   A) Create phase branch: gsd/phase-{phase_number}-{phase_slug}
   B) Create custom branch — type: "branch my-branch-name"
   C) Override — I know what I'm doing (type "override")
 ```
 - **"A"**: `git checkout -b "gsd/phase-{phase_number}-{phase_slug}"`
 - **"branch {name}"**: `git checkout -b "{name}"`
-- **"override"**: proceed on main (user accepted risk)
+- **"override"**: proceed on the base branch (user accepted risk)
 - **"stop"**: exit
 
-**If `CURRENT_BRANCH` is NOT main/master:** Proceed silently.
+**If `CURRENT_BRANCH` is NOT the base branch:** Proceed silently.
 
 **"phase" or "milestone":** Use pre-computed `branch_name` from init:
 ```bash
@@ -214,6 +214,10 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
 
    **Model rule:** every spawn passes `model` explicitly (never omit; an omitted model inherits the spawner's tier), taken from init: executor and test-writer `executor_model` (escalate to `reviewer_model` only after 2 failures of the same task, an ambiguous plan or an unclear root cause); per-plan review rounds `reviewer_model`, fresh each round; the phase-end verifier and rulings `ruling_model` (a rejected spawn retries once on `ruling_model_fallback` and says so); watchdogs and reports `utility_model`. The project's CLAUDE.md holds the tiering policy; this workflow holds no model literals.
 
+   **Handoff brief (every executor and verifier spawn).** Assemble the fixed 5-section brief per `@get-shit-done/references/handoff-brief.md`, deterministically when possible: `node ~/.claude/get-shit-done/bin/gsd-tools.js handoff brief --json '{...}'` returns `brief_text`. PHASE GOAL from ROADMAP.md; KEY DECISIONS locked in CONTEXT.md and STATE.md for this phase; OPEN RISKS (the plan-checker's unresolved issues and watch-items); FILE MAP of the files the phase touches; HARD RULES the executor must honor. Put the result in `<handoff_brief>` of the spawn prompts below and of the verifier prompt.
+
+   **Per-task routing.** When `model_profile` in `.planning/config.json` is `auto` and a plan's tasks carry explicit tiers, spawn one executor per task, with quota downgrade, the bounded escalation loop and token-usage records, as `@~/.claude/get-shit-done/references/task-routing.md` says, instead of the plan-level spawns below; run its final `routing ledger build` after the last wave and before `post_phase_ux_sweep`. Any other profile uses the spawns below.
+
    **For Wave 1 executors** (wave_number == 1, no prior context):
    ```
    Agent(
@@ -231,7 +235,12 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
        @~/.claude/get-shit-done/templates/summary.md
        @~/.claude/get-shit-done/references/checkpoints.md
        @~/.claude/get-shit-done/references/tdd.md
+       @~/.claude/get-shit-done/references/handoff-brief.md
        </execution_context>
+
+       <handoff_brief>
+       {HANDOFF_BRIEF}
+       </handoff_brief>
 
        <files_to_read>
        Read these files at execution start using the Read tool:
@@ -271,7 +280,12 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
        @~/.claude/get-shit-done/templates/summary.md
        @~/.claude/get-shit-done/references/checkpoints.md
        @~/.claude/get-shit-done/references/tdd.md
+       @~/.claude/get-shit-done/references/handoff-brief.md
        </execution_context>
+
+       <handoff_brief>
+       {HANDOFF_BRIEF}
+       </handoff_brief>
 
        <files_to_read>
        Read these files at execution start using the Read tool:
@@ -839,7 +853,11 @@ Phase requirement IDs: {phase_req_ids}
 Check must_haves against actual codebase.
 Cross-reference requirement IDs from PLAN frontmatter against REQUIREMENTS.md — every ID MUST be accounted for.
 Also run Step 6d: every plan's SUMMARY.md must have a populated `## Defect Classes` section, and any finding from this phase's review/ruling artifacts with no row is yours to add.
-Create VERIFICATION.md.",
+Create VERIFICATION.md.
+@~/.claude/get-shit-done/references/handoff-brief.md
+<handoff_brief>
+{HANDOFF_BRIEF, with HARD RULES = the rules the phase was verified against}
+</handoff_brief>",
   subagent_type="gsd-verifier",
   model="{ruling_model}",  # from init (config `ruling_model`, default opus; a profile or allowance override lives there, never hard-coded here)
   description="Verify phase {phase_number}"
@@ -1007,18 +1025,7 @@ The workflow ends. The user runs `/gsd:progress` or invokes the transition workf
 </process>
 
 <live_window_protocol>
-
-## Live-Stack Window Protocol (phases that need the shared stack)
-
-Applies when a phase adds migrations, DB fixtures, or integration tests that need the shared local stack and the stack lock file under `stack.isolation.lock_dir` is taken for the window.
-
-1. **Entry gate, no stack.** Before requesting the window, run the no-stack gates on the merge candidate (throwaway worktree with the phase branches merged): the `typecheck` and `lint` commands from `stack_commands`, every gate in `stack.gates[]` and `test_all` that needs no running stack, with coverage. A red gate blocks the window request.
-2. **Per-plan landing.** Inside the window, each reviewed plan (or a batch of 2-3 that land alone) runs its owning bucket once when it lands, not at phase end.
-3. **Polling.** Long runs are polled in the foreground with an `rc=` check at 25 minutes. A unit stage silent past 25 minutes is a hang: abort it and triage the hanging file.
-4. **Rulings in parallel.** A live ruling runs while buckets the ruling does not affect keep running.
-5. **Prompts.** An unattended agent that hits a permission prompt stops and reports the exact command string; it does not reshape the command.
-6. **Edge-source freeze.** While a window holds the stack lock file (under `stack.isolation.lock_dir`, named per the base preset's stack-lock), no agent (executors, reviewers, fix agents of any phase) writes or commits under the service source dirs the owner declares in `stack.paths.backend` and `stack.paths.migrations` in the main checkout; such work goes in a worktree. An existing uncommitted file nobody writes is fine; only writes recycle the edge. The coordinator holding the lock tells peers at window grant and again at release.
-
+A phase that needs the shared local stack (migrations, DB fixtures, integration tests) follows the project's shared-stack rule (`.claude/rules/shared-stack.md`, "Live windows": entry gate, polling, per-plan landing, edge-source freeze). It applies only when `stack.isolation.lock_dir` is set; a project without a shared stack has no live window. An unattended agent that hits a permission prompt stops and reports the exact command string; it never reshapes the command.
 </live_window_protocol>
 
 <context_efficiency>

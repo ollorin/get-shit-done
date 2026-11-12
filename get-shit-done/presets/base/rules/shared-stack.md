@@ -22,6 +22,15 @@ Applies when two lanes (agents, phases or worktrees) could use the same local st
 - Merge the lane branches and run one joint train at the end.
 - Writes under the served source tree restart the served runtime and void the live runs of other lanes. Make such writes only while holding the lock.
 
+## Live windows
+
+Applies only when `stack.isolation.lock_dir` is set. A live window is the time one lane holds the stack lock for real-stack runs.
+
+- **Entry gate (no stack needed).** Before a lane requests a window, the merge candidate (phase branches merged in a throwaway `git worktree`) is green on the no-stack gates: the `typecheck` and `lint` commands from `stack_commands`, every gate in `stack.gates[]` and `test_all` that needs no running stack, with the coverage gate. A red entry gate means no window request; fix it first. A window is not for discovering static or unit reds.
+- **Polling.** Long runs in a window are polled in the foreground with an `rc=` check at 25 minutes. A unit stage with no output past 25 minutes is a hang: abort it, triage the hanging file, re-dispatch the fix. Never wait out a hang.
+- **Per-plan landing.** Inside an open window, land each reviewed plan (or a batch of 2-3 plans that land alone) and run its owning bucket once per plan, rather than holding all code until phase end. Rulings run in parallel with buckets the ruling does not affect.
+- **Edge-source freeze.** While a window holds the lock file (under `stack.isolation.lock_dir`), no agent (executor, reviewer, fix agent, of any phase) writes or commits under `stack.paths.backend` or `stack.paths.migrations` in the main checkout; that work goes in a worktree. Only writes recycle the served runtime; an existing uncommitted file nobody writes is fine. The coordinator holding the lock tells its peers at grant and again at release.
+
 ## File claims
 
 - Before a lane edits a file, it appends its rows to `.tmp/phase-file-claims.md` (template: `docs/gsd/file-claims-template.md`). A row is CLAIMED while its edit window is open.

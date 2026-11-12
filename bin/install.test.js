@@ -426,6 +426,18 @@ describe('skills/ installation (Phase 292.1 gap closure -- 292-VERIFICATION.md S
     );
   });
 
+  test('install ships the unattended-run files: auto-mode and watchdogs references, task-routing, the two dispatcher modules', () => {
+    const scratchInstallJs = path.join(scratchRepo, 'bin', 'install.js');
+    const result = runInstall(scratchTarget, { installJsPath: scratchInstallJs });
+    assert.ok(result.success, `install should succeed: ${result.error || ''}\n${result.output}`);
+    for (const rel of [
+      'references/auto-mode.md', 'references/watchdogs.md', 'references/task-routing.md', 'references/coordinator-detail.md',
+      'bin/auto-mode.js', 'bin/roadmap-dispatch.js',
+    ]) {
+      assert.ok(fs.existsSync(path.join(scratchTarget, '.claude', 'get-shit-done', rel)), `installed output lacks get-shit-done/${rel}`);
+    }
+  });
+
   test('install does not delete pre-existing sibling skill directories it does not own', () => {
     // Simulate a user who already has OTHER skills installed that this fork's own
     // skills/ tree does not track at all (e.g. a learned-state skill, or an unrelated

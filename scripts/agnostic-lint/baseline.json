@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "inputs_sha256": "e638ac9520dcef5921a74a4e5835e3ab0deca5a935aeef93561b8d2aa792ee97",
+  "inputs_sha256": "d8d4e1e4fd546444c158188f71782ca051ffc64e356d4e8b9a6d2c8136de97db",
   "denied": {
     "get-shit-done/bin/conversation-miner.js": {
       "telegram": 2
@@ -123,9 +123,6 @@
     "get-shit-done/references/continuation-format.md": {
       "authtech": 3
     },
-    "get-shit-done/references/coordinator-detail.md": {
-      "frontend": 1
-    },
     "get-shit-done/references/git-integration.md": {
       "authtech": 8,
       "cloud": 1,
@@ -231,8 +228,8 @@
       "cloud": 1
     },
     "get-shit-done/workflows/execute-roadmap.md": {
-      "charlotte": 2,
-      "gates": 4
+      "charlotte": 1,
+      "gates": 5
     },
     "get-shit-done/workflows/new-project.md": {
       "authtech": 1

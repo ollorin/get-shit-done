@@ -3793,50 +3793,36 @@ describe('gsd-executor — post-plan test gate section (Phase 35-01)', () => {
   });
 });
 
-// ─── Phase 35-02: gsd-phase-coordinator web framework detection ───────────────
+// ─── Phase 35-02: UX sweep (moved from the coordinator mirror into execute-phase) ───
 
-describe('gsd-phase-coordinator — web framework detection (Phase 35-02)', () => {
-  const COORDINATOR_PATH = path.join('/Users/ollorin/get-shit-done', 'agents', 'gsd-phase-coordinator.md');
+describe('execute-phase — UX sweep and web-UI skip rule (Phase 35-02, moved from gsd-phase-coordinator)', () => {
+  const EXECUTE_PHASE_PATH = path.join(__dirname, '..', 'workflows', 'execute-phase.md');
+  const text = () => fs.readFileSync(EXECUTE_PHASE_PATH, 'utf8');
 
-  test('detect_web_framework section exists in coordinator', () => {
-    const content = readEffectiveAgentContent(COORDINATOR_PATH);
-    assert.ok(
-      content.includes('detect_web_framework') || content.includes('WEB_FRAMEWORK_DETECTED'),
-      'Missing detect_web_framework or WEB_FRAMEWORK_DETECTED in coordinator'
-    );
+  test('post_phase_ux_sweep step exists and skips only on ui_qa_mode none or a phase with no web UI', () => {
+    const content = text();
+    const start = content.indexOf('<step name="post_phase_ux_sweep">');
+    assert.ok(start >= 0, 'post_phase_ux_sweep not found in execute-phase');
+    const section = content.slice(start, content.indexOf('</step>', start));
+    assert.match(section, /`ui_qa_mode` \(init\) is `none`/);
+    assert.match(section, /web-framework view file/);
+    assert.match(section, /no mechanism to skip it/);
   });
 
-  test('web framework detection checks for React/Next.js/Vue/Svelte', () => {
-    const content = readEffectiveAgentContent(COORDINATOR_PATH);
-    assert.ok(content.includes('react'), 'Missing react framework check');
-    assert.ok(
-      content.includes('next') || content.includes('vue') || content.includes('svelte'),
-      'Missing next/vue/svelte framework check'
-    );
+  test('the sweep runs after execution and before pre_verify_gates, and the e2e step follows it', () => {
+    const content = text();
+    const waves = content.indexOf('<step name="execute_waves">');
+    const sweep = content.indexOf('<step name="post_phase_ux_sweep">');
+    const e2e = content.indexOf('<step name="post_phase_e2e">');
+    const gates = content.indexOf('<step name="pre_verify_gates">');
+    assert.ok(waves < sweep && sweep < e2e && e2e < gates, 'execute_waves, sweep, e2e, pre_verify_gates');
   });
 
-  test('post_phase_ux_sweep references WEB_FRAMEWORK_DETECTED', () => {
-    const content = readEffectiveAgentContent(COORDINATOR_PATH);
-    const start = content.indexOf('post_phase_ux_sweep');
-    assert.ok(start >= 0, 'post_phase_ux_sweep not found in coordinator');
-    assert.ok(content.includes('WEB_FRAMEWORK_DETECTED'), 'WEB_FRAMEWORK_DETECTED not referenced in coordinator');
-  });
-
-  test('detect_web_framework appears before post_phase_ux_sweep', () => {
-    const content = readEffectiveAgentContent(COORDINATOR_PATH);
-    const detectIdx = content.indexOf('detect_web_framework');
-    const sweepIdx = content.indexOf('post_phase_ux_sweep');
-    assert.ok(detectIdx >= 0, 'detect_web_framework not found');
-    assert.ok(sweepIdx >= 0, 'post_phase_ux_sweep not found');
-    assert.ok(detectIdx < sweepIdx, 'detect_web_framework must appear before post_phase_ux_sweep');
-  });
-
-  test('sweep trigger uses EITHER condition language', () => {
-    const content = readEffectiveAgentContent(COORDINATOR_PATH);
-    assert.ok(
-      content.includes('EITHER') || content.includes('either'),
-      'Missing EITHER/either language for the OR trigger condition in post_phase_ux_sweep'
-    );
+  test('the sweep starts the services without asking and runs the UI QA agent in ux-audit mode', () => {
+    const content = text();
+    const sweep = content.slice(content.indexOf('<step name="post_phase_ux_sweep">'), content.indexOf('<step name="post_phase_e2e">'));
+    assert.match(sweep, /Start the services\*\* without asking/);
+    assert.match(sweep, /mode=ux-audit/);
   });
 });
 
@@ -11983,26 +11969,32 @@ describe('Phase 54 handoff-brief wiring', () => {
   }
 
   // Category 1: Happy path.
-  test('happy path: coordinator-detail.md injects <handoff_brief> at both executor branches and the verifier spawn, @-mentioning handoff-brief.md', () => {
-    const content = readRepoFile(COORDINATOR_DETAIL_PATH);
+  test('happy path: execute-phase injects <handoff_brief> at both executor branches and the verifier spawn, @-mentioning handoff-brief.md', () => {
+    const content = readRepoFile(path.join(REPO_ROOT, 'get-shit-done', 'workflows', 'execute-phase.md'));
 
-    const executeStepIdx = content.indexOf('<step name="execute">');
-    const verifyStepIdx = content.indexOf('<step name="verify">');
-    assert.ok(executeStepIdx !== -1, 'expected an <step name="execute"> anchor');
-    assert.ok(verifyStepIdx !== -1, 'expected a <step name="verify"> anchor');
+    const executeStepIdx = content.indexOf('<step name="execute_waves">');
+    const verifyStepIdx = content.indexOf('<step name="verify_phase_goal">');
+    assert.ok(executeStepIdx !== -1, 'expected an <step name="execute_waves"> anchor');
+    assert.ok(verifyStepIdx !== -1, 'expected a <step name="verify_phase_goal"> anchor');
     assert.ok(executeStepIdx < verifyStepIdx, 'expected the execute step to precede the verify step');
 
-    const executorRegion = content.slice(executeStepIdx, verifyStepIdx);
-    const verifierRegion = content.slice(verifyStepIdx);
+    const executorRegion = content.slice(executeStepIdx, content.indexOf('<step name="checkpoint_handling">'));
+    const verifierRegion = content.slice(verifyStepIdx, content.indexOf('<step name="update_roadmap">'));
 
     const executorBriefCount = (executorRegion.match(/<handoff_brief>/g) || []).length;
     const verifierBriefCount = (verifierRegion.match(/<handoff_brief>/g) || []).length;
 
-    assert.ok(executorBriefCount >= 2, `expected >= 2 <handoff_brief> occurrences in the executor spawn region (both PER_TASK_MODE branches), got ${executorBriefCount}`);
+    assert.ok(executorBriefCount >= 2, `expected >= 2 <handoff_brief> occurrences in the executor spawn region (wave 1 and wave 2+), got ${executorBriefCount}`);
     assert.ok(verifierBriefCount >= 1, `expected >= 1 <handoff_brief> occurrence in the verifier spawn region, got ${verifierBriefCount}`);
 
     assert.ok(executorRegion.includes('handoff-brief.md'), 'expected handoff-brief.md to be @-mentioned in the executor spawn region');
     assert.ok(verifierRegion.includes('handoff-brief.md'), 'expected handoff-brief.md to be @-mentioned in the verifier spawn region');
+  });
+
+  test('the per-task executor prompt of task-routing.md carries the brief too', () => {
+    const routing = readRepoFile(path.join(REPO_ROOT, 'get-shit-done', 'references', 'task-routing.md'));
+    assert.match(routing, /<handoff_brief>/);
+    assert.match(routing, /references\/handoff-brief\.md/);
   });
 
   // Category 2: Missing/malformed input.
@@ -14468,46 +14460,48 @@ describe('Phase 57-04: bounded escalation loop & ledger recording', () => {
     });
   });
 
-  describe('coordinator-detail.md prose wiring (grep-assertion, index-ordered)', () => {
-    const coordinatorDetailPath = path.join(__dirname, '..', 'references', 'coordinator-detail.md');
+  describe('task-routing.md prose wiring (grep-assertion, index-ordered; moved from the coordinator mirror)', () => {
+    const coordinatorDetailPath = path.join(__dirname, '..', 'references', 'task-routing.md');
     const content = fs.readFileSync(coordinatorDetailPath, 'utf-8');
+    const executePhase = fs.readFileSync(path.join(__dirname, '..', 'workflows', 'execute-phase.md'), 'utf-8');
 
-    const executeStart = content.indexOf('<step name="execute">');
+    const executeStart = content.indexOf('<step name="per_task_routing">');
     const executeEnd = content.indexOf('</step>', executeStart);
-    const postUxSweepStart = content.indexOf('<step name="post_phase_ux_sweep">');
+    const postUxSweepStart = executePhase.indexOf('<step name="post_phase_ux_sweep">');
 
-    test('the execute step is found and precedes post_phase_ux_sweep (sanity check for index-bounded assertions below)', () => {
-      assert.ok(executeStart !== -1, '<step name="execute"> not found');
-      assert.ok(executeEnd !== -1, 'execute step closing </step> not found');
-      assert.ok(postUxSweepStart !== -1, '<step name="post_phase_ux_sweep"> not found');
-      assert.ok(executeEnd < postUxSweepStart, 'execute step must close before post_phase_ux_sweep starts');
+    test('the routing step is found, execute-phase points at it, and the ledger build is ordered before post_phase_ux_sweep (sanity check for index-bounded assertions below)', () => {
+      assert.ok(executeStart !== -1, '<step name="per_task_routing"> not found');
+      assert.ok(executeEnd !== -1, 'routing step closing </step> not found');
+      assert.ok(postUxSweepStart !== -1, '<step name="post_phase_ux_sweep"> not found in execute-phase');
+      const pointer = executePhase.indexOf('references/task-routing.md');
+      assert.ok(pointer !== -1 && pointer < postUxSweepStart, 'execute-phase must point at task-routing.md before post_phase_ux_sweep');
+      assert.match(executePhase, /run its final `routing ledger build` after the last wave and before `post_phase_ux_sweep`/);
     });
 
     test('routing escalation-decision is called inside the execute step', () => {
       const idx = content.indexOf('routing escalation-decision', executeStart);
-      assert.ok(idx !== -1 && idx < executeEnd, 'routing escalation-decision must appear inside <step name="execute">');
+      assert.ok(idx !== -1 && idx < executeEnd, 'routing escalation-decision must appear inside <step name="per_task_routing">');
     });
 
     test('task_outcome events are logged inside the execute step', () => {
       const idx = content.indexOf('task_outcome', executeStart);
-      assert.ok(idx !== -1 && idx < executeEnd, 'task_outcome must appear inside <step name="execute">');
+      assert.ok(idx !== -1 && idx < executeEnd, 'task_outcome must appear inside <step name="per_task_routing">');
     });
 
     test('tier_escalation events are logged inside the execute step', () => {
       const idx = content.indexOf('tier_escalation', executeStart);
-      assert.ok(idx !== -1 && idx < executeEnd, 'tier_escalation must appear inside <step name="execute">');
+      assert.ok(idx !== -1 && idx < executeEnd, 'tier_escalation must appear inside <step name="per_task_routing">');
     });
 
-    test('routing ledger build appears inside the execute step AND before post_phase_ux_sweep (ordering lock-in)', () => {
+    test('routing ledger build appears inside the routing step (ordering vs post_phase_ux_sweep is pinned by the sanity test above)', () => {
       const idx = content.indexOf('routing ledger build', executeStart);
       assert.ok(idx !== -1, 'routing ledger build not found');
-      assert.ok(idx < executeEnd, 'routing ledger build must appear inside <step name="execute">');
-      assert.ok(idx < postUxSweepStart, 'routing ledger build must run before post_phase_ux_sweep');
+      assert.ok(idx < executeEnd, 'routing ledger build must appear inside <step name="per_task_routing">');
     });
 
     test('the [non-capability] tag handling (IS_NON_CAPABILITY_TAGGED) is present in the escalation loop', () => {
       const idx = content.indexOf('IS_NON_CAPABILITY_TAGGED', executeStart);
-      assert.ok(idx !== -1 && idx < executeEnd, 'IS_NON_CAPABILITY_TAGGED must appear inside <step name="execute">');
+      assert.ok(idx !== -1 && idx < executeEnd, 'IS_NON_CAPABILITY_TAGGED must appear inside <step name="per_task_routing">');
     });
 
     test('the escalation loop is bounded via the ladder (references getNextTier/escalation-decision, never a second hardcoded ladder)', () => {
@@ -14533,10 +14527,10 @@ describe('Phase 57-04: bounded escalation loop & ledger recording', () => {
 // ---------------------------------------------------------------------------
 describe('Phase 58-03: token-usage golden-path wiring', () => {
   const REPO_ROOT = path.join(__dirname, '..', '..');
-  const coordinatorDetailPath = path.join(__dirname, '..', 'references', 'coordinator-detail.md');
+  const coordinatorDetailPath = path.join(__dirname, '..', 'references', 'task-routing.md');
   const content = fs.readFileSync(coordinatorDetailPath, 'utf-8');
 
-  const executeStart = content.indexOf('<step name="execute">');
+  const executeStart = content.indexOf('<step name="per_task_routing">');
   const executeEnd = content.indexOf('</step>', executeStart);
   const executeBlock = content.slice(executeStart, executeEnd);
 
@@ -14545,11 +14539,11 @@ describe('Phase 58-03: token-usage golden-path wiring', () => {
 
   // Category: presence + step-boundary.
   test('token-usage record appears inside the execute step (presence + step-boundary)', () => {
-    assert.ok(executeStart !== -1, '<step name="execute"> not found');
-    assert.ok(executeEnd !== -1, 'execute step closing </step> not found');
+    assert.ok(executeStart !== -1, '<step name="per_task_routing"> not found');
+    assert.ok(executeEnd !== -1, 'routing step closing </step> not found');
     const idx = content.indexOf('token-usage record', executeStart);
     assert.ok(idx !== -1, 'token-usage record not found after executeStart');
-    assert.ok(idx < executeEnd, 'token-usage record must appear inside <step name="execute">');
+    assert.ok(idx < executeEnd, 'token-usage record must appear inside <step name="per_task_routing">');
   });
 
   // Category: count -- exactly 3 call sites, one per task_outcome logging point.
@@ -14558,7 +14552,7 @@ describe('Phase 58-03: token-usage golden-path wiring', () => {
     assert.strictEqual(
       matches.length,
       3,
-      `expected exactly 3 token-usage record call sites inside <step name="execute">, found ${matches.length}`
+      `expected exactly 3 token-usage record call sites inside <step name="per_task_routing">, found ${matches.length}`
     );
   });
 
@@ -17655,13 +17649,13 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
         'the ordering constraint must be stated in the workflow, not left implicit in the recipe');
     });
 
-    test('the coordinator detail reference mirrors the Charlotte + verifier dispatch suffixes', () => {
-      const raw = readRepoFile('get-shit-done/references/coordinator-detail.md');
-      const occurrences = raw.split('## Defect Classes').length - 1;
-      assert.ok(
-        occurrences >= 6,
-        `all 5 Charlotte dispatch sites + the verifier dispatch must request Defect Classes, found ${occurrences}`
-      );
+    test('execute-phase carries the UI QA + verifier dispatch suffixes (the coordinator no longer mirrors them)', () => {
+      const raw = readRepoFile('get-shit-done/workflows/execute-phase.md');
+      for (const mode of ['mode=ui-qa', 'mode=ux-audit', 'mode=e2e']) {
+        const line = raw.split('\n').find((l) => l.includes(`prompt="${mode}`));
+        assert.ok(line, `the ${mode} dispatch must exist`);
+        assert.ok(line.includes('## Defect Classes'), `the ${mode} dispatch must request Defect Classes`);
+      }
       assert.match(raw, /Also run Step 6d/, 'the verifier dispatch must request Step 6d');
       assert.match(raw, /None found\. \(reviewed by: ui-qa\)/, 'the UI QA dispatch must be told the named none-found format');
     });

@@ -7,9 +7,9 @@ import { execSync } from 'node:child_process';
 const ROOT = new URL('../../', import.meta.url).pathname;
 const GSD_TOOLS = join(ROOT, 'get-shit-done/bin/gsd-tools.js');
 const CHARLOTTE = readFileSync(join(ROOT, 'get-shit-done/presets/packs/charlotte/agents/gsd-charlotte-qa.md'), 'utf8');
-// The MILE-30 split (e597708) moved the three auto-start blocks into the @-included detail file.
-const COORDINATOR = readFileSync(join(ROOT, 'agents/gsd-phase-coordinator.md'), 'utf8')
-  + readFileSync(join(ROOT, 'get-shit-done/references/coordinator-detail.md'), 'utf8');
+// The coordinator no longer mirrors execute-phase: the auto-start blocks live in the workflows that start services.
+const EXECUTE_PHASE = readFileSync(join(ROOT, 'get-shit-done/workflows/execute-phase.md'), 'utf8');
+const EXECUTE_ROADMAP = readFileSync(join(ROOT, 'get-shit-done/workflows/execute-roadmap.md'), 'utf8');
 
 test('gsd-tools.js service-health subcommand exists', () => {
   const source = readFileSync(GSD_TOOLS, 'utf8');
@@ -56,9 +56,9 @@ test('Charlotte gsd-charlotte-qa.md uses service-health in service_startup', () 
     'Charlotte should handle SERVICE_STATUS or no_config fallback');
 });
 
-test('Phase coordinator uses service-health for all three dev server auto-start locations', () => {
-  const matches = (COORDINATOR.match(/service-health/g) || []).length;
-  assert.ok(matches >= 3, `coordinator should reference service-health at least 3 times, found: ${matches}`);
+test('dev server auto-start goes through service-health in execute-phase (UX sweep) and in the roadmap UI QA gate', () => {
+  assert.ok(/service-health start default/.test(EXECUTE_PHASE), 'execute-phase should start services through service-health');
+  assert.ok(/service-health start default/.test(EXECUTE_ROADMAP), 'execute-roadmap 5a should start services through service-health');
 });
 
 test('pollHealthEndpoint and getDevServerConfig functions exist in gsd-tools.js', () => {

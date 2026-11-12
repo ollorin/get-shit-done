@@ -1,140 +1,99 @@
 <purpose>
-Execute entire ROADMAP.md autonomously with a Sonnet coordinator spawning sub-coordinators per phase.
+Execute an entire ROADMAP.md with a lean orchestrator that spawns one phase coordinator per phase. The orchestrator is a loop over two deterministic commands, `gsd-tools roadmap next` and `gsd-tools roadmap record`; completion is decided on disk by the tool, never by a coordinator's claim.
 </purpose>
 
 <core_principle>
-Coordinator stays lean — parses roadmap, tracks DAG, spawns phases. Each phase gets fresh 200k context. No context rot across multi-phase execution.
+Disk is truth, the execution log is the audit trail, one writer each. The orchestrator parses nothing it can ask the tool for, tracks no DAG itself and logs no completion by hand. Each phase gets a fresh coordinator context; no state leaks between phases except `.planning/EXECUTION_LOG.md`.
 </core_principle>
 
 <required_reading>
 Read STATE.md before any operation to load project context.
+
+**Auto mode:** `auto_mode` (from init) is the one rule for "no human is answering". The rule, its classes K1-K6 and the logging command are in `@~/.claude/get-shit-done/references/auto-mode.md`. When it is true, AskUserQuestion is never called and nothing waits for a reply: each prompt below takes its class action and logs an `auto_decision` event. Put `auto: true` in every spawn prompt.
 </required_reading>
 
 <autonomous_resumption>
-**Why this exists:** a long roadmap can outlive a single Claude session/quota window. An external process supervisor (outside this Claude process entirely — e.g. a consuming project's `scripts/session-supervisor.sh`) can wrap the invocation, detect a session/quota death of the WHOLE `claude` process, wait for the reset, and relaunch a fresh headless process:
+A long roadmap can outlive one session. A process supervisor outside this process (see `docs/host-setup.md` in the GSD fork) can relaunch `claude -p "/gsd:execute-roadmap --auto"` after a session or quota death; each relaunch has no memory and only what is on disk (`.planning/EXECUTION_LOG.md`, ROADMAP.md, STATE.md, each phase's CHECKPOINT.json). That is a different mechanism from step 4a below, which recovers a spawned sub-agent dying while this orchestrator survives (`references/resilience.md`). Nothing inside this workflow can detect the orchestrator process itself dying.
 
-```bash
-session-supervisor.sh --max-resumes 8 -- claude -p "/gsd:execute-roadmap" --permission-mode bypassPermissions
-```
+**A project without a brief or stack profile:** an unattended run exports `GSD_LEGACY=1` before the first command; the flag alone does not reach spawned agents, so every spawn prompt also carries `legacy: {legacy}` from init.
 
-Each relaunch is a brand-new process with no human present and no memory of the prior one — it only has what's on disk (`.planning/EXECUTION_LOG.md`, `ROADMAP.md`, `STATE.md`). This is a categorically different mechanism from the in-process death/respawn handling in the `execute_phases` step's 4a sub-step below (which recovers a *spawned sub-agent* dying while THIS orchestrator survives) — see `references/resilience.md` for that distinction. Nothing internal to this workflow can detect or recover from the top-level orchestrator process itself dying; only an external supervisor can.
-
-**A project without a brief or stack profile:** an unattended run exports `GSD_LEGACY=1` before the first command; the flag alone does not reach spawned agents.
-
-**The `GSD_AUTONOMOUS=1` environment variable** signals that this run may be an unattended relaunch with no human able to answer a prompt. It changes behavior at exactly two gates, both defined further below, and nowhere else in this file:
-
-- the `resume_capability` step — if `GSD_AUTONOMOUS=1` AND `resume_state` is set (a prior incomplete execution exists), auto-select **"resume"**. Never "restart" — restart discards completed-phase history and would be catastrophic to auto-select unattended; it stays reachable only via an interactive human response.
-- the `confirm_execution` step — if `GSD_AUTONOMOUS=1` AND `resume_state` is set, auto-proceed as if the human had typed "yes" — the human already authorized this roadmap when they originally started it; a relaunch continuing it is not a new decision.
-
-**Both conditions must hold.** A **fresh** run (no `resume_state` — nothing to resume) ALWAYS requires a human to type "yes" at the confirm-execution prompt, even with `GSD_AUTONOMOUS=1` set — this variable resumes authorized work, it never starts unauthorized work. An interactive run with a stale `EXECUTION_LOG.md` lying around but `GSD_AUTONOMOUS` unset also prompts normally — the variable, not the mere presence of a log file, is what signals "no human is present to answer."
-
-**Every auto-decision is logged, unconditionally** — a silently auto-answered human gate is exactly the failure mode this project's dispatcher-contract forbids. See the `autonomous_resume_auto_selected` and `autonomous_confirm_auto_proceeded` events logged inline in each step below.
+`GSD_AUTONOMOUS=1` is one of the sources of `auto_mode` (`references/auto-mode.md`); this workflow does not read it separately. In auto mode a resume always continues: "restart" discards completed-phase history and is reachable only through an interactive human answer.
 </autonomous_resumption>
 
 <process>
 
 <step name="initialize" priority="first">
-Load roadmap context:
-
 ```bash
-INIT_FILE="/tmp/gsd-roadmap-init-$$.json"
-node ~/.claude/get-shit-done/bin/gsd-tools.js init execute-roadmap > "$INIT_FILE"
+INIT_FILE=$(mktemp "${TMPDIR:-/tmp}/gsd-roadmap-init.XXXXXX")
+node ~/.claude/get-shit-done/bin/gsd-tools.js init execute-roadmap $AUTO_FLAG $LEGACY_FLAG > "$INIT_FILE"
 ```
+`$AUTO_FLAG` is `--auto` when `--auto` is in `$ARGUMENTS`; `$LEGACY_FLAG` is `--legacy` for a legacy run. If the output starts with `@file:`, read the path after it.
 
-Parse JSON for:
-- `roadmap_exists`: boolean — if false, error and exit
-- `total_phases`: number of phases
-- `execution_order`: ordered array of phase numbers
-- `parallel_opportunities`: phases that can run together
-- `next_executable`: phases immediately runnable
-- `blocked_phases`: phases with unmet dependencies
-- `has_execution_log`: whether previous execution exists
-- `resume_state`: if previous incomplete execution found, resume context
-- `coordinator_model`: model for this coordinator (sonnet unless the user explicitly asks for opus)
+Parse the JSON for: `roadmap_exists` (false: error "`.planning/ROADMAP.md` not found. Initialize the project first." and exit), `auto_mode`, `legacy`, `total_phases`, `execution_order`, `next_executable`, `blocked_phases`, `has_execution_log`, `resume_state` (`{completed_phases, started_incomplete, parked}`), and the models `coordinator_model`, `ruling_model`, `ruling_model_fallback`, `utility_model`, `reviewer_model`, plus `milestone_version`, `milestone_slug`, `base_branch`. Every model used below comes from these fields; this file holds no model literal.
 
-**If `roadmap_exists` is false:** Error — ".planning/ROADMAP.md not found. Initialize project first."
-
-**If `resume_state` is set:** Present resume prompt before continuing (see `<step name="resume_capability">`). Under `GSD_AUTONOMOUS=1` (see `<autonomous_resumption>` below) this gate auto-resolves to "resume" instead of blocking on human input.
+**If `resume_state` is set:** see `<step name="resume_capability">`.
 </step>
 
 <step name="branch_guard">
-**Check branch before any execution — never commit directly to main/master.**
+Never commit roadmap work directly to the base branch.
 
 ```bash
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 BRANCHING_STRATEGY=$(node ~/.claude/get-shit-done/bin/gsd-tools.js config get git.branching_strategy --raw --default none)
-MILESTONE_VERSION=$(grep -m1 "^## Milestone" .planning/ROADMAP.md | sed 's/.*v\([0-9.]*\).*/\1/' || echo "")
-MILESTONE_SLUG=$(grep -m1 "^## Milestone" .planning/ROADMAP.md | sed 's/## Milestone [^ ]* — //' | tr '[:upper:] ' '[:lower:]-' | tr -cd '[:alnum:]-' | cut -c1-40 || echo "work")
 ```
 
-**If `CURRENT_BRANCH` is `main` or `master`:**
+The base branch is `base_branch` from init (config `git.base_branch`, else the remote's default branch). When it is null, the protected names are `main` and `master`. If `CURRENT_BRANCH` is not the base branch, proceed silently.
 
-Present blocking message:
+The branch to create is `{milestone_version}-{milestone_slug}` from init; when either is empty or the project has no milestone heading, use `gsd/roadmap-{YYYYMMDD}`.
+
+**If `CURRENT_BRANCH` is the base branch:**
+
+Auto (auto_mode, references/auto-mode.md K2): create that branch (`git checkout -b "{branch}"`), log `auto_decision`, continue. Never take the override.
+
+Otherwise (interactive) show the branch guard:
 ```
-⛔ Branch Guard: You are on {CURRENT_BRANCH}
-
-Roadmap execution commits many changes. Running on main risks polluting the main
-branch with partial or broken work.
-
-Options:
-  A) Create milestone branch now: {MILESTONE_VERSION}-{MILESTONE_SLUG}
-  B) Create custom branch — type: "branch my-branch-name"
-  C) Override — I know what I'm doing (type "override")
+Branch guard: you are on {CURRENT_BRANCH}.
+Roadmap execution commits many changes; running on the base branch risks polluting it with partial work.
+  A) Create milestone branch now: {branch}
+  B) Create custom branch: type "branch my-branch-name"
+  C) Override: type "override"
 ```
+"A" or "yes": create the branch and continue. "branch {name}": create it. "override": log a warning and continue. Anything else: exit cleanly.
 
-Wait for user response:
-- **"A"** or "yes": `git checkout -b "{MILESTONE_VERSION}-{MILESTONE_SLUG}"` → log branch → proceed
-- **"branch {name}"**: `git checkout -b "{name}"` → log branch → proceed
-- **"override"**: log warning, proceed on main (user explicitly accepted risk)
-- **"stop"** / anything else: exit cleanly
-
-**If `CURRENT_BRANCH` is NOT main/master:** Proceed silently — already on a feature branch.
-
-**If `BRANCHING_STRATEGY` is "milestone" AND not on main:** Inform user which branch will be used (current branch — already correctly set up).
+If `BRANCHING_STRATEGY` is `milestone` and the run is not on the base branch, say which branch is in use.
 </step>
 
 <step name="preflight_quota_estimate">
-Before presenting the execution plan in `confirm_execution` below, estimate whether the current quota budget can plausibly cover the phases about to run. Read-only + one CLI call + a conditional log/prompt — matches this workflow's "coordinator stays lean" core principle, no extra context cost.
+Estimate whether the quota budget plausibly covers the remaining phases. Read-only; never reads the quota file directly.
 
-**1. Compute remaining phases** (reuse the exact same disk-status check `execute_phases` step 2 already uses for dependency checks — do not reinvent):
-```bash
-REMAINING_PHASES=0
-# For each phase in {execution_order}:
-for PHASE_NUM in {execution_order}; do
-  PHASE_INFO=$(node ~/.claude/get-shit-done/bin/gsd-tools.js roadmap get-phase ${PHASE_NUM})
-  DISK_STATUS=$(node -e "console.log(JSON.parse(process.argv[1]).disk_status || '')" "$PHASE_INFO")
-  if [ "$DISK_STATUS" != "complete" ]; then
-    REMAINING_PHASES=$((REMAINING_PHASES + 1))
-  fi
-done
-```
+**1. Remaining phases** are the on-disk truth the init already computed: `REMAINING_PHASES = len(next_executable) + len(blocked_phases)`.
 
-**2. Run the estimate** (composes automatically with 51-01's self-healed `loadQuotaState` — never reads the raw quota file directly):
+**2. Run the estimate:**
 ```bash
 QUOTA_ESTIMATE=$(node ~/.claude/get-shit-done/bin/gsd-tools.js resilience estimate-quota --phases ${REMAINING_PHASES})
 SUFFICIENT=$(node -e "console.log(JSON.parse(process.argv[1]).sufficient)" "$QUOTA_ESTIMATE")
 ESTIMATED_TOKENS=$(node -e "console.log(JSON.parse(process.argv[1]).estimated_tokens)" "$QUOTA_ESTIMATE")
 REMAINING_BUDGET=$(node -e "console.log(JSON.parse(process.argv[1]).remaining_budget)" "$QUOTA_ESTIMATE")
 QUOTA_SOURCE=$(node -e "console.log(JSON.parse(process.argv[1]).source)" "$QUOTA_ESTIMATE")
+UNMEASURED=$(node -e "console.log(JSON.parse(process.argv[1]).unmeasured === true)" "$QUOTA_ESTIMATE")
 ```
 
-**3. If `SUFFICIENT` is `false`:** this is a deliberate pause point, NOT a hard block — the human/autonomous caller can still choose to proceed. Log loudly:
+**3. `UNMEASURED` is `true`** (no `.planning/quota/session-usage.json`, so the figures are a conservative default and not evidence): log and proceed, whatever else the estimate says.
+```bash
+node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
+  --type quota_preflight_unmeasured \
+  --data '{"remaining_phases": '"${REMAINING_PHASES}"', "source": "'"${QUOTA_SOURCE}"'"}'
+```
+
+**4. Measured and `SUFFICIENT` is `false`:** log loudly; this is a deliberate pause point, not a hard block.
 ```bash
 node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
   --type quota_preflight_insufficient \
   --data '{"remaining_phases": '"${REMAINING_PHASES}"', "estimated_tokens": '"${ESTIMATED_TOKENS}"', "remaining_budget": '"${REMAINING_BUDGET}"', "source": "'"${QUOTA_SOURCE}"'"}'
 ```
-Append to the `confirm_execution` prompt below:
-```
-⚠ Quota estimate: ~{ESTIMATED_TOKENS} tokens needed for {REMAINING_PHASES} remaining phases,
-but only ~{REMAINING_BUDGET} tokens remain in the current session quota (source: {QUOTA_SOURCE}).
-This run may hit a session/quota limit mid-phase.
+Auto (auto_mode, references/auto-mode.md K1): proceed after the log above. Interactively, add to the confirm prompt: `Quota estimate: ~{ESTIMATED_TOKENS} tokens needed for {REMAINING_PHASES} phases, ~{REMAINING_BUDGET} remain (source: {QUOTA_SOURCE}). Type "yes" to proceed anyway, "wait" to pause until quota resets, or "stop" to cancel.`
 
-Type "yes" to proceed anyway, "wait" to pause until quota resets, or "stop" to cancel.
-```
-If autonomous (no human present): default to "yes" (proceed), but the loud log above still fires unconditionally — never silently downgrade or skip the warning.
-
-**4. If `SUFFICIENT` is `true`:** proceed silently (no extra prompt noise appended to `confirm_execution`), but still log for the analytics trail:
+**5. Measured and `SUFFICIENT` is `true`:** proceed silently and log for the analytics trail:
 ```bash
 node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
   --type quota_preflight_ok \
@@ -143,202 +102,115 @@ node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
 </step>
 
 <step name="preflight_skew_check">
-Self-referential staleness check (MILE-25): only meaningful when this orchestrator is itself running from a GSD source checkout (never for target projects being built with GSD). Read-only, non-blocking, never requires reinstall/restart to take effect for THIS run — it only affects future runs.
+Self-referential staleness check, meaningful only when this orchestrator runs from a GSD source checkout. Read-only and non-blocking.
 
-**1. Detect GSD source checkout:**
 ```bash
 IS_GSD_CHECKOUT=false
 if [ -f "get-shit-done/bin/gsd-tools.js" ]; then IS_GSD_CHECKOUT=true; fi
 ```
 
-**2. If NOT a GSD source checkout:** log "skew check skipped — not a GSD source checkout" and continue to `confirm_execution`.
-
-**3. If a GSD source checkout:** run the doctor check and log:
+Not a source checkout: log "skew check skipped" and continue. Otherwise:
 ```bash
 DOCTOR_RESULT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js doctor --raw)
+REASON=$(node -e "console.log(JSON.parse(process.argv[1]).reason || '')" "$DOCTOR_RESULT")
 CLEAN=$(node -e "console.log(JSON.parse(process.argv[1]).clean)" "$DOCTOR_RESULT")
-if [ "$CLEAN" != "true" ]; then
+```
+`REASON` of `no_manifest` means GSD is not installed here: skipped, not drift. Otherwise:
+```bash
+if [ "$CLEAN" != "true" ] && [ "$REASON" != "no_manifest" ]; then
   node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
     --type skew_detected \
     --data "$DOCTOR_RESULT"
-  echo "⚠ Installed GSD copy has drifted from this source checkout — see execution log. This does not block the current run."
+  echo "Installed GSD copy has drifted from this source checkout; see the execution log. This does not block the current run."
 fi
 ```
+Auto (auto_mode, references/auto-mode.md K1): warn and log, never stop.
 </step>
 
 <step name="confirm_execution">
-**Autonomous auto-proceed (checked first — see `<autonomous_resumption>`):** if `GSD_AUTONOMOUS=1` is set AND `resume_state` was set at `initialize` (this run is resuming a roadmap a human already authorized when they originally started it) — skip the prompt below entirely and proceed as if the human had typed "yes". A fresh run (`resume_state` not set) is NEVER auto-proceeded this way, regardless of `GSD_AUTONOMOUS` — a human must still approve work nobody has authorized yet. Log the auto-decision before continuing:
-```bash
-node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
-  --type autonomous_confirm_auto_proceeded \
-  --data '{"total_phases": {total_phases}, "execution_order": [...], "reason": "GSD_AUTONOMOUS=1 and resume_state present at initialize — human already authorized this roadmap at original start; auto-proceeding as yes for unattended resumption"}'
-```
-Then proceed directly to `initialize_execution_log`.
+Show the plan from the init data: total phases, execution order, one row per phase (`#`, name, on-disk status, dependencies).
 
-**Otherwise (interactive — the default):** present execution plan to user before any autonomous action:
+Auto (auto_mode, references/auto-mode.md K1): invoking `/gsd:execute-roadmap` in auto mode is the authorisation; print the plan, log `auto_decision` (`{"prompt":"confirm_execution","class":"K1","chosen":"proceed"}`) and go to `initialize_execution_log`. A resume needs no new decision either.
 
-```
-## Roadmap Execution Plan
-
-**Total phases:** {total_phases}
-**Execution order:** {execution_order}
-**Parallel opportunities:** {parallel_opportunities}
-
-### Phase Sequence
-
-| # | Phase | Status | Dependencies |
-|---|-------|--------|--------------|
-| 1 | {name} | {disk_status} | {depends_on} |
-...
-
-**Estimated duration:** ~{N * 5-15} minutes (varies by phase complexity)
-
-Confirm autonomous execution? This will execute all incomplete phases sequentially.
-
-Type "yes" to begin, "skip {N}" to skip a phase, or "stop" to cancel.
-```
-
-If user types "stop": exit cleanly.
-If user types "skip {N}": mark phase N as skipped in execution log, continue.
-If user types "yes": proceed to `initialize_execution_log`.
+Otherwise (interactive): ask `Confirm execution? This runs every incomplete phase in dependency order. Type "yes" to begin or "stop" to cancel.` "stop" exits; "yes" continues. (There is no skip option: `roadmap next` has no notion of a skipped phase, and a skipped dependency would only park its dependents.)
 </step>
 
 <step name="initialize_execution_log">
-Create or append to `.planning/EXECUTION_LOG.md`:
-
 ```bash
 node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
   --type roadmap_start \
   --data '{"total_phases": {N}, "execution_order": [...], "timestamp": "..."}'
 ```
-
-Log format: JSONL lines after markdown header, enabling streaming append:
-```
-# Execution Log
-{"type":"roadmap_start","timestamp":"...","total_phases":8,"execution_order":[1,3,2,4,5,6,7,8]}
-```
-
-**Roadmap name and status channel:** derive `roadmap_name` from the first heading in ROADMAP.md (`# Roadmap: {name}` → strip "Roadmap: "; fallback "Roadmap"). There is no external notification channel: the main orchestrator prints status and any owner question (the owner's title is `owner_title` in the init output) to the chat, and nothing blocks on a reply.
-
-**Execution start:** print "Roadmap execution started" with the phase list and total count to the chat.
+The log is JSONL under a markdown header, so appends stream. `roadmap_name` is the first heading of ROADMAP.md with a leading "Roadmap: " stripped (fallback "Roadmap"). There is no external notification channel: the orchestrator prints status and any owner question (the owner's title is `owner_title` in init) to the chat, and nothing blocks on a reply. Print "Roadmap execution started" with the phase list.
 </step>
 
 <step name="arm_watchdogs">
-Long unattended runs fail silently: children stall mid-tool-call, coordinators end their turn early, orphans and caches fill the disk. Arm these recurring `CronCreate` jobs before the first phase (`CronList` first — never duplicate). They are session-only and expire after 7 days: re-arm on resume and on expiry; `CronDelete` them in `completion`.
-
-**1. Status tick — every 45 min, off round marks (e.g. `6,51 * * * *` style).** Prompt:
-> Roadmap status tick ({milestone}). In one batched turn: `git log --format='%h %cr %s' -3`, the stack-lock owner file (if the project has one), ListAgents, `df -h /`, `sysctl vm.swapusage`. If an agent has had no commit/file change for >45 min or loops on the same failure: TaskStop it, then dispatch a fresh agent of the matching GSD `subagent_type` from on-disk state (2-parallel and one-writer rules apply); never SendMessage a handed-back coordinator. TaskStop any "completed" agent that still has background tasks (they wake it into stale work). If a plan or phase closed, verify on disk (SUMMARY Self-Check, VERIFICATION) and launch the next — run independent phases in parallel up to the project's ceiling, with file claims and the stack lock. Host restart: only when free disk < ~3 GiB or the container runtime or a test bucket stalls, never for swap alone, always at a plan boundary, through one owner (`docs/host-setup.md` in the GSD fork). Send ONE 1–2 line report: phase, progress, blocker, disk, swap GB.
-
-**2. Delivery report — every 4 h.** Prompt:
-> Delivery report ({milestone}), as ONE Haiku agent (read-only). Using `git log --since="4 hours ago" --oneline` and SUMMARY/VERIFICATION files modified in that window (first ~40 lines plus the Self-Check result with its line number), report in 3-5 lines: plans/phases closed, commit count, notable fixes, next up, blockers; note a CHECKPOINT.json stale against the SUMMARYs. Facts only; cite only what was read. Relay it to the user, correcting anything the disk contradicts.
-
-**3. Disk/process cleanup — every 12 h.** Prompt:
-> Periodic cleanup ({milestone}), as ONE Haiku agent, at most 8 tool calls. `df -h /`. Only if free disk is under 12 GiB, kill ppid-1 orphans: `sleep`, test fixture processes, Claude `zsh -c` `until` wait shells >2h old (TaskStop the owning agent first — killing a wait shell re-invokes it). List scratch-dir (`.tmp/`) top-level entries >2 days old, drop every name matching `.planning/cleanup-keep.txt` (always keep lock, claims and shared-run dirs; if that file is missing, delete nothing), write the remaining names to `.tmp/cleanup-deleted-names.txt`, delete exactly those. the container runtime's build-cache and dangling-image prune, forced (never `-a`, never volumes, never pull). Never touch running agents' processes, the dev server, or stack containers. Report in 2 lines: names deleted, disk before/after.
-
-Ticks are the orchestrator's only liveness signal — never disable them to save tokens; keep each report to 1–2 lines instead.
-
-**Outside the roadmap session:** a weekly KPI row via `scripts/gsd-metrics/` is a scheduled task, not a session cron (`docs/host-setup.md`).
+Arm the recurring jobs of `@~/.claude/get-shit-done/references/watchdogs.md` (probe the cron tools first; log `watchdogs_unavailable` and go on when they are absent; never duplicate a job). Re-arm on resume and on expiry; disarm in `completion`.
 </step>
 
 <step name="execute_phases">
-For each phase in execution order:
+The loop. Repeat until `roadmap next` returns `done`:
 
-**1. Check skip list:**
-- If user skipped this phase: log `phase_skipped`, continue to next
+```bash
+NEXT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js roadmap next $LEGACY_FLAG $RETRY_PARKED_FLAG)
+```
+`$RETRY_PARKED_FLAG` is `--retry-parked` when it is in `$ARGUMENTS`: use it once the owner has answered what parked a phase; without it a parked phase and its dependents stay parked. `roadmap next` reads the log and disk truth, appends its own `phase_start`/`gap_cycle`/`phase_parked` events and returns one action; dependencies, parking of dependents and the one-gap-cycle ceiling are its job, not yours. No action ever asks the owner anything: if one did, treat it as K1 and continue.
 
-**1a. Decision queue sweep (never waits; contract `@~/.claude/get-shit-done/references/decisions-protocol.md`):**
+| `action` | Do |
+|---|---|
+| `spawn_coordinator` | steps 1a-5 below for `phase`, using `args` and `model` |
+| `gap_cycle` | the same spawn with the returned `args` (`{N} --gaps --auto`): the coordinator runs one gap-closure cycle |
+| `integration_gate` | `<step name="completion">`, part A |
+| `pr` | `<step name="completion">`, part B |
+| `done` | `<step name="completion">`, part C; `complete: false` means phases are parked (`parked`) |
+
+**1a. Decision queue sweep (never waits; contract `@~/.claude/get-shit-done/references/decisions-protocol.md`).** Before spawning a phase:
 ```bash
 DEC="$HOME/.claude/get-shit-done/bin/decisions.js"
 test -f .planning/DECISIONS.jsonl
 ```
-If the file exists, run each of these as its own command (never chained with `&&`), reading each exit code:
+If the file exists, run each as its own command (never chained with `&&`) and read each exit code:
 ```bash
 node "$DEC" gate --phase {phase_number}
 node "$DEC" digest
 node "$DEC" digest --mark-only
 ```
-- `gate` exit 0: proceed. Exit 2 (an open irreversible assumption feeds this phase): park only this phase and the phases that depend on it; every other phase continues. Log `phase_parked` with the ids and print each parked question (`decisions list --open`) in the chat. It never ends the run or blocks on a reply. A phase still parked when every other phase is done is not executed: report it in `completion` as waiting for the owner.
-- `gate` exit 3, or any other non-zero code (corrupt or unreadable ledger, e.g. a conflict-marker line or a duplicate id): fail closed. Treat it exactly like exit 2: park the phase, log `phase_parked` with reason `ledger_error` and the printed errors, and report it in `completion`. `decisions.js validate` prints the offending lines; `decisions.js repair` fixes duplicate ids and conflict markers (the orchestrator may run it, then re-run `gate`).
-- `digest` non-empty text: print it to the chat. Do not wait for a reply and never ask it through `ask_blocking_question`. Only after printing, run `digest --mark-only` (a run that dies in between re-sends rather than loses the questions). A non-zero `digest` exit is handled like `gate` exit 3.
-- Rework tickets (`node "$DEC" reworks` prints the open `R-NN`, written when the owner answered through `/gsd:decide` after a consumer was built): for each, insert the decimal rework phase the protocol describes after its last built consumer, before continuing; `node "$DEC" close R-NN --status done` when it verifies.
+- `gate` exit 0: proceed. Exit 2 (an open irreversible assumption feeds this phase): park this phase and its dependents, every other phase continues. Log `phase_parked` with the ids and print each parked question (`decisions list --open`) to the chat; it never ends the run or blocks on a reply. A phase still parked when every other phase is done is reported in `completion` as waiting for the owner.
+- `gate` exit 3 or any other non-zero code (corrupt or unreadable ledger): fail closed exactly like exit 2, with `phase_parked` reason `ledger_error` and the printed errors. `decisions.js validate` prints the offending lines; `decisions.js repair` fixes duplicate ids and conflict markers; re-run `gate` after.
+- `digest` non-empty: print it to the chat, never wait, then run `digest --mark-only` (a run that dies in between re-sends rather than loses the questions). A non-zero `digest` exit is handled like `gate` exit 3.
+- Rework tickets (`node "$DEC" reworks` prints the open `R-NN`): insert the decimal rework phase the protocol describes after its last built consumer, before continuing; `node "$DEC" close R-NN --status done` when it verifies.
 
-**2. Check dependencies:**
-```bash
-# For each dep in phase.depends_on:
-node ~/.claude/get-shit-done/bin/gsd-tools.js roadmap get-phase {dep}
-# Check disk_status == "complete"
-```
-
-If any dependency not complete:
-- Attempt to execute dependency first (recursive)
-- If dependency blocked: present blocker, wait for user resolution
-
-**3. Log phase start:**
-```bash
-node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
-  --type phase_start \
-  --data '{"phase": {N}, "name": "...", "timestamp": "..."}'
-```
-
-**4. Spawn sub-coordinator (fresh context window):**
-
-Coordinators (roadmap, phase, death-resume) run on Sonnet. Use `model="opus"` only when the user explicitly asks for it.
+**4. Spawn the coordinator (fresh context window):**
 
 ```
 Agent(
   subagent_type="gsd-phase-coordinator",
-  model="sonnet",
+  model="{coordinator_model}",
   description="Execute phase {N}",
   prompt="Execute Phase {N}: {name}
-
-  Phase directory: .planning/phases/{phase_dir}/
-  Phase goal: {goal}
-
-  Full lifecycle — ALL steps mandatory, in order:
-  1. Research (skip if not needed)
-  2. Plan — MUST include tdd='true' tasks for API work, checkpoint:ui-qa for UI work.
-     Planner MUST run validate_testing_gate before returning plans.
-     If phase touches UI: generate E2E-TEST-PLAN.md via gsd-ui-inventory + gsd-e2e-test-generator.
-  3. Execute — tdd tasks spawn gsd-test-writer (tiered budget, inventory-first).
-     checkpoint:ui-qa tasks trigger the UI QA loop (3 rounds) + MANDATORY ux-audit.
-     Post-plan test gate: full test suite must pass before SUMMARY.md.
-  4. Post-execution — If web project: run post_phase_ux_sweep (UI QA ux-audit, unconditional; skip only when the phase gate reports `ui_qa_mode: none`, recording `ui_qa_ran: false  # no ui_qa capability`; `legacy` mode still runs it with the project's configured QA agent).
-     If e2e_flows in plan frontmatters: run UI QA e2e mode.
-     If UI built: run E2E gap closure (Step 6.5 of execute-phase).
-  5. Verify — MUST spawn gsd-verifier agent. NEVER write VERIFICATION.md inline for phases with UI.
-     Verifier checks QGATE-07 (UI QA ran), QGATE-10 (test files exist), QGATE-13 (E2E plan exists).
-
-  HARD RULES:
-  - Phase with .tsx/.jsx files CANNOT have verifier: coordinator in VERIFICATION.md
-  - Phase with API endpoints CANNOT skip tdd tasks
-  - UI QA + UX audit CANNOT be skipped for web projects that declare the UI QA capability
-  - Individual plans MUST stay under 400 lines. If a plan exceeds 400 lines, split it.
-    DB migrations, service handlers, and integration tests are three separate plans — not one.
-  - ui_qa_ran lives in {N}-VERIFICATION.md frontmatter, written by gsd-verifier (true only if a
-    UI QA run is recorded). CHECKPOINT.json is not evidence. The orchestrator validates this after you return.
-
-  CONTEXT OVERFLOW PREVENTION:
-  - Do NOT read the full service handler file if it exceeds 1000 lines. Use LSP or grep for the specific handler.
-  - Do NOT accumulate multiple plan executions in a single context. Execute one plan, write SUMMARY, checkpoint, return.
-  - If you are approaching context limits, return a checkpoint with resume_from instead of trying to finish.
-
-  Create checkpoint after each step.
-  Return structured completion state as JSON."
+auto: true
+legacy: {legacy}
+Phase directory: .planning/phases/{phase_dir}/
+Phase goal: {goal}
+Arguments for the workflows you follow: {args}
+Run discuss, plan, execute and verify as your agent file says. When context runs low, return a checkpoint with resume_from instead of finishing.
+Return the structured completion JSON as the last content."
 )
 ```
+When `resumed` is true in the `next` output, prepend the resume brief from `resilience resume-brief {N}` (`brief_text`, verbatim) under a "RESUMING" preamble. Plan-shape, test and review rules are not repeated here: the planner, the plan-checker, the project's rules and execute-phase own them.
 
 **4a. Detect coordinator death (runs before step 5's status branches):**
 
-A genuine coordinator death is different from a normal `status: "failed"` task-logic failure — either the `Agent()` call itself throws/errors, or the returned text does not parse as the expected status JSON contract (e.g. it IS the raw death message, such as "You've hit your session limit · resets 12:30am", instead of JSON).
+A genuine coordinator death differs from a normal `status: "failed"`: either the `Agent()` call itself threw, or the returned text does not parse as the status JSON (for example it IS the raw death message, such as "You've hit your session limit, resets 12:30am").
 
-1. If the `Agent()` call threw, OR the returned text fails to parse as the expected status JSON contract, run:
+1. If the `Agent()` call threw, OR the returned text fails to parse as the status JSON contract, run:
 ```bash
 DEATH_CHECK=$(node ~/.claude/get-shit-done/bin/gsd-tools.js resilience parse-death --text "{raw returned text or error message}")
 IS_DEATH=$(node -e "console.log(JSON.parse(process.argv[1]).is_death)" "$DEATH_CHECK")
 RESET_TIME_ISO=$(node -e "console.log(JSON.parse(process.argv[1]).reset_time_iso || '')" "$DEATH_CHECK")
 ```
 
-2. Separately (regardless of whether step 1 matched), check staleness of the phase's own CHECKPOINT.json — default threshold is read from config's `resilience.staleness_threshold_minutes` when `--threshold-minutes` is omitted:
+2. Separately, check staleness of the phase's own CHECKPOINT.json (the threshold comes from config `resilience.staleness_threshold_minutes`):
 ```bash
 STALENESS_CHECK=$(node ~/.claude/get-shit-done/bin/gsd-tools.js resilience check-staleness .planning/phases/{phase_dir}/CHECKPOINT.json)
 IS_STALE=$(node -e "console.log(JSON.parse(process.argv[1]).stale)" "$STALENESS_CHECK")
@@ -347,440 +219,242 @@ IS_STALE=$(node -e "console.log(JSON.parse(process.argv[1]).stale)" "$STALENESS_
 3. **The coordinator is presumed dead if `IS_DEATH` is `true` OR `IS_STALE` is `true`.**
 
 4. **If presumed dead:**
-   - Log loudly (coordinator death detected):
+   - Log loudly:
      ```bash
      REASON=$([ "$IS_DEATH" = "true" ] && echo "death_signature" || echo "staleness")
      node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
        --type coordinator_death_detected \
        --data '{"phase": {N}, "reason": "'"${REASON}"'", "reset_time_iso": "'"${RESET_TIME_ISO}"'"}'
      ```
-   - Get the resume brief before doing anything else:
+   - Get the resume brief before anything else:
      ```bash
      RESUME_BRIEF=$(node ~/.claude/get-shit-done/bin/gsd-tools.js resilience resume-brief {N})
      BRIEF_TEXT=$(node -e "console.log(JSON.parse(process.argv[1]).brief_text)" "$RESUME_BRIEF")
      RESUME_FROM=$(node -e "console.log(JSON.parse(process.argv[1]).resume_from)" "$RESUME_BRIEF")
      ```
-     If the phase's CHECKPOINT.json is missing entirely (coordinator died before its first checkpoint), `resilience resume-brief` already reports `resume_from: "discuss"` and a "starting from scratch" `brief_text` — this workflow needs no special-case handling for the missing-checkpoint case beyond the loud logging above; it is never a silent no-op.
-   - **Wait-until-reset:** if `RESET_TIME_ISO` is non-empty, compute the wait duration and cap it at a sane maximum (6 hours) — if the reset time is implausibly far out (or unparseable/negative), do NOT sleep; log and escalate instead:
+     A missing CHECKPOINT.json means the coordinator died before its first checkpoint: `resume-brief` already reports `resume_from: "discuss"`; nothing special is needed beyond the loud logging.
+   - **Wait-until-reset:** if `RESET_TIME_ISO` is non-empty, compute the wait and cap it at 6 hours; an implausible reset time is escalated, not slept on:
      ```bash
      NOW_EPOCH=$(date -u +%s)
      RESET_EPOCH=$(date -u -d "${RESET_TIME_ISO}" +%s 2>/dev/null || date -u -jf "%Y-%m-%dT%H:%M:%S" "${RESET_TIME_ISO%%.*}" +%s 2>/dev/null || echo "")
      MAX_WAIT_SECONDS=$((6 * 3600))
      WAIT_SECONDS=$([ -n "$RESET_EPOCH" ] && echo $((RESET_EPOCH - NOW_EPOCH)) || echo -1)
      ```
-     - If `WAIT_SECONDS` is negative or exceeds `MAX_WAIT_SECONDS`: log and escalate instead of hanging:
+     - `WAIT_SECONDS` negative or above `MAX_WAIT_SECONDS`: log and escalate instead of hanging:
        ```bash
        node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
          --type death_reset_time_implausible \
          --data '{"phase": {N}, "reset_time_iso": "'"${RESET_TIME_ISO}"'", "wait_seconds": '"${WAIT_SECONDS}"', "cap_seconds": '"${MAX_WAIT_SECONDS}"'}'
        ```
-       Print the implausible reset time to the chat — do not respawn immediately in this case; treat it the same as a phase failure requiring human awareness (falls through to `handle_failure`).
-     - Otherwise, actually pause with a polling sleep loop (matching the UI QA health-check polling pattern used elsewhere in this codebase) until the reset time is reached, THEN proceed to respawn:
+       Print the implausible reset time to the chat and do not respawn: this phase goes to `handle_failure`.
+     - Otherwise poll until the reset, then respawn:
        ```bash
        while [ "$(date -u +%s)" -lt "${RESET_EPOCH}" ]; do
          sleep 60
        done
        ```
-   - **Respawn** — a fresh `Agent()` call, not a retry of the dead one: re-run the exact same `Agent(subagent_type="gsd-phase-coordinator", ...)` spawn block from step 4 above, but prepend `BRIEF_TEXT` to the prompt with a clear "RESUMING FROM DEATH" preamble (reuse the brief text verbatim — do not re-derive it):
+   - **Respawn** with a fresh `Agent()` call, not a retry of the dead one: the spawn block of step 4 with `BRIEF_TEXT` prepended under a "RESUMING FROM DEATH" preamble, verbatim:
      ```
      Agent(
        subagent_type="gsd-phase-coordinator",
-       model="sonnet",
+       model="{coordinator_model}",
        description="Execute phase {N} (auto-resume)",
        prompt="{BRIEF_TEXT}
 
-       Execute Phase {N}: {name}
-       ... (identical remaining prompt body to step 4's spawn block above — full lifecycle, HARD RULES, CONTEXT OVERFLOW PREVENTION, structured completion state) ...
-       "
+       RESUMING FROM DEATH. {the rest of step 4's prompt body}"
      )
      ```
-   - Log the auto-resume spawn:
+   - Log `auto_resume_spawned`:
      ```bash
      node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
        --type auto_resume_spawned \
        --data '{"phase": {N}, "resume_from": "'"${RESUME_FROM}"'"}'
      ```
-   - After respawn, fall through to step 5's existing status-branching logic on the NEW return value (the respawned coordinator's actual completion status) — 4a itself never decides completed/failed/etc., it only gets a fresh attempt running.
-   - **No human input required for this path.** Print one chat line (`Phase {N}: coordinator death detected ({REASON}), auto-resuming from {RESUME_FROM}`) and respawn without waiting.
+   - After the respawn, fall through to step 5 on the NEW return value; 4a never decides a status.
+   - **No human input required for this path.** Print one chat line (`Phase {N}: coordinator death detected ({REASON}), auto-resuming from {RESUME_FROM}`) and respawn.
 
-5. **If NOT presumed dead:** proceed directly to step 5's existing logic below, unchanged.
+5. **If NOT presumed dead:** go to step 5.
 
 **5. Handle result:**
-- `status: "completed"`: proceed to **5a** (UI QA gate) then **5b** (integration gate)
-- `status: "completed_with_deferrals"`: coordinator hit context limits. Spawn fresh agents for deferred steps:
-  - If `"verify"` in deferred: spawn `gsd-verifier` with `model="opus"` and handoff_summary from return; run a Sonnet pre-verification of all must-haves first (on-disk evidence)
-  - If `"ui_qa"` in deferred: will be caught by 5a gate
-  - After all deferrals resolved: proceed to 5a → 5b
-- `status: "failed"`: see `<step name="handle_failure">`
-- `status: "blocked"` with `reason: "parked"`: handle exactly like a `gate` exit 2 in step 1a (park, continue with the next phase, never wait)
-- `status: "blocked"`: present blocker, wait for resolution
-- `status: "gaps_found"`: offer gap closure cycle, then continue
-- `status: "human_needed"`: present human items, await approval
 
-Also check for deferred-items.md in the phase directory:
+Branch on the coordinator's `status`:
+- `completed`: run **5a** then **5b** first, and only after both pass hand the result to `roadmap record`.
+- `completed_with_deferrals` (context limit): spawn a fresh agent for each item of `deferred`. `"execute"`: a fresh coordinator that resumes at execute (same spawn with the resume brief). `"verify"`: a `gsd-verifier` on `{ruling_model}` (a rejected spawn retries once on `{ruling_model_fallback}` and says so) after a `{reviewer_model}` pre-verification of all must-haves with on-disk evidence. `"ui_qa"`: caught by 5a. Then 5a, 5b.
+- every other status (`failed`, `blocked`, `gaps_found`, `human_needed`, or unparseable text): straight to `roadmap record`.
+
+The recording command is the only writer of a phase's completion:
 ```bash
-if [ -f ".planning/phases/{phase_dir}/deferred-items.md" ]; then
-  # Phase deferred some work — surface it
-  echo "⚠ Phase {N} has deferred items"
-  cat ".planning/phases/{phase_dir}/deferred-items.md"
-  # Ask: fix now or defer to gap closure?
-fi
+REC=$(node ~/.claude/get-shit-done/bin/gsd-tools.js roadmap record --phase {N} --result '<coordinator JSON, or the raw text>')
 ```
+It runs the on-disk truth for the phase (every plan has a SUMMARY with Self-Check passed and a tagged commit, `VERIFICATION.md` is `passed`, the ROADMAP checkbox is set by `phase complete`) and only then appends the completion event; a coordinator that says `completed` over a failed or missing verification is recorded as incomplete. Never append that event yourself with `execution-log event`: a logged claim without disk truth fails `gate pre-pr`. Branch on the returned `action`:
 
-**5a. UI QA gate (BLOCKING — owned by orchestrator, not coordinator):**
+| `action` | Do |
+|---|---|
+| `complete` | print the phase report (step 6) and continue the loop |
+| `gap_cycle` | continue the loop: `roadmap next` returns `gap_cycle` for this phase, once |
+| `park` | the phase and its dependents stay parked (K4): Auto (auto_mode, references/auto-mode.md K4): park, print the reason (human items or gaps after the closure cycle) to the chat, continue with independent phases; it ends the run with no PR, loudly, in `completion` |
+| `spawn_deferred` | the deferrals above |
+| `respawn_death` | step 4a |
+| `retry`, `debug` | `<step name="handle_failure">` |
+| `fail` | `<step name="handle_failure">` (escalated: dependents are skipped, the run goes on with independent phases) |
 
-Check if the phase needs UI QA using the deterministic, git-diff-derived phase gate (never a markdown/frontmatter self-report scan):
+Also read `deferred-items.md` in the phase directory if present and print it. Auto (auto_mode, references/auto-mode.md K5): a deferred item is fixed in this phase through the gap cycle, else it parks the phase (K4); never wave it through.
+
+**5a. UI QA gate (BLOCKING, owned by the orchestrator, not the coordinator):**
+
+Use the deterministic, git-diff-derived phase gate, never a markdown self-report scan:
 ```bash
 PHASE_GATE_RESULT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js verify phase-gate {N})
 NEEDS_QA=$(node -e "console.log(JSON.parse(process.argv[1]).ui_qa_required === true ? 'true' : '')" "$PHASE_GATE_RESULT")
 ```
+`ui_qa_required` is `has_ui || has_api` and the UI-QA mode is not `none`. Mode `none` means `stack.capabilities` is an object whose keys are all known and that has no `ui_qa` key; any other case (no capabilities object, a `ui_qa` key, an unknown key) is required, and `ui_qa_mode: legacy` (no `stack.capabilities`) resolves the project's configured QA agent. It is computed from the files the phase touched (UI by extension and route path; API paths from `stack.paths.api_globs`, or the built-in legacy patterns of a legacy project; tests and docs excluded), independent of what any PLAN or SUMMARY self-reports.
 
-`ui_qa_required` (same value as the legacy `charlotte_qa_required`) is `has_ui || has_api` and the UI-QA mode is not `none`. Mode `none` means `stack.capabilities` is an object whose keys are all known and that has no `ui_qa` key; any other case (no capabilities object, a `ui_qa` key, an unknown key) is required. It is computed from the phase's actual touched files: UI (extension + route-path detection) or API paths (`stack.paths.api_globs`; a legacy project uses the built-in `LEGACY_API_PATTERNS` of gsd-tools.js; plus `app/api/**` and `pages/api/**`; excluding tests and docs). It is independent of what any PLAN.md/SUMMARY.md self-reports — a `.tsx` file omitted from a plan's key-files still triggers this gate. Phases verified before `ui_qa_ran` existed (API phases in particular) fail this check on any re-gate or milestone audit: re-run Charlotte + gsd-verifier, or record a `deferred add --step charlotte_qa` waiver.
+**If `NEEDS_QA` is non-empty** and the phase-gate `failures` contain `missing_charlotte_qa`: the evidence `ui_qa_ran: true` is missing from `{N}-VERIFICATION.md` frontmatter. Run UI QA now:
+1. Start the services (`gsd-tools service-health start default`; the startup recipe is in the project's CLAUDE.md or `stack.services`) and the project's suite-start reset, before the UI QA agent spawns.
+2. Spawn the UI QA agent (`stack.capabilities.ui_qa.agent`; legacy: the project's configured QA agent) with `mode=ui-qa` on the phase's pages.
+3. Critical or high issues: a fix agent, then re-run (at most 3 rounds). All regression-tagged scenarios must pass.
+4. Re-spawn `gsd-verifier` so it re-issues `{N}-VERIFICATION.md` with `ui_qa_ran: true` (never hand-edit the frontmatter), re-run `verify phase-gate`, then 5b.
 
-**If NEEDS_QA is non-empty:**
+If the services will not start after the project's startup recipe: Auto (auto_mode, references/auto-mode.md K4): this is a human-only blocker; record the phase as `human_needed` through `roadmap record` and park it. If UI QA genuinely cannot run and proceeding is a deliberate decision, `gsd-tools deferred add {N} --step ui_qa --reason <reason> --approver <approver>` records the waiver; never set `ui_qa_ran: true` for QA that did not happen.
 
-The evidence is `ui_qa_ran: true` (a YAML boolean) in `{N}-VERIFICATION.md` frontmatter. CHECKPOINT.json is not read. If the phase-gate `failures` contain `missing_charlotte_qa`:
+**Why the orchestrator owns this gate:** a coordinator that overflows context drops UI QA as a late step. This runs after it returns, so overflow cannot bypass it.
 
-```
-⛔ UI QA GATE — BLOCKING
+**5b. Cross-phase integration checkpoint (every phase, no condition):**
 
-Phase {N} touched UI or API paths but VERIFICATION.md has no ui_qa_ran: true.
-Running UI QA now...
-```
+1. Run the unit and integration tests through the profile's commands (`stack_commands.test_all`, `stack_commands.test_file` on each integration test file the phase touched).
+2. If the phase touched frontend files: `stack_commands.frontend_test` and `stack_commands.build`.
+3. Every entry of `stack.gates[]` that needs no extra running stack.
 
-1. Start dev servers (detect from CLAUDE.md or plan files) and run the project's suite-start DB reset NOW — once the UI QA agent spawns, the UI QA lock hook blocks DB resets until it stops
-2. Spawn the UI QA agent (`stack.capabilities.ui_qa.agent`; legacy: the project's configured QA agent) with `mode=ui-qa` on phase UI pages
-3. If critical/high issues → spawn fix agent → re-run (max 3 rounds)
-4. Run regression: all `regression`-tagged UI QA scenarios must pass
-5. Only after pass → re-spawn `gsd-verifier` so it re-issues `{N}-VERIFICATION.md` with `ui_qa_ran: true` (never hand-edit the frontmatter) → re-run `verify phase-gate` → proceed to 5b
-
-If UI QA genuinely cannot be run (e.g. dev environment unavailable) and proceeding anyway is a deliberate, approved decision: this is a genuine mandatory-step skip, not a routine no-UI skip. Run `node ~/.claude/get-shit-done/bin/gsd-tools.js deferred add {N} --step ui_qa --reason <reason> --approver <approver>` as part of the skip — never logged-and-forgotten afterward. Do not set `ui_qa_ran: true` for QA that did not actually happen; record the waiver instead and let `verify phase-gate` honor it.
-
-**Why the orchestrator owns this gate:** Coordinators that overflow context drop UI QA as a late step and write "code-level verification" — which missed 5 real UI bugs in v0.1.9. The orchestrator runs this check AFTER the coordinator returns, so context overflow cannot bypass it.
-
-**5b. Cross-phase integration checkpoint (UNCONDITIONAL — every phase):**
-
-Run after EVERY completed phase. No conditional.
-
-1. Run unit + integration tests:
-```bash
-<stack_commands.test_all>
-<stack_commands.test_file> on each integration test file (test paths: `stack.paths`)
-```
-
-2. If phase touched frontend: run frontend tests + builds:
-```bash
-<stack_commands.frontend_test>
-<stack_commands.build>
-```
-
-If ANY failures → log `integration_test_failure` → **STOP. Fix before next phase.**
-
+Run only the commands the profile defines; a missing command is skipped, not an error. Any failure: log `integration_test_failure`, then record it as a failed phase so the ladder decides (`roadmap record --phase {N} --result '{"status":"failed","error":"integration_test_failure","step":"integration"}'`); never move to the next phase on a red gate. On green:
 ```bash
 node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
   --type cross_phase_integration \
   --data '{"phase": {N}, "tests_passed": true, "timestamp": "..."}'
 ```
 
-**Why unconditional:** The v0.1.9 conditional ("if migrations changed") was always true but never triggered — the orchestrator skipped it. Removing the condition removes the failure mode. Cost is ~30s/phase. Savings when 15 failures compound: hours.
-
-**6. Archive phase context:**
-- Compress completed phase to summary (SUMMARYs already created by executor)
-- Clean up ephemeral checkpoints
-- Present phase completion report:
-
-```
-## Phase {N} Complete: {Name}
-
-**Status:** Completed
-**Plans executed:** {M}
-**Duration:** ~{T} minutes
-
-### What was built
-{from phase SUMMARY.md one-liner}
-
-{If more phases: "Next: Phase {N+1}: {Name}"}
-```
+**6. Phase report:** print `Phase {N} complete: {name}` with the plans executed, the duration and the first non-blank, non-heading line of the phase SUMMARY; name the next phase if any. Remove ephemeral checkpoint files; keep the SUMMARYs and the log.
 </step>
 
 <step name="handle_failure">
-On phase failure:
+**Scope note:** `handle_failure` is entered ONLY for genuine `status: "failed"` task-logic failures. A detected coordinator death (session or quota limit, or CHECKPOINT.json staleness) is handled entirely by step 4a and never reaches this ladder: a death retried immediately here would die again before the reset. The one exception is an implausible reset time, which 4a sends here for visibility.
 
-**Scope note:** `handle_failure` is entered ONLY for genuine `status: "failed"` task-logic failures. A detected coordinator death (session/quota-limit death or CHECKPOINT.json staleness) is handled entirely by `execute_phases` step 4a above and never reaches this retry/debug/escalate ladder — a session/quota death retried immediately here would just die again before the reset, which is exactly the failure mode 4a exists to avoid. (The one exception: an implausible reset time detected in 4a explicitly falls through to this step, since that case genuinely needs human/escalation visibility rather than a blind respawn.)
+`roadmap record` already logged the failure (`phase_retry` or `phase_failed`) and applied the deterministic ladder, which is `gsd-tools execution-state record-failure --phase {N} --error "{error}" --step "{step}" --files "{files}" --raw` at phase granularity (no `--plan`). Auto (auto_mode, references/auto-mode.md K5): follow the returned `action`; there is no retry/skip/stop choice for a human:
 
-1. **Log failure:**
-```bash
-node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
-  --type phase_failed \
-  --data '{"phase": {N}, "error": "...", "timestamp": "..."}'
-```
+- **"retry"** (first failure): re-run the phase fresh; `roadmap next` returns it again. No prompt.
+- **"debug"** (second or later failure, below the ceiling): spawn `@~/.claude/get-shit-done/workflows/debug.md` non-interactively (`symptoms_prefilled: true, interactive: false, goal: find_and_fix`) with the phase-level context from `FAILURE.md` (error, last completed step, files touched) and `debug_file: .planning/debug/phase-{N}-attempt{attempts}.md`, then let `roadmap next` return the phase again.
+- **"escalate"** (at the ceiling; NEVER another debug attempt; `roadmap record` returns it as `fail`): hard stop for this phase. Append the debugger's findings (the latest `.planning/debug/phase-{N}-attempt*.md`) to the chat and to `FAILURE.md`. The phase is failed, its dependents are skipped, the roadmap continues with independent phases. Never block on a reply.
 
-2. **Call execution-state to get the auto-retry/debug/escalate decision** (phase-granularity, no `--plan`):
-   ```bash
-   STATE_RESULT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js execution-state record-failure --phase {N} --error "{error}" --step "{step}" --files "{files}" --raw)
-   ```
-   Branch on `action` (same retry/debug/escalate semantics as `execute-phase.md`, phase-level):
-   - **"retry"** (1st failure): log auto-retry, re-run `execute-phase {N}` fresh, no user prompt.
-   - **"debug"** (2nd+ failure, below the ceiling): auto-spawn @~/.claude/get-shit-done/workflows/debug.md non-interactively (`mode: symptoms_prefilled: true, interactive: false, goal: find_and_fix`) with phase-level context from `FAILURE.md` (error, last completed step, files touched), `debug_file: .planning/debug/phase-{N}-attempt{attempts}.md`, then re-run `execute-phase {N}`.
-   - **"escalate"** (at the ceiling — NEVER spawn another debug attempt): hard stop. Append the debugger's findings (from the most recent phase-level debug file, `.planning/debug/phase-{N}-attempt*.md`) to the chat message and to `FAILURE.md` below. Never block on a reply: this phase is marked failed, dependents are skipped, and the roadmap continues with independent phases.
-   - On success at any branch: `execution-state record-success --phase {N}`.
+On success at any branch, `roadmap record` calls `execution-state record-success --phase {N}` itself.
 
-3. **Report the failure in chat:** phase, error, last step, and (if escalated) the debugger findings. Do not wait for a reply.
-
-4. **Create detailed checkpoint:**
-```
-## Phase {N} Failed
-
-**Error:** {error}
-**Last completed step:** {step}
-**Files modified:** {files}
-{If action == escalate: **Debugger findings:** {findings}}
-
-### Options
-- "retry" — retry this phase with fresh context
-- "skip" — skip this phase and continue (may block dependent phases)
-- "stop" — stop execution, preserve partial state
-```
-
-5. **Store failure context for manual intervention:**
-- Checkpoint file at `.planning/phases/{phase_dir}/FAILURE.md`
-- Include: error, last step, files touched, suggested fixes, and (if `action == escalate`) the debugger's findings
+Report the failure in the chat: phase, error, last step and, if escalated, the debugger findings. Write `.planning/phases/{phase_dir}/FAILURE.md` with the error, last step, files touched, suggested fixes and (when escalated) the findings.
 </step>
 
 <step name="resume_capability">
-If previous execution incomplete (resume_state set):
+If `resume_state` is set (a previous run was interrupted): `{completed_phases, started_incomplete, parked}`, computed from the log intersected with on-disk truth.
 
-**Autonomous auto-select (checked first — see `<autonomous_resumption>`):** if `GSD_AUTONOMOUS=1` is set, skip the prompt below entirely and auto-select **"resume"**. NEVER auto-select "restart" — it overwrites EXECUTION_LOG.md and discards completed-phase history; on an unattended relaunch that would silently destroy prior work, so "restart" remains reachable only through an interactive human response. Log the auto-decision, then go straight to **Resume flow** below as if the human had typed "resume":
+Auto (auto_mode, references/auto-mode.md K2): resume. Never restart; restart overwrites EXECUTION_LOG.md and discards completed-phase history. Log it:
 ```bash
 node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
   --type autonomous_resume_auto_selected \
-  --data '{"phase": {resume_state.phase}, "phase_name": "{resume_state.phase_name}", "status": "{resume_state.status}", "reason": "GSD_AUTONOMOUS=1 set — auto-selected resume (never restart) so an unattended supervisor relaunch continues without a human present"}'
+  --data '{"phase": "{resume_state.phase}", "phase_name": "{resume_state.phase_name}", "status": "{resume_state.status}", "reason": "auto_mode: resumed, never restarted"}'
 ```
 
-**Otherwise (interactive — the default):**
+Otherwise (interactive) show the interrupted run (last phase started, status, `.planning/EXECUTION_LOG.md`) and ask `Type "resume", "restart" (overwrites the log) or "stop".`
 
-```
-## Resume Previous Execution
-
-A previous roadmap execution was interrupted:
-- **Last phase started:** {resume_state.phase} ({resume_state.phase_name})
-- **Status:** {resume_state.status}
-- **Execution log:** .planning/EXECUTION_LOG.md
-
-### Resume Options
-- "resume" — continue from {next_phase_after_last}
-- "restart" — start fresh from beginning (overwrites log)
-- "stop" — exit without resuming
-```
-
-**Resume flow:**
-1. Find last `phase_complete` event in EXECUTION_LOG.md
-2. Skip all phases up to and including last complete
-3. Start from next incomplete phase
-4. Re-check all dependencies (may have changed)
+**Resume flow:** nothing is replayed from the log by hand. `roadmap next` skips every phase whose on-disk truth is complete, re-enters each started-but-incomplete phase through its own CHECKPOINT.json `resume_from` (the spawn carries the resume brief), and keeps parked phases parked unless `--retry-parked` was passed.
 </step>
 
 <step name="completion">
-After all phases complete (or all remaining skipped):
+Reached when `roadmap next` returns `integration_gate`, `pr` or `done`.
 
-0. **Disarm watchdogs:** `CronDelete` the status-tick and cleanup jobs armed in `arm_watchdogs` (keep them until release/tag finishes if the milestone close runs in this session).
+**A. Pre-PR quality gates** (`integration_gate`). Skip when `CURRENT_BRANCH` is the base branch (no PR from it; record `pr` as skipped in part B).
+```bash
+GATE_RESULT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js gate pre-pr)
+```
+Parse the JSON. If `action_required` is true: run EVERY check listed in `checks`; each must exit 0; run the full suite TWICE and both runs must be green (PR-time only; within phases one full run of every gate in `stack.gates[]` and `stack.commands.pre_pr_gate` per phase on the final tree; see gsd-test-protocol.md `test_cost_rule`). Then mark the gate:
+```bash
+node ~/.claude/get-shit-done/bin/gsd-tools.js gate pre-pr --mark-passed
+```
+Any check failing: stop, fix the failure, re-run from the beginning. There is no bypass; `--mark-passed` writes the marker to EXECUTION_LOG.md that the `pr` action requires, and `gate pre-pr` run again afterwards prints `"passed": true`.
 
-1. **Log roadmap complete:**
+**E2E regression gate:** runs only when `stack.capabilities.ui_qa` and at least one `stack.services[].launch` command exist. Start the services, run the UI QA regression command; every regression-tagged test must pass; on failure spawn a debug agent, fix, re-run (at most 3 attempts), and a red gate parks the run with the failure in the report. Demos follow `@~/.claude/get-shit-done/workflows/demo.md` section 2 for each phase of this run whose `*-DEMO.md` says `demo_recorded: false` (skip when `demo.mode` is `off`); a demo that cannot be recorded is reported, not blocking.
+
+**B. Pull request** (`pr`). `roadmap next` returns `base_branch` and `has_remote`.
+   - No remote, no `gh`, or `base_branch` null: skip it, not a failure. `roadmap record --kind pr --result '{"status":"skipped","reason":"no_remote"}'` (or `no_gh`, `no_base_branch`), and report the reason.
+   - Otherwise:
+     ```bash
+     git push -u origin "{CURRENT_BRANCH}"
+     gh pr create --base "{base_branch}" --title "feat: {roadmap_name}" --body "{summary of completed phases, one line each from the SUMMARYs; the phases parked, if any}"
+     ```
+     On success: `roadmap record --kind pr --result '{"status":"created"}'` and print `PR opened: {PR_URL}`. A failed `gh pr create` (auth, remote) is logged visibly and recorded as `{"status":"skipped","reason":"pr_create_failed"}`; the summary is not aborted.
+
+The loop then asks `roadmap next` again and gets `done`.
+
+**C. On `done`**
+
+1. Log the end of the run (the orchestrator is the only writer of this event):
 ```bash
 node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
   --type roadmap_complete \
-  --data '{"completed_phases": [...], "skipped_phases": [...], "timestamp": "..."}'
+  --data '{"completed_phases": [...], "parked_phases": [...], "complete": true|false, "timestamp": "..."}'
 ```
+`complete: false` means phases are parked or failed; there is then no PR and no milestone audit. A later run picks them up with `/gsd:execute-roadmap --auto --retry-parked` once the blocker is answered.
 
-1a. **Opus milestone audit (MANDATORY):** run `/gsd:audit-milestone` as a cross-phase review on Opus:
+2. **Milestone audit (MANDATORY when `complete` is true):**
 ```
 Agent(
   subagent_type="general-purpose",
-  model="opus",
+  model="{ruling_model}",
   description="Milestone audit",
   prompt="Execute the audit-milestone workflow from @~/.claude/get-shit-done/workflows/audit-milestone.md end-to-end for the current milestone. Return its status and gap list."
 )
 ```
-Include the audit status and gaps in the completion summary. `gaps_found` → next step is `/gsd:plan-milestone-gaps`, not `/gsd:complete-milestone`.
+A rejected spawn retries once on `{ruling_model_fallback}`. Include the audit status and gaps in the summary: `gaps_found` leads to `/gsd:plan-milestone-gaps`, not `/gsd:complete-milestone`.
 
-1b. **Auto-run analytics report:**
-
-Run the analytics report immediately after logging roadmap_complete, and print it to coordinator output for the user to review:
-
+3. **Analytics report** (best-effort):
 ```bash
 ANALYTICS_REPORT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js analytics report 2>/dev/null || echo "Analytics report unavailable")
-
-# Append a summary event to the execution log (best-effort)
-REPORT_LINES=$(echo "$ANALYTICS_REPORT" | wc -l | tr -d ' ')
-node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
-  --type analytics_report \
-  --data '{"report_lines": '"$REPORT_LINES"', "auto_generated": true}' 2>/dev/null || true
-
-# Print report to coordinator output
-echo ""
-echo "=== Analytics Report ==="
-echo "$ANALYTICS_REPORT"
-echo "========================"
-echo ""
+node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event --type analytics_report --data '{"auto_generated": true}' 2>/dev/null || true
+echo "=== Analytics Report ==="; echo "$ANALYTICS_REPORT"
 ```
 
-2. **Print the execution-complete summary to the chat:** completed/total, skipped, and one line per completed phase (first non-blank, non-heading line of its `*-SUMMARY.md`).
-
-3. **Pre-PR quality gates (programmatic enforcement):**
-
-Check current branch:
-```bash
-CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+4. **Completion summary** (print to the chat):
 ```
-
-If `CURRENT_BRANCH` is `main` or `master`: skip steps 3 and 4.
-
-Otherwise:
-
-```bash
-GATE_RESULT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js gate pre-pr)
-```
-
-Parse the JSON output. If `action_required` is true:
-- Run EVERY check listed in `checks` array
-- Each check must exit 0
-- Run the full suite TWICE — both runs must be green
-  (PR-time only. Within phases: one full run of every gate in `stack.gates[]` and `stack.commands.pre_pr_gate` per phase on the final tree; per-plan runs are affected files plus one bucket. See gsd-test-protocol.md `test_cost_rule`.)
-- After both runs pass, mark the gate:
-```bash
-node ~/.claude/get-shit-done/bin/gsd-tools.js gate pre-pr --mark-passed
-```
-
-If any check fails: **STOP. Fix the failure. Re-run from the beginning.**
-
-There is NO bypass. The `gate pre-pr --mark-passed` command writes a marker to EXECUTION_LOG.md.
-The PR creation step below checks for this marker.
-
-### E2E Regression Gate (Web Projects)
-
-**Before marking the gate as passed:**
-
-1. Start the frontend dev servers (required for UI QA):
-```bash
-<each stack.services[].launch command> &
-# Wait for both to be ready
-```
-
-2. Run the UI QA regression tests:
-```bash
-the UI QA regression command (`stack.capabilities.ui_qa`)
-```
-
-3. ALL regression-tagged tests must PASS
-4. If any fail:
-   - Show failure report
-   - Spawn debug agent to diagnose
-   - Create fix plan
-   - Execute fixes
-   - Re-run regression
-   - Max 3 attempts before escalating to user
-5. This gate is NON-NEGOTIABLE for web projects — no PR without green regression
-6. Demos (same stack window, after regression is green; skip when `demo.mode` is `off`): follow `@~/.claude/get-shit-done/workflows/demo.md` section 2 for every phase of this run whose `*-DEMO.md` says `demo_recorded: false`, one at a time, then section 3 (rollup; the orchestrator prints it to the chat). A demo that cannot be recorded stays script-only and is reported; it does not block the PR.
-
-4. **Push branch and open PR (requires gate marker):**
-
-```bash
-# Verify gate was passed
-GATE_CHECK=$(node ~/.claude/get-shit-done/bin/gsd-tools.js gate pre-pr)
-if echo "$GATE_CHECK" | grep -q '"passed": true'; then
-  git push -u origin {CURRENT_BRANCH}
-  gh pr create ...
-else
-  echo "ERROR: Quality gates not passed. Run all checks first."
-  echo "$GATE_CHECK"
-  exit 1
-fi
-```
-
-Then create PR:
-```bash
-gh pr create \
-  --title "feat: {roadmap_name}" \
-  --body "## Summary
-
-Automated roadmap execution complete.
-
-**Phases completed:** {completed_count}/{total_phases}
-**Phases skipped:** {skipped_count}
-
-### What was built
-{One line per completed phase from SUMMARY.md}
-
----
-🤖 Generated by GSD execute-roadmap" \
-  --base main
-```
-
-Capture the PR URL from output. If `gh pr create` fails (no auth, no remote, etc.): log the error visibly and continue — don't abort the summary.
-
-If the PR was created, print `PR opened: {PR_URL}` in chat.
-
-4. **Present completion summary:**
-```
-## Roadmap Execution Complete
+## Roadmap Execution {Complete | Stopped with parked phases}
 
 **Phases completed:** {N}/{total}
-**Phases skipped:** {M}
-**Total duration:** ~{T} minutes
+**Parked or failed:** {list, each with its reason and what the owner must answer}
+**PR:** {url | skipped: reason}
 
 ### What was built
-{One line per completed phase from SUMMARY.md}
+{one line per completed phase from its SUMMARY}
 
-### Next Steps
-- PR: {PR_URL} — wait for CI to pass
-- Run /gsd:complete-milestone once CI is green
+### Next steps
+- PR: wait for CI, then /gsd:complete-milestone
+- Parked: answer the listed questions, then /gsd:execute-roadmap --auto --retry-parked
 ```
+A run that ends parked is the intended unattended outcome and must be loud here.
 
-5. **Clean up:**
-- Remove ephemeral checkpoint files
-- Preserve EXECUTION_LOG.md for history
+5. **Disarm watchdogs:** `CronDelete` the jobs armed in `arm_watchdogs` (keep them until release finishes if the milestone close runs in this session). Skip when they were never armed.
+
+6. **Clean up:** remove ephemeral checkpoint files; keep EXECUTION_LOG.md.
 </step>
 
 </process>
 
 <context_efficiency>
-Coordinator: ~10-15% context. Each phase sub-coordinator: fresh 200k context window. No state leaks between phases. Execution log is the only shared state — JSONL for streaming append without full-file reads.
+Orchestrator: about 10-15% context. Each phase coordinator gets a fresh window. The execution log is the only shared state, JSONL for streaming append without full-file reads.
 </context_efficiency>
 
 <failure_handling>
-- **ROADMAP.md missing:** Error immediately, no execution
-- **Phase sub-coordinator fails:** Present options (retry/skip/stop), preserve partial state
-- **Dependency chain breaks:** Phase N failed means Phase N+1 may also fail — user chooses continue or stop
-- **Interrupted execution:** Resume via EXECUTION_LOG.md scan on next run
-- **All phases fail:** Systemic issue — stop, report, suggest investigation
-- **classifyHandoffIfNeeded false failure:** Agent reports failed but error is Claude Code bug — spot-check SUMMARY.md + commits — if pass, treat as success
+- **ROADMAP.md missing:** error immediately, no execution.
+- **Coordinator fails:** the deterministic ladder of `handle_failure`; partial state is preserved on disk.
+- **Dependency chain breaks:** a failed or parked phase blocks only its dependents; independent phases continue.
+- **Interrupted run:** re-run `/gsd:execute-roadmap`; `roadmap next` resumes from disk truth and the log.
+- **All phases fail:** a systemic issue: stop, report, suggest investigation.
+- **classifyHandoffIfNeeded false failure:** an agent reports failed but the error is a runtime bug: spot-check SUMMARY.md and the commits; if they pass, treat it as success.
 </failure_handling>
 
-<resumption>
-Re-run `/gsd:execute-roadmap` → init detects EXECUTION_LOG.md with incomplete state → resume_state set → present resume prompt → user chooses "resume" → skip completed phases → continue from next incomplete phase.
-
-EXECUTION_LOG.md is the source of truth for execution state. Each phase start/complete event timestamped and logged. Enables post-mortem analysis of execution history.
-</resumption>
-
 <parallel_execution>
-When `parallel_opportunities` contains multiple phases:
-- Phases with no mutual dependencies can run simultaneously
-- Spawn multiple sub-coordinators in parallel via Agent()
-- Wait for all to complete before proceeding to dependent phases
-- Handle mixed results: some pass, some fail, some blocked
-
-**Parallelism limits (ENFORCED):**
-
-| Phase type | Max parallel | Rationale |
-|------------|-------------|-----------|
-| Schema-only (migrations, RPCs, no service handler) | 3 | Low context, independent schemas |
-| Feature (DB + service handler + tests) | 2 | High context, shared handler file |
-| UI (frontend components + pages) | 2 | UI QA contention, shared dev server |
-
-When the orchestrator identifies N parallelizable phases:
-- If N > max_parallel for the type: split into batches of max_parallel
-- Run batch 1, wait for all to complete + pass gates (5a, 5b)
-- Then run batch 2
-
-**Why not more:** v0.1.9 ran 3 feature phases in parallel — 2 of 3 had context issues. The coordinator's 200k context window is consumed by: reading existing code (~40%), planning (~20%), executing (~30%), verifying (~10%). With complex feature phases, 200k is barely enough for 1 full lifecycle. Parallel doesn't help if coordinators overflow.
+`roadmap next` returns one phase at a time and `parallel_opportunities` is always empty: the run is sequential. Parallelism between independent phases is the project's decision (its CLAUDE.md or rules set the ceiling and the file-claim protocol); never run two coordinators in one phase.
 </parallel_execution>
