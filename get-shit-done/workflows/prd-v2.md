@@ -5,6 +5,10 @@ Turn a concept, a draft file or a URL into a PRD at `.planning/prds/pending/{slu
 <inputs>
 Parse `$ARGUMENTS`:
 - `--brief <file>`, `--siblings <dir> [<dir> ...]`, `--slug <slug>`: optional flags.
+- `--index <file>`: a prebuilt context index (the scout's output format). When given, Step 0.4 reads it and spawns no scout.
+- `--coordinated`: a coordinator runs several PRDs at once. Do not run `git`, `decisions render` or `decisions digest`; write only this PRD and ledger records (`decisions add`); the coordinator renders, digests and commits.
+
+All paths are relative to the project root (the directory that holds `.planning/`).
 - Everything else is `concept`: starts with `http://` or `https://` → fetch it; an existing file path → read it; otherwise raw text.
 
 A draft file may carry its own slug (a `# Draft: {slug}` heading or a `slug:` line), scope notes, gaps and mockup paths. Use them.
@@ -25,8 +29,11 @@ Every gap is closed by the first rung that answers it:
 
 Classes of question:
 - **Money, auth, security, RNG:** never wait. Send to the ruling route in `decisions-protocol.md` and record the returned `D-`.
-- **Critical:** strategic, business or legal, and irreversible (examples: target markets, a compliance position, a monetisation rule, whether the feature should exist, a public contract). Record as an `A-` with `--reversibility irreversible` and the default you would defend, keep working on that default, and put it on the approval screen (Step 5). These are the only questions the CEO is asked.
-- **Everything else:** decide (rung 7). Do not ask.
+- **Critical:** the CEO's call (strategy, business model, a legal or compliance position) and expensive to undo after launch (examples: target markets, a monetisation rule, whether the feature should exist, a public contract, who signs off legal texts). Legal and compliance questions belong here, not on the ruling route. Record as an `A-` with `--reversibility irreversible` and the default you would defend, keep working on that default, and put it on the approval screen (Step 5). These are the only questions the CEO is asked.
+- **Everything else:** decide (rung 7). Do not ask. A choice that follows from a decision already in the brief or baseline is not a question at all: apply it and cite the brief.
+
+Ledger size: record an `A-` only for a choice that is costly or irreversible to change. A cheap default is stated in the acceptance criteria and gets no record. More than 8 records for one PRD means cheap choices are being logged.
+An `A-` written here has no phases yet; it is mapped at milestone review (`decisions map`), as the protocol says.
 
 A question that the brief, the baseline or a sibling PRD already answers is not a gap. A critical question already recorded for the product is cited by its id, not asked again.
 
@@ -43,7 +50,7 @@ Unattended (`GSD_AUTONOMOUS=1`): never stop; Step 5 approval is `assumed`.
 
 3. `mkdir -p .planning/prds/pending .planning/prds/done`. If `~/.claude/get-shit-done/templates/prd-v2.md` is missing, print the path and stop: the installation is incomplete.
 
-4. **Context scout.** One Haiku agent (`general-purpose`, `model: "haiku"`), always, so sibling files never load into this context:
+4. **Context scout.** With `--index`, read that file and `ls .planning/prds/pending`, then skip to item 5. Otherwise one Haiku agent (`general-purpose`, `model: "haiku"`), so sibling files never load into this context:
 
    ```
    Goal: build the context index for a PRD about: {concept, first 300 chars}.
@@ -61,7 +68,7 @@ Unattended (`GSD_AUTONOMOUS=1`): never stop; Step 5 approval is `assumed`.
 
    If the agent fails, do the same search yourself with `ls` and head-of-file reads, limited to the same folders.
 
-5. Read the brief in full (it is one file). Read `.planning/prds/BASELINE.md` if it exists. Read in full only the siblings listed under OVERLAPS, at most 5; for the rest the index line is enough.
+5. Read the brief in full (it is one file). Read `.planning/prds/BASELINE.md` if it exists. Read in full only the siblings whose scope touches the concept, at most 5; for the rest the index line is enough. A sibling that exists both as a draft and in `pending/` or `done/` is read from `pending/` or `done/`. `siblings indexed` on the `**Inputs:**` line is the number of index lines.
 
 6. Create `.planning/prds/pending/{slug}.md` from the template; fill `{slug}`, `{date}`, `{concept_summary}` and the `**Inputs:**` line. The first line is `<!-- stage: initialized -->`.
 
@@ -105,15 +112,15 @@ Set the marker to `<!-- stage: pm -->`.
 
 2. **Stories.** Personas, their core actions, then `US-N` stories. Stay inside the concept's scope: an idea that belongs to a sibling becomes a line in the relationship table, not a story.
 
-3. **Decision points.** For each MVP story list the product choices with more than one reasonable answer (limits, defaults, states, permissions, copy tone, failure behaviour). Decide each one by the ladder. Record as `A-` the ones that are costly or irreversible to change, and the cheap ones whose default a reader would not guess; state the rest directly in the acceptance criteria.
+3. **Decision points.** For each MVP story list the product choices with more than one reasonable answer (limits, defaults, states, permissions, copy tone, failure behaviour). Decide each one by the ladder. Record as `A-` the ones that are costly or irreversible to change; state the cheap ones directly in the acceptance criteria.
 
-4. **Acceptance Criteria** per story: concrete checkboxes including failure and empty states. Backend behaviour → an `**API tests:**` line (happy path, auth failure, validation, error handling, edge cases). A page, form or interactive component → a `**UI QA:**` line (renders, key interactions, error states, responsive behaviour); use the project's UI QA tool name when the project `CLAUDE.md` names one. Each Success Metric has a criterion that makes its data exist.
+4. **Acceptance Criteria** per story: concrete checkboxes including failure and empty states. Backend behaviour → an `**API tests:**` line (happy path, auth failure, validation, error handling, edge cases). A page, form or interactive component → a `**UI QA:**` line (renders, key interactions, error states, responsive behaviour); use the project's UI QA tool name when the project `CLAUDE.md` names one. Each Success Metric has a criterion saying the event or record it is computed from is produced by this feature; collection and reporting belong to the product's analytics PRD when one exists.
 
 5. **UX Notes:** screens and their states in words. Add `References:` only for mockups that came with the input, with their real paths. No mockups is normal: say that visual design is done at implementation.
 
 6. **MVP Boundary:** decide it. Use the scope marks in the draft and the brief when present; otherwise MVP is the smallest set of stories that delivers the first Goal end to end. Every story appears in exactly one list. Moving something the source marked MVP out of MVP, or the reverse, is recorded as an `A-` (`costly`).
 
-7. **Non-Functional Requirements and Compliance:** what is specific to this PRD on top of the baseline: abuse cases, personal data handled, load expectation, accessibility, SEO for public surfaces, regulatory points per market. Cite the baseline; do not copy it.
+7. **Non-Functional Requirements and Compliance:** what is specific to this PRD on top of the baseline: abuse cases, personal data handled, load expectation, accessibility, SEO for public surfaces, regulatory points per market. Cite the baseline; do not copy it. End with a **Settings** list: the rules, limits, lists of values, texts and switches of this feature that staff change without a deploy, who may change each, and what stays fixed in code and why.
 
 Set the marker to `<!-- stage: po -->`.
 
@@ -135,7 +142,7 @@ Set the marker to `<!-- stage: complete -->`.
 
 Any open `A-` about money, auth, security or RNG goes to the ruling route first and is replaced by its `D-`. Run `decisions render`.
 
-**No critical question open for this PRD, or unattended:** write `<!-- approval: assumed {date} -->` under the stage marker, print `decisions digest` to the chat, run `decisions digest --mark-only`, go to Step 6. No stop.
+**No critical question open for this PRD, or unattended:** write `<!-- approval: assumed {date} -->` under the stage marker, print `decisions digest` to the chat, run `decisions digest --mark-only`, go to Step 6. No stop. With `--coordinated`, write the marker and skip render, digest and commit.
 
 **Critical questions open:** show one screen and stop:
 

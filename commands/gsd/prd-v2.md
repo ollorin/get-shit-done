@@ -1,7 +1,7 @@
 ---
 name: gsd:prd-v2
 description: Turn a concept or draft into a PRD without Q&A rounds - decides on its own, reads the product brief and sibling PRDs, asks the CEO only critical questions
-argument-hint: "<concept | file | URL> [--brief <file>] [--siblings <dir> ...] [--slug <slug>]"
+argument-hint: "<concept | file | URL> [--brief <file>] [--siblings <dir> ...] [--index <file>] [--slug <slug>] [--coordinated]"
 allowed-tools:
   - Read
   - Write
@@ -26,7 +26,9 @@ Differences from `/gsd:prd`:
 - Concept: raw text, a file path (a draft from a `prd-drafts/` folder works), or a URL. Required.
 - `--brief <file>`: product brief. Optional; found by a Haiku search when absent.
 - `--siblings <dir> ...`: folders holding other PRDs or drafts of the same product. Optional; found by a Haiku search when absent.
+- `--index <file>`: prebuilt sibling index; no scout is spawned.
 - `--slug <slug>`: optional override.
+- `--coordinated`: run under a coordinator that renders the ledger and commits.
 </objective>
 
 <execution_context>
