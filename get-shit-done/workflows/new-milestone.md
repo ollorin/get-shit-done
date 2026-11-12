@@ -421,7 +421,7 @@ Success criteria:
 2. [criterion]
 ```
 
-**Decision points (before approval).** Follow `Roadmap decision points` in `@~/.claude/get-shit-done/references/decisions-protocol.md` (the roadmapper's `## Decision Points` table); `--source milestone-review` stays as written there.
+**Decision points (before approval).** Follow `Roadmap decision points` in `@~/.claude/get-shit-done/references/decisions-protocol.md` (the roadmapper's `## Decision Points` table); `--source milestone-review` stays as written there. A risk-domain path is any path the product brief lists under Risk Domains (`risk_domains` in the init output); authentication/authorisation and security are always risk domains. When `risk_domains_source` is `builtin` (`project.risk_domains` in config.json is empty or absent), every path that mutates state is a risk-domain path. Tag every behaviour on a risk-domain path T0 (real-DB, mutation-proven).
 
 **Ask for approval** via AskUserQuestion:
 - "Approve" — Commit and continue

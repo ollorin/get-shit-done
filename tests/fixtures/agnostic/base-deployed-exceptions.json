@@ -50,7 +50,7 @@
   {
     "file": "scripts/dependency-scan-gate.mjs",
     "class": "pnpm",
-    "lines": [6, 20],
+    "lines": [7, 22],
     "reason": "generic lockfile names: the gate scans the lockfile of a package manager, whichever the project uses"
   },
   {
