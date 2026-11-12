@@ -53,7 +53,14 @@ describe('decisions ledger format', () => {
 describe('planner must cite decision ids', () => {
   test('good plan cites every id that names phase 12', () => {
     const res = checkPlan(load(LEDGER).records, '12', [read('12-01-PLAN.good.md')]);
-    assert.deepStrictEqual(res, { pass: true, phase: '12', missing: [], unknown: [], stale: [] });
+    assert.deepStrictEqual(res, { pass: true, phase: '12', missing: [], unknown: [], stale: [], unscoped_open: [] });
+  });
+
+  test('open unphased assumptions are listed as unscoped_open without failing the check', () => {
+    const records = [{ id: 'A-09', kind: 'assumption', status: 'open', phases: [], question: 'q?', default: 'd', reversibility: 'costly' }];
+    const res = checkPlan(records, '12', ['no cites']);
+    assert.strictEqual(res.pass, true);
+    assert.deepStrictEqual(res.unscoped_open, [{ id: 'A-09', question: 'q?', default: 'd', reversibility: 'costly', scope: 'unscoped' }]);
   });
 
   test('bad plan fails: missing D-01 and A-01, unknown D-09; exit code 1', () => {

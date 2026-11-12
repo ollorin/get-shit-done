@@ -330,7 +330,7 @@ issue:
 node "$HOME/.claude/get-shit-done/bin/decisions.js" check-plan --phase "$phase_number" "$phase_dir"/*-PLAN.md
 ```
 
-Non-zero exit is a blocker per id (`dimension: context_compliance`): `missing` = a `D-`/`A-` naming this phase that no plan cites, `unknown` = a cited id that does not exist, `stale` = a cited id that was superseded (`use` names the replacement). The script proves citation only: also read each cited record (`decisions list --phase "$phase_number"`) and raise a blocker when a task contradicts it, or when a task built on an `A-` hard-wires the default instead of isolating it behind one named seam.
+Non-zero exit is a blocker per id (`dimension: context_compliance`): `missing` = a `D-`/`A-` naming this phase that no plan cites, `unknown` = a cited id that does not exist, `stale` = a cited id that was superseded (`use` names the replacement). The script proves citation only: also read each cited record (`decisions list --phase "$phase_number"`) and raise a blocker when a task contradicts it, or when a task built on an `A-` hard-wires the default instead of isolating it behind one named seam. `unscoped_open` lists open assumptions that name no phase: not a failure by itself, but raise a blocker when a task depends on one's default without isolating it behind a seam.
 
 ## Dimension 8: Testing Mandate Compliance
 

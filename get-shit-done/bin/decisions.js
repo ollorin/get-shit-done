@@ -246,7 +246,11 @@ function checkPlan(records, phase, planTexts) {
   const unknown = [...cited].filter((id) => !ids.has(id));
   const stale = [...cited].filter((id) => ids.has(id) && !binding(ids.get(id)))
     .map((id) => ({ id, use: ids.get(id).superseded_by || ids.get(id).resolved_by || null }));
-  return { pass: missing.length + unknown.length + stale.length === 0, phase: String(phase), missing, unknown, stale };
+  // Open assumptions with no phase and no global flag never reach forPhase; surface them, informational only.
+  const unscopedOpen = records
+    .filter((r) => r.kind === 'assumption' && r.status === 'open' && r.global !== true && (!Array.isArray(r.phases) || r.phases.length === 0))
+    .map((r) => ({ id: r.id, question: r.question, default: r.default, reversibility: r.reversibility, scope: 'unscoped' }));
+  return { pass: missing.length + unknown.length + stale.length === 0, phase: String(phase), missing, unknown, stale, unscoped_open: unscopedOpen };
 }
 
 function digest(records) {
