@@ -809,6 +809,35 @@ objective: Manual review needed
     const output = JSON.parse(result.output);
     assert.strictEqual(output.error, 'Phase not found', 'should report phase not found');
   });
+
+  test('reads the same plan grammar verify plan-structure accepts (<task>, <objective>, files_modified)', () => {
+    const phaseDir = path.join(tmpDir, '.planning', 'phases', '03-api');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(phaseDir, '03-01-PLAN.md'),
+      `---
+wave: 1
+autonomous: true
+files_modified: [src/a.ts, src/b.ts]
+---
+
+<objective>
+Build the endpoint.
+
+Purpose: more.
+</objective>
+
+<tasks>
+<task type="auto"><name>One</name></task>
+<task type="auto"><name>Two</name></task>
+</tasks>
+`
+    );
+    const out = JSON.parse(runGsdTools('phase-plan-index 03', tmpDir).output);
+    assert.strictEqual(out.plans[0].objective, 'Build the endpoint.');
+    assert.strictEqual(out.plans[0].task_count, 2);
+    assert.deepStrictEqual(out.plans[0].files_modified, ['src/a.ts', 'src/b.ts']);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

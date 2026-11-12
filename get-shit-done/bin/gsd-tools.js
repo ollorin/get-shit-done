@@ -3551,9 +3551,11 @@ function cmdPhasePlanIndex(cwd, phase, raw) {
     const content = fs.readFileSync(planPath, 'utf-8');
     const fm = extractFrontmatter(content);
 
-    // Count tasks (## Task N patterns)
-    const taskMatches = content.match(/##\s*Task\s*\d+/gi) || [];
-    const taskCount = taskMatches.length;
+    // Same task grammar as `verify plan-structure`: <task> elements; legacy `## Task N` headings as fallback
+    const xmlTasks = content.match(/<task[\s>]/g) || [];
+    const taskCount = xmlTasks.length || (content.match(/##\s*Task\s*\d+/gi) || []).length;
+    const objectiveTag = content.match(/<objective>([\s\S]*?)<\/objective>/);
+    const objective = fm.objective || (objectiveTag ? (objectiveTag[1].trim().split(/\n\s*\n/)[0].replace(/\s+/g, ' ')) : null);
 
     // Parse wave as integer
     const wave = parseInt(fm.wave, 10) || 1;
@@ -3570,8 +3572,9 @@ function cmdPhasePlanIndex(cwd, phase, raw) {
 
     // Parse files-modified
     let filesModified = [];
-    if (fm['files-modified']) {
-      filesModified = Array.isArray(fm['files-modified']) ? fm['files-modified'] : [fm['files-modified']];
+    const rawFiles = fm.files_modified !== undefined ? fm.files_modified : fm['files-modified'];
+    if (rawFiles) {
+      filesModified = Array.isArray(rawFiles) ? rawFiles : [rawFiles];
     }
 
     const hasSummary = completedPlanIds.has(planId);
@@ -3583,7 +3586,7 @@ function cmdPhasePlanIndex(cwd, phase, raw) {
       id: planId,
       wave,
       autonomous,
-      objective: fm.objective || null,
+      objective,
       files_modified: filesModified,
       task_count: taskCount,
       has_summary: hasSummary,
