@@ -1133,6 +1133,27 @@ describe('dependency-vulnerability gate (agnostic-M-09 9.7)', () => {
     assert.strictEqual(run(widened).status, 1);
   });
 
+  test('P-x a dated baseline entry accepts the finding until its date, then blocks and is named; a malformed entry fails', () => {
+    const key = 'npm::sample-pkg::ADV-0001';
+    const cfg = { cve: { lockfiles: ['package-lock.json'] } };
+    const future = run(project(cfg, { baseline: { allowedFindings: [{ id: key, expires: '2999-01-01' }] } }));
+    assert.strictEqual(future.status, 0, future.stdout + future.stderr);
+    const past = run(project(cfg, { baseline: { allowedFindings: [{ id: key, expires: '2000-01-01' }] } }));
+    assert.strictEqual(past.status, 1);
+    assert.match(past.stderr, /EXPIRED baseline entry npm::sample-pkg::ADV-0001/);
+    assert.strictEqual(run(project(cfg, { baseline: { allowedFindings: [{ id: key, expires: 'soon' }] } })).status, 1);
+  });
+
+  test('P-y stack.cve.exclude_paths drops a lockfile (or directory prefix) from the scan; the rest is still scanned', () => {
+    const p = project({ cve: { lockfiles: ['package-lock.json', 'spike/package-lock.json'], exclude_paths: ['spike'] } }, { out: scanOut([]) });
+    const r = run(p);
+    assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+    const argv = p.argv();
+    assert.strictEqual(argv.length, 1);
+    assert.ok(!argv[0].includes('spike'));
+    assert.strictEqual(run(project({ cve: { lockfiles: ['package-lock.json'], exclude_paths: 'spike' } })).status, 1);
+  });
+
   test('P-f a MODERATE finding does not block; a severity_floor of MODERATE makes it block', () => {
     const moderate = [{ id: 'ADV-0002', database_specific: { severity: 'MODERATE' } }];
     assert.strictEqual(run(project({ cve: { lockfiles: ['package-lock.json'] } }, { out: scanOut(moderate) })).status, 0);

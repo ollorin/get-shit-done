@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 // Dependency-vulnerability gate: scans each lockfile with osv-scanner and fails on any finding at or above the severity
 // floor that is not in the accepted-findings baseline (.planning/cve-baseline.json, { "allowedFindings": ["<ecosystem>::<package>::<id>"] };
-// absent means empty). FAIL-CLOSED: a scan that could not complete (no output, non-JSON, no "results" array) blocks.
+// absent means empty; an entry may also be { "id": "<key>", "expires": "YYYY-MM-DD" }: once past its date it no longer accepts the
+// finding, so the gate blocks again and names the expired entry). FAIL-CLOSED: a scan that could not complete (no output, non-JSON, no "results" array) blocks.
 // Facts come from .planning/config.json, key stack.cve (one JSON.parse; unreadable or non-JSON config is a failure):
 //   lockfiles (default: every tracked file named package-lock.json, pnpm-lock.yaml, yarn.lock, poetry.lock, requirements.txt,
-//   go.mod, Cargo.lock or Gemfile.lock), severity_floor (HIGH), allow_missing_scanner (false).
+//   go.mod, Cargo.lock or Gemfile.lock), severity_floor (HIGH), allow_missing_scanner (false),
+//   exclude_paths (default none: lockfile paths or directory prefixes dropped from the scan list, default or explicit).
 // Prerequisite: osv-scanner is an external binary GSD does not install. Without it the gate exits 1 (NOT INSTALLED) unless
 // stack.cve.allow_missing_scanner is true, which turns that one case into a SKIPPED line and exit 0.
 // The scanner command differs by version: v1 `osv-scanner --format json -L <lockfile>`, v2 `osv-scanner scan source -L <lockfile>
@@ -158,14 +160,34 @@ function readJson(file, what) {
   try { return JSON.parse(text); } catch (err) { throw new Fail(`${what} is not valid JSON: ${err.message}`); }
 }
 
+const isDatedEntry = (e) => e !== null && typeof e === 'object' && typeof e.id === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(String(e.expires));
+
+// Splits baseline entries into active keys and expired entries; a bare string never expires.
+export function splitBaseline(entries, today = new Date().toISOString().slice(0, 10)) {
+  const active = [];
+  const expired = [];
+  for (const e of entries) {
+    if (typeof e === 'string') active.push(e);
+    else if (e.expires < today) expired.push({ id: e.id, expires: e.expires });
+    else active.push(e.id);
+  }
+  return { active, expired };
+}
+
+export function applyExcludes(lockfiles, excludes = []) {
+  const norm = (p) => path.posix.normalize(String(p).replace(/\\/g, '/')).replace(/\/+$/, '');
+  const drop = excludes.map(norm);
+  return lockfiles.filter((f) => !drop.some((x) => norm(f) === x || norm(f).startsWith(`${x}/`)));
+}
+
 function readBaseline(root) {
   const file = path.join(root, BASELINE);
-  if (!fs.existsSync(file)) return [];
+  if (!fs.existsSync(file)) return { active: [], expired: [] };
   const parsed = readJson(file, BASELINE);
-  if (!Array.isArray(parsed?.allowedFindings) || !parsed.allowedFindings.every((k) => typeof k === 'string')) {
-    throw new Fail(`${BASELINE} needs allowedFindings: an array of strings`);
+  if (!Array.isArray(parsed?.allowedFindings) || !parsed.allowedFindings.every((k) => typeof k === 'string' || isDatedEntry(k))) {
+    throw new Fail(`${BASELINE} needs allowedFindings: an array of strings or { "id", "expires": "YYYY-MM-DD" } objects`);
   }
-  return parsed.allowedFindings;
+  return splitBaseline(parsed.allowedFindings);
 }
 
 function trackedLockfiles(root) {
@@ -179,7 +201,9 @@ function readSettings(root) {
   const cve = config?.stack?.cve ?? {};
   const floor = cve.severity_floor === undefined ? 'HIGH' : String(cve.severity_floor).toUpperCase();
   if (floor === 'UNKNOWN' || !(floor in SEVERITY_RANK)) throw new Fail(`stack.cve.severity_floor ${cve.severity_floor} is not one of LOW, MODERATE, HIGH, CRITICAL`);
-  const lockfiles = cve.lockfiles ?? trackedLockfiles(root);
+  const excludes = cve.exclude_paths ?? [];
+  if (!Array.isArray(excludes) || !excludes.every((x) => typeof x === 'string' && x.length > 0)) throw new Fail('stack.cve.exclude_paths must be an array of non-empty path strings');
+  const lockfiles = applyExcludes(cve.lockfiles ?? trackedLockfiles(root), excludes);
   return { lockfiles, floor, allowMissing: cve.allow_missing_scanner === true };
 }
 
@@ -209,7 +233,8 @@ function main() {
     return 1;
   }
   const helpText = `${help.stdout}\n${help.stderr}`;
-  const baseline = readBaseline(root);
+  const { active: baseline, expired } = readBaseline(root);
+  for (const e of expired) console.error(`  ! EXPIRED baseline entry ${e.id} (expired ${e.expires}): it no longer accepts the finding`);
   const findings = [];
   const scanFailures = [];
   for (const lockfile of lockfiles) {
