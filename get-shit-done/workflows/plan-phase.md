@@ -405,7 +405,7 @@ Agent(
 
 ## 8b. Light path for trivial gap closure
 
-When `--gaps` and the gap list holds at most 4 small, independent fixes (each a few lines in one or two files, no new module, none in a high-stakes domain): spawn the planner for ONE plan covering all of them, skip the plan-checker round (step 10), and hand it straight to execute-phase `--gaps-only` (executor, then verifier). Anything larger, or any fix touching auth/money/data schema, takes the full path. Record `light gap path: {n} fixes, no checker round` in the plan's `<objective>`.
+When `--gaps` and the gap list holds at most 4 small, independent fixes (each a few lines in one or two files, no new module, none in a high-stakes domain): spawn the planner for ONE plan covering all of them, skip the plan-checker round (step 10), and hand it straight to execute-phase `--gaps-only` (executor, then verifier). Anything larger, or any fix in a risk-domain path or touching a data schema, takes the full path. Record `light gap path: {n} fixes, no checker round` in the plan's `<objective>`.
 
 ## 9. Handle Planner Return
 
