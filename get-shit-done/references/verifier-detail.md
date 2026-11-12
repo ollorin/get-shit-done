@@ -962,13 +962,14 @@ For each SUMMARY.md in the phase directory, extract key-files and task descripti
 | Signal type | Path pattern matches |
 |-------------|---------------------|
 | api_change | `api`, `route`, `handler`, `endpoint`, `router` |
-| ui_surface | `component`, `page`, `frontend`, `view`, `screen` |
+| ui_surface | `verify phase-gate` reports `has_ui: true` (UI files in the phase diff); a path word such as `page` or `view` does not qualify |
 | architecture | SUMMARY text contains: "architectural decision", "migration", "schema change", "major refactor", "new service", "design decision" |
 | refactoring | None of the above |
 
 Take the highest-priority signal as `DOCS_EXPECTED_SCOPE` (priority: api_change > ui_surface > architecture > refactoring).
 
 ```bash
+HAS_UI="<has_ui from the `verify phase-gate` JSON: true|false>"; export HAS_UI
 DOCS_EXPECTED_SCOPE="refactoring"  # default
 for summary in "$PHASE_DIR"/*-SUMMARY.md; do
   if [ -f "$summary" ]; then
@@ -978,7 +979,7 @@ for summary in "$PHASE_DIR"/*-SUMMARY.md; do
         const c = fs.readFileSync('$summary', 'utf8').toLowerCase();
         const files = (c.match(/[\w\-\/\.]+\.(ts|tsx|js|py|rb|go|java)/g) || []).join(' ');
         if (/api|route|handler|endpoint|router/.test(files)) { console.log('api_change'); }
-        else if (/component|page|frontend|view|screen/.test(files)) { console.log('ui_surface'); }
+        else if (process.env.HAS_UI === 'true') { console.log('ui_surface'); }
         else if (/architectural decision|migration|schema change|major refactor|new service|design decision/.test(c)) { console.log('architecture'); }
         else { console.log('refactoring'); }
       } catch(e) { console.log('refactoring'); }
