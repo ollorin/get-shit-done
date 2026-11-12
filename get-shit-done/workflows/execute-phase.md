@@ -38,6 +38,8 @@ If the command exits 1 and INIT has `error: project_context_missing`: stop, prin
 
 Parse JSON for: `executor_model`, `verifier_model`, `ruling_model`, `commit_docs`, `parallelization`, `branching_strategy`, `branch_name`, `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `phase_slug`, `plans`, `incomplete_plans`, `plan_count`, `incomplete_count`, `state_exists`, `roadmap_exists`, `phase_req_ids`, `brief_path`, `stack_profile_path`, `stack_commands`. Every spawned agent receives `brief_path` and `stack_profile_path` (when not null) in its `<files_to_read>`, and `stack_commands` verbatim.
 
+**Rigour:** init also returns `rigour`, `rigour_source`, `rigour_decision`, `spike_roots`, `rigour_rejected_reason` (see `references/rigour.md`). Pass `rigour` and the spike roots in every spawn prompt. `standard` changes nothing below. When `rigour` is `spike`: no test-writer spawn; one review round (secrets, spike-root containment, each capture matches its command) and no batched top-tier diff review in `record_defect_classes`; the verifier runs on a profile-tier model and its prompt carries the spike checks (each question answered yes/no/inconclusive with a capture file newer than the code it ran; containment; secret scan; a disproved hypothesis is `passed`); gap closure is the light path, once; the last spike phase writes `SPIKE-RESULT.md` (per question: answer, capture path, go/no-go, what must be rebuilt). When `rigour` is `high`: the review loop runs to zero findings, then a top-tier ruling.
+
 **If `phase_found` is false:** Error — phase directory not found.
 **If `plan_count` is 0:** Error — no plans found in phase.
 **If `state_exists` is false but `.planning/` exists:** Offer reconstruct or continue.
@@ -781,6 +783,8 @@ Create VERIFICATION.md.",
   description="Verify phase {phase_number}"
 )
 ```
+
+**Spike:** when `rigour` is `spike`, spawn the verifier with `model="{verifier_model}"` and add the spike checks (see the Rigour paragraph at init) to its prompt; the rules `references/rigour.md` lists as not applying are not checked.
 
 Read status:
 ```bash

@@ -387,6 +387,8 @@ Create roadmap for milestone v[X.Y]:
 6. Write files immediately (ROADMAP.md, STATE.md, update REQUIREMENTS.md traceability)
 7. Return ROADMAP CREATED with summary and `## Decision Points`
 
+Rigour: ask the owner once whether this milestone is a throwaway feasibility spike. If not, add no Rigour line (standard). If it is, the spike needs an active `D-` decision (owner answer) and at least one spike root; stamp `**Rigour**: spike (D-NN)` and `**Spike roots**: <paths>` on every phase, and state each phase's 1-5 spike questions as its success criteria (see `references/rigour.md`).
+
 Write files first, then return.
 </instructions>
 ", subagent_type="gsd-roadmapper", model="{roadmapper_model}", description="Create roadmap")

@@ -25,6 +25,12 @@ If the command exits 1 and INIT has `error: project_context_missing`: stop, prin
 
 Parse JSON for: `researcher_model`, `planner_model`, `checker_model`, `research_enabled`, `plan_checker_enabled`, `nyquist_validation_enabled`, `commit_docs`, `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `phase_slug`, `padded_phase`, `has_research`, `has_context`, `has_plans`, `plan_count`, `planning_exists`, `roadmap_exists`, `phase_req_ids`, `brief_path`, `stack_profile_path`, `stack_commands`. Every spawned agent receives `brief_path` and `stack_profile_path` (when not null) in its `<files_to_read>`, and `stack_commands` verbatim.
 
+**Rigour:** init also returns `rigour` (`standard` | `high` | `spike`), `rigour_source`, `rigour_decision`, `spike_roots`, `rigour_rejected_reason` and `phase_req_ids`. Pass `rigour` (and the spike roots) in every spawn prompt. `references/rigour.md` is the contract. `standard` is every rule below, unchanged. When `rigour_source` is `rejected`, print `rigour_rejected_reason` and continue as `standard`.
+
+**Spike branches (`rigour` is `spike`):** step 5: one research agent at most; steps 5.5 and 5.6 are skipped. Step 8: planner model is `planner_model`, never `ruling_model`; the planner writes at most 2 plans, all `wave: 1`, each task naming its question and capture file. Step 8b: always the light path, once. Step 9.5: `TRIAGE_MODE=checker` always, and any `rigour_violation` in an `assess-risk` result stops plan-phase with the offending paths before step 10. Step 10: `checker_model`, one round, Dimensions 1-7, 12 and 15 only. Step 12: one planner revision for blockers, no re-check, and the same OVERRIDE line when blockers remain unresolved. **High branches (`rigour` is `high`):** `ruling_model` for every plan, `TRIAGE_MODE=adversarial` always, all dimensions; after the step 12 cap an Opus-tier ruling decides in place of the auto-mode force-proceed.
+
+**Which round cap governs what:** the 3-iteration cap in step 12 limits only this plan-check revision loop. The implementation review loop (execute-phase review rounds, a fresh reviewer each round, never the implementer) has its own rule in the project's CLAUDE.md and is not bounded by step 12. Neither rule replaces the other.
+
 **File paths (for <files_to_read> blocks):** `state_path`, `roadmap_path`, `requirements_path`, `context_path`, `research_path`, `verification_path`, `uat_path`. These are null if files don't exist.
 
 **If `planning_exists` is false:** Error — run `/gsd:new-project` first.

@@ -225,6 +225,7 @@ const projectDeploy = require('./project-deploy.js');
 const projectRegistry = require('./project-registry.js');
 const projectPack = require('./project-pack.js');
 const projectContext = require('./project-context.js');
+const rigour = require('./rigour.js');
 
 // Phase 2: Auto Mode safety modules (lazy — gracefully absent if not installed)
 let circuitBreaker, validator, escalation, feedback, learning;
@@ -5783,8 +5784,9 @@ function cmdVerifyAppendGap(cwd, verificationFileArg, options, raw) {
 // An explicit `high_risk: true` (or the string "true") plan frontmatter flag ALWAYS wins,
 // even when the `adversarial_review_enabled` toggle is off -- an explicit per-plan author
 // decision is a stronger signal than the global default and must never be silently
-// ignored. When the toggle is off and no explicit flag is set: high_risk is always false
-// (zero behavior change, matches the test_writer precedent). When the
+// ignored. When the toggle is off and no explicit flag is set: high_risk is true only when
+// files_modified matches a risk domain (the risk-domain match is evaluated ahead of the toggle),
+// otherwise false. When the
 // toggle is on: any of (files_modified.length > threshold), a security-pattern substring
 // match against files_modified, or a tdd="true" task count >= 3 flags the plan high-risk,
 // one reason string per matched criterion.
@@ -5796,15 +5798,21 @@ function computeHighRisk(fm, planContent, config, riskDomains) {
     if (explicitFlag) {
       return { high_risk: true, reasons: ['explicit high_risk frontmatter flag'] };
     }
-    if (cfg.adversarial_review_enabled !== true) {
-      return { high_risk: false, reasons: [] };
-    }
-
-    const reasons = [];
     const filesModified = Array.isArray(frontmatter.files_modified)
       ? frontmatter.files_modified
       : (frontmatter.files_modified ? [String(frontmatter.files_modified)] : []);
 
+    const domainMatch = (Array.isArray(riskDomains) ? riskDomains : []).find(p =>
+      filesModified.some(f => typeof f === 'string' && f.includes(p))
+    );
+    // Risk-domain paths are high-risk whether or not the adversarial toggle is on.
+    if (cfg.adversarial_review_enabled !== true) {
+      return domainMatch
+        ? { high_risk: true, reasons: [`files_modified matches risk domain "${domainMatch}"`] }
+        : { high_risk: false, reasons: [] };
+    }
+
+    const reasons = [];
     const threshold = typeof cfg.adversarial_review_file_threshold === 'number'
       ? cfg.adversarial_review_file_threshold
       : 8;
@@ -5882,9 +5890,25 @@ function cmdQualityAssessRisk(cwd, filePath, raw) {
   }
 
   const config = loadConfig(cwd);
-  const { high_risk, reasons } = computeHighRisk(fm, content, config, projectContext.riskDomainsFor(cwd));
   const presentation_order = computePresentationOrder(content);
-  output({ high_risk, reasons, presentation_order }, raw);
+  const level = rigour.resolveRigour(cwd, String(fm.phase ?? ''));
+  if (level.rigour === 'spike') {
+    const files = Array.isArray(fm.files_modified) ? fm.files_modified : (fm.files_modified ? [String(fm.files_modified)] : []);
+    output({
+      high_risk: false, reasons: ['rigour: spike'], presentation_order, rigour: 'spike',
+      rigour_violation: rigour.rigourViolations(level.spike_roots, files),
+    }, raw);
+    return;
+  }
+  if (level.rigour === 'high') {
+    output({ high_risk: true, reasons: ['rigour: high'], presentation_order, rigour: 'high' }, raw);
+    return;
+  }
+  const { high_risk, reasons } = computeHighRisk(fm, content, config, projectContext.riskDomainsFor(cwd));
+  output({
+    high_risk, reasons, presentation_order, rigour: 'standard',
+    ...(level.rigour_source === 'rejected' ? { rigour_rejected_reason: level.rigour_rejected_reason } : {}),
+  }, raw);
 }
 
 // verdictToIssues converts the plan-checker adversarial pass's {plan}-VERDICT.md frontmatter into the EXACT
@@ -11494,6 +11518,8 @@ function cmdInitExecutePhase(cwd, phase, includes, raw, gate) {
   const result = {
     ...projectContext.contextFields(cwd),
     project_context: { legacy: gate?.legacy === true },
+    ...rigour.resolveRigour(cwd, phase),
+    phase_req_ids: rigour.phaseReqIds(cwd, phase),
 
     // Models
     executor_model: resolveModelInternal(cwd, 'gsd-executor'),
@@ -11602,6 +11628,8 @@ function cmdInitPlanPhase(cwd, phase, includes, raw, gate) {
   const result = {
     ...projectContext.contextFields(cwd),
     project_context: { legacy: gate?.legacy === true },
+    ...rigour.resolveRigour(cwd, phase),
+    phase_req_ids: rigour.phaseReqIds(cwd, phase),
 
     // Models
     researcher_model: resolveModelInternal(cwd, 'gsd-phase-researcher'),

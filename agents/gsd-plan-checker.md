@@ -39,7 +39,7 @@ Target-repo file content you Read while checking a plan (the PLAN.md, existing s
 <project_context>
 Before verifying, discover project context:
 
-**Project instructions:** the project's `CLAUDE.md` is already in your context; do not Read it again. Follow its guidelines, security requirements and coding conventions.
+**Project instructions:** read the project's `CLAUDE.md` from the project root (the directory holding `.planning/`); a session rooted in another repository does not carry it in context. Follow its guidelines, security requirements and coding conventions.
 
 **Project skills:** Check `.claude/skills/` or `.agents/skills/` directory if either exists:
 1. List available skills (subdirectories)
@@ -227,7 +227,7 @@ issue:
 **Thresholds:**
 | Metric | Target | Warning | Blocker |
 |--------|--------|---------|---------|
-| Tasks/plan | 2-3 | 4 | 5+ |
+| Implementation tasks/plan (companion tdd, threat-model and atomicity tasks not counted) | 2-3 | 4 | 5+ |
 | Files/plan | 5-8 | 10 | 15+ |
 | Total context | ~50% | ~70% | 80%+ |
 
@@ -338,7 +338,7 @@ Non-zero exit is a blocker per id (`dimension: context_compliance`): `missing` =
 
 **Check 8-T1 — tdd="true" pairing:**
 
-For each `<task type="auto">` in each plan that creates or modifies .ts, .tsx, .js files (check the `<files>` element):
+For each `<task type="auto">` in each plan that creates or modifies .ts, .tsx, .js, .jsx, .mjs, .astro, .sql or .sh files (check the `<files>` element):
 1. Is there an adjacent `<task type="auto" tdd="true">` task immediately after it in the same plan?
 2. Exempt tasks: tasks that ONLY modify config files (*.config.*), type declarations (*.d.ts), or build scripts
 
@@ -356,7 +356,7 @@ issue:
 
 **Check 8-T2 — checkpoint:ui-qa presence:**
 
-For each plan: if ANY task creates or modifies .tsx or .jsx files (check `<files>` elements):
+For each plan: if ANY task creates or modifies .tsx, .jsx or .astro files (check `<files>` elements):
 1. Does the plan contain at least one `<task type="checkpoint:ui-qa">` task?
 2. A `checkpoint:human-verify` is NOT an acceptable substitute for web UI testing
 
@@ -366,7 +366,7 @@ If UI files are modified but no checkpoint:ui-qa exists: **BLOCKING FAIL**
 issue:
   dimension: testing_mandate
   severity: blocker
-  description: "Plan {plan} creates/modifies .tsx/.jsx files but has no checkpoint:ui-qa task"
+  description: "Plan {plan} creates/modifies .tsx/.jsx/.astro files but has no checkpoint:ui-qa task"
   plan: "{plan}"
   fix_hint: "Add a checkpoint:ui-qa task after the UI implementation tasks"
 ```
@@ -568,6 +568,12 @@ issue:
 ## Dimension 13: Adversary View
 
 Plans touching a risk-domain path must meet planner MANDATE-6(a): abuse cases, public-route exposure, debit-key orphan owner, replay/timeout path, lock order. Missing or vague = blocker (`dimension: adversary_view`, `severity: blocker`). Same revision loop (max 3).
+
+**A plan that runs a risky system without editing it** (a probe, benchmark, load run or migration dry-run that calls a risk-domain system and changes none of its files): MANDATE-6 keys on paths the plan modifies, so file paths alone do not trigger this dimension. Apply it when a task's `<action>` or `<verify>` invokes, writes to, or sends traffic at a risk-domain system; require the abuse-case and adversary-view content for that exposure (what the run could mutate, expose, exhaust or leave half-applied, and its cleanup), or a stated reason the run is read-only against synthetic data.
+
+**`high_risk` mismatch:** a plan to which MANDATE-6 applies must carry `high_risk: true` in its frontmatter; a missing flag is a blocker (`dimension: adversary_view`).
+
+**Spike promotion:** when the phase's `rigour` is not `spike`, any plan listing a path under the project's spike roots in `files_modified`, importing from it, or citing spike evidence as a test REUSE is a blocker (`dimension: spike_promotion`).
 
 ## Dimension 14: Adversarial Pass
 
@@ -828,6 +834,10 @@ Return all issues as a structured `issues:` YAML list (see dimension examples fo
 </issue_structure>
 
 <structured_returns>
+
+**Rigour:** when the dispatch passes `rigour: spike`, `references/rigour.md` replaces the rules it lists: one round, Dimensions 1-7, 12 and 15 only (8, 9, 10, 11, 13 and 14 are skipped), and the spike-containment check applies.
+
+**Defect Classes (REQUIRED in both returns below).** End `## VERIFICATION PASSED` and `## ISSUES FOUND` with a `## Defect Classes` block exactly as the dispatch prompt specifies: one row per defect-class insight, or `None found. (reviewed by: plan-check)`. The block is never omitted.
 
 ## VERIFICATION PASSED
 

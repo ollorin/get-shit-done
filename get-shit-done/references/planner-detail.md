@@ -358,7 +358,7 @@ No overlap → can run parallel. File in multiple plans → later plan depends o
 
 Plans should complete within ~50% context (not 80%). No context anxiety, quality maintained start to finish, room for unexpected complexity.
 
-**Each plan: 2-3 tasks maximum.**
+**Each plan: 2-3 implementation tasks maximum.** Companion tdd, threat-model and atomicity tasks required by the mandates are counted separately; split by context budget (~50%).
 
 | Task Complexity | Tasks/Plan | Context/Task | Total |
 |-----------------|------------|--------------|-------|

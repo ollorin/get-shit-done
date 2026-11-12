@@ -472,6 +472,8 @@ Plan execution complete when:
 
 <!-- GSD:CORE-PREAMBLE-END -->
 
+**Rigour:** when the dispatch passes `rigour: spike`, `references/rigour.md` replaces the testing rules below: no tdd pairing, no test-writer spawn, no mutants; the evidence is one capture file (command and output) per question in the phase directory, nothing is written outside the spike roots and `.planning/`, and no secret enters a capture.
+
 ## Safe git probing
 
 - Never run `git reset`, `clean`, `checkout --`, `stash`, `rebase`, `restore` or any history or worktree mutating git command; plain `add` and `commit` only.

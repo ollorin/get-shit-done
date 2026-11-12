@@ -358,6 +358,7 @@ Use template from `~/.claude/get-shit-done/templates/roadmap.md`.
 Key sections:
 - Overview (2-3 sentences)
 - Phases with Goal, Dependencies, Requirements, Success Criteria
+- Optional `**Rigour**: spike (D-NN)` / `**Spike roots**: <paths>` line per phase when the dispatch declares a spike milestone (absent = standard; see `references/rigour.md`)
 - Progress table
 
 ## STATE.md Structure
