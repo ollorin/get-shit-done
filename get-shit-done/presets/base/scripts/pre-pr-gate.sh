@@ -34,7 +34,10 @@ if ! CONFIG="$CONFIG" node -e '
   const one = (v) => String(v).replace(/[\t\r\n]+/g, " ").trim();
   const stack = (cfg && cfg.stack) || {};
   const cmds = stack.commands || {};
-  for (const k of ["typecheck", "lint", "test_all"]) if (typeof cmds[k] === "string" && cmds[k].trim() !== "") console.log("C\t" + k + "\t" + one(cmds[k]));
+  for (const k of ["typecheck", "lint", "test_all"]) {
+    if (cmds[k] === null || cmds[k] === "none") console.log("N\t" + k + "\t");
+    else if (typeof cmds[k] === "string" && cmds[k].trim() !== "") console.log("C\t" + k + "\t" + one(cmds[k]));
+  }
   const bad = [];
   if (stack.gates !== undefined && !Array.isArray(stack.gates)) bad.push("stack.gates is not an array");
   const gates = Array.isArray(stack.gates) ? stack.gates : [];
@@ -52,7 +55,9 @@ fi
 
 TAB=$(printf '\t')
 CMD_typecheck=""; CMD_lint=""; CMD_test_all=""
+UNCONFIGURED=""
 while IFS="$TAB" read -r kind a b; do
+  if [ "$kind" = N ]; then UNCONFIGURED="$UNCONFIGURED $a"; continue; fi
   [ "$kind" = C ] || continue
   case "$a" in
     typecheck) CMD_typecheck="$b" ;;
@@ -64,6 +69,7 @@ done < "$TMPD/profile.tsv"
 MISSING=0
 for key in typecheck lint test_all; do
   eval "val=\$CMD_$key"
+  case " $UNCONFIGURED " in *" $key "*) continue ;; esac
   if [ -z "$val" ]; then
     echo "NOT CONFIGURED: stack.commands.$key"
     MISSING=$((MISSING + 1))
@@ -73,6 +79,10 @@ if [ "$MISSING" -gt 0 ]; then
   echo "pre-pr-gate: $MISSING command(s) not configured in $CONFIG; set each, or the literal true to state there is none." >&2
   exit 1
 fi
+
+# An acknowledged "none" (null or "none") is skipped, never run and never counted as a pass: it is named in the stage
+# output and again in the final line.
+for key in $UNCONFIGURED; do echo "WARNING: stack.commands.$key is not configured yet (acknowledged none): skipped, not passed"; done
 
 FAILURES=""
 FAILED=0
@@ -97,7 +107,11 @@ run_check() {
 
 print_summary() {
   if [ "$FAILED" -eq 0 ]; then
-    echo "--- $1: ALL CHECKS PASSED ---"
+    if [ -n "$UNCONFIGURED" ]; then
+      echo "--- $1: PASSED, BUT NOT CONFIGURED (skipped):$UNCONFIGURED ---"
+    else
+      echo "--- $1: ALL CHECKS PASSED ---"
+    fi
     return 0
   fi
   echo "--- $1: $FAILED FAILURE(S) ---"
@@ -106,15 +120,17 @@ print_summary() {
 }
 
 echo "--- Stage 1: deterministic, once ---"
-run_check "typecheck (stack.commands.typecheck)" "$CMD_typecheck"
-run_check "lint (stack.commands.lint)" "$CMD_lint"
+[ -n "$CMD_typecheck" ] && run_check "typecheck (stack.commands.typecheck)" "$CMD_typecheck"
+[ -n "$CMD_lint" ] && run_check "lint (stack.commands.lint)" "$CMD_lint"
 if ! print_summary "Stage 1"; then
   echo "Stage 1 is red: stopping before the test stage. Fix the failures above and re-run: scripts/pre-pr-gate.sh"
   exit 1
 fi
 
 echo "--- Stage 2: flake-sensitive, twice ---"
-if run_check "test_all, run 1 (stack.commands.test_all)" "$CMD_test_all"; then
+if [ -z "$CMD_test_all" ]; then
+  :
+elif run_check "test_all, run 1 (stack.commands.test_all)" "$CMD_test_all"; then
   if ! run_check "test_all, run 2 (stack.commands.test_all)" "$CMD_test_all"; then
     cp "$LOG" "$TMPD/run2.log"
     if [ -f "$ROOT/scripts/log-pre-pr-disagreement.sh" ]; then

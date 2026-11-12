@@ -20,6 +20,10 @@ const REQUIRED_KEYS = Object.freeze([
 const KNOWN_PROJECT_KEYS = ['slug', 'owner_title', 'risk_domains', 'ruling_topics'];
 const KNOWN_STACK_KEYS = ['preset', 'preset_version', 'paths', 'commands', 'test_command_shapes', 'gates', 'services', 'capabilities', 'isolation', 'branch', ...NEW_STACK_KEYS];
 const KNOWN_COMMAND_KEYS = Object.freeze(['test_file', 'test_all', 'typecheck', 'lint', 'format', 'frontend_test', 'build', 'pre_pr_gate', 'search']);
+// A greenfield project has nothing to run yet: null or the literal 'none' acknowledges that for these four commands.
+// It passes the gate with a warning and is skipped visibly by consumers; it is never the silent pass a literal `true` is.
+const ACKNOWLEDGEABLE_COMMANDS = Object.freeze(['test_file', 'test_all', 'typecheck', 'lint']);
+const isNotConfigured = (v) => v === null || v === 'none';
 const COMMAND_PLACEHOLDERS = Object.freeze(['{root}', '{file}', '{paths}', '{project}']);
 const KNOWN_PATH_KEYS = Object.freeze(['backend', 'migrations', 'api_globs', 'e2e_scenarios', 'frontends']);
 const ARRAY_PATH_KEYS = Object.freeze(['api_globs', 'frontends']);
@@ -88,6 +92,7 @@ function commandsCheck(key, v) {
   return Object.keys(v).flatMap((name) => {
     const k = `${key}.${name}`;
     const value = v[name];
+    if (ACKNOWLEDGEABLE_COMMANDS.includes(name) && isNotConfigured(value)) return [];
     return [...commandValueProblems(k, value), ...(name === 'test_file' ? testFileProblems(k, value) : [])];
   });
 }
@@ -229,6 +234,10 @@ function unknownKeyWarnings(profile) {
   }).sort();
 }
 
+const notConfiguredWarnings = (profile) => ACKNOWLEDGEABLE_COMMANDS
+  .filter((name) => isNotConfigured(getProfileValue(profile, `stack.commands.${name}`)))
+  .map((name) => `stack.commands.${name}: not configured yet`);
+
 function report(configFound, missing, invalid, warnings) {
   const sortedMissing = [...missing].sort();
   const sortedInvalid = [...invalid].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
@@ -254,7 +263,7 @@ function validateProfile(profile) {
     return value === undefined ? [] : check(key, value);
   });
   const missing = REQUIRED_KEYS.filter((key) => getProfileValue(profile, key) === undefined);
-  return report(configFound, missing, [...topLevel, ...shape], unknownKeyWarnings(profile));
+  return report(configFound, missing, [...topLevel, ...shape], [...unknownKeyWarnings(profile), ...notConfiguredWarnings(profile)]);
 }
 
 function runCli(cwd, args) {
@@ -278,6 +287,8 @@ function runCli(cwd, args) {
 }
 
 module.exports = {
+  ACKNOWLEDGEABLE_COMMANDS,
+  isNotConfigured,
   REQUIRED_KEYS,
   KNOWN_COMMAND_KEYS,
   KNOWN_CAPABILITY_KEYS,

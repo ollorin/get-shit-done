@@ -126,6 +126,7 @@ export function withProfile(options, cwd = process.cwd()) {
   }
   const testCmd = c.testCmd ?? cfg?.stack?.commands?.test_file ?? null;
   const errorPattern = c.errorPattern ?? cfg?.stack?.mutation?.error_pattern ?? null;
+  if (testCmd === 'none') return fail('stack.commands.test_file is "none" (not configured yet): the project has no tests to mutate against; pass --test-cmd or set a real command');
   if (testCmd === null) return fail('no test command: pass --test-cmd "<command with {file}>" or set stack.commands.test_file');
   if (typeof testCmd !== 'string' || !testCmd.includes('{file}')) return fail('the test command must contain {file}');
   if (errorPattern !== null) { try { new RegExp(errorPattern); } catch { return fail('stack.mutation.error_pattern is not a valid regular expression'); } }

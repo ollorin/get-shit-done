@@ -87,6 +87,24 @@ function invalidKeys(report) {
 }
 
 describe('project-profile', () => {
+  for (const key of ['test_file', 'test_all', 'typecheck', 'lint']) {
+    for (const ack of [null, 'none']) {
+      test(`1-none ${key}=${JSON.stringify(ack)} passes the gate with a not-configured warning`, () => {
+        const p = validProfile();
+        p.stack.commands[key] = ack;
+        const r = profile.validateProfile(loaded(p));
+        assert.deepStrictEqual([r.ok, r.missing, r.invalid], [true, [], []]);
+        assert.deepStrictEqual(r.warnings, [`stack.commands.${key}: not configured yet`]);
+      });
+    }
+  }
+
+  test('1-none other command keys still reject null', () => {
+    const p = validProfile();
+    p.stack.commands.build = null;
+    assert.deepStrictEqual(invalidKeys(profile.validateProfile(loaded(p))).sort(), ['stack.commands.build']);
+  });
+
   test('1 full valid profile is ok with no missing, invalid or warnings', () => {
     const r = profile.validateProfile(loaded(validProfile()));
     assert.deepStrictEqual(r, { ok: true, config_found: true, missing: [], invalid: [], warnings: [] });

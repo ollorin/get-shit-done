@@ -481,6 +481,23 @@ describe('pre-PR gate skeleton and disagreement log (agnostic-M-08 8.7)', () => 
     assert.strictEqual(fs.existsSync(path.join(root, 'ran-typecheck')), false, 'nothing ran before the gap was reported');
   });
 
+  test('G-n acknowledged none (null or "none") is skipped with a visible warning, never run, and the summary says not configured', () => {
+    for (const commands of [
+      { typecheck: 'none', lint: 'true', test_all: 'true' },
+      { typecheck: 'true', lint: null, test_all: 'true' },
+      { typecheck: 'true', lint: 'true', test_all: 'none' },
+    ]) {
+      const root = project(commands);
+      const r = runGate(root);
+      const key = Object.keys(commands).find((k) => commands[k] === null || commands[k] === 'none');
+      assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+      assert.match(r.stdout, new RegExp(`WARNING: stack\\.commands\\.${key} is not configured yet`));
+      assert.match(r.stdout, /PASSED, BUT NOT CONFIGURED \(skipped\):/);
+      assert.doesNotMatch(r.stdout, /ALL CHECKS PASSED/);
+      assert.doesNotMatch(r.stdout, new RegExp(`PASS .*stack\\.commands\\.${key}\\)`));
+    }
+  });
+
   test('G-d test_all passing once and failing the second time fails the gate, writes no marker and appends one log line', () => {
     const root = project({ ...GREEN, test_all: 'if [ -f seen ]; then exit 1; else touch seen; fi' });
     const r = runGate(root);

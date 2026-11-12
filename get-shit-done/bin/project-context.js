@@ -11,7 +11,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { loadProfile, getProfileValue, validateProfile, KNOWN_CAPABILITY_KEYS } = require('./project-profile.js');
+const { loadProfile, getProfileValue, validateProfile, KNOWN_CAPABILITY_KEYS, ACKNOWLEDGEABLE_COMMANDS, isNotConfigured } = require('./project-profile.js');
 
 const BRIEF_REL = '.planning/PRODUCT-BRIEF.md';
 const ROOT_BRIEF_REL = 'PRODUCT-BRIEF.md';
@@ -53,7 +53,9 @@ function substituteRoot(commands, cwd) {
   return Object.fromEntries(
     Object.entries(commands).map(([name, command]) => [
       name,
-      typeof command === 'string' ? command.split('{root}').join(cwd) : command,
+      ACKNOWLEDGEABLE_COMMANDS.includes(name) && isNotConfigured(command)
+        ? null
+        : typeof command === 'string' ? command.split('{root}').join(cwd) : command,
     ]),
   );
 }
@@ -95,6 +97,8 @@ function contextFields(cwd) {
     brief_exists: briefExists,
     stack_profile_exists: profileExists,
     stack_commands: substituteRoot(getProfileValue(profile, 'stack.commands'), cwd),
+    commands_not_configured: ACKNOWLEDGEABLE_COMMANDS
+      .filter((name) => isNotConfigured(getProfileValue(profile, `stack.commands.${name}`))),
     owner_title: typeof title === 'string' ? title : null,
     ...effectiveRiskDomains(profile),
     ruling_topics: mergeDomains(ALWAYS_RISK, profile.project?.ruling_topics),
@@ -142,6 +146,7 @@ function contextGate(cwd, { legacy }) {
     legacy: legacy === true,
     missing,
     invalid,
+    warnings: report.warnings,
     adoptable: { brief: adoptableBrief(cwd) },
   };
 }
@@ -151,7 +156,7 @@ function gateFailure(gate) {
     error: 'project_context_missing',
     missing: gate.missing,
     invalid: gate.invalid,
-    hint: 'run /gsd:init-project, or pass --legacy to this init call; --legacy does not reach spawned agents or other processes, so export GSD_LEGACY=1 for those',
+    hint: 'run /gsd:init-project (a project with no code yet may set stack.commands.test_file/test_all/typecheck/lint to "none": passes with a warning), or pass --legacy to this init call; --legacy does not reach spawned agents or other processes, so export GSD_LEGACY=1 for those',
   };
 }
 

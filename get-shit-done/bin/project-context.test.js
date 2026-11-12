@@ -287,6 +287,7 @@ test('contextFields with invalid config.json yields nulls and false, never throw
       brief_exists: false,
       stack_profile_exists: false,
       stack_commands: null,
+      commands_not_configured: [],
       owner_title: null,
       risk_domains: ['auth', 'security'],
       risk_domains_source: 'builtin',
@@ -770,5 +771,22 @@ describe('adopting a root PRODUCT-BRIEF.md (init fixes B)', () => {
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe('acknowledged none commands reach agents as null (init fixes C)', () => {
+  test('contextFields nulls them and lists them; the gate passes with warnings', () => {
+    withScratch(JSON.stringify({
+      project: { slug: 'x', owner_title: 'o', risk_domains: [], ruling_topics: [] },
+      stack: { commands: { test_file: 'none', test_all: null, typecheck: 'none', lint: null, format: 'fmt' } },
+    }), (dir) => {
+      fs.mkdirSync(path.join(dir, '.planning'), { recursive: true });
+      const f = contextFields(dir);
+      assert.deepStrictEqual(f.stack_commands, { test_file: null, test_all: null, typecheck: null, lint: null, format: 'fmt' });
+      assert.deepStrictEqual(f.commands_not_configured, ['test_file', 'test_all', 'typecheck', 'lint']);
+      const gate = contextGate(dir, { legacy: false });
+      assert.deepStrictEqual(gate.invalid, []);
+      assert.strictEqual(gate.warnings.length, 4);
+    });
   });
 });

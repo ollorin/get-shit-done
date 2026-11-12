@@ -14,10 +14,10 @@ The block below will be rendered from `.planning/config.json` `stack.commands` b
 <!-- gsd:begin commands -->
 | Key | Command |
 |-----|---------|
-| test_file | [stack.commands.test_file] |
-| test_all | [stack.commands.test_all] |
-| typecheck | [stack.commands.typecheck] |
-| lint | [stack.commands.lint] |
+| test_file | [stack.commands.test_file, or `not configured yet` when none/null] |
+| test_all | [stack.commands.test_all, or `not configured yet`] |
+| typecheck | [stack.commands.typecheck, or `not configured yet`] |
+| lint | [stack.commands.lint, or `not configured yet`] |
 | format | [stack.commands.format] |
 | frontend_test | [stack.commands.frontend_test] |
 | build | [stack.commands.build] |
