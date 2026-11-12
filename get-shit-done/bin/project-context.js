@@ -14,6 +14,7 @@ const path = require('path');
 const { loadProfile, getProfileValue, validateProfile, KNOWN_CAPABILITY_KEYS } = require('./project-profile.js');
 
 const BRIEF_REL = '.planning/PRODUCT-BRIEF.md';
+const ROOT_BRIEF_REL = 'PRODUCT-BRIEF.md';
 const PROFILE_REL = '.planning/STACK-PROFILE.md';
 const NOT_A_PRESET = 'packs';
 const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -113,6 +114,24 @@ function availablePresets(presetsRoot) {
     .sort();
 }
 
+// A root-level PRODUCT-BRIEF.md can be adopted into .planning/ while the .planning/ one is absent.
+const adoptableBrief = (cwd) => isPresent(path.join(cwd, ROOT_BRIEF_REL)) && !isPresent(path.join(cwd, BRIEF_REL))
+  ? { from: ROOT_BRIEF_REL, to: BRIEF_REL }
+  : null;
+
+// Copy-if-absent, never overwrite: wx fails on an existing destination (even an empty one).
+function adoptBrief(cwd) {
+  const adoptable = adoptableBrief(cwd);
+  if (adoptable === null) return { ok: true, adopted: false, reason: 'nothing to adopt' };
+  try {
+    fs.mkdirSync(path.join(cwd, '.planning'), { recursive: true });
+    fs.copyFileSync(path.join(cwd, adoptable.from), path.join(cwd, adoptable.to), fs.constants.COPYFILE_EXCL);
+    return { ok: true, adopted: true, ...adoptable };
+  } catch (e) {
+    return { ok: false, adopted: false, ...adoptable, reason: e.code === 'EEXIST' ? 'destination exists' : e.message };
+  }
+}
+
 function contextGate(cwd, { legacy }) {
   const report = validateProfile(readProfile(cwd));
   const absent = [BRIEF_REL, PROFILE_REL].filter((rel) => !isPresent(path.join(cwd, rel)));
@@ -123,6 +142,7 @@ function contextGate(cwd, { legacy }) {
     legacy: legacy === true,
     missing,
     invalid,
+    adoptable: { brief: adoptableBrief(cwd) },
   };
 }
 
@@ -140,4 +160,4 @@ function gateStderr(gate) {
   return `project_context_missing: ${keys.join(', ')}; run /gsd:init-project, pass --legacy to this init call, or export GSD_LEGACY=1 (the flag does not reach spawned agents)`;
 }
 
-module.exports = { contextFields, effectiveRiskDomains, riskDomainsFor, availablePresets, contextGate, gateFailure, gateStderr, uiQaMode };
+module.exports = { contextFields, effectiveRiskDomains, riskDomainsFor, availablePresets, adoptBrief, contextGate, gateFailure, gateStderr, uiQaMode };

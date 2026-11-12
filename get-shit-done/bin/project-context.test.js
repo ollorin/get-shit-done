@@ -13,7 +13,7 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-const { contextFields, availablePresets, effectiveRiskDomains } = require('./project-context.js');
+const { contextFields, availablePresets, effectiveRiskDomains, adoptBrief, contextGate } = require('./project-context.js');
 
 const TOOLS = path.join(__dirname, 'gsd-tools.js');
 const PRESETS = path.join(__dirname, '..', 'presets');
@@ -739,5 +739,36 @@ describe('interview half-state and order (Fable round 1 M5)', () => {
     const cmd = fs.readFileSync(path.join(__dirname, '..', '..', 'commands', 'gsd', 'init-project.md'), 'utf8');
     assert.match(cmd, /context_gate/);
     assert.doesNotMatch(cmd, /If `brief_exists` and `stack_profile_exists` are both true/);
+  });
+});
+
+describe('adopting a root PRODUCT-BRIEF.md (init fixes B)', () => {
+  const mk = () => fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-adopt-'));
+  test('gate reports it adoptable; adoptBrief copies once and never overwrites', () => {
+    const root = mk();
+    try {
+      fs.writeFileSync(path.join(root, 'PRODUCT-BRIEF.md'), '# brief\n');
+      const gate = contextGate(root, { legacy: false });
+      assert.ok(gate.missing.includes('.planning/PRODUCT-BRIEF.md'));
+      assert.deepStrictEqual(gate.adoptable.brief, { from: 'PRODUCT-BRIEF.md', to: '.planning/PRODUCT-BRIEF.md' });
+      const r = adoptBrief(root);
+      assert.deepStrictEqual([r.ok, r.adopted, r.from], [true, true, 'PRODUCT-BRIEF.md']);
+      assert.strictEqual(fs.readFileSync(path.join(root, '.planning/PRODUCT-BRIEF.md'), 'utf8'), '# brief\n');
+      fs.writeFileSync(path.join(root, 'PRODUCT-BRIEF.md'), '# changed\n');
+      assert.strictEqual(adoptBrief(root).adopted, false);
+      assert.strictEqual(fs.readFileSync(path.join(root, '.planning/PRODUCT-BRIEF.md'), 'utf8'), '# brief\n');
+      assert.strictEqual(contextGate(root, { legacy: false }).adoptable.brief, null);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+  test('nothing to adopt without a root brief', () => {
+    const root = mk();
+    try {
+      assert.strictEqual(contextGate(root, { legacy: false }).adoptable.brief, null);
+      assert.strictEqual(adoptBrief(root).adopted, false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });

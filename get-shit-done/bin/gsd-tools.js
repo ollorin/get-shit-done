@@ -15336,6 +15336,12 @@ async function main() {
     }
 
     case 'project': {
+      if (args[1] === 'adopt-brief') {
+        const rootIdx = args.indexOf('--root');
+        const adopted = projectContext.adoptBrief(rootIdx === -1 ? cwd : path.resolve(cwd, args[rootIdx + 1] ?? '.'));
+        writeStdoutSync(JSON.stringify(adopted, null, 2) + '\n');
+        process.exit(adopted.ok ? 0 : 1);
+      }
       const r = projectRegistry.initWithRegistration(cwd, args.slice(1), process.env,
         () => projectDeploy.runCli(cwd, args.slice(1), process.env));
       writeStdoutSync(JSON.stringify(r.result, null, 2) + '\n');

@@ -345,6 +345,8 @@ node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs: initialize pro
 
 ## 4.5. Product Brief
 
+**Adopt first.** When `context_gate.adoptable.brief` is non-null (a root `PRODUCT-BRIEF.md` exists, `.planning/PRODUCT-BRIEF.md` does not), run `node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" project adopt-brief` (copy-if-absent, never overwrites) and record `adopted.from` as the source in your output; the adopted brief is then offered as the proposed answers below.
+
 **Skip when `context_gate` (from `init new-project`) lists neither `.planning/PRODUCT-BRIEF.md` nor any `project.*` key under `missing` or `invalid`.** A half-written section is not skipped: an existing brief or `project` block is offered as the proposed answers.
 
 Otherwise ask only what section 3 did not answer, one question at a time, each phrased so the answer is a choice:
