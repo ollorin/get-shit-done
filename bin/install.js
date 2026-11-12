@@ -447,6 +447,11 @@ function convertClaudeToGeminiAgent(content) {
   return `---\n${newFrontmatter}\n---${stripSubTags(body)}`;
 }
 
+// `~/.claude/` and `$HOME/.claude/` (shell blocks) both name the source-of-truth config dir.
+function rewriteClaudeDir(content, pathPrefix) {
+  return content.replace(/(?:~|\$HOME|\$\{HOME\})\/\.claude\//g, () => pathPrefix);
+}
+
 function convertClaudeToOpencodeFrontmatter(content) {
   // Replace tool name references in content (applies to all files)
   let convertedContent = content;
@@ -635,10 +640,8 @@ function copyFlattenedCommands(srcDir, destDir, prefix, pathPrefix, runtime) {
       const destPath = path.join(destDir, destName);
 
       let content = fs.readFileSync(srcPath, 'utf8');
-      const claudeDirRegex = /~\/\.claude\//g;
-      const opencodeDirRegex = /~\/\.opencode\//g;
-      content = content.replace(claudeDirRegex, pathPrefix);
-      content = content.replace(opencodeDirRegex, pathPrefix);
+      content = rewriteClaudeDir(content, pathPrefix);
+      content = content.replace(/~\/\.opencode\//g, pathPrefix);
       content = processAttribution(content, getCommitAttribution(runtime));
       content = convertClaudeToOpencodeFrontmatter(content);
 
@@ -689,8 +692,7 @@ function copyWithPathReplacement(srcDir, destDir, pathPrefix, runtime, opts) {
     } else if (entry.name.endsWith('.md')) {
       // Always replace ~/.claude/ as it is the source of truth in the repo
       let content = fs.readFileSync(srcPath, 'utf8');
-      const claudeDirRegex = /~\/\.claude\//g;
-      content = content.replace(claudeDirRegex, pathPrefix);
+      content = rewriteClaudeDir(content, pathPrefix);
       content = processAttribution(content, getCommitAttribution(runtime));
 
       // Convert frontmatter for opencode compatibility
@@ -1616,8 +1618,7 @@ function install(isGlobal, runtime = 'claude') {
       if (entry.isFile() && entry.name.endsWith('.md')) {
         let content = fs.readFileSync(path.join(agentsSrc, entry.name), 'utf8');
         // Always replace ~/.claude/ as it is the source of truth in the repo
-        const dirRegex = /~\/\.claude\//g;
-        content = content.replace(dirRegex, pathPrefix);
+        content = rewriteClaudeDir(content, pathPrefix);
         content = processAttribution(content, getCommitAttribution(runtime));
         // Convert frontmatter for runtime compatibility
         if (isOpencode) {

@@ -798,3 +798,21 @@ describe('UI QA driver agent ships as a pack file, not a global agent (agnostic-
     );
   });
 });
+
+describe('shell blocks using $HOME/.claude are path-rewritten like ~/.claude', () => {
+  test('copyWithPathReplacement rewrites ~/.claude/, $HOME/.claude/ and ${HOME}/.claude/', () => {
+    const { copyWithPathReplacement } = require(INSTALL_JS_PATH);
+    const root = '/tmp/gsd-fix3-home';
+    fs.rmSync(root, { recursive: true, force: true });
+    try {
+      fs.mkdirSync(path.join(root, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(root, 'src', 'w.md'),
+        '@~/.claude/a.md\nnode "$HOME/.claude/get-shit-done/bin/x.js"\nnode ${HOME}/.claude/y.js\n');
+      copyWithPathReplacement(path.join(root, 'src'), path.join(root, 'dest'), '/cfg/dir/', 'claude');
+      const out = fs.readFileSync(path.join(root, 'dest', 'w.md'), 'utf8');
+      assert.strictEqual(out, '@/cfg/dir/a.md\nnode "/cfg/dir/get-shit-done/bin/x.js"\nnode /cfg/dir/y.js\n');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
