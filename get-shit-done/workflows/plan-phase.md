@@ -275,6 +275,7 @@ grep -l "## Validation Architecture" "${PHASE_DIR}"/*-RESEARCH.md 2>/dev/null
 1. Read template: `~/.claude/get-shit-done/templates/VALIDATION.md`
 2. Write to `${PHASE_DIR}/${PADDED_PHASE}-VALIDATION.md` (use Write tool)
 3. Fill frontmatter: `{N}` → phase number, `{phase-slug}` → slug, `{date}` → current date
+   Fill the template body too: this orchestrator (not the planner or the researcher) copies each row from the RESEARCH.md `## Validation Architecture` section into the matching template table, and replaces any placeholder left over with `TBD`. Do not spawn an agent for it.
 4. Verify:
 ```bash
 test -f "${PHASE_DIR}/${PADDED_PHASE}-VALIDATION.md" && echo "VALIDATION_CREATED=true" || echo "VALIDATION_CREATED=false"
@@ -541,12 +542,18 @@ F="{PHASE_DIR}/{N}-PLAN-CHECK.md"
 [ -f "$F" ] || printf '# Plan check — phase %s\n\n' "{phase_number}" > "$F"
 cat >> "$F" <<'EOF'
 
+## Issues (iteration {n})
+
+<every blocker and warning the checker returned, one line each: severity, dimension, plan, description>
+
 ## Defect Classes (iteration {n})
 
 <the checker's returned block, verbatim>
 EOF
 git add -- "$F" && git commit -m "docs(phase-{X}): record plan-check defect classes" -- "$F"
 ```
+
+The `## Issues (iteration {n})` list keeps warnings as well as blockers, so a later round can verify each earlier warning was fixed or consciously kept. From iteration 2 on, add `{PHASE_DIR}/{N}-PLAN-CHECK.md` to the checker's `<files_to_read>` and tell it to report the status (fixed, kept, new) of every earlier issue.
 
 Use `git add -- <file>` before `git commit -- <file>`, always. Exact git behaviour (measured on
 git 2.39.1): a **tracked** path commits its working-tree state without needing an `add`, but an
