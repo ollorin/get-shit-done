@@ -1189,6 +1189,12 @@ describe('init commands with --include flag', () => {
     assert.strictEqual(output.phase_dir, null);
   });
 
+  test('init plan-phase reports ruling_model: default opus, config override', () => {
+    assert.strictEqual(JSON.parse(runGsdTools('init plan-phase 1', tmpDir).output).ruling_model, 'opus');
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'config.json'), JSON.stringify({ ruling_model: 'fable' }));
+    assert.strictEqual(JSON.parse(runGsdTools('init plan-phase 1', tmpDir).output).ruling_model, 'fable');
+  });
+
   test('init plan-phase includes verification and uat content', () => {
     const phaseDir = path.join(tmpDir, '.planning', 'phases', '03-api');
     fs.mkdirSync(phaseDir, { recursive: true });

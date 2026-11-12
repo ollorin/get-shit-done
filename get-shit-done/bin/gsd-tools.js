@@ -512,6 +512,7 @@ function loadConfig(cwd) {
       defect_classes_gate_enabled: get('defect_classes_gate_enabled', { section: 'quality', field: 'defect_classes_gate_enabled' }) ?? defaults.defect_classes_gate_enabled,
       defect_classes_gate_since: get('defect_classes_gate_since', { section: 'quality', field: 'defect_classes_gate_since' }) ?? defaults.defect_classes_gate_since,
       coordinator_model: get('coordinator_model') ?? null,
+      ruling_model: get('ruling_model') ?? null,
       dev_servers: parsed.dev_servers || null,
     };
   } catch (e) {
@@ -11543,6 +11544,8 @@ function cmdInitPlanPhase(cwd, phase, includes, raw, gate) {
     researcher_model: resolveModelInternal(cwd, 'gsd-phase-researcher'),
     planner_model: resolveModelInternal(cwd, 'gsd-planner'),
     checker_model: resolveModelInternal(cwd, 'gsd-plan-checker'),
+    // Top-tier alias for risk-domain plans, rulings and adversarial passes (config ruling_model, default opus)
+    ruling_model: config.ruling_model || 'opus',
 
     // Workflow flags
     research_enabled: config.research,
