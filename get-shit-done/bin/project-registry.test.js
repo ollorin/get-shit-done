@@ -404,7 +404,7 @@ describe('init rollback (M-02 round 1: M2)', () => {
     assert.strictEqual(r.exitCode, 2);
     assert.strictEqual(configOf(root).stack.isolation.port_base, 55000);
     assert.strictEqual(readJson(path.join(home, 'projects.json')).projects.demo.port_base, 55000);
-    assert.strictEqual(r.result.registry.path, path.join(fs.realpathSync(home), 'projects.json'));
+    assert.strictEqual(r.result.registry.path, path.join(home, 'projects.json'));
     assert.strictEqual(r.result.registry.written, true);
   });
 
