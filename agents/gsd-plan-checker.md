@@ -393,7 +393,7 @@ issue:
 For each `tdd="true"` task:
 1. BLOCKING if `<behavior>` has no `existing:` inventory line per behaviour (file:line or none, plus REUSE / UPDATE / MERGE / DELETE / ADD+reason).
 2. BLOCKING if the goal or `<done>` is a count ("N tests", "at least", "comprehensive") instead of a list of behaviours.
-3. BLOCKING: A risk-domain path is any path the product brief lists under Risk Domains (`risk_domains` in the init output); authentication/authorisation and security are always risk domains. When `risk_domains_source` is `builtin` (no brief, or a brief with an empty list), every path that mutates state is a risk-domain path. Tag every behaviour on a risk-domain path T0 (real-DB, mutation-proven). A plan that tags such a behaviour T1/T2 is rejected. REUSE satisfies T0 ONLY when the cited existing test is itself that T0 test (path:line + mutant id); "0 tests" otherwise is rejected.
+3. BLOCKING: A risk-domain path is any path the product brief lists under Risk Domains (`risk_domains` in the init output); authentication/authorisation and security are always risk domains. When `risk_domains_source` is `builtin` (`project.risk_domains` in config.json is empty or absent), every path that mutates state is a risk-domain path. Tag every behaviour on a risk-domain path T0 (real-DB, mutation-proven). A plan that tags such a behaviour T1/T2 is rejected. REUSE satisfies T0 ONLY when the cited existing test is itself that T0 test (path:line + mutant id); "0 tests" otherwise is rejected.
 4. WARNING: a T2 behaviour is ADD at unit layer, or a behaviour is asserted at a second layer without a wire-shape reason.
 
 ## Dimension 9: Nyquist Compliance

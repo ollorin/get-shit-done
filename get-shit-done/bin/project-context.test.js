@@ -367,9 +367,9 @@ describe('health is a URL or path, health_cmd is the shell command (agnostic-M-0
 describe('effectiveRiskDomains (agnostic-M-06 6.1)', () => {
   const FIXTURE = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'tests', 'fixtures', 'agnostic', 'risk-terms.json'), 'utf8'));
 
-  test('R-a a brief list is appended to auth and security; source brief', () => {
+  test('R-a a brief list is appended to auth and security; source config', () => {
     const r = effectiveRiskDomains({ project: { risk_domains: FIXTURE } });
-    assert.strictEqual(r.risk_domains_source, 'brief');
+    assert.strictEqual(r.risk_domains_source, 'config');
     assert.strictEqual(r.all_state_mutating, false);
     for (const t of [...FIXTURE, 'security']) assert.ok(r.risk_domains.includes(t), t);
   });
@@ -391,7 +391,7 @@ describe('effectiveRiskDomains (agnostic-M-06 6.1)', () => {
       const r = spawnSync('node', [TOOLS, 'init', 'plan-phase', '1', '--legacy'], { cwd: dir, encoding: 'utf8', env: { ...process.env, GSD_LEGACY: '1' } });
       const out = JSON.parse(r.stdout);
       assert.deepStrictEqual(out.risk_domains, ['auth', 'security', 'ledger']);
-      assert.strictEqual(out.risk_domains_source, 'brief');
+      assert.strictEqual(out.risk_domains_source, 'config');
       assert.deepStrictEqual(out.ruling_topics, ['auth', 'security', 'ledger']);
     });
     withScratch(undefined, (dir) => {
@@ -537,7 +537,7 @@ describe('risk-rule wording present in the eight prompt files (agnostic-M-06 R-f
   const ROOT = path.join(__dirname, '..', '..');
   const SENTENCES = [
     'A risk-domain path is any path the product brief lists under Risk Domains (`risk_domains` in the init output); authentication/authorisation and security are always risk domains.',
-    'When `risk_domains_source` is `builtin` (no brief, or a brief with an empty list), every path that mutates state is a risk-domain path.',
+    'When `risk_domains_source` is `builtin` (`project.risk_domains` in config.json is empty or absent), every path that mutates state is a risk-domain path.',
     'Tag every behaviour on a risk-domain path T0 (real-DB, mutation-proven).',
   ];
   const FILES = [
@@ -754,6 +754,14 @@ describe('adopting a root PRODUCT-BRIEF.md (init fixes B)', () => {
       assert.deepStrictEqual(gate.adoptable.brief, { from: 'PRODUCT-BRIEF.md', to: '.planning/PRODUCT-BRIEF.md' });
       const r = adoptBrief(root);
       assert.deepStrictEqual([r.ok, r.adopted, r.from], [true, true, 'PRODUCT-BRIEF.md']);
+      assert.match(r.note, /two copies can drift/);
+      const after = contextGate(root, { legacy: false });
+      for (const name of ['Identity', 'Risk Domains', 'Config Dimensions', 'Owner Policies']) {
+        assert.ok(after.warnings.includes(`.planning/PRODUCT-BRIEF.md: template section missing: ${name}`), name);
+      }
+      fs.writeFileSync(path.join(root, '.planning/PRODUCT-BRIEF.md'), '## Identity\n## Risk Domains\n## Config Dimensions\n## Owner Policies\n');
+      assert.deepStrictEqual(contextGate(root, { legacy: false }).warnings.filter((w) => w.includes('template section')), []);
+      fs.writeFileSync(path.join(root, '.planning/PRODUCT-BRIEF.md'), '# brief\n');
       assert.strictEqual(fs.readFileSync(path.join(root, '.planning/PRODUCT-BRIEF.md'), 'utf8'), '# brief\n');
       fs.writeFileSync(path.join(root, 'PRODUCT-BRIEF.md'), '# changed\n');
       assert.strictEqual(adoptBrief(root).adopted, false);

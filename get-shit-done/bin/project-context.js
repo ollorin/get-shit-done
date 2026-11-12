@@ -76,7 +76,7 @@ function mergeDomains(always, listed) {
 // Auth and security are always risk domains; the brief's list is appended. No list: every state mutation is risk-domain.
 function effectiveRiskDomains(profile) {
   const listed = mergeDomains([], profile?.project?.risk_domains);
-  const source = listed.length > 0 ? 'brief' : 'builtin';
+  const source = listed.length > 0 ? 'config' : 'builtin';
   return {
     risk_domains: mergeDomains(ALWAYS_RISK, listed),
     risk_domains_source: source,
@@ -130,9 +130,27 @@ function adoptBrief(cwd) {
   try {
     fs.mkdirSync(path.join(cwd, '.planning'), { recursive: true });
     fs.copyFileSync(path.join(cwd, adoptable.from), path.join(cwd, adoptable.to), fs.constants.COPYFILE_EXCL);
-    return { ok: true, adopted: true, ...adoptable };
+    return {
+      ok: true,
+      adopted: true,
+      ...adoptable,
+      note: `${adoptable.from} was copied verbatim and stays in place: the two copies can drift, so edit ${adoptable.to} from now on and remove the original; the copy may lack the template sections (the context gate warns)`,
+    };
   } catch (e) {
     return { ok: false, adopted: false, ...adoptable, reason: e.code === 'EEXIST' ? 'destination exists' : e.message };
+  }
+}
+
+const BRIEF_SECTIONS = ['Identity', 'Risk Domains', 'Config Dimensions', 'Owner Policies'];
+
+// Template sections absent from the project's brief; a brief that cannot be read reports none.
+function missingBriefSections(cwd) {
+  try {
+    const text = fs.readFileSync(path.join(cwd, BRIEF_REL), 'utf8');
+    if (!/\S/.test(text)) return [];
+    return BRIEF_SECTIONS.filter((name) => !new RegExp(`^##\\s+${name}\\s*$`, 'mi').test(text));
+  } catch {
+    return [];
   }
 }
 
@@ -146,7 +164,7 @@ function contextGate(cwd, { legacy }) {
     legacy: legacy === true,
     missing,
     invalid,
-    warnings: report.warnings,
+    warnings: [...report.warnings, ...missingBriefSections(cwd).map((name) => `${BRIEF_REL}: template section missing: ${name}`)],
     adoptable: { brief: adoptableBrief(cwd) },
   };
 }

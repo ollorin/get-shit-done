@@ -134,7 +134,7 @@ Gap closure plans (created from `--gaps` flag) are NOT exempt from mandates 1-4.
 
 **MANDATE-6: Risk-domain plans require a threat-model + atomicity task (RISK-DOMAIN THREAT-MODEL MANDATE)**
 
-A risk-domain path is any path the product brief lists under Risk Domains (`risk_domains` in the init output); authentication/authorisation and security are always risk domains. When `risk_domains_source` is `builtin` (no brief, or a brief with an empty list), every path that mutates state is a risk-domain path. Print `Risk domains: <risk_domains> (source: <risk_domains_source>)` in the plan header.
+A risk-domain path is any path the product brief lists under Risk Domains (`risk_domains` in the init output); authentication/authorisation and security are always risk domains. When `risk_domains_source` is `builtin` (`project.risk_domains` in config.json is empty or absent), every path that mutates state is a risk-domain path. Print `Risk domains: <risk_domains> (source: <risk_domains_source>)` in the plan header.
 
 Any plan that touches a risk-domain path MUST include, as explicit tasks:
 

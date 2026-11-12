@@ -2442,7 +2442,7 @@ describe('base preset: pilot, three throwaway projects (agnostic-M-07 7.2)', () 
       assert.ok(d.files.every((f) => f.action === 'unchanged'), `${k}: ${JSON.stringify(d.files.filter((f) => f.action !== 'unchanged'))}`);
       const plan = json(state.runs[k].plan);
       assert.deepStrictEqual(plan.risk_domains, ['auth', 'security', 'billing'], k);
-      assert.strictEqual(plan.risk_domains_source, 'brief', k);
+      assert.strictEqual(plan.risk_domains_source, 'config', k);
     }
   });
 

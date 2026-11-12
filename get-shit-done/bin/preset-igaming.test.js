@@ -220,7 +220,7 @@ describe('igaming project block (agnostic-M-06 6.1)', () => {
   test('R-g risk_domains is a superset of the former hard-coded terms and the effective source is the brief', () => {
     for (const t of terms) assert.ok(block.project.risk_domains.includes(t), `missing risk domain ${t}`);
     const eff = effectiveRiskDomains(block);
-    assert.strictEqual(eff.risk_domains_source, 'brief');
+    assert.strictEqual(eff.risk_domains_source, 'config');
     for (const t of [...terms, 'security']) assert.ok(eff.risk_domains.includes(t), t);
   });
 

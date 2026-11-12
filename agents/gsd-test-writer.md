@@ -42,7 +42,7 @@ Your prompt contains:
 </inputs>
 
 <test_categories>
-Budget by tier from the task's `<behavior>`. A risk-domain path is any path the product brief lists under Risk Domains (`risk_domains` in the init output); authentication/authorisation and security are always risk domains. When `risk_domains_source` is `builtin` (no brief, or a brief with an empty list), every path that mutates state is a risk-domain path. Tag every behaviour on a risk-domain path T0 (real-DB, mutation-proven). T0 (risk-domain paths, row policies): one test per named threat/mutant, no cap, real DB. T1 business logic: at most 1 test per branch, target <= 8 new. T2 wiring/barrel/UI glue/config: 0 new unit tests; cite the existing test that covers it. Categories are a checklist to consider, not a quota.
+Budget by tier from the task's `<behavior>`. A risk-domain path is any path the product brief lists under Risk Domains (`risk_domains` in the init output); authentication/authorisation and security are always risk domains. When `risk_domains_source` is `builtin` (`project.risk_domains` in config.json is empty or absent), every path that mutates state is a risk-domain path. Tag every behaviour on a risk-domain path T0 (real-DB, mutation-proven). T0 (risk-domain paths, row policies): one test per named threat/mutant, no cap, real DB. T1 business logic: at most 1 test per branch, target <= 8 new. T2 wiring/barrel/UI glue/config: 0 new unit tests; cite the existing test that covers it. Categories are a checklist to consider, not a quota.
 
 Checklist (skip a category only when it genuinely does not apply, and say why):
 

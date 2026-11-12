@@ -390,7 +390,7 @@ Output consumed by /gsd:execute-phase. Plans need:
 
 **Model rule:** every spawn passes `model` explicitly (an omitted model inherits the spawner's tier). Planner and plan-checker: `opus` for risk-domain plans and the plan-ahead coordinator, else `sonnet`; executor and test-writer: `haiku`.
 
-A risk-domain path is any path the product brief lists under Risk Domains (`risk_domains` in the init output); authentication/authorisation and security are always risk domains. When `risk_domains_source` is `builtin` (no brief, or a brief with an empty list), every path that mutates state is a risk-domain path. Tag every behaviour on a risk-domain path T0 (real-DB, mutation-proven).
+A risk-domain path is any path the product brief lists under Risk Domains (`risk_domains` in the init output); authentication/authorisation and security are always risk domains. When `risk_domains_source` is `builtin` (`project.risk_domains` in config.json is empty or absent), every path that mutates state is a risk-domain path. Tag every behaviour on a risk-domain path T0 (real-DB, mutation-proven).
 
 ```
 Agent(
