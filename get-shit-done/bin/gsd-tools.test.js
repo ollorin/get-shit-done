@@ -18690,3 +18690,16 @@ describe('new-project config shape agrees with template and loadConfig', () => {
     assert.ok(/config-set <key\.path> <value>/.test(workflow));
   });
 });
+
+describe('roadmap decision-point mapping is one shared instruction', () => {
+  const root = path.join(__dirname, '..');
+  const read = (...p) => fs.readFileSync(path.join(root, ...p), 'utf-8');
+  test('new-project and new-milestone reference the protocol section; steps live only there', () => {
+    assert.ok(read('references', 'decisions-protocol.md').includes('## Roadmap decision points'));
+    for (const wf of ['new-project.md', 'new-milestone.md']) {
+      const t = read('workflows', wf);
+      assert.ok(t.includes('`Roadmap decision points` in `@~/.claude/get-shit-done/references/decisions-protocol.md`'), wf);
+      assert.ok(!t.includes('decisions map <id> --phases'), `${wf} duplicates the mapping steps`);
+    }
+  });
+});

@@ -49,3 +49,13 @@ The owner answers any time, in any session: `/gsd:decide A-NN <answer>` (or `A-N
 | `accepted-as-built` | owner passed `--accept-as-built` | `R-NN` is `accepted`: shipped phases stay, the `D-` binds later phases only |
 
 Rework is the default for a late differing answer. Accepting as built is the owner's call, never an agent's.
+
+## Roadmap decision points
+
+Used by `new-project` and `new-milestone`, after the roadmapper returns and before the roadmap approval prompt. The roadmapper's `## Decision Points` table holds, per phase, the questions `/gsd:discuss-phase` would otherwise ask later, and maps existing records to phases.
+
+1. Apply every `map` row: `decisions map <id> --phases <N,M>` (or `--global`).
+2. A risk-domain path is any path the product brief lists under Risk Domains (`risk_domains` in the init output); authentication/authorisation and security are always risk domains. When `risk_domains_source` is `builtin` (`project.risk_domains` in config.json is empty or absent), every path that mutates state is a risk-domain path. Tag every behaviour on a risk-domain path T0 (real-DB, mutation-proven). Rows about a risk-domain path or a ruling topic are not asked and not queued: dispatch the ruling route in `decisions-protocol.md` (fable/opus) and log the result as a `D-` (`--source opus-ruling`) before anything else. Ask the remaining new rows now, grouped by phase, irreversible and costly first, at most 4 per AskUserQuestion call and 12 in total. Answered: `decisions add --kind decision --source milestone-review --phases <N>`. Not asked or not answered: `decisions add --kind assumption --source milestone-review --default "<roadmapper default>" --reversibility <r> --phases <N>`.
+3. Unattended (`GSD_AUTONOMOUS=1`): ask nothing; every new row becomes an `A-`; skip the approval prompt and treat the roadmap as approved.
+4. `decisions validate --mapped` must pass (every record names its consuming phases). If it fails with `no consuming phase` and `GSD_AUTONOMOUS=1`: run `decisions map <id> --global` for each id it names that is not `irreversible` (an `irreversible` id is mapped to the phases its roadmapper row names, else to the last roadmap phase, never global), log `unmapped_made_global` with the ids, and re-validate; interactively, ask which phases consume it. Then `decisions render`. Print `decisions digest` output to the chat, then run `decisions digest --mark-only`.
+5. An answer that changes phase scope or order: re-spawn the roadmapper with it as revision context before asking for approval.

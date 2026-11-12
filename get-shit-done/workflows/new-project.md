@@ -1060,6 +1060,8 @@ Success criteria:
 ---
 ```
 
+**Decision points (before approval).** Follow `Roadmap decision points` in `@~/.claude/get-shit-done/references/decisions-protocol.md` (the roadmapper's `## Decision Points` table); its "approval prompt" is the gate below. Auto mode counts as unattended there.
+
 **If auto mode:** Skip approval gate — auto-approve and commit directly.
 
 **CRITICAL: Ask for approval before committing (interactive mode only):**
