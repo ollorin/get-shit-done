@@ -7000,6 +7000,7 @@ function cmdVerifyPlanStructure(cwd, filePath, raw) {
     const hasAction = /<action>/.test(taskContent) || isCheckpointTask;
     const hasVerify = /<verify>/.test(taskContent);
     const hasDone = /<done>/.test(taskContent);
+    const hasAutomated = /<automated>/.test(taskContent);
 
     if (!isCheckpointTask) {
       if (!nameMatch) errors.push('Task missing <name> element');
@@ -7009,7 +7010,7 @@ function cmdVerifyPlanStructure(cwd, filePath, raw) {
       if (!hasFiles) warnings.push(`Task '${taskName}' missing <files>`);
     }
 
-    tasks.push({ name: taskName, isCheckpoint: isCheckpointTask, hasFiles, hasAction, hasVerify, hasDone });
+    tasks.push({ name: taskName, isCheckpoint: isCheckpointTask, hasFiles, hasAction, hasVerify, hasDone, hasAutomated });
   }
 
   if (tasks.length === 0) warnings.push('No <task> elements found');
@@ -7025,8 +7026,16 @@ function cmdVerifyPlanStructure(cwd, filePath, raw) {
     errors.push('Has checkpoint tasks but autonomous is not false');
   }
 
-  // UI-QA check: plans that modify UI files must have a checkpoint:ui-qa task
-  // (UI_FILE_PATTERNS is a shared top-level constant — see "Shared File-Pattern Constants")
+  // Dimension 9a (plan-checker): a <verify> needs an <automated> command or a Wave 0 dependency.
+  // Wave 0 linkage is not resolvable here, so absence is a warning, not an error.
+  if (loadConfig(cwd).nyquist_validation !== false) {
+    for (const t of tasks) {
+      if (t.hasVerify && !t.hasAutomated) warnings.push(`Task '${t.name}' <verify> has no <automated> command (needs one or a Wave 0 dependency)`);
+    }
+  }
+
+  // UI-QA check: plans that modify UI files must have a checkpoint:ui-qa task, unless the project
+  // declares stack capabilities without ui_qa (UI_FILE_PATTERNS is a shared top-level constant — see "Shared File-Pattern Constants")
   const filesModified = Array.isArray(fm.files_modified)
     ? fm.files_modified
     : (fm.files_modified ? [String(fm.files_modified)] : []);
@@ -7034,7 +7043,7 @@ function cmdVerifyPlanStructure(cwd, filePath, raw) {
     UI_FILE_PATTERNS.some(ext => f.endsWith(ext))
   );
   const hasUiQaTask = /<task[^>]+type=["']?checkpoint:ui-qa/.test(content);
-  if (hasUiFiles && !hasUiQaTask) {
+  if (hasUiFiles && !hasUiQaTask && projectContext.uiQaMode(cwd) !== 'none') {
     errors.push('Plan modifies UI files (.tsx/.jsx/.vue/.svelte) but has no checkpoint:ui-qa task');
   }
 

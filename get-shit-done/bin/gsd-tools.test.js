@@ -3067,6 +3067,52 @@ must_haves:
   });
 });
 
+describe('verify plan-structure — ui-qa capability gate and <automated> check', () => {
+  let dir;
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-ps-')); fs.mkdirSync(path.join(dir, '.planning')); });
+  afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
+  const plan = (verify) => `---
+phase: 1
+plan: "01"
+type: implementation
+wave: 1
+depends_on: []
+files_modified:
+  - src/Page.astro
+autonomous: true
+must_haves:
+  - page renders
+---
+
+<task type="auto">
+  <name>Build page</name>
+  <files>src/Page.astro</files>
+  <action>x</action>
+  <verify>${verify}</verify>
+  <done>y</done>
+</task>
+`;
+  const run = (p) => { const f = path.join(dir, 'p.md'); fs.writeFileSync(f, p); return runGsdTools(`verify plan-structure "${f}"`, dir); };
+
+  test('.astro plan needs no ui-qa task when capabilities are declared without ui_qa', () => {
+    fs.writeFileSync(path.join(dir, '.planning', 'config.json'), JSON.stringify({ project: { slug: 'demo' }, stack: { capabilities: {} } }));
+    const r = run(plan('<automated>true</automated>'));
+    assert.ok(r.success, r.output);
+    assert.ok(!JSON.parse(r.output).errors.some(e => e.includes('ui-qa')));
+  });
+
+  test('.astro plan still needs a ui-qa task with no capabilities declared (legacy)', () => {
+    const r = run(plan('<automated>true</automated>'));
+    assert.ok(JSON.parse(r.output).errors.some(e => e.includes('ui-qa')));
+  });
+
+  test('<verify> without <automated> warns; with <automated> does not', () => {
+    fs.writeFileSync(path.join(dir, '.planning', 'config.json'), JSON.stringify({ project: { slug: 'demo' }, stack: { capabilities: {} } }));
+    assert.ok(JSON.parse(run(plan('Build succeeds')).output).warnings.some(w => w.includes('<automated>')));
+    assert.ok(!JSON.parse(run(plan('<automated>true</automated>')).output).warnings.some(w => w.includes('<automated>')));
+  });
+});
+
 describe('verify gate-handshake — fork capability handshake (Phase 299 SC-5)', () => {
   describe('compareGateCapabilities (pure unit)', () => {
     test('required=[] — {ok:true, missing:[]}', () => {
