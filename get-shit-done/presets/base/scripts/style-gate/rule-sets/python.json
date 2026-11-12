@@ -1,0 +1,16 @@
+{
+  "extensions": [".py"],
+  "idioms": {
+    "errors": "Return a result value (a tagged success or error object) from a function that can fail; raise only in an edge file.",
+    "immutability": "Use tuples, frozen dataclasses and copies (dict(x), [*x]) instead of changing an argument in place.",
+    "routing": "A dispatch table (dict of handlers) or structural pattern matching instead of if/elif chains.",
+    "purity": "Pure functions in domain code; pass I/O in as arguments."
+  },
+  "regex_rules": [
+    { "id": "raise", "pattern": "^\\s*raise\\b", "message": "raise outside an edge file; return a result value", "edge_exempt": true },
+    { "id": "mutableDefault", "pattern": "\\bdef\\s+\\w+\\s*\\([^)]*=\\s*(?:\\[\\s*\\]|\\{\\s*\\}|set\\(\\s*\\)|dict\\(\\s*\\)|list\\(\\s*\\))", "message": "mutable default argument is shared between calls" },
+    { "id": "globalState", "pattern": "^\\s*global\\s+\\w", "message": "global statement changes shared state" }
+  ],
+  "structural": [],
+  "router_branch_threshold": 4
+}

@@ -104,7 +104,7 @@ Every task has four required fields:
 - Bad: "the auth files", "relevant components"
 
 **<action>:** Specific implementation instructions, including what to avoid and WHY.
-- Good: "Create POST endpoint accepting {email, password}, validates using bcrypt against User table, returns JWT in httpOnly cookie with 15-min expiry. Use jose library (not jsonwebtoken - CommonJS issues with Edge runtime)."
+- Good: "Create POST endpoint accepting {email, password}, validates against the user table, returns a signed session token in an httpOnly cookie with 15-min expiry. Use the signing library the stack profile names."
 - Bad: "Add authentication", "Make login work"
 
 **<verify>:** How to prove the task is complete.
@@ -112,7 +112,7 @@ Every task has four required fields:
 - Bad: "It works", "Looks good"
 
 **<done>:** Acceptance criteria - measurable state of completion.
-- Good: "Valid credentials return 200 + JWT cookie, invalid credentials return 401"
+- Good: "Valid credentials return 200 + session cookie, invalid credentials return 401"
 - Bad: "Authentication is complete"
 
 ## Task Types
@@ -120,12 +120,12 @@ Every task has four required fields:
 | Type | Use For | Autonomy |
 |------|---------|----------|
 | `auto` | Everything Claude can do independently | Fully autonomous |
-| `checkpoint:ui-qa` | Web UI verification (automated via Charlotte browser agent) | Automated — coordinator runs 3-round QA loop |
+| `checkpoint:ui-qa` | Web UI verification (automated via the UI QA capability) | Automated — coordinator runs 3-round QA loop |
 | `checkpoint:human-verify` | Non-web verification: macOS apps, audio, Xcode builds | Pauses for user |
 | `checkpoint:decision` | Implementation choices | Pauses for user |
 | `checkpoint:human-action` | Truly unavoidable manual steps (rare) | Pauses for user |
 
-**Automation-first rule:** If Claude CAN do it via CLI/API, Claude MUST do it. Checkpoints verify AFTER automation, not replace it. For web UI: use `checkpoint:ui-qa` (automated Charlotte testing). For non-web (macOS, audio, Xcode): use `checkpoint:human-verify`.
+**Automation-first rule:** If Claude CAN do it via CLI/API, Claude MUST do it. Checkpoints verify AFTER automation, not replace it. For web UI: use `checkpoint:ui-qa` (automated UI QA testing). For non-web (macOS, audio, Xcode): use `checkpoint:human-verify`.
 
 ## checkpoint:ui-qa — When and How to Use
 
@@ -151,7 +151,7 @@ Every task has four required fields:
 When planning a web UI phase, read the project's `## QA / Dev Server` section of CLAUDE.md to understand:
 - The app URL (for populating test-flows with real URLs)
 - Available credentials (for flows requiring login)
-- Whether additional services (Supabase, etc.) need to be running
+- Whether additional services (those in `stack.services[]`) need to be running
 
 If the `## QA / Dev Server` section is absent, note this in the plan but still emit checkpoint:ui-qa — the QA agent will use defaults.
 
@@ -207,7 +207,7 @@ Place it immediately after the implementation task it covers:
 - Database RPCs/functions: ALWAYS
 - Form submit handlers: ALWAYS
 - Business logic functions: ALWAYS
-- Pure UI components with no logic: SKIP (Charlotte covers UI)
+- Pure UI components with no logic: SKIP (UI QA covers UI)
 - Migration files: SKIP (wiring test covers this)
 
 ### 2. A checkpoint:ui-qa task (if plan creates/modifies web UI)
@@ -218,13 +218,13 @@ Already covered by existing mandate. This is a reminder: test tasks and ui-qa ar
 
 ### 3. e2e_flows in frontmatter (REQUIRED for UI plans)
 
-Every plan that creates or modifies UI components MUST populate `e2e_flows` with at least one user journey. These trigger Charlotte E2E testing in the coordinator. Empty `e2e_flows: []` on a UI plan is a planning defect.
+Every plan that creates or modifies UI components MUST populate `e2e_flows` with at least one user journey. These trigger UI QA in the coordinator. Empty `e2e_flows: []` on a UI plan is a planning defect.
 
 Also required when a backend plan changes an API response shape consumed by existing frontend — the existing UI must still work.
 
 ```yaml
 e2e_flows:
-  - "player can see bonus promotions list with eligibility states"
+  - "player can see promotions list with eligibility states"
   - "operator can create a campaign and see it in the list"
 ```
 
@@ -248,9 +248,9 @@ Each task: **15-60 minutes** Claude execution time.
 
 | TOO VAGUE | JUST RIGHT |
 |-----------|------------|
-| "Add authentication" | "Add JWT auth with refresh rotation using jose library, store in httpOnly cookie, 15min access / 7day refresh" |
+| "Add authentication" | "Add token auth with refresh rotation using the signing library the stack profile names, store in httpOnly cookie, 15min access / 7day refresh" |
 | "Create the API" | "Create POST /api/projects endpoint accepting {name, description}, validates name length 3-50 chars, returns 201 with project object" |
-| "Style the dashboard" | "Add Tailwind classes to Dashboard.tsx: grid layout (3 cols on lg, 1 on mobile), card shadows, hover states on action buttons" |
+| "Style the dashboard" | "Add layout classes to the dashboard component: grid layout (3 cols on lg, 1 on mobile), card shadows, hover states on action buttons" |
 | "Handle errors" | "Wrap API calls in try/catch, return {error: string} on 4xx/5xx, show toast via sonner on client" |
 | "Set up the database" | "Add User and Project models to schema.prisma with UUID ids, email unique constraint, createdAt/updatedAt timestamps, run prisma db push" |
 
@@ -272,7 +272,7 @@ Each task: **15-60 minutes** Claude execution time.
 
 For tasks involving external services, identify human-required configuration:
 
-External service indicators: New SDK (`stripe`, `@sendgrid/mail`, `twilio`, `openai`), webhook handlers, OAuth integration, `process.env.SERVICE_*` patterns.
+External service indicators: New SDK (a third-party package), webhook handlers, OAuth integration, `process.env.SERVICE_*` patterns.
 
 For each external service, determine:
 1. **Env vars needed** — What secrets from dashboards?
@@ -363,7 +363,7 @@ Plans should complete within ~50% context (not 80%). No context anxiety, quality
 | Task Complexity | Tasks/Plan | Context/Task | Total |
 |-----------------|------------|--------------|-------|
 | Simple (CRUD, config) | 3 | ~10-15% | ~30-45% |
-| Complex (auth, payments) | 2 | ~20-30% | ~40-50% |
+| Complex (auth, risk-domain paths) | 2 | ~20-30% | ~40-50% |
 | Very complex (migrations) | 1-2 | ~30-40% | ~30-50% |
 
 ## Split Signals
@@ -501,7 +501,7 @@ Valid values: `haiku`, `sonnet`, `opus`. If no `<model>` element is present, the
 | `user_setup` | No | Human-required setup items |
 | `requirements` | Yes | REQUIRED — Requirement IDs this plan addresses. MUST NOT be empty if phase has requirements. |
 | `must_haves` | Yes | Goal-backward verification criteria. MUST NOT be empty — every plan must have at least one verifiable truth and one artifact. |
-| `e2e_flows` | **Conditional** | REQUIRED if plan type is `frontend` or plan creates/modifies UI components (.tsx/.jsx). List of user journeys testable after this plan completes. Triggers Charlotte E2E in coordinator. Empty `[]` is only valid for backend-only plans with no UI impact. |
+| `e2e_flows` | **Conditional** | REQUIRED if plan type is `frontend` or plan creates/modifies UI components (.tsx/.jsx). List of user journeys testable after this plan completes. Triggers UI QA in coordinator. Empty `[]` is only valid for backend-only plans with no UI impact. |
 
 Wave numbers are pre-computed during planning. Execute-phase reads `wave` directly from frontmatter.
 
@@ -517,14 +517,14 @@ When external services involved:
 
 ```yaml
 user_setup:
-  - service: stripe
-    why: "Payment processing"
+  - service: example-provider
+    why: "Order processing"
     env_vars:
       - name: STRIPE_SECRET_KEY
-        source: "Stripe Dashboard -> Developers -> API keys"
+        source: "Provider dashboard -> API keys"
     dashboard_config:
       - task: "Create webhook endpoint"
-        location: "Stripe Dashboard -> Developers -> Webhooks"
+        location: "Provider dashboard -> Webhooks"
 ```
 
 Only include what Claude literally cannot do.
@@ -673,7 +673,7 @@ Use for: Technology selection, architecture decisions, design choices.
 **checkpoint:human-action (1% - rare)**
 Action has NO CLI/API and requires human-only interaction.
 
-Use ONLY for: Email verification links, SMS 2FA codes, manual account approvals, credit card 3D Secure flows.
+Use ONLY for: Email verification links, one-time codes sent to a device, manual account approvals, third-party challenge flows.
 
 Do NOT use for: Deploying (use CLI), creating webhooks (use API), creating databases (use provider CLI), running builds/tests (use Bash), creating files (use Write).
 
@@ -683,7 +683,7 @@ When Claude tries CLI/API and gets auth error → creates checkpoint → user au
 
 ## Writing Guidelines
 
-**DO:** Automate everything before checkpoint, be specific ("Visit https://myapp.vercel.app" not "check deployment"), number verification steps, state expected outcomes.
+**DO:** Automate everything before checkpoint, be specific ("Visit the deployed app URL from `stack.services[].url`" not "check deployment"), number verification steps, state expected outcomes.
 
 **DON'T:** Ask human to do work Claude can automate, mix multiple verifications, place checkpoints before automation completes.
 
@@ -692,11 +692,11 @@ When Claude tries CLI/API and gets auth error → creates checkpoint → user au
 **Bad - Asking human to automate:**
 ```xml
 <task type="checkpoint:human-action">
-  <action>Deploy to Vercel</action>
-  <instructions>Visit vercel.com, import repo, click deploy...</instructions>
+  <action>Deploy to the hosting provider</action>
+  <instructions>Visit the provider dashboard, import repo, click deploy...</instructions>
 </task>
 ```
-Why bad: Vercel has a CLI. Claude should run `vercel --yes`.
+Why bad: the provider has a CLI. Claude should run its deploy command.
 
 **Bad - Too many checkpoints:**
 ```xml
@@ -963,9 +963,12 @@ If REQUIREMENTS.md does not exist or phase has no requirements: set `requirement
 Load planning context:
 
 ```bash
-INIT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" init plan-phase "${PHASE}")
+LEGACY_FLAG=""  # "--legacy" when your spawn prompt says `legacy: true`
+INIT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" init plan-phase "${PHASE}" $LEGACY_FLAG)
 if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
 ```
+
+If the command exits 1 and INIT has `error: project_context_missing`: stop, print its `missing` list and `hint`. Do not continue without the brief and profile. A legacy project (no brief, no profile) runs with `--legacy` (`LEGACY_FLAG`, set when your spawn prompt says `legacy: true`) or `GSD_LEGACY=1` exported.
 
 Extract from init JSON: `planner_model`, `researcher_model`, `checker_model`, `commit_docs`, `research_enabled`, `phase_dir`, `phase_number`, `has_research`, `has_context`.
 
@@ -1001,10 +1004,10 @@ If exists, load relevant documents by phase type:
 <step name="load_user_reasoning_context">
 Query the knowledge DB for user reasoning context relevant to this phase.
 
-Extract 2-3 keywords from the phase goal (e.g. for "implement sportsbook betting module" → "sportsbook", "betting"). Then run:
+Extract 2-3 keywords from the phase goal (e.g. for "implement inventory tracking module" → "inventory", "tracking"). Then run:
 
 ```bash
-USER_CONTEXT=$(node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js \
+USER_CONTEXT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js \
   query-knowledge "{phase_goal_first_3_words}" 2>/dev/null || echo "[]")
 ```
 
@@ -1204,7 +1207,7 @@ Run this gate AFTER all plans are written, BEFORE returning to orchestrator.
 **Scan all plans for testing violations:**
 
 For each plan in this phase:
-1. List every task that creates or modifies an API endpoint, edge function, RPC, or HTTP route
+1. List every task that creates or modifies an API endpoint, handler function, RPC, or HTTP route
 2. For each such task: is there an adjacent `tdd="true"` task in the same or immediately following plan?
 3. List every task that creates or modifies a web UI page, form, modal, or interactive component
 4. For each such task: is there a `checkpoint:ui-qa` task covering it in the same or immediately following plan?
@@ -1233,7 +1236,7 @@ Do NOT return PLANNING COMPLETE. Do NOT write SUMMARY. Do NOT commit.
 **Also scan for structural violations:**
 
 5. For each plan: `must_haves` section MUST have at least one `truths` entry AND one `artifacts` entry. Empty `must_haves` means the plan has no verifiable outcome — it cannot be verified.
-6. For each plan with `type: frontend` or creating `.tsx/.jsx` files: `e2e_flows` MUST NOT be empty. Every UI plan must define at least one user journey for Charlotte testing.
+6. For each plan with `type: frontend` or creating `.tsx/.jsx` files: `e2e_flows` MUST NOT be empty. Every UI plan must define at least one user journey for UI QA.
 7. For each plan that modifies an API response shape consumed by existing frontend: `e2e_flows` MUST include a "existing UI still works" flow.
 
 Flag violations same as above — PLAN REJECTED.

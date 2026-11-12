@@ -29,9 +29,12 @@ context for every rule still lives here, unchanged.
 Load execution context:
 
 ```bash
-INIT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" init execute-phase "${PHASE}")
+LEGACY_FLAG=""  # "--legacy" when your spawn prompt says `legacy: true`
+INIT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" init execute-phase "${PHASE}" $LEGACY_FLAG)
 if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
 ```
+
+If the command exits 1 and INIT has `error: project_context_missing`: stop, print its `missing` list and `hint`. Do not continue without the brief and profile. A legacy project (no brief, no profile) runs with `--legacy` (`LEGACY_FLAG`, set when your spawn prompt says `legacy: true`) or `GSD_LEGACY=1` exported.
 
 Extract from init JSON: `executor_model`, `commit_docs`, `phase_dir`, `plans`, `incomplete_plans`.
 
@@ -68,7 +71,7 @@ Query the knowledge DB for user preferences and decisions relevant to this plan.
 Use the phase goal from the plan's frontmatter or objective section as the query term:
 
 ```bash
-USER_CONTEXT=$(node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js \
+USER_CONTEXT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js \
   query-knowledge "{phase_goal_or_objective}" 2>/dev/null || echo "[]")
 ```
 
@@ -265,7 +268,7 @@ Agent(
     files_modified={TASK_CHANGED_FILES}
     behavior_description={task's <done> criteria text}
     project_dir={project_dir}
-    test_framework={detected from package.json / deno.json}
+    test_framework={runner named in stack_commands.test_file}
   "
 )
 ```
@@ -302,7 +305,7 @@ If gsd-test-writer reports >=1 tests written (whether passing or failing):
 
 ## Handling tdd="true" Tasks
 
-**Phase-gate authority note:** Individual `tdd="true"` task completion (this section) and the post-plan test gate below establish plan-level test correctness. Phase-level artifact EXISTENCE (that a test file, Charlotte QA evidence, docs commit, E2E-TEST-PLAN.md, and VERIFICATION.md exist somewhere in the phase) is enforced deterministically by `gsd-tools.js verify phase-gate {phase}` at the orchestrator level (execute-phase.md's `pre_verify_gates` step), run after this plan and its sibling plans in the phase complete — this executor is not responsible for that phase-wide check. If a mandatory step in this plan is genuinely skipped (not "not applicable," a real skip of something otherwise required), that skip requires `gsd-tools.js deferred add {phase} --step <step> --reason <reason> --approver <approver>` as part of the skip, not logged-and-forgotten afterward.
+**Phase-gate authority note:** Individual `tdd="true"` task completion (this section) and the post-plan test gate below establish plan-level test correctness. Phase-level artifact EXISTENCE (that a test file, UI QA evidence, docs commit, E2E-TEST-PLAN.md, and VERIFICATION.md exist somewhere in the phase) is enforced deterministically by `gsd-tools.js verify phase-gate {phase}` at the orchestrator level (execute-phase.md's `pre_verify_gates` step), run after this plan and its sibling plans in the phase complete — this executor is not responsible for that phase-wide check. If a mandatory step in this plan is genuinely skipped (not "not applicable," a real skip of something otherwise required), that skip requires `gsd-tools.js deferred add {phase} --step <step> --reason <reason> --approver <approver>` as part of the skip, not logged-and-forgotten afterward.
 
 When encountering a task with `tdd="true"`:
 
@@ -327,7 +330,7 @@ DO NOT execute the task inline. Instead:
        files_modified={files_modified}
        behavior_description={behavior_description}
        project_dir={project_dir}
-       test_framework={detected from package.json / deno.json}
+       test_framework={runner named in stack_commands.test_file}
      "
    )
    ```
@@ -374,7 +377,7 @@ DO NOT execute the task inline. Instead:
 ## Post-Plan Test Suite Gate
 
 After ALL tasks in the plan complete (including all `tdd="true"` test tasks), run the plan's affected test files plus their single bucket, once, as a final quality gate before creating SUMMARY.md; the full suite runs once per phase at the phase-end gate per `test_cost_rule`.
-**Test cost:** no full `scripts/preflight.sh` inside a plan. See gsd-test-protocol.md `test_cost_rule`.
+**Test cost:** no full pre-PR gate run inside a plan. See gsd-test-protocol.md `test_cost_rule`.
 
 **SUMMARY.md creation is BLOCKED if:**
 - Test suite fails (non-zero exit code)
@@ -387,19 +390,8 @@ After ALL tasks in the plan complete (including all `tdd="true"` test tasks), ru
 # Try config.json first
 TEST_CMD=$(node ~/.claude/get-shit-done/bin/gsd-tools.js config get testing.test_command 2>/dev/null || echo "")
 
-if [ -z "$TEST_CMD" ]; then
-  # Auto-detect from package.json
-  if [ -f "package.json" ]; then
-    TEST_CMD=$(node -e "try{const p=require('./package.json');console.log(p.scripts&&p.scripts['test:ci']||p.scripts&&p.scripts.test||'')}catch(e){console.log('')}" 2>/dev/null || echo "")
-  fi
-fi
-
-if [ -z "$TEST_CMD" ]; then
-  # Try deno.json
-  if [ -f "deno.json" ]; then
-    TEST_CMD=$(node -e "try{const d=require('./deno.json');console.log(d.tasks&&d.tasks['test:ci']||d.tasks&&d.tasks.test||'')}catch(e){console.log('')}" 2>/dev/null || echo "")
-  fi
-fi
+# Fallback: the test_all command from stack_commands (init output)
+if [ -z "$TEST_CMD" ]; then TEST_CMD="<stack_commands.test_all>"; fi
 ```
 
 Whichever command is detected, narrow it to the plan's affected test files plus their single bucket (`test_cost_rule` step 1); a whole-project command is never run inside a plan.
@@ -416,7 +408,7 @@ If TEST_CMD is non-empty, do a quick pre-flight run to detect infrastructure err
 
 ```bash
 # Quick pre-flight to detect infrastructure errors
-PRE_FLIGHT_FILE="/tmp/gsd-preflight-$$.txt"
+PRE_FLIGHT_FILE="/tmp/gsd-pregate-$$.txt"
 timeout 30 bash -c "${TEST_CMD}" > "${PRE_FLIGHT_FILE}" 2>&1
 PRE_FLIGHT_EXIT=$?
 PRE_FLIGHT_OUTPUT=$(cat "${PRE_FLIGHT_FILE}" 2>/dev/null || echo "")
@@ -424,7 +416,7 @@ rm -f "${PRE_FLIGHT_FILE}"
 
 # Detect infrastructure unavailability
 INFRA_ERROR=false
-if echo "$PRE_FLIGHT_OUTPUT" | grep -qiE "ECONNREFUSED|connection refused|not running|supabase.*not|database.*unavailable|connect.*failed|supabase not started|service.*unavailable"; then
+if echo "$PRE_FLIGHT_OUTPUT" | grep -qiE "ECONNREFUSED|connection refused|not running|database.*unavailable|connect.*failed|service.*unavailable"; then
   INFRA_ERROR=true
 fi
 ```
@@ -433,13 +425,13 @@ If INFRA_ERROR=true AND PRE_FLIGHT_EXIT != 0:
 
 1. Log: "Infrastructure appears to be down — reading CLAUDE.md for startup commands..."
 
-2. Read the project's CLAUDE.md (same approach as gsd-charlotte-qa: `find . -maxdepth 2 -name "CLAUDE.md" | head -1`). Look for a `## Dev / Infrastructure` or `## Supabase` or `## QA / Dev Server` section — extract the infrastructure startup command.
+2. Read the project's CLAUDE.md (same approach as the UI QA agent: `find . -maxdepth 2 -name "CLAUDE.md" | head -1`). Look for a `## Dev / Infrastructure` or a section naming a `stack.services[]` entry or `## QA / Dev Server` section — extract the infrastructure startup command.
 
-3. If CLAUDE.md has a startup command: run it. Example: if CLAUDE.md mentions `supabase start` → run `supabase start 2>&1 | tail -10`. Wait up to 60s for it to complete.
+3. If CLAUDE.md has a startup command: run it. Example: if CLAUDE.md names the start command of a `stack.services[]` entry → run it with `2>&1 | tail -10`. Wait up to 60s for it to complete.
 
 4. If no CLAUDE.md startup command found, try common fallbacks in order:
-   - If `supabase/config.toml` or `supabase/` directory exists: `supabase start`
-   - If `docker-compose.yml` or `docker-compose.yaml` exists: `docker-compose up -d`
+   - If the config directory of a `stack.services[]` entry exists: that entry's start command
+   - If a container compose file exists in the repo: its detached up command
 
 5. After startup attempt, wait 5 seconds, then proceed to Step 2 (full test run).
 
@@ -466,7 +458,7 @@ COVERAGE_FOUND=""
 If COVERAGE_THRESHOLD is set (non-empty) AND TEST_EXIT_CODE == 0, attempt to parse coverage from TEST_OUTPUT:
 - Look for Istanbul/nyc format: `All files | N.N |` — extract the first numeric value in that row
 - Look for `Statements   : N.N%` or `Lines        : N.N%` patterns
-- Look for `Coverage: N.N%` in Jest output
+- Look for `Coverage: N.N%` in the test runner output
 - Parse the found value as a float
 
 If a coverage value is found:
@@ -521,7 +513,7 @@ After all tasks complete, create `{phase}-{plan}-SUMMARY.md` at `.planning/phase
 **Title:** `# Phase [X] Plan [Y]: [Name] Summary`
 
 **One-liner must be substantive:**
-- Good: "JWT auth with refresh rotation using jose library"
+- Good: "Token auth with refresh rotation using the signing library the stack profile names"
 - Bad: "Authentication implemented"
 
 **Deviation documentation:**

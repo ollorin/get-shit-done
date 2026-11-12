@@ -1483,6 +1483,16 @@ function installHookDependencies(gsdDir) {
   }
 }
 
+// True when <cwd>/.planning/config.json has a stack.capabilities object without a ui_qa key.
+function projectDeclaresCapabilitiesWithoutUiQa(cwd) {
+  try {
+    const caps = JSON.parse(fs.readFileSync(path.join(cwd, '.planning', 'config.json'), 'utf8')).stack?.capabilities;
+    return caps !== null && typeof caps === 'object' && !Array.isArray(caps) && !('ui_qa' in caps);
+  } catch {
+    return false;
+  }
+}
+
 function install(isGlobal, runtime = 'claude') {
   const isOpencode = runtime === 'opencode';
   const isGemini = runtime === 'gemini';
@@ -1821,27 +1831,33 @@ function install(isGlobal, runtime = 'claude') {
       console.log(`  ${green}✓${reset} Configured managed file protection hook (Write + Edit + Bash)`);
     }
 
-    // Charlotte DB-reset lock: take the lock on Charlotte MCP calls and around
-    // gsd-charlotte-qa subagents; block DB resets from Bash while it is live.
-    const charlotteLockHookPath = isGlobal
-      ? path.join(targetDir, 'get-shit-done', 'bin', 'hooks', 'gsd-charlotte-lock.js').replace(/\\/g, '/')
-      : path.join(dirName, 'get-shit-done', 'bin', 'hooks', 'gsd-charlotte-lock.js').replace(/\\/g, '/');
-    const charlotteLockCommand = wrapWithTimeout(`node "${charlotteLockHookPath}"`);
-    const charlotteLockRegistrations = [
-      ['PreToolUse', 'mcp__charlotte__.*'],
+    // UI-QA lock (profile-driven, gsd-ui-qa-lock.js): a no-op without stack.capabilities.ui_qa. The old hook
+    // name stays in the cleaner so an upgrade removes its registration. A local project that declares
+    // stack.capabilities without ui_qa gets no registration.
+    const uiQaLockHookPath = isGlobal
+      ? path.join(targetDir, 'get-shit-done', 'bin', 'hooks', 'gsd-ui-qa-lock.js').replace(/\\/g, '/')
+      : path.join(dirName, 'get-shit-done', 'bin', 'hooks', 'gsd-ui-qa-lock.js').replace(/\\/g, '/');
+    const uiQaLockCommand = wrapWithTimeout(`node "${uiQaLockHookPath}"`);
+    const uiQaLockRegistrations = [
+      ['PreToolUse', 'mcp__.*'],
       ['PreToolUse', 'Bash'],
-      ['SubagentStart', 'gsd-charlotte-qa'],
-      ['SubagentStop', 'gsd-charlotte-qa'],
+      ['SubagentStart', undefined],
+      ['SubagentStop', undefined],
     ];
-    for (const event of new Set(charlotteLockRegistrations.map(([e]) => e))) {
+    for (const event of new Set(uiQaLockRegistrations.map(([e]) => e))) {
       settings.hooks[event] = (settings.hooks[event] || []).filter(entry =>
-        !(entry.hooks && entry.hooks.some(h => h.command && h.command.includes('gsd-charlotte-lock')))
+        !(entry.hooks && entry.hooks.some(h => h.command && /gsd-charlotte-lock|gsd-ui-qa-lock/.test(h.command)))
       );
     }
-    for (const [event, matcher] of charlotteLockRegistrations) {
-      settings.hooks[event].push({ matcher, hooks: [{ type: 'command', command: charlotteLockCommand }] });
+    const localProjectWithoutUiQa = !isGlobal && projectDeclaresCapabilitiesWithoutUiQa(process.cwd());
+    if (!localProjectWithoutUiQa) {
+      for (const [event, matcher] of uiQaLockRegistrations) {
+        settings.hooks[event].push({ matcher, hooks: [{ type: 'command', command: uiQaLockCommand }] });
+      }
+      console.log(`  ${green}✓${reset} Configured UI-QA lock hooks`);
+    } else {
+      console.log(`  ${green}✓${reset} Skipped UI-QA lock hooks (project declares no ui_qa capability)`);
     }
-    console.log(`  ${green}✓${reset} Configured Charlotte DB-reset lock hooks`);
 
     rewrapGsdHookCommands(settings);
   }

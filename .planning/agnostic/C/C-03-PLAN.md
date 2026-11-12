@@ -1,3 +1,4 @@
+> CANCELLED (M-00-PLAN-INDEX.md section 0). Not executed; redo at cutover.
 ---
 phase: agnostic-C
 plan: 03
@@ -154,7 +155,7 @@ Then write and commit `.planning/agnostic/C/C-03-SUMMARY.md`: outcome, commits, 
 Each of the three files single-run `# fail 0`; G1-G6, P1-P5 (preset-igaming), T1-T5 (terms), D1-D4 (deploy) present by name; `git grep -c "preset-igaming-" -- package.json` → `package.json:2` lines wired (terms and deploy).
 Full suite `rc=0`, `# fail 0`. `node scripts/agnostic-lint.js check` → exit 0.
 `wc -l` of each of the three test files ≤ 500.
-`git status --short` shows only `.audit/`; `git -C /Users/ollorin/igaming-platform status --short | wc -l` equals the number recorded in C-01.
+`git status --short` shows only `.audit/`; `git -C ~/igaming-platform status --short | wc -l` equals the number recorded in C-01.
   </verify>
   <done>4 behaviours, 5 mutants killed, suite green, Phase C summary written.</done>
 </task>
@@ -164,7 +165,7 @@ Full suite `rc=0`, `# fail 0`. `node scripts/agnostic-lint.js check` → exit 0.
 <opus_review_dispatch>
 Not an executor task. After C-03-SUMMARY.md is committed, the coordinator sends ONE fresh review dispatch with `model: "fable"` (if rejected for allowance or availability: `model: "opus"`, and say so). The reviewer did not write the brief and edits nothing. Phase C is not complete until its verdict is on disk and every finding is fixed.
 
-Inputs (read by line range): `get-shit-done/presets/igaming/{PRODUCT-BRIEF.md,config.stack.json,STACK-PROFILE.md,README.md}`; the S1-S17 sites of this plan; `get-shit-done/presets/igaming/CLAUDE.md` sections "Subagent Usage" and "High-stakes domains"; `get-shit-done/presets/igaming/rules/{database,edge-functions,bonus-system,testing}.md`; design `/Users/ollorin/igaming-platform/.planning/fable-review/FABLE-AGNOSTIC-GSD.md` sections 1.3 (class 1), 4.1, 4.6, risk R7; the test block `igaming brief term coverage`.
+Inputs (read by line range): `get-shit-done/presets/igaming/{PRODUCT-BRIEF.md,config.stack.json,STACK-PROFILE.md,README.md}`; the S1-S17 sites of this plan; `get-shit-done/presets/igaming/CLAUDE.md` sections "Subagent Usage" and "High-stakes domains"; `get-shit-done/presets/igaming/rules/{database,edge-functions,bonus-system,testing}.md`; design `~/igaming-platform/.planning/fable-review/FABLE-AGNOSTIC-GSD.md` sections 1.3 (class 1), 4.1, 4.6, risk R7; the test block `igaming brief term coverage`.
 
 Questions, each answered with `file:line` evidence:
 1. Do `risk_domains` and `ruling_topics` hold exactly the terms of S1-S6, nothing more, nothing less?

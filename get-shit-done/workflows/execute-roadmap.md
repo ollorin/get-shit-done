@@ -19,6 +19,8 @@ session-supervisor.sh --max-resumes 8 -- claude -p "/gsd:execute-roadmap" --perm
 
 Each relaunch is a brand-new process with no human present and no memory of the prior one — it only has what's on disk (`.planning/EXECUTION_LOG.md`, `ROADMAP.md`, `STATE.md`). This is a categorically different mechanism from the in-process death/respawn handling in the `execute_phases` step's 4a sub-step below (which recovers a *spawned sub-agent* dying while THIS orchestrator survives) — see `references/resilience.md` for that distinction. Nothing internal to this workflow can detect or recover from the top-level orchestrator process itself dying; only an external supervisor can.
 
+**A project without a brief or stack profile:** an unattended run exports `GSD_LEGACY=1` before the first command; the flag alone does not reach spawned agents.
+
 **The `GSD_AUTONOMOUS=1` environment variable** signals that this run may be an unattended relaunch with no human able to answer a prompt. It changes behavior at exactly two gates, both defined further below, and nowhere else in this file:
 
 - the `resume_capability` step — if `GSD_AUTONOMOUS=1` AND `resume_state` is set (a prior incomplete execution exists), auto-select **"resume"**. Never "restart" — restart discards completed-phase history and would be catastrophic to auto-select unattended; it stays reachable only via an interactive human response.
@@ -216,7 +218,7 @@ Log format: JSONL lines after markdown header, enabling streaming append:
 {"type":"roadmap_start","timestamp":"...","total_phases":8,"execution_order":[1,3,2,4,5,6,7,8]}
 ```
 
-**Roadmap name and status channel:** derive `roadmap_name` from the first heading in ROADMAP.md (`# Roadmap: {name}` → strip "Roadmap: "; fallback "Roadmap"). There is no external notification channel: the main orchestrator prints status and any CEO question to the chat, and nothing blocks on a reply.
+**Roadmap name and status channel:** derive `roadmap_name` from the first heading in ROADMAP.md (`# Roadmap: {name}` → strip "Roadmap: "; fallback "Roadmap"). There is no external notification channel: the main orchestrator prints status and any owner question (the owner's title is `owner_title` in the init output) to the chat, and nothing blocks on a reply.
 
 **Execution start:** print "Roadmap execution started" with the phase list and total count to the chat.
 </step>
@@ -225,13 +227,13 @@ Log format: JSONL lines after markdown header, enabling streaming append:
 Long unattended runs fail silently: children stall mid-tool-call, coordinators end their turn early, orphans and caches fill the disk. Arm these recurring `CronCreate` jobs before the first phase (`CronList` first — never duplicate). They are session-only and expire after 7 days: re-arm on resume and on expiry; `CronDelete` them in `completion`.
 
 **1. Status tick — every 45 min, off round marks (e.g. `6,51 * * * *` style).** Prompt:
-> Roadmap status tick ({milestone}). In one batched turn: `git log --format='%h %cr %s' -3`, the stack-lock owner file (if the project has one), ListAgents, `df -h /`, `sysctl vm.swapusage`. If an agent has had no commit/file change for >45 min or loops on the same failure: TaskStop it, then dispatch a fresh agent of the matching GSD `subagent_type` from on-disk state (2-parallel and one-writer rules apply); never SendMessage a handed-back coordinator. TaskStop any "completed" agent that still has background tasks (they wake it into stale work). If a plan or phase closed, verify on disk (SUMMARY Self-Check, VERIFICATION) and launch the next — run independent phases in parallel up to the project's ceiling, with file claims and the stack lock. Host restart: only when free disk < ~3 GiB or docker/a test bucket stalls, never for swap alone, always at a plan boundary, through one owner (`docs/host-setup.md` in the GSD fork). Send ONE 1–2 line report: phase, progress, blocker, disk, swap GB.
+> Roadmap status tick ({milestone}). In one batched turn: `git log --format='%h %cr %s' -3`, the stack-lock owner file (if the project has one), ListAgents, `df -h /`, `sysctl vm.swapusage`. If an agent has had no commit/file change for >45 min or loops on the same failure: TaskStop it, then dispatch a fresh agent of the matching GSD `subagent_type` from on-disk state (2-parallel and one-writer rules apply); never SendMessage a handed-back coordinator. TaskStop any "completed" agent that still has background tasks (they wake it into stale work). If a plan or phase closed, verify on disk (SUMMARY Self-Check, VERIFICATION) and launch the next — run independent phases in parallel up to the project's ceiling, with file claims and the stack lock. Host restart: only when free disk < ~3 GiB or the container runtime or a test bucket stalls, never for swap alone, always at a plan boundary, through one owner (`docs/host-setup.md` in the GSD fork). Send ONE 1–2 line report: phase, progress, blocker, disk, swap GB.
 
 **2. Delivery report — every 4 h.** Prompt:
 > Delivery report ({milestone}), as ONE Haiku agent (read-only). Using `git log --since="4 hours ago" --oneline` and SUMMARY/VERIFICATION files modified in that window (first ~40 lines plus the Self-Check result with its line number), report in 3-5 lines: plans/phases closed, commit count, notable fixes, next up, blockers; note a CHECKPOINT.json stale against the SUMMARYs. Facts only; cite only what was read. Relay it to the user, correcting anything the disk contradicts.
 
 **3. Disk/process cleanup — every 12 h.** Prompt:
-> Periodic cleanup ({milestone}), as ONE Haiku agent, at most 8 tool calls. `df -h /`. Only if free disk is under 12 GiB, kill ppid-1 orphans: `sleep`, test fixture processes, Claude `zsh -c` `until` wait shells >2h old (TaskStop the owning agent first — killing a wait shell re-invokes it). List scratch-dir (`.tmp/`) top-level entries >2 days old, drop every name matching `.planning/cleanup-keep.txt` (always keep lock, claims and shared-run dirs; if that file is missing, delete nothing), write the remaining names to `.tmp/cleanup-deleted-names.txt`, delete exactly those. `docker builder prune -f` + `docker image prune -f` (never `-a`, never volumes, never pull). Never touch running agents' processes, the dev server, or stack containers. Report in 2 lines: names deleted, disk before/after.
+> Periodic cleanup ({milestone}), as ONE Haiku agent, at most 8 tool calls. `df -h /`. Only if free disk is under 12 GiB, kill ppid-1 orphans: `sleep`, test fixture processes, Claude `zsh -c` `until` wait shells >2h old (TaskStop the owning agent first — killing a wait shell re-invokes it). List scratch-dir (`.tmp/`) top-level entries >2 days old, drop every name matching `.planning/cleanup-keep.txt` (always keep lock, claims and shared-run dirs; if that file is missing, delete nothing), write the remaining names to `.tmp/cleanup-deleted-names.txt`, delete exactly those. the container runtime's build-cache and dangling-image prune, forced (never `-a`, never volumes, never pull). Never touch running agents' processes, the dev server, or stack containers. Report in 2 lines: names deleted, disk before/after.
 
 Ticks are the orchestrator's only liveness signal — never disable them to save tokens; keep each report to 1–2 lines instead.
 
@@ -255,10 +257,10 @@ node "$DEC" gate --phase {phase_number}
 node "$DEC" digest
 node "$DEC" digest --mark-only
 ```
-- `gate` exit 0: proceed. Exit 2 (an open irreversible assumption feeds this phase): park only this phase and the phases that depend on it; every other phase continues. Log `phase_parked` with the ids and print each parked question (`decisions list --open`) in the chat. It never ends the run or blocks on a reply. A phase still parked when every other phase is done is not executed: report it in `completion` as waiting for the CEO.
+- `gate` exit 0: proceed. Exit 2 (an open irreversible assumption feeds this phase): park only this phase and the phases that depend on it; every other phase continues. Log `phase_parked` with the ids and print each parked question (`decisions list --open`) in the chat. It never ends the run or blocks on a reply. A phase still parked when every other phase is done is not executed: report it in `completion` as waiting for the owner.
 - `gate` exit 3, or any other non-zero code (corrupt or unreadable ledger, e.g. a conflict-marker line or a duplicate id): fail closed. Treat it exactly like exit 2: park the phase, log `phase_parked` with reason `ledger_error` and the printed errors, and report it in `completion`. `decisions.js validate` prints the offending lines; `decisions.js repair` fixes duplicate ids and conflict markers (the orchestrator may run it, then re-run `gate`).
 - `digest` non-empty text: print it to the chat. Do not wait for a reply and never ask it through `ask_blocking_question`. Only after printing, run `digest --mark-only` (a run that dies in between re-sends rather than loses the questions). A non-zero `digest` exit is handled like `gate` exit 3.
-- Rework tickets (`node "$DEC" reworks` prints the open `R-NN`, written when the CEO answered through `/gsd:decide` after a consumer was built): for each, insert the decimal rework phase the protocol describes after its last built consumer, before continuing; `node "$DEC" close R-NN --status done` when it verifies.
+- Rework tickets (`node "$DEC" reworks` prints the open `R-NN`, written when the owner answered through `/gsd:decide` after a consumer was built): for each, insert the decimal rework phase the protocol describes after its last built consumer, before continuing; `node "$DEC" close R-NN --status done` when it verifies.
 
 **2. Check dependencies:**
 ```bash
@@ -298,25 +300,25 @@ Agent(
      Planner MUST run validate_testing_gate before returning plans.
      If phase touches UI: generate E2E-TEST-PLAN.md via gsd-ui-inventory + gsd-e2e-test-generator.
   3. Execute — tdd tasks spawn gsd-test-writer (tiered budget, inventory-first).
-     checkpoint:ui-qa tasks trigger Charlotte QA loop (3 rounds) + MANDATORY ux-audit.
+     checkpoint:ui-qa tasks trigger the UI QA loop (3 rounds) + MANDATORY ux-audit.
      Post-plan test gate: full test suite must pass before SUMMARY.md.
-  4. Post-execution — If web project: run post_phase_ux_sweep (Charlotte ux-audit, unconditional).
-     If e2e_flows in plan frontmatters: run Charlotte e2e mode.
+  4. Post-execution — If web project: run post_phase_ux_sweep (UI QA ux-audit, unconditional; skip only when the phase gate reports `ui_qa_mode: none`, recording `ui_qa_ran: false  # no ui_qa capability`; `legacy` mode still runs it with the project's configured QA agent).
+     If e2e_flows in plan frontmatters: run UI QA e2e mode.
      If UI built: run E2E gap closure (Step 6.5 of execute-phase).
   5. Verify — MUST spawn gsd-verifier agent. NEVER write VERIFICATION.md inline for phases with UI.
-     Verifier checks QGATE-07 (Charlotte ran), QGATE-10 (test files exist), QGATE-13 (E2E plan exists).
+     Verifier checks QGATE-07 (UI QA ran), QGATE-10 (test files exist), QGATE-13 (E2E plan exists).
 
   HARD RULES:
   - Phase with .tsx/.jsx files CANNOT have verifier: coordinator in VERIFICATION.md
   - Phase with API endpoints CANNOT skip tdd tasks
-  - Charlotte QA + UX audit CANNOT be skipped for web projects
+  - UI QA + UX audit CANNOT be skipped for web projects that declare the UI QA capability
   - Individual plans MUST stay under 400 lines. If a plan exceeds 400 lines, split it.
-    DB migrations, edge function handlers, and integration tests are three separate plans — not one.
-  - charlotte_qa_ran lives in {N}-VERIFICATION.md frontmatter, written by gsd-verifier (true only if a
-    Charlotte QA run is recorded). CHECKPOINT.json is not evidence. The orchestrator validates this after you return.
+    DB migrations, service handlers, and integration tests are three separate plans — not one.
+  - ui_qa_ran lives in {N}-VERIFICATION.md frontmatter, written by gsd-verifier (true only if a
+    UI QA run is recorded). CHECKPOINT.json is not evidence. The orchestrator validates this after you return.
 
   CONTEXT OVERFLOW PREVENTION:
-  - Do NOT read the full edge function file if it exceeds 1000 lines. Use LSP or grep for the specific handler.
+  - Do NOT read the full service handler file if it exceeds 1000 lines. Use LSP or grep for the specific handler.
   - Do NOT accumulate multiple plan executions in a single context. Execute one plan, write SUMMARY, checkpoint, return.
   - If you are approaching context limits, return a checkpoint with resume_from instead of trying to finish.
 
@@ -373,7 +375,7 @@ IS_STALE=$(node -e "console.log(JSON.parse(process.argv[1]).stale)" "$STALENESS_
          --data '{"phase": {N}, "reset_time_iso": "'"${RESET_TIME_ISO}"'", "wait_seconds": '"${WAIT_SECONDS}"', "cap_seconds": '"${MAX_WAIT_SECONDS}"'}'
        ```
        Print the implausible reset time to the chat — do not respawn immediately in this case; treat it the same as a phase failure requiring human awareness (falls through to `handle_failure`).
-     - Otherwise, actually pause with a polling sleep loop (matching the Charlotte QA health-check polling pattern used elsewhere in this codebase) until the reset time is reached, THEN proceed to respawn:
+     - Otherwise, actually pause with a polling sleep loop (matching the UI QA health-check polling pattern used elsewhere in this codebase) until the reset time is reached, THEN proceed to respawn:
        ```bash
        while [ "$(date -u +%s)" -lt "${RESET_EPOCH}" ]; do
          sleep 60
@@ -404,10 +406,10 @@ IS_STALE=$(node -e "console.log(JSON.parse(process.argv[1]).stale)" "$STALENESS_
 5. **If NOT presumed dead:** proceed directly to step 5's existing logic below, unchanged.
 
 **5. Handle result:**
-- `status: "completed"`: proceed to **5a** (Charlotte gate) then **5b** (integration gate)
+- `status: "completed"`: proceed to **5a** (UI QA gate) then **5b** (integration gate)
 - `status: "completed_with_deferrals"`: coordinator hit context limits. Spawn fresh agents for deferred steps:
   - If `"verify"` in deferred: spawn `gsd-verifier` with `model="opus"` and handoff_summary from return; run a Sonnet pre-verification of all must-haves first (on-disk evidence)
-  - If `"charlotte_qa"` in deferred: will be caught by 5a gate
+  - If `"ui_qa"` in deferred: will be caught by 5a gate
   - After all deferrals resolved: proceed to 5a → 5b
 - `status: "failed"`: see `<step name="handle_failure">`
 - `status: "blocked"` with `reason: "parked"`: handle exactly like a `gate` exit 2 in step 1a (park, continue with the next phase, never wait)
@@ -425,36 +427,36 @@ if [ -f ".planning/phases/{phase_dir}/deferred-items.md" ]; then
 fi
 ```
 
-**5a. Charlotte QA gate (BLOCKING — owned by orchestrator, not coordinator):**
+**5a. UI QA gate (BLOCKING — owned by orchestrator, not coordinator):**
 
-Check if the phase needs Charlotte QA using the deterministic, git-diff-derived phase gate (never a markdown/frontmatter self-report scan):
+Check if the phase needs UI QA using the deterministic, git-diff-derived phase gate (never a markdown/frontmatter self-report scan):
 ```bash
 PHASE_GATE_RESULT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js verify phase-gate {N})
-NEEDS_QA=$(node -e "console.log(JSON.parse(process.argv[1]).charlotte_qa_required === true ? 'true' : '')" "$PHASE_GATE_RESULT")
+NEEDS_QA=$(node -e "console.log(JSON.parse(process.argv[1]).ui_qa_required === true ? 'true' : '')" "$PHASE_GATE_RESULT")
 ```
 
-`charlotte_qa_required` is `has_ui || has_api`, computed from the phase's actual touched files: UI (extension + route-path detection) or API paths (`apps/api/functions/**`, `supabase/functions/**`, `pages|app/api/**`, excluding tests and docs). It is independent of what any PLAN.md/SUMMARY.md self-reports — a `.tsx` file omitted from a plan's key-files still triggers this gate. Phases verified before `charlotte_qa_ran` existed (API phases in particular) fail this check on any re-gate or milestone audit: re-run Charlotte + gsd-verifier, or record a `deferred add --step charlotte_qa` waiver.
+`ui_qa_required` (same value as the legacy `charlotte_qa_required`) is `has_ui || has_api` and the UI-QA mode is not `none`. Mode `none` means `stack.capabilities` is an object whose keys are all known and that has no `ui_qa` key; any other case (no capabilities object, a `ui_qa` key, an unknown key) is required. It is computed from the phase's actual touched files: UI (extension + route-path detection) or API paths (`stack.paths.api_globs`; a legacy project uses the built-in `LEGACY_API_PATTERNS` of gsd-tools.js; plus `app/api/**` and `pages/api/**`; excluding tests and docs). It is independent of what any PLAN.md/SUMMARY.md self-reports — a `.tsx` file omitted from a plan's key-files still triggers this gate. Phases verified before `ui_qa_ran` existed (API phases in particular) fail this check on any re-gate or milestone audit: re-run Charlotte + gsd-verifier, or record a `deferred add --step charlotte_qa` waiver.
 
 **If NEEDS_QA is non-empty:**
 
-The evidence is `charlotte_qa_ran: true` (a YAML boolean) in `{N}-VERIFICATION.md` frontmatter. CHECKPOINT.json is not read. If the phase-gate `failures` contain `missing_charlotte_qa`:
+The evidence is `ui_qa_ran: true` (a YAML boolean) in `{N}-VERIFICATION.md` frontmatter. CHECKPOINT.json is not read. If the phase-gate `failures` contain `missing_charlotte_qa`:
 
 ```
-⛔ CHARLOTTE QA GATE — BLOCKING
+⛔ UI QA GATE — BLOCKING
 
-Phase {N} touched UI or API paths but VERIFICATION.md has no charlotte_qa_ran: true.
-Running Charlotte QA now...
+Phase {N} touched UI or API paths but VERIFICATION.md has no ui_qa_ran: true.
+Running UI QA now...
 ```
 
-1. Start dev servers (detect from CLAUDE.md or plan files) and run the project's suite-start DB reset NOW — once `gsd-charlotte-qa` spawns, the Charlotte lock hook blocks DB resets until it stops
-2. Spawn `gsd-charlotte-qa` with `mode=ui-qa` on phase UI pages
+1. Start dev servers (detect from CLAUDE.md or plan files) and run the project's suite-start DB reset NOW — once the UI QA agent spawns, the UI QA lock hook blocks DB resets until it stops
+2. Spawn the UI QA agent (`stack.capabilities.ui_qa.agent`; legacy: the project's configured QA agent) with `mode=ui-qa` on phase UI pages
 3. If critical/high issues → spawn fix agent → re-run (max 3 rounds)
-4. Run regression: all `regression`-tagged Charlotte scenarios must pass
-5. Only after pass → re-spawn `gsd-verifier` so it re-issues `{N}-VERIFICATION.md` with `charlotte_qa_ran: true` (never hand-edit the frontmatter) → re-run `verify phase-gate` → proceed to 5b
+4. Run regression: all `regression`-tagged UI QA scenarios must pass
+5. Only after pass → re-spawn `gsd-verifier` so it re-issues `{N}-VERIFICATION.md` with `ui_qa_ran: true` (never hand-edit the frontmatter) → re-run `verify phase-gate` → proceed to 5b
 
-If Charlotte QA genuinely cannot be run (e.g. dev environment unavailable) and proceeding anyway is a deliberate, approved decision: this is a genuine mandatory-step skip, not a routine no-UI skip. Run `node ~/.claude/get-shit-done/bin/gsd-tools.js deferred add {N} --step charlotte_qa --reason <reason> --approver <approver>` as part of the skip — never logged-and-forgotten afterward. Do not set `charlotte_qa_ran: true` for QA that did not actually happen; record the waiver instead and let `verify phase-gate` honor it.
+If UI QA genuinely cannot be run (e.g. dev environment unavailable) and proceeding anyway is a deliberate, approved decision: this is a genuine mandatory-step skip, not a routine no-UI skip. Run `node ~/.claude/get-shit-done/bin/gsd-tools.js deferred add {N} --step ui_qa --reason <reason> --approver <approver>` as part of the skip — never logged-and-forgotten afterward. Do not set `ui_qa_ran: true` for QA that did not actually happen; record the waiver instead and let `verify phase-gate` honor it.
 
-**Why the orchestrator owns this gate:** Coordinators that overflow context drop Charlotte as a late step and write "code-level verification" — which missed 5 real UI bugs in v0.1.9. The orchestrator runs this check AFTER the coordinator returns, so context overflow cannot bypass it.
+**Why the orchestrator owns this gate:** Coordinators that overflow context drop UI QA as a late step and write "code-level verification" — which missed 5 real UI bugs in v0.1.9. The orchestrator runs this check AFTER the coordinator returns, so context overflow cannot bypass it.
 
 **5b. Cross-phase integration checkpoint (UNCONDITIONAL — every phase):**
 
@@ -462,14 +464,14 @@ Run after EVERY completed phase. No conditional.
 
 1. Run unit + integration tests:
 ```bash
-cd apps/api && NODE_ENV=test DENO_ENV=test deno task test:ci 2>&1 | tail -5
-cd apps/api && NODE_ENV=test DENO_ENV=test deno test --allow-all --env-file=.env.test functions/__tests__/*.integration.test.ts 2>&1 | tail -10
+<stack_commands.test_all>
+<stack_commands.test_file> on each integration test file (test paths: `stack.paths`)
 ```
 
 2. If phase touched frontend: run frontend tests + builds:
 ```bash
-CI=true npx nx test player-web && CI=true npx nx test operator-web
-npx nx build player-web && npx nx build operator-web
+<stack_commands.frontend_test>
+<stack_commands.build>
 ```
 
 If ANY failures → log `integration_test_failure` → **STOP. Fix before next phase.**
@@ -643,7 +645,7 @@ Parse the JSON output. If `action_required` is true:
 - Run EVERY check listed in `checks` array
 - Each check must exit 0
 - Run the full suite TWICE — both runs must be green
-  (PR-time only. Within phases: one full preflight per phase on the final tree; per-plan runs are affected files plus one bucket. See gsd-test-protocol.md `test_cost_rule`.)
+  (PR-time only. Within phases: one full run of every gate in `stack.gates[]` and `stack.commands.pre_pr_gate` per phase on the final tree; per-plan runs are affected files plus one bucket. See gsd-test-protocol.md `test_cost_rule`.)
 - After both runs pass, mark the gate:
 ```bash
 node ~/.claude/get-shit-done/bin/gsd-tools.js gate pre-pr --mark-passed
@@ -658,16 +660,15 @@ The PR creation step below checks for this marker.
 
 **Before marking the gate as passed:**
 
-1. Start frontend dev servers (required for Charlotte):
+1. Start the frontend dev servers (required for UI QA):
 ```bash
-npx nx dev player-web &
-npx nx dev operator-web &
+<each stack.services[].launch command> &
 # Wait for both to be ready
 ```
 
-2. Run Charlotte regression tests:
+2. Run the UI QA regression tests:
 ```bash
-cd apps/e2e-charlotte && deno task test:regression
+the UI QA regression command (`stack.capabilities.ui_qa`)
 ```
 
 3. ALL regression-tagged tests must PASS
@@ -772,9 +773,9 @@ When `parallel_opportunities` contains multiple phases:
 
 | Phase type | Max parallel | Rationale |
 |------------|-------------|-----------|
-| Schema-only (migrations, RPCs, no edge function) | 3 | Low context, independent schemas |
-| Feature (DB + edge function + tests) | 2 | High context, shared edge function file |
-| UI (frontend components + pages) | 2 | Charlotte QA contention, shared dev server |
+| Schema-only (migrations, RPCs, no service handler) | 3 | Low context, independent schemas |
+| Feature (DB + service handler + tests) | 2 | High context, shared handler file |
+| UI (frontend components + pages) | 2 | UI QA contention, shared dev server |
 
 When the orchestrator identifies N parallelizable phases:
 - If N > max_parallel for the type: split into batches of max_parallel

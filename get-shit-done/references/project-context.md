@@ -30,12 +30,12 @@ If a key you need is missing, stop and report the key. Never substitute a defaul
 | `project.risk_domains` | yes | unique risk domain ids |
 | `project.ruling_topics` | yes | unique ruling topic ids |
 | `stack.commands.test_file` | yes | command for one test file; takes `{file}` |
-| `stack.commands.<name>` | no | `test_all`, `typecheck`, `lint`, `format`, `frontend_test`, `pre_pr_gate`, `search` |
+| `stack.commands.<name>` | no | `test_all`, `typecheck`, `lint`, `format`, `frontend_test`, `build`, `pre_pr_gate`, `search` |
 | `stack.preset`, `stack.preset_version` | no | preset name and version, non-empty strings |
 | `stack.paths` | no | `backend`, `migrations`, `api_globs`, `e2e_scenarios`, `frontends` |
 | `stack.test_command_shapes` | no | array of allowed test command shapes; `<file>` is a literal token shown to agents, never substituted |
 | `stack.gates` | no | array of `{id, run}`; ids unique |
-| `stack.services` | no | array of `{name, url, health?, launch?, ready?}`; names unique |
+| `stack.services` | no | array of `{name, url, health?, health_cmd?, launch?, ready?}`; names unique. `health` is a URL or path (probed with curl, a path is appended to `url`); `health_cmd` is a shell command that prints the HTTP status, the only health field that is evaluated |
 | `stack.capabilities` | no | `ui_qa: {driver, agent, tool_prefix?, reset_patterns?}` |
 | `stack.isolation` | no | `port_base` (1024-65535), `container_suffix`, `lock_dir`, `machine_locks` |
 

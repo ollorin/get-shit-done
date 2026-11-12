@@ -1,0 +1,8 @@
+stack.lock*
+phase-file-claims.md
+wt-*
+merge-scratch
+train
+*evidence-hold*
+*-evidence
+opus-ruling

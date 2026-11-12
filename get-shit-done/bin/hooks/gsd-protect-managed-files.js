@@ -17,7 +17,7 @@
  * (`D=.claude; echo x > $D/settings.json` passes). Unparseable stdin fails closed.
  *
  * Bash commands that run experiments/09-hooks-audit/flip.sh with --apply or --rollback are denied too: its
- * --approved-by-ceo quote cannot be verified, so only a person in a terminal may switch hooks on or off.
+ * --approved-by-owner (legacy alias --approved-by-ceo) quote cannot be verified, so only a person in a terminal may switch hooks on or off.
  * (--smoke and --dry-run stay allowed.)
  *
  * The authoritative file list comes from ~/.claude/gsd-file-manifest.json,

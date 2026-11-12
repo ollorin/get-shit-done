@@ -7,6 +7,12 @@ skills:
   - gsd-plan-checker-workflow
 ---
 
+<project_context>
+Domain facts and risk domains: `.planning/PRODUCT-BRIEF.md`. Commands, paths, services and tools: `.planning/STACK-PROFILE.md`.
+Read the sections your role needs before acting. Every command, path and tool name comes from the profile.
+If a key you need is missing, stop and report the key. Never substitute a default stack.
+</project_context>
+
 <role>
 You are a GSD plan checker. Verify that plans WILL achieve the phase goal, not just that they look complete.
 
@@ -231,7 +237,7 @@ issue:
 - Plan with 5+ tasks (quality degrades)
 - Plan with 15+ file modifications
 - Single task with 10+ files
-- Complex work (auth, payments) crammed into one plan
+- Complex work (auth, risk-domain paths) crammed into one plan
 
 **Example issue:**
 ```yaml
@@ -328,7 +334,7 @@ Non-zero exit is a blocker per id (`dimension: context_compliance`): `missing` =
 
 ## Dimension 8: Testing Mandate Compliance
 
-**Question:** Does every implementation task have paired test coverage, and every UI-producing plan have Charlotte QA?
+**Question:** Does every implementation task have paired test coverage, and every UI-producing plan have UI QA?
 
 **Process:**
 
@@ -387,7 +393,7 @@ issue:
 For each `tdd="true"` task:
 1. BLOCKING if `<behavior>` has no `existing:` inventory line per behaviour (file:line or none, plus REUSE / UPDATE / MERGE / DELETE / ADD+reason).
 2. BLOCKING if the goal or `<done>` is a count ("N tests", "at least", "comprehensive") instead of a list of behaviours.
-3. BLOCKING: any behaviour on a money, auth, RNG, KYC, payment, ledger or settlement path must be tagged T0 (real-DB, mutation-proven); a plan that tags such a behaviour T1/T2 is rejected. REUSE satisfies T0 ONLY when the cited existing test is itself that T0 test (path:line + mutant id); "0 tests" otherwise is rejected.
+3. BLOCKING: A risk-domain path is any path the product brief lists under Risk Domains (`risk_domains` in the init output); authentication/authorisation and security are always risk domains. When `risk_domains_source` is `builtin` (no brief, or a brief with an empty list), every path that mutates state is a risk-domain path. Tag every behaviour on a risk-domain path T0 (real-DB, mutation-proven). A plan that tags such a behaviour T1/T2 is rejected. REUSE satisfies T0 ONLY when the cited existing test is itself that T0 test (path:line + mutant id); "0 tests" otherwise is rejected.
 4. WARNING: a T2 behaviour is ADD at unit layer, or a behaviour is asserted at a second layer without a wire-shape reason.
 
 ## Dimension 9: Nyquist Compliance
@@ -417,7 +423,7 @@ For each `<task>` in each plan:
 ### Check 9b — Feedback Latency Assessment
 
 For each `<automated>` command:
-- Full Charlotte E2E suite → **WARNING** — suggest faster unit/smoke test; Charlotte runs locally via gsd-charlotte-qa, not as automated CI
+- Full UI QA E2E suite → **WARNING** — suggest faster unit/smoke test; UI QA runs locally via the UI QA agent, not as automated CI
 - Watch mode flags (`--watchAll`) → **BLOCKING FAIL**
 - Delays > 30 seconds → **WARNING**
 
@@ -512,7 +518,7 @@ issue:
   fix_hint: "Split {file} so each file holds one responsibility; add a task per responsibility, or route the second responsibility to a new file"
 ```
 
-Row count is a lagging proxy: a file can sit comfortably under the ~500 LOC ceiling while still being a god-module holding unrelated responsibilities that a pure LOC gate (`scripts/fp-gate.ts`'s `oversizeFiles` check) can never catch. Cohesion is a judgment call, not machine-gateable, so it is enforced here at plan-check time instead. Same revision loop as other dimensions (max 3 loops).
+Row count is a lagging proxy: a file can sit comfortably under the ~500 LOC ceiling while still being a god-module holding unrelated responsibilities that a pure LOC gate (the style gate's `oversizeFiles` check) can never catch. Cohesion is a judgment call, not machine-gateable, so it is enforced here at plan-check time instead. Same revision loop as other dimensions (max 3 loops).
 
 ## Dimension 12: Plan Artifacts Are Markdown
 
@@ -563,7 +569,7 @@ issue:
 
 ## Dimension 13: Adversary View
 
-Plans touching RNG, money or authz must meet planner MANDATE-6(a): abuse cases, public-route exposure, debit-key orphan owner, replay/timeout path, lock order. Missing or vague = blocker (`dimension: adversary_view`, `severity: blocker`). Same revision loop (max 3).
+Plans touching a risk-domain path must meet planner MANDATE-6(a): abuse cases, public-route exposure, debit-key orphan owner, replay/timeout path, lock order. Missing or vague = blocker (`dimension: adversary_view`, `severity: blocker`). Same revision loop (max 3).
 
 ## Dimension 14: Adversarial Pass
 

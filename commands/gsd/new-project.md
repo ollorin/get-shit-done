@@ -20,6 +20,8 @@ Initialize a new project through unified flow: questioning → research (optiona
 **Creates:**
 - `.planning/PROJECT.md` — project context
 - `.planning/config.json` — workflow preferences
+- `.planning/PRODUCT-BRIEF.md` — domain facts and risk domains
+- `.planning/STACK-PROFILE.md` — stack commands, paths and services
 - `.planning/research/` — domain research (optional)
 - `.planning/REQUIREMENTS.md` — scoped requirements
 - `.planning/ROADMAP.md` — phase structure
@@ -34,6 +36,8 @@ Initialize a new project through unified flow: questioning → research (optiona
 @~/.claude/get-shit-done/references/ui-brand.md
 @~/.claude/get-shit-done/templates/project.md
 @~/.claude/get-shit-done/templates/requirements.md
+@~/.claude/get-shit-done/templates/product-brief.md
+@~/.claude/get-shit-done/templates/stack-profile.md
 </execution_context>
 
 <process>

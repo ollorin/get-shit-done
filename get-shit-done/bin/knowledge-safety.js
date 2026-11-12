@@ -292,7 +292,7 @@ function formatApprovalPrompt(action, category) {
 function estimateActionCost(action, context = {}) {
   const lowerAction = action.toLowerCase();
 
-  // AWS/cloud resources
+  // Provisioned cloud resources
   if (lowerAction.includes('aws') || lowerAction.includes('cloud_resource')) {
     return 0.10; // Conservative estimate
   }
@@ -322,7 +322,7 @@ function estimateActionCost(action, context = {}) {
     return 0.05;
   }
 
-  // Stripe charges
+  // Provider charges
   if (lowerAction.includes('stripe_charge')) {
     return 0.05;
   }

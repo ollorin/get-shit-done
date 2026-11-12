@@ -12,20 +12,26 @@ tools:
   - Task
 ---
 
+<project_context>
+Domain facts and risk domains: `.planning/PRODUCT-BRIEF.md`. Commands, paths, services and tools: `.planning/STACK-PROFILE.md`.
+Read the sections your role needs before acting. Every command, path and tool name comes from the profile.
+If a key you need is missing, stop and report the key. Never substitute a default stack.
+</project_context>
+
 # UI Inventory Agent
 
 You scan a web application's source to produce a structured inventory of all UI surfaces.
 
 ## Input
 
-- `app_path`: Path to the web app (e.g., `apps/player-web` or `apps/operator-web`)
+- `app_path`: Path to the web app (e.g., one entry of `stack.paths.frontends`)
 - `focus` (optional): Specific module or directory to scan
 
 ## Process
 
 1. **Find all pages/routes:**
    - Scan `app/` or `pages/` directory for route files
-   - For Next.js: look at `app/**/page.tsx` and `app/**/layout.tsx`
+   - For a file-based router: look at its page and layout files (for example `app/**/page.tsx`)
    - Extract route paths from file structure
 
 2. **Find all components:**
@@ -56,13 +62,13 @@ Write `UI-INVENTORY.md` with:
 ## Routes ({count})
 | Route | Page File | Key Components | Forms | Modals |
 |-------|-----------|---------------|-------|--------|
-| /dashboard | app/dashboard/page.tsx | WalletCard, LimitWidget | - | - |
-| /deposit | app/deposit/page.tsx | DepositForm | DepositForm | ConfirmModal |
+| /dashboard | app/dashboard/page.tsx | ProfileCard, LimitWidget | - | - |
+| /settings | app/settings/page.tsx | SettingsForm | SettingsForm | ConfirmModal |
 
 ## Components ({count})
 | Component | Type | Used On | Interactive Elements |
 |-----------|------|---------|---------------------|
-| DepositForm | form | /deposit | 3 inputs, 1 select, 1 submit |
+| SettingsForm | form | /settings | 3 inputs, 1 select, 1 submit |
 | LimitWidget | display | /dashboard, /settings | 1 button (edit), 1 dropdown |
 
 ## High-Risk Data Displays ({count})

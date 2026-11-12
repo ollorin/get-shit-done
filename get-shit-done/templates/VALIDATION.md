@@ -17,7 +17,7 @@ created: {date}
 
 | Property | Value |
 |----------|-------|
-| **Framework** | {pytest 7.x / jest 29.x / vitest / go test / other} |
+| **Framework** | {the test framework named in stack_commands} |
 | **Config file** | {path or "none — Wave 0 installs"} |
 | **Quick run command** | `{quick command}` |
 | **Full suite command** | `{full command}` |
@@ -93,7 +93,7 @@ created: {date}
 
 | Property | Value |
 |----------|-------|
-| **Framework** | {pytest 7.x / jest 29.x / vitest / go test / other} |
+| **Framework** | {the test framework named in stack_commands} |
 | **Config file** | {path or "none — Wave 0 installs"} |
 | **Quick run command** | `{quick command}` |
 | **Full suite command** | `{full command}` |

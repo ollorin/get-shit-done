@@ -75,7 +75,7 @@ a session boundary, launchd resume, or agentId not captured. Decision rule: **ag
 present + same session → resume; else → cold spawn from handoff.**
 
 ### App #3 — Live course-correction (coordinator-mediated)
-When `gsd-plan-checker` or `gsd-charlotte-qa` detects a problem in work an executor is STILL
+When `gsd-plan-checker` or the UI QA agent detects a problem in work an executor is STILL
 producing, it `SendMessage`s `to: "main"` (the coordinator) with the finding MID-RUN, so
 the coordinator can relay a correction to the executor instead of letting it finish wrong
 and forcing a redo. This stays **coordinator-mediated**, not direct peer-to-peer: the

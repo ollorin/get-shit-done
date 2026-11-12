@@ -85,9 +85,9 @@ MUST present 3 options:
 
 If user selects "Proceed anyway": note incomplete requirements in MILESTONES.md under `### Known Gaps` with REQ-IDs and descriptions.
 
-<qa-verdict-gate>
+<verdict-gate>
 
-**Fork capability handshake (hard stop).** The `qa_verdict_gate` check below only exists in a fork
+**Fork capability handshake (hard stop).** The `verdict_gate` check below only exists in a fork
 version that declares `qa-verdict-lifecycle-v1`. Closing a milestone with an older installed fork
 would silently skip a gate this repo depends on and still let the milestone close — exactly the
 silent-pass class this phase closes — so a capability shortfall aborts the close outright rather
@@ -106,12 +106,12 @@ HANDSHAKE=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" verify gate-hand
 If this fails, the remedy is `npm run install:gsd` from `~/get-shit-done` — never `/gsd:update`
 (may pull upstream and clobber fork-local patches).
 
-**`qa_verdict_gate`** — QA verdict + drill-log hard stop. Run this check ONLY when
-`scripts/qa-verdict.ts` exists in the target repo — same "run when the repo ships it" convention as
+**`verdict_gate`** — QA verdict + drill-log hard stop. Run this check ONLY when
+the verdict gate script in `stack.gates[]` exists in the target repo — same "run when the repo ships it" convention as
 the Layer-1 gates.
 
 ```bash
-[ -f scripts/qa-verdict.ts ] || echo "SKIP qa_verdict_gate — scripts/qa-verdict.ts not present in this repo"
+[ -f <verdict gate script from stack.gates[]> ] || echo "SKIP verdict_gate — verdict gate script not present in this repo"
 ```
 
 Skip the entire check — no gap, no warning — when the file is absent. Unlike some config-gated
@@ -121,7 +121,7 @@ IS present — a gate with an off switch is not a gate.
 **Resolve the run dir and the milestone number.**
 
 ```bash
-RUN_DIR=$(ls -d apps/e2e-charlotte/results/*/ 2>/dev/null \
+RUN_DIR=$(ls -d <UI QA results dir under stack.paths.e2e_scenarios>/*/ 2>/dev/null \
   | grep -E '/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}/$' \
   | sort | tail -1)
 ```
@@ -131,7 +131,7 @@ derives `$MILESTONE_N` from `milestone_version`, already resolved by its Step 0 
 bootstrap. This step has no such bootstrap (`init milestone-op` is not called until much later in
 `complete-milestone.md`, for an unrelated purpose). Derive it instead from the already-captured
 `$ROADMAP` (`roadmap analyze`, captured above) — never re-derive the number from ROADMAP.md/STATE.md
-prose; `qa-verdict.ts`'s own header explicitly refuses that, and so must its caller:
+prose; the verdict gate's own header explicitly refuses that, and so must its caller:
 
 ```bash
 MILESTONE_HEADING=$(echo "$ROADMAP" | jq -r '.milestones[0].heading // ""')
@@ -148,11 +148,11 @@ same as a repo that never shipped the script. Empty `MILESTONE_N` MUST also forc
 **Invoke and parse.**
 
 ```bash
-VERDICT=$(deno run --allow-read --allow-env scripts/qa-verdict.ts "${RUN_DIR%/}" \
+VERDICT=$(<verdict gate command from `stack.gates[]`> "${RUN_DIR%/}" \
   --current-milestone "$MILESTONE_N" --json)
 ```
 
-Exit 2 (bad input) MUST force a **HARD STOP**. `deno` missing while `scripts/qa-verdict.ts` exists
+Exit 2 (bad input) MUST force a **HARD STOP**. the gate runtime missing while the verdict gate script exists
 MUST also force a **HARD STOP** — the repo shipped the gate; the workflow may not decline to run it
 just because its runtime isn't on `PATH`.
 
@@ -195,7 +195,7 @@ verdict is clean and the drill log is green.
 Every number printed by this check is COPIED from the verdict JSON — this step computes no QA
 figure of its own, the same anti-confabulation rule `gsd-qa-analyst` obeys.
 
-</qa-verdict-gate>
+</verdict-gate>
 
 <defect-classes-distillation>
 
@@ -798,9 +798,13 @@ Check branching strategy and offer merge options.
 Use `init milestone-op` for context, or load config directly:
 
 ```bash
-INIT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" init execute-phase "1")
+LEGACY_FLAG=""
+if [[ " $ARGUMENTS " == *" --legacy "* ]]; then LEGACY_FLAG="--legacy"; fi
+INIT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" init execute-phase "1" $LEGACY_FLAG)
 if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
 ```
+
+If the command exits 1 and INIT has `error: project_context_missing`: stop, print its `missing` list and `hint`. Do not continue without the brief and profile. A legacy project (no brief, no profile) runs with `--legacy` (`LEGACY_FLAG`, set from `$ARGUMENTS`) or `GSD_LEGACY=1` exported.
 
 Extract `branching_strategy`, `phase_branch_template`, `milestone_branch_template`, and `commit_docs` from init JSON.
 

@@ -1,0 +1,68 @@
+[
+  {
+    "file": ".claude/hooks/lib/ShellParse.pm",
+    "class": "deno",
+    "lines": [248, 250, 263],
+    "reason": "generic wrapper and interpreter list: the command-word rules of the shell tokeniser name the deno runner"
+  },
+  {
+    "file": ".claude/hooks/lib/ShellParse.pm",
+    "class": "pnpm",
+    "lines": [214],
+    "reason": "generic wrapper and interpreter list: the npm, pnpm and yarn exec forms of the shell tokeniser"
+  },
+  {
+    "file": ".claude/hooks/lib/HookGuard.pm",
+    "class": "pnpm",
+    "lines": [64],
+    "reason": "generic wrapper list: the same exec forms, recognised when the tokeniser stopped unwrapping at its prefix limit"
+  },
+  {
+    "file": ".claude/hooks/lib/block-push-without-local-tests.pl",
+    "class": "deno",
+    "lines": [22, 27],
+    "reason": "generic interpreter lists: a script run by a write-capable interpreter is a write, whatever its name; code of an interpreter that only stats the marker is not"
+  },
+  {
+    "file": ".claude/settings.json",
+    "class": "docker",
+    "lines": [90, 91, 92, 93, 94, 95, 96, 134, 137, 138],
+    "reason": "generic destructive-command deny list: docker remove, prune and stop rows of the base settings"
+  },
+  {
+    "file": ".planning/gsd-project-manifest.json",
+    "class": "docker",
+    "lines": [445, 446, 447, 448, 449, 450, 451, 489, 492, 493],
+    "reason": "engine manifest copy of the same docker deny and ask rows as .claude/settings.json"
+  },
+  {
+    "file": "scripts/validation/hook-canaries/canaries.jsonl",
+    "class": "pnpm",
+    "lines": [226, 317],
+    "reason": "generic package-manager shapes in shared rows: a pnpm run is denied under the lock, a pnpm command is allowed"
+  },
+  {
+    "file": "scripts/validation/hook-canaries/canaries.jsonl",
+    "class": "docker",
+    "lines": [292, 293],
+    "reason": "generic container-tool shapes in shared rows: docker ps and docker image prune are allowed"
+  },
+  {
+    "file": "scripts/dependency-scan-gate.mjs",
+    "class": "pnpm",
+    "lines": [6, 20],
+    "reason": "generic lockfile names: the gate scans the lockfile of a package manager, whichever the project uses"
+  },
+  {
+    "file": "scripts/container-disk-guard.sh",
+    "class": "docker",
+    "lines": [18],
+    "reason": "default of the CONTAINER_CLI override: the common container runtime CLI, replaceable per project"
+  },
+  {
+    "file": "scripts/memory-guard.sh",
+    "class": "docker",
+    "lines": [28],
+    "reason": "default of the CONTAINER_CLI override: the common container runtime CLI, replaceable per project"
+  }
+]

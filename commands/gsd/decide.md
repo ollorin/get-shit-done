@@ -1,6 +1,6 @@
 ---
 name: gsd:decide
-description: Answer queued CEO questions (A-NN) at any time; works while a roadmap run is in flight
+description: Answer queued owner questions (A-NN) at any time; works while a roadmap run is in flight
 argument-hint: "[A-NN <answer> | A-NN ok] ..."
 allowed-tools:
   - Read
@@ -9,7 +9,7 @@ allowed-tools:
 ---
 
 <objective>
-Record CEO answers in `.planning/DECISIONS.jsonl`. Contract: @~/.claude/get-shit-done/references/decisions-protocol.md (`decisions` = `node "$HOME/.claude/get-shit-done/bin/decisions.js"`).
+Record owner answers in `.planning/DECISIONS.jsonl` (the owner's title is `owner_title` in the init output). Contract: @~/.claude/get-shit-done/references/decisions-protocol.md (`decisions` = `node "$HOME/.claude/get-shit-done/bin/decisions.js"`).
 </objective>
 
 <process>

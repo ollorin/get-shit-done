@@ -248,7 +248,7 @@ Columns: plan, round, finding id (ids repeat across rounds in 402-07 and 392: re
 | 401-07 | 10 | R10-1 | MED | f | FIX | fmt fails on 2 e2e tests after edits |
 | 401-07 | 10 | R10-2 | LOW | d | FIX | lost space in test title from fix 460f388f5 |
 | 401-07 | 10 | R10-3 | LOW | e | LOOP | tally stops at R7 |
-| 402-07 | 1 | F1 | HIGH | a |  | forward+ROLLBACK revert live RG exclusion list (gamstop/account_closed bypass on 3 bonus grant paths) |
+| 402-07 | 1 | F1 | HIGH | a | never shipped; caught in plan review; fixed before merge by the allowlist gate | forward+ROLLBACK revert live RG exclusion list (gamstop/account_closed bypass on 3 bonus grant paths) |
 | 402-07 | 1 | F2 | HIGH | b |  | migration slot below branch max (cannot apply) |
 | 402-07 | 1 | F3 | MED | b |  | ROLLBACK asserts stale search_path |
 | 402-07 | 1 | F4 | MED | c |  | FC1 tests depend on unstated 2nd campaign |

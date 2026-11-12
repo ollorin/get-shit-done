@@ -20,6 +20,7 @@ The block below will be rendered from `.planning/config.json` `stack.commands` b
 | lint | [stack.commands.lint] |
 | format | [stack.commands.format] |
 | frontend_test | [stack.commands.frontend_test] |
+| build | [stack.commands.build] |
 | pre_pr_gate | [stack.commands.pre_pr_gate] |
 | search | [stack.commands.search] |
 <!-- gsd:end commands -->
@@ -38,9 +39,9 @@ The block below will be rendered from `.planning/config.json` `stack.commands` b
 
 ## Services
 
-| Name | URL | Health | Launch | Ready |
-|------|-----|--------|--------|-------|
-| [name] | [url] | [health] | [launch] | [ready] |
+| Name | URL | Health (URL or path) | Health command (shell) | Launch | Ready |
+|------|-----|----------------------|------------------------|--------|-------|
+| [name] | [url] | [health] | [health_cmd] | [launch] | [ready] |
 
 [No default port is ever assumed. Every value comes from `stack.services`.]
 
@@ -51,6 +52,15 @@ The block below will be rendered from `.planning/config.json` `stack.commands` b
 ## Isolation
 
 [Port base, container suffix, lock dir, machine locks. From `stack.isolation`.]
+
+## Style
+
+Rule set and roots: from `stack.style` (the gate enforces the rules; this section names the idioms).
+
+- Errors: [errors returned as values: the library or construct used]
+- Immutability: [how state stays unmodified: the construct used]
+- Routing: [how requests or events are dispatched: the construct used]
+- Purity: [which modules are pure, and where side effects sit]
 
 ## Conventions
 

@@ -23,14 +23,14 @@ throw err
 
 **Exceptions (not violations):**
 - `throw` inside test files (`*.test.ts`, `*.spec.ts`) — test frameworks use throw for assertions
-- `throw` inside `.tsx`/`.jsx` UI error boundary components — React requires throw for Suspense/ErrorBoundary
+- `throw` inside UI error boundary components — UI frameworks require throw for Suspense/ErrorBoundary-style boundaries
 - `throw` in top-level entry points (e.g., `main.ts`, `index.ts`) for unrecoverable startup errors
 
 **Detection pattern:**
 ```bash
 # Finds throw in non-test, non-UI files
 grep -rn "^\s*throw\b" --include="*.ts" --exclude="*.test.ts" --exclude="*.spec.ts" \
-  functions/ libs/ apps/api/ 2>/dev/null | grep -v "\.tsx:"
+  <stack.paths.api_globs> 2>/dev/null | grep -v "<UI source extension>:"
 ```
 
 ---
@@ -108,11 +108,11 @@ Save as `scripts/fp-lint.sh` or run inline:
 #!/usr/bin/env bash
 # fp-lint.sh — scan for FP violations in TypeScript source
 # Usage: ./scripts/fp-lint.sh [path...]
-#        If no path given, scans: functions/ libs/ apps/api/
+#        If no path given, scans: <stack.paths.api_globs>
 
 set -euo pipefail
 
-SCAN_PATHS="${@:-functions/ libs/ apps/api/}"
+SCAN_PATHS="${@:-<stack.paths.api_globs>}"
 VIOLATIONS=0
 EXIT_CODE=0
 
@@ -180,7 +180,7 @@ exit $EXIT_CODE
 
 ## When FP Lint Runs
 
-FP lint is a companion check to the standard preflight. It runs:
+FP lint is a companion check to the standard pre-PR gate run. It runs:
 
 1. **Pre-commit (advisory):** As part of the pre-commit hook, violations are printed as warnings.
    The commit is not blocked by FP lint alone — the developer sees the warning and decides.
@@ -195,8 +195,8 @@ FP lint is a companion check to the standard preflight. It runs:
    }
    ```
 
-3. **Preflight (enforced):** `scripts/preflight.sh` calls FP lint as part of its check suite.
-   Violations cause preflight to fail.
+3. **Pre-PR gate (enforced):** every gate in `stack.gates[]` and `stack.commands.pre_pr_gate` calls FP lint as part of its check suite.
+   Violations cause the pre-PR gate to fail.
 
 4. **Manual:** `bash scripts/fp-lint.sh` at any time.
 

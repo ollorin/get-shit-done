@@ -446,7 +446,7 @@ describe('project init|diff|sync (agnostic-B)', () => {
   };
 
   const run = (root, presetDir, cmd, env = {}, session = HUMAN) => runCli(root, [cmd, '--preset-dir', presetDir], env, session, APPLY_IO);
-  const cli = (args, env) => spawnSync(process.execPath, [GSD_TOOLS, 'project', ...args], { encoding: 'utf8', env });
+  const cli = (args, env) => spawnSync(process.execPath, [GSD_TOOLS, 'project', ...args], { encoding: 'utf8', env: { ...env, GSD_HOME: mkTmp('gsd-home-') } });
   const abs = (root, rel) => path.join(root, rel);
   const readSettings = (root) => JSON.parse(fs.readFileSync(abs(root, SETTINGS), 'utf8'));
   const initialised = () => {

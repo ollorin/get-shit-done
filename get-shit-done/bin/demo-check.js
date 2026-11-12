@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 'use strict';
-// Demo artifacts: build the manifest from Charlotte's own indexes, render DEMO.md from it, check both.
+// Demo artifacts: build the manifest from the UI QA driver's own indexes, render DEMO.md from it, check both.
 // Contract: agents/gsd-demo.md. Hashes, timestamps and URLs are never typed by an agent: `build` reads
-// them from the files and from .charlotte-screenshots.json / .charlotte-screencasts.json, which the
-// Charlotte server writes (charlotte src/state/artifact-store.ts, video-artifact-store.ts).
+// them from the files and from .<driver>-screenshots.json / .<driver>-screencasts.json, which the driver
+// server writes. <driver> is stack.capabilities.ui_qa.driver in the project's .planning/config.json.
 
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { loadProfile, getProfileValue } = require('./project-profile.js');
 
 const TOOLS = ['navigate', 'click', 'type', 'select', 'toggle', 'submit', 'key', 'scroll', 'hover', 'wait_for', 'viewport'];
 const STATUSES = ['pass', 'fail', 'skipped'];
@@ -19,6 +20,26 @@ const str = (v) => typeof v === 'string' && v.trim() !== '';
 const sha256 = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 const ext = (format) => (format === 'jpeg' ? 'jpg' : format);
+const DRIVER_RE = /^[a-z0-9][a-z0-9-]*$/;
+
+// The driver of the project that owns phaseDir: the nearest .planning/config.json upward.
+function uiQaDriver(phaseDir) {
+  let dir = path.resolve(phaseDir);
+  while (!fs.existsSync(path.join(dir, '.planning', 'config.json'))) {
+    const up = path.dirname(dir);
+    if (up === dir) return null;
+    dir = up;
+  }
+  const ui = getProfileValue(loadProfile(dir), 'stack.capabilities.ui_qa');
+  return ui && typeof ui === 'object' && typeof ui.driver === 'string' ? ui.driver : null;
+}
+
+function requireDriver(phaseDir) {
+  const driver = uiQaDriver(phaseDir);
+  if (driver === null) throw new Error('no ui_qa capability: declare stack.capabilities.ui_qa (with a driver) in .planning/config.json');
+  if (!DRIVER_RE.test(driver)) throw new Error(`ui_qa.driver "${driver}" must be lowercase letters, digits and dashes (it names the index files)`);
+  return driver;
+}
 
 function isImage(file) {
   const b = fs.readFileSync(file);
@@ -28,7 +49,7 @@ function isImage(file) {
     || (b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP');
 }
 
-function paths(phaseDir) {
+function paths(phaseDir, driver) {
   const demo = path.join(phaseDir, 'demo');
   const md = fs.existsSync(phaseDir) ? fs.readdirSync(phaseDir).find((f) => /(^|-)DEMO\.md$/.test(f)) : undefined;
   return {
@@ -37,9 +58,9 @@ function paths(phaseDir) {
     log: path.join(demo, 'steps.jsonl'),
     manifest: path.join(demo, 'manifest.json'),
     shots: path.join(demo, 'shots'),
-    shotIndex: path.join(demo, 'shots', '.charlotte-screenshots.json'),
+    shotIndex: driver ? path.join(demo, 'shots', `.${driver}-screenshots.json`) : null,
     video: path.join(demo, 'video'),
-    videoIndex: path.join(demo, 'video', '.charlotte-screencasts.json'),
+    videoIndex: driver ? path.join(demo, 'video', `.${driver}-screencasts.json`) : null,
     md: md ? path.join(phaseDir, md) : null,
   };
 }
@@ -72,7 +93,7 @@ function readLog(file) {
 }
 
 function build(phaseDir) {
-  const p = paths(phaseDir);
+  const p = paths(phaseDir, requireDriver(phaseDir));
   const sc = readJson(p.scenario);
   const scErrors = validateScenario(sc);
   if (scErrors.length) throw new Error(scErrors.join('; '));
@@ -91,7 +112,7 @@ function build(phaseDir) {
     };
     if (entry.shot) {
       const meta = shotIndex.find((a) => a.id === entry.shot);
-      if (!meta) throw new Error(`step ${s.id}: screenshot ${entry.shot} is not in Charlotte's index (${p.shotIndex})`);
+      if (!meta) throw new Error(`step ${s.id}: screenshot ${entry.shot} is not in the UI QA driver's index (${p.shotIndex})`);
       const file = `${meta.id}.${ext(meta.format)}`;
       const abs = path.join(p.shots, file);
       if (!fs.existsSync(abs)) throw new Error(`step ${s.id}: ${abs} does not exist`);
@@ -103,7 +124,7 @@ function build(phaseDir) {
   const v = log.filter((l) => l.type === 'video').pop();
   if (v) {
     const meta = (fs.existsSync(p.videoIndex) ? readJson(p.videoIndex) : []).find((a) => a.id === v.id);
-    if (!meta) throw new Error(`video ${v.id} is not in Charlotte's index (${p.videoIndex})`);
+    if (!meta) throw new Error(`video ${v.id} is not in the UI QA driver's index (${p.videoIndex})`);
     const file = `${meta.id}.${meta.format}`;
     const abs = path.join(p.video, file);
     if (!fs.existsSync(abs)) throw new Error(`${abs} does not exist`);
@@ -170,7 +191,7 @@ function render(phaseDir, opts = {}) {
   if (m.video) fm.video = `demo/video/${m.video.file}`;
   const lines = [
     ...head(fm),
-    `${m.steps.length - failed}/${m.steps.length} steps passed. Recorded from a real browser run; this is a demo, not QA (\`charlotte_qa_ran\` is set only by gsd-verifier).`,
+    `${m.steps.length - failed}/${m.steps.length} steps passed. Recorded from a real browser run; this is a demo, not QA (\`ui_qa_ran\` is set only by gsd-verifier).`,
     ...(m.video ? ['', `Video: \`demo/video/${m.video.file}\` (${(m.video.bytes / 1048576).toFixed(1)} MB, not committed)`] : []), '',
     ...m.steps.flatMap((s, i) => [
       `### ${i + 1}. ${s.say}`, '',
@@ -183,7 +204,7 @@ function render(phaseDir, opts = {}) {
 }
 
 function check(phaseDir, opts = {}) {
-  const p = paths(phaseDir);
+  const p = paths(phaseDir, requireDriver(phaseDir));
   const errors = [];
   const e = (m) => errors.push(m);
   if (!p.md) return { pass: false, recorded: false, errors: ['no *DEMO.md in the phase directory'] };
@@ -215,7 +236,7 @@ function check(phaseDir, opts = {}) {
   if (!str(run.lock_owner)) e('manifest.run.lock_owner is empty: a demo is recorded only while holding the stack lock');
 
   const shotIndex = fs.existsSync(p.shotIndex) ? readJson(p.shotIndex) : null;
-  if (!shotIndex) e("demo/shots/.charlotte-screenshots.json is missing: screenshots were not saved by Charlotte into this directory");
+  if (!shotIndex) e(`demo/shots/${path.basename(p.shotIndex)} is missing: screenshots were not saved by the UI QA driver into this directory`);
   const steps = Array.isArray(m.steps) ? m.steps : [];
   const ids = steps.map((s) => s.id);
   if (JSON.stringify(ids) !== JSON.stringify(sc.steps.map((s) => s.id))) e(`manifest steps [${ids}] differ from scenario steps [${sc.steps.map((s) => s.id)}]`);
@@ -233,7 +254,7 @@ function check(phaseDir, opts = {}) {
     const abs = path.join(p.shots, String(s.shot.file));
     used.add(`demo/shots/${s.shot.file}`);
     const idm = SHOT_ID.exec(String(s.shot.id));
-    if (!idm) e(`${at}: ${s.shot.id} is not a Charlotte screenshot id`);
+    if (!idm) e(`${at}: ${s.shot.id} is not a UI QA driver screenshot id`);
     if (!fs.existsSync(abs)) { e(`${at}: ${s.shot.file} is missing`); return; }
     const bytes = fs.statSync(abs).size;
     total += bytes;
@@ -242,8 +263,8 @@ function check(phaseDir, opts = {}) {
     if (!isImage(abs)) e(`${at}: ${s.shot.file} is not a JPEG/PNG/WebP image`);
     if (bytes > LIMITS.shotBytes) e(`${at}: ${s.shot.file} is ${bytes} bytes (max ${LIMITS.shotBytes}; use jpeg quality 70 and a selector)`);
     const meta = (shotIndex || []).find((a) => a.id === s.shot.id);
-    if (shotIndex && !meta) e(`${at}: ${s.shot.id} is not in Charlotte's screenshot index`);
-    if (meta && (meta.url !== s.url || meta.timestamp !== s.ts)) e(`${at}: url/ts differ from Charlotte's index`);
+    if (shotIndex && !meta) e(`${at}: ${s.shot.id} is not in the UI QA driver's screenshot index`);
+    if (meta && (meta.url !== s.url || meta.timestamp !== s.ts)) e(`${at}: url/ts differ from the UI QA driver's index`);
     const ts = Date.parse(s.ts);
     if (Number.isNaN(ts)) e(`${at}: ts is not a timestamp`);
     else {
@@ -261,12 +282,12 @@ function check(phaseDir, opts = {}) {
   if (m.video) {
     const abs = path.join(p.video, String(m.video.file));
     used.add(`demo/video/${m.video.file}`);
-    if (!REC_ID.test(String(m.video.id))) e(`video ${m.video.id} is not a Charlotte screencast id`);
+    if (!REC_ID.test(String(m.video.id))) e(`video ${m.video.id} is not a UI QA driver screencast id`);
     const vIndex = fs.existsSync(p.videoIndex) ? readJson(p.videoIndex) : null;
     if (fs.existsSync(abs)) {
       if (sha256(abs) !== m.video.sha256) e('video sha256 does not match the manifest');
       if (fs.statSync(abs).size > LIMITS.videoBytes) e(`video is larger than ${LIMITS.videoBytes} bytes`);
-      if (!vIndex || !vIndex.some((a) => a.id === m.video.id)) e("video is not in Charlotte's screencast index");
+      if (!vIndex || !vIndex.some((a) => a.id === m.video.id)) e("video is not in the UI QA driver's screencast index");
     } else if (!opts.videoOptional) e(`video ${m.video.file} is missing (pass --video-optional on a clone: videos are not committed)`);
   }
 

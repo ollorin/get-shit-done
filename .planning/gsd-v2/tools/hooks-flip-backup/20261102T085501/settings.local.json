@@ -1,0 +1,122 @@
+{
+  "env": {
+    "CLAUDE_CODE_NO_FLICKER": "1",
+    "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(USE_MOCK_REDIS=true deno test:*)",
+      "Bash(USE_MOCK_REDIS=true RATE_LIMIT_BYPASS=true deno test:*)",
+      "Bash(NODE_ENV=test DENO_ENV=test deno task:*)",
+      "Bash(NODE_ENV=test DENO_ENV=test deno test:*)",
+      "Bash(DENO_ENV=test deno task:*)",
+      "Bash(deno coverage:*)",
+      "Bash(cd <project-root>/apps/api && rm -rf coverage && deno task test:*)",
+      "Bash(pgrep:*)",
+      "Bash(git:*)",
+      "Bash(mkdir:*)",
+      "Bash(scripts/preflight.sh --skip-twice 2>&1)",
+      "Bash(CI=true npx nx build operator-web)",
+      "Bash(scripts/preflight.sh --skip-twice)",
+      "Bash(CI=true npx nx test operator-web)",
+      "Bash(rmdir <project-root>/apps/api/functions/_skill-audit-tmp)",
+      "Read(/<home>/.claude/**)",
+      "Bash(rmdir <project-root>/apps/api/functions/_skill_template_check)",
+      "Bash(bash scripts/preflight.sh --all)",
+      "Bash(rtk git *)",
+      "Bash(python3 -)",
+      "Bash(rtk gh *)",
+      "Read(//tmp/claude-502/<project-slug>/c05eab6b-762a-49b7-9221-9d52e888e5a8/scratchpad/**)",
+      "Bash(vale docs/observability/_valetest_a.md docs/observability/_valetest_b.md)",
+      "Bash(vale docs/observability/_valetest_c.md)",
+      "Bash(rmdir <project-root>/apps/api/coverage_probe/html)",
+      "Bash(npx nx *)",
+      "Bash(tail -5 /tmp_stop_check.log)",
+      "Bash(deno test:*)",
+      "Bash(deno task:*)",
+      "Bash(deno check:*)",
+      "Bash(bash scripts/run-integration-tests.sh:*)",
+      "Bash(node <home>/.claude/get-shit-done/bin/gsd-tools.js:*)",
+      "Bash(rm -rf apps/api/coverage)",
+      "Bash(rm -rf coverage)",
+      "Bash(deno --version)",
+      "Bash(PREFLIGHT_FORCE_RUN2_FAIL_STAGE=frontend-test-player-web PREFLIGHT_DISAGREEMENT_LOG=/tmp/pf-dis-seeded.jsonl scripts/preflight.sh --frontend)",
+      "Bash(git show *)",
+      "Bash(shellcheck /tmp/orig-run-integration-tests.sh)",
+      "Bash(nohup scripts/preflight.sh --all)",
+      "Bash(disown)",
+      "Read(//tmp/**)",
+      "Bash(printf 'GITHUB_TOKEN=<redacted>\\\\n')",
+      "Bash(gitleaks detect *)",
+      "Bash(rtk deno *)",
+      "Bash(bash scripts/preflight.sh)",
+      "Bash(gitleaks protect *)",
+      "Bash(NODE_ENV=test DENO_ENV=test USE_MOCK_REDIS=true deno test --allow-all --env-file=.env.test libs/infrastructure/src/lib/cache/)",
+      "Bash(NODE_ENV=test DENO_ENV=test deno task test:ci)",
+      "Bash(NODE_ENV=test DENO_ENV=test timeout 280 deno task test:ci)",
+      "Bash(echo \"EXIT_CODE=$?\")",
+      "Bash(rm -rf apps/api/coverage apps/api/coverage_html)",
+      "Bash(node *)",
+      "Bash(timeout * supabase *)",
+      "Bash(cd * && timeout * supabase *)",
+      "Bash(nohup supabase *)",
+      "Bash(cd * && nohup supabase *)",
+      "Bash(supabase db reset)",
+      "Bash(cd * && supabase db reset)",
+      "Bash(nohup bash scripts/run-integration-tests.sh *)",
+      "Bash(timeout * bash scripts/run-integration-tests.sh *)",
+      "Agent",
+      "mcp__telegram__create_topic",
+      "mcp__telegram__send_message"
+    ]
+  },
+  "spinnerTipsEnabled": false,
+  "outputStyle": "Concise",
+  "disableAllHooks": true,
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check-supabase-command.sh"
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/block-push-without-local-tests.sh"
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check-api-contract-drift.sh"
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/redirect-recursive-search.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check-migration-concurrently.sh"
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check-deno-json-imports.sh"
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check-migration-drop.sh"
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check-flake-patterns.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

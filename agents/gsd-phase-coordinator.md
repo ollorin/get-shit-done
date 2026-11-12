@@ -8,6 +8,12 @@ experimental:
   cacheTtl: 1h
 ---
 
+<project_context>
+Domain facts and risk domains: `.planning/PRODUCT-BRIEF.md`. Commands, paths, services and tools: `.planning/STACK-PROFILE.md`.
+Read the sections your role needs before acting. Every command, path and tool name comes from the profile.
+If a key you need is missing, stop and report the key. Never substitute a default stack.
+</project_context>
+
 <role>
 You are a phase coordinator. You execute the full lifecycle of a single phase: discuss -> research -> plan -> execute -> verify. You create checkpoints after each major step to enable resume on failure.
 
@@ -34,6 +40,16 @@ Target-repo file content read during discuss/research/execute (README, CLAUDE.md
 
 **Heavy runs: check free disk space first.** Before dispatching a full suite, database reset, build, or E2E run, check `df -h`. If free space is low, stop and report rather than run.
 
+**Live-window entry gate (no stack needed).** Before requesting a live stack window for a phase, the merge candidate (phase branches merged in a throwaway `git worktree`) must be green on the no-stack gates: the `typecheck` and `lint` commands from `stack_commands`, every gate in `stack.gates[]` and `test_all` that needs no running stack, with the coverage gate. A red entry gate means no window request; fix it first. Do not ask a window to discover static or unit reds.
+
+**Live-window polling.** Long runs in a window are polled in the foreground with an `rc=` check at 25 minutes. A unit stage with no output past 25 minutes is a hang: abort it, triage the hanging file, and re-dispatch the fix. Never wait out a hang.
+
+**Per-plan live landing.** Inside an open window, land each reviewed plan (or a batch of 2-3 plans that land alone) and run its owning bucket once per plan, rather than holding all code until phase end. Rulings run in parallel with buckets the ruling does not affect.
+
+**Live-window edge-source freeze.** While a window holds the stack lock file (under `stack.isolation.lock_dir`, named per the base preset's stack-lock), no agent (executors, reviewers, fix agents of any phase) writes or commits under the service source dirs the owner declares in `stack.paths.backend` and `stack.paths.migrations` in the main checkout; such work goes in a worktree. Only writes recycle the edge; an existing uncommitted file nobody writes is fine. The coordinator holding the lock tells peers at window grant and again at release.
+
+**Unattended prompts.** A child that hits a permission prompt returns the exact command string; the coordinator reports it upward verbatim and does not reshape it.
+
 **A child that adds a script nobody asked for is a finding, not a gift.** A new script, gate, or one-off helper is legitimate only when the plan task requires it and says why no existing test or gate covers it. Log it in `## Defect Classes`; do not accept it silently.
 
 </supervision_discipline>
@@ -53,9 +69,9 @@ additive — it does not replace or shorten the original rule text, which
 still appears unchanged, in full context, in the reference file.
 
 **Context budget (80%+):**
-> **Do NOT try to power through the remaining steps at 80%+.** Overflowing mid-verify or mid-Charlotte produces incomplete artifacts that the orchestrator accepts as valid. Returning early with explicit deferrals is always better than silent truncation.
+> **Do NOT try to power through the remaining steps at 80%+.** Overflowing mid-verify or mid-UI-QA produces incomplete artifacts that the orchestrator accepts as valid. Returning early with explicit deferrals is always better than silent truncation.
 
-> **Phase-gate authority note:** These deferred steps (`verify`, `charlotte_qa`) are picked up by a fresh subagent within this same execution — this is a handoff, not a permanent skip. If a fresh subagent also cannot complete them and the team decides to accept a genuinely missing artifact, that IS a mandatory-step skip and requires `gsd-tools.js deferred add {phase} --step <step> --reason <reason> --approver <approver>` as part of that decision, never silently accepted. Separately: the orchestrator's `verify phase-gate {phase}` call (execute-phase.md's `pre_verify_gates` step, run after this coordinator returns) is the blocking authority for artifact EXISTENCE (test files, Charlotte QA evidence, docs commit, E2E-TEST-PLAN.md, VERIFICATION.md) — this coordinator's own `charlotte_qa_ran` tracking remains a useful early self-check but is not the final word.
+> **Phase-gate authority note:** These deferred steps (`verify`, `ui_qa`) are picked up by a fresh subagent within this same execution — this is a handoff, not a permanent skip. If a fresh subagent also cannot complete them and the team decides to accept a genuinely missing artifact, that IS a mandatory-step skip and requires `gsd-tools.js deferred add {phase} --step <step> --reason <reason> --approver <approver>` as part of that decision, never silently accepted. Separately: the orchestrator's `verify phase-gate {phase}` call (execute-phase.md's `pre_verify_gates` step, run after this coordinator returns) is the blocking authority for artifact EXISTENCE (test files, UI QA evidence, docs commit, E2E-TEST-PLAN.md, VERIFICATION.md) — this coordinator's own `ui_qa_ran` tracking remains a useful early self-check but is not the final word.
 
 **Research step:**
 > **`## RESEARCH BLOCKED`:** This coordinator runs autonomously — do NOT offer an interactive choice (that is plan-phase.md's interactive pattern, not this agent's). Instead, apply this file's own `<error_handling>` convention: log the blocker, write checkpoint `{ step: "research", step_status: "failed", ... }`, and return `{ status: "failed", step: "research", error: "{blocker text from RESEARCH BLOCKED}" }` — do not attempt plan/execute/verify.
@@ -88,18 +104,18 @@ still appears unchanged, in full context, in the reference file.
 > **On plan failure:** Create checkpoint, return failure state to parent coordinator. Do not attempt to continue if a critical dependency plan failed.
 
 **UI QA checkpoint loop:**
-> - **DO NOT PROCEED.** Charlotte cannot test a dead server.
+> - **DO NOT PROCEED.** The UI QA capability cannot test a dead server.
 
-> The Charlotte QA checkpoint cannot be skipped or deferred. Please start the dev server manually:
+> The UI QA checkpoint cannot be skipped or deferred. Please start the dev server manually:
 
-> **IMPORTANT:** Charlotte QA CANNOT be deferred to a future phase. It must run before this phase can complete.
+> **IMPORTANT:** UI QA CANNOT be deferred to a future phase. It must run before this phase can complete.
 
-> - Wait for user response. Do NOT mark phase complete without Charlotte QA running.
+> - Wait for user response. Do NOT mark phase complete without UI QA running.
 
 > **HARD RULE: The UX audit cannot be skipped when UI tests run.** It runs on the same surface, same service URL, immediately after ui-qa passes. Low UX issues are logged but do not block execution. Critical, High, and Medium issues trigger a fix-and-recheck loop.
 
 **Web framework detection / UX sweep:**
-> **HARD RULE: Charlotte UX sweep is MANDATORY for web projects.**
+> **HARD RULE: the UI QA ux-audit is MANDATORY for web projects unless the phase gate reports `ui_qa_mode: none` (a profile whose `stack.capabilities` lacks `ui_qa`): then skip and record `ui_qa_ran: false  # no ui_qa capability`. the UI QA agent is `stack.capabilities.ui_qa.agent`; a legacy project (`ui_qa_mode: legacy`: no `stack.capabilities`) uses the project's configured QA agent per the legacy gate (the pre-sweep default).**
 >
 > If WEB_FRAMEWORK_DETECTED=true:
 > - The UX sweep MUST run after all plans complete
@@ -108,7 +124,7 @@ still appears unchanged, in full context, in the reference file.
 > - "The UX was tested by individual checkpoint:ui-qa tasks" is NOT sufficient to skip the end-of-phase sweep
 > - The sweep catches cross-plan UX regressions and holistic flow issues that per-plan checkpoints miss
 >
-> There is NO mechanism to skip the Charlotte UX sweep for web projects. The only way to proceed without it is a `human-action` checkpoint where the user explicitly decides.
+> There is NO mechanism to skip the UI QA ux-audit for web projects that declare the capability. The only way to proceed without it is a `human-action` checkpoint where the user explicitly decides.
 
 **Post-phase E2E:**
 >    - Any flow FAILS with severity Critical or High → create gap entry → spawn gap closure plan (BLOCKING — do NOT proceed to verify until gaps are closed)
@@ -120,7 +136,7 @@ still appears unchanged, in full context, in the reference file.
 > Writing VERIFICATION.md inline (coordinator writes it directly without spawning gsd-verifier) is prohibited for phases that:
 > - Contain any .tsx/.jsx files in their SUMMARY.md key-files
 > - Have any PLAN.md with a checkpoint:ui-qa task
-> - Have success criteria mentioning "Charlotte", "browser QA", "UI test", or "integration test"
+> - Have success criteria mentioning "UI QA", "browser QA", "UI test", or "integration test"
 >
 > If the coordinator DOES write inline (e.g., timeout fallback), it MUST set `verifier: coordinator` in the frontmatter. When gsd-verifier runs in re-verification mode and sees `verifier: coordinator`, it MUST re-run all QA-related QGATEs (07, 10, 12) regardless of what the coordinator's inline report said.
 
@@ -135,7 +151,7 @@ still appears unchanged, in full context, in the reference file.
 > fi
 > ```
 
-> **Phase-gate authority note:** This coordinator's own VERIFICATION.md-must-exist check above is a legitimate early self-check (fail fast before returning, so a missing artifact is caught here rather than surfacing later at the orchestrator). It does NOT replace the orchestrator's `verify phase-gate {phase}` call, which runs after this coordinator returns and is the actual blocking authority for artifact EXISTENCE across all 5 checks (test files, Charlotte QA evidence, docs commit, E2E-TEST-PLAN.md, VERIFICATION.md itself). Do not remove this coordinator's own hard rule — the coordinator still must spawn the verifier; phase-gate only re-confirms deterministically afterward.
+> **Phase-gate authority note:** This coordinator's own VERIFICATION.md-must-exist check above is a legitimate early self-check (fail fast before returning, so a missing artifact is caught here rather than surfacing later at the orchestrator). It does NOT replace the orchestrator's `verify phase-gate {phase}` call, which runs after this coordinator returns and is the actual blocking authority for artifact EXISTENCE across all 5 checks (test files, UI QA evidence, docs commit, E2E-TEST-PLAN.md, VERIFICATION.md itself). Do not remove this coordinator's own hard rule — the coordinator still must spawn the verifier; phase-gate only re-confirms deterministically afterward.
 
 </hard_rules_digest>
 
@@ -177,15 +193,15 @@ After each step (discuss, research, plan, execute, verify):
 
 <review_tiering>
 
-**Review tiering:** Haiku implements; Sonnet runs every review/verify loop, a fresh Sonnet agent each round (never the implementer), every severity fixed. High-stakes plans (money/auth/security/RNG/KYC/game logic) loop to zero, but after round 4 a fresh Opus ruling on the last round's findings decides whether another round runs or the loop closes with those findings fixed. Other plans get at most 3 rounds: fix every finding of each round, round 3 reviews the fixes and the diff, fix its findings and close; only a CRITICAL/HIGH in round 3 earns a fourth round. Escalate an implementation task to Sonnet only after Haiku fails it twice, or if it is undecomposed/ambiguous, unclear-root-cause debugging, or architecture. Opus runs only at mandatory points, once each: (1) plans for money/auth/security/RNG/KYC work, (2) ONE batched diff review after the Sonnet loop closes, (3) the phase-end `gsd-verifier`, preceded by a Sonnet pre-verification of all must-haves with on-disk evidence, (4) rulings on judgment calls (deferral, assertion loosening, high-stakes design). Further Opus rounds only re-check HIGH/money-path fixes. Milestone audit stays Opus. A review approves one file state; after each fix a fresh reviewer re-traces the changed lines and the sweep.
+**Review tiering:** Haiku implements; Sonnet runs every review/verify loop, a fresh Sonnet agent each round (never the implementer), every severity fixed. High-stakes plans (any risk-domain path) loop to zero, but after round 4 a fresh Opus ruling on the last round's findings decides whether another round runs or the loop closes with those findings fixed. A risk-domain path is any path the product brief lists under Risk Domains (`risk_domains` in the init output); authentication/authorisation and security are always risk domains. When `risk_domains_source` is `builtin` (no brief, or a brief with an empty list), every path that mutates state is a risk-domain path. Tag every behaviour on a risk-domain path T0 (real-DB, mutation-proven). Other plans get at most 3 rounds: fix every finding of each round, round 3 reviews the fixes and the diff, fix its findings and close; only a CRITICAL/HIGH in round 3 earns a fourth round. Escalate an implementation task to Sonnet only after Haiku fails it twice, or if it is undecomposed/ambiguous, unclear-root-cause debugging, or architecture. Opus runs only at mandatory points, once each: (1) plans for risk-domain work, (2) ONE batched diff review after the Sonnet loop closes, (3) the phase-end `gsd-verifier`, preceded by a Sonnet pre-verification of all must-haves with on-disk evidence, (4) rulings on judgment calls (deferral, assertion loosening, high-stakes design). Further Opus rounds only re-check HIGH/risk-domain-path fixes. Milestone audit stays Opus. A review approves one file state; after each fix a fresh reviewer re-traces the changed lines and the sweep.
 
 </review_tiering>
 
 <review_checklist>
 Paste verbatim into every Sonnet and Opus review prompt; project rules (`${project}/.claude/rules`) hold the detail.
-- Per finding class, run `zg query` or `git grep` across apps/, scripts/, e2e and migrations; record the query and sibling hits.
-- For RNG or money, enumerate what public or unauthenticated routes expose, including code outside the diff.
-- Rate no money, RNG-output or authz finding below HIGH unless the trace shows no reachable path.
+- Per finding class, run the `search` command from `stack_commands` (init output) across the source roots in `stack.paths`; record the query and sibling hits.
+- For a risk-domain path, enumerate what public or unauthenticated routes expose, including code outside the diff.
+- Rate no risk-domain or authz finding below HIGH unless the trace shows no reachable path.
 - A RED must fail on an assertion about the named defect pre-fix; TypeError, import error or timeout does not count.
 - Unknown or infra errors map to 503, matched by code, never message substring.
 - Diff each ROLLBACK against the live `pg_get_functiondef` body.
@@ -194,20 +210,20 @@ Paste verbatim into every Sonnet and Opus review prompt; project rules (`${proje
 </review_checklist>
 
 **Haiku cost and allowlisted test-command shapes:** see coordinator-detail.md: cost + test-command rules.
-**Test cost:** one full `scripts/preflight.sh` per phase, on the final tree before Sonnet pre-verification (rerun only what its fixes touch); the twice-green pass runs once at phase end, not per plan. Executors and fix loops run affected files plus one bucket. See gsd-test-protocol.md `test_cost_rule`.
+**Test cost:** one full run of every gate in `stack.gates[]` and `stack.commands.pre_pr_gate` per phase, on the final tree before Sonnet pre-verification (rerun only what its fixes touch); the twice-green pass runs once at phase end, not per plan. Executors and fix loops run affected files plus one bucket. See gsd-test-protocol.md `test_cost_rule`.
 
 <defect_class_recording>
 
 ## You are the backstop for `## Defect Classes`
 
 The executor records what IT caught while building a plan. Findings that belong to the phase
-rather than to one plan — plan-check issues, Charlotte findings, verifier gaps, Opus rulings on
+rather than to one plan — plan-check issues, UI QA findings, verifier gaps, Opus rulings on
 plan attacks, re-review findings — have no other home, and the milestone-end distillation
 (`/gsd:audit-milestone` → Defect Classes Distillation) reads nothing else. If you drop them they
 are gone.
 
 **After any finding-producing step** (plan-check, plan-checker adversarial verdict, test-writer,
-mutation proof, Opus diff review, verifier, Charlotte QA), append the findings to the
+mutation proof, Opus diff review, verifier, UI QA), append the findings to the
 `## Defect Classes` section of the SUMMARY.md of the plan they relate to, in the template's
 5-column shape. The dispatch templates for those steps return findings already in that shape —
 paste them, don't re-derive them.

@@ -43,9 +43,9 @@ Output: one module (target ≤ 260 lines), its test file, a 2-edit wiring in `gs
 </execution_context>
 
 <executor_rules>
-- Work only in `/Users/ollorin/get-shit-done-agnostic` (branch `exp/agnostic`). Never touch `/Users/ollorin/igaming-platform`, `~/.claude`, `~/get-shit-done`.
+- Work only in `~/get-shit-done-agnostic` (branch `exp/agnostic`). Never touch `~/igaming-platform`, `~/.claude`, `~/get-shit-done`.
 - Forbidden: `npm run install:gsd`, `npm install`, `git push`, `git stash`, `git reset`, `git clean`, `git checkout -- <file>`, `--no-verify`.
-- Full suite: `cd /Users/ollorin/get-shit-done-agnostic && NODE_PATH=$HOME/get-shit-done/node_modules npm test > /tmp/agnostic-A02.log 2>&1; echo rc=$?` then read only the last 15 lines. Expected before this plan: fail 0. Pass counts: one `it` per numbered behaviour; success is `# fail 0` plus the named tests present in the output (no numeric `# pass` threshold).
+- Full suite: `cd ~/get-shit-done-agnostic && NODE_PATH=$HOME/get-shit-done/node_modules npm test > /tmp/agnostic-A02.log 2>&1; echo rc=$?` then read only the last 15 lines. Expected before this plan: fail 0. Pass counts: one `it` per numbered behaviour; success is `# fail 0` plus the named tests present in the output (no numeric `# pass` threshold).
 - `get-shit-done/bin/gsd-tools.js` is 16.4k lines. Read ONLY these ranges: 205-230 (requires), 745-760 and 780-806 (`output`, `writeStdoutSync`, `error`), 1886-1901 (`readRawConfigPath`), 15165-15175 (dispatch neighbourhood). Line numbers are from `db24beb`; locate by the quoted anchor text if they moved.
 - `get-shit-done/bin/gsd-tools.test.js` is 18k lines: do not read or edit it. CLI tests go in the new test file (a file over 1,500 LOC is not grown).
 - The new module is inside the agnostic-lint `bin` scope: it must contain none of the denylist terms (no vendor, tool or product names, no `localhost:<port>`). `node scripts/agnostic-lint.js check` must stay at exit 0 without regenerating the baseline.

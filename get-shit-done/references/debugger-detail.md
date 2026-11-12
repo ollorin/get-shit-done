@@ -273,7 +273,7 @@ Often you'll spot the bug mid-explanation: "Wait, I never verified that B return
 
 **Example:**
 ```jsx
-// Start: 500-line React component with 15 props, 8 hooks, 3 contexts
+// Start: 500-line component with 15 props, 8 hooks, 3 contexts
 // End after stripping:
 function MinimalRepro() {
   const [count, setCount] = useState(0);
@@ -478,7 +478,7 @@ A fix is verified when ALL of these are true:
 
 **Checklist:**
 - [ ] Works locally (dev)
-- [ ] Works in Docker (mimics production)
+- [ ] Works in a container (mimics production)
 - [ ] Works in staging (production-like)
 - [ ] Works in production (the real test)
 
@@ -659,7 +659,7 @@ The cost of insufficient verification: bug returns, user frustration, emergency 
 
 **Web Search:**
 - Use exact error messages in quotes: `"Cannot read property 'map' of undefined"`
-- Include version: `"react 18 useEffect behavior"`
+- Include version: `"<library> 18 useEffect behavior"`
 - Add "github issue" for known bugs
 
 **Context7 MCP:**

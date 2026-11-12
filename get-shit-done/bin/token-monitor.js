@@ -35,7 +35,7 @@ class TokenBudgetMonitor {
 
     // At 80% utilization: recommend compression
     if (utilization >= ALERT_THRESHOLDS.warn) {
-      recommendation = 'Token budget at ' + Math.round(utilization * 100) + '%. Consider enabling compression: `node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js compress enable`';
+      recommendation = 'Token budget at ' + Math.round(utilization * 100) + '%. Consider enabling compression: `node ~/.claude/get-shit-done/bin/gsd-tools.js compress enable`';
     }
 
     // At 95%: block execution
@@ -219,7 +219,7 @@ class TokenBudgetMonitor {
   static integrationTest(projectPath = '.') {
     const fs = require('fs');
     const { execSync } = require('child_process');
-    const gsdTools = '/Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js';
+    const gsdTools = path.join(require('os').homedir(), '.claude', 'get-shit-done', 'bin', 'gsd-tools.js');
 
     const results = [];
 

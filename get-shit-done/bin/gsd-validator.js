@@ -24,8 +24,9 @@ const VALIDATION_DEPTH = {
  */
 const THOROUGH_KEYWORDS = [
   'database', 'migration', 'schema', 'security', 'auth', 'authentication',
-  'authorization', 'payment', 'transaction', 'sql', 'query', 'encryption',
-  'credential', 'token', 'session', 'permission', 'access control'
+  'authorization', 'transaction', 'sql', 'query', 'encryption',
+  'credential', 'token', 'session', 'permission', 'access control',
+  ...require('./legacy-risk-keywords.js').thorough_validation
 ];
 
 /**

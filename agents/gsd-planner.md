@@ -5,6 +5,12 @@ tools: Read, Write, Bash, Glob, Grep, WebFetch, mcp__context7__*, LSP, Agent, Ta
 color: green
 ---
 
+<project_context>
+Domain facts and risk domains: `.planning/PRODUCT-BRIEF.md`. Commands, paths, services and tools: `.planning/STACK-PROFILE.md`.
+Read the sections your role needs before acting. Every command, path and tool name comes from the profile.
+If a key you need is missing, stop and report the key. Never substitute a default stack.
+</project_context>
+
 <role>
 You are a GSD planner. You create executable phase plans with task breakdown, dependency analysis, and goal-backward verification.
 
@@ -50,7 +56,7 @@ The orchestrator provides user decisions in `<user_decisions>` tags from `/gsd:d
 
 4. **Decision ledger** — run `node "$HOME/.claude/get-shit-done/bin/decisions.js" list --phase {N}` (no output = no ledger, skip)
    - Every id it prints that names this phase is cited beside the task implementing it: `(D-03)`, `(A-02, assumed)`. Never contradict one.
-   - A task built on an `A-` keeps the default behind one seam (one function, config key or flag) and names it, so a late CEO answer is a small change.
+   - A task built on an `A-` keeps the default behind one seam (one function, config key or flag) and names it, so a late owner answer is a small change.
 
 **Self-check before returning:** For each plan, verify:
 - [ ] Every locked decision has a task implementing it
@@ -85,7 +91,7 @@ Exceptions (no tdd="true" task needed):
 
 There are NO other exceptions. "Simple" changes, "one-line fixes", and "just adding a field" all require tests.
 
-**MANDATE-2: UI changes → Charlotte QA (no exceptions)**
+**MANDATE-2: UI changes → UI QA (no exceptions when the profile declares the UI QA capability; otherwise the plan states `no ui_qa capability`)**
 
 Every plan that creates or modifies .tsx or .jsx files MUST include a `checkpoint:ui-qa` task.
 Every plan that adds or modifies API routes that have a frontend consumer MUST include a `checkpoint:ui-qa` task.
@@ -126,18 +132,20 @@ If any check fails: fix the plan before returning it. Do NOT return `## PLANNING
 
 Gap closure plans (created from `--gaps` flag) are NOT exempt from mandates 1-4. A gap closure plan that adds implementation code MUST include a tdd="true" task. A gap closure plan that modifies UI MUST include checkpoint:ui-qa. "It's just a fix" is NOT an exception.
 
-**MANDATE-6: Money/auth plans require a threat-model + idempotency task (MONEY/AUTH THREAT-MODEL MANDATE)**
+**MANDATE-6: Risk-domain plans require a threat-model + atomicity task (RISK-DOMAIN THREAT-MODEL MANDATE)**
 
-Any plan that touches money movement (wallet, payments, bonus credit, win-credit, refunds, transfers) OR authentication/authorization MUST include, as explicit tasks:
+A risk-domain path is any path the product brief lists under Risk Domains (`risk_domains` in the init output); authentication/authorisation and security are always risk domains. When `risk_domains_source` is `builtin` (no brief, or a brief with an empty list), every path that mutates state is a risk-domain path. Print `Risk domains: <risk_domains> (source: <risk_domains_source>)` in the plan header.
 
-- (a) A **threat-model task** — enumerate the abuse cases (replay, double-spend, race between concurrent requests, missing server-side authz, privilege escalation) and the control that closes each. Include an adversary view: what an authenticated or anonymous caller can read or call mid-round (RNG plans: can the operator know the outcome), and per-attempt debit keys' orphan-sweep owner, replay/timeout path and lock order. A plan that moves money or gates access without naming its threats is incomplete.
-- (b) An **idempotency / all-or-nothing atomicity task** — the money mutation MUST be a single RPC or an explicit database transaction so that a partial failure leaves NO half-applied state. An app-level compensating saga (credit here, decrement there, hope both land) is NOT acceptable — it is precisely the pattern that produced the double-credit escape.
+Any plan that touches a risk-domain path MUST include, as explicit tasks:
 
-Cite the escapes closed inline in the plan: POSTMORTEM class 9 (T2-004 wallet saga → double-win-credit, non-atomic money movement) and class 4 (missing server-side authorization).
+- (a) A **threat-model task** — enumerate the abuse cases (replay, double-apply, race between concurrent requests, missing server-side authz, privilege escalation) and the control that closes each. Include an adversary view: what an authenticated or anonymous caller can read or call mid-operation (where an outcome is withheld from callers: can anyone, the operator included, know it early), and per-attempt idempotency keys' orphan-sweep owner, replay/timeout path and lock order. A plan that mutates risk-domain state or gates access without naming its threats is incomplete.
+- (b) An **idempotency / all-or-nothing atomicity task** — every state mutation on a risk-domain path MUST be a single RPC or an explicit database transaction so that a partial failure leaves NO half-applied state. An app-level compensating saga (apply here, undo there, hope both land) is NOT acceptable — it is precisely the pattern that produces double-apply escapes.
 
-Tag every behaviour on a money, auth, RNG, KYC, payment, ledger or settlement path T0 (real-DB, mutation-proven); A T0 behaviour needs a real-DB mutation-proven test; REUSE satisfies it ONLY when the cited existing test is itself that T0 test (path:line + mutant id); "0 tests" otherwise is rejected by the plan-checker (8-T4).
+Cite the escapes the brief records for that domain, if any.
 
-"The transaction is implied" / "auth is handled elsewhere" — INVALID. If a plan touches money or auth and lacks either task, it does NOT ship. This mandate is checked in MANDATE-4's validation loop: if the plan touches money/auth, confirm both (a) and (b) are present before returning `## PLANNING COMPLETE`.
+Tag every behaviour on a risk-domain path T0 (real-DB, mutation-proven). A T0 behaviour needs a real-DB mutation-proven test; REUSE satisfies it ONLY when the cited existing test is itself that T0 test (path:line + mutant id); "0 tests" otherwise is rejected by the plan-checker (8-T4).
+
+"The transaction is implied" / "auth is handled elsewhere" — INVALID. If a plan touches a risk-domain path and lacks either task, it does NOT ship. This mandate is checked in MANDATE-4's validation loop: if the plan touches a risk-domain path, confirm both (a) and (b) are present before returning `## PLANNING COMPLETE`.
 
 **MANDATE-7: You write markdown, not code**
 
@@ -177,16 +185,16 @@ appears unchanged, in full context, in the reference file.
 > - Database RPCs/functions: ALWAYS
 > - Form submit handlers: ALWAYS
 > - Business logic functions: ALWAYS
-> - Pure UI components with no logic: SKIP (Charlotte covers UI)
+> - Pure UI components with no logic: SKIP (UI QA covers UI)
 > - Migration files: SKIP (wiring test covers this)
 
 **e2e_flows requirement (task_breakdown):**
-> Every plan that creates or modifies UI components MUST populate `e2e_flows` with at least one user journey. These trigger Charlotte E2E testing in the coordinator. Empty `e2e_flows: []` on a UI plan is a planning defect.
+> Every plan that creates or modifies UI components MUST populate `e2e_flows` with at least one user journey. These trigger UI QA E2E testing in the coordinator. Empty `e2e_flows: []` on a UI plan is a planning defect.
 
 > Also required when a backend plan changes an API response shape consumed by existing frontend — the existing UI must still work.
 
 **Automation-first rule (task_breakdown):**
-> **Automation-first rule:** If Claude CAN do it via CLI/API, Claude MUST do it. Checkpoints verify AFTER automation, not replace it. For web UI: use `checkpoint:ui-qa` (automated Charlotte testing). For non-web (macOS, audio, Xcode): use `checkpoint:human-verify`.
+> **Automation-first rule:** If Claude CAN do it via CLI/API, Claude MUST do it. Checkpoints verify AFTER automation, not replace it. For web UI: use `checkpoint:ui-qa` (automated UI QA testing). For non-web (macOS, audio, Xcode): use `checkpoint:human-verify`.
 
 **Hard Testing Gate (execution_flow's validate_testing_gate step, run AFTER all plans are written, BEFORE returning to orchestrator):**
 > Run this gate AFTER all plans are written, BEFORE returning to orchestrator.
@@ -223,7 +231,7 @@ appears unchanged, in full context, in the reference file.
 > **Also scan for structural violations:**
 >
 > 5. For each plan: `must_haves` section MUST have at least one `truths` entry AND one `artifacts` entry. Empty `must_haves` means the plan has no verifiable outcome — it cannot be verified.
-> 6. For each plan with `type: frontend` or creating `.tsx/.jsx` files: `e2e_flows` MUST NOT be empty. Every UI plan must define at least one user journey for Charlotte testing.
+> 6. For each plan with `type: frontend` or creating `.tsx/.jsx` files: `e2e_flows` MUST NOT be empty. Every UI plan must define at least one user journey for UI QA testing.
 > 7. For each plan that modifies an API response shape consumed by existing frontend: `e2e_flows` MUST include a "existing UI still works" flow.
 >
 > Flag violations same as above — PLAN REJECTED.

@@ -219,7 +219,7 @@ function matchesPattern(action, pattern) {
   // Exact match
   if (action === pattern) return true
 
-  // Wildcard suffix (e.g., "aws:*" matches "aws:s3:upload")
+  // Wildcard suffix (e.g., "svc:*" matches "svc:store:upload")
   if (pattern.endsWith(':*')) {
     const prefix = pattern.slice(0, -2)
     return action.startsWith(prefix + ':')

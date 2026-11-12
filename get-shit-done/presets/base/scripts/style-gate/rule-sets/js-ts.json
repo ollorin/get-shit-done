@@ -1,0 +1,17 @@
+{
+  "extensions": [".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".mts", ".cts"],
+  "idioms": {
+    "errors": "A result type from a library such as neverthrow (ok/err values, andThen/map chains) instead of throw; wrap third-party code that throws at the edge.",
+    "immutability": "const bindings, object spread and array spread; never assign to a parameter member or call push/sort/splice on an input.",
+    "routing": "A pattern-matching library such as ts-pattern (match(...).with(...).exhaustive()) or a lookup object instead of if/else chains.",
+    "purity": "Pure functions in domain code; pass I/O in as arguments; await, chain or return every promise."
+  },
+  "regex_rules": [
+    { "id": "throws", "pattern": "\\bthrow\\b", "message": "throw outside an edge file; return a result value", "edge_exempt": true },
+    { "id": "throws", "pattern": "\\btry\\s*\\{", "message": "try block outside an edge file; convert the failure at the edge", "edge_exempt": true },
+    { "id": "fireAndForget", "pattern": "\\.catch\\(\\s*\\(\\s*\\)\\s*=>\\s*\\{\\s*\\}\\s*\\)", "message": "empty catch handler drops the failure" },
+    { "id": "fireAndForget", "pattern": "^\\s*ResultAsync\\.(?:fromPromise|from)\\(.*\\)\\s*;\\s*$", "message": "orphaned async result: await, chain or return it" }
+  ],
+  "structural": ["inputMutation", "ifElseRouters"],
+  "router_branch_threshold": 4
+}

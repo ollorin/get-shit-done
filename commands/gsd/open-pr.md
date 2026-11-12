@@ -1,6 +1,6 @@
 ---
 name: gsd:open-pr
-description: Open a pull request — enforces preflight gate before allowing PR creation
+description: Open a pull request — enforces the pre-PR gate before allowing PR creation
 argument-hint: "[--dry-run] [--title <title>] [--body <body>]"
 allowed-tools:
   - Read
@@ -10,37 +10,38 @@ allowed-tools:
 ---
 
 <objective>
-Open a pull request after verifying the preflight gate has passed.
+Open a pull request after verifying the pre-PR gate has passed.
 
-This command is a compliance gate — it BLOCKS PR creation when the `.preflight-passed`
-marker is absent or stale. This enforces the rule: Green twice = ready. Anything else = not ready.
+This command is a compliance gate — it BLOCKS PR creation when the gate pass marker
+is absent or stale. This enforces the rule: Green twice = ready. Anything else = not ready.
 
-The preflight marker is written by `scripts/preflight.sh` and is valid for 30 minutes.
+The pass marker is written by `stack.commands.pre_pr_gate` and is valid for 30 minutes.
 </objective>
 
 <process>
 
-<step name="preflight_gate" priority="first">
-## Preflight Gate — BLOCKING
+<step name="pre_pr_gate" priority="first">
+## Pre-PR Gate — BLOCKING
 
 This step MUST run before any PR creation attempt. It cannot be skipped.
 
 ```bash
-PREFLIGHT_MARKER=".preflight-passed"
-PREFLIGHT_MAX_AGE_SECONDS=1800  # 30 minutes
+PASS_MARKER="<pass marker written by stack.commands.pre_pr_gate>"
+PASS_MAX_AGE_SECONDS=1800  # 30 minutes
+# If stack.commands.pre_pr_gate names no script file, the gate is the stack-detected checks of config/pre-pr-checks.json; the marker rule still applies.
 
-if [ ! -f "$PREFLIGHT_MARKER" ]; then
+if [ ! -f "$PASS_MARKER" ]; then
   echo ""
   echo "╔═══════════════════════════════════════════════════════════╗"
-  echo "║  BLOCKED: Preflight check has not been run                ║"
+  echo "║  BLOCKED: Pre-PR gate has not been run                    ║"
   echo "╚═══════════════════════════════════════════════════════════╝"
   echo ""
-  echo "The .preflight-passed marker is absent."
+  echo "The gate pass marker is absent."
   echo ""
-  echo "Run the preflight check before opening a PR:"
+  echo "Run the pre-PR gate before opening a PR:"
   echo ""
-  echo "   scripts/preflight.sh          # Auto-detect affected"
-  echo "   scripts/preflight.sh --all    # Force all checks"
+  echo "   stack.commands.pre_pr_gate    # Auto-detect affected"
+  echo "   stack.commands.pre_pr_gate --all    # Force all checks"
   echo ""
   echo "The script must pass TWICE before you can open a PR."
   echo ""
@@ -48,18 +49,18 @@ if [ ! -f "$PREFLIGHT_MARKER" ]; then
 fi
 
 # Check age of marker
-MARKER_AGE_SECONDS=$(( $(date +%s) - $(stat -f %m "$PREFLIGHT_MARKER" 2>/dev/null || stat -c %Y "$PREFLIGHT_MARKER" 2>/dev/null || echo 0) ))
-if [ "$MARKER_AGE_SECONDS" -gt "$PREFLIGHT_MAX_AGE_SECONDS" ]; then
+MARKER_AGE_SECONDS=$(( $(date +%s) - $(stat -f %m "$PASS_MARKER" 2>/dev/null || stat -c %Y "$PREFLIGHT_MARKER" 2>/dev/null || echo 0) ))
+if [ "$MARKER_AGE_SECONDS" -gt "$PASS_MAX_AGE_SECONDS" ]; then
   MARKER_AGE_MINUTES=$(( MARKER_AGE_SECONDS / 60 ))
   echo ""
   echo "╔═══════════════════════════════════════════════════════════╗"
-  echo "║  BLOCKED: Preflight marker is stale (${MARKER_AGE_MINUTES}m old)             ║"
+  echo "║  BLOCKED: Pass marker is stale (${MARKER_AGE_MINUTES}m old)                  ║"
   echo "╚═══════════════════════════════════════════════════════════╝"
   echo ""
-  echo "The .preflight-passed marker is older than 30 minutes."
-  echo "Re-run the preflight check to ensure changes since then are covered:"
+  echo "The gate pass marker is older than 30 minutes."
+  echo "Re-run the pre-PR gate to ensure changes since then are covered:"
   echo ""
-  echo "   scripts/preflight.sh"
+  echo "   stack.commands.pre_pr_gate"
   echo ""
   exit 1
 fi
@@ -100,7 +101,7 @@ PR_FULL_BODY=$(printf '%s\n\n%s\n\n%s\n%s\n\n%s\n%s\n' \
   "$PR_BODY" \
   "## Commits" "$COMMITS" \
   "## Changed files" "$CHANGED_FILES")
-PR_FULL_BODY=$(printf '%s\n\n%s\n- [x] `scripts/preflight.sh` passed twice\n- [x] `.preflight-passed` marker present and fresh\n\n%s\n- [ ] Reviewer: pull branch, run `scripts/preflight.sh --skip-twice` and verify green\n' \
+PR_FULL_BODY=$(printf '%s\n\n%s\n- [x] the pre-PR gate (`stack.commands.pre_pr_gate`) passed twice\n- [x] gate pass marker present and fresh\n\n%s\n- [ ] Reviewer: pull branch, run `stack.commands.pre_pr_gate --skip-twice` and verify green\n' \
   "$PR_FULL_BODY" "## Preflight" "## Test plan")
 
 gh pr create --title "$PR_TITLE" --body "$PR_FULL_BODY"
@@ -113,7 +114,7 @@ Print the created PR URL. Verify the created PR body contains the actual summary
 
 <dry_run_mode>
 When `--dry-run` is present in `$ARGUMENTS`:
-1. Run the preflight gate check (step 1)
+1. Run the pre-PR gate check (step 1)
 2. Print gate result (PASSED or BLOCKED with reason)
 3. DO NOT create a PR
 4. Exit with code 0 if gate passed, code 1 if blocked

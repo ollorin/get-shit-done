@@ -38,7 +38,7 @@ Template for `.planning/codebase/STACK.md` - captures the technology foundation.
 
 **Testing:**
 - [Framework] [Version] - [e.g., "Jest for unit tests"]
-- [Tool] - [e.g., "Charlotte (gsd-charlotte-qa) for UI/UX and E2E testing"]
+- [Tool] - [e.g., "the UI QA capability for UI/UX and E2E testing"]
 
 **Build/Dev:**
 - [Tool] [Version] - [e.g., "Vite for bundling"]
@@ -159,7 +159,7 @@ Template for `.planning/codebase/STACK.md` - captures the technology foundation.
 <guidelines>
 **What belongs in STACK.md:**
 - Languages and versions
-- Runtime requirements (Node, Bun, Deno, browser)
+- Runtime requirements (the runtimes named in the stack profile, browser)
 - Package manager and lockfile
 - Framework choices
 - Critical dependencies (limit to 5-10 most important)

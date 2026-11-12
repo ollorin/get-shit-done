@@ -15,9 +15,12 @@ Read config.json for planning behavior settings.
 Load execution context (paths only to minimize orchestrator context):
 
 ```bash
-INIT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" init execute-phase "${PHASE}")
+LEGACY_FLAG=""  # "--legacy" when your spawn prompt says `legacy: true`
+INIT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" init execute-phase "${PHASE}" $LEGACY_FLAG)
 if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
 ```
+
+If the command exits 1 and INIT has `error: project_context_missing`: stop, print its `missing` list and `hint`. Do not continue without the brief and profile. A legacy project (no brief, no profile) runs with `--legacy` (`LEGACY_FLAG`, set when your spawn prompt says `legacy: true`) or `GSD_LEGACY=1` exported.
 
 Extract from init JSON: `executor_model`, `commit_docs`, `phase_dir`, `phase_number`, `plans`, `summaries`, `incomplete_plans`, `state_path`, `config_path`.
 
@@ -239,7 +242,7 @@ After each task (verification passed, done criteria met), commit immediately.
 - [ ] **Column/field names:** Do INSERT/UPDATE column names match the actual DB schema or migration? (e.g. `payload` vs `payload_redacted`)
 - [ ] **Operation ordering:** For multi-step flows (reserve-then-dispatch, validate-then-write), is the sequence correct? Check that preconditions execute before dependent operations.
 - [ ] **Security gates:** Does new handler/endpoint code include required auth checks, input validation, rate limiting, and idempotency where applicable?
-- [ ] **Migration privileges:** Does any new GRANT or ALTER DEFAULT PRIVILEGES follow least-privilege? No blanket grants to `authenticated` without RLS.
+- [ ] **Migration privileges:** Does any new GRANT or ALTER DEFAULT PRIVILEGES follow least-privilege? No blanket grants to the authenticated role without row-level policies.
 - [ ] **Concurrency safety:** Any SELECT-then-UPDATE pattern without `FOR UPDATE`? Any read-validate-write that needs atomicity?
 - [ ] **Set-based SQL:** Any PL/pgSQL loop that could be a single CTE or bulk UPDATE?
 
@@ -374,14 +377,14 @@ One-liner SUBSTANTIVE: "JWT auth with refresh rotation using jose library" not "
 
 Include: duration, start/end times, task count, file count.
 
-**`## Defect Classes` — REQUIRED.** One row per defect this plan's plan-check, test-writer, mutation-proof, Opus diff review, verification, or Charlotte pass surfaced:
+**`## Defect Classes` — REQUIRED.** One row per defect this plan's plan-check, test-writer, mutation-proof, Opus diff review, verification, or UI QA pass surfaced:
 
 ```markdown
 ## Defect Classes
 
 | class | instance | caught_by | severity | rule_gap |
 |---|---|---|---|---|
-| [general class name] | [path/file.ext:line] | [plan-check\|test-writer\|mutation-proof\|opus-diff-review\|opus-ruling\|verifier\|charlotte\|other] | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
+| [general class name] | [path/file.ext:line] | [plan-check\|test-writer\|mutation-proof\|opus-diff-review\|opus-ruling\|verifier\|ui-qa\|other] | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
 ```
 
 `class` is a reusable name, not a story. A clean plan writes exactly `None found. (reviewed by: <caught_by values>)` — a BARE `None found.` fails the phase gate. The section is never omitted, because the milestone-end distillation reads these rows to update the project's `.claude/rules/*.md`.
@@ -481,7 +484,7 @@ git diff --name-only ${FIRST_COMMIT}^..HEAD 2>/dev/null
 | New UI routes or pages | Changed files match: `page`, `pages/`, `screen`, `view`, `frontend` |
 | New DB schema / migration | Changed files match: `migration`, `schema`, `prisma`, `model` |
 | New service or middleware | SUMMARY.md contains: "new service", "middleware", "new schema" |
-| New auth/payment/onboarding flow | SUMMARY.md contains: "auth", "payment", "onboarding", "flow" |
+| New auth/onboarding flow | SUMMARY.md contains: "auth", "onboarding", "flow", or a word from `get-shit-done/legacy/risk-keywords.json` (`doc_signal`) |
 
 **Exclusions (gate passes automatically, no docs needed):**
 - Pure refactoring with no new public surface (no routes, no new components, no schema changes)

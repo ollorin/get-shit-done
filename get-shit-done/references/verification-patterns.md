@@ -643,8 +643,8 @@ Some things can't be verified programmatically. Flag these for human testing:
 
 ### Migration Checklist
 - [ ] Column names in application INSERT/UPDATE match actual migration column names exactly
-- [ ] No `ALTER DEFAULT PRIVILEGES ... GRANT` without explicit RLS on every affected table
-- [ ] New tables have RLS enabled and at least one policy
+- [ ] No default-privilege grant without explicit row policies on every affected table
+- [ ] New tables have row policies enabled and at least one policy
 - [ ] RPC parameters validated (type constraints, allowlists) — never accept unconstrained TEXT for enums
 - [ ] `SELECT ... FOR UPDATE` used when a read-then-write must be atomic (reversals, chargebacks, one-time codes)
 - [ ] Prefer set-based CTEs over PL/pgSQL loops for batch operations
@@ -656,7 +656,7 @@ Some things can't be verified programmatically. Flag these for human testing:
 
 ## Security-Sensitive Handler Checklist
 
-For payment, webhook, auth, and wallet handlers:
+For webhook, auth, and risk-domain handlers:
 - [ ] HMAC/signature verification is constant-time (no early return on length mismatch)
 - [ ] Missing credentials = reject (not skip verification)
 - [ ] Idempotency check at handler entry — same pattern as sibling handlers
@@ -674,7 +674,7 @@ For payment, webhook, auth, and wallet handlers:
 
 For automation-first checkpoint patterns, server lifecycle management, CLI installation handling, and error recovery protocols, see:
 
-**@/Users/ollorin/.claude/get-shit-done/references/checkpoints.md** → `<automation_reference>` section
+**@~/.claude/get-shit-done/references/checkpoints.md** → `<automation_reference>` section
 
 Key principles:
 - Claude sets up verification environment BEFORE presenting checkpoints

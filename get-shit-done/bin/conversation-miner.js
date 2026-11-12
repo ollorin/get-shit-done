@@ -110,7 +110,7 @@ function readConversationAnalysisLog(logPath) {
  *   ~/.claude/projects/{slug}/*.jsonl
  *
  * The slug is derived from the project CWD by replacing every "/" with "-":
- *   /Users/ollorin/get-shit-done → -Users-ollorin-get-shit-done
+ *   /home/alex/get-shit-done → -home-alex-get-shit-done
  *
  * @param {string} projectCwd - Absolute path to the project directory
  * @param {object} [options]
@@ -207,7 +207,7 @@ function discoverProjectConversations(projectCwd, options = {}) {
  * Reverse a Claude Code project slug to a filesystem path.
  *
  * The slug is the project CWD with every "/" replaced by "-":
- *   /Users/ollorin/get-shit-done → -Users-ollorin-get-shit-done
+ *   /home/alex/get-shit-done → -home-alex-get-shit-done
  *
  * The reversal replaces "-" with "/" and re-adds the leading "/".
  * This is a lossy operation (dirs with hyphens are ambiguous) but is

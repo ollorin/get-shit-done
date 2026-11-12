@@ -6,8 +6,10 @@ import { execSync } from 'node:child_process';
 
 const ROOT = new URL('../../', import.meta.url).pathname;
 const GSD_TOOLS = join(ROOT, 'get-shit-done/bin/gsd-tools.js');
-const CHARLOTTE = readFileSync(join(ROOT, 'agents/gsd-charlotte-qa.md'), 'utf8');
-const COORDINATOR = readFileSync(join(ROOT, 'agents/gsd-phase-coordinator.md'), 'utf8');
+const CHARLOTTE = readFileSync(join(ROOT, 'get-shit-done/presets/packs/charlotte/agents/gsd-charlotte-qa.md'), 'utf8');
+// The MILE-30 split (e597708) moved the three auto-start blocks into the @-included detail file.
+const COORDINATOR = readFileSync(join(ROOT, 'agents/gsd-phase-coordinator.md'), 'utf8')
+  + readFileSync(join(ROOT, 'get-shit-done/references/coordinator-detail.md'), 'utf8');
 
 test('gsd-tools.js service-health subcommand exists', () => {
   const source = readFileSync(GSD_TOOLS, 'utf8');

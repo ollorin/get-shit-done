@@ -5,7 +5,9 @@ import { join } from 'node:path';
 
 const ROOT = new URL('../../', import.meta.url).pathname;
 const TRANSITION = readFileSync(join(ROOT, 'get-shit-done/workflows/transition.md'), 'utf8');
-const VERIFIER = readFileSync(join(ROOT, 'agents/gsd-verifier.md'), 'utf8');
+// MILE-30 moved the kb_feedback procedure to the verifier-detail reference; success_criteria stays in the core agent.
+const VERIFIER = readFileSync(join(ROOT, 'agents/gsd-verifier.md'), 'utf8')
+  + '\n' + readFileSync(join(ROOT, 'get-shit-done/references/verifier-detail.md'), 'utf8');
 
 // ─── Transition KB feedback tests ────────────────────────────────────────────
 

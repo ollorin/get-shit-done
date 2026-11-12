@@ -15,7 +15,7 @@ const BASE_THRESHOLDS = getAllThresholds();
 // Default complexity keywords for task complexity estimation
 const DEFAULT_COMPLEXITY_KEYWORDS = [
   'database', 'migration', 'architecture', 'integration', 'security',
-  'schema', 'payment', 'transaction'
+  'schema', 'transaction', ...require('./legacy-risk-keywords.js').complexity
 ];
 
 /**

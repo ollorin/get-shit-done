@@ -1,3 +1,4 @@
+> CANCELLED (M-00-PLAN-INDEX.md section 0). Not executed; redo at cutover.
 ---
 phase: agnostic-C
 plan: 02
@@ -52,7 +53,7 @@ Phase C2: write the igaming PRODUCT-BRIEF.md, STACK-PROFILE.md and `config.stack
 - Same rules as C-01 `<executor_rules>` (work dir, forbidden commands, hook limits, mutants by backup/restore under `/tmp/c02-bak/`, single-file test command, trailers). Task 1 trailer: `Co-Authored-By: Claude Sonnet <noreply@anthropic.com>`; Task 2: `Co-Authored-By: Claude Haiku <noreply@anthropic.com>`; both plus `Claude-Session: https://claude.ai/code/session_012KdjXbyhjnRuXKgkn5MYj8`.
 - Sources, in this order, all at the pinned SHA `95a02959e5fa464f3bcce11378c803f7b86ec76d`:
   1. `get-shit-done/presets/igaming/CLAUDE.md` and `get-shit-done/presets/igaming/rules/*.md` (already in the fork; read by line range).
-  2. Other igaming files only as `git -C /Users/ollorin/igaming-platform show <SHA>:<path> > /tmp/c02-src/<name>` and then Read by line range: `.planning/PROJECT.md` (761 lines: read 119-128, 510-518, 562-570 and the `Key Decisions` rows you cite), `.planning/config.json`, `docs/development/command-reference.md` (lines 15-60 and 765-775), `apps/api/supabase/config.toml` (lines 1-30). Never read the igaming working tree.
+  2. Other igaming files only as `git -C ~/igaming-platform show <SHA>:<path> > /tmp/c02-src/<name>` and then Read by line range: `.planning/PROJECT.md` (761 lines: read 119-128, 510-518, 562-570 and the `Key Decisions` rows you cite), `.planning/config.json`, `docs/development/command-reference.md` (lines 15-60 and 765-775), `apps/api/supabase/config.toml` (lines 1-30). Never read the igaming working tree.
 - Every value in `config.stack.json` must be traceable to one of those files. Keep a list `key → file:line` and put it in the SUMMARY. A value you cannot trace is left out (optional keys) or reported as a blocker (required keys); never invent one.
 - The three new files hold project-specific text by design; they are outside the lint scope (C-01 test L1).
 - No token-shaped string, no secret value, no `.env` content in any of the three files.
@@ -165,7 +166,7 @@ Follow `<spec>`. Order: config first (trace list), then the profile, then the br
 Commit: `feat(agnostic-C2): igaming product brief, stack profile and config.stack.json`.
   </action>
   <verify>
-`rm -rf /tmp/c02-proj && mkdir -p /tmp/c02-proj/.planning && cp get-shit-done/presets/igaming/config.stack.json /tmp/c02-proj/.planning/config.json && cd /tmp/c02-proj && NODE_PATH=$HOME/get-shit-done/node_modules node /Users/ollorin/get-shit-done-agnostic/get-shit-done/bin/gsd-tools.js profile check; echo rc=$?` → `rc=0`, `"ok": true`, `"missing": []`, `"invalid": []`, `"warnings": []`.
+`rm -rf /tmp/c02-proj && mkdir -p /tmp/c02-proj/.planning && cp get-shit-done/presets/igaming/config.stack.json /tmp/c02-proj/.planning/config.json && cd /tmp/c02-proj && NODE_PATH=$HOME/get-shit-done/node_modules node ~/get-shit-done-agnostic/get-shit-done/bin/gsd-tools.js profile check; echo rc=$?` → `rc=0`, `"ok": true`, `"missing": []`, `"invalid": []`, `"warnings": []`.
 `node -e "const c=require('./get-shit-done/presets/igaming/config.stack.json');const r=require('./get-shit-done/bin/project-deploy-render.js').renderPreset('get-shit-done/presets/igaming',c);console.log(r.ok,r.errors.length,r.files.length)"` → `true 0 51`.
 `node -e "console.log(JSON.stringify(require('./get-shit-done/bin/project-deploy-scan.js').scanDir('get-shit-done/presets/igaming').hits))"` → `[]`.
 `wc -l get-shit-done/presets/igaming/PRODUCT-BRIEF.md get-shit-done/presets/igaming/STACK-PROFILE.md` → ≤ 120 and ≤ 150.

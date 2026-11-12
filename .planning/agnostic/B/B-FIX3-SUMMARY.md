@@ -24,4 +24,13 @@ Totals: 12 mutants killed, 19 tests added. Every mutant file was restored byte-i
 ## Notes
 
 - `project-deploy-guard.js` now also documents unguarded run-time paths (variable expansion, computed `node -e` paths).
-- G7 reads `GSD_IGAMING_REPO` (default `/Users/ollorin/igaming-platform`); G6 keeps the literal path because it counts occurrences inside the fragment.
+- G7 reads `GSD_IGAMING_REPO` (default `~/igaming-platform`); G6 keeps the literal path because it counts occurrences inside the fragment.
+
+## Freeze
+
+The deploy engine (`get-shit-done/bin/project-deploy*.js`) is frozen at 0b9c35a. No round 4.
+Unreviewed for production: the guard heuristics (hook-reference matching, session/ancestor checks,
+typed confirmation), the `assigned_secret` / `url_credentials` scan rules, and every `sync` path
+(three-way merge, managed blocks, settings set-merge, rollback). They get a fresh review at the
+igaming cutover. Reviewed and in use now: `project init` on a project with no `.claude/settings.json`
+(create-only) and `project diff`.

@@ -43,9 +43,9 @@ Phase A3 (design: FABLE-AGNOSTIC-GSD sections 4.1-4.2): add the two project temp
 </execution_context>
 
 <executor_rules>
-- Work only in `/Users/ollorin/get-shit-done-agnostic` (branch `exp/agnostic`). Never touch `/Users/ollorin/igaming-platform`, `~/.claude`, `~/get-shit-done`.
+- Work only in `~/get-shit-done-agnostic` (branch `exp/agnostic`). Never touch `~/igaming-platform`, `~/.claude`, `~/get-shit-done`.
 - Forbidden: `npm run install:gsd`, `npm install`, `git push`, `git stash`, `git reset`, `git clean`, `git checkout -- <file>`, `--no-verify`.
-- Full suite: `cd /Users/ollorin/get-shit-done-agnostic && NODE_PATH=$HOME/get-shit-done/node_modules npm test > /tmp/agnostic-A03.log 2>&1; echo rc=$?` then read only the last 15 lines. Expected before this plan: fail 0. Pass counts: one `it` per numbered behaviour; success is `# fail 0` plus the named tests present in the output (no numeric `# pass` threshold).
+- Full suite: `cd ~/get-shit-done-agnostic && NODE_PATH=$HOME/get-shit-done/node_modules npm test > /tmp/agnostic-A03.log 2>&1; echo rc=$?` then read only the last 15 lines. Expected before this plan: fail 0. Pass counts: one `it` per numbered behaviour; success is `# fail 0` plus the named tests present in the output (no numeric `# pass` threshold).
 - The three markdown files are inside the agnostic-lint scopes. They must contain NO denylist term: no vendor/tool/product names (see `scripts/agnostic-lint/terms.json`), no `localhost:<port>` (write URLs as `http://127.0.0.1:<port>`), no words `payment`, `money`, `wallet`, `deposit`, `withdraw`, `bonus`, `docker`, `postgres`, `React`, `jest`, no `CEO`, no absolute home paths, no `~/.claude/` (the installer rewrites that string in `.md` files). `node scripts/agnostic-lint.js check` must exit 0 WITHOUT regenerating the baseline.
 - Style sample for templates, if needed: `get-shit-done/templates/project.md` lines 1-40 only.
 - Commit per task with `git add -f <paths>` + `git commit -m "<msg>" -- <paths>` (the SUMMARY is committed the same way). Verify steps that run after a commit use `git show --stat HEAD -- <paths>`, never `git status`/`git diff` against HEAD; ignore the untracked `.audit/` directory. Every commit message ends with these trailers (Haiku executors use `Claude Haiku`):

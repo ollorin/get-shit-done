@@ -1,0 +1,617 @@
+{
+  "name": "base",
+  "version": "1",
+  "description": "Project-agnostic base deployment: methodology, guardrails and rules every project gets",
+  "settings_fragment": "settings.fragment.json",
+  "files": [
+    {
+      "src": "CLAUDE.md",
+      "dest": "CLAUDE.md",
+      "kind": "block",
+      "render": true,
+      "guarded": false
+    },
+    {
+      "src": "hooks/redirect-recursive-search.sh",
+      "dest": ".claude/hooks/redirect-recursive-search.sh",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
+      "src": "hooks/lib/run-perl.sh",
+      "dest": ".claude/hooks/lib/run-perl.sh",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
+      "src": "hooks/lib/ShellParse.pm",
+      "dest": ".claude/hooks/lib/ShellParse.pm",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
+      "src": "hooks/lib/HookGuard.pm",
+      "dest": ".claude/hooks/lib/HookGuard.pm",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
+      "src": "hooks/lib/redirect-recursive-search.pl",
+      "dest": ".claude/hooks/lib/redirect-recursive-search.pl",
+      "kind": "whole",
+      "render": true,
+      "guarded": true
+    },
+    {
+      "src": "hooks/check-git-merge-target.sh",
+      "dest": ".claude/hooks/check-git-merge-target.sh",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
+      "src": "hooks/lib/check-git-merge-target.pl",
+      "dest": ".claude/hooks/lib/check-git-merge-target.pl",
+      "kind": "whole",
+      "render": true,
+      "guarded": true
+    },
+    {
+      "src": "hooks/block-push-without-local-tests.sh",
+      "dest": ".claude/hooks/block-push-without-local-tests.sh",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
+      "src": "hooks/lib/block-push-without-local-tests.pl",
+      "dest": ".claude/hooks/lib/block-push-without-local-tests.pl",
+      "kind": "whole",
+      "render": true,
+      "guarded": true
+    },
+    {
+      "src": "hooks/check-test-command.sh",
+      "dest": ".claude/hooks/check-test-command.sh",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
+      "src": "hooks/lib/check-test-command.pl",
+      "dest": ".claude/hooks/lib/check-test-command.pl",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
+      "src": "hooks/check-denied-command.sh",
+      "dest": ".claude/hooks/check-denied-command.sh",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
+      "src": "hooks/lib/check-denied-command.pl",
+      "dest": ".claude/hooks/lib/check-denied-command.pl",
+      "kind": "whole",
+      "render": true,
+      "guarded": true
+    },
+    {
+      "src": "hooks/check-flake-patterns.sh",
+      "dest": ".claude/hooks/check-flake-patterns.sh",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
+      "src": "hooks/lib/flake-gate.mjs",
+      "dest": ".claude/hooks/lib/flake-gate.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
+      "src": "canaries/run-canaries.sh",
+      "dest": "scripts/validation/hook-canaries/run-canaries.sh",
+      "kind": "whole",
+      "render": true,
+      "guarded": true
+    },
+    {
+      "src": "canaries/canaries.jsonl",
+      "dest": "scripts/validation/hook-canaries/canaries.jsonl",
+      "kind": "whole",
+      "render": true,
+      "guarded": false
+    },
+    {
+      "src": "scripts/hooks-apply.sh",
+      "dest": "scripts/hooks-apply.sh",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
+      "src": "scripts/validation/hook-patch-trailer-check.sh",
+      "dest": "scripts/validation/hook-patch-trailer-check.sh",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
+      "src": "rules/testing.md",
+      "dest": ".claude/rules/testing.md",
+      "kind": "whole",
+      "render": true,
+      "guarded": false
+    },
+    {
+      "src": "skills/finishing-a-development-branch/SKILL.md",
+      "dest": ".claude/skills/finishing-a-development-branch/SKILL.md",
+      "kind": "whole",
+      "render": true,
+      "guarded": false
+    },
+    {
+      "src": "rules/shared-stack.md",
+      "dest": ".claude/rules/shared-stack.md",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "docs/host-ops.md",
+      "dest": "docs/gsd/host-ops.md",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "docs/file-claims-template.md",
+      "dest": "docs/gsd/file-claims-template.md",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "docs/cleanup-keep.txt",
+      "dest": ".planning/cleanup-keep.txt",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "docs/agent-ops-lessons.md",
+      "dest": "docs/gsd/agent-ops-lessons.md",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "docs/engineering-lessons.md",
+      "dest": "docs/gsd/engineering-lessons.md",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "docs/defect-classes.md",
+      "dest": "docs/gsd/defect-classes.md",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "rules/guard-authoring.md",
+      "dest": ".claude/rules/guard-authoring.md",
+      "kind": "whole",
+      "render": true,
+      "guarded": false
+    },
+    {
+      "src": "rules/pre-pr-gates.md",
+      "dest": ".claude/rules/pre-pr-gates.md",
+      "kind": "whole",
+      "render": true,
+      "guarded": false
+    },
+    {
+      "src": "rules/module-structure.md",
+      "dest": ".claude/rules/module-structure.md",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "scripts/stack-lock.sh",
+      "dest": "scripts/stack-lock.sh",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
+      "src": "scripts/stack-lock.mjs",
+      "dest": "scripts/stack-lock.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
+      "src": "scripts/session-supervisor.sh",
+      "dest": "scripts/session-supervisor.sh",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "docs/session-supervisor.md",
+      "dest": "docs/gsd/session-supervisor.md",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "scripts/pre-pr-gate.sh",
+      "dest": "scripts/pre-pr-gate.sh",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
+      "src": "scripts/log-pre-pr-disagreement.sh",
+      "dest": "scripts/log-pre-pr-disagreement.sh",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "scripts/validation/canary-gate.mjs",
+      "dest": "scripts/validation/canary-gate.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "scripts/validation/guard-registry.mjs",
+      "dest": "scripts/validation/guard-registry.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "scripts/validation/guards/sample-guard.mjs",
+      "dest": "scripts/validation/guards/sample-guard.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "scripts/validation/canaries/sample-guard.canaries.mjs",
+      "dest": "scripts/validation/canaries/sample-guard.canaries.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "scripts/validation/guard-registry-reconcile.mjs",
+      "dest": "scripts/validation/guard-registry-reconcile.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "docs/guard-estate.md",
+      "dest": "docs/gsd/guard-estate.md",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "scripts/ci-diagnose.mjs",
+      "dest": "scripts/ci-diagnose.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "skills/test-enforcement/SKILL.md",
+      "dest": ".claude/skills/test-enforcement/SKILL.md",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "skills/create-unit-test/SKILL.md",
+      "dest": ".claude/skills/create-unit-test/SKILL.md",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "skills/create-unit-test/test-outline.md",
+      "dest": ".claude/skills/create-unit-test/test-outline.md",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "skills/create-documentation/SKILL.md",
+      "dest": ".claude/skills/create-documentation/SKILL.md",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "skills/create-documentation/templates/api.md",
+      "dest": ".claude/skills/create-documentation/templates/api.md",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "skills/create-documentation/templates/guide.md",
+      "dest": ".claude/skills/create-documentation/templates/guide.md",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "rules/handler-correctness.md",
+      "dest": ".claude/rules/handler-correctness.md",
+      "kind": "whole",
+      "render": false,
+      "guarded": false,
+      "capability": "backend"
+    },
+    {
+      "src": "rules/data-integrity.md",
+      "dest": ".claude/rules/data-integrity.md",
+      "kind": "whole",
+      "render": false,
+      "guarded": false,
+      "capability": "backend"
+    },
+    {
+      "src": "skills/vibe-security/SKILL.md",
+      "dest": ".claude/skills/vibe-security/SKILL.md",
+      "kind": "whole",
+      "render": false,
+      "guarded": false,
+      "capability": "backend"
+    },
+    {
+      "src": "rules/e2e-assertions.md",
+      "dest": ".claude/rules/e2e-assertions.md",
+      "kind": "whole",
+      "render": false,
+      "guarded": false,
+      "capability": "web_ui"
+    },
+    {
+      "src": "rules/frontend-testability.md",
+      "dest": ".claude/rules/frontend-testability.md",
+      "kind": "whole",
+      "render": false,
+      "guarded": false,
+      "capability": "web_ui"
+    },
+    {
+      "src": "rules/qa-exemptions.md",
+      "dest": ".claude/rules/qa-exemptions.md",
+      "kind": "whole",
+      "render": false,
+      "guarded": false,
+      "capability": "web_ui"
+    },
+    {
+      "src": "rules/code-style.md",
+      "dest": ".claude/rules/code-style.md",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "scripts/style-gate.mjs",
+      "dest": "scripts/style-gate.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
+      "src": "scripts/style-gate/scan.mjs",
+      "dest": "scripts/style-gate/scan.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
+      "src": "scripts/style-gate/input-mutation.mjs",
+      "dest": "scripts/style-gate/input-mutation.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
+      "src": "scripts/style-gate/dup.mjs",
+      "dest": "scripts/style-gate/dup.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
+      "src": "scripts/style-gate/rule-sets/generic.json",
+      "dest": "scripts/style-gate/rule-sets/generic.json",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "scripts/style-gate/rule-sets/js-ts.json",
+      "dest": "scripts/style-gate/rule-sets/js-ts.json",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "scripts/style-gate/rule-sets/python.json",
+      "dest": "scripts/style-gate/rule-sets/python.json",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "scripts/validation/canaries/style-gate.canaries.mjs",
+      "dest": "scripts/validation/canaries/style-gate.canaries.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "scripts/mutate/classify.mjs",
+      "dest": "scripts/mutate/classify.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
+      "src": "scripts/mutate/guards.mjs",
+      "dest": "scripts/mutate/guards.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
+      "src": "scripts/mutate/options.mjs",
+      "dest": "scripts/mutate/options.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
+      "src": "scripts/mutate/restore.mjs",
+      "dest": "scripts/mutate/restore.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
+      "src": "scripts/mutate/worktree.mjs",
+      "dest": "scripts/mutate/worktree.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
+      "src": "scripts/mutate/process.mjs",
+      "dest": "scripts/mutate/process.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
+      "src": "scripts/mutate/mutate.mjs",
+      "dest": "scripts/mutate/mutate.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
+      "src": "docs/mutation-testing.md",
+      "dest": "docs/gsd/mutation-testing.md",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "scripts/dependency-scan-gate.mjs",
+      "dest": "scripts/dependency-scan-gate.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
+      "src": "scripts/memory-guard.sh",
+      "dest": "scripts/memory-guard.sh",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "scripts/container-disk-guard.sh",
+      "dest": "scripts/container-disk-guard.sh",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "scripts/lib/reap-stale-test-processes.sh",
+      "dest": "scripts/lib/reap-stale-test-processes.sh",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
+      "src": "scripts/reap-stale.sh",
+      "dest": "scripts/reap-stale.sh",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
+      "src": "scripts/validation/adr-reconcile.mjs",
+      "dest": "scripts/validation/adr-reconcile.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "scripts/validation/freshness-tracker.mjs",
+      "dest": "scripts/validation/freshness-tracker.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "scripts/validation/check-assertion-quality.mjs",
+      "dest": "scripts/validation/check-assertion-quality.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": false,
+      "capability": "web_ui"
+    },
+    {
+      "src": "scripts/findings-register.mjs",
+      "dest": "scripts/findings-register.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "scripts/lib/findings-register/parse.mjs",
+      "dest": "scripts/lib/findings-register/parse.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "scripts/lib/findings-register/owner.mjs",
+      "dest": "scripts/lib/findings-register/owner.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "scripts/lib/findings-register/telemetry.mjs",
+      "dest": "scripts/lib/findings-register/telemetry.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    }
+  ]
+}

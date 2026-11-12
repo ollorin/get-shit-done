@@ -5,7 +5,7 @@ through 8f: previous-verification check, must-haves establishment, observable
 truths, three-level artifact verification, key-link/wiring verification,
 done-criteria traceability, requirements coverage, test-content/hollow-test
 detection, PRD intent alignment, anti-pattern scanning, human-verification
-identification, runtime test suite execution, Charlotte QA coverage,
+identification, runtime test suite execution, UI QA coverage,
 deferral-language detection, E2E coverage, implementation-file test
 coverage, migration timestamp conflicts, docs validation), plus the
 `<stub_detection_patterns>` pointer and the full `<kb_feedback>` (Step 11,
@@ -472,15 +472,8 @@ Code can be fully implemented (no TODOs, no stubs) yet still incorrect. After th
 After static wiring checks, attempt to run the project's test suite:
 
 ```bash
-# Detect test runner from package.json
-if [ -f "package.json" ]; then
-  TEST_CMD=$(node -e "const p=require('./package.json'); console.log(p.scripts?.['test:ci'] || p.scripts?.test || '')")
-fi
-
-# Detect deno
-if [ -f "deno.json" ]; then
-  DENO_TEST_CMD=$(node -e "const d=require('./deno.json'); console.log(d.tasks?.['test:ci'] || d.tasks?.test || '')")
-fi
+# TEST_CMD = the `test_all` command from `stack_commands` (init output); never detected here
+TEST_CMD="<stack_commands.test_all>"
 
 # Run tests (max 5 minutes)
 if [ -n "$TEST_CMD" ]; then
@@ -537,11 +530,11 @@ If any success criterion or observable truth is marked as:
 
 Any deferral language in a success criterion = verification failure. "All underlying infrastructure is in place" is not evidence that a criterion is satisfied. Only running and passing the actual test counts.
 
-**Status: passed** — All truths VERIFIED, all artifacts pass levels 1-3, all key links WIRED, no blocker anti-patterns, test suite passes, Charlotte QA completed (if UI phase).
+**Status: passed** — All truths VERIFIED, all artifacts pass levels 1-3, all key links WIRED, no blocker anti-patterns, test suite passes, UI QA completed (if UI phase).
 
-**Status: gaps_found** — One or more truths FAILED, artifacts MISSING/STUB, key links NOT_WIRED, blocker anti-patterns found, test suite fails, or Charlotte QA missing for UI phase.
+**Status: gaps_found** — One or more truths FAILED, artifacts MISSING/STUB, key links NOT_WIRED, blocker anti-patterns found, test suite fails, or UI QA missing for UI phase.
 
-**Status: human_needed** — All automated checks pass AND test suite passes AND Charlotte QA passed (if applicable), but items flagged for human verification that cannot be automated.
+**Status: human_needed** — All automated checks pass AND test suite passes AND UI QA passed (if applicable), but items flagged for human verification that cannot be automated.
 
 **CRITICAL: `human_needed` is NOT a soft version of `gaps_found`.** If any truth FAILED or any test failed, the status MUST be `gaps_found` — never `human_needed`. The `human_needed` status is ONLY valid when all automated checks pass and the remaining items genuinely require a human (e.g., visual appearance, real-time behavior, external service integration). A failing test or missing artifact MUST NEVER be classified as `human_needed`.
 
@@ -601,15 +594,17 @@ gaps:
 **Knowledge feedback (non-blocking):** If a gap's root cause traces to a specific knowledge-DB entry retrieved earlier via `query-knowledge` (i.e. the plan or a prior agent followed a KB-sourced recommendation that this verification proves was wrong), call `node ~/.claude/get-shit-done/bin/gsd-tools.js mark-wrong <id> --severity <minor|major|critical> --reason "<one-line reason>"` using the entry's `id` field from that earlier `query-knowledge` call. Choose severity by impact: `minor` for a stale/imprecise recommendation, `major` for one that caused a real implementation gap, `critical` for one that caused a broken/incorrect artifact to ship. This call is best-effort and MUST NOT block VERIFICATION.md from being written — wrap in a non-fatal check, log the outcome, and continue regardless of its result. This does not change the gap's `failure_type` or the phase's overall STATUS.
 
 
-<check_charlotte_qa_coverage>
+<check_ui_qa_coverage>
 
-## Step 8c: Charlotte QA Coverage Check (QGATE-07)
+## Step 8c: UI QA Coverage Check (QGATE-07)
 
 **Trigger:** ANY of the following:
 1. One or more `.tsx` or `.jsx` files appear in SUMMARY.md key-files for this phase
-2. The project uses a web framework (check package.json for react, next, vue, svelte, @angular/core, nuxt, gatsby, remix, solid-js, preact in dependencies/devDependencies) AND the phase modified any files in the project
+2. The project uses a web framework (check package.json dependencies and devDependencies for a web framework (the framework list in the code below)) AND the phase modified any files in the project
 
-**Hard rule:** If UI files were produced OR the project is a web project, Charlotte QA MUST have run. If no Charlotte QA session is recorded, mark the phase `gaps_found`. This is NEVER a warning — never emit a warning for missing Charlotte QA on UI-producing phases or web projects.
+**No-capability carve-out:** when the phase gate (`verify phase-gate`) reports `ui_qa_mode: none` (the profile declares `stack.capabilities` without `ui_qa`), skip this step, write `ui_qa_ran: false  # no ui_qa capability` and add no gap. `ui_qa_mode: legacy` (no `stack.capabilities`) and `capable` keep the hard rule.
+
+**Hard rule:** If UI files were produced OR the project is a web project, UI QA MUST have run. If no UI QA session is recorded, mark the phase `gaps_found`. This is NEVER a warning — never emit a warning for missing UI QA on UI-producing phases or web projects.
 
 **Step A — Detect UI files in SUMMARY.md:**
 
@@ -633,7 +628,7 @@ for summary in "$PHASE_DIR"/*-SUMMARY.md; do
 done
 ```
 
-**Step A.5 — Also check if any PLAN.md required Charlotte QA:**
+**Step A.5 — Also check if any PLAN.md required UI QA:**
 
 ```bash
 PLAN_REQUIRES_UI_QA=false
@@ -677,27 +672,27 @@ fi
 
 Set `TRIGGER_QA_CHECK=true` if `SUMMARY_UI_FILES="yes"` OR `PLAN_REQUIRES_UI_QA=true` OR `WEB_FRAMEWORK_PROJECT=true`.
 
-**Step B — Check for Charlotte QA session record:**
+**Step B — Check for UI QA session record:**
 
-A Charlotte QA session is recorded when any of these exist in the phase directory:
-- A file matching `*-QA-*.md` or `*-CHARLOTTE-*.md` or `*-UX-*.md` (dedicated QA report files)
-- A SUMMARY.md that contains evidence of ACTUAL QA execution: "qa round", "ux-audit", "screens_tested", "issue_count", "QA Report" (not just a mention of "charlotte" or "ui-qa" in passing)
+A UI QA session is recorded when any of these exist in the phase directory:
+- A file matching `*-QA-*.md` or `*-CHARLOTTE-*.md` (legacy report name) or `*-UX-*.md` (dedicated QA report files)
+- A SUMMARY.md that contains evidence of ACTUAL QA execution: "qa round", "ux-audit", "screens_tested", "issue_count", "QA Report" (not just a mention of "UI QA" or "ui-qa" in passing)
 - A `*-QA-ISSUES.md` file (written by coordinator when QA ran but had unresolved issues)
 
 ```bash
-CHARLOTTE_QA_FOUND=false
-# Check for Charlotte QA session files (highest confidence)
+UI_QA_FOUND=false
+# Check for UI QA session files (highest confidence)
 for qa_file in "$PHASE_DIR"/*-QA-*.md "$PHASE_DIR"/*-CHARLOTTE-*.md "$PHASE_DIR"/*-UX-*.md "$PHASE_DIR"/*-UX-AUDIT.md; do
   if [ -f "$qa_file" ]; then
-    CHARLOTTE_QA_FOUND=true
+    UI_QA_FOUND=true
     break
   fi
 done
-# Also check SUMMARY.md files for Charlotte QA execution evidence (not just mentions)
-if [ "$CHARLOTTE_QA_FOUND" = "false" ]; then
+# Also check SUMMARY.md files for UI QA execution evidence (not just mentions)
+if [ "$UI_QA_FOUND" = "false" ]; then
   for summary in "$PHASE_DIR"/*-SUMMARY.md; do
     if [ -f "$summary" ]; then
-      HAS_CHARLOTTE=$(node -e "
+      HAS_UI_QA=$(node -e "
         try {
           const fs = require('fs');
           const content = fs.readFileSync('$summary', 'utf8').toLowerCase();
@@ -708,8 +703,8 @@ if [ "$CHARLOTTE_QA_FOUND" = "false" ]; then
           console.log((executionEvidence || checkpointEvidence) ? 'yes' : 'no');
         } catch(e) { console.log('no'); }
       " 2>/dev/null || echo "no")
-      if [ "$HAS_CHARLOTTE" = "yes" ]; then
-        CHARLOTTE_QA_FOUND=true
+      if [ "$HAS_UI_QA" = "yes" ]; then
+        UI_QA_FOUND=true
         break
       fi
     fi
@@ -717,30 +712,30 @@ if [ "$CHARLOTTE_QA_FOUND" = "false" ]; then
 fi
 ```
 
-**Anti-spoofing:** A SUMMARY.md that merely mentions "Charlotte" or "ui-qa" in a task description without evidence of actual QA execution (round numbers, screen counts, issue counts) does NOT satisfy this check. The detection requires evidence of execution, not just intent.
+**Anti-spoofing:** A SUMMARY.md that merely mentions "UI QA" or "ui-qa" in a task description without evidence of actual QA execution (round numbers, screen counts, issue counts) does NOT satisfy this check. The detection requires evidence of execution, not just intent.
 
-**Step C — Hard-fail if UI files present or plan requires QA but no Charlotte QA:**
+**Step C — Hard-fail if UI files present or plan requires QA but no UI QA:**
 
-If TRIGGER_QA_CHECK == true AND CHARLOTTE_QA_FOUND == false:
+If TRIGGER_QA_CHECK == true AND UI_QA_FOUND == false:
 - Add gap to gaps list:
   ```yaml
-  - truth: "Charlotte QA was run for phases producing UI files (.tsx/.jsx)"
+  - truth: "UI QA was run for phases producing UI files (.tsx/.jsx)"
     status: failed
     failure_type: missing_artifact
-    reason: "Phase produced .tsx/.jsx files or PLAN.md includes checkpoint:ui-qa but no Charlotte QA session was recorded"
+    reason: "Phase produced .tsx/.jsx files or PLAN.md includes checkpoint:ui-qa but no UI QA session was recorded"
     artifacts:
       - path: "{PHASE_DIR}"
-        issue: "No Charlotte QA session files found in phase directory"
+        issue: "No UI QA session files found in phase directory"
     missing:
-      - "Run Charlotte QA for all .tsx/.jsx files produced in this phase OR as required by checkpoint:ui-qa tasks in PLAN.md"
-      - "Charlotte QA session must be recorded before phase can pass verification"
-      - "If supabase/dev server was not running: start it (check CLAUDE.md for startup command) and re-run"
+      - "Run UI QA for all .tsx/.jsx files produced in this phase OR as required by checkpoint:ui-qa tasks in PLAN.md"
+      - "UI QA session must be recorded before phase can pass verification"
+      - "If the service named in `stack.services[]` was not running: start it (its `launch` command) and re-run"
   ```
 - Set STATUS = gaps_found (hard-fail — NOT a warning)
 
-If TRIGGER_QA_CHECK == false OR CHARLOTTE_QA_FOUND == true: this check passes silently.
+If TRIGGER_QA_CHECK == false OR UI_QA_FOUND == true: this check passes silently.
 
-</check_charlotte_qa_coverage>
+</check_ui_qa_coverage>
 
 <check_deferral_language>
 
@@ -829,13 +824,13 @@ If DEFERRAL_FOUND=false: this check passes silently.
 
 **Trigger:** One or more `.ts`, `.tsx`, or `.js` implementation files appear in SUMMARY.md key-files.
 
-**Hard rule:** Every implementation file must be exercised by a test. A file passes if any test file (unit or integration) imports it or calls its exported route/RPC, or the SUMMARY `## Test Delta` cites a REUSE for it. Unexercised files → `gaps_found`. This is NEVER a warning — never emit a warning for missing test coverage. The exemption applies only to a file that consists solely of `export ... from` re-export statements (any length), and never matches wallet|auth|rng|kyc|payment|ledger|settle|balance|stake|payout|deposit|withdraw|session|totp|bet paths.
+**Hard rule:** Every implementation file must be exercised by a test. A file passes if any test file (unit or integration) imports it or calls its exported route/RPC, or the SUMMARY `## Test Delta` cites a REUSE for it. Unexercised files → `gaps_found`. This is NEVER a warning — never emit a warning for missing test coverage. The exemption applies only to a file that consists solely of `export ... from` re-export statements (any length), and is on no risk-domain path (`risk_domains` in the init output; session and credential paths count).
 
 Run `gsd-tools verify test-content "$PHASE_NUM"` and read `impl_files_without_tests` (each is a gap), `impl_files_covered` and `impl_files_exempt` (confirm each exempt file is a pure re-export outside the P0 paths above); the manual Steps A-C below are the fallback cross-check.
 
 **Implementation files** are `.ts`, `.tsx`, `.js` files that are NOT:
 - Test files themselves: `*.test.ts`, `*.spec.ts`, `*.test.js`, `*.spec.js`, `*.test.tsx`, `*.spec.tsx`
-- Configuration files: `*.config.ts`, `*.config.js`, `vite.config.*`, `next.config.*`, `tailwind.config.*`, `jest.config.*`, `vitest.config.*`
+- Configuration files: `*.config.ts`, `*.config.js` and other tool config files
 - Type declaration files: `*.d.ts`
 - Build output files (in `dist/`, `build/`, `.next/`, `.nuxt/`, `out/` directories)
 
@@ -1082,19 +1077,21 @@ Log: "Docs validation — expected scope: {DOCS_EXPECTED_SCOPE} | agent ran: {DO
 
 ## Step 8i: P0 Tier-Delta Check (QGATE-16)
 
-**Trigger:** `scripts/check-p0-tier-delta.ts` exists at the repo root. Most GSD-fork consumers do
-not ship this script — when it is absent, this entire step is skipped silently: no gap, no
+**Trigger:** a `tier-delta` entry exists in `stack.gates[]` of `.planning/config.json`
+(`gsd-tools profile get stack.gates`). Legacy: a project with no `stack.gates` at all runs the
+tier-delta and tier-assignment scripts the repo ships, exactly as before. A project that declares `stack.gates` without a `tier-delta` entry, or a legacy
+repo without those scripts, does not ship this gate: this entire step is skipped silently: no gap, no
 warning, nothing added to VERIFICATION.md.
 
 ```bash
-P0_DELTA_SCRIPT="scripts/check-p0-tier-delta.ts"
-P0_ASSIGN_SCRIPT="scripts/check-p0-tier-assignment.ts"
-if [ ! -f "$P0_DELTA_SCRIPT" ]; then
+P0_DELTA_RUN="<run of the stack.gates[] entry id tier-delta; legacy: the repo's tier-delta script if present>"
+P0_ASSIGN_RUN="<run of the stack.gates[] entry id tier-assignment; legacy: the repo's tier-assignment script if present>"
+if [ -z "$P0_DELTA_RUN" ]; then
   : # Step 8i does not apply to this repo — skip the remainder of this step, continue to Step 9
 fi
 ```
 
-If `$P0_DELTA_SCRIPT` is absent, this check passes silently and Step 8i ends here.
+If `$P0_DELTA_RUN` is empty (no `tier-delta` gate), this check passes silently and Step 8i ends here.
 
 **Step A — Derive the phase's diff base.** The step must diff the PHASE's own changes, not the
 whole tree.
@@ -1126,17 +1123,16 @@ The temp file is removed (`rm -f "$DIFF_TMP"`) after Step C completes.
 **Step C — Run both invocations, cwd = repo root:**
 
 ```bash
-deno run --allow-read scripts/check-p0-tier-delta.ts --diff-file "$DIFF_TMP" --json
-deno run --allow-read scripts/check-p0-tier-assignment.ts --self-check --json
+$P0_DELTA_RUN --diff-file "$DIFF_TMP" --json
+$P0_ASSIGN_RUN --self-check --json
 ```
 
-Both run, always, when `$P0_DELTA_SCRIPT` exists:
+Both run, always, when `$P0_DELTA_RUN` is set:
 - The **first** checks THIS phase's own diff for newly added (`A`-status) P0-surface paths with
   no matching entry in the risk-tiered registry. Modified (`M`-status) paths are out of scope by
   design — the delta rule is about new surfaces.
-- The **second** re-runs the standing canary corpus (`MECHANISM_CANARIES` in
-  `scripts/validation/canaries/p0-tier-assignment.canaries.ts`, including the MANDATED "the
-  untiered money route" fixture) to confirm the delta engine itself has not gone blind. A phase
+- The **second** re-runs the standing canary corpus (`MECHANISM_CANARIES`, the canary corpus of the `tier-assignment` gate, including the MANDATED "the
+  untiered risk-domain route" fixture) to confirm the delta engine itself has not gone blind. A phase
   whose own diff is clean but whose canary corpus has gone blind is NOT verified — this is the
   guard-degradation failure class this whole milestone exists to close.
 
@@ -1166,17 +1162,17 @@ Both run, always, when `$P0_DELTA_SCRIPT` exists:
     missing:
       - "Restore the tier-assignment mechanism so the canary corpus passes --self-check again"
   ```
-- `deno` not found on PATH while `$P0_DELTA_SCRIPT` and `$P0_ASSIGN_SCRIPT` DO exist on disk: this
-  is a gap ("QGATE-16 could not run — deno not on PATH"), never a skip. The repo shipped the gate;
+- A gate runtime not found on PATH while `$P0_DELTA_RUN` and `$P0_ASSIGN_RUN` are set: this
+  is a gap ("QGATE-16 could not run — gate runtime not on PATH"), never a skip. The repo shipped the gate;
   the verifier may not silently decline to run it.
 
 **Hard rule:** Any QGATE-16 violation — a new P0-surface path with no risk-tiered registry entry,
 or a canary that no longer catches what it was built to catch — sets STATUS = `gaps_found`. This
 is NEVER a warning.
 
-This closes the escape where a money-movement route or edge function ships with no risk tier and
+This closes the escape where a risk-domain route or service function ships with no risk tier and
 therefore no P0 coverage obligation attached to it — the risk-inverted gap this milestone exists
-to close. `scripts/check-p0-tier-delta.ts` and `scripts/check-p0-tier-assignment.ts` have existed
+to close. The `tier-delta` and `tier-assignment` gates have existed
 since Phase 296-05, fully tested, and until this step, entirely unwired. A guard nothing invokes
 is not a guard.
 
@@ -1191,7 +1187,7 @@ Measured from the phase diff and the SUMMARY `## Test Delta` fields (`added/upda
 - **(b) Touched-bucket time:** read from the `bucket_seconds: <bucket> <before> -> <after>` lines; `test_delta.bucket_time_regressed` true (after > before*1.1, i.e. rise over 10%) without a cited justification is a gap. Spot-check one `bucket_seconds` line against `.planning/test-runs/timing-*.log`.
 - **(c) Hollow scan:** the Step 6c detector reports 0 new `hollow_test_cases`.
 - **(d) Mutation rows:** every T0 test added or rewritten has a Test Delta row citing a mutant id (mXX1) or RED sha, and the red log names it. Checked mechanically via `test_delta.t0_mutant_rows_missing`: report it plus your judgment on mutation quality; a missing row is not by itself `gaps_found`.
-- **(e) Deleted/merged:** every deleted or merged test has a DELETE/MERGE row citing an existing test path:line (or mutant id); `deleted`/`merged` counts must match the rows, mechanically via `test_delta.declared_rows_mismatch`. An uncited row is a gap. DELETE rows on sensitive paths (wallet|auth|rng|kyc|payment|ledger|settle|balance|stake|payout|deposit|withdraw|session|totp|bet) need a MERGE row with a verified mutant id or RED sha.
+- **(e) Deleted/merged:** every deleted or merged test has a DELETE/MERGE row citing an existing test path:line (or mutant id); `deleted`/`merged` counts must match the rows, mechanically via `test_delta.declared_rows_mismatch`. An uncited row is a gap. DELETE rows on risk-domain paths (`risk_domains` in the init output; session and credential paths count) need a MERGE row with a verified mutant id or RED sha.
 
 Mutation cap: one mutant per guarded predicate or lock. Equivalents are argued, not run. A T1 rewrite may run its mutant against the single file; T0 keeps full-bucket runs.
 

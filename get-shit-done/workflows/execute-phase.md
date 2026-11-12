@@ -28,11 +28,15 @@ Read STATE.md before any operation to load project context.
 Load all context in one call:
 
 ```bash
-INIT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" init execute-phase "${PHASE_ARG}")
+LEGACY_FLAG=""
+if [[ " $ARGUMENTS " == *" --legacy "* ]]; then LEGACY_FLAG="--legacy"; fi
+INIT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" init execute-phase "${PHASE_ARG}" $LEGACY_FLAG)
 if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
 ```
 
-Parse JSON for: `executor_model`, `verifier_model`, `commit_docs`, `parallelization`, `branching_strategy`, `branch_name`, `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `phase_slug`, `plans`, `incomplete_plans`, `plan_count`, `incomplete_count`, `state_exists`, `roadmap_exists`, `phase_req_ids`.
+If the command exits 1 and INIT has `error: project_context_missing`: stop, print its `missing` list and `hint`. Do not continue without the brief and profile. When `LEGACY_FLAG` is set, put `legacy: true` in every spawned agent's prompt (the flag alone does not reach them; they pass `--legacy` to their own init call).
+
+Parse JSON for: `executor_model`, `verifier_model`, `commit_docs`, `parallelization`, `branching_strategy`, `branch_name`, `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `phase_slug`, `plans`, `incomplete_plans`, `plan_count`, `incomplete_count`, `state_exists`, `roadmap_exists`, `phase_req_ids`, `brief_path`, `stack_profile_path`, `stack_commands`. Every spawned agent receives `brief_path` and `stack_profile_path` (when not null) in its `<files_to_read>`, and `stack_commands` verbatim.
 
 **If `phase_found` is false:** Error — phase directory not found.
 **If `plan_count` is 0:** Error — no plans found in phase.
@@ -200,7 +204,7 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
    the peer NAME as the primary handle and relay an agentId later only if a peer needs it.
    Skip this block entirely for a single-executor wave — there are no peers to collide with.
 
-   **Model rule:** every spawn passes `model` explicitly (never omit; an omitted model inherits the spawner's tier). Executor and test-writer: `haiku`, `sonnet` only after 2 Haiku failures/ambiguous plan/unclear root cause. Planner and plan-checker: `opus` for money/auth/security/RNG/KYC plans, else `sonnet`. Per-plan review: fresh Sonnet rounds to zero findings; phase end: Opus verifier.
+   **Model rule:** every spawn passes `model` explicitly (never omit; an omitted model inherits the spawner's tier). Executor and test-writer: `haiku`, `sonnet` only after 2 Haiku failures/ambiguous plan/unclear root cause. Planner and plan-checker: `opus` for risk-domain plans, else `sonnet`. Per-plan review: fresh Sonnet rounds to zero findings; phase end: Opus verifier.
 
    **For Wave 1 executors** (wave_number == 1, no prior context):
    ```
@@ -399,7 +403,7 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
      2. Never block on a human: write the debugger findings to `FAILURE.md`, run `deferred add --step execution --reason "..." --approver auto-escalate`, and print the finding in chat; record in SUMMARY.md that the plan was escalated.
      3. Mark this plan failed, report partial completion, continue with non-dependent plans only.
 
-5.5. **Live course-correction relay (App #3, `@get-shit-done/references/agent-messaging.md`):** if a checker or QA agent (gsd-plan-checker, gsd-charlotte-qa) that is running while an executor is STILL producing work `SendMessage`s you (`to: "main"`) a mid-run finding, you MAY relay a correction to the in-flight executor: `SendMessage(to: <EXECUTOR_AGENT_IDS[{plan_id}]>, …)` with the finding so it can adjust before finishing wrong, instead of letting the plan complete and be redone. This stays coordinator-mediated (the checker/QA agent never messages the executor directly). It is additive — the checker/QA agent's structured return is still the durable record, and delivery is at the executor's next tool round (hard semantic #1), so treat the relay as a best-effort tightening, never a guaranteed real-time halt. If the executor's agentId is unavailable, fall back to normal post-run handling (its next return, or the checker/QA report driving a fix pass).
+5.5. **Live course-correction relay (App #3, `@get-shit-done/references/agent-messaging.md`):** if a checker or QA agent (gsd-plan-checker, the UI QA agent) that is running while an executor is STILL producing work `SendMessage`s you (`to: "main"`) a mid-run finding, you MAY relay a correction to the in-flight executor: `SendMessage(to: <EXECUTOR_AGENT_IDS[{plan_id}]>, …)` with the finding so it can adjust before finishing wrong, instead of letting the plan complete and be redone. This stays coordinator-mediated (the checker/QA agent never messages the executor directly). It is additive — the checker/QA agent's structured return is still the durable record, and delivery is at the executor's next tool round (hard semantic #1), so treat the relay as a best-effort tightening, never a guaranteed real-time halt. If the executor's agentId is unavailable, fall back to normal post-run handling (its next return, or the checker/QA report driving a fix pass).
 
 6. **Execute checkpoint plans between waves** — see `<checkpoint_handling>`.
 
@@ -422,23 +426,21 @@ When executor returns a checkpoint AND (`AUTO_CHAIN` is `"true"` OR `AUTO_CFG` i
 - **decision** → Auto-spawn continuation agent with `{user_response}` = first option from checkpoint details. Log `⚡ Auto-selected: [option]`.
 - **human-action** → Present to user (existing behavior below). Auth gates cannot be automated.
 
-**UI QA checkpoints — always auto-run (Charlotte is the human here):**
+**UI QA checkpoints — always auto-run (the UI QA capability is the human here):**
 
 When executor returns `Type: ui-qa` — regardless of AUTO_CHAIN or AUTO_CFG:
 
-1. Log: `⚡ UI QA: Starting Charlotte automated testing...`
+1. Log: `⚡ UI QA: Starting UI QA automated testing...`
 
 2. **Auto-start dev servers** — do NOT ask user to start servers:
-   - For each URL implied by `<what-built>` (default: http://localhost:3000):
+   - For each `stack.services[]` entry (`gsd-tools.js profile get stack.services`; CLAUDE.md `## QA / Dev Server` is the fallback; neither: stop and report `stack.services is not set`), probe its `url`:
      ```bash
-     curl -s --max-time 3 http://localhost:3000 > /dev/null 2>&1 && echo UP || echo DOWN
+     curl -s --max-time 3 "$SERVICE_URL" > /dev/null 2>&1 && echo UP || echo DOWN
      ```
-   - If DOWN: detect framework and start in background:
-     - NX monorepo: `npx nx dev {app-name}` (app name from checkpoint `<apps>` tag or CLAUDE.md)
-     - Next.js/Vite/other: `npm run dev` or `yarn dev` in background
-   - Wait up to 30s for server to respond. If still DOWN after 30s: log warning, proceed anyway (Charlotte reports server errors as issues).
+   - If DOWN: start it with its `launch` command in background.
+   - Wait up to 30s for the service to respond. If still DOWN after 30s: log warning, proceed anyway (the UI QA agent reports server errors as issues).
 
-3. **Run Charlotte QA loop** (max 3 rounds):
+3. **Run UI QA loop** (max 3 rounds):
    ```
    MAX_ROUNDS = 3
    round = 1
@@ -446,10 +448,10 @@ When executor returns `Type: ui-qa` — regardless of AUTO_CHAIN or AUTO_CFG:
 
    while round <= MAX_ROUNDS AND qa_passed == false:
      qa_result = Agent(
-       subagent_type="gsd-charlotte-qa",
+       subagent_type="<UI QA agent: stack.capabilities.ui_qa.agent; legacy: the project's configured QA agent>",
        model="haiku",
        description="UI QA round {round}",
-       prompt="mode=ui-qa\n<what_built>{what_built}</what_built>\n<test_flows>{test_flows}</test_flows>\n<round>{round}</round>{IF round > 1: <previous_issues>{previous_report}</previous_issues>}\nAlso return a `## Defect Classes` block — one `| class | instance | caught_by | severity | rule_gap |` row per issue, `caught_by` fixed to `charlotte`, `class` a general reusable name. Write exactly `None found. (reviewed by: charlotte)` if the pass surfaced none — a bare `None found.` fails the phase gate. The coordinator pastes these into the plan's SUMMARY.md."
+       prompt="mode=ui-qa\n<what_built>{what_built}</what_built>\n<test_flows>{test_flows}</test_flows>\n<round>{round}</round>{IF round > 1: <previous_issues>{previous_report}</previous_issues>}\nAlso return a `## Defect Classes` block — one `| class | instance | caught_by | severity | rule_gap |` row per issue, `caught_by` fixed to `ui-qa`, `class` a general reusable name. Write exactly `None found. (reviewed by: ui-qa)` if the pass surfaced none — a bare `None found.` fails the phase gate. The coordinator pastes these into the plan's SUMMARY.md."
      )
 
      if qa_result.passed:
@@ -458,7 +460,7 @@ When executor returns `Type: ui-qa` — regardless of AUTO_CHAIN or AUTO_CFG:
 
      if round == MAX_ROUNDS:
        Present ONLY the issue report — NOT server start instructions:
-       "Charlotte found {N} issues after {MAX_ROUNDS} rounds. Type 'continue' to proceed, or describe what to fix."
+       "UI QA found {N} issues after {MAX_ROUNDS} rounds. Type 'continue' to proceed, or describe what to fix."
        Wait for user response. If 'continue': break. Else: spawn fix agent, re-run QA.
        break
 
@@ -468,7 +470,7 @@ When executor returns `Type: ui-qa` — regardless of AUTO_CHAIN or AUTO_CFG:
      round++
    ```
 
-4. Spawn continuation agent with `{user_response}` = "Charlotte QA passed" (or issue summary if not passed).
+4. Spawn continuation agent with `{user_response}` = "UI QA passed" (or issue summary if not passed).
 5. Log: `⚡ UI QA: {passed/failed} — {N} issues {found/fixed}`
 
 **Standard flow (not auto-mode, or human-action type):**
@@ -549,18 +551,18 @@ After all waves:
 
   <!-- FPGATE-01 / SECGATE-01 / DFGATE-01: prevention-infrastructure lifecycle gates. -->
   <!-- Each closes a documented POSTMORTEM escape class. If the target repo ships the -->
-  <!-- corresponding Layer-1 script (scripts/fp-gate.ts etc.), the gate RUNS it; if the -->
-  <!-- repo has no such script, the gate degrades to the static check described inline. -->
+  <!-- corresponding Layer-1 gate (an entry in `stack.gates[]`), the gate RUNS it; if the -->
+  <!-- profile has no such entry, the gate degrades to the static check described inline. -->
 
   <item id="FPGATE-01" severity="blocking">
     <check>The FP/routing/sizing violation-ratchet diff for this phase's changes is &lt;= 0 (no directory's violation count exceeds its recorded baseline)</check>
-    <command>deno run --allow-read --allow-run scripts/fp-gate.ts 2>&1 || echo FPGATE_FAIL</command>
-    <pass>Gate exits 0 — every directory's measured violation count is at or below its `scripts/fp-violation-baseline.json` baseline (the ratchet is DOWN-only: a phase may reduce or hold counts, never raise them). If the repo has no `scripts/fp-gate.ts`, PASS only when no new empty-catch, non-`match()` handler, or oversized file was introduced by this phase.</pass>
+    <command>the run command of this ratchet's entry in `stack.gates[]` of `.planning/config.json` (legacy: no `stack.gates` => the repo's shipped FP gate script, as before) 2>&1 || echo FPGATE_FAIL</command>
+    <pass>Gate exits 0 — every directory's measured violation count is at or below its `scripts/fp-violation-baseline.json` baseline (the ratchet is DOWN-only: a phase may reduce or hold counts, never raise them). If `stack.gates[]` is declared but has no entry for this ratchet (legacy with no `stack.gates` and no shipped FP gate script likewise), PASS only when no new empty-catch, non-`match()` handler, or oversized file was introduced by this phase.</pass>
     <fail>BLOCKING — a directory's violation count rose above baseline (`FPGATE_FAIL`, or the gate's `exceeded[]` array is non-empty). A phase may NEVER raise the ratchet. Closes POSTMORTEM FP classes 1 (swallowed errors), 2 (mutation), 7 (god-files/size), 8 (non-`match()` branching). Fix the new violations or, for a seeded pre-existing count, re-baseline deliberately — do NOT bypass.</fail>
   </item>
 
   <item id="SECGATE-01" severity="blocking">
-    <check>Every new endpoint (edge function route / HTTP handler) added by this phase wires auth middleware AND ships an authorization test asserting an unauthorized caller is rejected</check>
+    <check>Every new endpoint (route / HTTP handler) added by this phase wires auth middleware AND ships an authorization test asserting an unauthorized caller is rejected</check>
     <pass>For each new route/handler in the phase diff: (a) an auth/authorization middleware is applied server-side (not client-only), AND (b) a test exists asserting a 401/403 for an unauthenticated/unauthorized caller. No new endpoint lands without BOTH.</pass>
     <fail>BLOCKING — a new endpoint shipped without server-side auth middleware and/or without an authz-rejection test. Closes POSTMORTEM class 4 (T6-001 fraud-RPC authorization S0 — authz enforced only client-side). Add the middleware and the authz test before the phase completes; do NOT defer either to a later phase.</fail>
   </item>
@@ -633,7 +635,7 @@ After all waves:
 - All forms submit successfully with valid data
 - All forms show validation errors with invalid data
 
-**Output:** Updated scenarios in `apps/e2e-charlotte/scenarios/`, updated E2E-TEST-PLAN.md with coverage status, `E2E-GENERATION-FAILED.json` written on failure / cleared on success.
+**Output:** Updated scenarios in `stack.paths.e2e_scenarios`, updated E2E-TEST-PLAN.md with coverage status, `E2E-GENERATION-FAILED.json` written on failure / cleared on success.
 
 </step>
 
@@ -645,7 +647,7 @@ Before proceeding to verification, these gates must pass. They cannot be deferre
 
 **Gate 1 — Deterministic phase-gate (BLOCKING):**
 
-Run the deterministic, git-diff-derived phase gate instead of self-reporting artifact existence. This single call replaces the prior "check `type: frontend`/`checkpoint: ui-qa`/`.tsx`/`.jsx` by hand" prose — it covers Charlotte QA evidence, plus test/docs/e2e-plan/verification existence, from actual touched files and waivers, not plan self-reports:
+Run the deterministic, git-diff-derived phase gate instead of self-reporting artifact existence. This single call replaces the prior "check `type: frontend`/`checkpoint: ui-qa`/`.tsx`/`.jsx` by hand" prose — it covers UI QA evidence, plus test/docs/e2e-plan/verification existence, from actual touched files and waivers, not plan self-reports:
 
 ```bash
 PHASE_GATE_RESULT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" verify phase-gate "${PHASE}")
@@ -653,7 +655,7 @@ PHASE_GATE_EXIT=$?
 ```
 
 If `PHASE_GATE_EXIT` is non-zero: **BLOCKING** — do not proceed to verifier spawn. Present the failing checks (the `failures` array in the JSON output) to the operator/coordinator with two options:
-(a) fix the missing artifact (e.g. run Charlotte QA if `missing_charlotte_qa`) and re-run `verify phase-gate`, or
+(a) fix the missing artifact (e.g. run UI QA if `missing_charlotte_qa`, the legacy failure code) and re-run `verify phase-gate`, or
 (b) for a legitimate, documented exception, run `node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" deferred add "${PHASE}" --step <step> --reason <reason> --approver <approver>`, then re-run `verify phase-gate` to confirm it now passes waived.
 
 Skipping a mandatory step requires calling `deferred add` as part of the skip — never logged-and-forgotten after the fact. Do not allow silent continuation past a non-zero exit.
@@ -662,14 +664,14 @@ Skipping a mandatory step requires calling `deferred add` as part of the skip �
 
 All integration tests must pass before SUMMARY.md is considered complete:
 ```bash
-cd apps/api && NODE_ENV=test DENO_ENV=test deno task test:ci
+<stack_commands.test_all>
 ```
 If failures: fix before proceeding. Do not write "tests pass" in SUMMARY.md if they don't.
 
 **Gate 3 — Cross-layer consistency (if phase added enums, types, or status values):**
 
 If the phase introduced a new enum value, status string, or type discriminator:
-- Verify it exists in ALL layers: DB constraint, RPC validation, edge function validation, frontend type, UI display map
+- Verify it exists in ALL layers: DB constraint, RPC validation, handler validation, frontend type, UI display map
 - A value present in one layer but missing in another is a blocking defect
 
 </step>
@@ -725,20 +727,20 @@ node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs(phase-${PARENT_
 </step>
 
 <step name="record_defect_classes">
-**Review tiering:** Haiku implements (Sonnet only after two Haiku failures on a task, or if undecomposed/ambiguous, unclear-RCA, architecture); Sonnet runs every review/verify loop (fresh Sonnet per round, never the implementer, every severity fixed). High-stakes plans (money/auth/security/RNG/KYC/game logic) loop to zero, but after round 4 a fresh Opus ruling on the last round's findings decides whether another round runs or the loop closes with those findings fixed. Other plans get at most 3 rounds: fix every finding of each round, round 3 reviews the fixes and the diff, fix its findings and close; only a CRITICAL/HIGH in round 3 earns a fourth round. Opus only once each at: plans for money/auth/security/RNG/KYC, ONE batched diff review after the Sonnet loop closes, the `gsd-verifier` (after a Sonnet pre-verification of all must-haves with on-disk evidence), and rulings on judgment calls. Further Opus rounds only re-check HIGH/money-path fixes.
+**Review tiering:** Haiku implements (Sonnet only after two Haiku failures on a task, or if undecomposed/ambiguous, unclear-RCA, architecture); Sonnet runs every review/verify loop (fresh Sonnet per round, never the implementer, every severity fixed). High-stakes plans (any risk-domain path) loop to zero, but after round 4 a fresh Opus ruling on the last round's findings decides whether another round runs or the loop closes with those findings fixed. A risk-domain path is any path the product brief lists under Risk Domains (`risk_domains` in the init output); authentication/authorisation and security are always risk domains. When `risk_domains_source` is `builtin` (no brief, or a brief with an empty list), every path that mutates state is a risk-domain path. Tag every behaviour on a risk-domain path T0 (real-DB, mutation-proven). Other plans get at most 3 rounds: fix every finding of each round, round 3 reviews the fixes and the diff, fix its findings and close; only a CRITICAL/HIGH in round 3 earns a fourth round. Opus only once each at: plans for risk-domain work, ONE batched diff review after the Sonnet loop closes, the `gsd-verifier` (after a Sonnet pre-verification of all must-haves with on-disk evidence), and rulings on judgment calls. Further Opus rounds only re-check HIGH/risk-domain-path fixes.
 
 Runs BEFORE `verify_phase_goal`. Findings that belong to the phase rather than to one plan have
 no other home, and `/gsd:audit-milestone`'s Defect Classes Distillation reads nothing else. If
 you drop them here, they are lost.
 
 Append every finding surfaced during this phase — plan-checker issues (from
-`{phase_dir}/{N}-PLAN-CHECK.md`), the plan-checker adversarial pass's rows, Charlotte QA issues,
+`{phase_dir}/{N}-PLAN-CHECK.md`), the plan-checker adversarial pass's rows, UI QA issues,
 Opus review findings, re-review findings — to the `## Defect Classes` section of the SUMMARY.md of
 the plan they relate to (a phase-wide finding goes to the last plan's SUMMARY). Each is one row:
 
 | class | instance | caught_by | severity | rule_gap |
 |---|---|---|---|---|
-| [general class name] | [path/file.ext:line] | [plan-check\|opus-diff-review\|opus-ruling\|verifier\|charlotte\|other] | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
+| [general class name] | [path/file.ext:line] | [plan-check\|opus-diff-review\|opus-ruling\|verifier\|ui-qa\|other] | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
 
 `class` is a general reusable name, not an incident story — the milestone-end distillation
 clusters on that column. Never overwrite existing rows, only append. If a plan's section has
@@ -863,11 +865,11 @@ node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs(phase-{X}): com
 </step>
 
 <step name="demo_script">
-Skip when `gsd-tools.js config get demo.mode --raw` is `off`, when `gsd-tools.js verify phase-gate {X}` does not report `charlotte_qa_required: true`, or when the VERIFICATION status is not `passed`. Otherwise follow `@~/.claude/get-shit-done/workflows/demo.md` section 1 (script only, no stack, one Haiku call) and commit the two files with the phase docs. Recording happens later, in the stack window, per `demo.md` section 2.
+Skip when `gsd-tools.js config get demo.mode --raw` is `off`, when `gsd-tools.js verify phase-gate {X}` does not report `ui_qa_required: true`, or when the VERIFICATION status is not `passed`. Otherwise follow `@~/.claude/get-shit-done/workflows/demo.md` section 1 (script only, no stack, one Haiku call) and commit the two files with the phase docs. Recording happens later, in the stack window, per `demo.md` section 2.
 </step>
 
 <step name="evolve_corpus">
-**Skipped by this workflow.** The installer does not ship `scripts/evolve/`, so no path under `~/.claude/get-shit-done/` exists to run, and the calibrate step (`deno task test` per test, up to 90 runs) is far too slow for a phase-end hook. Log `evolve_corpus: skipped (manual only)` and continue. To grow the corpus, run `python3 <fork checkout>/scripts/evolve/run.py` by hand (see `scripts/evolve/README.md`); an adoption is a reviewed commit, never automatic.
+**Skipped by this workflow.** The installer does not ship `scripts/evolve/`, so no path under `~/.claude/get-shit-done/` exists to run, and the calibrate step (the `test_file` command from `stack_commands` per test, up to 90 runs) is far too slow for a phase-end hook. Log `evolve_corpus: skipped (manual only)` and continue. To grow the corpus, run `python3 <fork checkout>/scripts/evolve/run.py` by hand (see `scripts/evolve/README.md`); an adoption is a reviewed commit, never automatic.
 </step>
 
 
@@ -926,6 +928,21 @@ The workflow ends. The user runs `/gsd:progress` or invokes the transition workf
 </step>
 
 </process>
+
+<live_window_protocol>
+
+## Live-Stack Window Protocol (phases that need the shared stack)
+
+Applies when a phase adds migrations, DB fixtures, or integration tests that need the shared local stack and the stack lock file under `stack.isolation.lock_dir` is taken for the window.
+
+1. **Entry gate, no stack.** Before requesting the window, run the no-stack gates on the merge candidate (throwaway worktree with the phase branches merged): the `typecheck` and `lint` commands from `stack_commands`, every gate in `stack.gates[]` and `test_all` that needs no running stack, with coverage. A red gate blocks the window request.
+2. **Per-plan landing.** Inside the window, each reviewed plan (or a batch of 2-3 that land alone) runs its owning bucket once when it lands, not at phase end.
+3. **Polling.** Long runs are polled in the foreground with an `rc=` check at 25 minutes. A unit stage silent past 25 minutes is a hang: abort it and triage the hanging file.
+4. **Rulings in parallel.** A live ruling runs while buckets the ruling does not affect keep running.
+5. **Prompts.** An unattended agent that hits a permission prompt stops and reports the exact command string; it does not reshape the command.
+6. **Edge-source freeze.** While a window holds the stack lock file (under `stack.isolation.lock_dir`, named per the base preset's stack-lock), no agent (executors, reviewers, fix agents of any phase) writes or commits under the service source dirs the owner declares in `stack.paths.backend` and `stack.paths.migrations` in the main checkout; such work goes in a worktree. An existing uncommitted file nobody writes is fine; only writes recycle the edge. The coordinator holding the lock tells peers at window grant and again at release.
+
+</live_window_protocol>
 
 <context_efficiency>
 Orchestrator: ~10-15% context. Subagents: fresh 200k each. No polling (Task blocks). No context bleed.

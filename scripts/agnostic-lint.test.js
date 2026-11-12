@@ -311,6 +311,110 @@ describe('repo tree', () => {
     }
   });
 
+  test('7.1 the committed baseline holds denied lines for the telegram class only', () => {
+    const base = JSON.parse(fs.readFileSync(path.join(DIR, 'baseline.json'), 'utf8'));
+    const denied = new Set(Object.values(base.denied).flatMap((byCls) => Object.keys(byCls)));
+    assert.deepStrictEqual([...denied], ['telegram']);
+  });
+
+  test('7.1 allow-list entries added since 0b9c35a carry a reason and none is an igaming, game, reg, money or abs class', (t) => {
+    let before;
+    try {
+      before = JSON.parse(execFileSync('git', ['show', '0b9c35a:scripts/agnostic-lint/allowlist.json'], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }));
+    } catch {
+      t.skip('commit 0b9c35a is not in this clone');
+      return;
+    }
+    const old = new Set(before.entries.map((e) => `${e.file}\0${e.class}`));
+    const added = lint.loadAllowlist(ALLOW).filter((e) => !old.has(`${e.file}\0${e.class}`));
+    assert.ok(added.length > 0);
+    for (const e of added) {
+      assert.ok(typeof e.reason === 'string' && e.reason.trim() !== '', `${e.file} ${e.class}: empty reason`);
+      assert.ok(!['igaming', 'game', 'reg', 'money', 'abs'].includes(e.class), `${e.file} ${e.class}: class may not be allow-listed`);
+    }
+  });
+
+  test('H2 the real repo passes `agnostic-lint check` (exit 0), and the same check fails on a fixture with a denied term', () => {
+    const real = spawnSync(process.execPath, [LINT, 'check', '--root', ROOT], { encoding: 'utf8' });
+    assert.strictEqual(real.status, 0, real.stdout + real.stderr);
+    const fx = mkRoot();
+    configure(fx);
+    put(fx, 'agents/a.md', 'run deno check\n');
+    const bad = cli(fx, 'check');
+    assert.strictEqual(bad.status, 1, bad.stdout + bad.stderr);
+  });
+
+  test('F1 freeze and lock rules in coordinator and execute-phase name real profile keys', () => {
+    for (const f of ['agents/gsd-phase-coordinator.md', 'get-shit-done/workflows/execute-phase.md']) {
+      const txt = fs.readFileSync(path.join(ROOT, f), 'utf8');
+      assert.ok(txt.includes('stack.paths.backend'), `${f}: missing stack.paths.backend`);
+      assert.ok(txt.includes('stack.isolation.lock_dir'), `${f}: missing stack.isolation.lock_dir`);
+      assert.ok(!txt.includes('stack.paths.<key>'), `${f}: placeholder key left`);
+      assert.ok(txt.includes('that needs no running stack'), `${f}: entry gate lost its no-stack restriction`);
+    }
+  });
+
+  test('M1 every tracked *.test.js outside tests/fixtures/ is registered in the package.json test script', (t) => {
+    let out;
+    try {
+      out = execFileSync('git', ['-C', ROOT, 'ls-files', '*.test.js'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    } catch {
+      t.skip('not a git checkout');
+      return;
+    }
+    const tracked = out.split('\n').filter((f) => f && !f.startsWith('tests/fixtures/'));
+    assert.ok(tracked.length > 20, 'git ls-files returned too few test files');
+    const script = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).scripts.test.split(/\s+/);
+    const missing = tracked.filter((f) => !script.includes(f));
+    assert.deepStrictEqual(missing, [], `unregistered in package.json scripts.test: ${missing.join(', ')}`);
+  });
+
+  test('7.1 legacy risk keywords: data file outside every lint scope, loader validates its shape, words reach the five use sites', () => {
+    const kw = require('../get-shit-done/bin/legacy-risk-keywords.js');
+    assert.ok(fs.existsSync(kw.FILE));
+    const rel = path.relative(ROOT, kw.FILE).split(path.sep).join('/');
+    assert.ok(!lint.SCOPES.some((sc) => sc.match(rel)), `${rel} must stay outside the lint scopes`);
+    assert.ok(Object.values(lint.listScopeFiles(ROOT)).every((fl) => !fl.includes(rel)));
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'legacy-kw-'));
+    made.push(tmp);
+    const bad = path.join(tmp, 'k.json');
+    fs.writeFileSync(bad, JSON.stringify({ doc_signal: ['payment'], sensitive_path: 'wallet', complexity: ['x'], thorough_validation: ['Pay Ment'] }));
+    assert.throws(() => kw.load(bad), /sensitive_path, thorough_validation$/);
+    const tools = require('../get-shit-done/bin/gsd-tools.js');
+    for (const w of kw.sensitive_path) assert.strictEqual(tools.SENSITIVE_PATH_RE.test(`src/${w}/x.js`), true, w);
+    assert.strictEqual(tools.SENSITIVE_PATH_RE.test('src/orange/x.js'), false);
+    assert.strictEqual(require('../get-shit-done/bin/gsd-validator.js').selectValidationDepth('add payment retry').depth, 'thorough');
+    assert.ok(kw.doc_signal.includes('payment') && kw.complexity.includes('payment') && kw.thorough_validation.includes('payment'));
+  });
+
+  test('M2 legacy risk keywords: each list pinned by count and SHA-256 (update the hash deliberately), and an empty list fails closed at load', () => {
+    const kw = require('../get-shit-done/bin/legacy-risk-keywords.js');
+    const sha = (l) => require('crypto').createHash('sha256').update(JSON.stringify(l)).digest('hex');
+    const PIN = {
+      doc_signal: [1, 'df807153104158a8cd1c19b671043cf10398471be8f44e382857ae62be2c2ecb'],
+      sensitive_path: [7, '088996557475ec3ca7843649ea80a7cd4a0853e17ae303588898f5db86fec220'],
+      complexity: [1, 'df807153104158a8cd1c19b671043cf10398471be8f44e382857ae62be2c2ecb'],
+      thorough_validation: [1, 'df807153104158a8cd1c19b671043cf10398471be8f44e382857ae62be2c2ecb'],
+    };
+    for (const [k, [n, h]] of Object.entries(PIN)) {
+      assert.strictEqual(kw[k].length, n, `${k}: count changed; if deliberate, update the pin in this test`);
+      assert.strictEqual(sha(kw[k]), h, `${k}: list changed; if deliberate, update the SHA-256 pin in this test`);
+    }
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'legacy-kw-'));
+    made.push(tmp);
+    const empty = path.join(tmp, 'e.json');
+    fs.writeFileSync(empty, JSON.stringify({ doc_signal: [], sensitive_path: ['a'], complexity: ['b'], thorough_validation: ['c'] }));
+    assert.throws(() => kw.load(empty), /doc_signal/);
+  });
+
+  test('R3 L-c: the gsd-demo allow reason says the tool names stay because no pack tool-list mechanism exists', () => {
+    const entry = lint.loadAllowlist(ALLOW).find((e) => e.file === 'agents/gsd-demo.md' && e.class === 'charlotte');
+    assert.ok(entry, 'entry present');
+    assert.match(entry.reason, /driver MCP tool names remain in the agent's tools: frontmatter/);
+    assert.match(entry.reason, /there is no pack tool-list mechanism/);
+    assert.doesNotMatch(entry.reason, /takes its tool list from the pack/);
+  });
+
   test('12 denylist shape: exactly the 25 spec ids, unique, in order', () => {
     const ids = JSON.parse(fs.readFileSync(TERMS, 'utf8')).classes.map((c) => c.id);
     assert.deepStrictEqual(ids, IDS);

@@ -1,0 +1,22 @@
+{
+  "unit_phase": {
+    "U1": "101",
+    "U3": "102",
+    "P1": "103",
+    "R1": "104"
+  },
+  "class_phase": {
+    "S9": "110"
+  },
+  "triage_rules": [
+    [
+      "Auth",
+      "101"
+    ],
+    [
+      "hollow",
+      "105"
+    ]
+  ],
+  "severity_overrides": {}
+}

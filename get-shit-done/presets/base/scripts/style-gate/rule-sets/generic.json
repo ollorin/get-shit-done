@@ -1,0 +1,12 @@
+{
+  "extensions": [".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".py", ".go", ".rs", ".java", ".rb", ".sh", ".pl"],
+  "idioms": {
+    "errors": "Return a result value from a function that can fail; convert exceptions at the edge.",
+    "immutability": "Build a new value instead of changing an input in place.",
+    "routing": "Dispatch by a match expression or a lookup table.",
+    "purity": "Keep domain logic pure; do side effects at the edge."
+  },
+  "regex_rules": [],
+  "structural": [],
+  "router_branch_threshold": 4
+}

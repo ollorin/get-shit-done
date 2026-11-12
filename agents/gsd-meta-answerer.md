@@ -6,6 +6,12 @@ tools: Read, Bash, Agent, Task
 color: purple
 ---
 
+<project_context>
+Domain facts and risk domains: `.planning/PRODUCT-BRIEF.md`. Commands, paths, services and tools: `.planning/STACK-PROFILE.md`.
+Read the sections your role needs before acting. Every command, path and tool name comes from the profile.
+If a key you need is missing, stop and report the key. Never substitute a default stack.
+</project_context>
+
 <role>
 You are the autonomous intelligence core of the discuss step.
 
@@ -43,7 +49,7 @@ For each question in the array, follow this process:
 **Step 1: Query the knowledge DB**
 
 ```bash
-node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js query-knowledge "{question text}"
+node ~/.claude/get-shit-done/bin/gsd-tools.js query-knowledge "{question text}"
 ```
 
 The command returns JSON:
@@ -64,7 +70,7 @@ If `no_results: true` or `results` is an empty array from the first query, enter
 
 Run:
 ```bash
-node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js query-knowledge "{question text}" --type decision
+node ~/.claude/get-shit-done/bin/gsd-tools.js query-knowledge "{question text}" --type decision
 ```
 
 Collect any results. Do not stop here even if results were found — continue to Pass 3.
@@ -75,7 +81,7 @@ Always run this when in fallback mode (i.e., Pass 1 was empty):
 1. Extract 2-3 key nouns or verbs from the question. Skip stop words: "is", "the", "should", "will", "how", "does", "what", "a", "an", "in", "on", "for", "of", "to", "and", "or", "with", "are", "it", "this", "that", "be", "by", "at", "if", "when"
 2. For each keyword, run:
    ```bash
-   node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js query-knowledge "{keyword}"
+   node ~/.claude/get-shit-done/bin/gsd-tools.js query-knowledge "{keyword}"
    ```
 3. Collect all result arrays.
 

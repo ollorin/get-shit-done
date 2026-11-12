@@ -84,7 +84,7 @@
  *   verify artifacts <plan-file>       Check must_haves.artifacts
  *   verify key-links <plan-file>       Check must_haves.key_links
  *   verify migration-timestamps         Scan migrations/ for duplicate timestamps; auto-resolve by rename
- *   verify phase-gate <phase>          Deterministic 5-artifact phase gate (test/charlotte_qa/docs/
+ *   verify phase-gate <phase>          Deterministic 5-artifact phase gate (test/ui_qa/docs/
  *                                       e2e_plan/verification); honors DEFERRED.json waivers; exits
  *                                       1 on failed checks, 2 on malformed plan/waiver data
  *   deferred add <phase> --step X       Append a waiver entry to DEFERRED.json (the ONLY sanctioned
@@ -196,11 +196,11 @@
  *   init progress                      All context for progress workflow
  *
  * Service Health:
- *   service-health start <name>        Start named server from dev_servers registry;
+ *   service-health start <name>        Start named server from stack.services (profile), else dev_servers (config);
  *     [--raw]                          poll health endpoint until ready or 60s timeout
  *   service-health stop <name>         Stop named server by PID; SIGTERM then SIGKILL after 5s
  *   service-health status <name>       Check if named server is running (JSON output)
- *   service-health start-all           Start all servers in dev_servers registry
+ *   service-health start-all           Start all servers in stack.services and dev_servers
  *   service-health stop-all            Stop all running servers (by PID files)
  */
 
@@ -221,6 +221,9 @@ const { getNextTier, getTiers } = require('./model-registry.js');
 const { deriveCheckSet } = require('./pre-pr-checks.js');
 const projectProfile = require('./project-profile.js');
 const projectDeploy = require('./project-deploy.js');
+const projectRegistry = require('./project-registry.js');
+const projectPack = require('./project-pack.js');
+const projectContext = require('./project-context.js');
 
 // Phase 2: Auto Mode safety modules (lazy — gracefully absent if not installed)
 let circuitBreaker, validator, escalation, feedback, learning;
@@ -285,21 +288,50 @@ function computeHasUI(touchedFiles) {
   return touchedFiles.some(isUIFile);
 }
 
-// Server endpoints whose behaviour a Charlotte QA run exercises through the UI.
-const API_PATH_PATTERNS = [
-  /^apps\/api\/functions\//,
-  /(^|\/)supabase\/functions\//,
+// Server endpoints whose behaviour a UI QA run exercises through the UI.
+const GENERIC_API_PATTERNS = [
   /(^|\/)(app|pages)\/api\//,
 ];
+// Legacy-project API patterns, applied only without a stack profile (uiQaMode 'legacy').
+const LEGACY_API_PATTERNS = [
+  /^apps\/api\/functions\//,
+  /(^|\/)supabase\/functions\//,
+];
 
-function isApiFile(filePath) {
-  if (typeof filePath !== 'string' || !filePath) return false;
-  if (isTestOrSpecFile(filePath) || /\.md$/i.test(filePath)) return false;
-  return API_PATH_PATTERNS.some(re => re.test(filePath));
+// Glob subset for stack.paths.api_globs: ** (any depth), * (one segment), ? (one char).
+function globToRegExp(glob) {
+  let out = '';
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i];
+    if (c === '*' && glob[i + 1] === '*') {
+      i++;
+      if (glob[i + 1] === '/') { i++; out += '(?:.*/)?'; } else out += '.*';
+    } else if (c === '*') out += '[^/]*';
+    else if (c === '?') out += '[^/]';
+    else out += c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+  }
+  return new RegExp('^' + out + '$');
 }
 
-function computeHasApi(touchedFiles) {
-  return touchedFiles.some(isApiFile);
+// opts: { legacy: boolean (default true), apiGlobs: string[] }. The default keeps the legacy behaviour.
+function isApiFile(filePath, opts = {}) {
+  if (typeof filePath !== 'string' || !filePath) return false;
+  if (isTestOrSpecFile(filePath) || /\.md$/i.test(filePath)) return false;
+  const legacy = opts.legacy !== false;
+  const globs = Array.isArray(opts.apiGlobs) ? opts.apiGlobs : [];
+  return GENERIC_API_PATTERNS.some(re => re.test(filePath))
+    || (legacy && LEGACY_API_PATTERNS.some(re => re.test(filePath)))
+    || globs.some(g => typeof g === 'string' && globToRegExp(g).test(filePath));
+}
+
+function computeHasApi(touchedFiles, opts = {}) {
+  return touchedFiles.some(f => isApiFile(f, opts));
+}
+
+function apiDetectionOpts(cwd) {
+  const loaded = projectProfile.loadProfile(cwd);
+  const globs = loaded.error ? undefined : projectProfile.getProfileValue(loaded, 'stack.paths.api_globs');
+  return { legacy: projectContext.uiQaMode(cwd) === 'legacy', apiGlobs: Array.isArray(globs) ? globs : [] };
 }
 
 // ─── Source-Touch Detection (Phase 59-02, MILE-37) ──────────────────────────
@@ -406,7 +438,7 @@ function loadConfig(cwd) {
     test_writer_enabled: false,
     adversarial_review_enabled: false,
     adversarial_review_file_threshold: 8,
-    adversarial_review_security_patterns: ['auth', 'payment', 'secret', 'credential', 'crypto', 'security', 'token', 'password', '/api/', 'migration'],
+    adversarial_review_security_patterns: ['auth', 'secret', 'credential', 'crypto', 'security', 'token', 'password', '/api/', 'migration'],
     // QGATE-17 (Defect Classes). `defect_classes_gate_enabled` is the master
     // switch. `defect_classes_gate_since` is the cutoff INSTANT (2b99f5b's own
     // author date) after which a SUMMARY.md becomes subject to the gate; the
@@ -421,7 +453,7 @@ function loadConfig(cwd) {
       test_writer: false,
       adversarial_review: false,
       adversarial_review_file_threshold: 8,
-      adversarial_review_security_patterns: ['auth', 'payment', 'secret', 'credential', 'crypto', 'security', 'token', 'password', '/api/', 'migration'],
+      adversarial_review_security_patterns: ['auth', 'secret', 'credential', 'crypto', 'security', 'token', 'password', '/api/', 'migration'],
     },
   };
 
@@ -2901,7 +2933,7 @@ function evaluateSummarySelfCheck(content) {
 // useless as no row at all -- the gate rejects it rather than storing a lie.
 const DEFECT_CLASSES_CAUGHT_BY = [
   'plan-check', 'test-writer', 'mutation-proof', 'opus-diff-review',
-  'opus-ruling', 'verifier', 'charlotte', 'other',
+  'opus-ruling', 'verifier', 'ui-qa', 'charlotte', 'other',
 ];
 
 // The 5-column schema, in order. The milestone-end distillation reads these by
@@ -3357,7 +3389,7 @@ function cmdTemplateFill(cwd, templateType, options, raw) {
         '## Defect Classes',
         '| class | instance | caught_by | severity | rule_gap |',
         '|---|---|---|---|---|',
-        '| [general class name] | [path/file.ext:line] | [plan-check\\|test-writer\\|mutation-proof\\|opus-diff-review\\|opus-ruling\\|verifier\\|charlotte\\|other] | [critical\\|major\\|minor] | [rule that should have prevented it, or "none — new rule needed"] |',
+        '| [general class name] | [path/file.ext:line] | [plan-check\\|test-writer\\|mutation-proof\\|opus-diff-review\\|opus-ruling\\|verifier\\|ui-qa\\|other] | [critical\\|major\\|minor] | [rule that should have prevented it, or "none — new rule needed"] |',
         '',
         '<!-- Replace the row above with real entries, or delete the table and write exactly:',
         '     None found. (reviewed by: <caught_by values>) -->',
@@ -4437,7 +4469,7 @@ function cmdCheckpoint(args, raw) {
 /**
  * Walk up from dir until we find a real GSD project root (contains .planning/ with phases/ or ROADMAP.md).
  * A bare .planning/ with only EXECUTION_LOG.md is not considered a real root — it may be an artifact
- * from incorrect logging when cwd was a subdirectory (e.g. apps/api/.planning/).
+ * from incorrect logging when cwd was a subdirectory (e.g. services/api/.planning/).
  * Falls back to the first .planning/ found if no proper root is found.
  */
 function findProjectRoot(dir) {
@@ -5722,7 +5754,7 @@ function cmdVerifyAppendGap(cwd, verificationFileArg, options, raw) {
 // toggle is on: any of (files_modified.length > threshold), a security-pattern substring
 // match against files_modified, or a tdd="true" task count >= 3 flags the plan high-risk,
 // one reason string per matched criterion.
-function computeHighRisk(fm, planContent, config) {
+function computeHighRisk(fm, planContent, config, riskDomains) {
   try {
     const frontmatter = fm || {};
     const cfg = config || {};
@@ -5746,9 +5778,10 @@ function computeHighRisk(fm, planContent, config) {
       reasons.push(`files_modified count (${filesModified.length}) exceeds threshold (${threshold})`);
     }
 
-    const patterns = Array.isArray(cfg.adversarial_review_security_patterns)
-      ? cfg.adversarial_review_security_patterns
-      : [];
+    const patterns = [
+      ...(Array.isArray(cfg.adversarial_review_security_patterns) ? cfg.adversarial_review_security_patterns : []),
+      ...(Array.isArray(riskDomains) ? riskDomains : []),
+    ];
     const matchedPattern = patterns.find(p =>
       filesModified.some(f => typeof f === 'string' && f.includes(p))
     );
@@ -5815,7 +5848,7 @@ function cmdQualityAssessRisk(cwd, filePath, raw) {
   }
 
   const config = loadConfig(cwd);
-  const { high_risk, reasons } = computeHighRisk(fm, content, config);
+  const { high_risk, reasons } = computeHighRisk(fm, content, config, projectContext.riskDomainsFor(cwd));
   const presentation_order = computePresentationOrder(content);
   output({ high_risk, reasons, presentation_order }, raw);
 }
@@ -6737,7 +6770,7 @@ function cmdFrontmatterMerge(cwd, filePath, data, raw) {
 const FRONTMATTER_SCHEMAS = {
   plan: { required: ['phase', 'plan', 'type', 'wave', 'depends_on', 'files_modified', 'autonomous', 'must_haves'] },
   summary: { required: ['phase', 'plan', 'subsystem', 'tags', 'duration', 'completed'] },
-  verification: { required: ['phase', 'verified', 'status', 'score', 'charlotte_qa_ran'] },
+  verification: { required: ['phase', 'verified', 'status', 'score'], any_of: [['ui_qa_ran', 'charlotte_qa_ran']] },
 };
 
 function cmdFrontmatterValidate(cwd, filePath, schemaName, raw) {
@@ -6748,55 +6781,84 @@ function cmdFrontmatterValidate(cwd, filePath, schemaName, raw) {
   const content = safeReadFile(fullPath);
   if (!content) { output({ error: 'File not found', path: filePath }, raw); return; }
   const fm = extractFrontmatter(content);
-  const missing = schema.required.filter(f => fm[f] === undefined);
+  const missingAnyOf = (schema.any_of || []).filter(group => !group.some(f => fm[f] !== undefined)).map(group => group[0]);
+  const missing = [...schema.required.filter(f => fm[f] === undefined), ...missingAnyOf];
   const present = schema.required.filter(f => fm[f] !== undefined);
   output({ valid: missing.length === 0, missing, present, schema: schemaName }, raw, missing.length === 0 ? 'valid' : 'invalid');
 }
 
 // ─── Verification Suite ──────────────────────────────────────────────────────
 
-// Phase 299 (SC-2): P0 tier-assignment plan gate. Shells out to the target repo's ONE frozen
-// classifier engine (igaming-platform scripts/check-p0-tier-assignment.ts, Phase 296-05) —
-// never reimplements classifyPath()/hasTierAssignmentWork() in JS, because two independent
-// copies would drift and the planning-time and verification-time hooks would then disagree
-// about whether the same route is P0 (296-05-SUMMARY.md).
+// Phase 299 (SC-2): P0 tier-assignment plan gate. Runs the project's ONE frozen classifier engine
+// (the `tier-assignment` entry of stack.gates[]) and never reimplements it in JS, because two
+// independent copies would drift and the planning-time and verification-time hooks would then
+// disagree about whether the same route is P0.
 //
-// LOAD-BEARING: execFileSync THROWS on the script's exit-1 violations path — the violations
-// JSON arrives on the thrown error's `.stdout`, not on a return value. The catch block below
-// MUST distinguish a real violation (status 1 + parseable {violations:[...]}) from every other
-// failure shape (ENOENT, status 2, unparseable stdout) — the latter must degrade to warnings[],
-// never errors[], so a missing `deno` binary or unreadable input never silently neuters the gate
-// AND never hard-fails a repo that simply doesn't have deno installed.
+// LOAD-BEARING: the runner THROWS on the gate's exit-1 violations path, so the violations JSON
+// arrives on the thrown error's `.stdout`. The catch block below MUST distinguish a real
+// violation (status 1 + parseable {violations:[...]}) from every other failure shape (exit 127,
+// ENOENT, status 2, unparseable stdout): with a profile gate every such shape is an error (a gap:
+// a missing runtime or an unreadable verdict never silently neuters the gate); only the legacy
+// script path keeps them as warnings[].
+// The gate's `run` is a command string: `{root}` becomes cwd and the plan path travels as an
+// argument to `sh -c`, never inside the string.
 function runP0TierAssignmentGate(cwd, fullPath, deps = {}) {
-  const exec = deps.exec || execFileSync;          // execFileSync already imported (line 209)
+  const exec = deps.exec || execFileSync;
   const exists = deps.existsSync || fs.existsSync;
   const errors = [];
   const warnings = [];
-  const scriptRel = 'scripts/check-p0-tier-assignment.ts';
-  if (!exists(path.join(cwd, scriptRel))) return { errors, warnings };  // repo doesn't ship the classifier — inert
+  let loaded;
+  try { loaded = projectProfile.loadProfile(cwd); } catch { loaded = { error: 'unreadable' }; }
+  const gates = loaded.error ? undefined : projectProfile.getProfileValue(loaded, 'stack.gates');
+  const gate = Array.isArray(gates) ? gates.find(g => g && g.id === 'tier-assignment') : undefined;
+  let file;
+  let args;
+  let notFound;
+  let missingMsg = 'P0 tier-assignment gate: gate command or runtime not found — skipping check';
+  if (gate && typeof gate.run === 'string') {
+    const run = gate.run.split('{root}').join(cwd);
+    file = 'sh';
+    args = ['-c', run + ' "$@"', 'sh', '--plan', fullPath, '--json'];
+    notFound = err => err && (err.code === 'ENOENT' || err.status === 127);
+    missingMsg = 'P0 tier-assignment gate: gate command or runtime not found — a missing runtime is a gap, not a skip';
+  } else if (gate) {
+    errors.push('P0 tier-assignment gate: the stack.gates[] entry has no string `run` — a configured gate that cannot run is a gap');
+    return { errors, warnings };
+  } else if (projectContext.uiQaMode(cwd) !== 'legacy') {
+    return { errors, warnings, status: 'not_configured' };
+  } else {
+    const scriptRel = 'scripts/check-p0-tier-assignment.ts';
+    if (!exists(path.join(cwd, scriptRel))) return { errors, warnings };  // legacy repo without the classifier: inert
+    file = 'deno';
+    args = ['run', '--allow-read', scriptRel, '--plan', fullPath, '--json'];
+    notFound = err => err && err.code === 'ENOENT';
+    missingMsg = 'P0 tier-assignment gate: deno binary not found on PATH — skipping check';
+  }
 
+  const sink = gate && typeof gate.run === 'string' ? errors : warnings;
   const formatViolation = (v) =>
     `P0 surface class "${v.p0SurfaceClass}" touched (${v.path}) with no tier-assignment work — ${v.issue}`;
 
   let stdout;
   try {
-    stdout = exec('deno', ['run', '--allow-read', scriptRel, '--plan', fullPath, '--json'], { cwd, encoding: 'utf8' });
+    stdout = exec(file, args, { cwd, encoding: 'utf8' });
   } catch (err) {
     if (err && err.status === 1 && typeof err.stdout === 'string') {
       try {
         const parsed = JSON.parse(err.stdout);
         if (Array.isArray(parsed.violations)) {
           for (const v of parsed.violations) errors.push(formatViolation(v));
+          if (parsed.violations.length === 0) sink.push('P0 tier-assignment gate: script exited 1 but reported zero violations — a failing gate with no finding is a gap');
         } else {
-          warnings.push('P0 tier-assignment gate: script exited 1 but stdout had no violations array — treating as unparseable');
+          sink.push('P0 tier-assignment gate: script exited 1 but stdout had no violations array — treating as unparseable');
         }
       } catch (parseErr) {
-        warnings.push('P0 tier-assignment gate: script exited 1 but stdout was not valid JSON — treating as unparseable');
+        sink.push('P0 tier-assignment gate: script exited 1 but stdout was not valid JSON — treating as unparseable');
       }
-    } else if (err && err.code === 'ENOENT') {
-      warnings.push('P0 tier-assignment gate: deno binary not found on PATH — skipping check');
+    } else if (notFound(err)) {
+      sink.push(missingMsg);
     } else {
-      warnings.push(`P0 tier-assignment gate: check-p0-tier-assignment.ts failed unexpectedly (${err && err.message ? err.message : 'unknown error'})`);
+      sink.push(`P0 tier-assignment gate: gate command failed unexpectedly (${err && err.message ? err.message : 'unknown error'})`);
     }
     return { errors, warnings };
   }
@@ -6806,11 +6868,11 @@ function runP0TierAssignmentGate(cwd, fullPath, deps = {}) {
     const parsed = JSON.parse(stdout);
     if (Array.isArray(parsed.violations)) {
       for (const v of parsed.violations) errors.push(formatViolation(v));
-    } else if (!('violations' in parsed)) {
-      warnings.push('P0 tier-assignment gate: script output had no violations array — treating as unparseable');
+    } else {
+      sink.push('P0 tier-assignment gate: script output had no violations array — treating as unparseable');
     }
   } catch (parseErr) {
-    warnings.push('P0 tier-assignment gate: script output was not valid JSON — treating as unparseable');
+    sink.push('P0 tier-assignment gate: script output was not valid JSON — treating as unparseable');
   }
 
   return { errors, warnings };
@@ -6841,7 +6903,7 @@ function compareGateCapabilities(required, provided) {
   return { ok: missing.length === 0, missing };
 }
 
-// Phase 299 (SC-5): the preflight version handshake. A consuming repo's
+// Phase 299 (SC-5): the launch-time version handshake. A consuming repo's
 // .planning/config.json can declare quality.required_gsd_gates -- a list of
 // capability IDs it depends on. This command fails loudly (non-zero exit) when
 // the INSTALLED fork's config/gate-capabilities.json manifest doesn't provide
@@ -7054,7 +7116,7 @@ function cmdVerifyPhaseCompleteness(cwd, phase, raw) {
 
 // ─── Phase Gate (MILE-05, Phase 45-01) ───────────────────────────────────────
 // Deterministic replacement for scattered self-reported prose checklists:
-// computes which of 5 expected artifacts (test, charlotte_qa, docs, e2e_plan,
+// computes which of 5 expected artifacts (test, ui_qa, docs, e2e_plan,
 // verification) a phase's plans were expected to produce, cross-references
 // against what actually landed (via collectPhaseTouchedFiles -- git-diff
 // based, never frontmatter-based), and honors DEFERRED.json waivers. Exits
@@ -7062,7 +7124,8 @@ function cmdVerifyPhaseCompleteness(cwd, phase, raw) {
 // gate on this deterministically instead of trusting self-reported prose.
 
 const DOC_PATH_SIGNAL_RE = /(api|route|handler|endpoint|router|page|pages\/|screen|view|frontend|migration|schema|prisma|model)/i;
-const DOC_KEYWORD_SIGNAL_RE = /(new service|middleware|new schema|auth|payment|onboarding|flow)/i;
+const LEGACY_RISK = require('./legacy-risk-keywords.js');
+const DOC_KEYWORD_SIGNAL_RE = new RegExp(`(${['new service', 'middleware', 'new schema', 'auth', 'onboarding', 'flow', ...LEGACY_RISK.doc_signal].join('|')})`, 'i');
 const DOC_SATISFIED_RE = /(docs\/|README|CHANGELOG\.md)/i;
 const TEST_FILE_RE = /\.(test|spec)\.(ts|tsx|js)$/;
 const E2E_GENERATION_FAILED_FILENAME = 'E2E-GENERATION-FAILED.json';
@@ -7075,7 +7138,7 @@ const E2E_GENERATION_FAILED_FILENAME = 'E2E-GENERATION-FAILED.json';
 // them with no extra logic.
 function countTestCalls(content) {
   if (!content) return 0;
-  // Also counts camelCase wrappers around Deno.test/test (pausedTest(, integrationTest(); an in-file `function xTest(` definition is not a call.
+  // Also counts camelCase wrappers around test( (pausedTest(, integrationTest(); an in-file `function xTest(` definition is not a call.
   const matches = content.match(/(?<!function\s)\b(?:it|test|[a-z]\w*Test)\s*\(/g);
   return matches ? matches.length : 0;
 }
@@ -7084,7 +7147,7 @@ function countAssertions(content) {
   // Recognize namespace-style calls (assert.equal(, assert.deepStrictEqual(, ...)
   // in addition to bare expect(/assert( -- the optional (?:\.\w+)? group matches
   // a single method segment after `assert` before the opening paren (MILE-27).
-  // Deno-style assertEquals(/assertExists(/helper assertFoo2( and expect*/verify*/check*/should* helpers count too.
+  // Runner-native assertEquals(/assertExists(/helper assertFoo2( and expect*/verify*/check*/should* helpers count too.
   const matches = content.match(/\b(?:expect|assert\w*(?:\.\w+)?|(?:expect|verify|check|should)[A-Z_]\w*)\s*\(/g);
   return matches ? matches.length : 0;
 }
@@ -7211,7 +7274,9 @@ function evaluatePhaseGateCheck(type, required, computeSatisfied, waivers, phase
   if (satisfied) {
     return { type, required: true, satisfied: true, waived: false, failure_type: null, detail: 'satisfied' };
   }
-  const waiver = findPhaseGateWaiver(waivers, type, phaseNumber, null);
+  // A DEFERRED.json entry written before the check was renamed uses the old step name; both names waive it.
+  const steps = type === 'ui_qa' ? ['ui_qa', 'charlotte_qa'] : [type];
+  const waiver = steps.map(step => findPhaseGateWaiver(waivers, step, phaseNumber, null)).find(Boolean);
   if (waiver) {
     return { type, required: true, satisfied: true, waived: true, failure_type: null, detail: 'waived: DEFERRED.json entry found' };
   }
@@ -7407,7 +7472,9 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
   }
   const { phaseInfo, phaseDir, dirFiles, touchedFiles, touchedWarnings, hasUi, malformedPlans, validPlans } = inputs;
   const evidence = collectPhaseEvidenceErrors(cwd, phaseInfo.phase_number, phaseDir, dirFiles);
-  const hasApi = computeHasApi(touchedFiles);
+  const hasApi = computeHasApi(touchedFiles, apiDetectionOpts(cwd));
+  const uiQaMode = projectContext.uiQaMode(cwd);
+  const uiQaRequired = (hasUi || hasApi) && uiQaMode !== 'none';
 
   // Waiver lookup -- shared with `deferred add`/`deferred list` (45-03) via
   // readDeferredWaivers(), so all three code paths agree on what counts as a
@@ -7447,11 +7514,12 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
       waivers, phaseInfo.phase_number
     ),
     // Evidence comes from the verifier's {N}-VERIFICATION.md frontmatter, not
-    // the coordinator-written CHECKPOINT.json; only a YAML boolean true counts.
+    // the coordinator-written CHECKPOINT.json; only a YAML boolean true counts. Alias group: any true key wins.
     evaluatePhaseGateCheck(
-      'charlotte_qa', hasUi || hasApi,
-      () => evidence.verification.data.charlotte_qa_ran === true,
-      waivers, phaseInfo.phase_number
+      'ui_qa', uiQaRequired,
+      () => evidence.verification.data.charlotte_qa_ran === true || evidence.verification.data.ui_qa_ran === true,
+      waivers, phaseInfo.phase_number,
+      'missing_charlotte_qa'
     ),
     evaluatePhaseGateCheck(
       'docs', docsRequired,
@@ -7459,7 +7527,7 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
       waivers, phaseInfo.phase_number
     ),
     evaluatePhaseGateCheck(
-      'e2e_plan', hasUi,
+      'e2e_plan', hasUi && uiQaMode !== 'none',
       () => !e2eGenFailure && e2ePlanContent !== null && e2eGapResult.gaps.length === 0,
       waivers, phaseInfo.phase_number,
       e2eGenFailure ? 'e2e_generation_failed' : undefined
@@ -7486,7 +7554,9 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
     touched_files_count: touchedFiles.length,
     has_ui: hasUi,
     has_api: hasApi,
-    charlotte_qa_required: hasUi || hasApi,
+    charlotte_qa_required: uiQaRequired,
+    ui_qa_required: uiQaRequired,
+    ui_qa_mode: uiQaMode,
     e2e_gaps: e2eGapResult.gaps,
     evidence_errors: evidence.errors,
     // QGATE-17: surfaced explicitly so an exempt phase reads as "considered
@@ -7608,7 +7678,7 @@ function isValidCoverCite(cwd, p, file) {
   if (!COVER_TEST_RE.test(p)) return false;
   return fs.existsSync(path.join(cwd, p)) || fs.existsSync(path.join(cwd, path.dirname(file), p));
 }
-// Ids: mLD1, mS3, mC-SW3, M-PAR, M-CANCEL-1 (house table: igaming 400-45-SUMMARY.md).
+// Ids: mLD1, mS3, mC-SW3, M-PAR, M-CANCEL-1 (house table: a project's own SUMMARY.md).
 const MUTANT_TOKEN_RE = /\bm[A-Z]+\d+\b|\bm[A-Z]+(?:-[A-Z0-9]+)+\b|\bM-[A-Z0-9]+(?:-[A-Z0-9]+)*\b/g;
 const RED_SHA_RE = /\bRED\s+([0-9a-f]{7,40})\b/g;
 // Killed = killed/RED vocabulary OR the house "Failing assertion" cell naming a test file:line.
@@ -7800,10 +7870,10 @@ const IMPL_FILE_RE = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
 // ANY test in the repo (unit OR integration) imports the module, or references
 // one of its exported symbols / its basename as a quoted RPC/route name, or a
 // touched test shares its stem, or a SUMMARY REUSE row cites an existing test.
-// Only pure `export ... from` barrels outside money/auth paths are exempt.
+// Only pure `export ... from` barrels outside risk-domain paths are exempt.
 // Comments are stripped before matching; generic stems (index/mod/main) only
 // match a same-directory test or a parent-qualified import.
-const SENSITIVE_LONG_RE = /wallet|auth|rng|kyc|payment|ledger|settle|balance|payout|deposit|withdraw|session|totp|credit|debit|cashout|bonus|refund|login|jwt|password|token/i;
+const SENSITIVE_LONG_RE = new RegExp(['auth', 'ledger', 'settle', 'balance', 'payout', 'session', 'totp', 'credit', 'debit', 'cashout', 'refund', 'login', 'jwt', 'password', 'token', ...LEGACY_RISK.sensitive_path].join('|'), 'i');
 // bet/stake match only as a path word or camelCase word ('better', 'orange' do not).
 const SENSITIVE_SHORT_RE = /(?:^|[^A-Za-z])(?:[Bb]et(?:ting)?|BET|[Ss]take|STAKE)s?(?![a-z])|[a-z](?:Bet(?:ting)?|Stake)s?(?![a-z])/;
 const SENSITIVE_PATH_RE = { test: f => SENSITIVE_LONG_RE.test(f) || SENSITIVE_SHORT_RE.test(f) };
@@ -7834,10 +7904,21 @@ function importsExactFile(testFile, testText, implFile) {
   }
   return false;
 }
+// E2E scenario files are not implementation: stack.paths.e2e_scenarios, plus the legacy location in a project without a stack profile.
+function e2eScenarioExcludeRes(cwd) {
+  let loaded;
+  try { loaded = projectProfile.loadProfile(cwd); } catch { loaded = { error: 'unreadable' }; }
+  const dir = loaded.error ? undefined : projectProfile.getProfileValue(loaded, 'stack.paths.e2e_scenarios');
+  const res = [];
+  if (typeof dir === 'string' && dir.trim()) res.push(new RegExp('^' + reEscape(dir.replace(/^\.?\//, '').replace(/\/+$/, '')) + '/'));
+  if (projectContext.uiQaMode(cwd) === 'legacy') res.push(/^apps\/e2e-charlotte\/scenarios\//);
+  return res;
+}
 function computeImplTestCoverage(cwd, touchedFiles, testDeltaRows, outsideText) {
+  const e2eRes = e2eScenarioExcludeRes(cwd);
   const isTest = f => TEST_FILE_RE.test(f) || /(^|\/)__tests__\//.test(f) || /_test\.(ts|js)$/.test(f);
   const impls = touchedFiles.filter(f => IMPL_FILE_RE.test(f) && !isTest(f) && !/\.d\.ts$/.test(f) &&
-    !/(^|\/)(\.planning|node_modules|dist|build|testing-utils)\//.test(f) && !/^apps\/e2e-charlotte\/scenarios\//.test(f) &&
+    !/(^|\/)(\.planning|node_modules|dist|build|testing-utils)\//.test(f) && !e2eRes.some(re => re.test(f)) &&
     !/\.types\.ts$/.test(f) && !/\.config\.\w+$/.test(f) && fs.existsSync(path.join(cwd, f)));
   if (impls.length === 0) return { impl_files_without_tests: [], impl_files_covered: [], impl_files_exempt: [] };
   const ls = execGit(cwd, ['ls-files']);
@@ -10385,7 +10466,7 @@ function milestoneAlreadyRecorded(milestonesContent, version) {
 
 // ─── Milestone Phase Scoping ────────────────────────────────────────────────
 //
-// Recurring bug (igaming-platform RETROSPECTIVE.md: v0.1.8, v0.1.20, v0.1.28,
+// Recurring bug (a consuming project's RETROSPECTIVE.md: v0.1.8, v0.1.20, v0.1.28,
 // v0.1.29): cmdMilestoneComplete counted EVERY directory under
 // .planning/phases/, including phase directories left over from prior
 // milestones that were never archived away. This silently produced wildly
@@ -11328,7 +11409,7 @@ function getMilestoneInfo(cwd) {
   }
 }
 
-function cmdInitExecutePhase(cwd, phase, includes, raw) {
+function cmdInitExecutePhase(cwd, phase, includes, raw, gate) {
   if (!phase) {
     error('phase required for init execute-phase');
   }
@@ -11338,6 +11419,9 @@ function cmdInitExecutePhase(cwd, phase, includes, raw) {
   const milestone = getMilestoneInfo(cwd);
 
   const result = {
+    ...projectContext.contextFields(cwd),
+    project_context: { legacy: gate?.legacy === true },
+
     // Models
     executor_model: resolveModelInternal(cwd, 'gsd-executor'),
     verifier_model: resolveModelInternal(cwd, 'gsd-verifier'),
@@ -11415,7 +11499,7 @@ function cmdInitExecutePhase(cwd, phase, includes, raw) {
   output(result, raw);
 }
 
-function cmdInitPlanPhase(cwd, phase, includes, raw) {
+function cmdInitPlanPhase(cwd, phase, includes, raw, gate) {
   if (!phase) {
     error('phase required for init plan-phase');
   }
@@ -11424,6 +11508,9 @@ function cmdInitPlanPhase(cwd, phase, includes, raw) {
   const phaseInfo = findPhaseInternal(cwd, phase);
 
   const result = {
+    ...projectContext.contextFields(cwd),
+    project_context: { legacy: gate?.legacy === true },
+
     // Models
     researcher_model: resolveModelInternal(cwd, 'gsd-phase-researcher'),
     planner_model: resolveModelInternal(cwd, 'gsd-planner'),
@@ -11565,6 +11652,10 @@ function cmdInitNewProject(cwd, raw) {
                    pathExistsInternal(cwd, 'Package.swift');
 
   const result = {
+    ...projectContext.contextFields(cwd),
+    available_presets: projectContext.availablePresets(path.join(__dirname, '..', 'presets')),
+    context_gate: projectContext.contextGate(cwd, { legacy: false }),
+
     // Models
     researcher_model: resolveModelInternal(cwd, 'gsd-project-researcher'),
     synthesizer_model: resolveModelInternal(cwd, 'gsd-research-synthesizer'),
@@ -11599,6 +11690,7 @@ function cmdInitNewMilestone(cwd, raw) {
   const milestone = getMilestoneInfo(cwd);
 
   const result = {
+    ...projectContext.contextFields(cwd),
     // Models
     researcher_model: resolveModelInternal(cwd, 'gsd-project-researcher'),
     synthesizer_model: resolveModelInternal(cwd, 'gsd-research-synthesizer'),
@@ -11626,6 +11718,7 @@ function cmdInitMilestoneBranch(cwd, raw) {
   const milestone = getMilestoneInfo(cwd);
 
   const result = {
+    ...projectContext.contextFields(cwd),
     branching_strategy: config.branching_strategy,
     branch_name: config.branching_strategy === 'milestone'
       ? config.milestone_branch_template
@@ -11658,6 +11751,7 @@ function cmdInitQuick(cwd, description, raw) {
   } catch {}
 
   const result = {
+    ...projectContext.contextFields(cwd),
     // Models
     planner_model: resolveModelInternal(cwd, 'gsd-planner'),
     executor_model: resolveModelInternal(cwd, 'gsd-executor'),
@@ -11696,6 +11790,7 @@ function cmdInitResume(cwd, raw) {
   } catch {}
 
   const result = {
+    ...projectContext.contextFields(cwd),
     // File existence
     state_exists: pathExistsInternal(cwd, '.planning/STATE.md'),
     roadmap_exists: pathExistsInternal(cwd, '.planning/ROADMAP.md'),
@@ -11722,6 +11817,7 @@ function cmdInitVerifyWork(cwd, phase, raw) {
   const phaseInfo = findPhaseInternal(cwd, phase);
 
   const result = {
+    ...projectContext.contextFields(cwd),
     // Models
     planner_model: resolveModelInternal(cwd, 'gsd-planner'),
     checker_model: resolveModelInternal(cwd, 'gsd-plan-checker'),
@@ -11747,6 +11843,7 @@ function cmdInitPhaseOp(cwd, phase, raw) {
   const phaseInfo = findPhaseInternal(cwd, phase);
 
   const result = {
+    ...projectContext.contextFields(cwd),
     // Config
     commit_docs: config.commit_docs,
     brave_search: config.brave_search,
@@ -11808,6 +11905,7 @@ function cmdInitTodos(cwd, area, raw) {
   } catch {}
 
   const result = {
+    ...projectContext.contextFields(cwd),
     // Config
     commit_docs: config.commit_docs,
 
@@ -11866,6 +11964,7 @@ function cmdInitMilestoneOp(cwd, raw) {
   } catch {}
 
   const result = {
+    ...projectContext.contextFields(cwd),
     // Config
     commit_docs: config.commit_docs,
 
@@ -11905,6 +12004,7 @@ function cmdInitMapCodebase(cwd, raw) {
   } catch {}
 
   const result = {
+    ...projectContext.contextFields(cwd),
     // Models
     mapper_model: resolveModelInternal(cwd, 'gsd-codebase-mapper'),
 
@@ -11989,6 +12089,7 @@ function cmdInitProgress(cwd, includes, raw) {
   } catch {}
 
   const result = {
+    ...projectContext.contextFields(cwd),
     // Models
     executor_model: resolveModelInternal(cwd, 'gsd-executor'),
     planner_model: resolveModelInternal(cwd, 'gsd-planner'),
@@ -12040,6 +12141,7 @@ function cmdInitExecuteRoadmap(cwd, raw) {
 
   if (!fs.existsSync(roadmapPath)) {
     output({
+      ...projectContext.contextFields(cwd),
       error: 'ROADMAP.md not found',
       roadmap_exists: false
     }, raw);
@@ -12115,6 +12217,7 @@ function cmdInitExecuteRoadmap(cwd, raw) {
   }
 
   output({
+    ...projectContext.contextFields(cwd),
     roadmap_exists: true,
     total_phases: phases.length,
     execution_order: executionOrder,
@@ -13761,18 +13864,49 @@ async function pollHealthEndpoint(url, intervalMs, timeoutMs) {
   return false;
 }
 
+// Pick the entry for `name` from a list of {name} objects. 'default' is the only entry, or an entry named default.
+function pickNamed(list, name) {
+  if (name === 'default') {
+    if (list.length === 1) return list[0];
+    return list.find((s) => s.name === 'default') || null;
+  }
+  return list.find((s) => s.name === name) || null;
+}
+
+// stack.services[] from the profile, as the service-health shape. The health path is appended to the url.
+function serviceFromProfile(cwd, name) {
+  const loaded = projectProfile.loadProfile(cwd);
+  const services = loaded.error ? undefined : projectProfile.getProfileValue(loaded, 'stack.services');
+  if (!Array.isArray(services) || services.length === 0) return null;
+  const svc = pickNamed(services, name);
+  if (!svc) return null;
+  const health = svc.health;
+  const healthUrl = !health ? svc.url : /^https?:\/\//.test(health) ? health : svc.url.replace(/\/+$/, '') + (health.startsWith('/') ? '' : '/') + health;
+  return { name: svc.name, health_url: healthUrl, health_cmd: svc.health_cmd || null, start: svc.launch, source: 'stack.services' };
+}
+
+// Profile first (stack.services), then dev_servers in config.json. No default URL: a server with neither a
+// health_url nor a port has no health URL.
 function getDevServerConfig(cwd, name) {
+  const fromProfile = serviceFromProfile(cwd, name);
+  if (fromProfile) return fromProfile;
   const config = loadConfig(cwd);
   const devServers = config.dev_servers || {};
-  if (name === 'default') {
-    const keys = Object.keys(devServers);
-    if (keys.length === 1) return Object.assign({ name: keys[0] }, devServers[keys[0]]);
-    if (keys.length === 0) return null;
-    if (devServers['default']) return Object.assign({ name: 'default' }, devServers['default']);
-    return null;
-  }
-  if (!devServers[name]) return null;
-  return Object.assign({ name: name }, devServers[name]);
+  const entry = pickNamed(Object.entries(devServers).map(([key, cfg]) => Object.assign({ name: key }, cfg)), name);
+  return entry ? Object.assign({ source: 'dev_servers' }, entry) : null;
+}
+
+function healthUrlOf(serverCfg) {
+  if (serverCfg.health_url) return serverCfg.health_url;
+  return serverCfg.port ? 'http://localhost:' + serverCfg.port : null;
+}
+
+function serviceNames(cwd) {
+  const loaded = projectProfile.loadProfile(cwd);
+  const services = loaded.error ? [] : projectProfile.getProfileValue(loaded, 'stack.services');
+  const profileNames = Array.isArray(services) ? services.map((s) => s.name) : [];
+  const devNames = Object.keys(loadConfig(cwd).dev_servers || {});
+  return [...new Set([...profileNames, ...devNames])];
 }
 
 async function cmdServiceHealth(cwd, args, raw) {
@@ -13782,11 +13916,15 @@ async function cmdServiceHealth(cwd, args, raw) {
   if (subCmd === 'start') {
     const serverCfg = getDevServerConfig(cwd, serverName);
     if (!serverCfg) {
-      output({ status: 'no_config', name: serverName, message: 'No dev_servers.' + serverName + ' in config.json — caller should use fallback' }, raw);
+      output({ status: 'no_config', name: serverName, message: 'No stack.services entry or dev_servers.' + serverName + ' in config.json' }, raw);
       return;
     }
 
-    const healthUrl = serverCfg.health_url || ('http://localhost:' + (serverCfg.port || 3000));
+    const healthUrl = healthUrlOf(serverCfg);
+    if (!healthUrl) {
+      output({ status: 'no_health_url', name: serverName, message: 'Set stack.services[].url or dev_servers.' + serverName + '.health_url' }, raw);
+      return;
+    }
 
     const existingPid = readServicePid(cwd, serverName);
     if (existingPid && isProcessRunning(existingPid)) {
@@ -13805,7 +13943,7 @@ async function cmdServiceHealth(cwd, args, raw) {
 
     const startCmd = serverCfg.start;
     if (!startCmd) {
-      error('service-health start: dev_servers.' + serverName + '.start command is required');
+      error('service-health start: no launch command for ' + serverName + ' (stack.services[].launch or dev_servers.' + serverName + '.start)');
       return;
     }
 
@@ -13856,7 +13994,7 @@ async function cmdServiceHealth(cwd, args, raw) {
 
   } else if (subCmd === 'status') {
     const serverCfg = getDevServerConfig(cwd, serverName);
-    const healthUrl = serverCfg ? (serverCfg.health_url || ('http://localhost:' + (serverCfg.port || 3000))) : null;
+    const healthUrl = serverCfg ? healthUrlOf(serverCfg) : null;
     const pid = readServicePid(cwd, serverName);
     const pidRunning = pid ? isProcessRunning(pid) : false;
     const healthOk = healthUrl ? await pollHealthEndpoint(healthUrl, 500, 3000) : null;
@@ -13866,16 +14004,15 @@ async function cmdServiceHealth(cwd, args, raw) {
       pid: pid || null,
       pid_running: pidRunning,
       health_url: healthUrl,
+      health_cmd: serverCfg ? serverCfg.health_cmd || null : null,
       health_ok: healthOk,
       status: (pidRunning || healthOk) ? 'running' : 'stopped',
     }, raw);
 
   } else if (subCmd === 'start-all') {
-    const config = loadConfig(cwd);
-    const devServers = config.dev_servers || {};
-    const names = Object.keys(devServers);
+    const names = serviceNames(cwd);
     if (names.length === 0) {
-      output({ status: 'no_servers', message: 'No dev_servers in config.json' }, raw);
+      output({ status: 'no_servers', message: 'No stack.services or dev_servers in config' }, raw);
       return;
     }
     const results = [];
@@ -14705,14 +14842,24 @@ async function main() {
     }
 
     case 'init': {
-      const workflow = args[1];
-      const includes = parseIncludeFlag(args);
+      const legacyFlag = args.includes('--legacy');
+      const initArgs = args.filter((a) => a !== '--legacy');
+      const workflow = initArgs[1];
+      const includes = parseIncludeFlag(initArgs);
+      const gate = projectContext.contextGate(cwd, {
+        legacy: legacyFlag || process.env.GSD_LEGACY === '1',
+      });
+      if ((workflow === 'plan-phase' || workflow === 'execute-phase') && !gate.ok) {
+        fs.writeSync(2, projectContext.gateStderr(gate) + '\n');
+        writeStdoutSync(JSON.stringify(projectContext.gateFailure(gate), null, 2) + '\n');
+        process.exit(1);
+      }
       switch (workflow) {
         case 'execute-phase':
-          cmdInitExecutePhase(cwd, args[2], includes, raw);
+          cmdInitExecutePhase(cwd, initArgs[2], includes, raw, gate);
           break;
         case 'plan-phase':
-          cmdInitPlanPhase(cwd, args[2], includes, raw);
+          cmdInitPlanPhase(cwd, initArgs[2], includes, raw, gate);
           break;
         case 'new-project':
           cmdInitNewProject(cwd, raw);
@@ -14724,19 +14871,19 @@ async function main() {
           cmdInitMilestoneBranch(cwd, raw);
           break;
         case 'quick':
-          cmdInitQuick(cwd, args.slice(2).join(' '), raw);
+          cmdInitQuick(cwd, initArgs.slice(2).join(' '), raw);
           break;
         case 'resume':
           cmdInitResume(cwd, raw);
           break;
         case 'verify-work':
-          cmdInitVerifyWork(cwd, args[2], raw);
+          cmdInitVerifyWork(cwd, initArgs[2], raw);
           break;
         case 'phase-op':
-          cmdInitPhaseOp(cwd, args[2], raw);
+          cmdInitPhaseOp(cwd, initArgs[2], raw);
           break;
         case 'todos':
-          cmdInitTodos(cwd, args[2], raw);
+          cmdInitTodos(cwd, initArgs[2], raw);
           break;
         case 'milestone-op':
           cmdInitMilestoneOp(cwd, raw);
@@ -15150,6 +15297,13 @@ async function main() {
       break;
     }
 
+    case 'pack': {
+      const r = projectPack.runCli(args.slice(1), cwd);
+      writeStdoutSync(JSON.stringify(r.result, null, 2) + '\n');
+      process.exit(r.exitCode);
+      break;
+    }
+
     case 'eval-candidate': {
       const subcommand = args[1];
       if (subcommand === 'from-debug') {
@@ -15182,7 +15336,8 @@ async function main() {
     }
 
     case 'project': {
-      const r = projectDeploy.runCli(cwd, args.slice(1), process.env);
+      const r = projectRegistry.initWithRegistration(cwd, args.slice(1), process.env,
+        () => projectDeploy.runCli(cwd, args.slice(1), process.env));
       writeStdoutSync(JSON.stringify(r.result, null, 2) + '\n');
       process.exit(r.exitCode);
       break;

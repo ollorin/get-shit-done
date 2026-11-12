@@ -1,5 +1,5 @@
 <purpose>
-Give the CEO a demo of what a phase (or a milestone) delivers: Markdown with real screenshots, plus a video. Agent: `gsd-demo`. Checker: `DC` = `node "$HOME/.claude/get-shit-done/bin/demo-check.js"`. A demo is not QA and never sets `charlotte_qa_ran`.
+Give the owner a demo of what a phase (or a milestone) delivers: Markdown with real screenshots, plus a video. Agent: `gsd-demo`. Checker: `DC` = `node "$HOME/.claude/get-shit-done/bin/demo-check.js"`. A demo is not QA and never sets `ui_qa_ran`.
 </purpose>
 
 <modes>
@@ -8,10 +8,10 @@ Give the CEO a demo of what a phase (or a milestone) delivers: Markdown with rea
 | mode | at phase end (no stack) | recording |
 |---|---|---|
 | `milestone` | script | all scripted phases in the milestone-end stack window |
-| `phase` | script | in the phase's own Charlotte window, right after its QA run |
+| `phase` | script | in the phase's own UI QA window, right after its QA run |
 | `off` | nothing | nothing |
 
-A phase gets a demo only when `gsd-tools.js verify phase-gate {N}` reports `charlotte_qa_required: true` (it touched UI or API paths) and its VERIFICATION status is `passed`.
+A phase gets a demo only when `gsd-tools.js verify phase-gate {N}` reports `ui_qa_required: true` (it touched UI or API paths) and its VERIFICATION status is `passed`.
 </modes>
 
 <process>
@@ -27,7 +27,7 @@ Result on disk: `{phase_dir}/demo/scenario.json` and `{phase_dir}/{padded_phase}
 
 ## 2. Record (stack window only)
 
-Preconditions, all checked by the caller, never by the demo agent: the project's stack lock is held by this caller for the whole recording (`DC start --owner` fails if the lock file names anyone else); app and API answer; no db reset and no other Charlotte run during it; fixture accounts named in `scenario.accounts` exist (provision through the project's API fixture path). One recording at a time: Charlotte drives one browser.
+Preconditions, all checked by the caller, never by the demo agent: the project's stack lock is held by this caller for the whole recording (`DC start --owner` fails if the lock file names anyone else); app and API answer; no db reset and no other UI QA run during it; fixture accounts named in `scenario.accounts` exist (provision through the project's API fixture path). One recording at a time: the UI QA capability drives one browser.
 
 ```
 Agent(subagent_type="gsd-demo", model="haiku", description="Record demo phase {N}",
@@ -41,7 +41,7 @@ DC check {phase_dir}      # exit 0 and "recorded":true, or the demo does not exi
 git add {phase_dir}/demo/scenario.json {phase_dir}/demo/steps.jsonl {phase_dir}/demo/manifest.json {phase_dir}/demo/shots {phase_dir}/*-DEMO.md
 ```
 
-- Commit only the paths in the `git add` above (explicit paths, never a bare `.planning/` stage): `demo/video/` stays out even if the project `.gitignore` lacks `**/demo/video/` (report that gap). Before staging, read each `observed` text and drop any shot whose screen shows a TOTP code, token or password; write such text as `<redacted>`.
+- Commit only the paths in the `git add` above (explicit paths, never a bare `.planning/` stage): `demo/video/` stays out even if the project `.gitignore` lacks `**/demo/video/` (report that gap). Before staging, read each `observed` text and drop any shot whose screen shows a one-time code, token or password; write such text as `<redacted>`.
 - `check` non-zero: do not commit, do not notify; re-record once, then report the errors.
 - `result: failed` with a passing check is a real finding (the product did not do what the phase claims): the DEMO.md is committed as is and the failed step goes to the phase's gap list. Never re-script a step to make it pass.
 - `blocked`: the script-only DEMO.md stays; report why.
@@ -58,5 +58,5 @@ Exit 1 = some phase's demo fails its check: fix or re-record before reporting. P
 </process>
 
 <limits>
-Per phase: at most 15 steps, 400 KB per screenshot, 4 MB of screenshots, 25 MB of video, 5 minutes per recording (Charlotte auto-stops). `DC check` enforces the first four.
+Per phase: at most 15 steps, 400 KB per screenshot, 4 MB of screenshots, 25 MB of video, 5 minutes per recording (the UI QA driver auto-stops). `DC check` enforces the first four.
 </limits>

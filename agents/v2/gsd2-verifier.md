@@ -23,7 +23,7 @@ Every check below that fails sets `gaps_found`. None of them is ever downgraded 
 - 7 anti-patterns. Also ask whether any touched file now holds two or more unrelated responsibilities (routing bolted onto a business-rule engine), even under 500 LOC; record it as a `logical_cohesion` row.
 - 8 human verification items: visual, real-time, external services.
 - 8b run the test suite. No tests for a phase that produced code (.ts/.tsx/.js) fails; only exclusively non-code phases (docs, config, logic-free migrations) pass without tests. A timeout fails.
-- 8c Charlotte QA: if UI files were produced or it is a web project, a Charlotte run must be recorded. Set `charlotte_qa_ran: true|false` in the frontmatter (always present); `verify phase-gate` fails `missing_charlotte_qa` for UI or API phases unless true. 8c.5 deferral language: deferring this phase's own tests, QA or verification is a failure; `deferred-items.md` entries for pre-existing out-of-scope issues are not. 8c.6 web projects need E2E-TEST-PLAN.md and scenario files.
+- 8c UI QA: if UI files were produced or it is a web project, a UI QA run must be recorded when the profile declares `stack.capabilities.ui_qa`; otherwise write `ui_qa_ran: false  # no ui_qa capability`. Set `ui_qa_ran: true|false` in the frontmatter (always present); `verify phase-gate` fails `missing_charlotte_qa` (legacy failure code) for UI or API phases unless true. 8c.5 deferral language: deferring this phase's own tests, QA or verification is a failure; `deferred-items.md` entries for pre-existing out-of-scope issues are not. 8c.6 web projects need E2E-TEST-PLAN.md and scenario files.
 - 8d every implementation file is exercised by a test (imported, or its route or RPC called) or the SUMMARY `## Test Delta` cites a REUSE. Exempt only a file that is solely `export ... from` statements and does not match wallet|auth|rng|kyc|payment|ledger|settle|balance|stake|payout|deposit|withdraw|session|totp|bet.
 - 8e unresolved duplicate migration timestamps. 8f docs coverage for the scope.
 - 8g run, do not just look for, the Layer-1 gates the repo ships: `scripts/fp-gate.ts`, `scripts/migration-security-gate.ts`, `scripts/cve-scan-gate.ts`, and confirm `--no-check` is absent from `apps/api/deno.json` and `apps/api/project.json` (Read both files; the `zg` index can be stale). A gate that exists but was not run is a fail. 8h any non-zero exit is `gaps_found`; "the gate is in CI" is not evidence.
@@ -33,7 +33,7 @@ Every check below that fails sets `gaps_found`. None of them is ever downgraded 
 
 Partial pass is not a pass. A criterion marked PARTIAL, DEFERRED, "deferred to post-milestone", "deferred to future phase" or pending makes the status `gaps_found`: a criterion is verified or failed. "The infrastructure is in place" is not evidence; only a passing test is.
 
-Status: `passed` when all truths are verified, artifacts pass levels 1-3, links are wired, no blocker anti-patterns, tests pass, Charlotte QA done for UI phases. `gaps_found` when any of that fails. `human_needed` only when every automated check passes and what remains genuinely needs a human; a failed truth or failed test is never `human_needed`.
+Status: `passed` when all truths are verified, artifacts pass levels 1-3, links are wired, no blocker anti-patterns, tests pass, UI QA done for UI phases. `gaps_found` when any of that fails. `human_needed` only when every automated check passes and what remains genuinely needs a human; a failed truth or failed test is never `human_needed`.
 
 Use `zg query` for text search; grep, rg and find prompt for approval in this repo. Do not launch the app or dev servers; that does not mean skip the tests.
 
@@ -68,7 +68,7 @@ phase: XX-name
 verified: YYYY-MM-DDTHH:MM:SSZ
 status: passed | gaps_found | human_needed
 score: N/M must-haves verified
-charlotte_qa_ran: true | false
+ui_qa_ran: true | false
 re_verification:            # only if a previous VERIFICATION.md existed
   previous_status: ..., previous_score: ..., gaps_closed: [], gaps_remaining: [], regressions: []
 gaps:                       # only if gaps_found, for plan-phase --gaps

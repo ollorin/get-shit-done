@@ -343,6 +343,29 @@ mkdir -p .planning
 node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs: initialize project" --files .planning/PROJECT.md
 ```
 
+## 4.5. Product Brief
+
+**Skip when `context_gate` (from `init new-project`) lists neither `.planning/PRODUCT-BRIEF.md` nor any `project.*` key under `missing` or `invalid`.** A half-written section is not skipped: an existing brief or `project` block is offered as the proposed answers.
+
+Otherwise ask only what section 3 did not answer, one question at a time, each phrased so the answer is a choice:
+
+1. Owner title: how rulings address the owner.
+2. Risk domains: what must never break and needs real-database tests. For each: an id, the paths or flows that count as it, and whether a ruling is required.
+3. Compliance regimes that apply, one line each.
+4. Config dimensions that must never be hard-coded (markets, currencies, modes), each with its config key.
+5. Decisions the agents may take alone, and the decisions that go to the owner.
+
+Write `.planning/PRODUCT-BRIEF.md` from `@~/.claude/get-shit-done/templates/product-brief.md`. Then write the `project` block of `.planning/config.json`: `slug` (the directory name unless the owner gave one), `owner_title`, `risk_domains` (ids), `ruling_topics` (ids a ruling covers).
+
+**Auto mode:** take the answers from the idea document. For each mandatory value it lacks, record an assumption and continue:
+
+```bash
+node "$HOME/.claude/get-shit-done/bin/decisions.js" add --kind assumption --source new-project --question "Owner title" --default "owner" --reversibility cheap
+node "$HOME/.claude/get-shit-done/bin/decisions.js" add --kind assumption --source new-project --question "Risk domains: empty list, so every state-mutating path is a risk-domain path" --default "[]" --reversibility costly
+```
+
+`ruling_topics` defaults to `[]`, recorded with `--reversibility cheap`. The empty `risk_domains` default is recorded `costly`, not `cheap`: it decides which paths get real-database tests. With an empty list, `init` reports `risk_domains_source: "builtin"` and every state-mutating path is treated as a risk-domain path, so the default is strict, never lax. The assumption text says so.
+
 ## 5. Workflow Preferences
 
 **If auto mode:** Skip — config was collected in Step 2a. Proceed to Step 5.5.
@@ -501,6 +524,51 @@ node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "chore: add project c
 ## 5.5. Resolve Model Profile
 
 Use models from init: `researcher_model`, `synthesizer_model`, `roadmapper_model`.
+
+## 5.6. Stack Profile
+
+**Skip when `context_gate` (from `init new-project`) lists neither `.planning/STACK-PROFILE.md` nor any `stack.*` key under `missing` or `invalid`.** A half-written section is not skipped: an existing `stack` block is offered as the proposed answers. Keys that only `project init` defaults (`stack.branch.default`, `stack.commands.search`, `stack.commands.pre_pr_gate`, isolation) are not in the gate's list.
+
+Ask in this order. Skip any question that detection already answers. Brownfield: propose each answer from `.planning/codebase/STACK.md` and `TESTING.md`, then confirm it.
+
+1. **Preset.** One of `available_presets`, default `base`, written as `stack.preset`. The base deploys everything by default; there is nothing to opt into. Two questions decide the only gated groups:
+   - "Does the project have a backend (server-side code that handles requests or stores data)?"
+   - "Does it have a web UI?"
+
+   Yes, unsure or undetected → `stack.capabilities.backend: {}` / `stack.capabilities.web_ui: {}`. A clear no → `false`. `stack.capabilities` is always written, even when both are `false`.
+
+2. **Commands.** Ask for: run one test file (the value must contain `{file}`), run all tests, typecheck, lint, format, pre-PR gate, search, and the default branch.
+   - `test_all`, `typecheck` and `lint` are always asked: the deployed gate script fails on an unset one. "There is none" is written as the literal `true`.
+   - Commands that must run under the stack lock → `stack.locked_commands` (none is `[]`).
+   - Test values that are right only by luck (fixed ids in shared tables, wall-clock windows) → `stack.flake_patterns` (none: omit the key). The worked example is in `.claude/rules/testing.md`.
+   - Dependency scan: when a lockfile is detected, say that the default `dependency-scan` gate needs the external `osv-scanner` binary, which GSD does not install, and print its install instructions. If the owner declines to install it, write `stack.cve.allow_missing_scanner: true` and record an assumption. Without the key the gate fails with `NOT INSTALLED: osv-scanner` once a lockfile exists; with it the gate prints `SKIPPED` and exits 0.
+   - This step writes no gate list: `init` appends the default gates. Project gates are added to that list, never in place of a default.
+
+2a. **Style rule set.** One of the rule sets under `presets/base/scripts/style-gate/rule-sets/`: `js-ts`, `python` or `generic`. Propose it from the detected language and write `stack.style.rule_set` with `stack.style.roots` (the source directories). There is no question whether the style gate runs. A language with no rule set gets `generic` and an assumption record. Copy the chosen set's `idioms` into the Style section of `STACK-PROFILE.md`, with the concrete library or construct the project uses for errors as values, immutability, routing and purity. Every root must exist when the gate runs (a missing directory exits 1 with `roots entry is not a directory`): create each new root with an empty `.gitkeep`.
+
+3. **Paths.** Backend root, migrations, API handler globs, e2e scenarios, frontends. Written as `stack.paths`.
+
+4. **Services.** For each: name, URL, health (URL or path), health command if a shell check is needed, launch command, ready signal. None is a valid answer. Written as `stack.services`.
+
+5. **UI QA driver.** None (no `ui_qa` key is written), or a pack under `presets/packs/`, which is a separate mechanism and is installed only when named here. Also: reset commands that must not run during a QA session, and protected branches.
+
+6. **Never-touch deploy targets.** Always asked. Answer with the exact command prefixes that reach them: at most 5, each using only `A-Za-z0-9 ._/-`. Written as `stack.deploy.never_touch`; "none" is written as `[]`. `project init` renders each one as a deny row, and a prefix row stops the literal spelling only. Show the owner the rendered rows from the `init` report and say so.
+
+**Then, in order:**
+
+1. Write the `stack` block of `.planning/config.json`. Keep the `project` block from 4.5.
+2. Run the profile check and stop on failure, showing the keys it names: `node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" profile check`
+3. Deploy: `node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" project init --preset <name>`. It allocates `port_base`, sets the container id to the slug and fills the defaults (`stack.branch.default`, `stack.commands.search`, `stack.commands.pre_pr_gate`). Show its `files` report:
+   - a `conflict` row means an existing project file was kept; say so.
+   - a `refused` result means `.claude/settings.json` already exists. Print the same command for the owner to run in a terminal, and continue without it.
+   - `project init` exiting 1 with `already initialised: run project sync` means an earlier run already deployed (the context gate re-ran this section because STACK-PROFILE.md is missing). Run `project sync --preset <name>` instead and continue to step 4. A sync exit code 2 is a kept conflict: continue, and report it.
+4. Write `.planning/STACK-PROFILE.md` from `@~/.claude/get-shit-done/templates/stack-profile.md`. It is written last, after the profile check passed and `init` (or `sync`) ran. A `refused` settings file (step 3) is not a failed deploy: it leaves the rest deployed and `.claude/settings.json` for the owner to apply, so the file's existence does not mean settings.json was written.
+5. If a UI QA pack was chosen, run `gsd-tools pack install <name>` and show the owner its `manual_settings`.
+6. Review the deployment with `project diff --preset <name>` and report its exit code. There is no `diff` before the deploy: it exits 1 on the defaulted keys of step 3 until `init` has written them.
+
+Every `diff` call passes `--preset`: without it and without `stack.preset` the command exits 1 with `no preset`.
+
+**Auto mode:** both gated groups are on unless the idea document plainly rules one out (a command-line tool has no web UI). Record each "off" as an assumption with the decisions CLI, as in 4.5, with `--reversibility costly`. A `typecheck` or `lint` the idea document says does not exist is written as the literal `true`, with no assumption. A missing mandatory answer (`test_file`, `test_all`, `typecheck`, `lint`) becomes an assumption, with defaults taken from the detected package manifest. If nothing can be detected, stop and name the key; never invent a command. No UI QA driver (no `ui_qa` key written) → record an assumption: `node "$HOME/.claude/get-shit-done/bin/decisions.js" add --kind assumption --source new-project --question "UI QA driver: none, so no UI QA runs and ui_qa_ran is false each phase" --default "none" --reversibility costly`. `stack.style.rule_set` comes from the detected language. `stack.deploy.never_touch` not stated in the idea document → `[]`, recorded as an assumption with `--reversibility costly`: no deploy command is denied until the owner lists one. `osv-scanner` not found on PATH and a lockfile present → write `stack.cve.allow_missing_scanner: true` and record an assumption with `--reversibility costly`.
 
 ## 6. Research Decision
 

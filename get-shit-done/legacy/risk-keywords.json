@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "note": "Keyword superset kept for projects that predate the brief and profile. Read at run time by get-shit-done/bin/legacy-risk-keywords.js. This directory is outside every scope of scripts/agnostic-lint.js on purpose: the words are data, and the test pinned in scripts/agnostic-lint.test.js keeps the file shape and the location fixed.",
+  "doc_signal": ["payment"],
+  "sensitive_path": ["wallet", "rng", "kyc", "payment", "deposit", "withdraw", "bonus"],
+  "complexity": ["payment"],
+  "thorough_validation": ["payment"]
+}

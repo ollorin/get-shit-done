@@ -301,21 +301,21 @@ Plans execute autonomously. Checkpoints formalize interaction points where human
 
 **Pre-validation (before launching QA):**
 
-Before spawning Charlotte for browser-based QA, the executor/coordinator must verify that the code under test has its wiring in place. QA testing a page where a submit button doesn't call an API wastes a QA cycle and produces confusing failures.
+Before spawning the UI QA agent for browser-based QA, the executor/coordinator must verify that the code under test has its wiring in place. QA testing a page where a submit button doesn't call an API wastes a QA cycle and produces confusing failures.
 
 Pre-validation checks (run programmatically, not in browser):
 1. **Semantic wiring:** Every user action in `<test-flows>` that implies a state transition (submit, save, approve, delete) has a code path from the UI handler through an API call to a backend route that exists
 2. **Route existence:** Every API path referenced in frontend fetch/axios calls resolves to an actual backend route file
 3. **HTTP method alignment:** Frontend POST calls target routes that export POST handlers (not just GET)
 
-If pre-validation fails, fix the wiring before launching Charlotte. A QA round that tests unwired UI produces noise, not signal.
+If pre-validation fails, fix the wiring before launching the UI QA agent. A QA round that tests unwired UI produces noise, not signal.
 
 **How the coordinator handles it:**
 The phase coordinator runs an automated 3-round QA loop:
 - **Pre-check:** Verify wiring (above) — if broken, fix before entering QA loop
-- Round 1: spawn gsd-charlotte-qa → if issues found → spawn fix subagent → commit → restart if needed
-- Round 2: re-run gsd-charlotte-qa → if issues → spawn fix subagent
-- Round 3: re-run gsd-charlotte-qa → if still issues → escalate to human with report
+- Round 1: spawn the UI QA agent (`stack.capabilities.ui_qa.agent`; legacy: the project's configured QA agent) → if issues found → spawn fix subagent → commit → restart if needed
+- Round 2: re-run the UI QA agent → if issues → spawn fix subagent
+- Round 3: re-run the UI QA agent → if still issues → escalate to human with report
 - If clean at any round → continue to next task
 
 **Example:**
@@ -323,7 +323,7 @@ The phase coordinator runs an automated 3-round QA loop:
 <task type="auto">
   <name>Build player detail page</name>
   <files>src/app/players/[id]/page.tsx, src/components/PlayerCard.tsx</files>
-  <action>Create player detail page with profile section, KYC status badge, session history table</action>
+  <action>Create player detail page with profile section, verification status badge, session history table</action>
   <verify>npm run build succeeds, no TypeScript errors</verify>
   <done>Player detail page builds without errors</done>
 </task>
@@ -332,7 +332,7 @@ The phase coordinator runs an automated 3-round QA loop:
   <what-built>Player detail page at /players/[id] — dev server already running</what-built>
   <test-flows>
     - Navigate to /players — click first player row — verify detail page loads with player name and email
-    - Verify KYC status badge shows correct color (green=verified, yellow=pending, red=rejected)
+    - Verify verification status badge shows correct color (green=verified, yellow=pending, red=rejected)
     - Verify session history table loads with data, pagination works
     - Verify breadcrumb shows: Home > Players > {player name}
     - Click "Back to Players" — verify navigates to /players list
@@ -477,7 +477,7 @@ structured return alone is fully sufficient.
 | Upstash | `upstash` | `redis create`, `redis get` | `upstash auth login` |
 | PlanetScale | `pscale` | `database create`, `branch create` | `pscale auth login` |
 | GitHub | `gh` | `repo create`, `pr create`, `secret set` | `gh auth login` |
-| Node | `npm`/`pnpm` | `install`, `run build`, `test`, `run dev` | N/A |
+| Node | the package manager in `stack_commands` | `install`, `run build`, `test`, `run dev` | N/A |
 | Xcode | `xcodebuild` | `-project`, `-scheme`, `build`, `test` | N/A |
 | Convex | `npx convex` | `dev`, `deploy`, `env set`, `env get` | `npx convex login` |
 
@@ -550,7 +550,7 @@ timeout 30 bash -c 'until curl -s localhost:3000 > /dev/null 2>&1; do sleep 1; d
 
 | CLI | Auto-install? | Command |
 |-----|---------------|---------|
-| npm/pnpm/yarn | No - ask user | User chooses package manager |
+| package managers | No - ask user | User chooses package manager |
 | vercel | Yes | `npm i -g vercel` |
 | gh (GitHub) | Yes | `brew install gh` (macOS) or `apt install gh` (Linux) |
 | stripe | Yes | `npm i -g stripe` |
@@ -847,8 +847,8 @@ Checkpoints formalize human-in-the-loop points for verification and decisions, n
 **The golden rule:** If Claude CAN automate it, Claude MUST automate it.
 
 **Checkpoint priority:**
-1. **checkpoint:ui-qa** (automated web QA) - Charlotte browser agent tests web UI; human only if 3 rounds fail
-2. **checkpoint:human-verify** (non-web verification) - macOS apps, audio, Xcode builds, anything Charlotte can't test
+1. **checkpoint:ui-qa** (automated web QA) - the UI QA capability tests web UI; human only if 3 rounds fail
+2. **checkpoint:human-verify** (non-web verification) - macOS apps, audio, Xcode builds, anything the UI QA capability can't test
 3. **checkpoint:decision** (9%) - Human makes architectural/technology choices
 4. **checkpoint:human-action** (1%) - Truly unavoidable manual steps with no API/CLI
 

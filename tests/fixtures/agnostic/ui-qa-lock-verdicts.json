@@ -1,0 +1,316 @@
+[
+  {
+    "command": "supabase db reset",
+    "blocked": true
+  },
+  {
+    "command": "npx supabase db reset",
+    "blocked": true
+  },
+  {
+    "command": "cd apps/api && npx supabase db reset --local",
+    "blocked": true
+  },
+  {
+    "command": "npx -y supabase@2.40.0 db reset",
+    "blocked": true
+  },
+  {
+    "command": "SUPABASE_DEBUG=1 supabase --workdir apps/api db reset",
+    "blocked": true
+  },
+  {
+    "command": "./node_modules/.bin/supabase db reset",
+    "blocked": true
+  },
+  {
+    "command": "pnpm exec supabase db reset",
+    "blocked": true
+  },
+  {
+    "command": "nx run api:supabase:reset",
+    "blocked": true
+  },
+  {
+    "command": "npx nx run api:supabase:reset",
+    "blocked": true
+  },
+  {
+    "command": "npm run db:reset",
+    "blocked": true
+  },
+  {
+    "command": "deno task db:reset",
+    "blocked": true
+  },
+  {
+    "command": "bash -c \"supabase db reset\"",
+    "blocked": true
+  },
+  {
+    "command": "echo start; supabase db reset",
+    "blocked": true
+  },
+  {
+    "command": "scripts/preflight.sh --backend",
+    "blocked": true
+  },
+  {
+    "command": "bash scripts/preflight.sh",
+    "blocked": true
+  },
+  {
+    "command": "timeout 600 supabase db reset",
+    "blocked": true
+  },
+  {
+    "command": "gtimeout 10m npx supabase db reset",
+    "blocked": true
+  },
+  {
+    "command": "nohup supabase db reset",
+    "blocked": true
+  },
+  {
+    "command": "/usr/bin/env supabase db reset",
+    "blocked": true
+  },
+  {
+    "command": "if true; then supabase db reset; fi",
+    "blocked": true
+  },
+  {
+    "command": "eval supabase db reset",
+    "blocked": true
+  },
+  {
+    "command": "nice -n 10 supabase db reset",
+    "blocked": true
+  },
+  {
+    "command": "deno task --cwd apps/api db:reset",
+    "blocked": true
+  },
+  {
+    "command": "npm --prefix apps/api run db:reset",
+    "blocked": true
+  },
+  {
+    "command": "cd apps/e2e-charlotte && deno task test:regression",
+    "blocked": true
+  },
+  {
+    "command": "deno run --allow-all runner/run.ts --tags=regression --reset-db",
+    "blocked": true
+  },
+  {
+    "command": "scripts/stack-lock.sh --label q -- npx supabase db reset",
+    "blocked": true
+  },
+  {
+    "command": "scripts/stack-lock.sh --label q -- scripts/preflight.sh",
+    "blocked": true
+  },
+  {
+    "command": "scripts/stack-lock.sh --label q -- bash scripts/preflight.sh --all",
+    "blocked": true
+  },
+  {
+    "command": "deno run -A scripts/stack-lock.ts --label q -- supabase db reset",
+    "blocked": true
+  },
+  {
+    "command": "cd /repo && ./scripts/stack-lock.sh --label q --timeout 30 -- npx supabase db reset",
+    "blocked": true
+  },
+  {
+    "command": "supabase db push",
+    "blocked": false
+  },
+  {
+    "command": "supabase status",
+    "blocked": false
+  },
+  {
+    "command": "npx supabase migration new foo",
+    "blocked": false
+  },
+  {
+    "command": "git commit -m \"docs: explain supabase db reset\"",
+    "blocked": false
+  },
+  {
+    "command": "grep -rn \"supabase db reset\" docs",
+    "blocked": false
+  },
+  {
+    "command": "cat docs/db-reset.md",
+    "blocked": false
+  },
+  {
+    "command": "nx run api:test",
+    "blocked": false
+  },
+  {
+    "command": "deno task test:unit",
+    "blocked": false
+  },
+  {
+    "command": "npm run build",
+    "blocked": false
+  },
+  {
+    "command": "git commit -- scripts/preflight.sh",
+    "blocked": false
+  },
+  {
+    "command": "git commit -m x -- scripts/preflight.sh",
+    "blocked": false
+  },
+  {
+    "command": "git add -- scripts/preflight.sh",
+    "blocked": false
+  },
+  {
+    "command": "git diff HEAD -- scripts/preflight.sh",
+    "blocked": false
+  },
+  {
+    "command": "scripts/stack-lock.sh --label q -- git commit -- scripts/preflight.sh",
+    "blocked": false
+  },
+  {
+    "command": "scripts/stack-lock.sh --label q -- npx supabase status",
+    "blocked": false
+  },
+  {
+    "command": "stack-lock.sh --help; git log -- scripts/preflight.sh",
+    "blocked": false
+  },
+  {
+    "command": "",
+    "blocked": false
+  },
+  {
+    "command": "cd apps/api && npx supabase db reset",
+    "blocked": true
+  },
+  {
+    "command": "scripts/preflight.sh --all",
+    "blocked": true
+  },
+  {
+    "command": "git status",
+    "blocked": false
+  },
+  {
+    "command": "cd apps/api && deno task test functions/x.test.ts",
+    "blocked": false
+  },
+  {
+    "command": "supabase --debug db reset",
+    "blocked": true
+  },
+  {
+    "command": "supabase db --debug reset",
+    "blocked": false
+  },
+  {
+    "command": "nx run --verbose api:supabase:reset",
+    "blocked": true
+  },
+  {
+    "command": "npx nx run --skip-nx-cache api:db-reset",
+    "blocked": true
+  },
+  {
+    "command": "npm run --silent db:reset",
+    "blocked": true
+  },
+  {
+    "command": "deno task --quiet db:reset",
+    "blocked": true
+  },
+  {
+    "command": "npm run supabase:reset",
+    "blocked": true
+  },
+  {
+    "command": "./scripts/preflight.sh",
+    "blocked": true
+  },
+  {
+    "command": "bash -c \"scripts/preflight.sh --all\"",
+    "blocked": true
+  },
+  {
+    "command": "sh -c 'supabase db reset'",
+    "blocked": true
+  },
+  {
+    "command": "echo \"supabase db reset\"",
+    "blocked": false
+  },
+  {
+    "command": "git commit -m \"run supabase db reset later\"",
+    "blocked": false
+  },
+  {
+    "command": "echo db; echo reset",
+    "blocked": false
+  },
+  {
+    "command": "time npx supabase db reset",
+    "blocked": true
+  },
+  {
+    "command": "exec supabase db reset",
+    "blocked": true
+  },
+  {
+    "command": "command supabase db reset",
+    "blocked": true
+  },
+  {
+    "command": "npm run db:reset --if-present",
+    "blocked": true
+  },
+  {
+    "command": "pnpm --filter api run supabase:reset",
+    "blocked": true
+  },
+  {
+    "command": "node runner/run.js --reset-db",
+    "blocked": true
+  },
+  {
+    "command": "echo \"--reset-db\"",
+    "blocked": true,
+    "intentional": "R5 GAP: after quote removal the flag is a shell word (--reset\"\"-db must block); the old hook blocks echo --reset-db too"
+  },
+  {
+    "command": "bash -c \"scripts/preflight.sh\"",
+    "blocked": true
+  },
+  {
+    "command": "sh -c 'scripts/preflight.sh'",
+    "blocked": true
+  },
+  {
+    "command": "(scripts/preflight.sh)",
+    "blocked": true
+  },
+  {
+    "command": "$(scripts/preflight.sh)",
+    "blocked": true
+  },
+  {
+    "command": "echo hi; preflight.sh\"",
+    "blocked": true
+  },
+  {
+    "command": "bash -n scripts/preflight.sh",
+    "blocked": true,
+    "intentional": "R4 ruling: the old hook allowed this syntax-only check; it stays blocked (accepted, no business value)"
+  }
+]

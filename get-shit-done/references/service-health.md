@@ -1,6 +1,6 @@
 # Service Health & Startup Reference
 
-Used by: gsd-charlotte-qa, gsd-phase-coordinator (ui-qa loop)
+Used by: the UI QA agent, gsd-phase-coordinator (ui-qa loop)
 
 ## Core Protocol
 
@@ -33,7 +33,22 @@ else
 fi
 ```
 
-## CLAUDE.md Config Format
+## Service Config: Profile First
+
+The service URL, health check and launch command come from the stack profile:
+`stack.services[]`, one `{name, url, health?, health_cmd?, launch?, ready?}` entry per service. `health` is a
+URL or path, probed with curl; `health_cmd` is the shell command (prints the HTTP status) and is evaluated only
+when set. Read it with
+`node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" profile get stack.services`.
+
+Only when the profile has no `stack.services` does the CLAUDE.md section below apply (fallback).
+When neither exists, stop and report `stack.services is not set`. No URL, health check or launch
+command is assumed.
+
+`gsd-tools service-health <start|status> <name>` uses the same order: `stack.services` first, then `dev_servers` in
+config.json. It assumes no port: an entry with neither a health URL nor a port reports `no_health_url`.
+
+## CLAUDE.md Config Format (fallback)
 
 Projects declare their dev server config in `## QA / Dev Server` section of CLAUDE.md:
 
@@ -41,15 +56,15 @@ Projects declare their dev server config in `## QA / Dev Server` section of CLAU
 ## QA / Dev Server
 
 ### Web App
-- **URL**: http://localhost:3001
-- **Health check**: `curl -s -o /dev/null -w "%{http_code}" http://localhost:3001`
-- **Launch**: `pnpm --filter operator-web dev` (from /project/root)
+- **URL**: `stack.services[].url`
+- **Health check**: `curl -s -o /dev/null -w "%{http_code}" <stack.services[].url>`
+- **Launch**: the start command of the service in `stack.services[]` (from the repo root)
 - **Ready signal**: "Ready in" in stdout
 - **Credentials**: admin@test.local / admin123456
 
-### Supabase (if applicable)
-- **Health check**: `supabase status`
-- **Launch**: `supabase start` (from /project/root)
+### Database service (if applicable)
+- **Health check**: the status command of that service in `stack.services[]`
+- **Launch**: the start command of that service in `stack.services[]` (from the repo root)
 ```
 
 ## Parsing the CLAUDE.md Config
@@ -60,26 +75,16 @@ QA_CONFIG=$(awk '/^## QA \/ Dev Server/,/^## /' CLAUDE.md | grep -v "^## ")
 
 # Extract fields
 QA_URL=$(echo "$QA_CONFIG" | grep "^\- \*\*URL\*\*" | sed 's/.*: //')
-QA_HEALTH=$(echo "$QA_CONFIG" | grep "^\- \*\*Health check\*\*" | sed 's/.*`: //' | tr -d '`')
+QA_HEALTH_CMD=$(echo "$QA_CONFIG" | grep "^\- \*\*Health check\*\*" | sed 's/.*`: //' | tr -d '`')
 QA_LAUNCH=$(echo "$QA_CONFIG" | grep "^\- \*\*Launch\*\*" | sed 's/.*`: //' | sed 's/ (.*//' | tr -d '`')
 QA_CREDS=$(echo "$QA_CONFIG" | grep "^\- \*\*Credentials\*\*" | sed 's/.*: //')
 ```
-
-## Defaults (when CLAUDE.md section absent)
-
-| Field | Default |
-|-------|---------|
-| URL | http://localhost:3000 |
-| Health check | `curl -s -o /dev/null -w "%{http_code}" http://localhost:3000` |
-| Launch | `npm run dev` |
-| Ready signal | "Ready in" or "ready" |
-| Credentials | none |
 
 ## Framework-Specific Ready Signals
 
 | Framework | Start Command | Ready Signal |
 |-----------|---------------|--------------|
-| Next.js | `npm run dev` | "Ready in" |
+| Framework dev server | the dev command from the profile | "Ready in" |
 | Vite | `npm run dev` | "ready in" |
 | Express | `npm start` | "listening on port" |
 | Django | `python manage.py runserver` | "Starting development server" |

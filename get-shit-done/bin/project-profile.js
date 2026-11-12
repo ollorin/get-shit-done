@@ -5,6 +5,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const {
+  NEW_STACK_KEYS, NEW_SHAPE_CHECKS, RENDERED_TEXT_MAX, isRenderedText,
+} = require('./project-profile-keys.js');
 
 const REQUIRED_KEYS = Object.freeze([
   'project.slug',
@@ -15,16 +18,17 @@ const REQUIRED_KEYS = Object.freeze([
 ]);
 
 const KNOWN_PROJECT_KEYS = ['slug', 'owner_title', 'risk_domains', 'ruling_topics'];
-const KNOWN_STACK_KEYS = ['preset', 'preset_version', 'paths', 'commands', 'test_command_shapes', 'gates', 'services', 'capabilities', 'isolation'];
-const KNOWN_COMMAND_KEYS = Object.freeze(['test_file', 'test_all', 'typecheck', 'lint', 'format', 'frontend_test', 'pre_pr_gate', 'search']);
+const KNOWN_STACK_KEYS = ['preset', 'preset_version', 'paths', 'commands', 'test_command_shapes', 'gates', 'services', 'capabilities', 'isolation', 'branch', ...NEW_STACK_KEYS];
+const KNOWN_COMMAND_KEYS = Object.freeze(['test_file', 'test_all', 'typecheck', 'lint', 'format', 'frontend_test', 'build', 'pre_pr_gate', 'search']);
 const COMMAND_PLACEHOLDERS = Object.freeze(['{root}', '{file}', '{paths}', '{project}']);
 const KNOWN_PATH_KEYS = Object.freeze(['backend', 'migrations', 'api_globs', 'e2e_scenarios', 'frontends']);
 const ARRAY_PATH_KEYS = Object.freeze(['api_globs', 'frontends']);
-const KNOWN_CAPABILITY_KEYS = Object.freeze(['ui_qa']);
+const KNOWN_CAPABILITY_KEYS = Object.freeze(['backend', 'web_ui', 'ui_qa']);
 const ISOLATION_KEYS = Object.freeze(['port_base', 'container_suffix', 'lock_dir', 'machine_locks']);
 const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
 const PLACEHOLDER_RE = /(?<!\$)\{[a-z_]+\}/g;
 const SINGLE_QUOTED_RE = /'[^']*'/g;
+const GATE_PATH_RE = /^[A-Za-z0-9._][A-Za-z0-9._/-]*$/;
 
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const isNonEmptyString = (v) => typeof v === 'string' && v.trim().length > 0;
@@ -46,6 +50,24 @@ function uniqueStringsCheck(key, v) {
 // With an odd number of quotes the pairing is unknowable, so nothing is stripped and every placeholder is read.
 const isBalancedQuotes = (v) => (v.split("'").length - 1) % 2 === 0;
 const placeholdersIn = (v) => (isBalancedQuotes(v) ? v.replace(SINGLE_QUOTED_RE, '') : v).match(PLACEHOLDER_RE) || [];
+
+const renderedTextCheck = (key, v) => (isRenderedText(v)
+  ? []
+  : [problem(key, `must match ^[A-Za-z0-9 ._/-]+$ and be at most ${RENDERED_TEXT_MAX} characters (rendered into generated files)`)]);
+
+// A branch name is also a git ref (git check-ref-format --branch): no space or control character, none of ~ ^ : ? * [ \ (the rendered-text
+// alphabet already excludes them; they are named here so a widened alphabet cannot admit them), no @{, no leading -, not HEAD, no empty
+// component (// or a leading or trailing /), no component starting with . or ending in .lock, no .., no trailing dot.
+const BRANCH_REFUSED = [/[\x00-\x20\x7f~^:?*[\\]/, /^-/, /\.\./, /@\{/, /\.$/, /^@$/];
+const branchOk = (v) => !BRANCH_REFUSED.some((re) => re.test(v)) && v !== 'HEAD'
+  && v.split('/').every((c) => c.length > 0 && !c.startsWith('.') && !c.endsWith('.lock'));
+const branchCheck = (key, v) => (isRenderedText(v) && branchOk(v)
+  ? []
+  : [problem(key, 'must be a git branch name: rendered text that git check-ref-format accepts (no space, no leading -, no //, no component starting with . or ending in .lock, no .., no trailing / or ., not HEAD)')]);
+
+const gatePathCheck = (key, v) => (isNonEmptyString(v) && GATE_PATH_RE.test(v) && !v.split('/').includes('..')
+  ? []
+  : [problem(key, 'must be a repo-relative file path: letters, digits, . _ / -, no leading / or -, no .. segment')]);
 
 function commandValueProblems(key, v) {
   if (!isNonEmptyString(v)) return [problem(key, 'must be a non-empty string')];
@@ -91,22 +113,39 @@ function gatesCheck(key, v) {
 
 function servicesCheck(key, v) {
   if (!Array.isArray(v)) return [problem(key, 'must be an array of {name, url}')];
-  const optional = ['health', 'launch', 'ready'];
-  const shape = v.flatMap((s, i) => (isObject(s) && isNonEmptyString(s.name) && isNonEmptyString(s.url)
-    && optional.every((f) => s[f] === undefined || isNonEmptyString(s[f]))
-    ? []
-    : [problem(key, `entry ${i} needs non-empty name and url`)]));
+  // health is a URL or path (probed with curl); health_cmd is the shell command, the only string a site evals.
+  const optional = ['health', 'health_cmd', 'launch', 'ready'];
+  const shape = v.flatMap((s, i) => {
+    if (!(isObject(s) && isNonEmptyString(s.name) && isNonEmptyString(s.url))) {
+      return [problem(key, `entry ${i} needs non-empty name and url`)];
+    }
+    if (s.health_cmd !== undefined && !isNonEmptyString(s.health_cmd)) {
+      return [problem(key, `entry ${i} health_cmd must be a non-empty shell command that prints the HTTP status`)];
+    }
+    if (typeof s.health === 'string' && /[|;&$`]/.test(s.health)) {
+      return [problem(key, `entry ${i} health is a shell command; move to health_cmd`)];
+    }
+    const bad = optional.find((f) => s[f] !== undefined && !isNonEmptyString(s[f]));
+    return bad === undefined ? [] : [problem(key, `entry ${i} ${bad} must be a non-empty string`)];
+  });
   return shape.length ? shape : uniqueCheck(key, v.map((s) => s.name), 'service name');
 }
 
 function capabilitiesCheck(key, v) {
   if (!isObject(v)) return [problem(key, 'must be an object')];
-  if (v.ui_qa === undefined) return [];
+  const groups = ['backend', 'web_ui'].flatMap((name) => (v[name] === undefined || v[name] === false || isObject(v[name])
+    ? []
+    : [problem(`${key}.${name}`, 'must be an object, or false to turn the group off')]));
+  if (v.ui_qa === undefined) return groups;
   const u = v.ui_qa;
   const ok = isObject(u) && isNonEmptyString(u.driver) && isNonEmptyString(u.agent)
     && (u.tool_prefix === undefined || typeof u.tool_prefix === 'string')
-    && (u.reset_patterns === undefined || isListOfNonEmpty(u.reset_patterns));
-  return ok ? [] : [problem(`${key}.ui_qa`, 'needs non-empty driver and agent; tool_prefix string; reset_patterns non-empty strings')];
+    && (u.reset_patterns === undefined || isListOfNonEmpty(u.reset_patterns))
+    && (u.lock_wrappers === undefined || isListOfNonEmpty(u.lock_wrappers))
+    && (u.lock_file === undefined || isNonEmptyString(u.lock_file));
+  return ok
+    ? groups
+    : [...groups, problem(`${key}.ui_qa`, 'needs non-empty driver and agent; tool_prefix string; reset_patterns and lock_wrappers non-empty strings; lock_file non-empty string')];
 }
 
 function isolationCheck(key, v) {
@@ -122,18 +161,22 @@ function isolationCheck(key, v) {
 
 const SHAPE_CHECKS = Object.freeze([
   ['project.slug', slugCheck],
-  ['project.owner_title', nonEmptyCheck],
+  ['project.owner_title', renderedTextCheck],
+  ['stack.branch.default', branchCheck],
   ['project.risk_domains', uniqueStringsCheck],
   ['project.ruling_topics', uniqueStringsCheck],
   ['stack.preset', nonEmptyCheck],
   ['stack.preset_version', nonEmptyCheck],
   ['stack.paths', pathsCheck],
   ['stack.commands', commandsCheck],
+  ['stack.commands.search', renderedTextCheck],
+  ['stack.commands.pre_pr_gate', gatePathCheck],
   ['stack.test_command_shapes', listCheck],
   ['stack.gates', gatesCheck],
   ['stack.services', servicesCheck],
   ['stack.capabilities', capabilitiesCheck],
   ['stack.isolation', isolationCheck],
+  ...NEW_SHAPE_CHECKS,
 ]);
 
 const UNKNOWN_KEY_SCOPES = Object.freeze([
@@ -237,6 +280,7 @@ function runCli(cwd, args) {
 module.exports = {
   REQUIRED_KEYS,
   KNOWN_COMMAND_KEYS,
+  KNOWN_CAPABILITY_KEYS,
   COMMAND_PLACEHOLDERS,
   loadProfile,
   getProfileValue,

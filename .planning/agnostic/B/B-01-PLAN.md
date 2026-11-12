@@ -33,16 +33,16 @@ e2e_flows: []
 ---
 
 <objective>
-Phase B1 + B6 (design: `/Users/ollorin/igaming-platform/.planning/fable-review/FABLE-AGNOSTIC-GSD.md` lines 203-234). B1: presets survive install unmodified. B6: the secret scanner that B-04 runs over rendered output and `npm test` runs over `get-shit-done/presets/`.
+Phase B1 + B6 (design: `~/igaming-platform/.planning/fable-review/FABLE-AGNOSTIC-GSD.md` lines 203-234). B1: presets survive install unmodified. B6: the secret scanner that B-04 runs over rendered output and `npm test` runs over `get-shit-done/presets/`.
 
 `get-shit-done/presets/` does not exist yet (Phase C creates it). Do not create it, not even temporarily.
 </objective>
 
 <executor_rules>
-- Work only in `/Users/ollorin/get-shit-done-agnostic` (branch `exp/agnostic`). Never touch `/Users/ollorin/igaming-platform`, `~/.claude`, `~/get-shit-done`. Tests create every file under `fs.mkdtempSync(path.join(os.tmpdir(), ...))` and remove it in `afterEach`.
+- Work only in `~/get-shit-done-agnostic` (branch `exp/agnostic`). Never touch `~/igaming-platform`, `~/.claude`, `~/get-shit-done`. Tests create every file under `fs.mkdtempSync(path.join(os.tmpdir(), ...))` and remove it in `afterEach`.
 - Forbidden: `npm run install:gsd`, `node bin/install.js` without a scratch cwd, `npm install`, `git push`, `git stash`, `git reset`, `git clean`, `git checkout -- <file>`, `--no-verify`.
 - Do not edit Phase A files: `scripts/agnostic-lint*`, `scripts/agnostic-lint/*`, `get-shit-done/bin/project-profile*.js`, `get-shit-done/templates/product-brief.md`, `get-shit-done/templates/stack-profile.md`, `get-shit-done/references/project-context.md`. Before editing `package.json` run `git status --short -- package.json`; if it is not empty, stop and report (another writer is active).
-- One test file: `NODE_PATH=$HOME/get-shit-done/node_modules node --test <file>`. Full suite (once, in Task 4): `cd /Users/ollorin/get-shit-done-agnostic && NODE_PATH=$HOME/get-shit-done/node_modules npm test > /tmp/agnostic-B01.log 2>&1; echo rc=$?`, then read the last 15 lines only. Success is rc=0 and `# fail 0` plus the named tests present; no numeric pass threshold.
+- One test file: `NODE_PATH=$HOME/get-shit-done/node_modules node --test <file>`. Full suite (once, in Task 4): `cd ~/get-shit-done-agnostic && NODE_PATH=$HOME/get-shit-done/node_modules npm test > /tmp/agnostic-B01.log 2>&1; echo rc=$?`, then read the last 15 lines only. Success is rc=0 and `# fail 0` plus the named tests present; no numeric pass threshold.
 - `bin/install.js` is 2105 lines: read ONLY 651-700 (`copyWithPathReplacement`), 1541-1558 (call site), 2103-2105 (exports). `bin/install.test.js`: read 22-110 (helpers, `runInstall`) and 363-450 (scratch-repo pattern). Locate by quoted anchor text if lines moved.
 - Lint: `node scripts/agnostic-lint.js check` must exit 0 without regenerating the baseline. `bin/install.js` and every non-test file in `get-shit-done/bin/` are in scope, so new lines (code and comments) carry no vendor, product or tool names. Pattern ids in the scan module are the neutral lowercase ids given below, verbatim.
 - Never write a token-shaped literal in any file. Tests build such strings at runtime by concatenation (`'gh' + 'p_' + ...`).

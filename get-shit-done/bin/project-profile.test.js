@@ -54,8 +54,8 @@ function validProfile() {
         lint: 'eslint {paths}',
         format: 'prettier {root}',
         frontend_test: 'vitest {project}',
-        pre_pr_gate: 'npm run gate',
-        search: 'rg {file}',
+        pre_pr_gate: 'scripts/gate.sh',
+        search: 'git grep -n',
       },
       test_command_shapes: ['npm test -- <file>'],
       gates: [{ id: 'lint', run: 'npm run lint' }],
@@ -165,6 +165,16 @@ describe('project-profile', () => {
     const noAgent = validProfile();
     noAgent.stack.capabilities = { ui_qa: { driver: 'browser' } };
     assert.ok(invalidKeys(profile.validateProfile(loaded(noAgent))).includes('stack.capabilities.ui_qa'));
+
+    const lockWrappers = (value) => {
+      const config = validProfile();
+      config.stack.capabilities = { ui_qa: { driver: 'browser', agent: 'qa-agent', lock_wrappers: value } };
+      return invalidKeys(profile.validateProfile(loaded(config))).includes('stack.capabilities.ui_qa');
+    };
+    assert.strictEqual(lockWrappers(['stack-lock.sh', 'stack-lock.ts']), false);
+    assert.strictEqual(lockWrappers(undefined), false);
+    assert.strictEqual(lockWrappers('stack-lock.sh'), true);
+    assert.strictEqual(lockWrappers(['']), true);
 
     const emptyCaps = validProfile();
     emptyCaps.stack.capabilities = {};
@@ -276,8 +286,8 @@ describe('validators', () => {
     }
   });
 
-  test('25 service optional fields health, launch and ready must be non-empty when present', () => {
-    for (const field of ['health', 'launch', 'ready']) {
+  test('25 service optional fields health, health_cmd, launch and ready must be non-empty when present', () => {
+    for (const field of ['health', 'health_cmd', 'launch', 'ready']) {
       const config = validProfile();
       config.stack.services = [{ name: 'api', url: 'http://127.0.0.1:3000', [field]: '' }];
       assert.ok(invalid(config).includes('stack.services'), field);
@@ -285,6 +295,24 @@ describe('validators', () => {
     const absent = validProfile();
     absent.stack.services = [{ name: 'api', url: 'http://127.0.0.1:3000' }];
     assert.deepStrictEqual(invalid(absent), []);
+  });
+
+  const reasonsOf = (config) => profile.validateProfile(loaded(config)).invalid.map((i) => i.reason);
+  test('R4 a bad health_cmd names the key health_cmd and the expected form (a shell command that prints the HTTP status)', () => {
+    const config = validProfile();
+    config.stack.services = [{ name: 'api', url: 'http://127.0.0.1:3000', health_cmd: '' }];
+    assert.ok(reasonsOf(config).some((r) => /health_cmd/.test(r) && /non-empty shell command that prints the HTTP status/.test(r)));
+  });
+
+  test('R4 a legacy health holding a shell pipeline or metacharacter is refused: move to health_cmd', () => {
+    for (const health of ['curl -s localhost:3000 | grep ok', 'curl "$URL"', 'a; b', 'x && y', 'curl `x`']) {
+      const config = validProfile();
+      config.stack.services = [{ name: 'api', url: 'http://127.0.0.1:3000', health }];
+      assert.ok(reasonsOf(config).some((r) => /health is a shell command; move to health_cmd/.test(r)), health);
+    }
+    const path = validProfile();
+    path.stack.services = [{ name: 'api', url: 'http://127.0.0.1:3000', health: '/health?deep=1' }];
+    assert.deepStrictEqual(invalid(path), []);
   });
 
   test('26 placeholders: awk and shell expansions pass; test_file must contain an unquoted {file}', () => {
@@ -327,6 +355,32 @@ describe('validators', () => {
     assert.ok(invalid(unpaired).includes('stack.commands.lint'));
     const unpairedReason = profile.validateProfile(loaded(unpaired)).invalid.find((i) => i.key === 'stack.commands.lint').reason;
     assert.strictEqual(unpairedReason, 'unknown placeholder {bogus}');
+  });
+
+  test('T2 P-j rendered text keys reject quote, backtick, $( and newline; safe values pass', () => {
+    const RENDERED = [
+      ['project.owner_title', ['project', 'owner_title']],
+      ['stack.branch.default', ['stack', 'branch', 'default']],
+      ['stack.commands.search', ['stack', 'commands', 'search']],
+      ['stack.commands.pre_pr_gate', ['stack', 'commands', 'pre_pr_gate']],
+    ];
+    const setAt = (config, path, value) => {
+      path.slice(0, -1).reduce((node, k) => {
+        node[k] = node[k] ?? {};
+        return node[k];
+      }, config)[path[path.length - 1]] = value;
+      return config;
+    };
+    for (const [key, path] of RENDERED) {
+      for (const bad of ['a"b', 'a`b', 'a$(b', 'a\nb']) {
+        assert.ok(invalid(setAt(validProfile(), path, bad)).includes(key), `${key} must reject ${JSON.stringify(bad)}`);
+      }
+      for (const good of ['release/1.x', 'scripts/pre-pr-gate.sh']) {
+        assert.deepStrictEqual(invalid(setAt(validProfile(), path, good)), [], `${key} accepts ${good}`);
+      }
+    }
+    assert.deepStrictEqual(invalid(setAt(validProfile(), ['stack', 'commands', 'search'], 'git grep -n')), []);
+    assert.deepStrictEqual(invalid(setAt(validProfile(), ['project', 'owner_title'], 'git grep -n')), []);
   });
 });
 
@@ -464,5 +518,109 @@ describe('templates and reference', () => {
       const n = lineCount(read(rel));
       assert.ok(n <= limit, `${rel}: ${n} lines exceeds ${limit}`);
     });
+  });
+});
+
+describe('agnostic-M-03 3.1: shape checks for the base preset keys', () => {
+  const NEW_VALID = {
+    branch: { default: 'release/1.x' },
+    locked_commands: ['test:e2e', 'run-all-suites.sh'],
+    flake_patterns: {
+      test_globs: ['**/*.test.js'],
+      patterns: [{ id: 'shared-row', match: 'INSERT INTO shared_', requires_before: 'retry', unless_nearby: 'flake-ignore', window: 40, message: 'handle the collision' }],
+    },
+    deploy: { never_touch: ['gh workflow run deploy-prod', 'tools/release.sh prod'], slot_1: 'gsd-unused-deploy-entry-1' },
+    style: { rule_set: 'generic', roots: ['.'], exclude_globs: ['vendor/**'], edge_globs: ['bin/**'], max_file_lines: 300, dup_min_lines: 8 },
+    cve: { lockfiles: ['package-lock.json'], severity_floor: 'high', allow_missing_scanner: false },
+    host: { worker_patterns: ['vitest'], protected_patterns: ['postgres'] },
+    mutation: { error_pattern: 'SyntaxError|Cannot find module' },
+    capabilities: { backend: {}, web_ui: false, ui_qa: { driver: 'browser', agent: 'qa-agent', lock_file: '.tmp/ui-qa.lock' } },
+  };
+
+  function checkStack(patch) {
+    const base = validProfile();
+    const stack = { ...base.stack, ...patch };
+    return profile.validateProfile({ found: true, error: null, project: base.project, stack });
+  }
+
+  test('3.1 each new key with a valid value passes the check with no problem', () => {
+    const report = checkStack(NEW_VALID);
+    assert.deepStrictEqual(report.invalid, []);
+    assert.deepStrictEqual(report.missing, []);
+    assert.strictEqual(report.ok, true);
+  });
+
+  test('3.1 rejects the wrong shapes the plan names, each naming its key', () => {
+    const cases = [
+      [{ capabilities: { backend: true } }, 'stack.capabilities.backend'],
+      [{ locked_commands: 'x' }, 'stack.locked_commands'],
+      [{ deploy: { never_touch: ['a', 'b', 'c', 'd', 'e', 'f'] } }, 'stack.deploy.never_touch'],
+      [{ style: { rule_set: 3, roots: ['.'] } }, 'stack.style.rule_set'],
+      [{ flake_patterns: { test_globs: ['*.test.js'], patterns: [{ id: 'x', message: 'm' }] } }, 'stack.flake_patterns.patterns'],
+    ];
+    for (const [patch, key] of cases) {
+      const report = checkStack(patch);
+      assert.ok(report.invalid.some((p) => p.key === key), `${key}: ${JSON.stringify(report.invalid)}`);
+    }
+  });
+
+  test('3.1 a flake pattern with an invalid regular expression, a zero window or no message is rejected', () => {
+    const pattern = (extra) => ({ id: 'p', match: 'a', message: 'm', ...extra });
+    const cases = [
+      { match: '(' },
+      { window: 0 },
+      { message: '' },
+      { requires_before: '[' },
+    ];
+    for (const extra of cases) {
+      const report = checkStack({ flake_patterns: { test_globs: ['*.js'], patterns: [pattern(extra)] } });
+      assert.ok(report.invalid.some((p) => p.key === 'stack.flake_patterns.patterns'), JSON.stringify(extra));
+    }
+  });
+});
+
+describe('agnostic-M-09 9.6: stack.mutation', () => {
+  const check = (mutation) => profile.validateProfile({ found: true, error: null, project: validProfile().project, stack: { ...validProfile().stack, mutation } });
+
+  test('9.6 stack.mutation.error_pattern is accepted as a regular expression string and rejected otherwise', () => {
+    assert.deepStrictEqual(check({ error_pattern: 'SyntaxError' }).invalid, []);
+    assert.deepStrictEqual(check({}).invalid, [], 'the key is optional');
+    for (const bad of [5, true, null, ['SyntaxError'], '', '(']) {
+      assert.ok(check({ error_pattern: bad }).invalid.some((p) => p.key === 'stack.mutation.error_pattern'), JSON.stringify(bad));
+    }
+    assert.ok(check('x').invalid.some((p) => p.key === 'stack.mutation'), 'not an object');
+  });
+});
+
+describe('agnostic-M-03 3.8 C12: branch names and rendered length', () => {
+  const keysOf = (project, stack) => profile.validateProfile({
+    found: true,
+    error: null,
+    project: { slug: 'demo', owner_title: 'owner', risk_domains: [], ruling_topics: [], ...project },
+    stack,
+  }).invalid.map((p) => p.key);
+
+  test('C12 a branch with a slash and a dot is accepted', () => {
+    assert.deepStrictEqual(keysOf({}, { branch: { default: 'release/1.x' } }), []);
+  });
+
+  test('C12 a branch that is not a git ref is rejected, naming stack.branch.default', () => {
+    for (const bad of ['my branch', '-x', 'a..b', 'x.lock', '/x', 'x/']) {
+      assert.deepStrictEqual(keysOf({}, { branch: { default: bad } }), ['stack.branch.default'], bad);
+    }
+  });
+
+  test('F6 the full git check-ref-format rules: //, /., a component ending .lock, a trailing dot, HEAD, @{ and the ref metacharacters are rejected; ordinary names are accepted', () => {
+    for (const bad of ['a//b', 'a/.b', '.hidden', 'a/b.lock', 'a.lock/b', 'a.', 'a/b.', 'HEAD', 'a@{b', 'a\u0001b', 'a\tb', 'a~b', 'a^b', 'a:b', 'a?b', 'a*b', 'a[b', 'a\\b', '/a', 'a/', 'a//', '@']) {
+      assert.deepStrictEqual(keysOf({}, { branch: { default: bad } }), ['stack.branch.default'], JSON.stringify(bad));
+    }
+    for (const ok of ['main', 'master', 'release/1.x', 'feature/a-b_c', 'a.b/c.d', 'v1.2.3', 'HEAD2', 'heads/HEAD']) {
+      assert.deepStrictEqual(keysOf({}, { branch: { default: ok } }), [], ok);
+    }
+  });
+
+  test('C12 owner_title of 80 characters is accepted and 81 is rejected', () => {
+    assert.deepStrictEqual(keysOf({ owner_title: 'a'.repeat(80) }, {}), []);
+    assert.deepStrictEqual(keysOf({ owner_title: 'a'.repeat(81) }, {}), ['project.owner_title']);
   });
 });

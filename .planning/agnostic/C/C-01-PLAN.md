@@ -41,7 +41,7 @@ e2e_flows: []
 ---
 
 <objective>
-Phase C1 of `/Users/ollorin/igaming-platform/.planning/fable-review/FABLE-AGNOSTIC-GSD.md` (sections 4.4-4.6): snapshot first, factor later. A flat preset, no `extends`, no packs (Phase F). The Charlotte MCP allow rules and the 10 absolute-path allow rules stay verbatim in the fragment.
+Phase C1 of `~/igaming-platform/.planning/fable-review/FABLE-AGNOSTIC-GSD.md` (sections 4.4-4.6): snapshot first, factor later. A flat preset, no `extends`, no packs (Phase F). The Charlotte MCP allow rules and the 10 absolute-path allow rules stay verbatim in the fragment.
 </objective>
 
 <precondition>
@@ -54,7 +54,7 @@ Run only after `.planning/agnostic/B/B-04-SUMMARY.md` exists and `git status --s
 3. **Settings.** `get-shit-done/bin/project-deploy-render.js:9` allows only `permissions` and `hooks` in a fragment. `settings.snapshot.json` is the verbatim file (golden line `.claude/settings.json`, never deployed); `settings.fragment.json` is derived from it. The four other keys (`env`, `enableAllProjectMcpServers`, `enabledPlugins`, `sandbox`) are NOT deployed by the Phase B engine. G5 pins that exact list so a change is seen. **Phase H must carry these four keys** (the README `## Settings` and the SUMMARY say so, and the G5 assertion message names it).
 4. **Hook canaries are included** (`canaries/canaries.jsonl`, `canaries/run-canaries.sh` → `scripts/validation/hook-canaries/`). Reason: Phase F1 parameterises the hooks and needs rows that match the hooks of the same commit. They are data in this phase: the runner needs `jq`, `perl`, macOS `date -v` and hooks under `~/.claude`, so it is not run by the fork's `npm test` until F1.
 5. **Lint scope.** No scope in `scripts/agnostic-lint.js:13-26` matches `get-shit-done/presets/`, so presets are already uncounted. No code change; Task 3 pins it with a test.
-6. **Planner measurement at the pinned SHA** (fork `58a50a5`; re-measured for counts at `95a02959e`, the repin of the revision pass: `git diff --stat e319843b 95a02959e -- CLAUDE.md .claude scripts/validation/hook-canaries` changes only `CLAUDE.md`, still 50 files, 228 lines, 1 absolute path; `scanDir` is re-run by Task 1): 50 files, `scanDir` 0 hits, no `{{dot.path}}` placeholder in any file, `renderPreset` ok, `planDeploy init` ok with 50 changes. Absolute `/Users/ollorin` strings: 10 in the settings file, 1 in CLAUDE.md, 122 in `canaries.jsonl`; kept verbatim (they become `{{project.root}}` in Phase F).
+6. **Planner measurement at the pinned SHA** (fork `58a50a5`; re-measured for counts at `95a02959e`, the repin of the revision pass: `git diff --stat e319843b 95a02959e -- CLAUDE.md .claude scripts/validation/hook-canaries` changes only `CLAUDE.md`, still 50 files, 228 lines, 1 absolute path; `scanDir` is re-run by Task 1): 50 files, `scanDir` 0 hits, no `{{dot.path}}` placeholder in any file, `renderPreset` ok, `planDeploy init` ok with 50 changes. Absolute `~` strings: 10 in the settings file, 1 in CLAUDE.md, 122 in `canaries.jsonl`; kept verbatim (they become `{{project.root}}` in Phase F).
 </decisions>
 
 <threat_model>
@@ -72,12 +72,12 @@ The preset carries permissions and hooks, so it is a guardrail path. No money mu
 </threat_model>
 
 <executor_rules>
-- Work only in `/Users/ollorin/get-shit-done-agnostic` (branch `exp/agnostic`). The igaming repo `/Users/ollorin/igaming-platform` is READ-ONLY and only through `git -C /Users/ollorin/igaming-platform archive|ls-tree|show <sha>`. Never read its working tree, never `cd` into it, never touch `~/.claude` or `~/get-shit-done`.
+- Work only in `~/get-shit-done-agnostic` (branch `exp/agnostic`). The igaming repo `~/igaming-platform` is READ-ONLY and only through `git -C ~/igaming-platform archive|ls-tree|show <sha>`. Never read its working tree, never `cd` into it, never touch `~/.claude` or `~/get-shit-done`.
 - Forbidden: `npm run install:gsd`, `node bin/install.js`, `npm install`, `git push`, `git stash`, `git reset`, `git clean`, `git checkout`, `git restore`, `--no-verify`, `gsd-tools project init|sync` with a `--root` outside `os.tmpdir()`.
 - Session hooks reject: recursive `grep`/`rg` (use `git grep -n <pat> -- <path>`), and shell commands that write to a path containing `.claude/hooks` or `.claude/settings`. Use the commands below as written; they never name those paths.
 - Never Read `canaries/canaries.jsonl` (145 KB) or `settings.snapshot.json` in full; use `wc`, `shasum`, `node -e` one-liners. Do not open the copied rules, hooks or skills: they are opaque bytes in this plan.
 - Mutants: back the file up to `/tmp/c01-bak/` first (`cp -p`), mutate, run the single test file, confirm the named test fails, restore with `cp -p`, then `git status --short -- <dir>` prints nothing.
-- One test file: `cd /Users/ollorin/get-shit-done-agnostic && NODE_PATH=$HOME/get-shit-done/node_modules node --test <file>`. Full suite once, in Task 3: `NODE_PATH=$HOME/get-shit-done/node_modules npm test > /tmp/agnostic-C01.log 2>&1; echo rc=$?`, read the last 15 lines only.
+- One test file: `cd ~/get-shit-done-agnostic && NODE_PATH=$HOME/get-shit-done/node_modules node --test <file>`. Full suite once, in Task 3: `NODE_PATH=$HOME/get-shit-done/node_modules npm test > /tmp/agnostic-C01.log 2>&1; echo rc=$?`, read the last 15 lines only.
 - Tests: `node:test`, `node:assert`, CommonJS, `'use strict'`, built-ins only, tmp dirs under `os.tmpdir()` removed in `afterEach`. No token-shaped literal anywhere.
 - Commit per task: `git add -f <paths>` then `git commit -m "<msg>" -- <paths>`; ignore untracked `.audit/`. Trailers on every commit:
   `Co-Authored-By: Claude Haiku <noreply@anthropic.com>`
@@ -93,7 +93,7 @@ The preset carries permissions and hooks, so it is a guardrail path. No money mu
 Run exactly (each line is one command; all were run by the planner against `/tmp` and exit 0):
 
 ```
-SHA=95a02959e5fa464f3bcce11378c803f7b86ec76d; I=/Users/ollorin/igaming-platform; P=/Users/ollorin/get-shit-done-agnostic/get-shit-done/presets/igaming; RAW=/tmp/igaming-raw-C01
+SHA=95a02959e5fa464f3bcce11378c803f7b86ec76d; I=~/igaming-platform; P=~/get-shit-done-agnostic/get-shit-done/presets/igaming; RAW=/tmp/igaming-raw-C01
 rm -rf $RAW; mkdir -p $RAW $P/canaries
 git -C $I archive $SHA CLAUDE.md .claude scripts/validation/hook-canaries | tar -x -C $RAW
 git -C $I archive $SHA CLAUDE.md .claude | tar -x -C $P -s '|^\.claude/||'
@@ -129,11 +129,11 @@ Write `get-shit-done/presets/igaming/README.md` (≤ 60 lines), sections in this
 Commit: `feat(agnostic-C1): igaming snapshot preset at 95a02959e (49 files, settings fragment, golden)`.
   </action>
   <verify>
-`cd /tmp/igaming-raw-C01 && shasum -a 256 -c --status /Users/ollorin/get-shit-done-agnostic/get-shit-done/presets/igaming/golden.sha256; echo rc=$?` → `rc=0` (with redactions: only the README-listed files fail).
+`cd /tmp/igaming-raw-C01 && shasum -a 256 -c --status ~/get-shit-done-agnostic/get-shit-done/presets/igaming/golden.sha256; echo rc=$?` → `rc=0` (with redactions: only the README-listed files fail).
 `wc -l get-shit-done/presets/igaming/golden.sha256` → 50.
 `node -e "const r=require('./get-shit-done/bin/project-deploy-render.js').renderPreset(process.argv[1],{});const {sha256}=require('./get-shit-done/bin/project-deploy-files.js');const g=new Map(require('fs').readFileSync(process.argv[1]+'/golden.sha256','utf8').trim().split('\n').map((l)=>[l.slice(66),l.slice(0,64)]));console.log(r.ok,r.files.length,r.files.filter((f)=>g.get(f.dest)!==sha256(f.content)).length,r.files.filter((f)=>f.mode&0o111).length)" get-shit-done/presets/igaming` → `true 49 0 11`.
 `git ls-files get-shit-done/presets/igaming | wc -l` → 54. `git ls-files -s get-shit-done/presets/igaming/hooks get-shit-done/presets/igaming/canaries | grep -c '^100755'` → 11.
-`git -C /Users/ollorin/igaming-platform status --short | wc -l` is the same number before and after the task (record both).
+`git -C ~/igaming-platform status --short | wc -l` is the same number before and after the task (record both).
 `node scripts/agnostic-lint.js check` → exit 0.
   </verify>
   <done>54 tracked preset files; golden derived from the archive; scan clean or redactions recorded; igaming repo untouched.</done>
@@ -146,7 +146,7 @@ Commit: `feat(agnostic-C1): igaming snapshot preset at 95a02959e (49 files, sett
 New file: no existing suite owns preset content (`git grep -n "presets/igaming" -- '*.test.js'` is empty). Tier T1 (no database in this repo; the guardrail rows of the threat model are covered by G4, G5). Layer: integration on the committed preset through the real `loadPreset` / `renderPreset` / `mergeSettings`.
 
 Helpers at the top of the file:
-- `PRESET = path.join(__dirname, '..', 'presets', 'igaming')`; `IGAMING_ROOT = '/Users/ollorin/igaming-platform'`; `IGAMING_VALUES = { project: { slug: 'igaming', root: IGAMING_ROOT } }`; `SETTINGS_DEST = '.claude/settings.json'`.
+- `PRESET = path.join(__dirname, '..', 'presets', 'igaming')`; `IGAMING_ROOT = '~/igaming-platform'`; `IGAMING_VALUES = { project: { slug: 'igaming', root: IGAMING_ROOT } }`; `SETTINGS_DEST = '.claude/settings.json'`.
 - `META = ['preset.json', 'README.md', 'golden.sha256', 'settings.fragment.json', 'settings.snapshot.json']`.
 - `golden()` → `Map(dest → hex)`; every non-empty line must match `/^([0-9a-f]{64})  (.+)$/`, else `assert.fail`.
 - `SRC_RULES = [['.claude/', ''], ['scripts/validation/hook-canaries/', 'canaries/']]`; `srcOf(dest)` = first rule whose prefix matches, replaced; else `dest`.
@@ -219,7 +219,7 @@ Full suite `rc=0`, `# fail 0`. `node scripts/agnostic-lint.js check` → exit 0,
 
 <verification>
 - `cd /tmp/igaming-raw-C01 && shasum -a 256 -c --status <fork>/get-shit-done/presets/igaming/golden.sha256` → rc 0 (fresh `git archive` of the pinned SHA).
-- `git -C /Users/ollorin/igaming-platform log -1 --format=%H feature/codebase-review-hardening` may have moved on; the preset stays at the pinned SHA (design risk R2).
+- `git -C ~/igaming-platform log -1 --format=%H feature/codebase-review-hardening` may have moved on; the preset stays at the pinned SHA (design risk R2).
 - Full suite rc 0; agnostic lint exit 0 with the baseline file unchanged.
 - No file under `get-shit-done/presets/igaming` has a path segment starting with `.`.
 </verification>

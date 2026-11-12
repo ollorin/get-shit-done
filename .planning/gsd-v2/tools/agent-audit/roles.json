@@ -1,0 +1,509 @@
+{
+ "general-purpose": {
+  "n": 2178,
+  "cost": 0,
+  "models": {
+   "sonnet": 697,
+   "haiku": 1040,
+   "opus": 441
+  },
+  "maxctx_med": 98174.5,
+  "maxctx_p90": 203181,
+  "compacted": 41,
+  "ended_err": 41,
+  "turns_med": 19.0,
+  "tools": {
+   "Bash": 53269,
+   "Read": 12081,
+   "Edit": 5410,
+   "Write": 1157,
+   "Monitor": 632,
+   "SubagentHandback": 605,
+   "Agent": 184,
+   "ToolSearch": 118,
+   "WebFetch": 43,
+   "TaskStop": 31,
+   "SendMessage": 31,
+   "WebSearch": 22,
+   "mcp__claude_ai_Claude_Docs__guide": 10,
+   "mcp__claude-code-remote__list_events": 10,
+   "mcp__claude-code-remote__list_sessions": 8,
+   "mcp__claude-code-remote__interrupt_session": 4,
+   "mcp__claude-code-remote__send_message": 3,
+   "bash": 3,
+   "mcp__claude-code-remote__list_triggers": 2,
+   "Mcp__claude-code-remote__list_events": 2,
+   "Send\nMessage": 1,
+   "mcp__claude-code-remote__list_repos": 1,
+   "mcp__claude-code-remote__send_later": 1,
+   "Skill": 1,
+   "mcp__telegram__send_status_update": 1,
+   "zg query --rg -n": 1,
+   "mcp__claude-code-remote__SubagentHandback": 1,
+   "ListAgents": 1,
+   "Mcp__ReadTool_placeholder": 1,
+   "mcp__claude-code-remote__create_session": 1,
+   "Mcp__claude-code-remote__mcp__claude-code-remote__noop": 1
+  },
+  "spawned": {
+   "general-purpose": 152,
+   "gsd-executor": 16,
+   "None": 9,
+   "fork": 2,
+   "gsd-integration-checker": 2,
+   "gsd-roadmapper": 2
+  }
+ },
+ "gsd-executor": {
+  "n": 1144,
+  "cost": 0,
+  "models": {
+   "sonnet": 594,
+   "haiku": 521,
+   "opus": 29
+  },
+  "maxctx_med": 163689.5,
+  "maxctx_p90": 308625,
+  "compacted": 252,
+  "ended_err": 35,
+  "turns_med": 64.0,
+  "tools": {
+   "Bash": 82814,
+   "Edit": 13745,
+   "Read": 11533,
+   "Write": 2330,
+   "Agent": 1227,
+   "LSP": 316,
+   "SendMessage": 186,
+   "SubagentHandback": 131,
+   "Monitor": 57,
+   "TaskStop": 7,
+   "bash": 6,
+   "bash_placeholder": 1
+  },
+  "spawned": {
+   "general-purpose": 954,
+   "gsd-docs-updater": 77,
+   "None": 75,
+   "gsd-executor": 54,
+   "gsd-test-writer": 26,
+   "gsd-charlotte-qa": 26
+  }
+ },
+ "gsd-planner": {
+  "n": 119,
+  "cost": 0,
+  "models": {
+   "opus": 105,
+   "sonnet": 14
+  },
+  "maxctx_med": 188062,
+  "maxctx_p90": 308091,
+  "compacted": 13,
+  "ended_err": 2,
+  "turns_med": 48,
+  "tools": {
+   "Bash": 5522,
+   "Read": 618,
+   "Write": 341,
+   "Agent": 16,
+   "SubagentHandback": 8,
+   "Edit": 5,
+   "LSP": 4
+  },
+  "spawned": {
+   "gsd-plan-checker": 10,
+   "general-purpose": 4,
+   "Explore": 2
+  }
+ },
+ "gsd-plan-checker": {
+  "n": 102,
+  "cost": 0,
+  "models": {
+   "opus": 70,
+   "sonnet": 32
+  },
+  "maxctx_med": 138722.5,
+  "maxctx_p90": 258744,
+  "compacted": 6,
+  "ended_err": 8,
+  "turns_med": 33.0,
+  "tools": {
+   "Bash": 3453,
+   "Read": 547,
+   "LSP": 11,
+   "Write": 4,
+   "SubagentHandback": 4,
+   "SendMessage": 2,
+   "Agent": 2
+  },
+  "spawned": {
+   "Explore": 2
+  }
+ },
+ "gsd-phase-coordinator": {
+  "n": 91,
+  "cost": 0,
+  "models": {
+   "sonnet": 88,
+   "opus": 3
+  },
+  "maxctx_med": 137684,
+  "maxctx_p90": 292993,
+  "compacted": 20,
+  "ended_err": 15,
+  "turns_med": 83,
+  "tools": {
+   "Bash": 8617,
+   "Agent": 2102,
+   "SendMessage": 474,
+   "Read": 188,
+   "Write": 71,
+   "SubagentHandback": 20,
+   "Edit": 17,
+   "Send": 1
+  },
+  "spawned": {
+   "gsd-executor": 1046,
+   "general-purpose": 605,
+   "gsd-planner": 112,
+   "gsd-plan-checker": 84,
+   "gsd-verifier": 81,
+   "None": 51
+  }
+ },
+ "gsd-verifier": {
+  "n": 88,
+  "cost": 0,
+  "models": {
+   "opus": 84,
+   "sonnet": 4
+  },
+  "maxctx_med": 130879.0,
+  "maxctx_p90": 225230,
+  "compacted": 1,
+  "ended_err": 2,
+  "turns_med": 48.0,
+  "tools": {
+   "Bash": 4439,
+   "Read": 280,
+   "Agent": 17,
+   "SendMessage": 5,
+   "SubagentHandback": 5,
+   "Write": 2,
+   "LSP": 1
+  },
+  "spawned": {
+   "general-purpose": 15,
+   "Explore": 1,
+   "None": 1
+  }
+ },
+ "gsd-docs-updater": {
+  "n": 81,
+  "cost": 0,
+  "models": {
+   "sonnet": 11,
+   "haiku": 70
+  },
+  "maxctx_med": 81154,
+  "maxctx_p90": 113642,
+  "compacted": 1,
+  "ended_err": 0,
+  "turns_med": 14,
+  "tools": {
+   "Bash": 1094,
+   "Read": 474,
+   "Edit": 355,
+   "SubagentHandback": 35,
+   "LSP": 12
+  },
+  "spawned": {}
+ },
+ "gsd-debugger": {
+  "n": 52,
+  "cost": 0,
+  "models": {
+   "sonnet": 45,
+   "opus": 7
+  },
+  "maxctx_med": 92614.0,
+  "maxctx_p90": 183328,
+  "compacted": 5,
+  "ended_err": 4,
+  "turns_med": 43.5,
+  "tools": {
+   "Bash": 2970,
+   "Edit": 256,
+   "Read": 133,
+   "Write": 49,
+   "SubagentHandback": 10,
+   "WebSearch": 8,
+   "Agent": 7,
+   "bash": 1,
+   "bash_placeholder": 1,
+   "Monitor": 1
+  },
+  "spawned": {
+   "general-purpose": 5,
+   "gsd-debugger": 2
+  }
+ },
+ "gsd-test-writer": {
+  "n": 31,
+  "cost": 0,
+  "models": {
+   "sonnet": 20,
+   "opus": 1,
+   "haiku": 10
+  },
+  "maxctx_med": 133300,
+  "maxctx_p90": 185251,
+  "compacted": 6,
+  "ended_err": 4,
+  "turns_med": 46,
+  "tools": {
+   "Bash": 1550,
+   "Read": 282,
+   "Edit": 185,
+   "Write": 46,
+   "SubagentHandback": 4,
+   "Agent": 3,
+   "TaskStop": 1
+  },
+  "spawned": {
+   "gsd-test-writer": 3
+  }
+ },
+ "gsd-charlotte-qa": {
+  "n": 28,
+  "cost": 0,
+  "models": {
+   "sonnet": 23,
+   "haiku": 5
+  },
+  "maxctx_med": 50375.0,
+  "maxctx_p90": 102477,
+  "compacted": 0,
+  "ended_err": 0,
+  "turns_med": 13.5,
+  "tools": {
+   "Bash": 530,
+   "mcp__charlotte__charlotte_evaluate": 50,
+   "Read": 38,
+   "mcp__charlotte__charlotte_type": 32,
+   "mcp__charlotte__charlotte_navigate": 27,
+   "mcp__charlotte__charlotte_click": 21,
+   "mcp__charlotte__charlotte_requests": 15,
+   "mcp__charlotte__charlotte_observe": 11,
+   "mcp__charlotte__charlotte_screenshot": 9,
+   "mcp__charlotte__charlotte_find": 6,
+   "mcp__charlotte__charlotte_console": 4,
+   "Write": 3,
+   "SendMessage": 1
+  },
+  "spawned": {}
+ },
+ "fork": {
+  "n": 22,
+  "cost": 0,
+  "models": {
+   "opus": 16,
+   "sonnet": 6
+  },
+  "maxctx_med": 165152.0,
+  "maxctx_p90": 167093,
+  "compacted": 14,
+  "ended_err": 0,
+  "turns_med": 42.5,
+  "tools": {
+   "Bash": 1337,
+   "Agent": 56,
+   "Read": 42,
+   "Write": 13,
+   "SendMessage": 5,
+   "Edit": 2
+  },
+  "spawned": {
+   "fork": 37,
+   "gsd-executor": 19
+  }
+ },
+ "gsd-plan-judge": {
+  "n": 20,
+  "cost": 0,
+  "models": {
+   "opus": 20
+  },
+  "maxctx_med": 44869.0,
+  "maxctx_p90": 78563,
+  "compacted": 0,
+  "ended_err": 0,
+  "turns_med": 7.0,
+  "tools": {
+   "Bash": 182,
+   "Read": 48,
+   "Write": 20,
+   "SubagentHandback": 17
+  },
+  "spawned": {}
+ },
+ "Explore": {
+  "n": 19,
+  "cost": 0,
+  "models": {
+   "sonnet": 13,
+   "haiku": 6
+  },
+  "maxctx_med": 52811,
+  "maxctx_p90": 91420,
+  "compacted": 0,
+  "ended_err": 0,
+  "turns_med": 13,
+  "tools": {
+   "Bash": 528,
+   "Read": 30,
+   "SubagentHandback": 1
+  },
+  "spawned": {}
+ },
+ "gsd-plan-attacker": {
+  "n": 18,
+  "cost": 0,
+  "models": {
+   "opus": 18
+  },
+  "maxctx_med": 89354.0,
+  "maxctx_p90": 111554,
+  "compacted": 0,
+  "ended_err": 0,
+  "turns_med": 20.5,
+  "tools": {
+   "Bash": 323,
+   "Read": 71,
+   "SubagentHandback": 17
+  },
+  "spawned": {}
+ },
+ "gsd-plan-defender": {
+  "n": 17,
+  "cost": 0,
+  "models": {
+   "sonnet": 17
+  },
+  "maxctx_med": 36684,
+  "maxctx_p90": 52035,
+  "compacted": 0,
+  "ended_err": 0,
+  "turns_med": 4,
+  "tools": {
+   "Read": 38,
+   "Bash": 23,
+   "SubagentHandback": 17
+  },
+  "spawned": {}
+ },
+ "gsd-phase-researcher": {
+  "n": 14,
+  "cost": 0,
+  "models": {
+   "sonnet": 10,
+   "opus": 4
+  },
+  "maxctx_med": 265444.5,
+  "maxctx_p90": 314632,
+  "compacted": 6,
+  "ended_err": 0,
+  "turns_med": 67.5,
+  "tools": {
+   "Bash": 1141,
+   "Read": 108,
+   "Write": 14,
+   "Agent": 13,
+   "WebSearch": 3,
+   "SubagentHandback": 3,
+   "WebFetch": 2,
+   "LSP": 1,
+   "Edit": 1
+  },
+  "spawned": {
+   "general-purpose": 11,
+   "gsd-phase-researcher": 2
+  }
+ },
+ "gsd-integration-checker": {
+  "n": 2,
+  "cost": 0,
+  "models": {
+   "sonnet": 2
+  },
+  "maxctx_med": 104219.0,
+  "maxctx_p90": 114085,
+  "compacted": 0,
+  "ended_err": 0,
+  "turns_med": 40.5,
+  "tools": {
+   "Bash": 99,
+   "Read": 2
+  },
+  "spawned": {}
+ },
+ "gsd-roadmapper": {
+  "n": 2,
+  "cost": 0,
+  "models": {
+   "sonnet": 2
+  },
+  "maxctx_med": 76950.5,
+  "maxctx_p90": 90624,
+  "compacted": 0,
+  "ended_err": 0,
+  "turns_med": 5.0,
+  "tools": {
+   "Read": 5,
+   "Bash": 4,
+   "Write": 2,
+   "SubagentHandback": 2,
+   "Edit": 1
+  },
+  "spawned": {}
+ },
+ "gsd-codebase-mapper": {
+  "n": 1,
+  "cost": 0,
+  "models": {
+   "sonnet": 1
+  },
+  "maxctx_med": 185611,
+  "maxctx_p90": 185611,
+  "compacted": 0,
+  "ended_err": 0,
+  "turns_med": 88,
+  "tools": {
+   "Bash": 77,
+   "Write": 6,
+   "Read": 3,
+   "SubagentHandback": 1
+  },
+  "spawned": {}
+ },
+ "gsd-e2e-test-generator": {
+  "n": 1,
+  "cost": 0,
+  "models": {
+   "sonnet": 1
+  },
+  "maxctx_med": 50286,
+  "maxctx_p90": 50286,
+  "compacted": 0,
+  "ended_err": 0,
+  "turns_med": 10,
+  "tools": {
+   "Bash": 10,
+   "Write": 1,
+   "SubagentHandback": 1
+  },
+  "spawned": {}
+ }
+}

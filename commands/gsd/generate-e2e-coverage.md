@@ -13,9 +13,9 @@ allowed-tools:
   - Task
 ---
 <objective>
-Bootstrap or update e2e test coverage for the iGaming platform web apps.
+Bootstrap or update e2e test coverage for the project's web apps.
 
-Scans player-web and operator-web to inventory all UI surfaces, compares against existing Charlotte e2e scenarios, identifies gaps, generates new test scenarios using QA methodologies, tags them, and selects regression candidates.
+Scans the frontends in `stack.paths.frontends` to inventory all UI surfaces, compares against existing UI QA scenarios, identifies gaps, generates new test scenarios using QA methodologies, tags them, and selects regression candidates.
 </objective>
 
 <instructions>
@@ -24,11 +24,11 @@ Scans player-web and operator-web to inventory all UI surfaces, compares against
 
 Spawn two parallel agents (haiku) to scan app source code:
 
-**Agent 1:** Scan `apps/player-web`
-**Agent 2:** Scan `apps/operator-web`
+**Agent 1:** Scan `stack.paths.frontends[0]`
+**Agent 2:** Scan `stack.paths.frontends[1]`
 
 Each agent should:
-1. Find all pages/routes (Next.js `app/**/page.tsx`, `app/**/layout.tsx`)
+1. Find all pages/routes (the file-based router's page and layout files, e.g. `app/**/page.tsx`)
 2. Find all components — forms, modals, dialogs, dropdowns, tables, cards, widgets
 3. Find all interactive elements per page (`<button`, `<input`, `<select`, `onClick`, `onSubmit`)
 4. Find data display patterns (`formatAmount`, `formatDate`, `toLocaleString`)
@@ -38,7 +38,7 @@ Output: structured inventory listing routes, components, interactive elements, a
 
 ## Step 2: Analyze Existing Coverage
 
-Read all existing scenarios from `apps/e2e-charlotte/scenarios/`.
+Read all existing scenarios from `stack.paths.e2e_scenarios`.
 Build a coverage matrix: which pages/components have tests, which don't.
 List each page with status: covered / partially covered / uncovered.
 
@@ -54,14 +54,14 @@ post-mortem rationale. This step produces the project-specific decisions it need
    function of the scenario's coordinates: `{prefix}-{module}-{scenarioId}[-w{bucketIndex}]@{testDomain}`.
    Random, UUID and timestamp suffixes are REJECTED — a failing run must be replayable. If the
    project has no such helper, creating it is part of this step.
-2. **Locate or create the provisioning path.** Money, limits, verification status and sessions are
+2. **Locate or create the provisioning path.** State the brief marks as a risk domain, and sessions, are
    established through real application endpoints, never SQL. SQL bypasses row-level security and
    business invariants and can build states the application could never produce; authorization
    defects then fail SILENTLY by returning wrong rows instead of erroring. SQL seeds are for static
    reference data only.
 3. **Classify every planned scenario into a tier** — Tier 0 static reference data, Tier 1 shared
-   read-only baseline per parallel bucket, Tier 2 dedicated account for anything that mutates money,
-   limits, verification status, or session/suspension state. Default to Tier 2 when unsure.
+   read-only baseline per parallel bucket, Tier 2 dedicated account for anything that mutates state the brief
+   marks as a risk domain, or session/suspension state. Default to Tier 2 when unsure.
 4. **Confirm the suite-level reset gate exists** — a full regression run must begin from a freshly
    reset database, asserted at runtime, failing loudly if the precondition does not hold. Reset is
    suite-level; concurrent isolation comes from namespacing, not repeated resets.
@@ -76,7 +76,7 @@ tier table (scenario → tier → accounts used → accounts mutated → teardow
 
 ## Step 4: Generate Test Plan
 
-Using the inventory and coverage gaps, create an E2E-TEST-PLAN.md in `apps/e2e-charlotte/`.
+Using the inventory and coverage gaps, create an E2E-TEST-PLAN.md in `stack.paths.e2e_scenarios`.
 
 For each uncovered or partially covered page, generate test scenarios using QA methodologies:
 
@@ -85,7 +85,7 @@ For each uncovered or partially covered page, generate test scenarios using QA m
 **State Transition Testing:** Map UI state transitions, test each path
 **Visual Verification:** Check for NaN, undefined, null, layout issues, missing elements
 
-Each scenario must follow the existing pattern in `apps/e2e-charlotte/scenarios/`:
+Each scenario must follow the existing pattern in `stack.paths.e2e_scenarios`:
 - Use `Scenario` interface from `runner/types.ts`
 - Include `tags: string[]` for filtering
 - Use existing auth helpers (`loginAsPlayer`, `loginAsOperator`)
@@ -119,7 +119,7 @@ Present to user:
 
 ## Step 7: Smoke Verification
 
-After user approves, run `deno task test:smoke --parallel=2` to verify basic scenario execution.
+After user approves, run the UI QA smoke suite (its command in `stack_commands`) to verify basic scenario execution.
 Fix any issues in scenario definitions.
 
 ## Definition of Done
@@ -131,7 +131,7 @@ report the result of each explicitly.
 - [ ] No two mutating scenarios share an account; multi-actor subjects are freshly provisioned
 - [ ] Every identifier comes from the single naming helper, assigned to a const — zero hand-typed
       literals, zero random/UUID/timestamp suffixes
-- [ ] Invariant-carrying state (money, limits, verification status, sessions) is provisioned through
+- [ ] Invariant-carrying state (risk-domain state, sessions) is provisioned through
       real endpoints; SQL seeds are confined to static reference data
 - [ ] Every mutation-class scenario has idempotent teardown, or an explicit annotation with a
       substantive reason, flagged for PR review

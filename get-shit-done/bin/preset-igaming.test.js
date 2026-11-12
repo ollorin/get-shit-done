@@ -8,6 +8,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const R = require('./project-deploy-render.js');
+const { effectiveRiskDomains } = require('./project-context.js');
+const { validateProfile } = require('./project-profile.js');
 const { mergeSettings } = require('./project-deploy-settings.js');
 
 const PRESET = path.join(__dirname, '..', 'presets', 'igaming');
@@ -28,7 +30,8 @@ function goldenSkipReason(root, probe = (args) => spawnSync('git', ['-C', root, 
 }
 const IGAMING_VALUES = { project: { slug: 'igaming', root: IGAMING_ROOT } };
 const SETTINGS_DEST = '.claude/settings.json';
-const META = ['preset.json', 'README.md', 'golden.sha256', 'settings.fragment.json', 'settings.snapshot.json'];
+const META = ['preset.json', 'README.md', 'golden.sha256', 'settings.fragment.json', 'settings.snapshot.json', 'project.block.json', 'lessons-stack.md'];
+const UNDEPLOYED_DIRS = ['memory/'];
 const SRC_RULES = [['.claude/', ''], ['scripts/validation/hook-canaries/', 'canaries/']];
 const UNDEPLOYED = ['enableAllProjectMcpServers', 'enabledPlugins', 'env', 'sandbox'];
 
@@ -86,7 +89,7 @@ describe('igaming preset snapshot (agnostic-C1)', () => {
     const { preset } = R.loadPreset(PRESET);
     const g = golden();
     assert.strictEqual(g.size, 50, 'golden must have 50 unique lines');
-    assert.deepStrictEqual(preset.files.map((f) => f.src).sort(), walk(PRESET).filter((p) => !META.includes(p)));
+    assert.deepStrictEqual(preset.files.map((f) => f.src).sort(), walk(PRESET).filter((p) => !META.includes(p) && !UNDEPLOYED_DIRS.some((d) => p.startsWith(d))));
     assert.deepStrictEqual(
       preset.files.map((f) => f.dest).sort(),
       [...g.keys()].filter((d) => d !== SETTINGS_DEST).sort(),
@@ -207,5 +210,93 @@ describe('G7 skip contract (B-FIX3 item 6)', () => {
     assert.throws(() => goldenSkipReason(repo, () => ({ error: new Error('spawn git EACCES') })), /EACCES/);
     assert.throws(() => goldenSkipReason(repo, () => ({ status: 128 })), /status 128/);
     assert.throws(() => goldenSkipReason(repo, () => ({ status: null })), /status null/);
+  });
+});
+
+describe('igaming project block (agnostic-M-06 6.1)', () => {
+  const block = JSON.parse(fs.readFileSync(path.join(PRESET, 'project.block.json'), 'utf8'));
+  const terms = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'tests', 'fixtures', 'agnostic', 'risk-terms.json'), 'utf8'));
+
+  test('R-g risk_domains is a superset of the former hard-coded terms and the effective source is the brief', () => {
+    for (const t of terms) assert.ok(block.project.risk_domains.includes(t), `missing risk domain ${t}`);
+    const eff = effectiveRiskDomains(block);
+    assert.strictEqual(eff.risk_domains_source, 'brief');
+    for (const t of [...terms, 'security']) assert.ok(eff.risk_domains.includes(t), t);
+  });
+
+  test('R-h the stack object passes the profile shape checks for its five keys and its flake patterns flag the three incident shapes', async () => {
+    const report = validateProfile({ found: true, project: block.project, stack: block.stack });
+    const keys = ['stack.locked_commands', 'stack.flake_patterns', 'stack.style', 'stack.host', 'stack.deploy'];
+    assert.deepStrictEqual(report.invalid.filter((p) => keys.some((k) => p.key.startsWith(k))), []);
+    assert.deepStrictEqual(block.stack.deploy.never_touch, []);
+    const { scanFlakePatterns } = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'presets', 'base', 'hooks', 'lib', 'flake-gate.mjs')).href);
+    const ids = (c) => scanFlakePatterns(c, block.stack.flake_patterns.patterns).map((v) => v.id);
+    const shared = '  .from("queue_shared_rounds")\n';
+    assert.deepStrictEqual(ids(`${shared}  .insert({ round_number: 800011 })\n`), ['hardcoded-round-number']);
+    assert.deepStrictEqual(ids(`${shared}  .insert({ venue_id: 12 })\n`), ['hardcoded-id']);
+    assert.deepStrictEqual(ids('const w = { start_hour: 0, end_hour: 23 };\n'), ['absolute-time-window']);
+    assert.deepStrictEqual(ids(`${shared}  .insert({ round_number: 800011 })\n  // retry on 23505\n`), []);
+  });
+});
+
+describe('preserved project material (agnostic-M-08 8.14)', () => {
+  const { scanDir } = require('./project-deploy-scan.js');
+  const MEMORY = path.join(PRESET, 'memory');
+  const TOOLS = path.join(__dirname, '..', '..', '.planning', 'gsd-v2', 'tools');
+  const EXPERIMENTS = path.join(__dirname, '..', '..', '.planning', 'gsd-v2', 'experiments', '16-ab2');
+  const PERSONAL = /\/Users\/|ollorin|\bCEO\b|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}/;
+  const COPIED = [MEMORY, TOOLS, EXPERIMENTS];
+  const STALE = ['SESSION_2026-02-08.md', 'SESSION_2026-02-09.md', 'SESSION_2026-02-10.md', 'baseline_integration_tests.md', 'iteration2_results.md', 'optimization_final_complete.md', 'phase1_optimization_complete.md', 'phase1_plus_iterations_final.md', 'phase1_results.md'];
+
+  test('8.14 row 3: memory holds the copied notes without the 9 stale files, and lessons-stack.md has 17 entries', () => {
+    const files = walk(MEMORY);
+    assert.strictEqual(files.length, 71);
+    for (const s of STALE) assert.ok(!files.includes(s), `stale file copied: ${s}`);
+    const lessons = fs.readFileSync(path.join(PRESET, 'lessons-stack.md'), 'utf8');
+    assert.strictEqual(lessons.split('\n').filter((l) => l.startsWith('**')).length, 17);
+  });
+
+  test('8.14 row 7: tools hold 37 root scripts, 82 agent-audit scripts plus roles.json, and the 6 hooks-flip-backup files; no pickle or stats data', () => {
+    const files = walk(TOOLS);
+    assert.strictEqual(files.filter((f) => !f.includes('/')).length, 37);
+    assert.strictEqual(files.filter((f) => f.startsWith('agent-audit/')).length, 83);
+    assert.strictEqual(files.filter((f) => f.startsWith('hooks-flip-backup/')).length, 6);
+    assert.strictEqual(files.length, 126);
+    assert.ok(!files.some((f) => /\.(pkl|log)$|stats\.json$/.test(f) && !f.startsWith('hooks-flip-backup/')), 'data file copied');
+  });
+
+  test('8.14 rows 8 and 9: experiments/16-ab2 holds the two A/B notes and the four run-data files', () => {
+    assert.deepStrictEqual(walk(EXPERIMENTS), ['decisions.jsonl', 'fable-ab-inventory.md', 'fable-spawn-baseline.md', 'registry.json', 'runs-rp-pilot-void.jsonl', 'runs.jsonl']);
+  });
+
+  test('8.14 no copied file holds a secret-shaped value (the deploy scan over every copied tree is empty)', () => {
+    for (const dir of COPIED) assert.deepStrictEqual(scanDir(dir).hits, [], dir);
+  });
+
+  // The fork is public: preserved memory must not point at an unresolved weakness or at where credentials sit in the
+  // private repo's history. A line that names a commit hash together with a vulnerability or credential word is such a pointer.
+  const SHA = /\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/;
+  const SENSITIVE = /credential|bypass|plaintext|leaked|vulnerab|auth[- ]bypass|replay|exploit|fail-open|auto-?pass|injection|unauthenticated|zero enforcement/i;
+  const POINTER_LINES = (text) => text.split('\n').filter((l) => SHA.test(l) && SENSITIVE.test(l));
+
+  test('8.14 positive control: the pointer scan flags a commit hash beside a credential or bypass word and passes a plain line', () => {
+    assert.strictEqual(POINTER_LINES('keys were committed in plaintext since commit `56eebb8d`').length, 1);
+    assert.strictEqual(POINTER_LINES('an auth bypass sits in middleware (commit c62c5026)').length, 1);
+    assert.strictEqual(POINTER_LINES('a wallet-credit exploit was fixed in commit 2ff9c068').length, 1);
+    assert.strictEqual(POINTER_LINES('merged in commit c62c5026, tag v0.1.22').length, 0);
+    assert.strictEqual(POINTER_LINES('rotate the credentials, see the private repo tracker').length, 0);
+  });
+
+  test('8.14 preserved memory, lessons and tools hold no commit-hash pointer to a vulnerability or credential, and no named unresolved auth-bypass path', () => {
+    const files = [...walk(MEMORY).map((f) => path.join(MEMORY, f)), path.join(PRESET, 'lessons-stack.md'), ...walk(TOOLS).map((f) => path.join(TOOLS, f))];
+    const hits = files.flatMap((f) => POINTER_LINES(fs.readFileSync(f, 'utf8')).map((l) => `${path.relative(PRESET, f)}: ${l.slice(0, 100)}`));
+    assert.deepStrictEqual(hits, []);
+    const memory = walk(MEMORY).map((f) => fs.readFileSync(path.join(MEMORY, f), 'utf8')).join('\n');
+    assert.doesNotMatch(memory, /service-role-key auth[- ]bypass|secrets-to-rotate|\.mcp\.json/);
+  });
+
+  test('8.14 no copied file holds an absolute user path, a contact address or the owner title', () => {
+    const hits = COPIED.flatMap((dir) => walk(dir).filter((f) => PERSONAL.test(fs.readFileSync(path.join(dir, f), 'utf8'))).map((f) => path.join(dir, f)));
+    assert.deepStrictEqual(hits, []);
   });
 });

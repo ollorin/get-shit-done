@@ -1,6 +1,6 @@
 ---
 name: gsd:demo
-description: Script or record a CEO demo for a phase, or roll up a milestone's demos
+description: Script or record an owner demo for a phase, or roll up a milestone's demos
 argument-hint: "<phase> [script|record] | rollup"
 allowed-tools:
   - Read

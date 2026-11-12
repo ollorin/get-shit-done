@@ -1,0 +1,79 @@
+{
+  "project": {
+    "slug": "igaming",
+    "owner_title": "CEO",
+    "risk_domains": [
+      "money",
+      "payment",
+      "ledger",
+      "settlement",
+      "auth",
+      "rng",
+      "kyc"
+    ],
+    "ruling_topics": [
+      "money",
+      "auth",
+      "security",
+      "rng"
+    ]
+  },
+  "stack": {
+    "locked_commands": [
+      "test:integration",
+      "test:integration:ci",
+      "test:player",
+      "test:operator",
+      "test:e2e",
+      "test:scenario",
+      "test:regression",
+      "test:smoke",
+      "test:rg",
+      "test:tags"
+    ],
+    "flake_patterns": {
+      "test_globs": [
+        "**/*.integration.test.ts"
+      ],
+      "patterns": [
+        {
+          "id": "hardcoded-round-number",
+          "match": "round_number\\s*:\\s*(?![\"\\x27])\\d+\\b",
+          "requires_before": "\\.from\\(\\s*[\"\\x27][\\w.]*[Ss]hared[\\w.]*[\"\\x27](?![\\s\\S]*\\.from\\()",
+          "unless_nearby": "23505",
+          "message": "Hardcoded round_number inserted into a shared table with no nearby retry-on-23505 collision handling."
+        },
+        {
+          "id": "hardcoded-id",
+          "match": "(?:^|[^\\w.])(?:[A-Za-z_]\\w*_id|id)\\s*:\\s*(?![\"\\x27])\\d+\\b",
+          "requires_before": "\\.from\\(\\s*[\"\\x27][\\w.]*[Ss]hared[\\w.]*[\"\\x27](?![\\s\\S]*\\.from\\()",
+          "unless_nearby": "23505",
+          "message": "Hardcoded id inserted into a shared table with no nearby retry-on-23505 collision handling."
+        },
+        {
+          "id": "absolute-time-window",
+          "match": "(?:end_hour|endHour)\\s*:\\s*(?![\"\\x27])\\d+\\b",
+          "requires_before": "(?:start_hour|startHour)\\s*:\\s*(?![\"\\x27])\\d+\\b",
+          "unless_nearby": "getUTCHours",
+          "message": "Hardcoded absolute hour window with no getUTCHours()-anchored dynamic window nearby."
+        }
+      ]
+    },
+    "style": {
+      "rule_set": "js-ts",
+      "roots": [
+        "apps/api/libs",
+        "apps/api/functions"
+      ]
+    },
+    "host": {
+      "worker_patterns": [
+        "deno test",
+        "deno task test"
+      ]
+    },
+    "deploy": {
+      "never_touch": []
+    }
+  }
+}

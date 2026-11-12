@@ -438,6 +438,246 @@
       "class": "docker",
       "max": 1,
       "reason": "upstream example: upstream/main has >= max lines for this class in this file"
+    },
+    {
+      "file": "get-shit-done/bin/gsd-tools.js",
+      "class": "charlotte",
+      "max": 7,
+      "reason": "legacy aliases: evidence key, caught_by value, failure code and e2e path read by projects without a stack profile"
+    },
+    {
+      "file": "bin/install.js",
+      "class": "charlotte",
+      "max": 1,
+      "reason": "stale-entry cleaner for the renamed UI-QA lock hook"
+    },
+    {
+      "file": "get-shit-done/bin/hooks/gsd-ui-qa-lock.js",
+      "class": "charlotte",
+      "max": 2,
+      "reason": "legacy TTL environment name kept for existing users"
+    },
+    {
+      "file": "get-shit-done/bin/hooks/lib/ui-qa-match.js",
+      "class": "deno",
+      "max": 1,
+      "reason": "task runner names of the reset matcher; move to a profile key later"
+    },
+    {
+      "file": "get-shit-done/bin/hooks/lib/ui-qa-match.js",
+      "class": "nx",
+      "max": 1,
+      "reason": "task runner names of the reset matcher; move to a profile key later"
+    },
+    {
+      "file": "get-shit-done/bin/hooks/lib/ui-qa-match.js",
+      "class": "pnpm",
+      "max": 2,
+      "reason": "task runner names of the reset matcher; move to a profile key later"
+    },
+    {
+      "file": "get-shit-done/bin/hooks/lib/ui-qa-shell.js",
+      "class": "pnpm",
+      "max": 1,
+      "reason": "wrapper command name: a quoted argument after pnpm is tokenised as code (old hook blocked it)"
+    },
+    {
+      "file": "get-shit-done/bin/hooks/lib/ui-qa-legacy-lane.js",
+      "class": "charlotte",
+      "max": 1,
+      "reason": "citation of the frozen hook's fixture file name (tests/fixtures/agnostic/gsd-charlotte-lock.0b9c35a.js)"
+    },
+    {
+      "file": "get-shit-done/bin/hooks/lib/ui-qa-legacy-lane.js",
+      "class": "deno",
+      "max": 2,
+      "reason": "task runner names in the frozen hook's shapes (npm|pnpm|yarn|bun|deno run|task); fixture :34 copied"
+    },
+    {
+      "file": "get-shit-done/bin/hooks/lib/ui-qa-legacy-lane.js",
+      "class": "nx",
+      "max": 3,
+      "reason": "nx run shape of the frozen hook (fixture :33) and the RUNNER fragment (fixture :29)"
+    },
+    {
+      "file": "get-shit-done/bin/hooks/lib/ui-qa-legacy-lane.js",
+      "class": "pnpm",
+      "max": 3,
+      "reason": "task runner and wrapper names in the frozen hook's shapes (fixture :28-:34); fragments copied verbatim"
+    },
+    {
+      "file": "agents/gsd-demo.md",
+      "class": "charlotte",
+      "max": 5,
+      "reason": "driver MCP tool names remain in the agent's tools: frontmatter and call sites (lines 5, 52-54, 57); there is no pack tool-list mechanism, so the names cannot move out of the agent yet"
+    },
+    {
+      "file": "get-shit-done/bin/hooks/gsd-protect-managed-files.js",
+      "class": "owner",
+      "max": 1,
+      "reason": "legacy flag alias"
+    },
+    {
+      "file": "get-shit-done/references/coordinator-detail.md",
+      "class": "frontend",
+      "max": 1,
+      "reason": "generic web-framework detection list read from package.json (D:93)"
+    },
+    {
+      "file": "get-shit-done/references/verifier-detail.md",
+      "class": "frontend",
+      "max": 2,
+      "reason": "generic web-framework detection list and dev-tool config classifier (D:93)"
+    },
+    {
+      "file": "get-shit-done/workflows/execute-roadmap.md",
+      "class": "gates",
+      "max": 4,
+      "reason": "generic quota-preflight step and event names, asserted by gsd-tools.test.js"
+    },
+    {
+      "file": "get-shit-done/workflows/execute-roadmap.md",
+      "class": "charlotte",
+      "max": 2,
+      "reason": "legacy alias key charlotte_qa_required and phase-gate failure code missing_charlotte_qa, kept for existing consumers"
+    },
+    {
+      "file": "get-shit-done/workflows/execute-phase.md",
+      "class": "charlotte",
+      "max": 1,
+      "reason": "legacy phase-gate failure code missing_charlotte_qa, kept for existing consumers"
+    },
+    {
+      "file": "agents/gsd-product-investigator.md",
+      "class": "charlotte",
+      "max": 1,
+      "reason": "driver MCP tool names in the tools: frontmatter; no pack tool-list mechanism yet (same as agents/gsd-demo.md)"
+    },
+    {
+      "file": "agents/gsd-verifier.md",
+      "class": "charlotte",
+      "max": 1,
+      "reason": "legacy phase-gate failure code missing_charlotte_qa, kept for existing consumers"
+    },
+    {
+      "file": "get-shit-done/references/verifier-detail.md",
+      "class": "charlotte",
+      "max": 2,
+      "reason": "legacy QA report file name *-CHARLOTTE-*.md, still matched so older phases verify"
+    },
+    {
+      "file": "get-shit-done/references/gsd-test-protocol.md",
+      "class": "charlotte",
+      "max": 1,
+      "reason": "legacy phase-gate failure code missing_charlotte_qa, kept for existing consumers"
+    },
+    {
+      "file": "get-shit-done/workflows/audit-milestone.md",
+      "class": "gates",
+      "max": 1,
+      "reason": "capability id shared with config/gate-capabilities.json and gsd-tools tests; renamed with the config, not in prose"
+    },
+    {
+      "file": "get-shit-done/workflows/complete-milestone.md",
+      "class": "gates",
+      "max": 1,
+      "reason": "capability id shared with config/gate-capabilities.json and gsd-tools tests; renamed with the config, not in prose"
+    },
+    {
+      "file": "get-shit-done/bin/gsd-tools.js",
+      "class": "deno",
+      "max": 3,
+      "reason": "legacy-project tier gate runtime call and generic Deno.test call detection"
+    },
+    {
+      "file": "get-shit-done/bin/gsd-tools.js",
+      "class": "gates",
+      "max": 1,
+      "reason": "legacy-project tier gate script path"
+    },
+    {
+      "file": "get-shit-done/bin/gsd-tools.js",
+      "class": "supabase",
+      "max": 1,
+      "reason": "legacy-project API patterns, applied only without a stack profile"
+    },
+    {
+      "file": "get-shit-done/bin/gsd-tools.js",
+      "class": "frontend",
+      "max": 1,
+      "reason": "generic dev-tool config file classifier"
+    },
+    {
+      "file": "get-shit-done/bin/gsd-tools.js",
+      "class": "authtech",
+      "max": 1,
+      "reason": "generic sensitive-path keyword list"
+    },
+    {
+      "file": "get-shit-done/bin/hooks/gsd-guard-bash.js",
+      "class": "deno",
+      "max": 3,
+      "reason": "generic interpreter / check-bypass list"
+    },
+    {
+      "file": "get-shit-done/bin/hooks/gsd-protect-managed-files.js",
+      "class": "deno",
+      "max": 2,
+      "reason": "generic interpreter / check-bypass list"
+    },
+    {
+      "file": "get-shit-done/bin/knowledge-safety.js",
+      "class": "cloud",
+      "max": 1,
+      "reason": "generic cloud-cost keyword in the action cost estimator"
+    },
+    {
+      "file": "get-shit-done/bin/gsd-feedback.js",
+      "class": "authtech",
+      "max": 1,
+      "reason": "generic feedback-category keyword list"
+    },
+    {
+      "file": "get-shit-done/bin/gsd-feedback.js",
+      "class": "docker",
+      "max": 1,
+      "reason": "generic feedback-category keyword list"
+    },
+    {
+      "file": "get-shit-done/bin/gsd-learning.js",
+      "class": "frontend",
+      "max": 1,
+      "reason": "generic topic keyword list"
+    },
+    {
+      "file": "get-shit-done/bin/gsd-learning.js",
+      "class": "authtech",
+      "max": 1,
+      "reason": "generic topic keyword list"
+    },
+    {
+      "file": "get-shit-done/bin/knowledge-extraction.js",
+      "class": "frontend",
+      "max": 1,
+      "reason": "generic technology-term list used to classify extracted knowledge"
+    },
+    {
+      "file": "get-shit-done/config/gate-capabilities.json",
+      "class": "gates",
+      "max": 1,
+      "reason": "capability id asserted by gsd-tools.test.js and required_gsd_gates in consuming configs"
+    },
+    {
+      "file": "routing-rules.md",
+      "class": "authtech",
+      "max": 1,
+      "reason": "generic task-routing keyword pattern"
+    },
+    {
+      "file": "get-shit-done/workflows/verify-phase.md",
+      "class": "frontend",
+      "max": 1,
+      "reason": "section heading names defined in references/verification-patterns.md"
     }
   ]
 }

@@ -106,8 +106,8 @@ Template for `.planning/prds/pending/{slug}.md` — product-oriented PRD format 
 | Belongs in PRD | Does NOT belong in PRD |
 |---------------|----------------------|
 | "Users need real-time updates" | "Use WebSockets at /ws/events" |
-| "PostgreSQL — relational data with complex queries" | "CREATE TABLE users (id UUID...)" |
-| "Target user: small business owner" | "Dashboard with React components" |
+| "Relational database — relational data with complex queries" | "CREATE TABLE users (id UUID...)" |
+| "Target user: small business owner" | "Dashboard with reusable UI components" |
 | "Success: user completes onboarding in < 5 min" | "API endpoint: POST /api/onboarding" |
 
 **Stage markers (written by workflow, not by human):**

@@ -341,13 +341,13 @@ Replace `{acceptance_criteria}` placeholder with:
 - [ ] {concrete testable condition 2}
 - [ ] {edge case: what happens when...}
 - [ ] **API tests:** {comma-separated list of test scenarios}   ← include when US involves backend behavior (API endpoint, RPC, business logic, state machine)
-- [ ] **Charlotte QA:** {comma-separated list of QA flows}     ← include when US involves a UI page, form, modal, or interactive component
+- [ ] **UI QA:** {comma-separated list of QA flows}     ← include when US involves a UI page, form, modal, or interactive component
 
 ```
 
 **Test AC generation rules:**
 - US involves backend behavior (API endpoint, RPC, DB function, state machine, business logic) → add `**API tests:**` AC listing: happy path, auth/authz failure, validation errors, error handling, edge cases
-- US involves a UI page, form, modal, or interactive component → add `**Charlotte QA:**` AC listing: renders correctly, key interactions, error states, responsive behavior
+- US involves a UI page, form, modal, or interactive component → add `**UI QA:**` AC listing: renders correctly, key interactions, error states, responsive behavior
 - US is pure infrastructure (migration only, config, no user-facing behavior) → omit both
 - US has both backend + UI → include both
 
@@ -383,7 +383,7 @@ The following are assumed but not confirmed — GSD's research phase should vali
 Include in assumptions:
 - Technology assumptions (e.g., "assumed to run on existing Node.js stack")
 - User behavior assumptions (e.g., "assumed users have email verified before using this feature")
-- Integration assumptions (e.g., "assumed Stripe is already integrated for payment features")
+- Integration assumptions (e.g., "assumed the identity provider is already integrated for sign-in")
 - Any gaps deferred from the Q&A (unresolved items become explicit assumptions)
 
 Append any unresolved Stage 2 gaps to the Open Questions section (cumulative — do not replace Stage 1 entries):
@@ -425,7 +425,7 @@ Research technology candidates for the product concept:
 - Use the returned summary — do not re-fetch in the main session
 - If the subagent fails: proceed with Claude's existing knowledge of technology candidates
 
-1. Identify 2-3 technology domains relevant to the concept (e.g., "real-time communication", "payment processing", "ML inference") and pass them to the Haiku subagent.
+1. Identify 2-3 technology domains relevant to the concept (e.g., "real-time communication", "document storage", "ML inference") and pass them to the Haiku subagent.
 
 2. Review the User Stories and MVP Boundary from the PRD draft (already written by Stage 2) to understand what capabilities are needed:
    - Read `.planning/prds/pending/{slug}.md` to extract user stories and MVP scope
@@ -450,9 +450,9 @@ If unclear (e.g., multiple viable tech stacks with very different implications),
 
 **CRITICAL INSTRUCTIONS for tech section content:**
 - Write technology NAMES and RATIONALE only
-- Acceptable: "PostgreSQL — relational database suitable for structured user data with complex queries"
+- Acceptable: "a relational database suitable for structured user data with complex queries"
 - Acceptable: "WebSockets — enables real-time bidirectional communication for the live collaboration feature"
-- NOT acceptable: SQL schema definitions, CREATE TABLE statements, API endpoint paths, TypeScript interfaces, class definitions, function signatures, deployment YAML configs, docker-compose files
+- NOT acceptable: SQL schema definitions, CREATE TABLE statements, API endpoint paths, TypeScript interfaces, class definitions, function signatures, deployment config files, container compose files
 
 Replace `{tech_candidates}` placeholder in `.planning/prds/pending/{slug}.md` with:
 
@@ -524,7 +524,7 @@ Then continue to Step 4: Approval.
 
 ## Step 4: Approval
 
-Before the screen: any open `A-` about money, auth, security or RNG goes to the ruling route in `decisions-protocol.md` (fable/opus) and is replaced by the `D-` it returns, so it never reaches the screen as an irreversible wait. Run `decisions render`, then show the CEO one screen, nothing else:
+Before the screen, risk rule. A risk-domain path is any path the product brief lists under Risk Domains (`risk_domains` in the init output); authentication/authorisation and security are always risk domains. When `risk_domains_source` is `builtin` (no brief, or a brief with an empty list), every path that mutates state is a risk-domain path. Tag every behaviour on a risk-domain path T0 (real-DB, mutation-proven). Any open `A-` about a risk-domain path or a ruling topic goes to the ruling route in `decisions-protocol.md` (fable/opus) and is replaced by the `D-` it returns, so it never reaches the screen as an irreversible wait. Run `decisions render`, then show the owner (title: `owner_title` in the init output) one screen, nothing else:
 
 ```
 PRD {slug} — approval

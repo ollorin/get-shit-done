@@ -2,7 +2,7 @@
  * GSD Tools Tests
  */
 
-const { test, describe, beforeEach, afterEach } = require('node:test');
+const { test, describe, before, after, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
@@ -20,7 +20,7 @@ function runGsdTools(args, cwd = process.cwd(), extraEnv = {}) {
       cwd,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, ...extraEnv },
+      env: { ...process.env, GSD_LEGACY: '1', ...extraEnv },
     });
     return { success: true, output: result.trim() };
   } catch (err) {
@@ -2852,6 +2852,109 @@ describe('verify plan-structure — P0 tier-assignment gate (Phase 299 SC-2)', (
     });
   });
 
+  // agnostic-M-05 5.10: the gate comes from stack.gates[] (id tier-assignment); a project without a stack
+  // profile keeps the legacy script path (the unit tests above: 'script absent', 'script present', ENOENT).
+  describe('runP0TierAssignmentGate with a stack.gates[] tier-assignment entry', () => {
+    const { runP0TierAssignmentGate } = require(TOOLS_PATH);
+    let dir;
+    beforeEach(() => { dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-tier-')); });
+    afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
+    const writeCfg = (stack) => {
+      fs.mkdirSync(path.join(dir, '.planning'), { recursive: true });
+      fs.writeFileSync(path.join(dir, '.planning', 'config.json'), JSON.stringify({ project: { slug: 'demo' }, stack }));
+    };
+    const GATE = { id: 'tier-assignment', run: 'node {root}/tools/tier.js' };
+
+    test('T-a exec receives sh -c with {root} replaced and "$@" appended, then the plan path as arguments', () => {
+      writeCfg({ capabilities: {}, gates: [GATE] });
+      const calls = [];
+      runP0TierAssignmentGate(dir, '/p/plan.md', { exec: (...a) => { calls.push(a); return '{"violations":[]}'; } });
+      assert.strictEqual(calls.length, 1);
+      const [file, args, opts] = calls[0];
+      assert.strictEqual(file, 'sh');
+      assert.deepStrictEqual(args, ['-c', `node ${dir}/tools/tier.js "$@"`, 'sh', '--plan', '/p/plan.md', '--json']);
+      assert.strictEqual(opts.cwd, dir);
+    });
+
+    test('T-b a plan path with a space and a quote reaches the gate as ONE argument (real sh)', () => {
+      fs.mkdirSync(path.join(dir, 'tools'));
+      const out = path.join(dir, 'argv.txt');
+      fs.writeFileSync(path.join(dir, 'tools', 'rec.sh'), `#!/bin/sh\nprintf '%s\\n' "$#" "$2" > "${out}"\nprintf '{"violations":[]}'\n`);
+      writeCfg({ capabilities: {}, gates: [{ id: 'tier-assignment', run: 'sh {root}/tools/rec.sh' }] });
+      const planPath = `${dir}/my plan's "x".md`;
+      const r = runP0TierAssignmentGate(dir, planPath);
+      assert.deepStrictEqual(r, { errors: [], warnings: [] });
+      assert.strictEqual(fs.readFileSync(out, 'utf8'), `3\n${planPath}\n`);
+    });
+
+    test('T-c profile project without a tier-assignment gate: not_configured, no exec, no error, no warning', () => {
+      writeCfg({ capabilities: {}, gates: [{ id: 'other', run: 'true' }] });
+      let calls = 0;
+      const r = runP0TierAssignmentGate(dir, '/p/plan.md', { exec: () => { calls++; return ''; }, existsSync: () => true });
+      assert.deepStrictEqual(r, { errors: [], warnings: [], status: 'not_configured' });
+      assert.strictEqual(calls, 0);
+    });
+
+    test('T-c gate exit 1 with violations -> errors; exit 127 -> error (a missing runtime is a gap, never a skip)', () => {
+      writeCfg({ capabilities: {}, gates: [GATE] });
+      const v = new Error('failed');
+      v.status = 1;
+      v.stdout = JSON.stringify({ violations: [{ path: 'srv/pay.ts', p0SurfaceClass: 'payments', issue: 'no tier work' }] });
+      const bad = runP0TierAssignmentGate(dir, '/p/plan.md', { exec: () => { throw v; } });
+      assert.strictEqual(bad.errors.length, 1);
+      assert.ok(bad.errors[0].includes('srv/pay.ts'));
+      const nf = new Error('not found');
+      nf.status = 127;
+      nf.stdout = '';
+      const missing = runP0TierAssignmentGate(dir, '/p/plan.md', { exec: () => { throw nf; } });
+      assert.strictEqual(missing.errors.length, 1);
+      assert.ok(/not found/.test(missing.errors[0]));
+      assert.deepStrictEqual(missing.warnings, []);
+    });
+
+    test('L4 a profile run whose file is missing (real sh, node exits 1 with empty stdout) is an error, not an unparseable warning', () => {
+      writeCfg({ capabilities: {}, gates: [{ id: 'tier-assignment', run: 'node {root}/tools/does-not-exist.js' }] });
+      const r = runP0TierAssignmentGate(dir, '/p/plan.md');
+      assert.strictEqual(r.errors.length, 1);
+      assert.ok(/tier-assignment gate/.test(r.errors[0]));
+      assert.deepStrictEqual(r.warnings, []);
+    });
+
+    test('L4 a profile gate that exits 0 with non-JSON output is an error', () => {
+      writeCfg({ capabilities: {}, gates: [GATE] });
+      const r = runP0TierAssignmentGate(dir, '/p/plan.md', { exec: () => 'oops' });
+      assert.strictEqual(r.errors.length, 1);
+      assert.deepStrictEqual(r.warnings, []);
+    });
+
+    test('F3 exit 0 with a non-array or null violations is an error', () => {
+      writeCfg({ capabilities: {}, gates: [GATE] });
+      for (const out of ['{"violations":"x"}', '{"violations":null}']) {
+        const r = runP0TierAssignmentGate(dir, '/p/plan.md', { exec: () => out });
+        assert.strictEqual(r.errors.length, 1, out);
+        assert.deepStrictEqual(r.warnings, []);
+      }
+    });
+
+    test('F3 exit 1 with an empty violations array is an error', () => {
+      writeCfg({ capabilities: {}, gates: [GATE] });
+      const v = new Error('failed');
+      v.status = 1;
+      v.stdout = '{"violations":[]}';
+      const r = runP0TierAssignmentGate(dir, '/p/plan.md', { exec: () => { throw v; } });
+      assert.strictEqual(r.errors.length, 1);
+      assert.deepStrictEqual(r.warnings, []);
+    });
+
+    test('F3 a tier-assignment profile entry with no string run is an error, not not_configured', () => {
+      writeCfg({ capabilities: {}, gates: [{ id: 'tier-assignment' }] });
+      let calls = 0;
+      const r = runP0TierAssignmentGate(dir, '/p/plan.md', { exec: () => { calls++; return ''; } });
+      assert.strictEqual(r.errors.length, 1);
+      assert.strictEqual(calls, 0);
+    });
+  });
+
   describe('verify plan-structure CLI — inertness regression (no scripts/check-p0-tier-assignment.ts in tmpDir)', () => {
     let tmpDir;
 
@@ -3374,7 +3477,7 @@ describe('charlotte_qa_ran from VERIFICATION.md frontmatter, required for UI or 
     const g = gate();
     assert.strictEqual(g.parsed.has_api, true);
     assert.strictEqual(g.parsed.charlotte_qa_required, true);
-    const cq = g.parsed.checks.find(c => c.type === 'charlotte_qa');
+    const cq = g.parsed.checks.find(c => c.type === 'ui_qa');
     assert.strictEqual(cq.satisfied, true, JSON.stringify(g.parsed));
   });
 
@@ -3402,16 +3505,16 @@ describe('charlotte_qa_ran from VERIFICATION.md frontmatter, required for UI or 
   test('not required when the phase touched neither UI nor API paths', () => {
     buildPhase({ files: { 'apps/api/libs/domain/x.ts': 'export {};\n' } });
     const g = gate();
-    const cq = g.parsed.checks.find(c => c.type === 'charlotte_qa');
+    const cq = g.parsed.checks.find(c => c.type === 'ui_qa');
     assert.strictEqual(cq.required, false);
   });
 
-  test('frontmatter validate --schema verification requires charlotte_qa_ran', () => {
+  test('frontmatter validate --schema verification requires one of ui_qa_ran or charlotte_qa_ran', () => {
     const p = path.join(tmpDir, 'V.md');
     fs.writeFileSync(p, '---\nphase: 08\nverified: 2026-01-01\nstatus: passed\nscore: 1/1\n---\n');
     const bad = JSON.parse(runGsdTools(`frontmatter validate "${p}" --schema verification`, tmpDir).output);
     assert.strictEqual(bad.valid, false);
-    assert.deepStrictEqual(bad.missing, ['charlotte_qa_ran']);
+    assert.deepStrictEqual(bad.missing, ['ui_qa_ran']);
     fs.writeFileSync(p, '---\nphase: 08\nverified: 2026-01-01\nstatus: passed\nscore: 1/1\ncharlotte_qa_ran: false\n---\n');
     assert.strictEqual(JSON.parse(runGsdTools(`frontmatter validate "${p}" --schema verification`, tmpDir).output).valid, true);
   });
@@ -3480,13 +3583,13 @@ describe('gsd-executor — post-plan test gate section (Phase 35-01)', () => {
     assert.ok(content.includes('</post_plan_test_gate>'), 'Missing </post_plan_test_gate> closing tag');
   });
 
-  test('post_plan_test_gate references test command auto-detection', () => {
+  test('post_plan_test_gate references test command from stack_commands', () => {
     const content = readEffectiveAgentContent(EXECUTOR_PATH);
     assert.ok(
       content.includes('testing.test_command') || content.includes('TEST_CMD'),
       'Missing test command reference'
     );
-    assert.ok(content.includes('package.json'), 'Missing package.json reference for test detection');
+    assert.ok(content.includes('stack_commands.test_all'), 'Missing stack_commands test_all reference');
   });
 
   test('post_plan_test_gate references coverage threshold', () => {
@@ -3579,16 +3682,16 @@ describe('gsd-phase-coordinator — web framework detection (Phase 35-02)', () =
 describe('gsd-verifier — hard-fail rules for QA and test coverage (Phase 35-03)', () => {
   const VERIFIER_PATH = path.join('/Users/ollorin/get-shit-done', 'agents', 'gsd-verifier.md');
 
-  test('check_charlotte_qa_coverage section exists in verifier', () => {
+  test('check_ui_qa_coverage section exists in verifier', () => {
     const content = readEffectiveAgentContent(VERIFIER_PATH);
-    assert.ok(content.includes('check_charlotte_qa_coverage'), 'Missing check_charlotte_qa_coverage in verifier');
+    assert.ok(content.includes('check_ui_qa_coverage'), 'Missing check_ui_qa_coverage in verifier');
   });
 
   test('Charlotte QA check is documented as gaps_found not warning', () => {
     const content = readEffectiveAgentContent(VERIFIER_PATH);
-    const start = content.indexOf('check_charlotte_qa_coverage');
+    const start = content.indexOf('check_ui_qa_coverage');
     const end = content.indexOf('check_test_file_coverage');
-    assert.ok(start >= 0, 'check_charlotte_qa_coverage not found');
+    assert.ok(start >= 0, 'check_ui_qa_coverage not found');
     const section = end > start ? content.slice(start, end) : content.slice(start);
     assert.ok(section.includes('gaps_found'), 'Charlotte QA check must emit gaps_found');
     assert.ok(
@@ -3614,11 +3717,11 @@ describe('gsd-verifier — hard-fail rules for QA and test coverage (Phase 35-03
     );
   });
 
-  test('check_charlotte_qa_coverage appears before check_test_file_coverage', () => {
+  test('check_ui_qa_coverage appears before check_test_file_coverage', () => {
     const content = readEffectiveAgentContent(VERIFIER_PATH);
-    const charlotteIdx = content.indexOf('check_charlotte_qa_coverage');
+    const charlotteIdx = content.indexOf('check_ui_qa_coverage');
     const testIdx = content.indexOf('check_test_file_coverage');
-    assert.ok(charlotteIdx >= 0, 'check_charlotte_qa_coverage not found');
+    assert.ok(charlotteIdx >= 0, 'check_ui_qa_coverage not found');
     assert.ok(testIdx >= 0, 'check_test_file_coverage not found');
     assert.ok(charlotteIdx < testIdx, 'Charlotte QA check must appear before test file check');
   });
@@ -4723,7 +4826,7 @@ describe('verify phase-gate command (Phase 45-01)', () => {
     const parsed = JSON.parse(result.output);
     assert.strictEqual(parsed.has_ui, true);
     assert.ok(parsed.failures.includes('missing_charlotte_qa'), `expected missing_charlotte_qa in failures: ${JSON.stringify(parsed.failures)}`);
-    const charlotteCheck = parsed.checks.find(c => c.type === 'charlotte_qa');
+    const charlotteCheck = parsed.checks.find(c => c.type === 'ui_qa');
     assert.strictEqual(charlotteCheck.required, true);
     assert.strictEqual(charlotteCheck.satisfied, false);
   });
@@ -4747,7 +4850,7 @@ describe('verify phase-gate command (Phase 45-01)', () => {
     const parsed = JSON.parse(result.output);
     assert.strictEqual(parsed.has_ui, true);
     assert.ok(parsed.failures.includes('missing_e2e_plan'), `expected missing_e2e_plan in failures: ${JSON.stringify(parsed.failures)}`);
-    const charlotteCheck = parsed.checks.find(c => c.type === 'charlotte_qa');
+    const charlotteCheck = parsed.checks.find(c => c.type === 'ui_qa');
     assert.strictEqual(charlotteCheck.satisfied, true, 'charlotte_qa should be satisfied via CHECKPOINT.json in this fixture');
     const e2eCheck = parsed.checks.find(c => c.type === 'e2e_plan');
     assert.strictEqual(e2eCheck.required, true);
@@ -5749,6 +5852,178 @@ describe('phase-gate full matrix + HAS_UI integration (Phase 45-05 Task 1)', () 
     assert.doesNotThrow(() => { parsed = JSON.parse(result.output); }, 'output must be parseable JSON even on failure, never a stack trace');
     assert.strictEqual(parsed.passed, false);
     assert.strictEqual(parsed.malformed_plans[0].failure_type, 'malformed_frontmatter');
+  });
+
+  // agnostic-M-02 2.2: UI-QA gate follows stack.capabilities (E-a..E-i). E-d and E-e reuse existing tests
+  // (missing_charlotte_qa at the 'missing_charlotte_qa:' test above; charlotte_qa_ran API pass at line ~3372).
+  const UI_FILES = { 'Dashboard.tsx': 'export default function Dashboard() { return null; }\n' };
+  const COVERED_PLAN = '# E2E Test Plan\n- Dashboard\n';
+  const QA_CAPABILITY = { ui_qa: { driver: 'browser', agent: 'qa-agent' } };
+  const verificationWith = (line) => `---\nphase: "45"\nstatus: passed\n${line}\n---\n# Verification\n`;
+  function writeStack(stack) {
+    fs.mkdirSync(path.join(tmpDir, '.planning'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'config.json'), JSON.stringify({ project: { slug: 'demo' }, stack }, null, 2));
+  }
+
+  test('E-a capabilities object without ui_qa: UI file and no QA key -> gate passes, ui_qa_required false, mode none', () => {
+    buildFixture('45-e-a', { extraFiles: UI_FILES, e2eTestPlan: COVERED_PLAN, verification: '' });
+    writeStack({ capabilities: {} });
+    const parsed = JSON.parse(runPhaseGate('45', tmpDir).output);
+    assert.strictEqual(parsed.passed, true, JSON.stringify(parsed.failures));
+    assert.strictEqual(parsed.ui_qa_required, false);
+    assert.strictEqual(parsed.ui_qa_mode, 'none');
+  });
+
+  test('E-b ui_qa capability and no QA key -> missing_charlotte_qa, mode capable', () => {
+    buildFixture('45-e-b', { extraFiles: UI_FILES, e2eTestPlan: COVERED_PLAN, verification: '' });
+    writeStack({ capabilities: QA_CAPABILITY });
+    const parsed = JSON.parse(runPhaseGate('45', tmpDir).output);
+    assert.strictEqual(parsed.passed, false);
+    assert.ok(parsed.failures.includes('missing_charlotte_qa'));
+    assert.strictEqual(parsed.ui_qa_mode, 'capable');
+  });
+
+  test('E-c ui_qa_ran: true satisfies the QA check under a ui_qa capability', () => {
+    buildFixture('45-e-c', { extraFiles: UI_FILES, e2eTestPlan: COVERED_PLAN, verification: verificationWith('ui_qa_ran: true') });
+    writeStack({ capabilities: QA_CAPABILITY });
+    const parsed = JSON.parse(runPhaseGate('45', tmpDir).output);
+    assert.ok(!parsed.failures.includes('missing_charlotte_qa'), JSON.stringify(parsed.failures));
+  });
+
+  test('E-c ui_qa_ran: "true" (string) does not satisfy the QA check', () => {
+    buildFixture('45-e-c2', { extraFiles: UI_FILES, e2eTestPlan: COVERED_PLAN, verification: verificationWith('ui_qa_ran: "true"') });
+    writeStack({ capabilities: QA_CAPABILITY });
+    const parsed = JSON.parse(runPhaseGate('45', tmpDir).output);
+    assert.ok(parsed.failures.includes('missing_charlotte_qa'));
+  });
+
+  // agnostic-M-05 5.10: API detection. A-a (legacy paths in a project without a stack profile) is the existing
+  // 'isApiFile / computeHasApi (unit)' test (apps/api/functions, supabase/functions) and the 'positive: API phase' test.
+  function apiFixture(name, rel, stack) {
+    fs.mkdirSync(path.dirname(path.join(tmpDir, rel)), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, rel), 'export {};\n');
+    buildFixture(name, { e2eTestPlan: COVERED_PLAN, verification: '' });
+    writeStack(stack);
+    return JSON.parse(runPhaseGate('45', tmpDir).output);
+  }
+
+  const API_GLOB_STACK = { capabilities: QA_CAPABILITY, paths: { api_globs: ['srv/handlers/**'] } };
+  test('A-b profile with api_globs: a file under the glob is an API file', () => {
+    assert.strictEqual(apiFixture('45-a-b1', 'srv/handlers/x.ts', API_GLOB_STACK).has_api, true);
+  });
+
+  test('A-b profile with api_globs: a legacy path is not an API file', () => {
+    assert.strictEqual(apiFixture('45-a-b2', 'apps/api/functions/x/y.ts', API_GLOB_STACK).has_api, false);
+  });
+
+  test('A-c a (app|pages)/api path is an API file in a profile project', () => {
+    const parsed = apiFixture('45-a-c', 'app/api/route.ts', { capabilities: QA_CAPABILITY });
+    assert.strictEqual(parsed.has_api, true);
+    assert.ok(parsed.checks.some(c => c.type === 'ui_qa' && c.required), 'the UI QA check is named ui_qa and required');
+  });
+
+  test('A-d isApiFile options: legacy default on, legacy:false drops the legacy patterns, globs match segments', () => {
+    const { isApiFile } = require('./gsd-tools.js');
+    assert.strictEqual(isApiFile('apps/api/functions/a.ts'), true);
+    assert.strictEqual(isApiFile('apps/api/functions/a.ts', { legacy: false }), false);
+    assert.strictEqual(isApiFile('srv/h/deep/x.ts', { legacy: false, apiGlobs: ['srv/**/x.ts'] }), true);
+    assert.strictEqual(isApiFile('srv/h/deep/x.ts', { legacy: false, apiGlobs: ['srv/*/x.ts'] }), false);
+  });
+
+  test('E-f frontmatter validate --schema verification accepts either evidence key and rejects neither', () => {
+    const p = path.join(tmpDir, 'V.md');
+    const check = (extra) => {
+      fs.writeFileSync(p, `---\nphase: 08\nverified: 2026-01-01\nstatus: passed\nscore: 1/1\n${extra}---\n`);
+      return JSON.parse(runGsdTools(`frontmatter validate "${p}" --schema verification`, tmpDir).output);
+    };
+    const neither = check('');
+    assert.strictEqual(neither.valid, false);
+    assert.deepStrictEqual(neither.missing, ['ui_qa_ran']);
+    assert.strictEqual(check('ui_qa_ran: true\n').valid, true);
+    assert.strictEqual(check('charlotte_qa_ran: true\n').valid, true);
+  });
+
+  test('E-g stack without capabilities (isolation, branch, commands only) is legacy: UI file and no QA key -> fails, mode legacy', () => {
+    buildFixture('45-e-g', { extraFiles: UI_FILES, e2eTestPlan: COVERED_PLAN, verification: '' });
+    writeStack({
+      isolation: { port_base: 55000, container_suffix: 'demo' },
+      branch: { default: 'main' },
+      commands: { search: 'git grep -n' },
+    });
+    const parsed = JSON.parse(runPhaseGate('45', tmpDir).output);
+    assert.ok(parsed.failures.includes('missing_charlotte_qa'));
+    assert.strictEqual(parsed.ui_qa_mode, 'legacy');
+  });
+
+  test('E-h ui_qa present but not an object (true) is still required: UI file and no QA key -> fails', () => {
+    buildFixture('45-e-h', { extraFiles: UI_FILES, e2eTestPlan: COVERED_PLAN, verification: '' });
+    writeStack({ capabilities: { ui_qa: true } });
+    const parsed = JSON.parse(runPhaseGate('45', tmpDir).output);
+    assert.ok(parsed.failures.includes('missing_charlotte_qa'));
+    assert.strictEqual(parsed.ui_qa_mode, 'capable');
+  });
+
+  test('E-i capabilities object with backend only (no ui_qa) -> passes, mode none', () => {
+    buildFixture('45-e-i', { extraFiles: UI_FILES, e2eTestPlan: COVERED_PLAN, verification: '' });
+    writeStack({ capabilities: { backend: {} } });
+    const parsed = JSON.parse(runPhaseGate('45', tmpDir).output);
+    assert.strictEqual(parsed.passed, true, JSON.stringify(parsed.failures));
+    assert.strictEqual(parsed.ui_qa_mode, 'none');
+  });
+
+  // One gateWith call per test: beforeEach gives each test a fresh project, so phase '45' resolves to one dir.
+  const gateWith = (name, capabilities, verification = '') => {
+    buildFixture(name, { extraFiles: UI_FILES, e2eTestPlan: COVERED_PLAN, verification });
+    writeStack({ capabilities });
+    return JSON.parse(runPhaseGate('45', tmpDir).output);
+  };
+
+  test('M1 capabilities null is not a plain object: legacy, UI QA required', () => {
+    const parsed = gateWith('45-m1-null', null);
+    assert.strictEqual(parsed.passed, false);
+    assert.ok(parsed.failures.includes('missing_charlotte_qa'));
+    assert.strictEqual(parsed.ui_qa_mode, 'legacy');
+  });
+
+  test('M1 capabilities as an array is legacy, UI QA required, even with a ui_qa-looking element', () => {
+    const parsed = gateWith('45-m1-array', [{ ui_qa: {} }]);
+    assert.strictEqual(parsed.passed, false);
+    assert.ok(parsed.failures.includes('missing_charlotte_qa'));
+    assert.strictEqual(parsed.ui_qa_mode, 'legacy');
+  });
+
+  test('M1 case variant UI_QA fails closed: unknown key means mode capable', () => {
+    const parsed = gateWith('45-m1-upper', { UI_QA: { driver: 'browser', agent: 'qa-agent' } });
+    assert.ok(parsed.failures.includes('missing_charlotte_qa'));
+    assert.strictEqual(parsed.ui_qa_mode, 'capable');
+  });
+
+  test('M1 hyphen variant ui-qa fails closed: mode capable', () => {
+    const parsed = gateWith('45-m1-hyphen', { 'ui-qa': { driver: 'browser', agent: 'qa-agent' } });
+    assert.ok(parsed.failures.includes('missing_charlotte_qa'));
+    assert.strictEqual(parsed.ui_qa_mode, 'capable');
+  });
+
+  test('M1 unknown extra key next to backend fails closed: mode capable', () => {
+    const parsed = gateWith('45-m1-extra', { backend: {}, extra_driver: {} });
+    assert.ok(parsed.failures.includes('missing_charlotte_qa'));
+    assert.strictEqual(parsed.ui_qa_mode, 'capable');
+  });
+
+  test('M1 known keys backend and web_ui alone stay mode none (the wiring writes them)', () => {
+    const parsed = gateWith('45-m1-known', { backend: {}, web_ui: false });
+    assert.strictEqual(parsed.passed, true, JSON.stringify(parsed.failures));
+    assert.strictEqual(parsed.ui_qa_mode, 'none');
+  });
+
+  test('L3 the evidence alias is any-true: ui_qa_ran false with charlotte_qa_ran true satisfies the gate', () => {
+    const parsed = gateWith('45-l3-a', QA_CAPABILITY, verificationWith('ui_qa_ran: false\ncharlotte_qa_ran: true'));
+    assert.ok(!parsed.failures.includes('missing_charlotte_qa'), JSON.stringify(parsed.failures));
+  });
+
+  test('L3 the evidence alias is any-true: ui_qa_ran true with charlotte_qa_ran false satisfies the gate', () => {
+    const parsed = gateWith('45-l3-b', QA_CAPABILITY, verificationWith('ui_qa_ran: true\ncharlotte_qa_ran: false'));
+    assert.ok(!parsed.failures.includes('missing_charlotte_qa'), JSON.stringify(parsed.failures));
   });
 });
 
@@ -14737,12 +15012,12 @@ describe('Phase 60-01: adversarial-review config + assess-risk/verdict-to-issues
   }
 
   describe('loadConfig defaults', () => {
-    test('adversarial_review_enabled:false, adversarial_review_file_threshold:8, adversarial_review_security_patterns 10-entry array when config.json is absent (ENOENT branch)', () => {
+    test('adversarial_review_enabled:false, adversarial_review_file_threshold:8, adversarial_review_security_patterns 9-entry array when config.json is absent (ENOENT branch)', () => {
       const config = loadConfig(tmpDir);
       assert.strictEqual(config.adversarial_review_enabled, false);
       assert.strictEqual(config.adversarial_review_file_threshold, 8);
       assert.ok(Array.isArray(config.adversarial_review_security_patterns));
-      assert.strictEqual(config.adversarial_review_security_patterns.length, 10);
+      assert.strictEqual(config.adversarial_review_security_patterns.length, 9);
     });
 
     test('all three defaults hold when config.json exists but omits all three keys', () => {
@@ -14754,7 +15029,7 @@ describe('Phase 60-01: adversarial-review config + assess-risk/verdict-to-issues
       const config = loadConfig(tmpDir);
       assert.strictEqual(config.adversarial_review_enabled, false);
       assert.strictEqual(config.adversarial_review_file_threshold, 8);
-      assert.strictEqual(config.adversarial_review_security_patterns.length, 10);
+      assert.strictEqual(config.adversarial_review_security_patterns.length, 9);
     });
 
     test('flat override {"adversarial_review_enabled": true} resolves without affecting the other two defaults', () => {
@@ -14766,7 +15041,7 @@ describe('Phase 60-01: adversarial-review config + assess-risk/verdict-to-issues
       const config = loadConfig(tmpDir);
       assert.strictEqual(config.adversarial_review_enabled, true);
       assert.strictEqual(config.adversarial_review_file_threshold, 8);
-      assert.strictEqual(config.adversarial_review_security_patterns.length, 10);
+      assert.strictEqual(config.adversarial_review_security_patterns.length, 9);
     });
 
     test('nested override {"quality": {"adversarial_review_file_threshold": 3}} resolves without affecting adversarial_review_enabled', () => {
@@ -14814,6 +15089,15 @@ describe('Phase 60-01: adversarial-review config + assess-risk/verdict-to-issues
       const result = computeHighRisk({ files_modified: ['src/api/auth/route.ts'] }, '', config);
       assert.strictEqual(result.high_risk, true);
       assert.ok(result.reasons.some(r => r.includes('security pattern')), `expected a pattern-match reason, got: ${JSON.stringify(result.reasons)}`);
+    });
+
+    test('R-e toggle ON: a path containing a brief risk domain and a path containing auth trigger; a brief domain absent from the path does not', () => {
+      const config = { adversarial_review_enabled: true, adversarial_review_file_threshold: 8, adversarial_review_security_patterns: ['auth'] };
+      const hit = computeHighRisk({ files_modified: ['src/ledger/post.js'] }, '', config, ['auth', 'security', 'ledger']);
+      assert.strictEqual(hit.high_risk, true);
+      assert.ok(hit.reasons.some(r => r.includes('"ledger"')), JSON.stringify(hit.reasons));
+      assert.strictEqual(computeHighRisk({ files_modified: ['src/auth/login.js'] }, '', config, []).high_risk, true);
+      assert.strictEqual(computeHighRisk({ files_modified: ['src/ledger/post.js'] }, '', config, ['auth', 'security']).high_risk, false);
     });
 
     test('no explicit flag, toggle ON, plan content with 3 tdd="true" markers -> high_risk:true with a tdd-count reason; 2 markers -> high_risk:false', () => {
@@ -15824,7 +16108,10 @@ describe('Agent messaging (SendMessage) — prompt-layer wiring', () => {
       'gsd-charlotte-qa', 'gsd-verifier',
     ];
     for (const name of agents) {
-      const content = readRepoFile(path.join('agents', `${name}.md`));
+      const agentPath = name === 'gsd-charlotte-qa'
+        ? path.join('get-shit-done', 'presets', 'packs', 'charlotte', 'agents', `${name}.md`)
+        : path.join('agents', `${name}.md`);
+      const content = readRepoFile(agentPath);
       const toolsLine = content.split('\n').find((l) => l.startsWith('tools:'));
       assert.ok(toolsLine, `${name}.md must have a tools: frontmatter line`);
       assert.match(toolsLine, /\bSendMessage\b/, `${name}.md tools: line must include SendMessage`);
@@ -15866,7 +16153,10 @@ describe('Agent messaging (SendMessage) — prompt-layer wiring', () => {
 
   test('App #3: plan-checker + charlotte-qa signal mid-run; execute-phase relays coordinator-mediated', () => {
     for (const name of ['gsd-plan-checker', 'gsd-charlotte-qa']) {
-      const content = readRepoFile(path.join('agents', `${name}.md`));
+      const agentPath = name === 'gsd-charlotte-qa'
+        ? path.join('get-shit-done', 'presets', 'packs', 'charlotte', 'agents', `${name}.md`)
+        : path.join('agents', `${name}.md`);
+      const content = readRepoFile(agentPath);
       assert.match(content, /<live_course_correction>/, `${name}.md must have a live_course_correction block`);
       assert.match(content, /to: "main"/, `${name}.md must SendMessage findings upward to "main"`);
       assert.match(content, /coordinator-mediated/i, `${name}.md must keep the relay coordinator-mediated, not direct peer`);
@@ -15930,7 +16220,7 @@ describe('Phase 62-01: Defect Classes capture + rules distillation wiring (MILE-
   }
 
   const TABLE_HEADER = '| class | instance | caught_by | severity | rule_gap |';
-  const CAUGHT_BY_ENUM = ['plan-check', 'test-writer', 'mutation-proof', 'opus-diff-review', 'verifier', 'charlotte', 'other'];
+  const CAUGHT_BY_ENUM = ['plan-check', 'test-writer', 'mutation-proof', 'opus-diff-review', 'verifier', 'ui-qa', 'other'];
   const SUMMARY_TEMPLATES = [
     'get-shit-done/templates/summary.md',
     'get-shit-done/templates/summary-standard.md',
@@ -16055,8 +16345,8 @@ describe('Phase 62-01: Defect Classes capture + rules distillation wiring (MILE-
       );
       assert.match(
         raw,
-        /Also return a `## Defect Classes` block[\s\S]{0,400}caught_by` fixed to `charlotte`/,
-        'the Charlotte request must fix caught_by to charlotte'
+        /Also return a `## Defect Classes` block[\s\S]{0,400}caught_by` fixed to `ui-qa`/,
+        'the UI QA request must fix caught_by to ui-qa'
       );
       assert.ok(raw.includes('Also run Step 6d'), 'the verifier dispatch must run the Defect Classes coverage step');
     });
@@ -16348,7 +16638,7 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
       // Guard the canaries above: if the enum shrank to a value none of them
       // uses, the invalid_caught_by canaries would start passing for free.
       assert.ok(DEFECT_CLASSES_CAUGHT_BY.includes('opus-ruling'), 'opus-ruling must stay in the enum');
-      assert.strictEqual(DEFECT_CLASSES_CAUGHT_BY.length, 8, 'the enum is a closed set of 8');
+      assert.strictEqual(DEFECT_CLASSES_CAUGHT_BY.length, 9, 'the enum is a closed set of 9 (ui-qa plus the legacy charlotte value)');
     });
 
     test('positive control: a case variant of a caught_by value is accepted', () => {
@@ -17113,7 +17403,7 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
         `all 5 Charlotte dispatch sites + the verifier dispatch must request Defect Classes, found ${occurrences}`
       );
       assert.match(raw, /Also run Step 6d/, 'the verifier dispatch must request Step 6d');
-      assert.match(raw, /None found\. \(reviewed by: charlotte\)/, 'Charlotte must be told the named none-found format');
+      assert.match(raw, /None found\. \(reviewed by: ui-qa\)/, 'the UI QA dispatch must be told the named none-found format');
     });
 
     test('the new rules file obligations are stated (paths: frontmatter + Domain Rules row)', () => {
@@ -18242,5 +18532,112 @@ describe('Opus final-ruling fixes: Deno assertions, legacy grandfathering, sync 
     fs.rmSync(path.join(bin, 'other.js'));
     fs.writeFileSync(path.join(bin, 'gsd-tools.js'), 'const = ;\n');
     assert.ok(preflight(tmp).some(p => /node --check/.test(p)));
+  });
+});
+
+describe('service-health: stack.services first, dev_servers second, no :3000 default (R2 D1)', () => {
+  const http = require('http');
+  const { execFile } = require('child_process');
+  const dirs = [];
+  let server;
+  let port;
+  const mkProject = (config) => {
+    const dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-service-health-'));
+    dirs.push(dir);
+    fs.mkdirSync(path.join(dir, '.planning'));
+    if (config !== undefined) fs.writeFileSync(path.join(dir, '.planning', 'config.json'), JSON.stringify(config));
+    return dir;
+  };
+  const status = (cwd, name) => new Promise((resolve, reject) => {
+    execFile(process.execPath, [TOOLS_PATH, 'service-health', 'status', ...(name ? [name] : []), '--raw'],
+      { cwd, env: { ...process.env, GSD_LEGACY: '1' } }, (err, stdout) => {
+        if (err && !stdout) reject(err);
+        else resolve(JSON.parse(stdout.trim()));
+      });
+  });
+  const url = () => `http://127.0.0.1:${port}`;
+
+  before(async () => {
+    server = http.createServer((req, res) => { res.writeHead(200); res.end('ok'); });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    port = server.address().port;
+  });
+  after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+    for (const d of dirs) fs.rmSync(d, { recursive: true, force: true });
+  });
+
+  test('a stack.services entry wins over a dev_servers entry of the same name; health path is appended to url', async () => {
+    const cwd = mkProject({
+      stack: { services: [{ name: 'api', url: url(), health: '/health' }] },
+      dev_servers: { api: { health_url: 'http://127.0.0.1:1/never' } },
+    });
+    const r = await status(cwd, 'api');
+    assert.strictEqual(r.health_url, `${url()}/health`);
+    assert.strictEqual(r.health_ok, true);
+  });
+
+  test('R3 M3: health is a URL or path; a shell health check is health_cmd, reported and never run', async () => {
+    const marker = path.join(require('os').tmpdir(), `gsd-health-cmd-${process.pid}-${Date.now()}`);
+    const cwd = mkProject({
+      stack: { services: [{ name: 'api', url: url(), health: '/health', health_cmd: `touch ${marker}` }] },
+    });
+    const r = await status(cwd, 'api');
+    assert.strictEqual(r.health_url, `${url()}/health`);
+    assert.strictEqual(r.health_cmd, `touch ${marker}`);
+    assert.strictEqual(fs.existsSync(marker), false, 'status must not evaluate health_cmd');
+  });
+
+  test('a name missing from stack.services falls back to dev_servers', async () => {
+    const cwd = mkProject({
+      stack: { services: [{ name: 'api', url: 'http://127.0.0.1:1' }] },
+      dev_servers: { web: { health_url: url() } },
+    });
+    const r = await status(cwd, 'web');
+    assert.strictEqual(r.health_url, url());
+    assert.strictEqual(r.health_ok, true);
+  });
+
+  test('default resolves to the only stack.services entry', async () => {
+    const cwd = mkProject({ stack: { services: [{ name: 'only', url: url() }] } });
+    const r = await status(cwd);
+    assert.strictEqual(r.health_url, url());
+    assert.strictEqual(r.health_ok, true);
+  });
+
+  test('no default URL: nothing configured gives health_url null, and a dev_servers entry without port or health_url too', async () => {
+    const none = await status(mkProject({}), 'missing');
+    assert.strictEqual(none.health_url, null);
+    assert.strictEqual(none.health_ok, null);
+    const bare = await status(mkProject({ dev_servers: { bare: { start: 'true' } } }), 'bare');
+    assert.strictEqual(bare.health_url, null);
+  });
+});
+
+describe('agnostic-M-05 5.10: caught_by accepts ui-qa and the legacy charlotte value', () => {
+  const { DEFECT_CLASSES_CAUGHT_BY, evaluateDefectClasses } = require('./gsd-tools.js');
+  test('both values are in the closed set and a None-found reviewer list naming either passes', () => {
+    assert.ok(DEFECT_CLASSES_CAUGHT_BY.includes('ui-qa'));
+    assert.ok(DEFECT_CLASSES_CAUGHT_BY.includes('charlotte'));
+    for (const v of ['ui-qa', 'charlotte']) {
+      const r = evaluateDefectClasses(`# S\n\n## Defect Classes\n\nNone found. (reviewed by: ${v})\n\n## Self-Check: PASSED\n`);
+      assert.strictEqual(r.status, 'ok', `${v}: ${JSON.stringify(r)}`);
+    }
+  });
+});
+
+describe('agnostic-M-05 5.11: dashboard WebSocket port', () => {
+  test('renderDashboardHtml points the page at the given port and leaves no placeholder or fixed port', () => {
+    const { renderDashboardHtml } = require('./dashboard-server.js');
+    const html = renderDashboardHtml(9123);
+    assert.ok(html.includes("':9123'"), 'the page connects to the requested port');
+    assert.ok(!html.includes('{{WS_PORT}}') && !html.includes('8766'));
+  });
+
+  test('GSD_DASHBOARD_PORT sets the default WebSocket port, 8766 without it (fresh process)', () => {
+    const read = (env) => execFileSync(process.execPath, ['-e', "console.log(require(process.argv[1]).DEFAULT_WS_PORT)",
+      path.join(__dirname, 'dashboard-server.js')], { encoding: 'utf8', env: { ...process.env, ...env, GSD_DASHBOARD_PORT: env.GSD_DASHBOARD_PORT } }).trim();
+    assert.strictEqual(read({ GSD_DASHBOARD_PORT: '9555' }), '9555');
+    assert.strictEqual(read({ GSD_DASHBOARD_PORT: '' }), '8766');
   });
 });

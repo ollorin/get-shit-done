@@ -148,7 +148,7 @@ function extractPrinciple(cluster) {
   // Calculate confidence based on cluster cohesion
   // More members + more similar = higher confidence
   const avgSimilarity = calculateAverageSimilarity(cluster.embeddings);
-  const sizeBonus = Math.min(members.length / 10, 0.2);  // Max 0.2 bonus
+  const sizeBonus = Math.min(members.length / 10, 0.2);  // Max 0.2 boost
   const confidence = Math.min(avgSimilarity + sizeBonus, 1.0);
 
   // Fallback principle text (real text is substituted in synthesizePrinciples

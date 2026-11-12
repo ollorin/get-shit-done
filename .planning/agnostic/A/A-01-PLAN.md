@@ -40,7 +40,7 @@ e2e_flows: []
 ---
 
 <objective>
-Phase A1 of the project-agnostic GSD work (design: `/Users/ollorin/igaming-platform/.planning/fable-review/FABLE-AGNOSTIC-GSD.md` section 4.3). Add a ratchet lint that counts project-specific terms in installable files and fails `npm test` when a count rises.
+Phase A1 of the project-agnostic GSD work (design: `~/igaming-platform/.planning/fable-review/FABLE-AGNOSTIC-GSD.md` section 4.3). Add a ratchet lint that counts project-specific terms in installable files and fails `npm test` when a count rises.
 
 Why a new script (MANDATE-8): no existing test or gate looks at term content. `get-shit-done/bin/prompt-budget.js` measures preamble size only; `git grep` for a term gate in `package.json` scripts.test finds none.
 
@@ -53,9 +53,9 @@ Output: lint script, denylist, allow-list, generated baseline, tests wired into 
 </execution_context>
 
 <executor_rules>
-- Work only in `/Users/ollorin/get-shit-done-agnostic` (branch `exp/agnostic`). Never touch `/Users/ollorin/igaming-platform`, `~/.claude`, `~/get-shit-done`.
+- Work only in `~/get-shit-done-agnostic` (branch `exp/agnostic`). Never touch `~/igaming-platform`, `~/.claude`, `~/get-shit-done`.
 - Forbidden: `npm run install:gsd`, `npm install`, `git push`, `git stash`, `git reset`, `git clean`, `git checkout -- <file>`, `--no-verify`.
-- Full suite: `cd /Users/ollorin/get-shit-done-agnostic && NODE_PATH=$HOME/get-shit-done/node_modules npm test > /tmp/agnostic-A01.log 2>&1; echo rc=$?` then read only the last 15 lines (`# tests`, `# pass`, `# fail`). Baseline before this plan: 1683 pass, 0 fail. Pass counts: one `it` per numbered behaviour; success is `# fail 0` plus the named tests present in the output (no numeric `# pass` threshold).
+- Full suite: `cd ~/get-shit-done-agnostic && NODE_PATH=$HOME/get-shit-done/node_modules npm test > /tmp/agnostic-A01.log 2>&1; echo rc=$?` then read only the last 15 lines (`# tests`, `# pass`, `# fail`). Baseline before this plan: 1683 pass, 0 fail. Pass counts: one `it` per numbered behaviour; success is `# fail 0` plus the named tests present in the output (no numeric `# pass` threshold).
 - Single file: `NODE_PATH=$HOME/get-shit-done/node_modules node --test scripts/agnostic-lint.test.js`.
 - Do NOT read `get-shit-done/bin/gsd-tools.js` or the design doc in full; everything needed is in this plan.
 - Commit per task with `git add -f <paths>` + `git commit -m "<msg>" -- <paths>` (the SUMMARY is committed the same way). Verify steps that run after a commit use `git show --stat HEAD -- <paths>`, never `git status`/`git diff` against HEAD; ignore the untracked `.audit/` directory. Every commit message ends with these trailers (Haiku executors use `Claude Haiku`):
@@ -116,7 +116,7 @@ For each file and class: the number of **lines** on which the class regex matche
 | paths | `apps/api\|apps/e2e\|player-web\|operator-web` | |
 | gates | `preflight\|run-integration-tests\|fp-gate\|p0-tier\|qa-verdict\|migration-security-gate\|cve-scan-gate` | |
 | zg | `\bzg (query\|index)\b` | |
-| abs | `/Users/ollorin\|igaming-platform` | |
+| abs | `~\|igaming-platform` | |
 | ports | `localhost:\d+\|charlotte\.lock\|local-stack\.lock` | |
 
 (In the table `\|` is a plain `|` alternation; the backslash is only markdown escaping.) `label` = a short human name of your choice.

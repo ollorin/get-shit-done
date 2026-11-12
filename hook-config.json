@@ -13,7 +13,7 @@
       "**/STATE.md",
       "**/ROADMAP.md",
       "**/PROJECT.md",
-      "/Users/ollorin/igaming-platform/docs/**/*.md"
+      "docs/**/*.md"
     ],
     "exclude": [
       "**/*-SUMMARY.md",

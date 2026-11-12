@@ -1,0 +1,2 @@
+id	unit	src	class	sev_written	site	owner	confidence	ver_verdicts
+U1-S9-2	U1	U1-security.md:50	S9	HIGH	src/limits/limiter.js:393-407	this-milestone	traced	"U1-ver.md:15 OVERSTATED / LOW. An earlier draft quoted ""CONFIRMED / HIGH"" and was rejected at review."

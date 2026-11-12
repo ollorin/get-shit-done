@@ -184,6 +184,33 @@ describe('non-blocking queue', () => {
   });
 });
 
+describe('owner title (agnostic-M-06 6.5)', () => {
+  const projectWith = (title) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-dec-owner-'));
+    fs.mkdirSync(path.join(dir, '.planning'));
+    if (title !== undefined) fs.writeFileSync(path.join(dir, '.planning', 'config.json'), JSON.stringify({ project: { slug: 'demo', owner_title: title } }));
+    return dir;
+  };
+  const renderIn = (dir) => {
+    const file = path.join(dir, '.planning', 'DECISIONS.jsonl');
+    execFileSync('node', [TOOL, 'add', '--file', file, '--kind', 'assumption', '--source', 's', '--question', 'q', '--default', 'd', '--reversibility', 'cheap', '--phases', '1'], { cwd: dir });
+    execFileSync('node', [TOOL, 'render', '--file', file], { cwd: dir });
+    return fs.readFileSync(path.join(dir, '.planning', 'DECISIONS.md'), 'utf8');
+  };
+
+  test('render names the owner_title from the profile, and "owner" when there is none', () => {
+    assert.match(renderIn(projectWith('Founder')), /question queued for the Founder\)/);
+    assert.match(renderIn(projectWith(undefined)), /question queued for the owner\)/);
+  });
+
+  test('answer records source owner-answer', () => {
+    const file = path.join(projectWith(undefined), '.planning', 'DECISIONS.jsonl');
+    execFileSync('node', [TOOL, 'add', '--file', file, '--kind', 'assumption', '--source', 's', '--question', 'q', '--default', 'd', '--reversibility', 'cheap', '--phases', '1']);
+    answer(file, 'A-01', 'something else');
+    assert.ok(load(file).records.some((r) => r.kind === 'decision' && r.source === 'owner-answer'));
+  });
+});
+
 describe('ledger integrity and gate exit codes', () => {
   const rec = (o) => JSON.stringify({ id: 'A-01', kind: 'assumption', ts: '2026-01-01T00:00:00.000Z', source: 's', question: 'q', default: 'd', reversibility: 'irreversible', phases: ['12'], status: 'open', ...o }) + '\n';
 

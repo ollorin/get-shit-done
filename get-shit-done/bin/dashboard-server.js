@@ -14,6 +14,8 @@ const path = require('path');
 // Import execution log helpers
 const { getHistory, getExecutionStats } = require('./execution-log.js');
 
+const DEFAULT_WS_PORT = Number(process.env.GSD_DASHBOARD_PORT) || 8766;
+
 let wss = null;
 let httpServer = null;
 let fileWatcher = null;
@@ -68,7 +70,7 @@ const DASHBOARD_HTML = `
     let eventCount = 0;
 
     function connect() {
-      const ws = new WebSocket('ws://localhost:8766');
+      const ws = new WebSocket('ws://' + location.hostname + ':{{WS_PORT}}');
 
       ws.onopen = () => {
         statusEl.textContent = 'Connected';
@@ -124,20 +126,25 @@ const DASHBOARD_HTML = `
 </html>
 `;
 
+// The page connects back to the WebSocket port the server was started with.
+function renderDashboardHtml(wsPort) {
+  return DASHBOARD_HTML.split('{{WS_PORT}}').join(String(wsPort));
+}
+
 /**
  * Start the dashboard server
  * @param {object} options - { httpPort, wsPort, logPath }
  */
 function startDashboard(options = {}) {
   const httpPort = options.httpPort || 8765;  // Changed from 3000
-  const wsPort = options.wsPort || 8766;      // Changed from 8080
+  const wsPort = options.wsPort || DEFAULT_WS_PORT;
   const logPath = options.logPath || '.planning/EXECUTION_LOG.md';
 
   // HTTP server for dashboard HTML
   httpServer = http.createServer((req, res) => {
     if (req.url === '/' || req.url === '/dashboard') {
       res.writeHead(200, { 'Content-Type': 'text/html' });
-      res.end(DASHBOARD_HTML);
+      res.end(renderDashboardHtml(wsPort));
     } else if (req.url === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'ok' }));
@@ -247,5 +254,7 @@ function stopDashboard() {
 module.exports = {
   startDashboard,
   stopDashboard,
+  renderDashboardHtml,
+  DEFAULT_WS_PORT,
   DASHBOARD_HTML
 };

@@ -29,7 +29,7 @@ Create executable phase prompts (PLAN.md files) for a roadmap phase with integra
 <context>
 Phase number: $ARGUMENTS (optional — auto-detects next unplanned phase if omitted)
 
-**Version-skew preflight:** Before executing, read `~/.claude/cache/gsd-skew-check.json` if it exists. If `drifted_count > 0`, the installed GSD copy has drifted from its source — warn the user (name the drifted files if listed) and offer to stop and re-run the installer before proceeding.
+**Version-skew check:** Before executing, read `~/.claude/cache/gsd-skew-check.json` if it exists. If `drifted_count > 0`, the installed GSD copy has drifted from its source — warn the user (name the drifted files if listed) and offer to stop and re-run the installer before proceeding.
 
 **Flags** (`--research`, `--skip-research`, `--gaps`, `--skip-verify`) are defined and handled in the workflow file — see `argument-hint` for the list and pass `$ARGUMENTS` through verbatim. Do NOT duplicate their semantics here; the workflow is the single source of truth.
 

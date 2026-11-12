@@ -36,16 +36,16 @@ e2e_flows: []
 ---
 
 <objective>
-Phase B2 (render) + B3 (whole-file three-way), design lines 203-227 of `/Users/ollorin/igaming-platform/.planning/fable-review/FABLE-AGNOSTIC-GSD.md`. Two pure-ish modules; nothing calls them until B-04. The manifest file itself is written by the engine in B-04; this plan fixes the data it needs (`sha256` of rendered content, rendered bytes as merge base).
+Phase B2 (render) + B3 (whole-file three-way), design lines 203-227 of `~/igaming-platform/.planning/fable-review/FABLE-AGNOSTIC-GSD.md`. Two pure-ish modules; nothing calls them until B-04. The manifest file itself is written by the engine in B-04; this plan fixes the data it needs (`sha256` of rendered content, rendered bytes as merge base).
 
 Scope: a preset here is one flat directory. Preset composition (`extends`, `packs`, for example a shared base plus `packs/charlotte`) is owned by Phase F (factor base); this loader rejects both keys until then. Phase C's igaming preset is a flat verbatim snapshot: every file entry carries `render: false`.
 </objective>
 
 <executor_rules>
-- Work only in `/Users/ollorin/get-shit-done-agnostic` (branch `exp/agnostic`). Never touch `/Users/ollorin/igaming-platform`, `~/.claude`, `~/get-shit-done`. Tests create every file under `fs.mkdtempSync(path.join(os.tmpdir(), ...))` and remove it in `afterEach`.
+- Work only in `~/get-shit-done-agnostic` (branch `exp/agnostic`). Never touch `~/igaming-platform`, `~/.claude`, `~/get-shit-done`. Tests create every file under `fs.mkdtempSync(path.join(os.tmpdir(), ...))` and remove it in `afterEach`.
 - Forbidden: `npm run install:gsd`, `node bin/install.js`, `npm install`, `git push`, `git stash`, `git reset`, `git clean`, `git checkout -- <file>`, `--no-verify`.
 - Do not edit or `require` Phase A files (`scripts/agnostic-lint*`, `get-shit-done/bin/project-profile*.js`, the A3 templates and reference). Before editing `package.json` run `git status --short -- package.json`; if not empty, stop and report.
-- One test file: `NODE_PATH=$HOME/get-shit-done/node_modules node --test <file>`. Full suite once, in Task 4: `cd /Users/ollorin/get-shit-done-agnostic && NODE_PATH=$HOME/get-shit-done/node_modules npm test > /tmp/agnostic-B02.log 2>&1; echo rc=$?`, read the last 15 lines only. Success: rc=0, `# fail 0`, named tests present.
+- One test file: `NODE_PATH=$HOME/get-shit-done/node_modules node --test <file>`. Full suite once, in Task 4: `cd ~/get-shit-done-agnostic && NODE_PATH=$HOME/get-shit-done/node_modules npm test > /tmp/agnostic-B02.log 2>&1; echo rc=$?`, read the last 15 lines only. Success: rc=0, `# fail 0`, named tests present.
 - Lint: `node scripts/agnostic-lint.js check` exits 0 without regenerating the baseline. Non-test files in `get-shit-done/bin/` are in scope: no vendor, product or tool names in code or comments.
 - No token-shaped literal in any file.
 - CommonJS, `'use strict'`, node built-ins only, result objects instead of `throw` across a module boundary, `const` only, inputs never mutated, comments only for a non-obvious constraint. Each module ≤ 300 lines.

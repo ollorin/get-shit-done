@@ -250,12 +250,12 @@ Never render a table with a header row and no data rows — the presence or abse
 
 ## 5.7. QA Verdict Gate
 
-**Existence gate.** Run this step ONLY when `scripts/qa-verdict.ts` exists in the target repo —
+**Existence gate.** Run this step ONLY when the verdict gate script in `stack.gates[]` exists in the target repo —
 same "run when the repo ships it" convention as the Layer-1 gates. Skip the entire step — no gap,
 no warning — when the file is absent.
 
 ```bash
-[ -f scripts/qa-verdict.ts ] || echo "SKIP 5.7 — scripts/qa-verdict.ts not present in this repo"
+[ -f <verdict gate script from stack.gates[]> ] || echo "SKIP 5.7 — verdict gate script not present in this repo"
 ```
 
 Unlike Step 5.5's `workflow.nyquist_validation` skip, there is **no config flag** to disable this
@@ -264,7 +264,7 @@ step when the script IS present — a gate with an off switch is not a gate.
 **Resolve the run dir and the milestone number.**
 
 ```bash
-RUN_DIR=$(ls -d apps/e2e-charlotte/results/*/ 2>/dev/null \
+RUN_DIR=$(ls -d <UI QA results dir under stack.paths.e2e_scenarios>/*/ 2>/dev/null \
   | grep -E '/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}/$' \
   | sort | tail -1)
 ```
@@ -279,11 +279,11 @@ as a repo that never shipped the script.
 **Invoke and parse.**
 
 ```bash
-VERDICT=$(deno run --allow-read --allow-env scripts/qa-verdict.ts "${RUN_DIR%/}" \
+VERDICT=$(<verdict gate command from `stack.gates[]`> "${RUN_DIR%/}" \
   --current-milestone "$MILESTONE_N" --json)
 ```
 
-Exit 2 (bad input) MUST force `gaps_found`. `deno` missing while `scripts/qa-verdict.ts` exists
+Exit 2 (bad input) MUST force `gaps_found`. the gate runtime missing while the verdict gate script exists
 MUST also force `gaps_found` — the repo shipped the gate; the workflow may not decline to run it
 just because its runtime isn't on `PATH`.
 
@@ -319,7 +319,7 @@ trigger holds:
 
 - `p0Exceptions` is non-empty, OR
 - some `features[]` entry has `state: "GAP"` with no `riskTier` in
-  `apps/e2e-charlotte/coverage-registry.json`
+  `<stack.paths.e2e_scenarios>/coverage-registry.json`
 
 Do NOT spawn on a clean verdict. Do NOT spawn when the only failures are `manifestStale` and/or
 `guardHealth` problems — those are infra-shaped findings, not feature-shaped ones, and there is no
@@ -341,7 +341,7 @@ Agent(
 Verdict JSON path: {path}
 Run dir: {RUN_DIR}
 Milestone: {milestone_version}
-Registry: apps/e2e-charlotte/coverage-registry.json
+Registry: <stack.paths.e2e_scenarios>/coverage-registry.json
 
 Duties: propose risk tiers for NEW registry entries (human confirms in PR review), prioritize gap closure, draft gap-closure phase inputs in the shape plan-milestone-gaps consumes.",
   subagent_type="gsd-qa-analyst",
@@ -392,7 +392,7 @@ tech_debt:  # Non-critical, deferred
   - phase: 03-dashboard
     items:
       - "Deferred: mobile responsive layout"
-qa:  # Step 5.7 — omit entirely if scripts/qa-verdict.ts is absent (existence-gated)
+qa:  # Step 5.7 — omit entirely if the verdict gate script is absent (existence-gated)
   manifest_run_id: {manifestRunId}
   manifest_stale: {manifestStale}
   p0_exceptions: [{featureIds}]
@@ -443,7 +443,7 @@ artifacts at all (nothing to distil) — say so in the report rather than invent
 tree. Three sources, in order:
 
 **(a) The `## Defect Classes` section bodies.** Loop over the `{phase_dirs}` Step 1 resolved for
-THIS milestone — not every directory under `.planning/phases/`, which sweeps in other
+THIS milestone — not every directory under `.planning/phases/`, which pulls in other
 milestones' phases. For each `*-SUMMARY.md` in those directories, extract the section BODY
 (heading to the next `^## `, inclusive of the heading line for identification):
 
@@ -604,7 +604,7 @@ READ:
 - `.planning/v{version}-DEFECT-ROWS.md` — the collected rows. This is your primary input.
 - `deferred-items.md` in the `{phase_dirs}` Step 1 resolved for THIS milestone — anything
   deferred that reads as a real defect. Scope it exactly as the collection step scoped it: do
-  NOT read `.planning/phases/*/deferred-items.md` with a wildcard. That glob sweeps in every
+  NOT read `.planning/phases/*/deferred-items.md` with a wildcard. That glob pulls in every
   other milestone's deferred items, so a rule distil for this milestone would be justified by
   defects the milestone never had. The orchestrator passes you the resolved list; read only
   those paths.

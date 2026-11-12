@@ -106,10 +106,11 @@ function matchesPattern(filePath, patterns, excludes = []) {
     }
   }
 
-  // Check patterns
+  // Check patterns; relative patterns (e.g. docs/**) match against the cwd-relative path
+  const relPath = path.relative(process.cwd(), filePath);
   for (const pattern of patterns) {
-    // Try both full path and basename matching
-    if (minimatch(filePath, pattern) || minimatch(basename, pattern)) {
+    // Try full, cwd-relative and basename matching
+    if (minimatch(filePath, pattern) || minimatch(relPath, pattern) || minimatch(basename, pattern)) {
       return true;
     }
   }

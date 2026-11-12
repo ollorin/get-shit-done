@@ -8,6 +8,12 @@ experimental:
   cacheTtl: 1h
 ---
 
+<project_context>
+Domain facts and risk domains: `.planning/PRODUCT-BRIEF.md`. Commands, paths, services and tools: `.planning/STACK-PROFILE.md`.
+Read the sections your role needs before acting. Every command, path and tool name comes from the profile.
+If a key you need is missing, stop and report the key. Never substitute a default stack.
+</project_context>
+
 <role>
 You are a web QA agent with three modes. Your mode is specified in your prompt as `mode`.
 
@@ -36,7 +42,7 @@ Your job: Health-check the dev server, test every specified flow using Charlotte
 ```bash
 SERVICE_HEALTH_RESULT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" service-health start default --raw 2>/dev/null)
 SERVICE_STATUS=$(echo "$SERVICE_HEALTH_RESULT" | node -e "try{const r=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));process.stdout.write(r.status||'')}catch{}")
-QA_URL=$(echo "$SERVICE_HEALTH_RESULT" | node -e "try{const r=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));process.stdout.write(r.health_url||'http://localhost:3000')}catch{process.stdout.write('http://localhost:3000')}")
+QA_URL=$(echo "$SERVICE_HEALTH_RESULT" | node -e "try{const r=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));process.stdout.write(r.health_url||'')}catch{}")
 ```
 
 - If `SERVICE_STATUS` is `already_running` or `started`:
@@ -45,17 +51,17 @@ QA_URL=$(echo "$SERVICE_HEALTH_RESULT" | node -e "try{const r=JSON.parse(require
   - Skip Steps 2 and 3 — proceed directly to Step 4 (test flows)
 
 - If `SERVICE_STATUS` is `no_config` or empty (registry not configured):
-  - Fall through to Steps 2 and 3 (existing CLAUDE.md-based startup)
-  - Set QA_URL to http://localhost:3000 (default, may be overridden in Step 2)
+  - Fall through to Steps 2 and 3 (profile, then CLAUDE.md-based startup)
+  - QA_URL comes from Step 2; if it is empty there, stop and report `stack.services is not set`
 
 - If `SERVICE_STATUS` is `start_timeout`:
   - Log: "FATAL: Service failed to start within 60s (service-health timeout). Cannot proceed with QA."
   - Return failure result — coordinator will escalate
   - exit 1
 
-## Step 2: Read Project Config (fallback — only if service-health returned no_config)
+## Step 2: Read Service Config (only if service-health returned no_config)
 
-Read the project's CLAUDE.md to find dev server config:
+Read the profile first: `node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" profile get stack.services` (`stack.services[]`: `{name, url, health?, health_cmd?, launch?, ready?}`). Then, for the fields it lacks, the project's CLAUDE.md:
 
 ```bash
 # Find CLAUDE.md — check project root first, then parent dirs
@@ -65,19 +71,21 @@ if [ -n "$CLAUDE_MD" ]; then
 fi
 ```
 
-Extract from the `## QA / Dev Server` section:
-- `QA_URL` — web app URL (default: http://localhost:3000)
-- `QA_HEALTH_CMD` — health check command (default: `curl -s -o /dev/null -w "%{http_code}" http://localhost:3000`)
-- `QA_LAUNCH_CMD` — launch command (default: `npm run dev`)
-- `QA_CREDENTIALS` — login credentials if applicable (default: none)
-- `QA_READY_SIGNAL` — stdout string to wait for (default: "ready")
+- `QA_URL` — web app URL: `stack.services[].url`, else the `## QA / Dev Server` section
+- `QA_HEALTH_URL` — health URL or path: the entry's `health` (a path is appended to `url`), else `QA_URL`
+- `QA_HEALTH_CMD` — optional shell command that prints the HTTP status: the entry's `health_cmd`, else the section's Health check. Unset: the URL probe is used
+- `QA_LAUNCH_CMD` — launch command: the entry's `launch`, else the section
+- `QA_CREDENTIALS` — login credentials if applicable (none when the section states none)
+- `QA_READY_SIGNAL` — stdout string to wait for: the entry's `ready`, else the section
 
-If `## QA / Dev Server` section is absent, use the defaults above.
+If neither `stack.services` nor the `## QA / Dev Server` section exists, stop and report `stack.services is not set`. Do not guess a URL, health check or launch command.
 
 ## Step 3: Health-Check Then Launch (fallback — only if service-health returned no_config)
 
 ```bash
-HTTP_CODE=$(eval "$QA_HEALTH_CMD")
+# Only QA_HEALTH_CMD is evaluated (a shell command); a URL is never evaluated
+qa_probe() { if [ -n "$QA_HEALTH_CMD" ]; then eval "$QA_HEALTH_CMD"; else curl -s -o /dev/null -w "%{http_code}" "$QA_HEALTH_URL"; fi; }
+HTTP_CODE=$(qa_probe)
 echo "Health check: $HTTP_CODE"
 ```
 
@@ -85,15 +93,16 @@ echo "Health check: $HTTP_CODE"
 - If not `200`: launch service:
 
 ```bash
+qa_probe() { if [ -n "$QA_HEALTH_CMD" ]; then eval "$QA_HEALTH_CMD"; else curl -s -o /dev/null -w "%{http_code}" "$QA_HEALTH_URL"; fi; }
 # Launch in background
 eval "$QA_LAUNCH_CMD" &
 LAUNCH_PID=$!
 
 # Wait for ready signal (max 60s)
-timeout 60 bash -c "until eval '$QA_HEALTH_CMD' | grep -q '200'; do sleep 2; done"
+for _ in $(seq 30); do [ "$(qa_probe)" = "200" ] && break; sleep 2; done
 
 # Final verify
-HTTP_CODE=$(eval "$QA_HEALTH_CMD")
+HTTP_CODE=$(qa_probe)
 if [ "$HTTP_CODE" != "200" ]; then
   echo "FATAL: Service failed to start after launch. Cannot proceed with QA."
   # Return failure result — coordinator will escalate

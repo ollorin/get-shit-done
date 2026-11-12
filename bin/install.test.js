@@ -147,7 +147,7 @@ describe('check-update and doc-compression hooks are no longer registered (RULIN
       assert.ok(!cmds.some((c) => c.includes('doc-compression-hook')), 'doc-compression-hook must not be registered');
       assert.strictEqual(hasCompressionHook(settingsPath), false);
       assert.ok(!(settings.hooks.SessionStart || []).length, 'no SessionStart entries expected');
-      for (const needle of ['gsd-protect-managed-files', 'gsd-charlotte-lock', 'session-end-standalone']) {
+      for (const needle of ['gsd-protect-managed-files', 'gsd-ui-qa-lock', 'session-end-standalone']) {
         assert.ok(cmds.some((c) => c.includes(needle)), `${needle} must still be registered`);
       }
       assert.ok(!cmds.some((c) => c.includes('gsd-guard-bash')), 'gsd-guard-bash stays unregistered');
@@ -519,7 +519,7 @@ describe('Phase 52-01: writeManifest source_git_sha capture', () => {
   });
 });
 
-describe('Charlotte DB-reset lock hook registration', () => {
+describe('UI-QA lock hook registration', () => {
   let scratchDir;
   beforeEach(() => { scratchDir = createScratchDir('gsd-install-charlotte-'); });
   afterEach(() => cleanup(scratchDir));
@@ -528,8 +528,8 @@ describe('Charlotte DB-reset lock hook registration', () => {
     const out = [];
     for (const [event, entries] of Object.entries(settings.hooks || {})) {
       for (const entry of entries) {
-        if (entry.hooks && entry.hooks.some(h => h.command && h.command.includes('gsd-charlotte-lock'))) {
-          out.push(`${event}:${entry.matcher}`);
+        if (entry.hooks && entry.hooks.some(h => h.command && /gsd-charlotte-lock|gsd-ui-qa-lock/.test(h.command))) {
+          out.push(`${event}:${entry.matcher ?? ''}`);
         }
       }
     }
@@ -549,14 +549,44 @@ describe('Charlotte DB-reset lock hook registration', () => {
   });
 
   test('registers MCP, Bash, SubagentStart and SubagentStop entries exactly once, idempotently', () => {
-    const expected = ['PreToolUse:Bash', 'PreToolUse:mcp__charlotte__.*', 'SubagentStart:gsd-charlotte-qa', 'SubagentStop:gsd-charlotte-qa'];
+    const expected = ['PreToolUse:Bash', 'PreToolUse:mcp__.*', 'SubagentStart:', 'SubagentStop:'];
     for (let i = 0; i < 2; i++) {
       const result = runInstall(scratchDir);
       assert.ok(result.success, `install should succeed: ${result.error || ''}\n${result.output}`);
       const settings = JSON.parse(fs.readFileSync(path.join(scratchDir, '.claude', 'settings.json'), 'utf-8'));
       assert.deepStrictEqual(lockEntries(settings), expected, `run ${i + 1}`);
     }
-    assert.ok(fs.existsSync(path.join(scratchDir, '.claude', 'get-shit-done', 'bin', 'hooks', 'gsd-charlotte-lock.js')), 'hook file must be deployed');
+    assert.ok(fs.existsSync(path.join(scratchDir, '.claude', 'get-shit-done', 'bin', 'hooks', 'gsd-ui-qa-lock.js')), 'hook file must be deployed');
+  });
+
+  test('L-d a local install whose project declares capabilities without ui_qa registers no lock entry', () => {
+    fs.mkdirSync(path.join(scratchDir, '.planning'), { recursive: true });
+    fs.writeFileSync(path.join(scratchDir, '.planning', 'config.json'), JSON.stringify({ stack: { capabilities: { backend: {} } } }));
+    const result = runInstall(scratchDir);
+    assert.ok(result.success, result.output);
+    const settings = JSON.parse(fs.readFileSync(path.join(scratchDir, '.claude', 'settings.json'), 'utf-8'));
+    assert.deepStrictEqual(lockEntries(settings), []);
+  });
+
+  test('L-f an upgrade from the old four entries leaves none under the old name and the four new ones', () => {
+    const claudeDir = path.join(scratchDir, '.claude');
+    fs.mkdirSync(claudeDir, { recursive: true });
+    const oldCommand = 'node "/x/get-shit-done/bin/hooks/gsd-charlotte-lock.js"';
+    fs.writeFileSync(path.join(claudeDir, 'settings.json'), JSON.stringify({ hooks: {
+      PreToolUse: [
+        { matcher: 'mcp__charlotte__.*', hooks: [{ type: 'command', command: oldCommand }] },
+        { matcher: 'Bash', hooks: [{ type: 'command', command: oldCommand }] },
+      ],
+      SubagentStart: [{ matcher: 'gsd-charlotte-qa', hooks: [{ type: 'command', command: oldCommand }] }],
+      SubagentStop: [{ matcher: 'gsd-charlotte-qa', hooks: [{ type: 'command', command: oldCommand }] }],
+    } }));
+    const result = runInstall(scratchDir);
+    assert.ok(result.success, result.output);
+    const settings = JSON.parse(fs.readFileSync(path.join(claudeDir, 'settings.json'), 'utf-8'));
+    const commands = Object.values(settings.hooks || {}).flat().flatMap((entry) => (entry.hooks || []).map((h) => h.command || ''));
+    assert.strictEqual(commands.filter(c => c.includes('gsd-charlotte-lock')).length, 0);
+    assert.strictEqual(commands.filter(c => c.includes('gsd-ui-qa-lock')).length, 4);
+    assert.deepStrictEqual(lockEntries(settings), ['PreToolUse:Bash', 'PreToolUse:mcp__.*', 'SubagentStart:', 'SubagentStop:']);
   });
 });
 
@@ -756,5 +786,15 @@ describe('presets/ is copied byte-for-byte (agnostic-B1)', () => {
       cleanup(scratchRepo);
       cleanup(scratchTarget);
     }
+  });
+});
+
+describe('UI QA driver agent ships as a pack file, not a global agent (agnostic-M-02 2.4)', () => {
+  test('gsd-charlotte-qa.md is absent from agents/ and present in the charlotte pack', () => {
+    assert.strictEqual(fs.existsSync(path.join(REPO_ROOT, 'agents', 'gsd-charlotte-qa.md')), false);
+    assert.strictEqual(
+      fs.existsSync(path.join(REPO_ROOT, 'get-shit-done', 'presets', 'packs', 'charlotte', 'agents', 'gsd-charlotte-qa.md')),
+      true,
+    );
   });
 });

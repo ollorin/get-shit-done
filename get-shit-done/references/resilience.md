@@ -55,7 +55,7 @@ Written ONLY by the executor's own `<executor_resilience_protocol>` self-stop (`
   "last_completed_task": { "index": 3, "name": "Add refresh token rotation" },
   "next_task_index": 4,
   "completed_task_commits": ["9f8e7d6", "b2c3d4e", "a1b2c3d"],
-  "files_modified": ["apps/api/functions/auth-refresh/index.ts", "libs/domain/src/session.ts"],
+  "files_modified": ["src/handlers/auth-refresh.ts", "src/domain/session.ts"],
   "deviations": ["[Rule 2 - Missing validation] Added input validation on refresh token format"],
   "key_decisions": ["Refresh tokens rotate on every use, not just on expiry"],
   "verification_state": "Tasks 1-3 verified individually; full plan verification not yet run",

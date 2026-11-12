@@ -86,21 +86,21 @@ When spawning the verifier subagent (verify step), if fresh_subagent_notified is
 
 If you reach 80% context and have NOT yet completed the verify step:
 1. Write CHECKPOINT.json with `resume_from: "verify"` (or whatever step is next)
-2. Do not record Charlotte evidence yourself: `charlotte_qa_ran` is written by gsd-verifier into `{N}-VERIFICATION.md` frontmatter
+2. Do not record UI QA evidence yourself: `ui_qa_ran` is written by gsd-verifier into `{N}-VERIFICATION.md` frontmatter
 3. Return to orchestrator with `status: "completed_with_deferrals"` and include in the return:
    ```json
    {
      "status": "completed_with_deferrals",
-     "deferred": ["verify", "charlotte_qa"],
+     "deferred": ["verify", "ui_qa"],
      "reason": "context_budget_exceeded",
      "handoff_summary": "..."
    }
    ```
 4. The orchestrator will spawn fresh agents for the deferred steps
 
-**Phase-gate authority note:** These deferred steps (`verify`, `charlotte_qa`) are picked up by a fresh subagent within this same execution — this is a handoff, not a permanent skip. If a fresh subagent also cannot complete them and the team decides to accept a genuinely missing artifact, that IS a mandatory-step skip and requires `gsd-tools.js deferred add {phase} --step <step> --reason <reason> --approver <approver>` as part of that decision, never silently accepted. Separately: the orchestrator's `verify phase-gate {phase}` call (execute-phase.md's `pre_verify_gates` step, run after this coordinator returns) is the blocking authority for artifact EXISTENCE (test files, Charlotte QA evidence, docs commit, E2E-TEST-PLAN.md, VERIFICATION.md) — this coordinator's own `charlotte_qa_ran` tracking remains a useful early self-check but is not the final word.
+**Phase-gate authority note:** These deferred steps (`verify`, `ui_qa`) are picked up by a fresh subagent within this same execution — this is a handoff, not a permanent skip. If a fresh subagent also cannot complete them and the team decides to accept a genuinely missing artifact, that IS a mandatory-step skip and requires `gsd-tools.js deferred add {phase} --step <step> --reason <reason> --approver <approver>` as part of that decision, never silently accepted. Separately: the orchestrator's `verify phase-gate {phase}` call (execute-phase.md's `pre_verify_gates` step, run after this coordinator returns) is the blocking authority for artifact EXISTENCE (test files, UI QA evidence, docs commit, E2E-TEST-PLAN.md, VERIFICATION.md) — this coordinator's own `ui_qa_ran` tracking remains a useful early self-check but is not the final word.
 
-**Do NOT try to power through the remaining steps at 80%+.** Overflowing mid-verify or mid-Charlotte produces incomplete artifacts that the orchestrator accepts as valid. Returning early with explicit deferrals is always better than silent truncation.
+**Do NOT try to power through the remaining steps at 80%+.** Overflowing mid-verify or mid-UI-QA produces incomplete artifacts that the orchestrator accepts as valid. Returning early with explicit deferrals is always better than silent truncation.
 
 If usage cannot be determined, default to 0% and proceed normally.
 
@@ -110,7 +110,7 @@ If usage cannot be determined, default to 0% and proceed normally.
 Mine recent Claude Code sessions for decisions and reasoning before planning begins.
 
 ```bash
-HARVEST=$(node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js \
+HARVEST=$(node ~/.claude/get-shit-done/bin/gsd-tools.js \
   mine-conversations --all-projects --max-age-days 3 --limit 5 2>/dev/null || echo '{"status":"error"}')
 ```
 
@@ -145,7 +145,7 @@ Parse HARVEST JSON. Extract `status`, `sessionsReady`, `sessions`.
 
 3. Store results:
    ```bash
-   node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js \
+   node ~/.claude/get-shit-done/bin/gsd-tools.js \
      store-conversation-result "{session.sessionId}" '{resultsJson}' \
      --content-hash "{session.contentHash}"
    ```
@@ -183,7 +183,7 @@ ls .planning/phases/{phase_dir}/*-CONTEXT.md 2>/dev/null || echo "NO_CONTEXT"
 
 1. Read the phase entry from ROADMAP.md to get the goal, requirements, and success criteria:
 ```bash
-node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js roadmap get-phase {phase_number}
+node ~/.claude/get-shit-done/bin/gsd-tools.js roadmap get-phase {phase_number}
 ```
 
 2. Analyze the phase domain using these heuristics to determine what type of phase this is:
@@ -309,17 +309,17 @@ There is no interactive channel: nothing in discuss blocks on a human. Evaluate 
 1. **Irreversible change** — cannot be undone without significant effort (deleting data, schema migration, public API contract)
 2. **>1 phase rework risk** — if wrong, more than one future phase is reworked
 3. **Major architectural decision** — system design, component boundaries, or data model in a non-trivial way
-4. **Money/data loss potential** — wrong decision could lose user data, cause financial charges, or a security breach
+4. **Risk-domain/data loss potential** — wrong decision could lose user data, cause financial charges, or a security breach
 5. **Conflicting KB signals** — knowledge DB results directly contradict each other at similar confidence
 6. **Always-ask topic** — a topic the user has said they always decide personally
 
 Produce `sensitive_items` (any criterion true) and `discretion_items` (none true; Claude decides).
 
 **Route each sensitive item by the criterion that matched (never `blocked/parked` from discuss, never a wait):**
-- Criterion 4, or criteria 2/3 in a money/auth/KYC/RNG domain, or criterion 5: dispatch a fresh Opus-tier ruling (`model: "fable"` while the Fable allowance lasts, fall back to `"opus"` and say so), per the project CLAUDE.md. Record it as `decisions.js add --kind decision --source opus-ruling ...` (phases = this phase) and proceed on it. If the ruling cannot be obtained, queue the item as an assumption (below) with reversibility `costly` and continue on the default.
+- Criterion 4, or criteria 2/3 in a risk domain or `ruling_topics`, or criterion 5: dispatch a fresh Opus-tier ruling (`model: "fable"` while the Fable allowance lasts, fall back to `"opus"` and say so), per the project CLAUDE.md. Record it as `decisions.js add --kind decision --source opus-ruling ...` (phases = this phase) and proceed on it. If the ruling cannot be obtained, queue the item as an assumption (below) with reversibility `costly` and continue on the default.
 - Criteria 2/3 outside those domains: Sonnet-tier judgment by the coordinator, recorded as `decisions.js add --kind assumption --source coordinator-judgment` with its true reversibility, default taken, continue.
-- Criterion 1 or 6 that is a strategic or business/legal call only the CEO can make: queue `decisions.js add --kind assumption --source unattended --reversibility {true value} --phases {only the phases that consume this decision}` (never `--global` unless every phase consumes it), print the question in chat via the orchestrator, and continue on the default. Other phases are never held; `gate` parks only the consuming phases when the assumption is `irreversible` (see execute-roadmap `ledger_gate`).
-- Criterion 6 or 1 that touches money/auth/security: use the ruling route first, as above.
+- Criterion 1 or 6 that is a strategic or business/legal call only the owner can make: queue `decisions.js add --kind assumption --source unattended --reversibility {true value} --phases {only the phases that consume this decision}` (never `--global` unless every phase consumes it), print the question in chat via the orchestrator, and continue on the default. Other phases are never held; `gate` parks only the consuming phases when the assumption is `irreversible` (see execute-roadmap `ledger_gate`).
+- Criterion 6 or 1 that touches a risk domain or security: use the ruling route first, as above.
 
 Every routed item is documented in CONTEXT.md under Claude's Discretion (citing the `A-`/`D-` id) and, for the first two routes, in the Implementation Decisions section.
 
@@ -427,7 +427,7 @@ mkdir -p ".planning/phases/{phase_dir}"
 
 4. Commit the context file:
 ```bash
-node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js commit "docs({padded_phase}): autonomous discuss step — write phase context" --files ".planning/phases/{phase_dir}/{padded_phase}-CONTEXT.md"
+node ~/.claude/get-shit-done/bin/gsd-tools.js commit "docs({padded_phase}): autonomous discuss step — write phase context" --files ".planning/phases/{phase_dir}/{padded_phase}-CONTEXT.md"
 ```
 
 5. Create the final discuss step checkpoint:
@@ -573,7 +573,7 @@ echo "PLAN_COUNT=$PLAN_COUNT"
 ```bash
 GATE_FAILURES=0
 for plan_file in .planning/phases/{phase_dir}/*-PLAN.md; do
-  VALIDATION_OUTPUT=$(node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js verify plan-structure "$plan_file" 2>/dev/null)
+  VALIDATION_OUTPUT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js verify plan-structure "$plan_file" 2>/dev/null)
   VALID=$(echo "$VALIDATION_OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('valid', True))" 2>/dev/null || echo "True")
   if [ "$VALID" = "False" ] || [ "$VALID" = "false" ]; then
     ERRORS=$(echo "$VALIDATION_OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(', '.join(d.get('errors',[])))" 2>/dev/null || echo "unknown errors")
@@ -607,7 +607,7 @@ If PLAN_COUNT == 0: HARD STOP — return failure state. Never execute a phase wi
 
 **Pre-execution dependency drift check (advisory — never blocks execution):**
 ```bash
-DRIFT_RESULT=$(node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js verify dependency-stability {phase_number} 2>/dev/null || echo '{"drift_detected":false,"error":"drift check unavailable"}')
+DRIFT_RESULT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js verify dependency-stability {phase_number} 2>/dev/null || echo '{"drift_detected":false,"error":"drift check unavailable"}')
 ```
 
 Parse DRIFT_RESULT JSON:
@@ -617,7 +617,7 @@ Parse DRIFT_RESULT JSON:
 
 **File conflict check for parallel execution (informational — never blocks):**
 ```bash
-FILE_CONFLICTS=$(node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js roadmap analyze --raw 2>/dev/null | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{const j=JSON.parse(d);console.log(JSON.stringify(j.file_conflicts||[]));}catch(e){console.log('[]');}})" 2>/dev/null || echo '[]')
+FILE_CONFLICTS=$(node ~/.claude/get-shit-done/bin/gsd-tools.js roadmap analyze --raw 2>/dev/null | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{const j=JSON.parse(d);console.log(JSON.stringify(j.file_conflicts||[]));}catch(e){console.log('[]');}})" 2>/dev/null || echo '[]')
 ```
 
 Parse FILE_CONFLICTS JSON array:
@@ -627,7 +627,7 @@ Parse FILE_CONFLICTS JSON array:
 
 ```bash
 # Check what plans exist and which have summaries
-node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js phase-plan-index {phase_number}
+node ~/.claude/get-shit-done/bin/gsd-tools.js phase-plan-index {phase_number}
 ```
 
 Check the model profile setting to determine if auto routing is active:
@@ -652,7 +652,7 @@ For each incomplete plan (no SUMMARY.md):
 
    **If MODEL_PROFILE is "auto":** Parse task-level tier tags from PLAN.md.
 
-   `PROJECT_DEFAULT_TIER` = the tier the project CLAUDE.md assigns the default implementer (`gsd-executor`; the igaming project says Haiku), read once per run; if CLAUDE.md names none, `"haiku"`.
+   `PROJECT_DEFAULT_TIER` = the tier the project CLAUDE.md assigns the default implementer (`gsd-executor`; for example `haiku`), read once per run; if CLAUDE.md names none, `"haiku"`.
 
    ```
    TASK_TIERS = {}
@@ -696,11 +696,11 @@ For each incomplete plan (no SUMMARY.md):
        </objective>
 
        <execution_context>
-       @/Users/ollorin/.claude/get-shit-done/workflows/execute-plan.md
-       @/Users/ollorin/.claude/get-shit-done/templates/summary.md
-       @/Users/ollorin/.claude/get-shit-done/references/checkpoints.md
-       @/Users/ollorin/.claude/get-shit-done/references/tdd.md
-       @/Users/ollorin/.claude/get-shit-done/references/handoff-brief.md
+       @~/.claude/get-shit-done/workflows/execute-plan.md
+       @~/.claude/get-shit-done/templates/summary.md
+       @~/.claude/get-shit-done/references/checkpoints.md
+       @~/.claude/get-shit-done/references/tdd.md
+       @~/.claude/get-shit-done/references/handoff-brief.md
        </execution_context>
 
        <handoff_brief>
@@ -763,11 +763,11 @@ For each incomplete plan (no SUMMARY.md):
             Commit the task atomically. If this is the last task, create SUMMARY.md and update STATE.md.
             </objective>
             <execution_context>
-            @/Users/ollorin/.claude/get-shit-done/workflows/execute-plan.md
-            @/Users/ollorin/.claude/get-shit-done/templates/summary.md
-            @/Users/ollorin/.claude/get-shit-done/references/checkpoints.md
-            @/Users/ollorin/.claude/get-shit-done/references/tdd.md
-            @/Users/ollorin/.claude/get-shit-done/references/handoff-brief.md
+            @~/.claude/get-shit-done/workflows/execute-plan.md
+            @~/.claude/get-shit-done/templates/summary.md
+            @~/.claude/get-shit-done/references/checkpoints.md
+            @~/.claude/get-shit-done/references/tdd.md
+            @~/.claude/get-shit-done/references/handoff-brief.md
             </execution_context>
             <handoff_brief>
             {Coordinator fills the 5 fixed sections per references/handoff-brief.md (may assemble
@@ -795,7 +795,7 @@ For each incomplete plan (no SUMMARY.md):
 
      5. Log task dispatch to EXECUTION_LOG.md (best-effort, before waiting for result):
         ```bash
-        node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
+        node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
           --type task_dispatch \
           --data '{"phase":{phase_number},"plan":"{plan_file}","task_index":{task_index},"task_name":"{task_name}","tier":"{TASK_TIER}","quota_pct":{session_percent},"quota_adjusted":{true_if_tier_was_downgraded}}'
         ```
@@ -930,33 +930,31 @@ SH_STATUS=$(echo "$SH_RESULT" | node -e "try{const r=JSON.parse(require('fs').re
 ```
 
 - If SH_STATUS is `already_running` or `started`: log "Dev server ready via service-health" and proceed to the QA loop.
-- If SH_STATUS is `no_config` or empty (no registry): fall back to inline startup:
-  - Check http://localhost:3000 and any other URL mentioned in `what_built`:
+- If SH_STATUS is `no_config` or empty (no registry): fall back to the profile, then CLAUDE.md (see service-health.md "Service Config: Profile First"):
+  - For each `stack.services[]` entry (`gsd-tools.js profile get stack.services`), probe its `health` URL, else its `url`. A `health_cmd` replaces the URL probe (see the restart step for `qa_probe`):
     ```bash
-    curl -s --max-time 3 http://localhost:3000 > /dev/null 2>&1 && echo UP || echo DOWN
+    curl -s --max-time 3 "$SERVICE_URL" > /dev/null 2>&1 && echo UP || echo DOWN
     ```
-    If DOWN:
-    - NX monorepo (nx.json present): `npx nx dev {app-name}` — app name from `<apps>` tag in checkpoint or infer from CLAUDE.md. Start each app in background.
-    - Other: detect from package.json scripts.dev → run in background
-    - Wait up to 30s for ready signal. If still DOWN: log warning and proceed.
+    If DOWN: start it with its `launch` command in background. Wait up to 30s for its `ready` signal. If still DOWN: log warning and proceed.
+  - No `stack.services` and no CLAUDE.md `## QA / Dev Server` section: stop and report `stack.services is not set`. Do not guess a URL or a launch command.
 - If SH_STATUS is `start_timeout`:
-  - **DO NOT PROCEED.** Charlotte cannot test a dead server.
+  - **DO NOT PROCEED.** The UI QA capability cannot test a dead server.
   - Read CLAUDE.md for infrastructure startup instructions. Try the startup command found there.
   - If startup still fails after 60s: return a `human-action` checkpoint:
     ```
     ## CHECKPOINT REACHED
 
     **Type:** human-action
-    **Blocked by:** Dev server / infrastructure failed to start for Charlotte QA
+    **Blocked by:** Dev server / infrastructure failed to start for UI QA
 
-    The Charlotte QA checkpoint cannot be skipped or deferred. Please start the dev server manually:
+    The UI QA checkpoint cannot be skipped or deferred. Please start the dev server manually:
     1. Check CLAUDE.md for the startup command
     2. Verify the server is responding at the expected URL
     3. Reply "continue" once the server is running
 
-    **IMPORTANT:** Charlotte QA CANNOT be deferred to a future phase. It must run before this phase can complete.
+    **IMPORTANT:** UI QA CANNOT be deferred to a future phase. It must run before this phase can complete.
     ```
-  - Wait for user response. Do NOT mark phase complete without Charlotte QA running.
+  - Wait for user response. Do NOT mark phase complete without UI QA running.
 
 **Loop (max 3 rounds):**
 
@@ -971,7 +969,7 @@ while round <= MAX_ROUNDS AND qa_passed == false:
 
   // --- STEP A: Run QA Agent ---
   qa_result = Agent(
-    subagent_type="gsd-charlotte-qa",
+    subagent_type="<UI QA agent>",
     model="haiku",
     description="UI QA round {round}",
     prompt="
@@ -980,7 +978,7 @@ while round <= MAX_ROUNDS AND qa_passed == false:
       <test_flows>{test_flows}</test_flows>
       <round>{round}</round>
       {IF round > 1: <previous_issues>{previous_report}</previous_issues>}
-      Also return a `## Defect Classes` block — one `| class | instance | caught_by | severity | rule_gap |` row per issue, `caught_by` fixed to `charlotte`, `class` a general reusable name. Write exactly `None found. (reviewed by: charlotte)` if the pass surfaced none — a bare `None found.` fails the phase gate. The coordinator pastes these into the plan's SUMMARY.md.
+      Also return a `## Defect Classes` block — one `| class | instance | caught_by | severity | rule_gap |` row per issue, `caught_by` fixed to `ui-qa`, `class` a general reusable name. Write exactly `None found. (reviewed by: ui-qa)` if the pass surfaced none — a bare `None found.` fails the phase gate. The coordinator pastes these into the plan's SUMMARY.md.
     "
   )
 
@@ -1009,7 +1007,7 @@ while round <= MAX_ROUNDS AND qa_passed == false:
     ║  UI QA: Human Review Required                         ║
     ╚═══════════════════════════════════════════════════════╝
 
-    Charlotte ran {MAX_ROUNDS} QA rounds. {issue_count} issues remain unfixed.
+    The UI QA capability ran {MAX_ROUNDS} rounds. {issue_count} issues remain unfixed.
 
     Severity: Critical: {critical} | High: {high} | Medium: {medium} | Low: {low}
 
@@ -1057,7 +1055,7 @@ while round <= MAX_ROUNDS AND qa_passed == false:
       ## Codebase context
       Read the project's CLAUDE.md to understand:
       - Project structure and file layout
-      - Framework and stack (Next.js, Vite, etc.)
+      - Framework and stack (for example, the web or server framework)
       - Component library (shadcn/ui, MUI, etc.)
       - Code style and patterns
 
@@ -1112,18 +1110,20 @@ while round <= MAX_ROUNDS AND qa_passed == false:
     // Wait briefly for process to die
     Bash: sleep 3
 
-    // Re-read health check command from CLAUDE.md (or use default)
-    QA_HEALTH_CMD = parse from CLAUDE.md `## QA / Dev Server` or default: `curl -s -o /dev/null -w "%{http_code}" http://localhost:3000`
-    QA_LAUNCH_CMD = parse from CLAUDE.md or default: `npm run dev`
+    // Re-read from stack.services (profile), then CLAUDE.md. Neither: stop, "stack.services is not set"
+    QA_HEALTH_URL = the `health` field of the stack.services entry (else its `url`)
+    QA_HEALTH_CMD = the `health_cmd` field of the stack.services entry, or the CLAUDE.md `## QA / Dev Server` Health check command (unset: URL probe)
+    QA_LAUNCH_CMD = the `launch` field of the stack.services entry, or the CLAUDE.md launch command
+    // Define once per shell: qa_probe() { if [ -n "$QA_HEALTH_CMD" ]; then eval "$QA_HEALTH_CMD"; else curl -s -o /dev/null -w "%{http_code}" "$QA_HEALTH_URL"; fi; }
 
-    HTTP_CODE = Bash: eval "{QA_HEALTH_CMD}"
+    HTTP_CODE = Bash: qa_probe
 
     if HTTP_CODE != "200":
       // Server stopped — relaunch
       Log: "Server stopped — relaunching"
       Bash: eval "{QA_LAUNCH_CMD}" &
-      Bash: timeout 60 bash -c "until eval '{QA_HEALTH_CMD}' | grep -q '200'; do sleep 2; done"
-      HTTP_CODE = Bash: eval "{QA_HEALTH_CMD}"
+      Bash: for _ in $(seq 30); do [ "$(qa_probe)" = "200" ] && break; sleep 2; done
+      HTTP_CODE = Bash: qa_probe
       if HTTP_CODE != "200":
         Log: "ERROR: Service failed to restart — escalating to human"
         // Fall through to human escalation
@@ -1147,7 +1147,7 @@ When the ui-qa loop passes, immediately run a ux-audit on the same surface befor
 ```
 // After qa_passed == true from the ui-qa loop:
 ux_result = Agent(
-  subagent_type="gsd-charlotte-qa",
+  subagent_type="<UI QA agent>",
   model="sonnet",
   description="UX audit after UI QA — {what_built}",
   prompt="
@@ -1155,7 +1155,7 @@ ux_result = Agent(
     <what_built>{what_built}</what_built>
     <test_flows>{test_flows}</test_flows>
     <round>1</round>
-      Also return a `## Defect Classes` block — one `| class | instance | caught_by | severity | rule_gap |` row per issue, `caught_by` fixed to `charlotte`, `class` a general reusable name. Write exactly `None found. (reviewed by: charlotte)` if the pass surfaced none — a bare `None found.` fails the phase gate. The coordinator pastes these into the plan's SUMMARY.md.
+      Also return a `## Defect Classes` block — one `| class | instance | caught_by | severity | rule_gap |` row per issue, `caught_by` fixed to `ui-qa`, `class` a general reusable name. Write exactly `None found. (reviewed by: ui-qa)` if the pass surfaced none — a bare `None found.` fails the phase gate. The coordinator pastes these into the plan's SUMMARY.md.
   "
 )
 
@@ -1175,7 +1175,7 @@ if ux_severity_counts.critical > 0 OR ux_severity_counts.high > 0 OR ux_severity
     model="sonnet",
     description="Fix UX issues",
     prompt="
-      Fix these UX issues found by Charlotte UX audit.
+      Fix these UX issues found by the UI QA ux-audit.
 
       <what_built>{what_built}</what_built>
 
@@ -1189,7 +1189,7 @@ if ux_severity_counts.critical > 0 OR ux_severity_counts.high > 0 OR ux_severity
 
   // Re-run UX audit to verify fixes
   ux_recheck = Agent(
-    subagent_type="gsd-charlotte-qa",
+    subagent_type="<UI QA agent>",
     model="sonnet",
     description="UX re-audit after fixes",
     prompt="
@@ -1198,7 +1198,7 @@ if ux_severity_counts.critical > 0 OR ux_severity_counts.high > 0 OR ux_severity
       <test_flows>{test_flows}</test_flows>
       <round>2</round>
       <previous_issues>{ux_report}</previous_issues>
-      Also return a `## Defect Classes` block — one `| class | instance | caught_by | severity | rule_gap |` row per issue, `caught_by` fixed to `charlotte`, `class` a general reusable name. Write exactly `None found. (reviewed by: charlotte)` if the pass surfaced none — a bare `None found.` fails the phase gate. The coordinator pastes these into the plan's SUMMARY.md.
+      Also return a `## Defect Classes` block — one `| class | instance | caught_by | severity | rule_gap |` row per issue, `caught_by` fixed to `ui-qa`, `class` a general reusable name. Write exactly `None found. (reviewed by: ui-qa)` if the pass surfaced none — a bare `None found.` fails the phase gate. The coordinator pastes these into the plan's SUMMARY.md.
     "
   )
 
@@ -1245,14 +1245,14 @@ if [ -f "package.json" ]; then
   if [ -n "$FRAMEWORK" ]; then
     WEB_FRAMEWORK_DETECTED=true
     WEB_FRAMEWORK_NAME="$FRAMEWORK"
-    Log: "Web framework detected: ${WEB_FRAMEWORK_NAME} — Charlotte UX sweep will run unconditionally"
+    Log: "Web framework detected: ${WEB_FRAMEWORK_NAME} — UI QA ux-audit will run unconditionally"
   fi
 fi
 ```
 
-If WEB_FRAMEWORK_DETECTED=true: Charlotte UX sweep runs unconditionally for this phase, regardless of whether any .tsx/.jsx files appear in SUMMARY.md. This ensures web projects always get QA coverage.
+If WEB_FRAMEWORK_DETECTED=true: the UI QA ux-audit runs unconditionally for this phase, regardless of whether any .tsx/.jsx files appear in SUMMARY.md. This ensures web projects always get QA coverage. Skip only when the phase gate reports `ui_qa_mode: none` (record `ui_qa_ran: false  # no ui_qa capability`); `ui_qa_mode: legacy` still requires it. The UI QA agent is `stack.capabilities.ui_qa.agent`; a legacy project (`ui_qa_mode: legacy`: no `stack.capabilities`) uses the project's configured QA agent per the legacy gate (the pre-sweep default).
 
-**HARD RULE: Charlotte UX sweep is MANDATORY for web projects.**
+**HARD RULE: the UI QA ux-audit is MANDATORY for web projects unless the phase gate reports `ui_qa_mode: none` (a declared UI QA capability, or `ui_qa_mode: legacy`).**
 
 If WEB_FRAMEWORK_DETECTED=true:
 - The UX sweep MUST run after all plans complete
@@ -1261,7 +1261,7 @@ If WEB_FRAMEWORK_DETECTED=true:
 - "The UX was tested by individual checkpoint:ui-qa tasks" is NOT sufficient to skip the end-of-phase sweep
 - The sweep catches cross-plan UX regressions and holistic flow issues that per-plan checkpoints miss
 
-There is NO mechanism to skip the Charlotte UX sweep for web projects. The only way to proceed without it is a `human-action` checkpoint where the user explicitly decides.
+There is NO mechanism to skip the UI QA ux-audit for web projects that declare the capability. The only way to proceed without it is a `human-action` checkpoint where the user explicitly decides.
 
 </detect_web_framework>
 
@@ -1271,10 +1271,10 @@ There is NO mechanism to skip the Charlotte UX sweep for web projects. The only 
 After ALL plans in this phase have completed execution:
 
 1. Detect if this phase produced web UI. Either condition triggers the sweep:
-   a. **Framework detection** (preferred): `WEB_FRAMEWORK_DETECTED=true` from the `detect_web_framework` step above — the project uses a web framework, so ALL phases get a Charlotte sweep regardless of what changed
+   a. **Framework detection** (preferred): `WEB_FRAMEWORK_DETECTED=true` from the `detect_web_framework` step above — the project uses a web framework, so ALL phases get a UI QA ux-audit regardless of what changed
    b. **SUMMARY.md scan** (fallback): Scan all SUMMARY.md files from this phase for `.tsx`, `.jsx`, `.vue`, `.svelte` files in key-files
 
-2. If EITHER condition is true: proceed with Charlotte UX sweep (steps 3-5 below)
+2. If EITHER condition is true: proceed with the UI QA ux-audit (steps 3-5 below)
 
 3. If web UI was produced:
    a. **Auto-start dev server via service-health** — do NOT ask user:
@@ -1283,13 +1283,13 @@ After ALL plans in this phase have completed execution:
       SH_STATUS=$(echo "$SH_RESULT" | node -e "try{const r=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));process.stdout.write(r.status||'')}catch{}")
       ```
       If SH_STATUS is `already_running` or `started`: proceed to step b.
-      If SH_STATUS is `no_config` or empty: fallback — check http://localhost:3000; if DOWN → NX monorepo → `npx nx dev {app}` in background; other → `npm run dev` in background. Wait up to 30s.
-      If SH_STATUS is `start_timeout`: read CLAUDE.md for infrastructure startup instructions, attempt startup. If still failing after 60s: return a `human-action` checkpoint — do NOT skip the sweep. Charlotte cannot test a dead server.
+      If SH_STATUS is `no_config` or empty: fallback — probe each `stack.services[].url` and start a DOWN one with its `launch` command in background; wait up to 30s. No `stack.services` and no CLAUDE.md section: stop and report `stack.services is not set`.
+      If SH_STATUS is `start_timeout`: read CLAUDE.md for infrastructure startup instructions, attempt startup. If still failing after 60s: return a `human-action` checkpoint — do NOT skip the sweep. The UI QA capability cannot test a dead server.
    b. Derive test scope from phase success criteria and SUMMARY.md key-files
-   c. Run the Charlotte 3-round loop — mode="ux-audit":
+   c. Run the UI QA 3-round loop — mode="ux-audit":
       ```
       Agent(
-        subagent_type="gsd-charlotte-qa",
+        subagent_type="<UI QA agent>",
         model="sonnet",
         description="UX audit phase {phase_number}",
         prompt="
@@ -1297,7 +1297,7 @@ After ALL plans in this phase have completed execution:
           what_built={phase goal + key UI files from SUMMARYs}
           test_flows={derive from phase success criteria}
           round=1
-          Also return a `## Defect Classes` block — one `| class | instance | caught_by | severity | rule_gap |` row per issue, `caught_by` fixed to `charlotte`, `class` a general reusable name. Write exactly `None found. (reviewed by: charlotte)` if none. The coordinator pastes these into the plan's SUMMARY.md.
+          Also return a `## Defect Classes` block — one `| class | instance | caught_by | severity | rule_gap |` row per issue, `caught_by` fixed to `ui-qa`, `class` a general reusable name. Write exactly `None found. (reviewed by: ui-qa)` if none. The coordinator pastes these into the plan's SUMMARY.md.
         "
       )
       ```
@@ -1323,11 +1323,11 @@ After post_phase_ux_sweep and before verify_phase_goal:
 2. If E2E_FLOWS is empty or null: skip this step.
 
 3. If E2E_FLOWS has entries:
-   a. **Auto-start dev server via service-health** — do NOT ask user. Same pattern as post_phase_ux_sweep step 3a — call `service-health start default` first, fall back to inline NX/npm startup if SH_STATUS is `no_config`.
-   b. Spawn gsd-charlotte-qa (mode=e2e):
+   a. **Auto-start dev server via service-health** — do NOT ask user. Same pattern as post_phase_ux_sweep step 3a — call `service-health start default` first, fall back to the inline startup from `stack.services[].launch` if SH_STATUS is `no_config`.
+   b. Spawn the UI QA agent (mode=e2e):
       ```
       Agent(
-        subagent_type="gsd-charlotte-qa",
+        subagent_type="<UI QA agent>",
         model="sonnet",
         description="E2E test phase {phase_number}",
         prompt="
@@ -1335,7 +1335,7 @@ After post_phase_ux_sweep and before verify_phase_goal:
           e2e_flows={E2E_FLOWS}
           project_dir={project_dir}
           round=1
-          Also return a `## Defect Classes` block — one `| class | instance | caught_by | severity | rule_gap |` row per issue, `caught_by` fixed to `charlotte`, `class` a general reusable name. Write exactly `None found. (reviewed by: charlotte)` if none. The coordinator pastes these into the plan's SUMMARY.md.
+          Also return a `## Defect Classes` block — one `| class | instance | caught_by | severity | rule_gap |` row per issue, `caught_by` fixed to `ui-qa`, `class` a general reusable name. Write exactly `None found. (reviewed by: ui-qa)` if none. The coordinator pastes these into the plan's SUMMARY.md.
         "
       )
       ```
@@ -1351,7 +1351,7 @@ After post_phase_ux_sweep and before verify_phase_goal:
 Verify phase goal achieved using VERIFICATION.md:
 
 ```bash
-node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js init verify-work {phase_number}
+node ~/.claude/get-shit-done/bin/gsd-tools.js init verify-work {phase_number}
 ```
 
 **HARD RULE: The coordinator MUST spawn gsd-verifier to write VERIFICATION.md.**
@@ -1359,11 +1359,11 @@ node /Users/ollorin/.claude/get-shit-done/bin/gsd-tools.js init verify-work {pha
 Writing VERIFICATION.md inline (coordinator writes it directly without spawning gsd-verifier) is prohibited for phases that:
 - Contain any .tsx/.jsx files in their SUMMARY.md key-files
 - Have any PLAN.md with a checkpoint:ui-qa task
-- Have success criteria mentioning "Charlotte", "browser QA", "UI test", or "integration test"
+- Have success criteria mentioning "UI QA", "browser QA", "UI test", or "integration test"
 
 If the coordinator DOES write inline (e.g., timeout fallback), it MUST set `verifier: coordinator` in the frontmatter. When gsd-verifier runs in re-verification mode and sees `verifier: coordinator`, it MUST re-run all QA-related QGATEs (07, 10, 12) regardless of what the coordinator's inline report said.
 
-**Review tiering:** Haiku implements; Sonnet runs every review/verify loop, a fresh Sonnet agent each round (never the implementer), every severity fixed, until a round reports zero findings. Escalate an implementation task to Sonnet only after Haiku fails it twice, or if it is undecomposed/ambiguous, unclear-root-cause debugging, or architecture. Opus runs only at mandatory points, once each: (1) plans for money/auth/security/RNG/KYC work, (2) ONE batched diff review after Sonnet reports zero findings, (3) the phase-end `gsd-verifier`, preceded by a Sonnet pre-verification of all must-haves with on-disk evidence, (4) rulings on judgment calls (deferral, assertion loosening, high-stakes design). Further Opus rounds only re-check HIGH/money-path fixes. Milestone audit stays Opus.
+**Review tiering:** Haiku implements; Sonnet runs every review/verify loop, a fresh Sonnet agent each round (never the implementer), every severity fixed, until a round reports zero findings. Escalate an implementation task to Sonnet only after Haiku fails it twice, or if it is undecomposed/ambiguous, unclear-root-cause debugging, or architecture. Opus runs only at mandatory points, once each: (1) plans for risk-domain work, (2) ONE batched diff review after Sonnet reports zero findings, (3) the phase-end `gsd-verifier`, preceded by a Sonnet pre-verification of all must-haves with on-disk evidence, (4) rulings on judgment calls (deferral, assertion loosening, high-stakes design). Further Opus rounds only re-check HIGH/risk-domain-path fixes. Milestone audit stays Opus.
 
 Spawn verifier agent to create VERIFICATION.md:
 ```
@@ -1378,7 +1378,7 @@ Phase goal: {goal from ROADMAP.md}
 Check must_haves against actual codebase. Create VERIFICATION.md.
 Also run Step 6d: every plan's SUMMARY.md must have a populated `## Defect Classes` section (rows, or `None found. (reviewed by: <caught_by values>)`), and any finding from this phase's review/ruling artifacts with no row is yours to add.
 
-@/Users/ollorin/.claude/get-shit-done/references/handoff-brief.md
+@~/.claude/get-shit-done/references/handoff-brief.md
 
 <handoff_brief>
 {Coordinator fills the 5 fixed sections per references/handoff-brief.md (may assemble
@@ -1409,7 +1409,7 @@ if [ "$VERIFICATION_EXISTS" = "0" ]; then
 fi
 ```
 
-**Phase-gate authority note:** This coordinator's own VERIFICATION.md-must-exist check above is a legitimate early self-check (fail fast before returning, so a missing artifact is caught here rather than surfacing later at the orchestrator). It does NOT replace the orchestrator's `verify phase-gate {phase}` call, which runs after this coordinator returns and is the actual blocking authority for artifact EXISTENCE across all 5 checks (test files, Charlotte QA evidence, docs commit, E2E-TEST-PLAN.md, VERIFICATION.md itself). Do not remove this coordinator's own hard rule — the coordinator still must spawn the verifier; phase-gate only re-confirms deterministically afterward.
+**Phase-gate authority note:** This coordinator's own VERIFICATION.md-must-exist check above is a legitimate early self-check (fail fast before returning, so a missing artifact is caught here rather than surfacing later at the orchestrator). It does NOT replace the orchestrator's `verify phase-gate {phase}` call, which runs after this coordinator returns and is the actual blocking authority for artifact EXISTENCE across all 5 checks (test files, UI QA evidence, docs commit, E2E-TEST-PLAN.md, VERIFICATION.md itself). Do not remove this coordinator's own hard rule — the coordinator still must spawn the verifier; phase-gate only re-confirms deterministically afterward.
 
 **Status routing:**
 - `passed` → return success state
@@ -1430,10 +1430,10 @@ fi
 </execution_cycle>
 
 <haiku_cost_and_test_commands>
-**Test cost:** one full `scripts/preflight.sh` per phase, before pre-verification on the final tree; the twice-green pass runs once at phase end. Executors and test writers run affected files plus one bucket. See gsd-test-protocol.md `test_cost_rule`.
+**Test cost:** one full run of every gate in `stack.gates[]` and `stack.commands.pre_pr_gate` per phase, before pre-verification on the final tree; the twice-green pass runs once at phase end. Executors and test writers run affected files plus one bucket. See gsd-test-protocol.md `test_cost_rule`.
 
 **Haiku context and reporting cost:** Haiku is cheaper with context under ~100k tokens: size each Haiku task small (one plan task / one finding batch), read line ranges not whole files, save test logs to `.tmp/` and read only failing lines, fresh agent per task. All agents report answer-first, ≤10 lines.
 
-**Run tests only in allowlisted shapes:** `cd /Users/ollorin/igaming-platform/apps/api && deno task test <file>`, `deno test <file>` (optional `timeout N`, trailing `2>&1`), `npx nx test <project>`, `deno check|lint|fmt`. No inline env vars, no `| tail/grep`, no `;`/extra `&&`, no `$()`/heredocs/`bash -c`. If a command prompts, stop and report the exact string.
+**Run tests only through `stack_commands` (`test_file`, `test_all`), verbatim; never retype a command.** No inline env vars, no `| tail/grep`, no `;`/extra `&&`, no `$()`/heredocs/`bash -c`. If a command prompts, stop and report the exact string.
 
 </haiku_cost_and_test_commands>

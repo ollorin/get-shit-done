@@ -1,0 +1,504 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(**)",
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Edit(.planning/**)",
+      "Edit(apps/api/**)",
+      "Edit(memory_bank/**)",
+      "Edit(*.md)",
+      "Edit(*.json)",
+      "Edit(*.ts)",
+      "Edit(*.js)",
+      "Edit(.env.*)",
+      "Skill(gsd:*)",
+      "Bash(ls .planning/**)",
+      "Bash(cat .planning/**)",
+      "Bash(mkdir -p .planning/**)",
+      "Bash(grep * .planning/**)",
+      "Bash(find .planning/**)",
+      "Bash(head .planning/**)",
+      "Bash(tail .planning/**)",
+      "Bash(wc .planning/**)",
+      "Bash(*PHASE_DIR=*)",
+      "Bash(*PLAN_COUNT=*)",
+      "Bash(*MODEL_PROFILE=*)",
+      "Bash(*COMMIT_PLANNING_DOCS=*)",
+      "Bash(*PADDED_PHASE=*)",
+      "Bash(*WAVE=*)",
+      "Bash(deno check:*)",
+      "Bash(deno test:*)",
+      "Bash(deno test:* 2>&1:*)",
+      "Bash(deno fmt:*)",
+      "Bash(deno lint:*)",
+      "Bash(deno run:*)",
+      "Bash(deno eval:*)",
+      "Bash(deno info:*)",
+      "Bash(deno task:*)",
+      "Bash(deno task test:*)",
+      "Bash(DENO_ENV=test deno test:*)",
+      "Bash(DENO_ENV=development deno run:*)",
+      "Bash(timeout:* deno test:*)",
+      "Bash(timeout:* deno test:* 2>&1:*)",
+      "Bash(timeout:* deno task test:*)",
+      "Bash(DENO_ENV=test timeout:* deno test:*)",
+      "Bash(cd:* && deno test:*)",
+      "Bash(cd:* && deno test:* 2>&1:*)",
+      "Bash(cd:* && deno task:*)",
+      "Bash(cd:* && deno task test:*)",
+      "Bash(cd <project-root>/apps/api && deno test:*)",
+      "Bash(cd <project-root>/apps/api && deno task:*)",
+      "Bash(cd <project-root>/apps/api && deno task test:*)",
+      "Bash(supabase start:*)",
+      "Bash(supabase stop:*)",
+      "Bash(supabase status:*)",
+      "Bash(supabase db reset:*)",
+      "Bash(supabase db push:*)",
+      "Bash(supabase db diff:*)",
+      "Bash(supabase db execute:*)",
+      "Bash(supabase migration new:*)",
+      "Bash(supabase migration:*)",
+      "Bash(supabase functions list:*)",
+      "Bash(supabase functions serve:*)",
+      "Bash(supabase functions deploy:*)",
+      "Bash(DENO_ENV=test supabase functions serve:*)",
+      "Bash(DENO_ENV=development supabase functions serve:*)",
+      "Bash(npx supabase:*)",
+      "Bash(docker ps:*)",
+      "Bash(docker logs:*)",
+      "Bash(docker exec:*)",
+      "Bash(docker exec -i supabase_db_api psql:*)",
+      "Bash(docker exec supabase_db_api psql:*)",
+      "Bash(docker restart:*)",
+      "Bash(npx nx build:*)",
+      "Bash(npx nx test:*)",
+      "Bash(npx nx lint:*)",
+      "Bash(npx nx dev:*)",
+      "Bash(npx nx run:*)",
+      "Bash(npx nx:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run:*)",
+      "Bash(npm run dev:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(git checkout:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git pull:*)",
+      "Bash(git push)",
+      "Bash(git rev-parse:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(git -C <project-root> check-ignore:*)",
+      "Bash(export:*)",
+      "Bash(export DENO_ENV=test)",
+      "Bash(export SUPABASE_URL=\"http://127.0.0.1:54321\")",
+      "Bash(set -a)",
+      "Bash(set +a)",
+      "Bash(source:*)",
+      "Bash(. .env.test)",
+      "Bash(. <project-root>/apps/api/.env.test)",
+      "Bash(ls:*)",
+      "Bash(cd:*)",
+      "Bash(pwd)",
+      "Bash(cat:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "Bash(awk:*)",
+      "Bash(cut:*)",
+      "Bash(sed:*)",
+      "Bash(sort:*)",
+      "Bash(uniq:*)",
+      "Bash(wc:*)",
+      "Bash(tree:*)",
+      "Bash(echo:*)",
+      "Bash(test:*)",
+      "Bash(chmod:*)",
+      "Bash(mkdir:*)",
+      "Bash(touch:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(date:*)",
+      "Bash(tr:*)",
+      "Bash(printf:*)",
+      "Bash(ln:*)",
+      "Bash(basename:*)",
+      "Bash(dirname:*)",
+      "Bash(expr:*)",
+      "Bash(seq:*)",
+      "Bash(env:*)",
+      "Bash(which:*)",
+      "Bash(type:*)",
+      "Bash(if *)",
+      "Bash(then *)",
+      "Bash(else *)",
+      "Bash(elif *)",
+      "Bash(fi *)",
+      "Bash(case *)",
+      "Bash(esac *)",
+      "Bash(function *)",
+      "Bash(return *)",
+      "Bash(exit *)",
+      "Bash(break *)",
+      "Bash(continue *)",
+      "Bash(until *)",
+      "Bash(cat:* | grep:*)",
+      "Bash(cat:* 2>/dev/null:*)",
+      "Bash(cat:* | grep:* | grep:*)",
+      "Bash(grep:* | grep:*)",
+      "Bash(grep:* | head:*)",
+      "Bash(grep:* | tail:*)",
+      "Bash(grep:* | cut:*)",
+      "Bash(cat:* | cut:*)",
+      "Bash(cut:* | grep:*)",
+      "Bash(awk:* | grep:*)",
+      "Bash(awk:* | head:*)",
+      "Bash(awk:* | tail:*)",
+      "Bash(find:* | grep:*)",
+      "Bash(find:* | head:*)",
+      "Bash(find:* | tail:*)",
+      "Bash(find:* -exec:*)",
+      "Bash(find:* 2>/dev/null:*)",
+      "Bash(curl:* | head:*)",
+      "Bash(curl:* | tail:*)",
+      "Bash(curl:* | jq:*)",
+      "Bash(curl:* | grep:*)",
+      "Bash(wc:* | tr:*)",
+      "Bash(ls:* | wc:*)",
+      "Bash(grep:* | wc:*)",
+      "Bash(cat:* | head:*)",
+      "Bash(cat:* | tail:*)",
+      "Bash(cat:* | tr:*)",
+      "Bash(tail:* | grep:*)",
+      "Bash(head:* | grep:*)",
+      "Bash(sort:* | uniq:*)",
+      "Bash(uniq:* | sort:*)",
+      "Bash(sed:* | grep:*)",
+      "Bash(sed:* | head:*)",
+      "Bash(sed:* | tail:*)",
+      "Bash(grep:* | sed:*)",
+      "Bash(*|| echo:*)",
+      "Bash(*&& echo:*)",
+      "Bash(* > /tmp/*)",
+      "Bash(* 2>&1 > /tmp/*)",
+      "Bash(* 2>/dev/null)",
+      "Bash(* 2>&1)",
+      "Bash(*&)",
+      "Bash(*& sleep:*)",
+      "Bash(*; tail:*)",
+      "Bash(*; cat:*)",
+      "Bash(*; grep:*)",
+      "Bash(*; echo:*)",
+      "Bash(cd:* && cat:*)",
+      "Bash(cd:* && grep:*)",
+      "Bash(cd:* && awk:*)",
+      "Bash(cd:* && ls:*)",
+      "Bash(cd:* && find:*)",
+      "Bash(cd:* && timeout:*)",
+      "Bash(cd:* && deno:*)",
+      "Bash(cd:* && DENO_ENV=test:*)",
+      "Bash(cd:* && git:*)",
+      "Bash(cd:* && echo:*)",
+      "Bash(cd:* && sed:*)",
+      "Bash(cd:* && tail:*)",
+      "Bash(cd:* && head:*)",
+      "Bash(cat .env:*)",
+      "Bash(cat **/.env:*)",
+      "Bash(grep:* .env:*)",
+      "Bash(grep:* **/.env:*)",
+      "Bash(cd:* && cat .env:*)",
+      "Bash(cd:* && grep:* .env:*)",
+      "Bash(sleep:*)",
+      "Bash(kill:*)",
+      "Bash(kill %:*)",
+      "Bash(lsof:*)",
+      "Bash(pkill:*)",
+      "Bash(killall node:*)",
+      "Bash(xargs kill:*)",
+      "Bash(jobs)",
+      "Bash(fg:*)",
+      "Bash(bg:*)",
+      "Bash(jq:*)",
+      "Bash(curl:*)",
+      "Bash(timeout 10 curl:*)",
+      "Bash(psql:*)",
+      "Bash(./test_config_crud.sh:*)",
+      "Bash(./clear_redis_cache.sh:*)",
+      "Bash(python3:*)",
+      "Bash(node:*)",
+      "Bash(ruby -ryaml -e:*)",
+      "Bash(npx nx test:integration:*)",
+      "Bash(timeout 60 deno test:*)",
+      "Bash(timeout 5 bash:*)",
+      "WebSearch",
+      "WebFetch(domain:deno.land)",
+      "WebFetch(domain:deno.com)",
+      "WebFetch(domain:docs.deno.com)",
+      "WebFetch(domain:supabase.com)",
+      "WebFetch(domain:docs.supabase.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:stackoverflow.com)",
+      "WebFetch(domain:npmjs.com)",
+      "WebFetch(domain:typescriptlang.org)",
+      "WebFetch(domain:nx.dev)",
+      "Bash(for:*)",
+      "Bash(while:*)",
+      "Bash(do:*)",
+      "Bash(done)",
+      "Bash(bash:*)",
+      "Bash(xargs:*)",
+      "Bash(tee:*)",
+      "Bash(csplit:*)",
+      "Bash(*| tee:*)",
+      "Bash(* 2>&1 | tee:*)",
+      "Read(//private/tmp/**)",
+      "Read(/tmp/**)",
+      "Bash(npm run api:sync-shared:*)",
+      "Bash(timeout 120 deno test:*)",
+      "Bash(DENO_ENV=test timeout 120 deno test:*)",
+      "Bash(EMAIL=\"test_debug_random_$<redacted>\")",
+      "Bash(ANON_KEY=\"<redacted>\":*)",
+      "Bash(coderabbit --prompt-only)",
+      "Bash(for f in /tmp/coderabbit_issue_*)",
+      "Bash(do head -20 \"$f\")",
+      "Bash(npx coderabbitai:*)",
+      "Bash(coderabbit review:*)",
+      "Bash(npx coderabbit:*)",
+      "Bash(SUPABASE_URL=\"http://127.0.0.1:54321\" SUPABASE_ANON_KEY=\"<redacted>\" SUPABASE_SERVICE_ROLE_KEY=\"<redacted>\" DENO_ENV=test deno test:*)",
+      "Bash(PHASE_DIR=.planning/phases/01-foundation-deployment-pipeline ls:*)",
+      "Bash(deno task)",
+      "Skill(gsd:discuss-phase)",
+      "Bash(git restore:*)",
+      "Bash(supabase db dump:*)",
+      "Bash(npm ls:*)",
+      "Bash(gh pr list:*)",
+      "Bash(git push:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh pr view:*)",
+      "Bash(npm cache clean:*)",
+      "Bash(gh api:*)",
+      "Bash(git rm:*)",
+      "Bash(gh auth:*)",
+      "Bash(gh workflow:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(gh run watch:*)",
+      "Bash(PHASE_DIR=\".planning/phases/08-ci-pipeline-runtime-verification\" grep:*)",
+      "Bash(gh run download:*)",
+      "Bash(git stash:*)",
+      "Bash(gh pr close:*)",
+      "Bash(deno --version:*)",
+      "Bash(exit:*)",
+      "Bash(DENO_ENV=test timeout 60 deno test:*)",
+      "Bash(deno add:*)",
+      "mcp__multi-ai-collab__gemini_think_deep",
+      "Bash(npx deno lint:*)",
+      "Bash(npx deno check:*)",
+      "Bash(git clone:*)",
+      "Bash(flutter pub:*)",
+      "Bash(flutter analyze:*)",
+      "Bash(nx run:*)"
+    ],
+    "deny": [
+      "Bash(rm -rf /:*)",
+      "Bash(rm -rf ~:*)",
+      "Bash(rm -rf *:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git clean -fd:*)",
+      "Bash(docker rm:*)",
+      "Bash(docker rmi:*)",
+      "Bash(docker system prune:*)",
+      "Bash(supabase db reset --force:*)",
+      "Bash(dropdb:*)",
+      "Bash(> /dev/sda:*)",
+      "Bash(supabase functions deploy --project-ref:* production:*)",
+      "Bash(supabase db push --project-ref:* production:*)",
+      "Bash(gh workflow run:* production:*)",
+      "Bash(npm install -g:*)",
+      "Bash(npm uninstall -g:*)",
+      "Bash(sudo npm:*)",
+      "Bash(sudo:*)",
+      "Artifact"
+    ],
+    "ask": [
+      "Bash(git rebase:*)",
+      "Bash(git cherry-pick:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(docker stop:*)",
+      "Bash(supabase db reset)"
+    ],
+    "defaultMode": "auto"
+  },
+  "model": "sonnet",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"<home>/.claude/hooks/gsd-check-update.js\""
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "<home>/.claude/hooks/rtk-rewrite.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node <home>/.claude/get-shit-done/bin/hooks/doc-compression-hook.js"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"<home>/.claude/get-shit-done/bin/hooks/gsd-protect-managed-files.js\""
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"<home>/.claude/get-shit-done/bin/hooks/gsd-protect-managed-files.js\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"<home>/.claude/get-shit-done/bin/hooks/gsd-protect-managed-files.js\""
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__charlotte__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"<home>/.claude/get-shit-done/bin/hooks/gsd-charlotte-lock.js\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"<home>/.claude/get-shit-done/bin/hooks/gsd-charlotte-lock.js\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"<home>/.claude/hooks/schedule-resume.js\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"<home>/.claude/get-shit-done/bin/hooks/session-end-standalone.js\""
+          },
+          {
+            "type": "command",
+            "command": "node \"<home>/.claude/hooks/schedule-resume.js\" --scan"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "matcher": "gsd-charlotte-qa",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"<home>/.claude/get-shit-done/bin/hooks/gsd-charlotte-lock.js\""
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "gsd-charlotte-qa",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"<home>/.claude/get-shit-done/bin/hooks/gsd-charlotte-lock.js\""
+          }
+        ]
+      }
+    ]
+  },
+  "enableArtifact": false,
+  "workflowKeywordTriggerEnabled": false,
+  "statusLine": {
+    "type": "command",
+    "command": "/usr/local/bin/node \"<home>/.claude/hooks/gsd-statusline.js\""
+  },
+  "enabledPlugins": {
+    "superpowers@claude-plugins-official": false,
+    "typescript-lsp@claude-plugins-official": true
+  },
+  "alwaysThinkingEnabled": true,
+  "effortLevel": "high",
+  "modelSettings": {
+    "claude-sonnet-5": {
+      "effortLevel": "medium"
+    },
+    "claude-sonnet-5-5": {
+      "autoCompactWindow": 350000
+    },
+    "claude-opus-5-5": {
+      "autoCompactWindow": 400000
+    }
+  },
+  "autoCompactWindow": 350000,
+  "promptSuggestionEnabled": false,
+  "awaySummaryEnabled": false,
+  "tui": "fullscreen",
+  "skipDangerousModePermissionPrompt": true,
+  "autoCompactEnabled": true,
+  "remoteControlAtStartup": true,
+  "crossSessionInbound": "accept",
+  "agentPushNotifEnabled": true,
+  "voiceEnabled": true,
+  "feedbackSurveyState": {
+    "lastShownTime": 1753928125320
+  }
+}

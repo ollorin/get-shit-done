@@ -47,7 +47,7 @@ e2e_flows: []
 ---
 
 <objective>
-Phase B engine + B7, design lines 203-234 of `/Users/ollorin/igaming-platform/.planning/fable-review/FABLE-AGNOSTIC-GSD.md`: compose the B-01..B-03 modules into plan-then-write, add the manifest and merge base, the guardrail refusal, and the CLI. `project doctor` is Phase G. Hook canaries before commit are Phase F1 (no canaries exist in this repo yet).
+Phase B engine + B7, design lines 203-234 of `~/igaming-platform/.planning/fable-review/FABLE-AGNOSTIC-GSD.md`: compose the B-01..B-03 modules into plan-then-write, add the manifest and merge base, the guardrail refusal, and the CLI. `project doctor` is Phase G. Hook canaries before commit are Phase F1 (no canaries exist in this repo yet).
 </objective>
 
 <threat_model>
@@ -64,18 +64,18 @@ The tool writes hooks and permissions, so it is itself a guardrail path (design 
 | T7 | Conflict markers land in a hook script | a conflict produces no content (B-02 test 5 of the files suite); file, base and manifest entry stay | A5 |
 | T8 | `--preset ../x` reads an arbitrary directory; a preset file is a symlink to a file outside the preset | name regex; `lstat` regular-file + realpath containment in `loadPreset` (B-02 test 5) | P2, B-02 test 5 |
 | T9 | A manifest written for one preset is reused to sync another | step 4 name check | P3 |
-| Residual | A process that is detached from the agent's process tree, has the env key removed and owns a pty on stdin and stdout passes all four gates | not closed, and no typed confirmation word is required (decision). Same limit as `/Users/ollorin/igaming-platform/scripts/hooks-apply.sh:4` ("This steers; a detached process still passes"). Direct text edits of those paths stay blocked by `isProtectedConfigPath`, `get-shit-done/bin/hooks/gsd-protect-managed-files.js:45-49` | none (stated limit) |
+| Residual | A process that is detached from the agent's process tree, has the env key removed and owns a pty on stdin and stdout passes all four gates | not closed, and no typed confirmation word is required (decision). Same limit as `~/igaming-platform/scripts/hooks-apply.sh:4` ("This steers; a detached process still passes"). Direct text edits of those paths stay blocked by `isProtectedConfigPath`, `get-shit-done/bin/hooks/gsd-protect-managed-files.js:45-49` | none (stated limit) |
 </threat_model>
 
 <executor_rules>
-- Work only in `/Users/ollorin/get-shit-done-agnostic` (branch `exp/agnostic`). Never touch `/Users/ollorin/igaming-platform`, `~/.claude`, `~/get-shit-done`, and never run `gsd-tools project init|sync` with `--root` pointing anywhere but a `mkdtempSync` directory. Tests create every project and preset under `os.tmpdir()` and remove them in `afterEach`.
+- Work only in `~/get-shit-done-agnostic` (branch `exp/agnostic`). Never touch `~/igaming-platform`, `~/.claude`, `~/get-shit-done`, and never run `gsd-tools project init|sync` with `--root` pointing anywhere but a `mkdtempSync` directory. Tests create every project and preset under `os.tmpdir()` and remove them in `afterEach`.
 - Do every check of deployed files inside the node tests. Do not type shell commands that name a `.claude/settings` file or a `.claude/hooks` path (a PreToolUse hook rejects such commands).
 - The executor's own shell has `CLAUDECODE` set, no TTY, and an agent ancestor. Every in-process call passes an explicit `env` object AND an explicit `session` object (`HUMAN` or a variant, see fixture). Every `spawnSync` passes an explicit `env`: `{ ...process.env, CLAUDECODE: '1' }`, or the key removed (`const { CLAUDECODE: _drop, ...NO_KEY } = process.env`).
 - Forbidden: `npm run install:gsd`, `node bin/install.js`, `npm install`, `git push`, `git stash`, `git reset`, `git clean`, `git checkout -- <file>`, `--no-verify`.
 - Do not edit or `require` Phase A files (`scripts/agnostic-lint*`, `get-shit-done/bin/project-profile*.js`, the A3 templates and reference). Before editing `get-shit-done/bin/gsd-tools.js` or `package.json` run `git status --short -- <file>`; if not empty, stop and report (another writer is active).
 - `get-shit-done/bin/gsd-tools.js` is 16.4k lines: read ONLY 205-225 (requires) and 15168-15187 (dispatch neighbourhood); locate by the quoted anchors if lines moved. Do not read or edit `gsd-tools.test.js`.
 - Read the B-01..B-03 modules by their `module.exports` line and the function you call, not whole plans: `project-deploy-scan.js`, `project-deploy-render.js`, `project-deploy-files.js`, `project-deploy-settings.js`.
-- One test file: `NODE_PATH=$HOME/get-shit-done/node_modules node --test <file>`. Full suite once, in Task 5: `cd /Users/ollorin/get-shit-done-agnostic && NODE_PATH=$HOME/get-shit-done/node_modules npm test > /tmp/agnostic-B04.log 2>&1; echo rc=$?`, read the last 15 lines only. Success: rc=0, `# fail 0`, named tests present.
+- One test file: `NODE_PATH=$HOME/get-shit-done/node_modules node --test <file>`. Full suite once, in Task 5: `cd ~/get-shit-done-agnostic && NODE_PATH=$HOME/get-shit-done/node_modules npm test > /tmp/agnostic-B04.log 2>&1; echo rc=$?`, read the last 15 lines only. Success: rc=0, `# fail 0`, named tests present.
 - Lint: `node scripts/agnostic-lint.js check` exits 0 without regenerating the baseline. No vendor, product or tool names in code or comments of non-test files beyond the identifiers this plan spells out. No token-shaped literal in any file (tests build them at runtime, as in `project-deploy-scan.test.js`).
 - CommonJS, `'use strict'`, node built-ins only, result objects instead of `throw`, `const` only, comments only for a non-obvious constraint. Each module ≤ 300 lines.
 - Commit per task: `git add -f <paths>` then `git commit -m "<msg>" -- <paths>`; check with `git show --stat HEAD -- <paths>`; ignore untracked `.audit/`. Trailers on every commit:

@@ -11,10 +11,14 @@ const TOOL = path.join(__dirname, 'demo-check.js');
 const SCENARIO = path.join(__dirname, '..', '..', 'tests', 'fixtures', 'demo', '404.1-registration-jurisdiction.scenario.json');
 const JPEG = (n) => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(64, n), Buffer.from([0xff, 0xd9])]);
 
-// A phase dir shaped like a real recording: Charlotte's screenshot_dir is demo/shots, its video_dir demo/video,
-// so the two .charlotte-*.json indexes are the ones the server would have written.
-function recordedPhase({ withLog = true } = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-demo-'));
+// A phase dir shaped like a real recording: the driver's screenshot_dir is demo/shots, its video_dir demo/video,
+// so the two .<driver>-*.json indexes are the ones the driver would have written. The driver is read from the
+// .planning/config.json above the phase dir (stack.capabilities.ui_qa.driver), as in a real project.
+function recordedPhase({ withLog = true, driver = 'x', capability = true } = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-demo-'));
+  const dir = path.join(root, '.planning', 'phases', '404.1-registration-jurisdiction');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(root, '.planning', 'config.json'), JSON.stringify({ stack: { capabilities: capability ? { ui_qa: { driver, agent: 'gsd-charlotte-qa', tool_prefix: `mcp__${driver}__`, reset_patterns: ['db reset'] } } : {} } }));
   const demo = path.join(dir, 'demo');
   fs.mkdirSync(path.join(demo, 'shots'), { recursive: true });
   fs.mkdirSync(path.join(demo, 'video'), { recursive: true });
@@ -28,12 +32,12 @@ function recordedPhase({ withLog = true } = {}) {
     index.push({ id, format: 'jpeg', selector: 'main', url: `http://localhost:3000/en/wallet/step${i + 1}`, title: 'Wallet', timestamp: `2026-11-10T12:00:0${i + 1}.250Z` });
     log.push({ type: 'step', step: s.id, status: 'pass', shot: id, observed: `saw: ${s.expect}`, console_errors: 0 });
   });
-  fs.writeFileSync(path.join(demo, 'shots', '.charlotte-screenshots.json'), JSON.stringify(index));
+  fs.writeFileSync(path.join(demo, 'shots', `.${driver}-screenshots.json`), JSON.stringify(index));
   fs.writeFileSync(path.join(demo, 'video', 'rec-20261110120000-abcdef.webm'), Buffer.alloc(256, 7));
-  fs.writeFileSync(path.join(demo, 'video', '.charlotte-screencasts.json'), JSON.stringify([{ id: 'rec-20261110120000-abcdef', format: 'webm', fps: 5, url: 'http://localhost:3000/en', title: 'Home', timestamp: '2026-11-10T12:00:00.100Z' }]));
+  fs.writeFileSync(path.join(demo, 'video', `.${driver}-screencasts.json`), JSON.stringify([{ id: 'rec-20261110120000-abcdef', format: 'webm', fps: 5, url: 'http://localhost:3000/en', title: 'Home', timestamp: '2026-11-10T12:00:00.100Z' }]));
   log.push({ type: 'video', id: 'rec-20261110120000-abcdef' });
   if (withLog) fs.writeFileSync(path.join(demo, 'steps.jsonl'), log.map((l) => JSON.stringify(l)).join('\n') + '\n');
-  return { dir, demo, sc, log };
+  return { dir, demo, sc, log, driver };
 }
 
 function good() {
@@ -207,10 +211,11 @@ describe('demo-check fails a fabricated demo', () => {
     fails(ph, /manifest_sha256 does not match/);
   });
 
-  test('image the agent wrote itself: not in the Charlotte index', () => {
+  test('image the agent wrote itself: not in the driver index', () => {
     const ph = good();
-    fs.writeFileSync(path.join(ph.demo, 'shots', '.charlotte-screenshots.json'), JSON.stringify(JSON.parse(fs.readFileSync(path.join(ph.demo, 'shots', '.charlotte-screenshots.json'), 'utf8')).slice(1)));
-    fails(ph, /step s1: ss-20261110120001-000001 is not in Charlotte's screenshot index/);
+    const idx = path.join(ph.demo, 'shots', `.${ph.driver}-screenshots.json`);
+    fs.writeFileSync(idx, JSON.stringify(JSON.parse(fs.readFileSync(idx, 'utf8')).slice(1)));
+    fails(ph, /step s1: ss-20261110120001-000001 is not in the UI QA driver's screenshot index/);
   });
 
   test('step with no evidence, pass with no observation, one image for two steps', () => {
@@ -248,6 +253,22 @@ describe('demo-check fails a fabricated demo', () => {
     fs.writeFileSync(path.join(ph.demo, 'steps.jsonl'), ph.log.filter((l) => l.step !== 's5').map((l) => JSON.stringify(l)).join('\n') + '\n');
     assert.throws(() => build(ph.dir), /step s5 was never logged/);
     fs.writeFileSync(path.join(ph.demo, 'steps.jsonl'), ph.log.map((l) => (l.step === 's5' ? { ...l, shot: 'ss-20261110120009-ffffff' } : l)).map((l) => JSON.stringify(l)).join('\n') + '\n');
-    assert.throws(() => build(ph.dir), /is not in Charlotte's index/);
+    assert.throws(() => build(ph.dir), /is not in the UI QA driver's index/);
+  });
+});
+
+describe('index file names come from stack.capabilities.ui_qa.driver (agnostic-M-02 2.5)', () => {
+  test('driver "y": build reads .y-screenshots.json and .y-screencasts.json (no hard-coded name)', () => {
+    const ph = recordedPhase({ driver: 'y' });
+    assert.strictEqual(build(ph.dir).steps.length, 5);
+    assert.ok(fs.existsSync(path.join(ph.demo, 'shots', '.y-screenshots.json')));
+  });
+
+  test('no ui_qa capability: build exits 1 with "no ui_qa capability"', () => {
+    const ph = recordedPhase({ capability: false });
+    assert.throws(() => build(ph.dir), /no ui_qa capability/);
+    const r = spawnSync('node', [TOOL, 'build', ph.dir], { encoding: 'utf8' });
+    assert.strictEqual(r.status, 1);
+    assert.match(r.stderr, /no ui_qa capability/);
   });
 });

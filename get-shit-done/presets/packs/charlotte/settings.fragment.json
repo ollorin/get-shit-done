@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__charlotte__charlotte_wait_for",
+      "mcp__charlotte__charlotte_observe",
+      "mcp__charlotte__charlotte_find",
+      "mcp__charlotte__charlotte_screenshot",
+      "mcp__charlotte__charlotte_requests",
+      "mcp__charlotte__charlotte_scroll",
+      "mcp__charlotte__charlotte_network"
+    ]
+  }
+}

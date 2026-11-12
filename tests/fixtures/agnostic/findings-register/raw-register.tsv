@@ -1,0 +1,10 @@
+id	unit	src	class	sev_written	site	owner	confidence	ver_verdicts
+U1-Q3-1	U1	U1-quality.md:25	Q3	MED	src/cache/ttl.js:47-53,60-74	this-milestone	traced	U1-ver.md:26 CONFIRMED / MEDIUM. Bare builders at ttl.js:47-53.
+U1-Q3-2	U1	U1-quality.md:34	Q3	MED	src/events/audit.js:514-577	this-milestone	traced	"U1-ver.md:27 CONFIRMED / MEDIUM. No producer of ""profile_changed"" (search ""profile_changed"")."
+U1-S9-2	U1	U1-security.md:50	S9	HIGH	src/limits/limiter.js:393-407	this-milestone	traced	U1-ver.md:15 OVERSTATED / MEDIUM (was HIGH). The defect is confirmed.
+U1-S5-1	U1	U1-security.md:68	S5	HIGH	src/limits/limiter.js:149-167	OWNED-BY-v1.2.3.387.1	traced	U1-ver.md:17 CONFIRMED / HIGH.
+U3a-Q3-2	U3a	U3a-security.md:127	Q3	LOW	app.complete_enrolment	this-milestone	traced	U3-ver.md:98 CONFIRMED / LOW.
+U3b-S4-1	U3b	U3b-security.md:37	S4	MED	migrations/20260204_fix_views.sql:115-145	this-milestone	traced	U3-ver.md:47 CONFIRMED / MEDIUM
+P1-Q3-4	P1	P1-quality.md:12	Q3	LOW	src/pool/size.js:8	this-milestone	traced	P1-ver.md:9 RECLASSIFIED to P1-S4-1
+P1-S5-2	P1	P1-security.md:30	S5	MED	src/pool/lease.js:44	this-milestone	traced	P1-ver.md:12 DISPROVED (as a replay defect)
+R1-Q3-1	R1	R1-quality.md:5	Q3	LOW	src/route/map.js:3	this-milestone	partially-traced	R1-ver.md:3 pending verdict

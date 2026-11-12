@@ -1,0 +1,14 @@
+{
+  "name": "charlotte",
+  "version": "1",
+  "description": "UI QA driver pack: the gsd-charlotte-qa agent and its Charlotte allow rules. Installed by gsd-tools pack install charlotte.",
+  "files": [
+    {
+      "src": "agents/gsd-charlotte-qa.md",
+      "dest": ".claude/agents/gsd-charlotte-qa.md",
+      "kind": "whole",
+      "render": false
+    }
+  ],
+  "settings_fragment": "settings.fragment.json"
+}

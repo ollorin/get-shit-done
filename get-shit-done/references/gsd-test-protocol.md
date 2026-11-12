@@ -17,7 +17,7 @@ This reference is used by:
 |------|-------|--------------|
 | T1 | Unit tests | Domain logic, application services, utility functions |
 | T2 | Integration tests | API routes, database queries, RPC calls |
-| T3 | Charlotte QA | UI phases — any phase touching .tsx/.jsx files |
+| T3 | UI QA | UI phases — any phase touching .tsx/.jsx files |
 | T4 | E2E flows | Cross-layer user flows defined in plan frontmatter |
 
 </evidence_tiers>
@@ -33,29 +33,29 @@ This reference is used by:
 ```markdown
 ## Test Evidence
 
-**Unit tests:** deno task test:ci — 12/12 passing
-Command: `cd apps/api && deno task test:ci`
+**Unit tests:** the `test_all` command from `stack_commands` — 12/12 passing
+Command: the `test_all` command from `stack_commands`
 Output: `12 tests passed, 0 failed`
 ```
 
 If the plan adds or modifies database queries or API routes, T2 is also required:
 
 ```markdown
-**Integration tests:** deno task test:integration — 5/5 passing
-Command: `cd apps/api && deno task test:integration`
+**Integration tests:** the integration gate in `stack.gates[]` — 5/5 passing
+Command: the integration gate in `stack.gates[]`
 Output: `5 tests passed, 0 failed`
 ```
 
-### Frontend UI (`apps/player-web/`, `apps/operator-web/`)
+### Frontend UI (`stack.paths.frontends`)
 
-**Minimum required:** T3 (Charlotte QA)
+**Minimum required:** T3 (UI QA)
 
 ```markdown
 ## Test Evidence
 
-**Charlotte QA:** Passed — 0 issues found
+**UI QA:** Passed — 0 issues found
 Mode: ui-qa, Round: 1
-Flows tested: deposit limit form, history tab, limit removal
+Flows tested: settings form, history tab, limit removal
 ```
 
 If the frontend phase has e2e_flows in the plan frontmatter, T4 is also required.
@@ -67,7 +67,7 @@ If the frontend phase has e2e_flows in the plan frontmatter, T4 is also required
 ```markdown
 ## Test Evidence
 
-**Migration verification:** supabase db reset — completed successfully
+**Migration verification:** the database reset in `stack.services[]` — completed successfully
 **Type check:** npx tsc --noEmit — 0 errors
 ```
 
@@ -80,7 +80,7 @@ If the frontend phase has e2e_flows in the plan frontmatter, T4 is also required
 
 **Dry-run verification:** Command tested with --dry-run flag
 **Installation verification:** install script run, files propagated to ~/.claude/
-**Gate test:** open-pr --dry-run without .preflight-passed → rejected as expected
+**Gate test:** the pre-PR command (`stack.commands.pre_pr_gate` caller) with its dry-run flag, without the pass marker → rejected as expected
 ```
 
 </evidence_by_phase_type>
@@ -96,8 +96,8 @@ Every SUMMARY.md MUST include a `## Test Evidence` section. Structure:
 
 | Check | Command | Result |
 |-------|---------|--------|
-| Unit tests | `cd apps/api && deno task test:ci` | 12/12 passing |
-| Integration tests | `cd apps/api && deno task test:integration` | 5/5 passing |
+| Unit tests | the `test_all` command from `stack_commands` | 12/12 passing |
+| Integration tests | the integration gate in `stack.gates[]` | 5/5 passing |
 | Type check | `npx tsc --noEmit` | 0 errors |
 | Lint | `npm run lint` | 0 warnings |
 | FP lint | `bash scripts/fp-lint.sh` | 0 violations |
@@ -112,7 +112,7 @@ Every SUMMARY.md MUST include a `## Test Evidence` section. Structure:
 ## Test Evidence
 
 Unit tests: skipped — infrastructure-only change (migration file only, no logic code)
-Verification: `npx supabase db reset` completed without errors
+Verification: the database reset in `stack.services[]` completed without errors
 ```
 
 Justification must be specific. "No tests needed" is never acceptable.
@@ -135,7 +135,7 @@ If a required check fails:
 - Report the failure with the full error output
 - The plan is NOT complete until tests pass
 
-If infrastructure prevents running tests (e.g., Supabase not running for integration tests):
+If infrastructure prevents running tests (e.g., the database service in `stack.services[]` not running for integration tests):
 - Document the blocker in SUMMARY.md under `## Test Evidence`
 - Note what would be run when the blocker is resolved
 - The verifier will flag this as a gap requiring human verification
@@ -144,16 +144,16 @@ If infrastructure prevents running tests (e.g., Supabase not running for integra
 
 <test_cost_rule>
 
-## Test cost: where full preflight runs
+## Test cost: where the full pre-PR gate run happens
 
 Canonical statement; agents point here. Project rules name the exact commands.
 
-1. Inside a plan and in fix loops run only the affected test files (`deno task test <file>`, `npx nx test` for frontend) plus the single bucket containing them (`scripts/run-integration-tests.sh --bucket=...`), once. No full `scripts/preflight.sh` inside a plan.
-2. ONE full `scripts/preflight.sh` per phase, on the final phase tree, before Sonnet pre-verification. After fixing its findings, rerun only what the fixes touch.
+1. Inside a plan and in fix loops run only the affected test files (the `test_file` command from `stack_commands`) plus the single bucket containing them (the integration gate in `stack.gates[]`), once. No full pre-PR gate run inside a plan.
+2. ONE full pre-PR gate run (`stack.commands.pre_pr_gate`) per phase, on the final phase tree, before Sonnet pre-verification. After fixing its findings, rerun only what the fixes touch.
 3. The "tests green twice" pass over all buckets runs once, at phase end / before the PR, not per plan. `--skip-twice` is allowed for intermediate checks and is never claimed PR-ready.
-4. Cheap gates run on their own and early: test:ci coverage for touched libs, type check, lint, fmt, fp-gate. The phase-final full preflight stays mandatory: it catches cross-module breakage (fmt vs a pin test, a contract change vs another plan's test).
+4. Cheap gates run on their own and early: test coverage for touched libs, type check, lint, format, and every gate in `stack.gates[]`. The phase-final full pre-PR gate run stays mandatory: it catches cross-module breakage (fmt vs a pin test, a contract change vs another plan's test).
 
-Reason: a full preflight is 25+ min under the shared stack lock; repeating it per plan starves parallel phases.
+Reason: a full pre-PR gate run is 25+ min under the shared stack lock; repeating it per plan starves parallel phases.
 
 </test_cost_rule>
 
@@ -166,7 +166,7 @@ When verifying a phase, check the `## Test Evidence` section in each SUMMARY.md:
 1. **Does the section exist?** If absent: gap — `missing_test_evidence`
 2. **Does it match the required tier?** If unit test phase has no unit test output: gap — `insufficient_test_evidence`
 3. **Are results concrete?** `12/12 passing` is concrete. `OK` is not: gap — `non_specific_test_evidence`
-4. **For UI phases: did Charlotte QA run?** If .tsx files in key-files but no Charlotte QA row: gap — `missing_charlotte_qa`
+4. **For UI phases: did UI QA run?** If UI source files in key-files but no UI QA row: gap — `missing_charlotte_qa`
 
 Report all gaps in VERIFICATION.md under `## Gaps`.
 

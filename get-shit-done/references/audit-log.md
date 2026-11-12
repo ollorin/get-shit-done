@@ -35,7 +35,7 @@ Each line is a self-contained JSON object (JSONL format):
   "plan": "236-01",
   "event": "task_complete",
   "task_index": 1,
-  "task_name": "Create open-pr command with preflight gate",
+  "task_name": "Create open-pr command with pre-PR gate",
   "data": {
     "files_written": ["~/get-shit-done/commands/gsd/open-pr.md"],
     "commit": "abc1234",
@@ -132,7 +132,7 @@ Write audit log entries at these points during plan execution:
 1. **Plan start** — before executing any tasks
 2. **Each task start** — before beginning task work
 3. **Each task complete or failed** — immediately after
-4. **Any gate check** — preflight gate, FP lint, test run
+4. **Any gate check** — pre-PR gate, FP lint, test run
 5. **Plan complete** — after SUMMARY.md is written
 
 This produces a complete chronological trace of the execution. If a plan fails mid-way,

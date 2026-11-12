@@ -413,3 +413,22 @@ describe('Bug C: guarded requires fail open on a broken dependency', () => {
     );
   });
 });
+
+describe('project docs pattern is resolved against the working directory', () => {
+  let matchesPattern;
+  before(() => {
+    const configCopy = path.join(depsCacheDir, 'config-under-test.js');
+    fs.copyFileSync(path.join(__dirname, 'config.js'), configCopy);
+    ({ matchesPattern } = require(configCopy));
+  });
+
+  test('a file under cwd/docs matches the relative docs/** pattern', () => {
+    const file = path.join(process.cwd(), 'docs', 'guide.md');
+    assert.equal(matchesPattern(file, ['docs/**/*.md'], []), true);
+  });
+
+  test('a file outside cwd/docs does not match the relative docs/** pattern', () => {
+    const file = path.join(os.tmpdir(), 'elsewhere', 'guide.md');
+    assert.equal(matchesPattern(file, ['docs/**/*.md'], []), false);
+  });
+});
