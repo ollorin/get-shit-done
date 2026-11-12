@@ -3507,6 +3507,8 @@ function cmdTemplateFill(cwd, templateType, options, raw) {
   output({ created: true, path: relPath, template: templateType }, raw, relPath);
 }
 
+function phaseNum(planId) { return String(planId).split('-')[0]; }
+
 function cmdPhasePlanIndex(cwd, phase, raw) {
   if (!phase) {
     error('phase required for phase-plan-index');
@@ -3593,16 +3595,41 @@ function cmdPhasePlanIndex(cwd, phase, raw) {
       files_modified: filesModified,
       task_count: taskCount,
       has_summary: hasSummary,
+      gap_closure: fm.gap_closure === true || fm.gap_closure === 'true',
+      depends_on: Array.isArray(fm.depends_on) ? fm.depends_on.map(String) : (fm.depends_on ? [String(fm.depends_on)] : []),
     };
 
     plans.push(plan);
+  }
 
-    // Group by wave
-    const waveKey = String(wave);
-    if (!waves[waveKey]) {
-      waves[waveKey] = [];
+  // A plan runs after everything it depends_on, whatever its declared wave says.
+  const planByKey = new Map();
+  for (const p of plans) {
+    planByKey.set(p.id, p);
+    planByKey.set(p.id.replace(/^\d+-/, ''), p);
+    planByKey.set(`${phaseNum(p.id)}-${p.id.replace(/^\d+-/, '')}`, p);
+  }
+  const resolving = new Set();
+  const effectiveWave = (p) => {
+    if (p.effective_wave) return p.effective_wave;
+    if (resolving.has(p.id)) return p.wave;
+    resolving.add(p.id);
+    let w = p.wave;
+    for (const dep of p.depends_on) {
+      const target = planByKey.get(String(dep).replace(/-PLAN(\.md)?$/i, ''));
+      if (target && target !== p) w = Math.max(w, effectiveWave(target) + 1);
     }
-    waves[waveKey].push(planId);
+    resolving.delete(p.id);
+    p.effective_wave = w;
+    return w;
+  };
+  for (const p of plans) {
+    p.declared_wave = p.wave;
+    p.wave = effectiveWave(p);
+    delete p.effective_wave;
+    const waveKey = String(p.wave);
+    if (!waves[waveKey]) waves[waveKey] = [];
+    waves[waveKey].push(p.id);
   }
 
   const result = {
@@ -11471,6 +11498,8 @@ function cmdInitExecutePhase(cwd, phase, includes, raw, gate) {
     // Models
     executor_model: resolveModelInternal(cwd, 'gsd-executor'),
     verifier_model: resolveModelInternal(cwd, 'gsd-verifier'),
+    // Top-tier alias for the phase-end verifier and rulings (config ruling_model, default opus)
+    ruling_model: config.ruling_model || 'opus',
 
     // Config flags
     commit_docs: config.commit_docs,

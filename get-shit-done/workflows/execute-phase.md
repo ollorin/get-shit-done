@@ -36,7 +36,7 @@ if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
 
 If the command exits 1 and INIT has `error: project_context_missing`: stop, print its `missing` list and `hint`. Do not continue without the brief and profile. When `LEGACY_FLAG` is set, put `legacy: true` in every spawned agent's prompt (the flag alone does not reach them; they pass `--legacy` to their own init call).
 
-Parse JSON for: `executor_model`, `verifier_model`, `commit_docs`, `parallelization`, `branching_strategy`, `branch_name`, `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `phase_slug`, `plans`, `incomplete_plans`, `plan_count`, `incomplete_count`, `state_exists`, `roadmap_exists`, `phase_req_ids`, `brief_path`, `stack_profile_path`, `stack_commands`. Every spawned agent receives `brief_path` and `stack_profile_path` (when not null) in its `<files_to_read>`, and `stack_commands` verbatim.
+Parse JSON for: `executor_model`, `verifier_model`, `ruling_model`, `commit_docs`, `parallelization`, `branching_strategy`, `branch_name`, `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `phase_slug`, `plans`, `incomplete_plans`, `plan_count`, `incomplete_count`, `state_exists`, `roadmap_exists`, `phase_req_ids`, `brief_path`, `stack_profile_path`, `stack_commands`. Every spawned agent receives `brief_path` and `stack_profile_path` (when not null) in its `<files_to_read>`, and `stack_commands` verbatim.
 
 **If `phase_found` is false:** Error — phase directory not found.
 **If `plan_count` is 0:** Error — no plans found in phase.
@@ -100,11 +100,11 @@ Load plan inventory with wave grouping in one call:
 PLAN_INDEX=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" phase-plan-index "${PHASE_NUMBER}")
 ```
 
-Parse JSON for: `phase`, `plans[]` (each with `id`, `wave`, `autonomous`, `objective`, `files_modified`, `task_count`, `has_summary`), `waves` (map of wave number → plan IDs), `incomplete`, `has_checkpoints`.
+Parse JSON for: `phase`, `plans[]` (each with `id`, `wave`, `autonomous`, `objective`, `files_modified`, `task_count`, `has_summary`, `gap_closure`, `depends_on`, `declared_wave`), `waves` (map of effective wave number → plan IDs; `wave` is already raised past every `depends_on` plan, `declared_wave` is the frontmatter value), `incomplete`, `has_checkpoints`.
 
 **Null safety:** `objective` may be `null` if the plan frontmatter omits it — always use a fallback: `plan.objective ?? "(no objective)"`. Do NOT pipe through python3 or shell scripts that assume fields are non-null; read the JSON value directly from the bash variable.
 
-**Filtering:** Skip plans where `has_summary: true`. If `--gaps-only`: also skip non-gap_closure plans. If all filtered: "No matching incomplete plans" → exit.
+**Filtering:** Skip plans where `has_summary: true`. If `--gaps-only`: also skip plans where `gap_closure` is not `true` (a light-path gap plan, see plan-phase 8b, runs executor then verifier with no extra review round). If all filtered: "No matching incomplete plans" → exit.
 
 Report:
 ```
@@ -740,7 +740,7 @@ you drop them here, they are lost.
 Append every finding surfaced during this phase — plan-checker issues (from
 `{phase_dir}/{N}-PLAN-CHECK.md`), the plan-checker adversarial pass's rows, UI QA issues,
 Opus review findings, re-review findings — to the `## Defect Classes` section of the SUMMARY.md of
-the plan they relate to (a phase-wide finding goes to the last plan's SUMMARY). Each is one row:
+the plan they relate to (a phase-wide finding goes to the last plan's SUMMARY). The coordinator writes these rows (the executor cannot see them): replace a `None found. (...)` line with them. Each is one row:
 
 | class | instance | caught_by | severity | rule_gap |
 |---|---|---|---|---|
@@ -777,7 +777,7 @@ Cross-reference requirement IDs from PLAN frontmatter against REQUIREMENTS.md �
 Also run Step 6d: every plan's SUMMARY.md must have a populated `## Defect Classes` section, and any finding from this phase's review/ruling artifacts with no row is yours to add.
 Create VERIFICATION.md.",
   subagent_type="gsd-verifier",
-  model="opus",
+  model="{ruling_model}",  # from init (config `ruling_model`, default opus; a profile or allowance override lives there, never hard-coded here)
   description="Verify phase {phase_number}"
 )
 ```
@@ -806,7 +806,7 @@ those paths ends the step or hands control elsewhere, and a session that is inte
 mid-routing must not be the reason the verifier's findings stay uncommitted:
 
 ```bash
-node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs(phase-${PHASE_NUMBER}): record verifier defect classes in plan summaries" --files {phase_dir}/*-SUMMARY.md
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs(phase-${PHASE_NUMBER}): record verification and verifier defect classes" --files {phase_dir}/*-SUMMARY.md {phase_dir}/*-VERIFICATION.md
 ```
 
 A `gaps_found` phase still owes the milestone a Defect Classes record — the gap IS the finding, and

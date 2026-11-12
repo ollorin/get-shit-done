@@ -810,6 +810,19 @@ objective: Manual review needed
     assert.strictEqual(output.error, 'Phase not found', 'should report phase not found');
   });
 
+  test('exposes gap_closure and honours depends_on over a declared wave', () => {
+    const phaseDir = path.join(tmpDir, '.planning', 'phases', '03-api');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    fs.writeFileSync(path.join(phaseDir, '03-01-PLAN.md'), `---\nwave: 1\nautonomous: true\ndepends_on: []\n---\n<task type="auto"></task>\n`);
+    fs.writeFileSync(path.join(phaseDir, '03-02-PLAN.md'), `---\nwave: 1\nautonomous: true\ngap_closure: true\ndepends_on: ["03-01"]\n---\n<task type="auto"></task>\n`);
+    const out = JSON.parse(runGsdTools('phase-plan-index 03', tmpDir).output);
+    const gap = out.plans.find(p => p.id === '03-02');
+    assert.strictEqual(gap.gap_closure, true);
+    assert.strictEqual(out.plans.find(p => p.id === '03-01').gap_closure, false);
+    assert.strictEqual(gap.wave, 2);
+    assert.deepStrictEqual(out.waves, { 1: ['03-01'], 2: ['03-02'] });
+  });
+
   test('reads the same plan grammar verify plan-structure accepts (<task>, <objective>, files_modified)', () => {
     const phaseDir = path.join(tmpDir, '.planning', 'phases', '03-api');
     fs.mkdirSync(phaseDir, { recursive: true });
@@ -1182,6 +1195,13 @@ describe('init commands with --include flag', () => {
     const output = JSON.parse(result.output);
     assert.strictEqual(output.state_content, undefined, 'state_content should be omitted');
     assert.strictEqual(output.config_content, undefined, 'config_content should be omitted');
+  });
+
+  test('init execute-phase exposes ruling_model from config (default opus)', () => {
+    fs.mkdirSync(path.join(tmpDir, '.planning', 'phases', '03-api'), { recursive: true });
+    assert.strictEqual(JSON.parse(runGsdTools('init execute-phase 03', tmpDir).output).ruling_model, 'opus');
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'config.json'), JSON.stringify({ ruling_model: 'fable' }));
+    assert.strictEqual(JSON.parse(runGsdTools('init execute-phase 03', tmpDir).output).ruling_model, 'fable');
   });
 
   test('init plan-phase includes multiple file contents', () => {
@@ -17553,7 +17573,7 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
       // so a commit placed before the dispatch captures the coordinator's rows a
       // second time and misses the verifier's entirely.
       const dispatch = step.indexOf('Agent(');
-      const commit = step.indexOf('record verifier defect classes in plan summaries');
+      const commit = step.indexOf('record verification and verifier defect classes');
       const statusTable = step.indexOf('| `gaps_found` |');
       assert.ok(dispatch > -1 && commit > -1 && statusTable > -1,
         `all three landmarks must exist (dispatch=${dispatch} commit=${commit} statusTable=${statusTable})`);

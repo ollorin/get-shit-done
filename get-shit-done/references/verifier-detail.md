@@ -1236,7 +1236,7 @@ node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" knowledge add   "[Phase ${PH
 
 Log each write: "KB: wrote anti-pattern entry — {truth (first 60 chars)}"
 
-**Error handling:** Wrap all KB writes with `2>/dev/null || true` — never block verification on KB write failures. If no gaps of the qualifying types exist, log "KB feedback: no qualifying anti-patterns to write" and skip.
+**Error handling:** Wrap all KB writes with `2>/dev/null || true` — never block verification on KB write failures. If no gaps of the qualifying types exist, or the knowledge DB is unavailable, write nothing and report `KB feedback (Step 11): skipped ({reason})` in your return to the orchestrator.
 
 **Step complete when:**
 

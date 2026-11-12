@@ -181,7 +181,9 @@ If `context_path` is not null, display: `Using phase context from: ${context_pat
 
 **If `context_path` is null (no CONTEXT.md exists):**
 
-Use AskUserQuestion:
+**Auto/yolo mode** (`--auto` in $ARGUMENTS, `workflow._auto_chain_active` / `workflow.auto_advance` true, `GSD_AUTONOMOUS=1`, or yolo mode): do not ask. Proceed with research + requirements only and record `Planned without CONTEXT.md (auto mode)` in the first plan's `<context>` section and in `{PHASE_DIR}/{N}-PLAN-CHECK.md` when one is written.
+
+Otherwise use AskUserQuestion:
 - header: "No context"
 - question: "No CONTEXT.md found for Phase {X}. Plans will use research and requirements only — your design preferences won't be included. Continue or capture context first?"
 - options:
@@ -401,11 +403,15 @@ Agent(
 )
 ```
 
+## 8b. Light path for trivial gap closure
+
+When `--gaps` and the gap list holds at most 4 small, independent fixes (each a few lines in one or two files, no new module, none in a high-stakes domain): spawn the planner for ONE plan covering all of them, skip the plan-checker round (step 10), and hand it straight to execute-phase `--gaps-only` (executor, then verifier). Anything larger, or any fix touching auth/money/data schema, takes the full path. Record `light gap path: {n} fixes, no checker round` in the plan's `<objective>`.
+
 ## 9. Handle Planner Return
 
 **Parse the machine-readable status FIRST — do not string-match the prose header.** Every planner return ends with a fenced ```json trailer carrying `{"status": "planning_complete"|"gap_closure_complete"|"plan_rejected"|"checkpoint"|"revision_complete", ...}`. Extract the last fenced JSON block and read `.status`; the `## …` header is human-readable garnish that a reworded line or an em-dash could break. Route on `.status`:
 
-- **`planning_complete` / `gap_closure_complete`** (header `## PLANNING COMPLETE` / `## GAP CLOSURE PLANS CREATED`): Display plan count. If `--skip-verify` or `plan_checker_enabled` is false (from init): skip to step 13. Otherwise: step 10.
+- **`planning_complete` / `gap_closure_complete`** (a bare `complete` with `plans` > 0 is the same outcome: treat it as `gap_closure_complete` under `--gaps`, else `planning_complete`; the header `## PLANNING COMPLETE` / `## GAP CLOSURE PLANS CREATED`): Display plan count. If `--skip-verify` or `plan_checker_enabled` is false (from init): skip to step 13. Otherwise: step 10.
 - **`checkpoint`** (header `## CHECKPOINT REACHED`): Present to user, get response, spawn continuation (step 12).
 - **`plan_rejected`** (header `## PLAN REJECTED — TESTING GATE FAILED`): Show the failing plan count, offer: Add context / Retry / Manual (same handling as an inconclusive return).
 

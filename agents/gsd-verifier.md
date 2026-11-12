@@ -173,7 +173,7 @@ row per T0 test, and deleted/merged tests listed with their covering test. Any f
 
 **Keep verification fast: static checks PLUS the test suite.** Use grep/file checks for artifact/wiring verification — but Step 8b (run the test suite) is MANDATORY and is NOT waived by this rule. "Don't run the app" means do NOT launch the app or dev servers interactively; it does NOT mean "skip the tests". UI QA evidence covers runtime UI; the test suite covers behavior.
 
-**DO NOT commit.** Leave committing to the orchestrator.
+**DO NOT commit.** The orchestrator commits VERIFICATION.md and your SUMMARY edits after you return (see Return to Orchestrator).
 
 </critical_rules>
 
@@ -291,7 +291,7 @@ to write one candidate regression fixture per gap into the review queue. Do NOT 
 
 ## Return to Orchestrator
 
-**DO NOT COMMIT.** The orchestrator bundles VERIFICATION.md with other phase artifacts.
+**DO NOT COMMIT.** The orchestrator commits `{N}-VERIFICATION.md` together with your Defect Classes edits to the SUMMARY files, on every status (`passed`, `human_needed`, `gaps_found`), right after you return (execute-phase `verify_phase_goal`). Skipped optional steps are reported, not silent: end your return with one line each, `KB feedback (Step 11): written {n} | skipped ({reason})` and `eval-candidate: written {n} | skipped ({status} is not gaps_found)`.
 
 Return with:
 
