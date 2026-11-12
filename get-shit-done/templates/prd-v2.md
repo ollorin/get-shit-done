@@ -133,15 +133,15 @@ Intake contract kept from v1 (read by `/gsd:new-milestone`): the file lives in `
 - **Non-Functional Requirements and Compliance:** only what is specific to this PRD on top of the product baseline (cite the baseline, do not copy it): security and abuse cases, privacy and personal data handled, performance or load expectation, accessibility, SEO when the surface is public, and regulatory points with the market they apply to. A row with no known answer is an `A-` assumption, not a blank. Ends with a **Settings** list: what staff change without a deploy (rules, limits, lists, texts, switches), who may change it, and what is fixed in code.
 - **Tech Candidates:** names and rationale only. When the product baseline fixes the stack, list only what this PRD adds or where it must deviate, with the reason.
 - **Research Findings:** what feature research established, one bullet per finding with its source URL: how comparable products do this, what their users complain about, legal and policy points per market, abuse patterns. State what was not found. Unsourced claims are marked "unverified". Never empty: if search was unavailable, say so.
-- **Open Questions:** only questions that wait for the CEO (critical). Each starts with its ledger id.
-- **Assumptions:** every recorded decision taken without the CEO, each starting with its `A-` id, the default chosen, and its reversibility (`costly`, `irreversible`). A critical one appears in both sections. Cheap defaults are not listed here; they live in the acceptance criteria.
+- **Open Questions:** only questions that wait for the product owner (critical). Each starts with its ledger id.
+- **Assumptions:** every recorded decision taken without the product owner, each starting with its `A-` id, the default chosen, and its reversibility (`costly`, `irreversible`). A critical one appears in both sections. Cheap defaults are not listed here; they live in the acceptance criteria.
 
 **Belongs / does not belong:**
 
 | Belongs in PRD | Does not belong |
 |---|---|
 | "Users need real-time updates" | "Use WebSockets at /ws/events" |
-| "PostgreSQL: relational data with complex queries" | "CREATE TABLE users (id UUID...)" |
+| "Relational database: relational data with complex queries" | "CREATE TABLE users (id UUID...)" |
 | "The list shows an empty state with a call to action" | A component tree or a pixel layout |
 | "Success: onboarding completes in under 5 minutes" | "POST /api/onboarding" |
 

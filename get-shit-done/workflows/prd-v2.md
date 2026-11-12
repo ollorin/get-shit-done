@@ -1,5 +1,5 @@
 <purpose>
-Turn a concept, a draft file or a URL into a PRD at `.planning/prds/pending/{slug}.md` without question rounds. The workflow decides, records what it decided, and stops for the CEO only on critical questions. Built for a product that is split into many PRDs: it reads one product brief and an index of sibling PRDs instead of researching the product again each time.
+Turn a concept, a draft file or a URL into a PRD at `.planning/prds/pending/{slug}.md` without question rounds. The workflow decides, records what it decided, and stops for the product owner only on critical questions. Built for a product that is split into many PRDs: it reads one product brief and an index of sibling PRDs instead of researching the product again each time.
 </purpose>
 
 <inputs>
@@ -28,8 +28,8 @@ Every gap is closed by the first rung that answers it:
 7. Your own default. Write it as an `A-` record (`--source prd:stage{N} --prd {slug}`) with the default, the options considered and its reversibility.
 
 Classes of question:
-- **Money, auth, security, RNG:** never wait. Send to the ruling route in `decisions-protocol.md` and record the returned `D-`.
-- **Critical:** the CEO's call (strategy, business model, a legal or compliance position) and expensive to undo after launch (examples: target markets, a monetisation rule, whether the feature should exist, a public contract, who signs off legal texts). Legal and compliance questions belong here, not on the ruling route. Record as an `A-` with `--reversibility irreversible` and the default you would defend, keep working on that default, and put it on the approval screen (Step 5). These are the only questions the CEO is asked.
+- **Funds movement, auth, security, randomness:** never wait. Send to the ruling route in `decisions-protocol.md` and record the returned `D-`.
+- **Critical:** the product owner's call (strategy, business model, a legal or compliance position) and expensive to undo after launch (examples: target markets, a monetisation rule, whether the feature should exist, a public contract, who signs off legal texts). Legal and compliance questions belong here, not on the ruling route. Record as an `A-` with `--reversibility irreversible` and the default you would defend, keep working on that default, and put it on the approval screen (Step 5). These are the only questions the product owner is asked.
 - **Everything else:** decide (rung 7). Do not ask. A choice that follows from a decision already in the brief or baseline is not a question at all: apply it and cite the brief.
 
 Ledger size: record an `A-` only for a choice that is costly or irreversible to change. A cheap default is stated in the acceptance criteria and gets no record. More than 8 records for one PRD means cheap choices are being logged.
@@ -113,7 +113,7 @@ Use what comes back as evidence for the decision; an investigator that fails lea
 
 ## Step 2: PM stage
 
-Close these gaps by the ladder, using the Step 1 findings: target user, problem and its severity, how it is solved today, what is different here, vision (what it must feel like and what would make the CEO reject the result even if every story passes), non-goals, success definition.
+Close these gaps by the ladder, using the Step 1 findings: target user, problem and its severity, how it is solved today, what is different here, vision (what it must feel like and what would make the product owner reject the result even if every story passes), non-goals, success definition.
 
 Write to the PRD:
 - **Problem Statement:** Target User, Problem, Current Solutions, Gap.
@@ -158,7 +158,7 @@ Set the marker to `<!-- stage: complete -->`.
 
 ## Step 5: Approval
 
-Any open `A-` about money, auth, security or RNG goes to the ruling route first and is replaced by its `D-`. Run `decisions render`.
+Any open `A-` about funds movement, auth, security or randomness goes to the ruling route first and is replaced by its `D-`. Run `decisions render`.
 
 **No critical question open for this PRD, or unattended:** write `<!-- approval: assumed {date} -->` under the stage marker, print `decisions digest` to the chat, run `decisions digest --mark-only`, go to Step 6. No stop. With `--coordinated`, write the marker and skip render, digest and commit.
 
@@ -197,7 +197,7 @@ No-HOW check: {N} removed
 Next step: /gsd:new-milestone
 ```
 
-If the run created or extended `BASELINE.md`, say which sections, so the CEO can correct product-level assumptions once instead of in every PRD.
+If the run created or extended `BASELINE.md`, say which sections, so the product owner can correct product-level assumptions once instead of in every PRD.
 
 </process>
 

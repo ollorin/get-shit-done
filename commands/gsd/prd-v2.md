@@ -1,6 +1,6 @@
 ---
 name: gsd:prd-v2
-description: Turn a concept or draft into a PRD without Q&A rounds - decides on its own, reads the product brief and sibling PRDs, asks the CEO only critical questions
+description: Turn a concept or draft into a PRD without Q&A rounds - decides on its own, reads the product brief and sibling PRDs, asks the product owner only critical questions
 argument-hint: "<concept | file | URL> [--brief <file>] [--siblings <dir> ...] [--index <file>] [--slug <slug>] [--coordinated]"
 allowed-tools:
   - Read
@@ -18,7 +18,7 @@ Produce a PRD at `.planning/prds/pending/{slug}.md` from a concept, a draft file
 
 Differences from `/gsd:prd`:
 - No question rounds. Gaps are closed from the input, the product brief, sibling PRDs, the codebase and research; what remains is decided with a default and recorded as an `A-` assumption. The slug is derived.
-- The CEO is asked only critical questions (strategic, business or legal, irreversible), once, on the approval screen. No critical question means no stop.
+- The product owner is asked only critical questions (strategic, business or legal, irreversible), once, on the approval screen. No critical question means no stop.
 - Feature research is mandatory for every PRD (comparable products, legal and policy points, abuse patterns), with sources cited in the PRD. Product-level context (market, stack, non-functional baseline) is read from a brief instead of being researched again for each PRD.
 - Sibling PRDs and drafts are indexed so scope does not overlap and dependencies are named.
 
