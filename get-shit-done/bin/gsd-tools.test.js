@@ -13839,9 +13839,26 @@ describe('roadmap progress-table rewrite is header-driven, not positional', () =
     assert.ok(row.includes(' MILE-01/02 '), `Requirements cell must be preserved, got: ${row}`);
     assert.ok(row.includes(' MONEY '), `Flag cell must be preserved, got: ${row}`);
     assert.ok(row.includes(' Routing '), `Name cell must be preserved, got: ${row}`);
-    assert.ok(row.includes('Complete (2/2 plans)'), `existing tally must be retargeted in place, got: ${row}`);
+    assert.ok(row.includes('Executed (2/2 plans)'), `all summaries but no passed VERIFICATION is Executed, not Complete, got: ${row}`);
     const cells = row.split('|').slice(1, -1);
     assert.strictEqual(cells.length, 5, `row must keep 5 cells, got: ${row}`);
+  });
+
+  test('Complete and the checkbox wait for a passed VERIFICATION.md', () => {
+    seedPhaseDir(2, 2);
+    const roadmapPath = seedTable(
+      '| Phase | Name | Plans | Status |',
+      '| --- | --- | --- | --- |',
+      '| 57 Outcome-Informed Routing Ledger | Routing | 0/TBD | Not started |',
+    );
+    fs.appendFileSync(roadmapPath, '\n- [ ] Phase 57: Routing ledger\n');
+    const out = JSON.parse(runGsdTools('roadmap update-plan-progress 57', tmpDir).output);
+    assert.strictEqual(out.pending_verification, true);
+    assert.ok(fs.readFileSync(roadmapPath, 'utf-8').includes('- [ ] Phase 57'), 'checkbox stays unchecked before verification');
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'phases', '57-routing-ledger-escalation', '57-VERIFICATION.md'), '---\nstatus: passed\n---\n');
+    const after = JSON.parse(runGsdTools('roadmap update-plan-progress 57', tmpDir).output);
+    assert.strictEqual(after.complete, true);
+    assert.ok(/- \[x\] Phase 57/.test(fs.readFileSync(roadmapPath, 'utf-8')));
   });
 
   test('6-column table with a trailing Completed column: only Plans/Status move, Completed is untouched', () => {

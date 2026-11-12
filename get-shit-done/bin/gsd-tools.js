@@ -9925,7 +9925,10 @@ function cmdRoadmapUpdatePlanProgress(cwd, phaseNum, raw) {
   }
 
   const isComplete = summaryCount >= planCount;
-  const status = isComplete ? 'Complete' : summaryCount > 0 ? 'In Progress' : 'Planned';
+  // Executed is not verified: "Complete" and the checkbox wait for a passed {N}-VERIFICATION.md (written by the verifier).
+  const verified = isComplete && phaseInfo.directory
+    && readPhaseVerification(path.join(cwd, phaseInfo.directory), phaseInfo.phase_number).status === 'passed';
+  const status = verified ? 'Complete' : isComplete ? 'Executed' : summaryCount > 0 ? 'In Progress' : 'Planned';
   const today = new Date().toISOString().split('T')[0];
 
   if (!fs.existsSync(roadmapPath)) {
@@ -9951,7 +9954,7 @@ function cmdRoadmapUpdatePlanProgress(cwd, phaseNum, raw) {
       // Retarget an existing tally in place; otherwise append one. The
       // lifecycle word is re-stated from disk (plans vs summaries), the prose
       // after it is the roadmap author's and is preserved verbatim.
-      const lifecycle = text.match(/^(\W*)(not started|in progress|complete|completed|planned|blocked)\b/i);
+      const lifecycle = text.match(/^(\W*)(not started|in progress|complete|completed|executed|planned|blocked)\b/i);
       const rest = (lifecycle ? text.slice(lifecycle[0].length) : text).trim();
       // Keep any markdown emphasis wrapping the lifecycle word, drop the word.
       const leadWithWord = lifecycle
@@ -9982,13 +9985,13 @@ function cmdRoadmapUpdatePlanProgress(cwd, phaseNum, raw) {
     `(#{2,4}\\s*Phase\\s+${phaseEscaped}[\\s\\S]*?\\*\\*Plans:\\*\\*\\s*)[^\\n]+`,
     'i'
   );
-  const planCountText = isComplete
+  const planCountText = verified
     ? `${summaryCount}/${planCount} plans complete`
     : `${summaryCount}/${planCount} plans executed`;
   roadmapContent = roadmapContent.replace(planCountPattern, `$1${planCountText}`);
 
-  // If complete: check checkbox
-  if (isComplete) {
+  // Only a verified phase gets its checkbox
+  if (verified) {
     const checkboxPattern = new RegExp(
       `(-\\s*\\[)[ ](\\]\\s*.*Phase\\s+${phaseEscaped}[:\\s][^\\n]*)`,
       'i'
@@ -10005,7 +10008,9 @@ function cmdRoadmapUpdatePlanProgress(cwd, phaseNum, raw) {
     summary_count: summaryCount,
     table_update_skipped: tableResult.updated ? null : (tableResult.reason || null),
     status,
-    complete: isComplete,
+    complete: verified,
+    executed: isComplete,
+    pending_verification: isComplete && !verified,
     table_updated: tableUpdated,
     table_header_columns: headerColumnCount,
   }, raw, `${summaryCount}/${planCount} ${status}`);

@@ -657,7 +657,7 @@ done
 
 # Update session info
 node ~/.claude/get-shit-done/bin/gsd-tools.js state record-session \
-  --stopped-at "Completed ${PHASE}-${PLAN}-PLAN.md"
+  --stopped-at "Executed ${PHASE}-${PLAN}-PLAN.md, pending verification"
 ```
 
 **State command behaviors:**
@@ -687,7 +687,7 @@ if [ -n "$PLAN_REQS" ] && [ "$PLAN_REQS" != "[]" ] && [ "$PLAN_REQS" != "null" ]
   node ~/.claude/get-shit-done/bin/gsd-tools.js requirements mark-complete "${PLAN_REQS}"
 fi
 
-# Also update ROADMAP.md progress row for this phase
+# Also update ROADMAP.md progress row (status becomes "Executed", not "Complete": the tool marks Complete only after a passed {N}-VERIFICATION.md)
 node ~/.claude/get-shit-done/bin/gsd-tools.js roadmap update-plan-progress "${PHASE_NUMBER}"
 ```
 

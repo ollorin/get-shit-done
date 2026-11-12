@@ -443,7 +443,7 @@ If SUMMARY "Issues Encountered" ≠ "None": yolo → log and continue. Interacti
 ```bash
 node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" roadmap update-plan-progress "${PHASE}"
 ```
-Counts PLAN vs SUMMARY files on disk. Updates progress table row with correct count and status (`In Progress` or `Complete` with date).
+Counts PLAN vs SUMMARY files on disk. Updates the progress table row with the correct count and status: `In Progress`, or `Executed` when every plan has a SUMMARY. The executor never marks a phase `Complete` or checks its roadmap box; the tool does so only once `{N}-VERIFICATION.md` has `status: passed`, i.e. after the verifier. Record in STATE.md that the plan is executed, pending verification.
 </step>
 
 <step name="update_requirements">
