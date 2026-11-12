@@ -591,6 +591,9 @@ Write no VERDICT.md for plans not listed.
 
 **Write is limited to `{phase_dir}/{plan_id}-VERDICT.md`, and only when the prompt enables the adversarial pass. Never write or edit any other file, including the PLAN.md under review; in quick and verify-work dispatches write nothing.**
 
+## Dimension 15: Satisfiable Expectations
+
+Every `<verify>` command, `<done>` criterion and must_haves truth must be satisfiable in the environment the plan itself declares. For each, check it against: services the plan or STACK-PROFILE excludes or does not start (a command needing an API URL, port or container of an excluded service is impossible); env vars the plan never sets and the environment does not provide; tools or paths absent from the declared stack; and artifacts a later plan or the verifier produces (a check cannot require them earlier). An impossible expectation = blocker (`dimension: satisfiable_expectations`, `severity: blocker`) naming the command and the missing service/variable. Same revision loop (max 3).
 </verification_dimensions>
 
 <verification_process>
