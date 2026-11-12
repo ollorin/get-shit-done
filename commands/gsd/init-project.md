@@ -27,7 +27,7 @@ Give an existing GSD project the context that `/gsd:new-project` gives a new one
 
 <process>
 1. Run `init new-project`. If its `context_gate.ok` is true, print both file paths and stop: nothing is missing. Otherwise print `context_gate.missing` and `context_gate.invalid`, and run section 4.5 when they name the brief or a `project.*` key, section 5.6 when they name the stack profile or a `stack.*` key.
-2. Execute sections 4.5 and 5.6 of `@~/.claude/get-shit-done/workflows/new-project.md` only. Skip sections 1 to 4 and 6 to 9: the project's PROJECT.md, requirements and roadmap stay as they are.
+2. Execute sections 4.5 and 5.6 of `@~/.claude/get-shit-done/workflows/new-project.md` only. Skip sections 1 to 4 and 6 to 9: the project's PROJECT.md, requirements and roadmap stay as they are. A project with no PROJECT.md or STATE.md yet goes straight to `/gsd:new-milestone`, whose step 0 creates both.
 3. Commit the files that now exist: `node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs: add product brief and stack profile" --files .planning/PRODUCT-BRIEF.md .planning/STACK-PROFILE.md .planning/config.json`
 4. Report the exit code of the final `project diff` and the `files` report of the deploy, both from section 5.6.
 

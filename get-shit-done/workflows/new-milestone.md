@@ -12,10 +12,19 @@ Read all files referenced by the invoking prompt's execution_context before star
 
 <process>
 
+## 0. First Milestone After init-project
+
+Applies when `.planning/PROJECT.md` or `.planning/STATE.md` is absent while `.planning/config.json` and `.planning/PRODUCT-BRIEF.md` exist: the project was set up by `/gsd:init-project` (or only holds PRDs) and has never had a milestone. Otherwise skip to step 1.
+
+1. Create `.planning/PROJECT.md` from `@~/.claude/get-shit-done/templates/project.md`, using the brief's Identity and scope, the config's `project` block, and (when present) the PRDs in `.planning/prds/pending/`. Validated requirements are empty (nothing has shipped); Active requirements start as hypotheses, as in new-project step 4 for greenfield.
+2. Create `.planning/STATE.md` from `@~/.claude/get-shit-done/templates/state.md`, with Current Position `Phase: Not started (defining requirements)`.
+3. There is no MILESTONES.md: step 3 suggests `v1.0`, and step 1 skips that read. Step 4 then adds the Current Milestone section to the new PROJECT.md, and step 5 only updates the new STATE.md.
+4. Commit the two files: `node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs: initialize project for first milestone" --files .planning/PROJECT.md .planning/STATE.md`. Then continue with step 1.
+
 ## 1. Load Context
 
 - Read PROJECT.md (existing project, validated requirements, decisions)
-- Read MILESTONES.md (what shipped previously)
+- Read MILESTONES.md (what shipped previously; absent for a first milestone)
 - Read STATE.md (pending todos, blockers)
 - Check for MILESTONE-CONTEXT.md (from /gsd:discuss-milestone)
 
