@@ -532,7 +532,7 @@ the test-writer, a mutation proof, an Opus diff review, the verifier, the UI QA 
   ("bug in auth") is worse than no row at all.
 - `instance` — `file:line`, one line, so a reader can go look.
 - `caught_by` — one of `plan-check`, `test-writer`, `mutation-proof`, `opus-diff-review`,
-  `opus-ruling`, `verifier`, `ui-qa`, `other`.
+  `opus-ruling`, `verifier`, `charlotte`, `ui-qa`, `other`.
 - `severity` — `critical` / `major` / `minor`.
 - `rule_gap` — which existing project rule should have prevented it, or
   `none — new rule needed`.
