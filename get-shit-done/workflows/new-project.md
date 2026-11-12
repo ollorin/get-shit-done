@@ -165,15 +165,15 @@ AskUserQuestion([
 ])
 ```
 
-Create `.planning/config.json` with mode set to "yolo":
+Merge these keys into `.planning/config.json` with mode set to "yolo". Never overwrite an existing file: it may already hold `project`/`stack` blocks. Write each key with `node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" config-set <key.path> <value>` (e.g. `parallelization.enabled`, `planning.commit_docs`); the JSON below is the resulting shape:
 
 ```json
 {
   "mode": "yolo",
   "granularity": "[selected]",
-  "parallelization": true|false,
-  "commit_docs": true|false,
   "model_profile": "quality|balanced|budget",
+  "parallelization": { "enabled": true|false },
+  "planning": { "commit_docs": true|false },
   "workflow": {
     "research": true|false,
     "plan_check": true|false,
@@ -490,15 +490,15 @@ questions: [
 ]
 ```
 
-Create `.planning/config.json` with all settings:
+Merge these settings into `.planning/config.json`. Never overwrite an existing file: it may already hold `project`/`stack` blocks. Write each key with `node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" config-set <key.path> <value>`; the JSON below is the resulting shape:
 
 ```json
 {
   "mode": "yolo|interactive",
   "granularity": "coarse|standard|fine",
-  "parallelization": true|false,
-  "commit_docs": true|false,
   "model_profile": "quality|balanced|budget",
+  "parallelization": { "enabled": true|false },
+  "planning": { "commit_docs": true|false },
   "workflow": {
     "research": true|false,
     "plan_check": true|false,
@@ -509,7 +509,7 @@ Create `.planning/config.json` with all settings:
 ```
 
 **If commit_docs = No:**
-- Set `commit_docs: false` in config.json
+- Set `planning.commit_docs: false` in config.json
 - Add `.planning/` to `.gitignore` (create if needed)
 
 **If commit_docs = Yes:**

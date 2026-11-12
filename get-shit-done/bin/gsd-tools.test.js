@@ -18641,3 +18641,33 @@ describe('agnostic-M-05 5.11: dashboard WebSocket port', () => {
     assert.strictEqual(read({ GSD_DASHBOARD_PORT: '' }), '8766');
   });
 });
+
+describe('new-project config shape agrees with template and loadConfig', () => {
+  const root = path.join(__dirname, '..');
+  const workflow = fs.readFileSync(path.join(root, 'workflows', 'new-project.md'), 'utf-8');
+  const template = JSON.parse(fs.readFileSync(path.join(root, 'templates', 'config.json'), 'utf-8'));
+
+  test('workflow documents the nested keys the template uses, never the flat form', () => {
+    assert.ok(!/^\s*"commit_docs":/m.test(workflow), 'flat commit_docs in workflow');
+    assert.ok(!/"parallelization":\s*true\|false/.test(workflow), 'boolean parallelization in workflow');
+    assert.ok(/"parallelization":\s*\{\s*"enabled"/.test(workflow));
+    assert.ok(/"planning":\s*\{\s*"commit_docs"/.test(workflow));
+  });
+
+  test('loadConfig reads the nested template shape', () => {
+    const tmpDir = createTempProject();
+    try {
+      fs.writeFileSync(path.join(tmpDir, '.planning', 'config.json'), JSON.stringify({
+        ...template, parallelization: { enabled: false }, planning: { commit_docs: false },
+      }));
+      const out = JSON.parse(runGsdTools('init execute-phase 01', tmpDir).output || '{}');
+      assert.strictEqual(out.commit_docs, false);
+      assert.strictEqual(out.parallelization, false);
+    } finally { cleanup(tmpDir); }
+  });
+
+  test('workflow tells the agent to merge via config-set, not overwrite', () => {
+    assert.ok(!/Create `\.planning\/config\.json`/.test(workflow));
+    assert.ok(/config-set <key\.path> <value>/.test(workflow));
+  });
+});
