@@ -16,7 +16,7 @@ Give an existing GSD project the context that `/gsd:new-project` gives a new one
 - the `project` and `stack` blocks of `.planning/config.json`
 - the base deployment, through `project init` (absent files only)
 
-**Never overwrites.** `init` creates absent files and keeps existing ones. The report of what differs is `project diff`.
+**Never overwrites.** `init` creates absent files and keeps existing ones. Two exceptions, both reported: it appends missing ignore lines (`.claude/settings.local.json`, `.mcp.json`, `.env*`, `!.env.example`) to an existing `.gitignore` (the report's `appended` list), and it writes the machine-wide project registry outside the project root (the report's `registry` entry: `path`, `written`). The report of what differs is `project diff`.
 </objective>
 
 <execution_context>

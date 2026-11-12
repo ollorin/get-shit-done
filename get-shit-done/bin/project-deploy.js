@@ -318,7 +318,7 @@ function runCli(cwd, args, env, session, io = {}) {
   }
   const applied = applyPlan(root, plan, command);
   if (!applied.ok) return { exitCode: 1, result: applyFailure(report, applied) };
-  return { exitCode: report.conflicts > 0 ? 2 : 0, result: { ...report, written: applied.written } };
+  return { exitCode: report.conflicts > 0 ? 2 : 0, result: { ...report, written: applied.written, appended: applied.appended } };
 }
 
 module.exports = { planDeploy, runCli, CONFIG, MANIFEST, BASE_DIR, SETTINGS };

@@ -311,7 +311,7 @@ function registerForInit(cwd, args, env) {
   const undo = () => undoRegistration({
     dir, configFile, configBefore, slug, realRoot, portBase: outcome.port_base, reused: outcome.reused, registryCreated: outcome.registryCreated,
   });
-  return { ok: true, port_base: outcome.port_base, reused: outcome.reused, undo };
+  return { ok: true, port_base: outcome.port_base, reused: outcome.reused, registryFile, undo };
 }
 
 // Undoes the registration and reports the failure on the engine's result.
@@ -342,7 +342,9 @@ function initWithRegistration(cwd, args, env, runEngine) {
   // write (rolled_back false): the files it wrote are on disk, so the config and registry entry must stay with them.
   const wrote = (engine.result.written ?? []).length > 0;
   const kept = wrote && (engine.exitCode === 0 || engine.exitCode === 2 || engine.result.rolled_back === false);
-  return kept ? engine : rollBack(registration, engine);
+  if (!kept) return rollBack(registration, engine);
+  const registry = { path: registration.registryFile, written: !registration.reused };
+  return { ...engine, result: { ...engine.result, registry } };
 }
 
 // allocate: locked read, plan, write. For callers that need only the port.

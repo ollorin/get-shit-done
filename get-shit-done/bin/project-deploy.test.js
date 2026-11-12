@@ -478,6 +478,7 @@ describe('project init|diff|sync (agnostic-B)', () => {
     const dir = makePreset();
     const res = run(root, dir, 'init');
     assert.strictEqual(res.exitCode, 0);
+    assert.deepStrictEqual(res.result.appended, []);
     assert.strictEqual(fs.readFileSync(abs(root, STYLE_REL), 'utf8'), STYLE);
     assert.strictEqual(fs.readFileSync(abs(root, HOOK_DEST), 'utf8'), HOOK);
     assert.strictEqual(fs.readFileSync(abs(root, 'CLAUDE.md'), 'utf8'), CLAUDE_RENDERED);
@@ -509,7 +510,9 @@ describe('project init|diff|sync (agnostic-B)', () => {
   test('A1b init appends gitignore lines to an existing file without a trailing newline', () => {
     const root = makeProject();
     writeAt(root, '.gitignore', 'node_modules\n!.env.example\n.mcp.json');
-    assert.strictEqual(run(root, makePreset(), 'init').exitCode, 0);
+    const res = run(root, makePreset(), 'init');
+    assert.strictEqual(res.exitCode, 0);
+    assert.deepStrictEqual(res.result.appended, ['.gitignore']);
     const lines = fs.readFileSync(abs(root, '.gitignore'), 'utf8').split('\n');
     assert.deepStrictEqual(lines.slice(0, 3), ['node_modules', '!.env.example', '.mcp.json']);
     assert.strictEqual(lines.filter((l) => l === '.mcp.json').length, 1);

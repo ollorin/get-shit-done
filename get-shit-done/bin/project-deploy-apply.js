@@ -150,6 +150,7 @@ function applyPlan(root, plan, command, io = {}) {
   };
 
   let gitignore;
+  const gitignoreExisted = fs.existsSync(path.join(root, GITIGNORE));
   try {
     gitignore = readGitignore(root, command);
   } catch (e) {
@@ -180,7 +181,9 @@ function applyPlan(root, plan, command, io = {}) {
     }
     done.push(s);
   }
-  return { ok: true, written: done.map((s) => s.rel) };
+  const written = done.map((s) => s.rel);
+  const appended = gitignore !== null && gitignoreExisted ? [GITIGNORE].filter((rel) => written.includes(rel)) : [];
+  return { ok: true, written, appended };
 }
 
 const applyFailure = (report, applied) => ({
