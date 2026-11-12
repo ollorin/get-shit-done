@@ -344,3 +344,63 @@ describe('milestone-scoped mapped check and validates role', () => {
     assert.match(validate([JSON.parse(rec({ phases: ['1'], validates: ['3'] }))]).join(), /validates must be a subset/);
   });
 });
+
+describe('decisions CLI strictness, amend/supersede, gate and check-plan output', () => {
+  const cli = (file, ...args) => spawnSync('node', [TOOL, ...args, '--file', file], { encoding: 'utf8' });
+  const addDecision = (file) => JSON.parse(cli(file, 'add', '--kind', 'decision', '--source', 'owner-answer', '--question', 'q', '--answer', 'a', '--phases', '3').stdout);
+
+  test('unknown flags exit non-zero and name the accepted ones (--phase is not --phases)', () => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-dec-')), 'D.jsonl');
+    const r = cli(file, 'add', '--kind', 'decision', '--source', 'owner-answer', '--question', 'q', '--answer', 'a', '--phase', '3');
+    assert.notStrictEqual(r.status, 0);
+    assert.match(r.stderr, /unknown flag\(s\) for add: --phase/);
+    assert.match(r.stderr, /--phases/);
+    assert.strictEqual(fs.existsSync(file), false);
+  });
+
+  test('amend rewrites in place; supersede adds a new binding row and retires the old one', () => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-dec-')), 'D.jsonl');
+    const d = addDecision(file);
+    assert.strictEqual(cli(file, 'amend', d.id, '--answer', 'b').status, 0);
+    assert.strictEqual(load(file).records.find((r) => r.id === d.id).answer, 'b');
+    assert.notStrictEqual(cli(file, 'amend', d.id).status, 0);
+    const s = cli(file, 'supersede', d.id, '--answer', 'c', '--source', 'opus-ruling');
+    assert.strictEqual(s.status, 0, s.stderr);
+    const { records, errors } = load(file);
+    assert.deepStrictEqual(errors, []);
+    const next = JSON.parse(s.stdout).id;
+    assert.strictEqual(records.find((r) => r.id === d.id).status, 'superseded');
+    assert.strictEqual(records.find((r) => r.id === d.id).superseded_by, next);
+    assert.strictEqual(records.find((r) => r.id === next).answer, 'c');
+    assert.deepStrictEqual(validate(records), []);
+    assert.notStrictEqual(cli(file, 'supersede', d.id, '--answer', 'x', '--source', 'y').status, 0);
+  });
+
+  test('gate without --phase is an error, not phase "undefined"', () => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-dec-')), 'D.jsonl');
+    const r = cli(file, 'gate');
+    assert.strictEqual(r.status, 1);
+    assert.match(r.stderr, /gate --phase N/);
+    assert.strictEqual(cli(file, 'gate', '--phase', '3').status, 0);
+  });
+
+  test('check-plan summarises unscoped_open (count plus first 5) and --all-unscoped lists all', () => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-dec-')), 'D.jsonl');
+    for (let i = 0; i < 8; i++) cli(file, 'add', '--kind', 'assumption', '--source', 'unattended', '--question', `q${i}`, '--default', 'd', '--reversibility', 'cheap');
+    const plan = path.join(path.dirname(file), 'P.md');
+    fs.writeFileSync(plan, 'x');
+    const out = JSON.parse(cli(file, 'check-plan', '--phase', '3', plan).stdout);
+    assert.strictEqual(out.unscoped_open_count, 8);
+    assert.strictEqual(out.unscoped_open.length, 5);
+    assert.match(out.unscoped_open_note, /first 5 of 8/);
+    assert.strictEqual(JSON.parse(cli(file, 'check-plan', plan, '--phase', '3', '--all-unscoped').stdout).unscoped_open.length, 8);
+  });
+
+  test('usage lists the flags of each command', () => {
+    const r = spawnSync('node', [TOOL, 'nonsense'], { encoding: 'utf8' });
+    assert.strictEqual(r.status, 64);
+    assert.match(r.stderr, /add .*\[--phases\]/);
+    assert.match(r.stderr, /gate \[--file\] \[--phase\]/);
+    assert.match(r.stderr, /supersede/);
+  });
+});

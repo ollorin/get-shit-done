@@ -16,7 +16,28 @@ const STATUS = {
 };
 const PHASE_RE = /^\d+(\.\d+)?$/;
 const EXIT_CORRUPT = 3;
-const MUTATING = new Set(['add', 'map', 'answer', 'close', 'repair']);
+const MUTATING = new Set(['add', 'map', 'answer', 'close', 'repair', 'amend', 'supersede']);
+const UNSCOPED_SHOWN = 5;
+const FLAGS = {
+  validate: ['file', 'mapped', 'milestone'],
+  repair: ['file'],
+  add: ['file', 'kind', 'source', 'prd', 'question', 'phases', 'global', 'milestone', 'answer', 'default', 'options', 'reversibility', 'ts'],
+  map: ['file', 'phases', 'global', 'milestone', 'validates'],
+  answer: ['file', 'value', 'confirm', 'accept-as-built', 'completed', 'in-progress', 'phases-dir', 'ts'],
+  list: ['file', 'phase', 'open', 'json'],
+  gate: ['file', 'phase'],
+  'check-plan': ['file', 'phase', 'all-unscoped'],
+  reworks: ['file'],
+  close: ['file', 'status'],
+  digest: ['file', 'mark', 'mark-only'],
+  render: ['file', 'out'],
+  amend: ['file', 'question', 'answer', 'phases', 'global', 'milestone', 'source'],
+  supersede: ['file', 'answer', 'question', 'source', 'phases', 'global'],
+};
+const USAGE = 'usage: decisions.js <command> [flags]\n'
+  + Object.entries(FLAGS).map(([c, f]) => `  ${c} ${f.map((x) => `[--${x}]`).join(' ')}`).join('\n')
+  + '\n  amend D-NN: rewrite fields of a decision in place; supersede D-NN --answer A --source S: new D- row replaces it'
+  + '\n  exit 2 = gate parks the phase, 3 = ledger corrupt (treat as block; ' + 'REPAIR_HINT_PLACEHOLDER' + '), 64 = usage, 1 = error or unknown flag\n';
 const LOCK_STALE_MS = 5000;
 const LOCK_WAIT_MS = 10000;
 const REPAIR_HINT = 'run: node decisions.js repair [--file F] (renumbers colliding ids, drops conflict markers, keeps every row)';
@@ -302,6 +323,11 @@ const list = (v) => (typeof v === 'string' && v !== '' ? v.split(',').map((s) =>
 function main(argv) {
   const [cmd, ...rest] = argv;
   const { flags, pos } = parseArgs(rest);
+  const known = FLAGS[cmd];
+  if (known) {
+    const unknown = Object.keys(flags).filter((k) => !known.includes(k));
+    if (unknown.length > 0) throw new Error(`unknown flag(s) for ${cmd}: ${unknown.map((k) => `--${k}`).join(', ')} (accepted: ${known.map((k) => `--${k}`).join(' ')})`);
+  }
   const file = flags.file || DEFAULT_FILE;
   if (MUTATING.has(cmd) || (cmd === 'digest' && (flags.mark === true || flags['mark-only'] === true))) {
     return withLock(file, () => run(cmd, flags, pos, file));
@@ -374,7 +400,39 @@ function run(cmd, flags, pos, file) {
     rows.forEach((r) => out(`${r.id} [${r.global ? 'all' : r.phases.join(',')}] ${r.question} => ${r.kind === 'decision' ? r.answer : `${r.default} (assumed, ${r.reversibility}${r.status === 'confirmed' ? ', confirmed' : ''})`}`));
     return 0;
   }
+  if (cmd === 'amend' || cmd === 'supersede') {
+    const old = records.find((r) => r.id === pos[0] && r.kind === 'decision');
+    if (!old) throw new Error(`${cmd} D-NN: ${pos[0]} is not a decision in ${file}`);
+    const ts = new Date().toISOString();
+    const edits = {
+      ...(str(flags.question) ? { question: flags.question } : {}),
+      ...(str(flags.answer) ? { answer: flags.answer } : {}),
+      ...(flags.phases !== undefined ? { phases: list(flags.phases) } : {}),
+      ...(str(flags.milestone) ? { milestone: flags.milestone } : {}),
+      ...(flags.global === true ? { global: true } : {}),
+    };
+    if (cmd === 'amend') {
+      if (Object.keys(edits).length === 0 && !str(flags.source)) throw new Error('amend D-NN needs at least one of --question --answer --phases --global --milestone --source');
+      const next = { ...old, ...edits, ...(str(flags.source) ? { source: flags.source } : {}), amended_ts: ts };
+      const errs = validate([next]).filter((m) => m.startsWith(next.id + ':'));
+      if (errs.length) { out({ pass: false, errors: errs }); return 1; }
+      append(file, next);
+      out(next);
+      return 0;
+    }
+    if (old.status !== 'active') throw new Error(`${old.id} is already ${old.status}`);
+    if (!str(flags.answer) || !str(flags.source)) throw new Error('supersede D-NN --answer A --source S');
+    const rec = { ...old, ...edits, id: nextId(records, 'decision'), ts, source: flags.source, status: 'active', supersedes: old.id };
+    delete rec.superseded_by; delete rec.amended_ts;
+    const errs = validate([...records, rec]).filter((m) => m.startsWith(rec.id + ':'));
+    if (errs.length) { out({ pass: false, errors: errs }); return 1; }
+    append(file, rec);
+    append(file, { ...old, status: 'superseded', superseded_by: rec.id });
+    out({ id: rec.id, supersedes: old.id });
+    return 0;
+  }
   if (cmd === 'gate') {
+    if (!str(flags.phase) || !PHASE_RE.test(flags.phase)) throw new Error('gate --phase N (a phase number such as 3 or 3.1)');
     const phase = String(flags.phase);
     const park = forPhase(records, flags.phase)
       .filter((r) => r.kind === 'assumption' && r.status === 'open' && r.reversibility === 'irreversible'
@@ -387,7 +445,9 @@ function run(cmd, flags, pos, file) {
   if (cmd === 'check-plan') {
     if (!flags.phase || pos.length === 0) throw new Error('check-plan --phase N <PLAN.md>...');
     const res = checkPlan(records, flags.phase, pos.map((p) => fs.readFileSync(p, 'utf8')));
-    out(res);
+    const { unscoped_open: unscoped, ...head } = res;
+    const shown = flags['all-unscoped'] === true ? unscoped : unscoped.slice(0, UNSCOPED_SHOWN);
+    out({ ...head, unscoped_open_count: unscoped.length, unscoped_open: shown, ...(shown.length < unscoped.length ? { unscoped_open_note: `first ${shown.length} of ${unscoped.length}; pass --all-unscoped for all` } : {}) });
     return res.pass ? 0 : 1;
   }
   if (cmd === 'reworks') {
@@ -416,7 +476,7 @@ function run(cmd, flags, pos, file) {
     out({ written: target });
     return 0;
   }
-  process.stderr.write('usage: decisions.js validate|add|map|answer|list|gate|check-plan|digest|reworks|close|render|repair [--file F]\n  exit 2 = gate parks the phase, 3 = ledger corrupt (treat as block; ' + REPAIR_HINT + ')\n');
+  process.stderr.write(USAGE.replace('REPAIR_HINT_PLACEHOLDER', REPAIR_HINT));
   return 64;
 }
 
