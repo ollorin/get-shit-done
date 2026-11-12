@@ -604,6 +604,8 @@ Display: `Max iterations reached. {N} issues remain:` + issue list
 
 Offer: 1) Force proceed, 2) Provide guidance and retry, 3) Abandon
 
+**Auto mode** (`--auto` in $ARGUMENTS, or `workflow._auto_chain_active` / `workflow.auto_advance` true, read as in step 14): do not ask. Force proceed, and append this line to `{PHASE_DIR}/{N}-PLAN-CHECK.md` (committed path-scoped, like the Defect Classes block): `OVERRIDE: max iterations reached, force-proceeded in auto mode with unresolved: {issue ids and one-line summaries}`. List the same unresolved issues in the final status. Never proceed silently.
+
 ## 13. Present Final Status
 
 Route to `<offer_next>` OR `auto_advance` depending on flags/config.
@@ -714,7 +716,7 @@ Verification: {Passed | Passed with override | Skipped}
 - [ ] gsd-planner spawned with CONTEXT.md + RESEARCH.md
 - [ ] Plans created (PLANNING COMPLETE or CHECKPOINT handled)
 - [ ] gsd-plan-checker spawned with CONTEXT.md
-- [ ] Verification passed OR user override OR max iterations with user decision
+- [ ] Verification passed OR user override OR max iterations with user decision (or the auto-mode override line recorded)
 - [ ] User sees status between agent spawns
 - [ ] User knows next steps
 </success_criteria>
