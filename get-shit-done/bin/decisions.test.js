@@ -296,3 +296,44 @@ describe('ledger integrity and gate exit codes', () => {
     assert.strictEqual(fs.existsSync(lock), false);
   });
 });
+
+describe('milestone-scoped mapped check and validates role', () => {
+  const rec = (o) => JSON.stringify({ id: 'A-01', kind: 'assumption', ts: '2026-01-01T00:00:00.000Z', source: 's', question: 'q', default: 'd', reversibility: 'irreversible', phases: [], status: 'open', ...o }) + '\n';
+  const mk = (...rows) => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-dec-')), 'DECISIONS.jsonl');
+    fs.writeFileSync(file, rows.join(''));
+    return file;
+  };
+  const run = (...a) => spawnSync('node', [TOOL, ...a], { encoding: 'utf8' });
+
+  test('validate --mapped --milestone ignores records of other or no milestone', () => {
+    const file = mk(rec({ id: 'A-01' }), rec({ id: 'A-02', milestone: 'v2' }), rec({ id: 'A-03', milestone: 'v1', phases: ['1'] }));
+    assert.strictEqual(run('validate', '--mapped', '--file', file).status, 1);
+    assert.strictEqual(run('validate', '--mapped', '--milestone', 'v1', '--file', file).status, 0);
+    const bad = run('validate', '--mapped', '--milestone', 'v2', '--file', file);
+    assert.strictEqual(bad.status, 1);
+    assert.match(bad.stdout, /A-02: no consuming phase/);
+    assert.doesNotMatch(bad.stdout, /A-01/);
+  });
+
+  test('map --milestone tags the record so the scoped check covers it', () => {
+    const file = mk(rec({}));
+    assert.strictEqual(run('map', 'A-01', '--phases', '', '--milestone', 'v3', '--file', file).status, 0);
+    assert.strictEqual(load(file).records[0].milestone, 'v3');
+    assert.strictEqual(run('validate', '--mapped', '--milestone', 'v3', '--file', file).status, 1);
+  });
+
+  test('gate: an irreversible assumption a phase validates does not park it, other phases still park', () => {
+    const file = mk(rec({ phases: ['1', '2'] }));
+    assert.strictEqual(run('gate', '--phase', '1', '--file', file).status, 2);
+    assert.strictEqual(run('map', 'A-01', '--phases', '1,2', '--validates', '1', '--file', file).status, 0);
+    assert.strictEqual(run('gate', '--phase', '1', '--file', file).status, 0);
+    assert.strictEqual(run('gate', '--phase', '2', '--file', file).status, 2);
+  });
+
+  test('validates outside phases is refused', () => {
+    const file = mk(rec({ phases: ['1'] }));
+    assert.strictEqual(run('map', 'A-01', '--phases', '1', '--validates', '3', '--file', file).status, 1);
+    assert.match(validate([JSON.parse(rec({ phases: ['1'], validates: ['3'] }))]).join(), /validates must be a subset/);
+  });
+});

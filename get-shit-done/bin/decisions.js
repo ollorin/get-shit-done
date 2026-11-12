@@ -60,10 +60,15 @@ function validate(records, opts = {}) {
     if (!Array.isArray(r.phases) || r.phases.some((p) => typeof p !== 'string' || !PHASE_RE.test(p))) {
       e('phases must be an array of phase-number strings');
     }
+    if (r.validates !== undefined
+      && (!Array.isArray(r.validates) || r.validates.some((p) => !Array.isArray(r.phases) || !r.phases.includes(p)))) {
+      e('validates must be a subset of phases');
+    }
     if (r.kind !== 'rework') {
       if (!str(r.question)) e('question is empty');
       if (!str(r.source)) e('source is empty');
-      if (opts.mapped && Array.isArray(r.phases) && r.phases.length === 0 && r.global !== true
+      if (opts.mapped && (opts.milestone === undefined || r.milestone === opts.milestone)
+        && Array.isArray(r.phases) && r.phases.length === 0 && r.global !== true
         && r.status !== 'superseded' && r.status !== 'overridden') {
         e('no consuming phase: set phases or global:true (decisions.js map)');
       }
@@ -305,7 +310,7 @@ function run(cmd, flags, pos, file) {
   const { records, errors: parseErrors } = load(file);
 
   if (cmd === 'validate') {
-    const errors = [...parseErrors, ...validate(records, { mapped: flags.mapped === true })];
+    const errors = [...parseErrors, ...validate(records, { mapped: flags.mapped === true, milestone: str(flags.milestone) ? flags.milestone : undefined })];
     out({ pass: errors.length === 0, records: records.length, errors });
     return errors.length === 0 ? 0 : 1;
   }
@@ -325,6 +330,7 @@ function run(cmd, flags, pos, file) {
       id: nextId(records, kind), kind, ts: flags.ts || new Date().toISOString(), source: flags.source,
       prd: flags.prd || null, question: flags.question, phases: list(flags.phases),
       ...(flags.global === true ? { global: true } : {}),
+      ...(str(flags.milestone) ? { milestone: flags.milestone } : {}),
       ...(kind === 'decision' ? { answer: flags.answer, status: 'active' }
         : { default: flags.default, options: list(flags.options), reversibility: flags.reversibility, status: 'open' }),
     };
@@ -339,6 +345,10 @@ function run(cmd, flags, pos, file) {
     if (!rec) throw new Error(`unknown id ${pos[0]}`);
     const next = { ...rec, phases: list(flags.phases) };
     if (flags.global === true) next.global = true; else delete next.global;
+    if (str(flags.milestone)) next.milestone = flags.milestone;
+    if (str(flags.validates)) next.validates = list(flags.validates); else delete next.validates;
+    const errs = validate([next]).filter((m) => m.startsWith(next.id + ': validates'));
+    if (errs.length) { out({ pass: false, errors: errs }); return 1; }
     append(file, next);
     out(next);
     return 0;
@@ -361,7 +371,11 @@ function run(cmd, flags, pos, file) {
     return 0;
   }
   if (cmd === 'gate') {
-    const park = forPhase(records, flags.phase).filter((r) => r.kind === 'assumption' && r.status === 'open' && r.reversibility === 'irreversible').map((r) => r.id);
+    const phase = String(flags.phase);
+    const park = forPhase(records, flags.phase)
+      .filter((r) => r.kind === 'assumption' && r.status === 'open' && r.reversibility === 'irreversible'
+        && !(Array.isArray(r.validates) && r.validates.includes(phase)))
+      .map((r) => r.id);
     const ids = new Map(records.map((r) => [r.id, r.question]));
     out({ phase: String(flags.phase), park: park.length > 0, ids: park, questions: park.map((id) => `${id} ${ids.get(id)}`) });
     return park.length > 0 ? 2 : 0;
