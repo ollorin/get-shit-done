@@ -225,6 +225,9 @@ const projectDeploy = require('./project-deploy.js');
 const projectRegistry = require('./project-registry.js');
 const projectPack = require('./project-pack.js');
 const projectContext = require('./project-context.js');
+const { resolveAutoMode } = require('./auto-mode.js');
+const dispatch = require('./roadmap-dispatch.js');
+const autoModeFields = (cwd) => resolveAutoMode(cwd, process.argv.slice(2), process.env);
 const rigour = require('./rigour.js');
 
 // Phase 2: Auto Mode safety modules (lazy — gracefully absent if not installed)
@@ -1584,7 +1587,9 @@ function estimateQuotaForRemainingPhases(cwd, phaseCount) {
 
   const estimatedTokens = avgTokensPerPhase * phaseCount;
   const remainingBudget = quotaState.session.tokens_limit - quotaState.session.tokens_used;
-  const sufficient = estimatedTokens <= remainingBudget;
+  // A placeholder estimate against an unmeasured budget is no evidence of a shortfall: never block on it.
+  const unmeasured = source === 'conservative_default';
+  const sufficient = unmeasured ? true : estimatedTokens <= remainingBudget;
 
   return {
     estimated_tokens: estimatedTokens,
@@ -1593,6 +1598,7 @@ function estimateQuotaForRemainingPhases(cwd, phaseCount) {
     sufficient,
     phase_count: phaseCount,
     source,
+    unmeasured,
   };
 }
 
@@ -3781,19 +3787,12 @@ function cmdGatePrePr(cwd, args, raw) {
   const logContent = fs.readFileSync(execLogPath, 'utf-8');
   const lines = logContent.split('\n').filter(l => l.trim().startsWith('{'));
 
-  const phaseStarts = lines.filter(l => {
-    try { return JSON.parse(l).type === 'phase_start'; } catch { return false; }
-  });
-  const phaseCompletes = lines.filter(l => {
-    try { return JSON.parse(l).type === 'phase_complete'; } catch { return false; }
-  });
-
-  if (phaseStarts.length > phaseCompletes.length) {
-    const startedPhases = phaseStarts.map(l => JSON.parse(l).data?.phase || JSON.parse(l).phase);
-    const completedPhases = phaseCompletes.map(l => JSON.parse(l).data?.phase || JSON.parse(l).phase);
-    const incomplete = startedPhases.filter(p => !completedPhases.includes(p));
+  // Set comparison by phase id: every phase the run started, parked or failed must have a
+  // phase_complete event AND on-disk truth. A phase started twice (retry, respawn) needs one complete.
+  const incomplete = dispatch.incompletePhases(readExecutionEvents(cwd), makeTruthFn(cwd));
+  if (incomplete.length > 0) {
     output({
-      error: `Incomplete phases: ${incomplete.join(', ')}. All phases must complete before PR.`,
+      error: `Incomplete phases: ${incomplete.join(', ')}. All started phases must be verified complete (event and on-disk evidence) before PR; parked or failed phases mean no PR.`,
       gate: 'pre-pr',
       passed: false,
       incomplete_phases: incomplete
@@ -5799,6 +5798,45 @@ function cmdVerifyAppendGap(cwd, verificationFileArg, options, raw) {
 // toggle is on: any of (files_modified.length > threshold), a security-pattern substring
 // match against files_modified, or a tdd="true" task count >= 3 flags the plan high-risk,
 // one reason string per matched criterion.
+const RISK_DOMAIN_ALIASES = {
+  auth: ['authn', 'authz', 'authentication', 'authorization', 'oauth', 'login', 'session'],
+};
+
+// Lowercased word tokens of a path: split on / . - _ whitespace and camelCase.
+function riskPathTokens(text) {
+  return String(text)
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .split(/[\/.\-_\s]+/)
+    .map(t => t.toLowerCase())
+    .filter(Boolean);
+}
+
+// Returns the matching token (or substring pattern) or null. Patterns containing "/" or "."
+// stay substring matches; every other domain matches on token equality or a declared alias,
+// so "author" and "tokenizer" do not match "auth" / "token".
+function matchRiskDomain(domain, file) {
+  if (typeof domain !== 'string' || typeof file !== 'string' || domain.trim() === '') return null;
+  const d = domain.trim().toLowerCase();
+  if (/[\/.]/.test(d)) return file.toLowerCase().includes(d) ? d : null;
+  const tokens = riskPathTokens(file);
+  const wanted = riskPathTokens(d);
+  const hasSeq = (seq) => seq.length > 0 && tokens.some((_, i) => seq.every((w, j) => tokens[i + j] === w));
+  if (hasSeq(wanted)) return d;
+  const alias = (RISK_DOMAIN_ALIASES[d] || []).find(a => tokens.includes(a));
+  return alias || null;
+}
+
+function findRiskMatches(domains, files) {
+  const matched = [];
+  for (const domain of Array.isArray(domains) ? domains : []) {
+    for (const file of files) {
+      const token = matchRiskDomain(domain, file);
+      if (token) { matched.push({ domain, path: file, token }); break; }
+    }
+  }
+  return matched;
+}
+
 function computeHighRisk(fm, planContent, config, riskDomains) {
   try {
     const frontmatter = fm || {};
@@ -5811,13 +5849,12 @@ function computeHighRisk(fm, planContent, config, riskDomains) {
       ? frontmatter.files_modified
       : (frontmatter.files_modified ? [String(frontmatter.files_modified)] : []);
 
-    const domainMatch = (Array.isArray(riskDomains) ? riskDomains : []).find(p =>
-      filesModified.some(f => typeof f === 'string' && f.includes(p))
-    );
-    // Risk-domain paths are high-risk whether or not the adversarial toggle is on.
+    const domainMatches = findRiskMatches(riskDomains, filesModified);
+    // Risk-domain paths are high-risk whether or not the adversarial toggle is on; the toggle
+    // gates only the file-count and tdd-count heuristics below.
     if (cfg.adversarial_review_enabled !== true) {
-      return domainMatch
-        ? { high_risk: true, reasons: [`files_modified matches risk domain "${domainMatch}"`] }
+      return domainMatches.length > 0
+        ? { high_risk: true, reasons: [`files_modified matches risk domain "${domainMatches[0].domain}"`], matched: domainMatches }
         : { high_risk: false, reasons: [] };
     }
 
@@ -5829,15 +5866,12 @@ function computeHighRisk(fm, planContent, config, riskDomains) {
       reasons.push(`files_modified count (${filesModified.length}) exceeds threshold (${threshold})`);
     }
 
-    const patterns = [
+    const patternMatches = findRiskMatches([
       ...(Array.isArray(cfg.adversarial_review_security_patterns) ? cfg.adversarial_review_security_patterns : []),
       ...(Array.isArray(riskDomains) ? riskDomains : []),
-    ];
-    const matchedPattern = patterns.find(p =>
-      filesModified.some(f => typeof f === 'string' && f.includes(p))
-    );
-    if (matchedPattern) {
-      reasons.push(`files_modified matches security pattern "${matchedPattern}"`);
+    ], filesModified);
+    if (patternMatches.length > 0) {
+      reasons.push(`files_modified matches security pattern "${patternMatches[0].domain}"`);
     }
 
     const content = typeof planContent === 'string' ? planContent : '';
@@ -5846,13 +5880,12 @@ function computeHighRisk(fm, planContent, config, riskDomains) {
       reasons.push(`tdd="true" task count (${tddMatches.length}) >= 3`);
     }
 
-    return { high_risk: reasons.length > 0, reasons };
+    return reasons.length > 0
+      ? { high_risk: true, reasons, ...(patternMatches.length > 0 ? { matched: patternMatches } : {}) }
+      : { high_risk: false, reasons: [] };
   } catch (e) {
-    // Never throws -- a malformed frontmatter/content combination degrades to
-    // "not high-risk" rather than crashing the caller (fail-soft, mirrors
-    // appendVerificationGap's {ok:false,...} convention adapted to this
-    // function's {high_risk, reasons} return shape).
-    return { high_risk: false, reasons: [] };
+    // Fail closed: an assessment that errored is treated as high-risk (adversarial pass), never as safe.
+    return { high_risk: true, reasons: [`assessment error (failing closed): ${e && e.message ? e.message : 'unknown'}`] };
   }
 }
 
@@ -5879,13 +5912,13 @@ function computePresentationOrder(planContent) {
 // phase directory without a single bad file aborting the loop.
 function cmdQualityAssessRisk(cwd, filePath, raw) {
   if (!filePath) {
-    output({ error: true, type: 'missing_argument', message: 'quality assess-risk: <plan-file> required', high_risk: false, reasons: [] }, raw);
+    output({ error: true, type: 'missing_argument', message: 'quality assess-risk: <plan-file> required', high_risk: true, reasons: ['assessment error (failing closed): no plan file'], matched: [] }, raw);
     return;
   }
   const fullPath = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath);
   const content = safeReadFile(fullPath);
   if (content === null) {
-    output({ error: true, type: 'file_not_found', message: `Plan file not found: ${filePath}`, high_risk: false, reasons: [] }, raw);
+    output({ error: true, type: 'file_not_found', message: `Plan file not found: ${filePath}`, high_risk: true, reasons: ['assessment error (failing closed): plan file not found'], matched: [] }, raw);
     return;
   }
 
@@ -5894,7 +5927,7 @@ function cmdQualityAssessRisk(cwd, filePath, raw) {
     const matter = require('gray-matter');
     fm = matter(content).data || {};
   } catch (e) {
-    output({ error: true, type: 'malformed_frontmatter', message: e.message, high_risk: false, reasons: [] }, raw);
+    output({ error: true, type: 'malformed_frontmatter', message: e.message, high_risk: true, reasons: ['assessment error (failing closed): malformed frontmatter'], matched: [] }, raw);
     return;
   }
 
@@ -5913,9 +5946,9 @@ function cmdQualityAssessRisk(cwd, filePath, raw) {
     output({ high_risk: true, reasons: ['rigour: high'], presentation_order, rigour: 'high' }, raw);
     return;
   }
-  const { high_risk, reasons } = computeHighRisk(fm, content, config, projectContext.riskDomainsFor(cwd));
+  const { high_risk, reasons, matched } = computeHighRisk(fm, content, config, projectContext.riskDomainsFor(cwd));
   output({
-    high_risk, reasons, presentation_order, rigour: 'standard',
+    high_risk, reasons, matched: matched || [], presentation_order, rigour: 'standard',
     ...(level.rigour_source === 'rejected' ? { rigour_rejected_reason: level.rigour_rejected_reason } : {}),
   }, raw);
 }
@@ -8471,16 +8504,11 @@ function writeExecutionState(cwd, state) {
   atomicWriteFileSync(getExecutionStatePath(cwd), JSON.stringify(state, null, 2));
 }
 
-function cmdExecutionStateRecordFailure(cwd, options, raw) {
+// Pure-ish core of `record-failure`: returns {ok:false,error} on a corrupt state file.
+function applyExecutionStateFailure(cwd, options) {
   const { phase, plan, errorMsg, step, files } = options;
-  if (!phase) { error('execution-state record-failure requires --phase'); }
-
   const existing = readExecutionState(cwd);
-  if (!existing.ok) {
-    process.stdout.write(JSON.stringify({ ...existing.error, message: `${existing.error.message} — fix execution-state.json before recording another failure` }, null, 2));
-    process.exit(2);
-    return;
-  }
+  if (!existing.ok) return existing;
 
   const key = computeStateKey(phase, plan);
   const state = existing.state;
@@ -8501,16 +8529,40 @@ function cmdExecutionStateRecordFailure(cwd, options, raw) {
   const action = entry.attempts === 1 ? 'retry' : (entry.attempts < maxAttempts ? 'debug' : 'escalate');
 
   writeExecutionState(cwd, state);
+  return {
+    ok: true,
+    result: {
+      key,
+      attempts: entry.attempts,
+      action,
+      max_attempts: maxAttempts,
+      error: entry.last_error,
+      last_step: entry.last_step,
+      files_modified: entry.files_modified,
+    },
+  };
+}
 
-  output({
-    key,
-    attempts: entry.attempts,
-    action,
-    max_attempts: maxAttempts,
-    error: entry.last_error,
-    last_step: entry.last_step,
-    files_modified: entry.files_modified,
-  }, raw);
+function cmdExecutionStateRecordFailure(cwd, options, raw) {
+  if (!options.phase) { error('execution-state record-failure requires --phase'); }
+  const applied = applyExecutionStateFailure(cwd, options);
+  if (!applied.ok) {
+    process.stdout.write(JSON.stringify({ ...applied.error, message: `${applied.error.message} — fix execution-state.json before recording another failure` }, null, 2));
+    process.exit(2);
+    return;
+  }
+  output(applied.result, raw);
+}
+
+function applyExecutionStateSuccess(cwd, options) {
+  const existing = readExecutionState(cwd);
+  if (!existing.ok) return existing;
+  const key = computeStateKey(options.phase, options.plan);
+  if (Object.prototype.hasOwnProperty.call(existing.state, key)) {
+    delete existing.state[key];
+    writeExecutionState(cwd, existing.state);
+  }
+  return { ok: true };
 }
 
 function cmdExecutionStateRecordSuccess(cwd, options, raw) {
@@ -9083,6 +9135,10 @@ function parseRoadmapPhases(content, phasesDir, options) {
     } catch {}
 
     const phaseObj = { number: phaseNum, name: phaseName, goal, depends_on, disk_status: diskStatus };
+    if (options && options.truthCwd) {
+      // Only a phase whose disk evidence is complete can be proven complete; skip the git-backed check otherwise.
+      phaseObj.phase_complete = diskStatus === 'complete' ? phaseTruth(options.truthCwd, phaseNum).complete : false;
+    }
     if (extended) {
       phaseObj.plan_count = planCount;
       phaseObj.summary_count = summaryCount;
@@ -10140,6 +10196,74 @@ function cmdRequirementsMarkComplete(cwd, reqIdsRaw, raw) {
     not_found: notFound,
     total: reqIds.length,
   }, raw, `${updated.length}/${reqIds.length} requirements marked complete`);
+}
+
+// ─── Phase truth + lifecycle checkpoint ───────────────────────────────────────
+
+function roadmapCheckboxState(cwd, phaseNum) {
+  const content = safeReadFile(path.join(cwd, '.planning', 'ROADMAP.md'));
+  if (content === null) return null;
+  const m = content.match(new RegExp(`-\\s*\\[(x| )\\]\\s*.*Phase\\s+${String(phaseNum).replace('.', '\\.')}[:\\s]`, 'i'));
+  return m ? m[1].toLowerCase() === 'x' : null;
+}
+
+// One definition of "this phase is complete": the shared on-disk evidence
+// (SUMMARY + Self-Check, tagged commits, VERIFICATION passed) plus the ROADMAP
+// checkbox that `phase complete` sets. A roadmap with no checkbox line cannot
+// be checked and does not fail the phase.
+function phaseTruth(cwd, phaseNum) {
+  const phaseInfo = findPhaseInternal(cwd, String(phaseNum));
+  if (!phaseInfo) return { phase: String(phaseNum), complete: false, errors: ['phase directory not found'] };
+  if (normalizePhaseName(String(phaseInfo.phase_number)) !== normalizePhaseName(String(phaseNum))) {
+    return { phase: String(phaseNum), complete: false, errors: [`phase directory not found (nearest match: ${phaseInfo.directory})`] };
+  }
+  const phaseDir = path.join(cwd, phaseInfo.directory);
+  let dirFiles;
+  try { dirFiles = fs.readdirSync(phaseDir); } catch (e) {
+    return { phase: String(phaseNum), complete: false, errors: [`phase directory unreadable: ${e.message}`] };
+  }
+  const errors = [...collectPhaseEvidenceErrors(cwd, phaseInfo.phase_number, phaseDir, dirFiles).errors];
+  if (roadmapCheckboxState(cwd, phaseNum) === false) {
+    errors.push('ROADMAP.md checkbox is not set (run `gsd-tools phase complete`)');
+  }
+  return { phase: String(phaseNum), complete: errors.length === 0, errors };
+}
+
+const CHECKPOINT_STEPS = ['discuss', 'research', 'plan', 'execute', 'verify'];
+const CHECKPOINT_STATUSES = ['complete', 'skipped', 'gray_areas_identified', 'failed', 'passed', 'gaps_found', 'human_needed'];
+
+// The single writer of the phase CHECKPOINT.json (shape: agents/gsd-phase-coordinator.md
+// checkpoint_protocol). `phase complete` reads it; execute-phase and the coordinator write it here.
+function cmdPhaseCheckpoint(cwd, args, raw) {
+  const phaseNum = args[0];
+  if (!phaseNum || phaseNum.startsWith('--')) error('phase checkpoint: phase number required');
+  const flag = (name) => { const i = args.indexOf(name); return i !== -1 ? args[i + 1] : undefined; };
+  const step = flag('--step');
+  const status = flag('--status');
+  if (!CHECKPOINT_STEPS.includes(step)) error(`phase checkpoint: --step must be one of ${CHECKPOINT_STEPS.join(', ')}`);
+  if (!CHECKPOINT_STATUSES.includes(status)) error(`phase checkpoint: --status must be one of ${CHECKPOINT_STATUSES.join(', ')}`);
+  const phaseInfo = findPhaseInternal(cwd, phaseNum);
+  if (!phaseInfo || normalizePhaseName(String(phaseInfo.phase_number)) !== normalizePhaseName(String(phaseNum))) {
+    error(`phase checkpoint: phase ${phaseNum} directory not found`);
+  }
+  const successful = ['complete', 'skipped', 'passed', 'gray_areas_identified'].includes(status);
+  const resumeFrom = flag('--resume-from')
+    || (step === 'verify' ? (status === 'passed' ? 'done' : 'verify')
+      : (successful ? CHECKPOINT_STEPS[CHECKPOINT_STEPS.indexOf(step) + 1] : step));
+  const files = flag('--files');
+  const checkpoint = {
+    phase: Number.isNaN(Number(phaseInfo.phase_number)) ? phaseInfo.phase_number : Number(phaseInfo.phase_number),
+    phase_name: phaseInfo.phase_name || null,
+    last_step: step,
+    step_status: status,
+    timestamp: new Date().toISOString(),
+    files_touched: files ? files.split(',').map(f => f.trim()).filter(Boolean) : [],
+    key_context: flag('--key-context') || '',
+    resume_from: resumeFrom,
+  };
+  const target = path.join(cwd, phaseInfo.directory, 'CHECKPOINT.json');
+  atomicWriteFileSync(target, JSON.stringify(checkpoint, null, 2) + '\n');
+  output({ written: true, path: path.relative(cwd, target), ...checkpoint }, raw);
 }
 
 // ─── Phase Complete (Transition) ──────────────────────────────────────────────
@@ -11526,6 +11650,7 @@ function cmdInitExecutePhase(cwd, phase, includes, raw, gate) {
 
   const result = {
     ...projectContext.contextFields(cwd),
+    ...autoModeFields(cwd),
     project_context: { legacy: gate?.legacy === true },
     ...rigour.resolveRigour(cwd, phase),
     phase_req_ids: rigour.phaseReqIds(cwd, phase),
@@ -11636,6 +11761,7 @@ function cmdInitPlanPhase(cwd, phase, includes, raw, gate) {
 
   const result = {
     ...projectContext.contextFields(cwd),
+    ...autoModeFields(cwd),
     project_context: { legacy: gate?.legacy === true },
     ...rigour.resolveRigour(cwd, phase),
     phase_req_ids: rigour.phaseReqIds(cwd, phase),
@@ -11786,6 +11912,7 @@ function cmdInitNewProject(cwd, raw) {
 
   const result = {
     ...projectContext.contextFields(cwd),
+    ...autoModeFields(cwd),
     available_presets: projectContext.availablePresets(path.join(__dirname, '..', 'presets')),
     context_gate: projectContext.contextGate(cwd, { legacy: false }),
 
@@ -11824,6 +11951,7 @@ function cmdInitNewMilestone(cwd, raw) {
 
   const result = {
     ...projectContext.contextFields(cwd),
+    ...autoModeFields(cwd),
     // Models
     researcher_model: resolveModelInternal(cwd, 'gsd-project-researcher'),
     synthesizer_model: resolveModelInternal(cwd, 'gsd-research-synthesizer'),
@@ -11852,6 +11980,7 @@ function cmdInitMilestoneBranch(cwd, raw) {
 
   const result = {
     ...projectContext.contextFields(cwd),
+    ...autoModeFields(cwd),
     branching_strategy: config.branching_strategy,
     branch_name: config.branching_strategy === 'milestone'
       ? config.milestone_branch_template
@@ -11885,6 +12014,7 @@ function cmdInitQuick(cwd, description, raw) {
 
   const result = {
     ...projectContext.contextFields(cwd),
+    ...autoModeFields(cwd),
     // Models
     planner_model: resolveModelInternal(cwd, 'gsd-planner'),
     executor_model: resolveModelInternal(cwd, 'gsd-executor'),
@@ -11924,6 +12054,7 @@ function cmdInitResume(cwd, raw) {
 
   const result = {
     ...projectContext.contextFields(cwd),
+    ...autoModeFields(cwd),
     // File existence
     state_exists: pathExistsInternal(cwd, '.planning/STATE.md'),
     roadmap_exists: pathExistsInternal(cwd, '.planning/ROADMAP.md'),
@@ -11951,6 +12082,7 @@ function cmdInitVerifyWork(cwd, phase, raw) {
 
   const result = {
     ...projectContext.contextFields(cwd),
+    ...autoModeFields(cwd),
     // Models
     planner_model: resolveModelInternal(cwd, 'gsd-planner'),
     checker_model: resolveModelInternal(cwd, 'gsd-plan-checker'),
@@ -11977,6 +12109,7 @@ function cmdInitPhaseOp(cwd, phase, raw) {
 
   const result = {
     ...projectContext.contextFields(cwd),
+    ...autoModeFields(cwd),
     // Config
     commit_docs: config.commit_docs,
     brave_search: config.brave_search,
@@ -12039,6 +12172,7 @@ function cmdInitTodos(cwd, area, raw) {
 
   const result = {
     ...projectContext.contextFields(cwd),
+    ...autoModeFields(cwd),
     // Config
     commit_docs: config.commit_docs,
 
@@ -12098,6 +12232,7 @@ function cmdInitMilestoneOp(cwd, raw) {
 
   const result = {
     ...projectContext.contextFields(cwd),
+    ...autoModeFields(cwd),
     // Config
     commit_docs: config.commit_docs,
 
@@ -12138,6 +12273,7 @@ function cmdInitMapCodebase(cwd, raw) {
 
   const result = {
     ...projectContext.contextFields(cwd),
+    ...autoModeFields(cwd),
     // Models
     mapper_model: resolveModelInternal(cwd, 'gsd-codebase-mapper'),
 
@@ -12223,6 +12359,7 @@ function cmdInitProgress(cwd, includes, raw) {
 
   const result = {
     ...projectContext.contextFields(cwd),
+    ...autoModeFields(cwd),
     // Models
     executor_model: resolveModelInternal(cwd, 'gsd-executor'),
     planner_model: resolveModelInternal(cwd, 'gsd-planner'),
@@ -12269,12 +12406,54 @@ function cmdInitProgress(cwd, includes, raw) {
   output(result, raw);
 }
 
+function readRawConfig(cwd) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(path.join(cwd, '.planning', 'config.json'), 'utf-8'));
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch { return {}; }
+}
+
+// Base branch for the roadmap PR: config git.base_branch, else origin/HEAD, else null (PR is then skipped, not failed).
+function resolveBaseBranch(cwd) {
+  const cfg = readRawConfig(cwd);
+  const configured = (cfg.git && cfg.git.base_branch) || cfg.base_branch;
+  if (typeof configured === 'string' && configured.trim()) return configured.trim();
+  const head = execGit(cwd, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']);
+  if (head.exitCode === 0 && head.stdout) return head.stdout.replace(/^origin\//, '');
+  return null;
+}
+
+function hasGitRemote(cwd) {
+  const r = execGit(cwd, ['remote']);
+  return r.exitCode === 0 && r.stdout.length > 0;
+}
+
+const slugifyMilestone = (name) => String(name || 'milestone').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'milestone';
+
+function readExecutionEvents(cwd) {
+  try {
+    return fs.readFileSync(path.join(cwd, '.planning', 'EXECUTION_LOG.md'), 'utf-8')
+      .split('\n').filter(l => l.trim().startsWith('{'))
+      .map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+  } catch { return []; }
+}
+
+// Cache per-process: phaseTruth shells out to git, and one command asks the same question repeatedly.
+function makeTruthFn(cwd) {
+  const cache = new Map();
+  return (k) => {
+    if (!cache.has(k)) cache.set(k, phaseTruth(cwd, k).complete);
+    return cache.get(k);
+  };
+}
+
 function cmdInitExecuteRoadmap(cwd, raw) {
   const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
 
   if (!fs.existsSync(roadmapPath)) {
     output({
       ...projectContext.contextFields(cwd),
+      ...autoModeFields(cwd),
       error: 'ROADMAP.md not found',
       roadmap_exists: false
     }, raw);
@@ -12282,75 +12461,57 @@ function cmdInitExecuteRoadmap(cwd, raw) {
   }
 
   const config = loadConfig(cwd);
+  const rawConfig = readRawConfig(cwd);
   const coordinatorModel = config.coordinator_model ?? 'sonnet';
 
   // Reuse shared phase parsing (avoids duplicating 60+ lines from cmdRoadmapAnalyze)
   const content = fs.readFileSync(roadmapPath, 'utf-8');
   const phasesDir = path.join(cwd, '.planning', 'phases');
-  const phases = parseRoadmapPhases(content, phasesDir);
+  const phases = parseRoadmapPhases(content, phasesDir, { truthCwd: cwd });
 
   // Build execution order (simple sequential for now - no DAG parallel support yet)
   const executionOrder = phases.map(p => p.number);
 
-  // Find next executable phases (phases that are not complete and dependencies are met)
-  const completePhases = new Set(phases.filter(p => p.disk_status === 'complete').map(p => p.number));
+  // Completion is on-disk truth (phaseTruth), never the bare summary count.
+  const completePhases = new Set(phases.filter(p => p.phase_complete).map(p => dispatch.phaseKey(p.number)));
   const executable = [];
   const blocked = [];
 
   for (const phase of phases) {
-    if (phase.disk_status === 'complete') continue;
+    if (phase.phase_complete) continue;
+    const deps = dispatch.parseDeps(phase.depends_on);
+    const missing = deps.filter(dep => !completePhases.has(dep));
+    if (missing.length === 0) executable.push(phase.number);
+    else blocked.push({ phase: phase.number, missing_deps: missing });
+  }
 
-    // Check dependencies
-    if (phase.depends_on && phase.depends_on !== 'None') {
-      const deps = phase.depends_on.split(',').map(d => d.trim());
-      const allDepsMet = deps.every(dep => completePhases.has(dep));
+  const hasExecutionLog = fs.existsSync(path.join(cwd, '.planning', 'EXECUTION_LOG.md'));
 
-      if (allDepsMet) {
-        executable.push(phase.number);
-      } else {
-        blocked.push({ phase: phase.number, missing_deps: deps.filter(d => !completePhases.has(d)) });
+  // Resume: events intersected with disk truth.
+  let resumeState = null;
+  if (hasExecutionLog) {
+    const events = readExecutionEvents(cwd);
+    const roadmapComplete = events.some(e => e.type === 'roadmap_complete');
+    if (!roadmapComplete && events.length > 0) {
+      const truth = (k) => completePhases.has(k);
+      const rs = dispatch.resumeState(events, phases, truth);
+      if (rs.completed_phases.length > 0 || rs.started_incomplete.length > 0 || rs.parked.length > 0) {
+        const lead = rs.started_incomplete[0] || rs.parked[0] || null;
+        const leadPhase = lead ? phases.find(p => dispatch.phaseKey(p.number) === lead) : null;
+        resumeState = {
+          ...rs,
+          status: rs.started_incomplete.length > 0 ? 'in_progress' : 'can_resume',
+          phase: lead,
+          phase_name: leadPhase ? leadPhase.name : null,
+        };
       }
-    } else {
-      // No dependencies, executable
-      executable.push(phase.number);
     }
   }
 
-  // Check for execution log
-  const executionLogPath = path.join(cwd, '.planning', 'EXECUTION_LOG.md');
-  const hasExecutionLog = fs.existsSync(executionLogPath);
-
-  // Check for incomplete execution (resume capability)
-  let resumeState = null;
-  if (hasExecutionLog) {
-    try {
-      const logContent = fs.readFileSync(executionLogPath, 'utf-8');
-      const lines = logContent.split('\n').filter(l => l.trim() && !l.startsWith('#'));
-      const events = lines.map(l => {
-        try { return JSON.parse(l); } catch { return null; }
-      }).filter(Boolean);
-
-      const lastComplete = events.filter(e => e.type === 'phase_complete').pop();
-      const lastStart = events.filter(e => e.type === 'phase_start').pop();
-      const roadmapComplete = events.some(e => e.type === 'roadmap_complete');
-
-      if (!roadmapComplete && lastStart && (!lastComplete || lastStart.phase > lastComplete.phase)) {
-        resumeState = {
-          phase: lastStart.phase,
-          phase_name: lastStart.name,
-          status: 'in_progress'
-        };
-      } else if (!roadmapComplete && lastComplete) {
-        resumeState = {
-          last_complete_phase: lastComplete.phase,
-          status: 'can_resume'
-        };
-      }
-    } catch {}
-  }
-
+  const milestone = getMilestoneInfo(cwd);
   output({
     ...projectContext.contextFields(cwd),
+    ...autoModeFields(cwd),
     roadmap_exists: true,
     total_phases: phases.length,
     execution_order: executionOrder,
@@ -12359,8 +12520,80 @@ function cmdInitExecuteRoadmap(cwd, raw) {
     blocked_phases: blocked,
     has_execution_log: hasExecutionLog,
     resume_state: resumeState,
-    coordinator_model: coordinatorModel
+    coordinator_model: coordinatorModel,
+    ruling_model: config.ruling_model || 'opus',
+    ruling_model_fallback: rawConfig.ruling_model_fallback || 'opus',
+    utility_model: rawConfig.utility_model || 'haiku',
+    reviewer_model: rawConfig.reviewer_model || 'sonnet',
+    legacy: process.argv.includes('--legacy') || process.env.GSD_LEGACY === '1',
+    milestone_version: milestone.version,
+    milestone_slug: slugifyMilestone(milestone.name),
+    base_branch: resolveBaseBranch(cwd),
   }, raw);
+}
+
+// roadmap next: pure state machine over events + disk truth; appends the events it returns.
+function roadmapInputs(cwd) {
+  const content = safeReadFile(path.join(cwd, '.planning', 'ROADMAP.md'));
+  if (content === null) error('ROADMAP.md not found');
+  const phases = parseRoadmapPhases(content, path.join(cwd, '.planning', 'phases'));
+  return { phases, events: readExecutionEvents(cwd), truth: makeTruthFn(cwd) };
+}
+
+function cmdRoadmapNext(cwd, args, raw) {
+  const { phases, events, truth } = roadmapInputs(cwd);
+  const config = loadConfig(cwd);
+  const result = dispatch.next({
+    phases,
+    events,
+    truth,
+    retryParked: args.includes('--retry-parked'),
+    gateMarked: dispatch.hasEvent(events, 'gate_pre_pr_passed'),
+    prRecorded: dispatch.hasEvent(events, 'pr_created') || dispatch.hasEvent(events, 'pr_skipped'),
+    hasRemote: hasGitRemote(cwd),
+    config: {
+      coordinator_model: config.coordinator_model ?? 'sonnet',
+      base_branch: resolveBaseBranch(cwd),
+      legacy: args.includes('--legacy') || process.env.GSD_LEGACY === '1',
+    },
+  });
+  for (const e of result.log) appendEvent(cwd, e);
+  output(result, raw);
+}
+
+// roadmap record --phase N --result '<coordinator JSON or text>' | --kind pr --result '{"status":"created|skipped"}'
+function cmdRoadmapRecord(cwd, args, raw) {
+  const flag = (name) => { const i = args.indexOf(name); return i !== -1 ? args[i + 1] : undefined; };
+  const resultArg = flag('--result');
+  if (flag('--kind') === 'pr') {
+    let status = 'skipped';
+    let reason = null;
+    try { const r = JSON.parse(resultArg); status = r.status === 'created' ? 'created' : 'skipped'; reason = r.reason || null; } catch { /* default skipped */ }
+    appendEvent(cwd, { type: status === 'created' ? 'pr_created' : 'pr_skipped', reason });
+    output({ action: 'pr_recorded', status }, raw);
+    return;
+  }
+  const phase = flag('--phase');
+  if (!phase) error('roadmap record: --phase required (or --kind pr)');
+  if (resultArg === undefined) error('roadmap record: --result required');
+  const events = readExecutionEvents(cwd);
+  const k = dispatch.phaseKey(phase);
+  const truth = phaseTruth(cwd, k);
+  const out = dispatch.record({
+    phase: k,
+    result: resultArg,
+    truth,
+    events,
+    ladder: (ph, errorMsg, step) => {
+      const applied = applyExecutionStateFailure(cwd, { phase: ph, errorMsg, step });
+      return applied.ok ? { action: applied.result.action, attempts: applied.result.attempts } : { action: 'escalate' };
+    },
+  });
+  if (out.action === 'complete') {
+    applyExecutionStateSuccess(cwd, { phase: k });
+  }
+  for (const e of out.events) appendEvent(cwd, e);
+  output({ ...out, truth: { complete: truth.complete, errors: truth.errors } }, raw);
 }
 
 // ─── Session Analysis Commands ────────────────────────────────────────────────
@@ -14241,7 +14474,7 @@ function cmdDoctor(cwd, options, raw) {
   const manifestPath = path.join(configDir, 'gsd-file-manifest.json');
 
   if (!fs.existsSync(manifestPath)) {
-    output({ ok: false, reason: 'no_manifest', message: 'No installed manifest found — run install first' }, raw);
+    output({ ok: false, skipped: true, reason: 'no_manifest', message: 'No installed manifest found — not installed, skew check skipped' }, raw);
     return;
   }
   const parseResult = safeJsonParse(fs.readFileSync(manifestPath, 'utf-8'), MANIFEST_NAME_FOR_DOCTOR);
@@ -14880,8 +15113,12 @@ async function main() {
         cmdRoadmapValidate(cwd, raw);
       } else if (subcommand === 'update-plan-progress') {
         cmdRoadmapUpdatePlanProgress(cwd, args[2], raw);
+      } else if (subcommand === 'next') {
+        cmdRoadmapNext(cwd, args.slice(2), raw);
+      } else if (subcommand === 'record') {
+        cmdRoadmapRecord(cwd, args.slice(2), raw);
       } else {
-        error('Unknown roadmap subcommand. Available: get-phase, analyze, list, parse, dag, status, validate, update-plan-progress');
+        error('Unknown roadmap subcommand. Available: get-phase, analyze, list, parse, dag, status, validate, update-plan-progress, next, record');
       }
       break;
     }
@@ -14899,6 +15136,8 @@ async function main() {
         cmdPhaseRemove(cwd, args[2], { force: forceFlag }, raw);
       } else if (subcommand === 'complete') {
         cmdPhaseComplete(cwd, args[2], raw);
+      } else if (subcommand === 'checkpoint') {
+        cmdPhaseCheckpoint(cwd, args.slice(2), raw);
       } else if (subcommand === 'archive') {
         await cmdPhaseArchive(cwd, args[2], raw);
       } else if (subcommand === 'inject-context') {
@@ -14908,7 +15147,7 @@ async function main() {
       } else if (subcommand === 'size' || subcommand === 'limits' || subcommand === 'check' || subcommand === 'split-recommend') {
         await cmdPhaseSize(cwd, args.slice(1), raw);
       } else {
-        error('Unknown phase subcommand. Available: next-decimal, add, insert, remove, complete, archive, inject-context, cleanup-checkpoints, size, limits, check, split-recommend');
+        error('Unknown phase subcommand. Available: next-decimal, add, insert, remove, complete, checkpoint, archive, inject-context, cleanup-checkpoints, size, limits, check, split-recommend');
       }
       break;
     }
@@ -14985,7 +15224,7 @@ async function main() {
 
     case 'init': {
       const legacyFlag = args.includes('--legacy');
-      const initArgs = args.filter((a) => a !== '--legacy');
+      const initArgs = args.filter((a) => a !== '--legacy' && a !== '--auto');
       const workflow = initArgs[1];
       const includes = parseIncludeFlag(initArgs);
       const gate = projectContext.contextGate(cwd, {

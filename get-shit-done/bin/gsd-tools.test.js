@@ -60,6 +60,17 @@ function gitCommitAll(dir, message) {
 const SELF_CHECK_PASSED_SUMMARY =
   '# Summary\n\n## Defect Classes\n\nNone found. (reviewed by: plan-check, verifier)\n\n## Self-Check: PASSED\n';
 
+// A phase whose on-disk evidence satisfies phaseTruth: PLAN, passing SUMMARY, tagged commit, VERIFICATION passed.
+function writeVerifiedPhase(dir, num, name = 'x') {
+  const phaseDir = path.join(dir, '.planning', 'phases', `${num}-${name}`);
+  fs.mkdirSync(phaseDir, { recursive: true });
+  fs.writeFileSync(path.join(phaseDir, `${num}-01-PLAN.md`), '---\nphase: ' + num + '\n---\n# Plan\n');
+  fs.writeFileSync(path.join(phaseDir, `${num}-01-SUMMARY.md`), SELF_CHECK_PASSED_SUMMARY);
+  fs.writeFileSync(path.join(phaseDir, `${num}-VERIFICATION.md`), 'status: passed\n# Verification\n');
+  gitCommitAll(dir, `feat(${num}-01): evidence`);
+  return phaseDir;
+}
+
 function cleanup(tmpDir) {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 }
@@ -15343,6 +15354,29 @@ describe('Phase 60-01: adversarial-review config + assess-risk/verdict-to-issues
       assert.deepStrictEqual(result, { high_risk: false, reasons: [] });
     });
 
+    test('U8 token match: author/tokenizer do not match auth/token; auth dir and oauth-callback do', () => {
+      const config = { adversarial_review_enabled: false };
+      assert.strictEqual(computeHighRisk({ files_modified: ['src/author/x.js'] }, '', config, ['auth', 'security']).high_risk, false);
+      assert.strictEqual(computeHighRisk({ files_modified: ['src/tokenizer/x.js'] }, '', config, ['token']).high_risk, false);
+      const dir = computeHighRisk({ files_modified: ['src/auth/x.js'] }, '', config, ['auth']);
+      assert.strictEqual(dir.high_risk, true);
+      assert.deepStrictEqual(dir.matched, [{ domain: 'auth', path: 'src/auth/x.js', token: 'auth' }]);
+      const alias = computeHighRisk({ files_modified: ['src/oauth-callback.ts'] }, '', config, ['auth']);
+      assert.strictEqual(alias.high_risk, true);
+      assert.strictEqual(alias.matched[0].token, 'oauth');
+      assert.strictEqual(computeHighRisk({ files_modified: ['src/loginHandler.ts'] }, '', config, ['auth']).high_risk, true, 'camelCase tokens');
+    });
+
+    test('U8 patterns containing "/" stay substring; toggle off + domain path -> high; an internal error fails closed', () => {
+      const on = { adversarial_review_enabled: true, adversarial_review_file_threshold: 8, adversarial_review_security_patterns: ['/api/'] };
+      assert.strictEqual(computeHighRisk({ files_modified: ['src/api/users.ts'] }, '', on, []).high_risk, true);
+
+      const bad = computeHighRisk({ get files_modified() { throw new Error('boom'); } }, '', on, []);
+      assert.strictEqual(bad.high_risk, true);
+      assert.ok(bad.reasons[0].includes('failing closed'));
+
+    });
+
     test('malformed input never throws: computeHighRisk(null, null, null) returns a well-formed object', () => {
       let result;
       assert.doesNotThrow(() => { result = computeHighRisk(null, null, null); });
@@ -15388,12 +15422,12 @@ describe('Phase 60-01: adversarial-review config + assess-risk/verdict-to-issues
   });
 
   describe('quality assess-risk CLI (real subprocess)', () => {
-    test('missing plan-file argument -> structured JSON error type:missing_argument, high_risk:false', () => {
+    test('missing plan-file argument -> structured JSON error type:missing_argument, high_risk:true (fail closed)', () => {
       const result = runGsdTools('quality assess-risk --raw', tmpDir);
       const parsed = JSON.parse(result.output || result.error);
       assert.strictEqual(parsed.error, true);
       assert.strictEqual(parsed.type, 'missing_argument');
-      assert.strictEqual(parsed.high_risk, false);
+      assert.strictEqual(parsed.high_risk, true, 'an errored assessment fails closed');
     });
 
     test('nonexistent file path -> structured JSON error type:file_not_found', () => {
@@ -15814,7 +15848,8 @@ describe('Phase 61-02: project-aware gate pre-pr (MILE-41)', () => {
   });
 
   function createExecutionLog(tmpDir) {
-    // Create a minimal balanced EXECUTION_LOG.md with phase_start/phase_complete pairs
+    // Balanced EXECUTION_LOG.md with phase_start/phase_complete events backed by on-disk evidence
+    writeVerifiedPhase(tmpDir, '01');
     const execLogPath = path.join(tmpDir, '.planning', 'EXECUTION_LOG.md');
     const log = {
       type: 'phase_start',
@@ -16004,6 +16039,7 @@ go 1.21
   test('regression: cached gate_pre_pr_passed marker returns {gate, passed:true, cached:true}', () => {
     // Create EXECUTION_LOG.md with balanced phases AND existing gate_pre_pr_passed marker
     const execLogPath = path.join(tmpDir, '.planning', 'EXECUTION_LOG.md');
+    writeVerifiedPhase(tmpDir, '01');
     const entries = [
       { type: 'phase_start', phase: '01', timestamp: new Date().toISOString() },
       { type: 'phase_complete', phase: '01', timestamp: new Date().toISOString() },

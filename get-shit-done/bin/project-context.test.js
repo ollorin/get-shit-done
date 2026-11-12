@@ -589,8 +589,10 @@ describe('pointer block in every top-level agent and the pack agent (agnostic-M-
   test('every file carries the block exactly once, directly after its frontmatter', () => {
     for (const rel of FILES) {
       const text = fs.readFileSync(path.join(ROOT, rel), 'utf8');
-      assert.strictEqual(text.split(BLOCK).length - 1, 1, `${rel} carries the block once`);
-      assert.ok(text.includes(`---\n\n${BLOCK}\n`), `${rel} places the block after the frontmatter`);
+      // An agent may extend the block body (the researcher adds its discovery steps); its head is fixed.
+      const HEAD = BLOCK.replace(/\n<\/project_context>$/, '');
+      assert.strictEqual(text.split(HEAD).length - 1, 1, `${rel} carries the block once`);
+      assert.ok(text.includes(`---\n\n${HEAD}\n`), `${rel} places the block after the frontmatter`);
     }
   });
 
