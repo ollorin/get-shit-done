@@ -419,11 +419,23 @@ describe('base preset: canary runner (agnostic-M-03 3.4)', () => {
     assert.ok(r.stdout.includes('canaries: pass=892 fail=0'), r.stdout);
   });
 
-  test('3.4 with stack.commands.search "rg -n" the runner still exits 0 (rows follow the config)', () => {
-    const root = gitRepo({ project: { slug: 'demo' }, stack: { capabilities: {}, commands: { search: 'rg -n' } } });
+  // One run for every profile setting the hooks and the runner are rendered from or read at run time: the sections below
+  // (3.5, 3.8, 3.9, 3.11) assert their own hook behaviour on their own deployments and rely on this run for the green corpus.
+  test('3.4 with a customised profile (search "rg -n", branch release/1.x, owner Founder, gate tools/gate.sh, locked commands and flake patterns of its own) the runner still exits 0 over every row', () => {
+    const root = gitRepo({
+      project: { slug: 'demo', owner_title: 'Founder' },
+      stack: {
+        capabilities: {},
+        branch: { default: 'release/1.x' },
+        commands: { search: 'rg -n', pre_pr_gate: 'tools/gate.sh' },
+        locked_commands: ['something-else'],
+        flake_patterns: { test_globs: ['**/*.integration.test.ts'], patterns: [{ id: 'own', match: 'zzz-never', message: 'm' }] },
+      },
+    });
     assert.strictEqual(runInit(root, home()).status, 0);
     const r = runRunner(root);
     assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+    assert.ok(r.stdout.includes('canaries: pass=892 fail=0'), r.stdout);
   });
 
   test('3.4 a flipped row fails the runner and the runner names it', () => {
@@ -432,7 +444,7 @@ describe('base preset: canary runner (agnostic-M-03 3.4)', () => {
     const rows = fs.readFileSync(CORPUS_SRC, 'utf8').split('\n').filter((l) => l.trim() !== '');
     const first = JSON.parse(rows[0]);
     assert.strictEqual(first.expect, 'deny');
-    const flipped = [{ ...first, expect: 'allow' }, ...rows.slice(1).map((l) => JSON.parse(l))];
+    const flipped = [{ ...first, expect: 'allow' }, ...rows.slice(1, 10).map((l) => JSON.parse(l))];
     const corpus = path.join(mkTmp('gsd-base-corpus-'), 'canaries.jsonl');
     fs.writeFileSync(corpus, `${flipped.map((r) => JSON.stringify(r)).join('\n')}\n`);
     const r = runRunner(root, { CORPUS: corpus });
@@ -478,7 +490,7 @@ describe('base preset: canary runner (agnostic-M-03 3.4)', () => {
     });
     test('F1 a garbage row, a truncated row and a row of the wrong shape each fail the run naming their line', () => {
       const root = deployedRunner();
-      const rows = goodRows();
+      const rows = goodRows().slice(0, 10);
       const withRow = (at, bad) => corpusOf(`${[...rows.slice(0, at), bad, ...rows.slice(at)].join('\n')}\n`);
       assertRefused(run(root, { CORPUS: withRow(2, 'this is not json') }), 'corpus line 3 does not parse');
       assertRefused(run(root, { CORPUS: corpusOf(`${rows.slice(0, 3).join('\n')}\n${rows[3].slice(0, 40)}`) }), 'corpus line 4 does not parse');
@@ -548,12 +560,9 @@ describe('base preset: merge-target and push-gate hooks (agnostic-M-03 3.5)', ()
   });
   const RELEASE = { project: { slug: 'demo', owner_title: 'Founder' }, stack: { capabilities: {}, branch: { default: 'release/1.x' }, commands: { pre_pr_gate: 'tools/gate.sh' } } };
 
-  test('3.5 with branch release/1.x, owner Founder, gate tools/gate.sh rendered: the runner exits 0 and the merge hook asks only for the literal branch', () => {
+  test('3.5 with branch release/1.x, owner Founder, gate tools/gate.sh rendered: the merge hook asks only for the literal branch', () => {
     const root = gitRepo(RELEASE);
     assert.strictEqual(runInit(root, home()).status, 0);
-    const run = spawnSync('bash', [path.join(root, 'scripts', 'validation', 'hook-canaries', 'run-canaries.sh')], { cwd: root, encoding: 'utf8' });
-    assert.strictEqual(run.status, 0, run.stdout + run.stderr);
-    assert.ok(run.stdout.includes('canaries: pass=892 fail=0'), run.stdout);
     const asked = runHook(root, 'check-git-merge-target.sh', 'git push origin release/1.x');
     assert.strictEqual(asked.status, 0, asked.stderr);
     assert.match(asked.stdout, /"permissionDecision":"ask"/);
@@ -699,8 +708,11 @@ describe('base preset: check-test-command hook, profile-driven (agnostic-M-03 3.
     const needle = 'my ($root, $why) = toplevel($cwd);';
     assert.ok(source.includes(needle), 'mutation site present');
     fs.writeFileSync(pl, source.replace(needle, "my ($root, $why) = ($ENV{CLAUDE_PROJECT_DIR} // '', '');"));
-    const env = { ...process.env, HOOKS_DIR: mutated };
-    delete env.CORPUS;
+    const own = fs.readFileSync(CORPUS_SRC, 'utf8').split('\n').filter((l) => l.trim() !== '' && JSON.parse(l).hook === 'check-test-command.sh');
+    assert.strictEqual(own.length, 175);
+    const corpus = path.join(mkTmp('gsd-base-corpus-'), 'canaries.jsonl');
+    fs.writeFileSync(corpus, `${own.join('\n')}\n`);
+    const env = { ...process.env, HOOKS_DIR: mutated, CORPUS: corpus };
     const r = spawnSync('bash', [path.join(root, 'scripts', 'validation', 'hook-canaries', 'run-canaries.sh')], { cwd: root, encoding: 'utf8', env });
     assert.notStrictEqual(r.status, 0, r.stdout);
     assert.ok(r.stdout.includes('FAIL [check-test-command.sh] expect=deny got=allow'), r.stdout);
@@ -713,7 +725,7 @@ describe('base preset: check-test-command hook, profile-driven (agnostic-M-03 3.
     const label = rows[target].label;
     rows[target] = { ...rows[target], expect: rows[target].expect === 'allow' ? 'deny' : 'allow', ...(rows[target].expect === 'allow' ? { reason: 'x' } : {}) };
     const corpus = path.join(mkTmp('gsd-base-corpus-'), 'canaries.jsonl');
-    fs.writeFileSync(corpus, `${rows.map((r) => JSON.stringify(r)).join('\n')}\n`);
+    fs.writeFileSync(corpus, `${rows.slice(Math.max(0, target - 4), target + 5).map((r) => JSON.stringify(r)).join('\n')}\n`);
     return { corpus, label };
   };
   const runnerWith = (root, corpus) => {
@@ -722,11 +734,8 @@ describe('base preset: check-test-command hook, profile-driven (agnostic-M-03 3.
     return spawnSync('bash', [path.join(root, 'scripts', 'validation', 'hook-canaries', 'run-canaries.sh')], { cwd: root, encoding: 'utf8', env });
   };
 
-  test('3.9 the runner exits 0 over the four Bash hooks and the shared rows, also with a project list of its own; a flipped row of this hook and a flipped @bash-all row each fail it', () => {
+  test('3.9 with a project list of its own, a flipped row of this hook and a flipped @bash-all row each fail the runner', () => {
     const root = deploy({ locked_commands: ['something-else'] });
-    const ok = spawnSync('bash', [path.join(root, 'scripts', 'validation', 'hook-canaries', 'run-canaries.sh')], { cwd: root, encoding: 'utf8' });
-    assert.strictEqual(ok.status, 0, ok.stdout + ok.stderr);
-    assert.ok(ok.stdout.includes('canaries: pass=892 fail=0'), ok.stdout);
     for (const pick of [(r) => r.hook === 'check-test-command.sh' && r.expect === 'deny', (r) => r.hook === '@bash-all']) {
       const { corpus, label } = writeFlipped({ pick });
       const r = runnerWith(root, corpus);
@@ -950,15 +959,12 @@ describe('base preset: check-denied-command hook (agnostic-M-03 3.8 C5)', () => 
     return env;
   };
 
-  test('3.8 the corpus holds 80 rows of this hook (78 matrix + 2 fail-closed); the runner is green and a flipped row of the hook fails it', () => {
+  test('3.8 the corpus holds 80 rows of this hook (78 matrix + 2 fail-closed); a flipped row of the hook fails the runner', () => {
     const rows = ownRows();
     assert.strictEqual(rows.length, 301);
     assert.deepStrictEqual(['allow', 'ask', 'deny'].map((e) => rows.filter((r) => r.expect === e).length), [88, 5, 208]);
     const root = deploy();
-    const ok = spawnSync('bash', [runnerOf(root)], { cwd: root, encoding: 'utf8', env: runnerEnv({}) });
-    assert.strictEqual(ok.status, 0, ok.stdout + ok.stderr);
-    assert.ok(ok.stdout.includes('canaries: pass=892 fail=0'), ok.stdout);
-    const flipped = rows.map((r, i) => (i === 0 ? { ...r, expect: 'allow' } : r));
+    const flipped = rows.slice(0, 10).map((r, i) => (i === 0 ? { ...r, expect: 'allow' } : r));
     const corpus = path.join(mkTmp('gsd-base-corpus-'), 'canaries.jsonl');
     fs.writeFileSync(corpus, `${flipped.map((r) => JSON.stringify(r)).join('\n')}\n`);
     const r = spawnSync('bash', [runnerOf(root)], { cwd: root, encoding: 'utf8', env: runnerEnv({ CORPUS: corpus }) });
@@ -975,6 +981,17 @@ describe('base preset: check-denied-command hook (agnostic-M-03 3.8 C5)', () => 
     assert.strictEqual(mine.length, 2);
     for (const f of mine) assert.strictEqual(f.guarded, true, f.dest);
   });
+
+  // A mutant is killed by its first failing row, so the rows run in chunks and the run stops at the first chunk that fails.
+  const firstFailingChunk = (root, rows, hooks) => {
+    const corpus = path.join(mkTmp('gsd-base-corpus-'), 'canaries.jsonl');
+    let r = { status: 0, stdout: '', stderr: 'no rows' };
+    for (let at = 0; at < rows.length && r.status === 0; at += 40) {
+      fs.writeFileSync(corpus, `${rows.slice(at, at + 40).map((x) => JSON.stringify(x)).join('\n')}\n`);
+      r = spawnSync('bash', [runnerOf(root)], { cwd: root, encoding: 'utf8', env: runnerEnv({ HOOKS_DIR: hooks, CORPUS: corpus }) });
+    }
+    return r;
+  };
 
   const MUTANTS = [
     ['R1 sudo prefix check removed', "if grep { base($_) eq 'sudo' } @prefix;", 'if 0;'],
@@ -1020,9 +1037,7 @@ describe('base preset: check-denied-command hook (agnostic-M-03 3.8 C5)', () => 
       const source = fs.readFileSync(pl, 'utf8');
       assert.ok(source.includes(needle), `mutation site present: ${needle}`);
       fs.writeFileSync(pl, source.replace(needle, () => replacement));
-      const corpus = path.join(mkTmp('gsd-base-corpus-'), 'canaries.jsonl');
-      fs.writeFileSync(corpus, `${ownRows().map((r) => JSON.stringify(r)).join('\n')}\n`);
-      const r = spawnSync('bash', [runnerOf(root)], { cwd: root, encoding: 'utf8', env: runnerEnv({ HOOKS_DIR: mutated, CORPUS: corpus }) });
+      const r = firstFailingChunk(root, ownRows(), mutated);
       assert.notStrictEqual(r.status, 0, `mutant survived: ${name}\n${r.stdout}`);
       assert.ok(r.stdout.includes(`FAIL [${HOOK}]`), r.stdout);
     });
@@ -1063,9 +1078,7 @@ describe('base preset: check-denied-command hook (agnostic-M-03 3.8 C5)', () => 
       assert.ok(source.includes(needle), `mutation site present: ${needle}`);
       fs.writeFileSync(target, source.replace(needle, () => replacement));
       const all = fs.readFileSync(CORPUS_SRC, 'utf8').split('\n').filter((l) => l.trim() !== '').map((l) => JSON.parse(l));
-      const corpus = path.join(mkTmp('gsd-base-corpus-'), 'canaries.jsonl');
-      fs.writeFileSync(corpus, `${all.filter((r) => r.class === 'review-r2').map((r) => JSON.stringify(r)).join('\n')}\n`);
-      const r = spawnSync('bash', [runnerOf(root)], { cwd: root, encoding: 'utf8', env: runnerEnv({ HOOKS_DIR: mutated, CORPUS: corpus }) });
+      const r = firstFailingChunk(root, all.filter((x) => x.class === 'review-r2'), mutated);
       assert.notStrictEqual(r.status, 0, `mutant survived: ${name}\n${r.stdout}`);
       assert.ok(/FAIL \[/.test(r.stdout), r.stdout);
     });
@@ -1342,24 +1355,19 @@ describe('base preset: check-flake-patterns hook and gate, profile-driven (agnos
     assert.ok(src.includes('new RegExp(source)'));
   });
 
-  test('3.11 the runner exits 0 over the Write/Edit rows; a flipped own row and a flipped @edit-all row each fail it', () => {
+  test('3.11 with a pattern list of its own, a flipped own row and a flipped @edit-all row each fail the runner', () => {
     const root = deploy(flakeConfig({ patterns: [{ id: 'own', match: 'zzz-never', message: 'm' }] }));
     const runner = path.join(root, 'scripts', 'validation', 'hook-canaries', 'run-canaries.sh');
     const runWith = (corpus) => {
-      const env = { ...process.env };
+      const env = { ...process.env, CORPUS: corpus };
       delete env.HOOKS_DIR;
-      if (corpus) env.CORPUS = corpus;
-      else delete env.CORPUS;
       return spawnSync('bash', [runner], { cwd: root, encoding: 'utf8', env });
     };
-    const ok = runWith();
-    assert.strictEqual(ok.status, 0, ok.stdout + ok.stderr);
-    assert.ok(ok.stdout.includes('canaries: pass=892 fail=0'), ok.stdout);
     const rows = fs.readFileSync(CORPUS_SRC, 'utf8').split('\n').filter((l) => l.trim() !== '').map((l) => JSON.parse(l));
     for (const pick of [(r) => r.hook === 'check-flake-patterns.sh' && r.expect === 'deny' && r.label === 'absolute hour window', (r) => r.hook === '@edit-all']) {
       const i = rows.findIndex(pick);
       assert.ok(i >= 0);
-      const flipped = rows.map((r, k) => (k === i ? { ...r, expect: r.expect === 'allow' ? 'deny' : 'allow', reason: 'x' } : r));
+      const flipped = rows.map((r, k) => (k === i ? { ...r, expect: r.expect === 'allow' ? 'deny' : 'allow', reason: 'x' } : r)).slice(Math.max(0, i - 4), i + 5);
       const corpus = path.join(mkTmp('gsd-base-corpus-'), 'canaries.jsonl');
       fs.writeFileSync(corpus, `${flipped.map((r) => JSON.stringify(r)).join('\n')}\n`);
       const r = runWith(corpus);
@@ -1377,8 +1385,11 @@ describe('base preset: check-flake-patterns hook and gate, profile-driven (agnos
     const needle = '    root = there.root;';
     assert.ok(source.includes(needle), 'mutation site present');
     fs.writeFileSync(mjs, source.replace(needle, '    root = process.env.CLAUDE_PROJECT_DIR ?? null;'));
-    const env = { ...process.env, HOOKS_DIR: mutated };
-    delete env.CORPUS;
+    const own = fs.readFileSync(CORPUS_SRC, 'utf8').split('\n').filter((l) => l.trim() !== '' && JSON.parse(l).hook === 'check-flake-patterns.sh');
+    assert.strictEqual(own.length, 28);
+    const corpus = path.join(mkTmp('gsd-base-corpus-'), 'canaries.jsonl');
+    fs.writeFileSync(corpus, `${own.join('\n')}\n`);
+    const env = { ...process.env, HOOKS_DIR: mutated, CORPUS: corpus };
     const r = spawnSync('bash', [path.join(root, 'scripts', 'validation', 'hook-canaries', 'run-canaries.sh')], { cwd: root, encoding: 'utf8', env });
     assert.notStrictEqual(r.status, 0, r.stdout);
     assert.ok(r.stdout.includes('FAIL [check-flake-patterns.sh] expect=deny got=allow'), r.stdout);
@@ -1417,10 +1428,15 @@ describe('base preset: hook-change tooling (agnostic-M-03 3.10)', () => {
     return r;
   };
   // Deploys base into a fresh repo and commits the deployed tree as the first commit (the deploy commit).
-  function deployedRepo() {
+  // `rows` keeps only the first N corpus rows in the project (the corpus is not a guarded file): for tests of the tooling, not of the corpus.
+  function deployedRepo({ rows } = {}) {
     const root = gitRepo({ project: { slug: 'demo' }, stack: { capabilities: {} } });
     const r = runInit(root, mkTmp('gsd-base-home-'));
     assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+    if (rows) {
+      const corpus = path.join(root, 'scripts', 'validation', 'hook-canaries', 'canaries.jsonl');
+      fs.writeFileSync(corpus, `${fs.readFileSync(corpus, 'utf8').split('\n').slice(0, rows).join('\n')}\n`);
+    }
     gitOk(root, ['add', '-A']);
     gitOk(root, ['commit', '-q', '-m', 'chore: deploy base']);
     return root;
@@ -1487,12 +1503,12 @@ describe('base preset: hook-change tooling (agnostic-M-03 3.10)', () => {
   });
 
   test('R2 L6 hooks-apply runs the canaries with a clean HOOKS_DIR and CORPUS: inherited values cannot redirect them; without the env -u a bogus CORPUS fails the run', () => {
-    const root = deployedRepo();
+    const root = deployedRepo({ rows: 40 });
     writePatch(root, 'tooling-comment', patchFor(root, (s) => `${s}# comment added by fixture\n`));
     const bogus = { ...process.env, HOOKS_DIR: path.join(mkTmp('gsd-base-nohooks-'), 'none'), CORPUS: path.join(mkTmp('gsd-base-nocorpus-'), 'none.jsonl') };
     const ok = spawnSync('bash', [applyOf(root), 'tooling-comment', '--dry-run'], { cwd: root, encoding: 'utf8', env: bogus });
     assert.strictEqual(ok.status, 0, ok.stdout + ok.stderr);
-    assert.ok(ok.stdout.includes('canaries: pass=892 fail=0'), ok.stdout);
+    assert.ok(ok.stdout.includes('canaries: pass=40 fail=0'), ok.stdout);
     const copy = path.join(root, 'scripts', 'hooks-apply-mutant.sh');
     const source = fs.readFileSync(applyOf(root), 'utf8');
     assert.ok(source.includes('env "${ev[@]}" "$1"'), 'mutation site present');
@@ -1502,7 +1518,7 @@ describe('base preset: hook-change tooling (agnostic-M-03 3.10)', () => {
   });
 
   test('3.10 hooks-apply --dry-run on a patch that makes the deny rows fail exits non-zero, names the failing hook, and leaves the deployed hook unchanged', () => {
-    const root = deployedRepo();
+    const root = deployedRepo({ rows: 40 });
     const before = fs.readFileSync(hookOf(root), 'utf8');
     const patch = patchFor(root, (s) => s.replace('PATH="$PATH:/usr/bin:/bin"\n', 'PATH="$PATH:/usr/bin:/bin"\nexit 0\n'));
     assert.ok(patch.includes('+exit 0'), 'fixture patch inserts the allow-all exit');
@@ -1528,7 +1544,7 @@ describe('base preset: hook-change tooling (agnostic-M-03 3.10)', () => {
   const ROOT_DIR = ['.claude', 'hooks'].join('/');
 
   test('F8 a patch path with a space is kept whole: refused outside the hooks directory by its full name, applied in a dry run inside it', () => {
-    const root = deployedRepo();
+    const root = deployedRepo({ rows: 40 });
     writePatch(root, 'space-out', newFilePatch(root, 'scripts/my file.sh', 'x\n'));
     const out = runApply(root, ['space-out', '--dry-run']);
     assert.notStrictEqual(out.status, 0);
