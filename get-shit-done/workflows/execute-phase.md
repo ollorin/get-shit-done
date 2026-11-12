@@ -744,7 +744,7 @@ the plan they relate to (a phase-wide finding goes to the last plan's SUMMARY). 
 
 | class | instance | caught_by | severity | rule_gap |
 |---|---|---|---|---|
-| [general class name] | [path/file.ext:line] | [plan-check\|opus-diff-review\|opus-ruling\|verifier\|charlotte\|ui-qa\|other] | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
+| [general class name] | [path/file.ext:line] | [plan-check\|opus-diff-review\|opus-ruling\|verifier\|ui-qa\|other] | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
 
 `class` is a general reusable name, not an incident story — the milestone-end distillation
 clusters on that column. Never overwrite existing rows, only append. If a plan's section has

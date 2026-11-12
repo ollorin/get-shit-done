@@ -8302,8 +8302,8 @@ function cmdVerifyTestContent(cwd, phaseArg, raw) {
 // machine-readable ({step, reason, approver, timestamp, phase, plan}),
 // appended atomically, and fires a best-effort Telegram notification.
 
-// Valid --step values: the phase-gate checks (`charlotte_qa` is the legacy alias of ui_qa) plus the lifecycle steps coordinators defer.
-const DEFERRED_STEPS = ['test', 'ui_qa', 'charlotte_qa', 'docs', 'e2e_plan', 'verification', 'discuss', 'research', 'plan', 'execution', 'verify'];
+// Valid --step values: the phase-gate checks plus the lifecycle steps coordinators defer (entries written under a legacy alias still waive).
+const DEFERRED_STEPS = ['test', 'ui_qa', 'docs', 'e2e_plan', 'verification', 'discuss', 'research', 'plan', 'execution', 'verify'];
 const DEFERRED_USAGE = 'usage: deferred add <phase> --step <step> --reason <text> --approver <name> [--plan <NN>]';
 
 function cmdDeferredAdd(cwd, phaseArg, options, raw) {

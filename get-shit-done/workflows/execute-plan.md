@@ -384,10 +384,10 @@ Include: duration, start/end times, task count, file count.
 
 | class | instance | caught_by | severity | rule_gap |
 |---|---|---|---|---|
-| [general class name] | [path/file.ext:line] | [plan-check\|test-writer\|mutation-proof\|opus-diff-review\|opus-ruling\|verifier\|charlotte\|ui-qa\|other] | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
+| [general class name] | [path/file.ext:line] | [plan-check\|test-writer\|mutation-proof\|opus-diff-review\|opus-ruling\|verifier\|ui-qa\|other] | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
 ```
 
-`class` is a reusable name, not a story. A clean plan writes exactly `None found. (reviewed by: <caught_by values>)` where each value is one of plan-check, test-writer, mutation-proof, opus-diff-review, opus-ruling, verifier, charlotte, ui-qa, other (e.g. `None found. (reviewed by: plan-check, verifier)`) — a BARE `None found.` fails the phase gate. The section is never omitted, because the milestone-end distillation reads these rows to update the project's `.claude/rules/*.md`.
+`class` is a reusable name, not a story. A clean plan writes exactly `None found. (reviewed by: <caught_by values>)` where each value is one of plan-check, test-writer, mutation-proof, opus-diff-review, opus-ruling, verifier, ui-qa, other (e.g. `None found. (reviewed by: plan-check, verifier)`) — a BARE `None found.` fails the phase gate. The section is never omitted, because the milestone-end distillation reads these rows to update the project's `.claude/rules/*.md`.
 
 Next: more plans → "Ready for {next-plan}" | last → "Phase complete, ready for transition".
 </step>
