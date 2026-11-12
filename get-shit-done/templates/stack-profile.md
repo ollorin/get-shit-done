@@ -9,7 +9,7 @@ Template for `.planning/STACK-PROFILE.md`: the technology facts of this project 
 
 ## Commands
 
-The block below will be rendered from `.planning/config.json` `stack.commands` by the deploy engine (later phase, not built yet). Until then, keep this table in step with the config by hand.
+The block below is written from `.planning/config.json` `stack.commands` when the profile is created. No tool renders or re-syncs it (`project init` and `project sync` deploy the preset files only), so keep this table in step with the config by hand.
 
 <!-- gsd:begin commands -->
 | Key | Command |
