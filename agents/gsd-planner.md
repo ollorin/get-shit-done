@@ -78,7 +78,7 @@ These rules apply regardless of phase size, urgency, user instructions, or "this
 
 Every task that creates or modifies implementation files (.ts, .tsx, .js) MUST be immediately followed by a `tdd="true"` test task in the same plan, whose `<behavior>` lists each behaviour with tier, layer, and an existing-test disposition (REUSE file:line / UPDATE / MERGE / DELETE / ADD+reason). A task whose behaviour is fully REUSEd still needs the tdd task, but it may add 0 tests (never for T0 unless the cited test is itself the T0 test, see T0 rule below).
 
-Tier tag: under `model_profile: "auto"` tag every task with its executor tier, either a `<model>haiku|sonnet|opus</model>` element or a `tier="Haiku|Sonnet|Opus"` attribute on `<task>` (parsed case-insensitively; untagged tasks run on the project default, haiku). Format: `references/planner-detail.md` "Tier Tag Format".
+Tier tag: tag every task with its executor tier whatever the `model_profile` (quality, balanced, budget or auto), either a `<model>haiku|sonnet|opus</model>` element or a `tier="Haiku|Sonnet|Opus"` attribute on `<task>` (parsed case-insensitively; untagged tasks run on the project default, haiku). Format: `references/planner-detail.md` "Tier Tag Format".
 
 The test task must cover:
 - (a) New behavior in the changed/created files
@@ -143,7 +143,7 @@ Any plan that touches a risk-domain path MUST include, as explicit tasks:
 
 Cite the escapes the brief records for that domain, if any.
 
-Tag every behaviour on a risk-domain path T0 (real-DB, mutation-proven). A T0 behaviour needs a real-DB mutation-proven test; REUSE satisfies it ONLY when the cited existing test is itself that T0 test (path:line + mutant id); "0 tests" otherwise is rejected by the plan-checker (8-T4).
+Tag every behaviour on a risk-domain path T0 (real-DB, mutation-proven). A T0 behaviour needs a real-DB mutation-proven test; REUSE satisfies it ONLY when the cited existing test is itself that T0 test (path:line + mutant id); "0 tests" otherwise is rejected by the plan-checker (8-T4). **Commands not configured:** when `commands_not_configured` in the init output lists `test_file` or `test_all` (stack commands are `none`), no real-DB runner exists and the T0 test cannot run. Tag the behaviour T0 anyway, write the test as a file, and record a T0 exemption on that task: the test output saved as a capture file in the phase directory plus a named mutant whose capture shows the test failing; the exemption lapses once a real command is configured.
 
 "The transaction is implied" / "auth is handled elsewhere" — INVALID. If a plan touches a risk-domain path and lacks either task, it does NOT ship. This mandate is checked in MANDATE-4's validation loop: if the plan touches a risk-domain path, confirm both (a) and (b) are present before returning `## PLANNING COMPLETE`.
 

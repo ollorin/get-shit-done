@@ -21,6 +21,7 @@ depends_on: []              # Plan IDs this plan requires (e.g., ["01-01"]).
 files_modified: []          # Files this plan modifies.
 autonomous: true            # false if plan has checkpoints requiring user interaction
 user_setup: []              # Human-required setup Claude cannot automate (see below)
+e2e_flows: []               # User journeys testable after this plan (REQUIRED non-empty for UI plans; [] only for backend-only plans)
 requirements: []            # REQUIRED — MUST NOT be empty if ROADMAP.md lists requirements for this phase.
                             # Copy all REQ-IDs that this plan addresses (e.g., [REQ-01, AUTH-02]).
 
@@ -132,6 +133,7 @@ After completion, create `.planning/phases/XX-name/{phase}-{plan}-SUMMARY.md`
 | `files_modified` | Yes | Files this plan touches. |
 | `autonomous` | Yes | `true` if no checkpoints, `false` if has checkpoints |
 | `user_setup` | No | Array of human-required setup items (external services) |
+| `e2e_flows` | Conditional | User journeys testable after this plan. Must not be empty when the plan creates or modifies UI components; `[]` only for backend-only plans. See `references/planner-detail.md`. |
 | `requirements` | Yes | REQUIRED — REQ-IDs this plan addresses. MUST NOT be empty if phase has requirements. |
 | `must_haves` | Yes | Goal-backward verification criteria (see below) |
 

@@ -473,9 +473,9 @@ After completion, create `.planning/phases/XX-name/{phase}-{plan}-SUMMARY.md`
 </output>
 ```
 
-## Tier Tag Format (auto profile only)
+## Tier Tag Format
 
-When `model_profile: "auto"` is active, each task carries a `<model>` element written by the planner:
+Under every `model_profile`, each task carries a `<model>` element written by the planner:
 
 ```xml
 <task type="auto">
