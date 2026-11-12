@@ -5527,6 +5527,16 @@ describe('deferred add/list commands (Phase 45-03)', () => {
     assert.strictEqual(fs.existsSync(path.join(phaseDir, 'DEFERRED.json')), false, 'no file should be written when required flags are missing');
   });
 
+  test('deferred add rejects an unknown --step and names the valid steps; deferred list accepts --phase', () => {
+    fs.mkdirSync(path.join(tmpDir, '.planning', 'phases', '45-deferredstep'), { recursive: true });
+    const bad = runDeferred(`add 45-deferredstep --step bogus --reason x --approver y --raw`, tmpDir);
+    assert.strictEqual(bad.success, false);
+    assert.match(bad.error + bad.output, /Valid steps: .*verification/);
+    const listed = runDeferred(`list --phase 45-deferredstep --raw`, tmpDir);
+    assert.strictEqual(listed.success, true, listed.error);
+    assert.strictEqual(JSON.parse(listed.output).count, 0);
+  });
+
   test('deferred add on an unknown phase returns typed phase_not_found, non-zero exit, no crash', () => {
     const result = runDeferred(`add 99-doesnotexist --step verification --reason x --approver y --raw`, tmpDir);
     assert.strictEqual(result.success, false);

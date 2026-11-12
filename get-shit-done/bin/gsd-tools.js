@@ -8302,9 +8302,16 @@ function cmdVerifyTestContent(cwd, phaseArg, raw) {
 // machine-readable ({step, reason, approver, timestamp, phase, plan}),
 // appended atomically, and fires a best-effort Telegram notification.
 
+// Valid --step values: the phase-gate checks (`charlotte_qa` is the legacy alias of ui_qa) plus the lifecycle steps coordinators defer.
+const DEFERRED_STEPS = ['test', 'ui_qa', 'charlotte_qa', 'docs', 'e2e_plan', 'verification', 'discuss', 'research', 'plan', 'execution', 'verify'];
+const DEFERRED_USAGE = 'usage: deferred add <phase> --step <step> --reason <text> --approver <name> [--plan <NN>]';
+
 function cmdDeferredAdd(cwd, phaseArg, options, raw) {
   const { step, reason, approver, plan } = options;
-  if (!step || typeof step !== 'string' || !step.trim()) { error('deferred add requires --step, --reason, --approver'); }
+  if (typeof step === 'string' && step.trim() && !DEFERRED_STEPS.includes(step.trim())) {
+    error(`deferred add: unknown --step "${step}". Valid steps: ${DEFERRED_STEPS.join(', ')}. ${DEFERRED_USAGE}`);
+  }
+  if (!step || typeof step !== 'string' || !step.trim()) { error(`deferred add requires --step, --reason, --approver. Valid steps: ${DEFERRED_STEPS.join(', ')}. ${DEFERRED_USAGE}`); }
   if (!reason || typeof reason !== 'string' || !reason.trim()) { error('deferred add requires --step, --reason, --approver'); }
   if (!approver || typeof approver !== 'string' || !approver.trim()) { error('deferred add requires --step, --reason, --approver'); }
 
@@ -14679,7 +14686,10 @@ async function main() {
           plan: planIdx !== -1 ? args[planIdx + 1] : null,
         }, raw);
       } else if (subcommand === 'list') {
-        cmdDeferredList(cwd, args[2], raw);
+        const phaseFlagIdx = args.indexOf('--phase');
+        const listPhase = phaseFlagIdx !== -1 ? args[phaseFlagIdx + 1] : args[2];
+        if (!listPhase || listPhase.startsWith('--')) error('usage: deferred list <phase>  (or --phase <phase>)');
+        cmdDeferredList(cwd, listPhase, raw);
       } else {
         error('Unknown deferred subcommand. Available: add, list');
       }
