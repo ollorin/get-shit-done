@@ -365,7 +365,16 @@ describe('repo tree', () => {
     const tracked = out.split('\n').filter((f) => f && !f.startsWith('tests/fixtures/'));
     assert.ok(tracked.length > 20, 'git ls-files returned too few test files');
     const script = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).scripts.test.split(/\s+/);
-    const missing = tracked.filter((f) => !script.includes(f));
+    // A file run through shard wrappers (tests/helpers/shard.js) counts only when wrappers for every shard 0..N-1 are registered.
+    const shardsOf = (f) => tracked.flatMap((w) => {
+      const m = fs.readFileSync(path.join(ROOT, w), 'utf8').match(/shard\.js'\)\(require\.resolve\('\.\/([^']+)'\), (\d+), (\d+)\)/);
+      return m && path.posix.join(path.posix.dirname(w), m[1]) === f ? [{ w, index: Number(m[2]), count: Number(m[3]) }] : [];
+    });
+    const sharded = (f) => {
+      const ws = shardsOf(f);
+      return ws.length > 0 && ws.every((x) => x.count === ws.length && script.includes(x.w)) && new Set(ws.map((x) => x.index)).size === ws.length && ws.every((x) => x.index < ws.length);
+    };
+    const missing = tracked.filter((f) => !script.includes(f) && !sharded(f));
     assert.deepStrictEqual(missing, [], `unregistered in package.json scripts.test: ${missing.join(', ')}`);
   });
 
