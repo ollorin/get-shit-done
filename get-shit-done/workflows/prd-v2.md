@@ -72,7 +72,25 @@ Unattended (`GSD_AUTONOMOUS=1`): never stop; Step 5 approval is `assumed`.
 
 6. Create `.planning/prds/pending/{slug}.md` from the template; fill `{slug}`, `{date}`, `{concept_summary}` and the `**Inputs:**` line. The first line is `<!-- stage: initialized -->`.
 
-## Step 1: Product context (research only what is missing)
+## Step 1: Research
+
+Two kinds. Product-level research is done once and shared; feature research is done for every PRD, always.
+
+### 1a. Feature research (mandatory, every PRD)
+
+A PRD written without looking at how the feature works elsewhere is a guess. Before any story is written, find out:
+- how 2 to 4 comparable products implement this feature, and what their users complain about;
+- the legal, regulatory and platform-policy points for this feature in the product's target markets;
+- known abuse and failure patterns, and how they are usually countered;
+- the established user expectations (what a user will assume without being told).
+
+How: one research agent (`general-purpose`, `model: "haiku"`) with the concept and these four questions, returning at most 15 bullets, each with its source URL. When agents cannot be spawned (a coordinated or nested run), search yourself: 4 to 8 searches, reading the pages that matter. Check the brief, the baseline and sibling PRDs first and search only for what they do not already establish.
+
+Use: findings change the stories, acceptance criteria, non-functional rows and defaults; a default backed by a finding cites it. Write them to the PRD's **Research Findings** section, each with its URL. A claim you could not source is written as "unverified" and never as fact. A finding that matters to other PRDs (a market rule, a platform policy) is also appended to `.planning/prds/BASELINE.md` under the matching heading with its URL, unless `--coordinated` (then list it in the final report for the coordinator to add).
+
+If search is unavailable, say so in Research Findings and record the decisions that most needed evidence as `A-` records.
+
+### 1b. Product context (research only what is missing)
 
 Needed at product level: market and competitor context, target markets, tech baseline, non-functional baseline, compliance position.
 
@@ -95,7 +113,7 @@ Use what comes back as evidence for the decision; an investigator that fails lea
 
 ## Step 2: PM stage
 
-Close these gaps by the ladder: target user, problem and its severity, how it is solved today, what is different here, vision (what it must feel like and what would make the CEO reject the result even if every story passes), non-goals, success definition.
+Close these gaps by the ladder, using the Step 1 findings: target user, problem and its severity, how it is solved today, what is different here, vision (what it must feel like and what would make the CEO reject the result even if every story passes), non-goals, success definition.
 
 Write to the PRD:
 - **Problem Statement:** Target User, Problem, Current Solutions, Gap.

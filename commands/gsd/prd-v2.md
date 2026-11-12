@@ -19,7 +19,7 @@ Produce a PRD at `.planning/prds/pending/{slug}.md` from a concept, a draft file
 Differences from `/gsd:prd`:
 - No question rounds. Gaps are closed from the input, the product brief, sibling PRDs, the codebase and research; what remains is decided with a default and recorded as an `A-` assumption. The slug is derived.
 - The CEO is asked only critical questions (strategic, business or legal, irreversible), once, on the approval screen. No critical question means no stop.
-- Product-level context (market, stack, non-functional baseline) is read from a brief instead of being researched again for each PRD.
+- Feature research is mandatory for every PRD (comparable products, legal and policy points, abuse patterns), with sources cited in the PRD. Product-level context (market, stack, non-functional baseline) is read from a brief instead of being researched again for each PRD.
 - Sibling PRDs and drafts are indexed so scope does not overlap and dependencies are named.
 
 **Input:** $ARGUMENTS
