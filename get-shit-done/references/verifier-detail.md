@@ -477,7 +477,7 @@ TEST_CMD="<stack_commands.test_all>"
 
 # Run exactly that command (max 5 minutes); append no flags of your own
 if [ -n "$TEST_CMD" ] && [ "$TEST_CMD" != "none" ]; then
-  timeout 300 $TEST_CMD 2>&1 | tail -30
+  timeout 300 bash -c "$TEST_CMD" 2>&1 | tail -30   # bash -c: an unquoted $TEST_CMD is not word-split under zsh
   TEST_EXIT=$?
 fi
 ```
@@ -1130,8 +1130,8 @@ The temp file is removed (`rm -f "$DIFF_TMP"`) after Step C completes.
 **Step C — Run both invocations, cwd = repo root:**
 
 ```bash
-$P0_DELTA_RUN --diff-file "$DIFF_TMP" --json
-$P0_ASSIGN_RUN --self-check --json
+bash -c "$P0_DELTA_RUN --diff-file \"$DIFF_TMP\" --json"   # run strings are commands + args: never call them as an unquoted $VAR (zsh does not split it)
+bash -c "$P0_ASSIGN_RUN --self-check --json"
 ```
 
 Both run, always, when `$P0_DELTA_RUN` is set:
