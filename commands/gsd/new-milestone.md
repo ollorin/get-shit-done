@@ -1,7 +1,7 @@
 ---
 name: gsd:new-milestone
 description: Start a new milestone cycle — update PROJECT.md and route to requirements
-argument-hint: "[milestone name, e.g., 'v1.1 Notifications']"
+argument-hint: "[--auto @goals.md] [milestone name, e.g., 'v1.1 Notifications']"
 allowed-tools:
   - Read
   - Write
@@ -21,7 +21,9 @@ Brownfield equivalent of new-project. Project exists, PROJECT.md has history. Ga
 - `.planning/ROADMAP.md` — phase structure (continues numbering)
 - `.planning/STATE.md` — reset for new milestone
 
-**After:** `/gsd:plan-phase [N]` to start execution.
+**After:** `/gsd:plan-phase [N]` to start execution; with `--auto` the run continues into `/gsd:execute-roadmap --auto`.
+
+AskUserQuestion stays for interactive runs. Auto (auto_mode, references/auto-mode.md K1): with `auto_mode` true no question is asked; the workflow's own auto lines apply.
 </objective>
 
 <execution_context>

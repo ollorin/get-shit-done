@@ -12,6 +12,19 @@ Read all files referenced by the invoking prompt's execution_context before star
 
 <process>
 
+## Auto mode (read first)
+
+```bash
+INIT0=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" init new-milestone $ARGUMENTS)
+if [[ "$INIT0" == @file:* ]]; then INIT0=$(cat "${INIT0#@file:}"); fi
+```
+
+`auto_mode` in `INIT0` is the single switch (`@~/.claude/get-shit-done/references/auto-mode.md`). When it is true, no question is asked and nothing waits for a reply; every prompt below carries its `Auto (auto_mode, ...)` line. **Input contract:** an auto run needs one of (a) `--auto @goals.md` (the goals document), (b) `.planning/MILESTONE-CONTEXT.md`, or (c) exactly one pending PRD with `<!-- stage: complete -->` and an `<!-- approval: ... -->` line. With none of them stop before any write and say which input is missing:
+
+Auto (auto_mode, references/auto-mode.md K3): no goals document, context file or approved complete PRD means stop before writing anything and name the missing input.
+
+Interactive runs (`auto_mode` false) ignore this section.
+
 ## 0. First Milestone After init-project
 
 Applies when `.planning/PROJECT.md` or `.planning/STATE.md` is absent while `.planning/config.json` and `.planning/PRODUCT-BRIEF.md` exist: the project was set up by `/gsd:init-project` (or only holds PRDs) and has never had a milestone. Otherwise skip to step 1.
@@ -44,6 +57,8 @@ For each file in PENDING_PRDS, extract:
 - `STAGE` — the stage marker at the top of the file (`<!-- stage: complete -->`, `<!-- stage: pm -->`, etc.)
 - `STATUS_LABEL` — if STAGE is `<!-- stage: complete -->`: empty string; otherwise: ` (in progress)`
 
+Auto (auto_mode, references/auto-mode.md K2): with exactly one PRD that is `stage: complete` and carries an approval line, select it; with none eligible or more than one, fall back to the goals document or MILESTONE-CONTEXT.md, and when neither exists stop (K3) before any write. Never pick among several PRDs by guessing.
+
 Display a selection prompt using AskUserQuestion:
 ```
 header: "Pending PRDs"
@@ -60,6 +75,8 @@ options:
 - Set `SELECTED_PRD_SLUG = {selected_slug}`
 
 **If STAGE of the selected PRD is NOT `<!-- stage: complete -->`:**
+Auto (auto_mode, references/auto-mode.md K3): a PRD that is not `stage: complete` is never used in an unattended run; it is not selected, and the run stops (or uses the goals document) instead of continuing anyway.
+
 Ask (plain text, not AskUserQuestion):
 ```
 This PRD is still in progress (stage: {STAGE}). Key sections may be incomplete. Continue anyway? (yes/no)
@@ -70,6 +87,8 @@ This PRD is still in progress (stage: {STAGE}). Key sections may be incomplete. 
 - Set `PRD_DRIVEN = true`
 - Display: "Using PRD: {SELECTED_PRD_SLUG} as milestone foundation."
 - If the PRD has no `<!-- approval: ... -->` line: run Step 4 (Approval) of `@~/.claude/get-shit-done/workflows/prd.md` now, before any roadmap work.
+
+Auto (auto_mode, references/auto-mode.md K3): a missing PRD approval is owner content and is never granted by an unattended run; stop before any write and name the PRD.
 
 **If user selects "Enter milestone goal manually":**
 - Set `PRD_DRIVEN = false`
@@ -87,8 +106,11 @@ This PRD is still in progress (stage: {STAGE}). Key sections may be incomplete. 
 - Use features and scope from discuss-milestone
 - Present summary for confirmation
 
+Auto (auto_mode, references/auto-mode.md K1): proceed on the context file's scope without confirming; goals from `--auto @goals.md` are used the same way.
+
 **If no context file:**
 - Present what shipped in last milestone
+- Auto (auto_mode, references/auto-mode.md K3): take the goals from the `--auto` document; with none, stop before any write (see the input contract).
 - Ask inline (freeform, NOT AskUserQuestion): "What do you want to build next?"
 - Wait for their response, then use AskUserQuestion to probe specifics
 - If user selects "Other" at any point to provide freeform input, ask follow-up as plain text — not another AskUserQuestion
@@ -98,6 +120,8 @@ This PRD is still in progress (stage: {STAGE}). Key sections may be incomplete. 
 - Parse last version from MILESTONES.md
 - Suggest next version (v1.0 → v1.1, or v2.0 for major)
 - Confirm with user
+
+Auto (auto_mode, references/auto-mode.md K1): take the suggested version (a version named in the goals document wins) without confirming.
 
 ## 4. Update PROJECT.md
 
@@ -151,6 +175,8 @@ Extract from init JSON: `researcher_model`, `synthesizer_model`, `roadmapper_mod
 ## 8. Research Decision
 
 > **Skip this step if PRD_DRIVEN=true.** The selected PRD already contains research (Tech Candidates from Stage 3 of the PRD workflow); proceed directly to step 9.
+
+Auto (auto_mode, references/auto-mode.md K2): follow `research_enabled` from init (default on) and do not write the choice to config; "Research first" when it is on.
 
 AskUserQuestion: "Research the domain ecosystem for new features before defining requirements?"
 - "Research first (Recommended)" — Discover patterns, features, architecture for NEW capabilities
@@ -277,12 +303,16 @@ Present features by category:
 
 **If no research:** Gather requirements through conversation. Ask: "What are the main things users need to do with [new features]?" Clarify, probe for related capabilities, group into categories.
 
+Auto (auto_mode, references/auto-mode.md K3): scope comes from the goals document, context file or PRD: features it names are in; table stakes it omits are future; differentiators it omits are out of scope. Every scope question the documents leave unanswered becomes an `A-` row (`decisions add --kind assumption ... --default "<d>"`, K6) with the cheapest default; none is asked.
+
 **Scope each category** via AskUserQuestion (multiSelect: true, header max 12 chars):
 - "[Feature 1]" — [brief description]
 - "[Feature 2]" — [brief description]
 - "None for this milestone" — Defer entire category
 
 Track: Selected → this milestone. Unselected table stakes → future. Unselected differentiators → out of scope.
+
+Auto (auto_mode, references/auto-mode.md K3): answer "No, research covered it" and record each gap research found as an `A-` assumption row instead of asking.
 
 **Identify gaps** via AskUserQuestion:
 - "No, research covered it" — Proceed
@@ -387,7 +417,7 @@ Create roadmap for milestone v[X.Y]:
 6. Write files immediately (ROADMAP.md, STATE.md, update REQUIREMENTS.md traceability)
 7. Return ROADMAP CREATED with summary and `## Decision Points`
 
-Rigour: ask the owner once whether this milestone is a throwaway feasibility spike. If not, add no Rigour line (standard). If it is, the spike needs an active `D-` decision (owner answer) and at least one spike root; stamp `**Rigour**: spike (D-NN)` and `**Spike roots**: <paths>` on every phase, and state each phase's 1-5 spike questions as its success criteria (see `references/rigour.md`).
+Rigour: Auto (auto_mode, references/auto-mode.md K2): the answer is `standard` (no Rigour line); `spike` only when the goals document names a spike and an owner `D-` decision exists (`decisions add --kind decision`), never from an assumption. Interactive: ask the owner once whether this milestone is a throwaway feasibility spike. If not, add no Rigour line (standard). If it is, the spike needs an active `D-` decision (owner answer) and at least one spike root; stamp `**Rigour**: spike (D-NN)` and `**Spike roots**: <paths>` on every phase, and state each phase's 1-5 spike questions as its success criteria (see `references/rigour.md`).
 
 Write files first, then return.
 </instructions>
@@ -397,6 +427,8 @@ Write files first, then return.
 **Handle return:**
 
 **If `## ROADMAP BLOCKED`:** Present blocker, work with user, re-spawn.
+
+Auto (auto_mode, references/auto-mode.md K5): resolve what the blocker names from the input documents and re-spawn the roadmapper once; a second `## ROADMAP BLOCKED` stops the run (K4), reporting the blocker, with nothing approved.
 
 **If `## ROADMAP CREATED`** (non-PRD-driven): Read ROADMAP.md, present inline per format below, then ask for approval.
 
@@ -424,6 +456,8 @@ Success criteria:
 ```
 
 **Decision points (before approval).** Follow `Roadmap decision points` in `@~/.claude/get-shit-done/references/decisions-protocol.md` (the roadmapper's `## Decision Points` table); `--source milestone-review` stays as written there. A risk-domain path is any path the product brief lists under Risk Domains (`risk_domains` in the init output); authentication/authorisation and security are always risk domains. When `risk_domains_source` is `builtin` (`project.risk_domains` in config.json is empty or absent), every path that mutates state is a risk-domain path. Tag every behaviour on a risk-domain path T0 (real-DB, mutation-proven).
+
+Auto (auto_mode, references/auto-mode.md K6): after the artifact check (ROADMAP.md has every requirement mapped, decision points routed per the protocol above) approve and continue; open questions are already `A-` rows. "Adjust phases" and "Review full file" are not offered.
 
 **Ask for approval** via AskUserQuestion:
 - "Approve" — Commit and continue
@@ -510,6 +544,18 @@ node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs: create milesto
 
 **[N] phases** | **[X] requirements** | Ready to build ✓
 
+**Auto mode:** record the chain and hand off to the roadmap run; there is no phase to discuss by hand.
+
+Auto (auto_mode, references/auto-mode.md K1): proceed to the roadmap run without waiting.
+
+```bash
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" config-set workflow._auto_chain_active true
+```
+
+Exit skill and invoke SlashCommand("/gsd:execute-roadmap --auto").
+
+**Interactive mode:**
+
 ## ▶ Next Up
 
 **Phase [N]: [Phase Name]** — [Goal]
@@ -535,7 +581,7 @@ Also: `/gsd:plan-phase [N]` — skip discussion, plan directly
 - [ ] User feedback incorporated (if any)
 - [ ] ROADMAP.md phases continue from previous milestone
 - [ ] All commits made (if planning docs committed)
-- [ ] User knows next step: `/gsd:discuss-phase [N]`
+- [ ] User knows next step: `/gsd:discuss-phase [N]` (interactive), or the run continued into `/gsd:execute-roadmap --auto` with `workflow._auto_chain_active` set (auto)
 
 **Atomic commits:** Each phase commits its artifacts immediately.
 </success_criteria>

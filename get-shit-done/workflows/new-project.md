@@ -1131,11 +1131,13 @@ Present completion summary:
 
 ```
 ╔══════════════════════════════════════════╗
-║  AUTO-ADVANCING → DISCUSS PHASE 1        ║
+║  AUTO-ADVANCING → EXECUTE ROADMAP        ║
 ╚══════════════════════════════════════════╝
 ```
 
-Exit skill and invoke SlashCommand("/gsd:discuss-phase 1 --auto")
+Auto (auto_mode, references/auto-mode.md K1): hand the whole roadmap to the unattended run; no phase is discussed by hand.
+
+Exit skill and invoke SlashCommand("/gsd:execute-roadmap --auto")
 
 **If interactive mode:**
 

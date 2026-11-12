@@ -19,11 +19,10 @@ const SCOPE = [
   'get-shit-done/references/coordinator-detail.md',
   'agents/gsd-phase-coordinator.md',
   'commands/gsd/execute-roadmap.md',
+  'get-shit-done/workflows/new-milestone.md',
+  'commands/gsd/new-milestone.md',
 ];
-const PENDING = {
-  'get-shit-done/workflows/new-milestone.md': 'milestone build step',
-  'commands/gsd/new-milestone.md': 'milestone build step',
-};
+const PENDING = {};
 
 const SITE = /AskUserQuestion|wait for (the )?user|Type "|type "|present .* (and )?wait|\boffer\b/i;
 const AUTO_LINE = /Auto \(auto_mode, references\/auto-mode\.md K[1-6](?:\/K[1-6])*\)/;
@@ -34,6 +33,7 @@ const ALLOW = [
   { file: 'get-shit-done/workflows/execute-plan.md', line: 'After response: verify if specified.', reason: 'checkpoint protocol of an interactive run; under auto_mode the executor returns the structured checkpoint state and execute-phase checkpoint_handling applies K1/K4' },
   { file: 'get-shit-done/workflows/execute-plan.md', line: '`type="checkpoint:*"`: STOP', reason: 'the executor stops and returns the checkpoint to the spawner, which applies K1/K4; the executor never answers it' },
   { file: 'get-shit-done/workflows/execute-plan.md', line: 'Wait for user to authenticate', reason: 'auth gates are human-action: the executor returns them as a checkpoint, execute-phase applies K4' },
+  { file: 'commands/gsd/new-milestone.md', line: '  - AskUserQuestion', reason: 'tool declaration in the frontmatter, not a prompt; the interactive path keeps the tool and the objective carries the auto line' },
   { file: 'get-shit-done/workflows/execute-phase.md', line: 'Checkpoints in parallel waves', reason: 'describes pausing and returning, not a prompt' },
 ];
 
