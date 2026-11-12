@@ -124,3 +124,19 @@ describe('incompletePhases', () => {
     assert.deepStrictEqual(d.incompletePhases(events, (k) => k === '1'), ['3']);
   });
 });
+
+describe('next with owner gates', () => {
+  test('a pending start gate starts nothing and logs nothing; the status is distinct from blocked and done', () => {
+    const r = nextOf([], [], { ownerGate: { blocked_by: 'composition', status: 'pending' } });
+    assert.deepStrictEqual([r.action, r.status, r.blocked_by_owner_gate, r.gate_status, r.log], ['waiting_owner_approval', 'waiting_owner_approval', 'composition', 'pending', []]);
+    assert.strictEqual(r.complete, undefined);
+  });
+  test('after the PR is requested the run waits on the pr gate; once approved it is done', () => {
+    const all = ['1', '2', '3', '4'];
+    const base = { gateMarked: true, prRecorded: true };
+    const waiting = nextOf([], all, { ...base, ownerGate: { blocked_by: 'pr', status: 'pending', pr_waiting: true } });
+    assert.deepStrictEqual([waiting.action, waiting.blocked_by_owner_gate], ['waiting_owner_approval', 'pr']);
+    const done = nextOf([], all, { ...base, ownerGate: { blocked_by: null, pr_waiting: false } });
+    assert.deepStrictEqual([done.action, done.complete], ['done', true]);
+  });
+});

@@ -227,6 +227,7 @@ const projectPack = require('./project-pack.js');
 const projectContext = require('./project-context.js');
 const { resolveAutoMode } = require('./auto-mode.js');
 const dispatch = require('./roadmap-dispatch.js');
+const ownerGates = require('./owner-gates.js');
 const autoModeFields = (cwd) => resolveAutoMode(cwd, process.argv.slice(2), process.env);
 const rigour = require('./rigour.js');
 
@@ -12455,6 +12456,19 @@ function makeTruthFn(cwd) {
   };
 }
 
+// Owner-gate view for the roadmap loop: which gate stops it right now (start gates, then the PR gate).
+function ownerGateView(cwd, events) {
+  const autoMode = autoModeFields(cwd).auto_mode;
+  const milestone = getMilestoneInfo(cwd).version;
+  const summary = ownerGates.summarise(cwd, { autoMode, milestone });
+  const prExists = events.some(e => e.type === 'pr_requested' || e.type === 'pr_created');
+  const done = events.some(e => e.type === 'roadmap_complete');
+  const prGate = ownerGates.find(ownerGates.readAll(cwd), 'pr', milestone);
+  const prWaiting = prExists && !done && (autoMode || !!prGate) && !(prGate && prGate.status === 'approved');
+  const blocked = summary.blocked_by_owner_gate || (prWaiting ? 'pr' : null);
+  return { summary, blocked_by_owner_gate: blocked, pr_waiting: prWaiting, auto_mode: autoMode };
+}
+
 function cmdInitExecuteRoadmap(cwd, raw) {
   const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
 
@@ -12517,9 +12531,20 @@ function cmdInitExecuteRoadmap(cwd, raw) {
   }
 
   const milestone = getMilestoneInfo(cwd);
+  const gateView = ownerGateView(cwd, hasExecutionLog ? readExecutionEvents(cwd) : []);
+  if (gateView.blocked_by_owner_gate && !(resumeState && resumeState.status === 'in_progress')) {
+    resumeState = {
+      completed_phases: [], started_incomplete: [], parked: [], ...(resumeState || {}),
+      status: ownerGates.STATUS_WAITING,
+      blocked_by_owner_gate: gateView.blocked_by_owner_gate,
+    };
+  }
+  const autoFields = autoModeFields(cwd);
   output({
     ...projectContext.contextFields(cwd),
-    ...autoModeFields(cwd),
+    ...autoFields,
+    owner_gates: { ...autoFields.owner_gates, status: gateView.summary },
+    blocked_by_owner_gate: gateView.blocked_by_owner_gate,
     roadmap_exists: true,
     total_phases: phases.length,
     execution_order: executionOrder,
@@ -12540,6 +12565,35 @@ function cmdInitExecuteRoadmap(cwd, raw) {
   }, raw);
 }
 
+// owner-gate request|status|approve|reject --kind composition|roadmap|pr [--milestone V] [--summary S] [--by W] [--note N] [--owner-confirmed]
+// approve/reject: refused while auto_mode is active unless --owner-confirmed with a --note. The flag is a recorded
+// attestation, not authentication: an unattended agent that passes it has lied in the audit trail, visibly.
+function cmdOwnerGate(cwd, args, raw) {
+  const sub = args[0];
+  const flag = (name) => { const i = args.indexOf(name); return i !== -1 ? args[i + 1] : undefined; };
+  const kind = flag('--kind') || (sub !== 'status' ? args[1] : undefined);
+  const milestone = flag('--milestone') || getMilestoneInfo(cwd).version;
+  if (sub === 'request') {
+    const r = ownerGates.request(cwd, { kind, milestone, summary: flag('--summary') });
+    if (!r.ok) error(`owner-gate: ${r.error}`);
+    output({ action: 'owner_gate_requested', created: r.created, status: ownerGates.STATUS_WAITING, gate: r.gate }, raw);
+  } else if (sub === 'status') {
+    const view = ownerGates.summarise(cwd, { autoMode: autoModeFields(cwd).auto_mode, milestone });
+    output({ ...view, gates: ownerGates.readAll(cwd) }, raw);
+  } else if (sub === 'approve' || sub === 'reject') {
+    const auto = autoModeFields(cwd);
+    const confirmed = args.includes('--owner-confirmed');
+    const note = flag('--note');
+    if (auto.auto_mode && !confirmed) error(`owner-gate ${sub}: auto mode is active (${auto.auto_mode_source}); an owner gate is decided by the owner from an interactive session, or with --owner-confirmed --note "<how the owner decided>"`);
+    if ((confirmed || auto.owner_gates.require_note) && !note) error(`owner-gate ${sub}: --note is required`);
+    const r = ownerGates.decide(cwd, { kind, milestone, status: sub === 'approve' ? 'approved' : 'rejected', by: flag('--by'), note, via: confirmed ? 'owner_confirmed_flag' : 'interactive' });
+    if (!r.ok) error(`owner-gate: ${r.error}`);
+    output({ action: `owner_gate_${r.gate.status}`, changed: r.changed, gate: r.gate }, raw);
+  } else {
+    error('Unknown owner-gate subcommand. Available: request, status, approve, reject');
+  }
+}
+
 // roadmap next: pure state machine over events + disk truth; appends the events it returns.
 function roadmapInputs(cwd) {
   const content = safeReadFile(path.join(cwd, '.planning', 'ROADMAP.md'));
@@ -12551,13 +12605,15 @@ function roadmapInputs(cwd) {
 function cmdRoadmapNext(cwd, args, raw) {
   const { phases, events, truth } = roadmapInputs(cwd);
   const config = loadConfig(cwd);
+  const gateView = ownerGateView(cwd, events);
   const result = dispatch.next({
     phases,
     events,
     truth,
+    ownerGate: { blocked_by: gateView.blocked_by_owner_gate, status: gateView.blocked_by_owner_gate ? ((ownerGates.find(ownerGates.readAll(cwd), gateView.blocked_by_owner_gate, getMilestoneInfo(cwd).version) || {}).status || 'not_requested') : null, pr_waiting: gateView.pr_waiting },
     retryParked: args.includes('--retry-parked'),
     gateMarked: dispatch.hasEvent(events, 'gate_pre_pr_passed'),
-    prRecorded: dispatch.hasEvent(events, 'pr_created') || dispatch.hasEvent(events, 'pr_skipped'),
+    prRecorded: dispatch.hasEvent(events, 'pr_created') || dispatch.hasEvent(events, 'pr_requested') || dispatch.hasEvent(events, 'pr_skipped'),
     hasRemote: hasGitRemote(cwd),
     config: {
       coordinator_model: config.coordinator_model ?? 'sonnet',
@@ -12573,10 +12629,20 @@ function cmdRoadmapNext(cwd, args, raw) {
 function cmdRoadmapRecord(cwd, args, raw) {
   const flag = (name) => { const i = args.indexOf(name); return i !== -1 ? args[i + 1] : undefined; };
   const resultArg = flag('--result');
-  if (flag('--kind') === 'pr') {
+  const kind = flag('--kind');
+  if (kind === 'pr' || kind === 'pr_requested') {
     let status = 'skipped';
     let reason = null;
-    try { const r = JSON.parse(resultArg); status = r.status === 'created' ? 'created' : 'skipped'; reason = r.reason || null; } catch { /* default skipped */ }
+    let url = null;
+    try { const r = JSON.parse(resultArg); status = r.status === 'created' ? 'created' : 'skipped'; reason = r.reason || null; url = r.url || null; } catch { /* default skipped */ }
+    // A PR in an unattended run is only ever requested for the owner, never completed by the run.
+    const requested = status === 'created' && (kind === 'pr_requested' || autoModeFields(cwd).auto_mode);
+    if (requested) {
+      const gate = ownerGates.request(cwd, { kind: 'pr', milestone: getMilestoneInfo(cwd).version, summary: `PR for owner review${url ? `: ${url}` : ''}` });
+      appendEvent(cwd, { type: 'pr_requested', url });
+      output({ action: 'pr_recorded', status: 'requested', gate: gate.gate, next_status: ownerGates.STATUS_WAITING }, raw);
+      return;
+    }
     appendEvent(cwd, { type: status === 'created' ? 'pr_created' : 'pr_skipped', reason });
     output({ action: 'pr_recorded', status }, raw);
     return;
@@ -15102,6 +15168,11 @@ async function main() {
       } else {
         error('Unknown phases subcommand. Available: list');
       }
+      break;
+    }
+
+    case 'owner-gate': {
+      cmdOwnerGate(cwd, args.slice(1), raw);
       break;
     }
 

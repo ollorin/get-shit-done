@@ -6,6 +6,7 @@
 // audit trail (a phase counts as complete only when `truth(phase)` says so).
 
 const GAP_CYCLE_LIMIT = 1;
+const WAITING = 'waiting_owner_approval';
 
 const DEATH_RE = /(rate[- ]limit|session limit|usage limit|hit your limit|limit reached|resets? (at|in)\b|context (window|limit|overflow)|stalled|unresponsive|died)/i;
 
@@ -101,6 +102,9 @@ function next(input) {
   }
 
   const base = { models: { coordinator: cfg.coordinator_model || 'sonnet' } };
+  const og = input.ownerGate || {};
+  const waiting = (kind, status) => ({ ...base, action: WAITING, status: WAITING, blocked_by_owner_gate: kind, gate_status: status || 'pending', log: [] });
+  if (og.blocked_by && og.blocked_by !== 'pr') return waiting(og.blocked_by, og.status);
   for (const p of phases) {
     const k = phaseKey(p.number);
     if (done.has(k) || blocked.has(k)) continue;
@@ -130,6 +134,7 @@ function next(input) {
     return { ...base, action: 'done', complete: false, error: 'deadlock', parked: remaining, completed_phases: [...done], log };
   }
   if (!input.gateMarked) return { ...base, action: 'integration_gate', log };
+  if (og.pr_waiting) return waiting('pr', og.status);
   if (!input.prRecorded) {
     return { ...base, action: 'pr', base_branch: cfg.base_branch || null, has_remote: input.hasRemote === true, log };
   }

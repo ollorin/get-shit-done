@@ -23,6 +23,16 @@ if [[ "$INIT0" == @file:* ]]; then INIT0=$(cat "${INIT0#@file:}"); fi
 
 Auto (auto_mode, references/auto-mode.md K3): no goals document, context file or approved complete PRD means stop before writing anything and name the missing input.
 
+**Owner gates (the only two stops in an auto run).** Two gates stay mandatory in full auto mode (`references/auto-mode.md`, Owner gates): OG1 the milestone's composition (which PRDs and requirements) and OG2 the roadmap. At each, request the gate, print the owner summary and END the run in state `waiting_owner_approval`; never ask, never loop. On every auto invocation read `owner-gate status` first and route:
+
+| Gate record for this milestone | Continue at |
+|---|---|
+| none, or `composition` rejected | the normal path (a rejected gate: redraft step 9 with the owner's note, then request it again) |
+| `composition` pending | stop again, `waiting_owner_approval`, print the same summary |
+| `composition` approved, no `roadmap` gate or `roadmap` rejected | step 10 (a rejected gate: re-spawn the roadmapper with the owner's note) |
+| `roadmap` pending | stop again, `waiting_owner_approval` |
+| `roadmap` approved | step 11 hand-off |
+
 Interactive runs (`auto_mode` false) ignore this section.
 
 ## 0. First Milestone After init-project
@@ -356,6 +366,14 @@ If "adjust": Return to scoping.
 node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs: define milestone v[X.Y] requirements" --files .planning/REQUIREMENTS.md
 ```
 
+**Owner gate OG1 (composition).** Auto (auto_mode, references/auto-mode.md OG1): do not draft the roadmap yet. Request the gate with the composition summary, print it, and end the run `waiting_owner_approval`.
+
+```bash
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" owner-gate request --kind composition --milestone v[X.Y] --summary "<PRD slugs or goals source; N requirements by category; out-of-scope list; open A- rows>"
+```
+
+Owner summary (compact): milestone name and version, the PRDs or goals document it is built from, the requirement count per category, what is out of scope, the open `A-` assumptions with their defaults. The owner approves with `gsd-tools owner-gate approve --kind composition` and re-runs `/gsd:new-milestone --auto`.
+
 ## 10. Create Roadmap
 
 ```
@@ -544,9 +562,15 @@ node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs: create milesto
 
 **[N] phases** | **[X] requirements** | Ready to build ✓
 
-**Auto mode:** record the chain and hand off to the roadmap run; there is no phase to discuss by hand.
+**Auto mode:** the roadmap is the second owner gate; the hand-off to the roadmap run happens only on the invocation that finds it approved. There is no phase to discuss by hand.
 
-Auto (auto_mode, references/auto-mode.md K1): proceed to the roadmap run without waiting.
+Auto (auto_mode, references/auto-mode.md OG2): with no approved `roadmap` gate, request it, print the owner summary (phase table: number, name, goal, requirement IDs; requirement coverage; the open `A-` rows) and end the run `waiting_owner_approval`; start no phase.
+
+```bash
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" owner-gate request --kind roadmap --milestone v[X.Y] --summary "<N phases; coverage; open A- rows>"
+```
+
+Auto (auto_mode, references/auto-mode.md K1): with the `roadmap` gate approved, proceed to the roadmap run without waiting.
 
 ```bash
 node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" config-set workflow._auto_chain_active true

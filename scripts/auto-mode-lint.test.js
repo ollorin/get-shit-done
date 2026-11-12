@@ -25,7 +25,9 @@ const SCOPE = [
 const PENDING = {};
 
 const SITE = /AskUserQuestion|wait for (the )?user|Type "|type "|present .* (and )?wait|\boffer\b/i;
-const AUTO_LINE = /Auto \(auto_mode, references\/auto-mode\.md K[1-6](?:\/K[1-6])*\)/;
+const AUTO_LINE = /Auto \(auto_mode, references\/auto-mode\.md (?:K[1-6](?:\/K[1-6])*|OG[1-3](?:\/OG[1-3])*)\)/;
+// The named exceptions to "no prompt in auto": the owner gates. Each may appear only in the files that own it.
+const OG_FILES = { OG1: ['get-shit-done/workflows/new-milestone.md', 'get-shit-done/workflows/execute-roadmap.md'], OG2: ['get-shit-done/workflows/new-milestone.md', 'get-shit-done/workflows/execute-roadmap.md'], OG3: ['get-shit-done/workflows/execute-roadmap.md'] };
 const WINDOW = 12;
 
 // A site that is not a prompt: a rule statement, a definition of a flag, or a human-only contract. Each needs a reason.
@@ -80,6 +82,41 @@ describe('L1 every prompt site in the unattended path names its auto action', ()
   });
 });
 
+describe('owner gates are the only named exceptions to "no prompt in auto"', () => {
+  const OG_RE = /references\/auto-mode\.md (OG[1-3](?:\/OG[1-3])*)\)/;
+  test('an OG line appears only in its owning workflow and each file requests/waits on its gate', () => {
+    for (const rel of SCOPE) {
+      read(rel).forEach((t, i) => {
+        const m = t.match(OG_RE);
+        if (!m) return;
+        for (const og of m[1].split('/')) assert.ok(OG_FILES[og].includes(rel), `${rel}:${i + 1}: ${og} not allowed here`);
+      });
+    }
+    const nm = fs.readFileSync(path.join(ROOT, 'get-shit-done/workflows/new-milestone.md'), 'utf-8');
+    assert.match(nm, /owner-gate request --kind composition/);
+    assert.match(nm, /owner-gate request --kind roadmap/);
+    const er = fs.readFileSync(path.join(ROOT, 'get-shit-done/workflows/execute-roadmap.md'), 'utf-8');
+    assert.match(er, /roadmap record --kind pr_requested/);
+    assert.match(er, /never merge it, never enable auto-merge/);
+  });
+  test('the rule statement names the three exceptions and no workflow declares a fourth', () => {
+    const ref = fs.readFileSync(path.join(GSD, 'references', 'auto-mode.md'), 'utf-8');
+    for (const og of ['OG1', 'OG2', 'OG3', 'waiting_owner_approval', 'OWNER-GATES.json']) assert.ok(ref.includes(og), og);
+    assert.match(ref, /exactly three named exceptions/);
+    for (const rel of SCOPE) read(rel).forEach((t) => { for (const m of t.matchAll(/auto-mode\.md (OG\d+)/g)) assert.ok(OG_FILES[m[1]], `unknown gate ${m[1]}`); });
+  });
+  test('the lint canary: an OG line satisfies the site rule, an unknown class does not', () => {
+    const rel = '.tmp/auto-lint-og-canary.md';
+    fs.mkdirSync(path.join(ROOT, '.tmp'), { recursive: true });
+    try {
+      fs.writeFileSync(path.join(ROOT, rel), 'Use AskUserQuestion.\nAuto (auto_mode, references/auto-mode.md OG2): stop.\n');
+      assert.strictEqual(findSites(rel).length, 0);
+      fs.writeFileSync(path.join(ROOT, rel), 'Use AskUserQuestion.\nAuto (auto_mode, references/auto-mode.md OG9): stop.\n');
+      assert.strictEqual(findSites(rel).length, 1);
+    } finally { fs.rmSync(path.join(ROOT, rel), { force: true }); }
+  });
+});
+
 describe('L2 no model literals in the scanned workflows', () => {
   for (const rel of SCOPE) {
     test(rel, () => {
@@ -108,6 +145,7 @@ describe('auto-mode reference', () => {
   test('defines every class and every source', () => {
     const text = fs.readFileSync(path.join(GSD, 'references', 'auto-mode.md'), 'utf-8');
     for (const k of ['K1', 'K2', 'K3', 'K4', 'K5', 'K6']) assert.ok(text.includes(`| ${k} `), k);
+    assert.ok(text.includes('three named exceptions'));
     for (const src of ['flag', 'env', 'config_mode', 'config_auto_advance', 'config_auto_chain']) assert.ok(text.includes(`\`${src}\``), src);
   });
 });

@@ -79,3 +79,17 @@ describe('new-project ends an auto run with the roadmap hand-off', () => {
     assert.ok(NP.includes('/gsd:discuss-phase 1 — gather context'), 'the interactive pointer stays');
   });
 });
+
+describe('new-milestone owner gates', () => {
+  test('OG1 (composition) sits before the roadmap step, OG2 (roadmap) before the hand-off, and the resume table is present', () => {
+    const og1 = NM.indexOf('references/auto-mode.md OG1');
+    const roadmapStep = NM.indexOf('## 10. Create Roadmap');
+    const og2 = NM.indexOf('references/auto-mode.md OG2');
+    const handoff = NM.indexOf('invoke SlashCommand("/gsd:execute-roadmap --auto")');
+    assert.ok(og1 > 0 && og1 < roadmapStep, 'OG1 before step 10');
+    assert.ok(og2 > roadmapStep && og2 < handoff, 'OG2 before the hand-off');
+    assert.ok(NM.indexOf('workflow._auto_chain_active true') > og2, 'chain flag set only after the roadmap gate');
+    assert.match(NM, /END the run in state `waiting_owner_approval`/);
+    assert.match(NM, /`roadmap` approved \| step 11 hand-off/);
+  });
+});

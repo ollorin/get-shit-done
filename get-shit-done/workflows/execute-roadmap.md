@@ -9,7 +9,7 @@ Disk is truth, the execution log is the audit trail, one writer each. The orches
 <required_reading>
 Read STATE.md before any operation to load project context.
 
-**Auto mode:** `auto_mode` (from init) is the one rule for "no human is answering". The rule, its classes K1-K6 and the logging command are in `@~/.claude/get-shit-done/references/auto-mode.md`. When it is true, AskUserQuestion is never called and nothing waits for a reply: each prompt below takes its class action and logs an `auto_decision` event. Put `auto: true` in every spawn prompt.
+**Auto mode:** `auto_mode` (from init) is the one rule for "no human is answering". The rule, its classes K1-K6 and the logging command are in `@~/.claude/get-shit-done/references/auto-mode.md`. When it is true, AskUserQuestion is never called and nothing waits for a reply, except the three owner gates (OG1 composition and OG2 roadmap before any phase, OG3 the pull request at the end; `references/auto-mode.md`, Owner gates). Each other prompt below takes its class action and logs an `auto_decision` event. Put `auto: true` in every spawn prompt.
 </required_reading>
 
 <autonomous_resumption>
@@ -29,7 +29,9 @@ node ~/.claude/get-shit-done/bin/gsd-tools.js init execute-roadmap $AUTO_FLAG $L
 ```
 `$AUTO_FLAG` is `--auto` when `--auto` is in `$ARGUMENTS`; `$LEGACY_FLAG` is `--legacy` for a legacy run. If the output starts with `@file:`, read the path after it.
 
-Parse the JSON for: `roadmap_exists` (false: error "`.planning/ROADMAP.md` not found. Initialize the project first." and exit), `auto_mode`, `legacy`, `total_phases`, `execution_order`, `next_executable`, `blocked_phases`, `has_execution_log`, `resume_state` (`{completed_phases, started_incomplete, parked}`), and the models `coordinator_model`, `ruling_model`, `ruling_model_fallback`, `utility_model`, `reviewer_model`, plus `milestone_version`, `milestone_slug`, `base_branch`. Every model used below comes from these fields; this file holds no model literal.
+Parse the JSON for: `roadmap_exists` (false: error "`.planning/ROADMAP.md` not found. Initialize the project first." and exit), `auto_mode`, `legacy`, `total_phases`, `execution_order`, `next_executable`, `blocked_phases`, `has_execution_log`, `resume_state` (`{completed_phases, started_incomplete, parked}`, plus `status: waiting_owner_approval` and `blocked_by_owner_gate` while an owner gate is open), `owner_gates` (policy plus `status` of the composition, roadmap and pr gates), `blocked_by_owner_gate`, and the models `coordinator_model`, `ruling_model`, `ruling_model_fallback`, `utility_model`, `reviewer_model`, plus `milestone_version`, `milestone_slug`, `base_branch`. Every model used below comes from these fields; this file holds no model literal.
+
+**If `blocked_by_owner_gate` is `composition` or `roadmap`:** no phase starts, no branch is created. Auto (auto_mode, references/auto-mode.md OG1/OG2): print the gate, its `gate_status` (`not_requested` means a milestone made before owner gates existed: run `owner-gate request --kind <kind> --summary "<composition or roadmap summary>"` first), the summary and the approve command, then end the run `waiting_owner_approval`. Interactively, tell the owner the gate is unapproved and stop.
 
 **If `resume_state` is set:** see `<step name="resume_capability">`.
 </step>
@@ -154,13 +156,14 @@ The loop. Repeat until `roadmap next` returns `done`:
 ```bash
 NEXT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js roadmap next $LEGACY_FLAG $RETRY_PARKED_FLAG)
 ```
-`$RETRY_PARKED_FLAG` is `--retry-parked` when it is in `$ARGUMENTS`: use it once the owner has answered what parked a phase; without it a parked phase and its dependents stay parked. `roadmap next` reads the log and disk truth, appends its own `phase_start`/`gap_cycle`/`phase_parked` events and returns one action; dependencies, parking of dependents and the one-gap-cycle ceiling are its job, not yours. No action ever asks the owner anything: if one did, treat it as K1 and continue.
+`$RETRY_PARKED_FLAG` is `--retry-parked` when it is in `$ARGUMENTS`: use it once the owner has answered what parked a phase; without it a parked phase and its dependents stay parked. `roadmap next` reads the log and disk truth, appends its own `phase_start`/`gap_cycle`/`phase_parked` events and returns one action; dependencies, parking of dependents and the one-gap-cycle ceiling are its job, not yours. No action ever asks the owner anything; the only stop is `waiting_owner_approval`. A resume starts at `init execute-roadmap`: `blocked_by_owner_gate` non-null and `resume_state.status` `waiting_owner_approval` mean print the same stop and end; once the gate is approved the next `roadmap next` continues the loop (or returns `done` after the pr gate).
 
 | `action` | Do |
 |---|---|
 | `spawn_coordinator` | steps 1a-5 below for `phase`, using `args` and `model` |
 | `gap_cycle` | the same spawn with the returned `args` (`{N} --gaps --auto`): the coordinator runs one gap-closure cycle |
 | `integration_gate` | `<step name="completion">`, part A |
+| `waiting_owner_approval` | end the run now: print `blocked_by_owner_gate` and `gate_status`, the owner summary from `owner-gate status`, and the command that approves it; no phase starts, nothing is logged, nothing is retried. Auto (auto_mode, references/auto-mode.md OG1/OG2/OG3): the run ends here whatever the gate (composition, roadmap or pr) |
 | `pr` | `<step name="completion">`, part B |
 | `done` | `<step name="completion">`, part C; `complete: false` means phases are parked (`parked`) |
 
@@ -386,9 +389,10 @@ Any check failing: stop, fix the failure, re-run from the beginning. There is no
      git push -u origin "{CURRENT_BRANCH}"
      gh pr create --base "{base_branch}" --title "feat: {roadmap_name}" --body "{summary of completed phases, one line each from the SUMMARYs; the phases parked, if any}"
      ```
-     On success: `roadmap record --kind pr --result '{"status":"created"}'` and print `PR opened: {PR_URL}`. A failed `gh pr create` (auth, remote) is logged visibly and recorded as `{"status":"skipped","reason":"pr_create_failed"}`; the summary is not aborted.
+     Auto (auto_mode, references/auto-mode.md OG3): open it as a draft (`gh pr create --draft`) when the host allows, and never merge it, never enable auto-merge, never approve it. On success record `roadmap record --kind pr_requested --result '{"status":"created","url":"{PR_URL}"}'` (this writes the `pr` owner gate), print `PR opened: {PR_URL}`, and end the run `waiting_owner_approval`. The owner approves with `gsd-tools owner-gate approve --kind pr` and re-runs; `roadmap next` then returns `done` and part C records completion. Interactive runs record `--kind pr --result '{"status":"created"}'` as before.
+     A failed `gh pr create` (auth, remote) is logged visibly and recorded as `{"status":"skipped","reason":"pr_create_failed"}`; the summary is not aborted.
 
-The loop then asks `roadmap next` again and gets `done`.
+Interactive: the loop then asks `roadmap next` again and gets `done`. Auto: the run ended at the `pr` owner gate above; the resumed run gets `done` only after approval.
 
 **C. On `done`**
 

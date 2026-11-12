@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { resolveAutoMode } = require('./auto-mode.js');
+const base = (o) => ({ ...o, owner_gates: { gates: { composition: { required: true }, roadmap: { required: true }, pr: { required: true } }, require_note: false, ignored_overrides: [] } });
 
 const TOOLS = path.join(__dirname, 'gsd-tools.js');
 
@@ -19,22 +20,33 @@ describe('resolveAutoMode (U1)', () => {
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
   test('each of the five sources alone is true and names itself', () => {
-    assert.deepStrictEqual(resolveAutoMode(dir, ['init', 'plan-phase', '1', '--auto'], {}), { auto_mode: true, auto_mode_source: 'flag' });
-    assert.deepStrictEqual(resolveAutoMode(dir, [], { GSD_AUTONOMOUS: '1' }), { auto_mode: true, auto_mode_source: 'env' });
+    assert.deepStrictEqual(resolveAutoMode(dir, ['init', 'plan-phase', '1', '--auto'], {}), base({ auto_mode: true, auto_mode_source: 'flag' }));
+    assert.deepStrictEqual(resolveAutoMode(dir, [], { GSD_AUTONOMOUS: '1' }), base({ auto_mode: true, auto_mode_source: 'env' }));
     writeConfig({ mode: 'yolo' });
-    assert.deepStrictEqual(resolveAutoMode(dir, [], {}), { auto_mode: true, auto_mode_source: 'config_mode' });
+    assert.deepStrictEqual(resolveAutoMode(dir, [], {}), base({ auto_mode: true, auto_mode_source: 'config_mode' }));
     writeConfig({ workflow: { auto_advance: true } });
-    assert.deepStrictEqual(resolveAutoMode(dir, [], {}), { auto_mode: true, auto_mode_source: 'config_auto_advance' });
+    assert.deepStrictEqual(resolveAutoMode(dir, [], {}), base({ auto_mode: true, auto_mode_source: 'config_auto_advance' }));
     writeConfig({ workflow: { _auto_chain_active: true } });
-    assert.deepStrictEqual(resolveAutoMode(dir, [], {}), { auto_mode: true, auto_mode_source: 'config_auto_chain' });
+    assert.deepStrictEqual(resolveAutoMode(dir, [], {}), base({ auto_mode: true, auto_mode_source: 'config_auto_chain' }));
   });
 
   test('no source, an interactive mode, or a missing/garbled config is false', () => {
-    assert.deepStrictEqual(resolveAutoMode(dir, [], {}), { auto_mode: false, auto_mode_source: null });
+    assert.deepStrictEqual(resolveAutoMode(dir, [], {}), base({ auto_mode: false, auto_mode_source: null }));
     writeConfig({ mode: 'interactive', workflow: { auto_advance: false, _auto_chain_active: false } });
     assert.strictEqual(resolveAutoMode(dir, [], { GSD_AUTONOMOUS: '0' }).auto_mode, false);
     fs.writeFileSync(path.join(dir, '.planning', 'config.json'), '{not json');
     assert.strictEqual(resolveAutoMode(dir, [], {}).auto_mode, false);
+  });
+
+  test('owner_gates: always required; config may add strictness, never switch a gate off', () => {
+    const og = resolveAutoMode(dir, ['--auto'], {}).owner_gates;
+    for (const k of ['composition', 'roadmap', 'pr']) assert.strictEqual(og.gates[k].required, true, k);
+    assert.strictEqual(resolveAutoMode(dir, [], {}).owner_gates.gates.pr.required, true, 'present when auto is off too');
+    writeConfig({ mode: 'yolo', workflow: { owner_gates: { pr: false, roadmap: 'false', composition: true, require_note: true } } });
+    const strict = resolveAutoMode(dir, [], {}).owner_gates;
+    assert.deepStrictEqual(Object.values(strict.gates).map((g) => g.required), [true, true, true]);
+    assert.deepStrictEqual(strict.ignored_overrides, ['roadmap', 'pr']);
+    assert.strictEqual(strict.require_note, true);
   });
 
   test('every init workflow that returns a result emits auto_mode and auto_mode_source', () => {
