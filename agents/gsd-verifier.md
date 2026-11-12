@@ -89,7 +89,7 @@ reference file.
 > This step's hard-fail is NEVER a warning — matches the existing convention for Step 8b/8c/8d's hard rules elsewhere in this file.
 
 **Step 6d (Defect Classes coverage):**
-> Every plan's SUMMARY.md must carry a `## Defect Classes` section (rows, or `None found. (reviewed by: <caught_by values>)` — a missing/empty heading, a shipped template placeholder, or a BARE `None found.` are all fails), and every finding in this phase's review/ruling artifacts (`{N}-PLAN-CHECK.md`, `*-VERDICT.md`, `deferred-items.md`, VERIFICATION.md) must appear in one of them. **You FIX the record rather than merely reporting it:** append each missing entry yourself as a `| class | instance | caught_by | severity | rule_gap |` row with `caught_by: verifier`; only a miss you genuinely cannot repair becomes a `gaps_found` gap. `class` is a general reusable name, not an incident story. An unrecorded defect is one the next milestone repeats.
+> Every plan's SUMMARY.md must carry a `## Defect Classes` section (rows, or `None found. (reviewed by: <caught_by values>)` — a missing/empty heading, a shipped template placeholder, or a BARE `None found.` are all fails), and every finding in this phase's review/ruling artifacts (`{N}-PLAN-CHECK.md`, `*-VERDICT.md`, `deferred-items.md`, VERIFICATION.md) must appear in one of them. **You FIX the record rather than merely reporting it:** append each missing entry yourself as a `| class | instance | caught_by | severity | rule_gap |` row with `caught_by: verifier` for findings you raised, and the original `caught_by` (e.g. `plan-check`) for findings copied from another review's artifact; only a miss you genuinely cannot repair becomes a `gaps_found` gap. `class` is a general reusable name, not an incident story. An unrecorded defect is one the next milestone repeats.
 
 **Step 6b (PRD intent alignment):**
 > 3. For each MISMATCH: add a gap entry and set STATUS = gaps_found (hard-fail — NEVER a warning):
@@ -117,7 +117,7 @@ reference file.
 > **This is NEVER a warning — it is a hard verification failure.**
 
 **Step 8d (implementation file test coverage, QGATE-10):**
-> **Hard rule:** Every implementation file must be exercised by a test: a unit or integration test imports it or calls its exported route/RPC, or the SUMMARY `## Test Delta` cites a REUSE. Only a file that consists solely of `export ... from` re-export statements (any length), and is on no risk-domain path (`risk_domains` in the init output; session and credential paths count), is exempt. Unexercised files → `gaps_found`. This is NEVER a warning.
+> **Hard rule:** Every implementation file must be exercised by a test: a unit or integration test imports it or calls its exported route/RPC, or the SUMMARY `## Test Delta` cites a REUSE. Only a file that consists solely of `export ... from` re-export statements (any length), and is on no risk-domain path (`risk_domains` in the init output; session and credential paths count), is exempt. Unexercised files → `gaps_found`, unless a `deferred add --step test` entry in the phase's DEFERRED.json waives them (the same single rule `verify phase-gate` applies; no other waiver exists). This is NEVER a warning.
 
 **Step 8e (migration timestamp conflict check, QGATE-05):**
 > **Hard rule:** Unresolved duplicate migration timestamps detected by this check cause `gaps_found`. This is NEVER a warning.
@@ -125,7 +125,7 @@ reference file.
 **Step 8g (Layer-1 machine-gate execution, QGATE-14):**
 
 RUN — do not merely check for the existence of — the target repo's Layer-1 machine gates against the phase's tree, when the repo ships them:
-- every Layer-1 gate in `stack.gates[]` of `.planning/config.json` (`gsd-tools profile get stack.gates`): the FP/routing/sizing violation ratchet (down-only), the migration security gate, the dependency CVE-scan gate
+- every gate in `stack.gates[]` (entries carry no layer field: "Layer-1" means all of them) of `.planning/config.json` (`gsd-tools profile get stack.gates`): the FP/routing/sizing violation ratchet (down-only), the migration security gate, the dependency CVE-scan gate
 - the `--no-check` re-introduction guard (`! git grep -n "no-check" -- <stack.paths.backend config files>`)
 - Legacy: no `stack.gates` in `.planning/config.json` => run the gate scripts the repo ships, exactly as before; absence of `stack.gates` is never a skip
 

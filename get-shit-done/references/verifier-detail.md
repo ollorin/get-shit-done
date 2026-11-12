@@ -475,12 +475,16 @@ After static wiring checks, attempt to run the project's test suite:
 # TEST_CMD = the `test_all` command from `stack_commands` (init output); never detected here
 TEST_CMD="<stack_commands.test_all>"
 
-# Run tests (max 5 minutes)
-if [ -n "$TEST_CMD" ]; then
-  timeout 300 npm test -- --passWithNoTests 2>&1 | tail -30
+# Run exactly that command (max 5 minutes); append no flags of your own
+if [ -n "$TEST_CMD" ] && [ "$TEST_CMD" != "none" ]; then
+  timeout 300 $TEST_CMD 2>&1 | tail -30
   TEST_EXIT=$?
 fi
 ```
+
+`test_all` of `none` (or empty) declares that the project has no test suite: treat it as "no tests exist" below. It is a hard fail when the phase produced implementation files, and acceptable only for phases that produced none.
+
+**One waiver rule for tests (Steps 8b and 8d, and `verify phase-gate` check `test`).** A missing test is a hard fail unless the phase's `DEFERRED.json` holds a `deferred add --step test` entry (reason + approver) for it; that is the only sanctioned waiver, and `verify phase-gate` honors the same entry (`waived: true`). Record a waived test check as `waived (DEFERRED.json: <reason>)` in VERIFICATION.md rather than as a pass. No other prose, SUMMARY note or ruling waives it.
 
 **If tests fail:**
 - Each failing test file = one GAP entry in VERIFICATION.md
@@ -749,6 +753,8 @@ If TRIGGER_QA_CHECK == false OR UI_QA_FOUND == true: this check passes silently.
 - A `deferred-items.md` entry (or a SUMMARY.md line referencing one) describing a pre-existing, out-of-scope issue with a justification → **sanctioned, do NOT fail.**
 - Any "tests to be added later", "QA deferred", "will verify in next phase", or "follow-up: add tests" that concerns work THIS phase was responsible for → **violation, fail as below.**
 
+The `deferred add` waiver channel is likewise sanctioned: a recorded `DEFERRED.json` entry is the audited waiver `verify phase-gate` honors, and merely naming that file or the `deferred add|list` subcommand is not deferral language. The scan below strips those names before matching.
+
 When a matched pattern refers to a `deferred-items.md`-logged pre-existing item, exclude it from `DEFERRAL_EVIDENCE` and continue — only genuine deferral of this phase's own testing/QA/verification triggers Step B.
 
 **Step A — Scan SUMMARY.md and VERIFICATION.md files for deferral language:**
@@ -763,7 +769,7 @@ for file in "$PHASE_DIR"/*-SUMMARY.md "$PHASE_DIR"/*-VERIFICATION.md; do
     MATCHES=$(node -e "
       try {
         const fs = require('fs');
-        const content = fs.readFileSync('$file', 'utf8');
+        const content = fs.readFileSync('$file', 'utf8').replace(/DEFERRED\.json|deferred-items\.md|deferred (add|list)\b/gi, '');
         const patterns = /deferred|defer to|deferred to|post-milestone testing|future phase|will be tested later|to be added later|qa skipped|tests skipped|skipped.*because.*not running|skipped.*infrastructure/gi;
         const matches = content.match(patterns) || [];
         console.log(matches.length > 0 ? matches.slice(0,3).join('; ') : '');
@@ -803,7 +809,7 @@ If DEFERRAL_FOUND=false: this check passes silently.
 
 ## Step 8c.6: E2E Test Coverage (QGATE-13) (Web Projects)
 
-**Trigger:** Phase produced `.tsx`/`.jsx` files OR project has web framework in package.json.
+**Trigger:** `verify phase-gate` reports `has_ui: true` (UI files in the phase diff) and `ui_qa_mode` is not `none`. A web framework in some `package.json` alone does not trigger it.
 
 **Check:**
 1. E2E-TEST-PLAN.md exists in phase directory
@@ -824,9 +830,9 @@ If DEFERRAL_FOUND=false: this check passes silently.
 
 **Trigger:** One or more `.ts`, `.tsx`, or `.js` implementation files appear in SUMMARY.md key-files.
 
-**Hard rule:** Every implementation file must be exercised by a test. A file passes if any test file (unit or integration) imports it or calls its exported route/RPC, or the SUMMARY `## Test Delta` cites a REUSE for it. Unexercised files → `gaps_found`. This is NEVER a warning — never emit a warning for missing test coverage. The exemption applies only to a file that consists solely of `export ... from` re-export statements (any length), and is on no risk-domain path (`risk_domains` in the init output; session and credential paths count).
+**Hard rule:** Every implementation file must be exercised by a test. A file passes if any test file (unit or integration) imports it or calls its exported route/RPC, or the SUMMARY `## Test Delta` cites a REUSE for it. Unexercised files → `gaps_found`, unless a `deferred add --step test` entry waives them (the one waiver rule in Step 8b). This is NEVER a warning — never emit a warning for missing test coverage. The exemption applies only to a file that consists solely of `export ... from` re-export statements (any length), and is on no risk-domain path (`risk_domains` in the init output; session and credential paths count).
 
-Run `gsd-tools verify test-content "$PHASE_NUM"` and read `impl_files_without_tests` (each is a gap), `impl_files_covered` and `impl_files_exempt` (confirm each exempt file is a pure re-export outside the P0 paths above); the manual Steps A-C below are the fallback cross-check.
+Run `gsd-tools verify test-content "$PHASE_NUM"` and read `impl_files_without_tests` (each is a gap; when `legacy_unchecked` is true also read `legacy_data.impl_files_without_tests` — plans without a checked Test Delta are grandfathered out of the top-level key, not out of this rule), `impl_files_covered` and `impl_files_exempt` (confirm each exempt file is a pure re-export outside the P0 paths above); the manual Steps A-C below are the fallback cross-check.
 
 **Implementation files** are `.ts`, `.tsx`, `.js` files that are NOT:
 - Test files themselves: `*.test.ts`, `*.spec.ts`, `*.test.js`, `*.spec.js`, `*.test.tsx`, `*.spec.tsx`
