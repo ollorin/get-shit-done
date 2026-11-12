@@ -61,7 +61,9 @@ CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
 **If `CURRENT_BRANCH` is `main` or `master` AND `branching_strategy` is "none":**
 
-Block with:
+**Auto mode** (`--auto` in `$ARGUMENTS`, `GSD_AUTONOMOUS=1`, or `workflow.auto_advance`/`workflow._auto_chain_active` true) or any non-interactive run: do NOT ask. Take option A (create the phase branch), log `Auto: branch guard -> gsd/phase-{phase_number}-{phase_slug}`, and continue. Never auto-select "override".
+
+Otherwise block with:
 ```
 ⛔ Branch Guard: You are on {CURRENT_BRANCH}
 
