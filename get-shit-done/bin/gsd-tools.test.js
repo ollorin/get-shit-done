@@ -1265,6 +1265,25 @@ describe('roadmap analyze command', () => {
     assert.strictEqual(output.error, 'ROADMAP.md not found');
   });
 
+  test('accepts **Goal**: form and bullet-list milestones', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      `# Roadmap
+
+## Milestones
+
+- \u{1F6A7} **v0.0.1 Stack spike** - Phases 1-4
+
+### Phase 1: Spike
+**Goal**: Prove the stack
+**Depends on:** Nothing
+`
+    );
+    const out = JSON.parse(runGsdTools('roadmap analyze', tmpDir).output);
+    assert.strictEqual(out.phases[0].goal, 'Prove the stack');
+    assert.deepStrictEqual(out.milestones, [{ heading: 'v0.0.1 Stack spike', version: 'v0.0.1' }]);
+  });
+
   test('parses phases with goals and disk status', () => {
     fs.writeFileSync(
       path.join(tmpDir, '.planning', 'ROADMAP.md'),

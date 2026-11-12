@@ -2205,7 +2205,7 @@ function cmdRoadmapGetPhase(cwd, phaseNum, raw) {
     const section = content.slice(headerIndex, sectionEnd).trim();
 
     // Extract goal if present
-    const goalMatch = section.match(/\*\*Goal:\*\*\s*([^\n]+)/i);
+    const goalMatch = section.match(ROADMAP_GOAL_RE);
     const goal = goalMatch ? goalMatch[1].trim() : null;
 
     // Phase 59-03 (MILE-38): extract depends_on the same way parseRoadmapPhases does (~L7274),
@@ -8956,7 +8956,7 @@ function parseRoadmapPhases(content, phasesDir, options) {
     const sectionEnd = nextHeader ? sectionStart + nextHeader.index : content.length;
     const section = content.slice(sectionStart, sectionEnd);
 
-    const goalMatch = section.match(/\*\*Goal:\*\*\s*([^\n]+)/i);
+    const goalMatch = section.match(ROADMAP_GOAL_RE);
     const goal = goalMatch ? goalMatch[1].trim() : null;
 
     const dependsMatch = section.match(/\*\*Depends on:\*\*\s*([^\n]+)/i);
@@ -9010,6 +9010,11 @@ function parseRoadmapPhases(content, phasesDir, options) {
 
 // ─── Roadmap Analysis ─────────────────────────────────────────────────────────
 
+// Accepts both `**Goal:** x` (canonical) and `**Goal**: x`.
+const ROADMAP_GOAL_RE = /\*\*Goal(?::\*\*|\*\*:)\s*([^\n]+)/i;
+// `**vX.Y.Z Name**` milestone entries (the ## Milestones bullet list).
+const MILESTONE_ENTRY_RE = /\*\*v([\d.]+)\s+([^*()\n]+?)\s*\*\*/g;
+
 function cmdRoadmapAnalyze(cwd, raw) {
   const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
 
@@ -9032,6 +9037,12 @@ function cmdRoadmapAnalyze(cwd, raw) {
       heading: mMatch[1].trim(),
       version: 'v' + mMatch[2],
     });
+  }
+
+  for (const m of content.matchAll(MILESTONE_ENTRY_RE)) {
+    const version = 'v' + m[1];
+    if (milestones.some(x => x.heading.includes(version))) continue;
+    milestones.push({ heading: `${version} ${m[2].trim()}`, version });
   }
 
   // Find current and next phase
@@ -11396,7 +11407,7 @@ function getMilestoneInfo(cwd) {
   try {
     const roadmap = fs.readFileSync(path.join(cwd, '.planning', 'ROADMAP.md'), 'utf-8');
     // Match all "**vX.Y.Z Name**" entries (from the ## Milestones bullet list)
-    const entries = [...roadmap.matchAll(/\*\*v([\d.]+)\s+([^*()\n]+?)\s*\*\*/g)];
+    const entries = [...roadmap.matchAll(MILESTONE_ENTRY_RE)];
     if (entries.length > 0) {
       const last = entries[entries.length - 1];
       return { version: 'v' + last[1], name: last[2].trim() };

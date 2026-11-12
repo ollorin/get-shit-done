@@ -27,14 +27,14 @@ Decimal phases appear between their surrounding integers in numeric order.
 ## Phase Details
 
 ### Phase 1: [Name]
-**Goal**: [What this phase delivers]
-**Depends on**: Nothing (first phase)
-**Requirements**: [REQ-01, REQ-02, REQ-03]
+**Goal:** [What this phase delivers]
+**Depends on:** Nothing (first phase)
+**Requirements:** [REQ-01, REQ-02, REQ-03]
 **Success Criteria** (what must be TRUE):
   1. [Observable behavior from user perspective]
   2. [Observable behavior from user perspective]
   3. [Observable behavior from user perspective]
-**Plans**: [Number of plans, e.g., "3 plans" or "TBD"]
+**Plans:** [Number of plans, e.g., "3 plans" or "TBD"]
 
 Plans:
 - [ ] 01-01: [Brief description of first plan]
@@ -42,50 +42,50 @@ Plans:
 - [ ] 01-03: [Brief description of third plan]
 
 ### Phase 2: [Name]
-**Goal**: [What this phase delivers]
-**Depends on**: Phase 1
-**Requirements**: [REQ-04, REQ-05]
+**Goal:** [What this phase delivers]
+**Depends on:** Phase 1
+**Requirements:** [REQ-04, REQ-05]
 **Success Criteria** (what must be TRUE):
   1. [Observable behavior from user perspective]
   2. [Observable behavior from user perspective]
-**Plans**: [Number of plans]
+**Plans:** [Number of plans]
 
 Plans:
 - [ ] 02-01: [Brief description]
 - [ ] 02-02: [Brief description]
 
 ### Phase 2.1: Critical Fix (INSERTED)
-**Goal**: [Urgent work inserted between phases]
-**Depends on**: Phase 2
+**Goal:** [Urgent work inserted between phases]
+**Depends on:** Phase 2
 **Success Criteria** (what must be TRUE):
   1. [What the fix achieves]
-**Plans**: 1 plan
+**Plans:** 1 plan
 
 Plans:
 - [ ] 02.1-01: [Description]
 
 ### Phase 3: [Name]
-**Goal**: [What this phase delivers]
-**Depends on**: Phase 2
-**Requirements**: [REQ-06, REQ-07, REQ-08]
+**Goal:** [What this phase delivers]
+**Depends on:** Phase 2
+**Requirements:** [REQ-06, REQ-07, REQ-08]
 **Success Criteria** (what must be TRUE):
   1. [Observable behavior from user perspective]
   2. [Observable behavior from user perspective]
   3. [Observable behavior from user perspective]
-**Plans**: [Number of plans]
+**Plans:** [Number of plans]
 
 Plans:
 - [ ] 03-01: [Brief description]
 - [ ] 03-02: [Brief description]
 
 ### Phase 4: [Name]
-**Goal**: [What this phase delivers]
-**Depends on**: Phase 3
-**Requirements**: [REQ-09, REQ-10]
+**Goal:** [What this phase delivers]
+**Depends on:** Phase 3
+**Requirements:** [REQ-09, REQ-10]
 **Success Criteria** (what must be TRUE):
   1. [Observable behavior from user perspective]
   2. [Observable behavior from user perspective]
-**Plans**: [Number of plans]
+**Plans:** [Number of plans]
 
 Plans:
 - [ ] 04-01: [Brief description]
@@ -152,8 +152,8 @@ After completing first milestone, reorganize with milestone groupings:
 <summary>✅ v1.0 MVP (Phases 1-4) - SHIPPED YYYY-MM-DD</summary>
 
 ### Phase 1: [Name]
-**Goal**: [What this phase delivers]
-**Plans**: 3 plans
+**Goal:** [What this phase delivers]
+**Plans:** 3 plans
 
 Plans:
 - [x] 01-01: [Brief description]
@@ -169,9 +169,9 @@ Plans:
 **Milestone Goal:** [What v1.1 delivers]
 
 #### Phase 5: [Name]
-**Goal**: [What this phase delivers]
-**Depends on**: Phase 4
-**Plans**: 2 plans
+**Goal:** [What this phase delivers]
+**Depends on:** Phase 4
+**Plans:** 2 plans
 
 Plans:
 - [ ] 05-01: [Brief description]
