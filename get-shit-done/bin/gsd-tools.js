@@ -84,6 +84,7 @@
  *   verify artifacts <plan-file>       Check must_haves.artifacts
  *   verify key-links <plan-file>       Check must_haves.key_links
  *   verify migration-timestamps         Scan migrations/ for duplicate timestamps; auto-resolve by rename
+ *   verify phase-gate <phase> [--pre-verifier]  (--pre-verifier: skip verification+ui_qa artifacts the verifier writes)
  *   verify phase-gate <phase>          Deterministic 5-artifact phase gate (test/ui_qa/docs/
  *                                       e2e_plan/verification); honors DEFERRED.json waivers; exits
  *                                       1 on failed checks, 2 on malformed plan/waiver data
@@ -275,7 +276,9 @@ function isUIFile(filePath) {
   if (UI_FILE_PATTERNS.some(ext => filePath.endsWith(ext))) return true;
   const isRoutePath = /(^|\/)(app|pages|routes)\//.test(filePath);
   const isApiPath = /(^|\/)api\//.test(filePath);
-  if (isRoutePath && !isApiPath) {
+  // Plain script/data files under a route dir are endpoints or helpers, not UI; only markup-like files count.
+  const isScriptOrData = /\.(ts|js|mjs|cjs|json)$/.test(filePath);
+  if (isRoutePath && !isApiPath && !isScriptOrData) {
     // A route-directory file with a non-standard-UI extension (rare -- most
     // route files already carry a UI extension caught above). Still excludes
     // api/ sub-paths and config/declaration files handled above.
@@ -7382,7 +7385,7 @@ function readPhaseVerification(phaseDir, phaseNumber) {
 // every numbered PLAN has a SUMMARY whose Self-Check is PASSED, every plan has
 // at least one commit tagged {N}-{NN}, and {N}-VERIFICATION.md says passed.
 // Shared by cmdPhaseComplete and cmdVerifyPhaseGate so they cannot disagree.
-function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles) {
+function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles, opts = {}) {
   const errors = [];
   const planFiles = dirFiles.filter(f => /-\d{2}-PLAN\.md$/i.test(f)).sort();
   if (planFiles.length === 0) {
@@ -7457,7 +7460,10 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles) {
     }
   }
   const verification = readPhaseVerification(phaseDir, phaseNumber);
-  if (!verification.exists) {
+  // Pre-verifier mode: the verifier produces this artifact, so demanding it earlier is circular.
+  if (opts.preVerifier) {
+    // intentionally no verification-artifact error
+  } else if (!verification.exists) {
     errors.push(`${verification.fileName} not found — verifier must run before phase can be marked complete`);
   } else if (verification.status !== 'passed') {
     errors.push(`${verification.fileName} status is ${verification.status} — must be passed before phase complete`);
@@ -7476,7 +7482,7 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles) {
   };
 }
 
-function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
+function cmdVerifyPhaseGate(cwd, phaseArg, raw, opts = {}) {
   const inputs = loadPhaseGateInputs(cwd, phaseArg);
   if (inputs.error) {
     process.stdout.write(JSON.stringify(inputs.error, null, 2));
@@ -7484,10 +7490,13 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
     return;
   }
   const { phaseInfo, phaseDir, dirFiles, touchedFiles, touchedWarnings, hasUi, malformedPlans, validPlans } = inputs;
-  const evidence = collectPhaseEvidenceErrors(cwd, phaseInfo.phase_number, phaseDir, dirFiles);
+  const evidence = collectPhaseEvidenceErrors(cwd, phaseInfo.phase_number, phaseDir, dirFiles, opts);
+  const preVerifier = opts.preVerifier === true;
   const hasApi = computeHasApi(touchedFiles, apiDetectionOpts(cwd));
   const uiQaMode = projectContext.uiQaMode(cwd);
   const uiQaRequired = (hasUi || hasApi) && uiQaMode !== 'none';
+  // ui_qa_ran is written by the verifier (Step 8c), so the pre-verifier gate cannot require it either.
+  const uiQaCheckRequired = uiQaRequired && !preVerifier;
 
   // Waiver lookup -- shared with `deferred add`/`deferred list` (45-03) via
   // readDeferredWaivers(), so all three code paths agree on what counts as a
@@ -7529,7 +7538,7 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
     // Evidence comes from the verifier's {N}-VERIFICATION.md frontmatter, not
     // the coordinator-written CHECKPOINT.json; only a YAML boolean true counts. Alias group: any true key wins.
     evaluatePhaseGateCheck(
-      'ui_qa', uiQaRequired,
+      'ui_qa', uiQaCheckRequired,
       () => evidence.verification.data.charlotte_qa_ran === true || evidence.verification.data.ui_qa_ran === true,
       waivers, phaseInfo.phase_number,
       'missing_charlotte_qa'
@@ -7546,7 +7555,7 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
       e2eGenFailure ? 'e2e_generation_failed' : undefined
     ),
     evaluatePhaseGateCheck(
-      'verification', true,
+      'verification', !preVerifier,
       () => evidence.verification.exists,
       waivers, phaseInfo.phase_number
     ),
@@ -7561,6 +7570,7 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw) {
   const result = {
     phase: phaseInfo.phase_number,
     passed,
+    pre_verifier: preVerifier,
     checks,
     failures,
     malformed_plans: malformedPlans,
@@ -14631,7 +14641,7 @@ async function main() {
       } else if (subcommand === 'dependency-stability') {
         cmdVerifyDependencyStability(cwd, args[2], raw);
       } else if (subcommand === 'phase-gate') {
-        cmdVerifyPhaseGate(cwd, args[2], raw);
+        cmdVerifyPhaseGate(cwd, args[2], raw, { preVerifier: args.includes('--pre-verifier') });
       } else if (subcommand === 'e2e-gaps') {
         cmdVerifyE2EGaps(cwd, args[2], raw);
       } else if (subcommand === 'test-content') {

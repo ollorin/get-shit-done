@@ -649,10 +649,12 @@ Before proceeding to verification, these gates must pass. They cannot be deferre
 
 **Gate 1 — Deterministic phase-gate (BLOCKING):**
 
+`--pre-verifier` exempts the two artifacts the verifier itself writes (`{N}-VERIFICATION.md` existence/status and `ui_qa_ran`); running the gate without it before the verifier is circular. The final gate (after the verifier, no flag) still requires both.
+
 Run the deterministic, git-diff-derived phase gate instead of self-reporting artifact existence. This single call replaces the prior "check `type: frontend`/`checkpoint: ui-qa`/`.tsx`/`.jsx` by hand" prose — it covers UI QA evidence, plus test/docs/e2e-plan/verification existence, from actual touched files and waivers, not plan self-reports:
 
 ```bash
-PHASE_GATE_RESULT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" verify phase-gate "${PHASE}")
+PHASE_GATE_RESULT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" verify phase-gate "${PHASE}" --pre-verifier)
 PHASE_GATE_EXIT=$?
 ```
 

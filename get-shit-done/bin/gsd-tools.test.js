@@ -5253,6 +5253,37 @@ describe('diff-based HAS_UI detection matrix (Phase 45-02)', () => {
     assert.strictEqual(parsed.has_ui, false, 'pages/api/*.ts is an API route despite living under pages/, must not trigger UI checks');
   });
 
+  test('pages/probe.ts (script under pages/, not under api/) is not UI -> has_ui=false, no e2e gap', () => {
+    const phaseDir = phaseDirPath('45-pagests');
+    fs.mkdirSync(path.join(phaseDir, 'pages'), { recursive: true });
+    fs.writeFileSync(
+      path.join(phaseDir, '45-01-PLAN.md'),
+      `---\nphase: "45"\nplan: "01"\ntype: execute\nfiles_modified: []\n---\n<tasks>\n<task type="auto">\n<name>Task 1</name>\n<action>do stuff</action>\n</task>\n</tasks>\n`
+    );
+    fs.writeFileSync(path.join(phaseDir, 'pages', 'probe.ts'), 'export const probe = () => ({ ok: true });\n');
+    commitAll('feat(45-01): pages/probe.ts JSON endpoint');
+    const parsed = JSON.parse(runPhaseGate('45', tmpDir).output);
+    assert.strictEqual(parsed.has_ui, false);
+    assert.deepStrictEqual(parsed.e2e_gaps, []);
+  });
+
+  test('--pre-verifier does not require {N}-VERIFICATION.md; the final gate still does', () => {
+    const phaseDir = phaseDirPath('45-preverifier');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(phaseDir, '45-01-PLAN.md'),
+      `---\nphase: "45"\nplan: "01"\ntype: execute\nfiles_modified: []\n---\n<tasks>\n<task type="auto">\n<name>Task 1</name>\n<action>do stuff</action>\n</task>\n</tasks>\n`
+    );
+    fs.writeFileSync(path.join(phaseDir, '45-01-SUMMARY.md'), '# S\n\n## Self-Check: PASSED\n');
+    commitAll('feat(45-01): plan with summary, no verification yet');
+    const pre = JSON.parse(runPhaseGate('45 --pre-verifier', tmpDir).output);
+    assert.strictEqual(pre.pre_verifier, true);
+    assert.ok(!pre.failures.includes('missing_verification'), JSON.stringify(pre.failures));
+    assert.strictEqual(pre.evidence_errors.filter(e => /VERIFICATION/.test(e)).length, 0);
+    const final = JSON.parse(runPhaseGate('45', tmpDir).output);
+    assert.ok(final.evidence_errors.some(e => /VERIFICATION/.test(e)), 'final gate must still demand the artifact');
+  });
+
   test('app/api/users/route.ts (API route under app/) alone is not flagged as UI -> has_ui=false', () => {
     const phaseDir = phaseDirPath('45-appapi');
     fs.mkdirSync(phaseDir, { recursive: true });
