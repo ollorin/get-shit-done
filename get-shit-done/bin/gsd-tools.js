@@ -2898,6 +2898,8 @@ function cmdFindPhase(cwd, phase, raw) {
   }
 }
 
+const COMMIT_USAGE = 'Usage: gsd-tools commit "<message>" [--files <path...>] [--trailer "Token: value"]... [--amend] [--cwd <dir>]';
+
 function cmdCommit(cwd, message, files, raw, amend, trailers = []) {
   if (!message && !amend) {
     error('commit message required');
@@ -2910,18 +2912,29 @@ function cmdCommit(cwd, message, files, raw, amend, trailers = []) {
     error('--trailer cannot be combined with --amend');
   }
 
+  // Resolve the repo explicitly: the git toplevel of cwd must also hold the .planning this commit is about.
+  const top = execGit(cwd, ['rev-parse', '--show-toplevel']);
+  if (top.exitCode !== 0) {
+    error(`commit: ${cwd} is not inside a git repository (pass --cwd <project> or cd into the project)`);
+  }
+  const repoRoot = top.stdout;
+  if (!fs.existsSync(path.join(findProjectRoot(cwd), '.planning')) && !fs.existsSync(path.join(repoRoot, '.planning'))) {
+    error(`commit: no .planning found in ${cwd} or above (git repo ${repoRoot}); pass --cwd <project> or cd into the project`);
+  }
+  const resolved = { repo_root: repoRoot };
+
   const config = loadConfig(cwd);
 
   // Check commit_docs config
   if (!config.commit_docs) {
-    const result = { committed: false, hash: null, reason: 'skipped_commit_docs_false' };
+    const result = { committed: false, hash: null, reason: 'skipped_commit_docs_false', ...resolved };
     output(result, raw, 'skipped');
     return;
   }
 
   // Check if .planning is gitignored
   if (isGitIgnored(cwd, '.planning')) {
-    const result = { committed: false, hash: null, reason: 'skipped_gitignored' };
+    const result = { committed: false, hash: null, reason: 'skipped_gitignored', ...resolved };
     output(result, raw, 'skipped');
     return;
   }
@@ -2939,19 +2952,17 @@ function cmdCommit(cwd, message, files, raw, amend, trailers = []) {
   const commitResult = execGit(cwd, commitArgs);
   if (commitResult.exitCode !== 0) {
     if (commitResult.stdout.includes('nothing to commit') || commitResult.stderr.includes('nothing to commit')) {
-      const result = { committed: false, hash: null, reason: 'nothing_to_commit' };
+      const result = { committed: false, hash: null, reason: 'nothing_to_commit', ...resolved };
       output(result, raw, 'nothing');
       return;
     }
-    const result = { committed: false, hash: null, reason: 'nothing_to_commit', error: commitResult.stderr };
-    output(result, raw, 'nothing');
-    return;
+    error(`commit: git commit failed in ${repoRoot}: ${commitResult.stderr || commitResult.stdout}`);
   }
 
   // Get short hash
   const hashResult = execGit(cwd, ['rev-parse', '--short', 'HEAD']);
   const hash = hashResult.exitCode === 0 ? hashResult.stdout : null;
-  const result = { committed: true, hash, reason: 'committed' };
+  const result = { committed: true, hash, reason: 'committed', ...resolved };
   output(result, raw, hash || 'committed');
 }
 
@@ -14904,11 +14915,29 @@ async function main() {
   const raw = rawIndex !== -1;
   if (rawIndex !== -1) args.splice(rawIndex, 1);
 
+  // Global --cwd <dir>: run every command against that project (process.cwd() everywhere follows).
+  const cwdIndex = args.indexOf('--cwd');
+  if (cwdIndex !== -1) {
+    const target = args[cwdIndex + 1];
+    if (!target || target.startsWith('--')) error('--cwd requires a directory');
+    args.splice(cwdIndex, 2);
+    try { process.chdir(path.resolve(target)); } catch (e) { error(`--cwd ${target}: ${e.message}`); }
+  }
+
   const command = args[0];
   const cwd = process.cwd();
 
+  // --help / -h anywhere after the command prints usage and does nothing else. Mutating subcommands take
+  // positional values, so `commit --help` once became a commit message and staged all of .planning.
+  if (command && command !== 'help' && args.slice(1).some(a => a === '--help' || a === '-h')) {
+    console.log(command === 'commit'
+      ? COMMIT_USAGE
+      : `Usage: gsd-tools ${command} <subcommand> [args] [--raw] [--cwd <dir>]\nRun gsd-tools ${command} without args for subcommand help. --help performs no action.`);
+    process.exit(0);
+  }
+
   if (!command || command === '--help' || command === 'help') {
-    console.log('Usage: gsd-tools <command> [args] [--raw]');
+    console.log('Usage: gsd-tools <command> [args] [--raw] [--cwd <dir>]');
     console.log('Commands: state, roadmap, execution-log, quota, config, phases, frontmatter, template, commit, verify, health, init, and more.');
     console.log('Run gsd-tools <command> without args for subcommand help.');
     process.exit(0);
@@ -14989,6 +15018,16 @@ async function main() {
     case 'commit': {
       const amend = args.includes('--amend');
       const message = args[1];
+      // Anything that looks like a flag where the message belongs, or a flag commit does not know, is refused before any git call.
+      const known = new Set(['--amend', '--files', '--trailer']);
+      for (let i = 1; i < args.length; i++) {
+        if (args[i] === '--trailer') { i++; continue; }
+        if (args[i] === '--files') { while (i + 1 < args.length && !args[i + 1].startsWith('--')) i++; continue; }
+        if (args[i].startsWith('--') && !known.has(args[i])) { process.stderr.write(`Error: commit: unknown flag ${args[i]}\n${COMMIT_USAGE}\n`); process.exit(1); }
+      }
+      if (typeof message === 'string' && message.startsWith('--') && !(amend && message === '--amend')) {
+        process.stderr.write(`Error: commit: message expected, got flag ${message}\n${COMMIT_USAGE}\n`); process.exit(1);
+      }
       // Parse --files flag (collect args after --files, stopping at other flags)
       // --trailer <line> is repeatable and appends a trailer paragraph to the message.
       const files = [];
@@ -14998,7 +15037,7 @@ async function main() {
         if (args[i] !== '--files') continue;
         while (i + 1 < args.length && !args[i + 1].startsWith('--')) files.push(args[++i]);
       }
-      cmdCommit(cwd, message, files, raw, amend, trailers);
+      cmdCommit(cwd, amend && message === '--amend' ? undefined : message, files, raw, amend, trailers);
       break;
     }
 

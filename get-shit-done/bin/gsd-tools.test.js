@@ -19123,3 +19123,86 @@ describe('pilot fix C3: phase complete takes the next phase from ROADMAP.md, not
     assert.strictEqual(out.next_phase, null);
   });
 });
+
+describe('pilot fix C4: commit resolves its repo explicitly and never commits on --help / unknown flags', () => {
+  let proj; let other;
+  const git = (dir, cmd) => execSync(`git ${cmd}`, { cwd: dir, encoding: 'utf8', stdio: 'pipe' }).trim();
+  function initRepo(dir) {
+    git(dir, 'init -q');
+    git(dir, 'config user.email t@example.com');
+    git(dir, 'config user.name T');
+  }
+  beforeEach(() => {
+    proj = createTempProject();
+    initRepo(proj);
+    fs.writeFileSync(path.join(proj, '.planning', 'STATE.md'), '# state\n');
+    git(proj, 'add -A'); git(proj, 'commit -q -m base');
+    other = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-test-other-'));
+    initRepo(other);
+  });
+  afterEach(() => { cleanup(proj); cleanup(other); });
+
+  test('commit --help prints usage, exit 0, no commit, nothing staged', () => {
+    fs.writeFileSync(path.join(proj, '.planning', 'NEW.md'), 'x\n');
+    const before = git(proj, 'rev-parse HEAD');
+    const r = runGsdTools('commit --help', proj);
+    assert.ok(r.success, r.error);
+    assert.match(r.output, /Usage: gsd-tools commit/);
+    assert.strictEqual(git(proj, 'rev-parse HEAD'), before);
+    assert.strictEqual(git(proj, 'diff --cached --name-only'), '');
+  });
+
+  test('an unknown flag on commit is refused with usage and no side effects', () => {
+    fs.writeFileSync(path.join(proj, '.planning', 'NEW.md'), 'x\n');
+    const before = git(proj, 'rev-parse HEAD');
+    const r = runGsdTools('commit "msg" --bogus', proj);
+    assert.strictEqual(r.success, false);
+    assert.match(r.error, /unknown flag --bogus/);
+    assert.strictEqual(git(proj, 'rev-parse HEAD'), before);
+    assert.strictEqual(git(proj, 'diff --cached --name-only'), '');
+  });
+
+  test('--help / -h on other mutating subcommands is also side-effect free', () => {
+    const snap = () => fs.readdirSync(path.join(proj, '.planning')).join(',') + fs.readFileSync(path.join(proj, '.planning', 'STATE.md'), 'utf8');
+    const before = snap();
+    for (const cmd of ['state update --help', 'state patch --help', 'state advance-plan --help', 'roadmap update-plan-progress --help', 'phase complete --help', 'phase add --help', 'phase remove -h', 'config-set --help', 'requirements mark-complete --help']) {
+      const r = runGsdTools(cmd, proj);
+      assert.ok(r.success, `${cmd}: ${r.error}`);
+      assert.match(r.output, /Usage: gsd-tools/, cmd);
+    }
+    assert.strictEqual(snap(), before);
+    assert.strictEqual(git(proj, 'status --porcelain'), '');
+  });
+
+  test('commit reports the repo root it resolved', () => {
+    fs.writeFileSync(path.join(proj, '.planning', 'A.md'), 'a\n');
+    const r = JSON.parse(runGsdTools('commit "docs: a"', proj).output);
+    assert.strictEqual(r.committed, true);
+    assert.strictEqual(fs.realpathSync(r.repo_root), fs.realpathSync(proj));
+  });
+
+  test('commit from a directory that is not a git repo with .planning fails loudly', () => {
+    const bare = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-test-bare-'));
+    try {
+      const r = runGsdTools('commit "x"', bare);
+      assert.strictEqual(r.success, false);
+      assert.match(r.error, /not inside a git repository|no \.planning/);
+      const r2 = runGsdTools('commit "x"', other);
+      assert.strictEqual(r2.success, false);
+      assert.match(r2.error, /no \.planning/);
+    } finally { cleanup(bare); }
+  });
+
+  test('global --cwd <dir> points every command at that project', () => {
+    fs.writeFileSync(path.join(proj, '.planning', 'A.md'), 'a\n');
+    const r = runGsdTools(`--cwd "${proj}" commit "docs: via cwd"`, other);
+    assert.ok(r.success, r.error);
+    const parsed = JSON.parse(r.output);
+    assert.strictEqual(parsed.committed, true);
+    assert.strictEqual(fs.realpathSync(parsed.repo_root), fs.realpathSync(proj));
+    assert.strictEqual(git(proj, 'log -1 --format=%s'), 'docs: via cwd');
+    const bad = runGsdTools(`--cwd "${proj}/nope" commit "x"`, other);
+    assert.strictEqual(bad.success, false);
+    assert.match(bad.error, /--cwd/);
+  });
+});
