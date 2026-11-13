@@ -3371,6 +3371,8 @@ function cmdPhasePlanIndex(cwd, phase, raw) {
   const waves = {};
   const incomplete = [];
   let hasCheckpoints = false;
+  // Spike runs one executor per plan, on its highest task tag but never below the executor floor; other rigours route per task.
+  const spikeFloor = rigour.resolveRigour(cwd, normalized, getMilestoneInfo(cwd).version).rigour === 'spike' ? executorModelFor(cwd, normalized) : null;
 
   for (const planFile of planFiles) {
     const planId = planFile.replace('-PLAN.md', '').replace('PLAN.md', '');
@@ -3418,6 +3420,7 @@ function cmdPhasePlanIndex(cwd, phase, raw) {
       task_count: taskCount,
       has_summary: hasSummary,
       gap_closure: fm.gap_closure === true || fm.gap_closure === 'true',
+      executor_model: spikeFloor ? formCheck.TIERS[Math.max(formCheck.TIERS.indexOf(spikeFloor), formCheck.TIERS.indexOf(formCheck.highestTier(formCheck.planTasks(content))))] : null,
       depends_on: Array.isArray(fm.depends_on) ? fm.depends_on.map(String) : (fm.depends_on ? [String(fm.depends_on)] : []),
     };
 
@@ -12552,6 +12555,7 @@ function cmdRoadmapNext(cwd, args, raw) {
     truth,
     ownerGate: { blocked_by: gateView.blocked_by_owner_gate, status: gateView.blocked_by_owner_gate ? ((ownerGates.find(ownerGates.readAll(cwd), gateView.blocked_by_owner_gate, getMilestoneInfo(cwd).version) || {}).status || 'not_requested') : null, pr_waiting: gateView.pr_waiting },
     retryParked: args.includes('--retry-parked'),
+    hasCheckpoint: (k) => { const info = findPhaseInternal(cwd, k); return !!info && fs.existsSync(path.join(cwd, info.directory, 'CHECKPOINT.json')); },
     gateMarked: dispatch.hasEvent(events, 'gate_pre_pr_passed'),
     riskDomains: (k) => phaseRiskFields(cwd, k).phase_risk_domains,
     prRecorded: dispatch.hasEvent(events, 'pr_created') || dispatch.hasEvent(events, 'pr_requested') || dispatch.hasEvent(events, 'pr_skipped'),

@@ -139,6 +139,7 @@ issue:
 - Missing `<done>` — no acceptance criteria
 - Vague `<action>` — "implement auth" instead of specific steps
 - Empty `<files>` — what gets created?
+- Tier tag that does not fit the task (warning; the planner fixes it in its revision): a task tagged `haiku` that designs an investigation or probe, has an unclear root cause, makes an architecture choice, or sits in one of the phase's risk domains. A mechanical task tagged above `haiku` is no finding.
 
 **Example issue:**
 ```yaml

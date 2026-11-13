@@ -82,7 +82,7 @@ Every task that creates or modifies implementation files (.ts, .tsx, .js) MUST b
 
 **No suite yet:** when `commands_not_configured` lists `test_file` or `test_all` and the project has no test suite, there is no existing suite to extend. The tdd task then names the new test file at the project's conventional test location (from the stack profile's `stack.paths`, else beside the code), written so a runner can pick it up later; that first file is the suite's seed and is not a MANDATE-8 helper. Its evidence is the capture file described under MANDATE-6.
 
-Tier tag: tag every task with its executor tier whatever the `model_profile` (quality, balanced, budget or auto), either a `<model>haiku|sonnet|opus</model>` element or a `tier="Haiku|Sonnet|Opus"` attribute on `<task>` (parsed case-insensitively; untagged tasks run on the project default, haiku). Format: `references/planner-detail.md` "Tier Tag Format".
+Tier tag (mandatory; `verify form` fails an untagged task): tag every task with the model that executes it, a `<model>haiku|sonnet|opus</model>` element or a `tier="..."` attribute on `<task>`. `haiku` = a decomposed mechanical change with exact files and steps; `sonnet` = judgement, investigation or probe design, multi-file design, debugging; `opus` = only what the risk add-ons name. When unsure, take the higher tier. Format: `references/planner-detail.md` "Tier Tag Format".
 
 The test task must cover:
 - (a) New behavior in the changed/created files

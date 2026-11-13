@@ -8,8 +8,8 @@ const { evPhase, phaseKey } = require('./roadmap-dispatch.js');
 
 const DEFAULTS = {
   spike: { wall_minutes: 45, dispatches: 10 },
-  standard: { wall_minutes: 90, dispatches: 12 },
-  risk: { wall_minutes: 150, dispatches: 20 },
+  standard: { wall_minutes: 90, dispatches: 37 },
+  risk: { wall_minutes: 150, dispatches: 45 },
 };
 
 const rawConfig = (cwd) => {

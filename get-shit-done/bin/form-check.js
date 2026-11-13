@@ -10,6 +10,17 @@ const CITE = /\b(?:DECISIONS|ROADMAP)\.md:\d+/;
 const read = (f) => { try { return fs.readFileSync(f, 'utf8'); } catch { return null; } };
 const lineCount = (text) => text.replace(/\n$/, '').split('\n').length;
 const taskCount = (text) => (text.match(/<task(?=[\s>])/g) || []).length;
+const TIERS = ['haiku', 'sonnet', 'opus'];
+// Each <task>'s tier: the <model> element, else the tier="" attribute of the <task> tag (case-insensitive); null when absent or not a tier.
+function planTasks(text) {
+  return (text.match(/<task(?=[\s>])[\s\S]*?(?:<\/task>|$)/g) || []).map((t, i) => {
+    const raw = (t.match(/<model>\s*([^<\s]*)\s*<\/model>/i) || t.match(/^<task\b[^>]*\btier\s*=\s*["']([^"']*)["']/i) || [])[1];
+    const tier = raw && TIERS.includes(raw.toLowerCase()) ? raw.toLowerCase() : null;
+    const name = (t.match(/<name>\s*([\s\S]*?)\s*<\/name>/i) || [])[1];
+    return { name: name || `task ${i + 1}`, tier };
+  });
+}
+const highestTier = (tasks) => tasks.reduce((hi, t) => (t.tier && TIERS.indexOf(t.tier) > TIERS.indexOf(hi) ? t.tier : hi), 'haiku');
 const outsidePlanning = (f) => typeof f === 'string' && !/^(\.\/)?\.planning(\/|$)/.test(f.trim());
 
 // Plan-time checks (blocking, planner fixes before plan-check). Executed plans (a SUMMARY exists) are never reported:
@@ -26,6 +37,8 @@ function checkPlans(phaseDir, dirFiles, level) {
     const tasks = taskCount(text);
     if (lines > caps.lines) errors.push({ file: f, check: 'plan_lines', message: `${lines} lines exceed the ${level} cap of ${caps.lines}` });
     if (tasks > caps.tasks) errors.push({ file: f, check: 'plan_tasks', message: `${tasks} tasks exceed the ${level} cap of ${caps.tasks}` });
+    const untagged = planTasks(text).filter((t) => !t.tier).map((t) => t.name);
+    if (untagged.length > 0) errors.push({ file: f, check: 'task_tier_missing', message: `no tier tag (<model>haiku|sonnet|opus</model> or tier="..." on <task>) on: ${untagged.join('; ')}` });
     let fm = {};
     try { fm = matter(text).data || {}; } catch { /* malformed frontmatter is reported by plan-structure */ }
     const files = Array.isArray(fm.files_modified) ? fm.files_modified : [];
@@ -47,4 +60,4 @@ function checkLineCites(cwd, phaseDir, dirFiles) {
   return errors;
 }
 
-module.exports = { CAPS, checkPlans, checkLineCites };
+module.exports = { CAPS, TIERS, planTasks, highestTier, checkPlans, checkLineCites };

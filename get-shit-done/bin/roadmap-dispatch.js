@@ -126,7 +126,7 @@ function next(input) {
       log.push({ type: 'gap_cycle', phase: k });
       return { ...common, action: 'gap_cycle', args: `${k} --gaps --auto`, log };
     }
-    const resumed = s.state === 'running';
+    const resumed = s.state === 'running' || (s.state === 'parked' && input.retryParked === true && !!input.hasCheckpoint && input.hasCheckpoint(k));
     log.push({ type: 'phase_start', phase: k, name: p.name, resumed });
     return { ...common, action: 'spawn_coordinator', args: `${k} --auto${cfg.legacy ? ' --legacy' : ''}`, resumed, log };
   }

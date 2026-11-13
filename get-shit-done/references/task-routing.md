@@ -1,15 +1,14 @@
-# Per-task executor routing (model_profile auto)
+# Per-task executor routing
 
-Used by `workflows/execute-phase.md` `execute_waves` when `model_profile` in `.planning/config.json` is `auto` and at least one task of the plan carries an explicit tier. Otherwise the plan-level spawns of execute-phase apply unchanged. The tool does the arithmetic (`routing escalation-decision`, `quota status`); this file only sequences it. Models come from init: `{executor_model}` is the default implementer tier, `{utility_model}` the conservation tier, `{reviewer_model}` the first escalation target.
+The standard path of `workflows/execute-phase.md` `execute_waves` at every rigour except spike (a spike plan is one executor on `executor_model`). The tool does the arithmetic (`routing escalation-decision`); this file only sequences it. Models come from init: `{reviewer_model}` is the first escalation target.
 
 <step name="per_task_routing">
 
-**1. Read the tiers.** For each `<task>` of the plan (1-based `task_index`), in dependency and wave order: the tier is the `<model>` element text, else the `tier="..."` attribute of the `<task>` tag, else a legacy `[tier]` prefix of the task name (all matched case-insensitively against the tier names the profile knows); with none of them the task takes `{executor_model}`. `PER_TASK_MODE` is true when at least one task has an explicit tier; otherwise the plan is spawned at plan level with `{executor_model}`. Keep `ROUTING_STATS` (count per tier).
+**1. Read the tiers.** For each `<task>` of the plan (1-based `task_index`), in dependency and wave order: the tier is the `<model>` element text, else the `tier="..."` attribute of the `<task>` tag, case-insensitive; `verify form --plans-only` guarantees one exists. Keep `ROUTING_STATS` (count per tier).
 
 **2. Spawn one executor per task, sequentially** (tasks may depend on each other). For each task:
 
-1. Quota downgrade (fail open): `node ~/.claude/get-shit-done/bin/gsd-tools.js quota status --json`; when the command succeeds and `session.percent > 95` the tier becomes `{utility_model}`; when `> 80` and the tier is the top tier it becomes `{reviewer_model}`; when the command fails keep the tier.
-2. `ROUTING_STATS[TASK_TIER] += 1`, then spawn:
+1. `ROUTING_STATS[TASK_TIER] += 1`, then spawn:
 
 ```
 Agent(
@@ -39,21 +38,14 @@ Agent(
     <routing_context>
     Per-task routing active. This task routed to {TASK_TIER}.
     Task index: {task_index}
-    Quota at spawn: {session_percent}%
     </routing_context>
     <resume_from_task>{task_index}</resume_from_task>
   "
 )
 ```
 
-3. Log the dispatch (best-effort):
-```bash
-node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
-  --type task_dispatch \
-  --data '{"phase":{phase_number},"plan":"{plan_file}","task_index":{task_index},"task_name":"{task_name}","tier":"{TASK_TIER}","quota_pct":{session_percent},"quota_adjusted":{true_if_downgraded}}'
-```
-4. Wait for the executor to finish before spawning the next task.
-5. On return, derive the task type once (best-effort; on failure use `other`): `node ~/.claude/get-shit-done/bin/gsd-tools.js routing task-type "{task_name}" --raw`.
+2. Wait for the executor to finish before spawning the next task.
+3. On return, derive the task type once (best-effort; on failure use `other`): `node ~/.claude/get-shit-done/bin/gsd-tools.js routing task-type "{task_name}" --raw`.
 
 **3. Success** (the return does not contain `TASK FAILED:`): log ONE outcome and record token usage (best-effort, never blocks), then go to the next task.
 ```bash
@@ -74,7 +66,7 @@ node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event --type task_ou
 node ~/.claude/get-shit-done/bin/gsd-tools.js token-usage record \
   --phase {phase_number} --plan "{plan_file}" --task-index {task_index} --task-name "{task_name}" --tier "{CURRENT_SIGNAL_TIER}" --raw
 ```
-3. `EFFECTIVE_ESCALATE` true and quota allows (`session_percent < 95`): log `tier_escalation`, move one count in `ROUTING_STATS`, `ESCALATIONS_USED += 1`, re-spawn the same task with `TASK_TIER = DECISION_JSON.next_tier`, wait.
+3. `EFFECTIVE_ESCALATE` true: log `tier_escalation`, move one count in `ROUTING_STATS`, `ESCALATIONS_USED += 1`, re-spawn the same task with `TASK_TIER = DECISION_JSON.next_tier`, wait.
 ```bash
 node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event --type tier_escalation \
   --data '{"phase":{phase_number},"plan":"{plan_file}","task_index":{task_index},"task_name":"{task_name}","task_type":"{TASK_TYPE_FOR_LOGGING}","from_tier":"{CURRENT_SIGNAL_TIER}","to_tier":"{DECISION_JSON.next_tier}","reason":"{EFFECTIVE_REASON}"}'

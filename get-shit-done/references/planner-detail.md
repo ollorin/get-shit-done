@@ -476,7 +476,7 @@ After completion, create `.planning/phases/XX-name/{phase}-{plan}-SUMMARY.md`
 
 ## Tier Tag Format
 
-Under every `model_profile`, each task carries a `<model>` element written by the planner:
+Every task carries a tier tag written by the planner, a `<model>` element or a `tier="..."` attribute on `<task>`; `verify form --plans-only` fails a plan with an untagged task:
 
 ```xml
 <task type="auto">
@@ -486,7 +486,7 @@ Under every `model_profile`, each task carries a `<model>` element written by th
 </task>
 ```
 
-Valid values: `haiku`, `sonnet`, `opus`. If no `<model>` element is present, the coordinator defaults to sonnet (unchanged behavior). The element is written by the planner after drafting — it is NOT part of the human-authored task content.
+Valid values (case-insensitive): `haiku`, `sonnet`, `opus`. Execution runs each task on its tag (a spike plan: one executor on the plan's highest tag).
 
 ## Frontmatter Fields
 

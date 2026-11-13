@@ -105,7 +105,7 @@ describe('R5-5: at spike the executor resolves to sonnet', () => {
     assert.strictEqual(model(spikeProject({ model_profile: 'quality' })), 'opus');
   });
   test('rigour.md and model-profiles.md say so', () => {
-    assert.match(doc('get-shit-done/references/rigour.md'), /`executor_model` \(and with it the fix dispatch\) resolves to `sonnet`/);
+    assert.match(doc('get-shit-done/references/rigour.md'), /`executor_model` \(the floor, and with it the fix dispatch\) resolves to `sonnet`/);
     assert.match(doc('get-shit-done/references/model-profiles.md'), /raised from `haiku` to `sonnet`/);
   });
 });

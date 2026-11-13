@@ -108,7 +108,7 @@ const spikeProject = ({ planExtra = '' } = {}) => {
   fs.writeFileSync(rm, fs.readFileSync(rm, 'utf8').replace('**Depends on:** None', '**Rigour**: spike (OG2)\n**Spike roots**: spike/\n**Depends on:** None'));
   write(dir, '.planning/OWNER-GATES.json', JSON.stringify({ version: 1, gates: [{ id: 'roadmap@current', kind: 'roadmap', milestone: null, status: 'approved', rigour: { spike_phases: ['1'], spike_roots: ['spike/'] } }] }));
   const pd = phaseDir(dir, 1);
-  write(dir, '.planning/phases/01-p1/01-01-PLAN.md', `---\nphase: 01\nplan: 01\nplan_stamp: abc\nfiles_modified:\n  - .planning/phases/01-p1/captures/a.txt\n${planExtra}---\n# Plan\n<tasks>\n<task type="auto" tdd="true">x</task>\n</tasks>\n`);
+  write(dir, '.planning/phases/01-p1/01-01-PLAN.md', `---\nphase: 01\nplan: 01\nplan_stamp: abc\nfiles_modified:\n  - .planning/phases/01-p1/captures/a.txt\n${planExtra}---\n# Plan\n<tasks>\n<task type="auto" tdd="true"><model>sonnet</model>x</task>\n</tasks>\n`);
   write(dir, '.planning/phases/01-p1/01-01-SUMMARY.md', '# S\n\nauth flow probe.\n\n## Self-Check: PASSED\n');
   write(dir, '.planning/phases/01-p1/01-VERIFICATION.md', '---\nstatus: passed\nopen_critical_high: 0\n---\n# V\n');
   write(dir, '.planning/phases/01-p1/SPIKE-RESULT.md', '# R\n\n| Question | Answer | Capture | Probe | Root cause or search |\n|---|---|---|---|---|\n| Q0 base | yes | | | |\n');
@@ -191,12 +191,12 @@ describe('item 7: the final spend survives phase completion', () => {
     const ev = events(dir).filter((e) => e.type === 'phase_complete').pop();
     assert.strictEqual(ev.dispatches_spent, 3);
     assert.strictEqual(typeof ev.wall_minutes_spent, 'number');
-    assert.deepStrictEqual([ev.budget_dispatches, ev.budget_wall_minutes, ev.breach], [12, 90, false]);
+    assert.deepStrictEqual([ev.budget_dispatches, ev.budget_wall_minutes, ev.breach], [37, 90, false]);
   });
   test('budget status --phase on a completed phase returns the recorded spend, not zero', () => {
     const { dir } = completed();
     const b = gsd(dir, ['budget', 'status', '--phase', '1']).json;
-    assert.deepStrictEqual([b.dispatches_spent, b.budget_dispatches, b.breach, b.final], [3, 12, false, true]);
+    assert.deepStrictEqual([b.dispatches_spent, b.budget_dispatches, b.breach, b.final], [3, 37, false, true]);
   });
   test('a breach is recorded as such', () => {
     const dir = project();

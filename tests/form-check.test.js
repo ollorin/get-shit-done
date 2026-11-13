@@ -8,7 +8,7 @@ const { makeProject, gsd, writeEvidence, git } = require('./helpers/roadmap-fixt
 const dirs = [];
 const project = () => { const d = makeProject([{ n: '1', name: 'one' }], {}); dirs.push(d); return d; };
 afterEach(() => { while (dirs.length) fs.rmSync(dirs.pop(), { recursive: true, force: true }); });
-const plan = (n, { lines = 0, tasks = 1, files = ['src/a.js'] } = {}) => `---\nphase: 01\nplan: ${n}\nplan_stamp: abc\nfiles_modified:\n${files.map((f) => `  - ${f}`).join('\n')}\n---\n# Plan\n<tasks>\n${'<task type="auto">x</task>\n'.repeat(tasks)}</tasks>\n${'\n'.repeat(lines)}`;
+const plan = (n, { lines = 0, tasks = 1, files = ['src/a.js'] } = {}) => `---\nphase: 01\nplan: ${n}\nplan_stamp: abc\nfiles_modified:\n${files.map((f) => `  - ${f}`).join('\n')}\n---\n# Plan\n<tasks>\n${'<task type="auto"><model>haiku</model>x</task>\n'.repeat(tasks)}</tasks>\n${'\n'.repeat(lines)}`;
 const setPlan = (dir, text, n = '01', executed = false) => { const pd = writeEvidence(dir, 1); fs.writeFileSync(path.join(pd, `01-${n}-PLAN.md`), text); if (!executed) fs.rmSync(path.join(pd, '01-01-SUMMARY.md'), { force: true }); return pd; };
 const form = (dir, ...a) => gsd(dir, ['verify', 'form', '1', ...a]);
 const checks = (r) => r.json.errors.map((e) => e.check);

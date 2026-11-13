@@ -20,15 +20,15 @@ afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 describe('CLI-4: budget', () => {
   test('defaults per class and config override', () => {
     assert.deepStrictEqual(b.budgetFields(dir, 'spike'), { budget_class: 'spike', budget_wall_minutes: 45, budget_dispatches: 10 });
-    assert.deepStrictEqual(b.budgetFields(dir, 'standard'), { budget_class: 'standard', budget_wall_minutes: 90, budget_dispatches: 12 });
-    assert.deepStrictEqual(b.budgetFields(dir, 'risk'), { budget_class: 'risk', budget_wall_minutes: 150, budget_dispatches: 20 });
+    assert.deepStrictEqual(b.budgetFields(dir, 'standard'), { budget_class: 'standard', budget_wall_minutes: 90, budget_dispatches: 37 });
+    assert.deepStrictEqual(b.budgetFields(dir, 'risk'), { budget_class: 'risk', budget_wall_minutes: 150, budget_dispatches: 45 });
     write('.planning/config.json', JSON.stringify({ workflow: { budget: { standard: { dispatches: 30 } } } }));
     assert.deepStrictEqual(b.budgetFields(dir, 'standard'), { budget_class: 'standard', budget_wall_minutes: 90, budget_dispatches: 30 });
   });
   test('init plan-phase and execute-phase emit class and limits; risk from domains or a high_risk plan', () => {
     for (const cmd of ['plan-phase', 'execute-phase']) {
       const o = json(['init', cmd, '1', '--legacy']);
-      assert.deepStrictEqual([o.budget_class, o.budget_wall_minutes, o.budget_dispatches], ['standard', 90, 12], cmd);
+      assert.deepStrictEqual([o.budget_class, o.budget_wall_minutes, o.budget_dispatches], ['standard', 90, 37], cmd);
     }
     write('.planning/ROADMAP.md', road('**Risk domains**: auth'));
     assert.strictEqual(json(['init', 'plan-phase', '1', '--legacy']).budget_class, 'risk');
