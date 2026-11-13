@@ -22,26 +22,30 @@ function parseDeps(depends) {
 function foldEvents(events) {
   const by = new Map();
   const get = (k) => {
-    if (!by.has(k)) by.set(k, { state: 'none', gap_cycles: 0, started: false, dep_parked: false });
+    if (!by.has(k)) by.set(k, { state: 'none', gap_cycles: 0, started: false, dep_parked: false, park_reason: null, form_debt: null });
     return by.get(k);
   };
   for (const e of Array.isArray(events) ? events : []) {
     const k = evPhase(e);
     if (k == null || !e.type) continue;
     switch (e.type) {
-      case 'phase_start': { const s = get(k); s.state = 'running'; s.started = true; s.dep_parked = false; break; }
+      case 'phase_start': { const s = get(k); s.state = 'running'; s.started = true; s.dep_parked = false; s.form_debt = null; break; }
+      // A format-only gap: the phase counts as done for dependents until a later event says otherwise.
+      case 'phase_form_debt': { const s = get(k); s.state = 'form_debt'; s.form_debt = Array.isArray(e.items) ? e.items : []; s.dep_parked = false; break; }
       case 'gap_cycle': { const s = get(k); s.state = 'running'; s.gap_cycles += 1; s.started = true; break; }
       case 'phase_retry': get(k).state = 'running'; break;
-      case 'phase_complete': { const s = get(k); s.state = 'complete'; s.dep_parked = false; break; }
+      case 'phase_complete': { const s = get(k); s.state = 'complete'; s.dep_parked = false; s.form_debt = null; break; }
       case 'phase_incomplete': get(k).state = e.action === 'gap_cycle' ? 'gap_pending' : 'parked'; break;
       // dependency_parked is derived from the dependency's current state, so it is an audit note, never a state.
-      case 'phase_parked': { const s = get(k); if (e.reason === 'dependency_parked') s.dep_parked = true; else s.state = 'parked'; break; }
+      case 'phase_parked': { const s = get(k); if (e.reason === 'dependency_parked') s.dep_parked = true; else { s.state = 'parked'; s.park_reason = e.reason || null; } break; }
       case 'phase_failed': get(k).state = 'failed'; break;
       default: break;
     }
   }
   return by;
 }
+
+const debtOf = (folded) => [...folded].filter(([, s]) => s.state === 'form_debt').map(([k, s]) => ({ phase: k, items: s.form_debt || [] }));
 
 function hasEvent(events, type) {
   return (Array.isArray(events) ? events : []).some((e) => e && e.type === type);
@@ -55,6 +59,7 @@ function incompletePhases(events, truth) {
     const involved = s.started || s.dep_parked || s.state === 'parked' || s.state === 'failed' || s.state === 'gap_pending';
     if (!involved) continue;
     if (s.state === 'complete' && truth(k)) continue;
+    if (s.state === 'form_debt') continue;
     out.push(k);
   }
   return out;
@@ -82,16 +87,21 @@ function blockedSet(phases, folded, done, retryParked) {
   return blocked;
 }
 
+function formDebt(events) {
+  return debtOf(foldEvents(events));
+}
+
 function resumeState(events, phases, truth) {
   const folded = foldEvents(events);
   const completed = [];
-  const doneAll = new Set(phases.map((p) => phaseKey(p.number)).filter((k) => truth(k)));
+  const isDone = (k) => truth(k) || (folded.get(k) || {}).state === 'form_debt';
+  const doneAll = new Set(phases.map((p) => phaseKey(p.number)).filter((k) => isDone(k)));
   const blockedNow = blockedSet(phases, folded, doneAll, false);
   const parked = [];
   const startedIncomplete = [];
   for (const p of phases) {
     const k = phaseKey(p.number);
-    if (truth(k)) { completed.push(k); continue; }
+    if (isDone(k)) { completed.push(k); continue; }
     const s = folded.get(k);
     if (blockedNow.has(k)) { parked.push(k); continue; }
     if (!s) continue;
@@ -107,7 +117,7 @@ function next(input) {
   const folded = foldEvents(events);
   const log = [];
   const stateOf = (k) => (folded.get(k) || { state: 'none', gap_cycles: 0 });
-  const done = new Set(phases.map((p) => phaseKey(p.number)).filter((k) => truth(k)));
+  const done = new Set(phases.map((p) => phaseKey(p.number)).filter((k) => truth(k) || stateOf(k).state === 'form_debt'));
 
   const blocked = blockedSet(phases, folded, done, input.retryParked);
 
@@ -137,23 +147,25 @@ function next(input) {
     }
   }
   const remaining = phases.map((p) => phaseKey(p.number)).filter((k) => !done.has(k));
+  const debt = debtOf(folded);
   if (blocked.size > 0) {
-    return { ...base, action: 'done', complete: false, parked: [...blocked], completed_phases: [...done], log };
+    const stopped = [...blocked].filter((k) => stateOf(k).state === 'parked' && stateOf(k).park_reason === 'budget_exceeded');
+    return { ...base, action: 'done', complete: false, parked: [...blocked], stopped_on_budget: stopped, completed_phases: [...done], form_debt: debt, log };
   }
   if (remaining.length > 0) {
-    return { ...base, action: 'done', complete: false, error: 'deadlock', parked: remaining, completed_phases: [...done], log };
+    return { ...base, action: 'done', complete: false, error: 'deadlock', parked: remaining, completed_phases: [...done], form_debt: debt, log };
   }
   if (!input.gateMarked) return { ...base, action: 'integration_gate', log };
   if (og.pr_waiting) return waiting('pr', og.status);
   if (!input.prRecorded) {
     return { ...base, action: 'pr', base_branch: cfg.base_branch || null, has_remote: input.hasRemote === true, log };
   }
-  return { ...base, action: 'done', complete: true, completed_phases: [...done], log };
+  return { ...base, action: 'done', complete: true, completed_phases: [...done], form_debt: debt, log };
 }
 
-function incompleteEvent(k, truth, folded, reason) {
+function incompleteEvent(k, truth, folded, reason, gapCycleDone) {
   const gaps = (folded.get(k) || { gap_cycles: 0 }).gap_cycles;
-  const action = gaps < GAP_CYCLE_LIMIT ? 'gap_cycle' : 'park';
+  const action = gaps < GAP_CYCLE_LIMIT && !gapCycleDone ? 'gap_cycle' : 'park';
   const events = [{ type: 'phase_incomplete', phase: k, action, reason, errors: truth.errors || [] }];
   if (action === 'park') events.push({ type: 'phase_parked', phase: k, reason: 'gaps_after_closure_cycle' });
   return { action, events, errors: truth.errors || [] };
@@ -178,18 +190,28 @@ function record(input) {
     case 'completed':
       if (truth.complete) return { phase: k, action: 'complete', events: [{ type: 'phase_complete', phase: k }] };
       return { phase: k, ...incompleteEvent(k, truth, folded, 'completed_without_disk_truth') };
-    case 'gaps_found':
-      return { phase: k, ...incompleteEvent(k, truth, folded, 'gaps_found') };
+    case 'gaps_found': {
+      const kind = result.gap_kind || input.derivedGapKind || 'product';
+      if (kind === 'format') return debtResult(k, result, input);
+      return { phase: k, ...incompleteEvent(k, truth, folded, 'gaps_found', result.gap_cycle_done === true) };
+    }
     case 'completed_with_deferrals':
       return { phase: k, action: 'spawn_deferred', deferred: result.deferred || [], events: [] };
-    case 'human_needed':
     case 'blocked':
+      if (result.reason === 'form_gate') return debtResult(k, result, input);
+    // falls through
+    case 'human_needed':
       return { phase: k, action: 'park', events: [{ type: 'phase_parked', phase: k, reason: result.reason || result.status }] };
     case 'failed':
       return failure(input, k, result.error || 'phase failed', result.step);
     default:
       return failure(input, k, `unknown coordinator status: ${result.status}`);
   }
+}
+
+function debtResult(k, result, input) {
+  const items = [result.form_debt, result.form_findings, input.formItems].find(Array.isArray) || [];
+  return { phase: k, action: 'continue_with_debt', form_debt: items, events: [{ type: 'phase_form_debt', phase: k, items }] };
 }
 
 function failure(input, k, error, step) {
@@ -200,4 +222,4 @@ function failure(input, k, error, step) {
   return { phase: k, action: 'fail', attempts: ladder.attempts, events: [{ type: 'phase_failed', phase: k, error, ladder: ladder.action }] };
 }
 
-module.exports = { next, record, foldEvents, incompletePhases, resumeState, parseDeps, phaseKey, evPhase, hasEvent, GAP_CYCLE_LIMIT };
+module.exports = { next, record, formDebt, foldEvents, incompletePhases, resumeState, parseDeps, phaseKey, evPhase, hasEvent, GAP_CYCLE_LIMIT };

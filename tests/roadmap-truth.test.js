@@ -127,6 +127,21 @@ describe('U5 gate pre-pr set logic', () => {
   });
 });
 
+describe('CLI-6 record and gate pre-pr with form debt', () => {
+  test('a format-only VERIFICATION records continue_with_debt, dependents come next, pre-pr passes and prints the debt', () => {
+    const dir = project(ROAD, {});
+    const pd = writeEvidence(dir, 1, { verification: 'gaps_found' });
+    fs.writeFileSync(path.join(pd, '01-VERIFICATION.md'), '---\nstatus: gaps_found\nform_findings:\n  - plan too long\n---\n# V\n');
+    const rec = gsd(dir, ['roadmap', 'record', '--phase', '1', '--result', JSON.stringify({ status: 'gaps_found' })]).json;
+    assert.deepStrictEqual([rec.action, rec.form_debt], ['continue_with_debt', ['plan too long']]);
+    assert.strictEqual(gsd(dir, ['roadmap', 'next']).json.phase, '2');
+    for (const n of ['2', '3']) { writeEvidence(dir, n); completePhaseLikeWorkflow(dir, n); append(dir, { type: 'phase_start', phase: n }); append(dir, { type: 'phase_complete', phase: n }); }
+    const gate = gsd(dir, ['gate', 'pre-pr']);
+    assert.strictEqual(gate.rc, 0);
+    assert.deepStrictEqual(gate.json.form_debt, [{ phase: '1', items: ['plan too long'] }]);
+  });
+});
+
 describe('U6 resume_state', () => {
   test('decimal phases, out-of-order completion and a parked phase', () => {
     const dir = project([{ n: '1', name: 'one' }, { n: '1.1', name: 'ins', deps: 'Phase 1' }, { n: '2', name: 'two' }, { n: '3', name: 'three' }]);

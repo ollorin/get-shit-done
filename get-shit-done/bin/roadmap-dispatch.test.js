@@ -175,3 +175,45 @@ describe('pilot fix D1/D2: a dependency-parked phase is still reported incomplet
     assert.deepStrictEqual(d.incompletePhases([{ type: 'phase_parked', phase: '4', reason: 'dependency_parked' }], () => false), ['4']);
   });
 });
+
+describe('CLI-6: a format gap never parks', () => {
+  const rec = (result, extra = {}, events = []) => d.record({ phase: '1', result, truth: { complete: false, errors: [] }, events, ...extra });
+  test('gaps_found with gap_kind format continues with debt: no park, no gap cycle consumed', () => {
+    const r = rec({ status: 'gaps_found', gap_kind: 'format', form_debt: ['plan 01 too long'] });
+    assert.deepStrictEqual([r.action, r.form_debt], ['continue_with_debt', ['plan 01 too long']]);
+    assert.deepStrictEqual(r.events, [{ type: 'phase_form_debt', phase: '1', items: ['plan 01 too long'] }]);
+  });
+  test('the gap kind is derived from VERIFICATION frontmatter when the result carries none', () => {
+    const r = rec({ status: 'gaps_found' }, { derivedGapKind: 'format', formItems: ['x'] });
+    assert.deepStrictEqual([r.action, r.form_debt], ['continue_with_debt', ['x']]);
+  });
+  test('blocked with reason form_gate continues with debt; budget_exceeded parks and names the reason', () => {
+    assert.strictEqual(rec({ status: 'blocked', reason: 'form_gate' }).action, 'continue_with_debt');
+    const b = rec({ status: 'blocked', reason: 'budget_exceeded' });
+    assert.deepStrictEqual([b.action, b.events[0].type, b.events[0].reason], ['park', 'phase_parked', 'budget_exceeded']);
+  });
+  test('product gap: first time gap_cycle; with gap_cycle_done parks directly', () => {
+    assert.strictEqual(rec({ status: 'gaps_found' }).action, 'gap_cycle');
+    assert.strictEqual(rec({ status: 'gaps_found', gap_kind: 'product' }).action, 'gap_cycle');
+    const done = rec({ status: 'gaps_found', gap_cycle_done: true });
+    assert.strictEqual(done.action, 'park');
+    assert.ok(done.events.some((e) => e.type === 'phase_parked'));
+  });
+  test('a phase with form debt is done for its dependents; the next call returns them and lists the debt', () => {
+    const events = [{ type: 'phase_start', phase: '1' }, { type: 'phase_form_debt', phase: '1', items: ['x'] }];
+    const r = nextOf(events, []);
+    assert.deepStrictEqual([r.action, r.phase], ['spawn_coordinator', '2']);
+    const fin = nextOf(events, ['2', '3', '4'], { gateMarked: true, prRecorded: true });
+    assert.deepStrictEqual([fin.complete, fin.form_debt], [true, [{ phase: '1', items: ['x'] }]]);
+    assert.deepStrictEqual(d.incompletePhases(events, () => false), []);
+  });
+  test('a later failure cancels the debt', () => {
+    const events = [{ type: 'phase_form_debt', phase: '1', items: [] }, { type: 'phase_parked', phase: '1', reason: 'x' }];
+    assert.strictEqual(nextOf(events, ['3', '4']).action, 'done');
+    assert.deepStrictEqual(nextOf(events, ['3', '4']).parked.sort(), ['1', '2']);
+  });
+  test('done lists budget stops under their own key', () => {
+    const r = nextOf([{ type: 'phase_parked', phase: '1', reason: 'budget_exceeded' }], ['3', '4']);
+    assert.deepStrictEqual([r.stopped_on_budget, r.parked.sort()], [['1'], ['1', '2']]);
+  });
+});

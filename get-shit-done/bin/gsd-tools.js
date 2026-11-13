@@ -3864,7 +3864,7 @@ function cmdGatePrePr(cwd, args, raw) {
   });
 
   if (hasGateMarker) {
-    output({ gate: 'pre-pr', passed: true, cached: true, message: 'Gate already passed in this execution.' }, raw);
+    output({ gate: 'pre-pr', passed: true, cached: true, message: 'Gate already passed in this execution.', form_debt: dispatch.formDebt(readExecutionEvents(cwd)) }, raw);
     return;
   }
 
@@ -3878,7 +3878,8 @@ function cmdGatePrePr(cwd, args, raw) {
     checks,
     instructions: 'Run each check. If ALL pass, call: gsd-tools gate pre-pr --mark-passed. If any fail, fix and re-run.',
     mark_command: 'node ~/.claude/get-shit-done/bin/gsd-tools.js gate pre-pr --mark-passed',
-    detected_types
+    detected_types,
+    form_debt: dispatch.formDebt(readExecutionEvents(cwd)),
   };
   if (degraded) {
     result.degraded = true;
@@ -12714,6 +12715,21 @@ function cmdRoadmapNext(cwd, args, raw) {
   output(result, raw);
 }
 
+// A VERIFICATION.md whose frontmatter lists form_findings and no gaps is a format gap.
+function verificationGapKind(cwd, phase) {
+  const info = findPhaseInternal(cwd, phase);
+  if (!info) return {};
+  try {
+    const dir = path.join(cwd, info.directory);
+    const file = fs.readdirSync(dir).find((f) => /VERIFICATION\.md$/.test(f));
+    if (!file) return {};
+    const fm = extractFrontmatter(fs.readFileSync(path.join(dir, file), 'utf8'));
+    const list = (v) => (Array.isArray(v) ? v : []);
+    if (list(fm.form_findings).length > 0 && list(fm.gaps).length === 0) return { derivedGapKind: 'format', formItems: list(fm.form_findings) };
+  } catch { /* no usable VERIFICATION.md: product */ }
+  return {};
+}
+
 // roadmap record --phase N --result '<coordinator JSON or text>' | --kind pr --result '{"status":"created|skipped"}'
 function cmdRoadmapRecord(cwd, args, raw) {
   const flag = (name) => { const i = args.indexOf(name); return i !== -1 ? args[i + 1] : undefined; };
@@ -12747,12 +12763,13 @@ function cmdRoadmapRecord(cwd, args, raw) {
     result: resultArg,
     truth,
     events,
+    ...verificationGapKind(cwd, k),
     ladder: (ph, errorMsg, step) => {
       const applied = applyExecutionStateFailure(cwd, { phase: ph, errorMsg, step });
       return applied.ok ? { action: applied.result.action, attempts: applied.result.attempts } : { action: 'escalate' };
     },
   });
-  if (out.action === 'complete') {
+  if (out.action === 'complete' || out.action === 'continue_with_debt') {
     applyExecutionStateSuccess(cwd, { phase: k });
   }
   for (const e of out.events) appendEvent(cwd, e);
