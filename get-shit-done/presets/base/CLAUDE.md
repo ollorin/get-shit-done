@@ -121,7 +121,7 @@ section: what an anonymous or authenticated caller can read mid-round), a Haiku 
 (escalated per the table), the Sonnet review loop, then a fresh Opus review of the diff against the
 plan.
 
-The rules in this section apply at `standard` and `high` rigour; a phase whose ROADMAP.md line says `**Rigour**: spike (D-NN)` follows `get-shit-done/references/rigour.md` where that file names a rule (all other rules, including the never-relaxed list, still apply).
+The rules in this section apply at `standard` rigour; a phase whose ROADMAP.md line says `**Rigour**: spike (D-NN)` follows `get-shit-done/references/rigour.md` where that file names a rule (all other rules, including the never-relaxed list, still apply).
 
 **Review loop:** a fresh Sonnet agent each round, never the implementer, every severity fixed.
 High-stakes plans loop until a round reports zero findings; after round 4 a fresh Opus ruling on

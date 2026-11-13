@@ -1,12 +1,14 @@
 'use strict';
-// Rigour level of a phase: standard (default) | high | spike. Contract: references/rigour.md.
+// Rigour level of a phase: standard (default) | spike. Contract: references/rigour.md.
 // The level is one ROADMAP.md line per phase; absent means standard. Fails closed: an unauthorised spike is standard.
 
 const fs = require('fs');
 const path = require('path');
 const { loadProfile, getProfileValue } = require('./project-profile.js');
 
-const LEVELS = ['standard', 'high', 'spike'];
+const ownerGates = require('./owner-gates.js');
+
+const LEVELS = ['standard', 'spike'];
 const LEDGER_REL = path.join('.planning', 'DECISIONS.jsonl');
 const read = (f) => { try { return fs.readFileSync(f, 'utf8'); } catch { return null; } };
 
@@ -47,18 +49,28 @@ function authorising(cwd, id, phase) {
     && Array.isArray(r.phases) && r.phases.includes(String(phase).replace(/^0+(?=\d)/, ''));
 }
 
+// OG2: the newest roadmap gate of the milestone, approved, lists the phase as a spike.
+function gateAuthorises(cwd, phase, milestone) {
+  const g = ownerGates.find(ownerGates.readAll(cwd), 'roadmap', milestone);
+  const n = String(phase).replace(/^0+(?=\d)/, '');
+  if (!g) return { ok: false, reason: `no roadmap gate requested, so OG2 does not authorise a spike for phase ${phase}` };
+  const listed = Array.isArray(g.rigour && g.rigour.spike_phases) && g.rigour.spike_phases.map(String).includes(n);
+  if (g.status === 'approved' && listed) return { ok: true };
+  return { ok: false, reason: `roadmap gate ${g.id} does not authorise a spike for phase ${phase} (status ${g.status}${listed ? '' : ', phase not listed'})` };
+}
+
 const standard = (source, reason) => ({
   rigour: 'standard', rigour_source: source, rigour_decision: null, spike_roots: [], rigour_rejected_reason: reason || null,
 });
 
-function resolveRigour(cwd, rawPhase) {
+function resolveRigour(cwd, rawPhase, milestone) {
   const phase = String(rawPhase).match(/^\d+(?:\.\d+)?/)?.[0] ?? String(rawPhase);
   const section = phaseSection(cwd, phase);
   const line = section && section.match(/\*\*Rigour:?\*\*:?[ \t]*([^\n]+)/i);
   if (!line) return standard('default');
   const [, level, decision] = line[1].trim().toLowerCase().match(/^(\S+?)(?:\s*\(\s*([^)]*?)\s*\))?$/) || [];
   if (level === 'standard') return standard('roadmap');
-  if (level === 'high') return { ...standard('roadmap'), rigour: 'high' };
+  if (level === 'high') return standard('rejected', 'rigour "high" is retired: the phase runs as standard; risk-domain depth comes from the **Risk domains** line and high_risk plans');
   if (level !== 'spike') return standard('rejected', `unknown rigour "${line[1].trim()}"`);
   const id = (decision || '').toUpperCase();
   const rootsLine = section.match(/\*\*Spike roots:?\*\*:?[ \t]*([^\n]+)/i);
@@ -66,7 +78,10 @@ function resolveRigour(cwd, rawPhase) {
   const reject = (reason) => ({ ...standard('rejected', reason), rigour_decision: id || null });
   if (!id) return reject('spike needs a decision id');
   if (roots.length === 0) return reject('spike needs at least one spike root');
-  if (!authorising(cwd, id, phase)) return reject(`${id} is not an active D- decision (owner answer or opus ruling) naming phase ${phase}`);
+  if (id === 'OG2') {
+    const gate = gateAuthorises(cwd, phase, milestone);
+    if (!gate.ok) return reject(gate.reason);
+  } else if (!authorising(cwd, id, phase)) return reject(`${id} is not an active D- decision (owner answer or opus ruling) naming phase ${phase}`);
   const clash = roots.flatMap((r) => productionPaths(cwd).filter((p) => overlaps(r, p)).map((p) => `${r} overlaps ${p}`));
   if (clash.length > 0) return reject(`spike root overlaps a production path: ${clash.join('; ')}`);
   return { rigour: 'spike', rigour_source: 'roadmap', rigour_decision: id, spike_roots: roots, rigour_rejected_reason: null };

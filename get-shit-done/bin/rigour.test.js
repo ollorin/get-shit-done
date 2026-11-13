@@ -5,7 +5,7 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-const { resolveRigour, rigourViolations, phaseReqIds } = require('./rigour.js');
+const { LEVELS, resolveRigour, rigourViolations, phaseReqIds } = require('./rigour.js');
 
 const TOOL = path.join(__dirname, 'gsd-tools.js');
 const decision = (o) => JSON.stringify({ kind: 'decision', status: 'active', source: 'owner-answer', phases: ['2'], ts: '2026-01-01T00:00:00Z', question: 'q', answer: 'a', ...o });
@@ -20,13 +20,15 @@ beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-rigour-')); 
 afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
 
 describe('resolveRigour', () => {
-  test('absent line is standard/default; high needs no id; decimal phase and both colon styles', () => {
+  test('absent line is standard/default; high is retired to standard with a notice; decimal phase and both colon styles', () => {
     write('.planning/ROADMAP.md', roadmap(''));
     assert.deepStrictEqual(resolveRigour(dir, '2'), { rigour: 'standard', rigour_source: 'default', rigour_decision: null, spike_roots: [], rigour_rejected_reason: null });
-    assert.strictEqual(resolveRigour(dir, '2.1').rigour, 'high');
+    const retired = resolveRigour(dir, '2.1');
+    assert.deepStrictEqual([retired.rigour, retired.rigour_source, retired.rigour_decision, retired.spike_roots], ['standard', 'rejected', null, []]);
+    assert.match(retired.rigour_rejected_reason, /"high" is retired/);
     write('.planning/ROADMAP.md', roadmap('**Rigour:** high'));
-    assert.strictEqual(resolveRigour(dir, '2').rigour, 'high');
-    assert.strictEqual(resolveRigour(dir, '02').rigour, 'high');
+    assert.strictEqual(resolveRigour(dir, '2').rigour, 'standard');
+    assert.strictEqual(resolveRigour(dir, '02').rigour_source, 'rejected');
     assert.strictEqual(resolveRigour(dir, '1').rigour_source, 'default');
   });
 
@@ -114,7 +116,7 @@ describe('init and assess-risk emit rigour', () => {
     assert.strictEqual(out.ruling_model, 'opus');
   });
 
-  test('assess-risk: spike is false with a reason and reports containment violations; high is true', () => {
+  test('assess-risk: spike is false with a reason and reports containment violations; high is retired to standard', () => {
     write('.planning/DECISIONS.jsonl', decision({ id: 'D-07' }) + '\n');
     write('.planning/ROADMAP.md', roadmap(SPIKE));
     write('.planning/phases/02-spike-it/02-01-PLAN.md', plan(['spike/auth/login.js', 'src/app.js']));
@@ -124,8 +126,8 @@ describe('init and assess-risk emit rigour', () => {
     assert.deepStrictEqual(out.rigour_violation, ['src/app.js']);
     write('.planning/phases/02-spike-it/02-02-PLAN.md', plan(['x.js']).replace('02-spike-it', '2.1'));
     const high = JSON.parse(run(['quality', 'assess-risk', '.planning/phases/02-spike-it/02-02-PLAN.md', '--raw']).stdout);
-    assert.strictEqual(high.high_risk, true);
-    assert.deepStrictEqual(high.reasons, ['rigour: high']);
+    assert.strictEqual(high.rigour, 'standard');
+    assert.strictEqual(high.high_risk, false);
   });
 
   test('assess-risk: a rejected spike (G3 overlap) is scored as standard and says why', () => {
@@ -146,6 +148,74 @@ describe('init and assess-risk emit rigour', () => {
     assert.match(out.reasons[0], /risk domain "auth"/);
     write('.planning/phases/02-spike-it/02-02-PLAN.md', plan(['src/util.js']));
     assert.strictEqual(JSON.parse(run(['quality', 'assess-risk', '.planning/phases/02-spike-it/02-02-PLAN.md', '--raw']).stdout).high_risk, false);
+  });
+});
+
+describe('CLI-1: two levels', () => {
+  test('LEVELS has two entries', () => assert.deepStrictEqual(LEVELS, ['standard', 'spike']));
+  test('init plan-phase on a high phase exits 0 and carries the reason', () => {
+    write('.planning/ROADMAP.md', roadmap('**Rigour**: high'));
+    const r = run(['init', 'plan-phase', '2', '--legacy', '--raw']);
+    assert.strictEqual(r.status, 0);
+    const out = JSON.parse(r.stdout);
+    assert.strictEqual(out.rigour, 'standard');
+    assert.strictEqual(out.rigour_source, 'rejected');
+    assert.match(out.rigour_rejected_reason, /retired/);
+  });
+  test('assess-risk in such a phase is standard and high_risk comes from the path match only', () => {
+    write('.planning/ROADMAP.md', roadmap('**Rigour**: high'));
+    const p = (f) => `---\nphase: 02-spike-it\nplan: 01\nfiles_modified:\n  - ${f}\n---\n\n# Plan\n`;
+    write('.planning/phases/02-spike-it/02-01-PLAN.md', p('src/util.js'));
+    const plain = JSON.parse(run(['quality', 'assess-risk', '.planning/phases/02-spike-it/02-01-PLAN.md', '--raw']).stdout);
+    assert.strictEqual(plain.rigour, 'standard');
+    assert.strictEqual(plain.high_risk, false);
+    write('.planning/phases/02-spike-it/02-02-PLAN.md', p('src/auth/login.js'));
+    const auth = JSON.parse(run(['quality', 'assess-risk', '.planning/phases/02-spike-it/02-02-PLAN.md', '--raw']).stdout);
+    assert.strictEqual(auth.high_risk, true);
+    assert.match(auth.reasons[0], /risk domain "auth"/);
+  });
+});
+
+describe('CLI-2: OG2 authorises a spike through the approved roadmap gate', () => {
+  const gates = (o) => write('.planning/OWNER-GATES.json', JSON.stringify({ version: 1, gates: [{ id: 'roadmap@1.0', kind: 'roadmap', milestone: '1.0', status: 'approved', summary: '', rigour: { spike_phases: ['2'], spike_roots: ['spike/'] }, ...o }] }));
+  const og2 = () => write('.planning/ROADMAP.md', roadmap('**Rigour**: spike (og2)\n**Spike roots**: spike/'));
+  test('approved gate listing the phase is a spike with rigour_decision OG2 (case-insensitive)', () => {
+    og2(); gates({});
+    assert.deepStrictEqual(resolveRigour(dir, '2'), { rigour: 'spike', rigour_source: 'roadmap', rigour_decision: 'OG2', spike_roots: ['spike'], rigour_rejected_reason: null });
+  });
+  test('pending, rejected, and not-listed gates are rejected with the reason', () => {
+    og2();
+    gates({ status: 'pending' });
+    assert.match(resolveRigour(dir, '2').rigour_rejected_reason, /roadmap gate roadmap@1.0 does not authorise a spike for phase 2 \(status pending\)/);
+    gates({ status: 'rejected' });
+    assert.strictEqual(resolveRigour(dir, '2').rigour_source, 'rejected');
+    gates({ rigour: { spike_phases: ['1'], spike_roots: ['spike/'] } });
+    assert.strictEqual(resolveRigour(dir, '2').rigour, 'standard');
+    assert.strictEqual(resolveRigour(dir, '2').rigour_source, 'rejected');
+  });
+  test('no gate at all is rejected; OG2 still needs spike roots', () => {
+    og2();
+    assert.strictEqual(resolveRigour(dir, '2').rigour_source, 'rejected');
+    gates({});
+    write('.planning/ROADMAP.md', roadmap('**Rigour**: spike (OG2)'));
+    assert.match(resolveRigour(dir, '2').rigour_rejected_reason, /spike root/);
+  });
+  test('D-07 path is unchanged', () => {
+    write('.planning/DECISIONS.jsonl', decision({ id: 'D-07' }) + '\n');
+    write('.planning/ROADMAP.md', roadmap(SPIKE));
+    assert.strictEqual(resolveRigour(dir, '2').rigour_decision, 'D-07');
+  });
+  test('owner-gate request stores spike phases and roots, replaces them on re-request, and needs roots', () => {
+    const bad = run(['owner-gate', 'request', '--kind', 'roadmap', '--milestone', 'v1.0', '--summary', 's', '--spike-phases', '2']);
+    assert.strictEqual(bad.status, 1);
+    assert.match(bad.stderr, /spike phases need --spike-roots/);
+    const a = JSON.parse(run(['owner-gate', 'request', '--kind', 'roadmap', '--milestone', 'v1.0', '--summary', 's', '--spike-phases', '2,3', '--spike-roots', 'spike/,probe/', '--raw']).stdout);
+    assert.deepStrictEqual(a.gate.rigour, { spike_phases: ['2', '3'], spike_roots: ['spike/', 'probe/'] });
+    const b = JSON.parse(run(['owner-gate', 'request', '--kind', 'roadmap', '--milestone', 'v1.0', '--summary', 's', '--spike-phases', '2', '--spike-roots', 'spike/', '--raw']).stdout);
+    assert.deepStrictEqual(b.gate.rigour.spike_phases, ['2']);
+    assert.strictEqual(b.gate.requested_at, a.gate.requested_at);
+    const st = JSON.parse(run(['owner-gate', 'status', '--milestone', 'v1.0', '--raw']).stdout);
+    assert.deepStrictEqual(st.gates[0].rigour.spike_phases, ['2']);
   });
 });
 
@@ -176,7 +246,8 @@ describe('rigour text pins', () => {
     assert.match(text('agents/gsd-plan-checker.md'), /spike_promotion/);
   });
 
-  test('the base preset scopes the risk-domain rules to standard and high', () => {
-    assert.match(text('get-shit-done/presets/base/CLAUDE.md'), /apply at `standard` and `high` rigour/);
+  test('the base preset scopes the risk-domain rules to standard', () => {
+    assert.match(text('get-shit-done/presets/base/CLAUDE.md'), /apply at `standard` rigour/);
+    assert.doesNotMatch(text('get-shit-done/presets/base/CLAUDE.md'), /`standard` and `high`/);
   });
 });

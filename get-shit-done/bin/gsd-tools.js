@@ -5980,17 +5980,13 @@ function cmdQualityAssessRisk(cwd, filePath, raw) {
 
   const config = loadConfig(cwd);
   const presentation_order = computePresentationOrder(content);
-  const level = rigour.resolveRigour(cwd, String(fm.phase ?? ''));
+  const level = rigour.resolveRigour(cwd, String(fm.phase ?? ''), getMilestoneInfo(cwd).version);
   if (level.rigour === 'spike') {
     const files = Array.isArray(fm.files_modified) ? fm.files_modified : (fm.files_modified ? [String(fm.files_modified)] : []);
     output({
       high_risk: false, reasons: ['rigour: spike'], presentation_order, rigour: 'spike',
       rigour_violation: rigour.rigourViolations(level.spike_roots, files),
     }, raw);
-    return;
-  }
-  if (level.rigour === 'high') {
-    output({ high_risk: true, reasons: ['rigour: high'], presentation_order, rigour: 'high' }, raw);
     return;
   }
   const { high_risk, reasons, matched } = computeHighRisk(fm, content, config, projectContext.riskDomainsFor(cwd));
@@ -11723,7 +11719,7 @@ function cmdInitExecutePhase(cwd, phase, includes, raw, gate) {
     ...projectContext.contextFields(cwd),
     ...autoModeFields(cwd),
     project_context: { legacy: gate?.legacy === true },
-    ...rigour.resolveRigour(cwd, phase),
+    ...rigour.resolveRigour(cwd, phase, getMilestoneInfo(cwd).version),
     phase_req_ids: rigour.phaseReqIds(cwd, phase),
 
     // Models
@@ -11839,7 +11835,7 @@ function cmdInitPlanPhase(cwd, phase, includes, raw, gate) {
     ...projectContext.contextFields(cwd),
     ...autoModeFields(cwd),
     project_context: { legacy: gate?.legacy === true },
-    ...rigour.resolveRigour(cwd, phase),
+    ...rigour.resolveRigour(cwd, phase, getMilestoneInfo(cwd).version),
     phase_req_ids: rigour.phaseReqIds(cwd, phase),
 
     // Models
@@ -12635,7 +12631,7 @@ function cmdInitExecuteRoadmap(cwd, raw) {
   }, raw);
 }
 
-// owner-gate request|status|approve|reject --kind composition|roadmap|pr [--milestone V] [--summary S] [--by W] [--note N] [--owner-confirmed]
+// owner-gate request|status|approve|reject --kind composition|roadmap|pr [--milestone V] [--summary S] [--spike-phases N,M --spike-roots p,q] [--by W] [--note N] [--owner-confirmed]
 // approve/reject: refused while auto_mode is active unless --owner-confirmed with a --note. The flag is a recorded
 // attestation, not authentication: an unattended agent that passes it has lied in the audit trail, visibly.
 function cmdOwnerGate(cwd, args, raw) {
@@ -12644,7 +12640,7 @@ function cmdOwnerGate(cwd, args, raw) {
   const kind = flag('--kind') || (sub !== 'status' ? args[1] : undefined);
   const milestone = flag('--milestone') || getMilestoneInfo(cwd).version;
   if (sub === 'request') {
-    const r = ownerGates.request(cwd, { kind, milestone, summary: flag('--summary') });
+    const r = ownerGates.request(cwd, { kind, milestone, summary: flag('--summary'), spikePhases: flag('--spike-phases'), spikeRoots: flag('--spike-roots') });
     if (!r.ok) error(`owner-gate: ${r.error}`);
     output({ action: 'owner_gate_requested', created: r.created, status: ownerGates.STATUS_WAITING, gate: r.gate }, raw);
   } else if (sub === 'status') {

@@ -36,11 +36,21 @@ function find(gates, kind, milestone) {
   return hits.length ? hits[hits.length - 1] : null;
 }
 
-function request(cwd, { kind, milestone, summary, now }) {
+function request(cwd, { kind, milestone, summary, now, spikePhases, spikeRoots }) {
   if (!KINDS.includes(kind)) return { ok: false, error: `unknown gate kind: ${kind} (use ${KINDS.join('|')})` };
   const gates = readAll(cwd);
   const m = normMilestone(milestone);
+  const list = (v) => (v == null ? [] : String(v).split(',').map((x) => x.trim()).filter(Boolean));
+  const phases = list(spikePhases).map((x) => x.replace(/^0+(?=\d)/, ''));
+  const roots = list(spikeRoots);
+  if (phases.length > 0 && roots.length === 0) return { ok: false, error: 'spike phases need --spike-roots' };
+  const rigour = phases.length > 0 ? { spike_phases: phases, spike_roots: roots } : null;
   const existing = gates.find((g) => g.id === gateId(kind, m));
+  if (existing && existing.status === 'pending' && JSON.stringify(existing.rigour || null) !== JSON.stringify(rigour) && (rigour || existing.rigour)) {
+    const next = { ...existing, rigour };
+    writeAll(cwd, gates.map((g) => (g.id === next.id ? next : g)));
+    return { ok: true, gate: next, created: false };
+  }
   if (existing && existing.status !== 'rejected') return { ok: true, gate: existing, created: false };
   const gate = {
     id: gateId(kind, m),
@@ -52,6 +62,7 @@ function request(cwd, { kind, milestone, summary, now }) {
     approved_by: null,
     approved_at: null,
     note: null,
+    ...(rigour ? { rigour } : {}),
   };
   writeAll(cwd, [...gates.filter((g) => g.id !== gate.id), gate]);
   return { ok: true, gate, created: true };
