@@ -5,7 +5,8 @@ const fs = require('fs');
 const path = require('path');
 const matter = require('gray-matter');
 
-const CAPS = { spike: { lines: 150, tasks: 4, plans: 2 }, standard: { lines: 250, tasks: 6, plans: 3 } };
+// Standard rigour has the line cap only (a task that does not fit one executor dispatch is the planner's and checker's split rule); the plan and task counts cap spikes.
+const CAPS = { spike: { lines: 150, tasks: 4, plans: 2 }, standard: { lines: 250 } };
 const CITE = /\b(?:DECISIONS|ROADMAP)\.md:\d+/;
 const read = (f) => { try { return fs.readFileSync(f, 'utf8'); } catch { return null; } };
 const lineCount = (text) => text.replace(/\n$/, '').split('\n').length;
@@ -32,14 +33,14 @@ function checkPlans(phaseDir, dirFiles, level) {
   const caps = CAPS[level] || CAPS.standard;
   const errors = [];
   const plans = dirFiles.filter((f) => /-\d{2}-PLAN\.md$/i.test(f) && !dirFiles.includes(f.replace(/-PLAN\.md$/i, '-SUMMARY.md'))).sort();
-  if (plans.length > caps.plans) errors.push({ file: path.basename(phaseDir), check: 'plan_count', message: `${plans.length} plans exceed the ${level} cap of ${caps.plans}: the phase is too big` });
+  if (caps.plans !== undefined && plans.length > caps.plans) errors.push({ file: path.basename(phaseDir), check: 'plan_count', message: `${plans.length} plans exceed the ${level} cap of ${caps.plans}: the phase is too big` });
   for (const f of plans) {
     const text = read(path.join(phaseDir, f));
     if (text === null) continue;
     const lines = lineCount(text);
     const tasks = taskCount(text);
     if (lines > caps.lines) errors.push({ file: f, check: 'plan_lines', message: `${lines} lines exceed the ${level} cap of ${caps.lines}` });
-    if (tasks > caps.tasks) errors.push({ file: f, check: 'plan_tasks', message: `${tasks} tasks exceed the ${level} cap of ${caps.tasks}` });
+    if (caps.tasks !== undefined && tasks > caps.tasks) errors.push({ file: f, check: 'plan_tasks', message: `${tasks} tasks exceed the ${level} cap of ${caps.tasks}` });
     const untagged = planTasks(text).filter((t) => !t.tier).map((t) => t.name);
     if (untagged.length > 0) errors.push({ file: f, check: 'task_tier_missing', message: `no valid tier tag (<model>haiku|sonnet</model> or tier="..." on <task>; opus is not a task tier: a task needing the top model must be split by the planner) on: ${untagged.join('; ')}` });
     let fm = {};

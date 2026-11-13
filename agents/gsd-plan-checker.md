@@ -139,7 +139,7 @@ issue:
 - Missing `<done>` — no acceptance criteria
 - Vague `<action>` — "implement auth" instead of specific steps
 - Empty `<files>` — what gets created?
-- Tier tag that does not fit the TASK's nature (warning, both directions; the planner fixes it in its revision; the phase's risk domain is never the reason): `haiku` on a task that makes a decision (logic design, a guard or authorisation condition, SQL policy or grants, error-handling paths, investigation, debugging, an unclear root cause); `sonnet` on a plainly mechanical task (exact files and exact steps: config keys, wiring, renames, a test written from an explicit list of cases, docs). A task that mixes mechanical steps and a deciding step is a finding: the planner splits it, it does not tag it up. In a risk-domain phase a mechanical task stays `haiku`; the review makes it safe, not the tag.
+- Tier tag that does not fit the TASK's nature (warning; the planner fixes it in its revision; a task's tier follows its shape and you never raise one because the phase is a risk domain): `haiku` on a task that makes a decision (logic design, a guard or authorisation condition, SQL policy or grants, error-handling paths, investigation, debugging, an unclear root cause); `sonnet` on a plainly mechanical task (exact files and exact steps: config keys, wiring, renames, a test written from an explicit list of cases, docs). A task that mixes mechanical steps and a deciding step is a finding: the planner splits it, it does not tag it up. A mechanical task with literal content is `haiku` at any risk level; the review makes it safe, not the tag.
 
 **Example issue:**
 ```yaml
@@ -222,21 +222,21 @@ issue:
 **Question:** Will plans complete within context budget?
 
 **Process:**
-1. Count `<task` elements and lines per plan (plan-phase step 9.4 already ran the same count; a plan over a cap that reaches you is a blocker)
+1. Count lines per plan (plan-phase step 9.4 already ran the same count; a plan over the line cap that reaches you is a blocker) and read each task for size
 2. Estimate files modified per plan
 3. Check against thresholds
 
 **Thresholds:**
 | Metric | Target | Warning | Blocker |
 |--------|--------|---------|---------|
-| Tasks/plan, every `<task` counted | within the cap of `references/rigour.md` (`standard` 6, `spike` 4) | at the cap | over the cap |
+| Task size | one executor dispatch | - | a task needing more than ~5 files or two unrelated behaviours: split it (spike: the 4-task cap of `references/rigour.md` also applies) |
 | Lines/plan | within the cap (`standard` 250, `spike` 150) | at the cap | over the cap |
 | Evidence-only plan (no task changes behaviour) | none | - | any: fold it into the plan that builds the behaviour |
 | Files/plan | 5-8 | 10 | 15+ |
 | Total context | ~50% | ~70% | 80%+ |
 
 **Red flags:**
-- Plan over the task or line cap (quality degrades)
+- Plan over the line cap (quality degrades)
 - Plan with 15+ file modifications
 - Single task with 10+ files
 - Complex work (auth, risk-domain paths) crammed into one plan
@@ -332,7 +332,7 @@ issue:
 node "$HOME/.claude/get-shit-done/bin/decisions.js" check-plan --phase "$phase_number" "$phase_dir"/*-PLAN.md
 ```
 
-Non-zero exit is a blocker per id (`dimension: context_compliance`): `missing` = a `D-`/`A-` naming this phase that no plan cites (rows with `source: plan-check` are not required), `unknown` = a cited id that does not exist, `stale` = a cited id that was superseded (`use` names the replacement). The script proves citation only: also read each cited record (`node "$HOME/.claude/get-shit-done/bin/decisions.js" list --phase "$phase_number"`) and raise a blocker when a task contradicts it, or when a task built on an `A-` hard-wires the default instead of isolating it behind one named seam. `unscoped_open` lists open assumptions that name no phase: not a failure by itself, but raise a blocker when a task depends on one's default without isolating it behind a seam.
+Non-zero exit is a blocker per id (`dimension: context_compliance`): `missing` = a `D-`/`A-` naming this phase that no plan cites (rows with `source: plan-check` are not required), `unknown` = a cited id that does not exist, `stale` = a cited id that was superseded (`use` names the replacement). The script proves citation only: also read each cited record (`node "$HOME/.claude/get-shit-done/bin/decisions.js" list --phase "$phase_number"`) and raise a blocker when a task contradicts it, or when a task built on an `A-` hard-wires the default instead of isolating it behind one named seam.
 
 ## Dimension 8: Testing Mandate Compliance
 
@@ -556,8 +556,8 @@ Only when the prompt says `Adversarial pass: enabled for plans {ids}`. For each 
 ---
 verdict: approved | revise | critical   # revise = any major, critical = any critical
 plan: {plan_id}
-required_changes:   # only for revise/critical, one concrete fix per kept major/critical flaw
-  - "..."
+required_changes:   # only for revise/critical, one concrete fix per kept major/critical flaw; prefix `blocker:` or `warning:` to set its severity
+  - "blocker: ..."
 ---
 # Adversarial Review Verdict: Plan {plan_id}
 ## Flaws
@@ -568,7 +568,7 @@ Write no VERDICT.md for plans not listed.
 
 ## Product lens
 
-Six questions; the full attack on each plan is Dimension 14 (risk add-ons only), and questions 1, 2, 4 and 6 are also checked against the plan text on every standard-rigour plan by Dimension 17. A plan that PRESCRIBES a defect found here is a blocker:
+Six questions; the full attack on each plan is Dimension 14 (risk add-ons only), and questions 1, 2, 4 and 6 are also checked against the plan text on every standard-rigour plan by Dimension 17. A plan that PRESCRIBES a defect found here is a blocker. A ruling or `D-`/`A-` row answers a question only if its text names that abuse case; otherwise raise it. For every state change reachable by a link or GET, state who can mint it and whose session it changes; compare each role's privilege with the literal words of a ruling. An observation that contradicts a ruling's literal words is a blocker, never a note:
 
 1. Privileges: for every table, object or endpoint the plan creates or changes, which roles can read or write it after the plan runs, including service/admin roles and platform default grants; is each intended and asserted?
 2. Ignored results: which calls' results or errors does the prescribed code discard, and what state is the user left in when they fail?
@@ -577,11 +577,17 @@ Six questions; the full attack on each plan is Dimension 14 (risk add-ons only),
 5. Secrets and residue: which files or logs hold keys, tokens, cookies or passwords during the run, and which step deletes them and proves it?
 6. False passes: which recorded fact or probe would read as success while the thing is broken (a 404 from a cache read as "not readable")?
 
-**Write is limited to `{phase_dir}/{plan_id}-VERDICT.md`, and only when the prompt enables the adversarial pass. Never write or edit any other file, including the PLAN.md under review; in quick and verify-work dispatches write nothing.**
+**Write is limited to `{phase_dir}/{plan_id}-VERDICT.md` (only when the prompt enables the adversarial pass) and the Round 1 plan edits below. Never write or edit any other file; in quick and verify-work dispatches write nothing.**
+
+## Round 1 fixes
+
+Only when the prompt says `Round 1`. A finding with exactly one obvious fix (a wrong or unsatisfiable verify command, a missing flag, path, count or tier tag, a wording the plan's own text already settles) you edit into the PLAN.md yourself, changing the fewest lines, before you return. Anything that changes design (what is built, a task split, ordering across plans, scope, a decision the ledger does not settle) stays an issue for the planner. List each edit under `### Fixed by the checker` (plan, task, change) and not again as an issue. Never weaken an acceptance row, a control or a ruling to make a finding go away. A later delta round re-reads your edits from `git diff`.
 
 ## Dimension 15: Satisfiable Expectations
 
-Every `<verify>` command, `<done>` criterion and must_haves truth must be satisfiable in the environment the plan itself declares. For each, check it against: services the plan or STACK-PROFILE excludes or does not start (a command needing an API URL, port or container of an excluded service is impossible); env vars the plan never sets and the environment does not provide; tools or paths absent from the declared stack; and artifacts a later plan or the verifier produces (a check cannot require them earlier). An impossible expectation = blocker (`dimension: satisfiable_expectations`, `severity: blocker`) naming the command and the missing service/variable. Same revision loop (max 3).
+Every `<verify>` command, `<done>` criterion and must_haves truth must be satisfiable in the environment the plan itself declares. For each, check it against: services the plan or STACK-PROFILE excludes or does not start (a command needing an API URL, port or container of an excluded service is impossible); env vars the plan never sets and the environment does not provide; tools or paths absent from the declared stack; and artifacts a later plan or the verifier produces (a check cannot require them earlier). An impossible expectation = blocker (`dimension: satisfiable_expectations`, `severity: blocker`) naming the command and the missing service/variable.
+
+**Execute, do not read.** Run every static verify command (grep-like, count, file-exists) yourself against the state it will meet: files the same task creates are untracked and absent before its commit; tracked files already hold what an earlier task wrote. A "returns nothing" check needs a positive control on a known-present needle; a gate or scan run must show a non-zero item count. An unsatisfiable or vacuous verify (it cannot pass, or cannot fail) is a blocker. Every external command (server, build, probe, network call) needs a timeout, an output destination and readiness proof (port free before, service answering before use); a task that depends on a process another dispatch started is a blocker, a missing timeout or proof a warning.
 
 ## Dimension 17: Rule Binding (standard rigour, not spike)
 
@@ -732,7 +738,7 @@ grep -c "<task" "$PHASE_DIR"/$PHASE-01-PLAN.md
 grep "files_modified:" "$PHASE_DIR"/$PHASE-01-PLAN.md
 ```
 
-Thresholds: the task and line caps of `references/rigour.md`; over a cap is a blocker (split required).
+Thresholds: Dimension 5; over the line cap, or a task that does not fit one executor dispatch, is a blocker (split required).
 
 ## Step 9: Verify must_haves Derivation
 

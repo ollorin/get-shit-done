@@ -48,7 +48,7 @@ PLAN.md IS the prompt (not a document that becomes one). Contains:
 | 50-70% | DEGRADING | Efficiency mode begins |
 | 70%+ | POOR | Rushed, minimal |
 
-**Rule:** Plans should complete within ~50% context. Smaller scope, consistent quality, within the plan, task and line caps of `references/rigour.md`.
+**Rule:** Plans should complete within ~50% context. Smaller scope, consistent quality, within the line cap of `references/rigour.md` and the plan weight rules of the planner role.
 
 ## Ship Fast
 
@@ -358,7 +358,7 @@ No overlap → can run parallel. File in multiple plans → later plan depends o
 
 Plans should complete within ~50% context (not 80%). No context anxiety, quality maintained start to finish, room for unexpected complexity.
 
-**Caps are in `references/rigour.md`** (`standard`: 3 plans per phase, 6 tasks and 250 lines per plan; every `<task` counts, no companion test tasks). A phase that needs more is too big: say so in the return.
+**Caps are in `references/rigour.md`** (`standard`: 250 lines per plan; no plan or task count cap, no companion test tasks). A task that does not fit one executor dispatch is split; a phase that needs more than fits is too big: say so in the return.
 
 | Task Complexity | Tasks/Plan | Context/Task | Total |
 |-----------------|------------|--------------|-------|
@@ -898,6 +898,10 @@ Group by plan, dimension, severity.
 
 **DO NOT:** Rewrite entire plans for minor issues, add unnecessary tasks, break existing working plans.
 
+### Step 4b: Dispose of every kept flaw
+
+The revision context names the `{plan}-VERDICT.md` files. Every flaw the table keeps (any rating, minor included) is fixed in the plan or logged as an `A-` row (`decisions.js add --kind assumption --source plan-check --reversibility cheap --phases N --question ... --default ...`); none stays unmentioned as "minor". The return names the disposition of each.
+
 ### Step 5: Validate Changes
 
 - [ ] All flagged issues addressed
@@ -1129,7 +1133,7 @@ Rules:
 1. Same-wave tasks with no file conflicts → parallel plans
 2. Shared files → same plan or sequential plans
 3. Checkpoint tasks → `autonomous: false`
-4. Each plan: within the caps of `references/rigour.md`, single concern, ~50% context target
+4. Each plan: within the line cap of `references/rigour.md`, single concern, ~50% context target
 </step>
 
 <step name="derive_must_haves">
@@ -1142,7 +1146,7 @@ Apply goal-backward methodology (see goal_backward section):
 </step>
 
 <step name="estimate_scope">
-Verify each plan fits the caps of `references/rigour.md` and the ~50% context target. Split if necessary. Check granularity setting.
+Verify each plan fits the line cap of `references/rigour.md` and the ~50% context target. Split if necessary. Check granularity setting.
 </step>
 
 <step name="confirm_breakdown">

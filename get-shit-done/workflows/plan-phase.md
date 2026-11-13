@@ -405,7 +405,7 @@ When `--gaps` and the gap list holds at most 4 small, independent fixes (each a 
 node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" verify form "${PHASE}" --plans-only
 ```
 
-Errors (plan lines/tasks/plan-count caps of `references/rigour.md`, an evidence-only plan, a missing `plan_stamp`) are BLOCKING here: the planner fixes them (step 12's revision spawn, errors verbatim) and the check re-runs, before any checker is spawned; at most 2 revisions, then return `status: failed` naming the errors. Executed plans (with a SUMMARY) are never checked.
+Errors (the plan line cap of `references/rigour.md`, at spike its plan and task counts, an evidence-only plan, a missing `plan_stamp`) are BLOCKING here: the planner fixes them (step 12's revision spawn, errors verbatim) and the check re-runs, before any checker is spawned; at most 2 revisions, then return `status: failed` naming the errors. Executed plans (with a SUMMARY) are never checked.
 
 ## 9.5. Risk Triage (Adversarial Review, MILE-39)
 
@@ -466,7 +466,7 @@ Agent(
 )
 ```
 
-**If `TRIAGE_MODE` is `adversarial` (round 1 only, the first check of a plan set):** also append to `checker_prompt`: `Adversarial pass: enabled for plans {ADVERSARIAL_PLANS}; write {PHASE_DIR}/{plan_id}-VERDICT.md for each.` and spawn with `model="{ruling_model}"` (never `checker_model`); if that spawn is rejected for availability, retry it once with `model="{ruling_model_fallback}"` and say so. A new round 1 overwrites the old verdicts: delete nothing (a verdict older than its plan fails the freshness test in step 11). Each VERDICT.md carries its own findings. **Round 2 and later are delta rounds on `checker_model` (step 11): they read the kept round-1 verdicts, run no adversarial pass and write no VERDICT.md.**
+**If `TRIAGE_MODE` is `adversarial` (round 1 only, the first check of a plan set):** first record `PLAN_BASE=$(git rev-parse HEAD)` (the planner's commit), then append to `checker_prompt`: `Round 1. Adversarial pass: enabled for plans {ADVERSARIAL_PLANS}; write {PHASE_DIR}/{plan_id}-VERDICT.md for each.` (the checker also applies the unambiguous fixes itself: `agents/gsd-plan-checker.md`, Round 1 fixes) and spawn with `model="{ruling_model}"` (never `checker_model`); if that spawn is rejected for availability, retry it once with `model="{ruling_model_fallback}"` and say so. A new round 1 overwrites the old verdicts: delete nothing (a verdict older than its plan fails the freshness test in step 11). Each VERDICT.md carries its own findings. **Round 2 and later are delta rounds on `checker_model` (step 11): they read the kept round-1 verdicts, run no adversarial pass and write no VERDICT.md.**
 
 ## 11. Handle Checker Return
 
@@ -488,7 +488,9 @@ In round 1 with the adversarial pass, name each `{PHASE_DIR}/{plan_id}-VERDICT.m
 
 Readers: the next round (below), the handoff brief (open risks) and the milestone rules distillation; nothing is copied from it into a SUMMARY.
 
-**Later rounds are delta rounds.** From iteration 2 on, the checker prompt carries `{PHASE_DIR}/{N}-PLAN-CHECK.md`, the kept `{PHASE_DIR}/*-VERDICT.md` files and `git diff {commit of the previous round} -- {PHASE_DIR}/*-PLAN.md`, and this instruction: `Delta round. For every earlier blocker and warning report fixed, kept or regressed. Then check only the changed lines for new defects. A new finding on unchanged text is a warning, never a blocker, unless it is a secret, a containment violation or a plan that cannot run at all.`
+**Checker fixes (round 1, `adversarial`).** The checker's `### Fixed by the checker` list names the plans it edited. Re-run step 9.4 (a form error it caused goes to the planner), then commit those plan files in their own commit (`docs(phase-{X}): plan-check round 1 fixes`) before the round record below. The edits are not issues; the delta round is their independent check.
+
+**Later rounds are delta rounds.** From iteration 2 on, the checker prompt carries `{PHASE_DIR}/{N}-PLAN-CHECK.md`, the kept `{PHASE_DIR}/*-VERDICT.md` files and `git diff {PLAN_BASE} -- {PHASE_DIR}/*-PLAN.md` (the checker's fixes and the planner's revision together), and this instruction: `Delta round. For every earlier blocker, warning and kept verdict flaw report fixed, ledger row or still open; read the diff as an independent review of the edits. Then check only the changed lines for new defects. A new finding on unchanged text is a warning, never a blocker, unless it is a secret, a containment violation or a plan that cannot run at all.`
 
 **If `TRIAGE_MODE` is `checker`:**
 - **`## VERIFICATION PASSED`:** Display confirmation, proceed to step 13.
@@ -499,7 +501,7 @@ Readers: the next round (below), the handoff brief (open risks) and the mileston
   ```bash
   node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" quality verdict-to-issues "${PHASE_DIR}/${plan_id}-VERDICT.md" --require --raw
   ```
-  The checker already lists the verdict's findings in its own return: add a returned issue only when its plan and fix are not already in that list, and keep the severity as returned (a `blocker:` or `warning:` prefix on a `required_changes` entry sets it; otherwise `revise` is a warning and `critical` a blocker). Then proceed to step 12. All verdicts `approved` (no blocker issue) and `## VERIFICATION PASSED`: proceed to step 13.
+  The checker already lists the verdict's findings in its own return: add a returned issue only when its plan and fix are not already in that list, and keep the severity as returned (a `blocker:` or `warning:` prefix on a `required_changes` entry sets it; otherwise `revise` is a warning and `critical` a blocker). Then proceed to step 12. All verdicts `approved` (no blocker issue) and `## VERIFICATION PASSED`: proceed to step 13, except when the checker applied fixes: run ONE delta round first (step 10 on `checker_model`) over `git diff {PLAN_BASE}` and route its return like any delta round.
 
 ## 12. Revision Loop (capped)
 
@@ -507,7 +509,7 @@ Track `iteration_count` (starts at 1 after initial plan + check). `CAP` is the p
 
 **If iteration_count < CAP** (spike: one revision, then step 13):
 
-Display: `Sending back to planner for revision... (iteration {N}/{CAP})`
+A round whose only issues the checker fixed itself skips the revision and goes to the delta round. Otherwise display `Sending back to planner for revision... (iteration {N}/{CAP})`
 
 Revision prompt:
 
@@ -521,7 +523,8 @@ Revision prompt:
 - {context_path} (USER DECISIONS from /gsd:discuss-phase)
 </files_to_read>
 
-**Checker issues:** {structured_issues_from_checker}
+**Checker issues (design changes only; the checker already edited the rest):** {structured_issues_from_checker}
+**Verdicts:** {PHASE_DIR}/*-VERDICT.md (dispose of every kept flaw: planner-detail revision mode, step 4b)
 </revision_context>
 
 <instructions>

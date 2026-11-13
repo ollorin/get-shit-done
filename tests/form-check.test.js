@@ -24,12 +24,11 @@ describe('verify form', () => {
     assert.deepStrictEqual([r.rc, checks(r)], [1, ['plan_lines']]);
     assert.deepStrictEqual(Object.keys(r.json.errors[0]).sort(), ['check', 'file', 'message']);
   });
-  test('7 tasks fail, 6 pass', () => {
+  test('standard rigour has no task or plan count cap', () => {
     const dir = project();
-    setPlan(dir, plan('01', { tasks: 6 }));
+    const pd = setPlan(dir, plan('01', { tasks: 9 }));
+    for (const n of ['02', '03', '04']) fs.writeFileSync(path.join(pd, `01-${n}-PLAN.md`), plan(n));
     assert.strictEqual(form(dir, '--plans-only').rc, 0);
-    setPlan(dir, plan('01', { tasks: 7 }));
-    assert.deepStrictEqual(checks(form(dir, '--plans-only')), ['plan_tasks']);
   });
   test('a spike phase uses the spike caps', () => {
     const dir = project();
@@ -39,13 +38,13 @@ describe('verify form', () => {
     setPlan(dir, plan('01', { tasks: 5 }));
     assert.deepStrictEqual(checks(form(dir, '--plans-only')), ['plan_tasks']);
   });
-  test('an evidence-only plan, a missing stamp and a plan count over the cap are blocking plan-time errors', () => {
+  test('an evidence-only plan and a missing stamp are blocking plan-time errors', () => {
     const dir = project();
     const pd = setPlan(dir, plan('01', { files: ['.planning/phases/01-p1/x.md'] }));
     for (const n of ['02', '03', '04']) fs.writeFileSync(path.join(pd, `01-${n}-PLAN.md`), plan(n));
     fs.writeFileSync(path.join(pd, '01-05-PLAN.md'), plan('05').replace('plan_stamp: abc\n', ''));
     const r = form(dir, '--plans-only');
-    assert.deepStrictEqual([r.rc, checks(r).sort()], [1, ['evidence_only_plan', 'plan_count', 'plan_stamp_missing']]);
+    assert.deepStrictEqual([r.rc, checks(r).sort()], [1, ['evidence_only_plan', 'plan_stamp_missing']]);
   });
   test('an executed plan (SUMMARY on disk) is never reported for caps', () => {
     const dir = project();

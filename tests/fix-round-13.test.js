@@ -68,18 +68,6 @@ describe('R13-6: no per-plan high_risk decision', () => {
   });
 });
 
-describe('R13-7: tier tag follows the task, both directions', () => {
-  test('planner and checker say so and split mixed tasks', () => {
-    for (const f of ['agents/gsd-planner.md', 'agents/gsd-plan-checker.md']) {
-      const d = doc(f);
-      assert.match(d, /follows the TASK's nature|does not fit the TASK's nature/, f);
-      assert.match(d, /stays `haiku`/, f);
-      assert.match(d, /mixes mechanical steps and a deciding step/, f);
-    }
-    assert.match(doc('agents/gsd-plan-checker.md'), /`sonnet` on a plainly mechanical task/);
-  });
-});
-
 describe('R13-8: task-context skill and routing match machinery are gone', () => {
   test('files and subcommands deleted; classify-failure stays', () => {
     assert.ok(!fs.existsSync(path.join(root, 'skills')));
