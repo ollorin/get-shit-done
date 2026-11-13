@@ -45,7 +45,7 @@ The result type, the match tool and the immutable update idioms of this project'
 
 ## 8. Review checklist
 
-Ask these in every review round. Each "no" is a finding with `file:line`.
+Ask these in the final review. Each "no" is a finding with `file:line`.
 
 1. Does every function that can fail return a result value, with no exception crossing a module boundary?
 2. Is every input and shared value left unchanged, with a new value built instead?

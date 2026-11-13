@@ -14,7 +14,7 @@ These roles always run on `ruling_model`. This table is the only place that says
 
 | Role | Where |
 |---|---|
-| Final phase review: the phase-end `gsd-verifier` (two parallel passes at risk add-ons), at every rigour | execute-phase `verify_phase_goal` |
+| Final phase review: the phase-end `gsd-verifier` (two sequential passes at risk add-ons), at every rigour | execute-phase `verify_phase_goal` |
 | Final milestone review: the milestone audit, its rules distillation and the separate review of that diff | execute-roadmap `completion`, audit-milestone |
 | Rulings | wherever the trigger row of `references/rigour.md` allows one |
 | The planner, at every rigour (init `planner_model` is the same value) | plan-phase |

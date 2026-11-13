@@ -1,7 +1,7 @@
 'use strict';
 // Disk check for the final review (references/rigour.md rule 10): a phase whose commits touched files outside
-// .planning/ needs the review record {N}-REVIEW.md (the final pass's findings; at risk add-ons the coordinator's union of two
-// independent passes). Frontmatter: reviewer_role, passes (1; 2 at risk add-ons), open_critical_high, ruled_by.
+// .planning/ needs the review record {N}-REVIEW.md (the newest final pass's findings; at risk add-ons pass 2 overwrites pass 1's).
+// Frontmatter: reviewer_role, passes (1; 2 at risk add-ons), open_critical_high, ruled_by.
 // It must carry no open CRITICAL/HIGH finding unless a ruling id is recorded.
 const fs = require('fs');
 const path = require('path');
@@ -25,8 +25,8 @@ function reviewErrors(phaseDir, dirFiles, touchedFiles, { risk = false } = {}) {
   if (!Number.isInteger(open) || open < 0 || !data.reviewer_role) {
     return [`${file} frontmatter must carry reviewer_role and open_critical_high (a whole count)`];
   }
-  if (passes !== 1 && passes !== 2) return [`${file} frontmatter must carry passes: 1 or 2 (independent final passes merged into the record)`];
-  if (risk && passes !== 2) return [`${file} records ${passes} final pass: a phase with risk add-ons needs 2 independent passes merged`];
+  if (passes !== 1 && passes !== 2) return [`${file} frontmatter must carry passes: 1 or 2 (pass 2 at risk add-ons)`];
+  if (risk && passes !== 2) return [`${file} records ${passes} final pass: a phase with risk add-ons needs pass 2 (a fresh independent review of the fixed tree)`];
   if (bad(ruled).length > 0) return [`${file} ruled_by must list ruling ids like D-12, not ${bad(ruled).join(', ')}`];
   if (open > 0 && ruled.length === 0) return [`${file} has open_critical_high ${open} and no ruling id in ruled_by`];
   return [];

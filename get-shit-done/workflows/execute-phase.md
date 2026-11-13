@@ -802,13 +802,13 @@ Agent(
 Phase directory: {phase_dir}
 Phase goal: {goal from ROADMAP.md}
 Phase requirement IDs: {phase_req_ids}
-Check must_haves against actual codebase. Review the phase diff `git diff {phase base}..HEAD -- . ':!.planning'` against the plans{, the threat model `{N}-THREAT-MODEL.md` when present}, with the final-review brief of `references/rigour.md` rule 11, and write the findings to {record_path}. The test steward's return: {net change and runtime delta, or "skipped"}; a net-positive test count with no stated reason is a finding. Gate and test results: read `{phase_dir}/captures/gates.txt` (it must be newer than the last code commit); do not re-run the full suite.
+Check must_haves against actual codebase. Review the phase diff `git diff {phase base}..HEAD -- . ':!.planning'` against the plans{, the threat model `{N}-THREAT-MODEL.md` when present}, with the final-review brief of `references/rigour.md` rule 11, and write the findings to `{phase_dir}/{N}-REVIEW.md` (record format: rule 10). The test steward's return: {net change and runtime delta, or "skipped"}; a net-positive test count with no stated reason is a finding. Gate and test results: read `{phase_dir}/captures/gates.txt` (it must be newer than the last code commit); do not re-run the full suite.
 Cross-reference requirement IDs from PLAN frontmatter against REQUIREMENTS.md — every ID MUST be accounted for.
 Judge product truth only; form was gated by a script. A form defect you notice is mentioned in your report body and never changes the status.
 Cite planning records by id (D-NN, A-NN, requirement id, plan id), never by line; code by file:line.
 risk_addons: {risk_addons}
 On a re-verification check only the truths that failed last time and the files the gap plans changed.
-Create VERIFICATION.md{ (pass 2: only the findings file, no VERIFICATION)}.
+Create VERIFICATION.md.
 @~/.claude/get-shit-done/references/handoff-brief.md
 <handoff_brief>
 {HANDOFF_BRIEF, with HARD RULES = the rules the phase was verified against}
@@ -819,7 +819,7 @@ Create VERIFICATION.md{ (pass 2: only the findings file, no VERIFICATION)}.
 )
 ```
 
-**Passes.** The prompt above is the final pass. Standard: ONE dispatch; `{record_path}` is `{phase_dir}/{N}-REVIEW.md` (frontmatter per rule 10, `passes: 1`). Risk add-ons (`risk_addons` true): spawn TWO dispatches of the SAME prompt and inputs in ONE message (neither sees the other's output; wall time is one pass), `{record_path}` = `{phase_dir}/captures/final-1.md` and `final-2.md`, pass 2 writes no VERIFICATION. When both return, merge their findings by file and defect (union, duplicates collapsed, highest severity kept) into `{phase_dir}/{N}-REVIEW.md` with `passes: 2` and `open_critical_high` = the union count, set VERIFICATION's `open_critical_high` to the same number (and its status to `gaps_found` when the union adds a gap), then continue. Either way, before the status routing, the record follows rule 12 of `references/rigour.md`: ONE fix dispatch, ONE `{reviewer_model}` re-check of the fix commits, ONE ruling for what stays open. The phase report lists the `scriptable: yes` findings as proposed project gates.
+**Passes.** The prompt above is final pass 1. Standard: ONE pass, then rule 12 of `references/rigour.md` (fix, `{reviewer_model}` re-check, ruling) before the status routing below. Risk add-ons (`risk_addons` true), sequential: pass 1 (`passes: 1`), then ONE fix dispatch for its findings, then pass 2, then (only when pass 2 has findings) its fix dispatch, the `{reviewer_model}` re-check of those fix commits only, and the one ruling for what stays open at CRITICAL/HIGH. Pass 2 is a fresh `{ruling_model}` agent on the FIXED tree, spawned with the same prompt and inputs plus: pass 1's finding ids and the fix commit shas, given only to judge each finding closed / still open and whether a fix introduced a new defect; it is NOT given pass 1's findings as things to look for, and reviews the whole phase diff again for defects pass 1 missed. It rewrites `{phase_dir}/{N}-REVIEW.md` with `passes: 2` (each pass-1 id with closed / open, plus its own findings) and VERIFICATION's status and `open_critical_high`. It runs once even when pass 1 had no findings. The phase report lists the `scriptable: yes` findings as proposed project gates.
 
 **Spike:** when `rigour` is `spike`, replace the check list in the prompt with the spike checks and the final-review questions of `references/rigour.md` (verifier row); nothing else is checked. At every rigour the prompt asks for `open_critical_high` (and `ruled_by` after a ruling) in the VERIFICATION frontmatter. The final review and its fix dispatch are never skipped for budget (rigour.md rule 7); `phase complete` refuses while a CRITICAL/HIGH is open without a ruling id. A rejected spawn retries once on `{ruling_model_fallback}` and says so.
 
@@ -845,7 +845,7 @@ Commit the verifier's output AFTER the dispatch and AFTER the status routing abo
 node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs(phase-${PHASE_NUMBER}): record verification" --files {phase_dir}/*-VERIFICATION.md
 ```
 
-Add `{phase_dir}/{N}-REVIEW.md` and `{phase_dir}/captures/final-*.md` to `--files` when they exist.
+Add `{phase_dir}/{N}-REVIEW.md` to `--files` when it exists.
 
 **If human_needed:**
 ```
