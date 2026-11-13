@@ -31,11 +31,12 @@ function budgetFields(cwd, cls) {
 
 // Wall time = closed work windows + the open one. A window opens at phase_start (or gap_cycle) and closes at the next
 // record event of the phase (complete, parked, incomplete, form_debt, retry, failed, death). A phase_start while a window
-// is open closes the old one at the phase's last logged event. Idle time between sessions never counts.
+// is open closes the old one at the phase's last logged event. The open window is measured to the phase's last logged
+// event (each dispatch logs a phase_spend), never to the clock: a dead session must not keep spending. Idle time never counts.
 const OPEN = new Set(['phase_start', 'gap_cycle']);
 const CLOSE = new Set(['phase_complete', 'phase_parked', 'phase_incomplete', 'phase_form_debt', 'phase_retry', 'phase_failed', 'phase_coordinator_death']);
 
-function spend(events, phase, now) {
+function spend(events, phase) {
   const k = phaseKey(phase);
   let closedMs = 0;
   let start = null;
@@ -56,13 +57,13 @@ function spend(events, phase, now) {
     else if (e.type === 'phase_spend') dispatches += 1;
     if (!Number.isNaN(t)) last = t;
   }
-  const ms = closedMs + (start === null ? 0 : Math.max(0, now - start));
+  const ms = closedMs + (start === null ? 0 : Math.max(0, (last === null ? start : last) - start));
   return { wall_minutes_spent: Math.round((ms / 60000) * 10) / 10, dispatches_spent: dispatches };
 }
 
 function status({ cwd, phase, cls, events, now }) {
   const l = limits(cwd, cls);
-  const s = spend(events, phase, now == null ? Date.now() : now);
+  const s = spend(events, phase);
   const ratio = Math.max(s.wall_minutes_spent / l.wall_minutes, s.dispatches_spent / l.dispatches);
   const pct = Math.round(ratio * 1000) / 10;
   return { phase: phaseKey(phase), budget_class: cls, ...s, budget_wall_minutes: l.wall_minutes, budget_dispatches: l.dispatches, pct, warn: ratio >= 0.8, breach: ratio >= 1 };

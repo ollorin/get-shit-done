@@ -51,16 +51,24 @@ describe('CLI-4: budget', () => {
       { type: 'phase_start', phase: '1', timestamp: '2026-01-01T00:00:00Z' },
       { type: 'phase_parked', phase: '1', reason: 'human_needed', timestamp: '2026-01-01T00:10:00Z' },
       { type: 'phase_start', phase: '1', timestamp: '2026-01-03T00:00:00Z' },
+      { type: 'phase_spend', phase: '1', timestamp: '2026-01-03T00:05:00Z' },
     ];
     const s = b.status({ cwd: dir, phase: '1', cls: 'standard', events: ev, now: Date.parse('2026-01-03T00:05:00Z') });
     assert.strictEqual(s.wall_minutes_spent, 15);
-    const rec = [...ev.slice(0, 1), { type: 'phase_incomplete', phase: '1', action: 'gap_cycle', timestamp: '2026-01-01T00:20:00Z' }, { type: 'gap_cycle', phase: '1', timestamp: '2026-02-01T00:00:00Z' }];
+    const rec = [...ev.slice(0, 1), { type: 'phase_incomplete', phase: '1', action: 'gap_cycle', timestamp: '2026-01-01T00:20:00Z' }, { type: 'gap_cycle', phase: '1', timestamp: '2026-02-01T00:00:00Z' }, { type: 'phase_spend', phase: '1', timestamp: '2026-02-01T00:07:00Z' }];
     assert.strictEqual(b.status({ cwd: dir, phase: '1', cls: 'standard', events: rec, now: Date.parse('2026-02-01T00:07:00Z') }).wall_minutes_spent, 27);
   });
   test('a phase_start while a window is open closes the old one at the last logged event of the phase', () => {
-    const ev = [{ type: 'phase_start', phase: '1', timestamp: '2026-01-01T00:00:00Z' }, { type: 'phase_spend', phase: '1', timestamp: '2026-01-01T00:30:00Z' }, { type: 'phase_start', phase: '1', timestamp: '2026-01-05T00:00:00Z' }];
+    const ev = [{ type: 'phase_start', phase: '1', timestamp: '2026-01-01T00:00:00Z' }, { type: 'phase_spend', phase: '1', timestamp: '2026-01-01T00:30:00Z' }, { type: 'phase_start', phase: '1', timestamp: '2026-01-05T00:00:00Z' }, { type: 'phase_spend', phase: '1', timestamp: '2026-01-05T00:10:00Z' }];
     const s = b.status({ cwd: dir, phase: '1', cls: 'standard', events: ev, now: Date.parse('2026-01-05T00:10:00Z') });
-    assert.deepStrictEqual([s.wall_minutes_spent, s.dispatches_spent], [40, 1]);
+    assert.deepStrictEqual([s.wall_minutes_spent, s.dispatches_spent], [40, 2]);
+  });
+  test('an open window is measured to the last logged event, never to the clock (a dead session stops spending)', () => {
+    const ev = [{ type: 'phase_start', phase: '1', timestamp: '2026-01-01T00:00:00Z' }];
+    assert.strictEqual(b.status({ cwd: dir, phase: '1', cls: 'spike', events: ev, now: Date.parse('2026-01-09T00:00:00Z') }).wall_minutes_spent, 0);
+    const live = [...ev, { type: 'phase_spend', phase: '1', timestamp: '2026-01-01T00:12:00Z' }];
+    const s = b.status({ cwd: dir, phase: '1', cls: 'spike', events: live, now: Date.parse('2026-01-09T00:00:00Z') });
+    assert.deepStrictEqual([s.wall_minutes_spent, s.breach], [12, false]);
   });
   test('budget spend --phase N logs one dispatch', () => {
     const before = json(['budget', 'status', '--phase', '1']).dispatches_spent;
@@ -70,7 +78,7 @@ describe('CLI-4: budget', () => {
   test('the window restarts after phase_complete and after a budget_exceeded park (retry)', () => {
     const spend = { type: 'phase_spend', phase: '1', timestamp: '2026-01-01T00:10:00Z' };
     const ev = [{ type: 'phase_start', phase: '1', timestamp: '2026-01-01T00:00:00Z' }, spend, spend, { type: 'phase_parked', phase: '1', reason: 'budget_exceeded' },
-      { type: 'phase_start', phase: '1', timestamp: '2026-01-02T00:00:00Z' }, spend];
+      { type: 'phase_start', phase: '1', timestamp: '2026-01-02T00:00:00Z' }, { ...spend, timestamp: '2026-01-02T00:05:00Z' }];
     const s = b.status({ cwd: dir, phase: '1', cls: 'standard', events: ev, now: Date.parse('2026-01-02T00:05:00Z') });
     assert.deepStrictEqual([s.dispatches_spent, s.wall_minutes_spent], [1, 5]);
     const closed = b.status({ cwd: dir, phase: '1', cls: 'standard', events: [...ev, { type: 'phase_complete', phase: '1' }], now: Date.now() });
