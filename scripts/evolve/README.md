@@ -11,7 +11,7 @@ Goal: agent instructions and flow steps change only when replays of real reworke
 | runs | `../ab-eval/ab_run.py` (2 in parallel) | Haiku | `$AB_HOME/results/runs.jsonl` |
 | decision | `gate.py decide` | no | `decisions.jsonl`: ADOPT, REJECT, MORE-REPS, STOP |
 | record | `gate.py adopt`, `rollback` | no | `adopted.json`, `agents/VERSIONS.json` |
-| trigger | `run.py` (execute-phase step `evolve_corpus`, dry-run) | no | `.tmp/evolve-phase-N.log` |
+| trigger | `run.py` (manual only: no workflow step runs it) | no | `.tmp/evolve-phase-N.log` |
 
 Gate rules are in the `gate.py` docstring: 5 reps minimum, 10 before a null result counts, run-level Fisher
 test, canary tasks may not lose more than one acceptance, cost cap. Adoption = one commit that applies the draft,

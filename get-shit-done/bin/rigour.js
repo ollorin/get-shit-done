@@ -45,7 +45,7 @@ function authorising(cwd, id, phase) {
   }
   const r = last.get(id);
   return !!r && r.kind === 'decision' && r.status === 'active' && /^D-\d{2,}$/.test(id)
-    && (r.source === 'owner-answer' || r.source === 'opus-ruling')
+    && (r.source === 'owner-answer' || r.source === 'opus-ruling' || r.source === 'top-ruling')
     && Array.isArray(r.phases) && r.phases.includes(String(phase).replace(/^0+(?=\d)/, ''));
 }
 

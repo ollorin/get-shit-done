@@ -71,3 +71,23 @@ describe('CLI-3: one key for the top model', () => {
     assert.strictEqual(run(['resolve-model', 'top-fallback', '--raw']).stdout.trim(), 'opus');
   });
 });
+
+describe('CLI-9: resolve-model utility and top-tier synonyms', () => {
+  test('resolve-model utility / reviewer default and read config', () => {
+    assert.strictEqual(run(['resolve-model', 'utility', '--raw']).stdout.trim(), 'haiku');
+    assert.strictEqual(run(['resolve-model', 'reviewer', '--raw']).stdout.trim(), 'sonnet');
+    cfg({ utility_model: 'u', reviewer_model: 'r' });
+    assert.strictEqual(run(['resolve-model', 'utility', '--raw']).stdout.trim(), 'u');
+    assert.strictEqual(run(['resolve-model', 'reviewer', '--raw']).stdout.trim(), 'r');
+  });
+  test('the Defect Classes caught_by enum accepts top-ruling and top-diff-review and still the old values', () => {
+    const { DEFECT_CLASSES_CAUGHT_BY } = require('./gsd-tools.js');
+    for (const v of ['top-ruling', 'top-diff-review', 'opus-ruling', 'opus-diff-review']) assert.ok(DEFECT_CLASSES_CAUGHT_BY.includes(v), v);
+  });
+  test('a top-ruling D- decision authorises a spike like opus-ruling', () => {
+    const { resolveRigour } = require('./rigour.js');
+    fs.writeFileSync(path.join(dir, '.planning', 'ROADMAP.md'), '# R\n\n### Phase 1: A\n**Rigour**: spike (D-05)\n**Spike roots**: spike/\n');
+    fs.writeFileSync(path.join(dir, '.planning', 'DECISIONS.jsonl'), JSON.stringify({ id: 'D-05', kind: 'decision', status: 'active', source: 'top-ruling', phases: ['1'], ts: 't', question: 'q', answer: 'a' }) + '\n');
+    assert.strictEqual(resolveRigour(dir, '1').rigour, 'spike');
+  });
+});

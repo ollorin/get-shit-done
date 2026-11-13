@@ -1857,6 +1857,7 @@ function cmdConfigEnsureSection(cwd, raw) {
   // Create default config
   const defaults = {
     model_profile: 'balanced',
+    models: { top: 'opus' },
     commit_docs: true,
     search_gitignored: false,
     branching_strategy: 'none',
@@ -2843,6 +2844,12 @@ function cmdResolveModel(cwd, agentType, raw) {
     output({ model, role: agentType }, raw, model);
     return;
   }
+  if (agentType === 'utility' || agentType === 'reviewer') {
+    const cfg = readRawConfig(cwd);
+    const model = agentType === 'utility' ? cfg.utility_model || 'haiku' : cfg.reviewer_model || 'sonnet';
+    output({ model, role: agentType }, raw, model);
+    return;
+  }
   if (agentType === 'gsd-verifier') {
     const model = topModelFields(cwd).ruling_model;
     output({ model, profile: 'top' }, raw, model);
@@ -3014,7 +3021,7 @@ function evaluateSummarySelfCheck(content) {
 // useless as no row at all -- the gate rejects it rather than storing a lie.
 const DEFECT_CLASSES_CAUGHT_BY = [
   'plan-check', 'test-writer', 'mutation-proof', 'opus-diff-review',
-  'opus-ruling', 'verifier', 'ui-qa', 'charlotte', 'other',
+  'opus-ruling', 'top-diff-review', 'top-ruling', 'verifier', 'ui-qa', 'charlotte', 'other',
 ];
 
 // The 5-column schema, in order. The milestone-end distillation reads these by
@@ -12753,7 +12760,7 @@ function cmdInitExecuteRoadmap(cwd, raw) {
 // approve/reject: refused while auto_mode is active unless --owner-confirmed with a --note. The flag is a recorded
 // attestation, not authentication: an unattended agent that passes it has lied in the audit trail, visibly.
 // budget status --phase N [--raw]
-function cmdBudget(cwd, args, raw) {
+function cmdPhaseBudget(cwd, args, raw) {
   if (args[0] !== 'status') error('Unknown budget subcommand. Available: status');
   const i = args.indexOf('--phase');
   const phase = i !== -1 ? args[i + 1] : undefined;
@@ -15423,11 +15430,6 @@ async function main() {
       break;
     }
 
-    case 'budget': {
-      cmdBudget(cwd, args.slice(1), raw);
-      break;
-    }
-
     case 'owner-gate': {
       cmdOwnerGate(cwd, args.slice(1), raw);
       break;
@@ -15923,6 +15925,8 @@ async function main() {
       // the original cost-budget behavior unchanged.
       if (args[1] === 'check') {
         cmdPromptBudget(cwd, raw);
+      } else if (args[1] === 'status') {
+        cmdPhaseBudget(cwd, args.slice(1), raw);
       } else {
         cmdBudget(args.slice(1), raw);
       }

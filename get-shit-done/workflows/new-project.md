@@ -172,6 +172,7 @@ Merge these keys into `.planning/config.json` with mode set to "yolo". Never ove
   "mode": "yolo",
   "granularity": "[selected]",
   "model_profile": "quality|balanced|budget",
+  "models": { "top": "opus" },
   "parallelization": { "enabled": true|false },
   "planning": { "commit_docs": true|false },
   "workflow": {
@@ -497,6 +498,7 @@ Merge these settings into `.planning/config.json`. Never overwrite an existing f
   "mode": "yolo|interactive",
   "granularity": "coarse|standard|fine",
   "model_profile": "quality|balanced|budget",
+  "models": { "top": "opus" },
   "parallelization": { "enabled": true|false },
   "planning": { "commit_docs": true|false },
   "workflow": {

@@ -94,10 +94,10 @@ function estimateTaskTokens(taskName, tier) {
 // Pure function -- no I/O. Resolves the tier the CONFIGURED baseline
 // profile (savings_baseline_profile, default "quality") would have
 // assigned to the per-task gsd-executor spawn these usage records track,
-// mirroring model-profiles.md's gsd-executor row EXACTLY: quality->opus,
-// balanced->sonnet, budget->sonnet. Deliberately narrow, documented,
-// hardcoded mirror (not a live markdown parse) -- if model-profiles.md's
-// gsd-executor row ever changes, this constant must be updated too.
+// the savings baseline: quality->opus, balanced->sonnet, budget->sonnet.
+// Deliberately narrow, documented, hardcoded constant (not a live parse of
+// MODEL_PROFILES in gsd-tools.js, whose gsd-executor row is the current
+// per-profile assignment and need not equal this baseline).
 const BASELINE_PROFILE_EXECUTOR_TIER = { quality: 'opus', balanced: 'sonnet', budget: 'sonnet' };
 function resolveBaselineTier(baselineProfile) {
   return BASELINE_PROFILE_EXECUTOR_TIER[baselineProfile] || BASELINE_PROFILE_EXECUTOR_TIER.quality;

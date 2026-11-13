@@ -16935,7 +16935,8 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
       // Guard the canaries above: if the enum shrank to a value none of them
       // uses, the invalid_caught_by canaries would start passing for free.
       assert.ok(DEFECT_CLASSES_CAUGHT_BY.includes('opus-ruling'), 'opus-ruling must stay in the enum');
-      assert.strictEqual(DEFECT_CLASSES_CAUGHT_BY.length, 9, 'the enum is a closed set of 9 (ui-qa plus the legacy charlotte value)');
+      for (const v of ['top-ruling', 'top-diff-review']) assert.ok(DEFECT_CLASSES_CAUGHT_BY.includes(v), `${v} is the model-neutral synonym and must be accepted`);
+      assert.strictEqual(DEFECT_CLASSES_CAUGHT_BY.length, 11, 'the enum is a closed set of 11 (ui-qa, the legacy charlotte value, and the two top-* synonyms of the opus-* values)');
     });
 
     test('positive control: a case variant of a caught_by value is accepted', () => {

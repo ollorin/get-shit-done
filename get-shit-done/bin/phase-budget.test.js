@@ -72,3 +72,12 @@ describe('CLI-4: budget', () => {
     assert.deepStrictEqual([r.action, r.events[0].reason], ['park', 'budget_exceeded']);
   });
 });
+
+describe('CLI-4 does not shadow the existing budget commands', () => {
+  test('budget --period daily and budget check still route to the cost and prompt-budget paths', () => {
+    const daily = json(['budget', '--period', 'daily', '--scope', 'project']);
+    assert.strictEqual(daily.period, 'daily');
+    const check = run(['budget', 'check', '--raw']);
+    assert.ok(check.stdout.length > 0 && !/phase/.test(check.stderr));
+  });
+});

@@ -18,7 +18,7 @@ including one of your own.
 - **Fix review findings of every severity; don't defer them.** Severity sets priority, not whether
   a finding gets fixed. Fix the class, not the instance: enumerate sibling sites with a cited
   `{{stack.commands.search}}` query (never from memory) and record the query with the fix. Batch
-  same-file findings into one fix agent; run disjoint files in parallel. Defer only what an Opus
+  same-file findings into one fix agent; run disjoint files in parallel. Defer only what a top-model
   ruling marks "no business value", recorded with its reason.
 - **Don't stop early or ask permission** when you can solve it yourself — no "good stopping point",
   no "should I continue?".
@@ -106,39 +106,39 @@ Its usage is in the header of that script.
 Delegate substantial tasks to subagents. **Every spawn passes `model` explicitly** (alias only, never
 a model ID): agent definitions with no `model:` line (gsd-planner, gsd-plan-checker, gsd-debugger)
 inherit the spawner's tier. Pick the cheapest tier that does the job correctly and escalate only for
-a stated reason; a batch where every agent is Opus "to be safe" is a defect.
+a stated reason; a batch where every agent is on the top model "to be safe" is a defect.
 
 | Tier | Use for |
 |---|---|
-| `haiku` | Default implementer (`gsd-executor`, `gsd-test-writer`: features, multi-file changes, fixes, tests, migrations, edge handlers; Opus plans are already decomposed). Test/lint/type-check/build/git/log runs via `subagent_type: "gsd2-runner"` (Bash+Read, no CLAUDE.md load, ~4k-token start vs ~25k). File/config lookups, SUMMARY.md, STATE.md, changelog. |
-| `sonnet` | ALL coordinators (roadmap / phase / death-resume; Opus only when the {{project.owner_title}} asks); they orchestrate, the Opus work runs in separate dispatches. Every review, verify and pre-verification round. `gsd-planner` / `gsd-plan-checker` outside high-stakes. Implementation only when escalated: Haiku failed the same task twice, the task is undecomposed/ambiguous, debugging with unclear root cause, architecture, or review feedback needing judgment beyond the stated fix. |
-| `opus` | Plans and plan-checks for high-stakes domains; architecture and API contract changes; DB schema design; cross-subsystem root-cause analysis; the phase-end `gsd-verifier`; the milestone audit; rulings. |
+| `haiku` | Default implementer (`gsd-executor`, `gsd-test-writer`: features, multi-file changes, fixes, tests, migrations, edge handlers; top-model plans are already decomposed). Test/lint/type-check/build/git/log runs via `subagent_type: "gsd2-runner"` (Bash+Read, no CLAUDE.md load, ~4k-token start vs ~25k). File/config lookups, SUMMARY.md, STATE.md, changelog. |
+| `sonnet` | ALL coordinators (roadmap / phase / death-resume; the top model only when the {{project.owner_title}} asks); they orchestrate, the top-model work runs in separate dispatches. Every review, verify and pre-verification round. `gsd-planner` / `gsd-plan-checker` outside high-stakes. Implementation only when escalated: Haiku failed the same task twice, the task is undecomposed/ambiguous, debugging with unclear root cause, architecture, or review feedback needing judgment beyond the stated fix. |
+| top model | Config `models.top` (init fields `ruling_model`, `ruling_model_fallback`; an alias the owner sets, `fable` or `opus`, default `opus`). Plans and plan-checks for high-stakes domains; architecture and API contract changes; DB schema design; cross-subsystem root-cause analysis; the final phase review (`gsd-verifier`); the final milestone review; rulings. |
 
 **High-stakes domains:** the risk domains of `.planning/PRODUCT-BRIEF.md`; authentication and security
 always. Plan, implementation and review are separate dispatches, never one agent reviewing its own
-work: an Opus plan (plans for authentication, security and the risk domains carry an adversary-view
+work: a top-model plan (plans for authentication, security and the risk domains carry an adversary-view
 section: what an anonymous or authenticated caller can read mid-round), a Haiku implementer
-(escalated per the table), the Sonnet review loop, then a fresh Opus review of the diff against the
+(escalated per the table), the Sonnet review loop, then a fresh top-model review of the diff against the
 plan.
 
 The rules in this section apply at `standard` rigour; a phase whose ROADMAP.md line says `**Rigour**: spike (D-NN)` follows `get-shit-done/references/rigour.md` where that file names a rule (all other rules, including the never-relaxed list, still apply).
 
 **Review loop:** a fresh Sonnet agent each round, never the implementer, every severity fixed.
-High-stakes plans loop until a round reports zero findings; after round 4 a fresh Opus ruling on
+High-stakes plans loop until a round reports zero findings; after round 4 a fresh top-model ruling on
 the last round's findings decides whether another round runs or the loop closes with those findings
 fixed. Other plans get at most 3 rounds: fix every finding of each round, round 3 reviews the fixes
 and the diff, fix its findings and close; only a CRITICAL/HIGH in round 3 earns a fourth. Every
 review round also applies the checklist of `.claude/rules/code-style.md`.
 
-**Opus runs once each at:** (1) plans for authentication, security and risk-domain work; (2) ONE
+**The top model runs once each at:** (1) plans for authentication, security and risk-domain work; (2) ONE
 batched diff review against the plan (2-3 plans where possible) after the Sonnet loop closes; (3) the
 phase-end `gsd-verifier` (goal against on-disk evidence), preceded by a Sonnet pre-verification of all
-must-haves with on-disk evidence; (4) rulings; (5) the milestone audit. Further Opus rounds only
+must-haves with on-disk evidence; (4) rulings; (5) the milestone audit. Further top-model rounds only
 re-check HIGH/risk-domain-path fixes. If the plan-check budget ran out with BLOCKER/HIGH fixes never
 re-checked, the diff-review brief names each one and the reviewer confirms it closed (file:line +
 test) or raises it as HIGH.
 
-**Rulings: a fresh Opus dispatch decides, never the coordinator itself:** deferring or accepting
+**Rulings: a fresh top-model dispatch decides, never the coordinator itself:** deferring or accepting
 any failure, accepting a deviation from the plan, loosening or disputing a test assertion, and
 autonomous design decisions in a high-stakes domain.
 
@@ -186,7 +186,7 @@ command of the profile needs no owner approval, but first confirm no other agent
   same branch.
 - **Dispatch GSD roles by `subagent_type`, never by prompt.** Every spawn for a GSD role passes its
   agent type explicitly: `gsd-phase-coordinator`, `gsd-planner`, `gsd-plan-checker`,
-  `gsd-executor`, `gsd-verifier` (Opus), `gsd-debugger`, the UI QA agent named in
+  `gsd-executor`, `gsd-verifier` (top model), `gsd-debugger`, the UI QA agent named in
   `stack.capabilities.ui_qa.agent`, `gsd-test-writer`, `gsd-docs-updater`. An omitted
   `subagent_type` silently defaults to general-purpose, and "You are the gsd-verifier" in a
   general-purpose prompt is not a verifier — its output is void. `general-purpose` is only for work
