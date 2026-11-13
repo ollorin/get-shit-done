@@ -7668,13 +7668,19 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw, opts = {}) {
   const e2eGenFailure = readE2EGenerationFailure(phaseDir);
 
   // Five expected-artifact checks.
-  const testRequired = validPlans.some(p => /tdd=["']?true/.test(p.content));
+  const tddPlanned = validPlans.some(p => /tdd=["']?true/.test(p.content));
+  // No test command configured ("none" for test_file and test_all): there is nothing to run a test with, so the
+  // requirement is not applicable rather than failed.
+  const testNotApplicable = tddPlanned && !projectContext.testCommandConfigured(cwd);
+  const testRequired = tddPlanned && !testNotApplicable;
   const checks = [
-    evaluatePhaseGateCheck(
-      'test', testRequired,
-      () => touchedFiles.some(f => TEST_FILE_RE.test(f)),
-      waivers, phaseInfo.phase_number
-    ),
+    testNotApplicable
+      ? { type: 'test', required: false, satisfied: true, waived: false, failure_type: null, not_applicable: true, detail: 'not applicable: no test command configured (stack.commands.test_file and test_all are none)' }
+      : evaluatePhaseGateCheck(
+        'test', testRequired,
+        () => touchedFiles.some(f => TEST_FILE_RE.test(f)),
+        waivers, phaseInfo.phase_number
+      ),
     // Evidence comes from the verifier's {N}-VERIFICATION.md frontmatter, not
     // the coordinator-written CHECKPOINT.json; only a YAML boolean true counts. Alias group: any true key wins.
     evaluatePhaseGateCheck(

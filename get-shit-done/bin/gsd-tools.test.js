@@ -4969,6 +4969,36 @@ describe('verify phase-gate command (Phase 45-01)', () => {
     assert.strictEqual(testCheck.failure_type, 'missing_test');
   });
 
+  function tddPhaseWithCommands(name, commands) {
+    const phaseDir = phaseDirPath(name);
+    fs.mkdirSync(phaseDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(phaseDir, '45-01-PLAN.md'),
+      `---\nphase: "45"\nplan: "01"\ntype: execute\nfiles_modified: []\n---\n<tasks>\n<task type="auto" tdd="true">\n<name>Task 1</name>\n<action>do stuff</action>\n</task>\n</tasks>\n`
+    );
+    fs.writeFileSync(path.join(phaseDir, 'impl.js'), 'module.exports = {};\n');
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'config.json'), JSON.stringify({ stack: { commands } }));
+    commitAll('feat(45-01): impl with tdd task, no test file');
+    fs.writeFileSync(path.join(phaseDir, '45-VERIFICATION.md'), `---\nphase: "45"\nstatus: passed\n---\n# Verification\n`);
+  }
+
+  test('pilot fix B6: tdd task but test_file and test_all are "none" -> test check is not applicable, not missing_test', () => {
+    tddPhaseWithCommands('45-nocmd', { test_file: 'none', test_all: 'none', typecheck: 'none', lint: 'none' });
+    const parsed = JSON.parse(runPhaseGate('45', tmpDir).output);
+    assert.ok(!parsed.failures.includes('missing_test'), JSON.stringify(parsed.failures));
+    const t = parsed.checks.find(c => c.type === 'test');
+    assert.strictEqual(t.required, false);
+    assert.strictEqual(t.satisfied, true);
+    assert.strictEqual(t.not_applicable, true);
+    assert.match(t.detail, /not applicable: no test command configured/);
+  });
+
+  test('pilot fix B6: a configured test command keeps the missing_test requirement', () => {
+    tddPhaseWithCommands('45-cmd', { test_file: 'node --test {file}', test_all: 'none' });
+    const parsed = JSON.parse(runPhaseGate('45', tmpDir).output);
+    assert.ok(parsed.failures.includes('missing_test'), JSON.stringify(parsed.failures));
+  });
+
   test('.tsx file in diff but CHECKPOINT.json missing -> missing_charlotte_qa', () => {
     const phaseDir = phaseDirPath('45-nocharlotte');
     fs.mkdirSync(phaseDir, { recursive: true });

@@ -48,6 +48,16 @@ function uiQaMode(cwd) {
   return known && !keys.includes('ui_qa') ? 'none' : 'capable';
 }
 
+// False only when the profile says outright that neither test_file nor test_all is configured ("none"/null).
+// An absent profile or an absent key fails closed (true): the test requirement then stands.
+function testCommandConfigured(cwd) {
+  const profile = readProfile(cwd);
+  if (profile.error) return true;
+  const commands = getProfileValue(profile, 'stack.commands');
+  if (!isPlainObject(commands)) return true;
+  return ['test_file', 'test_all'].some((name) => commands[name] === undefined || !isNotConfigured(commands[name]));
+}
+
 function substituteRoot(commands, cwd) {
   if (typeof commands !== 'object' || commands === null || Array.isArray(commands)) return null;
   return Object.fromEntries(
@@ -183,4 +193,4 @@ function gateStderr(gate) {
   return `project_context_missing: ${keys.join(', ')}; run /gsd:init-project, pass --legacy to this init call, or export GSD_LEGACY=1 (the flag does not reach spawned agents)`;
 }
 
-module.exports = { contextFields, effectiveRiskDomains, riskDomainsFor, availablePresets, adoptBrief, contextGate, gateFailure, gateStderr, uiQaMode };
+module.exports = { contextFields, effectiveRiskDomains, riskDomainsFor, availablePresets, adoptBrief, contextGate, gateFailure, gateStderr, uiQaMode, testCommandConfigured };
