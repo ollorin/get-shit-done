@@ -140,3 +140,32 @@ describe('next with owner gates', () => {
     assert.deepStrictEqual([done.action, done.complete], ['done', true]);
   });
 });
+
+describe('pilot fix D1/D2: dependency parking is recomputed from disk each call', () => {
+  const stale = [
+    { type: 'phase_parked', phase: '1', reason: 'gaps_after_closure_cycle' },
+    { type: 'phase_parked', phase: '2', reason: 'dependency_parked' },
+  ];
+  test('a dependent parked by a since-completed dependency runs again without --retry-parked', () => {
+    const r = nextOf(stale, ['1']);
+    assert.strictEqual(r.action, 'spawn_coordinator');
+    assert.strictEqual(r.phase, '2');
+  });
+  test('while the dependency is still parked the dependent stays blocked and the parking is logged once, not every call', () => {
+    const first = nextOf([{ type: 'phase_parked', phase: '1', reason: 'x' }], ['3', '4']);
+    assert.ok(first.log.some(e => e.type === 'phase_parked' && e.phase === '2'));
+    const second = nextOf([{ type: 'phase_parked', phase: '1', reason: 'x' }, ...first.log], ['3', '4']);
+    assert.deepStrictEqual(second.parked.sort(), ['1', '2']);
+    assert.ok(!second.log.some(e => e.type === 'phase_parked'), 'no repeated dependency_parked event');
+  });
+  test('a phase parked for its own failure stays parked after its dependency completes', () => {
+    const own = [{ type: 'phase_parked', phase: '2', reason: 'gaps_after_closure_cycle' }];
+    const r = nextOf(own, ['1', '3', '4']);
+    assert.strictEqual(r.action, 'done');
+    assert.deepStrictEqual(r.parked, ['2']);
+  });
+  test('resumeState still lists current dependents of a parked phase as parked, and none once the dependency completed', () => {
+    assert.deepStrictEqual(d.resumeState(stale, phases, truthOf()).parked.sort(), ['1', '2']);
+    assert.deepStrictEqual(d.resumeState(stale, phases, truthOf('1')).parked, []);
+  });
+});

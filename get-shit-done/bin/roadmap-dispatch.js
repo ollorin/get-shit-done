@@ -22,19 +22,20 @@ function parseDeps(depends) {
 function foldEvents(events) {
   const by = new Map();
   const get = (k) => {
-    if (!by.has(k)) by.set(k, { state: 'none', gap_cycles: 0, started: false });
+    if (!by.has(k)) by.set(k, { state: 'none', gap_cycles: 0, started: false, dep_parked: false });
     return by.get(k);
   };
   for (const e of Array.isArray(events) ? events : []) {
     const k = evPhase(e);
     if (k == null || !e.type) continue;
     switch (e.type) {
-      case 'phase_start': { const s = get(k); s.state = 'running'; s.started = true; break; }
+      case 'phase_start': { const s = get(k); s.state = 'running'; s.started = true; s.dep_parked = false; break; }
       case 'gap_cycle': { const s = get(k); s.state = 'running'; s.gap_cycles += 1; s.started = true; break; }
       case 'phase_retry': get(k).state = 'running'; break;
-      case 'phase_complete': get(k).state = 'complete'; break;
+      case 'phase_complete': { const s = get(k); s.state = 'complete'; s.dep_parked = false; break; }
       case 'phase_incomplete': get(k).state = e.action === 'gap_cycle' ? 'gap_pending' : 'parked'; break;
-      case 'phase_parked': get(k).state = 'parked'; break;
+      // dependency_parked is derived from the dependency's current state, so it is an audit note, never a state.
+      case 'phase_parked': { const s = get(k); if (e.reason === 'dependency_parked') s.dep_parked = true; else s.state = 'parked'; break; }
       case 'phase_failed': get(k).state = 'failed'; break;
       default: break;
     }
@@ -59,15 +60,40 @@ function incompletePhases(events, truth) {
   return out;
 }
 
+// blocked = phases parked/failed for their own reason (unless retrying parked) and every transitive
+// dependent of one, recomputed from the current state on every call.
+function blockedSet(phases, folded, done, retryParked) {
+  const blocked = new Set();
+  for (const p of phases) {
+    const k = phaseKey(p.number);
+    if (done.has(k)) continue;
+    const st = (folded.get(k) || { state: 'none' }).state;
+    if (st === 'failed' || (st === 'parked' && !retryParked)) blocked.add(k);
+  }
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const p of phases) {
+      const k = phaseKey(p.number);
+      if (done.has(k) || blocked.has(k)) continue;
+      if (parseDeps(p.depends_on).some((d) => blocked.has(d))) { blocked.add(k); grew = true; }
+    }
+  }
+  return blocked;
+}
+
 function resumeState(events, phases, truth) {
   const folded = foldEvents(events);
   const completed = [];
+  const doneAll = new Set(phases.map((p) => phaseKey(p.number)).filter((k) => truth(k)));
+  const blockedNow = blockedSet(phases, folded, doneAll, false);
   const parked = [];
   const startedIncomplete = [];
   for (const p of phases) {
     const k = phaseKey(p.number);
     if (truth(k)) { completed.push(k); continue; }
     const s = folded.get(k);
+    if (blockedNow.has(k)) { parked.push(k); continue; }
     if (!s) continue;
     if (s.state === 'parked' || s.state === 'failed') parked.push(k);
     else if (s.started) startedIncomplete.push(k);
@@ -83,23 +109,7 @@ function next(input) {
   const stateOf = (k) => (folded.get(k) || { state: 'none', gap_cycles: 0 });
   const done = new Set(phases.map((p) => phaseKey(p.number)).filter((k) => truth(k)));
 
-  // blocked = parked/failed phases (unless retrying parked) and every transitive dependent.
-  const blocked = new Set();
-  for (const p of phases) {
-    const k = phaseKey(p.number);
-    if (done.has(k)) continue;
-    const st = stateOf(k).state;
-    if (st === 'failed' || (st === 'parked' && !input.retryParked)) blocked.add(k);
-  }
-  let grew = true;
-  while (grew) {
-    grew = false;
-    for (const p of phases) {
-      const k = phaseKey(p.number);
-      if (done.has(k) || blocked.has(k)) continue;
-      if (parseDeps(p.depends_on).some((d) => blocked.has(d))) { blocked.add(k); grew = true; }
-    }
-  }
+  const blocked = blockedSet(phases, folded, done, input.retryParked);
 
   const base = { models: { coordinator: cfg.coordinator_model || 'sonnet' } };
   const og = input.ownerGate || {};
@@ -122,7 +132,7 @@ function next(input) {
 
   for (const p of phases) {
     const k = phaseKey(p.number);
-    if (blocked.has(k) && stateOf(k).state !== 'parked' && stateOf(k).state !== 'failed') {
+    if (blocked.has(k) && stateOf(k).state !== 'parked' && stateOf(k).state !== 'failed' && !stateOf(k).dep_parked) {
       log.push({ type: 'phase_parked', phase: k, reason: 'dependency_parked' });
     }
   }
