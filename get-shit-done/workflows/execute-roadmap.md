@@ -379,7 +379,7 @@ Parse the JSON. If `action_required` is true: run EVERY check listed in `checks`
 ```bash
 node ~/.claude/get-shit-done/bin/gsd-tools.js gate pre-pr --mark-passed
 ```
-Any check failing: stop, fix the failure, re-run from the beginning. There is no bypass; `--mark-passed` writes the marker to EXECUTION_LOG.md that the `pr` action requires, and `gate pre-pr` run again afterwards prints `"passed": true`.
+`EXECUTION_LOG.md` and the phase `CHECKPOINT.json` / `TASK-CHECKPOINT.json` are run state: `git-status-clean` ignores them and nothing commits them for the gate. Any check failing: stop, fix the failure, re-run from the beginning. There is no bypass; `--mark-passed` writes the marker to EXECUTION_LOG.md that the `pr` action requires, and `gate pre-pr` run again afterwards prints `"passed": true`.
 
 **E2E regression gate:** runs only when `stack.capabilities.ui_qa` and at least one `stack.services[].launch` command exist. Start the services, run the UI QA regression command; every regression-tagged test must pass; on failure spawn a debug agent, fix, re-run (at most 3 attempts), and a red gate parks the run with the failure in the report. Demos follow `@~/.claude/get-shit-done/workflows/demo.md` section 2 for each phase of this run whose `*-DEMO.md` says `demo_recorded: false` (skip when `demo.mode` is `off`); a demo that cannot be recorded is reported, not blocking.
 

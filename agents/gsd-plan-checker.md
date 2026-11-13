@@ -560,6 +560,8 @@ Plans touching a risk-domain path must meet planner MANDATE-6: the phase's `{N}-
 
 **`high_risk` mismatch:** a plan to which MANDATE-6 applies must carry `high_risk: true` in its frontmatter; a missing flag is a blocker (`dimension: threat_model`).
 
+**Traceability (`references/rigour.md` rule 11, every rigour):** open the source PRD named in the plan's traceability list and verify it against the file: each exit or acceptance criterion is either covered by a task or listed as not covered with a reason. An uncovered criterion without a reason is a blocker (`dimension: traceability`); a criterion dropped from the list that the PRD states is the same blocker.
+
 **Spike promotion:** when the phase's `rigour` is not `spike`, any plan listing a path under the project's spike roots in `files_modified`, importing from it, or citing spike evidence as a test REUSE is a blocker (`dimension: spike_promotion`).
 
 ## Dimension 14: Adversarial Pass

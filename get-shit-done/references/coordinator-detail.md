@@ -26,7 +26,7 @@ Set `$ARGUMENTS` yourself and pass `--auto` to every `init` call: without it exe
 
 | Step | Read and follow | `$ARGUMENTS` | Stop condition |
 |---|---|---|---|
-| discuss (only when there is no `*-CONTEXT.md`) | the autonomous discuss step below | n/a | CONTEXT.md committed |
+| discuss (only when there is no `*-CONTEXT.md`; never at `spike`) | the autonomous discuss step below | n/a | CONTEXT.md committed |
 | plan | `@get-shit-done/workflows/plan-phase.md`, steps 1-13 | `{N} --auto --no-advance [--legacy]` | step 14 returns the `planned` trailer and does not launch execute-phase |
 | execute and verify | `@get-shit-done/workflows/execute-phase.md` | `{N} --auto --no-transition [--legacy]` | the `--no-transition` completion trailer; do not run transition |
 | gap closure (at most one cycle) | plan-phase, then execute-phase | `{N} --gaps --auto --no-advance`, then `{N} --gaps-only --auto --no-transition` | still `gaps_found` after the cycle: return it |

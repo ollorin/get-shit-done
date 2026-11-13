@@ -321,3 +321,22 @@ describe('items 12, 14, 15: spike answer table, review record in VERIFICATION, s
     assert.ok(r.json.form_errors.every((e) => e.check === 'status_agreement'));
   });
 });
+
+describe('prose contracts: spike path, breach behaviour and rule 11 are stated once and pointed to', () => {
+  const doc = (rel) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8');
+  test('rigour.md carries the spike budget, the merged review, breach behaviour and rule 11', () => {
+    const r = doc('get-shit-done/references/rigour.md');
+    assert.match(r, /45 min \/ 8/);
+    assert.match(r, /\*\*At `breach` \(100 %\):\*\*/);
+    assert.match(r, /Question traceability, negative answers, final-review questions/);
+    assert.match(r, /Spike answer table/);
+    assert.doesNotMatch(r, /doc waiver inside a spike/);
+  });
+  test('role files point at rule 11 / the spike column instead of restating it', () => {
+    for (const f of ['agents/gsd-planner.md', 'agents/gsd-plan-checker.md', 'agents/gsd-verifier.md', 'get-shit-done/workflows/plan-phase.md', 'get-shit-done/workflows/execute-phase.md']) {
+      assert.match(doc(f), /rule 11|rigour\.md/, f);
+    }
+    assert.match(doc('get-shit-done/workflows/plan-phase.md'), /init `spike_roots`/);
+    assert.match(doc('get-shit-done/workflows/execute-phase.md'), /no `implementation_review` step/);
+  });
+});

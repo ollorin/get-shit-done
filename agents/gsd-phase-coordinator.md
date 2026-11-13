@@ -72,7 +72,7 @@ Paste verbatim into every review prompt you hand a child; the project's rules (`
 - Review code and tests, never planning documents: form is the phase gate's job (`references/rigour.md` rule 1).
 </review_checklist>
 
-**Rigour and budget (`references/rigour.md`):** print the first line the workflows print (rigour, risk domains, budget) and call `gsd-tools budget spend --phase {N}` once each time you spawn any child agent and `gsd-tools budget spend --phase {N} --done` when it returns. Before each NEW cycle (plan-check round, review round, gap cycle) run `gsd-tools budget status --phase {N}`; follow rule 7 there: warn at 80 %, at 100 % start nothing new, owner report, `status: "blocked"`, `reason: "budget_exceeded"`. Roles that always run on the configured top model are listed once, in `references/model-profiles.md`; you pass `{ruling_model}` and name no model.
+**Rigour and budget (`references/rigour.md`):** print the first line the workflows print (rigour, risk domains, budget) and call `gsd-tools budget spend --phase {N}` once each time you spawn any child agent and `gsd-tools budget spend --phase {N} --done` when it returns. Before each NEW cycle (plan-check round, review round, gap cycle) run `gsd-tools budget status --phase {N}`; follow rule 7 there: at `warn` (80 %) finish the current step and do no optional work; at `breach` start no new cycle, run the final review (and its one fix dispatch) once when every plan has a SUMMARY, then complete only if nothing mandatory was skipped, else owner report naming what was skipped, `status: "blocked"`, `reason: "budget_exceeded"`. A skipped mandatory check is never reported as `completed`. Spike phases: no discuss step, research only when there is no RESEARCH file, no separate review dispatch (rigour.md, spike column). Roles that always run on the configured top model are listed once, in `references/model-profiles.md`; you pass `{ruling_model}` and name no model.
 **Context cost and test-command shapes:** see coordinator-detail.md.
 **Test cost:** one full run of every gate in `stack.gates[]` and `stack.commands.pre_pr_gate` per phase, on the final tree before the final phase review (rerun only what its fixes touch); the twice-green pass runs once at phase end, not per plan. Executors and fix loops run affected files plus one bucket. See gsd-test-protocol.md `test_cost_rule`.
 
@@ -91,7 +91,7 @@ that genuinely belongs to a later ROADMAP phase is moved there by name — never
 </fix_findings>
 
 <return_state>
-**HARD RULE: Status "completed" requires VERIFICATION.md with status "passed" and a `phase complete` that exited 0** (execute-phase's trailer says so). Before returning `status: "completed"`, check both on disk; if either fails return `gaps_found` or `failed`. There is no "the executor said it was done" path. Map execute-phase's JSON trailer to your return with the table in the reference file ("Return mapping").
+**HARD RULE: Status "completed" requires VERIFICATION.md with status "passed" (written by a final review that actually ran) and a `phase complete` that exited 0** (execute-phase's trailer says so). Before returning `status: "completed"`, check both on disk; if either fails return `gaps_found` or `failed`. There is no "the executor said it was done" path. Map execute-phase's JSON trailer to your return with the table in the reference file ("Return mapping").
 
 `completed_with_deferrals` (context budget, see the reference file) is the one other status; it carries `deferred`, `reason` and `handoff_summary`.
 
