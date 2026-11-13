@@ -276,6 +276,11 @@ Audit milestone completion against original intent.
 
 Usage: `/gsd:audit-milestone`
 
+**`/gsd:audit-tests [dir or bucket ...] [--minutes N]`**
+Audit the test suite per directory or bucket, slowest first: tests that cannot fail, behaviour proven twice, slow shape; fixes by delete, merge or speed-up.
+
+Usage: `/gsd:audit-tests --minutes 90`
+
 **`/gsd:plan-milestone-gaps`**
 Create phases to close gaps identified by audit.
 

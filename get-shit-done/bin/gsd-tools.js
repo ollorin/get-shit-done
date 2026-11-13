@@ -261,7 +261,7 @@ const ROLE_MODELS = {
   'gsd-debugger': 'sonnet',
   'gsd-codebase-mapper': 'haiku',
   'gsd-plan-checker': 'sonnet',
-  'gsd-test-writer': 'haiku',
+  'gsd-test-writer': 'sonnet',
   'gsd-docs-updater': 'haiku',
   'gsd-phase-coordinator': 'sonnet',
   'gsd-integration-checker': 'sonnet',

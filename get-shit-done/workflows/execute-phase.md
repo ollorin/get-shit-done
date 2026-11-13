@@ -715,8 +715,14 @@ After the last wave and the UI steps, before `implementation_review`. Run the me
 3. This is the phase's one full run. The twice-green pass over all buckets runs once at milestone end, never per phase (`references/gsd-test-protocol.md` `test_cost_rule`).
 </step>
 
+<step name="test_steward">
+After `mechanical_gates`, before `implementation_review`. Standard rigour only: skip at `spike`, and skip (one-line note, no dispatch) when `git diff {phase base}..HEAD --name-only` lists no test file.
+
+ONE dispatch, `Agent(subagent_type="gsd-test-writer", model="{reviewer_model}", description="Test steward phase {N}")`, given the phase's test files, `{phase_dir}/captures/gates.txt`, the plans' `<acceptance>` rows and `stack_commands`. It deletes, merges or speeds up tests as its role file says (a deletion only with a cited surviving proof) and returns net change and runtime delta. Rerun only the files it touched and append the output to `gates.txt`. Pass its return to the reviewers and the verifier: a phase with a net-positive test count and no stated reason is a finding for the final review.
+</step>
+
 <step name="implementation_review">
-After `mechanical_gates`, before `pre_verify_gates`. Skip when the phase changed nothing outside `.planning/`, and always at `spike` (the final review is merged).
+After `test_steward`, before `pre_verify_gates`. Skip when the phase changed nothing outside `.planning/`, and always at `spike` (the final review is merged).
 
 Rounds and tier are the "Implementation review" row of `references/rigour.md`: when init `risk_addons` is true: loop to zero, at most 4 rounds, then ONE ruling on `{ruling_model}` (fix or accept each open finding), then ONE batched diff review on `{ruling_model}`. Each round is a fresh `{reviewer_model}` agent, never the implementer, given `git diff {phase base}..HEAD -- . ':!.planning'`, the plans, `{phase_dir}/captures/gates.txt` (the one full run; it does not re-run the suite) and the coordinator's review checklist. It reviews code and tests, not planning documents, and writes `{phase_dir}/{N}-REVIEW-{round}.md`: frontmatter `round`, `reviewer_role` (`reviewer` or `ruling`) and `open_critical_high: <count of CRITICAL/HIGH findings still open after this round>`, then one line per finding (id, severity, `file:line`, what, fix). A targeted re-review writes the total still open, not only its own finding. After a ruling on open CRITICAL/HIGH findings, the coordinator adds `ruled_by: [D-NN]` (the ruling's ledger ids) to the newest review file. `verify phase-gate` (so `phase complete`) refuses, as missing work, a phase that changed files outside `.planning/` with no review file, or whose newest round has `open_critical_high` above 0 and no `ruled_by`; the skip rule above is the same condition. Findings go to one `{executor_model}` fix dispatch per file set. After the standard cap (2 rounds), an open CRITICAL/HIGH finding is fixed and re-checked by ONE targeted re-review of that finding (fresh reviewer, same tier, only that finding's lines) or goes to ONE ruling; it is never closed by an `A-` row. Any other unfixed finding needs a reason and an `A-` row.
 </step>
@@ -812,7 +818,7 @@ Agent(
 Phase directory: {phase_dir}
 Phase goal: {goal from ROADMAP.md}
 Phase requirement IDs: {phase_req_ids}
-Check must_haves against actual codebase. Gate and test results: read `{phase_dir}/captures/gates.txt` (it must be newer than the last code commit); do not re-run the full suite.
+Check must_haves against actual codebase. The test steward's return: {net change and runtime delta, or "skipped"}; a net-positive test count with no stated reason is a finding. Gate and test results: read `{phase_dir}/captures/gates.txt` (it must be newer than the last code commit); do not re-run the full suite.
 Cross-reference requirement IDs from PLAN frontmatter against REQUIREMENTS.md — every ID MUST be accounted for.
 Judge product truth only; form was gated by a script. A form defect you notice is mentioned in your report body and never changes the status.
 Cite planning records by id (D-NN, A-NN, requirement id, plan id), never by line; code by file:line.
