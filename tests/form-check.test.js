@@ -63,7 +63,7 @@ describe('verify form', () => {
     assert.match(errs[0].message, /DECISIONS\.md:248/);
     fs.writeFileSync(path.join(pd, '01-01-SUMMARY.md'), '# S\n\n## Self-Check: PASSED\n');
     fs.writeFileSync(path.join(pd, '01-VERIFICATION.md'), '---\nstatus: passed\n---\nfinding: DECISIONS.md:12\n');
-    fs.writeFileSync(path.join(pd, '01-REVIEW-1.md'), 'ROADMAP.md:9\n');
+    fs.writeFileSync(path.join(pd, '01-REVIEW.md'), 'ROADMAP.md:9\n');
     fs.writeFileSync(path.join(dir, '.planning', 'DECISIONS.jsonl'), JSON.stringify({ id: 'D-01', kind: 'decision', phases: ['1'], answer: 'see ROADMAP.md:12' }) + '\n');
     assert.deepStrictEqual(gateForm(dir), []);
   });

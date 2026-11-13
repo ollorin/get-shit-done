@@ -48,7 +48,7 @@ describe('R3-1: "closed earlier" is the phase_complete event, never the ROADMAP 
   });
   test('`phase complete` writes the phase_complete event the gate then recognises', () => {
     const { dir, pd } = executed();
-    fs.writeFileSync(path.join(pd, '01-REVIEW-1.md'), '---\nround: 1\nreviewer_role: reviewer\nopen_critical_high: 0\n---\n# R\n');
+    fs.writeFileSync(path.join(pd, '01-REVIEW.md'), '---\nreviewer_role: final\npasses: 1\nopen_critical_high: 0\n---\n# R\n');
     gsd(dir, ['phase', 'checkpoint', '1', '--step', 'verify', '--status', 'passed']);
     const r = gsd(dir, ['phase', 'complete', '1']);
     assert.strictEqual(r.rc, 0, r.out);

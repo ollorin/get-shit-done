@@ -45,7 +45,7 @@ describe('N5 risk_addons: one init boolean for the risk-domain add-ons', () => {
   });
 });
 
-describe('N6 the review is a disk check: {N}-REVIEW-{round}.md frontmatter', () => {
+describe('N6 the review is a disk check: {N}-REVIEW.md frontmatter', () => {
   const executed = (touchCode = true) => {
     const dir = project();
     const pd = phaseDir(dir, 1);
@@ -57,7 +57,7 @@ describe('N6 the review is a disk check: {N}-REVIEW-{round}.md frontmatter', () 
     git(dir, 'commit', '-q', '-m', 'feat(01-01): work');
     return { dir, pd };
   };
-  const review = (pd, round, fm) => fs.writeFileSync(path.join(pd, `01-REVIEW-${round}.md`), `---\n${fm}\n---\n# Review ${round}\n`);
+  const review = (pd, fm) => fs.writeFileSync(path.join(pd, '01-REVIEW.md'), `---\n${fm}\n---\n# Review\n`);
   const gate = (dir) => gsd(dir, ['verify', 'phase-gate', '1']).json;
   const reviewErr = (j) => j.work_errors.filter((e) => /REVIEW/.test(e));
 
@@ -91,31 +91,41 @@ describe('N6 the review is a disk check: {N}-REVIEW-{round}.md frontmatter', () 
     gsd(dir, ['phase', 'checkpoint', '1', '--step', 'verify', '--status', 'passed']);
     assert.strictEqual(gsd(dir, ['phase', 'complete', '1']).rc, 1);
   });
-  test('open CRITICAL/HIGH in the newest round without a ruling: work error', () => {
+  test('open CRITICAL/HIGH without a ruling: work error', () => {
     const { dir, pd } = executed();
-    review(pd, 1, 'round: 1\nreviewer_role: reviewer\nopen_critical_high: 2');
-    review(pd, 2, 'round: 2\nreviewer_role: reviewer\nopen_critical_high: 1');
+    review(pd, 'reviewer_role: final\npasses: 1\nopen_critical_high: 1');
     const e = reviewErr(gate(dir));
     assert.strictEqual(e.length, 1);
-    assert.match(e[0], /REVIEW-2[^\n]*open_critical_high 1/);
+    assert.match(e[0], /REVIEW\.md[^\n]*open_critical_high 1/);
   });
   test('open CRITICAL/HIGH with a ruling id recorded: passes', () => {
     const { dir, pd } = executed();
-    review(pd, 1, 'round: 1\nreviewer_role: reviewer\nopen_critical_high: 1\nruled_by: [D-12]');
+    review(pd, 'reviewer_role: final\npasses: 1\nopen_critical_high: 1\nruled_by: [D-12]');
     assert.deepStrictEqual(reviewErr(gate(dir)), []);
   });
-  test('clean newest round passes (an older dirty round does not count)', () => {
+  test('clean record passes', () => {
     const { dir, pd } = executed();
-    review(pd, 1, 'round: 1\nreviewer_role: reviewer\nopen_critical_high: 3');
-    review(pd, 2, 'round: 2\nreviewer_role: reviewer\nopen_critical_high: 0');
+    review(pd, 'reviewer_role: final\npasses: 1\nopen_critical_high: 0');
     assert.deepStrictEqual(reviewErr(gate(dir)), []);
   });
-  test('a review file without open_critical_high is a work error; a phase that changed nothing outside .planning needs none', () => {
+  test('a record without open_critical_high or without passes is a work error; a phase that changed nothing outside .planning needs none', () => {
     const a = executed();
-    review(a.pd, 1, 'round: 1\nreviewer_role: reviewer');
+    review(a.pd, 'reviewer_role: final\npasses: 1');
+    assert.strictEqual(reviewErr(gate(a.dir)).length, 1);
+    review(a.pd, 'reviewer_role: final\nopen_critical_high: 0');
     assert.strictEqual(reviewErr(gate(a.dir)).length, 1);
     const b = executed(false);
     assert.deepStrictEqual(reviewErr(gate(b.dir)), []);
+  });
+  test('risk add-ons: one recorded pass is a work error, two merged passes pass', () => {
+    const rg = require('../get-shit-done/bin/review-gate.js');
+    const d = fs.mkdtempSync(path.join(require('os').tmpdir(), 'rg-'));
+    fs.writeFileSync(path.join(d, '01-REVIEW.md'), '---\nreviewer_role: final\npasses: 1\nopen_critical_high: 0\n---\n');
+    const files = ['01-REVIEW.md'];
+    assert.strictEqual(rg.reviewErrors(d, files, ['src/a.js'], { risk: true }).length, 1);
+    assert.deepStrictEqual(rg.reviewErrors(d, files, ['src/a.js']), []);
+    fs.writeFileSync(path.join(d, '01-REVIEW.md'), '---\nreviewer_role: final\npasses: 2\nopen_critical_high: 0\n---\n');
+    assert.deepStrictEqual(rg.reviewErrors(d, files, ['src/a.js'], { risk: true }), []);
   });
 });
 

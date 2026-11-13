@@ -1,15 +1,10 @@
 'use strict';
-// Disk check for the implementation review (references/rigour.md rule 10): a phase whose commits touched files outside
-// .planning/ needs {N}-REVIEW-{round}.md files, and the newest round must carry no open CRITICAL/HIGH finding unless a
-// ruling id is recorded. The reviewer writes the frontmatter: round, reviewer_role, open_critical_high, ruled_by.
+// Disk check for the final review (references/rigour.md rule 10): a phase whose commits touched files outside
+// .planning/ needs the review record {N}-REVIEW.md (the final pass's findings; at risk add-ons the coordinator's union of two
+// independent passes). Frontmatter: reviewer_role, passes (1; 2 at risk add-ons), open_critical_high, ruled_by.
+// It must carry no open CRITICAL/HIGH finding unless a ruling id is recorded.
 const fs = require('fs');
 const path = require('path');
-
-const newest = (dirFiles) => dirFiles
-  .map((f) => ({ f, m: f.match(/-REVIEW-(\d+)\.md$/) }))
-  .filter((x) => x.m)
-  .sort((a, b) => Number(a.m[1]) - Number(b.m[1]))
-  .pop();
 
 const RULING_ID = /^D-\d+$/;
 const rulings = (data) => (Array.isArray(data.ruled_by) ? data.ruled_by : data.ruled_by ? [data.ruled_by] : []).map((x) => String(x).trim()).filter(Boolean);
@@ -17,20 +12,23 @@ const rulings = (data) => (Array.isArray(data.ruled_by) ? data.ruled_by : data.r
 const countOf = (v) => (v === undefined || v === null || v === '' ? undefined : typeof v === 'number' ? v : /^\d+$/.test(String(v).trim()) ? Number(String(v).trim()) : NaN);
 const bad = (ids) => ids.filter((x) => !RULING_ID.test(x));
 
-function reviewErrors(phaseDir, dirFiles, touchedFiles) {
+function reviewErrors(phaseDir, dirFiles, touchedFiles, { risk = false } = {}) {
   const code = (touchedFiles || []).filter((f) => !f.startsWith('.planning/'));
   if (code.length === 0) return [];
-  const last = newest(dirFiles);
-  if (!last) return [`No {N}-REVIEW-{round}.md: the phase changed ${code.length} file(s) outside .planning/ and needs a review by a non-author`];
+  const file = dirFiles.find((f) => /-REVIEW\.md$/.test(f));
+  if (!file) return [`No {N}-REVIEW.md: the phase changed ${code.length} file(s) outside .planning/ and needs the final review record`];
   let data = {};
-  try { data = require('gray-matter')(fs.readFileSync(path.join(phaseDir, last.f), 'utf8')).data || {}; } catch { data = {}; }
+  try { data = require('gray-matter')(fs.readFileSync(path.join(phaseDir, file), 'utf8')).data || {}; } catch { data = {}; }
   const open = countOf(data.open_critical_high);
+  const passes = countOf(data.passes);
   const ruled = rulings(data);
   if (!Number.isInteger(open) || open < 0 || !data.reviewer_role) {
-    return [`${last.f} frontmatter must carry reviewer_role and open_critical_high (a whole count)`];
+    return [`${file} frontmatter must carry reviewer_role and open_critical_high (a whole count)`];
   }
-  if (bad(ruled).length > 0) return [`${last.f} ruled_by must list ruling ids like D-12, not ${bad(ruled).join(', ')}`];
-  if (open > 0 && ruled.length === 0) return [`${last.f} has open_critical_high ${open} and no ruling id in ruled_by`];
+  if (passes !== 1 && passes !== 2) return [`${file} frontmatter must carry passes: 1 or 2 (independent final passes merged into the record)`];
+  if (risk && passes !== 2) return [`${file} records ${passes} final pass: a phase with risk add-ons needs 2 independent passes merged`];
+  if (bad(ruled).length > 0) return [`${file} ruled_by must list ruling ids like D-12, not ${bad(ruled).join(', ')}`];
+  if (open > 0 && ruled.length === 0) return [`${file} has open_critical_high ${open} and no ruling id in ruled_by`];
   return [];
 }
 

@@ -7151,7 +7151,7 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles, opts =
   // A phase closed earlier (a `phase_complete` event, or checked in the ROADMAP when the one-time `gate_baseline` was taken) was
   // closed under the rules of its time: the review and answer-table rules judge only phases still open.
   const closedEarlier = closedPhaseKeys(cwd).has(dispatch.phaseKey(phaseNumber));
-  if (!spike && !closedEarlier) errors.push(...reviewGate.reviewErrors(phaseDir, dirFiles, touched));
+  if (!spike && !closedEarlier) errors.push(...reviewGate.reviewErrors(phaseDir, dirFiles, touched, { risk: riskAddons(cwd, phaseNumber, 'standard') }));
   // The verifier writes the answer table, so the pre-verifier gate cannot demand it; the final gate does.
   if (spike && !closedEarlier) errors.push(...spikeCheck.answerTableErrors(cwd, phaseDir, dirFiles, { requireTable: !opts.preVerifier }));
   const verification = readPhaseVerification(phaseDir, phaseNumber);
