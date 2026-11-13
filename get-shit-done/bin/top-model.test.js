@@ -71,13 +71,3 @@ describe('CLI-3: one key for the top model', () => {
     assert.strictEqual(run(['resolve-model', 'top-fallback', '--raw']).stdout.trim(), 'opus');
   });
 });
-
-describe('CLI-9: resolve-model utility and top-tier synonyms', () => {
-  test('resolve-model utility / reviewer default and read config', () => {
-    assert.strictEqual(run(['resolve-model', 'utility', '--raw']).stdout.trim(), 'haiku');
-    assert.strictEqual(run(['resolve-model', 'reviewer', '--raw']).stdout.trim(), 'sonnet');
-    cfg({ utility_model: 'u', reviewer_model: 'r' });
-    assert.strictEqual(run(['resolve-model', 'utility', '--raw']).stdout.trim(), 'u');
-    assert.strictEqual(run(['resolve-model', 'reviewer', '--raw']).stdout.trim(), 'r');
-  });
-});

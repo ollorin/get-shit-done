@@ -24,9 +24,9 @@ describe('resolveRigour', () => {
   const NOTICE = null;
   test('absent line is standard/default; high is retired to standard with a notice; decimal phase and both colon styles', () => {
     write('.planning/ROADMAP.md', roadmap(''));
-    assert.deepStrictEqual(resolveRigour(dir, '2'), { rigour: 'standard', rigour_source: 'default', rigour_decision: null, spike_roots: [], rigour_rejected_reason: null, rigour_notice: NOTICE });
+    assert.deepStrictEqual(resolveRigour(dir, '2'), { rigour: 'standard', rigour_source: 'default', spike_roots: [], rigour_rejected_reason: null, rigour_notice: NOTICE });
     const retired = resolveRigour(dir, '2.1');
-    assert.deepStrictEqual([retired.rigour, retired.rigour_source, retired.rigour_decision, retired.spike_roots], ['standard', 'rejected', null, []]);
+    assert.deepStrictEqual([retired.rigour, retired.rigour_source, retired.spike_roots], ['standard', 'rejected', []]);
     assert.match(retired.rigour_rejected_reason, /"high" is retired/);
     write('.planning/ROADMAP.md', roadmap('**Rigour:** high'));
     assert.strictEqual(resolveRigour(dir, '2').rigour, 'standard');
@@ -37,7 +37,7 @@ describe('resolveRigour', () => {
   test('the approved roadmap gate is the only spike authority; roots come from the gate', () => {
     gate();
     write('.planning/ROADMAP.md', roadmap(SPIKE));
-    assert.deepStrictEqual(resolveRigour(dir, '2'), { rigour: 'spike', rigour_source: 'roadmap', rigour_decision: 'OG2', spike_roots: ['spike', 'scripts/probes'], rigour_rejected_reason: null, rigour_notice: NOTICE });
+    assert.deepStrictEqual(resolveRigour(dir, '2'), { rigour: 'spike', rigour_source: 'roadmap', spike_roots: ['spike', 'scripts/probes'], rigour_rejected_reason: null, rigour_notice: NOTICE });
     write('.planning/ROADMAP.md', roadmap('**Rigour:** spike (OG2)\n**Spike roots:** spike/, scripts/probes/'));
     assert.strictEqual(resolveRigour(dir, '2').rigour, 'spike');
   });
@@ -106,7 +106,6 @@ describe('init and assess-risk emit rigour', () => {
       const out = JSON.parse(run(['init', cmd, '2', '--legacy', '--raw']).stdout);
       assert.strictEqual(out.rigour, 'spike', cmd);
       assert.strictEqual(out.rigour_source, 'roadmap');
-      assert.strictEqual(out.rigour_decision, 'OG2');
       assert.deepStrictEqual(out.spike_roots, ['spike', 'scripts/probes']);
       assert.strictEqual(out.rigour_rejected_reason, null);
       assert.deepStrictEqual(out.phase_req_ids, ['AUTH-01']);

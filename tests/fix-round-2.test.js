@@ -122,3 +122,28 @@ describe('N6 the review is a disk check: {N}-REVIEW-{round}.md frontmatter', () 
     assert.match(md, /ruled_by/);
   });
 });
+
+describe('N11 / E2 removed surfaces', () => {
+  test('init output has no rigour_decision', () => {
+    const dir = project();
+    for (const cmd of ['plan-phase', 'execute-phase']) assert.ok(!('rigour_decision' in gsd(dir, ['init', cmd, '1']).json), cmd);
+  });
+  test('resolve-model has no utility/reviewer aliases (init fields carry those models)', () => {
+    const dir = project();
+    assert.notStrictEqual(gsd(dir, ['resolve-model', 'utility']).rc, 0);
+    assert.notStrictEqual(gsd(dir, ['resolve-model', 'reviewer']).rc, 0);
+    assert.strictEqual(gsd(dir, ['resolve-model', 'top']).rc, 0);
+  });
+  test('verify form is the plan-time check only: no post-execution form list without --plans-only', () => {
+    const dir = project();
+    const pd = phaseDir(dir, 1);
+    write(dir, '.planning/phases/' + path.basename(pd) + '/01-01-PLAN.md', '---\nphase: 01\nplan: "01"\nplan_stamp: abc\n---\n# Plan DECISIONS.md:12\n');
+    write(dir, '.planning/phases/' + path.basename(pd) + '/01-01-SUMMARY.md', '# no self-check\n');
+    const r = gsd(dir, ['verify', 'form', '1']);
+    assert.deepStrictEqual([r.rc, r.json.errors], [0, []]);
+  });
+  test('plan-phase budget sentence is separated (N11)', () => {
+    const md = fs.readFileSync(path.join(__dirname, '..', 'get-shit-done/workflows/plan-phase.md'), 'utf8');
+    assert.ok(!/in every spawn prompt call `gsd-tools budget spend/.test(md));
+  });
+});

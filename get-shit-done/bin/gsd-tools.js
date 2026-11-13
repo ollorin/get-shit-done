@@ -2837,12 +2837,6 @@ function cmdResolveModel(cwd, agentType, raw) {
     output({ model, role: agentType }, raw, model);
     return;
   }
-  if (agentType === 'utility' || agentType === 'reviewer') {
-    const cfg = readRawConfig(cwd);
-    const model = agentType === 'utility' ? cfg.utility_model || 'haiku' : cfg.reviewer_model || 'sonnet';
-    output({ model, role: agentType }, raw, model);
-    return;
-  }
   if (agentType === 'gsd-verifier') {
     const model = resolveModelInternal(cwd, agentType);
     output({ model, profile: 'top' }, raw, model);
@@ -7306,7 +7300,7 @@ function collectPhaseFormErrors(cwd, phaseInfo, phaseDir, dirFiles, opts = {}) {
   return { errors: [...evidence.formErrors, ...formCheck.checkLineCites(cwd, phaseDir, dirFiles)], workErrors: evidence.workErrors, evidence };
 }
 
-// verify form <phase> [--plans-only] [--raw]: --plans-only is the blocking plan-time check; otherwise the post-execution form list.
+// verify form <phase> [--plans-only] [--raw]: the blocking plan-time check (post-execution form is `verify phase-gate`).
 function cmdVerifyForm(cwd, args, raw) {
   const phase = args.find((a) => !a.startsWith('--'));
   if (!phase) error('verify form: phase required');
@@ -7314,9 +7308,7 @@ function cmdVerifyForm(cwd, args, raw) {
   if (!info) error(`Phase ${phase} not found`);
   const phaseDir = path.join(cwd, info.directory);
   const dirFiles = fs.readdirSync(phaseDir);
-  const errors = args.includes('--plans-only')
-    ? formCheck.checkPlans(phaseDir, dirFiles, rigour.resolveRigour(cwd, info.phase_number, getMilestoneInfo(cwd).version).rigour)
-    : collectPhaseFormErrors(cwd, info, phaseDir, dirFiles, { preVerifier: true }).errors;
+  const errors = formCheck.checkPlans(phaseDir, dirFiles, rigour.resolveRigour(cwd, info.phase_number, getMilestoneInfo(cwd).version).rigour);
   output({ phase: info.phase_number, passed: errors.length === 0, errors }, raw, undefined, errors.length === 0 ? 0 : 1);
 }
 

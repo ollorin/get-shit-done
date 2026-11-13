@@ -44,7 +44,7 @@ function approvedSpikeGate(cwd, milestone) {
 }
 
 const standard = (source, reason) => ({
-  rigour: 'standard', rigour_source: source, rigour_decision: null, spike_roots: [], rigour_rejected_reason: reason || null, rigour_notice: null,
+  rigour: 'standard', rigour_source: source, spike_roots: [], rigour_rejected_reason: reason || null, rigour_notice: null,
 });
 
 const clashes = (roots, cwd) => roots.flatMap((r) => productionPaths(cwd).filter((p) => overlaps(r, p)).map((p) => `${r} overlaps ${p}`));
@@ -61,14 +61,14 @@ function resolveRigour(cwd, rawPhase, milestone) {
   if (listed && ok) {
     const roots = (gate.rigour.spike_roots || []).map(normRoot).filter(Boolean);
     const clash = clashes(roots, cwd);
-    if (roots.length === 0) return { ...standard('rejected', 'spike needs at least one spike root'), rigour_decision: 'OG2' };
-    if (clash.length > 0) return { ...standard('rejected', `spike root overlaps a production path: ${clash.join('; ')}`), rigour_decision: 'OG2' };
+    if (roots.length === 0) return standard('rejected', 'spike needs at least one spike root');
+    if (clash.length > 0) return standard('rejected', `spike root overlaps a production path: ${clash.join('; ')}`);
     const rm = section.match(/\*\*Spike roots:?\*\*:?[ \t]*([^\n]+)/i);
     const rmRoots = rm ? rm[1].split(',').map(normRoot).filter(Boolean) : [];
     const notes = [];
     if (claimed !== 'spike') notes.push(`ROADMAP says rigour ${claimed || 'standard (no line)'}; the approved gate ${gate.id} lists phase ${phase} as spike`);
     if (rmRoots.length > 0 && [...rmRoots].sort().join() !== [...roots].sort().join()) notes.push(`ROADMAP spike roots (${rmRoots.join(', ')}) differ from the gate's (${roots.join(', ')}); the gate's apply`);
-    return { rigour: 'spike', rigour_source: 'roadmap', rigour_decision: 'OG2', spike_roots: roots, rigour_rejected_reason: null, rigour_notice: notes.join('; ') || null };
+    return { rigour: 'spike', rigour_source: 'roadmap', spike_roots: roots, rigour_rejected_reason: null, rigour_notice: notes.join('; ') || null };
   }
   if (claimed === 'spike') {
     const why = !gate ? 'no roadmap gate requested' : `roadmap gate ${gate.id} is ${gate.status}${listed ? '' : ' and does not list the phase'}`;
