@@ -23,7 +23,7 @@ A ledger `source` or `caught_by` value such as `opus-ruling` or `opus-diff-revie
 
 ## Profiles (every other role)
 
-`model_profile` in `.planning/config.json` (`quality` | `balanced` (default) | `budget`; `/gsd:set-profile <profile>`) picks the model of the remaining agents. `MODEL_PROFILES` in `bin/gsd-tools.js` holds the table; init returns the result as `planner_model`, `checker_model`, `researcher_model`, `executor_model`; `coordinator_model`, `reviewer_model` and `utility_model` come from their own config keys. A task's own tier tag (`<model>` in a PLAN) overrides `executor_model` for that task (not at spike). At spike rigour `executor_model` is raised from `haiku` to `sonnet` (`references/rigour.md`, Spike executor). Workflows pass the init field in every spawn and never look a model up themselves.
+`model_profile` in `.planning/config.json` (`quality` | `balanced` (default) | `budget`; `/gsd:set-profile <profile>`) picks the model of the remaining agents. `MODEL_PROFILES` in `bin/gsd-tools.js` holds the table; init returns the result as `planner_model`, `checker_model`, `researcher_model`, `executor_model`; `coordinator_model`, `reviewer_model` and `utility_model` come from their own config keys. A task's own tier tag (`<model>` in a PLAN) overrides `executor_model` for that task, except at spike (`workflows/execute-phase.md`). At spike rigour `executor_model` is raised from `haiku` to `sonnet` (`references/rigour.md`, Spike executor). Workflows pass the init field in every spawn and never look a model up themselves.
 
 | Profile | Intent |
 |---|---|
