@@ -1,6 +1,6 @@
 # Rigour (`standard` | `spike`), risk-domain add-ons and the phase budget
 
-A phase has one rigour level: `standard` (default, no ROADMAP line) or `spike`. `resolveRigour()` in `bin/rigour.js` resolves it; `init plan-phase` and `init execute-phase` emit `rigour`, `rigour_source` (`roadmap` | `default` | `rejected`), `rigour_decision`, `spike_roots`, `rigour_rejected_reason`. There is no third level: depth for risky work is the add-ons column below.
+A phase has one rigour level: `standard` (default, no ROADMAP line) or `spike`. `resolveRigour()` in `bin/rigour.js` resolves it; `init plan-phase` and `init execute-phase` emit `rigour`, `rigour_source` (`roadmap` | `default` | `rejected`), `rigour_decision`, `spike_roots`, `rigour_rejected_reason`. There is no third level: depth for risky work is the add-ons column below. `CLI-n` marks a CLI change that is requested but not yet shipped; the sentence beside it says what holds until then.
 
 ```
 ### Phase 2: Short Name

@@ -416,6 +416,7 @@ type: execute
 wave: N                     # Execution wave (1, 2, 3...)
 depends_on: []              # Plan IDs this plan requires
 files_modified: []          # Files this plan touches
+plan_stamp: ""              # Copied from the dispatch; the stale-plan signal (references/rigour.md rule 9)
 autonomous: true            # false if plan has checkpoints
 user_setup: []              # Human-required setup (omit if empty)
 requirements: []            # REQUIRED — MUST NOT be empty if ROADMAP.md lists requirements for this phase.

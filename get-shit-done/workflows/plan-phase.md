@@ -322,7 +322,7 @@ ls "${PHASE_DIR}"/*-PLAN.md 2>/dev/null
 ```
 
 **If exists:** Offer: 1) Add more plans, 2) View existing, 3) Replan from scratch.
-Auto (auto_mode, references/auto-mode.md K2): take 2, use the existing plans as they are and continue to step 10; never replan from scratch. The one exception is deterministic: init reports `plans_stale: true` (the plans' `plan_stamp` no longer matches the phase inputs, `references/rigour.md` rule 9); then re-plan in revision mode with `stale_reason` as the issue.
+Auto (auto_mode, references/auto-mode.md K2): take 2, use the existing plans as they are and continue to step 10; never replan from scratch. The one exception is deterministic (CLI-7): init reports `plans_stale: true` (the plans' `plan_stamp` no longer matches the phase inputs, `references/rigour.md` rule 9); then re-plan in revision mode with `stale_reason` as the issue.
 
 ## 7. Use Context Paths from INIT
 
@@ -340,7 +340,7 @@ CONTEXT_PATH=$(printf '%s\n' "$INIT" | jq -r '.context_path // empty')
 
 ## 7.5. Verify Nyquist Artifacts
 
-Skip if `nyquist_validation_enabled` is false.
+Skip if step 5.5 was skipped (same three conditions).
 
 ```bash
 VALIDATION_EXISTS=$(ls "${PHASE_DIR}"/*-VALIDATION.md 2>/dev/null | head -1)
@@ -349,7 +349,7 @@ VALIDATION_EXISTS=$(ls "${PHASE_DIR}"/*-VALIDATION.md 2>/dev/null | head -1)
 If missing and Nyquist enabled — ask the user (Auto (auto_mode, references/auto-mode.md K2): take option 3, continue anyway, and record `nyquist: skipped (auto mode)` in `{PHASE_DIR}/{N}-PLAN-CHECK.md` when one is written):
 1. Re-run: `/gsd:plan-phase {PHASE} --research`
 2. Disable Nyquist in config
-3. Continue anyway (plans fail Dimension 8)
+3. Continue anyway (plans fail Dimension 9)
 
 Proceed to Step 8 only if user selects 2 or 3.
 
@@ -405,7 +405,7 @@ Output consumed by /gsd:execute-phase. Plans need:
 </quality_gate>
 ```
 
-**Model rule:** every spawn passes `model` explicitly (an omitted model inherits the spawner's tier), always an init field: planner `planner_model`, or `ruling_model` for a risk-domain phase; plan-checker `checker_model`, or `ruling_model` for round 1 with the adversarial pass; rulings `ruling_model`; executor and test-writer `executor_model`. The dispatch also carries `plan_stamp` (`gsd-tools plan stamp {N} --raw`), which the planner copies into every PLAN frontmatter.
+**Model rule:** every spawn passes `model` explicitly (an omitted model inherits the spawner's tier), always an init field: planner `planner_model`, or `ruling_model` for a risk-domain phase; plan-checker `checker_model`, or `ruling_model` for round 1 with the adversarial pass; rulings `ruling_model`; executor and test-writer `executor_model`. The dispatch also carries `plan_stamp` (`gsd-tools plan stamp {N} --raw`, CLI-7; until it lands pass an empty value), which the planner copies into every PLAN frontmatter.
 
 A risk-domain path is any path the product brief lists under Risk Domains (`risk_domains` in the init output); authentication/authorisation and security are always risk domains. When `risk_domains_source` is `builtin` (`project.risk_domains` in config.json is empty or absent), every path that mutates state is a risk-domain path. Tag every behaviour on a risk-domain path T0 (real-DB, mutation-proven).
 
