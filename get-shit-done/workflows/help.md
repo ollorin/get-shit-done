@@ -289,24 +289,12 @@ Usage: `/gsd:plan-milestone-gaps`
 ### Configuration
 
 **`/gsd:settings`**
-Configure workflow toggles and model profile interactively.
+Configure workflow toggles interactively.
 
 - Toggle researcher, plan checker, verifier agents
-- Select model profile (quality/balanced/budget)
 - Updates `.planning/config.json`
 
 Usage: `/gsd:settings`
-
-**`/gsd:set-profile <profile>`**
-Quick switch model profile for GSD agents.
-
-- `quality` — strongest model for every deciding agent
-- `balanced` — strong planning, cheap execution, mid tier for coordination and review (default)
-- `budget` — cheapest model for anything that writes
-
-The top model (final reviews, rulings, risk-domain plans) is `models.top` in config, whatever the profile: `references/model-profiles.md`.
-
-Usage: `/gsd:set-profile budget`
 
 ### Utility Commands
 

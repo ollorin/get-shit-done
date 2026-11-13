@@ -36,7 +36,7 @@ describe('R7-1: a task tier tag is mandatory in a plan that has not run', () => 
   });
   test('a fully tagged plan and a plan with a SUMMARY report nothing', () => {
     const d = tmp();
-    write(d, '01-01-PLAN.md', plan('<task type="auto"><name>a</name><model>opus</model></task>'));
+    write(d, '01-01-PLAN.md', plan('<task type="auto"><name>a</name><model>sonnet</model></task>'));
     write(d, '01-02-PLAN.md', plan('<task type="auto"><name>b</name></task>'));
     write(d, '01-02-SUMMARY.md', '# S\n');
     assert.deepStrictEqual(tierErrors(d, ['01-01-PLAN.md', '01-02-PLAN.md', '01-02-SUMMARY.md']), []);
@@ -65,11 +65,11 @@ describe('R7-2: spike runs one executor per plan on its highest tag (floor sonne
   test('haiku-only is raised to the sonnet floor; the highest tag wins', () => {
     assert.strictEqual(model(spike(t('haiku') + t('haiku'))), 'sonnet');
     assert.strictEqual(model(spike(t('haiku') + t('sonnet'))), 'sonnet');
-    assert.strictEqual(model(spike(t('haiku') + '<task type="auto" tier="Opus"><name>n</name></task>')), 'opus');
+    assert.strictEqual(model(spike(t('haiku') + '<task type="auto" tier="Sonnet"><name>n</name></task>')), 'sonnet');
   });
   test('standard rigour: null (per-task routing)', () => {
     const dir = project();
-    write(phaseDir(dir, 1), '01-01-PLAN.md', plan(t('opus')));
+    write(phaseDir(dir, 1), '01-01-PLAN.md', plan(t('sonnet')));
     assert.strictEqual(model(dir), null);
   });
 });

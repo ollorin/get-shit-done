@@ -1,5 +1,5 @@
 <purpose>
-Interactive configuration of GSD workflow agents (research, plan_check, verifier) and model profile selection via multi-question prompt. Updates .planning/config.json with user preferences. Optionally saves settings as global defaults (~/.gsd/defaults.json) for future projects.
+Interactive configuration of GSD workflow agents (research, plan_check, verifier) via multi-question prompt. Updates .planning/config.json with user preferences. Optionally saves settings as global defaults (~/.gsd/defaults.json) for future projects.
 </purpose>
 
 <required_reading>
@@ -31,7 +31,6 @@ Parse current values (default to `true` if not present):
 - `workflow.research` — spawn researcher during plan-phase
 - `workflow.plan_check` — spawn plan checker during plan-phase
 - `workflow.verifier` — spawn verifier during execute-phase
-- `model_profile` — which model each agent uses (default: `balanced`)
 - `git.branching_strategy` — branching approach (default: `"none"`)
 </step>
 
@@ -40,16 +39,6 @@ Use AskUserQuestion with current values pre-selected:
 
 ```
 AskUserQuestion([
-  {
-    question: "Which model profile for agents?",
-    header: "Model",
-    multiSelect: false,
-    options: [
-      { label: "Quality", description: "Strongest model for every deciding agent (highest cost)" },
-      { label: "Balanced (Recommended)", description: "Strong planning, cheap execution, mid tier for coordination and review" },
-      { label: "Budget", description: "Cheapest model for anything that writes (lowest cost)" }
-    ]
-  },
   {
     question: "Spawn Plan Researcher? (researches domain before planning)",
     header: "Research",
@@ -108,7 +97,6 @@ Merge new settings into existing config.json:
 ```json
 {
   ...existing_config,
-  "model_profile": "quality" | "balanced" | "budget",
   "workflow": {
     "research": true/false,
     "plan_check": true/false,
@@ -152,7 +140,6 @@ Write `~/.gsd/defaults.json` with:
 {
   "mode": <current>,
   "granularity": <current>,
-  "model_profile": <current>,
   "commit_docs": <current>,
   "parallelization": <current>,
   "branching_strategy": <current>,
@@ -176,7 +163,6 @@ Display:
 
 | Setting              | Value |
 |----------------------|-------|
-| Model Profile        | {quality/balanced/budget} |
 | Plan Researcher      | {On/Off} |
 | Plan Checker         | {On/Off} |
 | Execution Verifier   | {On/Off} |
@@ -187,7 +173,6 @@ Display:
 These settings apply to future /gsd:plan-phase and /gsd:execute-phase runs.
 
 Quick commands:
-- /gsd:set-profile <profile> — switch model profile
 - /gsd:plan-phase --research — force research
 - /gsd:plan-phase --skip-research — skip research
 - /gsd:plan-phase --skip-verify — skip plan check
@@ -198,8 +183,8 @@ Quick commands:
 
 <success_criteria>
 - [ ] Current config read
-- [ ] User presented with 7 settings (profile + 5 workflow toggles + git branching)
-- [ ] Config updated with model_profile, workflow, and git sections
+- [ ] User presented with 6 settings (5 workflow toggles + git branching)
+- [ ] Config updated with workflow, and git sections
 - [ ] User offered to save as global defaults (~/.gsd/defaults.json)
 - [ ] Changes confirmed to user
 </success_criteria>

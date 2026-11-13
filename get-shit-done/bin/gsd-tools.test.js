@@ -8341,7 +8341,6 @@ describe('Phase 48 cross-cutting trigger matrix — deterministic (Phase 48-04)'
       nyquist_validation: false,
       parallelization: false,
       granularity: 'fine',
-      model_profile: 'quality',
     };
 
     for (const [key, expectedValue] of Object.entries(expectations)) {
@@ -14138,12 +14137,12 @@ describe('Phase 57-03: failure classification & escalation bound logic', () => {
       assert.strictEqual(result.reason, 'capability_failure');
     });
 
-    test('currentTier sonnet, escalationsUsed 1, capability failure -> escalate:true, next_tier:opus', () => {
+    test('currentTier sonnet, capability failure -> escalate:false, reason:ladder_exhausted -- no opus executor', () => {
       const classification = { capability_related: true, matched_pattern: null };
       const result = decideEscalation('sonnet', classification, 1);
-      assert.strictEqual(result.escalate, true);
-      assert.strictEqual(result.next_tier, 'opus');
-      assert.strictEqual(result.reason, 'capability_failure');
+      assert.strictEqual(result.escalate, false);
+      assert.strictEqual(result.next_tier, null);
+      assert.strictEqual(result.reason, 'ladder_exhausted');
     });
 
     test('currentTier opus (ladder ceiling) -> escalate:false, reason:ladder_exhausted -- opus failure never attempts a 4th tier', () => {
@@ -14314,71 +14313,39 @@ describe('Phase 57-04: bounded escalation loop & ledger recording', () => {
     // escalation-decision CLI and mirrored exactly as coordinator-detail.md's
     // loop instructs (one task_outcome failure event per attempt, one
     // tier_escalation event per hop).
-    test('full haiku->sonnet->opus chain: 3 consecutive capability failures produce 3 task_outcome failures + 2 tier_escalation events', () => {
-      // Attempt 1: haiku fails, escalates to sonnet.
-      let decision = decide('haiku', 0);
+    test('haiku->sonnet chain: a haiku failure escalates to sonnet, a sonnet failure stops (2 task_outcome failures + 1 tier_escalation event)', () => {
+      const decision = decide('haiku', 0);
       assert.strictEqual(decision.escalate, true);
       assert.strictEqual(decision.next_tier, 'sonnet');
       logTaskOutcome(1, 'haiku', 'failure', true);
       logTierEscalation(1, 'haiku', 'sonnet', decision.reason);
 
-      // Attempt 2: sonnet fails, escalates to opus.
-      decision = decide('sonnet', 1);
-      assert.strictEqual(decision.escalate, true);
-      assert.strictEqual(decision.next_tier, 'opus');
+      const stop = decide('sonnet', 1);
+      assert.strictEqual(stop.escalate, false);
+      assert.strictEqual(stop.next_tier, null);
       logTaskOutcome(1, 'sonnet', 'failure', true);
-      logTierEscalation(1, 'sonnet', 'opus', decision.reason);
-
-      // Attempt 3: opus fails -- no further escalation. decideEscalation
-      // enforces two independent stop conditions (per 57-03): the ladder's
-      // own null-terminator (getNextTier('opus') === null -> 'ladder_exhausted')
-      // AND the explicit escalationsUsed >= getTiers().length-1 safety cap
-      // (-> 'escalation_bound_reached'). At escalationsUsed=2 (the bound),
-      // the explicit cap check fires first in decideEscalation's own
-      // ordering -- either reason is a correct "stop" signal for this test.
-      decision = decide('opus', 2);
-      assert.strictEqual(decision.escalate, false);
-      assert.ok(
-        ['ladder_exhausted', 'escalation_bound_reached'].includes(decision.reason),
-        `expected a terminal stop reason, got: ${decision.reason}`
-      );
-      logTaskOutcome(1, 'opus', 'failure', true);
 
       const events = getHistory(tmpDir);
       const outcomes = events.filter((e) => e.type === 'task_outcome');
       const escalations = events.filter((e) => e.type === 'tier_escalation');
-
-      assert.strictEqual(outcomes.length, 3, 'expected 3 task_outcome failure events (haiku, sonnet, opus)');
-      assert.deepStrictEqual(outcomes.map((e) => e.tier), ['haiku', 'sonnet', 'opus']);
+      assert.deepStrictEqual(outcomes.map((e) => e.tier), ['haiku', 'sonnet']);
       assert.ok(outcomes.every((e) => e.outcome === 'failure'));
-
-      assert.strictEqual(escalations.length, 2, 'expected exactly 2 tier_escalation events (haiku->sonnet, sonnet->opus)');
-      assert.deepStrictEqual(
-        escalations.map((e) => `${e.from_tier}->${e.to_tier}`),
-        ['haiku->sonnet', 'sonnet->opus']
-      );
+      assert.deepStrictEqual(escalations.map((e) => `${e.from_tier}->${e.to_tier}`), ['haiku->sonnet']);
     });
 
-    // Integration-test scenario #6: bound enforcement -- opus failure never
-    // attempts a 4th tier / never issues a 3rd tier_escalation event.
-    test('bound enforcement: opus attempt returns escalate:false and the loop never logs a 3rd tier_escalation event', () => {
+    // Integration-test scenario #6: bound enforcement -- a sonnet failure never escalates.
+    test('bound enforcement: a sonnet attempt returns escalate:false and the loop never logs a 2nd tier_escalation event', () => {
       decide('haiku', 0);
       logTaskOutcome(2, 'haiku', 'failure', true);
       logTierEscalation(2, 'haiku', 'sonnet', 'capability_failure');
 
-      decide('sonnet', 1);
+      const sonnetDecision = decide('sonnet', 1);
+      assert.strictEqual(sonnetDecision.escalate, false, 'sonnet must never escalate further');
+      assert.strictEqual(sonnetDecision.next_tier, null);
       logTaskOutcome(2, 'sonnet', 'failure', true);
-      logTierEscalation(2, 'sonnet', 'opus', 'capability_failure');
-
-      const opusDecision = decide('opus', 2);
-      assert.strictEqual(opusDecision.escalate, false, 'opus must never escalate further');
-      assert.strictEqual(opusDecision.next_tier, null);
-      logTaskOutcome(2, 'opus', 'failure', true);
-      // No further tier_escalation call is ever made for this task -- the
-      // coordinator loop's "Else" branch terminates here.
 
       const escalations = getHistory(tmpDir).filter((e) => e.type === 'tier_escalation');
-      assert.strictEqual(escalations.length, 2, 'must never log a 3rd tier_escalation event past opus');
+      assert.strictEqual(escalations.length, 1, 'must never log a tier_escalation event past sonnet');
     });
 
     // Integration-test scenario #7 (coordinator-logic level): a

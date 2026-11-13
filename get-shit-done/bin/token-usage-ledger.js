@@ -96,8 +96,7 @@ function estimateTaskTokens(taskName, tier) {
 // assigned to the per-task gsd-executor spawn these usage records track,
 // the savings baseline: quality->opus, balanced->sonnet, budget->sonnet.
 // Deliberately narrow, documented, hardcoded constant (not a live parse of
-// MODEL_PROFILES in gsd-tools.js, whose gsd-executor row is the current
-// per-profile assignment and need not equal this baseline).
+// ROLE_MODELS in gsd-tools.js, which need not equal this baseline).
 const BASELINE_PROFILE_EXECUTOR_TIER = { quality: 'opus', balanced: 'sonnet', budget: 'sonnet' };
 function resolveBaselineTier(baselineProfile) {
   return BASELINE_PROFILE_EXECUTOR_TIER[baselineProfile] || BASELINE_PROFILE_EXECUTOR_TIER.quality;

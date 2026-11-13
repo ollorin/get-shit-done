@@ -486,7 +486,7 @@ Every task carries a tier tag written by the planner, a `<model>` element or a `
 </task>
 ```
 
-Valid values (case-insensitive): `haiku`, `sonnet`, `opus`. Execution runs each task on its tag (a spike plan: one executor on the plan's highest tag).
+Valid values (case-insensitive): `haiku`, `sonnet`; any other value fails `verify form`: a task that needs the top model must be split by the planner. Execution runs each task on its tag (a spike plan: one executor on the plan's highest tag).
 
 ## Frontmatter Fields
 
@@ -1158,7 +1158,7 @@ Include all frontmatter fields.
 </step>
 
 <step name="routing_pass">
-The planner writes `<model>haiku|sonnet|opus</model>` after `<name>` in every task while drafting, per the CLAUDE.md tier table. No separate routing agent runs.
+The planner writes `<model>haiku|sonnet</model>` after `<name>` in every task while drafting, per the CLAUDE.md tier table. No separate routing agent runs.
 </step>
 
 <step name="validate_plan">

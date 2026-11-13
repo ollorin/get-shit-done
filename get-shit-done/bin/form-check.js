@@ -10,7 +10,7 @@ const CITE = /\b(?:DECISIONS|ROADMAP)\.md:\d+/;
 const read = (f) => { try { return fs.readFileSync(f, 'utf8'); } catch { return null; } };
 const lineCount = (text) => text.replace(/\n$/, '').split('\n').length;
 const taskCount = (text) => (text.match(/<task(?=[\s>])/g) || []).length;
-const TIERS = ['haiku', 'sonnet', 'opus'];
+const TIERS = ['haiku', 'sonnet'];
 // Each <task>'s tier: the <model> element, else the tier="" attribute of the <task> tag (case-insensitive); null when absent or not a tier.
 function planTasks(text) {
   return (text.match(/<task(?=[\s>])[\s\S]*?(?:<\/task>|$)/g) || []).map((t, i) => {
@@ -38,7 +38,7 @@ function checkPlans(phaseDir, dirFiles, level) {
     if (lines > caps.lines) errors.push({ file: f, check: 'plan_lines', message: `${lines} lines exceed the ${level} cap of ${caps.lines}` });
     if (tasks > caps.tasks) errors.push({ file: f, check: 'plan_tasks', message: `${tasks} tasks exceed the ${level} cap of ${caps.tasks}` });
     const untagged = planTasks(text).filter((t) => !t.tier).map((t) => t.name);
-    if (untagged.length > 0) errors.push({ file: f, check: 'task_tier_missing', message: `no tier tag (<model>haiku|sonnet|opus</model> or tier="..." on <task>) on: ${untagged.join('; ')}` });
+    if (untagged.length > 0) errors.push({ file: f, check: 'task_tier_missing', message: `no valid tier tag (<model>haiku|sonnet</model> or tier="..." on <task>; opus is not a task tier: a task needing the top model must be split by the planner) on: ${untagged.join('; ')}` });
     let fm = {};
     try { fm = matter(text).data || {}; } catch { /* malformed frontmatter is reported by plan-structure */ }
     const files = Array.isArray(fm.files_modified) ? fm.files_modified : [];

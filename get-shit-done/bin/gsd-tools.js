@@ -249,22 +249,22 @@ try { learning = require('./gsd-learning'); } catch (e) { learning = null; }
 // Load environment variables from project root .env
 require('dotenv').config({ path: path.join(__dirname, '../../.env'), quiet: true });
 
-// ─── Model Profile Table ─────────────────────────────────────────────────────
+// ─── Role model table ────────────────────────────────────────────────────────
+// One model per role. The planner and verifier run on the configured top model (resolveModelInternal).
 
-const MODEL_PROFILES = {
-  'gsd-planner':              { quality: 'opus', balanced: 'opus',   budget: 'sonnet', auto: 'sonnet' },
-  'gsd-roadmapper':           { quality: 'opus', balanced: 'sonnet', budget: 'sonnet', auto: 'sonnet' },
-  'gsd-executor':             { quality: 'opus', balanced: 'haiku', budget: 'haiku', auto: 'haiku' },
-  'gsd-phase-researcher':     { quality: 'opus', balanced: 'sonnet', budget: 'haiku',  auto: 'sonnet' },
-  'gsd-project-researcher':   { quality: 'opus', balanced: 'sonnet', budget: 'haiku',  auto: 'sonnet' },
-  'gsd-research-synthesizer': { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku', auto: 'sonnet' },
-  'gsd-debugger':             { quality: 'opus', balanced: 'sonnet', budget: 'sonnet', auto: 'sonnet' },
-  'gsd-codebase-mapper':      { quality: 'sonnet', balanced: 'haiku', budget: 'haiku', auto: 'haiku'  },
-  'gsd-plan-checker':         { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku', auto: 'sonnet' },
-  'gsd-test-writer':          { quality: 'sonnet', balanced: 'haiku', budget: 'haiku', auto: 'haiku' },
-  'gsd-docs-updater':         { quality: 'sonnet', balanced: 'haiku', budget: 'haiku', auto: 'haiku' },
-  'gsd-phase-coordinator':    { quality: 'sonnet', balanced: 'sonnet', budget: 'sonnet', auto: 'sonnet' },
-  'gsd-integration-checker':  { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku', auto: 'sonnet' },
+const ROLE_MODELS = {
+  'gsd-roadmapper': 'sonnet',
+  'gsd-executor': 'haiku',
+  'gsd-phase-researcher': 'sonnet',
+  'gsd-project-researcher': 'sonnet',
+  'gsd-research-synthesizer': 'sonnet',
+  'gsd-debugger': 'sonnet',
+  'gsd-codebase-mapper': 'haiku',
+  'gsd-plan-checker': 'sonnet',
+  'gsd-test-writer': 'haiku',
+  'gsd-docs-updater': 'haiku',
+  'gsd-phase-coordinator': 'sonnet',
+  'gsd-integration-checker': 'sonnet',
 };
 
 // ─── Shared File-Pattern Constants ───────────────────────────────────────────
@@ -425,7 +425,6 @@ function atomicWriteFileSync(targetPath, content) {
 function loadConfig(cwd) {
   const configPath = path.join(cwd, '.planning', 'config.json');
   const defaults = {
-    model_profile: 'balanced',
     commit_docs: true,
     search_gitignored: false,
     branching_strategy: 'none',
@@ -489,7 +488,6 @@ function loadConfig(cwd) {
     })();
 
     return {
-      model_profile: get('model_profile') ?? defaults.model_profile,
       commit_docs: get('commit_docs', { section: 'planning', field: 'commit_docs' }) ?? defaults.commit_docs,
       search_gitignored: get('search_gitignored', { section: 'planning', field: 'search_gitignored' }) ?? defaults.search_gitignored,
       branching_strategy: get('branching_strategy', { section: 'git', field: 'branching_strategy' }) ?? defaults.branching_strategy,
@@ -1847,7 +1845,6 @@ function cmdConfigEnsureSection(cwd, raw) {
 
   // Create default config
   const defaults = {
-    model_profile: 'balanced',
     models: { top: 'opus' },
     commit_docs: true,
     search_gitignored: false,
@@ -2344,7 +2341,6 @@ function cmdStateLoad(cwd, raw) {
   if (raw) {
     const c = config;
     const lines = [
-      `model_profile=${c.model_profile}`,
       `commit_docs=${c.commit_docs}`,
       `branching_strategy=${c.branching_strategy}`,
       `phase_branch_template=${c.phase_branch_template}`,
@@ -2863,24 +2859,8 @@ function cmdResolveModel(cwd, agentType, raw) {
     output({ model, role: agentType }, raw, model);
     return;
   }
-  if (agentType === 'gsd-verifier') {
-    const model = resolveModelInternal(cwd, agentType);
-    output({ model, profile: 'top' }, raw, model);
-    return;
-  }
-
-  const config = loadConfig(cwd);
-  const profile = config.model_profile || 'balanced';
-
-  const agentModels = MODEL_PROFILES[agentType];
-  if (!agentModels) {
-    const result = { model: 'sonnet', profile, unknown_agent: true };
-    output(result, raw, 'sonnet');
-    return;
-  }
-
-  const model = agentModels[profile] || agentModels['balanced'] || 'sonnet';
-  const result = { model, profile };
+  const model = resolveModelInternal(cwd, agentType);
+  const result = ROLE_MODELS[agentType] || TOP_ROLES.has(agentType) ? { model } : { model, unknown_agent: true };
   output(result, raw, model);
 }
 
@@ -11334,16 +11314,13 @@ function initRiskFields(cwd, phase) {
   return { risk_addons: addons, ...phaseBudget.budgetFields(cwd, phaseBudget.budgetClass({ rigour: level, riskAddons: addons })) };
 }
 
+const TOP_ROLES = new Set(['gsd-planner', 'gsd-verifier']);
 function resolveModelInternal(cwd, agentType) {
-  if (agentType === 'gsd-verifier') return topModelFields(cwd).ruling_model;
-  const config = loadConfig(cwd);
-  const profile = config.model_profile || 'balanced';
-  const agentModels = MODEL_PROFILES[agentType];
-  if (!agentModels) return 'sonnet';
-  return agentModels[profile] || agentModels['balanced'] || 'sonnet';
+  if (TOP_ROLES.has(agentType)) return topModelFields(cwd).ruling_model;
+  return ROLE_MODELS[agentType] || 'sonnet';
 }
 
-// At spike the executor is the investigator: a haiku result is raised to sonnet (a stronger profile tier is kept).
+// At spike the executor is the investigator: executor_model (haiku) is raised to sonnet.
 function executorModelFor(cwd, phase) {
   const model = resolveModelInternal(cwd, 'gsd-executor');
   const spike = rigour.resolveRigour(cwd, phase, getMilestoneInfo(cwd).version).rigour === 'spike';
@@ -14781,8 +14758,8 @@ function classifyFailure(errorSummary) {
 // model-registry.js -- the SINGLE source of truth for the escalation ladder;
 // never re-declares a second hardcoded ladder here. Bound: one retry per
 // tier (escalationsUsed caps at getTiers().length - 1), non-capability
-// failures never escalate, and the ladder's own null-terminator (opus
-// exhausted) is a second, independent stop condition.
+// failures never escalate, and only haiku escalates: sonnet is the last executor tier (a task
+// needing the top model is split by the planner), a second, independent stop condition.
 function decideEscalation(currentTier, classification, escalationsUsed) {
   if (!classification || classification.capability_related === false) {
     return { escalate: false, next_tier: null, reason: 'non_capability_failure' };
@@ -14791,7 +14768,7 @@ function decideEscalation(currentTier, classification, escalationsUsed) {
   if ((escalationsUsed || 0) >= maxEscalations) {
     return { escalate: false, next_tier: null, reason: 'escalation_bound_reached' };
   }
-  const nextTier = getNextTier(currentTier);
+  const nextTier = currentTier === 'haiku' ? getNextTier(currentTier) : null;
   if (!nextTier) {
     return { escalate: false, next_tier: null, reason: 'ladder_exhausted' };
   }

@@ -66,7 +66,6 @@ GSD guarantees (atomic commits, state tracking) without full planning. Use for b
 | `/gsd:progress` | Where am I, what's next |
 | `/gsd:map-codebase` | Analyze existing codebase before new-project |
 | `/gsd:pause-work` / `/gsd:resume-work` | Session handoff |
-| `/gsd:set-profile <auto\|quality\|balanced\|budget>` | Switch model profile |
 | `/gsd:settings` | Configure workflow agents and execution |
 | `/gsd:add-phase` / `/gsd:insert-phase` / `/gsd:remove-phase` | Roadmap management |
 | `/gsd:add-todo` / `/gsd:check-todos` | Capture ideas |
@@ -206,25 +205,11 @@ GSD stores project settings in `.planning/config.json`. Configure during `/gsd:n
 | `parallelization.enabled` | `true` | Run independent plans in parallel |
 | `git.branching_strategy` | `none` | `phase` or `milestone` to create branches |
 
-### Model Profiles
+### Models
 
-Control which Claude model each agent uses. Balance quality vs token spend.
+The planner, final reviews and rulings run on the top model (`models.top` in `.planning/config.json`); plan-check, research and coordination on Sonnet; executors per task on Haiku or Sonnet.
 
-| Profile | Planning | Execution | Verification |
-|---------|----------|-----------|--------------|
-| `auto` | adaptive | adaptive | adaptive |
-| `quality` | Opus | Opus | Sonnet |
-| `balanced` (default) | Opus | Sonnet | Sonnet |
-| `budget` | Sonnet | Sonnet | Haiku |
-
-Switch profiles:
-```
-/gsd:set-profile budget
-```
-
-Or configure via `/gsd:settings`.
-
-`auto` runs each task on the tier the plan carries in `<model>` — Haiku for mechanical single-step tasks, Sonnet for standard multi-step implementation, Opus for architecture and high-stakes decisions. Quota pressure downgrade: >80% usage drops Opus→Sonnet, >95% drops all to Haiku. Circuit breakers and error escalation ensure quality.
+Each task runs on the tier its plan carries in `<model>`: Haiku for mechanical single-step tasks, Sonnet for judgement and multi-step work. There is no Opus tier; the planner splits a task that needs the top model.
 
 ---
 

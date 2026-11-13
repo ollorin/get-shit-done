@@ -84,7 +84,7 @@ Exit command.
 
 **If auto mode:** Collect config settings upfront before processing the idea document.
 
-YOLO mode is implicit (auto = YOLO). Ask remaining config questions. If they cannot be asked (no interactive channel), apply exactly these defaults, the options labelled "(Recommended)": `granularity: "coarse"`, `parallelization.enabled: true`, `planning.commit_docs: true`, `model_profile: "balanced"`, `workflow.research`, `workflow.plan_check` and `workflow.verifier` all `true`. Never pick the cheaper option implicitly.
+YOLO mode is implicit (auto = YOLO). Ask remaining config questions. If they cannot be asked (no interactive channel), apply exactly these defaults, the options labelled "(Recommended)": `granularity: "coarse"`, `parallelization.enabled: true`, `planning.commit_docs: true`, `workflow.research`, `workflow.plan_check` and `workflow.verifier` all `true`. Never pick the cheaper option implicitly.
 
 **Round 1 — Core settings (3 questions, no Mode question):**
 
@@ -171,7 +171,6 @@ Merge these keys into `.planning/config.json` with mode set to "yolo". Never ove
 {
   "mode": "yolo",
   "granularity": "[selected]",
-  "model_profile": "quality|balanced|budget",
   "models": { "top": "opus" },
   "parallelization": { "enabled": true|false },
   "planning": { "commit_docs": true|false },
@@ -497,7 +496,6 @@ Merge these settings into `.planning/config.json`. Never overwrite an existing f
 {
   "mode": "yolo|interactive",
   "granularity": "coarse|standard|fine",
-  "model_profile": "quality|balanced|budget",
   "models": { "top": "opus" },
   "parallelization": { "enabled": true|false },
   "planning": { "commit_docs": true|false },
@@ -525,7 +523,7 @@ node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "chore: add project c
 
 **Note:** Run `/gsd:settings` anytime to update these preferences.
 
-## 5.5. Resolve Model Profile
+## 5.5. Models
 
 Use models from init: `researcher_model`, `synthesizer_model`, `roadmapper_model`.
 

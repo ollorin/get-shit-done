@@ -1,6 +1,6 @@
 # Per-task executor routing
 
-The standard path of `workflows/execute-phase.md` `execute_waves` at every rigour except spike (a spike plan is one executor on `executor_model`). The tool does the arithmetic (`routing escalation-decision`); this file only sequences it. Models come from init: `{reviewer_model}` is the first escalation target.
+The standard path of `workflows/execute-phase.md` `execute_waves` at every rigour except spike (a spike plan is one executor on `executor_model`). The tool does the arithmetic (`routing escalation-decision`); this file only sequences it. The ladder is haiku, then sonnet; nothing escalates past sonnet.
 
 <step name="per_task_routing">
 
@@ -57,7 +57,7 @@ node ~/.claude/get-shit-done/bin/gsd-tools.js token-usage record \
 
 **4. Failure** (the return contains `TASK FAILED:`): run the bounded escalation loop. `CURRENT_SIGNAL_TIER` is the tier in the signal's `[tier: X]` tag (no tag: routing was not active for this task, record it failed, no escalation, next task). `ERROR_SUMMARY` is the text after the final ` — `. `IS_NON_CAPABILITY_TAGGED` is true when the signal contains `[non-capability]`. `ESCALATIONS_USED = 0`.
 
-LOOP:
+LOOP (`FAILS_AT_TIER` starts at 1; a task escalates only on its second failure at a tier):
 1. `DECISION_JSON = node ~/.claude/get-shit-done/bin/gsd-tools.js routing escalation-decision --current-tier "{CURRENT_SIGNAL_TIER}" --error-summary "{ERROR_SUMMARY}" --escalations-used {ESCALATIONS_USED} --raw`. The executor's own `[non-capability]` tag is authoritative: `EFFECTIVE_ESCALATE = DECISION_JSON.escalate AND (NOT IS_NON_CAPABILITY_TAGGED)`, `EFFECTIVE_REASON = "non_capability_failure"` when tagged, else `DECISION_JSON.reason`.
 2. Log ONE failed-attempt outcome and its token usage:
 ```bash
@@ -66,7 +66,7 @@ node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event --type task_ou
 node ~/.claude/get-shit-done/bin/gsd-tools.js token-usage record \
   --phase {phase_number} --plan "{plan_file}" --task-index {task_index} --task-name "{task_name}" --tier "{CURRENT_SIGNAL_TIER}" --raw
 ```
-3. `EFFECTIVE_ESCALATE` true: log `tier_escalation`, move one count in `ROUTING_STATS`, `ESCALATIONS_USED += 1`, re-spawn the same task with `TASK_TIER = DECISION_JSON.next_tier`, wait.
+3. `EFFECTIVE_REASON` is not `non_capability_failure` and `FAILS_AT_TIER` is 1: `FAILS_AT_TIER = 2`, re-spawn the same task on the same tier, and on `TASK FAILED:` GOTO LOOP. `EFFECTIVE_ESCALATE` true and `FAILS_AT_TIER` is 2 (haiku only): `FAILS_AT_TIER = 1`, log `tier_escalation`, move one count in `ROUTING_STATS`, `ESCALATIONS_USED += 1`, re-spawn the same task with `TASK_TIER = DECISION_JSON.next_tier`, wait.
 ```bash
 node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event --type tier_escalation \
   --data '{"phase":{phase_number},"plan":"{plan_file}","task_index":{task_index},"task_name":"{task_name}","task_type":"{TASK_TYPE_FOR_LOGGING}","from_tier":"{CURRENT_SIGNAL_TIER}","to_tier":"{DECISION_JSON.next_tier}","reason":"{EFFECTIVE_REASON}"}'
@@ -78,7 +78,7 @@ node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event --type task_ou
 node ~/.claude/get-shit-done/bin/gsd-tools.js token-usage record \
   --phase {phase_number} --plan "{plan_file}" --task-index {task_index} --task-name "{task_name}" --tier "{TASK_TIER}" --raw
 ```
-4. Otherwise log "Task {task_index} failed at {CURRENT_SIGNAL_TIER}, {EFFECTIVE_REASON}, no further escalation", record the task failed and continue; it falls into execute-phase's failure handling.
+4. Otherwise (a sonnet task that fails twice always lands here, never escalated further) log "Task {task_index} failed at {CURRENT_SIGNAL_TIER}, {EFFECTIVE_REASON}, no further escalation", record the task failed and continue; it falls into execute-phase's failure handling.
 
 Escalation applies ONLY to capability-related errors signalled by the executor. Output-quality issues never trigger it; a `[non-capability]` failure (missing file, environment error) is recorded failed at once and is never escalated. The ladder lives in the tool (`routing escalation-decision`); never write a second ladder inline.
 

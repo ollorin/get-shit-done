@@ -101,9 +101,6 @@ describe('R5-5: at spike the executor resolves to sonnet', () => {
     fs.rmSync(path.join(s, '.planning', 'OWNER-GATES.json'));
     assert.strictEqual(model(s), 'haiku');
   });
-  test('a stronger profile tier is kept at spike', () => {
-    assert.strictEqual(model(spikeProject({ model_profile: 'quality' })), 'opus');
-  });
   test('rigour.md and model-profiles.md say so', () => {
     assert.match(doc('get-shit-done/references/rigour.md'), /`executor_model` \(the floor, and with it the fix dispatch\) resolves to `sonnet`/);
     assert.match(doc('get-shit-done/references/model-profiles.md'), /raised from `haiku` to `sonnet`/);

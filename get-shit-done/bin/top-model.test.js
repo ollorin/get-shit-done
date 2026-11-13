@@ -52,7 +52,7 @@ describe('CLI-3: one key for the top model', () => {
       assert.match(r.stderr, /models\.top must be an alias/);
     }
   });
-  test('verifier_model equals ruling_model under every profile', () => {
+  test('verifier_model equals ruling_model under any legacy model_profile', () => {
     cfg({ models: { top: 'fable' } });
     for (const profile of ['quality', 'balanced', 'budget', 'auto']) {
       cfg({ model_profile: profile, models: { top: 'fable' } });
