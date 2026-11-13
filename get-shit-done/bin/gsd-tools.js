@@ -2505,15 +2505,15 @@ function replacePlanProgressLine(content, newCurrentPlan, totalPlans, suffix) {
 }
 
 // Plan counts of the phase STATE.md names ("Phase: 2 of 4 ..." / "**Current Phase:** 2"), from disk.
-function stateDiskPlanCounts(cwd, content) {
-  const m = content.match(/^\s*(?:\*\*)?(?:Current )?Phase:(?:\*\*)?\s*(\d+(?:\.\d+)?)/im);
+function stateDiskPlanCounts(cwd, content, phaseOverride) {
+  const m = phaseOverride ? [null, String(phaseOverride)] : content.match(/^\s*(?:\*\*)?(?:Current )?Phase:(?:\*\*)?\s*(\d+(?:\.\d+)?)/im);
   if (!m) return null;
   const info = findPhaseInternal(cwd, m[1]);
   if (!info || !info.plans || info.plans.length === 0) return null;
   return { plans: info.plans.length, summaries: info.summaries.length };
 }
 
-function cmdStateAdvancePlan(cwd, raw) {
+function cmdStateAdvancePlan(cwd, raw, opts = {}) {
   const statePath = path.join(cwd, '.planning', 'STATE.md');
   if (!fs.existsSync(statePath)) { output({ error: 'STATE.md not found' }, raw); return; }
 
@@ -2529,7 +2529,7 @@ function cmdStateAdvancePlan(cwd, raw) {
   if (!isNaN(boldCurrentPlan) && !isNaN(boldTotalPlans)) {
     const currentPlan = boldCurrentPlan;
     const totalPlans = boldTotalPlans;
-    const boldDisk = stateDiskPlanCounts(cwd, content);
+    const boldDisk = stateDiskPlanCounts(cwd, content, opts.phase);
 
     if (currentPlan >= totalPlans || (boldDisk !== null && boldDisk.summaries >= boldDisk.plans)) {
       content = stateReplaceField(content, 'Status', 'Phase complete — ready for verification') || content;
@@ -2548,14 +2548,27 @@ function cmdStateAdvancePlan(cwd, raw) {
   }
 
   // Fall back to the real plain-prose "Plan: {N} of {M}{suffix}" line shape.
-  const parsed = parsePlanProgressLine(content);
+  // `phase complete` writes "Plan: Not started" and a plan-phase may leave no Plan line: the disk counts of the
+  // named phase (--phase, else the Phase line) stand in. A line that is neither shape fails loudly, quoted.
+  const disk = stateDiskPlanCounts(cwd, content, opts.phase);
+  let parsed = parsePlanProgressLine(content);
   if (!parsed) {
-    output({ error: 'Cannot parse Current Plan or Total Plans in Phase from STATE.md' }, raw);
-    return;
+    const planLine = (content.match(/^\s*Plan:.*$/im) || [null])[0];
+    const unstarted = planLine === null || /^\s*Plan:\s*(?:not started|none|-|—)?\s*$/i.test(planLine);
+    if (!disk || !unstarted) {
+      output({ error: `Cannot parse STATE.md ${planLine === null ? 'no "Plan:" line found' : `line "${planLine.trim()}"`}: expected "Plan: N of M ..." or bold Current Plan and Total Plans in Phase fields${disk ? '' : ' (and no plans on disk for the phase named by --phase or the Phase line)'}` }, raw, undefined, 1);
+      return;
+    }
+    const done = disk.summaries;
+    const stub = `Plan: ${done} of ${disk.plans}`;
+    content = planLine === null ? content.replace(/^(\s*Phase:.*)$/im, `$1\n${stub}`) : content.replace(/^\s*Plan:.*$/im, stub);
+    parsed = { currentPlan: done, totalPlans: disk.plans, suffix: '' };
+  } else if (opts.phase && disk) {
+    // An explicit --phase is the caller's statement of which phase just advanced: the disk beats a stale Plan line.
+    parsed = { currentPlan: disk.summaries, totalPlans: disk.plans, suffix: parsed.suffix };
   }
 
   const { currentPlan, totalPlans, suffix } = parsed;
-  const disk = stateDiskPlanCounts(cwd, content);
   // Disk truth: every plan of the phase has a SUMMARY, so the counter's value is irrelevant, this was the last plan.
   const allExecuted = disk !== null && disk.summaries >= disk.plans;
 
@@ -2592,6 +2605,10 @@ function cmdStateRecordMetric(cwd, options, raw) {
     return;
   }
 
+  const newRow = `| Phase ${phase} P${plan} | ${duration} | ${tasks || '-'} tasks | ${files || '-'} files |`;
+  const bump = (text) => text.replace(/(Total plans completed:\s*)(\d+)/i, (_m, h, n) => `${h}${Number(n) + 1}`);
+  const TABLE_HEAD = '| Plan | Duration | Tasks | Files |\n|------|----------|-------|-------|';
+
   // Find Performance Metrics section and its table
   const metricsPattern = /(##\s*Performance Metrics[\s\S]*?\n\|[^\n]+\n\|[-|\s]+\n)([\s\S]*?)(?=\n##|\n$|$)/i;
   const metricsMatch = content.match(metricsPattern);
@@ -2599,20 +2616,27 @@ function cmdStateRecordMetric(cwd, options, raw) {
   if (metricsMatch) {
     const tableHeader = metricsMatch[1];
     let tableBody = metricsMatch[2].trimEnd();
-    const newRow = `| Phase ${phase} P${plan} | ${duration} | ${tasks || '-'} tasks | ${files || '-'} files |`;
-
     if (tableBody.trim() === '' || tableBody.includes('None yet')) {
       tableBody = newRow;
     } else {
       tableBody = tableBody + '\n' + newRow;
     }
-
-    content = content.replace(metricsPattern, `${tableHeader}${tableBody}\n`);
+    content = content.replace(metricsPattern, () => `${bump(tableHeader)}${tableBody}\n`);
     atomicWriteFileSync(statePath, content);
     output({ recorded: true, phase, plan, duration }, raw, 'true');
-  } else {
-    output({ recorded: false, reason: 'Performance Metrics section not found in STATE.md' }, raw, 'false');
+    return;
   }
+
+  // The roadmapper writes a Velocity-only section (no table), and a hand-trimmed STATE.md may have none: create what is missing.
+  const section = content.match(/^##\s*Performance Metrics[^\n]*\n[\s\S]*?(?=\n##\s|(?![\s\S]))/im);
+  if (section) {
+    const body = section[0].replace(/\n+$/, '');
+    content = content.replace(section[0], () => `${bump(body)}\n\n${TABLE_HEAD}\n${newRow}\n`);
+  } else {
+    content = `${content.replace(/\n*$/, '\n')}\n## Performance Metrics\n\n**Velocity:**\n- Total plans completed: 1\n\n${TABLE_HEAD}\n${newRow}\n`;
+  }
+  atomicWriteFileSync(statePath, content);
+  output({ recorded: true, phase, plan, duration, created_table: true }, raw, 'true');
 }
 
 // Roadmap phases (unchecked) that have no PLAN.md in any phase directory.
@@ -9838,8 +9862,10 @@ function cmdRoadmapUpdatePlanProgress(cwd, phaseNum, raw) {
       const sameWord = lifecycle && lifecycle[2].toLowerCase() === status.toLowerCase();
       const head = sameWord ? leadWithWord : `${leadPrefix}${status} `;
       if (rest === '') return `${head}(${progressToken} plans)`.trim();
-      const retargeted = /\b\d+\s*\/\s*\d+/.test(rest)
-        ? rest.replace(/\b\d+\s*\/\s*\d+\s+plans?\b/i, `${progressToken} plans`).replace(/\b\d+\s*\/\s*\d+\b/, progressToken)
+      // Only a plan tally is this command's to retarget; any other N/M (a verification score "22/24") is the author's.
+      const planTally = /\b\d+\s*\/\s*\d+\s+plans?\b/i;
+      const retargeted = planTally.test(rest)
+        ? rest.replace(planTally, `${progressToken} plans`)
         : `${rest} (${progressToken} plans)`;
       return `${head}${retargeted}`.trim();
     },
@@ -10142,7 +10168,7 @@ function cmdPhaseComplete(cwd, phaseNum, raw, opts = {}) {
       (existing) => {
         const text = existing.trim();
         if (text === '') return `Complete (${today})`;
-        const lifecycle = text.match(/^(\W*)(not started|in progress|complete|completed|planned|blocked)\b/i);
+        const lifecycle = text.match(/^(\W*)(not started|in progress|complete|completed|executed|planned|blocked)\b/i);
         const rest = (lifecycle ? text.slice(lifecycle[0].length) : text).trim();
         const leadWithWord = lifecycle
           ? text.slice(0, lifecycle[0].length) + (text[lifecycle[0].length] === ' ' ? ' ' : '')
@@ -14767,7 +14793,8 @@ async function main() {
         }
         cmdStatePatch(cwd, patches, raw);
       } else if (subcommand === 'advance-plan') {
-        cmdStateAdvancePlan(cwd, raw);
+        const phIdx = args.indexOf('--phase');
+        cmdStateAdvancePlan(cwd, raw, { phase: phIdx !== -1 ? args[phIdx + 1] : null });
       } else if (subcommand === 'record-metric') {
         const phaseIdx = args.indexOf('--phase');
         const planIdx = args.indexOf('--plan');

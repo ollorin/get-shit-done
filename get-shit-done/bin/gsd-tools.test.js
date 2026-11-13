@@ -9907,9 +9907,9 @@ describe('Phase 51-01: STATE.md tolerant parsing (state advance-plan / state upd
     ].join('\n'));
 
     const result = runGsdTools('state advance-plan', tmpDir);
-    assert.ok(result.success, `advance-plan must not throw, even on unparseable input: ${result.error}`);
+    assert.ok(!result.success, 'advance-plan fails loudly (nonzero exit) on unparseable input');
     const parsed = JSON.parse(result.output);
-    assert.strictEqual(parsed.error, 'Cannot parse Current Plan or Total Plans in Phase from STATE.md');
+    assert.match(parsed.error, /^Cannot parse STATE\.md no "Plan:" line found/);
   });
 
   test('edge case: STATE.md missing Progress: entirely (neither bold nor plain) -> update-progress returns { updated: false, reason: ... }', () => {
