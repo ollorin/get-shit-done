@@ -22,7 +22,7 @@ The "before claiming done" checklist (check, lint, format, style gate, type chec
 The PR-time requirement above is unchanged. Earlier in a phase, cost is bounded:
 
 1. **Inside a plan and in fix loops:** run only the affected test files (`stack.commands.test_file`, with the `{file}` placeholder) plus the single suite that contains them (`stack.commands.test_bucket`), once. No full pre-PR gate inside a plan.
-2. **One full pre-PR gate per phase**, on the final phase tree, before the Sonnet pre-verification. After fixing its findings, rerun only what the fixes touch.
+2. **One full pre-PR gate per phase**, on the final phase tree, before the final phase review. After fixing its findings, rerun only what the fixes touch.
 3. **"Tests green twice" over all suites runs once, at phase end or before the PR**, not per plan.
 4. **Cheap gates run on their own, early:** `stack.commands.coverage_gate` for touched code, the type check, lint, formatting and the style gate. The phase-final full run stays mandatory: it catches cross-module breakage (a formatting rule against a pinned test, a contract change against another plan's test).
 

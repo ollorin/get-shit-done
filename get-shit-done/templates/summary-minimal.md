@@ -37,16 +37,5 @@ completed: YYYY-MM-DD
 ## Files Created/Modified
 - `path/to/file.ts` - What it does
 
-## Defect Classes
-| class | instance | caught_by | severity | rule_gap |
-|---|---|---|---|---|
-| [general class name] | [path/file.ext:line] | [plan-check\|test-writer\|mutation-proof\|opus-diff-review\|opus-ruling\|verifier\|ui-qa\|other] | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
-
-Nothing found? Delete the table and leave exactly:
-
-`None found. (reviewed by: <caught_by values>)` where each value is one of plan-check, test-writer, mutation-proof, opus-diff-review, opus-ruling, verifier, ui-qa, other (e.g. `None found. (reviewed by: plan-check, verifier)`)
-
-A bare `None found.` is a gate failure — an unnamed review is indistinguishable from a section nobody read. Never omit the section.
-
 ## Next Phase Readiness
 [Ready for next phase]

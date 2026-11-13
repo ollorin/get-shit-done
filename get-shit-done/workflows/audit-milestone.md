@@ -1,5 +1,5 @@
 <purpose>
-Verify milestone achieved its definition of done by aggregating phase verifications, checking cross-phase integration, and assessing requirements coverage. Reads existing VERIFICATION.md files (phases already verified during execute-phase), aggregates tech debt and deferred gaps, then spawns integration checker for cross-phase wiring. Finally distils the milestone's recorded `## Defect Classes` into general preventive rules in the consuming repo's `.claude/rules/*.md` (Step 7) so the defects review caught are not made again.
+Verify milestone achieved its definition of done by aggregating phase verifications, checking cross-phase integration, and assessing requirements coverage. Reads existing VERIFICATION.md files (phases already verified during execute-phase), aggregates tech debt and deferred gaps, then spawns integration checker for cross-phase wiring. Finally distils the milestone's review findings into general preventive rules in the consuming repo's `.claude/rules/*.md` (Step 7) so the defects review caught are not made again.
 </purpose>
 
 <required_reading>
@@ -196,30 +196,6 @@ If PRD_TRACE found:
 
 5. Accumulate into milestone totals: `total_prd_satisfied` and `total_prd_requirements`.
 
-## 5.5. Nyquist Compliance Discovery
-
-Skip if `workflow.nyquist_validation` is explicitly `false` (absent = enabled).
-
-```bash
-NYQUIST_CONFIG=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" config get workflow.nyquist_validation --raw 2>/dev/null)
-```
-
-If `false`: skip entirely.
-
-For each phase directory, check `*-VALIDATION.md`. If exists, parse frontmatter (`nyquist_compliant`, `wave_0_complete`).
-
-Classify per phase:
-
-| Status | Condition |
-|--------|-----------|
-| COMPLIANT | `nyquist_compliant: true` and all tasks green |
-| PARTIAL | VALIDATION.md exists, `nyquist_compliant: false` or red/pending |
-| MISSING | No VALIDATION.md |
-
-Add to audit YAML: `nyquist: { compliant_phases, partial_phases, missing_phases, overall }`
-
-Discovery only — never triggers manual validation; missing/partial test-content coverage is now enforced automatically by gsd-verifier's Step 6c gate during `/gsd:execute-phase`.
-
 ## 5.6. Deferred Waivers Table
 
 For each phase directory in the milestone's phase range:
@@ -230,7 +206,7 @@ node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" deferred list {phase} --raw
 
 Aggregate all returned waiver entries (`step`, `reason`, `approver`, `timestamp`, `phase`, `plan`) across every phase in the milestone. Do not read `DEFERRED.json` files directly or grep `deferred-items.md` prose — `deferred list` is the single deterministic source, sharing the same malformed-JSON handling as `verify phase-gate` (a corrupt `DEFERRED.json` for any phase must be surfaced, not silently skipped as "no waivers").
 
-Render into the aggregated `v{version}-MILESTONE-AUDIT.md` output (feeds into step 6 below, the same way step 5.5's Nyquist classification feeds the `nyquist: {...}` YAML block):
+Render into the aggregated `v{version}-MILESTONE-AUDIT.md` output (feeds into step 6 below):
 
 ```markdown
 ### Deferred Waivers
@@ -258,7 +234,7 @@ no warning — when the file is absent.
 [ -f <verdict gate script from stack.gates[]> ] || echo "SKIP 5.7 — verdict gate script not present in this repo"
 ```
 
-Unlike Step 5.5's `workflow.nyquist_validation` skip, there is **no config flag** to disable this
+There is **no config flag** to disable this
 step when the script IS present — a gate with an off switch is not a gate.
 
 **Resolve the run dir and the milestone number.**
@@ -427,44 +403,19 @@ Plus full markdown report with tables for requirements, phases, integration, tec
 - `gaps_found` — critical blockers exist
 - `tech_debt` — no blockers but accumulated deferred items need review
 
-## 7. Distil Defect Classes into Project Rules
+## 7. Distil Review Findings into Project Rules
 
-The milestone's phases recorded what review actually caught. Without this step those findings
-live only in SUMMARY.md files, get read once, and the same class of defect gets made again next
-milestone. This step converts them into general preventive rules in the consuming repo's own
-`.claude/rules/*.md` — and it is the LAST thing before the PR, so the rules ship with the
-milestone.
+The milestone's reviews recorded what they actually caught, in their own files. Without this step those findings get read once and the same class of defect gets made again next milestone. This step converts them into general preventive rules in the consuming repo's own `.claude/rules/*.md`, and it is the LAST thing before the PR, so the rules ship with the milestone.
 
-Skip this step when the milestone's phases have no `## Defect Classes` sections and no review
-artifacts at all (nothing to distil) — say so in the report rather than inventing entries.
+Skip this step when the milestone's phases have no review artifacts at all (nothing to distil); say so in the report rather than inventing entries.
 
 **Collect — YOU do this, before any dispatch.** Write every row to
 `.planning/v{version}-DEFECT-ROWS.md`; the author dispatch reads that one file, never the phase
 tree. Three sources, in order:
 
-**(a) The `## Defect Classes` section bodies.** Loop over the `{phase_dirs}` Step 1 resolved for
-THIS milestone — not every directory under `.planning/phases/`, which pulls in other
-milestones' phases. For each `*-SUMMARY.md` in those directories, extract the section BODY
-(heading to the next `^## `, inclusive of the heading line for identification):
+**(a) Review artifacts.** Loop over the `{phase_dirs}` Step 1 resolved for THIS milestone, not every directory under `.planning/phases/`. Read, where present, each phase's `{N}-PLAN-CHECK.md` (plan-check rounds), `{N}-{NN}-VERDICT.md` (adversarial pass), `{N}-REVIEW-*.md` (implementation review rounds) and the gaps of `{N}-VERIFICATION.md`. Reviews keep their findings in their own files; nobody copies them elsewhere.
 
-```bash
-# One block per SUMMARY; empty output means the phase predates the section.
-awk '/^## Defect Classes$/{f=1} f && /^## / && !/^## Defect Classes$/{f=0} f' \
-  .planning/phases/{phase_dir}/{N}-{NN}-SUMMARY.md
-```
-
-Also read, where present, each phase's `{N}-PLAN-CHECK.md` (plan-check rounds, written by `plan-phase.md` Step 11), `{N}-{NN}-VERDICT.md` (adversarial pass), `{N}-REVIEW-*.md` (implementation review rounds) and the gaps of `{N}-VERIFICATION.md`: reviews keep their findings in their own files, nobody copies them into a SUMMARY.
-
-**(b) Pre-section phases.** A phase with no `## Defect Classes` anywhere predates the
-requirement. Read EVERY artifact in its directory except `*-PLAN.md`, `*-RESEARCH.md` and
-`*-CONTEXT.md`, and reconstruct the same 5 columns from what they record. In practice that
-means the real artifact names a project accumulates: `*-SWEEP.md`, `*-FINDING.md`,
-`*-MUTATION-PROOF.md`, `*-DECISIONS.md`, `*-RECONCILIATION.md`, `*-RULING*.md`,
-`*-VERIFICATION.md`, `deferred-items.md`, and the prose sections of the `*-SUMMARY.md` itself (Issues Encountered,
-Decisions & Deviations, Deviations from Plan). Also read `.planning/debug/resolved/` and **the
-milestone's quick dirs**, defined here once and used everywhere in this step (including the
-author prompt below — a definition that drifts between two prompts is how a "which quick dirs?"
-question gets answered two different ways in the same milestone):
+**(b) Other records.** Read `deferred-items.md`, `.planning/debug/resolved/` and **the milestone's quick dirs**, defined here once and used everywhere in this step (including the author prompt below):
 
 > **The milestone's quick dirs** = the directories under `.planning/quick/` whose own earliest
 > commit is at-or-after the previous milestone's release tag. Resolve it deterministically, not
@@ -565,38 +516,30 @@ question gets answered two different ways in the same milestone):
 > done
 > ```
 >
-> A quick dir with **no commits is EXCLUDED** — it is in flight and has not contributed a
-> finding yet. (Contrast the Defect Classes gate itself, which fails CLOSED on an uncommitted
-> file: collection is a sweep over what exists, the gate is a check on one file's compliance.
-> An in-flight quick dir simply has nothing to contribute to this distillation.)
+> A quick dir with **no commits is EXCLUDED**: it is in flight and has not contributed a finding yet.
 
 Defects found in those directories belong to no phase directory at all, which is exactly why
 they need naming. If `.planning/v{version}-AUDIT-INPUTS.md` exists, read it too.
 
-Mark every reconstructed row `reconstructed: true` in the rows file. A reconstructed row is
-weaker evidence: it may justify adding or tightening a rule, but **never** on its own justify
-deleting an existing rule.
-
 **(c) Nothing else.** Do not read the milestone's own source, tests, or git history for defects
 — this step distils what review already recorded, it does not run a new review.
 
-Write the rows file as a table with a `reconstructed` column, one row per defect, plus a trailing
-count. If it comes out empty, say so and skip the dispatch.
+Write the rows file as a table, one row per finding (file:line, severity, source file), plus a trailing count. If it comes out empty, say so and skip the dispatch.
 
-**Dispatch (fresh agent, `{ruling_model}`: the final milestone review runs on the configured top model, `references/model-profiles.md`; `ruling_model=$(gsd-tools resolve-model top --raw)`, CLI-3).** The author of a rule set does not review it. Spawn:
+**Dispatch (fresh agent, `{ruling_model}`: the final milestone review runs on the configured top model, `references/model-profiles.md`; `ruling_model=$(gsd-tools resolve-model top --raw)`).** The author of a rule set does not review it. Spawn:
 
 ```
 Agent(
   subagent_type="general-purpose",
   model="{ruling_model}",
-  description="Distil milestone {version} defect classes",
+  description="Distil milestone {version} review findings",
   prompt=<see block below>
 )
 ```
 
 ```
 <rules_distill_prompt>
-You are updating the CONSUMING REPO's Claude rules from the defect classes recorded during
+You are updating the CONSUMING REPO's Claude rules from the review findings recorded during
 milestone {version}. The project is: {project_root}
 
 READ:
@@ -604,7 +547,7 @@ READ:
 - `deferred-items.md` in the `{phase_dirs}` Step 1 resolved for THIS milestone — anything
   deferred that reads as a real defect. Scope it exactly as the collection step scoped it: do
   NOT read `.planning/phases/*/deferred-items.md` with a wildcard. That glob pulls in every
-  other milestone's deferred items, so a rule distil for this milestone would be justified by
+  other milestone's deferred items, so a rules distillation for this milestone would be justified by
   defects the milestone never had. The orchestrator passes you the resolved list; read only
   those paths.
 - The milestone's quick dirs, as DEFINED in the collection step above (earliest commit at or
@@ -620,11 +563,11 @@ WRITE SCOPE — edit nothing outside these paths:
 - `CLAUDE.md` (only for a genuinely cross-cutting class)
 - `.planning/v{version}-RULES-DISTILL.md` (your report — the ONLY new file you create)
 
-TASK: cluster the rows into general defect classes, then for EACH class decide exactly one of:
+TASK: cluster the rows into general finding classes, then for EACH class decide exactly one of:
 1. **already-covered** — an existing rule already forbids it. Change nothing; record the
    enforcement gap (what let it through) in the report.
 2. **tighten** — a rule exists but is too vague to be violated. Rewrite it as a checkable
-   directive, quoting the defect class(es) that justify the change.
+   directive, quoting the finding class(es) that justify the change.
 3. **new** — no rule covers it. Add a general rule to the most specific existing
    `.claude/rules/*.md` file (create the file only if nothing fits an existing one).
 
@@ -635,14 +578,14 @@ table. A new file missing either is a review finding, not a detail.
 RULE-WRITING CONSTRAINTS (all binding):
 - Write GENERAL principles as checkable directives. "Every security-gating read treats a
   returned `error` as deny" — not "be careful with error handling".
-- NO incident narratives. A defect is a class, not a story. At most a one-line pointer to the
+- NO incident narratives. A finding class is a general rule, not a story. At most a one-line pointer to the
   milestone record (e.g. "seen in v0.1.33") — never the file, the incident, or the timeline.
 - Merge duplicates. Delete any rule that is obsolete or contradicted by the code as it stands.
 - NET LINE GROWTH ACROSS `.claude/rules/*.md` MUST BE ≤ 0. If you can only justify a class by
   adding text, you must delete or compress equivalent text elsewhere in the same commit. State
   in the report, for every file you grew, which specific existing lines you removed and why the
   trade is worth it. A report entry that does not name the removals is an invalid justification.
-- Every change you make MUST cite the defect class(es) justifying it, in the report.
+- Every change you make MUST cite the finding class(es) justifying it, in the report.
 - Do not invent classes that no row supports. "None found" everywhere is a valid, complete
   outcome — say so.
 - **GSD process defects go in the report, not in the project's rules.** Some rows describe
@@ -830,7 +773,7 @@ rules file silently.
 
 ```bash
 git add -- .claude/rules/ CLAUDE.md .planning/v{version}-RULES-DISTILL.md
-git commit -m "docs({version}): distil defect classes into project rules" -- \
+git commit -m "docs({version}): distil review findings into project rules" -- \
   .claude/rules/ CLAUDE.md .planning/v{version}-RULES-DISTILL.md
 ```
 
@@ -893,14 +836,6 @@ All requirements covered. Cross-phase integration verified. E2E flows complete.
 
 {For each flow gap:}
 - **{flow name}:** breaks at {step}
-
-### Nyquist Coverage
-
-| Phase | VALIDATION.md | Compliant | Action |
-|-------|---------------|-----------|--------|
-| {phase} | exists/missing | true/false/partial | auto-enforced by gsd-verifier's Step 6c on next `/gsd:execute-phase` |
-
-Phases needing test-content validation: this is now enforced automatically by gsd-verifier's Step 6c (test-content coverage gate) during `/gsd:execute-phase` — no separate manual command is needed.
 
 ───────────────────────────────────────────────────────────────
 
@@ -968,11 +903,9 @@ All requirements met. No critical blockers. Accumulated tech debt needs review.
 - [ ] Integration checker spawned with milestone requirement IDs
 - [ ] v{version}-MILESTONE-AUDIT.md created with structured requirement gap objects
 - [ ] FAIL gate enforced — any unsatisfied requirement forces gaps_found status
-- [ ] Nyquist compliance scanned for all milestone phases (if enabled)
-- [ ] Missing VALIDATION.md phases flagged (test-content coverage now enforced automatically by gsd-verifier's Step 6c gate — no manual command needed)
 - [ ] PRD-TRACE.md cross-reference run for each phase with PRD Express Path (Step 5f) — optional, skipped if absent; NOT a blocker when absent
 - [ ] MILESTONE-AUDIT.md includes PRD Traceability section and prd_traceability score (if any phases used PRD Express Path)
-- [ ] Every milestone phase's `## Defect Classes` collected into `v{version}-DEFECT-ROWS.md` (pre-section phases reconstructed from every non-PLAN/RESEARCH/CONTEXT artifact, `.planning/debug/resolved/`, and `.planning/quick/*/`)
+- [ ] Every milestone phase's review artifacts, `.planning/debug/resolved/` and the milestone's quick dirs collected into `v{version}-DEFECT-ROWS.md`
 - [ ] Fresh distillation dispatched on `{ruling_model}`; per class an already-covered / tighten / new decision recorded
 - [ ] Net line growth across `.claude/rules/*.md` measured by the orchestrator and ≤ 0 (or the run escalates)
 - [ ] Write scope held: only `.claude/rules/`, CLAUDE.md, and the report were edited

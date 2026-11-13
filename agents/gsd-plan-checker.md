@@ -396,22 +396,7 @@ For each `tdd="true"` task:
 3. BLOCKING: A risk-domain path is any path the product brief lists under Risk Domains (`risk_domains` in the init output); authentication/authorisation and security are always risk domains. When `risk_domains_source` is `builtin` (`project.risk_domains` in config.json is empty or absent), every path that mutates state is a risk-domain path. Tag every behaviour on a risk-domain path T0 (real-DB, mutation-proven). A plan that tags such a behaviour T1/T2 is rejected. REUSE satisfies T0 ONLY when the cited existing test is itself that T0 test (path:line + mutant id); "0 tests" otherwise is rejected. **Commands not configured:** when `commands_not_configured` (init output) lists `test_file` or `test_all`, a T0 behaviour is accepted without a real-DB run only if the task records a T0 exemption with a saved capture file of the test output and a named mutant whose capture shows the test failing; otherwise BLOCKING.
 4. WARNING: a T2 behaviour is ADD at unit layer, or a behaviour is asserted at a second layer without a wire-shape reason.
 
-## Dimension 9: Nyquist Compliance
-
-Skip if: `workflow.nyquist_validation` is explicitly set to `false` in config.json (absent key = enabled), phase has no RESEARCH.md, or RESEARCH.md has no "Validation Architecture" section. Output: "Dimension 9: SKIPPED (nyquist_validation disabled or not applicable)"
-
-### Check 9e — VALIDATION.md Existence (Gate)
-
-Before running checks 9a-9d, verify VALIDATION.md exists:
-
-```bash
-ls "${PHASE_DIR}"/*-VALIDATION.md 2>/dev/null
-```
-
-**If missing:** **BLOCKING FAIL** — "VALIDATION.md not found for phase {N}. Re-run `/gsd:plan-phase {N} --research` to regenerate."
-Skip checks 9a-9d entirely. Report Dimension 9 as FAIL with this single issue.
-
-**If exists:** Proceed to checks 9a-9d.
+## Dimension 9: Automated Verify
 
 ### Check 9a — Automated Verify Presence
 
@@ -441,7 +426,7 @@ For each `<automated>MISSING</automated>` reference:
 ### Dimension 9 Output
 
 ```
-## Dimension 9: Nyquist Compliance
+## Dimension 9: Automated Verify
 
 | Task | Plan | Wave | Automated Command | Status |
 |------|------|------|-------------------|--------|
@@ -567,13 +552,13 @@ issue:
   fix_hint: "Name the existing test file the assertion goes in, what it asserts, and which mutation must make it fail"
 ```
 
-## Dimension 13: Adversary View
+## Dimension 13: Threat Model
 
-Plans touching a risk-domain path must meet planner MANDATE-6(a): abuse cases, public-route exposure, debit-key orphan owner, replay/timeout path, lock order. Missing or vague = blocker (`dimension: adversary_view`, `severity: blocker`).
+Plans touching a risk-domain path must meet planner MANDATE-6: the phase's `{N}-THREAT-MODEL.md` names the abuse cases and the control that closes each. Missing or vague = blocker (`dimension: threat_model`, `severity: blocker`).
 
-**A plan that runs a risky system without editing it** (a probe, benchmark, load run or migration dry-run that calls a risk-domain system and changes none of its files): MANDATE-6 keys on paths the plan modifies, so file paths alone do not trigger this dimension. Apply it when a task's `<action>` or `<verify>` invokes, writes to, or sends traffic at a risk-domain system; require the abuse-case and adversary-view content for that exposure (what the run could mutate, expose, exhaust or leave half-applied, and its cleanup), or a stated reason the run is read-only against synthetic data.
+**A plan that runs a risky system without editing it** (a probe, benchmark, load run or migration dry-run that calls a risk-domain system and changes none of its files): MANDATE-6 keys on paths the plan modifies, so file paths alone do not trigger this dimension. Apply it when a task's `<action>` or `<verify>` invokes, writes to, or sends traffic at a risk-domain system; require the abuse-case and control content for that exposure (what the run could mutate, expose, exhaust or leave half-applied, and its cleanup), or a stated reason the run is read-only against synthetic data.
 
-**`high_risk` mismatch:** a plan to which MANDATE-6 applies must carry `high_risk: true` in its frontmatter; a missing flag is a blocker (`dimension: adversary_view`).
+**`high_risk` mismatch:** a plan to which MANDATE-6 applies must carry `high_risk: true` in its frontmatter; a missing flag is a blocker (`dimension: threat_model`).
 
 **Spike promotion:** when the phase's `rigour` is not `spike`, any plan listing a path under the project's spike roots in `files_modified`, importing from it, or citing spike evidence as a test REUSE is a blocker (`dimension: spike_promotion`).
 
@@ -591,8 +576,6 @@ required_changes:   # only for revise/critical, one concrete fix per kept major/
 # Adversarial Review Verdict: Plan {plan_id}
 ## Flaws
 | # | Flaw | Severity | Rebuttal | Kept |
-## Defect Classes
-(rows with caught_by `plan-check`, or `None found. (reviewed by: plan-check)`)
 ```
 
 Write no VERDICT.md for plans not listed.
@@ -620,7 +603,7 @@ Orchestrator provides CONTEXT.md content in the verification prompt. If provided
 
 ```bash
 ls "$phase_dir"/*-PLAN.md 2>/dev/null
-# Read research for Nyquist validation data
+# Read research
 cat "$phase_dir"/*-RESEARCH.md 2>/dev/null
 node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" roadmap get-phase "$phase_number"
 ls "$phase_dir"/*-BRIEF.md 2>/dev/null
@@ -837,9 +820,7 @@ Return all issues as a structured `issues:` YAML list (see dimension examples fo
 
 <structured_returns>
 
-**Rigour (`references/rigour.md`):** `spike`: one round, Dimensions 1-7, 12 and 15 only (8, 9, 10, 11, 13 and 14 are skipped), and the spike-containment check applies. `standard`: at most 2 rounds. **Delta round:** when the dispatch carries the previous issue list and a `git diff` of the plans, follow its instruction (earlier findings fixed, kept or regressed; then only the changed lines). A missing optional artifact (VALIDATION.md, an E2E plan for a phase without UI) is not a finding. Cite planning records by id, never by line.
-
-**Defect Classes (REQUIRED in both returns below).** End `## VERIFICATION PASSED` and `## ISSUES FOUND` with a `## Defect Classes` block exactly as the dispatch prompt specifies: one row per defect-class insight, or `None found. (reviewed by: plan-check)`. The block is never omitted.
+**Rigour (`references/rigour.md`):** `spike`: one round, Dimensions 1-7, 12 and 15 only (8, 9, 10, 11, 13 and 14 are skipped), and the spike-containment check applies. `standard`: at most 2 rounds. **Delta round:** when the dispatch carries the previous issue list and a `git diff` of the plans, follow its instruction (earlier findings fixed, kept or regressed; then only the changed lines). A missing optional artifact (an E2E plan for a phase without UI) is not a finding. Cite planning records by id, never by line.
 
 ## VERIFICATION PASSED
 

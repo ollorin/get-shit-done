@@ -310,35 +310,6 @@ Verified patterns from official sources:
    - What's unclear: [the gap]
    - Recommendation: [how to handle]
 
-## Validation Architecture
-
-> Skip this section entirely if workflow.nyquist_validation is explicitly set to false in .planning/config.json. If the key is absent, treat as enabled.
-
-### Test Framework
-| Property | Value |
-|----------|-------|
-| Framework | {framework name + version} |
-| Config file | {path or "none — see Wave 0"} |
-| Quick run command | `{command}` |
-| Full suite command | `{command}` |
-
-### Phase Requirements → Test Map
-| Req ID | Behavior | Test Type | Automated Command | File Exists? |
-|--------|----------|-----------|-------------------|-------------|
-| REQ-XX | {behavior} | unit | `{stack.commands.test_file with the file or test id}` | ✅ / ❌ Wave 0 |
-
-### Sampling Rate
-- **Per task commit:** `{quick run command}`
-- **Per wave merge:** `{full suite command}`
-- **Phase gate:** Full suite green before `/gsd:verify-work`
-
-### Wave 0 Gaps
-- [ ] `{tests/test_file.py}` — covers REQ-{XX}
-- [ ] `{tests/conftest.py}` — shared fixtures
-- [ ] Framework install: `{command}` — if none detected
-
-*(If no gaps: "None — existing test infrastructure covers all phase requirements")*
-
 ## Sources
 
 ### Primary (HIGH confidence)
@@ -379,8 +350,6 @@ if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
 
 Extract from init JSON: `phase_dir`, `padded_phase`, `phase_number`, `commit_docs`.
 
-Also read `.planning/config.json` — include Validation Architecture section in RESEARCH.md unless `workflow.nyquist_validation` is explicitly `false`. If the key is absent or `true`, include the section.
-
 Then read CONTEXT.md if exists:
 ```bash
 cat "$phase_dir"/*-CONTEXT.md 2>/dev/null
@@ -413,20 +382,7 @@ Based on phase description, identify what needs investigating:
 
 For each domain: Context7 first → Official docs → WebSearch → Cross-verify. Document findings with confidence levels as you go.
 
-## Step 4: Validation Architecture Research (if nyquist_validation enabled)
-
-**Skip if** workflow.nyquist_validation is explicitly set to false. If absent, treat as enabled.
-
-### Detect Test Infrastructure
-Scan for: test config files (pytest.ini, jest.config.*, vitest.config.*), test directories (test/, tests/, __tests__/), test files (*.test.*, *.spec.*), package.json test scripts.
-
-### Map Requirements to Tests
-For each phase requirement: identify behavior, determine test type (unit/integration/smoke/e2e/manual-only), specify automated command runnable in < 30 seconds, flag manual-only with justification.
-
-### Identify Wave 0 Gaps
-List missing test files, framework config, or shared fixtures needed before implementation.
-
-## Step 5: Quality Check
+## Step 4: Quality Check
 
 - [ ] All domains investigated
 - [ ] Negative claims verified
@@ -434,7 +390,7 @@ List missing test files, framework config, or shared fixtures needed before impl
 - [ ] Confidence levels assigned honestly
 - [ ] "What might I have missed?" review
 
-## Step 6: Write RESEARCH.md
+## Step 5: Write RESEARCH.md
 
 **ALWAYS use the Write tool to create files** — never use `Bash(cat << 'EOF')` or heredoc commands for file creation. Mandatory regardless of `commit_docs` setting.
 
@@ -473,7 +429,7 @@ Write to: `$PHASE_DIR/$PADDED_PHASE-RESEARCH.md`
 
 ⚠️ `commit_docs` controls git only, NOT file writing. Always write first.
 
-## Step 7: Commit Research (optional)
+## Step 6: Commit Research (optional)
 
 Commit only when `commit_docs` is true AND the dispatch prompt does not say the orchestrator commits. When it does, leave RESEARCH.md uncommitted and say so in your return.
 
@@ -481,7 +437,7 @@ Commit only when `commit_docs` is true AND the dispatch prompt does not say the 
 node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs($PHASE): research phase domain" --files "$PHASE_DIR/$PADDED_PHASE-RESEARCH.md"
 ```
 
-## Step 8: Return Structured Result
+## Step 7: Return Structured Result
 
 </execution_flow>
 

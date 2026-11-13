@@ -154,7 +154,7 @@ If `confidence < 0.50` AND `gaps` is non-empty:
    ```
    Agent(
      subagent_type="gsd-discovery-synthesizer",
-     model="{ruling_model}",  # the configured top model: gsd-tools resolve-model top --raw (CLI-3)
+     model="{ruling_model}",  # the configured top model: gsd-tools resolve-model top --raw
      description="Merge Stage 1 discovery findings",
      prompt="slug={slug} stage=1 original_idea={concept} findings={collected investigator outputs, one per gap}"
    )
@@ -303,7 +303,7 @@ If `confidence < 0.50` AND `gaps` is non-empty:
    ```
    Agent(
      subagent_type="gsd-discovery-synthesizer",
-     model="{ruling_model}",  # the configured top model: gsd-tools resolve-model top --raw (CLI-3)
+     model="{ruling_model}",  # the configured top model: gsd-tools resolve-model top --raw
      description="Merge Stage 2 discovery findings",
      prompt="slug={slug} stage=2 original_idea={concept} findings={collected investigator outputs, one per gap}"
    )

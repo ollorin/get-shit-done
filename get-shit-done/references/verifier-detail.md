@@ -286,21 +286,6 @@ This step's hard-fail is NEVER a warning — matches the existing convention for
 
 Note: Step 8d (Implementation File Test Coverage, below) is a coarser, complementary, import/route-match check and stays unchanged in scope — Step 6c adds requirement-level classification and content-quality (hollow/stale) detection on top of it, it does not replace it.
 
-## Step 6d: Defect Classes Coverage (QGATE-17)
-
-Recording, not judging: this step never produces a gap and never changes the status.
-
-1. **Section present** is the script's check, not yours: `verify phase-gate` fails a SUMMARY whose `## Defect Classes` heading is missing, empty, a template placeholder or a bare `None found.`, and the executor fixes it before you run. If you still see one, list it under `form_findings`.
-2. **Findings represented**: for each finding YOU raise in this verification, you ADD the entry yourself to the SUMMARY of the plan it concerns, replacing a `None found. (...)` line if that is all the section holds:
-
-```markdown
-| class | instance | caught_by | severity | rule_gap |
-|---|---|---|---|---|
-| [general class name] | [path/file.ext:line] | [verifier] | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
-```
-
-Findings of other reviews stay in their own files (`{N}-PLAN-CHECK.md`, `*-VERDICT.md`, `{N}-REVIEW-*.md`); the milestone distillation reads them there, so do not copy them. `class` is general ("idempotency key not scoped to the actor"), never one incident.
-
 ## Step 6b: PRD Intent Alignment Check (Optional — fires only if PRD-TRACE.md present)
 
 ```bash
@@ -700,7 +685,7 @@ If TRIGGER_QA_CHECK == false OR UI_QA_FOUND == true: this check passes silently.
 
 **Step A — find the claim.** Read the SUMMARY.md and VERIFICATION.md files for a sentence that defers this phase's own tests, QA or verification ("to be added later", "QA skipped", "will be tested in a future phase"). The word alone is not a finding.
 
-**Step B — judge the truth, not the wording.** For each such sentence check whether the test, QA run or verification it names actually ran in this phase (the evidence of Steps 8b, 8c and 8d). It ran: the sentence is stale wording, list it under `form_findings`. It did not run and no `DEFERRED.json` waiver covers it:
+**Step B — judge the truth, not the wording.** For each such sentence check whether the test, QA run or verification it names actually ran in this phase (the evidence of Steps 8b, 8c and 8d). It ran: the sentence is stale wording: mention it in your report body. It did not run and no `DEFERRED.json` waiver covers it:
 - Add gap:
   ```yaml
   - truth: "All tests and QA were completed in this phase (no deferral)"

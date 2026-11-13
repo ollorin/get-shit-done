@@ -358,7 +358,7 @@ No overlap → can run parallel. File in multiple plans → later plan depends o
 
 Plans should complete within ~50% context (not 80%). No context anxiety, quality maintained start to finish, room for unexpected complexity.
 
-**Caps are in `references/rigour.md`** (`standard`: 3 plans per phase, 6 tasks and 250 lines per plan; every `<task` counts, companion tdd and threat-model tasks included). A phase that needs more is too big: say so in the return.
+**Caps are in `references/rigour.md`** (`standard`: 3 plans per phase, 6 tasks and 250 lines per plan; every `<task` counts, companion tdd tasks included). A phase that needs more is too big: say so in the return.
 
 | Task Complexity | Tasks/Plan | Context/Task | Total |
 |-----------------|------------|--------------|-------|

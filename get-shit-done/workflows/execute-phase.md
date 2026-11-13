@@ -42,7 +42,7 @@ If the command exits 1 and INIT has `error: project_context_missing`: stop, prin
 
 Parse JSON for: `auto_mode`, `executor_model`, `verifier_model`, `ruling_model`, `ruling_model_fallback`, `utility_model`, `reviewer_model`, `base_branch`, `ui_qa_mode`, `commit_docs`, `parallelization`, `branching_strategy`, `branch_name`, `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `phase_slug`, `plans`, `incomplete_plans`, `plan_count`, `incomplete_count`, `state_exists`, `roadmap_exists`, `phase_req_ids`, `brief_path`, `stack_profile_path`, `stack_commands`. Every spawned agent receives `brief_path` and `stack_profile_path` (when not null) in its `<files_to_read>`, and `stack_commands` verbatim.
 
-**Rigour and budget (print first):** init also returns the rigour fields. `references/rigour.md` is the contract (levels, risk-domain add-ons, caps, budget). Before anything else print its first line (`Phase {N}: rigour ..., risk domains: ..., budget ...`), counting what plan-phase already logged. Pass `rigour`, the spike roots and the remaining budget in every spawn prompt and log each dispatch as `phase_spend`. On a breach print the owner report and end with the trailer `{"status": "blocked", "reason": "budget_exceeded"}`.
+**Rigour and budget (print first):** init also returns the rigour fields. `references/rigour.md` is the contract (levels, risk-domain add-ons, caps, budget). Before anything else print its first line (`Phase {N}: rigour ..., risk domains: ..., budget ...`), counting what plan-phase already logged. Pass `rigour`, the spike roots and the remaining budget in every spawn prompt and call `gsd-tools budget spend --phase {N}` once per child spawn and `gsd-tools budget status --phase {N}` before each new review round or gap cycle. On a breach print the owner report and end with the trailer `{"status": "blocked", "reason": "budget_exceeded"}`.
 
 **Spike:** When `rigour` is `spike`: no test-writer spawn; one review round; the verifier prompt carries only the spike checks of `references/rigour.md`; gap closure is the light path, once; the last spike phase writes `SPIKE-RESULT.md` (per question: answer, capture path, go/no-go, what must be rebuilt).
 
@@ -257,7 +257,6 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
        - [ ] All tasks executed
        - [ ] Each task committed individually
        - [ ] SUMMARY.md created in plan directory
-       - [ ] `## Defect Classes` present in each SUMMARY.md (rows, or an explicit `None found. (reviewed by: …)`)
        - [ ] STATE.md updated with position and decisions
        - [ ] ROADMAP.md updated with plan progress (via `roadmap update-plan-progress`)
        </success_criteria>
@@ -308,7 +307,6 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
        - [ ] All tasks executed
        - [ ] Each task committed individually
        - [ ] SUMMARY.md created in plan directory
-       - [ ] `## Defect Classes` present in each SUMMARY.md (rows, or an explicit `None found. (reviewed by: …)`)
        - [ ] STATE.md updated with position and decisions
        - [ ] ROADMAP.md updated with plan progress (via `roadmap update-plan-progress`)
        </success_criteria>
@@ -472,7 +470,7 @@ When executor returns `Type: ui-qa` — regardless of `auto_mode`:
        subagent_type="<UI QA agent: stack.capabilities.ui_qa.agent; legacy: the project's configured QA agent>",
        model="{utility_model}",
        description="UI QA round {round}",
-       prompt="mode=ui-qa\n<what_built>{what_built}</what_built>\n<test_flows>{test_flows}</test_flows>\n<round>{round}</round>{IF round > 1: <previous_issues>{previous_report}</previous_issues>}\nAlso return a `## Defect Classes` block — one `| class | instance | caught_by | severity | rule_gap |` row per issue, `caught_by` fixed to `ui-qa`, `class` a general reusable name. Write exactly `None found. (reviewed by: ui-qa)` if the pass surfaced none — a bare `None found.` fails the phase gate. The coordinator pastes these into the plan's SUMMARY.md."
+       prompt="mode=ui-qa\n<what_built>{what_built}</what_built>\n<test_flows>{test_flows}</test_flows>\n<round>{round}</round>{IF round > 1: <previous_issues>{previous_report}</previous_issues>}"
      )
 
      if qa_result.passed:
@@ -672,7 +670,7 @@ After ALL plans in this phase have completed execution, before `pre_verify_gates
      subagent_type="<UI QA agent: stack.capabilities.ui_qa.agent; legacy: the project's configured QA agent>",
      model="{reviewer_model}",
      description="UX audit phase {phase_number}",
-     prompt="mode=ux-audit\nwhat_built={phase goal + key UI files from the SUMMARYs}\ntest_flows={derived from the phase success criteria}\nround=1\nAlso return a `## Defect Classes` block: one `| class | instance | caught_by | severity | rule_gap |` row per issue, `caught_by` fixed to `ui-qa`, `class` a general reusable name. Write exactly `None found. (reviewed by: ui-qa)` if none. The orchestrator pastes these into the plan's SUMMARY.md."
+     prompt="mode=ux-audit\nwhat_built={phase goal + key UI files from the SUMMARYs}\ntest_flows={derived from the phase success criteria}\nround=1"
    )
    ```
 4. Issues found: spawn a fix agent (`model` per the FIX_TIER rule in `checkpoint_handling`), then re-run the audit; at most 2 fix rounds for UX issues, critical/high blocking.
@@ -698,7 +696,7 @@ After `post_phase_ux_sweep` and before `pre_verify_gates`. Runs only when `stack
      subagent_type="<UI QA agent>",
      model="{reviewer_model}",
      description="E2E test phase {phase_number}",
-     prompt="mode=e2e\ne2e_flows={E2E_FLOWS}\nproject_dir={project_dir}\nround=1\nAlso return a `## Defect Classes` block as in the UX audit (`caught_by` fixed to `ui-qa`; `None found. (reviewed by: ui-qa)` if none)."
+     prompt="mode=e2e\ne2e_flows={E2E_FLOWS}\nproject_dir={project_dir}\nround=1"
    )
    ```
 4. Parse the results:
@@ -712,7 +710,7 @@ After `post_phase_ux_sweep` and before `pre_verify_gates`. Runs only when `stack
 <step name="implementation_review">
 After the last wave and the UI steps, before `pre_verify_gates`. Skip when the phase changed nothing outside `.planning/`.
 
-Rounds and tier are the "Implementation review" row of `references/rigour.md`: plans with `high_risk: true` loop to zero, but after round 4 one ruling on `{ruling_model}` closes the loop (fix or accept each open finding, no fifth round), then ONE batched diff review on `{ruling_model}`. Each round is a fresh `{reviewer_model}` agent, never the implementer, given `git diff {phase base}..HEAD -- . ':!.planning'`, the plans and the coordinator's review checklist. It reviews code and tests, not planning documents, and writes `{phase_dir}/{N}-REVIEW-{round}.md`: one line per finding (id, severity, `file:line`, what, fix). Findings go to one `{executor_model}` fix dispatch per file set. A finding left unfixed needs a reason and an `A-` row; it is a ruling only on the trigger row of `references/rigour.md`.
+Rounds and tier are the "Implementation review" row of `references/rigour.md`: plans with `high_risk: true` loop to zero, at most 4 rounds, then ONE ruling on `{ruling_model}` (fix or accept each open finding), then ONE batched diff review on `{ruling_model}`. Each round is a fresh `{reviewer_model}` agent, never the implementer, given `git diff {phase base}..HEAD -- . ':!.planning'`, the plans and the coordinator's review checklist. It reviews code and tests, not planning documents, and writes `{phase_dir}/{N}-REVIEW-{round}.md`: one line per finding (id, severity, `file:line`, what, fix). Findings go to one `{executor_model}` fix dispatch per file set. After the standard cap (2 rounds), an open CRITICAL/HIGH finding is fixed and re-checked by ONE targeted re-review of that finding (fresh reviewer, same tier, only that finding's lines) or goes to ONE ruling; it is never closed by an `A-` row. Any other unfixed finding needs a reason and an `A-` row.
 </step>
 
 <step name="pre_verify_gates">
@@ -734,10 +732,10 @@ PHASE_GATE_EXIT=$?
 
 This is the form gate: form is checked here, by a script, and nowhere else. If `PHASE_GATE_EXIT` is non-zero, split the output:
 
-- **Form errors** (`evidence_errors`: a SUMMARY section, Self-Check, Defect Classes shape; with CLI-5 also plan caps and line cites to a rendered planning file, as `form_errors`): spawn one `{executor_model}` fix agent with the error list verbatim, re-run the gate; at most two fix rounds. No ruling, no waiver, no gap, no park. An error that survives is listed as `form_debt` in the phase report and the phase goes on to the verifier (CLI-5 makes `phase complete` accept form debt; until it lands a surviving error ends the phase `blocked` with `reason: form_gate`).
-- **Missing work** (`failures`: `missing_test`, `missing_docs`, `missing_charlotte_qa` (the legacy code for UI QA), `e2e_generation_failed`): (a) produce the missing artifact and re-run the gate, or (b) for a documented exception run `node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" deferred add "${PHASE}" --step <step> --reason <reason> --approver <approver>` and re-run. A skip is always recorded with `deferred add`, never after the fact.
+- **Form errors** (`form_errors`: SUMMARY Self-Check section missing; a planning-record line cite in a PLAN or SUMMARY this phase wrote): spawn one `{executor_model}` fix agent with the error list verbatim, re-run the gate; at most two fix dispatches. No ruling, no waiver, no gap, no park; plan caps are a plan-time check and never go to this loop. An error that survives is closed in `update_roadmap` with `phase complete --form-debt`.
+- **Missing work** (`failures` and `work_errors`: `missing_evidence`, `missing_test`, `missing_docs`, `missing_charlotte_qa` (the legacy code for UI QA), `e2e_generation_failed`): (a) produce the missing artifact and re-run the gate, or (b) for a documented exception run `node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" deferred add "${PHASE}" --step <step> --reason <reason> --approver <approver>` and re-run. A skip is always recorded with `deferred add`, never after the fact.
 
-Auto (auto_mode, references/auto-mode.md K4): missing work takes (a), then the gate re-runs; never approve a waiver (b) yourself. Still missing after one fix round: park the phase, return `status: blocked` naming the failures. Form errors never park.
+Auto (auto_mode, references/auto-mode.md K4): missing work takes (a), then the gate re-runs; never approve a waiver (b) yourself. Still missing after one fix round: park the phase, return `status: blocked` naming the failures. Form errors never park; missing work always does.
 
 **Gate 2 — Integration tests green:**
 
@@ -805,15 +803,6 @@ node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs(phase-${PARENT_
 ```
 </step>
 
-<step name="record_defect_classes">
-Runs BEFORE `verify_phase_goal`. The `## Defect Classes` section of each SUMMARY.md is the executor's record; every review keeps its findings in its own file (`{N}-PLAN-CHECK.md`, `*-VERDICT.md`, `{N}-REVIEW-*.md`, VERIFICATION.md) and the milestone rules distillation (`/gsd:audit-milestone` step 7) reads them there, so nothing is copied between files. Never overwrite existing rows; append what has no file of its own: UI QA rows as returned, and one row per ruling made in this phase (`caught_by: opus-ruling`), in the shape `| class | instance | caught_by | severity | rule_gap |`. A plan whose section is missing gets `None found. (reviewed by: <caught_by values>)`; a bare `None found.` fails the phase gate.
-
-`caught_by` values are stored identifiers the gate checks, not model choices. Commit only when something changed:
-
-```bash
-node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs(phase-{X}): record defect classes in plan summaries" --files {phase_dir}/*-SUMMARY.md
-```
-</step>
 <step name="verify_phase_goal">
 Verify phase achieved its GOAL, not just completed tasks.
 
@@ -825,8 +814,7 @@ Phase goal: {goal from ROADMAP.md}
 Phase requirement IDs: {phase_req_ids}
 Check must_haves against actual codebase.
 Cross-reference requirement IDs from PLAN frontmatter against REQUIREMENTS.md — every ID MUST be accounted for.
-Judge product truth only; form was gated by a script. A form defect you notice goes under `form_findings` and never changes the status.
-Also run Step 6d: add one Defect Classes row per finding you raise to the SUMMARY of the plan it concerns.
+Judge product truth only; form was gated by a script. A form defect you notice is mentioned in your report body and never changes the status.
 Cite planning records by id (D-NN, A-NN, requirement id, plan id), never by line; code by file:line.
 On a re-verification check only the truths that failed last time and the files the gap plans changed.
 Create VERIFICATION.md.
@@ -858,10 +846,10 @@ node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" phase checkpoint "${PHASE_NU
 | `human_needed` | Present items for human testing, get approval or feedback. Auto (auto_mode, references/auto-mode.md K4): do not wait; park the phase and return `status: human_needed` with the items |
 | `gaps_found` | A gap is a failed product truth, never a form defect. Present gap summary, offer `/gsd:plan-phase {phase} --gaps`. Auto (auto_mode, references/auto-mode.md K5): one closure cycle (`/gsd:plan-phase {phase} --gaps --auto --no-advance`, then `/gsd:execute-phase {phase} --gaps-only --auto --no-transition`); still `gaps_found` afterwards: return `status: gaps_found` |
 
-Commit the verifier's output AFTER the dispatch and AFTER the status routing above is read, but **before acting on the routing**, on ALL THREE paths (`passed`, `human_needed` and `gaps_found`); a commit before the dispatch would miss its rows:
+Commit the verifier's output AFTER the dispatch and AFTER the status routing above is read, but **before acting on the routing**, on ALL THREE paths (`passed`, `human_needed` and `gaps_found`):
 
 ```bash
-node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs(phase-${PHASE_NUMBER}): record verification and verifier defect classes" --files {phase_dir}/*-SUMMARY.md {phase_dir}/*-VERIFICATION.md
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs(phase-${PHASE_NUMBER}): record verification" --files {phase_dir}/*-VERIFICATION.md
 ```
 
 **If human_needed:**
@@ -905,6 +893,8 @@ Gap closure cycle: `/gsd:plan-phase {X} --gaps` reads VERIFICATION.md → create
 ```bash
 COMPLETION=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" phase complete "${PHASE_NUMBER}")
 ```
+
+When `form_errors` survived the (max 2) fix dispatches of the pre-verifier or final gate, run `phase complete "${PHASE_NUMBER}" --form-debt` instead: it records them in VERIFICATION frontmatter `form_debt` and still refuses on missing work. A form debt never parks, never becomes `gaps_found` and never blocks dependents.
 
 The CLI handles:
 - Marking phase checkbox `[x]` with completion date

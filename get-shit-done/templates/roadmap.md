@@ -34,6 +34,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   1. [Observable behavior from user perspective]
   2. [Observable behavior from user perspective]
   3. [Observable behavior from user perspective]
+**Risk domains:** [comma list from the configured risk_domains, or none]
 **Plans:** [Number of plans, e.g., "3 plans" or "TBD"]
 
 Plans:
@@ -48,6 +49,7 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. [Observable behavior from user perspective]
   2. [Observable behavior from user perspective]
+**Risk domains:** [comma list from the configured risk_domains, or none]
 **Plans:** [Number of plans]
 
 Plans:
@@ -59,6 +61,7 @@ Plans:
 **Depends on:** Phase 2
 **Success Criteria** (what must be TRUE):
   1. [What the fix achieves]
+**Risk domains:** [comma list from the configured risk_domains, or none]
 **Plans:** 1 plan
 
 Plans:
@@ -72,6 +75,7 @@ Plans:
   1. [Observable behavior from user perspective]
   2. [Observable behavior from user perspective]
   3. [Observable behavior from user perspective]
+**Risk domains:** [comma list from the configured risk_domains, or none]
 **Plans:** [Number of plans]
 
 Plans:
@@ -85,6 +89,7 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. [Observable behavior from user perspective]
   2. [Observable behavior from user perspective]
+**Risk domains:** [comma list from the configured risk_domains, or none]
 **Plans:** [Number of plans]
 
 Plans:
@@ -153,6 +158,7 @@ After completing first milestone, reorganize with milestone groupings:
 
 ### Phase 1: [Name]
 **Goal:** [What this phase delivers]
+**Risk domains:** [comma list from the configured risk_domains, or none]
 **Plans:** 3 plans
 
 Plans:
@@ -171,6 +177,7 @@ Plans:
 #### Phase 5: [Name]
 **Goal:** [What this phase delivers]
 **Depends on:** Phase 4
+**Risk domains:** [comma list from the configured risk_domains, or none]
 **Plans:** 2 plans
 
 Plans:

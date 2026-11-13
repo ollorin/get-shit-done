@@ -125,8 +125,8 @@ Execute-phase ends with a fenced JSON trailer as its last content: `{"status": "
 | Trailer `status` | Your return | Notes |
 |---|---|---|
 | `completed` | `completed`, only when `{N}-VERIFICATION.md` has `status: passed` on disk and the trailer says `phase complete` exited 0 | otherwise return `gaps_found` or `failed`; never "completed" on a claim |
-| `gaps_found` | run the one gap-closure cycle from the dispatch table; if the trailer is still `gaps_found`, return `gaps_found` with the gaps from VERIFICATION.md and `gap_cycle_done: true` | the orchestrator then parks the phase (without a second cycle once CLI-6 lands) |
-| `blocked` with `reason: budget_exceeded` or `form_gate` | `blocked`, same reason, with the owner report | no gap cycle, no retry; dependents are not parked for `form_gate` |
+| `gaps_found` | run the one gap-closure cycle from the dispatch table; if the trailer is still `gaps_found`, return `gaps_found` with the gaps from VERIFICATION.md and `gap_cycle_done: true` | the orchestrator then parks the phase without a second cycle |
+| `blocked` with `reason: budget_exceeded` | `blocked`, same reason, with the owner report | no gap cycle, no retry |
 | `human_needed` | `human_needed` with `human_items` | a human-only item is never auto-resolved |
 | `blocked` | `blocked` with `reason` | `reason: "parked"` when a decision gate parked it |
 | `failed`, or no parseable trailer | `failed` with `step` and `error` | a trailer-less return that looks like a session or quota death is returned as is: the orchestrator's death handling reads it |

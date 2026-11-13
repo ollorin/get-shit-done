@@ -1,17 +1,17 @@
 # Rigour (`standard` | `spike`), risk-domain add-ons and the phase budget
 
-A phase has one rigour level: `standard` (default, no ROADMAP line) or `spike`. `resolveRigour()` in `bin/rigour.js` resolves it; `init plan-phase` and `init execute-phase` emit `rigour`, `rigour_source` (`roadmap` | `default` | `rejected`), `rigour_decision`, `spike_roots`, `rigour_rejected_reason`. There is no third level: depth for risky work is the add-ons column below. `CLI-n` marks a requested, unshipped CLI change; the sentence beside it says what holds until then.
+A phase has one rigour level: `standard` (default, no ROADMAP line) or `spike`. `resolveRigour()` in `bin/rigour.js` resolves it; `init plan-phase` and `init execute-phase` emit `rigour`, `rigour_source` (`roadmap` | `default` | `rejected`), `rigour_decision`, `spike_roots`, `rigour_rejected_reason`. There is no third level: depth for risky work is the add-ons column below. The init output also carries `rigour_notice` (a visible mismatch or unknown value, never authority).
 
 ```
 ### Phase 2: Short Name
 **Rigour**: spike (OG2)
 **Spike roots**: spike/, scripts/probes/
-**Risk domains**: auth, uploads
+**Risk domains:** auth, uploads
 ```
 
-**Decided once, printed always.** new-milestone proposes rigour in the owner-gate summaries: OG1 says whether the milestone is a prototype (`spike`, with its roots) or `standard`; OG2 lists per phase the rigour, the risk domains it touches and the budget. The approved roadmap gate is the authorisation, written as `(OG2)`; an owner `D-NN` id is equally valid (interactive runs, and every run until CLI-2 lands). plan-phase and execute-phase print as their first line `Phase {N}: rigour {rigour} ({rigour_source}), risk domains: {names | none}, budget {wall} min / {dispatches} dispatches`, with `rigour_rejected_reason` when the source is `rejected`.
+**Decided once, printed always.** The newest APPROVED roadmap owner gate of the milestone is the single source of truth for spike phases and roots: `gsd-tools owner-gate request --kind roadmap --spike-phases N,M --spike-roots a,b`. new-milestone proposes rigour in the owner-gate summaries (OG1: prototype or `standard`; OG2: per phase the rigour, risk domains and budget). The ROADMAP `**Rigour**:` / `**Spike roots**:` lines are informational (the roadmapper writes them for readers); a mismatch with the gate prints `rigour_notice`. plan-phase and execute-phase print as their first line `Phase {N}: rigour {rigour} ({rigour_source}), risk domains: {names | none}, budget {wall} min / {dispatches} dispatches`, plus `rigour_rejected_reason` when the source is `rejected` and `rigour_notice` when set.
 
-**Risk-domain add-ons** apply to a `standard` phase whose ROADMAP section has a `**Risk domains**` line (planner tier and budget; init field `phase_risk_domains`, CLI-8, until then read the line) and to every plan `quality assess-risk` marks `high_risk: true` (everything else). A `high_risk` plan in a phase without the line gets them too, with the larger budget.
+**Risk-domain add-ons** apply to a `standard` phase whose `**Risk domains:**` line is not `none` (init field `phase_risk_domains`) and to every plan `quality assess-risk` marks `high_risk: true`. The line is mandatory in every ROADMAP phase section: a comma list of single tokens from the project's `risk_domains`, or `none`; trailing prose is ignored, unknown tokens print a notice, and `owner-gate request --kind roadmap` fails when a section lacks it. For an old roadmap without the line `init plan-phase` matches the configured names against the phase goal and requirements and prints a notice.
 
 ## What runs
 
@@ -22,28 +22,28 @@ A phase has one rigour level: `standard` (default, no ROADMAP line) or `spike`. 
 | Plans / tasks / lines per plan | 2 / 4 / 150 | 3 / 6 / 250 | same caps |
 | Planner | `planner_model` | `planner_model` | `ruling_model` |
 | Plan-check | 1 round, `checker_model`, Dimensions 1-7, 12, 15; one revision, no re-check | cap 2 rounds, `checker_model`: round 1 full, round 2 delta | round 1 on `ruling_model` with the adversarial pass and `{plan}-VERDICT.md`; same cap |
-| After the cap | proceed; leftovers listed | warnings become `A-` rows (`cheap`); open blockers get ONE ruling, no re-check | same |
+| After the cap | proceed; leftovers listed | warnings become `A-` rows (`cheap`); remaining blockers get ONE planner revision and ONE targeted re-check of only those blockers (same checker tier, delta scope) | same |
 | Tests | none: one capture file per question | tdd pairing, test-writer | + T0: real-system test with one named mutant per behaviour, rows in SUMMARY `## Test Delta` |
-| Extra artifacts | `SPIKE-RESULT.md` (last spike phase) | none | ONE `{N}-THREAT-MODEL.md` per phase (abuse case, control, adversary view; the executor appends what it built) |
-| Implementation review | 1 round, `reviewer_model`: secrets, containment, capture matches its command | cap 2 rounds, `reviewer_model`; round 2 reads only the fix commits | loop to zero findings, at most 4 rounds, then ONE ruling closes it; then ONE batched diff review on `ruling_model` |
-| Final phase review (verifier, `ruling_model`) | only: every question answered yes/no/inconclusive with a capture newer than the code it ran, containment, secret scan. A disproved hypothesis is `passed` | product truths, wiring, test run, gates | + server-side authz and the adversary view against the threat model |
+| Extra artifacts | `SPIKE-RESULT.md` (last spike phase) | none | ONE `{N}-THREAT-MODEL.md` per phase (abuse case + control, written by the planner before execution) |
+| Implementation review | 1 round, `reviewer_model`: secrets, containment, capture matches its command | cap 2 rounds, `reviewer_model`; round 2 reads only the fix commits; a CRITICAL/HIGH still open after the cap is fixed and re-checked by ONE targeted re-review of that finding (fresh reviewer, same tier, only its lines) or goes to ONE ruling, never an `A-` row | loop to zero findings, at most 4 rounds, then ONE ruling closes it; then ONE batched diff review on `ruling_model` |
+| Final phase review (verifier, `ruling_model`) | only: every question answered yes/no/inconclusive with a capture newer than the code it ran, containment, secret scan. A disproved hypothesis is `passed` | product truths, wiring, test run, gates | + server-side authz read from the code, against the threat model |
 | Ruling triggers | an effect that is irreversible outside the spike roots | irreversible, or legally or financially material | + a design choice, an accepted plan deviation or a loosened assertion on the risk-domain path |
 | Gap closure | light path once; a question still open is `inconclusive` | one cycle (light path for at most 4 small fixes); re-verify only what failed | one full cycle; re-verify only what failed |
 | Budget, wall / dispatches | 45 min / 6 | 90 min / 12 | 150 min / 20 for the phase |
 
-Not produced unless a cell says so: VALIDATION.md (only when research has a `## Validation Architecture` section), an E2E plan without UI, a threat model, mutants, a per-plan copy of a phase document, an evidence-only plan, an index or registry, findings copied between files.
+Not produced unless a cell says so: an E2E plan without UI, a threat model, mutants, a per-plan copy of a phase document, an evidence-only plan, an index or registry, findings copied between files.
 
 ## Rules for every phase
 
-1. **Form is a script; the final review judges product truth.** `gsd-tools verify phase-gate {N} --pre-verifier` checks form (SUMMARY sections, Self-Check, Defect Classes shape, required files; plan caps and line cites once CLI-5 lands). A failure goes to one `executor_model` fix dispatch and a re-run, at most twice. It is never ruled on, never becomes `gaps_found`, never parks a phase; one the verifier notices goes under `form_findings` in VERIFICATION.md.
+1. **Form is a script; the final review judges product truth.** Plan-time: the planner runs `gsd-tools verify form {N} --plans-only` (plan lines/tasks/plan-count caps over UNEXECUTED plans, evidence-only plan, missing `plan_stamp`) and fixes every error before plan-check; executed plans (with a SUMMARY) are never checked for caps. After execution `gsd-tools verify phase-gate {N} --pre-verifier` returns `failures` (missing WORK, including `missing_evidence`), `work_errors` and `form_errors` (SUMMARY Self-Check section missing; a planning-record line cite in a PLAN or SUMMARY the phase wrote; ledger rows are never checked). Form is `form_errors` only; never use `evidence_errors` or `work_errors` to decide form. Form errors go to one `executor_model` fix dispatch and a re-run, at most twice (never plan caps). A survivor is closed with `gsd-tools phase complete {N} --form-debt` (recorded in VERIFICATION frontmatter `form_debt`); it still refuses on missing work. A form debt never parks, never becomes `gaps_found`, never blocks dependents, and is never ruled on. A form issue the verifier notices goes in its report body and changes no status.
 2. **Ids, not lines, for planning records.** Cite `D-34`, `A-25`, a requirement id, `Phase 2`, plan `02-01`, a task number. `DECISIONS.md:<line>` and `ROADMAP.md:<line>` are never written (a render moves them); to quote a record, quote its text. Code cites stay `file:line`.
 3. **Evidence is a capture file**: the command and its output under `{phase_dir}/captures/`, written by the task that built the behaviour. SUMMARY names the path and restates no counts or hashes, so a fix round has nothing to re-reconcile.
 4. **Plan-check converges.** Round 2 receives the round-1 issue list and `git diff` of the plans and answers two things: is each earlier finding closed, did a changed line break something. A new finding on unchanged text is a warning.
 5. **Rulings only on the trigger row.** Anything else (a count, a literal, a name, a cleanup choice, wording, a doc waiver inside a spike) takes the stated default and one `A-` row logged `cheap`, with no dispatch. A ruling is one dispatch for all open items of a step.
-6. **Plan size is checked before the checker**: lines and `<task` count per PLAN against the caps; every task counts. Oversize goes back to the planner once to split. Work that needs more plans than the cap is a phase that is too big: the planner says so in its return.
-7. **Budget.** Defaults are the last table row; `workflow.budget.<spike|standard|risk>.{wall_minutes,dispatches}` in config overrides (init fields `budget_wall_minutes`, `budget_dispatches`, CLI-4). Wall time runs from the phase's `phase_start` event. The coordinator logs every dispatch (`execution-log event --type phase_spend --data '{"phase":N,"step":"...","model":"..."}'`), warns at 80 %, and at 100 % starts no new plan-check round, review round or gap cycle: it lets the running child finish, prints an owner report of at most 15 lines and returns `status: blocked`, `reason: budget_exceeded`. One exception: when every plan has a SUMMARY the final phase review still runs.
+6. **Plan size is checked at plan time, before the checker**, by `verify form {N} --plans-only`: every task counts; oversize goes back to the planner to split. Work that needs more plans than the cap is a phase that is too big: the planner says so in its return.
+7. **Budget.** Defaults are the last table row; `workflow.budget.<spike|standard|risk>.{wall_minutes,dispatches}` in config overrides (init fields `budget_wall_minutes`, `budget_dispatches`). The coordinator calls `gsd-tools budget spend --phase {N}` once when it spawns any child agent, and `gsd-tools budget status --phase {N}` (`wall_minutes_spent`, `dispatches_spent`, `pct`, `warn`, `breach`) before each NEW cycle (plan-check round, review round, gap cycle). Wall time is the sum of work windows (phase start to the next record, park or complete); idle time between sessions never counts. Warn at 80 %; at 100 % start nothing new, let the running child finish, print an owner report of at most 15 lines and return `status: blocked`, `reason: budget_exceeded`. One exception: when every plan has a SUMMARY the final phase review still runs.
 8. **Top model.** `ruling_model` and `ruling_model_fallback` are the configured top model; `references/model-profiles.md` says where they come from and who always uses them. No other file names a model for those roles.
-9. **Plan stamp.** Every PLAN frontmatter carries `plan_stamp`, the value plan-phase passes in the planner dispatch (`gsd-tools plan stamp {N}`, CLI-7: a hash of the phase's ROADMAP section, its decisions and its CONTEXT/RESEARCH files). Existing plans are re-planned only when `init plan-phase` reports `plans_stale: true`; never on a guess.
+9. **Plan stamp.** The planner copies `plan_stamp` from the `init plan-phase` JSON into each PLAN frontmatter (hash of the ROADMAP phase section, CONTEXT, RESEARCH, the phase's requirement lines and its `D-` decisions). `plans_stale: true` is consumed once, in plan-phase.md; never re-plan on a guess.
 
 ## Never relaxed
 
@@ -56,10 +56,10 @@ Not produced unless a cell says so: VALIDATION.md (only when research has a `## 
 
 ## Guards
 
-- **G1 fail closed.** `spike` without an authorisation (the approved roadmap gate listing the phase as a spike, or an active owner `D-` row naming the phase) or without roots resolves to `standard` with `rigour_source: rejected`. An `A-` row cannot authorise a spike. Any other value on the Rigour line, including the retired `high`, resolves to `standard` with a visible notice (CLI-1).
+- **G1 fail closed.** `spike` without the newest approved roadmap gate listing the phase in `--spike-phases` with `--spike-roots`, or without roots, resolves to `standard` with `rigour_source: rejected`. No `D-` or `A-` row authorises a spike. Any other value on the Rigour line, including the retired `high`, resolves to `standard` with a visible notice.
 - **G2 containment.** A spike plan `files_modified` entry outside the roots and `.planning/` is a `rigour_violation`; plan-phase stops before the checker.
 - **G3 production disjoint.** A spike root may not equal or contain a `stack.style.roots` or `stack.paths` entry.
-- **G4 no relabelling.** A phase that already has PLAN files is not made a spike without a new authorisation.
+- **G4 no relabelling.** A phase that already has executed plans (a SUMMARY) cannot be listed as spike in a gate request.
 - **G5 audit.** The milestone audit lists every spike phase and confirms by `git diff --stat` over its commits that G2 held.
 
 ## Promotion

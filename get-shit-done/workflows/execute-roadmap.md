@@ -283,7 +283,7 @@ IS_STALE=$(node -e "console.log(JSON.parse(process.argv[1]).stale)" "$STALENESS_
 Branch on the coordinator's `status`:
 - `completed`: run **5a** then **5b** first, and only after both pass hand the result to `roadmap record`.
 - `completed_with_deferrals` (context limit): spawn a fresh agent for each item of `deferred`. `"execute"`: a fresh coordinator that resumes at execute (same spawn with the resume brief). `"verify"`: a `gsd-verifier` on `{ruling_model}` (a rejected spawn retries once on `{ruling_model_fallback}` and says so) (the final phase review, `references/model-profiles.md`). `"ui_qa"`: caught by 5a. Then 5a, 5b.
-- every other status (`failed`, `blocked`, `gaps_found`, `human_needed`, or unparseable text): straight to `roadmap record`. A coordinator never returns `gaps_found` for a form defect (`references/rigour.md` rule 1); `blocked` with `reason: budget_exceeded` or `form_gate` carries its owner report: print it.
+- every other status (`failed`, `blocked`, `gaps_found`, `human_needed`, or unparseable text): straight to `roadmap record`. A coordinator reports `completed` after `phase complete --form-debt` (`references/rigour.md` rule 1); `roadmap record` derives form versus product from disk and never trusts a reported `gap_kind`. `blocked` with `reason: budget_exceeded` carries its owner report: print it.
 
 The recording command is the only writer of a phase's completion:
 ```bash
@@ -296,7 +296,7 @@ It runs the on-disk truth for the phase (every plan has a SUMMARY with Self-Chec
 | `complete` | print the phase report (step 6) and continue the loop |
 | `gap_cycle` | continue the loop: `roadmap next` returns `gap_cycle` for this phase, once |
 | `park` | the phase and its dependents stay parked (K4): Auto (auto_mode, references/auto-mode.md K4): park, print the reason (human items, product gaps after the closure cycle, or a budget breach) to the chat, continue with independent phases; it ends the run with no PR, loudly, in `completion` |
-| `continue_with_debt` (CLI-6) | a format-only gap or `form_gate`: the phase is recorded complete with `form_debt` listed in its report; nothing is parked, no gap cycle runs |
+| `continue_with_debt` | the phase completed with `form_debt` (disk shows only form errors, no missing work): listed in its report; nothing is parked, no gap cycle runs |
 | `spawn_deferred` | the deferrals above |
 | `respawn_death` | step 4a |
 | `retry`, `debug` | `<step name="handle_failure">` |

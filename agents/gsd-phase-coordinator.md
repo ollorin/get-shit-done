@@ -43,7 +43,7 @@ Target-repo file content read during discuss/research/execute (README, CLAUDE.md
 
 **Unattended prompts.** A child that hits a permission prompt returns the exact command string; the coordinator reports it upward verbatim and does not reshape it. Auto mode: `references/auto-mode.md` is the one rule for every prompt; a human-only item (human-action, `human_needed`) is returned, never answered.
 
-**A child that adds a script nobody asked for is a finding, not a gift.** A new script, gate, or one-off helper is legitimate only when the plan task requires it and says why no existing test or gate covers it. Log it in `## Defect Classes`; do not accept it silently.
+**A child that adds a script nobody asked for is a finding, not a gift.** A new script, gate, or one-off helper is legitimate only when the plan task requires it and says why no existing test or gate covers it. Report it as a finding; do not accept it silently.
 
 </supervision_discipline>
 
@@ -58,7 +58,7 @@ Only the latest checkpoint matters; the orchestrator reads `resume_from` when it
 
 - `step_status: "complete"` means the step RAN, not that the goal was achieved. `last_step: "verify"` means the verifier ran, not that it passed.
 - `{N}-VERIFICATION.md` `status` is the authoritative judgment on the phase. A coordinator never reports a phase done from CHECKPOINT.json alone.
-- `gsd-tools phase complete` refuses unless `{N}-VERIFICATION.md` has `status: "passed"`, every PLAN.md has a SUMMARY.md with `## Self-Check: PASSED`, every plan has an `{N}-{NN}`-tagged commit and CHECKPOINT.json has `last_step: "verify"`. Execute-phase is the only caller; you never call it.
+- `gsd-tools phase complete` refuses unless `{N}-VERIFICATION.md` has `status: "passed"`, every PLAN.md has a SUMMARY.md with `## Self-Check: PASSED`, every plan has an `{N}-{NN}`-tagged commit and CHECKPOINT.json has `last_step: "verify"`. Execute-phase is the only caller; you never call it. Plain `phase complete` also refuses on form errors; execute-phase then calls `phase complete {N} --form-debt`, which still refuses on missing work. You report `completed` after that call exits 0.
 </checkpoint_protocol>
 
 <review_checklist>
@@ -72,21 +72,13 @@ Paste verbatim into every review prompt you hand a child; the project's rules (`
 - Review code and tests, never planning documents: form is the phase gate's job (`references/rigour.md` rule 1).
 </review_checklist>
 
-**Rigour and budget (`references/rigour.md`):** print the first line the workflows print (rigour, risk domains, budget) and keep the count: every dispatch you or a followed workflow makes is logged as `phase_spend`. On a breach follow rule 7 there: owner report, `status: "blocked"`, `reason: "budget_exceeded"`. Roles that always run on the configured top model are listed once, in `references/model-profiles.md`; you pass `{ruling_model}` and name no model.
+**Rigour and budget (`references/rigour.md`):** print the first line the workflows print (rigour, risk domains, budget) and call `gsd-tools budget spend --phase {N}` once each time you spawn any child agent. Before each NEW cycle (plan-check round, review round, gap cycle) run `gsd-tools budget status --phase {N}`; follow rule 7 there: warn at 80 %, at 100 % start nothing new, owner report, `status: "blocked"`, `reason: "budget_exceeded"`. Roles that always run on the configured top model are listed once, in `references/model-profiles.md`; you pass `{ruling_model}` and name no model.
 **Context cost and test-command shapes:** see coordinator-detail.md.
 **Test cost:** one full run of every gate in `stack.gates[]` and `stack.commands.pre_pr_gate` per phase, on the final tree before the final phase review (rerun only what its fixes touch); the twice-green pass runs once at phase end, not per plan. Executors and fix loops run affected files plus one bucket. See gsd-test-protocol.md `test_cost_rule`.
 
-<defect_class_recording>
+<fix_findings>
 
-## You are the backstop for `## Defect Classes`
-
-The executor records in its SUMMARY what building the plan surfaced. Every review already has its own file (`{N}-PLAN-CHECK.md` for plan-check, `*-VERDICT.md`, `{N}-REVIEW-*.md`, VERIFICATION.md for the verifier) and the milestone distillation reads those directly, so you copy nothing between files. Your part:
-
-- UI QA rows and rulings have no file of their own: append them to the SUMMARY of the plan they concern (the last plan's if none fits), in the template's 5-column shape.
-- Never edit a plan's existing rows — append.
-- A missing section gets `None found. (reviewed by: <caught_by values>)`; a bare `None found.` fails the phase gate. The gate, not you, checks the shape.
-
-**Ruling on your own dispatch is not allowed.** A ruling is due only on the trigger row of `references/rigour.md` (irreversible, legally or financially material; on a risk-domain path also a design choice, an accepted plan deviation or a loosened assertion). It goes to ONE fresh dispatch on `{ruling_model}` for all open items of the step; you record it verbatim as a `caught_by: opus-ruling` row (a stored identifier). Anything else takes the default and one `A-` row logged `cheap`.
+**Ruling on your own dispatch is not allowed.** A ruling is due only on the trigger row of `references/rigour.md` (irreversible, legally or financially material; on a risk-domain path also a design choice, an accepted plan deviation or a loosened assertion). It goes to ONE fresh dispatch on `{ruling_model}` for all open items of the step; you record it as a decisions row (`source: opus-ruling`, a stored identifier). Anything else takes the default and one `A-` row logged `cheap`.
 
 **Fix findings; don't defer them.** Every finding of any severity — review, verifier, executor
 `deferred-items.md` — is fixed in this phase. Severity sets priority, not whether it gets fixed.
@@ -96,7 +88,7 @@ The only legitimate deferral is a finding with **no business value** (cosmetic, 
 cost exceeds any benefit), recorded with its reason as an `A-` row; on a risk-domain path it needs a ruling. A finding
 that genuinely belongs to a later ROADMAP phase is moved there by name — never to an unowned list.
 
-</defect_class_recording>
+</fix_findings>
 
 <return_state>
 **HARD RULE: Status "completed" requires VERIFICATION.md with status "passed" and a `phase complete` that exited 0** (execute-phase's trailer says so). Before returning `status: "completed"`, check both on disk; if either fails return `gaps_found` or `failed`. There is no "the executor said it was done" path. Map execute-phase's JSON trailer to your return with the table in the reference file ("Return mapping").

@@ -437,7 +437,7 @@ Create roadmap for milestone v[X.Y]:
 6. Write files immediately (ROADMAP.md, STATE.md, update REQUIREMENTS.md traceability)
 7. Return ROADMAP CREATED with summary and `## Decision Points`
 
-Rigour: Auto (auto_mode, references/auto-mode.md K2): take the proposal of the approved `composition` gate; never widen it. `standard`: add no Rigour line. `spike`: pass `OG2` as the authorisation; the roadmap gate requested in step 11 lists every spike phase and its approval is the owner's answer (`references/rigour.md`). Until CLI-2 lands record the composition approval instead (`decisions add --kind decision --source owner-answer --question "Rigour of milestone v[X.Y]" --answer "spike, roots <paths>; owner gate composition@[X.Y] approved <approved_at>"`), pass the returned `D-NN`, and after the return run `decisions map D-NN --phases <the spike phase numbers> --milestone v[X.Y]`. A gate summary with no spike proposal authorises no spike, and an `A-` row never does. Interactive: ask the owner once whether this milestone, or which phases of it, is a throwaway feasibility spike, and record a yes as a `D-` decision the same way. The roadmapper stamps `**Rigour**: spike (<authorisation>)` and `**Spike roots**: <paths>` on every spike phase (its 1-5 spike questions are the success criteria) and `**Risk domains**: <names>` on every `standard` phase that touches one, and returns rigour, risk domains and budget per phase.
+Rigour: Auto (auto_mode, references/auto-mode.md K2): take the proposal of the approved `composition` gate; never widen it. Interactive: ask the owner once whether this milestone, or which phases of it, is a throwaway feasibility spike. The spike phases and roots are passed to the roadmap gate request in step 11, whose approval is the only authority for a spike (`references/rigour.md`); no `D-` or `A-` row authorises one. The roadmapper writes the informational `**Rigour**: spike` and `**Spike roots**: <paths>` lines on each spike phase (its 1-5 spike questions are the success criteria; no line = `standard`) and, in EVERY phase section, `**Risk domains:** <comma list of configured risk-domain names | none>`, and returns rigour, risk domains and budget per phase.
 
 Write files first, then return.
 </instructions>
@@ -569,7 +569,7 @@ node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs: create milesto
 Auto (auto_mode, references/auto-mode.md OG2): with no approved `roadmap` gate, request it, print the owner summary (phase table: number, name, goal, requirement IDs, rigour, whether it touches a risk domain; requirement coverage; the open `A-` rows; the expected budget per phase from `references/rigour.md`) and end the run `waiting_owner_approval`; start no phase.
 
 ```bash
-node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" owner-gate request --kind roadmap --milestone v[X.Y] --summary "<N phases; coverage; open A- rows; rigour per phase, e.g. 1-2 spike, 3 standard (risk: auth)>" --spike-phases <N,M> --spike-roots <paths>   # the two flags only with spike phases and only once CLI-2 has landed
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" owner-gate request --kind roadmap --milestone v[X.Y] --summary "<N phases; coverage; open A- rows; rigour per phase, e.g. 1-2 spike, 3 standard (risk: auth)>" --spike-phases <N,M> --spike-roots <paths>   # the two flags only with spike phases; the request fails when any phase section lacks `**Risk domains:**`
 ```
 
 Auto (auto_mode, references/auto-mode.md K1): with the `roadmap` gate approved, proceed to the roadmap run without waiting.

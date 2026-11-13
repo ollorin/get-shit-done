@@ -290,6 +290,7 @@ docs / state / requirements / final commit).
 - A new function, view, table or route states who may call or read it (grants, auth mode), and its test includes a caller who must be refused.
 - Write ROLLBACK from the live `pg_get_functiondef`, then apply it once.
 - Last step of every plan and review-fix round: on the final tree run format, then lint and type-check.
+- Before review, when the project has a lockfile and `scripts/dependency-scan-gate.mjs` (or its configured dependency-scan command) exists, run `node scripts/dependency-scan-gate.mjs > {phase_dir}/captures/{plan}-dependency-scan.txt 2>&1` and name the capture in SUMMARY; a finding is a normal defect to fix.
 - Evidence is a capture file and planning records are cited by id, never by line (`references/rigour.md` rules 2-3); a fix round re-reconciles nothing.
 
 **Handoff brief:** If a `<handoff_brief>` block is present in your prompt, its HARD RULES are binding phase constraints — honor them alongside the plan.
@@ -463,7 +464,6 @@ Plan execution complete when:
 - [ ] Authentication gates handled and documented
 - [ ] Post-plan test suite gate passed (test suite ran, no failures, coverage threshold met if configured)
 - [ ] SUMMARY.md created with substantive content
-- [ ] SUMMARY.md `## Defect Classes` section present — rows, or an explicit `None found. (reviewed by: …)`
 - [ ] STATE.md updated (position, decisions, issues, session)
 - [ ] Requirements marked complete in REQUIREMENTS.md (if plan has requirements)
 - [ ] ROADMAP.md progress updated
@@ -514,33 +514,3 @@ Full procedures, verbatim, on demand:
 
 </live_stack_work>
 
-<defect_classes>
-
-## Defect Classes in SUMMARY.md — detail
-
-Every SUMMARY.md you write carries a `## Defect Classes` section. It is the milestone's
-only durable record of what review caught, so it must exist even when the plan was clean —
-`None found. (reviewed by: <caught_by values>)` written explicitly — a BARE `None found.` fails
-the phase gate — never a silently missing section.
-
-One row per defect surfaced by anything that reviewed this plan's work — the plan-checker,
-the test-writer, a mutation proof, a diff review, the verifier, the UI QA pass:
-
-| class | instance | caught_by | severity | rule_gap |
-|---|---|---|---|---|
-| security read fails open on DB error | src/auth/authz.ts:41 | opus-ruling | critical | security.md — fail-closed reads |
-
-- `class` — a **general, reusable** name ("idempotency key not scoped to the actor"), never a
-  one-off story. The milestone-end distillation clusters on this column, so a vague class
-  ("bug in auth") is worse than no row at all.
-- `instance` — `file:line`, one line, so a reader can go look.
-- `caught_by` — one of `plan-check`, `test-writer`, `mutation-proof`, `opus-diff-review`,
-  `opus-ruling`, `verifier`, `ui-qa`, `other`.
-- `severity` — `critical` / `major` / `minor`.
-- `rule_gap` — which existing project rule should have prevented it, or
-  `none — new rule needed`.
-
-Defects the plan-checker or a QA pass finds *after* you wrote SUMMARY.md are appended by the
-phase coordinator, not by you.
-
-</defect_classes>

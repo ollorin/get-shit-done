@@ -197,31 +197,11 @@ figure of its own, the same anti-confabulation rule `gsd-qa-analyst` obeys.
 
 </verdict-gate>
 
-<defect-classes-distillation>
+<rules-distillation>
 
-**The audit's distillation step runs inside `audit-milestone.md` (Step 7), not here.** If this
-milestone went through `/gsd:audit-milestone`, the rules it produces are already committed and
-this gate is satisfied — verify only that `.planning/v{X.Y}-RULES-DISTILL.md` exists.
+**The audit's distillation step runs inside `audit-milestone.md` (Step 7), not here.** If this milestone went through `/gsd:audit-milestone`, the rules it produced are already committed; verify only that `.planning/v{X.Y}-RULES-DISTILL.md` exists. A milestone that skipped the audit runs `/gsd:audit-milestone {version}` first (Step 7's rules apply unchanged). A milestone with no review artifacts has nothing to distil: record that and continue.
 
-**If the milestone skipped the audit**, the milestone would otherwise close with its recorded
-defect classes undistilled, and the same class of defect gets made again next milestone. Run the
-audit's Step 7 before committing. `audit-milestone.md` has no per-step CLI entry point, so
-`/gsd:audit-milestone` (which runs steps 0-8) is the invocation — or read
-`~/.claude/get-shit-done/workflows/audit-milestone.md` §7 and run those substeps directly:
-
-```
-/gsd:audit-milestone {version}
-```
-
-Whatever route you take, Step 7's own rules apply unchanged: the orchestrator collects into
-`v{X.Y}-DEFECT-ROWS.md`, the author dispatch only WRITES (it never commits), the net-growth
-budget is measured by the orchestrator, a separate top-model dispatch reviews the diff, and the commit happens
-only after a clean review.
-
-Then verify `.planning/v[X.Y]-RULES-DISTILL.md` exists. A milestone with no `## Defect Classes`
-sections and no review artifacts at all has nothing to distil — record that and continue.
-
-</defect-classes-distillation>
+</rules-distillation>
 
 <config-check>
 
@@ -1029,7 +1009,7 @@ Milestone completion is successful when:
 - [ ] Git tag created (v[X.Y])
 - [ ] Milestone commit made (includes archive files and deletion)
 - [ ] Requirements completion checked against REQUIREMENTS.md traceability table
-- [ ] `.planning/v[X.Y]-RULES-DISTILL.md` exists — milestone defect classes distilled into `.claude/rules/*.md` (audit Step 7, or run directly if the audit was skipped)
+- [ ] `.planning/v[X.Y]-RULES-DISTILL.md` exists — milestone review findings distilled into `.claude/rules/*.md` (audit Step 7, or run directly if the audit was skipped)
 - [ ] Incomplete requirements surfaced with proceed/audit/abort options
 - [ ] Known gaps recorded in MILESTONES.md if user proceeded with incomplete requirements
 - [ ] RETROSPECTIVE.md updated with milestone section
