@@ -35,7 +35,7 @@ Parse JSON for: `auto_mode`, `researcher_model`, `planner_model`, `checker_model
 
 **Risk-domain add-ons (`standard` only):** engage when init `risk_addons` is true (`references/rigour.md` states the rule once). A phase with `risk_addons` plans on `ruling_model` (step 8); round 1 of the check runs on `ruling_model` with the adversarial pass. Nothing else in the phase changes.
 
-**Which round cap governs what:** step 12 caps only the plan-check loop; the implementation review loop has its own cap in `references/rigour.md` and is run by execute-phase.
+**Round cap:** step 12 caps only the plan-check loop.
 
 **File paths (for <files_to_read> blocks):** `state_path`, `roadmap_path`, `requirements_path`, `context_path`, `research_path`, `verification_path`, `uat_path`. These are null if files don't exist.
 

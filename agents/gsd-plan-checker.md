@@ -595,7 +595,7 @@ Every `<verify>` command, `<done>` criterion and must_haves truth must be satisf
 
 ## Dimension 17: Rule Binding (standard rigour, not spike)
 
-Read-only check of the plan text, every plan. Each task must carry `Rules applied:` naming every project rule that bears on it with its concrete instance for this task (allow-list values, failure path of each read the check depends on, who may reach it, authority-bearing field and its source, grants and uniqueness), answering Product lens questions 1, 2, 4 and 6 where they apply; a rule named without its instance is missing. Missing on a task touching access, funds, state transitions or data grants = blocker (`dimension: rule_binding`); elsewhere a warning. Test proof is Check 8-T4.
+Read-only check of the plan text, every plan. Each task must carry `Rules applied:` naming every project rule that bears on it with its concrete instance for this task (allow-list values, failure path of each read the check depends on, who may reach it, authority-bearing field and its source, grants and uniqueness; and, for a task that changes a function result, error contract, stored shape or scheduled job, the consumers list with what each does with the new result, which exists and names consumers outside the edited files), answering Product lens questions 1, 2, 4 and 6 where they apply; a rule named without its instance is missing. Missing on a task touching access, funds, state transitions or data grants = blocker (`dimension: rule_binding`); elsewhere a warning. Test proof is Check 8-T4.
 
 ## Dimension 16: Traceability (every rigour)
 

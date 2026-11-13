@@ -413,7 +413,7 @@ Skip this step when the milestone's phases have no review artifacts at all (noth
 `.planning/v{version}-DEFECT-ROWS.md`; the author dispatch reads that one file, never the phase
 tree. Three sources, in order:
 
-**(a) Review artifacts.** Loop over the `{phase_dirs}` Step 1 resolved for THIS milestone, not every directory under `.planning/phases/`. Read, where present, each phase's `{N}-PLAN-CHECK.md` (plan-check rounds), `{N}-{NN}-VERDICT.md` (adversarial pass), `{N}-REVIEW-*.md` (implementation review rounds) and the gaps of `{N}-VERIFICATION.md`. Reviews keep their findings in their own files; nobody copies them elsewhere.
+**(a) Review artifacts.** Loop over the `{phase_dirs}` Step 1 resolved for THIS milestone, not every directory under `.planning/phases/`. Read, where present, each phase's `{N}-PLAN-CHECK.md` (plan-check rounds), `{N}-{NN}-VERDICT.md` (adversarial pass), `{N}-REVIEW.md` (the merged final review record) and the gaps of `{N}-VERIFICATION.md`. Reviews keep their findings in their own files; nobody copies them elsewhere.
 
 **(b) Other records.** Read `deferred-items.md`, `.planning/debug/resolved/` and **the milestone's quick dirs**, defined here once and used everywhere in this step (including the author prompt below):
 

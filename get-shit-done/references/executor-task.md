@@ -33,7 +33,7 @@ Run only the test file(s) your task names or touches, through the project's docu
 1. `git status --short`; stage the task's files individually (never `git add .` or `-A`), tests and code together.
 2. `git commit -m "{type}({phase}-{plan}): {what}"` with `{type}` one of feat, fix, test, refactor, chore, docs, perf, style.
 3. Overwrite `.planning/phases/{phase_dir}/TASK-CHECKPOINT.json` with the Write tool (`last_completed_task`, `task_commit_hash`, `next_task_index`, `timestamp`); do not commit it per task.
-4. When behaviour moved, the same commit updates every comment, doc line, test title and `file:line` cite that describes it. After a fix or a new check, sweep sibling sites with the profile's `search` command and fix or list them.
+4. When behaviour moved, the same commit updates every comment, doc line, test title and `file:line` cite that describes it. After a fix or a new check, sweep sibling sites with the profile's `search` command and fix or list them. Run each acceptance row's test before the change (it must fail for the right reason) and after (it must pass); a row whose test cannot be run is reported as such, never assumed green.
 
 Never run `git reset`, `clean`, `checkout --`, `stash`, `rebase` or `restore`; use `git -C <abs-path>`.
 
