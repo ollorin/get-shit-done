@@ -785,7 +785,7 @@ function parseMustHavesBlock(content, blockName) {
   return items;
 }
 
-function output(result, raw, rawValue) {
+function output(result, raw, rawValue, exitCode = 0) {
   const outputStr = raw && rawValue !== undefined
     ? String(rawValue)
     : JSON.stringify(result, null, 2);
@@ -817,7 +817,7 @@ function output(result, raw, rawValue) {
     writeStdoutSync(outputStr);
   }
 
-  process.exit(0);
+  process.exit(exitCode);
 }
 
 // Synchronous, complete write to stdout (fd 1). process.stdout.write() is
@@ -9936,7 +9936,18 @@ function findProgressTableRow(content, phaseEscaped) {
   if (!rowCells) return null;
 
   let headerCells = null;
-  for (let i = rowIdx - 1; i >= 0 && i > rowIdx - 500; i--) {
+  // The governing header is the row directly above the nearest separator row.
+  for (let i = rowIdx - 1; i >= 0 && i > rowIdx - 500 && !headerCells; i--) {
+    const t = lines[i].trim();
+    if (t.startsWith('#')) break;
+    if (!/^\|[\s:|-]+\|$/.test(t)) continue;
+    for (let j = i - 1; j >= 0; j--) {
+      if (lines[j].trim() === '') continue;
+      headerCells = splitTableCells(lines[j]);
+      break;
+    }
+  }
+  for (let i = rowIdx - 1; !headerCells && i >= 0 && i > rowIdx - 500; i--) {
     const t = lines[i].trim();
     if (t === '') continue;
     if (t.startsWith('#')) break; // reached the section heading — header is above it, not below
@@ -9946,7 +9957,7 @@ function findProgressTableRow(content, phaseEscaped) {
     // (hand-edited), so an unparseable line is skipped rather than treated as
     // the end of the table.
     if (!cells) continue;
-    if (/^\d+(\.\d+)?(\s|$)/.test(cells[0].trim())) continue; // a neighbouring DATA row, keep walking up
+    if (/^\d+(\.\d+)?\.?(\s|$)/.test(cells[0].trim())) continue; // a neighbouring DATA row, keep walking up
     headerCells = cells;
     break;
   }
@@ -10097,15 +10108,25 @@ function cmdRoadmapUpdatePlanProgress(cwd, phaseNum, raw) {
   const tableUpdated = tableResult.updated;
   const headerColumnCount = tableResult.header_columns ?? null;
 
-  // Update plan count in phase detail section
+  // Update plan count in phase detail section. The `**Plans:**` line may carry
+  // roadmap-author prose: only a count this command owns (TBD, "N plans",
+  // "N/M plans executed|complete") is replaced; prose keeps its text and gets
+  // the tally appended once, retargeted on later runs.
   const planCountPattern = new RegExp(
-    `(#{2,4}\\s*Phase\\s+${phaseEscaped}[\\s\\S]*?\\*\\*Plans:\\*\\*\\s*)[^\\n]+`,
+    `(#{2,4}\\s*Phase\\s+${phaseEscaped}(?![\\d.])(?:(?!\\n#{2,4}\\s*Phase\\s)[\\s\\S])*?\\*\\*Plans:\\*\\*[ \\t]*)([^\\n]*)`,
     'i'
   );
   const planCountText = verified
     ? `${summaryCount}/${planCount} plans complete`
     : `${summaryCount}/${planCount} plans executed`;
-  roadmapContent = roadmapContent.replace(planCountPattern, `$1${planCountText}`);
+  roadmapContent = roadmapContent.replace(planCountPattern, (_m, head, existing) => {
+    const text = existing.trim();
+    const owned = /^(?:\[?TBD\]?|\d+(?:\/(?:\d+|TBD))?\s+plans?(?:\s+(?:executed|complete|completed))?)$/i;
+    const tally = /\b\d+\/(?:\d+|TBD)\s+plans?\s+(?:executed|complete|completed)\b/i;
+    if (text === '' || owned.test(text)) return `${head}${planCountText}`;
+    if (tally.test(text)) return `${head}${text.replace(tally, planCountText)}`;
+    return `${head}${text} (${planCountText})`;
+  });
 
   // Only a verified phase gets its checkbox
   if (verified) {
@@ -10118,6 +10139,8 @@ function cmdRoadmapUpdatePlanProgress(cwd, phaseNum, raw) {
 
   atomicWriteFileSync(roadmapPath, roadmapContent);
 
+  const tableFailed = !tableResult.updated && Boolean(tableResult.reason) && tableResult.reason !== 'no cell change requested';
+  if (tableFailed) process.stderr.write(`Error: progress table row for phase ${phaseNum} not updated: ${tableResult.reason}\n`);
   output({
     updated: true,
     phase: phaseNum,
@@ -10130,7 +10153,8 @@ function cmdRoadmapUpdatePlanProgress(cwd, phaseNum, raw) {
     pending_verification: isComplete && !verified,
     table_updated: tableUpdated,
     table_header_columns: headerColumnCount,
-  }, raw, `${summaryCount}/${planCount} ${status}`);
+    ...(tableFailed ? { error: `progress table row for phase ${phaseNum} not updated: ${tableResult.reason}` } : {}),
+  }, raw, `${summaryCount}/${planCount} ${status}`, tableFailed ? 1 : 0);
 }
 
 // ─── Requirements Mark Complete ───────────────────────────────────────────────

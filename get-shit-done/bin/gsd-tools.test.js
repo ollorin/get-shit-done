@@ -13950,8 +13950,10 @@ describe('roadmap progress-table rewrite is header-driven, not positional', () =
     const before = fs.readFileSync(roadmapPath, 'utf-8');
 
     const result = runGsdTools('roadmap update-plan-progress 57', tmpDir);
-    assert.ok(result.success, `expected exit 0: ${result.error}`);
+    // Pilot fix C1: a table row that cannot be updated is a loud failure (exit 1 + error field), not a silent skip.
+    assert.strictEqual(result.success, false, 'expected a non-zero exit');
     const parsed = JSON.parse(result.output);
+    assert.match(parsed.error, /not updated/);
     assert.strictEqual(parsed.table_updated, false);
     assert.match(parsed.table_update_skipped, /malformed row left untouched/);
 
@@ -13974,8 +13976,10 @@ describe('roadmap progress-table rewrite is header-driven, not positional', () =
     const before = fs.readFileSync(roadmapPath, 'utf-8').split('\n').find((l) => l.startsWith('| 57'));
 
     const result = runGsdTools('roadmap update-plan-progress 57', tmpDir);
-    assert.ok(result.success, `expected exit 0: ${result.error}`);
+    // Pilot fix C1: a table row that cannot be updated is a loud failure (exit 1 + error field), not a silent skip.
+    assert.strictEqual(result.success, false, 'expected a non-zero exit');
     const parsed = JSON.parse(result.output);
+    assert.match(parsed.error, /not updated/);
     assert.strictEqual(parsed.table_updated, false);
     assert.match(parsed.table_update_skipped, /no Status\/Progress\/Plans column/);
     assert.strictEqual(
@@ -18936,5 +18940,77 @@ describe('roadmap decision-point mapping is one shared instruction', () => {
       assert.ok(t.includes('`Roadmap decision points` in `@~/.claude/get-shit-done/references/decisions-protocol.md`'), wf);
       assert.ok(!t.includes('decisions map <id> --phases'), `${wf} duplicates the mapping steps`);
     }
+  });
+});
+
+describe('pilot fix C1: roadmap update-plan-progress keeps Plans prose and finds the template table row', () => {
+  let tmpDir;
+  beforeEach(() => { tmpDir = createTempProject(); });
+  afterEach(() => { cleanup(tmpDir); });
+
+  function seed(roadmap) {
+    const phaseDir = path.join(tmpDir, '.planning', 'phases', '02-auth');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    for (const n of ['01', '02', '03']) fs.writeFileSync(path.join(phaseDir, `02-${n}-PLAN.md`), '# plan');
+    for (const n of ['01', '02']) fs.writeFileSync(path.join(phaseDir, `02-${n}-SUMMARY.md`), '# summary');
+    const p = path.join(tmpDir, '.planning', 'ROADMAP.md');
+    fs.writeFileSync(p, roadmap, 'utf-8');
+    return p;
+  }
+  const ROADMAP = [
+    '# Roadmap', '',
+    '### Phase 1: Base', '**Goal:** base', '**Plans:** TBD', '',
+    '### Phase 2: Auth', '**Goal:** auth',
+    '**Plans:** 3 plans in 3 sequential waves (re-planned; see D-29)', '',
+    'Plans:', '- [ ] 02-01-PLAN.md — x', '',
+    '### Phase 3: Admin', '**Plans:** TBD', '',
+    '## Progress', '',
+    '| Phase | Milestone | Plans Complete | Status | Completed |',
+    '|-------|-----------|----------------|--------|-----------|',
+    '| 1. Base | v0.0.1 | 3/5 | Executed | - |',
+    '| 2. Auth | v0.0.1 | 0/3 | Not started | - |',
+    '| 3. Admin | v0.0.1 | 0/2 | Not started | - |', '',
+  ].join('\n');
+
+  test('prose after **Plans:** survives; the tally is appended once and retargeted on rerun', () => {
+    const p = seed(ROADMAP);
+    assert.ok(runGsdTools('roadmap update-plan-progress 2', tmpDir).success);
+    let t = fs.readFileSync(p, 'utf-8');
+    assert.match(t, /\*\*Plans:\*\* 3 plans in 3 sequential waves \(re-planned; see D-29\)/);
+    assert.match(t, /2\/3 plans executed/);
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'phases', '02-auth', '02-03-SUMMARY.md'), '# s');
+    assert.ok(runGsdTools('roadmap update-plan-progress 2', tmpDir).success);
+    t = fs.readFileSync(p, 'utf-8');
+    assert.match(t, /3 plans in 3 sequential waves \(re-planned; see D-29\)/);
+    assert.strictEqual((t.match(/plans executed/g) || []).length, 1);
+    assert.match(t, /3\/3 plans executed/);
+    assert.match(t, /\*\*Plans:\*\* TBD\n\n### Phase 2/, 'other phases untouched');
+  });
+
+  test('a count-only Plans line is still rewritten (TBD)', () => {
+    const p = seed(ROADMAP.replace('**Plans:** 3 plans in 3 sequential waves (re-planned; see D-29)', '**Plans:** TBD'));
+    runGsdTools('roadmap update-plan-progress 2', tmpDir);
+    assert.match(fs.readFileSync(p, 'utf-8'), /### Phase 2: Auth\n\*\*Goal:\*\* auth\n\*\*Plans:\*\* 2\/3 plans executed/);
+  });
+
+  test('template-shaped table: row 2 (below a "1. Name" data row) is updated, row neighbours untouched', () => {
+    const p = seed(ROADMAP);
+    const r = runGsdTools('roadmap update-plan-progress 2', tmpDir);
+    const parsed = JSON.parse(r.output);
+    assert.strictEqual(parsed.table_updated, true, JSON.stringify(parsed));
+    const t = fs.readFileSync(p, 'utf-8');
+    const row = t.split('\n').find((l) => l.startsWith('| 2.'));
+    assert.match(row, /\| 2\/3 \| In Progress/);
+    assert.ok(t.includes('| 1. Base | v0.0.1 | 3/5 | Executed | - |'));
+    assert.ok(t.includes('| 3. Admin | v0.0.1 | 0/2 | Not started | - |'));
+  });
+
+  test('when the table row cannot be updated the result says so loudly (error field, exit 1)', () => {
+    seed(ROADMAP.replace(/\| 2\. Auth[^\n]*\n/, ''));
+    const r = runGsdTools('roadmap update-plan-progress 2', tmpDir);
+    assert.strictEqual(r.success, false);
+    const parsed = JSON.parse(r.output);
+    assert.strictEqual(parsed.table_updated, false);
+    assert.match(parsed.error, /progress table row/);
   });
 });
