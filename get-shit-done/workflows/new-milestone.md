@@ -569,8 +569,10 @@ node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs: create milesto
 Auto (auto_mode, references/auto-mode.md OG2): with no approved `roadmap` gate, request it, print the owner summary (phase table: number, name, goal, requirement IDs, rigour, whether it touches a risk domain; requirement coverage; the open `A-` rows; the expected budget per phase from `references/rigour.md`) and end the run `waiting_owner_approval`; start no phase.
 
 ```bash
-node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" owner-gate request --kind roadmap --milestone v[X.Y] --summary "<N phases; coverage; open A- rows; rigour per phase, e.g. 1-2 spike, 3 standard (risk: auth)>" --spike-phases <N,M> --spike-roots <paths>   # the two flags only with spike phases; the request fails when any phase section lacks `**Risk domains:**`
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" owner-gate request --kind roadmap --milestone v[X.Y] --summary "<N phases; coverage; open A- rows; rigour per phase, e.g. 1-2 spike, 3 standard (risk: auth)>" --spike-phases <N,M> --spike-roots <paths>   # the two flags only with spike phases; the request fails when an incomplete phase section lacks `**Risk domains:**` (the message names the phases and the line to add)
 ```
+
+If the roadmap changes after the gate was approved (spike phases added or removed), repeat the request with `--revise`; the gate returns to pending until the owner approves again (`references/rigour.md`).
 
 Auto (auto_mode, references/auto-mode.md K1): with the `roadmap` gate approved, proceed to the roadmap run without waiting.
 

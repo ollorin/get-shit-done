@@ -81,18 +81,30 @@ function resolveRigour(cwd, rawPhase, milestone) {
 
 const phaseNumbers = (cwd) => [...(read(path.join(cwd, '.planning', 'ROADMAP.md')) || '').matchAll(/^###\s*Phase\s+(\d+(?:\.\d+)?):/gim)].map((m) => m[1]);
 
-// Why a roadmap gate request must be refused: a phase section without a **Risk domains** line; a spike phase that already
-// has executed plans (no relabelling) or a spike root overlapping a production path.
-function gateRequestErrors(cwd, { kind, spikePhases, spikeRoots }) {
+// Why a roadmap gate request must be refused (errors) or noted (notices): an incomplete phase section without a
+// **Risk domains** line (a completed one is a notice: legacy roadmaps start), a phase NEWLY added to spike_phases (not
+// listed by the milestone's approved gate) that already has executed plans (no relabelling), a spike root overlapping a
+// production path. `isComplete(n)` is supplied by the caller (checked ROADMAP box or complete on disk).
+function gateRequestErrors(cwd, { kind, spikePhases, spikeRoots, milestone, isComplete }) {
   const errors = [];
-  if (kind !== 'roadmap') return errors;
+  const notices = [];
+  if (kind !== 'roadmap') return { errors, notices };
+  const done = typeof isComplete === 'function' ? isComplete : () => false;
+  const missing = [];
   for (const n of phaseNumbers(cwd)) {
     const sec = phaseSection(cwd, n);
-    if (!sec || !/\*\*Risk domains:?\*\*:?[ \t]*\S/i.test(sec)) errors.push(`Phase ${n} has no **Risk domains:** line (a comma list of names, or "none")`);
+    if (sec && /\*\*Risk domains:?\*\*:?[ \t]*\S/i.test(sec)) continue;
+    if (done(n)) notices.push(`Phase ${n} has no **Risk domains:** line (phase complete, not required)`);
+    else missing.push(n);
   }
+  if (missing.length > 0) {
+    errors.push(`${missing.map((n) => `Phase ${n}`).join(', ')} ${missing.length > 1 ? 'have' : 'has'} no **Risk domains:** line: add \`**Risk domains:** none\` (or a comma list of the project's risk_domains) under ${missing.length > 1 ? 'each of those phase headings' : 'that phase heading'} in .planning/ROADMAP.md`);
+  }
+  const g = approvedSpikeGate(cwd, milestone);
+  const already = new Set(g.ok && g.gate.rigour && Array.isArray(g.gate.rigour.spike_phases) ? g.gate.rigour.spike_phases.map(phaseKey) : []);
   let dirs = [];
   try { dirs = fs.readdirSync(path.join(cwd, '.planning', 'phases')); } catch { /* no phases yet */ }
-  for (const n of spikePhases) {
+  for (const n of spikePhases.filter((x) => !already.has(phaseKey(x)))) {
     const d = dirs.find((x) => { const m = x.match(/^(?:phase-)?(\d+(?:\.\d+)?)(?:-|$)/); return m && phaseKey(m[1]) === phaseKey(n); });
     let executed = false;
     try { executed = !!d && fs.readdirSync(path.join(cwd, '.planning', 'phases', d)).some((f) => /-SUMMARY\.md$/i.test(f)); } catch { /* unreadable: not executed */ }
@@ -100,7 +112,7 @@ function gateRequestErrors(cwd, { kind, spikePhases, spikeRoots }) {
   }
   const clash = clashes((spikeRoots || []).map(normRoot), cwd);
   if (spikePhases.length > 0 && clash.length > 0) errors.push(`spike root overlaps a production path: ${clash.join('; ')}`);
-  return errors;
+  return { errors, notices };
 }
 
 // Plan files outside the spike roots and .planning/ (guard G2).

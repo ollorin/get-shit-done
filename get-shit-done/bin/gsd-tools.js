@@ -12430,8 +12430,9 @@ function cmdOwnerGate(cwd, args, raw) {
   const milestone = flag('--milestone') || getMilestoneInfo(cwd).version;
   if (sub === 'request') {
     const csv = (v) => (v == null ? [] : String(v).split(',').map((x) => x.trim()).filter(Boolean));
-    const refused = rigour.gateRequestErrors(cwd, { kind, spikePhases: csv(flag('--spike-phases')), spikeRoots: csv(flag('--spike-roots')) });
-    if (refused.length > 0) error(`owner-gate request refused: ${refused.join('; ')}`);
+    const checked = rigour.gateRequestErrors(cwd, { kind, milestone, spikePhases: csv(flag('--spike-phases')), spikeRoots: csv(flag('--spike-roots')), isComplete: (n) => roadmapCheckboxState(cwd, n) === true || phaseTruth(cwd, n).complete });
+    for (const n of checked.notices) process.stderr.write(`Notice: ${n}\n`);
+    if (checked.errors.length > 0) error(`owner-gate request refused: ${checked.errors.join('; ')}`);
     const r = ownerGates.request(cwd, { kind, milestone, summary: flag('--summary'), spikePhases: flag('--spike-phases'), spikeRoots: flag('--spike-roots'), revise: args.includes('--revise') });
     if (!r.ok) error(`owner-gate: ${r.error}`);
     output({ action: 'owner_gate_requested', created: r.created, status: r.gate.status === 'pending' ? ownerGates.STATUS_WAITING : r.gate.status, gate: r.gate }, raw);

@@ -223,6 +223,36 @@ describe('owner-gate request', () => {
   });
 });
 
+describe('owner-gate request: legacy roadmaps and revisions (N3, N4)', () => {
+  const req = (...a) => run(['owner-gate', 'request', '--kind', 'roadmap', '--milestone', 'v1.0', '--summary', 's', ...a, '--raw']);
+  const legacy = '# R\n\n- [x] **Phase 1: A**\n- [ ] **Phase 2: B**\n- [ ] **Phase 3: C**\n\n### Phase 1: A\n**Goal**: g\n\n### Phase 2: B\n**Risk domains**: none\n\n### Phase 3: C\n**Risk domains**: auth\n';
+  test('N3: a completed phase without the Risk domains line is one notice, not a refusal', () => {
+    write('.planning/ROADMAP.md', legacy);
+    const r = req();
+    assert.strictEqual(r.status, 0, r.stderr);
+    assert.match(r.stderr, /Phase 1[^\n]*no \*\*Risk domains:\*\* line[^\n]*complete/i);
+  });
+  test('N3: an incomplete phase without the line is refused, naming the phases and the exact line to add', () => {
+    write('.planning/ROADMAP.md', legacy.replace('### Phase 2: B\n**Risk domains**: none\n', '### Phase 2: B\n**Goal**: g\n'));
+    const r = req();
+    assert.strictEqual(r.status, 1);
+    assert.match(r.stderr, /Phase 2 has no \*\*Risk domains:\*\* line/);
+    assert.match(r.stderr, /add `\*\*Risk domains:\*\* none`/);
+    assert.ok(!/refused:[^\n]*Phase 1/.test(r.stderr), r.stderr);
+  });
+  test('N4: a revise that adds spike phase 4 passes while spike phase 3 already has a SUMMARY; a newly added phase with a SUMMARY is still refused', () => {
+    write('.planning/ROADMAP.md', legacy + '\n### Phase 4: D\n**Risk domains**: none\n');
+    write('.planning/OWNER-GATES.json', JSON.stringify({ version: 1, gates: [{ id: 'roadmap@1.0', kind: 'roadmap', milestone: '1.0', status: 'approved', summary: '', rigour: { spike_phases: ['3'], spike_roots: ['spike/'] } }] }));
+    write('.planning/phases/03-c/03-01-SUMMARY.md', '# s\n');
+    const ok = req('--spike-phases', '3,4', '--spike-roots', 'spike/', '--revise');
+    assert.strictEqual(ok.status, 0, ok.stderr);
+    write('.planning/OWNER-GATES.json', JSON.stringify({ version: 1, gates: [{ id: 'roadmap@1.0', kind: 'roadmap', milestone: '1.0', status: 'approved', summary: '', rigour: { spike_phases: ['4'], spike_roots: ['spike/'] } }] }));
+    const bad = req('--spike-phases', '3,4', '--spike-roots', 'spike/', '--revise');
+    assert.strictEqual(bad.status, 1);
+    assert.match(bad.stderr, /Phase 3 already has executed plans/);
+  });
+});
+
 describe('phase_risk_domains from the ROADMAP', () => {
   test('comma list of single tokens matched against configured names; none; trailing prose ignored; unknown listed and not counted', () => {
     write('.planning/ROADMAP.md', roadmap('**Risk domains**: auth, Payments'));
