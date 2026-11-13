@@ -16,8 +16,7 @@ const rawConfig = (cwd) => {
   try { return JSON.parse(fs.readFileSync(path.join(cwd, '.planning', 'config.json'), 'utf8')) || {}; } catch { return {}; }
 };
 
-const budgetClass = ({ rigour, riskDomains, highRiskPlan }) =>
-  rigour === 'spike' ? 'spike' : (Array.isArray(riskDomains) && riskDomains.length > 0) || highRiskPlan ? 'risk' : 'standard';
+const budgetClass = ({ rigour, riskAddons }) => (rigour === 'spike' ? 'spike' : riskAddons ? 'risk' : 'standard');
 
 function limits(cwd, cls) {
   const cfg = (((rawConfig(cwd).workflow || {}).budget || {})[cls]) || {};

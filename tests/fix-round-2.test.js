@@ -23,3 +23,44 @@ describe('N10 commit --files is path-limited', () => {
     assert.strictEqual(git(dir, 'diff', '--cached', '--name-only').trim(), 'other.txt');
   });
 });
+
+describe('N5 risk_addons: one init boolean for the risk-domain add-ons', () => {
+  const setRisk = (dir, line) => {
+    const f = path.join(dir, '.planning', 'ROADMAP.md');
+    fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace(/\*\*Risk domains:\*\*[^\n]*/, line));
+  };
+  const plan = (dir, extra = '') => write(dir, '.planning/phases/01-one/01-01-PLAN.md', `---\nphase: 01-one\nplan: 01\nfiles_modified: [docs/a.md]\n${extra}---\n# p\n`);
+  test('a phase declaring risk domains reports true although no plan is flagged high_risk', () => {
+    const dir = project();
+    setRisk(dir, '**Risk domains:** auth');
+    plan(dir);
+    for (const cmd of ['plan-phase', 'execute-phase']) assert.strictEqual(gsd(dir, ['init', cmd, '1']).json.risk_addons, true, cmd);
+  });
+  test('none and no flagged plan is false; an explicit high_risk plan is true', () => {
+    const dir = project();
+    plan(dir);
+    for (const cmd of ['plan-phase', 'execute-phase']) assert.strictEqual(gsd(dir, ['init', cmd, '1']).json.risk_addons, false, cmd);
+    plan(dir, 'high_risk: true\n');
+    for (const cmd of ['plan-phase', 'execute-phase']) assert.strictEqual(gsd(dir, ['init', cmd, '1']).json.risk_addons, true, cmd);
+  });
+  test('prose keys the add-ons on risk_addons, never on high_risk alone', () => {
+    const root = path.join(__dirname, '..');
+    const rd = (f) => fs.readFileSync(path.join(root, f), 'utf8');
+    assert.match(rd('get-shit-done/workflows/execute-phase.md'), /`risk_addons`/);
+    assert.ok(!/plans with `high_risk: true` loop/.test(rd('get-shit-done/workflows/execute-phase.md')));
+    assert.match(rd('agents/gsd-verifier.md'), /`risk_addons`/);
+    assert.ok(!/Risk-domain plans \(`high_risk: true`\)/.test(rd('agents/gsd-verifier.md')));
+    assert.match(rd('get-shit-done/workflows/plan-phase.md'), /`risk_addons`/);
+    assert.match(rd('get-shit-done/references/rigour.md'), /`risk_addons`/);
+  });
+});
+
+describe('N7 prose: blockers that survive the plan-check cap on a risk_addons phase go to one top-model ruling', () => {
+  test('plan-phase cap path and rigour table name the ruling; non-risk keeps the OVERRIDE path', () => {
+    const root = path.join(__dirname, '..');
+    const pp = fs.readFileSync(path.join(root, 'get-shit-done/workflows/plan-phase.md'), 'utf8');
+    assert.match(pp, /`risk_addons` is true it goes[^\n]*ONE ruling on `\{ruling_model\}` before execution[^\n]*an OVERRIDE line alone never closes it/);
+    assert.match(pp, /Otherwise it goes to the owner \(interactive\) or into the OVERRIDE line/);
+    assert.match(fs.readFileSync(path.join(root, 'get-shit-done/references/rigour.md'), 'utf8'), /survives goes to ONE ruling on `ruling_model` before execution/);
+  });
+});

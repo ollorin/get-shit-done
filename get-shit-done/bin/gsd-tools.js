@@ -11277,13 +11277,16 @@ function phaseHasHighRiskPlan(cwd, phase) {
   } catch { return false; }
 }
 
-function initBudgetFields(cwd, phase) {
-  const level = rigour.resolveRigour(cwd, phase, getMilestoneInfo(cwd).version).rigour;
-  return phaseBudget.budgetFields(cwd, phaseBudgetClass(cwd, phase, level, phaseRiskFields(cwd, phase).phase_risk_domains));
+// The one rule for the risk-domain add-ons (references/rigour.md): a standard phase that declares risk domains or has a
+// high_risk plan. Prose and the budget class key on this value only.
+function riskAddons(cwd, phase, level) {
+  return level !== 'spike' && (phaseRiskFields(cwd, phase).phase_risk_domains.length > 0 || phaseHasHighRiskPlan(cwd, phase));
 }
 
-function phaseBudgetClass(cwd, phase, level, riskDomains) {
-  return phaseBudget.budgetClass({ rigour: level, riskDomains, highRiskPlan: phaseHasHighRiskPlan(cwd, phase) });
+function initRiskFields(cwd, phase) {
+  const level = rigour.resolveRigour(cwd, phase, getMilestoneInfo(cwd).version).rigour;
+  const addons = riskAddons(cwd, phase, level);
+  return { risk_addons: addons, ...phaseBudget.budgetFields(cwd, phaseBudget.budgetClass({ rigour: level, riskAddons: addons })) };
 }
 
 function resolveModelInternal(cwd, agentType) {
@@ -11485,7 +11488,7 @@ function cmdInitExecutePhase(cwd, phase, includes, raw, gate) {
     ...rigour.resolveRigour(cwd, phase, getMilestoneInfo(cwd).version),
     phase_req_ids: rigour.phaseReqIds(cwd, phase),
     ...phaseRiskFields(cwd, phase),
-    ...initBudgetFields(cwd, phase),
+    ...initRiskFields(cwd, phase),
 
     // Models
     executor_model: resolveModelInternal(cwd, 'gsd-executor'),
@@ -11602,7 +11605,7 @@ function cmdInitPlanPhase(cwd, phase, includes, raw, gate) {
     ...rigour.resolveRigour(cwd, phase, getMilestoneInfo(cwd).version),
     phase_req_ids: rigour.phaseReqIds(cwd, phase),
     ...phaseRiskFields(cwd, phase),
-    ...initBudgetFields(cwd, phase),
+    ...initRiskFields(cwd, phase),
     ...planStampFields(cwd, phase),
 
     // Models
@@ -12419,7 +12422,7 @@ function cmdPhaseBudget(cwd, args, raw) {
     return;
   }
   const level = rigour.resolveRigour(cwd, phase, getMilestoneInfo(cwd).version).rigour;
-  const cls = phaseBudgetClass(cwd, phase, level, phaseRiskFields(cwd, phase).phase_risk_domains);
+  const cls = phaseBudget.budgetClass({ rigour: level, riskAddons: riskAddons(cwd, phase, level) });
   output(phaseBudget.status({ cwd, phase, cls, events: readExecutionEvents(cwd) }), raw);
 }
 

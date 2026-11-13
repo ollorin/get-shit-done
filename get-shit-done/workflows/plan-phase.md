@@ -27,13 +27,13 @@ If the command exits 1 and INIT has `error: project_context_missing`: stop, prin
 
 **Auto mode:** `auto_mode` (init) is the one rule for "no human is answering"; `references/auto-mode.md` defines it and the prompt classes K1-K6. When it is true, AskUserQuestion is never called and nothing waits for a reply: each prompt below takes its class action and logs an `auto_decision` event. Put `auto: true` in every spawned agent's prompt (they pass `--auto` to their own init call; an exported variable may not reach them).
 
-Parse JSON for: `auto_mode`, `researcher_model`, `planner_model`, `checker_model`, `executor_model`, `ruling_model`, `ruling_model_fallback`, `utility_model`, `research_enabled`, `plan_checker_enabled`, `commit_docs`, `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `phase_slug`, `padded_phase`, `has_research`, `has_context`, `has_plans`, `plan_count`, `planning_exists`, `roadmap_exists`, `phase_req_ids`, `brief_path`, `stack_profile_path`, `stack_commands`. Every spawned agent receives `brief_path` and `stack_profile_path` (when not null) in its `<files_to_read>`, and `stack_commands` verbatim.
+Parse JSON for: `auto_mode`, `researcher_model`, `planner_model`, `checker_model`, `executor_model`, `ruling_model`, `ruling_model_fallback`, `utility_model`, `research_enabled`, `plan_checker_enabled`, `commit_docs`, `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `phase_slug`, `padded_phase`, `has_research`, `has_context`, `has_plans`, `plan_count`, `planning_exists`, `roadmap_exists`, `phase_req_ids`, `risk_addons`, `brief_path`, `stack_profile_path`, `stack_commands`. Every spawned agent receives `brief_path` and `stack_profile_path` (when not null) in its `<files_to_read>`, and `stack_commands` verbatim.
 
 **Rigour and budget (print first):** init also returns the rigour fields and `phase_req_ids`. `references/rigour.md` is the contract (levels, risk-domain add-ons, caps, budget). Before anything else print its first line (`Phase {N}: rigour ..., risk domains: ..., budget ...`). Pass `rigour`, the spike roots, the risk domains and the remaining budget in every spawn prompt. Call `gsd-tools budget spend --phase {N}` once per child spawn and `gsd-tools budget spend --phase {N} --done` when it returns, and `gsd-tools budget status --phase {N}` before each new plan-check round. On a breach return `status: blocked`, `reason: budget_exceeded` with the owner report.
 
 **Spike branches (`rigour` is `spike`):** step 5: one research agent at most; step 5.6 is skipped. Step 8: `planner_model`; at most 2 plans, all `wave: 1`, each task naming its question and capture file. Step 8b: always the light path, once. Step 9.5: `TRIAGE_MODE=checker` always, and a `rigour_violation` in an `assess-risk` result stops plan-phase with the offending paths before step 10. Step 10: `checker_model`, one round, Dimensions 1-7, 12 and 15. Step 12: one planner revision for blockers, no re-check.
 
-**Risk-domain add-ons (`standard` only):** a phase whose `**Risk domains:**` line is not `none` (init `phase_risk_domains`) plans on `ruling_model` (step 8); the plans `assess-risk` marks `high_risk` in step 9.5 get round 1 of the check on `ruling_model` with the adversarial pass. Nothing else in the phase changes.
+**Risk-domain add-ons (`standard` only):** engage when init `risk_addons` is true (`references/rigour.md` states the rule once) or, after step 9.5, when any plan's `assess-risk` result is `high_risk`. A phase with `risk_addons` plans on `ruling_model` (step 8); round 1 of the check runs on `ruling_model` with the adversarial pass. Nothing else in the phase changes.
 
 **Which round cap governs what:** step 12 caps only the plan-check loop; the implementation review loop has its own cap in `references/rigour.md` and is run by execute-phase.
 
@@ -419,9 +419,9 @@ done
 
 Parse each result: `{ high_risk, reasons, matched, presentation_order }` (`matched` lists `{domain, path, token}`; compare it with the planner's own `high_risk` flag and report a mismatch to the checker). An errored assessment (`{ error: true, ... }` on a missing/malformed file) already carries `high_risk: true`: it fails closed into the adversarial pass, and one bad file never aborts the loop. Collect into `RISK_RESULTS` keyed by plan id.
 
-**If ANY plan's `high_risk` is `true`:** set `TRIAGE_MODE=adversarial` and `HIGH_RISK_PLANS` to those plan ids. Step 10 still spawns one `gsd-plan-checker` for the phase, with its adversarial pass enabled.
+**If init `risk_addons` is true or ANY plan's `high_risk` is `true`:** set `TRIAGE_MODE=adversarial` and `HIGH_RISK_PLANS` to every plan id when init `risk_addons` is true, else to the flagged ids. Step 10 still spawns one `gsd-plan-checker` for the phase, with its adversarial pass enabled.
 
-**If NO plan is high-risk:** set `TRIAGE_MODE=checker`; Step 10 runs the plain checker.
+**Otherwise:** set `TRIAGE_MODE=checker`; Step 10 runs the plain checker.
 
 ## 10. Spawn gsd-plan-checker Agent
 
@@ -551,7 +551,7 @@ After the planner returns: re-run Step 9.4 and re-run Step 9.5 (a revision may c
 Display: `Plan-check cap reached. {N} issues remain:` + issue list.
 
 - Remaining warnings: log each as an assumption (`decisions add --kind assumption --source plan-check --reversibility cheap --phases {N}`, default = the plan as written) and proceed.
-- Remaining blockers: ONE planner revision (`{planner_model}`, the blockers only), then ONE targeted re-check of only those blockers (same checker tier, delta scope). A blocker the re-check still reports goes to the owner (interactive) or into the OVERRIDE line below (auto); it is never closed by an `A-` row.
+- Remaining blockers: ONE planner revision (`{planner_model}`, the blockers only), then ONE targeted re-check of only those blockers (same checker tier, delta scope). A blocker the re-check still reports is never closed by an `A-` row. When init `risk_addons` is true it goes, with every other surviving blocker of the phase, to ONE ruling on `{ruling_model}` before execution (fix, or accept with the reason; recorded as a `D-` row), in interactive and auto alike; an OVERRIDE line alone never closes it. Otherwise it goes to the owner (interactive) or into the OVERRIDE line below (auto).
 
 Interactive: offer 1) the revision and re-check above, 2) provide guidance and retry, 3) abandon.
 
