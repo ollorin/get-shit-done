@@ -50,7 +50,7 @@ INIT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" init new-project)
 if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
 ```
 
-Parse JSON for: `researcher_model`, `synthesizer_model`, `roadmapper_model`, `commit_docs`, `project_exists`, `has_codebase_map`, `planning_exists`, `has_existing_code`, `has_package_file`, `is_brownfield`, `needs_codebase_map`, `has_git`, `project_path`.
+Parse JSON for: `researcher_model`, `synthesizer_model`, `roadmapper_model`, `commit_docs`, `project_exists`, `has_codebase_map`, `planning_exists`, `has_existing_code`, `has_package_file`, `is_brownfield`, `needs_codebase_map`, `has_git`.
 
 **If `project_exists` is true:** Error — project already initialized. Use `/gsd:progress`.
 
@@ -613,7 +613,7 @@ What's the standard 2025 stack for [domain]?
 </question>
 
 <files_to_read>
-- {project_path} (Project context and goals)
+- .planning/PROJECT.md (Project context and goals)
 </files_to_read>
 
 <downstream_consumer>
@@ -651,7 +651,7 @@ What features do [domain] products have? What's table stakes vs differentiating?
 </question>
 
 <files_to_read>
-- {project_path} (Project context)
+- .planning/PROJECT.md (Project context)
 </files_to_read>
 
 <downstream_consumer>
@@ -689,7 +689,7 @@ How are [domain] systems typically structured? What are major components?
 </question>
 
 <files_to_read>
-- {project_path} (Project context)
+- .planning/PROJECT.md (Project context)
 </files_to_read>
 
 <downstream_consumer>
@@ -727,7 +727,7 @@ What do [domain] projects commonly get wrong? Critical mistakes?
 </question>
 
 <files_to_read>
-- {project_path} (Project context)
+- .planning/PROJECT.md (Project context)
 </files_to_read>
 
 <downstream_consumer>

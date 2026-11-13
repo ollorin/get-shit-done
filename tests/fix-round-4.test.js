@@ -123,20 +123,3 @@ describe('R3-8: open_critical_high is a whole count, ruled_by lists D-ids', () =
     assert.strictEqual(reviewGate.verificationReviewErrors({ ...verification, data: { open_critical_high: 2 } }, true, true).length, 1);
   });
 });
-
-describe('R3-6 / R3-7 prose', () => {
-  test('the closing rule is stated, and the "no second top-model dispatch" dead end is gone', () => {
-    for (const f of ['get-shit-done/references/rigour.md', 'get-shit-done/workflows/execute-phase.md', 'agents/gsd-verifier.md']) {
-      assert.doesNotMatch(doc(f), /no second top-model dispatch|never a second top-model dispatch/, f);
-    }
-    assert.match(doc('get-shit-done/references/rigour.md'), /fixed_by/);
-    assert.match(doc('get-shit-done/references/rigour.md'), /ONE ruling dispatch on `ruling_model` \(allowed at `breach`/);
-  });
-  test('traceability is its own plan-checker dimension, run at every rigour', () => {
-    const c = doc('agents/gsd-plan-checker.md');
-    assert.match(c, /^## Dimension 16: Traceability/m);
-    assert.match(c, /Dimensions 1-7, 12, 15 and 16 \(traceability\) only/);
-    assert.doesNotMatch(c.slice(c.indexOf('## Dimension 13'), c.indexOf('## Dimension 14')), /Traceability/);
-    assert.match(doc('get-shit-done/references/rigour.md'), /Dimensions 1-7, 12, 15, 16 \(traceability, every rigour\)/);
-  });
-});

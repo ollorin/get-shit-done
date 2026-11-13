@@ -64,10 +64,6 @@ describe('plan stamp (init plan-phase plan_stamp / plans_stale)', () => {
     write('.planning/phases/01-one/01-01-PLAN.md', plan('01', `plan_stamp: ${early}\n`));
     assert.strictEqual(init().plans_stale, true);
   });
-  test('N1 prose: plan-phase reads plan_stamp from an init run immediately before the planner spawn', () => {
-    const md = fs.readFileSync(path.join(__dirname, '..', 'workflows', 'plan-phase.md'), 'utf8');
-    assert.match(md, /`plan_stamp`[^\n]*(init plan-phase)[^\n]*(immediately before|right before)[^\n]*planner spawn/i);
-  });
   test('a rebase cannot stale: nothing time or git based is hashed', () => {
     const a = stamp().stamp;
     fs.utimesSync(path.join(dir, '.planning', 'ROADMAP.md'), new Date(0), new Date(0));

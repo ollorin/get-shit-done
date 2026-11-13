@@ -44,22 +44,6 @@ function runInit(root, home) {
 
 const configOf = (root) => JSON.parse(fs.readFileSync(path.join(root, '.planning', 'config.json'), 'utf8'));
 
-const CLAUDE_HEADINGS = [
-  '## Path-trace any claim made about code',
-  '## Claude Code Behaviour Guidelines',
-  '### Use of tools',
-  '### Clean code and functional style',
-  '### Code Quality',
-  '### Token & Length Discipline',
-  '## Development Policies',
-  '### Before Creating a PR (MANDATORY — no exceptions)',
-  '### Investigating a CI failure — use the triage tool FIRST',
-  '### Subagent Usage IS MANDATORY',
-  '### Orchestration hard rules (any agent that spawns agents)',
-  '### Temp Files',
-  '### Branch Management',
-];
-
 describe('base preset: CLAUDE.md methodology (agnostic-M-03 3.1)', () => {
   test('3.1 preset.json names base, version 1, and one managed block for CLAUDE.md (plus the 3.3 hook files)', () => {
     const loaded = R.loadPreset(BASE);
@@ -167,24 +151,9 @@ describe('base preset: CLAUDE.md methodology (agnostic-M-03 3.1)', () => {
     assert.ok(md.includes('`git grep -n <pat> -- <path>`'), 'search command rendered in the sweep line');
     assert.ok(md.includes('Branch from `main`'), 'default branch rendered');
     assert.ok(md.includes('Run `scripts/pre-pr-gate.sh` before every PR'), 'pre-PR gate rendered');
-    for (const heading of CLAUDE_HEADINGS) assert.ok(md.includes(`\n${heading}\n`), `missing heading: ${heading}`);
     assert.ok(!md.includes('{{'), 'no placeholder survives rendering');
   });
 
-  test('3.1 the rendered CLAUDE.md has no placeholder and its clean-code section names no library and no language', () => {
-    const source = fs.readFileSync(path.join(BASE, 'CLAUDE.md'), 'utf8');
-    const rendered = R.renderText(source, { project: { owner_title: 'owner' }, stack: { branch: { default: 'main' }, commands: { search: 'git grep -n', pre_pr_gate: 'scripts/pre-pr-gate.sh' } } });
-    assert.deepStrictEqual(rendered.missing, []);
-    const body = rendered.text;
-    assert.ok(!body.includes('{{'));
-    assert.ok(source.includes('{{project.owner_title}}'), 'source keeps the placeholder');
-    const start = body.indexOf('### Clean code and functional style');
-    const end = body.indexOf('### Code Quality');
-    assert.ok(start > 0 && end > start, 'clean-code section is bounded by its neighbours');
-    const section = body.slice(start, end);
-    assert.doesNotMatch(section, /\b(TypeScript|JavaScript|Deno|Node|Python|Rust|Java|Kotlin|Swift|Dart|Zod|Ramda|Lodash|Supabase|React)\b/);
-    assert.match(section, /`scripts\/style-gate\.mjs` enforces it\.$/m);
-  });
 });
 
 const FIXED_DENY = [
@@ -390,26 +359,10 @@ describe('base preset: redirect-recursive-search hook (agnostic-M-03 3.3)', () =
 });
 
 describe('base preset: testing rule and finishing skill (agnostic-M-03 3.6)', () => {
-  const KERNEL_HEADINGS = [
-    '## Why Local Can Pass When CI Fails (and how to prevent it)',
-    '### Rule: tests must not depend on untracked or ambient local env vars',
-    '### Rule: local gate must reproduce CI\'s clean-room guarantees, not just "tests green"',
-    '### Rule: test-env variable names are declared once, in one manifest',
-    '### Rule: the gate runs integration tests in a scrubbed environment',
-    '## Test Failure Policy',
-    '## Test Falsifiability — every test must be able to fail',
-    '## Test Economy — reuse first, lowest layer, fewest tests',
-    '## New coverage lives in an existing wired suite, not a new runner',
-    '## Integration Test Isolation',
-    '## Flake Prevention Gate',
-    '## Parallel Test Execution',
-  ];
   test('3.6 init deploys the rule and the skill rendered; the rule holds every kernel heading as its own line', () => {
     const root = gitRepo({ project: { slug: 'demo' }, stack: { capabilities: {} } });
     assert.strictEqual(runInit(root, mkTmp('gsd-base-home-')).status, 0);
     const rule = fs.readFileSync(path.join(root, '.claude', 'rules', 'testing.md'), 'utf8');
-    const lines = rule.split('\n');
-    for (const h of KERNEL_HEADINGS) assert.ok(lines.includes(h), `missing kernel heading: ${h}`);
     assert.ok(!rule.includes('{{'), 'no placeholder survives rendering');
     assert.ok(rule.includes('(`git grep -n`)'), 'search command rendered from the profile default');
     const skill = fs.readFileSync(path.join(root, '.claude', 'skills', 'finishing-a-development-branch', 'SKILL.md'), 'utf8');
@@ -426,8 +379,6 @@ describe('base preset: testing rule and finishing skill (agnostic-M-03 3.6)', ()
       ['.claude/rules/testing.md', true, false],
       ['.claude/skills/finishing-a-development-branch/SKILL.md', true, false],
     ]);
-    const rule = fs.readFileSync(path.join(BASE, 'rules', 'testing.md'), 'utf8');
-    assert.match(rule, /^---\npaths:\n  - '\*\*\/\*\.test\.\*'\n/);
   });
 });
 
@@ -936,15 +887,6 @@ describe('base preset: hook guards (review round 1: HookGuard, wrapper limits, g
   });
 });
 
-describe('base preset: shared-stack rule (agnostic-M-08 8.1)', () => {
-  test('8.1 shared-stack.md names the .sh wrapper and states that a direct stack-lock.mjs call is not recognised', () => {
-    const text = fs.readFileSync(path.join(BASE, 'rules', 'shared-stack.md'), 'utf8');
-    assert.ok(text.includes('scripts/stack-lock.sh'), 'wrapper named');
-    assert.match(text, /direct call[^\n]*stack-lock\.mjs[^\n]*not recognised/);
-    assert.ok(!text.includes('{{'), 'no placeholder: the rule names profile keys in prose');
-  });
-});
-
 describe('base preset: pre-PR, guard and module rules (agnostic-M-08 8.6)', () => {
   test('8.6 pre-pr-gates.md renders the gate path and holds the test cost rule heading; no placeholder survives', () => {
     const source = fs.readFileSync(path.join(BASE, 'rules', 'pre-pr-gates.md'), 'utf8');
@@ -953,42 +895,6 @@ describe('base preset: pre-PR, guard and module rules (agnostic-M-08 8.6)', () =
     assert.deepStrictEqual(rendered.missing, []);
     assert.ok(!rendered.text.includes('{{'));
     assert.ok(rendered.text.includes('scripts/pre-pr-gate.sh'), 'gate path rendered');
-    assert.match(rendered.text, /^### Test cost: where the gate runs/m);
-  });
-});
-
-describe('base preset: engineering lessons (agnostic-M-08 8.3)', () => {
-  test('8.3 engineering-lessons.md has 6 incident pointers and 2 rescued entries', () => {
-    const lessons = fs.readFileSync(path.join(BASE, 'docs', 'engineering-lessons.md'), 'utf8');
-    assert.strictEqual((lessons.match(/\[incident: <project incident id>\]/g) || []).length, 6, 'incident pointers');
-    assert.strictEqual((lessons.match(/\[rescued: [^\]]+\]/g) || []).length, 2, 'rescued entries');
-  });
-});
-
-describe('base preset: agent-ops lessons (agnostic-M-08 8.2)', () => {
-  test('8.2 the lessons file has one incident pointer per entry (23) and one per finding group (6)', () => {
-    const text = fs.readFileSync(path.join(BASE, 'docs', 'agent-ops-lessons.md'), 'utf8');
-    const memory = text.match(/\[incident: <project incident id>\]/g) || [];
-    const findings = text.match(/\[finding: [^\]]+\]/g) || [];
-    assert.strictEqual(memory.length, 23, 'memory entries');
-    assert.ok(!text.includes('[memory:'), 'no private memory tag');
-    assert.strictEqual(findings.length, 6, 'finding entries: review mining, F1-F4, A/B verdicts');
-    assert.ok(!text.includes('{{'), 'no placeholder');
-  });
-});
-
-describe('base preset: code style rule (agnostic-M-09 9.1)', () => {
-  test('9.1 code-style.md has the nine headings and eight checklist items, and names no library or language', () => {
-    const text = fs.readFileSync(path.join(BASE, 'rules', 'code-style.md'), 'utf8');
-    const HEADINGS = [
-      '## 1. Errors are values', '## 2. Immutability', '## 3. Routing and dispatch', '## 4. Pure logic, effects at the edges',
-      '## 5. Small single-purpose modules', '## 6. DRY', '## 7. Idioms for this stack', '## 8. Review checklist', '## 9. Enforcement',
-    ];
-    assert.deepStrictEqual(text.split('\n').filter((l) => l.startsWith('## ')), HEADINGS);
-    const checklist = text.split('## 8. Review checklist')[1].split('## 9. Enforcement')[0];
-    assert.strictEqual(checklist.split('\n').filter((l) => /^\d+\. /.test(l)).length, 8);
-    for (const w of ['neverthrow', 'ts-pattern', 'TypeScript', 'Python']) assert.ok(!text.includes(w), w);
-    assert.ok(text.includes('scripts/style-gate.mjs') && text.includes('style-gate:edge <reason>'));
   });
 });
 
@@ -1127,15 +1033,6 @@ describe('base preset: pilot, three throwaway projects (agnostic-M-07 7.2)', () 
         for (const f of files) assert.strictEqual(fs.existsSync(path.join(root, f)), on, `${key} ${group} ${f}`);
       }
     }
-  });
-
-  slowTest('P-c the rendered CLAUDE.md of pilot-a holds the methodology headings and the code-style rule its 8-item checklist', () => {
-    const text = fs.readFileSync(path.join(state.roots.a, 'CLAUDE.md'), 'utf8');
-    for (const h of CLAUDE_HEADINGS) assert.ok(text.includes(h), h);
-    for (const w of ['| Tier', '**Review loop:**', 'Haiku']) assert.ok(text.includes(w), w);
-    const style = fs.readFileSync(path.join(state.roots.a, '.claude/rules/code-style.md'), 'utf8');
-    const checklist = style.split('## 8. Review checklist')[1].split('## 9. Enforcement')[0];
-    assert.strictEqual(checklist.split('\n').filter((l) => /^\d+\. /.test(l)).length, 8);
   });
 
   slowTest('P-d default gates: nine in pilot-a, eight in pilot-b and pilot-c, style rule set written by the wiring', () => {

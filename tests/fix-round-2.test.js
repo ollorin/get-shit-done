@@ -117,7 +117,7 @@ describe('N6 the review is a disk check: {N}-REVIEW.md frontmatter', () => {
     const b = executed(false);
     assert.deepStrictEqual(reviewErr(gate(b.dir)), []);
   });
-  test('risk add-ons: one recorded pass is a work error, two merged passes pass', () => {
+  test('risk add-ons: one recorded pass is a work error, a pass-2 record passes', () => {
     const rg = require('../get-shit-done/bin/review-gate.js');
     const d = fs.mkdtempSync(path.join(require('os').tmpdir(), 'rg-'));
     fs.writeFileSync(path.join(d, '01-REVIEW.md'), '---\nreviewer_role: final\npasses: 1\nopen_critical_high: 0\n---\n');

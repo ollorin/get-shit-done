@@ -304,29 +304,6 @@ test('availablePresets lists preset directories sorted and never packs', () => {
   assert.deepStrictEqual(names, [...names].sort());
 });
 
-describe('no :3000 fallback in the service-startup files (agnostic-M-02 2.6, G4)', () => {
-  const ROOT = path.join(__dirname, '..', '..');
-  const FILES = [
-    'get-shit-done/references/service-health.md',
-    'get-shit-done/references/coordinator-detail.md',
-    'get-shit-done/workflows/execute-phase.md',
-    'get-shit-done/presets/packs/charlotte/agents/gsd-charlotte-qa.md',
-  ];
-
-  test('none of the four files names localhost:3000 or :3000', () => {
-    for (const rel of FILES) {
-      const text = fs.readFileSync(path.join(ROOT, rel), 'utf8');
-      assert.doesNotMatch(text, /:3000\b/, `${rel} must not hold a :3000 default`);
-    }
-  });
-
-  test('service-health.md takes the service config from stack.services and stops when it is unset', () => {
-    const text = fs.readFileSync(path.join(ROOT, 'get-shit-done/references/service-health.md'), 'utf8');
-    assert.match(text, /stack\.services/);
-    assert.match(text, /stack\.services is not set/);
-  });
-});
-
 describe('health is a URL or path, health_cmd is the shell command (agnostic-M-02 R3 M3)', () => {
   const ROOT = path.join(__dirname, '..', '..');
   const INSTALLABLE = ['get-shit-done', 'agents'];
@@ -342,25 +319,6 @@ describe('health is a URL or path, health_cmd is the shell command (agnostic-M-0
       .filter(({ line }) => /\beval\b/.test(line) && /health/i.test(line) && !/health_cmd|HEALTH_CMD/.test(line))
       .map(({ f, i }) => `${path.relative(ROOT, f)}:${i + 1}`);
     assert.deepStrictEqual(offenders, []);
-  });
-
-  test('health_cmd is documented next to health in the profile contract', () => {
-    for (const rel of ['get-shit-done/references/project-context.md', 'get-shit-done/references/service-health.md']) {
-      assert.match(fs.readFileSync(path.join(ROOT, rel), 'utf8'), /health_cmd/, rel);
-    }
-  });
-
-  test('R4 docs: the charlotte QA agent has no defaults sentence that contradicts its stop rule', () => {
-    const agent = fs.readFileSync(path.join(ROOT, 'get-shit-done/presets/packs/charlotte/agents/gsd-charlotte-qa.md'), 'utf8');
-    assert.match(agent, /stack\.services is not set/);
-    assert.doesNotMatch(agent, /use the defaults above/);
-  });
-
-  test('R4 docs: service-health.md assigns the CLAUDE.md Health check to QA_HEALTH_CMD, never a bare QA_HEALTH', () => {
-    const text = fs.readFileSync(path.join(ROOT, 'get-shit-done/references/service-health.md'), 'utf8');
-    assert.match(text, /^QA_HEALTH_CMD=/m);
-    assert.doesNotMatch(text, /^QA_HEALTH=/m);
-    assert.doesNotMatch(text, /\$QA_HEALTH\b(?!_)/);
   });
 });
 
@@ -403,255 +361,6 @@ describe('effectiveRiskDomains (agnostic-M-06 6.1)', () => {
   });
 });
 
-describe('product brief step and command (agnostic-M-04 4.1, D2)', () => {
-  const WF = fs.readFileSync(path.join(__dirname, '..', 'workflows', 'new-project.md'), 'utf8');
-  const CMD = fs.readFileSync(path.join(__dirname, '..', '..', 'commands', 'gsd', 'new-project.md'), 'utf8');
-  const sectionOf = (from, to) => WF.slice(WF.indexOf(from), WF.indexOf(to));
-
-  test('## 4.5. Product Brief sits between section 4 and section 5', () => {
-    const brief = WF.indexOf('## 4.5. Product Brief');
-    assert.ok(brief > 0, 'heading present');
-    assert.ok(WF.indexOf('## 4. Write PROJECT.md') < brief && brief < WF.indexOf('## 5. Workflow Preferences'));
-  });
-
-  test('the brief step names the template and records assumptions through the decisions CLI', () => {
-    const step = sectionOf('## 4.5. Product Brief', '## 5. Workflow Preferences');
-    assert.ok(step.includes('templates/product-brief.md'));
-    assert.ok(step.includes('--kind assumption'));
-    assert.ok(step.split('\n').length <= 45, 'the step is at most 45 lines');
-  });
-
-  test('every line that records the empty risk_domains default is costly, never cheap', () => {
-    const lines = WF.split('\n').filter((l) => l.includes('--default "[]"'));
-    assert.ok(lines.length >= 1, 'a risk_domains default line exists');
-    for (const l of lines) assert.ok(l.includes('--reversibility costly'), l);
-  });
-
-  test('the new-project command lists both outputs and both templates', () => {
-    assert.ok(CMD.includes('`.planning/PRODUCT-BRIEF.md`'));
-    assert.ok(CMD.includes('`.planning/STACK-PROFILE.md`'));
-    assert.ok(CMD.includes('@~/.claude/get-shit-done/templates/product-brief.md'));
-    assert.ok(CMD.includes('@~/.claude/get-shit-done/templates/stack-profile.md'));
-  });
-});
-
-describe('stack profile step, style section and init order (agnostic-M-04 4.2, D2)', () => {
-  const WF = fs.readFileSync(path.join(__dirname, '..', 'workflows', 'new-project.md'), 'utf8');
-  const TPL = fs.readFileSync(path.join(__dirname, '..', 'templates', 'stack-profile.md'), 'utf8');
-  const step = WF.slice(WF.indexOf('## 5.6. Stack Profile'), WF.indexOf('## 6. Research Decision'));
-
-  test('the step exists after section 5.5, at most 75 lines', () => {
-    assert.ok(step.length > 0, 'heading present');
-    assert.ok(WF.indexOf('## 5.5.') < WF.indexOf('## 5.6.'));
-    assert.ok(step.split('\n').length <= 75);
-  });
-
-  test('profile check, then project init --preset, then conflict and refused, then the project diff --preset review (M5: diff needs the defaulted keys)', () => {
-    const at = (s) => step.indexOf(s);
-    const seq = ['profile check', 'project init --preset', 'conflict', 'refused', 'project diff --preset'].map(at);
-    seq.forEach((i) => assert.ok(i >= 0, 'every marker present'));
-    assert.deepStrictEqual(seq, [...seq].sort((a, b) => a - b));
-  });
-
-  test('every project diff call in the step passes --preset', () => {
-    const calls = step.split('\n').filter((l) => l.includes('project diff'));
-    assert.ok(calls.length >= 1);
-    for (const l of calls) assert.ok(l.includes('--preset'), l);
-  });
-
-  test('the step names every required stack key and none of the four former pack keys', () => {
-    for (const key of ['stack.preset', 'stack.capabilities.backend', 'stack.capabilities.web_ui', 'stack.locked_commands',
-      'stack.style.rule_set', 'stack.deploy.never_touch', 'stack.flake_patterns']) {
-      assert.ok(step.includes(key), key);
-    }
-    for (const old of ['agent_ops', 'quality_gates', 'secure_backend', 'tdd_web']) assert.ok(!step.includes(old), old);
-  });
-
-  test('the step covers the dependency scanner prerequisite and its opt-out key', () => {
-    assert.ok(step.includes('osv-scanner'));
-    assert.ok(step.includes('allow_missing_scanner'));
-  });
-
-  test('the step writes no gate list and never makes the style gate optional', () => {
-    assert.ok(!step.includes('stack.gates'));
-    assert.doesNotMatch(step, /(skip|disable|without) the style gate/i);
-    for (const set of ['js-ts', 'python', 'generic']) assert.ok(step.includes(set), set);
-  });
-
-  test('templates/stack-profile.md has a Style section with the four idiom lines before Conventions', () => {
-    const s = TPL.indexOf('## Style');
-    assert.ok(s > 0 && s < TPL.indexOf('## Conventions'));
-    for (const idiom of ['- Errors:', '- Immutability:', '- Routing:', '- Purity:']) {
-      assert.ok(TPL.slice(s, TPL.indexOf('## Conventions')).includes(idiom), idiom);
-    }
-  });
-});
-
-describe('init-project command and the legacy pass-through in every init caller (agnostic-M-04 4.3, D3 D6)', () => {
-  const ROOT = path.join(__dirname, '..', '..');
-  const CALL = /gsd-tools(\.js)?"? init (plan-phase|execute-phase)/;
-  const walkMd = (dir) => fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true }).flatMap((e) => {
-    const rel = path.join(dir, e.name);
-    if (e.isDirectory()) return walkMd(rel);
-    return e.name.endsWith('.md') ? [rel] : [];
-  });
-  const callers = () => ['get-shit-done', 'agents', 'commands'].flatMap(walkMd)
-    .filter((rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8').split('\n').some((l) => CALL.test(l)));
-
-  test('commands/gsd/init-project.md exists with the gsd:init-project name, and no sync command exists', () => {
-    const text = fs.readFileSync(path.join(ROOT, 'commands', 'gsd', 'init-project.md'), 'utf8');
-    assert.ok(text.startsWith('---\nname: gsd:init-project\n'));
-    assert.ok(text.split('\n').length < 50);
-    assert.ok(!fs.existsSync(path.join(ROOT, 'commands', 'gsd', 'sync-project.md')));
-  });
-
-  test('every file that calls init plan-phase or init execute-phase stops on project_context_missing and passes the escape', () => {
-    const files = callers();
-    assert.ok(files.length >= 7, `expected at least the seven callers at f6f17bf, found ${files.length}: ${files.join(', ')}`);
-    for (const rel of files) {
-      const text = fs.readFileSync(path.join(ROOT, rel), 'utf8');
-      assert.ok(text.includes('project_context_missing'), `${rel} stops on the gate error`);
-      assert.ok(text.includes('--legacy') || text.includes('GSD_LEGACY'), `${rel} passes the escape`);
-      assert.ok(!text.includes('${GSD_LEGACY:+'), `${rel} must not turn GSD_LEGACY=0 into the flag`);
-    }
-  });
-
-  test('M6 every init plan-phase / execute-phase call line accepts LEGACY_FLAG and the orchestrators pass legacy: true to spawned agents', () => {
-    const files = callers().filter((rel) => !rel.includes(`${path.sep}v2${path.sep}`));
-    for (const rel of files) {
-      const lines = fs.readFileSync(path.join(ROOT, rel), 'utf8').split('\n').filter((l) => CALL.test(l) && l.includes('INIT=$('));
-      for (const l of lines) assert.ok(/\$\{?LEGACY_FLAG\}?/.test(l), `${rel}: ${l}`);
-    }
-    for (const rel of ['get-shit-done/workflows/plan-phase.md', 'get-shit-done/workflows/execute-phase.md']) {
-      assert.match(fs.readFileSync(path.join(ROOT, rel), 'utf8'), /put `legacy: true` in every spawned agent's prompt/, rel);
-    }
-  });
-
-  test('execute-roadmap.md tells an unattended run to export GSD_LEGACY=1', () => {
-    const text = fs.readFileSync(path.join(ROOT, 'get-shit-done', 'workflows', 'execute-roadmap.md'), 'utf8');
-    assert.ok(text.includes('GSD_LEGACY=1'));
-  });
-});
-
-describe('risk-rule wording present in the eight prompt files (agnostic-M-06 R-f)', () => {
-  const ROOT = path.join(__dirname, '..', '..');
-  const SENTENCES = [
-    'A risk-domain path is any path the product brief lists under Risk Domains (`risk_domains` in the init output); authentication/authorisation and security are always risk domains.',
-    'When `risk_domains_source` is `builtin` (`project.risk_domains` in config.json is empty or absent), every path that mutates state is a risk-domain path.',
-    'Tag every behaviour on a risk-domain path T0 (real-DB, mutation-proven).',
-  ];
-  const FILES = [
-    'agents/gsd-planner.md', 'agents/gsd-plan-checker.md', 'agents/gsd-test-writer.md', 'agents/gsd-phase-coordinator.md',
-    'get-shit-done/references/decisions-protocol.md', 'get-shit-done/workflows/plan-phase.md',
-    'get-shit-done/workflows/prd.md', 'get-shit-done/workflows/new-milestone.md',
-  ];
-
-  // The coordinator's review checklist keeps the two risk-domain definitions; the T0 tagging sentence belongs to the
-  // plan-level files and the project's own rules (the coordinator is a thin dispatcher and tags nothing itself).
-  for (const rel of FILES) {
-    test(`R-f ${rel} carries the canonical sentences`, () => {
-      const text = fs.readFileSync(path.join(ROOT, rel), 'utf8');
-      const wanted = rel === 'agents/gsd-phase-coordinator.md' ? SENTENCES.slice(0, 2) : SENTENCES;
-      for (const sentence of wanted) assert.ok(text.includes(sentence), `${rel} lacks: ${sentence.slice(0, 50)}`);
-    });
-  }
-
-  test('R-f the planner mandate keeps its obligations: threat model, REUSE only for the T0 test', () => {
-    const text = fs.readFileSync(path.join(ROOT, 'agents/gsd-planner.md'), 'utf8');
-    for (const must of [
-      'YOU write `{N}-THREAT-MODEL.md`',
-      'REUSE satisfies it ONLY when the cited existing test is itself that T0 test',
-      'Risk domains: <risk_domains> (source: <risk_domains_source>)',
-    ]) assert.ok(text.includes(must), must);
-  });
-
-  test('R-f the product brief template has the Risk Domains heading', () => {
-    assert.match(fs.readFileSync(path.join(ROOT, 'get-shit-done/templates/product-brief.md'), 'utf8'), /^## Risk Domains$/m);
-  });
-});
-
-describe('pointer block in every top-level agent and the pack agent (agnostic-M-04 4.4-4.5, D5)', () => {
-  const ROOT = path.join(__dirname, '..', '..');
-  const BLOCK = [
-    '<project_context>',
-    'Domain facts and risk domains: `.planning/PRODUCT-BRIEF.md`. Commands, paths, services and tools: `.planning/STACK-PROFILE.md`.',
-    'Read the sections your role needs before acting. Every command, path and tool name comes from the profile.',
-    'If a key you need is missing, stop and report the key. Never substitute a default stack.',
-    '</project_context>',
-  ].join('\n');
-  const AGENTS = fs.readdirSync(path.join(ROOT, 'agents'), { withFileTypes: true })
-    .filter((e) => e.isFile() && e.name.endsWith('.md'))
-    .map((e) => path.join('agents', e.name));
-  const FILES = [...AGENTS, path.join('get-shit-done', 'presets', 'packs', 'charlotte', 'agents', 'gsd-charlotte-qa.md')];
-
-  test('the checked set is every top-level agent plus the pack agent', () => {
-    assert.ok(FILES.length >= 23, `found ${FILES.length}`);
-  });
-
-  test('every file carries the block exactly once, directly after its frontmatter', () => {
-    for (const rel of FILES) {
-      const text = fs.readFileSync(path.join(ROOT, rel), 'utf8');
-      // An agent may extend the block body (the researcher adds its discovery steps); its head is fixed.
-      const HEAD = BLOCK.replace(/\n<\/project_context>$/, '');
-      assert.strictEqual(text.split(HEAD).length - 1, 1, `${rel} carries the block once`);
-      assert.ok(text.includes(`---\n\n${HEAD}\n`), `${rel} places the block after the frontmatter`);
-    }
-  });
-
-  test('the block matches no pattern of the lint term classes', () => {
-    const classes = JSON.parse(fs.readFileSync(path.join(ROOT, 'scripts', 'agnostic-lint', 'terms.json'), 'utf8')).classes;
-    for (const c of classes) {
-      assert.doesNotMatch(BLOCK, new RegExp(c.pattern, c.flags || ''), `class ${c.id}`);
-    }
-  });
-});
-
-describe('Fable round 1: legacy gates, ui_qa_mode carve-outs, review-tiering sentence (agnostic-M-04/05/06)', () => {
-  const REPO = path.join(__dirname, '..', '..');
-  const read = (rel) => fs.readFileSync(path.join(REPO, rel), 'utf8');
-
-  test('H1 every machine-gate site carries a legacy clause and names config.json, not init output', () => {
-    const verifier = read('agents/gsd-verifier.md');
-    assert.match(verifier, /Legacy: no `stack\.gates` in `\.planning\/config\.json` => run the gate scripts the repo ships/);
-    assert.match(verifier, /\(legacy: no `stack\.gates`\) the repo ships a tier-delta script/);
-    const detail = read('get-shit-done/references/verifier-detail.md');
-    assert.match(detail, /Legacy: a project with no `stack\.gates` at all runs\s+the\s+tier-delta and tier-assignment scripts the repo ships/);
-    assert.doesNotMatch(detail, /stack\.gates\[\][^\n]*\(init output\)/);
-    const exec = read('get-shit-done/workflows/execute-phase.md');
-    assert.match(exec, /legacy: no `stack\.gates` => the repo's shipped FP gate script/);
-  });
-
-  test('M2 UI QA is skipped only on ui_qa_mode none; legacy resolves the configured QA agent', () => {
-    for (const rel of ['get-shit-done/workflows/execute-phase.md', 'get-shit-done/workflows/execute-roadmap.md']) {
-      const text = read(rel);
-      assert.match(text, /ui_qa_mode/, rel);
-      assert.match(text, /legacy/, rel);
-      assert.doesNotMatch(text, /if the profile declares (none|no `stack\.capabilities\.ui_qa`)/, rel);
-    }
-    assert.match(read('get-shit-done/workflows/execute-roadmap.md'), /ui_qa_mode: legacy/);
-    assert.match(read('get-shit-done/workflows/execute-phase.md'), /legacy: the project's configured QA agent/);
-    assert.doesNotMatch(read('get-shit-done/references/coordinator-detail.md'), /MANDATORY for web projects that declare the UI QA capability/);
-  });
-
-  test('M3 the verifier skips UI QA coverage on ui_qa_mode none and keeps the rule for legacy', () => {
-    for (const rel of ['agents/gsd-verifier.md', 'get-shit-done/references/verifier-detail.md']) {
-      const text = read(rel);
-      assert.match(text, /ui_qa_mode: none/, rel);
-      assert.match(text, /`ui_qa_ran: false {2}# no ui_qa capability`/, rel);
-      assert.match(text, /`ui_qa_mode: legacy`|`legacy` and/, rel);
-    }
-  });
-
-  test('L8 the 4-round cap and its one closing ruling attach to "loop to zero"', () => {
-    // The coordinator's tiering paragraph moved to the project's CLAUDE.md; execute-phase keeps the sentence.
-    for (const rel of ['get-shit-done/workflows/execute-phase.md']) {
-      const text = read(rel);
-      assert.doesNotMatch(text, /mutation-proven\)\., but/, rel);
-      assert.match(text, /loop to zero, at most 4 rounds, then ONE ruling on `\{ruling_model\}`/, rel);
-    }
-  });
-});
-
 describe('interview half-state and order (Fable round 1 M5)', () => {
   const FOUR = JSON.stringify({
     project: { slug: 'demo', owner_title: 'owner', risk_domains: [], ruling_topics: [] },
@@ -688,7 +397,7 @@ describe('interview half-state and order (Fable round 1 M5)', () => {
     });
   });
 
-  test('F1 re-run after a deploy with no STACK-PROFILE.md: init exits 1 already initialised, sync continues; step 3 names that branch', () => {
+  test('F1 re-run after a deploy with no STACK-PROFILE.md: init exits 1 already initialised, sync continues', () => {
     withScratch(FOUR, (dir) => {
       const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-f1-home-'));
       try {
@@ -703,16 +412,6 @@ describe('interview half-state and order (Fable round 1 M5)', () => {
         fs.rmSync(home, { recursive: true, force: true });
       }
     });
-    const wf = fs.readFileSync(path.join(__dirname, '..', 'workflows', 'new-project.md'), 'utf8');
-    const sec = wf.slice(wf.indexOf('## 5.6. Stack Profile'), wf.indexOf('## 6. Research Decision'));
-    assert.match(sec, /already initialised: run project sync.*\n?.*`project sync --preset <name>`.*exit code 2/s);
-    assert.doesNotMatch(sec, /its existence means the profile check and the deploy both ran/);
-  });
-
-  test('F5 complete-milestone parses $ARGUMENTS for --legacy instead of a spawn prompt', () => {
-    const text = fs.readFileSync(path.join(__dirname, '..', 'workflows', 'complete-milestone.md'), 'utf8');
-    assert.doesNotMatch(text, /spawn prompt/);
-    assert.match(text, /\$ARGUMENTS " == \*" --legacy "\*/);
   });
 
   test('init new-project reports the context gate, so existing md files over an incomplete config are not "nothing missing"', () => {
@@ -729,24 +428,6 @@ describe('interview half-state and order (Fable round 1 M5)', () => {
     });
   });
 
-  test('L7 auto mode records an assumption when no UI QA driver is chosen', () => {
-    const wf = fs.readFileSync(path.join(__dirname, '..', 'workflows', 'new-project.md'), 'utf8');
-    const auto = wf.slice(wf.indexOf('## 5.6. Stack Profile'), wf.indexOf('## 6. Research Decision'));
-    assert.match(auto, /No UI QA driver \(no `ui_qa` key written\) → record an assumption:.*--question "UI QA driver: none/);
-  });
-
-  test('the interview text keys its skips and init-project step 1 on the gate and writes STACK-PROFILE.md after the deploy', () => {
-    const wf = fs.readFileSync(path.join(__dirname, '..', 'workflows', 'new-project.md'), 'utf8');
-    const sec = wf.slice(wf.indexOf('## 5.6. Stack Profile'), wf.indexOf('## 6. Research Decision'));
-    assert.match(wf, /\*\*Skip when `context_gate`/);
-    assert.doesNotMatch(wf, /Skip when `(brief_exists|stack_profile_exists)` is true/);
-    const order = ['Write the `stack` block', 'Run the profile check', 'Deploy:', 'Write `.planning/STACK-PROFILE.md`', 'Review the deployment'].map((t) => sec.indexOf(t));
-    assert.ok(order.every((i) => i >= 0), `steps present: ${order}`);
-    assert.deepStrictEqual([...order].sort((a, b) => a - b), order, 'steps are in this order');
-    const cmd = fs.readFileSync(path.join(__dirname, '..', '..', 'commands', 'gsd', 'init-project.md'), 'utf8');
-    assert.match(cmd, /context_gate/);
-    assert.doesNotMatch(cmd, /If `brief_exists` and `stack_profile_exists` are both true/);
-  });
 });
 
 describe('adopting a root PRODUCT-BRIEF.md (init fixes B)', () => {

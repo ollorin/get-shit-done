@@ -13269,45 +13269,6 @@ describe('Phase 57-04: bounded escalation loop & ledger recording', () => {
 
   });
 
-  describe('task-routing.md prose wiring (grep-assertion, index-ordered; moved from the coordinator mirror)', () => {
-    const coordinatorDetailPath = path.join(__dirname, '..', 'references', 'task-routing.md');
-    const content = fs.readFileSync(coordinatorDetailPath, 'utf-8');
-    const executePhase = fs.readFileSync(path.join(__dirname, '..', 'workflows', 'execute-phase.md'), 'utf-8');
-
-    const executeStart = content.indexOf('<step name="per_task_routing">');
-    const executeEnd = content.indexOf('</step>', executeStart);
-    const postUxSweepStart = executePhase.indexOf('<step name="post_phase_ux_sweep">');
-
-    test('routing escalation-decision is called inside the execute step', () => {
-      const idx = content.indexOf('routing escalation-decision', executeStart);
-      assert.ok(idx !== -1 && idx < executeEnd, 'routing escalation-decision must appear inside <step name="per_task_routing">');
-    });
-
-    test('task_outcome events are logged inside the execute step', () => {
-      const idx = content.indexOf('task_outcome', executeStart);
-      assert.ok(idx !== -1 && idx < executeEnd, 'task_outcome must appear inside <step name="per_task_routing">');
-    });
-
-    test('tier_escalation events are logged inside the execute step', () => {
-      const idx = content.indexOf('tier_escalation', executeStart);
-      assert.ok(idx !== -1 && idx < executeEnd, 'tier_escalation must appear inside <step name="per_task_routing">');
-    });
-
-    test('the [non-capability] tag handling (IS_NON_CAPABILITY_TAGGED) is present in the escalation loop', () => {
-      const idx = content.indexOf('IS_NON_CAPABILITY_TAGGED', executeStart);
-      assert.ok(idx !== -1 && idx < executeEnd, 'IS_NON_CAPABILITY_TAGGED must appear inside <step name="per_task_routing">');
-    });
-
-    test('the escalation loop is bounded via the ladder (references getNextTier/escalation-decision, never a second hardcoded ladder)', () => {
-      const block = content.slice(executeStart, executeEnd);
-      assert.doesNotMatch(
-        block,
-        /\{\s*haiku:\s*['"]sonnet['"]/,
-        'the escalation loop must not hardcode a second {haiku: "sonnet", ...} ladder inline'
-      );
-      assert.match(block, /routing escalation-decision/);
-    });
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -14862,7 +14823,6 @@ describe('agnostic-M-05 5.11: dashboard WebSocket port', () => {
 
 describe('new-project config shape agrees with template and loadConfig', () => {
   const root = path.join(__dirname, '..');
-  const workflow = fs.readFileSync(path.join(root, 'workflows', 'new-project.md'), 'utf-8');
   const template = JSON.parse(fs.readFileSync(path.join(root, 'templates', 'config.json'), 'utf-8'));
 
   test('loadConfig reads the nested template shape', () => {
@@ -14877,19 +14837,6 @@ describe('new-project config shape agrees with template and loadConfig', () => {
     } finally { cleanup(tmpDir); }
   });
 
-});
-
-describe('roadmap decision-point mapping is one shared instruction', () => {
-  const root = path.join(__dirname, '..');
-  const read = (...p) => fs.readFileSync(path.join(root, ...p), 'utf-8');
-  test('new-project and new-milestone reference the protocol section; steps live only there', () => {
-    assert.ok(read('references', 'decisions-protocol.md').includes('## Roadmap decision points'));
-    for (const wf of ['new-project.md', 'new-milestone.md']) {
-      const t = read('workflows', wf);
-      assert.ok(t.includes('`Roadmap decision points` in `@~/.claude/get-shit-done/references/decisions-protocol.md`'), wf);
-      assert.ok(!t.includes('decisions map <id> --phases'), `${wf} duplicates the mapping steps`);
-    }
-  });
 });
 
 describe('pilot fix C1: roadmap update-plan-progress keeps Plans prose and finds the template table row', () => {

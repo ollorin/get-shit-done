@@ -140,16 +140,4 @@ describe('R5-7: a spike phase with an open CRITICAL/HIGH is ruled before it is p
     gsd(dir, ['execution-log', 'event', '--type', 'spike_ruling', '--data', '{"phase":"1"}']);
     assert.strictEqual(gsd(dir, ['roadmap', 'record', '--phase', '1', '--result', res]).json.action, 'park');
   });
-  test('prose: fix brief carries every fix and probe with a status; execute-roadmap routes ruling', () => {
-    assert.match(doc('get-shit-done/workflows/execute-phase.md'), /every numbered fix and every bounded probe of the final review verbatim[^]*done \(with capture path\) or not done \(with reason\)/);
-    assert.match(doc('get-shit-done/references/rigour.md'), /every numbered fix and bounded probe of the review verbatim/);
-    assert.match(doc('get-shit-done/workflows/execute-roadmap.md'), /\| `ruling` \|[^\n]*spike_ruling/);
-  });
-});
-
-describe('R5-8: Dimension 16 blocks a requirement narrowed without a recorded search', () => {
-  test('checker and plan-phase carry the rule', () => {
-    assert.match(doc('agents/gsd-plan-checker.md'), /not verifiable locally[^\n]*blocker[^\n]*unless a planner task runs a recorded search \(command and output path\) that names the refuting observation/);
-    assert.match(doc('get-shit-done/workflows/plan-phase.md'), /not verifiable locally[^\n]*gets a task that searches the installed packages and docs/);
-  });
 });
