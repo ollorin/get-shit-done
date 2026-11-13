@@ -542,7 +542,7 @@ gaps:
 
 **Group related gaps by concern** — if multiple truths fail from the same root cause, note this to help the planner create focused plans.
 
-**Knowledge feedback (non-blocking):** If a gap's root cause traces to a specific knowledge-DB entry retrieved earlier via `query-knowledge` (i.e. the plan or a prior agent followed a KB-sourced recommendation that this verification proves was wrong), call `node ~/.claude/get-shit-done/bin/gsd-tools.js mark-wrong <id> --severity <minor|major|critical> --reason "<one-line reason>"` using the entry's `id` field from that earlier `query-knowledge` call. Choose severity by impact: `minor` for a stale/imprecise recommendation, `major` for one that caused a real implementation gap, `critical` for one that caused a broken/incorrect artifact to ship. This call is best-effort and MUST NOT block VERIFICATION.md from being written — wrap in a non-fatal check, log the outcome, and continue regardless of its result. This does not change the gap's `failure_type` or the phase's overall STATUS.
+**Knowledge feedback (non-blocking):** If a gap's root cause traces to a knowledge-DB entry retrieved earlier via `query-knowledge` (a KB-sourced recommendation this verification proves wrong), call `node ~/.claude/get-shit-done/bin/gsd-tools.js mark-wrong <id> --severity <minor|major|critical> --reason "<one-line reason>"` with that entry's `id`: `minor` for a stale or imprecise recommendation, `major` for one that caused an implementation gap, `critical` for one that shipped a broken artifact. Best effort: it MUST NOT block VERIFICATION.md (log the outcome and continue) and changes neither the gap's `failure_type` nor the STATUS.
 
 
 <check_ui_qa_coverage>
@@ -696,59 +696,24 @@ If TRIGGER_QA_CHECK == false OR UI_QA_FOUND == true: this check passes silently.
 
 **Hard rule:** Any deferral of tests, QA, or verification to a future phase is a verification failure. This is NEVER a warning.
 
-**Sanctioned-channel carve-out (check BEFORE hard-failing).** The executor has ONE legitimate deferral channel: `deferred-items.md` entries for **pre-existing, out-of-scope** issues it discovered but did not cause (`<scope_boundary>` in gsd-executor.md). Those are NOT violations of this gate. A match is a real violation ONLY when it defers **THIS phase's own** tests, QA, or verification. Concretely:
-- A `deferred-items.md` entry (or a SUMMARY.md line referencing one) describing a pre-existing, out-of-scope issue with a justification → **sanctioned, do NOT fail.**
-- Any "tests to be added later", "QA deferred", "will verify in next phase", or "follow-up: add tests" that concerns work THIS phase was responsible for → **violation, fail as below.**
+**Sanctioned channels (not violations).** A `deferred-items.md` entry, or a SUMMARY.md line referencing one, for a **pre-existing, out-of-scope** issue the executor found but did not cause (`<scope_boundary>` in gsd-executor.md), with a justification; and a recorded `DEFERRED.json` waiver (`deferred add`), which `verify phase-gate` honors. Only deferral of **THIS phase's own** tests, QA or verification is a violation.
 
-The `deferred add` waiver channel is likewise sanctioned: a recorded `DEFERRED.json` entry is the audited waiver `verify phase-gate` honors, and merely naming that file or the `deferred add|list` subcommand is not deferral language. The scan below strips those names before matching.
+**Step A — find the claim.** Read the SUMMARY.md and VERIFICATION.md files for a sentence that defers this phase's own tests, QA or verification ("to be added later", "QA skipped", "will be tested in a future phase"). The word alone is not a finding.
 
-When a matched pattern refers to a `deferred-items.md`-logged pre-existing item, exclude it from `DEFERRAL_EVIDENCE` and continue — only genuine deferral of this phase's own testing/QA/verification triggers Step B.
-
-**Step A — Scan SUMMARY.md and VERIFICATION.md files for deferral language:**
-
-```bash
-DEFERRAL_PATTERNS="deferred|defer to|deferred to|post-milestone testing|future phase|will be tested later|to be added later|qa skipped|tests skipped|skipped.*because.*not running|skipped.*infrastructure"
-DEFERRAL_FOUND=false
-DEFERRAL_EVIDENCE=""
-
-for file in "$PHASE_DIR"/*-SUMMARY.md "$PHASE_DIR"/*-VERIFICATION.md; do
-  if [ -f "$file" ]; then
-    MATCHES=$(node -e "
-      try {
-        const fs = require('fs');
-        const content = fs.readFileSync('$file', 'utf8').replace(/DEFERRED\.json|deferred-items\.md|deferred (add|list)\b/gi, '');
-        const patterns = /deferred|defer to|deferred to|post-milestone testing|future phase|will be tested later|to be added later|qa skipped|tests skipped|skipped.*because.*not running|skipped.*infrastructure/gi;
-        const matches = content.match(patterns) || [];
-        console.log(matches.length > 0 ? matches.slice(0,3).join('; ') : '');
-      } catch(e) { console.log(''); }
-    " 2>/dev/null || echo "")
-    if [ -n "$MATCHES" ]; then
-      DEFERRAL_FOUND=true
-      DEFERRAL_EVIDENCE="${DEFERRAL_EVIDENCE} | ${file##*/}: ${MATCHES}"
-    fi
-  fi
-done
-```
-
-**Step B — Hard-fail if deferral language found:**
-
-If DEFERRAL_FOUND=true:
+**Step B — judge the truth, not the wording.** For each such sentence check whether the test, QA run or verification it names actually ran in this phase (the evidence of Steps 8b, 8c and 8d). It ran: the sentence is stale wording, list it under `form_findings`. It did not run and no `DEFERRED.json` waiver covers it:
 - Add gap:
   ```yaml
   - truth: "All tests and QA were completed in this phase (no deferral)"
     status: failed
     failure_type: missing_artifact
-    reason: "Deferral language detected in phase artifacts — tests or QA were deferred to a future phase"
+    reason: "Tests or QA of this phase were deferred and did not run"
     artifacts:
-      - path: "{PHASE_DIR}"
-        issue: "Deferral evidence: {DEFERRAL_EVIDENCE}"
+      - path: "{file with the sentence}"
+        issue: "{the sentence, and the run that is missing}"
     missing:
-      - "Run all deferred tests and QA within this phase before marking complete"
-      - "Remove deferral language and replace with evidence of actual test execution"
+      - "Run the deferred tests and QA within this phase before marking complete"
   ```
 - Set STATUS = gaps_found (hard-fail — NEVER a warning)
-
-If DEFERRAL_FOUND=false: this check passes silently.
 
 </check_deferral_language>
 
@@ -777,7 +742,7 @@ If DEFERRAL_FOUND=false: this check passes silently.
 
 **Trigger:** One or more `.ts`, `.tsx`, or `.js` implementation files appear in SUMMARY.md key-files.
 
-**Hard rule:** Every implementation file must be exercised by a test. A file passes if any test file (unit or integration) imports it or calls its exported route/RPC, or the SUMMARY `## Test Delta` cites a REUSE for it. Unexercised files → `gaps_found`, unless a `deferred add --step test` entry waives them (the one waiver rule in Step 8b). This is NEVER a warning — never emit a warning for missing test coverage. The exemption applies only to a file that consists solely of `export ... from` re-export statements (any length), and is on no risk-domain path (`risk_domains` in the init output; session and credential paths count).
+**Hard rule:** Every implementation file must be exercised by a test. A file passes if any test file (unit or integration) imports it or calls its exported route/RPC, or the SUMMARY `## Test Delta` cites a REUSE for it. Unexercised files → `gaps_found`, unless a `deferred add --step test` entry waives them (the one waiver rule in Step 8b). This is NEVER a warning. The exemption applies only to a file that consists solely of `export ... from` re-export statements (any length), and is on no risk-domain path (`risk_domains` in the init output; session and credential paths count).
 
 Run `gsd-tools verify test-content "$PHASE_NUM"` and read `impl_files_without_tests` (each is a gap; when `legacy_unchecked` is true also read `legacy_data.impl_files_without_tests` — plans without a checked Test Delta are grandfathered out of the top-level key, not out of this rule), `impl_files_covered` and `impl_files_exempt` (confirm each exempt file is a pure re-export outside the P0 paths above); the manual Steps A-C below are the fallback cross-check.
 

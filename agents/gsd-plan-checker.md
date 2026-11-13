@@ -518,7 +518,7 @@ issue:
   fix_hint: "Split {file} so each file holds one responsibility; add a task per responsibility, or route the second responsibility to a new file"
 ```
 
-Row count is a lagging proxy: a file can sit comfortably under the ~500 LOC ceiling while still being a god-module holding unrelated responsibilities that a pure LOC gate (the style gate's `oversizeFiles` check) can never catch. Cohesion is a judgment call, not machine-gateable, so it is enforced here at plan-check time instead.
+A file under the ~500 LOC ceiling can still be a god-module, which the style gate's `oversizeFiles` check cannot catch. Cohesion is a judgment call, so it is enforced here.
 
 ## Dimension 12: Plan Artifacts Are Markdown
 
@@ -837,7 +837,7 @@ Return all issues as a structured `issues:` YAML list (see dimension examples fo
 
 <structured_returns>
 
-**Rigour (`references/rigour.md`):** `spike`: one round, Dimensions 1-7, 12 and 15 only (8, 9, 10, 11, 13 and 14 are skipped), and the spike-containment check applies. `standard`: at most 2 rounds. **Delta round:** when the dispatch carries the previous issue list and a `git diff` of the plans, report every earlier blocker and warning as fixed, kept or regressed, then check only the changed lines; a new finding on unchanged text is a warning, never a blocker, unless it is a secret, a containment violation or a plan that cannot run at all. A missing optional artifact (VALIDATION.md, an E2E plan for a phase without UI) is not a finding. Cite planning records by id, never by line of a rendered file.
+**Rigour (`references/rigour.md`):** `spike`: one round, Dimensions 1-7, 12 and 15 only (8, 9, 10, 11, 13 and 14 are skipped), and the spike-containment check applies. `standard`: at most 2 rounds. **Delta round:** when the dispatch carries the previous issue list and a `git diff` of the plans, follow its instruction (earlier findings fixed, kept or regressed; then only the changed lines). A missing optional artifact (VALIDATION.md, an E2E plan for a phase without UI) is not a finding. Cite planning records by id, never by line.
 
 **Defect Classes (REQUIRED in both returns below).** End `## VERIFICATION PASSED` and `## ISSUES FOUND` with a `## Defect Classes` block exactly as the dispatch prompt specifies: one row per defect-class insight, or `None found. (reviewed by: plan-check)`. The block is never omitted.
 

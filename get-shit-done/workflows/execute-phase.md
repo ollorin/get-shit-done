@@ -42,7 +42,7 @@ If the command exits 1 and INIT has `error: project_context_missing`: stop, prin
 
 Parse JSON for: `auto_mode`, `executor_model`, `verifier_model`, `ruling_model`, `ruling_model_fallback`, `utility_model`, `reviewer_model`, `base_branch`, `ui_qa_mode`, `commit_docs`, `parallelization`, `branching_strategy`, `branch_name`, `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `phase_slug`, `plans`, `incomplete_plans`, `plan_count`, `incomplete_count`, `state_exists`, `roadmap_exists`, `phase_req_ids`, `brief_path`, `stack_profile_path`, `stack_commands`. Every spawned agent receives `brief_path` and `stack_profile_path` (when not null) in its `<files_to_read>`, and `stack_commands` verbatim.
 
-**Rigour and budget (print first):** init also returns `rigour` (`standard` | `spike`), `rigour_source`, `rigour_decision`, `spike_roots`, `rigour_rejected_reason`. `references/rigour.md` is the contract: what runs per level, the risk-domain add-ons (a `**Risk domains**` ROADMAP line, or a plan with `high_risk: true`), the caps, the budget and its breach rule. Before anything else print its first line (`Phase {N}: rigour ..., risk domains: ..., budget ...`), counting what plan-phase already logged. Pass `rigour`, the spike roots and the remaining budget in every spawn prompt and log each dispatch as `phase_spend`. On a breach print the owner report and end with the trailer `{"status": "blocked", "reason": "budget_exceeded"}`.
+**Rigour and budget (print first):** init also returns the rigour fields. `references/rigour.md` is the contract (levels, risk-domain add-ons, caps, budget). Before anything else print its first line (`Phase {N}: rigour ..., risk domains: ..., budget ...`), counting what plan-phase already logged. Pass `rigour`, the spike roots and the remaining budget in every spawn prompt and log each dispatch as `phase_spend`. On a breach print the owner report and end with the trailer `{"status": "blocked", "reason": "budget_exceeded"}`.
 
 **Spike:** When `rigour` is `spike`: no test-writer spawn; one review round; the verifier prompt carries only the spike checks of `references/rigour.md`; gap closure is the light path, once; the last spike phase writes `SPIKE-RESULT.md` (per question: answer, capture path, go/no-go, what must be rebuilt).
 
@@ -389,7 +389,7 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
 
    **Parse the machine-readable status FIRST — do not string-match the prose header.** Every non-dead executor return ends with a fenced ```json trailer carrying `{"status": "complete"|"interrupted"|"blocked", ...}`. Extract the last fenced JSON block and read `.status`; the `## PLAN …` header is human-readable garnish that a reworded line or an em-dash could break. Only if NO parseable JSON trailer exists do you fall through to the raw-death path (2). This is the fix for the class of coordinator-parse failures where a prose-only return was misread as a death.
 
-   1. **Clean interruption** — the trailer's `status` is `"interrupted"` (the executor self-stopped at a context-pressure boundary and wrote EXECUTOR-HANDOFF.json; header reads `## PLAN INTERRUPTED`; it may also have sent an App #1 `to: "main"` continuation signal). Handle identically to the pre-spawn handoff case (step 0.5 above), INCLUDING its resume-by-agentId-vs-cold-spawn decision (App #2): since this interruption just happened in THIS session, `EXECUTOR_AGENT_IDS[{plan_id}]` is normally still set — PREFER `SendMessage(to: <agentId>, …)` to resume that same executor from its transcript from `next_task_index`; FALL BACK to archiving the handoff and cold-spawning a continuation executor with a `<prior_executor_handoff>` block when the agentId is unavailable. Log `--type executor_clean_interruption`. Do NOT call `execution-state record-failure`. A `status: "blocked"` trailer is NOT an interruption — surface it to the user with its `recommended_split`; the plan needs re-splitting before it can proceed. Auto (auto_mode, references/auto-mode.md K4): park the phase and return `status: blocked` with the `recommended_split`; never wait.
+   1. **Clean interruption** — the trailer's `status` is `"interrupted"` (the executor self-stopped at a context-pressure boundary and wrote EXECUTOR-HANDOFF.json; header reads `## PLAN INTERRUPTED`; it may also have sent an App #1 `to: "main"` continuation signal). Handle as the pre-spawn handoff case (step 0.5 above), INCLUDING its resume-by-agentId-vs-cold-spawn decision (App #2): `EXECUTOR_AGENT_IDS[{plan_id}]` is normally still set, so PREFER `SendMessage(to: <agentId>, …)` to resume that executor from `next_task_index`; FALL BACK to archiving the handoff and cold-spawning a continuation executor with a `<prior_executor_handoff>` block. Log `--type executor_clean_interruption`. Do NOT call `execution-state record-failure`. A `status: "blocked"` trailer is NOT an interruption — surface it to the user with its `recommended_split`. Auto (auto_mode, references/auto-mode.md K4): park the phase and return `status: blocked` with the `recommended_split`; never wait.
 
    2. **Genuine death** — `Agent()` threw, OR the return has NO parseable JSON status trailer at all (e.g. it IS a raw death message):
       ```bash
@@ -430,7 +430,7 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
      2. Never block on a human: write the debugger findings to `FAILURE.md`, run `deferred add --step execution --reason "..." --approver auto-escalate`, and print the finding in chat; record in SUMMARY.md that the plan was escalated.
      3. Mark this plan failed, report partial completion, continue with non-dependent plans only.
 
-5.5. **Live course-correction relay (App #3, `@get-shit-done/references/agent-messaging.md`):** if a checker or QA agent (gsd-plan-checker, the UI QA agent) that is running while an executor is STILL producing work `SendMessage`s you (`to: "main"`) a mid-run finding, you MAY relay a correction to the in-flight executor: `SendMessage(to: <EXECUTOR_AGENT_IDS[{plan_id}]>, …)` with the finding so it can adjust before finishing wrong, instead of letting the plan complete and be redone. This stays coordinator-mediated (the checker/QA agent never messages the executor directly). It is additive — the checker/QA agent's structured return is still the durable record, and delivery is at the executor's next tool round (hard semantic #1), so treat the relay as a best-effort tightening, never a guaranteed real-time halt. If the executor's agentId is unavailable, fall back to normal post-run handling (its next return, or the checker/QA report driving a fix pass).
+5.5. **Live course-correction relay (App #3, `@get-shit-done/references/agent-messaging.md`):** if a checker or QA agent (gsd-plan-checker, the UI QA agent) that is running while an executor is STILL producing work `SendMessage`s you (`to: "main"`) a mid-run finding, you MAY relay a correction to the in-flight executor: `SendMessage(to: <EXECUTOR_AGENT_IDS[{plan_id}]>, …)` with the finding so it can adjust before finishing wrong, instead of letting the plan complete and be redone. This stays coordinator-mediated (the checker/QA agent never messages the executor directly). The agent's structured return stays the durable record; delivery is at the executor's next tool round (hard semantic #1), so the relay is best effort, never a guaranteed halt. With no executor agentId, handle the finding after the run.
 
 6. **Execute checkpoint plans between waves** — see `<checkpoint_handling>`.
 
@@ -555,18 +555,7 @@ After all waves:
   <!-- Fires after all waves complete, before pre_verify_gates and verify_phase_goal. -->
   <!-- All blocking items must pass before the verifier is spawned. -->
 
-  <item id="PHGATE-01" severity="blocking">
-    <check>All plans have a corresponding SUMMARY.md</check>
-    <pass>SUMMARIES count >= PLANS count (every plan has a summary)</pass>
-    <fail>Missing SUMMARY.md — re-run failed plans before verification</fail>
-  </item>
-
-  <item id="PHGATE-02" severity="blocking">
-    <check>No SUMMARY.md contains Self-Check: FAILED</check>
-    <command>grep -rl "Self-Check: FAILED" .planning/phases/{phase_dir}/ 2>/dev/null || echo NONE</command>
-    <pass>Output is NONE (no failed self-checks)</pass>
-    <fail>Self-check failed in listed SUMMARY.md — investigate and fix before verification</fail>
-  </item>
+  <!-- SUMMARY presence and Self-Check are checked by the script (`verify phase-gate`, step pre_verify_gates), not here. -->
 
   <item id="PHGATE-03" severity="blocking">
     <check>Audit log file exists for this phase</check>
@@ -596,7 +585,7 @@ After all waves:
     <check>No plan or SUMMARY in this phase contains deferral language for this phase's own tests/QA/verification</check>
     <command>grep -rniE "tests? to be added later|QA deferred|will verify in (the )?next phase|deferred to (post-milestone|future phase)|TODO:? add auth|follow-?up:? (add )?tests|test later|verify later" .planning/phases/{phase_dir}/ 2>/dev/null || echo NONE</command>
     <pass>Output is NONE. The `deferred-items.md` sanctioned channel (pre-existing, out-of-scope issues from the executor's `&lt;scope_boundary&gt;`) is exempt — only deferral of THIS phase's own tests/QA/verification trips the gate.</pass>
-    <fail>BLOCKING — deferral language found. This is exactly how the "premature stopping" and "verifier never looked" escapes happened: work marked done while its verification was pushed to a phase that never came. Convert every match into a concrete test/QA task in THIS phase, or move a genuinely out-of-scope item into `deferred-items.md` with an approver. Never `--no-verify` past it.</fail>
+    <fail>BLOCKING — convert every match into a concrete test/QA task in THIS phase, or move a genuinely out-of-scope, pre-existing item into `deferred-items.md` with a justification. Never `--no-verify` past it.</fail>
   </item>
 
 </checkpoint>
@@ -723,7 +712,7 @@ After `post_phase_ux_sweep` and before `pre_verify_gates`. Runs only when `stack
 <step name="implementation_review">
 After the last wave and the UI steps, before `pre_verify_gates`. Skip when the phase changed nothing outside `.planning/`.
 
-Rounds and tier are the "Implementation review" row of `references/rigour.md`: spike 1 round; `standard` at most 2, the second reading only the fix commits; plans with `high_risk: true` loop to zero, but after round 4 one ruling on `{ruling_model}` closes the loop (fix or accept each open finding, no fifth round), then ONE batched diff review on `{ruling_model}`. Each round is a fresh `{reviewer_model}` agent, never the implementer, given `git diff {phase base}..HEAD -- . ':!.planning'`, the plans and the coordinator's review checklist. It reviews code and tests, not planning documents, and writes `{phase_dir}/{N}-REVIEW-{round}.md`: one line per finding (id, severity, `file:line`, what, fix). Findings go to one `{executor_model}` fix dispatch per file set. A finding left unfixed needs a reason and an `A-` row; it is a ruling only on the trigger row of `references/rigour.md`.
+Rounds and tier are the "Implementation review" row of `references/rigour.md`: plans with `high_risk: true` loop to zero, but after round 4 one ruling on `{ruling_model}` closes the loop (fix or accept each open finding, no fifth round), then ONE batched diff review on `{ruling_model}`. Each round is a fresh `{reviewer_model}` agent, never the implementer, given `git diff {phase base}..HEAD -- . ':!.planning'`, the plans and the coordinator's review checklist. It reviews code and tests, not planning documents, and writes `{phase_dir}/{N}-REVIEW-{round}.md`: one line per finding (id, severity, `file:line`, what, fix). Findings go to one `{executor_model}` fix dispatch per file set. A finding left unfixed needs a reason and an `A-` row; it is a ruling only on the trigger row of `references/rigour.md`.
 </step>
 
 <step name="pre_verify_gates">
@@ -817,13 +806,7 @@ node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs(phase-${PARENT_
 </step>
 
 <step name="record_defect_classes">
-Runs BEFORE `verify_phase_goal`. The `## Defect Classes` section of each SUMMARY.md is the executor's record of what building that plan surfaced; its reader is the milestone rules distillation (`/gsd:audit-milestone` step 7), which also reads `{N}-PLAN-CHECK.md`, `*-VERDICT.md`, `{N}-REVIEW-*.md` and VERIFICATION.md directly. So nothing is copied between files here, except the rows a UI QA agent returned, which have no file of their own: append them as returned.
-
-For each plan: if the section is missing, write `None found. (reviewed by: <caught_by values>)` (the suffix is required: a bare `None found.` fails the phase gate). Never overwrite existing rows, only append. A ruling made during this phase is one row in the SUMMARY of the plan it concerns:
-
-| class | instance | caught_by | severity | rule_gap |
-|---|---|---|---|---|
-| [general class name] | [path/file.ext:line] | [opus-ruling\|other] | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
+Runs BEFORE `verify_phase_goal`. The `## Defect Classes` section of each SUMMARY.md is the executor's record; every review keeps its findings in its own file (`{N}-PLAN-CHECK.md`, `*-VERDICT.md`, `{N}-REVIEW-*.md`, VERIFICATION.md) and the milestone rules distillation (`/gsd:audit-milestone` step 7) reads them there, so nothing is copied between files. Never overwrite existing rows; append what has no file of its own: UI QA rows as returned, and one row per ruling made in this phase (`caught_by: opus-ruling`), in the shape `| class | instance | caught_by | severity | rule_gap |`. A plan whose section is missing gets `None found. (reviewed by: <caught_by values>)`; a bare `None found.` fails the phase gate.
 
 `caught_by` values are stored identifiers the gate checks, not model choices. Commit only when something changed:
 
@@ -940,11 +923,6 @@ node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs(phase-{X}): com
 <step name="demo_script">
 Skip when `gsd-tools.js config get demo.mode --raw` is `off`, when `gsd-tools.js verify phase-gate {X}` does not report `ui_qa_required: true`, or when the VERIFICATION status is not `passed`. Otherwise follow `@~/.claude/get-shit-done/workflows/demo.md` section 1 (script only, no stack, one `utility_model` call) and commit the two files with the phase docs. Recording happens later, in the stack window, per `demo.md` section 2.
 </step>
-
-<step name="evolve_corpus">
-**Skipped by this workflow.** The installer does not ship `scripts/evolve/`, so no path under `~/.claude/get-shit-done/` exists to run, and the calibrate step (the `test_file` command from `stack_commands` per test, up to 90 runs) is far too slow for a phase-end hook. Log `evolve_corpus: skipped (manual only)` and continue. To grow the corpus, run `python3 <fork checkout>/scripts/evolve/run.py` by hand (see `scripts/evolve/README.md`); an adoption is a reviewed commit, never automatic.
-</step>
-
 
 <step name="offer_next">
 

@@ -29,7 +29,7 @@ If the command exits 1 and INIT has `error: project_context_missing`: stop, prin
 
 Parse JSON for: `auto_mode`, `researcher_model`, `planner_model`, `checker_model`, `executor_model`, `ruling_model`, `ruling_model_fallback`, `utility_model`, `research_enabled`, `plan_checker_enabled`, `nyquist_validation_enabled`, `commit_docs`, `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `phase_slug`, `padded_phase`, `has_research`, `has_context`, `has_plans`, `plan_count`, `planning_exists`, `roadmap_exists`, `phase_req_ids`, `brief_path`, `stack_profile_path`, `stack_commands`. Every spawned agent receives `brief_path` and `stack_profile_path` (when not null) in its `<files_to_read>`, and `stack_commands` verbatim.
 
-**Rigour and budget (print first):** init also returns `rigour` (`standard` | `spike`), `rigour_source`, `rigour_decision`, `spike_roots`, `rigour_rejected_reason` and `phase_req_ids`. `references/rigour.md` is the contract: what runs per level, the risk-domain add-ons, the caps, the budget and its breach rule. Before anything else print its first line (`Phase {N}: rigour ..., risk domains: ..., budget ...`). Pass `rigour`, the spike roots, the risk domains and the remaining budget in every spawn prompt and log each dispatch as `phase_spend`. On a breach return `status: blocked`, `reason: budget_exceeded` with the owner report.
+**Rigour and budget (print first):** init also returns the rigour fields and `phase_req_ids`. `references/rigour.md` is the contract (levels, risk-domain add-ons, caps, budget). Before anything else print its first line (`Phase {N}: rigour ..., risk domains: ..., budget ...`). Pass `rigour`, the spike roots, the risk domains and the remaining budget in every spawn prompt and log each dispatch as `phase_spend`. On a breach return `status: blocked`, `reason: budget_exceeded` with the owner report.
 
 **Spike branches (`rigour` is `spike`):** step 5: one research agent at most; steps 5.5 and 5.6 are skipped. Step 8: `planner_model`; at most 2 plans, all `wave: 1`, each task naming its question and capture file. Step 8b: always the light path, once. Step 9.5: `TRIAGE_MODE=checker` always, and a `rigour_violation` in an `assess-risk` result stops plan-phase with the offending paths before step 10. Step 10: `checker_model`, one round, Dimensions 1-7, 12 and 15. Step 12: one planner revision for blockers, no re-check.
 
@@ -405,7 +405,7 @@ Output consumed by /gsd:execute-phase. Plans need:
 </quality_gate>
 ```
 
-**Model rule:** every spawn passes `model` explicitly (an omitted model inherits the spawner's tier), always an init field: planner `planner_model`, or `ruling_model` for a risk-domain phase; plan-checker `checker_model`, or `ruling_model` for round 1 with the adversarial pass; rulings `ruling_model`; executor and test-writer `executor_model`. The dispatch also carries `plan_stamp` (`gsd-tools plan stamp {N} --raw`, CLI-7; until it lands pass an empty value), which the planner copies into every PLAN frontmatter.
+**Model rule:** every spawn passes `model` explicitly, always an init field: planner `planner_model` (`ruling_model` for a risk-domain phase); plan-checker `checker_model` (`ruling_model` for round 1 with the adversarial pass); rulings `ruling_model`; executor and test-writer `executor_model`. The dispatch also carries `plan_stamp` (`gsd-tools plan stamp {N} --raw`, CLI-7; until it lands pass an empty value), which the planner copies into every PLAN frontmatter.
 
 A risk-domain path is any path the product brief lists under Risk Domains (`risk_domains` in the init output); authentication/authorisation and security are always risk domains. When `risk_domains_source` is `builtin` (`project.risk_domains` in config.json is empty or absent), every path that mutates state is a risk-domain path. Tag every behaviour on a risk-domain path T0 (real-DB, mutation-proven).
 
@@ -420,7 +420,7 @@ Agent(
 
 ## 8b. Light path for trivial gap closure
 
-When `--gaps` and the gap list holds at most 4 small, independent fixes (each a few lines in one or two files, no new module, none on a risk-domain path): spawn the planner for ONE plan covering all of them, skip the plan-checker round (step 10), and hand it straight to execute-phase `--gaps-only` (executor, then verifier). Anything larger, or any fix in a risk-domain path or touching a data schema, takes the full path. Record `light gap path: {n} fixes, no checker round` in the plan's `<objective>`.
+When `--gaps` and the gap list holds at most 4 small, independent fixes (each a few lines in one or two files, no new module, none on a risk-domain path): spawn the planner for ONE plan covering all of them, skip the plan-checker round (step 10), and hand it straight to execute-phase `--gaps-only` (executor, then verifier). Anything larger, or touching a data schema, takes the full path. Record `light gap path: {n} fixes, no checker round` in the plan's `<objective>`.
 
 ## 9. Handle Planner Return
 
@@ -440,7 +440,7 @@ When `--gaps` and the gap list holds at most 4 small, independent fixes (each a 
 for PLAN_FILE in "${PHASE_DIR}"/*-PLAN.md; do printf '%s lines=%s tasks=%s\n' "$PLAN_FILE" "$(wc -l < "$PLAN_FILE")" "$(grep -c '<task' "$PLAN_FILE")"; done
 ```
 
-Compare with the caps of `references/rigour.md` (tasks and lines per plan; a plan count over the cap is a warning that the phase is too big). A plan over a cap goes back to the planner once (step 12's revision spawn, issue `plan {id}: {lines} lines / {tasks} tasks, cap {L} / {T}: split it`), before any checker is spawned. A plan whose only output is evidence is folded into the plan that builds the behaviour. Still over after that one revision: continue and list it as an unresolved warning.
+Compare with the caps of `references/rigour.md` (tasks and lines per plan; a plan count over the cap is a warning that the phase is too big). A plan over a cap goes back to the planner once (step 12's revision spawn, issue `plan {id}: {lines} lines / {tasks} tasks, cap {L} / {T}: split it`), before any checker is spawned. Still over after that one revision: continue and list it as an unresolved warning.
 
 ## 9.5. Risk Triage (Adversarial Review, MILE-39)
 
