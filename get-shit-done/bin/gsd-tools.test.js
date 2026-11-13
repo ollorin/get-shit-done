@@ -19014,3 +19014,67 @@ describe('pilot fix C1: roadmap update-plan-progress keeps Plans prose and finds
     assert.match(parsed.error, /progress table row/);
   });
 });
+
+describe('pilot fix C2: state advance-plan / update-progress follow disk truth', () => {
+  let tmpDir;
+  beforeEach(() => { tmpDir = createTempProject(); });
+  afterEach(() => { cleanup(tmpDir); });
+  const stateFile = () => path.join(tmpDir, '.planning', 'STATE.md');
+  function phaseDir(name, plans, summaries) {
+    const d = path.join(tmpDir, '.planning', 'phases', name);
+    fs.mkdirSync(d, { recursive: true });
+    const n = name.slice(0, 2);
+    for (let i = 1; i <= plans; i++) fs.writeFileSync(path.join(d, `${n}-0${i}-PLAN.md`), '# p');
+    for (let i = 1; i <= summaries; i++) fs.writeFileSync(path.join(d, `${n}-0${i}-SUMMARY.md`), '# s');
+  }
+  const STATE = (plan, suffix) => [
+    '# Project State', '', '## Current Position', '',
+    'Phase: 2 of 4 (Auth)',
+    `Plan: ${plan} of 3 ${suffix}`,
+    'Status: Plan executed',
+    'Last activity: 2026-11-13', '',
+    'Progress: [░░░░░░░░░░] 0%', '',
+  ].join('\n');
+
+  test('all plans of the phase summarised on disk: advance-plan closes the phase, no "Ready to execute", no stale suffix', () => {
+    phaseDir('02-auth', 3, 3);
+    fs.writeFileSync(stateFile(), STATE(2, '(02-02 executed, pending verification)'));
+    const r = runGsdTools('state advance-plan', tmpDir);
+    assert.ok(r.success, r.error);
+    const parsed = JSON.parse(r.output);
+    assert.strictEqual(parsed.advanced, false);
+    assert.strictEqual(parsed.reason, 'last_plan');
+    const t = fs.readFileSync(stateFile(), 'utf-8');
+    assert.doesNotMatch(t, /Ready to execute/);
+    assert.match(t, /Status: Phase complete/);
+    assert.match(t, /^Plan: 3 of 3 /m);
+    assert.doesNotMatch(t, /02-02 executed/);
+  });
+
+  test('mid-phase advance keeps working and does not leave the previous plan note behind', () => {
+    phaseDir('02-auth', 3, 1);
+    fs.writeFileSync(stateFile(), STATE(1, '(02-01 executed, pending verification)'));
+    const parsed = JSON.parse(runGsdTools('state advance-plan', tmpDir).output);
+    assert.strictEqual(parsed.advanced, true);
+    const t = fs.readFileSync(stateFile(), 'utf-8');
+    assert.match(t, /Status: Ready to execute/);
+    assert.match(t, /^Plan: 2 of 3 /m);
+    assert.doesNotMatch(t, /02-01 executed/);
+  });
+
+  test('update-progress counts unplanned roadmap phases in the denominator', () => {
+    phaseDir('01-base', 2, 2);
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), [
+      '# Roadmap', '',
+      '### Phase 1: Base', '**Plans:** 2 plans', '',
+      '### Phase 2: Auth', '**Plans:** TBD', '',
+      '### Phase 3: Admin', '**Plans:** TBD', '',
+      '### Phase 4: Decision', '**Plans:** TBD', '',
+    ].join('\n'));
+    fs.writeFileSync(stateFile(), STATE(1, ''));
+    const r = JSON.parse(runGsdTools('state update-progress', tmpDir).output);
+    assert.strictEqual(r.updated, true);
+    assert.ok(r.percent < 100, `4 roadmap phases, 1 planned and done: must not report 100%, got ${r.percent}`);
+    assert.strictEqual(r.unplanned_phases, 3);
+  });
+});

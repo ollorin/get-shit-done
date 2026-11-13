@@ -2507,6 +2507,15 @@ function replacePlanProgressLine(content, newCurrentPlan, totalPlans, suffix) {
   return content.replace(pattern, newLine);
 }
 
+// Plan counts of the phase STATE.md names ("Phase: 2 of 4 ..." / "**Current Phase:** 2"), from disk.
+function stateDiskPlanCounts(cwd, content) {
+  const m = content.match(/^\s*(?:\*\*)?(?:Current )?Phase:(?:\*\*)?\s*(\d+(?:\.\d+)?)/im);
+  if (!m) return null;
+  const info = findPhaseInternal(cwd, m[1]);
+  if (!info || !info.plans || info.plans.length === 0) return null;
+  return { plans: info.plans.length, summaries: info.summaries.length };
+}
+
 function cmdStateAdvancePlan(cwd, raw) {
   const statePath = path.join(cwd, '.planning', 'STATE.md');
   if (!fs.existsSync(statePath)) { output({ error: 'STATE.md not found' }, raw); return; }
@@ -2523,8 +2532,9 @@ function cmdStateAdvancePlan(cwd, raw) {
   if (!isNaN(boldCurrentPlan) && !isNaN(boldTotalPlans)) {
     const currentPlan = boldCurrentPlan;
     const totalPlans = boldTotalPlans;
+    const boldDisk = stateDiskPlanCounts(cwd, content);
 
-    if (currentPlan >= totalPlans) {
+    if (currentPlan >= totalPlans || (boldDisk !== null && boldDisk.summaries >= boldDisk.plans)) {
       content = stateReplaceField(content, 'Status', 'Phase complete — ready for verification') || content;
       content = stateReplaceField(content, 'Last Activity', today) || content;
       atomicWriteFileSync(statePath, content);
@@ -2548,19 +2558,24 @@ function cmdStateAdvancePlan(cwd, raw) {
   }
 
   const { currentPlan, totalPlans, suffix } = parsed;
+  const disk = stateDiskPlanCounts(cwd, content);
+  // Disk truth: every plan of the phase has a SUMMARY, so the counter's value is irrelevant, this was the last plan.
+  const allExecuted = disk !== null && disk.summaries >= disk.plans;
 
-  if (currentPlan >= totalPlans) {
+  if (currentPlan >= totalPlans || allExecuted) {
     // Preserve the parsed suffix verbatim if it already indicates completion --
     // do not double up wording (e.g. "in current phase complete" appearing twice).
-    const completionSuffix = /complete/i.test(suffix) ? suffix : 'in current phase complete';
-    content = replacePlanProgressLine(content, currentPlan, totalPlans, completionSuffix) || content;
+    const completionSuffix = /complete/i.test(suffix) && !allExecuted ? suffix : 'in current phase complete';
+    content = replacePlanProgressLine(content, allExecuted ? totalPlans : currentPlan, totalPlans, completionSuffix) || content;
     content = stateReplaceFieldTolerant(content, 'Status', 'Phase complete — ready for verification') || content;
     content = stateReplaceFieldTolerant(content, 'Last activity', today) || content;
     atomicWriteFileSync(statePath, content);
-    output({ advanced: false, reason: 'last_plan', current_plan: currentPlan, total_plans: totalPlans, status: 'ready_for_verification' }, raw, 'false');
+    output({ advanced: false, reason: 'last_plan', current_plan: allExecuted ? totalPlans : currentPlan, total_plans: totalPlans, status: 'ready_for_verification' }, raw, 'false');
   } else {
     const newPlan = currentPlan + 1;
-    content = replacePlanProgressLine(content, newPlan, totalPlans, suffix) || content;
+    // The old suffix narrates the plan just finished; with disk counts available restate it from them.
+    const freshSuffix = disk ? `(${disk.summaries} of ${disk.plans} plans executed)` : suffix;
+    content = replacePlanProgressLine(content, newPlan, totalPlans, freshSuffix) || content;
     content = stateReplaceFieldTolerant(content, 'Status', 'Ready to execute') || content;
     content = stateReplaceFieldTolerant(content, 'Last activity', today) || content;
     atomicWriteFileSync(statePath, content);
@@ -2603,6 +2618,22 @@ function cmdStateRecordMetric(cwd, options, raw) {
   }
 }
 
+// Roadmap phases (unchecked) that have no PLAN.md in any phase directory.
+function countUnplannedRoadmapPhases(cwd) {
+  let roadmap;
+  try { roadmap = fs.readFileSync(path.join(cwd, '.planning', 'ROADMAP.md'), 'utf-8'); } catch { return 0; }
+  const nums = new Set();
+  for (const m of roadmap.matchAll(/^#{2,4}\s*Phase\s+(\d+(?:\.\d+)?)\s*[:\u2014-]/gim)) nums.add(m[1]);
+  let unplanned = 0;
+  for (const n of nums) {
+    const done = new RegExp(`^\\s*-\\s*\\[x\\].*Phase\\s+${n.replace('.', '\\.')}[:\\s]`, 'im').test(roadmap);
+    if (done) continue;
+    const info = findPhaseInternal(cwd, n);
+    if (!info || !info.plans || info.plans.length === 0) unplanned++;
+  }
+  return unplanned;
+}
+
 function cmdStateUpdateProgress(cwd, raw) {
   const statePath = path.join(cwd, '.planning', 'STATE.md');
   if (!fs.existsSync(statePath)) { output({ error: 'STATE.md not found' }, raw); return; }
@@ -2623,6 +2654,10 @@ function cmdStateUpdateProgress(cwd, raw) {
       totalSummaries += files.filter(f => f.match(/-SUMMARY\.md$/i)).length;
     }
   }
+
+  // A roadmap phase with no plan on disk still has work: count it as one plan (a lower bound) so unplanned phases keep the percentage below 100.
+  const unplannedPhases = countUnplannedRoadmapPhases(cwd);
+  totalPlans += unplannedPhases;
 
   const percent = totalPlans > 0 ? Math.round(totalSummaries / totalPlans * 100) : 0;
   const barWidth = 10;
@@ -2664,11 +2699,11 @@ function cmdStateUpdateProgress(cwd, raw) {
   if (boldProgressPattern.test(content)) {
     content = content.replace(boldProgressPattern, `$1${progressStr}`);
     atomicWriteFileSync(statePath, content);
-    output({ updated: true, percent, completed: totalSummaries, total: totalPlans, bar: progressStr }, raw, progressStr);
+    output({ updated: true, percent, completed: totalSummaries, total: totalPlans, unplanned_phases: unplannedPhases, bar: progressStr }, raw, progressStr);
   } else if (plainProgressPattern.test(content)) {
     content = content.replace(plainProgressPattern, `$1${progressStr}`);
     atomicWriteFileSync(statePath, content);
-    output({ updated: true, percent, completed: totalSummaries, total: totalPlans, bar: progressStr }, raw, progressStr);
+    output({ updated: true, percent, completed: totalSummaries, total: totalPlans, unplanned_phases: unplannedPhases, bar: progressStr }, raw, progressStr);
   } else {
     output({ updated: false, reason: 'Progress field not found in STATE.md' }, raw, 'false');
   }
