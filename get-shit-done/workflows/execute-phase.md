@@ -214,7 +214,7 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
    the peer NAME as the primary handle and relay an agentId later only if a peer needs it.
    Skip this block entirely for a single-executor wave — there are no peers to collide with.
 
-   **Model rule:** every spawn passes `model` explicitly (never omit; an omitted model inherits the spawner's tier), taken from init: test-writer and fix dispatches `executor_model`; executors per the per-task routing below (a spike plan: its `executor_model` in `phase-plan-index`); a task escalates from haiku to sonnet after 2 failures; a sonnet task that fails twice goes to the failure handling below (debugger, ruling or blocked), never to an opus executor; review rounds `reviewer_model`, fresh each round; the final phase review (verifier), rulings and the batched diff review `ruling_model`, the configured top model (`references/model-profiles.md`; a rejected spawn retries once on `ruling_model_fallback` and says so); watchdogs and reports `utility_model`. This workflow holds no model literals.
+   **Model rule:** every spawn passes `model` explicitly (never omit; an omitted model inherits the spawner's tier), taken from init: test-writer and fix dispatches `executor_model`; executors per the per-task routing below (a spike plan: its `executor_model` in `phase-plan-index`); a task escalates from haiku to sonnet after 2 failures; a sonnet task that fails twice goes to the failure handling below (debugger, ruling or blocked), never to an opus executor; review rounds `reviewer_model`, fresh each round; the final phase review (verifier), rulings and the batched diff review `ruling_model`, the configured top model (`references/models.md`; a rejected spawn retries once on `ruling_model_fallback` and says so); watchdogs and reports `utility_model`. This workflow holds no model literals.
 
    **Handoff brief (every executor and verifier spawn).** Assemble the fixed 5-section brief per `@get-shit-done/references/handoff-brief.md`, deterministically when possible: `node ~/.claude/get-shit-done/bin/gsd-tools.js handoff brief --json '{...}'` returns `brief_text`. PHASE GOAL from ROADMAP.md; KEY DECISIONS locked in CONTEXT.md and STATE.md for this phase; OPEN RISKS (the plan-checker's unresolved issues and watch-items); FILE MAP of the files the phase touches; HARD RULES the executor must honor. Put the result in `<handoff_brief>` of the spawn prompts below and of the verifier prompt.
 
@@ -824,7 +824,7 @@ Create VERIFICATION.md.
 {HANDOFF_BRIEF, with HARD RULES = the rules the phase was verified against}
 </handoff_brief>",
   subagent_type="gsd-verifier",
-  model="{ruling_model}",  # the configured top model: the final phase review always runs on it (references/model-profiles.md)
+  model="{ruling_model}",  # the configured top model: the final phase review always runs on it (references/models.md)
   description="Verify phase {phase_number}"
 )
 ```
@@ -868,7 +868,6 @@ All automated checks passed. {N} items need human testing:
 ```
 ## ⚠ Phase {X}: {Name} — Gaps Found
 
-**Score:** {N}/{M} must-haves verified
 **Report:** {phase_dir}/{phase_num}-VERIFICATION.md
 
 ### What's Missing

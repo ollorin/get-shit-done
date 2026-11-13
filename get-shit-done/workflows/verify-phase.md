@@ -251,8 +251,6 @@ Format each as: Test Name → What to do → Expected result → Why can't verif
 **gaps_found:** Any truth FAILED, artifact MISSING/STUB, key link NOT_WIRED, or blocker found.
 
 **human_needed:** All automated checks pass but human verification items remain.
-
-**Score:** `verified_truths / total_truths`
 </step>
 
 <step name="generate_fix_plans">

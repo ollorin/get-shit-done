@@ -108,9 +108,7 @@ This fork extends the base GSD system with autonomous execution, a persistent kn
 ### What Was Built
 
 **Auto Mode**
-The planner writes a `<model>` tier on each task (CLAUDE.md tier table). Haiku for mechanical one-step tasks, Sonnet for multi-step implementation, Opus for architecture and high-stakes decisions. Quota pressure adjusts selection downward at >80% and >95% usage. Top 3 relevant docs are injected into the executor prompt alongside the routing decision. ~40–60% token savings vs all-Opus.
-
-Routing rules editable at `~/.claude/routing-rules.md`. Project overrides at `.planning/routing/project-rules.md`.
+The planner writes a `<model>` tier (`haiku` or `sonnet`) on each task; the executor runs each task on its tier and a failed haiku task escalates to sonnet (`get-shit-done/references/task-routing.md`).
 
 **Knowledge System**
 Local SQLite + sqlite-vec knowledge database at `.planning/knowledge/{user}.db`. Stores decisions, lessons, summaries with TTL lifecycle, vector + FTS5 search, and type-weighted ranking. Passive extraction via Claude Code hooks captures knowledge during normal work. Three-stage deduplication: content hash → canonical hash → embedding similarity. Memory evolves — similar new knowledge updates existing entries rather than creating duplicates.

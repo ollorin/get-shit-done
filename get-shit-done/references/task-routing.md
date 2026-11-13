@@ -4,7 +4,7 @@ The standard path of `workflows/execute-phase.md` `execute_waves` at every rigou
 
 <step name="per_task_routing">
 
-**1. Read the tiers.** For each `<task>` of the plan (1-based `task_index`), in dependency and wave order: the tier is the `<model>` element text, else the `tier="..."` attribute of the `<task>` tag, case-insensitive; `verify form --plans-only` guarantees one exists. Keep `ROUTING_STATS` (count per tier).
+**1. Read the tiers.** For each `<task>` of the plan (1-based `task_index`), in dependency and wave order: the tier is the `<model>` element text, else the `tier="..."` attribute of the `<task>` tag, case-insensitive; `verify form --plans-only` demands one at plan time, and a task still without a tag at execute time (a plan written before the rule) runs on `sonnet` (`phase-plan-index` lists each plan's `task_tiers` with that default applied). Keep `ROUTING_STATS` (count per tier).
 
 **2. Spawn one executor per task, sequentially** (tasks may depend on each other). For each task:
 

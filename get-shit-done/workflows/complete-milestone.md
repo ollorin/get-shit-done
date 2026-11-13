@@ -704,7 +704,7 @@ ls .planning/RETROSPECTIVE.md 2>/dev/null
 **Gather retrospective data:**
 
 1. From SUMMARY.md files: Extract key deliverables, one-liners, tech decisions
-2. From VERIFICATION.md files: Extract verification scores, gaps found
+2. From VERIFICATION.md files: Extract verification status, gaps found
 3. From UAT.md files: Extract test results, issues found
 4. From git log: Count commits, calculate timeline
 5. From the milestone work: Reflect on what worked and what didn't

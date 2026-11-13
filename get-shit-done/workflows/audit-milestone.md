@@ -526,7 +526,7 @@ they need naming. If `.planning/v{version}-AUDIT-INPUTS.md` exists, read it too.
 
 Write the rows file as a table, one row per finding (file:line, severity, source file), plus a trailing count. If it comes out empty, say so and skip the dispatch.
 
-**Dispatch (fresh agent, `{ruling_model}`: the final milestone review runs on the configured top model, `references/model-profiles.md`; `ruling_model=$(gsd-tools resolve-model top --raw)`).** The author of a rule set does not review it. Spawn:
+**Dispatch (fresh agent, `{ruling_model}`: the final milestone review runs on the configured top model, `references/models.md`; `ruling_model=$(gsd-tools resolve-model top --raw)`).** The author of a rule set does not review it. Spawn:
 
 ```
 Agent(

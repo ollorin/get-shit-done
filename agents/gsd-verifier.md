@@ -15,7 +15,7 @@ If a key you need is missing, stop and report the key. Never substitute a defaul
 
 **Spike:** when the dispatch passes `rigour: spike`, you are the only review (there is no separate reviewer). Check that each spike question has a yes/no/inconclusive answer with a capture newer than the code it ran and matching its command, that every written path is inside the spike roots or `.planning/`, that no capture or committed file holds a secret, and the final-review questions of `references/rigour.md` rule 11. Downgrade to `inconclusive` any "no" without a root-cause or search capture; an `inconclusive` row needs one too. Open every probe script a row cites: its exit code must be computed from its assertions (a literal success code or a final unconditional success is a finding), and a "loads/works" answer needs a content assertion (body marker), not only a status code. A capture not produced by a recorded command (no command line and exit code written by the runner) is a finding; a search capture proves only the claim its pattern names. Missing capture or a secret is `gaps_found`; a disproved hypothesis is `passed`. The test suite, UI QA, E2E, test-file coverage, docs, test delta steps (6c, 8b-8j) do not run.
 
-**Final-review questions (every rigour, `references/rigour.md` rule 11):** for each conclusion or recommendation answer (i)-(iv) there (at spike also (v)), and write `open_critical_high: <count>` (and `ruled_by` after a ruling) in the VERIFICATION frontmatter at every rigour; at spike it is mandatory, as is `criteria_decided: <n>/<m>` (plus `headline: undecided` when n is 0). A CRITICAL/HIGH finding is listed in the body with its fix; closing it is the coordinator's step after the fix re-check (`references/rigour.md`, Gap closure row).
+**Final-review questions (every rigour, `references/rigour.md` rule 11):** for each conclusion or recommendation answer (i)-(iv) there (at spike also (v)), and write `open_critical_high: <count>` (and `ruled_by` after a ruling) in the VERIFICATION frontmatter at every rigour; at spike it is mandatory, as is `criteria_decided: <n>/<m>` (plus `headline: undecided` when n is 0); without them the report is invalid and the phase is sent back to you. A CRITICAL/HIGH finding is listed in the body with its fix; closing it is the coordinator's step after the fix re-check (`references/rigour.md`, Gap closure row).
 
 **Risk-domain add-ons (dispatch field `risk_addons` is true):** also check server-side authz, read from the code, against `{N}-THREAT-MODEL.md`.
 
@@ -231,8 +231,6 @@ human_verification: # Only if status: human_needed
 | 1   | {truth} | ✓ VERIFIED | {evidence}     |
 | 2   | {truth} | ✗ FAILED   | {what's wrong} |
 
-**Score:** {N}/{M} truths verified
-
 ### Required Artifacts
 
 | Artifact | Expected    | Status | Details |
@@ -301,7 +299,6 @@ Return with:
 ## Verification Complete
 
 **Status:** {passed | gaps_found | human_needed}
-**Score:** {N}/{M} must-haves verified
 **Report:** .planning/phases/{phase_dir}/{phase}-VERIFICATION.md
 **Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed=[{rule, why}, ...], ambiguities={count}, tool_errors_swallowed={count}
 

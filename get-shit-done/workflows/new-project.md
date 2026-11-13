@@ -151,16 +151,6 @@ AskUserQuestion([
       { label: "Yes (Recommended)", description: "Confirm deliverables match phase goals" },
       { label: "No", description: "Trust execution, skip verification" }
     ]
-  },
-  {
-    header: "AI Models",
-    question: "Which AI models for planning agents?",
-    multiSelect: false,
-    options: [
-      { label: "Balanced (Recommended)", description: "Strong planning, cheap execution — good quality/cost ratio (see references/model-profiles.md)" },
-      { label: "Quality", description: "Strongest model for research/roadmap — higher cost, deeper analysis" },
-      { label: "Budget", description: "Cheapest model where possible — fastest, lowest cost" }
-    ]
   }
 ])
 ```
@@ -475,16 +465,6 @@ questions: [
     options: [
       { label: "Yes (Recommended)", description: "Confirm deliverables match phase goals" },
       { label: "No", description: "Trust execution, skip verification" }
-    ]
-  },
-  {
-    header: "AI Models",
-    question: "Which AI models for planning agents?",
-    multiSelect: false,
-    options: [
-      { label: "Balanced (Recommended)", description: "Strong planning, cheap execution — good quality/cost ratio (see references/model-profiles.md)" },
-      { label: "Quality", description: "Strongest model for research/roadmap — higher cost, deeper analysis" },
-      { label: "Budget", description: "Cheapest model where possible — fastest, lowest cost" }
     ]
   }
 ]

@@ -61,7 +61,7 @@ REQUIREMENTS=$(node ~/.claude/get-shit-done/bin/gsd-tools.js frontmatter get {pl
 
 **Extract routing context if present:**
 If the prompt contains a `<routing_context>` block:
-  ROUTED_TIER = parse the tier from "This task routed to {tier}" line (haiku|sonnet|opus)
+  ROUTED_TIER = parse the tier from "This task routed to {tier}" line (haiku|sonnet)
   If no routing_context or parse fails: ROUTED_TIER = null
 </step>
 
@@ -553,7 +553,7 @@ Or: "None - plan executed exactly as written."
 | 2    | sonnet      | no        |
 | 3    | haiku       | yes → sonnet |
 
-**Distribution:** {haiku_count} haiku / {sonnet_count} sonnet / {opus_count} opus
+**Distribution:** {haiku_count} haiku / {sonnet_count} sonnet
 **Escalations:** {escalation_count} (haiku → sonnet on retry)
 ```
 
