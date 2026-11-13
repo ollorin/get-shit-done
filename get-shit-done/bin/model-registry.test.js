@@ -145,7 +145,7 @@ describe('Phase 52-03: analytics tier-key-set parity (unrecognized model -> unkn
       '# Execution Log',
       JSON.stringify({ type: 'routing_decision', model: 'haiku', phase: '52' }),
       JSON.stringify({ type: 'routing_decision', model: 'haiku', phase: '52' }),
-      JSON.stringify({ type: 'task_dispatch', model: 'sonnet', phase: '52' }),
+      JSON.stringify({ type: 'routing_decision', model: 'sonnet', phase: '52' }),
       JSON.stringify({ type: 'routing_decision', model: 'opus', phase: '52' }),
       JSON.stringify({ type: 'routing_decision', model: 'gpt-5', phase: '52' }),
     ].join('\n');

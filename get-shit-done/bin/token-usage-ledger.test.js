@@ -5,7 +5,7 @@
  * JSONL append/read pair, the crude estimation heuristic, the configured
  * baseline-tier resolver, the honesty-critical savings computation
  * (full/partial/empty coverage), the table formatter's honesty labeling,
- * and loadConfig's new savings_baseline_profile key.
+ * and loadConfig's new savings_baseline_tier key.
  */
 
 'use strict';
@@ -179,16 +179,12 @@ describe('Phase 58-01: token usage ledger', () => {
   });
 
   describe('resolveBaselineTier', () => {
-    test('quality -> opus', () => {
+    test('a known tier is kept', () => {
+      assert.strictEqual(resolveBaselineTier('sonnet'), 'sonnet');
+      assert.strictEqual(resolveBaselineTier('haiku'), 'haiku');
+    });
+    test('unknown/missing tier (a legacy profile name included) falls back to opus', () => {
       assert.strictEqual(resolveBaselineTier('quality'), 'opus');
-    });
-    test('balanced -> sonnet', () => {
-      assert.strictEqual(resolveBaselineTier('balanced'), 'sonnet');
-    });
-    test('budget -> sonnet', () => {
-      assert.strictEqual(resolveBaselineTier('budget'), 'sonnet');
-    });
-    test('unknown/missing profile falls back to opus (the quality mapping)', () => {
       assert.strictEqual(resolveBaselineTier('nonsense'), 'opus');
       assert.strictEqual(resolveBaselineTier(undefined), 'opus');
       assert.strictEqual(resolveBaselineTier(null), 'opus');
@@ -216,11 +212,10 @@ describe('Phase 58-01: token usage ledger', () => {
     test('full coverage: 3 sonnet records matching 3 outcome events, quality baseline', () => {
       const records = [1, 2, 3].map(i => usageRecord('58', '01', i));
       const events = [1, 2, 3].map(i => outcomeEvent('58', '01', i));
-      const report = computeSavingsFromUsage(records, events, 'quality');
+      const report = computeSavingsFromUsage(records, events, 'opus');
       assert.strictEqual(report.available, true);
       assert.deepStrictEqual(report.coverage, { matched_tasks: 3, total_tasks: 3, percent: 100 });
       assert.strictEqual(report.baseline_tier, 'opus');
-      assert.strictEqual(report.baseline_profile, 'quality');
       assert.ok(report.savings_usd > 0, 'opus baseline costs more than sonnet actual');
       assert.strictEqual(report.data_quality, 'all_estimated');
       assert.strictEqual(report.record_count, 3);
@@ -231,7 +226,7 @@ describe('Phase 58-01: token usage ledger', () => {
     test('partial coverage: 3 outcome events, only 2 matched -> percent is (2/3)*100', () => {
       const records = [1, 2].map(i => usageRecord('58', '01', i));
       const events = [1, 2, 3].map(i => outcomeEvent('58', '01', i));
-      const report = computeSavingsFromUsage(records, events, 'quality');
+      const report = computeSavingsFromUsage(records, events, 'opus');
       assert.strictEqual(report.coverage.matched_tasks, 2);
       assert.strictEqual(report.coverage.total_tasks, 3);
       assert.ok(Math.abs(report.coverage.percent - (2 / 3) * 100) < 1e-9,
@@ -248,17 +243,17 @@ describe('Phase 58-01: token usage ledger', () => {
         'zero-denominator coverage is explicitly null, not 0/100/NaN');
     });
 
-    test('baseline profile switching changes baseline_tier and savings (budget <= quality)', () => {
+    test('baseline tier switching changes baseline_tier and savings (sonnet <= opus)', () => {
       const records = [1, 2, 3].map(i => usageRecord('58', '01', i));
       const events = [1, 2, 3].map(i => outcomeEvent('58', '01', i));
-      const quality = computeSavingsFromUsage(records, events, 'quality');
-      const budget = computeSavingsFromUsage(records, events, 'budget');
+      const quality = computeSavingsFromUsage(records, events, 'opus');
+      const budget = computeSavingsFromUsage(records, events, 'sonnet');
       assert.strictEqual(quality.baseline_tier, 'opus');
       assert.strictEqual(budget.baseline_tier, 'sonnet');
       assert.notStrictEqual(quality.savings_usd, budget.savings_usd);
       assert.notStrictEqual(quality.savings_percent, budget.savings_percent);
       assert.ok(budget.savings_usd <= quality.savings_usd,
-        'budget (cheaper) baseline yields lower or equal savings than quality');
+        'a sonnet baseline yields lower or equal savings than opus');
     });
 
     test('data_quality: mixed / all_actual / all_estimated', () => {
@@ -314,7 +309,7 @@ describe('Phase 58-01: token usage ledger', () => {
     });
   });
 
-  describe('loadConfig savings_baseline_profile', () => {
+  describe('loadConfig savings_baseline_tier', () => {
     let tmpDir;
 
     beforeEach(() => {
@@ -325,24 +320,24 @@ describe('Phase 58-01: token usage ledger', () => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
-    test('defaults to quality when .planning/config.json is absent', () => {
-      assert.strictEqual(loadConfig(tmpDir).savings_baseline_profile, 'quality');
+    test('defaults to opus when .planning/config.json is absent', () => {
+      assert.strictEqual(loadConfig(tmpDir).savings_baseline_tier, 'opus');
     });
 
-    test('nested {"savings":{"baseline_profile":"budget"}} resolves to budget', () => {
+    test('nested {"savings":{"baseline_tier":"sonnet"}} resolves to sonnet', () => {
       const planningDir = path.join(tmpDir, '.planning');
       fs.mkdirSync(planningDir, { recursive: true });
       fs.writeFileSync(path.join(planningDir, 'config.json'),
-        JSON.stringify({ savings: { baseline_profile: 'budget' } }));
-      assert.strictEqual(loadConfig(tmpDir).savings_baseline_profile, 'budget');
+        JSON.stringify({ savings: { baseline_tier: 'sonnet' } }));
+      assert.strictEqual(loadConfig(tmpDir).savings_baseline_tier, 'sonnet');
     });
 
-    test('flat {"savings_baseline_profile":"balanced"} resolves to balanced', () => {
+    test('flat {"savings_baseline_tier":"haiku"} resolves to haiku', () => {
       const planningDir = path.join(tmpDir, '.planning');
       fs.mkdirSync(planningDir, { recursive: true });
       fs.writeFileSync(path.join(planningDir, 'config.json'),
-        JSON.stringify({ savings_baseline_profile: 'balanced' }));
-      assert.strictEqual(loadConfig(tmpDir).savings_baseline_profile, 'balanced');
+        JSON.stringify({ savings_baseline_tier: 'haiku' }));
+      assert.strictEqual(loadConfig(tmpDir).savings_baseline_tier, 'haiku');
     });
   });
 });

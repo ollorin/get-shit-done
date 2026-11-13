@@ -101,18 +101,16 @@ describe('R5-5: at spike the executor resolves to sonnet', () => {
     fs.rmSync(path.join(s, '.planning', 'OWNER-GATES.json'));
     assert.strictEqual(model(s), 'haiku');
   });
-  test('rigour.md and model-profiles.md say so', () => {
+  test('rigour.md and models.md say so', () => {
     assert.match(doc('get-shit-done/references/rigour.md'), /`executor_model` \(the floor, and with it the fix dispatch\) resolves to `sonnet`/);
-    assert.match(doc('get-shit-done/references/model-profiles.md'), /raised from `haiku` to `sonnet`/);
+    assert.match(doc('get-shit-done/references/models.md'), /raised from `haiku` to `sonnet`/);
   });
 });
 
-describe('R5-6: the spike dispatch budget is 10', () => {
+describe('R5-6: the spike wall budget is 45', () => {
   test('default, rigour.md and no stale 8 in the spike rows', () => {
-    assert.deepStrictEqual(budget.budgetFields(project(), 'spike'), { budget_class: 'spike', budget_wall_minutes: 45, budget_dispatches: 10 });
-    const r = doc('get-shit-done/references/rigour.md');
-    assert.match(r, /\| 45 min \/ 10 \|/);
-    assert.match(r, /10 as the cap/);
+    assert.deepStrictEqual(budget.budgetFields(project(), 'spike'), { budget_class: 'spike', budget_wall_minutes: 45 });
+    assert.match(doc('get-shit-done/references/rigour.md'), /\| 45 min \|/);
   });
 });
 
@@ -138,7 +136,7 @@ describe('R5-7: a spike phase with an open CRITICAL/HIGH is ruled before it is p
     const pd = phaseDir(dir, 1);
     write(dir, `.planning/phases/${path.basename(pd)}/01-01-PLAN.md`, '---\nphase: 01\nplan: "01"\nfiles_modified: []\n---\n# P\n');
     write(dir, `.planning/phases/${path.basename(pd)}/01-01-SUMMARY.md`, '# S\n\n## Self-Check: PASSED\n');
-    write(dir, `.planning/phases/${path.basename(pd)}/01-VERIFICATION.md`, '---\nstatus: gaps_found\nopen_critical_high: 1\n---\n# V\n');
+    write(dir, `.planning/phases/${path.basename(pd)}/01-VERIFICATION.md`, '---\nstatus: gaps_found\nopen_critical_high: 1\ncriteria_decided: 1/1\n---\n# V\n');
     git(dir, 'add', '-A');
     git(dir, 'commit', '-q', '-m', 'feat(01-01): work');
     const res = JSON.stringify({ status: 'gaps_found', gap_cycle_done: true });

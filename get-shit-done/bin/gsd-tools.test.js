@@ -11443,9 +11443,9 @@ describe('Phase 52-02: Self-Report Telemetry (analytics.js section + agent-file 
       }
     });
 
-    test('gsd-verifier.md regression guard: pre-existing "**Score:** {N}/{M} must-haves verified" literal still present', () => {
+    test('gsd-verifier.md regression guard: the dropped "**Score:** {N}/{M} must-haves verified" line stays gone', () => {
       const content = readAgentFile('gsd-verifier.md');
-      assert.match(content, /\*\*Score:\*\* \{N\}\/\{M\} must-haves verified/, 'pre-existing Score line must not have been removed');
+      assert.doesNotMatch(content, /\*\*Score:\*\* \{N\}\/\{M\} must-haves verified/, 'the Score line was dropped with the score feature');
     });
   });
 });

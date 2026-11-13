@@ -91,25 +91,17 @@ function estimateTaskTokens(taskName, tier) {
   };
 }
 
-// Pure function -- no I/O. Resolves the tier the CONFIGURED baseline
-// profile (savings_baseline_profile, default "quality") would have
-// assigned to the per-task gsd-executor spawn these usage records track,
-// the savings baseline: quality->opus, balanced->sonnet, budget->sonnet.
-// Deliberately narrow, documented, hardcoded constant (not a live parse of
-// ROLE_MODELS in gsd-tools.js, which need not equal this baseline).
-const BASELINE_PROFILE_EXECUTOR_TIER = { quality: 'opus', balanced: 'sonnet', budget: 'sonnet' };
-function resolveBaselineTier(baselineProfile) {
-  return BASELINE_PROFILE_EXECUTOR_TIER[baselineProfile] || BASELINE_PROFILE_EXECUTOR_TIER.quality;
-}
+// The savings baseline: what the same tokens would have cost on one fixed tier (savings_baseline_tier, default "opus").
+const resolveBaselineTier = (tier) => (CLAUDE_PRICING[tier] ? tier : 'opus');
 
 // Pure function -- no I/O. THE honesty-critical computation:
 //  - zero usage records -> { available: false, reason: 'no recorded usage data' }
 //    (never fabricates numbers, never falls through to any other default)
 //  - otherwise -> full savings computation against the CONFIGURED baseline
-//    profile, plus an explicit coverage percentage: unique
+//    tier, plus an explicit coverage percentage: unique
 //    (phase,plan,task_index) task identity tuples with >=1 matching usage
 //    record, vs the total unique task identity tuples in taskOutcomeEvents.
-function computeSavingsFromUsage(usageRecords, taskOutcomeEvents, baselineProfile) {
+function computeSavingsFromUsage(usageRecords, taskOutcomeEvents, baselineTierName) {
   const records = Array.isArray(usageRecords) ? usageRecords : [];
   const outcomeEvents = (Array.isArray(taskOutcomeEvents) ? taskOutcomeEvents : [])
     .filter(e => e && e.type === 'task_outcome');
@@ -118,8 +110,7 @@ function computeSavingsFromUsage(usageRecords, taskOutcomeEvents, baselineProfil
     return { available: false, reason: 'no recorded usage data' };
   }
 
-  const resolvedBaselineProfile = baselineProfile || 'quality';
-  const baselineTier = resolveBaselineTier(resolvedBaselineProfile);
+  const baselineTier = resolveBaselineTier(baselineTierName);
   const baselinePricing = CLAUDE_PRICING[baselineTier] || CLAUDE_PRICING.opus;
 
   let actualCostUsd = 0, baselineCostUsd = 0;
@@ -158,7 +149,6 @@ function computeSavingsFromUsage(usageRecords, taskOutcomeEvents, baselineProfil
   return {
     available: true,
     generated_at: new Date().toISOString(),
-    baseline_profile: resolvedBaselineProfile,
     baseline_tier: baselineTier,
     total_tokens: { input: totalInput, output: totalOutput, total: totalInput + totalOutput },
     actual_cost_usd: actualCostUsd,
@@ -192,7 +182,7 @@ function formatUsageSavingsTable(report) {
     lines.push(`NOTE: ${scope} figures below are ESTIMATED -- no actual per-spawn token data is available from the harness yet. Treat as an approximation, not measured fact.`);
     lines.push('');
   }
-  lines.push(`Baseline profile: ${report.baseline_profile} (executor tier: ${report.baseline_tier})`);
+  lines.push(`Baseline tier: ${report.baseline_tier}`);
   lines.push(`Coverage: ${report.coverage.percent === null ? 'n/a' : report.coverage.percent.toFixed(0) + '%'} (${report.coverage.matched_tasks}/${report.coverage.total_tasks} tasks have recorded usage)`);
   lines.push('');
   lines.push(`Total Tokens:  ${report.total_tokens.total.toLocaleString()} (in: ${report.total_tokens.input.toLocaleString()}, out: ${report.total_tokens.output.toLocaleString()})`);

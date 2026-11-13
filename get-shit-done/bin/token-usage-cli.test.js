@@ -135,7 +135,6 @@ describe('Phase 58-02: token-usage CLI wiring (record -> report)', () => {
     const report = JSON.parse(jsonResult.output);
     assert.strictEqual(report.available, true);
     assert.deepStrictEqual(report.coverage, { matched_tasks: 3, total_tasks: 3, percent: 100 });
-    assert.strictEqual(report.baseline_profile, 'quality');
     assert.strictEqual(report.baseline_tier, 'opus');
     assert.ok(report.savings_usd > 0, `expected positive savings (sonnet actual vs opus baseline), got ${report.savings_usd}`);
     assert.strictEqual(report.data_quality, 'all_estimated');
@@ -166,10 +165,10 @@ describe('Phase 58-02: token-usage CLI wiring (record -> report)', () => {
     );
   });
 
-  test('savings_baseline_profile config wiring: budget profile yields sonnet baseline (not opus)', () => {
+  test('savings_baseline_tier config wiring: a sonnet baseline tier is used, not opus', () => {
     fs.writeFileSync(
       path.join(tmpDir, '.planning', 'config.json'),
-      JSON.stringify({ savings: { baseline_profile: 'budget' } }, null, 2)
+      JSON.stringify({ savings: { baseline_tier: 'sonnet' } }, null, 2)
     );
     logTaskOutcome(1);
     recordUsage(1);
@@ -178,9 +177,7 @@ describe('Phase 58-02: token-usage CLI wiring (record -> report)', () => {
     assert.ok(jsonResult.success, `savings report --json failed: ${jsonResult.error}`);
     const report = JSON.parse(jsonResult.output);
     assert.strictEqual(report.available, true);
-    assert.strictEqual(report.baseline_profile, 'budget');
-    // Proves the config key changes the COMPUTED report, not just its label:
-    // budget's executor tier is sonnet, so the baseline tier must not be opus.
+    // The config key changes the COMPUTED report, not just its label.
     assert.strictEqual(report.baseline_tier, 'sonnet');
   });
 

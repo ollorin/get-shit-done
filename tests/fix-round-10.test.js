@@ -72,11 +72,10 @@ describe('R10-G: cumulative budget totals across windows', () => {
     const ev = [
       { type: 'phase_start', phase: '1', timestamp: t(0) },
       { type: 'phase_spend', phase: '1', timestamp: t(10) },
-      { type: 'phase_complete', phase: '1', timestamp: t(12), wall_minutes_spent: 12, dispatches_spent: 1, total_wall_minutes: 12, total_dispatches: 1, budget_wall_minutes: 45, budget_dispatches: 10 },
+      { type: 'phase_complete', phase: '1', timestamp: t(12), wall_minutes_spent: 12, dispatches_spent: 1, total_wall_minutes: 12, total_dispatches: 1, budget_wall_minutes: 45 },
     ];
     const st = budget.status({ cwd: tmpDir, phase: '1', cls: 'spike', events: ev });
     assert.deepStrictEqual([st.final, st.total_wall_minutes, st.total_dispatches], [true, 12, 1]);
-    for (const f of ['get-shit-done/bin/gsd-tools.js']) assert.ok((doc(f).match(/total_wall_minutes: b\.total_wall_minutes/g) || []).length >= 2, 'both phase_complete writers carry the totals');
   });
 });
 

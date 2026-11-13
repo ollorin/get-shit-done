@@ -25,7 +25,7 @@ const spikeProject = (cfg = {}) => {
 };
 
 describe('R8-1: the planner runs on the top model at every rigour and profile', () => {
-  for (const profile of [undefined, 'quality', 'balanced', 'budget', 'auto', 'legacy-x']) {
+  for (const profile of [undefined, 'budget']) {
     test(`profile ${profile}: init plan-phase planner_model = models.top, checker_model = sonnet`, () => {
       const cfg = { models: { top: 'fable', top_fallback: 'opus' }, ...(profile ? { model_profile: profile } : {}) };
       const o = gsd(project(cfg), ['init', 'plan-phase', '1']);
@@ -95,7 +95,7 @@ describe('R8-3: profiles are gone', () => {
     assert.ok(!fs.existsSync(path.join(root, 'commands/gsd/set-profile.md')));
     assert.ok(!fs.existsSync(path.join(root, 'get-shit-done/workflows/set-profile.md')));
     assert.doesNotMatch(doc('get-shit-done/bin/gsd-tools.js'), /MODEL_PROFILES|model_profile/);
-    assert.doesNotMatch(doc('get-shit-done/references/model-profiles.md'), /MODEL_PROFILES|set-profile|quality.*budget/);
+    assert.doesNotMatch(doc('get-shit-done/references/models.md'), /MODEL_PROFILES|set-profile|quality.*budget/);
     for (const f of ['README.md', 'get-shit-done/workflows/help.md', 'get-shit-done/workflows/settings.md', 'get-shit-done/workflows/new-project.md']) assert.doesNotMatch(doc(f), /set-profile|model_profile/, f);
   });
   test('rigour.md: planner on ruling_model, plan-check on sonnet at every rigour', () => {

@@ -19,16 +19,16 @@ afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 describe('CLI-4: budget', () => {
   test('defaults per class and config override', () => {
-    assert.deepStrictEqual(b.budgetFields(dir, 'spike'), { budget_class: 'spike', budget_wall_minutes: 45, budget_dispatches: 10 });
-    assert.deepStrictEqual(b.budgetFields(dir, 'standard'), { budget_class: 'standard', budget_wall_minutes: 90, budget_dispatches: 37 });
-    assert.deepStrictEqual(b.budgetFields(dir, 'risk'), { budget_class: 'risk', budget_wall_minutes: 150, budget_dispatches: 45 });
-    write('.planning/config.json', JSON.stringify({ workflow: { budget: { standard: { dispatches: 30 } } } }));
-    assert.deepStrictEqual(b.budgetFields(dir, 'standard'), { budget_class: 'standard', budget_wall_minutes: 90, budget_dispatches: 30 });
+    assert.deepStrictEqual(b.budgetFields(dir, 'spike'), { budget_class: 'spike', budget_wall_minutes: 45 });
+    assert.deepStrictEqual(b.budgetFields(dir, 'standard'), { budget_class: 'standard', budget_wall_minutes: 90 });
+    assert.deepStrictEqual(b.budgetFields(dir, 'risk'), { budget_class: 'risk', budget_wall_minutes: 150 });
+    write('.planning/config.json', JSON.stringify({ workflow: { budget: { standard: { wall_minutes: 30, dispatches: 3 } } } }));
+    assert.deepStrictEqual(b.budgetFields(dir, 'standard'), { budget_class: 'standard', budget_wall_minutes: 30 });
   });
   test('init plan-phase and execute-phase emit class and limits; risk from domains or a high_risk plan', () => {
     for (const cmd of ['plan-phase', 'execute-phase']) {
       const o = json(['init', cmd, '1', '--legacy']);
-      assert.deepStrictEqual([o.budget_class, o.budget_wall_minutes, o.budget_dispatches], ['standard', 90, 37], cmd);
+      assert.deepStrictEqual([o.budget_class, o.budget_wall_minutes, o.budget_dispatches], ['standard', 90, undefined], cmd);
     }
     write('.planning/ROADMAP.md', road('**Risk domains**: auth'));
     assert.strictEqual(json(['init', 'plan-phase', '1', '--legacy']).budget_class, 'risk');
@@ -36,15 +36,17 @@ describe('CLI-4: budget', () => {
     write('.planning/phases/01-one/01-01-PLAN.md', '---\nphase: 01-one\nplan: 01\nhigh_risk: true\n---\n# p\n');
     assert.strictEqual(json(['init', 'execute-phase', '1', '--legacy']).budget_class, 'risk');
   });
-  test('budget status at 79 / 80 / 100 percent', () => {
-    write('.planning/config.json', JSON.stringify({ workflow: { budget: { standard: { dispatches: 100 } } } }));
-    const at = (n) => { log({ type: 'phase_start', phase: '1', timestamp: new Date().toISOString() }, ...Array.from({ length: n }, () => ({ type: 'phase_spend', phase: 1, step: 'x', model: 'haiku' }))); return json(['budget', 'status', '--phase', '1']); };
-    const r79 = at(79);
-    assert.deepStrictEqual([r79.pct, r79.warn, r79.breach, r79.dispatches_spent, r79.budget_class], [79, false, false, 79, 'standard']);
-    const r80 = at(80);
+  test('budget status at 79 / 80 / 100 percent of the wall minutes; dispatch counts never move pct, warn or breach', () => {
+    const t0 = Date.parse('2026-01-01T00:00:00Z');
+    const at = (min, spends) => b.status({ cwd: dir, phase: '1', cls: 'standard', events: [{ type: 'phase_start', phase: '1', timestamp: new Date(t0).toISOString() }, ...Array.from({ length: spends }, () => ({ type: 'phase_spend', phase: '1' })), { type: 'phase_spend', phase: '1', timestamp: new Date(t0 + min * 60000).toISOString() }] });
+    const r79 = at(71.1, 0);
+    assert.deepStrictEqual([r79.pct, r79.warn, r79.breach, r79.budget_class], [79, false, false, 'standard']);
+    const r80 = at(72, 0);
     assert.deepStrictEqual([r80.pct, r80.warn, r80.breach], [80, true, false]);
-    const r100 = at(100);
+    const r100 = at(90, 0);
     assert.deepStrictEqual([r100.pct, r100.warn, r100.breach], [100, true, true]);
+    const many = at(1, 500);
+    assert.deepStrictEqual([many.dispatches_spent, many.warn, many.breach, many.budget_dispatches], [501, false, false, undefined]);
   });
   test('M1: wall time is the sum of work windows; idle time between sessions never counts', () => {
     const ev = [

@@ -229,7 +229,7 @@ function generateReport(projectPath) {
   lines.push('');
 
   // --- Model Tier Distribution ---
-  const routingEvents = events.filter(e => e.type === 'routing_decision' || e.type === 'task_dispatch');
+  const routingEvents = events.filter(e => e.type === 'routing_decision');
   // Tier key set is sourced from the single-source-of-truth model registry
   // (MILE-27) instead of a hardcoded literal; the fixed `unknown` bucket catches
   // any tier the registry doesn't know about. Output is identical to the prior
@@ -348,7 +348,7 @@ function calibrate(projectPath, options) {
   // If haiku-tier tasks fail disproportionately, propose raising the complexity
   // threshold that routes tasks to haiku (i.e. make haiku harder to qualify for).
   const haikuDispatches = events.filter(e =>
-    (e.type === 'task_dispatch' || e.type === 'routing_decision') &&
+    e.type === 'routing_decision' &&
     (e.tier || e.model || '').toLowerCase() === 'haiku'
   );
 

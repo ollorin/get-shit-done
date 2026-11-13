@@ -446,8 +446,8 @@ function loadConfig(cwd) {
     resilience: { staleness_threshold_minutes: 30, usage_pause_threshold_tokens: null },
     routing_min_sample_count: 5,
     routing: { min_sample_count: 5 },
-    savings_baseline_profile: 'quality',
-    savings: { baseline_profile: 'quality' },
+    savings_baseline_tier: 'opus',
+    savings: { baseline_tier: 'opus' },
     test_writer_enabled: false,
     adversarial_review_enabled: false,
     adversarial_review_file_threshold: 8,
@@ -506,7 +506,7 @@ function loadConfig(cwd) {
       staleness_threshold_minutes: get('staleness_threshold_minutes', { section: 'resilience', field: 'staleness_threshold_minutes' }) ?? defaults.staleness_threshold_minutes,
       usage_pause_threshold_tokens: get('usage_pause_threshold_tokens', { section: 'resilience', field: 'usage_pause_threshold_tokens' }) ?? defaults.usage_pause_threshold_tokens,
       routing_min_sample_count: get('routing_min_sample_count', { section: 'routing', field: 'min_sample_count' }) ?? defaults.routing_min_sample_count,
-      savings_baseline_profile: get('savings_baseline_profile', { section: 'savings', field: 'baseline_profile' }) ?? defaults.savings_baseline_profile,
+      savings_baseline_tier: get('savings_baseline_tier', { section: 'savings', field: 'baseline_tier' }) ?? defaults.savings_baseline_tier,
       test_writer_enabled: get('test_writer_enabled', { section: 'quality', field: 'test_writer' }) ?? defaults.test_writer_enabled,
       adversarial_review_enabled: get('adversarial_review_enabled', { section: 'quality', field: 'adversarial_review' }) ?? defaults.adversarial_review_enabled,
       adversarial_review_file_threshold: get('adversarial_review_file_threshold', { section: 'quality', field: 'adversarial_review_file_threshold' }) ?? defaults.adversarial_review_file_threshold,
@@ -2996,10 +2996,10 @@ function evaluateSummarySelfCheck(content) {
     const body = next >= 0 ? rest.slice(0, next) : rest;
     const heading = last[0];
     let status = 'not_found';
-    // The verdict is the first word after `Self-Check` (and its colon); anything after it is free text.
-    const verdict = (heading.match(/Self[- ]?Check\b[\s:*_\-–—(\[]*(\S+)/i) || [])[1] || '';
-    if (/^(?:FAIL(?:ED|S|URE)?\b|❌|✗)/i.test(verdict)) status = 'failed';
-    else if (/^(?:PASS(?:ED)?\b|✅|✓)/i.test(verdict)) status = 'passed';
+    // The verdict is the FIRST PASS/FAIL word on the heading line (`PASSED`, `(PASSED)`, `5/5 passed`); later words are free text; else the body decides.
+    const word = (heading.replace(/^##[ \t]*Self[- ]?Check\b/i, '').match(/\b(?:FAIL(?:ED|S|URE)?|PASS(?:ED)?)\b|❌|✗|✅|✓/i) || [''])[0];
+    if (/^(?:FAIL|❌|✗)/i.test(word)) status = 'failed';
+    else if (/^(?:PASS|✅|✓)/i.test(word)) status = 'passed';
     else if (/\bFAILED\b|❌|✗/.test(body)) status = 'failed';
     else if (/\bPASSED\b|✅|✓/.test(body)) status = 'passed';
     return { status, source: 'self_check' };
@@ -3397,6 +3397,7 @@ function cmdPhasePlanIndex(cwd, phase, raw) {
       objective,
       files_modified: filesModified,
       task_count: taskCount,
+      task_tiers: formCheck.planTasks(content).map(formCheck.routedTier),
       has_summary: hasSummary,
       gap_closure: fm.gap_closure === true || fm.gap_closure === 'true',
       executor_model: spikeFloor ? formCheck.TIERS[Math.max(formCheck.TIERS.indexOf(spikeFloor), formCheck.TIERS.indexOf(formCheck.highestTier(formCheck.planTasks(content))))] : null,
@@ -6497,7 +6498,7 @@ function cmdSavings(cwd, args, raw) {
       const config = loadConfig(cwd);
       const usageRecords = readTaskUsageRecords(cwd);
       const taskOutcomeEvents = getHistory(cwd).filter(e => e && e.type === 'task_outcome');
-      const report = computeSavingsFromUsage(usageRecords, taskOutcomeEvents, config.savings_baseline_profile);
+      const report = computeSavingsFromUsage(usageRecords, taskOutcomeEvents, config.savings_baseline_tier);
 
       if (args.includes('--json')) {
         output(report, raw);
@@ -9283,14 +9284,7 @@ function cmdPhaseAdd(cwd, description, raw) {
   // Build phase entry
   const phaseEntry = `\n### Phase ${newPhaseNum}: ${description}\n\n**Goal:** [To be planned]\n**Depends on:** Phase ${maxPhase}\n**Plans:** 0 plans\n\nPlans:\n- [ ] TBD (run /gsd:plan-phase ${newPhaseNum} to break down)\n`;
 
-  // Find insertion point: before last "---" or at end
-  let updatedContent;
-  const lastSeparator = content.lastIndexOf('\n---');
-  if (lastSeparator > 0) {
-    updatedContent = content.slice(0, lastSeparator) + phaseEntry + content.slice(lastSeparator);
-  } else {
-    updatedContent = content + phaseEntry;
-  }
+  const updatedContent = roadmapBox.addPhase(content, { num: newPhaseNum, name: description, entry: phaseEntry, prev: maxPhase || null });
 
   atomicWriteFileSync(roadmapPath, updatedContent);
 
@@ -10136,6 +10130,23 @@ function cmdPhaseComplete(cwd, phaseNum, raw, opts = {}) {
     }
   }
 
+  // This phase's requirement ids: its ROADMAP section's `**Requirements:**` ids whose REQUIREMENTS traceability row names this phase (or has no row).
+  let phaseReqIds = [];
+  let requirementsMarked = [];
+  if (fs.existsSync(roadmapPath) && fs.existsSync(path.join(cwd, '.planning', 'REQUIREMENTS.md'))) {
+    const section = roadmapBox.phaseSection(fs.readFileSync(roadmapPath, 'utf-8'), phaseNum);
+    if (section === null) error(`ROADMAP.md has no "### Phase ${phaseNum}" heading (plain or bold): refusing to complete a phase whose requirements cannot be read`);
+    const ids = [...new Set(((section.match(/\*\*Requirements:?\*\*:?\s*([^\n]*)/i) || [])[1] || '').match(/[A-Z][A-Z0-9]*-\d+/g) || [])];
+    const reqPath = path.join(cwd, '.planning', 'REQUIREMENTS.md');
+    const reqText = fs.readFileSync(reqPath, 'utf-8');
+    const key = String(phaseNum).replace(/^0+(?=\d)/, '').replace(/\./g, '\\.');
+    const ownsPhase = new RegExp(`(?<![\\d.])0*${key}(?!\\d|\\.\\d)`);
+    phaseReqIds = ids.filter((id) => {
+      const row = reqText.match(new RegExp(`^\\|\\s*${id}\\s*\\|([^|]*)\\|`, 'im'));
+      return !row || ownsPhase.test(row[1]);
+    });
+  }
+
   if (formDebtItems.length > 0) {
     const vFile = path.join(cwd, phaseInfo.directory, `${phaseInfo.phase_number}-VERIFICATION.md`);
     const vText = fs.readFileSync(vFile, 'utf-8');
@@ -10150,10 +10161,8 @@ function cmdPhaseComplete(cwd, phaseNum, raw, opts = {}) {
   if (fs.existsSync(roadmapPath)) {
     let roadmapContent = fs.readFileSync(roadmapPath, 'utf-8');
 
-    // The gates above passed: the requirement ids of this phase's ROADMAP section are done (the ids `status_agreement` checks).
-    const phaseSection = (roadmapContent.match(new RegExp(`#{2,4}\\s*Phase\\s+0*${String(phaseNum).replace(/^0+(?=\\d)/, '').replace('.', '\\.')}\\s*:[\\s\\S]*?(?=\\n#{2,4}\\s*Phase\\s|\\n## |$)`, 'i')) || [''])[0];
-    const phaseReqIds = [...new Set(((phaseSection.match(/\*\*Requirements:?\*\*:?\s*([^\n]*)/i) || [])[1] || '').match(/[A-Z][A-Z0-9]*-\d+/g) || [])];
-    if (phaseReqIds.length > 0) markRequirementsComplete(cwd, phaseReqIds);
+    // The gates above passed: the requirement ids this phase owns are done.
+    requirementsMarked = phaseReqIds.length > 0 ? ((markRequirementsComplete(cwd, phaseReqIds) || {}).updated || []) : [];
 
     // Checkbox: - [ ] Phase N: → - [x] Phase N: (...completed DATE), on the phase's own line only
     roadmapContent = roadmapBox.tickCheckbox(roadmapContent, phaseNum, ` (completed ${today})`);
@@ -10262,7 +10271,7 @@ function cmdPhaseComplete(cwd, phaseNum, raw, opts = {}) {
   {
     const key = dispatch.phaseKey(phaseNum);
     const b = phaseBudgetStatus(cwd, key, readExecutionEvents(cwd));
-    appendEvent(cwd, { type: 'phase_complete', phase: key, budget_class: b.budget_class, wall_minutes_spent: b.wall_minutes_spent, dispatches_spent: b.dispatches_spent, total_wall_minutes: b.total_wall_minutes, total_dispatches: b.total_dispatches, budget_wall_minutes: b.budget_wall_minutes, budget_dispatches: b.budget_dispatches, pct: b.pct, warn: b.warn, breach: b.breach });
+    appendEvent(cwd, { type: 'phase_complete', phase: key, budget_class: b.budget_class, wall_minutes_spent: b.wall_minutes_spent, dispatches_spent: b.dispatches_spent, total_wall_minutes: b.total_wall_minutes, total_dispatches: b.total_dispatches, budget_wall_minutes: b.budget_wall_minutes, pct: b.pct, warn: b.warn, breach: b.breach });
   }
 
   const result = {
@@ -10275,6 +10284,7 @@ function cmdPhaseComplete(cwd, phaseNum, raw, opts = {}) {
     date: today,
     roadmap_updated: fs.existsSync(roadmapPath),
     ...(fs.existsSync(roadmapPath) && roadmapBox.checkboxState(fs.readFileSync(roadmapPath, 'utf-8'), phaseNum) === null ? { roadmap_checkbox_missing: `no checkbox line for phase ${phaseNum} in ROADMAP.md (expected "- [ ] Phase ${phaseNum}"): tick it by hand` } : {}),
+    requirements_marked: requirementsMarked,
     state_updated: fs.existsSync(statePath),
     ...(formDebtItems.length > 0 ? { form_debt: formDebtItems } : {}),
   };
@@ -12609,7 +12619,7 @@ function cmdRoadmapRecord(cwd, args, raw) {
     if (mine.length > 0 && mine[mine.length - 1].type === 'phase_complete') continue;
     // The completion resets the budget window: record the final spend in the event so `budget status` can still show it.
     const b = phaseBudgetStatus(cwd, k, events);
-    appendEvent(cwd, { ...e, budget_class: b.budget_class, wall_minutes_spent: b.wall_minutes_spent, dispatches_spent: b.dispatches_spent, total_wall_minutes: b.total_wall_minutes, total_dispatches: b.total_dispatches, budget_wall_minutes: b.budget_wall_minutes, budget_dispatches: b.budget_dispatches, pct: b.pct, warn: b.warn, breach: b.breach });
+    appendEvent(cwd, { ...e, budget_class: b.budget_class, wall_minutes_spent: b.wall_minutes_spent, dispatches_spent: b.dispatches_spent, total_wall_minutes: b.total_wall_minutes, total_dispatches: b.total_dispatches, budget_wall_minutes: b.budget_wall_minutes, pct: b.pct, warn: b.warn, breach: b.breach });
   }
   output({ ...out, truth: { complete: truth.complete, errors: truth.errors, work_errors: truth.work_errors, form_errors: truth.form_errors } }, raw);
 }

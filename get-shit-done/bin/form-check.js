@@ -20,7 +20,10 @@ function planTasks(text) {
     return { name: name || `task ${i + 1}`, tier };
   });
 }
-const highestTier = (tasks) => tasks.reduce((hi, t) => (t.tier && TIERS.indexOf(t.tier) > TIERS.indexOf(hi) ? t.tier : hi), 'haiku');
+// An untagged task (a plan written before the tag rule) runs on sonnet.
+const DEFAULT_TIER = 'sonnet';
+const routedTier = (t) => t.tier || DEFAULT_TIER;
+const highestTier = (tasks) => tasks.reduce((hi, t) => (TIERS.indexOf(routedTier(t)) > TIERS.indexOf(hi) ? routedTier(t) : hi), 'haiku');
 const outsidePlanning = (f) => typeof f === 'string' && !/^(\.\/)?\.planning(\/|$)/.test(f.trim());
 
 // Plan-time checks (blocking, planner fixes before plan-check). Executed plans (a SUMMARY exists) are never reported:
@@ -60,4 +63,4 @@ function checkLineCites(cwd, phaseDir, dirFiles) {
   return errors;
 }
 
-module.exports = { CAPS, TIERS, planTasks, highestTier, checkPlans, checkLineCites };
+module.exports = { CAPS, TIERS, DEFAULT_TIER, routedTier, planTasks, highestTier, checkPlans, checkLineCites };

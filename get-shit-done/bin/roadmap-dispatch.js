@@ -162,13 +162,31 @@ function incompleteEvent(k, truth, folded, reason, gapCycleDone) {
 
 // A spike phase whose VERIFICATION still has an open CRITICAL/HIGH is parked only after the one ruling dispatch was
 // logged (`spike_ruling` event): before that, `record` says `ruling` and parks nothing.
+// The phase's events since its latest window opened: a `phase_start` that follows a park (a retry of a parked phase). A resumed
+// `phase_start` (a re-spawned dead coordinator) continues the window, so one ruling stays ONE ruling.
+const windowEvents = (input, k) => {
+  const mine = (input.events || []).filter((e) => e && evPhase(e) === k);
+  let start = -1;
+  let parked = false;
+  mine.forEach((e, i) => {
+    if (e.type === 'phase_parked' && e.reason !== 'dependency_parked') parked = true;
+    else if (e.type === 'phase_start' && parked) { start = i; parked = false; }
+  });
+  return mine.slice(start + 1);
+};
 const OPEN_CH_RE = /open_critical_high \d+ and no ruling id/;
-// Only a ruling after the phase's latest phase_start counts: a retry of a parked phase gets its own.
 const needsSpikeRuling = (input, k, truth) => {
   if (input.spike !== true || !(truth.work_errors || truth.errors || []).some((m) => OPEN_CH_RE.test(m))) return false;
-  const mine = (input.events || []).filter((e) => e && evPhase(e) === k);
-  const start = mine.map((e) => e.type).lastIndexOf('phase_start');
-  return !mine.slice(start + 1).some((e) => e.type === 'spike_ruling');
+  return !windowEvents(input, k).some((e) => e.type === 'spike_ruling');
+};
+
+// Verifier-owned frontmatter omissions at spike (criteria_decided, headline): a gap cycle cannot write them, so the phase goes back to
+// the verifier step once per window (action `retry`, reason `verifier_omission`); a second omission falls through to the gap path.
+const OMISSION_RE = /frontmatter must carry criteria_decided|frontmatter must carry headline/;
+const verifierOmission = (input, k, truth) => {
+  if (input.spike !== true || !(truth.work_errors || truth.errors || []).some((m) => OMISSION_RE.test(m))) return null;
+  if (windowEvents(input, k).some((e) => e.type === 'phase_retry' && e.reason === 'verifier_omission')) return null;
+  return { phase: k, action: 'retry', reason: 'verifier_omission', resume_step: 'verify', events: [{ type: 'phase_retry', phase: k, ladder: 'retry', reason: 'verifier_omission', error: (truth.errors || []).join('; ').slice(0, 300) }], errors: truth.errors || [] };
 };
 
 function record(input) {
@@ -191,12 +209,14 @@ function record(input) {
       if (truth.complete) return completeAction(k, truth);
       if (formOnly(truth)) return formDebtAction(k, truth);
       if (needsSpikeRuling(input, k, truth)) return { phase: k, action: 'ruling', events: [], errors: truth.errors || [] };
+      if (verifierOmission(input, k, truth)) return verifierOmission(input, k, truth);
       return { phase: k, ...incompleteEvent(k, truth, folded, 'completed_without_disk_truth') };
     case 'gaps_found': {
       // Disk is truth: a gaps claim over a phase that is already complete on disk is not a gap.
       if (truth.complete) return completeAction(k, truth);
       if (formOnly(truth)) return formDebtAction(k, truth);
       if (needsSpikeRuling(input, k, truth)) return { phase: k, action: 'ruling', events: [], errors: truth.errors || [] };
+      if (verifierOmission(input, k, truth)) return verifierOmission(input, k, truth);
       return { phase: k, ...incompleteEvent(k, truth, folded, 'gaps_found', result.gap_cycle_done === true) };
     }
     case 'completed_with_deferrals':

@@ -1,15 +1,15 @@
 'use strict';
-// Phase budget: class, limits (config workflow.budget.<class>), and spend from the execution log.
-// Contract: references/rigour.md rule 7. Spend is `phase_spend` events (`budget spend --phase N`, one per dispatch at spawn);
+// Phase budget: class, wall-minute limits (config workflow.budget.<class>.wall_minutes), and spend from the execution log.
+// Contract: references/rigour.md rule 7. Spend is `phase_spend` events (`budget spend --phase N`, one per dispatch at spawn, counted as a metric only; breach/warn use wall minutes alone);
 // `phase_spend_done` (`--done`, at the child's return) only extends the wall window and is not a dispatch.
 const fs = require('fs');
 const path = require('path');
 const { evPhase, phaseKey } = require('./roadmap-dispatch.js');
 
 const DEFAULTS = {
-  spike: { wall_minutes: 45, dispatches: 10 },
-  standard: { wall_minutes: 90, dispatches: 37 },
-  risk: { wall_minutes: 150, dispatches: 45 },
+  spike: { wall_minutes: 45 },
+  standard: { wall_minutes: 90 },
+  risk: { wall_minutes: 150 },
 };
 
 const rawConfig = (cwd) => {
@@ -21,12 +21,12 @@ const budgetClass = ({ rigour, riskAddons }) => (rigour === 'spike' ? 'spike' : 
 function limits(cwd, cls) {
   const cfg = (((rawConfig(cwd).workflow || {}).budget || {})[cls]) || {};
   const pos = (v, d) => (typeof v === 'number' && v > 0 ? v : d);
-  return { wall_minutes: pos(cfg.wall_minutes, DEFAULTS[cls].wall_minutes), dispatches: pos(cfg.dispatches, DEFAULTS[cls].dispatches) };
+  return { wall_minutes: pos(cfg.wall_minutes, DEFAULTS[cls].wall_minutes) };
 }
 
 function budgetFields(cwd, cls) {
   const l = limits(cwd, cls);
-  return { budget_class: cls, budget_wall_minutes: l.wall_minutes, budget_dispatches: l.dispatches };
+  return { budget_class: cls, budget_wall_minutes: l.wall_minutes };
 }
 
 // Wall time = closed work windows + the open one. A window opens at phase_start (or gap_cycle) and closes at the next
@@ -85,11 +85,11 @@ function status({ cwd, phase, cls, events, now }) {
   const { final, ...s } = spend(events, phase);
   // After `phase complete` the window resets to zero; the numbers the phase ended on are in its phase_complete event.
   if (final) {
-    return { phase: phaseKey(phase), budget_class: final.budget_class || cls, wall_minutes_spent: final.wall_minutes_spent, dispatches_spent: final.dispatches_spent, total_wall_minutes: final.total_wall_minutes === undefined ? final.wall_minutes_spent : final.total_wall_minutes, total_dispatches: final.total_dispatches === undefined ? final.dispatches_spent : final.total_dispatches, budget_wall_minutes: final.budget_wall_minutes, budget_dispatches: final.budget_dispatches, pct: final.pct, warn: final.warn === true, breach: final.breach === true, final: true };
+    return { phase: phaseKey(phase), budget_class: final.budget_class || cls, wall_minutes_spent: final.wall_minutes_spent, dispatches_spent: final.dispatches_spent, total_wall_minutes: final.total_wall_minutes === undefined ? final.wall_minutes_spent : final.total_wall_minutes, total_dispatches: final.total_dispatches === undefined ? final.dispatches_spent : final.total_dispatches, budget_wall_minutes: final.budget_wall_minutes, pct: final.pct, warn: final.warn === true, breach: final.breach === true, final: true };
   }
-  const ratio = Math.max(s.wall_minutes_spent / l.wall_minutes, s.dispatches_spent / l.dispatches);
+  const ratio = s.wall_minutes_spent / l.wall_minutes;
   const pct = Math.round(ratio * 1000) / 10;
-  return { phase: phaseKey(phase), budget_class: cls, ...s, budget_wall_minutes: l.wall_minutes, budget_dispatches: l.dispatches, pct, warn: ratio >= 0.8, breach: ratio >= 1 };
+  return { phase: phaseKey(phase), budget_class: cls, ...s, budget_wall_minutes: l.wall_minutes, pct, warn: ratio >= 0.8, breach: ratio >= 1 };
 }
 
 module.exports = { DEFAULTS, budgetClass, budgetFields, limits, spend, status };

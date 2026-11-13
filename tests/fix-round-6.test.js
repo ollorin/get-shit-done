@@ -85,7 +85,7 @@ describe('R4-3: a retried parked spike phase gets its own ruling', () => {
   const rec = (dir, status = 'gaps_found') => gsd(dir, ['roadmap', 'record', '--phase', '1', '--result', JSON.stringify({ status, gap_cycle_done: true })]).json;
   test('park -> retry -> ruling again, then park', () => {
     const dir = spikeProject();
-    executed(dir, '---\nstatus: passed\nopen_critical_high: 2\n---\n# V\n');
+    executed(dir, '---\nstatus: passed\nopen_critical_high: 2\ncriteria_decided: 1/1\n---\n# V\n');
     assert.strictEqual(gsd(dir, ['roadmap', 'next']).json.action, 'spawn_coordinator');
     assert.strictEqual(rec(dir).action, 'ruling');
     gsd(dir, ['execution-log', 'event', '--type', 'spike_ruling', '--data', '{"phase":"1"}']);

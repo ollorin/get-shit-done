@@ -74,12 +74,12 @@ describe('R7-2: spike runs one executor per plan on its highest tag (floor sonne
   });
 });
 
-describe('R7-3: dispatch budgets fit the worst legitimate per-task path', () => {
-  test('defaults: spike 10, standard 37, risk 45; wall minutes unchanged', () => {
+describe('R7-3: wall budgets', () => {
+  test('defaults: 45 / 90 / 150 wall minutes', () => {
     const dir = project();
-    assert.deepStrictEqual(budget.budgetFields(dir, 'spike'), { budget_class: 'spike', budget_wall_minutes: 45, budget_dispatches: 10 });
-    assert.deepStrictEqual(budget.budgetFields(dir, 'standard'), { budget_class: 'standard', budget_wall_minutes: 90, budget_dispatches: 37 });
-    assert.deepStrictEqual(budget.budgetFields(dir, 'risk'), { budget_class: 'risk', budget_wall_minutes: 150, budget_dispatches: 45 });
+    assert.deepStrictEqual(budget.budgetFields(dir, 'spike'), { budget_class: 'spike', budget_wall_minutes: 45 });
+    assert.deepStrictEqual(budget.budgetFields(dir, 'standard'), { budget_class: 'standard', budget_wall_minutes: 90 });
+    assert.deepStrictEqual(budget.budgetFields(dir, 'risk'), { budget_class: 'risk', budget_wall_minutes: 150 });
   });
 });
 

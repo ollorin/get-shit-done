@@ -153,10 +153,10 @@ describe('items 1 and 3: spike phases and the pre-verify gates', () => {
     const r = gsd(dir, ['phase', 'complete', '1']);
     assert.strictEqual(r.rc, 0, r.out + r.err);
   });
-  test('the spike dispatch budget is 10 and wall stays 45', () => {
+  test('the spike wall budget is 45 and no dispatch limit exists', () => {
     const { dir } = spikeProject();
     const b = gsd(dir, ['budget', 'status', '--phase', '1']).json;
-    assert.deepStrictEqual([b.budget_class, b.budget_wall_minutes, b.budget_dispatches], ['spike', 45, 10]);
+    assert.deepStrictEqual([b.budget_class, b.budget_wall_minutes, b.budget_dispatches], ['spike', 45, undefined]);
   });
 });
 
@@ -191,22 +191,12 @@ describe('item 7: the final spend survives phase completion', () => {
     const ev = events(dir).filter((e) => e.type === 'phase_complete').pop();
     assert.strictEqual(ev.dispatches_spent, 3);
     assert.strictEqual(typeof ev.wall_minutes_spent, 'number');
-    assert.deepStrictEqual([ev.budget_dispatches, ev.budget_wall_minutes, ev.breach], [37, 90, false]);
+    assert.deepStrictEqual([ev.budget_dispatches, ev.budget_wall_minutes, ev.breach], [undefined, 90, false]);
   });
   test('budget status --phase on a completed phase returns the recorded spend, not zero', () => {
     const { dir } = completed();
     const b = gsd(dir, ['budget', 'status', '--phase', '1']).json;
-    assert.deepStrictEqual([b.dispatches_spent, b.budget_dispatches, b.breach, b.final], [3, 37, false, true]);
-  });
-  test('a breach is recorded as such', () => {
-    const dir = project();
-    writeEvidence(dir, 1);
-    write(dir, '.planning/config.json', JSON.stringify({ workflow: { budget: { standard: { dispatches: 2 } } } }));
-    for (let i = 0; i < 3; i++) gsd(dir, ['budget', 'spend', '--phase', '1']);
-    completePhaseLikeWorkflow(dir, 1);
-    gsd(dir, ['roadmap', 'record', '--phase', '1', '--result', '{"status":"completed"}']);
-    const b = gsd(dir, ['budget', 'status', '--phase', '1']).json;
-    assert.deepStrictEqual([b.dispatches_spent, b.budget_dispatches, b.breach], [3, 2, true]);
+    assert.deepStrictEqual([b.dispatches_spent, b.budget_dispatches, b.breach, b.final], [3, undefined, false, true]);
   });
   test('a new window after completion (a retry) counts from zero again', () => {
     const { dir } = completed();
@@ -327,7 +317,7 @@ describe('prose contracts: spike path, breach behaviour and rule 11 are stated o
   const doc = (rel) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8');
   test('rigour.md carries the spike budget, the merged review, breach behaviour and rule 11', () => {
     const r = doc('get-shit-done/references/rigour.md');
-    assert.match(r, /45 min \/ 10/);
+    assert.match(r, /45 min \| 90 min \| 150 min/);
     assert.match(r, /\*\*At `breach` \(100 %\):\*\*/);
     assert.match(r, /Question traceability, negative answers, final-review questions/);
     assert.match(r, /Spike answer table/);
