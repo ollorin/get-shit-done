@@ -232,6 +232,7 @@ const autoModeFields = (cwd) => resolveAutoMode(cwd, process.argv.slice(2), proc
 const rigour = require('./rigour.js');
 const topModel = require('./top-model.js');
 const phaseBudget = require('./phase-budget.js');
+const formCheck = require('./form-check.js');
 
 // Phase 2: Auto Mode safety modules (lazy — gracefully absent if not installed)
 let circuitBreaker, validator, escalation, feedback, learning;
@@ -7550,6 +7551,9 @@ function readPhaseVerification(phaseDir, phaseNumber) {
 // Shared by cmdPhaseComplete and cmdVerifyPhaseGate so they cannot disagree.
 function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles, opts = {}) {
   const errors = [];
+  // Form findings (Self-Check, Defect Classes shape) are also kept as {file, check, message}; `errors` stays the full list.
+  const formErrors = [];
+  const pushForm = (file, check, message) => { errors.push(message); formErrors.push({ file, check, message }); };
   const planFiles = dirFiles.filter(f => /-\d{2}-PLAN\.md$/i.test(f)).sort();
   if (planFiles.length === 0) {
     errors.push('No numbered {N}-{NN}-PLAN.md files — a phase with no plans has no evidence to complete');
@@ -7578,7 +7582,9 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles, opts =
     const selfCheck = evaluateSummarySelfCheck(summary);
     if (selfCheck.source !== 'self_check' || selfCheck.status !== 'passed') {
       const found = selfCheck.source === 'self_check' ? selfCheck.status : 'missing';
-      errors.push(`${summaryFile} Self-Check is ${found} — must contain "## Self-Check: PASSED"`);
+      // A missing section is form; a recorded FAILED is the executor reporting unfinished work.
+      const selfCheckMsg = `${summaryFile} Self-Check is ${found} — must contain "## Self-Check: PASSED"`;
+      if (found === 'missing') pushForm(summaryFile, 'self_check', selfCheckMsg); else errors.push(selfCheckMsg);
     }
     const summaryFacts = summaryExemptionFacts(cwd, path.join(phaseDir, summaryFile), cfg.defect_classes_gate_since);
     const dcRequired = summarySubjectToDefectClassesGate(summaryFacts, cfg);
@@ -7592,7 +7598,7 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles, opts =
     if (dcRequired) {
       const dc = evaluateDefectClasses(summary);
       if (dc.status !== 'ok') {
-        errors.push(
+        pushForm(summaryFile, 'defect_classes',
           `${summaryFile} Defect Classes is ${dc.status.replace(/_/g, ' ')} — ` +
           (dc.status === 'missing'
             ? 'must contain a "## Defect Classes" section'
@@ -7634,6 +7640,8 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles, opts =
   const anyDefectRequired = defectSummaries.some(s => s.required);
   return {
     errors,
+    formErrors,
+    workErrors: errors.filter(m => !formErrors.some(f => f.message === m)),
     verification,
     defect_classes: {
       enabled: defectClassesEnabled,
@@ -7643,6 +7651,26 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles, opts =
       summaries: defectSummaries,
     },
   };
+}
+
+// The whole form list of a phase: plan caps, evidence-only plans, line cites and (unless plansOnly) summary form.
+function collectPhaseFormErrors(cwd, phaseInfo, phaseDir, dirFiles, opts = {}) {
+  const level = rigour.resolveRigour(cwd, phaseInfo.phase_number, getMilestoneInfo(cwd).version).rigour;
+  const plans = formCheck.checkPlans(phaseDir, dirFiles, level);
+  const summaries = opts.plansOnly ? [] : opts.summaryFormErrors || collectPhaseEvidenceErrors(cwd, phaseInfo.phase_number, phaseDir, dirFiles, { preVerifier: true }).formErrors;
+  const cites = formCheck.checkLineCites(cwd, phaseDir, dirFiles, phaseInfo.phase_number);
+  return { errors: [...plans.errors, ...summaries, ...cites], warnings: plans.warnings };
+}
+
+// verify form <phase> [--plans-only] [--raw]
+function cmdVerifyForm(cwd, args, raw) {
+  const phase = args.find((a) => !a.startsWith('--'));
+  if (!phase) error('verify form: phase required');
+  const info = findPhaseInternal(cwd, phase);
+  if (!info || normalizePhaseName(String(info.phase_number)) !== normalizePhaseName(String(phase))) error(`Phase ${phase} not found`);
+  const phaseDir = path.join(cwd, info.directory);
+  const r = collectPhaseFormErrors(cwd, info, phaseDir, fs.readdirSync(phaseDir), { plansOnly: args.includes('--plans-only') });
+  output({ phase: info.phase_number, passed: r.errors.length === 0, errors: r.errors, warnings: r.warnings }, raw, undefined, r.errors.length === 0 ? 0 : 1);
 }
 
 function cmdVerifyPhaseGate(cwd, phaseArg, raw, opts = {}) {
@@ -7733,8 +7761,9 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw, opts = {}) {
   // Evidence is never waivable: DEFERRED.json cannot stand in for commits,
   // Self-Check PASSED summaries, or a passed verification.
   const failures = checks.filter(c => c.failure_type).map(c => c.failure_type);
-  if (evidence.errors.length > 0) failures.push('missing_evidence');
-  const passed = failures.length === 0 && malformedPlans.length === 0 && !malformedWaiver;
+  if (evidence.workErrors.length > 0) failures.push('missing_evidence');
+  const form = collectPhaseFormErrors(cwd, phaseInfo, phaseDir, dirFiles, { summaryFormErrors: evidence.formErrors });
+  const passed = failures.length === 0 && form.errors.length === 0 && malformedPlans.length === 0 && !malformedWaiver;
 
   const result = {
     phase: phaseInfo.phase_number,
@@ -7751,6 +7780,8 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw, opts = {}) {
     ui_qa_mode: uiQaMode,
     e2e_gaps: e2eGapResult.gaps,
     evidence_errors: evidence.errors,
+    form_errors: form.errors,
+    form_warnings: form.warnings,
     // QGATE-17: surfaced explicitly so an exempt phase reads as "considered
     // and waived by date", not as "the gate does not exist".
     defect_classes: evidence.defect_classes,
@@ -10312,11 +10343,14 @@ function phaseTruth(cwd, phaseNum) {
   try { dirFiles = fs.readdirSync(phaseDir); } catch (e) {
     return { phase: String(phaseNum), complete: false, errors: [`phase directory unreadable: ${e.message}`] };
   }
-  const errors = [...collectPhaseEvidenceErrors(cwd, phaseInfo.phase_number, phaseDir, dirFiles).errors];
+  const evidence = collectPhaseEvidenceErrors(cwd, phaseInfo.phase_number, phaseDir, dirFiles);
+  const recordedDebt = Array.isArray(evidence.verification.data.form_debt) ? evidence.verification.data.form_debt : [];
+  // Form errors accepted by `phase complete --form-debt` are recorded debt, not missing work.
+  const errors = [...(recordedDebt.length > 0 ? evidence.workErrors : evidence.errors)];
   if (roadmapCheckboxState(cwd, phaseNum) === false) {
     errors.push('ROADMAP.md checkbox is not set (run `gsd-tools phase complete`)');
   }
-  return { phase: String(phaseNum), complete: errors.length === 0, errors };
+  return { phase: String(phaseNum), complete: errors.length === 0, errors, form_debt: recordedDebt };
 }
 
 const CHECKPOINT_STEPS = ['discuss', 'research', 'plan', 'execute', 'verify'];
@@ -10358,7 +10392,7 @@ function cmdPhaseCheckpoint(cwd, args, raw) {
 
 // ─── Phase Complete (Transition) ──────────────────────────────────────────────
 
-function cmdPhaseComplete(cwd, phaseNum, raw) {
+function cmdPhaseComplete(cwd, phaseNum, raw, opts = {}) {
   if (!phaseNum) {
     error('phase number required for phase complete');
   }
@@ -10377,6 +10411,7 @@ function cmdPhaseComplete(cwd, phaseNum, raw) {
   const planCount = phaseInfo.plans.length;
   const summaryCount = phaseInfo.summaries.length;
 
+  let formDebtItems = [];
   // ── Phase completeness pre-conditions ──────────────────────────────────────────
   // Refuse to mark phase complete unless all required artifacts are present and valid.
   // This prevents phases being marked done without a passing VERIFICATION.md.
@@ -10397,7 +10432,11 @@ function cmdPhaseComplete(cwd, phaseNum, raw) {
 
       // 1-2. Shared on-disk evidence: SUMMARY + Self-Check PASSED per plan,
       // tagged commits per plan, {N}-VERIFICATION.md status passed.
-      completenessErrors.push(...collectPhaseEvidenceErrors(cwd, phaseInfo.phase_number, phaseDirPath, dirFiles).errors);
+      const evidenceNow = collectPhaseEvidenceErrors(cwd, phaseInfo.phase_number, phaseDirPath, dirFiles);
+      const formNow = collectPhaseFormErrors(cwd, phaseInfo, phaseDirPath, dirFiles, { summaryFormErrors: evidenceNow.formErrors }).errors;
+      // --form-debt accepts open form errors (never missing work) and records them in {N}-VERIFICATION.md.
+      completenessErrors.push(...(opts.formDebt ? evidenceNow.workErrors : [...evidenceNow.errors, ...formNow.filter((f) => !evidenceNow.formErrors.includes(f)).map((f) => `${f.file}: ${f.check}: ${f.message}`)]));
+      if (opts.formDebt && completenessErrors.length === 0 && formNow.length > 0) formDebtItems = formNow.map((f) => `${f.file}: ${f.check}: ${f.message}`);
 
       // 3. CHECKPOINT.json must exist with last_step: verify
       const checkpointPath = path.join(phaseDirPath, 'CHECKPOINT.json');
@@ -10423,6 +10462,16 @@ function cmdPhaseComplete(cwd, phaseNum, raw) {
         process.exit(1);
       }
     }
+  }
+
+  if (formDebtItems.length > 0) {
+    const vFile = path.join(cwd, phaseInfo.directory, `${phaseInfo.phase_number}-VERIFICATION.md`);
+    const vText = fs.readFileSync(vFile, 'utf-8');
+    const block = `form_debt:\n${formDebtItems.map((i) => `  - ${JSON.stringify(i)}`).join('\n')}\n`;
+    const m = vText.match(/^---\n([\s\S]*?)\n---/);
+    atomicWriteFileSync(vFile, m
+      ? `---\n${m[1].replace(/^form_debt:\n(?:[ \t]+-.*\n?)*/m, '').replace(/\n*$/, '\n')}${block}---${vText.slice(m[0].length)}`
+      : `---\n${block}---\n${vText}`);
   }
 
   // Update ROADMAP.md: mark phase complete
@@ -10547,6 +10596,7 @@ function cmdPhaseComplete(cwd, phaseNum, raw) {
     date: today,
     roadmap_updated: fs.existsSync(roadmapPath),
     state_updated: fs.existsSync(statePath),
+    ...(formDebtItems.length > 0 ? { form_debt: formDebtItems } : {}),
   };
 
   output(result, raw);
@@ -15210,6 +15260,8 @@ async function main() {
         cmdVerifyMigrationTimestamps(cwd, raw);
       } else if (subcommand === 'dependency-stability') {
         cmdVerifyDependencyStability(cwd, args[2], raw);
+      } else if (subcommand === 'form') {
+        cmdVerifyForm(cwd, args.slice(2), raw);
       } else if (subcommand === 'phase-gate') {
         cmdVerifyPhaseGate(cwd, args[2], raw, { preVerifier: args.includes('--pre-verifier') });
       } else if (subcommand === 'e2e-gaps') {
@@ -15230,7 +15282,7 @@ async function main() {
       } else if (subcommand === 'gate-handshake') {
         cmdVerifyGateHandshake(cwd, raw);
       } else {
-        error('Unknown verify subcommand. Available: plan-structure, phase-completeness, references, commits, artifacts, key-links, migration-timestamps, dependency-stability, phase-gate, e2e-gaps, test-content, append-gap, gate-handshake');
+        error('Unknown verify subcommand. Available: form, plan-structure, phase-completeness, references, commits, artifacts, key-links, migration-timestamps, dependency-stability, phase-gate, e2e-gaps, test-content, append-gap, gate-handshake');
       }
       break;
     }
@@ -15398,7 +15450,7 @@ async function main() {
         const forceFlag = args.includes('--force');
         cmdPhaseRemove(cwd, args[2], { force: forceFlag }, raw);
       } else if (subcommand === 'complete') {
-        cmdPhaseComplete(cwd, args[2], raw);
+        cmdPhaseComplete(cwd, args[2], raw, { formDebt: args.includes('--form-debt') });
       } else if (subcommand === 'checkpoint') {
         cmdPhaseCheckpoint(cwd, args.slice(2), raw);
       } else if (subcommand === 'archive') {

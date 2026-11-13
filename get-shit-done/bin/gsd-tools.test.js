@@ -3535,7 +3535,9 @@ describe('phase evidence gate — phase complete + verify phase-gate (rule 2)', 
     assert.ok(r.parsed.validation_errors.some(e => e.includes('07-01-SUMMARY.md Self-Check is missing')), JSON.stringify(r.parsed));
     const g = gate();
     assert.strictEqual(g.exitCode, 1);
-    assert.ok(g.parsed.failures.includes('missing_evidence'));
+    assert.ok(g.parsed.form_errors.some(e => e.check === 'self_check'), JSON.stringify(g.parsed.form_errors));
+    assert.ok(!g.parsed.failures.includes('missing_evidence'), 'a missing Self-Check section is form, not missing work (CLI-5)');
+    assert.ok(g.parsed.evidence_errors.some(e => e.includes('Self-Check is missing')), 'evidence_errors stays as the alias');
   });
 
   test('negative: Self-Check: FAILED is refused by both commands', () => {

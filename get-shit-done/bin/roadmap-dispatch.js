@@ -188,7 +188,7 @@ function record(input) {
   }
   switch (result.status) {
     case 'completed':
-      if (truth.complete) return { phase: k, action: 'complete', events: [{ type: 'phase_complete', phase: k }] };
+      if (truth.complete) return { phase: k, action: 'complete', ...(Array.isArray(truth.form_debt) && truth.form_debt.length > 0 ? { form_debt: truth.form_debt } : {}), events: [{ type: 'phase_complete', phase: k }] };
       return { phase: k, ...incompleteEvent(k, truth, folded, 'completed_without_disk_truth') };
     case 'gaps_found': {
       const kind = result.gap_kind || input.derivedGapKind || 'product';
