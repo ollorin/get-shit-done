@@ -12107,6 +12107,8 @@ describe('eval-candidate generation (Phase 55-01)', () => {
 
   beforeEach(() => {
     tmpDir = createTempProject();
+    // A project opts in to eval regressions by having tests/eval-regressions (pilot fix C6: the tool never creates it).
+    fs.mkdirSync(path.join(tmpDir, 'tests', 'eval-regressions'), { recursive: true });
   });
 
   afterEach(() => {
@@ -12521,6 +12523,8 @@ describe('eval-candidate review queue (Phase 55-02)', () => {
 
   beforeEach(() => {
     tmpDir = createTempProject();
+    // A project opts in to eval regressions by having tests/eval-regressions (pilot fix C6: the tool never creates it).
+    fs.mkdirSync(path.join(tmpDir, 'tests', 'eval-regressions'), { recursive: true });
   });
 
   afterEach(() => {
@@ -12744,6 +12748,8 @@ describe('MILE-32 end-to-end: failures become permanent regression evals (Phase 
 
   beforeEach(() => {
     tmpDir = createTempProject();
+    // A project opts in to eval regressions by having tests/eval-regressions (pilot fix C6: the tool never creates it).
+    fs.mkdirSync(path.join(tmpDir, 'tests', 'eval-regressions'), { recursive: true });
   });
 
   afterEach(() => {
@@ -19258,5 +19264,29 @@ describe('pilot fix B2a: one markdown table-row splitter honours backtick spans 
     ].join('\n');
     const r = evaluateDefectClassesB2a(body);
     assert.strictEqual(r.status, 'ok', JSON.stringify(r.row));
+  });
+});
+
+describe('pilot fix C6: eval-candidate never creates tests/eval-regressions in a project without it', () => {
+  let tmpDir;
+  beforeEach(() => { tmpDir = createTempProject(); });
+  afterEach(() => { cleanup(tmpDir); });
+  const verification = `---\nphase: "01"\nstatus: gaps_found\nscore: 1/2\ngaps:\n  - truth: "thing works"\n    status: failed\n    reason: "it does not"\n    artifacts:\n      - path: a.js\n        issue: broken\n    missing:\n      - fix it\n---\n# V\n`;
+
+  test('from-verification writes nothing and reports skipped when the directory is absent', () => {
+    fs.writeFileSync(path.join(tmpDir, '.planning', '01-VERIFICATION.md'), verification);
+    const r = runGsdTools('eval-candidate from-verification .planning/01-VERIFICATION.md', tmpDir);
+    assert.ok(r.success, r.error);
+    const parsed = JSON.parse(r.output);
+    assert.match(parsed.skipped, /no tests\/eval-regressions/);
+    assert.strictEqual(fs.existsSync(path.join(tmpDir, 'tests')), false);
+  });
+
+  test('with the directory present the queue entry is still written', () => {
+    fs.mkdirSync(path.join(tmpDir, 'tests', 'eval-regressions'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, '.planning', '01-VERIFICATION.md'), verification);
+    const parsed = JSON.parse(runGsdTools('eval-candidate from-verification .planning/01-VERIFICATION.md', tmpDir).output);
+    assert.ok(parsed.written >= 1, JSON.stringify(parsed));
+    assert.ok(fs.readdirSync(path.join(tmpDir, 'tests', 'eval-regressions', 'queue')).length >= 1);
   });
 });

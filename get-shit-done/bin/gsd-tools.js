@@ -6075,8 +6075,14 @@ function cmdQualityVerdictToIssues(cwd, filePath, raw, required) {
 // Writes candidate(s) to the queue directory. Accepts a single candidate
 // object or an array; normalizes to an array. Skips any candidate without a
 // truthy `id`. Returns the array of cwd-relative paths actually written.
+function evalRegressionsConfigured(cwd) {
+  try { return fs.statSync(path.join(cwd, EVAL_REGRESSIONS_ROOT)).isDirectory(); } catch { return false; }
+}
+
 function writeEvalCandidates(cwd, candidates) {
   const list = Array.isArray(candidates) ? candidates : [candidates];
+  // A project without tests/eval-regressions has not opted in: never create the tree inside it.
+  if (!evalRegressionsConfigured(cwd)) return [];
   const queueDir = getEvalRegressionsQueueDir(cwd);
   fs.mkdirSync(queueDir, { recursive: true });
 
@@ -6253,6 +6259,10 @@ function cmdEvalCandidateFromDebug(cwd, debugFileArg, raw) {
     return;
   }
 
+  if (!evalRegressionsConfigured(cwd)) {
+    output({ written: false, skipped: 'no tests/eval-regressions directory in this project', paths: [] }, raw);
+    return;
+  }
   const paths = writeEvalCandidates(cwd, candidate);
   output({ written: true, paths, candidate }, raw);
 }
@@ -6270,6 +6280,10 @@ function cmdEvalCandidateFromVerification(cwd, verificationFileArg, raw) {
     return;
   }
 
+  if (!evalRegressionsConfigured(cwd)) {
+    output({ written: 0, skipped: 'no tests/eval-regressions directory in this project', paths: [] }, raw);
+    return;
+  }
   const paths = writeEvalCandidates(cwd, candidates);
   output({ written: paths.length, paths }, raw);
 }
