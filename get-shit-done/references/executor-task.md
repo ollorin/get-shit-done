@@ -4,7 +4,7 @@ You were spawned for task {N} of one plan (the prompt names the plan path and th
 
 ## Read
 
-1. The plan's frontmatter and ONLY your task block: `<files>`, `<action>`, `<acceptance>`, `<verify>`, `<done>`. Read `<interfaces>` if the plan has it; do not re-read sources to rediscover types it lists.
+1. The plan's frontmatter and ONLY your task block: `<files>`, `<action>`, `<acceptance>`, `<verify>`, `<done>`. Read `<interfaces>` if the plan has it; do not re-read sources to re-derive types it lists.
 2. The `Rules applied:` lines in your `<action>`. They are binding: each names a project rule and its instance (allowed values, failure path, who may call it, authority field, grants). Satisfy each instance literally; if one cannot be met, that is a deviation to report.
 3. `.planning/PRODUCT-BRIEF.md` and `.planning/STACK-PROFILE.md` sections your task needs. Every command, path and tool name comes from the profile (`stack_commands`); a missing key is a stop-and-report, never a default stack.
 4. `./CLAUDE.md` and project rules your files fall under.

@@ -707,10 +707,18 @@ After `post_phase_ux_sweep` and before `pre_verify_gates`. Runs only when `stack
 
 </step>
 
-<step name="implementation_review">
-After the last wave and the UI steps, before `pre_verify_gates`. Skip when the phase changed nothing outside `.planning/`, and always at `spike` (the final review is merged).
+<step name="mechanical_gates">
+After the last wave and the UI steps, before `implementation_review`. Run the mechanical gates ONCE on the final tree and write their output to `{phase_dir}/captures/gates.txt` (create the directory). Reviewers and the verifier read that capture and never re-run the full suite.
 
-Rounds and tier are the "Implementation review" row of `references/rigour.md`: when init `risk_addons` is true: loop to zero, at most 4 rounds, then ONE ruling on `{ruling_model}` (fix or accept each open finding), then ONE batched diff review on `{ruling_model}`. Each round is a fresh `{reviewer_model}` agent, never the implementer, given `git diff {phase base}..HEAD -- . ':!.planning'`, the plans and the coordinator's review checklist. It reviews code and tests, not planning documents, and writes `{phase_dir}/{N}-REVIEW-{round}.md`: frontmatter `round`, `reviewer_role` (`reviewer` or `ruling`) and `open_critical_high: <count of CRITICAL/HIGH findings still open after this round>`, then one line per finding (id, severity, `file:line`, what, fix). A targeted re-review writes the total still open, not only its own finding. After a ruling on open CRITICAL/HIGH findings, the coordinator adds `ruled_by: [D-NN]` (the ruling's ledger ids) to the newest review file. `verify phase-gate` (so `phase complete`) refuses, as missing work, a phase that changed files outside `.planning/` with no review file, or whose newest round has `open_critical_high` above 0 and no `ruled_by`; the skip rule above is the same condition. Findings go to one `{executor_model}` fix dispatch per file set. After the standard cap (2 rounds), an open CRITICAL/HIGH finding is fixed and re-checked by ONE targeted re-review of that finding (fresh reviewer, same tier, only that finding's lines) or goes to ONE ruling; it is never closed by an `A-` row. Any other unfixed finding needs a reason and an `A-` row.
+1. Every entry of `gsd-tools profile get stack.gates` (typecheck, lint, format and the project's ratchet, security and dependency gates; legacy: no `stack.gates` => the gate scripts the repo ships; none configured: the profile's `typecheck` and `lint` commands), then the full test run `<stack_commands.test_all>`, each through the profile's own command. For each the capture holds the command, `rc=`, the pass/fail counts, the per-file or per-bucket seconds the runner prints, and for a gate that scans files the number it scanned. A gate that scanned 0 files is inert and counts as failed.
+2. A red result: one `{executor_model}` fix dispatch per file set with the failing lines; then re-run only the touched test files (and their bucket when the project defines buckets) and append that output to `gates.txt`. The full run is not repeated.
+3. This is the phase's one full run. The twice-green pass over all buckets runs once at milestone end, never per phase (`references/gsd-test-protocol.md` `test_cost_rule`).
+</step>
+
+<step name="implementation_review">
+After `mechanical_gates`, before `pre_verify_gates`. Skip when the phase changed nothing outside `.planning/`, and always at `spike` (the final review is merged).
+
+Rounds and tier are the "Implementation review" row of `references/rigour.md`: when init `risk_addons` is true: loop to zero, at most 4 rounds, then ONE ruling on `{ruling_model}` (fix or accept each open finding), then ONE batched diff review on `{ruling_model}`. Each round is a fresh `{reviewer_model}` agent, never the implementer, given `git diff {phase base}..HEAD -- . ':!.planning'`, the plans, `{phase_dir}/captures/gates.txt` (the one full run; it does not re-run the suite) and the coordinator's review checklist. It reviews code and tests, not planning documents, and writes `{phase_dir}/{N}-REVIEW-{round}.md`: frontmatter `round`, `reviewer_role` (`reviewer` or `ruling`) and `open_critical_high: <count of CRITICAL/HIGH findings still open after this round>`, then one line per finding (id, severity, `file:line`, what, fix). A targeted re-review writes the total still open, not only its own finding. After a ruling on open CRITICAL/HIGH findings, the coordinator adds `ruled_by: [D-NN]` (the ruling's ledger ids) to the newest review file. `verify phase-gate` (so `phase complete`) refuses, as missing work, a phase that changed files outside `.planning/` with no review file, or whose newest round has `open_critical_high` above 0 and no `ruled_by`; the skip rule above is the same condition. Findings go to one `{executor_model}` fix dispatch per file set. After the standard cap (2 rounds), an open CRITICAL/HIGH finding is fixed and re-checked by ONE targeted re-review of that finding (fresh reviewer, same tier, only that finding's lines) or goes to ONE ruling; it is never closed by an `A-` row. Any other unfixed finding needs a reason and an `A-` row.
 </step>
 
 <step name="pre_verify_gates">
@@ -737,15 +745,7 @@ This is the form gate: form is checked here, by a script, and nowhere else. At `
 
 Auto (auto_mode, references/auto-mode.md K4): missing work takes (a), then the gate re-runs; never approve a waiver (b) yourself. Still missing after one fix round: park the phase, return `status: blocked` naming the failures. Form errors never park; missing work always does.
 
-**Gate 2 — Integration tests green:**
-
-All integration tests must pass before SUMMARY.md is considered complete:
-```bash
-<stack_commands.test_all>
-```
-If failures: fix before proceeding. Do not write "tests pass" in SUMMARY.md if they don't.
-
-**Gate 3 — Cross-layer consistency (if phase added enums, types, or status values):**
+**Gate 2 — Cross-layer consistency (if phase added enums, types, or status values):**
 
 If the phase introduced a new enum value, status string, or type discriminator:
 - Verify it exists in ALL layers: DB constraint, RPC validation, handler validation, frontend type, UI display map
@@ -812,7 +812,7 @@ Agent(
 Phase directory: {phase_dir}
 Phase goal: {goal from ROADMAP.md}
 Phase requirement IDs: {phase_req_ids}
-Check must_haves against actual codebase.
+Check must_haves against actual codebase. Gate and test results: read `{phase_dir}/captures/gates.txt` (it must be newer than the last code commit); do not re-run the full suite.
 Cross-reference requirement IDs from PLAN frontmatter against REQUIREMENTS.md — every ID MUST be accounted for.
 Judge product truth only; form was gated by a script. A form defect you notice is mentioned in your report body and never changes the status.
 Cite planning records by id (D-NN, A-NN, requirement id, plan id), never by line; code by file:line.

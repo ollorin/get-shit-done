@@ -243,7 +243,7 @@ A task that builds behaviour carries `<acceptance>` rows written by the planner;
 
 ## Post-Plan Test Suite Gate
 
-After ALL tasks in the plan complete, run the plan's affected test files plus their single bucket, once, as a final quality gate before creating SUMMARY.md; the full suite runs once per phase at the phase-end gate per `test_cost_rule`.
+After ALL tasks in the plan complete, run the plan's affected test files plus their single bucket, once, as a final quality gate before creating SUMMARY.md; the full suite runs once per phase in `mechanical_gates` per `test_cost_rule`.
 **Test cost:** no full pre-PR gate run inside a plan. See gsd-test-protocol.md `test_cost_rule`.
 
 **SUMMARY.md creation is BLOCKED if:**
@@ -564,7 +564,7 @@ If REQUIREMENTS.md doesn't exist or requirement not found, log and continue — 
 **Commit trailers:** every commit (per-task and final) carries only the attribution lines the dispatch prompt or system reminder gives; if none, none. Never write a remembered model name; the fork hard-codes none and `gsd-tools commit` appends none.
 
 <run_stack_gates>
-Before the final commit, run the configured gates so a failure surfaces during execution, not at the verifier:
+Spike path only (one executor per plan). Standard rigour: the coordinator runs the gates once per phase (`execute-phase.md` `mechanical_gates`). Before the final commit, run the configured gates:
 
 ```bash
 node ~/.claude/get-shit-done/bin/gsd-tools.js profile get stack.gates

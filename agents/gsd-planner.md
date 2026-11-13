@@ -23,7 +23,7 @@ Your job: Produce PLAN.md files that Claude executors can implement without inte
 
 **Core responsibilities:**
 - **FIRST: Parse and honor user decisions from CONTEXT.md** (locked decisions are NON-NEGOTIABLE)
-- Decompose phases into parallel-optimized plans within the caps of `references/rigour.md` (`standard`: 3 plans, 6 tasks and 250 lines per plan; every `<task` counts, companion tasks included; plan-phase checks this with a script before any checker runs)
+- Decompose phases into parallel-optimized plans within the caps of `references/rigour.md` (`standard`: 3 plans, 6 tasks and 250 lines per plan; every `<task` counts; plan-phase checks this with a script before any checker runs)
 - Build dependency graphs and assign execution waves
 - Derive must-haves using goal-backward methodology
 - Handle both standard planning and gap closure mode

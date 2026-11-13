@@ -126,14 +126,9 @@ reference file.
 **Step 8e (migration timestamp conflict check, QGATE-05):**
 > **Hard rule:** Unresolved duplicate migration timestamps detected by this check cause `gaps_found`. This is NEVER a warning.
 
-**Step 8g (Layer-1 machine-gate execution, QGATE-14):**
+**Step 8g (Layer-1 machine-gate evidence, QGATE-14):**
 
-RUN — do not merely check for the existence of — the target repo's Layer-1 machine gates against the phase's tree, when the repo ships them:
-- every gate in `stack.gates[]` (entries carry no layer field: "Layer-1" means all of them) of `.planning/config.json` (`gsd-tools profile get stack.gates`): the FP/routing/sizing violation ratchet (down-only), the migration security gate, the dependency CVE-scan gate
-- the `--no-check` re-introduction guard (`! git grep -n "no-check" -- <stack.paths.backend config files>`)
-- Legacy: no `stack.gates` in `.planning/config.json` => run the gate scripts the repo ships, exactly as before; absence of `stack.gates` is never a skip
-
-Capture each gate's exit code and stdout. A gate that is present in the repo but not run is treated as a FAIL for this step — the verifier may not skip a gate the repo defines.
+The coordinator ran every gate in `stack.gates[]` (FP/routing/sizing ratchet, migration security, dependency scan) once, with the full suite, into `{phase_dir}/captures/gates.txt`; you read that capture (Step 8b checks it exists and is newer than the last code commit) and re-run none of it. Every entry of `gsd-tools profile get stack.gates` must appear with its exit code; a gate the repo defines that is absent from the capture is a FAIL for this step, as is a gate whose line shows it scanned 0 files. Legacy: no `stack.gates` in `.planning/config.json` => run the gate scripts the repo ships (the coordinator does, in `mechanical_gates`, into the same capture); absence of `stack.gates` is never a skip. Run only the `--no-check` re-introduction guard yourself (`! git grep -n "no-check" -- <stack.paths.backend config files>`).
 
 **Step 8h (Layer-1 machine-gate result reading, QGATE-15):**
 
@@ -175,7 +170,7 @@ row per T0 test, and deleted/merged tests listed with their covering test. Any f
 
 **DO flag for human verification when uncertain** (visual, real-time, external service).
 
-**Keep verification fast: static checks PLUS the test suite.** Use grep/file checks for artifact/wiring verification — but Step 8b (run the test suite) is MANDATORY and is NOT waived by this rule. "Don't run the app" means do NOT launch the app or dev servers interactively; it does NOT mean "skip the tests". UI QA evidence covers runtime UI; the test suite covers behavior.
+**Keep verification fast: static checks PLUS the gates capture.** Use grep/file checks for artifact/wiring verification — but Step 8b (read the gates capture) is MANDATORY and is NOT waived by this rule. "Don't run the app" means do NOT launch the app or dev servers interactively; it does NOT mean "skip the tests": the capture covers behavior, UI QA evidence covers runtime UI. Never re-run the full suite.
 
 **DO NOT commit.** The orchestrator commits VERIFICATION.md and your SUMMARY edits after you return (see Return to Orchestrator).
 
@@ -349,14 +344,14 @@ Self-report telemetry (MILE-26): populate these from your own run — an ambiguo
 - [ ] PRD intent alignment checked (Step 6b) — fires only if PRD-TRACE.md present; mismatches → gaps_found (never warning)
 - [ ] Anti-patterns scanned and categorized — including a logical-cohesion check (unrelated responsibilities re-tangled into one file post-execution, independent of LOC)
 - [ ] Human verification items identified
-- [ ] Test suite executed (Step 8b) — failures recorded as gaps, no-tests for code-producing phases → gaps_found (NEVER a warning), timeouts → gaps_found (NEVER a pass)
+- [ ] Test run evidence read from the gates capture, newer than the last code commit (Step 8b) — failures recorded as gaps, no-tests for code-producing phases → gaps_found (NEVER a warning), timeouts → gaps_found (NEVER a pass)
 - [ ] UI QA coverage checked (Step 8c) — UI files without UI QA → gaps_found (never warning)
 - [ ] Deferral language check (Step 8c.5 / QGATE-12) — deferral of tests/QA to future phases → gaps_found (never warning)
 - [ ] E2E test coverage check (Step 8c.6 / QGATE-13) — web projects must have E2E-TEST-PLAN.md and scenario files → gaps_found (never warning)
 - [ ] Test file coverage checked (Step 8d) — `gsd-tools verify test-content` `impl_files_without_tests` → gaps_found (never warning)
 - [ ] Migration timestamp conflicts checked (Step 8e) — unresolved conflicts → gaps_found (never warning)
 - [ ] Docs coverage validated (Step 8f) — docs missing for scope → gaps_found (never warning)
-- [ ] Layer-1 machine gates RUN (Step 8g / QGATE-14) — the `stack.gates[]` Layer-1 gates (FP ratchet, migration security, CVE scan), `--no-check` guard executed against the phase tree (a present-but-unrun gate → gaps_found)
+- [ ] Layer-1 machine gates present in the gates capture (Step 8g / QGATE-14), `--no-check` guard executed against the phase tree (a gate absent from the capture or scanning 0 files → gaps_found)
 - [ ] Layer-1 gate output READ (Step 8h / QGATE-15) — any non-zero Layer-1 gate → gaps_found (never warning)
 - [ ] P0 tier-delta checked (Step 8i / QGATE-16) — a new P0-surface path with no risk-tiered
       registry entry, or a blind tier canary → gaps_found (never warning)

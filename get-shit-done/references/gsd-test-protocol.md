@@ -149,8 +149,8 @@ If infrastructure prevents running tests (e.g., the database service in `stack.s
 Canonical statement; agents point here. Project rules name the exact commands.
 
 1. Inside a plan and in fix loops run only the affected test files (the `test_file` command from `stack_commands`) plus the single bucket containing them (the integration gate in `stack.gates[]`), once. No full pre-PR gate run inside a plan.
-2. ONE full pre-PR gate run (`stack.commands.pre_pr_gate`) per phase, on the final phase tree, before the final phase review. After fixing its findings, rerun only what the fixes touch.
-3. The "tests green twice" pass over all buckets runs once, at phase end / before the PR, not per plan. `--skip-twice` is allowed for intermediate checks and is never claimed PR-ready.
+2. ONE full run per phase (the `mechanical_gates` step of `execute-phase.md`: every `stack.gates[]` entry plus the full test run, output in `{phase_dir}/captures/gates.txt`), on the final phase tree, before any review. Reviewers and the verifier read that capture and do not re-run the suite. After fixing its findings, rerun only the touched test files (and their bucket when the project defines buckets), appended to the capture.
+3. The "tests green twice" pass over all buckets runs once, at milestone end / before the PR, not per phase and not per plan. `--skip-twice` is allowed for intermediate checks and is never claimed PR-ready.
 4. Cheap gates run on their own and early: test coverage for touched libs, type check, lint, format, and every gate in `stack.gates[]`. The phase-final full pre-PR gate run stays mandatory: it catches cross-module breakage (fmt vs a pin test, a contract change vs another plan's test).
 
 Reason: a full pre-PR gate run is 25+ min under the shared stack lock; repeating it per plan starves parallel phases.

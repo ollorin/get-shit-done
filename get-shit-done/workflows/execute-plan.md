@@ -448,10 +448,6 @@ node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" requirements mark-complete $
 Extract requirement IDs from the plan's frontmatter (e.g., `requirements: [AUTH-01, AUTH-02]`). If no requirements field, skip.
 </step>
 
-<step name="run_stack_gates">
-Run every entry of `gsd-tools profile get stack.gates` before the metadata commit and record each exit code in SUMMARY.md (procedure: `<run_stack_gates>` in executor-detail.md). Fix failures this plan caused; name pre-existing ones in the return.
-</step>
-
 <step name="git_commit_metadata">
 Task code already committed per-task. Commit plan metadata:
 

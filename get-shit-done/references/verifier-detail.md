@@ -399,29 +399,20 @@ Code can be fully implemented (no TODOs, no stubs) yet still incorrect. After th
 **Why human:** {Why can't verify programmatically}
 ```
 
-## Step 8b: Runtime Test Suite Execution
+## Step 8b: Test Run Evidence (the gates capture)
 
-After static wiring checks, attempt to run the project's test suite:
+The coordinator ran the mechanical gates and the full suite ONCE, before review, into `{phase_dir}/captures/gates.txt`. Read that capture; never run the full suite yourself.
 
-```bash
-# TEST_CMD = the `test_all` command from `stack_commands` (init output); never detected here
-TEST_CMD="<stack_commands.test_all>"
-
-# Run exactly that command (max 5 minutes); append no flags of your own
-if [ -n "$TEST_CMD" ] && [ "$TEST_CMD" != "none" ]; then
-  timeout 300 bash -c "$TEST_CMD" 2>&1 | tail -30   # bash -c: an unquoted $TEST_CMD is not word-split under zsh
-  TEST_EXIT=$?
-fi
-```
-
-`test_all` of `none` (or empty) declares that the project has no test suite: treat it as "no tests exist" below. It is a hard fail when the phase produced implementation files, and acceptable only for phases that produced none.
+1. The capture must exist and be newer than the last code commit: compare its modification time with `git log -1 --format=%ct -- . ':!.planning'` (committer time, epoch seconds). Missing or older: a gap (`stale_gates_capture`, status cannot be `passed`); the coordinator re-runs, you do not.
+2. Read its test section: a failing or timed-out run is a gap per failing file below; the exit code and counts you cite are the capture's, by line.
+3. `test_all` of `none` (or empty) declares that the project has no test suite: treat it as "no tests exist" below. It is a hard fail when the phase produced implementation files, and acceptable only for phases that produced none.
 
 **One waiver rule for tests (Steps 8b and 8d, and `verify phase-gate` check `test`).** A missing test is a hard fail unless the phase's `DEFERRED.json` holds a `deferred add --step test` entry (reason + approver) for it; that is the only sanctioned waiver, and `verify phase-gate` honors the same entry (`waived: true`). Record a waived test check as `waived (DEFERRED.json: <reason>)` in VERIFICATION.md rather than as a pass. No other prose, SUMMARY note or ruling waives it.
 
 **If tests fail:**
 - Each failing test file = one GAP entry in VERIFICATION.md
 - Evidence: test name + failure message (first 3 lines)
-- Status cannot be `passed` if tests fail — set to `gaps_found`
+- Status cannot be `passed` if the captured run has failures — set to `gaps_found`
 
 **If no tests exist AND the phase produced implementation files (.ts/.tsx/.js):**
 - This is a HARD FAIL — set STATUS = gaps_found

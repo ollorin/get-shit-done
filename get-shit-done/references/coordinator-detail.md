@@ -141,7 +141,7 @@ Executors and verifiers are spawned by execute-phase, which assembles the fixed 
 </execution_cycle>
 
 <cost_and_test_commands>
-**Test cost:** one full run of every gate in `stack.gates[]` and `stack.commands.pre_pr_gate` per phase, on the final tree before the final phase review; the twice-green pass runs once at phase end. Executors and test writers run affected files plus one bucket. See gsd-test-protocol.md `test_cost_rule`.
+**Test cost:** exactly one full run per phase (every gate in `stack.gates[]` plus the full tests, into `captures/gates.txt`), on the final tree before any review; the twice-green pass runs once at milestone end. Executors and test writers run affected files plus one bucket. See gsd-test-protocol.md `test_cost_rule`.
 
 **Context and reporting cost:** the executor tier is cheaper with context under ~100k tokens: size each executor task small (one plan task / one finding batch), read line ranges not whole files, save test logs to `.tmp/` and read only failing lines, fresh agent per task. All agents report answer-first, up to 10 lines.
 
