@@ -3385,7 +3385,7 @@ function cmdPhasePlanIndex(cwd, phase, raw) {
       objective,
       files_modified: filesModified,
       task_count: taskCount,
-      task_tiers: formCheck.planTasks(content).map(formCheck.routedTier),
+      task_tiers: Array.from({ length: Math.max(taskCount, formCheck.planTasks(content).length) }, (_, i) => (formCheck.planTasks(content).map(formCheck.routedTier)[i] || formCheck.DEFAULT_TIER)),
       has_summary: hasSummary,
       gap_closure: fm.gap_closure === true || fm.gap_closure === 'true',
       executor_model: spikeFloor ? formCheck.TIERS[Math.max(formCheck.TIERS.indexOf(spikeFloor), formCheck.TIERS.indexOf(formCheck.highestTier(formCheck.planTasks(content))))] : null,
@@ -5611,12 +5611,12 @@ function unavailableVerdictIssue(planId, reason) {
     plan: planId || null,
     dimension: 'adversarial_review',
     severity: 'blocker',
-    description: `adversarial pass unavailable on a high-risk plan: ${reason}`,
-    fix_hint: 'Re-run the plan-checker adversarial pass; a high-risk plan is not approved without a valid VERDICT.md.',
+    description: `adversarial pass unavailable on a plan that requires it: ${reason}`,
+    fix_hint: 'Re-run the plan-checker adversarial pass; a plan under the adversarial pass is not approved without a valid VERDICT.md.',
   };
 }
 
-// opts.required (high-risk plan): a missing or unrecognised verdict fails closed with a blocker
+// opts.required (plan under the adversarial pass): a missing or unrecognised verdict fails closed with a blocker
 // issue instead of passing; without it the lenient pre-existing behaviour is kept.
 function verdictToIssues(verdictFrontmatter, planId, opts) {
   const fm = verdictFrontmatter || {};
@@ -8088,8 +8088,8 @@ function cmdDeferredList(cwd, phaseArg, raw) {
 // `.planning/execution-state.json` is a per-phase/per-plan retry counter that
 // drives autonomous execution's self-healing failure path: `record-failure`
 // increments the counter and returns an `action` of retry (1st failure),
-// debug (2nd+ failure, below the configurable `max_attempts` ceiling), or
-// escalate (at the ceiling -- never spawn another debug attempt after this).
+// debug (2nd failure, below the configurable `max_attempts` ceiling: the one
+// rescue), or escalate (every later failure -- never spawn another debug attempt).
 // `record-success` clears the counter. `get` is a read-only lookup. All three
 // share the same malformed-JSON-safe contract as `deferred add`/`deferred
 // list` (readDeferredWaivers): an absent file means no history (not an
@@ -8152,7 +8152,8 @@ function applyExecutionStateFailure(cwd, options) {
   state[key] = entry;
 
   const maxAttempts = loadConfig(cwd).max_attempts;
-  const action = entry.attempts === 1 ? 'retry' : (entry.attempts < maxAttempts ? 'debug' : 'escalate');
+  // The rescue debugger runs once per plan: only the 2nd failure returns `debug`; every later one escalates.
+  const action = entry.attempts === 1 ? 'retry' : (entry.attempts === 2 && entry.attempts < maxAttempts ? 'debug' : 'escalate');
 
   writeExecutionState(cwd, state);
   return {
@@ -9142,7 +9143,7 @@ function cmdPhaseAdd(cwd, description, raw) {
   fs.mkdirSync(dirPath, { recursive: true });
 
   // Build phase entry
-  const phaseEntry = `\n### Phase ${newPhaseNum}: ${description}\n\n**Goal:** [To be planned]\n**Depends on:** Phase ${maxPhase}\n**Plans:** 0 plans\n\nPlans:\n- [ ] TBD (run /gsd:plan-phase ${newPhaseNum} to break down)\n`;
+  const phaseEntry = `\n### Phase ${newPhaseNum}: ${description}\n\n**Goal:** [To be planned]\n**Depends on:** Phase ${maxPhase}\n**Risk domains:** none\n**Plans:** 0 plans\n\nPlans:\n- [ ] TBD (run /gsd:plan-phase ${newPhaseNum} to break down)\n`;
 
   const updatedContent = roadmapBox.addPhase(content, { num: newPhaseNum, name: description, entry: phaseEntry, prev: maxPhase || null });
 
@@ -9206,27 +9207,9 @@ function cmdPhaseInsert(cwd, afterPhase, description, raw) {
   fs.mkdirSync(dirPath, { recursive: true });
 
   // Build phase entry
-  const phaseEntry = `\n### Phase ${decimalPhase}: ${description} (INSERTED)\n\n**Goal:** [Urgent work - to be planned]\n**Depends on:** Phase ${afterPhase}\n**Plans:** 0 plans\n\nPlans:\n- [ ] TBD (run /gsd:plan-phase ${decimalPhase} to break down)\n`;
+  const phaseEntry = `\n### Phase ${decimalPhase}: ${description} (INSERTED)\n\n**Goal:** [Urgent work - to be planned]\n**Depends on:** Phase ${afterPhase}\n**Risk domains:** none\n**Plans:** 0 plans\n\nPlans:\n- [ ] TBD (run /gsd:plan-phase ${decimalPhase} to break down)\n`;
 
-  // Insert after the target phase section
-  const headerPattern = new RegExp(`(###\\s*Phase\\s+${afterPhaseEscaped}:[^\\n]*\\n)`, 'i');
-  const headerMatch = content.match(headerPattern);
-  if (!headerMatch) {
-    error(`Could not find Phase ${afterPhase} header`);
-  }
-
-  const headerIdx = content.indexOf(headerMatch[0]);
-  const afterHeader = content.slice(headerIdx + headerMatch[0].length);
-  const nextPhaseMatch = afterHeader.match(/\n###\s+Phase\s+\d/i);
-
-  let insertIdx;
-  if (nextPhaseMatch) {
-    insertIdx = headerIdx + headerMatch[0].length + nextPhaseMatch.index;
-  } else {
-    insertIdx = content.length;
-  }
-
-  const updatedContent = content.slice(0, insertIdx) + phaseEntry + content.slice(insertIdx);
+  const updatedContent = roadmapBox.addPhase(content, { num: decimalPhase, name: `${description} (INSERTED)`, entry: phaseEntry, prev: afterPhase, inline: true });
   atomicWriteFileSync(roadmapPath, updatedContent);
 
   const result = {
@@ -9994,9 +9977,11 @@ function cmdPhaseComplete(cwd, phaseNum, raw, opts = {}) {
   let phaseReqIds = [];
   let requirementsMarked = [];
   if (fs.existsSync(roadmapPath) && fs.existsSync(path.join(cwd, '.planning', 'REQUIREMENTS.md'))) {
-    const section = roadmapBox.phaseSection(fs.readFileSync(roadmapPath, 'utf-8'), phaseNum);
-    if (section === null) error(`ROADMAP.md has no "### Phase ${phaseNum}" heading (plain or bold): refusing to complete a phase whose requirements cannot be read`);
-    const ids = [...new Set(((section.match(/\*\*Requirements:?\*\*:?\s*([^\n]*)/i) || [])[1] || '').match(/[A-Z][A-Z0-9]*-\d+/g) || [])];
+    const roadmapText = fs.readFileSync(roadmapPath, 'utf-8');
+    const section = roadmapBox.phaseSection(roadmapText, phaseNum);
+    if (section === null && roadmapBox.checkboxState(roadmapText, phaseNum) === null) error(`ROADMAP.md has no "### Phase ${phaseNum}" heading (plain or bold) and no checklist line: refusing to complete a phase whose requirements cannot be read`);
+    if (section === null) process.stderr.write(`Notice: ROADMAP.md has no "### Phase ${phaseNum}" heading; no requirement was marked complete (the checklist line is ticked)\n`);
+    const ids = section === null ? [] : [...new Set(((section.match(/\*\*Requirements:?\*\*:?\s*([^\n]*)/i) || [])[1] || '').match(/[A-Z][A-Z0-9]*-\d+/g) || [])];
     const reqPath = path.join(cwd, '.planning', 'REQUIREMENTS.md');
     const reqText = fs.readFileSync(reqPath, 'utf-8');
     const key = String(phaseNum).replace(/^0+(?=\d)/, '').replace(/\./g, '\\.');
@@ -12936,12 +12921,15 @@ function cmdRoutingClassifyFailure(cwd, errorText, raw) {
 // Composes classifyFailure + decideEscalation into one call the coordinator
 // can use to decide whether to re-spawn a failed task at a higher tier.
 function cmdRoutingEscalationDecision(cwd, options, raw) {
-  const { currentTier, errorSummary, escalationsUsed } = options || {};
+  const { currentTier, errorSummary, escalationsUsed, failsAtTier, rescuesUsed } = options || {};
   if (!currentTier) { error('routing escalation-decision: --current-tier is required'); return; }
   const classification = classifyFailure(errorSummary || '');
   const escalationsUsedNum = parseInt(escalationsUsed, 10) || 0;
-  const decision = decideEscalation(currentTier, classification, escalationsUsedNum, topModelFields(cwd).ruling_model);
-  output({ ...classification, ...decision, current_tier: currentTier, escalations_used: escalationsUsedNum }, raw);
+  const failsNum = parseInt(failsAtTier, 10) || 1;
+  const rescuesNum = parseInt(rescuesUsed, 10) || 0;
+  const topAlias = currentTier === 'sonnet' ? topModelFields(cwd).ruling_model : null;
+  const decision = decideEscalation(currentTier, classification, escalationsUsedNum, topAlias, failsNum, rescuesNum);
+  output({ ...classification, ...decision, current_tier: currentTier, escalations_used: escalationsUsedNum, fails_at_tier: failsNum }, raw);
 }
 
 /**
@@ -13948,21 +13936,23 @@ function classifyFailure(errorSummary) {
   return { capability_related: true, matched_pattern: null };
 }
 
-// Pure, ladder-bounded escalation decision. Uses getNextTier/getTiers from
+// Pure, ladder-bounded escalation decision. `failsAtTier` counts the task's failures at currentTier (1 = the first):
+// a task is retried once on the same tier and escalates, or is rescued, only on its second failure there. Uses getNextTier/getTiers from
 // model-registry.js -- the SINGLE source of truth for the escalation ladder;
 // never re-declares a second hardcoded ladder here. Bound: one retry per
 // tier (escalationsUsed caps at getTiers().length - 1), non-capability
 // failures never escalate, and the ladder ends at sonnet. The one rung past
-// it is the rescue: a capability failure at sonnet returns rescue:true with
+// it is the rescue: the second capability failure at sonnet returns rescue:true with
 // `to` = topAlias (the caller's resolved ruling_model), a single top-model
-// debugger dispatch, never an executor retry.
-function decideEscalation(currentTier, classification, escalationsUsed, topAlias) {
+// debugger dispatch, never an executor retry; `rescuesUsed` >= 1 withholds it (once per task).
+function decideEscalation(currentTier, classification, escalationsUsed, topAlias, failsAtTier = 1, rescuesUsed = 0) {
   if (!classification || classification.capability_related === false) {
     return { escalate: false, next_tier: null, reason: 'non_capability_failure' };
   }
+  if ((failsAtTier || 1) < 2) return { escalate: false, next_tier: null, retry: true, reason: 'retry_same_tier' };
   const stop = (reason) => ({
     escalate: false, next_tier: null, reason,
-    ...(currentTier === 'sonnet' && topAlias ? { rescue: true, to: topAlias } : {})
+    ...(currentTier === 'sonnet' && topAlias && !(rescuesUsed >= 1) ? { rescue: true, to: topAlias } : {})
   });
   const maxEscalations = getTiers().length - 1;
   if ((escalationsUsed || 0) >= maxEscalations) return stop('escalation_bound_reached');
@@ -16030,7 +16020,11 @@ Was ${model} the right choice for this task? (y/n): `;
         const currentTierIdx = args.indexOf('--current-tier');
         const errorSummaryIdx = args.indexOf('--error-summary');
         const escalationsUsedIdx = args.indexOf('--escalations-used');
+        const failsIdx = args.indexOf('--fails-at-tier');
+        const rescuesIdx = args.indexOf('--rescues-used');
         cmdRoutingEscalationDecision(cwd, {
+          failsAtTier: failsIdx !== -1 ? args[failsIdx + 1] : null,
+          rescuesUsed: rescuesIdx !== -1 ? args[rescuesIdx + 1] : null,
           currentTier: currentTierIdx !== -1 ? args[currentTierIdx + 1] : null,
           errorSummary: errorSummaryIdx !== -1 ? args[errorSummaryIdx + 1] : null,
           escalationsUsed: escalationsUsedIdx !== -1 ? args[escalationsUsedIdx + 1] : null,

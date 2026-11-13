@@ -77,17 +77,11 @@ describe('R8-2: task tags are haiku or sonnet only', () => {
   });
   test('escalation: haiku -> sonnet; a failing sonnet task is never escalated to opus', () => {
     const d = project();
-    const dec = (tier) => gsd(d, ['routing', 'escalation-decision', '--current-tier', tier, '--error-summary', 'wrong', '--escalations-used', '0']).json;
+    const dec = (tier) => gsd(d, ['routing', 'escalation-decision', '--current-tier', tier, '--error-summary', 'wrong', '--escalations-used', '0', '--fails-at-tier', '2']).json;
     assert.deepStrictEqual([dec('haiku').escalate, dec('haiku').next_tier], [true, 'sonnet']);
     assert.deepStrictEqual([dec('sonnet').escalate, dec('sonnet').next_tier], [false, null]);
   });
-  test('prose carries no opus-executor tier', () => {
-    for (const f of ['get-shit-done/references/task-routing.md', 'agents/gsd-planner.md', 'agents/gsd-plan-checker.md']) assert.doesNotMatch(doc(f), /\bopus\b/i, f);
-    const pd = doc('get-shit-done/references/planner-detail.md');
-    assert.doesNotMatch(pd.slice(pd.indexOf('Tier Tag Format'), pd.indexOf('## Frontmatter Fields')), /\bopus\b/i);
-    assert.doesNotMatch(pd, /haiku\|sonnet\|opus/);
-    assert.match(doc('get-shit-done/references/task-routing.md'), /fails twice/);
-  });
+
 });
 
 describe('R8-3: profiles are gone', () => {

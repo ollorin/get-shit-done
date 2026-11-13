@@ -46,12 +46,18 @@ describe('R5-1: phase complete marks only the requirement ids this phase owns', 
     assert.strictEqual(r.rc, 0, r.out + r.err);
     assert.deepStrictEqual(r.json.requirements_marked, ['ADM-01', 'ADM-02']);
   });
-  test('a heading it cannot parse is a loud error, not a silent no-op', () => {
+  test('a heading it cannot parse with a checklist line is a notice (nothing marked); with no checklist line either it is a loud error', () => {
     const dir = setup('### Phase one - one');
     gsd(dir, ['phase', 'checkpoint', '1', '--step', 'verify', '--status', 'passed']);
     const r = gsd(dir, ['phase', 'complete', '1']);
-    assert.notStrictEqual(r.rc, 0);
-    assert.match(r.err + r.out, /no "### Phase 1" heading/);
+    assert.strictEqual(r.rc, 0, r.out + r.err);
+    assert.deepStrictEqual(r.json.requirements_marked, []);
+    const bare = setup('### Phase one - one');
+    write(bare, '.planning/ROADMAP.md', read(bare, '.planning/ROADMAP.md').replace(/^- \[ \] \*\*Phase 1: one\*\*.*\n/m, ''));
+    gsd(bare, ['phase', 'checkpoint', '1', '--step', 'verify', '--status', 'passed']);
+    const e = gsd(bare, ['phase', 'complete', '1']);
+    assert.notStrictEqual(e.rc, 0);
+    assert.match(e.err + e.out, /no "### Phase 1" heading/);
   });
 });
 
@@ -103,7 +109,9 @@ describe('R5-4: an untagged task runs on sonnet', () => {
     write(dir, '.planning/phases/01-p1/01-01-PLAN.md', '---\nphase: 01\nplan: "01"\nwave: 1\n---\n<tasks>\n<task type="auto"><name>a</name></task>\n<task tier="haiku"><name>b</name></task>\n</tasks>\n');
     const idx = gsd(dir, ['phase-plan-index', '1']).json;
     assert.deepStrictEqual(idx.plans[0].task_tiers, ['sonnet', 'haiku']);
-    assert.match(doc('get-shit-done/references/task-routing.md'), /still without a tag at execute time[^.]*runs on `sonnet`/);
+    write(dir, '.planning/phases/01-p1/01-02-PLAN.md', '---\nphase: 01\nplan: "02"\nwave: 1\n---\n## Task 1: a\n## Task 2: b\n');
+    const legacy = gsd(dir, ['phase-plan-index', '1']).json.plans.find((p) => p.id.endsWith('02'));
+    assert.deepStrictEqual([legacy.task_count, legacy.task_tiers], [2, ['sonnet', 'sonnet']]);
   });
 });
 

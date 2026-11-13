@@ -3,7 +3,7 @@ Debug issues using scientific method with subagent isolation. This workflow is t
 
 Supports two callers:
 - **Interactive** — `/gsd:debug` (a human is present, answers questions, approves checkpoints).
-- **Non-interactive (autonomous auto-spawn)** — `execute-phase.md`'s "Handle failures" step and `execute-roadmap.md`'s `handle_failure` step, after a 2nd (or later, below-ceiling) execution failure. No human is present; symptoms arrive pre-filled and checkpoints are handled without prompting.
+- **Non-interactive (autonomous auto-spawn)** — `execute-phase.md`'s "Handle failures" step and `execute-roadmap.md`'s `handle_failure` step, after a plan's 2nd execution failure (`action: debug`). No human is present; symptoms arrive pre-filled and checkpoints are handled without prompting.
 </purpose>
 
 <inputs>
@@ -12,6 +12,7 @@ Callers set these via the prompt/context passed into this workflow:
 - **`mode.interactive`** (`true|false`, default `true`) — When `false`, a `## CHECKPOINT REACHED` of type `human-verify` is auto-approved (no user prompt, no waiting). A checkpoint of type `human-action` or `decision` genuinely requires a human and CANNOT be auto-approved — treat it as `## INVESTIGATION INCONCLUSIVE` and return immediately so the caller can escalate rather than hang.
 - **`mode.symptoms_prefilled`** (`true|false`, default `false`) — When `true`, symptoms are supplied by the caller via the `symptoms` input below instead of gathered interactively.
 - **`mode.goal`** (`find_and_fix|find_root_cause_only`, default `find_and_fix`) — passed straight through to `gsd-debugger`.
+- **`model`** (optional) — the model for every `gsd-debugger` spawn here; a rescue caller passes `{ruling_model}`. Absent: the resolved `debugger_model` below.
 - **`symptoms`** — `{expected, actual, errors, reproduction, timeline}`. Required when `mode.symptoms_prefilled` is `true`.
 - **`debug_file`** — caller-supplied path, e.g. `.planning/debug/{phase}-{plan}-attempt{N}.md`, used in place of a slug derived from free-text user input. Optional for interactive use (falls back to a slug generated from `issue_description`); effectively required for non-interactive auto-spawn callers so retry attempts don't collide on the same session file.
 - **`issue_description`** (`$ARGUMENTS` in interactive use) — raw issue text. Used to derive a slug (when `debug_file` is not supplied) and as the investigation trigger summary.
@@ -27,7 +28,7 @@ INIT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" state load)
 if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
 ```
 
-Extract `commit_docs` from init JSON. Resolve debugger model:
+Extract `commit_docs` from init JSON. Resolve debugger model (skip when the caller passed `model`, which is then `debugger_model`):
 ```bash
 debugger_model=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" resolve-model gsd-debugger --raw)
 ```

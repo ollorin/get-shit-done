@@ -404,7 +404,7 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
 
    Full wait/respawn/bubble-up decision tree and the PAUSED.json schema: `@get-shit-done/references/resilience.md`.
 
-   For real failures (not the classifyHandoffIfNeeded runtime bug, and not an executor death/interruption handled above), call execution-state to get the auto-retry/debug/escalate decision:
+   For real failures (not the classifyHandoffIfNeeded runtime bug, and not an executor death/interruption handled above) of a spike plan executor, call execution-state to get the auto-retry/debug/escalate decision. A per-task failure (standard path) never calls it: the ladder of `task-routing.md` (retry, escalation, the one rescue) already ran, so a task it leaves failed goes straight to the `escalate` branch below:
 
    ```bash
    STATE_RESULT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" execution-state record-failure \
@@ -416,15 +416,16 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
 
    - **`action == "retry"`** (1st failure): Log "Auto-retry {plan_id} (attempt 2 of {max_attempts}) — no user prompt." Re-spawn the plan's executor fresh with the same plan context. On success: `execution-state record-success --phase {N} --plan {plan_id}`, continue to next wave. On failure again: repeat this step (`attempts` is now 2).
 
-   - **`action == "debug"`** (2nd+ failure, below the ceiling): Log "Auto-spawning rescue debugger (`ruling_model`) for {plan_id} after {attempts} failures", log `tier_escalation` with `rescue:true`, once per plan. Invoke @~/.claude/get-shit-done/workflows/debug.md non-interactively:
+   - **`action == "debug"`** (the 2nd failure; the tool returns it once per plan, every later failure is `escalate`): Log "Auto-spawning rescue debugger (`ruling_model`) for {plan_id} after {attempts} failures", log `tier_escalation` with `rescue:true`. Invoke @~/.claude/get-shit-done/workflows/debug.md non-interactively on the top model:
      ```
      mode: symptoms_prefilled: true, interactive: false, goal: find_and_fix
+     model: {ruling_model}  (a rejected spawn retries once on {ruling_model_fallback})
      symptoms: expected="plan {plan_id} completes successfully", actual="{error}", errors="{error}", reproduction="re-run plan {plan_id}", timeline="this execution"
      debug_file: .planning/debug/{phase}-{plan_id}-attempt{attempts}.md
      ```
-     After the debug workflow returns, re-spawn the plan's executor. On success: `execution-state record-success --phase {N} --plan {plan_id}`. On failure again: repeat this step (`attempts` increments via the next `record-failure` call).
+     After the debug workflow returns, re-spawn the plan's executor. On success: `execution-state record-success --phase {N} --plan {plan_id}`. On failure again: the next `record-failure` call returns `escalate`.
 
-   - **`action == "escalate"`** (at the `max_attempts` ceiling — NEVER spawn another debug attempt):
+   - **`action == "escalate"`** (a failure after the rescue, or the `max_attempts` ceiling, or a task the per-task ladder left failed — NEVER spawn another debug attempt):
      1. Read the most recent `.planning/debug/{phase}-{plan_id}-attempt*.md` file's findings summary (or "No debugger findings available" if none exist).
      2. Never block on a human: write the debugger findings to `FAILURE.md`, run `deferred add --step execution --reason "..." --approver auto-escalate`, and print the finding in chat; record in SUMMARY.md that the plan was escalated.
      3. Mark this plan failed, report partial completion, continue with non-dependent plans only.

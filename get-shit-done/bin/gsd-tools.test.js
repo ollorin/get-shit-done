@@ -1554,6 +1554,56 @@ describe('phase insert command', () => {
     assert.strictEqual(output.phase_number, '01.2', 'should be 01.2');
   });
 
+  const FULL_ROADMAP = `# Roadmap
+
+- [x] Phase 1: One
+- [ ] Phase 2: Two
+
+### Phase 1: One
+**Goal:** a
+**Risk domains:** none
+
+### Phase 2: Two
+**Goal:** b
+**Risk domains:** none
+
+## Execution Order
+
+Phases execute in order: 1 → 2
+
+## Progress
+
+| Phase | Milestone | Plans | Status | Completed |
+|-------|-----------|-------|--------|-----------|
+| 1. One | v1 | 1/1 | Complete | 2026 |
+| 2. Two | v1 | 0/1 | Not started | - |
+`;
+
+  test('phase add writes every roadmap place, the Risk domains line and a "## Execution Order" heading chain', () => {
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), FULL_ROADMAP);
+    const r = runGsdTools('phase add Three', tmpDir);
+    assert.ok(r.success, r.error);
+    const rm = fs.readFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), 'utf-8');
+    assert.match(rm, /- \[ \] Phase 3: Three/);
+    assert.match(rm, /### Phase 3: Three\n[\s\S]*\*\*Risk domains:\*\* none/);
+    assert.match(rm, /Phases execute in order: 1 → 2 → 3/);
+    assert.match(rm, /\| 3\. Three \| v1 \| 0\/0 \| Not started \| - \|/);
+  });
+
+  test('phase insert writes the same places, right after the target phase', () => {
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), FULL_ROADMAP);
+    fs.mkdirSync(path.join(tmpDir, '.planning', 'phases', '01-one'), { recursive: true });
+    const r = runGsdTools('phase insert 1 Hotfix', tmpDir);
+    assert.ok(r.success, r.error);
+    const rm = fs.readFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), 'utf-8');
+    assert.ok(rm.indexOf('- [ ] Phase 01.1: Hotfix (INSERTED)') > rm.indexOf('- [x] Phase 1: One'), 'checklist line');
+    assert.ok(rm.indexOf('- [ ] Phase 01.1: Hotfix (INSERTED)') < rm.indexOf('- [ ] Phase 2: Two'), 'checklist line before phase 2');
+    assert.match(rm, /### Phase 01\.1: Hotfix \(INSERTED\)\n[\s\S]*\*\*Risk domains:\*\* none/);
+    assert.match(rm, /Phases execute in order: 1 → 01\.1 → 2/);
+    const rows = rm.split('\n').filter((l) => /^\| \d/.test(l)).map((l) => l.split('|')[1].trim());
+    assert.deepStrictEqual(rows, ['1. One', '01.1. Hotfix (INSERTED)', '2. Two']);
+  });
+
   test('rejects missing phase', () => {
     fs.writeFileSync(
       path.join(tmpDir, '.planning', 'ROADMAP.md'),
@@ -8049,8 +8099,8 @@ describe('execution-state CLI (Phase 48-03)', () => {
     assert.deepStrictEqual(parsed, { attempts: 0, key: '42-01' });
   });
 
-  test('sequential record-failure calls with default max_attempts (4): retry -> debug -> debug -> escalate', () => {
-    const expectedActions = ['retry', 'debug', 'debug', 'escalate'];
+  test('sequential record-failure calls with default max_attempts (4): retry -> debug (the one rescue) -> escalate -> escalate', () => {
+    const expectedActions = ['retry', 'debug', 'escalate', 'escalate'];
     expectedActions.forEach((expectedAction, idx) => {
       const attemptNum = idx + 1;
       const result = runGsdTools(
@@ -8236,11 +8286,11 @@ describe('Phase 48 cross-cutting trigger matrix — deterministic (Phase 48-04)'
   });
 
   test('execution-state ceiling is monotonic: once action reaches "escalate", subsequent record-failure calls never regress back to "retry" or "debug"', () => {
-    // Default max_attempts is 4: attempts 1-4 should be retry, debug, debug, escalate.
+    // Default max_attempts is 4: attempts 1-4 should be retry, debug (the one rescue), escalate, escalate.
     // Attempts 5 and 6 (well past the ceiling) MUST still read "escalate" -- proving
     // `action` is a monotonic ceiling (attempts < maxAttempts check), never a
     // modulo/cycle back to an earlier action as attempts keeps incrementing.
-    const expectedThroughCeiling = ['retry', 'debug', 'debug', 'escalate'];
+    const expectedThroughCeiling = ['retry', 'debug', 'escalate', 'escalate'];
     expectedThroughCeiling.forEach((expectedAction, idx) => {
       const attemptNum = idx + 1;
       const result = runGsdTools(
@@ -13599,20 +13649,20 @@ describe('Phase 57-03: failure classification & escalation bound logic', () => {
   describe('decideEscalation (pure, ladder-bounded)', () => {
     test('non-capability classification -> escalate:false, reason:non_capability_failure, regardless of currentTier/escalationsUsed', () => {
       const classification = { capability_related: false, matched_pattern: 'ENOENT' };
-      const result = decideEscalation('haiku', classification, 0);
+      const result = decideEscalation('haiku', classification, 0, null, 2);
       assert.deepStrictEqual(result, { escalate: false, next_tier: null, reason: 'non_capability_failure' });
     });
 
     test('non-capability classification at a high escalationsUsed count still never escalates', () => {
       const classification = { capability_related: false, matched_pattern: 'EACCES' };
-      const result = decideEscalation('sonnet', classification, 5);
+      const result = decideEscalation('sonnet', classification, 5, null, 2);
       assert.strictEqual(result.escalate, false);
       assert.strictEqual(result.reason, 'non_capability_failure');
     });
 
     test('currentTier haiku, escalationsUsed 0, capability failure -> escalate:true, next_tier:sonnet', () => {
       const classification = { capability_related: true, matched_pattern: null };
-      const result = decideEscalation('haiku', classification, 0);
+      const result = decideEscalation('haiku', classification, 0, null, 2);
       assert.strictEqual(result.escalate, true);
       assert.strictEqual(result.next_tier, 'sonnet');
       assert.strictEqual(result.reason, 'capability_failure');
@@ -13620,7 +13670,7 @@ describe('Phase 57-03: failure classification & escalation bound logic', () => {
 
     test('currentTier sonnet, capability failure -> escalate:false, reason:ladder_exhausted -- no opus executor', () => {
       const classification = { capability_related: true, matched_pattern: null };
-      const result = decideEscalation('sonnet', classification, 1);
+      const result = decideEscalation('sonnet', classification, 1, null, 2);
       assert.strictEqual(result.escalate, false);
       assert.strictEqual(result.next_tier, null);
       assert.strictEqual(result.reason, 'ladder_exhausted');
@@ -13628,7 +13678,7 @@ describe('Phase 57-03: failure classification & escalation bound logic', () => {
 
     test('currentTier opus (ladder ceiling) -> escalate:false, reason:ladder_exhausted -- opus failure never attempts a 4th tier', () => {
       const classification = { capability_related: true, matched_pattern: null };
-      const result = decideEscalation('opus', classification, 0);
+      const result = decideEscalation('opus', classification, 0, null, 2);
       assert.strictEqual(result.escalate, false);
       assert.strictEqual(result.next_tier, null);
       assert.strictEqual(result.reason, 'ladder_exhausted');
@@ -13641,14 +13691,40 @@ describe('Phase 57-03: failure classification & escalation bound logic', () => {
       assert.strictEqual(getNextTier('haiku'), 'sonnet', 'sanity check: getNextTier would otherwise permit escalation');
 
       const classification = { capability_related: true, matched_pattern: null };
-      const result = decideEscalation('haiku', classification, maxEscalations);
+      const result = decideEscalation('haiku', classification, maxEscalations, null, 2);
       assert.strictEqual(result.escalate, false);
       assert.strictEqual(result.next_tier, null);
       assert.strictEqual(result.reason, 'escalation_bound_reached');
     });
 
+    test('sequence: haiku x2 -> sonnet x2 -> ONE rescue; the first failure at a tier is a retry, never an escalation or rescue', () => {
+      const c = { capability_related: true, matched_pattern: null };
+      const step = (tier, used, fails, rescues = 0) => decideEscalation(tier, c, used, 'zeta', fails, rescues);
+      assert.deepStrictEqual([step('haiku', 0, 1).retry, step('haiku', 0, 1).escalate, step('haiku', 0, 1).rescue], [true, false, undefined]);
+      assert.deepStrictEqual([step('haiku', 0, 2).escalate, step('haiku', 0, 2).next_tier], [true, 'sonnet']);
+      const first = step('sonnet', 1, 1);
+      assert.deepStrictEqual([first.retry, first.rescue], [true, undefined]);
+      const second = step('sonnet', 1, 2);
+      assert.deepStrictEqual([second.escalate, second.rescue, second.to], [false, true, 'zeta']);
+      assert.strictEqual(step('sonnet', 1, 2, 1).rescue, undefined, 'a second rescue for the same task is withheld');
+    });
+
+    test('CLI: --fails-at-tier gates the rescue and the top model resolves lazily (a haiku decision never needs a valid models.top)', () => {
+      const tmpDir = createTempProject();
+      fs.writeFileSync(path.join(tmpDir, '.planning', 'config.json'), JSON.stringify({ models: { top: 'zeta' } }));
+      const run = (args) => JSON.parse(runGsdTools(`routing escalation-decision --current-tier ${args} --error-summary "logic wrong" --escalations-used 1 --raw`, tmpDir).output);
+      assert.strictEqual(run('sonnet --fails-at-tier 1').rescue, undefined);
+      assert.strictEqual(run('sonnet --fails-at-tier 1').retry, true);
+      assert.deepStrictEqual([run('sonnet --fails-at-tier 2').rescue, run('sonnet --fails-at-tier 2').to], [true, 'zeta']);
+      assert.strictEqual(run('sonnet --fails-at-tier 2 --rescues-used 1').rescue, undefined);
+      fs.writeFileSync(path.join(tmpDir, '.planning', 'config.json'), JSON.stringify({ models: { top: 'not a valid alias!' } }));
+      const haiku = runGsdTools('routing escalation-decision --current-tier haiku --error-summary "logic wrong" --escalations-used 0 --fails-at-tier 2 --raw', tmpDir);
+      assert.ok(haiku.success, haiku.error);
+      assert.strictEqual(JSON.parse(haiku.output).next_tier, 'sonnet');
+    });
+
     test('missing/null classification -> treated as non-capability, never escalates (defensive default)', () => {
-      const result = decideEscalation('haiku', null, 0);
+      const result = decideEscalation('haiku', null, 0, null, 2);
       assert.strictEqual(result.escalate, false);
       assert.strictEqual(result.reason, 'non_capability_failure');
     });
@@ -13689,7 +13765,7 @@ describe('Phase 57-03: failure classification & escalation bound logic', () => {
 
     test('composition: a capability-shaped error at haiku with 0 escalations used composes to escalate:true, next_tier:sonnet', () => {
       const result = runGsdTools(
-        'routing escalation-decision --current-tier haiku --error-summary "assertion failed: expected true, got false" --escalations-used 0 --raw'
+        'routing escalation-decision --current-tier haiku --error-summary "assertion failed: expected true, got false" --escalations-used 0 --fails-at-tier 2 --raw'
       );
       assert.ok(result.success, `expected exit 0: ${result.error}`);
       const parsed = JSON.parse(result.output);
@@ -13752,7 +13828,7 @@ describe('Phase 57-04: bounded escalation loop & ledger recording', () => {
 
     function decide(currentTier, escalationsUsed, errorSummary = 'assertion failed') {
       const result = runGsdTools(
-        `routing escalation-decision --current-tier "${currentTier}" --error-summary "${errorSummary}" --escalations-used ${escalationsUsed} --raw`,
+        `routing escalation-decision --current-tier "${currentTier}" --error-summary "${errorSummary}" --escalations-used ${escalationsUsed} --fails-at-tier 2 --raw`,
         tmpDir
       );
       assert.ok(result.success, `escalation-decision failed: ${result.error}`);
@@ -14542,8 +14618,7 @@ describe('Phase 59-03: declared-dependency integration-tester spawn + gaps_found
 });
 
 // Phase 60-01 (MILE-39, foundation): loadConfig's 3 new adversarial_review
-// toggles, the pure computeHighRisk/computePresentationOrder/verdictToIssues
-// functions, and the quality assess-risk / quality verdict-to-issues CLI
+// toggles, the pure verdictToIssues function, and the quality assess-risk / quality verdict-to-issues CLI
 // subcommands they back. This plan lands the decision layer only -- Plan
 // 60-03 wires plan-phase.md's risk-triage step on top of these stable CLI
 // contracts.
