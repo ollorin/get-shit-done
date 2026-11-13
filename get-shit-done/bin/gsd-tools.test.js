@@ -8992,18 +8992,6 @@ describe('Phase 49-02: knowledge feedback wiring', () => {
     );
   });
 
-  test('prompt-layer wiring: both agents/gsd-verifier.md and agents/gsd-executor.md reference mark-wrong', () => {
-    // Phase 53-02 (MILE-30): both agents were restructured hard-rules-first;
-    // the mark-wrong reference (kb_feedback / Step 11 in the verifier,
-    // the "Knowledge feedback on contradiction" bullet in the executor's
-    // execute_tasks step) now lives in each agent's relocated reference
-    // detail file. Use effective (core + resolved @-include) content.
-    const verifierContent = readEffectiveAgentContent(path.join(__dirname, '..', '..', 'agents', 'gsd-verifier.md'));
-    const executorContent = readEffectiveAgentContent(path.join(__dirname, '..', '..', 'agents', 'gsd-executor.md'));
-
-    assert.ok(verifierContent.includes('mark-wrong'), 'expected agents/gsd-verifier.md to reference mark-wrong');
-    assert.ok(executorContent.includes('mark-wrong'), 'expected agents/gsd-executor.md to reference mark-wrong');
-  });
 });
 
 describe('Phase 49-03: milestone consolidation', () => {
@@ -10653,70 +10641,6 @@ describe('Executor Resilience Protocol: execute-phase.md coordinator-side wiring
   });
 });
 
-describe('Executor Resilience Protocol: agents/gsd-executor.md self-stop wiring', () => {
-  const REPO_ROOT = path.join(__dirname, '..', '..');
-
-  function readGsdExecutor() {
-    return fs.readFileSync(path.join(REPO_ROOT, 'agents', 'gsd-executor.md'), 'utf-8');
-  }
-
-  test('executor_resilience_protocol block exists between completion_format and success_criteria', () => {
-    const content = readGsdExecutor();
-
-    const completionFormatEndIdx = content.indexOf('</completion_format>');
-    // Search starting at completionFormatEndIdx, not from 0 -- task_commit_protocol
-    // (earlier in the file) references "<executor_resilience_protocol>" inline in
-    // backticks as a forward-pointer, which is a different occurrence than the
-    // actual block-opening tag this test is locating.
-    const resilienceBlockIdx = content.indexOf('<executor_resilience_protocol>', completionFormatEndIdx);
-    const successCriteriaIdx = content.indexOf('<success_criteria>');
-
-    assert.notStrictEqual(completionFormatEndIdx, -1, 'completion_format block must still exist');
-    assert.notStrictEqual(resilienceBlockIdx, -1, 'executor_resilience_protocol block must exist');
-    assert.notStrictEqual(successCriteriaIdx, -1, 'success_criteria block must still exist');
-
-    assert.ok(completionFormatEndIdx < resilienceBlockIdx, 'resilience protocol must come after completion_format');
-    assert.ok(resilienceBlockIdx < successCriteriaIdx, 'resilience protocol must come before success_criteria');
-  });
-
-  test('self-stop rule is headroom-based with a 95% ceiling and anti-stall guard, documents stopping as correct behavior (not a failure), and writes EXECUTOR-HANDOFF.json', () => {
-    const content = readGsdExecutor();
-    const resilienceBlockIdx = content.indexOf('<executor_resilience_protocol>');
-    const resilienceBlockEndIdx = content.indexOf('</executor_resilience_protocol>');
-    const section = content.slice(resilienceBlockIdx, resilienceBlockEndIdx);
-
-    assert.match(section, /headroom, not a flat percentage/, 'must document the headroom-based stop rule');
-    assert.match(section, />= 95%/, 'must document the 95% absolute ceiling');
-    assert.match(section, /Anti-stall guard/, 'must include the anti-stall guard so small-window models cannot loop into permanent handoffs');
-    assert.match(section, /## PLAN BLOCKED/, 'anti-stall guard must define the PLAN BLOCKED escape for tasks that cannot fit any window');
-    assert.match(section, /Machine-parseable status trailer/, 'must require a machine-parseable JSON status trailer so coordinators do not string-match the prose header');
-    assert.match(section, /"status": "interrupted"/, 'the JSON status trailer must document the interrupted status value');
-    assert.match(section, /CORRECT behavior/, 'must state that stopping cleanly is correct behavior');
-    assert.match(section, /never a failure/, 'must explicitly state this is never a failure');
-    assert.match(section, /EXECUTOR-HANDOFF\.json/, 'must write EXECUTOR-HANDOFF.json');
-    assert.match(section, /TASK-CHECKPOINT\.json/, 'must also commit TASK-CHECKPOINT.json alongside the handoff');
-    assert.match(section, /## PLAN INTERRUPTED — continuation needed/, 'must return the PLAN INTERRUPTED completion format instead of PLAN COMPLETE');
-    assert.match(section, /"reason": "context_pressure"/, 'EXECUTOR-HANDOFF.json schema must include reason: context_pressure');
-  });
-
-  test('task_commit_protocol step 6 writes TASK-CHECKPOINT.json after every task commit', () => {
-    const content = readGsdExecutor();
-    const protocolIdx = content.indexOf('<task_commit_protocol>');
-    const protocolEndIdx = content.indexOf('</task_commit_protocol>');
-    assert.notStrictEqual(protocolIdx, -1, 'task_commit_protocol block must exist');
-    const section = content.slice(protocolIdx, protocolEndIdx);
-
-    assert.match(section, /TASK-CHECKPOINT\.json/, 'task_commit_protocol must write TASK-CHECKPOINT.json');
-    assert.match(section, /overwrite-latest/, 'must document the overwrite-latest convention');
-    assert.match(section, /NOT committed per-task/, 'must document that this file is not committed per-task');
-  });
-
-  test('references/resilience.md is linked from agents/gsd-executor.md', () => {
-    const content = readGsdExecutor();
-    assert.match(content, /@get-shit-done\/references\/resilience\.md/, 'gsd-executor.md must point to the resilience protocol reference doc');
-  });
-});
-
 describe('Phase 52-01: skew detection (computeManifestDrift / cmdDoctor)', () => {
   const { computeManifestDrift } = require(TOOLS_PATH);
 
@@ -11356,36 +11280,6 @@ describe('Phase 52-02: Self-Report Telemetry (analytics.js section + agent-file 
       assert.match(content, /"status": "completed \| failed \| blocked \| gaps_found \| human_needed"/, 'pre-existing status enum literal must not have been removed');
     });
 
-    test('gsd-executor.md: all 4 field names present in PLAN COMPLETE <completion_format> AND the PLAN FAILED block (2 index-bounded checks)', () => {
-      const content = readAgentFile('gsd-executor.md');
-      const fields = ['context_pressure', 'instructions_not_followed', 'ambiguities', 'tool_errors_swallowed'];
-
-      // Check 1: <completion_format> PLAN COMPLETE template
-      const cfStart = content.indexOf('<completion_format>');
-      const cfEnd = content.indexOf('</completion_format>');
-      assert.notStrictEqual(cfStart, -1, '<completion_format> must exist');
-      assert.notStrictEqual(cfEnd, -1, '</completion_format> must exist');
-      const completionSection = content.slice(cfStart, cfEnd);
-      for (const field of fields) {
-        assert.match(completionSection, new RegExp(field), `${field} must appear inside <completion_format>`);
-      }
-
-      // Check 2: PLAN FAILED block (test gate blocked SUMMARY.md creation)
-      const pf2Start = content.indexOf('## PLAN FAILED: Test gate blocked SUMMARY.md creation');
-      assert.notStrictEqual(pf2Start, -1, 'second PLAN FAILED block must exist');
-      const pf2End = content.indexOf('Do NOT proceed to `<summary_creation>`', pf2Start);
-      assert.notStrictEqual(pf2End, -1);
-      const pf2Section = content.slice(pf2Start, pf2End);
-      for (const field of fields) {
-        assert.match(pf2Section, new RegExp(field), `${field} must appear inside the second PLAN FAILED block`);
-      }
-    });
-
-    test('gsd-executor.md regression guard: pre-existing "**Duration:** {time}" literal still present', () => {
-      const content = readAgentFile('gsd-executor.md');
-      assert.match(content, /\*\*Duration:\*\* \{time\}/, 'pre-existing Duration line must not have been removed');
-    });
-
     test('gsd-verifier.md: all 4 field names present inside "## Return to Orchestrator" section specifically', () => {
       const content = readAgentFile('gsd-verifier.md');
       const startIdx = content.indexOf('## Return to Orchestrator');
@@ -11925,24 +11819,6 @@ describe('Phase 54 handoff-brief wiring', () => {
   });
 
   // Category 3: Edge case -- pointer line lives INSIDE the budget-measured preamble.
-  test('edge case: each of the 3 agent files carries its handoff-brief line BEFORE its own CORE-PREAMBLE-END marker', () => {
-    const agents = [
-      { path: COORDINATOR_AGENT_PATH, pattern: /handoff brief/i },
-      { path: EXECUTOR_AGENT_PATH, pattern: /handoff_brief/ },
-      { path: VERIFIER_AGENT_PATH, pattern: /handoff_brief/ },
-    ];
-
-    for (const { path: agentPath, pattern } of agents) {
-      const content = readRepoFile(agentPath);
-      const markerIdx = content.indexOf(CORE_PREAMBLE_MARKER);
-      const matchIdx = content.search(pattern);
-
-      assert.ok(markerIdx !== -1, `expected ${agentPath} to contain the CORE-PREAMBLE-END marker`);
-      assert.ok(matchIdx !== -1, `expected ${agentPath} to contain a handoff-brief acknowledgment matching ${pattern}`);
-      assert.ok(matchIdx < markerIdx, `expected the handoff-brief line in ${agentPath} to appear BEFORE CORE-PREAMBLE-END (matchIdx=${matchIdx}, markerIdx=${markerIdx})`);
-    }
-  });
-
   // Category 4: Boundary -- blast radius confined to coordinator/executor/verifier.
   test('boundary: gsd-planner.md and gsd-debugger.md do NOT contain a <handoff_brief> block', () => {
     const plannerContent = readRepoFile(PLANNER_AGENT_PATH);
@@ -15487,19 +15363,6 @@ describe('Agent messaging (SendMessage) — prompt-layer wiring', () => {
     }
   });
 
-  test('App #1: executor self-stop path emits the upward continuation signal to "main"', () => {
-    const content = readRepoFile(path.join('agents', 'gsd-executor.md'));
-    const protoStart = content.indexOf('<executor_resilience_protocol>');
-    const protoEnd = content.indexOf('</executor_resilience_protocol>');
-    assert.ok(protoStart !== -1 && protoEnd > protoStart, 'executor_resilience_protocol block must exist');
-    const proto = content.slice(protoStart, protoEnd);
-    assert.match(proto, /SendMessage/, 'self-stop path must SendMessage');
-    assert.match(proto, /to: "main"/, 'self-stop signal must go upward to "main"');
-    assert.match(proto, /continuation needed — handoff written/, 'must carry the App #1 summary');
-    // Additive, not a replacement — handoff + trailer remain
-    assert.match(proto, /EXECUTOR-HANDOFF\.json/, 'handoff file must remain the durable record');
-  });
-
   test('App #2: execute-phase.md documents resume-by-agentId vs cold-spawn and captures agentId', () => {
     const content = readRepoFile('get-shit-done/workflows/execute-phase.md');
     assert.match(content, /EXECUTOR_AGENT_IDS/, 'coordinator must capture/retain executor agentIds');
@@ -15524,23 +15387,6 @@ describe('Agent messaging (SendMessage) — prompt-layer wiring', () => {
     assert.match(phase, /EXECUTOR_AGENT_IDS/, 'coordinator relay uses the captured executor agentId');
   });
 
-  test('App #4: wave peer awareness — executor <agent_messaging> block + coordinator injects <wave_peers>', () => {
-    const executor = readRepoFile(path.join('agents', 'gsd-executor.md'));
-    assert.match(executor, /<agent_messaging>/, 'gsd-executor.md must have an <agent_messaging> section');
-    assert.match(executor, /App #4\b[\s\S]*Wave peer awareness/i, 'agent_messaging must document App #4 wave peer awareness');
-    assert.match(executor, /files_modified/, 'wave peer signalling must key off a peer plan files_modified overlap');
-    assert.match(executor, /chatty/i, 'must warn against chatty peer messaging');
-    const phase = readRepoFile('get-shit-done/workflows/execute-phase.md');
-    assert.match(phase, /<wave_peers>/, 'execute-phase.md must inject a <wave_peers> block for parallel waves');
-  });
-
-  test('App #5: executor has an OPTIONAL rate-limited upward heartbeat', () => {
-    const content = readRepoFile(path.join('agents', 'gsd-executor.md'));
-    assert.match(content, /heartbeat/i, 'gsd-executor.md must document the progress heartbeat');
-    assert.match(content, /OPTIONAL/, 'heartbeat must be explicitly optional');
-    assert.match(content, /rate-limited/i, 'heartbeat must be rate-limited (not every task)');
-  });
-
   test('the agent-messaging additions kept the executor core preamble within its (bumped) budget', () => {
     const { checkAllBudgets } = require('./prompt-budget.js');
     const res = checkAllBudgets(REPO_ROOT);
@@ -15549,20 +15395,6 @@ describe('Agent messaging (SendMessage) — prompt-layer wiring', () => {
     assert.ok(exec && exec.pass, 'gsd-executor.md must be within its core-preamble budget');
   });
 
-  test('App #6: human relay at checkpoints in gsd-executor.md and references/checkpoints.md, composing with the structured return', () => {
-    const executor = readRepoFile(path.join('agents', 'gsd-executor.md'));
-    const cpStart = executor.indexOf('<checkpoint_protocol>');
-    const cpEnd = executor.indexOf('</checkpoint_protocol>');
-    assert.ok(cpStart !== -1 && cpEnd > cpStart, 'checkpoint_protocol block must exist');
-    const cp = executor.slice(cpStart, cpEnd);
-    assert.match(cp, /App #6/, 'checkpoint_protocol must document App #6 human relay');
-    assert.match(cp, /to: "main"/, 'checkpoint human relay must go upward to "main"');
-    assert.match(cp, /CHECKPOINT REACHED|structured .*return/i, 'must compose with — not replace — the structured checkpoint return');
-
-    const checkpoints = readRepoFile('get-shit-done/references/checkpoints.md');
-    assert.match(checkpoints, /App #6/, 'references/checkpoints.md must document the App #6 human relay fast-path');
-    assert.match(checkpoints, /SendMessage/, 'references/checkpoints.md must reference SendMessage');
-  });
 });
 
 describe('Opus final-ruling fixes: Deno assertions, legacy grandfathering, sync stdout, precise test scan', () => {

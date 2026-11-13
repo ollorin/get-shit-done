@@ -23,7 +23,7 @@ All three artifacts live in `.planning/phases/{phase_dir}/` and are written with
 
 ### TASK-CHECKPOINT.json
 
-Written after **every** task commit, by the executor itself (`<task_commit_protocol>` step 6 in `agents/gsd-executor.md`). Overwrite-latest — only the most recent state matters. NOT committed per-task (too noisy); it rides along in the plan's final SUMMARY.md commit, or is committed immediately if a handoff/pause fires.
+Written after **every** task commit, by the executor itself (`<task_commit_protocol>` step 6 in `references/executor-detail.md`). Overwrite-latest — only the most recent state matters. NOT committed per-task (too noisy); it rides along in the plan's final SUMMARY.md commit, or is committed immediately if a handoff/pause fires.
 
 ```json
 {
@@ -45,7 +45,7 @@ Purpose: a continuation agent respawned after this executor dies (with no clean 
 
 ### EXECUTOR-HANDOFF.json
 
-Written ONLY by the executor's own `<executor_resilience_protocol>` self-stop (`agents/gsd-executor.md`) when it voluntarily stops at a task boundary due to context pressure. Richer than TASK-CHECKPOINT.json — carries narrative state a bare task index can't. Committed immediately (`chore` commit) alongside TASK-CHECKPOINT.json, because this is a deliberate stopping point, not an ongoing-work checkpoint.
+Written ONLY by the executor's own `<executor_resilience_protocol>` self-stop (`references/executor-detail.md`) when it voluntarily stops at a task boundary due to context pressure. Richer than TASK-CHECKPOINT.json — carries narrative state a bare task index can't. Committed immediately (`chore` commit) alongside TASK-CHECKPOINT.json, because this is a deliberate stopping point, not an ongoing-work checkpoint.
 
 ```json
 {
@@ -86,7 +86,7 @@ Written by the **coordinator** (`workflows/execute-phase.md`), not the executor,
 
 ## Executor Self-Stop (context pressure)
 
-Full text lives in `<executor_resilience_protocol>` in `agents/gsd-executor.md` — this is a summary.
+Full text lives in `<executor_resilience_protocol>` in `references/executor-detail.md` — this is a summary.
 
 At every task boundary the executor self-assesses context pressure (best-effort estimate — no tool call, just weighing tool output volume / files read / tasks done vs. remaining). At **>= 80% estimated usage with tasks still remaining**, it STOPS at the boundary: writes EXECUTOR-HANDOFF.json + TASK-CHECKPOINT.json, commits them, and returns `## PLAN INTERRUPTED — continuation needed` instead of `## PLAN COMPLETE`.
 

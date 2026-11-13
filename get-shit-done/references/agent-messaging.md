@@ -56,7 +56,7 @@ message is never delivered, the file mechanism still recovers the run.
 
 ### App #1 — Executor upward continuation signal
 When the executor self-stops at its headroom boundary (`<executor_resilience_protocol>` in
-`agents/gsd-executor.md`), IN ADDITION to writing EXECUTOR-HANDOFF.json and returning
+`references/executor-detail.md`), IN ADDITION to writing EXECUTOR-HANDOFF.json and returning
 `## PLAN INTERRUPTED` + the JSON status trailer, it `SendMessage`s `to: "main"` with
 summary "continuation needed — handoff written" and a message naming the plan, the
 last-completed-task index, and the handoff path. This gives the coordinator an out-of-band

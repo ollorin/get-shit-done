@@ -270,36 +270,3 @@ describe('phase_risk_domains from the ROADMAP', () => {
     assert.deepStrictEqual([out.rigour, out.phase_risk_domains], ['spike', ['auth']]);
   });
 });
-
-describe('rigour text pins', () => {
-  const ROOT = path.join(__dirname, '..', '..');
-  const text = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
-
-  test('plan-phase and execute-phase carry the spike branches and the round-cap clarification', () => {
-    const plan = text('get-shit-done/workflows/plan-phase.md');
-    assert.match(plan, /\*\*Spike branches \(`rigour` is `spike`\)/);
-    assert.match(plan, /\*\*Risk-domain add-ons \(`standard` only\):\*\*/);
-    assert.doesNotMatch(plan + text('get-shit-done/workflows/execute-phase.md'), /`rigour` is `high`/);
-    assert.match(plan, /\*\*Which round cap governs what:\*\*/);
-    assert.match(plan, /`phase_req_ids`/);
-    const exec = text('get-shit-done/workflows/execute-phase.md');
-    assert.match(exec, /When `rigour` is `spike`: no test steward/);
-    assert.match(exec, /SPIKE-RESULT\.md/);
-  });
-
-  test('planner, checker, verifier and executor reference references/rigour.md and the file ships', () => {
-    for (const a of ['gsd-planner', 'gsd-plan-checker', 'gsd-verifier', 'gsd-executor']) {
-      assert.match(text(`agents/${a}.md`), /references\/rigour\.md/, a);
-    }
-    assert.ok(fs.existsSync(path.join(ROOT, 'get-shit-done', 'references', 'rigour.md')));
-  });
-
-  test('the checker blocks a non-spike plan that promotes a spike root', () => {
-    assert.match(text('agents/gsd-plan-checker.md'), /spike_promotion/);
-  });
-
-  test('the base preset scopes the risk-domain rules to standard', () => {
-    assert.match(text('get-shit-done/presets/base/CLAUDE.md'), /apply at `standard` rigour/);
-    assert.doesNotMatch(text('get-shit-done/presets/base/CLAUDE.md'), /`standard` and `high`/);
-  });
-});

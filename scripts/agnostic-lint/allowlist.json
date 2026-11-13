@@ -26,12 +26,6 @@
       "reason": "upstream example: upstream/main has >= max lines for this class in this file"
     },
     {
-      "file": "agents/gsd-executor.md",
-      "class": "authtech",
-      "max": 2,
-      "reason": "upstream example: upstream/main has >= max lines for this class in this file"
-    },
-    {
       "file": "agents/gsd-integration-checker.md",
       "class": "frontend",
       "max": 2,

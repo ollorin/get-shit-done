@@ -26,7 +26,7 @@ A plan of `type: tdd`: follow `references/tdd.md` (red, green, refactor commits)
 
 ## Test cost
 
-Run only the test file(s) your task names or touches, through the project's documented runner. Never the full suite (the coordinator runs it once per phase); the plan's bucket runs once, in the last task's plan gate. No inline env prefixes, no bypass flags, no `--no-verify`, no `--no-check`; if a runner refuses a command, report the denial verbatim and do not reshape it. Check `df -h` before a heavy run; low disk is a stop. Temp files go in the project's temp directory; clean up what you create.
+Run only the test file(s) your task names or touches, through the project's documented runner. Never the full suite (the coordinator runs it once per phase); the plan's bucket runs once, in the last task's plan gate. No inline env prefixes, no bypass flags, no `--no-verify`, no `--no-check`; if a runner refuses a command, report the denial verbatim and do not reshape it. Check `df -h` before a heavy run; low disk is a stop. Long runs: poll in the foreground; a stage silent for 25 minutes is a hang: stop it, find the file and report. At any permission prompt STOP and report the exact command string. Temp files go in the project's temp directory; clean up what you create.
 
 ## Commit
 
@@ -83,4 +83,4 @@ Task number and commit sha; capture paths (red, green, mutant); deviations as `[
 {"status": "complete", "phase": {N}, "plan": "{phase}-{plan}", "completed_tasks": {n}, "total_tasks": {n}}
 ```
 
-`status` is `complete`, `interrupted` (context pressure: write `EXECUTOR-HANDOFF.json` per `agents/gsd-executor.md`) or `blocked`.
+`status` is `complete`, `interrupted` (context pressure: read `<executor_resilience_protocol>` in `references/executor-detail.md` and write `EXECUTOR-HANDOFF.json` as it says) or `blocked`.

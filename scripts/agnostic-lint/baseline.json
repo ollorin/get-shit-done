@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "inputs_sha256": "c85569e00fdcf7b99b52f428f5bc278097df0b998902f383f4ed639003e1575c",
+  "inputs_sha256": "e71407a86eb7c87339fbb2aa1aedc5b7816b8ade0b7b5feb1ccb3ed658694dd3",
   "denied": {
     "get-shit-done/bin/conversation-miner.js": {
       "telegram": 2
@@ -36,9 +36,6 @@
     },
     "agents/gsd-demo.md": {
       "charlotte": 5
-    },
-    "agents/gsd-executor.md": {
-      "authtech": 1
     },
     "agents/gsd-integration-checker.md": {
       "frontend": 2

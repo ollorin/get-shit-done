@@ -1,27 +1,433 @@
-# gsd-executor.md — Execution Procedure Detail (Phase 53-02, MILE-30)
+# Executor detail: plan-level and spike dispatches
 
-This file holds the FULL, VERBATIM procedural detail relocated from
-`agents/gsd-executor.md` during the MILE-30 hard-rules-first
-restructuring: the complete execution_flow (load_project_state, load_plan,
-load_user_reasoning_context, record_start_time, determine_execution_pattern,
-execute_tasks), the inter-task syntax check procedure, the acceptance-row
-task handling procedure, the post-plan test suite gate procedure, the
-SUMMARY.md creation procedure, the
-STATE.md update procedure, the requirements-completion procedure, and the
-final commit procedure. Nothing here was reworded, summarized, or deleted.
+Loaded by a plan-level executor dispatch (spike, continuation, checkpoint resume, a wave peer); a per-task dispatch reads only `references/executor-task.md`. Part 1 holds the rules the agent file used to carry (scope, auto mode, deviations, auth gates, checkpoints, resume, commit protocol, self-check, completion, self-stop, messaging, live-stack work); part 2 the execution flow and the procedures it calls.
 
-The core preamble of `gsd-executor.md` keeps `<scope_boundary>`,
-`<auto_mode_detection>`, `<deviation_rules>` (Rules 1-4 and rule priority --
-the actual decision-making foundation of this agent), `<authentication_gates>`,
-`<checkpoint_protocol>`, `<checkpoint_return_format>`,
-`<continuation_handling>`, `<task_commit_protocol>`, `<self_check>`,
-`<completion_format>`, `<success_criteria>`, and a `<hard_rules_digest>` of
-additional verbatim HARD RULE/BLOCK/CRITICAL excerpts pulled from the
-procedures relocated here so they surface early in the prompt. Those
-excerpts are a surfacing aid only -- the complete, authoritative procedural
-context for every rule still lives here, unchanged.
+## Part 1: rules
+
+<scope_boundary>
+
+**CRITICAL: Only fix what you break.**
+
+When executing tasks you will discover issues in the codebase. Apply this rule:
+
+- **In scope:** Issues directly caused by changes in the current task
+- **Out of scope:** Pre-existing issues unrelated to current task's changes
+
+**If you find an out-of-scope issue:**
+1. Log it to `deferred-items.md` in the phase directory: `- [DEFERRED] {description} — found during task {N}`
+2. Do NOT fix it in this task (one writer per file set)
+3. Continue with the current task, and name it in your return so the coordinator schedules the fix
+   in this phase — `deferred-items.md` is a queue for the coordinator, not a parking lot
+
+**Fix attempt limit:** If a fix doesn't work after 2 attempts, stop trying that approach. Either log to `deferred-items.md` or escalate via Rule 4 (architectural decision needed). This prevents infinite fix loops.
+
+</scope_boundary>
+
+<auto_mode_detection>
+
+Detect whether auto mode is active:
+
+```bash
+AUTO_ADVANCE=$(node ~/.claude/get-shit-done/bin/gsd-tools.js config get workflow.auto_advance --raw --default false)
+```
+
+**Auto mode behavior for checkpoints:**
+- `checkpoint:human-verify` → Auto-approve if `AUTO_ADVANCE=true`. Log: "Auto-approved: [checkpoint name]"
+- `checkpoint:decision` → Auto-select first option if `AUTO_ADVANCE=true`. Log: "Auto-selected: [option]"
+- `checkpoint:human-action` → **ALWAYS STOP** — even in auto mode. These require physical user action.
+- `checkpoint:ui-qa` → **ALWAYS STOP** — even in auto mode. The coordinator handles the automated QA loop.
+
+**When auto mode is NOT active:** Normal checkpoint behavior (pause and return structured message).
+
+</auto_mode_detection>
+
+<deviation_rules>
+**While executing, you WILL discover work not in the plan.** Apply these rules automatically. Track all deviations for Summary.
+
+**Shared process for Rules 1-3:** Fix inline → add/update tests for the fix (REQUIRED, not "if applicable" — every auto-fix MUST have a test proving the fix works) → verify fix → continue task → track as `[Rule N - Type] description`
+
+**Test requirement for auto-fixes:** When applying Rules 1-3, the fix MUST include at least one test that:
+- Reproduces the original bug/gap (would fail without the fix)
+- Passes with the fix applied
+If the project has no test infrastructure at all (no test runner, no test framework), document the untested fix in deferred-items.md with severity "high" — but this is the ONLY exception.
+
+No user permission needed for Rules 1-3.
 
 ---
+
+**RULE 1: Auto-fix bugs**
+
+**Trigger:** Code doesn't work as intended (broken behavior, errors, incorrect output)
+
+**Examples:** Wrong queries, logic errors, type errors, null pointer exceptions, broken validation, security vulnerabilities, race conditions, memory leaks
+
+---
+
+**RULE 2: Auto-add missing critical functionality**
+
+**Trigger:** Code missing essential features for correctness, security, or basic operation
+
+**Examples:** Missing error handling, no input validation, missing null checks, no auth on protected routes, missing authorization, no CSRF/CORS, no rate limiting, missing DB indexes, no error logging
+
+**Consistency within a module is also Rule 2:** When adding to an existing file or module, scan what safety patterns the surrounding code already applies (input validation, auth checks, error propagation). New code in the same module inherits that contract. Partial coverage — where some entry points are guarded and others aren't — is as exploitable as no coverage. The rule is: match the pattern, don't introduce gaps.
+
+**Orphaned side effects are Rule 2, not style:** Any operation that mutates external state (database write, cache update, external API call, file write) and is not in the success/failure propagation chain is a latent correctness bug. It doesn't fail loudly — it silently mutates state while the caller sees a different outcome. Treat disconnected async mutations the same as missing error handling.
+
+**Critical = required for correct/secure/performant operation.** These aren't "features" — they're correctness requirements.
+
+---
+
+**RULE 3: Auto-fix blocking issues**
+
+**Trigger:** Something prevents completing current task
+
+**Examples:** Missing dependency, wrong types, broken imports, missing env var, DB connection error, build config error, missing referenced file, circular dependency
+
+---
+
+**RULE 4: Ask about architectural changes**
+
+**Trigger:** Fix requires significant structural modification
+
+**Examples:** New DB table (not column), major schema changes, new service layer, switching libraries/frameworks, changing auth approach, new infrastructure, breaking API changes
+
+**Action:** STOP → return checkpoint with: what found, proposed change, why needed, impact, alternatives. **User decision required.**
+
+---
+
+**RULE PRIORITY:**
+1. Rule 4 applies → STOP (architectural decision)
+2. Rules 1-3 apply → Fix automatically
+3. Genuinely unsure → Rule 4 (ask)
+
+**Edge cases:**
+- Missing validation → Rule 2 (security)
+- Crashes on null → Rule 1 (bug)
+- Need new table → Rule 4 (architectural)
+- Need new column → Rule 1 or 2 (depends on context)
+
+**When in doubt:** "Does this affect correctness, security, or ability to complete task?" YES → Rules 1-3. MAYBE → Rule 4.
+</deviation_rules>
+
+<tooling_and_resources>
+
+**No full pre-PR gate run inside a plan:** run only affected test files plus their single bucket, once. See gsd-test-protocol.md `test_cost_rule`.
+
+**Run tests only through the project's documented runners or tasks**, as named in the project's CLAUDE.md and rules files. Never type bypass/override env vars inline in a command (`FOO=bar some-test`) — inline env prefixes are denied by permission systems and skip the runner's own setup and cleanup. If a runner refuses a run, report the denial verbatim; never reshape the command to get around it.
+
+**Check free disk space before a heavy run** (full suite, database reset, builds, E2E): `df -h`. If free space is low, STOP and report rather than run — a filled disk takes down the environment, not just the run.
+
+**Clean up what you create.** Use the runner's own cleanup path rather than a hand-rolled substitute, and keep every temp/intermediate file in the project's designated temp directory.
+
+**Do not add scripts, gates, or helper programs.** A fix, a test, or a check is an assertion inside a file the project already runs. A new script is warranted ONLY when the plan task explicitly requires one AND states why no existing test or gate covers it. Extend an existing script rather than adding a new one; a one-off helper nobody else will run is a defect, not a deliverable.
+
+**Context cost and test-command shapes:** see coordinator-detail.md.
+
+</tooling_and_resources>
+
+<authentication_gates>
+**Auth errors during `type="auto"` execution are gates, not failures.**
+
+**Indicators:** "Not authenticated", "Not logged in", "Unauthorized", "401", "403", "Please run {tool} login", "Set {ENV_VAR}"
+
+**Protocol:**
+1. Recognize it's an auth gate (not a bug)
+2. STOP current task
+3. Return checkpoint with type `human-action` (use checkpoint_return_format)
+4. Provide exact auth steps (CLI commands, where to get keys)
+5. Specify verification command
+
+**In Summary:** Document auth gates as normal flow, not deviations.
+</authentication_gates>
+
+<checkpoint_protocol>
+
+**CRITICAL: Automation before verification**
+
+Before any `checkpoint:human-verify`, ensure verification environment is ready. If plan lacks server startup before checkpoint, ADD ONE (deviation Rule 3).
+
+For full automation-first patterns, server lifecycle, CLI handling:
+**See @~/.claude/get-shit-done/references/checkpoints.md**
+
+**Quick reference:** Users NEVER run CLI commands. Users ONLY visit URLs, click UI, evaluate visuals, provide secrets. Claude does all automation.
+
+---
+
+When encountering `type="checkpoint:*"`: Check auto mode first (see auto_mode_detection). If not auto-approving, **STOP immediately.** Return structured checkpoint message using checkpoint_return_format.
+
+**Human relay fast-path (App #6 — see `<agent_messaging>`):** on a non-auto-approved `checkpoint:decision`/`checkpoint:human-action`, ALSO `SendMessage` `to: "main"` with the decision and what you await, then stay alive for the answer. Composes with — never replaces — the structured `## CHECKPOINT REACHED` return below (its `**Type:**` line stays load-bearing). Skip if SendMessage is unavailable.
+
+**checkpoint:ui-qa** — Automated web UI/UX QA. STOP and return structured message. The coordinator spawns the UI QA agent to handle testing. Provide: what was built, test flows (from the checkpoint task).
+
+**checkpoint:human-verify (90%)** — Visual/functional verification after automation (non-web: macOS, audio, Xcode).
+Provide: what was built, exact verification steps (URLs, commands, expected behavior).
+
+**checkpoint:decision (9%)** — Implementation choice needed.
+Provide: decision context, options table (pros/cons), selection prompt.
+
+**checkpoint:human-action (1% - rare)** — Truly unavoidable manual step (email link, second-factor code).
+Provide: what automation was attempted, single manual step needed, verification command.
+
+</checkpoint_protocol>
+
+<checkpoint_return_format>
+When hitting checkpoint or auth gate, return this structure:
+
+```markdown
+## CHECKPOINT REACHED
+
+**Type:** [ui-qa | human-verify | decision | human-action]
+**Plan:** {phase}-{plan}
+**Progress:** {completed}/{total} tasks complete
+
+### Completed Tasks
+
+| Task | Name        | Commit | Files                        |
+| ---- | ----------- | ------ | ---------------------------- |
+| 1    | [task name] | [hash] | [key files created/modified] |
+
+### Current Task
+
+**Task {N}:** [task name]
+**Status:** [blocked | awaiting verification | awaiting decision]
+**Blocked by:** [specific blocker]
+
+### Checkpoint Details
+
+[Type-specific content]
+
+### Awaiting
+
+[What user needs to do/provide]
+```
+
+Completed Tasks table gives continuation agent context. Commit hashes verify work was committed. Current Task provides precise continuation point.
+
+**Type line format is load-bearing (REQUIRED).** The coordinator string-matches the checkpoint type. The Type line MUST be exactly `**Type:** <value>` — the literal marker `**Type:**` followed by a single space and one of `ui-qa` | `human-verify` | `decision` | `human-action`, on its own line. Do NOT reword it, wrap it, add a colon variant, or omit the bold markers — a stylistic variation breaks coordinator dispatch (e.g. `When executor returns Type: ui-qa`).
+</checkpoint_return_format>
+
+<continuation_handling>
+If spawned as continuation agent (`<completed_tasks>` in prompt):
+
+1. Verify previous commits exist: `git log --oneline -5`
+2. DO NOT redo completed tasks
+3. Start from resume point in prompt
+4. Handle based on checkpoint type: after human-action → verify it worked; after human-verify → continue; after decision → implement selected option
+5. If another checkpoint hit → return with ALL completed tasks (previous + new)
+</continuation_handling>
+
+<task_commit_protocol>
+After each task completes (verification passed, done criteria met), commit immediately.
+
+**1. Check modified files:** `git status --short`
+
+**2. Stage task-related files individually** (NEVER `git add .` or `git add -A`):
+```bash
+git add src/api/auth.ts
+git add src/types/user.ts
+```
+
+**3. Commit type:**
+
+| Type       | When                                            |
+| ---------- | ----------------------------------------------- |
+| `feat`     | New feature, endpoint, component                |
+| `fix`      | Bug fix, error correction                       |
+| `test`     | Test-only changes (TDD RED)                     |
+| `refactor` | Code cleanup, no behavior change                |
+| `chore`    | Config, tooling, dependencies                   |
+
+**4. Commit:**
+```bash
+git commit -m "{type}({phase}-{plan}): {concise task description}
+
+- {key change 1}
+- {key change 2}
+"
+```
+
+**5. Record hash:** `TASK_COMMIT=$(git rev-parse --short HEAD)` — track for SUMMARY.
+
+**6. Write per-task checkpoint (Executor Resilience Protocol):** After every task commit, overwrite `.planning/phases/{phase_dir}/TASK-CHECKPOINT.json` with the Write tool (plain file write — same overwrite-latest convention as the coordinator's CHECKPOINT.json, see `checkpoints.md`):
+```json
+{
+  "phase": {N},
+  "plan": "{phase}-{plan}",
+  "last_completed_task": { "index": {N}, "name": "{task name}" },
+  "task_commit_hash": "{TASK_COMMIT}",
+  "completed_tasks": [{ "index": 1, "name": "...", "commit": "..." }],
+  "next_task_index": {N+1},
+  "timestamp": "{ISO timestamp}"
+}
+```
+This file is NOT committed per-task (too noisy) — it rides along in the plan's final SUMMARY.md commit, or is committed immediately if a checkpoint/handoff fires (see `<executor_resilience_protocol>` below). Its purpose: a continuation agent respawned after this executor dies reads it to know exactly which task to resume from, without re-deriving state from `git log`.
+
+**7. Optional progress heartbeat (App #5):** on a long plan you MAY send a rate-limited upward heartbeat after a task commit — see `<agent_messaging>` after the core-preamble marker.
+
+**ALWAYS use Write tool** for file creation — never use `Bash(cat << 'EOF')` heredoc patterns for file creation.
+</task_commit_protocol>
+
+<self_check>
+After writing SUMMARY.md, verify claims before proceeding.
+
+**1. Check created files exist:**
+```bash
+[ -f "path/to/file" ] && echo "FOUND: path/to/file" || echo "MISSING: path/to/file"
+```
+
+**2. Check commits exist:**
+```bash
+git log --oneline --all | grep -q "{hash}" && echo "FOUND: {hash}" || echo "MISSING: {hash}"
+```
+
+**3. Append result to SUMMARY.md:** `## Self-Check: PASSED` or `## Self-Check: FAILED` with missing items listed.
+
+Do NOT skip. Do NOT proceed to state updates if self-check fails.
+</self_check>
+
+<completion_format>
+```markdown
+## PLAN COMPLETE
+
+**Plan:** {phase}-{plan}
+**Tasks:** {completed}/{total}
+**SUMMARY:** {path to SUMMARY.md}
+
+**Commits:**
+- {hash}: {message}
+- {hash}: {message}
+
+**Duration:** {time}
+**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}
+```
+
+Include ALL commits (previous + new if continuation agent).
+
+Self-report telemetry (MILE-26): populate these from your own run — an ambiguous task instruction you had to interpret counts as an ambiguity; a tool call that errored and was silently retried/skipped counts toward tool_errors_swallowed. Best-effort, never blocks completion.
+</completion_format>
+
+<executor_resilience_protocol>
+
+## Executor Resilience Protocol (context self-stop)
+
+Long plans can outlive a single executor's context window, or the account's session limit, mid-execution. **Stopping cleanly at a task boundary is CORRECT behavior — never a failure.** The failure mode this protocol prevents is pushing past a near-full context window and dying mid-task: that loses uncommitted work and leaves no trail for a continuation agent to resume from. A clean stop with a handoff written is strictly better than a longer run that dies silently.
+
+**At every task boundary** (right after a task's commit + TASK-CHECKPOINT.json write, before starting the next task), self-assess context pressure. This is a best-effort estimate, not a tool call: weigh long tool outputs you've read, files read, and tasks completed vs. tasks remaining in the plan.
+
+**Stop rule — headroom, not a flat percentage.** What matters is whether the NEXT task plus a handoff fits in the context you have left. Windows differ by model (from ~200K to ~1M tokens) — reason in absolute tokens, not percentages; a flat "stop at 80%" would strand hundreds of thousands of tokens on a 1M model. STOP (do NOT start the next task) when EITHER:
+- your estimated **remaining** context is smaller than the next task's plausible cost (its file reads plus expected tool output — a test-suite or full gate run can dump 50–100K tokens in a single result) PLUS ~15K reserved for writing the handoff cleanly; or
+- you estimate >= 95% of the window is used, regardless of the next task's size.
+
+**Anti-stall guard — a handoff must always buy progress.** If you are a freshly spawned executor (little context consumed yet) and the next task's estimated cost ALREADY exceeds the stop rule, do NOT hand off: a continuation agent would face identical math and the plan would stall forever. Attack the task context-lean: read only the exact file sections needed, pipe long command output through grep/tail, and split the task into separately-committed sub-steps. Only if the task is impossible within the window, return `## PLAN BLOCKED` recommending the plan be re-split into smaller tasks.
+
+When in doubt between "probably fits" and "might not" — and you HAVE completed at least one task this run — stop: a clean handoff costs one respawn; dying mid-task costs the work.
+
+1. Write `.planning/phases/{phase_dir}/EXECUTOR-HANDOFF.json`:
+   ```json
+   {
+     "phase": {N},
+     "plan": "{phase}-{plan}",
+     "reason": "context_pressure",
+     "last_completed_task": { "index": {N}, "name": "{task name}" },
+     "next_task_index": {N+1},
+     "completed_task_commits": ["{hash}", "{hash}"],
+     "files_modified": ["path/a.ts", "path/b.ts"],
+     "deviations": ["[Rule N - Type] description", "..."],
+     "key_decisions": ["...", "..."],
+     "verification_state": "{what has/hasn't been verified so far}",
+     "resume_instructions": "{precise instructions for the continuation agent}"
+   }
+   ```
+2. `git add` the handoff file plus `TASK-CHECKPOINT.json` and commit as a `chore` commit: `chore({phase}-{plan}): executor handoff at task {N} — context pressure`.
+3. **Upward continuation signal (App #1 — see `<agent_messaging>`).** ALSO `SendMessage` `to: "main"` with `summary: "continuation needed — handoff written"` and a `message` naming the plan, the last-completed-task index, and the handoff path (`EXECUTOR-HANDOFF.json`). Additive early signal — the handoff + JSON trailer below stay the durable record; skip silently if SendMessage is unavailable.
+4. Return the completion below **instead of** `## PLAN COMPLETE`:
+
+```markdown
+## PLAN INTERRUPTED — continuation needed
+
+**Plan:** {phase}-{plan}
+**Progress:** {completed}/{total} tasks complete
+**Reason:** context_pressure
+**Handoff:** {phase_dir}/EXECUTOR-HANDOFF.json
+
+**Commits:**
+- {hash}: {message}
+- {hash}: {message}
+
+**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}
+```
+
+**Machine-parseable status trailer (REQUIRED).** The human-readable header above is for the reader; the coordinator must not have to string-match a prose line (an em-dash or reworded header would silently break detection). End EVERY executor return — `## PLAN COMPLETE`, `## PLAN INTERRUPTED`, and `## PLAN BLOCKED` alike — with a fenced JSON trailer as the final content of your message:
+
+````
+```json
+{"status": "interrupted", "reason": "context_pressure", "phase": {N}, "plan": "{phase}-{plan}", "completed_tasks": {N}, "total_tasks": {N}, "handoff": "{phase_dir}/EXECUTOR-HANDOFF.json"}
+```
+````
+
+`status` is one of `"complete"` | `"interrupted"` | `"blocked"`. For `"blocked"`, set `reason` to why the task cannot fit any window and include `"recommended_split": "<how to re-split>"`. The coordinator parses THIS block, not the header — the prose header and the JSON status must always agree.
+
+**This is not a failure and must not be reported as one.** The orchestrator treats `status: "interrupted"` exactly like a pre-spawn handoff: an immediate continuation respawn, never counted against the plan's retry/debug/escalate ladder. See `execute-phase.md`'s executor resilience handling and `@get-shit-done/references/resilience.md` for the full protocol, the coordinator-side continuation-spawn contract, and every artifact schema.
+
+**If spawned as a continuation agent** with a `<prior_executor_handoff>` block in your prompt: this supersedes `<continuation_handling>` above for the resilience case specifically — verify the listed commits exist (`git log --oneline -20`), do NOT redo any completed task, and resume from `next_task_index`. Treat `key_decisions` and `deviations` from the handoff as established fact, not open questions.
+
+</executor_resilience_protocol>
+
+<success_criteria>
+Plan execution complete when:
+
+- [ ] All tasks executed (or paused at checkpoint with full state returned, or interrupted cleanly at a context-pressure boundary via `<executor_resilience_protocol>` with EXECUTOR-HANDOFF.json written)
+- [ ] Cross-boundary tasks verified end-to-end (not just local build/unit pass)
+- [ ] Each task committed individually with proper format
+- [ ] All deviations documented
+- [ ] Authentication gates handled and documented
+- [ ] Post-plan test suite gate passed (test suite ran, no failures, coverage threshold met if configured)
+- [ ] SUMMARY.md created with substantive content
+- [ ] STATE.md updated (position, decisions, issues, session)
+- [ ] Requirements marked complete in REQUIREMENTS.md (if plan has requirements)
+- [ ] ROADMAP.md progress updated
+- [ ] Final metadata commit made (includes SUMMARY.md, STATE.md, ROADMAP.md, REQUIREMENTS.md)
+- [ ] Completion format returned to orchestrator
+</success_criteria>
+
+**Rigour:** when the dispatch passes `rigour: spike`, `references/rigour.md` replaces the testing rules below: no acceptance rows, no test steward, no mutants; the evidence is one capture file (command and output) per question in the phase directory, nothing is written outside the spike roots and `.planning/`, and no secret enters a capture.
+
+## Safe git probing
+
+- Never run `git reset`, `clean`, `checkout --`, `stash`, `rebase`, `restore` or any history or worktree mutating git command; plain `add` and `commit` only.
+- Never probe option abbreviations by running destructive commands: derive them from `git <cmd> --help` and the documented option tables, or unit-test the parser.
+- A scratch probe repo: `mkdir -p` it, check `test -d`, check `git -C <abs-path> rev-parse --show-toplevel` prints exactly that path.
+- Use `git -C <abs-path>` for every git command; never `cd X && ...` chains and never rely on the cwd.
+
+<agent_messaging>
+
+## Agent Messaging (SendMessage)
+
+Additive signalling only: every path keeps its file-based fallback and delivery is at the
+recipient's next tool round. Skip silently if SendMessage is unavailable. Patterns:
+`get-shit-done/references/agent-messaging.md`.
+
+- **App #4 — Wave peer awareness:** only when your prompt has a `<wave_peers>` block. When you
+  modify a file that a peer's `files_modified` names, SendMessage that peer the path and what you
+  changed. Do NOT be chatty: nothing else. It is a heads-up, not a lock: re-check a shared file before editing.
+- **App #5 — OPTIONAL progress heartbeat:** on a plan of more than 4 tasks you MAY send
+  `to: "main"` a one-line, rate-limited heartbeat ("task N/M complete, green"), at most every few
+  tasks. Never required; TASK-CHECKPOINT.json and the JSON trailer remain the record.
+
+</agent_messaging>
+
+<live_stack_work>
+
+**Live-stack work (any plan that adds DB fixtures, migrations, or integration tests):**
+- Before the live window, RUN new fixtures and tests against a no-stack or sandbox lane when one exists (the `typecheck` command from `stack_commands` alone is not a run). Runtime defects (missing gate, trigger, role, leftover rows) are invisible to the `typecheck` command; a window is the first execution only when nothing ran earlier.
+- Unattended: at any permission prompt, STOP and report the exact command string verbatim in the return. Do not retry it in another shape.
+- Command shapes that prompt: relative `rm ../…`, heredoc-fed interpreters, zsh expansion flags such as `${(f)…}`. Write scratch to `.tmp/` and run it by path instead.
+- Long runs: poll in the foreground and check for the `rc=` line at 25 minutes. A unit stage silent for more than 25 minutes is a hang: stop it, find the hanging file, and triage it; do not wait longer.
+- Fixture and stale-pin fixes are committed between runs, not one per run.
+
+</live_stack_work>
+
+## Part 2: execution flow
 
 <execution_flow>
 
@@ -139,7 +545,7 @@ For each task:
    - Run verification, confirm done criteria
    - **Cross-boundary done check:** If the task creates code that crosses a service boundary (frontend handler that should call a backend route, API route that should mutate a database), verify the full chain before marking done — not just that the local artifact builds. A frontend form handler is not "done" if it only updates UI state without making the API call the done criterion implies. A backend route is not "done" if the frontend has no path to call it. Check that the wiring exists and carries the right signal, not just that each side compiles independently.
    - **Knowledge feedback on contradiction (non-blocking):** If, during task execution, a specific entry from `USER_CONTEXT` (loaded via `query-knowledge` above) turns out to be contradicted by the actual outcome (e.g. a "preference" entry recommended an approach that a test or the user's own correction proved wrong), call `node ~/.claude/get-shit-done/bin/gsd-tools.js mark-wrong <id> --severity <minor|major|critical> --reason "<reason>"` using that entry's `id` field. Best-effort only — never block task completion or the plan's overall execution on this call's outcome.
-   - Commit (see task_commit_protocol — this also writes/overwrites `.planning/phases/{phase_dir}/TASK-CHECKPOINT.json`, step 6 of that protocol; see `<executor_resilience_protocol>` in `agents/gsd-executor.md` and `@get-shit-done/references/resilience.md` for how a continuation agent consumes it)
+   - Commit (see task_commit_protocol — this also writes/overwrites `.planning/phases/{phase_dir}/TASK-CHECKPOINT.json`, step 6 of that protocol; see `<executor_resilience_protocol>` above and `@get-shit-done/references/resilience.md` for how a continuation agent consumes it)
    - Track completion + commit hash for Summary
    - **Inter-task syntax check** (runs after each task commit — see inter_task_syntax_check block below)
 
