@@ -36,7 +36,7 @@ const DEFAULT_CHECKS = {
   },
   unknown: {
     checks: [
-      { id: 'git-status-clean', command: 'test -z "$(git status --porcelain)"', required: true },
+      { id: 'git-status-clean', command: 'test -z "$(git status --porcelain -- . \':(exclude).planning/EXECUTION_LOG.md\' \':(exclude).planning/phases/*/CHECKPOINT.json\' \':(exclude).planning/phases/*/TASK-CHECKPOINT.json\')"', required: true },
       { id: 'branch-not-main', command: '[ "$(git rev-parse --abbrev-ref HEAD)" != "main" ] && [ "$(git rev-parse --abbrev-ref HEAD)" != "master" ]', required: true },
     ],
   },

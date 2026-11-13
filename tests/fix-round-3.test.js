@@ -225,3 +225,29 @@ describe('item 9: an estimate of zero tokens is unmeasured', () => {
     assert.deepStrictEqual([r.json.source, r.json.unmeasured], ['observed_history', true]);
   });
 });
+
+describe('item 8: run-state files do not fail git-status-clean', () => {
+  const { deriveCheckSet } = require('../get-shit-done/bin/pre-pr-checks.js');
+  const statusClean = (dir) => {
+    const check = deriveCheckSet(dir).checks.find((c) => c.id === 'git-status-clean');
+    try { execFileSync('sh', ['-c', check.command], { cwd: dir, stdio: 'pipe' }); return true; } catch { return false; }
+  };
+  test("the run's own EXECUTION_LOG and CHECKPOINT files are ignored; any other change still fails", () => {
+    const dir = project();
+    write(dir, '.planning/EXECUTION_LOG.md', '{"type":"x"}\n');
+    git(dir, 'add', '-A'); git(dir, 'commit', '-q', '-m', 'log');
+    assert.strictEqual(statusClean(dir), true);
+    fs.appendFileSync(path.join(dir, '.planning', 'EXECUTION_LOG.md'), '{"type":"y"}\n');
+    write(dir, '.planning/phases/01-p1/CHECKPOINT.json', '{}');
+    write(dir, '.planning/phases/01-p1/TASK-CHECKPOINT.json', '{}');
+    assert.strictEqual(statusClean(dir), true);
+    write(dir, '.planning/phases/01-p1/01-01-SUMMARY.md', 'x');
+    assert.strictEqual(statusClean(dir), false);
+  });
+  test('the committed config and the built-in fallback carry the same command', () => {
+    const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'get-shit-done', 'config', 'pre-pr-checks.json'), 'utf8'));
+    const src = fs.readFileSync(path.join(__dirname, '..', 'get-shit-done', 'bin', 'pre-pr-checks.js'), 'utf8');
+    const cmd = cfg.unknown.checks.find((c) => c.id === 'git-status-clean').command;
+    assert.ok(src.includes(cmd.replace(/'/g, "\\'")), 'DEFAULT_CHECKS must match config');
+  });
+});

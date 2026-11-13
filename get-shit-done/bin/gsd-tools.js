@@ -5742,6 +5742,7 @@ function cmdQualityAssessRisk(cwd, filePath, raw) {
     output({
       high_risk: false, reasons: ['rigour: spike'], presentation_order, rigour: 'spike',
       rigour_violation: rigour.rigourViolations(level.spike_roots, files),
+      spike_roots: level.spike_roots,
     }, raw);
     return;
   }

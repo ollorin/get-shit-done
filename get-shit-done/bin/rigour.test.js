@@ -129,6 +129,7 @@ describe('init and assess-risk emit rigour', () => {
     assert.strictEqual(out.high_risk, false);
     assert.deepStrictEqual(out.reasons, ['rigour: spike']);
     assert.deepStrictEqual(out.rigour_violation, ['src/app.js']);
+    assert.deepStrictEqual(out.spike_roots, ['spike', 'scripts/probes']);
     write('.planning/phases/02-spike-it/02-02-PLAN.md', plan(['x.js']).replace('02-spike-it', '2.1'));
     const high = JSON.parse(run(['quality', 'assess-risk', '.planning/phases/02-spike-it/02-02-PLAN.md', '--raw']).stdout);
     assert.strictEqual(high.rigour, 'standard');
