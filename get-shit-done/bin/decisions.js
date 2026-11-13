@@ -33,6 +33,7 @@ const FLAGS = {
   amend: ['file', 'question', 'answer', 'phases', 'global', 'milestone', 'source'],
   supersede: ['file', 'answer', 'question', 'source', 'phases', 'global'],
 };
+for (const flags of Object.values(FLAGS)) flags.push('cwd');
 const USAGE = 'usage: decisions.js <command> [flags]\n'
   + Object.entries(FLAGS).map(([c, f]) => `  ${c} ${f.map((x) => `[--${x}]`).join(' ')}${c === 'check-plan' ? ' <PLAN.md>... (--phase N and at least one plan file are required)' : ''}`).join('\n')
   + '\n  amend D-NN: rewrite fields of a decision in place; supersede D-NN --answer A --source S: new D- row replaces it'
@@ -324,6 +325,7 @@ function main(argv) {
     const unknown = Object.keys(flags).filter((k) => !known.includes(k));
     if (unknown.length > 0) throw new Error(`unknown flag(s) for ${cmd}: ${unknown.map((k) => `--${k}`).join(', ')} (accepted: ${known.map((k) => `--${k}`).join(' ')})`);
   }
+  if (typeof flags.cwd === 'string') process.chdir(path.resolve(flags.cwd));
   const file = flags.file || DEFAULT_FILE;
   if (MUTATING.has(cmd) || (cmd === 'digest' && (flags.mark === true || flags['mark-only'] === true))) {
     return withLock(file, () => run(cmd, flags, pos, file));
@@ -441,7 +443,7 @@ function run(cmd, flags, pos, file) {
   if (cmd === 'check-plan') {
     if (!flags.phase || pos.length === 0) throw new Error('check-plan --phase N <PLAN.md>...');
     const res = checkPlan(records, flags.phase, pos.map((p) => fs.readFileSync(p, 'utf8')));
-    out(res);
+    out(!res.pass && res.missing.length > 0 && pos.length === 1 ? { ...res, hint: 'missing ids are judged over the plans you pass: another plan of the phase may cite them, so pass every *-PLAN.md of the phase in one call' } : res);
     return res.pass ? 0 : 1;
   }
   if (cmd === 'reworks') {

@@ -50,16 +50,6 @@ describe('R13-1: init fields named in workflow prose exist in the JSON', () => {
   });
 });
 
-describe('R13-2: one wording for the adversarial round and the delta round', () => {
-  const pp = doc('get-shit-done/workflows/plan-phase.md');
-  test('round 1 adversarial on ruling_model; later rounds delta on checker_model; verdicts deleted only before a new round 1', () => {
-    assert.match(pp, /`adversarial` \(round 1 only/);
-    assert.match(pp, /only before a NEW round 1/);
-    assert.match(pp, /Round 2 and later are delta rounds on `checker_model`/);
-    assert.doesNotMatch(pp, /Before EVERY such spawn/);
-  });
-});
-
 describe('R13-6: no per-plan high_risk decision', () => {
   test('assess-risk reports containment only; a high_risk flag changes nothing', () => {
     const dir = project();

@@ -1,7 +1,6 @@
 'use strict';
 // Phase budget: class, wall-minute limits (config workflow.budget.<class>.wall_minutes), and spend from the execution log.
 // Contract: references/rigour.md rule 7. Spend is `phase_spend` events (`budget spend --phase N`, one per dispatch at spawn, counted as a metric only; breach/warn use wall minutes alone);
-// `phase_spend_done` (`--done`, at the child's return) only extends the wall window and is not a dispatch.
 const fs = require('fs');
 const path = require('path');
 const { evPhase, phaseKey } = require('./roadmap-dispatch.js');
@@ -32,7 +31,7 @@ function budgetFields(cwd, cls) {
 // Wall time = closed work windows + the open one. A window opens at phase_start (or gap_cycle) and closes at the next
 // record event of the phase (complete, parked, incomplete, retry, failed, death). A phase_start while a window
 // is open closes the old one at the phase's last logged event. The open window is measured to the phase's last logged
-// event (a spend at each spawn, a spend_done at each return), never to the clock: a dead session must not keep spending.
+// event (a spend at each spawn), never to the clock: a dead session must not keep spending.
 // A window with no phase_start (standalone plan-phase / execute-phase) opens at the first spend event. Idle time never counts.
 const OPEN = new Set(['phase_start', 'gap_cycle']);
 const CLOSE = new Set(['phase_complete', 'phase_parked', 'phase_incomplete', 'phase_retry', 'phase_failed', 'phase_coordinator_death']);
@@ -64,14 +63,14 @@ function spend(events, phase) {
       closedMs += Math.max(0, t - start);
       start = null;
     }
-    if (OPEN.has(e.type) || e.type === 'phase_spend' || e.type === 'phase_spend_done') final = null;
+    if (OPEN.has(e.type) || e.type === 'phase_spend') final = null;
     if (reset) {
       bank();
       closedMs = 0; dispatches = 0; start = null;
       final = e.type === 'phase_complete' && typeof e.dispatches_spent === 'number' ? e : null;
-    } else if (e.type === 'phase_spend' || e.type === 'phase_spend_done') {
+    } else if (e.type === 'phase_spend') {
       if (start === null && !Number.isNaN(t)) start = t;
-      if (e.type === 'phase_spend') dispatches += 1;
+      dispatches += 1;
     }
     if (!Number.isNaN(t)) last = t;
   }

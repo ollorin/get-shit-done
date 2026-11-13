@@ -392,6 +392,33 @@ describe('decisions CLI strictness, amend/supersede, gate and check-plan output'
     assert.deepStrictEqual(Object.keys(out).sort(), ['missing', 'pass', 'phase', 'stale', 'unknown']);
   });
 
+  test('check-plan is phase-wide: a single plan fails on ids its sibling cites (with a hint), all plans together pass', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-dec-'));
+    const file = path.join(dir, 'D.jsonl');
+    const d1 = addDecision(file);
+    const d2 = addDecision(file);
+    const p1 = path.join(dir, '03-01-PLAN.md');
+    const p2 = path.join(dir, '03-02-PLAN.md');
+    fs.writeFileSync(p1, `cites ${d1.id}`);
+    fs.writeFileSync(p2, `cites ${d2.id}`);
+    const one = cli(file, 'check-plan', '--phase', '3', p1);
+    assert.strictEqual(one.status, 1);
+    const oneOut = JSON.parse(one.stdout);
+    assert.deepStrictEqual(oneOut.missing, [d2.id]);
+    assert.match(oneOut.hint, /every \*-PLAN\.md of the phase/);
+    const both = cli(file, 'check-plan', '--phase', '3', p1, p2);
+    assert.strictEqual(both.status, 0);
+    assert.strictEqual('hint' in JSON.parse(both.stdout), false);
+  });
+
+  test('--cwd runs a command against that project directory (default ledger path resolves there)', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-dec-'));
+    fs.mkdirSync(path.join(dir, '.planning'));
+    const r = spawnSync('node', [TOOL, 'add', '--cwd', dir, '--kind', 'assumption', '--source', 'plan-check', '--question', 'q', '--default', 'd', '--reversibility', 'cheap', '--phases', '2'], { encoding: 'utf8' });
+    assert.strictEqual(r.status, 0, r.stderr);
+    assert.strictEqual(load(path.join(dir, '.planning', 'DECISIONS.jsonl')).records.length, 1);
+  });
+
   test('usage shows the positional plan files of check-plan', () => {
     const r = spawnSync('node', [TOOL, 'nonsense'], { encoding: 'utf8' });
     assert.match(r.stderr + r.stdout, /check-plan .*<PLAN\.md>\.\.\./);

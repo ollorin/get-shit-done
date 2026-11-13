@@ -16,8 +16,7 @@ const EVENT_TYPES = {
   MODEL_SELECTED: 'model_selected',
   TASK_OUTCOME: 'task_outcome',
   TIER_ESCALATION: 'tier_escalation',
-  PHASE_SPEND: 'phase_spend',
-  PHASE_SPEND_DONE: 'phase_spend_done'
+  PHASE_SPEND: 'phase_spend'
 };
 
 /**

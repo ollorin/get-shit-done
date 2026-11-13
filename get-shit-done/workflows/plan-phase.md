@@ -29,7 +29,7 @@ If the command exits 1 and INIT has `error: project_context_missing`: stop, prin
 
 Parse JSON for: `auto_mode`, `researcher_model`, `planner_model`, `checker_model`, `executor_model`, `ruling_model`, `ruling_model_fallback`, `utility_model`, `research_enabled`, `plan_checker_enabled`, `commit_docs`, `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `phase_slug`, `padded_phase`, `has_research`, `has_context`, `has_plans`, `plan_count`, `planning_exists`, `roadmap_exists`, `phase_req_ids`, `risk_addons`, `brief_path`, `stack_profile_path`, `stack_commands`. Every spawned agent receives `brief_path` and `stack_profile_path` (when not null) in its `<files_to_read>`, and `stack_commands` verbatim.
 
-**Rigour and budget (print first):** init also returns the rigour fields and `phase_req_ids`. `references/rigour.md` is the contract (levels, risk-domain add-ons, caps, budget). Before anything else print its first line (`Phase {N}: rigour ..., risk domains: ..., budget ...`). Pass `rigour`, the spike roots, the risk domains and the remaining budget in every spawn prompt. Call `gsd-tools budget spend --phase {N}` once per child spawn and `gsd-tools budget spend --phase {N} --done` when it returns, and `gsd-tools budget status --phase {N}` before each new plan-check round. On a breach return `status: blocked`, `reason: budget_exceeded` with the owner report.
+**Rigour and budget (print first):** init also returns the rigour fields and `phase_req_ids`. `references/rigour.md` is the contract (levels, risk-domain add-ons, caps, budget). Before anything else print its first line (`Phase {N}: rigour ..., risk domains: ..., budget ...`). Pass `rigour`, the spike roots, the risk domains and the remaining budget in every spawn prompt. Call `gsd-tools budget spend --phase {N}` once per child dispatch and `gsd-tools budget status --phase {N}` before each new plan-check round. On a breach return `status: blocked`, `reason: budget_exceeded` with the owner report.
 
 **Spike branches (`rigour` is `spike`):** no discuss step. Step 5: one research agent at most, and only when `has_research` is false; step 5.6 is skipped. Step 8: `planner_model`; at most 2 plans, all `wave: 1` (`depends_on` only sets their serial run order), each task naming its question and capture file; a PRD criterion that REQUIREMENTS or ROADMAP drops or narrows as "cannot be done here / needs an external account / not verifiable locally" gets a task that searches the installed packages and docs for the refuting observation (what hit would prove it CAN be done here, e.g. a local/dev/emulator mode of the named component), prints those hits in full, not a count of the topic word, and records command and output path; premises inherited from REQUIREMENTS/ROADMAP are tested in the first phase that can act on them, and a search that refutes one puts the criterion back in scope with a probe task, or stops the phase with an owner question when the roadmap forbids it (the plan-checker's Dimension 16 blocks otherwise); the planner prompt carries init `spike_roots` (the owner gate's roots) and states that a ROADMAP or CONTEXT `**Spike roots**` line that differs is informational. Step 8b: always the light path, once. Step 9.5: `TRIAGE_MODE=checker` always. A `rigour_violation` in an `assess-risk` result costs ONE planner revision (offending paths and the result's `spike_roots` named, step 12 prompt shape), then 9.4 and 9.5 re-run; a second violation stops plan-phase with the offending paths before step 10. Step 10: `checker_model`, one round, Dimensions 1-7, 12, 15 and 16 (traceability, `references/rigour.md` rule 11: the checker opens the source PRD). Step 12: one planner revision for blockers, no re-check.
 
@@ -193,7 +193,7 @@ If `context_path` is not null, display: `Using phase context from: ${context_pat
 
 **If `context_path` is null (no CONTEXT.md exists):**
 
-Auto (auto_mode, references/auto-mode.md K2): when `auto_mode` is true do not ask. Proceed with research + requirements only and record `Planned without CONTEXT.md (auto mode)` in the first plan's `<context>` section and in `{PHASE_DIR}/{N}-PLAN-CHECK.md` when one is written.
+Auto (auto_mode, references/auto-mode.md K2): do not ask and go on to step 5; tell the planner to put the line `Planned without CONTEXT.md (auto mode)` in the first plan's `<context>`, and step 11 puts the same line at the top of `{PHASE_DIR}/{N}-PLAN-CHECK.md` when it creates it.
 
 Otherwise use AskUserQuestion:
 - header: "No context"
@@ -413,7 +413,7 @@ Errors (plan lines/tasks/plan-count caps of `references/rigour.md`, an evidence-
 
 **Spike only (`rigour` is `spike`):** for each `*-PLAN.md` in `${PHASE_DIR}` run `gsd-tools.js quality assess-risk "$PLAN_FILE" --raw` and parse `{ rigour, rigour_violation, spike_roots }` (the containment check; an `{ error: true }` result is a plan the planner must fix). Standard phases skip the call: the add-ons are phase-level.
 
-**If init `risk_addons` is true:** set `TRIAGE_MODE=adversarial` and `HIGH_RISK_PLANS` to every plan id. Step 10 still spawns one `gsd-plan-checker` for the phase, with its adversarial pass enabled.
+**If init `risk_addons` is true:** set `TRIAGE_MODE=adversarial` and `ADVERSARIAL_PLANS` to every plan id. Step 10 still spawns one `gsd-plan-checker` for the phase, with its adversarial pass enabled.
 
 **Otherwise:** set `TRIAGE_MODE=checker`; Step 10 runs the plain checker.
 
@@ -466,7 +466,7 @@ Agent(
 )
 ```
 
-**If `TRIAGE_MODE` is `adversarial` (round 1 only, the first check of a plan set):** also append to `checker_prompt`: `Adversarial pass: enabled for plans {HIGH_RISK_PLANS}; write {PHASE_DIR}/{plan_id}-VERDICT.md for each.` and spawn with `model="{ruling_model}"` (never `checker_model`); if that spawn is rejected for availability, retry it once with `model="{ruling_model_fallback}"` and say so. Delete the old verdicts (`rm -f {PHASE_DIR}/{plan_id}-VERDICT.md` for each id in `HIGH_RISK_PLANS`) only before a NEW round 1, i.e. after a re-plan, never before a delta round. Each VERDICT.md carries its own findings. **Round 2 and later are delta rounds on `checker_model` (step 11): they read the kept round-1 verdicts, run no adversarial pass and write no VERDICT.md.**
+**If `TRIAGE_MODE` is `adversarial` (round 1 only, the first check of a plan set):** also append to `checker_prompt`: `Adversarial pass: enabled for plans {ADVERSARIAL_PLANS}; write {PHASE_DIR}/{plan_id}-VERDICT.md for each.` and spawn with `model="{ruling_model}"` (never `checker_model`); if that spawn is rejected for availability, retry it once with `model="{ruling_model_fallback}"` and say so. A new round 1 overwrites the old verdicts: delete nothing (a verdict older than its plan fails the freshness test in step 11). Each VERDICT.md carries its own findings. **Round 2 and later are delta rounds on `checker_model` (step 11): they read the kept round-1 verdicts, run no adversarial pass and write no VERDICT.md.**
 
 ## 11. Handle Checker Return
 
@@ -484,6 +484,8 @@ EOF
 git add -- "$F" && git commit -m "docs(phase-{X}): record plan-check round {n}" -- "$F"
 ```
 
+In round 1 with the adversarial pass, name each `{PHASE_DIR}/{plan_id}-VERDICT.md` as a literal path after `"$F"` in both the `git add` and the `git commit` (the delta rounds read the verdicts from the commit).
+
 Readers: the next round (below), the handoff brief (open risks) and the milestone rules distillation; nothing is copied from it into a SUMMARY.
 
 **Later rounds are delta rounds.** From iteration 2 on, the checker prompt carries `{PHASE_DIR}/{N}-PLAN-CHECK.md`, the kept `{PHASE_DIR}/*-VERDICT.md` files and `git diff {commit of the previous round} -- {PHASE_DIR}/*-PLAN.md`, and this instruction: `Delta round. For every earlier blocker and warning report fixed, kept or regressed. Then check only the changed lines for new defects. A new finding on unchanged text is a warning, never a blocker, unless it is a secret, a containment violation or a plan that cannot run at all.`
@@ -493,11 +495,11 @@ Readers: the next round (below), the handoff brief (open risks) and the mileston
 - **`## ISSUES FOUND`:** Display issues, check iteration count, proceed to step 12.
 - **Malformed/absent return** (Agent() threw, or the return carries neither expected header): do NOT improvise a pass. Retry the `gsd-plan-checker` `Agent()` call once. If the retry still parses as neither `## VERIFICATION PASSED` nor `## ISSUES FOUND`, surface the raw checker output to the user with retry/abort options. Never treat an unparseable checker return as a silent pass. Auto (auto_mode, references/auto-mode.md K5): after the one retry return `status: failed` with the raw output.
 
-**If `TRIAGE_MODE` is `adversarial` and this is round 1:** handle the return exactly as above, then read every `{PHASE_DIR}/{plan_id}-VERDICT.md` for `HIGH_RISK_PLANS`. A VERDICT.md is accepted only if it exists and is newer than its plan (`test {PHASE_DIR}/{plan_id}-VERDICT.md -nt {PHASE_DIR}/{plan_id}-PLAN.md`); a missing or stale one is a malformed return: delete it, re-spawn the checker once. If it is still missing or stale the adversarial pass is unavailable and the plan FAILS CLOSED: do not fall back to the plain checker's pass. Append `adversarial_review: unavailable for {plan_id}: {reason}` to `{PHASE_DIR}/{N}-PLAN-CHECK.md`; the blocker issue returned by the call below (`--require`) enters the revision loop (step 12), and the plan is not approved or executed until a valid verdict exists. Never prompt the user. For each high-risk plan (whatever its verdict), call:
+**If `TRIAGE_MODE` is `adversarial` and this is round 1:** handle the return exactly as above, then read every `{PHASE_DIR}/{plan_id}-VERDICT.md` for `ADVERSARIAL_PLANS`. A VERDICT.md is accepted only if it exists and is newer than its plan (`test {PHASE_DIR}/{plan_id}-VERDICT.md -nt {PHASE_DIR}/{plan_id}-PLAN.md`); a missing or stale one is a malformed return: delete it, re-spawn the checker once. If it is still missing or stale the adversarial pass is unavailable and the plan FAILS CLOSED: do not fall back to the plain checker's pass. Append `adversarial_review: unavailable for {plan_id}: {reason}` to `{PHASE_DIR}/{N}-PLAN-CHECK.md`; the blocker issue returned by the call below (`--require`) enters the revision loop (step 12), and the plan is not approved or executed until a valid verdict exists. Never prompt the user. For each plan in `ADVERSARIAL_PLANS` (whatever its verdict), call:
   ```bash
   node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" quality verdict-to-issues "${PHASE_DIR}/${plan_id}-VERDICT.md" --require --raw
   ```
-  Merge the returned `issues` arrays into the checker's `## ISSUES FOUND` list (`{ plan, dimension: "adversarial_review", severity, description, fix_hint }`) and proceed to step 12. All verdicts `approved` (no blocker issue) and `## VERIFICATION PASSED`: proceed to step 13.
+  The checker already lists the verdict's findings in its own return: add a returned issue only when its plan and fix are not already in that list, and keep the severity as returned (a `blocker:` or `warning:` prefix on a `required_changes` entry sets it; otherwise `revise` is a warning and `critical` a blocker). Then proceed to step 12. All verdicts `approved` (no blocker issue) and `## VERIFICATION PASSED`: proceed to step 13.
 
 ## 12. Revision Loop (capped)
 
@@ -544,7 +546,11 @@ After the planner returns: re-run Step 9.4 and re-run Step 9.5 (spike containmen
 
 Display: `Plan-check cap reached. {N} issues remain:` + issue list.
 
-- Remaining warnings: log each as an assumption (`node "$HOME/.claude/get-shit-done/bin/decisions.js" add --kind assumption --source plan-check --reversibility cheap --phases {N}`, default = the plan as written) and proceed.
+- Remaining warnings (also when the last permitted round returned `## VERIFICATION PASSED` with warnings): one `A-` row each, then proceed:
+  ```bash
+  node "$HOME/.claude/get-shit-done/bin/decisions.js" add --kind assumption --source plan-check --reversibility cheap --phases {N} --question "{the warning}" --default "the plan as written"
+  ```
+  (run it from the project root; `--cwd <dir>` is accepted too)
 - Remaining blockers: ONE planner revision (`{planner_model}`, the blockers only), then ONE targeted re-check of only those blockers (same checker tier, delta scope). A blocker the re-check still reports is never closed by an `A-` row. When init `risk_addons` is true it goes, with every other surviving blocker of the phase, to ONE ruling on `{ruling_model}` before execution (fix, or accept with the reason; recorded as a `D-` row), in interactive and auto alike; an OVERRIDE line alone never closes it. Otherwise it goes to the owner (interactive) or into the OVERRIDE line below (auto).
 
 Interactive: offer 1) the revision and re-check above, 2) provide guidance and retry, 3) abandon.

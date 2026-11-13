@@ -16088,3 +16088,16 @@ describe('pilot fix C6: eval-candidate never creates tests/eval-regressions in a
     assert.ok(fs.readdirSync(path.join(tmpDir, 'tests', 'eval-regressions', 'queue')).length >= 1);
   });
 });
+
+describe('verdictToIssues keeps severity and de-duplicates', () => {
+  const { verdictToIssues } = require(TOOLS_PATH);
+  test('a blocker: prefix survives a revise verdict; unprefixed entries take the verdict severity; repeats collapse', () => {
+    const issues = verdictToIssues({ verdict: 'revise', plan: '02-01', required_changes: ['blocker: verify cannot pass', 'tidy wording', 'tidy wording', 'warning: slow'] }, '02-01');
+    assert.deepStrictEqual(issues.map((i) => [i.severity, i.description]), [['blocker', 'verify cannot pass'], ['warning', 'tidy wording'], ['warning', 'slow']]);
+  });
+  test('critical defaults to blocker; approved yields none; required fails closed on a missing verdict', () => {
+    assert.strictEqual(verdictToIssues({ verdict: 'critical', required_changes: ['x'] }, 'p')[0].severity, 'blocker');
+    assert.deepStrictEqual(verdictToIssues({ verdict: 'approved' }, 'p'), []);
+    assert.strictEqual(verdictToIssues({}, 'p', { required: true })[0].severity, 'blocker');
+  });
+});

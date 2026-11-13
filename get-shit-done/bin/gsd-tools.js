@@ -5604,8 +5604,8 @@ function cmdQualityAssessRisk(cwd, filePath, raw) {
 // ({ plan, dimension, severity, description, fix_hint }), so the EXISTING
 // plan-phase.md revision loop (step 12) can consume adversarial-review verdicts
 // without any new revision mechanism. approved (or missing verdict) -> [].
-// revise -> one warning-severity issue per required_change. critical -> one
-// blocker-severity issue per required_change.
+// One issue per distinct required_change. A `blocker:` / `warning:` prefix on the entry sets its severity;
+// otherwise revise -> warning, critical -> blocker.
 function unavailableVerdictIssue(planId, reason) {
   return {
     plan: planId || null,
@@ -5627,20 +5627,21 @@ function verdictToIssues(verdictFrontmatter, planId, opts) {
   if (verdict === 'approved' || !verdict) return [];
 
   const requiredChanges = Array.isArray(fm.required_changes) ? fm.required_changes : [];
-  const severity = verdict === 'critical' ? 'blocker' : 'warning';
+  const defaultSeverity = verdict === 'critical' ? 'blocker' : 'warning';
   const resolvedPlanId = planId || fm.plan || null;
 
-  return requiredChanges.map((change) => {
-    const description = typeof change === 'string' ? change : ((change && change.description) || JSON.stringify(change));
-    const fixHint = typeof change === 'string' ? change : ((change && change.fix_hint) || null);
-    return {
-      plan: resolvedPlanId,
-      dimension: 'adversarial_review',
-      severity,
-      description,
-      fix_hint: fixHint,
-    };
-  });
+  const seen = new Set();
+  const issues = [];
+  for (const change of requiredChanges) {
+    const text = typeof change === 'string' ? change : ((change && change.description) || JSON.stringify(change));
+    const prefixed = /^\s*(blocker|warning):\s*/i.exec(text);
+    const severity = prefixed ? prefixed[1].toLowerCase() : (change && change.severity === 'blocker' ? 'blocker' : defaultSeverity);
+    const description = prefixed ? text.slice(prefixed[0].length) : text;
+    if (seen.has(description)) continue;
+    seen.add(description);
+    issues.push({ plan: resolvedPlanId, dimension: 'adversarial_review', severity, description, fix_hint: typeof change === 'string' ? description : ((change && change.fix_hint) || null) });
+  }
+  return issues;
 }
 
 // Thin CLI wrapper over verdictToIssues. Never throws -- missing/malformed verdict
@@ -12353,7 +12354,7 @@ function cmdInitExecuteRoadmap(cwd, raw) {
 // owner-gate request|status|approve|reject --kind composition|roadmap|pr [--milestone V] [--summary S] [--revise] [--spike-phases N,M --spike-roots p,q] [--by W] [--note N] [--owner-confirmed]
 // approve/reject: refused while auto_mode is active unless --owner-confirmed with a --note. The flag is a recorded
 // attestation, not authentication: an unattended agent that passes it has lied in the audit trail, visibly.
-// budget spend --phase N [--step S] [--model M]: logs ONE dispatch (at spawn); --done logs the child's return (extends the wall window, not a dispatch). budget status --phase N: the coordinator reads it before each new cycle.
+// budget spend --phase N [--step S] [--model M]: logs ONE dispatch (at spawn). budget status --phase N: the coordinator reads it before each new cycle.
 function cmdPhaseBudget(cwd, args, raw) {
   const sub = args[0];
   if (sub !== 'status' && sub !== 'spend') error('Unknown budget subcommand. Available: status, spend');
@@ -12361,9 +12362,8 @@ function cmdPhaseBudget(cwd, args, raw) {
   const phase = flag('--phase');
   if (!phase) error(`budget ${sub}: --phase required`);
   if (sub === 'spend') {
-    const done = args.includes('--done');
-    appendEvent(cwd, { type: done ? 'phase_spend_done' : 'phase_spend', phase: dispatch.phaseKey(phase), step: flag('--step') || null, model: flag('--model') || null });
-    output({ logged: true, phase: dispatch.phaseKey(phase), ...(done ? { done: true } : {}) }, raw);
+    appendEvent(cwd, { type: 'phase_spend', phase: dispatch.phaseKey(phase), step: flag('--step') || null, model: flag('--model') || null });
+    output({ logged: true, phase: dispatch.phaseKey(phase) }, raw);
     return;
   }
   output(phaseBudgetStatus(cwd, phase, readExecutionEvents(cwd)), raw);
