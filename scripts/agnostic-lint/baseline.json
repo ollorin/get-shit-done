@@ -44,7 +44,7 @@
       "frontend": 2
     },
     "agents/gsd-phase-researcher.md": {
-      "frontend": 2
+      "frontend": 1
     },
     "agents/gsd-plan-checker.md": {
       "authtech": 2
@@ -71,7 +71,7 @@
     },
     "get-shit-done/bin/gsd-tools.js": {
       "authtech": 1,
-      "charlotte": 7,
+      "charlotte": 6,
       "deno": 3,
       "frontend": 1,
       "gates": 1,

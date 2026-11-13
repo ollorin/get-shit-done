@@ -58,7 +58,7 @@ Only the latest checkpoint matters; the orchestrator reads `resume_from` when it
 
 - `step_status: "complete"` means the step RAN, not that the goal was achieved. `last_step: "verify"` means the verifier ran, not that it passed.
 - `{N}-VERIFICATION.md` `status` is the authoritative judgment on the phase. A coordinator never reports a phase done from CHECKPOINT.json alone.
-- `gsd-tools phase complete` refuses unless `{N}-VERIFICATION.md` has `status: "passed"`, every PLAN.md has a SUMMARY.md with `## Self-Check: PASSED`, every plan has an `{N}-{NN}`-tagged commit and CHECKPOINT.json has `last_step: "verify"`. Execute-phase is the only caller; you never call it. Plain `phase complete` also refuses on form errors; execute-phase then calls `phase complete {N} --form-debt`, which still refuses on missing work. You report `completed` after that call exits 0.
+- `gsd-tools phase complete` refuses unless `{N}-VERIFICATION.md` has `status: "passed"`, every PLAN.md has a SUMMARY.md with `## Self-Check: PASSED`, every plan has an `{N}-{NN}`-tagged commit and CHECKPOINT.json has `last_step: "verify"`. Execute-phase is the only caller; you never call it. Plain `phase complete` also refuses on form errors; execute-phase then uses its `--form-debt` form, which still refuses on missing work. You report `completed` after that call exits 0.
 </checkpoint_protocol>
 
 <review_checklist>

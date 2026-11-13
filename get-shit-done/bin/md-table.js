@@ -1,7 +1,7 @@
 'use strict';
 
 // The one markdown table-row splitter. A `|` inside a backtick code span or escaped as `\|` is cell
-// text, not a separator. A backtick run with no closing run of the same length is a literal backtick.
+// text, not a separator (project convention; strict GFM would split inside a code span, and the pre-splitter code was a plain split("|") that was not GFM either). A backtick run with no closing run of the same length is a literal backtick.
 
 function splitRowRaw(inner) {
   const cells = [];

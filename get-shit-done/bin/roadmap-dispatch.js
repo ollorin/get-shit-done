@@ -22,7 +22,7 @@ function parseDeps(depends) {
 function foldEvents(events) {
   const by = new Map();
   const get = (k) => {
-    if (!by.has(k)) by.set(k, { state: 'none', gap_cycles: 0, started: false, dep_parked: false, park_reason: null, form_debt: null });
+    if (!by.has(k)) by.set(k, { state: 'none', gap_cycles: 0, started: false, dep_parked: false, form_debt: null });
     return by.get(k);
   };
   for (const e of Array.isArray(events) ? events : []) {
@@ -37,7 +37,7 @@ function foldEvents(events) {
       case 'phase_complete': { const s = get(k); s.state = 'complete'; s.dep_parked = false; s.form_debt = null; break; }
       case 'phase_incomplete': get(k).state = e.action === 'gap_cycle' ? 'gap_pending' : 'parked'; break;
       // dependency_parked is derived from the dependency's current state, so it is an audit note, never a state.
-      case 'phase_parked': { const s = get(k); if (e.reason === 'dependency_parked') s.dep_parked = true; else { s.state = 'parked'; s.park_reason = e.reason || null; } break; }
+      case 'phase_parked': { const s = get(k); if (e.reason === 'dependency_parked') s.dep_parked = true; else { s.state = 'parked'; } break; }
       case 'phase_failed': get(k).state = 'failed'; break;
       default: break;
     }
@@ -137,7 +137,7 @@ function next(input) {
     }
     const resumed = s.state === 'running';
     log.push({ type: 'phase_start', phase: k, name: p.name, resumed });
-    return { ...common, action: 'spawn_coordinator', args: `${k} --auto${cfg.legacy ? ' --legacy' : ''}`, resumed, ...(input.plansStale && input.plansStale(k) ? { plans_stale: true } : {}), log };
+    return { ...common, action: 'spawn_coordinator', args: `${k} --auto${cfg.legacy ? ' --legacy' : ''}`, resumed, log };
   }
 
   for (const p of phases) {
@@ -149,8 +149,7 @@ function next(input) {
   const remaining = phases.map((p) => phaseKey(p.number)).filter((k) => !done.has(k));
   const debt = debtOf(folded);
   if (blocked.size > 0) {
-    const stopped = [...blocked].filter((k) => stateOf(k).state === 'parked' && stateOf(k).park_reason === 'budget_exceeded');
-    return { ...base, action: 'done', complete: false, parked: [...blocked], stopped_on_budget: stopped, completed_phases: [...done], form_debt: debt, log };
+    return { ...base, action: 'done', complete: false, parked: [...blocked], completed_phases: [...done], form_debt: debt, log };
   }
   if (remaining.length > 0) {
     return { ...base, action: 'done', complete: false, error: 'deadlock', parked: remaining, completed_phases: [...done], form_debt: debt, log };
@@ -191,14 +190,13 @@ function record(input) {
       if (truth.complete) return { phase: k, action: 'complete', ...(Array.isArray(truth.form_debt) && truth.form_debt.length > 0 ? { form_debt: truth.form_debt } : {}), events: [{ type: 'phase_complete', phase: k }] };
       return { phase: k, ...incompleteEvent(k, truth, folded, 'completed_without_disk_truth') };
     case 'gaps_found': {
-      const kind = result.gap_kind || input.derivedGapKind || 'product';
-      if (kind === 'format') return debtResult(k, result, input);
+      if (result.gap_kind === 'format') { const debt = debtResult(k, truth); if (debt) return debt; }
       return { phase: k, ...incompleteEvent(k, truth, folded, 'gaps_found', result.gap_cycle_done === true) };
     }
     case 'completed_with_deferrals':
       return { phase: k, action: 'spawn_deferred', deferred: result.deferred || [], events: [] };
     case 'blocked':
-      if (result.reason === 'form_gate') return debtResult(k, result, input);
+      if (result.reason === 'form_gate') { const debt = debtResult(k, truth); if (debt) return debt; }
     // falls through
     case 'human_needed':
       return { phase: k, action: 'park', events: [{ type: 'phase_parked', phase: k, reason: result.reason || result.status }] };
@@ -209,8 +207,10 @@ function record(input) {
   }
 }
 
-function debtResult(k, result, input) {
-  const items = [result.form_debt, result.form_findings, input.formItems].find(Array.isArray) || [];
+// A coordinator's "format" claim is only a claim: form debt needs disk truth with zero missing work and at least one form item.
+function debtResult(k, truth) {
+  const items = Array.isArray(truth.form_errors) ? truth.form_errors : [];
+  if ((truth.work_errors || []).length > 0 || items.length === 0 || !Array.isArray(truth.work_errors)) return null;
   return { phase: k, action: 'continue_with_debt', form_debt: items, events: [{ type: 'phase_form_debt', phase: k, items }] };
 }
 

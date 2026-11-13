@@ -46,7 +46,7 @@ function request(cwd, { kind, milestone, summary, now, spikePhases, spikeRoots }
   if (phases.length > 0 && roots.length === 0) return { ok: false, error: 'spike phases need --spike-roots' };
   const rigour = phases.length > 0 ? { spike_phases: phases, spike_roots: roots } : null;
   const existing = gates.find((g) => g.id === gateId(kind, m));
-  if (existing && existing.status === 'pending' && JSON.stringify(existing.rigour || null) !== JSON.stringify(rigour) && (rigour || existing.rigour)) {
+  if (existing && existing.status === 'pending' && rigour && JSON.stringify(existing.rigour || null) !== JSON.stringify(rigour)) {
     const next = { ...existing, rigour };
     writeAll(cwd, gates.map((g) => (g.id === next.id ? next : g)));
     return { ok: true, gate: next, created: false };

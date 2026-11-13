@@ -1,6 +1,6 @@
 'use strict';
 // Rigour level of a phase: standard (default) | spike. Contract: references/rigour.md.
-// The level is one ROADMAP.md line per phase; absent means standard. Fails closed: an unauthorised spike is standard.
+// Spike authority is the approved roadmap owner gate only. Fails closed: an unauthorised spike is standard.
 
 const fs = require('fs');
 const path = require('path');
@@ -9,7 +9,6 @@ const { loadProfile, getProfileValue } = require('./project-profile.js');
 const ownerGates = require('./owner-gates.js');
 
 const LEVELS = ['standard', 'spike'];
-const LEDGER_REL = path.join('.planning', 'DECISIONS.jsonl');
 const read = (f) => { try { return fs.readFileSync(f, 'utf8'); } catch { return null; } };
 
 function phaseSection(cwd, phase) {
@@ -36,55 +35,72 @@ function productionPaths(cwd) {
     .filter((p) => typeof p === 'string' && p.trim() !== '').map(normRoot);
 }
 
-function authorising(cwd, id, phase) {
-  const text = read(path.join(cwd, LEDGER_REL));
-  if (text === null) return false;
-  const last = new Map();
-  for (const line of text.split('\n')) {
-    try { const r = JSON.parse(line); if (r && r.id) last.set(r.id, r); } catch { /* unparseable rows authorise nothing */ }
-  }
-  const r = last.get(id);
-  return !!r && r.kind === 'decision' && r.status === 'active' && /^D-\d{2,}$/.test(id)
-    && (r.source === 'owner-answer' || r.source === 'opus-ruling' || r.source === 'top-ruling')
-    && Array.isArray(r.phases) && r.phases.includes(String(phase).replace(/^0+(?=\d)/, ''));
-}
+const phaseKey = (p) => String(p).replace(/^0+(?=\d)/, '');
 
-// OG2: the newest roadmap gate of the milestone, approved, lists the phase as a spike.
-function gateAuthorises(cwd, phase, milestone) {
+// The single source of truth for spike phases and roots: the newest roadmap owner gate of the milestone, approved.
+function approvedSpikeGate(cwd, milestone) {
   const g = ownerGates.find(ownerGates.readAll(cwd), 'roadmap', milestone);
-  const n = String(phase).replace(/^0+(?=\d)/, '');
-  if (!g) return { ok: false, reason: `no roadmap gate requested, so OG2 does not authorise a spike for phase ${phase}` };
-  const listed = Array.isArray(g.rigour && g.rigour.spike_phases) && g.rigour.spike_phases.map(String).includes(n);
-  if (g.status === 'approved' && listed) return { ok: true };
-  return { ok: false, reason: `roadmap gate ${g.id} does not authorise a spike for phase ${phase} (status ${g.status}${listed ? '' : ', phase not listed'})` };
+  return { gate: g, ok: !!g && g.status === 'approved' };
 }
 
 const standard = (source, reason) => ({
-  rigour: 'standard', rigour_source: source, rigour_decision: null, spike_roots: [], rigour_rejected_reason: reason || null,
+  rigour: 'standard', rigour_source: source, rigour_decision: null, spike_roots: [], rigour_rejected_reason: reason || null, rigour_notice: null,
 });
 
+const clashes = (roots, cwd) => roots.flatMap((r) => productionPaths(cwd).filter((p) => overlaps(r, p)).map((p) => `${r} overlaps ${p}`));
+
+// A phase is spike only when the approved gate lists it; the ROADMAP Rigour / Spike roots lines are informational
+// (a mismatch is a notice, never authority).
 function resolveRigour(cwd, rawPhase, milestone) {
   const phase = String(rawPhase).match(/^\d+(?:\.\d+)?/)?.[0] ?? String(rawPhase);
   const section = phaseSection(cwd, phase);
   const line = section && section.match(/\*\*Rigour:?\*\*:?[ \t]*([^\n]+)/i);
-  if (!line) return standard('default');
-  const [, level, decision] = line[1].trim().toLowerCase().match(/^(\S+?)(?:\s*\(\s*([^)]*?)\s*\))?$/) || [];
-  if (level === 'standard') return standard('roadmap');
-  if (level === 'high') return standard('rejected', 'rigour "high" is retired: the phase runs as standard; risk-domain depth comes from the **Risk domains** line and high_risk plans');
-  if (level !== 'spike') return standard('rejected', `unknown rigour "${line[1].trim()}"`);
-  const id = (decision || '').toUpperCase();
-  const rootsLine = section.match(/\*\*Spike roots:?\*\*:?[ \t]*([^\n]+)/i);
-  const roots = rootsLine ? rootsLine[1].split(',').map(normRoot).filter(Boolean) : [];
-  const reject = (reason) => ({ ...standard('rejected', reason), rigour_decision: id || null });
-  if (!id) return reject('spike needs a decision id');
-  if (roots.length === 0) return reject('spike needs at least one spike root');
-  if (id === 'OG2') {
-    const gate = gateAuthorises(cwd, phase, milestone);
-    if (!gate.ok) return reject(gate.reason);
-  } else if (!authorising(cwd, id, phase)) return reject(`${id} is not an active D- decision (owner answer or opus ruling) naming phase ${phase}`);
-  const clash = roots.flatMap((r) => productionPaths(cwd).filter((p) => overlaps(r, p)).map((p) => `${r} overlaps ${p}`));
-  if (clash.length > 0) return reject(`spike root overlaps a production path: ${clash.join('; ')}`);
-  return { rigour: 'spike', rigour_source: 'roadmap', rigour_decision: id, spike_roots: roots, rigour_rejected_reason: null };
+  const claimed = line ? (line[1].trim().toLowerCase().match(/^(\S+)/) || [])[1] : null;
+  const { gate, ok } = approvedSpikeGate(cwd, milestone);
+  const listed = !!gate && Array.isArray(gate.rigour && gate.rigour.spike_phases) && gate.rigour.spike_phases.map(String).includes(phaseKey(phase));
+  if (listed && ok) {
+    const roots = (gate.rigour.spike_roots || []).map(normRoot).filter(Boolean);
+    const clash = clashes(roots, cwd);
+    if (roots.length === 0) return { ...standard('rejected', 'spike needs at least one spike root'), rigour_decision: 'OG2' };
+    if (clash.length > 0) return { ...standard('rejected', `spike root overlaps a production path: ${clash.join('; ')}`), rigour_decision: 'OG2' };
+    const rm = section.match(/\*\*Spike roots:?\*\*:?[ \t]*([^\n]+)/i);
+    const rmRoots = rm ? rm[1].split(',').map(normRoot).filter(Boolean) : [];
+    const notes = [];
+    if (claimed !== 'spike') notes.push(`ROADMAP says rigour ${claimed || 'standard (no line)'}; the approved gate ${gate.id} lists phase ${phase} as spike`);
+    if (rmRoots.length > 0 && [...rmRoots].sort().join() !== [...roots].sort().join()) notes.push(`ROADMAP spike roots (${rmRoots.join(', ')}) differ from the gate's (${roots.join(', ')}); the gate's apply`);
+    return { rigour: 'spike', rigour_source: 'roadmap', rigour_decision: 'OG2', spike_roots: roots, rigour_rejected_reason: null, rigour_notice: notes.join('; ') || null };
+  }
+  if (claimed === 'spike') {
+    const why = !gate ? 'no roadmap gate requested' : `roadmap gate ${gate.id} is ${gate.status}${listed ? '' : ' and does not list the phase'}`;
+    return standard('rejected', `ROADMAP says spike but the approved roadmap gate is the only authority: ${why}`);
+  }
+  if (claimed === 'high') return standard('rejected', 'rigour "high" is retired: the phase runs as standard; risk-domain depth comes from the **Risk domains** line and high_risk plans');
+  if (claimed && claimed !== 'standard') return standard('rejected', `unknown rigour "${line[1].trim()}"`);
+  return standard(claimed ? 'roadmap' : 'default');
+}
+
+const phaseNumbers = (cwd) => [...(read(path.join(cwd, '.planning', 'ROADMAP.md')) || '').matchAll(/^###\s*Phase\s+(\d+(?:\.\d+)?):/gim)].map((m) => m[1]);
+
+// Why a roadmap gate request must be refused: a phase section without a **Risk domains** line; a spike phase that already
+// has executed plans (no relabelling) or a spike root overlapping a production path.
+function gateRequestErrors(cwd, { kind, spikePhases, spikeRoots }) {
+  const errors = [];
+  if (kind !== 'roadmap') return errors;
+  for (const n of phaseNumbers(cwd)) {
+    const sec = phaseSection(cwd, n);
+    if (!sec || !/\*\*Risk domains:?\*\*:?[ \t]*\S/i.test(sec)) errors.push(`Phase ${n} has no **Risk domains:** line (a comma list of names, or "none")`);
+  }
+  let dirs = [];
+  try { dirs = fs.readdirSync(path.join(cwd, '.planning', 'phases')); } catch { /* no phases yet */ }
+  for (const n of spikePhases) {
+    const d = dirs.find((x) => { const m = x.match(/^(?:phase-)?(\d+(?:\.\d+)?)(?:-|$)/); return m && phaseKey(m[1]) === phaseKey(n); });
+    let executed = false;
+    try { executed = !!d && fs.readdirSync(path.join(cwd, '.planning', 'phases', d)).some((f) => /-SUMMARY\.md$/i.test(f)); } catch { /* unreadable: not executed */ }
+    if (executed) errors.push(`Phase ${n} already has executed plans: a phase is not relabelled spike`);
+  }
+  const clash = clashes((spikeRoots || []).map(normRoot), cwd);
+  if (spikePhases.length > 0 && clash.length > 0) errors.push(`spike root overlaps a production path: ${clash.join('; ')}`);
+  return errors;
 }
 
 // Plan files outside the spike roots and .planning/ (guard G2).
@@ -101,15 +117,23 @@ function phaseReqIds(cwd, phase) {
   return m[1].split(/[,\s\[\]]+/).map((s) => s.replace(/[`*]/g, '').trim()).filter((s) => /^[A-Za-z][\w]*-\d+$/.test(s));
 }
 
-// phase_risk_domains: the ROADMAP "Risk domains" line of the phase (none or absent = []). Names outside the
-// known set are kept and listed in `unknown` (never a failure).
+// phase_risk_domains: the ROADMAP "Risk domains" line as a comma list of single tokens matched against the configured
+// names (`known`); `none` = []; trailing prose after the first ". " is ignored. Unknown tokens are listed in `unknown`
+// and do not count. A phase with no line falls back to configured names found in its Goal/Requirements text
+// (`derived: true`).
 function phaseRiskDomains(cwd, phase, known) {
   const section = phaseSection(cwd, phase);
-  const m = section && section.match(/\*\*Risk domains:?\*\*:?[ \t]*([^\n]+)/i);
-  const names = !m || /^(none|nothing|n\/a)\b/i.test(m[1].trim().replace(/[`*]/g, ''))
-    ? [] : m[1].split(',').map((x) => x.replace(/[`*]/g, '').trim().toLowerCase()).filter(Boolean);
   const set = new Set((Array.isArray(known) ? known : []).map((x) => String(x).toLowerCase()));
-  return { domains: names, unknown: names.filter((n) => !set.has(n)) };
+  const m = section && section.match(/\*\*Risk domains:?\*\*:?[ \t]*([^\n]+)/i);
+  if (!m) {
+    const text = ((section || '').match(/^\*\*(?:Goal|Requirements):?\*\*:?[^\n]*/gim) || []).join('\n').toLowerCase();
+    const hit = [...set].filter((n) => new RegExp(`(^|[^a-z0-9_-])${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9_-]|$)`).test(text));
+    return { domains: hit, unknown: [], derived: true };
+  }
+  const value = m[1].replace(/[`*]/g, '').split(/\.(?:\s|$)/)[0].trim().toLowerCase();
+  if (/^(none|nothing|n\/a)$/.test(value)) return { domains: [], unknown: [], derived: false };
+  const tokens = value.split(',').map((x) => x.trim()).filter((x) => /^[a-z0-9_-]+$/.test(x));
+  return { domains: tokens.filter((n) => set.has(n)), unknown: tokens.filter((n) => !set.has(n)), derived: false };
 }
 
-module.exports = { LEVELS, phaseSection, resolveRigour, rigourViolations, phaseReqIds, phaseRiskDomains };
+module.exports = { LEVELS, phaseSection, resolveRigour, rigourViolations, phaseReqIds, phaseRiskDomains, gateRequestErrors };

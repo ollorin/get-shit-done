@@ -9,11 +9,11 @@ const dirs = [];
 const project = () => { const d = makeProject([{ n: '1', name: 'one' }], {}); dirs.push(d); return d; };
 afterEach(() => { while (dirs.length) fs.rmSync(dirs.pop(), { recursive: true, force: true }); });
 const plan = (n, { lines = 0, tasks = 1, files = ['src/a.js'] } = {}) => `---\nphase: 01\nplan: ${n}\nplan_stamp: abc\nfiles_modified:\n${files.map((f) => `  - ${f}`).join('\n')}\n---\n# Plan\n<tasks>\n${'<task type="auto">x</task>\n'.repeat(tasks)}</tasks>\n${'\n'.repeat(lines)}`;
-const setPlan = (dir, text, n = '01') => { const pd = writeEvidence(dir, 1); fs.writeFileSync(path.join(pd, `01-${n}-PLAN.md`), text); return pd; };
+const setPlan = (dir, text, n = '01', executed = false) => { const pd = writeEvidence(dir, 1); fs.writeFileSync(path.join(pd, `01-${n}-PLAN.md`), text); if (!executed) fs.rmSync(path.join(pd, '01-01-SUMMARY.md'), { force: true }); return pd; };
 const form = (dir, ...a) => gsd(dir, ['verify', 'form', '1', ...a]);
 const checks = (r) => r.json.errors.map((e) => e.check);
 
-describe('CLI-5: verify form', () => {
+describe('verify form', () => {
   test('plan line cap: 250 lines pass, 251 fail', () => {
     const dir = project();
     const base = plan('01', { lines: 0 }).split('\n').length - 1;
@@ -39,48 +39,54 @@ describe('CLI-5: verify form', () => {
     setPlan(dir, plan('01', { tasks: 5 }));
     assert.deepStrictEqual(checks(form(dir, '--plans-only')), ['plan_tasks']);
   });
-  test('an evidence-only plan is an error; plan count over the cap is a warning', () => {
+  test('an evidence-only plan, a missing stamp and a plan count over the cap are blocking plan-time errors', () => {
     const dir = project();
     const pd = setPlan(dir, plan('01', { files: ['.planning/phases/01-p1/x.md'] }));
     for (const n of ['02', '03', '04']) fs.writeFileSync(path.join(pd, `01-${n}-PLAN.md`), plan(n));
+    fs.writeFileSync(path.join(pd, '01-05-PLAN.md'), plan('05').replace('plan_stamp: abc\n', ''));
     const r = form(dir, '--plans-only');
-    assert.deepStrictEqual(checks(r), ['evidence_only_plan']);
-    assert.ok(r.json.warnings.some((w) => w.check === 'plan_count'));
+    assert.deepStrictEqual([r.rc, checks(r).sort()], [1, ['evidence_only_plan', 'plan_count', 'plan_stamp_missing']]);
   });
-  test('line cites to DECISIONS.md / ROADMAP.md fail; ids and code cites pass; ledger rows mapped to the phase are scanned', () => {
+  test('an executed plan (SUMMARY on disk) is never reported for caps', () => {
+    const dir = project();
+    setPlan(dir, plan('01', { lines: 400, tasks: 9 }), '01', true);
+    assert.strictEqual(form(dir, '--plans-only').rc, 0);
+  });
+  test('line cites to DECISIONS.md / ROADMAP.md in the phase PLAN/SUMMARY fail; ids pass; ledger rows, VERIFICATION and REVIEW quotes are not scanned', () => {
     const dir = project();
     const pd = setPlan(dir, plan('01'));
-    fs.writeFileSync(path.join(pd, '01-01-SUMMARY.md'), '# S\n\nSee D-34 and src/a.ts:12.\n\n## Defect Classes\n\nNone found. (reviewed by: plan-check, verifier)\n\n## Self-Check: PASSED\n');
+    fs.writeFileSync(path.join(pd, '01-01-SUMMARY.md'), '# S\n\nSee D-34 and src/a.ts:12.\n\n## Self-Check: PASSED\n');
     assert.strictEqual(form(dir).rc, 0);
-    fs.writeFileSync(path.join(pd, '01-01-SUMMARY.md'), '# S\n\nper DECISIONS.md:248\n\n## Defect Classes\n\nNone found. (reviewed by: plan-check, verifier)\n\n## Self-Check: PASSED\n');
+    fs.writeFileSync(path.join(pd, '01-01-SUMMARY.md'), '# S\n\nper DECISIONS.md:248\n\n## Self-Check: PASSED\n');
     const r = form(dir);
     assert.deepStrictEqual(checks(r), ['line_cite']);
     assert.match(r.json.errors[0].message, /DECISIONS\.md:248/);
-    fs.writeFileSync(path.join(pd, '01-01-SUMMARY.md'), '# S\n\n## Defect Classes\n\nNone found. (reviewed by: plan-check, verifier)\n\n## Self-Check: PASSED\n');
-    fs.writeFileSync(path.join(dir, '.planning', 'DECISIONS.jsonl'), JSON.stringify({ id: 'D-01', kind: 'decision', phases: ['1'], answer: 'see ROADMAP.md:12' }) + '\n' + JSON.stringify({ id: 'D-02', phases: ['2'], answer: 'ROADMAP.md:9' }) + '\n');
-    const r2 = form(dir);
-    assert.deepStrictEqual([r2.rc, r2.json.errors.length, r2.json.errors[0].file], [1, 1, '.planning/DECISIONS.jsonl']);
+    fs.writeFileSync(path.join(pd, '01-01-SUMMARY.md'), '# S\n\n## Self-Check: PASSED\n');
+    fs.writeFileSync(path.join(pd, '01-VERIFICATION.md'), '---\nstatus: passed\n---\nfinding: DECISIONS.md:12\n');
+    fs.writeFileSync(path.join(pd, '01-REVIEW-1.md'), 'ROADMAP.md:9\n');
+    fs.writeFileSync(path.join(dir, '.planning', 'DECISIONS.jsonl'), JSON.stringify({ id: 'D-01', kind: 'decision', phases: ['1'], answer: 'see ROADMAP.md:12' }) + '\n');
+    assert.strictEqual(form(dir).rc, 0);
   });
-  test('summary form errors are reported (moved from the evidence logic) unless --plans-only', () => {
+  test('a SUMMARY without the Self-Check section is a form error; --plans-only does not report it', () => {
     const dir = project();
     const pd = setPlan(dir, plan('01'));
-    fs.writeFileSync(path.join(pd, '01-01-SUMMARY.md'), '# S\n\n## Self-Check: PASSED\n');
-    assert.ok(checks(form(dir)).includes('defect_classes'));
+    fs.writeFileSync(path.join(pd, '01-01-SUMMARY.md'), '# S\n');
+    assert.ok(checks(form(dir)).includes('self_check'));
     assert.strictEqual(form(dir, '--plans-only').rc, 0);
   });
 });
 
-describe('CLI-5: phase-gate separates form from missing work; phase complete --form-debt', () => {
+describe('phase-gate separates form from missing work; phase complete --form-debt', () => {
   const finish = (dir) => { gsd(dir, ['phase', 'checkpoint', '1', '--step', 'verify', '--status', 'passed']); git(dir, 'add', '-A'); git(dir, 'commit', '-q', '--allow-empty', '-m', 'chk'); };
-  test('a form error is in form_errors and not in failures; evidence_errors stays as an alias', () => {
+  test('a form error is in form_errors and not in failures or work_errors', () => {
     const dir = project();
     const pd = setPlan(dir, plan('01'));
-    fs.writeFileSync(path.join(pd, '01-01-SUMMARY.md'), '# S\n\n## Self-Check: PASSED\n');
+    fs.writeFileSync(path.join(pd, '01-01-SUMMARY.md'), '# S\n');
     const r = gsd(dir, ['verify', 'phase-gate', '1']);
     assert.ok(!r.json.failures.includes('missing_evidence'));
     assert.strictEqual(r.json.passed, false);
-    assert.ok(r.json.form_errors.some((e) => e.check === 'defect_classes'));
-    assert.ok(r.json.evidence_errors.length > 0);
+    assert.ok(r.json.form_errors.some((e) => e.check === 'self_check'));
+    assert.deepStrictEqual(r.json.work_errors, []);
     const miss = writeEvidence(dir, 1, { summary: false });
     fs.rmSync(path.join(miss, '01-01-SUMMARY.md'), { force: true });
     assert.ok(gsd(dir, ['verify', 'phase-gate', '1']).json.failures.includes('missing_evidence'));
@@ -88,7 +94,7 @@ describe('CLI-5: phase-gate separates form from missing work; phase complete --f
   test('--form-debt accepts form errors, records form_debt in VERIFICATION frontmatter, exits 0; without it exit 1', () => {
     const dir = project();
     const pd = setPlan(dir, plan('01'));
-    fs.writeFileSync(path.join(pd, '01-01-SUMMARY.md'), '# S\n\n## Self-Check: PASSED\n');
+    fs.writeFileSync(path.join(pd, '01-01-SUMMARY.md'), '# S\n');
     git(dir, 'add', '-A'); git(dir, 'commit', '-q', '-m', 'feat(01-01): x');
     finish(dir);
     assert.strictEqual(gsd(dir, ['phase', 'complete', '1']).rc, 1);

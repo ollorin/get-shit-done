@@ -46,11 +46,26 @@ describe('CLI-4: budget', () => {
     const r100 = at(100);
     assert.deepStrictEqual([r100.pct, r100.warn, r100.breach], [100, true, true]);
   });
-  test('wall time counts from the first phase_start of the window', () => {
-    const t0 = Date.parse('2026-01-01T00:00:00Z');
-    const events = [{ type: 'phase_start', phase: '1', timestamp: '2026-01-01T00:00:00Z' }, { type: 'phase_start', phase: '1', timestamp: '2026-01-01T00:30:00Z' }];
-    const s = b.status({ cwd: dir, phase: '1', cls: 'standard', events, now: t0 + 72 * 60000 });
-    assert.deepStrictEqual([s.wall_minutes_spent, s.pct, s.warn], [72, 80, true]);
+  test('M1: wall time is the sum of work windows; idle time between sessions never counts', () => {
+    const ev = [
+      { type: 'phase_start', phase: '1', timestamp: '2026-01-01T00:00:00Z' },
+      { type: 'phase_parked', phase: '1', reason: 'human_needed', timestamp: '2026-01-01T00:10:00Z' },
+      { type: 'phase_start', phase: '1', timestamp: '2026-01-03T00:00:00Z' },
+    ];
+    const s = b.status({ cwd: dir, phase: '1', cls: 'standard', events: ev, now: Date.parse('2026-01-03T00:05:00Z') });
+    assert.strictEqual(s.wall_minutes_spent, 15);
+    const rec = [...ev.slice(0, 1), { type: 'phase_incomplete', phase: '1', action: 'gap_cycle', timestamp: '2026-01-01T00:20:00Z' }, { type: 'gap_cycle', phase: '1', timestamp: '2026-02-01T00:00:00Z' }];
+    assert.strictEqual(b.status({ cwd: dir, phase: '1', cls: 'standard', events: rec, now: Date.parse('2026-02-01T00:07:00Z') }).wall_minutes_spent, 27);
+  });
+  test('a phase_start while a window is open closes the old one at the last logged event of the phase', () => {
+    const ev = [{ type: 'phase_start', phase: '1', timestamp: '2026-01-01T00:00:00Z' }, { type: 'phase_spend', phase: '1', timestamp: '2026-01-01T00:30:00Z' }, { type: 'phase_start', phase: '1', timestamp: '2026-01-05T00:00:00Z' }];
+    const s = b.status({ cwd: dir, phase: '1', cls: 'standard', events: ev, now: Date.parse('2026-01-05T00:10:00Z') });
+    assert.deepStrictEqual([s.wall_minutes_spent, s.dispatches_spent], [40, 1]);
+  });
+  test('budget spend --phase N logs one dispatch', () => {
+    const before = json(['budget', 'status', '--phase', '1']).dispatches_spent;
+    json(['budget', 'spend', '--phase', '1', '--step', 'plan-check', '--model', 'sonnet']);
+    assert.strictEqual(json(['budget', 'status', '--phase', '1']).dispatches_spent, before + 1);
   });
   test('the window restarts after phase_complete and after a budget_exceeded park (retry)', () => {
     const spend = { type: 'phase_spend', phase: '1', timestamp: '2026-01-01T00:10:00Z' };

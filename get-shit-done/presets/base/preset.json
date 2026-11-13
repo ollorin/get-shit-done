@@ -201,13 +201,6 @@
       "guarded": false
     },
     {
-      "src": "docs/defect-classes.md",
-      "dest": "docs/gsd/defect-classes.md",
-      "kind": "whole",
-      "render": false,
-      "guarded": false
-    },
-    {
       "src": "rules/guard-authoring.md",
       "dest": ".claude/rules/guard-authoring.md",
       "kind": "whole",

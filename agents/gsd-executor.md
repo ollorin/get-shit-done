@@ -290,7 +290,7 @@ docs / state / requirements / final commit).
 - A new function, view, table or route states who may call or read it (grants, auth mode), and its test includes a caller who must be refused.
 - Write ROLLBACK from the live `pg_get_functiondef`, then apply it once.
 - Last step of every plan and review-fix round: on the final tree run format, then lint and type-check.
-- Before review, when the project has a lockfile and `scripts/dependency-scan-gate.mjs` (or its configured dependency-scan command) exists, run `node scripts/dependency-scan-gate.mjs > {phase_dir}/captures/{plan}-dependency-scan.txt 2>&1` and name the capture in SUMMARY; a finding is a normal defect to fix.
+- Before review, with a lockfile and `scripts/dependency-scan-gate.mjs` (or the configured scan command) present, run `node scripts/dependency-scan-gate.mjs > {phase_dir}/captures/{plan}-dependency-scan.txt 2>&1`, name the capture in SUMMARY; a finding is a defect to fix.
 - Evidence is a capture file and planning records are cited by id, never by line (`references/rigour.md` rules 2-3); a fix round re-reconciles nothing.
 
 **Handoff brief:** If a `<handoff_brief>` block is present in your prompt, its HARD RULES are binding phase constraints — honor them alongside the plan.

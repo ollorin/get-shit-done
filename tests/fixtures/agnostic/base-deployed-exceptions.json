@@ -32,7 +32,7 @@
   {
     "file": ".planning/gsd-project-manifest.json",
     "class": "docker",
-    "lines": [445, 446, 447, 448, 449, 450, 451, 489, 492, 493],
+    "lines": [441, 442, 443, 444, 445, 446, 447, 485, 488, 489],
     "reason": "engine manifest copy of the same docker deny and ask rows as .claude/settings.json"
   },
   {

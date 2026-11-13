@@ -95,7 +95,6 @@ describe('base preset: CLAUDE.md methodology (agnostic-M-03 3.1)', () => {
       ['.planning/cleanup-keep.txt', 'whole', false],
       ['docs/gsd/agent-ops-lessons.md', 'whole', false],
       ['docs/gsd/engineering-lessons.md', 'whole', false],
-      ['docs/gsd/defect-classes.md', 'whole', false],
       ['.claude/rules/guard-authoring.md', 'whole', true],
       ['.claude/rules/pre-pr-gates.md', 'whole', true],
       ['.claude/rules/module-structure.md', 'whole', false],
@@ -497,7 +496,6 @@ describe('base preset: regression guard for the base deployment (agnostic-M-03 3
     '.planning/gsd-project-manifest.json',
     'CLAUDE.md',
     'docs/gsd/agent-ops-lessons.md',
-    'docs/gsd/defect-classes.md',
     'docs/gsd/engineering-lessons.md',
     'docs/gsd/file-claims-template.md',
     'docs/gsd/guard-estate.md',
@@ -704,7 +702,7 @@ describe('base preset: regression guard for the base deployment (agnostic-M-03 3
   test('3.7 each base copy under .planning/.gsd-preset-base is byte-equal to its deployed file', () => {
     const root = initWith({});
     const mirrors = listTree(root).filter((f) => f.startsWith('.planning/.gsd-preset-base/'));
-    assert.strictEqual(mirrors.length, 86, 'one base copy per preset file (not the settings, gitignore or manifest)');
+    assert.strictEqual(mirrors.length, 85, 'one base copy per preset file (not the settings, gitignore or manifest)');
     for (const m of mirrors) {
       const dest = m.slice('.planning/.gsd-preset-base/'.length);
       assert.ok(fs.readFileSync(path.join(root, m)).equals(fs.readFileSync(path.join(root, dest))), dest);
@@ -959,12 +957,8 @@ describe('base preset: pre-PR, guard and module rules (agnostic-M-08 8.6)', () =
   });
 });
 
-describe('base preset: engineering lessons and defect classes (agnostic-M-08 8.3)', () => {
-  test('8.3 defect-classes.md has ten class rows and the four column headers; engineering-lessons.md has 6 incident pointers and 2 rescued entries', () => {
-    const classes = fs.readFileSync(path.join(BASE, 'docs', 'defect-classes.md'), 'utf8');
-    assert.ok(classes.includes('| Defect class | Origin (commit, phase) | Escaped gate | Evidence (file:line; rule or gate cite) |'), 'four column headers');
-    const rows = classes.split('\n').filter((l) => l.startsWith('| ') && !l.startsWith('| Defect class') && !l.startsWith('|---'));
-    assert.strictEqual(rows.length, 10, 'ten class rows');
+describe('base preset: engineering lessons (agnostic-M-08 8.3)', () => {
+  test('8.3 engineering-lessons.md has 6 incident pointers and 2 rescued entries', () => {
     const lessons = fs.readFileSync(path.join(BASE, 'docs', 'engineering-lessons.md'), 'utf8');
     assert.strictEqual((lessons.match(/\[incident: <project incident id>\]/g) || []).length, 6, 'incident pointers');
     assert.strictEqual((lessons.match(/\[rescued: [^\]]+\]/g) || []).length, 2, 'rescued entries');
@@ -1021,7 +1015,7 @@ describe('base preset: pilot, three throwaway projects (agnostic-M-07 7.2)', () 
     '.claude/skills/create-unit-test/SKILL.md', '.claude/skills/create-unit-test/test-outline.md',
     '.claude/skills/finishing-a-development-branch/SKILL.md', '.claude/skills/test-enforcement/SKILL.md',
     '.gitignore', '.planning/cleanup-keep.txt', '.planning/gsd-project-manifest.json', 'CLAUDE.md',
-    'docs/gsd/agent-ops-lessons.md', 'docs/gsd/defect-classes.md', 'docs/gsd/engineering-lessons.md', 'docs/gsd/file-claims-template.md',
+    'docs/gsd/agent-ops-lessons.md', 'docs/gsd/engineering-lessons.md', 'docs/gsd/file-claims-template.md',
     'docs/gsd/guard-estate.md', 'docs/gsd/host-ops.md', 'docs/gsd/mutation-testing.md', 'docs/gsd/session-supervisor.md',
     'scripts/ci-diagnose.mjs', 'scripts/container-disk-guard.sh', 'scripts/dependency-scan-gate.mjs', 'scripts/findings-register.mjs',
     'scripts/hooks-apply.sh', 'scripts/lib/findings-register/owner.mjs', 'scripts/lib/findings-register/parse.mjs',

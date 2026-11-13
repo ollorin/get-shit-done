@@ -127,18 +127,37 @@ describe('U5 gate pre-pr set logic', () => {
   });
 });
 
-describe('CLI-6 record and gate pre-pr with form debt', () => {
-  test('a format-only VERIFICATION records continue_with_debt, dependents come next, pre-pr passes and prints the debt', () => {
+describe('record and gate pre-pr with form debt', () => {
+  const tick = (dir) => { const rm = path.join(dir, '.planning', 'ROADMAP.md'); fs.writeFileSync(rm, fs.readFileSync(rm, 'utf8').replace('- [ ] **Phase 1', '- [x] **Phase 1')); };
+  test('a format claim is debt only when disk truth has zero missing work and a form item; dependents then come next and pre-pr prints the debt', () => {
     const dir = project(ROAD, {});
-    const pd = writeEvidence(dir, 1, { verification: 'gaps_found' });
-    fs.writeFileSync(path.join(pd, '01-VERIFICATION.md'), '---\nstatus: gaps_found\nform_findings:\n  - plan too long\n---\n# V\n');
-    const rec = gsd(dir, ['roadmap', 'record', '--phase', '1', '--result', JSON.stringify({ status: 'gaps_found' })]).json;
-    assert.deepStrictEqual([rec.action, rec.form_debt], ['continue_with_debt', ['plan too long']]);
+    const pd = writeEvidence(dir, 1);
+    fs.writeFileSync(path.join(pd, '01-01-SUMMARY.md'), '# no self-check\n');
+    git(dir, 'add', '-A'); git(dir, 'commit', '-q', '-m', 'feat(01-01): x');
+    tick(dir);
+    const rec = gsd(dir, ['roadmap', 'record', '--phase', '1', '--result', JSON.stringify({ status: 'gaps_found', gap_kind: 'format' })]).json;
+    assert.strictEqual(rec.action, 'continue_with_debt');
+    assert.ok(rec.form_debt.length > 0);
     assert.strictEqual(gsd(dir, ['roadmap', 'next']).json.phase, '2');
     for (const n of ['2', '3']) { writeEvidence(dir, n); completePhaseLikeWorkflow(dir, n); append(dir, { type: 'phase_start', phase: n }); append(dir, { type: 'phase_complete', phase: n }); }
     const gate = gsd(dir, ['gate', 'pre-pr']);
     assert.strictEqual(gate.rc, 0);
-    assert.deepStrictEqual(gate.json.form_debt, [{ phase: '1', items: ['plan too long'] }]);
+    assert.strictEqual(gate.json.form_debt[0].phase, '1');
+  });
+  test('a format or form_gate claim with missing work on disk is a product gap, never debt (H1)', () => {
+    const dir = project(ROAD, {});
+    const rec = gsd(dir, ['roadmap', 'record', '--phase', '1', '--result', JSON.stringify({ status: 'gaps_found', gap_kind: 'format' })]).json;
+    assert.strictEqual(rec.action, 'gap_cycle');
+    const blocked = gsd(dir, ['roadmap', 'record', '--phase', '2', '--result', JSON.stringify({ status: 'blocked', reason: 'form_gate' })]).json;
+    assert.strictEqual(blocked.action, 'park');
+    assert.notStrictEqual(gsd(dir, ['roadmap', 'next']).json.phase, '2');
+  });
+  test('a format claim with disk truth complete (no form items) is not debt', () => {
+    const dir = project(ROAD, {});
+    writeEvidence(dir, 1);
+    tick(dir);
+    const rec = gsd(dir, ['roadmap', 'record', '--phase', '1', '--result', JSON.stringify({ status: 'gaps_found', gap_kind: 'format' })]).json;
+    assert.notStrictEqual(rec.action, 'continue_with_debt');
   });
 });
 

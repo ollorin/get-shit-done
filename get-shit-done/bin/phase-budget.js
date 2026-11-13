@@ -1,7 +1,6 @@
 'use strict';
 // Phase budget: class, limits (config workflow.budget.<class>), and spend from the execution log.
-// Contract: references/rigour.md rule 7. Spend is `phase_spend` events carrying a phase; wall time runs
-// from the first phase_start of the open window. A window closes on phase_complete or a budget_exceeded park.
+// Contract: references/rigour.md rule 7. Spend is `phase_spend` events (`budget spend --phase N`, one per dispatch).
 const fs = require('fs');
 const path = require('path');
 const { evPhase, phaseKey } = require('./roadmap-dispatch.js');
@@ -30,17 +29,35 @@ function budgetFields(cwd, cls) {
   return { budget_class: cls, budget_wall_minutes: l.wall_minutes, budget_dispatches: l.dispatches };
 }
 
+// Wall time = closed work windows + the open one. A window opens at phase_start (or gap_cycle) and closes at the next
+// record event of the phase (complete, parked, incomplete, form_debt, retry, failed, death). A phase_start while a window
+// is open closes the old one at the phase's last logged event. Idle time between sessions never counts.
+const OPEN = new Set(['phase_start', 'gap_cycle']);
+const CLOSE = new Set(['phase_complete', 'phase_parked', 'phase_incomplete', 'phase_form_debt', 'phase_retry', 'phase_failed', 'phase_coordinator_death']);
+
 function spend(events, phase, now) {
   const k = phaseKey(phase);
+  let closedMs = 0;
   let start = null;
+  let last = null;
   let dispatches = 0;
   for (const e of Array.isArray(events) ? events : []) {
     if (!e || evPhase(e) !== k) continue;
-    if (e.type === 'phase_complete' || (e.type === 'phase_parked' && e.reason === 'budget_exceeded')) { start = null; dispatches = 0; }
-    else if (e.type === 'phase_start' && start === null) { const t = Date.parse(e.timestamp); if (!Number.isNaN(t)) start = t; }
+    const t = Date.parse(e.timestamp);
+    const reset = e.type === 'phase_complete' || (e.type === 'phase_parked' && e.reason === 'budget_exceeded');
+    if (OPEN.has(e.type) && !Number.isNaN(t)) {
+      if (start !== null) closedMs += Math.max(0, (last === null ? t : last) - start);
+      start = t;
+    } else if (CLOSE.has(e.type) && start !== null && !Number.isNaN(t)) {
+      closedMs += Math.max(0, t - start);
+      start = null;
+    }
+    if (reset) { closedMs = 0; dispatches = 0; start = null; }
     else if (e.type === 'phase_spend') dispatches += 1;
+    if (!Number.isNaN(t)) last = t;
   }
-  return { wall_minutes_spent: start === null ? 0 : Math.max(0, Math.round(((now - start) / 60000) * 10) / 10), dispatches_spent: dispatches };
+  const ms = closedMs + (start === null ? 0 : Math.max(0, now - start));
+  return { wall_minutes_spent: Math.round((ms / 60000) * 10) / 10, dispatches_spent: dispatches };
 }
 
 function status({ cwd, phase, cls, events, now }) {

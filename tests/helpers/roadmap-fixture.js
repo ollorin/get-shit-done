@@ -6,7 +6,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const TOOLS = path.join(__dirname, '..', '..', 'get-shit-done', 'bin', 'gsd-tools.js');
-const SUMMARY_OK = '# Summary\n\n## Defect Classes\n\nNone found. (reviewed by: plan-check, verifier)\n\n## Self-Check: PASSED\n';
+const SUMMARY_OK = '# Summary\n\n## Self-Check: PASSED\n';
 
 function git(dir, ...args) {
   return execFileSync('git', args, { cwd: dir, stdio: 'pipe', encoding: 'utf-8' });
@@ -17,7 +17,7 @@ function makeProject(phases, config = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-rm-'));
   fs.mkdirSync(path.join(dir, '.planning', 'phases'), { recursive: true });
   const checks = phases.map(p => `- [ ] **Phase ${p.n}: ${p.name}** - ${p.name}`).join('\n');
-  const sections = phases.map(p => `### Phase ${p.n}: ${p.name}\n**Goal:** ${p.name} goal\n**Depends on:** ${p.deps || 'None'}\n`).join('\n');
+  const sections = phases.map(p => `### Phase ${p.n}: ${p.name}\n**Goal:** ${p.name} goal\n**Depends on:** ${p.deps || 'None'}\n**Risk domains:** none\n`).join('\n');
   fs.writeFileSync(path.join(dir, '.planning', 'ROADMAP.md'), `# Roadmap\n\n## Milestones\n- **v1.0 Test Milestone**\n\n${checks}\n\n${sections}`);
   fs.writeFileSync(path.join(dir, '.planning', 'STATE.md'), '# State\n\n**Current Phase:** 1\n**Status:** executing\n');
   fs.writeFileSync(path.join(dir, '.planning', 'config.json'), JSON.stringify(config));

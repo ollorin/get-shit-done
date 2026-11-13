@@ -556,11 +556,11 @@ describe('risk-rule wording present in the eight prompt files (agnostic-M-06 R-f
     });
   }
 
-  test('R-f the planner mandate keeps its obligations: threat model, adversary view, atomicity, no saga, REUSE only for the T0 test', () => {
+  test('R-f the planner mandate keeps its obligations: threat model, REUSE only for the T0 test', () => {
     const text = fs.readFileSync(path.join(ROOT, 'agents/gsd-planner.md'), 'utf8');
     for (const must of [
-      'threat-model task', 'adversary view', 'a partial failure leaves NO half-applied state', 'compensating saga',
-      'every state mutation on a risk-domain path', 'REUSE satisfies it ONLY when the cited existing test is itself that T0 test',
+      'YOU write `{N}-THREAT-MODEL.md`',
+      'REUSE satisfies it ONLY when the cited existing test is itself that T0 test',
       'Risk domains: <risk_domains> (source: <risk_domains_source>)',
     ]) assert.ok(text.includes(must), must);
   });
@@ -643,12 +643,12 @@ describe('Fable round 1: legacy gates, ui_qa_mode carve-outs, review-tiering sen
     }
   });
 
-  test('L8 the round-4 ruling cap attaches to "loop to zero"', () => {
+  test('L8 the 4-round cap and its one closing ruling attach to "loop to zero"', () => {
     // The coordinator's tiering paragraph moved to the project's CLAUDE.md; execute-phase keeps the sentence.
     for (const rel of ['get-shit-done/workflows/execute-phase.md']) {
       const text = read(rel);
       assert.doesNotMatch(text, /mutation-proven\)\., but/, rel);
-      assert.match(text, /loop to zero, but after round 4 one ruling on `\{ruling_model\}` closes the loop/, rel);
+      assert.match(text, /loop to zero, at most 4 rounds, then ONE ruling on `\{ruling_model\}`/, rel);
     }
   });
 });

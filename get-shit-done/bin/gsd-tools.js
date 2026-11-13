@@ -450,16 +450,6 @@ function loadConfig(cwd) {
     adversarial_review_enabled: false,
     adversarial_review_file_threshold: 8,
     adversarial_review_security_patterns: ['auth', 'secret', 'credential', 'crypto', 'security', 'token', 'password', '/api/', 'migration'],
-    // QGATE-17 (Defect Classes). `defect_classes_gate_enabled` is the master
-    // switch. `defect_classes_gate_since` is the cutoff INSTANT (2b99f5b's own
-    // author date) after which a SUMMARY.md becomes subject to the gate; the
-    // decision is made per SUMMARY file, not per phase directory, because a
-    // phase directory's first commit is inherited from its first plan and so
-    // would gate (or exempt) later plans written on either side of the cutoff.
-    // Both exist so the section can be enforced going forward WITHOUT
-    // retroactively failing an in-flight milestone's already-written summaries.
-    defect_classes_gate_enabled: true,
-    defect_classes_gate_since: '2026-09-26T22:37:28+02:00',
     quality: {
       test_writer: false,
       adversarial_review: false,
@@ -520,8 +510,6 @@ function loadConfig(cwd) {
       adversarial_review_enabled: get('adversarial_review_enabled', { section: 'quality', field: 'adversarial_review' }) ?? defaults.adversarial_review_enabled,
       adversarial_review_file_threshold: get('adversarial_review_file_threshold', { section: 'quality', field: 'adversarial_review_file_threshold' }) ?? defaults.adversarial_review_file_threshold,
       adversarial_review_security_patterns: get('adversarial_review_security_patterns', { section: 'quality', field: 'adversarial_review_security_patterns' }) ?? defaults.adversarial_review_security_patterns,
-      defect_classes_gate_enabled: get('defect_classes_gate_enabled', { section: 'quality', field: 'defect_classes_gate_enabled' }) ?? defaults.defect_classes_gate_enabled,
-      defect_classes_gate_since: get('defect_classes_gate_since', { section: 'quality', field: 'defect_classes_gate_since' }) ?? defaults.defect_classes_gate_since,
       coordinator_model: get('coordinator_model') ?? null,
       ruling_model: get('ruling_model') ?? null,
       dev_servers: parsed.dev_servers || null,
@@ -1894,6 +1882,10 @@ function cmdConfigSet(cwd, keyPath, value, raw) {
   else if (value === 'false') parsedValue = false;
   else if (!isNaN(value) && value !== '') parsedValue = Number(value);
 
+  if ((keyPath === 'models.top' || keyPath === 'models.top_fallback') && !topModel.isAlias(parsedValue)) {
+    error(`${keyPath} must be a model alias (e.g. opus), not a model id`);
+  }
+
   // Load existing config or start with empty object
   let config = {};
   try {
@@ -2851,7 +2843,7 @@ function cmdResolveModel(cwd, agentType, raw) {
     return;
   }
   if (agentType === 'gsd-verifier') {
-    const model = topModelFields(cwd).ruling_model;
+    const model = resolveModelInternal(cwd, agentType);
     output({ model, profile: 'top' }, raw, model);
     return;
   }
@@ -2966,17 +2958,18 @@ function cmdCommit(cwd, message, files, raw, amend, trailers = []) {
     execGit(cwd, ['add', file]);
   }
 
+  // Nothing staged for these paths (including untracked clutter elsewhere) is an idempotent no-op, not a failure.
+  if (!amend && execGit(cwd, ['diff', '--cached', '--quiet', '--', ...filesToStage]).exitCode === 0) {
+    output({ committed: false, hash: null, reason: 'nothing_to_commit', ...resolved }, raw, 'nothing');
+    return;
+  }
+
   // Commit
   const commitArgs = amend
     ? ['commit', '--amend', '--no-edit']
     : ['commit', '-m', message, ...(trailers.length > 0 ? ['-m', trailers.join('\n')] : [])];
   const commitResult = execGit(cwd, commitArgs);
   if (commitResult.exitCode !== 0) {
-    if (commitResult.stdout.includes('nothing to commit') || commitResult.stderr.includes('nothing to commit')) {
-      const result = { committed: false, hash: null, reason: 'nothing_to_commit', ...resolved };
-      output(result, raw, 'nothing');
-      return;
-    }
     error(`commit: git commit failed in ${repoRoot}: ${commitResult.stderr || commitResult.stdout}`);
   }
 
@@ -3014,276 +3007,6 @@ function evaluateSummarySelfCheck(content) {
   if (/(?:fail|✗|❌|incomplete|blocked)/i.test(checkSection)) return { status: 'failed', source: 'legacy' };
   if (/(?:all\s+)?(?:pass|✓|✅|complete|succeeded)/i.test(checkSection)) return { status: 'passed', source: 'legacy' };
   return { status: 'not_found', source: 'legacy' };
-}
-
-// The closed set of `caught_by` values. Anything outside it cannot be clustered
-// by the milestone-end distillation, so a name that is not in here is as
-// useless as no row at all -- the gate rejects it rather than storing a lie.
-const DEFECT_CLASSES_CAUGHT_BY = [
-  'plan-check', 'test-writer', 'mutation-proof', 'opus-diff-review',
-  'opus-ruling', 'top-diff-review', 'top-ruling', 'verifier', 'ui-qa', 'charlotte', 'other',
-];
-
-// The 5-column schema, in order. The milestone-end distillation reads these by
-// NAME, so a table that renames or reorders a column is not a variant — it is
-// unreadable, and a table that uses entirely different headers is the same
-// failure wearing a plausible shape.
-const DEFECT_CLASSES_COLUMNS = ['class', 'instance', 'caught_by', 'severity', 'rule_gap'];
-const DEFECT_CLASSES_SEVERITY = ['critical', 'major', 'minor'];
-
-// QGATE-17 (Defect Classes). Pure evaluator shared by cmdPhaseComplete and
-// cmdVerifyPhaseGate so the two can never disagree about whether a SUMMARY
-// records its defect classes. The section is REQUIRED (not advisory): the
-// milestone-end rules distillation reads these rows and nothing else, so a
-// missing entry is a defect that the next milestone repeats.
-//
-// Nine distinct failure modes, each with its own canary in the test suite --
-// they are not collapsed into one "invalid" because the fix differs:
-//   missing   -- no `## Defect Classes` heading at all.
-//   empty     -- heading present, body has neither rows nor a None-found entry,
-//                 or a valid header+separator with zero data rows under it.
-//   placeholder -- the template's `[bracket]` guidance row was shipped verbatim.
-//   bad_header -- the table's header is not exactly class|instance|caught_by|
-//                 severity|rule_gap, or its separator row is missing. A custom
-//                 table parses as cells and reads as a filled-in record while
-//                 being unreadable to the distillation.
-//   row_arity -- a data row whose cell count differs from the header's.
-//   malformed_none_found -- a None-found entry that does not name the reviews
-//               that actually ran, which is how a silent gap gets re-blessed.
-//   invalid_caught_by -- a named review (or a row's caught_by) that is not in
-//               the closed set. Catches the template's own literal
-//               `<caught_by values>` and prose like `nobody`.
-//   invalid_severity -- a row's severity outside critical|major|minor.
-//   empty_cells -- a data row with a blank or `-` cell in any of the 5 required
-//               columns, which reads as a recorded defect but records nothing.
-function evaluateDefectClasses(content) {
-  const text = typeof content === 'string' ? content : '';
-  const heading = /^##[ \t]+Defect Classes[ \t]*$/im.exec(text);
-  if (!heading) {
-    return { source: null, status: 'missing', body: '', rows: 0 };
-  }
-  // Body runs from the end of the heading line to the next H2 (or EOF).
-  const rest = text.slice(heading.index + heading[0].length);
-  const nextH2 = rest.search(/\n#{1,2}[ \t]/);
-  const body = (nextH2 >= 0 ? rest.slice(0, nextH2) : rest).trim();
-
-  if (body.length === 0) {
-    return { source: 'defect_classes', status: 'empty', body, rows: 0 };
-  }
-
-  // A shipped template placeholder. Any bracketed guidance cell means the
-  // author copied the header/example row instead of writing real entries.
-  const placeholderCells = body.match(/\|\s*(\[[^\]\n]*\]|XX-name|YYYY-MM-DD)\s*(?=\|)/g) || [];
-  if (placeholderCells.length > 0) {
-    return { source: 'defect_classes', status: 'placeholder', body, rows: 0 };
-  }
-
-  // `None found.` is a valid, COMPLETE entry -- but only when it says which
-  // reviews ran, AND every name it gives is a real `caught_by` value. A bare
-  // `None found.` is indistinguishable from a section nobody looked at; a
-  // `None found. (reviewed by: <caught_by values>)` copied straight out of the
-  // template is the same lie wearing the template's own clothes.
-  const noneFound = /^None found\.\s*(\(reviewed by:[^)\n]*\))?\s*$/im.exec(body);
-  if (noneFound) {
-    if (!noneFound[1]) {
-      return { source: 'defect_classes', status: 'malformed_none_found', body, rows: 0 };
-    }
-    const reviewers = noneFound[1]
-      .replace(/^\(reviewed by:/, '')
-      .replace(/\)$/, '')
-      .split(',')
-      .map(s => s.trim())
-      .filter(Boolean);
-    if (reviewers.length === 0) {
-      return { source: 'defect_classes', status: 'malformed_none_found', body, rows: 0 };
-    }
-    const unknown = reviewers.filter(r => !DEFECT_CLASSES_CAUGHT_BY.includes(r.toLowerCase()));
-    if (unknown.length > 0) {
-      return { source: 'defect_classes', status: 'invalid_caught_by', body, rows: 0, reviewers, unknown };
-    }
-    return { source: 'defect_classes', status: 'ok', body, rows: 0, reviewers };
-  }
-
-  // Data rows: the 5-column table, validated against its OWN header. The header
-  // is the contract — a custom table (`| # | Defect | Evidence | ... |`) parses
-  // fine as cells and would sail through any row-shape check, so the header is
-  // matched against the required names before a single data row is read.
-  const tableLines = body
-    .split('\n')
-    .map(l => l.trim())
-    .filter(l => l.startsWith('|') && l.endsWith('|'));
-  const cellsOf = l => splitRowCells(l);
-  const isSeparator = cells => cells.length > 0 && cells.every(c => /^:?-{2,}:?$/.test(c));
-
-  if (tableLines.length === 0) {
-    return { source: 'defect_classes', status: 'empty', body, rows: 0 };
-  }
-
-  const header = cellsOf(tableLines[0]).map(c => c.toLowerCase().replace(/[`*]/g, '').trim());
-  if (header.length !== DEFECT_CLASSES_COLUMNS.length ||
-      !DEFECT_CLASSES_COLUMNS.every((c, i) => header[i] === c)) {
-    return { source: 'defect_classes', status: 'bad_header', body, rows: 0, header };
-  }
-  if (tableLines.length < 2 || !isSeparator(cellsOf(tableLines[1]))) {
-    return { source: 'defect_classes', status: 'bad_header', body, rows: 0, header, reason: 'missing separator row' };
-  }
-
-  const rows = tableLines.slice(2).map(cellsOf);
-  if (rows.length === 0) {
-    return { source: 'defect_classes', status: 'empty', body, rows: 0 };
-  }
-
-  // A row only counts as a record if it has the header's arity and every one of
-  // the five required columns carries a value. `rule_gap` has a documented real
-  // value ("none — new rule needed"), so a blank or a bare `-` in any column is
-  // a hole, not a value.
-  const BLANK_CELL = /^(?:-{1,3}|—|–)?$/;
-  const arity = rows.find(cells => cells.length !== DEFECT_CLASSES_COLUMNS.length);
-  if (arity) {
-    return { source: 'defect_classes', status: 'row_arity', body, rows: rows.length, row: arity };
-  }
-  const badRow = rows.find(cells => cells.some(c => BLANK_CELL.test(c)));
-  if (badRow) {
-    return { source: 'defect_classes', status: 'empty_cells', body, rows: rows.length, row: badRow };
-  }
-  const badCaughtBy = rows.find(cells => !DEFECT_CLASSES_CAUGHT_BY.includes(cells[2].toLowerCase()));
-  if (badCaughtBy) {
-    return { source: 'defect_classes', status: 'invalid_caught_by', body, rows: rows.length, row: badCaughtBy, unknown: [badCaughtBy[2]] };
-  }
-  const badSeverity = rows.find(cells => !DEFECT_CLASSES_SEVERITY.includes(cells[3].toLowerCase()));
-  if (badSeverity) {
-    return { source: 'defect_classes', status: 'invalid_severity', body, rows: rows.length, row: badSeverity, unknown: [badSeverity[3]] };
-  }
-  return { source: 'defect_classes', status: 'ok', body, rows: rows.length };
-}
-
-// The gate's exemption rule, also pure so the test suite can canary it.
-//
-// DECIDED PER SUMMARY FILE, not per phase directory. A phase directory's
-// earliest commit is inherited from its first plan, so a directory-level
-// decision gates (or exempts) every later plan in it regardless of when that
-// plan's SUMMARY was actually written -- which is how a day-granularity
-// comparison failed every SUMMARY written on the cutoff's own calendar day.
-//
-// The rule is POSITIONAL, not "when was this file first created". "Earliest
-// add wins" has three holes, each of which exempts a summary that was in fact
-// written after the cutoff:
-//   reuse      -- an old SUMMARY is deleted and a brand-new one written at the
-//                 same path. The earliest add is still the old file's.
-//   rename-in  -- `git mv notes.md 386-01-SUMMARY.md`. `--follow` walks back to
-//                 whatever the source file's creation was and inherits that.
-//   copy       -- `git log --find-copies` treats a copy as the original.
-// So the question is not "does a path with this name once exist" but "was THIS
-// file here before the cutoff, continuously". Hence: exempt only if the path
-// existed at the last commit before the cutoff AND has not been deleted since.
-// A rename or copy into the path after the cutoff means the path did not exist
-// before it, so it is GATED -- which is the fail-closed answer, and also the
-// truthful one: a renumbered phase's summary is a new artifact.
-//
-// FAIL CLOSED, without exception. A missing config, an uncommitted SUMMARY, no
-// measurable history, a missing cutoff, an unparsable cutoff, and unmeasurable
-// facts are ALL GATED. The only way out is the explicit
-// `defect_classes_gate_enabled: false`, which is a decision someone makes on
-// purpose rather than an accident of measurement.
-function summarySubjectToDefectClassesGate(facts, cfg) {
-  // `cfg == null` is a MEASUREMENT FAILURE, not an opt-out — gating is the
-  // safe default and only an explicit `false` disables the gate.
-  if (!cfg || cfg.defect_classes_gate_enabled !== true) {
-    return cfg != null && cfg.defect_classes_gate_enabled === false ? false : true;
-  }
-  const cutoff = cfg.defect_classes_gate_since;
-  if (typeof cutoff !== 'string' || !cutoff.trim()) return true;
-  if (!Number.isFinite(Date.parse(cutoff.trim()))) return true;
-  if (!facts) return true;
-  return !(facts.existedBeforeCutoff === true && facts.deletedAfterCutoff === false);
-}
-
-// Git facts about ONE SUMMARY path, needed to decide exemption. Walks the
-// path's own history (newest first from git, replayed oldest-first here) and
-// records, for the create/delete events that touched it:
-//   existedBeforeCutoff -- the path was present at the last commit before the
-//               cutoff. False for a rename-in or a copy, because the path
-//               itself did not exist back then.
-//   deletedAfterCutoff  -- the path was removed at or after the cutoff, which
-//               is what makes a reused path look old.
-// Returns null when the path has no history at all, or git is unavailable.
-function summaryExemptionFacts(cwd, summaryAbsPath, cutoffIso) {
-  const rel = path.relative(cwd, summaryAbsPath);
-  if (!rel || rel.startsWith('..')) return null;
-  // SECONDS throughout: `%ct` is an epoch in seconds, so the cutoff is
-  // converted to seconds too. Comparing a seconds figure against a
-  // milliseconds one makes every timestamp look older than the cutoff, which
-  // silently exempts everything.
-  const cutoffMs = Date.parse(String(cutoffIso || '').trim());
-  if (!Number.isFinite(cutoffMs)) return null;
-  const cutoffSec = Math.floor(cutoffMs / 1000);
-
-  // One commit per record: an `@@`-prefixed epoch, then that commit's
-  // name-status lines for this path. `--name-status` is what distinguishes a
-  // create from a delete from a modify; `%ct` is an integer epoch, so no string
-  // comparison and no timezone can go wrong. The marker is `@@` rather than a
-  // NUL because `execGit` trims its stdout, which would eat a leading NUL.
-  //
-  // `--topo-order` is REQUIRED, not an optimisation. The default `git log` order
-  // is reverse CHRONOLOGICAL, and a chronologically-skewed child (a clock that
-  // stepped back, a rebased or cherry-picked history) sorts ahead of its own
-  // parent. Measured on X@1000 with children B1@500 and A1@2000 merged at
-  // M@3000, the default order is M, A1, X, B1 — the parent X is listed BEFORE
-  // its child B1. `--topo-order` gives M, B1, A1, X, which never shows a parent
-  // ahead of a child. Without the flag the replay below walks a child before its
-  // parent and concludes a file went away before it ever arrived.
-  const res = execGit(cwd, ['log', '--topo-order', '--name-status', '--format=@@%ct', '--', rel]);
-  if (res.exitCode !== 0 || !res.stdout) return null;
-
-  const events = [];
-  let ms = null;
-  for (const raw of res.stdout.split('\n')) {
-    const line = raw.trim();
-    const head = /^@@(\d+)$/.exec(line);
-    if (head) { ms = Number.parseInt(head[1], 10); continue; }
-    const m = /^([ACMRDT])\d*\t(.*)$/.exec(line);
-    if (!m || ms === null) continue;
-    const status = m[1];
-    const paths = m[2].split('\t');
-    // For R/C the FIRST path is the source and the SECOND the destination, so
-    // the same line can be a create for one path and a delete for the other.
-    if (status === 'R' || status === 'C') {
-      if (paths[1] === rel) events.push({ ms, kind: 'create' });
-      if (paths[0] === rel) events.push({ ms, kind: 'delete' });
-    } else if (status === 'A') {
-      events.push({ ms, kind: 'create' });
-    } else if (status === 'D') {
-      events.push({ ms, kind: 'delete' });
-    }
-  }
-  if (events.length === 0) return null;
-
-  // `--topo-order` (above) makes git emit a parent only after ALL of its
-  // children, so the array arriving here is in newest-in-history order, and
-  // `reverse()` restores oldest-first. Replaying in git's own order rather than
-  // by wall clock is what makes `reverse()` MORE correct than the
-  // `events.sort((a, b) => a.ms - b.ms)` it replaced, in two ways:
-  //   - SKEWED CLOCKS: a child can carry an earlier `%ct` than its parent, so
-  //     sorting by `ms` replays the child BEFORE the parent — the file then looks
-  //     as though it never existed, or as though it went away before it arrived.
-  //   - SAME-SECOND TIES: `%ct` has 1-second granularity, so an add and a later
-  //     removal of the same path can share a key. A stable sort is a no-op on
-  //     equal keys, so it leaves those events in git's newest-first order and
-  //     replays them backwards. `reverse()` fixes it.
-  events.reverse();
-  let present = false;
-  let existedBeforeCutoff = false;
-  let deletedAfterCutoff = false;
-  for (const e of events) {
-    if (e.ms < cutoffSec) {
-      if (e.kind === 'create') present = true;
-      else present = false;
-      existedBeforeCutoff = present;
-    } else if (e.kind === 'delete') {
-      deletedAfterCutoff = true;
-    }
-  }
-  return { existedBeforeCutoff, deletedAfterCutoff, events: events.length };
 }
 
 function cmdVerifySummary(cwd, summaryPath, checkFileCount, raw) {
@@ -3473,14 +3196,6 @@ function cmdTemplateFill(cwd, templateType, options, raw) {
         '',
         '## Decisions & Deviations',
         '[Key decisions or "None - followed plan as specified"]',
-        '',
-        '## Defect Classes',
-        '| class | instance | caught_by | severity | rule_gap |',
-        '|---|---|---|---|---|',
-        '| [general class name] | [path/file.ext:line] | [plan-check\\|test-writer\\|mutation-proof\\|opus-diff-review\\|opus-ruling\\|verifier\\|ui-qa\\|other] | [critical\\|major\\|minor] | [rule that should have prevented it, or "none — new rule needed"] |',
-        '',
-        '<!-- Replace the row above with real entries, or delete the table and write exactly:',
-        '     None found. (reviewed by: <caught_by values>) -->',
         '',
         '## Next Phase Readiness',
         '[What\'s ready for next phase]',
@@ -6697,30 +6412,6 @@ async function cmdHealth(args) {
     } catch {}
   }
 
-  // W009: detect phases with RESEARCH.md containing Validation Architecture but no VALIDATION.md
-  const phasesDir = path.join(process.cwd(), '.planning', 'phases');
-  try {
-    const phaseEntries = fs.readdirSync(phasesDir, { withFileTypes: true });
-    for (const e of phaseEntries) {
-      if (!e.isDirectory()) continue;
-      const phaseFiles = fs.readdirSync(path.join(phasesDir, e.name));
-      const researchFile = phaseFiles.find(f => f.endsWith('-RESEARCH.md'));
-      const hasValidation = phaseFiles.some(f => f.endsWith('-VALIDATION.md'));
-      if (researchFile && !hasValidation) {
-        try {
-          const researchContent = fs.readFileSync(path.join(phasesDir, e.name, researchFile), 'utf-8');
-          if (researchContent.includes('## Validation Architecture')) {
-            checks.push({
-              name: `W009: ${e.name}`,
-              status: 'WARN',
-              message: `W009: ${e.name} has Validation Architecture in RESEARCH.md but no VALIDATION.md — covered automatically by gsd-verifier's test-content gate on next execution; no manual action required unless the phase predates Phase 46`,
-            });
-          }
-        } catch {}
-      }
-    }
-  } catch {}
-
   // Print results
   let allPass = true;
   checks.forEach(check => {
@@ -7559,27 +7250,13 @@ function readPhaseVerification(phaseDir, phaseNumber) {
 // Shared by cmdPhaseComplete and cmdVerifyPhaseGate so they cannot disagree.
 function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles, opts = {}) {
   const errors = [];
-  // Form findings (Self-Check, Defect Classes shape) are also kept as {file, check, message}; `errors` stays the full list.
+  // Form findings (Self-Check section) are also kept as {file, check, message}; `errors` stays the full list.
   const formErrors = [];
   const pushForm = (file, check, message) => { errors.push(message); formErrors.push({ file, check, message }); };
   const planFiles = dirFiles.filter(f => /-\d{2}-PLAN\.md$/i.test(f)).sort();
   if (planFiles.length === 0) {
     errors.push('No numbered {N}-{NN}-PLAN.md files — a phase with no plans has no evidence to complete');
   }
-  // QGATE-17: the Defect Classes gate, resolved PER SUMMARY against that path's
-  // own position in history (see `summaryExemptionFacts`). A phase directory's
-  // birth date is inherited from its first plan, so a directory-level decision
-  // would gate or exempt every later plan in the phase regardless of when its
-  // SUMMARY was actually written. Exempt summaries are reported as exempt
-  // rather than silently skipped, so a reader of the gate output can see the
-  // gate was considered and why it did not apply. The old output field `since`
-  // (which held a phase-dir date under a name implying a global cutoff) and
-  // then `summary_first_committed` (the earliest ADD, which the reuse/rename/
-  // copy holes made unsound) are both gone; each entry now carries the two
-  // positional facts the verdict is derived from.
-  const cfg = loadConfig(cwd);
-  const defectClassesEnabled = cfg.defect_classes_gate_enabled === true;
-  const defectSummaries = [];
   for (const planFile of planFiles) {
     const summaryFile = planFile.replace(/-PLAN\.md$/i, '-SUMMARY.md');
     const summary = dirFiles.includes(summaryFile) ? safeReadFile(path.join(phaseDir, summaryFile)) : null;
@@ -7593,40 +7270,6 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles, opts =
       // A missing section is form; a recorded FAILED is the executor reporting unfinished work.
       const selfCheckMsg = `${summaryFile} Self-Check is ${found} — must contain "## Self-Check: PASSED"`;
       if (found === 'missing') pushForm(summaryFile, 'self_check', selfCheckMsg); else errors.push(selfCheckMsg);
-    }
-    const summaryFacts = summaryExemptionFacts(cwd, path.join(phaseDir, summaryFile), cfg.defect_classes_gate_since);
-    const dcRequired = summarySubjectToDefectClassesGate(summaryFacts, cfg);
-    defectSummaries.push({
-      file: summaryFile,
-      existed_before_cutoff: summaryFacts ? summaryFacts.existedBeforeCutoff : null,
-      deleted_after_cutoff: summaryFacts ? summaryFacts.deletedAfterCutoff : null,
-      required: dcRequired,
-      exempt: defectClassesEnabled && !dcRequired,
-    });
-    if (dcRequired) {
-      const dc = evaluateDefectClasses(summary);
-      if (dc.status !== 'ok') {
-        pushForm(summaryFile, 'defect_classes',
-          `${summaryFile} Defect Classes is ${dc.status.replace(/_/g, ' ')} — ` +
-          (dc.status === 'missing'
-            ? 'must contain a "## Defect Classes" section'
-            : dc.status === 'empty'
-              ? 'section must hold 5-column rows under the required header, or "None found. (reviewed by: <caught_by values>)"'
-              : dc.status === 'placeholder'
-                ? 'template placeholder row shipped verbatim — replace it with real entries'
-                : dc.status === 'bad_header'
-                  ? `the table header must be exactly "| class | instance | caught_by | severity | rule_gap |" — the distillation reads these columns by name${dc.reason ? ` (${dc.reason})` : ''}, got: | ${(dc.header || []).join(' | ')} |`
-                  : dc.status === 'row_arity'
-                    ? `a Defect Classes row has ${(dc.row || []).length} cells, not 5: | ${(dc.row || []).join(' | ')} |`
-                    : dc.status === 'invalid_caught_by'
-                      ? `"caught_by" is not a valid value: ${(dc.unknown || []).join(', ')} — use one of ${DEFECT_CLASSES_CAUGHT_BY.join(', ')}`
-                      : dc.status === 'invalid_severity'
-                        ? `"severity" is not a valid value: ${(dc.unknown || []).join(', ')} — use one of ${DEFECT_CLASSES_SEVERITY.join(', ')}`
-                        : dc.status === 'empty_cells'
-                          ? `a Defect Classes row has a blank or "-" required cell: | ${(dc.row || []).join(' | ')} | — all five columns (class, instance, caught_by, severity, rule_gap) must carry a value`
-                          : 'a "None found." entry must name the reviews that ran: "None found. (reviewed by: <caught_by values>)"')
-        );
-      }
     }
   }
   const plans = planFiles.map(f => ({ planNum: f.match(/-(\d{2})-PLAN\.md$/i)[1] }));
@@ -7645,40 +7288,34 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles, opts =
   } else if (verification.status !== 'passed') {
     errors.push(`${verification.fileName} status is ${verification.status} — must be passed before phase complete`);
   }
-  const anyDefectRequired = defectSummaries.some(s => s.required);
   return {
     errors,
     formErrors,
     workErrors: errors.filter(m => !formErrors.some(f => f.message === m)),
     verification,
-    defect_classes: {
-      enabled: defectClassesEnabled,
-      cutoff: typeof cfg.defect_classes_gate_since === 'string' ? cfg.defect_classes_gate_since : null,
-      required: anyDefectRequired,
-      exempt: defectClassesEnabled && !anyDefectRequired,
-      summaries: defectSummaries,
-    },
   };
 }
 
-// The whole form list of a phase: plan caps, evidence-only plans, line cites and (unless plansOnly) summary form.
+// The one split of a phase's open errors: missing WORK (workErrors) vs FORM (Self-Check section missing, a
+// planning-record line cite in the phase's own PLAN/SUMMARY). phaseTruth, `phase complete` and `verify phase-gate`
+// all read it, so they cannot disagree. Plan caps are plan-time only (`verify form --plans-only`).
 function collectPhaseFormErrors(cwd, phaseInfo, phaseDir, dirFiles, opts = {}) {
-  const level = rigour.resolveRigour(cwd, phaseInfo.phase_number, getMilestoneInfo(cwd).version).rigour;
-  const plans = formCheck.checkPlans(phaseDir, dirFiles, level);
-  const summaries = opts.plansOnly ? [] : opts.summaryFormErrors || collectPhaseEvidenceErrors(cwd, phaseInfo.phase_number, phaseDir, dirFiles, { preVerifier: true }).formErrors;
-  const cites = formCheck.checkLineCites(cwd, phaseDir, dirFiles, phaseInfo.phase_number);
-  return { errors: [...plans.errors, ...summaries, ...cites], warnings: plans.warnings };
+  const evidence = opts.evidence || collectPhaseEvidenceErrors(cwd, phaseInfo.phase_number, phaseDir, dirFiles, { preVerifier: opts.preVerifier === true });
+  return { errors: [...evidence.formErrors, ...formCheck.checkLineCites(cwd, phaseDir, dirFiles)], workErrors: evidence.workErrors, evidence };
 }
 
-// verify form <phase> [--plans-only] [--raw]
+// verify form <phase> [--plans-only] [--raw]: --plans-only is the blocking plan-time check; otherwise the post-execution form list.
 function cmdVerifyForm(cwd, args, raw) {
   const phase = args.find((a) => !a.startsWith('--'));
   if (!phase) error('verify form: phase required');
   const info = findPhaseInternal(cwd, phase);
-  if (!info || normalizePhaseName(String(info.phase_number)) !== normalizePhaseName(String(phase))) error(`Phase ${phase} not found`);
+  if (!info) error(`Phase ${phase} not found`);
   const phaseDir = path.join(cwd, info.directory);
-  const r = collectPhaseFormErrors(cwd, info, phaseDir, fs.readdirSync(phaseDir), { plansOnly: args.includes('--plans-only') });
-  output({ phase: info.phase_number, passed: r.errors.length === 0, errors: r.errors, warnings: r.warnings }, raw, undefined, r.errors.length === 0 ? 0 : 1);
+  const dirFiles = fs.readdirSync(phaseDir);
+  const errors = args.includes('--plans-only')
+    ? formCheck.checkPlans(phaseDir, dirFiles, rigour.resolveRigour(cwd, info.phase_number, getMilestoneInfo(cwd).version).rigour)
+    : collectPhaseFormErrors(cwd, info, phaseDir, dirFiles, { preVerifier: true }).errors;
+  output({ phase: info.phase_number, passed: errors.length === 0, errors }, raw, undefined, errors.length === 0 ? 0 : 1);
 }
 
 function cmdVerifyPhaseGate(cwd, phaseArg, raw, opts = {}) {
@@ -7689,7 +7326,8 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw, opts = {}) {
     return;
   }
   const { phaseInfo, phaseDir, dirFiles, touchedFiles, touchedWarnings, hasUi, malformedPlans, validPlans } = inputs;
-  const evidence = collectPhaseEvidenceErrors(cwd, phaseInfo.phase_number, phaseDir, dirFiles, opts);
+  const form = collectPhaseFormErrors(cwd, phaseInfo, phaseDir, dirFiles, { preVerifier: opts.preVerifier === true });
+  const evidence = form.evidence;
   const preVerifier = opts.preVerifier === true;
   const hasApi = computeHasApi(touchedFiles, apiDetectionOpts(cwd));
   const uiQaMode = projectContext.uiQaMode(cwd);
@@ -7770,7 +7408,6 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw, opts = {}) {
   // Self-Check PASSED summaries, or a passed verification.
   const failures = checks.filter(c => c.failure_type).map(c => c.failure_type);
   if (evidence.workErrors.length > 0) failures.push('missing_evidence');
-  const form = collectPhaseFormErrors(cwd, phaseInfo, phaseDir, dirFiles, { summaryFormErrors: evidence.formErrors });
   const passed = failures.length === 0 && form.errors.length === 0 && malformedPlans.length === 0 && !malformedWaiver;
 
   const result = {
@@ -7787,12 +7424,8 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw, opts = {}) {
     ui_qa_required: uiQaRequired,
     ui_qa_mode: uiQaMode,
     e2e_gaps: e2eGapResult.gaps,
-    evidence_errors: evidence.errors,
+    work_errors: evidence.workErrors,
     form_errors: form.errors,
-    form_warnings: form.warnings,
-    // QGATE-17: surfaced explicitly so an exempt phase reads as "considered
-    // and waived by date", not as "the gate does not exist".
-    defect_classes: evidence.defect_classes,
   };
   if (malformedWaiver) result.malformed_waiver = malformedWaiver;
   if (touchedWarnings.length > 0) result.touched_file_warnings = touchedWarnings;
@@ -10351,14 +9984,16 @@ function phaseTruth(cwd, phaseNum) {
   try { dirFiles = fs.readdirSync(phaseDir); } catch (e) {
     return { phase: String(phaseNum), complete: false, errors: [`phase directory unreadable: ${e.message}`] };
   }
-  const evidence = collectPhaseEvidenceErrors(cwd, phaseInfo.phase_number, phaseDir, dirFiles);
-  const recordedDebt = Array.isArray(evidence.verification.data.form_debt) ? evidence.verification.data.form_debt : [];
-  // Form errors accepted by `phase complete --form-debt` are recorded debt, not missing work.
-  const errors = [...(recordedDebt.length > 0 ? evidence.workErrors : evidence.errors)];
+  const split = collectPhaseFormErrors(cwd, phaseInfo, phaseDir, dirFiles);
+  const recordedDebt = Array.isArray(split.evidence.verification.data.form_debt) ? split.evidence.verification.data.form_debt : [];
+  const workErrors = [...split.workErrors];
   if (roadmapCheckboxState(cwd, phaseNum) === false) {
-    errors.push('ROADMAP.md checkbox is not set (run `gsd-tools phase complete`)');
+    workErrors.push('ROADMAP.md checkbox is not set (run `gsd-tools phase complete`)');
   }
-  return { phase: String(phaseNum), complete: errors.length === 0, errors, form_debt: recordedDebt };
+  // Form errors accepted by `phase complete --form-debt` are recorded debt, not missing work.
+  const formErrors = recordedDebt.length > 0 ? [] : split.errors.map((f) => `${f.file}: ${f.check}: ${f.message}`);
+  const errors = [...workErrors, ...formErrors];
+  return { phase: String(phaseNum), complete: errors.length === 0, errors, work_errors: workErrors, form_errors: formErrors, form_debt: recordedDebt };
 }
 
 const CHECKPOINT_STEPS = ['discuss', 'research', 'plan', 'execute', 'verify'];
@@ -10440,11 +10075,11 @@ function cmdPhaseComplete(cwd, phaseNum, raw, opts = {}) {
 
       // 1-2. Shared on-disk evidence: SUMMARY + Self-Check PASSED per plan,
       // tagged commits per plan, {N}-VERIFICATION.md status passed.
-      const evidenceNow = collectPhaseEvidenceErrors(cwd, phaseInfo.phase_number, phaseDirPath, dirFiles);
-      const formNow = collectPhaseFormErrors(cwd, phaseInfo, phaseDirPath, dirFiles, { summaryFormErrors: evidenceNow.formErrors }).errors;
+      const open = collectPhaseFormErrors(cwd, phaseInfo, phaseDirPath, dirFiles);
+      const formItems = open.errors.map((f) => `${f.file}: ${f.check}: ${f.message}`);
       // --form-debt accepts open form errors (never missing work) and records them in {N}-VERIFICATION.md.
-      completenessErrors.push(...(opts.formDebt ? evidenceNow.workErrors : [...evidenceNow.errors, ...formNow.filter((f) => !evidenceNow.formErrors.includes(f)).map((f) => `${f.file}: ${f.check}: ${f.message}`)]));
-      if (opts.formDebt && completenessErrors.length === 0 && formNow.length > 0) formDebtItems = formNow.map((f) => `${f.file}: ${f.check}: ${f.message}`);
+      completenessErrors.push(...open.workErrors, ...(opts.formDebt ? [] : formItems));
+      if (opts.formDebt && open.workErrors.length === 0) formDebtItems = formItems;
 
       // 3. CHECKPOINT.json must exist with last_step: verify
       const checkpointPath = path.join(phaseDirPath, 'CHECKPOINT.json');
@@ -11608,19 +11243,25 @@ function topModelFields(cwd) {
   return { ruling_model: t.top, ruling_model_fallback: t.fallback };
 }
 
-// plan_stamp / plans_stale / stale_reason / plans_unstamped for init plan-phase and roadmap next.
+// plan_stamp / plans_stale for init plan-phase. Unexecuted plans without a stamp are never stale (one notice).
 function planStampFields(cwd, phase) {
   const info = findPhaseInternal(cwd, phase);
   const dir = info ? path.join(cwd, info.directory) : null;
   const current = planStamp.compute(cwd, phase, dir);
-  const st = dir ? planStamp.staleness(dir, info.incomplete_plans, current) : { plans_stale: false, stale_reason: null, plans_unstamped: [] };
-  return { plan_stamp: current.stamp, ...st };
+  const st = dir ? planStamp.staleness(dir, info.incomplete_plans, current) : { plans_stale: false, unstamped: [] };
+  if (st.unstamped.length > 0) process.stderr.write(`Notice: ${st.unstamped.join(', ')} carry no plan_stamp; staleness cannot be checked for them\n`);
+  return { plan_stamp: current.stamp, plans_stale: st.plans_stale };
 }
 
-// phase_risk_domains from the ROADMAP **Risk domains** line; names outside project.risk_domains + built-ins are listed, not rejected.
+// phase_risk_domains from the ROADMAP **Risk domains** line (comma list of configured names, or none); a missing line
+// falls back to configured names found in the phase goal/requirements; both cases print one notice.
+const riskNoticed = new Set();
 function phaseRiskFields(cwd, phase) {
   const r = rigour.phaseRiskDomains(cwd, phase, projectContext.riskDomainsFor(cwd));
-  return { phase_risk_domains: r.domains, phase_risk_domains_unknown: r.unknown };
+  const note = (msg) => { const k = `${cwd}:${phase}:${msg}`; if (!riskNoticed.has(k)) { riskNoticed.add(k); process.stderr.write(`Notice: phase ${phase} ${msg}\n`); } };
+  if (r.derived) note(`has no **Risk domains:** line; matched from goal/requirements: ${r.domains.join(', ') || 'none'}`);
+  if (r.unknown.length > 0) note(`**Risk domains:** names not in the project's risk_domains are ignored: ${r.unknown.join(', ')}`);
+  return { phase_risk_domains: r.domains };
 }
 
 // true when any plan of the phase carries an explicit high_risk: true frontmatter flag.
@@ -11664,7 +11305,12 @@ function findPhaseInternal(cwd, phase) {
     const entries = fs.readdirSync(phasesDir, { withFileTypes: true });
     const dirs = entries.filter(e => e.isDirectory()).map(e => e.name).sort();
     // Match both 'NN-name' and 'phase-NN-name' directory conventions
-    const match = dirs.find(d => d.startsWith(normalized) || d.startsWith('phase-' + normalized + '-') || d === 'phase-' + normalized);
+    // Exact phase number: "2" never resolves 02.1-x or 20-x. A non-numeric argument keeps the prefix match.
+    const numeric = /^\d/.test(String(phase));
+    const numberOf = d => { const m = d.match(/^(?:phase-)?(\d+(?:\.\d+)?)(?:-|$)/); return m ? normalizePhaseName(m[1]) : null; };
+    const match = numeric
+      ? dirs.find(d => numberOf(d) === normalized)
+      : dirs.find(d => d.startsWith(normalized) || d.startsWith('phase-' + normalized + '-') || d === 'phase-' + normalized);
     if (!match) return null;
 
     const dirMatch = match.match(/^(?:phase-)?(\d+(?:\.\d+)?)-?(.*)/);
@@ -12759,12 +12405,18 @@ function cmdInitExecuteRoadmap(cwd, raw) {
 // owner-gate request|status|approve|reject --kind composition|roadmap|pr [--milestone V] [--summary S] [--spike-phases N,M --spike-roots p,q] [--by W] [--note N] [--owner-confirmed]
 // approve/reject: refused while auto_mode is active unless --owner-confirmed with a --note. The flag is a recorded
 // attestation, not authentication: an unattended agent that passes it has lied in the audit trail, visibly.
-// budget status --phase N [--raw]
+// budget spend --phase N [--step S] [--model M]: logs ONE dispatch. budget status --phase N: the coordinator reads it before each new cycle.
 function cmdPhaseBudget(cwd, args, raw) {
-  if (args[0] !== 'status') error('Unknown budget subcommand. Available: status');
-  const i = args.indexOf('--phase');
-  const phase = i !== -1 ? args[i + 1] : undefined;
-  if (!phase) error('budget status: --phase required');
+  const sub = args[0];
+  if (sub !== 'status' && sub !== 'spend') error('Unknown budget subcommand. Available: status, spend');
+  const flag = (name) => { const i = args.indexOf(name); return i !== -1 ? args[i + 1] : undefined; };
+  const phase = flag('--phase');
+  if (!phase) error(`budget ${sub}: --phase required`);
+  if (sub === 'spend') {
+    appendEvent(cwd, { type: 'phase_spend', phase: dispatch.phaseKey(phase), step: flag('--step') || null, model: flag('--model') || null });
+    output({ logged: true, phase: dispatch.phaseKey(phase) }, raw);
+    return;
+  }
   const level = rigour.resolveRigour(cwd, phase, getMilestoneInfo(cwd).version).rigour;
   const cls = phaseBudgetClass(cwd, phase, level, phaseRiskFields(cwd, phase).phase_risk_domains);
   output(phaseBudget.status({ cwd, phase, cls, events: readExecutionEvents(cwd) }), raw);
@@ -12776,6 +12428,9 @@ function cmdOwnerGate(cwd, args, raw) {
   const kind = flag('--kind') || (sub !== 'status' ? args[1] : undefined);
   const milestone = flag('--milestone') || getMilestoneInfo(cwd).version;
   if (sub === 'request') {
+    const csv = (v) => (v == null ? [] : String(v).split(',').map((x) => x.trim()).filter(Boolean));
+    const refused = rigour.gateRequestErrors(cwd, { kind, spikePhases: csv(flag('--spike-phases')), spikeRoots: csv(flag('--spike-roots')) });
+    if (refused.length > 0) error(`owner-gate request refused: ${refused.join('; ')}`);
     const r = ownerGates.request(cwd, { kind, milestone, summary: flag('--summary'), spikePhases: flag('--spike-phases'), spikeRoots: flag('--spike-roots') });
     if (!r.ok) error(`owner-gate: ${r.error}`);
     output({ action: 'owner_gate_requested', created: r.created, status: ownerGates.STATUS_WAITING, gate: r.gate }, raw);
@@ -12816,7 +12471,6 @@ function cmdRoadmapNext(cwd, args, raw) {
     retryParked: args.includes('--retry-parked'),
     gateMarked: dispatch.hasEvent(events, 'gate_pre_pr_passed'),
     riskDomains: (k) => phaseRiskFields(cwd, k).phase_risk_domains,
-    plansStale: (k) => planStampFields(cwd, k).plans_stale,
     prRecorded: dispatch.hasEvent(events, 'pr_created') || dispatch.hasEvent(events, 'pr_requested') || dispatch.hasEvent(events, 'pr_skipped'),
     hasRemote: hasGitRemote(cwd),
     config: {
@@ -12827,21 +12481,6 @@ function cmdRoadmapNext(cwd, args, raw) {
   });
   for (const e of result.log) appendEvent(cwd, e);
   output(result, raw);
-}
-
-// A VERIFICATION.md whose frontmatter lists form_findings and no gaps is a format gap.
-function verificationGapKind(cwd, phase) {
-  const info = findPhaseInternal(cwd, phase);
-  if (!info) return {};
-  try {
-    const dir = path.join(cwd, info.directory);
-    const file = fs.readdirSync(dir).find((f) => /VERIFICATION\.md$/.test(f));
-    if (!file) return {};
-    const fm = extractFrontmatter(fs.readFileSync(path.join(dir, file), 'utf8'));
-    const list = (v) => (Array.isArray(v) ? v : []);
-    if (list(fm.form_findings).length > 0 && list(fm.gaps).length === 0) return { derivedGapKind: 'format', formItems: list(fm.form_findings) };
-  } catch { /* no usable VERIFICATION.md: product */ }
-  return {};
 }
 
 // roadmap record --phase N --result '<coordinator JSON or text>' | --kind pr --result '{"status":"created|skipped"}'
@@ -12877,7 +12516,6 @@ function cmdRoadmapRecord(cwd, args, raw) {
     result: resultArg,
     truth,
     events,
-    ...verificationGapKind(cwd, k),
     ladder: (ph, errorMsg, step) => {
       const applied = applyExecutionStateFailure(cwd, { phase: ph, errorMsg, step });
       return applied.ok ? { action: applied.result.action, attempts: applied.result.attempts } : { action: 'escalate' };
@@ -12887,7 +12525,7 @@ function cmdRoadmapRecord(cwd, args, raw) {
     applyExecutionStateSuccess(cwd, { phase: k });
   }
   for (const e of out.events) appendEvent(cwd, e);
-  output({ ...out, truth: { complete: truth.complete, errors: truth.errors } }, raw);
+  output({ ...out, truth: { complete: truth.complete, errors: truth.errors, work_errors: truth.work_errors, form_errors: truth.form_errors } }, raw);
 }
 
 // ─── Session Analysis Commands ────────────────────────────────────────────────
@@ -15071,8 +14709,12 @@ async function main() {
   const raw = rawIndex !== -1;
   if (rawIndex !== -1) args.splice(rawIndex, 1);
 
+  // A flag token is a flag only outside value position: not directly after another `--flag`, and (for -h) not the
+  // positional commit message.
+  const asValue = (i) => i > 0 && /^--[\w-]+$/.test(args[i - 1]);
+
   // Global --cwd <dir>: run every command against that project (process.cwd() everywhere follows).
-  const cwdIndex = args.indexOf('--cwd');
+  const cwdIndex = args.findIndex((a, i) => a === '--cwd' && !asValue(i));
   if (cwdIndex !== -1) {
     const target = args[cwdIndex + 1];
     if (!target || target.startsWith('--')) error('--cwd requires a directory');
@@ -15083,9 +14725,9 @@ async function main() {
   const command = args[0];
   const cwd = process.cwd();
 
-  // --help / -h anywhere after the command prints usage and does nothing else. Mutating subcommands take
-  // positional values, so `commit --help` once became a commit message and staged all of .planning.
-  if (command && command !== 'help' && args.slice(1).some(a => a === '--help' || a === '-h')) {
+  // --help / -h after the command prints usage and does nothing else (`commit --help` once became a commit message).
+  const helpAt = (i) => (args[i] === '--help' || args[i] === '-h') && !asValue(i) && !(command === 'commit' && i === 1 && args[i] === '-h');
+  if (command && command !== 'help' && args.some((_, i) => i >= 1 && helpAt(i))) {
     console.log(command === 'commit'
       ? COMMIT_USAGE
       : `Usage: gsd-tools ${command} <subcommand> [args] [--raw] [--cwd <dir>]\nRun gsd-tools ${command} without args for subcommand help. --help performs no action.`);
@@ -15418,15 +15060,6 @@ async function main() {
       } else {
         error('Unknown phases subcommand. Available: list');
       }
-      break;
-    }
-
-    case 'plan': {
-      if (args[1] !== 'stamp') error('Unknown plan subcommand. Available: stamp');
-      if (!args[2] || args[2].startsWith('--')) error('plan stamp: phase required');
-      const info = findPhaseInternal(cwd, args[2]);
-      const r = planStamp.compute(cwd, args[2], info ? path.join(cwd, info.directory) : null);
-      output({ phase: args[2], ...r }, raw);
       break;
     }
 
@@ -15925,7 +15558,7 @@ async function main() {
       // the original cost-budget behavior unchanged.
       if (args[1] === 'check') {
         cmdPromptBudget(cwd, raw);
-      } else if (args[1] === 'status') {
+      } else if (args[1] === 'status' || args[1] === 'spend') {
         cmdPhaseBudget(cwd, args.slice(1), raw);
       } else {
         cmdBudget(args.slice(1), raw);
@@ -17282,12 +16915,6 @@ module.exports = {
   isSourceFile,
   isTestOrSpecFile,
   evaluateSummarySelfCheck,
-  evaluateDefectClasses,
-  DEFECT_CLASSES_CAUGHT_BY,
-  DEFECT_CLASSES_COLUMNS,
-  DEFECT_CLASSES_SEVERITY,
-  summarySubjectToDefectClassesGate,
-  summaryExemptionFacts,
   collectPhaseEvidenceErrors,
   planTagGrepPattern,
   hasVerifiedMutantCite,

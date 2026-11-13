@@ -48,15 +48,14 @@ describe('new-milestone auto mode', () => {
     assert.match(NM, /re-spawn the roadmapper once; a second `## ROADMAP BLOCKED` stops the run/);
   });
 
-  test('rigour is proposed in the OG1 summary; the approved roadmap gate (OG2) authorises a spike, a D- row until CLI-2, an A- row never', () => {
+  test('rigour is proposed in the OG1 summary; the approved roadmap gate (OG2) is the only spike authority, no D- or A- row', () => {
     const proposal = NM.indexOf('**Rigour proposal (before the gate, no question asked).**');
     assert.ok(proposal > 0 && proposal < NM.indexOf('references/auto-mode.md OG1'), 'the proposal precedes the composition gate');
     assert.match(NM, /--kind composition[^\n]*rigour proposal: standard \| spike \(roots: <paths>/);
     assert.match(NM, /take the proposal of the approved `composition` gate; never widen it/);
-    assert.match(NM, /decisions add --kind decision --source owner-answer --question "Rigour of milestone v\[X\.Y\]"/);
-    assert.match(NM, /A gate summary with no spike proposal authorises no spike, and an `A-` row never does/);
+    assert.match(NM, /no `D-` or `A-` row authorises one/);
     assert.match(NM, /--kind roadmap[^\n]*rigour per phase[^\n]*--spike-phases <N,M> --spike-roots <paths>/);
-    assert.match(NM, /pass `OG2` as the authorisation/);
+    assert.match(NM, /whose approval is the only authority for a spike/);
     assert.ok(!/\*\*Rigour\*\*: high/.test(NM), 'there is no high level');
   });
 
