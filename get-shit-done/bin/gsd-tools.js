@@ -10067,6 +10067,25 @@ function updateProgressTableRow(content, phaseEscaped, renderStatus, renderPlans
   };
 }
 
+// Rewrites the `**Plans:**` line of one phase section. The line may carry roadmap-author prose:
+// only a count this command owns (TBD, "N plans", "N/M plans executed|complete") is replaced; prose
+// keeps its text and gets the tally appended once, retargeted on later runs. Never crosses into
+// another phase's section and never matches a longer phase number (phase 2 vs 20).
+function retargetPhasePlansLine(roadmapContent, phaseEscaped, planCountText) {
+  const planCountPattern = new RegExp(
+    `(#{2,4}\\s*Phase\\s+${phaseEscaped}(?![\\d.])(?:(?!\\n#{2,4}\\s*Phase\\s)[\\s\\S])*?\\*\\*Plans:\\*\\*[ \\t]*)([^\\n]*)`,
+    'i'
+  );
+  return roadmapContent.replace(planCountPattern, (_m, head, existing) => {
+    const text = existing.trim();
+    const owned = /^(?:\[?TBD\]?|\d+(?:\/(?:\d+|TBD))?\s+plans?(?:\s+(?:executed|complete|completed))?)$/i;
+    const tally = /\b\d+\/(?:\d+|TBD)\s+plans?\s+(?:executed|complete|completed)\b/i;
+    if (text === '' || owned.test(text)) return `${head}${planCountText}`;
+    if (tally.test(text)) return `${head}${text.replace(tally, planCountText)}`;
+    return `${head}${text} (${planCountText})`;
+  });
+}
+
 function cmdRoadmapUpdatePlanProgress(cwd, phaseNum, raw) {
   if (!phaseNum) {
     error('phase number required for roadmap update-plan-progress');
@@ -10143,25 +10162,10 @@ function cmdRoadmapUpdatePlanProgress(cwd, phaseNum, raw) {
   const tableUpdated = tableResult.updated;
   const headerColumnCount = tableResult.header_columns ?? null;
 
-  // Update plan count in phase detail section. The `**Plans:**` line may carry
-  // roadmap-author prose: only a count this command owns (TBD, "N plans",
-  // "N/M plans executed|complete") is replaced; prose keeps its text and gets
-  // the tally appended once, retargeted on later runs.
-  const planCountPattern = new RegExp(
-    `(#{2,4}\\s*Phase\\s+${phaseEscaped}(?![\\d.])(?:(?!\\n#{2,4}\\s*Phase\\s)[\\s\\S])*?\\*\\*Plans:\\*\\*[ \\t]*)([^\\n]*)`,
-    'i'
-  );
   const planCountText = verified
     ? `${summaryCount}/${planCount} plans complete`
     : `${summaryCount}/${planCount} plans executed`;
-  roadmapContent = roadmapContent.replace(planCountPattern, (_m, head, existing) => {
-    const text = existing.trim();
-    const owned = /^(?:\[?TBD\]?|\d+(?:\/(?:\d+|TBD))?\s+plans?(?:\s+(?:executed|complete|completed))?)$/i;
-    const tally = /\b\d+\/(?:\d+|TBD)\s+plans?\s+(?:executed|complete|completed)\b/i;
-    if (text === '' || owned.test(text)) return `${head}${planCountText}`;
-    if (tally.test(text)) return `${head}${text.replace(tally, planCountText)}`;
-    return `${head}${text} (${planCountText})`;
-  });
+  roadmapContent = retargetPhasePlansLine(roadmapContent, phaseEscaped, planCountText);
 
   // Only a verified phase gets its checkbox
   if (verified) {
@@ -10435,84 +10439,74 @@ function cmdPhaseComplete(cwd, phaseNum, raw) {
     }
 
     // Update plan count in phase section
-    const planCountPattern = new RegExp(
-      `(###\\s*Phase\\s+${phaseEscaped}[\\s\\S]*?\\*\\*Plans:\\*\\*\\s*)[^\\n]+`,
-      'i'
-    );
-    roadmapContent = roadmapContent.replace(
-      planCountPattern,
-      `$1${summaryCount}/${planCount} plans complete`
-    );
+    roadmapContent = retargetPhasePlansLine(roadmapContent, phaseEscaped, `${summaryCount}/${planCount} plans complete`);
 
     atomicWriteFileSync(roadmapPath, roadmapContent);
   }
 
-  // Find next phase
+  // Find next phase: the smallest phase number above the current one, from ROADMAP.md headings
+  // (the authority) merged with phase directories (the directory spelling wins when both exist).
   let nextPhaseNum = null;
   let nextPhaseName = null;
   let isLastPhase = true;
+  let totalPhases = null;
 
-  try {
-    const entries = fs.readdirSync(phasesDir, { withFileTypes: true });
-    const dirs = entries.filter(e => e.isDirectory()).map(e => e.name).sort();
+  {
+    const candidates = new Map();
     const currentFloat = parseFloat(phaseNum);
-
-    // Find the next phase directory after current
-    for (const dir of dirs) {
-      const dm = dir.match(/^(\d+(?:\.\d+)?)-?(.*)/);
-      if (dm) {
-        const dirFloat = parseFloat(dm[1]);
-        if (dirFloat > currentFloat) {
-          nextPhaseNum = dm[1];
-          nextPhaseName = dm[2] || null;
-          isLastPhase = false;
-          break;
-        }
+    if (fs.existsSync(roadmapPath)) {
+      const rm = fs.readFileSync(roadmapPath, 'utf-8');
+      for (const m of rm.matchAll(/^#{2,4}\s*Phase\s+(\d+(?:\.\d+)?)\s*:\s*(.+?)\s*$/gim)) {
+        candidates.set(parseFloat(m[1]), { num: m[1], name: m[2] });
       }
+      totalPhases = candidates.size;
     }
-  } catch {}
+    try {
+      const dirs = fs.readdirSync(phasesDir, { withFileTypes: true }).filter(e => e.isDirectory()).map(e => e.name).sort();
+      for (const dir of dirs) {
+        const dm = dir.match(/^(\d+(?:\.\d+)?)-?(.*)/);
+        if (!dm) continue;
+        const key = parseFloat(dm[1]);
+        const prior = candidates.get(key);
+        candidates.set(key, { num: dm[1], name: dm[2] || (prior && prior.name) || null });
+      }
+    } catch {}
+    const next = [...candidates.keys()].filter(k => k > currentFloat).sort((x, y) => x - y)[0];
+    if (next !== undefined) {
+      nextPhaseNum = candidates.get(next).num;
+      nextPhaseName = candidates.get(next).name;
+      isLastPhase = false;
+    }
+  }
 
   // Update STATE.md
   if (fs.existsSync(statePath)) {
     let stateContent = fs.readFileSync(statePath, 'utf-8');
+    const set = (field, value) => { stateContent = stateReplaceFieldTolerant(stateContent, field, value) || stateContent; };
+    const phaseTotal = (stateContent.match(/^\s*Phase:\s*\d+(?:\.\d+)?\s+of\s+(\d+)/im) || [])[1] || totalPhases;
 
-    // Update Current Phase
+    // Bold-field STATE.md (unchanged behaviour)
     stateContent = stateContent.replace(
       /(\*\*Current Phase:\*\*\s*).*/,
       `$1${nextPhaseNum || phaseNum}`
     );
-
-    // Update Current Phase Name
     if (nextPhaseName) {
       stateContent = stateContent.replace(
         /(\*\*Current Phase Name:\*\*\s*).*/,
         `$1${nextPhaseName.replace(/-/g, ' ')}`
       );
     }
-
-    // Update Status
-    stateContent = stateContent.replace(
-      /(\*\*Status:\*\*\s*).*/,
-      `$1${isLastPhase ? 'Milestone complete' : 'Ready to plan'}`
-    );
-
-    // Update Current Plan
-    stateContent = stateContent.replace(
-      /(\*\*Current Plan:\*\*\s*).*/,
-      `$1Not started`
-    );
-
-    // Update Last Activity
-    stateContent = stateContent.replace(
-      /(\*\*Last Activity:\*\*\s*).*/,
-      `$1${today}`
-    );
-
-    // Update Last Activity Description
-    stateContent = stateContent.replace(
-      /(\*\*Last Activity Description:\*\*\s*).*/,
-      `$1Phase ${phaseNum} complete${nextPhaseNum ? `, transitioned to Phase ${nextPhaseNum}` : ''}`
-    );
+    // Plain-prose STATE.md ("Phase: 2 of 4 (Name)")
+    if (/^\s*Phase:\s*\d/im.test(stateContent)) {
+      const label = nextPhaseName ? ` (${nextPhaseName.replace(/-/g, ' ')})` : '';
+      set('Phase', `${nextPhaseNum || phaseNum}${phaseTotal ? ` of ${phaseTotal}` : ''}${label}`);
+    }
+    set('Status', isLastPhase ? 'Milestone complete' : 'Ready to plan');
+    set('Current Plan', 'Not started');
+    if (/^\s*Plan:/im.test(stateContent)) set('Plan', 'Not started');
+    set('Last Activity', today);
+    set('Last activity', today);
+    set('Last Activity Description', `Phase ${phaseNum} complete${nextPhaseNum ? `, transitioned to Phase ${nextPhaseNum}` : ''}`);
 
     atomicWriteFileSync(statePath, stateContent);
   }

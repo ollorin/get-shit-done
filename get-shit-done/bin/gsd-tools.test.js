@@ -19078,3 +19078,48 @@ describe('pilot fix C2: state advance-plan / update-progress follow disk truth',
     assert.strictEqual(r.unplanned_phases, 3);
   });
 });
+
+describe('pilot fix C3: phase complete takes the next phase from ROADMAP.md, not from phase directories', () => {
+  let tmpDir;
+  beforeEach(() => { tmpDir = createTempProject(); });
+  afterEach(() => { cleanup(tmpDir); });
+
+  function seed(roadmapPhases, lastPhaseNum) {
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      '# Roadmap\n\n' + roadmapPhases.map(([n, name]) => `### Phase ${n}: ${name}\n**Goal:** g\n`).join('\n'));
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'STATE.md'), [
+      '# Project State', '', '## Current Position', '',
+      'Phase: 2 of 4 (Auth)', 'Plan: 3 of 3 (all executed)', 'Status: Phase complete, pending verification',
+      'Last activity: 2026-11-12', '',
+    ].join('\n'));
+    const p = path.join(tmpDir, '.planning', 'phases', '02-auth');
+    fs.mkdirSync(p, { recursive: true });
+    fs.writeFileSync(path.join(p, '02-01-PLAN.md'), '# Plan');
+    fs.writeFileSync(path.join(p, '02-01-SUMMARY.md'), SELF_CHECK_PASSED_SUMMARY);
+    fs.writeFileSync(path.join(p, '02-VERIFICATION.md'), 'status: passed\n# Verification\n');
+    fs.writeFileSync(path.join(p, 'CHECKPOINT.json'), JSON.stringify({ last_step: 'verify', step_status: 'complete' }));
+    gitCommitAll(tmpDir, 'feat(02-01): auth');
+  }
+
+  test('later roadmap phases without a directory still give next_phase and update a plain-prose STATE.md', () => {
+    seed([['1', 'Base'], ['2', 'Auth'], ['3', 'Admin'], ['4', 'Decision']]);
+    const r = runGsdTools('phase complete 2', tmpDir);
+    assert.ok(r.success, r.error + r.output);
+    const out = JSON.parse(r.output);
+    assert.strictEqual(out.is_last_phase, false);
+    assert.strictEqual(out.next_phase, '3');
+    assert.strictEqual(out.next_phase_name, 'Admin');
+    const st = fs.readFileSync(path.join(tmpDir, '.planning', 'STATE.md'), 'utf-8');
+    assert.match(st, /^Phase: 3 of 4 \(Admin\)/m);
+    assert.match(st, /^Status: Ready to plan/m);
+    assert.match(st, /^Plan: Not started/m);
+    assert.doesNotMatch(st, /2026-11-12/);
+  });
+
+  test('the highest roadmap phase is still the last phase', () => {
+    seed([['1', 'Base'], ['2', 'Auth']]);
+    const out = JSON.parse(runGsdTools('phase complete 2', tmpDir).output);
+    assert.strictEqual(out.is_last_phase, true);
+    assert.strictEqual(out.next_phase, null);
+  });
+});
