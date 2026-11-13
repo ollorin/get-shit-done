@@ -2,7 +2,7 @@
 // The one definition of a ROADMAP phase checkbox line: `- [x] Phase N`, `- [ ] **Phase N`, zero padding allowed, no text before
 // "Phase", and N never a prefix of a longer number (Phase 1 is not Phase 10 or 1.2).
 const norm = (n) => String(n).trim().replace(/^0+(?=\d)/, '');
-const re = (phaseNum, box) => new RegExp(`^[ \\t]*-[ \\t]*\\[(${box})\\][ \\t]*(?:\\*\\*)?Phase[ \\t]+0*${norm(phaseNum).replace(/\./g, '\\.')}(?![\\d.])`, 'im');
+const re = (phaseNum, box) => new RegExp(`^[ \\t]*-[ \\t]*\\[(${box})\\][ \\t]*(?:\\*\\*)?Phase[ \\t]+0*${norm(phaseNum).replace(/\./g, '\\.')}(?!\\d|\\.\\d|[A-Za-z])`, 'im');
 
 // true (ticked) / false (unticked) / null (no line for the phase)
 function checkboxState(content, phaseNum) {

@@ -41,7 +41,7 @@ const pathOf = (cell) => {
 // The first token of a Probe cell that is an existing file ("node spike/probe.js" resolves spike/probe.js, not node).
 const probeFile = (cwd, phaseDir, cell) => {
   const toks = cell.split(/\s+/).map((t) => t.replace(/^[`'"(]+|[`'"),;.]+$/g, '')).filter((t) => t && !EMPTY.test(t));
-  for (const t of toks) { const f = resolve(cwd, phaseDir, t); if (f) return f; }
+  for (const t of toks) { const f = resolve(cwd, phaseDir, t); if (f && fs.statSync(f).isFile()) return f; }
   return null;
 };
 
@@ -73,7 +73,7 @@ function answerTableErrors(cwd, phaseDir, dirFiles, { requireTable = false } = {
         else if (!resolve(cwd, phaseDir, rc)) errors.push(`${tag}: root-cause or search capture ${rc} not found on disk`);
       }
       const probeCell = r.probe.replace(/[*_`\s]+/g, ' ').trim();
-      const probeNamed = probeCell !== '' && !EMPTY.test(probeCell);
+      const probeNamed = probeCell !== '' && !EMPTY.test(probeCell) && !/^manual\b/i.test(probeCell);
       const pf = probeNamed ? probeFile(cwd, phaseDir, r.probe) : null;
       if (probeNamed && !pf) errors.push(`${tag}: probe "${probeCell.slice(0, 60)}" not found on disk`);
       const capture = pathOf(r.capture);

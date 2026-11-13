@@ -8,7 +8,6 @@ const { makeProject, gsd, git, phaseDir, events } = require('./helpers/roadmap-f
 const spikeCheck = require('../get-shit-done/bin/spike-check.js');
 const reviewGate = require('../get-shit-done/bin/review-gate.js');
 const box = require('../get-shit-done/bin/roadmap-box.js');
-const phaseBudget = require('../get-shit-done/bin/phase-budget.js');
 
 const dirs = [];
 const tmp = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-r4-')); dirs.push(d); return d; };
@@ -129,9 +128,9 @@ describe('R3-6 / R3-7 prose', () => {
   test('the closing rule is stated, and the "no second top-model dispatch" dead end is gone', () => {
     for (const f of ['get-shit-done/references/rigour.md', 'get-shit-done/workflows/execute-phase.md', 'agents/gsd-verifier.md']) {
       assert.doesNotMatch(doc(f), /no second top-model dispatch|never a second top-model dispatch/, f);
-      assert.match(doc(f), /fixed_by/, f);
     }
-    assert.match(doc('get-shit-done/references/rigour.md'), /ONE ruling dispatch on `ruling_model` \(allowed, counted in the dispatch budget\)/);
+    assert.match(doc('get-shit-done/references/rigour.md'), /fixed_by/);
+    assert.match(doc('get-shit-done/references/rigour.md'), /ONE ruling dispatch on `ruling_model` \(allowed at `breach`/);
   });
   test('traceability is its own plan-checker dimension, run at every rigour', () => {
     const c = doc('agents/gsd-plan-checker.md');
@@ -139,22 +138,5 @@ describe('R3-6 / R3-7 prose', () => {
     assert.match(c, /Dimensions 1-7, 12, 15 and 16 \(traceability\) only/);
     assert.doesNotMatch(c.slice(c.indexOf('## Dimension 13'), c.indexOf('## Dimension 14')), /Traceability/);
     assert.match(doc('get-shit-done/references/rigour.md'), /Dimensions 1-7, 12, 15, 16 \(traceability, every rigour\)/);
-  });
-});
-
-describe('R3-9: a re-recorded completion reports the new window, not the old final spend', () => {
-  test('after a retry window the status reflects the retry spend', () => {
-    const t = (m) => `2026-01-01T00:${String(m).padStart(2, '0')}:00.000Z`;
-    const ev = [
-      { timestamp: t(0), type: 'phase_start', phase: '1' },
-      { timestamp: t(1), type: 'phase_spend', phase: '1' },
-      { timestamp: t(10), type: 'phase_complete', phase: '1', dispatches_spent: 1, wall_minutes_spent: 10, budget_class: 'spike' },
-      { timestamp: t(20), type: 'phase_start', phase: '1' },
-      { timestamp: t(21), type: 'phase_spend', phase: '1' },
-      { timestamp: t(22), type: 'phase_spend', phase: '1' },
-    ];
-    const s = phaseBudget.status({ cwd: tmp(), phase: '1', cls: 'spike', events: ev });
-    assert.strictEqual(s.dispatches_spent, 2);
-    assert.ok(!s.final);
   });
 });

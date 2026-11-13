@@ -3017,7 +3017,7 @@ function evaluateSummarySelfCheck(content) {
     const heading = last[0];
     let status = 'not_found';
     // The verdict is the first word after `Self-Check` (and its colon); anything after it is free text.
-    const verdict = (heading.match(/Self[- ]?Check\b[\s:*_\-–—]*(\S+)/i) || [])[1] || '';
+    const verdict = (heading.match(/Self[- ]?Check\b[\s:*_\-–—(\[]*(\S+)/i) || [])[1] || '';
     if (/^(?:FAIL(?:ED|S|URE)?\b|❌|✗)/i.test(verdict)) status = 'failed';
     else if (/^(?:PASS(?:ED)?\b|✅|✓)/i.test(verdict)) status = 'passed';
     else if (/\bFAILED\b|❌|✗/.test(body)) status = 'failed';
@@ -7305,12 +7305,12 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles, opts =
   }
   // A spike has no separate review file: its {N}-VERIFICATION.md (the merged final review) is the record, checked below.
   const spike = rigour.resolveRigour(cwd, phaseNumber, getMilestoneInfo(cwd).version).rigour === 'spike';
-  // A phase whose `phase_complete` event is in EXECUTION_LOG.md (written by `phase complete` / `roadmap record`) was closed under
-  // the rules of its time: the review and answer-table rules judge only phases still open. A hand-edited ROADMAP box proves nothing.
-  const k = dispatch.phaseKey(phaseNumber);
-  const closedEarlier = readExecutionEvents(cwd).some((e) => e.type === 'phase_complete' && dispatch.phaseKey(e.phase) === k);
+  // A phase closed earlier (a `phase_complete` event, or checked in the ROADMAP when the one-time `gate_baseline` was taken) was
+  // closed under the rules of its time: the review and answer-table rules judge only phases still open.
+  const closedEarlier = closedPhaseKeys(cwd).has(dispatch.phaseKey(phaseNumber));
   if (!spike && !closedEarlier) errors.push(...reviewGate.reviewErrors(phaseDir, dirFiles, touched));
-  if (spike && !closedEarlier) errors.push(...spikeCheck.answerTableErrors(cwd, phaseDir, dirFiles, { requireTable: true }));
+  // The verifier writes the answer table, so the pre-verifier gate cannot demand it; the final gate does.
+  if (spike && !closedEarlier) errors.push(...spikeCheck.answerTableErrors(cwd, phaseDir, dirFiles, { requireTable: !opts.preVerifier }));
   const verification = readPhaseVerification(phaseDir, phaseNumber);
   if (!opts.preVerifier) errors.push(...reviewGate.verificationReviewErrors(verification, spike, closedEarlier));
   // Pre-verifier mode: the verifier produces this artifact, so demanding it earlier is circular.
@@ -8927,9 +8927,7 @@ function parseRoadmapPhases(content, phasesDir, options) {
       phaseObj.summary_count = summaryCount;
       phaseObj.has_context = hasContext;
       phaseObj.has_research = hasResearch;
-      const checkboxPattern = new RegExp(`-\\s*\\[(x| )\\]\\s*.*Phase\\s+${phaseNum.replace('.', '\\.')}`, 'i');
-      const checkboxMatch = content.match(checkboxPattern);
-      phaseObj.roadmap_complete = checkboxMatch ? checkboxMatch[1] === 'x' : false;
+      phaseObj.roadmap_complete = roadmapBox.checkboxState(content, phaseNum) === true;
     }
     phases.push(phaseObj);
   }
@@ -9904,11 +9902,7 @@ function cmdRoadmapUpdatePlanProgress(cwd, phaseNum, raw) {
 
   // Only a verified phase gets its checkbox
   if (verified) {
-    const checkboxPattern = new RegExp(
-      `(-\\s*\\[)[ ](\\]\\s*.*Phase\\s+${phaseEscaped}[:\\s][^\\n]*)`,
-      'i'
-    );
-    roadmapContent = roadmapContent.replace(checkboxPattern, `$1x$2 (completed ${today})`);
+    roadmapContent = roadmapBox.tickCheckbox(roadmapContent, phaseNum, ` (completed ${today})`);
   }
 
   atomicWriteFileSync(roadmapPath, roadmapContent);
@@ -10285,6 +10279,7 @@ function cmdPhaseComplete(cwd, phaseNum, raw, opts = {}) {
     is_last_phase: isLastPhase,
     date: today,
     roadmap_updated: fs.existsSync(roadmapPath),
+    ...(fs.existsSync(roadmapPath) && roadmapBox.checkboxState(fs.readFileSync(roadmapPath, 'utf-8'), phaseNum) === null ? { roadmap_checkbox_missing: `no checkbox line for phase ${phaseNum} in ROADMAP.md (expected "- [ ] Phase ${phaseNum}"): tick it by hand` } : {}),
     state_updated: fs.existsSync(statePath),
     ...(formDebtItems.length > 0 ? { form_debt: formDebtItems } : {}),
   };
@@ -12340,6 +12335,24 @@ function hasGitRemote(cwd) {
 
 const slugifyMilestone = (name) => String(name || 'milestone').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'milestone';
 
+// Phases whose gates are not re-judged: a `phase_complete` event, or a ROADMAP box checked when the one-time `gate_baseline`
+// event was taken (phases finished by older builds). The baseline is never rewritten, so a box ticked by hand later proves nothing.
+// `write` appends the baseline when none exists: only `roadmap next` and `roadmap record` pass it; every other reader computes
+// the same set in memory (a log created by a read would change `init progress` resume state).
+function closedPhaseKeys(cwd, write = false) {
+  const events = readExecutionEvents(cwd);
+  const base = events.find((e) => e.type === 'gate_baseline');
+  let keys;
+  if (base) keys = (base.phases || []).map(dispatch.phaseKey);
+  else {
+    const content = safeReadFile(path.join(cwd, '.planning', 'ROADMAP.md'));
+    keys = content === null ? [] : parseRoadmapPhases(content, path.join(cwd, '.planning', 'phases'))
+      .map((p) => dispatch.phaseKey(p.number)).filter((k) => roadmapBox.checkboxState(content, k) === true);
+    if (write && content !== null) appendEvent(cwd, { type: 'gate_baseline', phases: keys });
+  }
+  return new Set([...keys, ...events.filter((e) => e.type === 'phase_complete').map((e) => dispatch.phaseKey(e.phase))]);
+}
+
 function readExecutionEvents(cwd) {
   try {
     return fs.readFileSync(path.join(cwd, '.planning', 'EXECUTION_LOG.md'), 'utf-8')
@@ -12529,6 +12542,7 @@ function roadmapInputs(cwd) {
 }
 
 function cmdRoadmapNext(cwd, args, raw) {
+  closedPhaseKeys(cwd, true);
   const { phases, events, truth } = roadmapInputs(cwd);
   const config = loadConfig(cwd);
   const gateView = ownerGateView(cwd, events);
@@ -12577,6 +12591,7 @@ function cmdRoadmapRecord(cwd, args, raw) {
   const phase = flag('--phase');
   if (!phase) error('roadmap record: --phase required (or --kind pr)');
   if (resultArg === undefined) error('roadmap record: --result required');
+  closedPhaseKeys(cwd, true);
   const events = readExecutionEvents(cwd);
   const k = dispatch.phaseKey(phase);
   const truth = phaseTruth(cwd, k);

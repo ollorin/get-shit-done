@@ -91,8 +91,9 @@ describe('N6 the review is a disk check: {N}-REVIEW-{round}.md frontmatter', () 
     logComplete(dir);
     assert.deepStrictEqual(reviewErr(gate(dir)), []);
   });
-  test('a hand-checked ROADMAP box alone does not skip the review gate', () => {
+  test('a ROADMAP box hand-checked after the gate_baseline does not skip the review gate', () => {
     const { dir } = executed();
+    write(dir, '.planning/EXECUTION_LOG.md', '{"timestamp":"2026-01-01T00:00:00.000Z","type":"gate_baseline","phases":[]}\n');
     checkBox(dir);
     assert.strictEqual(reviewErr(gate(dir)).length, 1);
   });

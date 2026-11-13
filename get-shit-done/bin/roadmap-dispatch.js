@@ -29,7 +29,7 @@ function foldEvents(events) {
     const k = evPhase(e);
     if (k == null || !e.type) continue;
     switch (e.type) {
-      case 'phase_start': { const s = get(k); s.state = 'running'; s.started = true; s.dep_parked = false; break; }
+      case 'phase_start': { const s = get(k); if (s.state === 'parked') s.gap_cycles = 0; s.state = 'running'; s.started = true; s.dep_parked = false; break; }
       case 'gap_cycle': { const s = get(k); s.state = 'running'; s.gap_cycles += 1; s.started = true; break; }
       case 'phase_retry': get(k).state = 'running'; break;
       case 'phase_complete': { const s = get(k); s.state = 'complete'; s.dep_parked = false; break; }
@@ -163,9 +163,13 @@ function incompleteEvent(k, truth, folded, reason, gapCycleDone) {
 // A spike phase whose VERIFICATION still has an open CRITICAL/HIGH is parked only after the one ruling dispatch was
 // logged (`spike_ruling` event): before that, `record` says `ruling` and parks nothing.
 const OPEN_CH_RE = /open_critical_high \d+ and no ruling id/;
-const needsSpikeRuling = (input, k, truth) => input.spike === true
-  && (truth.work_errors || truth.errors || []).some((m) => OPEN_CH_RE.test(m))
-  && !(input.events || []).some((e) => e && e.type === 'spike_ruling' && evPhase(e) === k);
+// Only a ruling after the phase's latest phase_start counts: a retry of a parked phase gets its own.
+const needsSpikeRuling = (input, k, truth) => {
+  if (input.spike !== true || !(truth.work_errors || truth.errors || []).some((m) => OPEN_CH_RE.test(m))) return false;
+  const mine = (input.events || []).filter((e) => e && evPhase(e) === k);
+  const start = mine.map((e) => e.type).lastIndexOf('phase_start');
+  return !mine.slice(start + 1).some((e) => e.type === 'spike_ruling');
+};
 
 function record(input) {
   const k = phaseKey(input.phase);
