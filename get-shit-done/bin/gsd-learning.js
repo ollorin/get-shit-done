@@ -9,6 +9,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { splitRowCells } = require('./md-table.js');
 
 // Evidence threshold for overriding built-in rules
 const EVIDENCE_THRESHOLD = 3;
@@ -270,7 +271,7 @@ function loadBuiltInRules() {
       continue;
     }
     if (inTable && line.startsWith('|')) {
-      const parts = line.split('|').map(s => s.trim()).filter(s => s);
+      const parts = splitRowCells(line).filter(s => s);
       if (parts.length >= 3) {
         rules.push({
           pattern: parts[0],

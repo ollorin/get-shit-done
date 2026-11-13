@@ -3091,7 +3091,7 @@ function evaluateDefectClasses(content) {
     .split('\n')
     .map(l => l.trim())
     .filter(l => l.startsWith('|') && l.endsWith('|'));
-  const cellsOf = l => l.slice(1, -1).split('|').map(c => c.trim());
+  const cellsOf = l => splitRowCells(l);
   const isSeparator = cells => cells.length > 0 && cells.every(c => /^:?-{2,}:?$/.test(c));
 
   if (tableLines.length === 0) {
@@ -3747,7 +3747,7 @@ function cmdStateSnapshot(cwd, raw) {
     const tableBody = decisionsMatch[1];
     const rows = tableBody.trim().split('\n').filter(r => r.includes('|'));
     for (const row of rows) {
-      const cells = row.split('|').map(c => c.trim()).filter(Boolean);
+      const cells = splitRowCells(row).filter(Boolean);
       if (cells.length >= 3) {
         decisions.push({
           phase: cells[0],
@@ -9943,21 +9943,7 @@ function cmdPhaseRemove(cwd, targetPhase, options, raw) {
 // older version); positionally rewriting it cannot be made safe, so it is left
 // untouched and reported instead.
 
-function splitTableCells(line) {
-  const trimmed = line.trim();
-  if (!trimmed.startsWith('|') || !trimmed.endsWith('|') || trimmed.length < 2) return null;
-  const inner = trimmed.slice(1, -1);
-  const cells = [];
-  let cur = '';
-  for (let i = 0; i < inner.length; i++) {
-    const ch = inner[i];
-    if (ch === '\\' && inner[i + 1] === '|') { cur += '\\|'; i++; continue; }
-    if (ch === '|') { cells.push(cur); cur = ''; continue; }
-    cur += ch;
-  }
-  cells.push(cur);
-  return cells;
-}
+const { splitTableCells, splitRowCells } = require('./md-table.js');
 
 function headerColumnIndex(headerCells, re) {
   for (let i = 0; i < headerCells.length; i++) {
@@ -16629,7 +16615,7 @@ Was ${model} the right choice for this task? (y/n): `;
               continue;
             }
             if (inTable && line.startsWith('|')) {
-              const parts = line.split('|').map(s => s.trim()).filter(s => s);
+              const parts = splitRowCells(line).filter(s => s);
               if (parts.length >= 3 && parts[0] !== '(no learned rules yet)') {
                 rules.push({
                   pattern: parts[0],

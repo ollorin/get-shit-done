@@ -19206,3 +19206,27 @@ describe('pilot fix C4: commit resolves its repo explicitly and never commits on
     assert.match(bad.error, /--cwd/);
   });
 });
+
+describe('pilot fix B2a: one markdown table-row splitter honours backtick spans and escaped pipes', () => {
+  const { splitTableCells: split, splitRowCells } = require('./md-table.js');
+  const evaluateDefectClassesB2a = (c) => require('./gsd-tools.js').evaluateDefectClasses(c);
+  test('pipe inside a code span or escaped is cell text', () => {
+    assert.deepStrictEqual(split('| a | `x|y` | c |'), [' a ', ' `x|y` ', ' c ']);
+    assert.deepStrictEqual(split('| a | x\\|y | c |'), [' a ', ' x\\|y ', ' c ']);
+    assert.deepStrictEqual(split('| a | ``x|`y`` | c |'), [' a ', ' ``x|`y`` ', ' c ']);
+    assert.deepStrictEqual(split('| a | stray ` tick | c |'), [' a ', ' stray ` tick ', ' c ']);
+    assert.strictEqual(split('not a row'), null);
+  });
+  test('lenient splitter trims and tolerates missing outer pipes', () => {
+    assert.deepStrictEqual(splitRowCells('a | `b|c` | d'), ['a', '`b|c`', 'd']);
+  });
+  test('Defect Classes row with a grep alternation pipe in a backtick cell is a 5-cell row, not row_arity', () => {
+    const body = [
+      '## Defect Classes', '',
+      '| class | instance | caught_by | severity | rule_gap |', '|---|---|---|---|---|',
+      "| waiver only in file | DEFERRED.json (`grep -c -i -E 'docs waiver | docs step'` = 0) | verifier | minor | none |", '',
+    ].join('\n');
+    const r = evaluateDefectClassesB2a(body);
+    assert.strictEqual(r.status, 'ok', JSON.stringify(r.row));
+  });
+});
