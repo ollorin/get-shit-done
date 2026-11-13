@@ -1279,7 +1279,7 @@ describe('base preset: pilot, three throwaway projects (agnostic-M-07 7.2)', () 
     commitAll(root, 'feat(45-01): fixture commit');
     write(root, `${dir}/E2E-TEST-PLAN.md`, '# E2E Test Plan\n- Dashboard\n');
     write(root, `${dir}/45-VERIFICATION.md`, '---\nphase: "45"\nstatus: passed\n---\n# Verification\n');
-    write(root, `${dir}/45-01-SUMMARY.md`, '# Summary\n\n## Defect Classes\n\nNone found. (reviewed by: plan-check, verifier)\n\n## Self-Check: PASSED\n');
+    write(root, `${dir}/45-01-SUMMARY.md`, '# Summary\n\nDone.\n\n## Self-Check: PASSED\n');
     const r = spawnSync(process.execPath, [GSD_TOOLS, 'verify', 'phase-gate', '45'], { cwd: root, encoding: 'utf8', env: env(state.home) });
     const parsed = JSON.parse(r.stdout);
     assert.strictEqual(parsed.passed, true, r.stdout);

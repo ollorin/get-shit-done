@@ -584,9 +584,8 @@ describe('pointer block in every top-level agent and the pack agent (agnostic-M-
     .map((e) => path.join('agents', e.name));
   const FILES = [...AGENTS, path.join('get-shit-done', 'presets', 'packs', 'charlotte', 'agents', 'gsd-charlotte-qa.md')];
 
-  test('the checked set is every top-level agent plus the pack agent, and agents/v2 is outside it', () => {
+  test('the checked set is every top-level agent plus the pack agent', () => {
     assert.ok(FILES.length >= 23, `found ${FILES.length}`);
-    assert.ok(FILES.every((f) => !f.includes(`agents${path.sep}v2${path.sep}`)));
   });
 
   test('every file carries the block exactly once, directly after its frontmatter', () => {

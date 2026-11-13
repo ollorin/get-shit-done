@@ -560,8 +560,6 @@ Plans touching a risk-domain path must meet planner MANDATE-6: the phase's `{N}-
 
 **`high_risk` mismatch:** a plan to which MANDATE-6 applies must carry `high_risk: true` in its frontmatter; a missing flag is a blocker (`dimension: threat_model`).
 
-**Traceability (`references/rigour.md` rule 11, every rigour):** open the source PRD named in the plan's traceability list and verify it against the file: each exit or acceptance criterion is either covered by a task or listed as not covered with a reason. An uncovered criterion without a reason is a blocker (`dimension: traceability`); a criterion dropped from the list that the PRD states is the same blocker.
-
 **Spike promotion:** when the phase's `rigour` is not `spike`, any plan listing a path under the project's spike roots in `files_modified`, importing from it, or citing spike evidence as a test REUSE is a blocker (`dimension: spike_promotion`).
 
 ## Dimension 14: Adversarial Pass
@@ -587,6 +585,10 @@ Write no VERDICT.md for plans not listed.
 ## Dimension 15: Satisfiable Expectations
 
 Every `<verify>` command, `<done>` criterion and must_haves truth must be satisfiable in the environment the plan itself declares. For each, check it against: services the plan or STACK-PROFILE excludes or does not start (a command needing an API URL, port or container of an excluded service is impossible); env vars the plan never sets and the environment does not provide; tools or paths absent from the declared stack; and artifacts a later plan or the verifier produces (a check cannot require them earlier). An impossible expectation = blocker (`dimension: satisfiable_expectations`, `severity: blocker`) naming the command and the missing service/variable. Same revision loop (max 3).
+## Dimension 16: Traceability (every rigour)
+
+`references/rigour.md` rule 11. open the source PRD named in the plan's traceability list and verify it against the file: each exit or acceptance criterion is either covered by a task or listed as not covered with a reason. An uncovered criterion without a reason is a blocker (`dimension: traceability`); a criterion dropped from the list that the PRD states is the same blocker.
+
 </verification_dimensions>
 
 <verification_process>
@@ -822,7 +824,7 @@ Return all issues as a structured `issues:` YAML list (see dimension examples fo
 
 <structured_returns>
 
-**Rigour (`references/rigour.md`):** `spike`: one round, Dimensions 1-7, 12 and 15 only (8, 9, 10, 11, 13 and 14 are skipped), and the spike-containment check applies. `standard`: at most 2 rounds. **Delta round:** when the dispatch carries the previous issue list and a `git diff` of the plans, follow its instruction (earlier findings fixed, kept or regressed; then only the changed lines). A missing optional artifact (an E2E plan for a phase without UI) is not a finding. Cite planning records by id, never by line.
+**Rigour (`references/rigour.md`):** `spike`: one round, Dimensions 1-7, 12, 15 and 16 (traceability) only (8, 9, 10, 11, 13 and 14 are skipped), and the spike-containment check applies. `standard`: at most 2 rounds. **Delta round:** when the dispatch carries the previous issue list and a `git diff` of the plans, follow its instruction (earlier findings fixed, kept or regressed; then only the changed lines). A missing optional artifact (an E2E plan for a phase without UI) is not a finding. Cite planning records by id, never by line.
 
 ## VERIFICATION PASSED
 
