@@ -15755,7 +15755,7 @@ describe('Phase 60-03: plan-phase.md adversarial-review risk-triage wiring (MILE
     test('Step 11 branches on TRIAGE_MODE (checker vs adversarial) and calls quality verdict-to-issues', () => {
       const content = readPlanPhase();
       const step11Idx = content.indexOf('## 11. Handle Checker Return');
-      const step12Idx = content.indexOf('## 12. Revision Loop (Max 3 Iterations)');
+      const step12Idx = content.indexOf('## 12. Revision Loop (capped)');
       const step11Text = content.slice(step11Idx, step12Idx);
       assert.ok(step11Text.includes('`TRIAGE_MODE` is `checker`'), 'expected the checker-mode branch label');
       assert.ok(step11Text.includes('`TRIAGE_MODE` is `adversarial`'), 'expected the adversarial-mode branch label');
@@ -16675,12 +16675,13 @@ describe('Phase 62-01: Defect Classes capture + rules distillation wiring (MILE-
       assert.ok(start !== -1, 'audit-milestone.md must add a Step 7 distillation step');
       const step = raw.slice(start, raw.indexOf('## 8. Present Results'));
       assert.ok(step.length > 0, 'Step 8 (Present Results) must follow Step 7');
-      assert.match(step, /model="opus"/, 'the distillation must run on a fresh Opus dispatch');
+      assert.match(step, /model="\{ruling_model\}"/, 'the distillation must run on a fresh dispatch on the configured top model');
+      assert.doesNotMatch(step, /model="opus"/, 'no model literal for the final milestone review');
       assert.ok(step.includes('RULES-DISTILL.md'), 'Step 7 must write the RULES-DISTILL report');
       assert.match(step, /already-covered[\s\S]*tighten[\s\S]*new/, 'Step 7 must offer exactly the three per-class decisions');
       assert.match(step, /deferred-items\.md/, 'Step 7 must fall back to deferred-items.md for pre-section phases');
       assert.match(step, /VERIFICATION\.md/, 'Step 7 must fall back to VERIFICATION.md for pre-section phases');
-      assert.match(step, /Second, separate Opus check \(mandatory\)/, 'Step 7 must mandate a second, separate review');
+      assert.match(step, /Second, separate check \(mandatory\)/, 'Step 7 must mandate a second, separate review');
       assert.match(step, /The author does not review its own work/, 'Step 7 must state the independence rule');
       assert.match(step, /Do NOT edit anything; return findings only/, 'the review dispatch must be read-only');
       assert.match(step, /RULES-DISTILL\.md` in \{project_root\}|\.claude\/rules\/\*\.md/, 'the review must scope the rules diff');
@@ -16711,7 +16712,7 @@ describe('Phase 62-01: Defect Classes capture + rules distillation wiring (MILE-
       const raw = readRepoFile('get-shit-done/workflows/audit-milestone.md');
       assert.match(raw, /<purpose>[\s\S]{0,1200}Defect Classes/, 'the workflow purpose must advertise the distillation');
       assert.match(raw, /RULES-DISTILL\.md` written AND committed/, 'success criteria must require the committed report');
-      assert.match(raw, /SECOND, separate Opus review of the rules diff/, 'success criteria must require the independent review');
+      assert.match(raw, /SECOND, separate review of the rules diff/, 'success criteria must require the independent review');
     });
 
     test('complete-milestone.md references the distillation for milestones that skip the audit', () => {
@@ -17625,7 +17626,7 @@ describe('Phase 62-02: QGATE-17 Defect Classes machine gate (MILE-42)', () => {
     test('collection loops Step 1 phase_dirs, not all of .planning/phases', () => {
       const raw = readRepoFile('get-shit-done/workflows/audit-milestone.md');
       const start = raw.indexOf('## 7. Distil Defect Classes into Project Rules');
-      const collect = raw.slice(start, raw.indexOf('**Dispatch (fresh Opus'));
+      const collect = raw.slice(start, raw.indexOf('**Dispatch (fresh agent'));
       assert.match(collect, /\{phase_dirs\}/, 'collection must loop Step 1 phase_dirs');
       assert.match(collect, /not every directory under `\.planning\/phases\/`/, 'the cross-milestone sweep must be called out as wrong');
       assert.match(collect, /v\{version\}-DEFECT-ROWS\.md/, 'rows must be written to a durable file the author reads');

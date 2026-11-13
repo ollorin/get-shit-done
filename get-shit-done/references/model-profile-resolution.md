@@ -1,32 +1,3 @@
-# Model Profile Resolution
+# Model resolution
 
-Resolve model profile once at the start of orchestration, then use it for all Task spawns.
-
-## Resolution Pattern
-
-```bash
-MODEL_PROFILE=$(cat .planning/config.json 2>/dev/null | grep -o '"model_profile"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -o '"[^"]*"$' | tr -d '"' || echo "balanced")
-```
-
-Default: `balanced` if not set or config missing.
-
-## Lookup Table
-
-@~/.claude/get-shit-done/references/model-profiles.md
-
-Look up the agent in the table for the resolved profile. Pass the model parameter to Task calls:
-
-```
-Agent(
-  prompt="...",
-  subagent_type="gsd-planner",
-  model="{resolved_model}"  # e.g., "opus" for quality profile
-)
-```
-
-## Usage
-
-1. Resolve once at orchestration start
-2. Store the profile value
-3. Look up each agent's model from the table when spawning
-4. Pass model parameter to each Task call
+Workflows never look a model up. `gsd-tools init <workflow>` returns one field per role (`planner_model`, `checker_model`, `executor_model`, `reviewer_model`, `coordinator_model`, `utility_model`, `ruling_model`, `ruling_model_fallback`); every spawn passes the field as `model`. What each field means: `references/model-profiles.md`.

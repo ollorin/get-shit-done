@@ -57,9 +57,8 @@ Agents will now use:
 Example:
 | Agent | Model |
 |-------|-------|
-| gsd-planner | opus |
-| gsd-executor | haiku |
-| gsd-verifier | opus |
+| gsd-planner | <alias> |
+| gsd-executor | <alias> |
 | ... | ... |
 
 Next spawned agents will use the new profile.

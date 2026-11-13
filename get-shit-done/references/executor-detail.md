@@ -257,7 +257,7 @@ continue to the next task.
 **Step 3 -- spawn gsd-test-writer (same inputs/routing as the existing `tdd="true"` spawn in
 `<test_task_handling>` above):**
 ```
-test_writer_model = "haiku"  // CLAUDE.md tier table: test-writer runs on haiku unless the task carries <model>
+test_writer_model = "{executor_model}"  // from the dispatch (init field), unless the task carries <model>
 
 Agent(
   subagent_type="gsd-test-writer",
@@ -319,7 +319,7 @@ DO NOT execute the task inline. Instead:
 
 2. Spawn gsd-test-writer:
    ```
-   test_writer_model = "haiku"  // CLAUDE.md tier table: test-writer runs on haiku unless the task carries <model>
+   test_writer_model = "{executor_model}"  // from the dispatch (init field), unless the task carries <model>
 
    Agent(
      subagent_type="gsd-test-writer",

@@ -46,9 +46,9 @@ AskUserQuestion([
     header: "Model",
     multiSelect: false,
     options: [
-      { label: "Quality", description: "Opus everywhere except verification (highest cost)" },
-      { label: "Balanced (Recommended)", description: "Opus for planning/verification, Haiku for execution, Sonnet for coordination and first review" },
-      { label: "Budget", description: "Haiku for writing, Haiku/Sonnet for research and review (lowest cost)" }
+      { label: "Quality", description: "Strongest model for every deciding agent (highest cost)" },
+      { label: "Balanced (Recommended)", description: "Strong planning, cheap execution, mid tier for coordination and review" },
+      { label: "Budget", description: "Cheapest model for anything that writes (lowest cost)" }
     ]
   },
   {

@@ -157,9 +157,9 @@ AskUserQuestion([
     question: "Which AI models for planning agents?",
     multiSelect: false,
     options: [
-      { label: "Balanced (Recommended)", description: "Opus for planning, Sonnet for execution/verification — good quality/cost ratio (see references/model-profiles.md)" },
-      { label: "Quality", description: "Opus for research/roadmap — higher cost, deeper analysis" },
-      { label: "Budget", description: "Haiku where possible — fastest, lowest cost" }
+      { label: "Balanced (Recommended)", description: "Strong planning, cheap execution — good quality/cost ratio (see references/model-profiles.md)" },
+      { label: "Quality", description: "Strongest model for research/roadmap — higher cost, deeper analysis" },
+      { label: "Budget", description: "Cheapest model where possible — fastest, lowest cost" }
     ]
   }
 ])
@@ -482,9 +482,9 @@ questions: [
     question: "Which AI models for planning agents?",
     multiSelect: false,
     options: [
-      { label: "Balanced (Recommended)", description: "Opus for planning, Sonnet for execution/verification — good quality/cost ratio (see references/model-profiles.md)" },
-      { label: "Quality", description: "Opus for research/roadmap — higher cost, deeper analysis" },
-      { label: "Budget", description: "Haiku where possible — fastest, lowest cost" }
+      { label: "Balanced (Recommended)", description: "Strong planning, cheap execution — good quality/cost ratio (see references/model-profiles.md)" },
+      { label: "Quality", description: "Strongest model for research/roadmap — higher cost, deeper analysis" },
+      { label: "Budget", description: "Cheapest model where possible — fastest, lowest cost" }
     ]
   }
 ]

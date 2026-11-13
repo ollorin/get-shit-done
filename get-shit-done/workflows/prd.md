@@ -154,7 +154,7 @@ If `confidence < 0.50` AND `gaps` is non-empty:
    ```
    Agent(
      subagent_type="gsd-discovery-synthesizer",
-     model="opus",
+     model="{ruling_model}",  # the configured top model: gsd-tools resolve-model top --raw (CLI-3)
      description="Merge Stage 1 discovery findings",
      prompt="slug={slug} stage=1 original_idea={concept} findings={collected investigator outputs, one per gap}"
    )
@@ -303,7 +303,7 @@ If `confidence < 0.50` AND `gaps` is non-empty:
    ```
    Agent(
      subagent_type="gsd-discovery-synthesizer",
-     model="opus",
+     model="{ruling_model}",  # the configured top model: gsd-tools resolve-model top --raw (CLI-3)
      description="Merge Stage 2 discovery findings",
      prompt="slug={slug} stage=2 original_idea={concept} findings={collected investigator outputs, one per gap}"
    )
@@ -524,7 +524,7 @@ Then continue to Step 4: Approval.
 
 ## Step 4: Approval
 
-Before the screen, risk rule. A risk-domain path is any path the product brief lists under Risk Domains (`risk_domains` in the init output); authentication/authorisation and security are always risk domains. When `risk_domains_source` is `builtin` (`project.risk_domains` in config.json is empty or absent), every path that mutates state is a risk-domain path. Tag every behaviour on a risk-domain path T0 (real-DB, mutation-proven). Any open `A-` about a risk-domain path or a ruling topic goes to the ruling route in `decisions-protocol.md` (fable/opus) and is replaced by the `D-` it returns, so it never reaches the screen as an irreversible wait. Run `decisions render`, then show the owner (title: `owner_title` in the init output) one screen, nothing else:
+Before the screen, risk rule. A risk-domain path is any path the product brief lists under Risk Domains (`risk_domains` in the init output); authentication/authorisation and security are always risk domains. When `risk_domains_source` is `builtin` (`project.risk_domains` in config.json is empty or absent), every path that mutates state is a risk-domain path. Tag every behaviour on a risk-domain path T0 (real-DB, mutation-proven). Any open `A-` about a risk-domain path or a ruling topic goes to the ruling route in `decisions-protocol.md` (when it meets the trigger there) and is replaced by the `D-` it returns, so it never reaches the screen as an irreversible wait. Run `decisions render`, then show the owner (title: `owner_title` in the init output) one screen, nothing else:
 
 ```
 PRD {slug} — approval

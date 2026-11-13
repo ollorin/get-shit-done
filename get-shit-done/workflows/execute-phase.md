@@ -938,7 +938,7 @@ node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs(phase-{X}): com
 </step>
 
 <step name="demo_script">
-Skip when `gsd-tools.js config get demo.mode --raw` is `off`, when `gsd-tools.js verify phase-gate {X}` does not report `ui_qa_required: true`, or when the VERIFICATION status is not `passed`. Otherwise follow `@~/.claude/get-shit-done/workflows/demo.md` section 1 (script only, no stack, one Haiku call) and commit the two files with the phase docs. Recording happens later, in the stack window, per `demo.md` section 2.
+Skip when `gsd-tools.js config get demo.mode --raw` is `off`, when `gsd-tools.js verify phase-gate {X}` does not report `ui_qa_required: true`, or when the VERIFICATION status is not `passed`. Otherwise follow `@~/.claude/get-shit-done/workflows/demo.md` section 1 (script only, no stack, one `utility_model` call) and commit the two files with the phase docs. Recording happens later, in the stack window, per `demo.md` section 2.
 </step>
 
 <step name="evolve_corpus">

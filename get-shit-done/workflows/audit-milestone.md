@@ -453,8 +453,7 @@ awk '/^## Defect Classes$/{f=1} f && /^## / && !/^## Defect Classes$/{f=0} f' \
   .planning/phases/{phase_dir}/{N}-{NN}-SUMMARY.md
 ```
 
-Also read each phase's `{N}-PLAN-CHECK.md` if present (the plan-checker's Defect Classes block,
-written there by `plan-phase.md` Step 11) and `{N}-{NN}-VERDICT.md` (the plan-checker adversarial pass's own block).
+Also read, where present, each phase's `{N}-PLAN-CHECK.md` (plan-check rounds, written by `plan-phase.md` Step 11), `{N}-{NN}-VERDICT.md` (adversarial pass), `{N}-REVIEW-*.md` (implementation review rounds) and the gaps of `{N}-VERIFICATION.md`: reviews keep their findings in their own files, nobody copies them into a SUMMARY.
 
 **(b) Pre-section phases.** A phase with no `## Defect Classes` anywhere predates the
 requirement. Read EVERY artifact in its directory except `*-PLAN.md`, `*-RESEARCH.md` and
@@ -584,12 +583,12 @@ deleting an existing rule.
 Write the rows file as a table with a `reconstructed` column, one row per defect, plus a trailing
 count. If it comes out empty, say so and skip the dispatch.
 
-**Dispatch (fresh Opus, model `"opus"`).** The author of a rule set does not review it. Spawn:
+**Dispatch (fresh agent, `{ruling_model}`: the final milestone review runs on the configured top model, `references/model-profiles.md`; `ruling_model=$(gsd-tools resolve-model top --raw)`, CLI-3).** The author of a rule set does not review it. Spawn:
 
 ```
 Agent(
   subagent_type="general-purpose",
-  model="opus",
+  model="{ruling_model}",
   description="Distil milestone {version} defect classes",
   prompt=<see block below>
 )
@@ -674,14 +673,14 @@ before/after line counts as if they were a budget check; the orchestrator measur
 - `CLAUDE.md` is exempt from the ≤ 0 rule (it is the index, not a rules body) but is still
   write-scoped and still reviewed.
 
-**Second, separate Opus check (mandatory).** The author does not review its own work. Spawn a
-*different* fresh Opus dispatch with `model="opus"`. Give it the `git diff` of exactly the named
+**Second, separate check (mandatory).** The author does not review its own work. Spawn a
+*different* fresh dispatch on `{ruling_model}`. Give it the `git diff` of exactly the named
 paths plus the before/after line counts you measured — not the whole repo diff:
 
 ```
 Agent(
   subagent_type="general-purpose",
-  model="opus",
+  model="{ruling_model}",
   description="Review milestone {version} rules distillation",
   prompt="Review a proposed rules diff in {project_root} for three things ONLY.
 
@@ -974,11 +973,11 @@ All requirements met. No critical blockers. Accumulated tech debt needs review.
 - [ ] PRD-TRACE.md cross-reference run for each phase with PRD Express Path (Step 5f) — optional, skipped if absent; NOT a blocker when absent
 - [ ] MILESTONE-AUDIT.md includes PRD Traceability section and prd_traceability score (if any phases used PRD Express Path)
 - [ ] Every milestone phase's `## Defect Classes` collected into `v{version}-DEFECT-ROWS.md` (pre-section phases reconstructed from every non-PLAN/RESEARCH/CONTEXT artifact, `.planning/debug/resolved/`, and `.planning/quick/*/`)
-- [ ] Fresh Opus distillation dispatched; per class an already-covered / tighten / new decision recorded
+- [ ] Fresh distillation dispatched on `{ruling_model}`; per class an already-covered / tighten / new decision recorded
 - [ ] Net line growth across `.claude/rules/*.md` measured by the orchestrator and ≤ 0 (or the run escalates)
 - [ ] Write scope held: only `.claude/rules/`, CLAUDE.md, and the report were edited
 - [ ] `v{version}-RULES-DISTILL.md` written AND committed (after a clean review)
-- [ ] A SECOND, separate Opus review of the rules diff run on the named paths; findings routed to a FRESH author, capped at 2 rounds, then escalated
+- [ ] A SECOND, separate review of the rules diff run on the named paths; findings routed to a FRESH author, capped at 2 rounds, then escalated
 - [ ] Committed with `git commit -- <paths>` only after a clean review
 - [ ] Results presented with actionable next steps
 </success_criteria>

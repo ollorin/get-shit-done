@@ -1,76 +1,34 @@
-# Model Profiles
+# Models: the top model and the profiles
 
-Model profiles control which Claude model each GSD agent uses. This allows balancing quality vs token spend.
+## The top model (one config key)
 
-## Profile Definitions
+The owner names the best available model once, in `.planning/config.json`, as an alias (never a model id), with an optional fallback:
 
-| Agent | `quality` | `balanced` | `budget` |
-|-------|-----------|------------|----------|
-| gsd-planner | opus | opus | sonnet |
-| gsd-roadmapper | opus | sonnet | sonnet |
-| gsd-executor | opus | haiku | haiku |
-| gsd-phase-researcher | opus | sonnet | haiku |
-| gsd-project-researcher | opus | sonnet | haiku |
-| gsd-research-synthesizer | sonnet | sonnet | haiku |
-| gsd-debugger | opus | sonnet | sonnet |
-| gsd-codebase-mapper | sonnet | haiku | haiku |
-| gsd-verifier | opus | opus | opus |
-| gsd-plan-checker | sonnet | sonnet | haiku |
-| gsd-integration-checker | sonnet | sonnet | haiku |
-| gsd-test-writer | sonnet | haiku | haiku |
-| gsd-docs-updater | sonnet | haiku | haiku |
-| gsd-phase-coordinator | sonnet | sonnet | sonnet |
-
-## Profile Philosophy
-
-**quality** - Maximum reasoning power
-- Opus for all decision-making agents
-- Sonnet for read-only verification
-- Use when: quota available, critical architecture work
-
-**balanced** (default) - Smart allocation
-- Opus only for planning (where architecture decisions happen)
-- Haiku for execution and test/doc writing (Opus plans are already decomposed)
-- Sonnet for coordinators, research and first-pass review; Opus for the phase verifier
-- Use when: normal development, good balance of quality and cost
-
-**budget** - Minimal Opus usage
-- Haiku for anything that writes code
-- Haiku for research and verification
-- Use when: conserving quota, high-volume work, less critical phases
-
-## Resolution Logic
-
-Orchestrators resolve model before spawning:
-
-```
-1. Read .planning/config.json
-2. Get model_profile (default: "balanced")
-3. Look up agent in table above
-4. Pass model parameter to Task call
-```
-
-## Switching Profiles
-
-Runtime: `/gsd:set-profile <profile>`
-
-Per-project default: Set in `.planning/config.json`:
 ```json
-{
-  "model_profile": "balanced"
-}
+{ "models": { "top": "<alias>", "top_fallback": "<alias>" } }
 ```
 
-## Design Rationale
+Every `gsd-tools init <workflow>` call emits it as `ruling_model` and `ruling_model_fallback` (CLI-3; until it lands the two values come from the config keys of the same names, the default lives in the CLI). A spawn rejected for availability retries once on the fallback and says so.
 
-**Why Opus for gsd-planner?**
-Planning involves architecture decisions, goal decomposition, and task design. This is where model quality has the highest impact.
+These roles always run on `ruling_model`, whatever the profile. This table is the only place that says so; every other file writes `{ruling_model}`:
 
-**Why Haiku for gsd-executor?**
-Executors follow explicit PLAN.md instructions. The plan already contains the reasoning; execution is implementation. A miss is caught by Sonnet reviews and Opus phase verification; escalate to Sonnet after two failures on the same task.
+| Role | Where |
+|---|---|
+| Final phase review: the phase-end `gsd-verifier`, at every rigour | execute-phase `verify_phase_goal` |
+| Final milestone review: the milestone audit, its rules distillation and the separate review of that diff | execute-roadmap `completion`, audit-milestone |
+| Rulings | wherever the trigger row of `references/rigour.md` allows one |
+| Planner and round-1 plan-check of a risk-domain phase or plan; the batched diff review; PRD synthesis | plan-phase, execute-phase, prd |
 
-**Why Opus for the verifier?**
-Verification requires goal-backward reasoning - checking if code *delivers* what the phase promised. Sonnet pre-verifies; Opus rules at phase end.
+A ledger `source` or `caught_by` value such as `opus-ruling` or `opus-diff-review` is a stored identifier the CLI validates ("done on the top model"), not a model choice.
 
-**Why Haiku for gsd-codebase-mapper?**
-Read-only exploration and pattern extraction. No reasoning required, just structured output from file contents.
+## Profiles (every other role)
+
+`model_profile` in `.planning/config.json` (`quality` | `balanced` (default) | `budget`; `/gsd:set-profile <profile>`) picks the model of the remaining agents. `MODEL_PROFILES` in `bin/gsd-tools.js` holds the table; init returns the result as `planner_model`, `checker_model`, `researcher_model`, `executor_model`; `coordinator_model`, `reviewer_model` and `utility_model` come from their own config keys. A task's own tier tag (`<model>` in a PLAN) overrides `executor_model` for that task. Workflows pass the init field in every spawn and never look a model up themselves.
+
+| Profile | Intent |
+|---|---|
+| `quality` | strongest model for every agent that decides something; highest cost |
+| `balanced` | strong planning, cheap execution and test/doc writing (plans are already decomposed), mid tier for coordination, research and review rounds |
+| `budget` | cheapest model for anything that writes; mid tier only for planning and coordination |
+
+An executor miss is caught by the review rounds and the final phase review; a task escalates one tier after two failures.
