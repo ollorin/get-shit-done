@@ -6,7 +6,7 @@ restructuring: the complete execution_flow (load_project_state, load_plan,
 load_user_reasoning_context, record_start_time, determine_execution_pattern,
 execute_tasks), the inter-task syntax check procedure, the acceptance-row
 task handling procedure, the post-plan test suite gate procedure, the
-SUMMARY.md creation procedure, the mandatory docs update procedure, the
+SUMMARY.md creation procedure, the
 STATE.md update procedure, the requirements-completion procedure, and the
 final commit procedure. Nothing here was reworded, summarized, or deleted.
 
@@ -426,80 +426,6 @@ Or: "None - plan executed exactly as written."
 
 Omit this section entirely if ROUTED_TIER was null for all tasks (routing not active — non-auto profile).
 </summary_creation>
-
-<docs_update>
-
-## Mandatory Docs Update
-
-After self-check passes (SUMMARY.md verified), spawn the docs updater agent as the last mandatory step before state updates.
-
-**This step is not skippable.** Fire it regardless of what was built. If self-check failed (SUMMARY.md says FAILED), skip this step — state updates are also skipped in that case.
-
-Determine the absolute path of the SUMMARY.md just written:
-
-```bash
-SUMMARY_PATH="$(pwd)/.planning/phases/${PHASE_DIR}/${PHASE}-${PLAN}-SUMMARY.md"
-PROJECT_ROOT="$(pwd)"
-```
-
-Spawn gsd-docs-updater:
-
-```
-Agent(
-  subagent_type="gsd-docs-updater",
-  model="{executor_model}",
-  prompt="
-    <context>
-    Phase: {PHASE}
-    Plan: {PLAN}
-    Project root: {PROJECT_ROOT}
-    </context>
-
-    <summary_path>
-    {SUMMARY_PATH}
-    </summary_path>
-
-    Read the SUMMARY.md at the path above. Classify build scope. Detect /docs conventions. Write proportionally-scoped docs. Commit. Report.
-  "
-)
-```
-
-Wait for gsd-docs-updater to complete. Parse the returned structured contract (see gsd-docs-updater.md's `<report>` step):
-- `written_files` — array of absolute paths written (empty array if none)
-- `commit` — short commit hash, or the literal `"none"`
-- `errors` — array of error strings (empty array if none)
-
-**On docs agent failure — HARD BLOCK. Do NOT proceed to state_updates.** Failure means any of:
-- `Agent()` throws an exception, or the call times out
-- The returned report's `errors` array is non-empty
-- The returned report has `written_files: []` (empty) AND `errors: []` (empty) — per gsd-docs-updater.md's own contract, this combination should never occur legitimately; if it does, treat it as a failure, not a silent pass
-
-On any of the above:
-1. Append to SUMMARY.md:
-   ```markdown
-   ## Docs
-
-   **Status:** BLOCKED — {error message or "docs-updater returned no written files and no error, treated as failure per contract"}
-   ```
-2. STOP. Present two options to the operator/coordinator, matching the pattern already established for Gate 1 in `execute-phase.md`:
-   (a) Fix the underlying issue (missing SUMMARY.md path, docs convention detection bug, etc.) and re-spawn `gsd-docs-updater`, or
-   (b) For a legitimate, documented exception, run `node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" deferred add "${PHASE}" --step docs --reason <reason> --approver <approver> --plan "${PLAN}"`, then proceed to state_updates with the waiver noted in SUMMARY.md's `## Docs` section.
-3. Do not allow silent continuation past a docs failure. This step remains "not skippable" (see above — unchanged) — the fix is that failure now actually blocks, instead of being logged and ignored.
-
-**On docs agent success** (parse the structured contract — `written_files` non-empty OR a valid `commit` other than `"none"`, and `errors` empty): append to SUMMARY.md:
-
-```markdown
-## Docs
-
-**Scope:** {DOCS_BUILD_SCOPE}
-**Files written:**
-{for each file in written_files: - {file path}}
-**Commit:** {commit}
-```
-
-</docs_update>
-
-
 
 <state_updates>
 After SUMMARY.md, update STATE.md using the atomic gsd-tools `state` mutators below — never a raw whole-file Write, since parallel executors in the same wave touch STATE.md concurrently. **See @~/.claude/get-shit-done/references/shared-file-writes.md.**

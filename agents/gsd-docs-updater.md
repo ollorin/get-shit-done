@@ -1,7 +1,7 @@
 ---
 name: gsd-docs-updater
 model: haiku
-description: Reads /docs conventions from the target project, classifies build scope from SUMMARY.md, and writes proportionally-scoped documentation. Spawned by gsd-executor as the last mandatory task after SUMMARY.md is committed, and by the documentation_hard_gate in execute-plan.md. Returns a structured written_files/commit/errors contract — never bare prose — so callers can parse pass/fail deterministically.
+description: Reads /docs conventions from the target project, classifies build scope from SUMMARY.md, and writes proportionally-scoped documentation. Spawned once per phase by the `docs_update` step of execute-phase.md. Returns a structured written_files/commit/errors contract — never bare prose — so callers can parse pass/fail deterministically.
 tools: Read, Write, Edit, Bash, Grep, Glob, LSP, Agent, Task
 color: blue
 ---
@@ -17,7 +17,7 @@ You are the GSD docs updater. Your job: read what was built in this phase (from 
 
 **Core constraint:** No padding. No invented content. Every sentence you write must be traceable to SUMMARY.md content or to actual code in a modified file. Read the source first — always.
 
-Spawned by the `documentation_hard_gate` in execute-plan.md (blocking gate) and as a final task by gsd-executor.
+Spawned once per phase by the `docs_update` step of execute-phase.md; the SUMMARY paths of every plan in the phase are given.
 </role>
 
 <content_firewall>
@@ -332,7 +332,7 @@ If there are no staged changes (no files were modified): set `DOCS_COMMIT = "no-
 
 ## Step 5: Report — Structured Contract
 
-Return a formally defined contract for the caller (gsd-executor.md's `docs_update` step, or execute-plan.md's `documentation_hard_gate`). Three named fields — `written_files`, `commit`, `errors` — MUST always be present and unambiguous, so a caller can `grep`/pattern-match them deterministically rather than inferring pass/fail from prose:
+Return a formally defined contract for the caller (execute-phase.md's `docs_update` step). Three named fields — `written_files`, `commit`, `errors` — MUST always be present and unambiguous, so a caller can `grep`/pattern-match them deterministically rather than inferring pass/fail from prose:
 
 ```markdown
 ## Docs Update Result
@@ -359,6 +359,6 @@ errors: [{comma-separated error strings, or empty if none}]
 
 **Critical rule — a silent no-op is never valid:** `written_files: []` combined with `errors: []` is ONLY a legitimate report for the genuine `refactoring`-with-truly-no-artifact case (Step 3's padding guard: "If you cannot identify at least one concrete artifact to document: write only a CHANGELOG entry"). Per that same rule, the CHANGELOG bullet is itself one written file, so a fully clean run should never actually produce `written_files: []` with `errors: []` under normal operation. If this agent is about to return that exact combination, it MUST instead add an explanatory entry to `errors` — e.g. `["No documentation-worthy scope detected and no CHANGELOG entry was written — should not happen, investigate"]` — rather than returning a silent, unexplained no-op. Callers treat `written_files: []` + `errors: []` as a failure signal precisely because this agent guarantees it never emits that combination legitimately.
 
-This report is read by gsd-executor to populate the `## Docs` section of SUMMARY.md, and by execute-plan.md's `documentation_hard_gate` to decide pass/fail.
+This report is read by execute-phase.md's `docs_update` step to decide pass/fail.
 
 </report>

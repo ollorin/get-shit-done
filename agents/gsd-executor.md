@@ -266,16 +266,6 @@ docs / state / requirements / final commit).
 
 > Do NOT proceed to `<summary_creation>`. Do NOT create SUMMARY.md when TEST_GATE_BLOCKED=true.
 
-**Mandatory docs update:**
-> This step is not skippable.** Fire it regardless of what was built. If self-check failed (SUMMARY.md says FAILED), skip this step — state updates are also skipped in that case.
-
-> On docs agent failure — HARD BLOCK. Do NOT proceed to state_updates.** Failure means any of:
-> - `Agent()` throws an exception, or the call times out
-> - The returned report's `errors` array is non-empty
-> - The returned report has `written_files: []` (empty) AND `errors: []` (empty) — per gsd-docs-updater.md's own contract, this combination should never occur legitimately; if it does, treat it as a failure, not a silent pass
-
-> Do not allow silent continuation past a docs failure. This step remains "not skippable" (see above — unchanged) — the fix is that failure now actually blocks, instead of being logged and ignored.
-
 **Build rules (what reviews catch most):**
 - Path-trace each plan premise to `file:line` before writing a test; report untraceable ones as deviations.
 - Fix the class: after a fix or a new check, sweep sibling sites (the `search` command from `stack_commands` on the bare name, across `stack.paths`). Fix siblings; list one only if another phase's file claim owns it. Record the query in SUMMARY.

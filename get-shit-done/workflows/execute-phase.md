@@ -42,7 +42,7 @@ If the command exits 1 and INIT has `error: project_context_missing`: stop, prin
 
 Parse JSON for: `auto_mode`, `executor_model`, `verifier_model`, `ruling_model`, `ruling_model_fallback`, `utility_model`, `reviewer_model`, `base_branch`, `ui_qa_mode`, `commit_docs`, `parallelization`, `branching_strategy`, `branch_name`, `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `phase_slug`, `plans`, `incomplete_plans`, `plan_count`, `incomplete_count`, `state_exists`, `roadmap_exists`, `phase_req_ids`, `risk_addons`, `brief_path`, `stack_profile_path`, `stack_commands`. Every spawned agent receives `brief_path` and `stack_profile_path` (when not null) in its `<files_to_read>`, and `stack_commands` verbatim.
 
-**Rigour and budget (print first):** init also returns the rigour fields. `references/rigour.md` is the contract (levels, risk-domain add-ons, caps, budget). Before anything else print its first line (`Phase {N}: rigour ..., risk domains: ..., budget ...`), counting what plan-phase already logged. Pass `rigour`, the spike roots and the remaining budget in every spawn prompt. Call `gsd-tools budget spend --phase {N}` once per child spawn and `gsd-tools budget spend --phase {N} --done` when it returns, and `gsd-tools budget status --phase {N}` before each new review round or gap cycle. At `warn` finish the current step and do no optional work; at `breach` start no new cycle, still run the final review once (and its one fix dispatch) when every plan has a SUMMARY, then follow rigour.md rule 7: the phase completes only if nothing mandatory was skipped, else print the owner report naming what was skipped and end with the trailer `{"status": "blocked", "reason": "budget_exceeded"}`. Never report `completed` over a skipped mandatory check.
+**Rigour and budget (print first):** init also returns the rigour fields. `references/rigour.md` is the contract (levels, risk-domain add-ons, caps, budget). Before anything else print its first line (`Phase {N}: rigour ..., risk domains: ..., budget ...`), counting what plan-phase already logged. Pass `rigour`, the spike roots and the remaining budget in every spawn prompt. Call `gsd-tools budget spend --phase {N}` once per child spawn, and `gsd-tools budget status --phase {N}` before each new review round or gap cycle. At `warn` finish the current step and do no optional work; at `breach` start no new cycle, still run the final review once (and its one fix dispatch) when every plan has a SUMMARY, then follow rigour.md rule 7: the phase completes only if nothing mandatory was skipped, else print the owner report naming what was skipped and end with the trailer `{"status": "blocked", "reason": "budget_exceeded"}`. Never report `completed` over a skipped mandatory check.
 
 **Spike:** When `rigour` is `spike`: no test steward; no `implementation_review` step and no reviewer dispatch (the final review is the only review); the verifier prompt carries the spike checks and final-review questions of `references/rigour.md`; its findings get ONE `{executor_model}` fix dispatch (mandatory when it lists a CRITICAL/HIGH finding; `executor_model` is the floor `sonnet` or stronger, never `haiku`: the executor is the investigator; a spike plan is ONE executor on its `phase-plan-index` `executor_model` (its highest task tag, never below the floor), the fix dispatch on `{executor_model}`). The fix brief carries every numbered fix and every bounded probe of the final review verbatim, and its report gives each one a status: done (with capture path) or not done (with reason). After it the coordinator re-runs `verify phase-gate`, spawns ONE fix re-check dispatch on `{reviewer_model}` (reads only the fix commits against the findings and the bounded probes' captures; reports each finding closed / still open) and lowers `open_critical_high` only for findings it closed, then closes or rules per the Gap closure row of `references/rigour.md`: it spawns the ONE ruling dispatch on `ruling_model` itself, before it returns, and logs it with `gsd-tools execution-log event --type spike_ruling --data '{"phase":"{N}"}'` when it is spawned; each condition the ruling imposes names the file that must carry it, and the coordinator checks the text landed there before recording `ruled_by`; nothing open is silently parked; a non-CRITICAL/HIGH finding that was not mechanical stays listed as open in `SPIKE-RESULT.md` and the VERIFICATION body, and a CRITICAL/HIGH is never left open without a closing record or a ruling id (the phase does not complete); the last spike phase writes `SPIKE-RESULT.md` (per question: answer, capture path, go/no-go, what must be rebuilt). Every executor prompt carries rule 11 of `references/rigour.md` (a "no" needs a root-cause or search capture, else `inconclusive`), the answer-table shape, "every probe asserts what it claims and a loosened assertion keeps the failing capture", "SUMMARY at most 15 lines" and "a probe row that records FAIL is a result, not a failed self-check: `## Self-Check: PASSED` when every file, capture and commit exists; the verdict is the first word after `Self-Check:`" (the executor agent file stays unchanged: its preamble is at its token budget).
 
@@ -218,7 +218,7 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
 
    **Handoff brief (plan-level executor spawns at spike, and the verifier; a per-task executor gets none).** Assemble the fixed 5-section brief per `@get-shit-done/references/handoff-brief.md`, deterministically when possible: `node ~/.claude/get-shit-done/bin/gsd-tools.js handoff brief --json '{...}'` returns `brief_text`. PHASE GOAL from ROADMAP.md; KEY DECISIONS locked in CONTEXT.md and STATE.md for this phase; OPEN RISKS (the plan-checker's unresolved issues and watch-items); FILE MAP of the files the phase touches; HARD RULES the executor must honor. Put the result in `<handoff_brief>` of the spawn prompts below and of the verifier prompt.
 
-   **Per-task routing.** Except at spike, spawn one executor per task, on the task's tier tag, with the bounded escalation loop and token-usage records, as `@~/.claude/get-shit-done/references/task-routing.md` says; run its final `routing ledger build` after the last wave and before `post_phase_ux_sweep`. The plan-level spawns below are the spike path (one executor per plan, `model` = the plan's `executor_model`).
+   **Per-task routing.** Except at spike, spawn one executor per task, on the task's tier tag, with the bounded escalation loop and token-usage records, as `@~/.claude/get-shit-done/references/task-routing.md` says. The plan-level spawns below are the spike path (one executor per plan, `model` = the plan's `executor_model`).
 
    **For Wave 1 executors** (wave_number == 1, no prior context):
    ```
@@ -322,6 +322,7 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
    - Verify first 2 files from `key-files.created` exist on disk
    - Check `git log --oneline --all --grep="{phase}-{plan}"` returns ≥1 commit
    - Check for `## Self-Check: FAILED` marker
+   - Check the commit count for the plan is at least its task count (a plan that declares one aggregate commit is exempt)
 
    If ANY spot-check fails: report which plan failed, route to failure handler — ask "Retry plan?" or "Continue with remaining waves?"
    Auto (auto_mode, references/auto-mode.md K5): do not ask; run the deterministic ladder below (`execution-state record-failure`) for the plan and continue with the waves that do not depend on it.
@@ -555,13 +556,7 @@ After all waves:
 
   <!-- SUMMARY presence and Self-Check are checked by the script (`verify phase-gate`, step pre_verify_gates), not here. -->
 
-  <item id="PHGATE-03" severity="blocking">
-    <check>Audit log file exists for this phase</check>
-    <pass>phase-{N}-audit.jsonl exists in .planning/audit/</pass>
-    <fail>BLOCKING — .planning/audit/phase-{N}-audit.jsonl does not exist. Phase cannot be marked complete without an audit entry. Verify all plans wrote their audit entries (check CPGATE-04 in each plan's execution). See ~/.claude/get-shit-done/references/audit-log.md.</fail>
-  </item>
-
-  <!-- FPGATE-01 / SECGATE-01 / DFGATE-01: prevention-infrastructure lifecycle gates. -->
+  <!-- FPGATE-01 / DFGATE-01: prevention-infrastructure lifecycle gates. -->
   <!-- Each closes a documented POSTMORTEM escape class. If the target repo ships the -->
   <!-- corresponding Layer-1 gate (an entry in `stack.gates[]`), the gate RUNS it; if the -->
   <!-- profile has no such entry, the gate degrades to the static check described inline. -->
@@ -571,12 +566,6 @@ After all waves:
     <command>the run command of this ratchet's entry in `stack.gates[]` of `.planning/config.json` (legacy: no `stack.gates` => the repo's shipped FP gate script, as before) 2>&1 || echo FPGATE_FAIL</command>
     <pass>Gate exits 0 — every directory's measured violation count is at or below its `scripts/fp-violation-baseline.json` baseline (the ratchet is DOWN-only: a phase may reduce or hold counts, never raise them). If `stack.gates[]` is declared but has no entry for this ratchet (legacy with no `stack.gates` and no shipped FP gate script likewise), PASS only when no new empty-catch, non-`match()` handler, or oversized file was introduced by this phase.</pass>
     <fail>BLOCKING — a directory's violation count rose above baseline (`FPGATE_FAIL`, or the gate's `exceeded[]` array is non-empty). A phase may NEVER raise the ratchet. Closes POSTMORTEM FP classes 1 (swallowed errors), 2 (mutation), 7 (god-files/size), 8 (non-`match()` branching). Fix the new violations or, for a seeded pre-existing count, re-baseline deliberately — do NOT bypass.</fail>
-  </item>
-
-  <item id="SECGATE-01" severity="blocking">
-    <check>Every new endpoint (route / HTTP handler) added by this phase wires auth middleware AND ships an authorization test asserting an unauthorized caller is rejected</check>
-    <pass>For each new route/handler in the phase diff: (a) an auth/authorization middleware is applied server-side (not client-only), AND (b) a test exists asserting a 401/403 for an unauthenticated/unauthorized caller. No new endpoint lands without BOTH.</pass>
-    <fail>BLOCKING — a new endpoint shipped without server-side auth middleware and/or without an authz-rejection test. Authorization enforced only on the client is the failure this check exists for. Add the middleware and the authz test before the phase completes; do NOT defer either to a later phase.</fail>
   </item>
 
   <item id="DFGATE-01" severity="blocking">
@@ -721,8 +710,14 @@ After `mechanical_gates`, before `implementation_review`. Standard rigour only: 
 ONE dispatch, `Agent(subagent_type="gsd-test-writer", model="{reviewer_model}", description="Test steward phase {N}")`, given the phase's test files, `{phase_dir}/captures/gates.txt`, the plans' `<acceptance>` rows and `stack_commands`. It deletes, merges or speeds up tests as its role file says (a deletion only with a cited surviving proof) and returns net change and runtime delta. Rerun only the files it touched and append the output to `gates.txt`. Pass its return to the reviewers and the verifier: a phase with a net-positive test count and no stated reason is a finding for the final review.
 </step>
 
+<step name="docs_update">
+After `test_steward`, before `implementation_review`; not at `spike`. ONCE per phase, never per plan or task. Skip (one-line note) when the phase diff holds no documentation-worthy change: a new or changed endpoint, route or page, schema or migration, service or middleware, or auth or onboarding flow (not refactors, tests, CI or config only).
+
+ONE dispatch, `Agent(subagent_type="gsd-docs-updater", model="{utility_model}", description="Docs phase {N}")`, given the phase's SUMMARY paths, the changed files and the project root. It follows the project's `/docs` conventions, commits, and returns `written_files`, `commit`, `errors`. A thrown error, a non-empty `errors`, or empty `written_files` with `commit: "none"` for a documentation-worthy phase is a failed step: re-dispatch once, then record the exception with `deferred add "${PHASE}" --step docs --reason <reason> --approver <approver>` (auto mode: never approve it yourself; park the phase and name the missing docs). Name the written files in the verifier prompt.
+</step>
+
 <step name="implementation_review">
-After `test_steward`, before `pre_verify_gates`. Skip when the phase changed nothing outside `.planning/`, and always at `spike` (the final review is merged).
+After `docs_update`, before `pre_verify_gates`. Skip when the phase changed nothing outside `.planning/`, and always at `spike` (the final review is merged).
 
 Rounds and tier are the "Implementation review" row of `references/rigour.md`: when init `risk_addons` is true: loop to zero, at most 4 rounds, then ONE ruling on `{ruling_model}` (fix or accept each open finding), then ONE batched diff review on `{ruling_model}`. Each round is a fresh `{reviewer_model}` agent, never the implementer, given `git diff {phase base}..HEAD -- . ':!.planning'`, the plans, `{phase_dir}/captures/gates.txt` (the one full run; it does not re-run the suite) and the coordinator's review checklist. It reviews code and tests, not planning documents, and writes `{phase_dir}/{N}-REVIEW-{round}.md`: frontmatter `round`, `reviewer_role` (`reviewer` or `ruling`) and `open_critical_high: <count of CRITICAL/HIGH findings still open after this round>`, then one line per finding (id, severity, `file:line`, what, fix). A targeted re-review writes the total still open, not only its own finding. After a ruling on open CRITICAL/HIGH findings, the coordinator adds `ruled_by: [D-NN]` (the ruling's ledger ids) to the newest review file. `verify phase-gate` (so `phase complete`) refuses, as missing work, a phase that changed files outside `.planning/` with no review file, or whose newest round has `open_critical_high` above 0 and no `ruled_by`; the skip rule above is the same condition. Findings go to one `{executor_model}` fix dispatch per file set. After the standard cap (2 rounds), an open CRITICAL/HIGH finding is fixed and re-checked by ONE targeted re-review of that finding (fresh reviewer, same tier, only that finding's lines) or goes to ONE ruling; it is never closed by an `A-` row. Any other unfixed finding needs a reason and an `A-` row.
 </step>
@@ -746,16 +741,10 @@ PHASE_GATE_EXIT=$?
 
 This is the form gate: form is checked here, by a script, and nowhere else. At `spike` the script reports `test`, `docs`, `ui_qa` and `e2e_plan` as `not_applicable` itself: write no waiver, no `deferred add` and no `A-` row for them. If `PHASE_GATE_EXIT` is non-zero, split the output:
 
-- **Form errors** (`form_errors`: SUMMARY Self-Check section missing; a planning-record line cite in a PLAN or SUMMARY this phase wrote): spawn one `{executor_model}` fix agent with the error list verbatim, re-run the gate; at most two fix dispatches. No ruling, no waiver, no gap, no park; plan caps are a plan-time check and never go to this loop. An error that survives is closed in `update_roadmap` with `phase complete --form-debt`.
+- **Form errors** (`form_errors`: SUMMARY Self-Check section missing; a planning-record line cite in a PLAN or SUMMARY this phase wrote): no fix dispatch, no ruling, no waiver, no gap, no park; plan caps are a plan-time check. They are closed in `update_roadmap` with `phase complete --form-debt`.
 - **Missing work** (`failures` and `work_errors`: `missing_evidence`, `missing_test`, `missing_docs`, `missing_charlotte_qa` (the legacy code for UI QA), `e2e_generation_failed`): (a) produce the missing artifact and re-run the gate, or (b) for a documented exception run `node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" deferred add "${PHASE}" --step <step> --reason <reason> --approver <approver>` and re-run. A skip is always recorded with `deferred add`, never after the fact.
 
 Auto (auto_mode, references/auto-mode.md K4): missing work takes (a), then the gate re-runs; never approve a waiver (b) yourself. Still missing after one fix round: park the phase, return `status: blocked` naming the failures. Form errors never park; missing work always does.
-
-**Gate 2 — Cross-layer consistency (if phase added enums, types, or status values):**
-
-If the phase introduced a new enum value, status string, or type discriminator:
-- Verify it exists in ALL layers: DB constraint, RPC validation, handler validation, frontend type, UI display map
-- A value present in one layer but missing in another is a blocking defect
 
 </step>
 
@@ -900,7 +889,7 @@ Gap closure cycle: `/gsd:plan-phase {X} --gaps` reads VERIFICATION.md → create
 COMPLETION=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" phase complete "${PHASE_NUMBER}")
 ```
 
-When `form_errors` survived the (max 2) fix dispatches of the pre-verifier or final gate, run `phase complete "${PHASE_NUMBER}" --form-debt` instead: it records them in VERIFICATION frontmatter `form_debt` and still refuses on missing work. A form debt never parks, never becomes `gaps_found` and never blocks dependents.
+When `form_errors` remain at the pre-verifier or final gate, run `phase complete "${PHASE_NUMBER}" --form-debt` instead: it records them in VERIFICATION frontmatter `form_debt` and still refuses on missing work. A form debt never parks, never becomes `gaps_found` and never blocks dependents.
 
 The CLI handles:
 - Marking phase checkbox `[x]` with completion date

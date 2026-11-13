@@ -41,12 +41,11 @@ Agent(
 ```
 
 2. Wait for the executor to finish before spawning the next task.
-3. On return, derive the task type once (best-effort; on failure use `other`): `node ~/.claude/get-shit-done/bin/gsd-tools.js routing task-type "{task_name}" --raw`.
 
 **3. Success** (the return does not contain `TASK FAILED:`): log ONE outcome and record token usage (best-effort, never blocks), then go to the next task.
 ```bash
 node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event --type task_outcome \
-  --data '{"phase":{phase_number},"plan":"{plan_file}","task_index":{task_index},"task_name":"{task_name}","task_type":"{TASK_TYPE_FOR_LOGGING}","tier":"{TASK_TIER}","outcome":"success","capability_related":true}'
+  --data '{"phase":{phase_number},"plan":"{plan_file}","task_index":{task_index},"task_name":"{task_name}","tier":"{TASK_TIER}","outcome":"success","capability_related":true}'
 node ~/.claude/get-shit-done/bin/gsd-tools.js token-usage record \
   --phase {phase_number} --plan "{plan_file}" --task-index {task_index} --task-name "{task_name}" --tier "{TASK_TIER}" --raw
 ```
@@ -58,19 +57,19 @@ LOOP (`FAILS_AT_TIER` starts at 1; a task escalates only on its second failure a
 2. Log ONE failed-attempt outcome and its token usage:
 ```bash
 node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event --type task_outcome \
-  --data '{"phase":{phase_number},"plan":"{plan_file}","task_index":{task_index},"task_name":"{task_name}","task_type":"{TASK_TYPE_FOR_LOGGING}","tier":"{CURRENT_SIGNAL_TIER}","outcome":"failure","capability_related":{true unless IS_NON_CAPABILITY_TAGGED}}'
+  --data '{"phase":{phase_number},"plan":"{plan_file}","task_index":{task_index},"task_name":"{task_name}","tier":"{CURRENT_SIGNAL_TIER}","outcome":"failure","capability_related":{true unless IS_NON_CAPABILITY_TAGGED}}'
 node ~/.claude/get-shit-done/bin/gsd-tools.js token-usage record \
   --phase {phase_number} --plan "{plan_file}" --task-index {task_index} --task-name "{task_name}" --tier "{CURRENT_SIGNAL_TIER}" --raw
 ```
 3. `EFFECTIVE_REASON` is not `non_capability_failure` and `FAILS_AT_TIER` is 1: `FAILS_AT_TIER = 2`, re-spawn the same task on the same tier, and on `TASK FAILED:` GOTO LOOP. `EFFECTIVE_ESCALATE` true and `FAILS_AT_TIER` is 2 (haiku only): `FAILS_AT_TIER = 1`, log `tier_escalation`, move one count in `ROUTING_STATS`, `ESCALATIONS_USED += 1`, re-spawn the same task with `TASK_TIER = DECISION_JSON.next_tier`, wait.
 ```bash
 node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event --type tier_escalation \
-  --data '{"phase":{phase_number},"plan":"{plan_file}","task_index":{task_index},"task_name":"{task_name}","task_type":"{TASK_TYPE_FOR_LOGGING}","from_tier":"{CURRENT_SIGNAL_TIER}","to_tier":"{DECISION_JSON.next_tier}","reason":"{EFFECTIVE_REASON}"}'
+  --data '{"phase":{phase_number},"plan":"{plan_file}","task_index":{task_index},"task_name":"{task_name}","from_tier":"{CURRENT_SIGNAL_TIER}","to_tier":"{DECISION_JSON.next_tier}","reason":"{EFFECTIVE_REASON}"}'
 ```
    Still `TASK FAILED:`: refresh the three signal variables and GOTO LOOP (the tool bounds it: `escalate: false` once the ladder's bound is reached or the top tier failed). Succeeded: log ONE success outcome and its token usage at the FINAL tier, then the next task.
 ```bash
 node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event --type task_outcome \
-  --data '{"phase":{phase_number},"plan":"{plan_file}","task_index":{task_index},"task_name":"{task_name}","task_type":"{TASK_TYPE_FOR_LOGGING}","tier":"{TASK_TIER}","outcome":"success","capability_related":true}'
+  --data '{"phase":{phase_number},"plan":"{plan_file}","task_index":{task_index},"task_name":"{task_name}","tier":"{TASK_TIER}","outcome":"success","capability_related":true}'
 node ~/.claude/get-shit-done/bin/gsd-tools.js token-usage record \
   --phase {phase_number} --plan "{plan_file}" --task-index {task_index} --task-name "{task_name}" --tier "{TASK_TIER}" --raw
 ```
@@ -78,7 +77,5 @@ node ~/.claude/get-shit-done/bin/gsd-tools.js token-usage record \
 5. Otherwise log "Task {task_index} failed at {CURRENT_SIGNAL_TIER}, {EFFECTIVE_REASON}, no further escalation", record the task failed and continue; it falls into execute-phase's failure handling.
 
 Escalation applies ONLY to capability-related errors signalled by the executor. Output-quality issues never trigger it; a `[non-capability]` failure (missing file, environment error) is recorded failed at once and is never escalated. The ladder lives in the tool (`routing escalation-decision`); never write a second ladder inline.
-
-**6. After ALL plans and waves of the phase** (and before `post_phase_ux_sweep`): `node ~/.claude/get-shit-done/bin/gsd-tools.js routing ledger build --raw`, best-effort and idempotent: it folds every `task_outcome` and `tier_escalation` event into `.planning/routing-ledger.json`.
 
 </step>

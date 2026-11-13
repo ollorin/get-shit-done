@@ -131,44 +131,6 @@ describe('Phase 52-03: gsd-escalation parity (ESCALATION_LADDER + getNextModel)'
 });
 
 // -------------------------------------------------------------------------
-describe('Phase 52-03: analytics tier-key-set parity (unrecognized model -> unknown)', () => {
-  const analytics = require('./analytics.js');
-  let tmpDir;
-
-  beforeEach(() => { tmpDir = mkTmp(); });
-  afterEach(() => { rmTmp(tmpDir); });
-
-  test('generateReport tier distribution has exactly haiku/sonnet/opus/unknown; gpt-5 lands in unknown', () => {
-    const planningDir = path.join(tmpDir, '.planning');
-    fs.mkdirSync(planningDir, { recursive: true });
-    const events = [
-      '# Execution Log',
-      JSON.stringify({ type: 'routing_decision', model: 'haiku', phase: '52' }),
-      JSON.stringify({ type: 'routing_decision', model: 'haiku', phase: '52' }),
-      JSON.stringify({ type: 'routing_decision', model: 'sonnet', phase: '52' }),
-      JSON.stringify({ type: 'routing_decision', model: 'opus', phase: '52' }),
-      JSON.stringify({ type: 'routing_decision', model: 'gpt-5', phase: '52' }),
-    ].join('\n');
-    fs.writeFileSync(path.join(planningDir, 'EXECUTION_LOG.md'), events + '\n');
-
-    const report = analytics.generateReport(tmpDir);
-
-    assert.match(report, /## Model Tier Distribution/);
-    assert.match(report, /\|\s*haiku\s*\|\s*2\s*\|/);
-    assert.match(report, /\|\s*sonnet\s*\|\s*1\s*\|/);
-    assert.match(report, /\|\s*opus\s*\|\s*1\s*\|/);
-    // The unrecognized model must fall into the fixed unknown bucket...
-    assert.match(report, /\|\s*unknown\s*\|\s*1\s*\|/);
-    // ...and must NOT create a spurious 5th row.
-    assert.doesNotMatch(report, /\|\s*gpt-5\s*\|/);
-
-    // Exactly 4 tier rows in the distribution table.
-    const tierRows = report.match(/^\|\s*(haiku|sonnet|opus|unknown|gpt-5)\s*\|/gm) || [];
-    assert.strictEqual(tierRows.length, 4);
-  });
-});
-
-// -------------------------------------------------------------------------
 describe('Phase 52-03: model-registry.js fails open (never throws over config problems)', () => {
   const tmpDirs = [];
   afterEach(() => { while (tmpDirs.length) rmTmp(tmpDirs.pop()); });

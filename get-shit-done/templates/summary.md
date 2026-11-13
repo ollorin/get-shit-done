@@ -90,7 +90,7 @@ Mutation proof (T0 tests; one hunk each, reverted, in a throwaway worktree; hous
 
 ## Documentation Updates
 
-[Filled by documentation_hard_gate after execution. One of:]
+[One of:]
 - `docs/path/to/created-or-updated.md` — what it covers
 - `No documentation-worthy changes in this phase (pure refactoring/tests/CI).`
 

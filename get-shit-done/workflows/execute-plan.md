@@ -307,43 +307,6 @@ If verification fails: STOP. Present: "Verification failed for Task [X]: [name].
 Auto (auto_mode, references/auto-mode.md K5): do not present options; retry once, then stop the task and record it as failed so the caller's `execution-state` ladder decides.
 </step>
 
-<checkpoint type="verify" name="post-execution-audit">
-  <!-- Fires after all tasks complete and before SUMMARY.md is written. -->
-  <!-- Agents MUST pass all blocking items before writing SUMMARY.md. -->
-
-  <item id="CPGATE-01" severity="blocking">
-    <check>All plan tasks have a corresponding git commit</check>
-    <pass>commit count >= plan task_count (skip if plan uses single aggregate commit)</pass>
-    <fail>Missing commits — re-run failed tasks or document skipped tasks in SUMMARY.md</fail>
-  </item>
-
-  <item id="CPGATE-02" severity="blocking">
-    <check>All files listed in task done criteria exist on disk</check>
-    <pass>All output files present at expected paths</pass>
-    <fail>Missing output files — task did not complete correctly</fail>
-  </item>
-
-  <item id="CPGATE-03" severity="advisory">
-    <check>FP lint passes on modified TypeScript files (functions/, libs/ only)</check>
-    <command>run only when the project ships an FP lint command (`stack.gates[]` or `stack.commands.lint`); otherwise skip this check</command>
-    <pass>0 violations, or no TypeScript files modified in fp-lint scope</pass>
-    <fail>FP violations found — document in SUMMARY.md deviations section and fix before PR</fail>
-  </item>
-
-  <item id="CPGATE-04" severity="blocking">
-    <check>Audit log entry written for plan completion</check>
-    <action>
-      Write a plan_complete entry to .planning/audit/phase-{N}-audit.jsonl.
-      Run the write command from ~/.claude/get-shit-done/references/audit-log.md.
-      Verify the entry is valid JSON before continuing.
-    </action>
-    <fail>BLOCKING — audit log entry not written. Write entry before proceeding. See ~/.claude/get-shit-done/references/audit-log.md for format. Entry must be valid JSON on a single line in .planning/audit/phase-{N}-audit.jsonl</fail>
-  </item>
-
-</checkpoint>
-
-
-
 <step name="record_completion_time">
 ```bash
 PLAN_END_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -453,83 +416,6 @@ Task code already committed per-task. Commit plan metadata:
 
 ```bash
 node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs({phase}-{plan}): complete [plan-name] plan" --files .planning/phases/XX-name/{phase}-{plan}-SUMMARY.md .planning/STATE.md .planning/ROADMAP.md .planning/REQUIREMENTS.md
-```
-</step>
-
-<step name="documentation_hard_gate">
-**HARD GATE — not configurable, not skippable.**
-
-Classify what was built by reading SUMMARY.md accomplishments and the git diff since this plan started:
-
-```bash
-SUMMARY_PATH=".planning/phases/XX-name/${PHASE}-${PLAN}-SUMMARY.md"
-# Get files changed in this plan's commits
-FIRST_COMMIT=$(git log --oneline --grep="${PHASE}-${PLAN}" --reverse | head -1 | cut -d' ' -f1)
-git diff --name-only ${FIRST_COMMIT}^..HEAD 2>/dev/null
-```
-
-**Documentation-worthy signals (ANY match = gate fires):**
-
-| Signal | Condition |
-|--------|-----------|
-| New/changed API endpoints | Changed files match: `api`, `route`, `handler`, `endpoint`, `router` |
-| New UI routes or pages | Changed files match: `page`, `pages/`, `screen`, `view`, `frontend` |
-| New DB schema / migration | Changed files match: `migration`, `schema`, `prisma`, `model` |
-| New service or middleware | SUMMARY.md contains: "new service", "middleware", "new schema" |
-| New auth/onboarding flow | SUMMARY.md contains: "auth", "onboarding", "flow", or a word from `get-shit-done/legacy/risk-keywords.json` (`doc_signal`) |
-
-**Exclusions (gate passes automatically, no docs needed):**
-- Pure refactoring with no new public surface (no routes, no new components, no schema changes)
-- Test-only changes (`*.test.*`, `*.spec.*`, `__tests__/`)
-- CI/config-only changes (`.github/`, `*.yml`, `*.json` config files only)
-- Internal utility/helper changes with no exported public API
-
-**If documentation-worthy changes found:**
-
-Spawn `gsd-docs-updater` subagent:
-
-```
-Spawn agent: gsd-docs-updater
-Prompt: "Documentation gate triggered for phase {phase}, plan {plan}.
-SUMMARY.md path: {SUMMARY_PATH}
-Project root: {PROJECT_ROOT}
-Changes classified as: {comma-separated list of matched signals}
-Changed files: {list of changed files}
-
-Read SUMMARY.md and the changed source files. Create or update docs following project conventions. Commit all doc changes."
-```
-
-Wait for subagent to return. Parse the structured contract from gsd-docs-updater.md's `<report>` step: `written_files` (array), `commit` (short hash or `"none"`), `errors` (array). Check result:
-
-**Three distinct named failure triggers — any of these means GATE FAILS:**
-
-- **No-changes-with-signals:** subagent returns `commit: "none"` and `written_files: []` but documentation-worthy signals were found in this plan's diff.
-- **Thrown error / exception:** the subagent call itself throws (crashes, cannot be spawned, malformed response).
-- **Timeout:** the subagent does not return within the expected window.
-
-On any of the three:
-```
-🚫 DOCUMENTATION GATE FAILED
-Documentation-worthy changes detected ({matched signals}) but no docs were written.
-The phase cannot complete until documentation is created.
-Fix: manually run gsd-docs-updater or write the docs directly, then re-run this step.
-```
-STOP — do not proceed to `update_codebase_map`.
-
-For a legitimate, documented exception instead of fixing the docs, run:
-```
-node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" deferred add "${PHASE}" --step docs --reason <reason> --approver <approver> --plan "${PLAN}"
-```
-Then treat the gate as passed (waived) and proceed to `update_codebase_map`. Record the waiver in SUMMARY.md's `## Documentation Updates` section instead of a written-files list.
-
-This is the ONLY sanctioned bypass — do not add any other flag or silent-skip condition.
-
-- If subagent returns one or more `written_files` with a valid `commit` (and `errors` empty): gate passes. Record doc files in SUMMARY.md `## Documentation Updates` section.
-
-**If no documentation-worthy changes (exclusion path):** Gate passes automatically. Add to SUMMARY.md:
-```
-## Documentation Updates
-No documentation-worthy changes in this phase (pure refactoring/tests/CI).
 ```
 </step>
 

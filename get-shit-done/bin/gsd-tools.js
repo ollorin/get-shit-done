@@ -444,8 +444,6 @@ function loadConfig(cwd) {
     staleness_threshold_minutes: 30,
     usage_pause_threshold_tokens: null,
     resilience: { staleness_threshold_minutes: 30, usage_pause_threshold_tokens: null },
-    routing_min_sample_count: 5,
-    routing: { min_sample_count: 5 },
     savings_baseline_tier: 'opus',
     savings: { baseline_tier: 'opus' },
     test_writer_enabled: false,
@@ -499,7 +497,6 @@ function loadConfig(cwd) {
       max_attempts: get('max_attempts', { section: 'execution', field: 'max_attempts' }) ?? defaults.max_attempts,
       staleness_threshold_minutes: get('staleness_threshold_minutes', { section: 'resilience', field: 'staleness_threshold_minutes' }) ?? defaults.staleness_threshold_minutes,
       usage_pause_threshold_tokens: get('usage_pause_threshold_tokens', { section: 'resilience', field: 'usage_pause_threshold_tokens' }) ?? defaults.usage_pause_threshold_tokens,
-      routing_min_sample_count: get('routing_min_sample_count', { section: 'routing', field: 'min_sample_count' }) ?? defaults.routing_min_sample_count,
       savings_baseline_tier: get('savings_baseline_tier', { section: 'savings', field: 'baseline_tier' }) ?? defaults.savings_baseline_tier,
       test_writer_enabled: get('test_writer_enabled', { section: 'quality', field: 'test_writer' }) ?? defaults.test_writer_enabled,
       coordinator_model: get('coordinator_model') ?? null,
@@ -12928,49 +12925,8 @@ function cmdCompressStats(raw) {
 }
 
 // ============================================================
-// Routing: task type, ledger, failure classification, escalation
+// Routing: failure classification, escalation
 // ============================================================
-
-function cmdRoutingTaskType(cwd, taskDesc, raw) {
-  if (!taskDesc) { error('task description required'); return; }
-  const taskType = deriveTaskType(taskDesc);
-  output({ task_type: taskType }, raw, taskType);
-}
-
-function cmdRoutingLedgerBuild(cwd, raw) {
-  const events = getHistory(cwd);
-  const config = loadConfig(cwd);
-  let telemetryReports = [];
-  try { telemetryReports = readTelemetryReports(cwd); } catch (_) { telemetryReports = []; }
-  const ledger = buildRoutingLedger(events, { minSampleCount: config.routing_min_sample_count, telemetryReports });
-  writeRoutingLedger(cwd, ledger);
-  output({ ok: true, built_at: ledger.built_at, source_event_count: ledger.source_event_count, min_sample_count: ledger.min_sample_count, task_type_count: Object.keys(ledger.task_types).length }, raw);
-}
-
-function cmdRoutingLedgerShow(cwd, raw) {
-  const result = readRoutingLedger(cwd);
-  if (!result.ok) { output({ ok: false, reason: result.reason, error: result.error }, raw); return; }
-  output(result.ledger || { built_at: null, source_event_count: 0, min_sample_count: 5, task_types: {} }, raw);
-}
-
-// Composes readRoutingLedger + consultLedger. Never throws -- fails open
-// with a loud stderr warning whenever the ledger is unavailable (missing or
-// corrupt), consistent with the readRoutingLedger contract it wraps.
-function cmdRoutingLedgerConsult(cwd, options, raw) {
-  const { taskType, heuristicTier } = options || {};
-  if (!taskType || !heuristicTier) { error('routing ledger consult: --task-type and --heuristic-tier are required'); return; }
-  const readResult = readRoutingLedger(cwd);
-  if (!readResult.ok) {
-    process.stderr.write(`WARNING: routing ledger unavailable (${readResult.reason}) -- falling back to heuristic-only routing\n`);
-    output({ tier: heuristicTier, adjusted: false, fail_open: true, reason: readResult.reason }, raw);
-    return;
-  }
-  const decision = consultLedger(readResult.ledger, taskType, heuristicTier, null);
-  if (decision.fail_open) {
-    process.stderr.write(`WARNING: routing ledger unavailable (${decision.reason}) -- falling back to heuristic-only routing\n`);
-  }
-  output(decision, raw);
-}
 
 function cmdRoutingClassifyFailure(cwd, errorText, raw) {
   const result = classifyFailure(errorText || '');
@@ -13968,136 +13924,6 @@ function summarizeTelemetryReports(reports) {
   };
 }
 
-// ─── Routing Ledger (Phase 57-01, MILE-34) ────────────────────────────────────
-//
-// Storage: .planning/routing-ledger.json is a single REBUILDABLE JSON object
-// not a JSONL append log. `routing ledger
-// build` rebuilds it wholesale from EXECUTION_LOG.md's task_outcome events
-// plus optional telemetry enrichment; it is never appended to incrementally.
-
-// Fixed ordered verb vocabulary for task-type bucketing. First whole-word
-// match wins (scanned in this order) -- no match falls back to 'other'.
-const TASK_TYPE_VOCAB = ['write', 'fix', 'add', 'remove', 'refactor', 'debug', 'design', 'implement',
-  'wire', 'migrate', 'test', 'update', 'create', 'configure', 'document', 'investigate', 'review',
-  'verify', 'run', 'commit'];
-
-// Pure function -- no I/O. Buckets a task description into a fixed ordered
-// verb vocabulary via first whole-word match; unmatched descriptions fall
-// back to 'other'.
-function deriveTaskType(taskDescription) {
-  if (!taskDescription || typeof taskDescription !== 'string') return 'other';
-  const lower = taskDescription.toLowerCase();
-  for (const verb of TASK_TYPE_VOCAB) {
-    if (new RegExp(`\\b${verb}\\b`).test(lower)) return verb;
-  }
-  return 'other';
-}
-
-function getRoutingLedgerPath(cwd) {
-  return path.join(cwd, '.planning', 'routing-ledger.json');
-}
-
-// Thin I/O wrapper -- NEVER throws. Mirrors readDeferredWaivers's exact
-// fail-open shape: an absent ledger file is not an error (no history yet);
-// a malformed/corrupt file is always surfaced loudly, never silently
-// treated as "no ledger".
-function readRoutingLedger(cwd) {
-  const ledgerPath = getRoutingLedgerPath(cwd);
-  if (!fs.existsSync(ledgerPath)) return { ok: true, ledger: null, reason: 'missing' };
-  const content = safeReadFile(ledgerPath);
-  if (content === null) return { ok: false, ledger: null, reason: 'corrupt', error: 'Could not read routing-ledger.json' };
-  const parsed = safeJsonParse(content, 'routing-ledger.json');
-  if (!parsed.ok) return { ok: false, ledger: null, reason: 'corrupt', error: parsed.error.message };
-  if (!parsed.value || typeof parsed.value !== 'object' || !parsed.value.task_types || typeof parsed.value.task_types !== 'object') {
-    return { ok: false, ledger: null, reason: 'corrupt', error: 'routing-ledger.json missing required task_types key' };
-  }
-  return { ok: true, ledger: parsed.value, reason: null };
-}
-
-// Thin I/O wrapper. This file is coordinator-only-writer (rebuilt wholesale
-// on each `routing ledger build`), low concurrent-write risk unlike
-// STATE.md/ROADMAP.md/config.json -- a plain writeFileSync is acceptable
-// per 57-RESEARCH.md (documented choice, see 57-01-SUMMARY.md).
-function writeRoutingLedger(cwd, ledger) {
-  const ledgerPath = getRoutingLedgerPath(cwd);
-  fs.mkdirSync(path.dirname(ledgerPath), { recursive: true });
-  fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2), 'utf-8');
-  return { ok: true, path: ledgerPath };
-}
-
-// Pure function -- no I/O. Aggregates an array of EXECUTION_LOG.md events
-// (shape matches getHistory's return) into a per-(task_type, tier)
-// attempts/successes/failures ledger. Non-task_outcome events in the same
-// array are ignored. Optional best-effort telemetry enrichment folds
-// tool_errors_swallowed into a quality_flags counter when a telemetry
-// report's phase+plan matches a bucketed task_outcome event -- never
-// required for the core attempts/successes math to be valid.
-function buildRoutingLedger(events, options = {}) {
-  const minSampleCount = options.minSampleCount || 5;
-  const taskTypes = {};
-  let sourceEventCount = 0;
-  for (const e of (events || [])) {
-    if (!e || e.type !== 'task_outcome' || !e.tier) continue;
-    sourceEventCount++;
-    const taskType = e.task_type || 'other';
-    if (!taskTypes[taskType]) taskTypes[taskType] = {};
-    if (!taskTypes[taskType][e.tier]) taskTypes[taskType][e.tier] = { attempts: 0, successes: 0, failures: 0 };
-    const bucket = taskTypes[taskType][e.tier];
-    bucket.attempts++;
-    if (e.outcome === 'success') bucket.successes++;
-    else if (e.outcome === 'failure') bucket.failures++;
-  }
-  // Best-effort telemetry enrichment -- never required for the core math to be valid.
-  if (Array.isArray(options.telemetryReports)) {
-    for (const r of options.telemetryReports) {
-      if (!r || r.phase === undefined || r.plan === undefined) continue;
-      const matches = (events || []).filter(e => e.type === 'task_outcome' && e.phase === r.phase && e.plan === r.plan);
-      for (const m of matches) {
-        const bucket = taskTypes[m.task_type || 'other'] && taskTypes[m.task_type || 'other'][m.tier];
-        if (!bucket) continue;
-        bucket.quality_flags = (bucket.quality_flags || 0) + (typeof r.tool_errors_swallowed === 'number' ? r.tool_errors_swallowed : 0);
-      }
-    }
-  }
-  return { built_at: new Date().toISOString(), source_event_count: sourceEventCount, min_sample_count: minSampleCount, task_types: taskTypes };
-}
-
-// Pure function -- no I/O. Decides whether historical ledger evidence
-// contradicts a heuristic tier decision strongly enough to warrant an
-// UPWARD-ONLY adjustment. Never adjusts down (per MILE-34/57-RESEARCH.md --
-// downgrading is out of scope; the heuristic's own cost bias already handles
-// that). Only a single hop up via getNextTier(heuristicTier) is considered
-// per call (haiku->sonnet only; the ladder ends at sonnet).
-function consultLedger(ledger, taskType, heuristicTier, minSampleCount) {
-  if (!ledger) {
-    return { tier: heuristicTier, adjusted: false, fail_open: true, reason: 'ledger_unavailable' };
-  }
-  const perTier = ledger.task_types && ledger.task_types[taskType];
-  if (!perTier) {
-    return { tier: heuristicTier, adjusted: false, reason: 'no_data_for_task_type' };
-  }
-  const effectiveMin = minSampleCount || ledger.min_sample_count || 5;
-  const totalSamples = Object.values(perTier).reduce((sum, t) => sum + (t.attempts || 0), 0);
-  if (totalSamples < effectiveMin) {
-    return { tier: heuristicTier, adjusted: false, reason: 'insufficient_sample', sample_count: totalSamples };
-  }
-  const rateOf = (tierStats) => (tierStats && tierStats.attempts > 0) ? tierStats.successes / tierStats.attempts : null;
-  const heuristicRate = rateOf(perTier[heuristicTier]);
-  const higherTier = getNextTier(heuristicTier);
-  if (heuristicRate !== null && heuristicRate < 0.5 && higherTier && perTier[higherTier] && perTier[higherTier].attempts >= effectiveMin) {
-    const higherRate = rateOf(perTier[higherTier]);
-    if (higherRate !== null && higherRate >= heuristicRate + 0.2) {
-      return {
-        tier: higherTier,
-        adjusted: true,
-        reason: `historical evidence: ${taskType} at ${heuristicTier} succeeds ${(heuristicRate * 100).toFixed(0)}% (${perTier[heuristicTier].attempts} samples) vs ${higherTier} ${(higherRate * 100).toFixed(0)}%`,
-        sample_count: totalSamples
-      };
-    }
-  }
-  return { tier: heuristicTier, adjusted: false, reason: 'no_contradicting_evidence', sample_count: totalSamples };
-}
-
 // Fixed, case-insensitive substring deny-list: matching ANY of these means
 // the failure is environment/infra-shaped (missing file, network, auth, disk,
 // git conflict), not a capability gap -- escalating to a higher model tier
@@ -15044,17 +14870,12 @@ async function main() {
     case 'analytics': {
       const analyticsSubcmd = args[1];
       if (!analyticsSubcmd) {
-        error('analytics: subcommand required (report|calibrate)');
+        error('analytics: subcommand required (report)');
       }
       if (analyticsSubcmd === 'report') {
         const { generateReport } = require('./analytics.js');
         const report = generateReport(cwd);
         process.stdout.write(report + '\n');
-      } else if (analyticsSubcmd === 'calibrate') {
-        const { calibrate } = require('./analytics.js');
-        const dryRun = args.includes('--dry-run');
-        const result = calibrate(cwd, { dryRun });
-        output(result, raw, dryRun ? 'Calibration (dry run)' : 'Calibration applied');
       } else {
         error(`analytics: unknown subcommand "${analyticsSubcmd}"`);
       }
@@ -16203,22 +16024,7 @@ Was ${model} the right choice for this task? (y/n): `;
 
     case 'routing': {
       const subcommand = args[1];
-      if (subcommand === 'task-type') {
-        cmdRoutingTaskType(cwd, args.slice(2).join(' '), raw);
-      } else if (subcommand === 'ledger') {
-        const ledgerSub = args[2];
-        if (ledgerSub === 'build') cmdRoutingLedgerBuild(cwd, raw);
-        else if (ledgerSub === 'show') cmdRoutingLedgerShow(cwd, raw);
-        else if (ledgerSub === 'consult') {
-          const taskTypeIdx = args.indexOf('--task-type');
-          const heuristicTierIdx = args.indexOf('--heuristic-tier');
-          cmdRoutingLedgerConsult(cwd, {
-            taskType: taskTypeIdx !== -1 ? args[taskTypeIdx + 1] : null,
-            heuristicTier: heuristicTierIdx !== -1 ? args[heuristicTierIdx + 1] : null,
-          }, raw);
-        }
-        else error('Unknown routing ledger subcommand. Available: build, show, consult');
-      } else if (subcommand === 'classify-failure') {
+      if (subcommand === 'classify-failure') {
         cmdRoutingClassifyFailure(cwd, args.slice(2).join(' '), raw);
       } else if (subcommand === 'escalation-decision') {
         const currentTierIdx = args.indexOf('--current-tier');
@@ -16230,7 +16036,7 @@ Was ${model} the right choice for this task? (y/n): `;
           escalationsUsed: escalationsUsedIdx !== -1 ? args[escalationsUsedIdx + 1] : null,
         }, raw);
       } else {
-        error('Unknown routing subcommand. Available: task-type, ledger, classify-failure, escalation-decision');
+        error('Unknown routing subcommand. Available: classify-failure, escalation-decision');
       }
       break;
     }
@@ -16335,12 +16141,6 @@ module.exports = {
   appendVerificationGap,
   writeEvalCandidates,
   validateEvalCandidateSchema,
-  deriveTaskType,
-  buildRoutingLedger,
-  readRoutingLedger,
-  writeRoutingLedger,
-  getRoutingLedgerPath,
-  consultLedger,
   classifyFailure,
   decideEscalation,
   NON_CAPABILITY_PATTERNS,

@@ -95,13 +95,6 @@ describe('CLI-4: budget', () => {
     const last = fs.readFileSync(path.join(dir, '.planning', 'EXECUTION_LOG.md'), 'utf8').trim().split('\n').filter((l) => l.startsWith('{')).pop();
     assert.strictEqual(JSON.parse(last).type, 'phase_spend_done');
   });
-  test('N2 prose: the coordinator logs spend at spawn and --done at return in one step', () => {
-    const md = fs.readFileSync(path.join(__dirname, '..', 'references', 'rigour.md'), 'utf8');
-    assert.match(md, /budget spend --phase \{N\}`[^\n]*budget spend --phase \{N\} --done/);
-    for (const f of ['workflows/plan-phase.md', 'workflows/execute-phase.md']) {
-      assert.match(fs.readFileSync(path.join(__dirname, '..', f), 'utf8'), /budget spend --phase[^\n]*--done/, f);
-    }
-  });
   test('budget spend --phase N logs one dispatch', () => {
     const before = json(['budget', 'status', '--phase', '1']).dispatches_spent;
     json(['budget', 'spend', '--phase', '1', '--step', 'plan-check', '--model', 'sonnet']);

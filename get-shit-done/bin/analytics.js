@@ -3,16 +3,12 @@
 /**
  * analytics.js — GSD Execution Analytics
  *
- * Provides two exported functions:
- *   generateReport(projectPath) — reads EXECUTION_LOG.md + SUMMARY.md files,
- *     returns a human-readable markdown analytics report.
- *   calibrate(projectPath, options) — reads execution history, proposes
- *     config.json threshold updates based on observed outcomes.
+ * generateReport(projectPath) — reads EXECUTION_LOG.md + SUMMARY.md files,
+ * returns a human-readable markdown analytics report.
  */
 
 const fs = require('fs');
 const path = require('path');
-const { getTiers } = require('./model-registry');
 
 // Lazy-load execution-log to avoid circular dependency issues
 function getHistory(projectPath) {
@@ -228,35 +224,6 @@ function generateReport(projectPath) {
   }
   lines.push('');
 
-  // --- Model Tier Distribution ---
-  const routingEvents = events.filter(e => e.type === 'routing_decision');
-  // Tier key set is sourced from the single-source-of-truth model registry
-  // (MILE-27) instead of a hardcoded literal; the fixed `unknown` bucket catches
-  // any tier the registry doesn't know about. Output is identical to the prior
-  // haiku/sonnet/opus/unknown literal for the tiers getTiers() currently returns.
-  const tierCounts = {};
-  for (const t of getTiers()) tierCounts[t] = 0;
-  tierCounts.unknown = 0;
-  for (const ev of routingEvents) {
-    const tier = (ev.model || ev.tier || '').toLowerCase();
-    if (Object.prototype.hasOwnProperty.call(tierCounts, tier) && tier !== 'unknown') tierCounts[tier]++;
-    else tierCounts.unknown++;
-  }
-
-  const totalRouted = Object.values(tierCounts).reduce((a, b) => a + b, 0);
-  if (totalRouted > 0) {
-    lines.push('## Model Tier Distribution');
-    lines.push('');
-    lines.push('| Tier | Count | % |');
-    lines.push('|------|-------|---|');
-    for (const [tier, count] of Object.entries(tierCounts)) {
-      if (count === 0) continue;
-      const pct = ((count / totalRouted) * 100).toFixed(1);
-      lines.push(`| ${tier} | ${count} | ${pct}% |`);
-    }
-    lines.push('');
-  }
-
   // --- Self-Report Telemetry (MILE-26) ---
   let telemetryReports = [];
   try {
@@ -320,192 +287,4 @@ function generateReport(projectPath) {
   return lines.join('\n');
 }
 
-/**
- * Calibrate config.json thresholds from execution history.
- *
- * @param {string} projectPath — root of the project (contains .planning/)
- * @param {Object} options
- * @param {boolean} options.dryRun — if true, show proposed changes without writing
- * @returns {Object} { proposed_changes, applied, dry_run }
- */
-function calibrate(projectPath, options) {
-  const { dryRun = true } = options || {};
-  const events = getHistory(projectPath);
-  const configPath = path.join(projectPath, '.planning', 'config.json');
-
-  let config = {};
-  try {
-    if (fs.existsSync(configPath)) {
-      config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    }
-  } catch (e) {
-    // config.json is absent or unparseable — start fresh
-  }
-
-  const proposedChanges = [];
-
-  // --- Calibration 1: haiku failure rate analysis ---
-  // If haiku-tier tasks fail disproportionately, propose raising the complexity
-  // threshold that routes tasks to haiku (i.e. make haiku harder to qualify for).
-  const haikuDispatches = events.filter(e =>
-    e.type === 'routing_decision' &&
-    (e.tier || e.model || '').toLowerCase() === 'haiku'
-  );
-
-  // task_failed events with haiku tier
-  const haikuFailures = events.filter(e =>
-    e.type === 'task_failed' && (e.tier || '').toLowerCase() === 'haiku'
-  );
-
-  if (haikuDispatches.length >= 3) {
-    const haikuFailureRate = haikuDispatches.length > 0
-      ? haikuFailures.length / haikuDispatches.length
-      : 0;
-
-    if (haikuFailureRate > 0.25) {
-      // More than 25% haiku tasks fail — propose tightening haiku routing
-      const currentThreshold = (config.routing && config.routing.haiku_max_score) || 0.35;
-      const proposedThreshold = Math.max(0.10, currentThreshold - 0.05);
-
-      proposedChanges.push({
-        field: 'routing.haiku_max_score',
-        current_value: currentThreshold,
-        proposed_value: proposedThreshold,
-        rationale: `Haiku failure rate is ${(haikuFailureRate * 100).toFixed(1)}% (${haikuFailures.length}/${haikuDispatches.length} tasks). Lowering haiku_max_score makes fewer tasks route to haiku.`,
-        data_points: haikuDispatches.length
-      });
-    } else if (haikuFailureRate < 0.05 && haikuDispatches.length >= 10) {
-      // Very low failure rate — haiku could handle more tasks
-      const currentThreshold = (config.routing && config.routing.haiku_max_score) || 0.35;
-      const proposedThreshold = Math.min(0.60, currentThreshold + 0.05);
-
-      if (proposedThreshold !== currentThreshold) {
-        proposedChanges.push({
-          field: 'routing.haiku_max_score',
-          current_value: currentThreshold,
-          proposed_value: proposedThreshold,
-          rationale: `Haiku failure rate is only ${(haikuFailureRate * 100).toFixed(1)}% (${haikuFailures.length}/${haikuDispatches.length} tasks). Raising haiku_max_score routes more simple tasks to haiku for efficiency.`,
-          data_points: haikuDispatches.length
-        });
-      }
-    }
-  }
-
-  // --- Calibration 2: Coverage threshold from SUMMARY.md files ---
-  const summaries = scanSummaries(projectPath);
-  const coverageValues = [];
-
-  for (const s of summaries) {
-    try {
-      const content = fs.readFileSync(s.path, 'utf8');
-      // Look for "coverage: XX%" or "coverage XX%" patterns
-      const matches = content.match(/coverage[:\s]+(\d+(?:\.\d+)?)\s*%/gi) || [];
-      for (const match of matches) {
-        const numMatch = match.match(/(\d+(?:\.\d+)?)/);
-        if (numMatch) {
-          const val = parseFloat(numMatch[1]);
-          if (val >= 0 && val <= 100) coverageValues.push(val);
-        }
-      }
-    } catch (e) { /* skip */ }
-  }
-
-  if (coverageValues.length >= 3) {
-    const sorted = [...coverageValues].sort((a, b) => a - b);
-    const median = sorted[Math.floor(sorted.length / 2)];
-    const currentThreshold = (config.coverage && config.coverage.threshold) || 80;
-
-    if (Math.abs(median - currentThreshold) > 5) {
-      // Propose adjusting toward observed median, but cap at 95 and floor at 50
-      const proposed = Math.max(50, Math.min(95, Math.round(median)));
-      proposedChanges.push({
-        field: 'coverage.threshold',
-        current_value: currentThreshold,
-        proposed_value: proposed,
-        rationale: `Observed median coverage across ${coverageValues.length} summaries is ${median.toFixed(1)}%, which differs from current threshold (${currentThreshold}%) by more than 5 points.`,
-        data_points: coverageValues.length
-      });
-    }
-  }
-
-  // --- Calibration 3: Average phase duration -> suggest coordinator timeout ---
-  const phaseDurations = [];
-  const phaseStarts = {};
-  const phaseCompletes = {};
-
-  for (const ev of events) {
-    if (ev.type === 'phase_start' && ev.timestamp) phaseStarts[ev.phase] = ev.timestamp;
-    if (ev.type === 'phase_complete' && ev.timestamp) phaseCompletes[ev.phase] = ev.timestamp;
-  }
-
-  for (const phaseNum of Object.keys(phaseCompletes)) {
-    if (phaseStarts[phaseNum]) {
-      const durationMs = new Date(phaseCompletes[phaseNum]) - new Date(phaseStarts[phaseNum]);
-      if (durationMs > 0) phaseDurations.push(durationMs);
-    }
-  }
-
-  if (phaseDurations.length >= 3) {
-    const avgMs = phaseDurations.reduce((a, b) => a + b, 0) / phaseDurations.length;
-    const avgMinutes = Math.ceil(avgMs / 60000);
-    const suggestedTimeout = Math.max(15, avgMinutes * 2); // 2x average with 15m minimum
-    const currentTimeout = (config.coordinator && config.coordinator.phase_timeout_minutes) || 60;
-
-    if (Math.abs(suggestedTimeout - currentTimeout) >= 10) {
-      proposedChanges.push({
-        field: 'coordinator.phase_timeout_minutes',
-        current_value: currentTimeout,
-        proposed_value: suggestedTimeout,
-        rationale: `Average phase duration from ${phaseDurations.length} completed phases is ${avgMinutes}m. Setting timeout to 2x average (${suggestedTimeout}m) provides adequate headroom.`,
-        data_points: phaseDurations.length
-      });
-    }
-  }
-
-  if (proposedChanges.length === 0) {
-    const totalEvents = events.length;
-    const msg = totalEvents < 10
-      ? `Insufficient data — need at least 3 completed phases to calibrate (currently ${Object.keys(phaseCompletes).length} completed). Run execute-roadmap at least once.`
-      : 'No calibration opportunities found — current thresholds appear well-tuned for observed execution patterns.';
-
-    return {
-      proposed_changes: [],
-      applied: false,
-      dry_run: dryRun,
-      message: msg
-    };
-  }
-
-  // Apply changes if not dry run
-  let applied = false;
-  if (!dryRun && proposedChanges.length > 0) {
-    for (const change of proposedChanges) {
-      // Set nested field using dot notation (e.g. "routing.haiku_max_score")
-      const parts = change.field.split('.');
-      let obj = config;
-      for (let i = 0; i < parts.length - 1; i++) {
-        if (!obj[parts[i]] || typeof obj[parts[i]] !== 'object') {
-          obj[parts[i]] = {};
-        }
-        obj = obj[parts[i]];
-      }
-      obj[parts[parts.length - 1]] = change.proposed_value;
-    }
-
-    try {
-      fs.mkdirSync(path.dirname(configPath), { recursive: true });
-      fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
-      applied = true;
-    } catch (e) {
-      // Return changes as proposed even if write failed
-    }
-  }
-
-  return {
-    proposed_changes: proposedChanges,
-    applied,
-    dry_run: dryRun
-  };
-}
-
-module.exports = { generateReport, calibrate };
+module.exports = { generateReport };

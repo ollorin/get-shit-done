@@ -155,13 +155,6 @@ describe('R5-6 / R5-7 / R5-8 / R5-12: dead profile and score leftovers are gone'
     assert.doesNotMatch(doc('get-shit-done/references/executor-detail.md'), /haiku\|sonnet\|opus|opus_count/);
     assert.match(doc('get-shit-done/references/models.md'), /`utility_model` from its own \(default `haiku`\)/);
   });
-  test('analytics counts routing_decision events only', () => {
-    const dir = project();
-    write(dir, '.planning/EXECUTION_LOG.md', ['# L', JSON.stringify({ type: 'task_dispatch', model: 'sonnet', phase: '1' }), JSON.stringify({ type: 'routing_decision', model: 'haiku', phase: '1' })].join('\n') + '\n');
-    const report = analytics.generateReport(dir);
-    assert.match(report, /\|\s*haiku\s*\|\s*1\s*\|/);
-    assert.doesNotMatch(report, /\|\s*sonnet\s*\|\s*1\s*\|/);
-  });
 });
 
 describe('R5-11: the savings baseline is a tier, not a profile', () => {
