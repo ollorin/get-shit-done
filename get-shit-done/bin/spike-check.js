@@ -5,8 +5,10 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { splitTableCells } = require('./md-table.js');
+const { checkboxState } = require('./roadmap-box.js');
 
-const NEGATIVE = /^[\s*_`]*(no|none|does not|not (?:supported|possible|available|working)|cannot|fails?)\b/i;
+// Only these answers need no root cause or search capture; every other answer (no, false, unsupported, blank, ...) does.
+const POSITIVE = /^(?:yes|inconclusive)\b/i;
 const EMPTY = /^[\s*_`-]*(?:n\/?a|none|-|—)?[\s*_`-]*$/i;
 const read = (f) => { try { return fs.readFileSync(f, 'utf8'); } catch { return null; } };
 
@@ -36,6 +38,13 @@ const pathOf = (cell) => {
   return tok && !EMPTY.test(tok) ? tok : '';
 };
 
+// The first token of a Probe cell that is an existing file ("node spike/probe.js" resolves spike/probe.js, not node).
+const probeFile = (cwd, phaseDir, cell) => {
+  const toks = cell.split(/\s+/).map((t) => t.replace(/^[`'"(]+|[`'"),;.]+$/g, '')).filter((t) => t && !EMPTY.test(t));
+  for (const t of toks) { const f = resolve(cwd, phaseDir, t); if (f) return f; }
+  return null;
+};
+
 const resolve = (cwd, phaseDir, p) => [path.join(cwd, p), path.join(phaseDir, p), path.join(phaseDir, 'captures', p)].find((f) => fs.existsSync(f)) || null;
 
 function git(cwd, args) { try { return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: 'pipe' }).trim(); } catch { return null; } }
@@ -48,29 +57,35 @@ function stamp(cwd, file) {
   try { return Math.floor(fs.statSync(file).mtimeMs / 1000); } catch { return null; }
 }
 
-function answerTableErrors(cwd, phaseDir, dirFiles) {
+function answerTableErrors(cwd, phaseDir, dirFiles, { requireTable = false } = {}) {
   const errors = [];
+  let tables = 0;
   for (const f of dirFiles.filter((x) => x === 'SPIKE-RESULT.md' || /-VERIFICATION\.md$/.test(x)).sort()) {
     const text = read(path.join(phaseDir, f));
     if (text === null) continue;
-    for (const r of answerRows(text)) {
+    const rows = answerRows(text);
+    if (rows.length > 0) tables += 1;
+    for (const r of rows) {
       const tag = `${f}: question "${r.question.slice(0, 60)}"`;
-      if (NEGATIVE.test(r.answer)) {
+      if (!POSITIVE.test(r.answer.replace(/[*_`\s]+/g, ' ').trim())) {
         const rc = pathOf(r.root);
-        if (!rc) errors.push(`${tag} answers "${r.answer.slice(0, 30)}" with no root-cause or search capture (answer inconclusive, or name the capture in the Root cause or search column)`);
+        if (!rc) errors.push(`${tag} answers "${r.answer.slice(0, 30)}" with no root-cause or search capture (answer yes or inconclusive, or name the capture in the Root cause or search column)`);
         else if (!resolve(cwd, phaseDir, rc)) errors.push(`${tag}: root-cause or search capture ${rc} not found on disk`);
       }
-      const probe = pathOf(r.probe);
+      const probeCell = r.probe.replace(/[*_`\s]+/g, ' ').trim();
+      const probeNamed = probeCell !== '' && !EMPTY.test(probeCell);
+      const pf = probeNamed ? probeFile(cwd, phaseDir, r.probe) : null;
+      if (probeNamed && !pf) errors.push(`${tag}: probe "${probeCell.slice(0, 60)}" not found on disk`);
       const capture = pathOf(r.capture);
-      if (probe && capture) {
-        const pf = resolve(cwd, phaseDir, probe);
+      if (pf && capture) {
         const cf = resolve(cwd, phaseDir, capture);
-        const ps = pf && stamp(cwd, pf);
+        const ps = stamp(cwd, pf);
         const cs = cf && stamp(cwd, cf);
-        if (ps && cs && ps > cs) errors.push(`${tag}: stale capture ${capture} is older than its probe ${probe}`);
+        if (ps && cs && ps > cs) errors.push(`${tag}: stale capture ${capture} is older than its probe ${path.relative(cwd, pf)}`);
       }
     }
   }
+  if (requireTable && tables === 0) errors.push('No answer table (| Question | Answer | Capture | Probe | Root cause or search |) in SPIKE-RESULT.md or the VERIFICATION: at spike it is the only per-phase result record');
   return errors;
 }
 
@@ -80,8 +95,7 @@ function statusAgreementErrors(cwd, phaseNumber) {
   const roadmap = read(path.join(cwd, '.planning', 'ROADMAP.md'));
   if (roadmap === null) return errors;
   const n = String(phaseNumber).replace(/^0+(?=\d)/, '').replace('.', '\\.');
-  const done = new RegExp(`^\\s*-\\s*\\[x\\].*Phase\\s+0*${n}[:\\s]`, 'im').test(roadmap);
-  if (!done) return errors;
+  if (checkboxState(roadmap, phaseNumber) !== true) return errors;
   const section = (roadmap.match(new RegExp(`#{2,4}\\s*Phase\\s+0*${n}\\s*:[\\s\\S]*?(?=\\n#{2,4}\\s*Phase\\s|\\n## |$)`, 'i')) || [''])[0];
   const ids = ((section.match(/\*\*Requirements:?\*\*:?\s*([^\n]*)/i) || [])[1] || '').match(/[A-Z][A-Z0-9]*-\d+/g) || [];
   const req = read(path.join(cwd, '.planning', 'REQUIREMENTS.md'));

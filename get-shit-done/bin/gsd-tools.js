@@ -235,6 +235,7 @@ const phaseBudget = require('./phase-budget.js');
 const formCheck = require('./form-check.js');
 const reviewGate = require('./review-gate.js');
 const spikeCheck = require('./spike-check.js');
+const roadmapBox = require('./roadmap-box.js');
 const planStamp = require('./plan-stamp.js');
 
 // Phase 2: Auto Mode safety modules (lazy — gracefully absent if not installed)
@@ -7302,13 +7303,14 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles, opts =
   }
   // A spike has no separate review file: its {N}-VERIFICATION.md (the merged final review) is the record, checked below.
   const spike = rigour.resolveRigour(cwd, phaseNumber, getMilestoneInfo(cwd).version).rigour === 'spike';
-  // A phase already recorded complete (ROADMAP box checked) was closed under the rules of its time: the review and
-  // spike-answer gates judge only phases still open, so a newer build never re-opens finished phases.
-  const closedEarlier = roadmapCheckboxState(cwd, String(phaseNumber).replace(/^0+(?=\d)/, '')) === true;
+  // A phase whose `phase_complete` event is in EXECUTION_LOG.md (written by `phase complete` / `roadmap record`) was closed under
+  // the rules of its time: the review and answer-table rules judge only phases still open. A hand-edited ROADMAP box proves nothing.
+  const k = dispatch.phaseKey(phaseNumber);
+  const closedEarlier = readExecutionEvents(cwd).some((e) => e.type === 'phase_complete' && dispatch.phaseKey(e.phase) === k);
   if (!spike && !closedEarlier) errors.push(...reviewGate.reviewErrors(phaseDir, dirFiles, touched));
-  if (spike && !closedEarlier) errors.push(...spikeCheck.answerTableErrors(cwd, phaseDir, dirFiles));
+  if (spike && !closedEarlier) errors.push(...spikeCheck.answerTableErrors(cwd, phaseDir, dirFiles, { requireTable: true }));
   const verification = readPhaseVerification(phaseDir, phaseNumber);
-  if (!opts.preVerifier && !closedEarlier) errors.push(...reviewGate.verificationReviewErrors(verification, spike));
+  if (!opts.preVerifier) errors.push(...reviewGate.verificationReviewErrors(verification, spike, closedEarlier));
   // Pre-verifier mode: the verifier produces this artifact, so demanding it earlier is circular.
   if (opts.preVerifier) {
     // intentionally no verification-artifact error
@@ -9998,8 +10000,7 @@ function cmdRequirementsMarkComplete(cwd, reqIdsRaw, raw) {
 function roadmapCheckboxState(cwd, phaseNum) {
   const content = safeReadFile(path.join(cwd, '.planning', 'ROADMAP.md'));
   if (content === null) return null;
-  const m = content.match(new RegExp(`-\\s*\\[(x| )\\]\\s*.*Phase\\s+${String(phaseNum).replace('.', '\\.')}[:\\s]`, 'i'));
-  return m ? m[1].toLowerCase() === 'x' : null;
+  return roadmapBox.checkboxState(content, phaseNum);
 }
 
 // One definition of "this phase is complete": the shared on-disk evidence
@@ -10163,12 +10164,8 @@ function cmdPhaseComplete(cwd, phaseNum, raw, opts = {}) {
   if (fs.existsSync(roadmapPath)) {
     let roadmapContent = fs.readFileSync(roadmapPath, 'utf-8');
 
-    // Checkbox: - [ ] Phase N: → - [x] Phase N: (...completed DATE)
-    const checkboxPattern = new RegExp(
-      `(-\\s*\\[)[ ](\\]\\s*.*Phase\\s+${phaseNum.replace('.', '\\.')}[:\\s][^\\n]*)`,
-      'i'
-    );
-    roadmapContent = roadmapContent.replace(checkboxPattern, `$1x$2 (completed ${today})`);
+    // Checkbox: - [ ] Phase N: → - [x] Phase N: (...completed DATE), on the phase's own line only
+    roadmapContent = roadmapBox.tickCheckbox(roadmapContent, phaseNum, ` (completed ${today})`);
 
     // Progress table: update ONLY the status cell, located by header name.
     // The previous regex hardcoded Status=column 3 / date=column 4, so on any
@@ -10269,6 +10266,12 @@ function cmdPhaseComplete(cwd, phaseNum, raw, opts = {}) {
     set('Last Activity Description', `Phase ${phaseNum} complete${nextPhaseNum ? `, transitioned to Phase ${nextPhaseNum}` : ''}`);
 
     atomicWriteFileSync(statePath, stateContent);
+  }
+
+  {
+    const key = dispatch.phaseKey(phaseNum);
+    const b = phaseBudgetStatus(cwd, key, readExecutionEvents(cwd));
+    appendEvent(cwd, { type: 'phase_complete', phase: key, budget_class: b.budget_class, wall_minutes_spent: b.wall_minutes_spent, dispatches_spent: b.dispatches_spent, budget_wall_minutes: b.budget_wall_minutes, budget_dispatches: b.budget_dispatches, pct: b.pct, warn: b.warn, breach: b.breach });
   }
 
   const result = {
@@ -12577,6 +12580,9 @@ function cmdRoadmapRecord(cwd, args, raw) {
   }
   for (const e of out.events) {
     if (e.type !== 'phase_complete') { appendEvent(cwd, e); continue; }
+    // `phase complete` already wrote this completion (with its final spend) and nothing has reopened the phase since.
+    const mine = events.filter((x) => dispatch.phaseKey(x.phase) === k);
+    if (mine.length > 0 && mine[mine.length - 1].type === 'phase_complete') continue;
     // The completion resets the budget window: record the final spend in the event so `budget status` can still show it.
     const b = phaseBudgetStatus(cwd, k, events);
     appendEvent(cwd, { ...e, budget_class: b.budget_class, wall_minutes_spent: b.wall_minutes_spent, dispatches_spent: b.dispatches_spent, budget_wall_minutes: b.budget_wall_minutes, budget_dispatches: b.budget_dispatches, pct: b.pct, warn: b.warn, breach: b.breach });

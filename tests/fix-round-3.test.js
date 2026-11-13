@@ -111,6 +111,7 @@ const spikeProject = ({ planExtra = '' } = {}) => {
   write(dir, '.planning/phases/01-p1/01-01-PLAN.md', `---\nphase: 01\nplan: 01\nplan_stamp: abc\nfiles_modified:\n  - .planning/phases/01-p1/captures/a.txt\n${planExtra}---\n# Plan\n<tasks>\n<task type="auto" tdd="true">x</task>\n</tasks>\n`);
   write(dir, '.planning/phases/01-p1/01-01-SUMMARY.md', '# S\n\nauth flow probe.\n\n## Self-Check: PASSED\n');
   write(dir, '.planning/phases/01-p1/01-VERIFICATION.md', '---\nstatus: passed\nopen_critical_high: 0\n---\n# V\n');
+  write(dir, '.planning/phases/01-p1/SPIKE-RESULT.md', '# R\n\n| Question | Answer | Capture | Probe | Root cause or search |\n|---|---|---|---|---|\n| Q0 base | yes | | | |\n');
   write(dir, 'spike/src/pages/probe.tsx', 'export default 1;\n');
   git(dir, 'add', '-A');
   git(dir, 'commit', '-q', '-m', 'feat(01-01): spike probe');
@@ -294,7 +295,7 @@ describe('items 12, 14, 15: spike answer table, review record in VERIFICATION, s
     const { dir, pd } = spikeProject();
     const v = (fm) => fs.writeFileSync(path.join(pd, '01-VERIFICATION.md'), `---\nstatus: passed\n${fm}---\n# V\n`);
     v('');
-    assert.ok(gate(dir).json.work_errors.some((e) => /open_critical_high \(a count\)/.test(e)));
+    assert.ok(gate(dir).json.work_errors.some((e) => /open_critical_high \(a whole count\)/.test(e)));
     v('open_critical_high: 2\n');
     assert.ok(gate(dir).json.work_errors.some((e) => /no ruling id/.test(e)));
     v('open_critical_high: 2\nruled_by: [D-07]\n');

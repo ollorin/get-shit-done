@@ -81,12 +81,26 @@ describe('N6 the review is a disk check: {N}-REVIEW-{round}.md frontmatter', () 
   const gate = (dir) => gsd(dir, ['verify', 'phase-gate', '1']).json;
   const reviewErr = (j) => j.work_errors.filter((e) => /REVIEW/.test(e));
 
-  test('a phase already recorded complete (ROADMAP box checked by an earlier build) is not re-judged by the review gate', () => {
-    const { dir } = executed();
+  const logComplete = (dir) => write(dir, '.planning/EXECUTION_LOG.md', '{"timestamp":"2026-01-01T00:00:00.000Z","type":"phase_complete","phase":"1"}\n');
+  const checkBox = (dir) => {
     const f = path.join(dir, '.planning', 'ROADMAP.md');
     fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace(/- \[ \] (\*\*)?Phase 1:/, '- [x] $1Phase 1:'));
-    assert.match(fs.readFileSync(f, 'utf8'), /- \[x\] (\*\*)?Phase 1:/);
+  };
+  test('a phase with a phase_complete event in EXECUTION_LOG (closed by an earlier build) is not re-judged by the review gate', () => {
+    const { dir } = executed();
+    logComplete(dir);
     assert.deepStrictEqual(reviewErr(gate(dir)), []);
+  });
+  test('a hand-checked ROADMAP box alone does not skip the review gate', () => {
+    const { dir } = executed();
+    checkBox(dir);
+    assert.strictEqual(reviewErr(gate(dir)).length, 1);
+  });
+  test('the event never skips an open CRITICAL/HIGH in VERIFICATION without a ruling id', () => {
+    const { dir, pd } = executed();
+    logComplete(dir);
+    fs.writeFileSync(path.join(pd, '01-VERIFICATION.md'), '---\nstatus: passed\nopen_critical_high: 2\n---\n# V\n');
+    assert.ok(gate(dir).work_errors.some((e) => /open_critical_high 2 and no ruling id/.test(e)));
   });
   test('code changed and no review file: work error, and phase complete refuses', () => {
     const { dir } = executed();
