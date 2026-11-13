@@ -169,3 +169,9 @@ describe('pilot fix D1/D2: dependency parking is recomputed from disk each call'
     assert.deepStrictEqual(d.resumeState(stale, phases, truthOf('1')).parked, []);
   });
 });
+
+describe('pilot fix D1/D2: a dependency-parked phase is still reported incomplete by the pre-PR gate', () => {
+  test('incompletePhases lists a phase that only has a dependency_parked event', () => {
+    assert.deepStrictEqual(d.incompletePhases([{ type: 'phase_parked', phase: '4', reason: 'dependency_parked' }], () => false), ['4']);
+  });
+});

@@ -52,7 +52,7 @@ function incompletePhases(events, truth) {
   const folded = foldEvents(events);
   const out = [];
   for (const [k, s] of folded) {
-    const involved = s.started || s.state === 'parked' || s.state === 'failed' || s.state === 'gap_pending';
+    const involved = s.started || s.dep_parked || s.state === 'parked' || s.state === 'failed' || s.state === 'gap_pending';
     if (!involved) continue;
     if (s.state === 'complete' && truth(k)) continue;
     out.push(k);
