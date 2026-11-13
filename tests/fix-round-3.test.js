@@ -110,7 +110,7 @@ const spikeProject = ({ planExtra = '' } = {}) => {
   const pd = phaseDir(dir, 1);
   write(dir, '.planning/phases/01-p1/01-01-PLAN.md', `---\nphase: 01\nplan: 01\nplan_stamp: abc\nfiles_modified:\n  - .planning/phases/01-p1/captures/a.txt\n${planExtra}---\n# Plan\n<tasks>\n<task type="auto" tdd="true">x</task>\n</tasks>\n`);
   write(dir, '.planning/phases/01-p1/01-01-SUMMARY.md', '# S\n\nauth flow probe.\n\n## Self-Check: PASSED\n');
-  write(dir, '.planning/phases/01-p1/01-VERIFICATION.md', '---\nstatus: passed\n---\n# V\n');
+  write(dir, '.planning/phases/01-p1/01-VERIFICATION.md', '---\nstatus: passed\nopen_critical_high: 0\n---\n# V\n');
   write(dir, 'spike/src/pages/probe.tsx', 'export default 1;\n');
   git(dir, 'add', '-A');
   git(dir, 'commit', '-q', '-m', 'feat(01-01): spike probe');
@@ -249,5 +249,75 @@ describe('item 8: run-state files do not fail git-status-clean', () => {
     const src = fs.readFileSync(path.join(__dirname, '..', 'get-shit-done', 'bin', 'pre-pr-checks.js'), 'utf8');
     const cmd = cfg.unknown.checks.find((c) => c.id === 'git-status-clean').command;
     assert.ok(src.includes(cmd.replace(/'/g, "\\'")), 'DEFAULT_CHECKS must match config');
+  });
+});
+
+describe('items 12, 14, 15: spike answer table, review record in VERIFICATION, stale captures, status agreement', () => {
+  const TABLE = (rows) => `\n| Question | Answer | Capture | Probe | Root cause or search |\n|---|---|---|---|---|\n${rows.join('\n')}\n`;
+  const addTable = (pd, rows, file = 'SPIKE-RESULT.md') => fs.writeFileSync(path.join(pd, file), `# R\n${TABLE(rows)}`);
+  const gate = (dir) => gsd(dir, ['verify', 'phase-gate', '1']);
+  test('a "no" without a root-cause or search capture is a WORK error; "inconclusive" and "yes" need none', () => {
+    const { dir, pd } = spikeProject();
+    addTable(pd, ['| Q1 admin on workerd | no | `captures/a.txt` | | |', '| Q2 other | inconclusive | `captures/b.txt` | | |', '| Q3 third | yes | `captures/c.txt` | | - |']);
+    const r = gate(dir);
+    assert.strictEqual(r.rc, 1);
+    assert.ok(r.json.failures.includes('missing_evidence'));
+    assert.ok(r.json.work_errors.some((e) => /Q1 admin/.test(e) && /root-cause or search/.test(e)));
+    assert.strictEqual(r.json.work_errors.filter((e) => /question/.test(e)).length, 1);
+  });
+  test('a "no" naming an existing search capture passes; a named capture that does not exist fails', () => {
+    const { dir, pd } = spikeProject();
+    write(dir, '.planning/phases/01-p1/captures/search.txt', 'grep out\n');
+    addTable(pd, ['| Q1 x | No | `captures/a.txt` | | `captures/search.txt` |']);
+    assert.strictEqual(gate(dir).rc, 0);
+    addTable(pd, ['| Q1 x | No | `captures/a.txt` | | `captures/missing.txt` |']);
+    assert.ok(gate(dir).json.work_errors.some((e) => /not found on disk/.test(e)));
+  });
+  test('a probe committed after its capture is a stale capture; the capture committed later is fine', () => {
+    const { dir, pd } = spikeProject();
+    const commit = (msg, date) => execFileSync('git', ['commit', '-q', '-m', msg], { cwd: dir, stdio: 'pipe', env: { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date } });
+    write(dir, '.planning/phases/01-p1/captures/a.txt', 'out\n');
+    write(dir, 'spike/probe.sh', 'echo 1\n');
+    git(dir, 'add', '-A'); commit('feat(01-01): probe and capture', '2020-01-01T00:00:00Z');
+    addTable(pd, ['| Q1 x | yes | `captures/a.txt` | `spike/probe.sh` | |']);
+    git(dir, 'add', '-A'); commit('docs(01-01): table', '2020-01-01T00:00:10Z');
+    assert.strictEqual(gate(dir).rc, 0);
+    write(dir, 'spike/probe.sh', 'echo 2\n');
+    git(dir, 'add', '-A'); commit('feat(01-01): probe changed', '2021-01-01T00:00:00Z');
+    const r = gate(dir);
+    assert.ok(r.json.work_errors.some((e) => /stale capture/.test(e)), r.out);
+    write(dir, '.planning/phases/01-p1/captures/a.txt', 'out2\n');
+    git(dir, 'add', '-A'); commit('feat(01-01): re-run', '2021-01-02T00:00:00Z');
+    assert.strictEqual(gate(dir).rc, 0);
+  });
+  test('VERIFICATION is the review record: spike needs open_critical_high; an open CRITICAL/HIGH needs ruled_by (spike and standard)', () => {
+    const { dir, pd } = spikeProject();
+    const v = (fm) => fs.writeFileSync(path.join(pd, '01-VERIFICATION.md'), `---\nstatus: passed\n${fm}---\n# V\n`);
+    v('');
+    assert.ok(gate(dir).json.work_errors.some((e) => /open_critical_high \(a count\)/.test(e)));
+    v('open_critical_high: 2\n');
+    assert.ok(gate(dir).json.work_errors.some((e) => /no ruling id/.test(e)));
+    v('open_critical_high: 2\nruled_by: [D-07]\n');
+    assert.strictEqual(gate(dir).rc, 0);
+    fs.rmSync(path.join(dir, '.planning', 'OWNER-GATES.json'));
+    v('open_critical_high: 1\n');
+    assert.ok(gate(dir).json.work_errors.some((e) => /no ruling id/.test(e)));
+  });
+  test('phase complete refuses while the VERIFICATION lists an open CRITICAL/HIGH', () => {
+    const { dir, pd } = spikeProject();
+    fs.writeFileSync(path.join(pd, '01-VERIFICATION.md'), '---\nstatus: passed\nopen_critical_high: 1\n---\n# V\n');
+    gsd(dir, ['phase', 'checkpoint', '1', '--step', 'verify', '--status', 'passed']);
+    assert.notStrictEqual(gsd(dir, ['phase', 'complete', '1']).rc, 0);
+  });
+  test('a phase ROADMAP marks complete with its requirement still pending, or STATE still executing it, is a form error at spike', () => {
+    const { dir } = spikeProject();
+    const rm = path.join(dir, '.planning', 'ROADMAP.md');
+    fs.writeFileSync(rm, fs.readFileSync(rm, 'utf8').replace('- [ ] **Phase 1', '- [x] **Phase 1').replace('**Depends on:** None', '**Requirements:** ADM-01\n**Depends on:** None'));
+    write(dir, '.planning/REQUIREMENTS.md', '# R\n\n- [ ] **ADM-01** thing\n');
+    const r = gate(dir);
+    const msgs = r.json.form_errors.map((e) => e.message).join('\n');
+    assert.match(msgs, /ADM-01 pending/);
+    assert.match(msgs, /STATE\.md still reports phase 0?1/);
+    assert.ok(r.json.form_errors.every((e) => e.check === 'status_agreement'));
   });
 });

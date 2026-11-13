@@ -234,6 +234,7 @@ const topModel = require('./top-model.js');
 const phaseBudget = require('./phase-budget.js');
 const formCheck = require('./form-check.js');
 const reviewGate = require('./review-gate.js');
+const spikeCheck = require('./spike-check.js');
 const planStamp = require('./plan-stamp.js');
 
 // Phase 2: Auto Mode safety modules (lazy — gracefully absent if not installed)
@@ -7302,7 +7303,9 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles, opts =
   // A spike has no separate review file: its {N}-VERIFICATION.md (the merged final review) is the record, checked below.
   const spike = rigour.resolveRigour(cwd, phaseNumber, getMilestoneInfo(cwd).version).rigour === 'spike';
   if (!spike) errors.push(...reviewGate.reviewErrors(phaseDir, dirFiles, touched));
+  if (spike) errors.push(...spikeCheck.answerTableErrors(cwd, phaseDir, dirFiles));
   const verification = readPhaseVerification(phaseDir, phaseNumber);
+  if (!opts.preVerifier) errors.push(...reviewGate.verificationReviewErrors(verification, spike));
   // Pre-verifier mode: the verifier produces this artifact, so demanding it earlier is circular.
   if (opts.preVerifier) {
     // intentionally no verification-artifact error
@@ -7324,7 +7327,9 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles, opts =
 // all read it, so they cannot disagree. Plan caps are plan-time only (`verify form --plans-only`).
 function collectPhaseFormErrors(cwd, phaseInfo, phaseDir, dirFiles, opts = {}) {
   const evidence = opts.evidence || collectPhaseEvidenceErrors(cwd, phaseInfo.phase_number, phaseDir, dirFiles, { preVerifier: opts.preVerifier === true });
-  return { errors: [...evidence.formErrors, ...formCheck.checkLineCites(cwd, phaseDir, dirFiles)], workErrors: evidence.workErrors, evidence };
+  const spike = rigour.resolveRigour(cwd, phaseInfo.phase_number, getMilestoneInfo(cwd).version).rigour === 'spike';
+  const agreement = spike ? spikeCheck.statusAgreementErrors(cwd, phaseInfo.phase_number).map((message) => ({ file: '.planning', check: 'status_agreement', message })) : [];
+  return { errors: [...evidence.formErrors, ...formCheck.checkLineCites(cwd, phaseDir, dirFiles), ...agreement], workErrors: evidence.workErrors, evidence };
 }
 
 // verify form <phase> [--plans-only] [--raw]: the blocking plan-time check (post-execution form is `verify phase-gate`).

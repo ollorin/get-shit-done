@@ -27,4 +27,16 @@ function reviewErrors(phaseDir, dirFiles, touchedFiles) {
   return [];
 }
 
-module.exports = { reviewErrors };
+// The merged final review (spike) and every final review: the VERIFICATION frontmatter carries `open_critical_high` and `ruled_by`.
+function verificationReviewErrors(verification, spike) {
+  if (!verification || !verification.exists) return [];
+  const data = verification.data || {};
+  const has = data.open_critical_high !== undefined && data.open_critical_high !== null && data.open_critical_high !== '';
+  const open = Number(data.open_critical_high);
+  const ruled = Array.isArray(data.ruled_by) ? data.ruled_by.filter(Boolean) : data.ruled_by ? [data.ruled_by] : [];
+  if (spike && (!has || !Number.isInteger(open) || open < 0)) return [`${verification.fileName} frontmatter must carry open_critical_high (a count): at spike it is the review record`];
+  if (has && Number.isInteger(open) && open > 0 && ruled.length === 0) return [`${verification.fileName} has open_critical_high ${open} and no ruling id in ruled_by: fix the finding (one fix dispatch) or rule on it`];
+  return [];
+}
+
+module.exports = { reviewErrors, verificationReviewErrors };
