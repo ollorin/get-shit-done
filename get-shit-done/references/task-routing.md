@@ -6,9 +6,9 @@ The standard path of `workflows/execute-phase.md` `execute_waves` at every rigou
 
 **1. Read the tiers.** For each `<task>` of the plan (1-based `task_index`), in dependency and wave order: the tier is the `<model>` element text, else the `tier="..."` attribute of the `<task>` tag, case-insensitive; `verify form --plans-only` demands one at plan time, and a task still without a tag at execute time (a plan written before the rule) runs on `sonnet` (`phase-plan-index` lists each plan's `task_tiers` with that default applied). Keep `ROUTING_STATS` (count per tier).
 
-**2. Spawn one executor per task, sequentially** (tasks may depend on each other). For each task:
+**2. Spawn one executor per dispatch, sequentially** (tasks may depend on each other). A dispatch is one task, except that consecutive `haiku` tasks of one plan with no `sonnet` task between them are ONE group dispatch (`task_index` = the group's first task, `last_index` = its last): the executor does them in order, one commit per task. A failure in a group is signalled for the failed task (tasks before it are committed): retry that task alone under step 4, then continue with the rest of the group as a new dispatch. Escalation applies to the failed task exactly as below. For each dispatch:
 
-1. `ROUTING_STATS[TASK_TIER] += 1`, then spawn. A task executor loads `references/executor-task.md` and nothing else of the executor's long files: the prompt names that file, the plan path and the task number. `templates/summary.md` is added only for the LAST task of the plan, `references/checkpoints.md` only for a `checkpoint:*` task. There is no handoff brief: the task's own `Rules applied:` lines carry the rules.
+1. `ROUTING_STATS[TASK_TIER] += 1`, then spawn. A task executor loads `references/executor-task.md` and nothing else of the executor's long files: the prompt names that file, the plan path and the task number. `templates/summary.md` is added only when the dispatch includes the LAST task of the plan, `references/checkpoints.md` only for a `checkpoint:*` task. There is no handoff brief: the task's own `Rules applied:` lines carry the rules.
 
 ```
 Agent(
@@ -17,16 +17,16 @@ Agent(
   description="Execute task {task_index}",
   prompt="
     <objective>
-    Execute task {task_index} of plan {plan_number} in phase {phase_number}-{phase_name}.
-    Commit the task atomically. If this is the last task, finish the plan (executor-task.md, Last task of the plan).
+    Execute task {task_index}{ through {last_index} for a group} of plan {plan_number} in phase {phase_number}-{phase_name}.
+    Commit each task atomically. If the last task of the plan is among them, finish the plan (executor-task.md, Last task of the plan).
     </objective>
     <execution_context>
     @~/.claude/get-shit-done/references/executor-task.md
-    {last task of the plan only: @~/.claude/get-shit-done/templates/summary.md}
+    {dispatch includes the plan's last task: @~/.claude/get-shit-done/templates/summary.md}
     {checkpoint task only: @~/.claude/get-shit-done/references/checkpoints.md}
     </execution_context>
     <files_to_read>
-    - Plan: {phase_dir}/{plan_file} (task {task_index} only)
+    - Plan: {phase_dir}/{plan_file} (your task(s) only)
     - Brief and profile: {brief_path}, {stack_profile_path}
     </files_to_read>
     stack_commands: {stack_commands, verbatim}
