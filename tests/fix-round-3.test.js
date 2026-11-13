@@ -110,7 +110,7 @@ const spikeProject = ({ planExtra = '' } = {}) => {
   const pd = phaseDir(dir, 1);
   write(dir, '.planning/phases/01-p1/01-01-PLAN.md', `---\nphase: 01\nplan: 01\nplan_stamp: abc\nfiles_modified:\n  - .planning/phases/01-p1/captures/a.txt\n${planExtra}---\n# Plan\n<tasks>\n<task type="auto" tdd="true"><model>sonnet</model>x</task>\n</tasks>\n`);
   write(dir, '.planning/phases/01-p1/01-01-SUMMARY.md', '# S\n\nauth flow probe.\n\n## Self-Check: PASSED\n');
-  write(dir, '.planning/phases/01-p1/01-VERIFICATION.md', '---\nstatus: passed\nopen_critical_high: 0\n---\n# V\n');
+  write(dir, '.planning/phases/01-p1/01-VERIFICATION.md', '---\nstatus: passed\nopen_critical_high: 0\ncriteria_decided: 1/1\n---\n# V\n');
   write(dir, '.planning/phases/01-p1/SPIKE-RESULT.md', '# R\n\n| Question | Answer | Capture | Probe | Root cause or search |\n|---|---|---|---|---|\n| Q0 base | yes | | | |\n');
   write(dir, 'spike/src/pages/probe.tsx', 'export default 1;\n');
   git(dir, 'add', '-A');
@@ -257,14 +257,14 @@ describe('items 12, 14, 15: spike answer table, review record in VERIFICATION, s
   const TABLE = (rows) => `\n| Question | Answer | Capture | Probe | Root cause or search |\n|---|---|---|---|---|\n${rows.join('\n')}\n`;
   const addTable = (pd, rows, file = 'SPIKE-RESULT.md') => fs.writeFileSync(path.join(pd, file), `# R\n${TABLE(rows)}`);
   const gate = (dir) => gsd(dir, ['verify', 'phase-gate', '1']);
-  test('a "no" without a root-cause or search capture is a WORK error; "inconclusive" and "yes" need none', () => {
+  test('a "no" without a root-cause or search capture is a WORK error; an "inconclusive" row needs one too; "yes" needs none', () => {
     const { dir, pd } = spikeProject();
     addTable(pd, ['| Q1 admin on workerd | no | `captures/a.txt` | | |', '| Q2 other | inconclusive | `captures/b.txt` | | |', '| Q3 third | yes | `captures/c.txt` | | - |']);
     const r = gate(dir);
     assert.strictEqual(r.rc, 1);
     assert.ok(r.json.failures.includes('missing_evidence'));
     assert.ok(r.json.work_errors.some((e) => /Q1 admin/.test(e) && /root-cause or search/.test(e)));
-    assert.strictEqual(r.json.work_errors.filter((e) => /question/.test(e)).length, 1);
+    assert.strictEqual(r.json.work_errors.filter((e) => /question/.test(e)).length, 2);
   });
   test('a "no" naming an existing search capture passes; a named capture that does not exist fails', () => {
     const { dir, pd } = spikeProject();
@@ -296,9 +296,9 @@ describe('items 12, 14, 15: spike answer table, review record in VERIFICATION, s
     const v = (fm) => fs.writeFileSync(path.join(pd, '01-VERIFICATION.md'), `---\nstatus: passed\n${fm}---\n# V\n`);
     v('');
     assert.ok(gate(dir).json.work_errors.some((e) => /open_critical_high \(a whole count\)/.test(e)));
-    v('open_critical_high: 2\n');
+    v('open_critical_high: 2\ncriteria_decided: 1/1\n');
     assert.ok(gate(dir).json.work_errors.some((e) => /no ruling id/.test(e)));
-    v('open_critical_high: 2\nruled_by: [D-07]\n');
+    v('open_critical_high: 2\nruled_by: [D-07]\ncriteria_decided: 1/1\n');
     assert.strictEqual(gate(dir).rc, 0);
     fs.rmSync(path.join(dir, '.planning', 'OWNER-GATES.json'));
     v('open_critical_high: 1\n');

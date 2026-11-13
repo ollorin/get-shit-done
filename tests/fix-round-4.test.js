@@ -84,11 +84,11 @@ describe('R3-3 / R3-4 / R3-5: spike answer table', () => {
     assert.match(spikeCheck.answerTableErrors(d, pd, ['SPIKE-RESULT.md'], { requireTable: true })[0], /No answer table/);
     assert.deepStrictEqual(spikeCheck.answerTableErrors(d, pd, [], { requireTable: true }).length, 1);
   });
-  test('only yes or inconclusive need no root cause; every other answer does', () => {
-    for (const a of ['negative', 'false', 'unsupported', 'impossible', 'not feasible', 'disproved', 'no', '']) {
+  test('only yes needs no root cause; every other answer does', () => {
+    for (const a of ['negative', 'false', 'unsupported', 'impossible', 'not feasible', 'disproved', 'no', 'inconclusive', 'Inconclusive (no capture)', '']) {
       assert.strictEqual(errs([`| Q ${a} | ${a} | | | |`]).length, 1, `"${a}"`);
     }
-    for (const a of ['yes', 'Yes - with caveat', '**YES**', '`inconclusive`', 'Inconclusive (no capture)']) {
+    for (const a of ['yes', 'Yes - with caveat', '**YES**', 'yes (inconclusive elsewhere)']) {
       assert.deepStrictEqual(errs([`| Q | ${a} | | | |`]), [], a);
     }
   });
@@ -118,7 +118,7 @@ describe('R3-8: open_critical_high is a whole count, ruled_by lists D-ids', () =
   });
   test('the spike must-carry rule is skipped only for a phase closed earlier; a present field is always judged', () => {
     const verification = { exists: true, fileName: 'V', data: {} };
-    assert.strictEqual(reviewGate.verificationReviewErrors(verification, true).length, 1);
+    assert.strictEqual(reviewGate.verificationReviewErrors(verification, true).length, 2);
     assert.deepStrictEqual(reviewGate.verificationReviewErrors(verification, true, true), []);
     assert.strictEqual(reviewGate.verificationReviewErrors({ ...verification, data: { open_critical_high: 2 } }, true, true).length, 1);
   });

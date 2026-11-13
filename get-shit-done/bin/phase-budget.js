@@ -45,6 +45,9 @@ function spend(events, phase) {
   let dispatches = 0;
   let final = null;
   let parked = false;
+  let bankedMs = 0;
+  let bankedDispatches = 0;
+  const bank = () => { bankedMs += closedMs + (start === null ? 0 : Math.max(0, (last === null ? start : last) - start)); bankedDispatches += dispatches; };
   for (const e of Array.isArray(events) ? events : []) {
     if (!e || evPhase(e) !== k) continue;
     const t = Date.parse(e.timestamp);
@@ -52,7 +55,7 @@ function spend(events, phase) {
     // is a new window. A park waiting on a human answer (human_needed) is a pause in the same window.
     const retry = parked && OPEN.has(e.type);
     if (e.type === 'phase_parked' && e.reason === 'gaps_after_closure_cycle') parked = true;
-    if (retry) { closedMs = 0; dispatches = 0; start = null; parked = false; }
+    if (retry) { bank(); closedMs = 0; dispatches = 0; start = null; parked = false; }
     const reset = e.type === 'phase_complete' || (e.type === 'phase_parked' && e.reason === 'budget_exceeded');
     if (OPEN.has(e.type) && !Number.isNaN(t)) {
       if (start !== null) closedMs += Math.max(0, (last === null ? t : last) - start);
@@ -63,6 +66,7 @@ function spend(events, phase) {
     }
     if (OPEN.has(e.type) || e.type === 'phase_spend' || e.type === 'phase_spend_done') final = null;
     if (reset) {
+      bank();
       closedMs = 0; dispatches = 0; start = null;
       final = e.type === 'phase_complete' && typeof e.dispatches_spent === 'number' ? e : null;
     } else if (e.type === 'phase_spend' || e.type === 'phase_spend_done') {
@@ -72,7 +76,8 @@ function spend(events, phase) {
     if (!Number.isNaN(t)) last = t;
   }
   const ms = closedMs + (start === null ? 0 : Math.max(0, (last === null ? start : last) - start));
-  return { wall_minutes_spent: Math.round((ms / 60000) * 10) / 10, dispatches_spent: dispatches, final };
+  const min = (x) => Math.round((x / 60000) * 10) / 10;
+  return { wall_minutes_spent: min(ms), dispatches_spent: dispatches, total_wall_minutes: min(bankedMs + ms), total_dispatches: bankedDispatches + dispatches, final };
 }
 
 function status({ cwd, phase, cls, events, now }) {
@@ -80,7 +85,7 @@ function status({ cwd, phase, cls, events, now }) {
   const { final, ...s } = spend(events, phase);
   // After `phase complete` the window resets to zero; the numbers the phase ended on are in its phase_complete event.
   if (final) {
-    return { phase: phaseKey(phase), budget_class: final.budget_class || cls, wall_minutes_spent: final.wall_minutes_spent, dispatches_spent: final.dispatches_spent, budget_wall_minutes: final.budget_wall_minutes, budget_dispatches: final.budget_dispatches, pct: final.pct, warn: final.warn === true, breach: final.breach === true, final: true };
+    return { phase: phaseKey(phase), budget_class: final.budget_class || cls, wall_minutes_spent: final.wall_minutes_spent, dispatches_spent: final.dispatches_spent, total_wall_minutes: final.total_wall_minutes === undefined ? final.wall_minutes_spent : final.total_wall_minutes, total_dispatches: final.total_dispatches === undefined ? final.dispatches_spent : final.total_dispatches, budget_wall_minutes: final.budget_wall_minutes, budget_dispatches: final.budget_dispatches, pct: final.pct, warn: final.warn === true, breach: final.breach === true, final: true };
   }
   const ratio = Math.max(s.wall_minutes_spent / l.wall_minutes, s.dispatches_spent / l.dispatches);
   const pct = Math.round(ratio * 1000) / 10;

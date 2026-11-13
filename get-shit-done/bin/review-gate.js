@@ -34,6 +34,14 @@ function reviewErrors(phaseDir, dirFiles, touchedFiles) {
   return [];
 }
 
+// Spike: `criteria_decided: n/m` (exit criteria with a decided pass or fail); with n = 0 the headline is `undecided`.
+function criteriaErrors(data, name) {
+  const m = String(data.criteria_decided === undefined ? '' : data.criteria_decided).trim().match(/^(\d+)\/(\d+)$/);
+  if (!m || Number(m[2]) === 0 || Number(m[1]) > Number(m[2])) return [`${name} frontmatter must carry criteria_decided: <n>/<m> (decided exit criteria of m >= 1, n <= m): at spike it is the review record`];
+  if (Number(m[1]) === 0 && String(data.headline || '').trim().toLowerCase() !== 'undecided') return [`${name} criteria_decided is 0/${m[2]}: the frontmatter must carry headline: undecided`];
+  return [];
+}
+
 // The merged final review (spike) and every final review: the VERIFICATION frontmatter carries `open_critical_high` and `ruled_by`.
 // `closedEarlier`: the phase has a phase_complete event, so the "must carry the field" rule (newer than the phase) is skipped;
 // a field that is present is judged always.
@@ -43,11 +51,12 @@ function verificationReviewErrors(verification, spike, closedEarlier = false) {
   const open = countOf(data.open_critical_high);
   const ruled = rulings(data);
   const name = verification.fileName;
-  if (open === undefined) return spike && !closedEarlier ? [`${name} frontmatter must carry open_critical_high (a whole count): at spike it is the review record`] : [];
-  if (!Number.isInteger(open) || open < 0) return [`${name} open_critical_high must be a whole count, not ${JSON.stringify(data.open_critical_high)}`];
-  if (bad(ruled).length > 0) return [`${name} ruled_by must list ruling ids like D-12, not ${bad(ruled).join(', ')}`];
-  if (open > 0 && ruled.length === 0) return [`${name} has open_critical_high ${open} and no ruling id in ruled_by: after the one fix dispatch close a fixed finding from disk evidence (fixed_by commit + re-run rc) and lower the count, or have ONE ruling dispatch on ruling_model rule on it`];
-  return [];
+  const errors = spike && !closedEarlier ? criteriaErrors(data, name) : [];
+  if (open === undefined) return spike && !closedEarlier ? [`${name} frontmatter must carry open_critical_high (a whole count): at spike it is the review record`, ...errors] : [];
+  if (!Number.isInteger(open) || open < 0) return [`${name} open_critical_high must be a whole count, not ${JSON.stringify(data.open_critical_high)}`, ...errors];
+  if (bad(ruled).length > 0) return [`${name} ruled_by must list ruling ids like D-12, not ${bad(ruled).join(', ')}`, ...errors];
+  if (open > 0 && ruled.length === 0) return [`${name} has open_critical_high ${open} and no ruling id in ruled_by: after the one fix dispatch close a fixed finding from disk evidence (fixed_by commit + re-run rc) and lower the count, or have ONE ruling dispatch on ruling_model rule on it`, ...errors];
+  return errors;
 }
 
 module.exports = { reviewErrors, verificationReviewErrors };

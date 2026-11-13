@@ -7,8 +7,8 @@ const { execFileSync } = require('child_process');
 const { splitTableCells } = require('./md-table.js');
 const { checkboxState } = require('./roadmap-box.js');
 
-// Only these answers need no root cause or search capture; every other answer (no, false, unsupported, blank, ...) does.
-const POSITIVE = /^(?:yes|inconclusive)\b/i;
+// Only `yes` needs no root cause or search capture; every other answer (no, inconclusive, false, blank, ...) does.
+const POSITIVE = /^yes\b/i;
 const EMPTY = /^[\s*_`-]*(?:n\/?a|none|-|—)?[\s*_`-]*$/i;
 const read = (f) => { try { return fs.readFileSync(f, 'utf8'); } catch { return null; } };
 
@@ -69,7 +69,7 @@ function answerTableErrors(cwd, phaseDir, dirFiles, { requireTable = false } = {
       const tag = `${f}: question "${r.question.slice(0, 60)}"`;
       if (!POSITIVE.test(r.answer.replace(/[*_`\s]+/g, ' ').trim())) {
         const rc = pathOf(r.root);
-        if (!rc) errors.push(`${tag} answers "${r.answer.slice(0, 30)}" with no root-cause or search capture (answer yes or inconclusive, or name the capture in the Root cause or search column)`);
+        if (!rc) errors.push(`${tag} answers "${r.answer.slice(0, 30)}" with no root-cause or search capture (answer yes, or name the capture in the Root cause or search column)`);
         else if (!resolve(cwd, phaseDir, rc)) errors.push(`${tag}: root-cause or search capture ${rc} not found on disk`);
       }
       const probeCell = r.probe.replace(/[*_`\s]+/g, ' ').trim();

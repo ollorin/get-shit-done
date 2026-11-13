@@ -21,8 +21,8 @@ describe('R9-1: phase complete marks the phase requirements', () => {
     if (spike) fs.writeFileSync(path.join(dir, '.planning', 'OWNER-GATES.json'), JSON.stringify({ version: 1, gates: [{ id: 'roadmap@current', kind: 'roadmap', milestone: null, status: 'approved', rigour: { spike_phases: ['1'], spike_roots: ['spike/'] } }] }));
     const pd = writeEvidence(dir, 1);
     if (spike) {
-      fs.writeFileSync(path.join(pd, '01-VERIFICATION.md'), '---\nstatus: passed\nopen_critical_high: 0\n---\n# V\n');
-      fs.writeFileSync(path.join(pd, 'SPIKE-RESULT.md'), '# R\n\n| Question | Answer | Capture | Probe | Root cause or search |\n|---|---|---|---|---|\n| Q0 base | inconclusive | | | |\n');
+      fs.writeFileSync(path.join(pd, '01-VERIFICATION.md'), '---\nstatus: passed\nopen_critical_high: 0\ncriteria_decided: 1/1\n---\n# V\n');
+      fs.writeFileSync(path.join(pd, 'SPIKE-RESULT.md'), '# R\n\n| Question | Answer | Capture | Probe | Root cause or search |\n|---|---|---|---|---|\n| Q0 base | yes | | | |\n');
       git(dir, 'add', '-A');
       git(dir, 'commit', '-q', '--amend', '--no-edit');
     }

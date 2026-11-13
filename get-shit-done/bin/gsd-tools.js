@@ -10262,7 +10262,7 @@ function cmdPhaseComplete(cwd, phaseNum, raw, opts = {}) {
   {
     const key = dispatch.phaseKey(phaseNum);
     const b = phaseBudgetStatus(cwd, key, readExecutionEvents(cwd));
-    appendEvent(cwd, { type: 'phase_complete', phase: key, budget_class: b.budget_class, wall_minutes_spent: b.wall_minutes_spent, dispatches_spent: b.dispatches_spent, budget_wall_minutes: b.budget_wall_minutes, budget_dispatches: b.budget_dispatches, pct: b.pct, warn: b.warn, breach: b.breach });
+    appendEvent(cwd, { type: 'phase_complete', phase: key, budget_class: b.budget_class, wall_minutes_spent: b.wall_minutes_spent, dispatches_spent: b.dispatches_spent, total_wall_minutes: b.total_wall_minutes, total_dispatches: b.total_dispatches, budget_wall_minutes: b.budget_wall_minutes, budget_dispatches: b.budget_dispatches, pct: b.pct, warn: b.warn, breach: b.breach });
   }
 
   const result = {
@@ -12609,7 +12609,7 @@ function cmdRoadmapRecord(cwd, args, raw) {
     if (mine.length > 0 && mine[mine.length - 1].type === 'phase_complete') continue;
     // The completion resets the budget window: record the final spend in the event so `budget status` can still show it.
     const b = phaseBudgetStatus(cwd, k, events);
-    appendEvent(cwd, { ...e, budget_class: b.budget_class, wall_minutes_spent: b.wall_minutes_spent, dispatches_spent: b.dispatches_spent, budget_wall_minutes: b.budget_wall_minutes, budget_dispatches: b.budget_dispatches, pct: b.pct, warn: b.warn, breach: b.breach });
+    appendEvent(cwd, { ...e, budget_class: b.budget_class, wall_minutes_spent: b.wall_minutes_spent, dispatches_spent: b.dispatches_spent, total_wall_minutes: b.total_wall_minutes, total_dispatches: b.total_dispatches, budget_wall_minutes: b.budget_wall_minutes, budget_dispatches: b.budget_dispatches, pct: b.pct, warn: b.warn, breach: b.breach });
   }
   output({ ...out, truth: { complete: truth.complete, errors: truth.errors, work_errors: truth.work_errors, form_errors: truth.form_errors } }, raw);
 }
