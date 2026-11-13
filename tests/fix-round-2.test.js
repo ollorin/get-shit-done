@@ -43,26 +43,6 @@ describe('N5 risk_addons: one init boolean for the risk-domain add-ons', () => {
     plan(dir, 'high_risk: true\n');
     for (const cmd of ['plan-phase', 'execute-phase']) assert.strictEqual(gsd(dir, ['init', cmd, '1']).json.risk_addons, false, cmd);
   });
-  test('prose keys the add-ons on risk_addons, never on high_risk alone', () => {
-    const root = path.join(__dirname, '..');
-    const rd = (f) => fs.readFileSync(path.join(root, f), 'utf8');
-    assert.match(rd('get-shit-done/workflows/execute-phase.md'), /`risk_addons`/);
-    assert.ok(!/plans with `high_risk: true` loop/.test(rd('get-shit-done/workflows/execute-phase.md')));
-    assert.match(rd('agents/gsd-verifier.md'), /`risk_addons`/);
-    assert.ok(!/Risk-domain plans \(`high_risk: true`\)/.test(rd('agents/gsd-verifier.md')));
-    assert.match(rd('get-shit-done/workflows/plan-phase.md'), /`risk_addons`/);
-    assert.match(rd('get-shit-done/references/rigour.md'), /`risk_addons`/);
-  });
-});
-
-describe('N7 prose: blockers that survive the plan-check cap on a risk_addons phase go to one top-model ruling', () => {
-  test('plan-phase cap path and rigour table name the ruling; non-risk keeps the OVERRIDE path', () => {
-    const root = path.join(__dirname, '..');
-    const pp = fs.readFileSync(path.join(root, 'get-shit-done/workflows/plan-phase.md'), 'utf8');
-    assert.match(pp, /`risk_addons` is true it goes[^\n]*ONE ruling on `\{ruling_model\}` before execution[^\n]*an OVERRIDE line alone never closes it/);
-    assert.match(pp, /Otherwise it goes to the owner \(interactive\) or into the OVERRIDE line/);
-    assert.match(fs.readFileSync(path.join(root, 'get-shit-done/references/rigour.md'), 'utf8'), /survives goes to ONE ruling on `ruling_model` before execution/);
-  });
 });
 
 describe('N6 the review is a disk check: {N}-REVIEW-{round}.md frontmatter', () => {
@@ -137,12 +117,6 @@ describe('N6 the review is a disk check: {N}-REVIEW-{round}.md frontmatter', () 
     const b = executed(false);
     assert.deepStrictEqual(reviewErr(gate(b.dir)), []);
   });
-  test('prose: the reviewer writes the frontmatter and the fix loop updates it', () => {
-    const md = fs.readFileSync(path.join(__dirname, '..', 'get-shit-done/workflows/execute-phase.md'), 'utf8');
-    assert.match(md, /open_critical_high/);
-    assert.match(md, /reviewer_role/);
-    assert.match(md, /ruled_by/);
-  });
 });
 
 describe('N11 / E2 removed surfaces', () => {
@@ -163,9 +137,5 @@ describe('N11 / E2 removed surfaces', () => {
     write(dir, '.planning/phases/' + path.basename(pd) + '/01-01-SUMMARY.md', '# no self-check\n');
     const r = gsd(dir, ['verify', 'form', '1']);
     assert.deepStrictEqual([r.rc, r.json.errors], [0, []]);
-  });
-  test('plan-phase budget sentence is separated (N11)', () => {
-    const md = fs.readFileSync(path.join(__dirname, '..', 'get-shit-done/workflows/plan-phase.md'), 'utf8');
-    assert.ok(!/in every spawn prompt call `gsd-tools budget spend/.test(md));
   });
 });

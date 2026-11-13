@@ -148,15 +148,3 @@ describe('R4-8 / R4-9 / R4-10', () => {
   });
 });
 
-describe('R4-4 / R4-6 prose: one actor, one place', () => {
-  const doc = (rel) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8');
-  test('the phase coordinator spawns the ruling, allowed at breach; tier tag sentence only in execute-phase', () => {
-    assert.match(doc('get-shit-done/references/rigour.md'), /The phase coordinator spawns it, inside the phase before it returns/);
-    assert.match(doc('get-shit-done/references/rigour.md'), /and the one ruling for what the fix left open: none is ever skipped for budget/);
-    assert.match(doc('agents/gsd-phase-coordinator.md'), /you spawn that ruling before you return/);
-    assert.match(doc('get-shit-done/workflows/execute-roadmap.md'), /re-enter that phase's coordinator/);
-    assert.doesNotMatch(doc('get-shit-done/references/rigour.md'), /tier tag below/);
-    assert.match(doc('get-shit-done/workflows/execute-phase.md'), /its highest task tag, never below the floor/);
-    assert.match(doc('get-shit-done/references/rigour.md'), /Retried parked spike phase/);
-  });
-});

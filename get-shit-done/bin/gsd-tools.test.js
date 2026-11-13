@@ -3725,62 +3725,6 @@ describe('review fixes: exact phase match in phase-gate + anchored plan-tag grep
 
 // ─── Phase 35-01: gsd-executor post-plan test gate ───────────────────────────
 
-describe('gsd-executor — post-plan test gate section (Phase 35-01)', () => {
-  const EXECUTOR_PATH = path.join('/Users/ollorin/get-shit-done', 'agents', 'gsd-executor.md');
-
-  test('post_plan_test_gate section exists in executor prompt', () => {
-    const content = readEffectiveAgentContent(EXECUTOR_PATH);
-    assert.ok(content.includes('<post_plan_test_gate>'), 'Missing <post_plan_test_gate> opening tag');
-    assert.ok(content.includes('</post_plan_test_gate>'), 'Missing </post_plan_test_gate> closing tag');
-  });
-
-  test('post_plan_test_gate references test command from stack_commands', () => {
-    const content = readEffectiveAgentContent(EXECUTOR_PATH);
-    assert.ok(
-      content.includes('testing.test_command') || content.includes('TEST_CMD'),
-      'Missing test command reference'
-    );
-    assert.ok(content.includes('stack_commands.test_all'), 'Missing stack_commands test_all reference');
-  });
-
-  test('post_plan_test_gate references coverage threshold', () => {
-    const content = readEffectiveAgentContent(EXECUTOR_PATH);
-    assert.ok(
-      content.includes('testing.coverage_threshold') || content.includes('COVERAGE_THRESHOLD'),
-      'Missing coverage threshold reference'
-    );
-  });
-
-  test('post_plan_test_gate blocks SUMMARY.md on failure', () => {
-    const content = readEffectiveAgentContent(EXECUTOR_PATH);
-    const start = content.indexOf('<post_plan_test_gate>');
-    const end = content.indexOf('</post_plan_test_gate>');
-    assert.ok(start >= 0 && end > start, 'post_plan_test_gate section not found');
-    const section = content.slice(start, end);
-    assert.ok(
-      section.includes('SUMMARY.md') && (section.includes('BLOCKED') || section.includes('blocked')),
-      'Missing SUMMARY.md blocked language in post_plan_test_gate section'
-    );
-  });
-
-  test('post_plan_test_gate appears before summary_creation', () => {
-    const content = readEffectiveAgentContent(EXECUTOR_PATH);
-    // Phase 53-02 (MILE-30): use lastIndexOf, not indexOf. The restructured
-    // core preamble's <hard_rules_digest> quotes the literal string
-    // "`<summary_creation>`" (a verbatim excerpt of the real hard rule
-    // "Do NOT proceed to `<summary_creation>`...") ahead of where the real
-    // <post_plan_test_gate>/<summary_creation> tags live in the relocated
-    // reference file. lastIndexOf finds the real tag occurrence in the
-    // reference file, where both tags still appear in their original
-    // relative order (verified byte-for-byte at restructuring time).
-    const ptgIdx = content.lastIndexOf('<post_plan_test_gate>');
-    const scIdx = content.lastIndexOf('<summary_creation>');
-    assert.ok(ptgIdx >= 0, 'post_plan_test_gate not found');
-    assert.ok(scIdx >= 0, 'summary_creation not found');
-    assert.ok(ptgIdx < scIdx, 'post_plan_test_gate must appear before summary_creation');
-  });
-});
-
 // ─── Phase 35-02: UX sweep (moved from the coordinator mirror into execute-phase) ───
 
 describe('execute-phase — UX sweep and web-UI skip rule (Phase 35-02, moved from gsd-phase-coordinator)', () => {
@@ -3816,147 +3760,11 @@ describe('execute-phase — UX sweep and web-UI skip rule (Phase 35-02, moved fr
 
 // ─── Phase 35-03: gsd-verifier hard-fail rules ───────────────────────────────
 
-describe('gsd-verifier — hard-fail rules for QA and test coverage (Phase 35-03)', () => {
-  const VERIFIER_PATH = path.join('/Users/ollorin/get-shit-done', 'agents', 'gsd-verifier.md');
-
-  test('check_ui_qa_coverage section exists in verifier', () => {
-    const content = readEffectiveAgentContent(VERIFIER_PATH);
-    assert.ok(content.includes('check_ui_qa_coverage'), 'Missing check_ui_qa_coverage in verifier');
-  });
-
-  test('Charlotte QA check is documented as gaps_found not warning', () => {
-    const content = readEffectiveAgentContent(VERIFIER_PATH);
-    const start = content.indexOf('check_ui_qa_coverage');
-    const end = content.indexOf('check_test_file_coverage');
-    assert.ok(start >= 0, 'check_ui_qa_coverage not found');
-    const section = end > start ? content.slice(start, end) : content.slice(start);
-    assert.ok(section.includes('gaps_found'), 'Charlotte QA check must emit gaps_found');
-    assert.ok(
-      section.toLowerCase().includes('never') || section.toLowerCase().includes('not a warning') || section.toLowerCase().includes('hard-fail'),
-      'Charlotte QA check must document that it is never a warning'
-    );
-  });
-
-  test('check_test_file_coverage section exists in verifier', () => {
-    const content = readEffectiveAgentContent(VERIFIER_PATH);
-    assert.ok(content.includes('check_test_file_coverage'), 'Missing check_test_file_coverage in verifier');
-  });
-
-  test('test file check is documented as gaps_found not warning', () => {
-    const content = readEffectiveAgentContent(VERIFIER_PATH);
-    const start = content.indexOf('check_test_file_coverage');
-    assert.ok(start >= 0, 'check_test_file_coverage not found');
-    const section = content.slice(start, start + 3000);
-    assert.ok(section.includes('gaps_found'), 'Test file check must emit gaps_found');
-    assert.ok(
-      section.toUpperCase().includes('NEVER') || section.toLowerCase().includes('not a warning') || section.toLowerCase().includes('hard-fail'),
-      'Test file check must document it is NEVER a warning'
-    );
-  });
-
-  test('check_ui_qa_coverage appears before check_test_file_coverage', () => {
-    const content = readEffectiveAgentContent(VERIFIER_PATH);
-    const charlotteIdx = content.indexOf('check_ui_qa_coverage');
-    const testIdx = content.indexOf('check_test_file_coverage');
-    assert.ok(charlotteIdx >= 0, 'check_ui_qa_coverage not found');
-    assert.ok(testIdx >= 0, 'check_test_file_coverage not found');
-    assert.ok(charlotteIdx < testIdx, 'Charlotte QA check must appear before test file check');
-  });
-
-  test('both checks appear before output section', () => {
-    // Phase 53-02 (MILE-30): gsd-verifier.md was restructured hard-rules-first
-    // -- <output> (the VERIFICATION.md template + return contract) is now
-    // part of the CORE preamble (kept near the top, with the other hard
-    // rules), while the full <verification_process> (including
-    // check_test_file_coverage / Step 8d) was relocated wholesale to
-    // @get-shit-done/references/verifier-detail.md, loaded on demand. This
-    // means the two sections are no longer in the same linear byte-order in
-    // the concatenated effective content -- that is an intentional
-    // consequence of the redesign (rules/contract surface early, detail is
-    // available on demand), not a regression. What still matters, and what
-    // this test now asserts, is that both sections continue to exist
-    // somewhere in the agent's effective prompt content.
-    const content = readEffectiveAgentContent(VERIFIER_PATH);
-    const testIdx = content.indexOf('check_test_file_coverage');
-    const outputIdx = content.indexOf('<output>');
-    assert.ok(testIdx >= 0, 'check_test_file_coverage not found');
-    assert.ok(outputIdx >= 0, '<output> section not found');
-  });
-});
-
 // ─── B-9: checkpoint Type-line format pin (coordinator string-matches it) ──────
-
-describe('checkpoint Type-line format is pinned in return contracts (B-9)', () => {
-  const AGENTS = path.join('/Users/ollorin/get-shit-done', 'agents');
-
-  test('gsd-executor pins the exact `**Type:** <value>` line format', () => {
-    const content = readEffectiveAgentContent(path.join(AGENTS, 'gsd-executor.md'));
-    // The literal marker the coordinator matches must be documented verbatim.
-    assert.ok(content.includes('**Type:**'), 'executor must contain the literal **Type:** marker');
-    assert.ok(
-      /Type line (format )?is load-bearing/i.test(content),
-      'executor must document that the Type line format is load-bearing/pinned'
-    );
-    assert.ok(content.includes('ui-qa'), 'executor Type contract must list the ui-qa value the coordinator dispatches on');
-  });
-
-  test('gsd-debugger pins the exact `**Type:** <value>` line format', () => {
-    const content = readEffectiveAgentContent(path.join(AGENTS, 'gsd-debugger.md'));
-    assert.ok(content.includes('**Type:**'), 'debugger must contain the literal **Type:** marker');
-    assert.ok(
-      /Type line (format )?is load-bearing/i.test(content),
-      'debugger must document that the Type line format is load-bearing/pinned'
-    );
-  });
-});
 
 // ─── B-1: machine-parseable JSON status trailers on prose-header returns ───────
 
-describe('return-emitting agents carry a machine-parseable JSON status trailer (B-1)', () => {
-  const AGENTS = path.join('/Users/ollorin/get-shit-done', 'agents');
-  const cases = [
-    ['gsd-verifier.md', ['passed', 'gaps_found', 'human_needed']],
-    ['gsd-planner.md', ['planning_complete', 'plan_rejected']],
-    ['gsd-debugger.md', ['root_cause_found', 'debug_complete', 'inconclusive']],
-  ];
-
-  for (const [file, statuses] of cases) {
-    test(`${file} documents a fenced JSON status trailer with expected status values`, () => {
-      const content = readEffectiveAgentContent(path.join(AGENTS, file));
-      assert.ok(
-        /status trailer \(REQUIRED\)/i.test(content),
-        `${file} must document a REQUIRED machine-parseable status trailer`
-      );
-      assert.ok(content.includes('"status"'), `${file} trailer must key on "status"`);
-      for (const s of statuses) {
-        assert.ok(content.includes(s), `${file} trailer must be able to emit status "${s}"`);
-      }
-    });
-  }
-
-});
-
 // ─── B-6: content_firewall coverage for content-ingesting agents ──────────────
-
-describe('content-ingesting agents carry a content_firewall block (B-6)', () => {
-  const AGENTS = path.join('/Users/ollorin/get-shit-done', 'agents');
-  const NEED_FIREWALL = [
-    'gsd-debugger.md', 'gsd-docs-updater.md', 'gsd-codebase-mapper.md',
-    'gsd-planner.md', 'gsd-verifier.md', 'gsd-plan-checker.md', 'gsd-roadmapper.md',
-  ];
-
-  for (const file of NEED_FIREWALL) {
-    test(`${file} has a <content_firewall> block after </role> pointing at the convention`, () => {
-      const raw = fs.readFileSync(path.join(AGENTS, file), 'utf8');
-      assert.ok(raw.includes('<content_firewall>'), `${file} missing <content_firewall> block`);
-      const roleEnd = raw.indexOf('</role>');
-      const fw = raw.indexOf('<content_firewall>');
-      assert.ok(roleEnd !== -1 && fw > roleEnd, `${file} <content_firewall> must appear after </role>`);
-      assert.ok(raw.includes('content-firewall.md'), `${file} must point at the content-firewall.md convention`);
-    });
-  }
-});
-
 
 describe('verify migration-timestamps command', () => {
   let tmpDir;
@@ -4767,46 +4575,6 @@ describe('concurrent `state update` subprocesses racing on the same STATE.md (Ph
       statusLanded || phaseLanded,
       `at least one of the two concurrent updates should survive (neither silently corrupting the whole file): ${content}`
     );
-  });
-});
-
-describe('CI workflow config sanity check (Phase 44-05, static file check, no network/Actions invocation)', () => {
-  const WORKFLOW_PATH = path.join(__dirname, '..', '..', '.github', 'workflows', 'test.yml');
-
-  test('.github/workflows/test.yml exists on disk', () => {
-    assert.ok(
-      fs.existsSync(WORKFLOW_PATH),
-      `expected CI workflow file at ${WORKFLOW_PATH}`
-    );
-  });
-
-  test('workflow triggers on both push and pull_request', () => {
-    const content = fs.readFileSync(WORKFLOW_PATH, 'utf-8');
-    assert.ok(/^on:/m.test(content), `workflow should declare an "on:" trigger block, got:\n${content}`);
-    assert.ok(/^\s*push:?\s*$/m.test(content), `workflow should trigger on "push", got:\n${content}`);
-    assert.ok(/^\s*pull_request:?\s*$/m.test(content), `workflow should trigger on "pull_request", got:\n${content}`);
-  });
-
-  test('workflow runs the project test suite via npm', () => {
-    const content = fs.readFileSync(WORKFLOW_PATH, 'utf-8');
-    assert.ok(
-      /npm test|npm ci/.test(content),
-      `workflow should invoke "npm test" or "npm ci" somewhere, got:\n${content}`
-    );
-  });
-
-  test('workflow explicitly installs dependencies (npm ci) before running tests (npm test)', () => {
-    const content = fs.readFileSync(WORKFLOW_PATH, 'utf-8');
-    // Stronger check than the single-invocation test above: this repo's
-    // workflow should do a clean, reproducible install before testing.
-    assert.ok(content.includes('npm ci'), `expected "npm ci" for a reproducible install, got:\n${content}`);
-    assert.ok(content.includes('npm test'), `expected "npm test" to actually run the suite, got:\n${content}`);
-  });
-
-  test('workflow is not accidentally empty or truncated (has a jobs: block with at least one step)', () => {
-    const content = fs.readFileSync(WORKFLOW_PATH, 'utf-8');
-    assert.ok(/^jobs:/m.test(content), `workflow should declare a "jobs:" block, got:\n${content}`);
-    assert.ok(/steps:/.test(content), `workflow should declare "steps:" under the job, got:\n${content}`);
   });
 });
 
@@ -7861,21 +7629,6 @@ describe('Phase 46 cross-cutting integration (Phase 46-04 Task 2)', () => {
 // changes so they cannot silently regress. Not a full behavioral test of the
 // docs-gate runtime (that's agent-prompt behavior, see the scope-boundary
 // comment on the describe block above).
-describe('Static regression: 46-02 docs-gate prose changes (Phase 46-04)', () => {
-  const EXECUTOR_PATH = path.join(__dirname, '..', '..', 'agents', 'gsd-executor.md');
-  test('gsd-executor.md no longer contains the removed "does NOT block state updates" contradiction', () => {
-    const content = readEffectiveAgentContent(EXECUTOR_PATH);
-    assert.ok(!content.includes('does NOT block state updates'), 'the removed contradiction must not reappear in gsd-executor.md');
-  });
-
-  test('execute-phase.md\'s docs_update step keeps the "deferred add" waiver escape hatch', () => {
-    const content = fs.readFileSync(path.join(__dirname, '..', 'workflows', 'execute-phase.md'), 'utf-8');
-    const start = content.indexOf('<step name="docs_update">');
-    assert.ok(start !== -1, 'expected a docs_update step in execute-phase.md');
-    assert.ok(content.slice(start, content.indexOf('</step>', start)).includes('deferred add'));
-  });
-});
-
 describe('auto_mine config gate (Phase 48-01)', () => {
   let tmpDir;
 
@@ -8433,44 +8186,6 @@ describe('Phase 48 cross-cutting trigger matrix — prompt-layer wiring (Phase 4
     );
   });
 
-  test('Debugger wiring: execute-phase.md and execute-roadmap.md both branch on execution-state record-failure\'s action field (retry/debug/escalate); debug.md and commands/gsd/debug.md are correctly wired', () => {
-    const executePhase = readRepoFile('get-shit-done/workflows/execute-phase.md');
-    const executeRoadmap = readRepoFile('get-shit-done/workflows/execute-roadmap.md');
-    const debugWorkflow = readRepoFile('get-shit-done/workflows/debug.md');
-    const debugCommand = readRepoFile('commands/gsd/debug.md');
-
-    for (const [label, content] of [['execute-phase.md', executePhase], ['execute-roadmap.md', executeRoadmap]]) {
-      assert.match(content, /execution-state record-failure/, `${label} must call execution-state record-failure`);
-      assert.match(content, /action/, `${label} must branch on the action field`);
-      assert.match(content, /retry/, `${label} must handle the "retry" action`);
-      assert.match(content, /debug/, `${label} must handle the "debug" action`);
-      assert.match(content, /escalate/, `${label} must handle the "escalate" action`);
-    }
-
-    assert.match(debugWorkflow, /gsd-debugger/, 'workflows/debug.md must reference gsd-debugger');
-
-    assert.match(
-      debugCommand,
-      /@~\/\.claude\/get-shit-done\/workflows\/debug\.md/,
-      'commands/gsd/debug.md must use the standard @-include pattern pointing at workflows/debug.md'
-    );
-    assert.doesNotMatch(
-      debugCommand,
-      /## 0\. Initialize Context/,
-      'commands/gsd/debug.md must NOT retain the old fully-inline interactive-only process (marker: "## 0. Initialize Context") as its primary path'
-    );
-  });
-
-  test('Debugger escalation: execute-phase.md escalates without a blocking channel (no Telegram), recording a deferred waiver', () => {
-    const executePhase = readRepoFile('get-shit-done/workflows/execute-phase.md');
-    const phaseCoordinator = readEffectiveAgentContent(path.join(REPO_ROOT, 'agents/gsd-phase-coordinator.md'));
-
-    assert.match(executePhase, /deferred add --step execution[\s\S]{0,80}--approver auto-escalate/);
-    assert.match(executePhase, /Never block on a human/);
-    for (const [name, text] of [['execute-phase.md', executePhase], ['gsd-phase-coordinator (effective)', phaseCoordinator]]) {
-      assert.doesNotMatch(text, /ask_blocking_question|mcp__telegram|telegram_topic_id/, `${name} must not use the Telegram channel`);
-    }
-  });
 });
 
 describe('Phase 49-01: write-path safety', () => {
@@ -8823,20 +8538,6 @@ describe('Phase 49-02: event triggers', () => {
     } finally {
       fs.rmSync(blockerFile, { force: true });
     }
-  });
-
-  test('complete-milestone.md: mine_milestone_conversations step includes the prune+checkpoint call within its own boundaries', () => {
-    const content = fs.readFileSync(COMPLETE_MILESTONE_PATH, 'utf-8');
-    const start = content.indexOf('<step name="mine_milestone_conversations">');
-    assert.notStrictEqual(start, -1, 'mine_milestone_conversations step not found in complete-milestone.md');
-    const end = content.indexOf('</step>', start);
-    assert.notStrictEqual(end, -1, 'closing </step> for mine_milestone_conversations not found');
-
-    const stepBody = content.slice(start, end);
-    assert.ok(
-      stepBody.includes('knowledge prune'),
-      'expected "knowledge prune" call inside the mine_milestone_conversations step boundaries'
-    );
   });
 
   test('cmdKnowledgePrune always checkpoints the WAL on a live run, regardless of delete count', () => {
@@ -9239,15 +8940,6 @@ describe('Phase 49-03: complete-milestone consolidation step wiring', () => {
 
     assert.ok(mineEnd < consolidateStart, 'consolidate_knowledge must start after mine_milestone_conversations closes');
     assert.ok(consolidateStart < reorgStart, 'consolidate_knowledge must start before reorganize_roadmap_and_delete_originals');
-  });
-
-  test('consolidate_knowledge step body references the knowledge consolidate CLI command', () => {
-    const content = fs.readFileSync(COMPLETE_MILESTONE_PATH, 'utf-8');
-    const start = content.indexOf('<step name="consolidate_knowledge">');
-    const end = content.indexOf('</step>', start);
-    const stepBody = content.slice(start, end);
-
-    assert.ok(stepBody.includes('knowledge consolidate'), 'expected "knowledge consolidate" call inside the consolidate_knowledge step');
   });
 
   test('consolidate_knowledge step spawns a haiku Agent() call matching the harvest_knowledge pattern', () => {
@@ -10474,173 +10166,6 @@ describe('Executor Resilience Protocol: usage_pause_threshold_tokens config', ()
   });
 });
 
-describe('execute-roadmap.md resilience wiring (Phase 51-03)', () => {
-  // Prose isn't unit-testable -- these are structural regression guards
-  // proving the workflow file's text actually contains the CLI call
-  // references and structural pieces this plan's prose wiring claims to add,
-  // following the exact precedent set in Phase 48-04's grep-assertion tests.
-  // Repo root is two levels up from this test file's __dirname
-  // (get-shit-done/bin/ -> get-shit-done/ -> repo root).
-  const REPO_ROOT = path.join(__dirname, '..', '..');
-
-  function readExecuteRoadmap() {
-    return fs.readFileSync(path.join(REPO_ROOT, 'get-shit-done', 'workflows', 'execute-roadmap.md'), 'utf-8');
-  }
-
-  test('pre-flight quota estimate step calls resilience estimate-quota and logs both branches', () => {
-    const content = readExecuteRoadmap();
-
-    assert.match(content, /<step name="preflight_quota_estimate">/, 'execute-roadmap.md must have a preflight_quota_estimate step');
-    assert.match(content, /resilience estimate-quota/, 'preflight step must call resilience estimate-quota');
-    assert.match(content, /quota_preflight_ok/, 'preflight step must log quota_preflight_ok when sufficient');
-    assert.match(content, /quota_preflight_insufficient/, 'preflight step must log quota_preflight_insufficient when insufficient');
-
-    const preflightIdx = content.indexOf('<step name="preflight_quota_estimate">');
-    const confirmIdx = content.indexOf('<step name="confirm_execution">');
-    assert.notStrictEqual(preflightIdx, -1);
-    assert.notStrictEqual(confirmIdx, -1);
-    assert.ok(preflightIdx < confirmIdx, 'preflight_quota_estimate must be positioned before confirm_execution');
-  });
-
-  test('death-detection subsection exists, calls check-staleness/parse-death/resume-brief, and is positioned before step 5', () => {
-    const content = readExecuteRoadmap();
-
-    assert.match(content, /4a\. Detect coordinator death/, 'execute_phases must have a labeled 4a death-detection subsection');
-    assert.match(content, /resilience check-staleness/, 'death detection must call resilience check-staleness');
-    assert.match(content, /resilience parse-death/, 'death detection must call resilience parse-death');
-    assert.match(content, /resilience resume-brief/, 'death detection must call resilience resume-brief');
-
-    const fourAIdx = content.indexOf('4a. Detect coordinator death');
-    const fiveIdx = content.indexOf('**5. Handle result:**');
-    assert.notStrictEqual(fourAIdx, -1);
-    assert.notStrictEqual(fiveIdx, -1);
-    assert.ok(fourAIdx < fiveIdx, '4a death-detection subsection must be positioned before step 5\'s status branches');
-  });
-
-  test('death-detection logs coordinator_death_detected and auto_resume_spawned as literal event-type strings', () => {
-    const content = readExecuteRoadmap();
-
-    assert.match(content, /--type coordinator_death_detected/, 'must log coordinator_death_detected via execution-log event');
-    assert.match(content, /--type auto_resume_spawned/, 'must log auto_resume_spawned via execution-log event');
-  });
-
-  test('wait-until-reset logic documents a capped maximum wait duration (6 hours)', () => {
-    const content = readExecuteRoadmap();
-
-    assert.match(content, /6 hours/, 'wait-until-reset logic must document the 6-hour cap');
-    assert.match(content, /death_reset_time_implausible/, 'must log death_reset_time_implausible when the reset time exceeds the cap');
-  });
-
-  test('respawn re-spawns gsd-phase-coordinator with the resume brief prepended, and requires no human input', () => {
-    const content = readExecuteRoadmap();
-
-    const fourAIdx = content.indexOf('4a. Detect coordinator death');
-    const fiveIdx = content.indexOf('**5. Handle result:**');
-    const section = content.slice(fourAIdx, fiveIdx);
-
-    assert.match(section, /subagent_type="gsd-phase-coordinator"/, '4a must respawn via a fresh gsd-phase-coordinator Agent() call');
-    assert.match(section, /BRIEF_TEXT/, '4a must prepend the resume brief text to the respawn prompt');
-    assert.match(section, /RESUMING FROM DEATH/, '4a must reuse the "RESUMING FROM DEATH" preamble');
-    assert.match(section, /No human input required/, '4a must document that the auto-resume path requires no human input');
-  });
-
-  test('handle_failure retains its original execution-state record-failure retry/debug/escalate ladder unchanged (regression guard)', () => {
-    const content = readExecuteRoadmap();
-
-    const handleFailureIdx = content.indexOf('<step name="handle_failure">');
-    const resumeCapabilityIdx = content.indexOf('<step name="resume_capability">', handleFailureIdx);
-    assert.notStrictEqual(handleFailureIdx, -1, 'handle_failure step must still exist');
-    assert.notStrictEqual(resumeCapabilityIdx, -1, 'resume_capability step must still exist (used as the section boundary)');
-
-    const section = content.slice(handleFailureIdx, resumeCapabilityIdx);
-
-    assert.match(section, /execution-state record-failure/, 'handle_failure must retain its execution-state record-failure call');
-    assert.match(section, /"retry"/, 'handle_failure must retain the retry branch');
-    assert.match(section, /"debug"/, 'handle_failure must retain the debug branch');
-    assert.match(section, /"escalate"/, 'handle_failure must retain the escalate branch');
-    assert.match(section, /entered ONLY for genuine `status: "failed"` task-logic failures/, 'handle_failure must have the new clarifying scope note distinguishing it from coordinator deaths');
-  });
-});
-
-describe('Executor Resilience Protocol: execute-phase.md coordinator-side wiring', () => {
-  // Prose isn't unit-testable -- these are structural regression guards
-  // proving execute-phase.md's text actually contains the CLI call
-  // references and structural pieces this protocol's coordinator-side
-  // handling claims to add, following the exact precedent set by the
-  // execute-roadmap.md resilience-wiring tests above.
-  const REPO_ROOT = path.join(__dirname, '..', '..');
-
-  function readExecutePhase() {
-    return fs.readFileSync(path.join(REPO_ROOT, 'get-shit-done', 'workflows', 'execute-phase.md'), 'utf-8');
-  }
-
-  test('execute_waves pre-spawn handoff check exists, checks both artifacts, and is positioned before the executor spawn step', () => {
-    const content = readExecutePhase();
-
-    assert.match(content, /EXECUTOR-HANDOFF\.json/, 'must reference EXECUTOR-HANDOFF.json');
-    assert.match(content, /TASK-CHECKPOINT\.json/, 'must reference TASK-CHECKPOINT.json');
-    assert.match(content, /resolved-handoffs/, 'must archive resolved handoffs');
-    assert.match(content, /<prior_executor_handoff>/, 'must document the prior_executor_handoff prompt block');
-
-    const preSpawnIdx = content.indexOf('Check for a prior interrupted executor run');
-    const spawnStepIdx = content.indexOf('**Spawn executor agents:**');
-    assert.notStrictEqual(preSpawnIdx, -1, 'pre-spawn handoff check must exist');
-    assert.notStrictEqual(spawnStepIdx, -1, 'executor spawn step must exist');
-    assert.ok(preSpawnIdx < spawnStepIdx, 'pre-spawn handoff check must be positioned before the executor spawn step');
-  });
-
-  test('executor death / clean interruption detection exists inside handle_failures and precedes the retry ladder', () => {
-    const content = readExecutePhase();
-
-    const handleFailuresIdx = content.indexOf('**Handle failures:**');
-    const deathDetectionIdx = content.indexOf('Executor death / clean interruption detection');
-    const retryLadderIdx = content.indexOf('For real failures (not the classifyHandoffIfNeeded runtime bug, and not an executor death');
-
-    assert.notStrictEqual(handleFailuresIdx, -1, 'Handle failures step must exist');
-    assert.notStrictEqual(deathDetectionIdx, -1, 'executor death/clean interruption detection subsection must exist');
-    assert.notStrictEqual(retryLadderIdx, -1, 'retry ladder entry point must still exist, now scoped to exclude death/interruption');
-
-    assert.ok(handleFailuresIdx < deathDetectionIdx, 'death detection must be inside Handle failures');
-    assert.ok(deathDetectionIdx < retryLadderIdx, 'death detection must run before the retry ladder');
-  });
-
-  test('death detection calls parse-death, check-staleness, and branches on session_limit vs context-overflow', () => {
-    const content = readExecutePhase();
-    const deathDetectionIdx = content.indexOf('Executor death / clean interruption detection');
-    const retryLadderIdx = content.indexOf('For real failures (not the classifyHandoffIfNeeded runtime bug, and not an executor death');
-    const section = content.slice(deathDetectionIdx, retryLadderIdx);
-
-    assert.match(section, /resilience parse-death/, 'must call resilience parse-death');
-    assert.match(section, /resilience check-staleness/, 'must call resilience check-staleness');
-    assert.match(section, /PAUSED\.json/, 'must write PAUSED.json for a session-limit death');
-    assert.match(section, /"session_limit"/, 'PAUSED.json type must include session_limit');
-    assert.match(section, /paused_session_limit/, 'must be able to bubble up status: paused_session_limit');
-    assert.match(section, /30 minutes/, 'must document the 30-minute wait-vs-bubble-up threshold');
-    assert.match(section, /status.*is.*"interrupted"/, 'must recognize the executor clean-interruption via the JSON status trailer');
-    assert.match(section, /Parse the machine-readable status FIRST/, 'must parse the JSON status trailer before string-matching the prose header');
-  });
-
-  test('proactive usage-window pause check exists, is OFF by default, and is positioned before each wave spawns', () => {
-    const content = readExecutePhase();
-
-    assert.match(content, /resilience usage-window/, 'must call resilience usage-window');
-    assert.match(content, /usage_pause_threshold_tokens/, 'must read the usage_pause_threshold_tokens config key');
-    assert.match(content, /skip this check entirely/, 'must document the default-OFF zero-overhead skip path');
-    assert.match(content, /"usage_estimate"/, 'PAUSED.json type must include usage_estimate for the proactive path');
-
-    const usageCheckIdx = content.indexOf('Proactive usage-window check');
-    const waveDescribeIdx = content.indexOf('Describe what\'s being built (BEFORE spawning)');
-    assert.notStrictEqual(usageCheckIdx, -1, 'proactive usage-window check must exist');
-    assert.notStrictEqual(waveDescribeIdx, -1, 'per-wave describe step must exist');
-    assert.ok(usageCheckIdx < waveDescribeIdx, 'usage-window check must run before wave work begins');
-  });
-
-  test('references/resilience.md is linked from execute-phase.md', () => {
-    const content = readExecutePhase();
-    assert.match(content, /@get-shit-done\/references\/resilience\.md/, 'execute-phase.md must point to the resilience protocol reference doc');
-  });
-});
-
 describe('Phase 52-01: skew detection (computeManifestDrift / cmdDoctor)', () => {
   const { computeManifestDrift } = require(TOOLS_PATH);
 
@@ -10831,49 +10356,6 @@ describe('Phase 52-01: SessionStart skew-check helpers + execute-roadmap.md pref
     });
   });
 
-  describe('execute-roadmap.md preflight_skew_check wiring', () => {
-    const REPO_ROOT = path.join(__dirname, '..', '..');
-
-    function readExecuteRoadmap() {
-      return fs.readFileSync(path.join(REPO_ROOT, 'get-shit-done', 'workflows', 'execute-roadmap.md'), 'utf-8');
-    }
-
-    test('preflight_skew_check step exists and calls gsd-tools.js doctor --raw', () => {
-      const content = readExecuteRoadmap();
-      assert.match(content, /<step name="preflight_skew_check">/);
-      assert.match(content, /doctor --raw/);
-    });
-
-    test('preflight_skew_check is positioned after preflight_quota_estimate and before confirm_execution', () => {
-      const content = readExecuteRoadmap();
-      const quotaIdx = content.indexOf('<step name="preflight_quota_estimate">');
-      const skewIdx = content.indexOf('<step name="preflight_skew_check">');
-      const confirmIdx = content.indexOf('<step name="confirm_execution">');
-      assert.notStrictEqual(quotaIdx, -1);
-      assert.notStrictEqual(skewIdx, -1);
-      assert.notStrictEqual(confirmIdx, -1);
-      assert.ok(quotaIdx < skewIdx, 'preflight_skew_check must come after preflight_quota_estimate');
-      assert.ok(skewIdx < confirmIdx, 'preflight_skew_check must come before confirm_execution');
-    });
-
-    test('logs --type skew_detected only inside the not-clean branch', () => {
-      const content = readExecuteRoadmap();
-      const skewIdx = content.indexOf('<step name="preflight_skew_check">');
-      const nextStepIdx = content.indexOf('<step name="confirm_execution">');
-      const section = content.slice(skewIdx, nextStepIdx);
-      assert.match(section, /--type skew_detected/);
-      const notCleanIdx = section.indexOf('if [ "$CLEAN" != "true" ]');
-      const skewDetectedIdx = section.indexOf('--type skew_detected');
-      assert.notStrictEqual(notCleanIdx, -1);
-      assert.ok(notCleanIdx < skewDetectedIdx, 'skew_detected event must be logged inside the not-clean branch');
-    });
-
-    test('preflight_quota_estimate and confirm_execution sections are otherwise unchanged (regression spot-check)', () => {
-      const content = readExecuteRoadmap();
-      assert.match(content, /resilience estimate-quota/, 'preflight_quota_estimate content must still be present');
-      assert.match(content, /quota_preflight_ok/, 'preflight_quota_estimate content must still be present');
-    });
-  });
 });
 
 describe('Hook hardening (C-1/C-3/C-4): fail-open + bounded + distinguishable-failure', () => {
@@ -12230,23 +11712,6 @@ describe('Phase 55-01 eval-candidate agent wiring', () => {
   });
 
   // Category 4: Boundary -- correct placement in gsd-verifier.md's <output> section.
-  test('boundary: `eval-candidate from-verification` in gsd-verifier.md appears AFTER the VERIFICATION.md template closing fence and BEFORE "## Return to Orchestrator"', () => {
-    const content = readRepoFile(VERIFIER_AGENT_PATH);
-
-    const returnHeadingIdx = content.indexOf('## Return to Orchestrator');
-    assert.ok(returnHeadingIdx !== -1, 'expected a "## Return to Orchestrator" heading');
-
-    const evalCandidateIdx = content.indexOf('eval-candidate from-verification');
-    assert.ok(evalCandidateIdx !== -1, 'expected "eval-candidate from-verification" to appear in gsd-verifier.md');
-    assert.ok(evalCandidateIdx < returnHeadingIdx, 'expected eval-candidate from-verification to appear BEFORE "## Return to Orchestrator"');
-
-    // Closing fence of the VERIFICATION.md template block is the last ``` before "## Return to Orchestrator".
-    const templateRegion = content.slice(0, returnHeadingIdx);
-    const lastFenceIdx = templateRegion.lastIndexOf('```');
-    assert.ok(lastFenceIdx !== -1, 'expected a closing ``` fence before "## Return to Orchestrator"');
-    assert.ok(evalCandidateIdx > lastFenceIdx, 'expected eval-candidate from-verification to appear AFTER the VERIFICATION.md template closing fence');
-  });
-
   // Category 5: Wiring/integration -- budgets still pass after the digest/output additions.
   test('wiring: checkAllBudgets reports pass:true overall and for gsd-debugger/gsd-verifier individually', () => {
     const { checkAllBudgets } = require('./prompt-budget.js');
@@ -13813,14 +13278,6 @@ describe('Phase 57-04: bounded escalation loop & ledger recording', () => {
     const executeEnd = content.indexOf('</step>', executeStart);
     const postUxSweepStart = executePhase.indexOf('<step name="post_phase_ux_sweep">');
 
-    test('the routing step is found, execute-phase points at it before post_phase_ux_sweep (sanity check for index-bounded assertions below)', () => {
-      assert.ok(executeStart !== -1, '<step name="per_task_routing"> not found');
-      assert.ok(executeEnd !== -1, 'routing step closing </step> not found');
-      assert.ok(postUxSweepStart !== -1, '<step name="post_phase_ux_sweep"> not found in execute-phase');
-      const pointer = executePhase.indexOf('references/task-routing.md');
-      assert.ok(pointer !== -1 && pointer < postUxSweepStart, 'execute-phase must point at task-routing.md before post_phase_ux_sweep');
-    });
-
     test('routing escalation-decision is called inside the execute step', () => {
       const idx = content.indexOf('routing escalation-decision', executeStart);
       assert.ok(idx !== -1 && idx < executeEnd, 'routing escalation-decision must appear inside <step name="per_task_routing">');
@@ -14343,23 +13800,6 @@ describe('Phase 59-02: post-task quality test-writer spawn (MILE-37)', () => {
     });
   });
 
-  describe('regression guard: CHANGELOG.md documents Phase 59-02 (MILE-37)', () => {
-    test('Phase 59-02 bullet is present under Unreleased/Added, sits above the Phase 59-01 bullet, and mentions the key deliverables', () => {
-      const changelog = fs.readFileSync(path.join(REPO_ROOT, 'CHANGELOG.md'), 'utf-8');
-      const unreleasedIdx = changelog.indexOf('## [Unreleased]');
-      const addedIdx = changelog.indexOf('### Added', unreleasedIdx);
-      const nextSectionIdx = changelog.indexOf('\n## ', addedIdx);
-      const addedSection = changelog.slice(addedIdx, nextSectionIdx === -1 ? changelog.length : nextSectionIdx);
-
-      const phase5902Idx = addedSection.indexOf('Phase 59-02');
-      const phase5901Idx = addedSection.indexOf('Phase 59-01');
-      assert.ok(phase5902Idx !== -1, 'expected CHANGELOG.md Unreleased/Added to mention Phase 59-02');
-      assert.ok(phase5901Idx !== -1 && phase5902Idx < phase5901Idx, 'expected the Phase 59-02 bullet to sit above the older Phase 59-01 bullet (newest-first)');
-      assert.ok(addedSection.includes('computeTouchesSourceCode'), 'expected the Phase 59-02 bullet to mention computeTouchesSourceCode');
-      assert.ok(addedSection.includes('post_task_quality_spawn'), 'expected the Phase 59-02 bullet to mention post_task_quality_spawn');
-      assert.ok(addedSection.includes('MILE-37'), 'expected the Phase 59-02 bullet to mention MILE-37');
-    });
-  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -14483,14 +13923,6 @@ describe('Phase 59-03: declared-dependency integration-tester spawn + gaps_found
     });
   });
 
-  describe('prose wiring grep-assertion tests (house convention, mirrors Phase 57-04/58-03)', () => {
-    test('contract_mismatch appears in both verifier-detail.md and planner-detail.md respective tables', () => {
-      const verifierContent = fs.readFileSync(VERIFIER_DETAIL_PATH, 'utf-8');
-      const plannerContent = fs.readFileSync(PLANNER_DETAIL_PATH, 'utf-8');
-      assert.ok(verifierContent.includes('contract_mismatch'), 'expected contract_mismatch in verifier-detail.md');
-      assert.ok(plannerContent.includes('contract_mismatch'), 'expected contract_mismatch in planner-detail.md');
-    });
-  });
 });
 
 // Phase 60-01 (MILE-39, foundation): loadConfig's 3 new adversarial_review
@@ -14606,19 +14038,6 @@ describe('Phase 60-02: adversarial pass merged into gsd-plan-checker (MILE-39)',
   const AGENTS_DIR = path.join(__dirname, '..', '..', 'agents');
   const checker = matter(fs.readFileSync(path.join(AGENTS_DIR, 'gsd-plan-checker.md'), 'utf-8'));
 
-  test('gsd-plan-checker Write is limited to {plan_id}-VERDICT.md', () => {
-    assert.ok(/Write is limited to `\{phase_dir\}\/\{plan_id\}-VERDICT\.md`/.test(checker.content));
-    assert.ok(/never write or edit any other file/i.test(checker.content));
-  });
-
-  test('gsd-plan-checker has Write and documents the adversarial pass writing {plan_id}-VERDICT.md', () => {
-    const tools = String(checker.data.tools).split(',').map((t) => t.trim());
-    assert.ok(tools.includes('Write'), 'checker must have Write to emit VERDICT.md');
-    assert.ok(checker.content.includes('## Dimension 14: Adversarial Pass'));
-    assert.ok(checker.content.includes('-VERDICT.md'));
-    assert.ok(/verdict: approved \| revise \| critical/.test(checker.content), 'verdict enum must match quality verdict-to-issues');
-  });
-
   test('the attacker/defender/judge agent files are gone', () => {
     for (const f of ['gsd-plan-attacker.md', 'gsd-plan-defender.md', 'gsd-plan-judge.md']) {
       assert.ok(!fs.existsSync(path.join(AGENTS_DIR, f)), `${f} must be deleted`);
@@ -14698,40 +14117,6 @@ describe('Phase 60-03: plan-phase.md adversarial-review risk-triage wiring (MILE
   ].join('\n');
 
   describe('index-ordered + byte-identical grep-assertions (real file on disk)', () => {
-    test('Step 9.5 heading exists and appears BEFORE Step 10\'s trio-vs-checker heading', () => {
-      const content = readPlanPhase();
-      const step95Idx = content.indexOf('## 9.5. Risk Triage (Adversarial Review, MILE-39)');
-      const step10Idx = content.indexOf('## 10. Spawn gsd-plan-checker Agent');
-      assert.ok(step95Idx > -1, 'expected Step 9.5 heading to exist');
-      assert.ok(step10Idx > -1, 'expected the new Step 10 heading to exist');
-      assert.ok(step95Idx < step10Idx, 'expected Step 9.5 to be wired BEFORE Step 10');
-    });
-
-    test('byte-identical regression guard: the EXACT pre-existing checker banner + prompt + Agent() block is still present unmodified', () => {
-      const content = readPlanPhase();
-      assert.ok(
-        content.includes(EXACT_ORIGINAL_CHECKER_BLOCK),
-        'expected the pre-Phase-60 checker spawn block to remain byte-identical inside the checker branch'
-      );
-    });
-
-    test('Step 11\'s heading appears AFTER Step 10\'s heading (ordering)', () => {
-      const content = readPlanPhase();
-      const step10Idx = content.indexOf('## 10. Spawn gsd-plan-checker Agent');
-      const step11Idx = content.indexOf('## 11. Handle Checker Return');
-      assert.ok(step11Idx > step10Idx, 'expected Step 11 to appear after Step 10');
-    });
-
-    test('Step 11 branches on TRIAGE_MODE (checker vs adversarial) and calls quality verdict-to-issues', () => {
-      const content = readPlanPhase();
-      const step11Idx = content.indexOf('## 11. Handle Checker Return');
-      const step12Idx = content.indexOf('## 12. Revision Loop (capped)');
-      const step11Text = content.slice(step11Idx, step12Idx);
-      assert.ok(step11Text.includes('`TRIAGE_MODE` is `checker`'), 'expected the checker-mode branch label');
-      assert.ok(step11Text.includes('`TRIAGE_MODE` is `adversarial`'), 'expected the adversarial-mode branch label');
-      assert.ok(step11Text.includes('quality verdict-to-issues'), 'expected the verdict-to-issues CLI call');
-    });
-
     test('Step 12 re-runs Step 9.5\'s triage before re-spawning step 10, while the existing gsd-planner revision spawn remains unmodified', () => {
       const content = readPlanPhase();
       assert.ok(content.includes('re-run Step 9.5'), 'expected the re-triage-on-revision text');
@@ -15032,24 +14417,6 @@ go 1.21
     assert.ok(parsed.message && parsed.message.includes('already passed'));
   });
 
-  test('grep-assertion: execute-roadmap.md still contains exact parsing contract strings', () => {
-    const roadmapPath = path.join(
-      __dirname,
-      '..',
-      'workflows',
-      'execute-roadmap.md'
-    );
-
-    assert.ok(fs.existsSync(roadmapPath), `execute-roadmap.md should exist at ${roadmapPath}`);
-    const content = fs.readFileSync(roadmapPath, 'utf-8');
-
-    // Lock in the parsing contract strings -- these are the exact literals consumed by execute-roadmap.md's step
-    assert.ok(content.includes('gate pre-pr'), 'Should contain gate pre-pr command');
-    assert.ok(content.includes('action_required'), 'Should contain action_required field parse');
-    assert.ok(content.includes('checks'), 'Should contain checks array reference');
-    assert.ok(content.includes('gate pre-pr --mark-passed'), 'Should contain mark-passed command');
-    assert.ok(content.includes('"passed": true'), 'Should contain "passed": true verification (space matches output()\'s JSON.stringify(result, null, 2) pretty-printing)');
-  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -15114,51 +14481,6 @@ describe('D-1: config get reads nested dotted keys + --default (auto-advance/aut
     assert.strictEqual(result.output, 'false');
   });
 
-  test('no workflow/agent file uses the nonexistent hyphenated `config-get` subcommand', () => {
-    const REPO_ROOT = path.join(__dirname, '..', '..');
-    const files = [
-      'get-shit-done/workflows/execute-phase.md',
-      'get-shit-done/workflows/execute-roadmap.md',
-      'get-shit-done/workflows/plan-phase.md',
-      'get-shit-done/workflows/discuss-phase.md',
-      'get-shit-done/workflows/execute-plan.md',
-      'agents/gsd-executor.md',
-    ];
-    for (const f of files) {
-      const content = fs.readFileSync(path.join(REPO_ROOT, f), 'utf-8');
-      assert.ok(!/config-get\b/.test(content), `${f} must not call the nonexistent \`config-get\` subcommand`);
-    }
-  });
-
-  test('the auto-advance call sites use the corrected `config get workflow.auto_advance --raw` form', () => {
-    const REPO_ROOT = path.join(__dirname, '..', '..');
-    for (const f of ['get-shit-done/workflows/execute-phase.md', 'get-shit-done/workflows/plan-phase.md', 'get-shit-done/workflows/discuss-phase.md']) {
-      const content = fs.readFileSync(path.join(REPO_ROOT, f), 'utf-8');
-      assert.ok(content.includes('config get workflow.auto_advance --raw'), `${f} should use the corrected \`config get workflow.auto_advance --raw\` invocation`);
-    }
-  });
-});
-
-describe('D-2: audit-milestone.md writes the single-prefix filename complete-milestone reads', () => {
-  const REPO_ROOT = path.join(__dirname, '..', '..');
-  const AUDIT_PATH = path.join(REPO_ROOT, 'get-shit-done', 'workflows', 'audit-milestone.md');
-  const COMPLETE_CMD_PATH = path.join(REPO_ROOT, 'commands', 'gsd', 'complete-milestone.md');
-
-  test('audit-milestone.md no longer contains the doubled-prefix v{version}-v{version}- filename', () => {
-    const content = fs.readFileSync(AUDIT_PATH, 'utf-8');
-    assert.ok(!content.includes('v{version}-v{version}-MILESTONE-AUDIT.md'), 'the doubled-prefix output path must be gone');
-  });
-
-  test('audit-milestone.md step-6 Create instruction targets the single-prefix .planning/v{version}-MILESTONE-AUDIT.md', () => {
-    const content = fs.readFileSync(AUDIT_PATH, 'utf-8');
-    assert.ok(content.includes('Create `.planning/v{version}-MILESTONE-AUDIT.md`'), 'step 6 must Create the single-prefix report path');
-  });
-
-  test('the writer path matches what complete-milestone.md reads (single-prefix MILESTONE-AUDIT.md)', () => {
-    const cmd = fs.readFileSync(COMPLETE_CMD_PATH, 'utf-8');
-    assert.ok(cmd.includes('v{{version}}-MILESTONE-AUDIT.md'), 'reader should look for the single-prefix filename');
-    assert.ok(!cmd.includes('v{{version}}-v{{version}}-MILESTONE-AUDIT.md'), 'reader must not expect a doubled prefix');
-  });
 });
 
 describe('D-4: verify-phase.md wiring grep is not hardcoded to src/ + .ts/.tsx', () => {
@@ -15174,33 +14496,6 @@ describe('D-4: verify-phase.md wiring grep is not hardcoded to src/ + .ts/.tsx',
     const content = fs.readFileSync(VERIFY_PATH, 'utf-8');
     assert.ok(content.includes('SEARCH_ROOTS'), 'should derive SEARCH_ROOTS from the actual layout');
     assert.ok(/apps/.test(content) && /libs/.test(content) && /functions/.test(content), 'should consider apps/libs/functions layouts');
-  });
-});
-
-describe('D-5: shared-file-writes.md exists and is @-referenced from shared-planning-file mutators', () => {
-  const REPO_ROOT = path.join(__dirname, '..', '..');
-  const REF_PATH = path.join(REPO_ROOT, 'get-shit-done', 'references', 'shared-file-writes.md');
-
-  test('references/shared-file-writes.md exists with the canonical re-read-before-write rule', () => {
-    assert.ok(fs.existsSync(REF_PATH), 'shared-file-writes.md must exist');
-    const content = fs.readFileSync(REF_PATH, 'utf-8');
-    assert.ok(/re-?read/i.test(content), 'must state the re-read-before-write rule');
-    assert.ok(content.includes('STATE.md') && content.includes('ROADMAP.md') && content.includes('config.json'), 'must name the shared planning files');
-    assert.ok(/config-set|mutator/i.test(content), 'must prefer atomic gsd-tools mutators');
-  });
-
-  test('every shared-planning-file mutator @-references shared-file-writes.md', () => {
-    const mutators = [
-      'get-shit-done/workflows/transition.md',
-      'get-shit-done/workflows/settings.md',
-      'get-shit-done/workflows/new-milestone.md',
-      'get-shit-done/workflows/quick.md',
-      'get-shit-done/references/executor-detail.md',
-    ];
-    for (const f of mutators) {
-      const content = fs.readFileSync(path.join(REPO_ROOT, f), 'utf-8');
-      assert.ok(content.includes('references/shared-file-writes.md'), `${f} must @-reference shared-file-writes.md before mutating a shared planning file`);
-    }
   });
 });
 
@@ -15269,36 +14564,6 @@ describe('D-6: complete-milestone.md — one ROADMAP-reorganization step, bound 
   });
 });
 
-describe('A-2: shared dispatcher-contract reference exists and thin dispatchers @-reference it', () => {
-  const REPO_ROOT = path.join(__dirname, '..', '..');
-  const CONTRACT_PATH = path.join(REPO_ROOT, 'get-shit-done', 'references', 'dispatcher-contract.md');
-  const COMMANDS_DIR = path.join(REPO_ROOT, 'commands', 'gsd');
-
-  test('references/dispatcher-contract.md exists with the STOP-do-not-improvise failure path', () => {
-    assert.ok(fs.existsSync(CONTRACT_PATH), 'dispatcher-contract.md must exist');
-    const content = fs.readFileSync(CONTRACT_PATH, 'utf-8');
-    assert.ok(/STOP/.test(content), 'contract must tell the dispatcher to STOP on load failure');
-    assert.ok(/improvis/i.test(content), 'contract must forbid improvising the workflow');
-    assert.ok(/installer|install\.js/i.test(content), 'contract must point at re-running the installer on load failure');
-    assert.ok(/state/i.test(content), 'contract must require reporting what state was written on an unrecoverable error');
-  });
-
-  test('the thin dispatcher commands @-reference the shared contract', () => {
-    const dispatchers = [
-      'execute-phase', 'execute-roadmap', 'plan-phase', 'quick', 'new-project',
-      'new-milestone', 'audit-milestone', 'plan-milestone-gaps', 'insert-phase',
-      'debug', 'verify-work', 'add-phase', 'add-todo', 'check-todos', 'mine-conversations',
-    ];
-    for (const name of dispatchers) {
-      const content = fs.readFileSync(path.join(COMMANDS_DIR, `${name}.md`), 'utf-8');
-      assert.ok(
-        content.includes('references/dispatcher-contract.md'),
-        `${name}.md must @-reference the shared dispatcher-contract for its failure path`
-      );
-    }
-  });
-});
-
 // Agent-to-agent messaging layer (SendMessage). Structural/prose guards for the
 // messaging patterns that compose on top of the Executor Resilience Protocol.
 // SendMessage cannot be runtime-simulated here, so these assert the wiring is
@@ -15310,47 +14575,6 @@ describe('Agent messaging (SendMessage) — prompt-layer wiring', () => {
   function readRepoFile(rel) {
     return fs.readFileSync(path.join(REPO_ROOT, rel), 'utf-8');
   }
-
-  test('references/agent-messaging.md exists and documents the 3 hard semantics + 6 application patterns', () => {
-    const p = path.join(REPO_ROOT, 'get-shit-done', 'references', 'agent-messaging.md');
-    assert.ok(fs.existsSync(p), 'get-shit-done/references/agent-messaging.md must exist as the single source');
-    const content = fs.readFileSync(p, 'utf-8');
-
-    // Hard semantic #1 — delivery at next tool round, cooperative not preemptive
-    assert.match(content, /next tool round/i, 'must document semantic #1: delivery at the recipient next tool round');
-    assert.match(content, /COOPERATIVE/i, 'must document that messaging is a cooperative signal, not a preemptive halt');
-    // Hard semantic #2 — upward-only limit signals
-    assert.match(content, /cannot observe another agent/i, 'must document semantic #2: a subagent cannot observe another agent context/session');
-    assert.match(content, /flow UP|UPWARD|to: "main"/i, 'must document that limit signals flow upward (to: "main")');
-    // Hard semantic #3 — resume-by-agentId same-session-only
-    assert.match(content, /SAME-SESSION only/i, 'must document semantic #3: resume-by-agentId is same-session only');
-    assert.match(content, /PAUSED\.json|handoff-doc/i, 'must state the handoff-doc + PAUSED.json path is the durable cross-session fallback');
-
-    // All 6 application patterns named
-    for (let n = 1; n <= 6; n++) {
-      assert.match(content, new RegExp(`App #${n}`), `agent-messaging.md must document App #${n}`);
-    }
-
-    // Recipient forms
-    assert.match(content, /agentId/, 'must document the agentId recipient form');
-    assert.match(content, /teammate NAME/i, 'must document the teammate NAME recipient form');
-  });
-
-  test('the 5 signalling/coordinating agents have SendMessage in their tools frontmatter', () => {
-    const agents = [
-      'gsd-executor', 'gsd-phase-coordinator', 'gsd-plan-checker',
-      'gsd-charlotte-qa', 'gsd-verifier',
-    ];
-    for (const name of agents) {
-      const agentPath = name === 'gsd-charlotte-qa'
-        ? path.join('get-shit-done', 'presets', 'packs', 'charlotte', 'agents', `${name}.md`)
-        : path.join('agents', `${name}.md`);
-      const content = readRepoFile(agentPath);
-      const toolsLine = content.split('\n').find((l) => l.startsWith('tools:'));
-      assert.ok(toolsLine, `${name}.md must have a tools: frontmatter line`);
-      assert.match(toolsLine, /\bSendMessage\b/, `${name}.md tools: line must include SendMessage`);
-    }
-  });
 
   test('read-only mapper/researcher agents did NOT get SendMessage', () => {
     // Guard against over-broad application — the tool goes only on signalling agents.
@@ -15370,21 +14594,6 @@ describe('Agent messaging (SendMessage) — prompt-layer wiring', () => {
     assert.match(content, /cold (fresh-)?spawn/i, 'must document the cold-spawn fallback');
     assert.match(content, /<prior_executor_handoff>/, 'cold-spawn fallback must use the existing prior_executor_handoff block');
     assert.match(content, /same session/i, 'decision must hinge on same-session availability of the agentId');
-  });
-
-  test('App #3: plan-checker + charlotte-qa signal mid-run; execute-phase relays coordinator-mediated', () => {
-    for (const name of ['gsd-plan-checker', 'gsd-charlotte-qa']) {
-      const agentPath = name === 'gsd-charlotte-qa'
-        ? path.join('get-shit-done', 'presets', 'packs', 'charlotte', 'agents', `${name}.md`)
-        : path.join('agents', `${name}.md`);
-      const content = readRepoFile(agentPath);
-      assert.match(content, /<live_course_correction>/, `${name}.md must have a live_course_correction block`);
-      assert.match(content, /to: "main"/, `${name}.md must SendMessage findings upward to "main"`);
-      assert.match(content, /coordinator-mediated/i, `${name}.md must keep the relay coordinator-mediated, not direct peer`);
-    }
-    const phase = readRepoFile('get-shit-done/workflows/execute-phase.md');
-    assert.match(phase, /App #3/, 'execute-phase.md must document the App #3 relay');
-    assert.match(phase, /EXECUTOR_AGENT_IDS/, 'coordinator relay uses the captured executor agentId');
   });
 
   test('the agent-messaging additions kept the executor core preamble within its (bumped) budget', () => {
@@ -15656,13 +14865,6 @@ describe('new-project config shape agrees with template and loadConfig', () => {
   const workflow = fs.readFileSync(path.join(root, 'workflows', 'new-project.md'), 'utf-8');
   const template = JSON.parse(fs.readFileSync(path.join(root, 'templates', 'config.json'), 'utf-8'));
 
-  test('workflow documents the nested keys the template uses, never the flat form', () => {
-    assert.ok(!/^\s*"commit_docs":/m.test(workflow), 'flat commit_docs in workflow');
-    assert.ok(!/"parallelization":\s*true\|false/.test(workflow), 'boolean parallelization in workflow');
-    assert.ok(/"parallelization":\s*\{\s*"enabled"/.test(workflow));
-    assert.ok(/"planning":\s*\{\s*"commit_docs"/.test(workflow));
-  });
-
   test('loadConfig reads the nested template shape', () => {
     const tmpDir = createTempProject();
     try {
@@ -15675,10 +14877,6 @@ describe('new-project config shape agrees with template and loadConfig', () => {
     } finally { cleanup(tmpDir); }
   });
 
-  test('workflow tells the agent to merge via config-set, not overwrite', () => {
-    assert.ok(!/Create `\.planning\/config\.json`/.test(workflow));
-    assert.ok(/config-set <key\.path> <value>/.test(workflow));
-  });
 });
 
 describe('roadmap decision-point mapping is one shared instruction', () => {

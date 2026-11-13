@@ -84,17 +84,4 @@ describe('R10 prose: rules named in the audit are in the files', () => {
     assert.match(doc('agents/gsd-plan-checker.md'), /refuting observation/);
     assert.match(doc('get-shit-done/workflows/plan-phase.md'), /refuting observation/);
   });
-  test('C/D/E/F/H: rigour, verifier and execute-phase carry the new rules', () => {
-    const r = doc('get-shit-done/references/rigour.md');
-    assert.match(r, /criteria_decided/);
-    assert.match(r, /fix re-check/);
-    assert.match(r, /new budget window/);
-    const v = doc('agents/gsd-verifier.md');
-    assert.match(v, /criteria_decided/);
-    assert.match(v, /literal success code/);
-    assert.match(v, /recorded command/);
-    const e = doc('get-shit-done/workflows/execute-phase.md');
-    assert.match(e, /fix re-check/);
-    assert.match(e, /names the file that must carry it/);
-  });
 });

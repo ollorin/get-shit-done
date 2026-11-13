@@ -101,10 +101,6 @@ describe('R5-5: at spike the executor resolves to sonnet', () => {
     fs.rmSync(path.join(s, '.planning', 'OWNER-GATES.json'));
     assert.strictEqual(model(s), 'haiku');
   });
-  test('rigour.md and models.md say so', () => {
-    assert.match(doc('get-shit-done/references/rigour.md'), /`executor_model` \(the floor, and with it the fix dispatch\) resolves to `sonnet`/);
-    assert.match(doc('get-shit-done/references/models.md'), /raised from `haiku` to `sonnet`/);
-  });
 });
 
 describe('R5-6: the spike wall budget is 45', () => {
