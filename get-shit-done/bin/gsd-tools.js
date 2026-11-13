@@ -230,6 +230,7 @@ const dispatch = require('./roadmap-dispatch.js');
 const ownerGates = require('./owner-gates.js');
 const autoModeFields = (cwd) => resolveAutoMode(cwd, process.argv.slice(2), process.env);
 const rigour = require('./rigour.js');
+const topModel = require('./top-model.js');
 
 // Phase 2: Auto Mode safety modules (lazy — gracefully absent if not installed)
 let circuitBreaker, validator, escalation, feedback, learning;
@@ -253,7 +254,6 @@ const MODEL_PROFILES = {
   'gsd-research-synthesizer': { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku', auto: 'sonnet' },
   'gsd-debugger':             { quality: 'opus', balanced: 'sonnet', budget: 'sonnet', auto: 'sonnet' },
   'gsd-codebase-mapper':      { quality: 'sonnet', balanced: 'haiku', budget: 'haiku', auto: 'haiku'  },
-  'gsd-verifier':             { quality: 'opus', balanced: 'opus', budget: 'opus', auto: 'opus' },
   'gsd-plan-checker':         { quality: 'sonnet', balanced: 'sonnet', budget: 'haiku', auto: 'sonnet' },
   'gsd-test-writer':          { quality: 'sonnet', balanced: 'haiku', budget: 'haiku', auto: 'haiku' },
   'gsd-docs-updater':         { quality: 'sonnet', balanced: 'haiku', budget: 'haiku', auto: 'haiku' },
@@ -2833,6 +2833,17 @@ function cmdStateRecordSession(cwd, options, raw) {
 function cmdResolveModel(cwd, agentType, raw) {
   if (!agentType) {
     error('agent-type required');
+  }
+  if (agentType === 'top' || agentType === 'top-fallback') {
+    const t = topModelFields(cwd);
+    const model = agentType === 'top' ? t.ruling_model : t.ruling_model_fallback;
+    output({ model, role: agentType }, raw, model);
+    return;
+  }
+  if (agentType === 'gsd-verifier') {
+    const model = topModelFields(cwd).ruling_model;
+    output({ model, profile: 'top' }, raw, model);
+    return;
   }
 
   const config = loadConfig(cwd);
@@ -11529,7 +11540,16 @@ function cmdScaffold(cwd, type, options, raw) {
 
 // ─── Compound Commands ────────────────────────────────────────────────────────
 
+// ruling_model / ruling_model_fallback for every init output; an invalid models.top exits 1.
+function topModelFields(cwd) {
+  const t = topModel.resolveTop(cwd);
+  if (!t.ok) error(t.error);
+  if (t.legacy && !topModelFields.noticed) { topModelFields.noticed = true; process.stderr.write('Notice: config ruling_model is legacy; set models.top\n'); }
+  return { ruling_model: t.top, ruling_model_fallback: t.fallback };
+}
+
 function resolveModelInternal(cwd, agentType) {
+  if (agentType === 'gsd-verifier') return topModelFields(cwd).ruling_model;
   const config = loadConfig(cwd);
   const profile = config.model_profile || 'balanced';
   const agentModels = MODEL_PROFILES[agentType];
@@ -11725,9 +11745,8 @@ function cmdInitExecutePhase(cwd, phase, includes, raw, gate) {
     // Models
     executor_model: resolveModelInternal(cwd, 'gsd-executor'),
     verifier_model: resolveModelInternal(cwd, 'gsd-verifier'),
-    // Top-tier alias for the phase-end verifier and rulings (config ruling_model, default opus)
-    ruling_model: config.ruling_model || 'opus',
-    ruling_model_fallback: readRawConfig(cwd).ruling_model_fallback || 'opus',
+    // The final phase review and rulings run on the configured top model (models.top).
+    ...topModelFields(cwd),
     utility_model: readRawConfig(cwd).utility_model || 'haiku',
     reviewer_model: readRawConfig(cwd).reviewer_model || 'sonnet',
     base_branch: resolveBaseBranch(cwd),
@@ -11843,9 +11862,8 @@ function cmdInitPlanPhase(cwd, phase, includes, raw, gate) {
     planner_model: resolveModelInternal(cwd, 'gsd-planner'),
     checker_model: resolveModelInternal(cwd, 'gsd-plan-checker'),
     executor_model: resolveModelInternal(cwd, 'gsd-executor'),
-    // Top-tier alias for risk-domain plans, rulings and adversarial passes (config ruling_model, default opus)
-    ruling_model: config.ruling_model || 'opus',
-    ruling_model_fallback: readRawConfig(cwd).ruling_model_fallback || 'opus',
+    // Risk-domain plans, rulings and adversarial passes run on the configured top model (models.top).
+    ...topModelFields(cwd),
     utility_model: readRawConfig(cwd).utility_model || 'haiku',
 
     // Workflow flags
@@ -11986,6 +12004,7 @@ function cmdInitNewProject(cwd, raw) {
                    pathExistsInternal(cwd, 'Package.swift');
 
   const result = {
+    ...topModelFields(cwd),
     ...projectContext.contextFields(cwd),
     ...autoModeFields(cwd),
     available_presets: projectContext.availablePresets(path.join(__dirname, '..', 'presets')),
@@ -12025,6 +12044,7 @@ function cmdInitNewMilestone(cwd, raw) {
   const milestone = getMilestoneInfo(cwd);
 
   const result = {
+    ...topModelFields(cwd),
     ...projectContext.contextFields(cwd),
     ...autoModeFields(cwd),
     // Models
@@ -12088,6 +12108,7 @@ function cmdInitQuick(cwd, description, raw) {
   } catch {}
 
   const result = {
+    ...topModelFields(cwd),
     ...projectContext.contextFields(cwd),
     ...autoModeFields(cwd),
     // Models
@@ -12156,6 +12177,7 @@ function cmdInitVerifyWork(cwd, phase, raw) {
   const phaseInfo = findPhaseInternal(cwd, phase);
 
   const result = {
+    ...topModelFields(cwd),
     ...projectContext.contextFields(cwd),
     ...autoModeFields(cwd),
     // Models
@@ -12183,6 +12205,7 @@ function cmdInitPhaseOp(cwd, phase, raw) {
   const phaseInfo = findPhaseInternal(cwd, phase);
 
   const result = {
+    ...topModelFields(cwd),
     ...projectContext.contextFields(cwd),
     ...autoModeFields(cwd),
     // Config
@@ -12306,6 +12329,7 @@ function cmdInitMilestoneOp(cwd, raw) {
   } catch {}
 
   const result = {
+    ...topModelFields(cwd),
     ...projectContext.contextFields(cwd),
     ...autoModeFields(cwd),
     // Config
@@ -12620,8 +12644,7 @@ function cmdInitExecuteRoadmap(cwd, raw) {
     has_execution_log: hasExecutionLog,
     resume_state: resumeState,
     coordinator_model: coordinatorModel,
-    ruling_model: config.ruling_model || 'opus',
-    ruling_model_fallback: rawConfig.ruling_model_fallback || 'opus',
+    ...topModelFields(cwd),
     utility_model: rawConfig.utility_model || 'haiku',
     reviewer_model: rawConfig.reviewer_model || 'sonnet',
     legacy: process.argv.includes('--legacy') || process.env.GSD_LEGACY === '1',
