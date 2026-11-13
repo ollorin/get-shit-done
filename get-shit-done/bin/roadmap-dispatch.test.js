@@ -176,43 +176,34 @@ describe('pilot fix D1/D2: a dependency-parked phase is still reported incomplet
   });
 });
 
-describe('CLI-6: a format gap never parks', () => {
+describe('N9: form debt is one mechanism (VERIFICATION form_debt written by phase complete --form-debt)', () => {
   const FORM = { complete: false, errors: ['x'], work_errors: [], form_errors: ['01-01-SUMMARY.md: self_check: missing'] };
-  const rec = (result, extra = {}, events = [], truth = { complete: false, errors: [], work_errors: ['Plan 01-01 has no commits'], form_errors: [] }) => d.record({ phase: '1', result, truth, events, ...extra });
-  test('a format claim is debt only with zero missing work on disk and a form item; the items come from disk, not from the result', () => {
-    const r = rec({ status: 'gaps_found', gap_kind: 'format', form_debt: ['invented'] }, {}, [], FORM);
-    assert.deepStrictEqual([r.action, r.form_debt], ['continue_with_debt', FORM.form_errors]);
-    assert.deepStrictEqual(r.events, [{ type: 'phase_form_debt', phase: '1', items: FORM.form_errors }]);
+  const WORK = { complete: false, errors: [], work_errors: ['Plan 01-01 has no commits'], form_errors: [] };
+  const rec = (result, extra = {}, events = [], truth = WORK) => d.record({ phase: '1', result, truth, events, ...extra });
+  test('completed or gaps_found over form-only disk truth returns complete_form_debt: no events, no gap cycle, no park', () => {
+    for (const result of [{ status: 'gaps_found' }, { status: 'gaps_found', gap_kind: 'format' }, { status: 'completed' }]) {
+      const r = rec(result, {}, [], FORM);
+      assert.deepStrictEqual([r.action, r.events, r.command, r.form_errors], ['complete_form_debt', [], 'phase complete 1 --form-debt', FORM.form_errors], JSON.stringify(result));
+    }
   });
-  test('the same claim with missing work, or with no form item, is a product gap (gap_cycle first)', () => {
+  test('missing work or no form item is a product gap (gap_kind is never read); a form_gate block parks', () => {
     assert.strictEqual(rec({ status: 'gaps_found', gap_kind: 'format' }).action, 'gap_cycle');
     assert.strictEqual(rec({ status: 'gaps_found', gap_kind: 'format' }, {}, [], { complete: false, errors: [], work_errors: [], form_errors: [] }).action, 'gap_cycle');
-    assert.strictEqual(rec({ status: 'gaps_found', gap_kind: 'format' }, {}, [], { complete: false, errors: ['x'] }).action, 'gap_cycle');
-  });
-  test('blocked with reason form_gate is debt on form-only truth and a park otherwise; budget_exceeded parks and names the reason', () => {
-    assert.strictEqual(rec({ status: 'blocked', reason: 'form_gate' }, {}, [], FORM).action, 'continue_with_debt');
-    assert.strictEqual(rec({ status: 'blocked', reason: 'form_gate' }).action, 'park');
+    assert.strictEqual(rec({ status: 'blocked', reason: 'form_gate' }, {}, [], FORM).action, 'park');
     const b = rec({ status: 'blocked', reason: 'budget_exceeded' });
     assert.deepStrictEqual([b.action, b.events[0].type, b.events[0].reason], ['park', 'phase_parked', 'budget_exceeded']);
   });
   test('product gap: first time gap_cycle; with gap_cycle_done parks directly', () => {
     assert.strictEqual(rec({ status: 'gaps_found' }).action, 'gap_cycle');
-    assert.strictEqual(rec({ status: 'gaps_found', gap_kind: 'product' }).action, 'gap_cycle');
     const done = rec({ status: 'gaps_found', gap_cycle_done: true });
     assert.strictEqual(done.action, 'park');
     assert.ok(done.events.some((e) => e.type === 'phase_parked'));
   });
-  test('a phase with form debt is done for its dependents; the next call returns them and lists the debt', () => {
+  test('the dispatcher no longer has a form_debt state, event or output', () => {
+    assert.strictEqual(d.formDebt, undefined);
     const events = [{ type: 'phase_start', phase: '1' }, { type: 'phase_form_debt', phase: '1', items: ['x'] }];
-    const r = nextOf(events, []);
-    assert.deepStrictEqual([r.action, r.phase], ['spawn_coordinator', '2']);
-    const fin = nextOf(events, ['2', '3', '4'], { gateMarked: true, prRecorded: true });
-    assert.deepStrictEqual([fin.complete, fin.form_debt], [true, [{ phase: '1', items: ['x'] }]]);
-    assert.deepStrictEqual(d.incompletePhases(events, () => false), []);
-  });
-  test('a later failure cancels the debt', () => {
-    const events = [{ type: 'phase_form_debt', phase: '1', items: [] }, { type: 'phase_parked', phase: '1', reason: 'x' }];
-    assert.strictEqual(nextOf(events, ['3', '4']).action, 'done');
-    assert.deepStrictEqual(nextOf(events, ['3', '4']).parked.sort(), ['1', '2']);
+    assert.strictEqual(nextOf(events, []).phase, '1');
+    assert.strictEqual(nextOf(events, ['1', '2', '3', '4'], { gateMarked: true, prRecorded: true }).form_debt, undefined);
+    assert.deepStrictEqual(d.incompletePhases(events, () => false), ['1']);
   });
 });

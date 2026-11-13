@@ -22,19 +22,17 @@ function parseDeps(depends) {
 function foldEvents(events) {
   const by = new Map();
   const get = (k) => {
-    if (!by.has(k)) by.set(k, { state: 'none', gap_cycles: 0, started: false, dep_parked: false, form_debt: null });
+    if (!by.has(k)) by.set(k, { state: 'none', gap_cycles: 0, started: false, dep_parked: false });
     return by.get(k);
   };
   for (const e of Array.isArray(events) ? events : []) {
     const k = evPhase(e);
     if (k == null || !e.type) continue;
     switch (e.type) {
-      case 'phase_start': { const s = get(k); s.state = 'running'; s.started = true; s.dep_parked = false; s.form_debt = null; break; }
-      // A format-only gap: the phase counts as done for dependents until a later event says otherwise.
-      case 'phase_form_debt': { const s = get(k); s.state = 'form_debt'; s.form_debt = Array.isArray(e.items) ? e.items : []; s.dep_parked = false; break; }
+      case 'phase_start': { const s = get(k); s.state = 'running'; s.started = true; s.dep_parked = false; break; }
       case 'gap_cycle': { const s = get(k); s.state = 'running'; s.gap_cycles += 1; s.started = true; break; }
       case 'phase_retry': get(k).state = 'running'; break;
-      case 'phase_complete': { const s = get(k); s.state = 'complete'; s.dep_parked = false; s.form_debt = null; break; }
+      case 'phase_complete': { const s = get(k); s.state = 'complete'; s.dep_parked = false; break; }
       case 'phase_incomplete': get(k).state = e.action === 'gap_cycle' ? 'gap_pending' : 'parked'; break;
       // dependency_parked is derived from the dependency's current state, so it is an audit note, never a state.
       case 'phase_parked': { const s = get(k); if (e.reason === 'dependency_parked') s.dep_parked = true; else { s.state = 'parked'; } break; }
@@ -44,8 +42,6 @@ function foldEvents(events) {
   }
   return by;
 }
-
-const debtOf = (folded) => [...folded].filter(([, s]) => s.state === 'form_debt').map(([k, s]) => ({ phase: k, items: s.form_debt || [] }));
 
 function hasEvent(events, type) {
   return (Array.isArray(events) ? events : []).some((e) => e && e.type === type);
@@ -59,7 +55,6 @@ function incompletePhases(events, truth) {
     const involved = s.started || s.dep_parked || s.state === 'parked' || s.state === 'failed' || s.state === 'gap_pending';
     if (!involved) continue;
     if (s.state === 'complete' && truth(k)) continue;
-    if (s.state === 'form_debt') continue;
     out.push(k);
   }
   return out;
@@ -87,14 +82,10 @@ function blockedSet(phases, folded, done, retryParked) {
   return blocked;
 }
 
-function formDebt(events) {
-  return debtOf(foldEvents(events));
-}
-
 function resumeState(events, phases, truth) {
   const folded = foldEvents(events);
   const completed = [];
-  const isDone = (k) => truth(k) || (folded.get(k) || {}).state === 'form_debt';
+  const isDone = (k) => truth(k);
   const doneAll = new Set(phases.map((p) => phaseKey(p.number)).filter((k) => isDone(k)));
   const blockedNow = blockedSet(phases, folded, doneAll, false);
   const parked = [];
@@ -117,7 +108,7 @@ function next(input) {
   const folded = foldEvents(events);
   const log = [];
   const stateOf = (k) => (folded.get(k) || { state: 'none', gap_cycles: 0 });
-  const done = new Set(phases.map((p) => phaseKey(p.number)).filter((k) => truth(k) || stateOf(k).state === 'form_debt'));
+  const done = new Set(phases.map((p) => phaseKey(p.number)).filter((k) => truth(k)));
 
   const blocked = blockedSet(phases, folded, done, input.retryParked);
 
@@ -147,19 +138,18 @@ function next(input) {
     }
   }
   const remaining = phases.map((p) => phaseKey(p.number)).filter((k) => !done.has(k));
-  const debt = debtOf(folded);
   if (blocked.size > 0) {
-    return { ...base, action: 'done', complete: false, parked: [...blocked], completed_phases: [...done], form_debt: debt, log };
+    return { ...base, action: 'done', complete: false, parked: [...blocked], completed_phases: [...done], log };
   }
   if (remaining.length > 0) {
-    return { ...base, action: 'done', complete: false, error: 'deadlock', parked: remaining, completed_phases: [...done], form_debt: debt, log };
+    return { ...base, action: 'done', complete: false, error: 'deadlock', parked: remaining, completed_phases: [...done], log };
   }
   if (!input.gateMarked) return { ...base, action: 'integration_gate', log };
   if (og.pr_waiting) return waiting('pr', og.status);
   if (!input.prRecorded) {
     return { ...base, action: 'pr', base_branch: cfg.base_branch || null, has_remote: input.hasRemote === true, log };
   }
-  return { ...base, action: 'done', complete: true, completed_phases: [...done], form_debt: debt, log };
+  return { ...base, action: 'done', complete: true, completed_phases: [...done], log };
 }
 
 function incompleteEvent(k, truth, folded, reason, gapCycleDone) {
@@ -187,17 +177,16 @@ function record(input) {
   }
   switch (result.status) {
     case 'completed':
+      if (!truth.complete && formOnly(truth)) return formDebtAction(k, truth);
       if (truth.complete) return { phase: k, action: 'complete', ...(Array.isArray(truth.form_debt) && truth.form_debt.length > 0 ? { form_debt: truth.form_debt } : {}), events: [{ type: 'phase_complete', phase: k }] };
       return { phase: k, ...incompleteEvent(k, truth, folded, 'completed_without_disk_truth') };
     case 'gaps_found': {
-      if (result.gap_kind === 'format') { const debt = debtResult(k, truth); if (debt) return debt; }
+      if (formOnly(truth)) return formDebtAction(k, truth);
       return { phase: k, ...incompleteEvent(k, truth, folded, 'gaps_found', result.gap_cycle_done === true) };
     }
     case 'completed_with_deferrals':
       return { phase: k, action: 'spawn_deferred', deferred: result.deferred || [], events: [] };
     case 'blocked':
-      if (result.reason === 'form_gate') { const debt = debtResult(k, truth); if (debt) return debt; }
-    // falls through
     case 'human_needed':
       return { phase: k, action: 'park', events: [{ type: 'phase_parked', phase: k, reason: result.reason || result.status }] };
     case 'failed':
@@ -207,12 +196,10 @@ function record(input) {
   }
 }
 
-// A coordinator's "format" claim is only a claim: form debt needs disk truth with zero missing work and at least one form item.
-function debtResult(k, truth) {
-  const items = Array.isArray(truth.form_errors) ? truth.form_errors : [];
-  if ((truth.work_errors || []).length > 0 || items.length === 0 || !Array.isArray(truth.work_errors)) return null;
-  return { phase: k, action: 'continue_with_debt', form_debt: items, events: [{ type: 'phase_form_debt', phase: k, items }] };
-}
+// Form debt has one mechanism: `phase complete N --form-debt` writes it into VERIFICATION frontmatter. Disk truth with
+// zero missing work and at least one form error is never a gap: the orchestrator runs that command, then records again.
+const formOnly = (truth) => Array.isArray(truth.work_errors) && truth.work_errors.length === 0 && Array.isArray(truth.form_errors) && truth.form_errors.length > 0;
+const formDebtAction = (k, truth) => ({ phase: k, action: 'complete_form_debt', command: `phase complete ${k} --form-debt`, form_errors: truth.form_errors, events: [] });
 
 function failure(input, k, error, step) {
   const ladder = typeof input.ladder === 'function' ? input.ladder(k, error, step) : { action: 'escalate' };
@@ -222,4 +209,4 @@ function failure(input, k, error, step) {
   return { phase: k, action: 'fail', attempts: ladder.attempts, events: [{ type: 'phase_failed', phase: k, error, ladder: ladder.action }] };
 }
 
-module.exports = { next, record, formDebt, foldEvents, incompletePhases, resumeState, parseDeps, phaseKey, evPhase, hasEvent, GAP_CYCLE_LIMIT };
+module.exports = { next, record, foldEvents, incompletePhases, resumeState, parseDeps, phaseKey, evPhase, hasEvent, GAP_CYCLE_LIMIT };

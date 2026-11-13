@@ -30,12 +30,12 @@ function budgetFields(cwd, cls) {
 }
 
 // Wall time = closed work windows + the open one. A window opens at phase_start (or gap_cycle) and closes at the next
-// record event of the phase (complete, parked, incomplete, form_debt, retry, failed, death). A phase_start while a window
+// record event of the phase (complete, parked, incomplete, retry, failed, death). A phase_start while a window
 // is open closes the old one at the phase's last logged event. The open window is measured to the phase's last logged
 // event (a spend at each spawn, a spend_done at each return), never to the clock: a dead session must not keep spending.
 // A window with no phase_start (standalone plan-phase / execute-phase) opens at the first spend event. Idle time never counts.
 const OPEN = new Set(['phase_start', 'gap_cycle']);
-const CLOSE = new Set(['phase_complete', 'phase_parked', 'phase_incomplete', 'phase_form_debt', 'phase_retry', 'phase_failed', 'phase_coordinator_death']);
+const CLOSE = new Set(['phase_complete', 'phase_parked', 'phase_incomplete', 'phase_retry', 'phase_failed', 'phase_coordinator_death']);
 
 function spend(events, phase) {
   const k = phaseKey(phase);

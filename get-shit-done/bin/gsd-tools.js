@@ -3590,7 +3590,7 @@ function cmdGatePrePr(cwd, args, raw) {
   });
 
   if (hasGateMarker) {
-    output({ gate: 'pre-pr', passed: true, cached: true, message: 'Gate already passed in this execution.', form_debt: dispatch.formDebt(readExecutionEvents(cwd)) }, raw);
+    output({ gate: 'pre-pr', passed: true, cached: true, message: 'Gate already passed in this execution.', form_debt: milestoneFormDebt(cwd) }, raw);
     return;
   }
 
@@ -3605,7 +3605,7 @@ function cmdGatePrePr(cwd, args, raw) {
     instructions: 'Run each check. If ALL pass, call: gsd-tools gate pre-pr --mark-passed. If any fail, fix and re-run.',
     mark_command: 'node ~/.claude/get-shit-done/bin/gsd-tools.js gate pre-pr --mark-passed',
     detected_types,
-    form_debt: dispatch.formDebt(readExecutionEvents(cwd)),
+    form_debt: milestoneFormDebt(cwd),
   };
   if (degraded) {
     result.degraded = true;
@@ -9989,13 +9989,22 @@ function phaseTruth(cwd, phaseNum) {
   const split = collectPhaseFormErrors(cwd, phaseInfo, phaseDir, dirFiles);
   const recordedDebt = Array.isArray(split.evidence.verification.data.form_debt) ? split.evidence.verification.data.form_debt : [];
   const workErrors = [...split.workErrors];
-  if (roadmapCheckboxState(cwd, phaseNum) === false) {
-    workErrors.push('ROADMAP.md checkbox is not set (run `gsd-tools phase complete`)');
-  }
+  // The unset checkbox only says `phase complete` has not run: it blocks completion but is not missing work, so a
+  // form-only phase can be closed with `phase complete --form-debt` (roadmap record: complete_form_debt).
+  const unchecked = roadmapCheckboxState(cwd, phaseNum) === false ? ['ROADMAP.md checkbox is not set (run `gsd-tools phase complete`)'] : [];
   // Form errors accepted by `phase complete --form-debt` are recorded debt, not missing work.
   const formErrors = recordedDebt.length > 0 ? [] : split.errors.map((f) => `${f.file}: ${f.check}: ${f.message}`);
-  const errors = [...workErrors, ...formErrors];
+  const errors = [...workErrors, ...unchecked, ...formErrors];
   return { phase: String(phaseNum), complete: errors.length === 0, errors, work_errors: workErrors, form_errors: formErrors, form_debt: recordedDebt };
+}
+
+// Form debt of every ROADMAP phase, read from VERIFICATION frontmatter (written by `phase complete --form-debt`).
+function milestoneFormDebt(cwd) {
+  const content = safeReadFile(path.join(cwd, '.planning', 'ROADMAP.md'));
+  if (content === null) return [];
+  return parseRoadmapPhases(content, path.join(cwd, '.planning', 'phases'))
+    .map((p) => ({ phase: dispatch.phaseKey(p.number), items: phaseTruth(cwd, dispatch.phaseKey(p.number)).form_debt || [] }))
+    .filter((d) => d.items.length > 0);
 }
 
 const CHECKPOINT_STEPS = ['discuss', 'research', 'plan', 'execute', 'verify'];
@@ -12487,7 +12496,7 @@ function cmdRoadmapNext(cwd, args, raw) {
     },
   });
   for (const e of result.log) appendEvent(cwd, e);
-  output(result, raw);
+  output(result.action === 'done' ? { ...result, form_debt: milestoneFormDebt(cwd) } : result, raw);
 }
 
 // roadmap record --phase N --result '<coordinator JSON or text>' | --kind pr --result '{"status":"created|skipped"}'
@@ -12528,7 +12537,7 @@ function cmdRoadmapRecord(cwd, args, raw) {
       return applied.ok ? { action: applied.result.action, attempts: applied.result.attempts } : { action: 'escalate' };
     },
   });
-  if (out.action === 'complete' || out.action === 'continue_with_debt') {
+  if (out.action === 'complete') {
     applyExecutionStateSuccess(cwd, { phase: k });
   }
   for (const e of out.events) appendEvent(cwd, e);
