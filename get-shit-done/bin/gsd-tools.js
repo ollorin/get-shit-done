@@ -231,6 +231,7 @@ const ownerGates = require('./owner-gates.js');
 const autoModeFields = (cwd) => resolveAutoMode(cwd, process.argv.slice(2), process.env);
 const rigour = require('./rigour.js');
 const topModel = require('./top-model.js');
+const phaseBudget = require('./phase-budget.js');
 
 // Phase 2: Auto Mode safety modules (lazy — gracefully absent if not installed)
 let circuitBreaker, validator, escalation, feedback, learning;
@@ -11555,6 +11556,28 @@ function phaseRiskFields(cwd, phase) {
   return { phase_risk_domains: r.domains, phase_risk_domains_unknown: r.unknown };
 }
 
+// true when any plan of the phase carries an explicit high_risk: true frontmatter flag.
+function phaseHasHighRiskPlan(cwd, phase) {
+  const info = findPhaseInternal(cwd, phase);
+  if (!info) return false;
+  try {
+    const dir = path.join(cwd, info.directory);
+    return fs.readdirSync(dir).filter((f) => /-PLAN\.md$/.test(f)).some((f) => {
+      const v = extractFrontmatter(fs.readFileSync(path.join(dir, f), 'utf8')).high_risk;
+      return v === true || v === 'true';
+    });
+  } catch { return false; }
+}
+
+function initBudgetFields(cwd, phase) {
+  const level = rigour.resolveRigour(cwd, phase, getMilestoneInfo(cwd).version).rigour;
+  return phaseBudget.budgetFields(cwd, phaseBudgetClass(cwd, phase, level, phaseRiskFields(cwd, phase).phase_risk_domains));
+}
+
+function phaseBudgetClass(cwd, phase, level, riskDomains) {
+  return phaseBudget.budgetClass({ rigour: level, riskDomains, highRiskPlan: phaseHasHighRiskPlan(cwd, phase) });
+}
+
 function resolveModelInternal(cwd, agentType) {
   if (agentType === 'gsd-verifier') return topModelFields(cwd).ruling_model;
   const config = loadConfig(cwd);
@@ -11749,6 +11772,7 @@ function cmdInitExecutePhase(cwd, phase, includes, raw, gate) {
     ...rigour.resolveRigour(cwd, phase, getMilestoneInfo(cwd).version),
     phase_req_ids: rigour.phaseReqIds(cwd, phase),
     ...phaseRiskFields(cwd, phase),
+    ...initBudgetFields(cwd, phase),
 
     // Models
     executor_model: resolveModelInternal(cwd, 'gsd-executor'),
@@ -11865,6 +11889,7 @@ function cmdInitPlanPhase(cwd, phase, includes, raw, gate) {
     ...rigour.resolveRigour(cwd, phase, getMilestoneInfo(cwd).version),
     phase_req_ids: rigour.phaseReqIds(cwd, phase),
     ...phaseRiskFields(cwd, phase),
+    ...initBudgetFields(cwd, phase),
 
     // Models
     researcher_model: resolveModelInternal(cwd, 'gsd-phase-researcher'),
@@ -12666,6 +12691,17 @@ function cmdInitExecuteRoadmap(cwd, raw) {
 // owner-gate request|status|approve|reject --kind composition|roadmap|pr [--milestone V] [--summary S] [--spike-phases N,M --spike-roots p,q] [--by W] [--note N] [--owner-confirmed]
 // approve/reject: refused while auto_mode is active unless --owner-confirmed with a --note. The flag is a recorded
 // attestation, not authentication: an unattended agent that passes it has lied in the audit trail, visibly.
+// budget status --phase N [--raw]
+function cmdBudget(cwd, args, raw) {
+  if (args[0] !== 'status') error('Unknown budget subcommand. Available: status');
+  const i = args.indexOf('--phase');
+  const phase = i !== -1 ? args[i + 1] : undefined;
+  if (!phase) error('budget status: --phase required');
+  const level = rigour.resolveRigour(cwd, phase, getMilestoneInfo(cwd).version).rigour;
+  const cls = phaseBudgetClass(cwd, phase, level, phaseRiskFields(cwd, phase).phase_risk_domains);
+  output(phaseBudget.status({ cwd, phase, cls, events: readExecutionEvents(cwd) }), raw);
+}
+
 function cmdOwnerGate(cwd, args, raw) {
   const sub = args[0];
   const flag = (name) => { const i = args.indexOf(name); return i !== -1 ? args[i + 1] : undefined; };
@@ -15311,6 +15347,11 @@ async function main() {
       } else {
         error('Unknown phases subcommand. Available: list');
       }
+      break;
+    }
+
+    case 'budget': {
+      cmdBudget(cwd, args.slice(1), raw);
       break;
     }
 
