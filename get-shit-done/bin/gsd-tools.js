@@ -12405,7 +12405,7 @@ function cmdInitExecuteRoadmap(cwd, raw) {
 // owner-gate request|status|approve|reject --kind composition|roadmap|pr [--milestone V] [--summary S] [--revise] [--spike-phases N,M --spike-roots p,q] [--by W] [--note N] [--owner-confirmed]
 // approve/reject: refused while auto_mode is active unless --owner-confirmed with a --note. The flag is a recorded
 // attestation, not authentication: an unattended agent that passes it has lied in the audit trail, visibly.
-// budget spend --phase N [--step S] [--model M]: logs ONE dispatch. budget status --phase N: the coordinator reads it before each new cycle.
+// budget spend --phase N [--step S] [--model M]: logs ONE dispatch (at spawn); --done logs the child's return (extends the wall window, not a dispatch). budget status --phase N: the coordinator reads it before each new cycle.
 function cmdPhaseBudget(cwd, args, raw) {
   const sub = args[0];
   if (sub !== 'status' && sub !== 'spend') error('Unknown budget subcommand. Available: status, spend');
@@ -12413,8 +12413,9 @@ function cmdPhaseBudget(cwd, args, raw) {
   const phase = flag('--phase');
   if (!phase) error(`budget ${sub}: --phase required`);
   if (sub === 'spend') {
-    appendEvent(cwd, { type: 'phase_spend', phase: dispatch.phaseKey(phase), step: flag('--step') || null, model: flag('--model') || null });
-    output({ logged: true, phase: dispatch.phaseKey(phase) }, raw);
+    const done = args.includes('--done');
+    appendEvent(cwd, { type: done ? 'phase_spend_done' : 'phase_spend', phase: dispatch.phaseKey(phase), step: flag('--step') || null, model: flag('--model') || null });
+    output({ logged: true, phase: dispatch.phaseKey(phase), ...(done ? { done: true } : {}) }, raw);
     return;
   }
   const level = rigour.resolveRigour(cwd, phase, getMilestoneInfo(cwd).version).rigour;

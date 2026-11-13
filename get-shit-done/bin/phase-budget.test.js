@@ -70,6 +70,38 @@ describe('CLI-4: budget', () => {
     const s = b.status({ cwd: dir, phase: '1', cls: 'spike', events: live, now: Date.parse('2026-01-09T00:00:00Z') });
     assert.deepStrictEqual([s.wall_minutes_spent, s.breach], [12, false]);
   });
+  test('N2: the child return (spend --done) extends the wall window and is not a dispatch: one 200-minute dispatch is visible', () => {
+    const t = (m) => new Date(Date.parse('2026-01-01T00:00:00Z') + m * 60000).toISOString();
+    const open = [{ type: 'phase_start', phase: '1', timestamp: t(0) }, { type: 'phase_spend', phase: '1', timestamp: t(1) }];
+    assert.deepStrictEqual([b.spend(open, '1').wall_minutes_spent, b.spend(open, '1').dispatches_spent], [1, 1]);
+    const done = [...open, { type: 'phase_spend_done', phase: '1', timestamp: t(200) }];
+    const s = b.status({ cwd: dir, phase: '1', cls: 'standard', events: done });
+    assert.deepStrictEqual([s.wall_minutes_spent, s.dispatches_spent, s.breach], [200, 1, true]);
+  });
+  test('N2: a window with no phase_start (standalone plan-phase / execute-phase) opens at the first spend event', () => {
+    const t = (m) => new Date(Date.parse('2026-01-01T00:00:00Z') + m * 60000).toISOString();
+    const ev = [{ type: 'phase_spend', phase: '1', timestamp: t(0) }, { type: 'phase_spend_done', phase: '1', timestamp: t(30) }, { type: 'phase_spend', phase: '1', timestamp: t(31) }, { type: 'phase_spend_done', phase: '1', timestamp: t(100) }];
+    const s = b.spend(ev, '1');
+    assert.deepStrictEqual([s.wall_minutes_spent, s.dispatches_spent], [100, 2]);
+    assert.strictEqual(b.spend([{ type: 'phase_spend', phase: '1', timestamp: t(0) }], '1').wall_minutes_spent, 0);
+  });
+  test('N2: budget spend --phase N --done logs a non-dispatch event through the CLI', () => {
+    json(['budget', 'spend', '--phase', '1', '--step', 'review']);
+    const before = json(['budget', 'status', '--phase', '1']);
+    const r = json(['budget', 'spend', '--phase', '1', '--done']);
+    assert.deepStrictEqual([r.logged, r.done], [true, true]);
+    const after = json(['budget', 'status', '--phase', '1']);
+    assert.strictEqual(after.dispatches_spent, before.dispatches_spent);
+    const last = fs.readFileSync(path.join(dir, '.planning', 'EXECUTION_LOG.md'), 'utf8').trim().split('\n').filter((l) => l.startsWith('{')).pop();
+    assert.strictEqual(JSON.parse(last).type, 'phase_spend_done');
+  });
+  test('N2 prose: the coordinator logs spend at spawn and --done at return in one step', () => {
+    const md = fs.readFileSync(path.join(__dirname, '..', 'references', 'rigour.md'), 'utf8');
+    assert.match(md, /budget spend --phase \{N\}`[^\n]*budget spend --phase \{N\} --done/);
+    for (const f of ['workflows/plan-phase.md', 'workflows/execute-phase.md']) {
+      assert.match(fs.readFileSync(path.join(__dirname, '..', f), 'utf8'), /budget spend --phase[^\n]*--done/, f);
+    }
+  });
   test('budget spend --phase N logs one dispatch', () => {
     const before = json(['budget', 'status', '--phase', '1']).dispatches_spent;
     json(['budget', 'spend', '--phase', '1', '--step', 'plan-check', '--model', 'sonnet']);

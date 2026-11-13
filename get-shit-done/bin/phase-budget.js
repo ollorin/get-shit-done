@@ -1,6 +1,7 @@
 'use strict';
 // Phase budget: class, limits (config workflow.budget.<class>), and spend from the execution log.
-// Contract: references/rigour.md rule 7. Spend is `phase_spend` events (`budget spend --phase N`, one per dispatch).
+// Contract: references/rigour.md rule 7. Spend is `phase_spend` events (`budget spend --phase N`, one per dispatch at spawn);
+// `phase_spend_done` (`--done`, at the child's return) only extends the wall window and is not a dispatch.
 const fs = require('fs');
 const path = require('path');
 const { evPhase, phaseKey } = require('./roadmap-dispatch.js');
@@ -32,7 +33,8 @@ function budgetFields(cwd, cls) {
 // Wall time = closed work windows + the open one. A window opens at phase_start (or gap_cycle) and closes at the next
 // record event of the phase (complete, parked, incomplete, form_debt, retry, failed, death). A phase_start while a window
 // is open closes the old one at the phase's last logged event. The open window is measured to the phase's last logged
-// event (each dispatch logs a phase_spend), never to the clock: a dead session must not keep spending. Idle time never counts.
+// event (a spend at each spawn, a spend_done at each return), never to the clock: a dead session must not keep spending.
+// A window with no phase_start (standalone plan-phase / execute-phase) opens at the first spend event. Idle time never counts.
 const OPEN = new Set(['phase_start', 'gap_cycle']);
 const CLOSE = new Set(['phase_complete', 'phase_parked', 'phase_incomplete', 'phase_form_debt', 'phase_retry', 'phase_failed', 'phase_coordinator_death']);
 
@@ -54,7 +56,10 @@ function spend(events, phase) {
       start = null;
     }
     if (reset) { closedMs = 0; dispatches = 0; start = null; }
-    else if (e.type === 'phase_spend') dispatches += 1;
+    else if (e.type === 'phase_spend' || e.type === 'phase_spend_done') {
+      if (start === null && !Number.isNaN(t)) start = t;
+      if (e.type === 'phase_spend') dispatches += 1;
+    }
     if (!Number.isNaN(t)) last = t;
   }
   const ms = closedMs + (start === null ? 0 : Math.max(0, (last === null ? start : last) - start));
