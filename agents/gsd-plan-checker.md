@@ -591,7 +591,7 @@ Every `<verify>` command, `<done>` criterion and must_haves truth must be satisf
 
 `references/rigour.md` rule 11. open the source PRD named in the plan's traceability list and verify it against the file: each exit or acceptance criterion is either covered by a task or listed as not covered with a reason. An uncovered criterion without a reason is a blocker (`dimension: traceability`); a criterion dropped from the list that the PRD states is the same blocker.
 
-**Narrowed by a reason:** a PRD criterion dropped or narrowed by REQUIREMENTS, ROADMAP or a plan with a reason of the form "cannot be done here", "needs an external account" or "not verifiable locally" is a blocker (`dimension: traceability`) unless the plan carries a recorded search (command and output path) of the installed packages and docs that supports that reason. At spike that search is a planner task; it is missing when no task runs it.
+**Narrowed by a reason:** a PRD criterion dropped or narrowed by REQUIREMENTS, ROADMAP or a plan with a reason of the form "cannot be done here", "needs an external account" or "not verifiable locally" (inherited premises included) is a blocker (`dimension: traceability`) unless a planner task runs a recorded search (command and output path) that names the refuting observation (the hit that would prove it CAN be done here, e.g. a local, dev or emulator mode of the named component) and prints those hits in full. A search whose pattern is only the topic word, or that cannot return the refuting observation, is a blocker. If the search refutes the premise the criterion is back in scope: the plan gets the probe task. A later phase planned as "no run is added" while such a premise is untested is a blocker.
 
 </verification_dimensions>
 

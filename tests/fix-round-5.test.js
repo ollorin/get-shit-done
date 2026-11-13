@@ -155,7 +155,7 @@ describe('R5-7: a spike phase with an open CRITICAL/HIGH is ruled before it is p
 
 describe('R5-8: Dimension 16 blocks a requirement narrowed without a recorded search', () => {
   test('checker and plan-phase carry the rule', () => {
-    assert.match(doc('agents/gsd-plan-checker.md'), /not verifiable locally[^\n]*blocker[^\n]*unless the plan carries a recorded search \(command and output path\)/);
+    assert.match(doc('agents/gsd-plan-checker.md'), /not verifiable locally[^\n]*blocker[^\n]*unless a planner task runs a recorded search \(command and output path\) that names the refuting observation/);
     assert.match(doc('get-shit-done/workflows/plan-phase.md'), /not verifiable locally[^\n]*gets a task that searches the installed packages and docs/);
   });
 });
