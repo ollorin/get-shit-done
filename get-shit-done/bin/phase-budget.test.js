@@ -116,6 +116,19 @@ describe('CLI-4: budget', () => {
     const closed = b.status({ cwd: dir, phase: '1', cls: 'standard', events: [...ev, { type: 'phase_complete', phase: '1' }], now: Date.now() });
     assert.deepStrictEqual([closed.dispatches_spent, closed.wall_minutes_spent], [0, 0]);
   });
+  test('a retry of a phase parked for its own reason opens a new window; the numbers stay readable until the retry starts', () => {
+    const spend = { type: 'phase_spend', phase: '1', timestamp: '2026-01-01T00:10:00Z' };
+    const ev = [{ type: 'phase_start', phase: '1', timestamp: '2026-01-01T00:00:00Z' }, spend, spend,
+      { type: 'phase_parked', phase: '1', reason: 'gaps_after_closure_cycle', timestamp: '2026-01-01T00:30:00Z' }];
+    const parkedStatus = b.status({ cwd: dir, phase: '1', cls: 'spike', events: ev, now: Date.parse('2026-01-03T00:00:00Z') });
+    assert.deepStrictEqual([parkedStatus.dispatches_spent, parkedStatus.wall_minutes_spent], [2, 30]);
+    const retried = [...ev, { type: 'phase_start', phase: '1', timestamp: '2026-01-02T00:00:00Z' }, { ...spend, timestamp: '2026-01-02T00:04:00Z' }];
+    const s = b.status({ cwd: dir, phase: '1', cls: 'spike', events: retried, now: Date.parse('2026-01-02T00:04:00Z') });
+    assert.deepStrictEqual([s.dispatches_spent, s.wall_minutes_spent], [1, 4]);
+    const dep = [{ type: 'phase_start', phase: '1', timestamp: '2026-01-01T00:00:00Z' }, spend, { type: 'phase_parked', phase: '1', reason: 'dependency_parked', timestamp: '2026-01-01T00:10:00Z' },
+      { type: 'phase_start', phase: '1', timestamp: '2026-01-01T00:20:00Z' }, { ...spend, timestamp: '2026-01-01T00:25:00Z' }];
+    assert.strictEqual(b.status({ cwd: dir, phase: '1', cls: 'spike', events: dep, now: 0 }).dispatches_spent, 2);
+  });
   test('a phase_spend without a phase is ignored; other phases do not count', () => {
     const s = b.status({ cwd: dir, phase: '1', cls: 'spike', events: [{ type: 'phase_spend', step: 'x' }, { type: 'phase_spend', phase: '2' }, { type: 'phase_spend', phase: '1' }], now: 0 });
     assert.strictEqual(s.dispatches_spent, 1);

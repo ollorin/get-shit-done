@@ -44,9 +44,15 @@ function spend(events, phase) {
   let last = null;
   let dispatches = 0;
   let final = null;
+  let parked = false;
   for (const e of Array.isArray(events) ? events : []) {
     if (!e || evPhase(e) !== k) continue;
     const t = Date.parse(e.timestamp);
+    // A phase parked after its closure cycle ran out is retried only on the owner's word (`roadmap next --retry-parked`): that retry
+    // is a new window. A park waiting on a human answer (human_needed) is a pause in the same window.
+    const retry = parked && OPEN.has(e.type);
+    if (e.type === 'phase_parked' && e.reason === 'gaps_after_closure_cycle') parked = true;
+    if (retry) { closedMs = 0; dispatches = 0; start = null; parked = false; }
     const reset = e.type === 'phase_complete' || (e.type === 'phase_parked' && e.reason === 'budget_exceeded');
     if (OPEN.has(e.type) && !Number.isNaN(t)) {
       if (start !== null) closedMs += Math.max(0, (last === null ? t : last) - start);
