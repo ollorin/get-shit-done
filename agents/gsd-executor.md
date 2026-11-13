@@ -244,21 +244,14 @@ If spawned as continuation agent (`<completed_tasks>` in prompt):
 
 The non-negotiable gates below are quoted word-for-word from
 `get-shit-done/references/executor-detail.md`, which holds the full procedures
-(execution_flow, tdd="true" handling, post-plan test gate, SUMMARY.md creation,
+(execution_flow, acceptance-row handling, post-plan test gate, SUMMARY.md creation,
 docs / state / requirements / final commit).
 
 **Inter-task syntax check constraint:**
 > **Constraint:** Syntax errors discovered by the inter-task check do not abort the plan on the first occurrence. However, if the same file has syntax errors across 2 consecutive task commits, escalate to a checkpoint — do NOT silently continue. Persistent syntax errors indicate a deeper problem that must be addressed before more work is built on top of broken code.
 
-**tdd="true" test task handling:**
-> DO NOT execute the task inline. Instead:
-
-> If still failing after 2 retries: BLOCK — do NOT proceed to the next task.
-
-> Do NOT log as a "gap" and continue. Do NOT create SUMMARY.md. Failing tests on a tdd="true" task are a hard blocker.
-
-> If gsd-test-writer returns 0 tests written:
->    - BLOCK unless every behaviour has a REUSE citation. A tdd="true" task that produces no tests and no REUSE citation has not been completed.
+**Acceptance-row tasks:**
+> The case text is fixed by the plan: never weaken, drop or reword an `<acceptance>` row; a wrong row is a deviation you report. Failing test first (red captured), then the code, then run that test file once. Still failing after 2 fix attempts: `TASK FAILED`, never a logged gap.
 
 **Post-plan test suite gate:**
 > SUMMARY.md creation is BLOCKED if:**
@@ -473,7 +466,7 @@ Plan execution complete when:
 
 <!-- GSD:CORE-PREAMBLE-END -->
 
-**Rigour:** when the dispatch passes `rigour: spike`, `references/rigour.md` replaces the testing rules below: no tdd pairing, no test-writer spawn, no mutants; the evidence is one capture file (command and output) per question in the phase directory, nothing is written outside the spike roots and `.planning/`, and no secret enters a capture.
+**Rigour:** when the dispatch passes `rigour: spike`, `references/rigour.md` replaces the testing rules below: no acceptance rows, no test steward, no mutants; the evidence is one capture file (command and output) per question in the phase directory, nothing is written outside the spike roots and `.planning/`, and no secret enters a capture.
 
 ## Safe git probing
 

@@ -4,7 +4,7 @@ This file holds the FULL, VERBATIM procedural detail relocated from
 `agents/gsd-executor.md` during the MILE-30 hard-rules-first
 restructuring: the complete execution_flow (load_project_state, load_plan,
 load_user_reasoning_context, record_start_time, determine_execution_pattern,
-execute_tasks), the inter-task syntax check procedure, the tdd="true" test
+execute_tasks), the inter-task syntax check procedure, the acceptance-row
 task handling procedure, the post-plan test suite gate procedure, the
 SUMMARY.md creation procedure, the mandatory docs update procedure, the
 STATE.md update procedure, the requirements-completion procedure, and the
@@ -111,7 +111,7 @@ grep -n "type=\"checkpoint" [plan-path]
 For each task:
 
 1. **If `type="auto"`:**
-   - Check for `tdd="true"` → follow TDD execution flow
+   - A task with `<acceptance>` rows: write the failing test from the rows first and capture the red run, then the code, then run that test file once (see acceptance_rows below)
    - Execute task, apply deviation rules as needed
    - Handle auth errors as authentication gates
    - **Failure signaling for coordinator escalation (routing active only):**
@@ -142,7 +142,6 @@ For each task:
    - Commit (see task_commit_protocol — this also writes/overwrites `.planning/phases/{phase_dir}/TASK-CHECKPOINT.json`, step 6 of that protocol; see `<executor_resilience_protocol>` in `agents/gsd-executor.md` and `@get-shit-done/references/resilience.md` for how a continuation agent consumes it)
    - Track completion + commit hash for Summary
    - **Inter-task syntax check** (runs after each task commit — see inter_task_syntax_check block below)
-   - **Post-task quality test-writer spawn** (only when the `quality.test_writer` config toggle is on and the task touches source code — see post_task_quality_spawn block below)
 
 2. **If `type="checkpoint:*"`:**
    - Check auto mode detection (see auto_mode_detection)
@@ -224,151 +223,19 @@ Continue to the next task immediately.
 
 </inter_task_syntax_check>
 
-<post_task_quality_spawn>
-
-## Post-Task Quality Test-Writer Spawn (Phase 59-02, MILE-37)
-
-**Purpose:** For projects that enable `quality.test_writer` (default OFF -- zero behavior change
-when off), spawn gsd-test-writer after EVERY `type="auto"` implementation task that touches
-source code, not just tasks the planner marked `tdd="true"`. This is ADDITIVE to (never a
-replacement of) the existing `tdd="true"` hard-block contract in `<test_task_handling>` above,
-which is completely UNCHANGED by this block.
-
-**Runs immediately after the current task's commit (`task_commit_protocol`) AND after the
-inter-task syntax check -- only for `type="auto"` tasks that are NOT themselves a `tdd="true"`
-test task.** (A `tdd="true"` task is already handled exclusively by `<test_task_handling>` --
-never spawn gsd-test-writer twice for the same task.)
-
-**Step 1 -- check the toggle (fails closed/off by default):**
-```bash
-TEST_WRITER_ENABLED=$(node ~/.claude/get-shit-done/bin/gsd-tools.js config get test_writer_enabled --raw 2>/dev/null || echo "false")
-```
-If `TEST_WRITER_ENABLED` is not exactly `"true"`: skip this entire block, continue to the next
-task. (Toggle off -- zero behavior change from pre-Phase-59 execution.)
-
-**Step 2 -- check whether the task touched source code:**
-```bash
-TASK_CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || true)
-TOUCHES_SOURCE=$(node ~/.claude/get-shit-done/bin/gsd-tools.js quality touches-source --files "$(echo "$TASK_CHANGED_FILES" | tr '\n' ',')" --raw 2>/dev/null | node -e "try{const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(d.touches_source_code)}catch{console.log('false')}")
-```
-If `TOUCHES_SOURCE` is not `true` (the task only touched docs/config/tests): skip this block,
-continue to the next task.
-
-**Step 3 -- spawn gsd-test-writer (same inputs/routing as the existing `tdd="true"` spawn in
-`<test_task_handling>` above):**
-```
-test_writer_model = "{executor_model}"  // from the dispatch (init field), unless the task carries <model>
-
-Agent(
-  subagent_type="gsd-test-writer",
-  description="Write tests for {task_name} (quality toggle)",
-  model={test_writer_model},
-  prompt="
-    task_name={task_name}
-    files_modified={TASK_CHANGED_FILES}
-    behavior_description={task's <done> criteria text}
-    project_dir={project_dir}
-    test_framework={runner named in stack_commands.test_file}
-  "
-)
-```
-
-**Step 4 -- handle the result as a LOUD DEVIATION, never a block (this is the key contrast
-with the `tdd="true"` contract above):**
-
-If gsd-test-writer reports 0 tests written OR returns no identifiable test-file output, and no REUSE citation is present (a REUSE cite is not a deviation):
-  Append to the plan's SUMMARY.md `## Deviations from Plan` section:
-  ```
-  **[Rule Quality-TW] gsd-test-writer produced no test output for task {task_name}**
-  - Found during: Task {task_index} ({task_name})
-  - Issue: quality.test_writer toggle is on, task touched source code, but gsd-test-writer
-    reported 0 tests written / no test-file output
-  - Impact: this task's new code has no automatically-generated companion test coverage
-  - Committed in: N/A (no commit — this is a logged deviation, not a fix)
-  ```
-  Do NOT block. Do NOT retry. Continue immediately to the next task.
-
-If gsd-test-writer reports >=1 tests written (whether passing or failing):
-  Commit the new test file(s) (stage individually, per `task_commit_protocol`):
-  ```bash
-  git add {test_file_1} {test_file_2}
-  git commit -m "test({phase}-{plan}): quality test-writer coverage for {task_name}"
-  ```
-  If any tests are FAILING: this spawn point is best-effort/additive, unlike `tdd="true"`'s hard
-  block -- append a `[Rule Quality-TW]` deviation line noting the failing count and reason, then
-  continue to the next task (do NOT retry, do NOT block).
-  If all tests pass: continue to the next task, no deviation entry needed.
-
-</post_task_quality_spawn>
-
 <test_task_handling>
 
-## Handling tdd="true" Tasks
+## Acceptance-row tasks
 
-**Phase-gate authority note:** Individual `tdd="true"` task completion (this section) and the post-plan test gate below establish plan-level test correctness. Phase-level artifact EXISTENCE (that a test file, UI QA evidence, docs commit, E2E-TEST-PLAN.md, and VERIFICATION.md exist somewhere in the phase) is enforced deterministically by `gsd-tools.js verify phase-gate {phase}` at the orchestrator level (execute-phase.md's `pre_verify_gates` step), run after this plan and its sibling plans in the phase complete — this executor is not responsible for that phase-wide check. If a mandatory step in this plan is genuinely skipped (not "not applicable," a real skip of something otherwise required), that skip requires `gsd-tools.js deferred add {phase} --step <step> --reason <reason> --approver <approver>` as part of the skip, not logged-and-forgotten afterward.
+**Phase-gate authority note:** Plan-level test correctness is this section and the post-plan test gate below. Phase-level artifact EXISTENCE (test file, UI QA evidence, docs commit, E2E-TEST-PLAN.md, VERIFICATION.md) is enforced by `gsd-tools.js verify phase-gate {phase}` at the orchestrator level. A mandatory step genuinely skipped needs `gsd-tools.js deferred add {phase} --step <step> --reason <reason> --approver <approver>`.
 
-When encountering a task with `tdd="true"`:
+A task that builds behaviour carries `<acceptance>` rows written by the planner; you write the test and the code in this one dispatch:
 
-DO NOT execute the task inline. Instead:
-
-1. Collect context from the PREVIOUS implementation task:
-   - `task_name`: name of the implementation task just completed
-   - `files_modified`: files created/modified in the previous task
-   - `behavior_description`: the previous task's `<done>` criteria text
-   - `project_dir`: current working directory
-
-2. Spawn gsd-test-writer:
-   ```
-   test_writer_model = "{executor_model}"  // from the dispatch (init field), unless the task carries <model>
-
-   Agent(
-     subagent_type="gsd-test-writer",
-     description="Write tests for {task_name}",
-     model={test_writer_model},
-     prompt="
-       task_name={task_name}
-       files_modified={files_modified}
-       behavior_description={behavior_description}
-       project_dir={project_dir}
-       test_framework={runner named in stack_commands.test_file}
-     "
-   )
-   ```
-
-3. Wait for gsd-test-writer to complete.
-
-4. If gsd-test-writer reports failing tests:
-   - Apply Deviation Rule 1 (auto-fix bugs): fix the implementation
-   - Re-spawn gsd-test-writer to verify
-   - If still failing after 2 retries: BLOCK — do NOT proceed to the next task. Return:
-     ```
-     ## PLAN FAILED: Test task blocked execution
-
-     **Task:** {task_name} (tdd="true")
-     **Failing tests:** {count}
-     **Retries exhausted:** 2
-     **Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}
-
-     Tests MUST pass before this plan can continue. Do NOT create SUMMARY.md.
-     ```
-     Do NOT log as a "gap" and continue. Do NOT create SUMMARY.md. Failing tests on a tdd="true" task are a hard blocker.
-
-5. If gsd-test-writer returns 0 tests written:
-   - BLOCK — this is a failure, not a skip. A tdd="true" task that produces no tests and no REUSE citations has not been completed.
-   - Re-spawn gsd-test-writer once with explicit instruction: "Return REUSE citations or the tests the behaviour needs. 0 tests without REUSE citations is not acceptable."
-   - If second attempt also returns 0 tests: BLOCK execution. Return failure as above.
-
-6. Record in SUMMARY.md:
-   ```
-   Tests (Task N+1): {passed} passing, {failed} failing
-   ```
-   Then fill `## Test Delta` in the exact machine-parsed format of the summary template: lines `added: n`, `updated: n`, `merged: n`, `deleted: n`, `net_test_loc: n` (`git diff --shortstat <plan-base> -- '*.test.*'`), `bucket_seconds: <bucket> <before> -> <after>` (repeatable), then rows `| DISPOSITION | file | covered by (existing *.test.* path:line, or mutant id mXX1 / RED <sha>) |` with DISPOSITION in REUSE/UPDATE/MERGE/DELETE, one row per reused/updated/merged/deleted test file (`merged:`/`deleted:` are FILE counts; a MERGE folding many cases into fewer states the case mapping `N -> M` or cites a verified mutant id). Add the template's mutation table (`| Mutant | Hunk | Failing assertion (file:line) | Log |`, id + target test file:line). Run mutants in a throwaway worktree (`git worktree add .tmp/wt-<name>`), never the shared working tree. A DELETE/MERGE row without a real existing test path (or mutant id) cite is rejected by the verifier.
-
-6. Commit (stage test files individually, per task_commit_protocol):
-   ```bash
-   git add {test_file_1} {test_file_2} {test_file_N}
-   git commit -m "test({scope}): add {feature} tests"
-   ```
+1. From the rows, write the failing test first: one case per row, asserting exactly what the row names, plus its positive control. The case text is fixed by the plan: never weaken, drop or reword a row to make it pass; a wrong row is a deviation you report (`[Rule 4]`), not an edit.
+2. Run the test file; save the failing run to a capture (`{phase_dir}/captures/`). A row that is green before the code exists cannot fail: report it.
+3. Write the code. Run the same test file once. On a risk-domain row apply the named mutant, confirm the test goes red, revert it (in a throwaway worktree, `git worktree add .tmp/wt-<name>`, never the shared tree), and save that capture too.
+4. Still failing after 2 fix attempts: `TASK FAILED`. Never log a failing row as a gap and continue.
+5. Commit test and code together (`task_commit_protocol`). Last task of the plan: fill `## Test Delta` in the exact machine-parsed format of the summary template (`added/updated/merged/deleted/net_test_loc`, repeatable `bucket_seconds`, `| DISPOSITION | file | covered by (existing *.test.* path:line, or mutant id mXX1 / RED <sha>) |` rows).
 
 </test_task_handling>
 
@@ -376,7 +243,7 @@ DO NOT execute the task inline. Instead:
 
 ## Post-Plan Test Suite Gate
 
-After ALL tasks in the plan complete (including all `tdd="true"` test tasks), run the plan's affected test files plus their single bucket, once, as a final quality gate before creating SUMMARY.md; the full suite runs once per phase at the phase-end gate per `test_cost_rule`.
+After ALL tasks in the plan complete, run the plan's affected test files plus their single bucket, once, as a final quality gate before creating SUMMARY.md; the full suite runs once per phase at the phase-end gate per `test_cost_rule`.
 **Test cost:** no full pre-PR gate run inside a plan. See gsd-test-protocol.md `test_cost_rule`.
 
 **SUMMARY.md creation is BLOCKED if:**
@@ -396,9 +263,9 @@ if [ -z "$TEST_CMD" ]; then TEST_CMD="<stack_commands.test_all>"; fi
 
 Whichever command is detected, narrow it to the plan's affected test files plus their single bucket (`test_cost_rule` step 1); a whole-project command is never run inside a plan.
 
-If TEST_CMD is empty after all detection attempts AND this plan contains no `tdd="true"` tasks: log "No test command found and no tdd tasks — skipping post-plan test gate" and proceed to `<summary_creation>`.
+If TEST_CMD is empty after all detection attempts AND this plan has no task with `<acceptance>` rows or `type: tdd`: log "No test command found and no acceptance rows — skipping post-plan test gate" and proceed to `<summary_creation>`.
 
-**However:** If TEST_CMD is empty BUT this plan contains `tdd="true"` tasks, this is a HARD FAILURE. The tdd tasks should have created tests and a test runner. Log: "CRITICAL: Plan has tdd='true' tasks but no test command found — test infrastructure was not properly set up." Set TEST_GATE_BLOCKED=true, TEST_GATE_REASON="missing_test_infrastructure". Do NOT create SUMMARY.md.
+**However:** If TEST_CMD is empty BUT this plan has `<acceptance>` rows, this is a HARD FAILURE. The rows should have produced tests and a test runner. Log: "CRITICAL: Plan has acceptance rows but no test command found — test infrastructure was not properly set up." Set TEST_GATE_BLOCKED=true, TEST_GATE_REASON="missing_test_infrastructure". Do NOT create SUMMARY.md.
 
 **CRITICAL: Infrastructure unavailability is NOT the same as "no test command found".** If TEST_CMD exists but tests fail because services are down, you MUST attempt infrastructure startup (Step 1.5 below). Only when TEST_CMD truly cannot be detected from any config file should this gate be skipped.
 
@@ -535,7 +402,7 @@ Or: "None - plan executed exactly as written."
 
 **Auth gates section** (if any occurred): Document which task, what was needed, outcome.
 
-**Test Results table (include when any tdd="true" tasks were executed):**
+**Test Results table (include when any task had acceptance rows):**
 
 ```markdown
 | Task | Added/Updated/Merged/Deleted/Reused | Tests Passing | Tier |

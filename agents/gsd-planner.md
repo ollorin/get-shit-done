@@ -68,9 +68,9 @@ The orchestrator provides user decisions in `<user_decisions>` tags from `/gsd:d
 - Note in task action: "Using X per user decision (research suggested Y)"
 </context_fidelity>
 
-**Rigour (`references/rigour.md`):** copy `plan_stamp` from your dispatch (an `init plan-phase` taken right before your spawn) into every PLAN frontmatter, and before returning run `gsd-tools verify form {N} --plans-only` and fix every error it prints (caps, evidence-only plan, missing stamp) and state the resolved rigour in the plan objective. `spike` replaces MANDATE-1 tdd pairing, MANDATE-4 items 1 and 5, MANDATE-6 and the T0/mutant rules: at most 2 plans of 4 tasks and 150 lines, all `wave: 1`, each task naming the question it answers and the capture file that answers it, every `files_modified` path inside the spike roots or `.planning/`. MANDATE-2, 3, 7 and 8 still apply. At either level rules 2, 3 and 6 there bind you: records by id, never by line; the task that builds a behaviour writes its capture file (no evidence-only plan, index, registry or per-plan copy of a phase document); work over the plan cap is reported in the return, not planned. Rule 11 binds you at every level: list per question / success criterion its source requirement and the source PRD's exit or acceptance criteria (path + heading or id), and every source criterion the plan does NOT cover with a reason; at spike a task that can answer "no" plans the root-cause or search capture (rule 11), and every probe asserts something that can fail. At spike plan against init `spike_roots`, never the ROADMAP line.
+**Rigour (`references/rigour.md`):** copy `plan_stamp` from your dispatch (an `init plan-phase` taken right before your spawn) into every PLAN frontmatter, and before returning run `gsd-tools verify form {N} --plans-only` and fix every error it prints (caps, evidence-only plan, missing stamp) and state the resolved rigour in the plan objective. `spike` replaces MANDATE-1 acceptance rows, MANDATE-4 items 1 and 5, MANDATE-6 and the T0/mutant rules: at most 2 plans of 4 tasks and 150 lines, all `wave: 1`, each task naming the question it answers and the capture file that answers it, every `files_modified` path inside the spike roots or `.planning/`. MANDATE-2, 3, 7 and 8 still apply. At either level rules 2, 3 and 6 there bind you: records by id, never by line; the task that builds a behaviour writes its capture file (no evidence-only plan, index, registry or per-plan copy of a phase document); work over the plan cap is reported in the return, not planned. Rule 11 binds you at every level: list per question / success criterion its source requirement and the source PRD's exit or acceptance criteria (path + heading or id), and every source criterion the plan does NOT cover with a reason; at spike a task that can answer "no" plans the root-cause or search capture (rule 11), and every probe asserts something that can fail. At spike plan against init `spike_roots`, never the ROADMAP line.
 
-**Rules applied and test proof (standard rigour, not spike):** in each task's `<action>` add a `Rules applied:` line for every project rule (CLAUDE.md, rules files, conventions you already read) that bears on THIS task, each with its instance: the allowed values (allow-list, never a deny-list), what each read the check depends on does when it fails (fail closed; infrastructure failure is not a permanent refusal), which roles or callers may reach it, which request field carries authority and where it is taken from, and the grants or uniqueness a new table needs. A rule cited without its instance does not count. A task with no applicable rule says nothing. Every test a task plans names the assertion that fails when the behaviour breaks and its positive control (the case showing the test can pass for the right reason); a status-only assertion is not enough where a body or state effect is the behaviour.
+**Rules applied and acceptance rows (standard rigour, not spike):** in each task's `<action>` add a `Rules applied:` line for every project rule (CLAUDE.md, rules files, conventions you already read) that bears on THIS task, each with its instance: the allowed values (allow-list, never a deny-list), what each read the check depends on does when it fails (fail closed; infrastructure failure is not a permanent refusal), which roles or callers may reach it, which request field carries authority and where it is taken from, and the grants or uniqueness a new table needs. A rule cited without its instance does not count. A task with no applicable rule says nothing. A task that builds behaviour also carries an `<acceptance>` block, one row per behaviour you write yourself (the executor writes the test from the rows and may not weaken one): `behaviour | the assertion that fails when it breaks | positive control (the case showing the test can pass for the right reason) | layer (lowest that can fail for the real reason) | existing test file:line to extend, or none`; on a risk-domain path add `| named mutant` (the change to the code that must turn the assertion red). A status-only assertion is not enough where a body or state effect is the behaviour. No separate test task follows the implementation task.
 
 <absolute_mandates>
 
@@ -78,19 +78,15 @@ The orchestrator provides user decisions in `<user_decisions>` tags from `/gsd:d
 
 These rules apply regardless of phase size, urgency, user instructions, or "this is just a quick fix" reasoning. They are non-negotiable.
 
-**MANDATE-1: New code → new tests (no exceptions)**
+**MANDATE-1: New code → acceptance rows (no exceptions)**
 
-Every task that creates or modifies implementation files (.ts, .tsx, .js) MUST be immediately followed by a `tdd="true"` test task in the same plan, whose `<behavior>` lists each behaviour with tier, layer, and an existing-test disposition (REUSE file:line / UPDATE / MERGE / DELETE / ADD+reason). A task whose behaviour is fully REUSEd still needs the tdd task, but it may add 0 tests (never for T0 unless the cited test is itself the T0 test, see T0 rule below).
+Every task that creates or modifies implementation files (.ts, .tsx, .js) carries the `<acceptance>` block described above, covering (a) the new behaviour and (b) the regression paths of the existing behaviour in those files (extend an existing test at the lowest layer first). The same task's executor writes the failing test, then the code. A task whose behaviour is fully covered by an existing test cites it (file:line) and adds no row; never for a risk-domain path unless the cited test is itself that test with its mutant.
 
-**No suite yet:** when `commands_not_configured` lists `test_file` or `test_all` and the project has no test suite, there is no existing suite to extend. The tdd task then names the new test file at the project's conventional test location (from the stack profile's `stack.paths`, else beside the code), written so a runner can pick it up later; that first file is the suite's seed and is not a MANDATE-8 helper. Its evidence is the capture file described under MANDATE-6.
+**No suite yet:** when `commands_not_configured` lists `test_file` or `test_all` and the project has no test suite, there is no existing suite to extend. The task then names the new test file at the project's conventional test location (from the stack profile's `stack.paths`, else beside the code), written so a runner can pick it up later; that first file is the suite's seed and is not a MANDATE-8 helper. Its evidence is the capture file described under MANDATE-6.
 
 Tier tag (mandatory; `verify form` fails an untagged task): tag every task with the model that executes it, a `<model>haiku|sonnet</model>` element or a `tier="..."` attribute on `<task>`. the tag follows the TASK's nature, not the phase's domain. `haiku` = the plan gives exact files and exact steps and the change is mechanical (config keys, wiring, renames, a test written from an explicit list of cases, docs); `sonnet` = the executor must decide something (logic design, a guard or authorisation condition, SQL policy or grants, error-handling paths, investigation, debugging). In a risk-domain phase a mechanical task stays `haiku`: the review makes it safe, not the tag. A task that mixes mechanical steps and a deciding step is split into two tasks, not tagged up. There is no tier above `sonnet`: split a task that needs the top model. Format: `references/planner-detail.md` "Tier Tag Format".
 
-The test task must cover:
-- (a) New behavior in the changed/created files
-- (b) Regression paths for existing behavior in those files (reuse/update an existing test first, at the lowest layer)
-
-Exceptions (no tdd="true" task needed):
+Exceptions (no acceptance rows needed):
 - Configuration files (`*.config.*`, `vite.config.*`, etc.)
 - Type declaration files (`*.d.ts`)
 - Build/tooling scripts
@@ -118,16 +114,16 @@ Plans MUST NOT contain:
 - "follow-up: add tests"
 - Any variant of "test later"
 
-If you find yourself writing deferral language, STOP. Convert it to a concrete test task or checkpoint instead.
+If you find yourself writing deferral language, STOP. Convert it to concrete `<acceptance>` rows or a checkpoint instead.
 
 **MANDATE-4: Validation before returning (HARD GATE)**
 
 Before returning any PLAN.md, verify:
-1. Every `type="auto"` task modifying .ts/.tsx/.js has a paired `tdd="true"` task
+1. Every `type="auto"` task modifying .ts/.tsx/.js has an `<acceptance>` block (or cites the existing test that covers it)
 2. If any task creates/modifies .tsx/.jsx → `checkpoint:ui-qa` is present
 3. No deferral language appears anywhere in the plan
 4. The plan does NOT suggest "future phases" will add the missing tests
-5. Every `tdd="true"` task has a non-empty `<behavior>` section listing each behaviour with its disposition (reuse/update first, lowest layer; not just "test the feature")
+5. Every `<acceptance>` row names a behaviour, a failing assertion and a positive control (not "test the feature"; no count goals)
 6. Every `checkpoint:ui-qa` task has a non-empty `<test-flows>` section with specific URLs and interactions
 7. You have created no non-markdown file (MANDATE-7) — every check is an executor task naming a real test file, its assertions, and its failing mutation
 8. No task's deliverable is a new script/gate/helper without a stated reason no existing test or gate covers it (MANDATE-8)
@@ -136,7 +132,7 @@ If any check fails: fix the plan before returning it. Do NOT return `## PLANNING
 
 **MANDATE-5: Gap closure plans require tests too**
 
-Gap closure plans (created from `--gaps` flag) are NOT exempt from mandates 1-4. A gap closure plan that adds implementation code MUST include a tdd="true" task. A gap closure plan that modifies UI MUST include checkpoint:ui-qa. "It's just a fix" is NOT an exception.
+Gap closure plans (created from `--gaps` flag) are NOT exempt from mandates 1-4. A gap closure plan that adds implementation code carries `<acceptance>` rows on that task. A gap closure plan that modifies UI MUST include checkpoint:ui-qa. "It's just a fix" is NOT an exception.
 
 **MANDATE-6: Risk-domain plans require a threat model (RISK-DOMAIN THREAT-MODEL MANDATE)**
 
@@ -185,7 +181,7 @@ appears unchanged, in full context, in the reference file.
 **Testing Mandate (task_breakdown):**
 > Every plan that produces user-facing behavior MUST include:
 
-> **When to include a test task:**
+> **When a task carries acceptance rows:**
 > - API endpoints: ALWAYS
 > - Database RPCs/functions: ALWAYS
 > - Form submit handlers: ALWAYS
@@ -208,7 +204,7 @@ appears unchanged, in full context, in the reference file.
 >
 > For each plan in this phase:
 > 1. List every task that creates or modifies an API endpoint, edge function, RPC, or HTTP route
-> 2. For each such task: is there an adjacent `tdd="true"` task in the same or immediately following plan?
+> 2. For each such task: does it carry `<acceptance>` rows (or cite the covering test)?
 > 3. List every task that creates or modifies a web UI page, form, modal, or interactive component
 > 4. For each such task: is there a `checkpoint:ui-qa` task covering it in the same or immediately following plan?
 >
@@ -222,13 +218,13 @@ appears unchanged, in full context, in the reference file.
 > The following plans are missing required test coverage:
 >
 > {For each violation:}
-> - Plan {NN}: task "{task name}" creates/modifies {API endpoint/UI} — missing {tdd="true" task / checkpoint:ui-qa}
+> - Plan {NN}: task "{task name}" creates/modifies {API endpoint/UI} — missing {acceptance rows / checkpoint:ui-qa}
 >
 > Fix required before proceeding:
-> - API tasks without tdd coverage → add a `type="auto" tdd="true"` task immediately after each
+> - API tasks without acceptance rows → add the rows to the task
 > - UI tasks without ui-qa coverage → add a `type="checkpoint:ui-qa"` task after the feature group
 >
-> Resubmit plans after adding missing test tasks.
+> Resubmit plans after adding the missing rows.
 > ```
 >
 > Do NOT return PLANNING COMPLETE. Do NOT write SUMMARY. Do NOT commit.

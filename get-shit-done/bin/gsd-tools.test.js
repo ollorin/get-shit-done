@@ -11319,7 +11319,7 @@ describe('Phase 52-02: Self-Report Telemetry (analytics.js section + agent-file 
       assert.match(content, /"status": "completed \| failed \| blocked \| gaps_found \| human_needed"/, 'pre-existing status enum literal must not have been removed');
     });
 
-    test('gsd-executor.md: all 4 field names present in PLAN COMPLETE <completion_format> AND both PLAN FAILED blocks (3 index-bounded checks)', () => {
+    test('gsd-executor.md: all 4 field names present in PLAN COMPLETE <completion_format> AND the PLAN FAILED block (2 index-bounded checks)', () => {
       const content = readAgentFile('gsd-executor.md');
       const fields = ['context_pressure', 'instructions_not_followed', 'ambiguities', 'tool_errors_swallowed'];
 
@@ -11333,17 +11333,7 @@ describe('Phase 52-02: Self-Report Telemetry (analytics.js section + agent-file 
         assert.match(completionSection, new RegExp(field), `${field} must appear inside <completion_format>`);
       }
 
-      // Check 2: first PLAN FAILED block (test task blocked execution)
-      const pf1Start = content.indexOf('## PLAN FAILED: Test task blocked execution');
-      assert.notStrictEqual(pf1Start, -1, 'first PLAN FAILED block must exist');
-      const pf1End = content.indexOf('Do NOT log as a "gap" and continue', pf1Start);
-      assert.notStrictEqual(pf1End, -1);
-      const pf1Section = content.slice(pf1Start, pf1End);
-      for (const field of fields) {
-        assert.match(pf1Section, new RegExp(field), `${field} must appear inside the first PLAN FAILED block`);
-      }
-
-      // Check 3: second PLAN FAILED block (test gate blocked SUMMARY.md creation)
+      // Check 2: PLAN FAILED block (test gate blocked SUMMARY.md creation)
       const pf2Start = content.indexOf('## PLAN FAILED: Test gate blocked SUMMARY.md creation');
       assert.notStrictEqual(pf2Start, -1, 'second PLAN FAILED block must exist');
       const pf2End = content.indexOf('Do NOT proceed to `<summary_creation>`', pf2Start);
@@ -14854,64 +14844,6 @@ describe('Phase 59-02: post-task quality test-writer spawn (MILE-37)', () => {
       const parsed = JSON.parse(result.output);
       assert.strictEqual(parsed.touches_source_code, false);
       assert.strictEqual(parsed.file_count, 0);
-    });
-  });
-
-  describe('prose wiring grep-assertion tests (house convention, mirrors Phase 57-04/58-03)', () => {
-    function readExecutorDetail() {
-      return fs.readFileSync(EXECUTOR_DETAIL_PATH, 'utf-8');
-    }
-
-    test('<post_task_quality_spawn> appears AFTER </inter_task_syntax_check> and BEFORE <test_task_handling> (index-bounded ordering)', () => {
-      const content = readExecutorDetail();
-      const syntaxCheckCloseIdx = content.indexOf('</inter_task_syntax_check>');
-      const spawnBlockIdx = content.indexOf('<post_task_quality_spawn>');
-      const testTaskHandlingIdx = content.indexOf('<test_task_handling>');
-      assert.ok(syntaxCheckCloseIdx !== -1, 'expected </inter_task_syntax_check> to exist');
-      assert.ok(spawnBlockIdx !== -1, 'expected <post_task_quality_spawn> to exist');
-      assert.ok(testTaskHandlingIdx !== -1, 'expected <test_task_handling> to exist');
-      assert.ok(spawnBlockIdx > syntaxCheckCloseIdx, 'expected <post_task_quality_spawn> to appear after </inter_task_syntax_check>');
-      assert.ok(spawnBlockIdx < testTaskHandlingIdx, 'expected <post_task_quality_spawn> to appear before <test_task_handling>');
-    });
-
-    test('test_writer_enabled toggle check appears inside the post_task_quality_spawn block', () => {
-      const content = readExecutorDetail();
-      const spawnBlockIdx = content.indexOf('<post_task_quality_spawn>');
-      const spawnBlockCloseIdx = content.indexOf('</post_task_quality_spawn>');
-      const toggleIdx = content.indexOf('test_writer_enabled', spawnBlockIdx);
-      assert.ok(toggleIdx !== -1 && toggleIdx < spawnBlockCloseIdx, 'expected test_writer_enabled to appear inside post_task_quality_spawn');
-    });
-
-    test('[Rule Quality-TW] literal string appears inside the post_task_quality_spawn block', () => {
-      const content = readExecutorDetail();
-      const spawnBlockIdx = content.indexOf('<post_task_quality_spawn>');
-      const spawnBlockCloseIdx = content.indexOf('</post_task_quality_spawn>');
-      const ruleIdx = content.indexOf('[Rule Quality-TW]', spawnBlockIdx);
-      assert.ok(ruleIdx !== -1 && ruleIdx < spawnBlockCloseIdx, 'expected [Rule Quality-TW] to appear inside post_task_quality_spawn');
-    });
-
-    test('continuation language ("Do NOT block") appears inside the post_task_quality_spawn block, distinguishing it from the tdd="true" hard-block contract', () => {
-      const content = readExecutorDetail();
-      const spawnBlockIdx = content.indexOf('<post_task_quality_spawn>');
-      const spawnBlockCloseIdx = content.indexOf('</post_task_quality_spawn>');
-      const doNotBlockIdx = content.indexOf('Do NOT block', spawnBlockIdx);
-      assert.ok(doNotBlockIdx !== -1 && doNotBlockIdx < spawnBlockCloseIdx, 'expected "Do NOT block" continuation language inside post_task_quality_spawn');
-    });
-  });
-
-  describe('regression guard: existing tdd="true" hard-block contract in <test_task_handling> is untouched', () => {
-    test('exact existing block-language substring is still present, unchanged', () => {
-      const content = fs.readFileSync(EXECUTOR_DETAIL_PATH, 'utf-8');
-      assert.ok(content.includes('BLOCK — do NOT proceed to the next task'), 'expected the existing tdd="true" hard-block language to still be present verbatim');
-    });
-
-    test('surrounding "0 tests written" hard-failure wording is unaffected', () => {
-      const content = fs.readFileSync(EXECUTOR_DETAIL_PATH, 'utf-8');
-      const testTaskHandlingIdx = content.indexOf('<test_task_handling>');
-      const testTaskHandlingCloseIdx = content.indexOf('</test_task_handling>');
-      const block = content.slice(testTaskHandlingIdx, testTaskHandlingCloseIdx);
-      assert.ok(block.includes('0 tests written'), 'expected "0 tests written" hard-failure wording to still be present inside <test_task_handling>');
-      assert.ok(block.includes('BLOCK — do NOT proceed to the next task'), 'expected the hard-block sentence to still be inside <test_task_handling>, not moved elsewhere');
     });
   });
 

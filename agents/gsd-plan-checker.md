@@ -336,27 +336,13 @@ Non-zero exit is a blocker per id (`dimension: context_compliance`): `missing` =
 
 ## Dimension 8: Testing Mandate Compliance
 
-**Question:** Does every implementation task have paired test coverage, and every UI-producing plan have UI QA?
+**Question:** Does every implementation task carry acceptance rows, and every UI-producing plan have UI QA?
 
 **Process:**
 
-**Check 8-T1 — tdd="true" pairing:**
+**Check 8-T1 — acceptance rows:**
 
-For each `<task type="auto">` in each plan that creates or modifies .ts, .tsx, .js, .jsx, .mjs, .astro, .sql or .sh files (check the `<files>` element):
-1. Is there an adjacent `<task type="auto" tdd="true">` task immediately after it in the same plan?
-2. Exempt tasks: tasks that ONLY modify config files (*.config.*), type declarations (*.d.ts), or build scripts
-
-If any implementation task lacks a paired tdd="true" task: **BLOCKING FAIL**
-
-```yaml
-issue:
-  dimension: testing_mandate
-  severity: blocker
-  description: "Task {N} in plan {plan} modifies implementation files but has no paired tdd='true' test task"
-  plan: "{plan}"
-  task: {N}
-  fix_hint: "Add a tdd='true' task immediately after task {N} to test the implementation"
-```
+For each `<task type="auto">` in each plan that creates or modifies .ts, .tsx, .js, .jsx, .mjs, .astro, .sql or .sh files (check the `<files>` element), except tasks that ONLY modify config files (*.config.*), type declarations (*.d.ts) or build scripts: the task carries `<acceptance>` rows or cites the existing test (file:line) that covers it. None of either: **BLOCKING FAIL** (`dimension: testing_mandate`, fix_hint: "add `<acceptance>` rows to task {N}"). A separate test task after the implementation task is not required and not a substitute.
 
 **Check 8-T2 — checkpoint:ui-qa presence:**
 
@@ -390,12 +376,12 @@ issue:
   fix_hint: "Replace deferral language with a concrete test task or checkpoint"
 ```
 
-**Check 8-T4 — test inventory and behaviour-based goals:**
+**Check 8-T4 — acceptance quality (the one statement of the test-proof rule; Dimension 17 points here):**
 
-For each `tdd="true"` task:
-1. BLOCKING if `<behavior>` has no `existing:` inventory line per behaviour (file:line or none, plus REUSE / UPDATE / MERGE / DELETE / ADD+reason).
+For each `<acceptance>` row:
+1. BLOCKING if it lacks the behaviour, the assertion that fails when the behaviour breaks, or the positive control (the case showing the test can pass for the right reason); a status-only assertion where a body or state effect is the behaviour is missing proof. On a task touching access, funds, state transitions or data grants that is a blocker (`dimension: rule_binding`); elsewhere a warning.
 2. BLOCKING if the goal or `<done>` is a count ("N tests", "at least", "comprehensive") instead of a list of behaviours.
-3. BLOCKING: A risk-domain path is any path the product brief lists under Risk Domains (`risk_domains` in the init output); authentication/authorisation and security are always risk domains. When `risk_domains_source` is `builtin` (`project.risk_domains` in config.json is empty or absent), every path that mutates state is a risk-domain path. Tag every behaviour on a risk-domain path T0 (real-DB, mutation-proven). A plan that tags such a behaviour T1/T2 is rejected. REUSE satisfies T0 ONLY when the cited existing test is itself that T0 test (path:line + mutant id); "0 tests" otherwise is rejected. **Commands not configured:** when `commands_not_configured` (init output) lists `test_file` or `test_all`, a T0 behaviour is accepted without a real-DB run only if the task records a T0 exemption with a saved capture file of the test output and a named mutant whose capture shows the test failing; otherwise BLOCKING.
+3. BLOCKING: A risk-domain path is any path the product brief lists under Risk Domains (`risk_domains` in the init output); authentication/authorisation and security are always risk domains. When `risk_domains_source` is `builtin` (`project.risk_domains` in config.json is empty or absent), every path that mutates state is a risk-domain path. Tag every behaviour on a risk-domain path T0 (real-DB, mutation-proven). Each such row names its mutant. A plan that tags such a behaviour T1/T2 or names no mutant is rejected. Citing an existing test satisfies T0 ONLY when it is itself that T0 test (path:line + mutant id). **Commands not configured:** when `commands_not_configured` (init output) lists `test_file` or `test_all`, a T0 behaviour is accepted without a real-DB run only if the task records a T0 exemption with a saved capture file of the test output and a named mutant whose capture shows the test failing; otherwise BLOCKING.
 4. WARNING: a T2 behaviour is ADD at unit layer, or a behaviour is asserted at a second layer without a wire-shape reason.
 
 ## Dimension 9: Automated Verify
@@ -597,9 +583,9 @@ Six questions; the full attack on each plan is Dimension 14 (risk add-ons only),
 
 Every `<verify>` command, `<done>` criterion and must_haves truth must be satisfiable in the environment the plan itself declares. For each, check it against: services the plan or STACK-PROFILE excludes or does not start (a command needing an API URL, port or container of an excluded service is impossible); env vars the plan never sets and the environment does not provide; tools or paths absent from the declared stack; and artifacts a later plan or the verifier produces (a check cannot require them earlier). An impossible expectation = blocker (`dimension: satisfiable_expectations`, `severity: blocker`) naming the command and the missing service/variable. Same revision loop (max 3).
 
-## Dimension 17: Rule Binding and Test Proof (standard rigour, not spike)
+## Dimension 17: Rule Binding (standard rigour, not spike)
 
-Read-only check of the plan text, every plan. (1) Each task must carry `Rules applied:` naming every project rule that bears on it with its concrete instance for this task (allow-list values, failure path of each read the check depends on, who may reach it, authority-bearing field and its source, grants and uniqueness), answering Product lens questions 1, 2, 4 and 6 where they apply; a rule named without its instance is missing. (2) Each planned test names the assertion that fails when the behaviour breaks and its positive control; a status-only assertion where a body or state effect is the behaviour is missing proof. Missing on a task touching access, funds, state transitions or data grants = blocker (`dimension: rule_binding`); elsewhere a warning.
+Read-only check of the plan text, every plan. Each task must carry `Rules applied:` naming every project rule that bears on it with its concrete instance for this task (allow-list values, failure path of each read the check depends on, who may reach it, authority-bearing field and its source, grants and uniqueness), answering Product lens questions 1, 2, 4 and 6 where they apply; a rule named without its instance is missing. Missing on a task touching access, funds, state transitions or data grants = blocker (`dimension: rule_binding`); elsewhere a warning. Test proof is Check 8-T4.
 
 ## Dimension 16: Traceability (every rigour)
 
@@ -758,7 +744,7 @@ Thresholds: the task and line caps of `references/rigour.md`; over a cap is a bl
 
 ## Step 10: Determine Overall Status
 
-**passed:** All requirements covered, all tasks complete, dependency graph valid, key links planned, scope within budget, must_haves properly derived, testing mandate satisfied (all implementation tasks have tdd="true" pairs with inventory, all UI plans have checkpoint:ui-qa, no deferral language).
+**passed:** All requirements covered, all tasks complete, dependency graph valid, key links planned, scope within budget, must_haves properly derived, testing mandate satisfied (all implementation tasks have acceptance rows pairs with inventory, all UI plans have checkpoint:ui-qa, no deferral language).
 
 **issues_found:** One or more blockers or warnings. Plans need revision.
 
@@ -954,7 +940,7 @@ Plan verification complete when:
 - [ ] Dependency graph verified (no cycles, valid references)
 - [ ] Key links checked (wiring planned, not just artifacts)
 - [ ] Scope assessed (within context budget)
-- [ ] Testing mandate verified: all implementation tasks have tdd="true" pairs with inventory
+- [ ] Testing mandate verified: all implementation tasks have `<acceptance>` rows
 - [ ] Testing mandate verified: all UI-producing plans have checkpoint:ui-qa
 - [ ] Testing mandate verified: no deferral language in any plan
 - [ ] must_haves derivation verified (user-observable truths)

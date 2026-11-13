@@ -73,7 +73,7 @@ grep -n "type=\"checkpoint" .planning/phases/XX-name/{phase}-{plan}-PLAN.md
 | Verify-only | B (segmented) | Segments between checkpoints. After none/human-verify → SUBAGENT. After decision/human-action → MAIN |
 | Decision | C (main) | Execute entirely in main context |
 
-**Pattern A:** init_agent_tracking → spawn Agent(subagent_type="gsd-executor", model=the plan's `executor_model` (spike) or the task's tier tag (per-task routing, `references/task-routing.md`); always explicit; escalate one tier only after 2 failures of the same task, an ambiguous plan or an unclear root cause; spawn gsd-test-writer with `model=executor_model` from init) with prompt: execute plan at [path], autonomous, all tasks + SUMMARY + commit, follow deviation/auth rules, report: plan name, tasks, SUMMARY path, commit hash → track agent_id → wait → update tracking → report.
+**Pattern A:** init_agent_tracking → spawn Agent(subagent_type="gsd-executor", model=the plan's `executor_model` (spike) or the task's tier tag (per-task routing, `references/task-routing.md`); always explicit; escalate one tier only after 2 failures of the same task, an ambiguous plan or an unclear root cause) with prompt: execute plan at [path], autonomous, all tasks + SUMMARY + commit, follow deviation/auth rules, report: plan name, tasks, SUMMARY path, commit hash → track agent_id → wait → update tracking → report.
 
 **Pattern B:** Execute segment-by-segment. Autonomous segments: spawn subagent for assigned tasks only (no SUMMARY/commit). Checkpoints: main context. After all segments: aggregate, create SUMMARY, commit. See segment_execution.
 
@@ -144,7 +144,7 @@ Deviations are normal — handle via rules below.
 
 1. Read @context files from prompt
 2. Per task:
-   - `type="auto"`: if `tdd="true"` → TDD execution. Implement with deviation rules + auth gates. Verify done criteria. Commit (see task_commit). Track hash for Summary. Record `## Test Delta` in the Summary.
+   - `type="auto"`: a task with `<acceptance>` rows → failing test from the rows first (red captured), then the code, then run that test file once (`executor-detail.md` `<test_task_handling>`). Implement with deviation rules + auth gates. Verify done criteria. Commit (see task_commit). Track hash for Summary. Record `## Test Delta` in the Summary.
    - `type="checkpoint:*"`: STOP → checkpoint_protocol → wait for user → continue only after confirmation.
 3. Run `<verification>` checks
 4. Confirm `<success_criteria>` met

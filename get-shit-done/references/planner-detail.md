@@ -185,24 +185,24 @@ The `<test-flows>` content is the QA agent's script. Be specific:
 
 Every plan that produces user-facing behavior MUST include:
 
-### 1. A test task (type="auto", tdd="true")
+### 1. Acceptance rows on the task that builds the behaviour
 
-Place it immediately after the implementation task it covers:
+No separate test task. The behaviour task carries an `<acceptance>` block (format: `agents/gsd-planner.md` "Rules applied and acceptance rows"); its executor writes the failing test from the rows, then the code:
 
 ```xml
-<task type="auto" tdd="true">
-  <name>Test [feature name]</name>
-  <behavior>
-    One line per behaviour, in this form:
-    - <behaviour> | T0/T1/T2 | layer | existing: <file:line or none> | disposition | mutant
-  </behavior>
-  <action>Spawn gsd-test-writer to inventory existing tests first, then reuse, update, merge, or add tests for the behaviours above.</action>
-  <verify>All tests pass. gsd-test-writer reports 0 failing tests and REUSE citations for every behaviour it did not add.</verify>
-  <done>Every behaviour has a disposition and a covering test. All green.</done>
+<task type="auto" tier="sonnet">
+  <name>Implement [feature name]</name>
+  <files>...</files>
+  <action>... Rules applied: ...</action>
+  <acceptance>
+    - <behaviour> | <assertion that fails when it breaks> | <positive control> | <layer> | <existing test file:line or none> | <named mutant, risk-domain paths>
+  </acceptance>
+  <verify>The task's test file passes.</verify>
+  <done>Every row has a test that was red before the code and is green now.</done>
 </task>
 ```
 
-**When to include a test task:**
+**When a task carries acceptance rows:**
 - API endpoints: ALWAYS
 - Database RPCs/functions: ALWAYS
 - Form submit handlers: ALWAYS
@@ -212,8 +212,8 @@ Place it immediately after the implementation task it covers:
 
 ### 2. A checkpoint:ui-qa task (if plan creates/modifies web UI)
 
-Already covered by existing mandate. This is a reminder: test tasks and ui-qa are BOTH required for plans that build API + UI together. They cover different dimensions:
-- `tdd="true"` task → unit/integration tests (backend behavior, error handling)
+Already covered by existing mandate. This is a reminder: acceptance rows and ui-qa are BOTH required for plans that build API + UI together. They cover different dimensions:
+- acceptance rows → unit/integration tests (backend behavior, error handling)
 - `checkpoint:ui-qa` → visual behavior, UX, wiring in the browser
 
 ### 3. e2e_flows in frontmatter (REQUIRED for UI plans)
@@ -358,7 +358,7 @@ No overlap → can run parallel. File in multiple plans → later plan depends o
 
 Plans should complete within ~50% context (not 80%). No context anxiety, quality maintained start to finish, room for unexpected complexity.
 
-**Caps are in `references/rigour.md`** (`standard`: 3 plans per phase, 6 tasks and 250 lines per plan; every `<task` counts, companion tdd tasks included). A phase that needs more is too big: say so in the return.
+**Caps are in `references/rigour.md`** (`standard`: 3 plans per phase, 6 tasks and 250 lines per plan; every `<task` counts, no companion test tasks). A phase that needs more is too big: say so in the return.
 
 | Task Complexity | Tasks/Plan | Context/Task | Total |
 |-----------------|------------|--------------|-------|
@@ -829,9 +829,9 @@ Apply the strategy above when constructing the task action. The task name must s
 **7. Apply testing mandates to gap closure plans:**
 
 Gap closure plans are NOT exempt from MANDATE-1 through MANDATE-5. After grouping gaps into tasks:
-- If any gap closure task creates/modifies .ts/.tsx/.js files → add a `tdd="true"` task after it
+- If any gap closure task creates/modifies .ts/.tsx/.js files → give that task `<acceptance>` rows
 - If any gap closure task creates/modifies .tsx/.jsx files → add a `checkpoint:ui-qa` task
-- If the gap's failure_type is `missing_test` → the gap closure plan IS the test task (no additional tdd task needed, but the test must actually be written and run)
+- If the gap's failure_type is `missing_test` → the gap closure task is the test (its acceptance rows name it; the test must actually be written and run)
 
 **8. Write PLAN.md files:**
 
@@ -1209,7 +1209,7 @@ Run this gate AFTER all plans are written, BEFORE returning to orchestrator.
 
 For each plan in this phase:
 1. List every task that creates or modifies an API endpoint, handler function, RPC, or HTTP route
-2. For each such task: is there an adjacent `tdd="true"` task in the same or immediately following plan?
+2. For each such task: does it carry `<acceptance>` rows (or cite the covering test)?
 3. List every task that creates or modifies a web UI page, form, modal, or interactive component
 4. For each such task: is there a `checkpoint:ui-qa` task covering it in the same or immediately following plan?
 
@@ -1223,13 +1223,13 @@ Return immediately with:
 The following plans are missing required test coverage:
 
 {For each violation:}
-- Plan {NN}: task "{task name}" creates/modifies {API endpoint/UI} — missing {tdd="true" task / checkpoint:ui-qa}
+- Plan {NN}: task "{task name}" creates/modifies {API endpoint/UI} — missing {acceptance rows / checkpoint:ui-qa}
 
 Fix required before proceeding:
-- API tasks without tdd coverage → add a `type="auto" tdd="true"` task immediately after each
+- API tasks without acceptance rows → add the rows to the task
 - UI tasks without ui-qa coverage → add a `type="checkpoint:ui-qa"` task after the feature group
 
-Resubmit plans after adding missing test tasks.
+Resubmit plans after adding the missing rows.
 ```
 
 Do NOT return PLANNING COMPLETE. Do NOT write SUMMARY. Do NOT commit.

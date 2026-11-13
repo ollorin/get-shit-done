@@ -6785,14 +6785,14 @@ function cmdVerifyPlanStructure(cwd, filePath, raw) {
     errors.push('Plan modifies UI files (.tsx/.jsx/.vue/.svelte) but has no checkpoint:ui-qa task');
   }
 
-  // TDD check: plans that modify API/route files must have a tdd="true" task
+  // Test check: plans that modify API/route files must carry <acceptance> rows (or a tdd="true" task)
   // (API_FILE_PATTERNS is a shared top-level constant — see "Shared File-Pattern Constants")
   const hasApiFiles = filesModified.some(f =>
     API_FILE_PATTERNS.some(pat => f.includes(pat))
   );
-  const hasTddTask = /tdd=["']?true/.test(content);
+  const hasTddTask = /tdd=["']?true|<acceptance>/.test(content);
   if (hasApiFiles && !hasTddTask) {
-    errors.push('Plan modifies API/route files but has no tdd="true" task');
+    errors.push('Plan modifies API/route files but has no <acceptance> rows (or tdd="true" task)');
   }
 
   // P0 tier-assignment check (Phase 299 SC-2): shells out to the target repo's frozen classifier

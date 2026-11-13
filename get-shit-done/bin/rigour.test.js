@@ -283,7 +283,7 @@ describe('rigour text pins', () => {
     assert.match(plan, /\*\*Which round cap governs what:\*\*/);
     assert.match(plan, /`phase_req_ids`/);
     const exec = text('get-shit-done/workflows/execute-phase.md');
-    assert.match(exec, /When `rigour` is `spike`: no test-writer spawn/);
+    assert.match(exec, /When `rigour` is `spike`: no test steward/);
     assert.match(exec, /SPIKE-RESULT\.md/);
   });
 
