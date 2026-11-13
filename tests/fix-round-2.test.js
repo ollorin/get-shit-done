@@ -81,6 +81,13 @@ describe('N6 the review is a disk check: {N}-REVIEW-{round}.md frontmatter', () 
   const gate = (dir) => gsd(dir, ['verify', 'phase-gate', '1']).json;
   const reviewErr = (j) => j.work_errors.filter((e) => /REVIEW/.test(e));
 
+  test('a phase already recorded complete (ROADMAP box checked by an earlier build) is not re-judged by the review gate', () => {
+    const { dir } = executed();
+    const f = path.join(dir, '.planning', 'ROADMAP.md');
+    fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace(/- \[ \] (\*\*)?Phase 1:/, '- [x] $1Phase 1:'));
+    assert.match(fs.readFileSync(f, 'utf8'), /- \[x\] (\*\*)?Phase 1:/);
+    assert.deepStrictEqual(reviewErr(gate(dir)), []);
+  });
   test('code changed and no review file: work error, and phase complete refuses', () => {
     const { dir } = executed();
     const j = gate(dir);

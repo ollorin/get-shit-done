@@ -7302,10 +7302,13 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles, opts =
   }
   // A spike has no separate review file: its {N}-VERIFICATION.md (the merged final review) is the record, checked below.
   const spike = rigour.resolveRigour(cwd, phaseNumber, getMilestoneInfo(cwd).version).rigour === 'spike';
-  if (!spike) errors.push(...reviewGate.reviewErrors(phaseDir, dirFiles, touched));
-  if (spike) errors.push(...spikeCheck.answerTableErrors(cwd, phaseDir, dirFiles));
+  // A phase already recorded complete (ROADMAP box checked) was closed under the rules of its time: the review and
+  // spike-answer gates judge only phases still open, so a newer build never re-opens finished phases.
+  const closedEarlier = roadmapCheckboxState(cwd, String(phaseNumber).replace(/^0+(?=\d)/, '')) === true;
+  if (!spike && !closedEarlier) errors.push(...reviewGate.reviewErrors(phaseDir, dirFiles, touched));
+  if (spike && !closedEarlier) errors.push(...spikeCheck.answerTableErrors(cwd, phaseDir, dirFiles));
   const verification = readPhaseVerification(phaseDir, phaseNumber);
-  if (!opts.preVerifier) errors.push(...reviewGate.verificationReviewErrors(verification, spike));
+  if (!opts.preVerifier && !closedEarlier) errors.push(...reviewGate.verificationReviewErrors(verification, spike));
   // Pre-verifier mode: the verifier produces this artifact, so demanding it earlier is circular.
   if (opts.preVerifier) {
     // intentionally no verification-artifact error
