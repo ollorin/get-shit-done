@@ -111,7 +111,7 @@ Pattern B only (verify-only checkpoints). Skip for A/C.
 3. After ALL segments: aggregate files/deviations/decisions → create SUMMARY.md → commit → self-check:
    - Verify key-files.created exist on disk with `[ -f ]`
    - Check `git log --oneline --all --grep="{phase}-{plan}"` returns ≥1 commit
-   - Append `## Self-Check: PASSED` or `## Self-Check: FAILED` to SUMMARY
+   - Append `## Self-Check: PASSED` or `## Self-Check: FAILED` to SUMMARY (the verdict is the first word after `Self-Check:`; at spike a probe row that records FAIL is a result, not a failed self-check)
    - Evidence is named by capture path and planning records by id (`D-NN`, `A-NN`), never by line of a rendered file, so a fix round re-reconciles nothing
    - When the project has a lockfile and `scripts/dependency-scan-gate.mjs` (or its configured dependency-scan command) exists, run `node scripts/dependency-scan-gate.mjs > {phase_dir}/captures/{plan}-dependency-scan.txt 2>&1` before the review and name that capture path in SUMMARY; a finding is a normal defect to fix (a model never hunts for vulnerable dependencies)
 

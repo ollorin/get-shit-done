@@ -153,10 +153,10 @@ describe('items 1 and 3: spike phases and the pre-verify gates', () => {
     const r = gsd(dir, ['phase', 'complete', '1']);
     assert.strictEqual(r.rc, 0, r.out + r.err);
   });
-  test('the spike dispatch budget is 8 and wall stays 45', () => {
+  test('the spike dispatch budget is 10 and wall stays 45', () => {
     const { dir } = spikeProject();
     const b = gsd(dir, ['budget', 'status', '--phase', '1']).json;
-    assert.deepStrictEqual([b.budget_class, b.budget_wall_minutes, b.budget_dispatches], ['spike', 45, 8]);
+    assert.deepStrictEqual([b.budget_class, b.budget_wall_minutes, b.budget_dispatches], ['spike', 45, 10]);
   });
 });
 
@@ -327,7 +327,7 @@ describe('prose contracts: spike path, breach behaviour and rule 11 are stated o
   const doc = (rel) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8');
   test('rigour.md carries the spike budget, the merged review, breach behaviour and rule 11', () => {
     const r = doc('get-shit-done/references/rigour.md');
-    assert.match(r, /45 min \/ 8/);
+    assert.match(r, /45 min \/ 10/);
     assert.match(r, /\*\*At `breach` \(100 %\):\*\*/);
     assert.match(r, /Question traceability, negative answers, final-review questions/);
     assert.match(r, /Spike answer table/);

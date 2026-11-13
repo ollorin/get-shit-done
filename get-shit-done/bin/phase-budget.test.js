@@ -19,7 +19,7 @@ afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 describe('CLI-4: budget', () => {
   test('defaults per class and config override', () => {
-    assert.deepStrictEqual(b.budgetFields(dir, 'spike'), { budget_class: 'spike', budget_wall_minutes: 45, budget_dispatches: 8 });
+    assert.deepStrictEqual(b.budgetFields(dir, 'spike'), { budget_class: 'spike', budget_wall_minutes: 45, budget_dispatches: 10 });
     assert.deepStrictEqual(b.budgetFields(dir, 'standard'), { budget_class: 'standard', budget_wall_minutes: 90, budget_dispatches: 12 });
     assert.deepStrictEqual(b.budgetFields(dir, 'risk'), { budget_class: 'risk', budget_wall_minutes: 150, budget_dispatches: 20 });
     write('.planning/config.json', JSON.stringify({ workflow: { budget: { standard: { dispatches: 30 } } } }));

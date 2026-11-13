@@ -160,6 +160,13 @@ function incompleteEvent(k, truth, folded, reason, gapCycleDone) {
   return { action, events, errors: truth.errors || [] };
 }
 
+// A spike phase whose VERIFICATION still has an open CRITICAL/HIGH is parked only after the one ruling dispatch was
+// logged (`spike_ruling` event): before that, `record` says `ruling` and parks nothing.
+const OPEN_CH_RE = /open_critical_high \d+ and no ruling id/;
+const needsSpikeRuling = (input, k, truth) => input.spike === true
+  && (truth.work_errors || truth.errors || []).some((m) => OPEN_CH_RE.test(m))
+  && !(input.events || []).some((e) => e && e.type === 'spike_ruling' && evPhase(e) === k);
+
 function record(input) {
   const k = phaseKey(input.phase);
   const truth = input.truth || { complete: false, errors: [] };
@@ -179,11 +186,13 @@ function record(input) {
     case 'completed':
       if (truth.complete) return completeAction(k, truth);
       if (formOnly(truth)) return formDebtAction(k, truth);
+      if (needsSpikeRuling(input, k, truth)) return { phase: k, action: 'ruling', events: [], errors: truth.errors || [] };
       return { phase: k, ...incompleteEvent(k, truth, folded, 'completed_without_disk_truth') };
     case 'gaps_found': {
       // Disk is truth: a gaps claim over a phase that is already complete on disk is not a gap.
       if (truth.complete) return completeAction(k, truth);
       if (formOnly(truth)) return formDebtAction(k, truth);
+      if (needsSpikeRuling(input, k, truth)) return { phase: k, action: 'ruling', events: [], errors: truth.errors || [] };
       return { phase: k, ...incompleteEvent(k, truth, folded, 'gaps_found', result.gap_cycle_done === true) };
     }
     case 'completed_with_deferrals':

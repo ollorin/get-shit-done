@@ -3016,8 +3016,10 @@ function evaluateSummarySelfCheck(content) {
     const body = next >= 0 ? rest.slice(0, next) : rest;
     const heading = last[0];
     let status = 'not_found';
-    if (/\bFAIL(?:ED|S|URE)?\b|❌|✗/i.test(heading)) status = 'failed';
-    else if (/\bPASS(?:ED)?\b|✅|✓/i.test(heading)) status = 'passed';
+    // The verdict is the first word after `Self-Check` (and its colon); anything after it is free text.
+    const verdict = (heading.match(/Self[- ]?Check\b[\s:*_\-–—]*(\S+)/i) || [])[1] || '';
+    if (/^(?:FAIL(?:ED|S|URE)?\b|❌|✗)/i.test(verdict)) status = 'failed';
+    else if (/^(?:PASS(?:ED)?\b|✅|✓)/i.test(verdict)) status = 'passed';
     else if (/\bFAILED\b|❌|✗/.test(body)) status = 'failed';
     else if (/\bPASSED\b|✅|✓/.test(body)) status = 'passed';
     return { status, source: 'self_check' };
@@ -11343,6 +11345,13 @@ function resolveModelInternal(cwd, agentType) {
   return agentModels[profile] || agentModels['balanced'] || 'sonnet';
 }
 
+// At spike the executor is the investigator: a haiku result is raised to sonnet (a stronger profile tier is kept).
+function executorModelFor(cwd, phase) {
+  const model = resolveModelInternal(cwd, 'gsd-executor');
+  const spike = rigour.resolveRigour(cwd, phase, getMilestoneInfo(cwd).version).rigour === 'spike';
+  return spike && model === 'haiku' ? 'sonnet' : model;
+}
+
 function findPhaseInternal(cwd, phase) {
   if (!phase) return null;
 
@@ -11469,8 +11478,14 @@ function collectPhaseTouchedFiles(cwd, phaseNumber, plans) {
     const claimedFiles = plan.fm && Array.isArray(plan.fm.files_modified)
       ? plan.fm.files_modified
       : (plan.fm && plan.fm.files_modified ? [String(plan.fm.files_modified)] : []);
+    // A claimed directory (trailing `/`, or a directory on disk) is satisfied by any diffed file under it.
+    const isDirClaim = (c) => {
+      if (/\/$/.test(c)) return true;
+      try { return fs.statSync(path.join(cwd, c)).isDirectory(); } catch { return false; }
+    };
+    const underDir = (c) => { const d = c.replace(/\/+$/, '') + '/'; return [...planFiles].some((f) => f.startsWith(d)); };
     for (const claimed of claimedFiles) {
-      if (!planFiles.has(claimed)) {
+      if (!planFiles.has(claimed) && !(isDirClaim(claimed) && underDir(claimed))) {
         warnings.push({ plan: planNum, warning: 'claimed_file_not_in_diff', file: claimed });
       }
     }
@@ -11536,7 +11551,7 @@ function cmdInitExecutePhase(cwd, phase, includes, raw, gate) {
     ...initRiskFields(cwd, phase),
 
     // Models
-    executor_model: resolveModelInternal(cwd, 'gsd-executor'),
+    executor_model: executorModelFor(cwd, phase),
     verifier_model: resolveModelInternal(cwd, 'gsd-verifier'),
     // The final phase review and rulings run on the configured top model (models.top).
     ...topModelFields(cwd),
@@ -11657,7 +11672,7 @@ function cmdInitPlanPhase(cwd, phase, includes, raw, gate) {
     researcher_model: resolveModelInternal(cwd, 'gsd-phase-researcher'),
     planner_model: resolveModelInternal(cwd, 'gsd-planner'),
     checker_model: resolveModelInternal(cwd, 'gsd-plan-checker'),
-    executor_model: resolveModelInternal(cwd, 'gsd-executor'),
+    executor_model: executorModelFor(cwd, phase),
     // Risk-domain plans, rulings and adversarial passes run on the configured top model (models.top).
     ...topModelFields(cwd),
     utility_model: readRawConfig(cwd).utility_model || 'haiku',
@@ -12570,6 +12585,7 @@ function cmdRoadmapRecord(cwd, args, raw) {
     result: resultArg,
     truth,
     events,
+    spike: rigour.resolveRigour(cwd, k, getMilestoneInfo(cwd).version).rigour === 'spike',
     ladder: (ph, errorMsg, step) => {
       const applied = applyExecutionStateFailure(cwd, { phase: ph, errorMsg, step });
       return applied.ok ? { action: applied.result.action, attempts: applied.result.attempts } : { action: 'escalate' };
@@ -16979,6 +16995,7 @@ module.exports = {
   isTestOrSpecFile,
   evaluateSummarySelfCheck,
   collectPhaseEvidenceErrors,
+  collectPhaseTouchedFiles,
   planTagGrepPattern,
   hasVerifiedMutantCite,
   parseTestDelta,

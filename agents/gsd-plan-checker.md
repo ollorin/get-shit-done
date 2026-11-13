@@ -170,6 +170,7 @@ issue:
 - `depends_on: []` = Wave 1 (can run parallel)
 - `depends_on: ["01"]` = Wave 2 minimum (must wait for 01)
 - Wave number = max(deps) + 1
+- At `spike` every plan is `wave: 1` (`workflows/plan-phase.md`) and `depends_on` only sets serial run order: the wave arithmetic above is not applied and is never a finding.
 
 **Example issue:**
 ```yaml
@@ -513,7 +514,7 @@ A file under the ~500 LOC ceiling can still be a god-module, which the style gat
 
 **Check 12-S1 — non-markdown files in the phase directory:**
 
-List the phase directory. Any file that is not markdown (`.md`) and not a known planning artifact is a **BLOCKING FAIL** — planners and checkers write PLAN.md, RESEARCH.md, and CONTEXT.md, nothing else. A `.sh`/`.ts`/`.py`/`.js` sitting in a phase directory is executable code that no plan task asked for.
+List the phase directory. Run-state files (`CHECKPOINT.json`, `TASK-CHECKPOINT.json`, written by `gsd-tools phase checkpoint`) are never a finding of any dimension. Any other file that is not markdown (`.md`) and not a known planning artifact is a **BLOCKING FAIL** — planners and checkers write PLAN.md, RESEARCH.md, and CONTEXT.md, nothing else. A `.sh`/`.ts`/`.py`/`.js` sitting in a phase directory is executable code that no plan task asked for.
 
 ```yaml
 issue:
@@ -588,6 +589,8 @@ Every `<verify>` command, `<done>` criterion and must_haves truth must be satisf
 ## Dimension 16: Traceability (every rigour)
 
 `references/rigour.md` rule 11. open the source PRD named in the plan's traceability list and verify it against the file: each exit or acceptance criterion is either covered by a task or listed as not covered with a reason. An uncovered criterion without a reason is a blocker (`dimension: traceability`); a criterion dropped from the list that the PRD states is the same blocker.
+
+**Narrowed by a reason:** a PRD criterion dropped or narrowed by REQUIREMENTS, ROADMAP or a plan with a reason of the form "cannot be done here", "needs an external account" or "not verifiable locally" is a blocker (`dimension: traceability`) unless the plan carries a recorded search (command and output path) of the installed packages and docs that supports that reason. At spike that search is a planner task; it is missing when no task runs it.
 
 </verification_dimensions>
 
@@ -709,7 +712,7 @@ for plan in "$PHASE_DIR"/*-PLAN.md; do
 done
 ```
 
-Validate: all referenced plans exist, no cycles, wave numbers consistent, no forward references. If A -> B -> C -> A, report cycle.
+Validate: all referenced plans exist, no cycles, wave numbers consistent (not at spike: see Dimension 3), no forward references. If A -> B -> C -> A, report cycle.
 
 ## Step 7: Check Key Links
 

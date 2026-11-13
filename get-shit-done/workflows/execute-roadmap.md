@@ -295,6 +295,7 @@ It runs the on-disk truth for the phase (every plan has a SUMMARY with Self-Chec
 |---|---|
 | `complete` | print the phase report (step 6) and continue the loop |
 | `gap_cycle` | continue the loop: `roadmap next` returns `gap_cycle` for this phase, once |
+| `ruling` | a spike phase still has an open CRITICAL/HIGH and its one ruling dispatch was never logged: spawn ONE `ruling_model` dispatch on the open findings and unfixed probes (`references/rigour.md`, Gap closure row), log it with `execution-log event --type spike_ruling --data '{"phase":"{N}"}'` at spawn, then `roadmap record` again with the same result; never park before this |
 | `park` | the phase and its dependents stay parked (K4): Auto (auto_mode, references/auto-mode.md K4): park, print the reason (human items, product gaps after the closure cycle, or a budget breach) to the chat, continue with independent phases; it ends the run with no PR, loudly, in `completion` |
 | `complete_form_debt` | disk shows only form errors, no missing work: run the returned `command` (`phase complete {N} --form-debt`, which records the debt in VERIFICATION frontmatter), then `roadmap record` again with `{"status":"completed"}`; nothing is parked, no gap cycle runs. `gate pre-pr` and the `done` summary list every phase's recorded `form_debt` from disk |
 | `spawn_deferred` | the deferrals above |

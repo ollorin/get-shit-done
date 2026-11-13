@@ -164,7 +164,19 @@ function missingBriefSections(cwd) {
   }
 }
 
+// Nearest ancestor (or cwd itself) holding a .planning/config.json; null when none.
+function nearestProjectRoot(cwd) {
+  let dir = path.resolve(cwd);
+  for (;;) {
+    if (isPresent(path.join(dir, '.planning', 'config.json'))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
 function contextGate(cwd, { legacy }) {
+  const notRoot = !fs.existsSync(path.join(cwd, '.planning'));
   const report = validateProfile(readProfile(cwd));
   const absent = [BRIEF_REL, PROFILE_REL].filter((rel) => !isPresent(path.join(cwd, rel)));
   const missing = [...absent, ...report.missing];
@@ -174,23 +186,33 @@ function contextGate(cwd, { legacy }) {
     legacy: legacy === true,
     missing,
     invalid,
+    not_project_root: notRoot ? { cwd: path.resolve(cwd), nearest_root: nearestProjectRoot(cwd) } : null,
     warnings: [...report.warnings, ...missingBriefSections(cwd).map((name) => `${BRIEF_REL}: template section missing: ${name}`)],
     adoptable: { brief: adoptableBrief(cwd) },
   };
 }
+
+const rootHint = (gate) => `${gate.not_project_root.cwd} has no .planning/: run from the project root${gate.not_project_root.nearest_root ? ` (${gate.not_project_root.nearest_root})` : ''} or pass --cwd <root>`;
+const keyFile = (key) => (/^(project|stack)\./.test(key) ? `${key} (add it to .planning/config.json)` : key);
+
+const LEGACY_HINT = 'run /gsd:init-project (a project with no code yet may set stack.commands.test_file/test_all/typecheck/lint to "none": passes with a warning), or pass --legacy to this init call; --legacy does not reach spawned agents or other processes, so export GSD_LEGACY=1 for those';
 
 function gateFailure(gate) {
   return {
     error: 'project_context_missing',
     missing: gate.missing,
     invalid: gate.invalid,
-    hint: 'run /gsd:init-project (a project with no code yet may set stack.commands.test_file/test_all/typecheck/lint to "none": passes with a warning), or pass --legacy to this init call; --legacy does not reach spawned agents or other processes, so export GSD_LEGACY=1 for those',
+    ...(gate.not_project_root ? { not_project_root: gate.not_project_root } : {}),
+    hint: gate.not_project_root
+      ? `${rootHint(gate)}; nothing is wrong with the config until it is read from the project root (\`gsd-tools profile check\` lists any key it lacks)`
+      : `\`gsd-tools profile check\` lists every key the config lacks; ${LEGACY_HINT}`,
   };
 }
 
 function gateStderr(gate) {
-  const keys = [...gate.missing, ...gate.invalid.map((p) => p.key)];
-  return `project_context_missing: ${keys.join(', ')}; run /gsd:init-project, pass --legacy to this init call, or export GSD_LEGACY=1 (the flag does not reach spawned agents)`;
+  if (gate.not_project_root) return `project_context_missing: ${rootHint(gate)}`;
+  const keys = [...gate.missing.map(keyFile), ...gate.invalid.map((p) => keyFile(p.key))];
+  return `project_context_missing: ${keys.join(', ')}; check with \`gsd-tools profile check\`, run /gsd:init-project, pass --legacy to this init call, or export GSD_LEGACY=1 (the flag does not reach spawned agents)`;
 }
 
 module.exports = { contextFields, effectiveRiskDomains, riskDomainsFor, availablePresets, adoptBrief, contextGate, gateFailure, gateStderr, uiQaMode, testCommandConfigured };

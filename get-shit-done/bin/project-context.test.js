@@ -183,7 +183,7 @@ test('D6-l: a gate failure also writes one human-readable stderr line naming the
     assert.strictEqual(lines.length, 1);
     assert.strictEqual(
       lines[0],
-      'project_context_missing: .planning/PRODUCT-BRIEF.md, .planning/STACK-PROFILE.md, project.owner_title, project.risk_domains, project.ruling_topics, project.slug, stack.commands.test_file; run /gsd:init-project, pass --legacy to this init call, or export GSD_LEGACY=1 (the flag does not reach spawned agents)',
+      'project_context_missing: .planning/PRODUCT-BRIEF.md, .planning/STACK-PROFILE.md, project.owner_title (add it to .planning/config.json), project.risk_domains (add it to .planning/config.json), project.ruling_topics (add it to .planning/config.json), project.slug (add it to .planning/config.json), stack.commands.test_file (add it to .planning/config.json); check with `gsd-tools profile check`, run /gsd:init-project, pass --legacy to this init call, or export GSD_LEGACY=1 (the flag does not reach spawned agents)',
     );
   });
 });
