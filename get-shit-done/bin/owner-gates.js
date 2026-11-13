@@ -36,7 +36,7 @@ function find(gates, kind, milestone) {
   return hits.length ? hits[hits.length - 1] : null;
 }
 
-function request(cwd, { kind, milestone, summary, now, spikePhases, spikeRoots }) {
+function request(cwd, { kind, milestone, summary, now, spikePhases, spikeRoots, revise }) {
   if (!KINDS.includes(kind)) return { ok: false, error: `unknown gate kind: ${kind} (use ${KINDS.join('|')})` };
   const gates = readAll(cwd);
   const m = normMilestone(milestone);
@@ -51,7 +51,11 @@ function request(cwd, { kind, milestone, summary, now, spikePhases, spikeRoots }
     writeAll(cwd, gates.map((g) => (g.id === next.id ? next : g)));
     return { ok: true, gate: next, created: false };
   }
-  if (existing && existing.status !== 'rejected') return { ok: true, gate: existing, created: false };
+  // An approved gate is a decision: changing what it authorises needs a new approval.
+  const changesApproved = existing && existing.status === 'approved' && rigour
+    && JSON.stringify(existing.rigour || null) !== JSON.stringify(rigour);
+  if (changesApproved && !revise) return { ok: false, error: `${existing.id} is approved; changing its spike phases needs a new owner approval: repeat the request with --revise` };
+  if (existing && existing.status !== 'rejected' && !changesApproved) return { ok: true, gate: existing, created: false };
   const gate = {
     id: gateId(kind, m),
     kind,

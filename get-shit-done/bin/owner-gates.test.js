@@ -57,3 +57,38 @@ describe('owner-gates', () => {
     assert.deepStrictEqual(gates.readAll(dir), []);
   });
 });
+
+describe('revising an approved roadmap gate', () => {
+  const mk = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'og-revise-')); fs.mkdirSync(path.join(d, '.planning')); return d; };
+  test('a request that changes the spike phases of an approved gate is refused without --revise', () => {
+    const cwd = mk();
+    gates.request(cwd, { kind: 'roadmap', milestone: '1.0', summary: 's' });
+    gates.decide(cwd, { kind: 'roadmap', milestone: '1.0', status: 'approved', note: 'n', via: 'interactive' });
+    const r = gates.request(cwd, { kind: 'roadmap', milestone: '1.0', spikePhases: '3', spikeRoots: 'spike/' });
+    assert.strictEqual(r.ok, false);
+    assert.match(r.error, /--revise/);
+    assert.strictEqual(gates.request(cwd, { kind: 'roadmap', milestone: '1.0' }).gate.status, 'approved');
+  });
+  test('--revise replaces the approved gate with a pending one that blocks until approved again', () => {
+    const cwd = mk();
+    gates.request(cwd, { kind: 'composition', milestone: '1.0', summary: 'c' });
+    gates.decide(cwd, { kind: 'composition', milestone: '1.0', status: 'approved', note: 'n', via: 'interactive' });
+    gates.request(cwd, { kind: 'roadmap', milestone: '1.0', summary: 's' });
+    gates.decide(cwd, { kind: 'roadmap', milestone: '1.0', status: 'approved', note: 'n', via: 'interactive' });
+    const r = gates.request(cwd, { kind: 'roadmap', milestone: '1.0', summary: 's2', spikePhases: '3', spikeRoots: 'spike/', revise: true });
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.created, true);
+    assert.strictEqual(r.gate.status, 'pending');
+    assert.deepStrictEqual(r.gate.rigour.spike_phases, ['3']);
+    assert.strictEqual(gates.startBlock(cwd, { autoMode: true, milestone: '1.0' }).kind, 'roadmap');
+  });
+  test('repeating an approved gate request unchanged stays a no-op', () => {
+    const cwd = mk();
+    gates.request(cwd, { kind: 'roadmap', milestone: '1.0', spikePhases: '3', spikeRoots: 'spike/' });
+    gates.decide(cwd, { kind: 'roadmap', milestone: '1.0', status: 'approved', note: 'n', via: 'interactive' });
+    const r = gates.request(cwd, { kind: 'roadmap', milestone: '1.0', spikePhases: '3', spikeRoots: 'spike/' });
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.created, false);
+    assert.strictEqual(r.gate.status, 'approved');
+  });
+});

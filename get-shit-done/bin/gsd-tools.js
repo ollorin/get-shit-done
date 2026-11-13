@@ -12402,7 +12402,7 @@ function cmdInitExecuteRoadmap(cwd, raw) {
   }, raw);
 }
 
-// owner-gate request|status|approve|reject --kind composition|roadmap|pr [--milestone V] [--summary S] [--spike-phases N,M --spike-roots p,q] [--by W] [--note N] [--owner-confirmed]
+// owner-gate request|status|approve|reject --kind composition|roadmap|pr [--milestone V] [--summary S] [--revise] [--spike-phases N,M --spike-roots p,q] [--by W] [--note N] [--owner-confirmed]
 // approve/reject: refused while auto_mode is active unless --owner-confirmed with a --note. The flag is a recorded
 // attestation, not authentication: an unattended agent that passes it has lied in the audit trail, visibly.
 // budget spend --phase N [--step S] [--model M]: logs ONE dispatch. budget status --phase N: the coordinator reads it before each new cycle.
@@ -12431,9 +12431,9 @@ function cmdOwnerGate(cwd, args, raw) {
     const csv = (v) => (v == null ? [] : String(v).split(',').map((x) => x.trim()).filter(Boolean));
     const refused = rigour.gateRequestErrors(cwd, { kind, spikePhases: csv(flag('--spike-phases')), spikeRoots: csv(flag('--spike-roots')) });
     if (refused.length > 0) error(`owner-gate request refused: ${refused.join('; ')}`);
-    const r = ownerGates.request(cwd, { kind, milestone, summary: flag('--summary'), spikePhases: flag('--spike-phases'), spikeRoots: flag('--spike-roots') });
+    const r = ownerGates.request(cwd, { kind, milestone, summary: flag('--summary'), spikePhases: flag('--spike-phases'), spikeRoots: flag('--spike-roots'), revise: args.includes('--revise') });
     if (!r.ok) error(`owner-gate: ${r.error}`);
-    output({ action: 'owner_gate_requested', created: r.created, status: ownerGates.STATUS_WAITING, gate: r.gate }, raw);
+    output({ action: 'owner_gate_requested', created: r.created, status: r.gate.status === 'pending' ? ownerGates.STATUS_WAITING : r.gate.status, gate: r.gate }, raw);
   } else if (sub === 'status') {
     const view = ownerGates.summarise(cwd, { autoMode: autoModeFields(cwd).auto_mode, milestone });
     output({ ...view, gates: ownerGates.readAll(cwd) }, raw);
