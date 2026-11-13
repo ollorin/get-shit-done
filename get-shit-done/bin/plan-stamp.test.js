@@ -26,7 +26,7 @@ describe('plan stamp (init plan-phase plan_stamp / plans_stale)', () => {
     write('.planning/ROADMAP.md', road('g', '**Plans**: 1/1 plans complete\n- [x] 01-01-PLAN.md', '| 1 | Complete (2026-01-01) |'));
     assert.strictEqual(stamp().stamp, a.stamp);
   });
-  test('changes when the goal line, CONTEXT.md, RESEARCH.md, a requirement line or a mapped D- decision changes', () => {
+  test('changes when the goal line, CONTEXT.md, RESEARCH.md or a requirement line changes', () => {
     const base = stamp().stamp;
     write('.planning/ROADMAP.md', road('different goal'));
     const g = stamp().stamp;
@@ -45,22 +45,28 @@ describe('plan stamp (init plan-phase plan_stamp / plans_stale)', () => {
     assert.notStrictEqual(q2, q);
     write('.planning/REQUIREMENTS.md', '- [ ] **AUTH-01**: sign in with passkeys\n- [ ] **PAY-01**: pay later\n');
     assert.strictEqual(stamp().stamp, q2);
-    write('.planning/DECISIONS.jsonl', dec({}) + '\n');
-    const d1 = stamp().stamp;
-    assert.notStrictEqual(d1, q2);
-    write('.planning/DECISIONS.jsonl', dec({}) + '\n' + dec({ status: 'superseded' }) + '\n');
-    assert.notStrictEqual(stamp().stamp, d1);
   });
-  test('M8: an A- assumption row mapped to the phase (plan-check leftovers) does not change the stamp', () => {
-    write('.planning/DECISIONS.jsonl', dec({}) + '\n');
+  test('N8: no ledger row changes the stamp (a D- or A- row mapped to the phase, before or after stamping)', () => {
     const base = stamp().stamp;
-    write('.planning/DECISIONS.jsonl', dec({}) + '\n' + JSON.stringify({ id: 'A-01', kind: 'assumption', status: 'open', phases: ['1'], default: 'cheap', ts: '2026-01-01T00:00:00Z' }) + '\n');
+    write('.planning/DECISIONS.jsonl', dec({}) + '\n');
+    assert.strictEqual(stamp().stamp, base);
+    write('.planning/DECISIONS.jsonl', dec({}) + '\n' + dec({ id: 'D-02', status: 'superseded' }) + '\n' + JSON.stringify({ id: 'A-01', kind: 'assumption', status: 'open', phases: ['1'], default: 'cheap', ts: '2026-01-01T00:00:00Z' }) + '\n');
     assert.strictEqual(stamp().stamp, base);
   });
-  test('a decision of another phase does not change the stamp', () => {
-    const base = stamp().stamp;
-    write('.planning/DECISIONS.jsonl', dec({ phases: ['2'] }) + '\n');
-    assert.strictEqual(stamp().stamp, base);
+  test('N1: a plan stamped from an init made after CONTEXT and RESEARCH exist is not stale on the next init; the step-1 stamp is', () => {
+    const early = stamp().stamp;
+    write('.planning/phases/01-one/01-CONTEXT.md', 'ctx');
+    write('.planning/phases/01-one/01-RESEARCH.md', 'research');
+    const late = stamp().stamp;
+    assert.notStrictEqual(late, early);
+    write('.planning/phases/01-one/01-01-PLAN.md', plan('01', `plan_stamp: ${late}\n`));
+    assert.strictEqual(init().plans_stale, false);
+    write('.planning/phases/01-one/01-01-PLAN.md', plan('01', `plan_stamp: ${early}\n`));
+    assert.strictEqual(init().plans_stale, true);
+  });
+  test('N1 prose: plan-phase reads plan_stamp from an init run immediately before the planner spawn', () => {
+    const md = fs.readFileSync(path.join(__dirname, '..', 'workflows', 'plan-phase.md'), 'utf8');
+    assert.match(md, /`plan_stamp`[^\n]*(init plan-phase)[^\n]*(immediately before|right before)[^\n]*planner spawn/i);
   });
   test('a rebase cannot stale: nothing time or git based is hashed', () => {
     const a = stamp().stamp;

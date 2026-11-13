@@ -368,7 +368,7 @@ Output consumed by /gsd:execute-phase. Plans need:
 </quality_gate>
 ```
 
-**Model rule:** every spawn passes `model` explicitly, always an init field: planner `planner_model` (`ruling_model` for a risk-domain phase); plan-checker `checker_model` (`ruling_model` for round 1 with the adversarial pass); rulings `ruling_model`; executor and test-writer `executor_model`. The dispatch carries `plan_stamp` from the `init plan-phase` JSON, which the planner copies into every PLAN frontmatter.
+**Model rule:** every spawn passes `model` explicitly, always an init field: planner `planner_model` (`ruling_model` for a risk-domain phase); plan-checker `checker_model` (`ruling_model` for round 1 with the adversarial pass); rulings `ruling_model`; executor and test-writer `executor_model`. The dispatch carries `plan_stamp` from an `init plan-phase` call made immediately before this planner spawn (CONTEXT and RESEARCH exist by then; the step-1 value predates them and would mark every fresh plan stale), which the planner copies into every PLAN frontmatter.
 
 A risk-domain path is any path the product brief lists under Risk Domains (`risk_domains` in the init output); authentication/authorisation and security are always risk domains. When `risk_domains_source` is `builtin` (`project.risk_domains` in config.json is empty or absent), every path that mutates state is a risk-domain path. Tag every behaviour on a risk-domain path T0 (real-DB, mutation-proven).
 

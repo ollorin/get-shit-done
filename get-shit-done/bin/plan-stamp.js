@@ -1,11 +1,10 @@
 'use strict';
 // Plan stamp: a hash of everything a plan was written from, so a stale plan is detected by comparison, not by guess.
 // Inputs (only what planning reads and does not itself write): the phase's ROADMAP section (no progress, no Plans line,
-// no plan checkboxes), its requirement lines, the D- decisions mapped to it, CONTEXT.md and RESEARCH.md. No timestamps, no git state.
+// no plan checkboxes), its requirement lines, CONTEXT.md and RESEARCH.md (no ledger rows: what a plan depends on is in CONTEXT). No timestamps, no git state.
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const decisions = require('./decisions.js');
 const { phaseSection, phaseReqIds } = require('./rigour.js');
 
 const sha = (text) => crypto.createHash('sha256').update(text).digest('hex');
@@ -19,14 +18,6 @@ function roadmapInput(cwd, phase) {
   return (cut === -1 ? section : section.slice(0, cut)).split('\n')
     .filter((l) => !/^\s*\|/.test(l) && !/^\*\*Plans:?\*\*/i.test(l) && !/^\s*[-*]\s*\[[ xX]\]/.test(l))
     .map((l) => l.replace(/\s+$/, '')).join('\n').trim();
-}
-
-// D- decisions mapped to the phase. A- rows are excluded: plan-phase writes them itself after stamping.
-function decisionsInput(cwd, phase) {
-  const { records } = decisions.load(path.join(cwd, '.planning', 'DECISIONS.jsonl'));
-  const key = String(phase).replace(/^0+(?=\d)/, '');
-  return decisions.forPhase(records, key).filter((r) => r.kind === 'decision')
-    .map((r) => `${r.id} ${r.status} ${r.answer}`).sort().join('\n');
 }
 
 // REQUIREMENTS.md lines naming one of the phase's requirement ids.
@@ -45,7 +36,6 @@ function compute(cwd, phase, phaseDir) {
   const parts = [
     ['roadmap', roadmapInput(cwd, phase)],
     ['requirements', requirementsInput(cwd, phase)],
-    ['decisions', decisionsInput(cwd, phase)],
     ['context', file(/-CONTEXT\.md$/)],
     ['research', file(/-RESEARCH\.md$/)],
   ].filter(([, body]) => body !== null);
