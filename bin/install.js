@@ -1639,35 +1639,10 @@ function install(isGlobal, runtime = 'claude') {
     }
   }
 
-  // Copy skills/ (fork-tracked skill definitions, e.g. task-context/SKILL.md).
-  // Deliberately scoped PER SKILL SUBDIRECTORY (never wipes the parent skills/ dir as a
-  // whole) — a user's global ~/.claude/skills/ can contain skills this fork does not own
-  // at all (e.g. a task-router skill's learned-rules.md/routing-rules.md, or an entirely
-  // unrelated personal skill like thinking-partner/) and a destructive whole-directory
-  // wipe would silently delete those. Mirrors copyWithPathReplacement's existing use for
-  // the get-shit-done skill directory above — same recursive copy + path-prefix
-  // replacement + clean-install-per-target-dir semantics, just fanned out over every
-  // subdirectory this fork's own skills/ tree tracks, one copyWithPathReplacement call
-  // (and therefore one wipe-and-recreate) per skill, targeting only that skill's own
-  // destination folder.
-  const skillsSrc = path.join(src, 'skills');
-  if (fs.existsSync(skillsSrc)) {
-    const skillsDest = path.join(targetDir, 'skills');
-    fs.mkdirSync(skillsDest, { recursive: true });
-
-    const skillEntries = fs.readdirSync(skillsSrc, { withFileTypes: true });
-    for (const entry of skillEntries) {
-      if (!entry.isDirectory()) continue; // skills/ only ever contains skill subdirectories
-      const skillSrcDir = path.join(skillsSrc, entry.name);
-      const skillDestDir = path.join(skillsDest, entry.name);
-      copyWithPathReplacement(skillSrcDir, skillDestDir, pathPrefix, runtime);
-    }
-
-    if (verifyInstalled(skillsDest, 'skills')) {
-      console.log(`  ${green}✓${reset} Installed skills`);
-    } else {
-      failures.push('skills');
-    }
+  // The fork ships no skills. Retired fork skills are removed from an existing install (one directory each);
+  // any other skill under skills/ is never touched.
+  for (const retired of ['task-context']) {
+    fs.rmSync(path.join(targetDir, 'skills', retired), { recursive: true, force: true });
   }
 
   // Copy CHANGELOG.md

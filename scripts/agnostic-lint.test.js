@@ -99,16 +99,14 @@ test('3 scopes: disk-walk fallback applies the scope rules', () => {
   ]);
 });
 
-test('3b scopes cover hooks, skills, routing-rules and config json', () => {
+test('3b scopes cover hooks and config json', () => {
   const root = mkRoot();
   configure(root);
-  for (const f of ['hooks/h.js', 'hooks/sub/n.js', 'skills/t/SKILL.md', 'routing-rules.md', 'get-shit-done/config/c.json', 'get-shit-done/config/c.txt']) {
+  for (const f of ['hooks/h.js', 'hooks/sub/n.js', 'get-shit-done/config/c.json', 'get-shit-done/config/c.txt']) {
     put(root, f, 'deno\n');
   }
   const scoped = lint.listScopeFiles(root);
   assert.deepStrictEqual(scoped.hooks, ['hooks/h.js']);
-  assert.deepStrictEqual(scoped.skills, ['skills/t/SKILL.md']);
-  assert.deepStrictEqual(scoped.routing, ['routing-rules.md']);
   assert.deepStrictEqual(scoped.config, ['get-shit-done/config/c.json']);
 });
 

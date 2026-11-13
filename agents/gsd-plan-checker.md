@@ -139,7 +139,7 @@ issue:
 - Missing `<done>` — no acceptance criteria
 - Vague `<action>` — "implement auth" instead of specific steps
 - Empty `<files>` — what gets created?
-- Tier tag that does not fit the task (warning; the planner fixes it in its revision): a task tagged `haiku` that designs an investigation or probe, has an unclear root cause, makes an architecture choice, or sits in one of the phase's risk domains. A mechanical task tagged above `haiku` is no finding.
+- Tier tag that does not fit the TASK's nature (warning, both directions; the planner fixes it in its revision; the phase's risk domain is never the reason): `haiku` on a task that makes a decision (logic design, a guard or authorisation condition, SQL policy or grants, error-handling paths, investigation, debugging, an unclear root cause); `sonnet` on a plainly mechanical task (exact files and exact steps: config keys, wiring, renames, a test written from an explicit list of cases, docs). A task that mixes mechanical steps and a deciding step is a finding: the planner splits it, it does not tag it up. In a risk-domain phase a mechanical task stays `haiku`; the review makes it safe, not the tag.
 
 **Example issue:**
 ```yaml
@@ -332,7 +332,7 @@ issue:
 node "$HOME/.claude/get-shit-done/bin/decisions.js" check-plan --phase "$phase_number" "$phase_dir"/*-PLAN.md
 ```
 
-Non-zero exit is a blocker per id (`dimension: context_compliance`): `missing` = a `D-`/`A-` naming this phase that no plan cites, `unknown` = a cited id that does not exist, `stale` = a cited id that was superseded (`use` names the replacement). The script proves citation only: also read each cited record (`decisions list --phase "$phase_number"`) and raise a blocker when a task contradicts it, or when a task built on an `A-` hard-wires the default instead of isolating it behind one named seam. `unscoped_open` lists open assumptions that name no phase: not a failure by itself, but raise a blocker when a task depends on one's default without isolating it behind a seam.
+Non-zero exit is a blocker per id (`dimension: context_compliance`): `missing` = a `D-`/`A-` naming this phase that no plan cites (rows with `source: plan-check` are not required), `unknown` = a cited id that does not exist, `stale` = a cited id that was superseded (`use` names the replacement). The script proves citation only: also read each cited record (`node "$HOME/.claude/get-shit-done/bin/decisions.js" list --phase "$phase_number"`) and raise a blocker when a task contradicts it, or when a task built on an `A-` hard-wires the default instead of isolating it behind one named seam. `unscoped_open` lists open assumptions that name no phase: not a failure by itself, but raise a blocker when a task depends on one's default without isolating it behind a seam.
 
 ## Dimension 8: Testing Mandate Compliance
 
@@ -560,13 +560,11 @@ Plans touching a risk-domain path must meet planner MANDATE-6: the phase's `{N}-
 
 **A plan that runs a risky system without editing it** (a probe, benchmark, load run or migration dry-run that calls a risk-domain system and changes none of its files): MANDATE-6 keys on paths the plan modifies, so file paths alone do not trigger this dimension. Apply it when a task's `<action>` or `<verify>` invokes, writes to, or sends traffic at a risk-domain system; require the abuse-case and control content for that exposure (what the run could mutate, expose, exhaust or leave half-applied, and its cleanup), or a stated reason the run is read-only against synthetic data.
 
-**`high_risk` mismatch:** a plan to which MANDATE-6 applies must carry `high_risk: true` in its frontmatter; a missing flag is a blocker (`dimension: threat_model`).
-
 **Spike promotion:** when the phase's `rigour` is not `spike`, any plan listing a path under the project's spike roots in `files_modified`, importing from it, or citing spike evidence as a test REUSE is a blocker (`dimension: spike_promotion`).
 
 ## Dimension 14: Adversarial Pass
 
-Only when the prompt says `Adversarial pass: enabled for plans {ids}`. For each listed plan: (1) attack it for logical fallacies, missed edge cases or dependencies, and untestable success criteria; (2) rebut each flaw strictly from plan or codebase evidence (cite `file:line`; re-read the evidence, do not assume); (3) keep a flaw only if the rebuttal fails, rated `minor|major|critical`. Write `{phase_dir}/{plan_id}-VERDICT.md`:
+Only when the prompt says `Adversarial pass: enabled for plans {ids}`. For each listed plan: (1) attack it for logical fallacies, missed edge cases or dependencies, and untestable success criteria, and attack the PRODUCT the plan prescribes, not the plan's form: answer all six questions per plan, each with a finding or "none, because <cited plan line>" (see Product lens below); (2) rebut each flaw strictly from plan or codebase evidence (cite `file:line`; re-read the evidence, do not assume); (3) keep a flaw only if the rebuttal fails, rated `minor|major|critical`. Write `{phase_dir}/{plan_id}-VERDICT.md`:
 
 ```markdown
 ---
@@ -581,6 +579,17 @@ required_changes:   # only for revise/critical, one concrete fix per kept major/
 ```
 
 Write no VERDICT.md for plans not listed.
+
+## Product lens
+
+Six questions, answered per plan inside Dimension 14 (risk add-ons only; no other dimension carries weaker wording to replace); a plan that PRESCRIBES a defect found here is a blocker:
+
+1. Privileges: for every table, object or endpoint the plan creates or changes, which roles can read or write it after the plan runs, including service/admin roles and platform default grants; is each intended and asserted?
+2. Ignored results: which calls' results or errors does the prescribed code discard, and what state is the user left in when they fail?
+3. State-changing reads: does any GET or other safe-method or link change auth or data state?
+4. Guard coverage: for every access check, which path, encoding and method variants and which roles are asserted to be refused on the server?
+5. Secrets and residue: which files or logs hold keys, tokens, cookies or passwords during the run, and which step deletes them and proves it?
+6. False passes: which recorded fact or probe would read as success while the thing is broken (a 404 from a cache read as "not readable")?
 
 **Write is limited to `{phase_dir}/{plan_id}-VERDICT.md`, and only when the prompt enables the adversarial pass. Never write or edit any other file, including the PLAN.md under review; in quick and verify-work dispatches write nothing.**
 

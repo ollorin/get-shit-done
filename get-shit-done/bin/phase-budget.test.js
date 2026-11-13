@@ -25,15 +25,13 @@ describe('CLI-4: budget', () => {
     write('.planning/config.json', JSON.stringify({ workflow: { budget: { standard: { wall_minutes: 30, dispatches: 3 } } } }));
     assert.deepStrictEqual(b.budgetFields(dir, 'standard'), { budget_class: 'standard', budget_wall_minutes: 30 });
   });
-  test('init plan-phase and execute-phase emit class and limits; risk from domains or a high_risk plan', () => {
+  test('init plan-phase and execute-phase emit class and limits; risk from the phase risk domains', () => {
     for (const cmd of ['plan-phase', 'execute-phase']) {
       const o = json(['init', cmd, '1', '--legacy']);
       assert.deepStrictEqual([o.budget_class, o.budget_wall_minutes, o.budget_dispatches], ['standard', 90, undefined], cmd);
     }
     write('.planning/ROADMAP.md', road('**Risk domains**: auth'));
     assert.strictEqual(json(['init', 'plan-phase', '1', '--legacy']).budget_class, 'risk');
-    write('.planning/ROADMAP.md', road(''));
-    write('.planning/phases/01-one/01-01-PLAN.md', '---\nphase: 01-one\nplan: 01\nhigh_risk: true\n---\n# p\n');
     assert.strictEqual(json(['init', 'execute-phase', '1', '--legacy']).budget_class, 'risk');
   });
   test('budget status at 79 / 80 / 100 percent of the wall minutes; dispatch counts never move pct, warn or breach', () => {

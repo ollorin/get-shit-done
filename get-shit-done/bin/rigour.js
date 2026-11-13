@@ -74,7 +74,7 @@ function resolveRigour(cwd, rawPhase, milestone) {
     const why = !gate ? 'no roadmap gate requested' : `roadmap gate ${gate.id} is ${gate.status}${listed ? '' : ' and does not list the phase'}`;
     return standard('rejected', `ROADMAP says spike but the approved roadmap gate is the only authority: ${why}`);
   }
-  if (claimed === 'high') return standard('rejected', 'rigour "high" is retired: the phase runs as standard; risk-domain depth comes from the **Risk domains** line and high_risk plans');
+  if (claimed === 'high') return standard('rejected', 'rigour "high" is retired: the phase runs as standard; risk-domain depth comes from the **Risk domains** line');
   if (claimed && claimed !== 'standard') return standard('rejected', `unknown rigour "${line[1].trim()}"`);
   return standard(claimed ? 'roadmap' : 'default');
 }

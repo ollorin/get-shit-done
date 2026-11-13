@@ -36,12 +36,12 @@ describe('N5 risk_addons: one init boolean for the risk-domain add-ons', () => {
     plan(dir);
     for (const cmd of ['plan-phase', 'execute-phase']) assert.strictEqual(gsd(dir, ['init', cmd, '1']).json.risk_addons, true, cmd);
   });
-  test('none and no flagged plan is false; an explicit high_risk plan is true', () => {
+  test('none is false; a per-plan high_risk flag no longer changes it', () => {
     const dir = project();
     plan(dir);
     for (const cmd of ['plan-phase', 'execute-phase']) assert.strictEqual(gsd(dir, ['init', cmd, '1']).json.risk_addons, false, cmd);
     plan(dir, 'high_risk: true\n');
-    for (const cmd of ['plan-phase', 'execute-phase']) assert.strictEqual(gsd(dir, ['init', cmd, '1']).json.risk_addons, true, cmd);
+    for (const cmd of ['plan-phase', 'execute-phase']) assert.strictEqual(gsd(dir, ['init', cmd, '1']).json.risk_addons, false, cmd);
   });
   test('prose keys the add-ons on risk_addons, never on high_risk alone', () => {
     const root = path.join(__dirname, '..');

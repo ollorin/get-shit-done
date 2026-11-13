@@ -17,7 +17,6 @@ const STATUS = {
 const PHASE_RE = /^\d+(\.\d+)?$/;
 const EXIT_CORRUPT = 3;
 const MUTATING = new Set(['add', 'map', 'answer', 'close', 'repair', 'amend', 'supersede']);
-const UNSCOPED_SHOWN = 5;
 const FLAGS = {
   validate: ['file', 'mapped', 'milestone'],
   repair: ['file'],
@@ -26,7 +25,7 @@ const FLAGS = {
   answer: ['file', 'value', 'confirm', 'accept-as-built', 'completed', 'in-progress', 'phases-dir', 'ts'],
   list: ['file', 'phase', 'open', 'json'],
   gate: ['file', 'phase'],
-  'check-plan': ['file', 'phase', 'all-unscoped'],
+  'check-plan': ['file', 'phase'],
   reworks: ['file'],
   close: ['file', 'status'],
   digest: ['file', 'mark', 'mark-only'],
@@ -35,7 +34,7 @@ const FLAGS = {
   supersede: ['file', 'answer', 'question', 'source', 'phases', 'global'],
 };
 const USAGE = 'usage: decisions.js <command> [flags]\n'
-  + Object.entries(FLAGS).map(([c, f]) => `  ${c} ${f.map((x) => `[--${x}]`).join(' ')}`).join('\n')
+  + Object.entries(FLAGS).map(([c, f]) => `  ${c} ${f.map((x) => `[--${x}]`).join(' ')}${c === 'check-plan' ? ' <PLAN.md>... (--phase N and at least one plan file are required)' : ''}`).join('\n')
   + '\n  amend D-NN: rewrite fields of a decision in place; supersede D-NN --answer A --source S: new D- row replaces it'
   + '\n  exit 2 = gate parks the phase, 3 = ledger corrupt (treat as block; ' + 'REPAIR_HINT_PLACEHOLDER' + '), 64 = usage, 1 = error or unknown flag\n';
 const LOCK_STALE_MS = 5000;
@@ -262,16 +261,13 @@ function answer(file, id, value, opts = {}) {
 function checkPlan(records, phase, planTexts) {
   const ids = new Map(records.map((r) => [r.id, r]));
   const cited = new Set(planTexts.flatMap((t) => t.match(CITE_RE) || []));
-  const required = forPhase(records, phase).filter((r) => r.phases.includes(String(phase)));
+  // Rows logged from plan-check leftovers (source 'plan-check') are recorded, not required citations.
+  const required = forPhase(records, phase).filter((r) => r.phases.includes(String(phase)) && r.source !== 'plan-check');
   const missing = required.filter((r) => !cited.has(r.id)).map((r) => r.id);
   const unknown = [...cited].filter((id) => !ids.has(id));
   const stale = [...cited].filter((id) => ids.has(id) && !binding(ids.get(id)))
     .map((id) => ({ id, use: ids.get(id).superseded_by || ids.get(id).resolved_by || null }));
-  // Open assumptions with no phase and no global flag never reach forPhase; surface them, informational only.
-  const unscopedOpen = records
-    .filter((r) => r.kind === 'assumption' && r.status === 'open' && r.global !== true && (!Array.isArray(r.phases) || r.phases.length === 0))
-    .map((r) => ({ id: r.id, question: r.question, default: r.default, reversibility: r.reversibility, scope: 'unscoped' }));
-  return { pass: missing.length + unknown.length + stale.length === 0, phase: String(phase), missing, unknown, stale, unscoped_open: unscopedOpen };
+  return { pass: missing.length + unknown.length + stale.length === 0, phase: String(phase), missing, unknown, stale };
 }
 
 function digest(records) {
@@ -445,9 +441,7 @@ function run(cmd, flags, pos, file) {
   if (cmd === 'check-plan') {
     if (!flags.phase || pos.length === 0) throw new Error('check-plan --phase N <PLAN.md>...');
     const res = checkPlan(records, flags.phase, pos.map((p) => fs.readFileSync(p, 'utf8')));
-    const { unscoped_open: unscoped, ...head } = res;
-    const shown = flags['all-unscoped'] === true ? unscoped : unscoped.slice(0, UNSCOPED_SHOWN);
-    out({ ...head, unscoped_open_count: unscoped.length, unscoped_open: shown, ...(shown.length < unscoped.length ? { unscoped_open_note: `first ${shown.length} of ${unscoped.length}; pass --all-unscoped for all` } : {}) });
+    out(res);
     return res.pass ? 0 : 1;
   }
   if (cmd === 'reworks') {

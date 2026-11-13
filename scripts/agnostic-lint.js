@@ -18,8 +18,6 @@ const SCOPES = [
   { id: 'install', match: (p) => p === 'bin/install.js' },
   { id: 'hook-config', match: (p) => p === 'hook-config.json' },
   { id: 'hooks', match: (p) => /^hooks\/[^/]+\.js$/.test(p) },
-  { id: 'skills', match: (p) => p.startsWith('skills/') },
-  { id: 'routing', match: (p) => p === 'routing-rules.md' },
   { id: 'config', match: (p) => /^get-shit-done\/config\/[^/]+\.json$/.test(p) },
 ];
 

@@ -126,14 +126,13 @@ describe('init and assess-risk emit rigour', () => {
     write('.planning/ROADMAP.md', roadmap(SPIKE));
     write('.planning/phases/02-spike-it/02-01-PLAN.md', plan(['spike/auth/login.js', 'src/app.js']));
     const out = JSON.parse(run(['quality', 'assess-risk', '.planning/phases/02-spike-it/02-01-PLAN.md', '--raw']).stdout);
-    assert.strictEqual(out.high_risk, false);
-    assert.deepStrictEqual(out.reasons, ['rigour: spike']);
+    assert.strictEqual(out.rigour, 'spike');
     assert.deepStrictEqual(out.rigour_violation, ['src/app.js']);
     assert.deepStrictEqual(out.spike_roots, ['spike', 'scripts/probes']);
     write('.planning/phases/02-spike-it/02-02-PLAN.md', plan(['x.js']).replace('02-spike-it', '2.1'));
     const high = JSON.parse(run(['quality', 'assess-risk', '.planning/phases/02-spike-it/02-02-PLAN.md', '--raw']).stdout);
     assert.strictEqual(high.rigour, 'standard');
-    assert.strictEqual(high.high_risk, false);
+    assert.ok(!('high_risk' in high));
   });
 
   test('assess-risk: a rejected spike (G3 overlap) is scored as standard and says why', () => {
@@ -144,16 +143,6 @@ describe('init and assess-risk emit rigour', () => {
     const out = JSON.parse(run(['quality', 'assess-risk', '.planning/phases/02-spike-it/02-01-PLAN.md', '--raw']).stdout);
     assert.strictEqual(out.rigour, 'standard');
     assert.match(out.rigour_rejected_reason, /overlaps/);
-  });
-
-  test('defect fix: toggle off + a risk-domain path is high_risk true at standard (the early return no longer hides risk domains)', () => {
-    write('.planning/ROADMAP.md', roadmap(''));
-    write('.planning/phases/02-spike-it/02-01-PLAN.md', plan(['src/auth/login.js']));
-    const out = JSON.parse(run(['quality', 'assess-risk', '.planning/phases/02-spike-it/02-01-PLAN.md', '--raw']).stdout);
-    assert.strictEqual(out.high_risk, true);
-    assert.match(out.reasons[0], /risk domain "auth"/);
-    write('.planning/phases/02-spike-it/02-02-PLAN.md', plan(['src/util.js']));
-    assert.strictEqual(JSON.parse(run(['quality', 'assess-risk', '.planning/phases/02-spike-it/02-02-PLAN.md', '--raw']).stdout).high_risk, false);
   });
 });
 
@@ -168,17 +157,12 @@ describe('CLI-1: two levels', () => {
     assert.strictEqual(out.rigour_source, 'rejected');
     assert.match(out.rigour_rejected_reason, /retired/);
   });
-  test('assess-risk in such a phase is standard and high_risk comes from the path match only', () => {
+  test('assess-risk in such a phase is standard and carries no per-plan risk verdict', () => {
     write('.planning/ROADMAP.md', roadmap('**Rigour**: high'));
-    const p = (f) => `---\nphase: 02-spike-it\nplan: 01\nfiles_modified:\n  - ${f}\n---\n\n# Plan\n`;
-    write('.planning/phases/02-spike-it/02-01-PLAN.md', p('src/util.js'));
-    const plain = JSON.parse(run(['quality', 'assess-risk', '.planning/phases/02-spike-it/02-01-PLAN.md', '--raw']).stdout);
-    assert.strictEqual(plain.rigour, 'standard');
-    assert.strictEqual(plain.high_risk, false);
-    write('.planning/phases/02-spike-it/02-02-PLAN.md', p('src/auth/login.js'));
-    const auth = JSON.parse(run(['quality', 'assess-risk', '.planning/phases/02-spike-it/02-02-PLAN.md', '--raw']).stdout);
-    assert.strictEqual(auth.high_risk, true);
-    assert.match(auth.reasons[0], /risk domain "auth"/);
+    write('.planning/phases/02-spike-it/02-01-PLAN.md', '---\nphase: 02-spike-it\nplan: 01\nfiles_modified:\n  - src/auth/login.js\n---\n\n# Plan\n');
+    const out = JSON.parse(run(['quality', 'assess-risk', '.planning/phases/02-spike-it/02-01-PLAN.md', '--raw']).stdout);
+    assert.strictEqual(out.rigour, 'standard');
+    assert.ok(!('high_risk' in out));
   });
 });
 

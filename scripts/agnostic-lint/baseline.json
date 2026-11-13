@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "inputs_sha256": "d8d4e1e4fd546444c158188f71782ca051ffc64e356d4e8b9a6d2c8136de97db",
+  "inputs_sha256": "c85569e00fdcf7b99b52f428f5bc278097df0b998902f383f4ed639003e1575c",
   "denied": {
     "get-shit-done/bin/conversation-miner.js": {
       "telegram": 2
@@ -242,9 +242,6 @@
     },
     "get-shit-done/workflows/verify-work.md": {
       "docker": 1
-    },
-    "routing-rules.md": {
-      "authtech": 1
     }
   }
 }

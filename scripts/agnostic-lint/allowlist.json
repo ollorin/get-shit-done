@@ -662,12 +662,6 @@
       "reason": "capability id asserted by gsd-tools.test.js and required_gsd_gates in consuming configs"
     },
     {
-      "file": "routing-rules.md",
-      "class": "authtech",
-      "max": 1,
-      "reason": "generic task-routing keyword pattern"
-    },
-    {
       "file": "get-shit-done/workflows/verify-phase.md",
       "class": "frontend",
       "max": 1,

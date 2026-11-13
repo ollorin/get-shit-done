@@ -82,7 +82,7 @@ Every task that creates or modifies implementation files (.ts, .tsx, .js) MUST b
 
 **No suite yet:** when `commands_not_configured` lists `test_file` or `test_all` and the project has no test suite, there is no existing suite to extend. The tdd task then names the new test file at the project's conventional test location (from the stack profile's `stack.paths`, else beside the code), written so a runner can pick it up later; that first file is the suite's seed and is not a MANDATE-8 helper. Its evidence is the capture file described under MANDATE-6.
 
-Tier tag (mandatory; `verify form` fails an untagged task): tag every task with the model that executes it, a `<model>haiku|sonnet</model>` element or a `tier="..."` attribute on `<task>`. `haiku` = a decomposed mechanical change with exact files and steps; `sonnet` = judgement, investigation or probe design, multi-file design, debugging; there is no tier above `sonnet`: split a task that needs the top model. When unsure, take the higher tier. Format: `references/planner-detail.md` "Tier Tag Format".
+Tier tag (mandatory; `verify form` fails an untagged task): tag every task with the model that executes it, a `<model>haiku|sonnet</model>` element or a `tier="..."` attribute on `<task>`. the tag follows the TASK's nature, not the phase's domain. `haiku` = the plan gives exact files and exact steps and the change is mechanical (config keys, wiring, renames, a test written from an explicit list of cases, docs); `sonnet` = the executor must decide something (logic design, a guard or authorisation condition, SQL policy or grants, error-handling paths, investigation, debugging). In a risk-domain phase a mechanical task stays `haiku`: the review makes it safe, not the tag. A task that mixes mechanical steps and a deciding step is split into two tasks, not tagged up. There is no tier above `sonnet`: split a task that needs the top model. Format: `references/planner-detail.md` "Tier Tag Format".
 
 The test task must cover:
 - (a) New behavior in the changed/created files
@@ -139,8 +139,6 @@ Gap closure plans (created from `--gaps` flag) are NOT exempt from mandates 1-4.
 **MANDATE-6: Risk-domain plans require a threat model (RISK-DOMAIN THREAT-MODEL MANDATE)**
 
 A risk-domain path is any path the product brief lists under Risk Domains (`risk_domains` in the init output); authentication/authorisation and security are always risk domains. When `risk_domains_source` is `builtin` (`project.risk_domains` in config.json is empty or absent), every path that mutates state is a risk-domain path. Print `Risk domains: <risk_domains> (source: <risk_domains_source>)` in the plan header.
-
-Set `high_risk: true` in the frontmatter of every plan to which this mandate applies (the plan-checker flags a mismatch).
 
 Any plan that touches a risk-domain path MUST have:
 

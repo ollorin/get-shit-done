@@ -449,14 +449,8 @@ function loadConfig(cwd) {
     savings_baseline_tier: 'opus',
     savings: { baseline_tier: 'opus' },
     test_writer_enabled: false,
-    adversarial_review_enabled: false,
-    adversarial_review_file_threshold: 8,
-    adversarial_review_security_patterns: ['auth', 'secret', 'credential', 'crypto', 'security', 'token', 'password', '/api/', 'migration'],
     quality: {
       test_writer: false,
-      adversarial_review: false,
-      adversarial_review_file_threshold: 8,
-      adversarial_review_security_patterns: ['auth', 'secret', 'credential', 'crypto', 'security', 'token', 'password', '/api/', 'migration'],
     },
   };
 
@@ -508,9 +502,6 @@ function loadConfig(cwd) {
       routing_min_sample_count: get('routing_min_sample_count', { section: 'routing', field: 'min_sample_count' }) ?? defaults.routing_min_sample_count,
       savings_baseline_tier: get('savings_baseline_tier', { section: 'savings', field: 'baseline_tier' }) ?? defaults.savings_baseline_tier,
       test_writer_enabled: get('test_writer_enabled', { section: 'quality', field: 'test_writer' }) ?? defaults.test_writer_enabled,
-      adversarial_review_enabled: get('adversarial_review_enabled', { section: 'quality', field: 'adversarial_review' }) ?? defaults.adversarial_review_enabled,
-      adversarial_review_file_threshold: get('adversarial_review_file_threshold', { section: 'quality', field: 'adversarial_review_file_threshold' }) ?? defaults.adversarial_review_file_threshold,
-      adversarial_review_security_patterns: get('adversarial_review_security_patterns', { section: 'quality', field: 'adversarial_review_security_patterns' }) ?? defaults.adversarial_review_security_patterns,
       coordinator_model: get('coordinator_model') ?? null,
       ruling_model: get('ruling_model') ?? null,
       dev_servers: parsed.dev_servers || null,
@@ -884,7 +875,7 @@ function loadQuotaState(cwd) {
   // numerically corrupted session/weekly scope (e.g. tokens_used accumulated
   // forever with no reset, vastly exceeding tokens_limit, or NaN/negative
   // values from a bad arithmetic path). This is the single read choke point
-  // every consumer (quota status/stats, routing match-quota, phase-coordinator's
+  // every consumer (quota status/stats, phase-coordinator's
   // per-task quota check) goes through, so healing here protects all of them
   // for free. Each scope is checked/healed independently -- corruption in one
   // scope never resets the other.
@@ -5575,140 +5566,18 @@ function cmdVerifyAppendGap(cwd, verificationFileArg, options, raw) {
   output({ appended: true, gaps_count: result.gaps_count, gap: result.gap }, raw);
 }
 
-// ─── Adversarial Plan Review (Phase 60, MILE-39) ────────────────────────────
-// computeHighRisk/computePresentationOrder are pure, no-I/O functions (mirror
-// isUIFile/computeHasUI's style, fail-soft like appendVerificationGap) gating whether a
-// plan gets the plan-checker's adversarial pass (Dimension 14) in addition to the plain checks.
-// An explicit `high_risk: true` (or the string "true") plan frontmatter flag ALWAYS wins,
-// even when the `adversarial_review_enabled` toggle is off -- an explicit per-plan author
-// decision is a stronger signal than the global default and must never be silently
-// ignored. When the toggle is off and no explicit flag is set: high_risk is true only when
-// files_modified matches a risk domain (the risk-domain match is evaluated ahead of the toggle),
-// otherwise false. When the
-// toggle is on: any of (files_modified.length > threshold), a security-pattern substring
-// match against files_modified, or a tdd="true" task count >= 3 flags the plan high-risk,
-// one reason string per matched criterion.
-const RISK_DOMAIN_ALIASES = {
-  auth: ['authn', 'authz', 'authentication', 'authorization', 'oauth', 'login', 'session'],
-};
-
-// Lowercased word tokens of a path: split on / . - _ whitespace and camelCase.
-function riskPathTokens(text) {
-  return String(text)
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .split(/[\/.\-_\s]+/)
-    .map(t => t.toLowerCase())
-    .filter(Boolean);
-}
-
-// Returns the matching token (or substring pattern) or null. Patterns containing "/" or "."
-// stay substring matches; every other domain matches on token equality or a declared alias,
-// so "author" and "tokenizer" do not match "auth" / "token".
-function matchRiskDomain(domain, file) {
-  if (typeof domain !== 'string' || typeof file !== 'string' || domain.trim() === '') return null;
-  const d = domain.trim().toLowerCase();
-  if (/[\/.]/.test(d)) return file.toLowerCase().includes(d) ? d : null;
-  const tokens = riskPathTokens(file);
-  const wanted = riskPathTokens(d);
-  const hasSeq = (seq) => seq.length > 0 && tokens.some((_, i) => seq.every((w, j) => tokens[i + j] === w));
-  if (hasSeq(wanted)) return d;
-  const alias = (RISK_DOMAIN_ALIASES[d] || []).find(a => tokens.includes(a));
-  return alias || null;
-}
-
-function findRiskMatches(domains, files) {
-  const matched = [];
-  for (const domain of Array.isArray(domains) ? domains : []) {
-    for (const file of files) {
-      const token = matchRiskDomain(domain, file);
-      if (token) { matched.push({ domain, path: file, token }); break; }
-    }
-  }
-  return matched;
-}
-
-function computeHighRisk(fm, planContent, config, riskDomains) {
-  try {
-    const frontmatter = fm || {};
-    const cfg = config || {};
-    const explicitFlag = frontmatter.high_risk === true || frontmatter.high_risk === 'true';
-    if (explicitFlag) {
-      return { high_risk: true, reasons: ['explicit high_risk frontmatter flag'] };
-    }
-    const filesModified = Array.isArray(frontmatter.files_modified)
-      ? frontmatter.files_modified
-      : (frontmatter.files_modified ? [String(frontmatter.files_modified)] : []);
-
-    const domainMatches = findRiskMatches(riskDomains, filesModified);
-    // Risk-domain paths are high-risk whether or not the adversarial toggle is on; the toggle
-    // gates only the file-count and tdd-count heuristics below.
-    if (cfg.adversarial_review_enabled !== true) {
-      return domainMatches.length > 0
-        ? { high_risk: true, reasons: [`files_modified matches risk domain "${domainMatches[0].domain}"`], matched: domainMatches }
-        : { high_risk: false, reasons: [] };
-    }
-
-    const reasons = [];
-    const threshold = typeof cfg.adversarial_review_file_threshold === 'number'
-      ? cfg.adversarial_review_file_threshold
-      : 8;
-    if (filesModified.length > threshold) {
-      reasons.push(`files_modified count (${filesModified.length}) exceeds threshold (${threshold})`);
-    }
-
-    const patternMatches = findRiskMatches([
-      ...(Array.isArray(cfg.adversarial_review_security_patterns) ? cfg.adversarial_review_security_patterns : []),
-      ...(Array.isArray(riskDomains) ? riskDomains : []),
-    ], filesModified);
-    if (patternMatches.length > 0) {
-      reasons.push(`files_modified matches security pattern "${patternMatches[0].domain}"`);
-    }
-
-    const content = typeof planContent === 'string' ? planContent : '';
-    const tddMatches = content.match(/tdd=["']?true/g) || [];
-    if (tddMatches.length >= 3) {
-      reasons.push(`tdd="true" task count (${tddMatches.length}) >= 3`);
-    }
-
-    return reasons.length > 0
-      ? { high_risk: true, reasons, ...(patternMatches.length > 0 ? { matched: patternMatches } : {}) }
-      : { high_risk: false, reasons: [] };
-  } catch (e) {
-    // Fail closed: an assessment that errored is treated as high-risk (adversarial pass), never as safe.
-    return { high_risk: true, reasons: [`assessment error (failing closed): ${e && e.message ? e.message : 'unknown'}`] };
-  }
-}
-
-// "Randomized" attack/defense presentation order, implemented as a DETERMINISTIC
-// function of the plan's own content (a simple djb2-style string hash), NOT
-// Math.random() -- this is a deliberate, documented choice: it lets integration tests
-// assert a stable presentation_order for a fixed fixture (a flaky test that sometimes
-// gets attack_first and sometimes defense_first for identical input would be useless).
-// Same plan content -> same order, always. Different plan content -> ~50/50 split in
-// practice via the hash's parity.
-function computePresentationOrder(planContent) {
-  const content = typeof planContent === 'string' ? planContent : '';
-  let hash = 0;
-  for (let i = 0; i < content.length; i++) {
-    hash = (hash * 31 + content.charCodeAt(i)) | 0;
-  }
-  return (hash & 1) === 0 ? 'attack_first' : 'defense_first';
-}
-
-// Thin CLI wrapper over computeHighRisk/computePresentationOrder. Never throws
-// (fail-soft) -- a missing/malformed plan file is reported as its own failing result
-// (error:true + a safe high_risk:false/reasons:[] default) rather than a crash or
-// non-zero exit, so plan-phase.md's risk-triage step can iterate every *-PLAN.md in a
-// phase directory without a single bad file aborting the loop.
+// ─── Plan containment check ─────────────────────────────────────────────────
+// `quality assess-risk <plan>`: at spike rigour, lists files_modified entries outside the spike roots
+// (rigour_violation). The risk-domain add-ons are phase-level (`risk_addons`), not decided per plan.
 function cmdQualityAssessRisk(cwd, filePath, raw) {
   if (!filePath) {
-    output({ error: true, type: 'missing_argument', message: 'quality assess-risk: <plan-file> required', high_risk: true, reasons: ['assessment error (failing closed): no plan file'], matched: [] }, raw);
+    output({ error: true, type: 'missing_argument', message: 'quality assess-risk: <plan-file> required' }, raw);
     return;
   }
   const fullPath = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath);
   const content = safeReadFile(fullPath);
   if (content === null) {
-    output({ error: true, type: 'file_not_found', message: `Plan file not found: ${filePath}`, high_risk: true, reasons: ['assessment error (failing closed): plan file not found'], matched: [] }, raw);
+    output({ error: true, type: 'file_not_found', message: `Plan file not found: ${filePath}` }, raw);
     return;
   }
 
@@ -5717,25 +5586,18 @@ function cmdQualityAssessRisk(cwd, filePath, raw) {
     const matter = require('gray-matter');
     fm = matter(content).data || {};
   } catch (e) {
-    output({ error: true, type: 'malformed_frontmatter', message: e.message, high_risk: true, reasons: ['assessment error (failing closed): malformed frontmatter'], matched: [] }, raw);
+    output({ error: true, type: 'malformed_frontmatter', message: e.message }, raw);
     return;
   }
 
-  const config = loadConfig(cwd);
-  const presentation_order = computePresentationOrder(content);
   const level = rigour.resolveRigour(cwd, String(fm.phase ?? ''), getMilestoneInfo(cwd).version);
   if (level.rigour === 'spike') {
     const files = Array.isArray(fm.files_modified) ? fm.files_modified : (fm.files_modified ? [String(fm.files_modified)] : []);
-    output({
-      high_risk: false, reasons: ['rigour: spike'], presentation_order, rigour: 'spike',
-      rigour_violation: rigour.rigourViolations(level.spike_roots, files),
-      spike_roots: level.spike_roots,
-    }, raw);
+    output({ rigour: 'spike', rigour_violation: rigour.rigourViolations(level.spike_roots, files), spike_roots: level.spike_roots }, raw);
     return;
   }
-  const { high_risk, reasons, matched } = computeHighRisk(fm, content, config, projectContext.riskDomainsFor(cwd));
   output({
-    high_risk, reasons, matched: matched || [], presentation_order, rigour: 'standard',
+    rigour: 'standard',
     ...(level.rigour_source === 'rejected' ? { rigour_rejected_reason: level.rigour_rejected_reason } : {}),
   }, raw);
 }
@@ -11311,23 +11173,10 @@ function phaseRiskFields(cwd, phase) {
   return { phase_risk_domains: r.domains };
 }
 
-// true when any plan of the phase carries an explicit high_risk: true frontmatter flag.
-function phaseHasHighRiskPlan(cwd, phase) {
-  const info = findPhaseInternal(cwd, phase);
-  if (!info) return false;
-  try {
-    const dir = path.join(cwd, info.directory);
-    return fs.readdirSync(dir).filter((f) => /-PLAN\.md$/.test(f)).some((f) => {
-      const v = extractFrontmatter(fs.readFileSync(path.join(dir, f), 'utf8')).high_risk;
-      return v === true || v === 'true';
-    });
-  } catch { return false; }
-}
-
-// The one rule for the risk-domain add-ons (references/rigour.md): a standard phase that declares risk domains or has a
-// high_risk plan. Prose and the budget class key on this value only.
+// The one rule for the risk-domain add-ons (references/rigour.md): a standard phase that declares risk domains.
+// Prose and the budget class key on this value only.
 function riskAddons(cwd, phase, level) {
-  return level !== 'spike' && (phaseRiskFields(cwd, phase).phase_risk_domains.length > 0 || phaseHasHighRiskPlan(cwd, phase));
+  return level !== 'spike' && (phaseRiskFields(cwd, phase).phase_risk_domains.length > 0);
 }
 
 function initRiskFields(cwd, phase) {
@@ -11529,6 +11378,28 @@ function getMilestoneInfo(cwd) {
   }
 }
 
+// Relative paths of the planning files an init caller hands to spawned agents; null when absent.
+function initFilePaths(cwd, phaseInfo) {
+  const ifExists = (rel) => (pathExistsInternal(cwd, rel) ? rel : null);
+  const inPhase = (suffix) => {
+    if (!phaseInfo?.directory) return null;
+    try {
+      const f = fs.readdirSync(path.join(cwd, phaseInfo.directory)).find(n => n.endsWith(`-${suffix}.md`) || n === `${suffix}.md`);
+      return f ? path.join(phaseInfo.directory, f) : null;
+    } catch { return null; }
+  };
+  return {
+    state_path: ifExists('.planning/STATE.md'),
+    roadmap_path: ifExists('.planning/ROADMAP.md'),
+    requirements_path: ifExists('.planning/REQUIREMENTS.md'),
+    config_path: ifExists('.planning/config.json'),
+    context_path: inPhase('CONTEXT'),
+    research_path: inPhase('RESEARCH'),
+    verification_path: inPhase('VERIFICATION'),
+    uat_path: inPhase('UAT'),
+  };
+}
+
 function cmdInitExecutePhase(cwd, phase, includes, raw, gate) {
   if (!phase) {
     error('phase required for init execute-phase');
@@ -11599,6 +11470,7 @@ function cmdInitExecutePhase(cwd, phase, includes, raw, gate) {
     state_exists: pathExistsInternal(cwd, '.planning/STATE.md'),
     roadmap_exists: pathExistsInternal(cwd, '.planning/ROADMAP.md'),
     config_exists: pathExistsInternal(cwd, '.planning/config.json'),
+    ...initFilePaths(cwd, phaseInfo),
   };
 
   // Include file contents if requested via --include
@@ -11698,6 +11570,7 @@ function cmdInitPlanPhase(cwd, phase, includes, raw, gate) {
     // Environment
     planning_exists: pathExistsInternal(cwd, '.planning'),
     roadmap_exists: pathExistsInternal(cwd, '.planning/ROADMAP.md'),
+    ...initFilePaths(cwd, phaseInfo),
   };
 
   // Include file contents if requested via --include
@@ -13055,266 +12928,8 @@ function cmdCompressStats(raw) {
 }
 
 // ============================================================
-// Routing: model selection + context injection (Phase 01)
+// Routing: task type, ledger, failure classification, escalation
 // ============================================================
-
-function loadRoutingRules(filePath) {
-  const content = safeReadFile(filePath);
-  if (!content) return [];
-
-  const lines = content.split('\n').filter(l => l.trim() && !l.startsWith('#'));
-  const tableRows = lines.filter(l => l.trim().startsWith('|'));
-  const dataRows = tableRows.slice(2);
-
-  return dataRows.map(line => {
-    const trimmed = line.trim();
-    const withoutLeadingPipe = trimmed.startsWith('|') ? trimmed.slice(1) : trimmed;
-    const withoutTrailingPipe = withoutLeadingPipe.endsWith('|') ? withoutLeadingPipe.slice(0, -1) : withoutLeadingPipe;
-
-    const allParts = withoutTrailingPipe.split('|').map(c => c.trim());
-
-    if (allParts.length < 4) return null;
-
-    const rationale = allParts[allParts.length - 1];
-    const priority = allParts[allParts.length - 2];
-    const model = allParts[allParts.length - 3];
-    const patternStr = allParts.slice(0, allParts.length - 3).join('|').trim();
-
-    if (!patternStr || !model || !priority) return null;
-    if (patternStr.toLowerCase() === 'pattern' || model.toLowerCase() === 'model') return null;
-
-    const patterns = patternStr.split(',').map(p => p.trim().replace(/\*\*/g, ''));
-    const validPatterns = patterns.filter(p => p && p.trim().length > 0);
-
-    if (validPatterns.length === 0) return null;
-
-    const patternRegex = validPatterns.map(p => {
-      // Protect existing .* sequences before escaping, then restore
-      const protected_ = p.replace(/\.\*/g, '\x00');
-      const escaped = protected_.replace(/\./g, '\\.');
-      return escaped.replace(/\x00/g, '.*').replace(/(?<!\.)\*/g, '.*');
-    }).join('|');
-
-    return {
-      patterns: validPatterns,
-      regex: patternRegex,
-      model: model.toLowerCase(),
-      priority: parseInt(priority) || 1,
-      rationale: rationale || ''
-    };
-  }).filter(Boolean);
-}
-
-function mergeRoutingRules(globalRules, projectRules) {
-  const merged = [...globalRules];
-
-  for (const projectRule of projectRules) {
-    const existingIdx = merged.findIndex(r =>
-      r.patterns.some(p => projectRule.patterns.includes(p))
-    );
-
-    if (existingIdx >= 0) {
-      merged[existingIdx] = projectRule;
-    } else {
-      merged.push(projectRule);
-    }
-  }
-
-  return merged;
-}
-
-function computeComplexityScore(taskDesc, rules) {
-  // Signal 1 — Keyword model weight (0-50 points)
-  const lowerTask = taskDesc.toLowerCase();
-  let keywordScore = 0;
-  for (const rule of rules) {
-    try {
-      const regex = new RegExp(rule.regex, 'i');
-      if (regex.test(lowerTask)) {
-        const model = rule.model.toLowerCase();
-        if (model === 'haiku') {
-          keywordScore = Math.min(keywordScore + 5, 15);
-        } else if (model === 'sonnet') {
-          keywordScore = Math.min(keywordScore + 15, 30);
-        } else if (model === 'opus') {
-          keywordScore = Math.min(keywordScore + 30, 50);
-        }
-      }
-    } catch (e) {
-      // Skip invalid regex patterns
-    }
-  }
-  if (keywordScore === 0) keywordScore = 25; // default: no pattern match → sonnet territory
-
-  // Signal 2 — Task length (0-25 points)
-  const wordCount = taskDesc.trim().split(/\s+/).filter(Boolean).length;
-  let lengthScore;
-  if (wordCount <= 5) {
-    lengthScore = 3;
-  } else if (wordCount <= 20) {
-    lengthScore = 8;
-  } else if (wordCount <= 50) {
-    lengthScore = 15;
-  } else if (wordCount <= 100) {
-    lengthScore = 20;
-  } else {
-    lengthScore = 25;
-  }
-
-  // Signal 3 — Structural markers (0-25 points)
-  let structuralScore = 0;
-  // Code block markers
-  if (/```|`[^`]+`/.test(taskDesc)) structuralScore += 8;
-  // Multiple bullet points (3+)
-  const bulletMatches = taskDesc.match(/^[ \t]*[-*•]/gm) || [];
-  if (bulletMatches.length >= 3) structuralScore += 5;
-  // Nested indicators
-  if (/^[ \t]{2,}[-*•]/m.test(taskDesc) || /^[ \t]+\d+\./m.test(taskDesc)) structuralScore += 5;
-  // Multiple numbered steps (3+)
-  const numberedSteps = taskDesc.match(/^\s*\d+\./gm) || [];
-  if (numberedSteps.length >= 3) structuralScore += 5;
-  // Architectural keywords
-  if (/\b(design|architecture|system|integrate|migration|migrate|refactor|evaluate)\b/i.test(taskDesc)) structuralScore += 8;
-  // Cross-cutting concerns
-  if (/\b(security|performance|scalability|all|entire|across)\b/i.test(taskDesc)) structuralScore += 6;
-  // Negation/constraints
-  if (/\b(must not|never|always|required|must)\b/i.test(taskDesc)) structuralScore += 3;
-  structuralScore = Math.min(structuralScore, 25);
-
-  const score = Math.min(keywordScore + lengthScore + structuralScore, 100);
-
-  let tier;
-  if (score <= 30) {
-    tier = 'haiku';
-  } else if (score <= 70) {
-    tier = 'sonnet';
-  } else {
-    tier = 'opus';
-  }
-
-  return {
-    score,
-    tier,
-    signals: {
-      keyword: keywordScore,
-      length: lengthScore,
-      structural: structuralScore
-    }
-  };
-}
-
-function selectModelFromRules(taskDesc, rules) {
-  const lowerTask = taskDesc.toLowerCase();
-
-  // Compute multi-signal complexity score
-  const { score, tier, signals } = computeComplexityScore(taskDesc, rules);
-
-  // Track highest-priority matching rule for pattern/rationale
-  let matchedRule = null;
-  let highestPriority = -1;
-  for (const rule of rules) {
-    try {
-      const regex = new RegExp(rule.regex, 'i');
-      if (regex.test(lowerTask)) {
-        if (rule.priority > highestPriority) {
-          highestPriority = rule.priority;
-          matchedRule = rule;
-        }
-      }
-    } catch (e) {
-      // Skip invalid regex patterns
-    }
-  }
-
-  const reasonBase = `complexity score ${score}/100 (keyword:${signals.keyword}, length:${signals.length}, structural:${signals.structural})`;
-  const noMatch = matchedRule === null;
-
-  return {
-    model: tier,
-    reason: noMatch ? `default (no pattern match) — score ${score}/100` : reasonBase,
-    matched: !noMatch,
-    pattern: matchedRule ? matchedRule.patterns.join(',') : null,
-    score,
-    signals
-  };
-}
-
-function cmdRoutingMatch(cwd, taskDesc, raw) {
-  if (!taskDesc) { error('task description required'); return; }
-
-  const HOME = require('os').homedir();
-  const globalRules = loadRoutingRules(path.join(HOME, '.claude', 'routing-rules.md'));
-  const projectRules = loadRoutingRules(path.join(cwd, '.planning', 'routing', 'project-rules.md'));
-  const merged = mergeRoutingRules(globalRules, projectRules);
-  const result = selectModelFromRules(taskDesc, merged);
-
-  output(result, raw);
-}
-
-function selectModelFromRulesWithQuota(taskDesc, rules, quotaState) {
-  // Get base selection using complexity scoring (from plan 07)
-  const baseSelection = selectModelFromRules(taskDesc, rules);
-
-  if (!quotaState || !quotaState.session) {
-    return baseSelection;  // No quota state — pass through unchanged
-  }
-
-  const sessionLimit = quotaState.session.tokens_limit || 0;
-  if (sessionLimit === 0) {
-    return baseSelection;  // Unknown limit — pass through
-  }
-
-  const sessionUsed = quotaState.session.tokens_used || 0;
-  const quotaPercent = (sessionUsed / sessionLimit) * 100;
-
-  // Apply downgrade ladder based on quota pressure
-  // Per user decision: quota logic in sub-coordinator, but the routing function
-  // must support quota-aware selection so coordinators can call it
-  if (quotaPercent > 95) {
-    // Critical: downgrade any model to haiku to conserve what remains
-    if (baseSelection.model === 'opus' || baseSelection.model === 'sonnet') {
-      return {
-        ...baseSelection,
-        model: 'haiku',
-        reason: `quota-adjusted (${quotaPercent.toFixed(1)}% used, >95% threshold): conserving to haiku — original: ${baseSelection.model}`,
-        quota_adjusted: true,
-        quota_percent: quotaPercent
-      };
-    }
-  } else if (quotaPercent > 80) {
-    // High pressure: downgrade opus to sonnet only
-    if (baseSelection.model === 'opus') {
-      return {
-        ...baseSelection,
-        model: 'sonnet',
-        reason: `quota-adjusted (${quotaPercent.toFixed(1)}% used, >80% threshold): downgraded opus→sonnet — original reason: ${baseSelection.reason}`,
-        quota_adjusted: true,
-        quota_percent: quotaPercent
-      };
-    }
-  }
-
-  // No adjustment needed
-  return {
-    ...baseSelection,
-    quota_adjusted: false,
-    quota_percent: quotaPercent
-  };
-}
-
-function cmdRoutingMatchWithQuota(cwd, taskDesc, raw) {
-  if (!taskDesc) { error('task description required'); return; }
-
-  const HOME = require('os').homedir();
-  const globalRules = loadRoutingRules(path.join(HOME, '.claude', 'routing-rules.md'));
-  const projectRules = loadRoutingRules(path.join(cwd, '.planning', 'routing', 'project-rules.md'));
-  const merged = mergeRoutingRules(globalRules, projectRules);
-
-  const quotaState = loadQuotaState(cwd);
-  const result = selectModelFromRulesWithQuota(taskDesc, merged, quotaState);
-
-  output(result, raw);
-}
 
 function cmdRoutingTaskType(cwd, taskDesc, raw) {
   if (!taskDesc) { error('task description required'); return; }
@@ -13371,275 +12986,6 @@ function cmdRoutingEscalationDecision(cwd, options, raw) {
   const escalationsUsedNum = parseInt(escalationsUsed, 10) || 0;
   const decision = decideEscalation(currentTier, classification, escalationsUsedNum, topModelFields(cwd).ruling_model);
   output({ ...classification, ...decision, current_tier: currentTier, escalations_used: escalationsUsedNum }, raw);
-}
-
-function extractKeywords(text) {
-  const stopWords = new Set([
-    'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-    'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
-    'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
-    'should', 'could', 'can', 'may', 'might', 'must', 'this', 'that',
-    'these', 'those', 'it', 'its', 'i', 'we', 'they', 'them', 'their'
-  ]);
-
-  return text.toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, ' ')
-    .split(/\s+/)
-    .filter(w => w.length > 2 && !stopWords.has(w));
-}
-
-function buildContextIndex(basePaths, includeSummaries = false) {
-  const index = { entries: [], created_at: new Date().toISOString() };
-
-  let extractor = null;
-  if (includeSummaries) {
-    try {
-      const { HeaderExtractor } = require('./compression/header-extractor');
-      extractor = new HeaderExtractor();
-    } catch (e) { /* compression optional */ }
-  }
-
-  for (const basePath of basePaths) {
-    if (!fs.existsSync(basePath)) continue;
-
-    const findMd = (dir) => {
-      const files = [];
-      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        const fullPath = path.join(dir, entry.name);
-        if (entry.isDirectory()) {
-          files.push(...findMd(fullPath));
-        } else if (entry.name.endsWith('.md')) {
-          files.push(fullPath);
-        }
-      }
-      return files;
-    };
-
-    for (const file of findMd(basePath)) {
-      try {
-        const content = fs.readFileSync(file, 'utf-8');
-        const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
-        let tags = [];
-        if (frontmatterMatch) {
-          const tagMatch = frontmatterMatch[1].match(/tags:\s*\[([^\]]*)\]/);
-          if (tagMatch) {
-            tags = tagMatch[1].split(',').map(t => t.trim().replace(/['"]/g, ''));
-          }
-        }
-
-        const titleMatch = content.match(/^#\s+(.+)/m);
-        const title = titleMatch ? titleMatch[1].trim() : path.basename(file, '.md');
-
-        const bodyText = content.replace(/^---\n[\s\S]*?\n---\n/, '').replace(/^#+\s+.+$/mg, '');
-        const keywords = extractKeywords(bodyText);
-
-        let summary = null;
-        if (includeSummaries && extractor) {
-          try {
-            const result = extractor.extractSummary(content, file);
-            summary = result.summary;
-          } catch (e) { /* skip */ }
-        }
-
-        index.entries.push({
-          path: file,
-          title,
-          tags,
-          keywords: [...new Set(keywords)].slice(0, 50),
-          ...(summary !== null && { summary })
-        });
-      } catch (e) { /* skip unreadable files */ }
-    }
-  }
-
-  return index;
-}
-
-function matchContextDocs(taskDesc, index, topN = 3) {
-  const taskKeywords = new Set(extractKeywords(taskDesc));
-  const taskWords = taskDesc.toLowerCase().split(/\s+/);
-
-  const scored = index.entries.map(entry => {
-    let score = 0;
-
-    // Tag matches (2x weight)
-    for (const tag of entry.tags) {
-      if (taskWords.some(w => tag.toLowerCase().includes(w) || w.includes(tag.toLowerCase()))) {
-        score += 2;
-      }
-    }
-
-    // Keyword matches (1x weight)
-    for (const kw of entry.keywords) {
-      if (taskKeywords.has(kw)) score += 1;
-    }
-
-    // Title word matches (1.5x weight)
-    const titleWords = extractKeywords(entry.title);
-    for (const tw of titleWords) {
-      if (taskKeywords.has(tw)) score += 1.5;
-    }
-
-    return { ...entry, score };
-  });
-
-  return scored
-    .filter(e => e.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, topN);
-}
-
-function extractClaudeInstructions(claudeMdPath) {
-  const content = safeReadFile(claudeMdPath);
-  if (!content) return { keywords: [], instructions: [] };
-
-  const keywords = extractKeywords(content);
-  const instructions = content
-    .split('\n')
-    .filter(l => l.match(/^[-*]\s+/) || l.match(/^\d+\.\s+/))
-    .map(l => l.replace(/^[-*\d.]+\s+/, '').trim())
-    .filter(l => l.length > 10);
-
-  return { keywords: [...new Set(keywords)], instructions };
-}
-
-function loadContextIndex(cwd) {
-  const HOME = require('os').homedir();
-  const cachePath = path.join(cwd, '.planning', '.context-index-cache.json');
-
-  if (fs.existsSync(cachePath)) {
-    const stat = fs.statSync(cachePath);
-    const ageMs = Date.now() - stat.mtime.getTime();
-    if (ageMs < 3600000) { // 1 hour TTL
-      const cacheParseResult = safeJsonParse(fs.readFileSync(cachePath, 'utf-8'), 'context-index-cache.json');
-      if (cacheParseResult.ok) {
-        return cacheParseResult.value;
-      }
-      // Corrupted cache: fall through and rebuild rather than crash.
-      process.stderr.write('Warning: context-index-cache.json is corrupted, rebuilding: ' + cacheParseResult.error.message + '\n');
-    }
-  }
-
-  // Rebuild and cache
-  const basePaths = [
-    path.join(HOME, '.claude', 'guides'),
-    path.join(HOME, '.claude', 'get-shit-done', 'references'),
-    path.join(cwd, '.planning', 'codebase'),
-    path.join(cwd, 'docs')
-  ];
-  const index = buildContextIndex(basePaths);
-
-  fs.mkdirSync(path.dirname(cachePath), { recursive: true });
-  fs.writeFileSync(cachePath, JSON.stringify(index, null, 2));
-
-  return index;
-}
-
-function cmdRoutingContext(cwd, taskDesc, raw) {
-  if (!taskDesc) { error('task description required'); return; }
-
-  const index = loadContextIndex(cwd);
-  const matches = matchContextDocs(taskDesc, index, 3);
-
-  output({ task: taskDesc, matches, index_size: index.entries.length }, raw);
-}
-
-function cmdRoutingFull(cwd, taskDesc, raw) {
-  if (!taskDesc) { error('task description required'); return; }
-
-  const HOME = require('os').homedir();
-
-  const globalRules = loadRoutingRules(path.join(HOME, '.claude', 'routing-rules.md'));
-  const projectRules = loadRoutingRules(path.join(cwd, '.planning', 'routing', 'project-rules.md'));
-  const merged = mergeRoutingRules(globalRules, projectRules);
-  const modelResult = selectModelFromRules(taskDesc, merged);
-
-  const index = loadContextIndex(cwd);
-  const contextMatches = matchContextDocs(taskDesc, index, 3);
-
-  let contextWithSummaries = contextMatches;
-  try {
-    const { HeaderExtractor } = require('./compression/header-extractor');
-    const extractor = new HeaderExtractor();
-    contextWithSummaries = contextMatches.map(match => {
-      try {
-        const content = fs.readFileSync(match.path, 'utf-8');
-        const { summary } = extractor.extractSummary(content, match.path);
-        return { ...match, summary };
-      } catch (e) {
-        return { ...match, summary: null };
-      }
-    });
-  } catch (e) { /* compression optional */ }
-
-  // Extract CLAUDE.md keywords
-  const claudeMdPath = path.join(cwd, 'CLAUDE.md');
-  let claudeMd = { has_instructions: false, relevant_keywords: [] };
-  const claudeInstructions = extractClaudeInstructions(claudeMdPath);
-  if (claudeInstructions.instructions.length > 0 || claudeInstructions.keywords.length > 0) {
-    const taskKws = new Set(extractKeywords(taskDesc));
-    const relevant = claudeInstructions.keywords.filter(k => taskKws.has(k));
-    claudeMd = {
-      has_instructions: claudeInstructions.instructions.length > 0,
-      relevant_keywords: relevant.slice(0, 10)
-    };
-  }
-
-  output({ task: taskDesc, model: modelResult, context: contextWithSummaries, claude_md: claudeMd }, raw);
-}
-
-function cmdRoutingIndexBuild(cwd, args, raw) {
-  const HOME = require('os').homedir();
-  const cachePath = path.join(cwd, '.planning', '.context-index-cache.json');
-  const withSummaries = args.includes('--with-summaries');
-  const force = args.includes('--force');
-
-  if (!force && fs.existsSync(cachePath)) {
-    const stat = fs.statSync(cachePath);
-    const ageMs = Date.now() - stat.mtime.getTime();
-    if (ageMs < 3600000) {
-      output({ cached: true, age_minutes: Math.floor(ageMs / 60000) }, raw);
-      return;
-    }
-  }
-
-  const basePaths = [
-    path.join(HOME, '.claude', 'guides'),
-    path.join(HOME, '.claude', 'get-shit-done', 'references'),
-    path.join(cwd, '.planning', 'codebase'),
-    path.join(cwd, 'docs')
-  ];
-  const index = buildContextIndex(basePaths, withSummaries);
-
-  fs.mkdirSync(path.dirname(cachePath), { recursive: true });
-  fs.writeFileSync(cachePath, JSON.stringify(index, null, 2));
-
-  output({ cached: false, entries: index.entries.length, with_summaries: withSummaries }, raw);
-}
-
-function cmdRoutingIndexRefresh(cwd, raw) {
-  const cachePath = path.join(cwd, '.planning', '.context-index-cache.json');
-
-  if (!fs.existsSync(cachePath)) {
-    output({ stale: true, reason: 'Cache does not exist', entries: 0 }, raw);
-    return;
-  }
-
-  const refreshParseResult = safeJsonParse(fs.readFileSync(cachePath, 'utf-8'), 'context-index-cache.json');
-  if (!refreshParseResult.ok) {
-    output({ stale: true, reason: 'Cache is corrupted: ' + refreshParseResult.error.message, entries: 0 }, raw);
-    return;
-  }
-  const cached = refreshParseResult.value;
-  const stale = cached.entries.some(entry => {
-    if (!fs.existsSync(entry.path)) return true;
-    const stat = fs.statSync(entry.path);
-    const cacheTime = new Date(cached.created_at).getTime();
-    const mtime = stat.mtime.getTime();
-    return mtime > cacheTime;
-  });
-
-  output({ stale, entries: cached.entries.length }, raw);
 }
 
 /**
@@ -14625,7 +13971,7 @@ function summarizeTelemetryReports(reports) {
 // ─── Routing Ledger (Phase 57-01, MILE-34) ────────────────────────────────────
 //
 // Storage: .planning/routing-ledger.json is a single REBUILDABLE JSON object
-// (like .context-index-cache.json), not a JSONL append log. `routing ledger
+// not a JSONL append log. `routing ledger
 // build` rebuilds it wholesale from EXECUTION_LOG.md's task_outcome events
 // plus optional telemetry enrichment; it is never appended to incrementally.
 
@@ -16857,19 +16203,7 @@ Was ${model} the right choice for this task? (y/n): `;
 
     case 'routing': {
       const subcommand = args[1];
-      if (subcommand === 'match') {
-        cmdRoutingMatch(cwd, args.slice(2).join(' '), raw);
-      } else if (subcommand === 'context') {
-        cmdRoutingContext(cwd, args.slice(2).join(' '), raw);
-      } else if (subcommand === 'full') {
-        cmdRoutingFull(cwd, args.slice(2).join(' '), raw);
-      } else if (subcommand === 'index-build') {
-        cmdRoutingIndexBuild(cwd, args, raw);
-      } else if (subcommand === 'index-refresh') {
-        cmdRoutingIndexRefresh(cwd, raw);
-      } else if (subcommand === 'match-with-quota') {
-        cmdRoutingMatchWithQuota(cwd, args.slice(2).join(' '), raw);
-      } else if (subcommand === 'task-type') {
+      if (subcommand === 'task-type') {
         cmdRoutingTaskType(cwd, args.slice(2).join(' '), raw);
       } else if (subcommand === 'ledger') {
         const ledgerSub = args[2];
@@ -16896,7 +16230,7 @@ Was ${model} the right choice for this task? (y/n): `;
           escalationsUsed: escalationsUsedIdx !== -1 ? args[escalationsUsedIdx + 1] : null,
         }, raw);
       } else {
-        error('Unknown routing subcommand. Available: match, match-with-quota, context, full, index-build, index-refresh, task-type, ledger, classify-failure, escalation-decision');
+        error('Unknown routing subcommand. Available: task-type, ledger, classify-failure, escalation-decision');
       }
       break;
     }
@@ -17026,8 +16360,6 @@ module.exports = {
   isApiFile,
   computeHasApi,
   computeTouchesSourceCode,
-  computeHighRisk,
-  computePresentationOrder,
   verdictToIssues,
   runP0TierAssignmentGate,
   compareGateCapabilities,

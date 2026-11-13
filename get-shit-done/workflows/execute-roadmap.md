@@ -179,7 +179,7 @@ node "$DEC" digest
 node "$DEC" digest --mark-only
 ```
 - `gate` exit 0: proceed. Exit 2 (an open irreversible assumption feeds this phase): park this phase and its dependents, every other phase continues. Log `phase_parked` with the ids and print each parked question (`decisions list --open`) to the chat; it never ends the run or blocks on a reply. A phase still parked when every other phase is done is reported in `completion` as waiting for the owner.
-- `gate` exit 3 or any other non-zero code (corrupt or unreadable ledger): fail closed exactly like exit 2, with `phase_parked` reason `ledger_error` and the printed errors. `decisions.js validate` prints the offending lines; `decisions.js repair` fixes duplicate ids and conflict markers; re-run `gate` after.
+- `gate` exit 3 or any other non-zero code (corrupt or unreadable ledger): fail closed exactly like exit 2, with `phase_parked` reason `ledger_error` and the printed errors. `node "$HOME/.claude/get-shit-done/bin/decisions.js" validate` prints the offending lines; `decisions.js repair` fixes duplicate ids and conflict markers; re-run `gate` after.
 - `digest` non-empty: print it to the chat, never wait, then run `digest --mark-only` (a run that dies in between re-sends rather than loses the questions). A non-zero `digest` exit is handled like `gate` exit 3.
 - Rework tickets (`node "$DEC" reworks` prints the open `R-NN`): insert the decimal rework phase the protocol describes after its last built consumer, before continuing; `node "$DEC" close R-NN --status done` when it verifies.
 

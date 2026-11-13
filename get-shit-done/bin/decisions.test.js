@@ -53,14 +53,13 @@ describe('decisions ledger format', () => {
 describe('planner must cite decision ids', () => {
   test('good plan cites every id that names phase 12', () => {
     const res = checkPlan(load(LEDGER).records, '12', [read('12-01-PLAN.good.md')]);
-    assert.deepStrictEqual(res, { pass: true, phase: '12', missing: [], unknown: [], stale: [], unscoped_open: [] });
+    assert.deepStrictEqual(res, { pass: true, phase: '12', missing: [], unknown: [], stale: [] });
   });
 
-  test('open unphased assumptions are listed as unscoped_open without failing the check', () => {
-    const records = [{ id: 'A-09', kind: 'assumption', status: 'open', phases: [], question: 'q?', default: 'd', reversibility: 'costly' }];
-    const res = checkPlan(records, '12', ['no cites']);
-    assert.strictEqual(res.pass, true);
-    assert.deepStrictEqual(res.unscoped_open, [{ id: 'A-09', question: 'q?', default: 'd', reversibility: 'costly', scope: 'unscoped' }]);
+  test('rows logged from plan-check leftovers are not required citations (A-NN scoped to the phase)', () => {
+    const records = [{ id: 'A-09', kind: 'assumption', status: 'open', phases: ['12'], source: 'plan-check', question: 'q?', default: 'd', reversibility: 'cheap' },
+      { id: 'A-10', kind: 'assumption', status: 'open', phases: ['12'], source: 'unattended', question: 'q?', default: 'd', reversibility: 'cheap' }];
+    assert.deepStrictEqual(checkPlan(records, '12', ['no cites']).missing, ['A-10']);
   });
 
   test('bad plan fails: missing D-01 and A-01, unknown D-09; exit code 1', () => {
@@ -384,16 +383,18 @@ describe('decisions CLI strictness, amend/supersede, gate and check-plan output'
     assert.strictEqual(cli(file, 'gate', '--phase', '3').status, 0);
   });
 
-  test('check-plan summarises unscoped_open (count plus first 5) and --all-unscoped lists all', () => {
+  test('check-plan reports only phase-scoped rows: unscoped open assumptions are not listed', () => {
     const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-dec-')), 'D.jsonl');
     for (let i = 0; i < 8; i++) cli(file, 'add', '--kind', 'assumption', '--source', 'unattended', '--question', `q${i}`, '--default', 'd', '--reversibility', 'cheap');
     const plan = path.join(path.dirname(file), 'P.md');
     fs.writeFileSync(plan, 'x');
     const out = JSON.parse(cli(file, 'check-plan', '--phase', '3', plan).stdout);
-    assert.strictEqual(out.unscoped_open_count, 8);
-    assert.strictEqual(out.unscoped_open.length, 5);
-    assert.match(out.unscoped_open_note, /first 5 of 8/);
-    assert.strictEqual(JSON.parse(cli(file, 'check-plan', plan, '--phase', '3', '--all-unscoped').stdout).unscoped_open.length, 8);
+    assert.deepStrictEqual(Object.keys(out).sort(), ['missing', 'pass', 'phase', 'stale', 'unknown']);
+  });
+
+  test('usage shows the positional plan files of check-plan', () => {
+    const r = spawnSync('node', [TOOL, 'nonsense'], { encoding: 'utf8' });
+    assert.match(r.stderr + r.stdout, /check-plan .*<PLAN\.md>\.\.\./);
   });
 
   test('usage lists the flags of each command', () => {
