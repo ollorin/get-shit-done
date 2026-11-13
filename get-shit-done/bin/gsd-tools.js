@@ -233,6 +233,7 @@ const rigour = require('./rigour.js');
 const topModel = require('./top-model.js');
 const phaseBudget = require('./phase-budget.js');
 const formCheck = require('./form-check.js');
+const reviewGate = require('./review-gate.js');
 const planStamp = require('./plan-stamp.js');
 
 // Phase 2: Auto Mode safety modules (lazy — gracefully absent if not installed)
@@ -7273,12 +7274,13 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles, opts =
     }
   }
   const plans = planFiles.map(f => ({ planNum: f.match(/-(\d{2})-PLAN\.md$/i)[1] }));
-  const { warnings } = collectPhaseTouchedFiles(cwd, phaseNumber, plans);
+  const { warnings, files: touched } = collectPhaseTouchedFiles(cwd, phaseNumber, plans);
   for (const w of warnings) {
     if (w.warning === 'no_commits_found') {
       errors.push(`Plan ${phaseNumber}-${w.plan} has no commits (git log --all --grep "${phaseNumber}-${w.plan}" is empty)`);
     }
   }
+  errors.push(...reviewGate.reviewErrors(phaseDir, dirFiles, touched));
   const verification = readPhaseVerification(phaseDir, phaseNumber);
   // Pre-verifier mode: the verifier produces this artifact, so demanding it earlier is circular.
   if (opts.preVerifier) {

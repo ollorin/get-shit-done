@@ -45,6 +45,8 @@ Not produced unless a cell says so: an E2E plan without UI, a threat model, muta
 8. **Top model.** `ruling_model` and `ruling_model_fallback` are the configured top model; `references/model-profiles.md` says where they come from and who always uses them. No other file names a model for those roles.
 9. **Plan stamp.** The planner copies `plan_stamp` from an `init plan-phase` call made immediately before the planner spawn into each PLAN frontmatter (hash of the ROADMAP phase section, the phase's requirement lines, CONTEXT and RESEARCH; no ledger rows: what a plan depends on is in CONTEXT). `plans_stale: true` is consumed once, in plan-phase.md; never re-plan on a guess.
 
+10. **The review is a disk check.** `{N}-REVIEW-{round}.md` carries frontmatter `round`, `reviewer_role`, `open_critical_high` (count still open after the round) and, after a ruling, `ruled_by: [D-NN]`. `verify phase-gate` and `phase complete` report missing work when a phase that changed files outside `.planning/` (spike included: one file) has no review file or its newest round has open CRITICAL/HIGH and no ruling id (`bin/review-gate.js`).
+
 ## Never relaxed
 
 1. No secret in a committed file, capture or command output; captures are scanned.
