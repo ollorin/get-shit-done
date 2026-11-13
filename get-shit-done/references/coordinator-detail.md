@@ -69,9 +69,9 @@ Agent(
 ```
 
 6. Evaluate each answer: `confidence >= 0.7` and not `no_results` and no `error` is `sufficient`; everything else is `needs-escalation`.
-7. Sensitivity check. Nothing in discuss blocks on a human. A needs-escalation item is sensitive when any of these holds: (1) irreversible (data deletion, schema migration, public API contract); (2) more than one phase is reworked if wrong; (3) a major architectural decision (system design, component boundaries, data model); (4) risk-domain or data-loss potential (user data, financial charge, security breach); (5) the knowledge DB results contradict each other at similar confidence; (6) a topic the owner always decides personally. Everything else is a `discretion_item` decided by the coordinator.
+7. Sensitivity check. Nothing in discuss blocks on a human. An item that is a count, a literal, a name, wording or a cleanup choice is never sensitive, whatever its domain: take the default and log one `A-` row `cheap`. Any other needs-escalation item is sensitive when any of these holds: (1) irreversible (data deletion, schema migration, public API contract); (2) more than one phase is reworked if wrong; (3) a major architectural decision (system design, component boundaries, data model); (4) risk-domain or data-loss potential (user data, financial charge, security breach); (5) the knowledge DB results contradict each other at similar confidence; (6) a topic the owner always decides personally. Everything else is a `discretion_item` decided by the coordinator.
 8. Route each sensitive item by the criterion that matched, and never park or wait from discuss:
-   - Criterion 4; criteria 2 or 3 in a risk domain or `ruling_topics`; criterion 5: dispatch a fresh ruling agent on `{ruling_model}` (a rejected spawn retries once on `{ruling_model_fallback}` and says so in the log). Record it with `decisions.js add --kind decision --source opus-ruling` (phases = this phase) and proceed on it. If no ruling can be obtained, queue it as an assumption (below) with reversibility `costly` and continue on the default.
+   - Criterion 4; criteria 2 or 3 in a risk domain or `ruling_topics`; criterion 5: dispatch ONE fresh ruling agent for all such items on `{ruling_model}` (a rejected spawn retries once on `{ruling_model_fallback}` and says so in the log). Record it with `decisions.js add --kind decision --source opus-ruling` (phases = this phase) and proceed on it. If no ruling can be obtained, queue it as an assumption (below) with reversibility `costly` and continue on the default.
    - Criteria 2 or 3 outside those domains: the coordinator's own judgment, recorded with `decisions.js add --kind assumption --source coordinator-judgment` and its true reversibility; take the default.
    - Criterion 1 or 6 that is a strategic or business/legal call only the owner can make: `decisions.js add --kind assumption --source unattended --reversibility {true value} --phases {only the consuming phases}` (never `--global` unless every phase consumes it), print the question in the chat, continue on the default. Other phases are never held: the orchestrator's `gate` parks only the consuming phases when the assumption is `irreversible`.
    - Criterion 1 or 6 touching a risk domain or security: take the ruling route first.
@@ -128,6 +128,7 @@ Execute-phase ends with a fenced JSON trailer as its last content: `{"status": "
 |---|---|---|
 | `completed` | `completed`, only when `{N}-VERIFICATION.md` has `status: passed` on disk and the trailer says `phase complete` exited 0 | otherwise return `gaps_found` or `failed`; never "completed" on a claim |
 | `gaps_found` | run the one gap-closure cycle from the dispatch table; if the trailer is still `gaps_found`, return `gaps_found` with the gaps from VERIFICATION.md | the orchestrator then parks the phase |
+| `blocked` with `reason: budget_exceeded` or `form_gate` | `blocked`, same reason, with the owner report | no gap cycle, no retry; dependents are not parked for `form_gate` |
 | `human_needed` | `human_needed` with `human_items` | a human-only item is never auto-resolved |
 | `blocked` | `blocked` with `reason` | `reason: "parked"` when a decision gate parked it |
 | `failed`, or no parseable trailer | `failed` with `step` and `error` | a trailer-less return that looks like a session or quota death is returned as is: the orchestrator's death handling reads it |
@@ -141,10 +142,10 @@ Executors and verifiers are spawned by execute-phase, which assembles the fixed 
 
 </execution_cycle>
 
-<haiku_cost_and_test_commands>
-**Test cost:** one full run of every gate in `stack.gates[]` and `stack.commands.pre_pr_gate` per phase, before pre-verification on the final tree; the twice-green pass runs once at phase end. Executors and test writers run affected files plus one bucket. See gsd-test-protocol.md `test_cost_rule`.
+<cost_and_test_commands>
+**Test cost:** one full run of every gate in `stack.gates[]` and `stack.commands.pre_pr_gate` per phase, on the final tree before the final phase review; the twice-green pass runs once at phase end. Executors and test writers run affected files plus one bucket. See gsd-test-protocol.md `test_cost_rule`.
 
-**Haiku context and reporting cost:** Haiku is cheaper with context under ~100k tokens: size each Haiku task small (one plan task / one finding batch), read line ranges not whole files, save test logs to `.tmp/` and read only failing lines, fresh agent per task. All agents report answer-first, up to 10 lines.
+**Context and reporting cost:** the executor tier is cheaper with context under ~100k tokens: size each executor task small (one plan task / one finding batch), read line ranges not whole files, save test logs to `.tmp/` and read only failing lines, fresh agent per task. All agents report answer-first, up to 10 lines.
 
 **Run tests only through `stack_commands` (`test_file`, `test_all`), verbatim; never retype a command.** No inline env vars, no `| tail/grep`, no `;`/extra `&&`, no `$()`/heredocs/`bash -c`. If a command prompts, stop and report the exact string.
-</haiku_cost_and_test_commands>
+</cost_and_test_commands>

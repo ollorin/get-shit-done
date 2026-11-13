@@ -366,13 +366,15 @@ If "adjust": Return to scoping.
 node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs: define milestone v[X.Y] requirements" --files .planning/REQUIREMENTS.md
 ```
 
+**Rigour proposal (before the gate, no question asked).** Propose `spike` when the goals document or PRD describes the milestone, or named parts of it, as a prototype, spike or feasibility probe whose output is evidence and not product code, and name the spike roots; otherwise propose `standard` (`references/rigour.md`). The proposal is one line of the gate summary, so the owner approves or rejects it with the composition.
+
 **Owner gate OG1 (composition).** Auto (auto_mode, references/auto-mode.md OG1): do not draft the roadmap yet. Request the gate with the composition summary, print it, and end the run `waiting_owner_approval`.
 
 ```bash
-node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" owner-gate request --kind composition --milestone v[X.Y] --summary "<PRD slugs or goals source; N requirements by category; out-of-scope list; open A- rows>"
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" owner-gate request --kind composition --milestone v[X.Y] --summary "<PRD slugs or goals source; N requirements by category; out-of-scope list; open A- rows; rigour proposal: standard | spike (roots: <paths>; which parts)>"
 ```
 
-Owner summary (compact): milestone name and version, the PRDs or goals document it is built from, the requirement count per category, what is out of scope, the open `A-` assumptions with their defaults. The owner approves with `gsd-tools owner-gate approve --kind composition` and re-runs `/gsd:new-milestone --auto`.
+Owner summary (compact): milestone name and version, the PRDs or goals document it is built from, the requirement count per category, what is out of scope, the open `A-` assumptions with their defaults, and the rigour proposal with its one-line reason. The owner approves with `gsd-tools owner-gate approve --kind composition` and re-runs `/gsd:new-milestone --auto`.
 
 ## 10. Create Roadmap
 
@@ -435,7 +437,7 @@ Create roadmap for milestone v[X.Y]:
 6. Write files immediately (ROADMAP.md, STATE.md, update REQUIREMENTS.md traceability)
 7. Return ROADMAP CREATED with summary and `## Decision Points`
 
-Rigour: Auto (auto_mode, references/auto-mode.md K2): the answer is `standard` (no Rigour line); `spike` only when the goals document names a spike and an owner `D-` decision exists (`decisions add --kind decision`), never from an assumption. Interactive: ask the owner once whether this milestone is a throwaway feasibility spike. If not, add no Rigour line (standard). If it is, the spike needs an active `D-` decision (owner answer) and at least one spike root; stamp `**Rigour**: spike (D-NN)` and `**Spike roots**: <paths>` on every phase, and state each phase's 1-5 spike questions as its success criteria (see `references/rigour.md`).
+Rigour: Auto (auto_mode, references/auto-mode.md K2): take the proposal of the approved `composition` gate; never widen it. `standard`: add no Rigour line. `spike`: pass `OG2` as the authorisation; the roadmap gate requested in step 11 lists every spike phase and its approval is the owner's answer (`references/rigour.md`). Until CLI-2 lands record the composition approval instead (`decisions add --kind decision --source owner-answer --question "Rigour of milestone v[X.Y]" --answer "spike, roots <paths>; owner gate composition@[X.Y] approved <approved_at>"`), pass the returned `D-NN`, and after the return run `decisions map D-NN --phases <the spike phase numbers> --milestone v[X.Y]`. A gate summary with no spike proposal authorises no spike, and an `A-` row never does. Interactive: ask the owner once whether this milestone, or which phases of it, is a throwaway feasibility spike, and record a yes as a `D-` decision the same way. The roadmapper stamps `**Rigour**: spike (<authorisation>)` and `**Spike roots**: <paths>` on every spike phase, with its 1-5 spike questions as success criteria, and `**Risk domains**: <names>` on every `standard` phase that touches one; it lists rigour, risk domains and budget per phase in its return.
 
 Write files first, then return.
 </instructions>
@@ -564,10 +566,10 @@ node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" commit "docs: create milesto
 
 **Auto mode:** the roadmap is the second owner gate; the hand-off to the roadmap run happens only on the invocation that finds it approved. There is no phase to discuss by hand.
 
-Auto (auto_mode, references/auto-mode.md OG2): with no approved `roadmap` gate, request it, print the owner summary (phase table: number, name, goal, requirement IDs; requirement coverage; the open `A-` rows) and end the run `waiting_owner_approval`; start no phase.
+Auto (auto_mode, references/auto-mode.md OG2): with no approved `roadmap` gate, request it, print the owner summary (phase table: number, name, goal, requirement IDs, rigour, whether it touches a risk domain; requirement coverage; the open `A-` rows; the expected budget per phase from `references/rigour.md`) and end the run `waiting_owner_approval`; start no phase.
 
 ```bash
-node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" owner-gate request --kind roadmap --milestone v[X.Y] --summary "<N phases; coverage; open A- rows>"
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" owner-gate request --kind roadmap --milestone v[X.Y] --summary "<N phases; coverage; open A- rows; rigour per phase, e.g. 1-2 spike, 3 standard (risk: auth)>" --spike-phases <N,M> --spike-roots <paths>   # the two flags only with spike phases (CLI-2)
 ```
 
 Auto (auto_mode, references/auto-mode.md K1): with the `roadmap` gate approved, proceed to the roadmap run without waiting.

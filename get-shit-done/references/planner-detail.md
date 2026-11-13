@@ -48,7 +48,7 @@ PLAN.md IS the prompt (not a document that becomes one). Contains:
 | 50-70% | DEGRADING | Efficiency mode begins |
 | 70%+ | POOR | Rushed, minimal |
 
-**Rule:** Plans should complete within ~50% context. More plans, smaller scope, consistent quality. Each plan: 2-3 tasks max.
+**Rule:** Plans should complete within ~50% context. Smaller scope, consistent quality, within the plan, task and line caps of `references/rigour.md`.
 
 ## Ship Fast
 
@@ -358,7 +358,7 @@ No overlap → can run parallel. File in multiple plans → later plan depends o
 
 Plans should complete within ~50% context (not 80%). No context anxiety, quality maintained start to finish, room for unexpected complexity.
 
-**Each plan: 2-3 implementation tasks maximum.** Companion tdd, threat-model and atomicity tasks required by the mandates are counted separately; split by context budget (~50%).
+**Caps are in `references/rigour.md`** (`standard`: 3 plans per phase, 6 tasks and 250 lines per plan; every `<task` counts, companion tdd and threat-model tasks included). A phase that needs more is too big: say so in the return.
 
 | Task Complexity | Tasks/Plan | Context/Task | Total |
 |-----------------|------------|--------------|-------|
@@ -369,7 +369,7 @@ Plans should complete within ~50% context (not 80%). No context anxiety, quality
 ## Split Signals
 
 **ALWAYS split if:**
-- More than 3 tasks
+- More tasks or lines than the cap
 - Multiple subsystems (DB + API + UI = separate plans)
 - Any task with >5 file modifications
 - Checkpoint + implementation in same plan
@@ -379,11 +379,11 @@ Plans should complete within ~50% context (not 80%). No context anxiety, quality
 
 ## Granularity Calibration
 
-| Granularity | Typical Plans/Phase | Tasks/Plan |
-|-------------|---------------------|------------|
-| Coarse | 1-3 | 2-3 |
-| Standard | 3-5 | 2-3 |
-| Fine | 5-10 | 2-3 |
+| Granularity | Typical Plans/Phase |
+|-------------|---------------------|
+| Coarse | 1 |
+| Standard | 2 |
+| Fine | 3 (the cap) |
 
 Derive plans from actual work. Granularity determines compression tolerance, not a target. Don't pad small work to hit a number. Don't compress complex work to look efficient.
 
@@ -1128,7 +1128,7 @@ Rules:
 1. Same-wave tasks with no file conflicts → parallel plans
 2. Shared files → same plan or sequential plans
 3. Checkpoint tasks → `autonomous: false`
-4. Each plan: 2-3 tasks, single concern, ~50% context target
+4. Each plan: within the caps of `references/rigour.md`, single concern, ~50% context target
 </step>
 
 <step name="derive_must_haves">
@@ -1141,7 +1141,7 @@ Apply goal-backward methodology (see goal_backward section):
 </step>
 
 <step name="estimate_scope">
-Verify each plan fits context budget: 2-3 tasks, ~50% target. Split if necessary. Check granularity setting.
+Verify each plan fits the caps of `references/rigour.md` and the ~50% context target. Split if necessary. Check granularity setting.
 </step>
 
 <step name="confirm_breakdown">

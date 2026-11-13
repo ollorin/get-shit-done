@@ -455,11 +455,11 @@ On return:
 </step>
 
 <step name="revision_loop">
-**Iterate planner ↔ checker until plans pass (max 3):**
+**Iterate planner ↔ checker until plans pass (cap and delta rule: `references/rigour.md`):**
 
-**If iteration_count < 3:**
+**If iteration_count < 2:**
 
-Display: `Sending back to planner for revision... (iteration {N}/3)`
+Display: `Sending back to planner for revision... (iteration {N}/2)`
 
 Spawn gsd-planner with revision context:
 
@@ -491,12 +491,12 @@ Do NOT replan from scratch unless issues are fundamental.
 )
 ```
 
-After planner returns → spawn checker again (verify_gap_plans logic)
+After planner returns → spawn checker again as a delta round (verify_gap_plans logic)
 Increment iteration_count
 
-**If iteration_count >= 3:**
+**If iteration_count >= 2:**
 
-Display: `Max iterations reached. {N} issues remain.`
+Display: `Plan-check cap reached. {N} issues remain.`
 
 Offer options:
 1. Force proceed (execute despite issues)
@@ -582,6 +582,6 @@ Default to **major** if unclear. User can correct if needed.
 - [ ] If issues: parallel debug agents diagnose root causes
 - [ ] If issues: gsd-planner creates fix plans (gap_closure mode)
 - [ ] If issues: gsd-plan-checker verifies fix plans
-- [ ] If issues: revision loop until plans pass (max 3 iterations)
+- [ ] If issues: revision loop until plans pass or the plan-check cap is reached
 - [ ] Ready for `/gsd:execute-phase --gaps-only` when complete
 </success_criteria>

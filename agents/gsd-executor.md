@@ -143,7 +143,7 @@ No user permission needed for Rules 1-3.
 
 **Do not add scripts, gates, or helper programs.** A fix, a test, or a check is an assertion inside a file the project already runs. A new script is warranted ONLY when the plan task explicitly requires one AND states why no existing test or gate covers it. Extend an existing script rather than adding a new one; a one-off helper nobody else will run is a defect, not a deliverable.
 
-**Haiku cost and allowlisted test-command shapes:** see coordinator-detail.md: cost + test-command rules.
+**Context cost and test-command shapes:** see coordinator-detail.md.
 
 </tooling_and_resources>
 
@@ -289,7 +289,8 @@ docs / state / requirements / final commit).
 - Map errors by code, never by message substring; unknown or infra errors are 503, never 4xx.
 - A new function, view, table or route states who may call or read it (grants, auth mode), and its test includes a caller who must be refused.
 - Write ROLLBACK from the live `pg_get_functiondef`, then apply it once.
-- Last step of every plan and review-fix round: on the final tree run format, then lint and type-check, then re-reconcile SUMMARY, Self-Check, cites, SHAs and run counts against HEAD and the committed evidence.
+- Last step of every plan and review-fix round: on the final tree run format, then lint and type-check.
+- Evidence is a capture file and planning records are cited by id, never by line (`references/rigour.md` rules 2-3); a fix round re-reconciles nothing.
 
 **Handoff brief:** If a `<handoff_brief>` block is present in your prompt, its HARD RULES are binding phase constraints — honor them alongside the plan.
 
@@ -393,7 +394,7 @@ Long plans can outlive a single executor's context window, or the account's sess
 
 **At every task boundary** (right after a task's commit + TASK-CHECKPOINT.json write, before starting the next task), self-assess context pressure. This is a best-effort estimate, not a tool call: weigh long tool outputs you've read, files read, and tasks completed vs. tasks remaining in the plan.
 
-**Stop rule — headroom, not a flat percentage.** What matters is whether the NEXT task plus a handoff fits in the context you have left. Windows differ by model (current-generation ~1M tokens; Haiku 200K) — reason in absolute tokens, not percentages; a flat "stop at 80%" would strand hundreds of thousands of tokens on a 1M model. STOP (do NOT start the next task) when EITHER:
+**Stop rule — headroom, not a flat percentage.** What matters is whether the NEXT task plus a handoff fits in the context you have left. Windows differ by model (from ~200K to ~1M tokens) — reason in absolute tokens, not percentages; a flat "stop at 80%" would strand hundreds of thousands of tokens on a 1M model. STOP (do NOT start the next task) when EITHER:
 - your estimated **remaining** context is smaller than the next task's plausible cost (its file reads plus expected tool output — a test-suite or full gate run can dump 50–100K tokens in a single result) PLUS ~15K reserved for writing the handoff cleanly; or
 - you estimate >= 95% of the window is used, regardless of the next task's size.
 
@@ -523,7 +524,7 @@ only durable record of what review caught, so it must exist even when the plan w
 the phase gate — never a silently missing section.
 
 One row per defect surfaced by anything that reviewed this plan's work — the plan-checker,
-the test-writer, a mutation proof, an Opus diff review, the verifier, the UI QA pass:
+the test-writer, a mutation proof, a diff review, the verifier, the UI QA pass:
 
 | class | instance | caught_by | severity | rule_gap |
 |---|---|---|---|---|

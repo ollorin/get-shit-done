@@ -112,7 +112,7 @@ Pattern B only (verify-only checkpoints). Skip for A/C.
    - Verify key-files.created exist on disk with `[ -f ]`
    - Check `git log --oneline --all --grep="{phase}-{plan}"` returns ≥1 commit
    - Append `## Self-Check: PASSED` or `## Self-Check: FAILED` to SUMMARY
-   - After every fix round, re-reconcile cites, counts and run logs against HEAD
+   - Evidence is named by capture path and planning records by id (`D-NN`, `A-NN`), never by line of a rendered file, so a fix round re-reconciles nothing
    - Confirm `## Defect Classes` exists (rows, or an explicit `None found. (reviewed by: …)`) — a missing section fails the self-check
 
    **Known Claude Code bug (classifyHandoffIfNeeded):** If any segment agent reports "failed" with `classifyHandoffIfNeeded is not defined`, this is a Claude Code runtime bug — not a real failure. Run spot-checks; if they pass, treat as successful.
@@ -381,7 +381,7 @@ One-liner SUBSTANTIVE: "JWT auth with refresh rotation using jose library" not "
 
 Include: duration, start/end times, task count, file count.
 
-**`## Defect Classes` — REQUIRED.** One row per defect this plan's plan-check, test-writer, mutation-proof, Opus diff review, verification, or UI QA pass surfaced:
+**`## Defect Classes` — REQUIRED.** One row per defect this plan's plan-check, test-writer, mutation-proof, diff review, verification, or UI QA pass surfaced:
 
 ```markdown
 ## Defect Classes

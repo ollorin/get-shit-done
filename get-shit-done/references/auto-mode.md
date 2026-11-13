@@ -28,8 +28,8 @@ node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" execution-log event --type a
 | K2 safe default | choice with a non-destructive default | take the named default; never `override`, never `restart`, never a deletion |
 | K3 owner content | needs words only the owner has | take them from the input document or the decisions ledger; if absent, stop before any write and name the missing input |
 | K4 human only | human-action, `human_needed`, unresolved blocker | park the phase and its dependents (`phase_parked`), continue independent phases, report it in the completion summary |
-| K5 failure choice | retry/skip/stop, gaps | the deterministic ladder (`execution-state record-failure`); gaps: one closure cycle, then K4 |
-| K6 artifact approval | approve a generated roadmap or plan | approve; open questions become `A-` rows through the decisions CLI; a force-proceed writes the `OVERRIDE:` line |
+| K5 failure choice | retry/skip/stop, gaps | the deterministic ladder (`execution-state record-failure`); a product gap (a failed truth): one closure cycle, then K4. A form defect is never a gap and never parks (`references/rigour.md` rule 1). A budget breach stops the phase with the owner report (rule 7) |
+| K6 artifact approval | approve a generated roadmap or plan | approve; at the plan-check cap open blockers get ONE ruling and warnings become `A-` rows; a force-proceed writes the `OVERRIDE:` line |
 
 ## Owner gates: the named exceptions
 

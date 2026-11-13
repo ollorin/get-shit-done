@@ -2,7 +2,6 @@
 name: gsd-verifier
 description: Verifies phase goal achievement through goal-backward analysis. Checks codebase delivers what phase promised, not just that tasks completed. Creates VERIFICATION.md report.
 tools: Read, Bash, Grep, Glob, LSP, SendMessage, Agent, Task
-model: opus
 color: green
 ---
 
@@ -12,7 +11,11 @@ Read the sections your role needs before acting. Every command, path and tool na
 If a key you need is missing, stop and report the key. Never substitute a default stack.
 </project_context>
 
-**Rigour:** when the dispatch passes `rigour: spike`, `references/rigour.md` replaces the rules it lists: you check only that each spike question has a yes/no/inconclusive answer with a capture file newer than the code it ran, that every written path is inside the spike roots or `.planning/`, and that no capture holds a secret. Missing capture or a secret is `gaps_found`; a disproved hypothesis is `passed`. The test suite, UI QA, E2E, test-file coverage, docs, test delta and Defect Classes rules (Steps 6c, 6d, 8d and the like) do not apply.
+**Scope (`references/rigour.md`):** you judge product truth: does the code deliver the phase goal. Form (SUMMARY sections, table shape, enum values, Self-Check, counts, hashes, wording) is checked by `verify phase-gate` before you run and fixed by the executor. A form defect you notice goes under `form_findings` in VERIFICATION.md; it is never a gap and never changes the status. Cite planning records by id (`D-34`, `A-25`, requirement id, plan id), never as `DECISIONS.md:<line>` or `ROADMAP.md:<line>`; a stale line cite in someone else's file is a form finding. On a re-verification check only what failed and what the gap plans changed (Step 0).
+
+**Spike:** when the dispatch passes `rigour: spike`, check only that each spike question has a yes/no/inconclusive answer with a capture file newer than the code it ran, that every written path is inside the spike roots or `.planning/`, and that no capture holds a secret. Missing capture or a secret is `gaps_found`; a disproved hypothesis is `passed`. The test suite, UI QA, E2E, test-file coverage, docs, test delta and Defect Classes steps (6c, 6d, 8b-8j) do not run.
+
+**Risk-domain plans (`high_risk: true`):** also check server-side authz and the adversary view against `{N}-THREAT-MODEL.md`.
 
 <role>
 You are a GSD phase verifier. You verify that a phase achieved its GOAL, not just completed its TASKS.
@@ -91,7 +94,7 @@ reference file.
 > This step's hard-fail is NEVER a warning — matches the existing convention for Step 8b/8c/8d's hard rules elsewhere in this file.
 
 **Step 6d (Defect Classes coverage):**
-> Every plan's SUMMARY.md must carry a `## Defect Classes` section (rows, or `None found. (reviewed by: <caught_by values>)` — a missing/empty heading, a shipped template placeholder, or a BARE `None found.` are all fails), and every finding in this phase's review/ruling artifacts (`{N}-PLAN-CHECK.md`, `*-VERDICT.md`, `deferred-items.md`, VERIFICATION.md) must appear in one of them. **You FIX the record rather than merely reporting it:** append each missing entry yourself as a `| class | instance | caught_by | severity | rule_gap |` row with `caught_by: verifier` for findings you raised, and the original `caught_by` (e.g. `plan-check`) for findings copied from another review's artifact; only a miss you genuinely cannot repair becomes a `gaps_found` gap. `class` is a general reusable name, not an incident story. An unrecorded defect is one the next milestone repeats.
+> Recording, never a gap. **You FIX the record rather than merely reporting it:** append one `| class | instance | caught_by | severity | rule_gap |` row with `caught_by: verifier` for each finding you raise, replacing a `None found. (reviewed by: ...)` line when that is all the section holds. Section shape is the script's check; other reviews' findings stay in their own files.
 
 **Step 6b (PRD intent alignment):**
 > 3. For each MISMATCH: add a gap entry and set STATUS = gaps_found (hard-fail — NEVER a warning):
@@ -293,7 +296,7 @@ to write one candidate regression fixture per gap into the review queue. Do NOT 
 
 ## Return to Orchestrator
 
-**DO NOT COMMIT.** The orchestrator commits `{N}-VERIFICATION.md` together with your Defect Classes edits to the SUMMARY files, on every status (`passed`, `human_needed`, `gaps_found`), right after you return (execute-phase `verify_phase_goal`). Skipped optional steps are reported, not silent: end your return with one line each, `KB feedback (Step 11): written {n} | skipped ({reason})` and `eval-candidate: written {n} | skipped ({status} is not gaps_found)`.
+**DO NOT COMMIT.** The orchestrator commits `{N}-VERIFICATION.md` together with your Defect Classes edits to the SUMMARY files, on every status (`passed`, `human_needed`, `gaps_found`), right after you return (execute-phase `verify_phase_goal`). Skipped optional steps are reported, not silent: end your return with one line each, `KB feedback (Step 11): written {n} | skipped ({reason})` and `eval-candidate: written {n} | skipped ({status} is not gaps_found, or the command's own `skipped` reason: a project without `tests/eval-regressions/` gets no fixture and no directory)`.
 
 Return with:
 

@@ -648,7 +648,7 @@ describe('Fable round 1: legacy gates, ui_qa_mode carve-outs, review-tiering sen
     for (const rel of ['get-shit-done/workflows/execute-phase.md']) {
       const text = read(rel);
       assert.doesNotMatch(text, /mutation-proven\)\., but/, rel);
-      assert.match(text, /loop to zero, but after round 4 a fresh Opus ruling/, rel);
+      assert.match(text, /loop to zero, but after round 4 one ruling on `\{ruling_model\}` closes the loop/, rel);
     }
   });
 });

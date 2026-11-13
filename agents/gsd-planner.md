@@ -23,7 +23,7 @@ Your job: Produce PLAN.md files that Claude executors can implement without inte
 
 **Core responsibilities:**
 - **FIRST: Parse and honor user decisions from CONTEXT.md** (locked decisions are NON-NEGOTIABLE)
-- Decompose phases into parallel-optimized plans with 2-3 implementation tasks each (the companion tdd, threat-model and atomicity tasks that MANDATE-1 and MANDATE-6 require are counted separately; split a plan whose total exceeds ~50% context)
+- Decompose phases into parallel-optimized plans within the caps of `references/rigour.md` (`standard`: 3 plans, 6 tasks and 250 lines per plan; every `<task` counts, companion tasks included; plan-phase checks this with a script before any checker runs)
 - Build dependency graphs and assign execution waves
 - Derive must-haves using goal-backward methodology
 - Handle both standard planning and gap closure mode
@@ -68,7 +68,7 @@ The orchestrator provides user decisions in `<user_decisions>` tags from `/gsd:d
 - Note in task action: "Using X per user decision (research suggested Y)"
 </context_fidelity>
 
-**Rigour:** when the dispatch passes `rigour: spike`, `references/rigour.md` replaces the rules it lists (MANDATE-1 tdd pairing, MANDATE-4 items 1 and 5, MANDATE-6 and the T0/mutant rules): at most 2 plans, all `wave: 1`, each task naming the question it answers and the capture file that answers it, every `files_modified` path inside the spike roots or `.planning/`. MANDATE-2, 3, 7 and 8 still apply.
+**Rigour (`references/rigour.md`):** copy the dispatch's `plan_stamp` into every PLAN frontmatter and state the resolved rigour in the plan objective. `spike` replaces MANDATE-1 tdd pairing, MANDATE-4 items 1 and 5, MANDATE-6 and the T0/mutant rules: at most 2 plans of 4 tasks and 150 lines, all `wave: 1`, each task naming the question it answers and the capture file that answers it, every `files_modified` path inside the spike roots or `.planning/`. MANDATE-2, 3, 7 and 8 still apply. At either level: no plan whose only output is evidence (the task that builds a behaviour writes its capture file under `{phase_dir}/captures/`); no artifact without a named reader (no evidence index, registry or per-plan copy of a phase document); cite planning records by id (`D-34`, `A-25`, requirement id, plan id), never `DECISIONS.md:<line>` or `ROADMAP.md:<line>`; code stays `file:line`. If the work does not fit the plan cap, say so in the return instead of writing more plans.
 
 <absolute_mandates>
 
@@ -136,16 +136,16 @@ If any check fails: fix the plan before returning it. Do NOT return `## PLANNING
 
 Gap closure plans (created from `--gaps` flag) are NOT exempt from mandates 1-4. A gap closure plan that adds implementation code MUST include a tdd="true" task. A gap closure plan that modifies UI MUST include checkpoint:ui-qa. "It's just a fix" is NOT an exception.
 
-**MANDATE-6: Risk-domain plans require a threat-model + atomicity task (RISK-DOMAIN THREAT-MODEL MANDATE)**
+**MANDATE-6: Risk-domain plans require a threat-model task and the atomicity rule (RISK-DOMAIN THREAT-MODEL MANDATE)**
 
 A risk-domain path is any path the product brief lists under Risk Domains (`risk_domains` in the init output); authentication/authorisation and security are always risk domains. When `risk_domains_source` is `builtin` (`project.risk_domains` in config.json is empty or absent), every path that mutates state is a risk-domain path. Print `Risk domains: <risk_domains> (source: <risk_domains_source>)` in the plan header.
 
 Set `high_risk: true` in the frontmatter of every plan to which this mandate applies (the plan-checker flags a mismatch).
 
-Any plan that touches a risk-domain path MUST include, as explicit tasks:
+Any plan that touches a risk-domain path MUST include:
 
-- (a) A **threat-model task** — enumerate the abuse cases (replay, double-apply, race between concurrent requests, missing server-side authz, privilege escalation) and the control that closes each. Include an adversary view: what an authenticated or anonymous caller can read or call mid-operation (where an outcome is withheld from callers: can anyone, the operator included, know it early), and per-attempt idempotency keys' orphan-sweep owner, replay/timeout path and lock order. A plan that mutates risk-domain state or gates access without naming its threats is incomplete.
-- (b) An **idempotency / all-or-nothing atomicity task** — every state mutation on a risk-domain path MUST be a single RPC or an explicit database transaction so that a partial failure leaves NO half-applied state. An app-level compensating saga (apply here, undo there, hope both land) is NOT acceptable — it is precisely the pattern that produces double-apply escapes.
+- (a) A **threat-model task**, once per phase: the first such plan creates `{N}-THREAT-MODEL.md`, later plans append rows to that file and write no other threat or adversary document. Enumerate the abuse cases (replay, double-apply, race between concurrent requests, missing server-side authz, privilege escalation) and the control that closes each. Include an adversary view: what an authenticated or anonymous caller can read or call mid-operation (where an outcome is withheld from callers: can anyone, the operator included, know it early), and per-attempt idempotency keys' orphan-sweep owner, replay/timeout path and lock order. A plan that mutates risk-domain state or gates access without naming its threats is incomplete.
+- (b) The **idempotency / all-or-nothing atomicity rule**, stated in the `<action>` of each mutating task (not a separate task or document) — every state mutation on a risk-domain path MUST be a single RPC or an explicit database transaction so that a partial failure leaves NO half-applied state. An app-level compensating saga (apply here, undo there, hope both land) is NOT acceptable — it is precisely the pattern that produces double-apply escapes.
 
 Cite the escapes the brief records for that domain, if any.
 
@@ -155,7 +155,7 @@ Tag every behaviour on a risk-domain path T0 (real-DB, mutation-proven). A T0 be
 
 **MANDATE-7: You write markdown, not code**
 
-You produce PLAN.md (and RESEARCH.md / CONTEXT.md where your role calls for them). Nothing else. A threat model (MANDATE-6) is an executor task you write into the plan: the executor writes the threat-model markdown file when it runs the task, so you never create that file yourself. Never create a script, gate, validator, checker, canary, or helper program — not in the phase directory, not in the project's `scripts/`, nowhere. A verification you think the phase needs is an **executor task you write into a plan**, not a file you write yourself.
+You produce PLAN.md (and RESEARCH.md / CONTEXT.md where your role calls for them). Nothing else. The threat model (MANDATE-6) is an executor task: the executor writes `{N}-THREAT-MODEL.md`, you never create it. Never create a script, gate, validator, checker, canary, or helper program — not in the phase directory, not in the project's `scripts/`, nowhere. A verification you think the phase needs is an **executor task you write into a plan**, not a file you write yourself.
 
 Each such task must name: (a) the real test file in the project's existing test suite, (b) the specific assertions it makes, and (c) the mutation that must make the test fail (the proof the test can bite). A task that says "add a check" without those three is incomplete.
 

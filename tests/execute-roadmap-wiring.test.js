@@ -84,9 +84,10 @@ describe('P1 execute-roadmap is a loop over roadmap next and roadmap record', ()
     assert.ok(ROADMAP.indexOf('--mark-passed') > ROADMAP.indexOf('**A. Pre-PR') && ROADMAP.indexOf('--mark-passed') < ROADMAP.indexOf('**B. Pull request'), 'the gate is marked before the pr step');
   });
 
-  test('models come from init: coordinator, ruling (with fallback), utility, reviewer; no literal', () => {
+  test('models come from init: coordinator, ruling (with fallback), utility; no literal; no reviewer pre-verification before the final phase review', () => {
     assert.doesNotMatch(ROADMAP, /model="(haiku|sonnet|opus|fable)"/);
-    for (const m of ['{coordinator_model}', '{ruling_model}', '{ruling_model_fallback}', '{reviewer_model}']) assert.ok(ROADMAP.includes(m), m);
+    for (const m of ['{coordinator_model}', '{ruling_model}', '{ruling_model_fallback}']) assert.ok(ROADMAP.includes(m), m);
+    assert.ok(!ROADMAP.includes('pre-verification'), 'the final phase review is one dispatch on the top model');
     assert.match(ROADMAP, /`utility_model`/);
   });
 

@@ -156,7 +156,7 @@ The loop. Repeat until `roadmap next` returns `done`:
 ```bash
 NEXT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js roadmap next $LEGACY_FLAG $RETRY_PARKED_FLAG)
 ```
-`$RETRY_PARKED_FLAG` is `--retry-parked` when it is in `$ARGUMENTS`: use it once the owner has answered what parked a phase; without it a parked phase and its dependents stay parked. `roadmap next` reads the log and disk truth, appends its own `phase_start`/`gap_cycle`/`phase_parked` events and returns one action; dependencies, parking of dependents and the one-gap-cycle ceiling are its job, not yours. No action ever asks the owner anything; the only stop is `waiting_owner_approval`. A resume starts at `init execute-roadmap`: `blocked_by_owner_gate` non-null and `resume_state.status` `waiting_owner_approval` mean print the same stop and end; once the gate is approved the next `roadmap next` continues the loop (or returns `done` after the pr gate).
+`$RETRY_PARKED_FLAG` is `--retry-parked` when it is in `$ARGUMENTS`: use it once the owner has answered what parked a phase itself; without it that phase stays parked. Dependents need no flag: `roadmap next` recomputes dependency parking from disk on every call, so a dependent runs as soon as its blocker is complete. `roadmap next` reads the log and disk truth, appends its own `phase_start`/`gap_cycle`/`phase_parked` events and returns one action; dependencies, parking of dependents and the one-gap-cycle ceiling are its job, not yours. No action ever asks the owner anything; the only stop is `waiting_owner_approval`. A resume starts at `init execute-roadmap`: `blocked_by_owner_gate` non-null and `resume_state.status` `waiting_owner_approval` mean print the same stop and end; once the gate is approved the next `roadmap next` continues the loop (or returns `done` after the pr gate).
 
 | `action` | Do |
 |---|---|
@@ -282,8 +282,8 @@ IS_STALE=$(node -e "console.log(JSON.parse(process.argv[1]).stale)" "$STALENESS_
 
 Branch on the coordinator's `status`:
 - `completed`: run **5a** then **5b** first, and only after both pass hand the result to `roadmap record`.
-- `completed_with_deferrals` (context limit): spawn a fresh agent for each item of `deferred`. `"execute"`: a fresh coordinator that resumes at execute (same spawn with the resume brief). `"verify"`: a `gsd-verifier` on `{ruling_model}` (a rejected spawn retries once on `{ruling_model_fallback}` and says so) after a `{reviewer_model}` pre-verification of all must-haves with on-disk evidence. `"ui_qa"`: caught by 5a. Then 5a, 5b.
-- every other status (`failed`, `blocked`, `gaps_found`, `human_needed`, or unparseable text): straight to `roadmap record`.
+- `completed_with_deferrals` (context limit): spawn a fresh agent for each item of `deferred`. `"execute"`: a fresh coordinator that resumes at execute (same spawn with the resume brief). `"verify"`: a `gsd-verifier` on `{ruling_model}` (a rejected spawn retries once on `{ruling_model_fallback}` and says so) (the final phase review, `references/model-profiles.md`). `"ui_qa"`: caught by 5a. Then 5a, 5b.
+- every other status (`failed`, `blocked`, `gaps_found`, `human_needed`, or unparseable text): straight to `roadmap record`. A coordinator never returns `gaps_found` for a form defect (`references/rigour.md` rule 1); `blocked` with `reason: budget_exceeded` or `form_gate` carries its owner report: print it.
 
 The recording command is the only writer of a phase's completion:
 ```bash
@@ -295,7 +295,8 @@ It runs the on-disk truth for the phase (every plan has a SUMMARY with Self-Chec
 |---|---|
 | `complete` | print the phase report (step 6) and continue the loop |
 | `gap_cycle` | continue the loop: `roadmap next` returns `gap_cycle` for this phase, once |
-| `park` | the phase and its dependents stay parked (K4): Auto (auto_mode, references/auto-mode.md K4): park, print the reason (human items or gaps after the closure cycle) to the chat, continue with independent phases; it ends the run with no PR, loudly, in `completion` |
+| `park` | the phase and its dependents stay parked (K4): Auto (auto_mode, references/auto-mode.md K4): park, print the reason (human items, product gaps after the closure cycle, or a budget breach) to the chat, continue with independent phases; it ends the run with no PR, loudly, in `completion` |
+| `continue_with_debt` (CLI-6) | a format-only gap or `form_gate`: the phase is recorded complete with `form_debt` listed in its report; nothing is parked, no gap cycle runs |
 | `spawn_deferred` | the deferrals above |
 | `respawn_death` | step 4a |
 | `retry`, `debug` | `<step name="handle_failure">` |
@@ -364,7 +365,7 @@ node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event \
 
 Otherwise (interactive) show the interrupted run (last phase started, status, `.planning/EXECUTION_LOG.md`) and ask `Type "resume", "restart" (overwrites the log) or "stop".`
 
-**Resume flow:** nothing is replayed from the log by hand. `roadmap next` skips every phase whose on-disk truth is complete, re-enters each started-but-incomplete phase through its own CHECKPOINT.json `resume_from` (the spawn carries the resume brief), and keeps parked phases parked unless `--retry-parked` was passed.
+**Resume flow:** nothing is replayed from the log by hand. `roadmap next` skips every phase whose on-disk truth is complete, re-enters each started-but-incomplete phase through its own CHECKPOINT.json `resume_from` (the spawn carries the resume brief), and keeps a phase that was itself parked parked unless `--retry-parked` was passed.
 </step>
 
 <step name="completion">

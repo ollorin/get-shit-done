@@ -156,6 +156,8 @@ describe('rigour text pins', () => {
   test('plan-phase and execute-phase carry the spike branches and the round-cap clarification', () => {
     const plan = text('get-shit-done/workflows/plan-phase.md');
     assert.match(plan, /\*\*Spike branches \(`rigour` is `spike`\)/);
+    assert.match(plan, /\*\*Risk-domain add-ons \(`standard` only\):\*\*/);
+    assert.doesNotMatch(plan + text('get-shit-done/workflows/execute-phase.md'), /`rigour` is `high`/);
     assert.match(plan, /\*\*Which round cap governs what:\*\*/);
     assert.match(plan, /`phase_req_ids`/);
     const exec = text('get-shit-done/workflows/execute-phase.md');

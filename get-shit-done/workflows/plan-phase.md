@@ -1,5 +1,5 @@
 <purpose>
-Create executable phase prompts (PLAN.md files) for a roadmap phase with integrated research and verification. Default flow: Research (if needed) -> Plan -> Verify -> Done. Orchestrates gsd-phase-researcher, gsd-planner, and gsd-plan-checker agents with a revision loop (max 3 iterations).
+Create executable phase prompts (PLAN.md files) for a roadmap phase with integrated research and verification. Default flow: Research (if needed) -> Plan -> Verify -> Done. Orchestrates gsd-phase-researcher, gsd-planner, and gsd-plan-checker agents with a capped revision loop (`references/rigour.md`).
 </purpose>
 
 <required_reading>
@@ -29,11 +29,13 @@ If the command exits 1 and INIT has `error: project_context_missing`: stop, prin
 
 Parse JSON for: `auto_mode`, `researcher_model`, `planner_model`, `checker_model`, `executor_model`, `ruling_model`, `ruling_model_fallback`, `utility_model`, `research_enabled`, `plan_checker_enabled`, `nyquist_validation_enabled`, `commit_docs`, `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `phase_slug`, `padded_phase`, `has_research`, `has_context`, `has_plans`, `plan_count`, `planning_exists`, `roadmap_exists`, `phase_req_ids`, `brief_path`, `stack_profile_path`, `stack_commands`. Every spawned agent receives `brief_path` and `stack_profile_path` (when not null) in its `<files_to_read>`, and `stack_commands` verbatim.
 
-**Rigour:** init also returns `rigour` (`standard` | `high` | `spike`), `rigour_source`, `rigour_decision`, `spike_roots`, `rigour_rejected_reason` and `phase_req_ids`. Pass `rigour` (and the spike roots) in every spawn prompt. `references/rigour.md` is the contract. `standard` is every rule below, unchanged. When `rigour_source` is `rejected`, print `rigour_rejected_reason` and continue as `standard`.
+**Rigour and budget (print first):** init also returns `rigour` (`standard` | `spike`), `rigour_source`, `rigour_decision`, `spike_roots`, `rigour_rejected_reason` and `phase_req_ids`. `references/rigour.md` is the contract: what runs per level, the risk-domain add-ons, the caps, the budget and its breach rule. Before anything else print its first line (`Phase {N}: rigour ..., risk domains: ..., budget ...`). Pass `rigour`, the spike roots, the risk domains and the remaining budget in every spawn prompt and log each dispatch as `phase_spend`. On a breach return `status: blocked`, `reason: budget_exceeded` with the owner report.
 
-**Spike branches (`rigour` is `spike`):** step 5: one research agent at most; steps 5.5 and 5.6 are skipped. Step 8: planner model is `planner_model`, never `ruling_model`; the planner writes at most 2 plans, all `wave: 1`, each task naming its question and capture file. Step 8b: always the light path, once. Step 9.5: `TRIAGE_MODE=checker` always, and any `rigour_violation` in an `assess-risk` result stops plan-phase with the offending paths before step 10. Step 10: `checker_model`, one round, Dimensions 1-7, 12 and 15 only. Step 12: one planner revision for blockers, no re-check, and the same OVERRIDE line when blockers remain unresolved. **High branches (`rigour` is `high`):** `ruling_model` for every plan, `TRIAGE_MODE=adversarial` always, all dimensions; after the step 12 cap an Opus-tier ruling decides in place of the auto-mode force-proceed.
+**Spike branches (`rigour` is `spike`):** step 5: one research agent at most; steps 5.5 and 5.6 are skipped. Step 8: `planner_model`; at most 2 plans, all `wave: 1`, each task naming its question and capture file. Step 8b: always the light path, once. Step 9.5: `TRIAGE_MODE=checker` always, and a `rigour_violation` in an `assess-risk` result stops plan-phase with the offending paths before step 10. Step 10: `checker_model`, one round, Dimensions 1-7, 12 and 15. Step 12: one planner revision for blockers, no re-check.
 
-**Which round cap governs what:** the 3-iteration cap in step 12 limits only this plan-check revision loop. The implementation review loop (execute-phase review rounds, a fresh reviewer each round, never the implementer) has its own rule in the project's CLAUDE.md and is not bounded by step 12. Neither rule replaces the other.
+**Risk-domain add-ons (`standard` only):** a phase with a `**Risk domains**` ROADMAP line plans on `ruling_model` (step 8); the plans `assess-risk` marks `high_risk` in step 9.5 get round 1 of the check on `ruling_model` with the adversarial pass. Nothing else in the phase changes.
+
+**Which round cap governs what:** step 12 caps only the plan-check loop; the implementation review loop has its own cap in `references/rigour.md` and is run by execute-phase.
 
 **File paths (for <files_to_read> blocks):** `state_path`, `roadmap_path`, `requirements_path`, `context_path`, `research_path`, `verification_path`, `uat_path`. These are null if files don't exist.
 
@@ -270,7 +272,7 @@ Agent(
 
 ## 5.5. Create Validation Strategy
 
-MANDATORY unless `nyquist_validation_enabled` is false.
+Skip when `nyquist_validation_enabled` is false, when `rigour` is `spike`, or when RESEARCH.md has no `## Validation Architecture` section (the grep below prints nothing): a validation strategy nobody wrote is not invented here.
 
 ```bash
 grep -l "## Validation Architecture" "${PHASE_DIR}"/*-RESEARCH.md 2>/dev/null
@@ -288,7 +290,7 @@ test -f "${PHASE_DIR}/${PADDED_PHASE}-VALIDATION.md" && echo "VALIDATION_CREATED
 5. If `VALIDATION_CREATED=false`: STOP — do not proceed to Step 6
 6. If `commit_docs`: `commit-docs "docs(phase-${PHASE}): add validation strategy"`
 
-**If not found:** Warn and continue — plans may fail Dimension 8.
+**If not found:** continue without the file.
 
 ## 5.6. Generate E2E Test Cases (Web Projects)
 
@@ -320,7 +322,7 @@ ls "${PHASE_DIR}"/*-PLAN.md 2>/dev/null
 ```
 
 **If exists:** Offer: 1) Add more plans, 2) View existing, 3) Replan from scratch.
-Auto (auto_mode, references/auto-mode.md K2): take 2, use the existing plans as they are and continue to step 10; never replan from scratch.
+Auto (auto_mode, references/auto-mode.md K2): take 2, use the existing plans as they are and continue to step 10; never replan from scratch. The one exception is deterministic: init reports `plans_stale: true` (the plans' `plan_stamp` no longer matches the phase inputs, `references/rigour.md` rule 9); then re-plan in revision mode with `stale_reason` as the issue.
 
 ## 7. Use Context Paths from INIT
 
@@ -403,7 +405,7 @@ Output consumed by /gsd:execute-phase. Plans need:
 </quality_gate>
 ```
 
-**Model rule:** every spawn passes `model` explicitly (an omitted model inherits the spawner's tier). Planner and plan-checker: `planner_model` / `checker_model` from init (the model_profile baseline) by default, but `ruling_model` from init (top tier, `opus` unless config sets it) for risk-domain plans and the plan-ahead coordinator, whatever the profile; executor and test-writer: `executor_model` from init. Rulings and adversarial passes also use `ruling_model`.
+**Model rule:** every spawn passes `model` explicitly (an omitted model inherits the spawner's tier), always an init field: planner `planner_model`, or `ruling_model` for a risk-domain phase; plan-checker `checker_model`, or `ruling_model` for round 1 with the adversarial pass; rulings `ruling_model`; executor and test-writer `executor_model`. The dispatch also carries `plan_stamp` (`gsd-tools plan stamp {N} --raw`), which the planner copies into every PLAN frontmatter.
 
 A risk-domain path is any path the product brief lists under Risk Domains (`risk_domains` in the init output); authentication/authorisation and security are always risk domains. When `risk_domains_source` is `builtin` (`project.risk_domains` in config.json is empty or absent), every path that mutates state is a risk-domain path. Tag every behaviour on a risk-domain path T0 (real-DB, mutation-proven).
 
@@ -418,7 +420,7 @@ Agent(
 
 ## 8b. Light path for trivial gap closure
 
-When `--gaps` and the gap list holds at most 4 small, independent fixes (each a few lines in one or two files, no new module, none in a high-stakes domain): spawn the planner for ONE plan covering all of them, skip the plan-checker round (step 10), and hand it straight to execute-phase `--gaps-only` (executor, then verifier). Anything larger, or any fix in a risk-domain path or touching a data schema, takes the full path. Record `light gap path: {n} fixes, no checker round` in the plan's `<objective>`.
+When `--gaps` and the gap list holds at most 4 small, independent fixes (each a few lines in one or two files, no new module, none on a risk-domain path): spawn the planner for ONE plan covering all of them, skip the plan-checker round (step 10), and hand it straight to execute-phase `--gaps-only` (executor, then verifier). Anything larger, or any fix in a risk-domain path or touching a data schema, takes the full path. Record `light gap path: {n} fixes, no checker round` in the plan's `<objective>`.
 
 ## 9. Handle Planner Return
 
@@ -431,6 +433,14 @@ When `--gaps` and the gap list holds at most 4 small, independent fixes (each a 
   Auto (auto_mode, references/auto-mode.md K5): retry the planner once, then return `status: failed` naming the failing plan count.
 
 **Malformed/absent return (mirror of execute-phase.md's executor-trailer fallback):** If `Agent()` threw, OR there is NO parseable JSON status trailer AND no recognizable `##` header, do NOT improvise the plan outcome. Retry the planner `Agent()` call once. If the retry is still unrecognized, surface the raw output to the user with retry/abort options — never silently proceed as if planning succeeded. Auto (auto_mode, references/auto-mode.md K5): after the one retry return `status: failed` with the raw output.
+
+## 9.4. Plan size (deterministic, no agent)
+
+```bash
+for PLAN_FILE in "${PHASE_DIR}"/*-PLAN.md; do printf '%s lines=%s tasks=%s\n' "$PLAN_FILE" "$(wc -l < "$PLAN_FILE")" "$(grep -c '<task' "$PLAN_FILE")"; done
+```
+
+Compare with the caps of `references/rigour.md` (tasks and lines per plan; a plan count over the cap is a warning that the phase is too big). A plan over a cap goes back to the planner once (step 12's revision spawn, issue `plan {id}: {lines} lines / {tasks} tasks, cap {L} / {T}: split it`), before any checker is spawned. A plan whose only output is evidence is folded into the plan that builds the behaviour. Still over after that one revision: continue and list it as an unresolved warning.
 
 ## 9.5. Risk Triage (Adversarial Review, MILE-39)
 
@@ -528,22 +538,7 @@ nothing else.
 
 ## 11. Handle Checker Return
 
-**Persist the checker's Defect Classes (do this on BOTH `TRIAGE_MODE` branches, before any
-proceed-to-step-12/13 line).** The rows are the milestone-end distillation's input, and a review
-finding that lives only in this transcript is lost. Write the checker's returned
-`## Defect Classes` block verbatim to `{PHASE_DIR}/{N}-PLAN-CHECK.md` — one file per phase,
-appending the block on each revision-loop iteration so nothing is overwritten:
-
-```bash
-# Create on the first pass with a header; append on later iterations.
-[ -f "{PHASE_DIR}/{N}-PLAN-CHECK.md" ] || \
-  printf '# Plan check — phase %s\n\n' "{phase_number}" > "{PHASE_DIR}/{N}-PLAN-CHECK.md"
-```
-
-Then append the returned block, and commit it **path-scoped, immediately** — on every
-iteration, not once at the end of the loop. A revision loop that is interrupted, resumed, or dies
-between iterations otherwise leaves the uncommitted block only in the transcript, and the
-resumed pass has no way to know whether it already appended:
+**Persist the round (on BOTH `TRIAGE_MODE` branches, before routing).** One file per phase, appended and committed path-scoped on every round, so a resumed run knows what was already found. Keep the `git add`: the file is created fresh by the `printf`, and on an untracked path `git commit -- <file>` **exit 1**s and commits nothing.
 
 ```bash
 F="{PHASE_DIR}/{N}-PLAN-CHECK.md"
@@ -552,26 +547,18 @@ cat >> "$F" <<'EOF'
 
 ## Issues (iteration {n})
 
-<every blocker and warning the checker returned, one line each: severity, dimension, plan, description>
+<every blocker and warning the checker returned, one line each: id, severity, dimension, plan, description>
 
 ## Defect Classes (iteration {n})
 
-<the checker's returned block, verbatim>
+<the checker's returned block, verbatim, including a `None found. (reviewed by: plan-check)` line>
 EOF
-git add -- "$F" && git commit -m "docs(phase-{X}): record plan-check defect classes" -- "$F"
+git add -- "$F" && git commit -m "docs(phase-{X}): record plan-check round {n}" -- "$F"
 ```
 
-The `## Issues (iteration {n})` list keeps warnings as well as blockers, so a later round can verify each earlier warning was fixed or consciously kept. From iteration 2 on, add `{PHASE_DIR}/{N}-PLAN-CHECK.md` to the checker's `<files_to_read>` and tell it to report the status (fixed, kept, new) of every earlier issue.
+Readers: the next round (below), the handoff brief (open risks) and the milestone rules distillation, which reads this file directly; nothing is copied from it into a SUMMARY.
 
-Use `git add -- <file>` before `git commit -- <file>`, always. Exact git behaviour (measured on
-git 2.39.1): a **tracked** path commits its working-tree state without needing an `add`, but an
-**untracked** one makes `git commit -- <file>` **exit 1** with `pathspec … did not match any
-file(s) known to git` and commit nothing. `{N}-PLAN-CHECK.md` is created fresh by the `printf`
-above, so without the explicit `add` the first append of the loop fails the whole step.
-
-The verifier's Step 6d and `audit-milestone.md`'s Step 7 both
-scan this file. A checker that returned `None found. (reviewed by: …)` writes that line — the
-"which reviews ran" suffix is what makes a clean pass auditable, so never strip it.
+**Later rounds are delta rounds.** From iteration 2 on, the checker prompt carries `{PHASE_DIR}/{N}-PLAN-CHECK.md` and `git diff {commit of the previous round} -- {PHASE_DIR}/*-PLAN.md`, and this instruction: `Delta round. For every earlier blocker and warning report fixed, kept or regressed. Then check only the changed lines for new defects. A new finding on unchanged text is a warning, never a blocker, unless it is a secret, a containment violation or a plan that cannot run at all.`
 
 **If `TRIAGE_MODE` is `checker`:**
 - **`## VERIFICATION PASSED`:** Display confirmation, proceed to step 13.
@@ -584,13 +571,13 @@ scan this file. A checker that returned `None found. (reviewed by: …)` writes 
   ```
   Merge the returned `issues` arrays into the checker's `## ISSUES FOUND` list (`{ plan, dimension: "adversarial_review", severity, description, fix_hint }`) and proceed to step 12. All verdicts `approved` (no blocker issue) and `## VERIFICATION PASSED`: proceed to step 13.
 
-## 12. Revision Loop (Max 3 Iterations)
+## 12. Revision Loop (capped)
 
-Track `iteration_count` (starts at 1 after initial plan + check).
+Track `iteration_count` (starts at 1 after initial plan + check). `CAP` is the plan-check cap of `references/rigour.md`: 1 for a spike (one revision, no re-check), otherwise 2.
 
-**If iteration_count < 3:**
+**If iteration_count < CAP** (spike: one revision, then step 13):
 
-Display: `Sending back to planner for revision... (iteration {N}/3)`
+Display: `Sending back to planner for revision... (iteration {N}/{CAP})`
 
 Revision prompt:
 
@@ -608,9 +595,9 @@ Revision prompt:
 </revision_context>
 
 <instructions>
-Make targeted updates to address checker issues.
+Fix the listed issues and nothing else: change the fewest lines that close each one.
 Do NOT replan from scratch unless issues are fundamental.
-Return what changed.
+Return what changed, per issue id.
 </instructions>
 ```
 
@@ -623,15 +610,18 @@ Agent(
 )
 ```
 
-After planner returns -> re-run Step 9.5's risk triage (a revision may have shrunk `files_modified` below `adversarial_review_file_threshold` or removed the `high_risk` flag, changing which path Step 10 takes) -> spawn step 10 again (per the fresh triage result), increment iteration_count.
+After the planner returns: re-run Step 9.4 and re-run Step 9.5 (a revision may change which plans are `high_risk`), spawn step 10 again as a delta round (step 11) on `checker_model`, increment iteration_count.
 
-**If iteration_count >= 3:**
+**If iteration_count >= CAP:**
 
-Display: `Max iterations reached. {N} issues remain:` + issue list
+Display: `Plan-check cap reached. {N} issues remain:` + issue list.
 
-Offer: 1) Force proceed, 2) Provide guidance and retry, 3) Abandon
+- Remaining warnings: log each as an assumption (`decisions add --kind assumption --source plan-check --reversibility cheap --phases {N}`, default = the plan as written) and proceed.
+- Remaining blockers: ONE ruling dispatch for all of them (`model="{ruling_model}"`, retry once on `{ruling_model_fallback}`): per blocker `fix: <exact edit>` or `accept: <reason>`. Apply the fixes with one planner revision, do not re-check, and record the ruling (`decisions add --kind decision --source opus-ruling --phases {N}`; the source value is a stored identifier, `references/model-profiles.md`).
 
-Auto (auto_mode, references/auto-mode.md K6): when `auto_mode` is true do not ask. Force proceed, and append this line to `{PHASE_DIR}/{N}-PLAN-CHECK.md` (committed path-scoped, like the Defect Classes block): `OVERRIDE: max iterations reached, force-proceeded in auto mode with unresolved: {issue ids and one-line summaries}`. List the same unresolved issues in the final status. Never proceed silently.
+Interactive: offer 1) the ruling above, 2) provide guidance and retry, 3) abandon.
+
+Auto (auto_mode, references/auto-mode.md K6): do not ask; take 1, and append to `{PHASE_DIR}/{N}-PLAN-CHECK.md` (committed path-scoped): `OVERRIDE: plan-check cap reached, proceeded in auto mode; ruled: {blocker ids -> fix|accept}; assumed: {A- ids}`. List the same items in the final status. Never proceed silently.
 
 ## 13. Present Final Status
 
@@ -745,7 +735,7 @@ Verification: {Passed | Passed with override | Skipped}
 - [ ] gsd-planner spawned with CONTEXT.md + RESEARCH.md
 - [ ] Plans created (PLANNING COMPLETE or CHECKPOINT handled)
 - [ ] gsd-plan-checker spawned with CONTEXT.md
-- [ ] Verification passed OR user override OR max iterations with user decision (or the auto-mode override line recorded)
+- [ ] Verification passed, or the cap was reached and the ruling / assumptions and the override line are recorded
 - [ ] User sees status between agent spawns
 - [ ] User knows next steps
 </success_criteria>

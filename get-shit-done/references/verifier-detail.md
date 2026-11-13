@@ -37,9 +37,7 @@ cat "$PHASE_DIR"/*-VERIFICATION.md 2>/dev/null
 2. Extract `must_haves` (truths, artifacts, key_links)
 3. Extract `gaps` (items that failed)
 4. Set `is_re_verification = true`
-5. **Skip to Step 3** with optimization:
-   - **Failed items:** Full 3-level verification (exists, substantive, wired)
-   - **Passed items:** Quick regression check (existence + basic sanity only)
+5. **Skip to Step 3** and verify only the failed items (full 3-level verification) and the files the gap plans changed (`git diff --name-only` since the previous VERIFICATION commit). Items that passed and whose files did not change keep their status; do not re-open them and do not add new must-haves.
 
 **If no previous verification OR no `gaps:` section → INITIAL MODE:**
 
@@ -290,43 +288,10 @@ Note: Step 8d (Implementation File Test Coverage, below) is a coarser, complemen
 
 ## Step 6d: Defect Classes Coverage (QGATE-17)
 
-**WHERE IN THE ORDER:** runs after Step 6c (test-content) and before Step 6b (PRD intent) — the
-same position in the numbering, so it inherits the same place in the step sequence. It is
-positioned here deliberately: it is cheap, it reads only SUMMARY.md and review artifacts, and it
-must run BEFORE Step 9 decides the phase status, because a malformed section is a
-`gaps_found` condition (see FAIL SEMANTICS below).
+Recording, not judging: this step never produces a gap and never changes the status.
 
-Every plan's SUMMARY.md must carry a `## Defect Classes` section, and every finding recorded in
-this phase's review/ruling artifacts must appear in one of them. A missing entry is a **gap in
-the record**, and the record is what the milestone-end rules distillation reads — an unrecorded
-defect is a defect that gets made again next milestone.
-
-**ARTIFACTS TO SCAN** (all of these, in every phase directory of this phase):
-
-| Artifact | What it holds |
-|----------|---------------|
-| `{N}-{NN}-SUMMARY.md` | the `## Defect Classes` sections themselves |
-| `{N}-PLAN-CHECK.md` | the plan-checker's Defect Classes block, written by `plan-phase.md` Step 11 on every revision-loop iteration |
-| `{N}-{NN}-VERDICT.md` | the plan-checker adversarial pass's own `## Defect Classes` block |
-| `{N}-VERIFICATION.md` | your own gaps, on re-verification after gap closure |
-| `deferred-items.md` | anything deferred that reads as a real defect rather than a scope call |
-
-**FAIL SEMANTICS.** This is a gate you FIX, not one you merely report — but fixing it is not
-optional, and a fix you could not make IS a failure. Concretely:
-
-- **Fixable miss** (a SUMMARY has no section, an empty one, a shipped template placeholder, or a
-  finding with no row): you ADD the entry yourself, and the phase does NOT fail on that basis
-  alone. The record is repaired and the step passes.
-- **Unfixable miss** (you cannot determine the 5 columns, or the finding is not classifiable at
-  all): add a gap entry with `failure_type: malformed_defect_classes` and set STATUS =
-  `gaps_found`. A section you cannot repair is a real record gap, not a formality.
-- **The deterministic floor is enforced independently.** `verify phase-gate` fails the phase when
-  the section is missing, empty, still a template placeholder, or carries a bare `None found.`
-  that does not name the reviews that ran — so even a verifier that "fixed" nothing cannot let
-  the phase pass. Phases created before this gate shipped are exempt by date and report
-  `defect_classes.exempt: true` rather than passing silently.
-
-The 5-column shape the template defines:
+1. **Section present** is the script's check, not yours: `verify phase-gate` fails a SUMMARY whose `## Defect Classes` heading is missing, empty, a template placeholder or a bare `None found.`, and the executor fixes it before you run. If you still see one, list it under `form_findings`.
+2. **Findings represented**: for each finding YOU raise in this verification, you ADD the entry yourself to the SUMMARY of the plan it concerns, replacing a `None found. (...)` line if that is all the section holds:
 
 ```markdown
 | class | instance | caught_by | severity | rule_gap |
@@ -334,25 +299,7 @@ The 5-column shape the template defines:
 | [general class name] | [path/file.ext:line] | [verifier] | [critical\|major\|minor] | [rule that should have prevented it, or "none — new rule needed"] |
 ```
 
-Two checks, after the artifact scan above:
-
-1. **Section present** — every `*-SUMMARY.md` in the phase directory has a `## Defect Classes`
-   heading containing either rows or the literal `None found. (reviewed by: <caught_by values>)`.
-   A missing heading is a fail of this check; an empty heading (neither rows nor a none-found
-   entry) is also a fail, as is a BARE `None found.` with no `reviewed by:` suffix — an unnamed
-   review is indistinguishable from a section nobody read. Write the none-found entry only when
-   the review/ruling artifacts for that plan genuinely contain nothing, and NAME the reviews that
-   ran. If they do contain findings, add them as rows instead.
-2. **Findings represented** — cross-check this phase's `*-REVIEW.md`, `*-VERDICT.md`, other
-   ruling artifacts, and your own gaps against the collected rows. Any finding with no
-   corresponding row is a fail: append it.
-
-Where you add rows, they enter the record whether or not the phase passes. Do not withhold them
-pending a status you think the coordinator will like.
-
-**`class` must be general.** "idempotency key not scoped to the player" — not "bug in
-verify endpoint". A class that names one incident cannot be clustered with its future recurrences
-and is therefore worthless as distillation input.
+Findings of other reviews stay in their own files (`{N}-PLAN-CHECK.md`, `*-VERDICT.md`, `{N}-REVIEW-*.md`); the milestone distillation reads them there, so do not copy them. `class` is general ("idempotency key not scoped to the actor"), never one incident.
 
 ## Step 6b: PRD Intent Alignment Check (Optional — fires only if PRD-TRACE.md present)
 

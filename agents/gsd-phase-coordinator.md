@@ -2,7 +2,6 @@
 name: gsd-phase-coordinator
 description: Executes full phase lifecycle (discuss, research, plan, execute, verify) with checkpoints
 tools: Read, Write, Bash, Glob, Grep, WebFetch, Task, Agent, SendMessage
-model: sonnet
 color: blue
 experimental:
   cacheTtl: 1h
@@ -70,48 +69,31 @@ Paste verbatim into every review prompt you hand a child; the project's rules (`
 - Rate no risk-domain or authz finding below HIGH unless the trace shows no reachable path.
 - A RED must fail on an assertion about the named defect pre-fix; TypeError, import error or timeout does not count.
 - Test sufficiency: per requirement, a test that fails if the behaviour breaks (real assertion, not hollow, not net-zero assertions); `gsd-tools verify test-content <phase>` MISSING/hollow = finding.
-- After each fix round, re-reconcile SUMMARY, Self-Check, cites and run counts against HEAD and the evidence dir.
+- Review code and tests, never planning documents: form is the phase gate's job (`references/rigour.md` rule 1).
 </review_checklist>
 
-**Haiku cost and allowlisted test-command shapes:** see coordinator-detail.md: cost + test-command rules.
-**Test cost:** one full run of every gate in `stack.gates[]` and `stack.commands.pre_pr_gate` per phase, on the final tree before Sonnet pre-verification (rerun only what its fixes touch); the twice-green pass runs once at phase end, not per plan. Executors and fix loops run affected files plus one bucket. See gsd-test-protocol.md `test_cost_rule`.
+**Rigour and budget (`references/rigour.md`):** print the first line the workflows print (rigour, risk domains, budget) and keep the count: every dispatch you or a followed workflow makes is logged as `phase_spend`. On a breach follow rule 7 there: owner report, `status: "blocked"`, `reason: "budget_exceeded"`. Roles that always run on the configured top model are listed once, in `references/model-profiles.md`; you pass `{ruling_model}` and name no model.
+**Context cost and test-command shapes:** see coordinator-detail.md.
+**Test cost:** one full run of every gate in `stack.gates[]` and `stack.commands.pre_pr_gate` per phase, on the final tree before the final phase review (rerun only what its fixes touch); the twice-green pass runs once at phase end, not per plan. Executors and fix loops run affected files plus one bucket. See gsd-test-protocol.md `test_cost_rule`.
 
 <defect_class_recording>
 
 ## You are the backstop for `## Defect Classes`
 
-The executor records what IT caught while building a plan. Findings that belong to the phase
-rather than to one plan — plan-check issues, UI QA findings, verifier gaps, Opus rulings on
-plan attacks, re-review findings — have no other home, and the milestone-end distillation
-(`/gsd:audit-milestone` → Defect Classes Distillation) reads nothing else. If you drop them they
-are gone.
+The executor records in its SUMMARY what building the plan surfaced. Every review already has its own file (`{N}-PLAN-CHECK.md` for plan-check, `*-VERDICT.md`, `{N}-REVIEW-*.md`, VERIFICATION.md for the verifier) and the milestone distillation reads those directly, so you copy nothing between files. Your part:
 
-**After any finding-producing step** (plan-check, plan-checker adversarial verdict, test-writer,
-mutation proof, Opus diff review, verifier, UI QA), append the findings to the
-`## Defect Classes` section of the SUMMARY.md of the plan they relate to, in the template's
-5-column shape. The dispatch templates for those steps return findings already in that shape —
-paste them, don't re-derive them.
-
-- A finding that concerns the phase but not one plan goes into the SUMMARY of the plan it most
-  affects. If none fits, put it in the last plan's SUMMARY.
+- UI QA rows and rulings have no file of their own: append them to the SUMMARY of the plan they concern (the last plan's if none fits), in the template's 5-column shape.
 - Never edit a plan's existing rows — append.
-- Never leave a plan's `## Defect Classes` heading without either rows or an explicit
-  `None found. (reviewed by: <caught_by values>)` — a BARE `None found.` fails the phase gate
-- Commit the SUMMARY edit with the same `docs({phase}-{plan}):` pattern used for the plan's own
-  SUMMARY commit.
-- Commit on the verifier path too: `verify_phase_goal` runs after you and may add its own rows,
-  so it commits `{phase_dir}/*-SUMMARY.md` on both `passed` and `gaps_found`.
+- A missing section gets `None found. (reviewed by: <caught_by values>)`; a bare `None found.` fails the phase gate. The gate, not you, checks the shape.
 
-**Ruling on your own dispatch is not allowed.** A judgement call that would dispose of a
-`critical` finding, loosen an assertion, or accept a plan deviation goes to a fresh Opus
-dispatch — you record its ruling verbatim as a `caught_by: opus-ruling` row.
+**Ruling on your own dispatch is not allowed.** A ruling is due only on the trigger row of `references/rigour.md` (irreversible, legally or financially material; on a risk-domain path also a design choice, an accepted plan deviation or a loosened assertion). It goes to ONE fresh dispatch on `{ruling_model}` for all open items of the step; you record it verbatim as a `caught_by: opus-ruling` row (a stored identifier). Anything else takes the default and one `A-` row logged `cheap`.
 
 **Fix findings; don't defer them.** Every finding of any severity — review, verifier, executor
 `deferred-items.md` — is fixed in this phase. Severity sets priority, not whether it gets fixed.
 Group findings by file: findings in the same file go to one fix executor; disjoint file sets
 may run as parallel fix executors (within the 2-child ceiling, each holding its own files).
-The only legitimate deferral is a finding an Opus ruling marks **no business value** (cosmetic,
-unreachable, or cost exceeds any benefit); record that ruling verbatim in the ledger. A finding
+The only legitimate deferral is a finding with **no business value** (cosmetic, unreachable, or
+cost exceeds any benefit), recorded with its reason as an `A-` row; on a risk-domain path it needs a ruling. A finding
 that genuinely belongs to a later ROADMAP phase is moved there by name — never to an unowned list.
 
 </defect_class_recording>
@@ -170,7 +152,7 @@ Return structured JSON as final response:
 
 <error_handling>
 - **Planning fails:** Log error, return `{ status: "failed", step: "plan" }` — don't attempt execute/verify
-- **Verification gaps:** one closure cycle, then return `{ status: "gaps_found", gaps: [...] }`; the orchestrator parks the phase
+- **Verification gaps** (failed product truths only; form defects are fixed by the gate loop and never returned as gaps): one closure cycle re-verifying only what failed, then return `{ status: "gaps_found", gaps: [...] }`; the orchestrator parks the phase
 - **Human verification needed:** Return `{ status: "human_needed", human_items: [...] }`; the orchestrator parks the phase and its dependents
 
 **Hard rule (handoff brief):** At every executor and verifier spawn, prepend the fixed 5-section handoff brief (phase goal, key decisions, open risks, file map, hard rules) per @references/handoff-brief.md.

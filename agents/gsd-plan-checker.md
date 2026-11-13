@@ -220,19 +220,21 @@ issue:
 **Question:** Will plans complete within context budget?
 
 **Process:**
-1. Count tasks per plan
+1. Count `<task` elements and lines per plan (plan-phase step 9.4 already ran the same count; a plan over a cap that reaches you is a blocker)
 2. Estimate files modified per plan
 3. Check against thresholds
 
 **Thresholds:**
 | Metric | Target | Warning | Blocker |
 |--------|--------|---------|---------|
-| Implementation tasks/plan (companion tdd, threat-model and atomicity tasks not counted) | 2-3 | 4 | 5+ |
+| Tasks/plan, every `<task` counted | within the cap of `references/rigour.md` (`standard` 6, `spike` 4) | at the cap | over the cap |
+| Lines/plan | within the cap (`standard` 250, `spike` 150) | at the cap | over the cap |
+| Evidence-only plan (no task changes behaviour) | none | - | any: fold it into the plan that builds the behaviour |
 | Files/plan | 5-8 | 10 | 15+ |
 | Total context | ~50% | ~70% | 80%+ |
 
 **Red flags:**
-- Plan with 5+ tasks (quality degrades)
+- Plan over the task or line cap (quality degrades)
 - Plan with 15+ file modifications
 - Single task with 10+ files
 - Complex work (auth, risk-domain paths) crammed into one plan
@@ -450,7 +452,7 @@ Wave 0: {test file} → ✅ present / ❌ MISSING
 Overall: ✅ PASS / ❌ FAIL
 ```
 
-If FAIL: return to planner with specific fixes. Same revision loop as other dimensions (max 3 loops).
+If FAIL: return to planner with specific fixes.
 
 ## Dimension 10: File Size & Routing Discipline
 
@@ -492,7 +494,7 @@ issue:
   fix_hint: "Route via match([method, pathname]); no if/else/switch request dispatch in handlers"
 ```
 
-Closes POSTMORTEM class 7 (god-files — no size gate ever existed, so files grew unbounded) and class 8 (fp.md named the exact violator yet branching dispatch was added anyway). Same revision loop as other dimensions (max 3 loops).
+Closes POSTMORTEM class 7 (god-files — no size gate ever existed, so files grew unbounded) and class 8 (fp.md named the exact violator yet branching dispatch was added anyway).
 
 ## Dimension 11: Logical Cohesion
 
@@ -516,7 +518,7 @@ issue:
   fix_hint: "Split {file} so each file holds one responsibility; add a task per responsibility, or route the second responsibility to a new file"
 ```
 
-Row count is a lagging proxy: a file can sit comfortably under the ~500 LOC ceiling while still being a god-module holding unrelated responsibilities that a pure LOC gate (the style gate's `oversizeFiles` check) can never catch. Cohesion is a judgment call, not machine-gateable, so it is enforced here at plan-check time instead. Same revision loop as other dimensions (max 3 loops).
+Row count is a lagging proxy: a file can sit comfortably under the ~500 LOC ceiling while still being a god-module holding unrelated responsibilities that a pure LOC gate (the style gate's `oversizeFiles` check) can never catch. Cohesion is a judgment call, not machine-gateable, so it is enforced here at plan-check time instead.
 
 ## Dimension 12: Plan Artifacts Are Markdown
 
@@ -567,7 +569,7 @@ issue:
 
 ## Dimension 13: Adversary View
 
-Plans touching a risk-domain path must meet planner MANDATE-6(a): abuse cases, public-route exposure, debit-key orphan owner, replay/timeout path, lock order. Missing or vague = blocker (`dimension: adversary_view`, `severity: blocker`). Same revision loop (max 3).
+Plans touching a risk-domain path must meet planner MANDATE-6(a): abuse cases, public-route exposure, debit-key orphan owner, replay/timeout path, lock order. Missing or vague = blocker (`dimension: adversary_view`, `severity: blocker`).
 
 **A plan that runs a risky system without editing it** (a probe, benchmark, load run or migration dry-run that calls a risk-domain system and changes none of its files): MANDATE-6 keys on paths the plan modifies, so file paths alone do not trigger this dimension. Apply it when a task's `<action>` or `<verify>` invokes, writes to, or sends traffic at a risk-domain system; require the abuse-case and adversary-view content for that exposure (what the run could mutate, expose, exhaust or leave half-applied, and its cleanup), or a stated reason the run is read-only against synthetic data.
 
@@ -739,7 +741,7 @@ grep -c "<task" "$PHASE_DIR"/$PHASE-01-PLAN.md
 grep "files_modified:" "$PHASE_DIR"/$PHASE-01-PLAN.md
 ```
 
-Thresholds: 2-3 tasks/plan good, 4 warning, 5+ blocker (split required).
+Thresholds: the task and line caps of `references/rigour.md`; over a cap is a blocker (split required).
 
 ## Step 9: Verify must_haves Derivation
 
@@ -818,10 +820,10 @@ issue:
 - Missing requirement coverage
 - Missing required task fields
 - Circular dependencies
-- Scope > 5 tasks per plan
+- A plan over the task or line cap
 
 **warning** - Should fix, execution may work
-- Scope 4 tasks (borderline)
+- A plan at the task or line cap (borderline)
 - Implementation-focused truths
 - Minor wiring missing
 
@@ -835,7 +837,7 @@ Return all issues as a structured `issues:` YAML list (see dimension examples fo
 
 <structured_returns>
 
-**Rigour:** when the dispatch passes `rigour: spike`, `references/rigour.md` replaces the rules it lists: one round, Dimensions 1-7, 12 and 15 only (8, 9, 10, 11, 13 and 14 are skipped), and the spike-containment check applies.
+**Rigour (`references/rigour.md`):** `spike`: one round, Dimensions 1-7, 12 and 15 only (8, 9, 10, 11, 13 and 14 are skipped), and the spike-containment check applies. `standard`: at most 2 rounds. **Delta round:** when the dispatch carries the previous issue list and a `git diff` of the plans, report every earlier blocker and warning as fixed, kept or regressed, then check only the changed lines; a new finding on unchanged text is a warning, never a blocker, unless it is a secret, a containment violation or a plan that cannot run at all. A missing optional artifact (VALIDATION.md, an E2E plan for a phase without UI) is not a finding. Cite planning records by id, never by line of a rendered file.
 
 **Defect Classes (REQUIRED in both returns below).** End `## VERIFICATION PASSED` and `## ISSUES FOUND` with a `## Defect Classes` block exactly as the dispatch prompt specifies: one row per defect-class insight, or `None found. (reviewed by: plan-check)`. The block is never omitted.
 
@@ -929,7 +931,7 @@ unavailable in your runtime, just return the structured report as normal — not
 
 **DO NOT** skip dependency analysis. Circular/broken dependencies cause execution failures.
 
-**DO NOT** ignore scope. 5+ tasks/plan degrades quality. Report and split.
+**DO NOT** ignore scope. A plan over the task or line cap degrades quality. Report and split.
 
 **DO NOT** verify implementation details. Check that plans describe what to build.
 

@@ -358,7 +358,7 @@ Use template from `~/.claude/get-shit-done/templates/roadmap.md`.
 Key sections:
 - Overview (2-3 sentences)
 - Phases with Goal, Dependencies, Requirements, Success Criteria
-- Optional `**Rigour**: spike (D-NN)` / `**Spike roots**: <paths>` line per phase when the dispatch declares a spike milestone (absent = standard; see `references/rigour.md`)
+- `**Rigour**: spike (<authorisation the dispatch passes: `OG2` or a `D-NN`>)` and `**Spike roots**: <paths>` on each phase the dispatch names as a spike (no line = `standard`, the only other level; never write another value), and `**Risk domains**: <names>` on each `standard` phase whose requirements touch a configured risk domain. List rigour, risk domains and budget of every phase in your return (`references/rigour.md`)
 - Progress table
 
 ## STATE.md Structure
