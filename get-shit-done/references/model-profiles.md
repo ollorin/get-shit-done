@@ -8,7 +8,7 @@ The owner names the best available model once, in `.planning/config.json`, as an
 { "models": { "top": "<alias>", "top_fallback": "<alias>" } }
 ```
 
-Every `gsd-tools init <workflow>` call emits it as `ruling_model` and `ruling_model_fallback` (CLI-3; until it lands the two values come from the config keys of the same names, the default lives in the CLI). A spawn rejected for availability retries once on the fallback and says so.
+Every `gsd-tools init <workflow>` call emits it as `ruling_model` and `ruling_model_fallback` (`resolve-model top` and `top-fallback` print them; the legacy `ruling_model` keys are read only while `models.top` is absent). The default is `opus`. A spawn rejected for availability retries once on the fallback and says so.
 
 These roles always run on `ruling_model`, whatever the profile. This table is the only place that says so; every other file writes `{ruling_model}`:
 
