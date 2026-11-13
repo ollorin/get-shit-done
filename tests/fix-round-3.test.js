@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { makeProject, gsd, git, phaseDir, events, writeEvidence, TOOLS } = require('./helpers/roadmap-fixture.js');
+const { makeProject, gsd, git, phaseDir, events, writeEvidence, completePhaseLikeWorkflow, TOOLS } = require('./helpers/roadmap-fixture.js');
 
 // JSON-mode runner (the shared helper always passes --raw, which prints bare words for some commands).
 const gsdJ = (dir, args, env = {}) => {
@@ -99,5 +99,129 @@ describe('item 6: state and roadmap commands on the shapes this fork and its ben
     const row = read(dir, '.planning/ROADMAP.md').split('\n').find((l) => l.startsWith('| 1. one'));
     assert.doesNotMatch(row, /Complete Executed/);
     assert.match(row, /\| Complete \(1\/1 plans\)/);
+  });
+});
+
+const spikeProject = ({ planExtra = '' } = {}) => {
+  const dir = project();
+  const rm = path.join(dir, '.planning', 'ROADMAP.md');
+  fs.writeFileSync(rm, fs.readFileSync(rm, 'utf8').replace('**Depends on:** None', '**Rigour**: spike (OG2)\n**Spike roots**: spike/\n**Depends on:** None'));
+  write(dir, '.planning/OWNER-GATES.json', JSON.stringify({ version: 1, gates: [{ id: 'roadmap@current', kind: 'roadmap', milestone: null, status: 'approved', rigour: { spike_phases: ['1'], spike_roots: ['spike/'] } }] }));
+  const pd = phaseDir(dir, 1);
+  write(dir, '.planning/phases/01-p1/01-01-PLAN.md', `---\nphase: 01\nplan: 01\nplan_stamp: abc\nfiles_modified:\n  - .planning/phases/01-p1/captures/a.txt\n${planExtra}---\n# Plan\n<tasks>\n<task type="auto" tdd="true">x</task>\n</tasks>\n`);
+  write(dir, '.planning/phases/01-p1/01-01-SUMMARY.md', '# S\n\nauth flow probe.\n\n## Self-Check: PASSED\n');
+  write(dir, '.planning/phases/01-p1/01-VERIFICATION.md', '---\nstatus: passed\n---\n# V\n');
+  write(dir, 'spike/src/pages/probe.tsx', 'export default 1;\n');
+  git(dir, 'add', '-A');
+  git(dir, 'commit', '-q', '-m', 'feat(01-01): spike probe');
+  return { dir, pd };
+};
+const standardTwin = () => {
+  const { dir } = spikeProject();
+  fs.rmSync(path.join(dir, '.planning', 'OWNER-GATES.json'));
+  return dir;
+};
+
+describe('items 1 and 3: spike phases and the pre-verify gates', () => {
+  test('at spike the test, docs, UI-QA and E2E checks are not_applicable and the review file is not required', () => {
+    const { dir } = spikeProject();
+    const r = gsd(dir, ['verify', 'phase-gate', '1']);
+    assert.strictEqual(r.rc, 0, r.out);
+    assert.deepStrictEqual([r.json.passed, r.json.failures], [true, []]);
+    const byType = Object.fromEntries(r.json.checks.map((c) => [c.type, c]));
+    for (const t of ['test', 'ui_qa', 'docs', 'e2e_plan']) assert.strictEqual(byType[t].not_applicable, true, t);
+    assert.match(byType.docs.detail, /spike/);
+  });
+  test('the same phase at standard fails on each of them and on the missing review file', () => {
+    const dir = standardTwin();
+    const r = gsd(dir, ['verify', 'phase-gate', '1']);
+    assert.strictEqual(r.rc, 1);
+    for (const f of ['missing_test', 'missing_docs', 'missing_charlotte_qa', 'missing_e2e_plan', 'missing_evidence']) assert.ok(r.json.failures.includes(f), f);
+    assert.ok(r.json.work_errors.some((e) => /REVIEW/.test(e)));
+  });
+  test('a spike phase still needs a passed VERIFICATION: it is the review record', () => {
+    const { dir, pd } = spikeProject();
+    fs.writeFileSync(path.join(pd, '01-VERIFICATION.md'), '---\nstatus: gaps_found\n---\n# V\n');
+    const r = gsd(dir, ['verify', 'phase-gate', '1']);
+    assert.strictEqual(r.rc, 1);
+    assert.ok(r.json.work_errors.some((e) => /VERIFICATION/.test(e)));
+  });
+  test('phase complete at spike needs no review file', () => {
+    const { dir } = spikeProject();
+    gsd(dir, ['phase', 'checkpoint', '1', '--step', 'verify', '--status', 'passed']);
+    const r = gsd(dir, ['phase', 'complete', '1']);
+    assert.strictEqual(r.rc, 0, r.out + r.err);
+  });
+  test('the spike dispatch budget is 8 and wall stays 45', () => {
+    const { dir } = spikeProject();
+    const b = gsd(dir, ['budget', 'status', '--phase', '1']).json;
+    assert.deepStrictEqual([b.budget_class, b.budget_wall_minutes, b.budget_dispatches], ['spike', 45, 8]);
+  });
+});
+
+describe('item 4: evidence_only_plan does not apply at spike', () => {
+  test('an evidence-only plan passes at spike and still fails at standard', () => {
+    const { dir } = spikeProject();
+    fs.rmSync(path.join(dir, '.planning', 'phases', '01-p1', '01-01-SUMMARY.md'));
+    const s = gsd(dir, ['verify', 'form', '1', '--plans-only']);
+    assert.deepStrictEqual([s.rc, s.json.errors.map((e) => e.check)], [0, []]);
+  });
+  test('standard keeps the check', () => {
+    const { dir } = spikeProject();
+    fs.rmSync(path.join(dir, '.planning', 'OWNER-GATES.json'));
+    fs.rmSync(path.join(dir, '.planning', 'phases', '01-p1', '01-01-SUMMARY.md'));
+    const s = gsd(dir, ['verify', 'form', '1', '--plans-only']);
+    assert.deepStrictEqual(s.json.errors.map((e) => e.check), ['evidence_only_plan']);
+  });
+});
+
+describe('item 7: the final spend survives phase completion', () => {
+  const completed = () => {
+    const dir = project();
+    writeEvidence(dir, 1);
+    for (let i = 0; i < 3; i++) gsd(dir, ['budget', 'spend', '--phase', '1', '--step', `s${i}`]);
+    completePhaseLikeWorkflow(dir, 1);
+    const rec = gsd(dir, ['roadmap', 'record', '--phase', '1', '--result', '{"status":"completed"}']);
+    return { dir, rec };
+  };
+  test('the phase_complete event carries wall, dispatches, budget and breach', () => {
+    const { dir, rec } = completed();
+    assert.strictEqual(rec.json.action, 'complete', rec.out);
+    const ev = events(dir).filter((e) => e.type === 'phase_complete').pop();
+    assert.strictEqual(ev.dispatches_spent, 3);
+    assert.strictEqual(typeof ev.wall_minutes_spent, 'number');
+    assert.deepStrictEqual([ev.budget_dispatches, ev.budget_wall_minutes, ev.breach], [12, 90, false]);
+  });
+  test('budget status --phase on a completed phase returns the recorded spend, not zero', () => {
+    const { dir } = completed();
+    const b = gsd(dir, ['budget', 'status', '--phase', '1']).json;
+    assert.deepStrictEqual([b.dispatches_spent, b.budget_dispatches, b.breach, b.final], [3, 12, false, true]);
+  });
+  test('a breach is recorded as such', () => {
+    const dir = project();
+    writeEvidence(dir, 1);
+    write(dir, '.planning/config.json', JSON.stringify({ workflow: { budget: { standard: { dispatches: 2 } } } }));
+    for (let i = 0; i < 3; i++) gsd(dir, ['budget', 'spend', '--phase', '1']);
+    completePhaseLikeWorkflow(dir, 1);
+    gsd(dir, ['roadmap', 'record', '--phase', '1', '--result', '{"status":"completed"}']);
+    const b = gsd(dir, ['budget', 'status', '--phase', '1']).json;
+    assert.deepStrictEqual([b.dispatches_spent, b.budget_dispatches, b.breach], [3, 2, true]);
+  });
+  test('a new window after completion (a retry) counts from zero again', () => {
+    const { dir } = completed();
+    gsd(dir, ['budget', 'spend', '--phase', '1']);
+    const b = gsd(dir, ['budget', 'status', '--phase', '1']).json;
+    assert.strictEqual(b.dispatches_spent, 1);
+    assert.notStrictEqual(b.final, true);
+  });
+});
+
+describe('item 9: an estimate of zero tokens is unmeasured', () => {
+  test('observed_history with no token ledger is unmeasured, never "sufficient by evidence"', () => {
+    const dir = project();
+    write(dir, '.planning/EXECUTION_LOG.md', '{"timestamp":"2026-01-01T00:00:00.000Z","type":"phase_complete","phase":"1"}\n');
+    const r = gsd(dir, ['resilience', 'estimate-quota', '--phases', '2']);
+    assert.strictEqual(r.json.estimated_tokens, 0, r.out);
+    assert.deepStrictEqual([r.json.source, r.json.unmeasured], ['observed_history', true]);
   });
 });

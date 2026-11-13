@@ -29,7 +29,7 @@ function checkPlans(phaseDir, dirFiles, level) {
     let fm = {};
     try { fm = matter(text).data || {}; } catch { /* malformed frontmatter is reported by plan-structure */ }
     const files = Array.isArray(fm.files_modified) ? fm.files_modified : [];
-    if (files.length > 0 && !files.some(outsidePlanning)) errors.push({ file: f, check: 'evidence_only_plan', message: 'no file outside .planning/ in files_modified: evidence belongs to the task that built the behaviour' });
+    if (level !== 'spike' && files.length > 0 && !files.some(outsidePlanning)) errors.push({ file: f, check: 'evidence_only_plan', message: 'no file outside .planning/ in files_modified: evidence belongs to the task that built the behaviour' });
     if (fm.plan_stamp === undefined || fm.plan_stamp === null || fm.plan_stamp === '') errors.push({ file: f, check: 'plan_stamp_missing', message: 'no plan_stamp in frontmatter (copy plan_stamp from the init plan-phase output)' });
   }
   return errors;

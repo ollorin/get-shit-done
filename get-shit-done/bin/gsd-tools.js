@@ -1581,7 +1581,7 @@ function estimateQuotaForRemainingPhases(cwd, phaseCount) {
   const estimatedTokens = avgTokensPerPhase * phaseCount;
   const remainingBudget = quotaState.session.tokens_limit - quotaState.session.tokens_used;
   // A placeholder estimate against an unmeasured budget is no evidence of a shortfall: never block on it.
-  const unmeasured = source === 'conservative_default';
+  const unmeasured = source === 'conservative_default' || !(estimatedTokens > 0);
   const sufficient = unmeasured ? true : estimatedTokens <= remainingBudget;
 
   return {
@@ -7298,7 +7298,9 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles, opts =
       errors.push(`Plan ${phaseNumber}-${w.plan} has no commits (git log --all --grep "${phaseNumber}-${w.plan}" is empty)`);
     }
   }
-  errors.push(...reviewGate.reviewErrors(phaseDir, dirFiles, touched));
+  // A spike has no separate review file: its {N}-VERIFICATION.md (the merged final review) is the record, checked below.
+  const spike = rigour.resolveRigour(cwd, phaseNumber, getMilestoneInfo(cwd).version).rigour === 'spike';
+  if (!spike) errors.push(...reviewGate.reviewErrors(phaseDir, dirFiles, touched));
   const verification = readPhaseVerification(phaseDir, phaseNumber);
   // Pre-verifier mode: the verifier produces this artifact, so demanding it earlier is circular.
   if (opts.preVerifier) {
@@ -7349,7 +7351,8 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw, opts = {}) {
   const preVerifier = opts.preVerifier === true;
   const hasApi = computeHasApi(touchedFiles, apiDetectionOpts(cwd));
   const uiQaMode = projectContext.uiQaMode(cwd);
-  const uiQaRequired = (hasUi || hasApi) && uiQaMode !== 'none';
+  const spike = rigour.resolveRigour(cwd, phaseInfo.phase_number, getMilestoneInfo(cwd).version).rigour === 'spike';
+  const uiQaRequired = !spike && (hasUi || hasApi) && uiQaMode !== 'none';
   // ui_qa_ran is written by the verifier (Step 8c), so the pre-verifier gate cannot require it either.
   const uiQaCheckRequired = uiQaRequired && !preVerifier;
 
@@ -7388,8 +7391,9 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw, opts = {}) {
   // requirement is not applicable rather than failed.
   const testNotApplicable = tddPlanned && !projectContext.testCommandConfigured(cwd);
   const testRequired = tddPlanned && !testNotApplicable;
+  const spikeNa = (type) => ({ type, required: false, satisfied: true, waived: false, failure_type: null, not_applicable: true, detail: 'not applicable: spike rigour (references/rigour.md)' });
   const checks = [
-    testNotApplicable
+    spike ? spikeNa('test') : testNotApplicable
       ? { type: 'test', required: false, satisfied: true, waived: false, failure_type: null, not_applicable: true, detail: 'not applicable: no test command configured (stack.commands.test_file and test_all are none)' }
       : evaluatePhaseGateCheck(
         'test', testRequired,
@@ -7398,18 +7402,18 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw, opts = {}) {
       ),
     // Evidence comes from the verifier's {N}-VERIFICATION.md frontmatter, not
     // the coordinator-written CHECKPOINT.json; only a YAML boolean true counts. Alias group: any true key wins.
-    evaluatePhaseGateCheck(
+    spike ? spikeNa('ui_qa') : evaluatePhaseGateCheck(
       'ui_qa', uiQaCheckRequired,
       () => evidence.verification.data.charlotte_qa_ran === true || evidence.verification.data.ui_qa_ran === true,
       waivers, phaseInfo.phase_number,
       'missing_charlotte_qa'
     ),
-    evaluatePhaseGateCheck(
+    spike ? spikeNa('docs') : evaluatePhaseGateCheck(
       'docs', docsRequired,
       () => touchedFiles.some(f => DOC_SATISFIED_RE.test(f)),
       waivers, phaseInfo.phase_number
     ),
-    evaluatePhaseGateCheck(
+    spike ? spikeNa('e2e_plan') : evaluatePhaseGateCheck(
       'e2e_plan', hasUi && uiQaMode !== 'none',
       () => !e2eGenFailure && e2ePlanContent !== null && e2eGapResult.gaps.length === 0,
       waivers, phaseInfo.phase_number,
@@ -12450,9 +12454,13 @@ function cmdPhaseBudget(cwd, args, raw) {
     output({ logged: true, phase: dispatch.phaseKey(phase), ...(done ? { done: true } : {}) }, raw);
     return;
   }
+  output(phaseBudgetStatus(cwd, phase, readExecutionEvents(cwd)), raw);
+}
+
+function phaseBudgetStatus(cwd, phase, events) {
   const level = rigour.resolveRigour(cwd, phase, getMilestoneInfo(cwd).version).rigour;
   const cls = phaseBudget.budgetClass({ rigour: level, riskAddons: riskAddons(cwd, phase, level) });
-  output(phaseBudget.status({ cwd, phase, cls, events: readExecutionEvents(cwd) }), raw);
+  return phaseBudget.status({ cwd, phase, cls, events });
 }
 
 function cmdOwnerGate(cwd, args, raw) {
@@ -12558,7 +12566,12 @@ function cmdRoadmapRecord(cwd, args, raw) {
   if (out.action === 'complete') {
     applyExecutionStateSuccess(cwd, { phase: k });
   }
-  for (const e of out.events) appendEvent(cwd, e);
+  for (const e of out.events) {
+    if (e.type !== 'phase_complete') { appendEvent(cwd, e); continue; }
+    // The completion resets the budget window: record the final spend in the event so `budget status` can still show it.
+    const b = phaseBudgetStatus(cwd, k, events);
+    appendEvent(cwd, { ...e, budget_class: b.budget_class, wall_minutes_spent: b.wall_minutes_spent, dispatches_spent: b.dispatches_spent, budget_wall_minutes: b.budget_wall_minutes, budget_dispatches: b.budget_dispatches, pct: b.pct, warn: b.warn, breach: b.breach });
+  }
   output({ ...out, truth: { complete: truth.complete, errors: truth.errors, work_errors: truth.work_errors, form_errors: truth.form_errors } }, raw);
 }
 

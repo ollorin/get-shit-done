@@ -7,7 +7,7 @@ const path = require('path');
 const { evPhase, phaseKey } = require('./roadmap-dispatch.js');
 
 const DEFAULTS = {
-  spike: { wall_minutes: 45, dispatches: 6 },
+  spike: { wall_minutes: 45, dispatches: 8 },
   standard: { wall_minutes: 90, dispatches: 12 },
   risk: { wall_minutes: 150, dispatches: 20 },
 };
@@ -43,6 +43,7 @@ function spend(events, phase) {
   let start = null;
   let last = null;
   let dispatches = 0;
+  let final = null;
   for (const e of Array.isArray(events) ? events : []) {
     if (!e || evPhase(e) !== k) continue;
     const t = Date.parse(e.timestamp);
@@ -54,20 +55,27 @@ function spend(events, phase) {
       closedMs += Math.max(0, t - start);
       start = null;
     }
-    if (reset) { closedMs = 0; dispatches = 0; start = null; }
-    else if (e.type === 'phase_spend' || e.type === 'phase_spend_done') {
+    if (OPEN.has(e.type) || e.type === 'phase_spend' || e.type === 'phase_spend_done') final = null;
+    if (reset) {
+      closedMs = 0; dispatches = 0; start = null;
+      final = e.type === 'phase_complete' && typeof e.dispatches_spent === 'number' ? e : null;
+    } else if (e.type === 'phase_spend' || e.type === 'phase_spend_done') {
       if (start === null && !Number.isNaN(t)) start = t;
       if (e.type === 'phase_spend') dispatches += 1;
     }
     if (!Number.isNaN(t)) last = t;
   }
   const ms = closedMs + (start === null ? 0 : Math.max(0, (last === null ? start : last) - start));
-  return { wall_minutes_spent: Math.round((ms / 60000) * 10) / 10, dispatches_spent: dispatches };
+  return { wall_minutes_spent: Math.round((ms / 60000) * 10) / 10, dispatches_spent: dispatches, final };
 }
 
 function status({ cwd, phase, cls, events, now }) {
   const l = limits(cwd, cls);
-  const s = spend(events, phase);
+  const { final, ...s } = spend(events, phase);
+  // After `phase complete` the window resets to zero; the numbers the phase ended on are in its phase_complete event.
+  if (final) {
+    return { phase: phaseKey(phase), budget_class: final.budget_class || cls, wall_minutes_spent: final.wall_minutes_spent, dispatches_spent: final.dispatches_spent, budget_wall_minutes: final.budget_wall_minutes, budget_dispatches: final.budget_dispatches, pct: final.pct, warn: final.warn === true, breach: final.breach === true, final: true };
+  }
   const ratio = Math.max(s.wall_minutes_spent / l.wall_minutes, s.dispatches_spent / l.dispatches);
   const pct = Math.round(ratio * 1000) / 10;
   return { phase: phaseKey(phase), budget_class: cls, ...s, budget_wall_minutes: l.wall_minutes, budget_dispatches: l.dispatches, pct, warn: ratio >= 0.8, breach: ratio >= 1 };
