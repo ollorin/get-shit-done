@@ -582,7 +582,7 @@ Write no VERDICT.md for plans not listed.
 
 ## Product lens
 
-Six questions, answered per plan inside Dimension 14 (risk add-ons only; no other dimension carries weaker wording to replace); a plan that PRESCRIBES a defect found here is a blocker:
+Six questions; the full attack on each plan is Dimension 14 (risk add-ons only), and questions 1, 2, 4 and 6 are also checked against the plan text on every standard-rigour plan by Dimension 17. A plan that PRESCRIBES a defect found here is a blocker:
 
 1. Privileges: for every table, object or endpoint the plan creates or changes, which roles can read or write it after the plan runs, including service/admin roles and platform default grants; is each intended and asserted?
 2. Ignored results: which calls' results or errors does the prescribed code discard, and what state is the user left in when they fail?
@@ -596,6 +596,10 @@ Six questions, answered per plan inside Dimension 14 (risk add-ons only; no othe
 ## Dimension 15: Satisfiable Expectations
 
 Every `<verify>` command, `<done>` criterion and must_haves truth must be satisfiable in the environment the plan itself declares. For each, check it against: services the plan or STACK-PROFILE excludes or does not start (a command needing an API URL, port or container of an excluded service is impossible); env vars the plan never sets and the environment does not provide; tools or paths absent from the declared stack; and artifacts a later plan or the verifier produces (a check cannot require them earlier). An impossible expectation = blocker (`dimension: satisfiable_expectations`, `severity: blocker`) naming the command and the missing service/variable. Same revision loop (max 3).
+
+## Dimension 17: Rule Binding and Test Proof (standard rigour, not spike)
+
+Read-only check of the plan text, every plan. (1) Each task must carry `Rules applied:` naming every project rule that bears on it with its concrete instance for this task (allow-list values, failure path of each read the check depends on, who may reach it, authority-bearing field and its source, grants and uniqueness), answering Product lens questions 1, 2, 4 and 6 where they apply; a rule named without its instance is missing. (2) Each planned test names the assertion that fails when the behaviour breaks and its positive control; a status-only assertion where a body or state effect is the behaviour is missing proof. Missing on a task touching access, funds, state transitions or data grants = blocker (`dimension: rule_binding`); elsewhere a warning.
 
 ## Dimension 16: Traceability (every rigour)
 
@@ -838,7 +842,7 @@ Return all issues as a structured `issues:` YAML list (see dimension examples fo
 
 <structured_returns>
 
-**Rigour (`references/rigour.md`):** `spike`: one round, Dimensions 1-7, 12, 15 and 16 (traceability) only (8, 9, 10, 11, 13 and 14 are skipped), and the spike-containment check applies. `standard`: at most 2 rounds. **Delta round:** when the dispatch carries the previous issue list and a `git diff` of the plans, follow its instruction (earlier findings fixed, kept or regressed; then only the changed lines). A missing optional artifact (an E2E plan for a phase without UI) is not a finding. Cite planning records by id, never by line.
+**Rigour (`references/rigour.md`):** `spike`: one round, Dimensions 1-7, 12, 15 and 16 (traceability) only (8, 9, 10, 11, 13, 14 and 17 are skipped), and the spike-containment check applies. `standard`: at most 2 rounds. **Delta round:** when the dispatch carries the previous issue list and a `git diff` of the plans, follow its instruction (earlier findings fixed, kept or regressed; then only the changed lines). A missing optional artifact (an E2E plan for a phase without UI) is not a finding. Cite planning records by id, never by line.
 
 ## VERIFICATION PASSED
 
