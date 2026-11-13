@@ -1,6 +1,6 @@
 # Decisions protocol
 
-One ledger for everything the owner (title: `owner_title` in the init output) decided and everything assumed on their behalf: `.planning/DECISIONS.jsonl`, written only through `node "$HOME/.claude/get-shit-done/bin/decisions.js"` (below: `decisions`). Append-only; the last line per id wins. `.planning/DECISIONS.md` is its rendering (`decisions render`), never edited by hand. Commit both with the artifact that caused the change.
+One ledger for everything the owner (title: `owner_title` in the init output) decided and everything assumed on their behalf: `.planning/DECISIONS.jsonl`, written only through `node "$HOME/.claude/get-shit-done/bin/decisions.js"` (below: `decisions`; a separate script, never a `gsd-tools` command). Append-only; the last line per id wins. `.planning/DECISIONS.md` is its rendering (`decisions render`), never edited by hand. Commit both with the artifact that caused the change.
 
 ## Records
 

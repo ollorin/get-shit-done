@@ -192,11 +192,9 @@ Create `.planning/phases/{phase_dir}/{phase}-VERIFICATION.md`:
 phase: XX-name
 verified: YYYY-MM-DDTHH:MM:SSZ
 status: passed | gaps_found | human_needed
-score: N/M must-haves verified
 ui_qa_ran: true | false # REQUIRED YAML boolean. true only if a UI QA run for this phase is recorded (Step 8c). verify phase-gate reads this for phases touching UI or API paths.
 re_verification: # Only if previous VERIFICATION.md existed
   previous_status: gaps_found
-  previous_score: 2/5
   gaps_closed:
     - "Truth that was fixed"
   gaps_remaining: []
@@ -331,7 +329,7 @@ Automated checks passed. Awaiting human verification.
 
 ````
 ```json
-{"status": "passed|gaps_found|human_needed", "phase": "{phase}", "score": "{N}/{M}", "report": ".planning/phases/{phase_dir}/{phase}-VERIFICATION.md"}
+{"status": "passed|gaps_found|human_needed", "phase": "{phase}", "report": ".planning/phases/{phase_dir}/{phase}-VERIFICATION.md"}
 ```
 ````
 

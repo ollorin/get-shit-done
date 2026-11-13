@@ -11,7 +11,6 @@ Template for `.planning/phases/XX-name/{phase}-VERIFICATION.md` — phase goal v
 phase: XX-name
 verified: YYYY-MM-DDTHH:MM:SSZ
 status: passed | gaps_found | human_needed
-score: N/M must-haves verified
 ---
 
 # Phase {X}: {Name} Verification Report
@@ -192,7 +191,6 @@ None — all verifiable items checked programmatically.
 phase: 03-chat
 verified: 2025-01-15T14:30:00Z
 status: gaps_found
-score: 2/5 must-haves verified
 ---
 
 # Phase 3: Chat Interface Verification Report

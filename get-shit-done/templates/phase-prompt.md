@@ -130,7 +130,7 @@ After completion, create `.planning/phases/XX-name/{phase}-{plan}-SUMMARY.md`
 | `type` | Yes | Always `execute` for standard plans, `tdd` for TDD plans |
 | `wave` | Yes | Execution wave number (1, 2, 3...). Pre-computed at plan time. |
 | `depends_on` | Yes | Array of plan IDs this plan requires. |
-| `files_modified` | Yes | Files this plan touches. |
+| `files_modified` | Yes | Files this plan changes. A listed file the plan's commits do not touch warns `claimed_file_not_in_diff`: name read-only or conditionally changed files in the task text, not here. |
 | `autonomous` | Yes | `true` if no checkpoints, `false` if has checkpoints |
 | `user_setup` | No | Array of human-required setup items (external services) |
 | `e2e_flows` | Conditional | User journeys testable after this plan. Must not be empty when the plan creates or modifies UI components; `[]` only for backend-only plans. See `references/planner-detail.md`. |

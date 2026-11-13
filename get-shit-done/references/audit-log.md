@@ -80,17 +80,7 @@ Each line is a self-contained JSON object (JSONL format):
 
 ## Writing Audit Log Entries
 
-### Via gsd-tools.js (preferred)
-
-```bash
-node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" audit-log write \
-  --phase 236 \
-  --plan "236-01" \
-  --event task_complete \
-  --data '{"task_index":1,"task_name":"Create open-pr command","files_written":["open-pr.md"]}'
-```
-
-### Via inline shell (fallback when gsd-tools not available)
+### Command
 
 ```bash
 AUDIT_DIR=".planning/audit"

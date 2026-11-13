@@ -3259,7 +3259,6 @@ function cmdTemplateFill(cwd, templateType, options, raw) {
         phase: phaseId,
         verified: new Date().toISOString(),
         status: 'pending',
-        score: '0/0 must-haves verified',
         ...fields,
       };
       body = [
@@ -6647,7 +6646,7 @@ function cmdFrontmatterMerge(cwd, filePath, data, raw) {
 const FRONTMATTER_SCHEMAS = {
   plan: { required: ['phase', 'plan', 'type', 'wave', 'depends_on', 'files_modified', 'autonomous', 'requirements', 'must_haves'] },
   summary: { required: ['phase', 'plan', 'subsystem', 'tags', 'duration', 'completed'] },
-  verification: { required: ['phase', 'verified', 'status', 'score'], any_of: [['ui_qa_ran', 'charlotte_qa_ran']] },
+  verification: { required: ['phase', 'verified', 'status'], any_of: [['ui_qa_ran', 'charlotte_qa_ran']] },
 };
 
 function cmdFrontmatterValidate(cwd, filePath, schemaName, raw) {
@@ -9910,28 +9909,10 @@ function cmdRoadmapUpdatePlanProgress(cwd, phaseNum, raw) {
 
 // ─── Requirements Mark Complete ───────────────────────────────────────────────
 
-function cmdRequirementsMarkComplete(cwd, reqIdsRaw, raw) {
-  if (!reqIdsRaw || reqIdsRaw.length === 0) {
-    error('requirement IDs required. Usage: requirements mark-complete REQ-01,REQ-02 or REQ-01 REQ-02');
-  }
-
-  // Accept comma-separated, space-separated, or bracket-wrapped: [REQ-01, REQ-02]
-  const reqIds = reqIdsRaw
-    .join(' ')
-    .replace(/[\[\]]/g, '')
-    .split(/[,\s]+/)
-    .map(r => r.trim())
-    .filter(Boolean);
-
-  if (reqIds.length === 0) {
-    error('no valid requirement IDs found');
-  }
-
+// Ticks the checkbox and the traceability row of each id in REQUIREMENTS.md; null when the file is absent.
+function markRequirementsComplete(cwd, reqIds) {
   const reqPath = path.join(cwd, '.planning', 'REQUIREMENTS.md');
-  if (!fs.existsSync(reqPath)) {
-    output({ updated: false, reason: 'REQUIREMENTS.md not found', ids: reqIds }, raw, 'no requirements file');
-    return;
-  }
+  if (!fs.existsSync(reqPath)) return null;
 
   let reqContent = fs.readFileSync(reqPath, 'utf-8');
   const updated = [];
@@ -9965,6 +9946,32 @@ function cmdRequirementsMarkComplete(cwd, reqIdsRaw, raw) {
   if (updated.length > 0) {
     fs.writeFileSync(reqPath, reqContent, 'utf-8');
   }
+  return { updated, notFound };
+}
+
+function cmdRequirementsMarkComplete(cwd, reqIdsRaw, raw) {
+  if (!reqIdsRaw || reqIdsRaw.length === 0) {
+    error('requirement IDs required. Usage: requirements mark-complete REQ-01,REQ-02 or REQ-01 REQ-02');
+  }
+
+  // Accept comma-separated, space-separated, or bracket-wrapped: [REQ-01, REQ-02]
+  const reqIds = reqIdsRaw
+    .join(' ')
+    .replace(/[\[\]]/g, '')
+    .split(/[,\s]+/)
+    .map(r => r.trim())
+    .filter(Boolean);
+
+  if (reqIds.length === 0) {
+    error('no valid requirement IDs found');
+  }
+
+  const marked = markRequirementsComplete(cwd, reqIds);
+  if (!marked) {
+    output({ updated: false, reason: 'REQUIREMENTS.md not found', ids: reqIds }, raw, 'no requirements file');
+    return;
+  }
+  const { updated, notFound } = marked;
 
   output({
     updated: updated.length > 0,
@@ -10142,6 +10149,11 @@ function cmdPhaseComplete(cwd, phaseNum, raw, opts = {}) {
   // Update ROADMAP.md: mark phase complete
   if (fs.existsSync(roadmapPath)) {
     let roadmapContent = fs.readFileSync(roadmapPath, 'utf-8');
+
+    // The gates above passed: the requirement ids of this phase's ROADMAP section are done (the ids `status_agreement` checks).
+    const phaseSection = (roadmapContent.match(new RegExp(`#{2,4}\\s*Phase\\s+0*${String(phaseNum).replace(/^0+(?=\\d)/, '').replace('.', '\\.')}\\s*:[\\s\\S]*?(?=\\n#{2,4}\\s*Phase\\s|\\n## |$)`, 'i')) || [''])[0];
+    const phaseReqIds = [...new Set(((phaseSection.match(/\*\*Requirements:?\*\*:?\s*([^\n]*)/i) || [])[1] || '').match(/[A-Z][A-Z0-9]*-\d+/g) || [])];
+    if (phaseReqIds.length > 0) markRequirementsComplete(cwd, phaseReqIds);
 
     // Checkbox: - [ ] Phase N: → - [x] Phase N: (...completed DATE), on the phase's own line only
     roadmapContent = roadmapBox.tickCheckbox(roadmapContent, phaseNum, ` (completed ${today})`);
@@ -14699,7 +14711,7 @@ function buildRoutingLedger(events, options = {}) {
 // UPWARD-ONLY adjustment. Never adjusts down (per MILE-34/57-RESEARCH.md --
 // downgrading is out of scope; the heuristic's own cost bias already handles
 // that). Only a single hop up via getNextTier(heuristicTier) is considered
-// per call (haiku->sonnet or sonnet->opus, never a two-hop haiku->opus skip).
+// per call (haiku->sonnet only; the ladder ends at sonnet).
 function consultLedger(ledger, taskType, heuristicTier, minSampleCount) {
   if (!ledger) {
     return { tier: heuristicTier, adjusted: false, fail_open: true, reason: 'ledger_unavailable' };
@@ -14758,8 +14770,8 @@ function classifyFailure(errorSummary) {
 // model-registry.js -- the SINGLE source of truth for the escalation ladder;
 // never re-declares a second hardcoded ladder here. Bound: one retry per
 // tier (escalationsUsed caps at getTiers().length - 1), non-capability
-// failures never escalate, and only haiku escalates: sonnet is the last executor tier (a task
-// needing the top model is split by the planner), a second, independent stop condition.
+// failures never escalate, and the ladder ends at sonnet (a task
+// needing the top model is split by the planner).
 function decideEscalation(currentTier, classification, escalationsUsed) {
   if (!classification || classification.capability_related === false) {
     return { escalate: false, next_tier: null, reason: 'non_capability_failure' };
@@ -14768,7 +14780,7 @@ function decideEscalation(currentTier, classification, escalationsUsed) {
   if ((escalationsUsed || 0) >= maxEscalations) {
     return { escalate: false, next_tier: null, reason: 'escalation_bound_reached' };
   }
-  const nextTier = currentTier === 'haiku' ? getNextTier(currentTier) : null;
+  const nextTier = getNextTier(currentTier);
   if (!nextTier) {
     return { escalate: false, next_tier: null, reason: 'ladder_exhausted' };
   }

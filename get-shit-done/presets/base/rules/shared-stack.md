@@ -5,6 +5,7 @@ Applies when two lanes (agents, phases or worktrees) could use the same local st
 ## Stack lock
 
 - One holder at a time. Take the lock with the wrapper: `scripts/stack-lock.sh --label <lane> -- <command>`. The wrapper waits, runs the command under the lock, and releases it on exit and on SIGINT or SIGTERM.
+- Start, stop and reset take the same wrapper: `scripts/stack-lock.sh --label <lane> -- <start command>`, `scripts/stack-lock.sh --label <lane> -- <stop command>`, `scripts/stack-lock.sh --label <lane> -- <reset command>`.
 - Always call the `.sh` wrapper. The command-check hook recognises a locked command as wrapped only when its command word is `stack-lock.sh` or `stack-lock.ts`. A direct call such as `node scripts/stack-lock.mjs -- <cmd>` is not recognised as the wrapper: the locked command is denied as unwrapped.
 - The commands that need the lock are the list `stack.locked_commands` in `.planning/config.json`. The hook reads the list at run time, so an edit applies without a sync.
 - Take the lock before any command that resets, starts or stops shared services, runs the full pre-PR gate, or runs a live test bucket.

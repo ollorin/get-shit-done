@@ -24,7 +24,7 @@ const EXPECTED_THRESHOLDS = {
   sonnet: { timeout_ms: 2400000, iterations: 20 },
   opus:   { timeout_ms: 3600000, iterations: 25 },
 };
-const EXPECTED_LADDER = { haiku: 'sonnet', sonnet: 'opus', opus: null };
+const EXPECTED_LADDER = { haiku: 'sonnet', sonnet: null, opus: null };
 const EXPECTED_TIERS = ['haiku', 'sonnet', 'opus'];
 
 const REGISTRY_SRC = path.join(__dirname, 'model-registry.js');
@@ -76,7 +76,7 @@ describe('Phase 52-03: registry config-drift transcription guard', () => {
 
   test('getNextTier chain matches the ladder for every tier', () => {
     assert.strictEqual(registry.getNextTier('haiku'), 'sonnet');
-    assert.strictEqual(registry.getNextTier('sonnet'), 'opus');
+    assert.strictEqual(registry.getNextTier('sonnet'), null);
     assert.strictEqual(registry.getNextTier('opus'), null);
   });
 });
@@ -122,10 +122,10 @@ describe('Phase 52-03: gsd-escalation parity (ESCALATION_LADDER + getNextModel)'
     assert.deepStrictEqual(esc.ESCALATION_LADDER, EXPECTED_LADDER);
   });
 
-  test('ErrorTracker.getNextModel walks haiku -> sonnet -> opus -> null', () => {
+  test('ErrorTracker.getNextModel walks haiku -> sonnet -> null', () => {
     const tracker = new esc.ErrorTracker({ id: 'parity-task' });
     assert.strictEqual(tracker.getNextModel('haiku'), 'sonnet');
-    assert.strictEqual(tracker.getNextModel('sonnet'), 'opus');
+    assert.strictEqual(tracker.getNextModel('sonnet'), null);
     assert.strictEqual(tracker.getNextModel('opus'), null);
   });
 });

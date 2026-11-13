@@ -211,6 +211,8 @@ If "Run discuss-phase first": Display `/gsd:discuss-phase {X}` and exit workflow
 
 **If `has_research` is true (from init) AND no `--research` flag:** Use existing, skip to step 6.
 
+**Zero research agents is a valid outcome.** Besides the skips above, a spike phase whose inputs are prior phases' results and files already in the repo (nothing to look up outside it) needs none. Whenever no researcher is spawned, record `research: skipped ({reason})` in `{PHASE_DIR}/{N}-PLAN-CHECK.md` (or the plan's `<context>` section when none is written) and show `Research: Skipped`.
+
 **If RESEARCH.md missing OR `--research` flag:**
 
 Display banner:
@@ -550,7 +552,7 @@ After the planner returns: re-run Step 9.4 and re-run Step 9.5 (a revision may c
 
 Display: `Plan-check cap reached. {N} issues remain:` + issue list.
 
-- Remaining warnings: log each as an assumption (`decisions add --kind assumption --source plan-check --reversibility cheap --phases {N}`, default = the plan as written) and proceed.
+- Remaining warnings: log each as an assumption (`decisions.js add --kind assumption --source plan-check --reversibility cheap --phases {N}`, default = the plan as written) and proceed.
 - Remaining blockers: ONE planner revision (`{planner_model}`, the blockers only), then ONE targeted re-check of only those blockers (same checker tier, delta scope). A blocker the re-check still reports is never closed by an `A-` row. When init `risk_addons` is true it goes, with every other surviving blocker of the phase, to ONE ruling on `{ruling_model}` before execution (fix, or accept with the reason; recorded as a `D-` row), in interactive and auto alike; an OVERRIDE line alone never closes it. Otherwise it goes to the owner (interactive) or into the OVERRIDE line below (auto).
 
 Interactive: offer 1) the revision and re-check above, 2) provide guidance and retry, 3) abandon.

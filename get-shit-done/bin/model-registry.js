@@ -10,7 +10,7 @@ const path = require('path');
 // file problem, so this module fails open, always.
 const DEFAULT_REGISTRY = {
   tiers: ['haiku', 'sonnet', 'opus'],
-  escalation_ladder: { haiku: 'sonnet', sonnet: 'opus', opus: null },
+  escalation_ladder: { haiku: 'sonnet', sonnet: null, opus: null },
   thresholds: {
     haiku:  { timeout_ms: 1200000, iterations: 15 },
     sonnet: { timeout_ms: 2400000, iterations: 20 },

@@ -270,13 +270,13 @@ If gaps_found:
 REPORT_PATH="$PHASE_DIR/${PHASE_NUM}-VERIFICATION.md"
 ```
 
-Fill template sections: frontmatter (phase/timestamp/status/score), goal achievement, artifact table, wiring table, requirements coverage, anti-patterns, human verification, gaps summary, fix plans (if gaps_found), metadata.
+Fill template sections: frontmatter (phase/timestamp/status), goal achievement, artifact table, wiring table, requirements coverage, anti-patterns, human verification, gaps summary, fix plans (if gaps_found), metadata.
 
 See ~/.claude/get-shit-done/templates/verification-report.md for complete template.
 </step>
 
 <step name="return_to_orchestrator">
-Return status (`passed` | `gaps_found` | `human_needed`), score (N/M must-haves), report path.
+Return status (`passed` | `gaps_found` | `human_needed`), report path.
 
 If gaps_found: list gaps + recommended fix plan names.
 If human_needed: list items requiring human testing.

@@ -14,7 +14,7 @@ const ERROR_WEIGHTS = {
 // Aggressive escalation threshold (1-2 errors trigger escalation)
 const ESCALATION_THRESHOLD = 1.0;
 
-// Escalation ladder: haiku → sonnet → opus → null.
+// Escalation ladder: haiku → sonnet → null (no executor escalates to opus).
 // Sourced from the single-source-of-truth model registry (MILE-27) instead of a
 // duplicated literal; the variable name is kept as a thin re-export so
 // getNextModel() and module.exports.ESCALATION_LADDER are unchanged.
