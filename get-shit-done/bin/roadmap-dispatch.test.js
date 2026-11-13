@@ -193,6 +193,10 @@ describe('N9: form debt is one mechanism (VERIFICATION form_debt written by phas
     const b = rec({ status: 'blocked', reason: 'budget_exceeded' });
     assert.deepStrictEqual([b.action, b.events[0].type, b.events[0].reason], ['park', 'phase_parked', 'budget_exceeded']);
   });
+  test('gaps_found over disk truth that is already complete (phase complete --form-debt ran) is complete, not a wasted gap cycle', () => {
+    const r = rec({ status: 'gaps_found' }, {}, [], { complete: true, errors: [], work_errors: [], form_errors: [], form_debt: ['x'] });
+    assert.deepStrictEqual([r.action, r.events], ['complete', [{ type: 'phase_complete', phase: '1' }]]);
+  });
   test('product gap: first time gap_cycle; with gap_cycle_done parks directly', () => {
     assert.strictEqual(rec({ status: 'gaps_found' }).action, 'gap_cycle');
     const done = rec({ status: 'gaps_found', gap_cycle_done: true });
