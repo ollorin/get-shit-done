@@ -137,7 +137,7 @@ function next(input) {
     }
     const resumed = s.state === 'running';
     log.push({ type: 'phase_start', phase: k, name: p.name, resumed });
-    return { ...common, action: 'spawn_coordinator', args: `${k} --auto${cfg.legacy ? ' --legacy' : ''}`, resumed, log };
+    return { ...common, action: 'spawn_coordinator', args: `${k} --auto${cfg.legacy ? ' --legacy' : ''}`, resumed, ...(input.plansStale && input.plansStale(k) ? { plans_stale: true } : {}), log };
   }
 
   for (const p of phases) {

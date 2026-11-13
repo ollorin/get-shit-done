@@ -112,4 +112,4 @@ function phaseRiskDomains(cwd, phase, known) {
   return { domains: names, unknown: names.filter((n) => !set.has(n)) };
 }
 
-module.exports = { LEVELS, resolveRigour, rigourViolations, phaseReqIds, phaseRiskDomains };
+module.exports = { LEVELS, phaseSection, resolveRigour, rigourViolations, phaseReqIds, phaseRiskDomains };

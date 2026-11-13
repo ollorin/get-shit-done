@@ -233,6 +233,7 @@ const rigour = require('./rigour.js');
 const topModel = require('./top-model.js');
 const phaseBudget = require('./phase-budget.js');
 const formCheck = require('./form-check.js');
+const planStamp = require('./plan-stamp.js');
 
 // Phase 2: Auto Mode safety modules (lazy — gracefully absent if not installed)
 let circuitBreaker, validator, escalation, feedback, learning;
@@ -11600,6 +11601,15 @@ function topModelFields(cwd) {
   return { ruling_model: t.top, ruling_model_fallback: t.fallback };
 }
 
+// plan_stamp / plans_stale / stale_reason / plans_unstamped for init plan-phase and roadmap next.
+function planStampFields(cwd, phase) {
+  const info = findPhaseInternal(cwd, phase);
+  const dir = info ? path.join(cwd, info.directory) : null;
+  const current = planStamp.compute(cwd, phase, dir);
+  const st = dir ? planStamp.staleness(dir, info.incomplete_plans, current) : { plans_stale: false, stale_reason: null, plans_unstamped: [] };
+  return { plan_stamp: current.stamp, ...st };
+}
+
 // phase_risk_domains from the ROADMAP **Risk domains** line; names outside project.risk_domains + built-ins are listed, not rejected.
 function phaseRiskFields(cwd, phase) {
   const r = rigour.phaseRiskDomains(cwd, phase, projectContext.riskDomainsFor(cwd));
@@ -11940,6 +11950,7 @@ function cmdInitPlanPhase(cwd, phase, includes, raw, gate) {
     phase_req_ids: rigour.phaseReqIds(cwd, phase),
     ...phaseRiskFields(cwd, phase),
     ...initBudgetFields(cwd, phase),
+    ...planStampFields(cwd, phase),
 
     // Models
     researcher_model: resolveModelInternal(cwd, 'gsd-phase-researcher'),
@@ -12798,6 +12809,7 @@ function cmdRoadmapNext(cwd, args, raw) {
     retryParked: args.includes('--retry-parked'),
     gateMarked: dispatch.hasEvent(events, 'gate_pre_pr_passed'),
     riskDomains: (k) => phaseRiskFields(cwd, k).phase_risk_domains,
+    plansStale: (k) => planStampFields(cwd, k).plans_stale,
     prRecorded: dispatch.hasEvent(events, 'pr_created') || dispatch.hasEvent(events, 'pr_requested') || dispatch.hasEvent(events, 'pr_skipped'),
     hasRemote: hasGitRemote(cwd),
     config: {
@@ -15399,6 +15411,15 @@ async function main() {
       } else {
         error('Unknown phases subcommand. Available: list');
       }
+      break;
+    }
+
+    case 'plan': {
+      if (args[1] !== 'stamp') error('Unknown plan subcommand. Available: stamp');
+      if (!args[2] || args[2].startsWith('--')) error('plan stamp: phase required');
+      const info = findPhaseInternal(cwd, args[2]);
+      const r = planStamp.compute(cwd, args[2], info ? path.join(cwd, info.directory) : null);
+      output({ phase: args[2], ...r }, raw);
       break;
     }
 
