@@ -5,7 +5,7 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-const { LEVELS, resolveRigour, rigourViolations, phaseReqIds } = require('./rigour.js');
+const { LEVELS, resolveRigour, rigourViolations, phaseReqIds, phaseRiskDomains } = require('./rigour.js');
 
 const TOOL = path.join(__dirname, 'gsd-tools.js');
 const decision = (o) => JSON.stringify({ kind: 'decision', status: 'active', source: 'owner-answer', phases: ['2'], ts: '2026-01-01T00:00:00Z', question: 'q', answer: 'a', ...o });
@@ -216,6 +216,33 @@ describe('CLI-2: OG2 authorises a spike through the approved roadmap gate', () =
     assert.strictEqual(b.gate.requested_at, a.gate.requested_at);
     const st = JSON.parse(run(['owner-gate', 'status', '--milestone', 'v1.0', '--raw']).stdout);
     assert.deepStrictEqual(st.gates[0].rigour.spike_phases, ['2']);
+  });
+});
+
+describe('CLI-8: phase_risk_domains from the ROADMAP', () => {
+  test('line present, absent, none; unknown names are kept and listed', () => {
+    write('.planning/ROADMAP.md', roadmap('**Risk domains**: auth, Payments'));
+    assert.deepStrictEqual(phaseRiskDomains(dir, '2', ['auth', 'security']), { domains: ['auth', 'payments'], unknown: ['payments'] });
+    assert.deepStrictEqual(phaseRiskDomains(dir, '1', ['auth']), { domains: [], unknown: [] });
+    write('.planning/ROADMAP.md', roadmap('**Risk domains**: none'));
+    assert.deepStrictEqual(phaseRiskDomains(dir, '2', ['auth']).domains, []);
+  });
+  test('init plan-phase and execute-phase emit them (configured domains are known); roadmap next carries them', () => {
+    write('.planning/config.json', JSON.stringify({ project: { risk_domains: ['payments'] }, stack: {} }));
+    write('.planning/ROADMAP.md', roadmap('**Risk domains**: auth, payments, odd'));
+    for (const cmd of ['plan-phase', 'execute-phase']) {
+      const out = JSON.parse(run(['init', cmd, '2', '--legacy', '--raw']).stdout);
+      assert.deepStrictEqual(out.phase_risk_domains, ['auth', 'payments', 'odd'], cmd);
+      assert.deepStrictEqual(out.phase_risk_domains_unknown, ['odd'], cmd);
+    }
+    const next = JSON.parse(run(['roadmap', 'next', '--raw']).stdout);
+    assert.ok(Array.isArray(next.phase_risk_domains));
+  });
+  test('a spike phase still returns the line', () => {
+    write('.planning/DECISIONS.jsonl', decision({ id: 'D-07' }) + '\n');
+    write('.planning/ROADMAP.md', roadmap(`${SPIKE}\n**Risk domains**: auth`));
+    const out = JSON.parse(run(['init', 'plan-phase', '2', '--legacy', '--raw']).stdout);
+    assert.deepStrictEqual([out.rigour, out.phase_risk_domains], ['spike', ['auth']]);
   });
 });
 

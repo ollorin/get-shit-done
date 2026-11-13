@@ -11549,6 +11549,12 @@ function topModelFields(cwd) {
   return { ruling_model: t.top, ruling_model_fallback: t.fallback };
 }
 
+// phase_risk_domains from the ROADMAP **Risk domains** line; names outside project.risk_domains + built-ins are listed, not rejected.
+function phaseRiskFields(cwd, phase) {
+  const r = rigour.phaseRiskDomains(cwd, phase, projectContext.riskDomainsFor(cwd));
+  return { phase_risk_domains: r.domains, phase_risk_domains_unknown: r.unknown };
+}
+
 function resolveModelInternal(cwd, agentType) {
   if (agentType === 'gsd-verifier') return topModelFields(cwd).ruling_model;
   const config = loadConfig(cwd);
@@ -11742,6 +11748,7 @@ function cmdInitExecutePhase(cwd, phase, includes, raw, gate) {
     project_context: { legacy: gate?.legacy === true },
     ...rigour.resolveRigour(cwd, phase, getMilestoneInfo(cwd).version),
     phase_req_ids: rigour.phaseReqIds(cwd, phase),
+    ...phaseRiskFields(cwd, phase),
 
     // Models
     executor_model: resolveModelInternal(cwd, 'gsd-executor'),
@@ -11857,6 +11864,7 @@ function cmdInitPlanPhase(cwd, phase, includes, raw, gate) {
     project_context: { legacy: gate?.legacy === true },
     ...rigour.resolveRigour(cwd, phase, getMilestoneInfo(cwd).version),
     phase_req_ids: rigour.phaseReqIds(cwd, phase),
+    ...phaseRiskFields(cwd, phase),
 
     // Models
     researcher_model: resolveModelInternal(cwd, 'gsd-phase-researcher'),
@@ -12703,6 +12711,7 @@ function cmdRoadmapNext(cwd, args, raw) {
     ownerGate: { blocked_by: gateView.blocked_by_owner_gate, status: gateView.blocked_by_owner_gate ? ((ownerGates.find(ownerGates.readAll(cwd), gateView.blocked_by_owner_gate, getMilestoneInfo(cwd).version) || {}).status || 'not_requested') : null, pr_waiting: gateView.pr_waiting },
     retryParked: args.includes('--retry-parked'),
     gateMarked: dispatch.hasEvent(events, 'gate_pre_pr_passed'),
+    riskDomains: (k) => phaseRiskFields(cwd, k).phase_risk_domains,
     prRecorded: dispatch.hasEvent(events, 'pr_created') || dispatch.hasEvent(events, 'pr_requested') || dispatch.hasEvent(events, 'pr_skipped'),
     hasRemote: hasGitRemote(cwd),
     config: {

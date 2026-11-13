@@ -130,7 +130,7 @@ function next(input) {
     if (done.has(k) || blocked.has(k)) continue;
     if (!parseDeps(p.depends_on).every((d) => done.has(d))) continue;
     const s = stateOf(k);
-    const common = { ...base, phase: k, name: p.name, model: base.models.coordinator };
+    const common = { ...base, phase: k, name: p.name, model: base.models.coordinator, phase_risk_domains: input.riskDomains ? input.riskDomains(k) : [] };
     if (s.state === 'gap_pending') {
       log.push({ type: 'gap_cycle', phase: k });
       return { ...common, action: 'gap_cycle', args: `${k} --gaps --auto`, log };

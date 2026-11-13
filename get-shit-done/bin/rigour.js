@@ -101,4 +101,15 @@ function phaseReqIds(cwd, phase) {
   return m[1].split(/[,\s\[\]]+/).map((s) => s.replace(/[`*]/g, '').trim()).filter((s) => /^[A-Za-z][\w]*-\d+$/.test(s));
 }
 
-module.exports = { LEVELS, resolveRigour, rigourViolations, phaseReqIds };
+// phase_risk_domains: the ROADMAP "Risk domains" line of the phase (none or absent = []). Names outside the
+// known set are kept and listed in `unknown` (never a failure).
+function phaseRiskDomains(cwd, phase, known) {
+  const section = phaseSection(cwd, phase);
+  const m = section && section.match(/\*\*Risk domains:?\*\*:?[ \t]*([^\n]+)/i);
+  const names = !m || /^(none|nothing|n\/a)\b/i.test(m[1].trim().replace(/[`*]/g, ''))
+    ? [] : m[1].split(',').map((x) => x.replace(/[`*]/g, '').trim().toLowerCase()).filter(Boolean);
+  const set = new Set((Array.isArray(known) ? known : []).map((x) => String(x).toLowerCase()));
+  return { domains: names, unknown: names.filter((n) => !set.has(n)) };
+}
+
+module.exports = { LEVELS, resolveRigour, rigourViolations, phaseReqIds, phaseRiskDomains };
