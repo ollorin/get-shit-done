@@ -13369,7 +13369,7 @@ function cmdRoutingEscalationDecision(cwd, options, raw) {
   if (!currentTier) { error('routing escalation-decision: --current-tier is required'); return; }
   const classification = classifyFailure(errorSummary || '');
   const escalationsUsedNum = parseInt(escalationsUsed, 10) || 0;
-  const decision = decideEscalation(currentTier, classification, escalationsUsedNum);
+  const decision = decideEscalation(currentTier, classification, escalationsUsedNum, topModelFields(cwd).ruling_model);
   output({ ...classification, ...decision, current_tier: currentTier, escalations_used: escalationsUsedNum }, raw);
 }
 
@@ -14780,20 +14780,22 @@ function classifyFailure(errorSummary) {
 // model-registry.js -- the SINGLE source of truth for the escalation ladder;
 // never re-declares a second hardcoded ladder here. Bound: one retry per
 // tier (escalationsUsed caps at getTiers().length - 1), non-capability
-// failures never escalate, and the ladder ends at sonnet (a task
-// needing the top model is split by the planner).
-function decideEscalation(currentTier, classification, escalationsUsed) {
+// failures never escalate, and the ladder ends at sonnet. The one rung past
+// it is the rescue: a capability failure at sonnet returns rescue:true with
+// `to` = topAlias (the caller's resolved ruling_model), a single top-model
+// debugger dispatch, never an executor retry.
+function decideEscalation(currentTier, classification, escalationsUsed, topAlias) {
   if (!classification || classification.capability_related === false) {
     return { escalate: false, next_tier: null, reason: 'non_capability_failure' };
   }
+  const stop = (reason) => ({
+    escalate: false, next_tier: null, reason,
+    ...(currentTier === 'sonnet' && topAlias ? { rescue: true, to: topAlias } : {})
+  });
   const maxEscalations = getTiers().length - 1;
-  if ((escalationsUsed || 0) >= maxEscalations) {
-    return { escalate: false, next_tier: null, reason: 'escalation_bound_reached' };
-  }
+  if ((escalationsUsed || 0) >= maxEscalations) return stop('escalation_bound_reached');
   const nextTier = getNextTier(currentTier);
-  if (!nextTier) {
-    return { escalate: false, next_tier: null, reason: 'ladder_exhausted' };
-  }
+  if (!nextTier) return stop('ladder_exhausted');
   return { escalate: true, next_tier: nextTier, reason: 'capability_failure' };
 }
 

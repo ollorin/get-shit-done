@@ -1,6 +1,6 @@
 # Per-task executor routing
 
-The standard path of `workflows/execute-phase.md` `execute_waves` at every rigour except spike (a spike plan is one executor on `executor_model`). The tool does the arithmetic (`routing escalation-decision`); this file only sequences it. The ladder is haiku, then sonnet; nothing escalates past sonnet.
+The standard path of `workflows/execute-phase.md` `execute_waves` at every rigour except spike (a spike plan is one executor on `executor_model`). The tool does the arithmetic (`routing escalation-decision`); this file only sequences it. The ladder is haiku, then sonnet; executors never escalate past sonnet. One last rung, the rescue, is a single top-model debugger dispatch (step 4).
 
 <step name="per_task_routing">
 
@@ -78,10 +78,11 @@ node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event --type task_ou
 node ~/.claude/get-shit-done/bin/gsd-tools.js token-usage record \
   --phase {phase_number} --plan "{plan_file}" --task-index {task_index} --task-name "{task_name}" --tier "{TASK_TIER}" --raw
 ```
-4. Otherwise (a sonnet task that fails twice always lands here, never escalated further) log "Task {task_index} failed at {CURRENT_SIGNAL_TIER}, {EFFECTIVE_REASON}, no further escalation", record the task failed and continue; it falls into execute-phase's failure handling.
+4. `DECISION_JSON.rescue` true, `EFFECTIVE_ESCALATE` false, `[non-capability]` absent and `FAILS_AT_TIER` is 2 (a sonnet-tier task, tagged or escalated, fails twice): the rescue, ONCE per task. Log `tier_escalation` with `"to_tier":"{DECISION_JSON.to}","rescue":true,"reason":"{EFFECTIVE_REASON}"`, then spawn `gsd-debugger` on `model="{DECISION_JSON.to}"` (`ruling_model`; a rejected spawn retries once on `ruling_model_fallback` and says so) for this task, in place of any sonnet debugger dispatch. Its brief: find the root cause, then either fix and verify it, or return the task to the planner with a written reason the plan is not executable as written (plan revision or blocked path). No second top-model attempt for the task.
+5. Otherwise log "Task {task_index} failed at {CURRENT_SIGNAL_TIER}, {EFFECTIVE_REASON}, no further escalation", record the task failed and continue; it falls into execute-phase's failure handling.
 
 Escalation applies ONLY to capability-related errors signalled by the executor. Output-quality issues never trigger it; a `[non-capability]` failure (missing file, environment error) is recorded failed at once and is never escalated. The ladder lives in the tool (`routing escalation-decision`); never write a second ladder inline.
 
-**5. After ALL plans and waves of the phase** (and before `post_phase_ux_sweep`): `node ~/.claude/get-shit-done/bin/gsd-tools.js routing ledger build --raw`, best-effort and idempotent: it folds every `task_outcome` and `tier_escalation` event into `.planning/routing-ledger.json`.
+**6. After ALL plans and waves of the phase** (and before `post_phase_ux_sweep`): `node ~/.claude/get-shit-done/bin/gsd-tools.js routing ledger build --raw`, best-effort and idempotent: it folds every `task_outcome` and `tier_escalation` event into `.planning/routing-ledger.json`.
 
 </step>
