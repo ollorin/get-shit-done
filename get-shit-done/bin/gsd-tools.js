@@ -2967,7 +2967,7 @@ function cmdCommit(cwd, message, files, raw, amend, trailers = []) {
   // Commit
   const commitArgs = amend
     ? ['commit', '--amend', '--no-edit']
-    : ['commit', '-m', message, ...(trailers.length > 0 ? ['-m', trailers.join('\n')] : [])];
+    : ['commit', '-m', message, ...(trailers.length > 0 ? ['-m', trailers.join('\n')] : []), '--', ...filesToStage];
   const commitResult = execGit(cwd, commitArgs);
   if (commitResult.exitCode !== 0) {
     error(`commit: git commit failed in ${repoRoot}: ${commitResult.stderr || commitResult.stdout}`);
