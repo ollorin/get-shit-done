@@ -11877,12 +11877,6 @@ describe('Phase 54 handoff-brief wiring', () => {
     assert.ok(verifierRegion.includes('handoff-brief.md'), 'expected handoff-brief.md to be @-mentioned in the verifier spawn region');
   });
 
-  test('the per-task executor prompt of task-routing.md carries the brief too', () => {
-    const routing = readRepoFile(path.join(REPO_ROOT, 'get-shit-done', 'references', 'task-routing.md'));
-    assert.match(routing, /<handoff_brief>/);
-    assert.match(routing, /references\/handoff-brief\.md/);
-  });
-
   // Category 2: Missing/malformed input.
   test('missing/malformed input: readRepoFile fails the assertion loudly (not an unhandled throw) for an absent path', () => {
     const bogusPath = path.join(REPO_ROOT, 'get-shit-done', 'references', 'this-file-does-not-exist-54-04.md');

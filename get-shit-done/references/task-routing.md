@@ -8,7 +8,7 @@ The standard path of `workflows/execute-phase.md` `execute_waves` at every rigou
 
 **2. Spawn one executor per task, sequentially** (tasks may depend on each other). For each task:
 
-1. `ROUTING_STATS[TASK_TIER] += 1`, then spawn:
+1. `ROUTING_STATS[TASK_TIER] += 1`, then spawn. A task executor loads `references/executor-task.md` and nothing else of the executor's long files: the prompt names that file, the plan path and the task number. `templates/summary.md` is added only for the LAST task of the plan, `references/checkpoints.md` only for a `checkpoint:*` task. There is no handoff brief: the task's own `Rules applied:` lines carry the rules.
 
 ```
 Agent(
@@ -18,23 +18,19 @@ Agent(
   prompt="
     <objective>
     Execute task {task_index} of plan {plan_number} in phase {phase_number}-{phase_name}.
-    Commit the task atomically. If this is the last task, create SUMMARY.md and update STATE.md.
+    Commit the task atomically. If this is the last task, finish the plan (executor-task.md, Last task of the plan).
     </objective>
     <execution_context>
-    @~/.claude/get-shit-done/workflows/execute-plan.md
-    @~/.claude/get-shit-done/templates/summary.md
-    @~/.claude/get-shit-done/references/checkpoints.md
-    @~/.claude/get-shit-done/references/tdd.md
-    @~/.claude/get-shit-done/references/handoff-brief.md
+    @~/.claude/get-shit-done/references/executor-task.md
+    {last task of the plan only: @~/.claude/get-shit-done/templates/summary.md}
+    {checkpoint task only: @~/.claude/get-shit-done/references/checkpoints.md}
     </execution_context>
-    <handoff_brief>
-    {HANDOFF_BRIEF: the 5 fixed sections per references/handoff-brief.md, as assembled in execute-phase}
-    </handoff_brief>
     <files_to_read>
-    - Plan: {phase_dir}/{plan_file}
-    - State: .planning/STATE.md
-    - Config: .planning/config.json (if exists)
+    - Plan: {phase_dir}/{plan_file} (task {task_index} only)
+    - Brief and profile: {brief_path}, {stack_profile_path}
     </files_to_read>
+    stack_commands: {stack_commands, verbatim}
+    rigour: {rigour}
     <routing_context>
     Per-task routing active. This task routed to {TASK_TIER}.
     Task index: {task_index}
