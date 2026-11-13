@@ -23,7 +23,7 @@ Every `A-` carries `default`, `reversibility` (`cheap` = one plan or less to cha
 - `decisions list --phase N` prints what binds phase N. Do not ask the owner anything it answers.
 - Cite a record by id everywhere (`D-03`, `A-02`), never as `DECISIONS.md:<line>`: the file is a render and its lines move on every `add`. To quote a record, quote its text.
 - A plan cites the id beside the task that implements it (`(D-03)`, `(A-02, assumed)`). A task built on an `A-` keeps the default behind one seam (one function, config key or flag) and says where.
-- `decisions check-plan --phase N <PLAN.md...>` fails when an id naming phase N is cited by no plan, a cited id does not exist, or a cited id was superseded. A plan that contradicts a binding record is a blocker even when it cites it.
+- `decisions check-plan --phase N <PLAN.md...>` is phase-wide: pass every plan of the phase in one call (a single plan fails on ids its siblings cite; the output then carries a `hint`), and a plan never carries it as its own verify line. It fails when an id naming phase N is cited by no plan, a cited id does not exist, or a cited id was superseded. A plan that contradicts a binding record is a blocker even when it cites it.
 
 ## Never block
 
