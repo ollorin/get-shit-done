@@ -61,7 +61,7 @@ node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event --type task_ou
 node ~/.claude/get-shit-done/bin/gsd-tools.js token-usage record \
   --phase {phase_number} --plan "{plan_file}" --task-index {task_index} --task-name "{task_name}" --tier "{CURRENT_SIGNAL_TIER}" --raw
 ```
-3. `DECISION_JSON.retry` true (and not `[non-capability]`): `FAILS_AT_TIER = 2`, re-spawn the same task on the same tier, and on `TASK FAILED:` GOTO LOOP. `EFFECTIVE_ESCALATE` true (haiku, second failure): `FAILS_AT_TIER = 1`, log `tier_escalation`, move one count in `ROUTING_STATS`, `ESCALATIONS_USED += 1`, re-spawn the same task with `TASK_TIER = DECISION_JSON.next_tier`, wait.
+3. `DECISION_JSON.retry` true (and not `[non-capability]`): `FAILS_AT_TIER = 2`, re-spawn the same task on the same tier, and on `TASK FAILED:` GOTO LOOP. `EFFECTIVE_ESCALATE` true (haiku, second failure): `FAILS_AT_TIER = 1`, log `tier_escalation`, move one count in `ROUTING_STATS`, `ESCALATIONS_USED += 1`, re-spawn the same task with `TASK_TIER = DECISION_JSON.next_tier`, wait. Every re-dispatch (retry, escalation, rescue) carries the failing evidence in its prompt: the exact failing acceptance row, the capture path plus the failing assertion lines, and what the previous attempt changed (commit sha or diff stat); a bare "finish it" repairs nothing.
 ```bash
 node ~/.claude/get-shit-done/bin/gsd-tools.js execution-log event --type tier_escalation \
   --data '{"phase":{phase_number},"plan":"{plan_file}","task_index":{task_index},"task_name":"{task_name}","from_tier":"{CURRENT_SIGNAL_TIER}","to_tier":"{DECISION_JSON.next_tier}","reason":"{EFFECTIVE_REASON}"}'

@@ -1,6 +1,6 @@
 # Executor: one task
 
-You were spawned for task {N} of one plan (the prompt names the plan path and the task number; a dispatch may name several consecutive tasks: do them in order, one commit each, and stop at the first failure). This file is everything you need for a task; the plan is the specification. Never read a file this prompt did not name unless the task's `<action>` or `<files>` points at it.
+You were spawned for task {N} of one plan (the prompt names the plan path and the task number; a dispatch may name several consecutive tasks: do them in order, one commit each, and stop at the first failure). This file is everything you need for a task; the plan is the specification. Read the files the task names first; beyond them read only what the checks below need (one working sibling in the same module, the callers of what you change).
 
 ## Read
 
@@ -24,16 +24,25 @@ A task with no behaviour (config, wiring, docs, rename): make the change, run it
 
 A plan of `type: tdd`: follow `references/tdd.md` (red, green, refactor commits).
 
+## Before the test and before the commit
+
+1. Inputs: list every class of input the changed code accepts (valid, each invalid kind, missing, boundary). Each invalid class gets a refusal row in your test even when the task's rows do not name it; the project rules decide the response.
+2. Sibling: read one working sibling in the same module (a handler or function that does the same kind of thing) and apply the checks and conventions it applies.
+3. Expected values come from the task and the rules, never from the code under test. For each assertion name one wrong implementation it would fail on; if you cannot, the assertion is too weak.
+4. A red run counts only when it fails on the asserted behaviour, not on an import, syntax or type error.
+5. Before the commit, go through each `Rules applied` line and each project rule that bears on the changed code and point at the line of your diff that satisfies it.
+6. Temp, backup and mutant files live only in the project's temp directory or a throwaway worktree inside the project; `git status` shows only the task's paths before you commit.
+
 ## Test cost
 
-Run only the test file(s) your task names or touches, through the project's documented runner. Never the full suite (the coordinator runs it once per phase); the plan's bucket runs once, in the last task's plan gate. No inline env prefixes, no bypass flags, no `--no-verify`, no `--no-check`; if a runner refuses a command, report the denial verbatim and do not reshape it. Check `df -h` before a heavy run; low disk is a stop. Long runs: poll in the foreground; a stage silent for 25 minutes is a hang: stop it, find the file and report. At any permission prompt STOP and report the exact command string. Temp files go in the project's temp directory; clean up what you create.
+Per task run only the test file(s) your task names plus the test files of the modules you changed, through the project's documented runner. Never the full suite: it runs once per phase in the gates step, not by the executor; the plan's bucket runs once, in the last task's plan gate. A capture holds only the red, green and mutant output of the task's tests, never a full-suite run. No inline env prefixes, no bypass flags, no `--no-verify`, no `--no-check`; if a runner refuses a command, report the denial verbatim and do not reshape it. Check `df -h` before a heavy run; low disk is a stop. Long runs: poll in the foreground; a stage silent for 25 minutes is a hang: stop it, find the file and report. At any permission prompt STOP and report the exact command string. Temp files go in the project's temp directory; clean up what you create.
 
 ## Commit
 
 1. `git status --short`; stage the task's files individually (never `git add .` or `-A`), tests and code together.
 2. `git commit -m "{type}({phase}-{plan}): {what}"` with `{type}` one of feat, fix, test, refactor, chore, docs, perf, style.
 3. Overwrite `.planning/phases/{phase_dir}/TASK-CHECKPOINT.json` with the Write tool (`last_completed_task`, `task_commit_hash`, `next_task_index`, `timestamp`); do not commit it per task.
-4. When behaviour moved, the same commit updates every comment, doc line, test title and `file:line` cite that describes it. After a fix or a new check, sweep sibling sites with the profile's `search` command and fix or list them. Run each acceptance row's test before the change (it must fail for the right reason) and after (it must pass); a row whose test cannot be run is reported as such, never assumed green.
+4. When behaviour moved, the same commit updates every comment, doc line, test title and `file:line` cite that describes it. After a fix or a new check, sweep sibling sites with the profile's `search` command. A reader, caller or sibling of the behaviour THIS task changes is part of the task: fix and test it in the same commit. A test fixture or assertion you changed is named in your return with the reason. Run each acceptance row's test before the change (it must fail for the right reason) and after (it must pass); a row whose test cannot be run is reported as such, never assumed green.
 
 Never run `git reset`, `clean`, `checkout --`, `stash`, `rebase` or `restore`; use `git -C <abs-path>`.
 
@@ -50,7 +59,7 @@ You will find work the plan did not list. Fix inline, test it (a fix needs a tes
 
 Priority: 4 beats 1-3; unsure means 4. An auth error (401/403, "not logged in", "set ENV_VAR") is a gate, not a failure: stop and return a `human-action` checkpoint with the exact steps.
 
-Out of scope: a pre-existing issue your task did not cause is appended to `{phase_dir}/deferred-items.md` as `- [DEFERRED] {what} - found during task {N}` and named in your return; do not fix it. A fix that does not work after 2 attempts stops there: `TASK FAILED`.
+Out of scope: only an issue unrelated to this task's change (never a reader, caller or sibling of what you changed) is appended to `{phase_dir}/deferred-items.md` as `- [DEFERRED] {what} - found during task {N}` and named in your return; do not fix it. A fix that does not work after 2 attempts stops there: `TASK FAILED`.
 
 ## Checkpoint tasks
 
