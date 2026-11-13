@@ -129,10 +129,10 @@ describe('N11 / E2 removed surfaces', () => {
     for (const cmd of ['plan-phase', 'execute-phase']) assert.ok(!('rigour_decision' in gsd(dir, ['init', cmd, '1']).json), cmd);
   });
   test('resolve-model has no utility/reviewer aliases (init fields carry those models)', () => {
-    const dir = project();
-    assert.notStrictEqual(gsd(dir, ['resolve-model', 'utility']).rc, 0);
-    assert.notStrictEqual(gsd(dir, ['resolve-model', 'reviewer']).rc, 0);
-    assert.strictEqual(gsd(dir, ['resolve-model', 'top']).rc, 0);
+    const dir = project([{ n: '1', name: 'one' }], { utility_model: 'u', reviewer_model: 'r' });
+    assert.notStrictEqual(gsd(dir, ['resolve-model', 'utility']).out.trim(), 'u');
+    assert.notStrictEqual(gsd(dir, ['resolve-model', 'reviewer']).out.trim(), 'r');
+    assert.strictEqual(gsd(dir, ['init', 'execute-phase', '1']).json.utility_model, 'u');
   });
   test('verify form is the plan-time check only: no post-execution form list without --plans-only', () => {
     const dir = project();

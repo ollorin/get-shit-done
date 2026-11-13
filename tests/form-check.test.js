@@ -52,26 +52,27 @@ describe('verify form', () => {
     setPlan(dir, plan('01', { lines: 400, tasks: 9 }), '01', true);
     assert.strictEqual(form(dir, '--plans-only').rc, 0);
   });
+  const gateForm = (dir) => gsd(dir, ['verify', 'phase-gate', '1', '--pre-verifier']).json.form_errors;
   test('line cites to DECISIONS.md / ROADMAP.md in the phase PLAN/SUMMARY fail; ids pass; ledger rows, VERIFICATION and REVIEW quotes are not scanned', () => {
     const dir = project();
     const pd = setPlan(dir, plan('01'));
     fs.writeFileSync(path.join(pd, '01-01-SUMMARY.md'), '# S\n\nSee D-34 and src/a.ts:12.\n\n## Self-Check: PASSED\n');
-    assert.strictEqual(form(dir).rc, 0);
+    assert.deepStrictEqual(gateForm(dir), []);
     fs.writeFileSync(path.join(pd, '01-01-SUMMARY.md'), '# S\n\nper DECISIONS.md:248\n\n## Self-Check: PASSED\n');
-    const r = form(dir);
-    assert.deepStrictEqual(checks(r), ['line_cite']);
-    assert.match(r.json.errors[0].message, /DECISIONS\.md:248/);
+    const errs = gateForm(dir);
+    assert.deepStrictEqual(errs.map((e) => e.check), ['line_cite']);
+    assert.match(errs[0].message, /DECISIONS\.md:248/);
     fs.writeFileSync(path.join(pd, '01-01-SUMMARY.md'), '# S\n\n## Self-Check: PASSED\n');
     fs.writeFileSync(path.join(pd, '01-VERIFICATION.md'), '---\nstatus: passed\n---\nfinding: DECISIONS.md:12\n');
     fs.writeFileSync(path.join(pd, '01-REVIEW-1.md'), 'ROADMAP.md:9\n');
     fs.writeFileSync(path.join(dir, '.planning', 'DECISIONS.jsonl'), JSON.stringify({ id: 'D-01', kind: 'decision', phases: ['1'], answer: 'see ROADMAP.md:12' }) + '\n');
-    assert.strictEqual(form(dir).rc, 0);
+    assert.deepStrictEqual(gateForm(dir), []);
   });
-  test('a SUMMARY without the Self-Check section is a form error; --plans-only does not report it', () => {
+  test('a SUMMARY without the Self-Check section is a form error of phase-gate; verify form (plan-time) does not report it', () => {
     const dir = project();
     const pd = setPlan(dir, plan('01'));
     fs.writeFileSync(path.join(pd, '01-01-SUMMARY.md'), '# S\n');
-    assert.ok(checks(form(dir)).includes('self_check'));
+    assert.ok(gateForm(dir).some((e) => e.check === 'self_check'));
     assert.strictEqual(form(dir, '--plans-only').rc, 0);
   });
 });
