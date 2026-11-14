@@ -40,7 +40,7 @@ Fix what you find: delete, merge (a table-driven test), or speed up. Add a test 
 
 Run only the files you touched, through the profile's `test_file` command, once before and once after, and record both timings. Never the full suite and never a bypass flag (`--no-check`, `--no-verify`, inline env prefixes); report a denied command verbatim.
 
-Commit only test files: `test({scope}): steward - {what}`, staged individually.
+Commit only test files: `test({N}-steward): {what}`, staged individually.
 </actions>
 
 <output>

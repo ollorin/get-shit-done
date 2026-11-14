@@ -83,3 +83,96 @@ describe('phase_base in a shallow clone', () => {
     assert.notStrictEqual(r.rc, 0, `phase_base ${r.json && r.json.phase_base}`);
   });
 });
+
+describe('phase_base resolves the parent before deciding a shallow clone is an error', () => {
+  const cloneDepth = (src, depth) => {
+    const clone = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-shallow-'));
+    dirs.push(clone);
+    execFileSync('git', ['clone', '-q', '--depth', String(depth), `file://${src}`, clone + '/c']);
+    return clone + '/c';
+  };
+  test('oldest phase commit and its parent present -> the parent is phase_base', () => {
+    const src = phaseOne();
+    const parent = head(src);
+    commit(src, 'src/a.ts', 'feat(01-01): a');
+    commit(src, 'src/b.ts', 'feat(01-01): b');
+    const r = gsd(cloneDepth(src, 3), ['init', 'execute-phase', '1']);
+    assert.strictEqual(r.rc, 0, r.err);
+    assert.strictEqual(r.json.phase_base, parent);
+  });
+  test('shallow clone with the oldest phase commit on the boundary -> error', () => {
+    const src = phaseOne();
+    commit(src, 'src/a.ts', 'feat(01-01): a');
+    commit(src, 'src/b.ts', 'feat(01-01): b');
+    const r = gsd(cloneDepth(src, 2), ['init', 'execute-phase', '1']);
+    assert.notStrictEqual(r.rc, 0);
+    assert.match(r.err + r.out, /phase_base needs full history/);
+  });
+  test('shallow clone, phase not started -> phase_base is HEAD', () => {
+    const src = phaseOne();
+    const r = gsd(cloneDepth(src, 1), ['init', 'execute-phase', '1']);
+    assert.strictEqual(r.rc, 0, r.err);
+    assert.strictEqual(r.json.phase_base, head(src));
+  });
+  test('full repo whose first commit is the phase first commit -> empty-tree base', () => {
+    const dir = makeProject([{ n: '1', name: 'one' }]);
+    dirs.push(dir);
+    write(dir, '.planning/phases/01-p1/01-01-PLAN.md', '---\nphase: "01"\nplan: "01"\n---\n# Plan\n');
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '--amend', '-m', 'feat(1-01): root');
+    const r = gsd(dir, ['init', 'execute-phase', '1']);
+    assert.strictEqual(r.rc, 0, r.err);
+    assert.strictEqual(r.json.phase_base, '4b825dc642cb6eb9a060e54bf8d69288fbee4904');
+  });
+});
+
+describe('accepted phase tag forms (rigour rule 12)', () => {
+  test('feat(1-1) and chore(01-gates) are phase commits; feat(11-01) and docs(01) are not', () => {
+    const dir = phaseOne();
+    commit(dir, 'src/a.ts', 'feat(1-1): x');
+    commit(dir, 'src/b.ts', 'chore(01-gates): x');
+    commit(dir, 'src/c.ts', 'feat(11-01): x');
+    commit(dir, 'src/d.ts', 'docs(01): x');
+    assert.deepStrictEqual(reviewGate.phaseCommits(exec, dir, '1').map((c) => c.subject), ['feat(1-1): x', 'chore(01-gates): x']);
+  });
+  test('a bare NN-NN mention is untagged, never a phase commit', () => {
+    const dir = phaseOne();
+    commit(dir, 'src/a.ts', 'feat: 01-03 bare');
+    assert.deepStrictEqual(reviewGate.phaseCommits(exec, dir, '1'), []);
+    assert.deepStrictEqual(reviewGate.untaggedPhaseCommits(exec, dir, '1').map((c) => c.subject), ['feat: 01-03 bare']);
+  });
+  test('test(1-steward) is a phase commit', () => {
+    const dir = phaseOne();
+    commit(dir, 'tests/a.test.js', 'test(1-steward): steward - x');
+    assert.deepStrictEqual(reviewGate.phaseCommits(exec, dir, '1').map((c) => c.subject), ['test(1-steward): steward - x']);
+  });
+});
+
+describe('requirements_partial is read by spike-check and the verifier', () => {
+  const spikeFixture = (planFm) => {
+    const dir = makeProject([{ n: '1', name: 'one' }]);
+    dirs.push(dir);
+    write(dir, '.planning/ROADMAP.md', '# Roadmap\n\n- [x] **Phase 1: one** - one\n\n### Phase 1: one\n**Goal:** g\n**Requirements:** R-2\n');
+    write(dir, '.planning/REQUIREMENTS.md', '# Req\n\n- [ ] **R-2**: thing\n');
+    write(dir, '.planning/STATE.md', '# State\n\n**Current Phase:** 1\n**Status:** complete\n');
+    write(dir, '.planning/phases/01-p1/01-01-PLAN.md', `---\nphase: "01"\nplan: "01"\n${planFm}\n---\n# Plan\n`);
+    return dir;
+  };
+  test('spike-check: id only in requirements_partial and Pending is not an error', () => {
+    const dir = spikeFixture('requirements_partial: [R-2]');
+    const { statusAgreementErrors } = require('../get-shit-done/bin/spike-check.js');
+    assert.deepStrictEqual(statusAgreementErrors(dir, '1'), []);
+  });
+  test('spike-check: id under requirements and Pending is still an error', () => {
+    const dir = spikeFixture('requirements: [R-2]');
+    const { statusAgreementErrors } = require('../get-shit-done/bin/spike-check.js');
+    assert.match(statusAgreementErrors(dir, '1').join('\n'), /R-2 pending/);
+  });
+  test('verify test-content marks a requirements_partial id partial', () => {
+    const dir = spikeFixture('requirements_partial: [R-2]');
+    const r = gsd(dir, ['verify', 'test-content', '1']);
+    const row = (r.json.requirements || []).find((x) => x.req_id === 'R-2');
+    assert.ok(row, r.out);
+    assert.strictEqual(row.partial, true);
+  });
+});

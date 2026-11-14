@@ -7734,12 +7734,19 @@ function computeTestContentCoverage(cwd, phaseNumber, validPlans, filesByPlan, p
   const isChecked = pn => !!(deltaByPlan[pn] && deltaByPlan[pn].found);
   // reqId -> [{ planNum, hasTdd }] -- every declaring plan, tdd or not.
   const reqToPlans = {};
+  // requirements_partial ids are aggregated like requirements and marked `partial: true` unless some plan declares them in full.
+  const fullReqIds = new Set();
+  const partialReqIds = new Set();
+  const partialMark = reqId => (partialReqIds.has(reqId) && !fullReqIds.has(reqId) ? { partial: true } : {});
   for (const plan of validPlans || []) {
     const planNum = plan.planNum || (plan.fm && plan.fm.plan);
     if (!planNum) continue;
     const hasTdd = /tdd=["']?true/.test(plan.content || '');
     const reqIds = Array.isArray(plan.fm && plan.fm.requirements) ? plan.fm.requirements : [];
-    for (const reqId of reqIds) {
+    const partialIds = Array.isArray(plan.fm && plan.fm.requirements_partial) ? plan.fm.requirements_partial : [];
+    for (const reqId of reqIds) fullReqIds.add(reqId);
+    for (const reqId of partialIds) partialReqIds.add(reqId);
+    for (const reqId of [...reqIds, ...partialIds]) {
       if (!reqToPlans[reqId]) reqToPlans[reqId] = [];
       reqToPlans[reqId].push({ planNum, hasTdd });
     }
@@ -7757,6 +7764,7 @@ function computeTestContentCoverage(cwd, phaseNumber, validPlans, filesByPlan, p
     if (tddPlans.length === 0) {
       requirements.push({
         req_id: reqId,
+        ...partialMark(reqId),
         status: 'not_applicable',
         source_plans: declaringPlans.map(p => p.planNum),
         matched_files: [],
@@ -7874,6 +7882,7 @@ function computeTestContentCoverage(cwd, phaseNumber, validPlans, filesByPlan, p
 
     requirements.push({
       req_id: reqId,
+      ...partialMark(reqId),
       status,
       source_plans: tddPlans.map(p => p.planNum),
       matched_files: matchedFiles,
@@ -11146,7 +11155,8 @@ function riskAddons(cwd, phase, level) {
 
 // phase_base: the parent of the phase's oldest tagged commit on HEAD (reviewGate.phaseCommits); the one definition of
 // `{phase base}` in the final-review diff. HEAD only when the phase has no commit at all; an error when commits exist but
-// none is tagged, in a shallow clone, or when the oldest commit's parent is missing though the repository is not a root.
+// none is tagged, or when the oldest commit's parent is missing from a shallow clone. A parent missing from a full
+// repository means the oldest phase commit is a true root: the empty tree.
 function phaseBase(cwd, phase) {
   const oldest = reviewGate.phaseCommits(execGit, cwd, phase)[0];
   if (!oldest) {
@@ -11155,9 +11165,10 @@ function phaseBase(cwd, phase) {
     const head = execGit(cwd, ['rev-parse', '--verify', '-q', 'HEAD']);
     return head.exitCode === 0 && head.stdout ? head.stdout : null;
   }
-  if (execGit(cwd, ['rev-parse', '--is-shallow-repository']).stdout === 'true') error(`phase_base needs full history: this is a shallow clone (run git fetch --unshallow)`);
   const parent = execGit(cwd, ['rev-parse', '--verify', '-q', `${oldest.sha}^`]);
-  return parent.exitCode === 0 && parent.stdout ? parent.stdout : '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+  if (parent.exitCode === 0 && parent.stdout) return parent.stdout;
+  if (execGit(cwd, ['rev-parse', '--is-shallow-repository']).stdout === 'true') error(`phase_base needs full history: this is a shallow clone and the oldest phase commit's parent is not present (run git fetch --unshallow)`);
+  return '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 }
 
 function initRiskFields(cwd, phase) {

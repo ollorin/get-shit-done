@@ -89,6 +89,27 @@ function answerTableErrors(cwd, phaseDir, dirFiles, { requireTable = false } = {
   return errors;
 }
 
+// Requirement ids the phase's PLAN.md frontmatter declares: `requirements` (full) and `requirements_partial` (partial), inline arrays
+// as gsd-tools extractFrontmatter reads them.
+function planRequirementSets(cwd, phaseNumber) {
+  const [int, ...dec] = String(phaseNumber).replace(/^0+(?=\d)/, '').split('.');
+  const prefix = [int.padStart(2, '0'), ...dec].join('.');
+  const phasesDir = path.join(cwd, '.planning', 'phases');
+  const dir = (fs.existsSync(phasesDir) ? fs.readdirSync(phasesDir) : []).find((d) => d.startsWith(`${prefix}-`));
+  const full = new Set();
+  const partial = new Set();
+  if (!dir) return { full, partial };
+  for (const file of fs.readdirSync(path.join(phasesDir, dir)).filter((x) => /-PLAN\.md$/i.test(x))) {
+    const fm = (read(path.join(phasesDir, dir, file)) || '').match(/^---\n([\s\S]+?)\n---/);
+    if (!fm) continue;
+    for (const [key, set] of [['requirements', full], ['requirements_partial', partial]]) {
+      const m = fm[1].match(new RegExp(`^${key}:\\s*\\[([^\\]]*)\\]`, 'm'));
+      for (const id of m ? m[1].split(',') : []) if (id.trim()) set.add(id.trim().replace(/^["']|["']$/g, ''));
+    }
+  }
+  return { full, partial };
+}
+
 // A phase ROADMAP marks complete: its requirement ids are checked in REQUIREMENTS.md and STATE.md does not still call it in progress.
 function statusAgreementErrors(cwd, phaseNumber) {
   const errors = [];
@@ -100,7 +121,9 @@ function statusAgreementErrors(cwd, phaseNumber) {
   const ids = ((section.match(/\*\*Requirements:?\*\*:?\s*([^\n]*)/i) || [])[1] || '').match(/[A-Z][A-Z0-9]*-\d+/g) || [];
   const req = read(path.join(cwd, '.planning', 'REQUIREMENTS.md'));
   if (req !== null) {
+    const plans = planRequirementSets(cwd, phaseNumber);
     for (const id of new Set(ids)) {
+      if (plans.partial.has(id) && !plans.full.has(id)) continue;
       const box = req.match(new RegExp(`-\\s*\\[( |x)\\]\\s*\\**${id}\\b`, 'i'));
       const row = req.match(new RegExp(`\\|\\s*${id}\\s*\\|[^\\n]*`, 'i'));
       if ((box && box[1] === ' ') || (row && /\bpending\b/i.test(row[0]))) errors.push(`REQUIREMENTS.md shows ${id} pending while ROADMAP.md marks phase ${phaseNumber} complete`);

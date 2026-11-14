@@ -46,9 +46,10 @@ const rulingLedgerErrors = (label, ruled, ledger) => {
 };
 
 // The one matcher for "commits of phase N" (gate commit check, touched files / has_ui, phase_base, freshness; rigour.md rule 12):
-// reachable from HEAD, SUBJECT tagged `(<phase>-NN)` (plan commit) or `(<phase>-review...)` (review fix), the phase a whole token
-// (zero-padded and unpadded forms are equal, 36 is not 365, 365 is not 365.1); the body is never searched. With `planNum`, only
-// that plan's `(<phase>-NN)` commits. Oldest first, each { sha, ts, subject, files }. `execGit(cwd, args)` returns { stdout }.
+// reachable from HEAD, SUBJECT scope starting `(<phase>-` then [0-9a-z] (`(1-01)`, `(01-gates)`, `(1-review-r2)`), the phase a
+// whole token (zero-padded and unpadded forms are equal, 36 is not 365, 365 is not 365.1); the body is never searched. With
+// `planNum`, only that plan's `(<phase>-NN)` commits. Oldest first, each { sha, ts, subject, files }. `execGit(cwd, args)`
+// returns { stdout }.
 const trimZeros = (p) => String(p).replace(/^0+(?=\d)/, '');
 const reEsc = (v) => String(v).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const readLog = (execGit, cwd, phaseNumber) => {
@@ -60,14 +61,14 @@ const readLog = (execGit, cwd, phaseNumber) => {
   });
 };
 function phaseCommits(execGit, cwd, phaseNumber, planNum) {
-  const plan = planNum === undefined ? '\\d{2}(?!\\d)|review[\\w-]*\\)' : `${reEsc(String(planNum).padStart(2, '0'))}(?!\\d)`;
-  const tag = new RegExp(`\\(0*${reEsc(trimZeros(phaseNumber))}-(${plan})`);
+  const plan = planNum === undefined ? '[0-9a-z]' : `${reEsc(String(planNum).padStart(2, '0'))}(?!\\d)`;
+  const tag = new RegExp(`\\(0*${reEsc(trimZeros(phaseNumber))}-${plan}`);
   return readLog(execGit, cwd, phaseNumber).filter((c) => tag.test(c.subject));
 }
 
-// HEAD commits whose subject carries the phase's plan token (`1-01`, `01-01`) in a form phaseCommits does not accept.
+// HEAD commits whose subject mentions the phase's two-digit plan token (`N-NN`, e.g. `01-03`) outside an accepted scope.
 function untaggedPhaseCommits(execGit, cwd, phaseNumber, planNum) {
-  const loose = new RegExp(`(^|[^0-9.-])0*${reEsc(trimZeros(phaseNumber))}-${planNum === undefined ? '(\\d{2}|review)' : reEsc(String(planNum).padStart(2, '0'))}([^0-9]|$)`);
+  const loose = new RegExp(`(^|[^0-9.-])0*${reEsc(trimZeros(phaseNumber))}-${planNum === undefined ? '\\d{2}' : reEsc(String(planNum).padStart(2, '0'))}([^0-9]|$)`);
   const tagged = new Set(phaseCommits(execGit, cwd, phaseNumber, planNum).map((c) => c.sha));
   return readLog(execGit, cwd, phaseNumber).filter((c) => !tagged.has(c.sha) && loose.test(c.subject));
 }

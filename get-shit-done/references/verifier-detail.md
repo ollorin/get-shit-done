@@ -234,7 +234,7 @@ done
 ```
 
 Aggregate all requirement IDs across plans. For each requirement ID:
-1. Check if it appears in a plan's `requirements` field (Source Plan column)
+1. Check if it appears in a plan's `requirements` field (Source Plan column); an id only in `requirements_partial` is aggregated and reported as partial, never as a full requirement
 2. Look up description in REQUIREMENTS.md if it exists
 3. Check corresponding truths/artifacts verification status
 

@@ -346,7 +346,7 @@ Planner prompt:
 - {uat_path} (UAT Gaps - if --gaps)
 </files_to_read>
 
-**Phase requirement IDs (every ID MUST appear in a plan's `requirements` field):** {phase_req_ids}
+**Phase requirement IDs (every ID MUST appear in a plan's `requirements` or `requirements_partial` field):** {phase_req_ids}
 
 **Project instructions:** Read ./CLAUDE.md if exists — follow project-specific guidelines
 **Project skills:** Check .claude/skills/ or .agents/skills/ directory (if either exists) — read SKILL.md files, plans should account for project skill rules
@@ -507,7 +507,7 @@ On a risk phase (`TRIAGE_MODE` `adversarial`) the delta check is the only step t
   ```bash
   node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" quality verdict-to-issues "${PHASE_DIR}/${plan_id}-VERDICT.md" --require --raw
   ```
-  The checker already lists the verdict's findings in its own return: add a returned issue only when its plan and fix are not already in that list, and keep the severity as returned (a `blocker:` or `warning:` prefix on a `required_changes` entry sets it; otherwise `revise` is a warning and `critical` a blocker). Then proceed to step 12. All verdicts `approved` (no blocker issue) and `## VERIFICATION PASSED`: proceed to step 13, except when the checker applied fixes: run ONE delta round first (step 10 on `checker_model`) over `git diff {PLAN_BASE}` and route its return like any delta round.
+  The checker already lists the verdict's findings in its own return: add a returned issue only when its plan and fix are not already in that list, and keep the severity as returned (a `blocker:` or `warning:` prefix on a `required_changes` entry sets it; otherwise `revise` is a warning and `critical` a blocker). Then proceed to step 12. All verdicts `approved` (no blocker issue) and `## VERIFICATION PASSED`: proceed to step 13, except when the checker applied fixes: run ONE delta round first (step 10 on `checker_model`) over `git diff {PLAN_BASE}` and route its return like any delta round. When `TRIAGE_MODE` is `adversarial`, the one delta round ALWAYS runs here, also when round 1 found nothing and applied no fixes: it is the only step that reads the whole plan set and runs the phase-level dimensions.
 
 ## 12. Revision Loop (capped)
 
