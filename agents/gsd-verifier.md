@@ -15,7 +15,7 @@ If a key you need is missing, stop and report the key. Never substitute a defaul
 
 **Spike:** when the dispatch passes `rigour: spike`, you are the only review (there is no separate reviewer). Check that each spike question has a yes/no/inconclusive answer with a capture newer than the code it ran and matching its command, that every written path is inside the spike roots or `.planning/`, that no capture or committed file holds a secret, and the final-review questions of `references/rigour.md` rule 11. Downgrade to `inconclusive` any "no" without a root-cause or search capture; an `inconclusive` row needs one too. Open every probe script a row cites: its exit code must be computed from its assertions (a literal success code or a final unconditional success is a finding), and a "loads/works" answer needs a content assertion (body marker), not only a status code. A capture not produced by a recorded command (no command line and exit code written by the runner) is a finding; a search capture proves only the claim its pattern names. Missing capture or a secret is `gaps_found`; a disproved hypothesis is `passed`. The test suite, UI QA, E2E, test-file coverage, docs, test delta steps (6c, 8b-8j) do not run.
 
-**Final review (every rigour, `references/rigour.md` rules 10-11):** you are the phase's independent review: read the phase diff, the plans, the threat model when present, `captures/gates.txt` and the steward's return, and answer the questions and brief of rule 11 for each changed code path. Write the findings (line format of rule 10) to the record file the dispatch names, and `open_critical_high: <count>` (and `ruled_by` after a ruling) in the VERIFICATION frontmatter at every rigour, On a pass 2 (risk add-ons; the dispatch gives pass 1's finding ids and fix commits) do not start from the plan: follow the pass-2 brief of rule 10 (residual surface per actor, measured where you can run something), use those ids only to judge each fix closed / still open and whether a fix introduced a new defect, write `passes: 2` and carry each id with that verdict. At spike the frontmatter fields are mandatory, as is `criteria_decided: <n>/<m>` (plus `headline: undecided` when n is 0); without them the report is invalid and the phase is sent back to you. A CRITICAL/HIGH finding is listed with its fix; closing it is the coordinator's step after the fix re-check (rule 12).
+**Final review (every rigour, `references/rigour.md` rules 10-11):** you are the phase's independent review: read the phase diff, the plans, the threat model when present, `captures/gates.txt` and the steward's return, and answer the questions and brief of rule 11 for each changed code path. Write the findings (line format of rule 10) to the record file the dispatch names, and `open_critical_high: <count>` (and `ruled_by` after a ruling) in the VERIFICATION frontmatter at every rigour, On a pass 2 (risk add-ons) follow the pass-2 brief of rule 10 and write `passes: 2` with each pass-1 id carried with its verdict. At spike the frontmatter fields are mandatory, as is `criteria_decided: <n>/<m>` (plus `headline: undecided` when n is 0); without them the report is invalid and the phase is sent back to you. A CRITICAL/HIGH finding is listed with its fix; closing it is the coordinator's step after the fix re-check (rule 12).
 
 **Risk-domain add-ons (dispatch field `risk_addons` is true):** also check server-side authz, read from the code, against `{N}-THREAT-MODEL.md`.
 
@@ -109,8 +109,8 @@ reference file.
 
 **Step 8c (UI QA coverage, QGATE-07):**
 > **Carve-out:** phase gate `ui_qa_mode: none` (profile declares `stack.capabilities` without `ui_qa`) => skip, write `ui_qa_ran: false  # no ui_qa capability`, no gap; `legacy` and `capable` keep the rule.
-> **Hard rule:** If UI files were produced OR the project is a web project, UI QA MUST have run. If no UI QA session is recorded, mark the phase `gaps_found`. This is NEVER a warning — never emit a warning for missing UI QA on UI-producing phases or web projects.
-> Record the outcome as `ui_qa_ran: true|false` in the VERIFICATION.md frontmatter (always present). `verify phase-gate` fails `missing_charlotte_qa` for UI or API phases unless it is `true`.
+> **Hard rule:** UI QA is required only when `verify phase-gate` reports `ui_qa_required: true` (UI files in the phase's commits). Then, if no UI QA session is recorded, mark the phase `gaps_found`; this is NEVER a warning. A phase without UI files (an API-only phase in a web project included) skips this step: write `ui_qa_ran: false  # no UI files`, no gap.
+> Record the outcome as `ui_qa_ran: true|false` in the VERIFICATION.md frontmatter (always present). `verify phase-gate` fails `missing_charlotte_qa` for UI phases unless it is `true`.
 
 **Step 8c.5 (deferral language detection, QGATE-12):**
 > **Hard rule:** Any deferral of tests, QA, or verification to a future phase is a verification failure. This is NEVER a warning.
@@ -187,7 +187,7 @@ Create `.planning/phases/{phase_dir}/{phase}-VERIFICATION.md`:
 phase: XX-name
 verified: YYYY-MM-DDTHH:MM:SSZ
 status: passed | gaps_found | human_needed
-ui_qa_ran: true | false # REQUIRED YAML boolean. true only if a UI QA run for this phase is recorded (Step 8c). verify phase-gate reads this for phases touching UI or API paths.
+ui_qa_ran: true | false # REQUIRED YAML boolean. true only if a UI QA run for this phase is recorded (Step 8c). verify phase-gate reads this for phases touching UI files.
 re_verification: # Only if previous VERIFICATION.md existed
   previous_status: gaps_found
   gaps_closed:

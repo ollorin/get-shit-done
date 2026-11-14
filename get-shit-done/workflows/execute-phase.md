@@ -40,7 +40,7 @@ If the command exits 1 and INIT has `error: project_context_missing`: stop, prin
 
 **Auto mode:** `auto_mode` (init) is the one rule for "no human is answering" (`references/auto-mode.md`, prompt classes K1-K6). When true, AskUserQuestion is never called and nothing waits for a reply: each prompt below takes its class action and logs an `auto_decision` event. Put `auto: true` in every spawned agent's prompt (they pass `--auto` to their own init call; an exported variable may not reach them). Chain-advance (`offer_next`) keeps its own trigger and is not part of this rule.
 
-Parse JSON for: `auto_mode`, `executor_model`, `ruling_model`, `ruling_model_fallback`, `utility_model`, `reviewer_model`, `base_branch`, `ui_qa_mode`, `commit_docs`, `parallelization`, `branching_strategy`, `branch_name`, `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `phase_slug`, `plans`, `incomplete_plans`, `plan_count`, `incomplete_count`, `state_exists`, `roadmap_exists`, `phase_req_ids`, `risk_addons`, `brief_path`, `stack_profile_path`, `stack_commands`. Every spawned agent receives `brief_path` and `stack_profile_path` (when not null) in its `<files_to_read>`, and `stack_commands` verbatim.
+Parse JSON for: `auto_mode`, `executor_model`, `ruling_model`, `ruling_model_fallback`, `utility_model`, `reviewer_model`, `base_branch`, `ui_qa_mode`, `commit_docs`, `parallelization`, `branching_strategy`, `branch_name`, `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `phase_slug`, `plans`, `incomplete_plans`, `plan_count`, `incomplete_count`, `state_exists`, `roadmap_exists`, `phase_req_ids`, `risk_addons`, `phase_base` (`{phase base}` below; re-read it with init before the final review), `brief_path`, `stack_profile_path`, `stack_commands`. Every spawned agent receives `brief_path` and `stack_profile_path` (when not null) in its `<files_to_read>`, and `stack_commands` verbatim.
 
 **Rigour and budget (print first):** init also returns the rigour fields. `references/rigour.md` is the contract (levels, risk-domain add-ons, caps, budget). Before anything else print its first line (`Phase {N}: rigour ..., risk domains: ..., budget ...`), counting what plan-phase already logged. Pass `rigour`, the spike roots and the remaining budget in every spawn prompt. Call `gsd-tools budget spend --phase {N}` once per child spawn, and `gsd-tools budget status --phase {N}` before each new gap cycle. At `warn` finish the current step and do no optional work; at `breach` start no new cycle, still run the final review and everything rule 12 of `references/rigour.md` lists (rule 7: two passes at risk add-ons) when every plan has a SUMMARY, then follow rigour.md rule 7: the phase completes only if nothing mandatory was skipped, else print the owner report naming what was skipped and end with the trailer `{"status": "blocked", "reason": "budget_exceeded"}`. Never report `completed` over a skipped mandatory check.
 
@@ -806,7 +806,15 @@ Create VERIFICATION.md.
 )
 ```
 
-**Passes.** The prompt above is final pass 1. Standard: ONE pass, then rule 12 of `references/rigour.md` (fix, `{reviewer_model}` re-check which rewrites the statuses and counts, ruling) before the status routing below. Risk add-ons (`risk_addons` true), sequential: pass 1 (`passes: 1`), then ONE fix dispatch for its findings, then pass 2, then (only when pass 2 has findings) its fix dispatch, the `{reviewer_model}` re-check of those fix commits only, and the one ruling for what stays open at CRITICAL/HIGH. Pass 2 is a fresh `{ruling_model}` agent on the FIXED tree, spawned with the pass-2 brief of rule 10 (residual surface per actor, not plan-and-diff) and the same inputs plus: pass 1's finding ids and the fix commit shas, given only to judge each finding closed / still open and whether a fix introduced a new defect; it is NOT given pass 1's findings as things to look for, and reports the residual surface. It rewrites `{phase_dir}/{N}-REVIEW.md` with `passes: 2` (each pass-1 id with closed / open, plus its own findings) and VERIFICATION's status and `open_critical_high`; after pass 2's own fix, rule 12's re-check rewrites them again. It runs once even when pass 1 had no findings. The phase report lists the `scriptable: yes` findings as proposed project gates.
+**Passes.** The prompt above is final pass 1. Standard: ONE pass, then rule 12 of `references/rigour.md` (fix, `{reviewer_model}` re-check which rewrites the statuses and counts, ruling) before the status routing below. Risk add-ons (`risk_addons` true), sequential: pass 1 (`passes: 1`), then ONE fix dispatch for its findings, then pass 2, then (only when pass 2 has findings) its fix dispatch, the `{reviewer_model}` re-check of those fix commits only, and the one ruling for what stays open at CRITICAL/HIGH. Pass 2 is a fresh `{ruling_model}` agent on the FIXED tree. Its prompt is NOT the prompt above (that is pass 1's plan-and-diff brief); use this one, the brief itself is rule 10 of `references/rigour.md`:
+
+```text
+Final review pass 2, phase {phase_number} (dir {phase_dir}, goal {goal}, requirement ids {phase_req_ids}). Brief: `references/rigour.md` rule 10, pass 2. Diff: `git diff {phase base}..HEAD -- . ':!.planning'`; also read {phase_dir}/captures/gates.txt and the test steward's return ({net change and runtime delta, or "skipped"}).
+Pass 1 finding ids and the fix commit shas (only to judge each closed / still open and any new defect a fix introduced; they are not things to look for): {ids}; {shas}.
+Rewrite {phase_dir}/{N}-REVIEW.md with `passes: 2` and VERIFICATION's status and `open_critical_high`.
+```
+
+After pass 2's own fix, rule 12's re-check rewrites them again. It runs once even when pass 1 had no findings. The phase report lists the `scriptable: yes` findings as proposed project gates.
 
 **Spike:** when `rigour` is `spike`, replace the check list in the prompt with the spike checks and the final-review questions of `references/rigour.md` (verifier row); nothing else is checked. At every rigour the prompt asks for `open_critical_high` (and `ruled_by` after a ruling) in the VERIFICATION frontmatter. The final review and its fix dispatch are never skipped for budget (rigour.md rule 7); `phase complete` refuses while a CRITICAL/HIGH is open without a ruling id. A rejected spawn retries once on `{ruling_model_fallback}` and says so.
 
@@ -882,7 +890,6 @@ The CLI handles:
 - Updating Progress table (Status → Complete, date)
 - Updating plan count to final
 - Advancing STATE.md to next phase
-- Updating REQUIREMENTS.md traceability
 
 Extract from result: `next_phase`, `next_phase_name`, `is_last_phase`.
 
