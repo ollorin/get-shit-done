@@ -3560,7 +3560,7 @@ describe('phase evidence gate — phase complete + verify phase-gate (rule 2)', 
   });
 });
 
-describe('charlotte_qa_ran from VERIFICATION.md frontmatter, required for UI or API phases (rule 3)', () => {
+describe('charlotte_qa_ran from VERIFICATION.md frontmatter, required for UI phases (rule 3)', () => {
   const { isApiFile, computeHasApi } = require('./gsd-tools.js');
   let tmpDir;
   beforeEach(() => { tmpDir = createTempProject(); });
@@ -3603,7 +3603,7 @@ describe('charlotte_qa_ran from VERIFICATION.md frontmatter, required for UI or 
     assert.strictEqual(computeHasApi(['docs/a.md']), false);
   });
 
-  test('positive: API phase with charlotte_qa_ran: true in VERIFICATION frontmatter passes the check', () => {
+  test('positive: UI phase with charlotte_qa_ran: true in VERIFICATION frontmatter passes the check', () => {
     buildPhase({ files: API_FILE, verificationFm: 'status: passed\ncharlotte_qa_ran: true' });
     const g = gate();
     assert.strictEqual(g.parsed.has_ui, true);
@@ -3672,7 +3672,7 @@ describe('charlotte_qa_ran from VERIFICATION.md frontmatter, required for UI or 
 });
 
 describe('review fixes: exact phase match in phase-gate + anchored plan-tag grep', () => {
-  const { planTagGrepPattern, collectPhaseEvidenceErrors } = require('./gsd-tools.js');
+  const { collectPhaseEvidenceErrors } = require('./gsd-tools.js');
   let tmpDir;
   beforeEach(() => { tmpDir = createTempProject(); });
   afterEach(() => cleanup(tmpDir));
@@ -3692,13 +3692,14 @@ describe('review fixes: exact phase match in phase-gate + anchored plan-tag grep
     assert.strictEqual(g.parsed.type, 'phase_not_found');
   });
 
-  test('planTagGrepPattern escapes the decimal point and anchors both ends', () => {
-    const re = new RegExp(planTagGrepPattern('383.1', '05'));
-    assert.ok(re.test('fix(383.1-05): x'));
-    assert.ok(!re.test('fix(38301-05): x'));
-    assert.ok(!re.test('fix(383.1-050): x'));
-    assert.ok(!new RegExp(planTagGrepPattern('83', '01')).test('docs(383-01): x'));
-    assert.ok(!new RegExp(planTagGrepPattern('09', '01')).test('chore: release 2026-09-01'));
+  test('phaseCommits matches the plan tag as a whole token and ignores dates', () => {
+    const log = (...subjects) => () => ({ stdout: subjects.map((x) => `\x01${'a'.repeat(40)}\x001\x00${x}\nf.js`).join('\n') });
+    const has = (phase, plan, subject) => require('./review-gate.js').phaseCommits(log(subject), '.', phase, plan).length === 1;
+    assert.ok(has('383.1', '05', 'fix(383.1-05): x'));
+    assert.ok(!has('383.1', '05', 'fix(38301-05): x'));
+    assert.ok(!has('383.1', '05', 'fix(383.1-050): x'));
+    assert.ok(!has('83', '01', 'docs(383-01): x'));
+    assert.ok(!has('09', '01', 'chore: release 2026-09-01'));
   });
 
   function evidenceWithCommit(message) {

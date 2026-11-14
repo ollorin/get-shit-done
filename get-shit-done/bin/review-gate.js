@@ -45,20 +45,31 @@ const rulingLedgerErrors = (label, ruled, ledger) => {
   return notRuling.length > 0 ? [`${label} ruled_by ${notRuling.map((x) => `${x} (kind ${ledger.get(x)})`).join(', ')}: not a ruling in the decisions ledger`] : [];
 };
 
-// Freshness (one notion; rigour.md rule 12): a phase record is stale when the phase has a commit newer than it that changes
-// a SOURCE path (not .planning/, not docs/). Tagged commits: `({N}-NN)` plan commits and `fix({N}-review)` fix commits.
-// The phase's commits: reachable from HEAD, subject tagged `(<phase>-NN)` or `(<phase>-review)` with the phase as a whole
-// token (36 is not 365, 365 is not 365.1; the body is never searched). Oldest first, each { sha, ts, files }.
-// `execGit(cwd, args)` returns { stdout }.
-function phaseCommits(execGit, cwd, phaseNumber) {
-  const esc = String(phaseNumber).replace(/^0+(?=\d)/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const tag = new RegExp(`\\(0*${esc}-(\\d{2}(?!\\d)|review\\))`);
-  const out = (execGit(cwd, ['log', 'HEAD', '-F', '--grep', `${String(phaseNumber).replace(/^0+(?=\d)/, '')}-`, '--reverse', '--name-only', '--format=%x01%H%x00%ct%x00%s']).stdout) || '';
+// The one matcher for "commits of phase N" (gate commit check, touched files / has_ui, phase_base, freshness; rigour.md rule 12):
+// reachable from HEAD, SUBJECT tagged `(<phase>-NN)` (plan commit) or `(<phase>-review...)` (review fix), the phase a whole token
+// (zero-padded and unpadded forms are equal, 36 is not 365, 365 is not 365.1); the body is never searched. With `planNum`, only
+// that plan's `(<phase>-NN)` commits. Oldest first, each { sha, ts, subject, files }. `execGit(cwd, args)` returns { stdout }.
+const trimZeros = (p) => String(p).replace(/^0+(?=\d)/, '');
+const reEsc = (v) => String(v).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const readLog = (execGit, cwd, phaseNumber) => {
+  const out = (execGit(cwd, ['log', 'HEAD', '-F', '--grep', `${trimZeros(phaseNumber)}-`, '--reverse', '--name-only', '--format=%x01%H%x00%ct%x00%s']).stdout) || '';
   return out.split('\x01').filter(Boolean).map((chunk) => {
     const [head, ...files] = chunk.split('\n');
     const [sha, ts, subject] = head.split('\x00');
     return { sha, ts: Number(ts) || 0, subject, files: files.map((f) => f.trim()).filter(Boolean) };
-  }).filter((c) => tag.test(c.subject));
+  });
+};
+function phaseCommits(execGit, cwd, phaseNumber, planNum) {
+  const plan = planNum === undefined ? '\\d{2}(?!\\d)|review[\\w-]*\\)' : `${reEsc(String(planNum).padStart(2, '0'))}(?!\\d)`;
+  const tag = new RegExp(`\\(0*${reEsc(trimZeros(phaseNumber))}-(${plan})`);
+  return readLog(execGit, cwd, phaseNumber).filter((c) => tag.test(c.subject));
+}
+
+// HEAD commits whose subject carries the phase's plan token (`1-01`, `01-01`) in a form phaseCommits does not accept.
+function untaggedPhaseCommits(execGit, cwd, phaseNumber, planNum) {
+  const loose = new RegExp(`(^|[^0-9.-])0*${reEsc(trimZeros(phaseNumber))}-${planNum === undefined ? '(\\d{2}|review)' : reEsc(String(planNum).padStart(2, '0'))}([^0-9]|$)`);
+  const tagged = new Set(phaseCommits(execGit, cwd, phaseNumber, planNum).map((c) => c.sha));
+  return readLog(execGit, cwd, phaseNumber).filter((c) => !tagged.has(c.sha) && loose.test(c.subject));
 }
 
 // Commit time (s) of the newest phase commit that touched a file outside .planning/ and docs/, or 0.
@@ -112,4 +123,4 @@ function verificationReviewErrors(verification, spike, closedEarlier = false, le
   return errors;
 }
 
-module.exports = { reviewErrors, verificationReviewErrors, staleRecordErrors, lastSourceCommitTs, phaseCommits };
+module.exports = { reviewErrors, verificationReviewErrors, staleRecordErrors, lastSourceCommitTs, phaseCommits, untaggedPhaseCommits };

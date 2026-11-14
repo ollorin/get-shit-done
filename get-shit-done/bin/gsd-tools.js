@@ -7143,7 +7143,9 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles, opts =
   const { warnings, files: touched } = collectPhaseTouchedFiles(cwd, phaseNumber, plans);
   for (const w of warnings) {
     if (w.warning === 'no_commits_found') {
-      errors.push(`Plan ${phaseNumber}-${w.plan} has no commits (git log --all --grep "${phaseNumber}-${w.plan}" is empty)`);
+      errors.push(`Plan ${phaseNumber}-${w.plan} has no commits reachable from HEAD with the subject tag "(${phaseNumber}-${w.plan})"`);
+    } else if (w.warning === 'untagged_commits') {
+      errors.push(`Plan ${phaseNumber}-${w.plan} has commits not tagged in the subject: the required form is "type(${phaseNumber}-${w.plan}): ..." (found: ${w.subjects.join(' | ')})`);
     }
   }
   // A spike has no separate review file: its {N}-VERIFICATION.md (the merged final review) is the record, checked below.
@@ -7452,8 +7454,7 @@ function rowNamesFile(l, file) {
 // A RED sha counts only if it is one of the plan's own tagged commits AND that commit's diff touches `file`.
 function isPlanRedCommitTouching(cwd, ctx, sha, file) {
   if (!ctx) return false;
-  const log = execGit(cwd, ['log', '--format=%H', '--all', '-E', '--grep', planTagGrepPattern(ctx.phaseNumber, ctx.planNum)]);
-  const full = (log.stdout || '').split('\n').map(s => s.trim()).filter(Boolean).find(h => h.startsWith(sha.toLowerCase()));
+  const full = reviewGate.phaseCommits(execGit, cwd, ctx.phaseNumber, ctx.planNum).map(c => c.sha).find(h => h.startsWith(sha.toLowerCase()));
   if (!full) return false;
   return (execGit(cwd, ['show', '--name-only', '--format=', full]).stdout || '').split('\n').map(s => s.trim()).includes(file);
 }
@@ -7945,8 +7946,7 @@ function computeTestDeltaMetrics(cwd, phaseNumber, validPlans, declared, deleted
   for (const plan of validPlans || []) {
     const planNum = plan.planNum || (plan.fm && plan.fm.plan);
     if (!planNum) continue;
-    const log = execGit(cwd, ['log', '--format=%h', '--all', '-E', '--grep', planTagGrepPattern(phaseNumber, planNum)]);
-    for (const hash of (log.stdout || '').split('\n').map(l => l.trim()).filter(Boolean)) {
+    for (const hash of reviewGate.phaseCommits(execGit, cwd, phaseNumber, planNum).map(c => c.sha.slice(0, 7))) {
       if (seen.has(hash)) continue;
       seen.add(hash);
       const ns = execGit(cwd, ['show', '--numstat', '--format=', hash]);
@@ -11145,13 +11145,17 @@ function riskAddons(cwd, phase, level) {
 }
 
 // phase_base: the parent of the phase's oldest tagged commit on HEAD (reviewGate.phaseCommits); the one definition of
-// `{phase base}` in the final-review diff. The empty tree when that commit is a root; HEAD before any phase commit.
+// `{phase base}` in the final-review diff. HEAD only when the phase has no commit at all; an error when commits exist but
+// none is tagged, in a shallow clone, or when the oldest commit's parent is missing though the repository is not a root.
 function phaseBase(cwd, phase) {
   const oldest = reviewGate.phaseCommits(execGit, cwd, phase)[0];
   if (!oldest) {
+    const untagged = reviewGate.untaggedPhaseCommits(execGit, cwd, phase);
+    if (untagged.length > 0) error(`phase ${phase} commits are not tagged: the required subject form is "type(${phase}-NN): ..." (found: ${untagged.map((c) => c.subject).join(' | ')})`);
     const head = execGit(cwd, ['rev-parse', '--verify', '-q', 'HEAD']);
     return head.exitCode === 0 && head.stdout ? head.stdout : null;
   }
+  if (execGit(cwd, ['rev-parse', '--is-shallow-repository']).stdout === 'true') error(`phase_base needs full history: this is a shallow clone (run git fetch --unshallow)`);
   const parent = execGit(cwd, ['rev-parse', '--verify', '-q', `${oldest.sha}^`]);
   return parent.exitCode === 0 && parent.stdout ? parent.stdout : '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 }
@@ -11248,14 +11252,8 @@ function findPhaseInternal(cwd, phase) {
 // warnings: [...] } where warnings flag plans with zero matching commits, plus
 // optional cross-check warnings when a plan's self-reported files_modified
 // disagrees with the real diff (informational only -- never affects `files`).
-// ERE matching the {phase}-{plan} tag as a whole token: "83-01" must not match
-// "383-01", "09-01" must not match a date like 2026-09-01, and a decimal
-// phase's "." is literal.
-function planTagGrepPattern(phaseNumber, planNum) {
-  const esc = v => String(v).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return `(^|[^0-9.-])${esc(phaseNumber)}-${esc(planNum)}([^0-9]|$)`;
-}
-
+// Commits come from reviewGate.phaseCommits, the one matcher shared with phase_base and freshness (subject tag
+// `(<phase>-NN)`, HEAD only); a commit carrying the token in another form is an `untagged_commits` warning.
 function collectPhaseTouchedFiles(cwd, phaseNumber, plans) {
   const fileSet = new Set();
   const warnings = [];
@@ -11265,31 +11263,18 @@ function collectPhaseTouchedFiles(cwd, phaseNumber, plans) {
     const planNum = plan.planNum || (plan.fm && plan.fm.plan);
     if (!planNum) continue;
 
-    const logResult = execGit(cwd, ['log', '--oneline', '--all', '-E', '--grep', planTagGrepPattern(phaseNumber, planNum)]);
-    const commitLines = (logResult.stdout || '')
-      .split('\n')
-      .map(l => l.trim())
-      .filter(l => l.length > 0);
-
-    if (commitLines.length === 0) {
-      warnings.push({ plan: planNum, warning: 'no_commits_found' });
+    const commits = reviewGate.phaseCommits(execGit, cwd, phaseNumber, planNum);
+    if (commits.length === 0) {
+      const untagged = reviewGate.untaggedPhaseCommits(execGit, cwd, phaseNumber, planNum);
+      warnings.push(untagged.length > 0
+        ? { plan: planNum, warning: 'untagged_commits', subjects: untagged.map((c) => c.subject) }
+        : { plan: planNum, warning: 'no_commits_found' });
       continue;
     }
 
     const planFiles = new Set();
-    for (const line of commitLines) {
-      const hash = line.split(/\s+/)[0];
-      if (!hash) continue;
-      // --root is required so root commits (no parent -- common in small test
-      // fixtures and possible for a repo's very first tagged commit) are
-      // diffed against the empty tree instead of silently producing zero
-      // file paths (git diff-tree's default behavior for parentless commits).
-      const diffResult = execGit(cwd, ['diff-tree', '--no-commit-id', '--name-only', '-r', '--root', hash]);
-      const filePaths = (diffResult.stdout || '')
-        .split('\n')
-        .map(f => f.trim())
-        .filter(f => f.length > 0);
-      for (const f of filePaths) {
+    for (const c of commits) {
+      for (const f of c.files) {
         fileSet.add(f);
         planFiles.add(f);
       }
@@ -16139,7 +16124,6 @@ module.exports = {
   evaluateSummarySelfCheck,
   collectPhaseEvidenceErrors,
   collectPhaseTouchedFiles,
-  planTagGrepPattern,
   hasVerifiedMutantCite,
   parseTestDelta,
   splitTestCases,
