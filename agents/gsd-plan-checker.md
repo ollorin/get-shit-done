@@ -143,7 +143,7 @@ issue:
 - Missing `<done>` — no acceptance criteria
 - Vague `<action>` — "implement auth" instead of specific steps
 - Empty `<files>` — what gets created?
-- Tier tag that does not fit the TASK's nature (warning; the planner fixes it in its revision; a task's tier follows its shape and you never raise one because the phase is a risk domain): `haiku` on a task that makes a decision (logic design, a guard or authorisation condition, SQL policy or grants, error-handling paths, investigation, debugging, an unclear root cause); `sonnet` on a plainly mechanical task (exact files and exact steps: config keys, wiring, renames, a test written from an explicit list of cases, docs). A task that mixes mechanical steps and a deciding step is a finding: the planner splits it, it does not tag it up. A mechanical task with literal content is `haiku` at any risk level; the review makes it safe, not the tag.
+- Tier tag that does not follow spec completeness (warning; the planner fixes it in its revision; the tag follows the spec, never the difficulty or the risk domain; the rule is the planner's, `agents/gsd-planner.md` Tier tag): `haiku` on a task whose acceptance rows are incomplete (a behaviour task with no rows, or rows that leave a decision open: logic design, a guard condition, error-handling paths, an unclear root cause); `sonnet` with no stated reason the spec cannot be made complete. `haiku` on a risk-domain task with complete rows is correct: the review makes it safe, not the tag. A task that mixes a complete spec and an open-ended step is a finding: the planner splits it.
 
 **Example issue:**
 ```yaml

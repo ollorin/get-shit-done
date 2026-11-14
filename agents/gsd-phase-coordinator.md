@@ -61,18 +61,7 @@ Only the latest checkpoint matters; the orchestrator reads `resume_from` when it
 - `gsd-tools phase complete` refuses unless `{N}-VERIFICATION.md` has `status: "passed"`, every PLAN.md has a SUMMARY.md with `## Self-Check: PASSED`, every plan has an `{N}-{NN}`-tagged commit and CHECKPOINT.json has `last_step: "verify"`. Execute-phase is the only caller; you never call it. Plain `phase complete` also refuses on form errors; execute-phase then uses its `--form-debt` form, which still refuses on missing work. You report `completed` after that call exits 0.
 </checkpoint_protocol>
 
-<review_checklist>
-Paste verbatim into every review prompt you hand a child; the project's rules (`.claude/rules/`) hold the detail and the project's CLAUDE.md holds the tiering policy.
-- A risk-domain path is any path the product brief lists under Risk Domains (`risk_domains` in the init output); authentication/authorisation and security are always risk domains. When `risk_domains_source` is `builtin` (`project.risk_domains` in config.json is empty or absent), every path that mutates state is a risk-domain path.
-- Per finding class, run the `search` command from `stack_commands` (init output) across the source roots in `stack.paths`; record the query and sibling hits.
-- For a risk-domain path, enumerate what public or unauthenticated routes expose, including code outside the diff.
-- Rate no risk-domain or authz finding below HIGH unless the trace shows no reachable path.
-- A RED must fail on an assertion about the named defect pre-fix; TypeError, import error or timeout does not count.
-- Test sufficiency: per requirement, a test that fails if the behaviour breaks (real assertion, not hollow, not net-zero assertions); `gsd-tools verify test-content <phase>` MISSING/hollow = finding.
-- Review code and tests, never planning documents: form is the phase gate's job (`references/rigour.md` rule 1).
-</review_checklist>
-
-**Rigour and budget (`references/rigour.md`):** print the first line the workflows print (rigour, risk domains, budget) and call `gsd-tools budget spend --phase {N}` once each time you spawn any child agent. Before each NEW cycle (plan-check round, gap cycle) run `gsd-tools budget status --phase {N}`; follow rule 7 there: at `warn` (80 %) finish the current step and do no optional work; at `breach` start no new cycle, run the final review (and its fix dispatch, re-check and ruling, `references/rigour.md` rule 12) once when every plan has a SUMMARY, then complete only if nothing mandatory was skipped, else owner report naming what was skipped, `status: "blocked"`, `reason: "budget_exceeded"`. A skipped mandatory check is never reported as `completed`. Spike phases: no discuss step, research only when there is no RESEARCH file, no separate review dispatch (rigour.md, spike column). Roles that always run on the configured top model are listed once, in `references/models.md`; you pass `{ruling_model}` and name no model.
+**Rigour and budget (`references/rigour.md`):** print the first line the workflows print (rigour, risk domains, budget) and call `gsd-tools budget spend --phase {N}` once each time you spawn any child agent. Before each NEW cycle (plan-check round, gap cycle) run `gsd-tools budget status --phase {N}`; follow rule 7 there: at `warn` (80 %) finish the current step and do no optional work; at `breach` start no new cycle, run the final review and everything `references/rigour.md` rule 12 lists once when every plan has a SUMMARY, then complete only if nothing mandatory was skipped, else owner report naming what was skipped, `status: "blocked"`, `reason: "budget_exceeded"`. A skipped mandatory check is never reported as `completed`. Spike phases: no discuss step, research only when there is no RESEARCH file, no separate review dispatch (rigour.md, spike column). Roles that always run on the configured top model are listed once, in `references/models.md`; you pass `{ruling_model}` and name no model.
 **Context cost and test-command shapes:** see coordinator-detail.md.
 **Test cost:** exactly one full run per phase (every gate in `stack.gates[]` plus the full tests, into `captures/gates.txt`), on the final tree before any review (rerun only the touched test files after fixes); the twice-green pass runs once at milestone end. Executors and fix loops run affected files plus one bucket. See gsd-test-protocol.md `test_cost_rule`.
 
@@ -82,8 +71,7 @@ Paste verbatim into every review prompt you hand a child; the project's rules (`
 
 **Fix findings; don't defer them.** Every finding of any severity — review, verifier, executor
 `deferred-items.md` — is fixed in this phase. Severity sets priority, not whether it gets fixed.
-Group findings by file: findings in the same file go to one fix executor; disjoint file sets
-may run as parallel fix executors (within the 2-child ceiling, each holding its own files).
+Who fixes, in how many dispatches and what is re-run: `references/rigour.md` rule 12 only.
 The only legitimate deferral is a finding with **no business value** (cosmetic, unreachable, or
 cost exceeds any benefit), recorded with its reason as an `A-` row; on a risk-domain path it needs a ruling. A finding
 that genuinely belongs to a later ROADMAP phase is moved there by name — never to an unowned list.
@@ -147,7 +135,7 @@ Return structured JSON as final response:
 - **Verification gaps** (failed product truths only; form defects are fixed by the gate loop and never returned as gaps): one closure cycle re-verifying only what failed, then return `{ status: "gaps_found", gaps: [...] }`; the orchestrator parks the phase
 - **Human verification needed:** Return `{ status: "human_needed", human_items: [...] }`; the orchestrator parks the phase and its dependents
 
-**Hard rule (handoff brief):** At every executor and verifier spawn, prepend the fixed 5-section handoff brief (phase goal, key decisions, open risks, file map, hard rules) per @references/handoff-brief.md.
+**Hard rule (handoff brief):** At every plan-level (spike) executor and every verifier spawn, prepend the fixed 5-section handoff brief (phase goal, key decisions, open risks, file map, hard rules) per @references/handoff-brief.md.
 </error_handling>
 
 <!-- GSD:CORE-PREAMBLE-END -->

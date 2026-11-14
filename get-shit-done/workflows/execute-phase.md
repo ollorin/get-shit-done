@@ -3,7 +3,7 @@ Execute all plans in a phase using wave-based parallel execution. Orchestrator s
 </purpose>
 
 <core_principle>
-Orchestrator coordinates, not executes. Each subagent loads the full execute-plan context. Orchestrator: discover plans → analyze deps → group waves → spawn agents → handle checkpoints → collect results.
+Orchestrator coordinates, not executes. A per-task executor loads `references/executor-task.md`; a spike plan executor loads the full execute-plan context. Orchestrator: discover plans → analyze deps → group waves → spawn agents → handle checkpoints → collect results.
 </core_principle>
 
 ## E2E Testing — Non-Negotiable Rules
@@ -40,9 +40,9 @@ If the command exits 1 and INIT has `error: project_context_missing`: stop, prin
 
 **Auto mode:** `auto_mode` (init) is the one rule for "no human is answering" (`references/auto-mode.md`, prompt classes K1-K6). When true, AskUserQuestion is never called and nothing waits for a reply: each prompt below takes its class action and logs an `auto_decision` event. Put `auto: true` in every spawned agent's prompt (they pass `--auto` to their own init call; an exported variable may not reach them). Chain-advance (`offer_next`) keeps its own trigger and is not part of this rule.
 
-Parse JSON for: `auto_mode`, `executor_model`, `verifier_model`, `ruling_model`, `ruling_model_fallback`, `utility_model`, `reviewer_model`, `base_branch`, `ui_qa_mode`, `commit_docs`, `parallelization`, `branching_strategy`, `branch_name`, `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `phase_slug`, `plans`, `incomplete_plans`, `plan_count`, `incomplete_count`, `state_exists`, `roadmap_exists`, `phase_req_ids`, `risk_addons`, `brief_path`, `stack_profile_path`, `stack_commands`. Every spawned agent receives `brief_path` and `stack_profile_path` (when not null) in its `<files_to_read>`, and `stack_commands` verbatim.
+Parse JSON for: `auto_mode`, `executor_model`, `ruling_model`, `ruling_model_fallback`, `utility_model`, `reviewer_model`, `base_branch`, `ui_qa_mode`, `commit_docs`, `parallelization`, `branching_strategy`, `branch_name`, `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `phase_slug`, `plans`, `incomplete_plans`, `plan_count`, `incomplete_count`, `state_exists`, `roadmap_exists`, `phase_req_ids`, `risk_addons`, `brief_path`, `stack_profile_path`, `stack_commands`. Every spawned agent receives `brief_path` and `stack_profile_path` (when not null) in its `<files_to_read>`, and `stack_commands` verbatim.
 
-**Rigour and budget (print first):** init also returns the rigour fields. `references/rigour.md` is the contract (levels, risk-domain add-ons, caps, budget). Before anything else print its first line (`Phase {N}: rigour ..., risk domains: ..., budget ...`), counting what plan-phase already logged. Pass `rigour`, the spike roots and the remaining budget in every spawn prompt. Call `gsd-tools budget spend --phase {N}` once per child spawn, and `gsd-tools budget status --phase {N}` before each new gap cycle. At `warn` finish the current step and do no optional work; at `breach` start no new cycle, still run the final review once (and its one fix dispatch) when every plan has a SUMMARY, then follow rigour.md rule 7: the phase completes only if nothing mandatory was skipped, else print the owner report naming what was skipped and end with the trailer `{"status": "blocked", "reason": "budget_exceeded"}`. Never report `completed` over a skipped mandatory check.
+**Rigour and budget (print first):** init also returns the rigour fields. `references/rigour.md` is the contract (levels, risk-domain add-ons, caps, budget). Before anything else print its first line (`Phase {N}: rigour ..., risk domains: ..., budget ...`), counting what plan-phase already logged. Pass `rigour`, the spike roots and the remaining budget in every spawn prompt. Call `gsd-tools budget spend --phase {N}` once per child spawn, and `gsd-tools budget status --phase {N}` before each new gap cycle. At `warn` finish the current step and do no optional work; at `breach` start no new cycle, still run the final review and everything rule 12 of `references/rigour.md` lists (rule 7: two passes at risk add-ons) when every plan has a SUMMARY, then follow rigour.md rule 7: the phase completes only if nothing mandatory was skipped, else print the owner report naming what was skipped and end with the trailer `{"status": "blocked", "reason": "budget_exceeded"}`. Never report `completed` over a skipped mandatory check.
 
 **Spike:** When `rigour` is `spike`: no test steward; the final review is the only review; the verifier prompt carries the spike checks and final-review questions of `references/rigour.md`; its findings follow rule 12 of `references/rigour.md` (`executor_model` is the floor `sonnet` or stronger, never `haiku`: the executor is the investigator; a spike plan is ONE executor on its `phase-plan-index` `executor_model` (its highest task tag, never below the floor)); the coordinator logs the ruling with `gsd-tools execution-log event --type spike_ruling --data '{"phase":"{N}"}'` when it spawns it; nothing open is silently parked, and a CRITICAL/HIGH is never left open without a closing record or a ruling id (the phase does not complete); the last spike phase writes `SPIKE-RESULT.md` (per question: answer, capture path, go/no-go, what must be rebuilt). Every executor prompt carries rule 11 of `references/rigour.md` (a "no" needs a root-cause or search capture, else `inconclusive`), the answer-table shape, "every probe asserts what it claims and a loosened assertion keeps the failing capture", "SUMMARY at most 15 lines" and "a probe row that records FAIL is a result, not a failed self-check: `## Self-Check: PASSED` when every file, capture and commit exists; the verdict is the first word after `Self-Check:`" (the executor agent file stays unchanged: its preamble is at its token budget).
 
@@ -128,7 +128,7 @@ Report:
 </step>
 
 <step name="execute_waves">
-Execute each wave in sequence. Within a wave: parallel if `PARALLELIZATION=true`, sequential if `false`.
+Execute each wave in sequence. Plans of a wave run one after another (rigour.md "Never relaxed" 6: one executor at a time per phase); `PARALLELIZATION` is ignored.
 
 Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each wave completes).
 
@@ -200,19 +200,6 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
    across a quota/launchd resume it is gone, and the handoff-doc + PAUSED.json path is the
    ONLY durable cross-session recovery. Retaining it costs nothing; if unavailable, every
    path below falls back to the existing cold fresh-spawn.
-
-   **Wave peer awareness (App #4, `@get-shit-done/references/agent-messaging.md`).** When a
-   wave spawns MORE THAN ONE executor in parallel, inject a `<wave_peers>` block into each
-   executor's spawn prompt listing the OTHER plans in this wave — for each peer, its agent
-   name (recipient forms accept a teammate NAME) and that plan's `files_modified` list (from
-   `phase-plan-index`). Instruct each executor: per your `<wave_peer_awareness>`, if you
-   modify a file another wave-peer's plan lists in its `files_modified`, `SendMessage` that
-   peer to warn of the shared-file mutation. This fires ONLY on genuine shared-file overlap
-   — it is the highest-value collision-prevention win in a parallel wave, but must not be
-   chatty. Names are known at spawn time; peers' agentIds only become available once their
-   spawn results return (a simultaneous parallel spawn returns all agentIds together), so use
-   the peer NAME as the primary handle and relay an agentId later only if a peer needs it.
-   Skip this block entirely for a single-executor wave — there are no peers to collide with.
 
    **Model rule:** every spawn passes `model` explicitly (never omit; an omitted model inherits the spawner's tier), taken from init: fix dispatches `executor_model`; executors per the per-task routing below (a spike plan: its `executor_model` in `phase-plan-index`); a task escalates from haiku to sonnet after 2 failures; a sonnet task (or a spike plan executor) that fails twice gets ONE rescue, a `gsd-debugger` dispatch on `ruling_model` that fixes it or returns it to the planner, in place of a sonnet debugger, never an opus executor; the test steward and the fix re-check `reviewer_model`; the final phase review passes (verifier), rulings `ruling_model`, the configured top model (`references/models.md`; a rejected spawn retries once on `ruling_model_fallback` and says so); watchdogs and reports `utility_model`. This workflow holds no model literals.
 
@@ -414,7 +401,7 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
 
    Parse `action`, `attempts`, `max_attempts` from `STATE_RESULT`.
 
-   - **`action == "retry"`** (1st failure): Log "Auto-retry {plan_id} (attempt 2 of {max_attempts}) — no user prompt." Re-spawn the plan's executor fresh with the same plan context. On success: `execution-state record-success --phase {N} --plan {plan_id}`, continue to next wave. On failure again: repeat this step (`attempts` is now 2).
+   - **`action == "retry"`** (1st failure): Log "Auto-retry {plan_id} (attempt 2 of {max_attempts}) — no user prompt." Re-spawn the plan's executor fresh with the same plan context plus the failing evidence of the previous attempt (`references/task-routing.md` step 4). On success: `execution-state record-success --phase {N} --plan {plan_id}`, continue to next wave. On failure again: repeat this step (`attempts` is now 2).
 
    - **`action == "debug"`** (the 2nd failure; the tool returns it once per plan, every later failure is `escalate`): Log "Auto-spawning rescue debugger (`ruling_model`) for {plan_id} after {attempts} failures", log `tier_escalation` with `rescue:true`. Invoke @~/.claude/get-shit-done/workflows/debug.md non-interactively on the top model:
      ```
@@ -697,11 +684,17 @@ After `post_phase_ux_sweep` and before `pre_verify_gates`. Runs only when `stack
 
 </step>
 
+<step name="docs_update">
+After the last wave and the UI steps, before `mechanical_gates` (the capture must be newer than every commit but the verifier's own); not at `spike`. ONCE per phase, never per plan or task. Skip (one-line note) when the phase diff holds no documentation-worthy change: a new or changed endpoint, route or page, schema or migration, service or middleware, or auth or onboarding flow (not refactors, tests, CI or config only).
+
+ONE dispatch, `Agent(subagent_type="gsd-docs-updater", model="{utility_model}", description="Docs phase {N}")`, given the phase's SUMMARY paths, the changed files and the project root. It follows the project's `/docs` conventions, commits, and returns `written_files`, `commit`, `errors`. A thrown error, a non-empty `errors`, or empty `written_files` with `commit: "none"` for a documentation-worthy phase is a failed step: re-dispatch once, then record the exception with `deferred add "${PHASE}" --step docs --reason <reason> --approver <approver>` (auto mode: never approve it yourself; park the phase and name the missing docs). Name the written files in the verifier prompt.
+</step>
+
 <step name="mechanical_gates">
-After the last wave and the UI steps, before `pre_verify_gates`. Run the mechanical gates ONCE on the final tree and write their output to `{phase_dir}/captures/gates.txt` (create the directory). The final review reads that capture and never re-run the full suite.
+After the last wave, the UI steps and `docs_update`, before `pre_verify_gates`. Run the mechanical gates ONCE on the final tree and write their output to `{phase_dir}/captures/gates.txt` (create the directory). The final review reads that capture and never re-run the full suite.
 
 1. Every entry of `gsd-tools profile get stack.gates` (typecheck, lint, format and the project's ratchet, security and dependency gates; legacy: no `stack.gates` => the gate scripts the repo ships; none configured: the profile's `typecheck` and `lint` commands), then the full test run `<stack_commands.test_all>`, each through the profile's own command. For each the capture holds the command, `rc=`, the pass/fail counts, the per-file or per-bucket seconds the runner prints, and for a gate that scans files the number it scanned. A gate that scanned 0 files is inert and counts as failed.
-2. A red result: one `{executor_model}` fix dispatch per file set with the failing lines; then re-run only the touched test files (and their bucket when the project defines buckets) and append that output to `gates.txt`. The full run is not repeated.
+2. A red result: ONE `{executor_model}` fix dispatch with the failing lines (rule 12 of `references/rigour.md` gives its shape); then re-run only the touched test files (and their bucket when the project defines buckets) and append that output to `gates.txt`. The full run is not repeated.
 3. This is the phase's one full run. The twice-green pass over all buckets runs once at milestone end, never per phase (`references/gsd-test-protocol.md` `test_cost_rule`).
 </step>
 
@@ -709,12 +702,6 @@ After the last wave and the UI steps, before `pre_verify_gates`. Run the mechani
 After `mechanical_gates`, before `pre_verify_gates`. Standard rigour only: skip at `spike`, and skip (one-line note, no dispatch) when `git diff {phase base}..HEAD --name-only` lists no test file.
 
 ONE dispatch, `Agent(subagent_type="gsd-test-writer", model="{reviewer_model}", description="Test steward phase {N}")`, given the phase's test files, `{phase_dir}/captures/gates.txt`, the plans' `<acceptance>` rows and `stack_commands`. It deletes, merges or speeds up tests as its role file says (a deletion only with a cited surviving proof) and returns net change and runtime delta. Rerun only the files it touched and append the output to `gates.txt`. Pass its return to the final pass(es): a phase with a net-positive test count and no stated reason is a finding for the final review.
-</step>
-
-<step name="docs_update">
-After `test_steward`, before `pre_verify_gates`; not at `spike`. ONCE per phase, never per plan or task. Skip (one-line note) when the phase diff holds no documentation-worthy change: a new or changed endpoint, route or page, schema or migration, service or middleware, or auth or onboarding flow (not refactors, tests, CI or config only).
-
-ONE dispatch, `Agent(subagent_type="gsd-docs-updater", model="{utility_model}", description="Docs phase {N}")`, given the phase's SUMMARY paths, the changed files and the project root. It follows the project's `/docs` conventions, commits, and returns `written_files`, `commit`, `errors`. A thrown error, a non-empty `errors`, or empty `written_files` with `commit: "none"` for a documentation-worthy phase is a failed step: re-dispatch once, then record the exception with `deferred add "${PHASE}" --step docs --reason <reason> --approver <approver>` (auto mode: never approve it yourself; park the phase and name the missing docs). Name the written files in the verifier prompt.
 </step>
 
 <step name="pre_verify_gates">
@@ -807,7 +794,7 @@ Cross-reference requirement IDs from PLAN frontmatter against REQUIREMENTS.md �
 Judge product truth only; form was gated by a script. A form defect you notice is mentioned in your report body and never changes the status.
 Cite planning records by id (D-NN, A-NN, requirement id, plan id), never by line; code by file:line.
 risk_addons: {risk_addons}
-On a re-verification check only the truths that failed last time and the files the gap plans changed.
+On a re-verification (after a gap cycle) check only the truths that failed last time and the files the gap plans changed, rewrite VERIFICATION only, and append your verdict per earlier finding to `{N}-REVIEW.md` keeping its `passes`.
 Create VERIFICATION.md.
 @~/.claude/get-shit-done/references/handoff-brief.md
 <handoff_brief>
@@ -819,7 +806,7 @@ Create VERIFICATION.md.
 )
 ```
 
-**Passes.** The prompt above is final pass 1. Standard: ONE pass, then rule 12 of `references/rigour.md` (fix, `{reviewer_model}` re-check, ruling) before the status routing below. Risk add-ons (`risk_addons` true), sequential: pass 1 (`passes: 1`), then ONE fix dispatch for its findings, then pass 2, then (only when pass 2 has findings) its fix dispatch, the `{reviewer_model}` re-check of those fix commits only, and the one ruling for what stays open at CRITICAL/HIGH. Pass 2 is a fresh `{ruling_model}` agent on the FIXED tree, spawned with the same prompt and inputs plus: pass 1's finding ids and the fix commit shas, given only to judge each finding closed / still open and whether a fix introduced a new defect; it is NOT given pass 1's findings as things to look for, and reviews the whole phase diff again for defects pass 1 missed. It rewrites `{phase_dir}/{N}-REVIEW.md` with `passes: 2` (each pass-1 id with closed / open, plus its own findings) and VERIFICATION's status and `open_critical_high`. It runs once even when pass 1 had no findings. The phase report lists the `scriptable: yes` findings as proposed project gates.
+**Passes.** The prompt above is final pass 1. Standard: ONE pass, then rule 12 of `references/rigour.md` (fix, `{reviewer_model}` re-check which rewrites the statuses and counts, ruling) before the status routing below. Risk add-ons (`risk_addons` true), sequential: pass 1 (`passes: 1`), then ONE fix dispatch for its findings, then pass 2, then (only when pass 2 has findings) its fix dispatch, the `{reviewer_model}` re-check of those fix commits only, and the one ruling for what stays open at CRITICAL/HIGH. Pass 2 is a fresh `{ruling_model}` agent on the FIXED tree, spawned with the same prompt and inputs plus: pass 1's finding ids and the fix commit shas, given only to judge each finding closed / still open and whether a fix introduced a new defect; it is NOT given pass 1's findings as things to look for, and reviews the whole phase diff again for defects pass 1 missed. It rewrites `{phase_dir}/{N}-REVIEW.md` with `passes: 2` (each pass-1 id with closed / open, plus its own findings) and VERIFICATION's status and `open_critical_high`; after pass 2's own fix, rule 12's re-check rewrites them again. It runs once even when pass 1 had no findings. The phase report lists the `scriptable: yes` findings as proposed project gates.
 
 **Spike:** when `rigour` is `spike`, replace the check list in the prompt with the spike checks and the final-review questions of `references/rigour.md` (verifier row); nothing else is checked. At every rigour the prompt asks for `open_critical_high` (and `ruled_by` after a ruling) in the VERIFICATION frontmatter. The final review and its fix dispatch are never skipped for budget (rigour.md rule 7); `phase complete` refuses while a CRITICAL/HIGH is open without a ruling id. A rejected spawn retries once on `{ruling_model_fallback}` and says so.
 

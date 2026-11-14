@@ -403,7 +403,7 @@ Code can be fully implemented (no TODOs, no stubs) yet still incorrect. After th
 
 The coordinator ran the mechanical gates and the full suite ONCE, before review, into `{phase_dir}/captures/gates.txt`. Read that capture; never run the full suite yourself.
 
-1. The capture must exist and be newer than the last code commit: compare its modification time with `git log -1 --format=%ct -- . ':!.planning'` (committer time, epoch seconds). Missing or older: a gap (`stale_gates_capture`, status cannot be `passed`); the coordinator re-runs, you do not.
+1. The capture must exist and be newer than the last code commit: compare its modification time with `git log -1 --format=%ct -- . ':!.planning' ':!docs'` (committer time, epoch seconds; docs-only commits never stale it, `references/rigour.md` rule 12). Missing or older: a gap (`stale_gates_capture`, status cannot be `passed`); the coordinator re-runs, you do not.
 2. Read its test section: a failing or timed-out run is a gap per failing file below; the exit code and counts you cite are the capture's, by line.
 3. `test_all` of `none` (or empty) declares that the project has no test suite: treat it as "no tests exist" below. It is a hard fail when the phase produced implementation files, and acceptable only for phases that produced none.
 

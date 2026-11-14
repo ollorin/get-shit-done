@@ -419,7 +419,7 @@ Errors (the plan line cap of `references/rigour.md`, at spike its plan and task 
 
 ## 10. Spawn gsd-plan-checker Agent
 
-**Spawn (both `TRIAGE_MODE` values):**
+**Spawn (both `TRIAGE_MODE` values):** first record `PLAN_BASE=$(git rev-parse HEAD)` (the planner's commit; every delta round diffs against it).
 
 Display banner:
 ```
@@ -466,7 +466,7 @@ Agent(
 )
 ```
 
-**If `TRIAGE_MODE` is `adversarial` (round 1 only, the first check of a plan set):** first record `PLAN_BASE=$(git rev-parse HEAD)` (the planner's commit), then append to `checker_prompt`: `Round 1. Adversarial pass: enabled for plans {ADVERSARIAL_PLANS}; write {PHASE_DIR}/{plan_id}-VERDICT.md for each.` (the checker also applies the unambiguous fixes itself: `agents/gsd-plan-checker.md`, Round 1 fixes) and spawn with `model="{ruling_model}"` (never `checker_model`); if that spawn is rejected for availability, retry it once with `model="{ruling_model_fallback}"` and say so. A new round 1 overwrites the old verdicts: delete nothing (a verdict older than its plan fails the freshness test in step 11). Each VERDICT.md carries its own findings. **Round 2 and later are delta rounds on `checker_model` (step 11): they read the kept round-1 verdicts, run no adversarial pass and write no VERDICT.md.**
+**If `TRIAGE_MODE` is `adversarial` (round 1 only, the first check of a plan set):** append to `checker_prompt`: `Round 1. Adversarial pass: enabled for plans {ADVERSARIAL_PLANS}; write {PHASE_DIR}/{plan_id}-VERDICT.md for each.` (the checker also applies the unambiguous fixes itself: `agents/gsd-plan-checker.md`, Round 1 fixes) and spawn with `model="{ruling_model}"` (never `checker_model`); if that spawn is rejected for availability, retry it once with `model="{ruling_model_fallback}"` and say so. A new round 1 overwrites the old verdicts: delete nothing (a verdict older than its plan fails the freshness test in step 11). Each VERDICT.md carries its own findings. **Round 2 and later are delta rounds on `checker_model` (step 11): they read the kept round-1 verdicts, run no adversarial pass and write no VERDICT.md.**
 
 ## 11. Handle Checker Return
 

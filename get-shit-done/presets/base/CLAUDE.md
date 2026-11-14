@@ -110,8 +110,8 @@ a stated reason; a batch where every agent is on the top model "to be safe" is a
 
 | Tier | Use for |
 |---|---|
-| `haiku` | Default implementer (`gsd-executor`, `gsd-test-writer`: features, multi-file changes, fixes, tests, migrations, edge handlers; top-model plans are already decomposed). Test/lint/type-check/build/git/log runs via `subagent_type: "gsd2-runner"` (Bash+Read, no CLAUDE.md load, ~4k-token start vs ~25k). File/config lookups, SUMMARY.md, STATE.md, changelog. |
-| `sonnet` | ALL coordinators (roadmap / phase / death-resume; the top model only when the {{project.owner_title}} asks); they orchestrate, the top-model work runs in separate dispatches. The test steward and the fix re-check. `gsd-planner` / `gsd-plan-checker` outside high-stakes. Implementation only when escalated: Haiku failed the same task twice, the task is undecomposed/ambiguous, debugging with unclear root cause, architecture, or review feedback needing judgment beyond the stated fix. |
+| `haiku` | Default implementer (`gsd-executor`: features, multi-file changes, fixes, tests, migrations, edge handlers; top-model plans are already decomposed). Test/lint/type-check/build/git/log runs via `subagent_type: "gsd2-runner"` (Bash+Read, no CLAUDE.md load, ~4k-token start vs ~25k). File/config lookups, SUMMARY.md, STATE.md, changelog. |
+| `sonnet` | ALL coordinators (roadmap / phase / death-resume; the top model only when the {{project.owner_title}} asks); they orchestrate, the top-model work runs in separate dispatches. The test steward and the fix re-check. `gsd-plan-checker`. Implementation only when escalated: Haiku failed the same task twice, the task is undecomposed/ambiguous, debugging with unclear root cause, architecture, or review feedback needing judgment beyond the stated fix. |
 | top model | Config `models.top` (init fields `ruling_model`, `ruling_model_fallback`; an alias the owner sets, `fable` or `opus`, default `opus`). The planner; round-1 plan-checks for high-stakes domains; architecture and API contract changes; DB schema design; cross-subsystem root-cause analysis; the final phase review (`gsd-verifier`); the final milestone review; rulings. |
 
 **High-stakes domains:** the risk domains of `.planning/PRODUCT-BRIEF.md`; authentication and security
@@ -129,7 +129,7 @@ fix). Then ONE fix dispatch, ONE Sonnet re-check of the last fix commits, and ON
 what stays open at CRITICAL/HIGH (`get-shit-done/references/rigour.md` rules 10-12). Plan-check takes at most 2
 rounds. The final pass also applies the checklist of `.claude/rules/code-style.md`.
 
-**The top model runs at:** (1) plans for authentication, security and risk-domain work; (2) the final
+**The top model runs at:** (1) every plan (the planner runs on it at every rigour); (2) the final
 review pass(es) and the phase-end `gsd-verifier` (one dispatch); (3) rulings; (4) the milestone audit.
 
 **Rulings: a fresh top-model dispatch decides, never the coordinator itself:** deferring or accepting

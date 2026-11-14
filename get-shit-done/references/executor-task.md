@@ -31,8 +31,8 @@ A plan of `type: tdd`: follow `references/tdd.md` (red, green, refactor commits)
 3. Expected values come from the task and the rules, never from the code under test. Tests use the project's existing test helpers and assert code, body and unchanged state, with a positive control. For each assertion name one wrong implementation it would fail on; if you cannot, the assertion is too weak.
 4. A red run counts only when tests executed and failed on the asserted behaviour; an import, syntax or type error with 0 tests run is not red.
 5. Before the commit, go through each `Rules applied` line and each project rule that bears on the changed code and point at the line of your diff that satisfies it.
-6. A branch, rename or shared-function change the task does not name is removed or named in your return.
-7. Temp, backup and mutant files live only in the project's temp directory or a throwaway worktree inside the project; `git status` shows only the task's paths before you commit.
+6. A branch, rename or shared-function change the task does not name is removed or named in your return (a consumer covered by Commit 4 excepted).
+7. Temp, backup and mutant files live only in the project's temp directory or a throwaway worktree inside the project; `git status` shows only the task's paths plus the consumer files named in your return before you commit.
 
 ## Test cost
 
@@ -43,7 +43,7 @@ Per task run only the test file(s) your task names plus the test files of the mo
 1. `git status --short`; stage the task's files individually (never `git add .` or `-A`), tests and code together.
 2. `git commit -m "{type}({phase}-{plan}): {what}"` with `{type}` one of feat, fix, test, refactor, chore, docs, perf, style.
 3. Overwrite `.planning/phases/{phase_dir}/TASK-CHECKPOINT.json` with the Write tool (`last_completed_task`, `task_commit_hash`, `next_task_index`, `timestamp`); do not commit it per task.
-4. When behaviour moved, the same commit updates every comment, doc line, test title and `file:line` cite that describes it. After a fix or a new check, sweep sibling sites with the profile's `search` command. A reader, caller or sibling of the behaviour THIS task changes is part of the task: fix and test it in the same commit. A test fixture or assertion you changed is named in your return with the reason. Run each acceptance row's test before the change (it must fail for the right reason) and after (it must pass); a row whose test cannot be run is reported as such, never assumed green.
+4. When behaviour moved, the same commit updates every comment, doc line, test title and `file:line` cite that describes it. After a fix or a new check, sweep sibling sites with the profile's `search` command. A reader, caller or sibling of the behaviour THIS task changes is part of the task: fix and test it in the same commit; a consumer owned by a later task of the plan (its `files_modified`) is named in your return, not edited. A test fixture or assertion you changed is named in your return with the reason. A row whose test cannot be run is reported as such, never assumed green.
 
 Never run `git reset`, `clean`, `checkout --`, `stash`, `rebase` or `restore`; use `git -C <abs-path>`.
 
@@ -68,7 +68,7 @@ On `type="checkpoint:*"` read `references/checkpoints.md` (the coordinator names
 
 ## Failure
 
-When the task cannot be finished (retries exhausted, blocker, row unsatisfiable) end your return with exactly one line:
+When the task cannot be finished (retries exhausted, blocker, row unsatisfiable) leave the tree as it is (no reset, no stash) and return first: the failing acceptance row, the capture path of the failing run with its failing assertion lines, and `git diff --stat` of the uncommitted work; then end your return with exactly one line:
 
 `TASK FAILED: {task_name} [tier: {ROUTED_TIER}] [non-capability] - {error_summary}`
 

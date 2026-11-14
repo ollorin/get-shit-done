@@ -190,7 +190,7 @@ Every plan that produces user-facing behavior MUST include:
 No separate test task. The behaviour task carries an `<acceptance>` block (format: `agents/gsd-planner.md` "Rules applied and acceptance rows"); its executor writes the failing test from the rows, then the code:
 
 ```xml
-<task type="auto" tier="sonnet">
+<task type="auto" tier="haiku">
   <name>Implement [feature name]</name>
   <files>...</files>
   <action>... Rules applied: ...</action>
@@ -1162,7 +1162,7 @@ Include all frontmatter fields.
 </step>
 
 <step name="routing_pass">
-The planner writes `<model>haiku|sonnet</model>` after `<name>` in every task while drafting, per the CLAUDE.md tier table. No separate routing agent runs.
+The planner writes `<model>haiku|sonnet</model>` after `<name>` in every task while drafting (the rule: `agents/gsd-planner.md` Tier tag). No separate routing agent runs.
 </step>
 
 <step name="validate_plan">
