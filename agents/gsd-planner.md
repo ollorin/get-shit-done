@@ -86,6 +86,7 @@ The orchestrator provides user decisions in `<user_decisions>` tags from `/gsd:d
 11. Risk-domain tasks: rows include a concurrent two-caller case, a dependency-fault case (read error, zero rows, timeout fail closed) and the readers of the changed behaviour; reviews find only about a quarter of such defects by reading, so they must be tests.
 12. Actor surface: when the goal restricts what an actor (role, key, caller class) can do through one channel, list that actor's other channels to the same assets (other privilege kinds, memberships, inherited defaults) from the source or catalog; each is guarded by a row or cut by a recorded decision (item 9).
 13. Guard red proof: a guard's red proof mutates the guarded state or product code (what the guard exists to catch), never the guard's own expected value, allowlist or query; every new guard has one such row.
+14. Class fix: a task that fixes a defect pattern (a status literal, a call form, a missing check) lists every site of that pattern from an exact search run at plan time (the query is in the plan); each site is in the task's files or cut by a recorded decision (item 9). The executor implements what the task lists and does not find the siblings for you.
 
 <absolute_mandates>
 
