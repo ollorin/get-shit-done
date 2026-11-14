@@ -14,7 +14,7 @@ const { mergeSettings } = require('./project-deploy-settings.js');
 
 const PRESET = path.join(__dirname, '..', 'presets', 'igaming');
 const IGAMING_ROOT = '/Users/ollorin/igaming-platform';
-const PIN_SHA = '95a02959e5fa464f3bcce11378c803f7b86ec76d';
+const PIN_SHA = '77555e4897d37f49b9fb1ae2fbd6fb624819906e';
 const GOLDEN_REPO = process.env.GSD_IGAMING_REPO || IGAMING_ROOT;
 const pinnedGit = (root, args) => execFileSync('git', ['-C', root, ...args], { maxBuffer: 1 << 26 });
 
@@ -30,7 +30,7 @@ function goldenSkipReason(root, probe = (args) => spawnSync('git', ['-C', root, 
 }
 const IGAMING_VALUES = { project: { slug: 'igaming', root: IGAMING_ROOT } };
 const SETTINGS_DEST = '.claude/settings.json';
-const META = ['preset.json', 'README.md', 'golden.sha256', 'settings.fragment.json', 'settings.snapshot.json', 'project.block.json', 'lessons-stack.md'];
+const META = ['preset.json', 'README.md', 'golden.sha256', 'overrides.sha256', 'settings.fragment.json', 'settings.snapshot.json', 'project.block.json', 'lessons-stack.md'];
 const UNDEPLOYED_DIRS = ['memory/'];
 const SRC_RULES = [['.claude/', ''], ['scripts/validation/hook-canaries/', 'canaries/']];
 const UNDEPLOYED = ['enableAllProjectMcpServers', 'enabledPlugins', 'env', 'sandbox'];
@@ -42,16 +42,22 @@ afterEach(() => {
 
 const sha = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 
-function golden() {
+function hashLines(file) {
   const m = new Map();
-  for (const line of fs.readFileSync(path.join(PRESET, 'golden.sha256'), 'utf8').split('\n')) {
+  for (const line of fs.readFileSync(path.join(PRESET, file), 'utf8').split('\n')) {
     if (line === '') continue;
     const hit = /^([0-9a-f]{64})  (.+)$/.exec(line);
-    if (!hit) assert.fail(`bad golden line: ${line}`);
+    if (!hit) assert.fail(`bad hash line in ${file}: ${line}`);
     m.set(hit[2], hit[1]);
   }
   return m;
 }
+
+// golden.sha256: the pinned igaming bytes. overrides.sha256: the deployed bytes of the files the preset
+// changes on purpose (the models.top design); every other entry must equal the pin.
+const golden = () => hashLines('golden.sha256');
+const overrides = () => hashLines('overrides.sha256');
+const deployedSha = (dest) => overrides().get(dest) ?? golden().get(dest);
 
 function srcOf(dest) {
   const rule = SRC_RULES.find(([prefix]) => dest.startsWith(prefix));
@@ -81,7 +87,7 @@ describe('igaming preset snapshot (agnostic-C1)', () => {
       assert.strictEqual(f.capability, null);
     }
     const readme = fs.readFileSync(path.join(PRESET, 'README.md'), 'utf8');
-    assert.ok(readme.includes('95a02959e5fa464f3bcce11378c803f7b86ec76d'), 'README must name the full pinned SHA');
+    assert.ok(readme.includes('77555e4897d37f49b9fb1ae2fbd6fb624819906e'), 'README must name the full pinned SHA');
     assert.ok(!readme.includes('## Redactions') && !readme.includes('<redacted:'), 'README must not describe redactions');
   });
 
@@ -114,7 +120,7 @@ describe('igaming preset snapshot (agnostic-C1)', () => {
     assert.strictEqual(r.ok, true);
     assert.strictEqual(r.files.length, 49);
     const g = golden();
-    for (const f of r.files) assert.strictEqual(sha(f.content), g.get(f.dest), `golden mismatch: ${f.dest}`);
+    for (const f of r.files) assert.strictEqual(sha(f.content), deployedSha(f.dest), `golden mismatch: ${f.dest}`);
   });
 
   test('G4 executable bits are exactly the 10 top-level hook scripts and run-canaries.sh', () => {
@@ -129,11 +135,11 @@ describe('igaming preset snapshot (agnostic-C1)', () => {
 
   test('G5 settings: verbatim snapshot, fragment permission sets equal, hooks ordered, undeployed keys pinned', () => {
     const snapBuf = fs.readFileSync(path.join(PRESET, 'settings.snapshot.json'));
-    assert.strictEqual(sha(snapBuf), golden().get(SETTINGS_DEST));
+    assert.strictEqual(sha(snapBuf), deployedSha(SETTINGS_DEST));
     const snap = readSnapshot();
     const frag = readFragment();
     assert.deepStrictEqual(Object.keys(frag).sort(), ['hooks', 'permissions']);
-    const expectedSizes = { allow: 289, deny: 19, ask: 3 };
+    const expectedSizes = { allow: 288, deny: 19, ask: 3 };
     for (const k of Object.keys(expectedSizes)) {
       assert.strictEqual(frag.permissions[k].length, expectedSizes[k], `size of permissions.${k}`);
       assert.strictEqual(new Set(frag.permissions[k]).size, frag.permissions[k].length, `duplicate in permissions.${k}`);
@@ -184,7 +190,30 @@ describe('igaming preset snapshot (agnostic-C1)', () => {
     for (const [dest, want] of golden()) {
       assert.strictEqual(sha(pinnedGit(GOLDEN_REPO, ['show', `${PIN_SHA}:${dest}`])), want, `golden differs from pin: ${dest}`);
       const src = srcByDest.get(dest);
-      assert.strictEqual(sha(fs.readFileSync(path.join(PRESET, src))), want, `preset file differs from pin: ${src}`);
+      const deployed = overrides().get(dest);
+      if (deployed === undefined) {
+        assert.strictEqual(sha(fs.readFileSync(path.join(PRESET, src))), want, `preset file differs from pin: ${src}`);
+      } else {
+        assert.notStrictEqual(deployed, want, `override is a no-op, drop it: ${dest}`);
+        assert.strictEqual(sha(fs.readFileSync(path.join(PRESET, src))), deployed, `preset file differs from overrides.sha256: ${src}`);
+      }
+    }
+  });
+
+  test('G8 overrides are exactly CLAUDE.md and the settings file, each a known golden entry', () => {
+    assert.deepStrictEqual([...overrides().keys()].sort(), [SETTINGS_DEST, 'CLAUDE.md']);
+    for (const d of overrides().keys()) assert.ok(golden().has(d), `override without golden entry: ${d}`);
+  });
+
+  test('G9 the deployed CLAUDE.md and settings carry the models.top design and none of the removed concepts', () => {
+    const claude = fs.readFileSync(path.join(PRESET, 'CLAUDE.md'), 'utf8');
+    assert.match(claude, /`models\.top`/);
+    for (const gone of [/Fable allowance/, /inherit the spawner's tier/, /adversary-view/, /batched diff review/, /gsd-test-writer`: features/, /`gsd-planner` \/ `gsd-plan-checker` outside/]) {
+      assert.doesNotMatch(claude, gone, String(gone));
+    }
+    assert.match(claude, /\*\*Risk domains:\*\*/);
+    for (const f of ['settings.fragment.json', 'settings.snapshot.json']) {
+      assert.ok(!fs.readFileSync(path.join(PRESET, f), 'utf8').includes('MODEL_PROFILE'), f);
     }
   });
 });

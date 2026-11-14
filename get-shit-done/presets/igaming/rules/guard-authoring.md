@@ -16,7 +16,7 @@ to `GUARD_REGISTRY`
 
 Never first-match on raw source. Every extraction pass reads a comment-stripped view FIRST:
 `stripComments()` (`scripts/validation/e2e-fixture-guards.ts:181`) for TypeScript,
-`stripSqlComments()` (`scripts/validation/e2e-seed-diff-guard.ts:131`) for SQL.
+`stripSqlComments()` (`scripts/validation/e2e-seed-diff-guard.ts:139`) for SQL.
 
 Two failure directions:
 

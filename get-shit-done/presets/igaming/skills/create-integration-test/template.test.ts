@@ -20,6 +20,7 @@ import { loginAsAdmin, loginAsRegularUser, createAuthHeaders } from "./auth-help
 
 // Environment-based Supabase credentials
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "http://127.0.0.1:54321";
+// deno-lint-ignore no-unused-vars -- template placeholder; generated tests use it for service-role clients
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 // Test constants
@@ -39,6 +40,7 @@ async function getAdminHeaders(): Promise<Record<string, string>> {
 }
 
 // Helper to get or create user session token
+// deno-lint-ignore no-unused-vars -- template helper kept for generated tests that need a regular user
 async function getUserHeaders(): Promise<Record<string, string>> {
   if (!userSessionToken) {
     userSessionToken = await loginAsRegularUser();
@@ -52,6 +54,7 @@ async function getUserHeaders(): Promise<Record<string, string>> {
 const supabaseClients: SupabaseClient[] = [];
 
 // Helper to create and track Supabase client
+// deno-lint-ignore no-unused-vars -- template helper kept for generated tests that create clients
 function createTrackedClient(url: string, key: string): SupabaseClient {
   const client = createClient(url, key);
   supabaseClients.push(client);

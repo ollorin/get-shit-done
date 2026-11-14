@@ -130,7 +130,9 @@ Any frontend component integrating with an API endpoint needs a corresponding E2
 
 ## Test Failure Policy
 
-**NEVER** add `--ignore`, `--skip`, or exclusion flags to make a failing test disappear — read the error, find the root cause, fix it, re-run. **Only legitimate skip:** integration/E2E tests genuinely requiring infrastructure absent from unit CI — use `// ignore: requires Supabase — runs in integration CI` with `ignore: !HAS_DB` (self-enabling). **If you catch yourself adding `--ignore`, stop — that's always the wrong move.**
+**NEVER** add `--ignore`, `--skip`, or exclusion flags to make a failing test disappear — read the error, find the root cause, fix it, re-run. **No env-gated skip.** A real-backend test lives in a harness bucket and fails loudly on a missing credential — never `ignore: !HAS_DB` or a soft `return;`. Reference: `functions/__tests__/payments-idempotency.integration.test.ts` (bucket B3a-payments). Harness-only skips are allowlisted with a reason, never added inline. **If you catch yourself adding `--ignore`, stop — that's always the wrong move.**
+
+**A test never returns early on a missing precondition; assert it.** A harness bucket reports zero ignored tests and zero ignored steps: `scripts/validation/deno-summary-ignored.ts` enforces this in `run_bucket()` (`scripts/run-integration-tests.sh`) on every bucket log, with no allowlist and no env switch. The static half is g19 (`scripts/validation/test-skip-guard.ts`, 403 CI-SKIP ruling section 4).
 
 ## Test Falsifiability — every test must be able to fail
 
