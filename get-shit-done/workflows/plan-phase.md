@@ -272,6 +272,8 @@ Agent(
 - **`## RESEARCH BLOCKED`:** Display blocker, offer: 1) Provide context, 2) Skip research, 3) Abort
   Auto (auto_mode, references/auto-mode.md K2): skip research and continue with requirements only; record `research: skipped (blocked)` in `{PHASE_DIR}/{N}-PLAN-CHECK.md` when one is written.
 
+If `RESEARCH COMPLETE` left `{phase_dir}/{phase_num}-RESEARCH.md` uncommitted, the orchestrator commits it as `docs({phase}): research` before spawning the planner.
+
 ## 5.6. Generate E2E Test Cases (Web Projects)
 
 **Trigger:** Phase goal mentions UI, frontend, page, component, form, or modal — OR PLAN.md modifies `.tsx`/`.jsx` files.
@@ -419,7 +421,7 @@ Errors (the plan line cap of `references/rigour.md`, at spike its plan and task 
 
 ## 10. Spawn gsd-plan-checker Agent
 
-**Spawn (both `TRIAGE_MODE` values):** first record `PLAN_BASE=$(git rev-parse HEAD)` (the planner's commit; every delta round diffs against it).
+**Spawn (both `TRIAGE_MODE` values):** first record `PLAN_BASE=$(git rev-parse HEAD)` (the planner's commit; every delta round diffs against it, and on a risk phase that diff also carries the round-1 checkers' own fixes, see step 11).
 
 Display banner:
 ```
@@ -466,7 +468,7 @@ Agent(
 )
 ```
 
-**If `TRIAGE_MODE` is `adversarial` (round 1 only, the first check of a plan set):** spawn one checker per plan id in `ADVERSARIAL_PLANS`, at most 2 at once, each with `model="{ruling_model}"` (never `checker_model`; if a spawn is rejected for availability, retry it once with `model="{ruling_model_fallback}"` and say so). Each prompt is the prompt above with the PLAN.md entry narrowed to that plan's PLAN.md plus the sibling plans' frontmatter (no sibling bodies, no other plan's findings; the roadmap, requirements, context and research entries stay), ending `Round 1. Adversarial pass: enabled for plans {plan_id}; write {PHASE_DIR}/{plan_id}-VERDICT.md.` (the checker also applies the unambiguous fixes to its own plan: `agents/gsd-plan-checker.md`, Round 1 fixes). There is no defender, no judge and no further adversarial round: the per-plan findings are merged into ONE planner revision, then the single `checker_model` delta check (step 11) reads the whole set; the round cap is stated once, in step 12. A new round 1 overwrites the old verdicts: delete nothing (a verdict older than its plan fails the freshness test in step 11). Each VERDICT.md carries its own findings.
+**If `TRIAGE_MODE` is `adversarial` (round 1 only, the first check of a plan set):** spawn one checker per plan id in `ADVERSARIAL_PLANS`, at most 2 at once (with more than 2 plans, dispatch in plan order in waves of 2), each with `model="{ruling_model}"` (never `checker_model`; if a spawn is rejected for availability, retry it once with `model="{ruling_model_fallback}"` and say so). Each prompt is the prompt above with the PLAN.md entry narrowed to that plan's PLAN.md plus the sibling plans' frontmatter (no sibling bodies, no other plan's findings; the roadmap, requirements, context and research entries stay), ending `Round 1. Adversarial pass: enabled for plans {plan_id}; write {PHASE_DIR}/{plan_id}-VERDICT.md.` (the checker also applies the unambiguous fixes to its own plan: `agents/gsd-plan-checker.md`, Round 1 fixes). There is no defender, no judge and no further adversarial round: the per-plan findings are merged into ONE planner revision, then the single `checker_model` delta check (step 11) reads the whole set; the round cap is stated once, in step 12. A new round 1 overwrites the old verdicts: delete nothing (a verdict older than its plan fails the freshness test in step 11). Each VERDICT.md carries its own findings.
 
 ## 11. Handle Checker Return
 
@@ -483,6 +485,8 @@ cat >> "$F" <<'EOF'
 EOF
 git add -- "$F" && git commit -m "docs(phase-{X}): record plan-check round {n}" -- "$F"
 ```
+
+The round commit also stages `.planning/EXECUTION_LOG.md` and `.planning/DECISIONS.md` when `gsd-tools budget spend` or `decisions.js add` changed them, so the tree is clean at hand-off.
 
 In round 1 with the adversarial pass, and again in the delta round that updates them, name each `{PHASE_DIR}/{plan_id}-VERDICT.md` as a literal path after `"$F"` in both the `git add` and the `git commit` (the delta rounds read the verdicts from the commit).
 
@@ -511,7 +515,7 @@ On a risk phase (`TRIAGE_MODE` `adversarial`) the delta check is the only step t
 
 ## 12. Revision Loop (capped)
 
-Track `iteration_count` (starts at 1 after initial plan + check). `CAP` is the plan-check cap of `references/rigour.md`: 1 for a spike (one revision, no re-check), otherwise 2.
+Track `iteration_count` (starts at 1 after initial plan + check). `CAP` is the plan-check cap of `references/rigour.md`: 1 for a spike (one revision, no re-check), otherwise 2. On a risk phase (`TRIAGE_MODE` `adversarial`) the adversarial round is iteration 1 and the delta round is iteration 2, the cap: remaining warnings then become `A-` rows, a surviving blocker takes the single revision and targeted re-check below before its ruling, and there is no third revision.
 
 **If iteration_count < CAP** (spike: one revision, then step 13):
 
@@ -537,6 +541,7 @@ Revision prompt:
 Fix the listed issues and nothing else: change the fewest lines that close each one.
 Do NOT replan from scratch unless issues are fundamental.
 Return what changed, per issue id.
+Also rewrite any `A-` or `D-` ledger row (`decisions.js list --phase {N}`) whose text your revision made false, and name each rewritten row in your return.
 </instructions>
 ```
 

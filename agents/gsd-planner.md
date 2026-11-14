@@ -306,7 +306,7 @@ Execute: `/gsd:execute-phase {phase} --gaps-only`
 
 ## Checkpoint Reached / Revision Complete
 
-Follow templates in checkpoints and revision_mode sections respectively.
+Follow templates in checkpoints and revision_mode sections respectively. In revision mode, rewrite any `A-` or `D-` ledger row whose text your revision made false and name the rewritten rows in the return.
 
 ## Machine-parseable status trailer (REQUIRED)
 
