@@ -94,7 +94,7 @@ PUBLIC EXECUTE, only service_role. Never rely on default grants:
   fails on any anon/authenticated/PUBLIC privilege not in its inline `ALLOWLIST`
   (`383.1-GRANT-INVENTORY.md` mirrors it).
 - `bonus` and `progression` default privileges give service_role SELECT only (`20261031030000`), so a writable
-  table there needs an explicit GRANT with a named caller (G-WS, `privilege-surface-g1.integration.test.ts:696`).
+  table there needs an explicit GRANT with a named caller (G-WS, `privilege-surface-g1.integration.test.ts:716`).
 
 ### SECURITY DEFINER EXECUTE
 
@@ -110,7 +110,7 @@ PUBLIC EXECUTE, only service_role. Never rely on default grants:
   `proacl` means the default ACL (PUBLIC EXECUTE), not "no grant". A `REVOKE` issued by a role
   that no longer owns the object is a silent no-op — probe the ACL after it.
 - Enforced by G4b-G4e and G9 in `public-grant-surface.integration.test.ts`. INVOKER functions and non-public relations
-  are enforced by G10 and G11 (authoritative) and G12 (reach lower bound) in `privilege-surface-g1.integration.test.ts:302,394,403`.
+  are enforced by G10 and G11 (authoritative) and G12 (reach lower bound) in `privilege-surface-g1.integration.test.ts:322,414,423`.
 
 ## Schema Access Pattern
 
@@ -153,8 +153,9 @@ with PGRST202.
 ## Seed Config Values
 
 **WARNING:** `seed/001_configurations.sql` (staged) must use real local values for
-`cache_invalidation_function_url`. The demo `service_role_key` row lives only in the local-only
-`seed/007_local_vault_secrets.sql`; the cache triggers swallow its absence (`20260325000100`).
+`cache_invalidation_function_url`. No seed inserts a `service_role_key` configuration row since 404-09; the
+demo key exists only as the vault secret `SUPABASE_SERVICE_ROLE_KEY` in the local-only
+`seed/007_local_vault_secrets.sql`. The cache triggers swallow a missing config row (`20260325000100`).
 
 ## Deleting a `configurations` row requires `set_rollback_mode()`
 
@@ -256,6 +257,8 @@ END $$;
 ```
 
 Repo examples: `20260611001000_cron_guards_and_sql_fixes.sql:106`, `20260320000100:573-584`.
+
+pg_cron/pg_net callers use `monitoring.cron_service_post` / `cron_signed_post` (single-use ticket); never put a service key in headers or a `configurations` row (G13i, `privilege-surface-g1.integration.test.ts:1011`).
 
 **Set-based over row-by-row:** batch scans and cron jobs use set-based CTEs
 (`WITH eligible AS (SELECT id ... FOR UPDATE SKIP LOCKED) UPDATE ... FROM eligible`), not `FOR`

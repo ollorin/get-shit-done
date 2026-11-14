@@ -284,6 +284,8 @@ if (req.method === 'OPTIONS') {
 }
 ```
 
+Cron routes authenticate through `authorizeCronRequest` (`apps/api/libs/infrastructure/src/lib/security/service-role-bearer.ts:80`), a decision table over the bearer and a single-use cron ticket verified by `public.verify_cron_request` (404-08 migration `20261108050000`). A new cron route needs a `monitoring.cron_route_allowed` entry and CS5 coverage in `cron-service-post.integration.test.ts`. Rollback runs the `ROLLBACK_20261108050000` migration before any edge revert.
+
 **Service-role-only endpoints MUST validate the service role key before any business logic:**
 
 Internal endpoints (e.g., cron workers, crash-recovery jobs) that should only be callable by the server must authenticate the caller before doing any work:
@@ -344,7 +346,7 @@ happens. Keep both.
 
 | Condition | Status | Why |
 | --- | --- | --- |
-| Expected key unset or empty | **503** | The caller is not the problem. The process cannot authenticate *anyone*, including the legitimate internal caller, so `401 Unauthorized` misattributes a server misconfiguration to the caller and invites a retry storm against a deployment that can never succeed. Matches the `[TRUSTED PROXY GATE] FATAL` pattern at `libs/infrastructure/src/lib/security/trusted-proxy-source.ts:103-117`. |
+| Expected key unset or empty | **503** | The caller is not the problem. The process cannot authenticate *anyone*, including the legitimate internal caller, so `401 Unauthorized` misattributes a server misconfiguration to the caller and invites a retry storm against a deployment that can never succeed. Matches the `[TRUSTED PROXY GATE] FATAL` pattern at `libs/infrastructure/src/lib/security/trusted-proxy-source.ts:103-122`. |
 | Expected key set, presented key wrong or absent | **401** | This really is an unauthenticated caller. |
 
 Both refusals happen before any database access or state mutation.

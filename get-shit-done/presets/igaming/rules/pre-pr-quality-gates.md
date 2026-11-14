@@ -34,8 +34,9 @@ This single script mirrors `.github/workflows/pr-validation.yml` exactly. It:
   env-manifest parity, migration completeness, docs vale/markdownlint, the
   fp/routing/sizing violation ratchet, the migration-security gate, the
   dependency **CVE/OSV scan gate** (`scripts/cve-scan-gate.ts`, wired into
-  preflight itself), and the `next` CVE-waiver tripwire. Static analysis cannot flake, so a
-  second identical run adds only wall time.
+  preflight itself), the MILE-07 flake-prevention gate (`pr-validation.yml:201`), and the
+  `next` CVE-waiver tripwire. Static analysis cannot flake, so a second identical run adds only
+  wall time.
 - Runs the **flake-sensitive** stages TWICE (both passes must be green): unit
   tests + coverage (`test:ci`), the atomic scrubbed integration block, and the
   frontend `nx test` suites — with a `supabase db reset` between the two test
@@ -45,6 +46,10 @@ This single script mirrors `.github/workflows/pr-validation.yml` exactly. It:
   failing tests, log path). That file is the evidence base for a future CEO
   decision to relax the test double-run to run-once-plus-retry
   (280-FINDINGS.md) — do not drop the double-run without it.
+- Bounds the unit stage (`test:ci` in run 1, `test:ci:nocov` in run 2) at `PREFLIGHT_UNIT_TIMEOUT_S`
+  (default 1200 s, both passes; CI's Backend Unit Tests job is capped at 10 min, `pr-validation.yml:159`,
+  and a unit stage over 600 s prints a WARN line). A red unit stage, including a timeout, stops that pass
+  before integration and frontend tests, so the stack lock is not taken on that path.
 - Writes `.preflight-passed` marker that unblocks `git push` — written ONLY
   when run 1 AND the flake-sensitive re-run are fully green
 
@@ -52,27 +57,42 @@ This single script mirrors `.github/workflows/pr-validation.yml` exactly. It:
 - `--all` — force all checks regardless of changes
 - `--backend` / `--frontend` — scope to one layer
 - `--skip-twice` — skips the flake-sensitive second run (NOT PR-ready, for quick local checks only)
+- `--no-stack` — window-entry gate: Stage A + unit tests with coverage + frontend tests; no stack, lock, DB or
+  `.preflight-passed`. Exit 0 = `WINDOW-ENTRY GATE GREEN`, 1 = red; contract at `scripts/preflight.sh:43-57`
+  (timeout/CI divergence as in the unit-stage bullet above; signal handling `:111-112`; no host sweep `:1396-1400`).
+
+Serve teardown before the scrubbed integration restart is bounded by `EDGE_TEARDOWN_GRACE_S` (default 15, SIGTERM to SIGKILL; clamped below the deadline) and `EDGE_TEARDOWN_TIMEOUT_S` (default 60, hard deadline); each docker call in it is bounded by `EDGE_DOCKER_TIMEOUT_S` (default 15, a hung docker fails loudly); see `scripts/preflight.sh` `teardown_serve_cli`. Teardown signals only serve CLIs whose `--workdir` (else cwd) is under this repo root (`serve_cli_in_repo`). `PREFLIGHT_SERVE_CLI_PATTERN`, `PREFLIGHT_SERVE_LOGS_PATTERN` and `PREFLIGHT_REPO_ROOT` override the process-match patterns and repo root for the unit test only and are never set in CI or real runs.
 
 The "before claiming done" checklist (check/lint/fmt/fp-gate/typecheck/p0-tier-delta) lives in
 `CLAUDE.md` → "Before Creating a PR".
 
 ### Test cost: where preflight runs (phases and plans)
 
-The PR-time requirement above is unchanged. Earlier in a phase, cost is bounded:
+The PR-time requirement above applies in full. Earlier in a phase, cost is bounded:
 
 1. **Inside a plan and in fix loops:** run only the affected test files (`deno task test <file>`;
    `npx nx test <project>` for frontend) plus the single bucket containing them
    (`scripts/run-integration-tests.sh --bucket=...`), once. No full `scripts/preflight.sh` inside a plan.
 2. **One full `scripts/preflight.sh` per phase**, on the final phase tree, before Sonnet
    pre-verification. After fixing its findings, rerun only what the fixes touch.
-3. **"Tests green twice" over all buckets runs once, at phase end / before the PR**, not per plan.
-   `--skip-twice` is fine for intermediate checks and is never claimed PR-ready.
+3. **The phase-end preflight is a single pass; "tests green twice" over all buckets runs only at
+   milestone end / before the milestone PR**, never per plan or per phase. `--skip-twice` is for
+   phase-end and intermediate runs and is never claimed PR-ready; only the two-pass run writes the
+   PR-ready marker.
 4. **Cheap gates run on their own, early:** `test:ci` coverage for touched libs, `deno check`, lint,
    fmt, fp-gate. The phase-final full preflight stays mandatory: it catches cross-module breakage
    (fmt vs a pin test, a contract change vs another plan's test).
+5. **Window entry:** before a live-window request, `scripts/preflight.sh --no-stack` must be green
+   on the merge candidate. Guidance: run it from a throwaway `git worktree` so the working tree
+   stays clean (no script enforces this). A red entry gate means no window request.
+   Stack-free gates are cleared BEFORE entering the lock, never inside it.
+6. **Per-plan buckets while a window is open:** each reviewed plan lands and runs its own bucket
+   (`scripts/run-integration-tests.sh --bucket=...`) once, while the lock is held for the window.
+   Plans are not batched to phase end; a plan that cannot land alone is split first.
 
 Why: each full preflight is 25+ min under the shared `.tmp/local-stack.lock`; five in one phase
-starved a parallel phase for ~60 min.
+starved a parallel phase for ~60 min. Phase 403's window (12.7 h) lost 4.65 h to reds that needed
+no stack (`.planning/fable-review/FABLE-WINDOW-SPEEDUP.md`).
 
 ### Additional gates (not in preflight — run manually when applicable)
 
@@ -147,7 +167,7 @@ bookkeeping to deploying, re-ran the whole suite a third time, and could lock in
 measurement.
 
 The floor now moves **only when a human commits it in a PR**:
-- The PR-blocking **regression check** is unchanged: `deno task coverage:gate` runs inside
+- The PR-blocking **regression check**: `deno task coverage:gate` runs inside
   `test:ci` (so it fires **locally** in `scripts/preflight.sh` AND in `pr-validation.yml`) and
   fails any change that drops a domain below its recorded floor. It never gets `--allow-write`.
 - To **raise** the floor after you legitimately improve coverage, run **`deno task
@@ -177,4 +197,4 @@ For the hardening plan, see `.planning/phases/270-coverage-gate-hardening/` and
 - There is NO "I'll fix it after the PR" path
 - Claiming "tests pass" without actually running them is never acceptable
 - Each gate must produce visible output proving it ran and passed
-- The `git push` hook blocks unless `.preflight-passed` marker exists (< 30 min old)
+- The `git push` hook blocks unless `.preflight-passed` marker exists (< 30 min old). Only the full two-pass run writes it (`scripts/preflight.sh:1819`; `--skip-twice` exits at `:1729` first), so a phase-end single pass needs a full two-pass run before any push.

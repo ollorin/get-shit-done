@@ -17,7 +17,7 @@ including one of your own.
 - **Fix review findings of every severity; don't defer them.** Severity sets priority, not whether
   a finding gets fixed. Fix the class, not the instance: enumerate sibling sites with a cited
   `zg query` (never from memory) and record the query with the fix. Batch same-file findings
-  into one fix agent; run disjoint files in parallel. Defer only what an Opus ruling marks
+  into one fix agent; run disjoint files in parallel. Defer only what a top-model ruling marks
   "no business value", recorded with its reason.
 - **Don't stop early or ask permission** when you can solve it yourself — no "good stopping point",
   no "should I continue?".
@@ -35,6 +35,7 @@ including one of your own.
   Exact sweeps: `git grep -n <pat> -- <path>` or `zg query --rg -F <pat> <path>`. The hooks deny recursive
   `grep`/`rg`, `rg` without a file, `rtk grep` and `find -exec` without `-maxdepth`; `grep` on named files is fine.
 - **Run tests only in allowlisted shapes:** `cd /Users/ollorin/igaming-platform/apps/api && deno task test <file>`, `deno test <file>` (optional `timeout N`, trailing `2>&1`), `npx nx test <project>`, `deno check|lint|fmt`. No inline env vars, no `| tail/grep`, no `;`/extra `&&`, no `$()`/heredocs/`bash -c`. If a command prompts, stop and report the exact string.
+- **Unattended agents never wait on a prompt:** one that hits any permission prompt STOPS and reports the exact command string to its spawner; long runs are polled in the foreground with an `rc=` check at 25 min, never waited on silently.
 
 ### Functional Programming
 
@@ -81,9 +82,10 @@ Kong Gateway / JWT bypass rationale → `docs/development/supabase-local-stack.m
 
 **Run `scripts/preflight.sh` before every PR — it mirrors `pr-validation.yml` exactly. There is no
 "push anyway."** Deterministic gates green once + tests green twice = ready; anything else = not
-ready. Full command reference, flags, coverage gate and rationale: `.claude/rules/pre-pr-quality-gates.md`
+ready. Phase end: one pass (`--skip-twice`); twice-green only at the milestone PR; only the two-pass run writes the push marker. Full command reference, flags, coverage gate and rationale: `.claude/rules/pre-pr-quality-gates.md`
 (read it before running preflight or opening a PR).
 Within a phase, full preflight runs once on the final tree, not per plan: see its "Test cost" section.
+**Window entry:** `scripts/preflight.sh --no-stack` must be green on the merge candidate before a live window is requested; red means no request. While a window is open, each reviewed plan lands and runs its own bucket once, not at phase end.
 
 **Before any plan, fix or SUMMARY claims done:** tests green is not done. On the final tree run
 `deno check` and `deno lint` for touched `apps/api` paths; `deno fmt` then lint again (fmt can detach a
@@ -101,42 +103,35 @@ the GitHub API). Full usage and CI Failure Digest / artifact details: `docs/deve
 
 Delegate substantial tasks to subagents. **Every spawn passes `model` explicitly** (alias only, never
 a model ID): agent definitions with no `model:` line (gsd-planner, gsd-plan-checker, gsd-debugger)
-inherit the spawner's tier. Pick the cheapest tier that does the job correctly and escalate only for
-a stated reason; a batch where every agent is Opus "to be safe" is a defect.
+run on the model you pass, never a default. Pick the cheapest tier that does the job correctly and escalate only for
+a stated reason; a batch where every agent is on the top model "to be safe" is a defect.
 
 | Tier | Use for |
 |---|---|
-| `haiku` | Default implementer (`gsd-executor`, `gsd-test-writer`: features, multi-file changes, fixes, tests, migrations, edge handlers; Opus plans are already decomposed). Test/lint/type-check/build/git/log runs via `subagent_type: "gsd2-runner"` (Bash+Read, no CLAUDE.md load, ~4k-token start vs ~25k). File/config lookups, SUMMARY.md, STATE.md, changelog. |
-| `sonnet` | ALL coordinators (roadmap / phase / death-resume; Opus only when the CEO asks); they orchestrate, the Opus work runs in separate dispatches. Every review, verify and pre-verification round. `gsd-planner` / `gsd-plan-checker` outside high-stakes. Implementation only when escalated: Haiku failed the same task twice, the task is undecomposed/ambiguous, debugging with unclear root cause, architecture, or review feedback needing judgment beyond the stated fix. |
-| `opus` | Plans and plan-checks for high-stakes domains; architecture and API contract changes; DB schema design; cross-subsystem root-cause analysis; the phase-end `gsd-verifier`; `gsd:audit-milestone`; rulings. Runs as `fable` while the allowance lasts (below). |
-
-**Fable allowance (CEO ruling 2026-11-10):** while it lasts, every Opus-tier dispatch (this table's
-`opus` row, the batched diff review, phase verifier, audit, rulings) uses `model: "fable"`; if
-rejected for allowance/availability, fall back to `model: "opus"` and say so. Sonnet/Haiku tiers
-are unchanged; Fable agents may use Haiku subagents; the parallelism ceiling and the
-no-all-high-tier-batch rule still apply.
+| `haiku` | Default implementer (`gsd-executor`: features, multi-file changes, fixes, tests, migrations, edge handlers; the top-model plans are already decomposed, every task carries a full acceptance row, risk-domain tasks included). Test/lint/type-check/build/git/log runs via `subagent_type: "gsd2-runner"` (Bash+Read, no CLAUDE.md load, ~4k-token start vs ~25k). File/config lookups, SUMMARY.md, STATE.md, changelog. |
+| `sonnet` | ALL coordinators (roadmap / phase / death-resume; the top model only when the CEO asks); they orchestrate, the top-model work runs in separate dispatches. The test steward (once per phase), the docs-updater (once per phase, before the mechanical gates) and the fix re-check. `gsd-plan-checker`. Implementation only when the task tag says `sonnet` with the reason the spec cannot be complete, or after Haiku failed the same task twice. |
+| top model | Config `models.top` (init fields `ruling_model`, `ruling_model_fallback`; an alias the CEO sets, `fable` or `opus`; one spawn rejected for availability retries once on `models.top_fallback` and says so). The planner (every plan); round-1 plan-checks for risk-domain plans; architecture and API contract changes; DB schema design; cross-subsystem root-cause analysis (one debugger after a sonnet task failed twice); the final phase review merged with verification (`gsd-verifier`); the milestone audit; rulings. |
 
 **High-stakes domains:** auth, money movement / payments, fraud/AML, KYC gates, RNG/fairness, game
-configs, complex game logic, game UI/UX. Plan, implementation and review are separate dispatches,
-never one agent reviewing its own work: an Opus plan (RNG/money/authz plans carry an adversary-view
-section: what an anonymous or authenticated caller can read mid-round), a Haiku implementer
-(escalated per the table), the Sonnet review loop, then a fresh Opus review of the diff against the
-plan.
+configs, complex game logic, game UI/UX; the ROADMAP phase line `**Risk domains:**` names them as
+tokens of `project.risk_domains` (or `none`), and every unfinished high-stakes phase carries one.
+Plan, implementation and review are separate dispatches, never one agent reviewing its own work: a
+top-model plan, a Haiku implementer (escalated per the table), then the final top-model review of
+the diff against the plan.
 
-**Review loop:** a fresh Sonnet agent each round, never the implementer, every severity fixed.
-High-stakes plans loop until a round reports zero findings; after round 4 a fresh Opus ruling on
-the last round's findings decides whether another round runs or the loop closes with those findings
-fixed. Other plans get at most 3 rounds: fix every finding of each round, round 3 reviews the fixes
-and the diff, fix its findings and close; only a CRITICAL/HIGH in round 3 earns a fourth.
+**Review:** one independent final pass on the top model, merged with verification, recorded in
+`{N}-REVIEW.md` (`passes`, `open_critical_high`, `ruled_by`). Risk-domain phases: pass 1, ONE fix
+dispatch, a fresh independent pass 2 on the fixed tree, one more fix, ONE Sonnet re-check of the fix
+commits, ONE top-model ruling for what stays open at CRITICAL/HIGH (`get-shit-done/references/rigour.md`
+rules 11, 12). Every severity is fixed; defer only what the ruling marks "no business value". The
+executor writes test and code in one dispatch and runs only its task's and touched modules' tests;
+the full suite runs once per phase in the gates; readers and neighbours of changed behaviour are
+fixed in the same task.
 
-**Opus runs once each at:** (1) plans for money/auth/security/RNG/KYC work; (2) ONE batched diff
-review against the plan (2-3 plans where possible) after the Sonnet loop closes; (3) the phase-end
-`gsd-verifier` (goal against on-disk evidence), preceded by a Sonnet pre-verification of all
-must-haves with on-disk evidence; (4) rulings; (5) the milestone audit. Further Opus rounds only re-check HIGH/money-path
-fixes. If the plan-check budget ran out with BLOCKER/HIGH fixes never re-checked, the diff-review
-brief names each one and the reviewer confirms it closed (file:line + test) or raises it as HIGH.
+**The top model runs at:** (1) every plan; (2) the final review pass(es) and the phase-end
+`gsd-verifier` (one dispatch); (3) rulings; (4) the milestone audit.
 
-**Rulings: a fresh Opus dispatch decides, never the coordinator itself:** deferring or accepting
+**Rulings: a fresh top-model dispatch decides, never the coordinator itself:** deferring or accepting
 any failure, accepting a deviation from the plan, loosening or disputing a test assertion, and
 autonomous design decisions in a high-stakes domain.
 
@@ -185,7 +180,7 @@ check-in).
   same branch.
 - **Dispatch GSD roles by `subagent_type`, never by prompt.** Every spawn for a GSD role passes its
   agent type explicitly: `gsd-phase-coordinator`, `gsd-planner`, `gsd-plan-checker`,
-  `gsd-executor`, `gsd-verifier` (Opus), `gsd-debugger`, `gsd-charlotte-qa`, `gsd-test-writer`,
+  `gsd-executor`, `gsd-verifier` (top model), `gsd-debugger`, `gsd-charlotte-qa`, `gsd-test-writer`,
   `gsd-docs-updater`. An omitted `subagent_type` silently defaults to general-purpose, and "You are
   the gsd-verifier" in a general-purpose prompt is not a verifier — its output is void. `general-purpose` is only for work no GSD role covers; test/lint/git/log runs use `gsd2-runner`.
   Coordinators take dispatch templates from the GSD workflow (`execute-phase.md`), never from a

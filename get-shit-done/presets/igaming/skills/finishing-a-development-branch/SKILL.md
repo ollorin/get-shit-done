@@ -17,7 +17,7 @@ Guide completion of development work by presenting clear options and handling ch
 
 ### Step 1: Run Local CI Preflight
 
-**Before presenting options, run the preflight script. It mirrors CI exactly, runs twice, and exits non-zero on failure. This is mandatory and non-negotiable.**
+**Before presenting options, run the preflight script. It mirrors CI exactly, runs twice (a phase end may use one `--skip-twice` pass; twice-green is for the milestone PR; only the two-pass run writes the push marker), and exits non-zero on failure. This is mandatory and non-negotiable.**
 
 ```bash
 scripts/preflight.sh
@@ -26,7 +26,7 @@ scripts/preflight.sh
 The script automatically:
 - Detects affected projects (API, player-web, operator-web) from git diff against main
 - Runs type checks, unit tests, integration tests, lint, builds — only for affected projects
-- Runs everything twice (both runs must be green)
+- Runs everything twice (both runs must be green); `--skip-twice` is a single pass and writes no marker
 - Writes `.preflight-passed` marker on success (enables `git push` past the hook)
 
 **Flags for special cases:**

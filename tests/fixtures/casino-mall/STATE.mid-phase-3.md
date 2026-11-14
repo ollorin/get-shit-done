@@ -37,7 +37,7 @@ None yet.
 
 - EmDash docs site (docs.emdash.dev) did not load during research; EmDash facts rest on the GitHub README and the Cloudflare blog only.
 - Phase 2 touches auth and security: plans need the owner-ruling route before execution.
-- Plan 03-01 Task 4 blocked: hook denied npx supabase@2.118.0 start --workdir /Users/ollorin/casino-mall/spike; ADM-03 connection and D-42 owner probe not run. Owner to approve a casino-mall start form.
+- Plan 03-01 Task 4 blocked: hook denied npx supabase@2.118.0 start --workdir <repo>/spike; ADM-03 connection and D-42 owner probe not run. Owner to approve a casino-mall start form.
 
 ## Session Continuity
 

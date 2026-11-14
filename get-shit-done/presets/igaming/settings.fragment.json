@@ -24,7 +24,6 @@
       "Bash(wc .planning/**)",
       "Bash(*PHASE_DIR=*)",
       "Bash(*PLAN_COUNT=*)",
-      "Bash(*MODEL_PROFILE=*)",
       "Bash(*COMMIT_PLANNING_DOCS=*)",
       "Bash(*PADDED_PHASE=*)",
       "Bash(*WAVE=*)",
