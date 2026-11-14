@@ -486,7 +486,7 @@ EOF
 git add -- "$F" && git commit -m "docs(phase-{X}): record plan-check round {n}" -- "$F"
 ```
 
-The round commit also stages `.planning/EXECUTION_LOG.md` and `.planning/DECISIONS.md` when `gsd-tools budget spend` or `decisions.js add` changed them, so the tree is clean at hand-off.
+The round commit also stages `.planning/EXECUTION_LOG.md` and `.planning/DECISIONS.jsonl` when `gsd-tools budget spend` or `decisions.js add` changed them, so the tree is clean at hand-off.
 
 In round 1 with the adversarial pass, and again in the delta round that updates them, name each `{PHASE_DIR}/{plan_id}-VERDICT.md` as a literal path after `"$F"` in both the `git add` and the `git commit` (the delta rounds read the verdicts from the commit).
 
