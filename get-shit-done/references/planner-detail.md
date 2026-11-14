@@ -358,20 +358,19 @@ No overlap → can run parallel. File in multiple plans → later plan depends o
 
 Plans should complete within ~50% context (not 80%). No context anxiety, quality maintained start to finish, room for unexpected complexity.
 
-**Caps are in `references/rigour.md`** (`standard`: 250 lines per plan; no plan or task count cap, no companion test tasks). A task that does not fit one executor dispatch is split; a phase that needs more than fits is too big: say so in the return.
+**Caps and the task-size rule are in `references/rigour.md`** (rule 6; no plan or task count cap, no companion test tasks).
 
-| Task Complexity | Tasks/Plan | Context/Task | Total |
-|-----------------|------------|--------------|-------|
-| Simple (CRUD, config) | 3 | ~10-15% | ~30-45% |
-| Complex (auth, risk-domain paths) | 2 | ~20-30% | ~40-50% |
-| Very complex (migrations) | 1-2 | ~30-40% | ~30-50% |
+| Task Complexity | Context/Task |
+|-----------------|--------------|
+| Simple (CRUD, config) | ~10-15% |
+| Complex (auth, risk-domain paths) | ~20-30% |
+| Very complex (migrations) | ~30-40% |
 
 ## Split Signals
 
 **ALWAYS split if:**
 - More tasks or lines than the cap
 - Multiple subsystems (DB + API + UI = separate plans)
-- Any task with >5 file modifications
 - Checkpoint + implementation in same plan
 - Discovery + implementation in same plan
 
@@ -419,8 +418,8 @@ files_modified: []          # Files this plan touches
 plan_stamp: ""              # Copied from the dispatch; the stale-plan signal (references/rigour.md rule 9)
 autonomous: true            # false if plan has checkpoints
 user_setup: []              # Human-required setup (omit if empty)
-requirements: []            # REQUIRED — MUST NOT be empty if ROADMAP.md lists requirements for this phase.
-                            # Only REQ-IDs this plan FINISHES (they get marked Complete); partial ones go in the body.
+requirements: []            # REQ-IDs this plan FINISHES (marked Complete when the plan completes).
+requirements_partial: []    # REQ-IDs it only advances (never marked). Across the plans every ROADMAP id is in one of the two.
 
 must_haves:
   truths: []                # Observable behaviors
@@ -500,7 +499,7 @@ Valid values (case-insensitive): `haiku`, `sonnet`; any other value fails `verif
 | `files_modified` | Yes | Files this plan touches |
 | `autonomous` | Yes | `true` if no checkpoints |
 | `user_setup` | No | Human-required setup items |
-| `requirements` | Yes | REQUIRED — Requirement IDs this plan addresses. MUST NOT be empty if phase has requirements. |
+| `requirements` | Yes | Requirement IDs this plan finishes. `requirements_partial` lists those it only advances; every ROADMAP id of the phase is in one of the two across the plans. |
 | `must_haves` | Yes | Goal-backward verification criteria. MUST NOT be empty — every plan must have at least one verifiable truth and one artifact. |
 | `e2e_flows` | **Conditional** | REQUIRED if plan type is `frontend` or plan creates/modifies UI components (.tsx/.jsx). List of user journeys testable after this plan completes. Triggers UI QA in coordinator. Empty `[]` is only valid for backend-only plans with no UI impact. |
 
@@ -959,7 +958,7 @@ node ~/.claude/get-shit-done/bin/gsd-tools.js roadmap get-phase "${PHASE_NUMBER}
 
 Parse requirement IDs (REQ-XX format or project-specific IDs like AUTH-01, DASH-02) associated with this phase.
 
-**CRITICAL:** Every plan that addresses a requirement MUST include it in the plan's `requirements:` frontmatter field. List an id in `requirements:` only when this plan finishes the requirement as REQUIREMENTS.md defines it (execute-plan marks every listed id Complete); an id the plan only advances is named in the plan body, not in that field. A requirement spread over several plans is listed in the plan that finishes it.
+**CRITICAL:** Every plan that addresses a requirement lists it in `requirements:` when the plan finishes it as REQUIREMENTS.md defines it (execute-plan marks every id in that field Complete), else in `requirements_partial:` (never marked). A requirement spread over several plans is in `requirements:` of the plan that finishes it and in `requirements_partial:` of the others.
 
 If REQUIREMENTS.md does not exist or phase has no requirements: set `requirements: []` in all plans.
 </step>
@@ -1179,7 +1178,7 @@ Returns JSON: `{ valid, missing, present, schema }`
 Required plan frontmatter fields:
 - `phase`, `plan`, `type`, `wave`, `depends_on`, `files_modified`, `autonomous`, `requirements`, `must_haves`
 
-**Requirements coverage check:** If phase has REQ-IDs (from Step 0), verify every REQ-ID appears in at least one plan's `requirements` field. Missing coverage is a planning error — add the REQ-ID to the appropriate plan before committing.
+**Requirements coverage check:** If phase has REQ-IDs (from Step 0), verify every REQ-ID appears in at least one plan's `requirements` or `requirements_partial` field. Missing coverage is a planning error — add the REQ-ID to the appropriate plan before committing.
 
 Also validate plan structure:
 

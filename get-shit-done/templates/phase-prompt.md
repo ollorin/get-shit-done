@@ -22,8 +22,8 @@ files_modified: []          # Files this plan modifies.
 autonomous: true            # false if plan has checkpoints requiring user interaction
 user_setup: []              # Human-required setup Claude cannot automate (see below)
 e2e_flows: []               # User journeys testable after this plan (REQUIRED non-empty for UI plans; [] only for backend-only plans)
-requirements: []            # REQUIRED — MUST NOT be empty if ROADMAP.md lists requirements for this phase.
-                            # Copy all REQ-IDs that this plan addresses (e.g., [REQ-01, AUTH-02]).
+requirements: []            # REQ-IDs this plan FINISHES (e.g., [REQ-01, AUTH-02]); marked Complete with the plan.
+requirements_partial: []    # REQ-IDs it only advances (never marked). Every ROADMAP id is in one of the two across the plans.
 
 # Goal-backward verification (derived during planning, verified after execution)
 must_haves:
@@ -134,7 +134,7 @@ After completion, create `.planning/phases/XX-name/{phase}-{plan}-SUMMARY.md`
 | `autonomous` | Yes | `true` if no checkpoints, `false` if has checkpoints |
 | `user_setup` | No | Array of human-required setup items (external services) |
 | `e2e_flows` | Conditional | User journeys testable after this plan. Must not be empty when the plan creates or modifies UI components; `[]` only for backend-only plans. See `references/planner-detail.md`. |
-| `requirements` | Yes | REQUIRED — REQ-IDs this plan addresses. MUST NOT be empty if phase has requirements. |
+| `requirements` | Yes | REQ-IDs this plan finishes. `requirements_partial` lists those it only advances. |
 | `must_haves` | Yes | Goal-backward verification criteria (see below) |
 
 **Wave is pre-computed:** Wave numbers are assigned during `/gsd:plan-phase`. Execute-phase reads `wave` directly from frontmatter and groups plans by wave number. No runtime dependency analysis needed.
@@ -241,7 +241,7 @@ Wave 3 runs after Waves 1 and 2. Pauses at checkpoint, orchestrator presents to 
 
 **Plan sizing:**
 
-- 2-3 tasks per plan
+- Task size and plan caps: `references/rigour.md` rule 6
 - ~50% context usage maximum
 - Complex phases: Multiple focused plans, not one large plan
 
@@ -468,7 +468,7 @@ files_modified: [...]
 - Prefer vertical slices over horizontal layers
 - Only reference prior SUMMARYs when genuinely needed
 - Group checkpoints with related auto tasks in same plan
-- 2-3 tasks per plan, ~50% context max
+- ~50% context max (task size: `references/rigour.md` rule 6)
 
 ---
 

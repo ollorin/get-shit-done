@@ -78,11 +78,11 @@ The orchestrator provides user decisions in `<user_decisions>` tags from `/gsd:d
 3. For every new refusal: list its sibling responses (status, headers) and add the idempotent same-state case.
 4. A rollback or restored function is code: apply this plan's rules list to it; never copy the live body.
 5. State the range of each computed numeric value and test the extreme.
-6. Environments: for every check that aborts (migration assertion, startup check, deploy step) list each environment it runs in (local, CI, hosted) and what differs (roles, owners, extensions, permissions); a condition on environment-specific state is enforced by a test or guard that runs where the state exists, and the abort path stays lenient.
+6. Environments: for every check that aborts (migration assertion, startup check, deploy step) list each environment it runs in (local, CI, hosted) and what differs (roles, owners, extensions, permissions); a condition on environment-specific state is enforced by a test or guard that runs where the state exists.
 7. Output-reading checks: a check that greps command output matches a rendered value only the failure produces, never text the command echoes from its own source; state one wrong outcome that would still pass, and fix the check if there is one.
 8. Facts: every signature, type, name, path and command is read from the source or catalog (file:line or the query), not memory; what cannot be read at plan time becomes the first task's probe, and for each probe the plan states what follows for each outcome, including the tasks that change or drop if the platform refuses the action; a later task never assumes the favourable outcome.
-9. Scope cuts: anything in the phase goal the plan excludes (a schema, a role, a caller class) is a recorded decision id with its reason (rule 11 traceability), never a silent omission.
-10. Evidence and commits: a named evidence file must not be ignored by version control (plan-time `git check-ignore`), and a task that creates files stages them explicitly before the commit.
+9. Scope cuts: anything in the phase goal the plan excludes is a recorded decision id with its reason (`references/rigour.md` rule 11).
+10. Evidence: a named evidence file must not be ignored by version control (plan-time `git check-ignore`).
 11. Risk-domain tasks: rows include a concurrent two-caller case, a dependency-fault case (read error, zero rows, timeout fail closed) and the readers of the changed behaviour; reviews find only about a quarter of such defects by reading, so they must be tests.
 
 <absolute_mandates>

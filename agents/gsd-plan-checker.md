@@ -101,12 +101,12 @@ Same methodology (goal-backward), different timing, different subject matter.
 **Process:**
 1. Extract phase goal from ROADMAP.md
 2. Extract requirement IDs from ROADMAP.md `**Requirements:**` line for this phase (strip brackets if present)
-3. Verify each requirement ID appears in at least one plan's `requirements` frontmatter field
+3. Verify each requirement ID appears in at least one plan's `requirements` (finished by the plan) or `requirements_partial` (advanced only) frontmatter field
 4. For each requirement, find covering task(s) in the plan that claims it
-5. Flag requirements with no coverage or missing from all plans' `requirements` fields
-6. Compare each id a plan lists with its REQUIREMENTS.md definition; an id the plan's tasks only partly deliver is a blocker (the field drives mark-complete)
+5. Flag requirements with no coverage or missing from both fields of all plans
+6. Compare each id a plan lists with its REQUIREMENTS.md definition; an id in `requirements` that the plan's tasks only partly deliver is a blocker (that field drives mark-complete; a partly delivered id belongs in `requirements_partial`)
 
-**FAIL the verification** if any requirement ID from the roadmap is absent from all plans' `requirements` fields. This is a blocking issue, not a warning.
+**FAIL the verification** if any requirement ID from the roadmap is absent from both fields of all plans. This is a blocking issue, not a warning.
 
 **Red flags:**
 - Requirement has zero tasks addressing it
@@ -234,7 +234,7 @@ issue:
 **Thresholds:**
 | Metric | Target | Warning | Blocker |
 |--------|--------|---------|---------|
-| Task size | one executor dispatch | - | a task needing more than ~5 files or two unrelated behaviours: split it; also a task that states or implies an enumeration above ~40 items, or bundles a change with a long proof list (`references/rigour.md` rule 6) (spike: the 4-task cap of `references/rigour.md` also applies) |
+| Task size | one executor dispatch | - | a task `references/rigour.md` rule 6 says to split (spike: its 4-task cap also applies) |
 | Lines/plan | within the cap (`standard` 250, `spike` 150) | at the cap | over the cap |
 | Evidence-only plan (no task changes behaviour) | none | - | any: fold it into the plan that builds the behaviour |
 | Files/plan | 5-8 | 10 | 15+ |
@@ -555,7 +555,7 @@ Plans touching a risk-domain path must meet planner MANDATE-6: the phase's `{N}-
 
 ## Dimension 14: Adversarial Pass
 
-Only when the prompt says `Adversarial pass: enabled for plans {ids}`; on a risk phase each dispatch carries one plan, plus the phase goal and the sibling plans' frontmatter only. For each listed plan: (1) attack it for logical fallacies, missed edge cases or dependencies, and untestable success criteria, with the planner's five enumerate-before-acceptance-rows items (environments, output-reading checks, facts, scope cuts, evidence and commits) as attack lenses: a violated item is a finding, and attack the PRODUCT the plan prescribes, not the plan's form: answer all six questions per plan, each with a finding or "none, because <cited plan line>" (see Product lens below); (2) rebut each flaw strictly from plan or codebase evidence (cite `file:line`; re-read the evidence, do not assume); (3) keep a flaw only if the rebuttal fails, rated `minor|major|critical`. Write `{phase_dir}/{plan_id}-VERDICT.md`:
+Only when the prompt says `Adversarial pass: enabled for plans {ids}`; on a risk phase each dispatch carries one plan, the phase goal, the context files and the sibling plans' frontmatter (never their bodies); cross-plan defects (Dimensions 1, 3, 4, 13, 16) are judged by the delta round, not here. For each listed plan: (1) attack it for logical fallacies, missed edge cases or dependencies, and untestable success criteria, with the planner's five enumerate-before-acceptance-rows items (environments, output-reading checks, facts, scope cuts, evidence and commits) as attack lenses: a violated item is a finding, and attack the PRODUCT the plan prescribes, not the plan's form: answer all six questions per plan, each with a finding or "none, because <cited plan line>" (see Product lens below); (2) rebut each flaw strictly from plan or codebase evidence (cite `file:line`; re-read the evidence, do not assume); (3) keep a flaw only if the rebuttal fails, rated `minor|major|critical`. Write `{phase_dir}/{plan_id}-VERDICT.md`:
 
 ```markdown
 ---
