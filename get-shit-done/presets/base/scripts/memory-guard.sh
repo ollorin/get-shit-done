@@ -113,7 +113,7 @@ header "HOST MEMORY PRESSURE"
 if [ "$OS" = "Darwin" ]; then
   HOST_MEM_BYTES=$(sysctl -n hw.memsize)
   HOST_MEM_MIB=$(( HOST_MEM_BYTES / 1024 / 1024 ))
-  PAGE_SIZE=$(vm_stat | head -1 | grep -oE '[0-9]+' || echo 16384)
+  PAGE_SIZE=$(vm_stat | head -1 | grep -oE '[0-9]+ bytes' | grep -oE '[0-9]+' || echo 16384)
   FREE_PAGES=$(vm_stat | awk -F: '/Pages free/{gsub(/[^0-9]/,"",$2); print $2}')
   FREE_MIB=$(( FREE_PAGES * PAGE_SIZE / 1024 / 1024 ))
   info "Truly free pages: ${FREE_MIB} MiB (a floor: compressed and purgeable pages are reclaimable on demand)"

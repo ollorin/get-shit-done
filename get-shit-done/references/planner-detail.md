@@ -420,7 +420,7 @@ plan_stamp: ""              # Copied from the dispatch; the stale-plan signal (r
 autonomous: true            # false if plan has checkpoints
 user_setup: []              # Human-required setup (omit if empty)
 requirements: []            # REQUIRED — MUST NOT be empty if ROADMAP.md lists requirements for this phase.
-                            # Copy all REQ-IDs that this plan addresses from ROADMAP/REQUIREMENTS.md.
+                            # Only REQ-IDs this plan FINISHES (they get marked Complete); partial ones go in the body.
 
 must_haves:
   truths: []                # Observable behaviors
@@ -959,7 +959,7 @@ node ~/.claude/get-shit-done/bin/gsd-tools.js roadmap get-phase "${PHASE_NUMBER}
 
 Parse requirement IDs (REQ-XX format or project-specific IDs like AUTH-01, DASH-02) associated with this phase.
 
-**CRITICAL:** Every plan that addresses a requirement MUST include it in the plan's `requirements:` frontmatter field. If a requirement maps to multiple plans, include it in each plan that implements part of it.
+**CRITICAL:** Every plan that addresses a requirement MUST include it in the plan's `requirements:` frontmatter field. List an id in `requirements:` only when this plan finishes the requirement as REQUIREMENTS.md defines it (execute-plan marks every listed id Complete); an id the plan only advances is named in the plan body, not in that field. A requirement spread over several plans is listed in the plan that finishes it.
 
 If REQUIREMENTS.md does not exist or phase has no requirements: set `requirements: []` in all plans.
 </step>

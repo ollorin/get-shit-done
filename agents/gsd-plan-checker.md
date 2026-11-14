@@ -104,6 +104,7 @@ Same methodology (goal-backward), different timing, different subject matter.
 3. Verify each requirement ID appears in at least one plan's `requirements` frontmatter field
 4. For each requirement, find covering task(s) in the plan that claims it
 5. Flag requirements with no coverage or missing from all plans' `requirements` fields
+6. Compare each id a plan lists with its REQUIREMENTS.md definition; an id the plan's tasks only partly deliver is a blocker (the field drives mark-complete)
 
 **FAIL the verification** if any requirement ID from the roadmap is absent from all plans' `requirements` fields. This is a blocking issue, not a warning.
 
