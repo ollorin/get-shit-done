@@ -180,7 +180,7 @@ check-in).
   same branch.
 - **Dispatch GSD roles by `subagent_type`, never by prompt.** Every spawn for a GSD role passes its
   agent type explicitly: `gsd-phase-coordinator`, `gsd-planner`, `gsd-plan-checker`,
-  `gsd-executor`, `gsd-verifier` (top model), `gsd-debugger`, `gsd-charlotte-qa`, `gsd-test-writer`,
+  `gsd-executor`, `gsd-verifier` (top model), `gsd-debugger`, `gsd-demo`, `gsd-test-writer`,
   `gsd-docs-updater`. An omitted `subagent_type` silently defaults to general-purpose, and "You are
   the gsd-verifier" in a general-purpose prompt is not a verifier — its output is void. `general-purpose` is only for work no GSD role covers; test/lint/git/log runs use `gsd2-runner`.
   Coordinators take dispatch templates from the GSD workflow (`execute-phase.md`), never from a
