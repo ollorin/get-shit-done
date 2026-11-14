@@ -234,7 +234,7 @@ issue:
 **Thresholds:**
 | Metric | Target | Warning | Blocker |
 |--------|--------|---------|---------|
-| Task size | one executor dispatch | - | a task needing more than ~5 files or two unrelated behaviours: split it (spike: the 4-task cap of `references/rigour.md` also applies) |
+| Task size | one executor dispatch | - | a task needing more than ~5 files or two unrelated behaviours: split it; also a task that states or implies an enumeration above ~40 items, or bundles a change with a long proof list (`references/rigour.md` rule 6) (spike: the 4-task cap of `references/rigour.md` also applies) |
 | Lines/plan | within the cap (`standard` 250, `spike` 150) | at the cap | over the cap |
 | Evidence-only plan (no task changes behaviour) | none | - | any: fold it into the plan that builds the behaviour |
 | Files/plan | 5-8 | 10 | 15+ |
