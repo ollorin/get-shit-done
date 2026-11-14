@@ -11167,6 +11167,17 @@ function riskAddons(cwd, phase, level) {
   return phaseRiskFields(cwd, phase).phase_risk_domains.length > 0 || r.unknown.length > 0;
 }
 
+// phase_base: the parent of the phase's oldest tagged commit ({N}-NN or fix({N}-review)); the one definition of
+// `{phase base}` in the final-review diff. The empty tree when that commit is a root; null before any commit.
+function phaseBase(cwd, phase) {
+  const esc = String(phase).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const out = execGit(cwd, ['log', '--all', '-E', '--grep', `(^|[^0-9.-])0*${esc}-([0-9]|review)`, '--format=%H', '--reverse']).stdout || '';
+  const oldest = out.split('\n').map((l) => l.trim()).filter(Boolean)[0];
+  if (!oldest) return null;
+  const parent = execGit(cwd, ['rev-parse', '--verify', '-q', `${oldest}^`]);
+  return parent.exitCode === 0 && parent.stdout ? parent.stdout : '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+}
+
 function initRiskFields(cwd, phase) {
   const level = rigour.resolveRigour(cwd, phase, getMilestoneInfo(cwd).version).rigour;
   const addons = riskAddons(cwd, phase, level);
@@ -11405,6 +11416,7 @@ function cmdInitExecutePhase(cwd, phase, includes, raw, gate) {
     phase_req_ids: rigour.phaseReqIds(cwd, phase),
     ...phaseRiskFields(cwd, phase),
     ...initRiskFields(cwd, phase),
+    phase_base: phaseBase(cwd, phaseInfo ? phaseInfo.phase_number : phase),
 
     // Models
     executor_model: executorModelFor(cwd, phase),

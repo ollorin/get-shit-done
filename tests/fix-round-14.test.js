@@ -69,10 +69,10 @@ describe('R7-6 / R7-18 risk add-ons wiring', () => {
       assert.deepStrictEqual(errs(gate(dir), /REVIEW/), []);
     });
   }
-  test('a missing reviewer_role and an unparseable record are work errors', () => {
+  test('a missing open_critical_high and an unparseable record are work errors', () => {
     const { dir, pd } = executed();
-    write(pd, '01-REVIEW.md', fm('passes: 1\nopen_critical_high: 0'));
-    assert.strictEqual(errs(gate(dir), /reviewer_role/).length, 1);
+    write(pd, '01-REVIEW.md', fm('passes: 1'));
+    assert.strictEqual(errs(gate(dir), /open_critical_high/).length, 1);
     write(pd, '01-REVIEW.md', '---\n: : [\n---\n');
     assert.strictEqual(errs(gate(dir), /REVIEW/).length, 1);
   });
@@ -103,5 +103,21 @@ describe('R7-2/3 records older than the last source commit are stale; docs-only 
     git(dir, 'add', '-A');
     commitAt(dir, 'docs(phase-1): re-check', 14400);
     assert.deepStrictEqual(errs(gate(dir), /older than/), []);
+  });
+});
+
+describe('R7-7 init execute-phase phase_base', () => {
+  test('is the parent of the oldest commit tagged with the phase; null before any', () => {
+    const dir = makeProject([{ n: '1', name: 'one' }]);
+    dirs.push(dir);
+    assert.strictEqual(gsd(dir, ['init', 'execute-phase', '1']).json.phase_base, null);
+    const base = git(dir, 'rev-parse', 'HEAD').trim();
+    write(dir, 'src/a.js', 'x');
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'feat(01-01): work');
+    write(dir, 'src/b.js', 'y');
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'fix(01-review): f');
+    assert.strictEqual(gsd(dir, ['init', 'execute-phase', '1']).json.phase_base, base);
   });
 });

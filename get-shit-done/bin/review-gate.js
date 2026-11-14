@@ -1,7 +1,7 @@
 'use strict';
 // Disk check for the final review (references/rigour.md rule 10): a phase whose commits touched files outside
 // .planning/ needs the review record {N}-REVIEW.md (the newest final pass's findings; at risk add-ons pass 2 overwrites pass 1's).
-// Frontmatter: reviewer_role, passes (1; 2 at risk add-ons), open_critical_high, ruled_by.
+// Frontmatter: passes (1; 2 at risk add-ons), open_critical_high, ruled_by.
 // It must carry no open CRITICAL/HIGH finding unless a ruling id is recorded.
 const fs = require('fs');
 const path = require('path');
@@ -23,8 +23,8 @@ function reviewErrors(phaseDir, dirFiles, touchedFiles, { risk = false, phaseNum
   const open = countOf(data.open_critical_high);
   const passes = countOf(data.passes);
   const ruled = rulings(data);
-  if (!Number.isInteger(open) || open < 0 || !data.reviewer_role) {
-    return [`${file} frontmatter must carry reviewer_role and open_critical_high (a whole count)`];
+  if (!Number.isInteger(open) || open < 0) {
+    return [`${file} frontmatter must carry open_critical_high (a whole count)`];
   }
   if (passes !== 1 && passes !== 2) return [`${file} frontmatter must carry passes: 1 or 2 (pass 2 at risk add-ons)`];
   if (risk && passes !== 2) return [`${file} records ${passes} final pass: a phase with risk add-ons needs pass 2 (a fresh independent review of the fixed tree)`];
@@ -43,7 +43,7 @@ const unknownRulings = (ruled, ledgerIds) => (ledgerIds instanceof Set ? ruled.f
 // `execGit(cwd, args)` returns { stdout }. Returns the commit time (s) of the last such commit, or 0.
 function lastSourceCommitTs(execGit, cwd, phaseNumber) {
   const esc = String(phaseNumber).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const out = (execGit(cwd, ['log', '--all', '-E', '--grep', `(^|[^0-9.-])${esc}-([0-9]|review)`, '--format=@%ct', '--name-only']).stdout) || '';
+  const out = (execGit(cwd, ['log', '--all', '-E', '--grep', `(^|[^0-9.-])0*${esc}-([0-9]|review)`, '--format=@%ct', '--name-only']).stdout) || '';
   let ts = 0, cur = 0;
   for (const line of out.split('\n').map((l) => l.trim()).filter(Boolean)) {
     if (line.startsWith('@')) { cur = Number(line.slice(1)) || 0; continue; }

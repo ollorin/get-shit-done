@@ -289,6 +289,7 @@ describe('items 12, 14, 15: spike answer table, review record in VERIFICATION, s
     v('open_critical_high: 2\ncriteria_decided: 1/1\n');
     assert.ok(gate(dir).json.work_errors.some((e) => /no ruling id/.test(e)));
     v('open_critical_high: 2\nruled_by: [D-07]\ncriteria_decided: 1/1\n');
+    write(dir, '.planning/DECISIONS.jsonl', '{"id":"D-07","kind":"decision","ts":"2026-01-01T00:00:00.000Z"}\n');
     assert.strictEqual(gate(dir).rc, 0);
     fs.rmSync(path.join(dir, '.planning', 'OWNER-GATES.json'));
     v('open_critical_high: 1\n');
