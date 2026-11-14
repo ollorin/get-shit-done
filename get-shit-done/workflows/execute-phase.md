@@ -701,7 +701,7 @@ After the last wave, the UI steps and `docs_update`, before `pre_verify_gates`. 
 <step name="test_steward">
 After `mechanical_gates`, before `pre_verify_gates`. Standard rigour only: skip at `spike`, and skip (one-line note, no dispatch) when `git diff {phase base}..HEAD --name-only` lists no test file.
 
-ONE dispatch, `Agent(subagent_type="gsd-test-writer", model="{reviewer_model}", description="Test steward phase {N}")`, given the phase's test files, `{phase_dir}/captures/gates.txt`, the plans' `<acceptance>` rows and `stack_commands`. It deletes, merges or speeds up tests as its role file says (a deletion only with a cited surviving proof) and returns net change and runtime delta. Rerun only the files it touched and append the output to `gates.txt`. Pass its return to the final pass(es): a phase with a net-positive test count and no stated reason is a finding for the final review.
+ONE dispatch, `Agent(subagent_type="gsd-test-writer", model="{reviewer_model}", description="Test steward phase {N}")`, given the phase's test files, `{phase_dir}/captures/gates.txt`, the plans' `<acceptance>` rows and `stack_commands`. It deletes, merges or speeds up tests as its role file says (a deletion only with a cited surviving proof) and returns net change and runtime delta. Rerun only the files it touched and append the output to `gates.txt`; the gates capture is appended after the steward's commit. Pass its return to the final pass(es): a phase with a net-positive test count and no stated reason is a finding for the final review.
 </step>
 
 <step name="pre_verify_gates">

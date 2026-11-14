@@ -130,8 +130,8 @@ function phaseReqIds(cwd, phase) {
 }
 
 // phase_risk_domains: the ROADMAP "Risk domains" line as a comma list of single tokens matched against the configured
-// names (`known`); `none` = []; trailing prose after the first ". " is ignored. Unknown tokens are listed in `unknown`
-// and do not count. A phase with no line falls back to configured names found in its Goal/Requirements text
+// names (`known`); `none` = []; trailing prose after the first ". " is ignored. Unknown parts (including comma parts the
+// token pattern rejects) are listed in `unknown`; they do not count as domains but make riskAddons fail closed. A phase with no line falls back to configured names found in its Goal/Requirements text
 // (`derived: true`).
 function phaseRiskDomains(cwd, phase, known) {
   const section = phaseSection(cwd, phase);
@@ -144,8 +144,8 @@ function phaseRiskDomains(cwd, phase, known) {
   }
   const value = m[1].replace(/[`*]/g, '').split(/\.(?:\s|$)/)[0].trim().toLowerCase();
   if (/^(none|nothing|n\/a)$/.test(value)) return { domains: [], unknown: [], derived: false };
-  const tokens = value.split(',').map((x) => x.trim()).filter((x) => /^[a-z0-9_-]+$/.test(x));
-  return { domains: tokens.filter((n) => set.has(n)), unknown: tokens.filter((n) => !set.has(n)), derived: false };
+  const parts = value.split(',').map((x) => x.trim()).filter(Boolean);
+  return { domains: parts.filter((n) => /^[a-z0-9_-]+$/.test(n) && set.has(n)), unknown: parts.filter((n) => !set.has(n)), derived: false };
 }
 
 module.exports = { LEVELS, phaseSection, resolveRigour, rigourViolations, phaseReqIds, phaseRiskDomains, gateRequestErrors };

@@ -12,8 +12,8 @@ const rulings = (data) => (Array.isArray(data.ruled_by) ? data.ruled_by : data.r
 const countOf = (v) => (v === undefined || v === null || v === '' ? undefined : typeof v === 'number' ? v : /^\d+$/.test(String(v).trim()) ? Number(String(v).trim()) : NaN);
 const bad = (ids) => ids.filter((x) => !RULING_ID.test(x));
 
-// `ledgerIds`: the ids in the decisions ledger (a ruled_by id must be one of them); `verificationOpen`: VERIFICATION's count.
-function reviewErrors(phaseDir, dirFiles, touchedFiles, { risk = false, phaseNumber, ledgerIds, verificationOpen } = {}) {
+// `ledger`: Map of decisions-ledger id -> kind (a ruled_by id must be a kind-decision row); `verificationOpen`: VERIFICATION's count.
+function reviewErrors(phaseDir, dirFiles, touchedFiles, { risk = false, phaseNumber, ledger, verificationOpen } = {}) {
   const code = (touchedFiles || []).filter((f) => !f.startsWith('.planning/'));
   if (code.length === 0) return [];
   const file = dirFiles.find((f) => phaseNumber === undefined ? /-REVIEW\.md$/.test(f) : f === `${phaseNumber}-REVIEW.md`);
@@ -29,14 +29,21 @@ function reviewErrors(phaseDir, dirFiles, touchedFiles, { risk = false, phaseNum
   if (passes !== 1 && passes !== 2) return [`${file} frontmatter must carry passes: 1 or 2 (pass 2 at risk add-ons)`];
   if (risk && passes !== 2) return [`${file} records ${passes} final pass: a phase with risk add-ons needs pass 2 (a fresh independent review of the fixed tree)`];
   if (bad(ruled).length > 0) return [`${file} ruled_by must list ruling ids like D-12, not ${bad(ruled).join(', ')}`];
-  const unknown = unknownRulings(ruled, ledgerIds);
-  if (unknown.length > 0) return [`${file} ruled_by ${unknown.join(', ')} not in the decisions ledger`];
+  const ledgerErr = rulingLedgerErrors(file, ruled, ledger);
+  if (ledgerErr.length > 0) return ledgerErr;
   if (open > 0 && ruled.length === 0) return [`${file} has open_critical_high ${open} and no ruling id in ruled_by`];
   if (verificationOpen !== undefined && Number.isInteger(verificationOpen) && verificationOpen !== open) return [`${file} open_critical_high ${open} differs from VERIFICATION's ${verificationOpen}: the re-check agent updates both`];
   return [];
 }
 
-const unknownRulings = (ruled, ledgerIds) => (ledgerIds instanceof Set ? ruled.filter((x) => !ledgerIds.has(x)) : []);
+// A ruling is a ledger row of kind `decision` (decisions-protocol.md: rulings are logged as `decision` rows).
+const rulingLedgerErrors = (label, ruled, ledger) => {
+  if (!(ledger instanceof Map)) return [];
+  const missing = ruled.filter((x) => !ledger.has(x));
+  if (missing.length > 0) return [`${label} ruled_by ${missing.join(', ')} not in the decisions ledger`];
+  const notRuling = ruled.filter((x) => ledger.get(x) !== 'decision');
+  return notRuling.length > 0 ? [`${label} ruled_by ${notRuling.map((x) => `${x} (kind ${ledger.get(x)})`).join(', ')}: not a ruling in the decisions ledger`] : [];
+};
 
 // Freshness (one notion; rigour.md rule 12): a phase record is stale when the phase has a commit newer than it that changes
 // a SOURCE path (not .planning/, not docs/). Tagged commits: `({N}-NN)` plan commits and `fix({N}-review)` fix commits.
@@ -78,7 +85,7 @@ function criteriaErrors(data, name) {
 // The merged final review (spike) and every final review: the VERIFICATION frontmatter carries `open_critical_high` and `ruled_by`.
 // `closedEarlier`: the phase has a phase_complete event, so the "must carry the field" rule (newer than the phase) is skipped;
 // a field that is present is judged always.
-function verificationReviewErrors(verification, spike, closedEarlier = false, ledgerIds) {
+function verificationReviewErrors(verification, spike, closedEarlier = false, ledger) {
   if (!verification || !verification.exists) return [];
   const data = verification.data || {};
   const open = countOf(data.open_critical_high);
@@ -88,8 +95,8 @@ function verificationReviewErrors(verification, spike, closedEarlier = false, le
   if (open === undefined) return spike && !closedEarlier ? [`${name} frontmatter must carry open_critical_high (a whole count): at spike it is the review record`, ...errors] : [];
   if (!Number.isInteger(open) || open < 0) return [`${name} open_critical_high must be a whole count, not ${JSON.stringify(data.open_critical_high)}`, ...errors];
   if (bad(ruled).length > 0) return [`${name} ruled_by must list ruling ids like D-12, not ${bad(ruled).join(', ')}`, ...errors];
-  const unknown = unknownRulings(ruled, ledgerIds);
-  if (unknown.length > 0) return [`${name} ruled_by ${unknown.join(', ')} not in the decisions ledger`, ...errors];
+  const ledgerErr = rulingLedgerErrors(name, ruled, ledger);
+  if (ledgerErr.length > 0) return [...ledgerErr, ...errors];
   if (open > 0 && ruled.length === 0) return [`${name} has open_critical_high ${open} and no ruling id in ruled_by: after the one fix dispatch close a fixed finding from disk evidence (fixed_by commit + re-run rc) and lower the count, or have ONE ruling dispatch on ruling_model rule on it`, ...errors];
   return errors;
 }

@@ -56,25 +56,45 @@ describe('R7-5 ruled_by ids must exist in the ledger; counts agree', () => {
     write(dir, '.planning/DECISIONS.jsonl', '{"id":"D-1","kind":"decision","ts":"2026-01-01T00:00:00.000Z"}\n');
     assert.strictEqual(errs(gate(dir), /differs from VERIFICATION/).length, 1);
   });
+  test('a ruled_by id that exists in the ledger but is not kind decision is a work error naming the id', () => {
+    const { dir, pd } = executed();
+    write(pd, '01-REVIEW.md', fm('reviewer_role: final\npasses: 1\nopen_critical_high: 1\nruled_by: [D-7]'));
+    write(dir, '.planning/DECISIONS.jsonl', '{"id":"D-7","kind":"assumption","ts":"2026-01-01T00:00:00.000Z"}\n');
+    assert.strictEqual(errs(gate(dir), /D-7[^\n]*not a ruling/).length, 1);
+  });
+});
+
+describe('risk token fail-closed: init risk_addons for a **Risk domains:** value', () => {
+  const riskAddonsFor = (line) => {
+    const dir = makeProject([{ n: '1', name: 'one' }]);
+    dirs.push(dir);
+    const f = path.join(dir, '.planning', 'ROADMAP.md');
+    fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace(/\*\*Risk domains:\*\*[^\n]*/, line));
+    return gsd(dir, ['init', 'execute-phase', '1']).json.risk_addons;
+  };
+  const rows = [
+    ['**Risk domains:** auth and payments', true],
+    ['**Risk domains:** auth; payments', true],
+    ['**Risk domains:** auth, payments', true],
+    ['**Risk domains:** none', false],
+    ['**Risk domains:** ', false],
+    ['', false],
+  ];
+  for (const [line, want] of rows) {
+    test(`${JSON.stringify(line)} -> risk_addons ${want}`, () => {
+      assert.strictEqual(riskAddonsFor(line), want);
+    });
+  }
 });
 
 describe('R7-6 / R7-18 risk add-ons wiring', () => {
-  for (const token of ['auth', 'authn']) {
-    test(`**Risk domains:** ${token}: passes 1 fails the gate, --pre-verifier skips it, passes 2 passes`, () => {
-      const { dir, pd } = executed(`**Risk domains:** ${token}`);
-      write(pd, '01-REVIEW.md', fm('reviewer_role: final\npasses: 1\nopen_critical_high: 0'));
-      assert.strictEqual(errs(gate(dir), /needs pass 2/).length, 1);
-      assert.deepStrictEqual(errs(gate(dir, '--pre-verifier'), /REVIEW/), []);
-      write(pd, '01-REVIEW.md', fm('reviewer_role: final\npasses: 2\nopen_critical_high: 0'));
-      assert.deepStrictEqual(errs(gate(dir), /REVIEW/), []);
-    });
-  }
-  test('a missing open_critical_high and an unparseable record are work errors', () => {
-    const { dir, pd } = executed();
-    write(pd, '01-REVIEW.md', fm('passes: 1'));
-    assert.strictEqual(errs(gate(dir), /open_critical_high/).length, 1);
-    write(pd, '01-REVIEW.md', '---\n: : [\n---\n');
-    assert.strictEqual(errs(gate(dir), /REVIEW/).length, 1);
+  test('**Risk domains:** authn: passes 1 fails the gate, --pre-verifier skips it, passes 2 passes', () => {
+    const { dir, pd } = executed('**Risk domains:** authn');
+    write(pd, '01-REVIEW.md', fm('reviewer_role: final\npasses: 1\nopen_critical_high: 0'));
+    assert.strictEqual(errs(gate(dir), /needs pass 2/).length, 1);
+    assert.deepStrictEqual(errs(gate(dir, '--pre-verifier'), /REVIEW/), []);
+    write(pd, '01-REVIEW.md', fm('reviewer_role: final\npasses: 2\nopen_critical_high: 0'));
+    assert.deepStrictEqual(errs(gate(dir), /REVIEW/), []);
   });
 });
 

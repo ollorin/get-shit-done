@@ -7148,15 +7148,15 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles, opts =
   }
   // A spike has no separate review file: its {N}-VERIFICATION.md (the merged final review) is the record, checked below.
   const spike = rigour.resolveRigour(cwd, phaseNumber, getMilestoneInfo(cwd).version).rigour === 'spike';
-  const ledgerIds = new Set(require('./decisions.js').load(path.join(cwd, '.planning', 'DECISIONS.jsonl')).records.map((r) => r.id));
+  const ledger = new Map(require('./decisions.js').load(path.join(cwd, '.planning', 'DECISIONS.jsonl')).records.map((r) => [r.id, r.kind]));
   // A phase closed earlier (a `phase_complete` event, or checked in the ROADMAP when the one-time `gate_baseline` was taken) was
   // closed under the rules of its time: the review and answer-table rules judge only phases still open.
   const closedEarlier = closedPhaseKeys(cwd).has(dispatch.phaseKey(phaseNumber));
   const verification = readPhaseVerification(phaseDir, phaseNumber);
-  if (!spike && !closedEarlier && !opts.preVerifier) errors.push(...reviewGate.reviewErrors(phaseDir, dirFiles, touched, { risk: riskAddons(cwd, phaseNumber, 'standard'), phaseNumber, ledgerIds, verificationOpen: verification.exists ? Number(verification.data.open_critical_high) : undefined }));
+  if (!spike && !closedEarlier && !opts.preVerifier) errors.push(...reviewGate.reviewErrors(phaseDir, dirFiles, touched, { risk: riskAddons(cwd, phaseNumber, 'standard'), phaseNumber, ledger, verificationOpen: verification.exists ? Number(verification.data.open_critical_high) : undefined }));
   // The verifier writes the answer table, so the pre-verifier gate cannot demand it; the final gate does.
   if (spike && !closedEarlier) errors.push(...spikeCheck.answerTableErrors(cwd, phaseDir, dirFiles, { requireTable: !opts.preVerifier }));
-  if (!opts.preVerifier) errors.push(...reviewGate.verificationReviewErrors(verification, spike, closedEarlier, ledgerIds));
+  if (!opts.preVerifier) errors.push(...reviewGate.verificationReviewErrors(verification, spike, closedEarlier, ledger));
   if (!opts.preVerifier && !closedEarlier) errors.push(...reviewGate.staleRecordErrors(execGit, cwd, phaseDir, phaseNumber, [`${phaseNumber}-VERIFICATION.md`, ...(spike ? [] : [`${phaseNumber}-REVIEW.md`])]));
   // Pre-verifier mode: the verifier produces this artifact, so demanding it earlier is circular.
   if (opts.preVerifier) {

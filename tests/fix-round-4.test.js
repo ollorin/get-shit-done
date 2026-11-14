@@ -113,7 +113,7 @@ describe('R3-8: open_critical_high is a whole count, ruled_by lists D-ids', () =
     assert.strictEqual(v({ open_critical_high: 1, ruled_by: 'none' }).length, 1);
     assert.strictEqual(v({ open_critical_high: 1, ruled_by: ['D-12', 'x'] }).length, 1);
     assert.deepStrictEqual(v({ open_critical_high: 1, ruled_by: ['D-12'] }), []);
-    assert.strictEqual(reviewGate.verificationReviewErrors({ exists: true, fileName: 'V', data: { open_critical_high: 1, ruled_by: ['D-9999'] } }, false, false, new Set(['D-12'])).length, 1);
+    assert.strictEqual(reviewGate.verificationReviewErrors({ exists: true, fileName: 'V', data: { open_critical_high: 1, ruled_by: ['D-9999'] } }, false, false, new Map([['D-12', 'decision']])).length, 1);
     assert.deepStrictEqual(v({ open_critical_high: '0' }), []);
     assert.deepStrictEqual(v({}), []);
   });
