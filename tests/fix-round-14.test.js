@@ -127,11 +127,11 @@ describe('R7-2/3 records older than the last source commit are stale; docs-only 
 });
 
 describe('R7-7 init execute-phase phase_base', () => {
-  test('is the parent of the oldest commit tagged with the phase; null before any', () => {
+  test('is the parent of the oldest commit tagged with the phase; HEAD before any', () => {
     const dir = makeProject([{ n: '1', name: 'one' }]);
     dirs.push(dir);
-    assert.strictEqual(gsd(dir, ['init', 'execute-phase', '1']).json.phase_base, null);
     const base = git(dir, 'rev-parse', 'HEAD').trim();
+    assert.strictEqual(gsd(dir, ['init', 'execute-phase', '1']).json.phase_base, base);
     write(dir, 'src/a.js', 'x');
     git(dir, 'add', '-A');
     git(dir, 'commit', '-q', '-m', 'feat(01-01): work');

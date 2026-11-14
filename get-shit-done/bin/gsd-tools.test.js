@@ -3590,7 +3590,7 @@ describe('charlotte_qa_ran from VERIFICATION.md frontmatter, required for UI or 
     }
   }
 
-  const API_FILE = { 'apps/api/functions/games/index.ts': 'export {};\n' };
+  const API_FILE = { 'apps/web/Games.tsx': 'export {};\n' };  // a UI file: only a UI phase requires the QA record
 
   test('isApiFile / computeHasApi (unit)', () => {
     assert.strictEqual(isApiFile('apps/api/functions/games/index.ts'), true);
@@ -3606,16 +3606,16 @@ describe('charlotte_qa_ran from VERIFICATION.md frontmatter, required for UI or 
   test('positive: API phase with charlotte_qa_ran: true in VERIFICATION frontmatter passes the check', () => {
     buildPhase({ files: API_FILE, verificationFm: 'status: passed\ncharlotte_qa_ran: true' });
     const g = gate();
-    assert.strictEqual(g.parsed.has_api, true);
+    assert.strictEqual(g.parsed.has_ui, true);
     assert.strictEqual(g.parsed.charlotte_qa_required, true);
     const cq = g.parsed.checks.find(c => c.type === 'ui_qa');
     assert.strictEqual(cq.satisfied, true, JSON.stringify(g.parsed));
   });
 
-  test('negative: API-only phase (no UI) without charlotte_qa_ran -> missing_charlotte_qa', () => {
+  test('negative: UI phase without charlotte_qa_ran -> missing_charlotte_qa', () => {
     buildPhase({ files: API_FILE });
     const g = gate();
-    assert.strictEqual(g.parsed.has_ui, false);
+    assert.strictEqual(g.parsed.has_ui, true);
     assert.strictEqual(g.exitCode, 1);
     assert.ok(g.parsed.failures.includes('missing_charlotte_qa'), JSON.stringify(g.parsed.failures));
   });
@@ -5869,7 +5869,7 @@ describe('phase-gate full matrix + HAS_UI integration (Phase 45-05 Task 1)', () 
   test('A-c a (app|pages)/api path is an API file in a profile project', () => {
     const parsed = apiFixture('45-a-c', 'app/api/route.ts', { capabilities: QA_CAPABILITY });
     assert.strictEqual(parsed.has_api, true);
-    assert.ok(parsed.checks.some(c => c.type === 'ui_qa' && c.required), 'the UI QA check is named ui_qa and required');
+    assert.ok(parsed.checks.some(c => c.type === 'ui_qa' && !c.required), 'has_api alone does not require the ui_qa check');
   });
 
   test('A-d isApiFile options: legacy default on, legacy:false drops the legacy patterns, globs match segments', () => {

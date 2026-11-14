@@ -11,7 +11,7 @@ Give the owner a demo of what a phase (or a milestone) delivers: Markdown with r
 | `phase` | script | in the phase's own UI QA window, right after its QA run |
 | `off` | nothing | nothing |
 
-A phase gets a demo only when `gsd-tools.js verify phase-gate {N}` reports `ui_qa_required: true` (it touched UI or API paths) and its VERIFICATION status is `passed`.
+A phase gets a demo only when `gsd-tools.js verify phase-gate {N}` reports `ui_qa_required: true` (it touched UI files) and its VERIFICATION status is `passed`.
 </modes>
 
 <process>

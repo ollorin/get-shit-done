@@ -11,7 +11,7 @@ const doc = (rel) => fs.readFileSync(path.join(root, rel), 'utf8');
 const dirs = [];
 afterEach(() => { while (dirs.length) fs.rmSync(dirs.pop(), { recursive: true, force: true }); });
 
-describe('R9-1: phase complete marks the phase requirements', () => {
+describe('R9-1: phase complete leaves requirement status to the plans and the review', () => {
   const setup = (spike) => {
     const dir = makeProject([{ n: '1', name: 'one' }]);
     dirs.push(dir);
@@ -28,14 +28,14 @@ describe('R9-1: phase complete marks the phase requirements', () => {
     }
     return dir;
   };
-  test('the phase ids are ticked, another phase is untouched, and the phase has no form debt afterwards', () => {
+  test('no requirement is flipped, and the phase has no form debt afterwards', () => {
     const dir = setup(true);
     gsd(dir, ['phase', 'checkpoint', '1', '--step', 'verify', '--status', 'passed']);
+    gsd(dir, ['requirements', 'mark-complete', 'ADM-01,ADM-02']);
+    const before = fs.readFileSync(path.join(dir, '.planning', 'REQUIREMENTS.md'), 'utf8');
     assert.strictEqual(gsd(dir, ['phase', 'complete', '1']).rc, 0);
     const req = fs.readFileSync(path.join(dir, '.planning', 'REQUIREMENTS.md'), 'utf8');
-    assert.match(req, /- \[x\] \*\*ADM-01\*\*/);
-    assert.match(req, /- \[x\] \*\*ADM-02\*\*/);
-    assert.match(req, /- \[ \] \*\*ADM-03\*\*/);
+    assert.strictEqual(req, before);
     assert.match(req, /\| ADM-01 \| Phase 1 \| Complete \|/);
     assert.match(req, /\| ADM-03 \| Phase 2 \| Pending \|/);
     git(dir, 'add', '-A');

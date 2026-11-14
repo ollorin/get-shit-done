@@ -7210,7 +7210,7 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw, opts = {}) {
   const hasApi = computeHasApi(touchedFiles, apiDetectionOpts(cwd));
   const uiQaMode = projectContext.uiQaMode(cwd);
   const spike = rigour.resolveRigour(cwd, phaseInfo.phase_number, getMilestoneInfo(cwd).version).rigour === 'spike';
-  const uiQaRequired = !spike && (hasUi || hasApi) && uiQaMode !== 'none';
+  const uiQaRequired = !spike && hasUi && uiQaMode !== 'none';
   // ui_qa_ran is written by the verifier (Step 8c), so the pre-verifier gate cannot require it either.
   const uiQaCheckRequired = uiQaRequired && !preVerifier;
 
@@ -9975,25 +9975,6 @@ function cmdPhaseComplete(cwd, phaseNum, raw, opts = {}) {
     }
   }
 
-  // This phase's requirement ids: its ROADMAP section's `**Requirements:**` ids whose REQUIREMENTS traceability row names this phase (or has no row).
-  let phaseReqIds = [];
-  let requirementsMarked = [];
-  if (fs.existsSync(roadmapPath) && fs.existsSync(path.join(cwd, '.planning', 'REQUIREMENTS.md'))) {
-    const roadmapText = fs.readFileSync(roadmapPath, 'utf-8');
-    const section = roadmapBox.phaseSection(roadmapText, phaseNum);
-    if (section === null && roadmapBox.checkboxState(roadmapText, phaseNum) === null) error(`ROADMAP.md has no "### Phase ${phaseNum}" heading (plain or bold) and no checklist line: refusing to complete a phase whose requirements cannot be read`);
-    if (section === null) process.stderr.write(`Notice: ROADMAP.md has no "### Phase ${phaseNum}" heading; no requirement was marked complete (the checklist line is ticked)\n`);
-    const ids = section === null ? [] : [...new Set(((section.match(/\*\*Requirements:?\*\*:?\s*([^\n]*)/i) || [])[1] || '').match(/[A-Z][A-Z0-9]*-\d+/g) || [])];
-    const reqPath = path.join(cwd, '.planning', 'REQUIREMENTS.md');
-    const reqText = fs.readFileSync(reqPath, 'utf-8');
-    const key = String(phaseNum).replace(/^0+(?=\d)/, '').replace(/\./g, '\\.');
-    const ownsPhase = new RegExp(`(?<![\\d.])0*${key}(?!\\d|\\.\\d)`);
-    phaseReqIds = ids.filter((id) => {
-      const row = reqText.match(new RegExp(`^\\|\\s*${id}\\s*\\|([^|]*)\\|`, 'im'));
-      return !row || ownsPhase.test(row[1]);
-    });
-  }
-
   if (formDebtItems.length > 0) {
     const vFile = path.join(cwd, phaseInfo.directory, `${phaseInfo.phase_number}-VERIFICATION.md`);
     const vText = fs.readFileSync(vFile, 'utf-8');
@@ -10007,9 +9988,6 @@ function cmdPhaseComplete(cwd, phaseNum, raw, opts = {}) {
   // Update ROADMAP.md: mark phase complete
   if (fs.existsSync(roadmapPath)) {
     let roadmapContent = fs.readFileSync(roadmapPath, 'utf-8');
-
-    // The gates above passed: the requirement ids this phase owns are done.
-    requirementsMarked = phaseReqIds.length > 0 ? ((markRequirementsComplete(cwd, phaseReqIds) || {}).updated || []) : [];
 
     // Checkbox: - [ ] Phase N: → - [x] Phase N: (...completed DATE), on the phase's own line only
     roadmapContent = roadmapBox.tickCheckbox(roadmapContent, phaseNum, ` (completed ${today})`);
@@ -10131,7 +10109,6 @@ function cmdPhaseComplete(cwd, phaseNum, raw, opts = {}) {
     date: today,
     roadmap_updated: fs.existsSync(roadmapPath),
     ...(fs.existsSync(roadmapPath) && roadmapBox.checkboxState(fs.readFileSync(roadmapPath, 'utf-8'), phaseNum) === null ? { roadmap_checkbox_missing: `no checkbox line for phase ${phaseNum} in ROADMAP.md (expected "- [ ] Phase ${phaseNum}"): tick it by hand` } : {}),
-    requirements_marked: requirementsMarked,
     state_updated: fs.existsSync(statePath),
     ...(formDebtItems.length > 0 ? { form_debt: formDebtItems } : {}),
   };
@@ -11167,14 +11144,15 @@ function riskAddons(cwd, phase, level) {
   return phaseRiskFields(cwd, phase).phase_risk_domains.length > 0 || r.unknown.length > 0;
 }
 
-// phase_base: the parent of the phase's oldest tagged commit ({N}-NN or fix({N}-review)); the one definition of
-// `{phase base}` in the final-review diff. The empty tree when that commit is a root; null before any commit.
+// phase_base: the parent of the phase's oldest tagged commit on HEAD (reviewGate.phaseCommits); the one definition of
+// `{phase base}` in the final-review diff. The empty tree when that commit is a root; HEAD before any phase commit.
 function phaseBase(cwd, phase) {
-  const esc = String(phase).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const out = execGit(cwd, ['log', '--all', '-E', '--grep', `(^|[^0-9.-])0*${esc}-([0-9]|review)`, '--format=%H', '--reverse']).stdout || '';
-  const oldest = out.split('\n').map((l) => l.trim()).filter(Boolean)[0];
-  if (!oldest) return null;
-  const parent = execGit(cwd, ['rev-parse', '--verify', '-q', `${oldest}^`]);
+  const oldest = reviewGate.phaseCommits(execGit, cwd, phase)[0];
+  if (!oldest) {
+    const head = execGit(cwd, ['rev-parse', '--verify', '-q', 'HEAD']);
+    return head.exitCode === 0 && head.stdout ? head.stdout : null;
+  }
+  const parent = execGit(cwd, ['rev-parse', '--verify', '-q', `${oldest.sha}^`]);
   return parent.exitCode === 0 && parent.stdout ? parent.stdout : '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 }
 

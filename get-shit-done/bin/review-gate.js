@@ -47,14 +47,25 @@ const rulingLedgerErrors = (label, ruled, ledger) => {
 
 // Freshness (one notion; rigour.md rule 12): a phase record is stale when the phase has a commit newer than it that changes
 // a SOURCE path (not .planning/, not docs/). Tagged commits: `({N}-NN)` plan commits and `fix({N}-review)` fix commits.
-// `execGit(cwd, args)` returns { stdout }. Returns the commit time (s) of the last such commit, or 0.
+// The phase's commits: reachable from HEAD, subject tagged `(<phase>-NN)` or `(<phase>-review)` with the phase as a whole
+// token (36 is not 365, 365 is not 365.1; the body is never searched). Oldest first, each { sha, ts, files }.
+// `execGit(cwd, args)` returns { stdout }.
+function phaseCommits(execGit, cwd, phaseNumber) {
+  const esc = String(phaseNumber).replace(/^0+(?=\d)/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const tag = new RegExp(`\\(0*${esc}-(\\d{2}(?!\\d)|review\\))`);
+  const out = (execGit(cwd, ['log', 'HEAD', '-F', '--grep', `${String(phaseNumber).replace(/^0+(?=\d)/, '')}-`, '--reverse', '--name-only', '--format=%x01%H%x00%ct%x00%s']).stdout) || '';
+  return out.split('\x01').filter(Boolean).map((chunk) => {
+    const [head, ...files] = chunk.split('\n');
+    const [sha, ts, subject] = head.split('\x00');
+    return { sha, ts: Number(ts) || 0, subject, files: files.map((f) => f.trim()).filter(Boolean) };
+  }).filter((c) => tag.test(c.subject));
+}
+
+// Commit time (s) of the newest phase commit that touched a file outside .planning/ and docs/, or 0.
 function lastSourceCommitTs(execGit, cwd, phaseNumber) {
-  const esc = String(phaseNumber).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const out = (execGit(cwd, ['log', '--all', '-E', '--grep', `(^|[^0-9.-])0*${esc}-([0-9]|review)`, '--format=@%ct', '--name-only']).stdout) || '';
-  let ts = 0, cur = 0;
-  for (const line of out.split('\n').map((l) => l.trim()).filter(Boolean)) {
-    if (line.startsWith('@')) { cur = Number(line.slice(1)) || 0; continue; }
-    if (!line.startsWith('.planning/') && !line.startsWith('docs/') && cur > ts) ts = cur;
+  let ts = 0;
+  for (const c of phaseCommits(execGit, cwd, phaseNumber)) {
+    if (c.ts > ts && c.files.some((f) => !f.startsWith('.planning/') && !f.startsWith('docs/'))) ts = c.ts;
   }
   return ts;
 }
@@ -101,4 +112,4 @@ function verificationReviewErrors(verification, spike, closedEarlier = false, le
   return errors;
 }
 
-module.exports = { reviewErrors, verificationReviewErrors, staleRecordErrors, lastSourceCommitTs };
+module.exports = { reviewErrors, verificationReviewErrors, staleRecordErrors, lastSourceCommitTs, phaseCommits };

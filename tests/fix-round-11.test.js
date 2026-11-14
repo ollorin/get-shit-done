@@ -21,46 +21,6 @@ afterEach(() => { while (dirs.length) fs.rmSync(dirs.pop(), { recursive: true, f
 const write = (dir, rel, text) => { fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true }); fs.writeFileSync(path.join(dir, rel), text); };
 const read = (dir, rel) => fs.readFileSync(path.join(dir, rel), 'utf8');
 
-describe('R5-1: phase complete marks only the requirement ids this phase owns', () => {
-  const setup = (heading1 = '### Phase 1: one') => {
-    const dir = project([{ n: '1', name: 'one' }, { n: '2', name: 'two' }]);
-    write(dir, '.planning/ROADMAP.md', `# Roadmap\n\n- [ ] **Phase 1: one** - x\n- [ ] **Phase 2: two** - y\n\n${heading1}\n**Goal:** g\n**Requirements:** ADM-01, ADM-02\n\n### Phase 2: two\n**Goal:** g\n**Requirements:** ADM-02, ADM-03\n`);
-    write(dir, '.planning/REQUIREMENTS.md', '# R\n\n- [ ] **ADM-01** a\n- [ ] **ADM-02** b\n- [ ] **ADM-03** c\n- [ ] **ADM-04** d\n\n| ID | Phase | Status |\n|---|---|---|\n| ADM-01 | Phase 1 | Pending |\n| ADM-02 | Phase 2 | Pending |\n| ADM-03 | Phase 2 | Pending |\n');
-    writeEvidence(dir, 1);
-    return dir;
-  };
-  test('an id whose traceability row names another phase stays open', () => {
-    const dir = setup();
-    const r = completePhaseLikeWorkflow(dir, 1);
-    assert.strictEqual(r.rc, 0, r.out + r.err);
-    const req = read(dir, '.planning/REQUIREMENTS.md');
-    assert.match(req, /- \[x\] \*\*ADM-01\*\*/);
-    assert.match(req, /- \[ \] \*\*ADM-02\*\*/);
-    assert.match(req, /\| ADM-02 \| Phase 2 \| Pending \|/);
-    assert.deepStrictEqual(r.json.requirements_marked, ['ADM-01']);
-  });
-  test('an id with no traceability row is marked; a bold heading is parsed', () => {
-    const dir = setup('### **Phase 1: one**');
-    write(dir, '.planning/REQUIREMENTS.md', '- [ ] **ADM-01** a\n- [ ] **ADM-02** b\n');
-    const r = completePhaseLikeWorkflow(dir, 1);
-    assert.strictEqual(r.rc, 0, r.out + r.err);
-    assert.deepStrictEqual(r.json.requirements_marked, ['ADM-01', 'ADM-02']);
-  });
-  test('a heading it cannot parse with a checklist line is a notice (nothing marked); with no checklist line either it is a loud error', () => {
-    const dir = setup('### Phase one - one');
-    gsd(dir, ['phase', 'checkpoint', '1', '--step', 'verify', '--status', 'passed']);
-    const r = gsd(dir, ['phase', 'complete', '1']);
-    assert.strictEqual(r.rc, 0, r.out + r.err);
-    assert.deepStrictEqual(r.json.requirements_marked, []);
-    const bare = setup('### Phase one - one');
-    write(bare, '.planning/ROADMAP.md', read(bare, '.planning/ROADMAP.md').replace(/^- \[ \] \*\*Phase 1: one\*\*.*\n/m, ''));
-    gsd(bare, ['phase', 'checkpoint', '1', '--step', 'verify', '--status', 'passed']);
-    const e = gsd(bare, ['phase', 'complete', '1']);
-    assert.notStrictEqual(e.rc, 0);
-    assert.match(e.err + e.out, /no "### Phase 1" heading/);
-  });
-});
-
 describe('R5-2 / R5-3: dispatches are counted, never limited', () => {
   test('limits carry wall minutes only; a config dispatches key is ignored', () => {
     const dir = project([{ n: '1', name: 'one' }], { workflow: { budget: { standard: { dispatches: 2 } } } });
