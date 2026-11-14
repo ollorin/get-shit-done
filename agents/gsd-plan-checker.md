@@ -555,7 +555,7 @@ Plans touching a risk-domain path must meet planner MANDATE-6: the phase's `{N}-
 
 ## Dimension 14: Adversarial Pass
 
-Only when the prompt says `Adversarial pass: enabled for plans {ids}`. For each listed plan: (1) attack it for logical fallacies, missed edge cases or dependencies, and untestable success criteria, and attack the PRODUCT the plan prescribes, not the plan's form: answer all six questions per plan, each with a finding or "none, because <cited plan line>" (see Product lens below); (2) rebut each flaw strictly from plan or codebase evidence (cite `file:line`; re-read the evidence, do not assume); (3) keep a flaw only if the rebuttal fails, rated `minor|major|critical`. Write `{phase_dir}/{plan_id}-VERDICT.md`:
+Only when the prompt says `Adversarial pass: enabled for plans {ids}`; on a risk phase each dispatch carries one plan, plus the phase goal and the sibling plans' frontmatter only. For each listed plan: (1) attack it for logical fallacies, missed edge cases or dependencies, and untestable success criteria, with the planner's five enumerate-before-acceptance-rows items (environments, output-reading checks, facts, scope cuts, evidence and commits) as attack lenses: a violated item is a finding, and attack the PRODUCT the plan prescribes, not the plan's form: answer all six questions per plan, each with a finding or "none, because <cited plan line>" (see Product lens below); (2) rebut each flaw strictly from plan or codebase evidence (cite `file:line`; re-read the evidence, do not assume); (3) keep a flaw only if the rebuttal fails, rated `minor|major|critical`. Write `{phase_dir}/{plan_id}-VERDICT.md`:
 
 ```markdown
 ---
@@ -569,7 +569,7 @@ required_changes:   # only for revise/critical, one concrete fix per kept major/
 | # | Flaw | Severity | Rebuttal | Kept |
 ```
 
-Write no VERDICT.md for plans not listed.
+Write no VERDICT.md for plans not listed. In a delta round on a risk phase, update each kept VERDICT.md to its post-revision state (`verdict:` and the Kept column); the VERDICT files are read by the revision step, the delta round and `verdict-to-issues`, so they must not go stale.
 
 ## Product lens
 
@@ -582,7 +582,7 @@ Six questions; the full attack on each plan is Dimension 14 (risk add-ons only),
 5. Secrets and residue: which files or logs hold keys, tokens, cookies or passwords during the run, and which step deletes them and proves it?
 6. False passes: which recorded fact or probe would read as success while the thing is broken (a 404 from a cache read as "not readable")?
 
-**Write is limited to `{phase_dir}/{plan_id}-VERDICT.md` (only when the prompt enables the adversarial pass) and the Round 1 plan edits below. Never write or edit any other file; in quick and verify-work dispatches write nothing.**
+**Write is limited to `{phase_dir}/{plan_id}-VERDICT.md` (only when the prompt enables the adversarial pass, or a risk-phase delta round updates it) and the Round 1 plan edits below. Never write or edit any other file; in quick and verify-work dispatches write nothing.**
 
 ## Round 1 fixes
 
@@ -592,7 +592,7 @@ Only when the prompt says `Round 1`. A finding with exactly one obvious fix (a w
 
 Every `<verify>` command, `<done>` criterion and must_haves truth must be satisfiable in the environment the plan itself declares. For each, check it against: services the plan or STACK-PROFILE excludes or does not start (a command needing an API URL, port or container of an excluded service is impossible); env vars the plan never sets and the environment does not provide; tools or paths absent from the declared stack; and artifacts a later plan or the verifier produces (a check cannot require them earlier). An impossible expectation = blocker (`dimension: satisfiable_expectations`, `severity: blocker`) naming the command and the missing service/variable.
 
-**Execute, do not read.** Run every static verify command (grep-like, count, file-exists) yourself against the state it will meet: files the same task creates are untracked and absent before its commit; tracked files already hold what an earlier task wrote. A "returns nothing" check needs a positive control on a known-present needle; a gate or scan run must show a non-zero item count. An unsatisfiable or vacuous verify (it cannot pass, or cannot fail) is a blocker. Every external command (server, build, probe, network call) needs a timeout, an output destination and readiness proof (port free before, service answering before use); a task that depends on a process another dispatch started is a blocker, a missing timeout or proof a warning.
+**Execute, do not read.** Run every static verify command (grep-like, count, file-exists) yourself against the state it will meet: files the same task creates are untracked and absent before its commit; tracked files already hold what an earlier task wrote. A named evidence path must not be ignored: run `git check-ignore -v <path>` on it. A task that creates files must stage them by explicit `git add` before its commit (a path-scoped commit of an untracked file fails). A "returns nothing" check needs a positive control on a known-present needle; a gate or scan run must show a non-zero item count. An unsatisfiable or vacuous verify (it cannot pass, or cannot fail) is a blocker. Every external command (server, build, probe, network call) needs a timeout, an output destination and readiness proof (port free before, service answering before use); a task that depends on a process another dispatch started is a blocker, a missing timeout or proof a warning.
 
 ## Dimension 17: Rule Binding (standard rigour, not spike)
 
