@@ -218,7 +218,7 @@ function detectPhaseState(phasesDir) {
     if (!m) continue;
     const files = fs.readdirSync(path.join(phasesDir, d));
     if (files.some((f) => f.endsWith('-VERIFICATION.md'))) completed.push(m[1]);
-    else if (files.some((f) => f.endsWith('-PLAN.md'))) inProgress.push(m[1]);
+    else if (files.some((f) => /-\d{2,}[a-z]?-PLAN\.md$/i.test(f) || f === 'PLAN.md')) inProgress.push(m[1]);
   }
   return { completed, inProgress };
 }

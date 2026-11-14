@@ -280,6 +280,8 @@ const API_FILE_PATTERNS = ['route.ts', 'route.js', '/api/', '/routes/', '/functi
 // so HAS_UI is always derived from the actual git diff (touchedFiles), never
 // from self-reported SUMMARY.md key-files metadata. See 45-02-PLAN.md.
 
+// A task plan is {phase}-{NN}-PLAN.md (or the legacy bare PLAN.md); artifacts such as E2E-TEST-PLAN.md are not plans.
+function isPlanFile(f) { return /-\d{2,}[a-z]?-PLAN\.md$/i.test(f) || f === 'PLAN.md'; }
 function isUIFile(filePath) {
   const isConfigOrDeclaration = /\.(config|d)\.[jt]sx?$/.test(filePath) ||
     /^(vite|next|tailwind|jest|vitest|webpack|babel|eslint|prettier)\./.test(path.basename(filePath));
@@ -2088,7 +2090,7 @@ function cmdPhasesList(cwd, options, raw) {
 
         let filtered;
         if (type === 'plans') {
-          filtered = dirFiles.filter(f => f.endsWith('-PLAN.md') || f === 'PLAN.md');
+          filtered = dirFiles.filter(f => isPlanFile(f));
         } else if (type === 'summaries') {
           filtered = dirFiles.filter(f => f.endsWith('-SUMMARY.md') || f === 'SUMMARY.md');
         } else {
@@ -2882,7 +2884,7 @@ function cmdFindPhase(cwd, phase, raw) {
 
     const phaseDir = path.join(phasesDir, match);
     const phaseFiles = fs.readdirSync(phaseDir);
-    const plans = phaseFiles.filter(f => f.endsWith('-PLAN.md') || f === 'PLAN.md').sort();
+    const plans = phaseFiles.filter(f => isPlanFile(f)).sort();
     const summaries = phaseFiles.filter(f => f.endsWith('-SUMMARY.md') || f === 'SUMMARY.md').sort();
 
     const result = {
@@ -3326,7 +3328,7 @@ function cmdPhasePlanIndex(cwd, phase, raw) {
 
   // Get all files in phase directory
   const phaseFiles = fs.readdirSync(phaseDir);
-  const planFiles = phaseFiles.filter(f => f.endsWith('-PLAN.md') || f === 'PLAN.md').sort();
+  const planFiles = phaseFiles.filter(f => isPlanFile(f)).sort();
   const summaryFiles = phaseFiles.filter(f => f.endsWith('-SUMMARY.md') || f === 'SUMMARY.md');
 
   // Build set of plan IDs with summaries
@@ -8599,7 +8601,7 @@ function cmdVerifyDependencyStability(cwd, phaseArg, raw) {
 
     const depDirPath = path.join(phasesDir, depDir);
     let planFiles = [];
-    try { planFiles = fs.readdirSync(depDirPath).filter(function(f) { return f.endsWith('-PLAN.md'); }); } catch (e) {}
+    try { planFiles = fs.readdirSync(depDirPath).filter(function(f) { return isPlanFile(f); }); } catch (e) {}
     let foundFiles = false;
 
     for (const planFile of planFiles) {
@@ -8756,7 +8758,7 @@ function parseRoadmapPhases(content, phasesDir, options) {
 
       if (dirMatch) {
         const phaseFiles = fs.readdirSync(path.join(phasesDir, dirMatch));
-        planCount = phaseFiles.filter(f => f.endsWith('-PLAN.md') || f === 'PLAN.md').length;
+        planCount = phaseFiles.filter(f => isPlanFile(f)).length;
         summaryCount = phaseFiles.filter(f => f.endsWith('-SUMMARY.md') || f === 'SUMMARY.md').length;
         if (extended) {
           hasContext = phaseFiles.some(f => f.endsWith('-CONTEXT.md') || f === 'CONTEXT.md');
@@ -8860,7 +8862,7 @@ function cmdRoadmapAnalyze(cwd, raw) {
       if (!phDir) continue;
 
       const planFiles = fs.readdirSync(path.join(phasesDir, phDir))
-        .filter(function(f) { return f.endsWith('-PLAN.md'); });
+        .filter(function(f) { return isPlanFile(f); });
       const claimedFiles = {};
 
       for (const planFile of planFiles) {
@@ -9035,7 +9037,7 @@ async function cmdRoadmapStatus(cwd, phaseArg, raw) {
 
     // Check for SUMMARYs
     const summaries = files.filter(f => f.endsWith('-SUMMARY.md'));
-    const plans = files.filter(f => f.endsWith('-PLAN.md'));
+    const plans = files.filter(f => isPlanFile(f));
 
     if (summaries.length > 0) {
       phase.status = 'in_progress';
@@ -10494,7 +10496,7 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
       if (phaseScope && !phaseScope.matcher(dir)) continue;
       phaseCount++;
       const phaseFiles = fs.readdirSync(path.join(phasesDir, dir));
-      const plans = phaseFiles.filter(f => f.endsWith('-PLAN.md') || f === 'PLAN.md');
+      const plans = phaseFiles.filter(f => isPlanFile(f));
       const summaries = phaseFiles.filter(f => f.endsWith('-SUMMARY.md') || f === 'SUMMARY.md');
       totalPlans += plans.length;
 
@@ -10667,7 +10669,7 @@ function cmdMilestoneSummarize(cwd, version, options, raw) {
       .sort();
 
     var phaseName = dirName.replace(/^\d+[-_.\s]*/, '').replace(/-/g, ' ') || dirName;
-    var planCount = phaseFiles.filter(function(f) { return f.endsWith('-PLAN.md') || f === 'PLAN.md'; }).length;
+    var planCount = phaseFiles.filter(function(f) { return isPlanFile(f); }).length;
     var phaseDurationMin = 0;
     var planOneLinerParts = [];
 
@@ -10898,7 +10900,7 @@ function cmdValidateConsistency(cwd, raw) {
 
     for (const dir of dirs) {
       const phaseFiles = fs.readdirSync(path.join(phasesDir, dir));
-      const plans = phaseFiles.filter(f => f.endsWith('-PLAN.md')).sort();
+      const plans = phaseFiles.filter(f => isPlanFile(f)).sort();
 
       // Extract plan numbers
       const planNums = plans.map(p => {
@@ -10933,7 +10935,7 @@ function cmdValidateConsistency(cwd, raw) {
 
     for (const dir of dirs) {
       const phaseFiles = fs.readdirSync(path.join(phasesDir, dir));
-      const plans = phaseFiles.filter(f => f.endsWith('-PLAN.md'));
+      const plans = phaseFiles.filter(f => isPlanFile(f));
 
       for (const plan of plans) {
         const content = fs.readFileSync(path.join(phasesDir, dir, plan), 'utf-8');
@@ -10973,7 +10975,7 @@ function cmdProgressRender(cwd, format, raw) {
       const phaseNum = dm ? dm[1] : dir;
       const phaseName = dm && dm[2] ? dm[2].replace(/-/g, ' ') : '';
       const phaseFiles = fs.readdirSync(path.join(phasesDir, dir));
-      const plans = phaseFiles.filter(f => f.endsWith('-PLAN.md') || f === 'PLAN.md').length;
+      const plans = phaseFiles.filter(f => isPlanFile(f)).length;
       const summaries = phaseFiles.filter(f => f.endsWith('-SUMMARY.md') || f === 'SUMMARY.md').length;
 
       totalPlans += plans;
@@ -11219,7 +11221,7 @@ function findPhaseInternal(cwd, phase) {
     // Require a 2-digit plan number before -PLAN.md (or the legacy bare
     // PLAN.md) so artifact files like E2E-TEST-PLAN.md are not miscounted as
     // task plans or flagged as incomplete. Mirrors the phase-gate pattern.
-    const plans = phaseFiles.filter(f => f.match(/-\d{2}-PLAN\.md$/i) || f === 'PLAN.md').sort();
+    const plans = phaseFiles.filter(f => isPlanFile(f)).sort();
     const summaries = phaseFiles.filter(f => f.endsWith('-SUMMARY.md') || f === 'SUMMARY.md').sort();
     const hasResearch = phaseFiles.some(f => f.endsWith('-RESEARCH.md') || f === 'RESEARCH.md');
     const hasContext = phaseFiles.some(f => f.endsWith('-CONTEXT.md') || f === 'CONTEXT.md');
@@ -12073,7 +12075,7 @@ function cmdInitProgress(cwd, includes, raw) {
       const phasePath = path.join(phasesDir, dir);
       const phaseFiles = fs.readdirSync(phasePath);
 
-      const plans = phaseFiles.filter(f => f.endsWith('-PLAN.md') || f === 'PLAN.md');
+      const plans = phaseFiles.filter(f => isPlanFile(f));
       const summaries = phaseFiles.filter(f => f.endsWith('-SUMMARY.md') || f === 'SUMMARY.md');
       const hasResearch = phaseFiles.some(f => f.endsWith('-RESEARCH.md') || f === 'RESEARCH.md');
 

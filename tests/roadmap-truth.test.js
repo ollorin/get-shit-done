@@ -56,6 +56,17 @@ describe('U3 phaseTruth drives next_executable', () => {
     assert.ok(!r.next_executable.includes('1'));
     assert.ok(r.next_executable.includes('2'));
   });
+  test('an E2E-TEST-PLAN.md artifact is not counted as a plan', () => {
+    const dir = project(ROAD);
+    writeEvidence(dir, 1);
+    assert.strictEqual(completePhaseLikeWorkflow(dir, 1).rc, 0);
+    const phases = path.join(dir, '.planning', 'phases');
+    const d = fs.readdirSync(phases).find(n => /^0*1-/.test(n));
+    fs.writeFileSync(path.join(phases, d, 'E2E-TEST-PLAN.md'), '# e2e\n');
+    const r = gsd(dir, ['init', 'execute-roadmap']).json;
+    assert.ok(!r.next_executable.includes('1'));
+    assert.ok(r.next_executable.includes('2'));
+  });
   test('passed evidence without the ROADMAP checkbox is not complete', () => {
     const dir = project(ROAD);
     writeEvidence(dir, 1);
