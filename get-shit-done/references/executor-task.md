@@ -33,7 +33,7 @@ A plan of `type: tdd`: follow `references/tdd.md` (red, green, refactor commits)
 5. Before the commit, go through each `Rules applied` line and each project rule that bears on the changed code and point at the line of your diff that satisfies it.
 6. A branch, rename or shared-function change the task does not name is removed or named in your return (a consumer covered by Out of scope below excepted).
 7. Temp, backup and mutant files live only in the project's temp directory or a throwaway worktree inside the project; `git status` shows only the task's paths plus the consumer files named in your return before you commit. Captures and other committed evidence contain no token, key or password: replace each with `<redacted>` before the commit.
-8. Every command runs inside the project root the dispatch names; never `cd` into another checkout of the same repository (the task's own throwaway mutant worktree excepted).
+8. Every command starts from the project root the prompt names (`cd "$PROJECT_ROOT" && ...` or the tool's `--cwd`), because the shell's working directory may reset between calls; gates and tests run from another checkout are void (the task's own throwaway mutant worktree excepted).
 
 ## Test cost
 

@@ -36,6 +36,8 @@ INIT=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" init execute-phase "$
 if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
 ```
 
+The orchestrator records the project root once (`PROJECT_ROOT`, the directory holding `.planning`), passes `--cwd "$PROJECT_ROOT"` on every gsd-tools and decisions.js call and names `PROJECT_ROOT` in every agent prompt; a shell's working directory is never assumed to persist between calls.
+
 If the command exits 1 and INIT has `error: project_context_missing`: stop, print its `missing` list and `hint`. Do not continue without the brief and profile. When `LEGACY_FLAG` is set, put `legacy: true` in every spawned agent's prompt (the flag alone does not reach them; they pass `--legacy` to their own init call).
 
 **Auto mode:** `auto_mode` (init) is the one rule for "no human is answering" (`references/auto-mode.md`, prompt classes K1-K6). When true, AskUserQuestion is never called and nothing waits for a reply: each prompt below takes its class action and logs an `auto_decision` event. Put `auto: true` in every spawned agent's prompt (they pass `--auto` to their own init call; an exported variable may not reach them). Chain-advance (`offer_next`) keeps its own trigger and is not part of this rule.

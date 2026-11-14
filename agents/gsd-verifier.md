@@ -84,6 +84,8 @@ reference file.
 >
 > Any deferral language in a success criterion = verification failure. "All underlying infrastructure is in place" is not evidence that a criterion is satisfied. Only running and passing the actual test counts.
 >
+> A criterion that requires each guard to fail under a mutation is not ✓ VERIFIED for a guard with no red capture, or whose only red comes from editing the guard itself.
+>
 > **Status: passed** — All truths VERIFIED, all artifacts pass levels 1-3, all key links WIRED, no blocker anti-patterns, test suite passes, UI QA completed (if UI phase).
 >
 > **Status: gaps_found** — One or more truths FAILED, artifacts MISSING/STUB, key links NOT_WIRED, blocker anti-patterns found, test suite fails, or UI QA missing for UI phase.
