@@ -27,11 +27,12 @@ A plan of `type: tdd`: follow `references/tdd.md` (red, green, refactor commits)
 ## Before the test and before the commit
 
 1. Inputs: list every class of input the changed code accepts (valid, each invalid kind, missing, boundary). Each invalid class gets a refusal row in your test even when the task's rows do not name it; the project rules decide the response.
-2. Sibling: read one working sibling in the same module (a handler or function that does the same kind of thing) and apply the checks and conventions it applies.
-3. Expected values come from the task and the rules, never from the code under test. For each assertion name one wrong implementation it would fail on; if you cannot, the assertion is too weak.
-4. A red run counts only when it fails on the asserted behaviour, not on an import, syntax or type error.
+2. Sibling: read one working sibling in the same module (a handler or function that does the same kind of thing) and apply the checks and conventions it applies. Before adding a constant or helper, search for an existing one and import it. Errors use the module's mechanism: never throw or default a missing input where the neighbours return a refusal.
+3. Expected values come from the task and the rules, never from the code under test. Tests use the project's existing test helpers and assert code, body and unchanged state, with a positive control. For each assertion name one wrong implementation it would fail on; if you cannot, the assertion is too weak.
+4. A red run counts only when tests executed and failed on the asserted behaviour; an import, syntax or type error with 0 tests run is not red.
 5. Before the commit, go through each `Rules applied` line and each project rule that bears on the changed code and point at the line of your diff that satisfies it.
-6. Temp, backup and mutant files live only in the project's temp directory or a throwaway worktree inside the project; `git status` shows only the task's paths before you commit.
+6. A branch, rename or shared-function change the task does not name is removed or named in your return.
+7. Temp, backup and mutant files live only in the project's temp directory or a throwaway worktree inside the project; `git status` shows only the task's paths before you commit.
 
 ## Test cost
 
