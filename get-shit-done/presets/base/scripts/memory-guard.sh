@@ -113,7 +113,9 @@ header "HOST MEMORY PRESSURE"
 if [ "$OS" = "Darwin" ]; then
   HOST_MEM_BYTES=$(sysctl -n hw.memsize)
   HOST_MEM_MIB=$(( HOST_MEM_BYTES / 1024 / 1024 ))
-  PAGE_SIZE=$(vm_stat | head -1 | grep -oE '[0-9]+ bytes' | grep -oE '[0-9]+' || echo 16384)
+  # awk reads all of vm_stat: `| head -1` under pipefail SIGPIPEs vm_stat under load and the `||` default was appended as a second value.
+  PAGE_SIZE=$(vm_stat | awk 'NR==1 && match($0, /[0-9]+ bytes/) { print substr($0, RSTART, RLENGTH - 6) }')
+  PAGE_SIZE=${PAGE_SIZE:-16384}
   FREE_PAGES=$(vm_stat | awk -F: '/Pages free/{gsub(/[^0-9]/,"",$2); print $2}')
   FREE_MIB=$(( FREE_PAGES * PAGE_SIZE / 1024 / 1024 ))
   info "Truly free pages: ${FREE_MIB} MiB (a floor: compressed and purgeable pages are reclaimable on demand)"

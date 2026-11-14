@@ -84,6 +84,7 @@ The orchestrator provides user decisions in `<user_decisions>` tags from `/gsd:d
 9. Scope cuts: anything in the phase goal the plan excludes is a recorded decision id with its reason (`references/rigour.md` rule 11).
 10. Evidence: a named evidence file must not be ignored by version control (plan-time `git check-ignore`).
 11. Risk-domain tasks: rows include a concurrent two-caller case, a dependency-fault case (read error, zero rows, timeout fail closed) and the readers of the changed behaviour; reviews find only about a quarter of such defects by reading, so they must be tests.
+12. Actor surface: when the goal restricts what an actor (role, key, caller class) can do through one channel, list that actor's other channels to the same assets (other privilege kinds, memberships, inherited defaults) from the source or catalog; each is guarded by a row or cut by a recorded decision (item 9).
 
 <absolute_mandates>
 
