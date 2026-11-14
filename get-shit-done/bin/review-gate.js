@@ -12,10 +12,11 @@ const rulings = (data) => (Array.isArray(data.ruled_by) ? data.ruled_by : data.r
 const countOf = (v) => (v === undefined || v === null || v === '' ? undefined : typeof v === 'number' ? v : /^\d+$/.test(String(v).trim()) ? Number(String(v).trim()) : NaN);
 const bad = (ids) => ids.filter((x) => !RULING_ID.test(x));
 
-function reviewErrors(phaseDir, dirFiles, touchedFiles, { risk = false } = {}) {
+// `ledgerIds`: the ids in the decisions ledger (a ruled_by id must be one of them); `verificationOpen`: VERIFICATION's count.
+function reviewErrors(phaseDir, dirFiles, touchedFiles, { risk = false, phaseNumber, ledgerIds, verificationOpen } = {}) {
   const code = (touchedFiles || []).filter((f) => !f.startsWith('.planning/'));
   if (code.length === 0) return [];
-  const file = dirFiles.find((f) => /-REVIEW\.md$/.test(f));
+  const file = dirFiles.find((f) => phaseNumber === undefined ? /-REVIEW\.md$/.test(f) : f === `${phaseNumber}-REVIEW.md`);
   if (!file) return [`No {N}-REVIEW.md: the phase changed ${code.length} file(s) outside .planning/ and needs the final review record`];
   let data = {};
   try { data = require('gray-matter')(fs.readFileSync(path.join(phaseDir, file), 'utf8')).data || {}; } catch { data = {}; }
@@ -28,8 +29,42 @@ function reviewErrors(phaseDir, dirFiles, touchedFiles, { risk = false } = {}) {
   if (passes !== 1 && passes !== 2) return [`${file} frontmatter must carry passes: 1 or 2 (pass 2 at risk add-ons)`];
   if (risk && passes !== 2) return [`${file} records ${passes} final pass: a phase with risk add-ons needs pass 2 (a fresh independent review of the fixed tree)`];
   if (bad(ruled).length > 0) return [`${file} ruled_by must list ruling ids like D-12, not ${bad(ruled).join(', ')}`];
+  const unknown = unknownRulings(ruled, ledgerIds);
+  if (unknown.length > 0) return [`${file} ruled_by ${unknown.join(', ')} not in the decisions ledger`];
   if (open > 0 && ruled.length === 0) return [`${file} has open_critical_high ${open} and no ruling id in ruled_by`];
+  if (verificationOpen !== undefined && Number.isInteger(verificationOpen) && verificationOpen !== open) return [`${file} open_critical_high ${open} differs from VERIFICATION's ${verificationOpen}: the re-check agent updates both`];
   return [];
+}
+
+const unknownRulings = (ruled, ledgerIds) => (ledgerIds instanceof Set ? ruled.filter((x) => !ledgerIds.has(x)) : []);
+
+// Freshness (one notion; rigour.md rule 12): a phase record is stale when the phase has a commit newer than it that changes
+// a SOURCE path (not .planning/, not docs/). Tagged commits: `({N}-NN)` plan commits and `fix({N}-review)` fix commits.
+// `execGit(cwd, args)` returns { stdout }. Returns the commit time (s) of the last such commit, or 0.
+function lastSourceCommitTs(execGit, cwd, phaseNumber) {
+  const esc = String(phaseNumber).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const out = (execGit(cwd, ['log', '--all', '-E', '--grep', `(^|[^0-9.-])${esc}-([0-9]|review)`, '--format=@%ct', '--name-only']).stdout) || '';
+  let ts = 0, cur = 0;
+  for (const line of out.split('\n').map((l) => l.trim()).filter(Boolean)) {
+    if (line.startsWith('@')) { cur = Number(line.slice(1)) || 0; continue; }
+    if (!line.startsWith('.planning/') && !line.startsWith('docs/') && cur > ts) ts = cur;
+  }
+  return ts;
+}
+
+// A record's time: its last commit when tracked and clean, else its mtime.
+function recordTs(execGit, cwd, file) {
+  const rel = path.relative(cwd, file);
+  const dirty = (execGit(cwd, ['status', '--porcelain', '--', rel]).stdout || '').trim() !== '';
+  const committed = Number((execGit(cwd, ['log', '-1', '--format=%ct', '--', rel]).stdout || '').trim()) || 0;
+  return dirty || !committed ? Math.floor(fs.statSync(file).mtimeMs / 1000) : committed;
+}
+
+function staleRecordErrors(execGit, cwd, phaseDir, phaseNumber, names) {
+  const src = lastSourceCommitTs(execGit, cwd, phaseNumber);
+  if (src === 0) return [];
+  return names.filter((n) => fs.existsSync(path.join(phaseDir, n)) && recordTs(execGit, cwd, path.join(phaseDir, n)) < src)
+    .map((n) => `${n} is older than the phase's last source commit: the fix re-check agent updates it (status or count) and commits it after the fix (rigour.md rule 12)`);
 }
 
 // Spike: `criteria_decided: n/m` (exit criteria with a decided pass or fail); with n = 0 the headline is `undecided`.
@@ -43,7 +78,7 @@ function criteriaErrors(data, name) {
 // The merged final review (spike) and every final review: the VERIFICATION frontmatter carries `open_critical_high` and `ruled_by`.
 // `closedEarlier`: the phase has a phase_complete event, so the "must carry the field" rule (newer than the phase) is skipped;
 // a field that is present is judged always.
-function verificationReviewErrors(verification, spike, closedEarlier = false) {
+function verificationReviewErrors(verification, spike, closedEarlier = false, ledgerIds) {
   if (!verification || !verification.exists) return [];
   const data = verification.data || {};
   const open = countOf(data.open_critical_high);
@@ -53,8 +88,10 @@ function verificationReviewErrors(verification, spike, closedEarlier = false) {
   if (open === undefined) return spike && !closedEarlier ? [`${name} frontmatter must carry open_critical_high (a whole count): at spike it is the review record`, ...errors] : [];
   if (!Number.isInteger(open) || open < 0) return [`${name} open_critical_high must be a whole count, not ${JSON.stringify(data.open_critical_high)}`, ...errors];
   if (bad(ruled).length > 0) return [`${name} ruled_by must list ruling ids like D-12, not ${bad(ruled).join(', ')}`, ...errors];
+  const unknown = unknownRulings(ruled, ledgerIds);
+  if (unknown.length > 0) return [`${name} ruled_by ${unknown.join(', ')} not in the decisions ledger`, ...errors];
   if (open > 0 && ruled.length === 0) return [`${name} has open_critical_high ${open} and no ruling id in ruled_by: after the one fix dispatch close a fixed finding from disk evidence (fixed_by commit + re-run rc) and lower the count, or have ONE ruling dispatch on ruling_model rule on it`, ...errors];
   return errors;
 }
 
-module.exports = { reviewErrors, verificationReviewErrors };
+module.exports = { reviewErrors, verificationReviewErrors, staleRecordErrors, lastSourceCommitTs };

@@ -7148,14 +7148,16 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles, opts =
   }
   // A spike has no separate review file: its {N}-VERIFICATION.md (the merged final review) is the record, checked below.
   const spike = rigour.resolveRigour(cwd, phaseNumber, getMilestoneInfo(cwd).version).rigour === 'spike';
+  const ledgerIds = new Set(require('./decisions.js').load(path.join(cwd, '.planning', 'DECISIONS.jsonl')).records.map((r) => r.id));
   // A phase closed earlier (a `phase_complete` event, or checked in the ROADMAP when the one-time `gate_baseline` was taken) was
   // closed under the rules of its time: the review and answer-table rules judge only phases still open.
   const closedEarlier = closedPhaseKeys(cwd).has(dispatch.phaseKey(phaseNumber));
-  if (!spike && !closedEarlier && !opts.preVerifier) errors.push(...reviewGate.reviewErrors(phaseDir, dirFiles, touched, { risk: riskAddons(cwd, phaseNumber, 'standard') }));
+  const verification = readPhaseVerification(phaseDir, phaseNumber);
+  if (!spike && !closedEarlier && !opts.preVerifier) errors.push(...reviewGate.reviewErrors(phaseDir, dirFiles, touched, { risk: riskAddons(cwd, phaseNumber, 'standard'), phaseNumber, ledgerIds, verificationOpen: verification.exists ? Number(verification.data.open_critical_high) : undefined }));
   // The verifier writes the answer table, so the pre-verifier gate cannot demand it; the final gate does.
   if (spike && !closedEarlier) errors.push(...spikeCheck.answerTableErrors(cwd, phaseDir, dirFiles, { requireTable: !opts.preVerifier }));
-  const verification = readPhaseVerification(phaseDir, phaseNumber);
-  if (!opts.preVerifier) errors.push(...reviewGate.verificationReviewErrors(verification, spike, closedEarlier));
+  if (!opts.preVerifier) errors.push(...reviewGate.verificationReviewErrors(verification, spike, closedEarlier, ledgerIds));
+  if (!opts.preVerifier && !closedEarlier) errors.push(...reviewGate.staleRecordErrors(execGit, cwd, phaseDir, phaseNumber, [`${phaseNumber}-VERIFICATION.md`, ...(spike ? [] : [`${phaseNumber}-REVIEW.md`])]));
   // Pre-verifier mode: the verifier produces this artifact, so demanding it earlier is circular.
   if (opts.preVerifier) {
     // intentionally no verification-artifact error
@@ -11159,7 +11161,10 @@ function phaseRiskFields(cwd, phase) {
 // The one rule for the risk-domain add-ons (references/rigour.md): a standard phase that declares risk domains.
 // Prose and the budget class key on this value only.
 function riskAddons(cwd, phase, level) {
-  return level !== 'spike' && (phaseRiskFields(cwd, phase).phase_risk_domains.length > 0);
+  if (level === 'spike') return false;
+  const r = rigour.phaseRiskDomains(cwd, phase, projectContext.riskDomainsFor(cwd));
+  // fail closed: a **Risk domains:** line naming only unknown tokens (a typo) still gets the add-ons
+  return phaseRiskFields(cwd, phase).phase_risk_domains.length > 0 || r.unknown.length > 0;
 }
 
 function initRiskFields(cwd, phase) {

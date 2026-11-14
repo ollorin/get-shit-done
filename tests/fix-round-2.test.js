@@ -101,6 +101,7 @@ describe('N6 the review is a disk check: {N}-REVIEW.md frontmatter', () => {
   test('open CRITICAL/HIGH with a ruling id recorded: passes', () => {
     const { dir, pd } = executed();
     review(pd, 'reviewer_role: final\npasses: 1\nopen_critical_high: 1\nruled_by: [D-12]');
+    write(dir, '.planning/DECISIONS.jsonl', '{"id":"D-12","kind":"decision","ts":"2026-01-01T00:00:00.000Z"}\n');
     assert.deepStrictEqual(reviewErr(gate(dir)), []);
   });
   test('clean record passes', () => {

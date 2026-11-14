@@ -1,0 +1,107 @@
+'use strict';
+// Review gate (R7-4/5/6/18, R7-2/3 freshness): behaviour of `verify phase-gate`, not prose.
+const { test, describe, afterEach } = require('node:test');
+const assert = require('node:assert');
+const fs = require('fs');
+const path = require('path');
+const { execFileSync } = require('child_process');
+const { makeProject, gsd, git, phaseDir } = require('./helpers/roadmap-fixture.js');
+
+const dirs = [];
+afterEach(() => { while (dirs.length) fs.rmSync(dirs.pop(), { recursive: true, force: true }); });
+const write = (dir, rel, text) => { fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true }); fs.writeFileSync(path.join(dir, rel), text); };
+const fm = (body) => `---\n${body}\n---\n# R\n`;
+
+function executed(riskLine) {
+  const dir = makeProject([{ n: '1', name: 'one' }]);
+  dirs.push(dir);
+  if (riskLine) {
+    const f = path.join(dir, '.planning', 'ROADMAP.md');
+    fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace(/\*\*Risk domains:\*\*[^\n]*/, riskLine));
+  }
+  const pd = path.relative(dir, phaseDir(dir, 1));
+  write(dir, `${pd}/01-01-PLAN.md`, '---\nphase: 01\nplan: "01"\nfiles_modified: [src/a.js]\n---\n# Plan\n');
+  write(dir, `${pd}/01-01-SUMMARY.md`, '# Summary\n\n## Self-Check: PASSED\n');
+  write(dir, `${pd}/01-VERIFICATION.md`, '---\nstatus: passed\n---\n# V\n');
+  write(dir, 'src/a.js', 'x');
+  git(dir, 'add', '-A');
+  git(dir, 'commit', '-q', '-m', 'feat(01-01): work');
+  return { dir, pd: phaseDir(dir, 1), rel: pd };
+}
+const gate = (dir, ...extra) => gsd(dir, ['verify', 'phase-gate', '1', ...extra]).json;
+const errs = (j, re) => j.work_errors.filter((e) => re.test(e));
+
+describe('R7-4 the record is exactly {N}-REVIEW.md', () => {
+  test('a clean sibling *-REVIEW.md does not mask the real record', () => {
+    const { dir, pd } = executed();
+    write(pd, '01-REVIEW.md', fm('reviewer_role: final\npasses: 1\nopen_critical_high: 2'));
+    write(pd, '01-01-UI-REVIEW.md', fm('reviewer_role: ui\npasses: 1\nopen_critical_high: 0'));
+    assert.strictEqual(errs(gate(dir), /01-REVIEW\.md[^\n]*open_critical_high 2/).length, 1);
+  });
+});
+
+describe('R7-5 ruled_by ids must exist in the ledger; counts agree', () => {
+  test('an invented ruling id is a work error, a ledger row makes it pass', () => {
+    const { dir, pd } = executed();
+    write(pd, '01-REVIEW.md', fm('reviewer_role: final\npasses: 1\nopen_critical_high: 3\nruled_by: [D-9999]'));
+    write(pd, '01-VERIFICATION.md', '---\nstatus: passed\nopen_critical_high: 3\nruled_by: [D-9999]\n---\n# V\n');
+    assert.ok(errs(gate(dir), /D-9999 not in the decisions ledger/).length >= 1);
+    write(dir, '.planning/DECISIONS.jsonl', '{"id":"D-9999","kind":"decision","ts":"2026-01-01T00:00:00.000Z"}\n');
+    assert.deepStrictEqual(errs(gate(dir), /REVIEW|ledger|differs/), []);
+  });
+  test('REVIEW and VERIFICATION counts that differ are a work error', () => {
+    const { dir, pd } = executed();
+    write(pd, '01-REVIEW.md', fm('reviewer_role: final\npasses: 1\nopen_critical_high: 0'));
+    write(pd, '01-VERIFICATION.md', '---\nstatus: passed\nopen_critical_high: 1\nruled_by: [D-1]\n---\n# V\n');
+    write(dir, '.planning/DECISIONS.jsonl', '{"id":"D-1","kind":"decision","ts":"2026-01-01T00:00:00.000Z"}\n');
+    assert.strictEqual(errs(gate(dir), /differs from VERIFICATION/).length, 1);
+  });
+});
+
+describe('R7-6 / R7-18 risk add-ons wiring', () => {
+  for (const token of ['auth', 'authn']) {
+    test(`**Risk domains:** ${token}: passes 1 fails the gate, --pre-verifier skips it, passes 2 passes`, () => {
+      const { dir, pd } = executed(`**Risk domains:** ${token}`);
+      write(pd, '01-REVIEW.md', fm('reviewer_role: final\npasses: 1\nopen_critical_high: 0'));
+      assert.strictEqual(errs(gate(dir), /needs pass 2/).length, 1);
+      assert.deepStrictEqual(errs(gate(dir, '--pre-verifier'), /REVIEW/), []);
+      write(pd, '01-REVIEW.md', fm('reviewer_role: final\npasses: 2\nopen_critical_high: 0'));
+      assert.deepStrictEqual(errs(gate(dir), /REVIEW/), []);
+    });
+  }
+  test('a missing reviewer_role and an unparseable record are work errors', () => {
+    const { dir, pd } = executed();
+    write(pd, '01-REVIEW.md', fm('passes: 1\nopen_critical_high: 0'));
+    assert.strictEqual(errs(gate(dir), /reviewer_role/).length, 1);
+    write(pd, '01-REVIEW.md', '---\n: : [\n---\n');
+    assert.strictEqual(errs(gate(dir), /REVIEW/).length, 1);
+  });
+});
+
+describe('R7-2/3 records older than the last source commit are stale; docs-only commits do not stale them', () => {
+  const commitAt = (dir, msg, plusSeconds) => {
+    const d = `${Math.floor(Date.now() / 1000) + plusSeconds} +0000`;
+    execFileSync('git', ['commit', '-q', '-m', msg], { cwd: dir, env: { ...process.env, GIT_AUTHOR_DATE: d, GIT_COMMITTER_DATE: d } });
+  };
+  test('a fix commit after the record stales it until the record is rewritten; a docs commit does not', () => {
+    const { dir, pd, rel } = executed();
+    write(pd, '01-REVIEW.md', fm('reviewer_role: final\npasses: 1\nopen_critical_high: 0'));
+    git(dir, 'add', '-A');
+    commitAt(dir, 'docs(phase-1): record verification', 3600);
+    write(dir, 'docs/guide.md', 'd');
+    git(dir, 'add', '-A');
+    commitAt(dir, 'docs(01-01): guide', 7200);
+    assert.deepStrictEqual(errs(gate(dir), /older than/), [], 'docs-only commit');
+    write(dir, 'src/a.js', 'fixed');
+    git(dir, 'add', '-A');
+    commitAt(dir, 'fix(01-review): finding', 10800);
+    const j = gate(dir);
+    assert.strictEqual(errs(j, /01-REVIEW\.md is older/).length, 1);
+    assert.strictEqual(errs(j, /01-VERIFICATION\.md is older/).length, 1);
+    write(dir, `${rel}/01-REVIEW.md`, fm('reviewer_role: final\npasses: 1\nopen_critical_high: 0') + 'F-1 closed fixed_by: abc\n');
+    write(dir, `${rel}/01-VERIFICATION.md`, '---\nstatus: passed\n---\n# V\nre-checked\n');
+    git(dir, 'add', '-A');
+    commitAt(dir, 'docs(phase-1): re-check', 14400);
+    assert.deepStrictEqual(errs(gate(dir), /older than/), []);
+  });
+});
