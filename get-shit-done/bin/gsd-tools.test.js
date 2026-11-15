@@ -10502,7 +10502,6 @@ describe('Phase 52-02: telemetry append/summarize', () => {
     const result = summarizeTelemetryReports([]);
     assert.deepStrictEqual(result, {
       count: 0,
-      avg_context_pressure: null,
       total_tool_errors_swallowed: 0,
       instructions_not_followed_by_rule: {},
       top_ambiguities: [],
@@ -10518,17 +10517,6 @@ describe('Phase 52-02: telemetry append/summarize', () => {
     const result = summarizeTelemetryReports(reports);
     assert.strictEqual(result.instructions_not_followed_by_rule['rule-A'], 3);
     assert.strictEqual(result.instructions_not_followed_by_rule['rule-B'], 2);
-  });
-
-  test('avg_context_pressure only averages over reports where context_pressure is a number (nulls/missing excluded, not treated as 0)', () => {
-    const reports = [
-      { context_pressure: 0.5 },
-      { context_pressure: null },
-      { context_pressure: 0.9 },
-      {}, // missing entirely
-    ];
-    const result = summarizeTelemetryReports(reports);
-    assert.strictEqual(result.avg_context_pressure, 0.7);
   });
 
   test('total_tool_errors_swallowed sums across all reports', () => {
@@ -10575,13 +10563,11 @@ describe('Phase 52-02: telemetry append/summarize', () => {
 
     test('appends 2 reports, reads them back with correct shape and field values', () => {
       appendTelemetryReport(tmpDir, 'gsd-executor', '52', {
-        context_pressure: 0.4,
         instructions_not_followed: [{ rule: 'Rule 1', why: 'test' }],
         ambiguities: ['unclear thing'],
         tool_errors_swallowed: 1,
       });
       appendTelemetryReport(tmpDir, 'gsd-verifier', '52', {
-        context_pressure: 0.6,
         instructions_not_followed: [],
         ambiguities: [],
         tool_errors_swallowed: 0,
@@ -10591,7 +10577,6 @@ describe('Phase 52-02: telemetry append/summarize', () => {
       assert.strictEqual(reports.length, 2);
       assert.strictEqual(reports[0].agent, 'gsd-executor');
       assert.strictEqual(reports[0].phase, '52');
-      assert.strictEqual(reports[0].context_pressure, 0.4);
       assert.deepStrictEqual(reports[0].instructions_not_followed, [{ rule: 'Rule 1', why: 'test' }]);
       assert.deepStrictEqual(reports[0].ambiguities, ['unclear thing']);
       assert.strictEqual(reports[0].tool_errors_swallowed, 1);
@@ -10610,26 +10595,24 @@ describe('Phase 52-02: telemetry append/summarize', () => {
       assert.ok(reports[0].timestamp.length > 0);
     });
 
-    test('omitting instructions_not_followed/ambiguities/tool_errors_swallowed/context_pressure entirely gets safe defaults, never undefined', () => {
+    test('omitting instructions_not_followed/ambiguities/tool_errors_swallowed entirely gets safe defaults, never undefined', () => {
       appendTelemetryReport(tmpDir, 'gsd-executor', '52', {});
       const reports = readTelemetryReports(tmpDir);
       assert.strictEqual(reports.length, 1);
-      assert.strictEqual(reports[0].context_pressure, null);
       assert.deepStrictEqual(reports[0].instructions_not_followed, []);
       assert.deepStrictEqual(reports[0].ambiguities, []);
       assert.strictEqual(reports[0].tool_errors_swallowed, 0);
       // Never undefined
-      assert.notStrictEqual(reports[0].context_pressure, undefined);
       assert.notStrictEqual(reports[0].instructions_not_followed, undefined);
       assert.notStrictEqual(reports[0].ambiguities, undefined);
       assert.notStrictEqual(reports[0].tool_errors_swallowed, undefined);
     });
 
     test('a malformed line manually injected into the JSONL file is skipped (with a warning), remaining valid lines still returned', () => {
-      appendTelemetryReport(tmpDir, 'gsd-executor', '52', { context_pressure: 0.3 });
+      appendTelemetryReport(tmpDir, 'gsd-executor', '52', {});
       const telemetryPath = path.join(tmpDir, '.planning', 'telemetry', 'agent-reports.jsonl');
       fs.appendFileSync(telemetryPath, 'NOT VALID JSON\n');
-      appendTelemetryReport(tmpDir, 'gsd-verifier', '52', { context_pressure: 0.5 });
+      appendTelemetryReport(tmpDir, 'gsd-verifier', '52', {});
 
       const originalWarn = console.warn;
       const warnings = [];
@@ -10660,7 +10643,7 @@ describe('Phase 52-02: telemetry append/summarize', () => {
 
     test('telemetry append followed by telemetry summarize reflects appended values', () => {
       const appendResult = runGsdTools(
-        `telemetry append --agent gsd-executor --phase 52 --context-pressure 0.4 --tool-errors-swallowed 2`,
+        `telemetry append --agent gsd-executor --phase 52 --tool-errors-swallowed 2`,
         tmpDir
       );
       assert.ok(appendResult.success, `append should exit 0: ${appendResult.error}`);
@@ -10669,7 +10652,6 @@ describe('Phase 52-02: telemetry append/summarize', () => {
       assert.ok(summarizeResult.success, `summarize should exit 0: ${summarizeResult.error}`);
       const summary = JSON.parse(summarizeResult.output);
       assert.strictEqual(summary.count, 1);
-      assert.strictEqual(summary.avg_context_pressure, 0.4);
       assert.strictEqual(summary.total_tool_errors_swallowed, 2);
     });
   });
@@ -10702,13 +10684,11 @@ describe('Phase 52-02: Self-Report Telemetry (analytics.js section + agent-file 
       delete require.cache[require.resolve(TOOLS_PATH)];
       const { appendTelemetryReport } = require(TOOLS_PATH);
       appendTelemetryReport(tmpDir, 'gsd-executor', '1', {
-        context_pressure: 0.3,
         instructions_not_followed: [{ rule: 'Rule 1', why: 'test' }],
         ambiguities: ['ambiguity A'],
         tool_errors_swallowed: 1,
       });
       appendTelemetryReport(tmpDir, 'gsd-verifier', '1', {
-        context_pressure: 0.7,
         instructions_not_followed: [{ rule: 'Rule 1', why: 'test2' }],
         ambiguities: ['ambiguity A'],
         tool_errors_swallowed: 2,
@@ -10719,7 +10699,6 @@ describe('Phase 52-02: Self-Report Telemetry (analytics.js section + agent-file 
 
       assert.match(report, /## Self-Report Telemetry/);
       assert.match(report, /\| Reports \| 2 \|/);
-      assert.match(report, /Avg context pressure \| 0\.50 \|/);
       assert.match(report, /Total tool errors swallowed \| 3 \|/);
       assert.match(report, /Rule 1: 2/);
       assert.match(report, /ambiguity A \(2\)/);
@@ -10745,7 +10724,7 @@ describe('Phase 52-02: Self-Report Telemetry (analytics.js section + agent-file 
       return readEffectiveAgentContent(path.join(REPO_ROOT, 'agents', name));
     }
 
-    test('gsd-phase-coordinator.md: all 4 field names present inside <return_state> section specifically', () => {
+    test('gsd-phase-coordinator.md: all 3 field names present inside <return_state> section specifically', () => {
       const content = readAgentFile('gsd-phase-coordinator.md');
       const startIdx = content.indexOf('<return_state>');
       const endIdx = content.indexOf('</return_state>');
@@ -10753,7 +10732,7 @@ describe('Phase 52-02: Self-Report Telemetry (analytics.js section + agent-file 
       assert.notStrictEqual(endIdx, -1, '</return_state> must exist');
       const section = content.slice(startIdx, endIdx);
 
-      for (const field of ['context_pressure', 'instructions_not_followed', 'ambiguities', 'tool_errors_swallowed']) {
+      for (const field of ['instructions_not_followed', 'ambiguities', 'tool_errors_swallowed']) {
         assert.match(section, new RegExp(field), `${field} must appear inside <return_state>`);
       }
     });
@@ -10763,7 +10742,7 @@ describe('Phase 52-02: Self-Report Telemetry (analytics.js section + agent-file 
       assert.match(content, /"status": "completed \| failed \| blocked \| gaps_found \| human_needed"/, 'pre-existing status enum literal must not have been removed');
     });
 
-    test('gsd-verifier.md: all 4 field names present inside "## Return to Orchestrator" section specifically', () => {
+    test('gsd-verifier.md: all 3 field names present inside "## Return to Orchestrator" section specifically', () => {
       const content = readAgentFile('gsd-verifier.md');
       const startIdx = content.indexOf('## Return to Orchestrator');
       const endIdx = content.indexOf('</output>', startIdx);
@@ -10771,7 +10750,7 @@ describe('Phase 52-02: Self-Report Telemetry (analytics.js section + agent-file 
       assert.notStrictEqual(endIdx, -1, '</output> boundary after it must exist');
       const section = content.slice(startIdx, endIdx);
 
-      for (const field of ['context_pressure', 'instructions_not_followed', 'ambiguities', 'tool_errors_swallowed']) {
+      for (const field of ['instructions_not_followed', 'ambiguities', 'tool_errors_swallowed']) {
         assert.match(section, new RegExp(field), `${field} must appear inside ## Return to Orchestrator`);
       }
     });
@@ -13602,11 +13581,11 @@ this is not valid yaml: : :
 // the agent drift refresh -- gsd-test-writer.md
 // (about to join the golden path for the first time in Plans 59-02/59-03)
 // both gain a <content_firewall> block (mirroring gsd-executor.md's exact
-// convention) and the MILE-26 4-field telemetry self-report line.
+// convention) and the MILE-26 3-field telemetry self-report line.
 describe('Phase 59-01: agent drift refresh (content_firewall + telemetry)', () => {
   const REPO_ROOT = path.join(__dirname, '..', '..');
   const TEST_WRITER_PATH = path.join(REPO_ROOT, 'agents', 'gsd-test-writer.md');
-  const TELEMETRY_LINE = '**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed=[{rule, why}, ...], ambiguities={count}, tool_errors_swallowed={count}';
+  const TELEMETRY_LINE = '**Telemetry:** instructions_not_followed=[{rule, why}, ...], ambiguities={count}, tool_errors_swallowed={count}';
 
   function readRepoFile(relPath) {
     return fs.readFileSync(relPath, 'utf-8');
@@ -13621,9 +13600,9 @@ describe('Phase 59-01: agent drift refresh (content_firewall + telemetry)', () =
     assert.ok(content.includes('content-firewall.md'), 'expected gsd-test-writer.md to point at the content-firewall.md convention');
   });
 
-  test('gsd-test-writer.md gains the exact MILE-26 4-field telemetry self-report line', () => {
+  test('gsd-test-writer.md gains the exact MILE-26 3-field telemetry self-report line', () => {
     const content = readRepoFile(TEST_WRITER_PATH);
-    assert.ok(content.includes(TELEMETRY_LINE), 'expected gsd-test-writer.md to contain the exact 4-field telemetry line');
+    assert.ok(content.includes(TELEMETRY_LINE), 'expected gsd-test-writer.md to contain the exact 3-field telemetry line');
   });
 
   test('gsd-planner.md and gsd-debugger.md now carry a <content_firewall> block (B-6 coverage extension)', () => {

@@ -238,7 +238,6 @@ function generateReport(projectPath) {
     lines.push(`| Metric | Value |`);
     lines.push(`|--------|-------|`);
     lines.push(`| Reports | ${summary.count} |`);
-    lines.push(`| Avg context pressure | ${summary.avg_context_pressure !== null ? summary.avg_context_pressure.toFixed(2) : 'N/A'} |`);
     lines.push(`| Total tool errors swallowed | ${summary.total_tool_errors_swallowed} |`);
     lines.push('');
     const rules = Object.entries(summary.instructions_not_followed_by_rule);

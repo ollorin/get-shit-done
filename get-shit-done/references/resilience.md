@@ -88,9 +88,9 @@ Written by the **coordinator** (`workflows/execute-phase.md`), not the executor,
 
 Full text lives in `<executor_resilience_protocol>` in `references/executor-detail.md` — this is a summary.
 
-At every task boundary the executor self-assesses context pressure (best-effort estimate — no tool call, just weighing tool output volume / files read / tasks done vs. remaining). At **>= 80% estimated usage with tasks still remaining**, it STOPS at the boundary: writes EXECUTOR-HANDOFF.json + TASK-CHECKPOINT.json, commits them, and returns `## PLAN INTERRUPTED — continuation needed` instead of `## PLAN COMPLETE`.
+At every task boundary the executor judges whether its window is close to full (no tool call, no numeric threshold, no reported number: it weighs tool output volume / files read / tasks done vs. remaining). When it judges so with tasks still remaining, it STOPS at the boundary: writes EXECUTOR-HANDOFF.json + TASK-CHECKPOINT.json, commits them, and returns `## PLAN INTERRUPTED — continuation needed` instead of `## PLAN COMPLETE`.
 
-**This is correct behavior, not a failure.** The failure this exists to prevent is pushing past 80% and dying mid-task with no handoff — that loses uncommitted work and forces the coordinator to fall back to a coarser, less certain recovery path (TASK-CHECKPOINT.json alone, or worse, nothing).
+**This is correct behavior, not a failure.** The failure this exists to prevent is pushing past a near-full window and dying mid-task with no handoff — that loses uncommitted work and forces the coordinator to fall back to a coarser, less certain recovery path (TASK-CHECKPOINT.json alone, or worse, nothing).
 
 ---
 
