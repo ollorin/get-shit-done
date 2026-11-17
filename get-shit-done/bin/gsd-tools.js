@@ -11415,9 +11415,13 @@ function cmdInitExecutePhase(cwd, phase, includes, raw, gate) {
     executor_model: executorModelFor(cwd, phase),
     verifier_model: resolveModelInternal(cwd, 'gsd-verifier'),
     // The final phase review and rulings run on the configured top model (models.top).
+  const stackLock = projectContext.stackLockFields(cwd);
+  if (stackLock.stack_rule_missing && stackLock.stack_lock_enforced) error(stackLock.stack_notice);
+  if (stackLock.stack_notice) process.stderr.write(`Notice: ${stackLock.stack_notice}\n`);
     ...topModelFields(cwd),
     utility_model: readRawConfig(cwd).utility_model || 'haiku',
     reviewer_model: readRawConfig(cwd).reviewer_model || 'sonnet',
+    ...stackLock,
     base_branch: resolveBaseBranch(cwd),
     ui_qa_mode: projectContext.uiQaMode(cwd),
 
@@ -14868,6 +14872,14 @@ async function main() {
       } else {
         cmdBudget(args.slice(1), raw);
       }
+    case 'stack': {
+      if (args[1] !== 'require-lock') error('Unknown stack subcommand. Available: require-lock');
+      const r = projectContext.requireStackLock(cwd, process.env);
+      if (!r.ok) error(r.error);
+      output(r, raw);
+      break;
+    }
+
       break;
     }
 

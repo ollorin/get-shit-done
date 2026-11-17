@@ -215,4 +215,18 @@ function gateStderr(gate) {
   return `project_context_missing: ${keys.join(', ')}; check with \`gsd-tools profile check\`, run /gsd:init-project, pass --legacy to this init call, or export GSD_LEGACY=1 (the flag does not reach spawned agents)`;
 }
 
-module.exports = { contextFields, effectiveRiskDomains, riskDomainsFor, availablePresets, adoptBrief, contextGate, gateFailure, gateStderr, uiQaMode, testCommandConfigured };
+const SHARED_STACK_RULE = '.claude/rules/shared-stack.md';
+const rawConfigOf = (cwd) => { try { return JSON.parse(fs.readFileSync(path.join(cwd, '.planning', 'config.json'), 'utf8')) || {}; } catch { return {}; } };
+// Opt-in: `workflow.stack_lock.enforce: true` in .planning/config.json makes a missing shared-stack rule file an init error and makes
+// `gsd-tools stack require-lock` fail unless STACK_LOCK_HELD=1; without it a missing rule file is only a notice.
+function stackLockFields(cwd) {
+  const lockDir = getProfileValue(readProfile(cwd), 'stack.isolation.lock_dir');
+  const enforce = ((rawConfigOf(cwd).workflow || {}).stack_lock || {}).enforce === true;
+  const missing = typeof lockDir === 'string' && lockDir !== '' && !isPresent(path.join(cwd, SHARED_STACK_RULE));
+  return { stack_lock_enforced: enforce, stack_rule_missing: missing, ...(missing ? { stack_notice: `stack.isolation.lock_dir is set but ${SHARED_STACK_RULE} is missing: the live-window rules the workflows cite are not in this project` } : {}) };
+}
+const requireStackLock = (cwd, env) => (stackLockFields(cwd).stack_lock_enforced && env.STACK_LOCK_HELD !== '1'
+  ? { ok: false, error: 'stack lock not held: run this under `scripts/stack-lock.sh --label <name> -- <command>` (workflow.stack_lock.enforce is on)' }
+  : { ok: true });
+
+module.exports = { stackLockFields, requireStackLock, contextFields, effectiveRiskDomains, riskDomainsFor, availablePresets, adoptBrief, contextGate, gateFailure, gateStderr, uiQaMode, testCommandConfigured };
