@@ -126,12 +126,18 @@ describe('dispatch CLI', () => {
     assert.match(log, /"type":"dispatch_end"[^\n]*"stale":true[^\n]*session died/);
     assert.strictEqual((log.match(/"type":"dispatch_begin"/g) || []).length, 2);
   });
-  test('roadmap record --result completed on a phase not complete is a gap cycle, and complete is a usage error with no event', () => {
-    const r = run(['roadmap', 'record', '--phase', '1', '--result', 'complete']);
-    assert.notStrictEqual(r.status, 0);
-    assert.match(r.stderr, /not a status/);
+  test('roadmap record maps a bare status synonym on an incomplete phase to the real result; only "deferred" is rejected, naming the JSON form', () => {
     const log = path.join(dir, '.planning', 'EXECUTION_LOG.md');
-    assert.ok(!fs.existsSync(log) || !/phase_retry/.test(fs.readFileSync(log, 'utf8')));
+    const r = run(['roadmap', 'record', '--phase', '1', '--result', 'complete']);
+    assert.strictEqual(r.status, 0, r.stderr);
+    assert.match(r.stdout, /gap_cycle|incomplete|"action"/);
+    assert.match(fs.readFileSync(log, 'utf8'), /phase_incomplete/);
+    assert.ok(!/phase_complete/.test(fs.readFileSync(log, 'utf8')));
+    const retry = run(['roadmap', 'record', '--phase', '1', '--result', 'retry']);
+    assert.strictEqual(retry.status, 0, retry.stderr);
+    const d = run(['roadmap', 'record', '--phase', '1', '--result', 'deferred']);
+    assert.notStrictEqual(d.status, 0);
+    assert.match(d.stderr, /completed_with_deferrals/);
   });
 });
 

@@ -85,14 +85,19 @@ describe('record', () => {
     assert.strictEqual(second.action, 'park');
     assert.ok(second.events.some(e => e.type === 'phase_parked'));
   });
-  test('a bare status word is parsed; a near-miss word is a usage error that logs nothing; text over a complete phase never walks the ladder', () => {
+  test('a bare status word or synonym is read as its status; text over a complete phase never walks the ladder; only "deferred" on an incomplete phase is a usage error', () => {
     const ladder = () => { throw new Error('ladder must not run'); };
     const done = { complete: true, errors: [] };
+    const open = { complete: false, errors: ['x'] };
     assert.strictEqual(rec('completed', done, [], ladder).action, 'complete');
-    assert.strictEqual(rec('completed', { complete: false, errors: ['x'] }).action, 'gap_cycle');
-    const bad = rec('complete', done, [], ladder);
+    assert.strictEqual(rec('completed', open).action, 'gap_cycle');
+    for (const w of ['complete', 'done', 'ok', 'retry', 'deferred', 'gaps']) assert.strictEqual(rec(w, done, [], ladder).action, 'complete', w);
+    for (const w of ['complete', 'done', 'ok', 'gaps']) assert.strictEqual(rec(w, open).action, 'gap_cycle', w);
+    const retry = rec('retry', open, [], () => ({ action: 'retry', attempts: 1 }));
+    assert.deepStrictEqual([retry.action, retry.events[0].type], ['retry', 'phase_retry']);
+    const bad = rec('deferred', open, [], ladder);
     assert.deepStrictEqual([bad.action, bad.events], [undefined, []]);
-    assert.match(bad.usage_error, /not a status/);
+    assert.match(bad.usage_error, /completed_with_deferrals/);
     assert.strictEqual(rec('agent exploded', done, [], ladder).action, 'complete');
     assert.strictEqual(rec('agent exploded', { complete: false, errors: [] }, [], () => ({ action: 'retry', attempts: 1 })).events[0].type, 'phase_retry');
   });
