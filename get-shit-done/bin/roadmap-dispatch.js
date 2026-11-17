@@ -197,6 +197,10 @@ function record(input) {
   if (typeof result === 'string') {
     try { result = JSON.parse(result); } catch { /* keep text */ }
   }
+  if (typeof result === 'string' && STATUS_WORDS.has(result.trim())) result = { status: result.trim() };
+  if (typeof result === 'string' && STATUS_ALIASES.test(result.trim())) {
+    return { phase: k, events: [], usage_error: `roadmap record: --result "${result.trim()}" is not a status; pass JSON {"status":"completed|gaps_found|completed_with_deferrals|blocked|human_needed|failed"} or the bare status word` };
+  }
   if (typeof result === 'string' || result == null) {
     const text = String(result == null ? '' : result);
     if (DEATH_RE.test(text)) {
@@ -237,7 +241,12 @@ const formOnly = (truth) => Array.isArray(truth.work_errors) && truth.work_error
 const completeAction = (k, truth) => ({ phase: k, action: 'complete', ...(Array.isArray(truth.form_debt) && truth.form_debt.length > 0 ? { form_debt: truth.form_debt } : {}), events: [{ type: 'phase_complete', phase: k }] });
 const formDebtAction = (k, truth) => ({ phase: k, action: 'complete_form_debt', command: `phase complete ${k} --form-debt`, form_errors: truth.form_errors, events: [] });
 
+const STATUS_WORDS = new Set(['completed', 'gaps_found', 'completed_with_deferrals', 'blocked', 'human_needed', 'failed']);
+const STATUS_ALIASES = /^(complete|done|success|succeeded|ok|passed|pass|finished|gaps|deferred|retry)$/i;
+
+// Disk is truth: a failure report over a phase that is already complete on disk is no failure and never walks the ladder.
 function failure(input, k, error, step) {
+  if (input.truth && input.truth.complete) return completeAction(k, input.truth);
   const ladder = typeof input.ladder === 'function' ? input.ladder(k, error, step) : { action: 'escalate' };
   if (ladder.action === 'retry' || ladder.action === 'debug') {
     return { phase: k, action: ladder.action, attempts: ladder.attempts, events: [{ type: 'phase_retry', phase: k, ladder: ladder.action, error }] };

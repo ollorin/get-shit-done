@@ -232,6 +232,7 @@ const autoModeFields = (cwd) => resolveAutoMode(cwd, process.argv.slice(2), proc
 const rigour = require('./rigour.js');
 const topModel = require('./top-model.js');
 const phaseBudget = require('./phase-budget.js');
+const dispatchLease = require('./dispatch-lease.js');
 const formCheck = require('./form-check.js');
 const reviewGate = require('./review-gate.js');
 const spikeCheck = require('./spike-check.js');
@@ -12348,6 +12349,7 @@ function cmdInitExecuteRoadmap(cwd, raw) {
 // owner-gate request|status|approve|reject --kind composition|roadmap|pr [--milestone V] [--summary S] [--revise] [--spike-phases N,M --spike-roots p,q] [--by W] [--note N] [--owner-confirmed]
 // approve/reject: refused while auto_mode is active unless --owner-confirmed with a --note. The flag is a recorded
 // attestation, not authentication: an unattended agent that passes it has lied in the audit trail, visibly.
+// budget spend is LEGACY: a phase that calls `dispatch begin|end` is budgeted from its leases (dispatch-lease.js) and ignores phase_spend.
 // budget spend --phase N [--step S] [--model M]: logs ONE dispatch (at spawn). budget status --phase N: the coordinator reads it before each new cycle.
 function cmdPhaseBudget(cwd, args, raw) {
   const sub = args[0];
@@ -12361,6 +12363,30 @@ function cmdPhaseBudget(cwd, args, raw) {
     return;
   }
   output(phaseBudgetStatus(cwd, phase, readExecutionEvents(cwd)), raw);
+}
+
+// dispatch begin --phase N --role R --id A | end --id A | end --stale A --reason "<text>". A refusal exits 1; only the automatic stale closes it performed are logged.
+function cmdDispatch(cwd, args, raw) {
+  const sub = args[0];
+  const flag = (name) => { const i = args.indexOf(name); return i !== -1 ? args[i + 1] : undefined; };
+  const events = readExecutionEvents(cwd);
+  if (sub === 'begin') {
+    const r = dispatchLease.begin({ cwd, phase: flag('--phase'), role: flag('--role'), id: flag('--id'), events, ttlMin: phaseBudget.ttlMinutes(cwd) });
+    for (const e of r.auto_closed || []) appendEvent(cwd, e);
+    if (r.error) error(r.error);
+    appendEvent(cwd, { type: 'dispatch_begin', phase: r.lease.phase, role: r.lease.role, id: r.lease.id });
+    output({ ...r, logged: true }, raw);
+    return;
+  }
+  if (sub === 'end') {
+    const stale = flag('--stale');
+    const r = dispatchLease.end({ cwd, id: stale || flag('--id'), stale: stale !== undefined, reason: flag('--reason'), events });
+    if (r.error) error(r.error);
+    appendEvent(cwd, dispatchLease.closeEvent(r.lease));
+    output({ ...r, logged: true }, raw);
+    return;
+  }
+  error('Unknown dispatch subcommand. Available: begin, end');
 }
 
 function phaseBudgetStatus(cwd, phase, events) {
@@ -12473,6 +12499,7 @@ function cmdRoadmapRecord(cwd, args, raw) {
       return applied.ok ? { action: applied.result.action, attempts: applied.result.attempts } : { action: 'escalate' };
     },
   });
+  if (out.usage_error) error(out.usage_error);
   if (out.action === 'complete') {
     applyExecutionStateSuccess(cwd, { phase: k });
   }
@@ -14819,6 +14846,11 @@ async function main() {
       const res = reviewGate.stampHead(execGit, cwd, path.resolve(cwd, args[2]), { gate: flag('gate'), paths: flag('paths') });
       if (res.error) error(`capture stamp: ${res.error}`);
       output({ stamped: args[2], head: res.head }, raw, res.head);
+      break;
+    }
+
+    case 'dispatch': {
+      cmdDispatch(cwd, args.slice(1), raw);
       break;
     }
 

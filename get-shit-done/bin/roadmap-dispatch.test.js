@@ -85,6 +85,17 @@ describe('record', () => {
     assert.strictEqual(second.action, 'park');
     assert.ok(second.events.some(e => e.type === 'phase_parked'));
   });
+  test('a bare status word is parsed; a near-miss word is a usage error that logs nothing; text over a complete phase never walks the ladder', () => {
+    const ladder = () => { throw new Error('ladder must not run'); };
+    const done = { complete: true, errors: [] };
+    assert.strictEqual(rec('completed', done, [], ladder).action, 'complete');
+    assert.strictEqual(rec('completed', { complete: false, errors: ['x'] }).action, 'gap_cycle');
+    const bad = rec('complete', done, [], ladder);
+    assert.deepStrictEqual([bad.action, bad.events], [undefined, []]);
+    assert.match(bad.usage_error, /not a status/);
+    assert.strictEqual(rec('agent exploded', done, [], ladder).action, 'complete');
+    assert.strictEqual(rec('agent exploded', { complete: false, errors: [] }, [], () => ({ action: 'retry', attempts: 1 })).events[0].type, 'phase_retry');
+  });
   test('gaps_found follows the same one-cycle rule', () => {
     assert.strictEqual(rec({ status: 'gaps_found' }, { complete: false, errors: [] }).action, 'gap_cycle');
   });
