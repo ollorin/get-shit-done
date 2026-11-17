@@ -15,7 +15,8 @@ const rulings = (data) => (Array.isArray(data.ruled_by) ? data.ruled_by : data.r
 const countOf = (v) => (v === undefined || v === null || v === '' ? undefined : typeof v === 'number' ? v : /^\d+$/.test(String(v).trim()) ? Number(String(v).trim()) : NaN);
 const bad = (ids) => ids.filter((x) => !RULING_ID.test(x));
 
-const cells = (line) => line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
+// A `\|` inside a cell is a literal bar, not a column break.
+const cells = (line) => line.trim().replace(/^\|/, '').replace(/(?<!\\)\|$/, '').split(/(?<!\\)\|/).map((c) => c.replace(/\\\|/g, '|').trim());
 const SEVERITY = { critical: 'ch', crit: 'ch', high: 'ch', med: 'ml', medium: 'ml', low: 'ml' };
 // The findings table: the first table whose header names id, sev, state and owner. null: none; else rows { id, sev, state, owner }.
 function parseFindings(body) {
@@ -24,17 +25,24 @@ function parseFindings(body) {
     if (!/^\s*\|/.test(lines[i]) || !/^\s*\|[\s:|-]+$/.test(lines[i + 1])) continue;
     const head = cells(lines[i]).map((c) => c.toLowerCase());
     const col = { id: head.indexOf('id'), sev: Math.max(head.indexOf('sev'), head.indexOf('severity')), state: head.indexOf('state'), owner: head.indexOf('owner') };
+    const fixCol = ['fix', 'evidence', 'fixed_by', 'fixed by'].map((h) => head.indexOf(h)).find((x) => x >= 0);
     if (Object.values(col).some((x) => x < 0)) continue;
     const rows = [];
     for (let j = i + 2; j < lines.length && /^\s*\|/.test(lines[j]); j += 1) {
       const c = cells(lines[j]);
-      rows.push({ id: c[col.id] || '', sev: (c[col.sev] || '').toLowerCase(), state: (c[col.state] || '').toLowerCase(), owner: c[col.owner] || '' });
+      rows.push({ id: c[col.id] || '', sev: (c[col.sev] || '').toLowerCase(), state: (c[col.state] || '').toLowerCase(), owner: c[col.owner] || '', fix: fixCol === undefined ? '' : c[fixCol] || '' });
     }
     return rows;
   }
   return null;
 }
 const isOpen = (r) => !/^closed\b/.test(r.state);
+
+// Lines of a section that are not inside a ``` / ~~~ fenced block.
+function outsideFences(section) {
+  let fence = false;
+  return section.split('\n').filter((l) => { if (/^\s*(```|~~~)/.test(l)) { fence = !fence; return false; } return !fence; });
+}
 
 // Errors for the findings of a review record; `ledger` Map id -> kind, `phaseSection(phase)` the ROADMAP section text or null.
 function findingErrors(file, rows, { ledger, phaseSection } = {}) {
@@ -43,6 +51,9 @@ function findingErrors(file, rows, { ledger, phaseSection } = {}) {
   if (noId.length > 0) errors.push(`${file} has ${noId.length} findings row(s) with no id`);
   const unknownSev = rows.filter((r) => r.id && !SEVERITY[r.sev]);
   if (unknownSev.length > 0) errors.push(`${file} findings with an unknown severity (CRITICAL, HIGH, MED, LOW): ${unknownSev.map((r) => r.id).join(', ')}`);
+  // A closed row names its proof: a commit sha or a captures/ path in its `fix` (or `evidence`, `fixed_by`) cell, or after `closed` in the state cell.
+  const noEvidence = rows.filter((r) => r.id && SEVERITY[r.sev] && !isOpen(r) && !/(^|[^0-9a-z])(?=[0-9a-f]*\d)[0-9a-f]{7,40}($|[^0-9a-z])|captures\//i.test(`${r.fix} ${r.state}`.replace(/^closed\b/i, '')));
+  if (noEvidence.length > 0) errors.push(`${file} closed findings without an evidence cell (a commit sha or a captures/ path in the fix column): ${noEvidence.map((r) => r.id).join(', ')}`);
   const unowned = [];
   const unruled = [];
   const unrefuted = [];
@@ -56,7 +67,7 @@ function findingErrors(file, rows, { ledger, phaseSection } = {}) {
     if ((d || a) && inLedger) continue;
     const section = /^\d+(\.\d+)?$/.test(owner) && typeof phaseSection === 'function' ? phaseSection(owner) : null;
     const named = new RegExp(`(^|[^\\w-])${r.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\w-])`);
-    if (section && section.split('\n').some((l) => !/^\s*#/.test(l) && /^\s*(\d+[.)]|[-*+])\s/.test(l) && named.test(l))) continue;
+    if (section && outsideFences(section).some((l) => !/^\s*#/.test(l) && /^\s*(\d+[.)]|[-*+])\s/.test(l) && named.test(l))) continue;
     unowned.push(r.id);
   }
   if (unruled.length > 0) errors.push(`${file} open CRITICAL/HIGH findings without a D-NN ruling in the decisions ledger as owner: ${unruled.join(', ')}`);
@@ -157,18 +168,19 @@ function recordTs(execGit, cwd, file) {
 // phase's source files; a `captures/gates.txt` section starts with `# gate=<name> head=<sha> [paths=<a,b>]` (written by
 // `gsd-tools capture stamp`) and proves its `paths` (default: the phase's source files); the newest section per gate counts.
 // An unstamped record keeps the older file-time rule (mtimeStaleErrors); an unstamped gates.txt is not checked.
-const SECTION = /^# gate=(\S+) head=([0-9a-f]{7,40})(?: paths=(\S+))?[ \t]*$/gm;
+const SECTION = /^# gate=(\S+) head=([0-9a-f]{7,40})(?: paths=(\S+))?[ \t\r]*$/gm;
 const inScope = (file, paths) => paths.some((p) => file === p || file.startsWith(`${p.replace(/\/+$/, '')}/`));
 const proven = (touched) => (touched || []).filter((f) => !f.startsWith('.planning/') && !f.startsWith('docs/'));
 
 function headDrift(execGit, cwd, head, scope) {
-  const r = execGit(cwd, ['diff', '--name-only', `${head}..HEAD`]);
+  const r = execGit(cwd, ['diff', '--name-only', '--no-renames', `${head}..HEAD`]);
   if (r.exitCode !== 0) return { error: `head ${head} is not a commit of this repository` };
   return { files: (r.stdout || '').split('\n').map((f) => f.trim()).filter((f) => f && scope(f)) };
 }
 
 function staleRecordErrors(execGit, cwd, phaseDir, phaseNumber, names, touched) {
-  const src = proven(touched);
+  // Proven = every file of every phase-tagged commit (plan tags and fix(N-...) tags), so a file first added by a review fix goes stale too.
+  const src = proven([...(touched || []), ...phaseCommits(execGit, cwd, phaseNumber).flatMap((c) => c.files)]);
   const errors = [];
   const unstamped = [];
   for (const n of names) {
@@ -185,7 +197,12 @@ function staleRecordErrors(execGit, cwd, phaseDir, phaseNumber, names, touched) 
   const gates = path.join(phaseDir, 'captures', 'gates.txt');
   if (fs.existsSync(gates)) {
     const newest = new Map();
-    for (const m of fs.readFileSync(gates, 'utf8').matchAll(SECTION)) newest.set(m[1], { head: m[2], paths: m[3] ? m[3].split(',') : null });
+    const text = fs.readFileSync(gates, 'utf8');
+    for (const m of text.matchAll(SECTION)) newest.set(m[1], { head: m[2], paths: m[3] ? m[3].split(',') : null });
+    // Parse or fail: a `# gate=` line that does not match the stamp format would otherwise leave its section unchecked.
+    const declared = text.split('\n').filter((l) => /^# gate=/.test(l));
+    const parsed = [...text.matchAll(SECTION)].length;
+    if (declared.length !== parsed) errors.push(`gates.txt has ${declared.length - parsed} "# gate=" line(s) that do not parse (expected \`# gate=<name> head=<lowercase sha> [paths=<a,b>]\`, no spaces in paths): ${declared.filter((l) => !/^# gate=(\S+) head=([0-9a-f]{7,40})(?: paths=(\S+))?[ \t\r]*$/.test(l)).slice(0, 2).join(' | ').slice(0, 160)}`);
     for (const [gate, { head, paths }] of newest) {
       const d = headDrift(execGit, cwd, head, paths ? (f) => inScope(f, paths) : (f) => src.includes(f));
       if (d.error) errors.push(`gates.txt section ${gate} ${d.error}`);
@@ -198,16 +215,18 @@ function staleRecordErrors(execGit, cwd, phaseDir, phaseNumber, names, touched) 
 // `gsd-tools capture stamp <file> [--gate <name>] [--paths a,b]`: refuses while tracked source has uncommitted changes (the stamp
 // would name a commit the proof did not run at). An .md record gets frontmatter `head:`; any other file gets a section line.
 function stampHead(execGit, cwd, file, { gate = 'gates', paths } = {}) {
-  const dirty = (execGit(cwd, ['diff', '--name-only', 'HEAD']).stdout || '').split('\n').map((l) => l.trim()).filter((f) => f && !f.startsWith('.planning/') && !f.startsWith('docs/'));
+  const names = (args) => (execGit(cwd, args).stdout || '').split('\n').map((l) => l.trim()).filter((f) => f && !f.startsWith('.planning/') && !f.startsWith('docs/'));
+  const dirty = [...names(['diff', '--name-only', 'HEAD']), ...names(['ls-files', '--others', '--exclude-standard'])];
   if (dirty.length > 0) return { error: `uncommitted source changes (${dirty.slice(0, 3).join(', ')}): commit them first so the stamp names the commit the proof ran at` };
   const head = (execGit(cwd, ['rev-parse', 'HEAD']).stdout || '').trim();
   if (!/^[0-9a-f]{40}$/.test(head)) return { error: 'cannot read HEAD' };
   const text = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
   if (/\.md$/.test(file)) {
-    const m = text.match(/^---\n([\s\S]*?)\n---\n/);
-    const next = !m ? `---\nhead: ${head}\n---\n${text}`
-      : /^head:.*$/m.test(m[1]) ? text.replace(/^head:.*$/m, `head: ${head}`)
-      : text.replace(m[0], `---\n${m[1]}\nhead: ${head}\n---\n`);
+    const nl = /\r\n/.test(text) ? '\r\n' : '\n';
+    const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/);
+    const next = !m ? `---${nl}head: ${head}${nl}---${nl}${text}`
+      : /^head:.*$/m.test(m[1]) ? text.replace(/^head:[^\r\n]*/m, `head: ${head}`)
+      : text.replace(m[0], `---${nl}${m[1]}${nl}head: ${head}${nl}---${nl}`);
     fs.writeFileSync(file, next);
   } else {
     fs.mkdirSync(path.dirname(file), { recursive: true });

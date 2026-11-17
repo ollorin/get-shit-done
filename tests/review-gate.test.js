@@ -30,8 +30,22 @@ describe('findings table: the open count is computed from rows', () => {
     assert.match(errorsFor('', { header: 'no table here\n' })[0], /no findings table/);
     assert.deepStrictEqual(errorsFor(''), []);
   });
-  test('closed rows pass in any severity', () => {
-    assert.deepStrictEqual(errorsFor('| F-1 | CRITICAL | closed | |\n| F-2 | low | Closed | |\n'), []);
+  test('closed rows pass in any severity when each names its proof: a commit sha or a captures/ path in the fix cell', () => {
+    const header = '| id | sev | state | owner | fix |\n|---|---|---|---|---|\n';
+    assert.deepStrictEqual(errorsFor('| F-1 | CRITICAL | closed | | d4453df |\n| F-2 | low | Closed | | captures/red-sc1.txt |\n', { header }), []);
+    assert.deepStrictEqual(errorsFor('| F-1 | LOW | closed 62fa1b9 | | |\n'), []);
+  });
+  test('a closed row with no evidence cell, prose only, or no fix column is an error', () => {
+    const header = '| id | sev | state | owner | fix |\n|---|---|---|---|---|\n';
+    assert.match(errorsFor('| F-1 | HIGH | closed | | fixed in the last commit |\n', { header })[0], /closed findings without an evidence cell[^\n]*F-1/);
+    assert.match(errorsFor('| F-1 | HIGH | closed | | decade |\n', { header })[0], /F-1/, 'a word of hex letters is not a sha');
+    assert.match(errorsFor('| F-2 | LOW | closed | |\n')[0], /F-2/);
+  });
+  test('a ROADMAP line inside a code fence does not name a finding, and an escaped bar stays in its cell', () => {
+    const fenced = { 408: '#### Phase 408: x\n**Success Criteria**\n```\n1. Closes F-9\n```\n' };
+    assert.strictEqual(errorsFor('| F-9 | MED | open | 408 |\n', { phaseSection: (p) => fenced[p] || null }).length, 1);
+    assert.deepStrictEqual(errorsFor('| F-7 | MED | open | 406 |\n', { header: '| id | sev | state | owner | what |\n|---|---|---|---|---|\n' }), []);
+    assert.strictEqual(errorsFor('| F-1 | HIGH | open \\| partial | D-99 |\n').length, 1, 'the bar did not shift owner into another column');
   });
   test('CRITICAL/HIGH needs a D- ruling that is a decision row; A- ids and phase owners do not rule', () => {
     assert.deepStrictEqual(errorsFor('| F-1 | HIGH | open | D-12 |\n'), []);
@@ -101,11 +115,40 @@ describe('head stamps: freshness is git diff <head>..HEAD on the proven paths', 
     commit(d, 'docs(01-01): stamp');
     assert.deepStrictEqual(stale(d, pd), []);
     put(d, 'src/b.js', '2'); commit(d, 'fix(01-review): other file');
-    assert.deepStrictEqual(stale(d, pd), [], 'a path the phase did not touch');
+    assert.match(stale(d, pd)[0], /src\/b\.js/, 'b.js is in the phase commits: its change is stale');
+    rg.stampHead(execGit, d, path.join(pd, '01-REVIEW.md')); commit(d, 'docs(01-01): restamp');
+    put(d, 'other/z.js', '2'); commit(d, 'chore: untagged unrelated file');
+    assert.deepStrictEqual(stale(d, pd), [], 'a path no phase commit touched');
     put(d, 'src/a.js', '2'); commit(d, 'fix(01-review): proven file');
     assert.match(stale(d, pd)[0], /01-REVIEW\.md is stale: src\/a\.js/);
     assert.ok(rg.stampHead(execGit, d, path.join(pd, '01-REVIEW.md')).head);
     assert.deepStrictEqual(stale(d, pd), []);
+  });
+  test('a file first added by a fix(N-review) commit makes the record stale though no plan commit touched it', () => {
+    const { d, pd } = repo();
+    rg.stampHead(execGit, d, path.join(pd, '01-REVIEW.md')); commit(d, 'docs(01-01): stamp');
+    put(d, 'src/new.js', '1'); commit(d, 'fix(01-review): new file');
+    assert.match(stale(d, pd)[0], /01-REVIEW\.md is stale: src\/new\.js/);
+    rg.stampHead(execGit, d, path.join(pd, '01-REVIEW.md')); commit(d, 'docs(01-01): restamp');
+    assert.deepStrictEqual(stale(d, pd), []);
+    put(d, 'src/new.js', '2'); commit(d, 'fix(01-review): edit new file');
+    assert.match(stale(d, pd)[0], /src\/new\.js/);
+  });
+  test('a renamed proven file is drift under both names; a stamp refuses untracked source; a CRLF record keeps one frontmatter block', () => {
+    const { d, pd } = repo();
+    const rec = path.join(pd, '01-REVIEW.md');
+    rg.stampHead(execGit, d, rec); commit(d, 'docs(01-01): stamp');
+    git(d, 'mv', 'src/a.js', 'src/a2.js'); commit(d, 'fix(01-review): rename');
+    assert.match(stale(d, pd)[0], /src\/a\.js/);
+    put(d, 'src/untracked.js', '1');
+    assert.match(rg.stampHead(execGit, d, rec).error, /uncommitted source changes \(src\/untracked\.js\)/);
+    fs.rmSync(path.join(d, 'src/untracked.js'));
+    fs.writeFileSync(rec, '---\r\nformat: v2\r\n---\r\n# R\r\n');
+    commit(d, 'docs(01-01): crlf');
+    assert.ok(rg.stampHead(execGit, d, rec).head);
+    const out = fs.readFileSync(rec, 'utf8');
+    assert.strictEqual((out.match(/^---/gm) || []).length, 2);
+    assert.match(out, /^---\r\nformat: v2\r\nhead: [0-9a-f]{40}\r\n---\r\n/);
   });
   test('the stamp is not file time: touching the record does not refresh a stale one', () => {
     const { d, pd } = repo();
@@ -139,6 +182,17 @@ describe('head stamps: freshness is git diff <head>..HEAD on the proven paths', 
     assert.deepStrictEqual(only(/./), [], 'a newer unit section supersedes the stale one');
     fs.writeFileSync(gates, 'old unstamped capture\n');
     assert.deepStrictEqual(only(/./), []);
+  });
+  test('a "# gate=" line that does not parse is an error, not a silently unchecked section', () => {
+    const { d, pd, gates } = repo();
+    fs.mkdirSync(path.dirname(gates), { recursive: true });
+    fs.writeFileSync(gates, '# gate=unit head=ABCDEF1234567 paths=src\nout\n# gate=lint head=abcdef1 paths=a, b\n');
+    const errs = rg.staleRecordErrors(execGit, d, pd, '01', [], ['src/a.js']);
+    assert.match(errs.join('\n'), /2 "# gate=" line\(s\) that do not parse/);
+    fs.writeFileSync(gates, '# gate=unit head=abcdef1\r\nout\r\n');
+    assert.ok(!/do not parse/.test(rg.staleRecordErrors(execGit, d, pd, '01', [], ['src/a.js']).join('\n')), 'a CRLF stamp line parses');
+    fs.writeFileSync(gates, 'old unstamped capture\n');
+    assert.deepStrictEqual(rg.staleRecordErrors(execGit, d, pd, '01', [], ['src/a.js']), []);
   });
   test('an unstamped record keeps the file-time rule', () => {
     const { d, pd } = repo();
