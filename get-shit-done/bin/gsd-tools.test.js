@@ -7062,6 +7062,36 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
     assert.strictEqual(good.exitCode, 0);
   });
 
+  test('red proof: a v2 plan whose success criteria cannot be located fails with red_proof_errors; the heading form, bullets and nested items are handled; a capture needs a failing-run marker', () => {
+    const attempt = (dirName, phaseArg, heading, body, files = {}) => {
+      const phaseDir = setupPhase(dirName, 'MILE-RED');
+      fs.writeFileSync(path.join(phaseDir, 'impl.test.js'), REAL_TEST(dirName));
+      fs.writeFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), `# Roadmap\n\n${heading}\n**Goal:** g\n${body}\n**Depends on:** none\n`);
+      const planPath = path.join(phaseDir, `${phaseArg.replace(/^0+/, '').padStart(2, '0')}-01-PLAN.md`);
+      const pp = fs.existsSync(planPath) ? planPath : path.join(phaseDir, fs.readdirSync(phaseDir).find((f) => /PLAN\.md$/.test(f)));
+      fs.writeFileSync(pp, fs.readFileSync(pp, 'utf8').replace('type: execute', 'type: execute\nformat: v2'));
+      for (const [f, text] of Object.entries(files)) { fs.mkdirSync(path.join(phaseDir, 'captures'), { recursive: true }); fs.writeFileSync(path.join(phaseDir, 'captures', f), text); }
+      commitAll(`feat(${phaseArg}-01): v2 ${dirName}`);
+      const r = runTestContent(phaseArg, tmpDir);
+      return { out: JSON.parse(r.output), exitCode: r.exitCode };
+    };
+    const noSection = attempt('46-redA', '46', '#### Phase 99: other', '**Success Criteria**:\n1. a\n');
+    assert.strictEqual(noSection.out.passed, false);
+    assert.strictEqual(noSection.exitCode, 1);
+    assert.match(noSection.out.red_proof_errors[0], /success criteria not found/);
+    const bullets = attempt('47-redB', '47', '#### Phase 47: b', '**Success Criteria**:\n- a\n- b\n');
+    assert.strictEqual(bullets.out.passed, false);
+    assert.match(bullets.out.red_proof_errors[0], /bullet-form/);
+    const noHeader = attempt('48-redC', '48', '#### Phase 48: c', '1. a\n2. b\n');
+    assert.match(noHeader.out.red_proof_errors[0], /success criteria not found/);
+    const padded = attempt('07-redD', '07', '#### Phase 7: d', '**Success Criteria**:\n1. a\n   1. sub-item\n2. b\n', { 'red-sc1.txt': 'run rc=1\n' });
+    assert.deepStrictEqual([padded.out.red_proof_errors, padded.out.red_proof_missing], [[], [2]]);
+    const noMarker = attempt('49-redE', '49', '#### Phase 49: e', '**Success Criteria**:\n1. a\n', { 'red-sc1.txt': 'it ran\n' });
+    assert.deepStrictEqual(noMarker.out.red_proof_missing, [1], 'a non-empty capture without an rc=<non-zero> line is not red proof');
+    const ok = attempt('50-redF', '50', '#### Phase 50: f', '**Success Criteria**:\n1. a\n', { 'red-sc1.txt': 'cmd rc=2\n' });
+    assert.deepStrictEqual([ok.out.red_proof_missing, ok.out.red_proof_errors, ok.exitCode], [[], [], 0]);
+  });
+
   test('net_test_loc counts every phase commit, fix and steward commits included, and is printed not gated', () => {
     const phaseDir = setupPhase('46-allc', 'MILE-ALLC');
     fs.writeFileSync(path.join(phaseDir, 'impl.test.js'), REAL_TEST('a'));

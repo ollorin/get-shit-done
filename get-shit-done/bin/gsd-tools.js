@@ -7715,26 +7715,39 @@ function computeImplTestCoverage(cwd, touchedFiles, testDeltaRows, outsideText) 
 // requirements whose declaring plan(s) contain at least one tdd="true" task
 // are classified -- a requirement declared solely by a prose/workflow-editing
 // plan (no tdd task) is `not_applicable` and excluded from `passed`.
-// Numbers of the ROADMAP phase section's numbered Success Criteria.
+// Numbers of the ROADMAP phase section's numbered Success Criteria (top-level items only: a deeper-indented "1." is a sub-item).
 function successCriteriaNumbers(section) {
   const nums = [];
   let inList = false;
+  let base = null;
   for (const line of String(section || '').split('\n')) {
     if (/success criteria/i.test(line)) { inList = true; continue; }
     if (!inList) continue;
-    const m = line.match(/^\s*(\d+)[.)]\s/);
-    if (m) nums.push(Number(m[1]));
-    else if (/^#{1,6}\s/.test(line) || /^\*\*[^*]+\*\*/.test(line)) break;
+    const m = line.match(/^(\s*)(\d+)[.)]\s/);
+    if (m) {
+      if (base === null) base = m[1].length;
+      if (m[1].length <= base) nums.push(Number(m[2]));
+    } else if (/^#{1,6}\s/.test(line) || /^\*\*[^*]+\*\*/.test(line)) break;
   }
   return nums;
 }
 // A plan with frontmatter `format: v2` opts the phase in: every success criterion k needs a non-empty
-// `{phase_dir}/captures/red-sc{k}.*` (the failing run of its test before the fix). Returns the criteria without one.
-function redProofMissing(cwd, phaseNumber, phaseDir, validPlans) {
-  if (!(validPlans || []).some(p => p.fm && String(p.fm.format).trim() === 'v2')) return [];
+// `{phase_dir}/captures/red-sc{k}.*` that contains a failing-run marker (a line with `rc=<non-zero>`: the failing run of its test
+// before the fix). A v2 plan whose criteria cannot be located (no ROADMAP section for the phase, no numbered list under a
+// "Success Criteria" line, bullet-form criteria) fails with red_proof_errors instead of passing vacuously.
+function redProofCheck(cwd, phaseNumber, phaseDir, validPlans) {
+  if (!(validPlans || []).some(p => p.fm && String(p.fm.format).trim() === 'v2')) return { missing: [], errors: [] };
+  const raw = String(phaseNumber);
+  const trimmed = raw.replace(/^0+(?=\d)/, '');
+  const section = [raw, trimmed, trimmed.replace(/^(\d)(?![\d])/, '0$1')].map(v => getPhaseInvariantsText(cwd, v)).find(Boolean) || null;
+  const criteria = successCriteriaNumbers(section);
+  if (criteria.length === 0) {
+    return { missing: [], errors: [`red proof: success criteria not found for phase ${raw} (${section ? 'no numbered list under a "Success Criteria" line; bullet-form criteria are not read' : 'no "Phase N:" section in ROADMAP.md'}): a format v2 plan needs them to check the red-sc{k} captures`] };
+  }
   const dir = path.join(phaseDir, 'captures');
-  const have = fs.existsSync(dir) ? fs.readdirSync(dir).filter(f => fs.statSync(path.join(dir, f)).size > 0) : [];
-  return successCriteriaNumbers(getPhaseInvariantsText(cwd, phaseNumber)).filter(k => !have.some(f => new RegExp(`^red-sc0*${k}(?![0-9])`).test(f)));
+  const failing = f => { try { return /\brc=[1-9]\d*/.test(fs.readFileSync(path.join(dir, f), 'utf8')); } catch { return false; } };
+  const have = fs.existsSync(dir) ? fs.readdirSync(dir).filter(f => fs.statSync(path.join(dir, f)).size > 0 && failing(f)) : [];
+  return { missing: criteria.filter(k => !have.some(f => new RegExp(`^red-sc0*${k}(?![0-9])`).test(f))), errors: [] };
 }
 function computeTestContentCoverage(cwd, phaseNumber, validPlans, filesByPlan, phaseDir) {
   // Per-plan SUMMARY Test Delta (declared counts + MERGE/DELETE/REUSE rows).
@@ -7940,8 +7953,8 @@ function computeTestContentCoverage(cwd, phaseNumber, validPlans, filesByPlan, p
 
   const hollow_tests = [...hollowFilesMap.values()];
   const net_zero_assertion_files = [...netZeroFilesMap.values()];
-  const red_proof_missing = redProofMissing(cwd, phaseNumber, phaseDir, validPlans);
-  const passed = requirements.filter(r => r.status !== 'not_applicable').every(r => r.status === 'COVERED') && red_proof_missing.length === 0;
+  const { missing: red_proof_missing, errors: red_proof_errors } = redProofCheck(cwd, phaseNumber, phaseDir, validPlans);
+  const passed = requirements.filter(r => r.status !== 'not_applicable').every(r => r.status === 'COVERED') && red_proof_missing.length === 0 && red_proof_errors.length === 0;
 
   const planNumOf = p => p.planNum || (p.fm && p.fm.plan);
   const checkedPlans = (validPlans || []).filter(p => isChecked(planNumOf(p)));
@@ -7965,7 +7978,7 @@ function computeTestContentCoverage(cwd, phaseNumber, validPlans, filesByPlan, p
     };
   }
 
-  return { requirements, hollow_tests, net_zero_assertion_files, hollow_test_cases: hollowCaseList, test_delta: metrics, red_proof_missing, ...impl, ...legacy, passed };
+  return { requirements, hollow_tests, net_zero_assertion_files, hollow_test_cases: hollowCaseList, test_delta: metrics, red_proof_missing, red_proof_errors, ...impl, ...legacy, passed };
 }
 
 // Net test LOC (git numstat over ALL the phase's tagged commits, test files only; fix and steward
@@ -8032,6 +8045,7 @@ function cmdVerifyTestContent(cwd, phaseArg, raw) {
     hollow_test_cases: coverage.hollow_test_cases,
     test_delta: coverage.test_delta,
     red_proof_missing: coverage.red_proof_missing,
+    red_proof_errors: coverage.red_proof_errors,
     impl_files_without_tests: coverage.impl_files_without_tests,
     impl_files_covered: coverage.impl_files_covered,
     impl_files_exempt: coverage.impl_files_exempt,
