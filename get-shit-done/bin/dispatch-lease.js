@@ -1,11 +1,13 @@
 'use strict';
 // Dispatch leases: `dispatch begin|end` (references/rigour.md rule 7). One lease per spawned agent, kept in
 // .planning/dispatch-leases.json. A phase that never calls `dispatch` has no leases and keeps the legacy `budget spend` accounting.
+// Executor leases never expire by TTL (only `end`, `end --stale`, or the phase window closing); other roles close after the TTL.
 // Wall time of a leased phase = the sum of lease spans. An open lease counts to the phase's LAST LOGGED EVENT, never the clock,
 // and a lease closed as stale (`end --stale`, TTL, or the phase window closing) ends at that same event, so a dead session
 // or a rate-limit pause adds nothing.
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const { evPhase, phaseKey } = require('./roadmap-dispatch.js');
 
 const EXCLUSIVE_ROLES = new Set(['executor']);
@@ -13,11 +15,30 @@ const DEFAULT_TTL_MIN = 120;
 const WINDOW_CLOSE = new Set(['phase_complete', 'phase_parked', 'phase_incomplete', 'phase_retry', 'phase_failed', 'phase_coordinator_death']);
 const ROLE_RE = /^[a-z][a-z0-9-]*$/;
 
-const leasePath = (cwd) => path.join(cwd, '.planning', 'dispatch-leases.json');
+// The file lives in the repo's git common dir, so every worktree of one repo shares one exclusivity record and the working tree
+// stays clean. Outside a git repo it falls back to .planning/.
+function leasePath(cwd) {
+  const r = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd, encoding: 'utf8' });
+  const common = r.status === 0 ? r.stdout.trim() : '';
+  return common ? path.join(common, 'gsd-dispatch-leases.json') : path.join(cwd, '.planning', 'dispatch-leases.json');
+}
 const ms = (iso) => Date.parse(iso);
 
+// Read-only view: an unreadable file reads as no leases here; begin/end quarantine it instead (loadOrQuarantine).
 function load(cwd) {
   try { const j = JSON.parse(fs.readFileSync(leasePath(cwd), 'utf8')); return Array.isArray(j.leases) ? j.leases : []; } catch { return []; }
+}
+
+// Under the lock: a missing file is empty; a corrupt one is renamed to <file>.corrupt-<n> (never overwritten) and reported.
+function loadOrQuarantine(cwd) {
+  const file = leasePath(cwd);
+  let text;
+  try { text = fs.readFileSync(file, 'utf8'); } catch (e) { if (e.code === 'ENOENT') return { leases: [], quarantined: null }; throw e; }
+  try { const j = JSON.parse(text); if (Array.isArray(j.leases)) return { leases: j.leases, quarantined: null }; } catch { /* corrupt */ }
+  let n = 1;
+  while (fs.existsSync(`${file}.corrupt-${n}`)) n += 1;
+  fs.renameSync(file, `${file}.corrupt-${n}`);
+  return { leases: [], quarantined: path.basename(`${file}.corrupt-${n}`) };
 }
 
 function save(cwd, leases) {
@@ -70,7 +91,8 @@ function reconcile(leases, events, phase, now, ttlMin) {
     const win = (Array.isArray(events) ? events : []).find((e) => e && evPhase(e) === k && WINDOW_CLOSE.has(e.type) && ms(e.timestamp) >= b);
     const last = lastEventMs(events, k, b);
     if (win) { const c = { ...l, end: win.timestamp, closed: 'window', reason: `phase window closed by ${win.type}` }; closed.push(c); return c; }
-    if (now - last > ttlMin * 60000) {
+    // An executor lease is closed only by `dispatch end` / `end --stale --reason`: a quiet long executor is not a dead one.
+    if (!EXCLUSIVE_ROLES.has(l.role) && now - last > ttlMin * 60000) {
       const c = { ...l, end: new Date(last).toISOString(), closed: 'ttl', reason: `no event for ${Math.round((now - last) / 60000)} min (ttl ${ttlMin})` };
       closed.push(c);
       return c;
@@ -88,16 +110,17 @@ function begin({ cwd, phase, role, id, events, now = Date.now(), ttlMin = DEFAUL
   if (!ROLE_RE.test(role || '')) return { error: 'dispatch begin: --role required (lowercase word, e.g. executor, reviewer)' };
   if (!id) return { error: 'dispatch begin: --id required' };
   return withLock(cwd, () => {
-    const r = reconcile(load(cwd), events, k, now, ttlMin);
+    const q = loadOrQuarantine(cwd);
+    const r = reconcile(q.leases, events, k, now, ttlMin);
     const open = r.leases.filter((l) => !l.end && l.phase === k);
     const refuse = open.find((l) => l.id === id) ? `lease ${id} is already open in phase ${k}`
       : EXCLUSIVE_ROLES.has(role) && open.find((l) => l.role === role) ? `phase ${k} already has an open ${role} lease (${open.find((l) => l.role === role).id}): end it, or close it with \`dispatch end --stale <id> --reason "<text>"\` when that agent is dead`
         : null;
     if (r.closed.length > 0) save(cwd, r.leases);
-    if (refuse) return { error: `dispatch begin refused: ${refuse}`, auto_closed: r.closed.map(closeEvent) };
+    if (refuse) return { error: `dispatch begin refused: ${refuse}`, auto_closed: r.closed.map(closeEvent), quarantined: q.quarantined };
     const lease = { id, role, phase: k, begin: new Date(now).toISOString(), end: null };
     save(cwd, [...r.leases, lease]);
-    return { lease, auto_closed: r.closed.map(closeEvent) };
+    return { lease, auto_closed: r.closed.map(closeEvent), quarantined: q.quarantined };
   });
 }
 
@@ -105,13 +128,13 @@ function end({ cwd, id, stale, reason, events, now = Date.now() }) {
   if (!id) return { error: 'dispatch end: --id <agent> (or --stale <agent>) required' };
   if (stale && !reason) return { error: 'dispatch end --stale: --reason "<text>" required' };
   return withLock(cwd, () => {
-    const leases = load(cwd);
+    const { leases, quarantined } = loadOrQuarantine(cwd);
     const l = leases.find((x) => !x.end && x.id === id);
-    if (!l) return { error: `dispatch end: no open lease with id ${id}` };
+    if (!l) return { error: `dispatch end: no open lease with id ${id}`, quarantined };
     const at = stale ? lastEventMs(events, l.phase, ms(l.begin)) : now;
     const done = { ...l, end: new Date(at).toISOString(), closed: stale ? 'stale' : 'end', ...(stale ? { reason } : {}) };
     save(cwd, leases.map((x) => (x === l ? done : x)));
-    return { lease: done };
+    return { lease: done, quarantined };
   });
 }
 
@@ -130,4 +153,7 @@ function spend(cwd, events, phase) {
   return { wall_minutes_spent: min(cur.reduce((a, l) => a + span(l), 0)), dispatches_spent: cur.length, total_wall_minutes: min(mine.reduce((a, l) => a + span(l), 0)), total_dispatches: mine.length };
 }
 
-module.exports = { begin, end, spend, load, leasePath, closeEvent, DEFAULT_TTL_MIN };
+// Earliest lease begin (ms) of the phase, or null.
+const firstBegin = (cwd, phase) => { const b = load(cwd).filter((l) => l.phase === phaseKey(phase)).map((l) => ms(l.begin)).filter((t) => !Number.isNaN(t)); return b.length ? Math.min(...b) : null; };
+
+module.exports = { firstBegin, begin, end, spend, load, leasePath, closeEvent, DEFAULT_TTL_MIN };

@@ -37,14 +37,52 @@ describe('dispatch leases', () => {
     assert.deepStrictEqual([r.lease.closed, r.lease.end], ['stale', iso(10)]);
     assert.strictEqual(L.spend(dir, ev, '1').wall_minutes_spent, 10);
   });
-  test('a lease with no event past the TTL is auto-closed at the next begin, at its last event, with a logged reason', () => {
-    L.begin({ cwd: dir, phase: '1', role: 'executor', id: 'a', events: [], now: T0 });
+  test('a non-executor lease with no event past the TTL is auto-closed at the next begin, at its last event, with a logged reason', () => {
+    L.begin({ cwd: dir, phase: '1', role: 'reviewer', id: 'a', events: [], now: T0 });
     const ev = events({ type: 'dispatch_begin', timestamp: iso(5) });
-    const r = L.begin({ cwd: dir, phase: '1', role: 'executor', id: 'b', events: ev, now: T0 + 500 * 60000, ttlMin: 120 });
+    const r = L.begin({ cwd: dir, phase: '1', role: 'reviewer', id: 'b', events: ev, now: T0 + 500 * 60000, ttlMin: 120 });
     assert.ok(r.lease);
     assert.strictEqual(r.auto_closed.length, 1);
     assert.match(r.auto_closed[0].reason, /no event for 495 min/);
     assert.strictEqual(r.auto_closed[0].at, iso(5));
+  });
+  test('a quiet executor lease is never closed by the TTL: a second executor stays refused until end or end --stale', () => {
+    L.begin({ cwd: dir, phase: '1', role: 'executor', id: 'a', events: [], now: T0 });
+    const r = L.begin({ cwd: dir, phase: '1', role: 'executor', id: 'b', events: events({ type: 'dispatch_begin', timestamp: iso(5) }), now: T0 + 500 * 60000, ttlMin: 120 });
+    assert.match(r.error, /already has an open executor lease \(a\)/);
+    assert.deepStrictEqual(r.auto_closed, []);
+  });
+  test('a corrupt lease file is renamed to .corrupt-<n>, never overwritten, and reported', () => {
+    L.begin({ cwd: dir, phase: '1', role: 'reviewer', id: 'a', events: [], now: T0 });
+    const file = L.leasePath(dir);
+    fs.writeFileSync(file, '{not json');
+    const r = L.begin({ cwd: dir, phase: '1', role: 'reviewer', id: 'b', events: [], now: T0 + 60000 });
+    assert.ok(r.lease);
+    assert.match(r.quarantined, /\.corrupt-1$/);
+    assert.strictEqual(fs.readFileSync(`${file}.corrupt-1`, 'utf8'), '{not json');
+    fs.writeFileSync(file, '[1');
+    assert.match(L.begin({ cwd: dir, phase: '1', role: 'reviewer', id: 'c', events: [], now: T0 + 120000 }).quarantined, /\.corrupt-2$/);
+  });
+  test('worktrees of one repo share one lease file (git common dir) and the working tree stays clean', () => {
+    const git = (cwd, ...a) => spawnSync('git', a, { cwd, encoding: 'utf8' });
+    git(dir, 'init', '-q'); git(dir, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'i');
+    const wt = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-lease-wt-'));
+    fs.rmSync(wt, { recursive: true });
+    assert.strictEqual(git(dir, 'worktree', 'add', '-q', wt, '-b', 'other').status, 0);
+    try {
+      assert.strictEqual(fs.realpathSync(path.dirname(L.leasePath(wt))), fs.realpathSync(path.dirname(L.leasePath(dir))));
+      assert.ok(L.begin({ cwd: dir, phase: '1', role: 'executor', id: 'a', events: [], now: T0 }).lease);
+      assert.match(L.begin({ cwd: wt, phase: '1', role: 'executor', id: 'b', events: [], now: T0 + 1000 }).error, /already has an open executor lease/);
+      assert.strictEqual(git(dir, 'status', '--porcelain', '--', '.planning/dispatch-leases.json').stdout, '');
+      assert.ok(!fs.existsSync(path.join(dir, '.planning', 'dispatch-leases.json')));
+    } finally { fs.rmSync(wt, { recursive: true, force: true }); }
+  });
+  test('a phase that adopts dispatch mid-phase carries its earlier budget spend minutes', () => {
+    const pre = events({ type: 'phase_spend', timestamp: iso(0) }, { type: 'phase_spend', timestamp: iso(30) });
+    L.begin({ cwd: dir, phase: '1', role: 'executor', id: 'a', events: pre, now: T0 + 40 * 60000 });
+    L.end({ cwd: dir, id: 'a', events: pre, now: T0 + 50 * 60000 });
+    const s = b.status({ cwd: dir, phase: '1', cls: 'standard', events: pre });
+    assert.deepStrictEqual([s.wall_minutes_spent, s.dispatches_spent, s.total_wall_minutes], [40, 3, 40]);
   });
   test('an open lease inside the TTL still blocks; a phase close event closes it at that event', () => {
     L.begin({ cwd: dir, phase: '1', role: 'executor', id: 'a', events: [], now: T0 });
@@ -56,7 +94,7 @@ describe('dispatch leases', () => {
   test('wall time is the sum of spans and a rate-limit pause adds nothing; phases without leases keep the legacy spend', () => {
     L.begin({ cwd: dir, phase: '1', role: 'executor', id: 'a', events: [], now: T0 });
     L.end({ cwd: dir, id: 'a', events: [], now: T0 + 20 * 60000 });
-    write('.planning/dispatch-leases.json', JSON.stringify({ leases: [...L.load(dir), { id: 'z', role: 'reviewer', phase: '1', begin: iso(3000), end: null }] }));
+    fs.writeFileSync(L.leasePath(dir), JSON.stringify({ leases: [...L.load(dir), { id: 'z', role: 'reviewer', phase: '1', begin: iso(3000), end: null }] }));
     const ev = events({ type: 'phase_spend', timestamp: iso(3000) }, { type: 'phase_spend', timestamp: iso(3015) });
     const s = b.status({ cwd: dir, phase: '1', cls: 'standard', events: ev });
     assert.deepStrictEqual([s.wall_minutes_spent, s.dispatches_spent], [35, 2]);
@@ -94,5 +132,16 @@ describe('dispatch CLI', () => {
     assert.match(r.stderr, /not a status/);
     const log = path.join(dir, '.planning', 'EXECUTION_LOG.md');
     assert.ok(!fs.existsSync(log) || !/phase_retry/.test(fs.readFileSync(log, 'utf8')));
+  });
+});
+
+describe('workflow prose matches the lease rule', () => {
+  const read = (rel) => fs.readFileSync(path.join(__dirname, '..', 'workflows', rel), 'utf8');
+  test('execute-phase and plan-phase bracket spawns with dispatch begin|end; budget spend appears only as the legacy fallback', () => {
+    for (const f of ['execute-phase.md', 'plan-phase.md']) {
+      const t = read(f);
+      assert.match(t, /dispatch begin --phase \{N\}/, f);
+      assert.doesNotMatch(t, /Call `gsd-tools budget spend/, f);
+    }
   });
 });

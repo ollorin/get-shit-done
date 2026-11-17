@@ -81,10 +81,27 @@ function spend(events, phase) {
   return { wall_minutes_spent: min(ms), dispatches_spent: dispatches, total_wall_minutes: min(bankedMs + ms), total_dispatches: bankedDispatches + dispatches, final };
 }
 
+// A phase that adopts `dispatch` mid-phase keeps the `budget spend` minutes it logged before its first lease.
+function withCarriedLegacy(cwd, events, phase, leased, legacy) {
+  if (!leased) return legacy;
+  const first = leases.firstBegin(cwd, phase);
+  const k = phaseKey(phase);
+  const list = Array.isArray(events) ? events : [];
+  const pre = spend(list.filter((e) => e && !String(e.type).startsWith('dispatch_') && Date.parse(e.timestamp) < first), phase);
+  const reset = list.some((e) => e && evPhase(e) === k && Date.parse(e.timestamp) >= first && (e.type === 'phase_complete' || (e.type === 'phase_parked' && e.reason === 'budget_exceeded')));
+  const r1 = (x) => Math.round(x * 10) / 10;
+  return {
+    wall_minutes_spent: reset ? leased.wall_minutes_spent : r1(leased.wall_minutes_spent + pre.wall_minutes_spent),
+    dispatches_spent: reset ? leased.dispatches_spent : leased.dispatches_spent + pre.dispatches_spent,
+    total_wall_minutes: r1(leased.total_wall_minutes + pre.total_wall_minutes),
+    total_dispatches: leased.total_dispatches + pre.total_dispatches,
+  };
+}
+
 function status({ cwd, phase, cls, events, now }) {
   const l = limits(cwd, cls);
   const { final, ...legacy } = spend(events, phase);
-  const s = leases.spend(cwd, events, phase) || legacy;
+  const s = withCarriedLegacy(cwd, events, phase, leases.spend(cwd, events, phase), legacy);
   // After `phase complete` the window resets to zero; the numbers the phase ended on are in its phase_complete event.
   if (final) {
     return { phase: phaseKey(phase), budget_class: final.budget_class || cls, wall_minutes_spent: final.wall_minutes_spent, dispatches_spent: final.dispatches_spent, total_wall_minutes: final.total_wall_minutes === undefined ? final.wall_minutes_spent : final.total_wall_minutes, total_dispatches: final.total_dispatches === undefined ? final.dispatches_spent : final.total_dispatches, budget_wall_minutes: final.budget_wall_minutes, pct: final.pct, warn: final.warn === true, breach: final.breach === true, final: true };

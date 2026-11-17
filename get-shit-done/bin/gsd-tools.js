@@ -12396,6 +12396,7 @@ function cmdDispatch(cwd, args, raw) {
   if (sub === 'begin') {
     const r = dispatchLease.begin({ cwd, phase: flag('--phase'), role: flag('--role'), id: flag('--id'), events, ttlMin: phaseBudget.ttlMinutes(cwd) });
     for (const e of r.auto_closed || []) appendEvent(cwd, e);
+    if (r.quarantined) appendEvent(cwd, { type: 'dispatch_leases_corrupt', phase: dispatch.phaseKey(flag('--phase')), moved_to: r.quarantined });
     if (r.error) error(r.error);
     appendEvent(cwd, { type: 'dispatch_begin', phase: r.lease.phase, role: r.lease.role, id: r.lease.id });
     output({ ...r, logged: true }, raw);
@@ -12404,6 +12405,7 @@ function cmdDispatch(cwd, args, raw) {
   if (sub === 'end') {
     const stale = flag('--stale');
     const r = dispatchLease.end({ cwd, id: stale || flag('--id'), stale: stale !== undefined, reason: flag('--reason'), events });
+    if (r.quarantined) appendEvent(cwd, { type: 'dispatch_leases_corrupt', phase: dispatch.phaseKey(flag('--phase')), moved_to: r.quarantined });
     if (r.error) error(r.error);
     appendEvent(cwd, dispatchLease.closeEvent(r.lease));
     output({ ...r, logged: true }, raw);
