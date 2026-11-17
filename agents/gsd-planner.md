@@ -158,7 +158,7 @@ A risk-domain path is any path the product brief lists under Risk Domains (`risk
 
 Any plan that touches a risk-domain path MUST have:
 
-- A **threat model**, once per phase: YOU write `{N}-THREAT-MODEL.md` (the first such plan's planning pass) before execution. Enumerate the abuse cases (replay, double-apply, race between concurrent requests, missing server-side authz, privilege escalation) and the control that closes each. Later plans reference its rows by id and write no other threat document. A plan that mutates risk-domain state or gates access without naming its threats is incomplete.
+- A **threat model**, once per phase: YOU write `{N}-THREAT-MODEL.md` (the first such plan's planning pass) before execution. Enumerate the abuse cases (replay, double-apply, race between concurrent requests, missing server-side authz, privilege escalation) and the control that closes each. Each row states the asset at risk and the worst realistic outcome; a row whose outcome is not funds, personal data, a change visitors see or a legal position takes the cheapest control or `accepted, no control`, and no row gets a stronger control than a row guarding a more valuable asset (`references/decisions-protocol.md`, Proportion). Later plans reference its rows by id and write no other threat document. A plan that mutates risk-domain state or gates access without naming its threats is incomplete.
 
 Cite the escapes the brief records for that domain, if any.
 

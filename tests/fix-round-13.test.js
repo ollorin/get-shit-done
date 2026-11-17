@@ -81,15 +81,18 @@ describe('R13-8: task-context skill and routing match machinery are gone', () =>
   });
 });
 
-describe('R13-9: the adversarial pass attacks the product, six fixed questions', () => {
+describe('R13-9: the adversarial pass attacks the product, seven fixed questions', () => {
   test('one list in the checker, referenced from Dimension 14', () => {
     const d = doc('agents/gsd-plan-checker.md');
     const i = d.indexOf('## Product lens');
     assert.ok(i > 0);
     const lens = d.slice(i, d.indexOf('\n## ', i + 5));
-    assert.strictEqual((lens.match(/^\d\. /gm) || []).length, 6);
-    for (const k of ['Privileges', 'Ignored results', 'State-changing reads', 'Guard coverage', 'Secrets and residue', 'False passes']) assert.match(lens, new RegExp(k));
+    assert.strictEqual((lens.match(/^\d\. /gm) || []).length, 7);
+    for (const k of ['Privileges', 'Ignored results', 'State-changing reads', 'Guard coverage', 'Secrets and residue', 'False passes', 'Proportion']) assert.match(lens, new RegExp(k));
     assert.match(d, /Product lens below/);
     assert.match(lens, /PRESCRIBES a defect[^\n]*blocker/);
+    assert.match(lens, /surface the PRD does not name is a blocker `cut:`/);
+    assert.match(doc('get-shit-done/references/decisions-protocol.md'), /\*\*Proportion[^\n]*cheapest option that meets the stated requirement[^\n]*scope change, not a ruling/);
+    assert.match(doc('agents/gsd-planner.md'), /asset at risk and the worst realistic outcome/);
   });
 });
