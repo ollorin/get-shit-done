@@ -11190,6 +11190,21 @@ function phaseBase(cwd, phase) {
   return '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 }
 
+// init plan-phase: notice only, never a block. A risk phase whose size passes the sizer limits (estimated or on-disk plans, success criteria),
+// or a configured wall-minute budget above twice the class default, prints one notice each.
+function sizerNotices(cwd, phase, planCount, risk) {
+  const notices = [];
+  if (risk.budget_class === 'risk') {
+    const est = estimatePhaseSize({ requirements: rigour.phaseReqIds(cwd, phase), success_criteria: successCriteriaNumbers(getPhaseInvariantsText(cwd, phase)) });
+    const plans = Math.max(est.estimatedPlans, planCount);
+    if (plans > PHASE_LIMITS.MAX_ESTIMATED_PLANS) notices.push(`risk phase ${phase} plans ${plans} plans (sizer limit ${PHASE_LIMITS.MAX_ESTIMATED_PLANS}): the planner returns a split`);
+    if (est.successCriteria > PHASE_LIMITS.MAX_SUCCESS_CRITERIA_PER_PHASE) notices.push(`risk phase ${phase} has ${est.successCriteria} success criteria (sizer limit ${PHASE_LIMITS.MAX_SUCCESS_CRITERIA_PER_PHASE}): the planner returns a split`);
+  }
+  const base = phaseBudget.DEFAULTS[risk.budget_class].wall_minutes;
+  if (risk.budget_wall_minutes > 2 * base) notices.push(`budget override ${risk.budget_wall_minutes} min is ${Math.round((risk.budget_wall_minutes / base) * 10) / 10}x the ${risk.budget_class} default ${base}: split the phase instead`);
+  return notices;
+}
+
 function initRiskFields(cwd, phase) {
   const level = rigour.resolveRigour(cwd, phase, getMilestoneInfo(cwd).version).rigour;
   const addons = riskAddons(cwd, phase, level);
@@ -11400,9 +11415,13 @@ function cmdInitExecutePhase(cwd, phase, includes, raw, gate) {
   const config = loadConfig(cwd);
   const phaseInfo = findPhaseInternal(cwd, phase);
   const milestone = getMilestoneInfo(cwd);
+  const stackLock = projectContext.stackLockFields(cwd);
+  if (stackLock.stack_rule_missing && stackLock.stack_lock_enforced) error(stackLock.stack_notice);
+  if (stackLock.stack_notice) process.stderr.write(`Notice: ${stackLock.stack_notice}\n`);
 
   const result = {
     ...projectContext.contextFields(cwd),
+    ...stackLock,
     ...autoModeFields(cwd),
     project_context: { legacy: gate?.legacy === true },
     ...rigour.resolveRigour(cwd, phase, getMilestoneInfo(cwd).version),
@@ -11415,13 +11434,9 @@ function cmdInitExecutePhase(cwd, phase, includes, raw, gate) {
     executor_model: executorModelFor(cwd, phase),
     verifier_model: resolveModelInternal(cwd, 'gsd-verifier'),
     // The final phase review and rulings run on the configured top model (models.top).
-  const stackLock = projectContext.stackLockFields(cwd);
-  if (stackLock.stack_rule_missing && stackLock.stack_lock_enforced) error(stackLock.stack_notice);
-  if (stackLock.stack_notice) process.stderr.write(`Notice: ${stackLock.stack_notice}\n`);
     ...topModelFields(cwd),
     utility_model: readRawConfig(cwd).utility_model || 'haiku',
     reviewer_model: readRawConfig(cwd).reviewer_model || 'sonnet',
-    ...stackLock,
     base_branch: resolveBaseBranch(cwd),
     ui_qa_mode: projectContext.uiQaMode(cwd),
 
@@ -11523,15 +11538,19 @@ function cmdInitPlanPhase(cwd, phase, includes, raw, gate) {
   const config = loadConfig(cwd);
   const phaseInfo = findPhaseInternal(cwd, phase);
   const planned = phaseInfo ? null : roadmapPhaseFallback(cwd, phase);
+  const risk = initRiskFields(cwd, phase);
+  const sizerNotice = sizerNotices(cwd, phase, phaseInfo?.plans?.length || 0, risk);
+  for (const n of sizerNotice) process.stderr.write(`Notice: ${n}\n`);
 
   const result = {
+    sizer_notice: sizerNotice,
     ...projectContext.contextFields(cwd),
     ...autoModeFields(cwd),
     project_context: { legacy: gate?.legacy === true },
     ...rigour.resolveRigour(cwd, phase, getMilestoneInfo(cwd).version),
     phase_req_ids: rigour.phaseReqIds(cwd, phase),
     ...phaseRiskFields(cwd, phase),
-    ...initRiskFields(cwd, phase),
+    ...risk,
     ...planStampFields(cwd, phase),
 
     // Models
@@ -14853,6 +14872,14 @@ async function main() {
       break;
     }
 
+    case 'stack': {
+      if (args[1] !== 'require-lock') error('Unknown stack subcommand. Available: require-lock');
+      const r = projectContext.requireStackLock(cwd, process.env);
+      if (!r.ok) error(r.error);
+      output(r, raw);
+      break;
+    }
+
     case 'dispatch': {
       cmdDispatch(cwd, args.slice(1), raw);
       break;
@@ -14872,14 +14899,6 @@ async function main() {
       } else {
         cmdBudget(args.slice(1), raw);
       }
-    case 'stack': {
-      if (args[1] !== 'require-lock') error('Unknown stack subcommand. Available: require-lock');
-      const r = projectContext.requireStackLock(cwd, process.env);
-      if (!r.ok) error(r.error);
-      output(r, raw);
-      break;
-    }
-
       break;
     }
 
