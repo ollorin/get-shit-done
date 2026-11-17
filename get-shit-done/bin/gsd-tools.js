@@ -11211,7 +11211,7 @@ function sizerNotices(cwd, phase, planCount, risk) {
   if (risk.budget_class === 'risk') {
     const est = estimatePhaseSize({ requirements: rigour.phaseReqIds(cwd, phase), success_criteria: successCriteriaNumbers(getPhaseInvariantsText(cwd, phase)) });
     const plans = Math.max(est.estimatedPlans, planCount);
-    if (plans > PHASE_LIMITS.MAX_ESTIMATED_PLANS) notices.push(`risk phase ${phase} plans ${plans} plans (sizer limit ${PHASE_LIMITS.MAX_ESTIMATED_PLANS}): the planner returns a split`);
+    if (plans > PHASE_LIMITS.MAX_ESTIMATED_PLANS) notices.push(`risk phase ${phase} has ${plans} plans (sizer limit ${PHASE_LIMITS.MAX_ESTIMATED_PLANS}): the planner returns a split`);
     if (est.successCriteria > PHASE_LIMITS.MAX_SUCCESS_CRITERIA_PER_PHASE) notices.push(`risk phase ${phase} has ${est.successCriteria} success criteria (sizer limit ${PHASE_LIMITS.MAX_SUCCESS_CRITERIA_PER_PHASE}): the planner returns a split`);
   }
   const base = phaseBudget.DEFAULTS[risk.budget_class].wall_minutes;

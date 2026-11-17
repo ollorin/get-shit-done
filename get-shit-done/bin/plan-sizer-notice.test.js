@@ -25,7 +25,8 @@ test('init plan-phase prints a sizer notice for an oversized risk phase and an o
   write('.planning/ROADMAP.md', sizerRoad({ reqs: 'A-01, A-02, A-03, A-04, A-05, A-06, A-07, A-08, A-09, A-10, A-11', sc: nums(7) }));
   const big = run(['init', 'plan-phase', '1', '--legacy', '--raw']);
   assert.strictEqual(big.status, 0);
-  assert.match(big.stderr, /Notice: risk phase 1 plans 6 plans/);
+  assert.match(big.stderr, /Notice: risk phase 1 has 6 plans \(sizer limit/);
+  assert.doesNotMatch(big.stderr, /plans \d+ plans/);
   assert.match(big.stderr, /Notice: risk phase 1 has 7 success criteria/);
   assert.strictEqual(JSON.parse(big.stdout).sizer_notice.length, 2);
   write('.planning/ROADMAP.md', sizerRoad({ reqs: 'A-01, A-02', sc: nums(2) }));

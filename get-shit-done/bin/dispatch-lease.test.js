@@ -150,4 +150,10 @@ describe('workflow prose matches the lease rule', () => {
       assert.doesNotMatch(t, /Call `gsd-tools budget spend/, f);
     }
   });
+  test('execute-phase keeps the DFGATE-01 deferral grep for unmarked phases and exempts format: v2 phases', () => {
+    const item = read('execute-phase.md').match(/<item id="DFGATE-01"[\s\S]*?<\/item>/);
+    assert.ok(item, 'DFGATE-01 item present');
+    assert.match(item[0], /grep -rniE "tests\? to be added later/);
+    assert.match(item[0], /no plan carrying `format: v2`/);
+  });
 });
