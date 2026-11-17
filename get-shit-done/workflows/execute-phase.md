@@ -806,7 +806,7 @@ Create VERIFICATION.md.
 ```text
 Final review pass 2, phase {phase_number} (dir {phase_dir}, goal {goal}, requirement ids {phase_req_ids}). Brief: `references/rigour.md` rule 10, pass 2. Diff: `git diff {phase base}..HEAD -- . ':!.planning'`; also read {phase_dir}/captures/gates.txt and the test steward's return ({net change and runtime delta, or "skipped"}).
 Pass 1 finding ids and the fix commit shas (only to judge each closed / still open and any new defect a fix introduced; they are not things to look for): {ids}; {shas}.
-Rewrite {phase_dir}/{N}-REVIEW.md with `passes: 2` and VERIFICATION's status and `open_critical_high`.
+Add your findings and your verdict per pass-1 id to {phase_dir}/{N}-REVIEW.md (never overwrite pass 1's), set `passes: 2`, and write VERIFICATION's status and `open_critical_high`.
 ```
 
 After pass 2's own fix, rule 12's re-check rewrites them again. It runs once even when pass 1 had no findings. The phase report lists the `scriptable: yes` findings as proposed project gates.
