@@ -7035,6 +7035,47 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
     assert.strictEqual(r.exitCode, 1);
   });
 
+  test('red proof: a plan with format v2 needs a non-empty captures/red-sc{k}.* per ROADMAP success criterion; failing on a bad fixture, passing on a good one; an unmarked plan is not gated', () => {
+    const phaseDir = setupPhase('46-red', 'MILE-RED');
+    fs.writeFileSync(path.join(phaseDir, 'impl.test.js'), REAL_TEST('red'));
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), '# Roadmap\n\n#### Phase 46: red\n**Goal:** g\n**Success Criteria**:\n1. first\n2. second\n\n**Depends on:** none\n');
+    commitAll('feat(46-01): tests');
+    const unmarked = runTestContent('46', tmpDir);
+    assert.deepStrictEqual(JSON.parse(unmarked.output).red_proof_missing, []);
+    assert.strictEqual(unmarked.exitCode, 0);
+    const planPath = path.join(phaseDir, '46-01-PLAN.md');
+    fs.writeFileSync(planPath, fs.readFileSync(planPath, 'utf8').replace('type: execute', 'type: execute\nformat: v2'));
+    commitAll('feat(46-01): opt in');
+    const bad = runTestContent('46', tmpDir);
+    assert.deepStrictEqual(JSON.parse(bad.output).red_proof_missing, [1, 2]);
+    assert.strictEqual(JSON.parse(bad.output).passed, false);
+    assert.strictEqual(bad.exitCode, 1);
+    fs.mkdirSync(path.join(phaseDir, 'captures'), { recursive: true });
+    fs.writeFileSync(path.join(phaseDir, 'captures', 'red-sc1.txt'), 'cmd rc=1 failing run\n');
+    fs.writeFileSync(path.join(phaseDir, 'captures', 'red-sc2.txt'), '');
+    commitAll('feat(46-01): one proof');
+    assert.deepStrictEqual(JSON.parse(runTestContent('46', tmpDir).output).red_proof_missing, [2], 'an empty capture does not count');
+    fs.writeFileSync(path.join(phaseDir, 'captures', 'red-sc2.txt'), 'cmd rc=1 failing run\n');
+    commitAll('feat(46-01): both proofs');
+    const good = runTestContent('46', tmpDir);
+    assert.deepStrictEqual(JSON.parse(good.output).red_proof_missing, []);
+    assert.strictEqual(good.exitCode, 0);
+  });
+
+  test('net_test_loc counts every phase commit, fix and steward commits included, and is printed not gated', () => {
+    const phaseDir = setupPhase('46-allc', 'MILE-ALLC');
+    fs.writeFileSync(path.join(phaseDir, 'impl.test.js'), REAL_TEST('a'));
+    commitAll('feat(46-01): plan test');
+    const before = JSON.parse(runTestContent('46', tmpDir).output).test_delta.net_test_loc;
+    fs.writeFileSync(path.join(phaseDir, 'extra.test.js'), REAL_TEST('b') + REAL_TEST('c'));
+    commitAll('fix(46-review): review test');
+    fs.writeFileSync(path.join(phaseDir, 'steward.test.js'), REAL_TEST('d'));
+    commitAll('test(46-steward): steward test');
+    const after = runTestContent('46', tmpDir);
+    assert.strictEqual(JSON.parse(after.output).test_delta.net_test_loc, before + 6);
+    assert.strictEqual(after.exitCode, 0);
+  });
+
   test('t0_mutant_rows_missing lists sensitive-path plan tests without a mutation-table row; a table row naming the file clears it; threshold exposed', () => {
     const phaseDir = setupPhase('46-t38-t0', 'MILE-V9');
     fs.writeFileSync(path.join(phaseDir, 'ledger.test.js'), REAL_TEST('ledger'));

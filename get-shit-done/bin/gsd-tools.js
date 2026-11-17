@@ -7714,6 +7714,27 @@ function computeImplTestCoverage(cwd, touchedFiles, testDeltaRows, outsideText) 
 // requirements whose declaring plan(s) contain at least one tdd="true" task
 // are classified -- a requirement declared solely by a prose/workflow-editing
 // plan (no tdd task) is `not_applicable` and excluded from `passed`.
+// Numbers of the ROADMAP phase section's numbered Success Criteria.
+function successCriteriaNumbers(section) {
+  const nums = [];
+  let inList = false;
+  for (const line of String(section || '').split('\n')) {
+    if (/success criteria/i.test(line)) { inList = true; continue; }
+    if (!inList) continue;
+    const m = line.match(/^\s*(\d+)[.)]\s/);
+    if (m) nums.push(Number(m[1]));
+    else if (/^#{1,6}\s/.test(line) || /^\*\*[^*]+\*\*/.test(line)) break;
+  }
+  return nums;
+}
+// A plan with frontmatter `format: v2` opts the phase in: every success criterion k needs a non-empty
+// `{phase_dir}/captures/red-sc{k}.*` (the failing run of its test before the fix). Returns the criteria without one.
+function redProofMissing(cwd, phaseNumber, phaseDir, validPlans) {
+  if (!(validPlans || []).some(p => p.fm && String(p.fm.format).trim() === 'v2')) return [];
+  const dir = path.join(phaseDir, 'captures');
+  const have = fs.existsSync(dir) ? fs.readdirSync(dir).filter(f => fs.statSync(path.join(dir, f)).size > 0) : [];
+  return successCriteriaNumbers(getPhaseInvariantsText(cwd, phaseNumber)).filter(k => !have.some(f => new RegExp(`^red-sc0*${k}(?![0-9])`).test(f)));
+}
 function computeTestContentCoverage(cwd, phaseNumber, validPlans, filesByPlan, phaseDir) {
   // Per-plan SUMMARY Test Delta (declared counts + MERGE/DELETE/REUSE rows).
   const deltaByPlan = {};
@@ -7918,18 +7939,19 @@ function computeTestContentCoverage(cwd, phaseNumber, validPlans, filesByPlan, p
 
   const hollow_tests = [...hollowFilesMap.values()];
   const net_zero_assertion_files = [...netZeroFilesMap.values()];
-  const passed = requirements.filter(r => r.status !== 'not_applicable').every(r => r.status === 'COVERED');
+  const red_proof_missing = redProofMissing(cwd, phaseNumber, phaseDir, validPlans);
+  const passed = requirements.filter(r => r.status !== 'not_applicable').every(r => r.status === 'COVERED') && red_proof_missing.length === 0;
 
   const planNumOf = p => p.planNum || (p.fm && p.fm.plan);
   const checkedPlans = (validPlans || []).filter(p => isChecked(planNumOf(p)));
   const legacyPlans = (validPlans || []).filter(p => !isChecked(planNumOf(p)));
-  const metrics = computeTestDeltaMetrics(cwd, phaseNumber, checkedPlans, declared, deletedFiles, mergedFiles, bucketSeconds, { declared_rows_mismatch: declaredRowsMismatch, t0_mutant_rows_missing: t0MutantRowsMissing, uncited_rows: uncitedRows });
+  const metrics = computeTestDeltaMetrics(cwd, phaseNumber, declared, deletedFiles, mergedFiles, bucketSeconds, { declared_rows_mismatch: declaredRowsMismatch, t0_mutant_rows_missing: t0MutantRowsMissing, uncited_rows: uncitedRows });
   const touchedOf = plans => [...new Set(plans.flatMap(p => filesByPlan[planNumOf(p)] || []))];
   const outsideOf = plans => plans.map(p => (deltaByPlan[planNumOf(p)] || {}).outside_text || '').join('\n');
   const impl = computeImplTestCoverage(cwd, touchedOf(checkedPlans), allRows, outsideOf(checkedPlans));
   const legacy = { legacy_unchecked: legacyPlans.length > 0 };
   if (legacyPlans.length > 0) {
-    const legacyMetrics = computeTestDeltaMetrics(cwd, phaseNumber, legacyPlans, declared, [], [], [], {});
+    const legacyMetrics = computeTestDeltaMetrics(cwd, phaseNumber, declared, [], [], [], {});
     const legacyImpl = computeImplTestCoverage(cwd, touchedOf(legacyPlans), [], outsideOf(legacyPlans));
     legacy.legacy_data = {
       plans: legacyPlans.map(planNumOf),
@@ -7942,31 +7964,24 @@ function computeTestContentCoverage(cwd, phaseNumber, validPlans, filesByPlan, p
     };
   }
 
-  return { requirements, hollow_tests, net_zero_assertion_files, hollow_test_cases: hollowCaseList, test_delta: metrics, ...impl, ...legacy, passed };
+  return { requirements, hollow_tests, net_zero_assertion_files, hollow_test_cases: hollowCaseList, test_delta: metrics, red_proof_missing, ...impl, ...legacy, passed };
 }
 
-// Net test LOC (git numstat over each plan's tagged commits, test files only)
-// plus the SUMMARY-declared added/updated/merged/deleted counts. Reported, not
-// gated here: a positive delta over TEST_LOC_JUSTIFY_THRESHOLD needs a cited
-// T0 justification per file (verifier Step 8j).
+// Net test LOC (git numstat over ALL the phase's tagged commits, test files only; fix and steward
+// commits included) plus the SUMMARY-declared added/updated/merged/deleted counts. Printed, not
+// gated: a positive delta over TEST_LOC_JUSTIFY_THRESHOLD needs a cited T0 justification per file
+// (verifier Step 8j).
 const TEST_LOC_JUSTIFY_THRESHOLD = 3000;
 const BUCKET_REGRESSION_FACTOR = 1.1;
-function computeTestDeltaMetrics(cwd, phaseNumber, validPlans, declared, deletedFiles, mergedFiles, bucketSeconds, extra) {
+function computeTestDeltaMetrics(cwd, phaseNumber, declared, deletedFiles, mergedFiles, bucketSeconds, extra) {
   let added = 0; let deleted = 0;
-  const seen = new Set();
-  for (const plan of validPlans || []) {
-    const planNum = plan.planNum || (plan.fm && plan.fm.plan);
-    if (!planNum) continue;
-    for (const hash of reviewGate.phaseCommits(execGit, cwd, phaseNumber, planNum).map(c => c.sha.slice(0, 7))) {
-      if (seen.has(hash)) continue;
-      seen.add(hash);
-      const ns = execGit(cwd, ['show', '--numstat', '--format=', hash]);
-      for (const line of (ns.stdout || '').split('\n')) {
-        const [a, d, f] = line.split('\t');
-        if (!f || !(TEST_FILE_RE.test(f) || /(^|\/)__tests__\//.test(f) || /_test\.(ts|js)$/.test(f))) continue;
-        if (/^\d+$/.test(a)) added += parseInt(a, 10);
-        if (/^\d+$/.test(d)) deleted += parseInt(d, 10);
-      }
+  for (const hash of reviewGate.phaseCommits(execGit, cwd, phaseNumber).map(c => c.sha.slice(0, 7))) {
+    const ns = execGit(cwd, ['show', '--numstat', '--format=', hash]);
+    for (const line of (ns.stdout || '').split('\n')) {
+      const [a, d, f] = line.split('\t');
+      if (!f || !(TEST_FILE_RE.test(f) || /(^|\/)__tests__\//.test(f) || /_test\.(ts|js)$/.test(f))) continue;
+      if (/^\d+$/.test(a)) added += parseInt(a, 10);
+      if (/^\d+$/.test(d)) deleted += parseInt(d, 10);
     }
   }
   const net = added - deleted;
@@ -8015,6 +8030,7 @@ function cmdVerifyTestContent(cwd, phaseArg, raw) {
     net_zero_assertion_files: coverage.net_zero_assertion_files,
     hollow_test_cases: coverage.hollow_test_cases,
     test_delta: coverage.test_delta,
+    red_proof_missing: coverage.red_proof_missing,
     impl_files_without_tests: coverage.impl_files_without_tests,
     impl_files_covered: coverage.impl_files_covered,
     impl_files_exempt: coverage.impl_files_exempt,
