@@ -686,10 +686,10 @@ ONE dispatch, `Agent(subagent_type="gsd-docs-updater", model="{utility_model}", 
 </step>
 
 <step name="mechanical_gates">
-After the last wave, the UI steps and `docs_update`, before `pre_verify_gates`. Run the mechanical gates ONCE on the final tree and write their output to `{phase_dir}/captures/gates.txt` (create the directory). The final review reads that capture and never re-run the full suite.
+After the last wave, the UI steps and `docs_update`, before `pre_verify_gates`. Run the mechanical gates ONCE on the final tree and write their output to `{phase_dir}/captures/gates.txt` (create the directory), each gate's section preceded by `gsd-tools capture stamp {phase_dir}/captures/gates.txt --gate <name> --paths <paths the gate exercises>`. The final review reads that capture and never re-run the full suite.
 
 1. Every entry of `gsd-tools profile get stack.gates` (typecheck, lint, format and the project's ratchet, security and dependency gates; legacy: no `stack.gates` => the gate scripts the repo ships; none configured: the profile's `typecheck` and `lint` commands), then the full test run `<stack_commands.test_all>`, each through the profile's own command. For each the capture holds the command, `rc=`, the pass/fail counts, the per-file or per-bucket seconds the runner prints, and for a gate that scans files the number it scanned. A gate that scanned 0 files is inert and counts as failed.
-2. A red result: ONE `{executor_model}` fix dispatch with the failing lines (rule 12 of `references/rigour.md` gives its shape); then re-run only the touched test files (and their bucket when the project defines buckets) and append that output to `gates.txt`. The full run is not repeated.
+2. A red result: ONE `{executor_model}` fix dispatch with the failing lines (rule 12 of `references/rigour.md` gives its shape); then re-run only the touched test files (and their bucket when the project defines buckets) and append that output to `gates.txt` as a newly stamped section. The full run is not repeated.
 3. This is the phase's one full run. The twice-green pass over all buckets runs once at milestone end, never per phase (`references/gsd-test-protocol.md` `test_cost_rule`).
 </step>
 
@@ -784,7 +784,7 @@ Agent(
 Phase directory: {phase_dir}
 Phase goal: {goal from ROADMAP.md}
 Phase requirement IDs: {phase_req_ids}
-Check must_haves against actual codebase. Review the phase diff `git diff {phase base}..HEAD -- . ':!.planning'` against the plans{, the threat model `{N}-THREAT-MODEL.md` when present}, with the final-review brief of `references/rigour.md` rule 11, and write the findings to `{phase_dir}/{N}-REVIEW.md` (record format: rule 10). The test steward's return: {net change and runtime delta, or "skipped"}; a net-positive test count with no stated reason is a finding. Gate and test results: read `{phase_dir}/captures/gates.txt` (it must be newer than the last code commit); do not re-run the full suite.
+Check must_haves against actual codebase. Review the phase diff `git diff {phase base}..HEAD -- . ':!.planning'` against the plans{, the threat model `{N}-THREAT-MODEL.md` when present}, with the final-review brief of `references/rigour.md` rule 11, and write the findings to `{phase_dir}/{N}-REVIEW.md` (record format: rule 10). The test steward's return: {net change and runtime delta, or "skipped"}; a net-positive test count with no stated reason is a finding. Gate and test results: read `{phase_dir}/captures/gates.txt` (each section stamped by `gsd-tools capture stamp`; stale when a later commit touched the paths it proves); do not re-run the full suite.
 Cross-reference requirement IDs from PLAN frontmatter against REQUIREMENTS.md — every ID MUST be accounted for.
 Judge product truth only; form was gated by a script. A form defect you notice is mentioned in your report body and never changes the status.
 Cite planning records by id (D-NN, A-NN, requirement id, plan id), never by line; code by file:line.

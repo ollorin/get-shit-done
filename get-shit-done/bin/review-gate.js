@@ -152,7 +152,71 @@ function recordTs(execGit, cwd, file) {
   return dirty || !committed ? Math.floor(fs.statSync(file).mtimeMs / 1000) : committed;
 }
 
-function staleRecordErrors(execGit, cwd, phaseDir, phaseNumber, names) {
+// Records stamped with the git HEAD they were produced at are fresh until a later commit changes a path they prove
+// (`git diff <head>..HEAD`), not by file time. `{N}-REVIEW.md` / `{N}-VERIFICATION.md` carry frontmatter `head: <sha>` and prove the
+// phase's source files; a `captures/gates.txt` section starts with `# gate=<name> head=<sha> [paths=<a,b>]` (written by
+// `gsd-tools capture stamp`) and proves its `paths` (default: the phase's source files); the newest section per gate counts.
+// An unstamped record keeps the older file-time rule (mtimeStaleErrors); an unstamped gates.txt is not checked.
+const SECTION = /^# gate=(\S+) head=([0-9a-f]{7,40})(?: paths=(\S+))?[ \t]*$/gm;
+const inScope = (file, paths) => paths.some((p) => file === p || file.startsWith(`${p.replace(/\/+$/, '')}/`));
+const proven = (touched) => (touched || []).filter((f) => !f.startsWith('.planning/') && !f.startsWith('docs/'));
+
+function headDrift(execGit, cwd, head, scope) {
+  const r = execGit(cwd, ['diff', '--name-only', `${head}..HEAD`]);
+  if (r.exitCode !== 0) return { error: `head ${head} is not a commit of this repository` };
+  return { files: (r.stdout || '').split('\n').map((f) => f.trim()).filter((f) => f && scope(f)) };
+}
+
+function staleRecordErrors(execGit, cwd, phaseDir, phaseNumber, names, touched) {
+  const src = proven(touched);
+  const errors = [];
+  const unstamped = [];
+  for (const n of names) {
+    const file = path.join(phaseDir, n);
+    if (!fs.existsSync(file)) continue;
+    let head = '';
+    try { head = String((require('gray-matter')(fs.readFileSync(file, 'utf8')).data || {}).head || '').trim(); } catch { head = ''; }
+    if (!head) { unstamped.push(n); continue; }
+    const d = headDrift(execGit, cwd, head, (f) => src.includes(f));
+    if (d.error) errors.push(`${n} ${d.error}`);
+    else if (d.files.length > 0) errors.push(`${n} is stale: ${d.files.slice(0, 3).join(', ')}${d.files.length > 3 ? ' ...' : ''} changed after its head ${head.slice(0, 9)}: the fix re-check agent updates it and re-stamps it with \`gsd-tools capture stamp\` (rigour.md rule 12)`);
+  }
+  errors.push(...mtimeStaleErrors(execGit, cwd, phaseDir, phaseNumber, unstamped));
+  const gates = path.join(phaseDir, 'captures', 'gates.txt');
+  if (fs.existsSync(gates)) {
+    const newest = new Map();
+    for (const m of fs.readFileSync(gates, 'utf8').matchAll(SECTION)) newest.set(m[1], { head: m[2], paths: m[3] ? m[3].split(',') : null });
+    for (const [gate, { head, paths }] of newest) {
+      const d = headDrift(execGit, cwd, head, paths ? (f) => inScope(f, paths) : (f) => src.includes(f));
+      if (d.error) errors.push(`gates.txt section ${gate} ${d.error}`);
+      else if (d.files.length > 0) errors.push(`gates.txt section ${gate} is stale: ${d.files.slice(0, 3).join(', ')}${d.files.length > 3 ? ' ...' : ''} changed after its head ${head.slice(0, 9)}: re-run it and append a newly stamped section`);
+    }
+  }
+  return errors;
+}
+
+// `gsd-tools capture stamp <file> [--gate <name>] [--paths a,b]`: refuses while tracked source has uncommitted changes (the stamp
+// would name a commit the proof did not run at). An .md record gets frontmatter `head:`; any other file gets a section line.
+function stampHead(execGit, cwd, file, { gate = 'gates', paths } = {}) {
+  const dirty = (execGit(cwd, ['diff', '--name-only', 'HEAD']).stdout || '').split('\n').map((l) => l.trim()).filter((f) => f && !f.startsWith('.planning/') && !f.startsWith('docs/'));
+  if (dirty.length > 0) return { error: `uncommitted source changes (${dirty.slice(0, 3).join(', ')}): commit them first so the stamp names the commit the proof ran at` };
+  const head = (execGit(cwd, ['rev-parse', 'HEAD']).stdout || '').trim();
+  if (!/^[0-9a-f]{40}$/.test(head)) return { error: 'cannot read HEAD' };
+  const text = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+  if (/\.md$/.test(file)) {
+    const m = text.match(/^---\n([\s\S]*?)\n---\n/);
+    const next = !m ? `---\nhead: ${head}\n---\n${text}`
+      : /^head:.*$/m.test(m[1]) ? text.replace(/^head:.*$/m, `head: ${head}`)
+      : text.replace(m[0], `---\n${m[1]}\nhead: ${head}\n---\n`);
+    fs.writeFileSync(file, next);
+  } else {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.appendFileSync(file, `${text && !text.endsWith('\n') ? '\n' : ''}# gate=${gate} head=${head}${paths ? ` paths=${paths}` : ''}\n`);
+  }
+  return { head };
+}
+
+function mtimeStaleErrors(execGit, cwd, phaseDir, phaseNumber, names) {
   const src = lastSourceCommitTs(execGit, cwd, phaseNumber);
   if (src === 0) return [];
   return names.filter((n) => fs.existsSync(path.join(phaseDir, n)) && recordTs(execGit, cwd, path.join(phaseDir, n)) < src)
@@ -186,4 +250,4 @@ function verificationReviewErrors(verification, spike, closedEarlier = false, le
   return errors;
 }
 
-module.exports = { reviewErrors, verificationReviewErrors, staleRecordErrors, lastSourceCommitTs, phaseCommits, untaggedPhaseCommits };
+module.exports = { stampHead, reviewErrors, verificationReviewErrors, staleRecordErrors, lastSourceCommitTs, phaseCommits, untaggedPhaseCommits };

@@ -7161,7 +7161,7 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles, opts =
   // The verifier writes the answer table, so the pre-verifier gate cannot demand it; the final gate does.
   if (spike && !closedEarlier) errors.push(...spikeCheck.answerTableErrors(cwd, phaseDir, dirFiles, { requireTable: !opts.preVerifier }));
   if (!opts.preVerifier) errors.push(...reviewGate.verificationReviewErrors(verification, spike, closedEarlier, ledger));
-  if (!opts.preVerifier && !closedEarlier) errors.push(...reviewGate.staleRecordErrors(execGit, cwd, phaseDir, phaseNumber, [`${phaseNumber}-VERIFICATION.md`, ...(spike ? [] : [`${phaseNumber}-REVIEW.md`])]));
+  if (!opts.preVerifier && !closedEarlier) errors.push(...reviewGate.staleRecordErrors(execGit, cwd, phaseDir, phaseNumber, [`${phaseNumber}-VERIFICATION.md`, ...(spike ? [] : [`${phaseNumber}-REVIEW.md`])], touched));
   // Pre-verifier mode: the verifier produces this artifact, so demanding it earlier is circular.
   if (opts.preVerifier) {
     // intentionally no verification-artifact error
@@ -14794,6 +14794,15 @@ async function main() {
 
     case 'resume': {
       cmdResume(args.slice(1), raw);
+      break;
+    }
+
+    case 'capture': {
+      const flag = (n) => { const i = args.indexOf(`--${n}`); return i >= 0 ? args[i + 1] : undefined; };
+      if (args[1] !== 'stamp' || !args[2]) error('usage: capture stamp <file> [--gate <name>] [--paths a,b]');
+      const res = reviewGate.stampHead(execGit, cwd, path.resolve(cwd, args[2]), { gate: flag('gate'), paths: flag('paths') });
+      if (res.error) error(`capture stamp: ${res.error}`);
+      output({ stamped: args[2], head: res.head }, raw, res.head);
       break;
     }
 

@@ -76,3 +76,75 @@ describe('grandfathering: a record without `format: v2` is judged by the legacy 
     assert.deepStrictEqual(errorsFor('', { frontmatter: 'passes: 1\nopen_critical_high: 1\nruled_by: [D-12]' }), []);
   });
 });
+
+describe('head stamps: freshness is git diff <head>..HEAD on the proven paths', () => {
+  const { execFileSync } = require('child_process');
+  const execGit = (cwd, args) => {
+    try { return { exitCode: 0, stdout: execFileSync('git', args, { cwd, encoding: 'utf8', stdio: 'pipe' }).trim() }; } catch (e) { return { exitCode: e.status || 1, stdout: String(e.stdout || '') }; }
+  };
+  const git = (d, ...a) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { cwd: d, stdio: 'pipe' });
+  const put = (d, rel, text) => { fs.mkdirSync(path.dirname(path.join(d, rel)), { recursive: true }); fs.writeFileSync(path.join(d, rel), text); };
+  const commit = (d, msg) => { git(d, 'add', '-A'); git(d, 'commit', '-q', '-m', msg); };
+  const repo = () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'rgh-'));
+    dirs.push(d);
+    git(d, 'init', '-q');
+    put(d, 'src/a.js', '1'); put(d, 'src/b.js', '1'); put(d, 'lint/x.js', '1'); put(d, '.planning/phases/01-p/01-REVIEW.md', '---\nformat: v2\n---\n# R\n');
+    commit(d, 'feat(01-01): work');
+    return { d, pd: path.join(d, '.planning/phases/01-p'), gates: path.join(d, '.planning/phases/01-p/captures/gates.txt') };
+  };
+  const stale = (d, pd, touched = ['src/a.js']) => rg.staleRecordErrors(execGit, d, pd, '01', ['01-REVIEW.md'], touched);
+
+  test('a stamped record is stale only when a proven path changed after its head; re-stamping clears it', () => {
+    const { d, pd } = repo();
+    assert.ok(rg.stampHead(execGit, d, path.join(pd, '01-REVIEW.md')).head);
+    commit(d, 'docs(01-01): stamp');
+    assert.deepStrictEqual(stale(d, pd), []);
+    put(d, 'src/b.js', '2'); commit(d, 'fix(01-review): other file');
+    assert.deepStrictEqual(stale(d, pd), [], 'a path the phase did not touch');
+    put(d, 'src/a.js', '2'); commit(d, 'fix(01-review): proven file');
+    assert.match(stale(d, pd)[0], /01-REVIEW\.md is stale: src\/a\.js/);
+    assert.ok(rg.stampHead(execGit, d, path.join(pd, '01-REVIEW.md')).head);
+    assert.deepStrictEqual(stale(d, pd), []);
+  });
+  test('the stamp is not file time: touching the record does not refresh a stale one', () => {
+    const { d, pd } = repo();
+    rg.stampHead(execGit, d, path.join(pd, '01-REVIEW.md')); commit(d, 'docs: stamp');
+    put(d, 'src/a.js', '2'); commit(d, 'fix(01-review): f');
+    fs.appendFileSync(path.join(pd, '01-REVIEW.md'), 'more\n'); commit(d, 'docs: append');
+    assert.strictEqual(stale(d, pd).length, 1);
+  });
+  test('stamp refuses while tracked source is dirty and a bad head is an error', () => {
+    const { d, pd } = repo();
+    put(d, 'src/a.js', 'dirty');
+    assert.match(rg.stampHead(execGit, d, path.join(pd, '01-REVIEW.md')).error, /uncommitted source changes \(src\/a\.js\)/);
+    git(d, 'checkout', '-q', 'src/a.js');
+    put(d, '.planning/phases/01-p/01-REVIEW.md', '---\nhead: deadbeefdeadbeef\n---\n');
+    assert.match(stale(d, pd)[0], /not a commit/);
+  });
+  test('gates.txt: each section is stale only for the paths it declares; the newest section per gate counts; unstamped is not checked', () => {
+    const { d, pd, gates } = repo();
+    rg.stampHead(execGit, d, gates, { gate: 'unit', paths: 'src' });
+    fs.appendFileSync(gates, 'unit output rc=0\n');
+    rg.stampHead(execGit, d, gates, { gate: 'lint', paths: 'lint' });
+    fs.appendFileSync(gates, 'lint output rc=0\n');
+    commit(d, 'docs: gates');
+    const only = (rec) => rg.staleRecordErrors(execGit, d, pd, '01', [], ['src/a.js']).filter((e) => rec.test(e));
+    assert.deepStrictEqual(only(/./), []);
+    put(d, 'src/a.js', '2'); commit(d, 'fix(01-review): f');
+    assert.strictEqual(only(/section unit is stale/).length, 1);
+    assert.deepStrictEqual(only(/section lint/), [], 'lint section does not exercise src');
+    rg.stampHead(execGit, d, gates, { gate: 'unit', paths: 'src' });
+    commit(d, 'docs: rerun');
+    assert.deepStrictEqual(only(/./), [], 'a newer unit section supersedes the stale one');
+    fs.writeFileSync(gates, 'old unstamped capture\n');
+    assert.deepStrictEqual(only(/./), []);
+  });
+  test('an unstamped record keeps the file-time rule', () => {
+    const { d, pd } = repo();
+    put(d, 'src/a.js', '2');
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'add', '-A'], { cwd: d });
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'fix(01-review): f'], { cwd: d, env: { ...process.env, GIT_COMMITTER_DATE: '2099-01-01T00:00:00Z', GIT_AUTHOR_DATE: '2099-01-01T00:00:00Z' } });
+    assert.match(stale(d, pd)[0], /older than the phase's last source commit/);
+  });
+});
