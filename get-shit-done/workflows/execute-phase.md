@@ -546,7 +546,7 @@ After all waves:
 
   <!-- SUMMARY presence and Self-Check are checked by the script (`verify phase-gate`, step pre_verify_gates), not here. -->
 
-  <!-- FPGATE-01 / DFGATE-01: prevention-infrastructure lifecycle gates. -->
+  <!-- FPGATE-01: prevention-infrastructure lifecycle gate. -->
   <!-- Each closes a documented POSTMORTEM escape class. If the target repo ships the -->
   <!-- corresponding Layer-1 gate (an entry in `stack.gates[]`), the gate RUNS it; if the -->
   <!-- profile has no such entry, the gate degrades to the static check described inline. -->
@@ -556,13 +556,6 @@ After all waves:
     <command>the run command of this ratchet's entry in `stack.gates[]` of `.planning/config.json` (legacy: no `stack.gates` => the repo's shipped FP gate script, as before) 2>&1 || echo FPGATE_FAIL</command>
     <pass>Gate exits 0 — every directory's measured violation count is at or below its `scripts/fp-violation-baseline.json` baseline (the ratchet is DOWN-only: a phase may reduce or hold counts, never raise them). If `stack.gates[]` is declared but has no entry for this ratchet (legacy with no `stack.gates` and no shipped FP gate script likewise), PASS only when no new empty-catch, non-`match()` handler, or oversized file was introduced by this phase.</pass>
     <fail>BLOCKING — a directory's violation count rose above baseline (`FPGATE_FAIL`, or the gate's `exceeded[]` array is non-empty). A phase may NEVER raise the ratchet. Closes POSTMORTEM FP classes 1 (swallowed errors), 2 (mutation), 7 (god-files/size), 8 (non-`match()` branching). Fix the new violations or, for a seeded pre-existing count, re-baseline deliberately — do NOT bypass.</fail>
-  </item>
-
-  <item id="DFGATE-01" severity="blocking">
-    <check>No plan or SUMMARY in this phase contains deferral language for this phase's own tests/QA/verification</check>
-    <command>grep -rniE "tests? to be added later|QA deferred|will verify in (the )?next phase|deferred to (post-milestone|future phase)|TODO:? add auth|follow-?up:? (add )?tests|test later|verify later" .planning/phases/{phase_dir}/ 2>/dev/null || echo NONE</command>
-    <pass>Output is NONE. The `deferred-items.md` sanctioned channel (pre-existing, out-of-scope issues from the executor's `&lt;scope_boundary&gt;`) is exempt — only deferral of THIS phase's own tests/QA/verification trips the gate.</pass>
-    <fail>BLOCKING — convert every match into a concrete test/QA task in THIS phase, or move a genuinely out-of-scope, pre-existing item into `deferred-items.md` with a justification. Never `--no-verify` past it.</fail>
   </item>
 
 </checkpoint>

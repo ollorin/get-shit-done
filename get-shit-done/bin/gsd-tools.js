@@ -7157,7 +7157,7 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles, opts =
   // closed under the rules of its time: the review and answer-table rules judge only phases still open.
   const closedEarlier = closedPhaseKeys(cwd).has(dispatch.phaseKey(phaseNumber));
   const verification = readPhaseVerification(phaseDir, phaseNumber);
-  if (!spike && !closedEarlier && !opts.preVerifier) errors.push(...reviewGate.reviewErrors(phaseDir, dirFiles, touched, { risk: riskAddons(cwd, phaseNumber, 'standard'), phaseNumber, ledger, verificationOpen: verification.exists ? Number(verification.data.open_critical_high) : undefined }));
+  if (!spike && !closedEarlier && !opts.preVerifier) errors.push(...reviewGate.reviewErrors(phaseDir, dirFiles, touched, { risk: riskAddons(cwd, phaseNumber, 'standard'), phaseNumber, ledger, phaseSection: (p) => getPhaseInvariantsText(cwd, p), verificationOpen: verification.exists ? Number(verification.data.open_critical_high) : undefined }));
   // The verifier writes the answer table, so the pre-verifier gate cannot demand it; the final gate does.
   if (spike && !closedEarlier) errors.push(...spikeCheck.answerTableErrors(cwd, phaseDir, dirFiles, { requireTable: !opts.preVerifier }));
   if (!opts.preVerifier) errors.push(...reviewGate.verificationReviewErrors(verification, spike, closedEarlier, ledger));

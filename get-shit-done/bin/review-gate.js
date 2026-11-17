@@ -1,8 +1,11 @@
 'use strict';
 // Disk check for the final review (references/rigour.md rule 10): a phase whose commits touched files outside
-// .planning/ needs the review record {N}-REVIEW.md (the newest final pass's findings; at risk add-ons pass 2 overwrites pass 1's).
-// Frontmatter: passes (1; 2 at risk add-ons), open_critical_high, ruled_by.
-// It must carry no open CRITICAL/HIGH finding unless a ruling id is recorded.
+// .planning/ needs the review record {N}-REVIEW.md (the newest final pass's findings; at risk add-ons pass 2 appends to pass 1's).
+// Frontmatter `format: v2`: `passes` (1; 2 at risk add-ons) and a findings table (| id | sev | state | owner |) whose rows are the
+// record; the open count is computed from them, never typed. A row not `closed` carries an owner: a ledger decision id (D-NN, a
+// ruling; A-NN for a MED/LOW row) or a phase whose ROADMAP success-criterion or requirement line names the finding id.
+// CRITICAL/HIGH and refuted rows need a D- ruling. A record without `format: v2` is judged by the legacy rule (legacyReviewErrors:
+// frontmatter open_critical_high, ruled_by), so phases already in flight are not refused on parse.
 const fs = require('fs');
 const path = require('path');
 
@@ -12,20 +15,79 @@ const rulings = (data) => (Array.isArray(data.ruled_by) ? data.ruled_by : data.r
 const countOf = (v) => (v === undefined || v === null || v === '' ? undefined : typeof v === 'number' ? v : /^\d+$/.test(String(v).trim()) ? Number(String(v).trim()) : NaN);
 const bad = (ids) => ids.filter((x) => !RULING_ID.test(x));
 
-// `ledger`: Map of decisions-ledger id -> kind (a ruled_by id must be a kind-decision row); `verificationOpen`: VERIFICATION's count.
-function reviewErrors(phaseDir, dirFiles, touchedFiles, { risk = false, phaseNumber, ledger, verificationOpen } = {}) {
+const cells = (line) => line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
+const SEVERITY = { critical: 'ch', crit: 'ch', high: 'ch', med: 'ml', medium: 'ml', low: 'ml' };
+// The findings table: the first table whose header names id, sev, state and owner. null: none; else rows { id, sev, state, owner }.
+function parseFindings(body) {
+  const lines = String(body || '').split('\n');
+  for (let i = 0; i < lines.length - 1; i += 1) {
+    if (!/^\s*\|/.test(lines[i]) || !/^\s*\|[\s:|-]+$/.test(lines[i + 1])) continue;
+    const head = cells(lines[i]).map((c) => c.toLowerCase());
+    const col = { id: head.indexOf('id'), sev: Math.max(head.indexOf('sev'), head.indexOf('severity')), state: head.indexOf('state'), owner: head.indexOf('owner') };
+    if (Object.values(col).some((x) => x < 0)) continue;
+    const rows = [];
+    for (let j = i + 2; j < lines.length && /^\s*\|/.test(lines[j]); j += 1) {
+      const c = cells(lines[j]);
+      rows.push({ id: c[col.id] || '', sev: (c[col.sev] || '').toLowerCase(), state: (c[col.state] || '').toLowerCase(), owner: c[col.owner] || '' });
+    }
+    return rows;
+  }
+  return null;
+}
+const isOpen = (r) => !/^closed\b/.test(r.state);
+
+// Errors for the findings of a review record; `ledger` Map id -> kind, `phaseSection(phase)` the ROADMAP section text or null.
+function findingErrors(file, rows, { ledger, phaseSection } = {}) {
+  const errors = [];
+  const noId = rows.filter((r) => !r.id);
+  if (noId.length > 0) errors.push(`${file} has ${noId.length} findings row(s) with no id`);
+  const unknownSev = rows.filter((r) => r.id && !SEVERITY[r.sev]);
+  if (unknownSev.length > 0) errors.push(`${file} findings with an unknown severity (CRITICAL, HIGH, MED, LOW): ${unknownSev.map((r) => r.id).join(', ')}`);
+  const unowned = [];
+  const unruled = [];
+  const unrefuted = [];
+  for (const r of rows.filter((x) => x.id && SEVERITY[x.sev] && isOpen(x))) {
+    const owner = r.owner.replace(/`/g, '').trim();
+    const d = /^D-\d+$/.test(owner);
+    const a = /^A-\d+$/.test(owner);
+    const inLedger = ledger instanceof Map ? ledger.has(owner) && (!d || ledger.get(owner) === 'decision') : true;
+    if (SEVERITY[r.sev] === 'ch' && !(d && inLedger)) { unruled.push(r.id); continue; }
+    if (/^refuted\b/.test(r.state) && !(d && inLedger)) { unrefuted.push(r.id); continue; }
+    if ((d || a) && inLedger) continue;
+    const section = /^\d+(\.\d+)?$/.test(owner) && typeof phaseSection === 'function' ? phaseSection(owner) : null;
+    const named = new RegExp(`(^|[^\\w-])${r.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\w-])`);
+    if (section && section.split('\n').some((l) => !/^\s*#/.test(l) && /^\s*(\d+[.)]|[-*+])\s/.test(l) && named.test(l))) continue;
+    unowned.push(r.id);
+  }
+  if (unruled.length > 0) errors.push(`${file} open CRITICAL/HIGH findings without a D-NN ruling in the decisions ledger as owner: ${unruled.join(', ')}`);
+  if (unrefuted.length > 0) errors.push(`${file} refuted findings without a D-NN ruling in the decisions ledger as owner: ${unrefuted.join(', ')}`);
+  if (unowned.length > 0) errors.push(`${file} non-closed findings with no owner: a ledger id (D-NN or A-NN) or a phase whose ROADMAP success-criterion or requirement line names the finding id: ${unowned.join(', ')}`);
+  return errors;
+}
+
+// `ledger`: Map of decisions-ledger id -> kind (a D- owner must be a kind-decision row); `phaseSection`: phase number -> ROADMAP section text.
+function reviewErrors(phaseDir, dirFiles, touchedFiles, { risk = false, phaseNumber, ledger, phaseSection, verificationOpen } = {}) {
   const code = (touchedFiles || []).filter((f) => !f.startsWith('.planning/'));
   if (code.length === 0) return [];
   const file = dirFiles.find((f) => phaseNumber === undefined ? /-REVIEW\.md$/.test(f) : f === `${phaseNumber}-REVIEW.md`);
   if (!file) return [`No {N}-REVIEW.md: the phase changed ${code.length} file(s) outside .planning/ and needs the final review record`];
-  let data = {};
-  try { data = require('gray-matter')(fs.readFileSync(path.join(phaseDir, file), 'utf8')).data || {}; } catch { data = {}; }
+  let parsed = { data: {}, content: '' };
+  try { parsed = require('gray-matter')(fs.readFileSync(path.join(phaseDir, file), 'utf8')); } catch { parsed = { data: {}, content: '' }; }
+  if (String((parsed.data || {}).format).trim() !== 'v2') return legacyReviewErrors(file, parsed.data || {}, { risk, ledger, verificationOpen });
+  const passes = countOf((parsed.data || {}).passes);
+  if (passes !== 1 && passes !== 2) return [`${file} frontmatter must carry passes: 1 or 2 (pass 2 at risk add-ons)`];
+  if (risk && passes !== 2) return [`${file} records ${passes} final pass: a phase with risk add-ons needs pass 2 (a fresh independent review of the fixed tree)`];
+  const rows = parseFindings(parsed.content);
+  if (rows === null) return [`${file} has no findings table: a header row | id | sev | state | owner | (zero findings: the header alone)`];
+  return findingErrors(file, rows, { ledger, phaseSection });
+}
+
+// Legacy record (no `format: v2`): hand-typed frontmatter open_critical_high and ruled_by; VERIFICATION's count must agree.
+function legacyReviewErrors(file, data, { risk, ledger, verificationOpen }) {
   const open = countOf(data.open_critical_high);
   const passes = countOf(data.passes);
   const ruled = rulings(data);
-  if (!Number.isInteger(open) || open < 0) {
-    return [`${file} frontmatter must carry open_critical_high (a whole count)`];
-  }
+  if (!Number.isInteger(open) || open < 0) return [`${file} frontmatter must carry open_critical_high (a whole count)`];
   if (passes !== 1 && passes !== 2) return [`${file} frontmatter must carry passes: 1 or 2 (pass 2 at risk add-ons)`];
   if (risk && passes !== 2) return [`${file} records ${passes} final pass: a phase with risk add-ons needs pass 2 (a fresh independent review of the fixed tree)`];
   if (bad(ruled).length > 0) return [`${file} ruled_by must list ruling ids like D-12, not ${bad(ruled).join(', ')}`];
