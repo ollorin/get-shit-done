@@ -687,7 +687,7 @@ After `post_phase_ux_sweep` and before `pre_verify_gates`. Runs only when `stack
 </step>
 
 <step name="docs_update">
-After the last wave and the UI steps, before `mechanical_gates` (the capture must be newer than every commit but the verifier's own); not at `spike`. ONCE per phase, never per plan or task. Skip (one-line note) when the phase diff holds no documentation-worthy change: a new or changed endpoint, route or page, schema or migration, service or middleware, or auth or onboarding flow (not refactors, tests, CI or config only).
+After the last wave and the UI steps, before `mechanical_gates` (its freshness is rule 12 of `references/rigour.md`); not at `spike`. ONCE per phase, never per plan or task. Skip (one-line note) when the phase diff holds no documentation-worthy change: a new or changed endpoint, route or page, schema or migration, service or middleware, or auth or onboarding flow (not refactors, tests, CI or config only).
 
 ONE dispatch, `Agent(subagent_type="gsd-docs-updater", model="{utility_model}", description="Docs phase {N}")`, given the phase's SUMMARY paths, the changed files and the project root. It follows the project's `/docs` conventions, commits, and returns `written_files`, `commit`, `errors`. A thrown error, a non-empty `errors`, or empty `written_files` with `commit: "none"` for a documentation-worthy phase is a failed step: re-dispatch once, then record the exception with `deferred add "${PHASE}" --step docs --reason <reason> --approver <approver>` (auto mode: never approve it yourself; park the phase and name the missing docs). Name the written files in the verifier prompt.
 </step>
