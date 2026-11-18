@@ -85,7 +85,8 @@ export const parseArgs = (args) => {
   };
 };
 
-export const ownerRecord = (pid, label, start, command) => ({ pid, label, start, command });
+export const ownerRecord = (pid, label, start, command, waitedMs) =>
+  waitedMs === undefined ? { pid, label, start, command } : { pid, label, start, command, waited_ms: waitedMs };
 
 export const exitCodeFor = (timedOut, code) => (timedOut ? EXIT_TIMEOUT : code);
 
@@ -227,7 +228,8 @@ const run = async (args) => {
     console.error(`stack-lock: ${e.message}`);
     return EXIT_INTERNAL;
   }
-  const start = new Date().toISOString();
+  const waitStart = Date.now();
+  const start = new Date(waitStart).toISOString();
   let got;
   try {
     got = await acquire(lockFile, { pid: process.pid, label, start }, timeout);
@@ -240,9 +242,10 @@ const run = async (args) => {
     return exitCodeFor(true, 0);
   }
 
+  const waitedMs = Date.now() - waitStart;
   // Informational only: owner.txt is never read to decide anything, so a failed write is not fatal.
   try {
-    fs.writeFileSync(ownerFile, JSON.stringify(ownerRecord(process.pid, label, start, cmd.join(' '))) + '\n');
+    fs.writeFileSync(ownerFile, JSON.stringify(ownerRecord(process.pid, label, start, cmd.join(' '), waitedMs)) + '\n');
   } catch {
     // informational
   }
@@ -258,7 +261,7 @@ const run = async (args) => {
   });
   const result = await runChild(cmd, (child) => {
     live = child;
-    recordChild(lockFile, { pid: process.pid, label, start }, child.pid);
+    recordChild(lockFile, { pid: process.pid, label, start, waited_ms: waitedMs }, child.pid);
     if (received) child.kill(received);
   });
   handlers.forEach(({ s, handler }) => process.removeListener(s, handler));

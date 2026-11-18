@@ -112,6 +112,26 @@ describe('stack lock (agnostic-M-08 8.4)', () => {
     assert.ok(stamps(l, 'c').start >= stamps(l, 'a').end, 'c started before a ended');
   });
 
+  test('L-w the time a waiter queued is recorded in owner.txt and in the lock record as waited_ms; an uncontended acquire records about 0', async () => {
+    const l = lockDir();
+    const snap = (name) => [process.execPath, '-e', `setTimeout(() => { const fs = require('fs');
+      fs.writeFileSync(${JSON.stringify(path.join(l.d, name + '-owner'))}, fs.readFileSync(${JSON.stringify(l.owner)}, 'utf8'));
+      fs.writeFileSync(${JSON.stringify(path.join(l.d, name + '-lock'))}, fs.readFileSync(${JSON.stringify(l.lock)}, 'utf8')); }, 300)`];
+    const first = wrap(l, 'first', 20, snap('first'));
+    assert.strictEqual((await first.exited).code, 0);
+    assert.ok(JSON.parse(fs.readFileSync(path.join(l.d, 'first-owner'), 'utf8')).waited_ms < 1500);
+    const { a, release } = await holder(l);
+    const w = wrap(l, 'w', 20, snap('w'));
+    await sleep(800);
+    release();
+    assert.strictEqual((await a.exited).code, 0);
+    assert.strictEqual((await w.exited).code, 0);
+    for (const f of ['w-owner', 'w-lock']) {
+      const rec = JSON.parse(fs.readFileSync(path.join(l.d, f), 'utf8'));
+      assert.ok(rec.waited_ms >= 700 && rec.waited_ms < 15000, `${f} waited_ms ${rec.waited_ms}`);
+    }
+  });
+
   test('L-c with a live holder a waiter with --timeout 1 exits 75 and the holder completes with 0, also with owner.txt emptied', async () => {
     const l = lockDir();
     const { a, release } = await holder(l);
@@ -293,6 +313,7 @@ describe('stack lock (agnostic-M-08 8.4)', () => {
     assert.match(m.parseArgs(['--bogus', '1', '--', 'true']).error, /unknown argument --bogus/);
     assert.match(m.parseArgs(['--label', '--', 'true']).error, /--label is required|requires a value/);
     assert.deepStrictEqual(m.ownerRecord(1, 'l', 's', 'c'), { pid: 1, label: 'l', start: 's', command: 'c' });
+    assert.deepStrictEqual(m.ownerRecord(1, 'l', 's', 'c', 42), { pid: 1, label: 'l', start: 's', command: 'c', waited_ms: 42 });
     assert.strictEqual(m.exitCodeFor(true, 3), 75);
     assert.strictEqual(m.exitCodeFor(false, 3), 3);
 
