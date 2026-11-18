@@ -10188,6 +10188,7 @@ function cmdPhaseComplete(cwd, phaseNum, raw, opts = {}) {
     ...(fs.existsSync(roadmapPath) && roadmapBox.checkboxState(fs.readFileSync(roadmapPath, 'utf-8'), phaseNum) === null ? { roadmap_checkbox_missing: `no checkbox line for phase ${phaseNum} in ROADMAP.md (expected "- [ ] Phase ${phaseNum}"): tick it by hand` } : {}),
     state_updated: fs.existsSync(statePath),
     ...(formDebtItems.length > 0 ? { form_debt: formDebtItems } : {}),
+    notices: dispatchLease.unleasedSpawns(cwd, readExecutionEvents(cwd), phaseNum),
   };
 
   output(result, raw);
@@ -12427,19 +12428,13 @@ function cmdInitExecuteRoadmap(cwd, raw) {
   }, raw);
 }
 
-// budget spend is LEGACY: a phase that calls `dispatch begin|end` is budgeted from its leases (dispatch-lease.js) and ignores phase_spend.
-// budget spend --phase N [--step S] [--model M]: logs ONE dispatch (at spawn). budget status --phase N: the coordinator reads it before each new cycle.
+// budget status --phase N: the coordinator reads it before each new cycle (spend comes from dispatch leases; no lease = unknown).
 function cmdPhaseBudget(cwd, args, raw) {
   const sub = args[0];
-  if (sub !== 'status' && sub !== 'spend') error('Unknown budget subcommand. Available: status, spend');
-  const flag = (name) => { const i = args.indexOf(name); return i !== -1 ? args[i + 1] : undefined; };
-  const phase = flag('--phase');
-  if (!phase) error(`budget ${sub}: --phase required`);
-  if (sub === 'spend') {
-    appendEvent(cwd, { type: 'phase_spend', phase: dispatch.phaseKey(phase), step: flag('--step') || null, model: flag('--model') || null });
-    output({ logged: true, phase: dispatch.phaseKey(phase) }, raw);
-    return;
-  }
+  if (sub !== 'status') error('Unknown budget subcommand. Available: status');
+  const i = args.indexOf('--phase');
+  const phase = i !== -1 ? args[i + 1] : undefined;
+  if (!phase) error('budget status: --phase required');
   output(phaseBudgetStatus(cwd, phase, readExecutionEvents(cwd)), raw);
 }
 
@@ -12609,7 +12604,7 @@ function cmdRoadmapRecord(cwd, args, raw) {
     const b = phaseBudgetStatus(cwd, k, events);
     appendEvent(cwd, { ...e, budget_class: b.budget_class, wall_minutes_spent: b.wall_minutes_spent, dispatches_spent: b.dispatches_spent, total_wall_minutes: b.total_wall_minutes, total_dispatches: b.total_dispatches, budget_wall_minutes: b.budget_wall_minutes, pct: b.pct, warn: b.warn, breach: b.breach });
   }
-  output({ ...out, truth: { complete: truth.complete, errors: truth.errors, work_errors: truth.work_errors, form_errors: truth.form_errors } }, raw);
+  output({ ...out, notices: dispatchLease.unleasedSpawns(cwd, events, k), truth: { complete: truth.complete, errors: truth.errors, work_errors: truth.work_errors, form_errors: truth.form_errors } }, raw);
 }
 
 // ─── Session Analysis Commands ────────────────────────────────────────────────
@@ -14968,7 +14963,7 @@ async function main() {
       // the original cost-budget behavior unchanged.
       if (args[1] === 'check') {
         cmdPromptBudget(cwd, raw);
-      } else if (args[1] === 'status' || args[1] === 'spend') {
+      } else if (args[1] === 'status') {
         cmdPhaseBudget(cwd, args.slice(1), raw);
       } else {
         cmdBudget(args.slice(1), raw);

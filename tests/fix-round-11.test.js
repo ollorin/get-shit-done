@@ -27,10 +27,12 @@ describe('R5-2 / R5-3: dispatches are counted, never limited', () => {
     assert.deepStrictEqual(budget.budgetFields(dir, 'standard'), { budget_class: 'standard', budget_wall_minutes: 90 });
     assert.deepStrictEqual(Object.keys(budget.DEFAULTS.spike), ['wall_minutes']);
   });
-  test('500 dispatches in one minute: counted, no warn, no breach', () => {
-    const t = (m) => new Date(Date.parse('2026-01-01T00:00:00Z') + m * 60000).toISOString();
-    const ev = [{ type: 'phase_start', phase: '1', timestamp: t(0) }, ...Array.from({ length: 500 }, () => ({ type: 'phase_spend', phase: '1', timestamp: t(1) }))];
-    const s = budget.status({ cwd: project(), phase: '1', cls: 'spike', events: ev });
+  test('500 leases: counted, no warn, no breach', () => {
+    const cwd = project();
+    const L = require('../get-shit-done/bin/dispatch-lease.js');
+    const t0 = Date.parse('2026-01-01T00:00:00Z');
+    for (let n = 0; n < 500; n += 1) { L.begin({ cwd, phase: '1', role: 'reviewer', id: `a${n}`, events: [], now: t0 }); L.end({ cwd, id: `a${n}`, events: [], now: t0 + 10 }); }
+    const s = budget.status({ cwd, phase: '1', cls: 'spike', events: [] });
     assert.deepStrictEqual([s.dispatches_spent, s.total_dispatches, s.warn, s.breach, s.budget_dispatches], [500, 500, false, false, undefined]);
   });
   test('init and the prose carry no dispatch ceiling', () => {
@@ -42,17 +44,18 @@ describe('R5-2 / R5-3: dispatches are counted, never limited', () => {
 });
 
 describe('R5-16 / R10-G: both phase_complete writers carry the totals, run not grepped', () => {
+  const leased = (dir, id) => { gsd(dir, ['dispatch', 'begin', '--phase', '1', '--role', 'reviewer', '--id', id]); gsd(dir, ['dispatch', 'end', '--id', id]); };
   const totals = (e) => [e.total_wall_minutes, e.total_dispatches, e.dispatches_spent];
   test('phase complete and roadmap record each write them', () => {
     const a = project();
     writeEvidence(a, 1);
-    for (let i = 0; i < 2; i++) gsd(a, ['budget', 'spend', '--phase', '1']);
+    for (let i = 0; i < 2; i++) leased(a, `s${i}`);
     completePhaseLikeWorkflow(a, 1);
     const ev = (d) => read(d, '.planning/EXECUTION_LOG.md').split('\n').filter((l) => l.startsWith('{')).map((l) => JSON.parse(l)).filter((e) => e.type === 'phase_complete').pop();
     assert.deepStrictEqual(totals(ev(a)).slice(1), [2, 2]);
     const b = project();
     writeEvidence(b, 1);
-    for (let i = 0; i < 3; i++) gsd(b, ['budget', 'spend', '--phase', '1']);
+    for (let i = 0; i < 3; i++) leased(b, `s${i}`);
     gsd(b, ['phase', 'checkpoint', '1', '--step', 'verify', '--status', 'passed']);
     write(b, '.planning/ROADMAP.md', read(b, '.planning/ROADMAP.md').replace('- [ ] **Phase 1', '- [x] **Phase 1'));
     assert.strictEqual(gsd(b, ['roadmap', 'record', '--phase', '1', '--result', '{"status":"completed"}']).json.action, 'complete');

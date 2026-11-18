@@ -34,85 +34,62 @@ describe('CLI-4: budget', () => {
     assert.strictEqual(json(['init', 'plan-phase', '1', '--legacy']).budget_class, 'risk');
     assert.strictEqual(json(['init', 'execute-phase', '1', '--legacy']).budget_class, 'risk');
   });
+  const L = require('./dispatch-lease.js');
+  const T0 = Date.parse('2026-01-01T00:00:00Z');
+  const iso = (m) => new Date(T0 + m * 60000).toISOString();
+  const leased = (id, from, to, phase = '1', role = 'reviewer') => { L.begin({ cwd: dir, phase, role, id, events: [], now: T0 + from * 60000 }); if (to !== null) L.end({ cwd: dir, id, events: [], now: T0 + to * 60000 }); };
+  const status = (events = [], phase = '1', cls = 'standard') => b.status({ cwd: dir, phase, cls, events });
   test('budget status at 79 / 80 / 100 percent of the wall minutes; dispatch counts never move pct, warn or breach', () => {
-    const t0 = Date.parse('2026-01-01T00:00:00Z');
-    const at = (min, spends) => b.status({ cwd: dir, phase: '1', cls: 'standard', events: [{ type: 'phase_start', phase: '1', timestamp: new Date(t0).toISOString() }, ...Array.from({ length: spends }, () => ({ type: 'phase_spend', phase: '1' })), { type: 'phase_spend', phase: '1', timestamp: new Date(t0 + min * 60000).toISOString() }] });
-    const r79 = at(71.1, 0);
-    assert.deepStrictEqual([r79.pct, r79.warn, r79.breach, r79.budget_class], [79, false, false, 'standard']);
-    const r80 = at(72, 0);
-    assert.deepStrictEqual([r80.pct, r80.warn, r80.breach], [80, true, false]);
-    const r100 = at(90, 0);
-    assert.deepStrictEqual([r100.pct, r100.warn, r100.breach], [100, true, true]);
-    const many = at(1, 500);
-    assert.deepStrictEqual([many.dispatches_spent, many.warn, many.breach, many.budget_dispatches], [501, false, false, undefined]);
+    leased('a', 0, 71.1);
+    assert.deepStrictEqual([status().pct, status().warn, status().breach, status().budget_class], [79, false, false, 'standard']);
+    fs.rmSync(L.leasePath(dir));
+    leased('a', 0, 72);
+    assert.deepStrictEqual([status().pct, status().warn, status().breach], [80, true, false]);
+    fs.rmSync(L.leasePath(dir));
+    leased('a', 0, 90);
+    assert.deepStrictEqual([status().pct, status().warn, status().breach], [100, true, true]);
+    fs.rmSync(L.leasePath(dir));
+    for (let n = 0; n < 50; n += 1) leased(`m${n}`, 0, 1);
+    const many = status();
+    assert.deepStrictEqual([many.dispatches_spent, many.warn, many.breach, many.budget_dispatches], [50, false, false, undefined]);
   });
-  test('M1: wall time is the sum of work windows; idle time between sessions never counts', () => {
-    const ev = [
-      { type: 'phase_start', phase: '1', timestamp: '2026-01-01T00:00:00Z' },
-      { type: 'phase_parked', phase: '1', reason: 'human_needed', timestamp: '2026-01-01T00:10:00Z' },
-      { type: 'phase_start', phase: '1', timestamp: '2026-01-03T00:00:00Z' },
-      { type: 'phase_spend', phase: '1', timestamp: '2026-01-03T00:05:00Z' },
-    ];
-    const s = b.status({ cwd: dir, phase: '1', cls: 'standard', events: ev, now: Date.parse('2026-01-03T00:05:00Z') });
-    assert.strictEqual(s.wall_minutes_spent, 15);
-    const rec = [...ev.slice(0, 1), { type: 'phase_incomplete', phase: '1', action: 'gap_cycle', timestamp: '2026-01-01T00:20:00Z' }, { type: 'gap_cycle', phase: '1', timestamp: '2026-02-01T00:00:00Z' }, { type: 'phase_spend', phase: '1', timestamp: '2026-02-01T00:07:00Z' }];
-    assert.strictEqual(b.status({ cwd: dir, phase: '1', cls: 'standard', events: rec, now: Date.parse('2026-02-01T00:07:00Z') }).wall_minutes_spent, 27);
+  test('a phase with no lease reports spend as unknown (null), never zero, and cannot warn or breach; other phases do not count', () => {
+    leased('a', 0, 100, '2');
+    const s = json(['budget', 'status', '--phase', '1']);
+    assert.deepStrictEqual([s.wall_minutes_spent, s.dispatches_spent, s.total_wall_minutes, s.pct, s.warn, s.breach, s.spend_known], [null, null, null, null, false, false, false]);
+    assert.strictEqual(json(['budget', 'status', '--phase', '2']).spend_known, undefined);
   });
-  test('a phase_start while a window is open closes the old one at the last logged event of the phase', () => {
-    const ev = [{ type: 'phase_start', phase: '1', timestamp: '2026-01-01T00:00:00Z' }, { type: 'phase_spend', phase: '1', timestamp: '2026-01-01T00:30:00Z' }, { type: 'phase_start', phase: '1', timestamp: '2026-01-05T00:00:00Z' }, { type: 'phase_spend', phase: '1', timestamp: '2026-01-05T00:10:00Z' }];
-    const s = b.status({ cwd: dir, phase: '1', cls: 'standard', events: ev, now: Date.parse('2026-01-05T00:10:00Z') });
-    assert.deepStrictEqual([s.wall_minutes_spent, s.dispatches_spent], [40, 2]);
+  test('an open lease is measured to the last logged event, never to the clock (a dead session stops spending)', () => {
+    leased('a', 0, null);
+    assert.strictEqual(status().wall_minutes_spent, 0);
+    const live = [{ type: 'dispatch_begin', phase: '1', timestamp: iso(12) }];
+    assert.deepStrictEqual([status(live, '1', 'spike').wall_minutes_spent, status(live, '1', 'spike').breach], [12, false]);
   });
-  test('an open window is measured to the last logged event, never to the clock (a dead session stops spending)', () => {
-    const ev = [{ type: 'phase_start', phase: '1', timestamp: '2026-01-01T00:00:00Z' }];
-    assert.strictEqual(b.status({ cwd: dir, phase: '1', cls: 'spike', events: ev, now: Date.parse('2026-01-09T00:00:00Z') }).wall_minutes_spent, 0);
-    const live = [...ev, { type: 'phase_spend', phase: '1', timestamp: '2026-01-01T00:12:00Z' }];
-    const s = b.status({ cwd: dir, phase: '1', cls: 'spike', events: live, now: Date.parse('2026-01-09T00:00:00Z') });
-    assert.deepStrictEqual([s.wall_minutes_spent, s.breach], [12, false]);
+  test('budget spend is gone: it logs no spend event and no phase_spend type is declared', () => {
+    run(['budget', 'spend', '--phase', '1']);
+    assert.ok(!fs.existsSync(path.join(dir, '.planning', 'EXECUTION_LOG.md')) || !/phase_spend/.test(fs.readFileSync(path.join(dir, '.planning', 'EXECUTION_LOG.md'), 'utf8')));
+    assert.ok(!Object.values(require('./execution-log.js').EVENT_TYPES).includes('phase_spend'));
   });
-  test('N2: a window with no phase_start (standalone plan-phase / execute-phase) opens at the first spend event', () => {
-    const t = (m) => new Date(Date.parse('2026-01-01T00:00:00Z') + m * 60000).toISOString();
-    const ev = [{ type: 'phase_spend', phase: '1', timestamp: t(0) }, { type: 'phase_spend', phase: '1', timestamp: t(31) }, { type: 'phase_spend', phase: '1', timestamp: t(100) }];
-    const s = b.spend(ev, '1');
-    assert.deepStrictEqual([s.wall_minutes_spent, s.dispatches_spent], [100, 3]);
-    assert.strictEqual(b.spend([{ type: 'phase_spend', phase: '1', timestamp: t(0) }], '1').wall_minutes_spent, 0);
-  });
-  test('budget spend --phase N logs one dispatch', () => {
-    const before = json(['budget', 'status', '--phase', '1']).dispatches_spent;
-    json(['budget', 'spend', '--phase', '1', '--step', 'plan-check', '--model', 'sonnet']);
-    assert.strictEqual(json(['budget', 'status', '--phase', '1']).dispatches_spent, before + 1);
-  });
-  test('the window restarts after phase_complete and after a budget_exceeded park (retry)', () => {
-    const spend = { type: 'phase_spend', phase: '1', timestamp: '2026-01-01T00:10:00Z' };
-    const ev = [{ type: 'phase_start', phase: '1', timestamp: '2026-01-01T00:00:00Z' }, spend, spend, { type: 'phase_parked', phase: '1', reason: 'budget_exceeded' },
-      { type: 'phase_start', phase: '1', timestamp: '2026-01-02T00:00:00Z' }, { ...spend, timestamp: '2026-01-02T00:05:00Z' }];
-    const s = b.status({ cwd: dir, phase: '1', cls: 'standard', events: ev, now: Date.parse('2026-01-02T00:05:00Z') });
-    assert.deepStrictEqual([s.dispatches_spent, s.wall_minutes_spent], [1, 5]);
-    const closed = b.status({ cwd: dir, phase: '1', cls: 'standard', events: [...ev, { type: 'phase_complete', phase: '1' }], now: Date.now() });
+  test('the window restarts after phase_complete and after a budget_exceeded park (retry); a recorded phase_complete stays readable', () => {
+    leased('a', 0, 10);
+    const done = [{ type: 'phase_complete', phase: '1', timestamp: iso(11) }];
+    const closed = status(done);
     assert.deepStrictEqual([closed.dispatches_spent, closed.wall_minutes_spent], [0, 0]);
+    const parked = [{ type: 'phase_parked', phase: '1', reason: 'budget_exceeded', timestamp: iso(12) }];
+    assert.deepStrictEqual([status(parked).dispatches_spent, status(parked).total_dispatches], [0, 1]);
+    const rec = [{ type: 'phase_complete', phase: '1', timestamp: iso(11), wall_minutes_spent: 10, dispatches_spent: 1, budget_wall_minutes: 90, pct: 11.1 }];
+    assert.deepStrictEqual([status(rec).final, status(rec).wall_minutes_spent], [true, 10]);
   });
-  test('a retry of a phase parked for its own reason opens a new window; the numbers stay readable until the retry starts', () => {
-    const spend = { type: 'phase_spend', phase: '1', timestamp: '2026-01-01T00:10:00Z' };
-    const ev = [{ type: 'phase_start', phase: '1', timestamp: '2026-01-01T00:00:00Z' }, spend, spend,
-      { type: 'phase_parked', phase: '1', reason: 'gaps_after_closure_cycle', timestamp: '2026-01-01T00:30:00Z' }];
-    const parkedStatus = b.status({ cwd: dir, phase: '1', cls: 'spike', events: ev, now: Date.parse('2026-01-03T00:00:00Z') });
-    assert.deepStrictEqual([parkedStatus.dispatches_spent, parkedStatus.wall_minutes_spent], [2, 30]);
-    const retried = [...ev, { type: 'phase_start', phase: '1', timestamp: '2026-01-02T00:00:00Z' }, { ...spend, timestamp: '2026-01-02T00:04:00Z' }];
-    const s = b.status({ cwd: dir, phase: '1', cls: 'spike', events: retried, now: Date.parse('2026-01-02T00:04:00Z') });
-    assert.deepStrictEqual([s.dispatches_spent, s.wall_minutes_spent], [1, 4]);
-    const dep = [{ type: 'phase_start', phase: '1', timestamp: '2026-01-01T00:00:00Z' }, spend, { type: 'phase_parked', phase: '1', reason: 'dependency_parked', timestamp: '2026-01-01T00:10:00Z' },
-      { type: 'phase_start', phase: '1', timestamp: '2026-01-01T00:20:00Z' }, { ...spend, timestamp: '2026-01-01T00:25:00Z' }];
-    assert.strictEqual(b.status({ cwd: dir, phase: '1', cls: 'spike', events: dep, now: 0 }).dispatches_spent, 2);
-  });
-  test('a phase_spend without a phase is ignored; other phases do not count', () => {
-    const s = b.status({ cwd: dir, phase: '1', cls: 'spike', events: [{ type: 'phase_spend', step: 'x' }, { type: 'phase_spend', phase: '2' }, { type: 'phase_spend', phase: '1' }], now: 0 });
-    assert.strictEqual(s.dispatches_spent, 1);
-  });
-  test('execution-log event accepts phase_spend and a record of budget_exceeded parks naming the reason', () => {
-    assert.strictEqual(run(['execution-log', 'event', '--type', 'phase_spend', '--data', '{"phase":1,"step":"plan-check","model":"sonnet"}']).status, 0);
-    assert.strictEqual(json(['budget', 'status', '--phase', '1']).dispatches_spent, 1);
+  test('a record of budget_exceeded parks naming the reason', () => {
     const r = json(['roadmap', 'record', '--phase', '1', '--result', '{"status":"blocked","reason":"budget_exceeded"}']);
     assert.deepStrictEqual([r.action, r.events[0].reason], ['park', 'budget_exceeded']);
+  });
+  test('roadmap record prints a spawns_without_lease notice (not a refusal) when the log shows spawn events and no lease', () => {
+    log({ type: 'task_outcome', phase: '1', timestamp: iso(1) }, { type: 'model_selected', phase: '1', timestamp: iso(2) });
+    const r = json(['roadmap', 'record', '--phase', '1', '--result', 'retry']);
+    assert.deepStrictEqual(r.notices.map((n) => [n.type, n.spawn_events, n.leases]), [['spawns_without_lease', 2, 0]]);
+    leased('a', 0, 5);
+    assert.deepStrictEqual(json(['roadmap', 'record', '--phase', '1', '--result', 'retry']).notices.map((n) => [n.spawn_events, n.leases]), []);
   });
 });
 

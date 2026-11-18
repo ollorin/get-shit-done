@@ -1,6 +1,6 @@
 'use strict';
 // Dispatch leases: `dispatch begin|end` (references/rigour.md rule 7). One lease per spawned agent, kept in
-// <git common dir>/gsd-dispatch-leases.json (shared by worktrees; .planning/dispatch-leases.json outside git or when the common dir is not writable). A phase that never calls `dispatch` has no leases and keeps the legacy `budget spend` accounting.
+// <git common dir>/gsd-dispatch-leases.json (shared by worktrees; .planning/dispatch-leases.json outside git or when the common dir is not writable). A phase that never calls `dispatch` has no leases: its spend is unknown.
 // Owner (executor leases): `begin` records { pid, start } of the process that owns the session. The tool's own pid is useless (it exits at once)
 // and so is its parent (the per-command shell), so the owner is `--owner-pid`, else the nearest ancestor whose command is not a shell
 // (normally the agent runtime), found with `ps`; `start` (ps lstart) guards against pid reuse. LIMITS: it proves the SESSION is gone, never that one
@@ -214,7 +214,7 @@ function reapDead({ cwd, phase, events, lastCommitMs = 0 }) {
   });
 }
 
-// Lease-based spend for a phase, or null when the phase never used `dispatch` (legacy accounting applies).
+// Lease-based spend for a phase, or null when the phase never used `dispatch` (spend unknown).
 function spend(cwd, events, phase) {
   const k = phaseKey(phase);
   const mine = load(cwd).filter((l) => l.phase === k);
@@ -229,7 +229,20 @@ function spend(cwd, events, phase) {
   return { wall_minutes_spent: min(cur.reduce((a, l) => a + span(l), 0)), dispatches_spent: cur.length, total_wall_minutes: min(mine.reduce((a, l) => a + span(l), 0)), total_dispatches: mine.length };
 }
 
+// Spawn events with no lease behind them: a phase with no lease counts every spawn event; otherwise only `model_selected` (one per spawn)
+// beyond the lease count. `task_outcome`/`tier_escalation` are per task, not per agent, so they only count for a phase with no lease at all.
+const SPAWN_EVENTS = new Set(['model_selected', 'task_outcome', 'tier_escalation']);
+function unleasedSpawns(cwd, events, phase) {
+  const k = phaseKey(phase);
+  const mine = (Array.isArray(events) ? events : []).filter((e) => e && evPhase(e) === k);
+  const leaseCount = load(cwd).filter((l) => l.phase === k).length;
+  const spawns = mine.filter((e) => SPAWN_EVENTS.has(e.type)).length;
+  const per = mine.filter((e) => e.type === 'model_selected').length;
+  const unleased = leaseCount === 0 ? spawns : Math.max(0, per - leaseCount);
+  return unleased > 0 ? [{ type: 'spawns_without_lease', phase: k, spawn_events: leaseCount === 0 ? spawns : per, leases: leaseCount, message: `phase ${k}: ${unleased} spawn event(s) with no \`dispatch begin\` lease; its time is not measured (rigour.md rule 7)` }] : [];
+}
+
 // Earliest lease begin (ms) of the phase, or null.
 const firstBegin = (cwd, phase) => { const b = load(cwd).filter((l) => l.phase === phaseKey(phase)).map((l) => ms(l.begin)).filter((t) => !Number.isNaN(t)); return b.length ? Math.min(...b) : null; };
 
-module.exports = { firstBegin, begin, end, reapDead, spend, load, leasePath, closeEvent, DEFAULT_TTL_MIN };
+module.exports = { unleasedSpawns, firstBegin, begin, end, reapDead, spend, load, leasePath, closeEvent, DEFAULT_TTL_MIN };

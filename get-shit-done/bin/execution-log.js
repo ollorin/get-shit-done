@@ -15,8 +15,7 @@ const EVENT_TYPES = {
   KNOWLEDGE_WRITE: 'knowledge_write',
   MODEL_SELECTED: 'model_selected',
   TASK_OUTCOME: 'task_outcome',
-  TIER_ESCALATION: 'tier_escalation',
-  PHASE_SPEND: 'phase_spend'
+  TIER_ESCALATION: 'tier_escalation'
 };
 
 /**

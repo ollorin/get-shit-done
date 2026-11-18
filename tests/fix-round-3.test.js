@@ -194,10 +194,11 @@ describe('item 4: evidence_only_plan does not apply at spike', () => {
 });
 
 describe('item 7: the final spend survives phase completion', () => {
+  const leased = (dir, id) => { gsd(dir, ['dispatch', 'begin', '--phase', '1', '--role', 'reviewer', '--id', id]); gsd(dir, ['dispatch', 'end', '--id', id]); };
   const completed = () => {
     const dir = project();
     writeEvidence(dir, 1);
-    for (let i = 0; i < 3; i++) gsd(dir, ['budget', 'spend', '--phase', '1', '--step', `s${i}`]);
+    for (let i = 0; i < 3; i++) leased(dir, `s${i}`);
     completePhaseLikeWorkflow(dir, 1);
     const rec = gsd(dir, ['roadmap', 'record', '--phase', '1', '--result', '{"status":"completed"}']);
     return { dir, rec };
@@ -217,7 +218,7 @@ describe('item 7: the final spend survives phase completion', () => {
   });
   test('a new window after completion (a retry) counts from zero again', () => {
     const { dir } = completed();
-    gsd(dir, ['budget', 'spend', '--phase', '1']);
+    leased(dir, 'retry');
     const b = gsd(dir, ['budget', 'status', '--phase', '1']).json;
     assert.strictEqual(b.dispatches_spent, 1);
     assert.notStrictEqual(b.final, true);

@@ -54,24 +54,22 @@ describe('R10-C: criteria_decided at spike', () => {
 
 describe('R10-G: cumulative budget totals across windows', () => {
   const t = (m) => new Date(Date.parse('2026-01-01T00:00:00Z') + m * 60000).toISOString();
-  test('spend reports totals that survive a park-and-retry reset and a completion', () => {
-    const ev = [
-      { type: 'phase_start', phase: '1', timestamp: t(0) },
-      { type: 'phase_spend', phase: '1', timestamp: t(10) },
-      { type: 'phase_spend', phase: '1', timestamp: t(30) },
-      { type: 'phase_parked', phase: '1', reason: 'gaps_after_closure_cycle', timestamp: t(40) },
-      { type: 'phase_start', phase: '1', timestamp: t(1000) },
-      { type: 'phase_spend', phase: '1', timestamp: t(1020) },
-    ];
-    const s = budget.spend(ev, '1');
-    assert.deepStrictEqual([s.wall_minutes_spent, s.dispatches_spent, s.total_wall_minutes, s.total_dispatches], [20, 1, 60, 3]);
+  test('lease spend reports totals that survive a completion', () => {
+    const L = require('../get-shit-done/bin/dispatch-lease.js');
+    const t0 = Date.parse('2026-01-01T00:00:00Z');
+    L.begin({ cwd: tmpDir, phase: '1', role: 'reviewer', id: 'a', events: [], now: t0 });
+    L.end({ cwd: tmpDir, id: 'a', events: [], now: t0 + 30 * 60000 });
+    const ev = [{ type: 'phase_complete', phase: '1', timestamp: t(40) }];
+    L.begin({ cwd: tmpDir, phase: '1', role: 'reviewer', id: 'b', events: ev, now: t0 + 1000 * 60000 });
+    L.end({ cwd: tmpDir, id: 'b', events: ev, now: t0 + 1020 * 60000 });
+    const s = L.spend(tmpDir, ev, '1');
+    assert.deepStrictEqual([s.wall_minutes_spent, s.dispatches_spent, s.total_wall_minutes, s.total_dispatches], [20, 1, 50, 2]);
     const st = budget.status({ cwd: tmpDir, phase: '1', cls: 'spike', events: ev });
-    assert.deepStrictEqual([st.total_wall_minutes, st.total_dispatches], [60, 3]);
+    assert.deepStrictEqual([st.total_wall_minutes, st.total_dispatches], [50, 2]);
   });
   test('status of a completed phase and its phase_complete event carry the totals', () => {
     const ev = [
       { type: 'phase_start', phase: '1', timestamp: t(0) },
-      { type: 'phase_spend', phase: '1', timestamp: t(10) },
       { type: 'phase_complete', phase: '1', timestamp: t(12), wall_minutes_spent: 12, dispatches_spent: 1, total_wall_minutes: 12, total_dispatches: 1, budget_wall_minutes: 45 },
     ];
     const st = budget.status({ cwd: tmpDir, phase: '1', cls: 'spike', events: ev });
