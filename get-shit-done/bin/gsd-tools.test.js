@@ -7051,11 +7051,11 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
     assert.strictEqual(JSON.parse(bad.output).passed, false);
     assert.strictEqual(bad.exitCode, 1);
     fs.mkdirSync(path.join(phaseDir, 'captures'), { recursive: true });
-    fs.writeFileSync(path.join(phaseDir, 'captures', 'red-sc1.txt'), 'cmd rc=1 failing run\n');
+    fs.writeFileSync(path.join(phaseDir, 'captures', 'red-sc1.txt'), '$ node --test a.test.js\nnot ok 1\nrc=1\n');
     fs.writeFileSync(path.join(phaseDir, 'captures', 'red-sc2.txt'), '');
     commitAll('feat(46-01): one proof');
     assert.deepStrictEqual(JSON.parse(runTestContent('46', tmpDir).output).red_proof_missing, [2], 'an empty capture does not count');
-    fs.writeFileSync(path.join(phaseDir, 'captures', 'red-sc2.txt'), 'cmd rc=1 failing run\n');
+    fs.writeFileSync(path.join(phaseDir, 'captures', 'red-sc2.txt'), '$ node --test a.test.js\nnot ok 1\nrc=1\n');
     commitAll('feat(46-01): both proofs');
     const good = runTestContent('46', tmpDir);
     assert.deepStrictEqual(JSON.parse(good.output).red_proof_missing, []);
@@ -7084,11 +7084,15 @@ describe('verify test-content classification matrix (Phase 46-03 Task 2)', () =>
     assert.match(bullets.out.red_proof_errors[0], /bullet-form/);
     const noHeader = attempt('48-redC', '48', '#### Phase 48: c', '1. a\n2. b\n');
     assert.match(noHeader.out.red_proof_errors[0], /success criteria not found/);
-    const padded = attempt('07-redD', '07', '#### Phase 7: d', '**Success Criteria**:\n1. a\n   1. sub-item\n2. b\n', { 'red-sc1.txt': 'run rc=1\n' });
+    const padded = attempt('07-redD', '07', '#### Phase 7: d', '**Success Criteria**:\n1. a\n   1. sub-item\n2. b\n', { 'red-sc1.txt': '$ run\nrc=1\n' });
     assert.deepStrictEqual([padded.out.red_proof_errors, padded.out.red_proof_missing], [[], [2]]);
     const noMarker = attempt('49-redE', '49', '#### Phase 49: e', '**Success Criteria**:\n1. a\n', { 'red-sc1.txt': 'it ran\n' });
     assert.deepStrictEqual(noMarker.out.red_proof_missing, [1], 'a non-empty capture without an rc=<non-zero> line is not red proof');
-    const ok = attempt('50-redF', '50', '#### Phase 50: f', '**Success Criteria**:\n1. a\n', { 'red-sc1.txt': 'cmd rc=2\n' });
+    for (const [n, body] of [['51', 'rc=1\n'], ['52', 'cmd rc=2\n'], ['53', 'rc=1\n$ late command\n'], ['54', '$ cmd\nrc=0\n']]) {
+      const bare = attempt(`${n}-redG`, n, `#### Phase ${n}: g`, '**Success Criteria**:\n1. a\n', { 'red-sc1.txt': body });
+      assert.deepStrictEqual(bare.out.red_proof_missing, [1], `capture ${JSON.stringify(body)} is not bound to a command line and a later non-zero rc`);
+    }
+    const ok = attempt('50-redF', '50', '#### Phase 50: f', '**Success Criteria**:\n1. a\n', { 'red-sc1.txt': '$ cmd\nok\nrc=2\n' });
     assert.deepStrictEqual([ok.out.red_proof_missing, ok.out.red_proof_errors, ok.exitCode], [[], [], 0]);
   });
 

@@ -7162,7 +7162,7 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles, opts =
   // The verifier writes the answer table, so the pre-verifier gate cannot demand it; the final gate does.
   if (spike && !closedEarlier) errors.push(...spikeCheck.answerTableErrors(cwd, phaseDir, dirFiles, { requireTable: !opts.preVerifier }));
   if (!opts.preVerifier) errors.push(...reviewGate.verificationReviewErrors(verification, spike, closedEarlier, ledger));
-  if (!opts.preVerifier && !closedEarlier) errors.push(...reviewGate.staleRecordErrors(execGit, cwd, phaseDir, phaseNumber, [`${phaseNumber}-VERIFICATION.md`, ...(spike ? [] : [`${phaseNumber}-REVIEW.md`])], touched));
+  if (!opts.preVerifier && !closedEarlier) errors.push(...reviewGate.staleRecordErrors(execGit, cwd, phaseDir, phaseNumber, [`${phaseNumber}-VERIFICATION.md`, ...(spike ? [] : [`${phaseNumber}-REVIEW.md`])], touched, declaredPlanPaths(phaseDir, planFiles)));
   // Pre-verifier mode: the verifier produces this artifact, so demanding it earlier is circular.
   if (opts.preVerifier) {
     // intentionally no verification-artifact error
@@ -7732,8 +7732,8 @@ function successCriteriaNumbers(section) {
   return nums;
 }
 // A plan with frontmatter `format: v2` opts the phase in: every success criterion k needs a non-empty
-// `{phase_dir}/captures/red-sc{k}.*` that contains a failing-run marker (a line with `rc=<non-zero>`: the failing run of its test
-// before the fix). A v2 plan whose criteria cannot be located (no ROADMAP section for the phase, no numbered list under a
+// `{phase_dir}/captures/red-sc{k}.*` that records a failing run of its test before the fix: a line starting `$ ` (the command) and a later line
+// starting `rc=<non-zero>`. A v2 plan whose criteria cannot be located (no ROADMAP section for the phase, no numbered list under a
 // "Success Criteria" line, bullet-form criteria) fails with red_proof_errors instead of passing vacuously.
 function redProofCheck(cwd, phaseNumber, phaseDir, validPlans) {
   if (!(validPlans || []).some(p => p.fm && String(p.fm.format).trim() === 'v2')) return { missing: [], errors: [] };
@@ -7745,7 +7745,13 @@ function redProofCheck(cwd, phaseNumber, phaseDir, validPlans) {
     return { missing: [], errors: [`red proof: success criteria not found for phase ${raw} (${section ? 'no numbered list under a "Success Criteria" line; bullet-form criteria are not read' : 'no "Phase N:" section in ROADMAP.md'}): a format v2 plan needs them to check the red-sc{k} captures`] };
   }
   const dir = path.join(phaseDir, 'captures');
-  const failing = f => { try { return /\brc=[1-9]\d*/.test(fs.readFileSync(path.join(dir, f), 'utf8')); } catch { return false; } };
+  const failing = f => {
+    try {
+      const lines = fs.readFileSync(path.join(dir, f), 'utf8').split(/\r?\n/);
+      const cmd = lines.findIndex(l => /^\$ \S/.test(l));
+      return cmd !== -1 && lines.slice(cmd + 1).some(l => /^rc=[1-9]\d*(\s|$)/.test(l));
+    } catch { return false; }
+  };
   const have = fs.existsSync(dir) ? fs.readdirSync(dir).filter(f => fs.statSync(path.join(dir, f)).size > 0 && failing(f)) : [];
   return { missing: criteria.filter(k => !have.some(f => new RegExp(`^red-sc0*${k}(?![0-9])`).test(f))), errors: [] };
 }
@@ -11300,6 +11306,15 @@ function findPhaseInternal(cwd, phase) {
   }
 }
 
+// `files_modified` entries of every plan of the phase (files or directory prefixes); an unreadable plan contributes nothing.
+function declaredPlanPaths(phaseDir, planFiles) {
+  return (planFiles || []).flatMap((f) => {
+    try {
+      const fm = require('gray-matter')(fs.readFileSync(path.join(phaseDir, f), 'utf8')).data || {};
+      return Array.isArray(fm.files_modified) ? fm.files_modified.map(String) : [];
+    } catch { return []; }
+  });
+}
 // Derives the set of files a phase actually touched, purely from git history
 // (log --grep + diff-tree) -- never from PLAN.md `files_modified` or SUMMARY.md
 // `key-files`, which are self-reported and exactly what MILE-06/phase-gate must
