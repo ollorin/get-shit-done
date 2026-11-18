@@ -2502,11 +2502,32 @@ function stateDiskPlanCounts(cwd, content, phaseOverride) {
   return { plans: info.plans.length, summaries: info.summaries.length };
 }
 
+// STATE.md accumulates history ("Plan: 400-52 complete ...", "Status: ..." of earlier phases), so a first-match field regex edits the wrong
+// phase. The current position is the block that starts at the Phase line under "## Current Position" (else the file's first Phase line)
+// and runs to the next heading, at most 12 lines. No Phase line: the whole file is the window (older shapes).
+function stateWindow(content) {
+  const lines = content.split('\n');
+  const isPhase = (l) => /^\s*(?:\*\*)?(?:Current )?Phase:(?:\*\*)?\s*\d/i.test(l);
+  const head = lines.findIndex((l) => /^#{1,6}\s*Current Position\b/i.test(l));
+  let start = -1;
+  for (let i = head === -1 ? 0 : head + 1; i < lines.length; i++) {
+    if (head !== -1 && /^#{1,6}\s/.test(lines[i])) break;
+    if (isPhase(lines[i])) { start = i; break; }
+  }
+  if (start === -1 && head !== -1) start = lines.findIndex(isPhase);
+  if (start === -1) return { pre: '', win: content, post: '' };
+  let end = start + 1;
+  while (end < lines.length && end < start + 12 && !/^#{1,6}\s/.test(lines[end])) end++;
+  return { pre: lines.slice(0, start).map((l) => l + '\n').join(''), win: lines.slice(start, end).join('\n'), post: end < lines.length ? '\n' + lines.slice(end).join('\n') : '' };
+}
+
 function cmdStateAdvancePlan(cwd, raw, opts = {}) {
   const statePath = path.join(cwd, '.planning', 'STATE.md');
   if (!fs.existsSync(statePath)) { output({ error: 'STATE.md not found' }, raw); return; }
 
-  let content = fs.readFileSync(statePath, 'utf-8');
+  const split = stateWindow(fs.readFileSync(statePath, 'utf-8'));
+  let content = split.win;
+  const save = () => atomicWriteFileSync(statePath, split.pre + content + split.post);
   const today = new Date().toISOString().split('T')[0];
 
   // Try the existing bold-field path FIRST -- if both bold fields parse to
@@ -2523,14 +2544,14 @@ function cmdStateAdvancePlan(cwd, raw, opts = {}) {
     if (currentPlan >= totalPlans || (boldDisk !== null && boldDisk.summaries >= boldDisk.plans)) {
       content = stateReplaceField(content, 'Status', 'Phase complete — ready for verification') || content;
       content = stateReplaceField(content, 'Last Activity', today) || content;
-      atomicWriteFileSync(statePath, content);
+      save();
       output({ advanced: false, reason: 'last_plan', current_plan: currentPlan, total_plans: totalPlans, status: 'ready_for_verification' }, raw, 'false');
     } else {
       const newPlan = currentPlan + 1;
       content = stateReplaceField(content, 'Current Plan', String(newPlan)) || content;
       content = stateReplaceField(content, 'Status', 'Ready to execute') || content;
       content = stateReplaceField(content, 'Last Activity', today) || content;
-      atomicWriteFileSync(statePath, content);
+      save();
       output({ advanced: true, previous_plan: currentPlan, current_plan: newPlan, total_plans: totalPlans }, raw, 'true');
     }
     return;
@@ -2568,7 +2589,7 @@ function cmdStateAdvancePlan(cwd, raw, opts = {}) {
     content = replacePlanProgressLine(content, allExecuted ? totalPlans : currentPlan, totalPlans, completionSuffix) || content;
     content = stateReplaceFieldTolerant(content, 'Status', 'Phase complete — ready for verification') || content;
     content = stateReplaceFieldTolerant(content, 'Last activity', today) || content;
-    atomicWriteFileSync(statePath, content);
+    save();
     output({ advanced: false, reason: 'last_plan', current_plan: allExecuted ? totalPlans : currentPlan, total_plans: totalPlans, status: 'ready_for_verification' }, raw, 'false');
   } else {
     const newPlan = currentPlan + 1;
@@ -2577,7 +2598,7 @@ function cmdStateAdvancePlan(cwd, raw, opts = {}) {
     content = replacePlanProgressLine(content, newPlan, totalPlans, freshSuffix) || content;
     content = stateReplaceFieldTolerant(content, 'Status', 'Ready to execute') || content;
     content = stateReplaceFieldTolerant(content, 'Last activity', today) || content;
-    atomicWriteFileSync(statePath, content);
+    save();
     output({ advanced: true, previous_plan: currentPlan, current_plan: newPlan, total_plans: totalPlans }, raw, 'true');
   }
 }
@@ -2591,6 +2612,10 @@ function cmdStateRecordMetric(cwd, options, raw) {
 
   if (!phase || !plan || !duration) {
     output({ error: 'phase, plan, and duration required' }, raw);
+    return;
+  }
+  if (/^\s*0+(?:\.0+)?\s*(?:m|min|mins|minutes?|s|sec|secs|seconds?|h|hours?)?\s*$/i.test(String(duration))) {
+    output({ error: `duration "${duration}" is a placeholder zero: pass the plan's measured wall time (first dispatch begin to last dispatch end of the plan in EXECUTION_LOG.md)` }, raw, undefined, 1);
     return;
   }
 

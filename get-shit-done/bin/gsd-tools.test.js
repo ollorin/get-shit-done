@@ -9633,6 +9633,35 @@ describe('Phase 51-01: STATE.md tolerant parsing (state advance-plan / state upd
     assert.match(parsed.error, /^Cannot parse STATE\.md no "Plan:" line found/);
   });
 
+  test('regression: a STATE.md with several phases advances only the Current Position block; earlier "Plan: N of M", Status and Last activity lines are byte-identical', () => {
+    const history = [
+      '## Accumulated Context',
+      '',
+      'Plan: 2 of 2 complete (earlier phase)',
+      'Status: Phase complete — ready for verification',
+      'Last activity: 2026-01-01',
+      '',
+    ];
+    const tail = ['## Superseded', '', 'Phase: 9 of 9 (old)', 'Plan: 9 of 9 complete', 'Status: 375-02 complete', 'Last activity: 2025-12-31', ''];
+    writeState(['# Project State', '', ...history, '## Current Position', '', 'Phase: 3 of 4 (current)', 'Plan: 1 of 3 in current phase', 'Status: In progress', 'Last activity: 2026-02-02', '', ...tail].join('\n'));
+    const result = runGsdTools('state advance-plan', tmpDir);
+    assert.ok(result.success, result.error);
+    const after = readState();
+    assert.ok(after.includes(history.join('\n')), 'history block untouched');
+    assert.ok(after.includes(tail.join('\n')), 'superseded block untouched');
+    assert.match(after, /Phase: 3 of 4 \(current\)\nPlan: 2 of 3 in current phase\nStatus: Ready to execute\nLast activity: \d{4}-\d{2}-\d{2}\n/);
+  });
+  test('regression: state record-metric refuses a placeholder zero duration and records a real one', () => {
+    writeState('# Project State\n\n## Performance Metrics\n\n**Velocity:**\n- Total plans completed: 0\n');
+    for (const d of ['0', '0m', '0 min', '0.0']) {
+      const r = runGsdTools(`state record-metric --phase 1 --plan 1 --duration "${d}" --tasks 2 --files 3`, tmpDir);
+      assert.ok(!r.success, `duration ${d} must be refused`);
+      assert.match(r.output + r.error, /placeholder zero/);
+    }
+    assert.ok(!/Phase 1 P1/.test(readState()), 'nothing recorded');
+    assert.ok(runGsdTools('state record-metric --phase 1 --plan 1 --duration "7 min"', tmpDir).success);
+    assert.match(readState(), /\| Phase 1 P1 \| 7 min \|/);
+  });
   test('edge case: STATE.md missing Progress: entirely (neither bold nor plain) -> update-progress returns { updated: false, reason: ... }', () => {
     writeState([
       '# Project State',
