@@ -119,16 +119,16 @@ describe('stack lock (agnostic-M-08 8.4)', () => {
       fs.writeFileSync(${JSON.stringify(path.join(l.d, name + '-lock'))}, fs.readFileSync(${JSON.stringify(l.lock)}, 'utf8')); }, 300)`];
     const first = wrap(l, 'first', 20, snap('first'));
     assert.strictEqual((await first.exited).code, 0);
-    assert.ok(JSON.parse(fs.readFileSync(path.join(l.d, 'first-owner'), 'utf8')).waited_ms < 1500);
+    assert.ok(JSON.parse(fs.readFileSync(path.join(l.d, 'first-owner'), 'utf8')).waited_ms < 1000);
     const { a, release } = await holder(l);
     const w = wrap(l, 'w', 20, snap('w'));
-    await sleep(800);
+    await sleep(2500);
     release();
     assert.strictEqual((await a.exited).code, 0);
     assert.strictEqual((await w.exited).code, 0);
     for (const f of ['w-owner', 'w-lock']) {
       const rec = JSON.parse(fs.readFileSync(path.join(l.d, f), 'utf8'));
-      assert.ok(rec.waited_ms >= 700 && rec.waited_ms < 15000, `${f} waited_ms ${rec.waited_ms}`);
+      assert.ok(rec.waited_ms >= 1000 && rec.waited_ms < 15000, `${f} waited_ms ${rec.waited_ms}`);
     }
   });
 
