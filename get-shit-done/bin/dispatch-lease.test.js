@@ -167,6 +167,14 @@ describe('dispatch CLI', () => {
     assert.match(log, /"type":"dispatch_end"[^\n]*"stale":true[^\n]*session died/);
     assert.strictEqual((log.match(/"type":"dispatch_begin"/g) || []).length, 2);
   });
+  test('dispatch end over a corrupt lease file logs dispatch_leases_corrupt with the phase of the id from its dispatch_begin event', () => {
+    assert.strictEqual(run(['dispatch', 'begin', '--phase', '7', '--role', 'reviewer', '--id', 'z']).status, 0);
+    fs.writeFileSync(L.leasePath(dir), '{not json');
+    run(['dispatch', 'end', '--id', 'z']);
+    const log = fs.readFileSync(path.join(dir, '.planning', 'EXECUTION_LOG.md'), 'utf8');
+    assert.match(log, /"type":"dispatch_leases_corrupt"[^\n]*"phase":"7"/);
+    assert.doesNotMatch(log, /"type":"dispatch_leases_corrupt"[^\n]*"phase":null/);
+  });
   test('roadmap record maps a bare status synonym on an incomplete phase to the real result; only "deferred" is rejected, naming the JSON form', () => {
     const log = path.join(dir, '.planning', 'EXECUTION_LOG.md');
     const r = run(['roadmap', 'record', '--phase', '1', '--result', 'complete']);
@@ -204,6 +212,13 @@ describe('workflow prose matches the lease rule', () => {
     const hit = spawnSync('sh', ['-c', cmd], { cwd: dir, encoding: 'utf8' });
     assert.match(hit.stdout, /9-01-SUMMARY\.md:.*tests to be added later/);
     assert.doesNotMatch(hit.stdout, /REVIEW/);
+    write('.planning/phases/9-x/9-01-SUMMARY.md', 'fine\n');
+    write('.planning/phases/9-x/deferred-items.md', 'ruled D-3: QA deferred to future phase\n');
+    write('.planning/phases/9-x/captures/gates.txt', 'verify later\n');
+    write('.planning/phases/9-x/9-VERIFICATION.md', 'D-3 is in deferred-items.md\n');
+    assert.strictEqual(spawnSync('sh', ['-c', cmd], { cwd: dir, encoding: 'utf8' }).stdout.trim(), 'NONE', 'deferred-items.md and captures/ are exempt');
+    write('.planning/phases/9-x/9-VERIFICATION.md', 'deferred to future phase\n');
+    assert.match(spawnSync('sh', ['-c', cmd], { cwd: dir, encoding: 'utf8' }).stdout, /9-VERIFICATION\.md/, 'VERIFICATION prose still trips');
   });
   test('execute-roadmap sends a bare synonym of completed through 5a/5b before roadmap record, and says what to do on deferred', () => {
     const t = read('execute-roadmap.md');

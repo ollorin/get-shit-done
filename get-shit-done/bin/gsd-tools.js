@@ -12431,7 +12431,9 @@ function cmdDispatch(cwd, args, raw) {
   if (sub === 'end') {
     const stale = flag('--stale');
     const r = dispatchLease.end({ cwd, id: stale || flag('--id'), stale: stale !== undefined, reason: flag('--reason'), events });
-    if (r.quarantined) appendEvent(cwd, { type: 'dispatch_leases_corrupt', phase: dispatch.phaseKey(flag('--phase')), moved_to: r.quarantined });
+    // `end` takes no --phase: the id's own `dispatch_begin` event names it.
+    const began = [...events].reverse().find((e) => e && e.type === 'dispatch_begin' && e.id === (stale || flag('--id')));
+    if (r.quarantined) appendEvent(cwd, { type: 'dispatch_leases_corrupt', phase: dispatch.phaseKey(flag('--phase') || (began && began.phase)), moved_to: r.quarantined });
     if (r.error) error(r.error);
     appendEvent(cwd, dispatchLease.closeEvent(r.lease));
     output({ ...r, logged: true }, raw);
