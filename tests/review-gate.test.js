@@ -124,6 +124,16 @@ describe('head stamps: freshness is git diff <head>..HEAD on the proven paths', 
     assert.ok(rg.stampHead(execGit, d, path.join(pd, '01-REVIEW.md')).head);
     assert.deepStrictEqual(stale(d, pd), []);
   });
+  test('an untagged commit on a path a plan declares in files_modified stales a stamped record; an undeclared path still does not', () => {
+    const { d, pd } = repo();
+    rg.stampHead(execGit, d, path.join(pd, '01-REVIEW.md')); commit(d, 'docs(01-01): stamp');
+    put(d, 'lib/c.js', '2'); commit(d, 'tweak without a phase tag');
+    const withDecl = (declared) => rg.staleRecordErrors(execGit, d, pd, '01', ['01-REVIEW.md'], ['src/a.js'], declared);
+    assert.deepStrictEqual(withDecl([]), [], 'undeclared: not proven (grandfathered behaviour)');
+    assert.match(withDecl(['lib/'])[0], /01-REVIEW\.md is stale: lib\/c\.js/);
+    assert.match(withDecl(['./lib/c.js'])[0], /lib\/c\.js/);
+    assert.deepStrictEqual(withDecl(['.planning/x.md', 'docs/y.md']), [], '.planning/ and docs/ never stale a record');
+  });
   test('a file first added by a fix(N-review) commit makes the record stale though no plan commit touched it', () => {
     const { d, pd } = repo();
     rg.stampHead(execGit, d, path.join(pd, '01-REVIEW.md')); commit(d, 'docs(01-01): stamp');

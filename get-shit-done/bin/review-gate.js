@@ -178,9 +178,12 @@ function headDrift(execGit, cwd, head, scope) {
   return { files: (r.stdout || '').split('\n').map((f) => f.trim()).filter((f) => f && scope(f)) };
 }
 
-function staleRecordErrors(execGit, cwd, phaseDir, phaseNumber, names, touched) {
-  // Proven = every file of every phase-tagged commit (plan tags and fix(N-...) tags), so a file first added by a review fix goes stale too.
+function staleRecordErrors(execGit, cwd, phaseDir, phaseNumber, names, touched, declared = []) {
+  // Proven = every file of every phase-tagged commit (plan tags and fix(N-...) tags), so a file first added by a review fix goes stale too,
+  // plus the plans' declared `files_modified` (a file or a directory prefix), so a fix commit with no `(N-...)` tag on a declared path still stales it.
   const src = proven([...(touched || []), ...phaseCommits(execGit, cwd, phaseNumber).flatMap((c) => c.files)]);
+  const decl = (declared || []).map((p) => String(p).replace(/^\.\//, '')).filter(Boolean);
+  const inSrc = (f) => src.includes(f) || (proven([f]).length > 0 && inScope(f, decl));
   const errors = [];
   const unstamped = [];
   for (const n of names) {
@@ -189,7 +192,7 @@ function staleRecordErrors(execGit, cwd, phaseDir, phaseNumber, names, touched) 
     let head = '';
     try { head = String((require('gray-matter')(fs.readFileSync(file, 'utf8')).data || {}).head || '').trim(); } catch { head = ''; }
     if (!head) { unstamped.push(n); continue; }
-    const d = headDrift(execGit, cwd, head, (f) => src.includes(f));
+    const d = headDrift(execGit, cwd, head, inSrc);
     if (d.error) errors.push(`${n} ${d.error}`);
     else if (d.files.length > 0) errors.push(`${n} is stale: ${d.files.slice(0, 3).join(', ')}${d.files.length > 3 ? ' ...' : ''} changed after its head ${head.slice(0, 9)}: the fix re-check agent updates it and re-stamps it with \`gsd-tools capture stamp\` (rigour.md rule 12)`);
   }
@@ -204,7 +207,7 @@ function staleRecordErrors(execGit, cwd, phaseDir, phaseNumber, names, touched) 
     const parsed = [...text.matchAll(SECTION)].length;
     if (declared.length !== parsed) errors.push(`gates.txt has ${declared.length - parsed} "# gate=" line(s) that do not parse (expected \`# gate=<name> head=<lowercase sha> [paths=<a,b>]\`, no spaces in paths): ${declared.filter((l) => !/^# gate=(\S+) head=([0-9a-f]{7,40})(?: paths=(\S+))?[ \t\r]*$/.test(l)).slice(0, 2).join(' | ').slice(0, 160)}`);
     for (const [gate, { head, paths }] of newest) {
-      const d = headDrift(execGit, cwd, head, paths ? (f) => inScope(f, paths) : (f) => src.includes(f));
+      const d = headDrift(execGit, cwd, head, paths ? (f) => inScope(f, paths) : inSrc);
       if (d.error) errors.push(`gates.txt section ${gate} ${d.error}`);
       else if (d.files.length > 0) errors.push(`gates.txt section ${gate} is stale: ${d.files.slice(0, 3).join(', ')}${d.files.length > 3 ? ' ...' : ''} changed after its head ${head.slice(0, 9)}: re-run it and append a newly stamped section`);
     }
