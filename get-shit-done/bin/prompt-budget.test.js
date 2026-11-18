@@ -260,3 +260,23 @@ describe('Phase 53-02: prompt-budget.js pure measurement functions', () => {
     });
   });
 });
+
+describe("prompt-budget boundary and not-found fields", () => {
+  test("a preamble exactly at its budget passes, one token under the budget fails, a missing file reports markerPresent false", () => {
+    const dir = mkTmp();
+    try {
+      fs.writeFileSync(path.join(dir, "a.md"), "intro text here\n" + CORE_PREAMBLE_MARKER + "\nbody\n");
+      const exact = measurePreamble(path.join(dir, "a.md")).estimatedTokens;
+      assert.ok(exact > 0);
+      const cfg = path.join(dir, "b.json");
+      fs.writeFileSync(cfg, JSON.stringify({ "a.md": exact, "gone.md": 10 }));
+      const at = checkAllBudgets(dir, cfg);
+      assert.strictEqual(at.results.find((r) => r.filePath === "a.md").pass, true);
+      const gone = at.results.find((r) => r.filePath === "gone.md");
+      assert.strictEqual(gone.pass, false);
+      assert.strictEqual(gone.markerPresent, false);
+      fs.writeFileSync(cfg, JSON.stringify({ "a.md": exact - 1 }));
+      assert.strictEqual(checkAllBudgets(dir, cfg).results[0].pass, false);
+    } finally { rmTmp(dir); }
+  });
+});
