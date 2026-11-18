@@ -9616,7 +9616,7 @@ describe('Phase 51-01: STATE.md tolerant parsing (state advance-plan / state upd
     assert.match(afterProgress, /\*\*Progress:\*\*\s*\[[█░]+\]\s*\d+%/, 'bold Progress field must be replaced with the new bar');
   });
 
-  test('edge case: STATE.md missing the Plan: line entirely -> advance-plan returns the existing { error: ... } shape, does not throw', () => {
+  test('edge case: STATE.md missing the Plan: line entirely -> advance-plan warns, changes nothing, exits 0', () => {
     writeState([
       '# Project State',
       '',
@@ -9628,9 +9628,10 @@ describe('Phase 51-01: STATE.md tolerant parsing (state advance-plan / state upd
     ].join('\n'));
 
     const result = runGsdTools('state advance-plan', tmpDir);
-    assert.ok(!result.success, 'advance-plan fails loudly (nonzero exit) on unparseable input');
+    assert.ok(result.success, 'advance-plan exits 0 on an unparseable position');
     const parsed = JSON.parse(result.output);
-    assert.match(parsed.error, /^Cannot parse STATE\.md no "Plan:" line found/);
+    assert.strictEqual(parsed.reason, 'unparseable_position');
+    assert.match(parsed.warning, /no "Plan:" line found/);
   });
 
   test('regression: a STATE.md with several phases advances only the Current Position block; earlier "Plan: N of M", Status and Last activity lines are byte-identical', () => {

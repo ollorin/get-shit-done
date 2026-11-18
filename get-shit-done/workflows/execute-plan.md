@@ -358,6 +358,7 @@ node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" state advance-plan
 node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" state update-progress
 
 # Record execution metrics
+# DURATION = the plan's wall time: dispatch begin to dispatch end of its lease in EXECUTION_LOG.md, else first to last commit timestamp of the plan (e.g. 12m); "unknown" is allowed, 0 is refused
 node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" state record-metric \
   --phase "${PHASE}" --plan "${PLAN}" --duration "${DURATION}" \
   --tasks "${TASK_COUNT}" --files "${FILE_COUNT}"

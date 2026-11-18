@@ -3,7 +3,7 @@ const { test, describe, afterEach } = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
-const { execFileSync } = require('child_process');
+const { execFileSync, spawnSync } = require('child_process');
 const { makeProject, gsd, git, phaseDir, events, writeEvidence, completePhaseLikeWorkflow, TOOLS } = require('./helpers/roadmap-fixture.js');
 
 // JSON-mode runner (the shared helper always passes --raw, which prints bare words for some commands).
@@ -54,12 +54,29 @@ describe('item 6: state and roadmap commands on the shapes this fork and its ben
     const r = gsdJ(dir, ['state', 'advance-plan', '--phase', '3']);
     assert.deepStrictEqual([r.rc, r.json.advanced, r.json.current_plan, r.json.total_plans], [0, true, 2, 2]);
   });
-  test('an unparseable Plan line fails loudly: nonzero exit, the line is quoted', () => {
-    const dir = project();
-    write(dir, '.planning/STATE.md', '# S\n\nPhase: 1 of 1\nPlan: soon-ish\nStatus: x\n');
+  test('an unparseable Plan line (`Plan: 405-10`) among several phases: file byte-identical, rc 0, warning on stderr, event logged', () => {
+    const dir = project([{ n: '3', name: 'three' }, { n: '4', name: 'four' }]);
+    const state = '# State\n\n## Current Position\n\nPhase: 4 of 9\nPlan: 405-10\nStatus: In progress\n\n## History\n\n### Phase 3\nPlan: 3 of 3 complete\nStatus: done\n\n### Phase 2\nPlan: 2 of 2 complete\nStatus: done\n';
+    write(dir, '.planning/STATE.md', state);
+    plans(dir, 4, 2, 1);
     const r = gsdJ(dir, ['state', 'advance-plan']);
-    assert.notStrictEqual(r.rc, 0);
-    assert.match(r.out + r.err, /Plan: soon-ish/);
+    assert.strictEqual(r.rc, 0, r.out + r.err);
+    assert.deepStrictEqual([r.json.advanced, r.json.reason], [false, 'unparseable_position']);
+    assert.match(r.json.warning, /Plan: 405-10/);
+    const sp = spawnSync('node', [TOOLS, 'state', 'advance-plan'], { cwd: dir, encoding: 'utf-8', env: { ...process.env, GSD_LEGACY: '1', GSD_AUTONOMOUS: '' } });
+    assert.match(sp.stderr, /Plan: 405-10/);
+    assert.strictEqual(read(dir, '.planning/STATE.md'), state);
+    assert.match(read(dir, '.planning/EXECUTION_LOG.md'), /state_advance_unparseable/);
+  });
+  test('both record-metric callers say how to measure ${DURATION}', () => {
+    for (const f of ['get-shit-done/references/executor-detail.md', 'get-shit-done/workflows/execute-plan.md']) {
+      assert.match(fs.readFileSync(path.join(__dirname, '..', f), 'utf8'), /DURATION = the plan's wall time[^\n]*"unknown" is allowed, 0 is refused/, f);
+    }
+  });
+  test('advance-plan exits 1 only when STATE.md is missing', () => {
+    const dir = project();
+    fs.rmSync(path.join(dir, '.planning', 'STATE.md'), { force: true });
+    assert.strictEqual(gsdJ(dir, ['state', 'advance-plan']).rc, 1);
   });
   test('record-metric on a Performance Metrics section without a table creates the table and counts the plan', () => {
     const dir = project();

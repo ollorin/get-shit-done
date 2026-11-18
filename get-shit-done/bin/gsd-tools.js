@@ -2523,7 +2523,7 @@ function stateWindow(content) {
 
 function cmdStateAdvancePlan(cwd, raw, opts = {}) {
   const statePath = path.join(cwd, '.planning', 'STATE.md');
-  if (!fs.existsSync(statePath)) { output({ error: 'STATE.md not found' }, raw); return; }
+  if (!fs.existsSync(statePath)) { output({ error: 'STATE.md not found' }, raw, undefined, 1); return; }
 
   const split = stateWindow(fs.readFileSync(statePath, 'utf-8'));
   let content = split.win;
@@ -2559,14 +2559,18 @@ function cmdStateAdvancePlan(cwd, raw, opts = {}) {
 
   // Fall back to the real plain-prose "Plan: {N} of {M}{suffix}" line shape.
   // `phase complete` writes "Plan: Not started" and a plan-phase may leave no Plan line: the disk counts of the
-  // named phase (--phase, else the Phase line) stand in. A line that is neither shape fails loudly, quoted.
+  // named phase (--phase, else the Phase line) stand in. A line that is neither shape warns on stderr, changes nothing and exits 0.
   const disk = stateDiskPlanCounts(cwd, content, opts.phase);
   let parsed = parsePlanProgressLine(content);
   if (!parsed) {
     const planLine = (content.match(/^\s*Plan:.*$/im) || [null])[0];
     const unstarted = planLine === null || /^\s*Plan:\s*(?:not started|none|-|—)?\s*$/i.test(planLine);
     if (!disk || !unstarted) {
-      output({ error: `Cannot parse STATE.md ${planLine === null ? 'no "Plan:" line found' : `line "${planLine.trim()}"`}: expected "Plan: N of M ..." or bold Current Plan and Total Plans in Phase fields${disk ? '' : ' (and no plans on disk for the phase named by --phase or the Phase line)'}` }, raw, undefined, 1);
+      // A position line this command cannot read is never rewritten and never an error: a running executor closes its plan either way.
+      const warning = `state advance-plan: cannot parse STATE.md ${planLine === null ? 'no "Plan:" line found' : `line "${planLine.trim()}"`} (expected "Plan: N of M ..."); STATE.md left unchanged`;
+      process.stderr.write(warning + '\n');
+      try { appendEvent(cwd, { type: 'state_advance_unparseable', line: planLine === null ? null : planLine.trim().slice(0, 200) }); } catch { /* the warning already stands */ }
+      output({ advanced: false, reason: 'unparseable_position', warning }, raw, 'false');
       return;
     }
     const done = disk.summaries;
