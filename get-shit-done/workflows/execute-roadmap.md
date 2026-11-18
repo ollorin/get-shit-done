@@ -293,7 +293,7 @@ It runs the on-disk truth for the phase (every plan has a SUMMARY with Self-Chec
 
 | `action` | Do |
 |---|---|
-| `complete` | when the record carries `gates_pending` (disk shows the phase complete although the coordinator did not report `completed`), run the listed gates 5a then 5b now, before the phase report; if one fails, treat it as in 5a/5b. Then print the phase report (step 6) and continue the loop |
+| `complete` | when the record carries `gates_pending` (disk shows the phase complete although the coordinator did not report `completed`), run the listed gates 5a then 5b now, before the phase report; a red gate is recorded failed as in 5a/5b and parks the phase, a green pair is never re-recorded. Then print the phase report (step 6) and continue the loop |
 | `gap_cycle` | continue the loop: `roadmap next` returns `gap_cycle` for this phase, once |
 | `ruling` | a spike phase still has an open CRITICAL/HIGH and its one ruling dispatch was never logged: re-enter that phase's coordinator (resume brief) so it spawns the ONE ruling dispatch and logs `spike_ruling` (`references/rigour.md`, Gap closure row), then `roadmap record` again with the same result; never park before this |
 | `park` | the phase and its dependents stay parked (K4): Auto (auto_mode, references/auto-mode.md K4): park, print the reason (human items, product gaps after the closure cycle, or a budget breach) to the chat, continue with independent phases; it ends the run with no PR, loudly, in `completion` |

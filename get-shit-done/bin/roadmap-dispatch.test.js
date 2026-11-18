@@ -104,7 +104,7 @@ describe('record', () => {
   test('a completion recorded without a reported `completed` carries gates_pending 5a/5b; a reported one does not', () => {
     const done = { complete: true, errors: [] };
     const ladder = () => { throw new Error('ladder must not run'); };
-    for (const r of ['All done!', { status: 'done' }, { status: 'gaps_found' }, { status: 'failed', error: 'x' }, 'deferred', 'gaps']) {
+    for (const r of ['All done!', { status: 'done' }, { status: 'gaps_found' }, { status: 'weird' }, 'deferred', 'gaps']) {
       const out = rec(r, done, [], ladder);
       assert.strictEqual(out.action, 'complete', JSON.stringify(r));
       assert.deepStrictEqual(out.gates_pending, ['5a', '5b'], JSON.stringify(r));
@@ -113,6 +113,19 @@ describe('record', () => {
       const out = rec(r, done, [], ladder);
       assert.strictEqual(out.action, 'complete', JSON.stringify(r));
       assert.strictEqual(out.gates_pending, undefined, JSON.stringify(r));
+    }
+  });
+  test('a failure report over a complete phase carries no gates_pending; a red gate parks it instead of returning complete', () => {
+    const done = { complete: true, errors: [] };
+    const ladder = () => { throw new Error('ladder must not run'); };
+    const plain = rec({ status: 'failed', error: 'x' }, done, [], ladder);
+    assert.strictEqual(plain.action, 'complete');
+    assert.strictEqual(plain.gates_pending, undefined);
+    for (const r of [{ status: 'failed', error: 'integration_test_failure', step: 'integration' }, { status: 'failed', error: 'ui qa red', step: 'ui_qa' }, { status: 'failed', error: 'ui_qa_failure' }]) {
+      const out = rec(r, done, [], ladder);
+      assert.strictEqual(out.action, 'park', JSON.stringify(r));
+      assert.strictEqual(out.events[0].type, 'phase_parked');
+      assert.strictEqual(out.gates_pending, undefined);
     }
   });
   test('gaps_found follows the same one-cycle rule', () => {

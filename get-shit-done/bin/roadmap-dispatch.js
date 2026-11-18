@@ -236,7 +236,7 @@ function record(input) {
     case 'human_needed':
       return { phase: k, action: 'park', events: [{ type: 'phase_parked', phase: k, reason: result.reason || result.status }] };
     case 'failed':
-      return failure(input, k, result.error || 'phase failed', result.step);
+      return failure(input, k, result.error || 'phase failed', result.step, false);
     default:
       return failure(input, k, `unknown coordinator status: ${result.status}`);
   }
@@ -253,9 +253,16 @@ const formDebtAction = (k, truth) => ({ phase: k, action: 'complete_form_debt', 
 const STATUS_WORDS = new Set(['completed', 'gaps_found', 'completed_with_deferrals', 'blocked', 'human_needed', 'failed']);
 const ALIAS_STATUS = /^(complete|done|success|succeeded|ok|passed|pass|finished|gaps|deferred|retry)$/i;
 
-// Disk is truth: a failure report over a phase that is already complete on disk is no failure and never walks the ladder.
-function failure(input, k, error, step) {
-  if (input.truth && input.truth.complete) return completeAction(k, input.truth);
+// Disk is truth: a failure report over a phase that is already complete on disk is no failure and never walks the ladder,
+// except a red gate (5a/5b): the gates run after completion, so a red one parks the phase instead of re-requesting itself.
+const GATE_FAILURE = /^(integration_test_failure|ui_qa)/i;
+function failure(input, k, error, step, unreported = true) {
+  if (input.truth && input.truth.complete) {
+    if (/^(integration|ui_qa)$/i.test(String(step || '')) || GATE_FAILURE.test(String(error || ''))) {
+      return { phase: k, action: 'park', events: [{ type: 'phase_parked', phase: k, reason: `gate_failed: ${String(error || step).slice(0, 200)}` }] };
+    }
+    return completeAction(k, input.truth, !unreported);
+  }
   const ladder = typeof input.ladder === 'function' ? input.ladder(k, error, step) : { action: 'escalate' };
   if (ladder.action === 'retry' || ladder.action === 'debug') {
     return { phase: k, action: ladder.action, attempts: ladder.attempts, events: [{ type: 'phase_retry', phase: k, ladder: ladder.action, error }] };
