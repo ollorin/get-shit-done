@@ -668,7 +668,10 @@ describe('mutation tool: no child outlives a test (leaked slow.check.js)', () =>
     while (!fs.existsSync(path.join(root, 'pid.txt')) && Date.now() < end) await new Promise((r) => setTimeout(r, 25));
     const pid = Number(fs.readFileSync(path.join(root, 'pid.txt'), 'utf8'));
     recorded.push(pid);
-    const kids = spawnSync('pgrep', ['-P', String(pid)], { encoding: 'utf8' }).stdout.trim().split('\n').filter(Boolean).map(Number);
+    const childrenOf = () => spawnSync('pgrep', ['-P', String(pid)], { encoding: 'utf8' }).stdout.trim().split('\n').filter(Boolean).map(Number);
+    let kids = childrenOf();
+    // pid.txt is written before sh forks sleep: wait for the child.
+    while (kids.length === 0 && Date.now() < end) { await new Promise((r) => setTimeout(r, 25)); kids = childrenOf(); }
     assert.ok(pidAlive(pid) && kids.length === 1 && pidAlive(kids[0]), 'precondition: group is running');
     reapAll();
     for (let i = 0; i < 60 && (pidAlive(pid) || pidAlive(kids[0])); i += 1) await new Promise((r) => setTimeout(r, 50));
