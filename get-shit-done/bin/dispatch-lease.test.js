@@ -238,3 +238,45 @@ describe('workflow prose matches the lease rule', () => {
     assert.match(t, /gsd-dispatch-leases\.json/);
   });
 });
+
+describe('dispatch begin: review roles need gates stamped after the last fix commit (rigour rule 12)', () => {
+  const git = (...a) => spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { cwd: dir, encoding: 'utf8' });
+  const commit = (subject, file, text) => { write(file, text); git('add', '-A', '--', file); assert.strictEqual(git('commit', '-q', '-m', subject).status, 0); };
+  const begin = (role, id) => run(['dispatch', 'begin', '--phase', '1', '--role', role, '--id', id]);
+  const gates = '.planning/phases/01-one/captures/gates.txt';
+  beforeEach(() => {
+    git('init', '-q');
+    commit('feat(01-01): a', 'src/a.js', 'a\n');
+    write('.planning/phases/01-one/01-REVIEW.md', '---\nformat: v2\npasses: 1\n---\n');
+  });
+  test('a phase with no fix( commit is unaffected', () => {
+    assert.strictEqual(begin('reviewer', 'r1').status, 0);
+  });
+  test('after a fix( commit, reviewer, verifier and recheck are refused until a gates.txt section is stamped at or after it; other roles are not', () => {
+    commit('fix(01-review): b', 'src/a.js', 'b\n');
+    for (const role of ['reviewer', 'verifier', 'recheck']) {
+      const r = begin(role, `x-${role}`);
+      assert.notStrictEqual(r.status, 0, role);
+      assert.match(r.stderr, /gates\.txt/);
+      assert.match(r.stderr, new RegExp(git('rev-parse', '--short', 'HEAD').stdout.trim()));
+    }
+    assert.strictEqual(begin('executor', 'e1').status, 0);
+    assert.strictEqual(run(['capture', 'stamp', gates, '--gate', 'lint']).status, 0);
+    assert.strictEqual(begin('reviewer', 'r2').status, 0);
+    commit('fix(01-review): c', 'src/a.js', 'c\n');
+    assert.match(begin('recheck', 'r3').stderr, /gates\.txt/);
+    assert.strictEqual(run(['capture', 'stamp', gates, '--gate', 'lint']).status, 0);
+    assert.strictEqual(begin('recheck', 'r3').status, 0);
+  });
+  test('a section stamped BEFORE the fix commit does not count', () => {
+    assert.strictEqual(run(['capture', 'stamp', gates, '--gate', 'lint']).status, 0);
+    commit('fix(01-review): b', 'src/a.js', 'b\n');
+    assert.match(begin('reviewer', 'r1').stderr, /gates\.txt/);
+  });
+  test('grandfathered: a record without format: v2 and an unstamped gates.txt is not checked', () => {
+    write('.planning/phases/01-one/01-REVIEW.md', '---\nopen_critical_high: 0\n---\n');
+    write(gates, '$ npm test\nok\n');
+    commit('fix(01-review): b', 'src/a.js', 'b\n');
+    assert.strictEqual(begin('reviewer', 'r1').status, 0);
+  });
+});

@@ -234,6 +234,22 @@ function staleRecordErrors(execGit, cwd, phaseDir, phaseNumber, names, touched, 
   return errors;
 }
 
+// `dispatch begin` for a review role (REVIEW_ROLES): a phase with a `fix(<phase>-...)` commit needs a stamped gates.txt section whose head is that
+// commit or a descendant (rigour.md rule 12). Grandfathered like the freshness check: no {N}-REVIEW.md `format: v2` and no stamped section = not checked.
+// Limit: any section counts, not one per `stack.gates` entry (the tool does not read the stack profile).
+const REVIEW_ROLES = new Set(['reviewer', 'verifier', 'recheck']);
+function gatesAfterFixError(execGit, cwd, phaseDir, phaseNumber) {
+  const fixes = phaseCommits(execGit, cwd, phaseNumber).filter((c) => /^fix\(/.test(c.subject));
+  if (fixes.length === 0) return null;
+  const gates = path.join(phaseDir, 'captures', 'gates.txt');
+  const heads = fs.existsSync(gates) ? [...fs.readFileSync(gates, 'utf8').matchAll(SECTION)].map((m) => m[2]) : [];
+  let v2 = false;
+  try { v2 = String((require('gray-matter')(fs.readFileSync(path.join(phaseDir, `${phaseNumber}-REVIEW.md`), 'utf8')).data || {}).format).trim() === 'v2'; } catch { v2 = false; }
+  if (heads.length === 0 && !v2) return null;
+  const open = fixes.find((f) => !heads.some((h) => execGit(cwd, ['merge-base', '--is-ancestor', f.sha, h]).exitCode === 0));
+  return open ? `captures/gates.txt has no stamped section at or after fix commit ${open.sha.slice(0, 9)} (${open.subject}): re-run every stack.gates entry and append a section with \`gsd-tools capture stamp captures/gates.txt --gate <name>\` (rigour.md rule 12)` : null;
+}
+
 // `gsd-tools capture stamp <file> [--gate <name>] [--paths a,b]`: refuses while tracked source has uncommitted changes (the stamp
 // would name a commit the proof did not run at). An .md record gets frontmatter `head:`; any other file gets a section line.
 function stampHead(execGit, cwd, file, { gate = 'gates', paths } = {}) {
@@ -291,4 +307,4 @@ function verificationReviewErrors(verification, spike, closedEarlier = false, le
   return errors;
 }
 
-module.exports = { stampHead, reviewErrors, verificationReviewErrors, staleRecordErrors, lastSourceCommitTs, phaseCommits, untaggedPhaseCommits };
+module.exports = { REVIEW_ROLES, gatesAfterFixError, stampHead, reviewErrors, verificationReviewErrors, staleRecordErrors, lastSourceCommitTs, phaseCommits, untaggedPhaseCommits };

@@ -12449,6 +12449,9 @@ function cmdDispatch(cwd, args, raw) {
   const flag = (name) => { const i = args.indexOf(name); return i !== -1 ? args[i + 1] : undefined; };
   const events = readExecutionEvents(cwd);
   if (sub === 'begin') {
+    const info = reviewGate.REVIEW_ROLES.has(flag('--role')) ? findPhaseInternal(cwd, flag('--phase')) : null;
+    const gateErr = info && info.found ? reviewGate.gatesAfterFixError(execGit, cwd, path.join(cwd, info.directory), info.phase_number) : null;
+    if (gateErr) error(`dispatch begin refused: ${gateErr}`);
     const r = dispatchLease.begin({ cwd, phase: flag('--phase'), role: flag('--role'), id: flag('--id'), events, ttlMin: phaseBudget.ttlMinutes(cwd) });
     for (const e of r.auto_closed || []) appendEvent(cwd, e);
     if (r.quarantined) appendEvent(cwd, { type: 'dispatch_leases_corrupt', phase: dispatch.phaseKey(flag('--phase')), moved_to: r.quarantined });
