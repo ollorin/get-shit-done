@@ -232,6 +232,7 @@ const autoModeFields = (cwd) => resolveAutoMode(cwd, process.argv.slice(2), proc
 const rigour = require('./rigour.js');
 const topModel = require('./top-model.js');
 const phaseBudget = require('./phase-budget.js');
+const dispatchLease = require('./dispatch-lease.js');
 const formCheck = require('./form-check.js');
 const reviewGate = require('./review-gate.js');
 const spikeCheck = require('./spike-check.js');
@@ -7157,11 +7158,11 @@ function collectPhaseEvidenceErrors(cwd, phaseNumber, phaseDir, dirFiles, opts =
   // closed under the rules of its time: the review and answer-table rules judge only phases still open.
   const closedEarlier = closedPhaseKeys(cwd).has(dispatch.phaseKey(phaseNumber));
   const verification = readPhaseVerification(phaseDir, phaseNumber);
-  if (!spike && !closedEarlier && !opts.preVerifier) errors.push(...reviewGate.reviewErrors(phaseDir, dirFiles, touched, { risk: riskAddons(cwd, phaseNumber, 'standard'), phaseNumber, ledger, verificationOpen: verification.exists ? Number(verification.data.open_critical_high) : undefined }));
+  if (!spike && !closedEarlier && !opts.preVerifier) errors.push(...reviewGate.reviewErrors(phaseDir, dirFiles, touched, { risk: riskAddons(cwd, phaseNumber, 'standard'), phaseNumber, ledger, phaseSection: (p) => getPhaseInvariantsText(cwd, p), verificationOpen: verification.exists ? Number(verification.data.open_critical_high) : undefined }));
   // The verifier writes the answer table, so the pre-verifier gate cannot demand it; the final gate does.
   if (spike && !closedEarlier) errors.push(...spikeCheck.answerTableErrors(cwd, phaseDir, dirFiles, { requireTable: !opts.preVerifier }));
   if (!opts.preVerifier) errors.push(...reviewGate.verificationReviewErrors(verification, spike, closedEarlier, ledger));
-  if (!opts.preVerifier && !closedEarlier) errors.push(...reviewGate.staleRecordErrors(execGit, cwd, phaseDir, phaseNumber, [`${phaseNumber}-VERIFICATION.md`, ...(spike ? [] : [`${phaseNumber}-REVIEW.md`])]));
+  if (!opts.preVerifier && !closedEarlier) errors.push(...reviewGate.staleRecordErrors(execGit, cwd, phaseDir, phaseNumber, [`${phaseNumber}-VERIFICATION.md`, ...(spike ? [] : [`${phaseNumber}-REVIEW.md`])], touched, declaredPlanPaths(phaseDir, planFiles)));
   // Pre-verifier mode: the verifier produces this artifact, so demanding it earlier is circular.
   if (opts.preVerifier) {
     // intentionally no verification-artifact error
@@ -7714,6 +7715,46 @@ function computeImplTestCoverage(cwd, touchedFiles, testDeltaRows, outsideText) 
 // requirements whose declaring plan(s) contain at least one tdd="true" task
 // are classified -- a requirement declared solely by a prose/workflow-editing
 // plan (no tdd task) is `not_applicable` and excluded from `passed`.
+// Numbers of the ROADMAP phase section's numbered Success Criteria (top-level items only: a deeper-indented "1." is a sub-item).
+function successCriteriaNumbers(section) {
+  const nums = [];
+  let inList = false;
+  let base = null;
+  for (const line of String(section || '').split('\n')) {
+    if (/success criteria/i.test(line)) { inList = true; continue; }
+    if (!inList) continue;
+    const m = line.match(/^(\s*)(\d+)[.)]\s/);
+    if (m) {
+      if (base === null) base = m[1].length;
+      if (m[1].length <= base) nums.push(Number(m[2]));
+    } else if (/^#{1,6}\s/.test(line) || /^\*\*[^*]+\*\*/.test(line)) break;
+  }
+  return nums;
+}
+// A plan with frontmatter `format: v2` opts the phase in: every success criterion k needs a non-empty
+// `{phase_dir}/captures/red-sc{k}.*` that records a failing run of its test before the fix: a line starting `$ ` (the command) and a later line
+// starting `rc=<non-zero>`. A v2 plan whose criteria cannot be located (no ROADMAP section for the phase, no numbered list under a
+// "Success Criteria" line, bullet-form criteria) fails with red_proof_errors instead of passing vacuously.
+function redProofCheck(cwd, phaseNumber, phaseDir, validPlans) {
+  if (!(validPlans || []).some(p => p.fm && String(p.fm.format).trim() === 'v2')) return { missing: [], errors: [] };
+  const raw = String(phaseNumber);
+  const trimmed = raw.replace(/^0+(?=\d)/, '');
+  const section = [raw, trimmed, trimmed.replace(/^(\d)(?![\d])/, '0$1')].map(v => getPhaseInvariantsText(cwd, v)).find(Boolean) || null;
+  const criteria = successCriteriaNumbers(section);
+  if (criteria.length === 0) {
+    return { missing: [], errors: [`red proof: success criteria not found for phase ${raw} (${section ? 'no numbered list under a "Success Criteria" line; bullet-form criteria are not read' : 'no "Phase N:" section in ROADMAP.md'}): a format v2 plan needs them to check the red-sc{k} captures`] };
+  }
+  const dir = path.join(phaseDir, 'captures');
+  const failing = f => {
+    try {
+      const lines = fs.readFileSync(path.join(dir, f), 'utf8').split(/\r?\n/);
+      const cmd = lines.findIndex(l => /^\$ \S/.test(l));
+      return cmd !== -1 && lines.slice(cmd + 1).some(l => /^rc=[1-9]\d*(\s|$)/.test(l));
+    } catch { return false; }
+  };
+  const have = fs.existsSync(dir) ? fs.readdirSync(dir).filter(f => fs.statSync(path.join(dir, f)).size > 0 && failing(f)) : [];
+  return { missing: criteria.filter(k => !have.some(f => new RegExp(`^red-sc0*${k}(?![0-9])`).test(f))), errors: [] };
+}
 function computeTestContentCoverage(cwd, phaseNumber, validPlans, filesByPlan, phaseDir) {
   // Per-plan SUMMARY Test Delta (declared counts + MERGE/DELETE/REUSE rows).
   const deltaByPlan = {};
@@ -7918,18 +7959,19 @@ function computeTestContentCoverage(cwd, phaseNumber, validPlans, filesByPlan, p
 
   const hollow_tests = [...hollowFilesMap.values()];
   const net_zero_assertion_files = [...netZeroFilesMap.values()];
-  const passed = requirements.filter(r => r.status !== 'not_applicable').every(r => r.status === 'COVERED');
+  const { missing: red_proof_missing, errors: red_proof_errors } = redProofCheck(cwd, phaseNumber, phaseDir, validPlans);
+  const passed = requirements.filter(r => r.status !== 'not_applicable').every(r => r.status === 'COVERED') && red_proof_missing.length === 0 && red_proof_errors.length === 0;
 
   const planNumOf = p => p.planNum || (p.fm && p.fm.plan);
   const checkedPlans = (validPlans || []).filter(p => isChecked(planNumOf(p)));
   const legacyPlans = (validPlans || []).filter(p => !isChecked(planNumOf(p)));
-  const metrics = computeTestDeltaMetrics(cwd, phaseNumber, checkedPlans, declared, deletedFiles, mergedFiles, bucketSeconds, { declared_rows_mismatch: declaredRowsMismatch, t0_mutant_rows_missing: t0MutantRowsMissing, uncited_rows: uncitedRows });
+  const metrics = computeTestDeltaMetrics(cwd, phaseNumber, declared, deletedFiles, mergedFiles, bucketSeconds, { declared_rows_mismatch: declaredRowsMismatch, t0_mutant_rows_missing: t0MutantRowsMissing, uncited_rows: uncitedRows });
   const touchedOf = plans => [...new Set(plans.flatMap(p => filesByPlan[planNumOf(p)] || []))];
   const outsideOf = plans => plans.map(p => (deltaByPlan[planNumOf(p)] || {}).outside_text || '').join('\n');
   const impl = computeImplTestCoverage(cwd, touchedOf(checkedPlans), allRows, outsideOf(checkedPlans));
   const legacy = { legacy_unchecked: legacyPlans.length > 0 };
   if (legacyPlans.length > 0) {
-    const legacyMetrics = computeTestDeltaMetrics(cwd, phaseNumber, legacyPlans, declared, [], [], [], {});
+    const legacyMetrics = computeTestDeltaMetrics(cwd, phaseNumber, declared, [], [], [], {});
     const legacyImpl = computeImplTestCoverage(cwd, touchedOf(legacyPlans), [], outsideOf(legacyPlans));
     legacy.legacy_data = {
       plans: legacyPlans.map(planNumOf),
@@ -7942,31 +7984,24 @@ function computeTestContentCoverage(cwd, phaseNumber, validPlans, filesByPlan, p
     };
   }
 
-  return { requirements, hollow_tests, net_zero_assertion_files, hollow_test_cases: hollowCaseList, test_delta: metrics, ...impl, ...legacy, passed };
+  return { requirements, hollow_tests, net_zero_assertion_files, hollow_test_cases: hollowCaseList, test_delta: metrics, red_proof_missing, red_proof_errors, ...impl, ...legacy, passed };
 }
 
-// Net test LOC (git numstat over each plan's tagged commits, test files only)
-// plus the SUMMARY-declared added/updated/merged/deleted counts. Reported, not
-// gated here: a positive delta over TEST_LOC_JUSTIFY_THRESHOLD needs a cited
-// T0 justification per file (verifier Step 8j).
+// Net test LOC (git numstat over ALL the phase's tagged commits, test files only; fix and steward
+// commits included) plus the SUMMARY-declared added/updated/merged/deleted counts. Printed, not
+// gated: a positive delta over TEST_LOC_JUSTIFY_THRESHOLD needs a cited T0 justification per file
+// (verifier Step 8j).
 const TEST_LOC_JUSTIFY_THRESHOLD = 3000;
 const BUCKET_REGRESSION_FACTOR = 1.1;
-function computeTestDeltaMetrics(cwd, phaseNumber, validPlans, declared, deletedFiles, mergedFiles, bucketSeconds, extra) {
+function computeTestDeltaMetrics(cwd, phaseNumber, declared, deletedFiles, mergedFiles, bucketSeconds, extra) {
   let added = 0; let deleted = 0;
-  const seen = new Set();
-  for (const plan of validPlans || []) {
-    const planNum = plan.planNum || (plan.fm && plan.fm.plan);
-    if (!planNum) continue;
-    for (const hash of reviewGate.phaseCommits(execGit, cwd, phaseNumber, planNum).map(c => c.sha.slice(0, 7))) {
-      if (seen.has(hash)) continue;
-      seen.add(hash);
-      const ns = execGit(cwd, ['show', '--numstat', '--format=', hash]);
-      for (const line of (ns.stdout || '').split('\n')) {
-        const [a, d, f] = line.split('\t');
-        if (!f || !(TEST_FILE_RE.test(f) || /(^|\/)__tests__\//.test(f) || /_test\.(ts|js)$/.test(f))) continue;
-        if (/^\d+$/.test(a)) added += parseInt(a, 10);
-        if (/^\d+$/.test(d)) deleted += parseInt(d, 10);
-      }
+  for (const hash of reviewGate.phaseCommits(execGit, cwd, phaseNumber).map(c => c.sha.slice(0, 7))) {
+    const ns = execGit(cwd, ['show', '--numstat', '--format=', hash]);
+    for (const line of (ns.stdout || '').split('\n')) {
+      const [a, d, f] = line.split('\t');
+      if (!f || !(TEST_FILE_RE.test(f) || /(^|\/)__tests__\//.test(f) || /_test\.(ts|js)$/.test(f))) continue;
+      if (/^\d+$/.test(a)) added += parseInt(a, 10);
+      if (/^\d+$/.test(d)) deleted += parseInt(d, 10);
     }
   }
   const net = added - deleted;
@@ -8015,6 +8050,8 @@ function cmdVerifyTestContent(cwd, phaseArg, raw) {
     net_zero_assertion_files: coverage.net_zero_assertion_files,
     hollow_test_cases: coverage.hollow_test_cases,
     test_delta: coverage.test_delta,
+    red_proof_missing: coverage.red_proof_missing,
+    red_proof_errors: coverage.red_proof_errors,
     impl_files_without_tests: coverage.impl_files_without_tests,
     impl_files_covered: coverage.impl_files_covered,
     impl_files_exempt: coverage.impl_files_exempt,
@@ -11173,6 +11210,21 @@ function phaseBase(cwd, phase) {
   return '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 }
 
+// init plan-phase: notice only, never a block. A risk phase whose size passes the sizer limits (estimated or on-disk plans, success criteria),
+// or a configured wall-minute budget above twice the class default, prints one notice each.
+function sizerNotices(cwd, phase, planCount, risk) {
+  const notices = [];
+  if (risk.budget_class === 'risk') {
+    const est = estimatePhaseSize({ requirements: rigour.phaseReqIds(cwd, phase), success_criteria: successCriteriaNumbers(getPhaseInvariantsText(cwd, phase)) });
+    const plans = Math.max(est.estimatedPlans, planCount);
+    if (plans > PHASE_LIMITS.MAX_ESTIMATED_PLANS) notices.push(`risk phase ${phase} has ${plans} plans (sizer limit ${PHASE_LIMITS.MAX_ESTIMATED_PLANS}): the planner returns a split`);
+    if (est.successCriteria > PHASE_LIMITS.MAX_SUCCESS_CRITERIA_PER_PHASE) notices.push(`risk phase ${phase} has ${est.successCriteria} success criteria (sizer limit ${PHASE_LIMITS.MAX_SUCCESS_CRITERIA_PER_PHASE}): the planner returns a split`);
+  }
+  const base = phaseBudget.DEFAULTS[risk.budget_class].wall_minutes;
+  if (risk.budget_wall_minutes > 2 * base) notices.push(`budget override ${risk.budget_wall_minutes} min is ${Math.round((risk.budget_wall_minutes / base) * 10) / 10}x the ${risk.budget_class} default ${base}: split the phase instead`);
+  return notices;
+}
+
 function initRiskFields(cwd, phase) {
   const level = rigour.resolveRigour(cwd, phase, getMilestoneInfo(cwd).version).rigour;
   const addons = riskAddons(cwd, phase, level);
@@ -11254,6 +11306,15 @@ function findPhaseInternal(cwd, phase) {
   }
 }
 
+// `files_modified` entries of every plan of the phase (files or directory prefixes); an unreadable plan contributes nothing.
+function declaredPlanPaths(phaseDir, planFiles) {
+  return (planFiles || []).flatMap((f) => {
+    try {
+      const fm = require('gray-matter')(fs.readFileSync(path.join(phaseDir, f), 'utf8')).data || {};
+      return Array.isArray(fm.files_modified) ? fm.files_modified.map(String) : [];
+    } catch { return []; }
+  });
+}
 // Derives the set of files a phase actually touched, purely from git history
 // (log --grep + diff-tree) -- never from PLAN.md `files_modified` or SUMMARY.md
 // `key-files`, which are self-reported and exactly what MILE-06/phase-gate must
@@ -11383,9 +11444,13 @@ function cmdInitExecutePhase(cwd, phase, includes, raw, gate) {
   const config = loadConfig(cwd);
   const phaseInfo = findPhaseInternal(cwd, phase);
   const milestone = getMilestoneInfo(cwd);
+  const stackLock = projectContext.stackLockFields(cwd);
+  if (stackLock.stack_rule_missing && stackLock.stack_lock_enforced) error(stackLock.stack_notice);
+  if (stackLock.stack_notice) process.stderr.write(`Notice: ${stackLock.stack_notice}\n`);
 
   const result = {
     ...projectContext.contextFields(cwd),
+    ...stackLock,
     ...autoModeFields(cwd),
     project_context: { legacy: gate?.legacy === true },
     ...rigour.resolveRigour(cwd, phase, getMilestoneInfo(cwd).version),
@@ -11502,15 +11567,19 @@ function cmdInitPlanPhase(cwd, phase, includes, raw, gate) {
   const config = loadConfig(cwd);
   const phaseInfo = findPhaseInternal(cwd, phase);
   const planned = phaseInfo ? null : roadmapPhaseFallback(cwd, phase);
+  const risk = initRiskFields(cwd, phase);
+  const sizerNotice = sizerNotices(cwd, phase, phaseInfo?.plans?.length || 0, risk);
+  for (const n of sizerNotice) process.stderr.write(`Notice: ${n}\n`);
 
   const result = {
+    sizer_notice: sizerNotice,
     ...projectContext.contextFields(cwd),
     ...autoModeFields(cwd),
     project_context: { legacy: gate?.legacy === true },
     ...rigour.resolveRigour(cwd, phase, getMilestoneInfo(cwd).version),
     phase_req_ids: rigour.phaseReqIds(cwd, phase),
     ...phaseRiskFields(cwd, phase),
-    ...initRiskFields(cwd, phase),
+    ...risk,
     ...planStampFields(cwd, phase),
 
     // Models
@@ -12329,9 +12398,7 @@ function cmdInitExecuteRoadmap(cwd, raw) {
   }, raw);
 }
 
-// owner-gate request|status|approve|reject --kind composition|roadmap|pr [--milestone V] [--summary S] [--revise] [--spike-phases N,M --spike-roots p,q] [--by W] [--note N] [--owner-confirmed]
-// approve/reject: refused while auto_mode is active unless --owner-confirmed with a --note. The flag is a recorded
-// attestation, not authentication: an unattended agent that passes it has lied in the audit trail, visibly.
+// budget spend is LEGACY: a phase that calls `dispatch begin|end` is budgeted from its leases (dispatch-lease.js) and ignores phase_spend.
 // budget spend --phase N [--step S] [--model M]: logs ONE dispatch (at spawn). budget status --phase N: the coordinator reads it before each new cycle.
 function cmdPhaseBudget(cwd, args, raw) {
   const sub = args[0];
@@ -12347,12 +12414,41 @@ function cmdPhaseBudget(cwd, args, raw) {
   output(phaseBudgetStatus(cwd, phase, readExecutionEvents(cwd)), raw);
 }
 
+// dispatch begin --phase N --role R --id A | end --id A | end --stale A --reason "<text>". A refusal exits 1; only the automatic stale closes it performed are logged.
+function cmdDispatch(cwd, args, raw) {
+  const sub = args[0];
+  const flag = (name) => { const i = args.indexOf(name); return i !== -1 ? args[i + 1] : undefined; };
+  const events = readExecutionEvents(cwd);
+  if (sub === 'begin') {
+    const r = dispatchLease.begin({ cwd, phase: flag('--phase'), role: flag('--role'), id: flag('--id'), events, ttlMin: phaseBudget.ttlMinutes(cwd) });
+    for (const e of r.auto_closed || []) appendEvent(cwd, e);
+    if (r.quarantined) appendEvent(cwd, { type: 'dispatch_leases_corrupt', phase: dispatch.phaseKey(flag('--phase')), moved_to: r.quarantined });
+    if (r.error) error(r.error);
+    appendEvent(cwd, { type: 'dispatch_begin', phase: r.lease.phase, role: r.lease.role, id: r.lease.id });
+    output({ ...r, logged: true }, raw);
+    return;
+  }
+  if (sub === 'end') {
+    const stale = flag('--stale');
+    const r = dispatchLease.end({ cwd, id: stale || flag('--id'), stale: stale !== undefined, reason: flag('--reason'), events });
+    if (r.quarantined) appendEvent(cwd, { type: 'dispatch_leases_corrupt', phase: dispatch.phaseKey(flag('--phase')), moved_to: r.quarantined });
+    if (r.error) error(r.error);
+    appendEvent(cwd, dispatchLease.closeEvent(r.lease));
+    output({ ...r, logged: true }, raw);
+    return;
+  }
+  error('Unknown dispatch subcommand. Available: begin, end');
+}
+
 function phaseBudgetStatus(cwd, phase, events) {
   const level = rigour.resolveRigour(cwd, phase, getMilestoneInfo(cwd).version).rigour;
   const cls = phaseBudget.budgetClass({ rigour: level, riskAddons: riskAddons(cwd, phase, level) });
   return phaseBudget.status({ cwd, phase, cls, events });
 }
 
+// owner-gate request|status|approve|reject --kind composition|roadmap|pr [--milestone V] [--summary S] [--revise] [--spike-phases N,M --spike-roots p,q] [--by W] [--note N] [--owner-confirmed]
+// approve/reject: refused while auto_mode is active unless --owner-confirmed with a --note. The flag is a recorded
+// attestation, not authentication: an unattended agent that passes it has lied in the audit trail, visibly.
 function cmdOwnerGate(cwd, args, raw) {
   const sub = args[0];
   const flag = (name) => { const i = args.indexOf(name); return i !== -1 ? args[i + 1] : undefined; };
@@ -12457,6 +12553,7 @@ function cmdRoadmapRecord(cwd, args, raw) {
       return applied.ok ? { action: applied.result.action, attempts: applied.result.attempts } : { action: 'escalate' };
     },
   });
+  if (out.usage_error) error(out.usage_error);
   if (out.action === 'complete') {
     applyExecutionStateSuccess(cwd, { phase: k });
   }
@@ -13826,7 +13923,6 @@ function cmdDoctor(cwd, options, raw) {
 const TELEMETRY_DIR = 'telemetry';
 const TELEMETRY_FILE = 'agent-reports.jsonl';
 const TELEMETRY_FIELDS_DEFAULTS = {
-  context_pressure: null,
   instructions_not_followed: [],
   ambiguities: [],
   tool_errors_swallowed: 0
@@ -13837,7 +13933,7 @@ function getTelemetryPath(cwd) {
 }
 
 // I/O: appends one JSONL line. Missing optional fields fall back to safe
-// defaults (never throws on a caller omitting one of the 4 fields) --
+// defaults (never throws on a caller omitting one of the 3 fields) --
 // agent/phase/timestamp are always attached fresh, never trusted from input.
 function appendTelemetryReport(cwd, agent, phase, fields) {
   const telemetryPath = getTelemetryPath(cwd);
@@ -13846,7 +13942,6 @@ function appendTelemetryReport(cwd, agent, phase, fields) {
     agent,
     phase,
     timestamp: new Date().toISOString(),
-    context_pressure: (fields && fields.context_pressure !== undefined) ? fields.context_pressure : TELEMETRY_FIELDS_DEFAULTS.context_pressure,
     instructions_not_followed: (fields && Array.isArray(fields.instructions_not_followed)) ? fields.instructions_not_followed : TELEMETRY_FIELDS_DEFAULTS.instructions_not_followed,
     ambiguities: (fields && Array.isArray(fields.ambiguities)) ? fields.ambiguities : TELEMETRY_FIELDS_DEFAULTS.ambiguities,
     tool_errors_swallowed: (fields && typeof fields.tool_errors_swallowed === 'number') ? fields.tool_errors_swallowed : TELEMETRY_FIELDS_DEFAULTS.tool_errors_swallowed
@@ -13875,13 +13970,12 @@ function readTelemetryReports(cwd) {
 // matches appendTelemetryReport's entry) into summary stats.
 function summarizeTelemetryReports(reports) {
   if (!reports || reports.length === 0) {
-    return { count: 0, avg_context_pressure: null, total_tool_errors_swallowed: 0, instructions_not_followed_by_rule: {}, top_ambiguities: [] };
+    return { count: 0, total_tool_errors_swallowed: 0, instructions_not_followed_by_rule: {}, top_ambiguities: [] };
   }
-  let pressureSum = 0, pressureCount = 0, toolErrorsTotal = 0;
+  let toolErrorsTotal = 0;
   const byRule = {};
   const ambiguityCounts = {};
   for (const r of reports) {
-    if (typeof r.context_pressure === 'number') { pressureSum += r.context_pressure; pressureCount++; }
     toolErrorsTotal += (typeof r.tool_errors_swallowed === 'number') ? r.tool_errors_swallowed : 0;
     for (const item of (r.instructions_not_followed || [])) {
       const rule = (item && item.rule) ? item.rule : String(item);
@@ -13898,7 +13992,6 @@ function summarizeTelemetryReports(reports) {
     .map(([text, count]) => ({ text, count }));
   return {
     count: reports.length,
-    avg_context_pressure: pressureCount > 0 ? pressureSum / pressureCount : null,
     total_tool_errors_swallowed: toolErrorsTotal,
     instructions_not_followed_by_rule: byRule,
     top_ambiguities: topAmbiguities
@@ -14732,7 +14825,6 @@ async function main() {
       if (telemetrySubcmd === 'append') {
         const agentIdx = args.indexOf('--agent');
         const phaseIdx = args.indexOf('--phase');
-        const pressureIdx = args.indexOf('--context-pressure');
         const instrIdx = args.indexOf('--instructions-not-followed');
         const ambIdx = args.indexOf('--ambiguities');
         const toolErrIdx = args.indexOf('--tool-errors-swallowed');
@@ -14740,7 +14832,6 @@ async function main() {
         const phase = phaseIdx !== -1 ? args[phaseIdx + 1] : null;
         if (!agent) error('telemetry append: --agent required');
         const fields = {
-          context_pressure: pressureIdx !== -1 ? parseFloat(args[pressureIdx + 1]) : null,
           instructions_not_followed: instrIdx !== -1 ? safeJsonParse(args[instrIdx + 1], '--instructions-not-followed').value || [] : [],
           ambiguities: ambIdx !== -1 ? safeJsonParse(args[ambIdx + 1], '--ambiguities').value || [] : [],
           tool_errors_swallowed: toolErrIdx !== -1 ? parseInt(args[toolErrIdx + 1], 10) : 0
@@ -14800,6 +14891,28 @@ async function main() {
 
     case 'resume': {
       cmdResume(args.slice(1), raw);
+      break;
+    }
+
+    case 'capture': {
+      const flag = (n) => { const i = args.indexOf(`--${n}`); return i >= 0 ? args[i + 1] : undefined; };
+      if (args[1] !== 'stamp' || !args[2]) error('usage: capture stamp <file> [--gate <name>] [--paths a,b]');
+      const res = reviewGate.stampHead(execGit, cwd, path.resolve(cwd, args[2]), { gate: flag('gate'), paths: flag('paths') });
+      if (res.error) error(`capture stamp: ${res.error}`);
+      output({ stamped: args[2], head: res.head }, raw, res.head);
+      break;
+    }
+
+    case 'stack': {
+      if (args[1] !== 'require-lock') error('Unknown stack subcommand. Available: require-lock');
+      const r = projectContext.requireStackLock(cwd, process.env);
+      if (!r.ok) error(r.error);
+      output(r, raw);
+      break;
+    }
+
+    case 'dispatch': {
+      cmdDispatch(cwd, args.slice(1), raw);
       break;
     }
 

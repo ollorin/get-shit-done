@@ -8,15 +8,11 @@ The phase coordinator is a thin dispatcher. It follows the workflows for plannin
 
 ## Context budget monitoring
 
-Check context use at the start of each major step (discuss, plan, execute, verify). When the runtime does not expose it, estimate 5-10% per major step completed; when it cannot be determined, default to 0% and proceed.
+You cannot measure your own context fill, so there is no numeric threshold and you report no context number. At each step boundary (discuss, plan, execute, verify), after the step's checkpoint is written, judge whether the window is close to full: long tool outputs read, many files read, many steps done.
 
-| Threshold | Action |
-|---|---|
-| >= 60% | Compressed output: bullets only, no narration, no optional diagnostics. Log once: `{"type":"context_budget","event":"compressed_mode","phase":{N},"usage_pct":{pct}}` through `execution-log event`. |
-| >= 60% right after the plan step | Do not start execute. Write the `plan` checkpoint, return `{"status":"completed_with_deferrals","deferred":["execute"],"reason":"context_budget_exceeded","handoff_summary":"..."}`. The orchestrator respawns a fresh coordinator that resumes at execute. |
-| >= 80% before verify is done | Write the checkpoint with `resume_from` set to the next step and return `status: "completed_with_deferrals"` with `deferred` listing what remains (`verify`, `ui_qa`), `reason: "context_budget_exceeded"` and a `handoff_summary` (phase goal, key decisions, steps completed, files modified). Do not record UI QA evidence yourself: `ui_qa_ran` is written by the verifier into `{N}-VERIFICATION.md`. |
+When you judge it close to full, do not start the next step. Write the checkpoint with `resume_from` set to the next step, write the exact handoff to disk (the `handoff_summary`: phase goal, key decisions, steps completed, files modified) and return `{"status":"completed_with_deferrals","deferred":[<remaining steps, e.g. "execute","verify","ui_qa">],"reason":"context_budget_exceeded","handoff_summary":"..."}`. The orchestrator respawns a fresh coordinator that resumes at `resume_from`. Do not record UI QA evidence yourself: `ui_qa_ran` is written by the verifier into `{N}-VERIFICATION.md`.
 
-Do not power through the remaining steps at 80%: an overflow mid-verify produces partial artifacts the orchestrator may accept as valid. Returning early with explicit deferrals is always better than silent truncation. A deferred step is picked up by a fresh agent in this same run; accepting a genuinely missing artifact is a mandatory-step skip and needs `gsd-tools.js deferred add {phase} --step <step> --reason <reason> --approver <approver>`. `verify phase-gate {phase}` stays the blocking authority for artifact existence.
+Do not power through the remaining steps when close to full: an overflow mid-verify produces partial artifacts the orchestrator may accept as valid. A coordinator that dies or overflows anyway is re-dispatched fresh from on-disk state (checkpoints, SUMMARY/VERIFICATION files, resume brief), never resumed by message. A deferred step is picked up by a fresh agent in this same run; accepting a genuinely missing artifact is a mandatory-step skip and needs `gsd-tools.js deferred add {phase} --step <step> --reason <reason> --approver <approver>`. `verify phase-gate {phase}` stays the blocking authority for artifact existence.
 
 </context_budget_monitoring>
 

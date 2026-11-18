@@ -52,5 +52,5 @@ Answer first, at most 15 lines:
 
 A phase whose net test count rises with no stated reason is a finding for the final review: state the reason or raise the finding yourself.
 
-**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed=[{rule, why}, ...], ambiguities={count}, tool_errors_swallowed={count}
+**Telemetry:** instructions_not_followed=[{rule, why}, ...], ambiguities={count}, tool_errors_swallowed={count}
 </output>

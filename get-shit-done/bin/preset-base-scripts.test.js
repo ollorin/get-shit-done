@@ -34,10 +34,11 @@ const killTree = (pid) => {
   try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const waitFor = async (file, ms = 10000) => {
+// Returns the content once the file exists and is non-empty unless `allowEmpty`: a writer's truncate-then-write is not a finished file.
+const waitFor = async (file, ms = 10000, allowEmpty = false) => {
   const end = Date.now() + ms;
   while (Date.now() < end) {
-    if (fs.existsSync(file)) return fs.readFileSync(file, 'utf8');
+    if (fs.existsSync(file)) { const text = fs.readFileSync(file, 'utf8'); if (allowEmpty || text !== '') return text; }
     await sleep(25);
   }
   throw new Error(`no ${file} in ${ms} ms`);
@@ -78,7 +79,7 @@ describe('stack lock (agnostic-M-08 8.4)', () => {
   const holder = async (l, name = 'a') => {
     const rel = path.join(l.d, 'release');
     const a = wrap(l, name, 30, stampCmd(l, name, 0, rel));
-    await waitFor(path.join(l.d, name + '-start'));
+    await waitFor(path.join(l.d, name + '-start'), 10000, true);
     return { a, release: () => fs.writeFileSync(rel, '') };
   };
 
@@ -140,7 +141,7 @@ describe('stack lock (agnostic-M-08 8.4)', () => {
     const pidFile = path.join(l.d, 'child.pid');
     const a = wrap(l, 'a', 30, ['sh', '-c', `echo $$ > ${pidFile}; exec sleep 30`]);
     const childPid = Number(await waitFor(pidFile));
-    await waitFor(l.lock);
+    await waitFor(l.lock, 10000, true);
     a.child.kill('SIGKILL');
     process.kill(childPid, 'SIGKILL');
     await a.exited;
@@ -180,7 +181,7 @@ describe('stack lock (agnostic-M-08 8.4)', () => {
         setInterval(() => {}, 1000);
         setTimeout(() => process.exit(1), 40000);
       `]);
-      await waitFor(started);
+      await waitFor(started, 10000, true);
       a.child.kill(sig);
       const r = await Promise.race([a.exited, sleep(10000).then(() => 'hung')]);
       assert.notStrictEqual(r, 'hung', 'wrapper did not exit');
@@ -203,7 +204,7 @@ describe('stack lock (agnostic-M-08 8.4)', () => {
         setInterval(() => {}, 1000);
         setTimeout(() => process.exit(1), 40000);
       `]);
-      await waitFor(started);
+      await waitFor(started, 10000, true);
       a.child.kill(sig);
       const r = await Promise.race([a.exited, sleep(10000).then(() => 'hung')]);
       assert.notStrictEqual(r, 'hung', 'wrapper did not exit');
@@ -212,6 +213,14 @@ describe('stack lock (agnostic-M-08 8.4)', () => {
       assert.strictEqual(fs.existsSync(l.lock), false);
     });
   }
+
+  test('waitFor does not return a file that exists but is still empty (a writer between truncate and write)', async () => {
+    const f = path.join(lockDir().d, 'late.pid');
+    fs.writeFileSync(f, '');
+    setTimeout(() => fs.writeFileSync(f, '4242'), 150);
+    assert.strictEqual(await waitFor(f), '4242');
+    assert.strictEqual(await waitFor(f, 1000, true), '4242');
+  });
 
   test('L-n a SIGKILLed wrapper whose command lives keeps the lock until the command exits; the lock file records the command pid', async () => {
     const l = lockDir();

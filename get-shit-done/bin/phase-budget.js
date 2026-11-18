@@ -1,9 +1,11 @@
 'use strict';
 // Phase budget: class, wall-minute limits (config workflow.budget.<class>.wall_minutes), and spend from the execution log.
-// Contract: references/rigour.md rule 7. Spend is `phase_spend` events (`budget spend --phase N`, one per dispatch at spawn, counted as a metric only; breach/warn use wall minutes alone);
+// Contract: references/rigour.md rule 7. A phase that uses `dispatch begin|end` is measured from its leases (dispatch-lease.js).
+// LEGACY (phases that never call `dispatch`): spend is `phase_spend` events (`budget spend --phase N`, one per dispatch at spawn, counted as a metric only; breach/warn use wall minutes alone);
 const fs = require('fs');
 const path = require('path');
 const { evPhase, phaseKey } = require('./roadmap-dispatch.js');
+const leases = require('./dispatch-lease.js');
 
 const DEFAULTS = {
   spike: { wall_minutes: 45 },
@@ -63,7 +65,7 @@ function spend(events, phase) {
       closedMs += Math.max(0, t - start);
       start = null;
     }
-    if (OPEN.has(e.type) || e.type === 'phase_spend') final = null;
+    if (OPEN.has(e.type) || e.type === 'phase_spend' || e.type === 'dispatch_begin') final = null;
     if (reset) {
       bank();
       closedMs = 0; dispatches = 0; start = null;
@@ -79,9 +81,27 @@ function spend(events, phase) {
   return { wall_minutes_spent: min(ms), dispatches_spent: dispatches, total_wall_minutes: min(bankedMs + ms), total_dispatches: bankedDispatches + dispatches, final };
 }
 
+// A phase that adopts `dispatch` mid-phase keeps the `budget spend` minutes it logged before its first lease.
+function withCarriedLegacy(cwd, events, phase, leased, legacy) {
+  if (!leased) return legacy;
+  const first = leases.firstBegin(cwd, phase);
+  const k = phaseKey(phase);
+  const list = Array.isArray(events) ? events : [];
+  const pre = spend(list.filter((e) => e && !String(e.type).startsWith('dispatch_') && Date.parse(e.timestamp) < first), phase);
+  const reset = list.some((e) => e && evPhase(e) === k && Date.parse(e.timestamp) >= first && (e.type === 'phase_complete' || (e.type === 'phase_parked' && e.reason === 'budget_exceeded')));
+  const r1 = (x) => Math.round(x * 10) / 10;
+  return {
+    wall_minutes_spent: reset ? leased.wall_minutes_spent : r1(leased.wall_minutes_spent + pre.wall_minutes_spent),
+    dispatches_spent: reset ? leased.dispatches_spent : leased.dispatches_spent + pre.dispatches_spent,
+    total_wall_minutes: r1(leased.total_wall_minutes + pre.total_wall_minutes),
+    total_dispatches: leased.total_dispatches + pre.total_dispatches,
+  };
+}
+
 function status({ cwd, phase, cls, events, now }) {
   const l = limits(cwd, cls);
-  const { final, ...s } = spend(events, phase);
+  const { final, ...legacy } = spend(events, phase);
+  const s = withCarriedLegacy(cwd, events, phase, leases.spend(cwd, events, phase), legacy);
   // After `phase complete` the window resets to zero; the numbers the phase ended on are in its phase_complete event.
   if (final) {
     return { phase: phaseKey(phase), budget_class: final.budget_class || cls, wall_minutes_spent: final.wall_minutes_spent, dispatches_spent: final.dispatches_spent, total_wall_minutes: final.total_wall_minutes === undefined ? final.wall_minutes_spent : final.total_wall_minutes, total_dispatches: final.total_dispatches === undefined ? final.dispatches_spent : final.total_dispatches, budget_wall_minutes: final.budget_wall_minutes, pct: final.pct, warn: final.warn === true, breach: final.breach === true, final: true };
@@ -91,4 +111,6 @@ function status({ cwd, phase, cls, events, now }) {
   return { phase: phaseKey(phase), budget_class: cls, ...s, budget_wall_minutes: l.wall_minutes, pct, warn: ratio >= 0.8, breach: ratio >= 1 };
 }
 
-module.exports = { DEFAULTS, budgetClass, budgetFields, limits, spend, status };
+const ttlMinutes = (cwd) => { const v = ((rawConfig(cwd).workflow || {}).dispatch || {}).ttl_minutes; return typeof v === 'number' && v > 0 ? v : leases.DEFAULT_TTL_MIN; };
+
+module.exports = { ttlMinutes, DEFAULTS, budgetClass, budgetFields, limits, spend, status };

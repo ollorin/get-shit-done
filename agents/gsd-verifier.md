@@ -154,7 +154,7 @@ and the verifier did not run is treated exactly as Step 8g treats a present-but-
 
 **Step 8j (test delta gates):** net test LOC, touched-bucket time, 0 new hollow hits, a mutation
 row per T0 test, and deleted/merged tests listed with their covering test. Any failure → `gaps_found`
-(missing T0 mutant rows: report plus judgment; `legacy_unchecked` plans: informational only).
+(missing T0 mutant rows: report plus judgment; `legacy_unchecked` plans: informational only). `test-content` `passed: false` or a `red_proof_missing` criterion is `gaps_found`; `net_test_loc` is counted over all the phase's commits and quoted as printed.
 
 **Handoff brief:** A present `<handoff_brief>` block's HARD RULES / phase goal are the constraints the phase is verified against.
 
@@ -297,7 +297,7 @@ Return with:
 
 **Status:** {passed | gaps_found | human_needed}
 **Report:** .planning/phases/{phase_dir}/{phase}-VERIFICATION.md
-**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed=[{rule, why}, ...], ambiguities={count}, tool_errors_swallowed={count}
+**Telemetry:** instructions_not_followed=[{rule, why}, ...], ambiguities={count}, tool_errors_swallowed={count}
 
 {If passed:}
 All must-haves verified. Phase goal achieved. Ready to proceed.

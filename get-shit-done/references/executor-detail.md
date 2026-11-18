@@ -298,7 +298,7 @@ Do NOT skip. Do NOT proceed to state updates if self-check fails.
 - {hash}: {message}
 
 **Duration:** {time}
-**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}
+**Telemetry:** instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}
 ```
 
 Include ALL commits (previous + new if continuation agent).
@@ -312,15 +312,13 @@ Self-report telemetry (MILE-26): populate these from your own run — an ambiguo
 
 Long plans can outlive a single executor's context window, or the account's session limit, mid-execution. **Stopping cleanly at a task boundary is CORRECT behavior — never a failure.** The failure mode this protocol prevents is pushing past a near-full context window and dying mid-task: that loses uncommitted work and leaves no trail for a continuation agent to resume from. A clean stop with a handoff written is strictly better than a longer run that dies silently.
 
-**At every task boundary** (right after a task's commit + TASK-CHECKPOINT.json write, before starting the next task), self-assess context pressure. This is a best-effort estimate, not a tool call: weigh long tool outputs you've read, files read, and tasks completed vs. tasks remaining in the plan.
+**At every task boundary** (right after a task's commit + TASK-CHECKPOINT.json write, before starting the next task), judge whether the window is close to full. You cannot measure your context precisely and you report no context number; weigh long tool outputs read, files read, and tasks completed vs. remaining.
 
-**Stop rule — headroom, not a flat percentage.** What matters is whether the NEXT task plus a handoff fits in the context you have left. Windows differ by model (from ~200K to ~1M tokens) — reason in absolute tokens, not percentages; a flat "stop at 80%" would strand hundreds of thousands of tokens on a 1M model. STOP (do NOT start the next task) when EITHER:
-- your estimated **remaining** context is smaller than the next task's plausible cost (its file reads plus expected tool output — a test-suite or full gate run can dump 50–100K tokens in a single result) PLUS ~15K reserved for writing the handoff cleanly; or
-- you estimate >= 95% of the window is used, regardless of the next task's size.
+**Stop rule.** STOP (do NOT start the next task) when you judge the window close to full, meaning the next task's plausible cost (its file reads plus expected tool output; a test-suite or full gate run can dump a very large result) plus a clean handoff write may not fit. Write the exact handoff to disk first (step 1 below), then return the interrupted completion.
 
-**Anti-stall guard — a handoff must always buy progress.** If you are a freshly spawned executor (little context consumed yet) and the next task's estimated cost ALREADY exceeds the stop rule, do NOT hand off: a continuation agent would face identical math and the plan would stall forever. Attack the task context-lean: read only the exact file sections needed, pipe long command output through grep/tail, and split the task into separately-committed sub-steps. Only if the task is impossible within the window, return `## PLAN BLOCKED` recommending the plan be re-split into smaller tasks.
+**Anti-stall guard — a handoff must always buy progress.** If you are a freshly spawned executor (little context consumed yet) and the next task looks too large for the window, do NOT hand off: a continuation agent would face identical math and the plan would stall forever. Attack the task context-lean: read only the exact file sections needed, pipe long command output through grep/tail, and split the task into separately-committed sub-steps. Only if the task is impossible within the window, return `## PLAN BLOCKED` recommending the plan be re-split into smaller tasks.
 
-When in doubt between "probably fits" and "might not" — and you HAVE completed at least one task this run — stop: a clean handoff costs one respawn; dying mid-task costs the work.
+When in doubt between "probably fits" and "might not" — and you HAVE completed at least one task this run — stop: a clean handoff costs one respawn; dying mid-task costs the work. An executor that dies or overflows without a handoff is re-dispatched fresh from on-disk state (TASK-CHECKPOINT.json, git log).
 
 1. Write `.planning/phases/{phase_dir}/EXECUTOR-HANDOFF.json`:
    ```json
@@ -354,7 +352,7 @@ When in doubt between "probably fits" and "might not" — and you HAVE completed
 - {hash}: {message}
 - {hash}: {message}
 
-**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}
+**Telemetry:** instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}
 ```
 
 **Machine-parseable status trailer (REQUIRED).** The human-readable header above is for the reader; the coordinator must not have to string-match a prose line (an em-dash or reworded header would silently break detection). End EVERY executor return — `## PLAN COMPLETE`, `## PLAN INTERRUPTED`, and `## PLAN BLOCKED` alike — with a fenced JSON trailer as the final content of your message:
@@ -765,7 +763,7 @@ Return:
 {If TEST_GATE_REASON == "test_failure" or "timeout":}
 **Test output (last 30 lines):**
 {TEST_OUTPUT last 30 lines}
-**Telemetry:** context_pressure={0.0-1.0 estimate}, instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}
+**Telemetry:** instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}
 
 **Action required:** Fix failing tests before this plan can be marked complete. Do NOT create SUMMARY.md.
 ```

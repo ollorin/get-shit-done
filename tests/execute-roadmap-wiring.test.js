@@ -40,7 +40,8 @@ describe('P1 the coordinator is a thin dispatcher', () => {
     for (const status of ['completed', 'gaps_found', 'human_needed', 'blocked', 'failed']) {
       assert.match(DETAIL, new RegExp(`\\| \`${status}\``), `return mapping row for ${status}`);
     }
-    assert.match(DETAIL, /"deferred":\["execute"\]/, 'the 60% hand-back after plan returns an execute deferral');
+    assert.match(DETAIL, /"status":"completed_with_deferrals","deferred":\[/, 'a coordinator close to a full window hands back with deferrals');
+    assert.doesNotMatch(DETAIL, /\d+%/, 'no numeric context threshold');
   });
 
   test('the coordinator never calls phase complete and writes the checkpoint only through the tool', () => {

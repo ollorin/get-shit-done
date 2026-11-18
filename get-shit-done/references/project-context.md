@@ -39,6 +39,8 @@ If a key you need is missing, stop and report the key. Never substitute a defaul
 | `stack.capabilities` | no | `ui_qa: {driver, agent, tool_prefix?, reset_patterns?}` |
 | `stack.isolation` | no | `port_base` (1024-65535), `container_suffix`, `lock_dir`, `machine_locks` |
 
+Shared-stack opt-in: with `stack.isolation.lock_dir` set, `init execute-phase` only prints a notice when `.claude/rules/shared-stack.md` is absent; `workflow.stack_lock.enforce: true` in config turns that into an error and makes `gsd-tools stack require-lock` (called by a project's reset and test scripts) fail unless `STACK_LOCK_HELD=1`.
+
 An unknown key under these scopes is a warning, not an error.
 
 ## Example
