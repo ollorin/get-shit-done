@@ -214,9 +214,12 @@ describe('workflow prose matches the lease rule', () => {
     assert.doesNotMatch(hit.stdout, /REVIEW/);
     write('.planning/phases/9-x/9-01-SUMMARY.md', 'fine\n');
     write('.planning/phases/9-x/deferred-items.md', 'ruled D-3: QA deferred to future phase\n');
-    write('.planning/phases/9-x/captures/gates.txt', 'verify later\n');
+    write('.planning/phases/9-x/captures/gates.txt', '$ npm test\nverify later\n');
     write('.planning/phases/9-x/9-VERIFICATION.md', 'D-3 is in deferred-items.md\n');
-    assert.strictEqual(spawnSync('sh', ['-c', cmd], { cwd: dir, encoding: 'utf8' }).stdout.trim(), 'NONE', 'deferred-items.md and captures/ are exempt');
+    assert.strictEqual(spawnSync('sh', ['-c', cmd], { cwd: dir, encoding: 'utf8' }).stdout.trim(), 'NONE', 'deferred-items.md and a command capture are exempt');
+    write('.planning/phases/9-x/captures/notes.txt', 'tests to be added later\n');
+    assert.match(spawnSync('sh', ['-c', cmd], { cwd: dir, encoding: 'utf8' }).stdout, /captures\/notes\.txt:.*tests to be added later/, 'a hand-written capture with no command line is scanned');
+    fs.rmSync(path.join(dir, '.planning/phases/9-x/captures/notes.txt'));
     write('.planning/phases/9-x/9-VERIFICATION.md', 'deferred to future phase\n');
     assert.match(spawnSync('sh', ['-c', cmd], { cwd: dir, encoding: 'utf8' }).stdout, /9-VERIFICATION\.md/, 'VERIFICATION prose still trips');
   });
