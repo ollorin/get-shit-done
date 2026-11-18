@@ -134,6 +134,28 @@ describe('head stamps: freshness is git diff <head>..HEAD on the proven paths', 
     assert.match(withDecl(['./lib/c.js'])[0], /lib\/c\.js/);
     assert.deepStrictEqual(withDecl(['.planning/x.md', 'docs/y.md']), [], '.planning/ and docs/ never stale a record');
   });
+  test('declared-path proof ignores commits tagged for another phase and merge commits; untagged and own-phase commits still count', () => {
+    const { d, pd } = repo();
+    const decl = ['lib/'];
+    const run = () => rg.staleRecordErrors(execGit, d, pd, '01', ['01-REVIEW.md'], ['src/a.js'], decl);
+    rg.stampHead(execGit, d, path.join(pd, '01-REVIEW.md')); commit(d, 'docs(01-01): stamp');
+    put(d, 'lib/reg.json', '2'); commit(d, 'feat(02-03): other phase edits the shared registry');
+    put(d, 'lib/reg.json', '3'); commit(d, 'fix(405.2-review): dotted other phase');
+    assert.deepStrictEqual(run(), [], 'commits tagged for other phases do not stale this record');
+    const main = git(d, 'rev-parse', '--abbrev-ref', 'HEAD').toString().trim();
+    git(d, 'checkout', '-q', '-b', 'side'); put(d, 'lib/m.json', '1'); commit(d, 'feat(02-04): side work');
+    git(d, 'checkout', '-q', main); put(d, 'other/q.js', '9'); commit(d, 'docs: unrelated main work');
+    git(d, 'merge', '--no-ff', '-q', '-m', 'Merge branch side', 'side');
+    assert.deepStrictEqual(run(), [], 'a merge commit, and the other-phase commit it brings in, do not stale it');
+    put(d, 'lib/c.js', '1'); commit(d, 'tweak without a phase tag');
+    assert.match(run()[0], /lib\/c\.js/, 'an untagged commit on a declared path still stales');
+    rg.stampHead(execGit, d, path.join(pd, '01-REVIEW.md')); commit(d, 'docs(01-01): restamp');
+    put(d, 'lib/d.js', '1'); commit(d, 'fix(01-review): own phase');
+    assert.match(run()[0], /lib\/d\.js/, 'a commit tagged for this phase still stales');
+    rg.stampHead(execGit, d, path.join(pd, '01-REVIEW.md')); commit(d, 'docs(01-01): restamp 2');
+    put(d, 'lib-x/e.js', '1'); commit(d, 'untagged sibling dir');
+    assert.deepStrictEqual(run(), [], 'directory-prefix boundary: lib/ does not match lib-x/');
+  });
   test('a file first added by a fix(N-review) commit makes the record stale though no plan commit touched it', () => {
     const { d, pd } = repo();
     rg.stampHead(execGit, d, path.join(pd, '01-REVIEW.md')); commit(d, 'docs(01-01): stamp');
