@@ -217,7 +217,7 @@ function record(input) {
   }
   switch (result.status) {
     case 'completed':
-      if (truth.complete) return completeAction(k, truth);
+      if (truth.complete) return completeAction(k, truth, true);
       if (formOnly(truth)) return formDebtAction(k, truth);
       if (needsSpikeRuling(input, k, truth)) return { phase: k, action: 'ruling', events: [], errors: truth.errors || [] };
       if (verifierOmission(input, k, truth)) return verifierOmission(input, k, truth);
@@ -245,7 +245,9 @@ function record(input) {
 // Form debt has one mechanism: `phase complete N --form-debt` writes it into VERIFICATION frontmatter. Disk truth with
 // zero missing work and at least one form error is never a gap: the orchestrator runs that command, then records again.
 const formOnly = (truth) => Array.isArray(truth.work_errors) && truth.work_errors.length === 0 && Array.isArray(truth.form_errors) && truth.form_errors.length > 0;
-const completeAction = (k, truth) => ({ phase: k, action: 'complete', ...(Array.isArray(truth.form_debt) && truth.form_debt.length > 0 ? { form_debt: truth.form_debt } : {}), events: [{ type: 'phase_complete', phase: k }] });
+// `gates_pending`: the completion was recorded off disk truth although the coordinator did not report `completed`, so the orchestrator
+// never ran gates 5a/5b for it; the workflow runs them when this field is set.
+const completeAction = (k, truth, reportedCompleted = false) => ({ phase: k, action: 'complete', ...(reportedCompleted ? {} : { gates_pending: ['5a', '5b'] }), ...(Array.isArray(truth.form_debt) && truth.form_debt.length > 0 ? { form_debt: truth.form_debt } : {}), events: [{ type: 'phase_complete', phase: k }] });
 const formDebtAction = (k, truth) => ({ phase: k, action: 'complete_form_debt', command: `phase complete ${k} --form-debt`, form_errors: truth.form_errors, events: [] });
 
 const STATUS_WORDS = new Set(['completed', 'gaps_found', 'completed_with_deferrals', 'blocked', 'human_needed', 'failed']);

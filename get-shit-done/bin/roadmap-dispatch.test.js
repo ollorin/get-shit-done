@@ -101,6 +101,20 @@ describe('record', () => {
     assert.strictEqual(rec('agent exploded', done, [], ladder).action, 'complete');
     assert.strictEqual(rec('agent exploded', { complete: false, errors: [] }, [], () => ({ action: 'retry', attempts: 1 })).events[0].type, 'phase_retry');
   });
+  test('a completion recorded without a reported `completed` carries gates_pending 5a/5b; a reported one does not', () => {
+    const done = { complete: true, errors: [] };
+    const ladder = () => { throw new Error('ladder must not run'); };
+    for (const r of ['All done!', { status: 'done' }, { status: 'gaps_found' }, { status: 'failed', error: 'x' }, 'deferred', 'gaps']) {
+      const out = rec(r, done, [], ladder);
+      assert.strictEqual(out.action, 'complete', JSON.stringify(r));
+      assert.deepStrictEqual(out.gates_pending, ['5a', '5b'], JSON.stringify(r));
+    }
+    for (const r of ['completed', { status: 'completed' }, 'done', 'ok', 'pass', 'succeeded', 'passed', 'finished']) {
+      const out = rec(r, done, [], ladder);
+      assert.strictEqual(out.action, 'complete', JSON.stringify(r));
+      assert.strictEqual(out.gates_pending, undefined, JSON.stringify(r));
+    }
+  });
   test('gaps_found follows the same one-cycle rule', () => {
     assert.strictEqual(rec({ status: 'gaps_found' }, { complete: false, errors: [] }).action, 'gap_cycle');
   });

@@ -165,4 +165,11 @@ describe('execute-phase branch guard uses the base branch from init', () => {
     assert.match(guard, /`base_branch` from init/);
     assert.doesNotMatch(guard, /`CURRENT_BRANCH` is `main` or `master`/);
   });
+  test('the 5a/5b synonym list in the workflow names every completed-alias of roadmap-dispatch, and `gates_pending` is honoured', () => {
+    const src = read('get-shit-done/bin/roadmap-dispatch.js');
+    const words = src.match(/ALIAS_STATUS = \/\^\(([^)]*)\)\$/)[1].split('|').filter((w) => !['gaps', 'deferred', 'retry'].includes(w));
+    const line = ROADMAP.split('\n').find((l) => l.includes('a bare synonym of it'));
+    for (const w of words) assert.ok(line.includes('`' + w + '`'), `synonym ${w} missing from the 5a/5b line`);
+    assert.match(ROADMAP, /`gates_pending`[^|]*run the listed gates 5a then 5b/);
+  });
 });
