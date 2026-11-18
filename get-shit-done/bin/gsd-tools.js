@@ -12443,7 +12443,7 @@ function cmdPhaseBudget(cwd, args, raw) {
   output(phaseBudgetStatus(cwd, phase, readExecutionEvents(cwd)), raw);
 }
 
-// dispatch begin --phase N --role R --id A | end --id A | end --stale A --reason "<text>". A refusal exits 1; only the automatic stale closes it performed are logged.
+// dispatch begin --phase N --role R --id A [--owner-pid P] | end --id A | reap-dead --phase N | end --stale A --reason "<text>". A refusal exits 1; only the automatic stale closes it performed are logged.
 function cmdDispatch(cwd, args, raw) {
   const sub = args[0];
   const flag = (name) => { const i = args.indexOf(name); return i !== -1 ? args[i + 1] : undefined; };
@@ -12452,7 +12452,7 @@ function cmdDispatch(cwd, args, raw) {
     const info = reviewGate.REVIEW_ROLES.has(flag('--role')) ? findPhaseInternal(cwd, flag('--phase')) : null;
     const gateErr = info && info.found ? reviewGate.gatesAfterFixError(execGit, cwd, path.join(cwd, info.directory), info.phase_number) : null;
     if (gateErr) error(`dispatch begin refused: ${gateErr}`);
-    const r = dispatchLease.begin({ cwd, phase: flag('--phase'), role: flag('--role'), id: flag('--id'), events, ttlMin: phaseBudget.ttlMinutes(cwd) });
+    const r = dispatchLease.begin({ cwd, phase: flag('--phase'), role: flag('--role'), id: flag('--id'), events, ttlMin: phaseBudget.ttlMinutes(cwd), ownerPid: flag('--owner-pid') ? Number(flag('--owner-pid')) : undefined });
     for (const e of r.auto_closed || []) appendEvent(cwd, e);
     if (r.quarantined) appendEvent(cwd, { type: 'dispatch_leases_corrupt', phase: dispatch.phaseKey(flag('--phase')), moved_to: r.quarantined });
     if (r.error) error(r.error);
@@ -12471,7 +12471,16 @@ function cmdDispatch(cwd, args, raw) {
     output({ ...r, logged: true }, raw);
     return;
   }
-  error('Unknown dispatch subcommand. Available: begin, end');
+  if (sub === 'reap-dead') {
+    const k = dispatch.phaseKey(flag('--phase'));
+    const lastCommitMs = Math.max(0, ...reviewGate.phaseCommits(execGit, cwd, k).map((c) => c.ts * 1000));
+    const r = dispatchLease.reapDead({ cwd, phase: k, events, lastCommitMs });
+    if (r.error) error(r.error);
+    for (const c of r.closed) appendEvent(cwd, dispatchLease.closeEvent(c));
+    output({ phase: k, leases: r.leases }, raw);
+    return;
+  }
+  error('Unknown dispatch subcommand. Available: begin, end, reap-dead');
 }
 
 function phaseBudgetStatus(cwd, phase, events) {

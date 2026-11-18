@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { spawnSync } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const L = require('./dispatch-lease.js');
 const b = require('./phase-budget.js');
 
@@ -278,5 +278,49 @@ describe('dispatch begin: review roles need gates stamped after the last fix com
     write(gates, '$ npm test\nok\n');
     commit('fix(01-review): b', 'src/a.js', 'b\n');
     assert.strictEqual(begin('reviewer', 'r1').status, 0);
+  });
+});
+
+describe('dispatch reap-dead: an executor lease whose recorded owner process is gone', () => {
+  const git = (...a) => spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { cwd: dir, encoding: 'utf8' });
+  const reap = () => JSON.parse(run(['dispatch', 'reap-dead', '--phase', '1', '--raw']).stdout);
+  const backdate = () => { const f = L.leasePath(dir); const j = JSON.parse(fs.readFileSync(f, 'utf8')); fs.writeFileSync(f, JSON.stringify({ leases: j.leases.map((l) => ({ ...l, begin: iso(0), last_event: undefined })) })); };
+  const owner = () => spawn('sleep', ['60']);
+  const gone = (p) => new Promise((r) => { p.once('exit', r); p.kill('SIGKILL'); });
+  beforeEach(() => { git('init', '-q'); write('src/a.js', 'a\n'); git('add', '-A'); git('commit', '-q', '-m', 'feat(01-01): a'); });
+  test('a live owner is left alone; once it is gone the lease is closed stale at its last heartbeat and a new executor can begin', async () => {
+    const p = owner();
+    assert.strictEqual(run(['dispatch', 'begin', '--phase', '1', '--role', 'executor', '--id', 'a', '--owner-pid', String(p.pid)]).status, 0);
+    backdate();
+    assert.deepStrictEqual(reap().leases.map((x) => [x.id, x.status]), [['a', 'alive']]);
+    await gone(p);
+    const r = reap();
+    assert.deepStrictEqual(r.leases.map((x) => [x.id, x.status]), [['a', 'reaped']]);
+    assert.strictEqual(L.load(dir)[0].closed, 'stale');
+    assert.ok(Date.parse(L.load(dir)[0].end) <= Date.now());
+    assert.match(fs.readFileSync(path.join(dir, '.planning', 'EXECUTION_LOG.md'), 'utf8'), /"type":"dispatch_end"[^\n]*"stale":true[^\n]*owner pid/);
+    assert.strictEqual(run(['dispatch', 'begin', '--phase', '1', '--role', 'executor', '--id', 'b']).status, 0);
+  });
+  test('a lease with no recorded owner reports unknown and is never reaped', () => {
+    fs.writeFileSync(L.leasePath(dir), JSON.stringify({ leases: [{ id: 'z', role: 'executor', phase: '1', begin: iso(0), end: null }] }));
+    assert.deepStrictEqual(reap().leases.map((x) => [x.id, x.status]), [['z', 'unknown']]);
+    assert.strictEqual(L.load(dir)[0].end, null);
+  });
+  test('a dead owner with a phase commit newer than the heartbeat is not reaped (recent_activity)', async () => {
+    const p = owner();
+    run(['dispatch', 'begin', '--phase', '1', '--role', 'executor', '--id', 'a', '--owner-pid', String(p.pid)]);
+    await gone(p);
+    write('src/b.js', 'b\n'); git('add', '-A');
+    spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'feat(01-01): b'], { cwd: dir, env: { ...process.env, GIT_COMMITTER_DATE: '2099-01-01T00:00:00Z' } });
+    assert.deepStrictEqual(reap().leases.map((x) => x.status), ['recent_activity']);
+    assert.strictEqual(L.load(dir)[0].end, null);
+  });
+  test('without --owner-pid begin records an owner: the nearest non-shell ancestor of the tool, or none', () => {
+    run(['dispatch', 'begin', '--phase', '1', '--role', 'executor', '--id', 'a']);
+    const l = L.load(dir)[0];
+    assert.ok(l.owner === undefined || (Number.isInteger(l.owner.pid) && process.kill(l.owner.pid, 0)));
+  });
+  test('watchdogs.md tick prompt calls dispatch reap-dead', () => {
+    assert.match(fs.readFileSync(path.join(__dirname, '..', 'references', 'watchdogs.md'), 'utf8'), /dispatch reap-dead --phase/);
   });
 });

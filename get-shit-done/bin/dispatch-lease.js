@@ -1,6 +1,11 @@
 'use strict';
 // Dispatch leases: `dispatch begin|end` (references/rigour.md rule 7). One lease per spawned agent, kept in
 // <git common dir>/gsd-dispatch-leases.json (shared by worktrees; .planning/dispatch-leases.json outside git or when the common dir is not writable). A phase that never calls `dispatch` has no leases and keeps the legacy `budget spend` accounting.
+// Owner (executor leases): `begin` records { pid, start } of the process that owns the session. The tool's own pid is useless (it exits at once)
+// and so is its parent (the per-command shell), so the owner is `--owner-pid`, else the nearest ancestor whose command is not a shell
+// (normally the agent runtime), found with `ps`; `start` (ps lstart) guards against pid reuse. LIMITS: it proves the SESSION is gone, never that one
+// executor inside a live session died; no `ps` or no non-shell ancestor = no owner = `unknown`, nothing reaped. `reapDead` closes a lease
+// as stale only when the owner is gone AND no phase commit is newer than the lease's last heartbeat (events are folded into the heartbeat).
 // Executor leases never expire by TTL (only `end`, `end --stale`, or the phase window closing); other roles close after the TTL.
 // Wall time of a leased phase = the sum of lease spans. An open lease counts to the phase's LAST LOGGED EVENT, never the clock,
 // and a lease closed as stale (`end --stale`, TTL, or the phase window closing) ends at that same event, so a dead session
@@ -132,7 +137,24 @@ function reconcile(leases, events, phase, now, ttlMin) {
 
 const closeEvent = (l) => ({ type: 'dispatch_end', phase: l.phase, role: l.role, id: l.id, stale: l.closed !== 'end', auto: l.closed !== 'end' && l.closed !== 'stale', reason: l.reason || null, at: l.end });
 
-function begin({ cwd, phase, role, id, events, now = Date.now(), ttlMin = DEFAULT_TTL_MIN }) {
+const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'fish', 'ksh', 'tcsh', 'csh']);
+const ps = (pid, field) => { const r = spawnSync('ps', ['-o', `${field}=`, '-p', String(pid)], { encoding: 'utf8' }); return r.status === 0 ? r.stdout.trim() : ''; };
+function ownerOf(pid) {
+  const start = ps(pid, 'lstart');
+  return Number.isInteger(pid) && pid > 1 && start ? { pid, start } : null;
+}
+function detectOwner() {
+  let pid = process.ppid;
+  for (let i = 0; i < 12 && pid > 1; i += 1) {
+    const comm = path.basename(ps(pid, 'comm')).replace(/^-/, '');
+    if (comm && !SHELLS.has(comm)) return ownerOf(pid);
+    pid = Number(ps(pid, 'ppid')) || 0;
+  }
+  return null;
+}
+const ownerGone = (o) => { try { process.kill(o.pid, 0); } catch (e) { return e.code === 'ESRCH'; } const s = ps(o.pid, 'lstart'); return s !== '' && s !== o.start; };
+
+function begin({ cwd, phase, role, id, events, now = Date.now(), ttlMin = DEFAULT_TTL_MIN, ownerPid }) {
   const k = phaseKey(phase);
   if (!k) return { error: 'dispatch begin: --phase required' };
   if (!ROLE_RE.test(role || '')) return { error: 'dispatch begin: --role required (lowercase word, e.g. executor, reviewer)' };
@@ -146,7 +168,8 @@ function begin({ cwd, phase, role, id, events, now = Date.now(), ttlMin = DEFAUL
         : null;
     if (r.closed.length > 0 || refuse) save(cwd, r.leases);
     if (refuse) return { error: `dispatch begin refused: ${refuse}`, auto_closed: r.closed.map(closeEvent), quarantined: q.quarantined };
-    const lease = { id, role, phase: k, begin: new Date(now).toISOString(), end: null };
+    const owner = EXCLUSIVE_ROLES.has(role) ? (ownerPid ? ownerOf(ownerPid) : detectOwner()) : null;
+    const lease = { id, role, phase: k, begin: new Date(now).toISOString(), end: null, ...(owner ? { owner } : {}) };
     save(cwd, [...r.leases, lease]);
     return { lease, auto_closed: r.closed.map(closeEvent), quarantined: q.quarantined };
   });
@@ -163,6 +186,31 @@ function end({ cwd, id, stale, reason, events, now = Date.now() }) {
     const done = { ...l, end: new Date(at).toISOString(), closed: stale ? 'stale' : 'end', ...(stale ? { reason } : {}) };
     save(cwd, touch(leases.map((x) => (x === l ? done : x)), events, l.phase));
     return { lease: done, quarantined };
+  });
+}
+
+// lastCommitMs: newest commit time (ms) of the phase, or 0. Returns one { id, status } per open executor lease of the phase:
+// reaped | alive | unknown (no owner recorded) | recent_activity (owner gone but a phase commit is newer than the heartbeat).
+function reapDead({ cwd, phase, events, lastCommitMs = 0 }) {
+  const k = phaseKey(phase);
+  if (!k) return { error: 'dispatch reap-dead: --phase required' };
+  return withLock(cwd, () => {
+    const { leases, quarantined } = loadOrQuarantine(cwd);
+    const out = [];
+    const closed = [];
+    const next = leases.map((l) => {
+      if (l.end || l.phase !== k || !EXCLUSIVE_ROLES.has(l.role)) return l;
+      if (!l.owner) { out.push({ id: l.id, status: 'unknown' }); return l; }
+      if (!ownerGone(l.owner)) { out.push({ id: l.id, status: 'alive' }); return l; }
+      const beat = leaseLast(l, events);
+      if (lastCommitMs > beat) { out.push({ id: l.id, status: 'recent_activity' }); return l; }
+      const c = { ...l, end: new Date(beat).toISOString(), closed: 'stale', reason: `owner pid ${l.owner.pid} is gone` };
+      closed.push(c);
+      out.push({ id: l.id, status: 'reaped' });
+      return c;
+    });
+    if (closed.length > 0) save(cwd, touch(next, events, k));
+    return { leases: out, closed, quarantined };
   });
 }
 
@@ -184,4 +232,4 @@ function spend(cwd, events, phase) {
 // Earliest lease begin (ms) of the phase, or null.
 const firstBegin = (cwd, phase) => { const b = load(cwd).filter((l) => l.phase === phaseKey(phase)).map((l) => ms(l.begin)).filter((t) => !Number.isNaN(t)); return b.length ? Math.min(...b) : null; };
 
-module.exports = { firstBegin, begin, end, spend, load, leasePath, closeEvent, DEFAULT_TTL_MIN };
+module.exports = { firstBegin, begin, end, reapDead, spend, load, leasePath, closeEvent, DEFAULT_TTL_MIN };
