@@ -559,9 +559,9 @@ After all waves:
   </item>
 
   <item id="DFGATE-01" severity="blocking">
-    <check>Phases with no plan carrying `format: v2`: no plan or SUMMARY in this phase contains deferral language for this phase's own tests/QA/verification. A phase with a `format: v2` plan skips this grep: its findings table and red-proof captures (`references/rigour.md` rules 10 and 12) are the gate.</check>
-    <command>grep -rniE "tests? to be added later|QA deferred|will verify in (the )?next phase|deferred to (post-milestone|future phase)|TODO:? add auth|follow-?up:? (add )?tests|test later|verify later" .planning/phases/{phase_dir}/ 2>/dev/null || echo NONE</command>
-    <pass>Output is NONE, or the phase has a `format: v2` plan. The `deferred-items.md` sanctioned channel (pre-existing, out-of-scope issues from the executor's `&lt;scope_boundary&gt;`) is exempt — only deferral of THIS phase's own tests/QA/verification trips the gate.</pass>
+    <check>No plan, SUMMARY or other file of this phase, `format: v2` phases included, contains deferral language for this phase's own tests/QA/verification. Only `{N}-REVIEW.md` is excluded: its findings table legitimately has "deferred to future phase" owner cells (`references/rigour.md` rule 12).</check>
+    <command>grep -rniE --exclude='*-REVIEW.md' "tests? to be added later|QA deferred|will verify in (the )?next phase|deferred to (post-milestone|future phase)|TODO:? add auth|follow-?up:? (add )?tests|test later|verify later" .planning/phases/{phase_dir}/ 2>/dev/null || echo NONE</command>
+    <pass>Output is NONE. The `deferred-items.md` sanctioned channel (pre-existing, out-of-scope issues from the executor's `&lt;scope_boundary&gt;`) is exempt — only deferral of THIS phase's own tests/QA/verification trips the gate.</pass>
     <fail>BLOCKING — convert every match into a concrete test/QA task in THIS phase, or move a genuinely out-of-scope, pre-existing item into `deferred-items.md` with a justification. Never `--no-verify` past it.</fail>
   </item>
 

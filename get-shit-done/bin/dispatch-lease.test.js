@@ -77,6 +77,47 @@ describe('dispatch leases', () => {
       assert.ok(!fs.existsSync(path.join(dir, '.planning', 'dispatch-leases.json')));
     } finally { fs.rmSync(wt, { recursive: true, force: true }); }
   });
+  test('end --stale from another worktree measures to the lease\'s own last event, not to that worktree\'s empty log', () => {
+    const git = (cwd, ...a) => spawnSync('git', a, { cwd, encoding: 'utf8' });
+    git(dir, 'init', '-q'); git(dir, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'i');
+    const wt = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-lease-wt-'));
+    fs.rmSync(wt, { recursive: true });
+    assert.strictEqual(git(dir, 'worktree', 'add', '-q', wt, '-b', 'other').status, 0);
+    try {
+      L.begin({ cwd: dir, phase: '1', role: 'executor', id: 'a', events: [], now: T0 });
+      const ev = events({ type: 'phase_spend', timestamp: iso(25) });
+      L.begin({ cwd: dir, phase: '1', role: 'reviewer', id: 'r', events: ev, now: T0 + 30 * 60000 });
+      const r = L.end({ cwd: wt, id: 'a', stale: true, reason: 'dead', events: [], now: T0 + 900 * 60000 });
+      assert.strictEqual(r.lease.end, iso(25));
+    } finally { fs.rmSync(wt, { recursive: true, force: true }); }
+  });
+  test('an old git that echoes an unknown rev-parse flag does not produce a garbage lease path; the lease lands in the real git dir', () => {
+    const git = (cwd, ...a) => spawnSync('git', a, { cwd, encoding: 'utf8' });
+    git(dir, 'init', '-q');
+    const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-fakegit-'));
+    const real = spawnSync('which', ['git'], { encoding: 'utf8' }).stdout.trim();
+    fs.writeFileSync(path.join(bin, 'git'), `#!/bin/sh\ncase "$*" in\n  *"rev-parse"*"--git-common-dir"*) for a in "$@"; do case "$a" in --path-format=*) echo "$a";; esac; done; echo .git; exit 0;;\nesac\nexec "${real}" "$@"\n`, { mode: 0o755 });
+    const saved = process.env.PATH;
+    process.env.PATH = `${bin}${path.delimiter}${saved}`;
+    try {
+      const p = L.leasePath(dir);
+      assert.strictEqual(fs.realpathSync(path.dirname(p)), fs.realpathSync(path.join(dir, '.git')));
+      assert.ok(L.begin({ cwd: dir, phase: '1', role: 'executor', id: 'a', events: [], now: T0 }).lease);
+    } finally { process.env.PATH = saved; fs.rmSync(bin, { recursive: true, force: true }); }
+  });
+  test('an unwritable git common dir falls back to .planning/ with a notice instead of failing begin', { skip: typeof process.getuid === 'function' && process.getuid() === 0 }, () => {
+    const git = (cwd, ...a) => spawnSync('git', a, { cwd, encoding: 'utf8' });
+    git(dir, 'init', '-q');
+    fs.chmodSync(path.join(dir, '.git'), 0o555);
+    const errs = [];
+    const orig = process.stderr.write;
+    process.stderr.write = (c) => { errs.push(String(c)); return true; };
+    try {
+      assert.ok(L.begin({ cwd: dir, phase: '1', role: 'executor', id: 'a', events: [], now: T0 }).lease);
+    } finally { process.stderr.write = orig; fs.chmodSync(path.join(dir, '.git'), 0o755); }
+    assert.ok(fs.existsSync(path.join(dir, '.planning', 'dispatch-leases.json')));
+    assert.match(errs.join(''), /not writable; leases kept in \.planning/);
+  });
   test('a phase that adopts dispatch mid-phase carries its earlier budget spend minutes', () => {
     const pre = events({ type: 'phase_spend', timestamp: iso(0) }, { type: 'phase_spend', timestamp: iso(30) });
     L.begin({ cwd: dir, phase: '1', role: 'executor', id: 'a', events: pre, now: T0 + 40 * 60000 });
@@ -150,10 +191,32 @@ describe('workflow prose matches the lease rule', () => {
       assert.doesNotMatch(t, /Call `gsd-tools budget spend/, f);
     }
   });
-  test('execute-phase keeps the DFGATE-01 deferral grep for unmarked phases and exempts format: v2 phases', () => {
+  test('DFGATE-01 greps every phase, v2 included; only *-REVIEW.md is excluded (run on a fixture)', () => {
     const item = read('execute-phase.md').match(/<item id="DFGATE-01"[\s\S]*?<\/item>/);
     assert.ok(item, 'DFGATE-01 item present');
-    assert.match(item[0], /grep -rniE "tests\? to be added later/);
-    assert.match(item[0], /no plan carrying `format: v2`/);
+    assert.doesNotMatch(item[0], /skips this grep|Phases with no plan carrying/);
+    const cmd = item[0].match(/<command>([\s\S]*?)<\/command>/)[1].replace('{phase_dir}', '9-x');
+    write('.planning/phases/9-x/9-01-PLAN.md', '---\nformat: v2\n---\nplan\n');
+    write('.planning/phases/9-x/9-REVIEW.md', '| F-1 | low | deferred to future phase | owner | x |\n');
+    const clean = spawnSync('sh', ['-c', cmd], { cwd: dir, encoding: 'utf8' });
+    assert.strictEqual(clean.stdout.trim(), 'NONE');
+    write('.planning/phases/9-x/9-01-SUMMARY.md', 'tests to be added later\n');
+    const hit = spawnSync('sh', ['-c', cmd], { cwd: dir, encoding: 'utf8' });
+    assert.match(hit.stdout, /9-01-SUMMARY\.md:.*tests to be added later/);
+    assert.doesNotMatch(hit.stdout, /REVIEW/);
+  });
+  test('execute-roadmap sends a bare synonym of completed through 5a/5b before roadmap record, and says what to do on deferred', () => {
+    const t = read('execute-roadmap.md');
+    const line = t.split('\n').find((l) => l.startsWith('- `completed`'));
+    assert.ok(line, 'completed branch present');
+    for (const w of ['done', 'ok', 'passed', 'complete']) assert.ok(line.includes(`\`${w}\``), w);
+    assert.match(line, /run \*\*5a\*\* then \*\*5b\*\* first/);
+    assert.match(line, /bare `deferred`[^.]*re-read the coordinator's JSON/);
+  });
+  test('rigour rule 7 states the executor TTL exemption and the shared lease file', () => {
+    const t = fs.readFileSync(path.join(__dirname, '..', 'references', 'rigour.md'), 'utf8');
+    assert.match(t, /a non-executor lease with no event for `workflow\.dispatch\.ttl_minutes`/);
+    assert.match(t, /an `executor` lease is closed only by `dispatch end`/);
+    assert.match(t, /gsd-dispatch-leases\.json/);
   });
 });

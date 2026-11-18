@@ -1,6 +1,6 @@
 'use strict';
 // Dispatch leases: `dispatch begin|end` (references/rigour.md rule 7). One lease per spawned agent, kept in
-// .planning/dispatch-leases.json. A phase that never calls `dispatch` has no leases and keeps the legacy `budget spend` accounting.
+// <git common dir>/gsd-dispatch-leases.json (shared by worktrees; .planning/dispatch-leases.json outside git or when the common dir is not writable). A phase that never calls `dispatch` has no leases and keeps the legacy `budget spend` accounting.
 // Executor leases never expire by TTL (only `end`, `end --stale`, or the phase window closing); other roles close after the TTL.
 // Wall time of a leased phase = the sum of lease spans. An open lease counts to the phase's LAST LOGGED EVENT, never the clock,
 // and a lease closed as stale (`end --stale`, TTL, or the phase window closing) ends at that same event, so a dead session
@@ -16,11 +16,34 @@ const WINDOW_CLOSE = new Set(['phase_complete', 'phase_parked', 'phase_incomplet
 const ROLE_RE = /^[a-z][a-z0-9-]*$/;
 
 // The file lives in the repo's git common dir, so every worktree of one repo shares one exclusivity record and the working tree
-// stays clean. Outside a git repo it falls back to .planning/.
+// stays clean. Events (EXECUTION_LOG.md) are per worktree while leases are shared, so each lease also carries `last_event`, the
+// last activity any worktree saw. Outside a git repo, or when the common dir cannot be written (a sandbox may block `.git/`), it
+// falls back to .planning/ with a notice on stderr.
+function gitCommonDir(cwd) {
+  for (const flag of ['--git-common-dir', '--git-dir']) {
+    const r = spawnSync('git', ['rev-parse', flag], { cwd, encoding: 'utf8' });
+    if (r.status !== 0) continue;
+    const line = r.stdout.split('\n').map((x) => x.trim()).filter(Boolean).pop();
+    if (!line || line.startsWith('-')) continue;
+    const dir = path.resolve(cwd, line);
+    if (fs.existsSync(dir)) return dir;
+  }
+  return null;
+}
+const resolved = new Map();
 function leasePath(cwd) {
-  const r = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd, encoding: 'utf8' });
-  const common = r.status === 0 ? r.stdout.trim() : '';
-  return common ? path.join(common, 'gsd-dispatch-leases.json') : path.join(cwd, '.planning', 'dispatch-leases.json');
+  if (resolved.has(cwd)) return resolved.get(cwd);
+  const fallback = path.join(cwd, '.planning', 'dispatch-leases.json');
+  const common = gitCommonDir(cwd);
+  let out = fallback;
+  if (common) {
+    const probe = path.join(common, `gsd-dispatch-leases.json.${process.pid}.probe`);
+    try { fs.closeSync(fs.openSync(probe, 'w')); fs.unlinkSync(probe); out = path.join(common, 'gsd-dispatch-leases.json'); } catch {
+      process.stderr.write(`dispatch: ${common} is not writable; leases kept in .planning/dispatch-leases.json (not shared with other worktrees)\n`);
+    }
+  }
+  resolved.set(cwd, out);
+  return out;
 }
 const ms = (iso) => Date.parse(iso);
 
@@ -81,6 +104,11 @@ function lastEventMs(events, phase, beginMs) {
   return last;
 }
 
+// Last activity of a lease: the later of what any worktree recorded on the lease and this worktree's own events.
+const leaseLast = (l, events) => Math.max(lastEventMs(events, l.phase, ms(l.begin)), ms(l.last_event) || 0);
+// Records the phase's latest local activity on its open leases, so another worktree (with its own log) can read it.
+const touch = (leases, events, k) => leases.map((l) => (l.end || l.phase !== k ? l : { ...l, last_event: new Date(leaseLast(l, events)).toISOString() }));
+
 // Closes open leases of the phase whose window ended (a close-type event after their begin) or that had no event for the TTL.
 function reconcile(leases, events, phase, now, ttlMin) {
   const k = phaseKey(phase);
@@ -89,7 +117,7 @@ function reconcile(leases, events, phase, now, ttlMin) {
     if (l.end || l.phase !== k) return l;
     const b = ms(l.begin);
     const win = (Array.isArray(events) ? events : []).find((e) => e && evPhase(e) === k && WINDOW_CLOSE.has(e.type) && ms(e.timestamp) >= b);
-    const last = lastEventMs(events, k, b);
+    const last = leaseLast(l, events);
     if (win) { const c = { ...l, end: win.timestamp, closed: 'window', reason: `phase window closed by ${win.type}` }; closed.push(c); return c; }
     // An executor lease is closed only by `dispatch end` / `end --stale --reason`: a quiet long executor is not a dead one.
     if (!EXCLUSIVE_ROLES.has(l.role) && now - last > ttlMin * 60000) {
@@ -111,12 +139,12 @@ function begin({ cwd, phase, role, id, events, now = Date.now(), ttlMin = DEFAUL
   if (!id) return { error: 'dispatch begin: --id required' };
   return withLock(cwd, () => {
     const q = loadOrQuarantine(cwd);
-    const r = reconcile(q.leases, events, k, now, ttlMin);
+    const r = reconcile(touch(q.leases, events, k), events, k, now, ttlMin);
     const open = r.leases.filter((l) => !l.end && l.phase === k);
     const refuse = open.find((l) => l.id === id) ? `lease ${id} is already open in phase ${k}`
       : EXCLUSIVE_ROLES.has(role) && open.find((l) => l.role === role) ? `phase ${k} already has an open ${role} lease (${open.find((l) => l.role === role).id}): end it, or close it with \`dispatch end --stale <id> --reason "<text>"\` when that agent is dead`
         : null;
-    if (r.closed.length > 0) save(cwd, r.leases);
+    if (r.closed.length > 0 || refuse) save(cwd, r.leases);
     if (refuse) return { error: `dispatch begin refused: ${refuse}`, auto_closed: r.closed.map(closeEvent), quarantined: q.quarantined };
     const lease = { id, role, phase: k, begin: new Date(now).toISOString(), end: null };
     save(cwd, [...r.leases, lease]);
@@ -131,9 +159,9 @@ function end({ cwd, id, stale, reason, events, now = Date.now() }) {
     const { leases, quarantined } = loadOrQuarantine(cwd);
     const l = leases.find((x) => !x.end && x.id === id);
     if (!l) return { error: `dispatch end: no open lease with id ${id}`, quarantined };
-    const at = stale ? lastEventMs(events, l.phase, ms(l.begin)) : now;
+    const at = stale ? leaseLast(l, events) : now;
     const done = { ...l, end: new Date(at).toISOString(), closed: stale ? 'stale' : 'end', ...(stale ? { reason } : {}) };
-    save(cwd, leases.map((x) => (x === l ? done : x)));
+    save(cwd, touch(leases.map((x) => (x === l ? done : x)), events, l.phase));
     return { lease: done, quarantined };
   });
 }
@@ -147,7 +175,7 @@ function spend(cwd, events, phase) {
   for (const e of Array.isArray(events) ? events : []) {
     if (e && evPhase(e) === k && (e.type === 'phase_complete' || (e.type === 'phase_parked' && e.reason === 'budget_exceeded'))) reset = Math.max(reset, ms(e.timestamp) || -Infinity);
   }
-  const span = (l) => { const b = ms(l.begin); return Math.max(0, (l.end ? ms(l.end) : lastEventMs(events, k, b)) - b); };
+  const span = (l) => { const b = ms(l.begin); return Math.max(0, (l.end ? ms(l.end) : leaseLast(l, events)) - b); };
   const cur = mine.filter((l) => ms(l.begin) > reset);
   const min = (x) => Math.round((x / 60000) * 10) / 10;
   return { wall_minutes_spent: min(cur.reduce((a, l) => a + span(l), 0)), dispatches_spent: cur.length, total_wall_minutes: min(mine.reduce((a, l) => a + span(l), 0)), total_dispatches: mine.length };

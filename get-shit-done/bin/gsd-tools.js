@@ -12383,9 +12383,6 @@ function cmdInitExecuteRoadmap(cwd, raw) {
   }, raw);
 }
 
-// owner-gate request|status|approve|reject --kind composition|roadmap|pr [--milestone V] [--summary S] [--revise] [--spike-phases N,M --spike-roots p,q] [--by W] [--note N] [--owner-confirmed]
-// approve/reject: refused while auto_mode is active unless --owner-confirmed with a --note. The flag is a recorded
-// attestation, not authentication: an unattended agent that passes it has lied in the audit trail, visibly.
 // budget spend is LEGACY: a phase that calls `dispatch begin|end` is budgeted from its leases (dispatch-lease.js) and ignores phase_spend.
 // budget spend --phase N [--step S] [--model M]: logs ONE dispatch (at spawn). budget status --phase N: the coordinator reads it before each new cycle.
 function cmdPhaseBudget(cwd, args, raw) {
@@ -12434,6 +12431,9 @@ function phaseBudgetStatus(cwd, phase, events) {
   return phaseBudget.status({ cwd, phase, cls, events });
 }
 
+// owner-gate request|status|approve|reject --kind composition|roadmap|pr [--milestone V] [--summary S] [--revise] [--spike-phases N,M --spike-roots p,q] [--by W] [--note N] [--owner-confirmed]
+// approve/reject: refused while auto_mode is active unless --owner-confirmed with a --note. The flag is a recorded
+// attestation, not authentication: an unattended agent that passes it has lied in the audit trail, visibly.
 function cmdOwnerGate(cwd, args, raw) {
   const sub = args[0];
   const flag = (name) => { const i = args.indexOf(name); return i !== -1 ? args[i + 1] : undefined; };
