@@ -156,6 +156,19 @@ describe('head stamps: freshness is git diff <head>..HEAD on the proven paths', 
     put(d, 'lib-x/e.js', '1'); commit(d, 'untagged sibling dir');
     assert.deepStrictEqual(run(), [], 'directory-prefix boundary: lib/ does not match lib-x/');
   });
+  test('a merge commit counts only through its own conflict resolution of a declared path', () => {
+    const { d, pd } = repo();
+    const run = () => rg.staleRecordErrors(execGit, d, pd, '01', ['01-REVIEW.md'], ['src/a.js'], ['lib/']);
+    put(d, 'lib/k.json', 'base'); commit(d, 'chore: shared file');
+    rg.stampHead(execGit, d, path.join(pd, '01-REVIEW.md')); commit(d, 'docs(01-01): stamp');
+    const main = git(d, 'rev-parse', '--abbrev-ref', 'HEAD').toString().trim();
+    git(d, 'checkout', '-q', '-b', 'side'); put(d, 'lib/k.json', 'side'); commit(d, 'feat(02-04): side edit');
+    git(d, 'checkout', '-q', main); put(d, 'lib/k.json', 'main'); commit(d, 'feat(02-05): main edit');
+    assert.deepStrictEqual(run(), [], 'other-phase edits alone never stale it');
+    try { git(d, 'merge', '--no-ff', '-q', '-m', 'Merge branch side', 'side'); } catch { /* conflict expected */ }
+    put(d, 'lib/k.json', 'resolved'); git(d, 'add', '-A'); git(d, 'commit', '-q', '-m', 'Merge branch side');
+    assert.match(run()[0], /lib\/k\.json/, 'the resolution of a declared path is an untagged edit');
+  });
   test('a file first added by a fix(N-review) commit makes the record stale though no plan commit touched it', () => {
     const { d, pd } = repo();
     rg.stampHead(execGit, d, path.join(pd, '01-REVIEW.md')); commit(d, 'docs(01-01): stamp');

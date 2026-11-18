@@ -178,13 +178,13 @@ function headDrift(execGit, cwd, head, scope) {
   return { files: (r.stdout || '').split('\n').map((f) => f.trim()).filter((f) => f && scope(f)) };
 }
 
-// Files that commits in `head..HEAD` changed and that may prove a plan's declared path: non-merge commits that carry no phase tag
+// Files that commits in `head..HEAD` changed and that may prove a plan's declared path: commits that carry no phase tag
 // (`(<phase>-<plan>`) or carry this phase's tag. A commit tagged for ANOTHER phase never proves it, so a shared registry file two
-// phases declare does not stale this phase's record.
+// phases declare does not stale this phase's record. `--cc` lists a merge's own conflict-resolution files only (never the files it brings in).
 const ANY_PHASE_TAG = /\(\d+(?:\.\d+)*-[0-9a-z]/;
 function declaredTouched(execGit, cwd, head, phaseNumber) {
   const mine = new RegExp(`\\(0*${reEsc(trimZeros(phaseNumber))}-[0-9a-z]`);
-  const out = execGit(cwd, ['log', '--no-merges', '--no-renames', '--name-only', '--format=%x01%s', `${head}..HEAD`]).stdout || '';
+  const out = execGit(cwd, ['log', '--cc', '--no-renames', '--name-only', '--format=%x01%s', `${head}..HEAD`]).stdout || '';
   const files = new Set();
   for (const chunk of out.split('\x01').filter(Boolean)) {
     const [subject, ...rest] = chunk.split('\n');
