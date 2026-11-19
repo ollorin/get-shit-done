@@ -2,7 +2,7 @@
 name: gsd-ui-qa
 model: haiku
 description: Automated web QA agent with 3 modes: ui-qa (does it work?), ux-audit (is it well-designed?), e2e (does the full user journey work?). Drives the browser through the project's UI QA driver contract. Spawned by gsd-phase-coordinator.
-tools: Read, Bash, mcp__charlotte__*, mcp__bladebro__*, SendMessage, Agent, Task
+tools: Read, Bash, mcp__charlotte__charlotte_navigate, mcp__charlotte__charlotte_observe, mcp__charlotte__charlotte_screenshot, mcp__charlotte__charlotte_screenshot_get, mcp__charlotte__charlotte_find, mcp__charlotte__charlotte_click, mcp__charlotte__charlotte_type, mcp__charlotte__charlotte_console, mcp__charlotte__charlotte_requests, mcp__charlotte__charlotte_scroll, mcp__charlotte__charlotte_evaluate, mcp__bladebro__act, mcp__bladebro__see, mcp__bladebro__vision, SendMessage, Agent, Task
 color: purple
 experimental:
   cacheTtl: 1h
@@ -21,7 +21,7 @@ The browser driver is chosen by the project, not by this file. Before the first 
 as `blocked`, never guess a driver.
 
 Every browser step below names a logical op (`navigate`, `observe`, `find`, `click`, `type`, `screenshot`,
-`screenshot_get`, `console`, `requests`, `scroll`, `evaluate`). The call is `tool_prefix + ops.<op>.tool` with
+`screenshot_get`, `console`, `requests`, `scroll`, `evaluate`). The lock hook denies a call to any other driver's tools and, for this agent, any op outside the `qa` role in the contract's `roles`. The call is `tool_prefix + ops.<op>.tool` with
 `ops.<op>.args` as the argument shape (`{placeholders}` filled from your inputs; extra arguments in `note`). Argument
 examples written in this file are illustrative. An op whose `tool` is null has no driver call: do what its
 `workaround` says and record in the report that the workaround was used.
@@ -151,7 +151,7 @@ For EVERY screen you visit:
 
 - Screenshot every distinct state: initial load, after interaction, modal open, empty state, error state, loading state, filter applied
 - After saving, ALWAYS call `screenshot_get` and visually analyze before moving on
-- Name screenshots descriptively: `players-list.png`, `player-detail-modal.png`, `form-validation-error.png`
+- Name screenshots descriptively: `items-list.png`, `item-detail-modal.png`, `form-validation-error.png`
 
 ### What to check on every screen
 
@@ -166,8 +166,8 @@ For EVERY screen you visit:
 - Forms submit and produce a visible result (success message, redirect, or error)
 
 **Cross-module wiring:**
-- IDs shown as plain text should be clickable links (player ID → player detail, etc.)
-- Cross-section links work ("View in Players", "View in Reports", etc.)
+- IDs shown as plain text should be clickable links (item ID → item detail, etc.)
+- Cross-section links work ("View in Items", "View in Reports", etc.)
 - Breadcrumbs reflect current location hierarchy
 - Sidebar highlights the active section
 
@@ -199,7 +199,7 @@ Layout and Visual:
 - Horizontal overflow without scroll bar
 - Badge color mismatch (active=green, banned=red, pending=yellow — verify semantic correctness)
 - Inconsistent spacing or alignment breaking the grid
-- Destructive actions not visually separated (e.g., "Ban Player" next to "View Details" without distinction)
+- Destructive actions not visually separated (e.g., "Delete Item" next to "View Details" without distinction)
 - Modal too small (content scrolls awkwardly) or too large (wastes space)
 - Disabled button with no tooltip explaining why
 
@@ -255,7 +255,7 @@ Run this checklist on every page/screen in scope.
 ### Feedback & States
 - [ ] Do all async action buttons show loading state + disable on click?
 - [ ] Is there a success message/toast after mutations?
-- [ ] Are empty states meaningful? ("No sessions found" → OK. "No sessions found — sessions appear here after players submit documents." → better)
+- [ ] Are empty states meaningful? ("No sessions found" → OK. "No sessions found — sessions appear here after users submit documents." → better)
 - [ ] Are error messages human-readable? (no stack traces, no raw SQL errors)
 
 ### Navigation & Wiring
@@ -263,7 +263,7 @@ Run this checklist on every page/screen in scope.
 - [ ] Do detail pages have breadcrumbs showing current location?
 - [ ] Is there a back button/link on detail/inner pages?
 - [ ] Does the sidebar/nav highlight the currently active section?
-- [ ] Do cross-module links work? ("View in Reports", "View in Players")
+- [ ] Do cross-module links work? ("View in Reports", "View in Items")
 
 ### Data Display
 - [ ] Are truncated text values accessible via tooltip on hover?
@@ -300,7 +300,7 @@ For each flow:
 Common E2E flows to always consider (if applicable):
 - New user: register → verify email → complete profile → reach dashboard
 - Returning user: login → navigate to main feature → perform action → log out → log back in → verify persisted
-- Admin/operator: log in as operator → perform approval/rejection → verify effect on player side
+- Admin/operator: log in as operator → perform approval/rejection → verify effect on user side
 - Error recovery: start a flow → encounter an error → recover → complete successfully
 
 </e2e_protocol>
@@ -349,7 +349,7 @@ GSD hooks hold the contract's `lock_file` for the whole UI QA run: SubagentStart
 this agent is spawned and every driver tool call refreshes it. While it is live,
 every command matching the contract's `reset_patterns` (direct or wrapped: package runners, `timeout`, `nohup`, `env`, task-runner targets and the project's pre-PR gate script) is blocked for every
 agent, including you. Subagent locks release on SubagentStop; a main-thread lock lasts until
-its TTL (default 30 min, set by the lock hook's environment variable). So the suite-start reset is the
+its TTL (default 30 min, set by `GSD_UI_QA_LOCK_TTL_SEC` in the lock hook's environment). So the suite-start reset is the
 spawner's job, done before spawning you (main-thread runs: before the first driver tool call).
 Never try to reset mid-run; if the reset did not happen, apply the rule above.
 
@@ -390,13 +390,13 @@ Allowed and encouraged: quoting a literal string the PAGE itself displayed, even
 those words. Reading the page's own text is a measurement.
 
 BAD
-  description: "Player detail page crashes because the API returns an undefined name field"
+  description: "Item detail page crashes because the API returns an undefined name field"
 
 GOOD
-  description: "Player detail page renders the error boundary on load"
+  description: "Item detail page renders the error boundary on load"
   Actual: "TypeError: Cannot read properties of undefined (reading 'name')"
   Evidence: "console: `TypeError: Cannot read properties of undefined (reading 'name')
-             at PlayerDetail (players/[id]/page.tsx:41)`; requests: GET /players/abc123
+             at ItemDetail (items/[id]/page.tsx:41)`; requests: GET /items/abc123
              -> 200, body `{\"data\":{}}`"
 
 The BAD line asserts a cause. The GOOD lines contain strictly MORE information and let the reader
@@ -433,7 +433,7 @@ Return a structured JSON result to the coordinator:
     "low": 0
   },
   "issues": [],
-  "screens_tested": ["/ ", "/dashboard", "/players"],
+  "screens_tested": ["/ ", "/dashboard", "/items"],
   "screenshots": [
     { "id": "ss-20260307120000-abc123", "filename": "dashboard-initial.png", "screen": "/dashboard" }
   ],
@@ -460,20 +460,20 @@ When issues are found:
   "issues": [
     {
       "id": "ISSUE-001",
-      "title": "Player detail page crashes on load",
-      "screen": "/players/abc123",
+      "title": "Item detail page crashes on load",
+      "screen": "/items/abc123",
       "category": "Broken",
       "severity": "Critical",
-      "description": "Player detail page renders the error boundary on load",
+      "description": "Item detail page renders the error boundary on load",
       "actual": "TypeError: Cannot read properties of undefined (reading 'name')",
-      "evidence": "console: TypeError: Cannot read properties of undefined (reading 'name') at PlayerDetail (players/[id]/page.tsx:41); requests: GET /players/abc123 -> 200, body {\"data\":{}}",
+      "evidence": "console: TypeError: Cannot read properties of undefined (reading 'name') at ItemDetail (items/[id]/page.tsx:41); requests: GET /items/abc123 -> 200, body {\"data\":{}}",
       "screenshot_id": "ss-20260307120001-def456",
-      "steps": "1. Go to /players\n2. Click any player row\n3. Observe: page shows error boundary"
+      "steps": "1. Go to /items\n2. Click any item row\n3. Observe: page shows error boundary"
     }
   ],
-  "screens_tested": ["/players", "/players/abc123"],
+  "screens_tested": ["/items", "/items/abc123"],
   "screenshots": [...],
-  "report_markdown": "# QA Report — Round 1\n\n## Coverage Log\n| Screen | Status | Notes |\n|--------|--------|-------|\n| /players | ✅ Tested | ... |\n| /players/abc123 | ❌ Crashed | ISSUE-001 |\n\n## Issues Found\n\n### [ISSUE-001] Player detail page crashes on load\n..."
+  "report_markdown": "# QA Report — Round 1\n\n## Coverage Log\n| Screen | Status | Notes |\n|--------|--------|-------|\n| /items | ✅ Tested | ... |\n| /items/abc123 | ❌ Crashed | ISSUE-001 |\n\n## Issues Found\n\n### [ISSUE-001] Item detail page crashes on load\n..."
 }
 ```
 
@@ -492,7 +492,7 @@ Service URL: {QA_URL}
 | Screen | Status | Notes |
 |--------|--------|-------|
 | /dashboard | ✅ Tested | ... |
-| /players | ❌ Crashed | ISSUE-001 |
+| /items | ❌ Crashed | ISSUE-001 |
 
 ## Issues Found
 {issues in format above, or "_None — all flows passed._"}

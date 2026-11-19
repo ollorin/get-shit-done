@@ -10,6 +10,10 @@
  *   PreToolUse  Bash                -> exit 2 on a reset command (reset_patterns) while the lock is
  *                                      unexpired AND its PID is alive
  *
+ * PreToolUse mcp__* also enforces the driver choice: a call to another known driver's tool prefix is denied (exit 2),
+ * and for a calling agent with a role (agent_type on the payload, else the agent_id recorded at SubagentStart) a call
+ * outside the role's op allowlist is denied.
+ *
  * Fails open (exit 0) on any internal error outside the Bash check. The Bash check reads the lock first and parses
  * only under a live lock; a matcher error or work-budget exhaustion there blocks (exit 2).
  */
@@ -20,6 +24,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { matchesResetPattern } = require('./lib/ui-qa-match.js');
+const uiQaDriver = require('../ui-qa-driver.js');
 
 const DEFAULT_LOCK_REL = path.join('.tmp', 'ui-qa.lock');
 const DEFAULT_TTL_SEC = 1800;
@@ -37,6 +42,7 @@ function normalizeCapability(ui) {
     resetPatterns: Array.isArray(ui.reset_patterns) ? ui.reset_patterns : [],
     lockWrappers: Array.isArray(ui.lock_wrappers) ? ui.lock_wrappers : [],
     lockFile: typeof ui.lock_file === 'string' ? ui.lock_file : DEFAULT_LOCK_REL,
+    raw: ui,
   };
 }
 
@@ -54,7 +60,7 @@ function readCapability(cwd) {
 }
 
 function ttlSeconds(env) {
-  const n = Number(env.GSD_CHARLOTTE_LOCK_TTL_SEC);
+  const n = Number(env.GSD_UI_QA_LOCK_TTL_SEC ?? env.GSD_CHARLOTTE_LOCK_TTL_SEC);
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_TTL_SEC;
 }
 
@@ -148,9 +154,40 @@ function blockMessage(file, lock) {
     'Allowed path: run the suite-start reset BEFORE spawning the UI QA agent or making the first',
     'driver call, then wait for the run to finish (the lock is released on SubagentStop,',
     'expires at the time above, or is ignored once the holder PID exits). A main-thread driver',
-    'session has no stop event, so its lock lasts until the expiry (GSD_CHARLOTTE_LOCK_TTL_SEC).',
+    'session has no stop event, so its lock lasts until the expiry (GSD_UI_QA_LOCK_TTL_SEC).',
     'Do not delete the lock file.',
   ].join('\n');
+}
+
+const rolesFile = (lockFile) => `${lockFile}.roles.json`;
+const readRoles = (lockFile) => { const r = readLock(rolesFile(lockFile)); return isPlainObject(r) ? r : {}; };
+
+// The calling agent's role: agent_type on the PreToolUse payload when present, else the role recorded for its agent_id at SubagentStart.
+function callerRole(input, capability, lockFile) {
+  try {
+    const byType = uiQaDriver.roleOf(input.agent_type, capability.raw);
+    if (byType) return byType;
+    return input.agent_id ? readRoles(lockFile)[input.agent_id] ?? null : null;
+  } catch { return null; }
+}
+
+// A deny message for a driver call the contract forbids, or null. Errors in the contract machinery fail open.
+function driverDenial(input, capability, lockFile) {
+  const tool = input.tool_name || '';
+  if (capability.toolPrefix === '') return null;
+  if (tool.startsWith(capability.toolPrefix)) {
+    const role = callerRole(input, capability, lockFile);
+    if (!role) return null;
+    try {
+      const why = uiQaDriver.roleViolation(uiQaDriver.resolveContract(capability.raw), role, tool, input.tool_input);
+      return why ? `BLOCKED: ${why}. Configured UI QA driver: ${capability.raw.driver} (${capability.toolPrefix}*).` : null;
+    } catch { return null; }
+  }
+  let other;
+  try { other = uiQaDriver.knownPrefixes().find((p) => tool.startsWith(p)); } catch { return null; }
+  return other
+    ? `BLOCKED: ${tool} belongs to another UI QA driver. This project's configured driver is ${capability.raw.driver} (stack.capabilities.ui_qa.driver); use ${capability.toolPrefix}* tools only.`
+    : null;
 }
 
 const isAgent = (input, capability) => typeof input.agent_type === 'string' && [capability.agent, ...capability.agentAliases].includes(input.agent_type.split(':').pop());
@@ -177,6 +214,25 @@ function handle(input, deps = {}) {
     let hit;
     try { hit = matchesResetPattern(command, capability); } catch { hit = true; }
     return hit ? { exitCode: 2, stderr: blockMessage(file, lock) } : { exitCode: 0 };
+  }
+
+  if (event === 'PreToolUse') {
+    const denial = driverDenial(input, capability, file);
+    if (denial) return { exitCode: 2, stderr: denial };
+  }
+
+  if (event === 'SubagentStart' && input.agent_id) {
+    try {
+      const role = uiQaDriver.roleOf(input.agent_type, capability.raw);
+      if (role) writeLock(rolesFile(file), { ...readRoles(file), [input.agent_id]: role });
+    } catch { /* role tracking is best effort */ }
+  }
+  if (event === 'SubagentStop' && input.agent_id) {
+    const roles = readRoles(file);
+    if (roles[input.agent_id]) {
+      const { [input.agent_id]: _gone, ...rest } = roles;
+      writeLock(rolesFile(file), rest);
+    }
   }
 
   const acquire = (event === 'PreToolUse' && capability.toolPrefix !== '' && tool.startsWith(capability.toolPrefix)) ||

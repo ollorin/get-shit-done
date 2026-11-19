@@ -448,7 +448,7 @@
     {
       "file": "get-shit-done/bin/hooks/gsd-ui-qa-lock.js",
       "class": "charlotte",
-      "max": 2,
+      "max": 1,
       "reason": "legacy TTL environment name kept for existing users"
     },
     {

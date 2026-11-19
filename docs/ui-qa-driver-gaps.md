@@ -36,7 +36,27 @@ Ops that map one to one (for example `navigate` to `act action=navigate`) are no
 - `configure`: server environment only (`BLADE_HEADLESS`, `BLADE_PACE=off`, `BLADE_HOME`, `BLADE_RECORD=<dir>`). The
   daemon reads its environment once, so a changed value needs `bladebro stop` and a new MCP server.
 - `observe`: `detail: summary` has no counterpart; `see mode=model` lists interactive refs, `mode=content` is page text.
+- `wait_for`: `act action=wait` needs `condition` plus the match value it names: `text` for element, title, url and text, `selector` for selector, `js` for js; only settle, network and network-idle take none.
 - `toggle` and `submit` are both `act action=fill`; `submit` is the `submit` field of the same call.
 - `clear_cookies`: one cookie per `state op=del-cookie`; no clear-all (unverified: call `state op=cookies` first and
   delete each).
 - `network` and `requests` are the same op, `see logs=network` (current navigation only).
+
+## Role op allowlists and residual risk
+
+Frontmatter can only name tools. Bladebro has five tools (`act`, `see`, `state`, `run`, `vision`) and bundles its
+operations inside `act`, so an agent granted `act` can fill, eval and click however narrow its role is. The contract
+therefore carries `roles` (role to logical ops) and `role_agents` (agent name to role) in `presets/drivers/index.json`;
+a project's `ui_qa.roles` / `ui_qa.role_agents` win per key. `gsd-ui-qa-lock.js` denies (exit 2) every PreToolUse call to
+the configured driver that is outside the calling agent's role, matching `act` on its `action` argument.
+
+Agent identity: the hook reads `agent_type` from the PreToolUse payload (`roleOf` in `ui-qa-driver.js`) and, when a
+payload carries only `agent_id`, the role recorded for that `agent_id` at SubagentStart (`<lock_file>.roles.json`,
+removed at SubagentStop). The hook already reads `agent_id` on PreToolUse; `agent_type` on a PreToolUse payload inside
+a subagent is not exercised here against a live Claude Code session (unverified; the SubagentStart record covers it).
+
+Residual risk:
+- A call from the main thread, or from an agent with no role, is not op-restricted (only the wrong-driver deny applies).
+- `see` is one tool: the investigator role cannot be limited to `mode=model` versus `logs=console`; `see` stays open to it.
+- A hook failure (unreadable contract) fails open on the role check; the wrong-driver deny needs only the adapter files.
+- The role check keys on the calling agent's name; a project that renames an agent must add it to `ui_qa.role_agents`.

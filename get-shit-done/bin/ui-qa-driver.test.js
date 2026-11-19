@@ -69,6 +69,49 @@ describe('driver adapters', () => {
   });
 });
 
+describe('role agents, packs and agent text', () => {
+  const frontmatterTools = (agent) => fs.readFileSync(path.join(REPO, 'agents', `${agent}.md`), 'utf8').match(/^tools: (.*)$/m)[1].split(', ').filter((t) => t.startsWith('mcp__'));
+
+  test('every role agent lists explicit driver tools, none wider than its role allows, for both drivers', () => {
+    const ui = driver.resolveContract({ driver: 'charlotte' });
+    for (const [agent, role] of Object.entries({ 'gsd-product-investigator': 'investigator', 'gsd-demo': 'demo', 'gsd-ui-qa': 'qa' })) {
+      assert.strictEqual(driver.roleOf(agent, undefined), role);
+      for (const d of driver.listDrivers()) {
+        const c = driver.resolveContract({ driver: d });
+        const allowed = new Set(ui.roles[role].map((op) => driver.fullToolName(c, op)).filter(Boolean));
+        const listed = frontmatterTools(agent).filter((t) => t.startsWith(c.tool_prefix));
+        assert.ok(listed.length > 0, `${agent} lists no ${d} tool`);
+        for (const t of listed) assert.ok(allowed.has(t), `${agent}: ${t} is outside the ${role} role`);
+      }
+    }
+    assert.ok(!frontmatterTools('gsd-product-investigator').some((t) => /click|type|evaluate|cookies/.test(t)));
+    assert.deepStrictEqual(frontmatterTools('gsd-product-investigator').filter((t) => t.startsWith('mcp__bladebro__')), ['mcp__bladebro__act', 'mcp__bladebro__see', 'mcp__bladebro__vision']);
+  });
+
+  test('every role names only ops that exist in the adapters', () => {
+    for (const d of driver.listDrivers()) {
+      const c = driver.resolveContract({ driver: d });
+      for (const [role, ops] of Object.entries(c.roles)) for (const op of ops) assert.ok(c.ops[op], `${d}: role ${role} names unknown op ${op}`);
+    }
+  });
+
+  test('the bladebro pack allows exactly the five bladebro tools and documents the MCP registration', () => {
+    const dir = path.join(REPO, 'get-shit-done', 'presets', 'packs', 'bladebro');
+    const allow = JSON.parse(fs.readFileSync(path.join(dir, 'settings.fragment.json'), 'utf8')).permissions.allow;
+    assert.deepStrictEqual([...allow].sort(), ['act', 'run', 'see', 'state', 'vision'].map((t) => `mcp__bladebro__${t}`));
+    assert.match(fs.readFileSync(path.join(dir, 'README.md'), 'utf8'), /claude mcp add --scope user bladebro -- <path>\/bladebro mcp/);
+    const r = spawnSync('node', [TOOLS, 'pack', 'install', 'bladebro', '--root', project(undefined)], { encoding: 'utf8' });
+    assert.strictEqual(r.status, 0, r.stderr);
+    assert.deepStrictEqual(JSON.parse(r.stdout).manual_settings, JSON.parse(fs.readFileSync(path.join(dir, 'settings.fragment.json'), 'utf8')));
+  });
+
+  test('the stack-neutral agent carries no domain vocabulary; the check catches it', () => {
+    const DOMAIN = /\bplayers?\b|PlayerDetail/i;
+    assert.ok(DOMAIN.test('View in Players') && DOMAIN.test('at PlayerDetail (x.tsx:1)'));
+    assert.ok(!DOMAIN.test(fs.readFileSync(path.join(REPO, 'agents', 'gsd-ui-qa.md'), 'utf8')));
+  });
+});
+
 describe('resolveContract', () => {
   test('a bare driver resolves to the adapter, agent from the index', () => {
     const c = driver.resolveContract({ driver: 'bladebro' });
@@ -123,12 +166,26 @@ describe('fillContract and gsd-tools ui-qa', () => {
     assert.deepStrictEqual(cli(root, 'contract').json.ops.drag.tool, null);
   });
 
-  test('apply --driver charlotte; set values are never overwritten', () => {
+  test('apply --driver X on the same driver keeps every set value', () => {
     const root = project({ driver: 'charlotte', agent: 'gsd-charlotte-qa', lock_file: '.tmp/mine.lock', reset_patterns: ['db reset'] });
-    cli(root, 'apply', '--driver', 'bladebro');
+    cli(root, 'apply', '--driver', 'charlotte');
     const ui = readUiQa(root);
     assert.deepStrictEqual([ui.driver, ui.agent, ui.lock_file, ui.reset_patterns], ['charlotte', 'gsd-charlotte-qa', '.tmp/mine.lock', ['db reset']]);
     assert.strictEqual(ui.tool_prefix, 'mcp__charlotte__');
+  });
+
+  test('apply --driver bladebro on a charlotte project switches the driver keys and keeps lock_file, reset_patterns and agent', () => {
+    const root = project({ driver: 'charlotte', agent: 'gsd-charlotte-qa', tool_prefix: 'mcp__charlotte__', lock_file: '.tmp/mine.lock', reset_patterns: ['db reset'], recording: { start: 'x' }, ops: { navigate: { tool: 'x' } } });
+    const r = cli(root, 'apply', '--driver', 'bladebro');
+    assert.strictEqual(r.status, 0);
+    assert.strictEqual(r.json.written, true);
+    assert.deepStrictEqual(r.json.switched, { from: 'charlotte', to: 'bladebro' });
+    assert.ok(['driver', 'tool_prefix', 'recording', 'ops'].every((k) => r.json.changed.includes(k)), JSON.stringify(r.json.changed));
+    const ui = readUiQa(root);
+    assert.deepStrictEqual([ui.driver, ui.tool_prefix, ui.agent, ui.lock_file, ui.reset_patterns], ['bladebro', 'mcp__bladebro__', 'gsd-charlotte-qa', '.tmp/mine.lock', ['db reset']]);
+    assert.strictEqual(ui.ops, undefined);
+    assert.strictEqual(ui.recording.env.BLADE_RECORD, '1');
+    assert.strictEqual(cli(root, 'apply', '--driver', 'bladebro').json.written, false);
   });
 
   test('unknown driver: contract and apply exit 1 naming the drivers, and the config is not written', () => {
@@ -194,16 +251,20 @@ describe('agent aliases', () => {
     const generic = fs.readFileSync(path.join(REPO, 'agents', 'gsd-ui-qa.md'), 'utf8');
     assert.match(generic, /^name: gsd-ui-qa$/m);
     const [, front, body] = generic.split(/^---$/m);
-    assert.match(front, /mcp__charlotte__\*, mcp__bladebro__\*/);
+    assert.match(front, /mcp__charlotte__charlotte_navigate/);
+    assert.match(front, /mcp__bladebro__act/);
+    assert.doesNotMatch(front, /mcp__\w+__\*/);
     assert.ok(!/charlotte|bladebro/i.test(body), 'agent body must take tool names from the contract');
   });
 
   test('every agent that drives a browser allows both drivers and reads the contract', () => {
     for (const f of ['gsd-ui-qa', 'gsd-demo', 'gsd-product-investigator']) {
       const text = fs.readFileSync(path.join(REPO, 'agents', `${f}.md`), 'utf8');
-      assert.match(text, /^tools: .*mcp__charlotte__\*, mcp__bladebro__\*/m, f);
+      const [, front, body] = text.split(/^---$/m);
+      assert.match(front, /^tools: .*mcp__charlotte__charlotte_navigate.*mcp__bladebro__act/m, f);
+      assert.doesNotMatch(front, /mcp__\w+__\*/, f);
       assert.match(text, /ui-qa contract/, f);
-      assert.ok(!/mcp__charlotte__charlotte_/.test(text), f);
+      assert.ok(!/mcp__charlotte__charlotte_/.test(body), f);
     }
   });
 });
