@@ -9,6 +9,7 @@ const MAX_TIMEOUT_SEC = 2_147_483;
 const FLAGS = {
   mutants: { type: 'string' },
   out: { type: 'string' },
+  phase: { type: 'string' },
   root: { type: 'string' },
   timeout: { type: 'string' },
   'test-cmd': { type: 'string' },
@@ -25,7 +26,7 @@ function parseEnvPairs(pairs) {
   return ok(Object.fromEntries(pairs.map((p) => [p.slice(0, p.indexOf('=')), p.slice(p.indexOf('=') + 1)])));
 }
 
-/** { ok, value: { mutantsPath, outPath, root, timeoutMs, dryRun, allowDirty, allowPrimary, config } } or { ok: false, error }. */
+/** { ok, value: { mutantsPath, outPath, root, phase, timeoutMs, dryRun, allowDirty, allowPrimary, config } } or { ok: false, error }. */
 export function parseOptions(argv, cwd = process.cwd(), now = new Date()) {
   let args;
   try {
@@ -48,6 +49,7 @@ export function parseOptions(argv, cwd = process.cwd(), now = new Date()) {
     mutantsPath: args.mutants,
     outPath: typeof args.out === 'string' && args.out !== '' ? args.out : path.join(root, '.tmp', 'mutate', `${stamp}.jsonl`),
     root,
+    ...(typeof args.phase === 'string' && args.phase !== '' ? { phase: args.phase } : {}),
     timeoutMs: timeoutSec * 1000,
     dryRun: args['dry-run'] === true,
     allowDirty: args['allow-dirty'] === true,

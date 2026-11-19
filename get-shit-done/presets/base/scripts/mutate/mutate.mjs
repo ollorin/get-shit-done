@@ -4,6 +4,7 @@
 // Sequential only. It edits the target, so it refuses the primary worktree (use a linked worktree or a temp copy).
 // Usage: node scripts/mutate/mutate.mjs --mutants .tmp/m.json --root .tmp/wt-<name> [--out f.jsonl] [--timeout s]
 //   [--test-cmd "cmd {file}"] [--test-env K=V]... [--error-pattern re] [--dry-run] [--allow-dirty] [--allow-primary]
+//   [--phase N]  required when stack.isolation.lock_dir is set: runs only while phase N has an open `window` lease (window.mjs)
 // Test command: --test-cmd, else stack.commands.test_file of .planning/config.json in the current directory.
 // Error pattern: --error-pattern, else stack.mutation.error_pattern (a missing config is allowed only when --test-cmd is given). Documented in docs/gsd/mutation-testing.md.
 // Exit: 0 ok; 1 canary mismatch, inconclusive mutant or red after the run; 2 aborted before mutating; 3 restore failed; 4 internal.
@@ -17,6 +18,7 @@ import {
 import { baselineError, dirtyTargets, outPathError, outsideRootError, primaryError, runSummaryPath, staleBackupError, writeRunSummary } from './guards.mjs';
 import { parseOptions } from './options.mjs';
 import { runTest } from './process.mjs';
+import { windowError } from './window.mjs';
 import { RestoreError, installSignalRestore, restoreFile, withActiveMutation } from './restore.mjs';
 
 const strictDecoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
@@ -203,6 +205,8 @@ export async function main(argv, deps = {}) {
   if (!parsed.ok) { console.error(`[mutate] ${parsed.error}`); return 2; }
   const profiled = withProfile(parsed.value);
   if (!profiled.ok) { console.error(`[mutate] ${profiled.error}`); return 2; }
+  const closed = windowError(profiled.value.phase);
+  if (closed !== null) return refuse(closed);
   const dispose = profiled.value.dryRun ? () => {} : installSignalRestore();
   try {
     return await execute(profiled.value, deps);

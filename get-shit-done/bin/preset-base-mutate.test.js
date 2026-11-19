@@ -703,3 +703,51 @@ describe('mutation tool: profile lookup (agnostic-M-09 9.6)', () => {
     assert.match(withProfile(opts(), cwd).error, /not a valid regular expression/);
   });
 });
+
+describe('mutation tool: runs only inside a live window when the project has a shared stack', () => {
+  const CLI = path.join(MUTATE, 'mutate.mjs');
+  const BIN = path.join(__dirname);
+  const mutants = [{ id: 'M-1', file: 'src/a.js', old: 'a + b', new: 'a - b', test: 'src/a.check.js' }];
+  // Same committed tmp repo as the other CLI cases; the project (cwd) is the repo, --root a copy of it.
+  function project(config) {
+    const root = repo();
+    fs.writeFileSync(path.join(root, 'src', 'a.check.js'), '// passes\n');
+    fs.mkdirSync(path.join(root, '.planning'));
+    if (config !== null) fs.writeFileSync(path.join(root, '.planning', 'config.json'), JSON.stringify(config));
+    fs.writeFileSync(path.join(root, 'm.json'), JSON.stringify(mutants));
+    return root;
+  }
+  const lease = (root, args) => spawnSync(process.execPath, [path.join(BIN, 'gsd-tools.js'), 'dispatch', ...args], { cwd: root, encoding: 'utf8' });
+  const mutate = (root, extra = []) => {
+    const r = spawnSync(process.execPath, [CLI, '--mutants', path.join(root, 'm.json'), '--out', path.join(root, 'o.jsonl'), '--root', root, '--allow-dirty', '--allow-primary', '--test-cmd', 'node {file}', ...extra], { cwd: root, encoding: 'utf8', timeout: 60000, env: { ...process.env, GSD_BIN_DIR: BIN } });
+    return { code: r.status, out: r.stdout + r.stderr };
+  };
+  const LOCKED = { stack: { isolation: { lock_dir: '.locks' } } };
+
+  test('lock_dir set: refused (exit 2) without --phase and without an open window lease, naming the fix', () => {
+    const root = project(LOCKED);
+    const noPhase = mutate(root);
+    assert.strictEqual(noPhase.code, 2);
+    assert.match(noPhase.out, /--phase/);
+    const noWindow = mutate(root, ['--phase', '1']);
+    assert.strictEqual(noWindow.code, 2);
+    assert.match(noWindow.out, /dispatch begin --phase 1 --role window/);
+    lease(root, ['begin', '--phase', '1', '--role', 'window', '--id', 'w1']);
+    lease(root, ['end', '--id', 'w1']);
+    assert.strictEqual(mutate(root, ['--phase', '1']).code, 2, 'a closed window does not count');
+    assert.strictEqual(bytes(root), ORIGINAL);
+  });
+  test('lock_dir set: allowed with an open window lease of that phase only', () => {
+    const root = project(LOCKED);
+    assert.strictEqual(lease(root, ['begin', '--phase', '1', '--role', 'window', '--id', 'w1']).status, 0);
+    assert.strictEqual(mutate(root, ['--phase', '2']).code, 2, 'another phase window does not count');
+    const r = mutate(root, ['--phase', '01']);
+    assert.strictEqual(r.code, 0, r.out);
+  });
+  test('no lock_dir (or no config): unaffected, --phase not needed', () => {
+    for (const cfg of [{ stack: {} }, null]) {
+      const r = mutate(project(cfg));
+      assert.strictEqual(r.code, 0, r.out);
+    }
+  });
+});
