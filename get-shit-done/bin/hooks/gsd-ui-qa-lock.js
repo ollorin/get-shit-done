@@ -59,8 +59,9 @@ function readCapability(cwd) {
     : undefined;
   if (!isPlainObject(ui)) return null;
   // A command-kind driver (scripted tier) has no MCP tools to lock or deny: the hook acts only on the MCP tier, when one is declared.
+  // The tier is the resolved contract (the one `ui-qa contract --tier mcp` prints); a config that does not resolve falls back to its raw keys.
   let tier = ui;
-  try { tier = uiQaDriver.mcpTier(ui); } catch { tier = ui; }
+  try { tier = uiQaDriver.resolveMcpTier(ui); } catch { try { tier = uiQaDriver.mcpTier(ui); } catch { tier = ui; } }
   return isPlainObject(tier) ? normalizeCapability(tier) : null;
 }
 

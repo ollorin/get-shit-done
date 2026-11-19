@@ -68,3 +68,7 @@ Residual risk:
 
 Every adapter has `kind`: `mcp` (charlotte, bladebro: an agent drives a browser through MCP tools) or `command` (playwright: runs `ui_qa.command`, no tool_prefix, no ops, agent default `gsd2-runner`). `ui_qa.driver` names the tier a project already uses, so a scripted-only config (`driver: playwright, command: ...`) stays valid unedited.
 The other tier is a nested object: `ui_qa.mcp = {driver: "charlotte"}` beside a command driver, `ui_qa.scripted = {driver: "playwright", command: ...}` beside an MCP driver. `gsd-tools ui-qa contract --tier mcp|scripted` returns one tier; the lock hook acts only on the MCP tier and is a no-op for a command-only project.
+
+## Upgrade note
+
+An MCP project that sets no `lock_file` now takes the adapter lock file (for charlotte `.tmp/charlotte.lock`) instead of `.tmp/ui-qa.lock`, because the lock hook reads the resolved contract. A session holding the old lock across the upgrade is not seen; finish live UI-QA runs before upgrading, or set `lock_file` explicitly.

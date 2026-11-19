@@ -168,7 +168,8 @@ describe('fillContract and gsd-tools ui-qa', () => {
     assert.strictEqual(filled.agent, 'mine');
     assert.deepStrictEqual(filled.reset_patterns, ['x']);
     assert.strictEqual(filled.tool_prefix, 'mcp__bladebro__');
-    assert.deepStrictEqual(filled.agent_aliases, ['gsd-charlotte-qa']);
+    assert.deepStrictEqual(filled.agent_aliases, [], 'a custom agent gets no default alias, as resolveMcpTier');
+    assert.deepStrictEqual(driver.fillContract({ driver: 'bladebro' }).agent_aliases, ['gsd-charlotte-qa']);
     const odd = { driver: 'zzz' };
     assert.strictEqual(driver.fillContract(odd), odd);
   });
@@ -380,5 +381,80 @@ describe('command-kind driver (scripted UI-QA tier)', () => {
     const both = { ...CASINO_MALL, mcp: { driver: 'charlotte' } };
     assert.strictEqual(call(both, 'PreToolUse', { tool_name: 'mcp__bladebro__act' }).exitCode, 2);
     assert.strictEqual(call(both, 'PreToolUse', { tool_name: 'mcp__charlotte__charlotte_click' }).exitCode, 0);
+  });
+});
+
+describe('apply --driver between kinds and the mixed-tier hook', () => {
+  const valid = (u) => assert.deepStrictEqual(problems(u), []);
+  const problems = (u) => validateProfile({ found: true, stack: { capabilities: { ui_qa: u } } }).invalid.filter((e) => /ui_qa/.test(e.key));
+  const apply = (uiQa, ...args) => {
+    const root = project(uiQa);
+    const r = cli(root, 'apply', ...args);
+    assert.strictEqual(r.status, 0, JSON.stringify(r.json));
+    return { r, out: readUiQa(root) };
+  };
+
+  test('MCP top + scripted tier, switch to a command driver not nested: old top becomes ui_qa.mcp, no stale scripted, agent is the new driver default', () => {
+    const { out } = apply({ driver: 'charlotte', agent: 'gsd-ui-qa', lock_file: '.tmp/keep.lock', scripted: { driver: 'playwright', command: 'old' } }, '--driver', 'playwright', '--command', 'new');
+    valid(out);
+    assert.strictEqual(out.scripted, undefined);
+    assert.strictEqual(out.driver, 'playwright');
+    assert.strictEqual(out.command, 'new');
+    assert.strictEqual(out.agent, 'gsd2-runner');
+    assert.strictEqual(out.mcp.driver, 'charlotte');
+    assert.strictEqual(out.mcp.lock_file, '.tmp/keep.lock');
+  });
+
+  test('swap: target equals the nested driver, so top and nested trade places', () => {
+    const { out } = apply({ driver: 'charlotte', lock_file: '.tmp/keep.lock', agent: 'gsd-ui-qa', scripted: { driver: 'playwright', command: 'npm run ui', agent: 'gsd2-runner' } }, '--driver', 'playwright');
+    valid(out);
+    assert.deepStrictEqual([out.driver, out.command, out.agent, out.scripted], ['playwright', 'npm run ui', 'gsd2-runner', undefined]);
+    assert.strictEqual(out.mcp.driver, 'charlotte');
+    assert.strictEqual(out.mcp.lock_file, '.tmp/keep.lock');
+    assert.strictEqual(out.mcp.agent, 'gsd-ui-qa');
+    assert.strictEqual(driver.resolveContract(out).mcp.tool_prefix, 'mcp__charlotte__');
+  });
+
+  test('command top + mcp tier, switch to an MCP driver: old top becomes ui_qa.scripted, no stale mcp, agent is the MCP default', () => {
+    const { out } = apply({ driver: 'playwright', command: 'npm run ui', agent: 'gsd2-runner', mcp: { driver: 'charlotte' } }, '--driver', 'bladebro');
+    valid(out);
+    assert.strictEqual(out.mcp, undefined);
+    assert.strictEqual(out.driver, 'bladebro');
+    assert.strictEqual(out.agent, 'gsd-ui-qa');
+    assert.deepStrictEqual([out.scripted.driver, out.scripted.command, out.scripted.agent], ['playwright', 'npm run ui', 'gsd2-runner']);
+  });
+
+  test('command top + mcp tier, swap to the nested MCP driver: minimal nested tier comes out complete', () => {
+    const { out, r } = apply({ driver: 'playwright', command: 'npm run ui', agent: 'gsd2-runner', reset_patterns: ['db reset'], mcp: { driver: 'charlotte' } }, '--driver', 'charlotte');
+    valid(out);
+    assert.deepStrictEqual([out.driver, out.agent, out.mcp], ['charlotte', 'gsd-ui-qa', undefined]);
+    assert.deepStrictEqual(out.reset_patterns, ['db reset']);
+    assert.strictEqual(out.scripted.command, 'npm run ui');
+    assert.strictEqual(out.scripted.reset_patterns, undefined);
+    assert.ok(r.json.changed.includes('scripted'));
+  });
+
+  test('apply fills the missing keys of a minimal nested tier and is idempotent', () => {
+    const root = project({ driver: 'playwright', command: 'x', agent: 'gsd2-runner', mcp: { driver: 'charlotte' } });
+    cli(root, 'apply');
+    const out = readUiQa(root);
+    assert.deepStrictEqual([out.mcp.agent, out.mcp.lock_file, out.mcp.tool_prefix], ['gsd-ui-qa', '.tmp/charlotte.lock', 'mcp__charlotte__']);
+    valid(out);
+    assert.strictEqual(cli(root, 'apply').json.written, false);
+  });
+
+  test('mixed project with a minimal nested tier: the hook locks for gsd-ui-qa at the lock_file the contract reports', () => {
+    const uiQa = { driver: 'playwright', command: 'x', agent: 'gsd2-runner', mcp: { driver: 'charlotte' } };
+    const root = project(uiQa);
+    const mcp = cli(root, 'contract', '--tier', 'mcp').json;
+    assert.strictEqual(mcp.agent, 'gsd-ui-qa');
+    assert.strictEqual(mcp.lock_file, '.tmp/charlotte.lock');
+    const r = handle({ hook_event_name: 'SubagentStart', cwd: root, session_id: 's', agent_id: 'a1', agent_type: 'gsd-ui-qa' }, { nowMs: NOW, holderPid: process.pid });
+    assert.strictEqual(r.exitCode, 0);
+    assert.ok(fs.existsSync(path.join(root, mcp.lock_file)));
+    assert.ok(!fs.existsSync(path.join(root, '.tmp', 'ui-qa.lock')));
+    const alias = handle({ hook_event_name: 'SubagentStart', cwd: root, session_id: 's', agent_id: 'a2', agent_type: 'gsd-charlotte-qa' }, { nowMs: NOW, holderPid: process.pid });
+    assert.strictEqual(alias.exitCode, 0);
+    assert.ok(JSON.parse(fs.readFileSync(path.join(root, mcp.lock_file), 'utf8')).holders.includes('a2'));
   });
 });

@@ -78,6 +78,7 @@ function resolveTier(uiQa) {
     ...base,
     kind: 'mcp',
     agent: defaultAgent(),
+    agent_aliases: (uiQa.agent ?? defaultAgent()) === defaultAgent() ? agentAliases() : [],
     ...uiQa,
     roles: roleTables(uiQa).roles,
     role_agents: roleTables(uiQa).roleAgents,
@@ -100,6 +101,13 @@ function resolveContract(uiQa) {
   const scripted = resolveTier(nestedScripted);
   if (scripted.kind !== 'command') throw new Error('ui_qa.scripted must name a command-kind driver');
   return { ...top, scripted };
+}
+
+// The MCP tier fully resolved (agent, aliases, lock_file, roles, ...), or null when the project declares none. The lock hook and
+// `contract --tier mcp` both read this, so they cannot disagree.
+function resolveMcpTier(uiQa) {
+  const contract = resolveContract(uiQa);
+  return contract.kind === 'mcp' ? contract : (contract.mcp ?? null);
 }
 
 const fullToolName = (contract, op) => {
@@ -127,20 +135,43 @@ function roleViolation(contract, role, tool, toolInput) {
 }
 
 // Fills the keys a project left out (agent, tool_prefix, lock_file, recording) from its adapter; never overwrites.
+// The nested tier is filled the same way (an MCP tier is filled from its resolved form, so keys it inherits stay put).
 // Returns the input untouched when the driver is unknown: validation reports that, sync does not guess.
 function fillContract(uiQa) {
   if (!isObject(uiQa) || !listDrivers().includes(uiQa.driver)) return uiQa;
   const adapter = loadAdapter(uiQa.driver);
-  if (isCommand(adapter)) return uiQa.agent === undefined ? { agent: adapter.agent ?? defaultAgent(), ...uiQa } : uiQa;
-  const defaults = { agent: defaultAgent(), tool_prefix: adapter.tool_prefix, lock_file: adapter.lock_file, recording: adapter.recording, agent_aliases: agentAliases() };
-  return { ...Object.fromEntries(Object.entries(defaults).filter(([k]) => uiQa[k] === undefined)), ...uiQa };
+  const nestedKey = isCommand(adapter) ? 'mcp' : 'scripted';
+  const nested = isObject(uiQa[nestedKey]) && listDrivers().includes(uiQa[nestedKey].driver) ? uiQa[nestedKey] : undefined;
+  const { [nestedKey]: _nested, ...own } = uiQa;
+  const filled = fillTier(own);
+  if (!nested) return uiQa[nestedKey] === undefined ? filled : { ...filled, [nestedKey]: uiQa[nestedKey] };
+  return { ...filled, [nestedKey]: fillTier(nestedKey === 'mcp' ? mcpTier(uiQa) : nested) };
+}
+
+function fillTier(tier) {
+  const adapter = loadAdapter(tier.driver);
+  if (isCommand(adapter)) return tier.agent === undefined ? { agent: adapter.agent ?? defaultAgent(), ...tier } : tier;
+  const defaults = { agent: defaultAgent(), tool_prefix: adapter.tool_prefix, lock_file: adapter.lock_file, recording: adapter.recording, agent_aliases: (tier.agent ?? defaultAgent()) === defaultAgent() ? agentAliases() : [] };
+  return { ...Object.fromEntries(Object.entries(defaults).filter(([k]) => tier[k] === undefined)), ...tier };
 }
 
 // The keys that belong to one adapter: a switch replaces them and keeps everything the project set (lock_file, reset_patterns, agent, ...).
+// Between kinds the old top tier becomes the nested tier of the new shape (ui_qa.mcp / ui_qa.scripted); when the target is the
+// driver already nested there, the two swap. A tier's own agent follows its own kind, never the other tier's.
 const DRIVER_KEYS = ['driver', 'tool_prefix', 'ops', 'recording', 'command'];
+const without = (obj, keys) => Object.fromEntries(Object.entries(obj).filter(([k]) => !keys.includes(k)));
 function switchDriver(current, driver, command) {
-  const kept = Object.fromEntries(Object.entries(current).filter(([k]) => !DRIVER_KEYS.includes(k)));
-  return fillContract({ ...kept, driver, ...(command === undefined ? {} : { command }) });
+  const { mcp, scripted, ...own } = current;
+  const oldKind = kindOf(current.driver);
+  const nestedOld = oldKind === 'command' ? mcp : scripted;
+  const cmd = command === undefined ? {} : { command };
+  if (oldKind === kindOf(driver)) return fillContract({ ...without(current, DRIVER_KEYS), driver, ...cmd });
+  const nested = isObject(nestedOld) ? nestedOld : undefined;
+  const mcpOnly = MCP_INHERITED.filter((k) => k !== 'agent');
+  const carried = oldKind === 'command' ? Object.fromEntries(mcpOnly.filter((k) => own[k] !== undefined).map((k) => [k, own[k]])) : {};
+  const demoted = oldKind === 'command' ? without(own, mcpOnly) : own;
+  const top = nested && nested.driver === driver ? { ...nested, ...cmd } : { ...without(nested ?? {}, DRIVER_KEYS), driver, ...cmd };
+  return fillContract({ ...carried, ...top, [oldKind === 'command' ? 'scripted' : 'mcp']: demoted });
 }
 
 const newContract = (driver, command) => fillContract({ driver: driver ?? defaultDriver(), ...(command === undefined ? {} : { command }) });
@@ -204,5 +235,5 @@ function runCli(args, cwd) {
 module.exports = {
   runCli,
   roleOf, knownPrefixes, kindOf, mcpTier, roleViolation,
-  listDrivers, defaultDriver, defaultAgent, agentAliases, loadAdapter, resolveContract, fullToolName, fillContract, newContract, readUiQa,
+  listDrivers, defaultDriver, defaultAgent, agentAliases, loadAdapter, resolveContract, resolveMcpTier, fullToolName, fillContract, newContract, readUiQa,
 };
