@@ -305,16 +305,19 @@ function refreshTTL(db, id, ttlCategory = null) {
 // ─── Exports ───────────────────────────────────────────────────────────────
 
 /**
- * True when a principle's text is empty, a template, or the unsynthesized
- * stub produced by consolidation ("For <topic>: <first words>...").
+ * True when a principle's text is empty, is nothing but a placeholder token
+ * (placeholder, todo, tbd, lorem ipsum, "..." or a bare {{...}} template), or is
+ * the unsynthesized consolidation stub ("For <topic>: <first words>...").
+ * Real sentences that merely contain those words are accepted.
  */
 function isPlaceholderPrincipleText(text) {
   if (typeof text !== 'string') return true
   const t = text.trim()
   if (t === '') return true
-  if (/\{\{[^}]*\}\}/.test(t)) return true
-  if (/^(placeholder|todo|tbd|lorem ipsum|\.\.\.)\b/i.test(t)) return true
-  return /^For [^:\n]+: [\s\S]*\.\.\.$/.test(t)
+  if (/^For [^:\n]+: [\s\S]*\.\.\.$/.test(t)) return true
+  const core = t.replace(/^[\s.!?,;:]+|[\s.!?,;:]+$/g, '')
+  if (core === '') return true
+  return /^(placeholder|todo|tbd|lorem ipsum)$/i.test(core) || /^\{\{[^{}]*\}\}$/.test(core)
 }
 
 module.exports = {

@@ -222,13 +222,19 @@ function _insertOrEvolveImpl(conn, entry, options = {}) {
  * @param {object} conn - Database connection object
  * @param {Array} extractions - Array of extracted entries
  * @param {object} options - Processing options
- * @returns {Promise<object>} { created, evolved, skipped, errors }
+ * @returns {Promise<object>} { created, evolved, skipped, skipped_principles, errors }
  */
 async function processExtractionBatch(conn, extractions, options = {}) {
   const { generateEmbedding } = require('./embeddings.js');
-  const results = { created: 0, evolved: 0, skipped: 0, errors: [] };
+  const results = { created: 0, evolved: 0, skipped: 0, skipped_principles: 0, errors: [] };
 
   for (const ext of extractions) {
+    // Extraction is not synthesis: principles need synthesis provenance, which
+    // extraction never has, so they are skipped here, not written.
+    if (ext.type === 'principle') {
+      results.skipped_principles++;
+      continue;
+    }
     try {
       // Generate embedding if not provided
       const embedding = ext.embedding || await generateEmbedding(ext.content);

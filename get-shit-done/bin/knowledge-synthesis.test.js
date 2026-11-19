@@ -85,4 +85,30 @@ describe('consolidation placeholder guard', () => {
     );
     assert.strictEqual(principleCount(), 0);
   });
+
+  test('placeholder predicate rejects bare tokens and stubs, accepts real sentences', async () => {
+    const { isPlaceholderPrincipleText } = require('./knowledge-crud.js');
+    for (const text of ['TODO', 'tbd.', '...', '{{principle}}', '', 'For x y: words...', STUB]) {
+      assert.ok(isPlaceholderPrincipleText(text), `expected placeholder: ${JSON.stringify(text)}`);
+    }
+    for (const text of [
+      'Todo comments must carry a ticket id.',
+      'Placeholder text in forms must not replace labels.',
+      'Use {{var}} in Handlebars templates.',
+    ]) {
+      assert.ok(!isPlaceholderPrincipleText(text), `expected accepted: ${JSON.stringify(text)}`);
+    }
+  });
+
+  test('processExtractionBatch skips principle extractions without granting provenance', async () => {
+    const { processExtractionBatch } = require('./knowledge-evolution.js');
+    const r = await processExtractionBatch(conn, [
+      { content: 'Write the rollback script before the forward migration.', type: 'principle' },
+      { content: 'Always write rollback scripts first.', type: 'principle' },
+    ]);
+    assert.strictEqual(r.skipped_principles, 2);
+    assert.strictEqual(r.created, 0);
+    assert.strictEqual(r.errors.length, 0);
+    assert.strictEqual(principleCount(), 0);
+  });
 });
