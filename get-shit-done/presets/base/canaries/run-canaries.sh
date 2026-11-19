@@ -13,7 +13,7 @@
 #           optional "out" on allow rows asserts a substring of stdout.
 #   raw: string fed verbatim as stdin (fail-closed rows).
 #   cwd tokens: @repo-default (on the default branch) @repo-feature @repo-master (on master) @repo-nomarker @repo-marker @repo-nogate
-#               @repo-rootmarker @repo-stale31 @repo-fresh29 @repo-stale
+#               @repo-rootmarker @repo-stale31 @repo-fresh25 @repo-stale
 #               @repo-locked-cmds (config: stack.locked_commands = test:e2e, run-all-suites.sh) @repo-badcfg (config that is not JSON)
 #               @repo-locked-multi (config: stack.locked_commands = "npm run test:e2e", "make integration")
 #               @repo-never (config: locked_commands test:e2e + stack.deploy.never_touch of three entries)
@@ -57,15 +57,15 @@ JSON
 JSON
 } &
 { mkrepo stale31 feature 1 1; age_file "$T/stale31/.git/.pre-pr-passed" $((31 * 60)); } &   # just past the 30-minute window
-{ mkrepo fresh29 feature 1 1; age_file "$T/fresh29/.git/.pre-pr-passed" $((29 * 60)); } &   # just inside it
+{ mkrepo fresh25 feature 1 1; age_file "$T/fresh25/.git/.pre-pr-passed" $((25 * 60)); } &   # inside it, with a 5-minute margin for run time after setup
 { mkrepo stale feature 1 1; age_file "$T/stale/.git/.pre-pr-passed" $((3 * 86400)); } &
 wait
-for d in default feat nomarker marker nogate rootmarker master lockedcmds badcfg lockedmulti never flakecfg flakebadre stale31 fresh29 stale; do
+for d in default feat nomarker marker nogate rootmarker master lockedcmds badcfg lockedmulti never flakecfg flakebadre stale31 fresh25 stale; do
   git -C "$T/$d" rev-parse -q --verify HEAD >/dev/null 2>&1 || { echo "run-canaries: the fixture repo '$d' could not be made (fail closed)" >&2; exit 1; }
 done
 R_DEFAULT="$T/default"; R_FEATURE="$T/feat"; R_NOMARKER="$T/nomarker"; R_MARKER="$T/marker"; R_NOGATE="$T/nogate"; R_ROOTMARKER="$T/rootmarker"
 R_MASTER="$T/master"; R_LOCKED="$T/lockedcmds"; R_BADCFG="$T/badcfg"; R_LOCKEDMULTI="$T/lockedmulti"; R_NEVER="$T/never"; R_FLAKE="$T/flakecfg"
-R_FLAKEBAD="$T/flakebadre"; R_STALE31="$T/stale31"; R_FRESH29="$T/fresh29"; R_STALE="$T/stale"
+R_FLAKEBAD="$T/flakebadre"; R_STALE31="$T/stale31"; R_FRESH25="$T/fresh25"; R_STALE="$T/stale"
 BASH_HOOKS="redirect-recursive-search.sh check-git-merge-target.sh block-push-without-local-tests.sh check-test-command.sh check-denied-command.sh"
 EDIT_HOOKS="check-flake-patterns.sh"
 ERRF="$T/stderr"; OUTF="$T/stdout"
@@ -98,10 +98,10 @@ select(length > 0) | fromjson
   {session_id:"canary",transcript_path:"/tmp/x",cwd:$cwd,permission_mode:"default",hook_event_name:"PreToolUse",tool_name:.tool,tool_input:.input,tool_use_id:"t"}'
 REPOS=$(jq -cn --arg default "$R_DEFAULT" --arg feature "$R_FEATURE" --arg nomarker "$R_NOMARKER" --arg marker "$R_MARKER" --arg nogate "$R_NOGATE" \
   --arg rootmarker "$R_ROOTMARKER" --arg master "$R_MASTER" --arg locked "$R_LOCKED" --arg lockedmulti "$R_LOCKEDMULTI" --arg never "$R_NEVER" \
-  --arg flake "$R_FLAKE" --arg flakebad "$R_FLAKEBAD" --arg badcfg "$R_BADCFG" --arg stale31 "$R_STALE31" --arg fresh29 "$R_FRESH29" --arg stale "$R_STALE" \
+  --arg flake "$R_FLAKE" --arg flakebad "$R_FLAKEBAD" --arg badcfg "$R_BADCFG" --arg stale31 "$R_STALE31" --arg fresh25 "$R_FRESH25" --arg stale "$R_STALE" \
   '{"@repo-default":$default,"@repo-feature":$feature,"@repo-nomarker":$nomarker,"@repo-marker":$marker,"@repo-nogate":$nogate,"@repo-rootmarker":$rootmarker,
     "@repo-master":$master,"@repo-locked-cmds":$locked,"@repo-locked-multi":$lockedmulti,"@repo-never":$never,"@repo-flake-cfg":$flake,
-    "@repo-flake-badre":$flakebad,"@repo-badcfg":$badcfg,"@repo-stale31":$stale31,"@repo-fresh29":$fresh29,"@repo-stale":$stale}')
+    "@repo-flake-badre":$flakebad,"@repo-badcfg":$badcfg,"@repo-stale31":$stale31,"@repo-fresh25":$fresh25,"@repo-stale":$stale}')
 ROWS="$T/rows"
 jq -Rrc --arg T "$T" --argjson repos "$REPOS" "$ROW_FIELDS" "$CORPUS" > "$ROWS" || { echo "run-canaries: the rows of '$CORPUS' could not be read (fail closed)" >&2; exit 1; }
 US=$(printf '\037')
