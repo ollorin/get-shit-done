@@ -112,7 +112,7 @@ reference file.
 **Step 8c (UI QA coverage, QGATE-07):**
 > **Carve-out:** phase gate `ui_qa_mode: none` (profile declares `stack.capabilities` without `ui_qa`) => skip, write `ui_qa_ran: false  # no ui_qa capability`, no gap; `legacy` and `capable` keep the rule.
 > **Hard rule:** UI QA is required only when `verify phase-gate` reports `ui_qa_required: true` (UI files in the phase's commits). Then, if no UI QA session is recorded, mark the phase `gaps_found`; this is NEVER a warning. A phase without UI files (an API-only phase in a web project included) skips this step: write `ui_qa_ran: false  # no UI files`, no gap.
-> Record the outcome as `ui_qa_ran: true|false` in the VERIFICATION.md frontmatter (always present). `verify phase-gate` fails `missing_charlotte_qa` for UI phases unless it is `true`.
+> Record the outcome as `ui_qa_ran: true|false` in the VERIFICATION.md frontmatter (always present). `verify phase-gate` fails `missing_ui_qa` for UI phases unless it is `true` (the pre-rename code `missing_charlotte_qa` is emitted alongside it for one release).
 
 **Step 8c.5 (deferral language detection, QGATE-12):**
 > **Hard rule:** Any deferral of tests, QA, or verification to a future phase is a verification failure. This is NEVER a warning.

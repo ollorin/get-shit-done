@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "default": "bladebro",
+  "agent": "gsd-ui-qa",
+  "agent_aliases": [
+    "gsd-charlotte-qa"
+  ],
+  "roles": {
+    "investigator": [
+      "navigate",
+      "back",
+      "forward",
+      "scroll",
+      "observe",
+      "screenshot",
+      "screenshot_get"
+    ],
+    "demo": [
+      "configure",
+      "viewport",
+      "navigate",
+      "observe",
+      "find",
+      "click",
+      "type",
+      "select",
+      "toggle",
+      "submit",
+      "key",
+      "scroll",
+      "hover",
+      "wait_for",
+      "console",
+      "screenshot",
+      "screencast_start",
+      "screencast_stop"
+    ],
+    "qa": [
+      "navigate",
+      "observe",
+      "find",
+      "screenshot",
+      "screenshot_get",
+      "click",
+      "type",
+      "console",
+      "requests",
+      "scroll",
+      "evaluate",
+      "read_state"
+    ]
+  },
+  "role_agents": {
+    "gsd-product-investigator": "investigator",
+    "gsd-demo": "demo",
+    "gsd-ui-qa": "qa",
+    "gsd-charlotte-qa": "qa"
+  }
+}

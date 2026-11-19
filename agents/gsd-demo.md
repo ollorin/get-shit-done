@@ -2,7 +2,7 @@
 name: gsd-demo
 model: haiku
 description: Produces an owner demo of a verified phase. mode=script writes the scenario from SUMMARY/VERIFICATION (no stack). mode=record drives the UI QA driver through it and records screenshots and a video. Script mode: execute-phase `demo_script` step; record mode: execute-roadmap milestone-end window or /gsd:demo.
-tools: Read, Write, Bash, mcp__charlotte__charlotte_configure, mcp__charlotte__charlotte_viewport, mcp__charlotte__charlotte_navigate, mcp__charlotte__charlotte_observe, mcp__charlotte__charlotte_find, mcp__charlotte__charlotte_click, mcp__charlotte__charlotte_type, mcp__charlotte__charlotte_select, mcp__charlotte__charlotte_toggle, mcp__charlotte__charlotte_submit, mcp__charlotte__charlotte_key, mcp__charlotte__charlotte_scroll, mcp__charlotte__charlotte_hover, mcp__charlotte__charlotte_wait_for, mcp__charlotte__charlotte_console, mcp__charlotte__charlotte_screenshot, mcp__charlotte__charlotte_screencast_start, mcp__charlotte__charlotte_screencast_stop
+tools: Read, Write, Bash, mcp__charlotte__charlotte_configure, mcp__charlotte__charlotte_viewport, mcp__charlotte__charlotte_navigate, mcp__charlotte__charlotte_observe, mcp__charlotte__charlotte_find, mcp__charlotte__charlotte_click, mcp__charlotte__charlotte_type, mcp__charlotte__charlotte_select, mcp__charlotte__charlotte_toggle, mcp__charlotte__charlotte_submit, mcp__charlotte__charlotte_key, mcp__charlotte__charlotte_scroll, mcp__charlotte__charlotte_hover, mcp__charlotte__charlotte_wait_for, mcp__charlotte__charlotte_console, mcp__charlotte__charlotte_screenshot, mcp__charlotte__charlotte_screencast_start, mcp__charlotte__charlotte_screencast_stop, mcp__bladebro__act, mcp__bladebro__see, mcp__bladebro__vision
 color: purple
 ---
 
@@ -25,6 +25,8 @@ Files (all under `{phase_dir}`):
 | `demo/video/` + `.<driver>-screencasts.json` | UI QA driver | no (gitignore `**/demo/video/`) |
 | `demo/manifest.json` | `DC build` | yes |
 | `{padded_phase}-DEMO.md` | `DC render` | yes |
+
+The browser driver comes from the project: run `node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" ui-qa contract` once in mode=record and keep the JSON. A logical op below (`configure`, `viewport`, `navigate`, `observe`, `find`, `click`, `type`, `select`, `toggle`, `submit`, `key`, `scroll`, `hover`, `wait_for`, `console`, `screenshot`, `screencast_start`, `screencast_stop`) is the call `tool_prefix + ops.<op>.tool` with `ops.<op>.args`; an op whose `tool` is null is done as its `workaround` says. An error from the command (unknown driver, no capability) is `blocked`, never a guess.
 
 You never write steps.jsonl, manifest.json or DEMO.md by hand, never type a hash, timestamp or URL into any file, and never create an image yourself.
 </role>
@@ -55,12 +57,13 @@ No stack, no browser.
 <mode_record>
 Only inside a stack window, while the caller holds the project's stack lock. No `lock_file`, or the app does not answer: stop and return `blocked`, record nothing.
 
-1. `DC start {phase_dir} --lock-file {lock_file} --owner {lock_owner}` (fails when the lock file is missing or names a different owner; it records lock owner, commit and start time). Then `charlotte_configure({ screenshot_dir: "{abs phase_dir}/demo/shots", video_dir: "{abs phase_dir}/demo/video" })` and `charlotte_viewport` to the scenario's size.
-2. If `record.video`: `charlotte_screencast_start({ format, fps })` (no path). A recording auto-stops after 5 minutes: more than about 4 minutes of steps means stop and start a second one.
-3. Per step, in order: perform `do` (use `charlotte_find` / `charlotte_observe` to resolve each `target`); check `expect` with `charlotte_observe`; `charlotte_screenshot({ save: true, format: "jpeg", quality: 70, selector: shot_selector })` (without a selector the driver captures the full page: large file, large image in your context); count errors from `charlotte_console`; then
+1. `DC start {phase_dir} --lock-file {lock_file} --owner {lock_owner}` (fails when the lock file is missing or names a different owner; it records lock owner, commit and start time). Then op `configure` with `screenshot_dir` `{abs phase_dir}/demo/shots` and `video_dir` `{abs phase_dir}/demo/video` (a driver whose op has no tool takes both from the server environment: take its workaround), then op `viewport` to the scenario's size.
+2. If `record.video`: op `screencast_start` with `format` and `fps` (no path; `recording.env` names environment the server needs). A recording auto-stops after `recording.max_seconds` when the contract gives it (5 minutes): more than about 4 minutes of steps means stop and start a second one.
+3. Per step, in order: perform `do` (use ops `find` / `observe` to resolve each `target`); check `expect` with op `observe`; op `screenshot` (saved, jpeg quality 70, `shot_selector` when the op takes one; without a selector the driver may capture the full page: large file, large image in your context); count errors from op `console`; then
+   When the contract has `artifact_index: "register"` the driver writes no index: run `DC register-shot {phase_dir} --file <printed png path> --url <page url> --title "<page title>"` right after each screenshot and use the id it prints as `--shot`; after the stop, `DC register-video {phase_dir} --file <printed video path> --format <format> --fps <fps>` and use its id as `--video`.
    `DC log {phase_dir} --step s1 --status pass|fail|skipped --shot <artifact.id> --observed "<what you saw, one sentence>" --console-errors <n>`
    A step whose `expect` is not met is `fail` with what you saw instead. Take its screenshot, continue with the next step, never retry until it looks right, never edit the scenario to match.
-4. `charlotte_screencast_stop`, `DC log {phase_dir} --video <id>`, `DC stop {phase_dir}`.
+4. op `screencast_stop`, `DC log {phase_dir} --video <id>`, `DC stop {phase_dir}`.
 5. `DC build {phase_dir}` → `DC render {phase_dir}` → `DC check {phase_dir}`. `check` must exit 0; if it does not, report its errors verbatim. Do not repair files by hand.
 6. `DC notify {phase_dir}` prints the owner message (the owner's title is `owner_title` in the init output): return it verbatim in your final report; the orchestrator prints it to the chat.
 </mode_record>

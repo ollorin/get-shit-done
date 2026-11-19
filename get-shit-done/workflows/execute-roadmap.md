@@ -315,7 +315,7 @@ NEEDS_QA=$(node -e "console.log(JSON.parse(process.argv[1]).ui_qa_required === t
 ```
 `ui_qa_required` is `has_ui` (a phase without UI never requires it) and the UI-QA mode is not `none`. Mode `none` means `stack.capabilities` is an object whose keys are all known and that has no `ui_qa` key; any other case (no capabilities object, a `ui_qa` key, an unknown key) is required, and `ui_qa_mode: legacy` (no `stack.capabilities`) resolves the project's configured QA agent. It is computed from the files the phase touched (UI by extension and route path; tests and docs excluded; `has_api` is reported but never gates QA), independent of what any PLAN or SUMMARY self-reports.
 
-**If `NEEDS_QA` is non-empty** and the phase-gate `failures` contain `missing_charlotte_qa`: the evidence `ui_qa_ran: true` is missing from `{N}-VERIFICATION.md` frontmatter. Run UI QA now:
+**If `NEEDS_QA` is non-empty** and the phase-gate `failures` contain `missing_ui_qa` (or its legacy alias `missing_charlotte_qa`): the evidence `ui_qa_ran: true` is missing from `{N}-VERIFICATION.md` frontmatter. Run UI QA now:
 1. Start the services (`gsd-tools service-health start default`; the startup recipe is in the project's CLAUDE.md or `stack.services`) and the project's suite-start reset, before the UI QA agent spawns.
 2. Spawn the UI QA agent (`stack.capabilities.ui_qa.agent`; legacy: the project's configured QA agent) with `mode=ui-qa` on the phase's pages.
 3. Critical or high issues: a fix agent, then re-run (at most 3 rounds). All regression-tagged scenarios must pass.

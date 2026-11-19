@@ -1,0 +1,340 @@
+{
+  "driver": "bladebro",
+  "description": "Bladebro MCP server (bladebro mcp, stdio): five tools act, see, state, run, vision; the operation is an argument.",
+  "tool_prefix": "mcp__bladebro__",
+  "lock_file": ".tmp/ui-qa.lock",
+  "artifact_index": "register",
+  "recording": {
+    "start": "screencast_start",
+    "stop": "screencast_stop",
+    "env": {
+      "BLADE_RECORD": "1",
+      "BLADE_RECORD_FORMAT": "{format}",
+      "BLADE_RECORD_FPS": "{fps}",
+      "BLADE_NO_ACTIVATE": "1"
+    },
+    "requires": [
+      "ffmpeg"
+    ]
+  },
+  "ops": {
+    "configure": {
+      "tool": null,
+      "workaround": "No per-call configuration. Set the server environment before the MCP server starts (see recording.env and the driver notes): BLADE_HEADLESS=1, BLADE_PACE=off, BLADE_NO_WARMING=1, BLADE_NO_ACTIVATE=1, BLADE_HOME=<scratch dir>. Screenshot directory: the path printed by the screenshot call is used as is. Video directory: BLADE_RECORD=<absolute dir>.",
+      "env": {
+        "BLADE_HEADLESS": "1",
+        "BLADE_PACE": "off",
+        "BLADE_NO_WARMING": "1",
+        "BLADE_NO_ACTIVATE": "1",
+        "BLADE_NO_UPDATE_CHECK": "1"
+      }
+    },
+    "viewport": {
+      "tool": "act",
+      "args": {
+        "action": "viewport",
+        "width": "{width}",
+        "height": "{height}"
+      },
+      "note": "dpr, mobile and reset=true are extra args"
+    },
+    "navigate": {
+      "tool": "act",
+      "args": {
+        "action": "navigate",
+        "url": "{url}"
+      }
+    },
+    "back": {
+      "tool": "act",
+      "args": {
+        "action": "back"
+      }
+    },
+    "forward": {
+      "tool": "act",
+      "args": {
+        "action": "forward"
+      }
+    },
+    "reload": {
+      "tool": "act",
+      "args": {
+        "action": "reload"
+      }
+    },
+    "observe": {
+      "tool": "see",
+      "args": {
+        "mode": "model"
+      },
+      "note": "mode=content for page text, outline for headings only"
+    },
+    "find": {
+      "tool": "see",
+      "args": {
+        "find": "{query}"
+      }
+    },
+    "click": {
+      "tool": "act",
+      "args": {
+        "action": "click",
+        "ref": "{ref}"
+      },
+      "note": "address by ref, text, label or selector"
+    },
+    "type": {
+      "tool": "act",
+      "args": {
+        "action": "type",
+        "ref": "{ref}",
+        "text": "{text}"
+      }
+    },
+    "select": {
+      "tool": "act",
+      "args": {
+        "action": "select",
+        "ref": "{ref}",
+        "option": "{option}"
+      }
+    },
+    "toggle": {
+      "tool": "act",
+      "args": {
+        "action": "fill",
+        "fields": [
+          {
+            "ref": "{ref}",
+            "check": "{checked}"
+          }
+        ]
+      }
+    },
+    "submit": {
+      "tool": "act",
+      "args": {
+        "action": "fill",
+        "fields": [
+          {
+            "ref": "{ref}",
+            "text": "{text}"
+          }
+        ],
+        "submit": "{submit_ref}"
+      }
+    },
+    "key": {
+      "tool": "act",
+      "args": {
+        "action": "press",
+        "key": "{key}"
+      }
+    },
+    "scroll": {
+      "tool": "act",
+      "args": {
+        "action": "scroll",
+        "dx": 0,
+        "dy": "{dy}"
+      }
+    },
+    "hover": {
+      "tool": "act",
+      "args": {
+        "action": "hover",
+        "ref": "{ref}"
+      }
+    },
+    "wait_for": {
+      "tool": "act",
+      "args": {
+        "action": "wait",
+        "condition": "{condition}",
+        "timeout": "{seconds}"
+      },
+      "note": "condition: element|selector|title|settle|network|network-idle|url|text|js. Add the one match key the condition names: element, title, url and text take `text`; selector takes `selector`; js takes `js`; settle, network and network-idle take none. Bladebro rejects a wait without a match value (except settle/network)."
+    },
+    "console": {
+      "tool": "see",
+      "args": {
+        "logs": "console"
+      }
+    },
+    "network": {
+      "tool": "see",
+      "args": {
+        "logs": "network"
+      }
+    },
+    "requests": {
+      "tool": "see",
+      "args": {
+        "logs": "xhr"
+      },
+      "note": "deduplicated API/fetch URLs with method and status (bladebro 4.6.10+); navigations are logs=network"
+    },
+    "read_state": {
+      "tool": "act",
+      "args": {
+        "action": "read",
+        "ref": "{ref}",
+        "format": "json"
+      },
+      "note": "live value and toggle state, plus select options; address by ref or label"
+    },
+    "evaluate": {
+      "tool": "act",
+      "args": {
+        "action": "eval",
+        "js": "{js}"
+      }
+    },
+    "dialog": {
+      "tool": "act",
+      "args": {
+        "action": "dialog",
+        "expect": "{kind}",
+        "accept": true
+      },
+      "note": "arm before the action that opens the dialog"
+    },
+    "diff": {
+      "tool": "see",
+      "args": {
+        "mode": "model",
+        "changes": true
+      },
+      "note": "partial: model delta since the last capture, not a two-snapshot diff"
+    },
+    "screenshot": {
+      "tool": "vision",
+      "args": {
+        "full_page": true
+      },
+      "note": "returns the image inline and prints the saved PNG path; there is no filename argument. Demo: pass the printed path to demo-check register-shot (artifact_index register)"
+    },
+    "screenshot_get": {
+      "tool": null,
+      "workaround": "Not needed: the vision call returns the image in its own result. To re-read a saved shot, Read the PNG path it printed."
+    },
+    "screenshot_delete": {
+      "tool": null,
+      "workaround": "Delete the printed PNG path with the shell (rm)."
+    },
+    "screenshots": {
+      "tool": null,
+      "workaround": "List the artifact directory with the shell (ls); the vision call prints each path."
+    },
+    "screencast_start": {
+      "tool": "state",
+      "args": {
+        "op": "record-start",
+        "name": "{name}"
+      },
+      "note": "needs BLADE_RECORD and ffmpeg; format and fps come from recording.env"
+    },
+    "screencast_stop": {
+      "tool": "state",
+      "args": {
+        "op": "record-stop"
+      },
+      "note": "returns path, bytes, duration. Demo: pass the printed path to demo-check register-video (artifact_index register)"
+    },
+    "screencast_delete": {
+      "tool": null,
+      "workaround": "Delete the printed video path with the shell (rm)."
+    },
+    "screencasts": {
+      "tool": null,
+      "workaround": "List the recording directory (BLADE_RECORD) with the shell (ls)."
+    },
+    "get_cookies": {
+      "tool": "state",
+      "args": {
+        "op": "cookies"
+      }
+    },
+    "set_cookies": {
+      "tool": "state",
+      "args": {
+        "op": "set-cookie",
+        "name": "{name}",
+        "value": "{value}",
+        "url": "{url}"
+      }
+    },
+    "clear_cookies": {
+      "tool": "state",
+      "args": {
+        "op": "del-cookie",
+        "name": "{name}",
+        "url": "{url}"
+      },
+      "note": "one cookie per call"
+    },
+    "set_headers": {
+      "tool": null,
+      "workaround": "No equivalent. Route the app through an HTTP proxy that adds the header and start the MCP server with BLADE_PROXY, or authenticate with set_cookies / a stored session (state save/load)."
+    },
+    "drag": {
+      "tool": null,
+      "workaround": "No equivalent. Use evaluate to dispatch pointer events on the source and target, or test the same outcome through the keyboard or the app's own controls."
+    },
+    "tab_open": {
+      "tool": "state",
+      "args": {
+        "op": "open-tab",
+        "url": "{url}"
+      }
+    },
+    "tab_close": {
+      "tool": "state",
+      "args": {
+        "op": "close-tab",
+        "target_id": "{id}"
+      }
+    },
+    "tab_switch": {
+      "tool": "state",
+      "args": {
+        "op": "switch-tab",
+        "target_id": "{id}"
+      }
+    },
+    "tabs": {
+      "tool": "state",
+      "args": {
+        "op": "tabs"
+      }
+    },
+    "dev_serve": {
+      "tool": null,
+      "workaround": "Start the project's dev server with its stack.services launch command (shell), not through the driver."
+    },
+    "dev_audit": {
+      "tool": "see",
+      "args": {
+        "mode": "audit"
+      },
+      "note": "accessibility and layout findings: contrast, names, overflow, small targets, broken links"
+    },
+    "dev_inject": {
+      "tool": null,
+      "workaround": "Use evaluate to run the injected script in the page."
+    },
+    "instance_launch": {
+      "tool": null,
+      "workaround": "One daemon per BLADE_HOME: start a separate MCP server with its own BLADE_HOME for a second browser."
+    },
+    "instance_kill": {
+      "tool": null,
+      "workaround": "Stop the daemon with the shell (bladebro stop)."
+    },
+    "instance_list": {
+      "tool": null,
+      "workaround": "No equivalent; the daemon is one per BLADE_HOME."
+    }
+  }
+}

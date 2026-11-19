@@ -2,7 +2,7 @@
   "version": 1,
   "classes": [
     { "id": "igaming", "label": "iGaming product name", "pattern": "igaming", "flags": "i" },
-    { "id": "game", "label": "Game and wagering vocabulary", "pattern": "casino|\\bslots?\\b|wager|jackpot|betting|sportsbook|\\bPVP\\b|crash game|bladebro|sweeps|\\bbonus", "flags": "i" },
+    { "id": "game", "label": "Game and wagering vocabulary", "pattern": "casino|\\bslots?\\b|wager|jackpot|betting|sportsbook|\\bPVP\\b|crash game|sweeps|\\bbonus", "flags": "i" },
     { "id": "reg", "label": "Regulatory acronyms", "pattern": "\\bKYC\\b|\\bAML\\b|\\bRNG\\b|\\bRTP\\b|fairness", "flags": "i" },
     { "id": "money", "label": "Money movement", "pattern": "money|payment|wallet|withdraw|deposit", "flags": "i" },
     { "id": "owner", "label": "Project owner title", "pattern": "\\bCEO\\b", "flags": "i" },
@@ -10,7 +10,7 @@
     { "id": "deno", "label": "Deno", "pattern": "\\bdeno\\b", "flags": "i" },
     { "id": "edgefn", "label": "Edge functions", "pattern": "edge function|edge-function|edge runtime", "flags": "i" },
     { "id": "redis", "label": "Redis and Upstash", "pattern": "redis|upstash", "flags": "i" },
-    { "id": "charlotte", "label": "Charlotte QA tool", "pattern": "charlotte", "flags": "i" },
+    { "id": "charlotte", "label": "UI QA driver tool (Charlotte, Bladebro)", "pattern": "charlotte|bladebro", "flags": "i" },
     { "id": "nx", "label": "Nx monorepo tool", "pattern": "\\bnx\\b", "flags": "i" },
     { "id": "pnpm", "label": "pnpm", "pattern": "pnpm", "flags": "" },
     { "id": "postgres", "label": "PostgreSQL", "pattern": "postgres|psql|\\bRLS\\b|pg_cron|plpgsql", "flags": "i" },

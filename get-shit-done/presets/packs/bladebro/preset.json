@@ -1,0 +1,7 @@
+{
+  "name": "bladebro",
+  "version": "1",
+  "description": "UI QA driver pack: the Bladebro allow rules. The agent gsd-ui-qa ships globally; the MCP server is registered by the owner (see README). Installed by gsd-tools pack install bladebro.",
+  "files": [],
+  "settings_fragment": "settings.fragment.json"
+}

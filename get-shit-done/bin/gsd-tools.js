@@ -7298,8 +7298,7 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw, opts = {}) {
     spike ? spikeNa('ui_qa') : evaluatePhaseGateCheck(
       'ui_qa', uiQaCheckRequired,
       () => evidence.verification.data.charlotte_qa_ran === true || evidence.verification.data.ui_qa_ran === true,
-      waivers, phaseInfo.phase_number,
-      'missing_charlotte_qa'
+      waivers, phaseInfo.phase_number
     ),
     spike ? spikeNa('docs') : evaluatePhaseGateCheck(
       'docs', docsRequired,
@@ -7321,7 +7320,8 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw, opts = {}) {
 
   // Evidence is never waivable: DEFERRED.json cannot stand in for commits,
   // Self-Check PASSED summaries, or a passed verification.
-  const failures = checks.filter(c => c.failure_type).map(c => c.failure_type);
+  // The pre-rename code of missing_ui_qa is emitted alongside it for one release so consumers matching either keep working.
+  const failures = checks.filter(c => c.failure_type).flatMap(c => (c.failure_type === 'missing_ui_qa' ? ['missing_ui_qa', 'missing_charlotte_qa'] : [c.failure_type]));
   if (evidence.workErrors.length > 0) failures.push('missing_evidence');
   const passed = failures.length === 0 && form.errors.length === 0 && malformedPlans.length === 0 && !malformedWaiver;
 
@@ -15099,6 +15099,13 @@ async function main() {
 
     case 'eval': {
       cmdEval(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'ui-qa': {
+      const r = require('./ui-qa-driver.js').runCli(args.slice(1), cwd);
+      writeStdoutSync(JSON.stringify(r.result, null, 2) + '\n');
+      process.exit(r.exitCode);
       break;
     }
 

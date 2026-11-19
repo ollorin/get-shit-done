@@ -333,18 +333,42 @@ function rollup(phaseDirs, outFile, opts = {}) {
   return rows;
 }
 
+// For a driver that writes no index of its own (contract artifact_index: "register"): copies a saved file into the demo
+// folder and appends the index row build() and check() read. The id is the first 12 hex characters of the file's sha256.
+function register(phaseDir, kind, { file, url, title, format, fps }) {
+  if (!file || !fs.existsSync(file)) throw new Error(`register-${kind}: --file must name an existing file`);
+  const p = paths(phaseDir, requireDriver(phaseDir));
+  const [dir, indexFile] = kind === 'shot' ? [p.shots, p.shotIndex] : [p.video, p.videoIndex];
+  const fmt = format || path.extname(file).slice(1).toLowerCase().replace('jpg', 'jpeg');
+  if (kind === 'shot' && !['png', 'jpeg', 'webp'].includes(fmt)) throw new Error(`register-shot: format ${fmt} is not png, jpeg or webp`);
+  if (kind === 'video' && !['webm', 'mp4'].includes(fmt)) throw new Error(`register-video: format ${fmt} is not webm or mp4`);
+  const id = sha256(file).slice(0, 12);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.copyFileSync(file, path.join(dir, `${id}.${ext(fmt)}`));
+  const index = fs.existsSync(indexFile) ? readJson(indexFile) : [];
+  const row = kind === 'shot'
+    ? { id, format: fmt, timestamp: new Date().toISOString(), url: url || '', title: title || '' }
+    : { id, format: fmt, fps: Number(fps) || 5, timestamp: new Date().toISOString() };
+  fs.writeFileSync(indexFile, JSON.stringify([...index.filter((a) => a.id !== id), row]));
+  return row;
+}
+
 function main(argv) {
   const [cmd, phaseDir, ...rest] = argv;
   const flag = (n) => rest.includes(`--${n}`);
   const val = (n) => (rest.includes(`--${n}`) ? rest[rest.indexOf(`--${n}`) + 1] : undefined);
   const out = (o) => process.stdout.write((typeof o === 'string' ? o : JSON.stringify(o)) + '\n');
-  if (!phaseDir) { process.stderr.write('usage: demo-check.js scenario|start|log|stop|build|render|check|notify|rollup <phase_dir>\n'); return 64; }
+  if (!phaseDir) { process.stderr.write('usage: demo-check.js scenario|start|log|register-shot|register-video|stop|build|render|check|notify|rollup <phase_dir>\n'); return 64; }
   if (cmd === 'scenario') {
     const errors = validateScenario(readJson(paths(phaseDir).scenario));
     out({ pass: errors.length === 0, errors });
     return errors.length === 0 ? 0 : 1;
   }
   if (cmd === 'start') { out(start(phaseDir, { lockFile: val('lock-file'), owner: val('owner') })); return 0; }
+  if (cmd === 'register-shot' || cmd === 'register-video') {
+    out(register(phaseDir, cmd === 'register-shot' ? 'shot' : 'video', { file: val('file'), url: val('url'), title: val('title'), format: val('format'), fps: val('fps') }));
+    return 0;
+  }
   if (cmd === 'stop') { out(appendLog(phaseDir, { type: 'run_end', finished_at: new Date().toISOString() })); return 0; }
   if (cmd === 'log') {
     if (val('video')) { out(appendLog(phaseDir, { type: 'video', id: val('video') })); return 0; }
@@ -381,4 +405,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { validateScenario, start, build, render, check, notifyText, rollup, LIMITS };
+module.exports = { register, validateScenario, start, build, render, check, notifyText, rollup, LIMITS };

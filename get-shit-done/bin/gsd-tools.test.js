@@ -3618,6 +3618,7 @@ describe('charlotte_qa_ran from VERIFICATION.md frontmatter, required for UI pha
     assert.strictEqual(g.parsed.has_ui, true);
     assert.strictEqual(g.exitCode, 1);
     assert.ok(g.parsed.failures.includes('missing_charlotte_qa'), JSON.stringify(g.parsed.failures));
+    assert.ok(g.parsed.failures.includes('missing_ui_qa'), 'driver-neutral code is emitted alongside the legacy alias');
   });
 
   test('negative: CHECKPOINT.json charlotte_qa_ran true no longer counts as evidence', () => {

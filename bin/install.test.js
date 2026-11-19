@@ -759,6 +759,17 @@ describe('presets/ is copied byte-for-byte (agnostic-B1)', () => {
   });
 });
 
+describe('driver-neutral UI QA agent ships globally; the old name is a pack alias', () => {
+  test('gsd-ui-qa.md is in agents/ with both drivers allowed, and the lock hook name carries no driver', () => {
+    const text = fs.readFileSync(path.join(REPO_ROOT, 'agents', 'gsd-ui-qa.md'), 'utf8');
+    assert.match(text, /^name: gsd-ui-qa$/m);
+    const tools = text.match(/^tools: (.*)$/m)[1].split(', ');
+    assert.ok(tools.includes('mcp__charlotte__charlotte_navigate') && tools.includes('mcp__bladebro__act'));
+    assert.deepStrictEqual(tools.filter((t) => t.endsWith('__*')), [], 'no wildcard driver grants');
+    assert.ok(fs.existsSync(path.join(REPO_ROOT, 'get-shit-done', 'bin', 'hooks', 'gsd-ui-qa-lock.js')));
+  });
+});
+
 describe('UI QA driver agent ships as a pack file, not a global agent (agnostic-M-02 2.4)', () => {
   test('gsd-charlotte-qa.md is absent from agents/ and present in the charlotte pack', () => {
     assert.strictEqual(fs.existsSync(path.join(REPO_ROOT, 'agents', 'gsd-charlotte-qa.md')), false);

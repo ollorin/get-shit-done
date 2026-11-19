@@ -5,7 +5,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { spawnSync } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const vm = require('vm');
 
 const HOOK = path.join(__dirname, 'gsd-ui-qa-lock.js');
@@ -737,6 +737,96 @@ describe('handle', () => {
     fs.mkdirSync(path.dirname(lockFile), { recursive: true });
     fs.writeFileSync(lockFile, '{not json');
     assert.strictEqual(handle(bash('supabase db reset'), deps()).exitCode, 0);
+  });
+
+  describe('driver choice and role op allowlists are enforced', () => {
+    const call = (tool_name, extra = {}) => handle({ hook_event_name: 'PreToolUse', tool_name, cwd: root, ...extra }, deps());
+    const useBladebro = () => writeConfig({ ui_qa: { driver: 'bladebro', lock_file: LOCK_REL } });
+
+    test('a call to another known driver prefix is denied, naming the configured driver, and takes no lock', () => {
+      const r = call('mcp__bladebro__act', { tool_input: { action: 'navigate' } });
+      assert.strictEqual(r.exitCode, 2);
+      assert.match(r.stderr, /configured driver is charlotte/);
+      assert.strictEqual(fs.existsSync(lockFile), false);
+      useBladebro();
+      const back = call('mcp__charlotte__charlotte_navigate');
+      assert.strictEqual(back.exitCode, 2);
+      assert.match(back.stderr, /configured driver is bladebro/);
+    });
+
+    test('the configured driver and unrelated tools pass', () => {
+      assert.strictEqual(call('mcp__charlotte__charlotte_navigate').exitCode, 0);
+      assert.strictEqual(call('mcp__other__x').exitCode, 0);
+      assert.strictEqual(call('Read').exitCode, 0);
+    });
+
+    test('bladebro act ops outside the investigator allowlist are denied by agent_type; allowed ops pass', () => {
+      useBladebro();
+      const as = (agent_type, tool_input, tool = 'mcp__bladebro__act') => call(tool, { agent_type, agent_id: 'i1', tool_input });
+      assert.strictEqual(as('gsd-product-investigator', { action: 'navigate', url: 'http://x' }).exitCode, 0);
+      assert.strictEqual(as('gsd-product-investigator', { action: 'scroll', dy: 5 }).exitCode, 0);
+      for (const action of ['click', 'fill', 'eval', 'type']) {
+        const r = as('gsd-product-investigator', { action });
+        assert.strictEqual(r.exitCode, 2, action);
+        assert.match(r.stderr, /role "investigator" may not call act action=/);
+      }
+      assert.strictEqual(as('gsd-product-investigator', { mode: 'model' }, 'mcp__bladebro__see').exitCode, 0);
+      assert.strictEqual(as('gsd-product-investigator', { op: 'cookies' }, 'mcp__bladebro__state').exitCode, 2);
+      assert.strictEqual(as('gsd-ui-qa', { action: 'eval', js: '1' }).exitCode, 0);
+      assert.strictEqual(as('gsd-ui-qa', { action: 'fill' }).exitCode, 2);
+      assert.strictEqual(as('gsd-demo', { action: 'eval' }).exitCode, 2);
+      assert.strictEqual(as('gsd-demo', { action: 'fill', fields: [] }).exitCode, 0);
+    });
+
+    test('the role is found from the agent_id recorded at SubagentStart when the payload has no agent_type', () => {
+      useBladebro();
+      handle({ hook_event_name: 'SubagentStart', agent_type: 'gsd-product-investigator', agent_id: 'i9', cwd: root }, deps());
+      assert.strictEqual(call('mcp__bladebro__act', { agent_id: 'i9', tool_input: { action: 'click' } }).exitCode, 2);
+      assert.strictEqual(call('mcp__bladebro__act', { agent_id: 'i9', tool_input: { action: 'navigate' } }).exitCode, 0);
+      handle({ hook_event_name: 'SubagentStop', agent_type: 'gsd-product-investigator', agent_id: 'i9', cwd: root }, deps());
+      assert.strictEqual(call('mcp__bladebro__act', { agent_id: 'i9', tool_input: { action: 'click' } }).exitCode, 0);
+    });
+
+    test('charlotte tools outside a role allowlist are denied; a caller with no role is not restricted', () => {
+      assert.strictEqual(call('mcp__charlotte__charlotte_evaluate', { agent_type: 'gsd-product-investigator', agent_id: 'i1' }).exitCode, 2);
+      assert.strictEqual(call('mcp__charlotte__charlotte_evaluate', { agent_type: 'gsd-ui-qa', agent_id: 'q1' }).exitCode, 0);
+      assert.strictEqual(call('mcp__charlotte__charlotte_evaluate').exitCode, 0);
+    });
+
+    test('two SubagentStarts that run together both keep their role (one role file per agent)', async () => {
+      const ids = Array.from({ length: 8 }, (_, i) => `inv${i}`);
+      const send = (input) => new Promise((resolve) => {
+        const child = spawn('node', [HOOK], { stdio: ['pipe', 'ignore', 'ignore'] });
+        child.on('close', (status) => resolve(status));
+        child.stdin.end(JSON.stringify(input));
+      });
+      const statuses = await Promise.all(ids.map((agent_id) => send({ hook_event_name: 'SubagentStart', agent_type: 'gsd-product-investigator', agent_id, cwd: root })));
+      assert.deepStrictEqual(statuses, ids.map(() => 0));
+      assert.strictEqual(fs.readdirSync(`${lockFile}.roles`).length, ids.length);
+      for (const agent_id of ids) assert.strictEqual(call('mcp__charlotte__charlotte_evaluate', { agent_id }).exitCode, 2, agent_id);
+      for (const agent_id of ids) handle({ hook_event_name: 'SubagentStop', agent_type: 'gsd-product-investigator', agent_id, cwd: root }, deps());
+      assert.deepStrictEqual(fs.readdirSync(`${lockFile}.roles`), []);
+    });
+
+    test('a SubagentStart prunes role files older than GSD_UI_QA_LOCK_TTL_SEC and keeps fresh ones', () => {
+      fs.mkdirSync(`${lockFile}.roles`, { recursive: true });
+      const write = (name, recordedMs) => fs.writeFileSync(path.join(`${lockFile}.roles`, name), JSON.stringify({ role: 'investigator', recorded_at: new Date(recordedMs).toISOString() }));
+      write('crashed.json', NOW - 61000);
+      write('live.json', NOW - 30000);
+      handle({ hook_event_name: 'SubagentStart', agent_type: 'gsd-executor', agent_id: 'x1', cwd: root }, deps({ env: { GSD_UI_QA_LOCK_TTL_SEC: '60' } }));
+      assert.deepStrictEqual(fs.readdirSync(`${lockFile}.roles`), ['live.json']);
+    });
+
+    test('GSD_UI_QA_LOCK_TTL_SEC sets the TTL; the old GSD_CHARLOTTE_LOCK_TTL_SEC is a fallback; the new name wins', () => {
+      const ttl = (env) => {
+        fs.rmSync(lockFile, { force: true });
+        handle({ hook_event_name: 'PreToolUse', tool_name: 'mcp__charlotte__charlotte_navigate', cwd: root, agent_id: 'a1' }, deps({ env }));
+        return (Date.parse(JSON.parse(fs.readFileSync(lockFile, 'utf8')).expires_at) - NOW) / 1000;
+      };
+      assert.strictEqual(ttl({ GSD_UI_QA_LOCK_TTL_SEC: '90' }), 90);
+      assert.strictEqual(ttl({ GSD_CHARLOTTE_LOCK_TTL_SEC: '70' }), 70);
+      assert.strictEqual(ttl({ GSD_UI_QA_LOCK_TTL_SEC: '90', GSD_CHARLOTTE_LOCK_TTL_SEC: '70' }), 90);
+    });
   });
 });
 

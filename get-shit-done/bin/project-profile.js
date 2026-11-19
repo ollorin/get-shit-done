@@ -8,6 +8,7 @@ const path = require('path');
 const {
   NEW_STACK_KEYS, NEW_SHAPE_CHECKS, RENDERED_TEXT_MAX, isRenderedText,
 } = require('./project-profile-keys.js');
+const uiQaDrivers = require('./ui-qa-driver.js');
 
 const REQUIRED_KEYS = Object.freeze([
   'project.slug',
@@ -143,14 +144,22 @@ function capabilitiesCheck(key, v) {
     : [problem(`${key}.${name}`, 'must be an object, or false to turn the group off')]));
   if (v.ui_qa === undefined) return groups;
   const u = v.ui_qa;
-  const ok = isObject(u) && isNonEmptyString(u.driver) && isNonEmptyString(u.agent)
+  const known = uiQaDrivers.listDrivers();
+  if (isObject(u) && isNonEmptyString(u.driver) && !known.includes(u.driver)) {
+    return [...groups, problem(`${key}.ui_qa.driver`, `unknown driver "${u.driver}": known drivers are ${known.join(', ')}`)];
+  }
+  const ok = isObject(u) && isNonEmptyString(u.driver)
+    && (u.agent === undefined || isNonEmptyString(u.agent))
     && (u.tool_prefix === undefined || typeof u.tool_prefix === 'string')
     && (u.reset_patterns === undefined || isListOfNonEmpty(u.reset_patterns))
     && (u.lock_wrappers === undefined || isListOfNonEmpty(u.lock_wrappers))
-    && (u.lock_file === undefined || isNonEmptyString(u.lock_file));
+    && (u.lock_file === undefined || isNonEmptyString(u.lock_file))
+    && (u.agent_aliases === undefined || isListOfNonEmpty(u.agent_aliases))
+    && (u.ops === undefined || isObject(u.ops))
+    && (u.recording === undefined || isObject(u.recording));
   return ok
     ? groups
-    : [...groups, problem(`${key}.ui_qa`, 'needs non-empty driver and agent; tool_prefix string; reset_patterns and lock_wrappers non-empty strings; lock_file non-empty string')];
+    : [...groups, problem(`${key}.ui_qa`, 'needs a non-empty driver; agent, tool_prefix, lock_file non-empty strings; reset_patterns and lock_wrappers non-empty string lists; ops and recording objects')];
 }
 
 function isolationCheck(key, v) {
