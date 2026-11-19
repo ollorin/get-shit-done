@@ -1,0 +1,181 @@
+{
+  "driver": "charlotte",
+  "description": "Charlotte MCP server (mcp__charlotte__charlotte_*): one MCP tool per operation.",
+  "tool_prefix": "mcp__charlotte__",
+  "lock_file": ".tmp/charlotte.lock",
+  "artifact_index": "driver",
+  "recording": {
+    "start": "screencast_start",
+    "stop": "screencast_stop",
+    "env": {},
+    "max_seconds": 300
+  },
+  "ops": {
+    "configure": {
+      "tool": "charlotte_configure",
+      "args": {
+        "screenshot_dir": "{screenshot_dir}",
+        "video_dir": "{video_dir}"
+      }
+    },
+    "viewport": {
+      "tool": "charlotte_viewport",
+      "args": {
+        "width": "{width}",
+        "height": "{height}"
+      }
+    },
+    "navigate": {
+      "tool": "charlotte_navigate",
+      "args": {
+        "url": "{url}"
+      }
+    },
+    "back": {
+      "tool": "charlotte_back"
+    },
+    "forward": {
+      "tool": "charlotte_forward"
+    },
+    "reload": {
+      "tool": "charlotte_reload"
+    },
+    "observe": {
+      "tool": "charlotte_observe",
+      "args": {
+        "detail": "summary"
+      }
+    },
+    "find": {
+      "tool": "charlotte_find",
+      "args": {
+        "text": "{query}"
+      }
+    },
+    "click": {
+      "tool": "charlotte_click"
+    },
+    "type": {
+      "tool": "charlotte_type"
+    },
+    "select": {
+      "tool": "charlotte_select"
+    },
+    "toggle": {
+      "tool": "charlotte_toggle"
+    },
+    "submit": {
+      "tool": "charlotte_submit"
+    },
+    "key": {
+      "tool": "charlotte_key"
+    },
+    "scroll": {
+      "tool": "charlotte_scroll"
+    },
+    "hover": {
+      "tool": "charlotte_hover"
+    },
+    "drag": {
+      "tool": "charlotte_drag"
+    },
+    "wait_for": {
+      "tool": "charlotte_wait_for"
+    },
+    "console": {
+      "tool": "charlotte_console"
+    },
+    "network": {
+      "tool": "charlotte_network"
+    },
+    "requests": {
+      "tool": "charlotte_requests"
+    },
+    "evaluate": {
+      "tool": "charlotte_evaluate"
+    },
+    "dialog": {
+      "tool": "charlotte_dialog"
+    },
+    "diff": {
+      "tool": "charlotte_diff"
+    },
+    "screenshot": {
+      "tool": "charlotte_screenshot",
+      "args": {
+        "save": true,
+        "filename": "{name}.png"
+      }
+    },
+    "screenshot_get": {
+      "tool": "charlotte_screenshot_get",
+      "args": {
+        "id": "{id}"
+      }
+    },
+    "screenshot_delete": {
+      "tool": "charlotte_screenshot_delete"
+    },
+    "screenshots": {
+      "tool": "charlotte_screenshots"
+    },
+    "screencast_start": {
+      "tool": "charlotte_screencast_start",
+      "args": {
+        "format": "{format}",
+        "fps": "{fps}"
+      }
+    },
+    "screencast_stop": {
+      "tool": "charlotte_screencast_stop"
+    },
+    "screencast_delete": {
+      "tool": "charlotte_screencast_delete"
+    },
+    "screencasts": {
+      "tool": "charlotte_screencasts"
+    },
+    "get_cookies": {
+      "tool": "charlotte_get_cookies"
+    },
+    "set_cookies": {
+      "tool": "charlotte_set_cookies"
+    },
+    "clear_cookies": {
+      "tool": "charlotte_clear_cookies"
+    },
+    "set_headers": {
+      "tool": "charlotte_set_headers"
+    },
+    "tab_open": {
+      "tool": "charlotte_tab_open"
+    },
+    "tab_close": {
+      "tool": "charlotte_tab_close"
+    },
+    "tab_switch": {
+      "tool": "charlotte_tab_switch"
+    },
+    "tabs": {
+      "tool": "charlotte_tabs"
+    },
+    "dev_serve": {
+      "tool": "charlotte_dev_serve"
+    },
+    "dev_audit": {
+      "tool": "charlotte_dev_audit"
+    },
+    "dev_inject": {
+      "tool": "charlotte_dev_inject"
+    },
+    "instance_launch": {
+      "tool": "charlotte_instance_launch"
+    },
+    "instance_kill": {
+      "tool": "charlotte_instance_kill"
+    },
+    "instance_list": {
+      "tool": "charlotte_instance_list"
+    }
+  }
+}

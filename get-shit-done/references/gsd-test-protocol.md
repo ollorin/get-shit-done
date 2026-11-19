@@ -166,7 +166,7 @@ When verifying a phase, check the `## Test Evidence` section in each SUMMARY.md:
 1. **Does the section exist?** If absent: gap — `missing_test_evidence`
 2. **Does it match the required tier?** If unit test phase has no unit test output: gap — `insufficient_test_evidence`
 3. **Are results concrete?** `12/12 passing` is concrete. `OK` is not: gap — `non_specific_test_evidence`
-4. **For UI phases: did UI QA run?** If UI source files in key-files but no UI QA row: gap — `missing_charlotte_qa`
+4. **For UI phases: did UI QA run?** If UI source files in key-files but no UI QA row: gap — `missing_ui_qa` (legacy alias `missing_charlotte_qa`, emitted alongside for one release)
 
 Report all gaps in VERIFICATION.md under `## Gaps`.
 

@@ -19,6 +19,7 @@ const {
 } = require('./project-registry-store.js');
 const { withLock } = require('./project-lock.js');
 const { DEPLOY_SLOTS } = require('./project-profile-keys.js');
+const { fillContract } = require('./ui-qa-driver.js');
 
 const NEIGHBOUR_DISTANCE = 100;
 const ENGINE_FLAGS = new Set(['--root', '--preset', '--preset-dir']);
@@ -150,7 +151,8 @@ function withUnusedCodeGate(config) {
   return added.length === 0 ? config : { ...config, stack: { ...config.stack, gates: [...gates, ...added] } };
 }
 
-// Adds slug, port_base and the base defaults where absent. Never creates stack.capabilities or adds ui_qa.
+// Adds slug, port_base and the base defaults where absent. Never creates stack.capabilities or adds ui_qa; an existing
+// ui_qa object gets its missing contract keys filled from the driver adapter (set values are kept).
 function applyToConfig(config, { slug, port_base: portBase, root }) {
   const fill = (node, defaults) => {
     if (node !== undefined && !isObject(node)) return node;
@@ -160,7 +162,8 @@ function applyToConfig(config, { slug, port_base: portBase, root }) {
   };
   const { stack } = config;
   const neverTouch = Array.isArray(stack.deploy?.never_touch) ? stack.deploy.never_touch : [];
-  const capabilities = fill(stack.capabilities, { backend: {}, web_ui: {} });
+  const filled = fill(stack.capabilities, { backend: {}, web_ui: {} });
+  const capabilities = isObject(filled) && isObject(filled.ui_qa) ? { ...filled, ui_qa: fillContract(filled.ui_qa) } : filled;
   const commands = fill(stack.commands, { search: 'git grep -n', pre_pr_gate: 'scripts/pre-pr-gate.sh' });
   return {
     ...config,

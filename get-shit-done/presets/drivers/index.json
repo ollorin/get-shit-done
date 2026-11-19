@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "default": "bladebro",
+  "agent": "gsd-ui-qa",
+  "agent_aliases": ["gsd-charlotte-qa"]
+}

@@ -50,7 +50,7 @@ The block below is written from `.planning/config.json` `stack.commands` when th
 
 ## Capabilities
 
-[UI QA driver and agent, or "none". State-reset commands that must not run during a QA session.]
+[UI QA driver and agent (`gsd-tools.js ui-qa contract` prints the resolved contract), or "none". State-reset commands that must not run during a QA session.]
 
 ## Isolation
 

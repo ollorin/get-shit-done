@@ -32,6 +32,7 @@ function normalizeCapability(ui) {
   const driver = typeof ui.driver === 'string' ? ui.driver : '';
   return {
     agent: typeof ui.agent === 'string' ? ui.agent : '',
+    agentAliases: Array.isArray(ui.agent_aliases) ? ui.agent_aliases.filter(a => typeof a === 'string' && a !== '') : [],
     toolPrefix: typeof ui.tool_prefix === 'string' ? ui.tool_prefix : `mcp__${driver}__`,
     resetPatterns: Array.isArray(ui.reset_patterns) ? ui.reset_patterns : [],
     lockWrappers: Array.isArray(ui.lock_wrappers) ? ui.lock_wrappers : [],
@@ -152,7 +153,7 @@ function blockMessage(file, lock) {
   ].join('\n');
 }
 
-const isAgent = (input, agent) => typeof input.agent_type === 'string' && input.agent_type.split(':').pop() === agent;
+const isAgent = (input, capability) => typeof input.agent_type === 'string' && [capability.agent, ...capability.agentAliases].includes(input.agent_type.split(':').pop());
 
 // Returns { exitCode, stderr } so tests can drive every branch without spawning.
 function handle(input, deps = {}) {
@@ -179,7 +180,7 @@ function handle(input, deps = {}) {
   }
 
   const acquire = (event === 'PreToolUse' && capability.toolPrefix !== '' && tool.startsWith(capability.toolPrefix)) ||
-    (event === 'SubagentStart' && isAgent(input, capability.agent));
+    (event === 'SubagentStart' && isAgent(input, capability));
   if (acquire) {
     const existing = readLock(file);
     const live = isLockLive(existing, nowMs, pidAlive);
@@ -197,7 +198,7 @@ function handle(input, deps = {}) {
     return { exitCode: 0 };
   }
 
-  if (event === 'SubagentStop' && isAgent(input, capability.agent)) {
+  if (event === 'SubagentStop' && isAgent(input, capability)) {
     const lock = readLock(file);
     if (!lock || !Array.isArray(lock.holders) || !lock.holders.includes(input.agent_id)) return { exitCode: 0 };
     const holders = lock.holders.filter(h => h !== input.agent_id);
