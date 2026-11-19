@@ -167,7 +167,7 @@ For EVERY screen you visit:
 
 **Cross-module wiring:**
 - IDs shown as plain text should be clickable links (player ID → player detail, etc.)
-- Cross-section links work ("View in Players", "View in KYC", etc.)
+- Cross-section links work ("View in Players", "View in Reports", etc.)
 - Breadcrumbs reflect current location hierarchy
 - Sidebar highlights the active section
 
@@ -263,7 +263,7 @@ Run this checklist on every page/screen in scope.
 - [ ] Do detail pages have breadcrumbs showing current location?
 - [ ] Is there a back button/link on detail/inner pages?
 - [ ] Does the sidebar/nav highlight the currently active section?
-- [ ] Do cross-module links work? ("View in KYC", "View in Players")
+- [ ] Do cross-module links work? ("View in Reports", "View in Players")
 
 ### Data Display
 - [ ] Are truncated text values accessible via tooltip on hover?
@@ -347,8 +347,7 @@ will be read as N passed.
 
 GSD hooks hold the contract's `lock_file` for the whole UI QA run: SubagentStart takes it when
 this agent is spawned and every driver tool call refreshes it. While it is live,
-`supabase db reset` (direct or wrapped: npx/pnpm/timeout/nohup/env, nx `*:supabase:reset`/`db:reset`
-targets, `db:reset` tasks, `test:regression`/`--reset-db`, or `scripts/preflight.sh`) is blocked for every
+every command matching the contract's `reset_patterns` (direct or wrapped: package runners, `timeout`, `nohup`, `env`, task-runner targets and the project's pre-PR gate script) is blocked for every
 agent, including you. Subagent locks release on SubagentStop; a main-thread lock lasts until
 its TTL (default 30 min, set by the lock hook's environment variable). So the suite-start reset is the
 spawner's job, done before spawning you (main-thread runs: before the first driver tool call).
@@ -423,7 +422,7 @@ Return a structured JSON result to the coordinator:
 {
   "mode": "ui-qa | ux-audit | e2e",
   "round": 1,
-  "service_url": "http://localhost:3001",
+  "service_url": "<stack.services[].url>",
   "service_status": "already_running | launched | failed_to_start",
   "passed": true,
   "issue_count": 0,
@@ -448,7 +447,7 @@ When issues are found:
 {
   "mode": "ui-qa | ux-audit | e2e",
   "round": 1,
-  "service_url": "http://localhost:3001",
+  "service_url": "<stack.services[].url>",
   "service_status": "already_running",
   "passed": false,
   "issue_count": 3,

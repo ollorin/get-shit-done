@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "inputs_sha256": "e71407a86eb7c87339fbb2aa1aedc5b7816b8ade0b7b5feb1ccb3ed658694dd3",
+  "inputs_sha256": "62d9f252259d28909b7c5bcb9ea5f4aeab3962f5e68aeb2d88c3fa8433b54daa",
   "denied": {
     "get-shit-done/bin/conversation-miner.js": {
       "telegram": 2
@@ -35,7 +35,7 @@
       "supabase": 1
     },
     "agents/gsd-demo.md": {
-      "charlotte": 5
+      "charlotte": 1
     },
     "agents/gsd-integration-checker.md": {
       "frontend": 2
@@ -50,6 +50,9 @@
       "edgefn": 1
     },
     "agents/gsd-product-investigator.md": {
+      "charlotte": 1
+    },
+    "agents/gsd-ui-qa.md": {
       "charlotte": 1
     },
     "agents/gsd-verifier.md": {

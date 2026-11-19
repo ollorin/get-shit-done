@@ -7320,8 +7320,7 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw, opts = {}) {
 
   // Evidence is never waivable: DEFERRED.json cannot stand in for commits,
   // Self-Check PASSED summaries, or a passed verification.
-  // missing_charlotte_qa is the pre-rename code of missing_ui_qa; both are emitted for one release so consumers
-  // matching either keep working.
+  // The pre-rename code of missing_ui_qa is emitted alongside it for one release so consumers matching either keep working.
   const failures = checks.filter(c => c.failure_type).flatMap(c => (c.failure_type === 'missing_ui_qa' ? ['missing_ui_qa', 'missing_charlotte_qa'] : [c.failure_type]));
   if (evidence.workErrors.length > 0) failures.push('missing_evidence');
   const passed = failures.length === 0 && form.errors.length === 0 && malformedPlans.length === 0 && !malformedWaiver;

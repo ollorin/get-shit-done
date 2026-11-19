@@ -502,8 +502,8 @@
     {
       "file": "agents/gsd-demo.md",
       "class": "charlotte",
-      "max": 5,
-      "reason": "driver MCP tool names remain in the agent's tools: frontmatter and call sites (lines 5, 52-54, 57); there is no pack tool-list mechanism, so the names cannot move out of the agent yet"
+      "max": 1,
+      "reason": "driver MCP tool names remain in the agent's tools: frontmatter because agents install globally while the driver is chosen per project; there is no pack tool-list mechanism"
     },
     {
       "file": "get-shit-done/bin/hooks/gsd-protect-managed-files.js",
@@ -539,7 +539,7 @@
       "file": "agents/gsd-product-investigator.md",
       "class": "charlotte",
       "max": 1,
-      "reason": "driver MCP tool names in the tools: frontmatter; no pack tool-list mechanism yet (same as agents/gsd-demo.md)"
+      "reason": "driver MCP tool names remain in the agent's tools: frontmatter because agents install globally while the driver is chosen per project; there is no pack tool-list mechanism"
     },
     {
       "file": "agents/gsd-verifier.md",
@@ -660,6 +660,12 @@
       "class": "frontend",
       "max": 1,
       "reason": "section heading names defined in references/verification-patterns.md"
+    },
+    {
+      "file": "agents/gsd-ui-qa.md",
+      "class": "charlotte",
+      "max": 1,
+      "reason": "driver MCP tool names remain in the agent's tools: frontmatter because agents install globally while the driver is chosen per project; there is no pack tool-list mechanism"
     }
   ]
 }

@@ -60,7 +60,7 @@ function validProfile() {
       test_command_shapes: ['npm test -- <file>'],
       gates: [{ id: 'lint', run: 'npm run lint' }],
       services: [{ name: 'api', url: 'http://127.0.0.1:3000', health: '/health', launch: 'npm start', ready: 'ready' }],
-      capabilities: { ui_qa: { driver: 'browser', agent: 'qa-agent', tool_prefix: 'qa_', reset_patterns: ['reset*'] } },
+      capabilities: { ui_qa: { driver: 'charlotte', agent: 'qa-agent', tool_prefix: 'qa_', reset_patterns: ['reset*'] } },
       isolation: { port_base: 54320, container_suffix: 'demo', lock_dir: '.locks', machine_locks: ['db'] },
     },
   };
@@ -179,14 +179,18 @@ describe('project-profile', () => {
     assert.ok(invalidKeys(profile.validateProfile(loaded(serviceNoUrl))).includes('stack.services'));
   });
 
-  test('7 capabilities.ui_qa needs agent; isolation.port_base must be an integer port', () => {
+  test('7 capabilities.ui_qa: agent is optional but not empty, the driver must be known; isolation.port_base must be an integer port', () => {
     const noAgent = validProfile();
-    noAgent.stack.capabilities = { ui_qa: { driver: 'browser' } };
+    noAgent.stack.capabilities = { ui_qa: { driver: 'charlotte' } };
+    assert.ok(!invalidKeys(profile.validateProfile(loaded(noAgent))).includes('stack.capabilities.ui_qa'));
+    noAgent.stack.capabilities = { ui_qa: { driver: 'charlotte', agent: '' } };
     assert.ok(invalidKeys(profile.validateProfile(loaded(noAgent))).includes('stack.capabilities.ui_qa'));
+    noAgent.stack.capabilities = { ui_qa: { driver: 'browser', agent: 'qa-agent' } };
+    assert.ok(invalidKeys(profile.validateProfile(loaded(noAgent))).includes('stack.capabilities.ui_qa.driver'));
 
     const lockWrappers = (value) => {
       const config = validProfile();
-      config.stack.capabilities = { ui_qa: { driver: 'browser', agent: 'qa-agent', lock_wrappers: value } };
+      config.stack.capabilities = { ui_qa: { driver: 'charlotte', agent: 'qa-agent', lock_wrappers: value } };
       return invalidKeys(profile.validateProfile(loaded(config))).includes('stack.capabilities.ui_qa');
     };
     assert.strictEqual(lockWrappers(['stack-lock.sh', 'stack-lock.ts']), false);
@@ -552,7 +556,7 @@ describe('agnostic-M-03 3.1: shape checks for the base preset keys', () => {
     cve: { lockfiles: ['package-lock.json'], severity_floor: 'high', allow_missing_scanner: false },
     host: { worker_patterns: ['vitest'], protected_patterns: ['postgres'] },
     mutation: { error_pattern: 'SyntaxError|Cannot find module' },
-    capabilities: { backend: {}, web_ui: false, ui_qa: { driver: 'browser', agent: 'qa-agent', lock_file: '.tmp/ui-qa.lock' } },
+    capabilities: { backend: {}, web_ui: false, ui_qa: { driver: 'charlotte', agent: 'qa-agent', lock_file: '.tmp/ui-qa.lock' } },
   };
 
   function checkStack(patch) {
