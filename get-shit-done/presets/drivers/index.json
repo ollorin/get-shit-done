@@ -46,7 +46,8 @@
       "console",
       "requests",
       "scroll",
-      "evaluate"
+      "evaluate",
+      "read_state"
     ]
   },
   "role_agents": {
