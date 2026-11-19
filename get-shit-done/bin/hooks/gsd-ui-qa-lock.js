@@ -22,6 +22,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 const { matchesResetPattern } = require('./lib/ui-qa-match.js');
 const uiQaDriver = require('../ui-qa-driver.js');
@@ -159,15 +160,33 @@ function blockMessage(file, lock) {
   ].join('\n');
 }
 
-const rolesFile = (lockFile) => `${lockFile}.roles.json`;
-const readRoles = (lockFile) => { const r = readLock(rolesFile(lockFile)); return isPlainObject(r) ? r : {}; };
+// One file per agent under <lock_file>.roles/, so SubagentStarts that run together never read-modify-write a shared record.
+const rolesDir = (lockFile) => `${lockFile}.roles`;
+const roleFile = (lockFile, agentId) => path.join(rolesDir(lockFile), `${crypto.createHash('sha256').update(agentId).digest('hex').slice(0, 32)}.json`);
+const readRole = (lockFile, agentId) => {
+  const r = readLock(roleFile(lockFile, agentId));
+  return isPlainObject(r) && typeof r.role === 'string' ? r.role : null;
+};
+const recordRole = (lockFile, agentId, role, nowMs) => writeLock(roleFile(lockFile, agentId), { role, recorded_at: new Date(nowMs).toISOString() });
+const forgetRole = (lockFile, agentId) => fs.rmSync(roleFile(lockFile, agentId), { force: true });
+
+// A crashed subagent never reaches SubagentStop, so its role file ages out after the lock TTL. Fails open.
+function pruneRoles(lockFile, nowMs, ttlSec) {
+  let names;
+  try { names = fs.readdirSync(rolesDir(lockFile)); } catch { return; }
+  for (const name of names.filter((n) => n.endsWith('.json'))) {
+    const file = path.join(rolesDir(lockFile), name);
+    const recorded = Date.parse(readLock(file)?.recorded_at);
+    if (!Number.isFinite(recorded) || nowMs - recorded > ttlSec * 1000) fs.rmSync(file, { force: true });
+  }
+}
 
 // The calling agent's role: agent_type on the PreToolUse payload when present, else the role recorded for its agent_id at SubagentStart.
 function callerRole(input, capability, lockFile) {
   try {
     const byType = uiQaDriver.roleOf(input.agent_type, capability.raw);
     if (byType) return byType;
-    return input.agent_id ? readRoles(lockFile)[input.agent_id] ?? null : null;
+    return input.agent_id ? readRole(lockFile, input.agent_id) : null;
   } catch { return null; }
 }
 
@@ -221,18 +240,15 @@ function handle(input, deps = {}) {
     if (denial) return { exitCode: 2, stderr: denial };
   }
 
-  if (event === 'SubagentStart' && input.agent_id) {
+  if (event === 'SubagentStart') {
     try {
-      const role = uiQaDriver.roleOf(input.agent_type, capability.raw);
-      if (role) writeLock(rolesFile(file), { ...readRoles(file), [input.agent_id]: role });
+      pruneRoles(file, nowMs, ttlSeconds(env));
+      const role = input.agent_id ? uiQaDriver.roleOf(input.agent_type, capability.raw) : null;
+      if (role) recordRole(file, input.agent_id, role, nowMs);
     } catch { /* role tracking is best effort */ }
   }
   if (event === 'SubagentStop' && input.agent_id) {
-    const roles = readRoles(file);
-    if (roles[input.agent_id]) {
-      const { [input.agent_id]: _gone, ...rest } = roles;
-      writeLock(rolesFile(file), rest);
-    }
+    try { forgetRole(file, input.agent_id); } catch { /* best effort */ }
   }
 
   const acquire = (event === 'PreToolUse' && capability.toolPrefix !== '' && tool.startsWith(capability.toolPrefix)) ||

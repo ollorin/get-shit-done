@@ -67,6 +67,29 @@ describe('driver adapters', () => {
     assert.deepStrictEqual(listed, expected);
     assert.ok(expected.length >= 10);
   });
+
+  test('bladebro wait_for carries only the condition and timeout; the note names the one match key per condition', () => {
+    const op = driver.loadAdapter('bladebro').ops.wait_for;
+    assert.deepStrictEqual(Object.keys(op.args), ['action', 'condition', 'timeout']);
+    for (const key of ['text', 'selector', 'js']) assert.match(op.note, new RegExp(`\`${key}\``));
+  });
+
+  test('bladebro maps requests to see logs=xhr and read_state to act action=read; charlotte has read_state as a workaround', () => {
+    const b = driver.loadAdapter('bladebro').ops;
+    assert.deepStrictEqual({ tool: b.requests.tool, args: b.requests.args }, { tool: 'see', args: { logs: 'xhr' } });
+    assert.deepStrictEqual({ tool: b.read_state.tool, args: b.read_state.args }, { tool: 'act', args: { action: 'read', ref: '{ref}', format: 'json' } });
+    const c = driver.loadAdapter('charlotte').ops;
+    assert.strictEqual(c.read_state.tool, null);
+    assert.match(c.read_state.workaround, /observe/);
+  });
+
+  test('bladebro sets BLADE_NO_ACTIVATE=1 in the server env and the recording env, and the pack README lists it', () => {
+    const a = driver.loadAdapter('bladebro');
+    assert.strictEqual(a.ops.configure.env.BLADE_NO_ACTIVATE, '1');
+    assert.strictEqual(a.recording.env.BLADE_NO_ACTIVATE, '1');
+    const readme = fs.readFileSync(path.join(REPO, 'get-shit-done', 'presets', 'packs', 'bladebro', 'README.md'), 'utf8');
+    assert.match(readme, /BLADE_NO_ACTIVATE=1/);
+  });
 });
 
 describe('role agents, packs and agent text', () => {

@@ -5,7 +5,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { spawnSync } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const vm = require('vm');
 
 const HOOK = path.join(__dirname, 'gsd-ui-qa-lock.js');
@@ -791,6 +791,30 @@ describe('handle', () => {
       assert.strictEqual(call('mcp__charlotte__charlotte_evaluate', { agent_type: 'gsd-product-investigator', agent_id: 'i1' }).exitCode, 2);
       assert.strictEqual(call('mcp__charlotte__charlotte_evaluate', { agent_type: 'gsd-ui-qa', agent_id: 'q1' }).exitCode, 0);
       assert.strictEqual(call('mcp__charlotte__charlotte_evaluate').exitCode, 0);
+    });
+
+    test('two SubagentStarts that run together both keep their role (one role file per agent)', async () => {
+      const ids = Array.from({ length: 8 }, (_, i) => `inv${i}`);
+      const send = (input) => new Promise((resolve) => {
+        const child = spawn('node', [HOOK], { stdio: ['pipe', 'ignore', 'ignore'] });
+        child.on('close', (status) => resolve(status));
+        child.stdin.end(JSON.stringify(input));
+      });
+      const statuses = await Promise.all(ids.map((agent_id) => send({ hook_event_name: 'SubagentStart', agent_type: 'gsd-product-investigator', agent_id, cwd: root })));
+      assert.deepStrictEqual(statuses, ids.map(() => 0));
+      assert.strictEqual(fs.readdirSync(`${lockFile}.roles`).length, ids.length);
+      for (const agent_id of ids) assert.strictEqual(call('mcp__charlotte__charlotte_evaluate', { agent_id }).exitCode, 2, agent_id);
+      for (const agent_id of ids) handle({ hook_event_name: 'SubagentStop', agent_type: 'gsd-product-investigator', agent_id, cwd: root }, deps());
+      assert.deepStrictEqual(fs.readdirSync(`${lockFile}.roles`), []);
+    });
+
+    test('a SubagentStart prunes role files older than GSD_UI_QA_LOCK_TTL_SEC and keeps fresh ones', () => {
+      fs.mkdirSync(`${lockFile}.roles`, { recursive: true });
+      const write = (name, recordedMs) => fs.writeFileSync(path.join(`${lockFile}.roles`, name), JSON.stringify({ role: 'investigator', recorded_at: new Date(recordedMs).toISOString() }));
+      write('crashed.json', NOW - 61000);
+      write('live.json', NOW - 30000);
+      handle({ hook_event_name: 'SubagentStart', agent_type: 'gsd-executor', agent_id: 'x1', cwd: root }, deps({ env: { GSD_UI_QA_LOCK_TTL_SEC: '60' } }));
+      assert.deepStrictEqual(fs.readdirSync(`${lockFile}.roles`), ['live.json']);
     });
 
     test('GSD_UI_QA_LOCK_TTL_SEC sets the TTL; the old GSD_CHARLOTTE_LOCK_TTL_SEC is a fallback; the new name wins', () => {

@@ -46,6 +46,10 @@
         "detail": "summary"
       }
     },
+    "read_state": {
+      "tool": null,
+      "workaround": "No per-element state read. Call observe (detail summary) and read the value or checked state from the element list."
+    },
     "find": {
       "tool": "charlotte_find",
       "args": {

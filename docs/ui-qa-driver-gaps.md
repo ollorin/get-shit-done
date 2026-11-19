@@ -10,7 +10,7 @@ Ops that map one to one (for example `navigate` to `act action=navigate`) are no
 
 | Op | Equivalence | Workaround |
 |---|---|---|
-| `configure` | none | No per-call configuration. Set the server environment before the MCP server starts (see recording.env and the driver notes): BLADE_HEADLESS=1, BLADE_PACE=off, BLADE_NO_WARMING=1, BLADE_HOME=<scratch dir>. Screenshot directory: the path printed by the screenshot call is used as is. Video directory: BLADE_RECORD=<absolute dir>. |
+| `configure` | none | No per-call configuration. Set the server environment before the MCP server starts (see recording.env and the driver notes): BLADE_HEADLESS=1, BLADE_PACE=off, BLADE_NO_WARMING=1, BLADE_NO_ACTIVATE=1, BLADE_HOME=<scratch dir>. Screenshot directory: the path printed by the screenshot call is used as is. Video directory: BLADE_RECORD=<absolute dir>. |
 | `diff` | partial | partial: model delta since the last capture, not a two-snapshot diff |
 | `screenshot_get` | none | Not needed: the vision call returns the image in its own result. To re-read a saved shot, Read the PNG path it printed. |
 | `screenshot_delete` | none | Delete the printed PNG path with the shell (rm). |
@@ -33,14 +33,17 @@ Ops that map one to one (for example `navigate` to `act action=navigate`) are no
 - `screencast_start` / `screencast_stop`: need `BLADE_RECORD` set in the MCP server environment and ffmpeg on `PATH`;
   `format` and `fps` are `BLADE_RECORD_FORMAT` and `BLADE_RECORD_FPS`, fixed when the server starts, not per call.
   Charlotte's 5 minute auto-stop is a Charlotte property; Bladebro's recording limit is unverified.
-- `configure`: server environment only (`BLADE_HEADLESS`, `BLADE_PACE=off`, `BLADE_HOME`, `BLADE_RECORD=<dir>`). The
-  daemon reads its environment once, so a changed value needs `bladebro stop` and a new MCP server.
+- `configure`: server environment only (`BLADE_HEADLESS`, `BLADE_PACE=off`, `BLADE_NO_ACTIVATE=1`, `BLADE_HOME`,
+  `BLADE_RECORD=<dir>`). `BLADE_NO_ACTIVATE=1` stops the page being raised over the person's windows (bladebro 4.6.9+).
+  The daemon reads its environment once, so a changed value needs `bladebro stop` and a new MCP server.
 - `observe`: `detail: summary` has no counterpart; `see mode=model` lists interactive refs, `mode=content` is page text.
-- `wait_for`: `act action=wait` needs `condition` plus the match value it names: `text` for element, title, url and text, `selector` for selector, `js` for js; only settle, network and network-idle take none.
+- `wait_for`: `act action=wait` needs `condition` plus the match value it names: `text` for element, title, url and text, `selector` for selector, `js` for js; only settle, network and network-idle take none. The adapter `args` carry `action`, `condition` and `timeout` only; the caller adds the one match key from the note.
+- `read_state`: bladebro is `act action=read format=json` (by `ref` or `label`). Charlotte has no per-element state read; its adapter workaround is observe (detail summary).
 - `toggle` and `submit` are both `act action=fill`; `submit` is the `submit` field of the same call.
 - `clear_cookies`: one cookie per `state op=del-cookie`; no clear-all (unverified: call `state op=cookies` first and
   delete each).
-- `network` and `requests` are the same op, `see logs=network` (current navigation only).
+- `network` is `see logs=network` (current navigation only). `requests` is `see logs=xhr`, the deduplicated API/fetch
+  ring with method and status (bladebro 4.6.10+; older servers reject `logs=xhr`).
 
 ## Role op allowlists and residual risk
 
@@ -51,8 +54,8 @@ a project's `ui_qa.roles` / `ui_qa.role_agents` win per key. `gsd-ui-qa-lock.js`
 the configured driver that is outside the calling agent's role, matching `act` on its `action` argument.
 
 Agent identity: the hook reads `agent_type` from the PreToolUse payload (`roleOf` in `ui-qa-driver.js`) and, when a
-payload carries only `agent_id`, the role recorded for that `agent_id` at SubagentStart (`<lock_file>.roles.json`,
-removed at SubagentStop). The hook already reads `agent_id` on PreToolUse; `agent_type` on a PreToolUse payload inside
+payload carries only `agent_id`, the role recorded for that `agent_id` at SubagentStart (`<lock_file>.roles/<sha256 of agent_id>.json`,
+one file per agent, removed at SubagentStop; files older than the lock TTL are pruned at the next SubagentStart). The hook already reads `agent_id` on PreToolUse; `agent_type` on a PreToolUse payload inside
 a subagent is not exercised here against a live Claude Code session (unverified; the SubagentStart record covers it).
 
 Residual risk:
