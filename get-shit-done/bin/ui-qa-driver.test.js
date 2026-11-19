@@ -168,7 +168,8 @@ describe('fillContract and gsd-tools ui-qa', () => {
     assert.strictEqual(filled.agent, 'mine');
     assert.deepStrictEqual(filled.reset_patterns, ['x']);
     assert.strictEqual(filled.tool_prefix, 'mcp__bladebro__');
-    assert.deepStrictEqual(filled.agent_aliases, ['gsd-charlotte-qa']);
+    assert.deepStrictEqual(filled.agent_aliases, [], 'a custom agent gets no default alias, as resolveMcpTier');
+    assert.deepStrictEqual(driver.fillContract({ driver: 'bladebro' }).agent_aliases, ['gsd-charlotte-qa']);
     const odd = { driver: 'zzz' };
     assert.strictEqual(driver.fillContract(odd), odd);
   });

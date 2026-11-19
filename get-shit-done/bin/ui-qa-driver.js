@@ -151,7 +151,7 @@ function fillContract(uiQa) {
 function fillTier(tier) {
   const adapter = loadAdapter(tier.driver);
   if (isCommand(adapter)) return tier.agent === undefined ? { agent: adapter.agent ?? defaultAgent(), ...tier } : tier;
-  const defaults = { agent: defaultAgent(), tool_prefix: adapter.tool_prefix, lock_file: adapter.lock_file, recording: adapter.recording, agent_aliases: agentAliases() };
+  const defaults = { agent: defaultAgent(), tool_prefix: adapter.tool_prefix, lock_file: adapter.lock_file, recording: adapter.recording, agent_aliases: (tier.agent ?? defaultAgent()) === defaultAgent() ? agentAliases() : [] };
   return { ...Object.fromEntries(Object.entries(defaults).filter(([k]) => tier[k] === undefined)), ...tier };
 }
 
