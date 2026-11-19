@@ -1,5 +1,5 @@
 <purpose>
-Find and fix, across an existing suite, the tests that cannot fail, the behaviour proven twice and the slow test shape. The role is the per-phase test steward (`agents/gsd-test-writer.md`), run here once per test directory or bucket. Edits tests only.
+Find and fix, across an existing suite, the duplicated tests, the slow tests and the tests that leave rows or files behind. The role is the per-phase test steward (`agents/gsd-test-writer.md`), run here once per test directory or bucket. Edits tests only.
 </purpose>
 
 <process>
@@ -19,10 +19,10 @@ For each unit, in rank order, at most 2 at once and never two on overlapping fil
 
 ```
 Agent(subagent_type="gsd-test-writer", model="{reviewer_model}", description="Test steward: {unit}",
-  prompt="Standalone mode. Unit: {unit}. Test files: {the unit's files}. Timing: {per-file seconds, if known}. Commands: {stack_commands verbatim}. Report per your output section.")
+  prompt="Standalone mode. Unit: {unit}. Worklist: {worklist path}. Return file: {return path}. Commands: {stack_commands verbatim}. Report per your output section.")
 ```
 
-Each steward commits its own test-only changes. Wait for the wave before the next; a child that died is re-dispatched for the same unit, never resumed alongside its replacement.
+Before each dispatch run `gsd-tools test-worklist --dir {unit} --out .tmp/steward/{unit-slug}-worklist.json` and pass that path; after it, `gsd-tools verify steward-return --worklist <that file> --file <the return>` with one re-dispatch on exit 1, as in `execute-phase.md` `test_steward`. Each steward commits its own test-only changes. Wait for the wave before the next; a child that died is re-dispatched for the same unit, never resumed alongside its replacement.
 </step>
 
 <step name="report">

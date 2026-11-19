@@ -1,6 +1,6 @@
 ---
 name: gsd:audit-tests
-description: Audit the whole test suite for tests that cannot fail, duplicated proof and slow shape, per directory or bucket, slowest first
+description: Audit the whole test suite for duplicated tests, slow tests and tests that leave rows or files behind, per directory or bucket, slowest first
 argument-hint: "[<test directory or bucket> ...] [--minutes N]"
 allowed-tools:
   - Read

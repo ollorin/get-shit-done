@@ -114,7 +114,7 @@ function normToken(t) {
   return t.v;
 }
 
-// A case is test(...), it(...) or Deno.test(...) (optionally .only/.skip/.todo) with a string title or a { name } object.
+// A case is test(...), it(...) or <Namespace>.test(...) with a function or { name } argument (optionally .only/.skip/.todo) with a string title or a { name } object.
 function extractCases(src) {
   const toks = tokenize(src);
   const cases = [];
@@ -123,9 +123,11 @@ function extractCases(src) {
     if (t.t !== 'i') continue;
     const prev = toks[k - 1];
     let j = k + 1;
-    if (t.v === 'Deno') {
-      if (!(toks[j] && toks[j].v === '.' && toks[j + 1] && toks[j + 1].v === 'test')) continue;
+    let namespaced = false;
+    if (/^[A-Z]/.test(t.v)) {
+      if (!(toks[j] && toks[j].v === '.' && toks[j + 1] && toks[j + 1].v === 'test' && toks[j + 2] && toks[j + 2].v === '(')) continue;
       j += 2;
+      namespaced = true;
     } else if ((t.v === 'test' || t.v === 'it') && !(prev && prev.v === '.')) {
       while (toks[j] && toks[j].v === '.' && toks[j + 1] && ['only', 'skip', 'todo', 'concurrent', 'serial'].includes(toks[j + 1].v)) j += 2;
     } else continue;
@@ -138,6 +140,7 @@ function extractCases(src) {
       else if (')]}'.includes(toks[end].v) && --depth === 0) break;
     }
     const inner = toks.slice(j + 1, end);
+    if (namespaced && !inner.some((x, q) => (x.v === '=' && inner[q + 1] && inner[q + 1].v === '>') || x.v === 'function' || x.v === 'name')) continue;
     let titleIdx = -1;
     if (inner[0] && inner[0].t === 's') titleIdx = 0;
     else if (inner[0] && inner[0].v === '{') {
