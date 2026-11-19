@@ -245,6 +245,7 @@ issue:
 - Plan with 15+ file modifications
 - Single task with 10+ files
 - Complex work (auth, risk-domain paths) crammed into one plan
+- Two or more plans carry tasks that need the shared stack only after their code is committed (mutant runs, live-DB probes, resets): warning, move them into ONE final plan so the phase opens one live window
 
 **Example issue:**
 ```yaml

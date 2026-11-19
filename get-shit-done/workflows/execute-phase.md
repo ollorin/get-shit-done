@@ -963,7 +963,7 @@ The workflow ends. The user runs `/gsd:progress` or invokes the transition workf
 </process>
 
 <live_window_protocol>
-A phase that needs the shared local stack (migrations, DB fixtures, integration tests) follows the project's shared-stack rule (`.claude/rules/shared-stack.md`, "Live windows": entry gate, polling, per-plan landing, edge-source freeze). It applies only when `stack.isolation.lock_dir` is set; a project without a shared stack has no live window. An unattended agent that hits a permission prompt stops and reports the exact command string; it never reshapes the command.
+A phase that needs the shared local stack (migrations, DB fixtures, integration tests) follows the project's shared-stack rule (`.claude/rules/shared-stack.md`, "Live windows": entry gate, polling, per-plan landing, edge-source freeze; one window per phase, opened with `dispatch begin --role window`). It applies only when `stack.isolation.lock_dir` is set; a project without a shared stack has no live window. An unattended agent that hits a permission prompt stops and reports the exact command string; it never reshapes the command.
 </live_window_protocol>
 
 <context_efficiency>
