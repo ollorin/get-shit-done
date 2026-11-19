@@ -30,7 +30,7 @@ If a key you need is missing, stop and report the key. Never substitute a defaul
 | `project.risk_domains` | yes | unique risk domain ids |
 | `project.ruling_topics` | yes | unique ruling topic ids |
 | `stack.commands.test_file` | yes | command for one test file; takes `{file}`. `none` or `null` acknowledges a project with no code yet (also for `test_all`, `typecheck`, `lint`): warning `not configured yet`, not a failure |
-| `stack.commands.<name>` | no | `test_all`, `typecheck`, `lint`, `format`, `frontend_test`, `build`, `pre_pr_gate`, `search`; for the test steward: `test_timing` (prints per-file seconds as JSON `[{"file","seconds"}]`, replaces per-file timed runs) and `residue_check` (prints one integer, rows or files tests left behind, 0 is clean) |
+| `stack.commands.<name>` | no | `test_all`, `typecheck`, `lint`, `format`, `frontend_test`, `build`, `pre_pr_gate`, `search`; for the test steward: `test_timing` (prints per-file seconds as JSON `[{"file","seconds"}]`, replaces per-file timed runs) and `residue_check` (prints one integer, rows or files tests left behind, 0 is clean) and `unused_code` (a command that fails on unused code or dependencies; when set, `project init` and `project sync` append the `unused-code` gate, unset means no gate) |
 | `stack.preset`, `stack.preset_version` | no | preset name and version, non-empty strings |
 | `stack.paths` | no | `backend`, `migrations`, `api_globs`, `e2e_scenarios`, `frontends` |
 | `stack.test_command_shapes` | no | array of allowed test command shapes; `<file>` is a literal token shown to agents, never substituted |

@@ -586,6 +586,22 @@ describe('3.8 C1 rendered values and deploy slots on every engine command', () =
     assert.strictEqual(configOf(root).stack.deploy.slot_2, 'gsd-unused-deploy-entry-2');
   });
 
+  test('C1 sync appends the unused-code gate only when stack.commands.unused_code is set, and keeps an existing gate entry', () => {
+    const home = mkTmp('gsd-registry-home-');
+    const root = makeProject({ project: { slug: 'demo' }, stack: { capabilities: {} } });
+    initBase(root, home);
+    const gateIds = () => configOf(root).stack.gates.map((g) => g.id);
+    runProject(syncArgs(root), home);
+    assert.ok(!gateIds().includes('unused-code'), 'no key, no gate');
+    withConfig(root, (c) => { c.stack.commands = { ...c.stack.commands, unused_code: 'npx knip' }; });
+    runProject(syncArgs(root), home);
+    assert.deepStrictEqual(configOf(root).stack.gates.find((g) => g.id === 'unused-code'), { id: 'unused-code', run: 'npx knip' });
+    withConfig(root, (c) => { c.stack.commands.unused_code = 'npx knip --strict'; });
+    runProject(syncArgs(root), home);
+    const gates = configOf(root).stack.gates.filter((g) => g.id === 'unused-code');
+    assert.deepStrictEqual(gates, [{ id: 'unused-code', run: 'npx knip' }], 'an existing entry is never rewritten');
+  });
+
   test('C1 sync re-derives slots before the engine runs; a refusal without writes restores the config bytes', () => {
     const home = mkTmp('gsd-registry-home-');
     const root = makeProject({ project: { slug: 'demo' }, stack: { capabilities: {}, deploy: { never_touch: ['tools/release.sh prod'] } } });
@@ -641,6 +657,13 @@ describe('9.13 default gates and style config', () => {
     }
     const style = initBase(withCaps({})).stack.gates.find((g) => g.id === 'style');
     assert.deepStrictEqual(style, { id: 'style', run: 'node scripts/style-gate.mjs' });
+  });
+
+  test('G-d init adds the unused-code gate with the configured command, and none without the key', () => {
+    assert.ok(!idsOf(initBase(withCaps({}))).includes('unused-code'));
+    const cfg = initBase({ project: { slug: 'demo' }, stack: { capabilities: {}, commands: { unused_code: 'npx knip' } } });
+    assert.deepStrictEqual(cfg.stack.gates.at(-1), { id: 'unused-code', run: 'npx knip' });
+    assert.strictEqual(cfg.stack.gates.filter((g) => g.id === 'unused-code').length, 1);
   });
 
   test('G-b existing gates keep their entry and position; only the missing defaults are appended', () => {
