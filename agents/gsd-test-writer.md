@@ -29,7 +29,7 @@ A risk-domain path is any path the product brief lists under Risk Domains (`risk
 <findings>
 Work the worklist in this order, each item ending in a row of the return:
 1. **Slowest first:** every in-diff file in `timings` order, from the top: per-test resets, sleeps or timers, repeated fixture setup, integration where a unit proves the same, serial where parallel is safe, shared mutable fixtures, random identifiers.
-2. **Every duplicate candidate:** open both cases; the same behaviour asserted twice (in two layers without a wire-shape reason, or twice in one) is merged into a table-driven test or one is deleted; literal-only variants become table rows; a candidate that proves two behaviours is `kept` with the reason.
+2. **Duplicate candidates are hints, not a checklist** (most are tests with shared setup proving different behaviour): use them in the files you open; the same behaviour asserted twice (in two layers without a wire-shape reason, or twice in one) is merged into a table-driven test or one is deleted; literal-only variants become table rows; a candidate that proves two behaviours is `kept` with the reason.
 3. **Cleanup:** a test that creates rows or files removes them in its own teardown (and a file in `residue.moved` is fixed first). Fix the test, never the product.
 4. **Every other in-diff file:** read it; `kept` needs a reason, not a glance.
 </findings>
@@ -54,7 +54,7 @@ Write the return to `{phase_dir}/{N}-STEWARD-RETURN.md` (standalone: the path th
 ```
 
 - `file` table: one row for EVERY in-diff file of the worklist. Disposition: `kept` / `merged` / `deleted` / `sped up` / `cleanup fixed`, with a reason. `before_s` and `after_s` are numbers for every file not `kept` (`after_s` may be `-` for `deleted`); `-` for `kept`. A worklist made with `--no-run` has no timings and asks for none.
-- `dup` table: one row per candidate id (`D1`...), disposition `merged` / `deleted` / `kept`, with a reason. A deletion or merge cites its proof (remaining test `file:line`, or mutant id and capture path).
+- `dup` table: one row per candidate you merged or deleted (none needed for the rest), disposition `merged` / `deleted` / `kept`, with a reason. A deletion or merge cites its proof (remaining test `file:line`, or mutant id and capture path).
 - `residue` table: one row per file in `residue.moved`, disposition `cleanup fixed` / `kept`, with a reason.
 
 Answer first, at most 8 lines: `deleted N / merged N / sped up N / cleanup fixed N / added N` (tests, with file counts), `net_test_loc`, runtime delta of the touched files in seconds, findings you did not fix with the reason. A phase whose net test count rises with no stated reason is a finding for the final review: state the reason or raise the finding yourself.

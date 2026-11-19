@@ -343,7 +343,7 @@ function checkReturn(text, worklist) {
   }
   const dups = worklist.duplicate_candidates || [];
   const dupRows = rowsOf(tables.dup);
-  for (const d of dups) if (!dupRows.has(d.id)) errors.push(`missing duplicate row: ${d.id}`);
+  // Candidates are advisory: measured at about 50-100% false positives per kind on two suites, so a row is checked only when given.
   for (const [k, r] of dupRows) {
     if (!dups.some((d) => d.id === k)) { errors.push(`unknown duplicate id: ${k}`); continue; }
     if (!DUP_DISPOSITIONS.includes(r.disposition)) errors.push(`${k}: disposition "${r.disposition}" is not one of ${DUP_DISPOSITIONS.join(' / ')}`);

@@ -168,7 +168,7 @@ describe('checkReturn', () => {
   const worklist = {
     files: [{ file: 'tests/a.test.js', in_diff: true }, { file: 'tests/b.test.js', in_diff: true }, { file: 'tests/c.test.js', in_diff: false }],
     timings: [{ file: 'tests/a.test.js', seconds: 3, rc: 0 }, { file: 'tests/b.test.js', seconds: 1, rc: 0 }],
-    duplicate_candidates: [{ id: 'D1' }, { id: 'D2' }],
+    duplicate_candidates: [{ id: 'D1' }, { id: 'D2' }, { id: 'D3' }],
     residue: { before: 0, after: 2, moved: [{ file: 'tests/b.test.js', before: 0, after: 2 }] },
   };
   const good = [
@@ -193,8 +193,8 @@ describe('checkReturn', () => {
     const bad = good.split('\n').filter((l) => !/tests\/b.test.js \| cleanup fixed \| teardown|D2|afterEach/.test(l)).join('\n');
     const e = W.checkReturn(bad, worklist).join('\n');
     assert.match(e, /missing file row: tests\/b\.test\.js/);
-    assert.match(e, /missing duplicate row: D2/);
     assert.match(e, /missing residue row: tests\/b\.test\.js/);
+    assert.doesNotMatch(e, /D2|D3/, 'candidates are advisory: no row is demanded');
   });
 
   test('touched file needs numeric before/after; a kept file does not; reason is required; bad disposition is named', () => {
