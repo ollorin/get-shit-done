@@ -10189,6 +10189,7 @@ function cmdPhaseComplete(cwd, phaseNum, raw, opts = {}) {
     ...(fs.existsSync(roadmapPath) && roadmapBox.checkboxState(fs.readFileSync(roadmapPath, 'utf-8'), phaseNum) === null ? { roadmap_checkbox_missing: `no checkbox line for phase ${phaseNum} in ROADMAP.md (expected "- [ ] Phase ${phaseNum}"): tick it by hand` } : {}),
     state_updated: fs.existsSync(statePath),
     ...(formDebtItems.length > 0 ? { form_debt: formDebtItems } : {}),
+    windows: dispatchLease.windows(cwd, readExecutionEvents(cwd), phaseNum),
     notices: dispatchLease.unleasedSpawns(cwd, readExecutionEvents(cwd), phaseNum),
   };
 
@@ -12486,7 +12487,7 @@ function cmdPhaseBudget(cwd, args, raw) {
   output(phaseBudgetStatus(cwd, phase, readExecutionEvents(cwd)), raw);
 }
 
-// dispatch begin --phase N --role R --id A [--owner-pid P] | end --id A | reap-dead --phase N | end --stale A --reason "<text>". A refusal exits 1; only the automatic stale closes it performed are logged.
+// dispatch begin --phase N --role R --id A [--owner-pid P] [--reason T (a second window)] | end --id A | reap-dead --phase N | end --stale A --reason "<text>". A refusal exits 1; only the automatic stale closes it performed are logged.
 function cmdDispatch(cwd, args, raw) {
   const sub = args[0];
   const flag = (name) => { const i = args.indexOf(name); return i !== -1 ? args[i + 1] : undefined; };
@@ -12495,11 +12496,11 @@ function cmdDispatch(cwd, args, raw) {
     const info = reviewGate.REVIEW_ROLES.has(flag('--role')) ? findPhaseInternal(cwd, flag('--phase')) : null;
     const gateErr = info && info.found ? reviewGate.gatesAfterFixError(execGit, cwd, path.join(cwd, info.directory), info.phase_number) : null;
     if (gateErr) error(`dispatch begin refused: ${gateErr}`);
-    const r = dispatchLease.begin({ cwd, phase: flag('--phase'), role: flag('--role'), id: flag('--id'), events, ttlMin: phaseBudget.ttlMinutes(cwd), ownerPid: flag('--owner-pid') ? Number(flag('--owner-pid')) : undefined });
+    const r = dispatchLease.begin({ cwd, phase: flag('--phase'), role: flag('--role'), id: flag('--id'), events, ttlMin: phaseBudget.ttlMinutes(cwd), ownerPid: flag('--owner-pid') ? Number(flag('--owner-pid')) : undefined, reason: flag('--reason') });
     for (const e of r.auto_closed || []) appendEvent(cwd, e);
     if (r.quarantined) appendEvent(cwd, { type: 'dispatch_leases_corrupt', phase: dispatch.phaseKey(flag('--phase')), moved_to: r.quarantined });
     if (r.error) error(r.error);
-    appendEvent(cwd, { type: 'dispatch_begin', phase: r.lease.phase, role: r.lease.role, id: r.lease.id });
+    appendEvent(cwd, { type: 'dispatch_begin', phase: r.lease.phase, role: r.lease.role, id: r.lease.id, ...(r.lease.begin_reason ? { reason: r.lease.begin_reason } : {}) });
     output({ ...r, logged: true }, raw);
     return;
   }
@@ -12652,7 +12653,7 @@ function cmdRoadmapRecord(cwd, args, raw) {
     const b = phaseBudgetStatus(cwd, k, events);
     appendEvent(cwd, { ...e, budget_class: b.budget_class, wall_minutes_spent: b.wall_minutes_spent, dispatches_spent: b.dispatches_spent, total_wall_minutes: b.total_wall_minutes, total_dispatches: b.total_dispatches, budget_wall_minutes: b.budget_wall_minutes, pct: b.pct, warn: b.warn, breach: b.breach });
   }
-  output({ ...out, notices: dispatchLease.unleasedSpawns(cwd, events, k), truth: { complete: truth.complete, errors: truth.errors, work_errors: truth.work_errors, form_errors: truth.form_errors } }, raw);
+  output({ ...out, windows: dispatchLease.windows(cwd, events, k), notices: dispatchLease.unleasedSpawns(cwd, events, k), truth: { complete: truth.complete, errors: truth.errors, work_errors: truth.work_errors, form_errors: truth.form_errors } }, raw);
 }
 
 // ─── Session Analysis Commands ────────────────────────────────────────────────

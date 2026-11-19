@@ -7,6 +7,7 @@ const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const L = require('./dispatch-lease.js');
 const b = require('./phase-budget.js');
+const { makeProject, gsd, events: logEvents, writeEvidence } = require('../../tests/helpers/roadmap-fixture.js');
 
 const TOOL = path.join(__dirname, 'gsd-tools.js');
 const T0 = Date.parse('2026-01-01T00:00:00Z');
@@ -20,6 +21,47 @@ beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-lease-')); w
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 describe('dispatch leases', () => {
+  test('window role: exclusive; a second window of the phase needs --reason, stored on the lease; other roles unaffected', () => {
+    const a = L.begin({ cwd: dir, phase: '1', role: 'window', id: 'w1', events: [], now: T0 });
+    assert.ok(a.lease);
+    assert.match(L.begin({ cwd: dir, phase: '1', role: 'window', id: 'w2', events: [], now: T0 + 60000 }).error, /already has an open window lease \(w1\)/);
+    assert.ok(L.begin({ cwd: dir, phase: '1', role: 'reviewer', id: 'r1', events: [], now: T0 + 60000 }).lease);
+    assert.ok(L.begin({ cwd: dir, phase: '2', role: 'window', id: 'w3', events: [], now: T0 + 60000 }).lease);
+    L.end({ cwd: dir, id: 'w1', events: [], now: T0 + 120000 });
+    const second = L.begin({ cwd: dir, phase: '1', role: 'window', id: 'w2', events: [], now: T0 + 180000 });
+    assert.match(second.error, /already had a window \(w1\); a second window needs --reason/);
+    assert.ok(L.begin({ cwd: dir, phase: '1', role: 'reviewer', id: 'r2', events: [], now: T0 + 180000 }).lease);
+    const ok = L.begin({ cwd: dir, phase: '1', role: 'window', id: 'w2', events: [], now: T0 + 180000, reason: 'mutant rerun after fix' });
+    assert.strictEqual(ok.lease.begin_reason, 'mutant rerun after fix');
+    assert.strictEqual(L.load(dir).find((l) => l.id === 'w2').begin_reason, 'mutant rerun after fix');
+  });
+  test('windows(): count, minutes and reasons of the phase; CLI logs the reason in dispatch_begin and phase complete reports it', () => {
+    assert.deepStrictEqual(L.windows(dir, [], '1'), { count: 0, minutes: 0, reasons: [] });
+    L.begin({ cwd: dir, phase: '1', role: 'window', id: 'w1', events: [], now: T0 });
+    L.end({ cwd: dir, id: 'w1', events: [], now: T0 + 30 * 60000 });
+    L.begin({ cwd: dir, phase: '1', role: 'window', id: 'w2', events: [], now: T0 + 40 * 60000, reason: 'again' });
+    L.end({ cwd: dir, id: 'w2', events: [], now: T0 + 55 * 60000 });
+    L.begin({ cwd: dir, phase: '1', role: 'reviewer', id: 'r', events: [], now: T0 });
+    assert.deepStrictEqual(L.windows(dir, [], '1'), { count: 2, minutes: 45, reasons: ['again'] });
+    const d2 = makeProject([{ n: '1', name: 'one' }]);
+    try {
+      const cli = (args) => gsd(d2, args);
+      assert.strictEqual(cli(['dispatch', 'begin', '--phase', '1', '--role', 'window', '--id', 'w1']).rc, 0);
+      assert.strictEqual(cli(['dispatch', 'end', '--id', 'w1']).rc, 0);
+      assert.notStrictEqual(cli(['dispatch', 'begin', '--phase', '1', '--role', 'window', '--id', 'w2']).rc, 0);
+      assert.strictEqual(cli(['dispatch', 'begin', '--phase', '1', '--role', 'window', '--id', 'w2', '--reason', 'probe']).rc, 0);
+      assert.ok(logEvents(d2).some((e) => e.type === 'dispatch_begin' && e.id === 'w2' && e.reason === 'probe'));
+      cli(['dispatch', 'end', '--id', 'w2']);
+      writeEvidence(d2, 1);
+      cli(['phase', 'checkpoint', '1', '--step', 'verify', '--status', 'passed']);
+      const r = cli(['phase', 'complete', '1']);
+      assert.strictEqual(r.rc, 0, r.out + r.err);
+      const out = JSON.parse(r.out);
+      assert.strictEqual(out.windows.count, 2);
+      assert.deepStrictEqual(out.windows.reasons, ['probe']);
+      assert.strictEqual(typeof out.windows.minutes, 'number');
+    } finally { fs.rmSync(d2, { recursive: true, force: true }); }
+  });
   test('a second open executor lease is refused; other roles and other phases are not', () => {
     assert.ok(L.begin({ cwd: dir, phase: '1', role: 'executor', id: 'a', events: [], now: T0 }).lease);
     const bad = L.begin({ cwd: dir, phase: '1', role: 'executor', id: 'b', events: [], now: T0 + 60000 });

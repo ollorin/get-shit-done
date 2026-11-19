@@ -15,7 +15,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { evPhase, phaseKey } = require('./roadmap-dispatch.js');
 
-const EXCLUSIVE_ROLES = new Set(['executor']);
+const EXCLUSIVE_ROLES = new Set(['executor', 'window']);
 const DEFAULT_TTL_MIN = 120;
 const WINDOW_CLOSE = new Set(['phase_complete', 'phase_parked', 'phase_incomplete', 'phase_retry', 'phase_failed', 'phase_coordinator_death']);
 const ROLE_RE = /^[a-z][a-z0-9-]*$/;
@@ -154,7 +154,7 @@ function detectOwner() {
 }
 const ownerGone = (o) => { try { process.kill(o.pid, 0); } catch (e) { return e.code === 'ESRCH'; } const s = ps(o.pid, 'lstart'); return s !== '' && s !== o.start; };
 
-function begin({ cwd, phase, role, id, events, now = Date.now(), ttlMin = DEFAULT_TTL_MIN, ownerPid }) {
+function begin({ cwd, phase, role, id, events, now = Date.now(), ttlMin = DEFAULT_TTL_MIN, ownerPid, reason }) {
   const k = phaseKey(phase);
   if (!k) return { error: 'dispatch begin: --phase required' };
   if (!ROLE_RE.test(role || '')) return { error: 'dispatch begin: --role required (lowercase word, e.g. executor, reviewer)' };
@@ -165,11 +165,12 @@ function begin({ cwd, phase, role, id, events, now = Date.now(), ttlMin = DEFAUL
     const open = r.leases.filter((l) => !l.end && l.phase === k);
     const refuse = open.find((l) => l.id === id) ? `lease ${id} is already open in phase ${k}`
       : EXCLUSIVE_ROLES.has(role) && open.find((l) => l.role === role) ? `phase ${k} already has an open ${role} lease (${open.find((l) => l.role === role).id}): end it, or close it with \`dispatch end --stale <id> --reason "<text>"\` when that agent is dead`
-        : null;
+        : role === 'window' && !reason && r.leases.find((l) => l.role === 'window' && l.phase === k) ? `phase ${k} already had a window (${r.leases.find((l) => l.role === 'window' && l.phase === k).id}); a second window needs --reason "<why the first could not cover it>"`
+          : null;
     if (r.closed.length > 0 || refuse) save(cwd, r.leases);
     if (refuse) return { error: `dispatch begin refused: ${refuse}`, auto_closed: r.closed.map(closeEvent), quarantined: q.quarantined };
     const owner = EXCLUSIVE_ROLES.has(role) ? (ownerPid ? ownerOf(ownerPid) : detectOwner()) : null;
-    const lease = { id, role, phase: k, begin: new Date(now).toISOString(), end: null, ...(owner ? { owner } : {}) };
+    const lease = { id, role, phase: k, begin: new Date(now).toISOString(), end: null, ...(owner ? { owner } : {}), ...(role === 'window' && reason ? { begin_reason: reason } : {}) };
     save(cwd, [...r.leases, lease]);
     return { lease, auto_closed: r.closed.map(closeEvent), quarantined: q.quarantined };
   });
@@ -242,7 +243,14 @@ function unleasedSpawns(cwd, events, phase) {
   return unleased > 0 ? [{ type: 'spawns_without_lease', phase: k, spawn_events: leaseCount === 0 ? spawns : per, leases: leaseCount, message: `phase ${k}: ${unleased} spawn event(s) with no \`dispatch begin\` lease; its time is not measured (rigour.md rule 7)` }] : [];
 }
 
+// Live windows of a phase: count, minutes (lease spans) and the reasons recorded on second-or-later windows.
+function windows(cwd, events, phase) {
+  const mine = load(cwd).filter((l) => l.phase === phaseKey(phase) && l.role === 'window');
+  const span = mine.reduce((a, l) => a + Math.max(0, (l.end ? ms(l.end) : leaseLast(l, events)) - ms(l.begin)), 0);
+  return { count: mine.length, minutes: Math.round((span / 60000) * 10) / 10, reasons: mine.map((l) => l.begin_reason).filter(Boolean) };
+}
+
 // Earliest lease begin (ms) of the phase, or null.
 const firstBegin = (cwd, phase) => { const b = load(cwd).filter((l) => l.phase === phaseKey(phase)).map((l) => ms(l.begin)).filter((t) => !Number.isNaN(t)); return b.length ? Math.min(...b) : null; };
 
-module.exports = { unleasedSpawns, firstBegin, begin, end, reapDead, spend, load, leasePath, closeEvent, DEFAULT_TTL_MIN };
+module.exports = { windows, unleasedSpawns, firstBegin, begin, end, reapDead, spend, load, leasePath, closeEvent, DEFAULT_TTL_MIN };
