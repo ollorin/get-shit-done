@@ -57,7 +57,11 @@ function readCapability(cwd) {
   const ui = isPlainObject(config) && isPlainObject(config.stack) && isPlainObject(config.stack.capabilities)
     ? config.stack.capabilities.ui_qa
     : undefined;
-  return isPlainObject(ui) ? normalizeCapability(ui) : null;
+  if (!isPlainObject(ui)) return null;
+  // A command-kind driver (scripted tier) has no MCP tools to lock or deny: the hook acts only on the MCP tier, when one is declared.
+  let tier = ui;
+  try { tier = uiQaDriver.mcpTier(ui); } catch { tier = ui; }
+  return isPlainObject(tier) ? normalizeCapability(tier) : null;
 }
 
 function ttlSeconds(env) {

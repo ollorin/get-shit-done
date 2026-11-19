@@ -32,12 +32,13 @@ const readUiQa = (root) => JSON.parse(fs.readFileSync(path.join(root, '.planning
 
 describe('driver adapters', () => {
   test('both drivers are listed and the default is one of them', () => {
-    assert.deepStrictEqual(driver.listDrivers(), ['bladebro', 'charlotte']);
-    assert.ok(driver.listDrivers().includes(driver.defaultDriver()));
+    assert.deepStrictEqual(driver.listDrivers('mcp'), ['bladebro', 'charlotte']);
+    assert.deepStrictEqual(driver.listDrivers('command'), ['playwright']);
+    assert.ok(driver.listDrivers('mcp').includes(driver.defaultDriver()));
   });
 
   test('every adapter has the contract keys and the same op set', () => {
-    const names = driver.listDrivers().map((d) => {
+    const names = driver.listDrivers('mcp').map((d) => {
       const a = driver.loadAdapter(d);
       assert.strictEqual(a.driver, d);
       assert.match(a.tool_prefix, /^mcp__[a-z0-9-]+__$/);
@@ -53,7 +54,7 @@ describe('driver adapters', () => {
   });
 
   test('unknown driver is a clear error naming the known drivers, never a fallback', () => {
-    assert.throws(() => driver.loadAdapter('nope'), /unknown ui_qa driver "nope": known drivers are bladebro, charlotte/);
+    assert.throws(() => driver.loadAdapter('nope'), /unknown ui_qa driver "nope": known drivers are bladebro, charlotte, playwright/);
     assert.throws(() => driver.resolveContract({ driver: '../index' }), /unknown ui_qa driver/);
     assert.throws(() => driver.resolveContract({}), /unknown ui_qa driver/);
     assert.throws(() => driver.resolveContract(undefined), /no ui_qa capability/);
@@ -99,7 +100,7 @@ describe('role agents, packs and agent text', () => {
     const ui = driver.resolveContract({ driver: 'charlotte' });
     for (const [agent, role] of Object.entries({ 'gsd-product-investigator': 'investigator', 'gsd-demo': 'demo', 'gsd-ui-qa': 'qa' })) {
       assert.strictEqual(driver.roleOf(agent, undefined), role);
-      for (const d of driver.listDrivers()) {
+      for (const d of driver.listDrivers('mcp')) {
         const c = driver.resolveContract({ driver: d });
         const allowed = new Set(ui.roles[role].map((op) => driver.fullToolName(c, op)).filter(Boolean));
         const listed = frontmatterTools(agent).filter((t) => t.startsWith(c.tool_prefix));
@@ -112,7 +113,7 @@ describe('role agents, packs and agent text', () => {
   });
 
   test('every role names only ops that exist in the adapters', () => {
-    for (const d of driver.listDrivers()) {
+    for (const d of driver.listDrivers('mcp')) {
       const c = driver.resolveContract({ driver: d });
       for (const [role, ops] of Object.entries(c.roles)) for (const op of ops) assert.ok(c.ops[op], `${d}: role ${role} names unknown op ${op}`);
     }
@@ -247,7 +248,7 @@ describe('project sync and profile validation', () => {
 
   test('validation: a bare known driver is valid; an unknown driver is named; a bad agent is refused', () => {
     assert.deepStrictEqual(problemsFor({ driver: 'bladebro' }), []);
-    assert.match(JSON.stringify(problemsFor({ driver: 'nope' })), /unknown driver \\"nope\\": known drivers are bladebro, charlotte/);
+    assert.match(JSON.stringify(problemsFor({ driver: 'nope' })), /unknown driver \\"nope\\": known drivers are bladebro, charlotte, playwright/);
     assert.strictEqual(problemsFor({ driver: 'charlotte', agent: '' }).length, 1);
     assert.strictEqual(problemsFor({ driver: 'charlotte', ops: [] }).length, 1);
   });
@@ -306,5 +307,78 @@ describe('demo-check register (driver without an index of its own)', () => {
     assert.ok(fs.existsSync(path.join(phase, 'demo', 'shots', `${row.id}.png`)));
     assert.throws(() => register(phase, 'shot', { file: path.join(root, 'missing.png') }), /existing file/);
     assert.throws(() => register(phase, 'video', { file: png }), /not webm or mp4/);
+  });
+});
+
+describe('command-kind driver (scripted UI-QA tier)', () => {
+  const CASINO_MALL = { driver: 'playwright', browser: 'system-chrome', command: 'npm run ui-qa', agent: 'gsd2-runner' };
+  const problems = (uiQa) => validateProfile({ found: true, stack: { capabilities: { ui_qa: uiQa } } }).invalid.filter((e) => /ui_qa/.test(e.key));
+
+  test('casino-mall config resolves as kind command and validates unedited', () => {
+    const c = driver.resolveContract(CASINO_MALL);
+    assert.strictEqual(c.kind, 'command');
+    assert.strictEqual(c.command, 'npm run ui-qa');
+    assert.strictEqual(c.agent, 'gsd2-runner');
+    assert.ok(!('tool_prefix' in c) && !('ops' in c));
+    assert.deepStrictEqual(problems(CASINO_MALL), []);
+    assert.deepStrictEqual(driver.fillContract(CASINO_MALL), CASINO_MALL);
+  });
+
+  test('agent defaults to gsd2-runner; command is required', () => {
+    assert.strictEqual(driver.resolveContract({ driver: 'playwright', command: 'x' }).agent, 'gsd2-runner');
+    assert.throws(() => driver.resolveContract({ driver: 'playwright' }), /command driver: set .*command/);
+    assert.match(JSON.stringify(problems({ driver: 'playwright' })), /needs a non-empty command/);
+  });
+
+  test('gsd-tools ui-qa contract prints kind command; apply keeps the config byte-equal', () => {
+    const root = project(CASINO_MALL);
+    const r = cli(root, 'contract');
+    assert.strictEqual(r.status, 0);
+    assert.strictEqual(r.json.kind, 'command');
+    const a = cli(root, 'apply');
+    assert.strictEqual(a.json.written, false);
+    assert.strictEqual(cli(root, 'contract', '--tier', 'mcp').status, 1);
+    assert.strictEqual(cli(root, 'contract', '--tier', 'scripted').json.driver, 'playwright');
+    assert.strictEqual(cli(project(undefined), 'apply', '--driver', 'playwright').status, 1);
+    assert.strictEqual(cli(project(undefined), 'apply', '--driver', 'playwright', '--command', 'npm run ui-qa').json.ui_qa.command, 'npm run ui-qa');
+  });
+
+  test('an unknown driver is still an error', () => {
+    assert.throws(() => driver.resolveContract({ driver: 'cypress', command: 'x' }), /unknown ui_qa driver "cypress"/);
+    assert.match(JSON.stringify(problems({ driver: 'cypress', command: 'x' })), /unknown driver/);
+  });
+
+  test('both tiers: ui_qa.mcp beside a command driver, ui_qa.scripted beside an MCP driver', () => {
+    const both = { ...CASINO_MALL, mcp: { driver: 'charlotte' } };
+    assert.deepStrictEqual(problems(both), []);
+    const c = driver.resolveContract(both);
+    assert.strictEqual(c.kind, 'command');
+    assert.strictEqual(c.mcp.kind, 'mcp');
+    assert.strictEqual(c.mcp.agent, 'gsd-ui-qa');
+    assert.strictEqual(c.mcp.tool_prefix, 'mcp__charlotte__');
+    const flipped = { driver: 'bladebro', scripted: { driver: 'playwright', command: 'npm run ui-qa' } };
+    assert.deepStrictEqual(problems(flipped), []);
+    assert.strictEqual(driver.resolveContract(flipped).scripted.kind, 'command');
+    assert.strictEqual(problems({ ...CASINO_MALL, mcp: { driver: 'playwright', command: 'x' } }).length, 1);
+    assert.strictEqual(problems({ driver: 'bladebro', mcp: { driver: 'charlotte' } }).length, 1);
+    assert.strictEqual(problems({ ...CASINO_MALL, scripted: { driver: 'playwright', command: 'x' } }).length, 1);
+  });
+
+  const call = (uiQa, event, extra) => handle({ hook_event_name: event, cwd: project(uiQa), session_id: 's', agent_id: 'a1', ...extra }, { nowMs: NOW, holderPid: process.pid });
+
+  test('lock hook is a no-op for a command driver: no deny, no lock, even for MCP tools and its own agent', () => {
+    for (const [event, extra] of [
+      ['PreToolUse', { tool_name: 'mcp__charlotte__charlotte_click' }],
+      ['PreToolUse', { tool_name: 'mcp__bladebro__act', tool_input: { action: 'click' } }],
+      ['PreToolUse', { tool_name: 'Bash', tool_input: { command: 'supabase db reset' } }],
+      ['SubagentStart', { agent_type: 'gsd2-runner' }],
+      ['SubagentStop', { agent_type: 'gsd2-runner' }],
+    ]) assert.deepStrictEqual(call(CASINO_MALL, event, extra), { exitCode: 0 });
+  });
+
+  test('with a declared mcp tier the hook enforces that tier only', () => {
+    const both = { ...CASINO_MALL, mcp: { driver: 'charlotte' } };
+    assert.strictEqual(call(both, 'PreToolUse', { tool_name: 'mcp__bladebro__act' }).exitCode, 2);
+    assert.strictEqual(call(both, 'PreToolUse', { tool_name: 'mcp__charlotte__charlotte_click' }).exitCode, 0);
   });
 });
