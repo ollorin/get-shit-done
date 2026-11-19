@@ -23,6 +23,8 @@ The block below is written from `.planning/config.json` `stack.commands` when th
 | build | [stack.commands.build] |
 | pre_pr_gate | [stack.commands.pre_pr_gate] |
 | search | [stack.commands.search] |
+| test_timing | [stack.commands.test_timing, optional: prints per-file seconds as JSON] |
+| residue_check | [stack.commands.residue_check, optional: prints the count of rows or files tests left behind] |
 <!-- gsd:end commands -->
 
 ## Test Command Shapes
