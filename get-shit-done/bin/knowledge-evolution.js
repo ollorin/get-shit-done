@@ -72,6 +72,16 @@ function mergeMemories(existing, newContent, options = {}) {
  * @returns {Promise<object>} { action, id?, similarity?, ... }
  */
 async function insertOrEvolve(conn, entry, options = {}) {
+  if (entry && entry.type === 'principle') {
+    const { isPlaceholderPrincipleText } = require('./knowledge-crud.js');
+    if (isPlaceholderPrincipleText(entry.content)) {
+      throw new Error('insertOrEvolve: refusing to store a placeholder/template principle');
+    }
+    const source = entry.metadata && entry.metadata.synthesis_source;
+    if (typeof source !== 'string' || source === '') {
+      throw new Error('insertOrEvolve: refusing to store a principle without synthesis provenance (metadata.synthesis_source)');
+    }
+  }
   // Serialize all writes through a promise chain to prevent concurrent
   // check→write races (two callers seeing "evolve entry #X" and overwriting each other)
   const result = await new Promise((resolve, reject) => {

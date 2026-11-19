@@ -79,6 +79,10 @@ function insertKnowledge(db, {
   metadata = {},
   project_slug = null
 }) {
+  if (type === 'principle' && isPlaceholderPrincipleText(content)) {
+    throw new Error('insertKnowledge: refusing to store a placeholder/template principle')
+  }
+
   // 1. Compute content hash (SHA-256)
   const hash = crypto.createHash('sha256').update(content).digest('hex')
 
@@ -300,7 +304,21 @@ function refreshTTL(db, id, ttlCategory = null) {
 
 // ─── Exports ───────────────────────────────────────────────────────────────
 
+/**
+ * True when a principle's text is empty, a template, or the unsynthesized
+ * stub produced by consolidation ("For <topic>: <first words>...").
+ */
+function isPlaceholderPrincipleText(text) {
+  if (typeof text !== 'string') return true
+  const t = text.trim()
+  if (t === '') return true
+  if (/\{\{[^}]*\}\}/.test(t)) return true
+  if (/^(placeholder|todo|tbd|lorem ipsum|\.\.\.)\b/i.test(t)) return true
+  return /^For [^:\n]+: [\s\S]*\.\.\.$/.test(t)
+}
+
 module.exports = {
+  isPlaceholderPrincipleText,
   insertKnowledge,
   getKnowledge,
   getKnowledgeByType,
