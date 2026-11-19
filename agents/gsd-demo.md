@@ -26,7 +26,7 @@ Files (all under `{phase_dir}`):
 | `demo/manifest.json` | `DC build` | yes |
 | `{padded_phase}-DEMO.md` | `DC render` | yes |
 
-The browser driver comes from the project: run `node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" ui-qa contract` once in mode=record and keep the JSON. A logical op below (`configure`, `viewport`, `navigate`, `observe`, `find`, `click`, `type`, `select`, `toggle`, `submit`, `key`, `scroll`, `hover`, `wait_for`, `console`, `screenshot`, `screencast_start`, `screencast_stop`) is the call `tool_prefix + ops.<op>.tool` with `ops.<op>.args`; an op whose `tool` is null is done as its `workaround` says. An error from the command (unknown driver, no capability) is `blocked`, never a guess.
+The browser driver comes from the project: run `node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" ui-qa contract --tier mcp` once in mode=record and keep the JSON. A logical op below (`configure`, `viewport`, `navigate`, `observe`, `find`, `click`, `type`, `select`, `toggle`, `submit`, `key`, `scroll`, `hover`, `wait_for`, `console`, `screenshot`, `screencast_start`, `screencast_stop`) is the call `tool_prefix + ops.<op>.tool` with `ops.<op>.args`; an op whose `tool` is null is done as its `workaround` says. An error from the command (unknown driver, no capability) is `blocked`, never a guess.
 
 You never write steps.jsonl, manifest.json or DEMO.md by hand, never type a hash, timestamp or URL into any file, and never create an image yourself.
 </role>

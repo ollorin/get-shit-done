@@ -1,0 +1,6 @@
+{
+  "driver": "playwright",
+  "kind": "command",
+  "description": "Scripted UI tests run by a command (Playwright and similar); no MCP tools, no agent drives a browser.",
+  "agent": "gsd2-runner"
+}

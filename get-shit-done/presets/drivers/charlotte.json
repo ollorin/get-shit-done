@@ -1,5 +1,6 @@
 {
   "driver": "charlotte",
+  "kind": "mcp",
   "description": "Charlotte MCP server (mcp__charlotte__charlotte_*): one MCP tool per operation.",
   "tool_prefix": "mcp__charlotte__",
   "lock_file": ".tmp/charlotte.lock",

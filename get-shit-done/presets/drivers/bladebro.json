@@ -1,5 +1,6 @@
 {
   "driver": "bladebro",
+  "kind": "mcp",
   "description": "Bladebro MCP server (bladebro mcp, stdio): five tools act, see, state, run, vision; the operation is an argument.",
   "tool_prefix": "mcp__bladebro__",
   "lock_file": ".tmp/ui-qa.lock",

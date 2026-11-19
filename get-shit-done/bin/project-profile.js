@@ -145,21 +145,32 @@ function capabilitiesCheck(key, v) {
   if (v.ui_qa === undefined) return groups;
   const u = v.ui_qa;
   const known = uiQaDrivers.listDrivers();
-  if (isObject(u) && isNonEmptyString(u.driver) && !known.includes(u.driver)) {
-    return [...groups, problem(`${key}.ui_qa.driver`, `unknown driver "${u.driver}": known drivers are ${known.join(', ')}`)];
-  }
-  const ok = isObject(u) && isNonEmptyString(u.driver)
-    && (u.agent === undefined || isNonEmptyString(u.agent))
-    && (u.tool_prefix === undefined || typeof u.tool_prefix === 'string')
-    && (u.reset_patterns === undefined || isListOfNonEmpty(u.reset_patterns))
-    && (u.lock_wrappers === undefined || isListOfNonEmpty(u.lock_wrappers))
-    && (u.lock_file === undefined || isNonEmptyString(u.lock_file))
-    && (u.agent_aliases === undefined || isListOfNonEmpty(u.agent_aliases))
-    && (u.ops === undefined || isObject(u.ops))
-    && (u.recording === undefined || isObject(u.recording));
-  return ok
-    ? groups
-    : [...groups, problem(`${key}.ui_qa`, 'needs a non-empty driver; agent, tool_prefix, lock_file non-empty strings; reset_patterns and lock_wrappers non-empty string lists; ops and recording objects')];
+  const tierProblems = (t, path, want) => {
+    if (!isObject(t) || !isNonEmptyString(t.driver)) return [problem(path, 'needs a non-empty driver')];
+    if (!known.includes(t.driver)) return [problem(`${path}.driver`, `unknown driver "${t.driver}": known drivers are ${known.join(', ')}`)];
+    const kind = uiQaDrivers.kindOf(t.driver);
+    if (want !== undefined && kind !== want) return [problem(`${path}.driver`, `"${t.driver}" is a ${kind} driver; ${path} needs a ${want} driver`)];
+    if (kind === 'command' && !isNonEmptyString(t.command)) return [problem(`${path}.command`, `command driver "${t.driver}" needs a non-empty command`)];
+    const ok = (t.agent === undefined || isNonEmptyString(t.agent))
+      && (t.command === undefined || isNonEmptyString(t.command))
+      && (t.tool_prefix === undefined || typeof t.tool_prefix === 'string')
+      && (t.reset_patterns === undefined || isListOfNonEmpty(t.reset_patterns))
+      && (t.lock_wrappers === undefined || isListOfNonEmpty(t.lock_wrappers))
+      && (t.lock_file === undefined || isNonEmptyString(t.lock_file))
+      && (t.agent_aliases === undefined || isListOfNonEmpty(t.agent_aliases))
+      && (t.ops === undefined || isObject(t.ops))
+      && (t.recording === undefined || isObject(t.recording));
+    return ok ? [] : [problem(path, 'agent, command, tool_prefix, lock_file non-empty strings; reset_patterns and lock_wrappers non-empty string lists; ops and recording objects')];
+  };
+  const top = tierProblems(u, `${key}.ui_qa`);
+  if (top.length || !isObject(u)) return [...groups, ...top];
+  const topKind = uiQaDrivers.kindOf(u.driver);
+  const nested = topKind === 'command'
+    ? (u.mcp === undefined ? [] : tierProblems(u.mcp, `${key}.ui_qa.mcp`, 'mcp'))
+    : (u.scripted === undefined ? [] : tierProblems(u.scripted, `${key}.ui_qa.scripted`, 'command'));
+  const wrongKey = topKind === 'command' ? (u.scripted === undefined ? [] : [problem(`${key}.ui_qa.scripted`, 'only valid beside an MCP driver; this driver is already the scripted tier')])
+    : (u.mcp === undefined ? [] : [problem(`${key}.ui_qa.mcp`, 'only valid beside a command driver; this driver is already the MCP tier')]);
+  return [...groups, ...nested, ...wrongKey];
 }
 
 function isolationCheck(key, v) {

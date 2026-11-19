@@ -14,10 +14,11 @@ const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 
 const settings = () => readJson(path.join(DRIVERS_DIR, 'index.json'));
 
-function listDrivers() {
+function listDrivers(kind) {
   return fs.readdirSync(DRIVERS_DIR)
     .filter((f) => f.endsWith('.json') && f !== 'index.json')
     .map((f) => f.slice(0, -'.json'.length))
+    .filter((d) => kind === undefined || (readJson(path.join(DRIVERS_DIR, `${d}.json`)).kind === 'command' ? 'command' : 'mcp') === kind)
     .sort();
 }
 
@@ -44,18 +45,38 @@ function unknownDriverError(driver) {
   return new Error(`unknown ui_qa driver "${driver}": known drivers are ${listDrivers().join(', ')} (stack.capabilities.ui_qa.driver in .planning/config.json)`);
 }
 
+const isCommand = (adapter) => adapter?.kind === 'command';
+
 function loadAdapter(driver) {
   if (typeof driver !== 'string' || !DRIVER_RE.test(driver) || !listDrivers().includes(driver)) throw unknownDriverError(driver);
   return readJson(path.join(DRIVERS_DIR, `${driver}.json`));
 }
 
-// Config values win; ops merge per op name so a project can override one op without restating the rest.
-function resolveContract(uiQa) {
+const kindOf = (driver) => (isCommand(loadAdapter(driver)) ? 'command' : 'mcp');
+
+// Two tiers. Tier 1 "scripted": a command-kind driver that runs `command`. Tier 2 "mcp": an agent driving an MCP
+// browser. ui_qa.driver names whichever tier the project already uses; the other tier is a nested object
+// (ui_qa.mcp beside a command-kind driver, ui_qa.scripted beside an MCP one), so an existing config stays valid unedited.
+const MCP_INHERITED = ['agent', 'agent_aliases', 'lock_file', 'lock_wrappers', 'reset_patterns', 'roles', 'role_agents'];
+function mcpTier(uiQa) {
+  if (!isObject(uiQa) || typeof uiQa.driver !== 'string') return null;
+  if (kindOf(uiQa.driver) === 'mcp') return uiQa;
+  if (!isObject(uiQa.mcp)) return null;
+  const inherited = Object.fromEntries(MCP_INHERITED.filter((k) => uiQa.mcp[k] === undefined && uiQa[k] !== undefined && k !== 'agent').map((k) => [k, uiQa[k]]));
+  return { ...inherited, ...uiQa.mcp };
+}
+
+function resolveTier(uiQa) {
   if (!isObject(uiQa)) throw new Error('no ui_qa capability: declare stack.capabilities.ui_qa (with a driver) in .planning/config.json');
   const adapter = loadAdapter(uiQa.driver);
   const { description: _description, ...base } = adapter;
+  if (isCommand(adapter)) {
+    if (typeof uiQa.command !== 'string' || uiQa.command.trim() === '') throw new Error(`ui_qa driver "${uiQa.driver}" is a command driver: set stack.capabilities.ui_qa.command`);
+    return { ...base, agent: adapter.agent ?? defaultAgent(), ...uiQa, kind: 'command' };
+  }
   return {
     ...base,
+    kind: 'mcp',
     agent: defaultAgent(),
     ...uiQa,
     roles: roleTables(uiQa).roles,
@@ -66,7 +87,23 @@ function resolveContract(uiQa) {
   };
 }
 
+// Config values win; ops merge per op name so a project can override one op without restating the rest.
+function resolveContract(uiQa) {
+  const { mcp: nestedMcp, scripted: nestedScripted, ...own } = isObject(uiQa) ? uiQa : {};
+  const top = resolveTier(isObject(uiQa) ? own : uiQa);
+  if (top.kind === 'command') {
+    const mcp = isObject(nestedMcp) ? resolveTier(mcpTier(uiQa)) : undefined;
+    if (mcp && mcp.kind !== 'mcp') throw new Error('ui_qa.mcp must name an MCP-kind driver');
+    return mcp ? { ...top, mcp } : top;
+  }
+  if (nestedScripted === undefined) return top;
+  const scripted = resolveTier(nestedScripted);
+  if (scripted.kind !== 'command') throw new Error('ui_qa.scripted must name a command-kind driver');
+  return { ...top, scripted };
+}
+
 const fullToolName = (contract, op) => {
+  if (contract.kind === 'command') throw new Error(`ui_qa driver "${contract.driver}" is a command driver: it has no MCP ops`);
   const entry = contract.ops[op];
   if (!entry) throw new Error(`ui_qa driver "${contract.driver}" has no op "${op}"`);
   return entry.tool === null || entry.tool === undefined ? null : `${contract.tool_prefix}${entry.tool}`;
@@ -94,18 +131,19 @@ function roleViolation(contract, role, tool, toolInput) {
 function fillContract(uiQa) {
   if (!isObject(uiQa) || !listDrivers().includes(uiQa.driver)) return uiQa;
   const adapter = loadAdapter(uiQa.driver);
+  if (isCommand(adapter)) return uiQa.agent === undefined ? { agent: adapter.agent ?? defaultAgent(), ...uiQa } : uiQa;
   const defaults = { agent: defaultAgent(), tool_prefix: adapter.tool_prefix, lock_file: adapter.lock_file, recording: adapter.recording, agent_aliases: agentAliases() };
   return { ...Object.fromEntries(Object.entries(defaults).filter(([k]) => uiQa[k] === undefined)), ...uiQa };
 }
 
 // The keys that belong to one adapter: a switch replaces them and keeps everything the project set (lock_file, reset_patterns, agent, ...).
-const DRIVER_KEYS = ['driver', 'tool_prefix', 'ops', 'recording'];
-function switchDriver(current, driver) {
+const DRIVER_KEYS = ['driver', 'tool_prefix', 'ops', 'recording', 'command'];
+function switchDriver(current, driver, command) {
   const kept = Object.fromEntries(Object.entries(current).filter(([k]) => !DRIVER_KEYS.includes(k)));
-  return fillContract({ ...kept, driver });
+  return fillContract({ ...kept, driver, ...(command === undefined ? {} : { command }) });
 }
 
-const newContract = (driver) => fillContract({ driver: driver ?? defaultDriver() });
+const newContract = (driver, command) => fillContract({ driver: driver ?? defaultDriver(), ...(command === undefined ? {} : { command }) });
 
 function readUiQa(root) {
   const config = readJson(path.join(root, '.planning', 'config.json'));
@@ -125,9 +163,16 @@ function runCli(args, cwd) {
   try {
     switch (args[0]) {
       case 'drivers':
-        return { result: { default: defaultDriver(), drivers: listDrivers(), agent: defaultAgent(), agent_aliases: agentAliases() }, exitCode: 0 };
+        return { result: { default: defaultDriver(), drivers: listDrivers(), kinds: Object.fromEntries(listDrivers().map((d) => [d, kindOf(d)])), agent: defaultAgent(), agent_aliases: agentAliases() }, exitCode: 0 };
       case 'contract':
-        return { result: resolveContract(readUiQa(root)), exitCode: 0 };
+      {
+        const contract = resolveContract(readUiQa(root));
+        const tier = flag(args, '--tier');
+        if (tier === undefined) return { result: contract, exitCode: 0 };
+        const picked = tier === 'mcp' ? (contract.kind === 'mcp' ? contract : contract.mcp) : tier === 'scripted' ? (contract.kind === 'command' ? contract : contract.scripted) : undefined;
+        if (!['mcp', 'scripted'].includes(tier)) return fail('--tier must be mcp or scripted');
+        return picked ? { result: picked, exitCode: 0 } : fail(`ui_qa declares no ${tier} tier`);
+      }
       case 'apply': {
         const file = path.join(root, '.planning', 'config.json');
         const config = readJson(file);
@@ -136,7 +181,9 @@ function runCli(args, cwd) {
         if (wanted !== undefined) loadAdapter(wanted);
         if (isObject(current)) loadAdapter(current.driver);
         const switching = isObject(current) && wanted !== undefined && wanted !== current.driver;
-        const next = switching ? switchDriver(current, wanted) : isObject(current) ? fillContract(current) : newContract(wanted);
+        const command = flag(args, '--command');
+        const next = switching ? switchDriver(current, wanted, command) : isObject(current) ? fillContract(current) : newContract(wanted, command);
+        if (isCommand(loadAdapter(next.driver)) && (typeof next.command !== 'string' || next.command === '')) throw new Error(`ui_qa driver "${next.driver}" is a command driver: pass --command "<cmd>"`);
         const written = JSON.stringify(next) !== JSON.stringify(current);
         if (written) {
           const stack = isObject(config.stack) ? config.stack : {};
@@ -147,7 +194,7 @@ function runCli(args, cwd) {
         return { result: { written, ...(switching ? { switched: { from: current.driver, to: wanted }, changed } : {}), ui_qa: next }, exitCode: 0 };
       }
       default:
-        return fail('usage: ui-qa <drivers | contract [--root dir] | apply [--driver name] [--root dir]>');
+        return fail('usage: ui-qa <drivers | contract [--tier mcp|scripted] [--root dir] | apply [--driver name] [--command cmd] [--root dir]>');
     }
   } catch (e) {
     return fail(e.message);
@@ -156,6 +203,6 @@ function runCli(args, cwd) {
 
 module.exports = {
   runCli,
-  roleOf, knownPrefixes, roleViolation,
+  roleOf, knownPrefixes, kindOf, mcpTier, roleViolation,
   listDrivers, defaultDriver, defaultAgent, agentAliases, loadAdapter, resolveContract, fullToolName, fillContract, newContract, readUiQa,
 };

@@ -63,3 +63,8 @@ Residual risk:
 - `see` is one tool: the investigator role cannot be limited to `mode=model` versus `logs=console`; `see` stays open to it.
 - A hook failure (unreadable contract) fails open on the role check; the wrong-driver deny needs only the adapter files.
 - The role check keys on the calling agent's name; a project that renames an agent must add it to `ui_qa.role_agents`.
+
+## Two tiers: scripted and MCP
+
+Every adapter has `kind`: `mcp` (charlotte, bladebro: an agent drives a browser through MCP tools) or `command` (playwright: runs `ui_qa.command`, no tool_prefix, no ops, agent default `gsd2-runner`). `ui_qa.driver` names the tier a project already uses, so a scripted-only config (`driver: playwright, command: ...`) stays valid unedited.
+The other tier is a nested object: `ui_qa.mcp = {driver: "charlotte"}` beside a command driver, `ui_qa.scripted = {driver: "playwright", command: ...}` beside an MCP driver. `gsd-tools ui-qa contract --tier mcp|scripted` returns one tier; the lock hook acts only on the MCP tier and is a no-op for a command-only project.

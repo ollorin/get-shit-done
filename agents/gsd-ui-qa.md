@@ -16,7 +16,7 @@ If a key you need is missing, stop and report the key. Never substitute a defaul
 
 <ui_qa_driver>
 The browser driver is chosen by the project, not by this file. Before the first browser call run
-`node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" ui-qa contract` and keep its JSON: `driver`, `tool_prefix`,
+`node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" ui-qa contract --tier mcp` and keep its JSON: `driver`, `tool_prefix`,
 `lock_file`, `ops`, `recording`. An error (unknown driver, no `ui_qa` capability) is a hard stop: return it verbatim
 as `blocked`, never guess a driver.
 
