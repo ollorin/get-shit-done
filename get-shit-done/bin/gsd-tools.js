@@ -234,6 +234,7 @@ const topModel = require('./top-model.js');
 const phaseBudget = require('./phase-budget.js');
 const dispatchLease = require('./dispatch-lease.js');
 const formCheck = require('./form-check.js');
+const testWorklist = require('./test-worklist.js');
 const reviewGate = require('./review-gate.js');
 const spikeCheck = require('./spike-check.js');
 const roadmapBox = require('./roadmap-box.js');
@@ -11240,6 +11241,53 @@ function phaseBase(cwd, phase) {
   return '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 }
 
+// test-worklist / verify steward-return: see test-worklist.js. The worklist of a phase is saved to {phase_dir}/captures/test-worklist.json,
+// the file the return check reads.
+function stewardPhase(cwd, args) {
+  const phase = args.includes('--phase') ? args[args.indexOf('--phase') + 1] : null;
+  const info = phase ? findPhaseInternal(cwd, phase) : null;
+  if (phase && !info) error(`phase ${phase} not found`);
+  return info;
+}
+
+function cmdTestWorklist(cwd, args) {
+  const flag = (n) => (args.includes(n) ? args[args.indexOf(n) + 1] : null);
+  const info = stewardPhase(cwd, args);
+  const dir = flag('--dir');
+  if (!info && !dir) error('Usage: gsd-tools test-worklist (--phase N | --dir <path>) [--no-run] [--out <file>]');
+  const commands = (readRawConfig(cwd).stack || {}).commands || {};
+  let worklist;
+  try {
+    worklist = testWorklist.buildWorklist({ cwd, base: info ? phaseBase(cwd, info.phase_number) : null, dir, commands, run: !args.includes('--no-run') });
+  } catch (e) { error(`test-worklist: ${e.message}`); }
+  const out = flag('--out') || (info && !args.includes('--no-run') ? path.join(info.directory, 'captures', 'test-worklist.json') : null);
+  if (out) {
+    fs.mkdirSync(path.dirname(path.resolve(cwd, out)), { recursive: true });
+    fs.writeFileSync(path.resolve(cwd, out), JSON.stringify(worklist, null, 2) + '\n');
+  }
+  writeStdoutSync(JSON.stringify(worklist, null, 2) + '\n');
+}
+
+function cmdVerifyStewardReturn(cwd, args) {
+  const flag = (n) => (args.includes(n) ? args[args.indexOf(n) + 1] : null);
+  const file = flag('--file');
+  const info = stewardPhase(cwd, args);
+  const wlPath = flag('--worklist') || (info ? path.join(info.directory, 'captures', 'test-worklist.json') : null);
+  if (!file || !wlPath) error('Usage: gsd-tools verify steward-return (--phase N | --worklist <file>) --file <return.md>');
+  let worklist;
+  if (fs.existsSync(path.resolve(cwd, wlPath))) worklist = JSON.parse(fs.readFileSync(path.resolve(cwd, wlPath), 'utf8'));
+  else if (info) {
+    try { worklist = testWorklist.buildWorklist({ cwd, base: phaseBase(cwd, info.phase_number), commands: {}, run: false }); } catch (e) { error(`steward-return: ${e.message}`); }
+  } else error(`steward-return: worklist ${wlPath} not found`);
+  if (!fs.existsSync(path.resolve(cwd, file))) error(`steward-return: return file ${file} not found`);
+  const errors = testWorklist.checkReturn(fs.readFileSync(path.resolve(cwd, file), 'utf8'), worklist);
+  writeStdoutSync(JSON.stringify({ ok: errors.length === 0, errors }, null, 2) + '\n');
+  if (errors.length) {
+    process.stderr.write(`steward return incomplete:\n${errors.map((e) => `- ${e}`).join('\n')}\n`);
+    process.exit(1);
+  }
+}
+
 // init plan-phase: notice only, never a block. A risk phase whose size passes the sizer limits (estimated or on-disk plans, success criteria),
 // or a configured wall-minute budget above twice the class default, prints one notice each.
 function sizerNotices(cwd, phase, planCount, risk) {
@@ -14095,7 +14143,7 @@ async function main() {
 
   // A flag token is a flag only outside value position: not directly after another `--flag`, and (for -h) not the
   // positional commit message.
-  const asValue = (i) => i > 0 && /^--[\w-]+$/.test(args[i - 1]);
+  const asValue = (i) => i > 0 && /^--[\w-]+$/.test(args[i - 1]) && args[i - 1] !== '--no-run';
 
   // Global --cwd <dir>: run every command against that project (process.cwd() everywhere follows).
   const cwdIndex = args.findIndex((a, i) => a === '--cwd' && !asValue(i));
@@ -14306,6 +14354,8 @@ async function main() {
         cmdVerifyMigrationTimestamps(cwd, raw);
       } else if (subcommand === 'dependency-stability') {
         cmdVerifyDependencyStability(cwd, args[2], raw);
+      } else if (subcommand === 'steward-return') {
+        cmdVerifyStewardReturn(cwd, args.slice(2));
       } else if (subcommand === 'form') {
         cmdVerifyForm(cwd, args.slice(2), raw);
       } else if (subcommand === 'phase-gate') {
@@ -15075,6 +15125,11 @@ async function main() {
       } else {
         error('Unknown eval-candidate subcommand. Available: from-debug, from-verification, list, accept, reject');
       }
+      break;
+    }
+
+    case 'test-worklist': {
+      cmdTestWorklist(cwd, args.slice(1));
       break;
     }
 
