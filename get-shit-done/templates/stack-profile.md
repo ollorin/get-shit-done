@@ -25,6 +25,7 @@ The block below is written from `.planning/config.json` `stack.commands` when th
 | search | [stack.commands.search] |
 | test_timing | [stack.commands.test_timing, optional: prints per-file seconds as JSON] |
 | residue_check | [stack.commands.residue_check, optional: prints the count of rows or files tests left behind] |
+| unused_code | [stack.commands.unused_code, optional: finds unused code and dependencies; when set, `project init` and `project sync` add the `unused-code` gate] |
 <!-- gsd:end commands -->
 
 ## Test Command Shapes

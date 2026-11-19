@@ -125,14 +125,29 @@ function detectRuleSet(root) {
 }
 
 // An existing gate with the same id is never changed and none is removed; a non-array stack.gates is left for validation.
-function withDefaultGates(gates, capabilities) {
+function withDefaultGates(gates, capabilities, commands) {
   if (gates !== undefined && !Array.isArray(gates)) return gates;
   const current = gates ?? [];
   const wanted = DEFAULT_GATES
     .filter((g) => g.capability === undefined || isObject(capabilities?.[g.capability]))
     .filter((g) => !current.some((e) => isObject(e) && e.id === g.id))
     .map(({ id, run }) => ({ id, run }));
-  return [...current, ...wanted];
+  return [...current, ...wanted, ...unusedCodeGate(current, commands)];
+}
+
+// The unused-code gate runs stack.commands.unused_code; a project without the key gets no gate, and an existing entry is kept.
+function unusedCodeGate(current, commands) {
+  const run = isObject(commands) ? commands.unused_code : undefined;
+  if (typeof run !== 'string' || ['', 'none', 'null', 'true'].includes(run.trim()) || current.some((e) => isObject(e) && e.id === 'unused-code')) return [];
+  return [{ id: 'unused-code', run }];
+}
+
+// Sync and diff: appends the unused-code gate when the key is set and the gate is absent; nothing else in stack.gates changes.
+function withUnusedCodeGate(config) {
+  const { gates, commands } = config.stack;
+  if (!Array.isArray(gates)) return config;
+  const added = unusedCodeGate(gates, commands);
+  return added.length === 0 ? config : { ...config, stack: { ...config.stack, gates: [...gates, ...added] } };
 }
 
 // Adds slug, port_base and the base defaults where absent. Never creates stack.capabilities or adds ui_qa.
@@ -146,6 +161,7 @@ function applyToConfig(config, { slug, port_base: portBase, root }) {
   const { stack } = config;
   const neverTouch = Array.isArray(stack.deploy?.never_touch) ? stack.deploy.never_touch : [];
   const capabilities = fill(stack.capabilities, { backend: {}, web_ui: {} });
+  const commands = fill(stack.commands, { search: 'git grep -n', pre_pr_gate: 'scripts/pre-pr-gate.sh' });
   return {
     ...config,
     project: fill(config.project, { owner_title: 'owner' }),
@@ -153,10 +169,10 @@ function applyToConfig(config, { slug, port_base: portBase, root }) {
       ...stack,
       isolation: fill(stack.isolation, { port_base: portBase, container_suffix: slug }),
       branch: fill(stack.branch, { default: 'main' }),
-      commands: fill(stack.commands, { search: 'git grep -n', pre_pr_gate: 'scripts/pre-pr-gate.sh' }),
+      commands,
       capabilities,
       style: stack.style === undefined ? { ...DEFAULT_STYLE, rule_set: root === undefined ? DEFAULT_STYLE.rule_set : detectRuleSet(root) } : stack.style,
-      gates: withDefaultGates(stack.gates, capabilities),
+      gates: withDefaultGates(stack.gates, capabilities, commands),
       deploy: { ...(isObject(stack.deploy) ? stack.deploy : {}), ...deploySlots(neverTouch) },
     },
   };
@@ -213,7 +229,7 @@ function syncSlots(root) {
     return null;
   }
   if (!isObject(config) || !isObject(config.stack)) return null;
-  const next = withRederivedSlots(config);
+  const next = withUnusedCodeGate(withRederivedSlots(config));
   if (next === config) return null;
   writeJson(file, next);
   return before;
