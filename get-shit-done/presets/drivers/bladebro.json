@@ -150,9 +150,12 @@
       "args": {
         "action": "wait",
         "condition": "{condition}",
+        "text": "{text}",
+        "selector": "{selector}",
+        "js": "{js}",
         "timeout": "{seconds}"
       },
-      "note": "condition: element|selector|title|settle|network|network-idle|url|text|js"
+      "note": "condition: element|selector|title|settle|network|network-idle|url|text|js. Pass only the match value the condition needs and omit the other placeholders: element, title, url and text take `text`; selector takes `selector`; js takes `js`; settle, network and network-idle take none. Bladebro rejects a wait without a match value (except settle/network)."
     },
     "console": {
       "tool": "see",
