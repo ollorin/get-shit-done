@@ -79,6 +79,10 @@ function insertKnowledge(db, {
   metadata = {},
   project_slug = null
 }) {
+  if (type === 'principle' && isPlaceholderPrincipleText(content)) {
+    throw new Error('insertKnowledge: refusing to store a placeholder/template principle')
+  }
+
   // 1. Compute content hash (SHA-256)
   const hash = crypto.createHash('sha256').update(content).digest('hex')
 
@@ -300,7 +304,24 @@ function refreshTTL(db, id, ttlCategory = null) {
 
 // ─── Exports ───────────────────────────────────────────────────────────────
 
+/**
+ * True when a principle's text is empty, is nothing but a placeholder token
+ * (placeholder, todo, tbd, lorem ipsum, "..." or a bare {{...}} template), or is
+ * the unsynthesized consolidation stub ("For <topic>: <first words>...").
+ * Real sentences that merely contain those words are accepted.
+ */
+function isPlaceholderPrincipleText(text) {
+  if (typeof text !== 'string') return true
+  const t = text.trim()
+  if (t === '') return true
+  if (/^For [^:\n]+: [\s\S]*\.\.\.$/.test(t)) return true
+  const core = t.replace(/^[\s.!?,;:]+|[\s.!?,;:]+$/g, '')
+  if (core === '') return true
+  return /^(placeholder|todo|tbd|lorem ipsum)$/i.test(core) || /^\{\{[^{}]*\}\}$/.test(core)
+}
+
 module.exports = {
+  isPlaceholderPrincipleText,
   insertKnowledge,
   getKnowledge,
   getKnowledgeByType,

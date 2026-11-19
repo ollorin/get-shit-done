@@ -72,6 +72,16 @@ function mergeMemories(existing, newContent, options = {}) {
  * @returns {Promise<object>} { action, id?, similarity?, ... }
  */
 async function insertOrEvolve(conn, entry, options = {}) {
+  if (entry && entry.type === 'principle') {
+    const { isPlaceholderPrincipleText } = require('./knowledge-crud.js');
+    if (isPlaceholderPrincipleText(entry.content)) {
+      throw new Error('insertOrEvolve: refusing to store a placeholder/template principle');
+    }
+    const source = entry.metadata && entry.metadata.synthesis_source;
+    if (typeof source !== 'string' || source === '') {
+      throw new Error('insertOrEvolve: refusing to store a principle without synthesis provenance (metadata.synthesis_source)');
+    }
+  }
   // Serialize all writes through a promise chain to prevent concurrent
   // check→write races (two callers seeing "evolve entry #X" and overwriting each other)
   const result = await new Promise((resolve, reject) => {
@@ -212,13 +222,19 @@ function _insertOrEvolveImpl(conn, entry, options = {}) {
  * @param {object} conn - Database connection object
  * @param {Array} extractions - Array of extracted entries
  * @param {object} options - Processing options
- * @returns {Promise<object>} { created, evolved, skipped, errors }
+ * @returns {Promise<object>} { created, evolved, skipped, skipped_principles, errors }
  */
 async function processExtractionBatch(conn, extractions, options = {}) {
   const { generateEmbedding } = require('./embeddings.js');
-  const results = { created: 0, evolved: 0, skipped: 0, errors: [] };
+  const results = { created: 0, evolved: 0, skipped: 0, skipped_principles: 0, errors: [] };
 
   for (const ext of extractions) {
+    // Extraction is not synthesis: principles need synthesis provenance, which
+    // extraction never has, so they are skipped here, not written.
+    if (ext.type === 'principle') {
+      results.skipped_principles++;
+      continue;
+    }
     try {
       // Generate embedding if not provided
       const embedding = ext.embedding || await generateEmbedding(ext.content);

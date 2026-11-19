@@ -3891,9 +3891,9 @@ function cmdKnowledgeStats(cwd, args, raw) {
 // `consolidate_knowledge` step calls — never a parallel implementation.
 // --principles '<json array>' lets a caller with real Haiku-synthesized text
 // (i.e. the workflow step, AFTER it has spawned Agent() calls per cluster)
-// feed that text into this same function. Without --principles, every cluster
-// falls back to the stub inside synthesizePrinciples — useful for ad hoc
-// manual exercising of clustering/confidence/conflict-detection logic.
+// feed that text into this same function. Without --principles nothing is
+// written: synthesizePrinciples returns reason 'synthesis_not_run' plus the
+// discovered clusters.
 async function cmdKnowledgeConsolidate(cwd, args, raw) {
   const scope = args.includes('--scope') ? args[args.indexOf('--scope') + 1] : 'global';
 

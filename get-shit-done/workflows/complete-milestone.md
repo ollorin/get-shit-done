@@ -612,7 +612,7 @@ CLUSTERS_JSON=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" knowledge co
 ```
 Parse `reason` and `clusters_found` from `CLUSTERS_JSON`. **If `reason === 'circuit_breaker_blocked'`:** log "Milestone consolidation skipped (cost circuit breaker enabled)" and skip straight to writing the metadata file (below) with zero counts. **If `reason === 'insufficient_knowledge'` or `clusters_found === 0`:** log "Milestone consolidation: no sufficient clusters found" and skip to the metadata file with zero counts — do not force a principle.
 
-**Otherwise, for each cluster found (from the discovery call's cluster data above — that discovery call already clustered AND inserted using the stub fallback; that insertion is informational only and gets superseded by the finalize step below), spawn one Haiku synthesis call per cluster:**
+**Otherwise, for each cluster found (from the discovery call's cluster data above — that discovery call only clusters and returns `reason: "synthesis_not_run"` with a `clusters` array; it writes nothing), spawn one Haiku synthesis call per cluster:**
 ```
 Agent(
   subagent_type="general-purpose",
@@ -622,13 +622,15 @@ Agent(
   prompt="These are related lessons/decisions from a completed milestone: {cluster.examples joined}. Write ONE concise, actionable principle statement (1-2 sentences) that captures the common pattern. Do not include preamble — return only the principle text."
 )
 ```
-If the Agent() call throws or returns empty, fall back to using the cluster's already-stubbed text from the discovery call — non-fatal, never blocks the loop.
+If the Agent() call throws or returns empty, omit that cluster from the `--principles` list — non-fatal, never blocks the loop. Never write template or placeholder text: the store rejects it.
+
+**If no cluster got real synthesized text** (Agent() never ran or every call failed): do NOT run the finalize command; log "Milestone consolidation skipped: synthesis not run" and go to the metadata file with zero counts.
 
 **Finalize with real text:**
 ```bash
 node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" knowledge consolidate --scope global --raw --principles '[{"topic":"...","text":"..."}, ...]'
 ```
-This re-runs clustering deterministically and applies the real synthesized text + conflict detection, per Phase 49-03's design — inserting principles with the Haiku-generated text (or the stub fallback for any cluster whose Agent() call failed). This is the exact same `synthesizePrinciples` function called by the manual `knowledge consolidate` backstop — never a parallel implementation.
+This re-runs clustering deterministically and applies the real synthesized text + conflict detection, per Phase 49-03's design — inserting principles only for clusters with Haiku-generated text (clusters without text are skipped and counted in `skipped_unsynthesized`). This is the exact same `synthesizePrinciples` function called by the manual `knowledge consolidate` backstop — never a parallel implementation.
 
 **Write metadata file (always runs):**
 Write `.planning/milestones/v[X.Y]-CONSOLIDATION.md`:

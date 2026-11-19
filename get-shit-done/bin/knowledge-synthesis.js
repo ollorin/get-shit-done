@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { generateEmbedding } = require('./embeddings.js');
+const { isPlaceholderPrincipleText } = require('./knowledge-crud.js');
 
 const SYNTHESIS_CONFIG = {
   min_cluster_size: 5,       // Minimum examples to form principle
@@ -226,8 +227,24 @@ async function synthesizePrinciples(conn, options = {}, synthesizeFn) {
     return { synthesized: 0, reason, clusters_found: 0, conflicts_flagged: 0, principles: [] };
   }
 
+  if (!synthesizeFn) {
+    return {
+      synthesized: 0,
+      reason: 'synthesis_not_run',
+      clusters_found: clusters.length,
+      conflicts_flagged: 0,
+      principles: [],
+      clusters: clusters.map(c => ({
+        topic: c.topic,
+        size: c.size,
+        examples: c.members.slice(0, 5).map(m => m.content)
+      }))
+    };
+  }
+
   const principles = [];
   let conflictsFlagged = 0;
+  let skippedUnsynthesized = 0;
 
   for (const cluster of clusters.slice(0, SYNTHESIS_CONFIG.max_principles)) {
     const principle = extractPrinciple(cluster);
@@ -237,15 +254,15 @@ async function synthesizePrinciples(conn, options = {}, synthesizeFn) {
       continue;
     }
 
-    // A2: injectable synthesizer — if supplied and it returns usable text,
-    // that text replaces the stub. If it returns nothing (undefined/null/
-    // empty string), fall through to the stub already computed above.
-    if (synthesizeFn) {
-      const synthesizedText = await synthesizeFn(cluster);
-      if (synthesizedText !== undefined && synthesizedText !== null && synthesizedText !== '') {
-        principle.rule = synthesizedText;
-      }
+    // A2: a principle is persisted only with text a synthesizer supplied.
+    // The stub in extractPrinciple() is never written: no synthesizer, or an
+    // empty/placeholder result, skips the cluster.
+    const synthesizedText = synthesizeFn ? await synthesizeFn(cluster) : undefined;
+    if (isPlaceholderPrincipleText(synthesizedText)) {
+      skippedUnsynthesized++;
+      continue;
     }
+    principle.rule = synthesizedText;
 
     // A3: conflict detection — query existing same-topic principles before
     // inserting. If none exist, proceed straight to insertOrEvolve (unchanged
@@ -312,6 +329,7 @@ async function synthesizePrinciples(conn, options = {}, synthesizeFn) {
         examples: principle.examples,
         source_count: principle.source_count,
         source_ids: principle.source_ids,
+        synthesis_source: 'synthesizer',
         synthesized_at: Date.now()
       }
     });
@@ -327,6 +345,7 @@ async function synthesizePrinciples(conn, options = {}, synthesizeFn) {
     synthesized: principles.length,
     clusters_found: clusters.length,
     conflicts_flagged: conflictsFlagged,
+    skipped_unsynthesized: skippedUnsynthesized,
     principles
   };
 }
