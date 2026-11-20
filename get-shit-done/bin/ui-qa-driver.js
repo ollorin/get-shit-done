@@ -117,39 +117,91 @@ const fullToolName = (contract, op) => {
   return entry.tool === null || entry.tool === undefined ? null : `${contract.tool_prefix}${entry.tool}`;
 };
 
-// Why a call to the configured driver is outside the role's op allowlist, or null. One driver bundles ops inside `act`,
-// so an `act` call is matched on its `action` argument; every other tool is matched on its name.
-function roleViolation(contract, role, tool, toolInput) {
-  const allowed = contract.roles?.[role];
-  if (!Array.isArray(allowed) || !tool.startsWith(contract.tool_prefix)) return null;
-  const bare = tool.slice(contract.tool_prefix.length);
-  const action = isObject(toolInput) ? toolInput.action : undefined;
-  const hit = allowed.some((op) => {
-    const entry = contract.ops[op];
-    if (!entry || entry.tool !== bare) return false;
-    return entry.args?.action === undefined || entry.args.action === action;
-  });
-  if (hit) return null;
-  const what = action === undefined ? bare : `${bare} action=${action}`;
-  return `role "${role}" may not call ${what} (allowed ops: ${allowed.join(', ')})`;
-}
-
 // Logical ops a (tool, args) call performs. An op matches when its tool is the called tool and every constant arg it
 // declares (not a {placeholder}) equals the call arg; the ops with the most constants win, ties are all returned
 // (one bundled tool call can be several ops, e.g. fill is toggle and submit). The ops map is the only source, so a runner or hook can
 // forbid logical ops for either driver.
+//
+// The result is never empty and never fails open: a call the ops map cannot place yields `unknown`. The adapter's optional `composite`
+// block (a driver whose tools nest steps: batch, run, if/while, wait) makes the resolver return the union over every nested step, and `composite.js_guards`
+// add the `js_op` (evaluate) to any call form that runs page JS without being the eval op (wait condition=js, if/while condition=js).
+const UNKNOWN_OP = 'unknown';
+const MAX_NESTING = 32;
+const CHILD_KEYS = ['steps', 'then', 'else'];
 const isPlaceholder = (v) => typeof v === "string" && /^\{[a-z_]+\}$/.test(v);
-function opsOf(contract, tool, args) {
-  if (contract.kind === "command") throw new Error(`ui_qa driver "${contract.driver}" is a command driver: it has no MCP ops`);
-  const prefix = contract.tool_prefix ?? "";
-  const bare = prefix !== "" && String(tool).startsWith(prefix) ? String(tool).slice(prefix.length) : String(tool);
-  const input = isObject(args) ? args : {};
+const nonEmptyString = (v) => typeof v === 'string' && v !== '';
+
+function leafOps(contract, bare, input) {
   const scored = Object.entries(contract.ops)
     .filter(([, e]) => e.tool === bare)
     .map(([op, e]) => ({ op, constants: Object.entries(e.args ?? {}).filter(([, v]) => !isPlaceholder(v) && typeof v !== "object") }))
     .filter(({ constants }) => constants.every(([k, v]) => input[k] === v));
   const best = Math.max(0, ...scored.map((c) => c.constants.length));
-  return scored.filter((c) => c.constants.length === best).map((c) => c.op).sort();
+  return scored.filter((c) => c.constants.length === best).map((c) => c.op);
+}
+
+const runsPageJs = (guards, bare, input) => (Array.isArray(guards) ? guards : []).some((g) => g.tool === bare
+  && (g.actions === undefined || g.actions.includes(input.action))
+  && ((g.condition_key !== undefined && input[g.condition_key] === 'js') || nonEmptyString(input[g.js_key])));
+
+// A step inside batch/run as the (tool, args) call it stands for; null when it is not an object with a string action.
+function stepCall(comp, step) {
+  if (!isObject(step) || typeof step.action !== 'string') return null;
+  const tool = comp.step_tools?.[step.action];
+  if (tool !== undefined) return { bare: tool, input: step };
+  if ((comp.state_actions ?? []).includes(step.action)) return { bare: comp.state_tool, input: { ...step, op: step.op ?? step.action } };
+  return { bare: comp.step_tool, input: { ...step, action: comp.step_action_aliases?.[step.action] ?? step.action } };
+}
+
+function collectOps(contract, bare, input, depth, out) {
+  const comp = isObject(contract.composite) ? contract.composite : undefined;
+  const ops = leafOps(contract, bare, input);
+  ops.forEach((op) => out.add(op));
+  if (comp && runsPageJs(comp.js_guards, bare, input)) out.add(comp.js_op);
+  const structural = comp && ((depth === 0 && (comp.container_tools ?? []).includes(bare))
+    || (bare === comp.step_tool && (comp.structural_actions ?? []).includes(input.action)));
+  if (!structural) {
+    if (ops.length === 0) out.add(UNKNOWN_OP);
+    return;
+  }
+  if (depth >= MAX_NESTING) { out.add(UNKNOWN_OP); return; }
+  const present = CHILD_KEYS.filter((k) => input[k] !== undefined);
+  if (present.length === 0 || present.some((k) => !Array.isArray(input[k]))) out.add(UNKNOWN_OP);
+  for (const step of present.flatMap((k) => (Array.isArray(input[k]) ? input[k] : []))) {
+    const call = stepCall(comp, step);
+    if (call) collectOps(contract, call.bare, call.input, depth + 1, out);
+    else out.add(UNKNOWN_OP);
+  }
+}
+
+function opsOf(contract, tool, args) {
+  if (contract.kind === "command") throw new Error(`ui_qa driver "${contract.driver}" is a command driver: it has no MCP ops`);
+  if (args !== undefined && args !== null && !isObject(args)) return [UNKNOWN_OP];
+  const prefix = contract.tool_prefix ?? "";
+  const bare = prefix !== "" && String(tool).startsWith(prefix) ? String(tool).slice(prefix.length) : String(tool);
+  const out = new Set();
+  collectOps(contract, bare, args ?? {}, 0, out);
+  return out.size === 0 ? [UNKNOWN_OP] : [...out].sort();
+}
+
+// Why a call to the configured driver is outside the role's op allowlist, or null. Every op the call resolves to (opsOf: nested
+// batch/run steps and JS-running waits included) must be in the allowlist; `unknown` never is. One exception keeps the documented
+// residual: an op of a tool with no action/op discriminator (a read-only `see`-style tool) passes when the role holds any op of that same tool.
+function roleViolation(contract, role, tool, toolInput) {
+  const allowed = contract.roles?.[role];
+  if (!Array.isArray(allowed) || !tool.startsWith(contract.tool_prefix)) return null;
+  const bare = tool.slice(contract.tool_prefix.length);
+  const open = (op) => {
+    const entry = contract.ops[op];
+    return entry !== undefined && entry.args?.action === undefined && entry.args?.op === undefined
+      && allowed.some((a) => contract.ops[a]?.tool === entry.tool);
+  };
+  const ops = opsOf(contract, tool, toolInput);
+  const bad = ops.filter((op) => !allowed.includes(op) && !open(op));
+  if (bad.length === 0) return null;
+  const action = isObject(toolInput) ? toolInput.action : undefined;
+  const what = action === undefined ? bare : `${bare} action=${action}`;
+  return `role "${role}" may not call ${what} (ops outside the role: ${bad.join(', ')}; allowed ops: ${allowed.join(', ')})`;
 }
 
 // Per-instance environment: isolation.env with {instance} filled in. A driver whose isolation is launch_op has no env to set;
@@ -241,8 +293,12 @@ function runCli(args, cwd) {
         const raw = flag(args, "--args");
         const tool = flag(args, "--tool");
         if (tool === undefined) return fail("op-of needs --tool <name> [--args <json>] [--driver name]");
-        const ops = opsOf(cliContract(args, root), tool, raw === undefined ? {} : JSON.parse(raw));
-        return { result: { tool, op: ops[0] ?? null, ops }, exitCode: 0 };
+        const contract = cliContract(args, root);
+        let parsed;
+        try { parsed = raw === undefined ? {} : JSON.parse(raw); } catch { parsed = null; }
+        const ops = parsed === null ? [UNKNOWN_OP] : opsOf(contract, tool, parsed);
+        const unknown = ops.includes(UNKNOWN_OP);
+        return { result: { tool, ops, unknown }, exitCode: unknown ? 3 : 0 };
       }
       case "instance-env":
         return { result: instanceEnv(cliContract(args, root), flag(args, "--instance")), exitCode: 0 };
@@ -285,6 +341,6 @@ function runCli(args, cwd) {
 
 module.exports = {
   runCli,
-  roleOf, opsOf, instanceEnv, knownPrefixes, kindOf, mcpTier, roleViolation,
+  roleOf, opsOf, UNKNOWN_OP, instanceEnv, knownPrefixes, kindOf, mcpTier, roleViolation,
   listDrivers, defaultDriver, defaultAgent, agentAliases, loadAdapter, resolveContract, resolveMcpTier, fullToolName, fillContract, newContract, readUiQa,
 };

@@ -23,6 +23,49 @@
       "BLADE_HOME": ".tmp/bladebro/{instance}"
     }
   },
+  "composite": {
+    "description": "How one call nests other calls and where page JS runs without the eval op. opsOf returns the union over every nested step; a call it cannot place is the op `unknown`.",
+    "container_tools": [
+      "run"
+    ],
+    "step_tool": "act",
+    "structural_actions": [
+      "batch",
+      "if",
+      "while"
+    ],
+    "step_tools": {
+      "see": "see",
+      "extract": "see",
+      "state": "state"
+    },
+    "state_tool": "state",
+    "state_actions": [
+      "open-tab",
+      "close-tab",
+      "switch-tab",
+      "save",
+      "load",
+      "cookies",
+      "set-cookie"
+    ],
+    "step_action_aliases": {
+      "js": "eval"
+    },
+    "js_op": "evaluate",
+    "js_guards": [
+      {
+        "tool": "act",
+        "actions": [
+          "wait",
+          "if",
+          "while"
+        ],
+        "condition_key": "condition",
+        "js_key": "js"
+      }
+    ]
+  },
   "ops": {
     "configure": {
       "tool": null,
@@ -142,7 +185,7 @@
       "tool": "act",
       "args": {
         "action": "scroll",
-        "dx": 0,
+        "dx": "{dx}",
         "dy": "{dy}"
       }
     },
@@ -197,9 +240,9 @@
       "args": {
         "action": "read",
         "ref": "{ref}",
-        "format": "json"
+        "format": "{format}"
       },
-      "note": "live value and toggle state, plus select options; address by ref or label"
+      "note": "live value and toggle state, plus select options; address by ref or label; pass format=json for structured output"
     },
     "evaluate": {
       "tool": "act",
@@ -213,7 +256,7 @@
       "args": {
         "action": "dialog",
         "expect": "{kind}",
-        "accept": true
+        "accept": "{accept}"
       },
       "note": "arm before the action that opens the dialog"
     },
@@ -228,7 +271,7 @@
     "screenshot": {
       "tool": "vision",
       "args": {
-        "full_page": true
+        "full_page": "{full_page}"
       },
       "note": "returns the image inline and prints the saved PNG path; there is no filename argument. Demo: pass the printed path to demo-check register-shot (artifact_index register)"
     },

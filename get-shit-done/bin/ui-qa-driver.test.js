@@ -78,7 +78,7 @@ describe('driver adapters', () => {
   test('bladebro maps requests to see logs=xhr and read_state to act action=read; charlotte has read_state as a workaround', () => {
     const b = driver.loadAdapter('bladebro').ops;
     assert.deepStrictEqual({ tool: b.requests.tool, args: b.requests.args }, { tool: 'see', args: { logs: 'xhr' } });
-    assert.deepStrictEqual({ tool: b.read_state.tool, args: b.read_state.args }, { tool: 'act', args: { action: 'read', ref: '{ref}', format: 'json' } });
+    assert.deepStrictEqual({ tool: b.read_state.tool, args: b.read_state.args }, { tool: 'act', args: { action: 'read', ref: '{ref}', format: '{format}' } });
     const c = driver.loadAdapter('charlotte').ops;
     assert.strictEqual(c.read_state.tool, null);
     assert.match(c.read_state.workaround, /observe/);
@@ -478,18 +478,72 @@ describe('logical op resolver, per-instance env, wait_for match keys', () => {
     assert.deepStrictEqual(opOf('bladebro', 'mcp__bladebro__act', { action: 'eval', js: '1' }), ['evaluate']);
     assert.deepStrictEqual(opOf('bladebro', 'act', { action: 'navigate', url: 'x' }), ['navigate']);
     assert.deepStrictEqual(opOf('charlotte', 'mcp__charlotte__charlotte_evaluate', {}), ['evaluate']);
-    assert.deepStrictEqual(opOf('bladebro', 'act', { action: 'nope' }), []);
+    assert.deepStrictEqual(opOf('bladebro', 'act', { action: 'nope' }), ['unknown']);
     assert.deepStrictEqual(opOf('bladebro', 'see', { logs: 'xhr' }), ['requests']);
   });
 
   test('op-of CLI resolves with --driver and with the project driver; a shared tool returns every op it can be', () => {
     const r = cliArgs('op-of', '--tool', 'mcp__bladebro__act', '--args', '{"action":"eval"}', '--driver', 'bladebro');
-    assert.deepStrictEqual([r.status, r.json.op, r.json.ops], [0, 'evaluate', ['evaluate']]);
+    assert.deepStrictEqual([r.status, r.json.ops, r.json.unknown, 'op' in r.json], [0, ['evaluate'], false, false]);
     const p = cli(project({ driver: 'charlotte' }), 'op-of', '--tool', 'charlotte_evaluate');
-    assert.strictEqual(p.json.op, 'evaluate');
+    assert.deepStrictEqual(p.json.ops, ['evaluate']);
     const fill = driver.opsOf(driver.resolveContract({ driver: 'bladebro' }), 'act', { action: 'fill' });
     assert.deepStrictEqual(fill, ['submit', 'toggle']);
     assert.strictEqual(cliArgs('op-of', '--driver', 'bladebro').status, 1);
+  });
+
+  describe('every call form that runs page JS or is unmapped is accounted for', () => {
+    const B = (args, tool = 'mcp__bladebro__act') => opOf('bladebro', tool, args);
+    const evalStep = { action: 'eval', js: 'document.cookie' };
+
+    test('act wait condition=js (and a bare js field) is evaluate as well as wait_for', () => {
+      assert.deepStrictEqual(B({ action: 'wait', condition: 'js', js: 'window.x', timeout: 1 }), ['evaluate', 'wait_for']);
+      assert.deepStrictEqual(B({ action: 'wait', js: 'window.x' }), ['evaluate', 'wait_for']);
+      assert.deepStrictEqual(B({ action: 'wait', condition: 'text', text: 'hi' }), ['wait_for']);
+    });
+
+    test('act batch returns the union of its steps, nested eval included', () => {
+      assert.deepStrictEqual(B({ action: 'batch', steps: [{ action: 'click', ref: 'e1' }, evalStep] }), ['click', 'evaluate']);
+      assert.deepStrictEqual(B({ action: 'batch', steps: [{ action: 'js', js: '1' }] }), ['evaluate']);
+      assert.deepStrictEqual(B({ action: 'batch', steps: [{ action: 'wait', condition: 'js', js: '1' }] }), ['evaluate', 'wait_for']);
+      assert.deepStrictEqual(B({ action: 'batch', steps: [{ action: 'see', logs: 'console' }, { action: 'state', op: 'cookies' }] }), ['console', 'get_cookies']);
+    });
+
+    test('run returns the union over steps, then/else branches and loop bodies; if/while condition=js is evaluate', () => {
+      assert.deepStrictEqual(B({ steps: [{ action: 'navigate', url: 'x' }, evalStep] }, 'mcp__bladebro__run'), ['evaluate', 'navigate']);
+      assert.deepStrictEqual(B({ steps: [{ action: 'if', condition: 'js', js: 'true', then: [{ action: 'click', ref: 'e1' }] }] }, 'run'), ['click', 'evaluate']);
+      assert.deepStrictEqual(B({ steps: [{ action: 'while', condition: 'js', js: 'true', max: 2, steps: [{ action: 'scroll', dy: 5 }] }] }, 'run'), ['evaluate', 'scroll']);
+      assert.deepStrictEqual(B({ steps: [{ action: 'if', condition: 'text', text: 'a', then: [], else: [evalStep] }] }, 'run'), ['evaluate']);
+      assert.deepStrictEqual(B({ steps: [{ action: 'if', condition: 'text', text: 'a', then: [{ action: 'back' }] }] }, 'run'), ['back']);
+    });
+
+    test('an unknown action, an unmapped step, malformed nesting and non-object args yield unknown, never []', () => {
+      assert.deepStrictEqual(B({ action: 'nope' }), ['unknown']);
+      assert.deepStrictEqual(B({ action: 'batch', steps: [{ action: 'click', ref: 'e1' }, { action: 'nope' }] }), ['click', 'unknown']);
+      assert.deepStrictEqual(B({ action: 'batch', steps: [{ ref: 'e1' }] }), ['unknown']);
+      assert.deepStrictEqual(B({ action: 'batch' }), ['unknown']);
+      assert.deepStrictEqual(B({ steps: 'x' }, 'run'), ['unknown']);
+      assert.deepStrictEqual(B('not-an-object'), ['unknown']);
+      assert.deepStrictEqual(B({ action: 'upload' }), ['unknown']);
+      assert.deepStrictEqual(opOf('bladebro', 'mcp__bladebro__other', {}), ['unknown']);
+      const deep = Array.from({ length: 40 }).reduce((inner) => ({ action: 'if', condition: 'text', text: 'a', then: [inner] }), { action: 'back' });
+      assert.ok(B({ steps: [deep] }, 'run').includes('unknown'));
+    });
+
+    test('charlotte wait_for with a js argument is evaluate too', () => {
+      assert.deepStrictEqual(opOf('charlotte', 'mcp__charlotte__charlotte_wait_for', { js: '1' }), ['evaluate', 'wait_for']);
+      assert.deepStrictEqual(opOf('charlotte', 'mcp__charlotte__charlotte_nope', {}), ['unknown']);
+    });
+
+    test('op-of CLI flags unknown and exits non-zero (also for unparseable args); it prints ops, no op field', () => {
+      const run = (...a) => spawnSync('node', [TOOLS, 'ui-qa', 'op-of', '--driver', 'bladebro', ...a], { encoding: 'utf8' });
+      const bad = run('--tool', 'mcp__bladebro__act', '--args', '{"action":"batch","steps":[{"action":"nope"}]}');
+      assert.deepStrictEqual([bad.status, JSON.parse(bad.stdout)], [3, { tool: 'mcp__bladebro__act', ops: ['unknown'], unknown: true }]);
+      const garbled = run('--tool', 'mcp__bladebro__act', '--args', '{nope');
+      assert.deepStrictEqual([garbled.status, JSON.parse(garbled.stdout).unknown], [3, true]);
+      const js = run('--tool', 'mcp__bladebro__run', '--args', JSON.stringify({ steps: [evalStep] }));
+      assert.deepStrictEqual([js.status, JSON.parse(js.stdout).ops], [0, ['evaluate']]);
+    });
   });
 
   test('instance-env renders bladebro isolation.env per instance and maps charlotte to its instance_launch tool', () => {
