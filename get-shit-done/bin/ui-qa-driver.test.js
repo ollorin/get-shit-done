@@ -109,13 +109,18 @@ describe('role agents, packs and agent text', () => {
     const ui = driver.resolveContract({ driver: 'charlotte' });
     for (const [agent, role] of Object.entries({ 'gsd-product-investigator': 'investigator', 'gsd-demo': 'demo', 'gsd-ui-qa': 'qa' })) {
       assert.strictEqual(driver.roleOf(agent, undefined), role);
+      const listedAll = frontmatterTools(agent);
+      const allowedAll = new Set();
       for (const d of driver.listDrivers('mcp')) {
         const c = driver.resolveContract({ driver: d });
         const allowed = new Set(ui.roles[role].map((op) => driver.fullToolName(c, op)).filter(Boolean));
-        const listed = frontmatterTools(agent).filter((t) => t.startsWith(c.tool_prefix));
+        for (const t of allowed) allowedAll.add(t);
+        const listed = listedAll.filter((t) => t.startsWith(c.tool_prefix));
         assert.ok(listed.length > 0, `${agent} lists no ${d} tool`);
         for (const t of listed) assert.ok(allowed.has(t), `${agent}: ${t} is outside the ${role} role`);
+        for (const t of allowed) assert.ok(listedAll.includes(t), `${agent} lacks ${t}, the ${d} tool of a ${role} op`);
       }
+      for (const t of listedAll) assert.ok(allowedAll.has(t), `${agent}: ${t} serves no ${role} op`);
     }
     assert.ok(!frontmatterTools('gsd-product-investigator').some((t) => /click|type|evaluate|cookies/.test(t)));
     assert.deepStrictEqual(frontmatterTools('gsd-product-investigator').filter((t) => t.startsWith('mcp__bladebro__')), ['mcp__bladebro__act', 'mcp__bladebro__see', 'mcp__bladebro__vision']);
