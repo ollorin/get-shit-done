@@ -42,7 +42,8 @@
     "record_dir_env": "BLADE_RECORD",
     "env": {
       "BLADE_HOME": ".tmp/bladebro/{instance}"
-    }
+    },
+    "path_env": ["BLADE_HOME"]
   },
   "composite": {
     "description": "How one call nests other calls and where page JS runs without the eval op. opsOf returns the union over every nested step, found in every field that holds step objects (never a fixed key list); a call it cannot place is the op `unknown`. container_tools, structural_actions and child_keys document the known containers (an empty or malformed one is unknown); they are not the gate.",
