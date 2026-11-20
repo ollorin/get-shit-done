@@ -5,6 +5,24 @@
   "tool_prefix": "mcp__charlotte__",
   "lock_file": ".tmp/charlotte.lock",
   "artifact_index": "driver",
+  "server": {
+    "command": "npx",
+    "args": [
+      "@ticktockbent/charlotte"
+    ]
+  },
+  "probe": {
+    "expect_tools": [
+      "charlotte_navigate",
+      "charlotte_observe",
+      "charlotte_screenshot",
+      "charlotte_evaluate"
+    ],
+    "smoke_op": "navigate",
+    "smoke_input": {
+      "url": "about:blank"
+    }
+  },
   "recording": {
     "start": "screencast_start",
     "stop": "screencast_stop",

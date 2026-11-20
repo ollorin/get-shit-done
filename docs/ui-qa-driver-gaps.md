@@ -111,6 +111,17 @@ Residual risk:
 - A hook failure (unreadable contract) fails open on the role check; the wrong-driver deny needs only the adapter files.
 - The role check keys on the calling agent's name; a project that renames an agent must add it to `ui_qa.role_agents`.
 
+## Server launch, isolation names, probe and forbidden ops
+
+- `server: {command, args}` (adapter key): the MCP server launch. Bladebro `bladebro mcp`; Charlotte `npx @ticktockbent/charlotte` (its README MCP config). A project overrides per key in `ui_qa.server` (for example `{"command": "/opt/bin/bladebro"}` keeps `args: ["mcp"]`); `ui-qa contract` prints the merged value.
+- `isolation.home_env` / `isolation.record_dir_env`: the env var names for the scratch home and the recording directory (Bladebro `BLADE_HOME`, `BLADE_RECORD=<absolute dir>`; Charlotte has neither, its `configure` op takes `video_dir`). `ui-qa instance-env --instance <id>` prints them beside the rendered `env` templates.
+- `probe: {expect_tools, smoke_op, smoke_input}`: `ui-qa probe-spec [--driver d | --root dir]` prints `{driver, server, tool_prefix, expect_tools (full names), smoke: {op, tool, args}}`. It starts nothing; the runner launches `server`, lists tools, compares, then makes the smoke call.
+- Forbidden ops: `get-shit-done/bin/hooks/gsd-ui-qa-forbid.js` is installed with the other hooks but registered by no GSD settings. It reads `GSD_UI_QA_FORBIDDEN_OPS` (comma list of logical ops) and the contract from `GSD_UI_QA_DRIVER` (adapter name) or, when unset, the MCP tier of `<cwd>/.planning/config.json`. A PreToolUse call with the driver's `tool_prefix` exits 2 (reason on stderr) when `opsOf` returns a forbidden op, or `unknown`; every other call exits 0. Env unset or empty is a no-op. `unknown` is denied only when the list is non-empty, so a runner that forbids nothing is never blocked by an odd call shape, while one that forbids `evaluate` cannot be bypassed by a shape the ops map cannot place. With a non-empty list the hook also fails closed on an unreadable payload, an unreadable contract (for `mcp__*` tools) and a listed name that is not an op of the contract (a typo would otherwise allow everything). A runner attaches it to its own child session:
+
+```
+GSD_UI_QA_FORBIDDEN_OPS=evaluate GSD_UI_QA_DRIVER=bladebro claude --settings '{"hooks":{"PreToolUse":[{"matcher":"mcp__.*","hooks":[{"type":"command","command":"node \"<install dir>/get-shit-done/bin/hooks/gsd-ui-qa-forbid.js\""}]}]}}'
+```
+
 ## Two tiers: scripted and MCP
 
 Every adapter has `kind`: `mcp` (charlotte, bladebro: an agent drives a browser through MCP tools) or `command` (playwright: runs `ui_qa.command`, no tool_prefix, no ops, agent default `gsd2-runner`). `ui_qa.driver` names the tier a project already uses, so a scripted-only config (`driver: playwright, command: ...`) stays valid unedited.

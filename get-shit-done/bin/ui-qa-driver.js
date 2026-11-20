@@ -83,6 +83,8 @@ function resolveTier(uiQa) {
     roles: roleTables(uiQa).roles,
     role_agents: roleTables(uiQa).roleAgents,
     ops: { ...adapter.ops, ...(isObject(uiQa.ops) ? uiQa.ops : {}) },
+    ...(isObject(adapter.server) || isObject(uiQa.server) ? { server: { ...adapter.server, ...(isObject(uiQa.server) ? uiQa.server : {}) } } : {}),
+    ...(isObject(adapter.probe) || isObject(uiQa.probe) ? { probe: { ...adapter.probe, ...(isObject(uiQa.probe) ? uiQa.probe : {}) } } : {}),
     recording: { ...adapter.recording, ...(isObject(uiQa.recording) ? uiQa.recording : {}) },
     reset_patterns: Array.isArray(uiQa.reset_patterns) ? uiQa.reset_patterns : [],
   };
@@ -239,7 +241,29 @@ function instanceEnv(contract, instance) {
   if (!isObject(iso)) throw new Error(`ui_qa driver "${contract.driver}" declares no isolation`);
   const env = Object.fromEntries(Object.entries(iso.env ?? {}).map(([k, v]) => [k, String(v).replaceAll("{instance}", instance)]));
   const launch = iso.launch_op ? { op: iso.launch_op, tool: fullToolName(contract, iso.launch_op) } : undefined;
-  return { driver: contract.driver, instance, env, ...(launch ? { launch } : {}) };
+  const names = Object.fromEntries(['home_env', 'record_dir_env'].filter((k) => typeof iso[k] === 'string' && iso[k] !== '').map((k) => [k, iso[k]]));
+  return { driver: contract.driver, instance, env, ...names, ...(launch ? { launch } : {}) };
+}
+
+// What a live probe must check, as data (no server is started here): the MCP server launch command, the full tool names the
+// server must list, and one smoke call (the smoke op's constant args plus probe.smoke_input).
+function probeSpec(contract) {
+  if (contract.kind === 'command') throw new Error(`ui_qa driver "${contract.driver}" is a command driver: it has no MCP probe`);
+  const probe = contract.probe;
+  if (!isObject(probe) || !Array.isArray(probe.expect_tools)) throw new Error(`ui_qa driver "${contract.driver}" declares no probe.expect_tools`);
+  const prefix = contract.tool_prefix ?? '';
+  const smokeOp = probe.smoke_op;
+  const entry = smokeOp === undefined ? undefined : contract.ops[smokeOp];
+  if (smokeOp !== undefined && !entry) throw new Error(`ui_qa driver "${contract.driver}" probe.smoke_op "${smokeOp}" is not an op`);
+  const constants = Object.fromEntries(Object.entries(entry?.args ?? {}).filter(([, v]) => !isPlaceholder(v) && typeof v !== 'object'));
+  const smoke = entry ? { op: smokeOp, tool: fullToolName(contract, smokeOp), args: { ...constants, ...(isObject(probe.smoke_input) ? probe.smoke_input : {}) } } : undefined;
+  return {
+    driver: contract.driver,
+    ...(contract.server ? { server: contract.server } : {}),
+    tool_prefix: prefix,
+    expect_tools: probe.expect_tools.map((t) => `${prefix}${t}`),
+    ...(smoke ? { smoke } : {}),
+  };
 }
 
 // The MCP-tier contract a CLI call addresses: --driver names an adapter, else the project at --root.
@@ -274,7 +298,7 @@ function fillTier(tier) {
 // The keys that belong to one adapter: a switch replaces them and keeps everything the project set (lock_file, reset_patterns, agent, ...).
 // Between kinds the old top tier becomes the nested tier of the new shape (ui_qa.mcp / ui_qa.scripted); when the target is the
 // driver already nested there, the two swap. A tier's own agent follows its own kind, never the other tier's.
-const DRIVER_KEYS = ['driver', 'tool_prefix', 'ops', 'recording', 'command'];
+const DRIVER_KEYS = ['driver', 'tool_prefix', 'ops', 'recording', 'command', 'server', 'probe'];
 const without = (obj, keys) => Object.fromEntries(Object.entries(obj).filter(([k]) => !keys.includes(k)));
 function switchDriver(current, driver, command) {
   const { mcp, scripted, ...own } = current;
@@ -328,6 +352,8 @@ function runCli(args, cwd) {
       }
       case "instance-env":
         return { result: instanceEnv(cliContract(args, root), flag(args, "--instance")), exitCode: 0 };
+      case "probe-spec":
+        return { result: probeSpec(cliContract(args, root)), exitCode: 0 };
       case 'contract':
       {
         const contract = resolveContract(readUiQa(root));
@@ -358,7 +384,7 @@ function runCli(args, cwd) {
         return { result: { written, ...(switching ? { switched: { from: current.driver, to: wanted }, changed } : {}), ui_qa: next }, exitCode: 0 };
       }
       default:
-        return fail('usage: ui-qa <drivers [--root dir] | op-of --tool name [--args json] [--driver name] | instance-env --instance id [--driver name] | contract [--tier mcp|scripted] [--root dir] | apply [--driver name] [--command cmd] [--root dir]>');
+        return fail('usage: ui-qa <drivers [--root dir] | op-of --tool name [--args json] [--driver name] | instance-env --instance id [--driver name] | probe-spec [--driver name] | contract [--tier mcp|scripted] [--root dir] | apply [--driver name] [--command cmd] [--root dir]>');
     }
   } catch (e) {
     return fail(e.message);
@@ -367,6 +393,6 @@ function runCli(args, cwd) {
 
 module.exports = {
   runCli,
-  roleOf, opsOf, UNKNOWN_OP, instanceEnv, knownPrefixes, kindOf, mcpTier, roleViolation,
+  roleOf, opsOf, UNKNOWN_OP, instanceEnv, probeSpec, knownPrefixes, kindOf, mcpTier, roleViolation,
   listDrivers, defaultDriver, defaultAgent, agentAliases, loadAdapter, resolveContract, resolveMcpTier, fullToolName, fillContract, newContract, readUiQa,
 };

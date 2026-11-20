@@ -638,4 +638,42 @@ describe('logical op resolver, per-instance env, wait_for match keys', () => {
     for (const cond of Object.keys(b)) assert.match(driver.loadAdapter('bladebro').ops.wait_for.note, new RegExp(cond));
     assert.deepStrictEqual(driver.loadAdapter('charlotte').ops.wait_for.match, { element: 'element_id', selector: 'selector', text: 'text', js: 'js' });
   });
+
+  test('server: adapter MCP launch command resolves in the contract and a project overrides it per key', () => {
+    assert.deepStrictEqual(driver.resolveContract({ driver: 'bladebro' }).server, { command: 'bladebro', args: ['mcp'] });
+    assert.deepStrictEqual(driver.resolveContract({ driver: 'charlotte' }).server, { command: 'npx', args: ['@ticktockbent/charlotte'] });
+    assert.deepStrictEqual(driver.resolveContract({ driver: 'bladebro', server: { command: '/opt/bin/bladebro' } }).server, { command: '/opt/bin/bladebro', args: ['mcp'] });
+    assert.deepStrictEqual(driver.resolveContract({ driver: 'bladebro', server: { command: '/x', args: ['mcp', '--v'] } }).server, { command: '/x', args: ['mcp', '--v'] });
+    assert.strictEqual(driver.resolveContract({ driver: 'playwright', command: 'x' }).server, undefined);
+  });
+
+  test('isolation names the scratch-home and record-dir env vars; instance-env reports them', () => {
+    assert.deepStrictEqual([driver.loadAdapter('bladebro').isolation.home_env, driver.loadAdapter('bladebro').isolation.record_dir_env], ['BLADE_HOME', 'BLADE_RECORD']);
+    const b = cliArgs('instance-env', '--instance', 'q1', '--driver', 'bladebro').json;
+    assert.deepStrictEqual([b.home_env, b.record_dir_env, b.env], ['BLADE_HOME', 'BLADE_RECORD', { BLADE_HOME: '.tmp/bladebro/q1' }]);
+    assert.strictEqual(Object.hasOwn(b.env, b.home_env), true);
+    const c = cliArgs('instance-env', '--instance', 'q1', '--driver', 'charlotte').json;
+    assert.strictEqual(c.home_env, undefined);
+  });
+
+  test('probe-spec prints server, full expected tool names and the smoke call without starting a server', () => {
+    const b = cliArgs('probe-spec', '--driver', 'bladebro');
+    assert.strictEqual(b.status, 0);
+    assert.deepStrictEqual(b.json.expect_tools, ['act', 'see', 'state', 'run', 'vision'].map((t) => `mcp__bladebro__${t}`));
+    assert.deepStrictEqual(b.json.smoke, { op: 'navigate', tool: 'mcp__bladebro__act', args: { action: 'navigate', url: 'about:blank' } });
+    assert.deepStrictEqual(b.json.server, { command: 'bladebro', args: ['mcp'] });
+    const c = cliArgs('probe-spec', '--driver', 'charlotte').json;
+    assert.strictEqual(c.smoke.tool, 'mcp__charlotte__charlotte_navigate');
+    assert.ok(c.expect_tools.every((t) => t.startsWith('mcp__charlotte__charlotte_')));
+    assert.strictEqual(cliArgs('probe-spec', '--driver', 'playwright').status, 1);
+  });
+
+  test('every mcp adapter has a server and a probe whose smoke_op tool is among the expected tools', () => {
+    for (const d of driver.listDrivers('mcp')) {
+      const a = driver.loadAdapter(d);
+      assert.ok(a.server.command && Array.isArray(a.server.args), d);
+      assert.ok(a.probe.expect_tools.length > 0 && a.probe.expect_tools.includes(a.ops[a.probe.smoke_op].tool), d);
+      assert.ok(a.ops[a.probe.smoke_op].tool, d);
+    }
+  });
 });

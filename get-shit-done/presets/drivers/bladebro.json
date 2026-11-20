@@ -5,6 +5,25 @@
   "tool_prefix": "mcp__bladebro__",
   "lock_file": ".tmp/ui-qa.lock",
   "artifact_index": "register",
+  "server": {
+    "command": "bladebro",
+    "args": [
+      "mcp"
+    ]
+  },
+  "probe": {
+    "expect_tools": [
+      "act",
+      "see",
+      "state",
+      "run",
+      "vision"
+    ],
+    "smoke_op": "navigate",
+    "smoke_input": {
+      "url": "about:blank"
+    }
+  },
   "recording": {
     "start": "screencast_start",
     "stop": "screencast_stop",
@@ -19,6 +38,8 @@
     ]
   },
   "isolation": {
+    "home_env": "BLADE_HOME",
+    "record_dir_env": "BLADE_RECORD",
     "env": {
       "BLADE_HOME": ".tmp/bladebro/{instance}"
     }
