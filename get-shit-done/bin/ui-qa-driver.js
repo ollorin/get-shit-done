@@ -232,14 +232,19 @@ function roleViolation(contract, role, tool, toolInput) {
   return `role "${role}" may not call ${what} (ops outside the role: ${bad.join(', ')}; allowed ops: ${allowed.join(', ')})`;
 }
 
-// Per-instance environment: isolation.env with {instance} filled in. A driver whose isolation is launch_op has no env to set;
+// Per-instance environment: isolation.env with {instance} filled in. Keys listed in isolation.path_env are paths and render
+// absolute, resolved against root (the project root). A driver whose isolation is launch_op has no env to set;
 // its instances come from that op's tool.
 const INSTANCE_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
-function instanceEnv(contract, instance) {
+function instanceEnv(contract, instance, root = process.cwd()) {
   if (typeof instance !== "string" || !INSTANCE_RE.test(instance)) throw new Error("--instance must match [A-Za-z0-9][A-Za-z0-9_-]*");
   const iso = contract.isolation;
   if (!isObject(iso)) throw new Error(`ui_qa driver "${contract.driver}" declares no isolation`);
-  const env = Object.fromEntries(Object.entries(iso.env ?? {}).map(([k, v]) => [k, String(v).replaceAll("{instance}", instance)]));
+  const pathKeys = new Set(Array.isArray(iso.path_env) ? iso.path_env : []);
+  const env = Object.fromEntries(Object.entries(iso.env ?? {}).map(([k, v]) => {
+    const filled = String(v).replaceAll("{instance}", instance);
+    return [k, pathKeys.has(k) ? path.resolve(root, filled) : filled];
+  }));
   const launch = iso.launch_op ? { op: iso.launch_op, tool: fullToolName(contract, iso.launch_op) } : undefined;
   const names = Object.fromEntries(['home_env', 'record_dir_env'].filter((k) => typeof iso[k] === 'string' && iso[k] !== '').map((k) => [k, iso[k]]));
   return { driver: contract.driver, instance, env, ...names, ...(launch ? { launch } : {}) };
@@ -351,7 +356,7 @@ function runCli(args, cwd) {
         return { result: { tool, ops, unknown }, exitCode: unknown ? 3 : 0 };
       }
       case "instance-env":
-        return { result: instanceEnv(cliContract(args, root), flag(args, "--instance")), exitCode: 0 };
+        return { result: instanceEnv(cliContract(args, root), flag(args, "--instance"), root), exitCode: 0 };
       case "probe-spec":
         return { result: probeSpec(cliContract(args, root)), exitCode: 0 };
       case 'contract':

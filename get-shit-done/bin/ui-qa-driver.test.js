@@ -482,11 +482,12 @@ describe('apply --driver between kinds and the mixed-tier hook', () => {
 });
 
 describe('logical op resolver, per-instance env, wait_for match keys', () => {
-  const cliArgs = (...args) => {
-    const r = spawnSync('node', [TOOLS, 'ui-qa', ...args], { encoding: 'utf8' });
+  const cliIn = (cwd, ...args) => {
+    const r = spawnSync('node', [TOOLS, 'ui-qa', ...args], { encoding: 'utf8', cwd });
     return { status: r.status, json: JSON.parse(r.stdout) };
   };
-  const opOf = (driverName, tool, args) => driver.opsOf(driver.resolveContract({ driver: driverName }), tool, args);
+  const cliArgs = (...args) => cliIn(undefined, ...args);
+  const opOf =(driverName, tool, args) => driver.opsOf(driver.resolveContract({ driver: driverName }), tool, args);
 
   test('opsOf maps bladebro act action=eval and charlotte charlotte_evaluate to evaluate, by args not tool name', () => {
     assert.deepStrictEqual(opOf('bladebro', 'mcp__bladebro__act', { action: 'eval', js: '1' }), ['evaluate']);
@@ -623,13 +624,47 @@ describe('logical op resolver, per-instance env, wait_for match keys', () => {
   });
 
   test('instance-env renders bladebro isolation.env per instance and maps charlotte to its instance_launch tool', () => {
-    const b = cliArgs('instance-env', '--instance', 'b1', '--driver', 'bladebro');
-    assert.deepStrictEqual(b.json.env, { BLADE_HOME: '.tmp/bladebro/b1' });
-    assert.deepStrictEqual(cliArgs('instance-env', '--instance', 'b2', '--driver', 'bladebro').json.env, { BLADE_HOME: '.tmp/bladebro/b2' });
+    const root = os.tmpdir();
+    const b = cliArgs('instance-env', '--instance', 'b1', '--driver', 'bladebro', '--root', root);
+    assert.deepStrictEqual(b.json.env, { BLADE_HOME: path.join(root, '.tmp', 'bladebro', 'b1') });
+    assert.deepStrictEqual(cliArgs('instance-env', '--instance', 'b2', '--driver', 'bladebro', '--root', root).json.env, { BLADE_HOME: path.join(root, '.tmp', 'bladebro', 'b2') });
     const c = cliArgs('instance-env', '--instance', 'b1', '--driver', 'charlotte').json;
     assert.deepStrictEqual(c.launch, { op: 'instance_launch', tool: 'mcp__charlotte__charlotte_instance_launch' });
     assert.strictEqual(cliArgs('instance-env', '--instance', '../x', '--driver', 'bladebro').status, 1);
     assert.strictEqual(cliArgs('instance-env', '--driver', 'bladebro').status, 1);
+  });
+
+  test('instance-env path_env values are absolute, resolved against the cwd project', () => {
+    const dir = fs.realpathSync(os.tmpdir());
+    const r = cliIn(dir, 'instance-env', '--instance', 'w1', '--driver', 'bladebro');
+    assert.strictEqual(r.status, 0);
+    assert.deepStrictEqual(r.json.env, { BLADE_HOME: path.join(dir, '.tmp', 'bladebro', 'w1') });
+    assert.ok(path.isAbsolute(r.json.env.BLADE_HOME));
+  });
+
+  test('instance-env --root resolves path_env against the given project root (absolute or relative to cwd)', () => {
+    const dir = fs.realpathSync(os.tmpdir());
+    const abs = path.join(dir, 'proj-abs');
+    assert.deepStrictEqual(cliIn(dir, 'instance-env', '--instance', 'w1', '--driver', 'bladebro', '--root', abs).json.env,
+      { BLADE_HOME: path.join(abs, '.tmp', 'bladebro', 'w1') });
+    assert.deepStrictEqual(cliIn(dir, 'instance-env', '--instance', 'w1', '--driver', 'bladebro', '--root', 'proj-rel').json.env,
+      { BLADE_HOME: path.join(dir, 'proj-rel', '.tmp', 'bladebro', 'w1') });
+  });
+
+  test('instance-env leaves non-path env values unchanged and renders only keys listed in path_env', () => {
+    const contract = { driver: 'synthetic', isolation: { env: { BLADE_HOME: '.tmp/{instance}', BLADE_HEADLESS: '1', NOTES: 'a/b' }, path_env: ['BLADE_HOME'] } };
+    assert.deepStrictEqual(driver.instanceEnv(contract, 'w1', '/proj').env, { BLADE_HOME: '/proj/.tmp/w1', BLADE_HEADLESS: '1', NOTES: 'a/b' });
+    const unmarked = { driver: 'synthetic', isolation: { env: { BLADE_HOME: '.tmp/{instance}' } } };
+    assert.deepStrictEqual(driver.instanceEnv(unmarked, 'w1', '/proj').env, { BLADE_HOME: '.tmp/w1' });
+  });
+
+  test('instance traversal and non-identifier instances are rejected by instance-env and instanceEnv', () => {
+    const dir = fs.realpathSync(os.tmpdir());
+    const contract = driver.resolveContract({ driver: 'bladebro' });
+    for (const bad of ['../x', '/abs', 'a/../b', '']) {
+      assert.strictEqual(cliIn(dir, 'instance-env', '--instance', bad, '--driver', 'bladebro').status, 1);
+      assert.throws(() => driver.instanceEnv(contract, bad, dir), /--instance must match/);
+    }
   });
 
   test('every wait_for condition has a match key; the key set is the one bladebro act.rs accepts and charlotte schema declares', () => {
@@ -649,8 +684,9 @@ describe('logical op resolver, per-instance env, wait_for match keys', () => {
 
   test('isolation names the scratch-home and record-dir env vars; instance-env reports them', () => {
     assert.deepStrictEqual([driver.loadAdapter('bladebro').isolation.home_env, driver.loadAdapter('bladebro').isolation.record_dir_env], ['BLADE_HOME', 'BLADE_RECORD']);
-    const b = cliArgs('instance-env', '--instance', 'q1', '--driver', 'bladebro').json;
-    assert.deepStrictEqual([b.home_env, b.record_dir_env, b.env], ['BLADE_HOME', 'BLADE_RECORD', { BLADE_HOME: '.tmp/bladebro/q1' }]);
+    const root = os.tmpdir();
+    const b = cliArgs('instance-env', '--instance', 'q1', '--driver', 'bladebro', '--root', root).json;
+    assert.deepStrictEqual([b.home_env, b.record_dir_env, b.env], ['BLADE_HOME', 'BLADE_RECORD', { BLADE_HOME: path.join(root, '.tmp', 'bladebro', 'q1') }]);
     assert.strictEqual(Object.hasOwn(b.env, b.home_env), true);
     const c = cliArgs('instance-env', '--instance', 'q1', '--driver', 'charlotte').json;
     assert.strictEqual(c.home_env, undefined);
