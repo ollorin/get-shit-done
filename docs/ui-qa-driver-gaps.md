@@ -45,19 +45,30 @@ Ops that map one to one (for example `navigate` to `act action=navigate`) are no
 - `network` is `see logs=network` (current navigation only). `requests` is `see logs=xhr`, the deduplicated API/fetch
   ring with method and status (bladebro 4.6.10+; older servers reject `logs=xhr`).
 
+## Bladebro ops with no Charlotte equivalent
+
+Source of truth: `get-shit-done/presets/drivers/charlotte.json` (an op with `"tool": null` carries its `workaround`); a test fails when this table and that file disagree. Except `read_state`, these are real Bladebro actions that previously resolved to `unknown`; each now has a logical op so a role can allow or deny it. None is in the default roles except `clear_field` (qa, demo).
+
+| Op | Bladebro call | Charlotte workaround |
+|---|---|---|
+| `clear_field` | `act action=clear` | No equivalent. Use evaluate to set the field value to an empty string, or type into it and delete with key. |
+| `read_state` | `act action=read` | No equivalent. Charlotte has no per-element state read; use observe (detail summary). |
+| `upload` | `act action=upload` | No equivalent. Test the same outcome through the app's own upload API, or set the file with evaluate where the page allows it. |
+| `export_pdf` | `act action=pdf` | No equivalent. Use screenshot (full_page) for a visual record. |
+| `download` | `act action=download` | No equivalent. Fetch the file URL with the shell (curl) or read it with evaluate. |
+| `paginate` | `act action=paginate` | No equivalent. Click the next control in a loop and observe each page. |
+| `collect` | `act action=collect` | No equivalent. Loop scroll and observe, deduplicating by hand. |
+| `session_save` | `state op=save` (or `act action=save`) | No equivalent. Read the cookies with get_cookies and keep them in a scratch file. |
+| `session_load` | `state op=load` (or `act action=load`) | No equivalent. Restore the cookies with set_cookies. |
+
 ## Logical ops, per-instance env and wait_for match keys
 
 - `gsd-tools ui-qa op-of --tool <name> --args '<json>' [--driver d | --root dir]` (export `opsOf` in `ui-qa-driver.js`) maps a call to
   its logical ops from the adapter ops map, the only source: `act {action: eval}` is `evaluate` for bladebro, `charlotte_evaluate` for
   charlotte. A runner or hook bans `evaluate` for either driver by comparing the result, not tool names. The CLI prints `{tool, ops, unknown}`
   (no singular `op`: a tool shared by several ops, `act action=fill` is `submit` and `toggle`, has no first op).
-- `opsOf` never fails open. It returns the union over every nested step (adapter key `composite`: `container_tools`, `structural_actions`,
-  `step_tools`, `state_actions`, `step_action_aliases`; children are `steps`, `then`, `else`, depth 32 as in bladebro), adds the
-  adapter's `composite.js_op` (`evaluate`) to every JS-running form that is not the eval op (`composite.js_guards`), and returns the op
-  `unknown` for any call it cannot place: an unmapped tool or action, a step with no string `action`, a batch/run/if/while without its
-  step array, nesting past 32, or args that are not an object. `op-of` exits 3 with `unknown: true` for those, and for `--args` that
-  is not JSON, so a runner that bans ops cannot be bypassed by an odd call shape. A real action with no logical op (`upload`, `pdf`,
-  `download`, `collect`, `paginate`, `clear`, `save`/`load` through `act`) is `unknown` by the same rule.
+- `opsOf` never fails open. It returns the union over every nested step and adds the adapter's `composite.js_op` (`evaluate`) to every JS-running form that is not the eval op (`composite.js_guards`). Nesting is found structurally, not from a key list: every field of a call whose value is an array of objects, or an object with an `action`, is a nested step (so `wait` plus `else`, or a key no adapter lists, cannot hide an eval); the only arrays skipped are data arrays the matched op declares in its own args (`fill` `fields`). `composite.container_tools`, `structural_actions` and `child_keys` document the known containers and make an empty or non-array one `unknown`; they are not the gate. Depth is 32 as in bladebro. Actions of `act` that bladebro routes elsewhere are routed the same way (`see`/`extract` to `see`, `open-tab`/`close-tab`/`switch-tab`/`save`/`load`/`cookies`/`set-cookie` and `state` to the state tool, `js` to eval). The op `unknown` is returned for any call it cannot place: an unmapped tool or action, a step with no string `action`, a nested object or array element that is not a step, a batch/run/if/while without its step array, nesting past 32, or args that are not an object. `op-of` exits 3 with `unknown: true` for those, and for `--args` that is not JSON, so a runner that bans ops cannot be bypassed by an odd call shape.
+- Normalisation matches bladebro: `action`, state `op` and see `mode` are matched exactly (`act.rs:342` `match action_str`, `state.rs:40`), so a padded or re-cased name is another, unknown action and resolves to `unknown`; a wait `condition` is trimmed (`run.rs:153` `cond.trim()`) and compared exactly (`run.rs:165`). The js guard also folds case (bladebro rejects `JS` as an unknown condition; reporting `evaluate` for a call that errors is the safe side).
 - Bladebro actions that execute page JS (`src/mcp/server/act.rs`, `run.rs`, `validate.rs`, `src/mcp/tools.rs` on `main`), each resolved to `evaluate`:
   1. `act action=eval` (`act.rs:471-484`).
   2. `act action=wait condition=js` with `js=` or the legacy `text=`; a `wait` with a `js` field and no `condition` is the same call

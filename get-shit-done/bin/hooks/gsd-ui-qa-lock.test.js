@@ -773,7 +773,8 @@ describe('handle', () => {
       assert.strictEqual(as('gsd-product-investigator', { mode: 'model' }, 'mcp__bladebro__see').exitCode, 0);
       assert.strictEqual(as('gsd-product-investigator', { op: 'cookies' }, 'mcp__bladebro__state').exitCode, 2);
       assert.strictEqual(as('gsd-ui-qa', { action: 'eval', js: '1' }).exitCode, 0);
-      assert.strictEqual(as('gsd-ui-qa', { action: 'fill' }).exitCode, 2);
+      assert.strictEqual(as('gsd-ui-qa', { action: 'fill' }).exitCode, 0);
+      assert.strictEqual(as('gsd-ui-qa', { action: 'upload' }).exitCode, 2);
       assert.strictEqual(as('gsd-demo', { action: 'eval' }).exitCode, 2);
       assert.strictEqual(as('gsd-demo', { action: 'fill', fields: [] }).exitCode, 0);
     });
@@ -792,7 +793,8 @@ describe('handle', () => {
       assert.strictEqual(as(inv, { steps: [{ action: 'if', condition: 'js', js: 'true', then: [] }] }, 'mcp__bladebro__run').exitCode, 2);
       assert.strictEqual(as(inv, { action: 'wait', condition: 'js', js: 'true' }).exitCode, 2);
       assert.strictEqual(as('gsd-ui-qa', { action: 'batch', steps: [evalStep] }).exitCode, 0);
-      assert.strictEqual(as('gsd-ui-qa', { action: 'wait', condition: 'js', js: 'true' }).exitCode, 2);
+      assert.strictEqual(as('gsd-ui-qa', { action: 'wait', condition: 'js', js: 'true' }).exitCode, 0);
+      assert.strictEqual(as('gsd-ui-qa', { action: 'wait', condition: 'text', text: 'x' }).exitCode, 0);
       assert.strictEqual(as('gsd-demo', { action: 'wait', condition: 'text', text: 'x' }).exitCode, 0);
       assert.strictEqual(as('gsd-demo', { action: 'wait', condition: 'js', js: 'x' }).exitCode, 2);
       assert.strictEqual(call('mcp__bladebro__act', { tool_input: { action: 'batch', steps: [evalStep] } }).exitCode, 0);

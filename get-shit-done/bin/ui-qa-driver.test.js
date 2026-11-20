@@ -69,6 +69,15 @@ describe('driver adapters', () => {
     assert.ok(expected.length >= 10);
   });
 
+  test('the gap document lists every op the charlotte adapter has no tool for in its bladebro-only table', () => {
+    const doc = fs.readFileSync(path.join(REPO, 'docs', 'ui-qa-driver-gaps.md'), 'utf8');
+    const section = doc.split('## Bladebro ops with no Charlotte equivalent')[1].split(/^## /m)[0];
+    const listed = [...section.matchAll(/^\| `([a-z_]+)` \| /gm)].map((m) => m[1]).sort();
+    const expected = Object.entries(driver.loadAdapter('charlotte').ops).filter(([, e]) => e.tool === null).map(([k]) => k).sort();
+    assert.deepStrictEqual(listed, expected);
+    assert.ok(expected.length >= 8);
+  });
+
   test('bladebro wait_for carries only the condition and timeout; the note names the one match key per condition', () => {
     const op = driver.loadAdapter('bladebro').ops.wait_for;
     assert.deepStrictEqual(Object.keys(op.args), ['action', 'condition', 'timeout']);
@@ -524,10 +533,72 @@ describe('logical op resolver, per-instance env, wait_for match keys', () => {
       assert.deepStrictEqual(B({ action: 'batch' }), ['unknown']);
       assert.deepStrictEqual(B({ steps: 'x' }, 'run'), ['unknown']);
       assert.deepStrictEqual(B('not-an-object'), ['unknown']);
-      assert.deepStrictEqual(B({ action: 'upload' }), ['unknown']);
+      assert.deepStrictEqual(B({ action: 'frobnicate' }), ['unknown']);
       assert.deepStrictEqual(opOf('bladebro', 'mcp__bladebro__other', {}), ['unknown']);
       const deep = Array.from({ length: 40 }).reduce((inner) => ({ action: 'if', condition: 'text', text: 'a', then: [inner] }), { action: 'back' });
       assert.ok(B({ steps: [deep] }, 'run').includes('unknown'));
+    });
+
+    test('normalisation follows bladebro: condition is trimmed (run.rs:153), action/op/mode are exact (act.rs:342)', () => {
+      for (const condition of [' js', 'js ', '\tjs\n', ' JS ', 'JS']) {
+        assert.deepStrictEqual(B({ action: 'wait', condition, text: 'document.cookie' }), ['evaluate', 'wait_for'], JSON.stringify(condition));
+        assert.deepStrictEqual(B({ steps: [{ action: 'wait', condition, js: '1' }] }, 'run'), ['evaluate', 'wait_for']);
+        assert.ok(B({ action: 'batch', steps: [{ action: 'if', condition, js: '1', then: [] }] }).includes('evaluate'));
+      }
+      assert.deepStrictEqual(B({ action: 'wait', condition: ' text ', text: 'x' }), ['wait_for']);
+      for (const action of [' eval ', 'EVAL', 'eval\n']) assert.deepStrictEqual(B({ action, js: '1' }), ['unknown'], JSON.stringify(action));
+      assert.deepStrictEqual(B({ action: 'batch', steps: [{ action: ' eval', js: '1' }] }), ['unknown']);
+      assert.deepStrictEqual(B({ op: ' open-tab ' }, 'state'), ['unknown']);
+    });
+
+    test('a nested step is found in whatever field holds it: wait else, unknown container keys, object-valued fields', () => {
+      const evalOnly = (args, tool) => assert.ok(B(args, tool).includes('evaluate'), JSON.stringify(args));
+      evalOnly({ steps: [{ action: 'wait', condition: 'text', text: 'x', else: [{ action: 'eval', js: '1' }] }] }, 'run');
+      evalOnly({ action: 'wait', condition: 'text', text: 'x', else: [{ action: 'eval', js: '1' }] });
+      evalOnly({ action: 'click', ref: 'e1', on_error: [{ action: 'eval', js: '1' }] });
+      evalOnly({ steps: [{ action: 'navigate', url: 'x', whatever_next: [{ action: 'eval', js: '1' }] }] }, 'run');
+      evalOnly({ action: 'batch', steps: [{ action: 'click', ref: 'e1', fallback: { action: 'eval', js: '1' } }] });
+      evalOnly({ action: 'wait', condition: 'text', text: 'x', deep: [{ action: 'if', condition: 'text', text: 'a', then: [{ action: 'eval', js: '1' }] }] });
+      assert.deepStrictEqual(B({ action: 'click', ref: 'e1', extra: [{ ref: 'e2' }] }), ['click', 'unknown']);
+      assert.deepStrictEqual(B({ action: 'click', ref: 'e1', extra: [{ action: 'nope' }] }), ['click', 'unknown']);
+      assert.deepStrictEqual(B({ action: 'fill', fields: [{ ref: 'e1', text: 'a' }] }), ['submit', 'toggle']);
+    });
+
+    test('act actions without a logical op yesterday now map; tab and state ops sent via act resolve like the state tool', () => {
+      const expected = { clear: 'clear_field', pdf: 'export_pdf', download: 'download', paginate: 'paginate', collect: 'collect', upload: 'upload' };
+      for (const [action, op] of Object.entries(expected)) assert.deepStrictEqual(B({ action }), [op], action);
+      assert.deepStrictEqual(B({ action: 'open-tab', url: 'x' }), ['tab_open']);
+      assert.deepStrictEqual(B({ action: 'close-tab', target_id: '1' }), ['tab_close']);
+      assert.deepStrictEqual(B({ action: 'switch-tab', target_id: '1' }), ['tab_switch']);
+      assert.deepStrictEqual(B({ action: 'state', op: 'open-tab', url: 'x' }), ['tab_open']);
+      assert.deepStrictEqual(B({ action: 'cookies' }), ['get_cookies']);
+      assert.deepStrictEqual(B({ action: 'set-cookie', name: 'a' }), ['set_cookies']);
+      assert.deepStrictEqual(B({ action: 'save' }), ['session_save']);
+      assert.deepStrictEqual(B({ action: 'load' }), ['session_load']);
+      assert.deepStrictEqual(B({ op: 'save' }, 'state'), ['session_save']);
+      for (const op of Object.values(expected).concat(['session_save', 'session_load'])) {
+        assert.strictEqual(driver.loadAdapter('charlotte').ops[op].tool, null, op);
+        assert.ok(driver.loadAdapter('charlotte').ops[op].workaround, op);
+      }
+    });
+
+    test('the default qa role allows an ordinary QA flow and still denies what it should', () => {
+      const c = driver.resolveContract({ driver: 'bladebro' });
+      const bladebro = (tool, input) => driver.roleViolation(c, 'qa', `mcp__bladebro__${tool}`, input);
+      for (const [tool, input] of [
+        ['act', { action: 'wait', condition: 'text', text: 'Welcome' }],
+        ['act', { action: 'press', key: 'Enter' }],
+        ['act', { action: 'fill', fields: [{ ref: 'e1', text: 'a' }], submit: 'e2' }],
+        ['act', { action: 'back' }], ['act', { action: 'forward' }], ['act', { action: 'select', ref: 'e1', option: 'a' }],
+        ['act', { action: 'eval', js: '1' }], ['run', { steps: [{ action: 'click', ref: 'e1' }, { action: 'wait', condition: 'text', text: 'x' }] }],
+      ]) assert.strictEqual(bladebro(tool, input), null, `${tool} ${JSON.stringify(input)}`);
+      for (const [tool, input] of [
+        ['state', { op: 'cookies' }], ['act', { action: 'upload' }], ['act', { action: 'nope' }],
+      ]) assert.match(bladebro(tool, input) ?? '', /may not call/, `${tool} ${JSON.stringify(input)}`);
+      const inv = (tool, input) => driver.roleViolation(c, 'investigator', `mcp__bladebro__${tool}`, input);
+      assert.match(inv('act', { action: 'click', ref: 'e1' }), /may not call/);
+      assert.match(inv('act', { action: 'wait', condition: 'text', text: 'x' }), /may not call/);
+      assert.match(inv('act', { action: 'wait', condition: ' js', text: 'document.cookie' }), /evaluate/);
     });
 
     test('charlotte wait_for with a js argument is evaluate too', () => {

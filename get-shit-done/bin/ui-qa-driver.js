@@ -122,14 +122,24 @@ const fullToolName = (contract, op) => {
 // (one bundled tool call can be several ops, e.g. fill is toggle and submit). The ops map is the only source, so a runner or hook can
 // forbid logical ops for either driver.
 //
-// The result is never empty and never fails open: a call the ops map cannot place yields `unknown`. The adapter's optional `composite`
-// block (a driver whose tools nest steps: batch, run, if/while, wait) makes the resolver return the union over every nested step, and `composite.js_guards`
-// add the `js_op` (evaluate) to any call form that runs page JS without being the eval op (wait condition=js, if/while condition=js).
+// The result is never empty and never fails open: a call the ops map cannot place yields `unknown`. Nesting is found structurally, not
+// by a list of container names: every field of a call whose value is an array of objects, or an object carrying an `action`, is a nested
+// step and contributes its ops (so `wait`+`else`, or a key the adapter has never heard of, cannot hide a step). A nested shape that is
+// neither (an object element with no `action`, a non-object in a step array) is `unknown`; the only arrays left alone are the data
+// arrays the matched op declares in its own args (e.g. fill `fields`). The adapter's `composite` block lists the known container keys
+// for documentation and names the tools/actions that route to other tools; `composite.js_guards` add the `js_op` (evaluate) to any
+// call form that runs page JS without being the eval op.
+//
+// Normalisation mirrors the MCP server (adapter composite docs name its sources): an action, op or mode is matched exactly (`match action_str`, act.rs:342; state.rs:40) so a padded or
+// re-cased name is not that action and stays `unknown`; a wait `condition` is trimmed (run.rs:153 `cond.trim()`) and then compared exactly
+// (run.rs:165 `cond == "js"`). The js guard additionally folds case: the server rejects `JS`, and over-reporting evaluate for a call that
+// errors is the fail-closed side.
 const UNKNOWN_OP = 'unknown';
 const MAX_NESTING = 32;
 const CHILD_KEYS = ['steps', 'then', 'else'];
 const isPlaceholder = (v) => typeof v === "string" && /^\{[a-z_]+\}$/.test(v);
 const nonEmptyString = (v) => typeof v === 'string' && v !== '';
+const normCondition = (v) => (typeof v === 'string' ? v.trim().toLowerCase() : v);
 
 function leafOps(contract, bare, input) {
   const scored = Object.entries(contract.ops)
@@ -142,32 +152,48 @@ function leafOps(contract, bare, input) {
 
 const runsPageJs = (guards, bare, input) => (Array.isArray(guards) ? guards : []).some((g) => g.tool === bare
   && (g.actions === undefined || g.actions.includes(input.action))
-  && ((g.condition_key !== undefined && input[g.condition_key] === 'js') || nonEmptyString(input[g.js_key])));
+  && ((g.condition_key !== undefined && normCondition(input[g.condition_key]) === 'js') || nonEmptyString(input[g.js_key])));
 
-// A step inside batch/run as the (tool, args) call it stands for; null when it is not an object with a string action.
-function stepCall(comp, step) {
-  if (!isObject(step) || typeof step.action !== 'string') return null;
-  const tool = comp.step_tools?.[step.action];
-  if (tool !== undefined) return { bare: tool, input: step };
-  if ((comp.state_actions ?? []).includes(step.action)) return { bare: comp.state_tool, input: { ...step, op: step.op ?? step.action } };
-  return { bare: comp.step_tool, input: { ...step, action: comp.step_action_aliases?.[step.action] ?? step.action } };
+// The (tool, args) call an action of the step tool stands for: see/extract are `see`, state ops sent as actions are `state` calls, aliases
+// (js -> eval) are rewritten. Anything else stays an `act` call.
+function routeCall(comp, bare, input) {
+  if (comp === undefined || bare !== comp.step_tool || typeof input.action !== 'string') return { bare, input };
+  const tool = comp.step_tools?.[input.action];
+  if (tool !== undefined) return { bare: tool, input };
+  if ((comp.state_actions ?? []).includes(input.action)) return { bare: comp.state_tool, input: { ...input, op: input.op ?? input.action } };
+  return { bare, input: { ...input, action: comp.step_action_aliases?.[input.action] ?? input.action } };
 }
 
-function collectOps(contract, bare, input, depth, out) {
+// A step inside batch/run as the call it stands for; null when it is not an object with a string action.
+const stepCall = (comp, step) => (!isObject(step) || typeof step.action !== 'string' ? null : routeCall(comp, comp.step_tool, step));
+
+// Nested steps of a call: [step-or-null, ...]; null marks a nested shape that is not a step (reported as unknown).
+function childSteps(input, dataKeys, structural) {
+  const out = [];
+  for (const [key, value] of Object.entries(input)) {
+    if (dataKeys.has(key)) continue;
+    if (Array.isArray(value)) {
+      if (structural && CHILD_KEYS.includes(key)) out.push(...value);
+      else if (value.some(isObject)) out.push(...value);
+    } else if (isObject(value) && typeof value.action === 'string') out.push(value);
+  }
+  return out;
+}
+
+function collectOps(contract, bare0, input0, depth, out) {
   const comp = isObject(contract.composite) ? contract.composite : undefined;
+  const { bare, input } = routeCall(comp, bare0, input0);
   const ops = leafOps(contract, bare, input);
   ops.forEach((op) => out.add(op));
   if (comp && runsPageJs(comp.js_guards, bare, input)) out.add(comp.js_op);
-  const structural = comp && ((depth === 0 && (comp.container_tools ?? []).includes(bare))
+  const structural = comp !== undefined && ((depth === 0 && (comp.container_tools ?? []).includes(bare))
     || (bare === comp.step_tool && (comp.structural_actions ?? []).includes(input.action)));
-  if (!structural) {
-    if (ops.length === 0) out.add(UNKNOWN_OP);
-    return;
-  }
+  if (!structural && ops.length === 0) out.add(UNKNOWN_OP);
+  if (comp?.step_tool === undefined) return;
   if (depth >= MAX_NESTING) { out.add(UNKNOWN_OP); return; }
-  const present = CHILD_KEYS.filter((k) => input[k] !== undefined);
-  if (present.length === 0 || present.some((k) => !Array.isArray(input[k]))) out.add(UNKNOWN_OP);
-  for (const step of present.flatMap((k) => (Array.isArray(input[k]) ? input[k] : []))) {
+  const dataKeys = new Set(ops.flatMap((op) => Object.entries(contract.ops[op].args ?? {}).filter(([, v]) => typeof v === 'object').map(([k]) => k)));
+  if (structural && (CHILD_KEYS.every((k) => input[k] === undefined) || CHILD_KEYS.some((k) => input[k] !== undefined && !Array.isArray(input[k])))) out.add(UNKNOWN_OP);
+  for (const step of childSteps(input, dataKeys, structural)) {
     const call = stepCall(comp, step);
     if (call) collectOps(contract, call.bare, call.input, depth + 1, out);
     else out.add(UNKNOWN_OP);

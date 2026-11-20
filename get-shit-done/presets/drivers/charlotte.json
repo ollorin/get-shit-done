@@ -200,6 +200,38 @@
     },
     "instance_list": {
       "tool": "charlotte_instance_list"
+    },
+    "clear_field": {
+      "tool": null,
+      "workaround": "No equivalent. Use evaluate to set the field value to an empty string, or type into it and delete with key."
+    },
+    "upload": {
+      "tool": null,
+      "workaround": "No equivalent. Test the same outcome through the app's own upload API, or set the file with evaluate where the page allows it."
+    },
+    "export_pdf": {
+      "tool": null,
+      "workaround": "No equivalent. Use screenshot (full_page) for a visual record."
+    },
+    "download": {
+      "tool": null,
+      "workaround": "No equivalent. Fetch the file URL with the shell (curl) or read it with evaluate."
+    },
+    "paginate": {
+      "tool": null,
+      "workaround": "No equivalent. Click the next control in a loop and observe each page."
+    },
+    "collect": {
+      "tool": null,
+      "workaround": "No equivalent. Loop scroll and observe, deduplicating by hand."
+    },
+    "session_save": {
+      "tool": null,
+      "workaround": "No equivalent. Read the cookies with get_cookies and keep them in a scratch file."
+    },
+    "session_load": {
+      "tool": null,
+      "workaround": "No equivalent. Restore the cookies with set_cookies."
     }
   }
 }
