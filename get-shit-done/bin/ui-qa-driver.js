@@ -134,6 +134,44 @@ function roleViolation(contract, role, tool, toolInput) {
   return `role "${role}" may not call ${what} (allowed ops: ${allowed.join(', ')})`;
 }
 
+// Logical ops a (tool, args) call performs. An op matches when its tool is the called tool and every constant arg it
+// declares (not a {placeholder}) equals the call arg; the ops with the most constants win, ties are all returned
+// (one bundled tool call can be several ops, e.g. fill is toggle and submit). The ops map is the only source, so a runner or hook can
+// forbid logical ops for either driver.
+const isPlaceholder = (v) => typeof v === "string" && /^\{[a-z_]+\}$/.test(v);
+function opsOf(contract, tool, args) {
+  if (contract.kind === "command") throw new Error(`ui_qa driver "${contract.driver}" is a command driver: it has no MCP ops`);
+  const prefix = contract.tool_prefix ?? "";
+  const bare = prefix !== "" && String(tool).startsWith(prefix) ? String(tool).slice(prefix.length) : String(tool);
+  const input = isObject(args) ? args : {};
+  const scored = Object.entries(contract.ops)
+    .filter(([, e]) => e.tool === bare)
+    .map(([op, e]) => ({ op, constants: Object.entries(e.args ?? {}).filter(([, v]) => !isPlaceholder(v) && typeof v !== "object") }))
+    .filter(({ constants }) => constants.every(([k, v]) => input[k] === v));
+  const best = Math.max(0, ...scored.map((c) => c.constants.length));
+  return scored.filter((c) => c.constants.length === best).map((c) => c.op).sort();
+}
+
+// Per-instance environment: isolation.env with {instance} filled in. A driver whose isolation is launch_op has no env to set;
+// its instances come from that op's tool.
+const INSTANCE_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+function instanceEnv(contract, instance) {
+  if (typeof instance !== "string" || !INSTANCE_RE.test(instance)) throw new Error("--instance must match [A-Za-z0-9][A-Za-z0-9_-]*");
+  const iso = contract.isolation;
+  if (!isObject(iso)) throw new Error(`ui_qa driver "${contract.driver}" declares no isolation`);
+  const env = Object.fromEntries(Object.entries(iso.env ?? {}).map(([k, v]) => [k, String(v).replaceAll("{instance}", instance)]));
+  const launch = iso.launch_op ? { op: iso.launch_op, tool: fullToolName(contract, iso.launch_op) } : undefined;
+  return { driver: contract.driver, instance, env, ...(launch ? { launch } : {}) };
+}
+
+// The MCP-tier contract a CLI call addresses: --driver names an adapter, else the project at --root.
+const cliContract = (args, root) => {
+  const driver = flag(args, "--driver");
+  const contract = driver === undefined ? resolveMcpTier(readUiQa(root)) : resolveContract({ driver });
+  if (!contract) throw new Error("ui_qa declares no mcp tier");
+  return contract;
+};
+
 // Fills the keys a project left out (agent, tool_prefix, lock_file, recording) from its adapter; never overwrites.
 // The nested tier is filled the same way (an MCP tier is filled from its resolved form, so keys it inherits stay put).
 // Returns the input untouched when the driver is unknown: validation reports that, sync does not guess.
@@ -193,8 +231,21 @@ function runCli(args, cwd) {
   const fail = (message) => ({ result: { error: message }, exitCode: 1 });
   try {
     switch (args[0]) {
-      case 'drivers':
-        return { result: { default: defaultDriver(), drivers: listDrivers(), kinds: Object.fromEntries(listDrivers().map((d) => [d, kindOf(d)])), agent: defaultAgent(), agent_aliases: agentAliases() }, exitCode: 0 };
+      case "drivers": {
+        const defaults = { agent: defaultAgent(), agent_aliases: agentAliases() };
+        let project;
+        try { const tier = resolveMcpTier(readUiQa(root)); if (tier) project = { driver: tier.driver, agent: tier.agent, agent_aliases: tier.agent_aliases }; } catch { /* no project ui_qa: adapter defaults only */ }
+        return { result: { default: defaultDriver(), drivers: listDrivers(), kinds: Object.fromEntries(listDrivers().map((d) => [d, kindOf(d)])), defaults, ...(project ? { project } : {}) }, exitCode: 0 };
+      }
+      case "op-of": {
+        const raw = flag(args, "--args");
+        const tool = flag(args, "--tool");
+        if (tool === undefined) return fail("op-of needs --tool <name> [--args <json>] [--driver name]");
+        const ops = opsOf(cliContract(args, root), tool, raw === undefined ? {} : JSON.parse(raw));
+        return { result: { tool, op: ops[0] ?? null, ops }, exitCode: 0 };
+      }
+      case "instance-env":
+        return { result: instanceEnv(cliContract(args, root), flag(args, "--instance")), exitCode: 0 };
       case 'contract':
       {
         const contract = resolveContract(readUiQa(root));
@@ -225,7 +276,7 @@ function runCli(args, cwd) {
         return { result: { written, ...(switching ? { switched: { from: current.driver, to: wanted }, changed } : {}), ui_qa: next }, exitCode: 0 };
       }
       default:
-        return fail('usage: ui-qa <drivers | contract [--tier mcp|scripted] [--root dir] | apply [--driver name] [--command cmd] [--root dir]>');
+        return fail('usage: ui-qa <drivers [--root dir] | op-of --tool name [--args json] [--driver name] | instance-env --instance id [--driver name] | contract [--tier mcp|scripted] [--root dir] | apply [--driver name] [--command cmd] [--root dir]>');
     }
   } catch (e) {
     return fail(e.message);
@@ -234,6 +285,6 @@ function runCli(args, cwd) {
 
 module.exports = {
   runCli,
-  roleOf, knownPrefixes, kindOf, mcpTier, roleViolation,
+  roleOf, opsOf, instanceEnv, knownPrefixes, kindOf, mcpTier, roleViolation,
   listDrivers, defaultDriver, defaultAgent, agentAliases, loadAdapter, resolveContract, resolveMcpTier, fullToolName, fillContract, newContract, readUiQa,
 };

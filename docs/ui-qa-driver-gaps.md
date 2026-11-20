@@ -21,7 +21,7 @@ Ops that map one to one (for example `navigate` to `act action=navigate`) are no
 | `drag` | none | No equivalent. Use evaluate to dispatch pointer events on the source and target, or test the same outcome through the keyboard or the app's own controls. |
 | `dev_serve` | none | Start the project's dev server with its stack.services launch command (shell), not through the driver. |
 | `dev_inject` | none | Use evaluate to run the injected script in the page. |
-| `instance_launch` | none | One daemon per BLADE_HOME: start a separate MCP server with its own BLADE_HOME for a second browser. |
+| `instance_launch` | none | One daemon per BLADE_HOME: start a separate MCP server with the env `ui-qa instance-env --instance <id>` prints (see Per-instance environment). |
 | `instance_kill` | none | Stop the daemon with the shell (bladebro stop). |
 | `instance_list` | none | No equivalent; the daemon is one per BLADE_HOME. |
 
@@ -44,6 +44,23 @@ Ops that map one to one (for example `navigate` to `act action=navigate`) are no
   delete each).
 - `network` is `see logs=network` (current navigation only). `requests` is `see logs=xhr`, the deduplicated API/fetch
   ring with method and status (bladebro 4.6.10+; older servers reject `logs=xhr`).
+
+## Logical ops, per-instance env and wait_for match keys
+
+- `gsd-tools ui-qa op-of --tool <name> --args '<json>' [--driver d | --root dir]` (export `opsOf` in `ui-qa-driver.js`) maps a call to
+  its logical op(s) from the adapter ops map, the only source: `act {action: eval}` is `evaluate` for bladebro, `charlotte_evaluate` for
+  charlotte. A runner or hook bans `evaluate` for either driver by comparing the result, not tool names. A tool shared by several ops
+  (`act action=fill` is `submit` or `toggle`) returns all of them in `ops`; `op` is the first.
+- Per-instance environment: adapter key `isolation`. Bladebro: `isolation.env` (`BLADE_HOME=.tmp/bladebro/{instance}`);
+  `gsd-tools ui-qa instance-env --instance <id> [--driver d]` renders it, one daemon (and so one browser) per value. Charlotte:
+  `isolation.launch_op: "instance_launch"`, rendered as `launch.tool` (`mcp__charlotte__charlotte_instance_launch`); its tools
+  then take the returned `instance_id`.
+- `wait_for.match` maps each condition to the one argument that carries its match value, so args are built mechanically. Bladebro
+  (`src/cli/args/act.rs` wait, `src/mcp/tools.rs`): `element|title|url|text` -> `text`, `selector` -> `selector`, `js` -> `js`,
+  `settle|network|network-idle` -> `null` (none). Charlotte (tool schema): no `condition` arg; `element` -> `element_id`,
+  `selector`, `text`, `js` (optional `state` refines an element wait).
+- `ui-qa drivers` prints `defaults` (adapter defaults: agent and aliases) and, inside a project with an MCP tier, `project`
+  (that tier's resolved driver, agent and aliases); a project that sets its own agent resolves to no aliases.
 
 ## Role op allowlists and residual risk
 

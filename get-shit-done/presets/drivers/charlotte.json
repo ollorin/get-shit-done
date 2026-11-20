@@ -11,6 +11,9 @@
     "env": {},
     "max_seconds": 300
   },
+  "isolation": {
+    "launch_op": "instance_launch"
+  },
   "ops": {
     "configure": {
       "tool": "charlotte_configure",
@@ -85,7 +88,13 @@
       "tool": "charlotte_drag"
     },
     "wait_for": {
-      "tool": "charlotte_wait_for"
+      "tool": "charlotte_wait_for",
+      "match": {
+        "element": "element_id",
+        "selector": "selector",
+        "text": "text",
+        "js": "js"
+      }
     },
     "console": {
       "tool": "charlotte_console"

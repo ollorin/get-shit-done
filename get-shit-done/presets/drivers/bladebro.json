@@ -18,6 +18,11 @@
       "ffmpeg"
     ]
   },
+  "isolation": {
+    "env": {
+      "BLADE_HOME": ".tmp/bladebro/{instance}"
+    }
+  },
   "ops": {
     "configure": {
       "tool": null,
@@ -155,7 +160,18 @@
         "condition": "{condition}",
         "timeout": "{seconds}"
       },
-      "note": "condition: element|selector|title|settle|network|network-idle|url|text|js. Add the one match key the condition names: element, title, url and text take `text`; selector takes `selector`; js takes `js`; settle, network and network-idle take none. Bladebro rejects a wait without a match value (except settle/network)."
+      "note": "condition: element|selector|title|settle|network|network-idle|url|text|js. Add the one match key the condition names: element, title, url and text take `text`; selector takes `selector`; js takes `js`; settle, network and network-idle take none. Bladebro rejects a wait without a match value (except settle/network).",
+      "match": {
+        "element": "text",
+        "title": "text",
+        "url": "text",
+        "text": "text",
+        "selector": "selector",
+        "js": "js",
+        "settle": null,
+        "network": null,
+        "network-idle": null
+      }
     },
     "console": {
       "tool": "see",
@@ -327,7 +343,7 @@
     },
     "instance_launch": {
       "tool": null,
-      "workaround": "One daemon per BLADE_HOME: start a separate MCP server with its own BLADE_HOME for a second browser."
+      "workaround": "One daemon per BLADE_HOME: start a separate MCP server with the env `ui-qa instance-env --instance <id>` prints (isolation.env) for a second browser."
     },
     "instance_kill": {
       "tool": null,

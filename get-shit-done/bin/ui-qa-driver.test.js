@@ -178,7 +178,15 @@ describe('fillContract and gsd-tools ui-qa', () => {
     const r = cli(project(undefined), 'drivers');
     assert.strictEqual(r.status, 0);
     assert.strictEqual(r.json.default, 'bladebro');
-    assert.deepStrictEqual(r.json.agent_aliases, ['gsd-charlotte-qa']);
+    assert.deepStrictEqual(r.json.defaults.agent_aliases, ['gsd-charlotte-qa']);
+    assert.strictEqual(r.json.project, undefined);
+  });
+
+  test('drivers inside a project shows its resolved aliases beside the labelled adapter defaults', () => {
+    const cleared = cli(project({ driver: 'bladebro', agent: 'custom-qa' }), 'drivers').json;
+    assert.deepStrictEqual(cleared.project, { driver: 'bladebro', agent: 'custom-qa', agent_aliases: [] });
+    assert.deepStrictEqual(cleared.defaults.agent_aliases, ['gsd-charlotte-qa']);
+    assert.deepStrictEqual(cli(project({ driver: 'bladebro' }), 'drivers').json.project.agent_aliases, ['gsd-charlotte-qa']);
   });
 
   test('apply with no ui_qa and no flag writes the default driver; a second run writes nothing', () => {
@@ -456,5 +464,48 @@ describe('apply --driver between kinds and the mixed-tier hook', () => {
     const alias = handle({ hook_event_name: 'SubagentStart', cwd: root, session_id: 's', agent_id: 'a2', agent_type: 'gsd-charlotte-qa' }, { nowMs: NOW, holderPid: process.pid });
     assert.strictEqual(alias.exitCode, 0);
     assert.ok(JSON.parse(fs.readFileSync(path.join(root, mcp.lock_file), 'utf8')).holders.includes('a2'));
+  });
+});
+
+describe('logical op resolver, per-instance env, wait_for match keys', () => {
+  const cliArgs = (...args) => {
+    const r = spawnSync('node', [TOOLS, 'ui-qa', ...args], { encoding: 'utf8' });
+    return { status: r.status, json: JSON.parse(r.stdout) };
+  };
+  const opOf = (driverName, tool, args) => driver.opsOf(driver.resolveContract({ driver: driverName }), tool, args);
+
+  test('opsOf maps bladebro act action=eval and charlotte charlotte_evaluate to evaluate, by args not tool name', () => {
+    assert.deepStrictEqual(opOf('bladebro', 'mcp__bladebro__act', { action: 'eval', js: '1' }), ['evaluate']);
+    assert.deepStrictEqual(opOf('bladebro', 'act', { action: 'navigate', url: 'x' }), ['navigate']);
+    assert.deepStrictEqual(opOf('charlotte', 'mcp__charlotte__charlotte_evaluate', {}), ['evaluate']);
+    assert.deepStrictEqual(opOf('bladebro', 'act', { action: 'nope' }), []);
+    assert.deepStrictEqual(opOf('bladebro', 'see', { logs: 'xhr' }), ['requests']);
+  });
+
+  test('op-of CLI resolves with --driver and with the project driver; a shared tool returns every op it can be', () => {
+    const r = cliArgs('op-of', '--tool', 'mcp__bladebro__act', '--args', '{"action":"eval"}', '--driver', 'bladebro');
+    assert.deepStrictEqual([r.status, r.json.op, r.json.ops], [0, 'evaluate', ['evaluate']]);
+    const p = cli(project({ driver: 'charlotte' }), 'op-of', '--tool', 'charlotte_evaluate');
+    assert.strictEqual(p.json.op, 'evaluate');
+    const fill = driver.opsOf(driver.resolveContract({ driver: 'bladebro' }), 'act', { action: 'fill' });
+    assert.deepStrictEqual(fill, ['submit', 'toggle']);
+    assert.strictEqual(cliArgs('op-of', '--driver', 'bladebro').status, 1);
+  });
+
+  test('instance-env renders bladebro isolation.env per instance and maps charlotte to its instance_launch tool', () => {
+    const b = cliArgs('instance-env', '--instance', 'b1', '--driver', 'bladebro');
+    assert.deepStrictEqual(b.json.env, { BLADE_HOME: '.tmp/bladebro/b1' });
+    assert.deepStrictEqual(cliArgs('instance-env', '--instance', 'b2', '--driver', 'bladebro').json.env, { BLADE_HOME: '.tmp/bladebro/b2' });
+    const c = cliArgs('instance-env', '--instance', 'b1', '--driver', 'charlotte').json;
+    assert.deepStrictEqual(c.launch, { op: 'instance_launch', tool: 'mcp__charlotte__charlotte_instance_launch' });
+    assert.strictEqual(cliArgs('instance-env', '--instance', '../x', '--driver', 'bladebro').status, 1);
+    assert.strictEqual(cliArgs('instance-env', '--driver', 'bladebro').status, 1);
+  });
+
+  test('every wait_for condition has a match key; the key set is the one bladebro act.rs accepts and charlotte schema declares', () => {
+    const b = driver.loadAdapter('bladebro').ops.wait_for.match;
+    assert.deepStrictEqual(b, { element: 'text', title: 'text', url: 'text', text: 'text', selector: 'selector', js: 'js', settle: null, network: null, 'network-idle': null });
+    for (const cond of Object.keys(b)) assert.match(driver.loadAdapter('bladebro').ops.wait_for.note, new RegExp(cond));
+    assert.deepStrictEqual(driver.loadAdapter('charlotte').ops.wait_for.match, { element: 'element_id', selector: 'selector', text: 'text', js: 'js' });
   });
 });
