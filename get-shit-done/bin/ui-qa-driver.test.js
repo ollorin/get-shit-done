@@ -69,6 +69,15 @@ describe('driver adapters', () => {
     assert.ok(expected.length >= 10);
   });
 
+  test('the gap document lists every op the charlotte adapter has no tool for in its bladebro-only table', () => {
+    const doc = fs.readFileSync(path.join(REPO, 'docs', 'ui-qa-driver-gaps.md'), 'utf8');
+    const section = doc.split('## Bladebro ops with no Charlotte equivalent')[1].split(/^## /m)[0];
+    const listed = [...section.matchAll(/^\| `([a-z_]+)` \| /gm)].map((m) => m[1]).sort();
+    const expected = Object.entries(driver.loadAdapter('charlotte').ops).filter(([, e]) => e.tool === null).map(([k]) => k).sort();
+    assert.deepStrictEqual(listed, expected);
+    assert.ok(expected.length >= 8);
+  });
+
   test('bladebro wait_for carries only the condition and timeout; the note names the one match key per condition', () => {
     const op = driver.loadAdapter('bladebro').ops.wait_for;
     assert.deepStrictEqual(Object.keys(op.args), ['action', 'condition', 'timeout']);
@@ -78,7 +87,7 @@ describe('driver adapters', () => {
   test('bladebro maps requests to see logs=xhr and read_state to act action=read; charlotte has read_state as a workaround', () => {
     const b = driver.loadAdapter('bladebro').ops;
     assert.deepStrictEqual({ tool: b.requests.tool, args: b.requests.args }, { tool: 'see', args: { logs: 'xhr' } });
-    assert.deepStrictEqual({ tool: b.read_state.tool, args: b.read_state.args }, { tool: 'act', args: { action: 'read', ref: '{ref}', format: 'json' } });
+    assert.deepStrictEqual({ tool: b.read_state.tool, args: b.read_state.args }, { tool: 'act', args: { action: 'read', ref: '{ref}', format: '{format}' } });
     const c = driver.loadAdapter('charlotte').ops;
     assert.strictEqual(c.read_state.tool, null);
     assert.match(c.read_state.workaround, /observe/);
@@ -100,13 +109,18 @@ describe('role agents, packs and agent text', () => {
     const ui = driver.resolveContract({ driver: 'charlotte' });
     for (const [agent, role] of Object.entries({ 'gsd-product-investigator': 'investigator', 'gsd-demo': 'demo', 'gsd-ui-qa': 'qa' })) {
       assert.strictEqual(driver.roleOf(agent, undefined), role);
+      const listedAll = frontmatterTools(agent);
+      const allowedAll = new Set();
       for (const d of driver.listDrivers('mcp')) {
         const c = driver.resolveContract({ driver: d });
         const allowed = new Set(ui.roles[role].map((op) => driver.fullToolName(c, op)).filter(Boolean));
-        const listed = frontmatterTools(agent).filter((t) => t.startsWith(c.tool_prefix));
+        for (const t of allowed) allowedAll.add(t);
+        const listed = listedAll.filter((t) => t.startsWith(c.tool_prefix));
         assert.ok(listed.length > 0, `${agent} lists no ${d} tool`);
         for (const t of listed) assert.ok(allowed.has(t), `${agent}: ${t} is outside the ${role} role`);
+        for (const t of allowed) assert.ok(listedAll.includes(t), `${agent} lacks ${t}, the ${d} tool of a ${role} op`);
       }
+      for (const t of listedAll) assert.ok(allowedAll.has(t), `${agent}: ${t} serves no ${role} op`);
     }
     assert.ok(!frontmatterTools('gsd-product-investigator').some((t) => /click|type|evaluate|cookies/.test(t)));
     assert.deepStrictEqual(frontmatterTools('gsd-product-investigator').filter((t) => t.startsWith('mcp__bladebro__')), ['mcp__bladebro__act', 'mcp__bladebro__see', 'mcp__bladebro__vision']);
@@ -178,7 +192,15 @@ describe('fillContract and gsd-tools ui-qa', () => {
     const r = cli(project(undefined), 'drivers');
     assert.strictEqual(r.status, 0);
     assert.strictEqual(r.json.default, 'bladebro');
-    assert.deepStrictEqual(r.json.agent_aliases, ['gsd-charlotte-qa']);
+    assert.deepStrictEqual(r.json.defaults.agent_aliases, ['gsd-charlotte-qa']);
+    assert.strictEqual(r.json.project, undefined);
+  });
+
+  test('drivers inside a project shows its resolved aliases beside the labelled adapter defaults', () => {
+    const cleared = cli(project({ driver: 'bladebro', agent: 'custom-qa' }), 'drivers').json;
+    assert.deepStrictEqual(cleared.project, { driver: 'bladebro', agent: 'custom-qa', agent_aliases: [] });
+    assert.deepStrictEqual(cleared.defaults.agent_aliases, ['gsd-charlotte-qa']);
+    assert.deepStrictEqual(cli(project({ driver: 'bladebro' }), 'drivers').json.project.agent_aliases, ['gsd-charlotte-qa']);
   });
 
   test('apply with no ui_qa and no flag writes the default driver; a second run writes nothing', () => {
@@ -456,5 +478,202 @@ describe('apply --driver between kinds and the mixed-tier hook', () => {
     const alias = handle({ hook_event_name: 'SubagentStart', cwd: root, session_id: 's', agent_id: 'a2', agent_type: 'gsd-charlotte-qa' }, { nowMs: NOW, holderPid: process.pid });
     assert.strictEqual(alias.exitCode, 0);
     assert.ok(JSON.parse(fs.readFileSync(path.join(root, mcp.lock_file), 'utf8')).holders.includes('a2'));
+  });
+});
+
+describe('logical op resolver, per-instance env, wait_for match keys', () => {
+  const cliArgs = (...args) => {
+    const r = spawnSync('node', [TOOLS, 'ui-qa', ...args], { encoding: 'utf8' });
+    return { status: r.status, json: JSON.parse(r.stdout) };
+  };
+  const opOf = (driverName, tool, args) => driver.opsOf(driver.resolveContract({ driver: driverName }), tool, args);
+
+  test('opsOf maps bladebro act action=eval and charlotte charlotte_evaluate to evaluate, by args not tool name', () => {
+    assert.deepStrictEqual(opOf('bladebro', 'mcp__bladebro__act', { action: 'eval', js: '1' }), ['evaluate']);
+    assert.deepStrictEqual(opOf('bladebro', 'act', { action: 'navigate', url: 'x' }), ['navigate']);
+    assert.deepStrictEqual(opOf('charlotte', 'mcp__charlotte__charlotte_evaluate', {}), ['evaluate']);
+    assert.deepStrictEqual(opOf('bladebro', 'act', { action: 'nope' }), ['unknown']);
+    assert.deepStrictEqual(opOf('bladebro', 'see', { logs: 'xhr' }), ['requests']);
+  });
+
+  test('op-of CLI resolves with --driver and with the project driver; a shared tool returns every op it can be', () => {
+    const r = cliArgs('op-of', '--tool', 'mcp__bladebro__act', '--args', '{"action":"eval"}', '--driver', 'bladebro');
+    assert.deepStrictEqual([r.status, r.json.ops, r.json.unknown, 'op' in r.json], [0, ['evaluate'], false, false]);
+    const p = cli(project({ driver: 'charlotte' }), 'op-of', '--tool', 'charlotte_evaluate');
+    assert.deepStrictEqual(p.json.ops, ['evaluate']);
+    const fill = driver.opsOf(driver.resolveContract({ driver: 'bladebro' }), 'act', { action: 'fill' });
+    assert.deepStrictEqual(fill, ['submit', 'toggle']);
+    assert.strictEqual(cliArgs('op-of', '--driver', 'bladebro').status, 1);
+  });
+
+  describe('every call form that runs page JS or is unmapped is accounted for', () => {
+    const B = (args, tool = 'mcp__bladebro__act') => opOf('bladebro', tool, args);
+    const evalStep = { action: 'eval', js: 'document.cookie' };
+
+    test('act wait condition=js (and a bare js field) is evaluate as well as wait_for', () => {
+      assert.deepStrictEqual(B({ action: 'wait', condition: 'js', js: 'window.x', timeout: 1 }), ['evaluate', 'wait_for']);
+      assert.deepStrictEqual(B({ action: 'wait', js: 'window.x' }), ['evaluate', 'wait_for']);
+      assert.deepStrictEqual(B({ action: 'wait', condition: 'text', text: 'hi' }), ['wait_for']);
+    });
+
+    test('act batch returns the union of its steps, nested eval included', () => {
+      assert.deepStrictEqual(B({ action: 'batch', steps: [{ action: 'click', ref: 'e1' }, evalStep] }), ['click', 'evaluate']);
+      assert.deepStrictEqual(B({ action: 'batch', steps: [{ action: 'js', js: '1' }] }), ['evaluate']);
+      assert.deepStrictEqual(B({ action: 'batch', steps: [{ action: 'wait', condition: 'js', js: '1' }] }), ['evaluate', 'wait_for']);
+      assert.deepStrictEqual(B({ action: 'batch', steps: [{ action: 'see', logs: 'console' }, { action: 'state', op: 'cookies' }] }), ['console', 'get_cookies']);
+    });
+
+    test('run returns the union over steps, then/else branches and loop bodies; if/while condition=js is evaluate', () => {
+      assert.deepStrictEqual(B({ steps: [{ action: 'navigate', url: 'x' }, evalStep] }, 'mcp__bladebro__run'), ['evaluate', 'navigate']);
+      assert.deepStrictEqual(B({ steps: [{ action: 'if', condition: 'js', js: 'true', then: [{ action: 'click', ref: 'e1' }] }] }, 'run'), ['click', 'evaluate']);
+      assert.deepStrictEqual(B({ steps: [{ action: 'while', condition: 'js', js: 'true', max: 2, steps: [{ action: 'scroll', dy: 5 }] }] }, 'run'), ['evaluate', 'scroll']);
+      assert.deepStrictEqual(B({ steps: [{ action: 'if', condition: 'text', text: 'a', then: [], else: [evalStep] }] }, 'run'), ['evaluate']);
+      assert.deepStrictEqual(B({ steps: [{ action: 'if', condition: 'text', text: 'a', then: [{ action: 'back' }] }] }, 'run'), ['back']);
+    });
+
+    test('an unknown action, an unmapped step, malformed nesting and non-object args yield unknown, never []', () => {
+      assert.deepStrictEqual(B({ action: 'nope' }), ['unknown']);
+      assert.deepStrictEqual(B({ action: 'batch', steps: [{ action: 'click', ref: 'e1' }, { action: 'nope' }] }), ['click', 'unknown']);
+      assert.deepStrictEqual(B({ action: 'batch', steps: [{ ref: 'e1' }] }), ['unknown']);
+      assert.deepStrictEqual(B({ action: 'batch' }), ['unknown']);
+      assert.deepStrictEqual(B({ steps: 'x' }, 'run'), ['unknown']);
+      assert.deepStrictEqual(B('not-an-object'), ['unknown']);
+      assert.deepStrictEqual(B({ action: 'frobnicate' }), ['unknown']);
+      assert.deepStrictEqual(opOf('bladebro', 'mcp__bladebro__other', {}), ['unknown']);
+      const deep = Array.from({ length: 40 }).reduce((inner) => ({ action: 'if', condition: 'text', text: 'a', then: [inner] }), { action: 'back' });
+      assert.ok(B({ steps: [deep] }, 'run').includes('unknown'));
+    });
+
+    test('normalisation follows bladebro: condition is trimmed (run.rs:153), action/op/mode are exact (act.rs:342)', () => {
+      for (const condition of [' js', 'js ', '\tjs\n', ' JS ', 'JS']) {
+        assert.deepStrictEqual(B({ action: 'wait', condition, text: 'document.cookie' }), ['evaluate', 'wait_for'], JSON.stringify(condition));
+        assert.deepStrictEqual(B({ steps: [{ action: 'wait', condition, js: '1' }] }, 'run'), ['evaluate', 'wait_for']);
+        assert.ok(B({ action: 'batch', steps: [{ action: 'if', condition, js: '1', then: [] }] }).includes('evaluate'));
+      }
+      assert.deepStrictEqual(B({ action: 'wait', condition: ' text ', text: 'x' }), ['wait_for']);
+      for (const action of [' eval ', 'EVAL', 'eval\n']) assert.deepStrictEqual(B({ action, js: '1' }), ['unknown'], JSON.stringify(action));
+      assert.deepStrictEqual(B({ action: 'batch', steps: [{ action: ' eval', js: '1' }] }), ['unknown']);
+      assert.deepStrictEqual(B({ op: ' open-tab ' }, 'state'), ['unknown']);
+    });
+
+    test('a nested step is found in whatever field holds it: wait else, unknown container keys, object-valued fields', () => {
+      const evalOnly = (args, tool) => assert.ok(B(args, tool).includes('evaluate'), JSON.stringify(args));
+      evalOnly({ steps: [{ action: 'wait', condition: 'text', text: 'x', else: [{ action: 'eval', js: '1' }] }] }, 'run');
+      evalOnly({ action: 'wait', condition: 'text', text: 'x', else: [{ action: 'eval', js: '1' }] });
+      evalOnly({ action: 'click', ref: 'e1', on_error: [{ action: 'eval', js: '1' }] });
+      evalOnly({ steps: [{ action: 'navigate', url: 'x', whatever_next: [{ action: 'eval', js: '1' }] }] }, 'run');
+      evalOnly({ action: 'batch', steps: [{ action: 'click', ref: 'e1', fallback: { action: 'eval', js: '1' } }] });
+      evalOnly({ action: 'wait', condition: 'text', text: 'x', deep: [{ action: 'if', condition: 'text', text: 'a', then: [{ action: 'eval', js: '1' }] }] });
+      assert.deepStrictEqual(B({ action: 'click', ref: 'e1', extra: [{ ref: 'e2' }] }), ['click', 'unknown']);
+      assert.deepStrictEqual(B({ action: 'click', ref: 'e1', extra: [{ action: 'nope' }] }), ['click', 'unknown']);
+      assert.deepStrictEqual(B({ action: 'fill', fields: [{ ref: 'e1', text: 'a' }] }), ['submit', 'toggle']);
+    });
+
+    test('act actions without a logical op yesterday now map; tab and state ops sent via act resolve like the state tool', () => {
+      const expected = { clear: 'clear_field', pdf: 'export_pdf', download: 'download', paginate: 'paginate', collect: 'collect', upload: 'upload' };
+      for (const [action, op] of Object.entries(expected)) assert.deepStrictEqual(B({ action }), [op], action);
+      assert.deepStrictEqual(B({ action: 'open-tab', url: 'x' }), ['tab_open']);
+      assert.deepStrictEqual(B({ action: 'close-tab', target_id: '1' }), ['tab_close']);
+      assert.deepStrictEqual(B({ action: 'switch-tab', target_id: '1' }), ['tab_switch']);
+      assert.deepStrictEqual(B({ action: 'state', op: 'open-tab', url: 'x' }), ['tab_open']);
+      assert.deepStrictEqual(B({ action: 'cookies' }), ['get_cookies']);
+      assert.deepStrictEqual(B({ action: 'set-cookie', name: 'a' }), ['set_cookies']);
+      assert.deepStrictEqual(B({ action: 'save' }), ['session_save']);
+      assert.deepStrictEqual(B({ action: 'load' }), ['session_load']);
+      assert.deepStrictEqual(B({ op: 'save' }, 'state'), ['session_save']);
+      for (const op of Object.values(expected).concat(['session_save', 'session_load'])) {
+        assert.strictEqual(driver.loadAdapter('charlotte').ops[op].tool, null, op);
+        assert.ok(driver.loadAdapter('charlotte').ops[op].workaround, op);
+      }
+    });
+
+    test('the default qa role allows an ordinary QA flow and still denies what it should', () => {
+      const c = driver.resolveContract({ driver: 'bladebro' });
+      const bladebro = (tool, input) => driver.roleViolation(c, 'qa', `mcp__bladebro__${tool}`, input);
+      for (const [tool, input] of [
+        ['act', { action: 'wait', condition: 'text', text: 'Welcome' }],
+        ['act', { action: 'press', key: 'Enter' }],
+        ['act', { action: 'fill', fields: [{ ref: 'e1', text: 'a' }], submit: 'e2' }],
+        ['act', { action: 'back' }], ['act', { action: 'forward' }], ['act', { action: 'select', ref: 'e1', option: 'a' }],
+        ['act', { action: 'eval', js: '1' }], ['run', { steps: [{ action: 'click', ref: 'e1' }, { action: 'wait', condition: 'text', text: 'x' }] }],
+      ]) assert.strictEqual(bladebro(tool, input), null, `${tool} ${JSON.stringify(input)}`);
+      for (const [tool, input] of [
+        ['state', { op: 'cookies' }], ['act', { action: 'upload' }], ['act', { action: 'nope' }],
+      ]) assert.match(bladebro(tool, input) ?? '', /may not call/, `${tool} ${JSON.stringify(input)}`);
+      const inv = (tool, input) => driver.roleViolation(c, 'investigator', `mcp__bladebro__${tool}`, input);
+      assert.match(inv('act', { action: 'click', ref: 'e1' }), /may not call/);
+      assert.match(inv('act', { action: 'wait', condition: 'text', text: 'x' }), /may not call/);
+      assert.match(inv('act', { action: 'wait', condition: ' js', text: 'document.cookie' }), /evaluate/);
+    });
+
+    test('charlotte wait_for with a js argument is evaluate too', () => {
+      assert.deepStrictEqual(opOf('charlotte', 'mcp__charlotte__charlotte_wait_for', { js: '1' }), ['evaluate', 'wait_for']);
+      assert.deepStrictEqual(opOf('charlotte', 'mcp__charlotte__charlotte_nope', {}), ['unknown']);
+    });
+
+    test('op-of CLI flags unknown and exits non-zero (also for unparseable args); it prints ops, no op field', () => {
+      const run = (...a) => spawnSync('node', [TOOLS, 'ui-qa', 'op-of', '--driver', 'bladebro', ...a], { encoding: 'utf8' });
+      const bad = run('--tool', 'mcp__bladebro__act', '--args', '{"action":"batch","steps":[{"action":"nope"}]}');
+      assert.deepStrictEqual([bad.status, JSON.parse(bad.stdout)], [3, { tool: 'mcp__bladebro__act', ops: ['unknown'], unknown: true }]);
+      const garbled = run('--tool', 'mcp__bladebro__act', '--args', '{nope');
+      assert.deepStrictEqual([garbled.status, JSON.parse(garbled.stdout).unknown], [3, true]);
+      const js = run('--tool', 'mcp__bladebro__run', '--args', JSON.stringify({ steps: [evalStep] }));
+      assert.deepStrictEqual([js.status, JSON.parse(js.stdout).ops], [0, ['evaluate']]);
+    });
+  });
+
+  test('instance-env renders bladebro isolation.env per instance and maps charlotte to its instance_launch tool', () => {
+    const b = cliArgs('instance-env', '--instance', 'b1', '--driver', 'bladebro');
+    assert.deepStrictEqual(b.json.env, { BLADE_HOME: '.tmp/bladebro/b1' });
+    assert.deepStrictEqual(cliArgs('instance-env', '--instance', 'b2', '--driver', 'bladebro').json.env, { BLADE_HOME: '.tmp/bladebro/b2' });
+    const c = cliArgs('instance-env', '--instance', 'b1', '--driver', 'charlotte').json;
+    assert.deepStrictEqual(c.launch, { op: 'instance_launch', tool: 'mcp__charlotte__charlotte_instance_launch' });
+    assert.strictEqual(cliArgs('instance-env', '--instance', '../x', '--driver', 'bladebro').status, 1);
+    assert.strictEqual(cliArgs('instance-env', '--driver', 'bladebro').status, 1);
+  });
+
+  test('every wait_for condition has a match key; the key set is the one bladebro act.rs accepts and charlotte schema declares', () => {
+    const b = driver.loadAdapter('bladebro').ops.wait_for.match;
+    assert.deepStrictEqual(b, { element: 'text', title: 'text', url: 'text', text: 'text', selector: 'selector', js: 'js', settle: null, network: null, 'network-idle': null });
+    for (const cond of Object.keys(b)) assert.match(driver.loadAdapter('bladebro').ops.wait_for.note, new RegExp(cond));
+    assert.deepStrictEqual(driver.loadAdapter('charlotte').ops.wait_for.match, { element: 'element_id', selector: 'selector', text: 'text', js: 'js' });
+  });
+
+  test('server: adapter MCP launch command resolves in the contract and a project overrides it per key', () => {
+    assert.deepStrictEqual(driver.resolveContract({ driver: 'bladebro' }).server, { command: 'bladebro', args: ['mcp'] });
+    assert.deepStrictEqual(driver.resolveContract({ driver: 'charlotte' }).server, { command: 'npx', args: ['@ticktockbent/charlotte'] });
+    assert.deepStrictEqual(driver.resolveContract({ driver: 'bladebro', server: { command: '/opt/bin/bladebro' } }).server, { command: '/opt/bin/bladebro', args: ['mcp'] });
+    assert.deepStrictEqual(driver.resolveContract({ driver: 'bladebro', server: { command: '/x', args: ['mcp', '--v'] } }).server, { command: '/x', args: ['mcp', '--v'] });
+    assert.strictEqual(driver.resolveContract({ driver: 'playwright', command: 'x' }).server, undefined);
+  });
+
+  test('isolation names the scratch-home and record-dir env vars; instance-env reports them', () => {
+    assert.deepStrictEqual([driver.loadAdapter('bladebro').isolation.home_env, driver.loadAdapter('bladebro').isolation.record_dir_env], ['BLADE_HOME', 'BLADE_RECORD']);
+    const b = cliArgs('instance-env', '--instance', 'q1', '--driver', 'bladebro').json;
+    assert.deepStrictEqual([b.home_env, b.record_dir_env, b.env], ['BLADE_HOME', 'BLADE_RECORD', { BLADE_HOME: '.tmp/bladebro/q1' }]);
+    assert.strictEqual(Object.hasOwn(b.env, b.home_env), true);
+    const c = cliArgs('instance-env', '--instance', 'q1', '--driver', 'charlotte').json;
+    assert.strictEqual(c.home_env, undefined);
+  });
+
+  test('probe-spec prints server, full expected tool names and the smoke call without starting a server', () => {
+    const b = cliArgs('probe-spec', '--driver', 'bladebro');
+    assert.strictEqual(b.status, 0);
+    assert.deepStrictEqual(b.json.expect_tools, ['act', 'see', 'state', 'run', 'vision'].map((t) => `mcp__bladebro__${t}`));
+    assert.deepStrictEqual(b.json.smoke, { op: 'navigate', tool: 'mcp__bladebro__act', args: { action: 'navigate', url: 'about:blank' } });
+    assert.deepStrictEqual(b.json.server, { command: 'bladebro', args: ['mcp'] });
+    const c = cliArgs('probe-spec', '--driver', 'charlotte').json;
+    assert.strictEqual(c.smoke.tool, 'mcp__charlotte__charlotte_navigate');
+    assert.ok(c.expect_tools.every((t) => t.startsWith('mcp__charlotte__charlotte_')));
+    assert.strictEqual(cliArgs('probe-spec', '--driver', 'playwright').status, 1);
+  });
+
+  test('every mcp adapter has a server and a probe whose smoke_op tool is among the expected tools', () => {
+    for (const d of driver.listDrivers('mcp')) {
+      const a = driver.loadAdapter(d);
+      assert.ok(a.server.command && Array.isArray(a.server.args), d);
+      assert.ok(a.probe.expect_tools.length > 0 && a.probe.expect_tools.includes(a.ops[a.probe.smoke_op].tool), d);
+      assert.ok(a.ops[a.probe.smoke_op].tool, d);
+    }
   });
 });

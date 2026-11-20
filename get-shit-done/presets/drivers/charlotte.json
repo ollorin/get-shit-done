@@ -5,11 +5,42 @@
   "tool_prefix": "mcp__charlotte__",
   "lock_file": ".tmp/charlotte.lock",
   "artifact_index": "driver",
+  "server": {
+    "command": "npx",
+    "args": [
+      "@ticktockbent/charlotte"
+    ]
+  },
+  "probe": {
+    "expect_tools": [
+      "charlotte_navigate",
+      "charlotte_observe",
+      "charlotte_screenshot",
+      "charlotte_evaluate"
+    ],
+    "smoke_op": "navigate",
+    "smoke_input": {
+      "url": "about:blank"
+    }
+  },
   "recording": {
     "start": "screencast_start",
     "stop": "screencast_stop",
     "env": {},
     "max_seconds": 300
+  },
+  "isolation": {
+    "launch_op": "instance_launch"
+  },
+  "composite": {
+    "description": "charlotte_wait_for with a js argument runs page JS.",
+    "js_op": "evaluate",
+    "js_guards": [
+      {
+        "tool": "charlotte_wait_for",
+        "js_key": "js"
+      }
+    ]
   },
   "ops": {
     "configure": {
@@ -85,7 +116,13 @@
       "tool": "charlotte_drag"
     },
     "wait_for": {
-      "tool": "charlotte_wait_for"
+      "tool": "charlotte_wait_for",
+      "match": {
+        "element": "element_id",
+        "selector": "selector",
+        "text": "text",
+        "js": "js"
+      }
     },
     "console": {
       "tool": "charlotte_console"
@@ -181,6 +218,38 @@
     },
     "instance_list": {
       "tool": "charlotte_instance_list"
+    },
+    "clear_field": {
+      "tool": null,
+      "workaround": "No equivalent. Use evaluate to set the field value to an empty string, or type into it and delete with key."
+    },
+    "upload": {
+      "tool": null,
+      "workaround": "No equivalent. Test the same outcome through the app's own upload API, or set the file with evaluate where the page allows it."
+    },
+    "export_pdf": {
+      "tool": null,
+      "workaround": "No equivalent. Use screenshot (full_page) for a visual record."
+    },
+    "download": {
+      "tool": null,
+      "workaround": "No equivalent. Fetch the file URL with the shell (curl) or read it with evaluate."
+    },
+    "paginate": {
+      "tool": null,
+      "workaround": "No equivalent. Click the next control in a loop and observe each page."
+    },
+    "collect": {
+      "tool": null,
+      "workaround": "No equivalent. Loop scroll and observe, deduplicating by hand."
+    },
+    "session_save": {
+      "tool": null,
+      "workaround": "No equivalent. Read the cookies with get_cookies and keep them in a scratch file."
+    },
+    "session_load": {
+      "tool": null,
+      "workaround": "No equivalent. Restore the cookies with set_cookies."
     }
   }
 }

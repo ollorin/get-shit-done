@@ -773,9 +773,31 @@ describe('handle', () => {
       assert.strictEqual(as('gsd-product-investigator', { mode: 'model' }, 'mcp__bladebro__see').exitCode, 0);
       assert.strictEqual(as('gsd-product-investigator', { op: 'cookies' }, 'mcp__bladebro__state').exitCode, 2);
       assert.strictEqual(as('gsd-ui-qa', { action: 'eval', js: '1' }).exitCode, 0);
-      assert.strictEqual(as('gsd-ui-qa', { action: 'fill' }).exitCode, 2);
+      assert.strictEqual(as('gsd-ui-qa', { action: 'fill' }).exitCode, 0);
+      assert.strictEqual(as('gsd-ui-qa', { action: 'upload' }).exitCode, 2);
       assert.strictEqual(as('gsd-demo', { action: 'eval' }).exitCode, 2);
       assert.strictEqual(as('gsd-demo', { action: 'fill', fields: [] }).exitCode, 0);
+    });
+
+    test('batch, run and wait-js are checked recursively: a nested op outside the role, or an unknown one, is denied', () => {
+      useBladebro();
+      const as = (agent_type, tool_input, tool = 'mcp__bladebro__act') => call(tool, { agent_type, agent_id: 'i1', tool_input });
+      const inv = 'gsd-product-investigator';
+      const evalStep = { action: 'eval', js: 'document.cookie' };
+      const batchEval = as(inv, { action: 'batch', steps: [{ action: 'navigate', url: 'http://x' }, evalStep] });
+      assert.strictEqual(batchEval.exitCode, 2);
+      assert.match(batchEval.stderr, /role "investigator" may not call act action=batch .*evaluate/);
+      assert.strictEqual(as(inv, { action: 'batch', steps: [{ action: 'navigate', url: 'http://x' }, { action: 'scroll', dy: 1 }] }).exitCode, 0);
+      assert.strictEqual(as(inv, { action: 'batch', steps: [{ action: 'nope' }] }).exitCode, 2);
+      assert.strictEqual(as(inv, { steps: [evalStep] }, 'mcp__bladebro__run').exitCode, 2);
+      assert.strictEqual(as(inv, { steps: [{ action: 'if', condition: 'js', js: 'true', then: [] }] }, 'mcp__bladebro__run').exitCode, 2);
+      assert.strictEqual(as(inv, { action: 'wait', condition: 'js', js: 'true' }).exitCode, 2);
+      assert.strictEqual(as('gsd-ui-qa', { action: 'batch', steps: [evalStep] }).exitCode, 0);
+      assert.strictEqual(as('gsd-ui-qa', { action: 'wait', condition: 'js', js: 'true' }).exitCode, 0);
+      assert.strictEqual(as('gsd-ui-qa', { action: 'wait', condition: 'text', text: 'x' }).exitCode, 0);
+      assert.strictEqual(as('gsd-demo', { action: 'wait', condition: 'text', text: 'x' }).exitCode, 0);
+      assert.strictEqual(as('gsd-demo', { action: 'wait', condition: 'js', js: 'x' }).exitCode, 2);
+      assert.strictEqual(call('mcp__bladebro__act', { tool_input: { action: 'batch', steps: [evalStep] } }).exitCode, 0);
     });
 
     test('the role is found from the agent_id recorded at SubagentStart when the payload has no agent_type', () => {

@@ -21,7 +21,7 @@ Ops that map one to one (for example `navigate` to `act action=navigate`) are no
 | `drag` | none | No equivalent. Use evaluate to dispatch pointer events on the source and target, or test the same outcome through the keyboard or the app's own controls. |
 | `dev_serve` | none | Start the project's dev server with its stack.services launch command (shell), not through the driver. |
 | `dev_inject` | none | Use evaluate to run the injected script in the page. |
-| `instance_launch` | none | One daemon per BLADE_HOME: start a separate MCP server with its own BLADE_HOME for a second browser. |
+| `instance_launch` | none | One daemon per BLADE_HOME: start a separate MCP server with the env `ui-qa instance-env --instance <id>` prints (see Per-instance environment). |
 | `instance_kill` | none | Stop the daemon with the shell (bladebro stop). |
 | `instance_list` | none | No equivalent; the daemon is one per BLADE_HOME. |
 
@@ -45,13 +45,60 @@ Ops that map one to one (for example `navigate` to `act action=navigate`) are no
 - `network` is `see logs=network` (current navigation only). `requests` is `see logs=xhr`, the deduplicated API/fetch
   ring with method and status (bladebro 4.6.10+; older servers reject `logs=xhr`).
 
+## Bladebro ops with no Charlotte equivalent
+
+Source of truth: `get-shit-done/presets/drivers/charlotte.json` (an op with `"tool": null` carries its `workaround`); a test fails when this table and that file disagree. Except `read_state`, these are real Bladebro actions that previously resolved to `unknown`; each now has a logical op so a role can allow or deny it. None is in the default roles except `clear_field` (qa, demo).
+
+| Op | Bladebro call | Charlotte workaround |
+|---|---|---|
+| `clear_field` | `act action=clear` | No equivalent. Use evaluate to set the field value to an empty string, or type into it and delete with key. |
+| `read_state` | `act action=read` | No equivalent. Charlotte has no per-element state read; use observe (detail summary). |
+| `upload` | `act action=upload` | No equivalent. Test the same outcome through the app's own upload API, or set the file with evaluate where the page allows it. |
+| `export_pdf` | `act action=pdf` | No equivalent. Use screenshot (full_page) for a visual record. |
+| `download` | `act action=download` | No equivalent. Fetch the file URL with the shell (curl) or read it with evaluate. |
+| `paginate` | `act action=paginate` | No equivalent. Click the next control in a loop and observe each page. |
+| `collect` | `act action=collect` | No equivalent. Loop scroll and observe, deduplicating by hand. |
+| `session_save` | `state op=save` (or `act action=save`) | No equivalent. Read the cookies with get_cookies and keep them in a scratch file. |
+| `session_load` | `state op=load` (or `act action=load`) | No equivalent. Restore the cookies with set_cookies. |
+
+## Logical ops, per-instance env and wait_for match keys
+
+- `gsd-tools ui-qa op-of --tool <name> --args '<json>' [--driver d | --root dir]` (export `opsOf` in `ui-qa-driver.js`) maps a call to
+  its logical ops from the adapter ops map, the only source: `act {action: eval}` is `evaluate` for bladebro, `charlotte_evaluate` for
+  charlotte. A runner or hook bans `evaluate` for either driver by comparing the result, not tool names. The CLI prints `{tool, ops, unknown}`
+  (no singular `op`: a tool shared by several ops, `act action=fill` is `submit` and `toggle`, has no first op).
+- `opsOf` never fails open. It returns the union over every nested step and adds the adapter's `composite.js_op` (`evaluate`) to every JS-running form that is not the eval op (`composite.js_guards`). Nesting is found structurally, not from a key list: every field of a call whose value is an array of objects, or an object with an `action`, is a nested step (so `wait` plus `else`, or a key no adapter lists, cannot hide an eval); the only arrays skipped are data arrays the matched op declares in its own args (`fill` `fields`). `composite.container_tools`, `structural_actions` and `child_keys` document the known containers and make an empty or non-array one `unknown`; they are not the gate. Depth is 32 as in bladebro. Actions of `act` that bladebro routes elsewhere are routed the same way (`see`/`extract` to `see`, `open-tab`/`close-tab`/`switch-tab`/`save`/`load`/`cookies`/`set-cookie` and `state` to the state tool, `js` to eval). The op `unknown` is returned for any call it cannot place: an unmapped tool or action, a step with no string `action`, a nested object or array element that is not a step, a batch/run/if/while without its step array, nesting past 32, or args that are not an object. `op-of` exits 3 with `unknown: true` for those, and for `--args` that is not JSON, so a runner that bans ops cannot be bypassed by an odd call shape.
+- Normalisation matches bladebro: `action`, state `op` and see `mode` are matched exactly (`act.rs:342` `match action_str`, `state.rs:40`), so a padded or re-cased name is another, unknown action and resolves to `unknown`; a wait `condition` is trimmed (`run.rs:153` `cond.trim()`) and compared exactly (`run.rs:165`). The js guard also folds case (bladebro rejects `JS` as an unknown condition; reporting `evaluate` for a call that errors is the safe side).
+- Bladebro actions that execute page JS (`src/mcp/server/act.rs`, `run.rs`, `validate.rs`, `src/mcp/tools.rs` on `main`), each resolved to `evaluate`:
+  1. `act action=eval` (`act.rs:471-484`).
+  2. `act action=wait condition=js` with `js=` or the legacy `text=`; a `wait` with a `js` field and no `condition` is the same call
+     (`run.rs:147-200` `resolve_condition_fields`; `act.rs:634-636`). It is also `wait_for`.
+  3. `act action=batch` whose `steps` hold any of 1, 2 or 4 (`act.rs:644`); batch steps are not run through a separate gate.
+  4. A `run` step with `action=js` (alias of eval, `validate.rs:593`; `run.rs:422`) or `action=eval`.
+  5. A `run` step `if` or `while` with `condition=js` (`run.rs:302` if, `run.rs:376` while, `condition_from_args` `run.rs:201`), and `wait` steps with `condition=js`
+     including `wait` plus `else` (`tools.rs` run schema).
+  6. Anything nested under `then`, `else` or `steps` of an `if`, `while` or `run`, to depth 32.
+  `see extract=json template=...` runs bladebro's own extraction script, not caller JS (`see.rs`, `extract.rs`: no `js` argument), so it is not listed.
+  Charlotte: `charlotte_evaluate` and `charlotte_wait_for` with a `js` argument (`composite.js_guards`).
+- Per-instance environment: adapter key `isolation`. Bladebro: `isolation.env` (`BLADE_HOME=.tmp/bladebro/{instance}`);
+  `gsd-tools ui-qa instance-env --instance <id> [--driver d]` renders it, one daemon (and so one browser) per value. Charlotte:
+  `isolation.launch_op: "instance_launch"`, rendered as `launch.tool` (`mcp__charlotte__charlotte_instance_launch`); its tools
+  then take the returned `instance_id`.
+- `wait_for.match` maps each condition to the one argument that carries its match value, so args are built mechanically. Bladebro
+  (`src/cli/args/act.rs` wait, `src/mcp/tools.rs`): `element|title|url|text` -> `text`, `selector` -> `selector`, `js` -> `js`,
+  `settle|network|network-idle` -> `null` (none). Charlotte (tool schema): no `condition` arg; `element` -> `element_id`,
+  `selector`, `text`, `js` (optional `state` refines an element wait).
+- `ui-qa drivers` prints `defaults` (adapter defaults: agent and aliases) and, inside a project with an MCP tier, `project`
+  (that tier's resolved driver, agent and aliases); a project that sets its own agent resolves to no aliases.
+
 ## Role op allowlists and residual risk
 
 Frontmatter can only name tools. Bladebro has five tools (`act`, `see`, `state`, `run`, `vision`) and bundles its
 operations inside `act`, so an agent granted `act` can fill, eval and click however narrow its role is. The contract
 therefore carries `roles` (role to logical ops) and `role_agents` (agent name to role) in `presets/drivers/index.json`;
 a project's `ui_qa.roles` / `ui_qa.role_agents` win per key. `gsd-ui-qa-lock.js` denies (exit 2) every PreToolUse call to
-the configured driver that is outside the calling agent's role, matching `act` on its `action` argument.
+the configured driver whose resolved ops (`opsOf`, so batch, run and wait-js are checked recursively) are not all in the calling agent's role; `unknown` is never in a role.
+One exception stays: an op of a tool with no `action`/`op` discriminator (bladebro `see`) passes when the role holds any op of that tool.
 
 Agent identity: the hook reads `agent_type` from the PreToolUse payload (`roleOf` in `ui-qa-driver.js`) and, when a
 payload carries only `agent_id`, the role recorded for that `agent_id` at SubagentStart (`<lock_file>.roles/<sha256 of agent_id>.json`,
@@ -63,6 +110,17 @@ Residual risk:
 - `see` is one tool: the investigator role cannot be limited to `mode=model` versus `logs=console`; `see` stays open to it.
 - A hook failure (unreadable contract) fails open on the role check; the wrong-driver deny needs only the adapter files.
 - The role check keys on the calling agent's name; a project that renames an agent must add it to `ui_qa.role_agents`.
+
+## Server launch, isolation names, probe and forbidden ops
+
+- `server: {command, args}` (adapter key): the MCP server launch. Bladebro `bladebro mcp`; Charlotte `npx @ticktockbent/charlotte` (its README MCP config). A project overrides per key in `ui_qa.server` (for example `{"command": "/opt/bin/bladebro"}` keeps `args: ["mcp"]`); `ui-qa contract` prints the merged value.
+- `isolation.home_env` / `isolation.record_dir_env`: the env var names for the scratch home and the recording directory (Bladebro `BLADE_HOME`, `BLADE_RECORD=<absolute dir>`; Charlotte has neither, its `configure` op takes `video_dir`). `ui-qa instance-env --instance <id>` prints them beside the rendered `env` templates.
+- `probe: {expect_tools, smoke_op, smoke_input}`: `ui-qa probe-spec [--driver d | --root dir]` prints `{driver, server, tool_prefix, expect_tools (full names), smoke: {op, tool, args}}`. It starts nothing; the runner launches `server`, lists tools, compares, then makes the smoke call.
+- Forbidden ops: `get-shit-done/bin/hooks/gsd-ui-qa-forbid.js` is installed with the other hooks but registered by no GSD settings. It reads `GSD_UI_QA_FORBIDDEN_OPS` (comma list of logical ops) and the contract from `GSD_UI_QA_DRIVER` (adapter name) or, when unset, the MCP tier of `<cwd>/.planning/config.json`. A PreToolUse call with the driver's `tool_prefix` exits 2 (reason on stderr) when `opsOf` returns a forbidden op, or `unknown`; every other call exits 0. Env unset or empty is a no-op. `unknown` is denied only when the list is non-empty, so a runner that forbids nothing is never blocked by an odd call shape, while one that forbids `evaluate` cannot be bypassed by a shape the ops map cannot place. With a non-empty list the hook also fails closed on an unreadable payload, an unreadable contract (for `mcp__*` tools) and a listed name that is not an op of the contract (a typo would otherwise allow everything). A runner attaches it to its own child session:
+
+```
+GSD_UI_QA_FORBIDDEN_OPS=evaluate GSD_UI_QA_DRIVER=bladebro claude --settings '{"hooks":{"PreToolUse":[{"matcher":"mcp__.*","hooks":[{"type":"command","command":"node \"<install dir>/get-shit-done/bin/hooks/gsd-ui-qa-forbid.js\""}]}]}}'
+```
 
 ## Two tiers: scripted and MCP
 

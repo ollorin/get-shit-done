@@ -5,6 +5,25 @@
   "tool_prefix": "mcp__bladebro__",
   "lock_file": ".tmp/ui-qa.lock",
   "artifact_index": "register",
+  "server": {
+    "command": "bladebro",
+    "args": [
+      "mcp"
+    ]
+  },
+  "probe": {
+    "expect_tools": [
+      "act",
+      "see",
+      "state",
+      "run",
+      "vision"
+    ],
+    "smoke_op": "navigate",
+    "smoke_input": {
+      "url": "about:blank"
+    }
+  },
   "recording": {
     "start": "screencast_start",
     "stop": "screencast_stop",
@@ -16,6 +35,61 @@
     },
     "requires": [
       "ffmpeg"
+    ]
+  },
+  "isolation": {
+    "home_env": "BLADE_HOME",
+    "record_dir_env": "BLADE_RECORD",
+    "env": {
+      "BLADE_HOME": ".tmp/bladebro/{instance}"
+    }
+  },
+  "composite": {
+    "description": "How one call nests other calls and where page JS runs without the eval op. opsOf returns the union over every nested step, found in every field that holds step objects (never a fixed key list); a call it cannot place is the op `unknown`. container_tools, structural_actions and child_keys document the known containers (an empty or malformed one is unknown); they are not the gate.",
+    "child_keys": [
+      "steps",
+      "then",
+      "else"
+    ],
+    "container_tools": [
+      "run"
+    ],
+    "step_tool": "act",
+    "structural_actions": [
+      "batch",
+      "if",
+      "while"
+    ],
+    "step_tools": {
+      "see": "see",
+      "extract": "see",
+      "state": "state"
+    },
+    "state_tool": "state",
+    "state_actions": [
+      "open-tab",
+      "close-tab",
+      "switch-tab",
+      "save",
+      "load",
+      "cookies",
+      "set-cookie"
+    ],
+    "step_action_aliases": {
+      "js": "eval"
+    },
+    "js_op": "evaluate",
+    "js_guards": [
+      {
+        "tool": "act",
+        "actions": [
+          "wait",
+          "if",
+          "while"
+        ],
+        "condition_key": "condition",
+        "js_key": "js"
+      }
     ]
   },
   "ops": {
@@ -137,7 +211,7 @@
       "tool": "act",
       "args": {
         "action": "scroll",
-        "dx": 0,
+        "dx": "{dx}",
         "dy": "{dy}"
       }
     },
@@ -155,7 +229,18 @@
         "condition": "{condition}",
         "timeout": "{seconds}"
       },
-      "note": "condition: element|selector|title|settle|network|network-idle|url|text|js. Add the one match key the condition names: element, title, url and text take `text`; selector takes `selector`; js takes `js`; settle, network and network-idle take none. Bladebro rejects a wait without a match value (except settle/network)."
+      "note": "condition: element|selector|title|settle|network|network-idle|url|text|js. Add the one match key the condition names: element, title, url and text take `text`; selector takes `selector`; js takes `js`; settle, network and network-idle take none. Bladebro rejects a wait without a match value (except settle/network).",
+      "match": {
+        "element": "text",
+        "title": "text",
+        "url": "text",
+        "text": "text",
+        "selector": "selector",
+        "js": "js",
+        "settle": null,
+        "network": null,
+        "network-idle": null
+      }
     },
     "console": {
       "tool": "see",
@@ -181,9 +266,9 @@
       "args": {
         "action": "read",
         "ref": "{ref}",
-        "format": "json"
+        "format": "{format}"
       },
-      "note": "live value and toggle state, plus select options; address by ref or label"
+      "note": "live value and toggle state, plus select options; address by ref or label; pass format=json for structured output"
     },
     "evaluate": {
       "tool": "act",
@@ -197,7 +282,7 @@
       "args": {
         "action": "dialog",
         "expect": "{kind}",
-        "accept": true
+        "accept": "{accept}"
       },
       "note": "arm before the action that opens the dialog"
     },
@@ -212,7 +297,7 @@
     "screenshot": {
       "tool": "vision",
       "args": {
-        "full_page": true
+        "full_page": "{full_page}"
       },
       "note": "returns the image inline and prints the saved PNG path; there is no filename argument. Demo: pass the printed path to demo-check register-shot (artifact_index register)"
     },
@@ -327,7 +412,7 @@
     },
     "instance_launch": {
       "tool": null,
-      "workaround": "One daemon per BLADE_HOME: start a separate MCP server with its own BLADE_HOME for a second browser."
+      "workaround": "One daemon per BLADE_HOME: start a separate MCP server with the env `ui-qa instance-env --instance <id>` prints (isolation.env) for a second browser."
     },
     "instance_kill": {
       "tool": null,
@@ -336,6 +421,63 @@
     "instance_list": {
       "tool": null,
       "workaround": "No equivalent; the daemon is one per BLADE_HOME."
+    },
+    "clear_field": {
+      "tool": "act",
+      "args": {
+        "action": "clear",
+        "ref": "{ref}"
+      },
+      "note": "empties a field; address by ref, label or selector"
+    },
+    "upload": {
+      "tool": "act",
+      "args": {
+        "action": "upload",
+        "ref": "{ref}",
+        "text": "{path}"
+      },
+      "note": "the file path goes in text"
+    },
+    "export_pdf": {
+      "tool": "act",
+      "args": {
+        "action": "pdf"
+      }
+    },
+    "download": {
+      "tool": "act",
+      "args": {
+        "action": "download"
+      },
+      "note": "waits for the most recent download; body=true fetches a URL body"
+    },
+    "paginate": {
+      "tool": "act",
+      "args": {
+        "action": "paginate"
+      }
+    },
+    "collect": {
+      "tool": "act",
+      "args": {
+        "action": "collect"
+      },
+      "note": "auto-extract plus scroll loop with dedupe"
+    },
+    "session_save": {
+      "tool": "state",
+      "args": {
+        "op": "save"
+      },
+      "note": "stores cookies and storage under a name; sensitive, outside the ordinary QA roles"
+    },
+    "session_load": {
+      "tool": "state",
+      "args": {
+        "op": "load"
+      },
+      "note": "restores a stored session; sensitive, outside the ordinary QA roles"
     }
   }
 }
