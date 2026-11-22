@@ -29,8 +29,9 @@ function lastUsage(text) {
 const SELF_MAX_AGE_MS = 15 * 60 * 1000;
 
 // A child agent's env carries the PARENT's session id and no agent id, but its transcript is
-// <projects>/<proj>/<session>/subagents/agent-<id>.jsonl and the Bash command line (holding the nonce) is written there
-// before it runs. Only files modified within maxAgeMs are read (the live transcript was just written).
+// <projects>/<proj>/<session>/subagents/agent-<id>.jsonl. Verified on disk: a Bash tool_use is written there only AFTER
+// the command ran, so the first call with a token cannot find itself; the second call (token now in the file) can.
+// Only files modified within maxAgeMs are read.
 function locateByNonce(env, home, nonce, maxAgeMs = SELF_MAX_AGE_MS, now = Date.now()) {
   if (!/^[A-Za-z0-9_-]{8,}$/.test(nonce || '')) return { error: '--self needs a literal token of 8+ characters [A-Za-z0-9_-] that you made up' };
   const id = env.CLAUDE_CODE_SESSION_ID;
@@ -50,7 +51,8 @@ function locateByNonce(env, home, nonce, maxAgeMs = SELF_MAX_AGE_MS, now = Date.
       }
     }
   } catch { /* no projects dir */ }
-  if (hits.length !== 1) return { error: `--self ${nonce} matched ${hits.length} subagent transcripts of session ${id} (need exactly 1); run it once from a Bash call of your own, or pass --transcript <path>` };
+  if (hits.length === 0) return { error: `--self ${nonce} matched 0 subagent transcripts of session ${id}. Expected on the FIRST call with a new token: the harness writes a Bash tool_use to the transcript only after the command has run, so this call just planted the token; repeat the identical command now. If a repeat still matches 0, pass --transcript <path>` };
+  if (hits.length !== 1) return { error: `--self ${nonce} matched ${hits.length} subagent transcripts of session ${id} (need exactly 1); use a token no other agent used, or pass --transcript <path>` };
   return { path: hits[0] };
 }
 

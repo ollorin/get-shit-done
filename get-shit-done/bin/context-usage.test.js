@@ -187,6 +187,10 @@ describe('--self', () => {
     fs.writeFileSync(path.join(sub, 'agent-a.jsonl'), 'ctx-abc12345\n');
     assert.match(C.locateOwnTranscript(env, home, 'ctx-abc12345').error, /matched 2/);
   });
+  test('0 matches tells the caller the first call only plants the token and to repeat it', () => {
+    const { home, env } = setup();
+    assert.match(C.locateOwnTranscript(env, home, 'ctx-first123').error, /FIRST call[\s\S]*repeat the identical command/);
+  });
   test('stale files are not read, short or odd nonces are refused, the parent transcript is not a candidate', () => {
     const { home, sub, env } = setup();
     const f = path.join(sub, 'agent-a.jsonl');
