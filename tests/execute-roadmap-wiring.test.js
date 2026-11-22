@@ -41,7 +41,8 @@ describe('P1 the coordinator is a thin dispatcher', () => {
       assert.match(DETAIL, new RegExp(`\\| \`${status}\``), `return mapping row for ${status}`);
     }
     assert.match(DETAIL, /"status":"completed_with_deferrals","deferred":\[/, 'a coordinator close to a full window hands back with deferrals');
-    assert.doesNotMatch(DETAIL, /\d+%/, 'no numeric context threshold');
+    assert.match(DETAIL, /gsd-tools context-usage/, 'the coordinator measures its context with the tool');
+    assert.match(DETAIL, /below 80% of the window continue; from 80% continue only if/, 'handoff gate: 80% window, per-plan delta, 90% reserve');
   });
 
   test('the coordinator never calls phase complete and writes the checkpoint only through the tool', () => {

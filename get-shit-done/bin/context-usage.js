@@ -1,6 +1,6 @@
 'use strict';
 // context-usage: fill of an agent's context window, read from its transcript (JSONL with per-call `usage`).
-// Window evidence (igaming-platform coordinator transcripts, model claude-sonnet-5-5): calls reached 264,625 tokens and
+// Window evidence (pilot-project coordinator transcripts, model claude-sonnet-5-5): calls reached 264,625 tokens and
 // an auto-compaction fired at preTokens 267,458, so the window is above 200k. The real size is not exposed to the
 // agent, so DEFAULT_WINDOW is the largest observed compaction trigger and is always reported as assumed.
 const fs = require('fs');
