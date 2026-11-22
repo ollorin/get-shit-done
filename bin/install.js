@@ -1810,6 +1810,19 @@ function install(isGlobal, runtime = 'claude') {
       console.log(`  ${green}✓${reset} Configured managed file protection hook (Write + Edit + Bash)`);
     }
 
+    // Owner approval by chat message (gsd-owner-approve.js): a UserPromptSubmit hook records an owner-gate
+    // approval from the human's own message ("одобряю pr" / "approve pr"); an agent cannot fire it.
+    const ownerApproveHookPath = isGlobal
+      ? path.join(targetDir, 'get-shit-done', 'bin', 'hooks', 'gsd-owner-approve.js').replace(/\\/g, '/')
+      : path.join(dirName, 'get-shit-done', 'bin', 'hooks', 'gsd-owner-approve.js').replace(/\\/g, '/');
+    settings.hooks.UserPromptSubmit = (settings.hooks.UserPromptSubmit || []).filter(entry =>
+      !(entry.hooks && entry.hooks.some(h => h.command && h.command.includes('gsd-owner-approve')))
+    );
+    settings.hooks.UserPromptSubmit.push({
+      hooks: [{ type: 'command', command: wrapWithTimeout(`node "${ownerApproveHookPath}"`) }]
+    });
+    console.log(`  ${green}✓${reset} Configured owner-approval UserPromptSubmit hook`);
+
     // UI-QA lock (profile-driven, gsd-ui-qa-lock.js): a no-op without stack.capabilities.ui_qa. The old hook
     // name stays in the cleaner so an upgrade removes its registration. A local project that declares
     // stack.capabilities without ui_qa gets no registration.
