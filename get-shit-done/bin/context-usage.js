@@ -37,7 +37,36 @@ function locateOwnTranscript(env, home) {
   return { path: hits[0] };
 }
 
-function contextUsage({ transcript, window, env = process.env, home = os.homedir() }) {
+const HANDOFF_FROM = 0.8;
+const RESERVE_TO = 0.9;
+const FIRST_PLAN_GUESS = 0.15;
+
+// Below 80% always continue. From 80%: continue only if used + the largest plan cost measured so far (15% of the window
+// before any plan was measured) stays within 90%; the last 10% is the reserve for the handoff write, checkpoint and report.
+function verdict(used, window, deltas) {
+  if (used < HANDOFF_FROM * window) return { decision: 'continue', reason: `below ${HANDOFF_FROM * 100}% of the window` };
+  const measured = deltas.length > 0;
+  const est = measured ? Math.max(...deltas) : Math.round(FIRST_PLAN_GUESS * window);
+  const basis = measured ? `max of ${deltas.length} measured plan deltas` : '15% of the window, no plan measured yet';
+  const fits = used + est <= RESERVE_TO * window;
+  return {
+    decision: fits ? 'continue' : 'handoff',
+    reason: `used ${used} + next plan ~${est} (${basis}) ${fits ? '<=' : '>'} ${Math.round(RESERVE_TO * window)} (90% of the window)`,
+  };
+}
+
+function readState(f) {
+  try { return f ? JSON.parse(fs.readFileSync(f, 'utf8')) : null; } catch { return null; }
+}
+
+function writeState(f, s) {
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, JSON.stringify(s) + '\n');
+}
+
+// stateDir: holds one small JSON per transcript ({last_tokens, deltas}), written by every call unless record is false.
+// Call it once per plan boundary only, so each recorded delta is one plan's cost.
+function contextUsage({ transcript, window, stateDir = null, record = true, env = process.env, home = os.homedir() }) {
   let file = transcript;
   let source = 'transcript-arg';
   if (!file) {
@@ -51,14 +80,22 @@ function contextUsage({ transcript, window, env = process.env, home = os.homedir
   if (!last) return { error: `no assistant usage block in ${file}` };
   const given = Number.isFinite(window) && window > 0;
   const w = given ? window : DEFAULT_WINDOW;
+  const stateFile = stateDir ? path.join(stateDir, `${path.basename(file)}.json`) : null;
+  const prev = readState(stateFile);
+  const delta = prev ? last.tokens - prev.last_tokens : null;
+  // A negative delta means the context was compacted between calls: not a plan cost.
+  const deltas = [...(prev ? prev.deltas : []), ...(delta !== null && delta > 0 ? [delta] : [])];
+  if (record && stateFile) writeState(stateFile, { last_tokens: last.tokens, deltas });
   return {
     tokens_in_context: last.tokens,
     last_call_line: last.line,
     window_assumed: w,
     window_source: given ? 'arg' : 'default-assumed',
     pct: Math.round((last.tokens / w) * 1000) / 10,
+    delta_since_previous: delta,
     source: `${source}:${file}`,
+    verdict: verdict(last.tokens, w, deltas),
   };
 }
 
-module.exports = { contextUsage, lastUsage, locateOwnTranscript, DEFAULT_WINDOW };
+module.exports = { contextUsage, verdict, lastUsage, locateOwnTranscript, DEFAULT_WINDOW, HANDOFF_FROM, RESERVE_TO };

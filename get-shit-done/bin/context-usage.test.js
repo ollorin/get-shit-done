@@ -42,6 +42,40 @@ describe('contextUsage', () => {
   });
 });
 
+describe('verdict', () => {
+  test('below 80% continues whatever the deltas', () => {
+    assert.strictEqual(C.verdict(799, 1000, [500]).decision, 'continue');
+  });
+  test('from 80% with no measured plan the guess is 15%, so 80% + 15% = 95% > 90% hands off',() => {
+    assert.strictEqual(C.verdict(800, 1000, []).decision, 'handoff');
+    assert.match(C.verdict(800, 1000, []).reason, /15% of the window/);
+  });
+  test('from 80% the largest measured delta decides: 850+50 fits, 850+51 does not', () => {
+    assert.strictEqual(C.verdict(850, 1000, [10, 50]).decision, 'continue');
+    assert.strictEqual(C.verdict(850, 1000, [10, 51]).decision, 'handoff');
+  });
+});
+
+describe('delta state', () => {
+  test('records the delta per call, keeps the max, ignores a compaction drop, --peek style record:false writes nothing', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ctxs-'));
+    const f = tmpTranscript([asst(100, 0, 0, 1)]);
+    const call = (extra = {}) => C.contextUsage({ transcript: f, window: 1000, stateDir: dir, ...extra });
+    assert.strictEqual(call().delta_since_previous, null);
+    fs.appendFileSync(f, asst(400, 0, 0, 1) + '\n');
+    assert.strictEqual(call().delta_since_previous, 300);
+    fs.appendFileSync(f, asst(450, 0, 0, 1) + '\n');
+    assert.strictEqual(call({ record: false }).delta_since_previous, 50);
+    fs.appendFileSync(f, asst(500, 0, 0, 1) + '\n');
+    assert.strictEqual(call().delta_since_previous, 100);
+    fs.appendFileSync(f, asst(120, 0, 0, 1) + '\n');
+    const r = call();
+    assert.strictEqual(r.delta_since_previous, -380);
+    const st = JSON.parse(fs.readFileSync(path.join(dir, 't.jsonl.json'), 'utf8'));
+    assert.deepStrictEqual(st, { last_tokens: 120, deltas: [300, 100] });
+  });
+});
+
 describe('auto-locate', () => {
   test('a child agent never guesses: it is told to pass --transcript', () => {
     const r = C.locateOwnTranscript({ CLAUDE_CODE_CHILD_SESSION: '1', CLAUDE_CODE_SESSION_ID: 's1' }, os.tmpdir());
@@ -69,6 +103,15 @@ describe('gsd-tools context-usage', () => {
     assert.strictEqual(ok.status, 0, ok.stderr);
     const j = JSON.parse(ok.stdout);
     assert.deepStrictEqual([j.tokens_in_context, j.window_assumed, j.pct, j.last_call_line], [100, 200, 50, 1]);
+    assert.strictEqual(j.verdict.decision, 'continue');
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'ctxc-'));
+    const run = () => JSON.parse(spawnSync('node', [TOOL, 'context-usage', '--transcript', f, '--window', '200'], { encoding: 'utf8', cwd }).stdout);
+    run();
+    fs.appendFileSync(f, asst(170, 0, 0, 1) + '\n');
+    const second = run();
+    assert.strictEqual(second.delta_since_previous, 70);
+    assert.strictEqual(second.verdict.decision, 'handoff');
+    assert.ok(fs.existsSync(path.join(cwd, '.tmp', 'context-usage', 't.jsonl.json')));
     const bad = spawnSync('node', [TOOL, 'context-usage'], { encoding: 'utf8', env: { ...process.env, CLAUDE_CODE_CHILD_SESSION: '1' } });
     assert.notStrictEqual(bad.status, 0);
     assert.match(bad.stderr, /--transcript/);
