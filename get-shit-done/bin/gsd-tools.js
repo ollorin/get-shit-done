@@ -235,6 +235,7 @@ const phaseBudget = require('./phase-budget.js');
 const dispatchLease = require('./dispatch-lease.js');
 const formCheck = require('./form-check.js');
 const testWorklist = require('./test-worklist.js');
+const contextUsageLib = require('./context-usage.js');
 const reviewGate = require('./review-gate.js');
 const spikeCheck = require('./spike-check.js');
 const roadmapBox = require('./roadmap-box.js');
@@ -11269,6 +11270,15 @@ function cmdTestWorklist(cwd, args) {
   writeStdoutSync(JSON.stringify(worklist, null, 2) + '\n');
 }
 
+// context-usage: see context-usage.js. Window: --window, else config `context_window`, else the assumed default.
+function cmdContextUsage(cwd, args) {
+  const flag = (n) => (args.includes(n) ? args[args.indexOf(n) + 1] : null);
+  const window = Number(flag('--window') || readRawConfig(cwd).context_window);
+  const r = contextUsageLib.contextUsage({ transcript: flag('--transcript'), window });
+  if (r.error) error(`context-usage: ${r.error}`);
+  writeStdoutSync(JSON.stringify(r) + '\n');
+}
+
 function cmdVerifyStewardReturn(cwd, args) {
   const flag = (n) => (args.includes(n) ? args[args.indexOf(n) + 1] : null);
   const file = flag('--file');
@@ -15138,6 +15148,11 @@ async function main() {
 
     case 'test-worklist': {
       cmdTestWorklist(cwd, args.slice(1));
+      break;
+    }
+
+    case 'context-usage': {
+      cmdContextUsage(cwd, args.slice(1));
       break;
     }
 
