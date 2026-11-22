@@ -11274,7 +11274,7 @@ function cmdTestWorklist(cwd, args) {
 function cmdContextUsage(cwd, args) {
   const flag = (n) => (args.includes(n) ? args[args.indexOf(n) + 1] : null);
   const window = Number(flag('--window') || readRawConfig(cwd).context_window);
-  const r = contextUsageLib.contextUsage({ transcript: flag('--transcript'), window, stateDir: path.join(cwd, '.tmp', 'context-usage'), record: !args.includes('--peek') });
+  const r = contextUsageLib.contextUsage({ transcript: flag('--transcript'), self: flag('--self'), window, stateDir: path.join(cwd, '.tmp', 'context-usage'), record: !args.includes('--peek') });
   if (r.error) error(`context-usage: ${r.error}`);
   writeStdoutSync(JSON.stringify(r) + '\n');
 }
