@@ -247,6 +247,7 @@ issue:
 - Single task with 10+ files
 - Complex work (auth, risk-domain paths) crammed into one plan
 - Two or more plans carry tasks that need the shared stack only after their code is committed (mutant runs, live-DB probes, resets): warning, move them into ONE final plan so the phase opens one live window
+- A task introduces a flag, mode, option or config key that no requirement, CONTEXT decision or success criterion names: warning `over_build`
 
 **Example issue:**
 ```yaml
@@ -349,7 +350,7 @@ Non-zero exit is a blocker per id (`dimension: context_compliance`): `missing` =
 
 **Check 8-T1 — acceptance rows:**
 
-For each `<task type="auto">` in each plan that creates or modifies .ts, .tsx, .js, .jsx, .mjs, .astro, .sql or .sh files (check the `<files>` element), except tasks that ONLY modify config files (*.config.*), type declarations (*.d.ts) or build scripts: the task carries `<acceptance>` rows or cites the existing test (file:line) that covers it. None of either: **BLOCKING FAIL** (`dimension: testing_mandate`, fix_hint: "add `<acceptance>` rows to task {N}"). A separate test task after the implementation task is not required and not a substitute.
+For each `<task type="auto">` in each plan that creates or modifies .ts, .tsx, .js, .jsx, .mjs, .astro, .sql or .sh files (check the `<files>` element), except tasks that ONLY modify config files (*.config.*), type declarations (*.d.ts) or build scripts: the task carries `<acceptance>` rows or cites the existing test (file:line) that covers it. None of either: **BLOCKING FAIL** (`dimension: testing_mandate`, fix_hint: "add `<acceptance>` rows to task {N}"). A separate test task after the implementation task is not required and not a substitute. Off risk-domain paths (the brief's Risk Domains; auth and security always), rows on pass-through glue or more than ~3 rows for one behaviour: warning `test_bloat`.
 
 **Check 8-T2 — checkpoint:ui-qa presence:**
 
