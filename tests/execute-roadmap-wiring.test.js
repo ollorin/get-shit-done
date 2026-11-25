@@ -33,16 +33,16 @@ describe('P1 the coordinator is a thin dispatcher', () => {
     assert.ok(DETAIL.includes('`{N} --gaps-only --auto --no-transition`'));
   });
 
-  test('detail keeps only budget monitoring, the dispatch table, the discuss step and the return mapping', () => {
-    for (const needle of ['<context_budget_monitoring>', '## Dispatch table', '<step name="discuss">', '## Return mapping', 'phase checkpoint {N} --step']) {
+  test('detail keeps only the context and checkpoint rule, the dispatch table, the discuss step and the return mapping', () => {
+    for (const needle of ['<context_and_checkpoints>', '## Dispatch table', '<step name="discuss">', '## Return mapping', 'phase checkpoint {N} --step']) {
       assert.ok(DETAIL.includes(needle), needle);
     }
     for (const status of ['completed', 'gaps_found', 'human_needed', 'blocked', 'failed']) {
       assert.match(DETAIL, new RegExp(`\\| \`${status}\``), `return mapping row for ${status}`);
     }
-    assert.match(DETAIL, /"status":"completed_with_deferrals","deferred":\[/, 'a coordinator close to a full window hands back with deferrals');
-    assert.match(DETAIL, /gsd-tools context-usage/, 'the coordinator measures its context with the tool');
-    assert.match(DETAIL, /below 80% of the window continue; from 80% continue only if/, 'handoff gate: 80% window, per-plan delta, 90% reserve');
+    assert.doesNotMatch(DETAIL, /completed_with_deferrals/, 'a coordinator never hands back with deferrals because of context');
+    assert.match(DETAIL, /Context fill is never a reason to stop, defer a step or hand back/, 'work until done; auto-compaction handles a full window');
+    assert.doesNotMatch(DETAIL, /below 80% of the window continue/, 'no 80% hand-back gate');
   });
 
   test('the coordinator never calls phase complete and writes the checkpoint only through the tool', () => {

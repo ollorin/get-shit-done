@@ -1,20 +1,16 @@
 # gsd-phase-coordinator.md: dispatch detail
 
-The phase coordinator is a thin dispatcher. It follows the workflows for planning and execution inline (Read the file, follow it; no nested agent per workflow, depth stays roadmap -> coordinator -> role agents) and keeps only four things of its own: context-budget monitoring, the dispatch table, the autonomous discuss step (the one step with no workflow twin) and the mapping from execute-phase's JSON trailer to the return JSON.
+The phase coordinator is a thin dispatcher. It follows the workflows for planning and execution inline (Read the file, follow it; no nested agent per workflow, depth stays roadmap -> coordinator -> role agents) and keeps only three things of its own: the dispatch table, the autonomous discuss step (the one step with no workflow twin) and the mapping from execute-phase's JSON trailer to the return JSON.
 
 <execution_cycle>
 
-<context_budget_monitoring>
+<context_and_checkpoints>
 
-## Context budget monitoring
+## Context and checkpoints
 
-At every plan boundary (not at step boundaries; use `--peek` there), after the checkpoint is written, run `gsd-tools context-usage --self <token>`, where `<token>` is a literal unique string you make up yourself (for example `ctx-` plus 8 random lowercase letters or digits; type it into the command, no shell substitution) and reuse the same token for every later call. A child agent's env holds only the parent's session id, so the tool finds your transcript by searching this session's recent subagent transcripts for the token. The harness writes your Bash call into the transcript only after it ran, so the FIRST call with a new token always exits non-zero with "matched 0" (it plants the token): at phase start run `gsd-tools context-usage --self <token> --peek` once on purpose, ignore that error, and every later call finds you. 2+ matches or a repeat that still matches 0: `--transcript <path>` is the fallback. It records the delta since your previous call in `.tmp/context-usage/` and prints `verdict {decision, reason}`: below 80% of the window continue; from 80% continue only if used plus the largest plan delta measured so far (15% of the window before any plan is measured) stays within 90%, else hand back at that boundary. Act on `decision`, never hand back mid-plan, and put the printed numbers in the handoff. When the command is unavailable, judge by the old signs instead: long tool outputs read, many files read, many steps done. The window is assumed (`window_assumed`), not read from the harness; override with `--window`. `--peek` reads without recording.
+Work the phase until it is done. Context fill is never a reason to stop, defer a step or hand back: a full window is handled by auto-compaction (`autoCompactWindow` in this agent's frontmatter). Hand back only when the phase is finished, on a real blocker (a denial, an owner gate, a tool failure) or on a failure the ladder says to park. Write the checkpoint at every step and plan boundary all the same: crash recovery needs it. A coordinator that dies is re-dispatched fresh from on-disk state (checkpoints, SUMMARY/VERIFICATION files, resume brief), never resumed by message. `gsd-tools context-usage` stays available as a measurement (`verdict.compaction_near`); it never tells you to hand back. Do not record UI QA evidence yourself: `ui_qa_ran` is written by the verifier into `{N}-VERIFICATION.md`. Accepting a genuinely missing artifact is a mandatory-step skip and needs `gsd-tools.js deferred add {phase} --step <step> --reason <reason> --approver <approver>`. `verify phase-gate {phase}` stays the blocking authority for artifact existence.
 
-When `decision` is `handoff`, do not start the next step. Write the checkpoint with `resume_from` set to the next step, write the exact handoff to disk (the `handoff_summary`: phase goal, key decisions, steps completed, files modified) and return `{"status":"completed_with_deferrals","deferred":[<remaining steps, e.g. "execute","verify","ui_qa">],"reason":"context_budget_exceeded","handoff_summary":"..."}`. The orchestrator respawns a fresh coordinator that resumes at `resume_from`. Do not record UI QA evidence yourself: `ui_qa_ran` is written by the verifier into `{N}-VERIFICATION.md`.
-
-Do not power through the remaining steps when close to full: an overflow mid-verify produces partial artifacts the orchestrator may accept as valid. A coordinator that dies or overflows anyway is re-dispatched fresh from on-disk state (checkpoints, SUMMARY/VERIFICATION files, resume brief), never resumed by message. A deferred step is picked up by a fresh agent in this same run; accepting a genuinely missing artifact is a mandatory-step skip and needs `gsd-tools.js deferred add {phase} --step <step> --reason <reason> --approver <approver>`. `verify phase-gate {phase}` stays the blocking authority for artifact existence.
-
-</context_budget_monitoring>
+</context_and_checkpoints>
 
 ## Dispatch table
 
@@ -126,7 +122,6 @@ Execute-phase ends with a fenced JSON trailer as its last content: `{"status": "
 | `human_needed` | `human_needed` with `human_items` | a human-only item is never auto-resolved |
 | `blocked` | `blocked` with `reason` | `reason: "parked"` when a decision gate parked it |
 | `failed`, or no parseable trailer | `failed` with `step` and `error` | a trailer-less return that looks like a session or quota death is returned as is: the orchestrator's death handling reads it |
-| a dispatch that returned before finishing for context | `completed_with_deferrals` | per the budget table |
 
 Every return also carries the telemetry fields of `<return_state>`.
 

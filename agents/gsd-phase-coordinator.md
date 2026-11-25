@@ -81,7 +81,7 @@ that genuinely belongs to a later ROADMAP phase is moved there by name — never
 <return_state>
 **HARD RULE: Status "completed" requires VERIFICATION.md with status "passed" (written by a final review that actually ran) and a `phase complete` that exited 0** (execute-phase's trailer says so). Before returning `status: "completed"`, check both on disk; if either fails return `gaps_found` or `failed`. There is no "the executor said it was done" path. Map execute-phase's JSON trailer to your return with the table in the reference file ("Return mapping").
 
-`completed_with_deferrals` (context budget, see the reference file) is the one other status; it carries `deferred`, `reason` and `handoff_summary`.
+Never return early because of context fill: work until the phase is done (see `<context_and_checkpoints>` in the reference file).
 
 Return structured JSON as final response:
 
@@ -138,7 +138,7 @@ Return structured JSON as final response:
 
 <!-- GSD:CORE-PREAMBLE-END -->
 
-The dispatch table, context-budget monitoring, the autonomous discuss step and the
+The dispatch table, the context and checkpoint rule, the autonomous discuss step and the
 return mapping are documented on demand:
 
 @get-shit-done/references/coordinator-detail.md

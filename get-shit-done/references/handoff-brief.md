@@ -3,7 +3,7 @@
 **Design decision (rationale):** The handoff brief is defined ONCE here and reused
 verbatim at both the coordinator -> executor and executor -> verifier boundaries
 (Plan 04). It formalizes the lightweight ad-hoc `handoff_summary` in
-`coordinator-detail.md`'s `context_budget_monitoring` (phase goal, key decisions,
+coordinator `handoff_summary` (phase goal, key decisions,
 tasks completed, files modified) into a fixed 5-section structure so long runs stay
 on-constraint across agent boundaries, instead of each spawn site improvising its
 own shape. It does not discard that lightweight summary's intent — it gives it a
