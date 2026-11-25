@@ -11270,7 +11270,7 @@ function cmdTestWorklist(cwd, args) {
   writeStdoutSync(JSON.stringify(worklist, null, 2) + '\n');
 }
 
-// context-usage: see context-usage.js. Window: --window, else config `context_window`, else the assumed default.
+// context-usage: see context-usage.js (measurement only, never a hand-back verdict). Window: --window, else config `context_window`, else the assumed default.
 function cmdContextUsage(cwd, args) {
   const flag = (n) => (args.includes(n) ? args[args.indexOf(n) + 1] : null);
   const window = Number(flag('--window') || readRawConfig(cwd).context_window);

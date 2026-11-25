@@ -1,5 +1,7 @@
 'use strict';
 // context-usage: fill of an agent's context window, read from its transcript (JSONL with per-call `usage`).
+// Measurement only: the verdict never tells an agent to hand back (decision is always 'continue'); agents work until
+// done and rely on auto-compaction. `compaction_near` reports that a compaction is likely before the next boundary.
 // Window evidence (pilot-project coordinator transcripts): one run auto-compacted at preTokens 267,458, so that window
 // is above 200k; the trigger is model-dependent and other runs compacted at 317k-375k. The real size is not exposed to
 // the agent, so DEFAULT_WINDOW (267k) is a conservative assumed default and is always reported as assumed.
@@ -70,21 +72,23 @@ function locateOwnTranscript(env, home, nonce = null) {
   return { path: hits[0] };
 }
 
-const HANDOFF_FROM = 0.8;
-const RESERVE_TO = 0.9;
+const NEAR_FROM = 0.8;
+const NEAR_TO = 0.9;
 const FIRST_PLAN_GUESS = 0.15;
 
-// Below 80% always continue. From 80%: continue only if used + the largest plan cost measured so far (15% of the window
-// before any plan was measured) stays within 90%; the last 10% is the reserve for the handoff write, checkpoint and report.
+// Informational only: an agent never hands back on context (auto-compaction handles a full window), so `decision` is
+// always 'continue'. `compaction_near` is true from 80% when used + the largest plan cost measured so far (15% of the
+// window before any plan was measured) exceeds 90%, i.e. auto-compaction is likely before the next boundary.
 function verdict(used, window, deltas) {
-  if (used < HANDOFF_FROM * window) return { decision: 'continue', reason: `below ${HANDOFF_FROM * 100}% of the window` };
+  if (used < NEAR_FROM * window) return { decision: 'continue', compaction_near: false, reason: `below ${NEAR_FROM * 100}% of the window` };
   const measured = deltas.length > 0;
   const est = measured ? Math.max(...deltas) : Math.round(FIRST_PLAN_GUESS * window);
   const basis = measured ? `max of ${deltas.length} measured plan deltas` : '15% of the window, no plan measured yet';
-  const fits = used + est <= RESERVE_TO * window;
+  const fits = used + est <= NEAR_TO * window;
   return {
-    decision: fits ? 'continue' : 'handoff',
-    reason: `used ${used} + next plan ~${est} (${basis}) ${fits ? '<=' : '>'} ${Math.round(RESERVE_TO * window)} (90% of the window)`,
+    decision: 'continue',
+    compaction_near: !fits,
+    reason: `used ${used} + next plan ~${est} (${basis}) ${fits ? '<=' : '>'} ${Math.round(NEAR_TO * window)} (90% of the window)`,
   };
 }
 
@@ -140,4 +144,4 @@ function contextUsage({ transcript, self = null, window, stateDir = null, record
   };
 }
 
-module.exports = { contextUsage, verdict, lastUsage, locateOwnTranscript, locateByNonce, stateKey, DEFAULT_WINDOW, HANDOFF_FROM, RESERVE_TO };
+module.exports = { contextUsage, verdict, lastUsage, locateOwnTranscript, locateByNonce, stateKey, DEFAULT_WINDOW, NEAR_FROM, NEAR_TO };

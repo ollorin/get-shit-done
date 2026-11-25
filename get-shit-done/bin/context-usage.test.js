@@ -43,16 +43,17 @@ describe('contextUsage', () => {
 });
 
 describe('verdict', () => {
-  test('below 80% continues whatever the deltas', () => {
-    assert.strictEqual(C.verdict(799, 1000, [500]).decision, 'continue');
+  test('below 80% continues and compaction is not near, whatever the deltas', () => {
+    assert.deepStrictEqual([C.verdict(799, 1000, [500]).decision, C.verdict(799, 1000, [500]).compaction_near], ['continue', false]);
   });
-  test('from 80% with no measured plan the guess is 15%, so 80% + 15% = 95% > 90% hands off',() => {
-    assert.strictEqual(C.verdict(800, 1000, []).decision, 'handoff');
+  test('from 80% with no measured plan the guess is 15%, so 80% + 15% = 95% > 90%: compaction near, still continue', () => {
+    assert.deepStrictEqual([C.verdict(800, 1000, []).decision, C.verdict(800, 1000, []).compaction_near], ['continue', true]);
     assert.match(C.verdict(800, 1000, []).reason, /15% of the window/);
   });
-  test('from 80% the largest measured delta decides: 850+50 fits, 850+51 does not', () => {
-    assert.strictEqual(C.verdict(850, 1000, [10, 50]).decision, 'continue');
-    assert.strictEqual(C.verdict(850, 1000, [10, 51]).decision, 'handoff');
+  test('from 80% the largest measured delta sets compaction_near: 850+50 fits, 850+51 does not; never a handoff', () => {
+    assert.strictEqual(C.verdict(850, 1000, [10, 50]).compaction_near, false);
+    assert.strictEqual(C.verdict(850, 1000, [10, 51]).compaction_near, true);
+    assert.strictEqual(C.verdict(850, 1000, [10, 51]).decision, 'continue');
   });
 });
 
@@ -110,7 +111,7 @@ describe('gsd-tools context-usage', () => {
     fs.appendFileSync(f, asst(170, 0, 0, 1) + '\n');
     const second = run();
     assert.strictEqual(second.delta_since_previous, 70);
-    assert.strictEqual(second.verdict.decision, 'handoff');
+    assert.deepStrictEqual([second.verdict.decision, second.verdict.compaction_near], ['continue', true]);
     assert.ok(fs.readdirSync(path.join(cwd, '.tmp', 'context-usage')).some((n) => /^t\.jsonl-[0-9a-f]{12}\.json$/.test(n)));
     const bad = spawnSync('node', [TOOL, 'context-usage'], { encoding: 'utf8', env: { ...process.env, CLAUDE_CODE_CHILD_SESSION: '1' } });
     assert.notStrictEqual(bad.status, 0);
