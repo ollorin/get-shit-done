@@ -7,6 +7,7 @@ color: green
 omitClaudeMd: true
 maxTurns: 30
 effort: low
+autoCompactWindow: 900000
 ---
 
 <project_context>

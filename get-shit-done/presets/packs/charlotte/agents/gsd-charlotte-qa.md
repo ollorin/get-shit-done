@@ -4,6 +4,7 @@ model: haiku
 description: Deprecated alias of gsd-ui-qa, kept for one release. Same agent, same contract.
 tools: Read, Bash, mcp__charlotte__*, mcp__bladebro__*, SendMessage, Agent, Task
 color: purple
+autoCompactWindow: 900000
 ---
 
 <deprecated>

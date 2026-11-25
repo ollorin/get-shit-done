@@ -3,6 +3,7 @@ name: gsd-discovery-synthesizer
 description: Synthesizes multi-dimensional product investigation results into a PRD. Identifies gaps after Round 1 and assembles final enriched PRD after Round 2. Spawned on the configured top model.
 tools: Read, Write, Bash, Glob, Grep, Agent, Task
 color: cyan
+autoCompactWindow: 900000
 ---
 
 <project_context>

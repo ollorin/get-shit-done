@@ -4,6 +4,7 @@ model: haiku
 description: Reads /docs conventions from the target project, classifies build scope from SUMMARY.md, and writes proportionally-scoped documentation. Spawned once per phase by the `docs_update` step of execute-phase.md. Returns a structured written_files/commit/errors contract — never bare prose — so callers can parse pass/fail deterministically.
 tools: Read, Write, Edit, Bash, Grep, Glob, LSP, Agent, Task
 color: blue
+autoCompactWindow: 900000
 ---
 
 <project_context>

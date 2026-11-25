@@ -11,6 +11,7 @@ tools:
   - Glob
   - Agent
   - Task
+autoCompactWindow: 900000
 ---
 
 <project_context>

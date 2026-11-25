@@ -6,6 +6,7 @@ tools: Read, Write, Edit, Bash, Grep, Glob, LSP, SendMessage, Agent, Task
 color: yellow
 experimental:
   cacheTtl: 1h
+autoCompactWindow: 900000
 ---
 
 <project_context>

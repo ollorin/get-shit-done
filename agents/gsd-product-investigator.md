@@ -3,6 +3,7 @@ name: gsd-product-investigator
 description: Deep product investigation agent. Investigates one dimension of a product idea and produces a structured report. Spawned in parallel by discover workflow.
 tools: Read, Bash, Grep, Glob, WebSearch, WebFetch, mcp__charlotte__charlotte_navigate, mcp__charlotte__charlotte_back, mcp__charlotte__charlotte_forward, mcp__charlotte__charlotte_scroll, mcp__charlotte__charlotte_observe, mcp__charlotte__charlotte_screenshot, mcp__charlotte__charlotte_screenshot_get, mcp__bladebro__act, mcp__bladebro__see, mcp__bladebro__vision, LSP, Agent, Task
 color: cyan
+autoCompactWindow: 900000
 ---
 
 <project_context>

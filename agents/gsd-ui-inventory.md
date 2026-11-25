@@ -10,6 +10,7 @@ tools:
   - LSP
   - Agent
   - Task
+autoCompactWindow: 900000
 ---
 
 <project_context>

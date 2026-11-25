@@ -9,6 +9,7 @@ color: cyan
 #       hooks:
 #         - type: command
 #           command: "npx eslint --fix $FILE 2>/dev/null || true"
+autoCompactWindow: 900000
 ---
 
 <project_context>

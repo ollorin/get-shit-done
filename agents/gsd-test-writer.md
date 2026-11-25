@@ -4,6 +4,7 @@ description: Test steward. Once per phase (or standalone on a directory), works 
 model: sonnet
 tools: Read, Write, Edit, Bash, Grep, Glob, LSP
 color: red
+autoCompactWindow: 900000
 ---
 
 <project_context>

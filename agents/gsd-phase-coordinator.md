@@ -5,6 +5,7 @@ tools: Read, Write, Bash, Glob, Grep, WebFetch, Task, Agent, SendMessage
 color: blue
 experimental:
   cacheTtl: 1h
+autoCompactWindow: 900000
 ---
 
 <project_context>

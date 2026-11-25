@@ -3,6 +3,7 @@ name: gsd-integration-checker
 description: Verifies cross-phase integration and E2E flows. Checks that phases connect properly and user workflows complete end-to-end.
 tools: Read, Bash, Grep, Glob, LSP, Agent, Task
 color: blue
+autoCompactWindow: 900000
 ---
 
 <project_context>

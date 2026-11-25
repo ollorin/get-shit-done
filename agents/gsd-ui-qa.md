@@ -6,6 +6,7 @@ tools: Read, Bash, mcp__charlotte__charlotte_navigate, mcp__charlotte__charlotte
 color: purple
 experimental:
   cacheTtl: 1h
+autoCompactWindow: 900000
 ---
 
 <project_context>

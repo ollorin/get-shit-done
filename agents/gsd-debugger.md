@@ -5,6 +5,7 @@ tools: Read, Write, Edit, Bash, WebSearch
 color: orange
 experimental:
   cacheTtl: 1h
+autoCompactWindow: 900000
 ---
 
 <project_context>

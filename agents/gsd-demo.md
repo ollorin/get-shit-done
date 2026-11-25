@@ -4,6 +4,7 @@ model: haiku
 description: Produces an owner demo of a verified phase. mode=script writes the scenario from SUMMARY/VERIFICATION (no stack). mode=record drives the UI QA driver through it and records screenshots and a video. Script mode: execute-phase `demo_script` step; record mode: execute-roadmap milestone-end window or /gsd:demo.
 tools: Read, Write, Bash, mcp__charlotte__charlotte_configure, mcp__charlotte__charlotte_viewport, mcp__charlotte__charlotte_navigate, mcp__charlotte__charlotte_back, mcp__charlotte__charlotte_forward, mcp__charlotte__charlotte_reload, mcp__charlotte__charlotte_observe, mcp__charlotte__charlotte_find, mcp__charlotte__charlotte_click, mcp__charlotte__charlotte_type, mcp__charlotte__charlotte_select, mcp__charlotte__charlotte_toggle, mcp__charlotte__charlotte_submit, mcp__charlotte__charlotte_key, mcp__charlotte__charlotte_scroll, mcp__charlotte__charlotte_hover, mcp__charlotte__charlotte_wait_for, mcp__charlotte__charlotte_dialog, mcp__charlotte__charlotte_console, mcp__charlotte__charlotte_screenshot, mcp__charlotte__charlotte_screencast_start, mcp__charlotte__charlotte_screencast_stop, mcp__bladebro__act, mcp__bladebro__see, mcp__bladebro__vision, mcp__bladebro__state
 color: purple
+autoCompactWindow: 900000
 ---
 
 <project_context>
