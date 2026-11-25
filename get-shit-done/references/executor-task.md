@@ -96,4 +96,4 @@ Task number and commit sha; capture paths (red, green, mutant); deviations as `[
 {"status": "complete", "phase": {N}, "plan": "{phase}-{plan}", "completed_tasks": {n}, "total_tasks": {n}}
 ```
 
-`status` is `complete`, `interrupted` (context pressure: read `<executor_resilience_protocol>` in `references/executor-detail.md` and write `EXECUTOR-HANDOFF.json` as it says) or `blocked`.
+`status` is `complete` or `blocked`. Context fill is never a reason to stop: finish the task (auto-compaction handles a full window).

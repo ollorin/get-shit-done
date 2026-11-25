@@ -6,7 +6,7 @@ duplicating its prose — edit the patterns HERE, once.
 
 Messaging composes **on top of** the Executor Resilience Protocol
 (`@get-shit-done/references/resilience.md`): handoff docs, PAUSED.json, JSON status
-trailers, and the executor's headroom self-stop remain the durable file-based backbone.
+trailers and per-task checkpoints remain the durable file-based backbone.
 SendMessage is **additive signalling** — a faster path for the common case and an enabler
 of new coordination. Every message-based path below has an intact file-based fallback. If a
 message is never delivered, the file mechanism still recovers the run.
@@ -35,10 +35,9 @@ message is never delivered, the file mechanism still recovers the run.
 ## Three hard semantics (encode these; do not fight them)
 
 1. **Delivery is at the recipient's NEXT tool round, not real-time.** Messaging is a
-   COOPERATIVE signal, never a preemptive halt. The executor's own headroom self-stop
-   (self-monitoring) stays PRIMARY — messaging makes the common case tighter and unlocks
-   new coordination, but it never replaces self-detection. Never build a design that
-   assumes a message stops a peer instantly.
+   COOPERATIVE signal, never a preemptive halt. Messaging makes the common case tighter and
+   unlocks new coordination, but the file-based checkpoints stay primary. Never build a
+   design that assumes a message stops a peer instantly.
 
 2. **A subagent cannot observe another agent's context/session state.** A signal about "I'm
    near my limit" MUST originate FROM the agent hitting the limit and flow UPWARD
@@ -54,19 +53,16 @@ message is never delivered, the file mechanism still recovers the run.
 
 ## The 6 application patterns
 
-### App #1 — Executor upward continuation signal
-When the executor self-stops at its headroom boundary (`<executor_resilience_protocol>` in
-`references/executor-detail.md`), IN ADDITION to writing EXECUTOR-HANDOFF.json and returning
-`## PLAN INTERRUPTED` + the JSON status trailer, it `SendMessage`s `to: "main"` with
-summary "continuation needed — handoff written" and a message naming the plan, the
-last-completed-task index, and the handoff path. This gives the coordinator an out-of-band
-early signal instead of waiting for the turn to unwind. The handoff + trailer are the
-durable record; the message is purely additive.
+### App #1 — Executor upward continuation signal (retired)
+Retired: an executor no longer self-stops on context (`<executor_resilience_protocol>` in
+`references/executor-detail.md`: work until done, auto-compaction handles a full window), so
+it never sends a "continuation needed" signal. A coordinator may still receive one from an
+older executor build; treat it as the legacy `## PLAN INTERRUPTED` case of `execute-phase.md`.
 
 ### App #2 — Prefer resume-by-agentId over cold fresh-spawn (in-session)
 The coordinator (`workflows/execute-phase.md`) CAPTURES each executor's `agentId` from its
-spawn result and retains it. On a resumable in-session interruption (a clean
-`## PLAN INTERRUPTED`, or a session-limit pause where the window has since reset and the
+spawn result and retains it. On a resumable in-session interruption (a legacy
+`## PLAN INTERRUPTED` from an older build, or a session-limit pause where the window has since reset and the
 agent is still in-session), the coordinator PREFERS `SendMessage(to: <agentId>, …)` to
 resume that same executor from its transcript (richer context than a handoff doc) OVER
 cold-spawning a fresh executor that re-reads the handoff. It FALLS BACK to the existing

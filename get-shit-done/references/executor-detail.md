@@ -1,6 +1,6 @@
 # Executor detail: plan-level and spike dispatches
 
-Loaded by a plan-level executor dispatch (spike, continuation, checkpoint resume, a wave peer); a per-task dispatch reads only `references/executor-task.md`. Part 1 holds the rules the agent file used to carry (scope, auto mode, deviations, auth gates, checkpoints, resume, commit protocol, self-check, completion, self-stop, messaging, live-stack work); part 2 the execution flow and the procedures it calls.
+Loaded by a plan-level executor dispatch (spike, continuation, checkpoint resume, a wave peer); a per-task dispatch reads only `references/executor-task.md`. Part 1 holds the rules the agent file used to carry (scope, auto mode, deviations, auth gates, checkpoints, resume, commit protocol, self-check, completion, resilience (work until done), messaging, live-stack work); part 2 the execution flow and the procedures it calls.
 
 ## Part 1: rules
 
@@ -260,7 +260,7 @@ git commit -m "{type}({phase}-{plan}): {concise task description}
   "timestamp": "{ISO timestamp}"
 }
 ```
-This file is NOT committed per-task (too noisy) — it rides along in the plan's final SUMMARY.md commit, or is committed immediately if a checkpoint/handoff fires (see `<executor_resilience_protocol>` below). Its purpose: a continuation agent respawned after this executor dies reads it to know exactly which task to resume from, without re-deriving state from `git log`.
+This file is NOT committed per-task (too noisy) — it rides along in the plan's final SUMMARY.md commit, or is committed immediately if a checkpoint fires (see `<executor_resilience_protocol>` below). Its purpose: a continuation agent respawned after this executor dies reads it to know exactly which task to resume from, without re-deriving state from `git log`.
 
 **7. Optional progress heartbeat (App #5):** on a long plan you MAY send a rate-limited upward heartbeat after a task commit — see `<agent_messaging>` after the core-preamble marker.
 
@@ -308,73 +308,30 @@ Self-report telemetry (MILE-26): populate these from your own run — an ambiguo
 
 <executor_resilience_protocol>
 
-## Executor Resilience Protocol (context self-stop)
+## Executor Resilience Protocol (work until done)
 
-Long plans can outlive a single executor's context window, or the account's session limit, mid-execution. **Stopping cleanly at a task boundary is CORRECT behavior — never a failure.** The failure mode this protocol prevents is pushing past a near-full context window and dying mid-task: that loses uncommitted work and leaves no trail for a continuation agent to resume from. A clean stop with a handoff written is strictly better than a longer run that dies silently.
+**Context fill is never a reason to stop.** Run every task of the plan to completion: a full window is handled by auto-compaction (`autoCompactWindow` in the agent frontmatter), not by handing back. Return before the plan is done only on a real blocker (a denial, an owner gate, a tool failure, a task that cannot be done as written) or a failure the ladder says to park.
 
-**At every task boundary** (right after a task's commit + TASK-CHECKPOINT.json write, before starting the next task), judge whether the window is close to full. You cannot measure your context precisely and you report no context number; weigh long tool outputs read, files read, and tasks completed vs. remaining.
+**Checkpoint at every task boundary all the same** (the task's commit plus the `TASK-CHECKPOINT.json` write of `<task_commit_protocol>`): an executor can still die (session or quota limit, crash), and a continuation agent resumes from that file and `git log`. Work context-lean anyway: read only the file sections you need and pipe long command output through grep/tail.
 
-**Stop rule.** STOP (do NOT start the next task) when you judge the window close to full, meaning the next task's plausible cost (its file reads plus expected tool output; a test-suite or full gate run can dump a very large result) plus a clean handoff write may not fit. Write the exact handoff to disk first (step 1 below), then return the interrupted completion.
-
-**Anti-stall guard — a handoff must always buy progress.** If you are a freshly spawned executor (little context consumed yet) and the next task looks too large for the window, do NOT hand off: a continuation agent would face identical math and the plan would stall forever. Attack the task context-lean: read only the exact file sections needed, pipe long command output through grep/tail, and split the task into separately-committed sub-steps. Only if the task is impossible within the window, return `## PLAN BLOCKED` recommending the plan be re-split into smaller tasks.
-
-When in doubt between "probably fits" and "might not" — and you HAVE completed at least one task this run — stop: a clean handoff costs one respawn; dying mid-task costs the work. An executor that dies or overflows without a handoff is re-dispatched fresh from on-disk state (TASK-CHECKPOINT.json, git log).
-
-1. Write `.planning/phases/{phase_dir}/EXECUTOR-HANDOFF.json`:
-   ```json
-   {
-     "phase": {N},
-     "plan": "{phase}-{plan}",
-     "reason": "context_pressure",
-     "last_completed_task": { "index": {N}, "name": "{task name}" },
-     "next_task_index": {N+1},
-     "completed_task_commits": ["{hash}", "{hash}"],
-     "files_modified": ["path/a.ts", "path/b.ts"],
-     "deviations": ["[Rule N - Type] description", "..."],
-     "key_decisions": ["...", "..."],
-     "verification_state": "{what has/hasn't been verified so far}",
-     "resume_instructions": "{precise instructions for the continuation agent}"
-   }
-   ```
-2. `git add` the handoff file plus `TASK-CHECKPOINT.json` and commit as a `chore` commit: `chore({phase}-{plan}): executor handoff at task {N} — context pressure`.
-3. **Upward continuation signal (App #1 — see `<agent_messaging>`).** ALSO `SendMessage` `to: "main"` with `summary: "continuation needed — handoff written"` and a `message` naming the plan, the last-completed-task index, and the handoff path (`EXECUTOR-HANDOFF.json`). Additive early signal — the handoff + JSON trailer below stay the durable record; skip silently if SendMessage is unavailable.
-4. Return the completion below **instead of** `## PLAN COMPLETE`:
-
-```markdown
-## PLAN INTERRUPTED — continuation needed
-
-**Plan:** {phase}-{plan}
-**Progress:** {completed}/{total} tasks complete
-**Reason:** context_pressure
-**Handoff:** {phase_dir}/EXECUTOR-HANDOFF.json
-
-**Commits:**
-- {hash}: {message}
-- {hash}: {message}
-
-**Telemetry:** instructions_not_followed={count}, ambiguities={count}, tool_errors_swallowed={count}
-```
-
-**Machine-parseable status trailer (REQUIRED).** The human-readable header above is for the reader; the coordinator must not have to string-match a prose line (an em-dash or reworded header would silently break detection). End EVERY executor return — `## PLAN COMPLETE`, `## PLAN INTERRUPTED`, and `## PLAN BLOCKED` alike — with a fenced JSON trailer as the final content of your message:
+**Machine-parseable status trailer (REQUIRED).** The human-readable header is for the reader; the coordinator must not have to string-match a prose line (an em-dash or reworded header would silently break detection). End EVERY executor return (`## PLAN COMPLETE` and `## PLAN BLOCKED` alike) with a fenced JSON trailer as the final content of your message:
 
 ````
 ```json
-{"status": "interrupted", "reason": "context_pressure", "phase": {N}, "plan": "{phase}-{plan}", "completed_tasks": {N}, "total_tasks": {N}, "handoff": "{phase_dir}/EXECUTOR-HANDOFF.json"}
+{"status": "complete", "phase": {N}, "plan": "{phase}-{plan}", "completed_tasks": {N}, "total_tasks": {N}}
 ```
 ````
 
-`status` is one of `"complete"` | `"interrupted"` | `"blocked"`. For `"blocked"`, set `reason` to why the task cannot fit any window and include `"recommended_split": "<how to re-split>"`. The coordinator parses THIS block, not the header — the prose header and the JSON status must always agree.
+`status` is `"complete"` or `"blocked"`. For `"blocked"`, set `reason` to the blocker and, when the plan must be re-split, include `"recommended_split": "<how to re-split>"`. The coordinator parses THIS block, not the header; the prose header and the JSON status must always agree. Never return `"interrupted"`: the coordinator still reads it from an older executor build only.
 
-**This is not a failure and must not be reported as one.** The orchestrator treats `status: "interrupted"` exactly like a pre-spawn handoff: an immediate continuation respawn, never counted against the plan's retry/debug/escalate ladder. See `execute-phase.md`'s executor resilience handling and `@get-shit-done/references/resilience.md` for the full protocol, the coordinator-side continuation-spawn contract, and every artifact schema.
-
-**If spawned as a continuation agent** with a `<prior_executor_handoff>` block in your prompt: this supersedes `<continuation_handling>` above for the resilience case specifically — verify the listed commits exist (`git log --oneline -20`), do NOT redo any completed task, and resume from `next_task_index`. Treat `key_decisions` and `deviations` from the handoff as established fact, not open questions.
+**If spawned as a continuation agent** with a `<prior_executor_handoff>` block in your prompt (a previous run died, or an older build left `EXECUTOR-HANDOFF.json`): this supersedes `<continuation_handling>` above for the resilience case specifically. Verify the listed commits exist (`git log --oneline -20`), do NOT redo any completed task, and resume from `next_task_index`. Treat `key_decisions` and `deviations` from the handoff as established fact, not open questions.
 
 </executor_resilience_protocol>
 
 <success_criteria>
 Plan execution complete when:
 
-- [ ] All tasks executed (or paused at checkpoint with full state returned, or interrupted cleanly at a context-pressure boundary via `<executor_resilience_protocol>` with EXECUTOR-HANDOFF.json written)
+- [ ] All tasks executed (or paused at checkpoint with full state returned, or blocked on a real blocker); never stopped early for context fill
 - [ ] Cross-boundary tasks verified end-to-end (not just local build/unit pass)
 - [ ] Each task committed individually with proper format
 - [ ] All deviations documented

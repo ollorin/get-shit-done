@@ -6,14 +6,14 @@ This file documents the executor-level extension of the coordinator-death-recove
 >
 > The mechanism that actually survives a top-level orchestrator death is external to this protocol and external to the Claude process entirely: an OS-level supervisor script that wraps the `claude` invocation, watches the child process, detects it dying on a session/quota limit, waits for the actual reset, and launches a **brand-new** `claude` process (no memory of the old one — it re-derives everything from `.planning/EXECUTION_LOG.md` / `CHECKPOINT.json` / `ROADMAP.md` on disk). See `workflows/execute-roadmap.md`'s `<autonomous_resumption>` section for the supervisor invocation pattern and the `GSD_AUTONOMOUS=1` contract that lets a relaunched, unattended orchestrator pass the two human-approval gates (`resume_capability`, `confirm_execution`) it would otherwise stall on with nobody present to answer them.
 
-**Why a separate level is needed:** `execute-roadmap.md`'s 4a step detects a dead *coordinator* and resumes it from its phase-level `CHECKPOINT.json` (lifecycle granularity — which of discuss/research/plan/execute/verify ran). That granularity is too coarse for an executor: a single `execute-plan` run can contain many tasks, and a coordinator-level resume would restart the ENTIRE plan from scratch, redoing already-committed tasks. This protocol adds task-level granularity underneath it, plus a self-stop that lets an executor volunteer to hand off cleanly before it dies, instead of only being detected dead after the fact.
+**Why a separate level is needed:** `execute-roadmap.md`'s 4a step detects a dead *coordinator* and resumes it from its phase-level `CHECKPOINT.json` (lifecycle granularity — which of discuss/research/plan/execute/verify ran). That granularity is too coarse for an executor: a single `execute-plan` run can contain many tasks, and a coordinator-level resume would restart the ENTIRE plan from scratch, redoing already-committed tasks. This protocol adds task-level granularity underneath it. There is no context-based self-stop: an executor works until the plan is done and a full window is handled by auto-compaction (`autoCompactWindow` in the agent frontmatter).
 
 Two failure modes are addressed:
 
-1. **Context overflow** — the executor's context window fills up mid-plan.
+1. **Executor death** — a crash, or an overflow auto-compaction did not prevent, mid-plan.
 2. **Session limit death** — the account's rolling session window resets mid-plan, killing the executor.
 
-Both are handled by the same underlying data: a per-task checkpoint that survives the executor's death, and (when the executor gets the chance) a richer handoff written just before it stops.
+Both are handled by the same underlying data: a per-task checkpoint that survives the executor's death.
 
 ---
 
@@ -45,7 +45,7 @@ Purpose: a continuation agent respawned after this executor dies (with no clean 
 
 ### EXECUTOR-HANDOFF.json
 
-Written ONLY by the executor's own `<executor_resilience_protocol>` self-stop (`references/executor-detail.md`) when it voluntarily stops at a task boundary due to context pressure. Richer than TASK-CHECKPOINT.json — carries narrative state a bare task index can't. Committed immediately (`chore` commit) alongside TASK-CHECKPOINT.json, because this is a deliberate stopping point, not an ongoing-work checkpoint.
+Legacy: written only by an older executor build that self-stopped on context pressure; current executors never write it (`<executor_resilience_protocol>` in `references/executor-detail.md`). The coordinator still consumes one left on disk. Richer than TASK-CHECKPOINT.json — carries narrative state a bare task index can't. Committed immediately (`chore` commit) alongside TASK-CHECKPOINT.json, because this is a deliberate stopping point, not an ongoing-work checkpoint.
 
 ```json
 {
@@ -84,13 +84,9 @@ Written by the **coordinator** (`workflows/execute-phase.md`), not the executor,
 
 ---
 
-## Executor Self-Stop (context pressure)
+## No Executor Self-Stop
 
-Full text lives in `<executor_resilience_protocol>` in `references/executor-detail.md` — this is a summary.
-
-At every task boundary the executor judges whether its window is close to full (no tool call, no numeric threshold, no reported number: it weighs tool output volume / files read / tasks done vs. remaining). When it judges so with tasks still remaining, it STOPS at the boundary: writes EXECUTOR-HANDOFF.json + TASK-CHECKPOINT.json, commits them, and returns `## PLAN INTERRUPTED — continuation needed` instead of `## PLAN COMPLETE`.
-
-**This is correct behavior, not a failure.** The failure this exists to prevent is pushing past a near-full window and dying mid-task with no handoff — that loses uncommitted work and forces the coordinator to fall back to a coarser, less certain recovery path (TASK-CHECKPOINT.json alone, or worse, nothing).
+Full text lives in `<executor_resilience_protocol>` in `references/executor-detail.md`. An executor never stops, hands back or returns `## PLAN INTERRUPTED` because of context fill: it works until the plan is done and relies on auto-compaction. It still writes TASK-CHECKPOINT.json after every task commit, because a death (crash, session or quota limit) is still possible and a continuation agent resumes from it.
 
 ---
 
@@ -128,7 +124,7 @@ Runs in `execute-phase.md`'s `handle_failure` step, BEFORE the existing retry/de
 
 | Return shape | Meaning | Coordinator action |
 |---|---|---|
-| `## PLAN INTERRUPTED — continuation needed` | Clean self-stop, EXECUTOR-HANDOFF.json written | Same as pre-spawn handoff (above) — immediate continuation respawn. NOT a retry/failure. |
+| `## PLAN INTERRUPTED — continuation needed` (legacy, older executor build) | Context self-stop, EXECUTOR-HANDOFF.json written | Same as pre-spawn handoff (above) — immediate continuation respawn. NOT a retry/failure. |
 | `Agent()` threw, or return doesn't parse as PLAN COMPLETE / checkpoint / PLAN INTERRUPTED, AND `resilience parse-death` matches with a reset time | Session/quota-limit death | Write PAUSED.json (`type: "session_limit"`). If wait < 30 min: sleep-loop (same pattern as `execute-roadmap.md` 4a) then respawn. If wait >= 30 min or reset time implausible: return `status: "paused_session_limit"` to this coordinator's own caller instead of blocking its own context for hours. |
 | Same, but no reset time AND `resilience check-staleness` on TASK-CHECKPOINT.json reports `stale: true` | Context-overflow death, no clean handoff, but committed work exists | Same as pre-spawn handoff — immediate continuation respawn from TASK-CHECKPOINT.json. No waiting; nothing to wait for. |
 | Neither of the above | Genuine task-logic failure | Falls through to the existing `execution-state record-failure` retry/debug/escalate ladder, unchanged. |
@@ -196,8 +192,8 @@ Both keys are read via `loadConfig()` in `gsd-tools.js` with the same "top-level
 |---|---|---|
 | Detected by | Roadmap orchestrator | Phase coordinator (`execute-phase.md`) |
 | Granularity | Lifecycle step (discuss/research/plan/execute/verify) | Task index within a single plan |
-| Self-stop available | No — coordinator is only detected dead after the fact | Yes — `<executor_resilience_protocol>` lets the executor volunteer a clean stop before dying |
-| Resume artifact | Phase `CHECKPOINT.json` | `TASK-CHECKPOINT.json` (forced) or `EXECUTOR-HANDOFF.json` (clean stop) |
+| Self-stop available | No: detected dead after the fact | No: works until done; detected dead after the fact |
+| Resume artifact | Phase `CHECKPOINT.json` | `TASK-CHECKPOINT.json` (or a legacy `EXECUTOR-HANDOFF.json`) |
 | Wait/respawn pattern | Sleep-loop capped at 6h, always local to the roadmap orchestrator | Same sleep-loop pattern, but bubbles up to the coordinator's own caller if the wait is >= 30 minutes (a phase coordinator has less budget to spend sleeping than the top-level roadmap orchestrator) |
 
 Both layers log distinct `execution-log event --type` values so a post-mortem can tell which layer intervened: coordinator-level events are `coordinator_death_detected` / `auto_resume_spawned` / `death_reset_time_implausible` (unchanged, existing); executor-level events are `executor_clean_interruption` / `executor_death_detected` / `usage_pause_triggered`.
