@@ -6909,7 +6909,7 @@ function cmdVerifyPhaseCompleteness(cwd, phase, raw) {
 
 const DOC_PATH_SIGNAL_RE = /(api|route|handler|endpoint|router|page|pages\/|screen|view|frontend|migration|schema|prisma|model)/i;
 const LEGACY_RISK = require('./legacy-risk-keywords.js');
-const DOC_KEYWORD_SIGNAL_RE = new RegExp(`(${['new service', 'middleware', 'new schema', 'auth', 'onboarding', 'flow', ...LEGACY_RISK.doc_signal].join('|')})`, 'i');
+const DOC_KEYWORD_SIGNAL_RE = new RegExp(`\\b(${['new service', 'middleware', 'new schema', 'auth', 'onboarding', 'flow', ...LEGACY_RISK.doc_signal].join('|')})\\b`, 'i');
 const DOC_SATISFIED_RE = /(docs\/|README|CHANGELOG\.md)/i;
 const TEST_FILE_RE = /\.(test|spec)\.(ts|tsx|js)$/;
 const E2E_GENERATION_FAILED_FILENAME = 'E2E-GENERATION-FAILED.json';
@@ -7273,7 +7273,8 @@ function cmdVerifyPhaseGate(cwd, phaseArg, raw, opts = {}) {
   for (const sf of summaryFileNames) {
     summaryText += (safeReadFile(path.join(phaseDir, sf)) || '');
   }
-  const docsRequired = touchedFiles.some(f => DOC_PATH_SIGNAL_RE.test(f)) || DOC_KEYWORD_SIGNAL_RE.test(summaryText);
+  const summaryProse = summaryText.split('\n').filter(line => !/^\s{0,3}#{1,6}\s/.test(line)).join('\n');
+  const docsRequired = touchedFiles.some(f => DOC_PATH_SIGNAL_RE.test(f)) || DOC_KEYWORD_SIGNAL_RE.test(summaryProse);
 
   // E2E coverage gap detection (MILE-08, Phase 46-01): gap-aware, not just
   // existence-based -- computeE2ECoverageGaps is the same pure function
