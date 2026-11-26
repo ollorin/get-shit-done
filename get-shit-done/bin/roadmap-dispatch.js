@@ -15,7 +15,7 @@ const evPhase = (e) => phaseKey(e && (e.phase != null ? e.phase : e.data && e.da
 
 function parseDeps(depends) {
   if (!depends || /^\s*none\b/i.test(depends)) return [];
-  return (String(depends).match(/\d+(?:\.\d+)?/g) || []).map(phaseKey);
+  return (String(depends).match(/\d+[a-z]?(?:\.\d+)?/g) || []).map(phaseKey);
 }
 
 // Fold the event stream into one state per phase.

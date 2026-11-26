@@ -548,12 +548,20 @@ function execGit(cwd, args) {
 }
 
 function normalizePhaseName(phase) {
-  const match = phase.match(/^(\d+(?:\.\d+)?)/);
+  const match = phase.match(/^(\d+[a-z]?(?:\.\d+)?)/);
   if (!match) return phase;
   const num = match[1];
   const parts = num.split('.');
   const padded = parts[0].padStart(2, '0');
   return parts.length > 1 ? `${padded}.${parts[1]}` : padded;
+}
+
+// 406 < 406a < 406b < 407; 416a < 416a.1 < 416b.
+function comparePhaseDirs(a, b) {
+  const key = d => { const m = d.match(/^(\d+)([a-z]?)(?:\.(\d+))?/); return m ? [Number(m[1]), m[2], parseFloat('0.' + (m[3] || '0'))] : [0, '', 0]; };
+  const [an, al, ad] = key(a);
+  const [bn, bl, bd] = key(b);
+  return an - bn || (al < bl ? -1 : al > bl ? 1 : 0) || ad - bd;
 }
 
 function extractFrontmatter(content) {
@@ -2067,11 +2075,7 @@ function cmdPhasesList(cwd, options, raw) {
     let dirs = entries.filter(e => e.isDirectory()).map(e => e.name);
 
     // Sort numerically (handles decimals: 01, 02, 02.1, 02.2, 03)
-    dirs.sort((a, b) => {
-      const aNum = parseFloat(a.match(/^(\d+(?:\.\d+)?)/)?.[1] || '0');
-      const bNum = parseFloat(b.match(/^(\d+(?:\.\d+)?)/)?.[1] || '0');
-      return aNum - bNum;
-    });
+    dirs.sort(comparePhaseDirs);
 
     // If filtering by phase number
     if (phase) {
@@ -2106,7 +2110,7 @@ function cmdPhasesList(cwd, options, raw) {
       const result = {
         files,
         count: files.length,
-        phase_dir: phase ? dirs[0].replace(/^\d+(?:\.\d+)?-?/, '') : null,
+        phase_dir: phase ? dirs[0].replace(/^\d+[a-z]?(?:\.\d+)?-?/, '') : null,
       };
       output(result, raw, files.join('\n'));
       return;
@@ -2664,7 +2668,7 @@ function countUnplannedRoadmapPhases(cwd) {
   let roadmap;
   try { roadmap = fs.readFileSync(path.join(cwd, '.planning', 'ROADMAP.md'), 'utf-8'); } catch { return 0; }
   const nums = new Set();
-  for (const m of roadmap.matchAll(/^#{2,4}\s*Phase\s+(\d+(?:\.\d+)?)\s*[:\u2014-]/gim)) nums.add(m[1]);
+  for (const m of roadmap.matchAll(/^#{2,4}\s*Phase\s+(\d+[a-z]?(?:\.\d+)?)\s*[:\u2014-]/gim)) nums.add(m[1]);
   let unplanned = 0;
   for (const n of nums) {
     const done = new RegExp(`^\\s*-\\s*\\[x\\].*Phase\\s+${n.replace('.', '\\.')}[:\\s]`, 'im').test(roadmap);
@@ -2910,7 +2914,7 @@ function cmdFindPhase(cwd, phase, raw) {
       return;
     }
 
-    const dirMatch = match.match(/^(\d+(?:\.\d+)?)-?(.*)/);
+    const dirMatch = match.match(/^(\d+[a-z]?(?:\.\d+)?)-?(.*)/);
     const phaseNumber = dirMatch ? dirMatch[1] : normalized;
     const phaseName = dirMatch && dirMatch[2] ? dirMatch[2] : null;
 
@@ -8637,8 +8641,8 @@ function cmdVerifyDependencyStability(cwd, phaseArg, raw) {
           dependsOn = depsText
             .split(',')
             .map(function(dep) {
-              const m = dep.match(/Phase\s+(\d+)/);
-              return m ? parseInt(m[1]) : null;
+              const m = dep.match(/Phase\s+(\d+[a-z]?)/);
+              return m ? (/[a-z]/.test(m[1]) ? m[1] : parseInt(m[1])) : null;
             })
             .filter(function(n) { return n !== null; });
         }
@@ -8792,7 +8796,7 @@ function cmdVerifyDependencyStability(cwd, phaseArg, raw) {
  */
 function parseRoadmapPhases(content, phasesDir, options) {
   const extended = options && options.includeExtendedDiskInfo;
-  const phasePattern = /###\s*Phase\s+(\d+(?:\.\d+)?)\s*:\s*([^\n]+)/gi;
+  const phasePattern = /###\s*Phase\s+(\d+[a-z]?(?:\.\d+)?)\s*:\s*([^\n]+)/gi;
   const phases = [];
   let match;
 
@@ -9118,7 +9122,7 @@ async function cmdRoadmapStatus(cwd, phaseArg, raw) {
 
   // If phase arg provided, return single phase status
   if (phaseArg) {
-    const targetPhase = parsed.phases.find(p => p.number === parseInt(phaseArg));
+    const targetPhase = parsed.phases.find(p => String(p.number) === String(/[a-z]/.test(phaseArg) ? phaseArg : parseInt(phaseArg)));
     if (targetPhase) {
       output({ phase: targetPhase.number, status: targetPhase.status }, raw, targetPhase.status);
     } else {
@@ -9704,7 +9708,7 @@ function updateProgressTableRow(content, phaseEscaped, renderStatus, renderPlans
 // another phase's section and never matches a longer phase number (phase 2 vs 20).
 function retargetPhasePlansLine(roadmapContent, phaseEscaped, planCountText) {
   const planCountPattern = new RegExp(
-    `(#{2,4}\\s*Phase\\s+${phaseEscaped}(?![\\d.])(?:(?!\\n#{2,4}\\s*Phase\\s)[\\s\\S])*?\\*\\*Plans:\\*\\*[ \\t]*)([^\\n]*)`,
+    `(#{2,4}\\s*Phase\\s+${phaseEscaped}(?![\\d.a-z])(?:(?!\\n#{2,4}\\s*Phase\\s)[\\s\\S])*?\\*\\*Plans:\\*\\*[ \\t]*)([^\\n]*)`,
     'i'
   );
   return roadmapContent.replace(planCountPattern, (_m, head, existing) => {
@@ -10117,7 +10121,7 @@ function cmdPhaseComplete(cwd, phaseNum, raw, opts = {}) {
     const currentFloat = parseFloat(phaseNum);
     if (fs.existsSync(roadmapPath)) {
       const rm = fs.readFileSync(roadmapPath, 'utf-8');
-      for (const m of rm.matchAll(/^#{2,4}\s*Phase\s+(\d+(?:\.\d+)?)\s*:\s*(.+?)\s*$/gim)) {
+      for (const m of rm.matchAll(/^#{2,4}\s*Phase\s+(\d+[a-z]?(?:\.\d+)?)\s*:\s*(.+?)\s*$/gim)) {
         candidates.set(parseFloat(m[1]), { num: m[1], name: m[2] });
       }
       totalPhases = candidates.size;
@@ -10125,7 +10129,7 @@ function cmdPhaseComplete(cwd, phaseNum, raw, opts = {}) {
     try {
       const dirs = fs.readdirSync(phasesDir, { withFileTypes: true }).filter(e => e.isDirectory()).map(e => e.name).sort();
       for (const dir of dirs) {
-        const dm = dir.match(/^(\d+(?:\.\d+)?)-?(.*)/);
+        const dm = dir.match(/^(\d+[a-z]?(?:\.\d+)?)-?(.*)/);
         if (!dm) continue;
         const key = parseFloat(dm[1]);
         const prior = candidates.get(key);
@@ -10919,7 +10923,7 @@ function cmdValidateConsistency(cwd, raw) {
 
   // Extract phases from ROADMAP
   const roadmapPhases = new Set();
-  const phasePattern = /###\s*Phase\s+(\d+(?:\.\d+)?)\s*:/gi;
+  const phasePattern = /###\s*Phase\s+(\d+[a-z]?(?:\.\d+)?)\s*:/gi;
   let m;
   while ((m = phasePattern.exec(roadmapContent)) !== null) {
     roadmapPhases.add(m[1]);
@@ -10931,7 +10935,7 @@ function cmdValidateConsistency(cwd, raw) {
     const entries = fs.readdirSync(phasesDir, { withFileTypes: true });
     const dirs = entries.filter(e => e.isDirectory()).map(e => e.name);
     for (const dir of dirs) {
-      const dm = dir.match(/^(\d+(?:\.\d+)?)/);
+      const dm = dir.match(/^(\d+[a-z]?(?:\.\d+)?)/);
       if (dm) diskPhases.add(dm[1]);
     }
   } catch {}
@@ -11034,14 +11038,10 @@ function cmdProgressRender(cwd, format, raw) {
 
   try {
     const entries = fs.readdirSync(phasesDir, { withFileTypes: true });
-    const dirs = entries.filter(e => e.isDirectory()).map(e => e.name).sort((a, b) => {
-      const aNum = parseFloat(a.match(/^(\d+(?:\.\d+)?)/)?.[1] || '0');
-      const bNum = parseFloat(b.match(/^(\d+(?:\.\d+)?)/)?.[1] || '0');
-      return aNum - bNum;
-    });
+    const dirs = entries.filter(e => e.isDirectory()).map(e => e.name).sort(comparePhaseDirs);
 
     for (const dir of dirs) {
-      const dm = dir.match(/^(\d+(?:\.\d+)?)-?(.*)/);
+      const dm = dir.match(/^(\d+[a-z]?(?:\.\d+)?)-?(.*)/);
       const phaseNum = dm ? dm[1] : dir;
       const phaseName = dm && dm[2] ? dm[2].replace(/-/g, ' ') : '';
       const phaseFiles = fs.readdirSync(path.join(phasesDir, dir));
@@ -11345,13 +11345,13 @@ function findPhaseInternal(cwd, phase) {
     // Match both 'NN-name' and 'phase-NN-name' directory conventions
     // Exact phase number: "2" never resolves 02.1-x or 20-x. A non-numeric argument keeps the prefix match.
     const numeric = /^\d/.test(String(phase));
-    const numberOf = d => { const m = d.match(/^(?:phase-)?(\d+(?:\.\d+)?)(?:-|$)/); return m ? normalizePhaseName(m[1]) : null; };
+    const numberOf = d => { const m = d.match(/^(?:phase-)?(\d+[a-z]?(?:\.\d+)?)(?:-|$)/); return m ? normalizePhaseName(m[1]) : null; };
     const match = numeric
       ? dirs.find(d => numberOf(d) === normalized)
       : dirs.find(d => d.startsWith(normalized) || d.startsWith('phase-' + normalized + '-') || d === 'phase-' + normalized);
     if (!match) return null;
 
-    const dirMatch = match.match(/^(?:phase-)?(\d+(?:\.\d+)?)-?(.*)/);
+    const dirMatch = match.match(/^(?:phase-)?(\d+[a-z]?(?:\.\d+)?)-?(.*)/);
     const phaseNumber = dirMatch ? dirMatch[1] : normalized;
     const rawName = dirMatch && dirMatch[2] ? dirMatch[2] : null;
     // Strip leading 'phase-' artifact if present (shouldn't be after regex fix, but safety net)
@@ -11636,7 +11636,7 @@ function cmdInitExecutePhase(cwd, phase, includes, raw, gate) {
 // the ROADMAP "### Phase N: Name" header, so callers can mkdir the target dir.
 function roadmapPhaseFallback(cwd, phase) {
   const normalized = normalizePhaseName(phase);
-  const number = normalized.match(/^\d+(?:\.\d+)?/)?.[0];
+  const number = normalized.match(/^\d+[a-z]?(?:\.\d+)?/)?.[0];
   if (!number) return null;
   const content = safeReadFile(path.join(cwd, '.planning', 'ROADMAP.md'));
   if (!content) return null;
@@ -12226,7 +12226,7 @@ function cmdInitProgress(cwd, includes, raw) {
     const dirs = entries.filter(e => e.isDirectory()).map(e => e.name).sort();
 
     for (const dir of dirs) {
-      const match = dir.match(/^(\d+(?:\.\d+)?)-?(.*)/);
+      const match = dir.match(/^(\d+[a-z]?(?:\.\d+)?)-?(.*)/);
       const phaseNumber = match ? match[1] : dir;
       const phaseName = match && match[2] ? match[2] : null;
 

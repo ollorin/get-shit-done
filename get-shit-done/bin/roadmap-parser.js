@@ -46,13 +46,13 @@ async function parseRoadmap(roadmapPath) {
     if (insideCollapsedDetails > 0) continue;
 
     // Phase header: ### Phase N: Name or #### Phase N: Name
-    const phaseMatch = line.match(/^#{2,4}\s+Phase\s+([\d.]+):\s+(.+)/);
+    const phaseMatch = line.match(/^#{2,4}\s+Phase\s+(\d+[a-z]?(?:\.\d+)*):\s+(.+)/);
     if (phaseMatch) {
       // Save previous phase
       if (currentPhase) phases.push(currentPhase);
 
       currentPhase = {
-        number: phaseMatch[1].includes('.') ? parseFloat(phaseMatch[1]) : parseInt(phaseMatch[1]),
+        number: /[a-z]/.test(phaseMatch[1]) ? phaseMatch[1] : phaseMatch[1].includes('.') ? parseFloat(phaseMatch[1]) : parseInt(phaseMatch[1]),
         name: phaseMatch[2].trim(),
         goal: '',
         depends_on: [],
@@ -83,8 +83,8 @@ async function parseRoadmap(roadmapPath) {
         currentPhase.depends_on = depsText
           .split(',')
           .map(dep => {
-            const match = dep.match(/Phase\s+(\d+)/);
-            return match ? parseInt(match[1]) : null;
+            const match = dep.match(/Phase\s+(\d+[a-z]?)/);
+            return match ? (/[a-z]/.test(match[1]) ? match[1] : parseInt(match[1])) : null;
           })
           .filter(n => n !== null);
       }

@@ -12,7 +12,7 @@ const LEVELS = ['standard', 'spike'];
 const read = (f) => { try { return fs.readFileSync(f, 'utf8'); } catch { return null; } };
 
 function phaseSection(cwd, phase) {
-  const number = String(phase).match(/^\d+(?:\.\d+)?/)?.[0];
+  const number = String(phase).match(/^\d+[a-z]?(?:\.\d+)?/)?.[0];
   const content = read(path.join(cwd, '.planning', 'ROADMAP.md'));
   if (!number || !content) return null;
   const escaped = number.replace(/^0+(?=\d)/, '').replace(/\./g, '\\.');
@@ -52,7 +52,7 @@ const clashes = (roots, cwd) => roots.flatMap((r) => productionPaths(cwd).filter
 // A phase is spike only when the approved gate lists it; the ROADMAP Rigour / Spike roots lines are informational
 // (a mismatch is a notice, never authority).
 function resolveRigour(cwd, rawPhase, milestone) {
-  const phase = String(rawPhase).match(/^\d+(?:\.\d+)?/)?.[0] ?? String(rawPhase);
+  const phase = String(rawPhase).match(/^\d+[a-z]?(?:\.\d+)?/)?.[0] ?? String(rawPhase);
   const section = phaseSection(cwd, phase);
   const line = section && section.match(/\*\*Rigour:?\*\*:?[ \t]*([^\n]+)/i);
   const claimed = line ? (line[1].trim().toLowerCase().match(/^(\S+)/) || [])[1] : null;
@@ -79,7 +79,7 @@ function resolveRigour(cwd, rawPhase, milestone) {
   return standard(claimed ? 'roadmap' : 'default');
 }
 
-const phaseNumbers = (cwd) => [...(read(path.join(cwd, '.planning', 'ROADMAP.md')) || '').matchAll(/^###\s*Phase\s+(\d+(?:\.\d+)?):/gim)].map((m) => m[1]);
+const phaseNumbers = (cwd) => [...(read(path.join(cwd, '.planning', 'ROADMAP.md')) || '').matchAll(/^###\s*Phase\s+(\d+[a-z]?(?:\.\d+)?):/gim)].map((m) => m[1]);
 
 // Why a roadmap gate request must be refused (errors) or noted (notices): an incomplete phase section without a
 // **Risk domains** line (a completed one is a notice: legacy roadmaps start), a phase NEWLY added to spike_phases (not
@@ -105,7 +105,7 @@ function gateRequestErrors(cwd, { kind, spikePhases, spikeRoots, milestone, isCo
   let dirs = [];
   try { dirs = fs.readdirSync(path.join(cwd, '.planning', 'phases')); } catch { /* no phases yet */ }
   for (const n of spikePhases.filter((x) => !already.has(phaseKey(x)))) {
-    const d = dirs.find((x) => { const m = x.match(/^(?:phase-)?(\d+(?:\.\d+)?)(?:-|$)/); return m && phaseKey(m[1]) === phaseKey(n); });
+    const d = dirs.find((x) => { const m = x.match(/^(?:phase-)?(\d+[a-z]?(?:\.\d+)?)(?:-|$)/); return m && phaseKey(m[1]) === phaseKey(n); });
     let executed = false;
     try { executed = !!d && fs.readdirSync(path.join(cwd, '.planning', 'phases', d)).some((f) => /-SUMMARY\.md$/i.test(f)); } catch { /* unreadable: not executed */ }
     if (executed) errors.push(`Phase ${n} already has executed plans: a phase is not relabelled spike`);
