@@ -65,7 +65,7 @@ function findingErrors(file, rows, { ledger, phaseSection } = {}) {
     if (SEVERITY[r.sev] === 'ch' && !(d && inLedger)) { unruled.push(r.id); continue; }
     if (/^refuted\b/.test(r.state) && !(d && inLedger)) { unrefuted.push(r.id); continue; }
     if ((d || a) && inLedger) continue;
-    const section = /^\d+(\.\d+)?$/.test(owner) && typeof phaseSection === 'function' ? phaseSection(owner) : null;
+    const section = /^\d+[a-z]?(\.\d+)?$/.test(owner) && typeof phaseSection === 'function' ? phaseSection(owner) : null;
     const named = new RegExp(`(^|[^\\w-])${r.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\w-])`);
     if (section && outsideFences(section).some((l) => !/^\s*#/.test(l) && /^\s*(\d+[.)]|[-*+])\s/.test(l) && named.test(l))) continue;
     unowned.push(r.id);

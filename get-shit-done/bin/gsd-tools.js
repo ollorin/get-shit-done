@@ -2501,7 +2501,7 @@ function replacePlanProgressLine(content, newCurrentPlan, totalPlans, suffix) {
 
 // Plan counts of the phase STATE.md names ("Phase: 2 of 4 ..." / "**Current Phase:** 2"), from disk.
 function stateDiskPlanCounts(cwd, content, phaseOverride) {
-  const m = phaseOverride ? [null, String(phaseOverride)] : content.match(/^\s*(?:\*\*)?(?:Current )?Phase:(?:\*\*)?\s*(\d+(?:\.\d+)?)/im);
+  const m = phaseOverride ? [null, String(phaseOverride)] : content.match(/^\s*(?:\*\*)?(?:Current )?Phase:(?:\*\*)?\s*(\d+[a-z]?(?:\.\d+)?)/im);
   if (!m) return null;
   const info = findPhaseInternal(cwd, m[1]);
   if (!info || !info.plans || info.plans.length === 0) return null;
@@ -9627,7 +9627,7 @@ function findProgressTableRow(content, phaseEscaped) {
     // (hand-edited), so an unparseable line is skipped rather than treated as
     // the end of the table.
     if (!cells) continue;
-    if (/^\d+(\.\d+)?\.?(\s|$)/.test(cells[0].trim())) continue; // a neighbouring DATA row, keep walking up
+    if (/^\d+[a-z]?(\.\d+)?\.?(\s|$)/.test(cells[0].trim())) continue; // a neighbouring DATA row, keep walking up
     headerCells = cells;
     break;
   }
@@ -10148,7 +10148,7 @@ function cmdPhaseComplete(cwd, phaseNum, raw, opts = {}) {
   if (fs.existsSync(statePath)) {
     let stateContent = fs.readFileSync(statePath, 'utf-8');
     const set = (field, value) => { stateContent = stateReplaceFieldTolerant(stateContent, field, value) || stateContent; };
-    const phaseTotal = (stateContent.match(/^\s*Phase:\s*\d+(?:\.\d+)?\s+of\s+(\d+)/im) || [])[1] || totalPhases;
+    const phaseTotal = (stateContent.match(/^\s*Phase:\s*\d+[a-z]?(?:\.\d+)?\s+of\s+(\d+)/im) || [])[1] || totalPhases;
 
     // Bold-field STATE.md (unchanged behaviour)
     stateContent = stateContent.replace(

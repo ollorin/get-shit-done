@@ -48,15 +48,15 @@ function discoverCompletedPhases(roadmapContent) {
 
   // Pattern 1: Checkbox list entries - [x] Phase N: name
   // e.g. - [x] Phase 01: Auto Mode Foundation
-  const checkboxPattern = /^\s*-?\s*\[x\]\s*(?:Phase\s+)?(\d+(?:\.\d+)?)[:\s]+(.+)/i;
+  const checkboxPattern = /^\s*-?\s*\[x\]\s*(?:Phase\s+)?(\d+[a-z]?(?:\.\d+)?)[:\s]+(.+)/i;
 
   // Pattern 2: Markdown table rows with "Complete" or "Done" status
   // e.g. | 01 | Auto Mode Foundation | Complete | ...
-  const tableRowPattern = /^\|\s*(\d+(?:\.\d+)?)\s*\|\s*([^|]+?)\s*\|\s*(Complete|Done)\s*\|/i;
+  const tableRowPattern = /^\|\s*(\d+[a-z]?(?:\.\d+)?)\s*\|\s*([^|]+?)\s*\|\s*(Complete|Done)\s*\|/i;
 
   // Pattern 3: Section headers with [x] marker
   // e.g. ## [x] Phase 01 - Auto Mode Foundation
-  const sectionPattern = /^#+\s*\[x\]\s*(?:Phase\s+)?(\d+(?:\.\d+)?)\s*[-:]\s*(.+)/i;
+  const sectionPattern = /^#+\s*\[x\]\s*(?:Phase\s+)?(\d+[a-z]?(?:\.\d+)?)\s*[-:]\s*(.+)/i;
 
   for (const line of lines) {
     let match;

@@ -14,7 +14,7 @@ const STATUS = {
   assumption: ['open', 'confirmed', 'overridden'],
   rework: ['open', 'accepted', 'done'],
 };
-const PHASE_RE = /^\d+(\.\d+)?$/;
+const PHASE_RE = /^\d+[a-z]?(\.\d+)?$/;
 const EXIT_CORRUPT = 3;
 const MUTATING = new Set(['add', 'map', 'answer', 'close', 'repair', 'amend', 'supersede']);
 const FLAGS = {
@@ -214,7 +214,7 @@ function detectPhaseState(phasesDir) {
   const inProgress = [];
   if (!fs.existsSync(phasesDir)) return { completed, inProgress };
   for (const d of fs.readdirSync(phasesDir)) {
-    const m = /^(\d+(?:\.\d+)?)-/.exec(d);
+    const m = /^(\d+[a-z]?(?:\.\d+)?)-/.exec(d);
     if (!m) continue;
     const files = fs.readdirSync(path.join(phasesDir, d));
     if (files.some((f) => f.endsWith('-VERIFICATION.md'))) completed.push(m[1]);

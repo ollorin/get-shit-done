@@ -13,7 +13,7 @@ from pathlib import Path
 
 HOME = Path(os.environ.get("EVOLVE_HOME", str(Path.home() / "gsd-evolve")))
 REPO = Path(os.environ.get("EVOLVE_REPO", os.environ.get("AB_LIVE_REPO", "/Users/ollorin/igaming-platform")))
-SUBJ = re.compile(r"^(\w+)\((\d+(?:\.\d+)?-\d+)\): (.*)$")
+SUBJ = re.compile(r"^(\w+)\((\d+[a-z]?(?:\.\d+)?-\d+)\): (.*)$")
 UNIT = re.compile(r"^apps/api/.*(?<!integration)\.test\.ts$")
 CLASSES = [  # finding class -> subject regex (same letters as the review mining, .tmp/review-mining-B.md)
     ("E", r"SUMMARY|Self-Check|evidence|review round|rounds|register|count|record"),

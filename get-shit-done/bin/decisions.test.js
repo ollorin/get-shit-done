@@ -181,6 +181,13 @@ describe('non-blocking queue', () => {
     assert.strictEqual(load(file).records.length, 5);
   });
 
+  test('add accepts a lettered phase id and list --phase returns it', () => {
+    const file = tmpLedger();
+    const ok = spawnSync('node', [TOOL, 'add', '--file', file, '--kind', 'assumption', '--source', 's', '--question', 'lettered q', '--default', 'd', '--reversibility', 'cheap', '--phases', '406a'], { encoding: 'utf8' });
+    assert.strictEqual(ok.status, 0, ok.stderr);
+    assert.match(execFileSync('node', [TOOL, 'list', '--file', file, '--phase', '406a'], { encoding: 'utf8' }), /lettered q/);
+  });
+
   test('render writes a readable DECISIONS.md', () => {
     const file = tmpLedger();
     execFileSync('node', [TOOL, 'render', '--file', file]);

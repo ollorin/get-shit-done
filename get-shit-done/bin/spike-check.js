@@ -131,7 +131,7 @@ function statusAgreementErrors(cwd, phaseNumber) {
   }
   const state = read(path.join(cwd, '.planning', 'STATE.md'));
   if (state !== null) {
-    const ph = (state.match(/^\s*(?:\*\*)?(?:Current )?Phase:(?:\*\*)?\s*0*(\d+(?:\.\d+)?)/im) || [])[1];
+    const ph = (state.match(/^\s*(?:\*\*)?(?:Current )?Phase:(?:\*\*)?\s*0*(\d+[a-z]?(?:\.\d+)?)/im) || [])[1];
     const status = (state.match(/^\s*(?:\*\*)?Status:(?:\*\*)?\s*(.*)$/im) || [])[1] || '';
     if (ph === String(phaseNumber).replace(/^0+(?=\d)/, '') && /executing|in progress|ready to execute|planning/i.test(status)) errors.push(`STATE.md still reports phase ${phaseNumber} as "${status.trim().slice(0, 40)}" while ROADMAP.md marks it complete`);
   }
