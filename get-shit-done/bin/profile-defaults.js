@@ -1,37 +1,38 @@
 'use strict';
 
 // The one table of optimal stack.* defaults. project init fills absent keys from it, project sync appends the default
-// gates a project lacks, and `profile doctor` reports each missing, stale or differing key. A null default means the
-// project sets the value itself; scope says whether one value fits every project.
+// gates a project lacks, and `profile doctor` reports each missing or differing key. A null default means the
+// project sets the value itself; scope says whether one value fits every project, is set per runner, or is allocated per project.
 
 const { isDeepStrictEqual } = require('util');
 
 const ALL = 'all projects';
 const RUNNER = 'needs runner config';
+const PER_PROJECT = 'allocated per project';
 const GATE_PREFIX = 'stack.gates.';
 
 const entry = (fields) => Object.freeze(fields);
+const lockedOnly = (stack) => Array.isArray(stack.locked_commands) && stack.locked_commands.length > 0;
 const gate = (id, run, why, requires) => entry({ default: Object.freeze({ id, run }), severity: 'error', scope: ALL, why, requires });
 
 const STACK_DEFAULTS = Object.freeze({
   'stack.commands.test_file': entry({ default: null, severity: 'error', scope: RUNNER, why: 'runs one test file; must contain {file}' }),
   'stack.commands.test_all': entry({ default: null, severity: 'error', scope: RUNNER, why: 'the full suite the pre-PR gate runs twice' }),
-  'stack.commands.test_unit': entry({ default: null, severity: 'warn', scope: RUNNER, why: 'optional hook-free unit lane for the selector and mutants' }),
+  'stack.commands.test_unit': entry({ default: null, severity: 'info', scope: RUNNER, why: 'optional hook-free unit lane for the selector and mutants' }),
   'stack.commands.typecheck': entry({ default: null, severity: 'error', scope: RUNNER, why: 'type check stage of the pre-PR gate; none acknowledges no code yet' }),
   'stack.commands.lint': entry({ default: null, severity: 'error', scope: RUNNER, why: 'lint stage of the pre-PR gate; none acknowledges no code yet' }),
   'stack.commands.format': entry({ default: null, severity: 'warn', scope: RUNNER, why: 'formatter of the before-PR checklist' }),
   'stack.locked_commands': entry({ default: null, severity: 'warn', scope: RUNNER, why: 'commands that run only under the stack lock; without them the lock guards nothing' }),
-  'stack.test_command_shapes': entry({ default: null, severity: 'warn', scope: RUNNER, why: 'the only test commands agents may run; derive them from commands and locked_commands' }),
-  'stack.isolation.lock_dir': entry({ default: '.tmp/stack.lock.d', severity: 'warn', scope: ALL, why: 'stack lock directory; live-window rules stay dormant when unset' }),
-  'stack.isolation.port_base': entry({ default: null, severity: 'error', scope: ALL, why: 'allocated by project init in projects.json; absent means the project never registered' }),
-  'stack.mutation.build_error_pattern': entry({ default: null, severity: 'error', scope: RUNNER, unverified: true, why: 'regex that marks a build failure errored, not killed' }),
-  'stack.mutation.test_cmd': entry({ default: null, severity: 'warn', scope: ALL, why: 'mutant test command; falls back to stack.commands.test_file' }),
-  'stack.mutation.test_env': entry({ default: Object.freeze({}), severity: 'warn', scope: ALL, why: 'environment for mutant test runs' }),
-  'stack.mutation.timeout_s': entry({ default: 120, severity: 'warn', scope: ALL, why: 'seconds allowed for one mutant test run' }),
-  'stack.mutation.error_pattern': entry({
-    default: null, severity: 'error', scope: ALL, refused: true, replacement: 'stack.mutation.build_error_pattern', why: 'old key; the mutation tool refuses it',
+  'stack.test_command_shapes': entry({ default: null, severity: 'warn', scope: RUNNER, why: 'the only test commands agents may run; written by hand, no generator' }),
+  'stack.isolation.lock_dir': entry({
+    default: '.tmp/stack.lock.d', severity: 'error', scope: ALL, when: lockedOnly,
+    why: 'stack lock directory holding owner.txt (casino-mall scripts/stack-lock.mjs:46); applies only with stack.locked_commands',
   }),
-  'stack.host.worker_patterns': entry({ default: null, severity: 'error', scope: RUNNER, why: 'test-runner process names the reaper matches, e.g. vitest' }),
+  'stack.isolation.port_base': entry({ default: null, severity: 'error', scope: PER_PROJECT, why: 'allocated by project init in projects.json; absent means the project never registered' }),
+  'stack.mutation.build_error_pattern': entry({
+    default: null, severity: 'info', scope: RUNNER, why: 'regex that marks a build failure errored, not killed; the mutation tool does not read this key yet',
+  }),
+  'stack.host.worker_patterns': entry({ default: null, severity: 'error', scope: RUNNER, why: 'test-runner process names the reaper matches' }),
   'stack.paths.backend': entry({ default: null, severity: 'error', scope: RUNNER, requires: 'backend', why: 'backend source root; scopes the edge-source freeze' }),
   'stack.paths.migrations': entry({ default: null, severity: 'error', scope: RUNNER, requires: 'backend', why: 'migrations directory; scopes the edge-source freeze' }),
   'stack.paths.frontends': entry({ default: null, severity: 'error', scope: RUNNER, requires: 'web_ui', why: 'frontend roots; scope the UI rules' }),
@@ -51,6 +52,7 @@ const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const isGateKey = (key) => key.startsWith(GATE_PREFIX);
 const pathOf = (key) => key.split('.').slice(1);
 const applies = (e, capabilities) => e.requires === undefined || isObject(capabilities?.[e.requires]);
+const applicable = (e, stack) => applies(e, stack.capabilities) && (e.when === undefined || e.when(stack));
 
 function readKey(stack, key) {
   if (isGateKey(key)) {
@@ -60,7 +62,9 @@ function readKey(stack, key) {
   return pathOf(key).reduce((node, part) => (isObject(node) && hasOwn(node, part) ? node[part] : undefined), stack);
 }
 
+// A parent that exists and is not an object (`mutation: "oops"`) is kept as it is; the key is not written under it.
 function withKey(node, [head, ...rest], value) {
+  if (node !== undefined && !isObject(node)) return node;
   const base = isObject(node) ? node : {};
   return { ...base, [head]: rest.length === 0 ? value : withKey(base[head], rest, value) };
 }
@@ -75,7 +79,7 @@ function gateDefaults(capabilities) {
 // Fills the absent non-gate keys that have a default; a value the project set is never changed.
 function withTableDefaults(stack) {
   return Object.entries(STACK_DEFAULTS)
-    .filter(([key, e]) => !isGateKey(key) && e.default !== null && applies(e, stack.capabilities) && readKey(stack, key) === undefined)
+    .filter(([key, e]) => !isGateKey(key) && e.default !== null && applicable(e, stack) && readKey(stack, key) === undefined)
     .reduce((acc, [key, e]) => withKey(acc, pathOf(key), e.default), stack);
 }
 
@@ -83,22 +87,20 @@ const finding = (kind, key, e, value) => Object.freeze({ kind, key, entry: e, va
 
 function doctorFindings(stack) {
   return Object.entries(STACK_DEFAULTS).flatMap(([key, e]) => {
-    if (!applies(e, stack.capabilities)) return [];
+    if (!applicable(e, stack)) return [];
     const value = readKey(stack, key);
-    if (e.refused === true) return value === undefined ? [] : [finding('STALE', key, e, value)];
     if (value === undefined) return [finding('MISSING', key, e, value)];
     return e.default !== null && !isDeepStrictEqual(value, e.default) ? [finding('DIFFERS', key, e, value)] : [];
   });
 }
 
-// A DIFFERS line is information; a missing or stale key with severity error blocks.
+// A DIFFERS line is information; a missing key with severity error blocks.
 const isBlocking = (f) => f.kind !== 'DIFFERS' && f.entry.severity === 'error';
 
 const show = (v) => (typeof v === 'string' ? v : JSON.stringify(v));
 const defaultText = (e) => (e.default === null ? `(none: ${e.scope})` : show(e.default));
 const LINE = Object.freeze({
-  MISSING: ({ key, entry: e }) => `MISSING ${key} -> ${defaultText(e)} (${e.severity}: ${e.why}${e.unverified === true ? '; default unverified' : ''})`,
-  STALE: ({ key, entry: e }) => `STALE ${key} -> ${e.replacement} (${e.severity}: ${e.why})`,
+  MISSING: ({ key, entry: e }) => `MISSING ${key} -> ${defaultText(e)} (${e.severity}: ${e.why})`,
   DIFFERS: ({ key, value, entry: e }) => `DIFFERS ${key} = ${show(value)} (optimal ${show(e.default)})`,
 });
 const doctorLines = (findings) => findings.map((f) => LINE[f.kind](f));

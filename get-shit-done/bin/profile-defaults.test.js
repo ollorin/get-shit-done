@@ -14,8 +14,8 @@ const { STACK_DEFAULTS, gateDefaults, withTableDefaults, doctorFindings } = requ
 const { KNOWN_COMMAND_KEYS } = require('./project-profile.js');
 
 const GATE_IDS = ['hook-canaries', 'hook-patch-trailer', 'guard-canaries', 'guard-registry', 'style', 'flake-patterns', 'dependency-scan', 'adr', 'assertion-quality'];
-const SEVERITIES = ['error', 'warn'];
-const SCOPES = ['all projects', 'needs runner config'];
+const SEVERITIES = ['error', 'warn', 'info'];
+const SCOPES = ['all projects', 'needs runner config', 'allocated per project'];
 
 describe('profile-defaults table', () => {
   test('frozen; every entry names a default, a severity, a scope and a one-line why', () => {
@@ -33,12 +33,11 @@ describe('profile-defaults table', () => {
     assert.deepStrictEqual(gateDefaults({ web_ui: false }).map((g) => g.id), GATE_IDS.slice(0, 8));
   });
 
-  test('no test_bucket or coverage key; the old error_pattern is refused in favour of build_error_pattern', () => {
+  test('no test_bucket, coverage, test_cmd, test_env or timeout_s key; build_error_pattern is a documented info key with null default', () => {
     const keys = Object.keys(STACK_DEFAULTS);
-    assert.deepStrictEqual(keys.filter((k) => /test_bucket|coverage/.test(k)), []);
-    assert.ok(keys.includes('stack.mutation.build_error_pattern'));
-    assert.strictEqual(STACK_DEFAULTS['stack.mutation.error_pattern'].refused, true);
-    assert.strictEqual(STACK_DEFAULTS['stack.mutation.error_pattern'].replacement, 'stack.mutation.build_error_pattern');
+    assert.deepStrictEqual(keys.filter((k) => /test_bucket|coverage|test_cmd|test_env|timeout_s|\.error_pattern$/.test(k)), []);
+    assert.deepStrictEqual(STACK_DEFAULTS['stack.mutation.build_error_pattern'].default, null);
+    assert.strictEqual(STACK_DEFAULTS['stack.mutation.build_error_pattern'].severity, 'info');
   });
 
   test('the preset rule cites only command keys the profile knows', () => {
@@ -53,21 +52,43 @@ describe('withTableDefaults (init fill)', () => {
     const filled = withTableDefaults({ capabilities: { web_ui: {} }, isolation: { lock_dir: 'mine' }, mutation: { timeout_s: 300 } });
     assert.strictEqual(filled.isolation.lock_dir, 'mine');
     assert.strictEqual(filled.mutation.timeout_s, 300);
-    assert.deepStrictEqual(filled.mutation.test_env, {});
     assert.strictEqual(filled.mutation.build_error_pattern, undefined);
     assert.strictEqual(filled.commands, undefined);
   });
 
-  test('an empty stack gets the lock directory default', () => {
-    assert.strictEqual(withTableDefaults({}).isolation.lock_dir, '.tmp/stack.lock.d');
+  test('an empty stack writes neither timeout_s nor test_env', () => {
+    assert.strictEqual(withTableDefaults({}).mutation, undefined);
+  });
+
+  test('lock_dir is filled only when locked_commands is non-empty', () => {
+    assert.strictEqual(withTableDefaults({}).isolation, undefined);
+    assert.strictEqual(withTableDefaults({ locked_commands: [] }).isolation, undefined);
+    assert.strictEqual(withTableDefaults({ locked_commands: ['npm test'] }).isolation.lock_dir, '.tmp/stack.lock.d');
+  });
+
+  test('a non-object parent is kept as it is, never replaced by an object', () => {
+    assert.strictEqual(withTableDefaults({ mutation: 'oops' }).mutation, 'oops');
+    assert.strictEqual(withTableDefaults({ locked_commands: ['npm test'], isolation: 'x' }).isolation, 'x');
   });
 });
 
 describe('doctorFindings (pure)', () => {
-  test('a value other than the optimal one is DIFFERS, never MISSING; a stale refused key is STALE', () => {
-    const findings = doctorFindings({ isolation: { lock_dir: 'other' }, mutation: { error_pattern: 'x' } });
+  test('a value other than the optimal one is DIFFERS, never MISSING', () => {
+    const findings = doctorFindings({ locked_commands: ['npm test'], isolation: { lock_dir: 'other' } });
     assert.ok(findings.some((f) => f.kind === 'DIFFERS' && f.key === 'stack.isolation.lock_dir'));
     assert.ok(!findings.some((f) => f.kind === 'MISSING' && f.key === 'stack.isolation.lock_dir'));
-    assert.ok(findings.some((f) => f.kind === 'STALE' && f.key === 'stack.mutation.error_pattern'));
+  });
+
+  test('a missing lock_dir is an error MISSING only when locked_commands is non-empty', () => {
+    const missing = (stack) => doctorFindings(stack).filter((f) => f.key === 'stack.isolation.lock_dir');
+    assert.deepStrictEqual(missing({ locked_commands: ['npm test'], isolation: {} }).map((f) => [f.kind, f.entry.severity]), [['MISSING', 'error']]);
+    assert.deepStrictEqual(missing({ isolation: {} }), []);
+  });
+
+  test('a stale error_pattern is not reported; a missing build_error_pattern is an info MISSING', () => {
+    const findings = doctorFindings({ mutation: { error_pattern: 'x' } });
+    assert.ok(!findings.some((f) => f.key === 'stack.mutation.error_pattern'));
+    const build = findings.find((f) => f.key === 'stack.mutation.build_error_pattern');
+    assert.deepStrictEqual([build.kind, build.entry.severity], ['MISSING', 'info']);
   });
 });

@@ -579,7 +579,7 @@ describe('3.8 C1 rendered values and deploy slots on every engine command', () =
     withConfig(root, (c) => { c.stack.deploy.never_touch.push('kubectl apply -f prod'); });
     const r = runProject(diffArgs(root), home);
     assert.strictEqual(r.status, 2, r.stdout);
-    assert.strictEqual(configOf(root).stack.deploy.slot_2, 'kubectl apply -f prod');
+    assert.strictEqual(configOf(root).stack.deploy.slot_2, 'gsd-unused-deploy-entry-2', 'diff restores the on-disk slot');
     assert.ok(JSON.parse(r.stdout).settings.added.permissions.deny.includes('Bash(kubectl apply -f prod:*)'));
     withConfig(root, (c) => { c.stack.deploy.never_touch.pop(); });
     runProject(diffArgs(root), home);
@@ -698,11 +698,27 @@ describe('WP18 defaults table in init and sync', () => {
     const cfg = configOf(root);
     assert.strictEqual(cfg.stack.isolation.lock_dir, 'mine');
     assert.strictEqual(cfg.stack.mutation.timeout_s, 300);
-    assert.deepStrictEqual(cfg.stack.mutation.test_env, {});
     assert.strictEqual(cfg.stack.mutation.build_error_pattern, undefined);
     assert.strictEqual(cfg.stack.commands.test_file, undefined);
+  });
+
+  test('init on an empty config writes neither timeout_s nor test_env, and lock_dir only with locked_commands', () => {
     const fresh = configOf(initBase({ project: { slug: 'fresh' }, stack: { capabilities: {} } }).root);
-    assert.strictEqual(fresh.stack.isolation.lock_dir, '.tmp/stack.lock.d');
+    assert.strictEqual(fresh.stack.mutation, undefined);
+    assert.strictEqual(fresh.stack.isolation.lock_dir, undefined);
+    const locked = configOf(initBase({ project: { slug: 'locked' }, stack: { capabilities: {}, locked_commands: ['npm test'] } }).root);
+    assert.strictEqual(locked.stack.isolation.lock_dir, '.tmp/stack.lock.d');
+  });
+
+  test('project diff leaves the config bytes unchanged even when a default gate is missing', () => {
+    const { root, home } = initBase({ project: { slug: 'demo' }, stack: { capabilities: { web_ui: {} } } });
+    const cfg = configOf(root);
+    cfg.stack.gates = cfg.stack.gates.filter((g) => g.id !== 'hook-patch-trailer');
+    fs.writeFileSync(path.join(root, '.planning', 'config.json'), JSON.stringify(cfg, null, 2));
+    const before = configBytes(root);
+    assert.ok(!before.includes('"hook-patch-trailer"'));
+    runProject(['diff', '--root', root, '--preset', 'base'], home);
+    assert.strictEqual(configBytes(root), before);
   });
 
   test('sync appends the default gates a project lacks after its own entries, keeps set values, and is idempotent', () => {

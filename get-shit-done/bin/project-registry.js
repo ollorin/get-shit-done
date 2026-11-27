@@ -225,7 +225,8 @@ function syncSlots(root) {
   return before;
 }
 
-// Runs a diff or sync with the slot_N values re-derived first. The config bytes are restored when the engine refuses without writing.
+// Runs a diff or sync with the slot_N values re-derived first. The config bytes are restored when the engine throws or refuses
+// without writing, and always after a diff, which never writes config.
 function runEngineWithSlots(cwd, args, runEngine) {
   const root = args[0] === 'diff' || args[0] === 'sync' ? parseInitRoot(args.slice(1)) : null;
   const configFile = root === null ? null : path.join(path.resolve(cwd, root), '.planning', 'config.json');
@@ -238,7 +239,8 @@ function runEngineWithSlots(cwd, args, runEngine) {
     writeAtomic(configFile, before);
     throw e;
   }
-  if (engine.exitCode === 1 && (engine.result.written ?? []).length === 0) writeAtomic(configFile, before);
+  const restore = args[0] === 'diff' || (engine.exitCode === 1 && (engine.result.written ?? []).length === 0);
+  if (restore) writeAtomic(configFile, before);
   return engine;
 }
 

@@ -669,7 +669,7 @@ describe('profile doctor (WP18)', () => {
     locked_commands: ['npm test'],
     test_command_shapes: ['npm test'],
     isolation: { port_base: 55000, lock_dir: '.tmp/stack.lock.d' },
-    mutation: { build_error_pattern: 'Cannot find module', test_cmd: 'npm test -- {file}', test_env: {}, timeout_s: 120 },
+    mutation: { build_error_pattern: 'Cannot find module' },
     host: { worker_patterns: ['vitest'] },
     paths: { backend: 'src', migrations: 'db/migrations', frontends: ['web'] },
     gates: GATES,
@@ -696,12 +696,12 @@ describe('profile doctor (WP18)', () => {
     assert.match(r.stdout, /^MISSING stack\.commands\.lint -> \(none: needs runner config\) \(error: /m);
   });
 
-  test('a stale error_pattern key exits 1 and names build_error_pattern as its replacement', () => {
+  test('a missing build_error_pattern exits 0 and prints one info MISSING line', () => {
     const stack = completeStack();
-    stack.mutation.error_pattern = 'Cannot find module';
+    delete stack.mutation.build_error_pattern;
     const r = doctorOn(stack);
-    assert.strictEqual(r.status, 1);
-    assert.match(r.stdout, /^STALE stack\.mutation\.error_pattern -> stack\.mutation\.build_error_pattern \(error: /m);
+    assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /^MISSING stack\.mutation\.build_error_pattern -> \(none: needs runner config\) \(info: /m);
   });
 
   test('a missing warn key alone exits 0 and still prints its MISSING line', () => {
