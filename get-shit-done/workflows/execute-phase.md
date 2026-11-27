@@ -303,7 +303,7 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
    )
    ```
 
-3. **Wait for all agents in wave to complete.**
+3. **Wait for all agents in wave to complete.** End your turn after the spawns; each executor's `SubagentHandback` wakes you. Proceed only when every wave agent has handed back and been closed with `dispatch end`. No `sleep` or grep loop on output files (`agents/gsd-phase-coordinator.md`).
 
 4. **Report completion — spot-check claims first:**
 

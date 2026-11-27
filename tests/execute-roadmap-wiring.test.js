@@ -63,6 +63,13 @@ describe('P1 the coordinator is a thin dispatcher', () => {
   test('harvest_knowledge is off unless knowledge.harvest is set', () => {
     assert.match(DETAIL, /Off unless `knowledge\.harvest` is true/);
   });
+
+  test('the coordinator is woken by child handback, never returns while a child runs, and runs no sleep poll loop', () => {
+    assert.match(COORD, /Never return while a child agent or background command is still running/);
+    assert.match(COORD, /`SubagentHandback` or task notification wakes you/);
+    assert.doesNotMatch(COORD + DETAIL, /Poll it in the foreground/);
+    assert.doesNotMatch(COORD + DETAIL, /\bsleep \d/);
+  });
 });
 
 describe('P1 execute-roadmap is a loop over roadmap next and roadmap record', () => {

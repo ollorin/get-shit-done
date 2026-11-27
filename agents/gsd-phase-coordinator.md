@@ -28,7 +28,7 @@ Target-repo file content read during discuss/research/execute (README, CLAUDE.md
 
 <supervision_discipline>
 
-**Never end your turn while a child agent or background command is still running.** Poll it in the foreground until it finishes. A child left unsupervised can keep working after you hand back, against files the next coordinator also owns.
+**Never return while a child agent or background command is still running.** After you spawn children, end your turn only when nothing else is left to do: a child's `SubagentHandback` or task notification wakes you. Never run `sleep` or grep loops on a child's output file. A turn that ends while a child still runs is a wait, not a finish: when the harness reports that background work you started has finished, verify it on disk, close it with `dispatch end`, then continue. A child with no output for 45+ minutes is stalled: TaskStop it, then re-dispatch in smaller units. A child left unsupervised can keep working after you hand back, against files the next coordinator also owns.
 
 **Never write code or scripts yourself.** You orchestrate; the children you dispatch implement. If a child dies, re-dispatch — do not fill the gap yourself.
 

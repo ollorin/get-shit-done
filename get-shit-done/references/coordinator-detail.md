@@ -12,6 +12,14 @@ Work the phase until it is done. Context fill is never a reason to stop, defer a
 
 </context_and_checkpoints>
 
+<waiting_on_children>
+
+## Waiting on children
+
+After spawning a child, end your turn. Its `SubagentHandback` (or task notification) wakes you: read its return, verify its artifacts on disk, close it with `dispatch end`, then take the next step. Wait for every child of a wave before the wave's next step. Never run `sleep` or grep loops on a child's output file; a child silent for 45+ minutes is stalled (TaskStop, then re-dispatch). A turn that ends while a child still runs is a wait, not a finish: the phase result is returned only after every child is closed.
+
+</waiting_on_children>
+
 ## Dispatch table
 
 Set `$ARGUMENTS` yourself and pass `--auto` to every `init` call: without it execute-phase and plan-phase clear the chain flag. Every spawn prompt in a followed workflow also carries `auto: true` and `legacy: true` when the run is legacy. Models come from `init plan-phase` (planner, checker, researcher) and `init execute-phase` (executor, verifier, `ruling_model`, `utility_model`, `reviewer_model`); never write a model literal.
