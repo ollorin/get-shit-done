@@ -48,7 +48,7 @@ const STACK_DEFAULTS = Object.freeze({
   'stack.gates.guard-registry': gate('guard-registry', 'node scripts/validation/guard-registry-reconcile.mjs', 'the guard registry matches the guards on disk', undefined, true),
   'stack.gates.style': gate('style', 'node scripts/style-gate.mjs', 'style gate: rule set and module size limits', undefined, true),
   'stack.gates.flake-patterns': gate('flake-patterns', 'node .claude/hooks/lib/flake-gate.mjs --all', 'flake pattern scan over the test globs', undefined, true),
-  'stack.gates.dependency-scan': gate('dependency-scan', 'node scripts/dependency-scan-gate.mjs', 'dependency scan over the lockfiles', undefined, true),
+  'stack.gates.dependency-scan': gate('dependency-scan', 'node scripts/dependency-scan-gate.mjs', 'dependency scan over the lockfiles'),
   'stack.gates.adr': gate('adr', 'node scripts/validation/adr-reconcile.mjs', 'decisions and their records agree', undefined, true),
   'stack.gates.assertion-quality': gate('assertion-quality', 'node scripts/validation/check-assertion-quality.mjs', 'assertion quality of the UI scenarios', 'web_ui', true),
 });
@@ -74,6 +74,11 @@ function withKey(node, [head, ...rest], value) {
   const base = isObject(node) ? node : {};
   return { ...base, [head]: rest.length === 0 ? value : withKey(base[head], rest, value) };
 }
+
+// The ids of the table's gates that declare needs_stack:false: the one list the needs-stack migration reads.
+const stackFreeGateIds = () => Object.entries(STACK_DEFAULTS)
+  .filter(([key, e]) => isGateKey(key) && e.default.needs_stack === false)
+  .map(([, e]) => e.default.id);
 
 // The default gates that apply to these capabilities, in table order. With hasScript, a gate whose script the predicate
 // denies is left out (the same predicate the doctor uses in doctorFindings).
@@ -126,4 +131,4 @@ const LINE = Object.freeze({
 });
 const doctorLines = (findings) => findings.map((f) => LINE[f.kind](f));
 
-module.exports = { STACK_DEFAULTS, gateDefaults, withTableDefaults, doctorFindings, doctorLines, isBlocking };
+module.exports = { STACK_DEFAULTS, stackFreeGateIds, gateDefaults, withTableDefaults, doctorFindings, doctorLines, isBlocking };

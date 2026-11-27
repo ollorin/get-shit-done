@@ -3,7 +3,7 @@
 // Ordered, idempotent config migrations that `project upgrade` applies to .planning/config.json. Pure: a config in, a
 // config out; a value the project set is never changed except by a rename listed here.
 
-const { withTableDefaults } = require('./profile-defaults.js');
+const { withTableDefaults, stackFreeGateIds } = require('./profile-defaults.js');
 const { MUTATION_REFUSES_ERROR_PATTERN } = require('./profile-doctor-checks.js');
 
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -18,8 +18,18 @@ function renameErrorPattern(config) {
 
 const fillTableDefaults = (config) => ({ ...config, stack: withTableDefaults(config.stack) });
 
+// A shipped stack-free gate the project already has, with no needs_stack, gets needs_stack:false; an explicit value stays.
+function markStackFreeGates(config) {
+  const gates = config.stack.gates;
+  if (!Array.isArray(gates)) return config;
+  const free = stackFreeGateIds();
+  const mark = (g) => (isObject(g) && free.includes(g.id) && !Object.prototype.hasOwnProperty.call(g, 'needs_stack') ? { ...g, needs_stack: false } : g);
+  return { ...config, stack: { ...config.stack, gates: gates.map(mark) } };
+}
+
 const MIGRATIONS = Object.freeze([
   { id: 'table-defaults', enabled: () => true, apply: fillTableDefaults },
+  { id: 'gate-needs-stack', enabled: () => true, apply: markStackFreeGates },
   { id: 'mutation-build-error-pattern', enabled: (flags) => flags.refusesErrorPattern, apply: renameErrorPattern },
 ]);
 

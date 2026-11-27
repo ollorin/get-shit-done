@@ -9,7 +9,7 @@ const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const { runCli: runDeploy } = require('./project-deploy.js');
 const { upgradeAll, planOnly, removeSuperseded, runCli, SUPERSEDED_HOOKS, COMMIT_MESSAGE } = require('./project-upgrade.js');
-const { migrateConfig } = require('./profile-migrations.js');
+const { migrateConfig, neededMigrationIds } =require('./profile-migrations.js');
 const { liveReasons, psStart } = require('./project-quiesce.js');
 const { readRuns, commitsOfRecord } = require('./project-upgrade-log.js');
 const { revertRecord } = require('./project-upgrade-revert.js');
@@ -315,6 +315,21 @@ describe('project upgrade', () => {
     assert.deepStrictEqual(on.stack.mutation, { build_error_pattern: 'E' });
     assert.deepStrictEqual(migrateConfig(on, { refusesErrorPattern: true }), on);
     assert.strictEqual(on.stack.commands.search, 'rg');
+  });
+
+  test('migrations: gate-needs-stack marks only table stack-free gates that lack the field, keeps explicit values, is idempotent', () => {
+    const gates = [
+      { id: 'style', run: 'a' }, { id: 'adr', run: 'b', needs_stack: true }, { id: 'hook-canaries', run: 'c', needs_stack: false },
+      { id: 'dependency-scan', run: 'd' }, { id: 'guard-canaries', run: 'e' }, { id: 'custom', run: 'f' },
+    ];
+    const config = { stack: { gates, commands: { lint: 'x' } } };
+    const next = migrateConfig(config);
+    assert.deepStrictEqual(next.stack.gates, [{ id: 'style', run: 'a', needs_stack: false }, ...gates.slice(1)]);
+    assert.deepStrictEqual(Object.keys(next.stack.gates[0]), ['id', 'run', 'needs_stack']);
+    assert.deepStrictEqual(next.stack.commands, { lint: 'x' });
+    assert.ok(neededMigrationIds(config).includes('gate-needs-stack'));
+    assert.deepStrictEqual(migrateConfig(next), next);
+    assert.ok(!neededMigrationIds(next).includes('gate-needs-stack'));
   });
 
   test('the command takes no flags', () => {

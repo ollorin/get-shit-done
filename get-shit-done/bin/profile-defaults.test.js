@@ -10,7 +10,7 @@ const { test, describe } = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
-const { STACK_DEFAULTS, gateDefaults, withTableDefaults, doctorFindings } = require('./profile-defaults.js');
+const { STACK_DEFAULTS, stackFreeGateIds, gateDefaults, withTableDefaults, doctorFindings } = require('./profile-defaults.js');
 const { KNOWN_COMMAND_KEYS } = require('./project-profile.js');
 
 const GATE_IDS = ['hook-canaries', 'hook-patch-trailer', 'guard-canaries', 'guard-registry', 'style', 'flake-patterns', 'dependency-scan', 'adr', 'assertion-quality'];
@@ -31,8 +31,10 @@ describe('profile-defaults table', () => {
   test('default gates declare needs_stack:false only where the script was read and uses no stack; guard-canaries stays unmarked', () => {
     const byId = Object.fromEntries(gateDefaults({ web_ui: {} }).map((g) => [g.id, g]));
     const free = Object.keys(byId).filter((id) => byId[id].needs_stack === false);
-    assert.deepStrictEqual(free.sort(), ['adr', 'assertion-quality', 'dependency-scan', 'flake-patterns', 'guard-registry', 'hook-canaries', 'hook-patch-trailer', 'style']);
+    assert.deepStrictEqual(free.sort(), ['adr', 'assertion-quality', 'flake-patterns', 'guard-registry', 'hook-canaries', 'hook-patch-trailer', 'style']);
+    assert.deepStrictEqual(stackFreeGateIds().sort(), free.sort());
     assert.strictEqual('needs_stack' in byId['guard-canaries'], false);
+    assert.strictEqual('needs_stack' in byId['dependency-scan'], false);
   });
 
   test('the nine default gates appear once in registry order; assertion-quality needs web_ui', () => {

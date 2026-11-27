@@ -666,7 +666,7 @@ describe('profile doctor (WP18)', () => {
     ['dependency-scan', 'node scripts/dependency-scan-gate.mjs'],
     ['adr', 'node scripts/validation/adr-reconcile.mjs'],
     ['assertion-quality', 'node scripts/validation/check-assertion-quality.mjs'],
-  ].map(([id, run]) => ({ id, run, ...(id === 'guard-canaries' ? {} : { needs_stack: false }) }));
+  ].map(([id, run]) => ({ id, run, ...(['guard-canaries', 'dependency-scan'].includes(id) ? {} : { needs_stack: false }) }));
 
   const completeStack = () => ({
     capabilities: { backend: {}, web_ui: {} },

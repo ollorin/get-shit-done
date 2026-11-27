@@ -58,10 +58,18 @@ describe('no-stack-gates', () => {
     assert.match(r.stdout, /bad: FAIL rc=3/);
   });
 
-  test('nothing to run prints the explicit line and exits 0', () => {
-    const r = run(project({ gates: [{ id: 'needs', run: 'exit 1' }] }), 'no-stack-gates.mjs');
+  test('nothing to run prints NO GATES RAN, names each skipped gate and exits 0', () => {
+    const r = run(project({ gates: [{ id: 'needs', run: 'exit 1' }, { id: 'odd', run: 'exit 1', needs_stack: 'false' }] }), 'no-stack-gates.mjs');
     assert.strictEqual(r.status, 0);
-    assert.match(r.stdout, /no stack-free gates configured/);
+    assert.match(r.stdout, /NO GATES RAN: no stack-free gates configured \(this is not a gate pass\)/);
+    assert.match(r.stdout, /^needs: SKIPPED \(needs stack or invalid needs_stack\)$/m);
+    assert.match(r.stdout, /^odd: SKIPPED \(needs stack or invalid needs_stack\)$/m);
+  });
+
+  test('a gate command that kills its own shell is a failure, not a pass', () => {
+    const r = run(project({ gates: [{ id: 'dies', run: 'kill -9 $$', needs_stack: false }] }), 'no-stack-gates.mjs');
+    assert.strictEqual(r.status, 1);
+    assert.match(r.stdout, /dies: FAIL/);
   });
 
   test('an unreadable or malformed config exits 2', () => {
@@ -94,6 +102,26 @@ describe('gate-capture', () => {
     assert.match(text, /\n99\n100\n/);
     assert.ok(!text.includes('\n50\n'));
     assert.match(text, /GATE big rc=0 lines=100 full=.*big\.log\n$/);
+  });
+
+  test('a gate command that kills its own shell gives a non-zero rc', () => {
+    const dir = project();
+    const r = capture(dir, 'dies', 'kill -9 $$');
+    assert.notStrictEqual(r.status, 0);
+    assert.match(captured(dir), /GATE dies rc=[1-9]/);
+  });
+
+  test('output past the buffer adds an OUTPUT TRUNCATED line and a non-zero rc', () => {
+    const dir = project();
+    const r = capture(dir, 'huge', `node -e "process.stdout.write('x'.repeat(300000000))"`);
+    assert.notStrictEqual(r.status, 0);
+    assert.match(captured(dir), /OUTPUT TRUNCATED/);
+  });
+
+  test('an id outside [A-Za-z0-9._-] exits 2 and writes nothing', () => {
+    const dir = project();
+    for (const id of ['../x', 'a/b', 'a b', '']) assert.strictEqual(capture(dir, id, 'echo x').status, 2, id);
+    assert.ok(!fs.existsSync(path.join(dir, 'captures')));
   });
 
   test('a second capture appends; missing arguments exit 2', () => {

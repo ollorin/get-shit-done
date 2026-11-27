@@ -91,6 +91,17 @@ test('migrations: a needed migration the manifest does not record is DRIFT; reco
   assert.deepStrictEqual(checks.migrationRecordFindings(root, { ...needsDefaults, isolation: { lock_dir: '.tmp/stack.lock.d' } }), []);
 });
 
+test('migrations: gate-needs-stack is DRIFT while a stack-free gate lacks the field and clean once marked or recorded', () => {
+  const root = mkTmp('gsd-st-proj-');
+  writeAt(root, MANIFEST, JSON.stringify({ manifest_version: 1, files: {} }));
+  const lacking = { gates: [{ id: 'style', run: 'x' }] };
+  assert.deepStrictEqual(kinds(checks.migrationRecordFindings(root, lacking)), ['DRIFT migration gate-needs-stack']);
+  assert.deepStrictEqual(checks.migrationRecordFindings(root, { gates: [{ id: 'style', run: 'x', needs_stack: false }] }), []);
+  assert.deepStrictEqual(checks.migrationRecordFindings(root, { gates: [{ id: 'style', run: 'x', needs_stack: true }] }), []);
+  writeAt(root, MANIFEST, JSON.stringify({ manifest_version: 1, files: {}, migrations: ['gate-needs-stack'] }));
+  assert.deepStrictEqual(checks.migrationRecordFindings(root, lacking), []);
+});
+
 test('migrations: a project without a manifest is not under the engine and gets no migration finding', () => {
   assert.deepStrictEqual(checks.migrationRecordFindings(mkTmp('gsd-st-proj-'), needsDefaults), []);
 });
