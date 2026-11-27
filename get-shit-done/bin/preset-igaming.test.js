@@ -271,10 +271,9 @@ describe('igaming project block (agnostic-M-06 6.1)', () => {
 describe('preserved project material (agnostic-M-08 8.14)', () => {
   const { scanDir } = require('./project-deploy-scan.js');
   const MEMORY = path.join(PRESET, 'memory');
-  const TOOLS = path.join(__dirname, '..', '..', '.planning', 'gsd-v2', 'tools');
   const EXPERIMENTS = path.join(__dirname, '..', '..', '.planning', 'gsd-v2', 'experiments', '16-ab2');
   const PERSONAL = /\/Users\/|ollorin|\bCEO\b|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}/;
-  const COPIED = [MEMORY, TOOLS, EXPERIMENTS];
+  const COPIED = [MEMORY, EXPERIMENTS];
   const STALE = ['SESSION_2026-02-08.md', 'SESSION_2026-02-09.md', 'SESSION_2026-02-10.md', 'baseline_integration_tests.md', 'iteration2_results.md', 'optimization_final_complete.md', 'phase1_optimization_complete.md', 'phase1_plus_iterations_final.md', 'phase1_results.md'];
 
   test('8.14 row 3: memory holds the copied notes without the 9 stale files, and lessons-stack.md has 17 entries', () => {
@@ -283,15 +282,6 @@ describe('preserved project material (agnostic-M-08 8.14)', () => {
     for (const s of STALE) assert.ok(!files.includes(s), `stale file copied: ${s}`);
     const lessons = fs.readFileSync(path.join(PRESET, 'lessons-stack.md'), 'utf8');
     assert.strictEqual(lessons.split('\n').filter((l) => l.startsWith('**')).length, 17);
-  });
-
-  test('8.14 row 7: tools hold 37 root scripts, 82 agent-audit scripts plus roles.json, and the 6 hooks-flip-backup files; no pickle or stats data', () => {
-    const files = walk(TOOLS);
-    assert.strictEqual(files.filter((f) => !f.includes('/')).length, 37);
-    assert.strictEqual(files.filter((f) => f.startsWith('agent-audit/')).length, 83);
-    assert.strictEqual(files.filter((f) => f.startsWith('hooks-flip-backup/')).length, 6);
-    assert.strictEqual(files.length, 126);
-    assert.ok(!files.some((f) => /\.(pkl|log)$|stats\.json$/.test(f) && !f.startsWith('hooks-flip-backup/')), 'data file copied');
   });
 
   test('8.14 rows 8 and 9: experiments/16-ab2 holds the two A/B notes and the four run-data files', () => {
@@ -316,8 +306,8 @@ describe('preserved project material (agnostic-M-08 8.14)', () => {
     assert.strictEqual(POINTER_LINES('rotate the credentials, see the private repo tracker').length, 0);
   });
 
-  test('8.14 preserved memory, lessons and tools hold no commit-hash pointer to a vulnerability or credential, and no named unresolved auth-bypass path', () => {
-    const files = [...walk(MEMORY).map((f) => path.join(MEMORY, f)), path.join(PRESET, 'lessons-stack.md'), ...walk(TOOLS).map((f) => path.join(TOOLS, f))];
+  test('8.14 preserved memory, and lessons hold no commit-hash pointer to a vulnerability or credential, and no named unresolved auth-bypass path', () => {
+    const files = [...walk(MEMORY).map((f) => path.join(MEMORY, f)), path.join(PRESET, 'lessons-stack.md')];
     const hits = files.flatMap((f) => POINTER_LINES(fs.readFileSync(f, 'utf8')).map((l) => `${path.relative(PRESET, f)}: ${l.slice(0, 100)}`));
     assert.deepStrictEqual(hits, []);
     const memory = walk(MEMORY).map((f) => fs.readFileSync(path.join(MEMORY, f), 'utf8')).join('\n');

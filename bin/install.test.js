@@ -314,7 +314,7 @@ describe('missing hooks/dist build-if-missing', () => {
     scratchRepo = createScratchDir('gsd-repo-copy-');
 
     fs.mkdirSync(path.join(scratchRepo, 'hooks'), { recursive: true });
-    for (const hookFile of ['gsd-check-update.js', 'gsd-statusline.js']) {
+    for (const hookFile of ['gsd-statusline.js']) {
       fs.copyFileSync(
         path.join(REPO_ROOT, 'hooks', hookFile),
         path.join(scratchRepo, 'hooks', hookFile)
@@ -350,11 +350,11 @@ describe('missing hooks/dist build-if-missing', () => {
     assert.ok(result.success, `install should succeed: ${result.error || ''}\n${result.output}`);
 
     assert.ok(
-      fs.existsSync(path.join(scratchRepo, 'hooks', 'dist', 'gsd-check-update.js')),
+      fs.existsSync(path.join(scratchRepo, 'hooks', 'dist', 'gsd-statusline.js')),
       'hooks/dist should have been built inline by build-hooks.js'
     );
     assert.ok(
-      fs.existsSync(path.join(scratchTarget, '.claude', 'hooks', 'gsd-check-update.js')),
+      fs.existsSync(path.join(scratchTarget, '.claude', 'hooks', 'gsd-statusline.js')),
       'hooks should still have been copied into the install target after the inline build'
     );
   });

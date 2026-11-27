@@ -214,19 +214,8 @@ process.stdin.on('end', () => {
       }
     } catch (e) {}
 
-    // --- Update-check signal (best-effort) ---
-    // Surface a distinct, dim marker ONLY when the background update check
-    // genuinely FAILED (error field set) — so a persistently broken check no
-    // longer masquerades as "up to date" forever. On success-with-no-update we
-    // stay quiet. A single dim glyph is not spammy even if the error persists.
-    let updPart = '';
-    try {
-      const updRaw = JSON.parse(fs.readFileSync(path.join(cacheDir, 'gsd-update-check.json'), 'utf8'));
-      if (updRaw && updRaw.error) updPart = ` │ ${DIM}upd?${RESET}`;
-    } catch (_) {}
-
     // --- Row 1 ---
-    const row1 = `${DIM}${model}${RESET} │ ${DIM}${dir}${RESET}${gitPart} │ ${ctx}${updPart}`;
+    const row1 = `${DIM}${model}${RESET} │ ${DIM}${dir}${RESET}${gitPart} │ ${ctx}`;
 
     // --- GSD quota data (cached 10s) ---
     let row2 = '';

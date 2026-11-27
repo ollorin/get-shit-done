@@ -4846,12 +4846,11 @@ function cmdToken(cwd, args, raw) {
       // Initialize token budget file
       const model = args[1] || 'opus';
       const graduated = args.includes('--graduated');
-      const telegramEnabled = args.includes('--telegram');
 
       let monitor;
       if (graduated) {
         const { GraduatedBudgetMonitor } = require('./graduated-alerts.js');
-        monitor = new GraduatedBudgetMonitor(model, 200000, { telegramEnabled });
+        monitor = new GraduatedBudgetMonitor(model, 200000);
       } else {
         monitor = new TokenBudgetMonitor(model, 200000);
       }
@@ -4863,7 +4862,7 @@ function cmdToken(cwd, args, raw) {
       }
 
       fs.writeFileSync(budgetPath, JSON.stringify(monitor.toJSON(), null, 2));
-      output({ initialized: true, model, max_tokens: 200000, graduated, telegram: telegramEnabled }, raw, `Token budget initialized for ${model} (200k limit, graduated=${graduated}, telegram=${telegramEnabled})`);
+      output({ initialized: true, model, max_tokens: 200000, graduated }, raw, `Token budget initialized for ${model} (200k limit, graduated=${graduated})`);
       break;
     }
 

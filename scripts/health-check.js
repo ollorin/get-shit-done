@@ -119,18 +119,6 @@ function defineChecks() {
         return fs.existsSync(hookPath);
       }
     },
-    {
-      category: 'Claude Code Hooks',
-      name: 'gsd-check-update.js hook',
-      skip: () => {
-        const hooksDir = path.join(os.homedir(), '.claude', 'hooks');
-        return !fs.existsSync(hooksDir);
-      },
-      test: () => {
-        const hookPath = path.join(os.homedir(), '.claude', 'hooks', 'gsd-check-update.js');
-        return fs.existsSync(hookPath);
-      }
-    },
 
     // Category 4: MCP Configuration
     {

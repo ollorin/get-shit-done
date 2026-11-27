@@ -18,9 +18,8 @@ const GRADUATED_THRESHOLDS = {
 };
 
 class GraduatedBudgetMonitor extends TokenBudgetMonitor {
-  constructor(model = 'opus', maxTokens = 200000, options = {}) {
+  constructor(model = 'opus', maxTokens = 200000) {
     super(model, maxTokens);
-    this.telegramEnabled = options.telegramEnabled || false;
     this.thresholdsPassed = new Set();
     this.graduatedAlerts = [];
   }
@@ -111,10 +110,6 @@ class GraduatedBudgetMonitor extends TokenBudgetMonitor {
 
     this.graduatedAlerts.push(alert);
     console.error(`[BUDGET] 90% threshold reached - escalating to user`);
-
-    // Note: Telegram notification via standalone bot removed in Phase 14.
-    // The --telegram flag is no longer supported (standalone bot deleted).
-    // Future: integrate with Telegram MCP daemon when available.
   }
 
   handleHalt(utilization, phase) {
@@ -166,8 +161,7 @@ class GraduatedBudgetMonitor extends TokenBudgetMonitor {
     return {
       ...super.toJSON(),
       thresholdsPassed: Array.from(this.thresholdsPassed),
-      graduatedAlerts: this.graduatedAlerts,
-      telegramEnabled: this.telegramEnabled
+      graduatedAlerts: this.graduatedAlerts
     };
   }
 
@@ -175,9 +169,7 @@ class GraduatedBudgetMonitor extends TokenBudgetMonitor {
    * Restore from JSON including graduated state
    */
   static fromJSON(data) {
-    const monitor = new GraduatedBudgetMonitor(data.model, data.maxTokens, {
-      telegramEnabled: data.telegramEnabled
-    });
+    const monitor = new GraduatedBudgetMonitor(data.model, data.maxTokens);
     monitor.currentUsage = data.currentUsage || 0;
     monitor.phaseUsage = new Map(Object.entries(data.phaseUsage || {}));
     monitor.alerts = data.alerts || [];

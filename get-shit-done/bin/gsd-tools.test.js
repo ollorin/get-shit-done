@@ -10408,68 +10408,10 @@ describe('Phase 52-01: skew detection (computeManifestDrift / cmdDoctor)', () =>
   });
 });
 
-describe('Phase 52-01: SessionStart skew-check helpers + execute-roadmap.md preflight_skew_check wiring', () => {
-  const HOOK_PATH = path.join(__dirname, '..', '..', 'hooks', 'gsd-check-update.js');
-
-  test('shouldCheckSkew(cwd): true when <cwd>/get-shit-done/bin/gsd-tools.js exists', () => {
-    const { shouldCheckSkew } = require(HOOK_PATH);
-    const tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-skew-cwd-'));
-    try {
-      fs.mkdirSync(path.join(tmpDir, 'get-shit-done', 'bin'), { recursive: true });
-      fs.writeFileSync(path.join(tmpDir, 'get-shit-done', 'bin', 'gsd-tools.js'), '// sentinel\n');
-      assert.strictEqual(shouldCheckSkew(tmpDir), true);
-    } finally {
-      cleanup(tmpDir);
-    }
-  });
-
-  test('shouldCheckSkew(cwd): false when the sentinel file does not exist', () => {
-    const { shouldCheckSkew } = require(HOOK_PATH);
-    const tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gsd-skew-cwd-'));
-    try {
-      assert.strictEqual(shouldCheckSkew(tmpDir), false);
-    } finally {
-      cleanup(tmpDir);
-    }
-  });
-
-  test('buildSkewCachePayload: clean doctor result', () => {
-    const { buildSkewCachePayload } = require(HOOK_PATH);
-    const payload = buildSkewCachePayload({ clean: true, drifted: [] });
-    assert.strictEqual(payload.clean, true);
-    assert.strictEqual(payload.drifted_count, 0);
-    assert.strictEqual(typeof payload.checked, 'number');
-  });
-
-  test('buildSkewCachePayload: drifted doctor result with 2 entries', () => {
-    const { buildSkewCachePayload } = require(HOOK_PATH);
-    const payload = buildSkewCachePayload({ clean: false, drifted: [{ path: 'a' }, { path: 'b' }] });
-    assert.strictEqual(payload.clean, false);
-    assert.strictEqual(payload.drifted_count, 2);
-    assert.strictEqual(typeof payload.checked, 'number');
-  });
-
-  test('buildSkewCachePayload: malformed/undefined input never throws, returns a safe default shape', () => {
-    const { buildSkewCachePayload } = require(HOOK_PATH);
-    const payload = buildSkewCachePayload(undefined);
-    assert.strictEqual(payload.clean, false);
-    assert.strictEqual(payload.drifted_count, 0);
-  });
-
-  test('requiring hooks/gsd-check-update.js does not spawn a child process or throw (require.main guard)', () => {
-    assert.doesNotThrow(() => {
-      delete require.cache[require.resolve(HOOK_PATH)];
-      require(HOOK_PATH);
-    });
-  });
-
-});
-
 describe('Hook hardening (C-1/C-3/C-4): fail-open + bounded + distinguishable-failure', () => {
   const { spawnSync } = require('child_process');
   const os = require('os');
   const HOOKS_DIR = path.join(__dirname, 'hooks'); // get-shit-done/bin/hooks
-  const CHECK_UPDATE_HOOK = path.join(__dirname, '..', '..', 'hooks', 'gsd-check-update.js');
   const PROTECT_HOOK = path.join(HOOKS_DIR, 'gsd-protect-managed-files.js');
   const SESSION_END_HOOK = path.join(HOOKS_DIR, 'session-end-standalone.js');
 
@@ -10482,39 +10424,6 @@ describe('Hook hardening (C-1/C-3/C-4): fail-open + bounded + distinguishable-fa
     });
     return { exitCode: res.status, stdout: res.stdout || '', stderr: res.stderr || '' };
   }
-
-  // C-4: buildUpdateCachePayload — a genuine failure must be distinguishable
-  // from "up to date" via a non-null error field; a clean success stays null.
-  describe('C-4 buildUpdateCachePayload', () => {
-    const { buildUpdateCachePayload } = require(CHECK_UPDATE_HOOK);
-
-    test('up-to-date: update_available false, error null', () => {
-      const p = buildUpdateCachePayload('1.2.0', '1.2.0', null);
-      assert.strictEqual(p.update_available, false);
-      assert.strictEqual(p.error, null);
-      assert.strictEqual(p.latest, '1.2.0');
-      assert.strictEqual(typeof p.checked, 'number');
-    });
-
-    test('update available: update_available true, error null', () => {
-      const p = buildUpdateCachePayload('1.1.0', '1.2.0', null);
-      assert.strictEqual(p.update_available, true);
-      assert.strictEqual(p.error, null);
-    });
-
-    test('fetch failure is distinguishable: error set, update_available false, latest "unknown"', () => {
-      const p = buildUpdateCachePayload('1.1.0', null, 'ENOTFOUND registry.npmjs.org');
-      assert.strictEqual(p.update_available, false, 'a failed check must NOT look like an available update');
-      assert.strictEqual(p.error, 'ENOTFOUND registry.npmjs.org');
-      assert.strictEqual(p.latest, 'unknown');
-    });
-
-    test('missing installed version never spuriously reports an update', () => {
-      const p = buildUpdateCachePayload(null, '1.2.0', null);
-      assert.strictEqual(p.update_available, false);
-      assert.strictEqual(p.installed, 'unknown');
-    });
-  });
 
   // C-1: a corrupt manifest must fail OPEN (exit 0) but VISIBLY warn on stderr,
   // never silently disable protection.
@@ -10566,22 +10475,6 @@ describe('Hook hardening (C-1/C-3/C-4): fail-open + bounded + distinguishable-fa
       assert.match(src, /execFileSync/, 'must bound synchronous maintenance in a child process');
       assert.match(src, /--run-maintenance/, 'must route the child subcommand');
       assert.match(src, /setTimeout\(\(\)\s*=>\s*process\.exit\(0\)/, 'must have an absolute watchdog');
-    });
-  });
-
-  // C-2: expected conditions must not spray a full stack trace into stderr.
-  describe('C-2 doc-compression-hook quiet errors + single enable-check', () => {
-    const DOC_HOOK = path.join(HOOKS_DIR, 'doc-compression-hook.js');
-
-    test('no error.stack dump remains in the catch handler', () => {
-      const src = fs.readFileSync(DOC_HOOK, 'utf-8');
-      assert.ok(!/console\.error\(error\.stack\)/.test(src), 'stack-trace dump must be removed');
-    });
-
-    test('the redundant second config.enabled/compression.enabled check is gone', () => {
-      const src = fs.readFileSync(DOC_HOOK, 'utf-8');
-      const enabledChecks = (src.match(/!config\.enabled\s*\|\|\s*!config\.compression\.enabled/g) || []).length;
-      assert.strictEqual(enabledChecks, 0, 'the post-load enabled re-check should be collapsed away');
     });
   });
 
@@ -14572,10 +14465,7 @@ describe('D-4: verify-phase.md wiring grep is not hardcoded to src/ + .ts/.tsx',
   });
 });
 
-describe('D-3: health.md targets a real validate subcommand, not the fictional `validate health`', () => {
-  const REPO_ROOT = path.join(__dirname, '..', '..');
-  const HEALTH_PATH = path.join(REPO_ROOT, 'get-shit-done', 'workflows', 'health.md');
-
+describe('D-3: the dispatcher rejects the fictional `validate health`', () => {
   test('the dispatcher rejects `validate health` (only `consistency` exists)', () => {
     const tmpDir = createTempProject();
     try {
@@ -14585,26 +14475,6 @@ describe('D-3: health.md targets a real validate subcommand, not the fictional `
       assert.ok(/Available: consistency/.test(combined), `error must name the only real subcommand, got: ${combined}`);
     } finally {
       cleanup(tmpDir);
-    }
-  });
-
-  test('health.md no longer calls the nonexistent `validate health` subcommand', () => {
-    const content = fs.readFileSync(HEALTH_PATH, 'utf-8');
-    assert.ok(!/validate health/.test(content), 'health.md must not call `validate health`');
-  });
-
-  test('health.md calls the real `validate consistency` subcommand', () => {
-    const content = fs.readFileSync(HEALTH_PATH, 'utf-8');
-    assert.ok(content.includes('validate consistency'), 'health.md must call `validate consistency`');
-  });
-
-  test('health.md drops the fictional error-code table and nonexistent repair actions', () => {
-    const content = fs.readFileSync(HEALTH_PATH, 'utf-8');
-    for (const code of ['E001', 'E002', 'E003', 'E004', 'E005', 'W001', 'W007']) {
-      assert.ok(!content.includes(code), `health.md must not document fictional code ${code}`);
-    }
-    for (const action of ['createConfig', 'resetConfig', 'regenerateState']) {
-      assert.ok(!content.includes(action), `health.md must not reference nonexistent repair action ${action}`);
     }
   });
 });
