@@ -313,7 +313,7 @@ Verified patterns from official sources:
 
 ## Open Probes
 
-Every claim left unverified is one line: the claim, the exact probe (command or file read) that settles it, and the plan choice it decides. The planner schedules the probes; an unsettled fact is never a ruling topic.
+Every claim left unverified is one line: the claim, the exact probe (command or file read) that settles it, and the plan choice it decides. The planner schedules each probe as the plan's first task, run by the executor; a probe never blocks planning, it blocks only the plan choice it decides. Fail-closed default: an unsettled probe is treated as FALSE; a plan choice it decides takes the conservative branch or is blocked until the probe task runs. An unsettled fact is never a ruling topic.
 - **[Claim]** - Probe: `[command or file]` - Decides: [plan choice]
 
 ## Sources

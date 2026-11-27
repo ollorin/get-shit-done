@@ -210,6 +210,8 @@ Things that couldn't be fully resolved:
 Facts the researcher could not settle by reading, each with the exact probe (command or file read) that settles it:
 
 - **[Claim marked unverified]** - Probe: `[exact command or file]` - Decides: [plan choice that depends on it]
+
+The plan's first task runs each probe (the executor); a probe never blocks planning, only the plan choice it decides. Fail-closed default: an unsettled probe is treated as FALSE; a plan choice it decides takes the conservative branch or is blocked until the probe task runs.
 </open_probes>
 
 <sources>

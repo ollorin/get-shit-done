@@ -27,7 +27,17 @@ test('rigour.md and the coordinator agent restate it', () => {
 test('no serial wording: nothing waits idle on a ruling', () => {
   for (const doc of [exec, rigour, coord]) {
     assert.doesNotMatch(doc, /wait(s|ing)? (idle )?for the ruling|block(s|ed)? (the lane )?(until|on) the ruling|pause(s)? (the )?(phase|lane) (until|for) the ruling/i);
+    assert.doesNotMatch(doc, /(stops?|idles?|halts?|waits?)[^.]{0,30}(until|for) the ruling/i);
   }
+});
+
+test('redo rule, lease bracket, fail-closed probe default and planner consumer', () => {
+  assert.match(exec, /is redone, not patched/);
+  assert.match(exec, /dispatch begin --phase \{N\} --role ruling/);
+  assert.match(researcher, /an unsettled probe is treated as FALSE/);
+  assert.match(template, /an unsettled probe is treated as FALSE/);
+  assert.match(read('agents', 'gsd-planner.md'), /every `## Open Probes` row of RESEARCH\.md becomes a first-task probe/);
+  assert.match(read('agents', 'gsd-plan-checker.md'), /`## Open Probes` row of the phase's RESEARCH\.md with no probe task/);
 });
 
 test('researcher agent and template carry an Open Probes section', () => {
