@@ -16,6 +16,8 @@ const lockedOnly = (stack) => Array.isArray(stack.locked_commands) && stack.lock
 const gate = (id, run, why, requires) => entry({ default: Object.freeze({ id, run }), severity: 'error', scope: ALL, why, requires });
 
 const STACK_DEFAULTS = Object.freeze({
+  'stack.affected.specs': entry({ default: null, severity: 'info', scope: RUNNER, why: 'selector config of scripts/affected-specs.mjs: file_pattern, always_run, fallback, map' }),
+  'stack.affected.tests': entry({ default: null, severity: 'info', scope: RUNNER, why: 'selector config of scripts/affected-tests.mjs: file_pattern, always_run, fallback, map' }),
   'stack.commands.test_file': entry({ default: null, severity: 'error', scope: RUNNER, why: 'runs one test file; must contain {file}' }),
   'stack.commands.test_all': entry({ default: null, severity: 'error', scope: RUNNER, why: 'the full suite the pre-PR gate runs twice' }),
   'stack.commands.test_unit': entry({ default: null, severity: 'info', scope: RUNNER, why: 'optional hook-free unit lane for the selector and mutants' }),
