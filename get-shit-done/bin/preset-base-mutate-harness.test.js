@@ -199,7 +199,7 @@ describe('records and voided runs', () => {
     const root = project({ runners: [guarded({ id: 'crashy' })] });
     const r = run(root, [mutant('M1')]);
     assert.strictEqual(r.code, 0, r.output);
-    assert.strictEqual(r.records[0].first_failing_line, 'FAIL f.js > adds');
+    assert.strictEqual(r.records[0].first_failing_line, 'FAIL f.js > adds :: AssertionError: wrong sum');
   });
 
   test('a build error on the confirming second run exits 5, it is not hidden as an unreproduced kill', () => {

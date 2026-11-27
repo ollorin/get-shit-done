@@ -137,6 +137,29 @@ export function firstFailingLine(output, errorPattern = null) {
   return hit === undefined ? null : hit.slice(0, MAX_LINE);
 }
 
+const FAIL_LINE = /^\s*FAIL\b/;
+const ERROR_LINE = /Error/;
+const FRAME_LINE = /\S+:\d+:\d+/;
+
+/**
+ * The evidence line of a record. A kill names its first failing test: the `FAIL` line, then (in its block, up to the next
+ * `FAIL` line) the first line containing `Error` and the first `file:line:col` frame, joined by ` :: `. Output with no `FAIL`
+ * line falls back to the generic failing line. Errored runs use the error pattern; a survivor has none.
+ */
+export function evidenceLine(outcome, output, errorPattern = null) {
+  if (outcome === 'survived' || output === undefined) return null;
+  if (outcome === 'errored') return firstFailingLine(output, errorPattern);
+  const lines = output.split('\n');
+  const start = lines.findIndex((l) => FAIL_LINE.test(l));
+  if (start === -1) return firstFailingLine(output);
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((l) => FAIL_LINE.test(l));
+  const block = end === -1 ? rest : rest.slice(0, end);
+  const error = block.find((l) => ERROR_LINE.test(l))?.trim() ?? null;
+  const frame = block.map((l) => FRAME_LINE.exec(l)).find((m) => m !== null)?.[0] ?? null;
+  return [lines[start].trim(), error, frame].filter((p) => p !== null).map((p) => p.slice(0, MAX_LINE)).join(' :: ');
+}
+
 /** A kill is confirmed when a second run of the same mutant is also a kill; one red run of a flaky test is not proof. */
 export const killReproduced = (secondOutcome) => secondOutcome === 'killed';
 

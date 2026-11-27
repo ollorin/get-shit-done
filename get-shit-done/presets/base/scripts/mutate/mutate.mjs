@@ -14,7 +14,7 @@ import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  BUILD_ERROR_DETAIL, BUILD_ERROR_EXIT, FILTER_MISS_DETAIL, applySnippet, canaryMismatches, configsFor, countOccurrences, fail, filterMiss, firstFailingLine, harnessFault, inconclusive, killReproduced, ok, parseMutants, parseRunners, renderMarkdown, sha256Hex,
+  BUILD_ERROR_DETAIL, BUILD_ERROR_EXIT, FILTER_MISS_DETAIL, applySnippet, canaryMismatches, configsFor, countOccurrences, evidenceLine, fail, filterMiss, harnessFault, inconclusive, killReproduced, ok, parseMutants, parseRunners, renderMarkdown, sha256Hex,
 } from './classify.mjs';
 import { baselineError, dirtyTargets, lockError, outPathError, outsideRootError, primaryError, runSummaryPath, staleBackupError, writeRunSummary } from './guards.mjs';
 import { selfTestAll } from './selftest.mjs';
@@ -33,7 +33,7 @@ function record(m, f) {
     test: m.test,
     outcome: f.outcome,
     duration_ms: f.durationMs ?? 0,
-    first_failing_line: f.outcome === 'survived' || f.output === undefined ? null : firstFailingLine(f.output, f.outcome === 'errored' ? f.errorPattern ?? null : null),
+    first_failing_line: evidenceLine(f.outcome, f.output, f.errorPattern ?? null),
     source_sha_before: sha,
     source_sha_after: f.shaAfter ?? sha,
     mutated_sha: f.mutatedSha ?? null,

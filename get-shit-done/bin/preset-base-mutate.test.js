@@ -391,7 +391,16 @@ describe('mutation tool: runner seam, exit-status verdict (agnostic-M-09 9.5)', 
     assert.ok(!rows[3].includes('(expect'));
   });
 
-  test('countOccurrences counts overlaps, applySnippet replaces literally, firstFailingLine trims, isDirtyPorcelain and pathError', async () => {
+  test('evidenceLine joins the failing test, its error line and its file:line:col frame for a kill', async () => {
+    const { evidenceLine } = await load('classify.mjs');
+    const out = 'noise\n FAIL  a.test x > adds\nAssertionError: expected 1 to be 2\n  at /r/a.test.js:12:7\n FAIL  b.test y > other\nTypeError: z\n';
+    assert.strictEqual(evidenceLine('killed', out), 'FAIL  a.test x > adds :: AssertionError: expected 1 to be 2 :: /r/a.test.js:12:7');
+    assert.strictEqual(evidenceLine('killed', 'FAIL f.js > adds\n'), 'FAIL f.js > adds');
+    assert.strictEqual(evidenceLine('killed', 'oops: failed\n'), 'oops: failed', 'no FAIL line falls back to the generic failing line');
+    assert.strictEqual(evidenceLine('survived', out), null);
+  });
+
+  test('countOccurrences counts overlaps,applySnippet replaces literally, firstFailingLine trims, isDirtyPorcelain and pathError', async () => {
     const { countOccurrences, applySnippet, firstFailingLine, isDirtyPorcelain, pathError } = await load('classify.mjs');
     assert.strictEqual(countOccurrences('a b a', 'a'), 2);
     assert.strictEqual(countOccurrences('a b', 'z'), 0);

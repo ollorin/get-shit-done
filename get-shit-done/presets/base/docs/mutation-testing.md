@@ -47,7 +47,7 @@ Only `killed` counts as a kill, and a kill is run twice: the second run must als
 
 ## Evidence
 
-One JSONL line per mutant: `outcome`, `exit_code`, `duration_ms`, `first_failing_line` (never set on a survivor), `source_sha_before`, `mutated_sha`, `source_sha_after`, `test_sha`, `kill_confirmed` (`null` unless the run was a kill), plus `expect` and `detail`. `--out` (and a stale `<out>.run.json`) is cleared once the guards pass, before the baseline; it may not be the mutants file, a target or a test file. A run that finishes writes `<out>.run.json` (`exit_code`, `mutants`, `baseline_before`, `baseline_after`); no `<out>.run.json` means the run was cut short and its JSONL is not citable, and `baseline_after: "red"` or a non-zero `exit_code` voids its verdicts. Commit both files with the claim that cites them.
+One JSONL line per mutant: `outcome`, `exit_code`, `duration_ms`, `first_failing_line` (never set on a survivor; for a kill it is the first failing test's `FAIL` line, the first `...Error` line and the first `file:line:col` token of its block, joined by ` :: `; output with no `FAIL` line gives the first generic failing line), `source_sha_before`, `mutated_sha`, `source_sha_after`, `test_sha`, `kill_confirmed` (`null` unless the run was a kill), plus `expect` and `detail`. `--out` (and a stale `<out>.run.json`) is cleared once the guards pass, before the baseline; it may not be the mutants file, a target or a test file. A run that finishes writes `<out>.run.json` (`exit_code`, `mutants`, `baseline_before`, `baseline_after`); no `<out>.run.json` means the run was cut short and its JSONL is not citable, and `baseline_after: "red"` or a non-zero `exit_code` voids its verdicts. Commit both files with the claim that cites them.
 
 ## Safety
 
