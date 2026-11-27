@@ -85,11 +85,12 @@ const CVE_FIELDS = [
 ];
 
 // The engine catalogue of known runners with captured output fixtures (references/mutation-runners.json).
+// An unreadable catalogue is a value the caller reports as a blocking problem, never an empty catalogue.
 function loadRunnerCatalogue() {
   try {
-    return require('../references/mutation-runners.json');
-  } catch {
-    return {};
+    return { ok: true, catalogue: require('../references/mutation-runners.json') };
+  } catch (err) {
+    return { ok: false, reason: err.message };
   }
 }
 
@@ -137,9 +138,11 @@ function mutationExtra(key, v) {
   const renamed = Object.prototype.hasOwnProperty.call(v, 'error_pattern')
     ? [problem(`${key}.error_pattern`, 'is refused: use build_error_pattern inside each stack.mutation.runners[] entry')]
     : [];
-  const catalogue = loadRunnerCatalogue();
+  const loaded = loadRunnerCatalogue();
+  const catalogueProblems = loaded.ok ? [] : [problem(`${key}.runners`, `cannot load references/mutation-runners.json: ${loaded.reason}`)];
+  const catalogue = loaded.ok ? loaded.catalogue : {};
   const fixtures = Array.isArray(v.runners) ? v.runners.flatMap((r, i) => runnerFixtureProblems(`${key}.runners[${i}].build_error_pattern`, r, catalogue)) : [];
-  return [...renamed, ...runnersShape(`${key}.runners`, v.runners), ...fixtures];
+  return [...renamed, ...catalogueProblems, ...runnersShape(`${key}.runners`, v.runners), ...fixtures];
 }
 
 const HOST_FIELDS = [

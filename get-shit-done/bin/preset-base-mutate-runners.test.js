@@ -132,6 +132,13 @@ describe('WP9 mutation runners: the profile shape check and the doctor', () => {
     assert.deepStrictEqual(problems({ runners: [runner({ build_error_pattern: 'ZZZ-never' })] }), [], 'unknown engine: no build_failure fixture to match');
   });
 
+  test('an unreadable runner catalogue is a blocking problem, never a silent skip of the F3 fixture checks', () => {
+    const script = "const M = require('module'); const load = M._load; M._load = function (request, ...rest) { if (request.endsWith('mutation-runners.json')) throw new Error('EACCES: permission denied'); return load.call(this, request, ...rest); }; const k = require(process.argv[1]); console.log(k.NEW_SHAPE_CHECKS.find(([n]) => n === 'stack.mutation')[1]('stack.mutation', { runners: [] }).map((p) => p.reason).join('|'));";
+    const r = spawnSync(process.execPath, ['-e', script, path.join(__dirname, 'project-profile-keys.js')], { encoding: 'utf8' });
+    assert.strictEqual(r.status, 0, r.stderr);
+    assert.match(r.stdout, /cannot load references\/mutation-runners\.json: EACCES: permission denied/);
+  });
+
   test('without require(esm) the runners and affected shape checks are blocking problems, never a pass', () => {
     const script = "const k = require(process.argv[1]); const s = (key, v) => k.NEW_SHAPE_CHECKS.find(([n]) => n === key)[1](key, v).map((p) => p.reason).join('|'); console.log(s('stack.mutation', { runners: [] }) + '#' + s('stack.affected', { specs: {} }));";
     const r = spawnSync(process.execPath, ['--no-experimental-require-module', '-e', script, path.join(__dirname, 'project-profile-keys.js')], { encoding: 'utf8' });
