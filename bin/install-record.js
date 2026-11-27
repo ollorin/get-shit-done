@@ -414,15 +414,38 @@ const SUMMARY = {
   refused: (r) => `refused: ${r.refusal.reason} (${r.refusal.failed.join(', ')})`,
 };
 
-module.exports = { openRecord, closeRecord, closeOnExit, ownedFilesOf, rollbackNewest, rollbackWithGuard, noteLateWrite, stagePathsOf, treesOf, repairTree };
+// The id of the newest closed record opened at or after `sinceMs`, or null: the record of the install in progress, so
+// the project upgrade that follows it can be tied to it (null when the install changed no framework file).
+function recordIdSince({ homeDir = os.homedir(), sinceMs }) {
+  const name = recordDirsNewestFirst(homeDir).find((dir) => {
+    try {
+      const record = readRecord(dir);
+      return record.status === 'closed' && Date.parse(record.opened) >= sinceMs;
+    } catch {
+      return false;
+    }
+  });
+  return name === undefined ? null : path.basename(name);
+}
+
+// The framework rollback, then `git revert` of the project commits the rolled-back record's upgrade made. Every project
+// is checked as the upgrade was (human session, no live phase, clean tree, branch holds the commit); a refusal leaves
+// the exact command in `reverted.lines`.
+function rollbackAll({ homeDir = os.homedir(), env = process.env, session, runNpm = reinstallDeps }) {
+  const result = rollbackWithGuard({ homeDir, env, session, runNpm });
+  if (result.status !== 'rolled-back') return result;
+  const { revertRecord } = require('../get-shit-done/bin/project-upgrade-revert.js');
+  const { registryDirFor } = require('../get-shit-done/bin/project-registry-store.js');
+  const dir = registryDirFor(env);
+  const reverted = dir.ok ? revertRecord({ dir: dir.dir, recordId: path.basename(result.recordDir), env, session }) : { ok: false, lines: [`not reverted: ${dir.reason}`] };
+  return { ...result, reverted };
+}
+
+module.exports = { openRecord, closeRecord, closeOnExit, ownedFilesOf, rollbackNewest, rollbackWithGuard, rollbackAll, recordIdSince, noteLateWrite, stagePathsOf, treesOf, repairTree };
 
 if (require.main === module) {
-  const result = rollbackWithGuard({ env: process.env, session: detectSession() });
+  const result = rollbackAll({ env: process.env, session: detectSession() });
   console.log(SUMMARY[result.status](result));
-  if (result.status === 'rolled-back') {
-    const { revertLines } = require('../get-shit-done/bin/project-upgrade-log.js');
-    const { registryDir } = require('../get-shit-done/bin/project-registry-store.js');
-    for (const line of revertLines(registryDir(process.env))) console.log(line);
-  }
-  process.exit(OK_STATUSES.has(result.status) ? 0 : 1);
+  for (const line of result.reverted?.lines ?? []) console.log(line);
+  process.exit(OK_STATUSES.has(result.status) && result.reverted?.ok !== false ? 0 : 1);
 }

@@ -10,6 +10,7 @@ const crypto = require('crypto');
 const { planDeploy, MANIFEST } = require('./project-deploy.js');
 const { loadPreset } = require('./project-deploy-render.js');
 const { parseBlocks } = require('./project-deploy-files.js');
+const { parseJsonc } = require('./jsonc.js');
 
 // Flipped to true by the mutation tool work (WP9) once the tool refuses stack.mutation.error_pattern.
 const MUTATION_REFUSES_ERROR_PATTERN = false;
@@ -34,42 +35,6 @@ function readBytes(abs) {
   }
 }
 
-// JSON with // and /* */ comments and trailing commas; string contents are left alone.
-function stripJsonc(text) {
-  let out = '';
-  let i = 0;
-  while (i < text.length) {
-    const c = text[i];
-    const two = text.slice(i, i + 2);
-    if (c === '"') {
-      let j = i + 1;
-      while (j < text.length && text[j] !== '"') j += text[j] === '\\' ? 2 : 1;
-      out += text.slice(i, j + 1);
-      i = j + 1;
-    } else if (two === '//') {
-      while (i < text.length && text[i] !== '\n') i += 1;
-    } else if (two === '/*') {
-      const end = text.indexOf('*/', i + 2);
-      i = end < 0 ? text.length : end + 2;
-    } else {
-      out += c;
-      i += 1;
-    }
-  }
-  return out.replace(/,(\s*[}\]])/g, '$1');
-}
-
-function parseJsonc(text) {
-  try {
-    return { ok: true, value: JSON.parse(text) };
-  } catch {
-    try {
-      return { ok: true, value: JSON.parse(stripJsonc(text)) };
-    } catch {
-      return { ok: false };
-    }
-  }
-}
 
 // 1. File drift: the project's managed files against the preset copy, from the read-only `project diff` plan.
 const driftRow = (expected, why) => (p) => finding('DRIFT', p.path, expected, 'error', p.reason ?? why);

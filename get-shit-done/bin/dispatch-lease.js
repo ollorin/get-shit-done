@@ -52,9 +52,17 @@ function leasePath(cwd) {
 }
 const ms = (iso) => Date.parse(iso);
 
+// The file a reader looks at, found without writing anything (leasePath probes the git dir with a write): the shared
+// file when it exists, else the .planning fallback.
+function readPath(cwd) {
+  const common = gitCommonDir(cwd);
+  const shared = common ? path.join(common, 'gsd-dispatch-leases.json') : null;
+  return shared && fs.existsSync(shared) ? shared : path.join(cwd, '.planning', 'dispatch-leases.json');
+}
+
 // Read-only view: an unreadable file reads as no leases here; begin/end quarantine it instead (loadOrQuarantine).
 function load(cwd) {
-  try { const j = JSON.parse(fs.readFileSync(leasePath(cwd), 'utf8')); return Array.isArray(j.leases) ? j.leases : []; } catch { return []; }
+  try { const j = JSON.parse(fs.readFileSync(readPath(cwd), 'utf8')); return Array.isArray(j.leases) ? j.leases : []; } catch { return []; }
 }
 
 // Under the lock: a missing file is empty; a corrupt one is renamed to <file>.corrupt-<n> (never overwritten) and reported.

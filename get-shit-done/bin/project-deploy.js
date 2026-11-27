@@ -13,6 +13,7 @@ const { mergeSettings, serializeSettings } = require('./project-deploy-settings.
 const { applyPlan, applyFailure } = require('./project-deploy-apply.js');
 const { isPlainObject, exists, contained, isDirectory, readRegular, readJsonObject } = require('./project-deploy-fs.js');
 const { manifestShapeError } = require('./project-deploy-manifest.js');
+const { parseJsonc } = require('./jsonc.js');
 
 const CONFIG = '.planning/config.json';
 const MANIFEST = '.planning/gsd-project-manifest.json';
@@ -157,11 +158,8 @@ function planSettings(root, rendered, prevSettings) {
   if (cur.error) return { error: { file: SETTINGS, reason: cur.error } };
   let current = null;
   if (cur.bytes !== null) {
-    try {
-      current = JSON.parse(cur.bytes.toString('utf8'));
-    } catch {
-      current = undefined;
-    }
+    const parsed = parseJsonc(cur.bytes.toString('utf8'));
+    current = parsed.ok ? parsed.value : undefined;
     if (current === undefined || current === null) return { error: { file: SETTINGS, reason: 'not valid JSON' } };
   }
   const m = mergeSettings(current, prevSettings, rendered.settings);

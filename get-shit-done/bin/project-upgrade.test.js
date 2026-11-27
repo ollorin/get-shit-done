@@ -8,10 +8,13 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const { runCli: runDeploy } = require('./project-deploy.js');
-const { upgradeAll, removeSuperseded, runCli, COMMIT_MESSAGE } = require('./project-upgrade.js');
+const { upgradeAll, planOnly, removeSuperseded, runCli, COMMIT_MESSAGE } = require('./project-upgrade.js');
 const { migrateConfig } = require('./profile-migrations.js');
-const { liveReasons } = require('./project-quiesce.js');
-const { readRuns, revertLines } = require('./project-upgrade-log.js');
+const { liveReasons, psStart } = require('./project-quiesce.js');
+const { readRuns, commitsOfRecord } = require('./project-upgrade-log.js');
+const { revertRecord } = require('./project-upgrade-revert.js');
+const { unregisteredRoots, decode } = require('./project-discovery.js');
+const { openRecord, closeRecord, rollbackAll } = require('../../bin/install-record.js');
 
 const HUMAN = Object.freeze({ stdin_tty: true, stdout_tty: true, agent_ancestor: false });
 const FRAGMENT = { hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'node .claude/hooks/guard.js' }] }] } };
@@ -66,7 +69,8 @@ function fixture() {
   });
   writeAt(home, 'projects.json', JSON.stringify({ version: 1, projects: Object.fromEntries(roots.map((r) => [r.name, { root: r.root, port_base: r.port }])) }));
   writePreset(path.join(presetsRoot, 'demo'), 2);
-  return { home, presetsRoot, roots, env: { GSD_HOME: home } };
+  // HOME is a temp dir with no ~/.claude/projects: the run never looks at the real one.
+  return { home, presetsRoot, roots, env: { GSD_HOME: home, HOME: mkTmp('gsd-userhome-'), GSD_FRAMEWORK_RECORD: 'rec1' } };
 }
 
 function snapshot(root) {
@@ -113,7 +117,8 @@ describe('project upgrade', () => {
     assert.match(git(a.root, 'status', '--porcelain'), /^\?\? notes\.txt$/m);
     assert.doesNotMatch(git(a.root, 'show', '--name-only', '--format=', 'HEAD'), /notes\.txt/);
     assert.strictEqual(readRuns(fx.home).at(-1).commits.length, 2);
-    assert.match(revertLines(fx.home).join('\n'), new RegExp(`git -C .*${path.basename(a.root)}.* revert ${head(a.root)}`));
+    assert.deepStrictEqual(commitsOfRecord(fx.home, 'rec1').map((c) => c.sha).sort(), [head(a.root), head(b.root)].sort());
+    assert.deepStrictEqual(commitsOfRecord(fx.home, 'other'), []);
 
     const before = fx.roots.map((r) => [head(r.root), snapshot(r.root)]);
     const second = run(fx);
@@ -125,7 +130,7 @@ describe('project upgrade', () => {
   test('a live lease in one project refuses the whole upgrade, names the project and writes nothing', () => {
     const fx = fixture();
     const [a, b] = fx.roots;
-    writeAt(b.root, '.git/gsd-dispatch-leases.json', JSON.stringify({ leases: [{ id: 'x', role: 'executor', phase: '3', begin: new Date().toISOString(), end: null, owner: { pid: process.pid, start: 's' } }] }));
+    writeAt(b.root, '.git/gsd-dispatch-leases.json', JSON.stringify({ leases: [{ id: 'x', role: 'executor', phase: '3', begin: new Date().toISOString(), end: null, owner: { pid: process.pid, start: psStart(process.pid) } }] }));
     const before = fx.roots.map((r) => [head(r.root), snapshot(r.root)]);
     const result = run(fx);
     assert.strictEqual(result.exitCode, 1);
@@ -147,9 +152,38 @@ describe('project upgrade', () => {
     assert.deepStrictEqual(liveReasons(root, { now }), []);
     event('dispatch_begin', 50);
     assert.deepStrictEqual(liveReasons(root, { now }), []);
-    writeAt(root, '.tmp/stack.lock.d/owner.txt', JSON.stringify({ pid: 4242 }));
-    assert.match(liveReasons(root, { now, alive: (pid) => pid === 4242 })[0], /stack lock held by pid 4242/);
+    writeAt(root, '.tmp/stack.lock', JSON.stringify({ pid: 4242, label: 'x', start: new Date(now).toISOString() }));
+    assert.match(liveReasons(root, { now, alive: (pid) => pid === 4242, startOf: () => '' })[0], /stack lock held by pid 4242/);
     assert.deepStrictEqual(liveReasons(root, { now, alive: () => false }), []);
+  });
+
+  test('liveReasons reads the real lock file: a child pid holds it, a recycled pid (started after the lock) does not, owner.txt is ignored', () => {
+    const root = mkTmp('gsd-lock-');
+    const now = Date.parse('2026-11-27T12:00:00Z');
+    const lockedAt = '2026-11-27T10:00:00.000Z';
+    writeAt(root, '.tmp/stack.lock', JSON.stringify({ pid: 11, start: lockedAt, childPid: 22 }));
+    assert.match(liveReasons(root, { now, alive: (pid) => pid === 22, startOf: () => 'Fri Nov 27 09:59:58 2026' })[0], /held by pid 22/);
+    assert.deepStrictEqual(liveReasons(root, { now, alive: (pid) => pid === 22, startOf: () => 'Fri Nov 27 11:30:00 2026' }), []);
+    fs.rmSync(path.join(root, '.tmp/stack.lock'));
+    writeAt(root, '.tmp/stack.lock.d/owner.txt', JSON.stringify({ pid: 4242 }));
+    assert.deepStrictEqual(liveReasons(root, { now, alive: () => true }), []);
+  });
+
+  test('liveReasons: a phase begun and not closed is live however old the last event; a closed phase and its stale lease are not', () => {
+    const root = mkTmp('gsd-open-');
+    const now = Date.parse('2026-11-27T12:00:00Z');
+    const at = (minutesAgo) => new Date(now - minutesAgo * 60000).toISOString();
+    const log = (...events) => writeAt(root, '.planning/EXECUTION_LOG.md', `${events.map((e) => JSON.stringify(e)).join('\n')}\n`);
+    log({ timestamp: at(300), type: 'phase_start', phase: '7' }, { timestamp: at(200), type: 'dispatch_end', phase: '7' });
+    assert.match(liveReasons(root, { now })[0], /phase 7 started .* and not closed/);
+    log({ timestamp: at(300), type: 'phase_start', phase: '7' }, { timestamp: at(250), type: 'phase_complete', phase: '7' }, { timestamp: at(200), type: 'phase_start', phase: 8 }, { timestamp: at(5), type: 'phase_parked', phase: '8' });
+    assert.deepStrictEqual(liveReasons(root, { now }), []);
+    const lease = { id: 'old', role: 'executor', phase: '7', begin: at(290), end: null, owner: { pid: process.pid, start: psStart(process.pid) } };
+    writeAt(root, '.planning/dispatch-leases.json', JSON.stringify({ leases: [lease] }));
+    assert.deepStrictEqual(liveReasons(root, { now }), [], 'phase 7 completed after the lease began');
+    log({ timestamp: at(300), type: 'phase_start', phase: '7' });
+    assert.match(liveReasons(root, { now }).join(';'), /open dispatch lease old/);
+    assert.deepStrictEqual(liveReasons(root, { now, startOf: () => 'Mon Jan  1 00:00:00 2001' }).filter((r) => /lease/.test(r)), [], 'a reused pid is not the owner');
   });
 
   test('corrupt settings.local.json in one project refuses before any write', () => {
@@ -218,5 +252,162 @@ describe('project upgrade', () => {
     const result = runCli(['--dry-run']);
     assert.strictEqual(result.exitCode, 1);
     assert.match(result.lines[0], /takes no arguments/);
+  });
+});
+
+const encodeClaudeName = (root) => root.replace(/[/.]/g, '-');
+
+describe('project upgrade: review fixes', () => {
+  test('a GSD project Claude Code knows but the registry does not refuses everything before any write; an eval repo without a preset and a registered root do not', () => {
+    const fx = fixture();
+    const stray = mkTmp('gsd-stray-');
+    writeAt(stray, '.planning/config.json', JSON.stringify({ stack: { preset: 'demo' } }));
+    const eval1 = mkTmp('gsd-eval-');
+    writeAt(eval1, '.planning/config.json', JSON.stringify({ project: { slug: 'eval' } }));
+    const claudeNames = [stray, eval1, fx.roots[0].root].map((r) => encodeClaudeName(fs.realpathSync(r)));
+    const before = fx.roots.map((r) => [head(r.root), snapshot(r.root)]);
+    const result = run(fx, { claudeNames });
+    assert.strictEqual(result.exitCode, 1);
+    const text = result.lines.join('\n');
+    assert.match(text, new RegExp(`${fs.realpathSync(stray)}: run \`gsd-tools project adopt\` in that project first`));
+    assert.doesNotMatch(text, /gsd-eval-|gsd-alpha-/);
+    assert.deepStrictEqual(fx.roots.map((r) => [head(r.root), snapshot(r.root)]), before);
+    assert.strictEqual(run(fx, { claudeNames: claudeNames.slice(1) }).exitCode, 0);
+  });
+
+  test('discovery: dashes in a directory name and a dot directory decode through the filesystem; a worktree inside a registered root is covered', () => {
+    const dirs = new Set(['/Users', '/Users/me', '/Users/me/casino-mall', '/Users/me/casino-mall/.tmp', '/Users/me/casino-mall/.tmp/wt-a', '/Users/me/other-app']);
+    const exists = (p) => dirs.has(p);
+    assert.strictEqual(decode('-Users-me-casino-mall--tmp-wt-a', exists), '/Users/me/casino-mall/.tmp/wt-a');
+    assert.strictEqual(decode('-Users-me-gone', exists), null);
+    const names = ['-Users-me-casino-mall--tmp-wt-a', '-Users-me-other-app', '-Users-me-gone'];
+    assert.deepStrictEqual(unregisteredRoots({ names, registered: ['/Users/me/casino-mall'], exists, isProject: () => true }), ['/Users/me/other-app']);
+  });
+
+  test('a failing pre-commit hook restores every touched file, prints the hook output, exits non-zero, and the next run redoes the upgrade', () => {
+    const fx = fixture();
+    const [a, b] = fx.roots;
+    const hook = path.join(a.root, '.git/hooks/pre-commit');
+    fs.writeFileSync(hook, '#!/bin/sh\necho hook-said-no >&2\nexit 1\n', { mode: 0o755 });
+    const heads = fx.roots.map((r) => head(r.root));
+    const beforeA = snapshot(a.root);
+    const first = run(fx);
+    assert.strictEqual(first.exitCode, 1);
+    assert.match(first.lines.join('\n'), /FAILED alpha: git commit failed.*\n.*hook-said-no|FAILED alpha:[^]*hook-said-no/);
+    assert.deepStrictEqual(snapshot(a.root), beforeA);
+    assert.strictEqual(git(a.root, 'status', '--porcelain'), '');
+    assert.strictEqual(head(a.root), heads[0]);
+    assert.strictEqual(head(b.root) === heads[1], false, 'the other project still committed');
+    fs.rmSync(hook);
+    const second = run(fx);
+    assert.strictEqual(second.exitCode, 0, second.lines.join('\n'));
+    assert.match(second.lines.join('\n'), /alpha: committed/);
+    assert.strictEqual(fs.readFileSync(path.join(a.root, '.claude/rules/style.md'), 'utf8'), '# Style v2\n');
+  });
+
+  test('a detached HEAD refuses in the plan, before any write', () => {
+    const fx = fixture();
+    git(fx.roots[1].root, 'checkout', '-q', '--detach');
+    const before = fx.roots.map((r) => [head(r.root), snapshot(r.root)]);
+    const result = run(fx);
+    assert.strictEqual(result.exitCode, 1);
+    assert.match(result.lines.join('\n'), /beta: HEAD is detached/);
+    assert.deepStrictEqual(fx.roots.map((r) => [head(r.root), snapshot(r.root)]), before);
+  });
+
+  test('planOnly writes nothing: it names a dirty file, a live phase and an unregistered project, and writes nothing', () => {
+    const fx = fixture();
+    assert.deepStrictEqual(Object.keys(planOnly({ env: fx.env, session: HUMAN, presetsRoot: fx.presetsRoot })).sort(), ['ctx', 'planned', 'read']);
+    writeAt(fx.roots[0].root, '.planning/config.json', JSON.stringify({ project: { slug: 'alpha', note: 'mine' }, stack: { preset: 'demo', capabilities: {}, locked_commands: ['x'] } }));
+    writeAt(fx.roots[1].root, '.planning/EXECUTION_LOG.md', `${JSON.stringify({ timestamp: '2026-01-01T00:00:00Z', type: 'phase_start', phase: '4' })}\n`);
+    const refused = planOnly({ env: fx.env, session: HUMAN, presetsRoot: fx.presetsRoot });
+    assert.match(refused.refusal.join('\n'), /beta: phase 4 started/);
+    fs.rmSync(path.join(fx.roots[1].root, '.planning/EXECUTION_LOG.md'));
+    const before = fx.roots.map((r) => [head(r.root), snapshot(r.root)]);
+    const dirty = planOnly({ env: fx.env, session: HUMAN, presetsRoot: fx.presetsRoot });
+    assert.match(dirty.refusal.join('\n'), /alpha: uncommitted changes/);
+    assert.deepStrictEqual(fx.roots.map((r) => [head(r.root), snapshot(r.root)]), before);
+  });
+
+  test('the installer runs the plan-only pass before its first step', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', '..', 'scripts', 'install-orchestrator.js'), 'utf8');
+    assert.ok(source.indexOf('.planOnly(') > 0);
+    assert.ok(source.indexOf('.planOnly(') < source.indexOf("require('./install-modules.js')"));
+  });
+
+  test('the commit carries a GSD-Upgrade trailer with the fork sha; settings files with comments are accepted', () => {
+    const fx = fixture();
+    const [a] = fx.roots;
+    const settings = path.join(a.root, '.claude/settings.json');
+    fs.writeFileSync(settings, `// kept by hand\n${fs.readFileSync(settings, 'utf8')}`);
+    writeAt(a.root, '.claude/settings.local.json', '{\n  // mine\n  "env": { "A": "1" },\n}\n');
+    git(a.root, 'add', '-A');
+    git(a.root, 'commit', '-q', '-m', 'comments');
+    const result = run(fx, { forkSha: 'abc1234' });
+    assert.strictEqual(result.exitCode, 0, result.lines.join('\n'));
+    assert.strictEqual(git(a.root, 'log', '-1', '--format=%(trailers:key=GSD-Upgrade,valueonly)'), 'abc1234');
+    assert.match(git(a.root, 'log', '-1', '--format=%B'), /^chore\(gsd\): upgrade framework files\n\nGSD-Upgrade: abc1234/);
+    assert.match(git(fx.roots[1].root, 'log', '-1', '--format=%B'), /GSD-Upgrade: abc1234/);
+  });
+
+  test('a blocking doctor result names the project-owned keys apart from framework findings', () => {
+    const result = run(fixture(), { doctor: () => ({ exitCode: 1, text: 'MISSING stack.commands.x\n', blockingKeys: { project: ['stack.commands.x'], framework: ['.claude/rules/a.md'] } }) });
+    assert.strictEqual(result.exitCode, 1);
+    assert.match(result.lines.join('\n'), /commit these in the project: stack\.commands\.x/);
+    assert.match(result.lines.join('\n'), /framework findings \(not project-owned\): \.claude\/rules\/a\.md/);
+  });
+});
+
+describe('project upgrade: rollback reverts the commits of the rolled-back record', () => {
+  function upgradedWithRecord() {
+    const fx = fixture();
+    const homeDir = mkTmp('gsd-rbhome-');
+    const target = path.join(homeDir, '.claude');
+    writeAt(target, 'settings.json', '{}\n');
+    const recordDir = openRecord({ targetDirs: [target], homeDir });
+    writeAt(target, 'settings.json', '{"a":1}\n');
+    closeRecord(recordDir, { owned: [path.join(target, 'settings.json')] });
+    const env = { ...fx.env, GSD_FRAMEWORK_RECORD: path.basename(recordDir) };
+    assert.strictEqual(run({ ...fx, env }).exitCode, 0);
+    return { fx, homeDir, env, recordDir };
+  }
+  const rollback = ({ homeDir, env }, extra = {}) => rollbackAll({ homeDir, env, session: HUMAN, runNpm: () => true, ...extra });
+
+  test('success: the framework is rolled back and each project commit is reverted', () => {
+    const ctx = upgradedWithRecord();
+    const heads = ctx.fx.roots.map((r) => head(r.root));
+    const result = rollback(ctx);
+    assert.strictEqual(result.status, 'rolled-back');
+    assert.strictEqual(result.reverted.ok, true, result.reverted.lines.join('\n'));
+    for (const [i, r] of ctx.fx.roots.entries()) {
+      assert.match(git(r.root, 'log', '-1', '--format=%s'), /^Revert "chore\(gsd\): upgrade framework files"/);
+      assert.strictEqual(git(r.root, 'rev-parse', 'HEAD~1'), heads[i]);
+      assert.strictEqual(fs.readFileSync(path.join(r.root, '.claude/rules/style.md'), 'utf8'), '# Style v1\n');
+    }
+    assert.strictEqual(fs.readFileSync(path.join(ctx.homeDir, '.claude/settings.json'), 'utf8'), '{}\n');
+  });
+
+  test('a dirty tree and a live phase refuse that project with the exact command; the other project is still reverted', () => {
+    const ctx = upgradedWithRecord();
+    const [a, b] = ctx.fx.roots;
+    writeAt(a.root, '.claude/hooks/guard.js', 'edited\n');
+    writeAt(b.root, '.git/gsd-dispatch-leases.json', JSON.stringify({ leases: [{ id: 'x', role: 'executor', phase: '3', begin: new Date().toISOString(), end: null, owner: { pid: process.pid, start: psStart(process.pid) } }] }));
+    const headA = head(a.root);
+    const result = rollback(ctx);
+    assert.strictEqual(result.status, 'rolled-back');
+    assert.strictEqual(result.reverted.ok, false);
+    const text = result.reverted.lines.join('\n');
+    assert.match(text, /not reverted alpha: the working tree has uncommitted changes; run: git -C ".*" revert [0-9a-f]{40}/);
+    assert.match(text, /not reverted beta: a phase is live .*open dispatch lease x.*; run: git -C ".*" revert [0-9a-f]{40}/);
+    assert.strictEqual(head(a.root), headA);
+  });
+
+  test('an agent session and an unrelated record revert nothing', () => {
+    const ctx = upgradedWithRecord();
+    const agent = { stdin_tty: false, stdout_tty: false, agent_ancestor: true };
+    const heads = ctx.fx.roots.map((r) => head(r.root));
+    assert.strictEqual(revertRecord({ dir: ctx.fx.home, recordId: path.basename(ctx.recordDir), env: ctx.env, session: agent }).ok, false);
+    assert.deepStrictEqual(revertRecord({ dir: ctx.fx.home, recordId: 'someother', env: ctx.env, session: HUMAN }), { ok: true, lines: [] });
+    assert.deepStrictEqual(ctx.fx.roots.map((r) => head(r.root)), heads);
   });
 });

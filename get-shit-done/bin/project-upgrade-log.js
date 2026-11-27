@@ -1,13 +1,15 @@
 'use strict';
 
-// The upgrade commits of the last runs, kept beside the registry so rollback can print the `git revert` lines.
-// Outside ~/.gsd/upgrades on purpose: that directory holds only framework records.
+// The upgrade commits of the last runs, kept beside the registry so rollback can revert them. Each run carries the id of
+// the framework upgrade record it belongs to (null when the framework itself did not change), so a rollback of that
+// record reaches exactly its commits. Outside ~/.gsd/upgrades on purpose: that directory holds only framework records.
 
 const fs = require('fs');
 const path = require('path');
 
 const LOG_FILE = 'project-upgrades.json';
 const KEEP_RUNS = 20;
+const RECORD_ID_RE = /^[0-9A-Za-z_-]{1,64}$/;
 
 function readRuns(dir) {
   try {
@@ -26,14 +28,12 @@ function appendRun(dir, run) {
   fs.renameSync(tmp, file);
 }
 
-// The newest run that made at least one commit, as instructions; the commands are never run.
-function revertLines(dir) {
-  const run = readRuns(dir).filter((r) => Array.isArray(r.commits) && r.commits.length > 0).at(-1);
-  if (run === undefined) return [];
-  return [
-    `project upgrade commits of ${run.at}; to undo one, run:`,
-    ...run.commits.map((c) => `  git -C ${JSON.stringify(c.root)} revert ${c.sha}`),
-  ];
+// The commits of the runs tied to one framework record, newest first; nothing for an unknown or absent id.
+function commitsOfRecord(dir, recordId) {
+  if (typeof recordId !== 'string' || !RECORD_ID_RE.test(recordId)) return [];
+  return readRuns(dir).filter((r) => r.record === recordId && Array.isArray(r.commits)).reverse().flatMap((r) => [...r.commits].reverse());
 }
 
-module.exports = { appendRun, readRuns, revertLines };
+const revertCommand = (c) => `git -C ${JSON.stringify(c.root)} revert ${c.sha}`;
+
+module.exports = { appendRun, readRuns, commitsOfRecord, revertCommand, RECORD_ID_RE };

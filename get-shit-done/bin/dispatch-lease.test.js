@@ -354,6 +354,20 @@ describe('dispatch reap-dead: an executor lease whose recorded owner process is 
     const l = L.load(dir)[0];
     assert.ok(l.owner === undefined || (Number.isInteger(l.owner.pid) && process.kill(l.owner.pid, 0)));
   });
+  test('load (the read-only view) writes nothing, not even a probe file in the git dir, and still finds the shared file', () => {
+    spawnSync('git', ['init', '-q'], { cwd: dir });
+    assert.ok(L.begin({ cwd: dir, phase: '1', role: 'reviewer', id: 'r1', events: [], now: T0 }).lease);
+    const fresh = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-lease-ro-'));
+    spawnSync('git', ['init', '-q'], { cwd: fresh });
+    const realOpen = fs.openSync;
+    const writes = [];
+    fs.openSync = (file, flags, ...rest) => { if (typeof flags === 'string' && /[wa]/.test(flags)) writes.push(String(file)); return realOpen(file, flags, ...rest); };
+    try {
+      assert.deepStrictEqual(L.load(fresh), []);
+      assert.strictEqual(L.load(dir).length, 1);
+    } finally { fs.openSync = realOpen; fs.rmSync(fresh, { recursive: true, force: true }); }
+    assert.deepStrictEqual(writes, []);
+  });
   test('watchdogs.md tick prompt calls dispatch reap-dead', () => {
     assert.match(fs.readFileSync(path.join(__dirname, '..', 'references', 'watchdogs.md'), 'utf8'), /dispatch reap-dead --phase/);
   });

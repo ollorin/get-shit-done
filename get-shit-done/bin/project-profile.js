@@ -303,7 +303,9 @@ function doctor(cwd) {
   const verdict = blocking === 0 ? 'up to date' : 'NOT up to date';
   const lines = [...doctorLines(findings), ...checks.map(findingLine), `doctor: ${verdict} (${blocking} blocking, ${other} other)`];
   const exitCode = blocking === 0 ? 0 : 1;
-  return { exitCode, result: { ok: exitCode === 0, blocking, other }, text: `${lines.join('\n')}\n` };
+  // Config keys the project must commit itself, apart from framework files the upgrade owns.
+  const blockingKeys = { project: findings.filter(isBlocking).map((f) => f.key), framework: checks.filter(isBlockingFinding).map((f) => f.key) };
+  return { exitCode, result: { ok: exitCode === 0, blocking, other }, text: `${lines.join('\n')}\n`, blockingKeys };
 }
 
 function runCli(cwd, args) {
