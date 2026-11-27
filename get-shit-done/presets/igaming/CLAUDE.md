@@ -16,13 +16,20 @@ including one of your own.
   "future work".
 - **Fix review findings of every severity; don't defer them.** Severity sets priority, not whether
   a finding gets fixed. Fix the class, not the instance: enumerate sibling sites with a cited
-  `zg query` (never from memory) and record the query with the fix. Batch same-file findings
+  exhaustive sweep (`zg query --rg` or `git grep -n` on the pattern) plus one `zg query` for
+  differently named siblings (never from memory) and record both queries with the fix. Batch same-file findings
   into one fix agent; run disjoint files in parallel. Defer only what a top-model ruling marks
-  "no business value", recorded with its reason.
+  "no business value", recorded with its reason. Fixing the class means every site of the defect,
+  never new features.
 - **Don't stop early or ask permission** when you can solve it yourself — no "good stopping point",
   no "should I continue?".
 - **Plan before acting, self-check before committing.** Apply conventions from CLAUDE.md,
   `.claude/rules/`, and `/docs`.
+- **Build the smallest thing that does the job.** No flag, mode, dry-run, option, config key,
+  allow/deny list, new doc or README rewrite the request or plan does not name; end the report with
+  one line naming what you left out. One test per behaviour that can break; none for glue, wiring or
+  pass-through. Never cut: validation at trust boundaries, money/auth/KYC/RNG tests and their
+  mutants, red-before-edit.
 - **Be a brutally honest advisor to the user (CEO):** no flattery or validation; challenge weak
   reasoning, name blind spots and opportunity cost, recommend a prioritized plan.
 
@@ -31,8 +38,11 @@ including one of your own.
 - Research first, then make surgical edits — never large rewrites.
 - Navigate with LSP (`workspaceSymbol`, `findReferences`, `goToDefinition`, `hover`) before reading
   whole files. After editing, check diagnostics and fix errors.
-- `Grep`/`Glob` tools don't exist here. Search text with `zg query "<text>"` (`zg index` if stale);
-  Exact sweeps: `git grep -n <pat> -- <path>` or `zg query --rg -F <pat> <path>`. The hooks deny recursive
+- `Grep`/`Glob` tools don't exist here. `zg query "<question>"` is hybrid semantic + lexical search: use it
+  to find where something is done or what is named differently (top 7 per group, NOT exhaustive; `zg index`
+  if stale). `zg query --fts "<identifier>"` for a known name. Exhaustive sweeps (every call site,
+  every sibling): `zg query --rg -F <pat> <path>` or `git grep -n <pat> -- <path>`; never conclude "no
+  other sites" from a semantic query. The hooks deny recursive
   `grep`/`rg`, `rg` without a file, `rtk grep` and `find -exec` without `-maxdepth`; `grep` on named files is fine.
 - **Run tests only in allowlisted shapes:** `cd /Users/ollorin/igaming-platform/apps/api && deno task test <file>`, `deno test <file>` (optional `timeout N`, trailing `2>&1`), `npx nx test <project>`, `deno check|lint|fmt`. No inline env vars, no `| tail/grep`, no `;`/extra `&&`, no `$()`/heredocs/`bash -c`. If a command prompts, stop and report the exact string.
 - **Unattended agents never wait on a prompt:** one that hits any permission prompt STOPS and reports the exact command string to its spawner; long runs go foreground under `timeout` (at most 600 s per call) or `run_in_background` (the exit notification wakes you), with an `rc=` check at 25 min, never waited on silently.
@@ -171,9 +181,9 @@ check-in).
 - **Never touch the guardrails.** No agent edits `.claude/settings.json`, disables or weakens a hook,
   or adds permission allow-rules to get a command through. If a hook blocks you, use the path it
   names (e.g. Haiku + `scripts/run-integration-tests.sh` for tests).
-- **Never `supabase db reset` while a Charlotte run is in progress** — it wipes the test fixtures
+- **Never `supabase db reset` while a UI QA (browser) run is in progress** — it wipes the test fixtures
   under a live session and produces false FAILs.
-- **Record Charlotte QA honestly.** UI/API phases set `charlotte_qa_ran` in VERIFICATION.md from an
+- **Record UI QA honestly.** UI/API phases set `ui_qa_ran` in VERIFICATION.md from an
   actual run log, never from memory or a child's claim.
 - **Commit only your paths** (`git commit -- <paths>`) when another agent may be committing on the
   same branch.

@@ -32,7 +32,9 @@ This single script mirrors `.github/workflows/pr-validation.yml` exactly. It:
 - Runs the **deterministic** gates ONCE (run 1 only): type checks, `deno lint`,
   frontend builds + lint, import-map freshness, RPC insert-order safety,
   env-manifest parity, migration completeness, docs vale/markdownlint, the
-  fp/routing/sizing violation ratchet, the migration-security gate, the
+  fp/routing/sizing violation ratchet, the `Quality — ESLint Size/Typed Ratchet` stage
+  (`pnpm lint:quality` and `scripts/validation/strict-index-ratchet.ts`, `scripts/preflight.sh:599-601`;
+  CI job `quality-lint`, `pr-validation.yml:1062`), the migration-security gate, the
   dependency **CVE/OSV scan gate** (`scripts/cve-scan-gate.ts`, wired into
   preflight itself), the MILE-07 flake-prevention gate (`pr-validation.yml:201`), and the
   `next` CVE-waiver tripwire. Static analysis cannot flake, so a second identical run adds only
@@ -59,9 +61,14 @@ This single script mirrors `.github/workflows/pr-validation.yml` exactly. It:
 - `--skip-twice` — skips the flake-sensitive second run (NOT PR-ready, for quick local checks only)
 - `--no-stack` — window-entry gate: Stage A + unit tests with coverage + frontend tests; no stack, lock, DB or
   `.preflight-passed`. Exit 0 = `WINDOW-ENTRY GATE GREEN`, 1 = red; contract at `scripts/preflight.sh:43-57`
-  (timeout/CI divergence as in the unit-stage bullet above; signal handling `:111-112`; no host sweep `:1396-1400`).
+  (timeout/CI divergence as in the unit-stage bullet above; signal handling `:111-112`; no host sweep: the `# --no-stack skips the host-wide sweep` branch in `scripts/preflight.sh`, before `header "Backend — Unit Tests (test:ci, matches CI)"`).
 
 Serve teardown before the scrubbed integration restart is bounded by `EDGE_TEARDOWN_GRACE_S` (default 15, SIGTERM to SIGKILL; clamped below the deadline) and `EDGE_TEARDOWN_TIMEOUT_S` (default 60, hard deadline); each docker call in it is bounded by `EDGE_DOCKER_TIMEOUT_S` (default 15, a hung docker fails loudly); see `scripts/preflight.sh` `teardown_serve_cli`. Teardown signals only serve CLIs whose `--workdir` (else cwd) is under this repo root (`serve_cli_in_repo`). `PREFLIGHT_SERVE_CLI_PATTERN`, `PREFLIGHT_SERVE_LOGS_PATTERN` and `PREFLIGHT_REPO_ROOT` override the process-match patterns and repo root for the unit test only and are never set in CI or real runs.
+
+**Lowering the quality-lint baseline:** after fixing violations run
+`deno run --allow-read --allow-write=.tmp,eslint-quality-suppressions.json --allow-run --allow-env scripts/validation/quality-lint-stage.ts --prune`
+(`eslintArgs("prune")`, `quality-lint-stage.ts:28-33`) and commit the smaller `eslint-quality-suppressions.json`.
+Never re-run `--write-baseline`: `writeBaselineRefusal` (`quality-lint-stage.ts:37`) refuses it while the file exists.
 
 The "before claiming done" checklist (check/lint/fmt/fp-gate/typecheck/p0-tier-delta) lives in
 `CLAUDE.md` → "Before Creating a PR".
@@ -101,7 +108,7 @@ no stack (`.planning/fable-review/FABLE-WINDOW-SPEEDUP.md`).
 cd apps/api && npx supabase db reset
 ```
 
-**Charlotte E2E Regression Tests** (if any UI or API changes):
+**UI QA E2E Regression Tests** (`apps/e2e-charlotte`, driver from config; if any UI or API changes):
 ```bash
 cd apps/e2e-charlotte && deno task test:regression
 ```
@@ -197,4 +204,6 @@ For the hardening plan, see `.planning/phases/270-coverage-gate-hardening/` and
 - There is NO "I'll fix it after the PR" path
 - Claiming "tests pass" without actually running them is never acceptable
 - Each gate must produce visible output proving it ran and passed
-- The `git push` hook blocks unless `.preflight-passed` marker exists (< 30 min old). Only the full two-pass run writes it (`scripts/preflight.sh:1819`; `--skip-twice` exits at `:1729` first), so a phase-end single pass needs a full two-pass run before any push.
+- The `git push` hook blocks unless `.preflight-passed` marker exists (< 30 min old). Only the full two-pass run writes it (`touch "$REPO_ROOT/.preflight-passed"` in the `header "RUN 2 (flake-sensitive re-run)"` block of `scripts/preflight.sh`; `--skip-twice` exits inside the `if $SKIP_TWICE; then` block that precedes `header "Database Reset (between runs)"`, first), so a phase-end single pass needs a full two-pass run before any push.
+
+Preflight pass 1 refuses to start the integration stage when the 1-minute load average exceeds 2x the core count, or swap used exceeds 90% of total and is at least 6 GiB; the message names the numbers and the top-5 CPU processes, and the refusal is recorded as "integration tests NOT RUN: host not quiet" (a failed `integration-tests` stage). Swap between 80% and that hard limit only prints a warning. Pass 2 prints the stats and never refuses. Unreadable load or core-count output fails closed (a blind guard must not pass); unreadable swap output only warns. `PREFLIGHT_ALLOW_BUSY_HOST=1` overrides it (`host_load_guard` in `scripts/preflight.sh`).

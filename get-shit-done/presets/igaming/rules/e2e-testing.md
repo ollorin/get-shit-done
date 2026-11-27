@@ -71,9 +71,9 @@ skippable only with a stated justification.
 - Enums: human-readable label (`Per Session`), never the raw key (`per_session`).
 - `—` only where data is genuinely absent; a just-saved field never shows `—`.
 
-## Charlotte-Specific Guidance
+## Driver-Specific Guidance
 
-Charlotte is an LLM reading screenshots/DOM: vague assertions ("a formatted value is visible") are
+The UI QA driver (Bladebro or Charlotte, from `.planning/config.json` `stack.capabilities.ui_qa`) is an LLM reading screenshots/DOM and has no assertion layer of its own; the runner's result contract is the assertion layer: vague assertions ("a formatted value is visible") are
 satisfied by any text. Write every assertion as a specific positive or negative criterion
 ("matches `/^[£$€₦]\s*\d/`", "does NOT contain NaN").
 

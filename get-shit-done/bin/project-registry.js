@@ -184,7 +184,7 @@ function parseInitRoot(rest) {
 // whatever the config holds, and `init` is the only command that validated it before.
 const RENDERED_GUARD_KEYS = new Set(['project.owner_title', 'stack.branch.default', 'stack.commands.search', 'stack.commands.pre_pr_gate']);
 const isRenderedGuardKey = (key) => RENDERED_GUARD_KEYS.has(key) || key === 'stack.deploy' || key.startsWith('stack.deploy.');
-const SLOT_COMMANDS = new Set(['init', 'diff', 'sync']);
+const SLOT_COMMANDS = new Set(['init', 'adopt', 'adopt-diff', 'diff', 'sync']);
 
 function renderedValueErrors(cwd, args) {
   if (!SLOT_COMMANDS.has(args[0])) return [];
@@ -272,7 +272,7 @@ function undoRegistration({ dir, configFile, configBefore, slug, realRoot, portB
  * the config and registry were written. undo() restores the config bytes and removes the registry entry.
  */
 function registerForInit(cwd, args, env) {
-  if (args[0] !== 'init') return DELEGATE;
+  if (args[0] !== 'init' && args[0] !== 'adopt') return DELEGATE;
   const rootArg = parseInitRoot(args.slice(1));
   if (rootArg === null) return DELEGATE;
   const root = path.resolve(cwd, rootArg);

@@ -14,7 +14,7 @@ const { mergeSettings } = require('./project-deploy-settings.js');
 
 const PRESET = path.join(__dirname, '..', 'presets', 'igaming');
 const IGAMING_ROOT = '/Users/ollorin/igaming-platform';
-const PIN_SHA = '77555e4897d37f49b9fb1ae2fbd6fb624819906e';
+const PIN_SHA = 'befec478db4b5e48b22cb0b83ec002bea855c49b';
 const GOLDEN_REPO = process.env.GSD_IGAMING_REPO || IGAMING_ROOT;
 const pinnedGit = (root, args) => execFileSync('git', ['-C', root, ...args], { maxBuffer: 1 << 26 });
 
@@ -87,7 +87,7 @@ describe('igaming preset snapshot (agnostic-C1)', () => {
       assert.strictEqual(f.capability, null);
     }
     const readme = fs.readFileSync(path.join(PRESET, 'README.md'), 'utf8');
-    assert.ok(readme.includes('77555e4897d37f49b9fb1ae2fbd6fb624819906e'), 'README must name the full pinned SHA');
+    assert.ok(readme.includes('befec478db4b5e48b22cb0b83ec002bea855c49b'), 'README must name the full pinned SHA');
     assert.ok(!readme.includes('## Redactions') && !readme.includes('<redacted:'), 'README must not describe redactions');
   });
 
@@ -139,7 +139,7 @@ describe('igaming preset snapshot (agnostic-C1)', () => {
     const snap = readSnapshot();
     const frag = readFragment();
     assert.deepStrictEqual(Object.keys(frag).sort(), ['hooks', 'permissions']);
-    const expectedSizes = { allow: 288, deny: 19, ask: 3 };
+    const expectedSizes = { allow: 289, deny: 19, ask: 3 };
     for (const k of Object.keys(expectedSizes)) {
       assert.strictEqual(frag.permissions[k].length, expectedSizes[k], `size of permissions.${k}`);
       assert.strictEqual(new Set(frag.permissions[k]).size, frag.permissions[k].length, `duplicate in permissions.${k}`);

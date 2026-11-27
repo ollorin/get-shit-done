@@ -86,12 +86,16 @@ CREATE POLICY "{table_name}_service_role"
     TO service_role
     USING (true);
 
--- 4. Player access policy (with NULL check)
-CREATE POLICY "{table_name}_player_access"
-    ON {schema}.{table_name}
-    FOR SELECT
-    TO authenticated
-    USING (player_account_id = current_setting('app.current_user_id', true)::UUID);
+-- 4. Player access: SECURITY DEFINER function, EXECUTE service_role only, called by an edge function.
+--    No policy targets authenticated or anon (convention, ADR-0014; G20 refuses only auth.* references).
+CREATE OR REPLACE FUNCTION {schema}.get_{table_name}_for_player(p_player_account_id UUID)
+RETURNS SETOF {schema}.{table_name}
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = pg_catalog, {schema}, pg_temp
+AS $$ SELECT * FROM {schema}.{table_name} WHERE player_account_id = p_player_account_id $$;
+
+REVOKE EXECUTE ON FUNCTION {schema}.get_{table_name}_for_player(UUID) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION {schema}.get_{table_name}_for_player(UUID) TO service_role;
 ```
 
 **For tables needing public view access:**
@@ -162,7 +166,7 @@ When invoking this skill, provide:
 
 - [ ] Migration tested with `supabase db push --local`
 - [ ] RLS enabled on all tables
-- [ ] NULL checks in all policies using `current_setting()` or `auth.uid()`
+- [ ] Own-row access via SECURITY DEFINER granted to service_role only; no `auth.uid()`/`auth.jwt()` (G20)
 - [ ] Service role policy included
 - [ ] Rollback plan documented
 - [ ] Integration tests pass
@@ -171,26 +175,18 @@ When invoking this skill, provide:
 ## Common Patterns
 
 ### Pattern: Player-owned records
-```sql
-USING (player_account_id = current_setting('app.current_user_id', true)::UUID)
-```
+Service-role policy plus the DEFINER access function in step 4 above. Never a policy keyed on a session setting
+or a JWT claim.
 
 ### Pattern: Admin-only access
-```sql
-USING (current_setting('app.current_user_role', TRUE) IN ('operator_admin', 'operator_super_admin'))
-```
+No database policy. The edge function gates the role (`handleOperatorSecureRequest` with an endpoint group and access level), and the data is read through a service_role SECURITY DEFINER function as in the pattern above.
 
-### Pattern: Public read, authenticated write
+### Pattern: Public read, service-role write
+Reads go through a public view or an edge function; writes go through a service-role RPC. The table keeps
+RLS plus the service_role policy only (`.claude/rules/database.md:48-55`).
 ```sql
--- Read policy
-CREATE POLICY "public_read" ON {table}
-    FOR SELECT TO anon, authenticated
-    USING (true);
-
--- Write policy
-CREATE POLICY "authenticated_write" ON {table}
-    FOR INSERT TO authenticated
-    WITH CHECK (current_setting('app.current_user_id', true) IS NOT NULL);
+CREATE POLICY "{table_name}_service_role" ON {schema}.{table}
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
 ```
 
 ## Reference Files

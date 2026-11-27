@@ -4,6 +4,7 @@ paths:
   - 'apps/e2e-charlotte/**'
   - '**/*.test.ts'
   - '**/*.spec.ts'
+  - '**/*_test.ts'
 ---
 
 # Testing Rules
@@ -14,9 +15,9 @@ paths:
 | ---------------- | -------------------------------------------- | ---------- | --------------------------------------- |
 | Unit Tests       | `functions/*_test.ts`                        | CI         | Fast, isolated, reliable                |
 | API Integration  | `functions/__tests__/*.integration.test.ts`  | CI         | Full auth flow, sessions                |
-| UI E2E           | `apps/e2e-charlotte/scenarios/`              | LOCAL ONLY | Charlotte MCP browser QA — never in CI  |
+| UI E2E           | `apps/e2e-charlotte/scenarios/`              | LOCAL ONLY | MCP browser QA via the configured UI QA driver — never in CI  |
 
-**Charlotte E2E is LOCAL ONLY** — requires a running browser and local Supabase stack, must NEVER be added to CI workflows.
+**UI E2E (the `apps/e2e-charlotte` runner, any driver) is LOCAL ONLY** — requires a running browser and local Supabase stack, must NEVER be added to CI workflows.
 
 ## Why Local Can Pass When CI Fails (and how to prevent it)
 
@@ -162,13 +163,14 @@ Any frontend component integrating with an API endpoint needs a corresponding E2
 
 A check (guard canary corpus, demonstrated-failure mutation proof, shell-helper case) must be a case inside a test file an EXISTING task runs — for repo tooling that is `deno task test:repo-scripts` (`apps/api/deno.json`, run by `scripts/preflight.sh` and by the `canary-gate` job in `pr-validation.yml`). Never a standalone script nobody runs, never a new CI job. Cover helper logic by adding test cases. Details: `.claude/rules/guard-authoring.md` §5.
 
-## Charlotte E2E Runner Gotchas (MUST)
+## UI QA E2E Runner Gotchas (MUST)
 
 - `loginAsPlayer()` (`runner/auth.ts`) MUST extract and return `realtimeToken`, or `RealtimeContext` falls back to a network call that races page navigation. Adding a new auth-response field means updating all four: `PlayerSession` interface, the return statement, `ScenarioData.auth` type (`runner/types.ts`), and the localStorage injection template (`runner/prompt.ts`).
-- `ANTHROPIC_API_KEY` MUST be stripped (destructured out) from the Charlotte subprocess env — the runner uses `clearEnv: true` but still spreads remaining vars, and an inherited key silently switches billing from Claude Code OAuth to pay-per-use.
+- `ANTHROPIC_API_KEY` MUST be stripped (destructured out) from the `claude` subprocess env (any driver) — the runner uses `clearEnv: true` but still spreads remaining vars, and an inherited key silently switches billing from Claude Code OAuth to pay-per-use.
+- The driver comes from `gsd-tools ui-qa contract --tier mcp`, never a constant in the runner; per-instance MCP env (Bladebro `BLADE_HOME`) comes from `ui-qa instance-env` via `runner/ui-driver.ts` `instanceEnv`. A scenario that forbids an op sharing a tool with others (Bladebro `evaluate`) is denied before the call by the fork's PreToolUse hook `gsd-ui-qa-forbid.js` (`claude --settings`, `GSD_UI_QA_FORBIDDEN_OPS`), not by tool gating.
 - **Never verify auth via the home page** — it renders identically for logged-in and anonymous users. Navigate directly to the protected page after token injection.
 
-Rationale + code samples: `docs/testing.md` → "Charlotte E2E Tests" (Auth Strategy, Runner Subprocess Environment).
+Rationale + code samples: `docs/testing.md` → "Charlotte E2E Tests" (the E2E section; driver notes in `apps/e2e-charlotte/README.md`) (Auth Strategy, Runner Subprocess Environment).
 
 ## Cross-Layer Consistency
 

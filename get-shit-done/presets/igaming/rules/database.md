@@ -75,7 +75,7 @@ RPC is a public, unauthenticated endpoint.
 
 Every project schema (at minimum `wallet`, `player`, `payments`, `audit`):
 
-- Mutation RPCs → `service_role` only. Read RPCs → `service_role` (or `authenticated` with RLS).
+- Mutation RPCs → `service_role` only. Read RPCs → `service_role` only (ADR-0014).
 - Never `GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA … TO anon`.
 - `public.set_auth_context` → `service_role` only (anon could impersonate any player).
 - Never `ALTER DEFAULT PRIVILEGES … TO anon/authenticated/PUBLIC`, and never broad default
@@ -88,8 +88,8 @@ Every project schema (at minimum `wallet`, `player`, `payments`, `audit`):
 Objects `postgres` creates in `public` (tables, views, sequences, functions) or in `player`
 (tables, sequences) get **no** anon/authenticated privileges; new functions in any schema get no
 PUBLIC EXECUTE, only service_role. Never rely on default grants:
-- GRANT explicitly to each role with a named caller (e.g. an RLS helper running as
-  `authenticated` needs `GRANT EXECUTE … TO authenticated`).
+- GRANT explicitly to each role with a named caller (e.g. an own-row SECURITY DEFINER
+  function needs `GRANT EXECUTE … TO service_role`, called by an edge function).
 - The `public-grant-surface` guard (`apps/api/functions/__tests__/public-grant-surface.integration.test.ts`)
   fails on any anon/authenticated/PUBLIC privilege not in its inline `ALLOWLIST`
   (`383.1-GRANT-INVENTORY.md` mirrors it).
@@ -229,10 +229,8 @@ while any money state is non-terminal, and leaves no write path to the erased ac
 
 ## Custom Authentication — NEVER Reference `auth.users`
 
-**WARNING:** this platform does not use Supabase Auth. Players live in `player.player_accounts`,
-operators in `operator.operator_accounts`; player FKs reference `player.player_accounts(id)`,
-operator FKs `operator.operator_accounts(id)`. Never `REFERENCES auth.users(id)` — the
-`auth.users` references in `20260126100300_auth_foundation.sql` are dead legacy, not examples.
+**WARNING:** no backend or web object uses Supabase Auth (ADR-0014; G20 scans outside `apps/mobile`, which still calls `supabase_flutter` auth). Players live in `player.player_accounts`, operators in `operator.operator_accounts`; FKs reference those tables, never `auth.users(id)`, and never `auth.uid()`/`auth.jwt()`.
+The `auth.users` references in `20260126100300_auth_foundation.sql` are dead legacy, not examples.
 
 ## Migration Principles
 

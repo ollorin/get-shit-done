@@ -42,6 +42,19 @@ The per-domain grandfathered counts live in `scripts/fp-violation-baseline.json`
 — read them there, never from a copy. The ratchet forces no retroactive cleanup, but a fix that
 pushes any file over 500 lines is a new violation: split before committing.
 
+## Function-level size rules (quality lint)
+
+Separate from the backend-only 500-LOC file ceiling: `eslint.quality.config.mjs` limits each
+function (`COMPLEXITY_MAX`, `DEPTH_MAX` / `DEPTH_MAX_SCRIPTS_E2E`, `PARAMS_MAX` /
+`PARAMS_MAX_FRONTEND`, `LINES_MAX` / `LINES_MAX_TSX_FRONTEND`, `:14-20`) and covers apps/api, both
+frontends, libs/shared, scripts and e2e-charlotte (area table in `scripts/validation/quality-lint-areas.ts`).
+Existing hits are frozen in `eslint-quality-suppressions.json` and only go down: a per-rule count
+rise or a new file key with violations fails (`qualityGrowthProblems`,
+`scripts/validation/quality-lint-ratchet.ts:73`), enforced by the repo-scripts test
+`quality-lint-ratchet.test.ts` (V1), not by the `pnpm lint:quality` stage. A split that moves a violating function into a new
+file therefore fails; fix the function, do not move it. An `eslint-disable` naming no rule, or one of these
+rules (`RESTRICTED_DISABLE`, `eslint.quality.config.mjs`), is itself a violation. Run with `pnpm lint:quality`.
+
 ## Cohesion Over Line-Count
 
 **A tangled 400-line file is a worse god-module than a cohesive 900-line one.** The LOC ceiling is a

@@ -19,6 +19,7 @@ const MANIFEST = '.planning/gsd-project-manifest.json';
 const BASE_DIR = '.planning/.gsd-preset-base';
 const SETTINGS = '.claude/settings.json';
 const GITIGNORE = '.gitignore';
+const ADOPT_COMMANDS = new Set(['adopt', 'adopt-diff']);
 const WRITE_ACTIONS = new Set(['create', 'overwrite', 'merge', 'update']);
 // An adopt is a change: it records the file in the manifest, though it writes no content.
 const CHANGE_ACTIONS = new Set([...WRITE_ACTIONS, 'adopt', 'delete']);
@@ -53,9 +54,27 @@ const reasonOf = (plan) => (plan.conflicts && plan.conflicts.length > 0
   ? plan.conflicts.map((c) => `block ${c.id}: ${c.reason}`).join('; ')
   : plan.reason);
 
-function planFile(root, f, prev) {
+// Adoption never writes a project file. Equal bytes are recorded (adopt); different bytes are kept (local) and the
+// preset copy becomes the merge base, so a later sync merges three ways; an absent file is left for sync to create.
+// A block file is never recorded here: its blocks need the merge plan, which sync owns.
+function planAdoptFile(f, cur) {
+  const equal = cur.bytes !== null && cur.bytes.equals(f.content);
+  const action = cur.bytes === null ? 'missing' : equal && f.kind === 'whole' ? 'adopt' : 'local';
+  const recorded = action === 'adopt' || (action === 'local' && f.kind === 'whole');
+  return {
+    dest: f.dest,
+    report: { path: f.dest, kind: f.kind, action },
+    write: null,
+    base: recorded ? { dest: f.dest, content: f.content } : null,
+    manifestEntry: recorded ? { kind: f.kind, sha256: sha256(f.content), guarded: f.guarded === true } : null,
+    old: cur.bytes,
+  };
+}
+
+function planFile(root, f, prev, adopting) {
   const cur = readRegular(path.join(root, f.dest));
   if (cur.error) return { dest: f.dest, error: { file: f.dest, reason: cur.error } };
+  if (adopting) return planAdoptFile(f, cur);
   const base = readRegular(path.join(root, BASE_DIR, f.dest));
   if (base.error) return { dest: f.dest, error: { file: f.dest, reason: base.error } };
   const plan = f.kind === 'whole'
@@ -112,8 +131,8 @@ function planOrphan(root, dest, prev) {
   return { dest, removed: false, deletes: [], old: cur.bytes, report: { path: dest, kind: prev.kind, action: 'orphan', reason } };
 }
 
-function planFiles(root, rendered, orphanDests, prevFiles) {
-  const results = rendered.files.map((f) => planFile(root, f, prevFiles.get(f.dest)));
+function planFiles(root, rendered, orphanDests, prevFiles, adopting) {
+  const results = rendered.files.map((f) => planFile(root, f, prevFiles.get(f.dest), adopting));
   const orphans = orphanDests.map((dest) => planOrphan(root, dest, prevFiles.get(dest)));
   const manifestFiles = Object.fromEntries([
     ...results.filter((r) => r.manifestEntry !== undefined && r.manifestEntry !== null).map((r) => [r.dest, r.manifestEntry]),
@@ -184,6 +203,7 @@ function previewUninitialised(root, dir, command) {
 
 function planDeploy(opts) {
   const { root, command, presetDir, presetName, presetsRoot = DEFAULT_PRESETS } = opts;
+  const adopting = ADOPT_COMMANDS.has(command);
   const env = opts.env === undefined ? process.env : opts.env;
 
   if (!isDirectory(root)) return stop(command, 'root is not a directory');
@@ -209,6 +229,9 @@ function planDeploy(opts) {
   if (exists(path.join(root, MANIFEST)) && manifest === null) return stop(command, 'manifest is not valid JSON');
   if (manifest && manifestShapeError(manifest)) return stop(command, 'manifest is malformed');
   if (command === 'init' && manifest) return stop(command, 'already initialised: run project sync');
+  if (adopting && manifest) {
+    return { report: { ...report, ok: true, already_adopted: true, written: [] }, ops: EMPTY_OPS };
+  }
   if (command === 'sync' && !manifest) return stop(command, 'not initialised: run project init');
   if (manifest && manifest.preset?.name !== rendered.name) {
     return stop(command, `manifest preset is ${manifest.preset?.name}, not ${rendered.name}`);
@@ -241,7 +264,7 @@ function planDeploy(opts) {
   });
   if (resolved.errors.length > 0) return { report: { ...report, errors: [...errors, ...resolved.errors] }, ops: EMPTY_OPS };
 
-  const planned = planFiles(root, rendered, orphanDests, prevFiles);
+  const planned = planFiles(root, rendered, orphanDests, prevFiles, adopting);
   errors.push(...planned.errors);
   // A block that overlaps a preset change is refused for the whole run: nothing is written, the file and line are named.
   errors.push(...planned.files.filter((f) => f.action === 'conflict' && f.kind === 'block').map((f) => ({
@@ -252,7 +275,7 @@ function planDeploy(opts) {
   const settingsPlan = needSettings ? planSettings(root, rendered, prevSettings) : null;
   if (settingsPlan && settingsPlan.error) errors.push(settingsPlan.error);
 
-  const settingsWrites = settingsPlan && !settingsPlan.error && (settingsPlan.action === 'create' || settingsPlan.action === 'update');
+  const settingsWrites = !adopting && settingsPlan && !settingsPlan.error && (settingsPlan.action === 'create' || settingsPlan.action === 'update');
   // A dropped file keeps the guard it was deployed with; a manifest entry without the field counts as guarded.
   const droppedGuarded = orphanDests.filter((dest) => prevFiles.get(dest)?.guarded !== false);
   const guardedFiles = guardedSet({
@@ -276,6 +299,7 @@ function planDeploy(opts) {
     changes: planned.files.filter((f) => CHANGE_ACTIONS.has(f.action)).length + (settingsWrites ? 1 : 0),
     conflicts: planned.files.filter((f) => f.action === 'conflict').length,
     errors,
+    ...(adopting ? { adopt: adoptSummary(planned.files, settingsPlan) } : {}),
   });
   if (errors.length > 0) return { report: { ...report, ok: false }, ops: EMPTY_OPS };
 
@@ -288,7 +312,7 @@ function planDeploy(opts) {
     manifest_version: 1,
     preset: { name: rendered.name, version: rendered.version },
     files: planned.manifestFiles,
-    ...(needSettings ? { settings: settingsPlan.deployed } : {}),
+    ...(needSettings && !(adopting && settingsPlan.action !== 'unchanged') ? { settings: settingsPlan.deployed } : {}),
   };
   return {
     report: { ...report, ok: true },
@@ -313,8 +337,15 @@ function planDeploy(opts) {
   };
 }
 
-const USAGE = 'Usage: project <init|diff|sync> [--root <dir>] [--preset <name>] [--preset-dir <dir>]';
-const COMMANDS = new Set(['init', 'diff', 'sync']);
+const adoptSummary = (files, settingsPlan) => ({
+  equal: files.filter((f) => f.action === 'adopt').length,
+  local: files.filter((f) => f.action === 'local').map((f) => f.path),
+  missing: files.filter((f) => f.action === 'missing').map((f) => f.path),
+  settings_pending: settingsPlan !== null && !settingsPlan.error && settingsPlan.action !== 'unchanged',
+});
+
+const USAGE = 'Usage: project <init|adopt|adopt-diff|diff|sync> [--root <dir>] [--preset <name>] [--preset-dir <dir>]';
+const COMMANDS = new Set(['init', 'adopt', 'adopt-diff', 'diff', 'sync']);
 const FLAGS = new Set(['--root', '--preset', '--preset-dir']);
 
 function parseArgs(args) {
@@ -338,6 +369,8 @@ function runCli(cwd, args, env, session, io = {}) {
   const plan = planDeploy({ root, command, presetDir, presetName: opts.preset, env, session, presetFlag: presetDir !== undefined });
   const { report } = plan;
   if (!report.ok) return { exitCode: 1, result: { ...report, written: [] } };
+  if (report.already_adopted) return { exitCode: 0, result: report };
+  if (command === 'adopt-diff') return { exitCode: 0, result: { ...report, written: [] } };
   if (command === 'diff') {
     if (report.not_initialised) return { exitCode: 0, result: { ...report, written: [] } };
     return { exitCode: report.changes > 0 || report.conflicts > 0 ? 2 : 0, result: { ...report, written: [] } };

@@ -292,7 +292,8 @@
       "mcp__charlotte__charlotte_screenshot",
       "mcp__charlotte__charlotte_requests",
       "mcp__charlotte__charlotte_scroll",
-      "mcp__charlotte__charlotte_network"
+      "mcp__charlotte__charlotte_network",
+      "mcp__bladebro__*"
     ],
     "deny": [
       "Bash(rm -rf /:*)",

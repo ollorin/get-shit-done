@@ -6,8 +6,8 @@
 --
 -- Key patterns demonstrated:
 -- 1. Table in domain schema (not public)
--- 2. RLS enabled with service role + player policies
--- 3. NULL checks in policies using current_setting()
+-- 2. RLS enabled with a service_role policy only (ADR-0014: no authenticated/anon policy)
+-- 3. Own-row access through a SECURITY DEFINER function granted to service_role only
 -- 4. Indexes for common query patterns
 -- 5. Optional public view with INSTEAD OF triggers
 -- ============================================================================
@@ -22,7 +22,7 @@
 -- ============================================================================
 -- ROLLBACK PLAN
 -- ============================================================================
--- DROP POLICY IF EXISTS backup_codes_player_view ON player.player_backup_codes;
+-- DROP FUNCTION IF EXISTS player.get_own_backup_codes(UUID);
 -- DROP POLICY IF EXISTS backup_codes_service_role ON player.player_backup_codes;
 -- DROP INDEX IF EXISTS idx_backup_codes_unused;
 -- DROP INDEX IF EXISTS idx_backup_codes_player_account;
@@ -33,8 +33,8 @@
 -- ============================================================================
 -- [x] Table has RLS enabled
 -- [x] Service role policy for backend operations
--- [x] Player policy with NULL check via current_setting()
--- [x] Appropriate access scope (SELECT only for players)
+-- [x] No policy for authenticated or anon (ADR-0014)
+-- [x] Own-row read via SECURITY DEFINER function, EXECUTE granted to service_role only
 
 -- ============================================================================
 -- MIGRATION CONTENT
@@ -88,71 +88,55 @@ CREATE POLICY backup_codes_service_role
     TO service_role
     USING (true);
 
--- 6. Player access policy (view own codes only)
---    Uses current_setting() for custom session auth (not auth.uid())
---    NULL check: current_setting returns empty string if not set, ::UUID cast fails safely
-CREATE POLICY backup_codes_player_view
-    ON player.player_backup_codes
-    FOR SELECT
-    TO authenticated
-    USING (
-        player_account_id = current_setting('app.current_user_id', true)::UUID
-    );
+-- 6. Own-row read: SECURITY DEFINER function, EXECUTE granted to service_role only.
+--    The edge function calls it with the service client and checks the owner itself.
+--    No policy for authenticated/anon: custom auth has no Supabase JWT to key a policy on.
+CREATE OR REPLACE FUNCTION player.get_own_backup_codes(p_player_account_id UUID)
+RETURNS SETOF player.player_backup_codes
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = pg_catalog, player, pg_temp
+AS $$
+    SELECT * FROM player.player_backup_codes
+    WHERE player_account_id = p_player_account_id
+$$;
 
--- Note: No INSERT/UPDATE/DELETE policies for players
+-- Note: No INSERT/UPDATE/DELETE path for players
 -- Backup codes are managed by backend service only
 
--- 7. Grant permissions
+-- 7. Grant permissions (service_role only; PUBLIC, anon and authenticated revoked)
+REVOKE EXECUTE ON FUNCTION player.get_own_backup_codes(UUID) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION player.get_own_backup_codes(UUID) TO service_role;
 GRANT ALL ON player.player_backup_codes TO service_role;
-GRANT SELECT ON player.player_backup_codes TO authenticated;
 
 -- ============================================================================
--- ALTERNATIVE PATTERN: Admin-only access
+-- ALTERNATIVE PATTERN: Operator/admin access (no database role policy)
 -- ============================================================================
--- For tables that only admins can access:
---
--- CREATE POLICY admin_only_access
---     ON schema.table_name
---     FOR ALL
---     TO authenticated
---     USING (
---         current_setting('app.current_user_role', TRUE) IN (
---             'operator_admin',
---             'operator_super_admin'
---         )
---     )
---     WITH CHECK (
---         current_setting('app.current_user_role', TRUE) IN (
---             'operator_admin',
---             'operator_super_admin'
---         )
---     );
+-- Role gating happens in the edge function (handleOperatorSecureRequest with an
+-- endpoint group and access level), not in a policy on authenticated. Operator
+-- reads go through a service_role SECURITY DEFINER function as in step 6.
 
 -- ============================================================================
 -- ALTERNATIVE PATTERN: System-only (service role exclusive)
 -- ============================================================================
--- For tables accessed only by backend services:
+-- For tables accessed only by backend services. Name the role explicitly:
+-- a policy with no TO clause applies to PUBLIC, which includes anon.
 --
--- CREATE POLICY system_only_insert
+-- CREATE POLICY system_only_all
 --     ON schema.table_name
---     FOR INSERT
---     WITH CHECK (true);  -- Service role only (bypasses RLS)
---
--- CREATE POLICY system_only_select
---     ON schema.table_name
---     FOR SELECT
---     USING (true);  -- Service role only
+--     FOR ALL
+--     TO service_role
+--     USING (true)
+--     WITH CHECK (true);
 
 -- ============================================================================
 -- KEY LEARNINGS FROM THIS CODEBASE
 -- ============================================================================
 --
--- 1. ALWAYS use current_setting() instead of auth.uid()
---    This project uses custom session auth, not Supabase JWT auth
---    Example: current_setting('app.current_user_id', true)::UUID
+-- 1. NEVER key a policy on auth.uid(), auth.jwt() or current_setting('app.*')
+--    This project uses custom session auth (ADR-0014). Own-row access is a
+--    SECURITY DEFINER function granted to service_role only.
 --
--- 2. The TRUE parameter in current_setting() prevents errors when unset
---    Returns empty string instead of raising exception
+-- 2. No policy TO authenticated or anon; RLS holds a service_role policy only
 --
 -- 3. Service role policy is required for backend operations
 --    Even though service_role bypasses RLS, explicit policy is good practice

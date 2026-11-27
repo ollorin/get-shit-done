@@ -178,7 +178,7 @@ return handleSecureRequest(req, handler, AuthMode.ADMIN_REQUIRED)
 ```
 
 **Endpoint groups** (must match `EndpointGroup` type in `role-permissions.ts`):
-`operator-management`, `games-crud`, `configurations`, `payment-operations`, `payment-processors`, `wallet-management`, `kyc-operations`, `responsible-gaming`, `player-management`, `audit-log`, `rg-risk-alerts`
+`operator-management`, `games-crud`, `configurations`, `payment-operations`, `payment-processors`, `wallet-management`, `kyc`, `responsible-gaming`, `player-management`, `audit-log`, `rg-risk-alerts`
 
 **Access levels**: `'write'` (full CRUD) or `'read'` (read-only). The `ROLE_PERMISSION_MAP` in `role-permissions.ts` is the single source of truth.
 
@@ -306,8 +306,8 @@ paraphrase will drop. It accepts `string | Uint8Array` so a caller with pre-enco
 fails any module in its `ROUTED` list that defines its own fold or compares two non-literal
 values with `===`/`!==`/`==`/`!=` — a shape check, so renaming or aliasing an operand does not
 evade it; its false-positive budget and limits are enumerated in that file's header.
-`functions/payments/handlers/handle-webhook.ts` still carries a local `timingSafeEqual` fold and
-is NOT in `ROUTED`; `bonus/index.ts` cannot be (its routing holds legitimate
+`functions/payments/handlers/handle-webhook.ts` routes through `constantTimeEquals` and is in
+`ROUTED`; `bonus/index.ts` cannot be (its routing holds legitimate
 `pathname === CONST` compares). A new inline fold anywhere is a defect.
 
 `maxLen` vs `minLen` is provable only by the byte-read COUNT in `constant-time.test.ts` — never

@@ -46,6 +46,9 @@ touch -t "$(date -v-29M +%Y%m%d%H%M.%S)" "$T/base/fresh29/.preflight-passed"   #
 touch -t "$(date -v-3d +%Y%m%d%H%M.%S)" "$T/base/stale/.preflight-passed"
 mkdir -p "$T/base/drift/scripts/api-contract"
 printf 'console.error("drift: stub");\nDeno.exit(1);\n' > "$T/base/drift/scripts/api-contract/diff-registries.ts"
+# gsd-ui-qa-lock.js is config-driven: it acts only when <cwd>/.planning/config.json declares stack.capabilities.ui_qa (same shape as the project's own config).
+UI_QA_CFG='{"stack":{"capabilities":{"ui_qa":{"driver":"charlotte","agent":"gsd-charlotte-qa","tool_prefix":"mcp__charlotte__","lock_file":".tmp/charlotte.lock","reset_patterns":["supabase db reset","preflight.sh","db:reset","db-reset","supabase:reset","supabase-reset","test:regression","--reset-db"]}}}}'
+for d in locked unlocked; do mkdir -p "$T/base/$d/.planning"; printf '%s\n' "$UI_QA_CFG" > "$T/base/$d/.planning/config.json"; done
 mkdir -p "$T/base/locked/.tmp"
 printf '{"pid":%s,"acquired_at":"2026-01-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","source":"mcp","holders":[],"main_thread":true,"session_id":null}\n' "$$" > "$T/base/locked/.tmp/charlotte.lock"
 age_marker() { touch -t "$(date -v-"$2"M +%Y%m%d%H%M.%S)" "$1/.preflight-passed"; }   # re-aged per case: a load-time age drifts across the 30-minute window
