@@ -278,28 +278,73 @@ const dropsNodeModules = (liveDir, stageDir) => fs.existsSync(path.join(liveDir,
  * Build a tree in `<liveDir>.next`, then swap it in (the old tree becomes `<liveDir>.prev`).
  * A failed build removes the staging tree and leaves the live tree as it was; a failed swap puts the old tree back.
  */
-function stageAndSwap(liveDir, build, rename = fs.renameSync) {
+function stageAndSwap(liveDir, build, rename = fs.renameSync, { keepPrev = true } = {}) {
   const stageDir = `${liveDir}.next`;
   const prevDir = `${liveDir}.prev`;
+  const liveModules = path.join(liveDir, 'node_modules');
+  const stagedModules = path.join(stageDir, 'node_modules');
+  // A run killed after adopt() stranded the live node_modules in the stage: put it back before the stage is wiped.
+  if (fs.existsSync(stagedModules) && !fs.existsSync(liveModules) && fs.existsSync(liveDir)) {
+    fs.renameSync(stagedModules, liveModules);
+  }
   fs.rmSync(stageDir, { recursive: true, force: true });
+  // Moves the live node_modules into the stage (a move, not a copy: the tree is hundreds of MB); undone on any failure.
+  let adopted = false;
+  const adopt = () => {
+    if (!fs.existsSync(liveModules)) return;
+    fs.renameSync(liveModules, stagedModules);
+    adopted = true;
+  };
+  const giveBack = () => {
+    if (adopted && fs.existsSync(stagedModules) && !fs.existsSync(liveModules)) fs.renameSync(stagedModules, liveModules);
+    adopted = false;
+  };
   try {
-    build(stageDir);
+    build(stageDir, adopt);
     if (dropsNodeModules(liveDir, stageDir)) {
       throw new Error('hook dependencies (node_modules) are missing from the new tree; the installed tree was left as it was');
     }
   } catch (err) {
+    giveBack();
     fs.rmSync(stageDir, { recursive: true, force: true });
     throw err;
   }
   fs.rmSync(prevDir, { recursive: true, force: true });
   const hadLive = fs.existsSync(liveDir);
-  if (hadLive) rename(liveDir, prevDir);
   try {
+    if (hadLive) rename(liveDir, prevDir);
     rename(stageDir, liveDir);
   } catch (err) {
-    if (hadLive) fs.renameSync(prevDir, liveDir);
+    if (hadLive && !fs.existsSync(liveDir) && fs.existsSync(prevDir)) fs.renameSync(prevDir, liveDir);
+    giveBack();
     fs.rmSync(stageDir, { recursive: true, force: true });
     throw err;
+  }
+  if (!keepPrev) fs.rmSync(prevDir, { recursive: true, force: true });
+}
+
+/**
+ * Fill an agents stage: every live entry except gsd-*.md files (foreign agents, subfolders) is copied unchanged,
+ * then the repo's agents are written with the runtime's conversion.
+ */
+function buildAgentsStage(liveDir, stageDir, agentsSrc, pathPrefix, runtime) {
+  fs.mkdirSync(stageDir, { recursive: true });
+  if (fs.existsSync(liveDir)) {
+    for (const entry of fs.readdirSync(liveDir, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.startsWith('gsd-') && entry.name.endsWith('.md')) continue;
+      fs.cpSync(path.join(liveDir, entry.name), path.join(stageDir, entry.name), { recursive: true, verbatimSymlinks: true, preserveTimestamps: true });
+    }
+  }
+  for (const entry of fs.readdirSync(agentsSrc, { withFileTypes: true })) {
+    if (!(entry.isFile() && entry.name.endsWith('.md'))) continue;
+    let content = fs.readFileSync(path.join(agentsSrc, entry.name), 'utf8');
+    // Always replace ~/.claude/ as it is the source of truth in the repo
+    content = rewriteClaudeDir(content, pathPrefix);
+    content = processAttribution(content, getCommitAttribution(runtime));
+    // Convert frontmatter for runtime compatibility
+    if (runtime === 'opencode') content = convertClaudeToOpencodeFrontmatter(content);
+    else if (runtime === 'gemini') content = convertClaudeToGeminiAgent(content);
+    fs.writeFileSync(path.join(stageDir, entry.name), content);
   }
 }
 
@@ -1657,8 +1702,16 @@ function install(isGlobal, runtime = 'claude') {
     
     const gsdSrc = path.join(src, 'commands', 'gsd');
     const gsdDest = path.join(commandsDir, 'gsd');
-    copyWithPathReplacement(gsdSrc, gsdDest, pathPrefix, runtime);
-    if (verifyInstalled(gsdDest, 'commands/gsd')) {
+    // commands/ also holds foreign commands; only commands/gsd is staged. No .prev is kept inside commands/
+    // (Claude Code would load commands/gsd.prev as live commands).
+    let commandsSwapped = false;
+    try {
+      stageAndSwap(gsdDest, (stageDir) => copyWithPathReplacement(gsdSrc, stageDir, pathPrefix, runtime), fs.renameSync, { keepPrev: false });
+      commandsSwapped = true;
+    } catch (err) {
+      console.error(`  ${yellow}✗${reset} Failed to replace commands/gsd: ${err.message}`);
+    }
+    if (commandsSwapped && verifyInstalled(gsdDest, 'commands/gsd')) {
       console.log(`  ${green}✓${reset} Installed commands/gsd`);
     } else {
       failures.push('commands/gsd');
@@ -1682,10 +1735,16 @@ function install(isGlobal, runtime = 'claude') {
   let depsOk = false;
   let skillInstalled = false;
   try {
-    stageAndSwap(skillDest, (stageDir) => {
+    stageAndSwap(skillDest, (stageDir, adoptNodeModules) => {
       copyWithPathReplacement(skillSrc, stageDir, pathPrefix, runtime, { verbatimDirs: ['presets'] });
-      // npm dependencies for the doc-compression hook; they live in get-shit-done/node_modules/ so the hook can require() them
-      if (!isOpencode && !isGemini) depsOk = installHookDependencies(stageDir);
+      // npm dependencies for the doc-compression hook; they live in get-shit-done/node_modules/ so the hook can require() them.
+      // The live node_modules moves into the stage first, so npm runs against it and a failure leaves the old tree live.
+      if (!isOpencode && !isGemini) {
+        const hadModules = fs.existsSync(path.join(skillDest, 'node_modules'));
+        adoptNodeModules();
+        depsOk = installHookDependencies(stageDir);
+        if (!depsOk && hadModules) throw new Error('hook dependency install failed; the installed tree was left as it was');
+      }
     });
     skillInstalled = verifyInstalled(skillDest, 'get-shit-done');
   } catch (err) {
@@ -1709,35 +1768,15 @@ function install(isGlobal, runtime = 'claude') {
   const agentsSrc = path.join(src, 'agents');
   if (fs.existsSync(agentsSrc)) {
     const agentsDest = path.join(targetDir, 'agents');
-    fs.mkdirSync(agentsDest, { recursive: true });
-
-    // Remove old GSD agents (gsd-*.md) before copying new ones
-    if (fs.existsSync(agentsDest)) {
-      for (const file of fs.readdirSync(agentsDest)) {
-        if (file.startsWith('gsd-') && file.endsWith('.md')) {
-          fs.unlinkSync(path.join(agentsDest, file));
-        }
-      }
+    // Built in agents.next (foreign agents carried over unchanged, gsd-*.md replaced) and swapped in; a failed build keeps the old tree.
+    let agentsSwapped = false;
+    try {
+      stageAndSwap(agentsDest, (stageDir) => buildAgentsStage(agentsDest, stageDir, agentsSrc, pathPrefix, runtime));
+      agentsSwapped = true;
+    } catch (err) {
+      console.error(`  ${yellow}✗${reset} Failed to replace agents: ${err.message}`);
     }
-
-    // Copy new agents
-    const agentEntries = fs.readdirSync(agentsSrc, { withFileTypes: true });
-    for (const entry of agentEntries) {
-      if (entry.isFile() && entry.name.endsWith('.md')) {
-        let content = fs.readFileSync(path.join(agentsSrc, entry.name), 'utf8');
-        // Always replace ~/.claude/ as it is the source of truth in the repo
-        content = rewriteClaudeDir(content, pathPrefix);
-        content = processAttribution(content, getCommitAttribution(runtime));
-        // Convert frontmatter for runtime compatibility
-        if (isOpencode) {
-          content = convertClaudeToOpencodeFrontmatter(content);
-        } else if (isGemini) {
-          content = convertClaudeToGeminiAgent(content);
-        }
-        fs.writeFileSync(path.join(agentsDest, entry.name), content);
-      }
-    }
-    if (verifyInstalled(agentsDest, 'agents')) {
+    if (agentsSwapped && verifyInstalled(agentsDest, 'agents')) {
       console.log(`  ${green}✓${reset} Installed agents`);
     } else {
       failures.push('agents');
@@ -2259,4 +2298,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { installHookDependencies, wrapWithTimeout, resolveTimeoutBinary, rewrapGsdHookCommands, writeManifest, pruneIdenticalPatches, copyWithPathReplacement, copyDirVerbatim, rewriteClaudeDir, readSettings, readOpencodeConfig, writeSettings, refuseInstall, runRefusal, stageAndSwap };
+module.exports = { installHookDependencies, wrapWithTimeout, resolveTimeoutBinary, rewrapGsdHookCommands, writeManifest, pruneIdenticalPatches, copyWithPathReplacement, copyDirVerbatim, rewriteClaudeDir, readSettings, readOpencodeConfig, writeSettings, refuseInstall, runRefusal, stageAndSwap, buildAgentsStage };

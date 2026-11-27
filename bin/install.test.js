@@ -1165,6 +1165,77 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
     assert.strictEqual(fs.existsSync(`${live}.prev`), false);
   }));
 
+  test('stageAndSwap: an interrupted build leaves get-shit-done, agents and commands/gsd byte-identical', () => withHome((home) => {
+    const claude = seedClaudeDir(home);
+    fs.mkdirSync(path.join(claude, 'commands', 'gsd'), { recursive: true });
+    fs.writeFileSync(path.join(claude, 'commands', 'gsd', 'c.md'), 'cmd\n');
+    fs.writeFileSync(path.join(claude, 'agents', 'mine.md'), 'foreign\n');
+    const before = snapshotOf(claude);
+    for (const rel of ['get-shit-done', 'agents', path.join('commands', 'gsd')]) {
+      assert.throws(() => installer().stageAndSwap(path.join(claude, rel), (stage, adopt) => {
+        fs.mkdirSync(stage, { recursive: true });
+        fs.writeFileSync(path.join(stage, 'half.md'), 'partial\n');
+        adopt();
+        throw new Error('simulated interruption');
+      }), /simulated interruption/);
+    }
+    assert.deepStrictEqual(snapshotOf(claude), before);
+  }));
+
+  test('buildAgentsStage: foreign agents survive, gsd-*.md are replaced', () => withHome((home) => {
+    const live = path.join(home, 'agents');
+    const srcDir = path.join(home, 'src-agents');
+    fs.mkdirSync(path.join(live, 'sub'), { recursive: true });
+    fs.mkdirSync(srcDir);
+    fs.writeFileSync(path.join(live, 'mine.md'), 'foreign\n');
+    fs.writeFileSync(path.join(live, 'sub', 'x.md'), 'nested\n');
+    fs.writeFileSync(path.join(live, 'gsd-old.md'), 'retired\n');
+    fs.writeFileSync(path.join(srcDir, 'gsd-new.md'), 'new agent\n');
+    installer().stageAndSwap(live, (stage) => installer().buildAgentsStage(live, stage, srcDir, `${home}/`, 'claude'));
+    assert.deepStrictEqual(fs.readdirSync(live).sort(), ['gsd-new.md', 'mine.md', 'sub']);
+    assert.strictEqual(fs.readFileSync(path.join(live, 'mine.md'), 'utf8'), 'foreign\n');
+    assert.strictEqual(fs.readFileSync(path.join(live, 'sub', 'x.md'), 'utf8'), 'nested\n');
+    assert.strictEqual(fs.existsSync(path.join(`${live}.prev`, 'gsd-old.md')), true);
+  }));
+
+  test('stageAndSwap: node_modules moves into the new tree; a failed build or npm step gives it back', () => withHome((home) => {
+    const live = path.join(home, 'get-shit-done');
+    fs.mkdirSync(path.join(live, 'node_modules', 'm'), { recursive: true });
+    fs.writeFileSync(path.join(live, 'node_modules', 'm', 'i.js'), 'deps\n');
+    fs.writeFileSync(path.join(live, 'a.js'), 'old\n');
+    const before = snapshotOf(live);
+    assert.throws(() => installer().stageAndSwap(live, (stage, adopt) => {
+      fs.mkdirSync(stage);
+      adopt();
+      throw new Error('npm failed');
+    }), /npm failed/);
+    assert.deepStrictEqual(snapshotOf(live), before);
+    installer().stageAndSwap(live, (stage, adopt) => {
+      fs.mkdirSync(stage);
+      fs.writeFileSync(path.join(stage, 'a.js'), 'new\n');
+      adopt();
+    });
+    assert.strictEqual(fs.readFileSync(path.join(live, 'a.js'), 'utf8'), 'new\n');
+    assert.strictEqual(fs.readFileSync(path.join(live, 'node_modules', 'm', 'i.js'), 'utf8'), 'deps\n');
+    assert.strictEqual(fs.existsSync(path.join(`${live}.prev`, 'node_modules')), false);
+  }));
+
+  test('stageAndSwap: a killed run that stranded node_modules in the stage is repaired by the next run', () => withHome((home) => {
+    const live = path.join(home, 'get-shit-done');
+    fs.mkdirSync(path.join(live, '.next-dummy'), { recursive: true });
+    fs.mkdirSync(path.join(`${live}.next`, 'node_modules', 'm'), { recursive: true });
+    assert.throws(() => installer().stageAndSwap(live, () => { throw new Error('stop'); }), /stop/);
+    assert.strictEqual(fs.existsSync(path.join(live, 'node_modules', 'm')), true);
+  }));
+
+  test('stageAndSwap: keepPrev false leaves no .prev beside the live tree', () => withHome((home) => {
+    const live = path.join(home, 'gsd');
+    fs.mkdirSync(live);
+    installer().stageAndSwap(live, (stage) => fs.mkdirSync(stage), fs.renameSync, { keepPrev: false });
+    assert.strictEqual(fs.existsSync(`${live}.prev`), false);
+    assert.strictEqual(fs.existsSync(live), true);
+  }));
+
   test('rollback restores node_modules that the swap dropped, from the .prev tree it kept', () => withHome((home) => {
     const claude = seedClaudeDir(home);
     fs.mkdirSync(path.join(claude, 'get-shit-done', 'node_modules', 'm'), { recursive: true });
