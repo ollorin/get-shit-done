@@ -271,40 +271,42 @@ describe('get-shit-done/modules/ removal (Phase 44-04 regression)', () => {
 
   const deletedModuleNames = ['circuit-breaker', 'escalation', 'feedback', 'learning', 'validator'];
 
-  test('no tracked file (excluding .planning/ and docs/) references modules/<name>/index.js for any deleted module', () => {
-    const EXCLUDED_DIR_NAMES = new Set(['.git', 'node_modules', '.planning', 'docs']);
-    const patterns = deletedModuleNames.map(name => `modules/${name}/index.js`);
-    const offenders = [];
+  const EXCLUDED_DIR_NAMES = new Set(['.git', 'node_modules', '.planning', 'docs']);
+  const patterns = deletedModuleNames.map(name => `modules/${name}/index.js`);
 
-    function walk(dir) {
-      let entries;
+  function findStaleRefs(root, relFiles) {
+    const offenders = [];
+    for (const rel of relFiles) {
+      if (rel.split('/').some(seg => EXCLUDED_DIR_NAMES.has(seg))) continue;
+      const fullPath = path.join(root, rel);
+      let content;
       try {
-        entries = fs.readdirSync(dir, { withFileTypes: true });
+        content = fs.readFileSync(fullPath, 'utf-8');
       } catch {
-        return;
+        continue; // missing, directory or unreadable file, skip
       }
-      for (const entry of entries) {
-        if (EXCLUDED_DIR_NAMES.has(entry.name)) continue;
-        const fullPath = path.join(dir, entry.name);
-        if (entry.isDirectory()) {
-          walk(fullPath);
-        } else if (entry.isFile()) {
-          let content;
-          try {
-            content = fs.readFileSync(fullPath, 'utf-8');
-          } catch {
-            continue; // binary or unreadable file, skip
-          }
-          for (const pattern of patterns) {
-            if (content.includes(pattern)) {
-              offenders.push({ file: fullPath, pattern });
-            }
-          }
-        }
+      for (const pattern of patterns) {
+        if (content.includes(pattern)) offenders.push({ file: fullPath, pattern });
       }
     }
+    return offenders;
+  }
 
-    walk(REPO_ROOT);
+  test('the scan flags a tracked file that references a deleted module', () => {
+    const dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'cleanup-regr-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'offender.js'), `require('./${patterns[0]}');\n`);
+      assert.strictEqual(findStaleRefs(dir, ['offender.js']).length, 1);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('no tracked file (excluding .planning/ and docs/) references modules/<name>/index.js for any deleted module', () => {
+    const tracked = execSync('git ls-files -z', { cwd: REPO_ROOT, encoding: 'utf-8', maxBuffer: 256 * 1024 * 1024 })
+      .split('\0')
+      .filter(Boolean);
+    const offenders = findStaleRefs(REPO_ROOT, tracked);
 
     assert.deepStrictEqual(
       offenders,
