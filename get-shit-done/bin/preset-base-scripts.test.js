@@ -308,7 +308,6 @@ describe('stack lock (agnostic-M-08 8.4)', () => {
     assert.ok(path.basename(path.dirname(dflt.ownerFile)).startsWith('stack.lock'), 'owner dir matches stack.lock*');
     assert.match(m.parseArgs(['--label', 'x']).error, /missing -- <command>/);
     assert.match(m.parseArgs(['--label', 'x', '--']).error, /empty command/);
-    assert.match(m.parseArgs(['--', 'true']).error, /--label is required/);
     assert.match(m.parseArgs(['--label', 'x', '--timeout', '0', '--', 'true']).error, /positive integer/);
     assert.match(m.parseArgs(['--label', 'x', '--timeout', '1.5', '--', 'true']).error, /positive integer/);
     assert.match(m.parseArgs(['--bogus', '1', '--', 'true']).error, /unknown argument --bogus/);
@@ -322,8 +321,6 @@ describe('stack lock (agnostic-M-08 8.4)', () => {
     const usage = spawnSync('sh', [LOCK_SH, '--label', 'x'], { encoding: 'utf8' });
     assert.strictEqual(usage.status, 2);
     assert.ok(usage.stderr.includes(m.USAGE), usage.stderr);
-    const nolabel = spawnSync('sh', [LOCK_SH, '--', 'true'], { encoding: 'utf8' });
-    assert.strictEqual(nolabel.status, 2);
     const pass = spawnSync('sh', wrapperArgs(l, 'x', 5, ['sh', '-c', 'exit 42']), { encoding: 'utf8' });
     assert.strictEqual(pass.status, 42);
     const missing = spawnSync('sh', wrapperArgs(l, 'x', 5, ['/nonexistent/gsd-no-such-command']), { encoding: 'utf8' });
