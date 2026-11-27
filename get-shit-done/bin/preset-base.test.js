@@ -67,6 +67,7 @@ describe('base preset: CLAUDE.md methodology (agnostic-M-03 3.1)', () => {
       ['.claude/hooks/lib/check-denied-command.pl', 'whole', true],
       ['.claude/hooks/check-flake-patterns.sh', 'whole', false],
       ['.claude/hooks/lib/flake-gate.mjs', 'whole', false],
+      ['.claude/hooks/agent-stop-reaper.mjs', 'whole', false],
       ['scripts/validation/hook-canaries/run-canaries.sh', 'whole', true],
       ['scripts/validation/hook-canaries/canaries.jsonl', 'whole', true],
       ['scripts/hooks-apply.sh', 'whole', false],
@@ -418,6 +419,7 @@ describe('base preset: regression guard for the base deployment (agnostic-M-03 3
   ];
   // The default configuration, after the 2.1 wiring. The gated groups (8.12 backend, 8.13 web_ui) extend these lists.
   const DEPLOYED = [
+    '.claude/hooks/agent-stop-reaper.mjs',
     '.claude/hooks/block-push-without-local-tests.sh',
     '.claude/hooks/check-denied-command.sh',
     '.claude/hooks/check-flake-patterns.sh',
@@ -662,7 +664,7 @@ describe('base preset: regression guard for the base deployment (agnostic-M-03 3
   test('3.7 each base copy under .planning/.gsd-preset-base is byte-equal to its deployed file', () => {
     const root = initWith({});
     const mirrors = listTree(root).filter((f) => f.startsWith('.planning/.gsd-preset-base/'));
-    assert.strictEqual(mirrors.length, 89, 'one base copy per preset file (not the settings, gitignore or manifest)');
+    assert.strictEqual(mirrors.length, 90, 'one base copy per preset file (not the settings, gitignore or manifest)');
     for (const m of mirrors) {
       const dest = m.slice('.planning/.gsd-preset-base/'.length);
       assert.ok(fs.readFileSync(path.join(root, m)).equals(fs.readFileSync(path.join(root, dest))), dest);
@@ -688,7 +690,9 @@ describe('base preset: regression guard for the base deployment (agnostic-M-03 3
   test('3.7 PreToolUse has exactly two groups: Bash with the five Bash hooks, Write|Edit with the flake hook; every command resolves to an executable deployed file', () => {
     const root = initWith({});
     const settings = JSON.parse(fs.readFileSync(path.join(root, '.claude', 'settings.json'), 'utf8'));
-    assert.deepStrictEqual(Object.keys(settings.hooks), ['PreToolUse']);
+    assert.deepStrictEqual(Object.keys(settings.hooks), ['PreToolUse', 'SubagentStop']);
+    assert.deepStrictEqual(settings.hooks.SubagentStop, [{ hooks: [{ type: 'command', command: 'node "$CLAUDE_PROJECT_DIR"/.claude/hooks/agent-stop-reaper.mjs', timeout: 15 }] }]);
+    assert.ok(fs.statSync(path.join(root, '.claude', 'hooks', 'agent-stop-reaper.mjs')).isFile());
     const groups = settings.hooks.PreToolUse;
     assert.deepStrictEqual(groups.map((g) => g.matcher), ['Bash', 'Write|Edit|MultiEdit']);
     const rel = groups.map((g) => g.hooks.map((h) => h.command.replace('"$CLAUDE_PROJECT_DIR"/', '')));
@@ -706,7 +710,7 @@ describe('base preset: regression guard for the base deployment (agnostic-M-03 3
   test('3.7 guarded flags: every entry under .claude/hooks (lib included) and the five scripts is guarded; canaries.jsonl is not', () => {
     const { preset } = R.loadPreset(BASE);
     const mine = preset.files.filter((f) => f.dest.startsWith('.claude/hooks/') || GUARDED_SCRIPTS.includes(f.dest));
-    assert.strictEqual(mine.length, 36, '15 hook files and the 21 scripts');
+    assert.strictEqual(mine.length, 37, '16 hook files and the 21 scripts');
     for (const f of mine) assert.strictEqual(f.guarded, true, f.dest);
     for (const s of GUARDED_SCRIPTS) assert.ok(preset.files.some((f) => f.dest === s), `entry for ${s}`);
     assert.strictEqual(preset.files.find((f) => f.dest === 'scripts/validation/hook-canaries/canaries.jsonl').guarded, false);
@@ -919,7 +923,7 @@ describe('base preset: pilot, three throwaway projects (agnostic-M-07 7.2)', () 
   const gateIds = (assertionQuality) => ['hook-canaries', 'hook-patch-trailer', 'guard-canaries', 'guard-registry', 'style', 'flake-patterns', 'dependency-scan', 'adr', ...(assertionQuality ? ['assertion-quality'] : [])];
   // Deployed files for every project, from the summaries of M-03, M-08 and M-09 (the plan's literal list differs, see M-07-SUMMARY).
   const ALWAYS = [
-    '.claude/hooks/block-push-without-local-tests.sh', '.claude/hooks/check-denied-command.sh', '.claude/hooks/check-flake-patterns.sh',
+    '.claude/hooks/agent-stop-reaper.mjs', '.claude/hooks/block-push-without-local-tests.sh', '.claude/hooks/check-denied-command.sh', '.claude/hooks/check-flake-patterns.sh',
     '.claude/hooks/check-git-merge-target.sh', '.claude/hooks/check-test-command.sh', '.claude/hooks/lib/HookGuard.pm',
     '.claude/hooks/lib/ShellParse.pm', '.claude/hooks/lib/block-push-without-local-tests.pl', '.claude/hooks/lib/check-denied-command.pl',
     '.claude/hooks/lib/check-git-merge-target.pl', '.claude/hooks/lib/check-test-command.pl', '.claude/hooks/lib/flake-gate.mjs',

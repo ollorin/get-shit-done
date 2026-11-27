@@ -117,6 +117,13 @@
       "guarded": true
     },
     {
+      "src": "hooks/agent-stop-reaper.mjs",
+      "dest": ".claude/hooks/agent-stop-reaper.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
       "src": "canaries/run-canaries.sh",
       "dest": "scripts/validation/hook-canaries/run-canaries.sh",
       "kind": "whole",

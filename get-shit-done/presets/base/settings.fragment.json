@@ -180,6 +180,17 @@
           }
         ]
       }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/agent-stop-reaper.mjs",
+            "timeout": 15
+          }
+        ]
+      }
     ]
   }
 }
