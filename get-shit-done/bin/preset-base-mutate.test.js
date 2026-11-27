@@ -44,6 +44,19 @@ const git = (root, ...args) => {
   assert.strictEqual(r.status, 0, r.stderr);
   return r.stdout;
 };
+// The runner every CLI case configures (stack.mutation.runners is the only config path): a plain node script per test file.
+const SELFTEST = {
+  dir: 'src',
+  ext: '.check.js',
+  pass: "console.log('passed 1');\n",
+  kill: "console.error('FAIL __mutate_selftest_kill__'); process.exit(1);\n",
+  build: 'const = ;\n',
+};
+const RUNNER = { id: 'node', test_cmd: 'node {file} -t {name}', build_error_pattern: 'SyntaxError', pass_pattern: 'passed (\\d+)', selftest: SELFTEST };
+const writeConfig = (root, stack = {}) => {
+  fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.planning', 'config.json'), JSON.stringify({ stack: { ...stack, mutation: { runners: [RUNNER] } } }));
+};
 const ORIGINAL = 'export const add = (a, b) => a + b;\n';
 // A tmp repo with one committed source file and one committed test file.
 function repo() {
@@ -125,9 +138,10 @@ describe('mutation tool: run guards refuse and leave the target unchanged (agnos
   test('baselineError names the first test that is not green and stops there', async () => {
     const { baselineError } = await load('guards.mjs');
     const seen = [];
-    const runner = async (_root, t) => { seen.push(t); return { outcome: t === 'b' ? 'killed' : 'survived', durationMs: 1 }; };
-    assert.strictEqual(await baselineError(runner, 'before', '/r', ['a'], 1, {}), null);
-    assert.match(await baselineError(runner, 'after', '/r', ['a', 'b', 'c'], 1, {}), /baseline red after: b fails unmutated \(killed\)/);
+    const runner = async (_root, t) => { seen.push(t); return { outcome: t === 'b' ? 'killed' : 'survived', output: 'passed 1', durationMs: 1 }; };
+    const counted = { passPattern: 'passed (\\d+)' };
+    assert.strictEqual(await baselineError(runner, 'before', '/r', ['a'], 1, counted), null);
+    assert.match(await baselineError(runner, 'after', '/r', ['a', 'b', 'c'], 1, counted),/baseline red after: b fails unmutated \(killed\)/);
     assert.deepStrictEqual(seen, ['a', 'a', 'b']);
   });
 });
@@ -226,15 +240,15 @@ describe('mutation tool: option parsing (agnostic-M-09 9.4)', () => {
     assert.strictEqual(parseOptions(['--mutants', 'm.json', '--test-flag=--allow-all']).ok, false);
   });
 
-  test('--timeout, --test-env, --test-cmd and --error-pattern are validated; defaults are stated', async () => {
+  test('--timeout and --test-env are validated; defaults are stated', async () => {
     const { parseOptions } = await load('options.mjs');
     const base = ['--mutants', 'm.json'];
     for (const bad of ['0', '-1', 'abc', '2147484']) assert.strictEqual(parseOptions([...base, '--timeout', bad]).ok, false, bad);
     assert.strictEqual(parseOptions([...base, '--timeout', '2147483']).ok, true);
     assert.match(parseOptions([...base, '--test-env', 'NOEQUALS']).error, /KEY=VALUE/);
-    assert.match(parseOptions([...base, '--test-cmd', 'node --test']).error, /\{file\}/);
-    assert.match(parseOptions([...base, '--error-pattern', '(']).error, /regular expression/);
-    const good = parseOptions([...base, '--root', '/r', '--test-cmd', 'node --test {file}', '--test-env', 'A=1', '--test-env', 'B=x=y', '--error-pattern', 'SyntaxError', '--dry-run'], '/cwd', new Date('2026-01-02T03:04:05.678Z'));
+    assert.strictEqual(parseOptions([...base, '--test-cmd', 'node --test {file}']).ok, false, 'the flag is gone');
+    assert.strictEqual(parseOptions([...base, '--error-pattern', 'x']).ok, false, 'the flag is gone');
+    const good = parseOptions([...base, '--root', '/r', '--test-env', 'A=1', '--test-env', 'B=x=y', '--dry-run'],'/cwd', new Date('2026-01-02T03:04:05.678Z'));
     assert.strictEqual(good.ok, true);
     assert.deepStrictEqual(good.value, {
       mutantsPath: 'm.json',
@@ -244,7 +258,7 @@ describe('mutation tool: option parsing (agnostic-M-09 9.4)', () => {
       dryRun: true,
       allowDirty: false,
       allowPrimary: false,
-      config: { testCmd: 'node --test {file}', testEnv: { A: '1', B: 'x=y' }, errorPattern: 'SyntaxError' },
+      config: { testEnv: { A: '1', B: 'x=y' } },
     });
     assert.strictEqual(parseOptions(base, '/cwd').value.root, '/cwd');
   });
@@ -252,7 +266,7 @@ describe('mutation tool: option parsing (agnostic-M-09 9.4)', () => {
 
 describe('mutation tool: runner seam, exit-status verdict (agnostic-M-09 9.5)', () => {
   const CMD = 'node --test {file}';
-  const cfg = (extra = {}) => ({ testCmd: CMD, testEnv: {}, errorPattern: null, ...extra });
+  const cfg = (extra = {}) => ({ testCmd: CMD, testEnv: {}, errorPattern: null, passPattern: 'pass (\\d+)', ...extra });
   const ADD_TEST = "const test = require('node:test');\nconst assert = require('node:assert');\ntest('add', () => { assert.strictEqual(require('./add.js').add(1, 2), 3); });\n";
   // A project with a source file, a test that catches a change to it, and a second source no test reads.
   function project() {
@@ -299,15 +313,13 @@ describe('mutation tool: runner seam, exit-status verdict (agnostic-M-09 9.5)', 
     assert.ok(await gone(Number(fs.readFileSync(path.join(root, 'pid.txt'), 'utf8'))), 'the leftover process survived the run');
   });
 
-  test('with an error pattern a syntactically broken mutant is errored; without one it is killed; the notice is exported', async () => {
+  test('with an error pattern a syntactically broken mutant is errored; at this layer without one it is killed', async () => {
     const { runTest } = await load('process.mjs');
-    const { NO_PATTERN_NOTICE } = await load('classify.mjs');
     const root = project();
     fs.writeFileSync(path.join(root, 'src', 'add.js'), 'exports.add = (a, b) => a +;\n');
     const withPattern = await runTest(root, 'src/add.check.js', 30000, cfg({ errorPattern: 'SyntaxError' }));
     assert.strictEqual(withPattern.outcome, 'errored', withPattern.output);
     assert.strictEqual((await runTest(root, 'src/add.check.js', 30000, cfg())).outcome, 'killed');
-    assert.strictEqual(NO_PATTERN_NOTICE, 'no error pattern: a mutant that fails to build counts as killed');
     fs.writeFileSync(path.join(root, 'src', 'add.js'), 'exports.add = (a, b) => a - b;\n');
     assert.strictEqual((await runTest(root, 'src/add.check.js', 30000, cfg({ errorPattern: 'SyntaxError' }))).outcome, 'killed', 'an assertion failure is still a kill');
   });
@@ -406,8 +418,7 @@ describe('mutation tool: the command line (agnostic-M-09 9.6)', () => {
   // Ports of the source safety cases gsd-mutate.test.ts:131 (dirty), :294 (untracked), :340 (gitignored), :399 (primary,
   // dry-run) and run_cases.ts:85 (mutants file problems), :106 (not a git worktree), :150 (--out), :197 (leftover restore directory).
   const CLI = path.join(MUTATE, 'mutate.mjs');
-  const TEST_CMD = 'node --test {file}';
-  const ADD_TEST = "const test = require('node:test');\nconst assert = require('node:assert');\ntest('add', () => { assert.strictEqual(require('./add.js').add(1, 2), 3); });\n";
+  const ADD_TEST = "if (require('./add.js').add(1, 2) !== 3) { console.error('FAIL add.check.js > add'); process.exit(1); }\nconsole.log('passed 1');\n";
   const SRC = 'exports.add = (a, b) => a + b;\nexports.unused = 1;\n';
   const mutant = (id, extra = {}) => ({ id, file: 'src/add.js', old: 'a + b', new: 'a - b', test: 'src/add.check.js', expect_failing_test: 'add', ...extra });
   const KILL = mutant('M-kill');
@@ -421,6 +432,7 @@ describe('mutation tool: the command line (agnostic-M-09 9.6)', () => {
     fs.writeFileSync(path.join(root, 'src', 'add.js'), SRC);
     fs.writeFileSync(path.join(root, 'src', 'add.check.js'), ADD_TEST);
     fs.writeFileSync(path.join(root, '.gitignore'), 'ignored.js\n');
+    writeConfig(root);
     git(root, 'add', '-A');
     git(root, 'commit', '-q', '-m', 'init');
     return root;
@@ -433,7 +445,7 @@ describe('mutation tool: the command line (agnostic-M-09 9.6)', () => {
   const run = (root, list, args = [], extra = {}) => {
     const mutants = writeMutants(root, list);
     const out = path.join(root, '.out.jsonl');
-    return { ...cli(['--mutants', mutants, '--out', out, '--root', root, '--test-cmd', TEST_CMD, ...args], extra), outFile: out };
+    return { ...cli(['--mutants', mutants, '--out', out, '--root', root, ...args], { cwd: root, ...extra }), outFile: out };
   };
   const src = (root) => fs.readFileSync(path.join(root, 'src', 'add.js'), 'utf8');
 
@@ -487,21 +499,22 @@ describe('mutation tool: the command line (agnostic-M-09 9.6)', () => {
 
   test('mutants file problems exit 2: missing, not JSON, empty, not an array; a root that is not a git worktree exits 2; --out may not be a target', () => {
     const root = fixtureRepo();
-    const base = ['--out', path.join(root, '.out.jsonl'), '--root', root, '--test-cmd', TEST_CMD];
-    assert.strictEqual(cli(['--mutants', path.join(root, 'absent.json'), ...base]).code, 2);
+    const base = ['--out', path.join(root, '.out.jsonl'), '--root', root];
+    assert.strictEqual(cli(['--mutants', path.join(root, 'absent.json'), ...base], { cwd: root }).code, 2);
     const bad = path.join(root, 'bad.json');
     for (const text of ['{nope', '[]', '{"a":1}']) {
       fs.writeFileSync(bad, text);
-      assert.strictEqual(cli(['--mutants', bad, ...base]).code, 2, text);
+      assert.strictEqual(cli(['--mutants', bad, ...base], { cwd: root }).code, 2, text);
     }
     const nogit = mkTmp('gsd-mutate-nogit-');
     fs.mkdirSync(path.join(nogit, 'src'));
     fs.writeFileSync(path.join(nogit, 'src', 'add.js'), SRC);
     fs.writeFileSync(path.join(nogit, 'src', 'add.check.js'), ADD_TEST);
+    writeConfig(nogit);
     const n = run(nogit, [KILL]);
     assert.strictEqual(n.code, 2, n.out);
     assert.strictEqual(src(nogit), SRC);
-    const clash = cli(['--mutants', writeMutants(root, [KILL]), '--out', path.join(root, 'src', 'add.js'), '--root', root, '--test-cmd', TEST_CMD]);
+    const clash = cli(['--mutants', writeMutants(root, [KILL]), '--out', path.join(root, 'src', 'add.js'), '--root', root], { cwd: root });
     assert.strictEqual(clash.code, 2, clash.out);
     assert.match(clash.out, /would overwrite/);
     assert.strictEqual(src(root), SRC);
@@ -511,7 +524,7 @@ describe('mutation tool: the command line (agnostic-M-09 9.6)', () => {
     const { main } = await load('mutate.mjs');
     const root = fixtureRepo();
     const mutants = writeMutants(root, [KILL]);
-    const argv = ['--mutants', mutants, '--out', path.join(root, '.out.jsonl'), '--root', root, '--test-cmd', TEST_CMD];
+    const argv = ['--mutants', mutants, '--out', path.join(root, '.out.jsonl'), '--root', root];
     // main reads the profile and the window config from the process cwd: run inside the fixture, not the caller's project.
     const quiet = async (fn) => { const e = console.error; const l = console.log; const cwd = process.cwd(); console.error = () => {}; console.log = () => {}; process.chdir(root); try { return await fn(); } finally { process.chdir(cwd); console.error = e; console.log = l; } };
     assert.strictEqual(await quiet(() => main(argv, { tempBases: [] })), 2, 'primary refused');
@@ -521,7 +534,7 @@ describe('mutation tool: the command line (agnostic-M-09 9.6)', () => {
     assert.strictEqual(src(root), SRC, 'restored');
     const linked = path.join(mkTmp('gsd-mutate-linked-'), 'wt');
     git(root, 'worktree', 'add', '-q', linked, 'HEAD');
-    const linkedArgv = ['--mutants', mutants, '--out', path.join(linked, '.out.jsonl'), '--root', linked, '--test-cmd', TEST_CMD];
+    const linkedArgv = ['--mutants', mutants, '--out', path.join(linked, '.out.jsonl'), '--root', linked];
     assert.strictEqual(await quiet(() => main(linkedArgv, { tempBases: [] })), 0, 'a linked worktree is allowed');
     assert.strictEqual(fs.readFileSync(path.join(linked, 'src', 'add.js'), 'utf8'), SRC);
   });
@@ -547,7 +560,6 @@ describe('mutation tool: the command line (agnostic-M-09 9.6)', () => {
     git(primary, 'worktree', 'add', '-q', linked, 'HEAD');
     const r = run(linked, [KILL, SURVIVE]);
     assert.strictEqual(r.code, 0, r.out);
-    assert.match(r.out, /no error pattern: a mutant that fails to build counts as killed/);
     const records = fs.readFileSync(r.outFile, 'utf8').trim().split('\n').map(JSON.parse);
     assert.deepStrictEqual(records.map((x) => [x.id, x.outcome, x.kill_confirmed]), [['M-kill', 'killed', true], ['M-survive', 'survived', null]]);
     assert.strictEqual(records[1].first_failing_line, null, 'a survivor carries no failing line');
@@ -555,7 +567,7 @@ describe('mutation tool: the command line (agnostic-M-09 9.6)', () => {
     assert.strictEqual(records[0].source_sha_after, records[0].source_sha_before);
     assert.strictEqual(fs.readFileSync(path.join(linked, 'src', 'add.js'), 'utf8'), SRC);
     const summary = JSON.parse(fs.readFileSync(`${r.outFile}.run.json`, 'utf8'));
-    assert.deepStrictEqual(summary, { exit_code: 0, mutants: 2, self_test: 'skipped', baseline_before: 'green', baseline_after: 'green' });
+    assert.deepStrictEqual(summary, { exit_code: 0, mutants: 2, self_test: 'passed', baseline_before: 'green', baseline_after: 'green' });
     assert.ok(!fs.existsSync(`${r.outFile}.restore`), 'a successful run leaves no backup directory');
     const canary = run(linked, [mutant('C1', { expect: 'survived' })]);
     assert.strictEqual(canary.code, 1, canary.out);
@@ -564,9 +576,9 @@ describe('mutation tool: the command line (agnostic-M-09 9.6)', () => {
     assert.strictEqual(fs.readFileSync(path.join(linked, 'src', 'add.js'), 'utf8'), SRC);
   });
 
-  test('a red baseline exits 2 before any edit and writes the run summary; the profile supplies the test command and error pattern', () => {
+  test('a red baseline exits 2 before any edit and writes the run summary; the profile supplies the runner and its error pattern', () => {
     const root = fixtureRepo();
-    fs.writeFileSync(path.join(root, 'src', 'add.check.js'), "require('node:test')('red', () => { throw new Error('red'); });\n");
+    fs.writeFileSync(path.join(root, 'src', 'add.check.js'), "console.error('FAIL add.check.js > red'); process.exit(1);\n");
     git(root, 'add', '-A');
     git(root, 'commit', '-q', '-m', 'red');
     const red = run(root, [KILL]);
@@ -576,14 +588,11 @@ describe('mutation tool: the command line (agnostic-M-09 9.6)', () => {
     assert.strictEqual(src(root), SRC);
 
     const proj = fixtureRepo();
-    fs.mkdirSync(path.join(proj, '.planning'));
-    fs.writeFileSync(path.join(proj, '.planning', 'config.json'), JSON.stringify({ stack: { commands: { test_file: TEST_CMD }, mutation: { build_error_pattern: 'SyntaxError' } } }));
     const broken = mutant('M-broken', { old: 'a + b', new: 'a +' });
     const fromProfile = cli(['--mutants', writeMutants(proj, [broken, KILL]), '--out', path.join(proj, '.out.jsonl'), '--root', proj], { cwd: proj });
     assert.strictEqual(fromProfile.code, 5, fromProfile.out);
     const records = fs.readFileSync(path.join(proj, '.out.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
     assert.deepStrictEqual(records.map((x) => [x.id, x.outcome]), [['M-broken', 'errored']], 'the run stops at the build error; the later mutant never runs');
-    assert.ok(!fromProfile.out.includes('no error pattern'));
     assert.strictEqual(src(proj), SRC);
     const noConfig = cli(['--mutants', writeMutants(proj, [KILL]), '--root', proj], { cwd: mkTmp('gsd-mutate-empty-') });
     assert.strictEqual(noConfig.code, 2, noConfig.out);
@@ -597,20 +606,21 @@ describe('mutation tool: signals through the command line (agnostic-M-09 9.6)', 
   const CLI = path.join(MUTATE, 'mutate.mjs');
   const SRC = 'exports.add = (a, b) => a + b;\nexports.marker = "clean";\n';
   // The test passes on the clean source; on the mutated one it records its pid and waits.
-  const CHECK = "const fs = require('fs');\nif (fs.readFileSync('src/add.js', 'utf8').includes('MUTATED')) { fs.writeFileSync('in-window.txt', String(process.pid)); setInterval(() => {}, 1000); }\nelse require('node:test')('clean', () => {});\n";
+  const CHECK = "const fs = require('fs');\nif (fs.readFileSync('src/add.js', 'utf8').includes('MUTATED')) { fs.writeFileSync('in-window.txt', String(process.pid)); setInterval(() => {}, 1000); }\nelse console.log('passed 1');\n";
   function slowRepo() {
     const root = mkTmp('gsd-mutate-sig-cli-');
     git(root, 'init', '-q');
     fs.mkdirSync(path.join(root, 'src'));
     fs.writeFileSync(path.join(root, 'src', 'add.js'), SRC);
     fs.writeFileSync(path.join(root, 'src', 'slow.check.js'), CHECK);
+    writeConfig(root);
     git(root, 'add', '-A');
     git(root, 'commit', '-q', '-m', 'init');
     fs.writeFileSync(path.join(root, '.m.json'), JSON.stringify([{ id: 'S1', file: 'src/add.js', test: 'src/slow.check.js', old: '"clean"', new: '"MUTATED"', expect_failing_test: 'slow' }]));
     return root;
   }
   const start = (root) => {
-    const child = spawn(process.execPath, [CLI, '--mutants', path.join(root, '.m.json'), '--out', path.join(root, '.out.jsonl'), '--root', root, '--test-cmd', 'node {file}'], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [CLI, '--mutants', path.join(root, '.m.json'), '--out', path.join(root, '.out.jsonl'), '--root', root], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
     spawned.push(child);
     let out = '';
     child.stdout.on('data', (c) => { out += c; });
@@ -651,7 +661,7 @@ describe('mutation tool: signals through the command line (agnostic-M-09 9.6)', 
     assert.strictEqual(fs.readFileSync(backup, 'utf8'), SRC, 'the original bytes are kept for the SIGKILLed run');
     const mutatedBytes = fs.readFileSync(path.join(root, 'src', 'add.js'), 'utf8');
     assert.ok(mutatedBytes.includes('MUTATED'));
-    const second = spawnSync(process.execPath, [CLI, '--mutants', path.join(root, '.m.json'), '--out', path.join(root, '.out.jsonl'), '--root', root, '--test-cmd', 'node {file}', '--allow-dirty'], { cwd: root, encoding: 'utf8' });
+    const second = spawnSync(process.execPath, [CLI, '--mutants', path.join(root, '.m.json'), '--out', path.join(root, '.out.jsonl'), '--root', root, '--allow-dirty'], { cwd: root, encoding: 'utf8' });
     assert.strictEqual(second.status, 2, second.stdout + second.stderr);
     assert.match(second.stderr, /holds backups from a run cut short/);
     assert.strictEqual(fs.readFileSync(backup, 'utf8'), SRC);
@@ -682,25 +692,20 @@ describe('mutation tool: no child outlives a test (leaked slow.check.js)', () =>
 });
 
 describe('mutation tool: profile lookup (agnostic-M-09 9.6)', () => {
-  test('withProfile takes flags first, then stack.commands.test_file and stack.mutation.build_error_pattern; every gap is a failure', async () => {
+  test('withProfile reads stack.mutation.runners and nothing else; every gap is a failure', async () => {
     const { withProfile } = await load('mutate.mjs');
     const cwd = mkTmp('gsd-mutate-profile-');
     fs.mkdirSync(path.join(cwd, '.planning'));
     const write = (cfg) => fs.writeFileSync(path.join(cwd, '.planning', 'config.json'), typeof cfg === 'string' ? cfg : JSON.stringify(cfg));
-    const opts = (config = {}) => ({ config: { testCmd: null, testEnv: {}, errorPattern: null, ...config } });
+    const opts = () => ({ config: { testEnv: {} } });
     assert.strictEqual(withProfile(opts(), cwd).ok, false, 'no config file');
     write('{ nope');
     assert.match(withProfile(opts(), cwd).error, /unreadable or not JSON/);
-    write({ stack: { commands: { test_file: 'node --test {file}' }, mutation: { build_error_pattern: 'Boom' } } });
-    assert.deepStrictEqual(withProfile(opts(), cwd).value.config, { testCmd: 'node --test {file}', testEnv: {}, errorPattern: 'Boom' });
-    assert.strictEqual(withProfile(opts({ testCmd: 'x {file}', errorPattern: 'Mine' }), '/nowhere').value.config.errorPattern, 'Mine', 'flags only: no config read');
-    assert.strictEqual(withProfile(opts({ testCmd: 'x {file}' }), cwd).value.config.errorPattern, 'Boom');
-    assert.strictEqual(withProfile(opts({ testCmd: 'x {file}' }), '/nowhere').value.config.errorPattern, null, 'no config and a flag command: no pattern');
-    write({ stack: {} });
-    assert.match(withProfile(opts(), cwd).error, /no test command/);
-    write({ stack: { commands: { test_file: 'no placeholder' } } });
-    assert.match(withProfile(opts(), cwd).error, /must contain \{file\}/);
-    write({ stack: { commands: { test_file: 'x {file}' }, mutation: { build_error_pattern: '(' } } });
+    write({ stack: { mutation: { runners: [RUNNER] } } });
+    assert.deepStrictEqual(withProfile(opts(), cwd).value.config, { testEnv: {}, runners: [RUNNER] });
+    write({ stack: { commands: { test_file: 'x {file}' } } });
+    assert.match(withProfile(opts(), cwd).error, /stack\.mutation\.runners is required/, 'no test_file fallback');
+    write({ stack: { mutation: { runners: [{ ...RUNNER, build_error_pattern: '(' }] } } });
     assert.match(withProfile(opts(), cwd).error, /not a valid regular expression/);
   });
 });
@@ -712,15 +717,14 @@ describe('mutation tool: runs only inside a live window when the project has a s
   // Same committed tmp repo as the other CLI cases; the project (cwd) is the repo, --root a copy of it.
   function project(config) {
     const root = repo();
-    fs.writeFileSync(path.join(root, 'src', 'a.check.js'), '// passes\n');
-    fs.mkdirSync(path.join(root, '.planning'));
-    if (config !== null) fs.writeFileSync(path.join(root, '.planning', 'config.json'), JSON.stringify(config));
+    fs.writeFileSync(path.join(root, 'src', 'a.check.js'), "console.log('passed 1');\n");
+    writeConfig(root, config.stack);
     fs.writeFileSync(path.join(root, 'm.json'), JSON.stringify(mutants));
     return root;
   }
   const lease = (root, args) => spawnSync(process.execPath, [path.join(BIN, 'gsd-tools.js'), 'dispatch', ...args], { cwd: root, encoding: 'utf8' });
   const mutate = (root, extra = []) => {
-    const r = spawnSync(process.execPath, [CLI, '--mutants', path.join(root, 'm.json'), '--out', path.join(root, 'o.jsonl'), '--root', root, '--allow-dirty', '--allow-primary', '--test-cmd', 'node {file}', ...extra], { cwd: root, encoding: 'utf8', timeout: 60000, env: { ...process.env, GSD_BIN_DIR: BIN } });
+    const r = spawnSync(process.execPath, [CLI, '--mutants', path.join(root, 'm.json'), '--out', path.join(root, 'o.jsonl'), '--root', root, '--allow-dirty', '--allow-primary', ...extra], { cwd: root, encoding: 'utf8', timeout: 60000, env: { ...process.env, GSD_BIN_DIR: BIN } });
     return { code: r.status, out: r.stdout + r.stderr };
   };
   const LOCKED = { stack: { isolation: { lock_dir: '.locks' } } };
@@ -745,10 +749,8 @@ describe('mutation tool: runs only inside a live window when the project has a s
     const r = mutate(root, ['--phase', '01']);
     assert.strictEqual(r.code, 0, r.out);
   });
-  test('no lock_dir (or no config): unaffected, --phase not needed', () => {
-    for (const cfg of [{ stack: {} }, null]) {
-      const r = mutate(project(cfg));
-      assert.strictEqual(r.code, 0, r.out);
-    }
+  test('no lock_dir: unaffected, --phase not needed', () => {
+    const r = mutate(project({ stack: {} }));
+    assert.strictEqual(r.code, 0, r.out);
   });
 });

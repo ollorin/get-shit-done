@@ -307,13 +307,11 @@ describe('project upgrade', () => {
     assert.deepStrictEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { env: { A: '1' }, hooks: {} });
   });
 
-  test('migrations: the error_pattern rename is behind the WP9 flag, table defaults fill only absent keys', () => {
+  test('migrations: the error_pattern rename is applied once, table defaults fill only absent keys', () => {
     const config = { stack: { mutation: { error_pattern: 'E' }, commands: { search: 'rg' } } };
-    const off = migrateConfig(config, { refusesErrorPattern: false });
-    assert.strictEqual(off.stack.mutation.error_pattern, 'E');
-    const on = migrateConfig(config, { refusesErrorPattern: true });
+    const on = migrateConfig(config);
     assert.deepStrictEqual(on.stack.mutation, { build_error_pattern: 'E' });
-    assert.deepStrictEqual(migrateConfig(on, { refusesErrorPattern: true }), on);
+    assert.deepStrictEqual(migrateConfig(on), on);
     assert.strictEqual(on.stack.commands.search, 'rg');
   });
 

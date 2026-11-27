@@ -1,7 +1,7 @@
 'use strict';
 
-// WP9: stack.mutation.runners[], the build error pattern refusal (exit 5), the refused old key, the profile shape check.
-// Node and POSIX shell only.
+// WP9: stack.mutation.runners[] (the only config path), the build error pattern refusal (exit 5), the refused old key,
+// the profile shape check and the catalogue self-test. Node and POSIX shell only.
 
 const { test, describe, afterEach } = require('node:test');
 const assert = require('node:assert');
@@ -12,7 +12,6 @@ const { spawnSync } = require('child_process');
 
 const CLI = path.join(__dirname, '..', 'presets', 'base', 'scripts', 'mutate', 'mutate.mjs');
 const keys = require('./project-profile-keys.js');
-const checks = require('./profile-doctor-checks.js');
 const catalogue = require('../references/mutation-runners.json');
 
 const tmps = [];
@@ -23,8 +22,8 @@ const git = (root, ...args) => {
 };
 
 const SRC = 'exports.add = (a, b) => a + b;\n';
-const CRASH_CHECK = "if (require('./add.js').add(1, 2) !== 3) { console.error('FAIL f.js > adds'); console.error('SyntaxError: boom'); process.exit(1); }\n";
-const KILL_CHECK = "if (require('./add.js').add(1, 2) !== 3) { console.error('FAIL f.js > adds'); console.error('AssertionError: wrong sum'); process.exit(1); }\n";
+const CRASH_CHECK = "if (require('./add.js').add(1, 2) !== 3) { console.error('FAIL f.js > adds'); console.error('SyntaxError: boom'); process.exit(1); }\nconsole.log('passed 1');\n";
+const KILL_CHECK = "if (require('./add.js').add(1, 2) !== 3) { console.error('FAIL f.js > adds'); console.error('AssertionError: wrong sum'); process.exit(1); }\nconsole.log('passed 1');\n";
 const mutant = (id, extra = {}) => ({ id, file: 'src/add.js', old: 'a + b', new: 'a - b', test: 'src/kill.check.js', expect_failing_test: 'adds', ...extra });
 const SELFTEST = {
   dir: 'src',
@@ -33,6 +32,8 @@ const SELFTEST = {
   kill: "console.error('FAIL __mutate_selftest_kill__ AssertionError'); process.exit(1);\n",
   build: 'const = ;\n',
 };
+const runner = (extra = {}) => ({ id: 'crashy', test_cmd: 'node {file} -t {name}', build_error_pattern: 'SyntaxError', pass_pattern: 'passed (\\d+)', selftest: SELFTEST, ...extra });
+const RUNNERS = [runner(), runner({ id: 'plain', build_error_pattern: 'SyntaxError|NeverPrinted' })];
 
 function project(mutation) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-wp9-')));
@@ -48,10 +49,6 @@ function project(mutation) {
   git(root, 'commit', '-q', '-m', 'init');
   return root;
 }
-const RUNNERS = [
-  { id: 'crashy', test_cmd: 'node {file} -t {name}', build_error_pattern: 'SyntaxError' },
-  { id: 'plain', test_cmd: 'node {file} -t {name}' },
-];
 function run(root, list) {
   const mutants = path.join(root, '.mutants.json');
   const out = path.join(root, '.out.jsonl');
@@ -72,23 +69,6 @@ describe('WP9 mutation runners: the harness', () => {
     assert.strictEqual(source(root), SRC);
   });
 
-  test('F4: a runner with a selftest and no pattern cannot tell a crash from a kill: refused (exit 2), no mutant runs', () => {
-    const root = project({ runners: [{ id: 'plain', test_cmd: 'node {file} -t {name}', selftest: SELFTEST }] });
-    const r = run(root, [mutant('M-kill', { runner: 'plain', test: 'src/crash.check.js' })]);
-    assert.strictEqual(r.code, 2, r.output);
-    assert.match(r.output, /harness fault: the classifier labels a known build failure as killed/);
-    assert.deepStrictEqual(r.records, []);
-    assert.strictEqual(source(root), SRC);
-  });
-
-  test('a runner with neither pattern nor selftest is unguarded: the same crash is a kill and the run prints the notice', () => {
-    const root = project({ runners: RUNNERS });
-    const r = run(root, [mutant('M-kill', { runner: 'plain', test: 'src/crash.check.js' })]);
-    assert.strictEqual(r.code, 0, r.output);
-    assert.deepStrictEqual(r.records.map((x) => [x.outcome, x.kill_confirmed]), [['killed', true]]);
-    assert.match(r.output, /no error pattern/);
-  });
-
   test('a runner pattern does not touch a kill whose output does not match it', () => {
     const root = project({ runners: RUNNERS });
     const r = run(root, [mutant('M-kill', { runner: 'crashy' })]);
@@ -96,12 +76,18 @@ describe('WP9 mutation runners: the harness', () => {
     assert.strictEqual(r.records[0].outcome, 'killed');
   });
 
-  test('an unknown runner id, a missing id among several runners and malformed runners[] exit 2 before any mutation', () => {
+  test('an unknown runner id, a missing id among several runners, no runners and malformed runners[] exit 2 before any mutation', () => {
     const root = project({ runners: RUNNERS });
     assert.strictEqual(run(root, [mutant('M1', { runner: 'nope' })]).code, 2);
     assert.strictEqual(run(root, [mutant('M1')]).code, 2);
     assert.strictEqual(source(root), SRC);
-    for (const bad of [[], [{ id: 'a' }], [{ id: 'a', test_cmd: 'node x' }], [{ id: 'a', test_cmd: 'node {file} -t {name}', build_error_pattern: '(' }], [RUNNERS[1], RUNNERS[1]]]) {
+    const none = run(project({}), [mutant('M1')]);
+    assert.strictEqual(none.code, 2, none.output);
+    assert.match(none.output, /stack\.mutation\.runners is required/);
+    const { build_error_pattern: _p, ...noPattern } = runner();
+    const { pass_pattern: _c, ...noCount } = runner();
+    const { selftest: _s, ...noSelftest } = runner();
+    for (const bad of [[], [{ id: 'a' }], [runner({ test_cmd: 'node x' })], [runner({ build_error_pattern: '(' })], [noPattern], [noCount], [noSelftest], [RUNNERS[1], RUNNERS[1]]]) {
       const r = run(project({ runners: bad }), [mutant('M1', { runner: 'a' })]);
       assert.strictEqual(r.code, 2, JSON.stringify(bad) + r.output);
     }
@@ -111,7 +97,7 @@ describe('WP9 mutation runners: the harness', () => {
     const root = project({ runners: RUNNERS, error_pattern: 'SyntaxError' });
     const r = run(root, [mutant('M1', { runner: 'plain' })]);
     assert.strictEqual(r.code, 2, r.output);
-    assert.match(r.output, /renamed: use stack\.mutation\.build_error_pattern/);
+    assert.match(r.output, /stack\.mutation\.error_pattern is renamed/);
     assert.strictEqual(source(root), SRC);
   });
 });
@@ -120,50 +106,51 @@ describe('WP9 mutation runners: the profile shape check and the doctor', () => {
   const problems = (mutation) => keys.NEW_SHAPE_CHECKS.find(([k]) => k === 'stack.mutation')[1]('stack.mutation', mutation);
   const keysOf = (mutation) => problems(mutation).map((p) => p.key);
 
-  test('well-formed runners pass; malformed runners[] and the old key are rejected with the key named', () => {
+  test('well-formed runners pass; runners[] that the mutation tool refuses, and the old key, are rejected with the key named', () => {
     assert.deepStrictEqual(problems({ runners: RUNNERS, build_error_pattern: 'SyntaxError' }), []);
-    assert.ok(keysOf({ runners: [] }).includes('stack.mutation.runners'));
-    assert.ok(keysOf({ runners: 'x' }).includes('stack.mutation.runners'));
-    assert.ok(keysOf({ runners: [{ test_cmd: 'x {file} -t {name}' }] }).includes('stack.mutation.runners[0].id'));
-    assert.ok(keysOf({ runners: [{ id: 'a', test_cmd: 'no placeholder' }] }).includes('stack.mutation.runners[0].test_cmd'));
-    assert.ok(keysOf({ runners: [{ id: 'a', test_cmd: 'x {file} -t {name}', build_error_pattern: '(' }] }).includes('stack.mutation.runners[0].build_error_pattern'));
-    assert.ok(keysOf({ runners: [RUNNERS[1], RUNNERS[1]] }).includes('stack.mutation.runners'), 'duplicate ids');
+    assert.deepStrictEqual(problems({ runners: null }), []);
+    const { selftest: _s, ...noSelftest } = runner();
+    for (const bad of [[], 'x', [{ test_cmd: 'x {file} -t {name}' }], [runner({ test_cmd: 'no placeholder' })], [runner({ build_error_pattern: '(' })], [runner({ lane: 'gpu' })], [noSelftest], [RUNNERS[1], RUNNERS[1]]]) {
+      assert.ok(keysOf({ runners: bad }).includes('stack.mutation.runners'), JSON.stringify(bad));
+    }
     assert.ok(keysOf({ error_pattern: 'x' }).includes('stack.mutation.error_pattern'));
   });
 
   test('F3: a catalogued runner pattern must not match its kill output and must match its build failure', () => {
-    const base = { id: 'js-runner-a', test_cmd: 'npm run test:file -- {file} -t {name}' };
+    const base = runner({ id: 'js-runner-a', test_cmd: 'npm run test:file -- {file} -t {name}' });
     const shipped = catalogue['js-runner-a'].build_error_pattern;
     assert.deepStrictEqual(problems({ runners: [{ ...base, build_error_pattern: shipped }] }), []);
     assert.ok(problems({ runners: [{ ...base, build_error_pattern: 'AssertionError' }] }).some((p) => /matches the normal kill output/.test(p.reason)));
     assert.ok(problems({ runners: [{ ...base, build_error_pattern: 'NeverPrinted' }] }).some((p) => /does not match the build failure/.test(p.reason)));
-    assert.ok(problems({ build_error_pattern: 'FAIL', runners: [base] }).some((p) => /matches the normal kill output/.test(p.reason)), 'the project pattern is the effective one');
   });
 
   test('F3: the project pattern and every runner pattern are checked against every catalogue kill fixture; the build failure only for a known engine', () => {
-    const custom = { id: 'custom', test_cmd: 'x {file} -t {name}' };
     assert.ok(problems({ build_error_pattern: 'FAIL' }).some((p) => /matches the normal kill output/.test(p.reason)), 'project pattern, no runners');
-    assert.ok(problems({ runners: [{ ...custom, build_error_pattern: 'AssertionError' }] }).some((p) => /matches the normal kill output/.test(p.reason)), 'unknown engine, own pattern');
-    assert.deepStrictEqual(problems({ runners: [{ ...custom, build_error_pattern: 'ZZZ-never' }] }), [], 'unknown engine: no build_failure fixture to match');
+    assert.ok(problems({ runners: [runner({ build_error_pattern: 'AssertionError' })] }).some((p) => /matches the normal kill output/.test(p.reason)), 'unknown engine, own pattern');
+    assert.deepStrictEqual(problems({ runners: [runner({ build_error_pattern: 'ZZZ-never' })] }), [], 'unknown engine: no build_failure fixture to match');
     assert.deepStrictEqual(problems({ build_error_pattern: 'ZZZ-never' }), []);
   });
 
-  test('runners: null is absent; selftest, pass_pattern and lane are shape-checked', () => {
-    assert.deepStrictEqual(problems({ runners: null }), []);
-    const base = { id: 'a', test_cmd: 'x {file} -t {name}' };
-    assert.ok(keysOf({ runners: [{ ...base, pass_pattern: '(' }] }).includes('stack.mutation.runners[0].pass_pattern'));
-    assert.ok(keysOf({ runners: [{ ...base, lane: 'gpu' }] }).includes('stack.mutation.runners[0].lane'));
-    assert.ok(keysOf({ runners: [{ ...base, selftest: { dir: 'src' } }] }).includes('stack.mutation.runners[0].selftest'));
-    assert.deepStrictEqual(problems({ runners: [{ ...base, lane: 'db', pass_pattern: 'passed (\\d+)', selftest: SELFTEST }] }), []);
-  });
+});
 
-  test('the shipped catalogue states the source of every fixture', () => {
-    for (const entry of Object.values(catalogue)) assert.ok(['kill', 'build_failure'].every((k) => typeof entry.source[k] === 'string' && entry.source[k] !== ''));
-    assert.match(catalogue['js-runner-a'].source.build_failure, /hand-written/);
-  });
-
-  test('the doctor constant is true and the old key is a blocking finding', () => {
-    assert.strictEqual(checks.MUTATION_REFUSES_ERROR_PATTERN, true);
-    assert.strictEqual(checks.migrationFindings({ mutation: { error_pattern: 'x' } }).filter(checks.isBlockingFinding).length, 1);
+describe('WP9 mutation runners: the catalogue self-test files', () => {
+  // The engine package is not installed here: a stub package of the engine's name gives the fixtures something to resolve to.
+  test('the pass fixture resolves its import and passes, the kill fixture resolves it and fails', () => {
+    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-wp9-cat-')));
+    tmps.push(dir);
+    const pkg = path.join(dir, 'node_modules', 'vitest');
+    fs.mkdirSync(pkg, { recursive: true });
+    fs.writeFileSync(path.join(pkg, 'package.json'), '{"name":"vitest","main":"index.js"}');
+    fs.writeFileSync(path.join(pkg, 'index.js'), "exports.test = (name, fn) => { try { fn(); } catch { console.error('FAIL ' + name); process.exitCode = 1; } };\nexports.expect = (a) => ({ toBe: (b) => { if (a !== b) throw new Error('not equal'); } });\n");
+    const exitOf = (kind) => {
+      const file = path.join(dir, `${kind}.mjs`);
+      fs.writeFileSync(file, catalogue['js-runner-a'].selftest[kind]);
+      return spawnSync(process.execPath, [file], { encoding: 'utf8', cwd: dir });
+    };
+    const pass = exitOf('pass');
+    assert.strictEqual(pass.status, 0, pass.stderr);
+    const kill = exitOf('kill');
+    assert.strictEqual(kill.status, 1, kill.stderr);
+    assert.match(kill.stderr, /FAIL __mutate_selftest_kill__/);
   });
 });

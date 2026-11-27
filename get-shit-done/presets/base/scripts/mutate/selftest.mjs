@@ -1,8 +1,8 @@
 // mutate/selftest: the run-start harness canary (F4). Three known files are written into the run's root and run through the
-// same command, env and pattern as the mutants: a passing test must classify survived (with a passed-test count when the
-// runner has a pass_pattern), a failing test must classify killed AND name itself in the output (a runner that crashed without
+// same command, env and pattern as the mutants: a passing test must classify survived (with a passed-test count under the
+// runner's pass_pattern), a failing test must classify killed AND name itself in the output (a runner that crashed without
 // running tests names nothing), a syntax error must classify errored through the build pattern. Any mismatch is a harness fault.
-// A runner without a `selftest` is skipped. The files are removed in `finally`; failures are values, never thrown.
+// The files are removed in `finally`; failures are values, never thrown.
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { passedCount } from './classify.mjs';
@@ -13,7 +13,7 @@ const fileFor = (st, kind) => `${st.dir}/__mutate_selftest_${kind}__${st.ext}`;
 const CHECKS = [
   ['pass', (r, config) => {
     if (r.outcome !== 'survived') return `the classifier labels a known passing test as ${r.outcome}`;
-    return config.passPattern && passedCount(r.output, config.passPattern) < 1 ? 'a known passing test shows no passed-test count' : null;
+    return passedCount(r.output, config.passPattern) < 1 ? 'a known passing test shows no passed-test count' : null;
   }],
   ['kill', (r) => {
     if (r.outcome !== 'killed') return `the classifier labels a known kill as ${r.outcome}`;
@@ -32,9 +32,8 @@ async function checkAll(runTest, root, timeoutMs, config) {
   return null;
 }
 
-/** The message of the first mismatch for one runner config, or null (also null when the runner has no selftest). */
+/** The message of the first mismatch for one runner config, or null. */
 export async function selfTestError(runTest, root, timeoutMs, config) {
-  if (!config.selftest) return null;
   try {
     return await checkAll(runTest, root, timeoutMs, config);
   } finally {
@@ -42,12 +41,11 @@ export async function selfTestError(runTest, root, timeoutMs, config) {
   }
 }
 
-/** Every distinct runner config: { problem: first message or null, status: 'passed' | 'failed' | 'skipped' }. */
+/** Every distinct runner config: { problem: first message or null, status: 'passed' | 'failed' }. */
 export async function selfTestAll(runTest, root, timeoutMs, configs) {
-  const guarded = [...new Set(configs.values())].filter((c) => c.selftest);
-  for (const config of guarded) {
+  for (const config of new Set(configs.values())) {
     const problem = await selfTestError(runTest, root, timeoutMs, config);
     if (problem !== null) return { problem, status: 'failed' };
   }
-  return { problem: null, status: guarded.length > 0 ? 'passed' : 'skipped' };
+  return { problem: null, status: 'passed' };
 }

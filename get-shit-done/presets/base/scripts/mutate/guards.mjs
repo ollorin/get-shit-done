@@ -71,7 +71,7 @@ export async function baselineError(runTest, label, root, tests, timeoutMs, conf
   for (const test of tests) {
     const baseline = await runTest(root, test, timeoutMs, config);
     if (baseline.outcome !== 'survived') return `baseline red ${label}: ${test} fails unmutated (${baseline.outcome})`;
-    if (config?.passPattern && passedCount(baseline.output, config.passPattern) < 1) return `baseline red ${label}: ${test} ran no tests (its output shows no passed-test count)`;
+    if (passedCount(baseline.output, config.passPattern) < 1) return `baseline red ${label}: ${test} ran no tests (its output shows no passed-test count)`;
     console.log(`[mutate] baseline green ${label}: ${test} (${baseline.durationMs} ms)`);
   }
   return null;

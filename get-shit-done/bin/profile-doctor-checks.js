@@ -13,9 +13,6 @@ const { parseBlocks } = require('./project-deploy-files.js');
 const { parseJsonc } = require('./jsonc.js');
 const { registryDir } = require('./project-registry-store.js');
 
-// The mutation tool refuses stack.mutation.error_pattern at load (presets/base/scripts/mutate/mutate.mjs withProfile; test: preset-base-mutate-runners.test.js).
-const MUTATION_REFUSES_ERROR_PATTERN = true;
-
 const PRESETS_ROOT = path.join(__dirname, '..', 'presets');
 const FRAMEWORK_HOOKS = path.join(__dirname, 'hooks');
 const PRESET_NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
@@ -181,11 +178,11 @@ function patchFindings(dir) {
     : [finding('INFO', shownHome('gsd-local-patches'), 'run /gsd:reapply-patches', 'info', `${files.length} backed-up local patches`)];
 }
 
-// 4. Config keys that must move. Blocking only once the mutation tool refuses the old key.
-function migrationFindings(stack, refuses = MUTATION_REFUSES_ERROR_PATTERN) {
+// 4. Config keys that must move: the mutation tool refuses the old key (presets/base/scripts/mutate/mutate.mjs withProfile).
+function migrationFindings(stack) {
   const mutation = isObject(stack.mutation) ? stack.mutation : {};
   return Object.prototype.hasOwnProperty.call(mutation, 'error_pattern')
-    ? [finding('DRIFT', 'stack.mutation.error_pattern', 'rename to stack.mutation.build_error_pattern', refuses ? 'error' : 'info', 'the mutation tool reads build_error_pattern')]
+    ? [finding('DRIFT', 'stack.mutation.error_pattern', 'rename to stack.mutation.build_error_pattern', 'error', 'the mutation tool reads build_error_pattern')]
     : [];
 }
 
@@ -231,12 +228,12 @@ function forkShaFindings(root, home, gsdDir = registryDir(process.env)) {
 }
 
 // 7. Migrations the config needs that the project manifest (manifest.migrations[]) does not record as applied.
-function migrationRecordFindings(root, stack, flags) {
+function migrationRecordFindings(root, stack) {
   const manifest = jsonObjectAt(path.join(root, MANIFEST));
   if (manifest === undefined) return [];
   const recorded = Array.isArray(manifest.migrations) ? manifest.migrations : [];
   const { neededMigrationIds } = require('./profile-migrations.js');
-  return neededMigrationIds({ stack }, flags).filter((id) => !recorded.includes(id))
+  return neededMigrationIds({ stack }).filter((id) => !recorded.includes(id))
     .map((id) => finding('DRIFT', `migration ${id}`, 'run project upgrade', 'error', 'the config needs this migration and the project manifest does not record it'));
 }
 
@@ -252,7 +249,6 @@ function projectChecks(root, stack, { home = os.homedir(), presetsRoot = PRESETS
 }
 
 module.exports = {
-  MUTATION_REFUSES_ERROR_PATTERN,
   HOOKS,
   parseJsonc,
   fileFindings,

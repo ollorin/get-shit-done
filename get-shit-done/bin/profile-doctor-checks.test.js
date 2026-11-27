@@ -168,13 +168,9 @@ describe('profile doctor checks (WP22d)', () => {
     assert.deepStrictEqual(kinds(checks.frameworkFindings(home)), ['MISSING ~/.claude/gsd-file-manifest.json']);
   });
 
-  test('migrations: stack.mutation.error_pattern is information while the tool accepts it, blocking once it refuses', () => {
-    const stack = { mutation: { error_pattern: 'x' } };
-    const off = checks.migrationFindings(stack, false);
-    const on = checks.migrationFindings(stack, true);
-    assert.deepStrictEqual([blockingOf(off).length, blockingOf(on).length], [0, 1]);
-    assert.strictEqual(checks.MUTATION_REFUSES_ERROR_PATTERN, true, 'the refusal exists and is tested in preset-base-mutate-runners.test.js');
-    assert.deepStrictEqual(checks.migrationFindings({ mutation: { build_error_pattern: 'x' } }, true), []);
+  test('migrations: stack.mutation.error_pattern is a blocking finding (the mutation tool refuses it); build_error_pattern is none', () => {
+    assert.strictEqual(blockingOf(checks.migrationFindings({ mutation: { error_pattern: 'x' } })).length, 1);
+    assert.deepStrictEqual(checks.migrationFindings({ mutation: { build_error_pattern: 'x' } }), []);
   });
 
   test('gates: an igaming-shaped project gets no MISSING gate for scripts its preset does not ship', () => {

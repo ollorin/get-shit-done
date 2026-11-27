@@ -7,7 +7,6 @@ import { createHash } from 'node:crypto';
 export const ok = (value) => ({ ok: true, value });
 export const fail = (error) => ({ ok: false, error });
 
-export const NO_PATTERN_NOTICE = 'no error pattern: a mutant that fails to build counts as killed';
 export const EXPECTS = ['killed', 'survived'];
 const MAX_LINE = 200;
 // sh reports a command it could not run as 126 (not executable) or 127 (not found).
@@ -51,7 +50,6 @@ export const SELFTEST_KEYS = ['dir', 'ext', 'pass', 'kill', 'build'];
 const isSelfTest = (s) => s !== null && typeof s === 'object' && SELFTEST_KEYS.every((k) => typeof s[k] === 'string' && s[k] !== '');
 
 function patternProblem(id, key, value) {
-  if (value === undefined) return null;
   if (typeof value !== 'string' || value === '') return `runner ${id}: ${key} must be a non-empty string`;
   try { new RegExp(value); } catch { return `runner ${id}: ${key} is not a valid regular expression`; }
   return null;
@@ -73,13 +71,13 @@ export function firstFailTitle(output) {
 }
 
 /**
- * True when a run of a filtered command (config.testCmd has {name}, config.name is the title) proves nothing (R1.2b, R1.3): a kill
+ * True when a run of a filtered command (config.name is the title) proves nothing (R1.2b, R1.3): a kill
  * whose first FAIL line does not end in the title (the echoed command line never counts), or a pass without a passed-test count.
  */
 export function filterMiss(config, outcome, output) {
-  if (typeof config.name !== 'string' || !config.testCmd.includes('{name}')) return false;
+  if (typeof config.name !== 'string') return false;
   if (outcome === 'killed') return firstFailTitle(output) !== config.name;
-  return outcome === 'survived' && (!config.passPattern || passedCount(output, config.passPattern) < 1);
+  return outcome === 'survived' && passedCount(output, config.passPattern) < 1;
 }
 
 export const MAX_TITLE = 4096;
@@ -105,10 +103,10 @@ const runnerProblem = (r, i) => {
   const patterns = ['build_error_pattern', 'pass_pattern'].map((k) => patternProblem(r.id, k, r[k])).find((p) => p !== null);
   if (patterns !== undefined) return patterns;
   if (r.lane !== undefined && !LANES.includes(r.lane)) return `runner ${r.id}: lane must be one of ${LANES.join(', ')}`;
-  return r.selftest === undefined || isSelfTest(r.selftest) ? null : `runner ${r.id}: selftest needs non-empty string ${SELFTEST_KEYS.join(', ')}`;
+  return isSelfTest(r.selftest) ? null : `runner ${r.id}: selftest needs non-empty string ${SELFTEST_KEYS.join(', ')}`;
 };
 
-/** Validates stack.mutation.runners: a non-empty array of { id, test_cmd with {file}, build_error_pattern? } with unique ids. */
+/** Validates stack.mutation.runners: a non-empty array of { id, test_cmd with {file} and {name}, build_error_pattern, pass_pattern, selftest, lane? } with unique ids. */
 export function parseRunners(input) {
   if (!Array.isArray(input) || input.length === 0) return fail('stack.mutation.runners must be a non-empty array');
   const problem = input.map(runnerProblem).find((p) => p !== null);
@@ -118,11 +116,10 @@ export function parseRunners(input) {
   return dupes.length > 0 ? fail(`duplicate runner ids: ${[...new Set(dupes)].join(', ')}`) : ok(input);
 }
 
-/** A mutant id -> run config map. Without runners every mutant gets `config`; with them the mutant's `runner` (or the only runner) selects one, an unknown id is a failure. */
+/** A mutant id -> run config map: the mutant's `runner` (or the only runner) selects one, an unknown id is a failure. */
 export function configsFor(mutants, config) {
-  if (config.runners == null) return ok(new Map(mutants.map((m) => [m.id, config])));
   const byId = new Map(config.runners.map((r) => [r.id, {
-    ...config, testCmd: r.test_cmd, errorPattern: r.build_error_pattern ?? config.errorPattern, passPattern: r.pass_pattern ?? null, selftest: r.selftest ?? null, lane: r.lane ?? 'unit',
+    ...config, testCmd: r.test_cmd, errorPattern: r.build_error_pattern, passPattern: r.pass_pattern, selftest: r.selftest, lane: r.lane ?? 'unit',
   }]));
   const pairs = mutants.map((m) => {
     const id = m.runner ?? (config.runners.length === 1 ? config.runners[0].id : undefined);

@@ -12,8 +12,6 @@ const FLAGS = {
   phase: { type: 'string' },
   root: { type: 'string' },
   timeout: { type: 'string' },
-  'test-cmd': { type: 'string' },
-  'error-pattern': { type: 'string' },
   'test-env': { type: 'string', multiple: true },
   'dry-run': { type: 'boolean' },
   'allow-dirty': { type: 'boolean' },
@@ -37,10 +35,6 @@ export function parseOptions(argv, cwd = process.cwd(), now = new Date()) {
   const timeoutSec = Number(args.timeout ?? '120');
   if (typeof args.mutants !== 'string' || args.mutants === '') return fail('--mutants <json> is required');
   if (!(timeoutSec > 0 && timeoutSec <= MAX_TIMEOUT_SEC)) return fail(`--timeout must be seconds in (0, ${MAX_TIMEOUT_SEC}], got ${args.timeout}`);
-  if (args['test-cmd'] !== undefined && !args['test-cmd'].includes('{file}')) return fail('--test-cmd must contain {file}, replaced by the mutant\'s test file');
-  if (args['error-pattern'] !== undefined) {
-    try { new RegExp(args['error-pattern']); } catch (e) { return fail(`--error-pattern is not a valid regular expression: ${e.message}`); }
-  }
   const env = parseEnvPairs(args['test-env'] ?? []);
   if (!env.ok) return env;
   const root = typeof args.root === 'string' && args.root !== '' ? args.root : cwd;
@@ -54,6 +48,6 @@ export function parseOptions(argv, cwd = process.cwd(), now = new Date()) {
     dryRun: args['dry-run'] === true,
     allowDirty: args['allow-dirty'] === true,
     allowPrimary: args['allow-primary'] === true,
-    config: { testCmd: args['test-cmd'] ?? null, testEnv: env.value, errorPattern: args['error-pattern'] ?? null },
+    config: { testEnv: env.value },
   });
 }

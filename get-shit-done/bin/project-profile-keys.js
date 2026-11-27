@@ -98,8 +98,6 @@ function loadRunnerCatalogue() {
 }
 
 const usablePattern = (p) => isNonEmptyString(p) && isRegex(p);
-const LANE_VALUES = ['unit', 'db'];
-const SELFTEST_FIELDS = ['dir', 'ext', 'pass', 'kill', 'build'];
 
 // F3: a build pattern (the project's or any runner's) must not match the normal kill output of any catalogued engine.
 function killFixtureProblems(key, pattern, catalogue) {
@@ -116,25 +114,25 @@ function buildFixtureProblems(key, id, pattern, fixtures) {
   return new RegExp(pattern).test(fixtures.build_failure) ? [] : [problem(key, `build_error_pattern does not match the build failure output of runner ${id}`)];
 }
 
-const selftestProblems = (key, s) => (isObject(s) && SELFTEST_FIELDS.every((k) => isNonEmptyString(s[k])) ? [] : [problem(key, `must be an object with non-empty strings ${SELFTEST_FIELDS.join(', ')}`)]);
+// The runner shape has one owner, parseRunners in the mutation tool (classify.mjs). Without require(esm) (Node < 22.12) no problem
+// is reported and the tool itself exits 2.
+function runnersShape(key, runners) {
+  let parse;
+  try {
+    ({ parseRunners: parse } = require('../presets/base/scripts/mutate/classify.mjs'));
+  } catch {
+    return [];
+  }
+  const r = parse(runners);
+  return r.ok ? [] : [problem(key, r.error)];
+}
 
-function runnerProblems(key, runner, mutation, catalogue) {
-  if (!isObject(runner)) return [problem(key, 'must be an object')];
-  const own = fieldProblems(key, runner, [
-    ['id', isNonEmptyString, 'a non-empty string', true],
-    ['test_cmd', (v) => isNonEmptyString(v) && v.includes('{file}') && v.includes('{name}') && !/"[^"]*\{name\}[^"]*"/.test(v), 'a command containing {file} and {name} (outside double quotes)', true],
-    ['build_error_pattern', usablePattern, 'a valid regular expression'],
-    ['pass_pattern', usablePattern, 'a valid regular expression'],
-    ['lane', (v) => LANE_VALUES.includes(v), `one of ${LANE_VALUES.join(', ')}`],
-  ]);
-  const selftest = runner.selftest === undefined ? [] : selftestProblems(`${key}.selftest`, runner.selftest);
+function runnerFixtureProblems(key, runner, catalogue) {
+  if (!isObject(runner)) return [];
   const known = Object.prototype.hasOwnProperty.call(catalogue, runner.id) ? catalogue[runner.id] : undefined;
-  const patternKey = `${key}.build_error_pattern`;
   return [
-    ...own,
-    ...selftest,
-    ...killFixtureProblems(patternKey, runner.build_error_pattern, catalogue),
-    ...(known === undefined ? [] : buildFixtureProblems(patternKey, runner.id, runner.build_error_pattern ?? mutation.build_error_pattern, known.fixtures)),
+    ...killFixtureProblems(key, runner.build_error_pattern, catalogue),
+    ...(known === undefined ? [] : buildFixtureProblems(key, runner.id, runner.build_error_pattern, known.fixtures)),
   ];
 }
 
@@ -145,15 +143,8 @@ function mutationExtra(key, v) {
   const catalogue = loadRunnerCatalogue();
   const projectPattern = killFixtureProblems(`${key}.build_error_pattern`, v.build_error_pattern, catalogue);
   if (v.runners == null) return [...renamed, ...projectPattern];
-  if (!Array.isArray(v.runners) || v.runners.length === 0) return [...renamed, ...projectPattern, problem(`${key}.runners`, 'must be a non-empty array of runner objects')];
-  const ids = v.runners.map((r) => (isObject(r) ? r.id : undefined));
-  const dupes = [...new Set(ids.filter((id, i) => id !== undefined && ids.indexOf(id) !== i))];
-  return [
-    ...renamed,
-    ...projectPattern,
-    ...v.runners.flatMap((r, i) => runnerProblems(`${key}.runners[${i}]`, r, v, catalogue)),
-    ...(dupes.length > 0 ? [problem(`${key}.runners`, `duplicate runner ids: ${dupes.join(', ')}`)] : []),
-  ];
+  const fixtures = Array.isArray(v.runners) ? v.runners.flatMap((r, i) => runnerFixtureProblems(`${key}.runners[${i}].build_error_pattern`, r, catalogue)) : [];
+  return [...renamed, ...projectPattern, ...runnersShape(`${key}.runners`, v.runners), ...fixtures];
 }
 
 const HOST_FIELDS = [

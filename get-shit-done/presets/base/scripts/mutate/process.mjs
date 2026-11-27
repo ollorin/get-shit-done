@@ -1,4 +1,4 @@
-// mutate/process: the process edge. The test command is the project's (stack.commands.test_file or --test-cmd, with {file}
+// mutate/process: the process edge. The test command is the runner's test_cmd (stack.mutation.runners[], with {file}
 // replaced by the quoted test path), run through `sh -c` in its own process group; a timeout, a signal or the end of the run
 // SIGKILLs the whole group, so processes a test left running die too. The verdict is classify()'s, from the exit status.
 // Limitation: a test that moves a process out of the group (setsid, a double fork) escapes the kill and survives the run.

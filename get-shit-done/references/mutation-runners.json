@@ -6,17 +6,13 @@
     "selftest": {
       "dir": "tests/unit",
       "ext": ".test.ts",
-      "pass": "import { expect, test } from 'js-runner-a';\ntest('selftest pass', () => { expect(1).toBe(1); });\n",
-      "kill": "import { expect, test } from 'js-runner-a';\ntest('__mutate_selftest_kill__', () => { expect(1).toBe(2); });\n",
+      "pass": "const { expect, test } = await import('vi' + 'test');\ntest('selftest pass', () => { expect(1).toBe(1); });\n",
+      "kill": "const { expect, test } = await import('vi' + 'test');\ntest('__mutate_selftest_kill__', () => { expect(1).toBe(2); });\n",
       "build": "export const = ;\n"
     },
     "fixtures": {
       "kill": " FAIL  |shared| tests/unit/shell-settings-rules.test.ts > validateSetting: language_cookie_days > refuses 391 as out_of_range, never clamped\nAssertionError: expected 390 to be 391\n Test Files  1 failed (1)\n      Tests  1 failed | 4 passed (5)\n",
       "build_failure": " FAIL  |shared| tests/unit/shell-settings-rules.test.ts [ tests/unit/shell-settings-rules.test.ts ]\nError: Transform failed with 1 error:\n/src/lib/shell-settings/validate.ts:12:20: ERROR: Unexpected \")\"\n Test Files  1 failed (1)\n      Tests  no tests\n"
-    },
-    "source": {
-      "kill": "partly captured, reworded to remove a product name: the FAIL line is a real runner line; the AssertionError, summary lines and counts are hand-written to the real shape",
-      "build_failure": "hand-written from the documented js-runner-a and esbuild message shapes; not captured from a run"
     }
   }
 }

@@ -1,7 +1,7 @@
 'use strict';
 
 // WP9 review: the run-start self-test (F4), the baseline count (F5), the errored breaker (F6), the required
-// expect_failing_test (F9), the db-lane lock refusal, option conflicts and the build-error exit on a second run.
+// expect_failing_test (F9), the db-lane lock refusal and the build-error exit on a second run.
 // Node and POSIX shell only.
 
 const { test, describe, afterEach } = require('node:test');
@@ -24,10 +24,10 @@ const git = (root, ...args) => {
 
 const SRC = 'exports.add = (a, b) => a + b;\n';
 const KILL_CHECK = "if (require('./add.js').add(1, 2) !== 3) { console.error('FAIL f.js > adds'); console.error('AssertionError: wrong sum'); process.exit(1); }\nconsole.log('passed 1');\n";
-const FAULT_CHECK = "if (require('./add.js').add(1, 2) !== 3) process.exit(127);\n";
+const FAULT_CHECK = "if (require('./add.js').add(1, 2) !== 3) process.exit(127);\nconsole.log('passed 1');\n";
 const FLIP_CHECK = [
   "const fs = require('fs'); const path = require('path');",
-  "if (require('./add.js').add(1, 2) === 3) process.exit(0);",
+  "if (require('./add.js').add(1, 2) === 3) { console.log('passed 1'); process.exit(0); }",
   "const marker = path.join(__dirname, '..', '.marker');",
   "if (fs.existsSync(marker)) { console.error('FAIL f.js > adds'); console.error('SyntaxError: boom'); process.exit(1); }",
   "fs.writeFileSync(marker, '1'); console.error('FAIL f.js > adds'); console.error('AssertionError: wrong sum'); process.exit(1);",
@@ -93,10 +93,8 @@ describe('F4: the run-start self-test (selftest.mjs)', () => {
     return problem;
   };
 
-  test('a harness that classifies the three canaries right passes; a runner without a selftest is skipped', async () => {
+  test('a harness that classifies the three canaries right passes', async () => {
     assert.strictEqual(await check(GOOD), null);
-    const { selfTestError } = await load('selftest.mjs');
-    assert.strictEqual(await selfTestError(async () => assert.fail('must not run'), '/nowhere', 1000, {}), null);
   });
 
   test('a known kill classified errored is a harness fault naming the label (stub runTest, F7b)', async () => {
@@ -126,8 +124,8 @@ describe('F4: the self-test in the CLI', () => {
     assert.deepStrictEqual(fs.readdirSync(path.join(root, 'src')).filter((f) => f.includes('selftest')), []);
   });
 
-  test('a runner with a selftest but no build pattern is refused (exit 2) before any mutant: its crash would count as a kill', () => {
-    const root = project({ runners: [guarded({ build_error_pattern: undefined })] });
+  test('a runner whose build pattern does not match its build failure is refused (exit 2) before any mutant: its crash would count as a kill', () => {
+    const root = project({ runners: [guarded({ build_error_pattern: 'NeverPrinted' })] });
     const r = run(root, [mutant('M1')]);
     assert.strictEqual(r.code, 2, r.output);
     assert.match(r.output, /known build failure as killed/);
@@ -137,7 +135,7 @@ describe('F4: the self-test in the CLI', () => {
   });
 
   test('--dry-run skips the self-test', () => {
-    const root = project({ runners: [guarded({ build_error_pattern: undefined })] });
+    const root = project({ runners: [guarded({ build_error_pattern: 'NeverPrinted' })] });
     assert.strictEqual(run(root, [mutant('M1')], { args: ['--dry-run'] }).code, 0);
   });
 });
@@ -149,13 +147,12 @@ describe('F5: the baseline must count', () => {
     assert.match(await baselineError(ran('passed 0'), 'before', '/r', ['t'], 1, { passPattern: 'passed (\\d+)' }), /ran no tests/);
     assert.match(await baselineError(ran('nothing'), 'before', '/r', ['t'], 1, { passPattern: 'passed (\\d+)' }), /ran no tests/);
     assert.strictEqual(await baselineError(ran('passed 3'), 'before', '/r', ['t'], 1, { passPattern: 'passed (\\d+)' }), null);
-    assert.strictEqual(await baselineError(ran('nothing'), 'before', '/r', ['t'], 1, {}), null, 'no pass_pattern: unchanged');
   });
 });
 
 describe('F6: the errored breaker', () => {
   test('3 errored of 4 stops the run, restores, exits 5 and records harness_fault', () => {
-    const root = project({ runners: [{ id: 'plain', test_cmd: 'node {file} -t {name}' }] });
+    const root = project({ runners: [guarded({ id: 'plain' })] });
     const fault = (id, n) => mutant(id, { new: `a * ${n}`, test: 'src/fault.check.js' });
     const r = run(root, [mutant('M1'), fault('E1', 5), fault('E2', 7), fault('E3', 9), mutant('M5', { new: 'a / b' })]);
     assert.strictEqual(r.code, 5, r.output);
@@ -163,36 +160,14 @@ describe('F6: the errored breaker', () => {
     assert.strictEqual(r.summary.harness_fault, true);
     assert.strictEqual(source(root), SRC);
   });
-
-  test('two errored rows do not trip it', () => {
-    const root = project({ runners: [{ id: 'plain', test_cmd: 'node {file} -t {name}' }] });
-    const fault = (id, n) => mutant(id, { new: `a * ${n}`, test: 'src/fault.check.js' });
-    const r = run(root, [fault('E1', 5), fault('E2', 7), mutant('M3')]);
-    assert.strictEqual(r.code, 1, r.output);
-    assert.strictEqual(r.records.length, 3);
-  });
 });
 
 describe('F6 (R5): the breaker is a trailing streak of 3 errored or timeout rows', () => {
   const rows = (...outcomes) => outcomes.map((outcome) => ({ outcome }));
 
-  test('3 consecutive errored rows trip it', async () => {
-    const { harnessFault } = await load('classify.mjs');
-    assert.strictEqual(harnessFault(rows('killed', 'errored', 'errored', 'errored')), true);
-  });
-
-  test('3 errored rows with a killed row between do not trip it', async () => {
+  test('3 errored rows with a killed row between do not trip it; an errored and timeout mix of 3 in a row does', async () => {
     const { harnessFault } = await load('classify.mjs');
     assert.strictEqual(harnessFault(rows('errored', 'errored', 'killed', 'errored', 'errored')), false);
-  });
-
-  test('2 errored rows do not trip it', async () => {
-    const { harnessFault } = await load('classify.mjs');
-    assert.strictEqual(harnessFault(rows('errored', 'errored')), false);
-  });
-
-  test('an errored and timeout mix of 3 in a row trips it', async () => {
-    const { harnessFault } = await load('classify.mjs');
     assert.strictEqual(harnessFault(rows('killed', 'errored', 'timeout', 'errored')), true);
   });
 });
@@ -210,7 +185,7 @@ describe('F9: expect_failing_test is required', () => {
 
 describe('the db lane needs the stack lock', () => {
   test('a runner with lane db is refused (exit 2) without STACK_LOCK_HELD=1, allowed with it', () => {
-    const root = project({ runners: [{ id: 'db', test_cmd: 'node {file} -t {name}', lane: 'db' }] });
+    const root = project({ runners: [guarded({ id: 'db', lane: 'db' })] });
     const refused = run(root, [mutant('M1')]);
     assert.strictEqual(refused.code, 2, refused.output);
     assert.match(refused.output, /STACK_LOCK_HELD/);
@@ -219,38 +194,16 @@ describe('the db lane needs the stack lock', () => {
   });
 });
 
-describe('option conflicts and null runners', () => {
-  test('--test-cmd with configured runners, and --error-pattern with a runner pattern, exit 2', () => {
-    const root = project({ runners: [{ id: 'plain', test_cmd: 'node {file} -t {name}', build_error_pattern: 'SyntaxError' }] });
-    const cmd = run(root, [mutant('M1')], { args: ['--test-cmd', 'node {file}'] });
-    assert.strictEqual(cmd.code, 2, cmd.output);
-    assert.match(cmd.output, /--test-cmd/);
-    const pat = run(root, [mutant('M1')], { args: ['--error-pattern', 'Boom'] });
-    assert.strictEqual(pat.code, 2, pat.output);
-    assert.match(pat.output, /--error-pattern/);
-    assert.strictEqual(source(root), SRC);
-  });
-
-  test('runners: null is absent: the test command comes from stack.commands.test_file', async () => {
-    const { withProfile } = await load('mutate.mjs');
-    const cwd = project({ runners: null });
-    fs.writeFileSync(path.join(cwd, '.planning', 'config.json'), JSON.stringify({ stack: { commands: { test_file: 'node {file}' }, mutation: { runners: null } } }));
-    const loaded = withProfile({ config: { testCmd: null, testEnv: {}, errorPattern: null } }, cwd);
-    assert.strictEqual(loaded.ok, true, loaded.error);
-    assert.strictEqual(loaded.value.config.testCmd, 'node {file}');
-  });
-});
-
 describe('records and voided runs', () => {
   test('a kill records the generic first failing line, never the build pattern line (F2)', () => {
-    const root = project({ runners: [{ id: 'crashy', test_cmd: 'node {file} -t {name}', build_error_pattern: 'SyntaxError' }] });
+    const root = project({ runners: [guarded({ id: 'crashy' })] });
     const r = run(root, [mutant('M1')]);
     assert.strictEqual(r.code, 0, r.output);
     assert.strictEqual(r.records[0].first_failing_line, 'FAIL f.js > adds');
   });
 
   test('a build error on the confirming second run exits 5, it is not hidden as an unreproduced kill', () => {
-    const root = project({ runners: [{ id: 'crashy', test_cmd: 'node {file} -t {name}', build_error_pattern: 'SyntaxError' }] });
+    const root = project({ runners: [guarded({ id: 'crashy' })] });
     const r = run(root, [mutant('M1', { test: 'src/flip.check.js' })]);
     assert.strictEqual(r.code, 5, r.output);
     assert.strictEqual(r.records[0].outcome, 'errored');

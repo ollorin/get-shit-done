@@ -4,7 +4,6 @@
 // config out; a value the project set is never changed except by a rename listed here.
 
 const { withTableDefaults, stackFreeGateIds } = require('./profile-defaults.js');
-const { MUTATION_REFUSES_ERROR_PATTERN } = require('./profile-doctor-checks.js');
 
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
@@ -28,20 +27,20 @@ function markStackFreeGates(config) {
 }
 
 const MIGRATIONS = Object.freeze([
-  { id: 'table-defaults', enabled: () => true, apply: fillTableDefaults },
-  { id: 'gate-needs-stack', enabled: () => true, apply: markStackFreeGates },
-  { id: 'mutation-build-error-pattern', enabled: (flags) => flags.refusesErrorPattern, apply: renameErrorPattern },
+  { id: 'table-defaults', apply: fillTableDefaults },
+  { id: 'gate-needs-stack', apply: markStackFreeGates },
+  { id: 'mutation-build-error-pattern', apply: renameErrorPattern },
 ]);
 
-function migrateConfig(config, flags = { refusesErrorPattern: MUTATION_REFUSES_ERROR_PATTERN }) {
+function migrateConfig(config) {
   if (!isObject(config) || !isObject(config.stack)) return config;
-  return MIGRATIONS.filter((m) => m.enabled(flags)).reduce((acc, m) => m.apply(acc), config);
+  return MIGRATIONS.reduce((acc, m) => m.apply(acc), config);
 }
 
-// The ids of the enabled migrations that would change this config, applied in order; empty once the config is migrated.
-function neededMigrationIds(config, flags = { refusesErrorPattern: MUTATION_REFUSES_ERROR_PATTERN }) {
+// The ids of the migrations that would change this config, applied in order; empty once the config is migrated.
+function neededMigrationIds(config) {
   if (!isObject(config) || !isObject(config.stack)) return [];
-  const steps = MIGRATIONS.filter((m) => m.enabled(flags)).reduce((acc, m) => {
+  const steps = MIGRATIONS.reduce((acc, m) => {
     const next = m.apply(acc.config);
     return { config: next, ids: JSON.stringify(next) === JSON.stringify(acc.config) ? acc.ids : [...acc.ids, m.id] };
   }, { config, ids: [] });
