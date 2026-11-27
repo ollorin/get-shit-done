@@ -1292,6 +1292,22 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
     assert.strictEqual(contentOf(second), 'old\n');
   }));
 
+  test('swapTrees: a revert that fails still reverts the other trees and names the stuck path', () => withHome((home) => {
+    const specs = ['one', 'two', 'three'].map((name) => treeSpec(home, name, 'new\n'));
+    let calls = 0;
+    const flakyRename = (from, to) => {
+      calls += 1;
+      if (calls === 6) throw new Error('simulated third swap failure');
+      if (calls > 6 && to === specs[1].liveDir) throw new Error('simulated revert failure');
+      fs.renameSync(from, to);
+    };
+    const result = installer().swapTrees(specs, flakyRename);
+    assert.strictEqual(result.errors.length, 1);
+    assert.match(result.errors[0].message, new RegExp(`could not revert, check by hand: ${specs[1].liveDir}`));
+    assert.doesNotMatch(result.errors[0].message, new RegExp(specs[0].liveDir));
+    assert.strictEqual(contentOf(specs[0]), 'old\n');
+  }));
+
   test('swapTrees: every tree is replaced when every build succeeds', () => withHome((home) => {
     const specs = [treeSpec(home, 'one', 'new\n'), treeSpec(home, 'two', 'new\n')];
     assert.deepStrictEqual(installer().swapTrees(specs).errors, []);
@@ -1373,10 +1389,10 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
     const dir = recordModule().openRecord({ targetDirs: [claude], homeDir: home });
     simulateInstall(claude);
     recordModule().closeRecord(dir, { owned: [newFileOf(claude)] });
-    fs.writeFileSync(mcp, '{"mcpServers":{"mine":{},"telegram":{}}}\n');
+    fs.writeFileSync(mcp, '{"other":1,"mcpServers":{"mine":{},"telegram":{"command":"node"}}}\n');
     assert.strictEqual(recordModule().noteLateWrite({ homeDir: home, file: mcp }), true);
     assert.strictEqual(recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD }).status, 'rolled-back');
-    assert.strictEqual(fs.readFileSync(mcp, 'utf8'), '{"mcpServers":{"mine":{}}}\n');
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(mcp, 'utf8')), { other: 1, mcpServers: { mine: {} } });
   }));
 
   test('rollback removes a .claude.json the MCP step created', () => withHome((home) => {
@@ -1385,10 +1401,65 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
     const dir = recordModule().openRecord({ targetDirs: [claude], homeDir: home });
     simulateInstall(claude);
     recordModule().closeRecord(dir, { owned: [newFileOf(claude)] });
-    fs.writeFileSync(mcp, '{}\n');
+    fs.writeFileSync(mcp, '{"mcpServers":{"telegram":{}}}\n');
     recordModule().noteLateWrite({ homeDir: home, file: mcp });
     recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD });
     assert.strictEqual(fs.existsSync(mcp), false);
+  }));
+
+  const SECRET = 'SECRET-TOKEN-123';
+  const contentsUnder = (dir) => filesUnder(dir).map((p) => fs.readFileSync(p, 'utf8')).join('\n');
+
+  test('the record never holds .claude.json content and keeps owner-only modes', () => withHome((home) => {
+    const claude = seedClaudeDir(home);
+    const mcp = path.join(claude, '.claude.json');
+    fs.writeFileSync(mcp, JSON.stringify({ mcpServers: { telegram: { env: { TELEGRAM_BOT_TOKEN: SECRET } } }, oauth: SECRET }));
+    fs.writeFileSync(path.join(claude, 'settings.json'), JSON.stringify({ env: { TOKEN: SECRET } }));
+    const dir = recordModule().openRecord({ targetDirs: [claude], homeDir: home });
+    simulateInstall(claude);
+    recordModule().closeRecord(dir, { owned: [newFileOf(claude)] });
+    recordModule().noteLateWrite({ homeDir: home, file: mcp });
+    const modeOf = (p) => fs.statSync(p).mode & 0o777;
+    assert.strictEqual(modeOf(dir), 0o700);
+    assert.strictEqual(modeOf(path.join(dir, 'pre')), 0o700);
+    for (const p of filesUnder(dir)) assert.strictEqual(modeOf(p), 0o600, p);
+    const stored = contentsUnder(dir);
+    assert.strictEqual(stored.includes(SECRET), true, 'settings.json pre-image is kept (0600) so rollback can restore it');
+    assert.strictEqual(filesUnder(dir).some((p) => p.endsWith('.claude.json')), false);
+    assert.strictEqual(stored.replace(SECRET, '').includes(SECRET), false, 'the secret occurs once: only in the settings.json pre-image');
+  }));
+
+  test('a prior telegram key is stored as a hash only and rollback leaves it for the user when it changed', () => withHome((home) => {
+    const claude = seedClaudeDir(home);
+    const mcp = path.join(claude, '.claude.json');
+    fs.writeFileSync(mcp, JSON.stringify({ mcpServers: { telegram: { env: { T: SECRET } } } }));
+    const dir = recordModule().openRecord({ targetDirs: [claude], homeDir: home });
+    simulateInstall(claude);
+    recordModule().closeRecord(dir, { owned: [newFileOf(claude)] });
+    fs.writeFileSync(mcp, JSON.stringify({ mcpServers: { telegram: { env: { T: 'changed' } } } }));
+    recordModule().noteLateWrite({ homeDir: home, file: mcp });
+    assert.strictEqual(contentsUnder(dir).includes(SECRET), false);
+    const result = recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD });
+    assert.strictEqual(result.status, 'partial');
+    assert.match(result.left[0], /restore it by hand/);
+    assert.strictEqual(JSON.parse(fs.readFileSync(mcp, 'utf8')).mcpServers.telegram.env.T, 'changed');
+  }));
+
+  test('an install that changed nothing leaves the older closed record alone when the MCP step writes', () => withHome((home) => {
+    const claude = seedClaudeDir(home);
+    const mcp = path.join(claude, '.claude.json');
+    const base = Date.now() - 60000;
+    const older = recordModule().openRecord({ targetDirs: [claude], homeDir: home, now: new Date(base) });
+    simulateInstall(claude);
+    recordModule().closeRecord(older, { owned: [newFileOf(claude)] });
+    const olderBytes = fs.readFileSync(path.join(older, 'record.json'), 'utf8');
+    const quiet = recordModule().openRecord({ targetDirs: [claude], homeDir: home, now: new Date(base + 30000) });
+    assert.strictEqual(recordModule().closeRecord(quiet).status, 'unchanged');
+    fs.writeFileSync(mcp, '{"mcpServers":{"telegram":{}}}\n');
+    assert.strictEqual(recordModule().noteLateWrite({ homeDir: home, file: mcp }), false);
+    assert.strictEqual(fs.readFileSync(path.join(older, 'record.json'), 'utf8'), olderBytes);
+    recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD });
+    assert.strictEqual(fs.existsSync(mcp), true);
   }));
 
   // Items 2 and 5 end to end: the real install() under a temp HOME with npm stubbed (the CLI entry is skipped because

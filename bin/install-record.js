@@ -18,8 +18,14 @@ const RECORD_FILE = 'record.json';
 const PRE_DIR = 'pre';
 const KEEP_RECORDS = 5;
 const SCOPE_DIRS = ['get-shit-done', 'commands', 'command', 'agents', 'hooks', 'gsd-local-patches', 'skills'];
-// .claude.json is written by install:gsd step 4 (scripts/install-mcp.js) after install.js exits; noteLateWrite records it.
-const SCOPE_FILES = ['settings.json', 'settings.local.json', 'gsd-file-manifest.json', 'gsd-source-path.txt', '.claude.json'];
+const SCOPE_FILES = ['settings.json', 'settings.local.json', 'gsd-file-manifest.json', 'gsd-source-path.txt'];
+// .claude.json holds credentials (MCP env tokens), so it is never copied. install:gsd step 4 (scripts/install-mcp.js)
+// writes exactly one key after install.js exits; the record keeps that key's prior state and noteLateWrite completes it.
+const MCP_FILE = '.claude.json';
+const MCP_KEY = ['mcpServers', 'telegram'];
+const CURRENT_RUN_FILE = '.current-run';
+const DIR_MODE = 0o700;
+const FILE_MODE = 0o600;
 const OWNED_FILES = ['settings.json', 'gsd-file-manifest.json', 'gsd-source-path.txt'];
 // Written by install() into the live get-shit-done tree after the swap (and by installHookDependencies).
 const OWNED_SKILL_FILES = ['CHANGELOG.md', 'VERSION', 'hook-config.json', 'package.json', 'package-lock.json'];
@@ -32,10 +38,11 @@ const STAGING_DIR = '.gsd-staging';
 // Hook dependencies sit beside the skill files but are not recorded (SKIPPED_DIRS). The marker lists the targets that had them.
 const depsOf = (targetDir) => path.join(targetDir, 'get-shit-done', 'node_modules');
 const upgradesRootOf = (homeDir) => path.join(homeDir, '.gsd', 'upgrades');
+const currentRunFileOf = (homeDir) => path.join(homeDir, '.gsd', CURRENT_RUN_FILE);
 const preImageOf = (recordDir, file) => path.join(recordDir, PRE_DIR, file);
 const recordFileOf = (recordDir) => path.join(recordDir, RECORD_FILE);
 const readRecord = (recordDir) => JSON.parse(fs.readFileSync(recordFileOf(recordDir), 'utf8'));
-const writeRecord = (recordDir, record) => fs.writeFileSync(recordFileOf(recordDir), JSON.stringify(record, null, 2) + '\n');
+const writeRecord = (recordDir, record) => fs.writeFileSync(recordFileOf(recordDir), JSON.stringify(record, null, 2) + '\n', { mode: FILE_MODE });
 const uniq = (list) => [...new Set(list)];
 const stampOf = (now) => now.toISOString().replace(/[:.]/g, '-');
 const sha256 = (content) => crypto.createHash('sha256').update(content).digest('hex');
@@ -123,17 +130,44 @@ function ownedFilesOf(targetDir, pkgRoot) {
 }
 
 // Copies a file, or recreates a symlink as a symlink; never writes through an existing link at `to`.
-function copyEntry(from, to) {
-  fs.mkdirSync(path.dirname(to), { recursive: true });
+function copyEntry(from, to, { dirMode, fileMode } = {}) {
+  fs.mkdirSync(path.dirname(to), { recursive: true, ...(dirMode === undefined ? {} : { mode: dirMode }) });
   fs.rmSync(to, { force: true });
-  if (fs.lstatSync(from).isSymbolicLink()) fs.symlinkSync(fs.readlinkSync(from), to);
-  else fs.copyFileSync(from, to);
+  if (fs.lstatSync(from).isSymbolicLink()) {
+    fs.symlinkSync(fs.readlinkSync(from), to);
+    return;
+  }
+  fs.copyFileSync(from, to);
+  if (fileMode !== undefined) fs.chmodSync(to, fileMode);
 }
 
+// Pre-images hold the user's files as they were (settings.json may carry env tokens): owner-only, like the live file's home.
 function backupEntry(recordDir, file) {
   const pre = fingerprintOf(file);
-  if (pre !== null) copyEntry(file, preImageOf(recordDir, file));
-  return { path: file, pre_sha256: pre, post_sha256: null };
+  if (pre === null) return { path: file, pre_sha256: null, post_sha256: null };
+  copyEntry(file, preImageOf(recordDir, file), { dirMode: DIR_MODE, fileMode: FILE_MODE });
+  const st = lstatOrNull(file);
+  return { path: file, pre_sha256: pre, post_sha256: null, ...(st.isSymbolicLink() ? {} : { mode: st.mode & 0o777 }) };
+}
+
+const isObject = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
+const valueAt = (root, keys) => keys.reduce((node, key) => (isObject(node) && Object.hasOwn(node, key) ? node[key] : undefined), root);
+const sha256OfValue = (value) => (value === undefined ? null : sha256(JSON.stringify(value)));
+
+// Prior state of the one key install-mcp writes. A prior value may carry a credential, so only its sha256 is kept
+// (manual: rollback never restores it automatically).
+function mcpKeyStateOf(targetDir) {
+  const file = path.join(targetDir, MCP_FILE);
+  const base = { path: file, key: MCP_KEY, post_sha256: null, late: false };
+  if (lstatOrNull(file) === null) return { ...base, file_existed: false, parent_existed: false, key_existed: false, prior_sha256: null };
+  let parsed;
+  try {
+    parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return { ...base, file_existed: true, unparsable: true, parent_existed: false, key_existed: false, prior_sha256: null };
+  }
+  const prior = valueAt(parsed, MCP_KEY);
+  return { ...base, file_existed: true, parent_existed: isObject(valueAt(parsed, MCP_KEY.slice(0, 1))), key_existed: prior !== undefined, prior_sha256: sha256OfValue(prior) };
 }
 
 // Keeps the newest KEEP_RECORDS records (UTC stamps sort by time) and always keeps `keepDir`.
@@ -148,13 +182,15 @@ function pruneRecords(root, keepDir) {
 
 function openRecord({ targetDirs, homeDir = os.homedir(), now = new Date() }) {
   const root = upgradesRootOf(homeDir);
-  fs.mkdirSync(root, { recursive: true });
+  fs.mkdirSync(root, { recursive: true, mode: DIR_MODE });
   const recordDir = path.join(root, stampOf(now));
-  fs.mkdirSync(recordDir);
+  fs.mkdirSync(recordDir, { mode: DIR_MODE });
   const entries = uniq(targetDirs.flatMap(scopeOf)).map((file) => backupEntry(recordDir, file));
   const deps_before = targetDirs.filter((dir) => fs.existsSync(depsOf(dir)));
   const dirs_before = uniq(targetDirs.flatMap(scopeDirsOf));
-  writeRecord(recordDir, { status: 'open', opened: now.toISOString(), targets: targetDirs, deps_before, dirs_before, entries });
+  const json_keys = targetDirs.map(mcpKeyStateOf);
+  writeRecord(recordDir, { status: 'open', opened: now.toISOString(), targets: targetDirs, deps_before, dirs_before, entries, json_keys });
+  fs.writeFileSync(currentRunFileOf(homeDir), recordDir, { mode: FILE_MODE });
   pruneRecords(root, recordDir);
   return recordDir;
 }
@@ -242,7 +278,31 @@ function statusOf(recordDir) {
 
 function restoreEntry(recordDir, entry) {
   fs.rmSync(entry.path, { force: true });
-  if (entry.pre_sha256 !== null) copyEntry(preImageOf(recordDir, entry.path), entry.path);
+  if (entry.pre_sha256 !== null) copyEntry(preImageOf(recordDir, entry.path), entry.path, { fileMode: entry.mode ?? 0o644 });
+}
+
+const MANUAL_NOTE = ' (not restored: its prior value is not stored; restore it by hand)';
+
+// Undoes the one key install-mcp wrote, inside the existing file, and nothing else. Returns the path left alone, or null.
+function rollbackJsonKey(state) {
+  if (!state.late || !fs.existsSync(state.path)) return null;
+  if (state.unparsable) return state.path + MANUAL_NOTE;
+  let parsed;
+  try {
+    parsed = JSON.parse(fs.readFileSync(state.path, 'utf8'));
+  } catch {
+    return `${state.path} (no longer valid JSON; not touched)`;
+  }
+  const now = sha256OfValue(valueAt(parsed, state.key));
+  if (state.key_existed) return now === state.prior_sha256 ? null : state.path + MANUAL_NOTE;
+  if (now === null) return null;
+  if (now !== state.post_sha256) return `${state.path} (key edited since the install; not touched)`;
+  const { [state.key[1]]: _gone, ...servers } = parsed[state.key[0]];
+  const { [state.key[0]]: _parent, ...others } = parsed;
+  const result = state.parent_existed || Object.keys(servers).length > 0 ? { ...others, [state.key[0]]: servers } : others;
+  if (!state.file_existed && Object.keys(result).length === 0) fs.rmSync(state.path, { force: true });
+  else fs.writeFileSync(state.path, JSON.stringify(result, null, 2) + '\n');
+  return null;
 }
 
 // Removes the directories the install created that are now empty; directories that existed at open stay.
@@ -296,6 +356,8 @@ function rollbackNewest({ homeDir = os.homedir(), runNpm = reinstallDeps }) {
     .filter(({ entry, now }) => now !== entry.pre_sha256 && !atPost(entry, now))
     .map(({ entry }) => entry.path);
   for (const entry of toRestore) restoreEntry(recordDir, entry);
+  const jsonLeft = (record.json_keys ?? []).map(rollbackJsonKey).filter((item) => item !== null);
+  left.push(...jsonLeft);
   for (const target of record.targets) fs.rmSync(path.join(target, STAGING_DIR), { recursive: true, force: true });
   pruneCreatedDirs(record);
   const deps = syncDeps(record, toRestore, runNpm);
@@ -309,17 +371,27 @@ function rollbackNewest({ homeDir = os.homedir(), runNpm = reinstallDeps }) {
   };
 }
 
-// install:gsd step 4 writes <configDir>/.claude.json after install.js closed its record. The newest closed record takes
-// the file's new fingerprint so rollback restores it. With no closed newest record (the install changed nothing else)
-// there is nothing to amend and the write stays unrecorded.
+// install:gsd step 4 writes the MCP key in <configDir>/.claude.json after install.js closed its record. Only the record
+// the current install opened (named by the run pointer openRecord wrote, consumed here once) is amended, with the key's
+// new fingerprint. When that install changed nothing its record is gone and the write stays unrecorded; an older
+// record is never touched.
 function noteLateWrite({ homeDir = os.homedir(), file }) {
-  const [recordDir] = recordDirsNewestFirst(homeDir);
-  if (recordDir === undefined || statusOf(recordDir) !== 'closed') return false;
+  const pointer = currentRunFileOf(homeDir);
+  if (!fs.existsSync(pointer)) return false;
+  const recordDir = fs.readFileSync(pointer, 'utf8');
+  fs.rmSync(pointer, { force: true });
+  if (!fs.existsSync(recordFileOf(recordDir)) || statusOf(recordDir) !== 'closed') return false;
   const record = readRecord(recordDir);
-  if (!record.targets.some((target) => path.dirname(file) === target)) return false;
-  const known = record.entries.find((entry) => entry.path === file);
-  const entry = { path: file, pre_sha256: known ? known.pre_sha256 : null, post_sha256: fingerprintOf(file) };
-  writeRecord(recordDir, { ...record, entries: [...record.entries.filter((e) => e.path !== file), entry] });
+  const state = (record.json_keys ?? []).find((item) => item.path === file);
+  if (state === undefined || state.late) return false;
+  let parsed;
+  try {
+    parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return false;
+  }
+  const amended = { ...state, late: true, post_sha256: sha256OfValue(valueAt(parsed, state.key)) };
+  writeRecord(recordDir, { ...record, json_keys: record.json_keys.map((item) => (item === state ? amended : item)) });
   return true;
 }
 

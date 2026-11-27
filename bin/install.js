@@ -340,10 +340,10 @@ function prepareTree(liveDir, build, stagingOpts) {
     }
   };
   // After a commit: the adopted node_modules goes back to the old tree, then the old tree takes the live place again.
-  const revert = () => {
-    if (adopted && hadLive && fs.existsSync(liveModules)) fs.renameSync(liveModules, path.join(prevDir, 'node_modules'));
+  const revert = (rename = fs.renameSync) => {
+    if (adopted && hadLive && fs.existsSync(liveModules)) rename(liveModules, path.join(prevDir, 'node_modules'));
     fs.rmSync(liveDir, { recursive: true, force: true });
-    if (hadLive) fs.renameSync(prevDir, liveDir);
+    if (hadLive) rename(prevDir, liveDir);
     adopted = false;
     rmdirIfEmpty(stagingRoot);
   };
@@ -375,9 +375,17 @@ function swapTrees(specs, rename = fs.renameSync) {
       item.handle.commit(rename);
       committed.push(item);
     } catch (err) {
-      [...committed].reverse().forEach(({ handle }) => handle.revert());
+      const stuck = [...committed].reverse().flatMap(({ spec, handle }) => {
+        try {
+          handle.revert(rename);
+          return [];
+        } catch (revertErr) {
+          return [`${spec.liveDir} (${revertErr.message})`];
+        }
+      });
       prepared.filter((p) => !committed.includes(p) && p !== item).forEach(({ handle }) => handle.abort());
-      return { errors: [{ label: item.spec.label, message: err.message }] };
+      const note = stuck.length > 0 ? `; could not revert, check by hand: ${stuck.join(', ')}` : '';
+      return { errors: [{ label: item.spec.label, message: `${err.message}${note}` }] };
     }
   }
   return { errors: [] };
