@@ -13,6 +13,7 @@ const path = require('path');
 const os = require('os');
 const { spawnSync } = require('child_process');
 const profile = require('./project-profile.js');
+const { writeCompleteHome } = require('./profile-doctor-test-home.js');
 
 const GSD_TOOLS = path.join(__dirname, 'gsd-tools.js');
 const tmpDirs = [];
@@ -679,13 +680,16 @@ describe('profile doctor (WP18)', () => {
     const dir = mkTmp();
     fs.mkdirSync(path.join(dir, '.planning'), { recursive: true });
     fs.writeFileSync(path.join(dir, '.planning', 'config.json'), JSON.stringify({ stack }));
-    return spawnSync(process.execPath, [GSD_TOOLS, 'profile', 'doctor'], { cwd: dir, encoding: 'utf-8' });
+    return spawnSync(process.execPath, [GSD_TOOLS, 'profile', 'doctor'], { cwd: dir, encoding: 'utf-8', env: { ...process.env, HOME: emptyHome() } });
   }
 
-  test('a complete config exits 0 and prints only the OK line', () => {
+  // A HOME with the framework installed and every hook registered: the checks beyond the stack keys are isolated from the real one.
+  const emptyHome = () => writeCompleteHome(mkTmp());
+
+  test('a complete config exits 0 and prints only the summary line', () => {
     const r = doctorOn(completeStack());
     assert.strictEqual(r.status, 0, r.stdout + r.stderr);
-    assert.strictEqual(r.stdout.trim(), 'OK no missing, stale or differing keys');
+    assert.strictEqual(r.stdout.trim(), 'doctor: up to date (0 blocking, 0 other)');
   });
 
   test('a missing error key exits 1 and prints one MISSING line with its scope and severity', () => {

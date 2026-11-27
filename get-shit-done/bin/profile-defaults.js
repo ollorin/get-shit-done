@@ -85,22 +85,31 @@ function withTableDefaults(stack) {
 
 const finding = (kind, key, e, value) => Object.freeze({ kind, key, entry: e, value });
 
-function doctorFindings(stack) {
+// The script a gate runs: the first word that is a path or has an extension ("node scripts/x.mjs" -> scripts/x.mjs).
+const scriptOf = (run) => run.split(/\s+/).find((word) => word.includes('/') || /\.\w+$/.test(word));
+
+// A default gate with no script in the project's preset cannot be satisfied there: an absent one is information, not a block.
+const noScript = (key, e, hasScript) => typeof hasScript === 'function' && isGateKey(key) && !hasScript(scriptOf(e.default.run) ?? e.default.run);
+const asInfo = (e) => ({ ...e, severity: 'info', why: `no script in the project's preset; ${e.why}` });
+
+// opts.hasScript(path) says whether a gate script exists in the project's preset (or on disk); absent means every gate applies.
+function doctorFindings(stack, opts = {}) {
   return Object.entries(STACK_DEFAULTS).flatMap(([key, e]) => {
     if (!applicable(e, stack)) return [];
     const value = readKey(stack, key);
-    if (value === undefined) return [finding('MISSING', key, e, value)];
+    if (value === undefined) return [noScript(key, e, opts.hasScript) ? finding('INFO', key, asInfo(e), value) : finding('MISSING', key, e, value)];
     return e.default !== null && !isDeepStrictEqual(value, e.default) ? [finding('DIFFERS', key, e, value)] : [];
   });
 }
 
 // A DIFFERS line is information; a missing key with severity error blocks.
-const isBlocking = (f) => f.kind !== 'DIFFERS' && f.entry.severity === 'error';
+const isBlocking = (f) => f.kind === 'MISSING' && f.entry.severity === 'error';
 
 const show = (v) => (typeof v === 'string' ? v : JSON.stringify(v));
 const defaultText = (e) => (e.default === null ? `(none: ${e.scope})` : show(e.default));
 const LINE = Object.freeze({
   MISSING: ({ key, entry: e }) => `MISSING ${key} -> ${defaultText(e)} (${e.severity}: ${e.why})`,
+  INFO: ({ key, entry: e }) => `INFO ${key} -> ${defaultText(e)} (${e.severity}: ${e.why})`,
   DIFFERS: ({ key, value, entry: e }) => `DIFFERS ${key} = ${show(value)} (optimal ${show(e.default)})`,
 });
 const doctorLines = (findings) => findings.map((f) => LINE[f.kind](f));

@@ -10,6 +10,7 @@ const {
 } = require('./project-profile-keys.js');
 const uiQaDrivers = require('./ui-qa-driver.js');
 const { doctorFindings, doctorLines, isBlocking } = require('./profile-defaults.js');
+const { projectChecks, presetGateScripts, isBlockingFinding, findingLine } = require('./profile-doctor-checks.js');
 
 const REQUIRED_KEYS = Object.freeze([
   'project.slug',
@@ -294,10 +295,15 @@ function doctor(cwd) {
     const reason = profile.error ?? 'not found';
     return { exitCode: 1, result: { ok: false, reason }, text: `ERROR .planning/config.json: ${reason}\n` };
   }
-  const findings = doctorFindings(profile.stack ?? {});
-  const lines = findings.length === 0 ? ['OK no missing, stale or differing keys'] : doctorLines(findings);
-  const exitCode = findings.some(isBlocking) ? 1 : 0;
-  return { exitCode, result: { ok: exitCode === 0 }, text: `${lines.join('\n')}\n` };
+  const stack = profile.stack ?? {};
+  const findings = doctorFindings(stack, { hasScript: presetGateScripts(cwd, stack) });
+  const checks = projectChecks(cwd, stack);
+  const blocking = findings.filter(isBlocking).length + checks.filter(isBlockingFinding).length;
+  const other = findings.length + checks.length - blocking;
+  const verdict = blocking === 0 ? 'up to date' : 'NOT up to date';
+  const lines = [...doctorLines(findings), ...checks.map(findingLine), `doctor: ${verdict} (${blocking} blocking, ${other} other)`];
+  const exitCode = blocking === 0 ? 0 : 1;
+  return { exitCode, result: { ok: exitCode === 0, blocking, other }, text: `${lines.join('\n')}\n` };
 }
 
 function runCli(cwd, args) {
