@@ -8,6 +8,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { pathToFileURL } = require('url');
 
 const SCRIPTS = path.join(__dirname, '..', 'presets', 'base', 'scripts');
 const tmps = [];
@@ -130,5 +131,38 @@ describe('gate-capture', () => {
     capture(dir, 'b', 'echo y');
     assert.match(captured(dir), /GATE a rc=0 lines=1\n\$ b\ny\nGATE b rc=0 lines=1\n$/);
     assert.strictEqual(run(dir, 'gate-capture.mjs', 'only-one').status, 2);
+  });
+});
+
+describe('timeout path', () => {
+  test('a timed-out gate is killed with SIGKILL after 600000 ms and reports rc=timeout in both runners', () => {
+    const stubDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gates-stub-'));
+    tmps.push(stubDir);
+    const record = path.join(stubDir, 'options.json');
+    const stub = path.join(stubDir, 'timeout-stub.mjs');
+    fs.writeFileSync(stub, [
+      "import cp from 'node:child_process';",
+      "import fs from 'node:fs';",
+      "import { syncBuiltinESMExports } from 'node:module';",
+      'cp.spawnSync = (command, options) => {',
+      `  fs.writeFileSync(${JSON.stringify(record)}, JSON.stringify({ timeout: options.timeout, killSignal: options.killSignal }));`,
+      "  return { status: null, error: { code: 'ETIMEDOUT' } };",
+      '};',
+      'syncBuiltinESMExports();',
+    ].join('\n'));
+    const dir = project({ gates: [{ id: 'x', run: 'echo never', needs_stack: false }] });
+    const runWithStub = (script, ...args) => spawnSync('node', ['--import', pathToFileURL(stub).href, path.join(SCRIPTS, script), ...args], { cwd: dir, encoding: 'utf8' });
+    const recorded = () => JSON.parse(fs.readFileSync(record, 'utf8'));
+    const expected = { timeout: 600000, killSignal: 'SIGKILL' };
+
+    const gate = runWithStub('no-stack-gates.mjs');
+    assert.strictEqual(gate.status, 1, gate.stderr);
+    assert.match(gate.stdout, /^x: FAIL rc=timeout$/m);
+    assert.deepStrictEqual(recorded(), expected);
+
+    const capture = runWithStub('gate-capture.mjs', path.join(dir, 'captures', 'gates.txt'), 'x', 'echo never');
+    assert.strictEqual(capture.status, 1, capture.stderr);
+    assert.match(fs.readFileSync(path.join(dir, 'captures', 'gates.txt'), 'utf8'), /GATE x rc=timeout lines=0\n$/);
+    assert.deepStrictEqual(recorded(), expected);
   });
 });
