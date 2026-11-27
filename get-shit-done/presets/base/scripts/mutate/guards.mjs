@@ -5,7 +5,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { fail, isDirtyPorcelain, ok } from './classify.mjs';
+import { fail, isDirtyPorcelain, ok, passedCount } from './classify.mjs';
 import { defaultTempBases, inspectRoot, primaryRefusal } from './worktree.mjs';
 
 const run = promisify(execFile);
@@ -71,9 +71,16 @@ export async function baselineError(runTest, label, root, tests, timeoutMs, conf
   for (const test of tests) {
     const baseline = await runTest(root, test, timeoutMs, config);
     if (baseline.outcome !== 'survived') return `baseline red ${label}: ${test} fails unmutated (${baseline.outcome})`;
+    if (config?.passPattern && passedCount(baseline.output, config.passPattern) < 1) return `baseline red ${label}: ${test} ran no tests (its output shows no passed-test count)`;
     console.log(`[mutate] baseline green ${label}: ${test} (${baseline.durationMs} ms)`);
   }
   return null;
+}
+
+/** A db-lane runner runs only under the stack lock (stack-lock sets STACK_LOCK_HELD=1): the hook cannot see this command's inner test run. */
+export function lockError(configs, env) {
+  const db = [...new Set(configs.values())].some((c) => c.lane === 'db');
+  return db && env.STACK_LOCK_HELD !== '1' ? 'a db-lane runner needs the stack lock: run through scripts/stack-lock.sh (STACK_LOCK_HELD=1 is not set)' : null;
 }
 
 /** Written when a run finishes: its absence means the run was cut short and its JSONL is not citable. */

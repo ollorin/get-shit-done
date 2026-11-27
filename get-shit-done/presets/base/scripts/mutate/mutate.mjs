@@ -9,15 +9,17 @@
 // Error pattern: --error-pattern, else stack.mutation.build_error_pattern (a missing config is allowed only when --test-cmd is given); the old key error_pattern is refused.
 // Runners: stack.mutation.runners[] ({ id, test_cmd with {file}, build_error_pattern? }); a mutant names one by `runner` (optional with a single runner); an unknown id is refused.
 // A failing run whose output matches the build error pattern stops the run (restored) and exits 5: a crash is never a kill. Documented in docs/gsd/mutation-testing.md.
-// Exit: 0 ok; 1 canary mismatch, inconclusive mutant or red after the run; 2 aborted before mutating; 3 restore failed; 4 internal; 5 build error pattern matched.
+// Run start: a runner with a `selftest` first proves the harness tells a kill from a build failure (selftest.mjs); a `lane: db` runner needs STACK_LOCK_HELD=1; every mutant needs expect_failing_test.
+// Exit: 0 ok; 1 canary mismatch, inconclusive mutant or red after the run; 2 aborted before mutating (self-test, baseline, lock, option conflict); 3 restore failed; 4 internal; 5 build error pattern matched or errored breaker (harness fault).
 import fs from 'node:fs/promises';
 import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  BUILD_ERROR_DETAIL, BUILD_ERROR_EXIT, NO_PATTERN_NOTICE, applySnippet, canaryMismatches, configsFor, countOccurrences, fail, firstFailingLine, inconclusive, killReproduced, ok, parseMutants, parseRunners, renderMarkdown, sha256Hex,
+  BUILD_ERROR_DETAIL, BUILD_ERROR_EXIT, NO_PATTERN_NOTICE, applySnippet, canaryMismatches, configsFor, countOccurrences, fail, firstFailingLine, harnessFault, inconclusive, killReproduced, ok, parseMutants, parseRunners, renderMarkdown, sha256Hex,
 } from './classify.mjs';
-import { baselineError, dirtyTargets, outPathError, outsideRootError, primaryError, runSummaryPath, staleBackupError, writeRunSummary } from './guards.mjs';
+import { baselineError, dirtyTargets, lockError, outPathError, outsideRootError, primaryError, runSummaryPath, staleBackupError, writeRunSummary } from './guards.mjs';
+import { selfTestAll } from './selftest.mjs';
 import { parseOptions } from './options.mjs';
 import { runTest } from './process.mjs';
 import { windowError } from './window.mjs';
@@ -33,7 +35,7 @@ function record(m, f) {
     test: m.test,
     outcome: f.outcome,
     duration_ms: f.durationMs ?? 0,
-    first_failing_line: f.outcome === 'survived' || f.output === undefined ? null : firstFailingLine(f.output, f.errorPattern ?? null),
+    first_failing_line: f.outcome === 'survived' || f.output === undefined ? null : firstFailingLine(f.output, f.outcome === 'errored' ? f.errorPattern ?? null : null),
     source_sha_before: sha,
     source_sha_after: f.shaAfter ?? sha,
     mutated_sha: f.mutatedSha ?? null,
@@ -89,16 +91,16 @@ export async function runMutant(m, opts) {
     const first = await runTest(opts.root, m.test, opts.timeoutMs, opts.config);
     const again = first.outcome === 'killed' ? await runTest(opts.root, m.test, opts.timeoutMs, opts.config) : null;
     const [seen, testSeen] = await Promise.all([fileSha(abs), testFileSha(opts.root, m.test)]);
-    return { result: first, confirmed: again === null ? null : killReproduced(again.outcome), seen, testSeen };
+    return { result: first, confirmed: again === null ? null : killReproduced(again.outcome), crashed: first.buildError || again?.buildError === true, seen, testSeen };
   }).catch((e) => (e instanceof RestoreError ? e : Promise.reject(e)));
   if (run instanceof RestoreError) return record(m, { outcome: 'restore-failed', sha, testSha, mutatedSha, detail: run.message });
   await fs.rm(backup, { force: true });
   const shaAfter = (await fileSha(abs)) ?? '';
-  const { result, confirmed, seen, testSeen } = run;
-  const voided = seen !== mutatedSha ? 'source changed during the run; verdict void'
-    : testSeen !== testSha ? 'test file changed during the run; verdict void'
-      : confirmed === false ? 'kill not reproduced on a second run (flaky test?); verdict void'
-        : result.buildError ? BUILD_ERROR_DETAIL : undefined;
+  const { result, confirmed, crashed, seen, testSeen } = run;
+  const voided = crashed ? BUILD_ERROR_DETAIL
+    : seen !== mutatedSha ? 'source changed during the run; verdict void'
+      : testSeen !== testSha ? 'test file changed during the run; verdict void'
+        : confirmed === false ? 'kill not reproduced on a second run (flaky test?); verdict void' : undefined;
   return record(m, {
     outcome: voided === undefined ? result.outcome : 'errored',
     durationMs: result.durationMs,
@@ -134,9 +136,12 @@ export function withProfile(options, cwd = process.cwd()) {
   }
   const errorPattern = c.errorPattern ?? mutation?.build_error_pattern ?? null;
   if (errorPattern !== null) { try { new RegExp(errorPattern); } catch { return fail('stack.mutation.build_error_pattern is not a valid regular expression'); } }
-  if (mutation?.runners !== undefined) {
+  if (mutation?.runners != null) {
     const runners = parseRunners(mutation.runners);
-    return runners.ok ? ok({ ...options, config: { ...c, testCmd: c.testCmd, errorPattern, runners: runners.value } }) : fail(runners.error);
+    if (!runners.ok) return fail(runners.error);
+    if (c.testCmd !== null) return fail('--test-cmd cannot be combined with stack.mutation.runners (each mutant names its runner); drop the flag or the runners');
+    if (c.errorPattern !== null && runners.value.some((r) => r.build_error_pattern !== undefined)) return fail('--error-pattern conflicts with a runner build_error_pattern; drop the flag or the runner pattern');
+    return ok({ ...options, config: { ...c, errorPattern, runners: runners.value } });
   }
   const testCmd = c.testCmd ?? cfg?.stack?.commands?.test_file ?? null;
   if (testCmd === 'none') return fail('stack.commands.test_file is "none" (not configured yet): the project has no tests to mutate against; pass --test-cmd or set a real command');
@@ -151,7 +156,7 @@ async function runAll(mutants, opts, backupDir, configs) {
     const rec = await runMutant(m, { root: opts.root, timeoutMs: opts.timeoutMs, dryRun: opts.dryRun, config: configs.get(m.id), backupDir });
     await fs.appendFile(opts.outPath, `${JSON.stringify(rec)}\n`);
     results.push(rec);
-    if (rec.outcome === 'restore-failed' || rec.detail === BUILD_ERROR_DETAIL) break;
+    if (rec.outcome === 'restore-failed' || rec.detail === BUILD_ERROR_DETAIL || harnessFault(results)) break;
   }
   return results;
 }
@@ -186,11 +191,15 @@ async function execute(opts, deps) {
   const resolved = configsFor(mutants, opts.config);
   if (!resolved.ok) { console.error(`[mutate] ${resolved.error}`); return 2; }
   const configs = resolved.value;
+  const unlocked = opts.dryRun ? null : lockError(configs, deps.env ?? process.env);
+  if (unlocked !== null) return refuse(unlocked);
   await fs.mkdir(path.dirname(opts.outPath), { recursive: true });
   await fs.writeFile(opts.outPath, '');
   await fs.rm(runSummaryPath(opts.outPath), { force: true });
   const baseline = opts.dryRun ? 'skipped' : 'green';
-  const finish = async (code, summary, count = 0) => { await writeRunSummary(opts.outPath, { exit_code: code, mutants: count, ...summary }); return code; };
+  const selfTest = opts.dryRun ? { problem: null, status: 'skipped' } : await selfTestAll(runTest, opts.root, opts.timeoutMs, configs);
+  const finish = async (code, summary, count = 0) => { await writeRunSummary(opts.outPath, { exit_code: code, mutants: count, self_test: selfTest.status, ...summary }); return code; };
+  if (selfTest.problem !== null) { console.error(`[mutate] ${selfTest.problem}; aborting`); return finish(2, { baseline_before: 'not-run', baseline_after: 'not-run' }); }
   if (!opts.dryRun) {
     const before = await baselineAll('before', mutants, configs, opts);
     if (before !== null) { console.error(`[mutate] ${before}; aborting`); return finish(2, { baseline_before: 'red', baseline_after: 'not-run' }); }
@@ -212,7 +221,11 @@ async function execute(opts, deps) {
     console.error(`[mutate] REFUSED: ${crashed.id} output matched the runner's build error pattern; no verdict of this run counts`);
     return finish(BUILD_ERROR_EXIT, { baseline_before: baseline, baseline_after: 'not-run', refused: 'build-error-pattern' }, records.length);
   }
-  const bad =opts.dryRun ? inconclusive(records) : [...canaryMismatches(records), ...inconclusive(records)];
+  if (harnessFault(records)) {
+    console.error('[mutate] HARNESS FAULT: 3 or more rows and over a fifth of them errored; the run stopped and no row counts as a kill or a survivor');
+    return finish(BUILD_ERROR_EXIT, { baseline_before: baseline, baseline_after: 'not-run', harness_fault: true }, records.length);
+  }
+  const bad = opts.dryRun ? inconclusive(records) : [...canaryMismatches(records), ...inconclusive(records)];
   if (!opts.dryRun) {
     const after = await baselineAll('after', mutants, configs, opts);
     if (after !== null) { console.error(`[mutate] ${after}; the run's verdicts are unreliable`); return finish(1, { baseline_before: baseline, baseline_after: 'red' }, records.length); }

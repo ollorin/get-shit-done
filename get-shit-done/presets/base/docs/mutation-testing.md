@@ -27,7 +27,10 @@ A JSON array of objects:
 | `old`, `new` | `old` must occur exactly once in `file` (overlaps counted) and differ from `new` |
 | `test` | the test file the command runs for this mutant, a readable file |
 | `expect` | optional, `killed` or `survived`: makes the mutant a canary, and the outcome must equal it |
+| `expect_failing_test` | required, non-empty: the name of the test that must fail (the filter of WP10 and the misattribution check key on it) |
 | `runner` | optional, the id of a `stack.mutation.runners[]` entry; required when several runners exist |
+
+A runner entry may also carry `pass_pattern` (a regex whose first group is the passed-test count: a baseline whose output shows no count is red), `lane` (`unit` or `db`; a `db` runner needs `STACK_LOCK_HELD=1`, set by `scripts/stack-lock.sh`, else exit 2) and `selftest` (`dir`, `ext`, `pass`, `kill`, `build` file contents). With a `selftest` the run first proves the harness: the pass file must classify `survived`, the kill file `killed` and name itself in the output, the build file `errored` through the build pattern; any mismatch is exit 2 ("harness fault") and `<out>.run.json` records `self_test`. Three or more errored rows and over a fifth of the rows so far stop the run with exit 5 and `harness_fault: true`. `--test-cmd` and `--error-pattern` cannot be combined with configured runners (exit 2).
 
 ## Outcomes
 

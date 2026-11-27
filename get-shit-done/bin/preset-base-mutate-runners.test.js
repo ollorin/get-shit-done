@@ -25,7 +25,14 @@ const git = (root, ...args) => {
 const SRC = 'exports.add = (a, b) => a + b;\n';
 const CRASH_CHECK = "if (require('./add.js').add(1, 2) !== 3) { console.error('SyntaxError: boom'); process.exit(1); }\n";
 const KILL_CHECK = "if (require('./add.js').add(1, 2) !== 3) { console.error('AssertionError: wrong sum'); process.exit(1); }\n";
-const mutant = (id, extra = {}) => ({ id, file: 'src/add.js', old: 'a + b', new: 'a - b', test: 'src/kill.check.js', ...extra });
+const mutant = (id, extra = {}) => ({ id, file: 'src/add.js', old: 'a + b', new: 'a - b', test: 'src/kill.check.js', expect_failing_test: 'adds', ...extra });
+const SELFTEST = {
+  dir: 'src',
+  ext: '.check.js',
+  pass: "console.log('passed 1');\n",
+  kill: "console.error('FAIL __mutate_selftest_kill__ AssertionError'); process.exit(1);\n",
+  build: 'const = ;\n',
+};
 
 function project(mutation) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-wp9-')));
@@ -65,11 +72,21 @@ describe('WP9 mutation runners: the harness', () => {
     assert.strictEqual(source(root), SRC);
   });
 
-  test('the same failing output on a runner without the pattern is a clean kill (exit 0)', () => {
+  test('F4: a runner with a selftest and no pattern cannot tell a crash from a kill: refused (exit 2), no mutant runs', () => {
+    const root = project({ runners: [{ id: 'plain', test_cmd: 'node {file}', selftest: SELFTEST }] });
+    const r = run(root, [mutant('M-kill', { runner: 'plain', test: 'src/crash.check.js' })]);
+    assert.strictEqual(r.code, 2, r.output);
+    assert.match(r.output, /harness fault: the classifier labels a known build failure as killed/);
+    assert.deepStrictEqual(r.records, []);
+    assert.strictEqual(source(root), SRC);
+  });
+
+  test('a runner with neither pattern nor selftest is unguarded: the same crash is a kill and the run prints the notice', () => {
     const root = project({ runners: RUNNERS });
     const r = run(root, [mutant('M-kill', { runner: 'plain', test: 'src/crash.check.js' })]);
     assert.strictEqual(r.code, 0, r.output);
     assert.deepStrictEqual(r.records.map((x) => [x.outcome, x.kill_confirmed]), [['killed', true]]);
+    assert.match(r.output, /no error pattern/);
   });
 
   test('a runner pattern does not touch a kill whose output does not match it', () => {
@@ -121,6 +138,28 @@ describe('WP9 mutation runners: the profile shape check and the doctor', () => {
     assert.ok(problems({ runners: [{ ...base, build_error_pattern: 'AssertionError' }] }).some((p) => /matches the normal kill output/.test(p.reason)));
     assert.ok(problems({ runners: [{ ...base, build_error_pattern: 'NeverPrinted' }] }).some((p) => /does not match the build failure/.test(p.reason)));
     assert.ok(problems({ build_error_pattern: 'FAIL', runners: [base] }).some((p) => /matches the normal kill output/.test(p.reason)), 'the project pattern is the effective one');
+  });
+
+  test('F3: the project pattern and every runner pattern are checked against every catalogue kill fixture; the build failure only for a known engine', () => {
+    const custom = { id: 'custom', test_cmd: 'x {file}' };
+    assert.ok(problems({ build_error_pattern: 'FAIL' }).some((p) => /matches the normal kill output/.test(p.reason)), 'project pattern, no runners');
+    assert.ok(problems({ runners: [{ ...custom, build_error_pattern: 'AssertionError' }] }).some((p) => /matches the normal kill output/.test(p.reason)), 'unknown engine, own pattern');
+    assert.deepStrictEqual(problems({ runners: [{ ...custom, build_error_pattern: 'ZZZ-never' }] }), [], 'unknown engine: no build_failure fixture to match');
+    assert.deepStrictEqual(problems({ build_error_pattern: 'ZZZ-never' }), []);
+  });
+
+  test('runners: null is absent; selftest, pass_pattern and lane are shape-checked', () => {
+    assert.deepStrictEqual(problems({ runners: null }), []);
+    const base = { id: 'a', test_cmd: 'x {file}' };
+    assert.ok(keysOf({ runners: [{ ...base, pass_pattern: '(' }] }).includes('stack.mutation.runners[0].pass_pattern'));
+    assert.ok(keysOf({ runners: [{ ...base, lane: 'gpu' }] }).includes('stack.mutation.runners[0].lane'));
+    assert.ok(keysOf({ runners: [{ ...base, selftest: { dir: 'src' } }] }).includes('stack.mutation.runners[0].selftest'));
+    assert.deepStrictEqual(problems({ runners: [{ ...base, lane: 'db', pass_pattern: 'passed (\\d+)', selftest: SELFTEST }] }), []);
+  });
+
+  test('the shipped catalogue states the source of every fixture', () => {
+    for (const entry of Object.values(catalogue)) assert.ok(['kill', 'build_failure'].every((k) => typeof entry.source[k] === 'string' && entry.source[k] !== ''));
+    assert.match(catalogue.vitest.source.build_failure, /hand-written/);
   });
 
   test('the doctor constant is true and the old key is a blocking finding', () => {

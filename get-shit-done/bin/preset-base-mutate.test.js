@@ -353,7 +353,7 @@ describe('mutation tool: runner seam, exit-status verdict (agnostic-M-09 9.5)', 
 
   test('parseMutants, canaryMismatches, inconclusive and renderMarkdown on the source cases', async () => {
     const { parseMutants, canaryMismatches, inconclusive, renderMarkdown, killReproduced } = await load('classify.mjs');
-    const mutant = (id, extra = {}) => ({ id, file: 'src/a.js', old: 'a', new: 'b', test: 'src/a.check.js', ...extra });
+    const mutant = (id, extra = {}) => ({ id, file: 'src/a.js', old: 'a', new: 'b', test: 'src/a.check.js', expect_failing_test: 'a', ...extra });
     assert.strictEqual(parseMutants([mutant('M1', { expect: 'killed' })]).ok, true);
     assert.strictEqual(parseMutants([{ id: 'M1', file: 'src/a.js', new: 'b', test: 't' }]).ok, false, 'missing old');
     assert.strictEqual(parseMutants([mutant('M1'), mutant('M1')]).ok, false, 'duplicate ids');
@@ -409,7 +409,7 @@ describe('mutation tool: the command line (agnostic-M-09 9.6)', () => {
   const TEST_CMD = 'node --test {file}';
   const ADD_TEST = "const test = require('node:test');\nconst assert = require('node:assert');\ntest('add', () => { assert.strictEqual(require('./add.js').add(1, 2), 3); });\n";
   const SRC = 'exports.add = (a, b) => a + b;\nexports.unused = 1;\n';
-  const mutant = (id, extra = {}) => ({ id, file: 'src/add.js', old: 'a + b', new: 'a - b', test: 'src/add.check.js', ...extra });
+  const mutant = (id, extra = {}) => ({ id, file: 'src/add.js', old: 'a + b', new: 'a - b', test: 'src/add.check.js', expect_failing_test: 'add', ...extra });
   const KILL = mutant('M-kill');
   const SURVIVE = mutant('M-survive', { old: 'exports.unused = 1', new: 'exports.unused = 2' });
 
@@ -554,7 +554,7 @@ describe('mutation tool: the command line (agnostic-M-09 9.6)', () => {
     assert.strictEqual(records[0].source_sha_after, records[0].source_sha_before);
     assert.strictEqual(fs.readFileSync(path.join(linked, 'src', 'add.js'), 'utf8'), SRC);
     const summary = JSON.parse(fs.readFileSync(`${r.outFile}.run.json`, 'utf8'));
-    assert.deepStrictEqual(summary, { exit_code: 0, mutants: 2, baseline_before: 'green', baseline_after: 'green' });
+    assert.deepStrictEqual(summary, { exit_code: 0, mutants: 2, self_test: 'skipped', baseline_before: 'green', baseline_after: 'green' });
     assert.ok(!fs.existsSync(`${r.outFile}.restore`), 'a successful run leaves no backup directory');
     const canary = run(linked, [mutant('C1', { expect: 'survived' })]);
     assert.strictEqual(canary.code, 1, canary.out);
@@ -605,7 +605,7 @@ describe('mutation tool: signals through the command line (agnostic-M-09 9.6)', 
     fs.writeFileSync(path.join(root, 'src', 'slow.check.js'), CHECK);
     git(root, 'add', '-A');
     git(root, 'commit', '-q', '-m', 'init');
-    fs.writeFileSync(path.join(root, '.m.json'), JSON.stringify([{ id: 'S1', file: 'src/add.js', test: 'src/slow.check.js', old: '"clean"', new: '"MUTATED"' }]));
+    fs.writeFileSync(path.join(root, '.m.json'), JSON.stringify([{ id: 'S1', file: 'src/add.js', test: 'src/slow.check.js', old: '"clean"', new: '"MUTATED"', expect_failing_test: 'slow' }]));
     return root;
   }
   const start = (root) => {
@@ -707,7 +707,7 @@ describe('mutation tool: profile lookup (agnostic-M-09 9.6)', () => {
 describe('mutation tool: runs only inside a live window when the project has a shared stack', () => {
   const CLI = path.join(MUTATE, 'mutate.mjs');
   const BIN = path.join(__dirname);
-  const mutants = [{ id: 'M-1', file: 'src/a.js', old: 'a + b', new: 'a - b', test: 'src/a.check.js' }];
+  const mutants = [{ id: 'M-1', file: 'src/a.js', old: 'a + b', new: 'a - b', test: 'src/a.check.js', expect_failing_test: 'a' }];
   // Same committed tmp repo as the other CLI cases; the project (cwd) is the repo, --root a copy of it.
   function project(config) {
     const root = repo();
