@@ -70,4 +70,4 @@ Not produced unless a cell says so: an E2E plan without UI, a threat model, muta
 3. No real user data and no production credentials in a spike.
 4. A spike writes nothing outside its roots and `.planning/`.
 5. Spike output is never promoted: no `standard` plan lists a spike-root path in `files_modified`, imports from it or cites spike evidence as a test REUSE.
-6. One executor at a time per phase (`dispatch begin executor` refuses a second); owner gates OG1-OG3; the decisions ledger records every assumption.
+6. At most 2 executors per phase, only on file-disjoint plans, each with `--plan` (`dispatch begin executor` refuses a lease without `--plan` while one is open, a third, or an overlapping pair); owner gates OG1-OG3; the decisions ledger records every assumption.

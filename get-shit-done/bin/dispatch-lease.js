@@ -14,7 +14,10 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { evPhase, phaseKey } = require('./roadmap-dispatch.js');
+const planOverlap = require('./plan-overlap.js');
 
+// EXCLUSIVE_ROLES: leases that never expire by TTL and carry an owner. `window` is exclusive per phase; `executor` is exclusive
+// unless both leases carry --plan and the plans are file-disjoint (D-279; at most MAX_EXECUTORS).
 const EXCLUSIVE_ROLES = new Set(['executor', 'window']);
 const DEFAULT_TTL_MIN = 120;
 const WINDOW_CLOSE = new Set(['phase_complete', 'phase_parked', 'phase_incomplete', 'phase_retry', 'phase_failed', 'phase_coordinator_death']);
@@ -162,7 +165,21 @@ function detectOwner() {
 }
 const ownerGone = (o) => { try { process.kill(o.pid, 0); } catch (e) { return e.code === 'ESRCH'; } const s = ps(o.pid, 'lstart'); return s !== '' && s !== o.start; };
 
-function begin({ cwd, phase, role, id, events, now = Date.now(), ttlMin = DEFAULT_TTL_MIN, ownerPid, reason }) {
+const MAX_EXECUTORS = 2;
+const endHint = (l) => `end it, or close it with \`dispatch end --stale ${l.id} --reason "<text>"\` when that agent is dead`;
+
+// A second executor in one phase needs `--plan` on both leases, file-disjoint plans (plan-overlap.js), and at most MAX_EXECUTORS open.
+function executorRefusal(cwd, k, open, plan) {
+  const mine = open.filter((l) => l.role === 'executor');
+  if (mine.length === 0) return null;
+  const first = mine[0];
+  if (!plan || mine.some((l) => !l.plan)) return `phase ${k} already has an open executor lease (${first.id}): a second executor needs --plan on both leases; ${endHint(first)}`;
+  if (mine.length >= MAX_EXECUTORS) return `phase ${k} already has ${MAX_EXECUTORS} open executor leases (${mine.map((l) => l.id).join(', ')}): ${endHint(first)}`;
+  return overlapRefusal(cwd, plan, mine);
+}
+const overlapRefusal = (cwd, plan, mine) => { const c = planOverlap.leaseConflict(cwd, plan, mine.map((l) => l.plan)); return c ? `${c}; ${endHint(mine[0])}` : null; };
+
+function begin({ cwd, phase, role, id, events, now = Date.now(), ttlMin = DEFAULT_TTL_MIN, ownerPid, reason, plan }) {
   const k = phaseKey(phase);
   if (!k) return { error: 'dispatch begin: --phase required' };
   if (!ROLE_RE.test(role || '')) return { error: 'dispatch begin: --role required (lowercase word, e.g. executor, reviewer)' };
@@ -171,14 +188,16 @@ function begin({ cwd, phase, role, id, events, now = Date.now(), ttlMin = DEFAUL
     const q = loadOrQuarantine(cwd);
     const r = reconcile(touch(q.leases, events, k), events, k, now, ttlMin);
     const open = r.leases.filter((l) => !l.end && l.phase === k);
+    const execRefusal = role === 'executor' ? executorRefusal(cwd, k, open, plan) : null;
     const refuse = open.find((l) => l.id === id) ? `lease ${id} is already open in phase ${k}`
-      : EXCLUSIVE_ROLES.has(role) && open.find((l) => l.role === role) ? `phase ${k} already has an open ${role} lease (${open.find((l) => l.role === role).id}): end it, or close it with \`dispatch end --stale <id> --reason "<text>"\` when that agent is dead`
+      : execRefusal ? execRefusal
+        : role === 'window' && open.find((l) => l.role === role) ? `phase ${k} already has an open ${role} lease (${open.find((l) => l.role === role).id}): ${endHint(open.find((l) => l.role === role))}`
         : role === 'window' && !reason && r.leases.find((l) => l.role === 'window' && l.phase === k) ? `phase ${k} already had a window (${r.leases.find((l) => l.role === 'window' && l.phase === k).id}); a second window needs --reason "<why the first could not cover it>"`
           : null;
     if (r.closed.length > 0 || refuse) save(cwd, r.leases);
     if (refuse) return { error: `dispatch begin refused: ${refuse}`, auto_closed: r.closed.map(closeEvent), quarantined: q.quarantined };
     const owner = EXCLUSIVE_ROLES.has(role) ? (ownerPid ? ownerOf(ownerPid) : detectOwner()) : null;
-    const lease = { id, role, phase: k, begin: new Date(now).toISOString(), end: null, ...(owner ? { owner } : {}), ...(role === 'window' && reason ? { begin_reason: reason } : {}) };
+    const lease = { id, role, phase: k, begin: new Date(now).toISOString(), end: null, ...(owner ? { owner } : {}), ...(role === 'window' && reason ? { begin_reason: reason } : {}), ...(role === 'executor' && plan ? { plan } : {}) };
     save(cwd, [...r.leases, lease]);
     return { lease, auto_closed: r.closed.map(closeEvent), quarantined: q.quarantined };
   });

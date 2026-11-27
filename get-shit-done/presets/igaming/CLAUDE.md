@@ -150,9 +150,10 @@ task / one finding batch per fresh agent, read line ranges not whole files, save
 `.tmp/` and read only failing lines. All agents report answer-first, ≤10 lines.
 
 **Parallelism:** every spawner at every level of the tree (coordinator, executor, researcher) runs
-**at most 2 of its own subagents at once**; batch wider fan-outs into waves of 2. **Never 2
-executors in parallel within one phase**, whatever the wave structure says (`TASK-CHECKPOINT.json`
-is phase-scoped, so parallel executors overwrite each other's resume state). Only the top-level
+**at most 2 of its own subagents at once**; batch wider fan-outs into waves of 2. **A phase
+may run 2 executors only on file-disjoint plans** (`gsd-tools plan overlap` clean, `claims check` clear,
+each in its own worktree, `--plan` on both `dispatch begin executor` leases, each plan's resume state in
+`TASK-CHECKPOINT-{plan_id}.json`); never a third, never parallel UI QA workers. Only the top-level
 roadmap runner may run up to **3 phase coordinators** at once (no separate plan-ahead coordinator);
 their phases must not edit the same files (claims live in `.tmp/phase-file-claims.md`). Everything
 touching the shared stack (live tests, DB mutations, db reset, preflight) is serialized by

@@ -130,7 +130,7 @@ Report:
 </step>
 
 <step name="execute_waves">
-Execute each wave in sequence. Plans of a wave run one after another (rigour.md "Never relaxed" 6: one executor at a time per phase); `PARALLELIZATION` is ignored.
+Execute each wave in sequence. Plans of a wave run one after another, except that two plans of the wave may run as two executors (rigour.md "Never relaxed" 6) when `node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" plan overlap {planA} {planB}` exits 0 (file-disjoint) and `claims check {plan}` is clear for both; each executor gets its own worktree and `dispatch begin --role executor --plan {plan}`. Any other pair runs sequentially; never UI QA in parallel; `PARALLELIZATION` is otherwise ignored.
 
 Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each wave completes).
 
@@ -156,9 +156,9 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
 
    ```bash
    HANDOFF_PATH=".planning/phases/{phase_dir}/EXECUTOR-HANDOFF.json"
-   TASK_CKPT_PATH=".planning/phases/{phase_dir}/TASK-CHECKPOINT.json"
+   TASK_CKPT_PATH=".planning/phases/{phase_dir}/TASK-CHECKPOINT-{plan_id}.json"   # per plan; `resilience check-staleness` falls back to a legacy TASK-CHECKPOINT.json
    ```
-   If `HANDOFF_PATH` exists, OR `TASK_CKPT_PATH` exists with no matching `{plan_id}-SUMMARY.md` (a death with no clean handoff):
+   If `HANDOFF_PATH` exists, OR `TASK_CKPT_PATH` (or a legacy phase-scoped TASK-CHECKPOINT.json) exists with no matching `{plan_id}-SUMMARY.md` (a death with no clean handoff):
    1. Verify every commit hash it claims actually exists: `git log --oneline --all | grep -F "{hash}"` for each. If any is missing, the state is unverifiable — log loudly and fall back to a normal fresh spawn instead of trusting it.
    2. Archive it: `mkdir -p .planning/phases/{phase_dir}/resolved-handoffs && mv "$HANDOFF_PATH" ".planning/phases/{phase_dir}/resolved-handoffs/{plan_id}-$(date -u +%Y%m%dT%H%M%SZ).json"` (skip the `mv` if only TASK-CHECKPOINT.json existed).
    3. **Prefer resume-by-agentId over cold fresh-spawn when in-session (App #2, `@get-shit-done/references/agent-messaging.md`).** Decide by this rule:
@@ -384,7 +384,7 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
       DEATH_CHECK=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" resilience parse-death --text "{raw returned text or error message}")
       IS_DEATH=$(node -e "console.log(JSON.parse(process.argv[1]).is_death)" "$DEATH_CHECK")
       RESET_TIME_ISO=$(node -e "console.log(JSON.parse(process.argv[1]).reset_time_iso || '')" "$DEATH_CHECK")
-      STALENESS_CHECK=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" resilience check-staleness ".planning/phases/{phase_dir}/TASK-CHECKPOINT.json")
+      STALENESS_CHECK=$(node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" resilience check-staleness ".planning/phases/{phase_dir}/TASK-CHECKPOINT-{plan_id}.json")
       IS_STALE=$(node -e "console.log(JSON.parse(process.argv[1]).stale)" "$STALENESS_CHECK")
       ```
       - **`IS_DEATH` true AND `RESET_TIME_ISO` non-empty** (session/quota-limit death): write `.planning/phases/{phase_dir}/PAUSED.json` (`type: "session_limit"`, `reset_time_iso`, `plan`, the last known TASK-CHECKPOINT.json contents, `resume_instruction`). Compute the wait, capped at 6 hours, using the identical epoch-math pattern as `execute-roadmap.md`'s 4a step. If the wait is **under 30 minutes**: sleep-loop (same pattern), then spawn a continuation executor directly. If **30 minutes or longer**, or the reset time is implausible/unparseable: do NOT sleep here — return `status: "paused_session_limit"` with `reset_time_iso` to this coordinator's own caller instead of blocking this coordinator's context for hours. Log `--type executor_death_detected`.
