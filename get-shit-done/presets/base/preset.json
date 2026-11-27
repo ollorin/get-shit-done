@@ -494,6 +494,13 @@
       "guarded": true
     },
     {
+      "src": "scripts/mutate/selftest.mjs",
+      "dest": "scripts/mutate/selftest.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
       "src": "scripts/mutate/worktree.mjs",
       "dest": "scripts/mutate/worktree.mjs",
       "kind": "whole",
