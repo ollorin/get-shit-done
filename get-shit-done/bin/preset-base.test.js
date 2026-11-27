@@ -88,7 +88,6 @@ describe('base preset: CLAUDE.md methodology (agnostic-M-03 3.1)', () => {
       ['scripts/session-supervisor.sh', 'whole', false],
       ['docs/gsd/session-supervisor.md', 'whole', false],
       ['scripts/pre-pr-gate.sh', 'whole', false],
-      ['scripts/log-pre-pr-disagreement.sh', 'whole', false],
       ['scripts/validation/canary-gate.mjs', 'whole', false],
       ['scripts/validation/guard-registry.mjs', 'whole', false],
       ['scripts/validation/guards/sample-guard.mjs', 'whole', false],
@@ -462,7 +461,6 @@ describe('base preset: regression guard for the base deployment (agnostic-M-03 3
     'docs/gsd/session-supervisor.md',
     'scripts/ci-diagnose.mjs',
     'scripts/hooks-apply.sh',
-    'scripts/log-pre-pr-disagreement.sh',
     'scripts/mutate/classify.mjs',
     'scripts/mutate/guards.mjs',
     'scripts/mutate/options.mjs',
@@ -664,7 +662,7 @@ describe('base preset: regression guard for the base deployment (agnostic-M-03 3
   test('3.7 each base copy under .planning/.gsd-preset-base is byte-equal to its deployed file', () => {
     const root = initWith({});
     const mirrors = listTree(root).filter((f) => f.startsWith('.planning/.gsd-preset-base/'));
-    assert.strictEqual(mirrors.length, 90, 'one base copy per preset file (not the settings, gitignore or manifest)');
+    assert.strictEqual(mirrors.length, 89, 'one base copy per preset file (not the settings, gitignore or manifest)');
     for (const m of mirrors) {
       const dest = m.slice('.planning/.gsd-preset-base/'.length);
       assert.ok(fs.readFileSync(path.join(root, m)).equals(fs.readFileSync(path.join(root, dest))), dest);
@@ -939,7 +937,7 @@ describe('base preset: pilot, three throwaway projects (agnostic-M-07 7.2)', () 
     'scripts/affected-specs.mjs', 'scripts/affected-tests.mjs', 'scripts/lib/affected.mjs',
     'scripts/ci-diagnose.mjs', 'scripts/container-disk-guard.sh', 'scripts/dependency-scan-gate.mjs', 'scripts/findings-register.mjs',
     'scripts/hooks-apply.sh', 'scripts/lib/findings-register/owner.mjs', 'scripts/lib/findings-register/parse.mjs',
-    'scripts/lib/findings-register/telemetry.mjs', 'scripts/lib/reap-stale-test-processes.sh', 'scripts/log-pre-pr-disagreement.sh',
+    'scripts/lib/findings-register/telemetry.mjs', 'scripts/lib/reap-stale-test-processes.sh',
     'scripts/memory-guard.sh', 'scripts/mutate/classify.mjs', 'scripts/mutate/guards.mjs', 'scripts/mutate/mutate.mjs',
     'scripts/mutate/options.mjs', 'scripts/mutate/process.mjs', 'scripts/mutate/restore.mjs', 'scripts/mutate/window.mjs', 'scripts/mutate/worktree.mjs',
     'scripts/pre-pr-gate.sh', 'scripts/reap-stale.sh', 'scripts/session-supervisor.sh', 'scripts/stack-lock.mjs', 'scripts/stack-lock.sh',

@@ -704,7 +704,7 @@ After the last wave, the UI steps and `docs_update`, before `pre_verify_gates`. 
 
 1. Every entry of `gsd-tools profile get stack.gates` (typecheck, lint, format and the project's ratchet, security and dependency gates; legacy: no `stack.gates` => the gate scripts the repo ships; none configured: the profile's `typecheck` and `lint` commands), then the full test run `<stack_commands.test_all>`, each through the profile's own command. For each the capture holds the command, `rc=`, the pass/fail counts, the per-file or per-bucket seconds the runner prints, and for a gate that scans files the number it scanned. A gate that scanned 0 files is inert and counts as failed.
 2. A red result: ONE `{executor_model}` fix dispatch with the failing lines (rule 12 of `references/rigour.md` gives its shape); then re-run only the touched test files (and their bucket when the project defines buckets) and append that output to `gates.txt` as a newly stamped section. The full run is not repeated.
-3. This is the phase's one full run. The twice-green pass over all buckets runs once at milestone end, never per phase (`references/gsd-test-protocol.md` `test_cost_rule`).
+3. This is the phase's one full run. There is no twice-green pass; this one green run is the PR gate (`references/gsd-test-protocol.md` `test_cost_rule`).
 </step>
 
 <step name="test_steward">

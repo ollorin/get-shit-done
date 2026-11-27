@@ -17,7 +17,7 @@ Guide completion of development work by presenting clear options and handling ch
 
 ### Step 1: Run Local Pre-PR Gate
 
-**Before presenting options, run the pre-PR gate. It runs the checks of the stack profile twice and exits non-zero on failure. This is mandatory and non-negotiable.**
+**Before presenting options, run the pre-PR gate. It runs the checks of the stack profile once and exits non-zero on failure. This is mandatory and non-negotiable.**
 
 ```bash
 {{stack.commands.pre_pr_gate}}
@@ -25,14 +25,14 @@ Guide completion of development work by presenting clear options and handling ch
 
 The gate automatically:
 - Runs the checks the stack profile lists, for the projects the diff touches
-- Runs everything twice (both runs must be green)
+- Runs everything once (one green run; the full output of each check is kept in `.tmp/pre-pr-gate/`)
 - Writes the pre-PR marker `.pre-pr-passed` inside the git directory on success (this enables `git push` past the push hook; the marker is per worktree)
 
 **If the gate fails:** STOP. Fix the failures. Re-run. Do not proceed to Step 2.
 
 **If the gate passes:**
 ```
-All checks green — Run 1 ✅  Run 2 ✅
+All checks green ✅
 ```
 
 Only then proceed to Step 2.

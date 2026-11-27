@@ -13,7 +13,7 @@ allowed-tools:
 Open a pull request after verifying the pre-PR gate has passed.
 
 This command is a compliance gate — it BLOCKS PR creation when the gate pass marker
-is absent or stale. This enforces the rule: Green twice = ready. Anything else = not ready.
+is absent or stale. This enforces the rule: Green = ready. Anything else = not ready.
 
 The pass marker is written by `stack.commands.pre_pr_gate` and is valid for 30 minutes.
 </objective>
@@ -40,10 +40,9 @@ if [ ! -f "$PASS_MARKER" ]; then
   echo ""
   echo "Run the pre-PR gate before opening a PR:"
   echo ""
-  echo "   stack.commands.pre_pr_gate    # Auto-detect affected"
-  echo "   stack.commands.pre_pr_gate --all    # Force all checks"
+  echo "   stack.commands.pre_pr_gate"
   echo ""
-  echo "The script must pass TWICE before you can open a PR."
+  echo "The script must pass before you can open a PR."
   echo ""
   exit 1
 fi
@@ -101,7 +100,7 @@ PR_FULL_BODY=$(printf '%s\n\n%s\n\n%s\n%s\n\n%s\n%s\n' \
   "$PR_BODY" \
   "## Commits" "$COMMITS" \
   "## Changed files" "$CHANGED_FILES")
-PR_FULL_BODY=$(printf '%s\n\n%s\n- [x] the pre-PR gate (`stack.commands.pre_pr_gate`) passed twice\n- [x] gate pass marker present and fresh\n\n%s\n- [ ] Reviewer: pull branch, run `stack.commands.pre_pr_gate --skip-twice` and verify green\n' \
+PR_FULL_BODY=$(printf '%s\n\n%s\n- [x] the pre-PR gate (`stack.commands.pre_pr_gate`) passed\n- [x] gate pass marker present and fresh\n\n%s\n- [ ] Reviewer: pull branch, run `stack.commands.pre_pr_gate` and verify green\n' \
   "$PR_FULL_BODY" "## Preflight" "## Test plan")
 
 gh pr create --title "$PR_TITLE" --body "$PR_FULL_BODY"
