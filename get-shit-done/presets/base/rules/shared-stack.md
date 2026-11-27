@@ -12,6 +12,11 @@ Applies when two lanes (agents, phases or worktrees) could use the same local st
 - Never delete the lock file by hand while a holder may still run. A holder whose process is gone is taken over by the next waiter through the liveness check; the stated limits (six) are in the header of `scripts/stack-lock.mjs`: (1) a recycled pid looks alive, so a waiter times out with exit 75 (the safe direction); (2) an empty or non-JSON lock file counts as held for 10 s after creation, so a holder paused for more than 10 s between create and write can be judged dead and a second holder can run beside it; (3) liveness is a local `kill(pid, 0)`: one machine and one pid namespace, not containers or a network filesystem; (4) takeover is not a kernel lock: a waiter paused for more than 10 s between re-reading the lock file and unlinking it can unlink a live holder's newer lock file; (5) the lock file records the wrapper pid and the command pid and counts the holder alive while either lives, so a SIGKILLed wrapper keeps the lock until its command exits, but not for grandchildren the command leaves behind; (6) a killed wrapper that is a zombie keeps the lock until its parent reaps it, and a SIGKILL between spawn and the `childPid` rewrite leaves a window in which only the wrapper pid is recorded. HUP, INT, QUIT and TERM to the wrapper are forwarded to the command.
 - A reset of the shared database is allowed under the lock. First confirm that no other lane has a test running, through the lock owner and a message to the peer lanes.
 
+## Unit lane (no lock)
+
+- The unit lane (the project's unit-test command) is not in `stack.locked_commands` and runs without the lock, beside a lane that holds it.
+- A unit file never imports a database, SQL or stack helper. A file that does moves to the live-stack suite, which stays under the lock.
+
 ## Parallel lanes (worktrees)
 
 - While one phase holds the stack, the other phases run code-only in their own worktree: `git worktree add -b wt/<phase> .tmp/wt-<phase> HEAD`. A lane writes code, migrations, unit tests and reviews there and does not use the stack.
