@@ -248,7 +248,7 @@ git commit -m "{type}({phase}-{plan}): {concise task description}
 
 **5. Record hash:** `TASK_COMMIT=$(git rev-parse --short HEAD)` — track for SUMMARY.
 
-**6. Write per-task checkpoint (Executor Resilience Protocol):** After every task commit, overwrite `.planning/phases/{phase_dir}/TASK-CHECKPOINT.json` with the Write tool (plain file write — same overwrite-latest convention as the coordinator's CHECKPOINT.json, see `checkpoints.md`):
+**6. Write per-task checkpoint (Executor Resilience Protocol):** After every task commit, overwrite `.planning/phases/{phase_dir}/TASK-CHECKPOINT-{plan_id}.json` (one file per plan) with the Write tool (plain file write — same overwrite-latest convention as the coordinator's CHECKPOINT.json, see `checkpoints.md`):
 ```json
 {
   "phase": {N},
@@ -312,7 +312,7 @@ Self-report telemetry (MILE-26): populate these from your own run — an ambiguo
 
 **Context fill is never a reason to stop.** Run every task of the plan to completion: a full window is handled by auto-compaction (`autoCompactWindow` in the agent frontmatter), not by handing back. Return before the plan is done only on a real blocker (a denial, an owner gate, a tool failure, a task that cannot be done as written) or a failure the ladder says to park.
 
-**Checkpoint at every task boundary all the same** (the task's commit plus the `TASK-CHECKPOINT.json` write of `<task_commit_protocol>`): an executor can still die (session or quota limit, crash), and a continuation agent resumes from that file and `git log`. Work context-lean anyway: read only the file sections you need and pipe long command output through grep/tail.
+**Checkpoint at every task boundary all the same** (the task's commit plus the `TASK-CHECKPOINT-{plan_id}.json` write of `<task_commit_protocol>`): an executor can still die (session or quota limit, crash), and a continuation agent resumes from that file and `git log`. Work context-lean anyway: read only the file sections you need and pipe long command output through grep/tail.
 
 **Machine-parseable status trailer (REQUIRED).** The human-readable header is for the reader; the coordinator must not have to string-match a prose line (an em-dash or reworded header would silently break detection). End EVERY executor return (`## PLAN COMPLETE` and `## PLAN BLOCKED` alike) with a fenced JSON trailer as the final content of your message:
 
@@ -367,7 +367,7 @@ recipient's next tool round. Skip silently if SendMessage is unavailable. Patter
   changed. Do NOT be chatty: nothing else. It is a heads-up, not a lock: re-check a shared file before editing.
 - **App #5 — OPTIONAL progress heartbeat:** on a plan of more than 4 tasks you MAY send
   `to: "main"` a one-line, rate-limited heartbeat ("task N/M complete, green"), at most every few
-  tasks. Never required; TASK-CHECKPOINT.json and the JSON trailer remain the record.
+  tasks. Never required; TASK-CHECKPOINT-{plan_id}.json and the JSON trailer remain the record.
 
 </agent_messaging>
 
@@ -500,7 +500,7 @@ For each task:
    - Run verification, confirm done criteria
    - **Cross-boundary done check:** If the task creates code that crosses a service boundary (frontend handler that should call a backend route, API route that should mutate a database), verify the full chain before marking done — not just that the local artifact builds. A frontend form handler is not "done" if it only updates UI state without making the API call the done criterion implies. A backend route is not "done" if the frontend has no path to call it. Check that the wiring exists and carries the right signal, not just that each side compiles independently.
    - **Knowledge feedback on contradiction (non-blocking):** If, during task execution, a specific entry from `USER_CONTEXT` (loaded via `query-knowledge` above) turns out to be contradicted by the actual outcome (e.g. a "preference" entry recommended an approach that a test or the user's own correction proved wrong), call `node ~/.claude/get-shit-done/bin/gsd-tools.js mark-wrong <id> --severity <minor|major|critical> --reason "<reason>"` using that entry's `id` field. Best-effort only — never block task completion or the plan's overall execution on this call's outcome.
-   - Commit (see task_commit_protocol — this also writes/overwrites `.planning/phases/{phase_dir}/TASK-CHECKPOINT.json`, step 6 of that protocol; see `<executor_resilience_protocol>` above and `@get-shit-done/references/resilience.md` for how a continuation agent consumes it)
+   - Commit (see task_commit_protocol — this also writes/overwrites `.planning/phases/{phase_dir}/TASK-CHECKPOINT-{plan_id}.json`, step 6 of that protocol; see `<executor_resilience_protocol>` above and `@get-shit-done/references/resilience.md` for how a continuation agent consumes it)
    - Track completion + commit hash for Summary
    - **Inter-task syntax check** (runs after each task commit — see inter_task_syntax_check block below)
 
@@ -789,7 +789,7 @@ Omit this section entirely if ROUTED_TIER was null for all tasks (routing not ac
 </summary_creation>
 
 <state_updates>
-After SUMMARY.md, update STATE.md using the atomic gsd-tools `state` mutators below — never a raw whole-file Write, since parallel executors in the same wave touch STATE.md concurrently. **See @~/.claude/get-shit-done/references/shared-file-writes.md.**
+In two-executor mode (your brief says so) skip this section and `update_requirements`: write no STATE.md, ROADMAP.md or REQUIREMENTS.md and commit only the SUMMARY.md (final_commit below), because the coordinator writes them after both executors return. Otherwise, after SUMMARY.md, update STATE.md using the atomic gsd-tools `state` mutators below — never a raw whole-file Write, since parallel executors in the same wave touch STATE.md concurrently. **See @~/.claude/get-shit-done/references/shared-file-writes.md.**
 
 ```bash
 # Advance plan counter (handles edge cases automatically)
@@ -866,7 +866,7 @@ Run every entry's `command` (they are Layer-1 gates such as the FP ratchet, migr
 node ~/.claude/get-shit-done/bin/gsd-tools.js commit "docs({phase}-{plan}): complete [plan-name] plan" --files .planning/phases/XX-name/{phase}-{plan}-SUMMARY.md .planning/STATE.md .planning/ROADMAP.md .planning/REQUIREMENTS.md
 ```
 
-Include ROADMAP.md and REQUIREMENTS.md in the final commit — they are updated by the `update_requirements` step above. If either file doesn't exist, the commit tool will skip it gracefully.
+(Two-executor mode: commit the SUMMARY.md alone.) Include ROADMAP.md and REQUIREMENTS.md in the final commit — they are updated by the `update_requirements` step above. If either file doesn't exist, the commit tool will skip it gracefully.
 
 Separate from per-task commits — captures execution results only.
 </final_commit>

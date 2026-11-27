@@ -39,11 +39,11 @@ completion and report back.
 
 **Same-phase parallel executors corrupt resume state (found 2026-09-11, Phase 373):** running two
 GSD executors in parallel on two different plans within ONE phase (e.g. 373-03 + 373-04) causes them
-to overwrite each other's `TASK-CHECKPOINT.json` — that file is phase-scoped, not plan-scoped. A
-respawned continuation agent then resumes the wrong plan from the wrong point. Now a hard rule in
-this project's `CLAUDE.md` (Parallelism ceiling section): never run 2 executors in parallel on plans
-within the same phase, even though the general 2-max ceiling would otherwise allow it — one executor
-per phase at a time, strictly sequential, regardless of wave grouping.
+to overwrite each other's `TASK-CHECKPOINT.json` — that file was phase-scoped, not plan-scoped. A
+respawned continuation agent then resumed the wrong plan from the wrong point. Now a hard rule in
+this project's `CLAUDE.md` (Parallelism ceiling section): at most 2 executors in one phase, only on
+file-disjoint plans (`gsd-tools plan overlap`), each in its own worktree and with its own
+`TASK-CHECKPOINT-{plan_id}.json`; every other pair runs strictly sequentially.
 
 **Session rate-limit death is a distinct class from staleness/placeholder death:** a coordinator and
 its executors can all die simultaneously mid-run on an HTTP 429 session-limit error (not a stale

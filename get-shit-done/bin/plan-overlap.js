@@ -5,18 +5,43 @@ const fs = require('fs');
 const path = require('path');
 const matter = require('gray-matter');
 
-const norm = (p) => String(p).trim().replace(/^\.\//, '').replace(/\/+$/, '');
+// Files any two plans may not both list: manifests, lockfiles, planning state and CI/root config are shared by every plan. One owner of this table.
+const SHARED_BASENAMES = new Set(['package.json', 'npm-shrinkwrap.json', 'cargo.toml', 'go.mod', 'go.sum', 'pyproject.toml', 'requirements.txt', 'gemfile', 'composer.json']);
+const LOCKFILE = /(\.lockb?|-lock\.(json|ya?ml))$/; // yarn.lock, Cargo.lock, package-lock.json, *-lock.yaml, *.lockb
+const SHARED_PATHS = new Set(['.planning/state.md', '.planning/roadmap.md', '.planning/requirements.md', '.planning/config.json', 'tsconfig.json', '.gitignore', '.gitlab-ci.yml', '.travis.yml', 'jenkinsfile', 'makefile']);
+const SHARED_PREFIXES = ['.github/', '.circleci/'];
+const isShared = (f) => { const base = f.split('/').pop(); return SHARED_BASENAMES.has(base) || LOCKFILE.test(base) || SHARED_PATHS.has(f) || SHARED_PREFIXES.some((p) => f.startsWith(p)); };
+
+const GLOB_CHARS = /[*?[{]/;
+// Backslash to slash, repo-relative, `.` and `..` resolved, lower case, no trailing slash.
+function norm(p, root) {
+  let s = String(p).trim().replace(/\\/g, '/');
+  if (root && path.posix.isAbsolute(s)) {
+    const rel = path.posix.relative(root.replace(/\\/g, '/'), path.posix.normalize(s));
+    if (rel !== '' && !rel.startsWith('..')) s = rel;
+  }
+  return path.posix.normalize(s).replace(/^\.\//, '').replace(/\/+$/, '').toLowerCase();
+}
 const asList = (v) => (Array.isArray(v) ? v : v === undefined || v === null || v === '' ? [] : [v]).map(String);
+// The plan's files, or an error text: files_modified must be a non-empty flat list of glob-free strings.
+function filesOf(v, root) {
+  if (v === undefined || v === null || (Array.isArray(v) && v.length === 0)) return { error: 'files_modified is empty or missing' };
+  if (!Array.isArray(v) || v.some((f) => typeof f !== 'string' || f.trim() === '')) return { error: 'files_modified must be a flat list of path strings (no comma string, no nested map)' };
+  const bad = v.find((f) => GLOB_CHARS.test(f));
+  return bad ? { error: `files_modified lists the glob ${bad}: list files or directories, not patterns` } : { files: v.map((f) => norm(f, root)) };
+}
 const isMigration = (f) => f.split('/').includes('migrations');
 const isUiSpec = (f) => /\.(spec|e2e)\.[cm]?[jt]sx?$/.test(f) || /(^|\/)e2e\//.test(f);
 const within = (a, b) => a === b || b.startsWith(`${a}/`);
 
 // {id, files, depends_on} of one plan file's text. `id` is `phase-plan` (the form depends_on uses) when both are present.
-function planInfo(text, fallbackId) {
+// A plan whose files cannot be read as a flat list comes back as { error }: it never gets a verdict.
+function planInfo(text, fallbackId, root) {
   let fm = {};
-  try { fm = matter(text).data || {}; } catch { /* malformed frontmatter reads as no files: the caller sees an empty plan */ }
+  try { fm = matter(text).data || {}; } catch { /* malformed frontmatter reads as no files: refused below */ }
   const id = fm.phase !== undefined && fm.plan !== undefined ? `${String(fm.phase).split('-')[0].replace(/^0+(?=\d)/, '')}-${String(fm.plan).padStart(2, '0')}` : fallbackId;
-  return { id, files: asList(fm.files_modified).map(norm), depends_on: asList(fm.depends_on) };
+  const f = filesOf(fm.files_modified, root);
+  return f.error ? { id, error: f.error } : { id, files: f.files, depends_on: asList(fm.depends_on) };
 }
 
 const idMatches = (dep, plan) => dep === plan.id || (plan.id && String(dep).replace(/^0+/, '') === String(plan.id).replace(/^0+/, ''));
@@ -28,21 +53,28 @@ function overlap(a, b) {
     if (x === y) out.push(`shared file ${x}`);
     else if (within(x, y) || within(y, x)) out.push(`directory prefix ${within(x, y) ? x : y} covers ${within(x, y) ? y : x}`);
   }
+  const sa = a.files.filter(isShared); const sb = b.files.filter(isShared);
+  if (sa.length > 0 && sb.length > 0) out.push(`both plans touch shared files (${[...new Set([...sa, ...sb])].join(', ')})`);
   if (a.files.some(isMigration) && b.files.some(isMigration)) out.push('both plans add migrations');
   if (a.files.some(isUiSpec) && b.files.some(isUiSpec)) out.push('both plans touch UI specs');
   if (a.depends_on.some((d) => idMatches(d, b)) || b.depends_on.some((d) => idMatches(d, a))) out.push('one plan depends on the other');
   return [...new Set(out)];
 }
 
-const readPlan = (cwd, p) => { try { return planInfo(fs.readFileSync(path.resolve(cwd, p), 'utf8'), path.basename(p)); } catch { return null; } };
+// null = unreadable; { error } = readable but its files cannot be compared.
+const readPlan = (cwd, p) => { try { return planInfo(fs.readFileSync(path.resolve(cwd, p), 'utf8'), path.basename(p), cwd); } catch { return null; } };
+// Repo-relative form stored in the lease; a path outside the repo stays as given.
+const repoRelative = (cwd, p) => { const rel = path.relative(cwd, path.resolve(cwd, p)).replace(/\\/g, '/'); return rel === '' || rel.startsWith('..') ? p : rel; };
 
 // Called by `dispatch begin executor` with the plan paths of the open executor leases. null = allowed, else the refusal text.
 function leaseConflict(cwd, newPlan, openPlans) {
   const a = readPlan(cwd, newPlan);
   if (!a) return `plan ${newPlan} is not readable`;
+  if (a.error) return `plan ${newPlan}: ${a.error}`;
   for (const p of openPlans) {
     const b = readPlan(cwd, p);
     if (!b) return `plan ${p} of the open executor lease is not readable`;
+    if (b.error) return `plan ${p} of the open executor lease: ${b.error}`;
     const why = overlap(a, b);
     if (why.length > 0) return `plans ${newPlan} and ${p} are not file-disjoint (${why.join('; ')})`;
   }
@@ -54,6 +86,7 @@ function cmdOverlap(cwd, planA, planB) {
   const a = planA && readPlan(cwd, planA);
   const b = planB && readPlan(cwd, planB);
   if (!a || !b) return { error: 'plan overlap: two readable plan files required' };
+  if (a.error || b.error) return { error: `plan overlap: ${a.error ? `${planA}: ${a.error}` : `${planB}: ${b.error}`}` };
   const reasons = overlap(a, b);
   return { disjoint: reasons.length === 0, reasons };
 }
@@ -75,6 +108,7 @@ function claimedRows(text) {
 function cmdClaimsCheck(cwd, planPath, lane, claimsFile) {
   const plan = planPath && readPlan(cwd, planPath);
   if (!plan) return { error: 'claims check: a readable plan file is required' };
+  if (plan.error) return { error: `claims check: ${plan.error}` };
   let text = '';
   try { text = fs.readFileSync(path.resolve(cwd, claimsFile || '.tmp/phase-file-claims.md'), 'utf8'); } catch (e) { if (e.code !== 'ENOENT') return { error: 'claims check: claims file is not readable' }; }
   const conflicts = [];
@@ -86,10 +120,11 @@ function cmdClaimsCheck(cwd, planPath, lane, claimsFile) {
 }
 
 // Per-plan checkpoint: TASK-CHECKPOINT-<plan_id>.json. A phase checkpointed by an older build only has TASK-CHECKPOINT.json: read that when the per-plan file is absent.
-function resolveTaskCheckpoint(file) {
+// With two open executor leases the phase-scoped file belongs to neither plan, so it is no fallback.
+function resolveTaskCheckpoint(file, openExecutors) {
   if (fs.existsSync(file)) return file;
   const legacy = path.join(path.dirname(file), 'TASK-CHECKPOINT.json');
-  return /TASK-CHECKPOINT-.+\.json$/.test(file) && fs.existsSync(legacy) ? legacy : file;
+  return openExecutors <= 1 && /TASK-CHECKPOINT-.+\.json$/.test(file) && fs.existsSync(legacy) ? legacy : file;
 }
 
-module.exports = { planInfo, overlap, leaseConflict, cmdOverlap, cmdClaimsCheck, claimedRows, resolveTaskCheckpoint };
+module.exports = { planInfo, overlap, leaseConflict, repoRelative, cmdOverlap, cmdClaimsCheck, claimedRows, resolveTaskCheckpoint };

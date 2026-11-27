@@ -79,6 +79,9 @@ describe('dispatch leases', () => {
       assert.strictEqual(ex('b', plan(2, 'src/b.js'), 1).lease.plan, 'p2.md');
       assert.match(ex('c', plan(3, 'src/c.js'), 2).error, /already has 2 open executor leases \(a, b\)/);
     });
+    test('the lease stores the plan path repo-relative', () => {
+      assert.strictEqual(ex('a', path.join(dir, plan(1, 'src/a.js'))).lease.plan, 'p1.md');
+    });
     test('an overlapping pair is refused with the reason', () => {
       ex('a', plan(1, 'src/a.js'));
       assert.match(ex('b', plan(2, 'src/a.js'), 1).error, /not file-disjoint \(shared file src\/a\.js\)/);

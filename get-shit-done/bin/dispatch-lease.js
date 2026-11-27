@@ -197,7 +197,7 @@ function begin({ cwd, phase, role, id, events, now = Date.now(), ttlMin = DEFAUL
     if (r.closed.length > 0 || refuse) save(cwd, r.leases);
     if (refuse) return { error: `dispatch begin refused: ${refuse}`, auto_closed: r.closed.map(closeEvent), quarantined: q.quarantined };
     const owner = EXCLUSIVE_ROLES.has(role) ? (ownerPid ? ownerOf(ownerPid) : detectOwner()) : null;
-    const lease = { id, role, phase: k, begin: new Date(now).toISOString(), end: null, ...(owner ? { owner } : {}), ...(role === 'window' && reason ? { begin_reason: reason } : {}), ...(role === 'executor' && plan ? { plan } : {}) };
+    const lease = { id, role, phase: k, begin: new Date(now).toISOString(), end: null, ...(owner ? { owner } : {}), ...(role === 'window' && reason ? { begin_reason: reason } : {}), ...(role === 'executor' && plan ? { plan: planOverlap.repoRelative(cwd, plan) } : {}) };
     save(cwd, [...r.leases, lease]);
     return { lease, auto_closed: r.closed.map(closeEvent), quarantined: q.quarantined };
   });

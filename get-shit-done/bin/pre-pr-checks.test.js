@@ -333,3 +333,20 @@ describe('Phase 61-03: GSD self-hosting proof (MILE-41) - real repo root derivat
     );
   });
 });
+
+describe('WP13: git-status-clean hides per-plan task checkpoints only', () => {
+  const { execFileSync } = require('child_process');
+  const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config', 'pre-pr-checks.json'), 'utf8'));
+  const command = cfg.unknown.checks.find((c) => c.id === 'git-status-clean').command;
+  const clean = (files) => {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-status-'));
+    try {
+      execFileSync('git', ['init', '-q'], { cwd: repo });
+      for (const f of files) { fs.mkdirSync(path.dirname(path.join(repo, f)), { recursive: true }); fs.writeFileSync(path.join(repo, f), '{}'); }
+      try { execFileSync('sh', ['-c', command], { cwd: repo, stdio: 'ignore' }); return true; } catch { return false; }
+    } finally { fs.rmSync(repo, { recursive: true, force: true }); }
+  };
+  test('per-plan and phase-scoped checkpoints are hidden', () => assert.strictEqual(clean(['.planning/phases/01-x/TASK-CHECKPOINT-1-02.json', '.planning/phases/01-x/TASK-CHECKPOINT.json']), true));
+  test('a nested file that merely starts with TASK-CHECKPOINT is not hidden', () => assert.strictEqual(clean(['.planning/phases/01-x/captures/TASK-CHECKPOINT-evidence.json']), false));
+  test('the in-code default carries the same glob pathspec', () => assert.ok(fs.readFileSync(path.join(__dirname, 'pre-pr-checks.js'), 'utf8').includes(":(glob,exclude).planning/phases/*/TASK-CHECKPOINT*.json")));
+});

@@ -1331,7 +1331,11 @@ function cmdResilienceCheckStaleness(cwd, filePath, thresholdMinutes, raw) {
   if (!filePath) {
     error('resilience check-staleness: <file> required');
   }
-  const resolvedPath = planOverlap.resolveTaskCheckpoint(path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath));
+  const absPath = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath);
+  const phaseDir = absPath.replace(/\\/g, '/').match(/\.planning\/phases\/([^/]+)\//);
+  const phaseKey = phaseDir ? dispatch.phaseKey(phaseDir[1].split('-')[0]) : null;
+  const openExecutors = dispatchLease.load(cwd).filter((l) => !l.end && l.role === 'executor' && l.phase === phaseKey).length;
+  const resolvedPath = planOverlap.resolveTaskCheckpoint(absPath, openExecutors);
   const threshold = (thresholdMinutes !== null && thresholdMinutes !== undefined && Number.isFinite(thresholdMinutes))
     ? thresholdMinutes
     : loadConfig(cwd).staleness_threshold_minutes;
