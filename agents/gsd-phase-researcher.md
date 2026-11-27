@@ -311,6 +311,11 @@ Verified patterns from official sources:
    - What's unclear: [the gap]
    - Recommendation: [how to handle]
 
+## Open Probes
+
+Every claim left unverified is one line: the claim, the exact probe (command or file read) that settles it, and the plan choice it decides. The planner schedules the probes; an unsettled fact is never a ruling topic.
+- **[Claim]** - Probe: `[command or file]` - Decides: [plan choice]
+
 ## Sources
 
 ### Primary (HIGH confidence)

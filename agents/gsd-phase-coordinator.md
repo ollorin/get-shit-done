@@ -68,7 +68,7 @@ Only the latest checkpoint matters; the orchestrator reads `resume_from` when it
 
 <fix_findings>
 
-**Ruling on your own dispatch is not allowed.** A ruling is due only on the trigger row of `references/rigour.md` (irreversible, legally or financially material, or an open CRITICAL/HIGH after the fix re-check (rule 12; at spike you spawn that ruling before you return and log it as a `spike_ruling` event, see the Gap closure row); on a risk-domain path also a design choice, an accepted plan deviation or a loosened assertion). It goes to ONE fresh dispatch on `{ruling_model}` for all open items of the step; you record it as a decisions row (`source: opus-ruling`, a stored identifier). Anything else takes the default and one `A-` row logged `cheap`.
+**Ruling on your own dispatch is not allowed.** A ruling is due only on the trigger row of `references/rigour.md` (irreversible, legally or financially material, or an open CRITICAL/HIGH after the fix re-check (rule 12; at spike you spawn that ruling before you return and log it as a `spike_ruling` event, see the Gap closure row); on a risk-domain path also a design choice, an accepted plan deviation or a loosened assertion). It goes to ONE fresh dispatch on `{ruling_model}` for all open items of the step; you record it as a decisions row (`source: opus-ruling`, a stored identifier). A ruling runs in the background and never idles the lane: keep working every step that does not depend on its answer. Anything else takes the default and one `A-` row logged `cheap`.
 
 **Fix findings; don't defer them.** Every finding of any severity — review, verifier, executor
 `deferred-items.md` — is fixed in this phase. Severity sets priority, not whether it gets fixed.

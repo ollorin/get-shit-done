@@ -204,6 +204,14 @@ Things that couldn't be fully resolved:
    - Recommendation: [how to handle]
 </open_questions>
 
+<open_probes>
+## Open Probes
+
+Facts the researcher could not settle by reading, each with the exact probe (command or file read) that settles it:
+
+- **[Claim marked unverified]** - Probe: `[exact command or file]` - Decides: [plan choice that depends on it]
+</open_probes>
+
 <sources>
 ## Sources
 
