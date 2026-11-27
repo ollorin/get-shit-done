@@ -16,7 +16,7 @@ import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  BUILD_ERROR_DETAIL, BUILD_ERROR_EXIT, NO_PATTERN_NOTICE, applySnippet, canaryMismatches, configsFor, countOccurrences, fail, firstFailingLine, harnessFault, inconclusive, killReproduced, ok, parseMutants, parseRunners, renderMarkdown, sha256Hex,
+  BUILD_ERROR_DETAIL, BUILD_ERROR_EXIT, FILTER_MISS_DETAIL, NO_PATTERN_NOTICE, applySnippet, canaryMismatches, configsFor, countOccurrences, fail, filterMiss, firstFailingLine, harnessFault, inconclusive, killReproduced, ok, parseMutants, parseRunners, renderMarkdown, sha256Hex,
 } from './classify.mjs';
 import { baselineError, dirtyTargets, lockError, outPathError, outsideRootError, primaryError, runSummaryPath, staleBackupError, writeRunSummary } from './guards.mjs';
 import { selfTestAll } from './selftest.mjs';
@@ -70,6 +70,14 @@ async function testFileSha(root, test) {
   return bytes === null ? null : sha256Hex(bytes);
 }
 
+/** One run of the mutant's test filtered to its expect_failing_test (a runner without {filter} runs unfiltered); a filter that ran nothing is errored. */
+async function runNamed(m, opts) {
+  const config = { ...opts.config, name: m.expect_failing_test };
+  const r = await runTest(opts.root, m.test, opts.timeoutMs, config);
+  const missed = filterMiss(config, r.outcome, r.output);
+  return missed ? { ...r, outcome: 'errored', filterMiss: true } : r;
+}
+
 /** One mutant: apply, run (twice on a kill), restore, verify. opts: { root, timeoutMs, dryRun, config, backupDir }. */
 export async function runMutant(m, opts) {
   const target = await loadTarget(m, opts.root);
@@ -88,8 +96,8 @@ export async function runMutant(m, opts) {
     throw e instanceof RestoreError ? new RestoreError(`${e.message} (backup: ${backup})`) : e;
   });
   const run = await withActiveMutation({ path: abs, original, sha, backup, apply: () => fs.writeFile(abs, mutated), restore }, async () => {
-    const first = await runTest(opts.root, m.test, opts.timeoutMs, opts.config);
-    const again = first.outcome === 'killed' ? await runTest(opts.root, m.test, opts.timeoutMs, opts.config) : null;
+    const first = await runNamed(m, opts);
+    const again = first.outcome === 'killed' ? await runNamed(m, opts) : null;
     const [seen, testSeen] = await Promise.all([fileSha(abs), testFileSha(opts.root, m.test)]);
     return { result: first, confirmed: again === null ? null : killReproduced(again.outcome), crashed: first.buildError || again?.buildError === true, seen, testSeen };
   }).catch((e) => (e instanceof RestoreError ? e : Promise.reject(e)));
@@ -98,6 +106,7 @@ export async function runMutant(m, opts) {
   const shaAfter = (await fileSha(abs)) ?? '';
   const { result, confirmed, crashed, seen, testSeen } = run;
   const voided = crashed ? BUILD_ERROR_DETAIL
+    : result.filterMiss === true ? FILTER_MISS_DETAIL
     : seen !== mutatedSha ? 'source changed during the run; verdict void'
       : testSeen !== testSha ? 'test file changed during the run; verdict void'
         : confirmed === false ? 'kill not reproduced on a second run (flaky test?); verdict void' : undefined;

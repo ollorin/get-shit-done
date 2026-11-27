@@ -64,6 +64,18 @@ export function passedCount(output, pattern) {
   return m[1] === undefined ? 1 : Number.parseInt(m[1], 10) || 0;
 }
 
+export const FILTER_MISS_DETAIL = 'filter matched no test: the named test never ran, so the run is neither a kill nor a survivor';
+
+/**
+ * True when a run of a filtered command (config.testCmd has {filter}, config.name is the title) proves nothing: a kill whose
+ * output never names the title, or a pass the runner's pass_pattern shows no passed test for. Same rule as the baseline's zero count.
+ */
+export function filterMiss(config, outcome, output) {
+  if (typeof config.name !== 'string' || !config.testCmd.includes('{filter}')) return false;
+  if (outcome === 'killed') return !output.includes(config.name);
+  return outcome === 'survived' && Boolean(config.passPattern) && passedCount(output, config.passPattern) < 1;
+}
+
 /** The breaker (F6, R5): the last 3 rows are all `errored` or `timeout`, so the harness, not the mutants, is at fault. */
 const BREAKER_STREAK = 3;
 const isBreakerRow = (r) => r.outcome === 'errored' || r.outcome === 'timeout';

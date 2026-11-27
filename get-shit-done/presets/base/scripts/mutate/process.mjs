@@ -13,12 +13,19 @@ export const shellQuote = (s) => `'${s.replace(/'/g, `'\\''`)}'`;
 
 const doubleQuoteEscape = (s) => s.replace(/[\\$"`]/g, '\\$&');
 
-/** The command line for a test file: {file} becomes a quoted path, escaped for the double quotes it already sits in. */
-export function commandFor(testCmd, testFile) {
+/** The title as a regex matching a test whose last segment equals it: metacharacters escaped, anchored as a leaf. */
+export const titleRegex = (title) => `(?:^| )${title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`;
+
+/**
+ * The command line for a test file: {file} becomes a quoted path, escaped for the double quotes it already sits in.
+ * {filter} (opt-in, kept outside double quotes) becomes `-t <quoted titleRegex(name)>`, or nothing when no name is given.
+ */
+export function commandFor(testCmd, testFile, name) {
   let out = '';
   let inDouble = false;
   for (let i = 0; i < testCmd.length; i += 1) {
     if (testCmd.startsWith('{file}', i)) { out += inDouble ? doubleQuoteEscape(testFile) : shellQuote(testFile); i += 5; continue; }
+    if (testCmd.startsWith('{filter}', i) && !inDouble) { out += name === undefined ? '' : `-t ${shellQuote(titleRegex(name))}`; i += 7; continue; }
     if (testCmd[i] === '\\') { out += testCmd.slice(i, i + 2); i += 1; continue; }
     if (testCmd[i] === '"') inDouble = !inDouble;
     out += testCmd[i];
@@ -28,7 +35,7 @@ export function commandFor(testCmd, testFile) {
 
 /**
  * One test command from `root` in its own process group. Resolves { outcome, output, exitCode, durationMs }.
- * config: { testCmd, testEnv, errorPattern (string or null) }.
+ * config: { testCmd, testEnv, errorPattern (string or null), name? (the test title for {filter}) }.
  */
 export async function runTest(root, test, timeoutMs, config) {
   if (isStopping()) return parked();
@@ -37,7 +44,7 @@ export async function runTest(root, test, timeoutMs, config) {
   const state = { timedOut: false, spawnFailed: false, output: '', exitCode: null };
   // NODE_TEST_CONTEXT marks a process as a child of a running node test runner; inherited, it makes a nested `node --test` report success.
   const { NODE_TEST_CONTEXT: _inherited, ...inherited } = process.env;
-  const child = spawn('sh', ['-c', commandFor(config.testCmd, test)], {
+  const child = spawn('sh', ['-c', commandFor(config.testCmd, test, config.name)], {
     cwd: root,
     detached: true,
     env: { ...inherited, NO_COLOR: '1', ...config.testEnv },
