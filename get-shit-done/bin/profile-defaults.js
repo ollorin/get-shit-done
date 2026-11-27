@@ -36,7 +36,7 @@ const STACK_DEFAULTS = Object.freeze({
   }),
   'stack.isolation.port_base': entry({ default: null, severity: 'error', scope: PER_PROJECT, why: 'allocated by project init in projects.json; absent means the project never registered' }),
   'stack.mutation.build_error_pattern': entry({
-    default: null, severity: 'info', scope: RUNNER, why: 'regex that marks a build failure errored, not killed; the mutation tool does not read this key yet',
+    default: null, severity: 'info', scope: RUNNER, why: 'regex that marks a build failure errored, not killed; a run whose output matches it is refused (exit 5)',
   }),
   'stack.host.worker_patterns': entry({ default: null, severity: 'error', scope: RUNNER, why: 'test-runner process names the reaper matches' }),
   'stack.paths.backend': entry({ default: null, severity: 'error', scope: RUNNER, requires: 'backend', why: 'backend source root; scopes the edge-source freeze' }),

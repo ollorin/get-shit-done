@@ -3,7 +3,7 @@
 // SIGKILLs the whole group, so processes a test left running die too. The verdict is classify()'s, from the exit status.
 // Limitation: a test that moves a process out of the group (setsid, a double fork) escapes the kill and survives the run.
 import { spawn } from 'node:child_process';
-import { classify } from './classify.mjs';
+import { buildErrorHit, classify } from './classify.mjs';
 import { isStopping, killGroup, parked, registerGroup, unregisterGroup } from './restore.mjs';
 
 const MAX_OUTPUT = 4 * 1024 * 1024;
@@ -61,6 +61,7 @@ export async function runTest(root, test, timeoutMs, config) {
   if (isStopping()) return parked();
   return {
     outcome: classify(state, errorPattern),
+    buildError: buildErrorHit(state, errorPattern),
     output: state.output,
     exitCode: state.exitCode,
     durationMs: Math.round(performance.now() - started),

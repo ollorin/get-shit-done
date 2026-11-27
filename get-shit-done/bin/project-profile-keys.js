@@ -85,9 +85,76 @@ const CVE_FIELDS = [
 ];
 
 const MUTATION_FIELDS = [
-  ['error_pattern', (v) => isNonEmptyString(v) && isRegex(v), 'a valid regular expression'],
   ['build_error_pattern', (v) => isNonEmptyString(v) && isRegex(v), 'a valid regular expression'],
 ];
+
+// The engine catalogue of known runners with captured output fixtures (references/mutation-runners.json).
+function loadRunnerCatalogue() {
+  try {
+    return require('../references/mutation-runners.json');
+  } catch {
+    return {};
+  }
+}
+
+const usablePattern = (p) => isNonEmptyString(p) && isRegex(p);
+const LANE_VALUES = ['unit', 'db'];
+const SELFTEST_FIELDS = ['dir', 'ext', 'pass', 'kill', 'build'];
+
+// F3: a build pattern (the project's or any runner's) must not match the normal kill output of any catalogued engine.
+function killFixtureProblems(key, pattern, catalogue) {
+  if (!usablePattern(pattern)) return [];
+  const re = new RegExp(pattern);
+  return Object.entries(catalogue)
+    .filter(([, entry]) => isObject(entry.fixtures) && typeof entry.fixtures.kill === 'string' && re.test(entry.fixtures.kill))
+    .map(([id]) => problem(key, `build_error_pattern matches the normal kill output of runner ${id}: a kill would count as errored`));
+}
+
+// F3: a known engine's effective build pattern must match its build failure (an unknown engine has no fixture to match).
+function buildFixtureProblems(key, id, pattern, fixtures) {
+  if (!usablePattern(pattern) || !isObject(fixtures) || typeof fixtures.build_failure !== 'string') return [];
+  return new RegExp(pattern).test(fixtures.build_failure) ? [] : [problem(key, `build_error_pattern does not match the build failure output of runner ${id}`)];
+}
+
+const selftestProblems = (key, s) => (isObject(s) && SELFTEST_FIELDS.every((k) => isNonEmptyString(s[k])) ? [] : [problem(key, `must be an object with non-empty strings ${SELFTEST_FIELDS.join(', ')}`)]);
+
+function runnerProblems(key, runner, mutation, catalogue) {
+  if (!isObject(runner)) return [problem(key, 'must be an object')];
+  const own = fieldProblems(key, runner, [
+    ['id', isNonEmptyString, 'a non-empty string', true],
+    ['test_cmd', (v) => isNonEmptyString(v) && v.includes('{file}'), 'a command containing {file}', true],
+    ['build_error_pattern', usablePattern, 'a valid regular expression'],
+    ['pass_pattern', usablePattern, 'a valid regular expression'],
+    ['lane', (v) => LANE_VALUES.includes(v), `one of ${LANE_VALUES.join(', ')}`],
+  ]);
+  const selftest = runner.selftest === undefined ? [] : selftestProblems(`${key}.selftest`, runner.selftest);
+  const known = Object.prototype.hasOwnProperty.call(catalogue, runner.id) ? catalogue[runner.id] : undefined;
+  const patternKey = `${key}.build_error_pattern`;
+  return [
+    ...own,
+    ...selftest,
+    ...killFixtureProblems(patternKey, runner.build_error_pattern, catalogue),
+    ...(known === undefined ? [] : buildFixtureProblems(patternKey, runner.id, runner.build_error_pattern ?? mutation.build_error_pattern, known.fixtures)),
+  ];
+}
+
+function mutationExtra(key, v) {
+  const renamed = Object.prototype.hasOwnProperty.call(v, 'error_pattern')
+    ? [problem(`${key}.error_pattern`, 'is renamed: use build_error_pattern (the mutation tool refuses the old key)')]
+    : [];
+  const catalogue = loadRunnerCatalogue();
+  const projectPattern = killFixtureProblems(`${key}.build_error_pattern`, v.build_error_pattern, catalogue);
+  if (v.runners == null) return [...renamed, ...projectPattern];
+  if (!Array.isArray(v.runners) || v.runners.length === 0) return [...renamed, ...projectPattern, problem(`${key}.runners`, 'must be a non-empty array of runner objects')];
+  const ids = v.runners.map((r) => (isObject(r) ? r.id : undefined));
+  const dupes = [...new Set(ids.filter((id, i) => id !== undefined && ids.indexOf(id) !== i))];
+  return [
+    ...renamed,
+    ...projectPattern,
+    ...v.runners.flatMap((r, i) => runnerProblems(`${key}.runners[${i}]`, r, v, catalogue)),
+    ...(dupes.length > 0 ? [problem(`${key}.runners`, `duplicate runner ids: ${dupes.join(', ')}`)] : []),
+  ];
+}
 
 const HOST_FIELDS = [
   ['worker_patterns', isListOfNonEmpty, LIST],
@@ -122,7 +189,7 @@ const NEW_SHAPE_CHECKS = Object.freeze([
   ['stack.style', objectShape(STYLE_FIELDS)],
   ['stack.cve', objectShape(CVE_FIELDS)],
   ['stack.host', objectShape(HOST_FIELDS)],
-  ['stack.mutation', objectShape(MUTATION_FIELDS)],
+  ['stack.mutation', objectShape(MUTATION_FIELDS, mutationExtra)],
   ['stack.affected', affectedShape],
 ]);
 

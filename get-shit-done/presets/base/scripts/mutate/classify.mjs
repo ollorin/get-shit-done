@@ -37,7 +37,73 @@ export function classify(run, errorPattern = null) {
   if (run.timedOut) return 'timeout';
   if (run.spawnFailed || run.exitCode === null || NOT_RUN.has(run.exitCode)) return 'errored';
   if (run.exitCode === 0) return 'survived';
-  return errorPattern !== null && errorPattern.test(run.output) ? 'errored' : 'killed';
+  return buildErrorHit(run, errorPattern) ? 'errored' : 'killed';
+}
+
+/** True when a finished, failing run printed the runner's build-error pattern: the run crashed, it did not kill. */
+export const buildErrorHit = (run, errorPattern) => errorPattern !== null && !run.timedOut && !run.spawnFailed && run.exitCode !== null && run.exitCode !== 0 && errorPattern.test(run.output);
+
+export const BUILD_ERROR_DETAIL = 'build error pattern matched: a crash is never a kill';
+export const BUILD_ERROR_EXIT = 5;
+
+export const LANES = ['unit', 'db'];
+export const SELFTEST_KEYS = ['dir', 'ext', 'pass', 'kill', 'build'];
+const isSelfTest = (s) => s !== null && typeof s === 'object' && SELFTEST_KEYS.every((k) => typeof s[k] === 'string' && s[k] !== '');
+
+function patternProblem(id, key, value) {
+  if (value === undefined) return null;
+  if (typeof value !== 'string' || value === '') return `runner ${id}: ${key} must be a non-empty string`;
+  try { new RegExp(value); } catch { return `runner ${id}: ${key} is not a valid regular expression`; }
+  return null;
+}
+
+/** The passed-test count a runner's output shows under `pattern` (first capture group; a match without one counts 1); 0 when it shows none. */
+export function passedCount(output, pattern) {
+  const m = new RegExp(pattern).exec(output);
+  if (m === null) return 0;
+  return m[1] === undefined ? 1 : Number.parseInt(m[1], 10) || 0;
+}
+
+/** The breaker (F6, R5): the last 3 rows are all `errored` or `timeout`, so the harness, not the mutants, is at fault. */
+const BREAKER_STREAK = 3;
+const isBreakerRow = (r) => r.outcome === 'errored' || r.outcome === 'timeout';
+export const harnessFault = (records) => {
+  const tail = records.slice(-BREAKER_STREAK);
+  return tail.length === BREAKER_STREAK && tail.every(isBreakerRow);
+};
+
+const runnerProblem = (r, i) => {
+  if (r === null || typeof r !== 'object' || typeof r.id !== 'string' || r.id === '') return `runners[${i}]: id must be a non-empty string`;
+  if (typeof r.test_cmd !== 'string' || !r.test_cmd.includes('{file}')) return `runner ${r.id}: test_cmd must contain {file}`;
+  const patterns = ['build_error_pattern', 'pass_pattern'].map((k) => patternProblem(r.id, k, r[k])).find((p) => p !== null);
+  if (patterns !== undefined) return patterns;
+  if (r.lane !== undefined && !LANES.includes(r.lane)) return `runner ${r.id}: lane must be one of ${LANES.join(', ')}`;
+  return r.selftest === undefined || isSelfTest(r.selftest) ? null : `runner ${r.id}: selftest needs non-empty string ${SELFTEST_KEYS.join(', ')}`;
+};
+
+/** Validates stack.mutation.runners: a non-empty array of { id, test_cmd with {file}, build_error_pattern? } with unique ids. */
+export function parseRunners(input) {
+  if (!Array.isArray(input) || input.length === 0) return fail('stack.mutation.runners must be a non-empty array');
+  const problem = input.map(runnerProblem).find((p) => p !== null);
+  if (problem !== undefined) return fail(problem);
+  const ids = input.map((r) => r.id);
+  const dupes = ids.filter((id, i) => ids.indexOf(id) !== i);
+  return dupes.length > 0 ? fail(`duplicate runner ids: ${[...new Set(dupes)].join(', ')}`) : ok(input);
+}
+
+/** A mutant id -> run config map. Without runners every mutant gets `config`; with them the mutant's `runner` (or the only runner) selects one, an unknown id is a failure. */
+export function configsFor(mutants, config) {
+  if (config.runners == null) return ok(new Map(mutants.map((m) => [m.id, config])));
+  const byId = new Map(config.runners.map((r) => [r.id, {
+    ...config, testCmd: r.test_cmd, errorPattern: r.build_error_pattern ?? config.errorPattern, passPattern: r.pass_pattern ?? null, selftest: r.selftest ?? null, lane: r.lane ?? 'unit',
+  }]));
+  const pairs = mutants.map((m) => {
+    const id = m.runner ?? (config.runners.length === 1 ? config.runners[0].id : undefined);
+    if (id === undefined) return fail(`mutant ${m.id}: runner is required when several runners are configured`);
+    return byId.has(id) ? ok([m.id, byId.get(id)]) : fail(`mutant ${m.id}: unknown runner id ${id}`);
+  });
+  const bad = pairs.find((p) => !p.ok);
+  return bad === undefined ? ok(new Map(pairs.map((p) => p.value))) : bad;
 }
 
 /** The first output line that looks like a failure (the error pattern when set), trimmed to 200 characters; null if none. */
@@ -56,13 +122,15 @@ function mutantProblem(raw, index) {
   const bad = ['id', 'file', 'old', 'new', 'test'].filter((k) => typeof raw[k] !== 'string');
   if (bad.length > 0) return `${where}: missing or non-string ${bad.join(', ')}`;
   if (raw.id === '' || raw.old === '') return `${where}: id and old must be non-empty`;
+  if (typeof raw.expect_failing_test !== 'string' || raw.expect_failing_test === '') return `${where}: expect_failing_test is required (the name of the test that must fail)`;
   if (raw.old === raw.new) return `${where}: old equals new (no-op mutant)`;
+  if (raw.runner !== undefined && (typeof raw.runner !== 'string' || raw.runner === '')) return `${where}: runner must be a non-empty string`;
   if (raw.expect !== undefined && !EXPECTS.includes(raw.expect)) return `${where}: expect must be one of ${EXPECTS.join(', ')}`;
   const path = pathError(raw.file) ?? pathError(raw.test);
   return path === null ? null : `${where}: ${path}`;
 }
 
-/** Validates a parsed mutants file: an array of { id, file, old, new, test, expect? } with unique ids. */
+/** Validates a parsed mutants file: an array of { id, file, old, new, test, expect_failing_test, expect? } with unique ids. */
 export function parseMutants(input) {
   if (!Array.isArray(input)) return fail('mutants file must be a JSON array');
   const problems = input.map(mutantProblem).filter((p) => p !== null);

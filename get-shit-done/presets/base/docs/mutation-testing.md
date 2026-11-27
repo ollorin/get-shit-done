@@ -10,11 +10,11 @@ node scripts/mutate/mutate.mjs --mutants .tmp/m.json --root .tmp/wt-<name>
 
 ## Profile and flags
 
-The test command is `stack.commands.test_file` of `.planning/config.json` (read from the current directory; an unreadable or non-JSON config is a failure), or `--test-cmd "<command with {file}>"`. `{file}` is replaced by the mutant's test file. The command runs through `sh -c` from `--root`, in its own process group. `stack.mutation.error_pattern` (a regular expression) is the optional build-failure marker.
+The test command is `stack.commands.test_file` of `.planning/config.json` (read from the current directory; an unreadable or non-JSON config is a failure), or `--test-cmd "<command with {file}>"`. `{file}` is replaced by the mutant's test file. The command runs through `sh -c` from `--root`, in its own process group. `stack.mutation.build_error_pattern` (a regular expression) is the optional build-failure marker; the old key `stack.mutation.error_pattern` is refused (exit 2). `stack.mutation.runners[]` replaces the single command: each runner is `{ id, test_cmd (with {file}), build_error_pattern? }` (a runner's own pattern wins over the project one); a mutant names its runner in `runner` (optional with one runner), and an unknown id is refused (exit 2). A failing run whose output matches the build error pattern stops the run after the restore and exits 5: a crash is never a kill, and no verdict of that run counts.
 
 Flags: `--mutants <json>` (required), `--root <dir>` (default: the current directory), `--out <jsonl>`, `--timeout <s>` (default 120, max 2147483), `--test-cmd`, `--test-env KEY=VALUE` (repeatable), `--error-pattern <regex>`, `--dry-run`, `--allow-dirty`, `--allow-primary`. Unknown flags and stray positionals abort with exit 2, so a typo such as `--dryrun` cannot start a real mutation.
 
-Exit: 0 ok; 1 canary mismatch, inconclusive mutant (`invalid-snippet`, `errored` or `timeout`), or the unmutated test went red after the run; 2 aborted before mutating (bad input or flags, a target outside `--root`, the primary worktree, a leftover `<out>.restore/`, a dirty, untracked or ignored target, a red baseline); 3 restore failed; 4 internal error. `--dry-run` exits 1 on an invalid snippet.
+Exit: 0 ok; 1 canary mismatch, inconclusive mutant (`invalid-snippet`, `errored` or `timeout`), or the unmutated test went red after the run; 2 aborted before mutating (bad input or flags, a target outside `--root`, the primary worktree, a leftover `<out>.restore/`, a dirty, untracked or ignored target, a red baseline); 3 restore failed; 4 internal error; 5 the build error pattern matched a run's output. `--dry-run` exits 1 on an invalid snippet.
 
 ## Mutants file
 
@@ -27,6 +27,10 @@ A JSON array of objects:
 | `old`, `new` | `old` must occur exactly once in `file` (overlaps counted) and differ from `new` |
 | `test` | the test file the command runs for this mutant, a readable file |
 | `expect` | optional, `killed` or `survived`: makes the mutant a canary, and the outcome must equal it |
+| `expect_failing_test` | required, non-empty: the name of the test that must fail (the filter of WP10 and the misattribution check key on it) |
+| `runner` | optional, the id of a `stack.mutation.runners[]` entry; required when several runners exist |
+
+A runner entry may also carry `pass_pattern` (a regex whose first group is the passed-test count: a baseline whose output shows no count is red), `lane` (`unit` or `db`; a `db` runner needs `STACK_LOCK_HELD=1`, set by `scripts/stack-lock.sh`, else exit 2) and `selftest` (`dir`, `ext`, `pass`, `kill`, `build` file contents). With a `selftest` the run first proves the harness: the pass file must classify `survived`, the kill file `killed` and name itself in the output, the build file `errored` through the build pattern; any mismatch is exit 2 ("harness fault") and `<out>.run.json` records `self_test`. Three consecutive rows whose outcome is `errored` or `timeout` stop the run with exit 5 and `harness_fault: true` (`harnessFault` in `classify.mjs`). F4 runs only for a runner that defines a selftest; copy the catalogue selftest into `runners[]` to enable it. `--test-cmd` and `--error-pattern` cannot be combined with configured runners (exit 2).
 
 ## Outcomes
 
@@ -39,7 +43,7 @@ A JSON array of objects:
 | `invalid-snippet` | `old` absent or not unique, the target unreadable, a symlink out of the root or not UTF-8, or the test not a readable file |
 | `restore-failed` | restore or its sha check failed; the run stops, exit 3 |
 
-Only `killed` counts as a kill, and a kill is run twice: the second run must also fail, so a flaky test cannot manufacture a kill. Without an error pattern the summary prints `no error pattern: a mutant that fails to build counts as killed`: set `stack.mutation.error_pattern` (for example the compiler's error name) to count a mutant that does not build as `errored`.
+Only `killed` counts as a kill, and a kill is run twice: the second run must also fail, so a flaky test cannot manufacture a kill. Without an error pattern the summary prints `no error pattern: a mutant that fails to build counts as killed`: set `stack.mutation.build_error_pattern` (for example the compiler's error name) to count a mutant that does not build as `errored`.
 
 ## Evidence
 

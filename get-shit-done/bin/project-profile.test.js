@@ -563,7 +563,7 @@ describe('agnostic-M-03 3.1: shape checks for the base preset keys', () => {
     style: { rule_set: 'generic', roots: ['.'], exclude_globs: ['vendor/**'], edge_globs: ['bin/**'], max_file_lines: 300, dup_min_lines: 8 },
     cve: { lockfiles: ['package-lock.json'], severity_floor: 'high', allow_missing_scanner: false },
     host: { worker_patterns: ['vitest'], protected_patterns: ['postgres'] },
-    mutation: { error_pattern: 'SyntaxError|Cannot find module' },
+    mutation: { build_error_pattern: 'SyntaxError|Cannot find module' },
     capabilities: { backend: {}, web_ui: false, ui_qa: { driver: 'charlotte', agent: 'qa-agent', lock_file: '.tmp/ui-qa.lock' } },
   };
 
@@ -612,12 +612,13 @@ describe('agnostic-M-03 3.1: shape checks for the base preset keys', () => {
 describe('agnostic-M-09 9.6: stack.mutation', () => {
   const check = (mutation) => profile.validateProfile({ found: true, error: null, project: validProfile().project, stack: { ...validProfile().stack, mutation } });
 
-  test('9.6 stack.mutation.error_pattern is accepted as a regular expression string and rejected otherwise', () => {
-    assert.deepStrictEqual(check({ error_pattern: 'SyntaxError' }).invalid, []);
+  test('9.6 stack.mutation.build_error_pattern is accepted as a regular expression string and rejected otherwise; the old key is refused', () => {
+    assert.deepStrictEqual(check({ build_error_pattern: 'SyntaxError' }).invalid, []);
     assert.deepStrictEqual(check({}).invalid, [], 'the key is optional');
     for (const bad of [5, true, null, ['SyntaxError'], '', '(']) {
-      assert.ok(check({ error_pattern: bad }).invalid.some((p) => p.key === 'stack.mutation.error_pattern'), JSON.stringify(bad));
+      assert.ok(check({ build_error_pattern: bad }).invalid.some((p) => p.key === 'stack.mutation.build_error_pattern'), JSON.stringify(bad));
     }
+    assert.ok(check({ error_pattern: 'SyntaxError' }).invalid.some((p) => p.key === 'stack.mutation.error_pattern'));
     assert.ok(check('x').invalid.some((p) => p.key === 'stack.mutation'), 'not an object');
   });
 });
