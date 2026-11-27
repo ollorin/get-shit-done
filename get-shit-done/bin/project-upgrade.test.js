@@ -186,6 +186,19 @@ describe('project upgrade', () => {
     assert.deepStrictEqual(liveReasons(root, { now, startOf: () => 'Mon Jan  1 00:00:00 2001' }).filter((r) => /lease/.test(r)), [], 'a reused pid is not the owner');
   });
 
+  test('liveReasons: open phases follow file order, and count only while some event is under 24 hours old', () => {
+    const root = mkTmp('gsd-order-');
+    const now = Date.parse('2026-11-27T12:00:00Z');
+    const at = (minutesAgo) => new Date(now - minutesAgo * 60000).toISOString();
+    const log = (...events) => writeAt(root, '.planning/EXECUTION_LOG.md', `${events.map((e) => JSON.stringify(e)).join('\n')}\n`);
+    log({ timestamp: at(100), type: 'phase_start', phase: '115' }, { timestamp: at(600), type: 'phase_complete', phase: '115' });
+    assert.deepStrictEqual(liveReasons(root, { now }), [], 'close later in the file wins over an older stamp');
+    log({ timestamp: at(100), type: 'phase_complete', phase: '115' }, { timestamp: at(600), type: 'phase_start', phase: '115' });
+    assert.match(liveReasons(root, { now })[0], /phase 115 started/, 'start later in the file wins');
+    log({ timestamp: at(30 * 60), type: 'phase_start', phase: '216' }, { timestamp: at(30 * 60), type: 'dispatch_end', phase: '216' });
+    assert.deepStrictEqual(liveReasons(root, { now }), [], 'no event within 24 hours: abandoned, not open');
+  });
+
   test('corrupt settings.local.json in one project refuses before any write', () => {
     const fx = fixture();
     writeAt(fx.roots[1].root, '.claude/settings.local.json', '{ not json');
@@ -276,12 +289,12 @@ describe('project upgrade: review fixes', () => {
   });
 
   test('discovery: dashes in a directory name and a dot directory decode through the filesystem; a worktree inside a registered root is covered', () => {
-    const dirs = new Set(['/Users', '/Users/me', '/Users/me/casino-mall', '/Users/me/casino-mall/.tmp', '/Users/me/casino-mall/.tmp/wt-a', '/Users/me/other-app']);
+    const dirs = new Set(['/Users', '/Users/me', '/Users/me/my-app', '/Users/me/my-app/.tmp', '/Users/me/my-app/.tmp/wt-a', '/Users/me/other-app']);
     const exists = (p) => dirs.has(p);
-    assert.strictEqual(decode('-Users-me-casino-mall--tmp-wt-a', exists), '/Users/me/casino-mall/.tmp/wt-a');
+    assert.strictEqual(decode('-Users-me-my-app--tmp-wt-a', exists), '/Users/me/my-app/.tmp/wt-a');
     assert.strictEqual(decode('-Users-me-gone', exists), null);
-    const names = ['-Users-me-casino-mall--tmp-wt-a', '-Users-me-other-app', '-Users-me-gone'];
-    assert.deepStrictEqual(unregisteredRoots({ names, registered: ['/Users/me/casino-mall'], exists, isProject: () => true }), ['/Users/me/other-app']);
+    const names = ['-Users-me-my-app--tmp-wt-a', '-Users-me-other-app', '-Users-me-gone'];
+    assert.deepStrictEqual(unregisteredRoots({ names, registered: ['/Users/me/my-app'], exists, isProject: () => true }), ['/Users/me/other-app']);
   });
 
   test('a failing pre-commit hook restores every touched file, prints the hook output, exits non-zero, and the next run redoes the upgrade', () => {
@@ -319,7 +332,7 @@ describe('project upgrade: review fixes', () => {
     const fx = fixture();
     assert.deepStrictEqual(Object.keys(planOnly({ env: fx.env, session: HUMAN, presetsRoot: fx.presetsRoot })).sort(), ['ctx', 'planned', 'read']);
     writeAt(fx.roots[0].root, '.planning/config.json', JSON.stringify({ project: { slug: 'alpha', note: 'mine' }, stack: { preset: 'demo', capabilities: {}, locked_commands: ['x'] } }));
-    writeAt(fx.roots[1].root, '.planning/EXECUTION_LOG.md', `${JSON.stringify({ timestamp: '2026-01-01T00:00:00Z', type: 'phase_start', phase: '4' })}\n`);
+    writeAt(fx.roots[1].root, '.planning/EXECUTION_LOG.md', `${JSON.stringify({ timestamp: new Date(Date.now() - 3 * 3600 * 1000).toISOString(), type: 'phase_start', phase: '4' })}\n`);
     const refused = planOnly({ env: fx.env, session: HUMAN, presetsRoot: fx.presetsRoot });
     assert.match(refused.refusal.join('\n'), /beta: phase 4 started/);
     fs.rmSync(path.join(fx.roots[1].root, '.planning/EXECUTION_LOG.md'));

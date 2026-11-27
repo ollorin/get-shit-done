@@ -24,7 +24,7 @@ const readConfig = (root) => {
   }
 };
 
-// "-Users-me-casino-mall" -> "/Users/me/casino-mall": the dashes are ambiguous, so the filesystem decides, and "--tmp" is ".tmp".
+// "-Users-me-my-app" -> "/Users/me/my-app": the dashes are ambiguous, so the filesystem decides, and "--tmp" is ".tmp".
 function decode(name, exists) {
   const tokens = name.replace(/^-/, '').split('-');
   const walk = (base, i) => {
