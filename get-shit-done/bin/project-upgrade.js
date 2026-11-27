@@ -13,10 +13,11 @@ const { refusalOf } = require('./project-deploy-guard.js');
 const { detectSession } = require('./project-deploy-session.js');
 const { withSyncDefaults } = require('./project-registry.js');
 const { registryDirFor, readRegistry, REGISTRY_FILE } = require('./project-registry-store.js');
-const { migrateConfig } = require('./profile-migrations.js');
+const { presetGateScripts } = require('./profile-doctor-checks.js');
+const { migrateConfig, neededMigrationIds } = require('./profile-migrations.js');
 const { liveReasons } = require('./project-quiesce.js');
 const { dirtyLines, commitPaths, untrackedUnder, isRepo, onBranch, forkSha } = require('./project-upgrade-git.js');
-const { appendRun, RECORD_ID_RE } = require('./project-upgrade-log.js');
+const { appendRun, readRuns, RECORD_ID_RE } = require('./project-upgrade-log.js');
 const { unregisteredRoots, claudeProjectNames } = require('./project-discovery.js');
 const { parseJsonc } = require('./jsonc.js');
 
@@ -77,6 +78,25 @@ function removeSuperseded(settings, table = SUPERSEDED_HOOKS) {
 
 const problem = (name, reason) => `${name}: ${reason}`;
 
+// The manifest's migrations[] after this run: the recorded ids plus the ones the config still needs. null when the project
+// has no manifest (not under the deploy engine); `changed` says whether the manifest needs a write for it.
+function migrationRecord(root, config) {
+  const manifest = readJsonFile(path.join(root, MANIFEST));
+  if (!manifest.ok || manifest.absent) return { list: null, changed: false };
+  const recorded = Array.isArray(manifest.value.migrations) ? manifest.value.migrations : [];
+  const list = [...new Set([...recorded, ...neededMigrationIds(config)])];
+  return { list, changed: list.length !== recorded.length };
+}
+
+// The engine rewrites the manifest from the preset and drops migrations[]; this puts the list back.
+function writeMigrations(root, list) {
+  const file = path.join(root, MANIFEST);
+  const manifest = readJsonFile(file);
+  if (list === null || !manifest.ok || manifest.absent) return;
+  const same = JSON.stringify(manifest.value.migrations) === JSON.stringify(list);
+  if (!same && list.length > 0) writeAtomic(file, asText({ ...manifest.value, migrations: list }));
+}
+
 // One project's read-only plan, or its problems.
 function planProject({ name, root }, ctx) {
   const config = readJsonFile(path.join(root, CONFIG));
@@ -87,7 +107,7 @@ function planProject({ name, root }, ctx) {
   const unreadable = [[SETTINGS, settings], [LOCAL_SETTINGS, local]].filter(([, r]) => !r.ok)
     .map(([file, r]) => problem(name, `${file} ${r.reason}`));
   if (unreadable.length > 0) return { problems: unreadable };
-  const nextConfig = withSyncDefaults(migrateConfig(config.value));
+  const nextConfig = withSyncDefaults(migrateConfig(config.value), presetGateScripts(root, config.value.stack ?? {}, ctx.presetsRoot));
   const plan = planDeploy({ root, command: 'sync', config: nextConfig, env: ctx.env, session: ctx.session, presetsRoot: ctx.presetsRoot });
   const { report } = plan;
   if (!report.ok) {
@@ -99,15 +119,17 @@ function planProject({ name, root }, ctx) {
   const configChanged = !sameJson(config.value, nextConfig);
   const localChanged = nextLocal !== null && !sameJson(local.value, nextLocal);
   const engineRuns = report.changes > 0;
-  const paths = [
+  const migrations = migrationRecord(root, config.value);
+  const paths = [...new Set([
     ...(configChanged ? [CONFIG] : []),
     ...(localChanged ? [LOCAL_SETTINGS] : []),
     ...(engineRuns ? [MANIFEST, BASE_DIR, ...report.files.filter((f) => WRITE_ACTIONS.has(f.action)).map((f) => f.path)] : []),
     ...(plan.ops.settingsText === null ? [] : [SETTINGS]),
-  ];
+    ...(migrations.changed ? [MANIFEST] : []),
+  ])];
   const dirty = dirtyLines(root, paths);
   if (dirty.length > 0) return { problems: [problem(name, `uncommitted changes in files the upgrade writes: ${dirty.join(', ')}`)] };
-  return { problems: [], plan, paths, engineRuns, configText: configChanged ? asText(nextConfig) : null, localText: localChanged ? asText(nextLocal) : null };
+  return { problems: [], plan, paths, engineRuns, migrations: migrations.list, configText: configChanged ? asText(nextConfig) : null, localText: localChanged ? asText(nextLocal) : null };
 }
 
 function applyProject({ name, root }, planned, ctx) {
@@ -124,6 +146,7 @@ function applyProject({ name, root }, planned, ctx) {
       restore();
       return { error: problem(name, `sync failed (exit ${engine.exitCode}); nothing committed`) };
     }
+    writeMigrations(root, planned.migrations);
     if (planned.localText !== null) writeAtomic(path.join(root, LOCAL_SETTINGS), planned.localText);
   } catch (e) {
     restore();
@@ -160,7 +183,8 @@ const frameworkRecordOf = (env, opts) => {
 function planOnly(opts = {}) {
   const env = opts.env ?? process.env;
   const session = opts.session ?? detectSession();
-  const ctx = { env, session, presetsRoot: opts.presetsRoot, message: `${COMMIT_MESSAGE}\n\nGSD-Upgrade: ${opts.forkSha ?? forkSha(FORK_ROOT)}\n` };
+  const sha = opts.forkSha ?? forkSha(FORK_ROOT);
+  const ctx = { env, session, presetsRoot: opts.presetsRoot, forkSha: sha, message: `${COMMIT_MESSAGE}\n\nGSD-Upgrade: ${sha}\n` };
   const read = readProjects(env);
   if (read.error) return { refusal: [`refused: ${read.error}`] };
   const refused = guardRefusal(env, session, read.dir);
@@ -197,7 +221,10 @@ function upgradeAll(opts = {}) {
   }
   const results = planned.map((p) => ({ project: p.project, ...applyProject(p.project, p, ctx) }));
   const commits = results.filter((r) => r.commit?.committed).map((r) => ({ name: r.project.name, root: r.project.root, sha: r.commit.sha }));
-  if (commits.length > 0) appendRun(read.dir, { at: new Date().toISOString(), record: frameworkRecordOf(ctx.env, opts), commits });
+  const newSha = readRuns(read.dir).at(-1)?.fork_sha !== ctx.forkSha;
+  if (commits.length > 0 || newSha) {
+    appendRun(read.dir, { at: new Date().toISOString(), record: frameworkRecordOf(ctx.env, opts), fork_sha: ctx.forkSha, roots: read.projects.map((p) => p.root), commits });
+  }
   const checks = doctor === undefined ? [] : read.projects.map((p) => ({ project: p, ...doctor(p.root) }));
   const lines = [
     ...results.map((r) => (r.error ? `FAILED ${r.error}` : `${r.project.name}: ${r.commit.committed ? `committed ${r.commit.sha}` : r.commit.note}`)),

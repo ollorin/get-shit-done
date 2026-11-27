@@ -10,6 +10,7 @@ const {
 } = require('./project-profile-keys.js');
 const uiQaDrivers = require('./ui-qa-driver.js');
 const { doctorFindings, doctorLines, isBlocking } = require('./profile-defaults.js');
+const { registryDirFor, readRegistry } = require('./project-registry-store.js');
 const { projectChecks, presetGateScripts, isBlockingFinding, findingLine } = require('./profile-doctor-checks.js');
 
 const REQUIRED_KEYS = Object.freeze([
@@ -288,6 +289,16 @@ function validateProfile(profile) {
   return report(configFound, missing, [...topLevel, ...shape], [...unknownKeyWarnings(profile), ...notConfiguredWarnings(profile)]);
 }
 
+// True when projects.json holds an entry for this root. An unreadable registry counts as registered: the port stays blocking.
+function isRegistered(cwd, env) {
+  const dirOf = registryDirFor(env);
+  if (!dirOf.ok) return true;
+  const read = readRegistry(dirOf.dir);
+  if (!read.ok) return true;
+  const real = fs.realpathSync.native(cwd);
+  return Object.values(read.data.projects).some((e) => e.root === real || e.root === cwd);
+}
+
 // Compares the project's stack block with the defaults table; exit 1 only for a missing or stale key of severity error.
 function doctor(cwd) {
   const profile = loadProfile(cwd);
@@ -296,7 +307,7 @@ function doctor(cwd) {
     return { exitCode: 1, result: { ok: false, reason }, text: `ERROR .planning/config.json: ${reason}\n` };
   }
   const stack = profile.stack ?? {};
-  const findings = doctorFindings(stack, { hasScript: presetGateScripts(cwd, stack) });
+  const findings = doctorFindings(stack, { hasScript: presetGateScripts(cwd, stack), registered: isRegistered(cwd, process.env) });
   const checks = projectChecks(cwd, stack);
   const blocking = findings.filter(isBlocking).length + checks.filter(isBlockingFinding).length;
   const other = findings.length + checks.length - blocking;

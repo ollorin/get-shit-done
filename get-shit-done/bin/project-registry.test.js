@@ -202,6 +202,17 @@ describe('project init wiring (CLI)', () => {
   });
 });
 
+describe('withSyncDefaults gates', () => {
+  test('a default gate is appended only when its script exists; without a predicate every gate is', () => {
+    const config = { stack: { capabilities: {}, gates: [] } };
+    const { withSyncDefaults } = require('./project-registry.js');
+    const ids = (c) => c.stack.gates.map((g) => g.id);
+    assert.deepStrictEqual(ids(withSyncDefaults(config, (s) => s === 'scripts/style-gate.mjs')), ['style']);
+    assert.deepStrictEqual(ids(withSyncDefaults(config, () => false)), []);
+    assert.strictEqual(ids(withSyncDefaults(config)).length, 8);
+  });
+});
+
 describe('applyToConfig (pure)', () => {
   test('never creates stack.capabilities and never adds ui_qa', () => {
     const out = applyToConfig({ project: { slug: 'x' }, stack: { capabilities: { web_ui: false } } }, { slug: 'x', port_base: 55000 });

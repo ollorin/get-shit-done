@@ -69,10 +69,11 @@ function withKey(node, [head, ...rest], value) {
   return { ...base, [head]: rest.length === 0 ? value : withKey(base[head], rest, value) };
 }
 
-// The default gates that apply to these capabilities, in table order.
-function gateDefaults(capabilities) {
+// The default gates that apply to these capabilities, in table order. With hasScript, a gate whose script the predicate
+// denies is left out (the same predicate the doctor uses in doctorFindings).
+function gateDefaults(capabilities, hasScript) {
   return Object.entries(STACK_DEFAULTS)
-    .filter(([key, e]) => isGateKey(key) && applies(e, capabilities))
+    .filter(([key, e]) => isGateKey(key) && applies(e, capabilities) && !noScript(key, e, hasScript))
     .map(([, e]) => ({ ...e.default }));
 }
 
@@ -92,11 +93,16 @@ const scriptOf = (run) => run.split(/\s+/).find((word) => word.includes('/') || 
 const noScript = (key, e, hasScript) => typeof hasScript === 'function' && isGateKey(key) && !hasScript(scriptOf(e.default.run) ?? e.default.run);
 const asInfo = (e) => ({ ...e, severity: 'info', why: `no script in the project's preset; ${e.why}` });
 
+// A per-project key (the port) is blocking only once the project is in the registry; opts.registered === false demotes it.
+const unregisteredKey = (e, opts) => e.scope === PER_PROJECT && opts.registered === false;
+const asUnregistered = (e) => ({ ...e, severity: 'info', why: `the project is not registered; ${e.why}` });
+
 // opts.hasScript(path) says whether a gate script exists in the project's preset (or on disk); absent means every gate applies.
 function doctorFindings(stack, opts = {}) {
   return Object.entries(STACK_DEFAULTS).flatMap(([key, e]) => {
     if (!applicable(e, stack)) return [];
     const value = readKey(stack, key);
+    if (value === undefined && unregisteredKey(e, opts)) return [finding('INFO', key, asUnregistered(e), value)];
     if (value === undefined) return [noScript(key, e, opts.hasScript) ? finding('INFO', key, asInfo(e), value) : finding('MISSING', key, e, value)];
     return e.default !== null && !isDeepStrictEqual(value, e.default) ? [finding('DIFFERS', key, e, value)] : [];
   });

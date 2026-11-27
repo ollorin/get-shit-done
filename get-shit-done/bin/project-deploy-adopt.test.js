@@ -112,6 +112,23 @@ describe('project adopt', () => {
     assert.strictEqual(manifest.files[gone], undefined);
   });
 
+  test('adopt adds only the default gates whose script the preset ships, and prints every path it wrote', () => {
+    const { root } = igamingShapedRepo();
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-adopt-home-'));
+    tmps.push(home);
+    const env = { ...process.env, GSD_HOME: home };
+    const args = ['adopt', '--root', root, '--preset', 'igaming'];
+    const r = initWithRegistration(root, args, env, () => runCli(root, args, env, HUMAN));
+    assert.strictEqual(r.exitCode, 0, JSON.stringify(r.result.errors));
+    const config = JSON.parse(fs.readFileSync(path.join(root, CONFIG), 'utf8'));
+    assert.deepStrictEqual(config.stack.gates.map((g) => g.id), ['hook-canaries']);
+    assert.deepStrictEqual(
+      [...r.result.wrote.project].sort(),
+      [CONFIG, MANIFEST, ...r.result.written.filter((p) => p.startsWith(`${BASE_DIR}/`))].sort(),
+    );
+    assert.strictEqual(r.result.wrote.registry, path.join(home, 'projects.json'));
+  });
+
   test('adopt registers the project once and a second adopt keeps the registry entry', () => {
     const { root } = igamingShapedRepo();
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-adopt-home-'));

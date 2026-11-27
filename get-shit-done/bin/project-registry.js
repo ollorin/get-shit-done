@@ -21,6 +21,7 @@ const { withLock } = require('./project-lock.js');
 const { DEPLOY_SLOTS } = require('./project-profile-keys.js');
 const { fillContract } = require('./ui-qa-driver.js');
 const { gateDefaults, withTableDefaults } = require('./profile-defaults.js');
+const { presetGateScripts } = require('./profile-doctor-checks.js');
 
 const NEIGHBOUR_DISTANCE = 100;
 const ENGINE_FLAGS = new Set(['--root', '--preset', '--preset-dir']);
@@ -116,10 +117,12 @@ function detectRuleSet(root) {
 
 // The default gates come from the profile-defaults table. An existing gate with the same id is never changed and none is
 // removed; a non-array stack.gates is left for validation.
-function withDefaultGates(gates, capabilities, commands) {
+// A default gate is added only when hasScript says its script exists (the preset ships it or the project has it); without
+// a predicate every applicable gate is added.
+function withDefaultGates(gates, capabilities, commands, hasScript) {
   if (gates !== undefined && !Array.isArray(gates)) return gates;
   const current = gates ?? [];
-  const wanted = gateDefaults(capabilities).filter((g) => !current.some((e) => isObject(e) && e.id === g.id));
+  const wanted = gateDefaults(capabilities, hasScript).filter((g) => !current.some((e) => isObject(e) && e.id === g.id));
   return [...current, ...wanted, ...unusedCodeGate(current, commands)];
 }
 
@@ -131,16 +134,16 @@ function unusedCodeGate(current, commands) {
 }
 
 // Sync and diff: appends the missing default gates and the unused-code gate; an existing entry is never changed.
-function withMissingGates(config) {
+function withMissingGates(config, hasScript) {
   const { gates, commands, capabilities } = config.stack;
   if (!Array.isArray(gates)) return config;
-  const next = withDefaultGates(gates, capabilities, commands);
+  const next = withDefaultGates(gates, capabilities, commands, hasScript);
   return next.length === gates.length ? config : { ...config, stack: { ...config.stack, gates: next } };
 }
 
 // Adds slug, port_base and the base defaults where absent. Never creates stack.capabilities or adds ui_qa; an existing
 // ui_qa object gets its missing contract keys filled from the driver adapter (set values are kept).
-function applyToConfig(config, { slug, port_base: portBase, root }) {
+function applyToConfig(config, { slug, port_base: portBase, root, hasScript }) {
   const fill = (node, defaults) => {
     if (node !== undefined && !isObject(node)) return node;
     const current = node ?? {};
@@ -164,7 +167,7 @@ function applyToConfig(config, { slug, port_base: portBase, root }) {
   return {
     ...config,
     project: fill(config.project, { owner_title: 'owner' }),
-    stack: { ...withDefaults, gates: withDefaultGates(stack.gates, capabilities, commands) },
+    stack: { ...withDefaults, gates: withDefaultGates(stack.gates, capabilities, commands, hasScript) },
   };
 }
 
@@ -178,6 +181,12 @@ function parseInitRoot(rest) {
     if (flag === '--root') root = value;
   }
   return root;
+}
+
+// The value of --preset in args that parseInitRoot accepted (flag/value pairs), or undefined.
+function presetFlag(args) {
+  const at = args.indexOf('--preset');
+  return at === -1 ? undefined : args[at + 1];
 }
 
 // Keys whose values the engine renders into hooks and settings. Checked on every engine command: the engine renders
@@ -219,7 +228,7 @@ function syncSlots(root) {
     return null;
   }
   if (!isObject(config) || !isObject(config.stack)) return null;
-  const next = withMissingGates(withRederivedSlots(config));
+  const next = withMissingGates(withRederivedSlots(config), presetGateScripts(root, config.stack));
   if (next === config) return null;
   writeJson(file, next);
   return before;
@@ -302,7 +311,8 @@ function registerForInit(cwd, args, env) {
       if (!plan.ok) return plan;
       const registryCreated = !fs.existsSync(registryFile);
       try {
-        writeJson(configFile, applyToConfig(config, { slug, port_base: plan.port_base, root }));
+        const hasScript = presetGateScripts(root, { ...config.stack, preset: presetFlag(args) ?? config.stack.preset });
+        writeJson(configFile, applyToConfig(config, { slug, port_base: plan.port_base, root, hasScript }));
         if (!plan.reused) writeJson(registryFile, plan.data);
       } catch (e) {
         try {
@@ -330,6 +340,12 @@ function rollBack(registration, engine) {
   return { ...engine, result: { ...engine.result, errors } };
 }
 
+// Every path an adopt wrote, so the owner commits explicit paths: project files relative to the root, the registry absolute.
+const wroteOf = (result, registration) => ({
+  project: ['.planning/config.json', ...(result.written ?? [])],
+  registry: registration.reused ? null : registration.registryFile,
+});
+
 /**
  * Runs `project init` with the registration: the engine's result decides whether the config and registry
  * writes stand. runEngine returns { exitCode, result } as project-deploy.runCli does.
@@ -352,7 +368,7 @@ function initWithRegistration(cwd, args, env, runEngine) {
   const kept = wrote && (engine.exitCode === 0 || engine.exitCode === 2 || engine.result.rolled_back === false);
   if (!kept) return rollBack(registration, engine);
   const registry = { path: registration.registryFile, written: !registration.reused };
-  return { ...engine, result: { ...engine.result, registry } };
+  return { ...engine, result: { ...engine.result, registry, ...(args[0] === 'adopt' ? { wrote: wroteOf(engine.result, registration) } : {}) } };
 }
 
 // allocate: locked read, plan, write. For callers that need only the port.
@@ -381,7 +397,7 @@ function unregister({ dir, slug }) {
 }
 
 // The config a sync would write before the engine runs: re-derived deploy entries, then the missing default gates.
-const withSyncDefaults = (config) => withMissingGates(withRederivedSlots(config));
+const withSyncDefaults = (config, hasScript) => withMissingGates(withRederivedSlots(config), hasScript);
 
 module.exports = {
   withSyncDefaults, registryDir, readRegistry, planAllocation, allocate, unregister, applyToConfig, detectRuleSet, registerForInit, initWithRegistration,

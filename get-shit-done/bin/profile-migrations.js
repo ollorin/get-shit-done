@@ -28,4 +28,14 @@ function migrateConfig(config, flags = { refusesErrorPattern: MUTATION_REFUSES_E
   return MIGRATIONS.filter((m) => m.enabled(flags)).reduce((acc, m) => m.apply(acc), config);
 }
 
-module.exports = { MIGRATIONS, migrateConfig };
+// The ids of the enabled migrations that would change this config, applied in order; empty once the config is migrated.
+function neededMigrationIds(config, flags = { refusesErrorPattern: MUTATION_REFUSES_ERROR_PATTERN }) {
+  if (!isObject(config) || !isObject(config.stack)) return [];
+  const steps = MIGRATIONS.filter((m) => m.enabled(flags)).reduce((acc, m) => {
+    const next = m.apply(acc.config);
+    return { config: next, ids: JSON.stringify(next) === JSON.stringify(acc.config) ? acc.ids : [...acc.ids, m.id] };
+  }, { config, ids: [] });
+  return steps.ids;
+}
+
+module.exports = { MIGRATIONS, migrateConfig, neededMigrationIds };

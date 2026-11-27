@@ -11,11 +11,13 @@ const { planDeploy, MANIFEST } = require('./project-deploy.js');
 const { loadPreset } = require('./project-deploy-render.js');
 const { parseBlocks } = require('./project-deploy-files.js');
 const { parseJsonc } = require('./jsonc.js');
+const { registryDir } = require('./project-registry-store.js');
 
 // Flipped to true by the mutation tool work (WP9) once the tool refuses stack.mutation.error_pattern.
 const MUTATION_REFUSES_ERROR_PATTERN = false;
 
 const PRESETS_ROOT = path.join(__dirname, '..', 'presets');
+const FRAMEWORK_HOOKS = path.join(__dirname, 'hooks');
 const PRESET_NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
 const MAX_FRAMEWORK_LINES = 10;
 const BLOCKING_KINDS = new Set(['MISSING', 'DRIFT']);
@@ -113,7 +115,22 @@ function readSettingsFiles(files) {
   });
 }
 
-function hookFindings(root, home) {
+// The installed script path a registered hook command names, or undefined.
+const scriptPathOf = (command, script) => command.split(/["'\s]+/).find((tok) => tok.endsWith(`/${script}`));
+
+// A registered script whose bytes differ from the framework copy is stale; an unreadable side cannot be compared.
+function staleScripts(docs, hooksRoot) {
+  const commands = HOOKS.flatMap((row) => docs.flatMap((doc) => groupsOf(doc, row.event)
+    .flatMap((g) => (isObject(g) && Array.isArray(g.hooks) ? g.hooks : []))
+    .flatMap((h) => (isObject(h) && typeof h.command === 'string' ? [{ script: row.script, installed: scriptPathOf(h.command, row.script) }] : []))));
+  const seen = new Map(commands.filter((c) => c.installed !== undefined).map((c) => [c.installed, c.script]));
+  return [...seen].filter(([installed, script]) => {
+    const [have, want] = [readBytes(installed), readBytes(path.join(hooksRoot, script))];
+    return Buffer.isBuffer(have) && Buffer.isBuffer(want) && !have.equals(want);
+  }).map(([installed, script]) => finding('DRIFT', installed, `the framework copy of ${script}`, 'error', 'the registered hook script differs from the framework copy; run npm run install:gsd'));
+}
+
+function hookFindings(root, home, hooksRoot = FRAMEWORK_HOOKS) {
   const read = readSettingsFiles([
     { abs: path.join(home, '.claude', 'settings.json'), shown: '~/.claude/settings.json' },
     { abs: path.join(home, '.claude', 'settings.local.json'), shown: '~/.claude/settings.local.json' },
@@ -129,7 +146,7 @@ function hookFindings(root, home) {
     'error',
     'the framework installs this hook; run npm run install:gsd',
   ));
-  return [...corrupt, ...missing];
+  return [...corrupt, ...missing, ...staleScripts(docs, hooksRoot)];
 }
 
 // 3. Deployed framework against its install manifest, plus the local patches the installer set aside.
@@ -182,12 +199,55 @@ function presetGateScripts(root, stack, presetsRoot = PRESETS_ROOT) {
   return (script) => dests.has(script) || fs.existsSync(path.join(root, script));
 }
 
-function projectChecks(root, stack, { home = os.homedir(), presetsRoot = PRESETS_ROOT } = {}) {
+// 6. The fork sha the project's last upgrade ran at (project-upgrades.json, written by `project upgrade`) against the
+// sha the deployed framework was installed from (install manifest source_git_sha). Different shas: the upgrade is stale.
+const realOr = (p) => {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return p;
+  }
+};
+const KNOWN_SHA = (s) => typeof s === 'string' && s !== '' && s !== 'unknown';
+
+function jsonObjectAt(abs) {
+  const bytes = readBytes(abs);
+  const parsed = bytes ? parseJsonc(bytes.toString('utf8')) : { ok: false };
+  return parsed.ok && isObject(parsed.value) ? parsed.value : undefined;
+}
+
+function forkShaFindings(root, home, gsdDir = registryDir(process.env)) {
+  const deployed = jsonObjectAt(path.join(home, '.claude', 'gsd-file-manifest.json'))?.source_git_sha;
+  const runs = jsonObjectAt(path.join(gsdDir, 'project-upgrades.json'))?.runs;
+  const real = realOr(root);
+  const last = (Array.isArray(runs) ? runs : []).filter((r) => isObject(r) && Array.isArray(r.roots) && r.roots.some((x) => realOr(x) === real)).pop();
+  const upgraded = last?.fork_sha;
+  if (!KNOWN_SHA(deployed) || !KNOWN_SHA(upgraded)) {
+    return [finding('INFO', 'project upgrade', 'run project upgrade', 'info', 'the fork sha of the last upgrade or of the deployed framework is unknown; staleness is not checked')];
+  }
+  return upgraded === deployed
+    ? []
+    : [finding('DRIFT', 'project upgrade', 'run project upgrade', 'error', `the last upgrade ran at fork ${upgraded.slice(0, 12)}, the deployed framework is ${deployed.slice(0, 12)}`)];
+}
+
+// 7. Migrations the config needs that the project manifest (manifest.migrations[]) does not record as applied.
+function migrationRecordFindings(root, stack, flags) {
+  const manifest = jsonObjectAt(path.join(root, MANIFEST));
+  if (manifest === undefined) return [];
+  const recorded = Array.isArray(manifest.migrations) ? manifest.migrations : [];
+  const { neededMigrationIds } = require('./profile-migrations.js');
+  return neededMigrationIds({ stack }, flags).filter((id) => !recorded.includes(id))
+    .map((id) => finding('DRIFT', `migration ${id}`, 'run project upgrade', 'error', 'the config needs this migration and the project manifest does not record it'));
+}
+
+function projectChecks(root, stack, { home = os.homedir(), presetsRoot = PRESETS_ROOT, gsdDir, hooksRoot } = {}) {
   return [
     ...fileFindings(root, stack, presetsRoot),
-    ...hookFindings(root, home),
+    ...hookFindings(root, home, hooksRoot),
     ...frameworkFindings(home),
+    ...forkShaFindings(root, home, gsdDir),
     ...migrationFindings(stack),
+    ...migrationRecordFindings(root, stack),
   ];
 }
 
@@ -199,6 +259,8 @@ module.exports = {
   hookFindings,
   frameworkFindings,
   migrationFindings,
+  migrationRecordFindings,
+  forkShaFindings,
   presetGateScripts,
   projectChecks,
   isBlockingFinding,

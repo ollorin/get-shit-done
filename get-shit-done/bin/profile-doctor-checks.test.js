@@ -86,7 +86,9 @@ describe('profile doctor checks (WP22d)', () => {
   test('a complete project and home have no blocking finding', () => {
     const presetsRoot = makePresetsRoot();
     const { root, stack } = deployedProject(presetsRoot);
-    assert.deepStrictEqual(checks.projectChecks(root, stack, { home: makeHome(), presetsRoot }), []);
+    const found = checks.projectChecks(root, stack, { home: makeHome(), presetsRoot, gsdDir: mkTmp('gsd-dc-gsd-') });
+    assert.deepStrictEqual(kinds(found), ['INFO project upgrade']);
+    assert.deepStrictEqual(blockingOf(found), []);
   });
 
   test('file drift: a preset change is DRIFT, an absent file MISSING, a kept local edit LOCAL and not blocking', () => {

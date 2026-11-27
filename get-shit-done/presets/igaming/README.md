@@ -50,7 +50,7 @@ The fragment contains mutating allow rules scoped to the igaming checkout (for e
 
 ## Adopting an existing checkout
 
-`project adopt-diff --preset igaming` previews, `project adopt --preset igaming` records the manifest, the `.planning/.gsd-preset-base` mirror and the registry entry. No project file is written: byte-equal files are recorded, edited files are LOCAL (kept, the preset copy becomes the merge base), absent files are left for `project sync`. Left out of this snapshot on purpose: `.claude/rules/shared-stack.md` (new in the source after the earlier pin, cites source-repo commits and paths; adopt reports nothing for it, it is not a preset file). `CLAUDE.md` stays LOCAL in the source until the models.top wording is applied there.
+`project adopt-diff --preset igaming` previews, `project adopt --preset igaming` writes the manifest, the `.planning/.gsd-preset-base` mirror, the missing default keys in `.planning/config.json` (only default gates whose script the preset ships or the project has) and the registry entry in `projects.json`; it commits nothing and prints every path it wrote. No preset file is written or changed: byte-equal files are recorded, edited files are LOCAL (kept, the preset copy becomes the merge base), absent files are left for `project sync`. Left out of this snapshot on purpose: `.claude/rules/shared-stack.md` (new in the source after the earlier pin, cites source-repo commits and paths; adopt reports nothing for it, it is not a preset file). `CLAUDE.md` stays LOCAL in the source until the models.top wording is applied there.
 
 ## Re-verify against the source
 

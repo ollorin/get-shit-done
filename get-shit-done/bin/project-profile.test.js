@@ -689,7 +689,24 @@ describe('profile doctor (WP18)', () => {
   test('a complete config exits 0 and prints only the summary line', () => {
     const r = doctorOn(completeStack());
     assert.strictEqual(r.status, 0, r.stdout + r.stderr);
-    assert.strictEqual(r.stdout.trim(), 'doctor: up to date (0 blocking, 0 other)');
+    assert.match(r.stdout, /^INFO project upgrade -> run project upgrade \(info: /m);
+    assert.match(r.stdout.trim(), /doctor: up to date \(0 blocking, 1 other\)$/);
+  });
+
+  test('port_base: absent is information for an unregistered project and blocking once the project is registered', () => {
+    const stack = completeStack();
+    delete stack.isolation.port_base;
+    const unregistered = doctorOn(stack);
+    assert.strictEqual(unregistered.status, 0, unregistered.stdout);
+    assert.match(unregistered.stdout, /^INFO stack\.isolation\.port_base -> /m);
+    const dir = mkTmp();
+    fs.mkdirSync(path.join(dir, '.planning'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.planning', 'config.json'), JSON.stringify({ stack }));
+    const gsdHome = mkTmp();
+    fs.writeFileSync(path.join(gsdHome, 'projects.json'), JSON.stringify({ version: 1, projects: { demo: { root: fs.realpathSync(dir), port_base: 55000 } } }));
+    const registered = spawnSync(process.execPath, [GSD_TOOLS, 'profile', 'doctor'], { cwd: dir, encoding: 'utf-8', env: { ...process.env, HOME: emptyHome(), GSD_HOME: gsdHome } });
+    assert.strictEqual(registered.status, 1);
+    assert.match(registered.stdout, /^MISSING stack\.isolation\.port_base -> /m);
   });
 
   test('a missing error key exits 1 and prints one MISSING line with its scope and severity', () => {
