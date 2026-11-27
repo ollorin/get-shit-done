@@ -65,7 +65,7 @@ function fixture(fragment = FRAGMENT) {
     const root = mkTmp(`gsd-${name}-`);
     git(root, 'init', '-q');
     writeAt(root, '.planning/config.json', JSON.stringify({ project: { slug: name }, stack: { preset: 'demo', capabilities: {} } }, null, 2));
-    const init = runDeploy(root, ['init', '--root', root], { confirm: () => 'APPLY', presetsRoot });
+    const init = runDeploy(root, ['init', '--root', root], { presetsRoot });
     assert.strictEqual(init.exitCode, 0, JSON.stringify(init.result));
     git(root, 'add', '-A');
     git(root, 'commit', '-q', '-m', 'init');
@@ -91,17 +91,11 @@ function snapshot(root) {
   return out;
 }
 
-const run = (fx, extra = {}) => {
-  const asks = [];
-  const result = upgradeAll({
-    env: fx.env, presetsRoot: fx.presetsRoot, confirm: (text) => { asks.push(text); return 'APPLY'; }, ...extra,
-  });
-  return { ...result, asks };
-};
+const run = (fx, extra = {}) => upgradeAll({ env: fx.env, presetsRoot: fx.presetsRoot, ...extra });
 const head = (root) => git(root, 'rev-parse', 'HEAD');
 
 describe('project upgrade', () => {
-  test('a clean run commits once per project with only the upgraded paths, asks once, prints doctor, then a second run is a no-op', () => {
+  test('a clean run commits once per project with only the upgraded paths, prints doctor, then a second run is a no-op', () => {
     const fx = fixture();
     const [a, b] = fx.roots;
     writeAt(a.root, 'notes.txt', 'mine\n');
@@ -109,9 +103,6 @@ describe('project upgrade', () => {
     const doctored = [];
     const first = run(fx, { doctor: (root) => { doctored.push(root); return { exitCode: 0, text: 'doctor: up to date\n' }; } });
     assert.strictEqual(first.exitCode, 0, first.lines.join('\n'));
-    assert.strictEqual(first.asks.length, 1);
-    assert.match(first.asks[0], /project alpha/);
-    assert.match(first.asks[0], /project beta/);
     assert.deepStrictEqual(doctored, [a.root, b.root]);
     for (const r of fx.roots) {
       assert.notStrictEqual(head(r.root), heads[fx.roots.indexOf(r)]);
@@ -127,7 +118,6 @@ describe('project upgrade', () => {
     const before = fx.roots.map((r) => [head(r.root), snapshot(r.root)]);
     const second = run(fx);
     assert.strictEqual(second.exitCode, 0, second.lines.join('\n'));
-    assert.strictEqual(second.asks.length, 0);
     assert.deepStrictEqual(fx.roots.map((r) => [head(r.root), snapshot(r.root)]), before);
   });
 
@@ -158,11 +148,7 @@ describe('project upgrade', () => {
     assert.strictEqual(result.commits.length, fx.roots.length);
   });
 
-  test('a declined confirmation and a blocking doctor result are exit 1', () => {
-    const declined = fixture();
-    const before = declined.roots.map((r) => snapshot(r.root));
-    assert.strictEqual(run(declined, { confirm: () => 'no' }).exitCode, 1);
-    assert.deepStrictEqual(declined.roots.map((r) => snapshot(r.root)), before);
+  test('a blocking doctor result is exit 1', () => {
     const red = run(fixture(), { doctor: () => ({ exitCode: 1, text: 'doctor: NOT up to date\n' }) });
     assert.strictEqual(red.exitCode, 1);
     assert.match(red.lines.join('\n'), /NOT up to date/);
@@ -212,7 +198,7 @@ describe('project upgrade', () => {
     assert.strictEqual(fs.readFileSync(file, 'utf8'), bytes);
   });
 
-  test('a project whose preset registers the reaper loses the superseded hook, only after the one confirmation that names it', () => {
+  test('a project whose preset registers the reaper loses the superseded hook', () => {
     const fx = fixture(REAPER_FRAGMENT);
     assert.strictEqual(run(fx).exitCode, 0);
     const { root } = fx.roots[0];
@@ -221,12 +207,9 @@ describe('project upgrade', () => {
     git(root, 'add', '-A');
     git(root, 'commit', '-q', '-m', 'local');
     const bytes = fs.readFileSync(file, 'utf8');
-    const declined = run(fx, { confirm: (text) => { assert.match(text, /settings\.local\.json/); assert.match(text, /subagent-stop-record\.ts/); return 'NO'; } });
-    assert.strictEqual(declined.exitCode, 1);
-    assert.strictEqual(fs.readFileSync(file, 'utf8'), bytes);
+    assert.notStrictEqual(bytes, '');
     const applied = run(fx);
     assert.strictEqual(applied.exitCode, 0, applied.lines.join('\n'));
-    assert.strictEqual(applied.asks.length, 1);
     assert.deepStrictEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { env: { A: '1' }, hooks: {} });
   });
 

@@ -1,14 +1,13 @@
 'use strict';
 
-// `project upgrade`: brings every project in the registry up to the installed framework, in one process and with one
-// confirmation. Everything that can refuse runs before the first write; a project then gets its config migrated, its
+// `project upgrade`: brings every project in the registry up to the installed framework, in one process.
+// Everything that can refuse runs before the first write; a project then gets its config migrated, its
 // preset files synced (the engine merges settings.json hooks), superseded hooks removed from settings.local.json and
 // one commit that holds only the paths the upgrade touched. A second run changes nothing.
 
 const fs = require('fs');
 const path = require('path');
 const { planDeploy, runCli: runDeploy, CONFIG, MANIFEST, BASE_DIR, SETTINGS } = require('./project-deploy.js');
-const { confirmationText, readTtyLine } = require('./project-deploy-confirm.js');
 const { withSyncDefaults } = require('./project-registry.js');
 const { registryDirFor, readRegistry } = require('./project-registry-store.js');
 const { presetGateScripts } = require('./profile-doctor-checks.js');
@@ -153,7 +152,7 @@ function applyProject({ name, root }, planned, ctx) {
   try {
     if (planned.configText !== null) writeAtomic(configFile, planned.configText);
     const engine = planned.engineRuns
-      ? runDeploy(root, ['sync', '--root', root], { confirm: () => 'APPLY', presetsRoot: ctx.presetsRoot })
+      ? runDeploy(root, ['sync', '--root', root], { presetsRoot: ctx.presetsRoot })
       : { exitCode: 0 };
     if (engine.exitCode !== 0) {
       restore();
@@ -207,20 +206,10 @@ const doctorLines = (c) => [
 ];
 
 function upgradeAll(opts = {}) {
-  const ask = opts.confirm ?? readTtyLine;
   const doctor = opts.doctor;
   const pre = planOnly(opts);
   if (pre.refusal) return refusal(pre.refusal);
   const { read, planned, ctx } = pre;
-  const asked = planned.filter((p) => p.plan.report.guarded_changes.length > 0 || p.localText !== null);
-  if (asked.length > 0) {
-    const text = asked.map((p) => [
-      `project ${p.project.name} (${p.project.root})`,
-      ...(p.plan.report.guarded_changes.length > 0 ? [confirmationText({ report: p.plan.report, presetPath: p.plan.presetPath, shown: p.plan.shown })] : []),
-      ...(p.localText !== null ? [`remove the superseded hook (${SUPERSEDED_HOOKS.join(', ')}) from ${LOCAL_SETTINGS}`] : []),
-    ].join('\n')).join('\n\n');
-    if (ask(text) !== 'APPLY') return refusal(['refused: confirmation declined; nothing written']);
-  }
   const results = planned.map((p) => ({ project: p.project, ...applyProject(p.project, p, ctx) }));
   const commits = results.filter((r) => r.commit?.committed).map((r) => ({ name: r.project.name, root: r.project.root, sha: r.commit.sha }));
   const newSha = readRuns(read.dir).at(-1)?.fork_sha !== ctx.forkSha;
@@ -236,7 +225,7 @@ function upgradeAll(opts = {}) {
   return { exitCode: ok ? 0 : 1, lines, commits };
 }
 
-// Zero flags: any argument is a usage error. Registry iteration happens here, so the one confirmation covers every project.
+// Zero flags: any argument is a usage error. Registry iteration happens here.
 function runCli(args, opts = {}) {
   if (args.length > 0) return refusal(['Usage: project upgrade (takes no arguments; it upgrades every project in ~/.gsd/projects.json)']);
   return upgradeAll(opts);

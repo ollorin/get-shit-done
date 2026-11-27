@@ -79,7 +79,7 @@ describe('M3 redaction of report settings', () => {
   test('R3 an existing allow rule holding a token, removed by sync, is redacted in report.settings.removed', () => {
     const root = makeProject();
     const dir = makePreset(FRAGMENT(['Bash(ls:*)']));
-    assert.strictEqual(runCli(root, ['init', '--preset-dir', dir], { confirm: () => 'APPLY' }).exitCode, 0);
+    assert.strictEqual(runCli(root, ['init', '--preset-dir', dir]).exitCode, 0);
     const settings = readJson(root, SETTINGS);
     settings.permissions.allow.push(`Bash(curl -H ${TOKEN})`);
     writeJson(root, SETTINGS, settings);

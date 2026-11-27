@@ -12,7 +12,6 @@ const { renderPreset } = require('./project-deploy-render.js');
 const { sha256, planBlockFile } = require('./project-deploy-files.js');
 const { mergeSettings, serializeSettings } = require('./project-deploy-settings.js');
 
-const APPLY_IO = Object.freeze({ confirm: () => 'APPLY' });
 const DEFAULT_CONFIG = { project: { slug: 'demo' }, stack: { paths: { backend: 'srv' }, capabilities: {} } };
 const RULE = '# Style\n\nBackend lives in {{stack.paths.backend}}.\nline three\nline four\nline five\n';
 const HOOK = '// guard\nprocess.exit(0);\n';
@@ -410,7 +409,7 @@ describe('project init|diff|sync (agnostic-B)', () => {
     hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'node .claude/hooks/guard.js' }] }] },
   };
 
-  const run = (root, presetDir, cmd) => runCli(root, [cmd, '--preset-dir', presetDir], APPLY_IO);
+  const run = (root, presetDir, cmd) => runCli(root, [cmd, '--preset-dir', presetDir]);
   const cli = (args, env) => spawnSync(process.execPath, [GSD_TOOLS, 'project', ...args], { encoding: 'utf8', env: { ...env, GSD_HOME: mkTmp('gsd-home-') } });
   const abs = (root, rel) => path.join(root, rel);
   const readSettings = (root) => JSON.parse(fs.readFileSync(abs(root, SETTINGS), 'utf8'));
@@ -625,20 +624,13 @@ describe('project init|diff|sync (agnostic-B)', () => {
     return { root, dir };
   };
 
-  test('A19 a dropped file that was deployed guarded stays guarded: the delete is shown for confirmation', () => {
+  test('A19 a dropped file that was deployed guarded stays guarded: the delete is reported as a guarded change', () => {
     const { root, dir } = deployedGate();
     assert.deepStrictEqual(plan(root, 'sync', dir).report.guarded_changes, [GATE_REL]);
     assert.strictEqual(fs.existsSync(abs(root, GATE_REL)), true);
 
-    const asked = [];
-    const owner = runCli(root, ['sync', '--preset-dir', dir], {
-      confirm: (text) => {
-        asked.push(text);
-        return 'APPLY';
-      },
-    });
+    const owner = runCli(root, ['sync', '--preset-dir', dir]);
     assert.strictEqual(owner.exitCode, 0);
-    assert.ok(asked[0].includes(`"${GATE_REL}" action="delete"`));
     assert.strictEqual(fs.existsSync(abs(root, GATE_REL)), false);
   });
 

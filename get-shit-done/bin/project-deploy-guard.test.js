@@ -11,7 +11,6 @@ const { guardedSet, hookCommandsOf, triplesCommands, globMatch, GLOB_MAX } = req
 const { loadPreset } = require('./project-deploy-render.js');
 const { sha256 } = require('./project-deploy-files.js');
 
-const APPLY_IO = Object.freeze({ confirm: () => 'APPLY' });
 const HOOKS_DIR = ['.claude', 'hooks'].join('/');
 const HOOK_DEST = `${HOOKS_DIR}/guard.js`;
 const GATE_CMD = '$CLAUDE_PROJECT_DIR/scripts/gate.sh';
@@ -146,7 +145,7 @@ describe('H2 through planDeploy and runCli', () => {
   test('H2-k an init with --preset-dir writes the guarded hook', () => {
     const root = project();
     const dir = presetWith([{ src: 'guard.js', dest: HOOK_DEST, kind: 'whole', content: 'x\n' }]);
-    const res = runCli(root, ['init', '--preset-dir', dir], APPLY_IO);
+    const res = runCli(root, ['init', '--preset-dir', dir]);
     assert.strictEqual(res.exitCode, 0);
     assert.ok(fs.existsSync(path.join(root, HOOK_DEST)));
   });
@@ -157,7 +156,7 @@ describe('H2 through planDeploy and runCli', () => {
     const prior = process.env.CLAUDECODE;
     process.env.CLAUDECODE = '1';
     try {
-      const res = runCli(root, ['init', '--preset-dir', dir], APPLY_IO);
+      const res = runCli(root, ['init', '--preset-dir', dir]);
       assert.strictEqual(res.exitCode, 0);
       assert.ok(fs.existsSync(path.join(root, HOOK_DEST)));
     } finally {
@@ -227,7 +226,7 @@ describe('--preset-dir', () => {
   test('a --preset-dir run with no guarded path writes', () => {
     const root = project();
     const dir = presetWith([{ src: 'a.md', dest: 'docs/a.md', kind: 'whole', content: 'x\n' }]);
-    const res = runCli(root, ['init', '--preset-dir', dir], APPLY_IO);
+    const res = runCli(root, ['init', '--preset-dir', dir]);
     assert.strictEqual(res.exitCode, 0);
     assert.ok(fs.existsSync(path.join(root, 'docs/a.md')));
   });

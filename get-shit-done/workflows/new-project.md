@@ -544,7 +544,7 @@ Ask in this order. Skip any question that detection already answers. Brownfield:
 2. Run the profile check and stop on failure, showing the keys it names: `node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" profile check`
 3. Deploy: `node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" project init --preset <name>`. It allocates `port_base`, sets the container id to the slug and fills the defaults (`stack.branch.default`, `stack.commands.search`, `stack.commands.pre_pr_gate`). Show its `files` report:
    - a `conflict` row means an existing project file was kept; say so.
-   - an existing `.claude/settings.json` is merged by the deploy; a `confirmation declined` result means nothing was written: say so and stop.
+   - an existing `.claude/settings.json` is merged by the deploy.
    - `project init` exiting 1 with `already initialised: run project sync` means an earlier run already deployed (the context gate re-ran this section because STACK-PROFILE.md is missing). Run `project sync --preset <name>` instead and continue to step 4. A sync exit code 2 is a kept conflict: continue, and report it.
 4. Write `.planning/STACK-PROFILE.md` from `@~/.claude/get-shit-done/templates/stack-profile.md`. It is written last, after the profile check passed and `init` (or `sync`) ran.5. If a UI QA pack was chosen, run `gsd-tools pack install <name>` and show the owner its `manual_settings`.
 6. Review the deployment with `project diff --preset <name>` and report its exit code. There is no `diff` before the deploy: it exits 1 on the defaulted keys of step 3 until `init` has written them.

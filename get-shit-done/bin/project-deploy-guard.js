@@ -5,9 +5,9 @@
 // hooks that are read, so a script named in another spelling is still caught.
 // Limits, left unguarded on purpose: a path assembled at run time (`NAME=gate; bash ./$NAME.sh`,
 // `node -e` with split strings) is not visible statically, and an option carrying a path
-// (`--config=scripts/`) is not a path token. The boundary there is human confirmation (identity
-// guard, typed APPLY) and the PreToolUse deny Phase H recommends.
-// The guarded set decides which changes need the typed APPLY confirmation.
+// (`--config=scripts/`) is not a path token. The boundary there is the identity guard
+// and the PreToolUse deny Phase H recommends.
+// The guarded set is reported as guarded_changes and recorded in the manifest.
 
 const { fsFold, isPlainObject } = require('./project-deploy-fs.js');
 

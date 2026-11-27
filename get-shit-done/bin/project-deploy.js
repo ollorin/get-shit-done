@@ -8,7 +8,6 @@ const { hookCommandsOf, triplesCommands, guardedSet } = require('./project-deplo
 const { sha256, planWholeFile, planBlockFile } = require('./project-deploy-files.js');
 const { scanText } = require('./project-deploy-scan.js');
 const { settingsReport } = require('./project-deploy-redact.js');
-const { shownFiles, confirmed } = require('./project-deploy-confirm.js');
 const { mergeSettings, serializeSettings } = require('./project-deploy-settings.js');
 const { applyPlan, applyFailure } = require('./project-deploy-apply.js');
 const { isPlainObject, exists, contained, isDirectory, readRegular, readJsonObject } = require('./project-deploy-fs.js');
@@ -148,7 +147,6 @@ function planFiles(root, rendered, orphanDests, prevFiles, adopting) {
     writes: results.filter((r) => r.write).map((r) => r.write),
     bases: results.filter((r) => r.base).map((r) => r.base),
     deletes: orphans.flatMap((o) => o.deletes ?? []),
-    olds: new Map([...results.map((r) => [r.dest, r.old ?? null]), ...orphans.map((o) => [o.dest, o.old ?? null])]),
     manifestFiles: sortKeys(manifestFiles),
   };
 }
@@ -302,9 +300,6 @@ function planDeploy(opts) {
   });
   if (errors.length > 0) return { report: { ...report, ok: false }, ops: EMPTY_OPS };
 
-  const createOnly = planned.files.filter((f) => guarded.includes(f.path)).every((f) => f.action === 'create');
-  const exempt = command === 'init' && !exists(path.join(root, SETTINGS)) && createOnly;
-
   const manifestOut = {
     manifest_version: 1,
     preset: { name: rendered.name, version: rendered.version },
@@ -320,17 +315,6 @@ function planDeploy(opts) {
       settingsText: settingsWrites ? settingsPlan.text : null,
       manifest: manifestOut,
     },
-    exempt,
-    presetPath: fs.realpathSync.native(dir),
-    shown: shownFiles({
-      writes: planned.writes,
-      files: planned.files,
-      deletes: planned.files.filter((f) => f.action === 'delete').map((f) => f.path),
-      olds: planned.olds,
-      guarded,
-      settingsPlan: settingsWrites ? settingsPlan : null,
-      settingsPath: SETTINGS,
-    }),
   };
 }
 
@@ -371,12 +355,6 @@ function runCli(cwd, args, io = {}) {
   if (command === 'diff') {
     if (report.not_initialised) return { exitCode: 0, result: { ...report, written: [] } };
     return { exitCode: report.changes > 0 || report.conflicts > 0 ? 2 : 0, result: { ...report, written: [] } };
-  }
-  if (!confirmed(plan, io.confirm)) {
-    return {
-      exitCode: 1,
-      result: { ...report, ok: false, refused: { reason: 'confirmation declined', paths: report.guarded_changes }, written: [] },
-    };
   }
   const applied = applyPlan(root, plan, command);
   if (!applied.ok) return { exitCode: 1, result: applyFailure(report, applied) };

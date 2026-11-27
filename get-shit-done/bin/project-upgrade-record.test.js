@@ -38,7 +38,7 @@ function fixture(extraStack = {}) {
   const root = mkTmp('gsd-rec-proj-');
   git(root, 'init', '-q');
   writeAt(root, '.planning/config.json', JSON.stringify({ project: { slug: 'alpha' }, stack: { preset: 'demo', capabilities: {}, locked_commands: ['x'], ...extraStack } }, null, 2));
-  const init = runDeploy(root, ['init', '--root', root], { confirm: () => 'APPLY', presetsRoot });
+  const init = runDeploy(root, ['init', '--root', root], { presetsRoot });
   assert.strictEqual(init.exitCode, 0, JSON.stringify(init.result));
   git(root, 'add', '-A');
   git(root, 'commit', '-q', '-m', 'init');
@@ -47,7 +47,7 @@ function fixture(extraStack = {}) {
   return { home, root, presetsRoot, env };
 }
 
-const upgrade = (fx, forkSha) => upgradeAll({ env: fx.env, presetsRoot: fx.presetsRoot, forkSha, confirm: () => 'APPLY' });
+const upgrade = (fx, forkSha) => upgradeAll({ env: fx.env, presetsRoot: fx.presetsRoot, forkSha });
 
 test('the upgrade records the migrations it applied in manifest.migrations[] and the fork sha with the projects it ran over; a rerun at the same sha writes nothing', () => {
   const fx = fixture();

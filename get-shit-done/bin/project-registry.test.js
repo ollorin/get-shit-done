@@ -365,12 +365,12 @@ describe('init rollback (M-02 round 1: M2)', () => {
   const initArgs = (root) => ['init', '--root', root, '--preset', 'igaming'];
   const engineStub = (exitCode, result) => () => ({ exitCode, result });
 
-  test('M2 a declined confirmation restores the config bytes and leaves the registry unchanged', () => {
+  test('M2 a refused engine run restores the config bytes and leaves the registry unchanged', () => {
     const home = TOOLS_HOME();
     const root = makeProject({ project: { slug: 'demo' }, stack: { capabilities: {} } });
     const before = configBytes(root);
     const r = initWithRegistration(root, initArgs(root), { GSD_HOME: home },
-      engineStub(1, { ok: false, refused: { reason: 'confirmation declined' }, written: [] }));
+      engineStub(1, { ok: false, refused: { reason: 'conflict' }, written: [] }));
     assert.strictEqual(r.exitCode, 1);
     assert.strictEqual(configBytes(root), before);
     assert.strictEqual(fs.existsSync(path.join(home, 'projects.json')), false);
@@ -389,21 +389,12 @@ describe('init rollback (M-02 round 1: M2)', () => {
     assert.strictEqual(fs.readFileSync(path.join(home, 'projects.json'), 'utf8'), registryBefore);
   });
 
-  test('M2 an exit 0 that wrote nothing is rolled back; a guarded CLI refusal is rolled back too', () => {
+  test('M2 an exit 0 that wrote nothing is rolled back', () => {
     const home = TOOLS_HOME();
     const root = makeProject({ project: { slug: 'demo' }, stack: { capabilities: {} } });
     const before = configBytes(root);
     initWithRegistration(root, initArgs(root), { GSD_HOME: home }, engineStub(0, { ok: true, written: [] }));
     assert.strictEqual(configBytes(root), before);
-    assert.strictEqual(fs.existsSync(path.join(home, 'projects.json')), false);
-
-    const existing = makeProject({ project: { slug: 'kept-out' }, stack: { capabilities: {} } });
-    fs.mkdirSync(path.join(existing, '.claude'));
-    fs.writeFileSync(path.join(existing, '.claude', 'settings.json'), '{}\n');
-    const existingBefore = configBytes(existing);
-    const r = runProject(initArgs(existing), home);
-    assert.strictEqual(r.status, 1);
-    assert.strictEqual(configBytes(existing), existingBefore);
     assert.strictEqual(fs.existsSync(path.join(home, 'projects.json')), false);
   });
 
