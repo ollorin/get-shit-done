@@ -116,7 +116,9 @@ function gatesCheck(key, v) {
   if (!Array.isArray(v)) return [problem(key, 'must be an array of {id, run}')];
   const shape = v.flatMap((g, i) => (isObject(g) && isNonEmptyString(g.id) && isNonEmptyString(g.run)
     ? []
-    : [problem(key, `entry ${i} needs non-empty id and run`)]));
+    : [problem(key, `entry ${i} needs non-empty id and run`)])).concat(v.flatMap((g, i) => (isObject(g) && g.needs_stack !== undefined && typeof g.needs_stack !== 'boolean'
+    ? [problem(key, `entry ${i} needs_stack must be a boolean`)]
+    : [])));
   return shape.length ? shape : uniqueCheck(key, v.map((g) => g.id), 'gate id');
 }
 

@@ -13,7 +13,11 @@ const GATE_PREFIX = 'stack.gates.';
 
 const entry = (fields) => Object.freeze(fields);
 const lockedOnly = (stack) => Array.isArray(stack.locked_commands) && stack.locked_commands.length > 0;
-const gate = (id, run, why, requires) => entry({ default: Object.freeze({ id, run }), severity: 'error', scope: ALL, why, requires });
+// needs_stack:false is set only where the gate's script was read and uses no database, container or local service; an unmarked
+// gate counts as needing the stack (scripts/no-stack-gates.mjs skips it).
+const gate = (id, run, why, requires, stackFree = false) => entry({
+  default: Object.freeze({ id, run, ...(stackFree ? { needs_stack: false } : {}) }), severity: 'error', scope: ALL, why, requires,
+});
 
 const STACK_DEFAULTS = Object.freeze({
   'stack.affected.specs': entry({ default: null, severity: 'info', scope: RUNNER, why: 'selector config of scripts/affected-specs.mjs: file_pattern, always_run, fallback, map' }),
@@ -38,15 +42,15 @@ const STACK_DEFAULTS = Object.freeze({
   'stack.paths.backend': entry({ default: null, severity: 'error', scope: RUNNER, requires: 'backend', why: 'backend source root; scopes the edge-source freeze' }),
   'stack.paths.migrations': entry({ default: null, severity: 'error', scope: RUNNER, requires: 'backend', why: 'migrations directory; scopes the edge-source freeze' }),
   'stack.paths.frontends': entry({ default: null, severity: 'error', scope: RUNNER, requires: 'web_ui', why: 'frontend roots; scope the UI rules' }),
-  'stack.gates.hook-canaries': gate('hook-canaries', 'scripts/validation/hook-canaries/run-canaries.sh', 'hook canaries: the hook guards still refuse their canary input'),
-  'stack.gates.hook-patch-trailer': gate('hook-patch-trailer', 'scripts/validation/hook-patch-trailer-check.sh', 'checks the trailer on hook patches'),
+  'stack.gates.hook-canaries': gate('hook-canaries', 'scripts/validation/hook-canaries/run-canaries.sh', 'hook canaries: the hook guards still refuse their canary input', undefined, true),
+  'stack.gates.hook-patch-trailer': gate('hook-patch-trailer', 'scripts/validation/hook-patch-trailer-check.sh', 'checks the trailer on hook patches', undefined, true),
   'stack.gates.guard-canaries': gate('guard-canaries', 'node scripts/validation/canary-gate.mjs', 'guard canaries: each guard still refuses its canary input'),
-  'stack.gates.guard-registry': gate('guard-registry', 'node scripts/validation/guard-registry-reconcile.mjs', 'the guard registry matches the guards on disk'),
-  'stack.gates.style': gate('style', 'node scripts/style-gate.mjs', 'style gate: rule set and module size limits'),
-  'stack.gates.flake-patterns': gate('flake-patterns', 'node .claude/hooks/lib/flake-gate.mjs --all', 'flake pattern scan over the test globs'),
-  'stack.gates.dependency-scan': gate('dependency-scan', 'node scripts/dependency-scan-gate.mjs', 'dependency scan over the lockfiles'),
-  'stack.gates.adr': gate('adr', 'node scripts/validation/adr-reconcile.mjs', 'decisions and their records agree'),
-  'stack.gates.assertion-quality': gate('assertion-quality', 'node scripts/validation/check-assertion-quality.mjs', 'assertion quality of the UI scenarios', 'web_ui'),
+  'stack.gates.guard-registry': gate('guard-registry', 'node scripts/validation/guard-registry-reconcile.mjs', 'the guard registry matches the guards on disk', undefined, true),
+  'stack.gates.style': gate('style', 'node scripts/style-gate.mjs', 'style gate: rule set and module size limits', undefined, true),
+  'stack.gates.flake-patterns': gate('flake-patterns', 'node .claude/hooks/lib/flake-gate.mjs --all', 'flake pattern scan over the test globs', undefined, true),
+  'stack.gates.dependency-scan': gate('dependency-scan', 'node scripts/dependency-scan-gate.mjs', 'dependency scan over the lockfiles', undefined, true),
+  'stack.gates.adr': gate('adr', 'node scripts/validation/adr-reconcile.mjs', 'decisions and their records agree', undefined, true),
+  'stack.gates.assertion-quality': gate('assertion-quality', 'node scripts/validation/check-assertion-quality.mjs', 'assertion quality of the UI scenarios', 'web_ui', true),
 });
 
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);

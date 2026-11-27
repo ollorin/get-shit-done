@@ -28,6 +28,13 @@ describe('profile-defaults table', () => {
     }
   });
 
+  test('default gates declare needs_stack:false only where the script was read and uses no stack; guard-canaries stays unmarked', () => {
+    const byId = Object.fromEntries(gateDefaults({ web_ui: {} }).map((g) => [g.id, g]));
+    const free = Object.keys(byId).filter((id) => byId[id].needs_stack === false);
+    assert.deepStrictEqual(free.sort(), ['adr', 'assertion-quality', 'dependency-scan', 'flake-patterns', 'guard-registry', 'hook-canaries', 'hook-patch-trailer', 'style']);
+    assert.strictEqual('needs_stack' in byId['guard-canaries'], false);
+  });
+
   test('the nine default gates appear once in registry order; assertion-quality needs web_ui', () => {
     assert.deepStrictEqual(gateDefaults({ web_ui: {} }).map((g) => g.id), GATE_IDS);
     assert.deepStrictEqual(gateDefaults({ web_ui: false }).map((g) => g.id), GATE_IDS.slice(0, 8));
