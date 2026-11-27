@@ -68,7 +68,7 @@ async function main() {
     process.exit(1);
   }
 
-  // Everything the project upgrade of step 7 can refuse on (guard, unregistered projects, live phases, dirty files,
+  // Everything the project upgrade of step 7 can refuse on (dirty files,
   // conflicts, corrupt settings, detached HEAD) is checked now, before ~/.claude changes.
   const pre = require('../get-shit-done/bin/project-upgrade.js').planOnly();
   if (pre.refusal) {

@@ -421,7 +421,7 @@ function recordIdSince({ homeDir = os.homedir(), sinceMs }) {
 }
 
 // The framework rollback, then `git revert` of the project commits the rolled-back record's upgrade made. Every project
-// is checked as the upgrade was (no live phase, clean tree, branch holds the commit); a refusal leaves
+// needs a clean tree and a branch that holds the commit; a refusal leaves
 // the exact command in `reverted.lines`.
 function rollbackAll({ homeDir = os.homedir(), env = process.env, runNpm = reinstallDeps }) {
   const result = rollbackNewest({ homeDir, runNpm });

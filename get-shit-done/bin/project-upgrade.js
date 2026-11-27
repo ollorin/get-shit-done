@@ -13,10 +13,8 @@ const { withSyncDefaults } = require('./project-registry.js');
 const { registryDirFor, readRegistry } = require('./project-registry-store.js');
 const { presetGateScripts } = require('./profile-doctor-checks.js');
 const { migrateConfig, neededMigrationIds } = require('./profile-migrations.js');
-const { liveReasons } = require('./project-quiesce.js');
 const { dirtyLines, commitPaths, untrackedUnder, isRepo, onBranch, forkSha } = require('./project-upgrade-git.js');
 const { appendRun, readRuns, RECORD_ID_RE } = require('./project-upgrade-log.js');
-const { unregisteredRoots, claudeProjectNames } = require('./project-discovery.js');
 const { parseJsonc } = require('./jsonc.js');
 
 const COMMIT_MESSAGE = 'chore(gsd): upgrade framework files';
@@ -187,7 +185,7 @@ const frameworkRecordOf = (env, opts) => {
   return typeof id === 'string' && RECORD_ID_RE.test(id) ? id : null;
 };
 
-// Everything up to, and excluding, the first write: the projects Claude Code knows, live phases and every
+// Everything up to, and excluding, the first write: every
 // project's plan. The installer runs it before it copies anything. { refusal: lines } or { read, planned, ctx }.
 function planOnly(opts = {}) {
   const env = opts.env ?? process.env;
@@ -195,12 +193,6 @@ function planOnly(opts = {}) {
   const ctx = { env, presetsRoot: opts.presetsRoot, forkSha: sha, message: `${COMMIT_MESSAGE}\n\nGSD-Upgrade: ${sha}\n` };
   const read = readProjects(env);
   if (read.error) return { refusal: [`refused: ${read.error}`] };
-  const unknown = unregisteredRoots({ names: opts.claudeNames ?? claudeProjectNames(env), registered: read.projects.map((p) => p.root) });
-  if (unknown.length > 0) {
-    return { refusal: ['refused: Claude Code knows GSD projects that are not registered, so a phase live in one cannot be seen', ...unknown.map((r) => `  ${r}: run \`gsd-tools project adopt\` in that project first`)] };
-  }
-  const live = read.projects.map((p) => ({ name: p.name, reasons: liveReasons(p.root, opts) })).filter((p) => p.reasons.length > 0);
-  if (live.length > 0) return { refusal: ['refused: a phase is live; rerun when it is done', ...live.map((p) => `  ${p.name}: ${p.reasons.join('; ')}`)] };
   const planned = read.projects.map((p) => ({ project: p, ...planProject(p, ctx) }));
   const problems = planned.flatMap((p) => p.problems);
   if (problems.length > 0) return { refusal: ['refused before any write:', ...problems.map((p) => `  ${p}`)] };
