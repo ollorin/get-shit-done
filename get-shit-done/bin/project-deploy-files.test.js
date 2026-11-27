@@ -226,7 +226,7 @@ describe('block-managed files (agnostic-B4)', () => {
     const next = L(M('core')[0], ...para('Run all tests.'), M('core')[1]);
     const expected = L(M('core')[0], ...para('Run all tests.'), '', '## Semantic grep', 'Run zg query first.', M('core')[1]);
     const r = F.planBlockFile({ current, next, base, mergeFn: mergeWith(mkTmp()) });
-    assert.strictEqual(r.action, 'update');
+    assert.strictEqual(r.action, 'merge');
     assert.strictEqual(r.content, expected);
   });
 
@@ -281,7 +281,7 @@ describe('block-managed files (agnostic-B4)', () => {
       mergeFn: mergeWith(mkTmp()),
     });
     assert.strictEqual(overlap.action, 'conflict');
-    assert.deepStrictEqual(overlap.conflicts, [{ id: 'a', line: 2, reason: 'merge conflict' }]);
+    assert.deepStrictEqual(overlap.conflicts, [{ id: 'a', line: 4, reason: 'merge conflict' }]);
     assert.strictEqual('content' in overlap, false);
 
     const kept = F.planBlockFile({
@@ -290,8 +290,18 @@ describe('block-managed files (agnostic-B4)', () => {
       base,
       mergeFn: mergeWith(mkTmp()),
     });
-    assert.strictEqual(kept.action, 'update');
+    assert.strictEqual(kept.action, 'merge');
     assert.strictEqual(kept.content, L(M('a')[0], 'line1', 'preset-2', 'line3', 'added by project', M('a')[1]));
+  });
+
+  test('B4-15 a conflict deep in a 209-line block reports the project-file line that conflicts', () => {
+    const rows = (edit) => Array.from({ length: 209 }, (_, i) => (i === 150 ? edit : `row ${i}`));
+    const base = L(M('a')[0], ...rows('base-150'), M('a')[1]);
+    const next = L(M('a')[0], ...rows('preset-150'), M('a')[1]);
+    const current = L('head', M('a')[0], ...rows('hand-150'), M('a')[1]);
+    const r = F.planBlockFile({ current, next, base, mergeFn: mergeWith(mkTmp()) });
+    assert.strictEqual(r.action, 'conflict');
+    assert.deepStrictEqual(r.conflicts, [{ id: 'a', line: 153, reason: 'merge conflict' }]);
   });
 
   test('B4-14 a differing block without a merge base is a conflict; an identical block is unchanged', () => {

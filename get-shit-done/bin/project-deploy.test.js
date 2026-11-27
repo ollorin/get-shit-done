@@ -89,7 +89,7 @@ function seedDeployed(root, presetDir) {
   for (const f of rendered.files) {
     writeAt(root, f.dest, f.content, f.mode);
     writeAt(root, `${BASE_DIR}/${f.dest}`, f.content);
-    const entry = { kind: f.kind, sha256: sha256(f.content) };
+    const entry = { kind: f.kind, sha256: sha256(f.content), guarded: f.guarded === true };
     if (f.kind === 'block') entry.blocks = planBlockFile({ current: null, next: f.content.toString('utf8') }).blocks;
     files[f.dest] = entry;
   }
@@ -507,9 +507,9 @@ describe('project init|diff|sync (agnostic-B)', () => {
       manifest_version: 1,
       preset: { name: 'demo', version: '1' },
       files: {
-        [HOOK_DEST]: { kind: 'whole', sha256: sha256(Buffer.from(HOOK)) },
-        [STYLE_REL]: { kind: 'whole', sha256: sha256(Buffer.from(STYLE)) },
-        'CLAUDE.md': { kind: 'block', sha256: sha256(Buffer.from(CLAUDE_RENDERED)), blocks: { core: sha256(Buffer.from('Run tests in srv.')) } },
+        [HOOK_DEST]: { kind: 'whole', sha256: sha256(Buffer.from(HOOK)), guarded: false },
+        [STYLE_REL]: { kind: 'whole', sha256: sha256(Buffer.from(STYLE)), guarded: false },
+        'CLAUDE.md': { kind: 'block', sha256: sha256(Buffer.from(CLAUDE_RENDERED)), guarded: false, blocks: { core: sha256(Buffer.from('Run tests in srv.')) } },
       },
       settings: {
         permissions: { allow: ['Bash(ls:*)', 'Read(srv/**)'], deny: ['Read(./private/**)'], ask: [] },
@@ -660,7 +660,7 @@ describe('project init|diff|sync (agnostic-B)', () => {
     const r = run(root, dir, 'sync');
     assert.strictEqual(r.exitCode, 1);
     assert.deepStrictEqual(r.result.written, []);
-    assert.deepStrictEqual(r.result.errors, [{ file: 'CLAUDE.md', line: 4, reason: 'block core: merge conflict' }]);
+    assert.deepStrictEqual(r.result.errors, [{ file: 'CLAUDE.md', line: 5, reason: 'block core: merge conflict' }]);
     assert.deepStrictEqual(snapshot(root), before);
   });
 
@@ -683,7 +683,47 @@ describe('project init|diff|sync (agnostic-B)', () => {
     assert.deepStrictEqual(snapshot(root), before);
   });
 
-  const TOKEN = `ghp_${'a'.repeat(36)}`;
+  const GATE_REL = 'scripts/gate.sh';
+  const GATE_FILE = { src: 'gate/gate.sh', dest: GATE_REL, kind: 'whole', guarded: true };
+  const deployedGate = () => {
+    const root = makeProject();
+    const dir = makePreset();
+    writeAt(dir, 'gate/gate.sh', 'exit 0\n');
+    writePreset(dir, { files: [...DEFAULT_FILES, GATE_FILE] });
+    assert.strictEqual(run(root, dir, 'init').exitCode, 0);
+    writePreset(dir, { files: DEFAULT_FILES });
+    return { root, dir };
+  };
+
+  test('A19 a dropped file that was deployed guarded stays guarded: agent sync is refused, owner sees the delete', () => {
+    const { root, dir } = deployedGate();
+    const agent = plan(root, 'sync', dir, { env: { CLAUDECODE: '1' } });
+    assert.strictEqual(agent.report.ok, false);
+    assert.deepStrictEqual(agent.report.refused.paths, [GATE_REL]);
+    assert.strictEqual(fs.existsSync(abs(root, GATE_REL)), true);
+
+    const asked = [];
+    const owner = runCli(root, ['sync', '--preset-dir', dir], {}, HUMAN, {
+      confirm: (text) => {
+        asked.push(text);
+        return 'APPLY';
+      },
+    });
+    assert.strictEqual(owner.exitCode, 0);
+    assert.ok(asked[0].includes(`"${GATE_REL}" action="delete"`));
+    assert.strictEqual(fs.existsSync(abs(root, GATE_REL)), false);
+  });
+
+  test('A19b a dropped file whose manifest entry predates the guarded field is treated as guarded', () => {
+    const { root, dir } = deployedGate();
+    const manifest = readManifest(root);
+    delete manifest.files[GATE_REL].guarded;
+    writeAt(root, MANIFEST, JSON.stringify(manifest, null, 2) + '\n');
+    const agent = plan(root, 'sync', dir, { env: { CLAUDECODE: '1' } });
+    assert.deepStrictEqual(agent.report.refused.paths, [GATE_REL]);
+  });
+
+  const TOKEN =`ghp_${'a'.repeat(36)}`;
   const CAUSES = [
     { name: 'secret-shaped string in a preset file', prep: (root, dir) => writePreset(dir, { rule: `${RULE_V2}token ${TOKEN}\n` }) },
     {

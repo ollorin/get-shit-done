@@ -77,7 +77,7 @@ function planFile(root, f, prev) {
   const modeDiffers = byteEqual && (fs.statSync(path.join(root, f.dest)).mode & 0o777) !== f.mode;
   const action = byteEqual ? (modeDiffers ? 'update' : 'adopt') : plan.action;
   const content = byteEqual ? f.content : plan.content;
-  const entry = { kind: f.kind, sha256: sha256(f.content), ...(plan.blocks ? { blocks: plan.blocks } : {}) };
+  const entry = { kind: f.kind, sha256: sha256(f.content), guarded: f.guarded === true, ...(plan.blocks ? { blocks: plan.blocks } : {}) };
   const conflict = action === 'conflict';
   const firstLine = conflict && plan.conflicts && plan.conflicts.length > 0 ? plan.conflicts[0].line : undefined;
   return {
@@ -253,6 +253,8 @@ function planDeploy(opts) {
   if (settingsPlan && settingsPlan.error) errors.push(settingsPlan.error);
 
   const settingsWrites = settingsPlan && !settingsPlan.error && (settingsPlan.action === 'create' || settingsPlan.action === 'update');
+  // A dropped file keeps the guard it was deployed with; a manifest entry without the field counts as guarded.
+  const droppedGuarded = orphanDests.filter((dest) => prevFiles.get(dest)?.guarded !== false);
   const guardedFiles = guardedSet({
     canonDests: resolved.canons.map((c) => ({ ...c, h1: resolved.guarded.has(c.file) })),
     hookCommands: [
@@ -260,7 +262,7 @@ function planDeploy(opts) {
       ...hookCommandsOf(rendered.settings),
       ...triplesCommands(prevSettings && prevSettings.hooks),
     ],
-    presetFlags: new Set(rendered.files.filter((f) => f.guarded).map((f) => f.dest)),
+    presetFlags: new Set([...rendered.files.filter((f) => f.guarded).map((f) => f.dest), ...droppedGuarded]),
   });
   const guarded = [
     ...planned.files.filter((f) => GUARDED_ACTIONS.has(f.action) && guardedFiles.has(f.path)).map((f) => f.path),

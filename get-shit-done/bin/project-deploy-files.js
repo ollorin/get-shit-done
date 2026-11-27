@@ -22,7 +22,7 @@ function gitMergeFile(current, base, next, opts = {}) {
     fs.writeFileSync(nextPath, next);
     const r = spawnSync(gitBin, ['merge-file', '-p', currentPath, basePath, nextPath]);
     if (r.status === 0) return { ok: true, content: r.stdout };
-    if (Number.isInteger(r.status) && r.status >= 1 && r.status <= 127) return { ok: false, reason: 'merge conflict' };
+    if (Number.isInteger(r.status) && r.status >= 1 && r.status <= 127) return { ok: false, reason: 'merge conflict', content: r.stdout };
     return { ok: false, reason: 'git merge-file failed' };
   } catch {
     return { ok: false, reason: 'git merge-file failed' };
@@ -87,13 +87,27 @@ const innerLines = (inner) => (inner === '' ? [] : inner.split('\n'));
 const asText = (inner) => (inner === '' ? '' : `${inner}\n`);
 const fromText = (text) => text.replace(/\n$/, '');
 
+// Inner line where git's first conflict marker sits in the merged output (its lines follow the inner text 1:1 up to there).
+const conflictOffset = (content) => {
+  if (content === undefined) return undefined;
+  const i = content.toString('utf8').split('\n').findIndex((l) => l.startsWith('<<<<<<<'));
+  return i < 0 ? undefined : i;
+};
+
 // base = the block as last deployed (the mirror), ours = the project's block, theirs = the new preset block.
+// `merged` is true only when the project edited the block, so a preset-only change stays an update.
 function mergeBlock({ ours, base, theirs, mergeFn }) {
-  if (ours === theirs) return { ok: true, inner: ours };
+  if (ours === theirs) return { ok: true, inner: ours, merged: false };
   if (base === undefined) return { ok: false, reason: 'merge base missing' };
   const r = mergeFn(asText(ours), asText(base), asText(theirs));
-  return r.ok ? { ok: true, inner: fromText(r.content.toString('utf8')) } : { ok: false, reason: r.reason };
+  if (!r.ok) return { ok: false, reason: r.reason, offset: conflictOffset(r.content) };
+  return { ok: true, inner: fromText(r.content.toString('utf8')), merged: ours !== base };
 }
+
+// The project-file line of the conflict: the begin marker when git gave no position, else the conflicting inner line.
+const conflictLine = (block, result) => (result.offset === undefined
+  ? block.beginLine + 1
+  : block.beginLine + 2 + result.offset);
 
 // `base` is the mirrored preset file text, or null. A block with no base and a differing project edit is a conflict.
 function planBlockFile({ current, next, base = null, mergeFn = gitMergeFile }) {
@@ -118,7 +132,7 @@ function planBlockFile({ current, next, base = null, mergeFn = gitMergeFile }) {
   }));
   const conflicts = merged
     .filter((m) => !m.result.ok)
-    .map((m) => ({ id: m.block.id, line: m.block.beginLine + 1, reason: m.result.reason }));
+    .map((m) => ({ id: m.block.id, line: conflictLine(m.block, m.result), reason: m.result.reason }));
   if (conflicts.length > 0) return { action: 'conflict', reason: 'overlapping edit', conflicts, blocks };
   const mergedInner = new Map(merged.map((m) => [m.block.id, m.result.inner]));
 
@@ -144,7 +158,8 @@ function planBlockFile({ current, next, base = null, mergeFn = gitMergeFile }) {
   }
 
   if (text === current) return { action: 'unchanged', blocks };
-  return { action: 'update', content: text, blocks };
+  const mergedAny = merged.some((m) => m.result.merged === true);
+  return { action: mergedAny ? 'merge' : 'update', content: text, blocks };
 }
 
 function stripMarkerLines(text) {
