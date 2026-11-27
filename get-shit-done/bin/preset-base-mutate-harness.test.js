@@ -141,7 +141,7 @@ describe('F4: the self-test in the CLI', () => {
 });
 
 describe('F5: the baseline must count', () => {
-  test('a green baseline that shows no passed-test count is red when a pass_pattern is configured', async () => {
+  test('a green baseline that shows no passed-test count is red', async () => {
     const { baselineError } = await load('guards.mjs');
     const ran = (output) => async () => ({ outcome: 'survived', output, durationMs: 1 });
     assert.match(await baselineError(ran('passed 0'), 'before', '/r', ['t'], 1, { passPattern: 'passed (\\d+)' }), /ran no tests/);

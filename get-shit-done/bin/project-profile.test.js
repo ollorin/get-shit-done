@@ -16,6 +16,12 @@ const profile = require('./project-profile.js');
 const { writeCompleteHome } = require('./profile-doctor-test-home.js');
 
 const GSD_TOOLS = path.join(__dirname, 'gsd-tools.js');
+const MUTATION = {
+  runners: [{
+    id: 'node', test_cmd: 'node {file} -t {name}', build_error_pattern: 'SyntaxError|Cannot find module', pass_pattern: 'passed (\\d+)',
+    selftest: { dir: 'src', ext: '.check.js', pass: 'p', kill: 'k', build: 'b' },
+  }],
+};
 const tmpDirs = [];
 
 function mkTmp() {
@@ -563,7 +569,7 @@ describe('agnostic-M-03 3.1: shape checks for the base preset keys', () => {
     style: { rule_set: 'generic', roots: ['.'], exclude_globs: ['vendor/**'], edge_globs: ['bin/**'], max_file_lines: 300, dup_min_lines: 8 },
     cve: { lockfiles: ['package-lock.json'], severity_floor: 'high', allow_missing_scanner: false },
     host: { worker_patterns: ['vitest'], protected_patterns: ['postgres'] },
-    mutation: { build_error_pattern: 'SyntaxError|Cannot find module' },
+    mutation: MUTATION,
     capabilities: { backend: {}, web_ui: false, ui_qa: { driver: 'charlotte', agent: 'qa-agent', lock_file: '.tmp/ui-qa.lock' } },
   };
 
@@ -612,13 +618,12 @@ describe('agnostic-M-03 3.1: shape checks for the base preset keys', () => {
 describe('agnostic-M-09 9.6: stack.mutation', () => {
   const check = (mutation) => profile.validateProfile({ found: true, error: null, project: validProfile().project, stack: { ...validProfile().stack, mutation } });
 
-  test('9.6 stack.mutation.build_error_pattern is accepted as a regular expression string and rejected otherwise; the old key is refused', () => {
-    assert.deepStrictEqual(check({ build_error_pattern: 'SyntaxError' }).invalid, []);
-    assert.deepStrictEqual(check({}).invalid, [], 'the key is optional');
-    for (const bad of [5, true, null, ['SyntaxError'], '', '(']) {
-      assert.ok(check({ build_error_pattern: bad }).invalid.some((p) => p.key === 'stack.mutation.build_error_pattern'), JSON.stringify(bad));
+  test('9.6 stack.mutation needs runners (an empty or absent runners is invalid); the old key is refused', () => {
+    assert.deepStrictEqual(check(MUTATION).invalid, []);
+    for (const bad of [{}, { runners: [] }, { runners: null }]) {
+      assert.ok(check(bad).invalid.some((p) => p.key === 'stack.mutation.runners'), JSON.stringify(bad));
     }
-    assert.ok(check({ error_pattern: 'SyntaxError' }).invalid.some((p) => p.key === 'stack.mutation.error_pattern'));
+    assert.ok(check({ ...MUTATION, error_pattern: 'SyntaxError' }).invalid.some((p) => p.key === 'stack.mutation.error_pattern'));
     assert.ok(check('x').invalid.some((p) => p.key === 'stack.mutation'), 'not an object');
   });
 });
@@ -678,7 +683,7 @@ describe('profile doctor (WP18)', () => {
     locked_commands: ['npm test'],
     test_command_shapes: ['npm test'],
     isolation: { port_base: 55000, lock_dir: '.tmp/stack.lock.d' },
-    mutation: { build_error_pattern: 'Cannot find module' },
+    mutation: MUTATION,
     affected: { specs: { file_pattern: 'x' }, tests: { file_pattern: 'x' } },
     host: { worker_patterns: ['vitest'] },
     paths: { backend: 'src', migrations: 'db/migrations', frontends: ['web'] },
@@ -726,12 +731,10 @@ describe('profile doctor (WP18)', () => {
     assert.match(r.stdout, /^MISSING stack\.commands\.lint -> \(none: needs runner config\) \(error: /m);
   });
 
-  test('a missing build_error_pattern exits 0 and prints one info MISSING line', () => {
-    const stack = completeStack();
-    delete stack.mutation.build_error_pattern;
-    const r = doctorOn(stack);
-    assert.strictEqual(r.status, 0, r.stdout + r.stderr);
-    assert.match(r.stdout, /^MISSING stack\.mutation\.build_error_pattern -> \(none: needs runner config\) \(info: /m);
+  test('a stack.mutation without runners is blocking: the mutation tool would exit 2', () => {
+    const r = doctorOn({ ...completeStack(), mutation: { timeout_s: 300 } });
+    assert.strictEqual(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stdout, /stack\.mutation\.runners/);
   });
 
   test('a missing warn key alone exits 0 and still prints its MISSING line', () => {

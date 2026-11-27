@@ -307,10 +307,10 @@ describe('project upgrade', () => {
     assert.deepStrictEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { env: { A: '1' }, hooks: {} });
   });
 
-  test('migrations: the error_pattern rename is applied once, table defaults fill only absent keys', () => {
+  test('migrations: error_pattern is left for the owner (no rename), table defaults fill only absent keys', () => {
     const config = { stack: { mutation: { error_pattern: 'E' }, commands: { search: 'rg' } } };
     const on = migrateConfig(config);
-    assert.deepStrictEqual(on.stack.mutation, { build_error_pattern: 'E' });
+    assert.deepStrictEqual(on.stack.mutation, { error_pattern: 'E' });
     assert.deepStrictEqual(migrateConfig(on), on);
     assert.strictEqual(on.stack.commands.search, 'rg');
   });

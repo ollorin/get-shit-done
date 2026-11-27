@@ -84,10 +84,6 @@ const CVE_FIELDS = [
   ['allow_missing_scanner', isBoolean, 'a boolean'],
 ];
 
-const MUTATION_FIELDS = [
-  ['build_error_pattern', (v) => isNonEmptyString(v) && isRegex(v), 'a valid regular expression'],
-];
-
 // The engine catalogue of known runners with captured output fixtures (references/mutation-runners.json).
 function loadRunnerCatalogue() {
   try {
@@ -99,7 +95,7 @@ function loadRunnerCatalogue() {
 
 const usablePattern = (p) => isNonEmptyString(p) && isRegex(p);
 
-// F3: a build pattern (the project's or any runner's) must not match the normal kill output of any catalogued engine.
+// F3: a runner's build pattern must not match the normal kill output of any catalogued engine.
 function killFixtureProblems(key, pattern, catalogue) {
   if (!usablePattern(pattern)) return [];
   const re = new RegExp(pattern);
@@ -114,14 +110,15 @@ function buildFixtureProblems(key, id, pattern, fixtures) {
   return new RegExp(pattern).test(fixtures.build_failure) ? [] : [problem(key, `build_error_pattern does not match the build failure output of runner ${id}`)];
 }
 
-// The runner shape has one owner, parseRunners in the mutation tool (classify.mjs). Without require(esm) (Node < 22.12) no problem
-// is reported and the tool itself exits 2.
+// The runner shape has one owner, parseRunners in the mutation tool (classify.mjs). Without require(esm) (Node < 20.19, or 22.0-22.11)
+// the shape cannot be checked: that is a blocking problem, never a pass.
+const NO_REQUIRE_ESM = 'cannot validate: needs Node >= 20.19 or >= 22.12 (require(esm))';
 function runnersShape(key, runners) {
   let parse;
   try {
     ({ parseRunners: parse } = require('../presets/base/scripts/mutate/classify.mjs'));
   } catch {
-    return [];
+    return [problem(key, NO_REQUIRE_ESM)];
   }
   const r = parse(runners);
   return r.ok ? [] : [problem(key, r.error)];
@@ -138,13 +135,11 @@ function runnerFixtureProblems(key, runner, catalogue) {
 
 function mutationExtra(key, v) {
   const renamed = Object.prototype.hasOwnProperty.call(v, 'error_pattern')
-    ? [problem(`${key}.error_pattern`, 'is renamed: use build_error_pattern (the mutation tool refuses the old key)')]
+    ? [problem(`${key}.error_pattern`, 'is refused: use build_error_pattern inside each stack.mutation.runners[] entry')]
     : [];
   const catalogue = loadRunnerCatalogue();
-  const projectPattern = killFixtureProblems(`${key}.build_error_pattern`, v.build_error_pattern, catalogue);
-  if (v.runners == null) return [...renamed, ...projectPattern];
   const fixtures = Array.isArray(v.runners) ? v.runners.flatMap((r, i) => runnerFixtureProblems(`${key}.runners[${i}].build_error_pattern`, r, catalogue)) : [];
-  return [...renamed, ...projectPattern, ...runnersShape(`${key}.runners`, v.runners), ...fixtures];
+  return [...renamed, ...runnersShape(`${key}.runners`, v.runners), ...fixtures];
 }
 
 const HOST_FIELDS = [
@@ -154,14 +149,14 @@ const HOST_FIELDS = [
 
 const flakeExtra = (_key, o) => (Array.isArray(o.patterns) ? o.patterns.flatMap(patternProblems) : []);
 
-// Without require(esm) (Node < 22.12) no problem is reported: the runtime scripts validate with parseSelectorConfig and exit 2.
+// Without require(esm) the shape cannot be checked: a blocking problem, never a pass.
 function affectedShape(key, v) {
   if (!isObject(v)) return [problem(key, 'must be an object')];
   let parse;
   try {
     ({ parseSelectorConfig: parse } = require('../presets/base/scripts/lib/affected.mjs'));
   } catch {
-    return [];
+    return [problem(key, NO_REQUIRE_ESM)];
   }
   return ['specs', 'tests'].flatMap((name) => {
     if (v[name] === undefined) return [];
@@ -180,7 +175,7 @@ const NEW_SHAPE_CHECKS = Object.freeze([
   ['stack.style', objectShape(STYLE_FIELDS)],
   ['stack.cve', objectShape(CVE_FIELDS)],
   ['stack.host', objectShape(HOST_FIELDS)],
-  ['stack.mutation', objectShape(MUTATION_FIELDS, mutationExtra)],
+  ['stack.mutation', objectShape([], mutationExtra)],
   ['stack.affected', affectedShape],
 ]);
 

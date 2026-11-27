@@ -181,9 +181,13 @@ function patchFindings(dir) {
 // 4. Config keys that must move: the mutation tool refuses the old key (presets/base/scripts/mutate/mutate.mjs withProfile).
 function migrationFindings(stack) {
   const mutation = isObject(stack.mutation) ? stack.mutation : {};
-  return Object.prototype.hasOwnProperty.call(mutation, 'error_pattern')
-    ? [finding('DRIFT', 'stack.mutation.error_pattern', 'rename to stack.mutation.build_error_pattern', 'error', 'the mutation tool reads build_error_pattern')]
+  const oldKey = Object.prototype.hasOwnProperty.call(mutation, 'error_pattern')
+    ? [finding('DRIFT', 'stack.mutation.error_pattern', 'move into each stack.mutation.runners[].build_error_pattern', 'error', 'the mutation tool refuses the project-level error_pattern')]
     : [];
+  const noRunners = isObject(stack.mutation) && (!Array.isArray(mutation.runners) || mutation.runners.length === 0)
+    ? [finding('MISSING', 'stack.mutation.runners', 'add a runner (see presets/base/docs/mutation-testing.md)', 'error', 'the mutation tool exits 2 without runners')]
+    : [];
+  return [...oldKey, ...noRunners];
 }
 
 // 5. The scripts a project's preset ships; a default gate whose script is not one of them does not apply.

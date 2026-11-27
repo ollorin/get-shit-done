@@ -7,14 +7,6 @@ const { withTableDefaults, stackFreeGateIds } = require('./profile-defaults.js')
 
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
-function renameErrorPattern(config) {
-  const mutation = config.stack.mutation;
-  if (!isObject(mutation) || !Object.prototype.hasOwnProperty.call(mutation, 'error_pattern')) return config;
-  const { error_pattern: oldValue, ...rest } = mutation;
-  const next = Object.prototype.hasOwnProperty.call(rest, 'build_error_pattern') ? rest : { ...rest, build_error_pattern: oldValue };
-  return { ...config, stack: { ...config.stack, mutation: next } };
-}
-
 const fillTableDefaults = (config) => ({ ...config, stack: withTableDefaults(config.stack) });
 
 // A shipped stack-free gate the project already has, with no needs_stack, gets needs_stack:false; an explicit value stays.
@@ -29,7 +21,6 @@ function markStackFreeGates(config) {
 const MIGRATIONS = Object.freeze([
   { id: 'table-defaults', apply: fillTableDefaults },
   { id: 'gate-needs-stack', apply: markStackFreeGates },
-  { id: 'mutation-build-error-pattern', apply: renameErrorPattern },
 ]);
 
 function migrateConfig(config) {

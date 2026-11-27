@@ -104,6 +104,12 @@ describe('WP10 name filter: a filter that matches no test is never a kill', () =
     assert.deepStrictEqual(hit.records.map((x) => [x.outcome, x.kill_confirmed]), [['killed', true]]);
   });
 
+  test('only the first FAIL line is read: another test failing first and the title failing later is errored, not killed', () => {
+    const r = runOnce(filtered, failsWhenMutated('FAIL f.js > suite > other\nFAIL f.js > suite > adds\nAssertionError'));
+    assert.deepStrictEqual(r.records.map((x) => x.outcome), ['errored']);
+    assert.match(r.records[0].detail, MISS_DETAIL);
+  });
+
   test('H1: a run that echoes the command, prints "No test found" and exits 1 is errored, never killed (first run)', () => {
     const r = runOnce(filtered, `if (require('./add.js').add(1, 2) !== 3) { ${ECHO_NO_TEST} }\n${PASSED}`);
     assert.deepStrictEqual(r.records.map((x) => x.outcome), ['errored']);

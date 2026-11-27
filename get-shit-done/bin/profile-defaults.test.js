@@ -42,11 +42,9 @@ describe('profile-defaults table', () => {
     assert.deepStrictEqual(gateDefaults({ web_ui: false }).map((g) => g.id), GATE_IDS.slice(0, 8));
   });
 
-  test('no test_bucket, coverage, test_cmd, test_env or timeout_s key; build_error_pattern is a documented info key with null default', () => {
+  test('no test_bucket, coverage, test_cmd, test_env, timeout_s or project-level mutation pattern key', () => {
     const keys = Object.keys(STACK_DEFAULTS);
-    assert.deepStrictEqual(keys.filter((k) => /test_bucket|coverage|test_cmd|test_env|timeout_s|\.error_pattern$/.test(k)), []);
-    assert.deepStrictEqual(STACK_DEFAULTS['stack.mutation.build_error_pattern'].default, null);
-    assert.strictEqual(STACK_DEFAULTS['stack.mutation.build_error_pattern'].severity, 'info');
+    assert.deepStrictEqual(keys.filter((k) => /test_bucket|coverage|test_cmd|test_env|timeout_s|error_pattern/.test(k)), []);
   });
 
   test('the preset rule cites only command keys the profile knows', () => {
@@ -61,7 +59,6 @@ describe('withTableDefaults (init fill)', () => {
     const filled = withTableDefaults({ capabilities: { web_ui: {} }, isolation: { lock_dir: 'mine' }, mutation: { timeout_s: 300 } });
     assert.strictEqual(filled.isolation.lock_dir, 'mine');
     assert.strictEqual(filled.mutation.timeout_s, 300);
-    assert.strictEqual(filled.mutation.build_error_pattern, undefined);
     assert.strictEqual(filled.commands, undefined);
   });
 
@@ -94,10 +91,8 @@ describe('doctorFindings (pure)', () => {
     assert.deepStrictEqual(missing({ isolation: {} }), []);
   });
 
-  test('a stale error_pattern is not reported; a missing build_error_pattern is an info MISSING', () => {
+  test('no mutation pattern key is reported as missing', () => {
     const findings = doctorFindings({ mutation: { error_pattern: 'x' } });
-    assert.ok(!findings.some((f) => f.key === 'stack.mutation.error_pattern'));
-    const build = findings.find((f) => f.key === 'stack.mutation.build_error_pattern');
-    assert.deepStrictEqual([build.kind, build.entry.severity], ['MISSING', 'info']);
+    assert.deepStrictEqual(findings.filter((f) => /error_pattern/.test(f.key)), []);
   });
 });

@@ -168,9 +168,13 @@ describe('profile doctor checks (WP22d)', () => {
     assert.deepStrictEqual(kinds(checks.frameworkFindings(home)), ['MISSING ~/.claude/gsd-file-manifest.json']);
   });
 
-  test('migrations: stack.mutation.error_pattern is a blocking finding (the mutation tool refuses it); build_error_pattern is none', () => {
-    assert.strictEqual(blockingOf(checks.migrationFindings({ mutation: { error_pattern: 'x' } })).length, 1);
-    assert.deepStrictEqual(checks.migrationFindings({ mutation: { build_error_pattern: 'x' } }), []);
+  test('migrations: stack.mutation.error_pattern, and a stack.mutation without runners, are blocking findings (the mutation tool refuses both)', () => {
+    const runners = [{ id: 'a' }];
+    assert.strictEqual(blockingOf(checks.migrationFindings({ mutation: { error_pattern: 'x', runners } })).length, 1);
+    assert.strictEqual(blockingOf(checks.migrationFindings({ mutation: { timeout_s: 5 } })).length, 1);
+    assert.strictEqual(blockingOf(checks.migrationFindings({ mutation: { runners: [] } })).length, 1);
+    assert.deepStrictEqual(checks.migrationFindings({ mutation: { runners } }), []);
+    assert.deepStrictEqual(checks.migrationFindings({}), []);
   });
 
   test('gates: an igaming-shaped project gets no MISSING gate for scripts its preset does not ship', () => {
@@ -214,7 +218,7 @@ describe('profile doctor checks (WP22d)', () => {
     const home = makeHome();
     const stack = {
       commands: { test_file: 'npm test -- {file}', test_all: 'npm test', typecheck: 'tsc', lint: 'eslint .', format: 'p', test_unit: 'u' },
-      mutation: { build_error_pattern: 'x' },
+      mutation: { runners: [{ id: 'node', test_cmd: 'node {file} -t {name}', build_error_pattern: 'x', pass_pattern: 'p (\\d+)', selftest: { dir: 'd', ext: '.js', pass: 'p', kill: 'k', build: 'b' } }] },
       affected: { specs: { file_pattern: 'x' }, tests: { file_pattern: 'x' } },
       host: { worker_patterns: ['vitest'] },
       isolation: { port_base: 55000 },

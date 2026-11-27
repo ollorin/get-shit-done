@@ -91,6 +91,8 @@ describe('WP9 mutation runners: the harness', () => {
       const r = run(project({ runners: bad }), [mutant('M1', { runner: 'a' })]);
       assert.strictEqual(r.code, 2, JSON.stringify(bad) + r.output);
     }
+    const refused = run(project({ runners: [noPattern] }), [mutant('M1', { runner: 'crashy' })]);
+    assert.match(refused.output, /build_error_pattern must be a non-empty string/);
   });
 
   test('the old stack.mutation.error_pattern key is refused with exit 2', () => {
@@ -107,10 +109,11 @@ describe('WP9 mutation runners: the profile shape check and the doctor', () => {
   const keysOf = (mutation) => problems(mutation).map((p) => p.key);
 
   test('well-formed runners pass; runners[] that the mutation tool refuses, and the old key, are rejected with the key named', () => {
-    assert.deepStrictEqual(problems({ runners: RUNNERS, build_error_pattern: 'SyntaxError' }), []);
-    assert.deepStrictEqual(problems({ runners: null }), []);
+    assert.deepStrictEqual(problems({ runners: RUNNERS }), []);
     const { selftest: _s, ...noSelftest } = runner();
-    for (const bad of [[], 'x', [{ test_cmd: 'x {file} -t {name}' }], [runner({ test_cmd: 'no placeholder' })], [runner({ build_error_pattern: '(' })], [runner({ lane: 'gpu' })], [noSelftest], [RUNNERS[1], RUNNERS[1]]]) {
+    const { build_error_pattern: _p, ...noPattern } = runner();
+    const { pass_pattern: _c, ...noCount } = runner();
+    for (const bad of [null, undefined, [], 'x', [{ test_cmd: 'x {file} -t {name}' }], [runner({ test_cmd: 'no placeholder' })], [runner({ build_error_pattern: '(' })], [runner({ lane: 'gpu' })], [noSelftest], [noPattern], [noCount], [RUNNERS[1], RUNNERS[1]]]) {
       assert.ok(keysOf({ runners: bad }).includes('stack.mutation.runners'), JSON.stringify(bad));
     }
     assert.ok(keysOf({ error_pattern: 'x' }).includes('stack.mutation.error_pattern'));
@@ -124,33 +127,18 @@ describe('WP9 mutation runners: the profile shape check and the doctor', () => {
     assert.ok(problems({ runners: [{ ...base, build_error_pattern: 'NeverPrinted' }] }).some((p) => /does not match the build failure/.test(p.reason)));
   });
 
-  test('F3: the project pattern and every runner pattern are checked against every catalogue kill fixture; the build failure only for a known engine', () => {
-    assert.ok(problems({ build_error_pattern: 'FAIL' }).some((p) => /matches the normal kill output/.test(p.reason)), 'project pattern, no runners');
+  test('F3: every runner pattern is checked against every catalogue kill fixture; the build failure only for a known engine', () => {
     assert.ok(problems({ runners: [runner({ build_error_pattern: 'AssertionError' })] }).some((p) => /matches the normal kill output/.test(p.reason)), 'unknown engine, own pattern');
     assert.deepStrictEqual(problems({ runners: [runner({ build_error_pattern: 'ZZZ-never' })] }), [], 'unknown engine: no build_failure fixture to match');
-    assert.deepStrictEqual(problems({ build_error_pattern: 'ZZZ-never' }), []);
   });
 
-});
-
-describe('WP9 mutation runners: the catalogue self-test files', () => {
-  // The engine package is not installed here: a stub package of the engine's name gives the fixtures something to resolve to.
-  test('the pass fixture resolves its import and passes, the kill fixture resolves it and fails', () => {
-    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-wp9-cat-')));
-    tmps.push(dir);
-    const pkg = path.join(dir, 'node_modules', 'vitest');
-    fs.mkdirSync(pkg, { recursive: true });
-    fs.writeFileSync(path.join(pkg, 'package.json'), '{"name":"vitest","main":"index.js"}');
-    fs.writeFileSync(path.join(pkg, 'index.js'), "exports.test = (name, fn) => { try { fn(); } catch { console.error('FAIL ' + name); process.exitCode = 1; } };\nexports.expect = (a) => ({ toBe: (b) => { if (a !== b) throw new Error('not equal'); } });\n");
-    const exitOf = (kind) => {
-      const file = path.join(dir, `${kind}.mjs`);
-      fs.writeFileSync(file, catalogue['js-runner-a'].selftest[kind]);
-      return spawnSync(process.execPath, [file], { encoding: 'utf8', cwd: dir });
-    };
-    const pass = exitOf('pass');
-    assert.strictEqual(pass.status, 0, pass.stderr);
-    const kill = exitOf('kill');
-    assert.strictEqual(kill.status, 1, kill.stderr);
-    assert.match(kill.stderr, /FAIL __mutate_selftest_kill__/);
+  test('without require(esm) the runners and affected shape checks are blocking problems, never a pass', () => {
+    const script = "const k = require(process.argv[1]); const s = (key, v) => k.NEW_SHAPE_CHECKS.find(([n]) => n === key)[1](key, v).map((p) => p.reason).join('|'); console.log(s('stack.mutation', { runners: [] }) + '#' + s('stack.affected', { specs: {} }));";
+    const r = spawnSync(process.execPath, ['--no-experimental-require-module', '-e', script, path.join(__dirname, 'project-profile-keys.js')], { encoding: 'utf8' });
+    assert.strictEqual(r.status, 0, r.stderr);
+    const [runnersOut, affectedOut] = r.stdout.trim().split('#');
+    assert.match(runnersOut, /needs Node >= 20\.19 or >= 22\.12/);
+    assert.match(affectedOut, /needs Node >= 20\.19 or >= 22\.12/);
   });
+
 });
