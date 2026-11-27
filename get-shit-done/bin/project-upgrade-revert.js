@@ -1,17 +1,15 @@
 'use strict';
 
 // Reverts the project commits of one framework upgrade record, after the framework itself was rolled back. Every
-// project passes the same checks as the upgrade (human session, no live phase) plus a clean tree and a branch that
+// project passes the same live-phase check as the upgrade plus a clean tree and a branch that
 // holds the commit; a refusal prints the exact command instead and the other projects go on.
 
 const { liveReasons } = require('./project-quiesce.js');
 const { git, isRepo } = require('./project-upgrade-git.js');
 const { commitsOfRecord, revertCommand } = require('./project-upgrade-log.js');
-const { guardRefusal } = require('./project-upgrade.js');
 
 // The reason this commit may not be reverted now, or null.
-function refusalFor(c, { live, guard }) {
-  if (guard) return guard;
+function refusalFor(c, { live }) {
   if (!isRepo(c.root)) return `${c.root} is not a git repository`;
   if (!git(c.root, ['merge-base', '--is-ancestor', c.sha, 'HEAD']).ok) return `the checked-out branch does not contain ${c.sha}`;
   if (git(c.root, ['status', '--porcelain', '--untracked-files=no']).out.length > 0) return 'the working tree has uncommitted changes';
@@ -29,10 +27,8 @@ function revertOne(c, ctx) {
 }
 
 // { ok, lines }: ok is false when any commit was left for the owner to revert.
-function revertRecord({ dir, recordId, env, session, live = {} }) {
-  const commits = commitsOfRecord(dir, recordId);
-  const ctx = { live, guard: commits.length > 0 ? guardRefusal(env, session, dir) : null };
-  const results = commits.map((c) => revertOne(c, ctx));
+function revertRecord({ dir, recordId, live = {} }) {
+  const results = commitsOfRecord(dir, recordId).map((c) => revertOne(c, { live }));
   return { ok: results.every((r) => r.ok), lines: results.map((r) => r.line) };
 }
 

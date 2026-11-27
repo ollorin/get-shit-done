@@ -9,10 +9,8 @@ const fs = require('fs');
 const path = require('path');
 const { planDeploy, runCli: runDeploy, CONFIG, MANIFEST, BASE_DIR, SETTINGS } = require('./project-deploy.js');
 const { confirmationText, readTtyLine } = require('./project-deploy-confirm.js');
-const { refusalOf } = require('./project-deploy-guard.js');
-const { detectSession } = require('./project-deploy-session.js');
 const { withSyncDefaults } = require('./project-registry.js');
-const { registryDirFor, readRegistry, REGISTRY_FILE } = require('./project-registry-store.js');
+const { registryDirFor, readRegistry } = require('./project-registry-store.js');
 const { presetGateScripts } = require('./profile-doctor-checks.js');
 const { migrateConfig, neededMigrationIds } = require('./profile-migrations.js');
 const { liveReasons } = require('./project-quiesce.js');
@@ -124,7 +122,7 @@ function planProject({ name, root }, ctx) {
     .map(([file, r]) => problem(name, `${file} ${r.reason}`));
   if (unreadable.length > 0) return { problems: unreadable };
   const nextConfig = withSyncDefaults(migrateConfig(config.value), presetGateScripts(root, config.value.stack ?? {}, ctx.presetsRoot));
-  const plan = planDeploy({ root, command: 'sync', config: nextConfig, env: ctx.env, session: ctx.session, presetsRoot: ctx.presetsRoot });
+  const plan = planDeploy({ root, command: 'sync', config: nextConfig, presetsRoot: ctx.presetsRoot });
   const { report } = plan;
   if (!report.ok) {
     const why = report.refused ? report.refused.reason : report.errors.map((e) => (e.file ? `${e.file}: ${e.reason}` : e.reason)).join('; ');
@@ -157,7 +155,7 @@ function applyProject({ name, root }, planned, ctx) {
   try {
     if (planned.configText !== null) writeAtomic(configFile, planned.configText);
     const engine = planned.engineRuns
-      ? runDeploy(root, ['sync', '--root', root], ctx.env, ctx.session, { confirm: () => 'APPLY', presetsRoot: ctx.presetsRoot })
+      ? runDeploy(root, ['sync', '--root', root], { confirm: () => 'APPLY', presetsRoot: ctx.presetsRoot })
       : { exitCode: 0 };
     if (engine.exitCode !== 0) {
       restore();
@@ -184,28 +182,19 @@ function readProjects(env) {
   return { dir: dirOf.dir, projects };
 }
 
-// The reason an agent or a non-terminal session may not upgrade, or null.
-function guardRefusal(env, session, dir) {
-  const refused = refusalOf({ command: 'upgrade', guarded: [path.join(dir, REGISTRY_FILE)], env, session: session ?? detectSession() });
-  return refused ? `refused: ${refused.reason} (${refused.failed.join(', ')})` : null;
-}
-
 const frameworkRecordOf = (env, opts) => {
   const id = opts.record ?? env.GSD_FRAMEWORK_RECORD;
   return typeof id === 'string' && RECORD_ID_RE.test(id) ? id : null;
 };
 
-// Everything up to, and excluding, the first write: the guard, the projects Claude Code knows, live phases and every
+// Everything up to, and excluding, the first write: the projects Claude Code knows, live phases and every
 // project's plan. The installer runs it before it copies anything. { refusal: lines } or { read, planned, ctx }.
 function planOnly(opts = {}) {
   const env = opts.env ?? process.env;
-  const session = opts.session ?? detectSession();
   const sha = opts.forkSha ?? forkSha(FORK_ROOT);
-  const ctx = { env, session, presetsRoot: opts.presetsRoot, forkSha: sha, message: `${COMMIT_MESSAGE}\n\nGSD-Upgrade: ${sha}\n` };
+  const ctx = { env, presetsRoot: opts.presetsRoot, forkSha: sha, message: `${COMMIT_MESSAGE}\n\nGSD-Upgrade: ${sha}\n` };
   const read = readProjects(env);
   if (read.error) return { refusal: [`refused: ${read.error}`] };
-  const refused = guardRefusal(env, session, read.dir);
-  if (refused) return { refusal: [refused] };
   const unknown = unregisteredRoots({ names: opts.claudeNames ?? claudeProjectNames(env), registered: read.projects.map((p) => p.root) });
   if (unknown.length > 0) {
     return { refusal: ['refused: Claude Code knows GSD projects that are not registered, so a phase live in one cannot be seen', ...unknown.map((r) => `  ${r}: run \`gsd-tools project adopt\` in that project first`)] };
@@ -261,4 +250,4 @@ function runCli(args, opts = {}) {
   return upgradeAll(opts);
 }
 
-module.exports = { upgradeAll, planOnly, guardRefusal, removeSuperseded, runCli, SUPERSEDED_HOOKS, COMMIT_MESSAGE };
+module.exports = { upgradeAll, planOnly,removeSuperseded, runCli, SUPERSEDED_HOOKS, COMMIT_MESSAGE };

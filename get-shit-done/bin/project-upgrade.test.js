@@ -16,7 +16,6 @@ const { revertRecord } = require('./project-upgrade-revert.js');
 const { unregisteredRoots, decode } = require('./project-discovery.js');
 const { openRecord, closeRecord, rollbackAll } = require('../../bin/install-record.js');
 
-const HUMAN = Object.freeze({ stdin_tty: true, stdout_tty: true, agent_ancestor: false });
 const FRAGMENT = { hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'node .claude/hooks/guard.js' }] }] } };
 const FILES = [
   { src: 'rules/style.md', dest: '.claude/rules/style.md', kind: 'whole' },
@@ -68,7 +67,7 @@ function fixture(fragment = FRAGMENT) {
     const root = mkTmp(`gsd-${name}-`);
     git(root, 'init', '-q');
     writeAt(root, '.planning/config.json', JSON.stringify({ project: { slug: name }, stack: { preset: 'demo', capabilities: {} } }, null, 2));
-    const init = runDeploy(root, ['init', '--root', root], {}, HUMAN, { confirm: () => 'APPLY', presetsRoot });
+    const init = runDeploy(root, ['init', '--root', root], { confirm: () => 'APPLY', presetsRoot });
     assert.strictEqual(init.exitCode, 0, JSON.stringify(init.result));
     git(root, 'add', '-A');
     git(root, 'commit', '-q', '-m', 'init');
@@ -97,7 +96,7 @@ function snapshot(root) {
 const run = (fx, extra = {}) => {
   const asks = [];
   const result = upgradeAll({
-    env: fx.env, session: HUMAN, presetsRoot: fx.presetsRoot, confirm: (text) => { asks.push(text); return 'APPLY'; }, ...extra,
+    env: fx.env, presetsRoot: fx.presetsRoot, confirm: (text) => { asks.push(text); return 'APPLY'; }, ...extra,
   });
   return { ...result, asks };
 };
@@ -176,34 +175,29 @@ describe('project upgrade', () => {
     assert.deepStrictEqual(liveReasons(root, { now, alive: () => true }), []);
   });
 
-  test('liveReasons: a phase begun and not closed is live however old the last event; a closed phase and its stale lease are not', () => {
-    const root = mkTmp('gsd-open-');
+  test('liveReasons: a paused phase (phase_start older than 45 minutes, nothing running) is not live; a fresh event is', () => {
+    const root = mkTmp('gsd-paused-');
     const now = Date.parse('2026-11-27T12:00:00Z');
     const at = (minutesAgo) => new Date(now - minutesAgo * 60000).toISOString();
     const log = (...events) => writeAt(root, '.planning/EXECUTION_LOG.md', `${events.map((e) => JSON.stringify(e)).join('\n')}\n`);
     log({ timestamp: at(300), type: 'phase_start', phase: '7' }, { timestamp: at(200), type: 'dispatch_end', phase: '7' });
-    assert.match(liveReasons(root, { now })[0], /phase 7 started .* and not closed/);
-    log({ timestamp: at(300), type: 'phase_start', phase: '7' }, { timestamp: at(250), type: 'phase_complete', phase: '7' }, { timestamp: at(200), type: 'phase_start', phase: 8 }, { timestamp: at(5), type: 'phase_parked', phase: '8' });
     assert.deepStrictEqual(liveReasons(root, { now }), []);
-    const lease = { id: 'old', role: 'executor', phase: '7', begin: at(290), end: null, owner: { pid: process.pid, start: psStart(process.pid) } };
-    writeAt(root, '.planning/dispatch-leases.json', JSON.stringify({ leases: [lease] }));
-    assert.deepStrictEqual(liveReasons(root, { now }), [], 'phase 7 completed after the lease began');
-    log({ timestamp: at(300), type: 'phase_start', phase: '7' });
-    assert.match(liveReasons(root, { now }).join(';'), /open dispatch lease old/);
-    assert.deepStrictEqual(liveReasons(root, { now, startOf: () => 'Mon Jan  1 00:00:00 2001' }).filter((r) => /lease/.test(r)), [], 'a reused pid is not the owner');
+    log({ timestamp: at(300), type: 'phase_start', phase: '7' }, { timestamp: at(5), type: 'dispatch_begin', phase: '7' });
+    assert.match(liveReasons(root, { now })[0], /younger than 45 minutes/);
   });
 
-  test('liveReasons: open phases follow file order, and count only while some event is under 24 hours old', () => {
-    const root = mkTmp('gsd-order-');
+  test('liveReasons: an open lease with a running owner is live; a lease closed by a later phase_complete or owned by a reused pid is not', () => {
+    const root = mkTmp('gsd-open-');
     const now = Date.parse('2026-11-27T12:00:00Z');
     const at = (minutesAgo) => new Date(now - minutesAgo * 60000).toISOString();
     const log = (...events) => writeAt(root, '.planning/EXECUTION_LOG.md', `${events.map((e) => JSON.stringify(e)).join('\n')}\n`);
-    log({ timestamp: at(100), type: 'phase_start', phase: '115' }, { timestamp: at(600), type: 'phase_complete', phase: '115' });
-    assert.deepStrictEqual(liveReasons(root, { now }), [], 'close later in the file wins over an older stamp');
-    log({ timestamp: at(100), type: 'phase_complete', phase: '115' }, { timestamp: at(600), type: 'phase_start', phase: '115' });
-    assert.match(liveReasons(root, { now })[0], /phase 115 started/, 'start later in the file wins');
-    log({ timestamp: at(30 * 60), type: 'phase_start', phase: '216' }, { timestamp: at(30 * 60), type: 'dispatch_end', phase: '216' });
-    assert.deepStrictEqual(liveReasons(root, { now }), [], 'no event within 24 hours: abandoned, not open');
+    const lease = { id: 'old', role: 'executor', phase: '7', begin: at(290), end: null, owner: { pid: process.pid, start: psStart(process.pid) } };
+    writeAt(root, '.planning/dispatch-leases.json', JSON.stringify({ leases: [lease] }));
+    log({ timestamp: at(300), type: 'phase_start', phase: '7' });
+    assert.match(liveReasons(root, { now }).join(';'), /open dispatch lease old/);
+    assert.deepStrictEqual(liveReasons(root, { now, startOf: () => 'Mon Jan  1 00:00:00 2001' }), [], 'a reused pid is not the owner');
+    log({ timestamp: at(300), type: 'phase_start', phase: '7' }, { timestamp: at(250), type: 'phase_complete', phase: '7' });
+    assert.deepStrictEqual(liveReasons(root, { now }), [], 'phase 7 completed after the lease began');
   });
 
   test('corrupt settings.local.json in one project refuses before any write', () => {
@@ -226,13 +220,11 @@ describe('project upgrade', () => {
     assert.deepStrictEqual(fx.roots.map((r) => snapshot(r.root)), before);
   });
 
-  test('an agent session is refused and nothing is written', () => {
+  test('an agent-like env (CLAUDECODE=1) upgrades like a terminal', () => {
     const fx = fixture();
-    const before = fx.roots.map((r) => [head(r.root), snapshot(r.root)]);
     const result = run(fx, { env: { ...fx.env, CLAUDECODE: '1' } });
-    assert.strictEqual(result.exitCode, 1);
-    assert.match(result.lines.join('\n'), /refused: guardrail paths change only from a terminal/);
-    assert.deepStrictEqual(fx.roots.map((r) => [head(r.root), snapshot(r.root)]), before);
+    assert.strictEqual(result.exitCode, 0);
+    assert.strictEqual(result.commits.length, fx.roots.length);
   });
 
   test('a declined confirmation and a blocking doctor result are exit 1', () => {
@@ -399,14 +391,14 @@ describe('project upgrade: review fixes', () => {
 
   test('planOnly writes nothing: it names a dirty file, a live phase and an unregistered project, and writes nothing', () => {
     const fx = fixture();
-    assert.deepStrictEqual(Object.keys(planOnly({ env: fx.env, session: HUMAN, presetsRoot: fx.presetsRoot })).sort(), ['ctx', 'planned', 'read']);
+    assert.deepStrictEqual(Object.keys(planOnly({ env: fx.env, presetsRoot: fx.presetsRoot })).sort(), ['ctx', 'planned', 'read']);
     writeAt(fx.roots[0].root, '.planning/config.json', JSON.stringify({ project: { slug: 'alpha', note: 'mine' }, stack: { preset: 'demo', capabilities: {}, locked_commands: ['x'] } }));
-    writeAt(fx.roots[1].root, '.planning/EXECUTION_LOG.md', `${JSON.stringify({ timestamp: new Date(Date.now() - 3 * 3600 * 1000).toISOString(), type: 'phase_start', phase: '4' })}\n`);
-    const refused = planOnly({ env: fx.env, session: HUMAN, presetsRoot: fx.presetsRoot });
-    assert.match(refused.refusal.join('\n'), /beta: phase 4 started/);
+    writeAt(fx.roots[1].root, '.planning/EXECUTION_LOG.md', `${JSON.stringify({ timestamp: new Date(Date.now() - 5 * 60 * 1000).toISOString(), type: 'dispatch_begin', phase: '4' })}\n`);
+    const refused = planOnly({ env: fx.env, presetsRoot: fx.presetsRoot });
+    assert.match(refused.refusal.join('\n'), /beta: log event dispatch_begin younger than 45 minutes/);
     fs.rmSync(path.join(fx.roots[1].root, '.planning/EXECUTION_LOG.md'));
     const before = fx.roots.map((r) => [head(r.root), snapshot(r.root)]);
-    const dirty = planOnly({ env: fx.env, session: HUMAN, presetsRoot: fx.presetsRoot });
+    const dirty = planOnly({ env: fx.env, presetsRoot: fx.presetsRoot });
     assert.match(dirty.refusal.join('\n'), /alpha: uncommitted changes/);
     assert.deepStrictEqual(fx.roots.map((r) => [head(r.root), snapshot(r.root)]), before);
   });
@@ -453,7 +445,7 @@ describe('project upgrade: rollback reverts the commits of the rolled-back recor
     assert.strictEqual(run({ ...fx, env }).exitCode, 0);
     return { fx, homeDir, env, recordDir };
   }
-  const rollback = ({ homeDir, env }, extra = {}) => rollbackAll({ homeDir, env, session: HUMAN, runNpm: () => true, ...extra });
+  const rollback = ({ homeDir, env }, extra = {}) => rollbackAll({ homeDir, env, runNpm: () => true, ...extra });
 
   test('success: the framework is rolled back and each project commit is reverted', () => {
     const ctx = upgradedWithRecord();
@@ -484,12 +476,10 @@ describe('project upgrade: rollback reverts the commits of the rolled-back recor
     assert.strictEqual(head(a.root), headA);
   });
 
-  test('an agent session and an unrelated record revert nothing', () => {
+  test('an unrelated record reverts nothing', () => {
     const ctx = upgradedWithRecord();
-    const agent = { stdin_tty: false, stdout_tty: false, agent_ancestor: true };
     const heads = ctx.fx.roots.map((r) => head(r.root));
-    assert.strictEqual(revertRecord({ dir: ctx.fx.home, recordId: path.basename(ctx.recordDir), env: ctx.env, session: agent }).ok, false);
-    assert.deepStrictEqual(revertRecord({ dir: ctx.fx.home, recordId: 'someother', env: ctx.env, session: HUMAN }), { ok: true, lines: [] });
+    assert.deepStrictEqual(revertRecord({ dir: ctx.fx.home, recordId: 'someother' }), { ok: true, lines: [] });
     assert.deepStrictEqual(ctx.fx.roots.map((r) => head(r.root)), heads);
   });
 });

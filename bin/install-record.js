@@ -11,8 +11,6 @@ const fs = require('fs');
 const os = require('os');
 const { execFileSync } = require('child_process');
 const path = require('path');
-const { refusalOf } = require('../get-shit-done/bin/project-deploy-guard.js');
-const { detectSession } = require('../get-shit-done/bin/project-deploy-session.js');
 
 const RECORD_FILE = 'record.json';
 const PRE_DIR = 'pre';
@@ -395,11 +393,6 @@ function noteLateWrite({ homeDir = os.homedir(), file }) {
   return true;
 }
 
-function rollbackWithGuard({ homeDir = os.homedir(), env = process.env, session, runNpm = reinstallDeps }) {
-  const refusal = refusalOf({ command: 'rollback', guarded: [upgradesRootOf(homeDir)], env, session });
-  return refusal ? { status: 'refused', refusal } : rollbackNewest({ homeDir, runNpm });
-}
-
 const depsLine = (deps = []) => deps
   .map(({ target, ok }) => (ok ? `; reinstalled hook dependencies in ${target}` : `; npm install failed in ${target}, run it by hand`))
   .join('');
@@ -411,7 +404,6 @@ const SUMMARY = {
   incomplete: (r) => `${r.recordDir} never closed (the install did not finish); nothing changed. Re-run \`npm run install:gsd\`, which repairs the trees`,
   partial: (r) => `restored ${r.restored.length}; left alone, edited since the install: ${r.left.join(', ')}`,
   'deps-missing': (r) => `node_modules missing under: ${r.left.join(', ')}; nothing changed`,
-  refused: (r) => `refused: ${r.refusal.reason} (${r.refusal.failed.join(', ')})`,
 };
 
 // The id of the newest closed record opened at or after `sinceMs`, or null: the record of the install in progress, so
@@ -429,22 +421,22 @@ function recordIdSince({ homeDir = os.homedir(), sinceMs }) {
 }
 
 // The framework rollback, then `git revert` of the project commits the rolled-back record's upgrade made. Every project
-// is checked as the upgrade was (human session, no live phase, clean tree, branch holds the commit); a refusal leaves
+// is checked as the upgrade was (no live phase, clean tree, branch holds the commit); a refusal leaves
 // the exact command in `reverted.lines`.
-function rollbackAll({ homeDir = os.homedir(), env = process.env, session, runNpm = reinstallDeps }) {
-  const result = rollbackWithGuard({ homeDir, env, session, runNpm });
+function rollbackAll({ homeDir = os.homedir(), env = process.env, runNpm = reinstallDeps }) {
+  const result = rollbackNewest({ homeDir, runNpm });
   if (result.status !== 'rolled-back') return result;
   const { revertRecord } = require('../get-shit-done/bin/project-upgrade-revert.js');
   const { registryDirFor } = require('../get-shit-done/bin/project-registry-store.js');
   const dir = registryDirFor(env);
-  const reverted = dir.ok ? revertRecord({ dir: dir.dir, recordId: path.basename(result.recordDir), env, session }) : { ok: false, lines: [`not reverted: ${dir.reason}`] };
+  const reverted = dir.ok ? revertRecord({ dir: dir.dir, recordId: path.basename(result.recordDir) }) : { ok: false, lines: [`not reverted: ${dir.reason}`] };
   return { ...result, reverted };
 }
 
-module.exports = { openRecord, closeRecord, closeOnExit, ownedFilesOf, rollbackNewest, rollbackWithGuard, rollbackAll, recordIdSince, noteLateWrite, stagePathsOf, treesOf, repairTree };
+module.exports = { openRecord, closeRecord, closeOnExit, ownedFilesOf, rollbackNewest, rollbackAll, recordIdSince, noteLateWrite, stagePathsOf, treesOf, repairTree };
 
 if (require.main === module) {
-  const result = rollbackAll({ env: process.env, session: detectSession() });
+  const result = rollbackAll({ env: process.env });
   console.log(SUMMARY[result.status](result));
   for (const line of result.reverted?.lines ?? []) console.log(line);
   process.exit(OK_STATUSES.has(result.status) && result.reverted?.ok !== false ? 0 : 1);

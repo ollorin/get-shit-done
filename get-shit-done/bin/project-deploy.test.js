@@ -8,12 +8,10 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { planDeploy, runCli, CONFIG, MANIFEST, BASE_DIR, SETTINGS } = require('./project-deploy.js');
 const { applyPlan } = require('./project-deploy-apply.js');
-const { agentAncestor, detectSession, guardFailures } = require('./project-deploy-session.js');
 const { renderPreset } = require('./project-deploy-render.js');
 const { sha256, planBlockFile } = require('./project-deploy-files.js');
 const { mergeSettings, serializeSettings } = require('./project-deploy-settings.js');
 
-const HUMAN = Object.freeze({ stdin_tty: true, stdout_tty: true, agent_ancestor: false });
 const APPLY_IO = Object.freeze({ confirm: () => 'APPLY' });
 const DEFAULT_CONFIG = { project: { slug: 'demo' }, stack: { paths: { backend: 'srv' }, capabilities: {} } };
 const RULE = '# Style\n\nBackend lives in {{stack.paths.backend}}.\nline three\nline four\nline five\n';
@@ -79,7 +77,7 @@ function snapshot(root) {
 }
 
 const plan = (root, command, presetDir, extra = {}) => planDeploy({
-  root, command, presetDir, env: {}, session: HUMAN, ...extra,
+  root, command, presetDir, ...extra,
 });
 
 function seedDeployed(root, presetDir) {
@@ -130,14 +128,14 @@ describe('planDeploy (agnostic-B)', () => {
     const root = mkTmp('gsd-empty-');
     const dir = makePreset();
     const before = snapshot(root);
-    const res = runCli(root, ['diff', '--preset-dir', dir], {}, HUMAN);
+    const res = runCli(root, ['diff', '--preset-dir', dir]);
     assert.strictEqual(res.exitCode, 0);
     assert.strictEqual(res.result.ok, true);
     assert.strictEqual(res.result.not_initialised, true);
     assert.match(res.result.note, /not initialised/);
     assert.deepStrictEqual(res.result.files.map((f) => f.action), ['create', 'create', 'create']);
     assert.deepStrictEqual(snapshot(root), before);
-    const corrupt = runCli(makeProject('{'), ['diff', '--preset-dir', dir], {}, HUMAN);
+    const corrupt = runCli(makeProject('{'), ['diff', '--preset-dir', dir]);
     assert.strictEqual(corrupt.exitCode, 1);
     assert.strictEqual(corrupt.result.not_initialised, undefined);
   });
@@ -154,24 +152,24 @@ describe('planDeploy (agnostic-B)', () => {
     assert.strictEqual(badRes.report.errors[0].reason, '.planning/config.json is not valid JSON');
 
     const root = makeProject();
-    const noPreset = planDeploy({ root, command: 'init', env: {}, session: HUMAN });
+    const noPreset = planDeploy({ root, command: 'init' });
     assert.strictEqual(noPreset.report.ok, false);
     assert.deepStrictEqual(noPreset.report.errors, [{ reason: 'no preset: pass --preset or set stack.preset' }]);
 
     assert.deepStrictEqual(
-      planDeploy({ root, command: 'diff', presetName: '../x', env: {}, session: HUMAN }).report.errors,
+      planDeploy({ root, command: 'diff', presetName: '../x' }).report.errors,
       [{ reason: 'invalid preset name' }],
     );
     const presetsRoot = mkTmp('gsd-presets-');
     fs.mkdirSync(path.join(presetsRoot, 'other'));
-    assert.strictEqual(planDeploy({ root, command: 'diff', presetName: 'nope', presetsRoot, env: {}, session: HUMAN }).report.ok, false);
+    assert.strictEqual(planDeploy({ root, command: 'diff', presetName: 'nope', presetsRoot }).report.ok, false);
 
     const named = mkTmp('gsd-presets-');
     writePreset(path.join(named, 'demo'));
-    assert.strictEqual(planDeploy({ root, command: 'init', presetName: 'demo', presetsRoot: named, env: {}, session: HUMAN }).report.ok, true);
+    assert.strictEqual(planDeploy({ root, command: 'init', presetName: 'demo', presetsRoot: named }).report.ok, true);
 
     const viaConfig = makeProject({ ...DEFAULT_CONFIG, stack: { ...DEFAULT_CONFIG.stack, preset: 'demo' } });
-    assert.strictEqual(planDeploy({ root: viaConfig, command: 'init', presetsRoot: named, env: {}, session: HUMAN }).report.ok, true);
+    assert.strictEqual(planDeploy({ root: viaConfig, command: 'init', presetsRoot: named }).report.ok, true);
   });
 
   test('P3 init and sync require the right manifest state; manifest preset name must match', () => {
@@ -346,9 +344,7 @@ describe('planDeploy (agnostic-B)', () => {
   });
 });
 
-describe('guardrail refusal (agnostic-B7)', () => {
-  const CLAUDE_ENV = { CLAUDECODE: '1' };
-  const ALL_FAIL = { stdin_tty: false, stdout_tty: false, agent_ancestor: true };
+describe('guarded changes (agnostic-B7)', () => {
   const HOOK_DEST = '.claude/hooks/guard.js';
 
   function refusalFixture(state, change) {
@@ -366,87 +362,24 @@ describe('guardrail refusal (agnostic-B7)', () => {
   }
 
   const ROWS = [
-    { id: 'a', name: 'first-time init without settings is allowed', state: 'fresh', change: null, command: 'init', env: CLAUDE_ENV, session: ALL_FAIL, refused: false, ok: true },
-    { id: 'b', name: 'init over an existing settings file is refused on env', state: 'empty-settings', change: null, command: 'init', env: CLAUDE_ENV, session: HUMAN, refused: true, paths: [HOOK_DEST, SETTINGS], failed: ['env'] },
-    { id: 'c', name: 'sync of a changed hook is refused', state: 'seeded', change: 'H', command: 'sync', env: CLAUDE_ENV, session: HUMAN, refused: true, paths: [HOOK_DEST] },
-    { id: 'd', name: 'sync of a rule only is never refused', state: 'seeded', change: 'R', command: 'sync', env: CLAUDE_ENV, session: ALL_FAIL, refused: false, ok: true, guarded: [] },
-    { id: 'e', name: 'sync of a changed hook passes when every gate holds', state: 'seeded', change: 'H', command: 'sync', env: {}, session: HUMAN, refused: false, ok: true },
-    { id: 'f', name: 'diff is never refused and lists the guarded change', state: 'seeded', change: 'H', command: 'diff', env: CLAUDE_ENV, session: ALL_FAIL, refused: false, ok: true, guarded: [HOOK_DEST] },
-    { id: 'g', name: 'present-but-empty CLAUDECODE refuses', state: 'seeded', change: 'H', command: 'sync', env: { CLAUDECODE: '' }, session: HUMAN, refused: true, failed: ['env'] },
-    { id: 'h', name: 'stdin not a TTY refuses', state: 'seeded', change: 'H', command: 'sync', env: {}, session: { ...HUMAN, stdin_tty: false }, refused: true, failed: ['stdin_tty'] },
-    { id: 'i', name: 'stdout not a TTY refuses', state: 'seeded', change: 'H', command: 'sync', env: {}, session: { ...HUMAN, stdout_tty: false }, refused: true, failed: ['stdout_tty'] },
-    { id: 'j', name: 'agent ancestor refuses', state: 'seeded', change: 'H', command: 'sync', env: {}, session: { ...HUMAN, agent_ancestor: true }, refused: true, failed: ['agent_ancestor'] },
-    { id: 'm', name: 'a new mixed-case hook dest is guarded', state: 'seeded', change: 'X', command: 'sync', env: CLAUDE_ENV, session: HUMAN, refused: true, paths: ['.claude/Hooks/extra.js'] },
+    { id: 'a', name: 'first-time init without settings lists no guarded change', state: 'fresh', change: null, command: 'init', guarded: [HOOK_DEST, SETTINGS] },
+    { id: 'b', name: 'init over an existing settings file lists the hook and settings', state: 'empty-settings', change: null, command: 'init', guarded: [HOOK_DEST, SETTINGS] },
+    { id: 'c', name: 'sync of a changed hook lists the hook', state: 'seeded', change: 'H', command: 'sync', guarded: [HOOK_DEST] },
+    { id: 'd', name: 'sync of a rule only lists nothing', state: 'seeded', change: 'R', command: 'sync', guarded: [] },
+    { id: 'f', name: 'diff lists the guarded change', state: 'seeded', change: 'H', command: 'diff', guarded: [HOOK_DEST] },
+    { id: 'm', name: 'a new mixed-case hook dest is guarded', state: 'seeded', change: 'X', command: 'sync', guarded: ['.claude/Hooks/extra.js'] },
   ];
 
   for (const row of ROWS) {
     test(`P6${row.id} ${row.name}`, () => {
       const { root, dir } = refusalFixture(row.state, row.change);
       const before = snapshot(root);
-      const { report } = planDeploy({ root, command: row.command, presetDir: dir, env: row.env, session: row.session });
-      if (row.refused) {
-        assert.notStrictEqual(report.refused, null);
-        assert.strictEqual(report.ok, false);
-        if (row.paths) assert.deepStrictEqual(report.refused.paths, row.paths);
-        if (row.failed) assert.deepStrictEqual(report.refused.failed, row.failed);
-      } else {
-        assert.strictEqual(report.refused, null);
-        assert.strictEqual(report.ok, row.ok);
-        if (row.guarded) assert.deepStrictEqual(report.guarded_changes, row.guarded);
-      }
+      const { report } = planDeploy({ root, command: row.command, presetDir: dir });
+      assert.strictEqual(report.ok, true);
+      assert.deepStrictEqual(report.guarded_changes, row.guarded);
       assert.deepStrictEqual(snapshot(root), before);
     });
   }
-
-  test('P6k omitted env reads process.env (CLAUDECODE set inside the test, restored after)', () => {
-    const { root, dir } = refusalFixture('seeded', 'H');
-    const before = snapshot(root);
-    const prior = process.env.CLAUDECODE;
-    process.env.CLAUDECODE = '1';
-    try {
-      const { report } = planDeploy({ root, command: 'sync', presetDir: dir, session: HUMAN });
-      assert.deepStrictEqual(report.refused.failed, ['env']);
-    } finally {
-      if (prior === undefined) delete process.env.CLAUDECODE;
-      else process.env.CLAUDECODE = prior;
-    }
-    assert.deepStrictEqual(snapshot(root), before);
-  });
-
-  test('P6l omitted session detects the real process; the test runner (piped stdout) is refused', () => {
-    const { root, dir } = refusalFixture('seeded', 'H');
-    const before = snapshot(root);
-    const { report } = planDeploy({ root, command: 'sync', presetDir: dir, env: {} });
-    assert.notStrictEqual(report.refused, null);
-    assert.ok(report.refused.failed.length > 0);
-    assert.deepStrictEqual(snapshot(root), before);
-  });
-
-  const ZSH_TABLE = '  300   200 /bin/zsh\n  200     1 /bin/zsh\n    1     0 /sbin/launchd\n';
-  const CLAUDE_TABLE = '  300   200 /bin/zsh\n  200     1 /usr/local/bin/claude\n    1     0 /sbin/launchd\n';
-  const SPACED_TABLE = '  300   200 /bin/zsh\n  200     1 /Applications/Claude Helper.app/Contents/MacOS/Claude Helper\n';
-  const CYCLE_TABLE = '  300   200 /bin/zsh\n  200   300 /bin/zsh\n';
-
-  test('P12 agentAncestor walks the parent chain and fails closed', () => {
-    assert.strictEqual(agentAncestor(CLAUDE_TABLE, 300), true);
-    assert.strictEqual(agentAncestor(ZSH_TABLE, 300), false);
-    assert.strictEqual(agentAncestor(SPACED_TABLE, 300), true);
-    assert.strictEqual(agentAncestor('', 300), true);
-    assert.strictEqual(agentAncestor(undefined, 300), true);
-    assert.strictEqual(agentAncestor(ZSH_TABLE, 999), true);
-    assert.strictEqual(agentAncestor(CYCLE_TABLE, 300), true);
-  });
-
-
-  test('P12 detectSession reads tty flags and the ps table; guardFailures orders the ids', () => {
-    const session = detectSession({ stdin: { isTTY: true }, stdout: {}, pid: 300, psOutput: ZSH_TABLE });
-    assert.deepStrictEqual(session, { stdin_tty: true, stdout_tty: false, agent_ancestor: false, orphan: false });
-    assert.deepStrictEqual(guardFailures({}, HUMAN), []);
-    assert.deepStrictEqual(
-      guardFailures({ CLAUDECODE: '1' }, { stdin_tty: false, stdout_tty: false, agent_ancestor: true }),
-      ['env', 'stdin_tty', 'stdout_tty', 'agent_ancestor'],
-    );
-  });
 });
 
 describe('malformed manifest stops planDeploy (B-FIX1 L6)', () => {
@@ -455,7 +388,7 @@ describe('malformed manifest stops planDeploy (B-FIX1 L6)', () => {
     const root = makeProject();
     writeAt(root, '.planning/gsd-project-manifest.json', JSON.stringify({ manifest_version: 1, preset: { name: 'demo', version: '1' }, files: {}, settings: { hooks: [null] } }));
     const before = snapshot(root);
-    const { report, ops } = planDeploy({ root, command: 'sync', presetDir: dir, env: {}, session: HUMAN });
+    const { report, ops } = planDeploy({ root, command: 'sync', presetDir: dir });
     assert.strictEqual(report.ok, false);
     assert.deepStrictEqual(report.errors, [{ reason: 'manifest is malformed' }]);
     assert.strictEqual(ops.manifest, null);
@@ -466,7 +399,6 @@ describe('malformed manifest stops planDeploy (B-FIX1 L6)', () => {
 describe('project init|diff|sync (agnostic-B)', () => {
   const GSD_TOOLS = path.join(__dirname, 'gsd-tools.js');
   const ENV_AGENT = { ...process.env, CLAUDECODE: '1' };
-  const { CLAUDECODE: _drop, ...NO_KEY } = process.env;
   const STYLE_REL = '.claude/rules/style.md';
   const HOOK_DEST = '.claude/hooks/guard.js';
   const STYLE = RULE.replace('{{stack.paths.backend}}', 'srv');
@@ -478,7 +410,7 @@ describe('project init|diff|sync (agnostic-B)', () => {
     hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'node .claude/hooks/guard.js' }] }] },
   };
 
-  const run = (root, presetDir, cmd, env = {}, session = HUMAN) => runCli(root, [cmd, '--preset-dir', presetDir], env, session, APPLY_IO);
+  const run = (root, presetDir, cmd) => runCli(root, [cmd, '--preset-dir', presetDir], APPLY_IO);
   const cli = (args, env) => spawnSync(process.execPath, [GSD_TOOLS, 'project', ...args], { encoding: 'utf8', env: { ...env, GSD_HOME: mkTmp('gsd-home-') } });
   const abs = (root, rel) => path.join(root, rel);
   const readSettings = (root) => JSON.parse(fs.readFileSync(abs(root, SETTINGS), 'utf8'));
@@ -673,14 +605,12 @@ describe('project init|diff|sync (agnostic-B)', () => {
     assert.strictEqual(STYLE_REL in readManifest(root).files, false);
   });
 
-  test('A18 a dropped guarded hook is removed only from a terminal: an agent env is refused and nothing changes', () => {
+  test('A18 a dropped guarded hook is removed on sync', () => {
     const { root, dir } = initialised();
     writePreset(dir, { files: DEFAULT_FILES.filter((f) => f.dest !== HOOK_DEST) });
-    const before = snapshot(root);
-    const r = run(root, dir, 'sync', { CLAUDECODE: '1' });
-    assert.strictEqual(r.exitCode, 1);
-    assert.deepStrictEqual(r.result.refused.paths, [HOOK_DEST]);
-    assert.deepStrictEqual(snapshot(root), before);
+    const r = run(root, dir, 'sync');
+    assert.strictEqual(r.exitCode, 0);
+    assert.strictEqual(fs.existsSync(abs(root, HOOK_DEST)), false);
   });
 
   const GATE_REL = 'scripts/gate.sh';
@@ -695,15 +625,13 @@ describe('project init|diff|sync (agnostic-B)', () => {
     return { root, dir };
   };
 
-  test('A19 a dropped file that was deployed guarded stays guarded: agent sync is refused, owner sees the delete', () => {
+  test('A19 a dropped file that was deployed guarded stays guarded: the delete is shown for confirmation', () => {
     const { root, dir } = deployedGate();
-    const agent = plan(root, 'sync', dir, { env: { CLAUDECODE: '1' } });
-    assert.strictEqual(agent.report.ok, false);
-    assert.deepStrictEqual(agent.report.refused.paths, [GATE_REL]);
+    assert.deepStrictEqual(plan(root, 'sync', dir).report.guarded_changes, [GATE_REL]);
     assert.strictEqual(fs.existsSync(abs(root, GATE_REL)), true);
 
     const asked = [];
-    const owner = runCli(root, ['sync', '--preset-dir', dir], {}, HUMAN, {
+    const owner = runCli(root, ['sync', '--preset-dir', dir], {
       confirm: (text) => {
         asked.push(text);
         return 'APPLY';
@@ -719,8 +647,7 @@ describe('project init|diff|sync (agnostic-B)', () => {
     const manifest = readManifest(root);
     delete manifest.files[GATE_REL].guarded;
     writeAt(root, MANIFEST, JSON.stringify(manifest, null, 2) + '\n');
-    const agent = plan(root, 'sync', dir, { env: { CLAUDECODE: '1' } });
-    assert.deepStrictEqual(agent.report.refused.paths, [GATE_REL]);
+    assert.deepStrictEqual(plan(root, 'sync', dir).report.guarded_changes, [GATE_REL]);
   });
 
   const TOKEN =`ghp_${'a'.repeat(36)}`;
@@ -732,12 +659,6 @@ describe('project init|diff|sync (agnostic-B)', () => {
         writePreset(dir, { rule: RULE_V2 });
         writeAt(root, CONFIG, JSON.stringify({ project: { slug: 'demo' }, stack: { capabilities: {} } }));
       },
-    },
-    { name: 'guarded hook change under CLAUDECODE', prep: (root, dir) => writePreset(dir, { rule: RULE_V2, hook: HOOK_V2 }), env: { CLAUDECODE: '1' } },
-    {
-      name: 'guarded hook change without a TTY',
-      prep: (root, dir) => writePreset(dir, { rule: RULE_V2, hook: HOOK_V2 }),
-      session: { ...HUMAN, stdin_tty: false },
     },
     {
       name: 'settings file overwritten with invalid JSON',
@@ -772,7 +693,7 @@ describe('project init|diff|sync (agnostic-B)', () => {
       const outsideBefore = snapshot(outside);
       cause.prep(root, dir, outside);
       const before = snapshot(root);
-      const res = run(root, dir, 'sync', cause.env ?? {}, cause.session ?? HUMAN);
+      const res = run(root, dir, 'sync');
       assert.strictEqual(res.exitCode, 1);
       assert.deepStrictEqual(res.result.written, []);
       assert.deepStrictEqual(snapshot(root), before);
@@ -780,29 +701,16 @@ describe('project init|diff|sync (agnostic-B)', () => {
     });
   }
 
-  test('A9 CLI: a guarded sync is refused under CLAUDECODE and without a TTY; an agent --preset-dir init is refused', () => {
+  test('A9 CLI: a guarded sync under CLAUDECODE with no TTY plans normally and reports the guarded change', () => {
     const { root, dir } = initialised();
     writePreset(dir, { rule: RULE_V2, hook: HOOK_V2 });
     const before = snapshot(root);
-    const withKey = cli(['sync', '--root', root, '--preset-dir', dir], ENV_AGENT);
-    assert.strictEqual(withKey.status, 1);
-    const body = JSON.parse(withKey.stdout);
-    assert.ok(body.refused.paths.includes(HOOK_DEST));
-    assert.ok(body.refused.failed.includes('env'));
+    const diff = cli(['diff', '--root', root, '--preset-dir', dir], ENV_AGENT);
+    assert.strictEqual(diff.status, 2);
+    assert.ok(JSON.parse(diff.stdout).guarded_changes.includes(HOOK_DEST));
     assert.deepStrictEqual(snapshot(root), before);
 
-    const noKey = cli(['sync', '--root', root, '--preset-dir', dir], NO_KEY);
-    assert.strictEqual(noKey.status, 1);
-    assert.ok(JSON.parse(noKey.stdout).refused.failed.includes('stdout_tty'));
-    assert.deepStrictEqual(snapshot(root), before);
-
-    const fresh = makeProject();
-    const init = cli(['init', '--root', fresh, '--preset-dir', makePreset()], ENV_AGENT);
-    assert.strictEqual(init.status, 1);
-    assert.strictEqual(JSON.parse(init.stdout).refused.reason, 'preset-dir requires a human terminal');
-    assert.ok(!fs.existsSync(abs(fresh, HOOK_DEST)));
-
-    assert.strictEqual(run(root, dir, 'sync', {}, HUMAN).exitCode, 0);
+    assert.strictEqual(run(root, dir, 'sync').exitCode, 0);
     assert.strictEqual(fs.readFileSync(abs(root, HOOK_DEST), 'utf8'), HOOK_V2);
   });
 
@@ -833,20 +741,6 @@ describe('project init|diff|sync (agnostic-B)', () => {
     assert.strictEqual(d.status, 2);
     assert.ok(JSON.parse(d.stdout).changes > 0);
     assert.deepStrictEqual(snapshot(root), before);
-  });
-
-  test('A12 an explicit env argument wins over process.env', () => {
-    const { root, dir } = initialised();
-    writePreset(dir, { hook: HOOK_V2 });
-    const prior = process.env.CLAUDECODE;
-    process.env.CLAUDECODE = '1';
-    try {
-      assert.strictEqual(runCli(root, ['sync', '--preset-dir', dir], {}, HUMAN, APPLY_IO).exitCode, 0);
-    } finally {
-      if (prior === undefined) delete process.env.CLAUDECODE;
-      else process.env.CLAUDECODE = prior;
-    }
-    assert.strictEqual(fs.readFileSync(abs(root, HOOK_DEST), 'utf8'), HOOK_V2);
   });
 
   test('A13 CLI: an unknown preset and an invalid preset name exit 1', () => {
@@ -926,7 +820,7 @@ describe('B-FIX3 F6 adopt counts as a change; a byte-equal file in another mode 
     assert.strictEqual(actionOf(res.report, STYLE), 'adopt');
     assert.strictEqual(res.report.changes, 1);
     assert.strictEqual(res.ops.files.some((f) => f.dest === STYLE), false);
-    assert.strictEqual(runCli(root, ['diff', '--preset-dir', dir], {}, HUMAN).exitCode, 2);
+    assert.strictEqual(runCli(root, ['diff', '--preset-dir', dir]).exitCode, 2);
   });
 
   test('F6-b a byte-equal unmanaged file in another mode is an update, not an adopt; apply sets the rendered mode and keeps the bytes', () => {

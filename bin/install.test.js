@@ -810,8 +810,6 @@ describe('rewriteClaudeDir anchors repo-relative @get-shit-done refs', () => {
 describe('WP22a installer safety: corrupt settings, backup record, staged swap, rollback', () => {
   const installer = () => require(INSTALL_JS_PATH);
   const recordModule = () => require(path.join(__dirname, 'install-record.js'));
-  const GOOD = { stdin_tty: true, stdout_tty: true, agent_ancestor: false, orphan: false };
-  const AGENT = { stdin_tty: false, stdout_tty: false, agent_ancestor: true, orphan: false };
 
   const filesUnder = (dir) => (fs.existsSync(dir)
     ? fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
@@ -846,7 +844,7 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
     const claude = seedClaudeDir(home);
     fs.writeFileSync(path.join(claude, 'settings.json'), '{"hooks": ');
     const before = snapshotOf(home);
-    const refusal = installer().refuseInstall({ targetDirs: [claude], env: {}, session: GOOD });
+    const refusal = installer().refuseInstall({ targetDirs: [claude] });
     assert.deepStrictEqual(refusal.paths, [path.join(claude, 'settings.json')]);
     assert.deepStrictEqual(snapshotOf(home), before);
     assert.throws(() => installer().readSettings(path.join(claude, 'settings.json')), /not valid JSON/);
@@ -909,10 +907,10 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
     const recordDir = recordModule().openRecord({ targetDirs: [claude], homeDir: home });
     simulateInstall(claude);
     assert.strictEqual(recordModule().closeRecord(recordDir, { owned: [newFileOf(claude)] }).status, 'closed');
-    const first = recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD });
+    const first = recordModule().rollbackNewest({ homeDir: home });
     assert.strictEqual(first.status, 'rolled-back');
     assert.deepStrictEqual(snapshotOf(claude), before);
-    const second = recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD });
+    const second = recordModule().rollbackNewest({ homeDir: home });
     assert.strictEqual(second.status, 'already-rolled-back');
     assert.deepStrictEqual(snapshotOf(claude), before);
   }));
@@ -923,7 +921,7 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
     simulateInstall(claude);
     recordModule().closeRecord(recordDir);
     fs.writeFileSync(path.join(claude, 'settings.json'), 'edited by owner\n');
-    const result = recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD });
+    const result = recordModule().rollbackNewest({ homeDir: home });
     assert.strictEqual(result.status, 'partial');
     assert.deepStrictEqual(result.left, [path.join(claude, 'settings.json')]);
     assert.strictEqual(fs.readFileSync(path.join(claude, 'settings.json'), 'utf8'), 'edited by owner\n');
@@ -933,20 +931,7 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
   test('rollback refuses a record that never closed', () => withHome((home) => {
     const claude = seedClaudeDir(home);
     recordModule().openRecord({ targetDirs: [claude], homeDir: home });
-    assert.strictEqual(recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD }).status, 'incomplete');
-  }));
-
-  test('an agent environment or agent session refuses install and rollback before any write', () => withHome((home) => {
-    const claude = seedClaudeDir(home);
-    const recordDir = recordModule().openRecord({ targetDirs: [claude], homeDir: home });
-    simulateInstall(claude);
-    recordModule().closeRecord(recordDir);
-    const mutated = snapshotOf(home);
-    assert.deepStrictEqual(installer().refuseInstall({ targetDirs: [claude], userScope: true, env: { CLAUDECODE: '1' }, session: GOOD }).failed, ['env']);
-    const result = recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: AGENT });
-    assert.strictEqual(result.status, 'refused');
-    assert.ok(result.refusal.failed.includes('agent_ancestor'));
-    assert.deepStrictEqual(snapshotOf(home), mutated);
+    assert.strictEqual(recordModule().rollbackNewest({ homeDir: home }).status, 'incomplete');
   }));
 
   // Subprocess cases: HOME is the temp home, so the real ~/.claude and ~/.gsd are never read or written.
@@ -971,15 +956,6 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
     try { return fn(); } finally { process.chdir(cwd); }
   };
 
-  test('global install from an agent environment is refused before any write', () => withHome((home) => {
-    seedClaudeDir(home);
-    const before = snapshotOf(home);
-    const run = runGlobalCli(home, { CLAUDECODE: '1' });
-    assert.strictEqual(run.status, 1);
-    assert.match(run.stdout + run.stderr, /Install refused/);
-    assert.deepStrictEqual(snapshotOf(home), before);
-  }));
-
   test('global install with a corrupt settings.json is refused and the file is not overwritten', () => withHome((home) => {
     const claude = seedClaudeDir(home);
     fs.writeFileSync(path.join(claude, 'settings.json'), '{"hooks": ');
@@ -991,21 +967,13 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
   }));
 
   // WP22a review: every user-scope path is guarded, every config file is parsed before the first write, the record is complete.
-  test('a local install whose target is the global dir is user scope: an agent session refuses it', () => withHome((home) => {
+  test('a local install whose target is the global dir is user scope; an agent-like env (CLAUDECODE=1) is not refused', () => withHome((home) => {
     seedClaudeDir(home);
-    withEnv({ HOME: home, CLAUDE_CONFIG_DIR: '' }, () => withCwd(home, () => {
-      const { refusal } = installer().runRefusal({ runtimes: ['claude'], isGlobal: false, env: { CLAUDECODE: '1' }, session: GOOD });
-      assert.deepStrictEqual(refusal.failed, ['env']);
+    withEnv({ HOME: home, CLAUDE_CONFIG_DIR: '', CLAUDECODE: '1' }, () => withCwd(home, () => {
+      const { refusal, userDirs } = installer().runRefusal({ runtimes: ['claude'], isGlobal: false });
+      assert.strictEqual(refusal, null);
+      assert.strictEqual(userDirs.length, 1);
     }));
-  }));
-
-  test('uninstall --global from an agent environment is refused before any removal', () => withHome((home) => {
-    seedClaudeDir(home);
-    const before = snapshotOf(home);
-    const run = runCli(home, ['--global', '--claude', '--uninstall'], { CLAUDECODE: '1' });
-    assert.strictEqual(run.status, 1);
-    assert.match(run.stdout + run.stderr, /Install refused/);
-    assert.deepStrictEqual(snapshotOf(home), before);
   }));
 
   test('a corrupt global settings.json refuses a local install before any write', () => withHome((home) => {
@@ -1014,7 +982,7 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
     const project = createScratchDir('gsd-wp22a-project-');
     try {
       withEnv({ HOME: home, CLAUDE_CONFIG_DIR: '' }, () => withCwd(project, () => {
-        const { refusal } = installer().runRefusal({ runtimes: ['claude'], isGlobal: false, env: {}, session: GOOD });
+        const { refusal } = installer().runRefusal({ runtimes: ['claude'], isGlobal: false });
         assert.deepStrictEqual(refusal.paths, [path.join(claude, 'settings.json')]);
       }));
     } finally { cleanup(project); }
@@ -1026,7 +994,7 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
     const project = createScratchDir('gsd-wp22a-project-');
     try {
       withEnv({ OPENCODE_CONFIG_DIR: path.dirname(config) }, () => withCwd(project, () => {
-        const check = () => installer().runRefusal({ runtimes: ['opencode'], isGlobal: false, env: {}, session: GOOD });
+        const check = () => installer().runRefusal({ runtimes: ['opencode'], isGlobal: false });
         fs.writeFileSync(config, '{ "permission": ');
         assert.deepStrictEqual(check().refusal.paths, [config]);
         fs.writeFileSync(config, '// kept by the owner\n{ "permission": {}, /* jsonc */ "model": "x", }\n');
@@ -1060,7 +1028,7 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
     fs.rmSync(link);
     fs.writeFileSync(link, 'replaced\n');
     recordModule().closeRecord(recordDir);
-    assert.strictEqual(recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD }).status, 'rolled-back');
+    assert.strictEqual(recordModule().rollbackNewest({ homeDir: home }).status, 'rolled-back');
     assert.strictEqual(fs.readlinkSync(link), 'a.js');
   }));
 
@@ -1074,7 +1042,7 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
     fs.mkdirSync(path.dirname(dep), { recursive: true });
     fs.writeFileSync(dep, 'dep\n');
     recordModule().closeRecord(recordDir, { owned: [newFileOf(claude)] });
-    assert.strictEqual(recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD }).status, 'rolled-back');
+    assert.strictEqual(recordModule().rollbackNewest({ homeDir: home }).status, 'rolled-back');
     assert.strictEqual(fs.readFileSync(foreign, 'utf8'), 'mine\n');
     assert.strictEqual(fs.readFileSync(dep, 'utf8'), 'dep\n');
     assert.strictEqual(fs.existsSync(newFileOf(claude)), false);
@@ -1322,7 +1290,7 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
     fs.mkdirSync(claude);
     fs.symlinkSync(dotfiles, path.join(claude, 'agents'));
     const before = treeOf(home);
-    const refusal = installer().refuseInstall({ targetDirs: [claude], env: {}, session: GOOD });
+    const refusal = installer().refuseInstall({ targetDirs: [claude] });
     assert.match(refusal.reason, /symlink/);
     assert.deepStrictEqual(refusal.paths, [path.join(claude, 'agents')]);
     assert.deepStrictEqual(treeOf(home), before);
@@ -1339,7 +1307,7 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
     recordModule().closeRecord(closed, { owned: [newFileOf(claude)] });
     recordModule().openRecord({ targetDirs: [claude], homeDir: home, now: new Date(base + 1000) });
     const afterInstall = snapshotOf(claude);
-    const result = recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD });
+    const result = recordModule().rollbackNewest({ homeDir: home });
     assert.strictEqual(result.status, 'incomplete');
     assert.deepStrictEqual(snapshotOf(claude), afterInstall);
   }));
@@ -1391,7 +1359,7 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
     recordModule().closeRecord(dir, { owned: [newFileOf(claude)] });
     fs.writeFileSync(mcp, '{"other":1,"mcpServers":{"mine":{},"telegram":{"command":"node"}}}\n');
     assert.strictEqual(recordModule().noteLateWrite({ homeDir: home, file: mcp }), true);
-    assert.strictEqual(recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD }).status, 'rolled-back');
+    assert.strictEqual(recordModule().rollbackNewest({ homeDir: home }).status, 'rolled-back');
     assert.deepStrictEqual(JSON.parse(fs.readFileSync(mcp, 'utf8')), { other: 1, mcpServers: { mine: {} } });
   }));
 
@@ -1403,7 +1371,7 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
     recordModule().closeRecord(dir, { owned: [newFileOf(claude)] });
     fs.writeFileSync(mcp, '{"mcpServers":{"telegram":{}}}\n');
     recordModule().noteLateWrite({ homeDir: home, file: mcp });
-    recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD });
+    recordModule().rollbackNewest({ homeDir: home });
     assert.strictEqual(fs.existsSync(mcp), false);
   }));
 
@@ -1439,7 +1407,7 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
     fs.writeFileSync(mcp, JSON.stringify({ mcpServers: { telegram: { env: { T: 'changed' } } } }));
     recordModule().noteLateWrite({ homeDir: home, file: mcp });
     assert.strictEqual(contentsUnder(dir).includes(SECRET), false);
-    const result = recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD });
+    const result = recordModule().rollbackNewest({ homeDir: home });
     assert.strictEqual(result.status, 'partial');
     assert.match(result.left[0], /restore it by hand/);
     assert.strictEqual(JSON.parse(fs.readFileSync(mcp, 'utf8')).mcpServers.telegram.env.T, 'changed');
@@ -1458,12 +1426,11 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
     fs.writeFileSync(mcp, '{"mcpServers":{"telegram":{}}}\n');
     assert.strictEqual(recordModule().noteLateWrite({ homeDir: home, file: mcp }), false);
     assert.strictEqual(fs.readFileSync(path.join(older, 'record.json'), 'utf8'), olderBytes);
-    recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD });
+    recordModule().rollbackNewest({ homeDir: home });
     assert.strictEqual(fs.existsSync(mcp), true);
   }));
 
-  // Items 2 and 5 end to end: the real install() under a temp HOME with npm stubbed (the CLI entry is skipped because
-  // it refuses agent sessions); the record is driven by the same exported functions the CLI uses.
+  // Items 2 and 5 end to end: the real install() under a temp HOME with npm stubbed (the CLI entry is skipped); the record is driven by the same exported functions the CLI uses.
   const treeOf = (dir) => {
     const walk = (current) => fs.readdirSync(current, { withFileTypes: true }).flatMap((e) => {
       const p = path.join(current, e.name);
@@ -1516,7 +1483,7 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
     const second = driveInstall(home, claude, project);
     assert.strictEqual(second.status, 0, second.stdout + second.stderr);
     assert.strictEqual(fs.readdirSync(upgrades).length, 1);
-    const result = recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD });
+    const result = recordModule().rollbackNewest({ homeDir: home });
     assert.strictEqual(result.status, 'rolled-back', JSON.stringify(result.left));
     assert.deepStrictEqual(treeOf(claude), seed);
   }));
@@ -1529,7 +1496,7 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
       const seed = treeOf(claude);
       const run = driveInstall(home, claude, project);
       assert.strictEqual(run.status, 0, run.stdout + run.stderr);
-      assert.strictEqual(recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD }).status, 'rolled-back');
+      assert.strictEqual(recordModule().rollbackNewest({ homeDir: home }).status, 'rolled-back');
       assert.deepStrictEqual(treeOf(claude), seed);
     } finally { cleanup(project); }
   }));
@@ -1542,7 +1509,7 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
     fs.rmSync(path.join(claude, 'get-shit-done', 'node_modules'), { recursive: true });
     assert.strictEqual(recordModule().closeRecord(recordDir, { owned: [newFileOf(claude)] }).status, 'closed');
     const afterInstall = snapshotOf(claude);
-    assert.strictEqual(recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD }).status, 'deps-missing');
+    assert.strictEqual(recordModule().rollbackNewest({ homeDir: home }).status, 'deps-missing');
     assert.deepStrictEqual(snapshotOf(claude), afterInstall);
   }));
 });

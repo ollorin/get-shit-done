@@ -8,7 +8,6 @@ const path = require('path');
 const { planDeploy, runCli, CONFIG, MANIFEST, SETTINGS } = require('./project-deploy.js');
 const { redactShape } = require('./project-deploy-redact.js');
 
-const HUMAN = Object.freeze({ stdin_tty: true, stdout_tty: true, agent_ancestor: false });
 const TOKEN = 'gh' + 'p_' + 'a1B2'.repeat(9);
 const HOOK_DEST = ['.claude', 'hooks', 'guard.js'].join('/');
 const HOOK_CMD = `node ${HOOK_DEST}`;
@@ -71,7 +70,7 @@ describe('M3 redaction of report settings', () => {
   test('R2 a secret in a rendered hook command is refused and never appears in the report', () => {
     const root = makeProject();
     const dir = makePreset(FRAGMENT(['Bash(ls:*)'], `curl -H ${TOKEN} ${HOOK_CMD}`));
-    const { report } = planDeploy({ root, command: 'init', presetDir: dir, env: {}, session: HUMAN });
+    const { report } = planDeploy({ root, command: 'init', presetDir: dir });
     assert.strictEqual(report.ok, false);
     assert.deepStrictEqual(report.settings, { action: 'create', added: null, removed: null, redacted: true });
     assert.ok(!JSON.stringify(report).includes(TOKEN));
@@ -80,7 +79,7 @@ describe('M3 redaction of report settings', () => {
   test('R3 an existing allow rule holding a token, removed by sync, is redacted in report.settings.removed', () => {
     const root = makeProject();
     const dir = makePreset(FRAGMENT(['Bash(ls:*)']));
-    assert.strictEqual(runCli(root, ['init', '--preset-dir', dir], {}, HUMAN, { confirm: () => 'APPLY' }).exitCode, 0);
+    assert.strictEqual(runCli(root, ['init', '--preset-dir', dir], { confirm: () => 'APPLY' }).exitCode, 0);
     const settings = readJson(root, SETTINGS);
     settings.permissions.allow.push(`Bash(curl -H ${TOKEN})`);
     writeJson(root, SETTINGS, settings);
@@ -88,7 +87,7 @@ describe('M3 redaction of report settings', () => {
     manifest.settings.permissions.allow.push(`Bash(curl -H ${TOKEN})`);
     writeJson(root, MANIFEST, manifest);
 
-    const { report } = planDeploy({ root, command: 'sync', presetDir: dir, env: {}, session: HUMAN });
+    const { report } = planDeploy({ root, command: 'sync', presetDir: dir });
     assert.strictEqual(report.ok, true);
     assert.deepStrictEqual(report.settings.removed.permissions.allow, ['<redacted:vcs_token>']);
     assert.ok(!JSON.stringify(report).includes(TOKEN));

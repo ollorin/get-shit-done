@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { renderPreset, loadPreset } = require('./project-deploy-render.js');
 const { resolvePaths } = require('./project-deploy-canon.js');
-const { hookCommandsOf, triplesCommands, guardedSet, refusalOf } = require('./project-deploy-guard.js');
+const { hookCommandsOf, triplesCommands, guardedSet } = require('./project-deploy-guard.js');
 const { sha256, planWholeFile, planBlockFile } = require('./project-deploy-files.js');
 const { scanText } = require('./project-deploy-scan.js');
 const { settingsReport } = require('./project-deploy-redact.js');
@@ -202,7 +202,6 @@ function previewUninitialised(root, dir, command) {
 function planDeploy(opts) {
   const { root, command, presetDir, presetName, presetsRoot = DEFAULT_PRESETS } = opts;
   const adopting = ADOPT_COMMANDS.has(command);
-  const env = opts.env === undefined ? process.env : opts.env;
 
   if (!isDirectory(root)) return stop(command, 'root is not a directory');
   const config = opts.config !== undefined
@@ -305,8 +304,6 @@ function planDeploy(opts) {
 
   const createOnly = planned.files.filter((f) => guarded.includes(f.path)).every((f) => f.action === 'create');
   const exempt = command === 'init' && !exists(path.join(root, SETTINGS)) && createOnly;
-  const refused = refusalOf({ command, guarded, env, session: opts.session, presetFlag: opts.presetFlag === true, exempt });
-  if (refused) return { report: { ...report, ok: false, refused }, ops: EMPTY_OPS };
 
   const manifestOut = {
     manifest_version: 1,
@@ -360,13 +357,13 @@ function parseArgs(args) {
   return { command, opts };
 }
 
-function runCli(cwd, args, env, session, io = {}) {
+function runCli(cwd, args, io = {}) {
   const parsed = parseArgs(args);
   if (parsed === null) return { exitCode: 1, result: { ok: false, errors: [{ reason: USAGE }] } };
   const { command, opts } = parsed;
   const root = path.resolve(cwd, opts.root ?? '.');
   const presetDir = opts['preset-dir'] === undefined ? undefined : path.resolve(cwd, opts['preset-dir']);
-  const plan = planDeploy({ root, command, presetDir, presetName: opts.preset, env, session, presetFlag: presetDir !== undefined, ...(io.presetsRoot === undefined ? {} : { presetsRoot: io.presetsRoot }) });
+  const plan = planDeploy({ root, command, presetDir, presetName: opts.preset, ...(io.presetsRoot === undefined ? {} : { presetsRoot: io.presetsRoot }) });
   const { report } = plan;
   if (!report.ok) return { exitCode: 1, result: { ...report, written: [] } };
   if (report.already_adopted) return { exitCode: 0, result: report };

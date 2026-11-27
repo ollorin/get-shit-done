@@ -9,7 +9,6 @@ const { runCli, CONFIG, SETTINGS, MANIFEST } = require('./project-deploy.js');
 const { sha256 } = require('./project-deploy-files.js');
 const { confirmationText } = require('./project-deploy-confirm.js');
 
-const HUMAN = Object.freeze({ stdin_tty: true, stdout_tty: true, agent_ancestor: false });
 const HOOK_DEST = ['.claude', 'hooks', 'guard.js'].join('/');
 const HOOK_CMD = `node ${HOOK_DEST}`;
 const CONFIG_JSON = { project: { slug: 'demo' }, stack: { paths: { backend: 'srv' }, capabilities: {} } };
@@ -71,7 +70,7 @@ const ask = (answer) => {
   return { asked, io: { confirm: (text) => { asked.push(text); return answer; } } };
 };
 
-const cli = (root, command, presetDir, io, session = HUMAN) => runCli(root, [command, '--preset-dir', presetDir], {}, session, io);
+const cli = (root, command, presetDir, io) => runCli(root, [command, '--preset-dir', presetDir], io);
 
 function initialised(fragment) {
   const root = makeProject();

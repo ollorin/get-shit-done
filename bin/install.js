@@ -6,8 +6,6 @@ const os = require('os');
 const readline = require('readline');
 const crypto = require('crypto');
 const { execSync, execFileSync } = require('child_process');
-const { refusalOf } = require('../get-shit-done/bin/project-deploy-guard.js');
-const { detectSession } = require('../get-shit-done/bin/project-deploy-session.js');
 const { openRecord, closeOnExit, ownedFilesOf, stagePathsOf, treesOf, repairTree } = require('./install-record.js');
 
 // Colors
@@ -259,19 +257,19 @@ function isUserScope(runtime, isGlobal, targetDir) {
 }
 
 /**
- * Refusal before any write: a config file that does not parse (any run), or an agent session
- * (user-scope targets only: the shared ~/.claude is what the guard protects). Null when the run may proceed.
+ * Refusal before any write: a config file that does not parse, or a tree the install replaces that is a symlink.
+ * Null when the run may proceed.
  */
-function refuseInstall({ targetDirs, runtimes = [], userScope, env, session, replacesTrees = true }) {
+function refuseInstall({ targetDirs, runtimes = [], replacesTrees = true }) {
   const corrupt = configFilesOf(runtimes, targetDirs).filter((config) => !isValidConfig(config)).map(({ file }) => file);
   if (corrupt.length > 0) {
-    return { reason: 'config file is not valid JSON; fix or move it, nothing was written', paths: corrupt, failed: [] };
+    return { reason: 'config file is not valid JSON; fix or move it, nothing was written', paths: corrupt };
   }
   const linked = replacesTrees ? targetDirs.flatMap((dir) => treesOf(dir)).map((tree) => tree.liveDir).filter(isSymlink) : [];
   if (linked.length > 0) {
-    return { reason: 'a tree the install replaces is a symlink; the swap would turn it into a real directory, so nothing was written. Install into the link target by hand or remove the link', paths: linked, failed: [] };
+    return { reason: 'a tree the install replaces is a symlink; the swap would turn it into a real directory, so nothing was written. Install into the link target by hand or remove the link', paths: linked };
   }
-  return userScope ? refusalOf({ command: 'install', guarded: targetDirs, env, session }) : null;
+  return null;
 }
 
 // The doc-compression hook require()s these at runtime; a swap must never drop them silently.
@@ -2259,20 +2257,19 @@ function targetDirOf(runtime, isGlobal) {
  * Checks every run that writes or removes files (install and uninstall): {userDirs, refusal}.
  * userDirs are the targets in user scope; refusal is null when the run may proceed.
  */
-function runRefusal({ runtimes, isGlobal, env, session, replacesTrees = true }) {
+function runRefusal({ runtimes, isGlobal, replacesTrees = true }) {
   const targetDirs = runtimes.map((runtime) => targetDirOf(runtime, isGlobal));
   const userDirs = targetDirs.filter((dir, i) => isUserScope(runtimes[i], isGlobal, dir));
-  const refusal = refuseInstall({ targetDirs, runtimes, userScope: userDirs.length > 0, env, session, replacesTrees });
+  const refusal = refuseInstall({ targetDirs, runtimes, replacesTrees });
   return { userDirs, refusal };
 }
 
 // Exits before the first write when refused; otherwise opens the rollback record for user-scope targets.
 function beginRun(runtimes, isGlobal, replacesTrees = true) {
-  const { userDirs, refusal } = runRefusal({ runtimes, isGlobal, env: process.env, session: detectSession(), replacesTrees });
+  const { userDirs, refusal } = runRefusal({ runtimes, isGlobal, replacesTrees });
   if (refusal) {
-    const checks = refusal.failed.length > 0 ? [`checks failed: ${refusal.failed.join(', ')}`] : [];
     console.error(`  ${yellow}Install refused:${reset} ${refusal.reason}`);
-    for (const line of [...refusal.paths, ...checks]) console.error(`    ${line}`);
+    for (const line of refusal.paths) console.error(`    ${line}`);
     process.exit(1);
   }
   if (userDirs.length > 0) {

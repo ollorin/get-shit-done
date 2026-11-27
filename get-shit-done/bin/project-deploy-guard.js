@@ -7,9 +7,9 @@
 // `node -e` with split strings) is not visible statically, and an option carrying a path
 // (`--config=scripts/`) is not a path token. The boundary there is human confirmation (identity
 // guard, typed APPLY) and the PreToolUse deny Phase H recommends.
+// The guarded set decides which changes need the typed APPLY confirmation.
 
 const { fsFold, isPlainObject } = require('./project-deploy-fs.js');
-const { detectSession, guardFailures } = require('./project-deploy-session.js');
 
 const GUARDED_TOPS = new Set(['.husky', '.githooks']);
 const TOKEN_SPLIT_RE = /[\s"'`/;&|$()]+/;
@@ -115,14 +115,4 @@ function guardedSet({ canonDests, hookCommands, presetFlags }) {
     .map(({ file }) => file));
 }
 
-function refusalOf({ command, guarded, env, session, presetFlag, exempt }) {
-  if (command === 'diff') return null;
-  if (!presetFlag && (guarded.length === 0 || exempt)) return null;
-  const failed = guardFailures(env, session === undefined ? detectSession() : session);
-  if (failed.length === 0) return null;
-  return presetFlag
-    ? { reason: 'preset-dir requires a human terminal', paths: guarded, failed }
-    : { reason: 'guardrail paths change only from a terminal outside an agent session', paths: guarded, failed };
-}
-
-module.exports = { hookCommandsOf, triplesCommands, guardedSet, refusalOf, globMatch, GLOB_MAX };
+module.exports = { hookCommandsOf, triplesCommands, guardedSet, globMatch, GLOB_MAX };

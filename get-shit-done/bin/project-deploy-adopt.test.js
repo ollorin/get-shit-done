@@ -11,7 +11,6 @@ const { renderPreset } = require('./project-deploy-render.js');
 const { mergeSettings, serializeSettings } = require('./project-deploy-settings.js');
 
 const PRESETS = path.join(__dirname, '..', 'presets');
-const HUMAN = Object.freeze({ stdin_tty: true, stdout_tty: true, agent_ancestor: false });
 const LOCAL_COUNT = 13;
 
 const tmps = [];
@@ -57,7 +56,7 @@ function projectFiles(root) {
   return out;
 }
 
-const adopt = (root, command) => runCli(root, [command, '--root', root, '--preset', 'igaming'], process.env, HUMAN);
+const adopt = (root, command) => runCli(root, [command, '--root', root, '--preset', 'igaming']);
 
 describe('project adopt', () => {
   test('adopt-diff previews the LOCAL list and writes nothing', () => {
@@ -118,7 +117,7 @@ describe('project adopt', () => {
     tmps.push(home);
     const env = { ...process.env, GSD_HOME: home };
     const args = ['adopt', '--root', root, '--preset', 'igaming'];
-    const r = initWithRegistration(root, args, env, () => runCli(root, args, env, HUMAN));
+    const r = initWithRegistration(root, args, env, () => runCli(root, args));
     assert.strictEqual(r.exitCode, 0, JSON.stringify(r.result.errors));
     const config = JSON.parse(fs.readFileSync(path.join(root, CONFIG), 'utf8'));
     assert.deepStrictEqual(config.stack.gates.map((g) => g.id), ['hook-canaries']);
@@ -135,11 +134,11 @@ describe('project adopt', () => {
     tmps.push(home);
     const env = { ...process.env, GSD_HOME: home };
     const args = ['adopt', '--root', root, '--preset', 'igaming'];
-    const first = initWithRegistration(root, args, env, () => runCli(root, args, env, HUMAN));
+    const first = initWithRegistration(root, args, env, () => runCli(root, args));
     assert.strictEqual(first.exitCode, 0, JSON.stringify(first.result.errors));
     const entry = JSON.parse(fs.readFileSync(path.join(home, 'projects.json'), 'utf8')).projects.igaming;
     assert.strictEqual(typeof entry.port_base, 'number');
-    const second = initWithRegistration(root, args, env, () => runCli(root, args, env, HUMAN));
+    const second = initWithRegistration(root, args, env, () => runCli(root, args));
     assert.strictEqual(second.exitCode, 0);
     assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(home, 'projects.json'), 'utf8')).projects.igaming, entry);
   });

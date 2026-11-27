@@ -9,7 +9,6 @@ const { planDeploy } = require('./project-deploy.js');
 const { canonicalRel, sameFile } = require('./project-deploy-fs.js');
 const { resolvePaths, isGuardedCanon } = require('./project-deploy-canon.js');
 
-const HUMAN = Object.freeze({ stdin_tty: true, stdout_tty: true, agent_ancestor: false });
 const CONFIG = '.planning/config.json';
 const SYMLINK_REASON = 'dest traverses a symlink';
 
@@ -44,7 +43,7 @@ const makePreset = (dests) => {
 };
 
 const plan = (root, dests) => planDeploy({
-  root, command: 'init', presetDir: makePreset(dests), env: {}, session: HUMAN,
+  root, command: 'init', presetDir: makePreset(dests),
 });
 
 const hasError = (res, file, reason) => res.report.errors.some((e) => e.file === file && e.reason === reason);

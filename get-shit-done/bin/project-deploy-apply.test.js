@@ -9,7 +9,6 @@ const { applyPlan } = require('./project-deploy-apply.js');
 const { planDeploy, CONFIG, MANIFEST } = require('./project-deploy.js');
 const { sha256 } = require('./project-deploy-files.js');
 
-const HUMAN = Object.freeze({ stdin_tty: true, stdout_tty: true, agent_ancestor: false });
 const DEFAULT_CONFIG = { project: { slug: 'demo' }, stack: { paths: { backend: 'srv' }, capabilities: {} } };
 const RULE = '# Style\n\nBackend lives in {{stack.paths.backend}}.\n';
 const HOOK = '// guard\nprocess.exit(0);\n';
@@ -126,7 +125,7 @@ describe('applyPlan is transactional (B-FIX1 L7)', () => {
   test('after a rolled-back init, re-planning and re-running init succeeds', () => {
     const root = makeProject();
     const presetDir = makePreset();
-    const first = planDeploy({ root, command: 'init', presetDir, env: {}, session: HUMAN });
+    const first = planDeploy({ root, command: 'init', presetDir });
     assert.strictEqual(first.report.ok, true);
     const before = snapshot(root);
     const r = applyPlan(root, first, 'init', { rename: failAt(3) });
@@ -134,7 +133,7 @@ describe('applyPlan is transactional (B-FIX1 L7)', () => {
     assert.strictEqual(r.rolled_back, true);
     assert.deepStrictEqual(snapshot(root), before);
     assert.strictEqual(fs.existsSync(path.join(root, MANIFEST)), false);
-    const second = planDeploy({ root, command: 'init', presetDir, env: {}, session: HUMAN });
+    const second = planDeploy({ root, command: 'init', presetDir });
     assert.strictEqual(second.report.ok, true);
     const rerun = applyPlan(root, second, 'init');
     assert.strictEqual(rerun.ok, true);

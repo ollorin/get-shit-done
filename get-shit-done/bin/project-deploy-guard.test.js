@@ -11,9 +11,6 @@ const { guardedSet, hookCommandsOf, triplesCommands, globMatch, GLOB_MAX } = req
 const { loadPreset } = require('./project-deploy-render.js');
 const { sha256 } = require('./project-deploy-files.js');
 
-const HUMAN = Object.freeze({ stdin_tty: true, stdout_tty: true, agent_ancestor: false });
-const ALL_FAIL = Object.freeze({ stdin_tty: false, stdout_tty: false, agent_ancestor: true });
-const AGENT_ENV = Object.freeze({ CLAUDECODE: '1' });
 const APPLY_IO = Object.freeze({ confirm: () => 'APPLY' });
 const HOOKS_DIR = ['.claude', 'hooks'].join('/');
 const HOOK_DEST = `${HOOKS_DIR}/guard.js`;
@@ -51,19 +48,6 @@ function presetWith(files, fragment = null) {
     name: 'demo', version: '1', files: entries, ...(fragment ? { settings_fragment: 'fragment.json' } : {}),
   }));
   return dir;
-}
-
-function snapshot(root) {
-  const out = [];
-  const walk = (rel) => {
-    for (const e of fs.readdirSync(path.join(root, rel), { withFileTypes: true })) {
-      const r = rel ? `${rel}/${e.name}` : e.name;
-      if (e.isDirectory()) walk(r);
-      else out.push([r, sha256(fs.readFileSync(path.join(root, r)))]);
-    }
-  };
-  walk('');
-  return out.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
 }
 
 const canonDest = (file, canon, h1 = false) => ({ file, canon, h1 });
@@ -137,7 +121,7 @@ describe('H2 through planDeploy and runCli', () => {
     }));
     const dir = presetWith([{ src: 'gate.sh', dest: 'scripts/gate.sh', kind: 'whole', content: 'new\n' }],
       { permissions: { allow: ['Bash(ls:*)'] } });
-    const { report } = planDeploy({ root, command: 'sync', presetDir: dir, env: {}, session: HUMAN });
+    const { report } = planDeploy({ root, command: 'sync', presetDir: dir });
     assert.strictEqual(report.ok, true);
     assert.deepStrictEqual(report.guarded_changes, ['scripts/gate.sh']);
   });
@@ -146,65 +130,40 @@ describe('H2 through planDeploy and runCli', () => {
     const root = project({ hooks: { PostToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'node scripts/gate.sh' }] }] } });
     const dir = presetWith([{ src: 'gate.sh', dest: 'scripts/gate.sh', kind: 'whole', content: 'x\n' }],
       { permissions: { allow: ['Bash(ls:*)'] } });
-    const { report } = planDeploy({ root, command: 'init', presetDir: dir, env: AGENT_ENV, session: ALL_FAIL });
+    const { report } = planDeploy({ root, command: 'init', presetDir: dir });
     assert.deepStrictEqual(report.guarded_changes, [SETTINGS, 'scripts/gate.sh']);
-    assert.strictEqual(report.refused.reason, 'guardrail paths change only from a terminal outside an agent session');
   });
 
-  test('H2-i an agent init that updates an existing .husky file is refused and writes nothing', () => {
+  test('H2-p an init that would update an existing .husky file lists it as a guarded update', () => {
     const root = project();
     writeAt(root, '.husky/pre-commit', 'echo hi\n');
     const dir = presetWith([{ src: 'hook.sh', dest: '.husky/pre-commit', kind: 'block', content: BLOCK }]);
-    const before = snapshot(root);
-    const res = runCli(root, ['init', '--preset-dir', dir], AGENT_ENV, ALL_FAIL);
-    assert.strictEqual(res.exitCode, 1);
-    assert.deepStrictEqual(res.result.refused.paths, ['.husky/pre-commit']);
-    assert.deepStrictEqual(res.result.written, []);
-    assert.deepStrictEqual(snapshot(root), before);
-  });
-
-  test('H2-p an agent init that would update an existing .husky file is refused by the exemption check alone', () => {
-    const root = project();
-    writeAt(root, '.husky/pre-commit', 'echo hi\n');
-    const dir = presetWith([{ src: 'hook.sh', dest: '.husky/pre-commit', kind: 'block', content: BLOCK }]);
-    const { report } = planDeploy({ root, command: 'init', presetDir: dir, env: AGENT_ENV, session: ALL_FAIL });
+    const { report } = planDeploy({ root, command: 'init', presetDir: dir });
     assert.deepStrictEqual(report.guarded_changes, ['.husky/pre-commit']);
     assert.strictEqual(report.files[0].action, 'update');
-    assert.strictEqual(report.refused.reason, 'guardrail paths change only from a terminal outside an agent session');
   });
 
-  test('H2-j an agent init with --preset-dir is refused when hooks would be written', () => {
+  test('H2-k an init with --preset-dir writes the guarded hook', () => {
     const root = project();
     const dir = presetWith([{ src: 'guard.js', dest: HOOK_DEST, kind: 'whole', content: 'x\n' }]);
-    const before = snapshot(root);
-    const res = runCli(root, ['init', '--preset-dir', dir], AGENT_ENV, ALL_FAIL);
-    assert.strictEqual(res.exitCode, 1);
-    assert.strictEqual(res.result.refused.reason, 'preset-dir requires a human terminal');
-    assert.deepStrictEqual(snapshot(root), before);
-  });
-
-  test('H2-k a human init with --preset-dir writes the guarded hook', () => {
-    const root = project();
-    const dir = presetWith([{ src: 'guard.js', dest: HOOK_DEST, kind: 'whole', content: 'x\n' }]);
-    const res = runCli(root, ['init', '--preset-dir', dir], {}, HUMAN, APPLY_IO);
+    const res = runCli(root, ['init', '--preset-dir', dir], APPLY_IO);
     assert.strictEqual(res.exitCode, 0);
     assert.ok(fs.existsSync(path.join(root, HOOK_DEST)));
   });
 
-  test('H2-l diff is never refused, with or without --preset-dir', () => {
+  test('H2-m an agent-like env (CLAUDECODE=1, no tty) installs the guarded hook like a terminal', () => {
     const root = project();
     const dir = presetWith([{ src: 'guard.js', dest: HOOK_DEST, kind: 'whole', content: 'x\n' }]);
-    const res = runCli(root, ['diff', '--preset-dir', dir], AGENT_ENV, ALL_FAIL);
-    assert.strictEqual(res.result.refused, null);
-    assert.strictEqual(res.exitCode, 2);
-  });
-
-  test('H2-m an agent init whose guarded files are all created is still exempt without --preset-dir', () => {
-    const root = project();
-    const dir = presetWith([{ src: 'guard.js', dest: HOOK_DEST, kind: 'whole', content: 'x\n' }]);
-    const { report } = planDeploy({ root, command: 'init', presetDir: dir, env: AGENT_ENV, session: ALL_FAIL });
-    assert.strictEqual(report.ok, true);
-    assert.strictEqual(report.refused, null);
+    const prior = process.env.CLAUDECODE;
+    process.env.CLAUDECODE = '1';
+    try {
+      const res = runCli(root, ['init', '--preset-dir', dir], APPLY_IO);
+      assert.strictEqual(res.exitCode, 0);
+      assert.ok(fs.existsSync(path.join(root, HOOK_DEST)));
+    } finally {
+      if (prior === undefined) delete process.env.CLAUDECODE;
+      else process.env.CLAUDECODE = prior;
+    }
   });
 
   test('H2-n a non-boolean guarded key is a preset error', () => {
@@ -217,13 +176,12 @@ describe('H2 through planDeploy and runCli', () => {
     assert.deepStrictEqual(r.errors, ['guarded must be a boolean: a.md']);
   });
 
-  test('H2-o a guarded:true preset file that is not in a hook dir is refused for an agent sync', () => {
+  test('H2-o a guarded:true preset file that is not in a hook dir is listed as a guarded change', () => {
     const root = project({});
     const dir = presetWith([{ src: 'a.md', dest: 'docs/a.md', kind: 'whole', content: 'x\n', guarded: true }]);
-    const { report } = planDeploy({ root, command: 'init', presetDir: dir, env: AGENT_ENV, session: ALL_FAIL });
+    const { report } = planDeploy({ root, command: 'init', presetDir: dir });
     assert.deepStrictEqual(report.guarded_changes, ['docs/a.md']);
-    assert.strictEqual(report.ok, false);
-    assert.strictEqual(report.refused.reason, 'guardrail paths change only from a terminal outside an agent session');
+    assert.strictEqual(report.ok, true);
   });
 });
 
@@ -265,22 +223,11 @@ describe('B-FIX2 hook-reference clauses (1a-1d)', () => {
   });
 });
 
-describe('B-FIX2 --preset-dir refused for every agent session (2)', () => {
-  test('an agent init with --preset-dir is refused even when no guarded path is written', () => {
+describe('--preset-dir', () => {
+  test('a --preset-dir run with no guarded path writes', () => {
     const root = project();
     const dir = presetWith([{ src: 'a.md', dest: 'docs/a.md', kind: 'whole', content: 'x\n' }]);
-    const before = snapshot(root);
-    const res = runCli(root, ['init', '--preset-dir', dir], AGENT_ENV, ALL_FAIL);
-    assert.strictEqual(res.exitCode, 1);
-    assert.strictEqual(res.result.refused.reason, 'preset-dir requires a human terminal');
-    assert.deepStrictEqual(res.result.refused.paths, []);
-    assert.deepStrictEqual(snapshot(root), before);
-  });
-
-  test('a human --preset-dir run with no guarded path still writes', () => {
-    const root = project();
-    const dir = presetWith([{ src: 'a.md', dest: 'docs/a.md', kind: 'whole', content: 'x\n' }]);
-    const res = runCli(root, ['init', '--preset-dir', dir], {}, HUMAN, APPLY_IO);
+    const res = runCli(root, ['init', '--preset-dir', dir], APPLY_IO);
     assert.strictEqual(res.exitCode, 0);
     assert.ok(fs.existsSync(path.join(root, 'docs/a.md')));
   });
