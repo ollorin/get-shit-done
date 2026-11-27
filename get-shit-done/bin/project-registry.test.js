@@ -706,7 +706,8 @@ describe('WP18 defaults table in init and sync', () => {
   };
 
   test('init fills the absent table defaults, keeps the values the project set, and fills no runner-specific key', () => {
-    const { root } = initBase({ project: { slug: 'demo' }, stack: { capabilities: { web_ui: {} }, isolation: { lock_dir: 'mine' }, mutation: { timeout_s: 300 } } });
+    const runner = { id: 'custom', test_cmd: 'run {file} -t {name}', build_error_pattern: 'BUILD FAILED', pass_pattern: 'passed (\\d+)', selftest: { dir: 'd', ext: '.js', pass: 'p', kill: 'k', build: 'b' } };
+    const { root } = initBase({ project: { slug: 'demo' }, stack: { capabilities: { web_ui: {} }, isolation: { lock_dir: 'mine' }, mutation: { timeout_s: 300, runners: [runner] } } });
     const cfg = configOf(root);
     assert.strictEqual(cfg.stack.isolation.lock_dir, 'mine');
     assert.strictEqual(cfg.stack.mutation.timeout_s, 300);
