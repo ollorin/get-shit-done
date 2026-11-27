@@ -45,18 +45,25 @@ const writeAt = (root, rel, content) => {
 };
 const git = (root, ...args) => spawnSync('git', args, { cwd: root, encoding: 'utf8' }).stdout.trim();
 
-function writePreset(dir, version) {
+// A preset shaped like the base preset: its SubagentStop hook is the framework reaper.
+const REAPER_FRAGMENT = {
+  hooks: { ...FRAGMENT.hooks, SubagentStop: [{ hooks: [{ type: 'command', command: 'node "$CLAUDE_PROJECT_DIR"/.claude/hooks/agent-stop-reaper.mjs' }] }] },
+};
+const NEIGHBOUR_HOOK = 'deno run --allow-run=ps,kill /x/scripts/host/subagent-stop-record.ts';
+const localWithNeighbour = () => ({ env: { A: '1' }, hooks: { SubagentStop: [{ hooks: [{ type: 'command', command: NEIGHBOUR_HOOK }] }] } });
+
+function writePreset(dir, version, fragment = FRAGMENT) {
   writeAt(dir, 'rules/style.md', `# Style v${version}\n`);
   writeAt(dir, 'hooks/guard.js', `// guard v${version}\nprocess.exit(0);\n`);
-  writeAt(dir, 'settings.fragment.json', JSON.stringify(FRAGMENT));
+  writeAt(dir, 'settings.fragment.json', JSON.stringify(fragment));
   writeAt(dir, 'preset.json', JSON.stringify({ name: 'demo', version: String(version), files: FILES, settings_fragment: 'settings.fragment.json' }));
 }
 
 // Two initialised, committed projects on preset v1, a registry naming both, and preset v2 waiting in presetsRoot.
-function fixture() {
+function fixture(fragment = FRAGMENT) {
   const home = mkTmp('gsd-home-');
   const presetsRoot = mkTmp('gsd-presets-');
-  writePreset(path.join(presetsRoot, 'demo'), 1);
+  writePreset(path.join(presetsRoot, 'demo'), 1, fragment);
   const roots = ['alpha', 'beta'].map((name, i) => {
     const root = mkTmp(`gsd-${name}-`);
     git(root, 'init', '-q');
@@ -68,7 +75,7 @@ function fixture() {
     return { name, root, port: 55000 + i * 100 };
   });
   writeAt(home, 'projects.json', JSON.stringify({ version: 1, projects: Object.fromEntries(roots.map((r) => [r.name, { root: r.root, port_base: r.port }])) }));
-  writePreset(path.join(presetsRoot, 'demo'), 2);
+  writePreset(path.join(presetsRoot, 'demo'), 2, fragment);
   // HOME is a temp dir with no ~/.claude/projects: the run never looks at the real one.
   return { home, presetsRoot, roots, env: { GSD_HOME: home, HOME: mkTmp('gsd-userhome-'), GSD_FRAMEWORK_RECORD: 'rec1' } };
 }
@@ -250,8 +257,54 @@ describe('project upgrade', () => {
     assert.deepStrictEqual(removeSuperseded(neighbour), { hooks: {}, env: { A: '1' } });
     assert.deepStrictEqual([...SUPERSEDED_HOOKS], ['subagent-stop-record.ts']);
     const pruned = removeSuperseded(local, ['old-reaper.ts']);
-    assert.deepStrictEqual(pruned, { env: { A: '1' }, hooks: { SubagentStop: [{ hooks: [{ type: 'command', command: 'deno run foreign.ts' }] }] }, other: true });
+    assert.deepStrictEqual(pruned, { env: { A: '1' }, hooks: { SubagentStop: [{ hooks: [{ type: 'command', command: 'deno run foreign.ts' }] }], Stop: local.hooks.Stop }, other: true });
     assert.deepStrictEqual(Object.keys(pruned), ['env', 'hooks', 'other']);
+  });
+
+  test('removeSuperseded removes only the exact script token in SubagentStop; look-alikes and other events stay', () => {
+    const hook = (command) => ({ type: 'command', command });
+    const keep = [hook('bash my-subagent-stop-record.ts.bak.sh'), hook('deno run not-subagent-stop-record.tsx'), hook('deno run subagent-stop-record.tsx')];
+    const mixed = {
+      hooks: {
+        SubagentStop: [{ hooks: [hook(NEIGHBOUR_HOOK), ...keep] }, { hooks: [hook('subagent-stop-record.ts')] }],
+        PreToolUse: [{ matcher: 'Bash', hooks: [hook('cat subagent-stop-record.ts')] }],
+      },
+    };
+    assert.deepStrictEqual(removeSuperseded(mixed), {
+      hooks: { SubagentStop: [{ hooks: keep }], PreToolUse: mixed.hooks.PreToolUse },
+    });
+    const only = { hooks: { SubagentStop: [{ hooks: [hook(NEIGHBOUR_HOOK)] }], PreToolUse: mixed.hooks.PreToolUse } };
+    assert.deepStrictEqual(removeSuperseded(only), { hooks: { PreToolUse: mixed.hooks.PreToolUse } });
+  });
+
+  test('a project whose preset does not register the reaper keeps its subagent-stop-record hook and asks nothing', () => {
+    const fx = fixture();
+    const file = path.join(fx.roots[0].root, '.claude/settings.local.json');
+    writeAt(fx.roots[0].root, '.claude/settings.local.json', JSON.stringify(localWithNeighbour(), null, 2));
+    const bytes = fs.readFileSync(file, 'utf8');
+    git(fx.roots[0].root, 'add', '-A');
+    git(fx.roots[0].root, 'commit', '-q', '-m', 'local');
+    const result = run(fx);
+    assert.strictEqual(result.exitCode, 0, result.lines.join('\n'));
+    assert.strictEqual(fs.readFileSync(file, 'utf8'), bytes);
+  });
+
+  test('a project whose preset registers the reaper loses the superseded hook, only after the one confirmation that names it', () => {
+    const fx = fixture(REAPER_FRAGMENT);
+    assert.strictEqual(run(fx).exitCode, 0);
+    const { root } = fx.roots[0];
+    const file = path.join(root, '.claude/settings.local.json');
+    writeAt(root, '.claude/settings.local.json', JSON.stringify(localWithNeighbour(), null, 2));
+    git(root, 'add', '-A');
+    git(root, 'commit', '-q', '-m', 'local');
+    const bytes = fs.readFileSync(file, 'utf8');
+    const declined = run(fx, { confirm: (text) => { assert.match(text, /settings\.local\.json/); assert.match(text, /subagent-stop-record\.ts/); return 'NO'; } });
+    assert.strictEqual(declined.exitCode, 1);
+    assert.strictEqual(fs.readFileSync(file, 'utf8'), bytes);
+    const applied = run(fx);
+    assert.strictEqual(applied.exitCode, 0, applied.lines.join('\n'));
+    assert.strictEqual(applied.asks.length, 1);
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { env: { A: '1' }, hooks: {} });
   });
 
   test('migrations: the error_pattern rename is behind the WP9 flag, table defaults fill only absent keys', () => {

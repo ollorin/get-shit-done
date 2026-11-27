@@ -28,6 +28,8 @@ const WRITE_ACTIONS = new Set(['create', 'overwrite', 'merge', 'update', 'delete
 // subagent-stop-record.ts is the basename the neighbour's install-subagent-stop-hook.sh itself matches (jq contains());
 // the base preset hook agent-stop-reaper.mjs supersedes it.
 const SUPERSEDED_HOOKS = Object.freeze(['subagent-stop-record.ts']);
+// The framework hook that supersedes them; a project is pruned only when its settings.json registers it.
+const REAPER_HOOK = 'agent-stop-reaper.mjs';
 
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -60,13 +62,25 @@ function writeAtomic(file, text) {
   fs.renameSync(tmp, file);
 }
 
-const mentions = (command, table) => typeof command === 'string' && table.some((script) => command.includes(script));
+const SUPERSEDED_EVENT = 'SubagentStop';
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// The script as a whole token: preceded by start, whitespace or a path separator, followed by whitespace or the end.
+const scriptToken = (script) => new RegExp(`(^|[\\s/])${escapeRegExp(script)}(\\s|$)`);
+const mentions = (command, table) => typeof command === 'string' && table.some((script) => scriptToken(script).test(command));
 
-// Pure. Drops the hook entries of the table; an emptied group and an emptied event go too; everything else is kept in order.
+// True when the project's settings.json text registers the framework reaper as a SubagentStop hook.
+function registersReaper(settingsText) {
+  const parsed = typeof settingsText === 'string' ? parseJsonc(settingsText) : { ok: false };
+  const groups = parsed.ok && isObject(parsed.value.hooks) ? parsed.value.hooks[SUPERSEDED_EVENT] : null;
+  return Array.isArray(groups) && groups.some((g) => isObject(g) && Array.isArray(g.hooks)
+    && g.hooks.some((h) => isObject(h) && typeof h.command === 'string' && h.command.includes(REAPER_HOOK)));
+}
+
+// Pure. Drops the SubagentStop hook entries of the table; an emptied group and an emptied event go too; everything else is kept in order.
 function removeSuperseded(settings, table = SUPERSEDED_HOOKS) {
   if (table.length === 0 || !isObject(settings.hooks)) return settings;
   const hooks = Object.fromEntries(Object.entries(settings.hooks).flatMap(([event, groups]) => {
-    if (!Array.isArray(groups)) return [[event, groups]];
+    if (!Array.isArray(groups) || event !== SUPERSEDED_EVENT) return [[event, groups]];
     const kept = groups.flatMap((g) => {
       if (!isObject(g) || !Array.isArray(g.hooks)) return [g];
       const inner = g.hooks.filter((h) => !(isObject(h) && mentions(h.command, table)));
@@ -97,7 +111,8 @@ function planProject({ name, root }, ctx) {
     return { problems: [problem(name, `sync refused: ${why}`)] };
   }
   if (report.conflicts > 0) return { problems: [problem(name, `${report.conflicts} file(s) conflict with local edits; resolve them first`)] };
-  const nextLocal = local.absent ? null : removeSuperseded(local.value);
+  const settingsAfter = plan.ops.settingsText ?? settings.text;
+  const nextLocal = local.absent || !registersReaper(settingsAfter) ? null : removeSuperseded(local.value);
   const configChanged = !sameJson(config.value, nextConfig);
   const localChanged = nextLocal !== null && !sameJson(local.value, nextLocal);
   const engineRuns = report.changes > 0;
@@ -192,9 +207,13 @@ function upgradeAll(opts = {}) {
   const pre = planOnly(opts);
   if (pre.refusal) return refusal(pre.refusal);
   const { read, planned, ctx } = pre;
-  const guarded = planned.filter((p) => p.plan.report.guarded_changes.length > 0);
-  if (guarded.length > 0) {
-    const text = guarded.map((p) => `project ${p.project.name} (${p.project.root})\n${confirmationText({ report: p.plan.report, presetPath: p.plan.presetPath, shown: p.plan.shown })}`).join('\n\n');
+  const asked = planned.filter((p) => p.plan.report.guarded_changes.length > 0 || p.localText !== null);
+  if (asked.length > 0) {
+    const text = asked.map((p) => [
+      `project ${p.project.name} (${p.project.root})`,
+      ...(p.plan.report.guarded_changes.length > 0 ? [confirmationText({ report: p.plan.report, presetPath: p.plan.presetPath, shown: p.plan.shown })] : []),
+      ...(p.localText !== null ? [`remove the superseded hook (${SUPERSEDED_HOOKS.join(', ')}) from ${LOCAL_SETTINGS}`] : []),
+    ].join('\n')).join('\n\n');
     if (ask(text) !== 'APPLY') return refusal(['refused: confirmation declined; nothing written']);
   }
   const results = planned.map((p) => ({ project: p.project, ...applyProject(p.project, p, ctx) }));
