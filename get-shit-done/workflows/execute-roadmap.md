@@ -372,7 +372,7 @@ Reached when `roadmap next` returns `integration_gate`, `pr` or `done`.
 ```bash
 GATE_RESULT=$(node ~/.claude/get-shit-done/bin/gsd-tools.js gate pre-pr)
 ```
-Parse the JSON. If `action_required` is true: run EVERY check listed in `checks`; each must exit 0; run the full suite TWICE and both runs must be green (PR-time only; within phases one full run of every gate in `stack.gates[]` and `stack.commands.pre_pr_gate` per phase on the final tree; see gsd-test-protocol.md `test_cost_rule`). Then mark the gate:
+Parse the JSON. If `action_required` is true: run EVERY check listed in `checks`; each must exit 0; run the full suite ONCE and it must be green (within phases one full run of every gate in `stack.gates[]` and `stack.commands.pre_pr_gate` per phase on the final tree; see gsd-test-protocol.md `test_cost_rule`). Then mark the gate:
 ```bash
 node ~/.claude/get-shit-done/bin/gsd-tools.js gate pre-pr --mark-passed
 ```

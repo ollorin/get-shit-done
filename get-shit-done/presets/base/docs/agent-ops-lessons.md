@@ -36,7 +36,7 @@ Each lesson is two sentences or less, followed by its incident. A rule that the 
 
 ## Completion and quality gates
 
-- Before a pull request, run the migration reset, every integration test, the end-to-end regression and the full check suite twice. Phase-level runs test in isolation and miss cross-migration breakage. Incident: three migration bugs and 52 failing integration tests reached a pull request. [incident: <project incident id>]
+- Before a pull request, run the migration reset, every integration test, the end-to-end regression and the full check suite once, green. Phase-level runs test in isolation and miss cross-migration breakage. Incident: three migration bugs and 52 failing integration tests reached a pull request. [incident: <project incident id>]
 - Run the integration tests after every phase, not only when migrations changed; UI phases need live UI-QA runs, not code inspection. Keep plans at most 400 lines, and add a new value to every layer in the same commit. Incident: a milestone postmortem whose defects surfaced only at the end. [incident: <project incident id>]
 - A feature with a public surface ships with its documentation lines in the same commit, checked before a pull request. Incident: ten operator endpoints shipped with no documentation. [incident: <project incident id>]
 

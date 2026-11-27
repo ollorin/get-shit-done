@@ -2,9 +2,9 @@
 # Pre-PR gate: runs the profile commands and, only on a fully green run, writes the marker the push hook accepts.
 #
 #   Stage 1 (deterministic, once): stack.commands.typecheck, stack.commands.lint.
-#   Stage 2 (flake-sensitive, twice): stack.commands.test_all; run 2 starts only after run 1 passed. A pass followed
-#     by a fail is appended to the disagreement log (scripts/log-pre-pr-disagreement.sh).
+#   Stage 2 (once): stack.commands.test_all. A red run stops the gate before stage 3.
 #   Stage 3 (once): each stack.gates[].run, in profile order.
+# The full output of every check is kept in .tmp/pre-pr-gate/<check id>.log (cleared at the start of each run).
 # A command key that is not set in .planning/config.json prints "NOT CONFIGURED: stack.commands.<key>" and the gate
 # fails before anything runs: an unset command is a gap, never a skip. Set the literal `true` to state there is none.
 # The marker is "$(git rev-parse --absolute-git-dir)/.pre-pr-passed" (per worktree, never in the working tree). It is
@@ -86,10 +86,15 @@ for key in $UNCONFIGURED; do echo "WARNING: stack.commands.$key is not configure
 
 FAILURES=""
 FAILED=0
-LOG="$TMPD/out.log"
+LOGDIR=".tmp/pre-pr-gate"
+rm -rf "$LOGDIR"
+mkdir -p "$LOGDIR" || exit 1
+printf '*\n' > "$LOGDIR/.gitignore"
 
-# run_check <name> <command>: runs through sh -c, prints one PASS/FAIL line and the last 15 lines on failure.
+# run_check <id> <name> <command>: runs through sh -c into $LOGDIR/<id>.log, prints one PASS/FAIL line and the last 15 lines on failure.
 run_check() {
+  LOG="$LOGDIR/$(printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_').log"
+  shift
   _start=$(date +%s)
   _rc=0
   sh -c "$2" </dev/null > "$LOG" 2>&1 || _rc=$?
@@ -99,6 +104,7 @@ run_check() {
   fi
   echo "  FAIL  $1 ($(( $(date +%s) - _start ))s, exit $_rc)"
   tail -15 "$LOG"
+  echo "  full log: $LOG"
   FAILED=$((FAILED + 1))
   FAILURES="$FAILURES
   - $1"
@@ -120,24 +126,20 @@ print_summary() {
 }
 
 echo "--- Stage 1: deterministic, once ---"
-[ -n "$CMD_typecheck" ] && run_check "typecheck (stack.commands.typecheck)" "$CMD_typecheck"
-[ -n "$CMD_lint" ] && run_check "lint (stack.commands.lint)" "$CMD_lint"
+[ -n "$CMD_typecheck" ] && run_check typecheck "typecheck (stack.commands.typecheck)" "$CMD_typecheck"
+[ -n "$CMD_lint" ] && run_check lint "lint (stack.commands.lint)" "$CMD_lint"
 if ! print_summary "Stage 1"; then
   echo "Stage 1 is red: stopping before the test stage. Fix the failures above and re-run: scripts/pre-pr-gate.sh"
   exit 1
 fi
 
-echo "--- Stage 2: flake-sensitive, twice ---"
-if [ -z "$CMD_test_all" ]; then
-  :
-elif run_check "test_all, run 1 (stack.commands.test_all)" "$CMD_test_all"; then
-  if ! run_check "test_all, run 2 (stack.commands.test_all)" "$CMD_test_all"; then
-    cp "$LOG" "$TMPD/run2.log"
-    if [ -f "$ROOT/scripts/log-pre-pr-disagreement.sh" ]; then
-      sh "$ROOT/scripts/log-pre-pr-disagreement.sh" --stage test_all --run1 pass --run2 fail --run2-exit "$_rc" \
-        --failing-tests "$(grep -E 'FAIL|not ok|✕' "$TMPD/run2.log" 2>/dev/null | head -20 | tr '\n' ',')" || true
-    fi
-  fi
+echo "--- Stage 2: tests, once ---"
+if [ -n "$CMD_test_all" ]; then
+  run_check test_all "test_all (stack.commands.test_all)" "$CMD_test_all" || {
+    print_summary "Stage 2"
+    echo "Stage 2 is red: stopping before the gates. Fix the failures above and re-run: scripts/pre-pr-gate.sh"
+    exit 1
+  }
 fi
 
 echo "--- Stage 3: stack.gates ---"
@@ -146,7 +148,7 @@ GATES_RUN=0
 while IFS="$TAB" read -r kind a b; do
   [ "$kind" = G ] || continue
   GATES_RUN=$((GATES_RUN + 1))
-  run_check "gate $a" "$b" || true
+  run_check "$a" "gate $a" "$b" || true
 done < "$TMPD/profile.tsv"
 if [ "$GATES_RUN" -ne "$GATES_CONFIGURED" ]; then
   echo "NOT CONFIGURED: stack.gates ran $GATES_RUN of $GATES_CONFIGURED configured gates; no marker written." >&2

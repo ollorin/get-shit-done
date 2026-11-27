@@ -264,13 +264,6 @@
       "guarded": true
     },
     {
-      "src": "scripts/log-pre-pr-disagreement.sh",
-      "dest": "scripts/log-pre-pr-disagreement.sh",
-      "kind": "whole",
-      "render": false,
-      "guarded": false
-    },
-    {
       "src": "scripts/validation/canary-gate.mjs",
       "dest": "scripts/validation/canary-gate.mjs",
       "kind": "whole",

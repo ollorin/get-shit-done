@@ -5,6 +5,7 @@
 
 const { test, describe, afterEach } = require('node:test');
 const assert = require('node:assert');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -528,15 +529,29 @@ describe('pre-PR gate skeleton and disagreement log (agnostic-M-08 8.7)', () => 
     }
   });
 
-  test('G-d test_all passing once and failing the second time fails the gate, writes no marker and appends one log line', () => {
-    const root = project({ ...GREEN, test_all: 'if [ -f seen ]; then exit 1; else touch seen; fi' });
+  test('G-d all green: the marker is written and test_all ran exactly once', () => {
+    const root = project({ ...GREEN, test_all: 'echo x >> runs.txt' });
     const r = runGate(root);
-    assert.notStrictEqual(r.status, 0, r.stdout);
+    assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+    assert.ok(fs.existsSync(marker(root)));
+    assert.strictEqual(fs.readFileSync(path.join(root, 'runs.txt'), 'utf8'), 'x\n');
+  });
+
+  test('G-d2 a red test_all exits 1, runs no stack.gates entry and writes no marker', () => {
+    const root = project({ ...GREEN, test_all: 'exit 3' }, [{ id: 'style', run: 'touch ran-gate' }]);
+    const r = runGate(root);
+    assert.strictEqual(r.status, 1, r.stdout + r.stderr);
+    assert.strictEqual(fs.existsSync(path.join(root, 'ran-gate')), false, 'stage 3 never ran');
     assert.strictEqual(fs.existsSync(marker(root)), false);
-    const log = fs.readFileSync(path.join(root, '.planning', 'pre-pr-disagreements.jsonl'), 'utf8').trim().split('\n');
-    assert.strictEqual(log.length, 1);
-    const row = JSON.parse(log[0]);
-    assert.deepStrictEqual([row.stage, row.run1, row.run2, row.run2_exit], ['test_all', 'pass', 'fail', 1]);
+  });
+
+  test('G-d3 the full output of a failing check is kept in .tmp/pre-pr-gate/<check id>.log and the tree stays clean', () => {
+    const root = project(GREEN, [{ id: 'style', run: 'seq 1 40; exit 1' }]);
+    const r = runGate(root);
+    assert.strictEqual(r.status, 1, r.stdout + r.stderr);
+    const kept = fs.readFileSync(path.join(root, '.tmp', 'pre-pr-gate', 'style.log'), 'utf8').trim().split('\n');
+    assert.strictEqual(kept.length, 40, 'the whole output, not the 15-line tail');
+    assert.strictEqual(git(root, 'status', '--porcelain').trim(), '');
   });
 
   test('G-e a stack.gates entry whose run exits 1 fails the gate and writes no marker; a stale marker from an earlier green run is removed', () => {
@@ -596,23 +611,26 @@ describe('pre-PR gate skeleton and disagreement log (agnostic-M-08 8.7)', () => 
     assert.strictEqual(runGate(none).status, 0);
   });
 
-  test('G-i the disagreement log never fails its caller and never writes an empty record: a dangling flag or missing required flags exit 0 under sh and dash', () => {
-    const script = path.join(SCRIPTS, 'log-pre-pr-disagreement.sh');
-    const shells = ['sh', ...(fs.existsSync('/bin/dash') ? ['/bin/dash'] : [])];
-    for (const shell of shells) {
-      for (const args of [['--stage'], ['--stage', 's', '--run1', 'pass', '--run2'], [], ['--stage', 's', '--run1', 'pass'], ['--bogus']]) {
-        const log = path.join(mkTmp('gsd-gatelog-'), 'log.jsonl');
-        const r = spawnSync(shell, [script, ...args], { encoding: 'utf8', timeout: 3000, env: { ...process.env, PRE_PR_DISAGREEMENT_LOG: log } });
-        const label = `${shell} ${args.join(' ')}`;
-        assert.strictEqual(r.status, 0, `${label}: ${r.stderr}`);
-        assert.strictEqual(fs.existsSync(log), false, `${label}: no record written`);
-        assert.strictEqual(r.stdout + r.stderr, '', label);
-      }
-      const log = path.join(mkTmp('gsd-gatelog-'), 'log.jsonl');
-      const ok = spawnSync(shell, [script, '--stage', 's', '--run1', 'pass', '--run2', 'fail', '--run2-exit', '1'], { encoding: 'utf8', timeout: 3000, env: { ...process.env, PRE_PR_DISAGREEMENT_LOG: log } });
-      assert.strictEqual(ok.status, 0);
-      assert.strictEqual(JSON.parse(fs.readFileSync(log, 'utf8')).stage, 's');
-    }
+  test('G-i the retired log script is not in the preset, and sync deletes an unmodified deployed copy and keeps the jsonl history', () => {
+    assert.strictEqual(fs.existsSync(path.join(SCRIPTS, 'log-pre-pr-disagreement.sh')), false);
+    const root = project(GREEN);
+    const rel = 'scripts/log-pre-pr-disagreement.sh';
+    const body = '#!/bin/sh\nexit 0\n';
+    const manifestPath = path.join(root, '.planning', 'gsd-project-manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.files[rel] = { kind: 'whole', sha256: crypto.createHash('sha256').update(body).digest('hex'), guarded: false };
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+    for (const p of [path.join(root, rel), path.join(root, '.planning', '.gsd-preset-base', rel)]) fs.writeFileSync(p, body);
+    const history = path.join(root, '.planning', 'pre-pr-disagreements.jsonl');
+    fs.writeFileSync(history, '{"stage":"test_all"}\n');
+    const r = spawnSync(process.execPath, [GSD_TOOLS, 'project', 'sync', '--root', root, '--preset', 'base'], {
+      encoding: 'utf8',
+      env: { ...process.env, GSD_HOME: mkTmp('gsd-gate-home-') },
+    });
+    assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+    assert.strictEqual(fs.existsSync(path.join(root, rel)), false);
+    assert.strictEqual(rel in JSON.parse(fs.readFileSync(manifestPath, 'utf8')).files, false);
+    assert.strictEqual(fs.readFileSync(history, 'utf8'), '{"stage":"test_all"}\n');
   });
 
   test('G-j every deployed script that starts with a shebang is executable, ci-diagnose.mjs included', () => {
@@ -622,22 +640,6 @@ describe('pre-PR gate skeleton and disagreement log (agnostic-M-08 8.7)', () => 
     const files = fs.readdirSync(scripts).map((f) => path.join(scripts, f)).filter((f) => fs.statSync(f).isFile() && shebang(f));
     assert.ok(files.some((f) => f.endsWith('ci-diagnose.mjs')));
     for (const f of files) assert.ok((fs.statSync(f).mode & 0o111) !== 0, `executable: ${path.basename(f)}`);
-  });
-
-  test('G-f the disagreement log appends, never truncates, and exits 0 on an unwritable path', () => {
-    const d = mkTmp('gsd-gatelog-');
-    const log = path.join(d, 'log.jsonl');
-    const script = path.join(SCRIPTS, 'log-pre-pr-disagreement.sh');
-    const run = (args, env) => spawnSync('sh', [script, ...args], { cwd: d, encoding: 'utf8', env: { ...process.env, ...env } });
-    for (const stage of ['a', 'b']) {
-      const r = run(['--stage', stage, '--run1', 'pass', '--run2', 'fail', '--run2-exit', '7', '--failing-tests', 'x\ny,z'], { PRE_PR_DISAGREEMENT_LOG: log });
-      assert.strictEqual(r.status, 0, r.stderr);
-    }
-    const rows = fs.readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-    assert.deepStrictEqual(rows.map((x) => x.stage), ['a', 'b']);
-    assert.deepStrictEqual(rows[0].failing_tests, ['x', 'y', 'z']);
-    assert.strictEqual(rows[0].run2_exit, 7);
-    assert.strictEqual(run(['--stage', 'a'], { PRE_PR_DISAGREEMENT_LOG: path.join(d, 'no', 'such', 'dir', 'l') }).status, 0);
   });
 });
 

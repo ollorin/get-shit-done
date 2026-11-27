@@ -19,7 +19,7 @@ const STACK_DEFAULTS = Object.freeze({
   'stack.affected.specs': entry({ default: null, severity: 'info', scope: RUNNER, why: 'selector config of scripts/affected-specs.mjs: file_pattern, always_run, fallback, map' }),
   'stack.affected.tests': entry({ default: null, severity: 'info', scope: RUNNER, why: 'selector config of scripts/affected-tests.mjs: file_pattern, always_run, fallback, map' }),
   'stack.commands.test_file': entry({ default: null, severity: 'error', scope: RUNNER, why: 'runs one test file; must contain {file}' }),
-  'stack.commands.test_all': entry({ default: null, severity: 'error', scope: RUNNER, why: 'the full suite the pre-PR gate runs twice' }),
+  'stack.commands.test_all': entry({ default: null, severity: 'error', scope: RUNNER, why: 'the full suite the pre-PR gate runs once' }),
   'stack.commands.test_unit': entry({ default: null, severity: 'info', scope: RUNNER, why: 'optional hook-free unit lane for the selector and mutants' }),
   'stack.commands.typecheck': entry({ default: null, severity: 'error', scope: RUNNER, why: 'type check stage of the pre-PR gate; none acknowledges no code yet' }),
   'stack.commands.lint': entry({ default: null, severity: 'error', scope: RUNNER, why: 'lint stage of the pre-PR gate; none acknowledges no code yet' }),
