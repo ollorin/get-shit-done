@@ -25,7 +25,9 @@ const FORK_ROOT = path.join(__dirname, '..', '..');
 const LOCAL_SETTINGS = '.claude/settings.local.json';
 const WRITE_ACTIONS = new Set(['create', 'overwrite', 'merge', 'update', 'delete']);
 // Script basenames whose hook entries settings.local.json loses because a framework hook replaces them.
-const SUPERSEDED_HOOKS = Object.freeze([]);
+// subagent-stop-record.ts is the basename the neighbour's install-subagent-stop-hook.sh itself matches (jq contains());
+// the base preset hook agent-stop-reaper.mjs supersedes it.
+const SUPERSEDED_HOOKS = Object.freeze(['subagent-stop-record.ts']);
 
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);

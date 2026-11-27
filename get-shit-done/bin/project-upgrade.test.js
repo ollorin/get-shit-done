@@ -8,7 +8,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const { runCli: runDeploy } = require('./project-deploy.js');
-const { upgradeAll, planOnly, removeSuperseded, runCli, COMMIT_MESSAGE } = require('./project-upgrade.js');
+const { upgradeAll, planOnly, removeSuperseded, runCli, SUPERSEDED_HOOKS, COMMIT_MESSAGE } = require('./project-upgrade.js');
 const { migrateConfig } = require('./profile-migrations.js');
 const { liveReasons, psStart } = require('./project-quiesce.js');
 const { readRuns, commitsOfRecord } = require('./project-upgrade-log.js');
@@ -238,14 +238,17 @@ describe('project upgrade', () => {
     assert.match(red.lines.join('\n'), /NOT up to date/);
   });
 
-  test('settings.local.json keeps a foreign hook: the empty table changes nothing, a listed script is the only removal', () => {
+  test('settings.local.json keeps a foreign hook: an unlisted script changes nothing, a listed script is the only removal', () => {
     const fx = fixture();
     const local = { env: { A: '1' }, hooks: { SubagentStop: [{ hooks: [{ type: 'command', command: 'deno run foreign.ts' }, { type: 'command', command: 'deno run old-reaper.ts' }] }], Stop: [{ hooks: [{ type: 'command', command: 'old-reaper.ts' }] }] }, other: true };
     writeAt(fx.roots[0].root, '.claude/settings.local.json', JSON.stringify(local, null, 2));
     const bytes = fs.readFileSync(path.join(fx.roots[0].root, '.claude/settings.local.json'), 'utf8');
     assert.strictEqual(run(fx).exitCode, 0);
     assert.strictEqual(fs.readFileSync(path.join(fx.roots[0].root, '.claude/settings.local.json'), 'utf8'), bytes);
-    assert.strictEqual(removeSuperseded(local), local);
+    assert.deepStrictEqual(removeSuperseded(local), local);
+    const neighbour = { hooks: { SubagentStop: [{ hooks: [{ type: 'command', command: 'deno run --allow-run=ps,kill /x/scripts/host/subagent-stop-record.ts' }] }] }, env: { A: '1' } };
+    assert.deepStrictEqual(removeSuperseded(neighbour), { hooks: {}, env: { A: '1' } });
+    assert.deepStrictEqual([...SUPERSEDED_HOOKS], ['subagent-stop-record.ts']);
     const pruned = removeSuperseded(local, ['old-reaper.ts']);
     assert.deepStrictEqual(pruned, { env: { A: '1' }, hooks: { SubagentStop: [{ hooks: [{ type: 'command', command: 'deno run foreign.ts' }] }] }, other: true });
     assert.deepStrictEqual(Object.keys(pruned), ['env', 'hooks', 'other']);
