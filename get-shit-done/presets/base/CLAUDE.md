@@ -86,7 +86,7 @@ executed-mutation evidence; trim restatement, hedging and throat-clearing.
 
 **Run `{{stack.commands.pre_pr_gate}}` before every PR — it is the pre-PR gate of this project.
 There is no "push anyway."** Deterministic gates green once + tests green once = ready; anything
-else = not ready. The gate's flags, its checks and the rationale are in `.claude/rules/pre-pr-gates.md`
+else = not ready. The gate takes no flags; its checks and the rationale are in `.claude/rules/pre-pr-gates.md`
 (read it before running the gate or opening a PR). Within a phase, the full gate runs once on the
 final tree, not per plan.
 
