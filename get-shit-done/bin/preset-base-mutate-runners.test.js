@@ -132,8 +132,8 @@ describe('WP9 mutation runners: the profile shape check and the doctor', () => {
   });
 
   test('F3: a catalogued runner pattern must not match its kill output and must match its build failure', () => {
-    const base = { id: 'vitest', test_cmd: 'npm run test:file -- {file}' };
-    const shipped = catalogue.vitest.build_error_pattern;
+    const base = { id: 'js-runner-a', test_cmd: 'npm run test:file -- {file}' };
+    const shipped = catalogue['js-runner-a'].build_error_pattern;
     assert.deepStrictEqual(problems({ runners: [{ ...base, build_error_pattern: shipped }] }), []);
     assert.ok(problems({ runners: [{ ...base, build_error_pattern: 'AssertionError' }] }).some((p) => /matches the normal kill output/.test(p.reason)));
     assert.ok(problems({ runners: [{ ...base, build_error_pattern: 'NeverPrinted' }] }).some((p) => /does not match the build failure/.test(p.reason)));
@@ -159,7 +159,7 @@ describe('WP9 mutation runners: the profile shape check and the doctor', () => {
 
   test('the shipped catalogue states the source of every fixture', () => {
     for (const entry of Object.values(catalogue)) assert.ok(['kill', 'build_failure'].every((k) => typeof entry.source[k] === 'string' && entry.source[k] !== ''));
-    assert.match(catalogue.vitest.source.build_failure, /hand-written/);
+    assert.match(catalogue['js-runner-a'].source.build_failure, /hand-written/);
   });
 
   test('the doctor constant is true and the old key is a blocking finding', () => {

@@ -1,13 +1,13 @@
 {
-  "vitest": {
+  "js-runner-a": {
     "test_cmd": "npm run test:file -- {file} --bail=1 --reporter=verbose",
     "build_error_pattern": "(?:^|\\n)\\s*(?:\\w*Error: )?(?:Transform failed with \\d+ error|Failed to resolve import|Failed to load url)|(?:^|\\n)\\s*SyntaxError: The requested module [^\\n]*does not provide an export named|(?:^|\\n)\\s*Error: Cannot find (?:module|package)|(?:^|\\n)\\s*SyntaxError: [^\\n]*\\(\\d+:\\d+\\)",
     "pass_pattern": "Tests\\s+(?:\\d+ failed \\| )?(\\d+) passed",
     "selftest": {
       "dir": "tests/unit",
       "ext": ".test.ts",
-      "pass": "import { expect, test } from 'vitest';\ntest('selftest pass', () => { expect(1).toBe(1); });\n",
-      "kill": "import { expect, test } from 'vitest';\ntest('__mutate_selftest_kill__', () => { expect(1).toBe(2); });\n",
+      "pass": "import { expect, test } from 'js-runner-a';\ntest('selftest pass', () => { expect(1).toBe(1); });\n",
+      "kill": "import { expect, test } from 'js-runner-a';\ntest('__mutate_selftest_kill__', () => { expect(1).toBe(2); });\n",
       "build": "export const = ;\n"
     },
     "fixtures": {
@@ -15,8 +15,8 @@
       "build_failure": " FAIL  |shared| tests/unit/shell-settings-rules.test.ts [ tests/unit/shell-settings-rules.test.ts ]\nError: Transform failed with 1 error:\n/src/lib/shell-settings/validate.ts:12:20: ERROR: Unexpected \")\"\n Test Files  1 failed (1)\n      Tests  no tests\n"
     },
     "source": {
-      "kill": "partly captured: the FAIL line is a real vitest line; the AssertionError, summary lines and counts are hand-written to the real shape",
-      "build_failure": "hand-written from the documented vitest and esbuild message shapes; not captured from a run"
+      "kill": "partly captured, reworded to remove a product name: the FAIL line is a real runner line; the AssertionError, summary lines and counts are hand-written to the real shape",
+      "build_failure": "hand-written from the documented js-runner-a and esbuild message shapes; not captured from a run"
     }
   }
 }
