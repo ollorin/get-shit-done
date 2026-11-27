@@ -177,6 +177,28 @@ describe('items 1 and 3: spike phases and the pre-verify gates', () => {
   });
 });
 
+describe('item 16: the docs keyword gate matches whole words and skips heading lines', () => {
+  const docsProject = (summary) => {
+    const dir = project();
+    write(dir, '.planning/phases/01-p1/01-01-PLAN.md', '---\nphase: 01\nplan: 01\n---\n# Plan\n');
+    write(dir, '.planning/phases/01-p1/01-01-SUMMARY.md', summary);
+    write(dir, 'src/calc.js', 'export const add = (a, b) => a + b;\n');
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'feat(01-01): calc');
+    return dir;
+  };
+  test('a heading that contains a keyword as a substring, and a keyword inside a longer word, do not trip missing_docs', () => {
+    const dir = docsProject('## Auth Gates\n\nworkflow tweak.\n');
+    const r = gsd(dir, ['verify', 'phase-gate', '1']);
+    assert.ok(!r.json.failures.includes('missing_docs'), JSON.stringify(r.json.failures));
+  });
+  test('a whole-word keyword in the summary body still trips missing_docs', () => {
+    const dir = docsProject('## Notes\n\nadded auth middleware.\n');
+    const r = gsd(dir, ['verify', 'phase-gate', '1']);
+    assert.ok(r.json.failures.includes('missing_docs'), JSON.stringify(r.json.failures));
+  });
+});
+
 describe('item 4: evidence_only_plan does not apply at spike', () => {
   test('an evidence-only plan passes at spike and still fails at standard', () => {
     const { dir } = spikeProject();
