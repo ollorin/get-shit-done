@@ -3,6 +3,7 @@
 // gsd-tools only routes `plan overlap` and `claims check` here, dispatch-lease.js calls `leaseConflict`.
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const matter = require('gray-matter');
 
 // Files any two plans may not both list: manifests, lockfiles, planning state and CI/root config are shared by every plan. One owner of this table.
@@ -119,6 +120,20 @@ function cmdClaimsCheck(cwd, planPath, lane, claimsFile) {
   return { clear: conflicts.length === 0, conflicts };
 }
 
+// `plan rebase-check <plan>`: a plan written ahead (plan_base_sha) is stale for the files that changed since then (D-281).
+function cmdRebaseCheck(cwd, planPath) {
+  const plan = planPath && readPlan(cwd, planPath);
+  if (!plan) return { error: 'plan rebase-check: a readable plan file is required' };
+  if (plan.error) return { error: `plan rebase-check: ${plan.error}` };
+  let sha;
+  try { sha = String(matter(fs.readFileSync(path.resolve(cwd, planPath), 'utf8')).data.plan_base_sha || ''); } catch { sha = ''; }
+  const diff = /^[0-9a-f]{7,40}$/i.test(sha) ? spawnSync('git', ['diff', '--name-only', sha, 'HEAD'], { cwd, encoding: 'utf8' }) : null;
+  if (!diff || diff.status !== 0) return { error: 'plan rebase-check: plan_base_sha is missing or not a commit of this repository' };
+  const changed = diff.stdout.split('\n').filter(Boolean).map((f) => norm(f));
+  const conflicts = changed.filter((c) => plan.files.some((f) => within(f, c) || within(c, f)));
+  return { clean: conflicts.length === 0, conflicts };
+}
+
 // Per-plan checkpoint: TASK-CHECKPOINT-<plan_id>.json. A phase checkpointed by an older build only has TASK-CHECKPOINT.json: read it when the per-plan file is absent and its `plan` names this plan.
 // With two open executor leases the phase-scoped file belongs to neither plan, and it is a fallback only when its `plan` field names this plan.
 const PLAN_CHECKPOINT = /TASK-CHECKPOINT-(.+)\.json$/;
@@ -136,4 +151,4 @@ function resolveTaskCheckpoint(file, openExecutors) {
   return useLegacy ? legacy : file;
 }
 
-module.exports = { planInfo, overlap, leaseConflict, repoRelative, cmdOverlap, cmdClaimsCheck, claimedRows, resolveTaskCheckpoint };
+module.exports = { planInfo, overlap, leaseConflict, repoRelative, cmdOverlap, cmdClaimsCheck, cmdRebaseCheck, claimedRows, resolveTaskCheckpoint };
