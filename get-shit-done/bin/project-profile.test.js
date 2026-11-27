@@ -671,6 +671,7 @@ describe('profile doctor (WP18)', () => {
     test_command_shapes: ['npm test'],
     isolation: { port_base: 55000, lock_dir: '.tmp/stack.lock.d' },
     mutation: { build_error_pattern: 'Cannot find module' },
+    affected: { specs: { file_pattern: 'x' }, tests: { file_pattern: 'x' } },
     host: { worker_patterns: ['vitest'] },
     paths: { backend: 'src', migrations: 'db/migrations', frontends: ['web'] },
     gates: GATES,

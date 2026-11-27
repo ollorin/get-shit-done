@@ -219,6 +219,7 @@ describe('profile doctor checks (WP22d)', () => {
     const stack = {
       commands: { test_file: 'npm test -- {file}', test_all: 'npm test', typecheck: 'tsc', lint: 'eslint .', format: 'p', test_unit: 'u' },
       mutation: { build_error_pattern: 'x' },
+      affected: { specs: { file_pattern: 'x' }, tests: { file_pattern: 'x' } },
       host: { worker_patterns: ['vitest'] },
       isolation: { port_base: 55000 },
       gates: gateDefaults(undefined),

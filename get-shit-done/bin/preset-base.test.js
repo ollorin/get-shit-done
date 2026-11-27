@@ -126,6 +126,9 @@ describe('base preset: CLAUDE.md methodology (agnostic-M-03 3.1)', () => {
       ['scripts/mutate/window.mjs', 'whole', false],
       ['docs/gsd/mutation-testing.md', 'whole', false],
       ['scripts/dependency-scan-gate.mjs', 'whole', false],
+      ['scripts/affected-specs.mjs', 'whole', false],
+      ['scripts/affected-tests.mjs', 'whole', false],
+      ['scripts/lib/affected.mjs', 'whole', false],
       ['scripts/memory-guard.sh', 'whole', false],
       ['scripts/container-disk-guard.sh', 'whole', false],
       ['scripts/lib/reap-stale-test-processes.sh', 'whole', false],
@@ -487,6 +490,9 @@ describe('base preset: regression guard for the base deployment (agnostic-M-03 3
     'scripts/validation/hook-canaries/run-canaries.sh',
     'scripts/validation/hook-patch-trailer-check.sh',
     'scripts/dependency-scan-gate.mjs',
+    'scripts/affected-specs.mjs',
+    'scripts/affected-tests.mjs',
+    'scripts/lib/affected.mjs',
     'scripts/memory-guard.sh',
     'scripts/container-disk-guard.sh',
     'scripts/lib/reap-stale-test-processes.sh',
@@ -656,7 +662,7 @@ describe('base preset: regression guard for the base deployment (agnostic-M-03 3
   test('3.7 each base copy under .planning/.gsd-preset-base is byte-equal to its deployed file', () => {
     const root = initWith({});
     const mirrors = listTree(root).filter((f) => f.startsWith('.planning/.gsd-preset-base/'));
-    assert.strictEqual(mirrors.length, 86, 'one base copy per preset file (not the settings, gitignore or manifest)');
+    assert.strictEqual(mirrors.length, 89, 'one base copy per preset file (not the settings, gitignore or manifest)');
     for (const m of mirrors) {
       const dest = m.slice('.planning/.gsd-preset-base/'.length);
       assert.ok(fs.readFileSync(path.join(root, m)).equals(fs.readFileSync(path.join(root, dest))), dest);
@@ -926,6 +932,7 @@ describe('base preset: pilot, three throwaway projects (agnostic-M-07 7.2)', () 
     '.gitignore', '.planning/cleanup-keep.txt', '.planning/gsd-project-manifest.json', 'CLAUDE.md',
     'docs/gsd/agent-ops-lessons.md', 'docs/gsd/engineering-lessons.md', 'docs/gsd/file-claims-template.md',
     'docs/gsd/guard-estate.md', 'docs/gsd/host-ops.md', 'docs/gsd/mutation-testing.md', 'docs/gsd/session-supervisor.md',
+    'scripts/affected-specs.mjs', 'scripts/affected-tests.mjs', 'scripts/lib/affected.mjs',
     'scripts/ci-diagnose.mjs', 'scripts/container-disk-guard.sh', 'scripts/dependency-scan-gate.mjs', 'scripts/findings-register.mjs',
     'scripts/hooks-apply.sh', 'scripts/lib/findings-register/owner.mjs', 'scripts/lib/findings-register/parse.mjs',
     'scripts/lib/findings-register/telemetry.mjs', 'scripts/lib/reap-stale-test-processes.sh', 'scripts/log-pre-pr-disagreement.sh',

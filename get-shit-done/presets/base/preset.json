@@ -536,6 +536,27 @@
       "guarded": true
     },
     {
+      "src": "scripts/affected-specs.mjs",
+      "dest": "scripts/affected-specs.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "scripts/affected-tests.mjs",
+      "dest": "scripts/affected-tests.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "scripts/lib/affected.mjs",
+      "dest": "scripts/lib/affected.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
       "src": "scripts/memory-guard.sh",
       "dest": "scripts/memory-guard.sh",
       "kind": "whole",

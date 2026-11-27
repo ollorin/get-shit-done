@@ -96,7 +96,23 @@ const HOST_FIELDS = [
 
 const flakeExtra = (_key, o) => (Array.isArray(o.patterns) ? o.patterns.flatMap(patternProblems) : []);
 
-const NEW_STACK_KEYS = Object.freeze(['locked_commands', 'flake_patterns', 'deploy', 'style', 'cve', 'host', 'mutation']);
+// Without require(esm) (Node < 22.12) no problem is reported: the runtime scripts validate with parseSelectorConfig and exit 2.
+function affectedShape(key, v) {
+  if (!isObject(v)) return [problem(key, 'must be an object')];
+  let parse;
+  try {
+    ({ parseSelectorConfig: parse } = require('../presets/base/scripts/lib/affected.mjs'));
+  } catch {
+    return [];
+  }
+  return ['specs', 'tests'].flatMap((name) => {
+    if (v[name] === undefined) return [];
+    const r = parse(v[name], `${key}.${name}`);
+    return r.ok ? [] : [problem(`${key}.${name}`, r.error)];
+  });
+}
+
+const NEW_STACK_KEYS = Object.freeze(['locked_commands', 'flake_patterns', 'deploy', 'style', 'cve', 'host', 'mutation', 'affected']);
 
 const NEW_SHAPE_CHECKS = Object.freeze([
   ['stack.branch', objectShape([])],
@@ -107,6 +123,7 @@ const NEW_SHAPE_CHECKS = Object.freeze([
   ['stack.cve', objectShape(CVE_FIELDS)],
   ['stack.host', objectShape(HOST_FIELDS)],
   ['stack.mutation', objectShape(MUTATION_FIELDS)],
+  ['stack.affected', affectedShape],
 ]);
 
 module.exports = { NEW_STACK_KEYS, NEW_SHAPE_CHECKS, DEPLOY_SLOTS, RENDERED_TEXT_RE, RENDERED_TEXT_MAX, isRenderedText };
