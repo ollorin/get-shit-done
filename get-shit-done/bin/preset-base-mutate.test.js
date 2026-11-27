@@ -576,12 +576,12 @@ describe('mutation tool: the command line (agnostic-M-09 9.6)', () => {
 
     const proj = fixtureRepo();
     fs.mkdirSync(path.join(proj, '.planning'));
-    fs.writeFileSync(path.join(proj, '.planning', 'config.json'), JSON.stringify({ stack: { commands: { test_file: TEST_CMD }, mutation: { error_pattern: 'SyntaxError' } } }));
+    fs.writeFileSync(path.join(proj, '.planning', 'config.json'), JSON.stringify({ stack: { commands: { test_file: TEST_CMD }, mutation: { build_error_pattern: 'SyntaxError' } } }));
     const broken = mutant('M-broken', { old: 'a + b', new: 'a +' });
     const fromProfile = cli(['--mutants', writeMutants(proj, [broken, KILL]), '--out', path.join(proj, '.out.jsonl'), '--root', proj], { cwd: proj });
-    assert.strictEqual(fromProfile.code, 1, fromProfile.out);
+    assert.strictEqual(fromProfile.code, 5, fromProfile.out);
     const records = fs.readFileSync(path.join(proj, '.out.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
-    assert.deepStrictEqual(records.map((x) => [x.id, x.outcome]), [['M-broken', 'errored'], ['M-kill', 'killed']]);
+    assert.deepStrictEqual(records.map((x) => [x.id, x.outcome]), [['M-broken', 'errored']], 'the run stops at the build error; the later mutant never runs');
     assert.ok(!fromProfile.out.includes('no error pattern'));
     assert.strictEqual(src(proj), SRC);
     const noConfig = cli(['--mutants', writeMutants(proj, [KILL]), '--root', proj], { cwd: mkTmp('gsd-mutate-empty-') });
@@ -681,7 +681,7 @@ describe('mutation tool: no child outlives a test (leaked slow.check.js)', () =>
 });
 
 describe('mutation tool: profile lookup (agnostic-M-09 9.6)', () => {
-  test('withProfile takes flags first, then stack.commands.test_file and stack.mutation.error_pattern; every gap is a failure', async () => {
+  test('withProfile takes flags first, then stack.commands.test_file and stack.mutation.build_error_pattern; every gap is a failure', async () => {
     const { withProfile } = await load('mutate.mjs');
     const cwd = mkTmp('gsd-mutate-profile-');
     fs.mkdirSync(path.join(cwd, '.planning'));
@@ -690,7 +690,7 @@ describe('mutation tool: profile lookup (agnostic-M-09 9.6)', () => {
     assert.strictEqual(withProfile(opts(), cwd).ok, false, 'no config file');
     write('{ nope');
     assert.match(withProfile(opts(), cwd).error, /unreadable or not JSON/);
-    write({ stack: { commands: { test_file: 'node --test {file}' }, mutation: { error_pattern: 'Boom' } } });
+    write({ stack: { commands: { test_file: 'node --test {file}' }, mutation: { build_error_pattern: 'Boom' } } });
     assert.deepStrictEqual(withProfile(opts(), cwd).value.config, { testCmd: 'node --test {file}', testEnv: {}, errorPattern: 'Boom' });
     assert.strictEqual(withProfile(opts({ testCmd: 'x {file}', errorPattern: 'Mine' }), '/nowhere').value.config.errorPattern, 'Mine', 'flags only: no config read');
     assert.strictEqual(withProfile(opts({ testCmd: 'x {file}' }), cwd).value.config.errorPattern, 'Boom');
@@ -699,7 +699,7 @@ describe('mutation tool: profile lookup (agnostic-M-09 9.6)', () => {
     assert.match(withProfile(opts(), cwd).error, /no test command/);
     write({ stack: { commands: { test_file: 'no placeholder' } } });
     assert.match(withProfile(opts(), cwd).error, /must contain \{file\}/);
-    write({ stack: { commands: { test_file: 'x {file}' }, mutation: { error_pattern: '(' } } });
+    write({ stack: { commands: { test_file: 'x {file}' }, mutation: { build_error_pattern: '(' } } });
     assert.match(withProfile(opts(), cwd).error, /not a valid regular expression/);
   });
 });

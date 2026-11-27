@@ -6,14 +6,16 @@
 //   [--test-cmd "cmd {file}"] [--test-env K=V]... [--error-pattern re] [--dry-run] [--allow-dirty] [--allow-primary]
 //   [--phase N]  required when stack.isolation.lock_dir is set: runs only while phase N has an open `window` lease (window.mjs)
 // Test command: --test-cmd, else stack.commands.test_file of .planning/config.json in the current directory.
-// Error pattern: --error-pattern, else stack.mutation.error_pattern (a missing config is allowed only when --test-cmd is given). Documented in docs/gsd/mutation-testing.md.
-// Exit: 0 ok; 1 canary mismatch, inconclusive mutant or red after the run; 2 aborted before mutating; 3 restore failed; 4 internal.
+// Error pattern: --error-pattern, else stack.mutation.build_error_pattern (a missing config is allowed only when --test-cmd is given); the old key error_pattern is refused.
+// Runners: stack.mutation.runners[] ({ id, test_cmd with {file}, build_error_pattern? }); a mutant names one by `runner` (optional with a single runner); an unknown id is refused.
+// A failing run whose output matches the build error pattern stops the run (restored) and exits 5: a crash is never a kill. Documented in docs/gsd/mutation-testing.md.
+// Exit: 0 ok; 1 canary mismatch, inconclusive mutant or red after the run; 2 aborted before mutating; 3 restore failed; 4 internal; 5 build error pattern matched.
 import fs from 'node:fs/promises';
 import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  NO_PATTERN_NOTICE, applySnippet, canaryMismatches, countOccurrences, fail, firstFailingLine, inconclusive, killReproduced, ok, parseMutants, renderMarkdown, sha256Hex,
+  BUILD_ERROR_DETAIL, BUILD_ERROR_EXIT, NO_PATTERN_NOTICE, applySnippet, canaryMismatches, configsFor, countOccurrences, fail, firstFailingLine, inconclusive, killReproduced, ok, parseMutants, parseRunners, renderMarkdown, sha256Hex,
 } from './classify.mjs';
 import { baselineError, dirtyTargets, outPathError, outsideRootError, primaryError, runSummaryPath, staleBackupError, writeRunSummary } from './guards.mjs';
 import { parseOptions } from './options.mjs';
@@ -95,7 +97,8 @@ export async function runMutant(m, opts) {
   const { result, confirmed, seen, testSeen } = run;
   const voided = seen !== mutatedSha ? 'source changed during the run; verdict void'
     : testSeen !== testSha ? 'test file changed during the run; verdict void'
-      : confirmed === false ? 'kill not reproduced on a second run (flaky test?); verdict void' : undefined;
+      : confirmed === false ? 'kill not reproduced on a second run (flaky test?); verdict void'
+        : result.buildError ? BUILD_ERROR_DETAIL : undefined;
   return record(m, {
     outcome: voided === undefined ? result.outcome : 'errored',
     durationMs: result.durationMs,
@@ -120,30 +123,47 @@ async function loadMutants(file) {
 /** Test command and error pattern: flags first, then the profile (.planning/config.json; unreadable or non-JSON is a failure). */
 export function withProfile(options, cwd = process.cwd()) {
   const c = options.config;
-  if (c.testCmd !== null && c.errorPattern !== null) return ok(options);
   let cfg = null;
   try { cfg = JSON.parse(readFileSync(path.join(cwd, '.planning', 'config.json'), 'utf8')); } catch (e) {
     // With the test command given by flag, an absent config only means no error pattern; any other failure stays one.
     if (!(c.testCmd !== null && e.code === 'ENOENT')) return fail(`.planning/config.json unreadable or not JSON: ${e.code ?? e.message}`);
   }
+  const mutation = cfg?.stack?.mutation;
+  if (mutation !== null && typeof mutation === 'object' && Object.prototype.hasOwnProperty.call(mutation, 'error_pattern')) {
+    return fail('stack.mutation.error_pattern is renamed: use stack.mutation.build_error_pattern (it classifies a build failure, it must not match a test failure)');
+  }
+  const errorPattern = c.errorPattern ?? mutation?.build_error_pattern ?? null;
+  if (errorPattern !== null) { try { new RegExp(errorPattern); } catch { return fail('stack.mutation.build_error_pattern is not a valid regular expression'); } }
+  if (mutation?.runners !== undefined) {
+    const runners = parseRunners(mutation.runners);
+    return runners.ok ? ok({ ...options, config: { ...c, testCmd: c.testCmd, errorPattern, runners: runners.value } }) : fail(runners.error);
+  }
   const testCmd = c.testCmd ?? cfg?.stack?.commands?.test_file ?? null;
-  const errorPattern = c.errorPattern ?? cfg?.stack?.mutation?.error_pattern ?? null;
   if (testCmd === 'none') return fail('stack.commands.test_file is "none" (not configured yet): the project has no tests to mutate against; pass --test-cmd or set a real command');
   if (testCmd === null) return fail('no test command: pass --test-cmd "<command with {file}>" or set stack.commands.test_file');
   if (typeof testCmd !== 'string' || !testCmd.includes('{file}')) return fail('the test command must contain {file}');
-  if (errorPattern !== null) { try { new RegExp(errorPattern); } catch { return fail('stack.mutation.error_pattern is not a valid regular expression'); } }
   return ok({ ...options, config: { ...c, testCmd, errorPattern } });
 }
 
-async function runAll(mutants, opts, backupDir) {
+async function runAll(mutants, opts, backupDir, configs) {
   const results = [];
   for (const m of mutants) {
-    const rec = await runMutant(m, { root: opts.root, timeoutMs: opts.timeoutMs, dryRun: opts.dryRun, config: opts.config, backupDir });
+    const rec = await runMutant(m, { root: opts.root, timeoutMs: opts.timeoutMs, dryRun: opts.dryRun, config: configs.get(m.id), backupDir });
     await fs.appendFile(opts.outPath, `${JSON.stringify(rec)}\n`);
     results.push(rec);
-    if (rec.outcome === 'restore-failed') break;
+    if (rec.outcome === 'restore-failed' || rec.detail === BUILD_ERROR_DETAIL) break;
   }
   return results;
+}
+
+/** The first non-green unmutated test over every runner group, or null. */
+async function baselineAll(label, mutants, configs, opts) {
+  const groups = [...new Set(configs.values())].map((config) => ({ config, tests: [...new Set(mutants.filter((m) => configs.get(m.id) === config).map((m) => m.test))] }));
+  for (const g of groups) {
+    const problem = await baselineError(runTest, label, opts.root, g.tests, opts.timeoutMs, g.config);
+    if (problem !== null) return problem;
+  }
+  return null;
 }
 
 const refuse = (message) => { console.error(`[mutate] refusing: ${message}`); return 2; };
@@ -163,31 +183,38 @@ async function execute(opts, deps) {
   const dirty = opts.allowDirty ? ok([]) : await dirtyTargets(opts.root, mutants);
   if (!dirty.ok) { console.error(`[mutate] ${dirty.error}`); return 2; }
   if (dirty.value.length > 0) return refuse(`uncommitted or untracked ${dirty.value.join(', ')} (use --allow-dirty)`);
-  const tests = [...new Set(mutants.map((m) => m.test))];
+  const resolved = configsFor(mutants, opts.config);
+  if (!resolved.ok) { console.error(`[mutate] ${resolved.error}`); return 2; }
+  const configs = resolved.value;
   await fs.mkdir(path.dirname(opts.outPath), { recursive: true });
   await fs.writeFile(opts.outPath, '');
   await fs.rm(runSummaryPath(opts.outPath), { force: true });
   const baseline = opts.dryRun ? 'skipped' : 'green';
   const finish = async (code, summary, count = 0) => { await writeRunSummary(opts.outPath, { exit_code: code, mutants: count, ...summary }); return code; };
   if (!opts.dryRun) {
-    const before = await baselineError(runTest, 'before', opts.root, tests, opts.timeoutMs, opts.config);
+    const before = await baselineAll('before', mutants, configs, opts);
     if (before !== null) { console.error(`[mutate] ${before}; aborting`); return finish(2, { baseline_before: 'red', baseline_after: 'not-run' }); }
   }
   const backupDir = `${opts.outPath}.restore`;
   await fs.mkdir(backupDir, { recursive: true });
-  const records = await runAll(mutants, opts, backupDir);
+  const records = await runAll(mutants, opts, backupDir, configs);
   console.log(renderMarkdown(records));
   console.log(`\n[mutate] evidence: ${opts.outPath}`);
-  if (opts.config.errorPattern === null) console.log(`[mutate] ${NO_PATTERN_NOTICE}`);
+  if ([...configs.values()].some((c) => c.errorPattern === null)) console.log(`[mutate] ${NO_PATTERN_NOTICE}`);
   const restoreFailed = records.find((r) => r.outcome === 'restore-failed');
   if (restoreFailed) {
     console.error(`[mutate] RESTORE FAILED: source may be left mutated: ${restoreFailed.detail}`);
     return finish(3, { baseline_before: baseline, baseline_after: 'not-run' }, records.length);
   }
   await fs.rm(backupDir, { recursive: true, force: true });
-  const bad = opts.dryRun ? inconclusive(records) : [...canaryMismatches(records), ...inconclusive(records)];
+  const crashed = records.find((r) => r.detail === BUILD_ERROR_DETAIL);
+  if (crashed) {
+    console.error(`[mutate] REFUSED: ${crashed.id} output matched the runner's build error pattern; no verdict of this run counts`);
+    return finish(BUILD_ERROR_EXIT, { baseline_before: baseline, baseline_after: 'not-run', refused: 'build-error-pattern' }, records.length);
+  }
+  const bad =opts.dryRun ? inconclusive(records) : [...canaryMismatches(records), ...inconclusive(records)];
   if (!opts.dryRun) {
-    const after = await baselineError(runTest, 'after', opts.root, tests, opts.timeoutMs, opts.config);
+    const after = await baselineAll('after', mutants, configs, opts);
     if (after !== null) { console.error(`[mutate] ${after}; the run's verdicts are unreliable`); return finish(1, { baseline_before: baseline, baseline_after: 'red' }, records.length); }
   }
   const summary = { baseline_before: baseline, baseline_after: baseline };
@@ -199,7 +226,7 @@ async function execute(opts, deps) {
   return finish(0, summary, records.length);
 }
 
-/** Exit codes: 0 ok, 1 canary mismatch / inconclusive / unstable baseline, 2 aborted before mutating, 3 restore failed, 4 internal. */
+/** Exit codes: 0 ok, 1 canary mismatch / inconclusive / unstable baseline, 2 aborted before mutating, 3 restore failed, 4 internal, 5 build error pattern matched. */
 export async function main(argv, deps = {}) {
   const parsed = parseOptions(argv);
   if (!parsed.ok) { console.error(`[mutate] ${parsed.error}`); return 2; }

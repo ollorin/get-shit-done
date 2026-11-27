@@ -13,8 +13,8 @@ const { parseBlocks } = require('./project-deploy-files.js');
 const { parseJsonc } = require('./jsonc.js');
 const { registryDir } = require('./project-registry-store.js');
 
-// Flipped to true by the mutation tool work (WP9) once the tool refuses stack.mutation.error_pattern.
-const MUTATION_REFUSES_ERROR_PATTERN = false;
+// The mutation tool refuses stack.mutation.error_pattern at load (presets/base/scripts/mutate/mutate.mjs withProfile; test: preset-base-mutate-runners.test.js).
+const MUTATION_REFUSES_ERROR_PATTERN = true;
 
 const PRESETS_ROOT = path.join(__dirname, '..', 'presets');
 const FRAMEWORK_HOOKS = path.join(__dirname, 'hooks');

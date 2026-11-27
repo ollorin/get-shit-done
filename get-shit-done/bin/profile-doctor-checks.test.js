@@ -173,7 +173,7 @@ describe('profile doctor checks (WP22d)', () => {
     const off = checks.migrationFindings(stack, false);
     const on = checks.migrationFindings(stack, true);
     assert.deepStrictEqual([blockingOf(off).length, blockingOf(on).length], [0, 1]);
-    assert.strictEqual(checks.MUTATION_REFUSES_ERROR_PATTERN, false);
+    assert.strictEqual(checks.MUTATION_REFUSES_ERROR_PATTERN, true, 'the refusal exists and is tested in preset-base-mutate-runners.test.js');
     assert.deepStrictEqual(checks.migrationFindings({ mutation: { build_error_pattern: 'x' } }, true), []);
   });
 
