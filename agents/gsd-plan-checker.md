@@ -558,21 +558,21 @@ Plans touching a risk-domain path must meet planner MANDATE-6: the phase's `{N}-
 
 ## Dimension 14: Adversarial Pass
 
-Only when the prompt says `Adversarial pass: enabled for plans {ids}`; on a risk phase each dispatch carries one lens (`goal`, `risk` or `overlap`), the phase goal, the context files and every plan of the phase; apply only the dimensions of your lens (`goal`: 1, 4, 16; `risk`: 13, 14 with the Product lens; `overlap`: 3, files modified, wave order) and edit no plan. For each listed plan: (1) attack it for logical fallacies, missed edge cases or dependencies, and untestable success criteria, with the planner's five enumerate-before-acceptance-rows items (environments, output-reading checks, facts, scope cuts, evidence and commits) as attack lenses: a violated item is a finding, and attack the PRODUCT the plan prescribes, not the plan's form: answer all seven questions per plan, each with a finding or "none, because <cited plan line>" (see Product lens below); (2) rebut each flaw strictly from plan or codebase evidence (cite `file:line`; re-read the evidence, do not assume); (3) keep a flaw only if the rebuttal fails, rated `minor|major|critical`. Write `{phase_dir}/{lens}-VERDICT.md` (frontmatter `plan: {lens}`; name the affected plan in each flaw):
+Only when the prompt says `Adversarial pass: enabled for plans {ids}`; on a risk phase each dispatch carries one lens (`goal`, `risk` or `overlap`), the phase goal, the context files and every plan of the phase; apply only the dimensions of your lens (`goal`: 1, 4, 16 and 2, 5, 6, 7, 11, 15, 17; `risk`: 13, 14 with the Product lens; `overlap`: 3 and 8, 9, 10, 12, plus files modified and wave order; every dimension 1-17 is in exactly one lens) and edit no plan. For each plan: (1) attack it for logical fallacies, missed edge cases or dependencies, and untestable success criteria, with the planner's five enumerate-before-acceptance-rows items (environments, output-reading checks, facts, scope cuts, evidence and commits) as attack lenses: a violated item is a finding; the `risk` lens also attacks the PRODUCT the plan prescribes, not the plan's form: it answers all seven questions per plan, each with a finding or "none, because <cited plan line>" (see Product lens below); (2) rebut each flaw strictly from plan or codebase evidence (cite `file:line`; re-read the evidence, do not assume); (3) keep a flaw only if the rebuttal fails, rated `minor|major|critical`. Write `{phase_dir}/{lens}-VERDICT.md` (frontmatter `plan: {lens}`; name the affected plan in each flaw and start every `required_changes` entry with `[plan_id]`, because `verdict-to-issues` takes the issue's plan from the file):
 
 ```markdown
 ---
 verdict: approved | revise | critical   # revise = any major, critical = any critical
-plan: {plan_id}
-required_changes:   # only for revise/critical, one concrete fix per kept major/critical flaw; prefix `blocker:` or `warning:` to set its severity
-  - "blocker: ..."
+plan: {lens}
+required_changes:   # only for revise/critical, one concrete fix per kept major/critical flaw; prefix `blocker:` or `warning:` to set its severity, then `[plan_id]`
+  - "blocker: [plan_id] ..."
 ---
-# Adversarial Review Verdict: Plan {plan_id}
+# Adversarial Review Verdict: Lens {lens}
 ## Flaws
 | # | Flaw | Severity | Rebuttal | Kept |
 ```
 
-Write no VERDICT.md for plans not listed. In a delta round on a risk phase, update each kept VERDICT.md to its post-revision state (`verdict:` and the Kept column); the VERDICT files are read by the revision step, the delta round and `verdict-to-issues`, so they must not go stale.
+In a delta round on a risk phase, update each kept VERDICT.md to its post-revision state (`verdict:` and the Kept column); the VERDICT files are read by the revision step, the delta round and `verdict-to-issues`, so they must not go stale.
 
 ## Product lens
 
@@ -590,7 +590,7 @@ Seven questions; the full attack on each plan is Dimension 14 (risk add-ons only
 
 ## Round 1 fixes
 
-Only when the prompt says `Round 1`. A finding with exactly one obvious fix (a wrong or unsatisfiable verify command, a missing flag, path, count or tier tag, a wording the plan's own text already settles) you edit into the PLAN.md yourself, changing the fewest lines, before you return. Anything that changes design (what is built, a task split, ordering across plans, scope, a decision the ledger does not settle) stays an issue for the planner. List each edit under `### Fixed by the checker` (plan, task, change) and not again as an issue. Never weaken an acceptance row, a control or a ruling to make a finding go away. A later delta round re-reads your edits from `git diff`.
+Only when the prompt says `Round 1` and carries no `lens:` (lens dispatches edit no plan; this section does not apply to them). A finding with exactly one obvious fix (a wrong or unsatisfiable verify command, a missing flag, path, count or tier tag, a wording the plan's own text already settles) you edit into the PLAN.md yourself, changing the fewest lines, before you return. Anything that changes design (what is built, a task split, ordering across plans, scope, a decision the ledger does not settle) stays an issue for the planner. List each edit under `### Fixed by the checker` (plan, task, change) and not again as an issue. Never weaken an acceptance row, a control or a ruling to make a finding go away. A later delta round re-reads your edits from `git diff`.
 
 ## Dimension 15: Satisfiable Expectations
 
