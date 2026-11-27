@@ -96,15 +96,14 @@ const HOST_FIELDS = [
 
 const flakeExtra = (_key, o) => (Array.isArray(o.patterns) ? o.patterns.flatMap(patternProblems) : []);
 
-// stack.affected.{specs,tests}: each present selector is validated by the preset's own parseSelectorConfig (ESM, so
-// require() needs Node 22.12+; an older Node reports the block as unvalidated rather than passing it).
+// Without require(esm) (Node < 22.12) no problem is reported: the runtime scripts validate with parseSelectorConfig and exit 2.
 function affectedShape(key, v) {
   if (!isObject(v)) return [problem(key, 'must be an object')];
   let parse;
   try {
     ({ parseSelectorConfig: parse } = require('../presets/base/scripts/lib/affected.mjs'));
   } catch {
-    return [problem(key, 'cannot be validated: this Node cannot require() an ES module (needs Node 22.12+)')];
+    return [];
   }
   return ['specs', 'tests'].flatMap((name) => {
     if (v[name] === undefined) return [];
