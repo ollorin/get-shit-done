@@ -175,6 +175,22 @@ describe('Phase 56-01: prompt-optimize.js pure core functions', () => {
       assert.deepStrictEqual(queued.map((r) => r.id), ['q2']);
     });
 
+    test('readEvalFailuresForAgent lists an id present in both queue dirs once, the .planning/eval-queue copy first', () => {
+      const newDir = path.join(tmpDir, '.planning', 'eval-queue');
+      const legacyDir = path.join(tmpDir, 'tests', 'eval-regressions', 'queue');
+      fs.mkdirSync(newDir, { recursive: true });
+      fs.mkdirSync(legacyDir, { recursive: true });
+      const candidate = (title) => JSON.stringify({
+        id: 'q3', source: 'debugger', created_at: '2026-01-01', title,
+        context: { agent: 'gsd-executor' }, expected: { type: 'file_exists', file: 'agents/gsd-executor.md' }, status: 'pending',
+      });
+      fs.writeFileSync(path.join(newDir, 'q3.json'), candidate('new copy'));
+      fs.writeFileSync(path.join(legacyDir, 'q3.json'), candidate('legacy copy'));
+
+      const queued = readEvalFailuresForAgent(tmpDir, 'gsd-executor').filter((r) => r.origin === 'queue');
+      assert.deepStrictEqual(queued.map((r) => r.title), ['new copy']);
+    });
+
     test('buildDiagnosis: ambiguity outranks instructions_not_followed and eval-failure for topIssue', () => {
       const telemetryEntries = [
         { agent: 'gsd-executor', instructions_not_followed: [{ rule: 'r1', why: 'did not check X' }], ambiguities: [] },

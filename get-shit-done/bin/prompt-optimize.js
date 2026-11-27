@@ -141,12 +141,6 @@ function candidateMatchesAgent(candidate, agentName) {
   return haystack.includes(String(agentName).toLowerCase());
 }
 
-// Pending eval candidates: the WP19 queue first, then the pre-WP19 queue that
-// earlier runs wrote under tests/ (read-only fallback; gsd-tools writes only the first).
-function evalQueueReadDirs(cwd) {
-  return [path.join(cwd, '.planning', 'eval-queue'), path.join(cwd, 'tests', 'eval-regressions', 'queue')];
-}
-
 function listJsonFiles(dir) {
   try {
     return fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort();
@@ -166,7 +160,9 @@ function readEvalFailuresForAgent(cwd, agentName) {
   const results = [];
 
   // queue/
-  const queueFiles = evalQueueReadDirs(cwd).flatMap((queueDir) => listJsonFiles(queueDir).map((file) => ({ queueDir, file })));
+  const queueFiles = evalHarness.uniqueByFileName(
+    evalHarness.evalQueueReadDirs(cwd).flatMap((queueDir) => listJsonFiles(queueDir).map((file) => ({ queueDir, file }))),
+  );
 
   for (const { queueDir, file } of queueFiles) {
     let candidate;
@@ -194,7 +190,7 @@ function readEvalFailuresForAgent(cwd, agentName) {
 
   // accepted/ -- re-execute each matching accepted candidate; only currently
   // failing (pass:false) ones count as a "failure" signal.
-  const acceptedDir = path.join(cwd, 'tests', 'eval-regressions', 'accepted');
+  const acceptedDir = evalHarness.evalAcceptedDir(cwd);
   let loaded;
   try {
     loaded = evalHarness.loadAcceptedEvalCandidates(acceptedDir);
@@ -637,7 +633,7 @@ function executeEvalCandidateAgainstContent(candidate, agentRelPath, content) {
 // Vacuously passes (pass:true, total:0) when no candidates match -- mirrors
 // runEvalRegressions' empty-set-is-a-trivial-pass convention. Never throws.
 function checkEvalForCandidate(cwd, agentRelPath, revisedContent) {
-  const acceptedDir = path.join(cwd, 'tests', 'eval-regressions', 'accepted');
+  const acceptedDir = evalHarness.evalAcceptedDir(cwd);
 
   let validCandidates = [];
   try {

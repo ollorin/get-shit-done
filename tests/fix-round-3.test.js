@@ -253,6 +253,14 @@ describe('item 8: run-state files do not fail git-status-clean', () => {
     write(dir, '.planning/phases/01-p1/01-01-SUMMARY.md', 'x');
     assert.strictEqual(statusClean(dir), false);
   });
+  test('an untracked pending eval candidate under .planning/eval-queue/ is ignored; one under another dir still fails', () => {
+    const dir = project();
+    git(dir, 'add', '-A'); git(dir, 'commit', '-q', '--allow-empty', '-m', 'base');
+    write(dir, '.planning/eval-queue/cand-1.json', '{}');
+    assert.strictEqual(statusClean(dir), true);
+    write(dir, 'other/cand-2.json', '{}');
+    assert.strictEqual(statusClean(dir), false);
+  });
   test('the committed config and the built-in fallback carry the same command', () => {
     const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'get-shit-done', 'config', 'pre-pr-checks.json'), 'utf8'));
     const src = fs.readFileSync(path.join(__dirname, '..', 'get-shit-done', 'bin', 'pre-pr-checks.js'), 'utf8');

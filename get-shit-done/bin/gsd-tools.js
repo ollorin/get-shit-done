@@ -5338,25 +5338,10 @@ function cmdEval(cwd, args, raw) {
 // left untouched.
 const EVAL_REGRESSIONS_ROOT = 'tests/eval-regressions';
 
-const EVAL_QUEUE_SUBDIR = path.join('.planning', 'eval-queue');
-const LEGACY_EVAL_QUEUE_SUBDIR = path.join(EVAL_REGRESSIONS_ROOT, 'queue');
-
-// Writes go to the first dir only; reads check both (new first, then pre-WP19 legacy).
-function getEvalQueueDir(cwd) {
-  return path.join(cwd, EVAL_QUEUE_SUBDIR);
-}
-
-function getEvalQueueReadDirs(cwd) {
-  return [getEvalQueueDir(cwd), path.join(cwd, LEGACY_EVAL_QUEUE_SUBDIR)];
-}
-
+// Queue and accepted dirs are owned by eval-harness.js (evalQueueDir, evalQueueReadDirs, evalAcceptedDir).
 function findQueuedCandidatePath(cwd, id) {
-  const hits = getEvalQueueReadDirs(cwd).map((dir) => path.join(dir, `${id}.json`));
+  const hits = evalHarness.evalQueueReadDirs(cwd).map((dir) => path.join(dir, `${id}.json`));
   return hits.find((p) => fs.existsSync(p)) || hits[0];
-}
-
-function getEvalRegressionsAcceptedDir(cwd) {
-  return path.join(cwd, EVAL_REGRESSIONS_ROOT, 'accepted');
 }
 
 function getEvalRegressionsArchivedDir(cwd) {
@@ -5735,7 +5720,7 @@ function writeEvalCandidates(cwd, candidates) {
   const list = Array.isArray(candidates) ? candidates : [candidates];
   // A project without tests/eval-regressions has not opted in: never create the tree inside it.
   if (!evalRegressionsConfigured(cwd)) return [];
-  const queueDir = getEvalQueueDir(cwd);
+  const queueDir = evalHarness.evalQueueDir(cwd);
   fs.mkdirSync(queueDir, { recursive: true });
 
   const written = [];
@@ -5818,9 +5803,11 @@ function listCandidateFiles(dirPath) {
 
 function cmdEvalCandidateList(cwd, dirArg, raw) {
   const dir = ['queue', 'accepted', 'archived'].includes(dirArg) ? dirArg : 'queue';
-  const dirPaths = dir === 'queue' ? getEvalQueueReadDirs(cwd) : [path.join(cwd, EVAL_REGRESSIONS_ROOT, dir)]; // dir is validated above
+  const dirPaths = dir === 'queue' ? evalHarness.evalQueueReadDirs(cwd)
+    : dir === 'accepted' ? [evalHarness.evalAcceptedDir(cwd)]
+      : [getEvalRegressionsArchivedDir(cwd)]; // dir is validated above
 
-  const candidates = dirPaths.flatMap(listCandidateFiles);
+  const candidates = evalHarness.uniqueByFileName(dirPaths.flatMap(listCandidateFiles));
   output({ dir, count: candidates.length, candidates }, raw);
 }
 
@@ -5850,7 +5837,7 @@ function cmdEvalCandidateAccept(cwd, id, raw) {
   }
 
   const accepted = { ...parsed.value, status: 'accepted', accepted_at: new Date().toISOString() };
-  const acceptedDir = getEvalRegressionsAcceptedDir(cwd);
+  const acceptedDir = evalHarness.evalAcceptedDir(cwd);
   fs.mkdirSync(acceptedDir, { recursive: true });
   const acceptedPath = path.join(acceptedDir, `${id}.json`);
   atomicWriteFileSync(acceptedPath, JSON.stringify(accepted, null, 2));

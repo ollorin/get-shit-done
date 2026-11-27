@@ -6,6 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const rg = require('../get-shit-done/bin/review-gate.js');
+const GSD_TOOLS = path.join(__dirname, '..', 'get-shit-done', 'bin', 'gsd-tools.js');
 
 const dirs = [];
 afterEach(() => { while (dirs.length) fs.rmSync(dirs.pop(), { recursive: true, force: true }); });
@@ -210,9 +211,13 @@ describe('head stamps: freshness is git diff <head>..HEAD on the proven paths', 
     put(d, '.planning/phases/01-p/01-REVIEW.md', '---\nhead: deadbeefdeadbeef\n---\n');
     assert.match(stale(d, pd)[0], /not a commit/);
   });
-  test('an untracked eval candidate under .planning/eval-queue/ does not block a stamp (WP19)', () => {
+  test('an eval candidate written by the real from-verification CLI under .planning/eval-queue/ does not block a stamp (WP19)', () => {
     const { d, pd } = repo();
-    put(d, '.planning/eval-queue/cand-1.json', '{}');
+    put(d, 'tests/eval-regressions/.gitkeep', '');
+    commit(d, 'chore: opt in to eval regressions');
+    put(d, '.planning/phases/01-p/01-VERIFICATION.md', '---\nphase: 01-p\nstatus: gaps_found\ngaps:\n  - truth: "Broken"\n    status: failed\n    reason: "gap"\n    artifacts:\n      - path: "src/a.js"\n        issue: "missing"\n---\n# V\n');
+    execFileSync('node', [GSD_TOOLS, 'eval-candidate', 'from-verification', '.planning/phases/01-p/01-VERIFICATION.md', '--raw'], { cwd: d, stdio: 'pipe' });
+    assert.strictEqual(fs.readdirSync(path.join(d, '.planning', 'eval-queue')).length, 1, 'the candidate is written under .planning/eval-queue');
     assert.ok(rg.stampHead(execGit, d, path.join(pd, '01-REVIEW.md')).head);
   });
   test('gates.txt: each section is stale only for the paths it declares; the newest section per gate counts; unstamped is not checked', () => {

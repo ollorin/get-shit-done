@@ -12018,6 +12018,17 @@ describe('eval-candidate review queue (Phase 55-02)', () => {
     assert.ok(!fs.existsSync(path.join(legacyDir, 'cand-legacy.json')), 'accept moves the legacy file out of tests/');
   });
 
+  test('dedupe: an id present in both queue dirs is listed once, and the .planning/eval-queue copy wins', () => {
+    seedQueueCandidate(validCandidate({ id: 'cand-dup', title: 'new copy' }));
+    const legacyDir = path.join(tmpDir, 'tests', 'eval-regressions', 'queue');
+    fs.mkdirSync(legacyDir, { recursive: true });
+    fs.writeFileSync(path.join(legacyDir, 'cand-dup.json'), JSON.stringify(validCandidate({ id: 'cand-dup', title: 'legacy copy' })));
+
+    const listed = JSON.parse(runGsdTools('eval-candidate list --raw', tmpDir).output);
+    assert.strictEqual(listed.count, 1);
+    assert.deepStrictEqual(listed.candidates.map((c) => [c.id, c.title]), [['cand-dup', 'new copy']]);
+  });
+
   // Category 6: Regression guard.
   test('regression guard: `eval-candidate from-debug`/`from-verification` (55-01) still land fresh candidates in queue/ unmodified', () => {
     const debugFixture = path.join(tmpDir, '.planning', 'debug', 'fixture.md');

@@ -500,6 +500,30 @@ function runEvalAssertions(artifactsRoot, options) {
 const EVAL_CANDIDATE_REQUIRED_KEYS = ['id', 'source', 'created_at', 'title', 'context', 'expected', 'status'];
 const EVAL_CANDIDATE_ALLOWED_EXPECTED_TYPES = ['file_exists', 'file_not_exists', 'file_contains', 'file_not_contains'];
 
+// Single owner of where candidates live. Writes go to the WP19 queue only; the
+// pre-WP19 queue under tests/ is a read-only fallback. The capture stamp refuses
+// untracked files outside .planning/ and docs/, which is why the queue moved.
+const EVAL_QUEUE_SUBDIR = path.join('.planning', 'eval-queue');
+const LEGACY_EVAL_QUEUE_SUBDIR = path.join('tests', 'eval-regressions', 'queue');
+const EVAL_ACCEPTED_SUBDIR = path.join('tests', 'eval-regressions', 'accepted');
+
+function evalQueueDir(cwd) {
+  return path.join(cwd, EVAL_QUEUE_SUBDIR);
+}
+
+function evalQueueReadDirs(cwd) {
+  return [evalQueueDir(cwd), path.join(cwd, LEGACY_EVAL_QUEUE_SUBDIR)];
+}
+
+function evalAcceptedDir(cwd) {
+  return path.join(cwd, EVAL_ACCEPTED_SUBDIR);
+}
+
+// Keeps the first entry per `file` name, so an id present in two queue dirs is listed once.
+function uniqueByFileName(entries) {
+  return entries.filter((entry, i) => entries.findIndex((other) => other.file === entry.file) === i);
+}
+
 // Pure shape validator -- returns a plain array of error strings (not the
 // {valid,errors} object shape gsd-tools.js's validateEvalCandidateSchema
 // uses; this file's other validators return bare arrays/results, so this
@@ -652,4 +676,8 @@ module.exports = {
   loadAcceptedEvalCandidates,
   executeEvalCandidate,
   runEvalRegressions,
+  evalQueueDir,
+  evalQueueReadDirs,
+  evalAcceptedDir,
+  uniqueByFileName,
 };
