@@ -319,6 +319,7 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
    - Check `git log --oneline --all --grep="{phase}-{plan}"` returns ≥1 commit
    - Check for `## Self-Check: FAILED` marker
    - Check the commit count for the plan is at least its task count (a plan that declares one aggregate commit is exempt)
+   - Rolling gate: run `node scripts/gate-capture.mjs {phase_dir}/captures/gates.txt no-stack-gates "node scripts/no-stack-gates.mjs"` (typecheck, lint and every `stack.gates[]` entry with `needs_stack: false`; an entry without it is skipped, and nothing to run exits 0). A nonzero rc fails the plan like a failed spot-check. A rolling pass is not a gate pass; the phase gate is the only pass, and it still runs every gate once on the final tree. Capture any other gate with the same script, never by hand.
 
    If ANY spot-check fails: report which plan failed, route to failure handler — ask "Retry plan?" or "Continue with remaining waves?"
    Auto (auto_mode, references/auto-mode.md K5): do not ask; run the deterministic ladder below (`execution-state record-failure`) for the plan and continue with the waves that do not depend on it.

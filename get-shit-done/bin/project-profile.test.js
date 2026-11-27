@@ -171,6 +171,13 @@ describe('project-profile', () => {
     gateNoRun.stack.gates = [{ id: 'a' }];
     assert.ok(invalidKeys(profile.validateProfile(loaded(gateNoRun))).includes('stack.gates'));
 
+    const needsStackText = validProfile();
+    needsStackText.stack.gates = [{ id: 'a', run: 'x', needs_stack: 'false' }];
+    assert.ok(invalidKeys(profile.validateProfile(loaded(needsStackText))).includes('stack.gates'));
+    const needsStackBool = validProfile();
+    needsStackBool.stack.gates = [{ id: 'a', run: 'x', needs_stack: false }, { id: 'b', run: 'y', needs_stack: true }, { id: 'c', run: 'z' }];
+    assert.ok(!invalidKeys(profile.validateProfile(loaded(needsStackBool))).includes('stack.gates'));
+
     const dupService = validProfile();
     dupService.stack.services = [{ name: 'api', url: 'http://127.0.0.1:1' }, { name: 'api', url: 'http://127.0.0.1:2' }];
     assert.ok(invalidKeys(profile.validateProfile(loaded(dupService))).includes('stack.services'));
@@ -659,7 +666,7 @@ describe('profile doctor (WP18)', () => {
     ['dependency-scan', 'node scripts/dependency-scan-gate.mjs'],
     ['adr', 'node scripts/validation/adr-reconcile.mjs'],
     ['assertion-quality', 'node scripts/validation/check-assertion-quality.mjs'],
-  ].map(([id, run]) => ({ id, run }));
+  ].map(([id, run]) => ({ id, run, ...(['guard-canaries', 'dependency-scan'].includes(id) ? {} : { needs_stack: false }) }));
 
   const completeStack = () => ({
     capabilities: { backend: {}, web_ui: {} },

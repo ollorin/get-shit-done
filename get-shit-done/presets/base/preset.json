@@ -557,6 +557,20 @@
       "guarded": false
     },
     {
+      "src": "scripts/no-stack-gates.mjs",
+      "dest": "scripts/no-stack-gates.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
+      "src": "scripts/gate-capture.mjs",
+      "dest": "scripts/gate-capture.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": false
+    },
+    {
       "src": "scripts/memory-guard.sh",
       "dest": "scripts/memory-guard.sh",
       "kind": "whole",

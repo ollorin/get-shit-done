@@ -667,7 +667,8 @@ describe('9.13 default gates and style config', () => {
       assert.deepStrictEqual(idsOf(cfg), IDS);
     }
     const style = initBase(withCaps({})).stack.gates.find((g) => g.id === 'style');
-    assert.deepStrictEqual(style, { id: 'style', run: 'node scripts/style-gate.mjs' });
+    assert.deepStrictEqual(style, { id: 'style', run: 'node scripts/style-gate.mjs', needs_stack: false });
+    assert.deepStrictEqual(initBase(withCaps({})).stack.gates.find((g) => g.id === 'dependency-scan'), { id: 'dependency-scan', run: 'node scripts/dependency-scan-gate.mjs' });
   });
 
   test('G-d init adds the unused-code gate with the configured command, and none without the key', () => {
@@ -743,7 +744,7 @@ describe('WP18 defaults table in init and sync', () => {
     assert.strictEqual(r.status, 0, r.stdout);
     const synced = configOf(root).stack.gates;
     assert.deepStrictEqual(synced.slice(-2).map((g) => g.id), ['hook-patch-trailer', 'assertion-quality']);
-    assert.deepStrictEqual(synced.find((g) => g.id === 'style'), { id: 'style', run: 'custom' });
+    assert.deepStrictEqual(synced.find((g) => g.id === 'style'), { id: 'style', run: 'custom', needs_stack: false });
     runProject(['sync', '--root', root, '--preset', 'base'], home);
     assert.deepStrictEqual(configOf(root).stack.gates, synced);
   });
