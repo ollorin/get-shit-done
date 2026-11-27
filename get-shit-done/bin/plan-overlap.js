@@ -119,12 +119,21 @@ function cmdClaimsCheck(cwd, planPath, lane, claimsFile) {
   return { clear: conflicts.length === 0, conflicts };
 }
 
-// Per-plan checkpoint: TASK-CHECKPOINT-<plan_id>.json. A phase checkpointed by an older build only has TASK-CHECKPOINT.json: read that when the per-plan file is absent.
-// With two open executor leases the phase-scoped file belongs to neither plan, so it is no fallback.
+// Per-plan checkpoint: TASK-CHECKPOINT-<plan_id>.json. A phase checkpointed by an older build only has TASK-CHECKPOINT.json: read it when the per-plan file is absent and its `plan` names this plan.
+// With two open executor leases the phase-scoped file belongs to neither plan, and it is a fallback only when its `plan` field names this plan.
+const PLAN_CHECKPOINT = /TASK-CHECKPOINT-(.+)\.json$/;
+function legacyNamesPlan(legacy, planId) {
+  try {
+    const { plan } = JSON.parse(fs.readFileSync(legacy, 'utf8'));
+    return plan !== undefined && String(plan) === planId;
+  } catch { return false; }
+}
 function resolveTaskCheckpoint(file, openExecutors) {
   if (fs.existsSync(file)) return file;
+  const planId = (file.match(PLAN_CHECKPOINT) || [])[1];
   const legacy = path.join(path.dirname(file), 'TASK-CHECKPOINT.json');
-  return openExecutors <= 1 && /TASK-CHECKPOINT-.+\.json$/.test(file) && fs.existsSync(legacy) ? legacy : file;
+  const useLegacy = openExecutors <= 1 && planId !== undefined && fs.existsSync(legacy) && legacyNamesPlan(legacy, planId);
+  return useLegacy ? legacy : file;
 }
 
 module.exports = { planInfo, overlap, leaseConflict, repoRelative, cmdOverlap, cmdClaimsCheck, claimedRows, resolveTaskCheckpoint };

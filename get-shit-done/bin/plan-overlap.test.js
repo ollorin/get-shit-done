@@ -92,21 +92,31 @@ describe('claims check', () => {
 describe('per-plan task checkpoint', () => {
   const ck = '.planning/phases/01-x/TASK-CHECKPOINT';
   test('a per-plan file wins; the phase-scoped file is the fallback; an unrelated name never falls back', () => {
-    write(`${ck}.json`, '{}');
+    write(`${ck}.json`, '{"plan":"1-02"}');
     assert.strictEqual(P.resolveTaskCheckpoint(path.join(dir, `${ck}-1-02.json`), 1), path.join(dir, `${ck}.json`));
     write(`${ck}-1-02.json`, '{}');
     assert.strictEqual(P.resolveTaskCheckpoint(path.join(dir, `${ck}-1-02.json`), 1), path.join(dir, `${ck}-1-02.json`));
     assert.strictEqual(P.resolveTaskCheckpoint(path.join(dir, 'other.json'), 1), path.join(dir, 'other.json'));
   });
   test('the phase-scoped file is the fallback for one open executor lease only, not for two', () => {
-    write(`${ck}.json`, '{}');
+    write(`${ck}.json`, '{"plan":"1-02"}');
     const want = path.join(dir, `${ck}-1-02.json`);
     assert.strictEqual(P.resolveTaskCheckpoint(want, 1), path.join(dir, `${ck}.json`));
     assert.strictEqual(P.resolveTaskCheckpoint(want, 2), want);
   });
+  test('a legacy phase-scoped file naming another plan is not used for this plan', () => {
+    write(`${ck}.json`, '{"plan":"1-03"}');
+    const want = path.join(dir, `${ck}-1-02.json`);
+    assert.strictEqual(P.resolveTaskCheckpoint(want, 1), want);
+  });
+  test('a legacy phase-scoped file without a plan field is not used', () => {
+    write(`${ck}.json`, '{}');
+    const want = path.join(dir, `${ck}-1-02.json`);
+    assert.strictEqual(P.resolveTaskCheckpoint(want, 1), want);
+  });
   test('resilience check-staleness does not read the phase-scoped file while two executors are open', () => {
     plan('a.md', { n: 1, files: ['a.js'] }); plan('b.md', { n: 2, files: ['b.js'] });
-    write(`${ck}.json`, '{}');
+    write(`${ck}.json`, '{"plan":"1-02"}');
     const begin = (id, p) => run(['dispatch', 'begin', '--phase', '1', '--role', 'executor', '--id', id, '--plan', p]);
     assert.strictEqual(begin('a', 'a.md').status, 0);
     assert.strictEqual(JSON.parse(run(['resilience', 'check-staleness', `${ck}-1-02.json`]).stdout).file_exists, true);
@@ -114,7 +124,7 @@ describe('per-plan task checkpoint', () => {
     assert.strictEqual(JSON.parse(run(['resilience', 'check-staleness', `${ck}-1-02.json`]).stdout).file_exists, false);
   });
   test('resilience check-staleness reads the per-plan file, and the legacy one when absent', () => {
-    write(`${ck}.json`, '{}');
+    write(`${ck}.json`, '{"plan":"1-02"}');
     assert.strictEqual(JSON.parse(run(['resilience', 'check-staleness', `${ck}-1-02.json`]).stdout).file_exists, true);
     fs.rmSync(path.join(dir, `${ck}.json`));
     assert.strictEqual(JSON.parse(run(['resilience', 'check-staleness', `${ck}-1-02.json`]).stdout).file_exists, false);

@@ -133,9 +133,9 @@ Report:
 Execute each wave in sequence. Plans of a wave run one after another, except that two plans of the wave may run as two executors (rigour.md "Never relaxed" 6) when `node "$HOME/.claude/get-shit-done/bin/gsd-tools.js" plan overlap {planA} {planB}` exits 0 (file-disjoint) and `claims check {plan}` is clear for both; each executor gets its own worktree and `dispatch begin --role executor --plan {plan}`. Any other pair runs sequentially; never UI QA in parallel; `PARALLELIZATION` is otherwise ignored.
 
 **Two-executor procedure** (the coordinator runs every step; a failed step stops the pair and re-plans it serially):
-1. Per executor, `git worktree add -b wt/{phase}-{plan_id} .tmp/wt-{phase}-{plan_id} HEAD` (git refuses two worktrees on one branch). Copy the git-ignored stack pins from the main checkout into the worktree, never a remote project link. Write each executor's claim rows into `.tmp/phase-file-claims.md` of the MAIN checkout (coordinator only), then `dispatch begin --role executor --plan {plan}`.
+1. Per executor, `git worktree add -b wt/{phase}-{plan_id} .tmp/wt-{phase}-{plan_id} HEAD` (git refuses two worktrees on one branch). Copy the git-ignored local-stack version pins listed in the project's shared-stack rule from the main checkout into the worktree, never a remote project link. Write each executor's claim rows into `.tmp/phase-file-claims.md` of the MAIN checkout (coordinator only), then `dispatch begin --role executor --plan {plan}`.
 2. Brief each executor: PROJECT_ROOT is its worktree; the checkpoint path `.planning/phases/{phase_dir}/TASK-CHECKPOINT-{plan_id}.json` is relative to the worktree; commit only on its `wt/` branch with explicit pathspecs; never run the stack reset or a live test bucket (the stack lock stays serialized: run only tests that need no served runtime); write no STATE.md, ROADMAP.md, REQUIREMENTS.md, EXECUTION_LOG or DECISIONS ledger entry (the coordinator alone writes them).
-3. When both return, merge the two `wt/` branches into the phase branch one at a time with `git merge --no-ff`; a conflict stops the pair: abort the merge and re-run the plans serially. For a resume, read each executor's checkpoint from its own worktree path.
+3. When both return, merge the two `wt/` branches into the phase branch one at a time with `git merge --no-ff`; a conflict stops the pair: run `git merge --abort`, remove both worktrees with `git worktree remove --force`, delete both `wt/` branches with `git branch -D`, `dispatch end` both leases, then re-run the two plans serially (leftover `wt/` branches would make a serial re-run's `git worktree add -b` fail). For a resume, read each executor's checkpoint from its own worktree path.
 4. Run the gates once on the merged tree, then write STATE.md and ROADMAP.md once.
 5. Remove each worktree with `git worktree remove .tmp/wt-{phase}-{plan_id}` and its branch with `git branch -d wt/{phase}-{plan_id}`, then `dispatch end` both leases.
 
@@ -163,7 +163,7 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
 
    ```bash
    HANDOFF_PATH=".planning/phases/{phase_dir}/EXECUTOR-HANDOFF.json"
-   TASK_CKPT_PATH=".planning/phases/{phase_dir}/TASK-CHECKPOINT-{plan_id}.json"   # per plan; `resilience check-staleness` falls back to a legacy TASK-CHECKPOINT.json
+   TASK_CKPT_PATH=".planning/phases/{phase_dir}/TASK-CHECKPOINT-{plan_id}.json"   # per plan; `resilience check-staleness` falls back to a legacy TASK-CHECKPOINT.json. Two-executor mode: read it under the executor's worktree, `.tmp/wt-{phase}-{plan_id}/`, not the main checkout.
    ```
    If `HANDOFF_PATH` exists, OR `TASK_CKPT_PATH` (or a legacy phase-scoped TASK-CHECKPOINT.json) exists with no matching `{plan_id}-SUMMARY.md` (a death with no clean handoff):
    1. Verify every commit hash it claims actually exists: `git log --oneline --all | grep -F "{hash}"` for each. If any is missing, the state is unverifiable — log loudly and fall back to a normal fresh spawn instead of trusting it.
