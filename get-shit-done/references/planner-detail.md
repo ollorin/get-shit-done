@@ -899,7 +899,7 @@ Group by plan, dimension, severity.
 
 ### Step 4b: Dispose of every kept flaw
 
-The revision context names the `{plan}-VERDICT.md` files. Every flaw the table keeps (any rating, minor included) is fixed in the plan or logged as an `A-` row (`decisions.js add --kind assumption --source plan-check --reversibility cheap --phases N --question ... --default ...`); none stays unmentioned as "minor". The return names the disposition of each.
+The revision context names the `{lens}-VERDICT.md` files. Every flaw the table keeps (any rating, minor included) is fixed in the plan or logged as an `A-` row (`decisions.js add --kind assumption --source plan-check --reversibility cheap --phases N --question ... --default ...`); none stays unmentioned as "minor". The return names the disposition of each.
 
 ### Step 5: Validate Changes
 
