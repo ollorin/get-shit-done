@@ -7,7 +7,7 @@
 //   [--phase N]  required when stack.isolation.lock_dir is set: runs only while phase N has an open `window` lease (window.mjs)
 // Test command: --test-cmd, else stack.commands.test_file of .planning/config.json in the current directory.
 // Error pattern: --error-pattern, else stack.mutation.build_error_pattern (a missing config is allowed only when --test-cmd is given); the old key error_pattern is refused.
-// Runners: stack.mutation.runners[] ({ id, test_cmd with {file}, build_error_pattern? }); a mutant names one by `runner` (optional with a single runner); an unknown id is refused.
+// Runners: stack.mutation.runners[] ({ id, test_cmd with {file} and {name}, build_error_pattern? }); a mutant names one by `runner` (optional with a single runner); an unknown id is refused.
 // A failing run whose output matches the build error pattern stops the run (restored) and exits 5: a crash is never a kill. Documented in docs/gsd/mutation-testing.md.
 // Run start: a runner with a `selftest` first proves the harness tells a kill from a build failure (selftest.mjs); a `lane: db` runner needs STACK_LOCK_HELD=1; every mutant needs expect_failing_test.
 // Exit: 0 ok; 1 canary mismatch, inconclusive mutant or red after the run; 2 aborted before mutating (self-test, baseline, lock, option conflict); 3 restore failed; 4 internal; 5 build error pattern matched or errored breaker (harness fault).
@@ -70,7 +70,7 @@ async function testFileSha(root, test) {
   return bytes === null ? null : sha256Hex(bytes);
 }
 
-/** One run of the mutant's test filtered to its expect_failing_test (a runner without {filter} runs unfiltered); a filter that ran nothing is errored. */
+/** One run of the mutant's test filtered to its expect_failing_test ({name}); a filter that ran nothing is errored. Used for the first and the confirmation run alike. */
 async function runNamed(m, opts) {
   const config = { ...opts.config, name: m.expect_failing_test };
   const r = await runTest(opts.root, m.test, opts.timeoutMs, config);

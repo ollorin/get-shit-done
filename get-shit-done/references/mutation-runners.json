@@ -1,6 +1,6 @@
 {
   "js-runner-a": {
-    "test_cmd": "npm run test:file -- {file} --bail=1 --reporter=verbose",
+    "test_cmd": "npm run test:file -- {file} --bail=1 --reporter=verbose -t {name}",
     "build_error_pattern": "(?:^|\\n)\\s*(?:\\w*Error: )?(?:Transform failed with \\d+ error|Failed to resolve import|Failed to load url)|(?:^|\\n)\\s*SyntaxError: The requested module [^\\n]*does not provide an export named|(?:^|\\n)\\s*Error: Cannot find (?:module|package)|(?:^|\\n)\\s*SyntaxError: [^\\n]*\\(\\d+:\\d+\\)",
     "pass_pattern": "Tests\\s+(?:\\d+ failed \\| )?(\\d+) passed",
     "selftest": {

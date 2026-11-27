@@ -23,8 +23,8 @@ const git = (root, ...args) => {
 };
 
 const SRC = 'exports.add = (a, b) => a + b;\n';
-const CRASH_CHECK = "if (require('./add.js').add(1, 2) !== 3) { console.error('SyntaxError: boom'); process.exit(1); }\n";
-const KILL_CHECK = "if (require('./add.js').add(1, 2) !== 3) { console.error('AssertionError: wrong sum'); process.exit(1); }\n";
+const CRASH_CHECK = "if (require('./add.js').add(1, 2) !== 3) { console.error('FAIL f.js > adds'); console.error('SyntaxError: boom'); process.exit(1); }\n";
+const KILL_CHECK = "if (require('./add.js').add(1, 2) !== 3) { console.error('FAIL f.js > adds'); console.error('AssertionError: wrong sum'); process.exit(1); }\n";
 const mutant = (id, extra = {}) => ({ id, file: 'src/add.js', old: 'a + b', new: 'a - b', test: 'src/kill.check.js', expect_failing_test: 'adds', ...extra });
 const SELFTEST = {
   dir: 'src',
@@ -49,8 +49,8 @@ function project(mutation) {
   return root;
 }
 const RUNNERS = [
-  { id: 'crashy', test_cmd: 'node {file}', build_error_pattern: 'SyntaxError' },
-  { id: 'plain', test_cmd: 'node {file}' },
+  { id: 'crashy', test_cmd: 'node {file} -t {name}', build_error_pattern: 'SyntaxError' },
+  { id: 'plain', test_cmd: 'node {file} -t {name}' },
 ];
 function run(root, list) {
   const mutants = path.join(root, '.mutants.json');
@@ -73,7 +73,7 @@ describe('WP9 mutation runners: the harness', () => {
   });
 
   test('F4: a runner with a selftest and no pattern cannot tell a crash from a kill: refused (exit 2), no mutant runs', () => {
-    const root = project({ runners: [{ id: 'plain', test_cmd: 'node {file}', selftest: SELFTEST }] });
+    const root = project({ runners: [{ id: 'plain', test_cmd: 'node {file} -t {name}', selftest: SELFTEST }] });
     const r = run(root, [mutant('M-kill', { runner: 'plain', test: 'src/crash.check.js' })]);
     assert.strictEqual(r.code, 2, r.output);
     assert.match(r.output, /harness fault: the classifier labels a known build failure as killed/);
@@ -101,7 +101,7 @@ describe('WP9 mutation runners: the harness', () => {
     assert.strictEqual(run(root, [mutant('M1', { runner: 'nope' })]).code, 2);
     assert.strictEqual(run(root, [mutant('M1')]).code, 2);
     assert.strictEqual(source(root), SRC);
-    for (const bad of [[], [{ id: 'a' }], [{ id: 'a', test_cmd: 'node x' }], [{ id: 'a', test_cmd: 'node {file}', build_error_pattern: '(' }], [RUNNERS[1], RUNNERS[1]]]) {
+    for (const bad of [[], [{ id: 'a' }], [{ id: 'a', test_cmd: 'node x' }], [{ id: 'a', test_cmd: 'node {file} -t {name}', build_error_pattern: '(' }], [RUNNERS[1], RUNNERS[1]]]) {
       const r = run(project({ runners: bad }), [mutant('M1', { runner: 'a' })]);
       assert.strictEqual(r.code, 2, JSON.stringify(bad) + r.output);
     }
@@ -124,15 +124,15 @@ describe('WP9 mutation runners: the profile shape check and the doctor', () => {
     assert.deepStrictEqual(problems({ runners: RUNNERS, build_error_pattern: 'SyntaxError' }), []);
     assert.ok(keysOf({ runners: [] }).includes('stack.mutation.runners'));
     assert.ok(keysOf({ runners: 'x' }).includes('stack.mutation.runners'));
-    assert.ok(keysOf({ runners: [{ test_cmd: 'x {file}' }] }).includes('stack.mutation.runners[0].id'));
+    assert.ok(keysOf({ runners: [{ test_cmd: 'x {file} -t {name}' }] }).includes('stack.mutation.runners[0].id'));
     assert.ok(keysOf({ runners: [{ id: 'a', test_cmd: 'no placeholder' }] }).includes('stack.mutation.runners[0].test_cmd'));
-    assert.ok(keysOf({ runners: [{ id: 'a', test_cmd: 'x {file}', build_error_pattern: '(' }] }).includes('stack.mutation.runners[0].build_error_pattern'));
+    assert.ok(keysOf({ runners: [{ id: 'a', test_cmd: 'x {file} -t {name}', build_error_pattern: '(' }] }).includes('stack.mutation.runners[0].build_error_pattern'));
     assert.ok(keysOf({ runners: [RUNNERS[1], RUNNERS[1]] }).includes('stack.mutation.runners'), 'duplicate ids');
     assert.ok(keysOf({ error_pattern: 'x' }).includes('stack.mutation.error_pattern'));
   });
 
   test('F3: a catalogued runner pattern must not match its kill output and must match its build failure', () => {
-    const base = { id: 'js-runner-a', test_cmd: 'npm run test:file -- {file}' };
+    const base = { id: 'js-runner-a', test_cmd: 'npm run test:file -- {file} -t {name}' };
     const shipped = catalogue['js-runner-a'].build_error_pattern;
     assert.deepStrictEqual(problems({ runners: [{ ...base, build_error_pattern: shipped }] }), []);
     assert.ok(problems({ runners: [{ ...base, build_error_pattern: 'AssertionError' }] }).some((p) => /matches the normal kill output/.test(p.reason)));
@@ -141,7 +141,7 @@ describe('WP9 mutation runners: the profile shape check and the doctor', () => {
   });
 
   test('F3: the project pattern and every runner pattern are checked against every catalogue kill fixture; the build failure only for a known engine', () => {
-    const custom = { id: 'custom', test_cmd: 'x {file}' };
+    const custom = { id: 'custom', test_cmd: 'x {file} -t {name}' };
     assert.ok(problems({ build_error_pattern: 'FAIL' }).some((p) => /matches the normal kill output/.test(p.reason)), 'project pattern, no runners');
     assert.ok(problems({ runners: [{ ...custom, build_error_pattern: 'AssertionError' }] }).some((p) => /matches the normal kill output/.test(p.reason)), 'unknown engine, own pattern');
     assert.deepStrictEqual(problems({ runners: [{ ...custom, build_error_pattern: 'ZZZ-never' }] }), [], 'unknown engine: no build_failure fixture to match');
@@ -150,7 +150,7 @@ describe('WP9 mutation runners: the profile shape check and the doctor', () => {
 
   test('runners: null is absent; selftest, pass_pattern and lane are shape-checked', () => {
     assert.deepStrictEqual(problems({ runners: null }), []);
-    const base = { id: 'a', test_cmd: 'x {file}' };
+    const base = { id: 'a', test_cmd: 'x {file} -t {name}' };
     assert.ok(keysOf({ runners: [{ ...base, pass_pattern: '(' }] }).includes('stack.mutation.runners[0].pass_pattern'));
     assert.ok(keysOf({ runners: [{ ...base, lane: 'gpu' }] }).includes('stack.mutation.runners[0].lane'));
     assert.ok(keysOf({ runners: [{ ...base, selftest: { dir: 'src' } }] }).includes('stack.mutation.runners[0].selftest'));

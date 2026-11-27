@@ -1,6 +1,6 @@
 'use strict';
 
-// WP10: the opt-in test-name filter. {filter} in a runner test_cmd becomes `-t <regex-escaped, shell-quoted title>`.
+// WP10: the test-name filter. {name} in a runner test_cmd (which carries its own `-t`) becomes the regex-escaped, shell-quoted title.
 // Node and POSIX shell only.
 
 const { test, describe, afterEach } = require('node:test');
@@ -18,7 +18,7 @@ const tmpDir = () => { const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmp
 
 const loadProcess = () => import(path.join(MUTATE_DIR, 'process.mjs'));
 // printf prints each argument NUL-terminated: the second one is exactly what the shell handed the runner after -t.
-const ARGS_CMD = "printf '%s\\0' {filter}";
+const ARGS_CMD = "printf '%s\\0' -t {name}";
 const argvOf = async (name, cwd) => {
   const { commandFor } = await loadProcess();
   const r = spawnSync('sh', ['-c', commandFor(ARGS_CMD, 'f.js', name)], { cwd, encoding: 'utf8' });
@@ -49,17 +49,16 @@ describe('WP10 name filter: commandFor', () => {
     assert.deepStrictEqual(fs.readdirSync(cwd), []);
   });
 
-  test('a runner without the placeholder runs unfiltered, and the placeholder without a title expands to nothing', async () => {
+  test('{name} without a title (baseline, self-test) expands to a match-everything regex', async () => {
     const { commandFor } = await loadProcess();
-    assert.strictEqual(commandFor('node --test {file}', 'a b.js', 'adds'), commandFor('node --test {file}', 'a b.js'));
-    assert.strictEqual(commandFor('node --test {file} --bail=1 {filter}', 'a.js'), "node --test 'a.js' --bail=1 ");
+    assert.strictEqual(commandFor('node --test {file} --bail=1 -t {name}', 'a.js'), "node --test 'a.js' --bail=1 -t '.'");
   });
 });
 
 describe('WP10 name filter: a filter that matches no test is never a kill', () => {
   const SRC = 'exports.add = (a, b) => a + b;\n';
   const mutant = { id: 'M1', file: 'src/add.js', old: 'a + b', new: 'a - b', test: 'src/t.check.js', expect_failing_test: 'adds', runner: 'r' };
-  const runOnce = (runner, checkSource) => {
+  const runOnce = (runner, checkSource, mutantOver = {}) => {
     const root = tmpDir();
     const git = (...args) => assert.strictEqual(spawnSync('git', ['-C', root, '-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], { encoding: 'utf8' }).status, 0);
     git('init', '-q');
@@ -72,34 +71,72 @@ describe('WP10 name filter: a filter that matches no test is never a kill', () =
     git('commit', '-q', '-m', 'init');
     const mutants = path.join(root, '.mutants.json');
     const out = path.join(root, '.out.jsonl');
-    fs.writeFileSync(mutants, JSON.stringify([mutant]));
+    fs.writeFileSync(mutants, JSON.stringify([{ ...mutant, ...mutantOver }]));
     const r = spawnSync(process.execPath, [CLI, '--mutants', mutants, '--out', out, '--root', root], { encoding: 'utf8', timeout: 120000, cwd: root });
     const records = fs.existsSync(out) ? fs.readFileSync(out, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
     return { r, records, source: fs.readFileSync(path.join(root, 'src', 'add.js'), 'utf8') };
   };
   const failsWhenMutated = (message) => `if (require('./add.js').add(1, 2) !== 3) { console.error(${JSON.stringify(message)}); process.exit(1); }\n`;
   const FAILS_WITHOUT_TITLE = failsWhenMutated('AssertionError: boom');
-  const FAILS_WITH_TITLE = failsWhenMutated('FAIL suite > adds AssertionError');
+  const FAILS_WITH_TITLE = failsWhenMutated('FAIL f.js > suite > adds\nAssertionError');
+  const filtered = { id: 'r', test_cmd: 'node {file} -t {name}' };
+  const MISS_DETAIL = /filter matched no test/;
+  // npm echoes the command line (with the -t regex) before the runner's own output.
+  const ECHO_NO_TEST = "console.log('> npm run test:file -- t.check.js -t (?:^| )adds$'); console.log('No test found'); process.exit(1);";
+  const TITLE_FOR_BOTH_RUNS = 'FAIL f.js > suite > adds\nAssertionError';
 
-  test('a failing run that never names the title is errored, not killed; naming it is a kill', () => {
-    const filtered = { id: 'r', test_cmd: 'node {file} {filter}' };
+  test('a failing run whose FAIL line does not end in the title is errored, not killed; naming it is a kill', () => {
     const miss = runOnce(filtered, FAILS_WITHOUT_TITLE);
     assert.deepStrictEqual(miss.records.map((x) => x.outcome), ['errored']);
-    assert.match(miss.records[0].detail, /filter matched no test/);
+    assert.match(miss.records[0].detail, MISS_DETAIL);
     assert.strictEqual(miss.source, SRC);
+    const other = runOnce(filtered, failsWhenMutated('FAIL f.js > suite > adds more\nAssertionError'));
+    assert.deepStrictEqual(other.records.map((x) => x.outcome), ['errored']);
     const hit = runOnce(filtered, FAILS_WITH_TITLE);
     assert.deepStrictEqual(hit.records.map((x) => [x.outcome, x.kill_confirmed]), [['killed', true]]);
   });
 
-  test('a passing run with no passed-test count is errored, not survived', () => {
-    const printsCountOnlyUnfiltered = "if (process.argv.length <= 2) console.log('passed 1');\n";
-    const r = runOnce({ id: 'r', test_cmd: 'node {file} {filter}', pass_pattern: 'passed (\\d+)' }, printsCountOnlyUnfiltered);
+  test('H1: a run that echoes the command, prints "No test found" and exits 1 is errored, never killed (first run)', () => {
+    const r = runOnce(filtered, `if (require('./add.js').add(1, 2) !== 3) { ${ECHO_NO_TEST} }\n`);
     assert.deepStrictEqual(r.records.map((x) => x.outcome), ['errored']);
-    assert.match(r.records[0].detail, /filter matched no test/);
+    assert.match(r.records[0].detail, MISS_DETAIL);
+    assert.strictEqual(r.source, SRC);
   });
 
-  test('an unfiltered runner keeps today\'s verdict: a failing run that names no title is still a kill', () => {
-    const r = runOnce({ id: 'r', test_cmd: 'node {file}' }, FAILS_WITHOUT_TITLE);
-    assert.deepStrictEqual(r.records.map((x) => x.outcome), ['killed']);
+  test('H1: the confirmation run is filtered and judged the same way: a first-run kill followed by "No test found" is not confirmed', () => {
+    const second = `const fs = require('fs');\nif (require('./add.js').add(1, 2) !== 3) {\n  if (!fs.existsSync('.seen')) { fs.writeFileSync('.seen', '1'); console.error(${JSON.stringify(TITLE_FOR_BOTH_RUNS)}); process.exit(1); }\n  ${ECHO_NO_TEST}\n}\n`;
+    const r = runOnce(filtered, second);
+    assert.deepStrictEqual(r.records.map((x) => [x.outcome, x.kill_confirmed]), [['errored', false]]);
+    assert.strictEqual(r.source, SRC);
+  });
+
+  test('a passing run with no passed-test count is errored, not survived; so is a pass with no pass_pattern at all', () => {
+    const printsCountUnlessFiltered = "if (!process.argv.slice(2).some((a) => a.includes('adds'))) console.log('passed 1');\n";
+    const r = runOnce({ ...filtered, pass_pattern: 'passed (\\d+)' }, printsCountUnlessFiltered);
+    assert.deepStrictEqual(r.records.map((x) => x.outcome), ['errored']);
+    assert.match(r.records[0].detail, MISS_DETAIL);
+    const none = runOnce(filtered, "console.log('passed 1');\n");
+    assert.deepStrictEqual(none.records.map((x) => x.outcome), ['errored']);
+    assert.match(none.records[0].detail, MISS_DETAIL);
+  });
+
+  test('a runner test_cmd without {name}, or with "{name}" inside double quotes, is refused at load (exit 2) before any mutation', () => {
+    for (const test_cmd of ['node {file}', 'node {file} -t "{name}"']) {
+      const r = runOnce({ id: 'r', test_cmd }, FAILS_WITH_TITLE);
+      assert.strictEqual(r.r.status, 2, r.r.stderr);
+      assert.match(r.r.stderr, /\{name\}/);
+      assert.deepStrictEqual(r.records, []);
+      assert.strictEqual(r.source, SRC);
+    }
+  });
+
+  test('a title with a NUL byte or over 4096 characters is refused at load (exit 2) naming the mutant id, never thrown out of the spawn', () => {
+    for (const expect_failing_test of ['ad\u0000ds', 'a'.repeat(4097)]) {
+      const r = runOnce(filtered, FAILS_WITH_TITLE, { expect_failing_test });
+      assert.strictEqual(r.r.status, 2, r.r.stderr);
+      assert.match(r.r.stderr, /M1/);
+      assert.match(r.r.stderr, /expect_failing_test/);
+      assert.deepStrictEqual(r.records, []);
+    }
   });
 });

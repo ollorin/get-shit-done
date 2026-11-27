@@ -122,7 +122,7 @@ function runnerProblems(key, runner, mutation, catalogue) {
   if (!isObject(runner)) return [problem(key, 'must be an object')];
   const own = fieldProblems(key, runner, [
     ['id', isNonEmptyString, 'a non-empty string', true],
-    ['test_cmd', (v) => isNonEmptyString(v) && v.includes('{file}'), 'a command containing {file}', true],
+    ['test_cmd', (v) => isNonEmptyString(v) && v.includes('{file}') && v.includes('{name}') && !/"[^"]*\{name\}[^"]*"/.test(v), 'a command containing {file} and {name} (outside double quotes)', true],
     ['build_error_pattern', usablePattern, 'a valid regular expression'],
     ['pass_pattern', usablePattern, 'a valid regular expression'],
     ['lane', (v) => LANE_VALUES.includes(v), `one of ${LANE_VALUES.join(', ')}`],

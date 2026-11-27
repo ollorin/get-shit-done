@@ -66,15 +66,28 @@ export function passedCount(output, pattern) {
 
 export const FILTER_MISS_DETAIL = 'filter matched no test: the named test never ran, so the run is neither a kill nor a survivor';
 
+/** The last ` > ` segment of the first `FAIL` line of a runner's output (the failing test's own title), or null when there is none. */
+export function firstFailTitle(output) {
+  const line = output.split('\n').find((l) => /^\s*FAIL\b/.test(l));
+  return line === undefined ? null : line.split(' > ').pop().trim();
+}
+
 /**
- * True when a run of a filtered command (config.testCmd has {filter}, config.name is the title) proves nothing: a kill whose
- * output never names the title, or a pass the runner's pass_pattern shows no passed test for. Same rule as the baseline's zero count.
+ * True when a run of a filtered command (config.testCmd has {name}, config.name is the title) proves nothing (R1.2b, R1.3): a kill
+ * whose first FAIL line does not end in the title (the echoed command line never counts), or a pass without a passed-test count.
  */
 export function filterMiss(config, outcome, output) {
-  if (typeof config.name !== 'string' || !config.testCmd.includes('{filter}')) return false;
-  if (outcome === 'killed') return !output.includes(config.name);
-  return outcome === 'survived' && Boolean(config.passPattern) && passedCount(output, config.passPattern) < 1;
+  if (typeof config.name !== 'string' || !config.testCmd.includes('{name}')) return false;
+  if (outcome === 'killed') return firstFailTitle(output) !== config.name;
+  return outcome === 'survived' && (!config.passPattern || passedCount(output, config.passPattern) < 1);
 }
+
+export const MAX_TITLE = 4096;
+/** The `{name}` shape of a runner command: present, and not inside double quotes (where the shell would expand the escaped regex). */
+export const nameShapeProblem = (cmd) => {
+  if (!cmd.includes('{name}')) return 'test_cmd must contain {name} (the runner carries its own -t before it)';
+  return /"[^"]*\{name\}[^"]*"/.test(cmd) ? 'test_cmd must not put {name} inside double quotes' : null;
+};
 
 /** The breaker (F6, R5): the last 3 rows are all `errored` or `timeout`, so the harness, not the mutants, is at fault. */
 const BREAKER_STREAK = 3;
@@ -87,6 +100,8 @@ export const harnessFault = (records) => {
 const runnerProblem = (r, i) => {
   if (r === null || typeof r !== 'object' || typeof r.id !== 'string' || r.id === '') return `runners[${i}]: id must be a non-empty string`;
   if (typeof r.test_cmd !== 'string' || !r.test_cmd.includes('{file}')) return `runner ${r.id}: test_cmd must contain {file}`;
+  const shape = nameShapeProblem(r.test_cmd);
+  if (shape !== null) return `runner ${r.id}: ${shape}`;
   const patterns = ['build_error_pattern', 'pass_pattern'].map((k) => patternProblem(r.id, k, r[k])).find((p) => p !== null);
   if (patterns !== undefined) return patterns;
   if (r.lane !== undefined && !LANES.includes(r.lane)) return `runner ${r.id}: lane must be one of ${LANES.join(', ')}`;
@@ -135,6 +150,7 @@ function mutantProblem(raw, index) {
   if (bad.length > 0) return `${where}: missing or non-string ${bad.join(', ')}`;
   if (raw.id === '' || raw.old === '') return `${where}: id and old must be non-empty`;
   if (typeof raw.expect_failing_test !== 'string' || raw.expect_failing_test === '') return `${where}: expect_failing_test is required (the name of the test that must fail)`;
+  if (raw.expect_failing_test.includes('\u0000') || raw.expect_failing_test.length > MAX_TITLE) return `${where} ${raw.id}: expect_failing_test must not contain NUL or exceed ${MAX_TITLE} characters`;
   if (raw.old === raw.new) return `${where}: old equals new (no-op mutant)`;
   if (raw.runner !== undefined && (typeof raw.runner !== 'string' || raw.runner === '')) return `${where}: runner must be a non-empty string`;
   if (raw.expect !== undefined && !EXPECTS.includes(raw.expect)) return `${where}: expect must be one of ${EXPECTS.join(', ')}`;

@@ -23,14 +23,14 @@ const git = (root, ...args) => {
 };
 
 const SRC = 'exports.add = (a, b) => a + b;\n';
-const KILL_CHECK = "if (require('./add.js').add(1, 2) !== 3) { console.error('AssertionError: wrong sum'); process.exit(1); }\nconsole.log('passed 1');\n";
+const KILL_CHECK = "if (require('./add.js').add(1, 2) !== 3) { console.error('FAIL f.js > adds'); console.error('AssertionError: wrong sum'); process.exit(1); }\nconsole.log('passed 1');\n";
 const FAULT_CHECK = "if (require('./add.js').add(1, 2) !== 3) process.exit(127);\n";
 const FLIP_CHECK = [
   "const fs = require('fs'); const path = require('path');",
   "if (require('./add.js').add(1, 2) === 3) process.exit(0);",
   "const marker = path.join(__dirname, '..', '.marker');",
-  "if (fs.existsSync(marker)) { console.error('SyntaxError: boom'); process.exit(1); }",
-  "fs.writeFileSync(marker, '1'); console.error('AssertionError: wrong sum'); process.exit(1);",
+  "if (fs.existsSync(marker)) { console.error('FAIL f.js > adds'); console.error('SyntaxError: boom'); process.exit(1); }",
+  "fs.writeFileSync(marker, '1'); console.error('FAIL f.js > adds'); console.error('AssertionError: wrong sum'); process.exit(1);",
   '',
 ].join('\n');
 const SELFTEST = {
@@ -69,7 +69,7 @@ function run(root, list, { args = [], env = {} } = {}) {
   return { code: r.status, output: r.stdout + r.stderr, records, summary };
 }
 const source = (root) => fs.readFileSync(path.join(root, 'src', 'add.js'), 'utf8');
-const guarded = (extra = {}) => ({ id: 'guarded', test_cmd: 'node {file}', build_error_pattern: 'SyntaxError', pass_pattern: 'passed (\\d+)', selftest: SELFTEST, ...extra });
+const guarded = (extra = {}) => ({ id: 'guarded', test_cmd: 'node {file} -t {name}', build_error_pattern: 'SyntaxError', pass_pattern: 'passed (\\d+)', selftest: SELFTEST, ...extra });
 
 describe('F4: the run-start self-test (selftest.mjs)', () => {
   const stub = (verdicts) => async (root, testFile) => {
@@ -155,7 +155,7 @@ describe('F5: the baseline must count', () => {
 
 describe('F6: the errored breaker', () => {
   test('3 errored of 4 stops the run, restores, exits 5 and records harness_fault', () => {
-    const root = project({ runners: [{ id: 'plain', test_cmd: 'node {file}' }] });
+    const root = project({ runners: [{ id: 'plain', test_cmd: 'node {file} -t {name}' }] });
     const fault = (id, n) => mutant(id, { new: `a * ${n}`, test: 'src/fault.check.js' });
     const r = run(root, [mutant('M1'), fault('E1', 5), fault('E2', 7), fault('E3', 9), mutant('M5', { new: 'a / b' })]);
     assert.strictEqual(r.code, 5, r.output);
@@ -165,7 +165,7 @@ describe('F6: the errored breaker', () => {
   });
 
   test('two errored rows do not trip it', () => {
-    const root = project({ runners: [{ id: 'plain', test_cmd: 'node {file}' }] });
+    const root = project({ runners: [{ id: 'plain', test_cmd: 'node {file} -t {name}' }] });
     const fault = (id, n) => mutant(id, { new: `a * ${n}`, test: 'src/fault.check.js' });
     const r = run(root, [fault('E1', 5), fault('E2', 7), mutant('M3')]);
     assert.strictEqual(r.code, 1, r.output);
@@ -210,7 +210,7 @@ describe('F9: expect_failing_test is required', () => {
 
 describe('the db lane needs the stack lock', () => {
   test('a runner with lane db is refused (exit 2) without STACK_LOCK_HELD=1, allowed with it', () => {
-    const root = project({ runners: [{ id: 'db', test_cmd: 'node {file}', lane: 'db' }] });
+    const root = project({ runners: [{ id: 'db', test_cmd: 'node {file} -t {name}', lane: 'db' }] });
     const refused = run(root, [mutant('M1')]);
     assert.strictEqual(refused.code, 2, refused.output);
     assert.match(refused.output, /STACK_LOCK_HELD/);
@@ -221,7 +221,7 @@ describe('the db lane needs the stack lock', () => {
 
 describe('option conflicts and null runners', () => {
   test('--test-cmd with configured runners, and --error-pattern with a runner pattern, exit 2', () => {
-    const root = project({ runners: [{ id: 'plain', test_cmd: 'node {file}', build_error_pattern: 'SyntaxError' }] });
+    const root = project({ runners: [{ id: 'plain', test_cmd: 'node {file} -t {name}', build_error_pattern: 'SyntaxError' }] });
     const cmd = run(root, [mutant('M1')], { args: ['--test-cmd', 'node {file}'] });
     assert.strictEqual(cmd.code, 2, cmd.output);
     assert.match(cmd.output, /--test-cmd/);
@@ -243,14 +243,14 @@ describe('option conflicts and null runners', () => {
 
 describe('records and voided runs', () => {
   test('a kill records the generic first failing line, never the build pattern line (F2)', () => {
-    const root = project({ runners: [{ id: 'crashy', test_cmd: 'node {file}', build_error_pattern: 'SyntaxError' }] });
+    const root = project({ runners: [{ id: 'crashy', test_cmd: 'node {file} -t {name}', build_error_pattern: 'SyntaxError' }] });
     const r = run(root, [mutant('M1')]);
     assert.strictEqual(r.code, 0, r.output);
-    assert.strictEqual(r.records[0].first_failing_line, 'AssertionError: wrong sum');
+    assert.strictEqual(r.records[0].first_failing_line, 'FAIL f.js > adds');
   });
 
   test('a build error on the confirming second run exits 5, it is not hidden as an unreproduced kill', () => {
-    const root = project({ runners: [{ id: 'crashy', test_cmd: 'node {file}', build_error_pattern: 'SyntaxError' }] });
+    const root = project({ runners: [{ id: 'crashy', test_cmd: 'node {file} -t {name}', build_error_pattern: 'SyntaxError' }] });
     const r = run(root, [mutant('M1', { test: 'src/flip.check.js' })]);
     assert.strictEqual(r.code, 5, r.output);
     assert.strictEqual(r.records[0].outcome, 'errored');

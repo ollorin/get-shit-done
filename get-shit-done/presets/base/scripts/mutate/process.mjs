@@ -18,14 +18,15 @@ export const titleRegex = (title) => `(?:^| )${title.replace(/[.*+?^${}()|[\]\\]
 
 /**
  * The command line for a test file: {file} becomes a quoted path, escaped for the double quotes it already sits in.
- * {filter} (opt-in, kept outside double quotes) becomes `-t <quoted titleRegex(name)>`, or nothing when no name is given.
+ * {name} (outside double quotes; the command carries its own `-t`) becomes the quoted titleRegex(name), or a match-everything
+ * regex when no name is given (baseline, self-test).
  */
 export function commandFor(testCmd, testFile, name) {
   let out = '';
   let inDouble = false;
   for (let i = 0; i < testCmd.length; i += 1) {
     if (testCmd.startsWith('{file}', i)) { out += inDouble ? doubleQuoteEscape(testFile) : shellQuote(testFile); i += 5; continue; }
-    if (testCmd.startsWith('{filter}', i) && !inDouble) { out += name === undefined ? '' : `-t ${shellQuote(titleRegex(name))}`; i += 7; continue; }
+    if (testCmd.startsWith('{name}', i) && !inDouble) { out += shellQuote(name === undefined ? '.' : titleRegex(name)); i += 5; continue; }
     if (testCmd[i] === '\\') { out += testCmd.slice(i, i + 2); i += 1; continue; }
     if (testCmd[i] === '"') inDouble = !inDouble;
     out += testCmd[i];
