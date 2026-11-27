@@ -64,11 +64,13 @@ export function passedCount(output, pattern) {
   return m[1] === undefined ? 1 : Number.parseInt(m[1], 10) || 0;
 }
 
-/** The errored breaker (F6): at least 3 errored rows and more than a fifth of the rows so far means the harness, not the mutants, is at fault. */
-export function harnessFault(records) {
-  const errored = records.filter((r) => r.outcome === 'errored').length;
-  return errored >= 3 && errored / records.length > 0.2;
-}
+/** The breaker (F6, R5): the last 3 rows are all `errored` or `timeout`, so the harness, not the mutants, is at fault. */
+const BREAKER_STREAK = 3;
+const isBreakerRow = (r) => r.outcome === 'errored' || r.outcome === 'timeout';
+export const harnessFault = (records) => {
+  const tail = records.slice(-BREAKER_STREAK);
+  return tail.length === BREAKER_STREAK && tail.every(isBreakerRow);
+};
 
 const runnerProblem = (r, i) => {
   if (r === null || typeof r !== 'object' || typeof r.id !== 'string' || r.id === '') return `runners[${i}]: id must be a non-empty string`;

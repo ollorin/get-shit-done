@@ -222,7 +222,7 @@ async function execute(opts, deps) {
     return finish(BUILD_ERROR_EXIT, { baseline_before: baseline, baseline_after: 'not-run', refused: 'build-error-pattern' }, records.length);
   }
   if (harnessFault(records)) {
-    console.error('[mutate] HARNESS FAULT: 3 or more rows and over a fifth of them errored; the run stopped and no row counts as a kill or a survivor');
+    console.error('[mutate] HARNESS FAULT: 3 consecutive rows errored or timed out; the run stopped and no row counts as a kill or a survivor');
     return finish(BUILD_ERROR_EXIT, { baseline_before: baseline, baseline_after: 'not-run', harness_fault: true }, records.length);
   }
   const bad = opts.dryRun ? inconclusive(records) : [...canaryMismatches(records), ...inconclusive(records)];

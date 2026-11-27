@@ -173,6 +173,30 @@ describe('F6: the errored breaker', () => {
   });
 });
 
+describe('F6 (R5): the breaker is a trailing streak of 3 errored or timeout rows', () => {
+  const rows = (...outcomes) => outcomes.map((outcome) => ({ outcome }));
+
+  test('3 consecutive errored rows trip it', async () => {
+    const { harnessFault } = await load('classify.mjs');
+    assert.strictEqual(harnessFault(rows('killed', 'errored', 'errored', 'errored')), true);
+  });
+
+  test('3 errored rows with a killed row between do not trip it', async () => {
+    const { harnessFault } = await load('classify.mjs');
+    assert.strictEqual(harnessFault(rows('errored', 'errored', 'killed', 'errored', 'errored')), false);
+  });
+
+  test('2 errored rows do not trip it', async () => {
+    const { harnessFault } = await load('classify.mjs');
+    assert.strictEqual(harnessFault(rows('errored', 'errored')), false);
+  });
+
+  test('an errored and timeout mix of 3 in a row trips it', async () => {
+    const { harnessFault } = await load('classify.mjs');
+    assert.strictEqual(harnessFault(rows('killed', 'errored', 'timeout', 'errored')), true);
+  });
+});
+
 describe('F9: expect_failing_test is required', () => {
   test('parseMutants refuses a mutant without a non-empty expect_failing_test', async () => {
     const { parseMutants } = await load('classify.mjs');

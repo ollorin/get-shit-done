@@ -512,7 +512,8 @@ describe('mutation tool: the command line (agnostic-M-09 9.6)', () => {
     const root = fixtureRepo();
     const mutants = writeMutants(root, [KILL]);
     const argv = ['--mutants', mutants, '--out', path.join(root, '.out.jsonl'), '--root', root, '--test-cmd', TEST_CMD];
-    const quiet = async (fn) => { const e = console.error; const l = console.log; console.error = () => {}; console.log = () => {}; try { return await fn(); } finally { console.error = e; console.log = l; } };
+    // main reads the profile and the window config from the process cwd: run inside the fixture, not the caller's project.
+    const quiet = async (fn) => { const e = console.error; const l = console.log; const cwd = process.cwd(); console.error = () => {}; console.log = () => {}; process.chdir(root); try { return await fn(); } finally { process.chdir(cwd); console.error = e; console.log = l; } };
     assert.strictEqual(await quiet(() => main(argv, { tempBases: [] })), 2, 'primary refused');
     assert.strictEqual(src(root), SRC);
     assert.strictEqual(await quiet(() => main([...argv, '--dry-run'], { tempBases: [] })), 0, 'dry-run is always allowed');
