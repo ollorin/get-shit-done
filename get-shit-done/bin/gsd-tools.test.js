@@ -11673,14 +11673,15 @@ gaps:
   });
 
   // Category 5: Wiring/integration.
-  test('wiring: `eval-candidate from-debug` CLI creates exactly one file under tests/eval-regressions/queue/', () => {
+  test('wiring: `eval-candidate from-debug` CLI creates exactly one file under .planning/eval-queue/, never under tests/', () => {
     writeDebugFixture('.planning/debug/fixture.md', CONFIRMED_DEBUG_CONTENT);
     const result = runGsdTools('eval-candidate from-debug .planning/debug/fixture.md --raw', tmpDir);
     assert.ok(result.success, `expected CLI success, got: ${result.error}`);
 
-    const queueDir = path.join(tmpDir, 'tests', 'eval-regressions', 'queue');
+    const queueDir = path.join(tmpDir, '.planning', 'eval-queue');
     const files = fs.readdirSync(queueDir).filter((f) => f.endsWith('.json'));
     assert.strictEqual(files.length, 1);
+    assert.ok(!fs.existsSync(path.join(tmpDir, 'tests', 'eval-regressions', 'queue')), 'the queue must not be written under tests/');
   });
 
   test('wiring: `eval-candidate from-debug` CLI on placeholder root_cause creates zero files', () => {
@@ -11688,7 +11689,7 @@ gaps:
     const result = runGsdTools('eval-candidate from-debug .planning/debug/inconclusive.md --raw', tmpDir);
     assert.ok(result.success, `expected CLI success (valid no-op), got: ${result.error}`);
 
-    const queueDir = path.join(tmpDir, 'tests', 'eval-regressions', 'queue');
+    const queueDir = path.join(tmpDir, '.planning', 'eval-queue');
     const files = fs.existsSync(queueDir) ? fs.readdirSync(queueDir).filter((f) => f.endsWith('.json')) : [];
     assert.strictEqual(files.length, 0);
   });
@@ -11698,7 +11699,7 @@ gaps:
     const gapsResult = runGsdTools('eval-candidate from-verification .planning/phases/55-test-phase/55-VERIFICATION.md --raw', tmpDir);
     assert.ok(gapsResult.success, `expected CLI success, got: ${gapsResult.error}`);
 
-    const queueDir = path.join(tmpDir, 'tests', 'eval-regressions', 'queue');
+    const queueDir = path.join(tmpDir, '.planning', 'eval-queue');
     const filesAfterGaps = fs.readdirSync(queueDir).filter((f) => f.endsWith('.json'));
     assert.strictEqual(filesAfterGaps.length, 2);
 
@@ -11711,7 +11712,7 @@ gaps:
       const passedResult = runGsdTools('eval-candidate from-verification .planning/phases/55-test-phase/55-VERIFICATION.md --raw', passedTmpDir);
       assert.ok(passedResult.success, `expected CLI success (valid no-op), got: ${passedResult.error}`);
 
-      const passedQueueDir = path.join(passedTmpDir, 'tests', 'eval-regressions', 'queue');
+      const passedQueueDir = path.join(passedTmpDir, '.planning', 'eval-queue');
       const filesAfterPassed = fs.existsSync(passedQueueDir) ? fs.readdirSync(passedQueueDir).filter((f) => f.endsWith('.json')) : [];
       assert.strictEqual(filesAfterPassed.length, 0);
     } finally {
@@ -11827,7 +11828,7 @@ describe('Phase 55-01 eval-candidate agent wiring', () => {
 // (pure) plus the list/accept/reject CLI built on top of it. Mirrors the
 // 55-01 describe block's createTempProject/cleanup + runGsdTools conventions;
 // candidates are hand-seeded as JSON files directly into a temp
-// tests/eval-regressions/queue/ dir (rather than generated via from-debug/
+// .planning/eval-queue/ dir (rather than generated via from-debug/
 // from-verification) so each test controls the exact shape under test,
 // including deliberately-invalid hand-edited shapes.
 describe('eval-candidate review queue (Phase 55-02)', () => {
@@ -11846,7 +11847,7 @@ describe('eval-candidate review queue (Phase 55-02)', () => {
   });
 
   function queueDirPath(dir = tmpDir) {
-    return path.join(dir, 'tests', 'eval-regressions', 'queue');
+    return path.join(dir, '.planning', 'eval-queue');
   }
 
   function acceptedDirPath(dir = tmpDir) {
@@ -12003,6 +12004,20 @@ describe('eval-candidate review queue (Phase 55-02)', () => {
     assert.strictEqual(archivedList.candidates[0].status, 'rejected');
   });
 
+  test('fallback: a candidate queued under the pre-WP19 tests/eval-regressions/queue/ is still listed and accepts', () => {
+    const legacyDir = path.join(tmpDir, 'tests', 'eval-regressions', 'queue');
+    fs.mkdirSync(legacyDir, { recursive: true });
+    fs.writeFileSync(path.join(legacyDir, 'cand-legacy.json'), JSON.stringify(validCandidate({ id: 'cand-legacy' })));
+
+    const listed = JSON.parse(runGsdTools('eval-candidate list --raw', tmpDir).output);
+    assert.deepStrictEqual(listed.candidates.map((c) => c.id), ['cand-legacy']);
+
+    const acceptResult = runGsdTools('eval-candidate accept cand-legacy --raw', tmpDir);
+    assert.ok(acceptResult.success, `expected accept success, got: ${acceptResult.error}`);
+    assert.ok(fs.existsSync(path.join(acceptedDirPath(), 'cand-legacy.json')));
+    assert.ok(!fs.existsSync(path.join(legacyDir, 'cand-legacy.json')), 'accept moves the legacy file out of tests/');
+  });
+
   // Category 6: Regression guard.
   test('regression guard: `eval-candidate from-debug`/`from-verification` (55-01) still land fresh candidates in queue/ unmodified', () => {
     const debugFixture = path.join(tmpDir, '.planning', 'debug', 'fixture.md');
@@ -12071,7 +12086,7 @@ describe('MILE-32 end-to-end: failures become permanent regression evals (Phase 
   });
 
   function queueDirPath(dir = tmpDir) {
-    return path.join(dir, 'tests', 'eval-regressions', 'queue');
+    return path.join(dir, '.planning', 'eval-queue');
   }
 
   function acceptedDirPath(dir = tmpDir) {
@@ -15223,7 +15238,7 @@ describe('pilot fix C6: eval-candidate never creates tests/eval-regressions in a
     fs.writeFileSync(path.join(tmpDir, '.planning', '01-VERIFICATION.md'), verification);
     const parsed = JSON.parse(runGsdTools('eval-candidate from-verification .planning/01-VERIFICATION.md', tmpDir).output);
     assert.ok(parsed.written >= 1, JSON.stringify(parsed));
-    assert.ok(fs.readdirSync(path.join(tmpDir, 'tests', 'eval-regressions', 'queue')).length >= 1);
+    assert.ok(fs.readdirSync(path.join(tmpDir, '.planning', 'eval-queue')).length >= 1);
   });
 });
 

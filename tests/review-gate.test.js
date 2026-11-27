@@ -210,6 +210,11 @@ describe('head stamps: freshness is git diff <head>..HEAD on the proven paths', 
     put(d, '.planning/phases/01-p/01-REVIEW.md', '---\nhead: deadbeefdeadbeef\n---\n');
     assert.match(stale(d, pd)[0], /not a commit/);
   });
+  test('an untracked eval candidate under .planning/eval-queue/ does not block a stamp (WP19)', () => {
+    const { d, pd } = repo();
+    put(d, '.planning/eval-queue/cand-1.json', '{}');
+    assert.ok(rg.stampHead(execGit, d, path.join(pd, '01-REVIEW.md')).head);
+  });
   test('gates.txt: each section is stale only for the paths it declares; the newest section per gate counts; unstamped is not checked', () => {
     const { d, pd, gates } = repo();
     rg.stampHead(execGit, d, gates, { gate: 'unit', paths: 'src' });

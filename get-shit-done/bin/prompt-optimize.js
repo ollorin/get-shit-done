@@ -141,8 +141,22 @@ function candidateMatchesAgent(candidate, agentName) {
   return haystack.includes(String(agentName).toLowerCase());
 }
 
+// Pending eval candidates: the WP19 queue first, then the pre-WP19 queue that
+// earlier runs wrote under tests/ (read-only fallback; gsd-tools writes only the first).
+function evalQueueReadDirs(cwd) {
+  return [path.join(cwd, '.planning', 'eval-queue'), path.join(cwd, 'tests', 'eval-regressions', 'queue')];
+}
+
+function listJsonFiles(dir) {
+  try {
+    return fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort();
+  } catch (_e) {
+    return [];
+  }
+}
+
 // Collects eval-failure signal for the target agent from both:
-//  - tests/eval-regressions/queue/ (pending, unresolved candidates)
+//  - the pending queue (evalQueueReadDirs)
 //  - tests/eval-regressions/accepted/ (currently-failing accepted regressions
 //    only -- a passing accepted regression is not a "failure")
 // Returns [{ id, source, title, reason, origin }], queue entries first, then
@@ -152,15 +166,9 @@ function readEvalFailuresForAgent(cwd, agentName) {
   const results = [];
 
   // queue/
-  const queueDir = path.join(cwd, 'tests', 'eval-regressions', 'queue');
-  let queueFiles = [];
-  try {
-    queueFiles = fs.readdirSync(queueDir).filter((f) => f.endsWith('.json')).sort();
-  } catch (_e) {
-    queueFiles = [];
-  }
+  const queueFiles = evalQueueReadDirs(cwd).flatMap((queueDir) => listJsonFiles(queueDir).map((file) => ({ queueDir, file })));
 
-  for (const file of queueFiles) {
+  for (const { queueDir, file } of queueFiles) {
     let candidate;
     try {
       const content = fs.readFileSync(path.join(queueDir, file), 'utf8');

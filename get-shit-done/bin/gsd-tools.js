@@ -5320,13 +5320,14 @@ function cmdEval(cwd, args, raw) {
 }
 
 // ─── Eval Regression Candidates (MILE-32, Phase 55) ──────────────────────────
-// Design decision: candidate fixtures are stored under
-// tests/eval-regressions/{queue,accepted,archived}/ (git-tracked, NOT under
-// .planning/ which is gitignored) so accepted candidates survive as
-// permanent, CI-visible artifacts. queue/accepted/archived are created now
-// with an empty .gitkeep each -- queue and archived start empty forever
-// until a human reviews a candidate; accepted starts empty until the first
-// candidate is promoted (Plan 55-02).
+// Design decision: accepted and archived candidates are stored under
+// tests/eval-regressions/{accepted,archived}/ (git-tracked) so accepted
+// candidates survive as permanent, CI-visible artifacts. The pending queue
+// lives under .planning/eval-queue/ (WP19: a queued file under tests/ blocked
+// `capture stamp`, which refuses on any untracked file outside .planning/ and
+// docs/). Queued candidates from before WP19 under tests/eval-regressions/queue/
+// are still read. accepted starts empty until the first candidate is promoted
+// (Plan 55-02).
 //
 // Uses gray-matter (already a package.json dependency, unused elsewhere in
 // bin/*.js until now) to parse BOTH the debug file's frontmatter and
@@ -5337,8 +5338,21 @@ function cmdEval(cwd, args, raw) {
 // left untouched.
 const EVAL_REGRESSIONS_ROOT = 'tests/eval-regressions';
 
-function getEvalRegressionsQueueDir(cwd) {
-  return path.join(cwd, EVAL_REGRESSIONS_ROOT, 'queue');
+const EVAL_QUEUE_SUBDIR = path.join('.planning', 'eval-queue');
+const LEGACY_EVAL_QUEUE_SUBDIR = path.join(EVAL_REGRESSIONS_ROOT, 'queue');
+
+// Writes go to the first dir only; reads check both (new first, then pre-WP19 legacy).
+function getEvalQueueDir(cwd) {
+  return path.join(cwd, EVAL_QUEUE_SUBDIR);
+}
+
+function getEvalQueueReadDirs(cwd) {
+  return [getEvalQueueDir(cwd), path.join(cwd, LEGACY_EVAL_QUEUE_SUBDIR)];
+}
+
+function findQueuedCandidatePath(cwd, id) {
+  const hits = getEvalQueueReadDirs(cwd).map((dir) => path.join(dir, `${id}.json`));
+  return hits.find((p) => fs.existsSync(p)) || hits[0];
 }
 
 function getEvalRegressionsAcceptedDir(cwd) {
@@ -5721,7 +5735,7 @@ function writeEvalCandidates(cwd, candidates) {
   const list = Array.isArray(candidates) ? candidates : [candidates];
   // A project without tests/eval-regressions has not opted in: never create the tree inside it.
   if (!evalRegressionsConfigured(cwd)) return [];
-  const queueDir = getEvalRegressionsQueueDir(cwd);
+  const queueDir = getEvalQueueDir(cwd);
   fs.mkdirSync(queueDir, { recursive: true });
 
   const written = [];
@@ -5791,35 +5805,29 @@ function validateEvalCandidateSchema(candidate) {
 // defaulting to queue for an unrecognized dirArg). Never throws, never skips
 // a malformed file silently -- it is surfaced in the candidates array with an
 // `error` field instead.
-function cmdEvalCandidateList(cwd, dirArg, raw) {
-  const dir = ['queue', 'accepted', 'archived'].includes(dirArg) ? dirArg : 'queue';
-  const dirPath = path.join(cwd, EVAL_REGRESSIONS_ROOT, dir); // dir is validated above against the same three names getEvalRegressions*Dir() hardcode
-
-  if (!fs.existsSync(dirPath)) {
-    output({ dir, count: 0, candidates: [] }, raw);
-    return;
-  }
-
-  const files = fs.readdirSync(dirPath).filter((f) => f.endsWith('.json'));
-  const candidates = [];
-  for (const file of files) {
+function listCandidateFiles(dirPath) {
+  if (!fs.existsSync(dirPath)) return [];
+  return fs.readdirSync(dirPath).filter((f) => f.endsWith('.json')).map((file) => {
     const content = safeReadFile(path.join(dirPath, file));
     const parsed = content === null ? { ok: false, error: { message: 'could not read file' } } : safeJsonParse(content, file);
-    if (parsed.ok) {
-      const value = parsed.value || {};
-      candidates.push({ file, id: value.id, title: value.title, status: value.status });
-    } else {
-      candidates.push({ file, error: 'malformed JSON' });
-    }
-  }
+    if (!parsed.ok) return { file, error: 'malformed JSON' };
+    const value = parsed.value || {};
+    return { file, id: value.id, title: value.title, status: value.status };
+  });
+}
 
+function cmdEvalCandidateList(cwd, dirArg, raw) {
+  const dir = ['queue', 'accepted', 'archived'].includes(dirArg) ? dirArg : 'queue';
+  const dirPaths = dir === 'queue' ? getEvalQueueReadDirs(cwd) : [path.join(cwd, EVAL_REGRESSIONS_ROOT, dir)]; // dir is validated above
+
+  const candidates = dirPaths.flatMap(listCandidateFiles);
   output({ dir, count: candidates.length, candidates }, raw);
 }
 
 function cmdEvalCandidateAccept(cwd, id, raw) {
   if (!id) { error('eval-candidate accept: <id> required'); return; }
 
-  const queuePath = path.join(getEvalRegressionsQueueDir(cwd), `${id}.json`);
+  const queuePath = findQueuedCandidatePath(cwd, id);
   const content = safeReadFile(queuePath);
   if (content === null) {
     process.stdout.write(JSON.stringify({ error: true, type: 'candidate_not_found', id }, null, 2));
@@ -5855,7 +5863,7 @@ function cmdEvalCandidateReject(cwd, id, reason, raw) {
   if (!id) { error('eval-candidate reject: <id> required'); return; }
   if (!reason || !reason.trim()) { error('eval-candidate reject requires --reason'); return; }
 
-  const queuePath = path.join(getEvalRegressionsQueueDir(cwd), `${id}.json`);
+  const queuePath = findQueuedCandidatePath(cwd, id);
   const content = safeReadFile(queuePath);
   if (content === null) {
     process.stdout.write(JSON.stringify({ error: true, type: 'candidate_not_found', id }, null, 2));

@@ -163,6 +163,18 @@ describe('Phase 56-01: prompt-optimize.js pure core functions', () => {
       assert.strictEqual(acceptedEntry.id, 'a1');
     });
 
+    test('readEvalFailuresForAgent reads a queued candidate under .planning/eval-queue/', () => {
+      const queueDir = path.join(tmpDir, '.planning', 'eval-queue');
+      fs.mkdirSync(queueDir, { recursive: true });
+      fs.writeFileSync(path.join(queueDir, 'q2.json'), JSON.stringify({
+        id: 'q2', source: 'debugger', created_at: '2026-01-01', title: 'gsd-executor bug',
+        context: { agent: 'gsd-executor' }, expected: { type: 'file_exists', file: 'agents/gsd-executor.md' }, status: 'pending',
+      }));
+
+      const queued = readEvalFailuresForAgent(tmpDir, 'gsd-executor').filter((r) => r.origin === 'queue');
+      assert.deepStrictEqual(queued.map((r) => r.id), ['q2']);
+    });
+
     test('buildDiagnosis: ambiguity outranks instructions_not_followed and eval-failure for topIssue', () => {
       const telemetryEntries = [
         { agent: 'gsd-executor', instructions_not_followed: [{ rule: 'r1', why: 'did not check X' }], ambiguities: [] },
