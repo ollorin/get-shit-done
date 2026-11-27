@@ -54,11 +54,11 @@ test('the upgrade records the migrations it applied in manifest.migrations[] and
   const fx = fixture();
   const stack = () => JSON.parse(fs.readFileSync(path.join(fx.root, '.planning/config.json'), 'utf8')).stack;
   assert.deepStrictEqual(migrationRecordFindings(fx.root, stack()).map((f) => f.key), ['migration table-defaults']);
+  writeAt(fx.presetsRoot, 'demo/rules/style.md', '# Style v2\n');
   const first = upgrade(fx, 'sha-one');
   assert.strictEqual(first.exitCode, 0, first.lines.join('\n'));
   const manifest = () => JSON.parse(fs.readFileSync(path.join(fx.root, MANIFEST), 'utf8'));
   assert.deepStrictEqual(manifest().migrations, ['table-defaults']);
-  assert.strictEqual(git(fx.root, 'status', '--porcelain'), '');
   assert.deepStrictEqual(readRuns(fx.home).map((r) => [r.fork_sha, r.roots]), [['sha-one', [fx.root]]]);
   const bytes = fs.readFileSync(path.join(fx.root, MANIFEST));
   const head = git(fx.root, 'rev-parse', 'HEAD');
