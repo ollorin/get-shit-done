@@ -118,16 +118,10 @@ The planner writes a `<model>` tier (`haiku` or `sonnet`) on each task; the exec
 Local SQLite + sqlite-vec knowledge database at `.planning/knowledge/{user}.db`. Stores decisions, lessons, summaries with TTL lifecycle, vector + FTS5 search, and type-weighted ranking. Passive extraction via Claude Code hooks captures knowledge during normal work. Three-stage deduplication: content hash → canonical hash → embedding similarity. Memory evolves — similar new knowledge updates existing entries rather than creating duplicates.
 
 **Autonomous Execution**
-`/gsd:execute-roadmap` — runs an entire project roadmap unattended. Sonnet coordinator spawns per-phase Sonnet sub-coordinators, each with fresh context; every phase is verified by an Opus `gsd-verifier` and the roadmap ends with an Opus `/gsd:audit-milestone`. Before pushing, runs pre-PR quality gates (lint, type checks, unit tests, docs validation), then automatically pushes the branch and opens a PR. Self-healing failure handling: 1st failure retries silently, 2nd+ failure auto-spawns `gsd-debugger` with context, and a configurable attempt ceiling (`execution.max_attempts`, default 4) escalates with the debugger's findings attached. Parallel execution for independent phases.
+`/gsd:execute-roadmap` — runs an entire project roadmap unattended. Sonnet coordinator spawns per-phase Sonnet sub-coordinators, each with fresh context; every phase is verified by an Opus `gsd-verifier` and the roadmap ends with an Opus `/gsd:audit-milestone`. Before pushing, runs the pre-PR gate (`gsd-tools gate pre-pr`), then automatically pushes the branch and opens a PR. Self-healing failure handling: 1st failure retries silently, 2nd+ failure auto-spawns `gsd-debugger` with context, and a configurable attempt ceiling (`execution.max_attempts`, default 4) escalates with the debugger's findings attached. Parallel execution for independent phases.
 
 **Telegram Integration**
-MCP server (`mcp-servers/telegram-mcp/`) that auto-loads with Claude Code. Sends blocking questions to your phone when human input is needed, resumes automatically on reply. Voice message support via local Whisper (no API cost). Multi-instance safe with isolated question queues and file locking.
-
-**Doc Compression**
-PreToolUse hook intercepts reads of GSD planning documents and injects compressed summaries (60–70% token reduction). Disabled by default. Enable in `hook-config.json`:
-```json
-{ "enabled": true, "compression": { "enabled": true } }
-```
+MCP server (`mcp-servers/telegram-mcp/`) that auto-loads with Claude Code. The server is installed, but no GSD workflow calls it. Voice message support via local Whisper (no API cost). Multi-instance safe with isolated question queues and file locking.
 
 **Conversation Mining**
 `/gsd:mine-conversations` — mines `~/.claude/projects/{slug}/*.jsonl` for decisions and reasoning patterns. Haiku subagents extract insights from Claude Code conversation history. Idempotent — already-analyzed sessions are skipped via content hash. Also runs automatically at `/gsd:complete-milestone` (`auto_mine` config, default `true`) — writes `.planning/milestones/v{X}-KNOWLEDGE.md` and never blocks milestone completion on failure.
@@ -169,9 +163,7 @@ After updating from git: run `/gsd:reapply-patches` if you have local modificati
 
 ### Post-release fixes
 
-**Routing accuracy** — auto-mode tier assignment calibrated from empirical analysis of real task history. Haiku rubric expanded with patterns that were consistently over-assigned to Sonnet: mechanical search-replace, dead code removal, lint fixes, single-element additions, run-and-report tasks. Sonnet rubric extended with targeted debugging and documentation tasks that were incorrectly reaching Opus. Fallback defaults changed from sonnet → haiku throughout. Planner routing pass now runs a consistency check: structurally similar tasks in the same plan get the same tier.
-
-**execute-roadmap: pre-PR quality gates** — before pushing and opening a PR, runs: frontend lint (`npm run lint`), backend lint (`deno lint`), type checks, unit tests (both npm and deno), and docs validation (`markdownlint`, `deno task validate:frontmatter`, `deno task validate:links`) when `docs/` files changed. Pre-commit hooks also run explicitly to catch anything agents may have bypassed. Collects all failures before reporting — asks fix/proceed/stop. On "proceed anyway", failures are noted in the PR body.
+**execute-roadmap: pre-PR quality gates** — before pushing and opening a PR, `gsd-tools gate pre-pr` lists the `checks` to run; every check must exit 0 and the full suite must be green once. There is no bypass: a failing check is fixed and the gate re-run from the start.
 
 **execute-roadmap: auto push + PR** — after all phases complete and quality gates pass, branch is pushed to remote and PR opened automatically via `gh pr create`. PR body includes phase summary from SUMMARY.md files. Skipped on `main`/`master`.
 
@@ -218,8 +210,6 @@ Each task runs on the tier its plan carries in `<model>`: Haiku for mechanical s
 ## Troubleshooting
 
 **Commands not found after install** — restart Claude Code, verify `~/.claude/commands/gsd/` exists.
-
-**`PreToolUse:Read hook error` on every file read** — the doc-compression hook can't find its dependencies. Run `npm install --prefix ~/.claude/get-shit-done/ markdown-it gray-matter minimatch`. This is handled automatically by `npm run install:gsd` from v1.18+.
 
 **Docker / CI** — a global install needs no terminal. A `--local` run from `$HOME` targets the global directory, so it is a user-scope install and writes an upgrade record.
 

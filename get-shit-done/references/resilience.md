@@ -43,26 +43,6 @@ Written after **every** task commit, by the executor itself (`<task_commit_proto
 
 Purpose: a continuation agent respawned after this executor dies (with no clean handoff — see PAUSED.json below) reads this file to know exactly which task to resume from, without re-deriving state from `git log`.
 
-### EXECUTOR-HANDOFF.json
-
-Legacy: written only by an older executor build that self-stopped on context pressure; current executors never write it (`<executor_resilience_protocol>` in `references/executor-detail.md`). The coordinator still consumes one left on disk. Richer than TASK-CHECKPOINT.json — carries narrative state a bare task index can't. Committed immediately (`chore` commit) alongside TASK-CHECKPOINT.json, because this is a deliberate stopping point, not an ongoing-work checkpoint.
-
-```json
-{
-  "phase": 61,
-  "plan": "61-02",
-  "reason": "context_pressure",
-  "last_completed_task": { "index": 3, "name": "Add refresh token rotation" },
-  "next_task_index": 4,
-  "completed_task_commits": ["9f8e7d6", "b2c3d4e", "a1b2c3d"],
-  "files_modified": ["src/handlers/auth-refresh.ts", "src/domain/session.ts"],
-  "deviations": ["[Rule 2 - Missing validation] Added input validation on refresh token format"],
-  "key_decisions": ["Refresh tokens rotate on every use, not just on expiry"],
-  "verification_state": "Tasks 1-3 verified individually; full plan verification not yet run",
-  "resume_instructions": "Start at task 4 (revoke old refresh token on rotation). Auth module context already loaded in prior commits — no need to re-read auth-refresh/index.ts from scratch."
-}
-```
-
 ### PAUSED.json
 
 Written by the **coordinator** (`workflows/execute-phase.md`), not the executor, when an executor death or a proactive usage-window check indicates the account's session limit is (or is about to be) hit. Distinct `type` values distinguish why it was written:
@@ -86,7 +66,7 @@ Written by the **coordinator** (`workflows/execute-phase.md`), not the executor,
 
 ## No Executor Self-Stop
 
-Full text lives in `<executor_resilience_protocol>` in `references/executor-detail.md`. An executor never stops, hands back or returns `## PLAN INTERRUPTED` because of context fill: it works until the plan is done and relies on auto-compaction. It still writes TASK-CHECKPOINT.json after every task commit, because a death (crash, session or quota limit) is still possible and a continuation agent resumes from it.
+Full text lives in `<executor_resilience_protocol>` in `references/executor-detail.md`. An executor never stops or hands back because of context fill: it works until the plan is done and relies on auto-compaction. It still writes TASK-CHECKPOINT.json after every task commit, because a death (crash, session or quota limit) is still possible and a continuation agent resumes from it.
 
 ---
 
@@ -96,11 +76,10 @@ Three entry points, all documented inline in `execute-phase.md` with pointers ba
 
 ### 1. Pre-spawn handoff check
 
-Before spawning an executor for any plan, the coordinator checks for a leftover EXECUTOR-HANDOFF.json (or an orphaned TASK-CHECKPOINT.json with no matching SUMMARY.md — a death with no clean handoff) from a prior interrupted run of that same plan. If found:
+Before spawning an executor for any plan, the coordinator checks for an orphaned TASK-CHECKPOINT.json with no matching SUMMARY.md (a death) from a prior interrupted run of that same plan. If found:
 
 1. Verify the claimed commits actually exist (`git log --oneline --all | grep`) — never trust unverifiable state.
-2. Archive the handoff to `.planning/phases/{phase_dir}/resolved-handoffs/`.
-3. Spawn the executor with a `<prior_executor_handoff>` block PREPENDED to the normal spawn prompt.
+2. Spawn the executor with a `<prior_executor_handoff>` block PREPENDED to the normal spawn prompt.
 
 ### 2. `<prior_executor_handoff>` continuation-spawn contract
 
@@ -118,14 +97,13 @@ Resume from task {next_task_index}. {resume_instructions}
 </prior_executor_handoff>
 ```
 
-### 3. Executor death / clean interruption detection
+### 3. Executor death detection
 
 Runs in `execute-phase.md`'s `handle_failure` step, BEFORE the existing retry/debug/escalate ladder. An executor's return means one of:
 
 | Return shape | Meaning | Coordinator action |
 |---|---|---|
-| `## PLAN INTERRUPTED — continuation needed` (legacy, older executor build) | Context self-stop, EXECUTOR-HANDOFF.json written | Same as pre-spawn handoff (above) — immediate continuation respawn. NOT a retry/failure. |
-| `Agent()` threw, or return doesn't parse as PLAN COMPLETE / checkpoint / PLAN INTERRUPTED, AND `resilience parse-death` matches with a reset time | Session/quota-limit death | Write PAUSED.json (`type: "session_limit"`). If wait < 30 min: sleep-loop (same pattern as `execute-roadmap.md` 4a) then respawn. If wait >= 30 min or reset time implausible: return `status: "paused_session_limit"` to this coordinator's own caller instead of blocking its own context for hours. |
+| `Agent()` threw, or return doesn't parse as PLAN COMPLETE / checkpoint, AND `resilience parse-death` matches with a reset time | Session/quota-limit death | Write PAUSED.json (`type: "session_limit"`). If wait < 30 min: sleep-loop (same pattern as `execute-roadmap.md` 4a) then respawn. If wait >= 30 min or reset time implausible: return `status: "paused_session_limit"` to this coordinator's own caller instead of blocking its own context for hours. |
 | Same, but no reset time AND `resilience check-staleness` on TASK-CHECKPOINT.json reports `stale: true` | Context-overflow death, no clean handoff, but committed work exists | Same as pre-spawn handoff — immediate continuation respawn from TASK-CHECKPOINT.json. No waiting; nothing to wait for. |
 | Neither of the above | Genuine task-logic failure | Falls through to the existing `execution-state record-failure` retry/debug/escalate ladder, unchanged. |
 
@@ -193,7 +171,7 @@ Both keys are read via `loadConfig()` in `gsd-tools.js` with the same "top-level
 | Detected by | Roadmap orchestrator | Phase coordinator (`execute-phase.md`) |
 | Granularity | Lifecycle step (discuss/research/plan/execute/verify) | Task index within a single plan |
 | Self-stop available | No: detected dead after the fact | No: works until done; detected dead after the fact |
-| Resume artifact | Phase `CHECKPOINT.json` | `TASK-CHECKPOINT.json` (or a legacy `EXECUTOR-HANDOFF.json`) |
+| Resume artifact | Phase `CHECKPOINT.json` | `TASK-CHECKPOINT.json` |
 | Wait/respawn pattern | Sleep-loop capped at 6h, always local to the roadmap orchestrator | Same sleep-loop pattern, but bubbles up to the coordinator's own caller if the wait is >= 30 minutes (a phase coordinator has less budget to spend sleeping than the top-level roadmap orchestrator) |
 
 Both layers log distinct `execution-log event --type` values so a post-mortem can tell which layer intervened: coordinator-level events are `coordinator_death_detected` / `auto_resume_spawned` / `death_reset_time_implausible` (unchanged, existing); executor-level events are `executor_clean_interruption` / `executor_death_detected` / `usage_pause_triggered`.

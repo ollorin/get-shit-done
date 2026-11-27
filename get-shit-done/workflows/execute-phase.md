@@ -162,19 +162,17 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
 0.5. **Check for a prior interrupted executor run, per plan about to be spawned (Executor Resilience Protocol):**
 
    ```bash
-   HANDOFF_PATH=".planning/phases/{phase_dir}/EXECUTOR-HANDOFF.json"
    TASK_CKPT_PATH=".planning/phases/{phase_dir}/TASK-CHECKPOINT-{plan_id}.json"   # per plan; `resilience check-staleness` falls back to a legacy TASK-CHECKPOINT.json. Two-executor mode: read it under the executor's worktree, `.tmp/wt-{phase}-{plan_id}/`, not the main checkout.
    ```
-   If `HANDOFF_PATH` exists, OR `TASK_CKPT_PATH` (or a legacy phase-scoped TASK-CHECKPOINT.json) exists with no matching `{plan_id}-SUMMARY.md` (a death with no clean handoff):
+   If `TASK_CKPT_PATH` (or a legacy phase-scoped TASK-CHECKPOINT.json) exists with no matching `{plan_id}-SUMMARY.md` (a death):
    1. Verify every commit hash it claims actually exists: `git log --oneline --all | grep -F "{hash}"` for each. If any is missing, the state is unverifiable — log loudly and fall back to a normal fresh spawn instead of trusting it.
-   2. Archive it: `mkdir -p .planning/phases/{phase_dir}/resolved-handoffs && mv "$HANDOFF_PATH" ".planning/phases/{phase_dir}/resolved-handoffs/{plan_id}-$(date -u +%Y%m%dT%H%M%SZ).json"` (skip the `mv` if only the task checkpoint existed).
-   3. **Prefer resume-by-agentId over cold fresh-spawn when in-session (App #2, `@get-shit-done/references/agent-messaging.md`).** Decide by this rule:
+   2. **Prefer resume-by-agentId over cold fresh-spawn when in-session (App #2, `@get-shit-done/references/agent-messaging.md`).** Decide by this rule:
       - **agentId present AND same session** (`EXECUTOR_AGENT_IDS[{plan_id}]` is set — the interrupted executor ran in THIS coordinator session, not across a quota/launchd resume): `SendMessage(to: <agentId>, …)` to RESUME that same executor from its transcript, telling it to continue from `next_task_index`. Its transcript carries richer context (already-loaded files, key decisions) than a handoff doc can. This is the preferred path.
       - **else → cold spawn from handoff** (agentId not captured, or crossed a session boundary — a fresh `claude -p` after a quota/launchd resume, where the agentId is gone per hard semantic #3): spawn a NEW executor with a `<prior_executor_handoff>` block PREPENDED to the normal spawn prompt below (step 2) — completed tasks + commit hashes, resume-from task index, key decisions, files modified. Do NOT re-run completed tasks.
 
-      Either way the handoff file remains the durable record; resume-by-agentId is an in-session optimization, never a replacement for it.
+      Either way the task checkpoint remains the durable record; resume-by-agentId is an in-session optimization, never a replacement for it.
 
-   Exact `<prior_executor_handoff>` block format and both JSON schemas: `@get-shit-done/references/resilience.md`.
+   Exact `<prior_executor_handoff>` block format and the JSON schema: `@get-shit-done/references/resilience.md`.
 
    If neither file exists: proceed to a normal fresh spawn (step 2, unchanged).
 
@@ -385,9 +383,9 @@ Initialize context tracking: `COMPLETED_CONTEXT_BLOCK = ""` (updated after each 
 
    **Executor death / clean interruption detection (Executor Resilience Protocol — runs before the retry ladder below, for EVERY executor return):** An executor's return means one of three distinct things. Only the last is a genuine task-logic failure; the first two must never touch the retry counter below.
 
-   **Parse the machine-readable status FIRST — do not string-match the prose header.** Every non-dead executor return ends with a fenced ```json trailer carrying `{"status": "complete"|"interrupted"|"blocked", ...}`. Extract the last fenced JSON block and read `.status`; the `## PLAN …` header is human-readable garnish that a reworded line or an em-dash could break. Only if NO parseable JSON trailer exists do you fall through to the raw-death path (2). This is the fix for the class of coordinator-parse failures where a prose-only return was misread as a death.
+   **Parse the machine-readable status FIRST — do not string-match the prose header.** Every non-dead executor return ends with a fenced ```json trailer carrying `{"status": "complete"|"blocked", ...}`. Extract the last fenced JSON block and read `.status`; the `## PLAN …` header is human-readable garnish that a reworded line or an em-dash could break. Only if NO parseable JSON trailer exists do you fall through to the raw-death path (2). This is the fix for the class of coordinator-parse failures where a prose-only return was misread as a death.
 
-   1. **Clean interruption** — the trailer's `status` is `"interrupted"` (legacy only: an older executor build that self-stopped on context and wrote EXECUTOR-HANDOFF.json; current executors never stop for context and never return it; header reads `## PLAN INTERRUPTED`). Handle as the pre-spawn handoff case (step 0.5 above), INCLUDING its resume-by-agentId-vs-cold-spawn decision (App #2): `EXECUTOR_AGENT_IDS[{plan_id}]` is normally still set, so PREFER `SendMessage(to: <agentId>, …)` to resume that executor from `next_task_index`; FALL BACK to archiving the handoff and cold-spawning a continuation executor with a `<prior_executor_handoff>` block. Log `--type executor_clean_interruption`. Do NOT call `execution-state record-failure`. A `status: "blocked"` trailer is NOT an interruption — surface it to the user with its `recommended_split`. Auto (auto_mode, references/auto-mode.md K4): park the phase and return `status: blocked` with the `recommended_split`; never wait.
+   1. **Blocked** — a `status: "blocked"` trailer is NOT a death and not a failure: do NOT call `execution-state record-failure`. Surface it to the user with its `recommended_split`. Auto (auto_mode, references/auto-mode.md K4): park the phase and return `status: blocked` with the `recommended_split`; never wait.
 
    2. **Genuine death** — `Agent()` threw, OR the return has NO parseable JSON status trailer at all (e.g. it IS a raw death message):
       ```bash

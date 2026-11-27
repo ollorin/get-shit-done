@@ -13,7 +13,7 @@ allowed-tools:
   - AskUserQuestion
 ---
 <objective>
-Execute the full ROADMAP.md. The orchestrator stays lean: it loops over `gsd-tools roadmap next` and `roadmap record`, spawning a fresh coordinator per phase; completion is decided on disk. Interactive use confirms before starting (AskUserQuestion); with `--auto`, or any other source of `auto_mode`, nothing is asked: see @~/.claude/get-shit-done/references/auto-mode.md.
+Execute the full ROADMAP.md. The orchestrator stays lean: it loops over `gsd-tools roadmap next` and `roadmap record`, spawning a fresh coordinator per phase; completion is decided on disk. Interactive use confirms before starting (AskUserQuestion); with `--auto`, or any other source of `auto_mode`, nothing is asked. Auto (auto_mode, references/auto-mode.md K1): proceed without asking. See @~/.claude/get-shit-done/references/auto-mode.md.
 </objective>
 
 <execution_context>
@@ -21,8 +21,6 @@ Execute the full ROADMAP.md. The orchestrator stays lean: it loops over `gsd-too
 </execution_context>
 
 <context>
-**Version-skew check:** Before executing, read `~/.claude/cache/gsd-skew-check.json` if it exists. If `drifted_count > 0`, the installed GSD copy has drifted from its source: warn (name the drifted files if listed) and log it. Auto (auto_mode, references/auto-mode.md K1): warn and log, never stop. Interactively, you may stop to re-run the installer before proceeding.
-
 @.planning/ROADMAP.md
 @.planning/STATE.md
 </context>

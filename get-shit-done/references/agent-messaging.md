@@ -56,13 +56,11 @@ message is never delivered, the file mechanism still recovers the run.
 ### App #1 — Executor upward continuation signal (retired)
 Retired: an executor no longer self-stops on context (`<executor_resilience_protocol>` in
 `references/executor-detail.md`: work until done, auto-compaction handles a full window), so
-it never sends a "continuation needed" signal. A coordinator may still receive one from an
-older executor build; treat it as the legacy `## PLAN INTERRUPTED` case of `execute-phase.md`.
+it never sends a "continuation needed" signal.
 
 ### App #2 — Prefer resume-by-agentId over cold fresh-spawn (in-session)
 The coordinator (`workflows/execute-phase.md`) CAPTURES each executor's `agentId` from its
-spawn result and retains it. On a resumable in-session interruption (a legacy
-`## PLAN INTERRUPTED` from an older build, or a session-limit pause where the window has since reset and the
+spawn result and retains it. On a resumable in-session interruption (a session-limit pause where the window has since reset and the
 agent is still in-session), the coordinator PREFERS `SendMessage(to: <agentId>, …)` to
 resume that same executor from its transcript (richer context than a handoff doc) OVER
 cold-spawning a fresh executor that re-reads the handoff. It FALLS BACK to the existing

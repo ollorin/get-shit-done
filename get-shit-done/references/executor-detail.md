@@ -322,9 +322,8 @@ Self-report telemetry (MILE-26): populate these from your own run — an ambiguo
 ```
 ````
 
-`status` is `"complete"` or `"blocked"`. For `"blocked"`, set `reason` to the blocker and, when the plan must be re-split, include `"recommended_split": "<how to re-split>"`. The coordinator parses THIS block, not the header; the prose header and the JSON status must always agree. Never return `"interrupted"`: the coordinator still reads it from an older executor build only.
-
-**If spawned as a continuation agent** with a `<prior_executor_handoff>` block in your prompt (a previous run died, or an older build left `EXECUTOR-HANDOFF.json`): this supersedes `<continuation_handling>` above for the resilience case specifically. Verify the listed commits exist (`git log --oneline -20`), do NOT redo any completed task, and resume from `next_task_index`. Treat `key_decisions` and `deviations` from the handoff as established fact, not open questions.
+`status` is `"complete"` or `"blocked"`. For `"blocked"`, set `reason` to the blocker and, when the plan must be re-split, include `"recommended_split": "<how to re-split>"`. The coordinator parses THIS block, not the header; the prose header and the JSON status must always agree.
+**If spawned as a continuation agent** with a `<prior_executor_handoff>` block in your prompt (a previous run died): this supersedes `<continuation_handling>` above for the resilience case specifically. Verify the listed commits exist (`git log --oneline -20`), do NOT redo any completed task, and resume from `next_task_index`. Treat `key_decisions` and `deviations` from the handoff as established fact, not open questions.
 
 </executor_resilience_protocol>
 

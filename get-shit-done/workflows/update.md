@@ -166,7 +166,6 @@ Scan the current project's `.planning/` for recently-touched in-progress markers
 ```bash
 ACTIVE_MARKERS=$(find .planning -type f \( \
     -name 'TASK-CHECKPOINT.json' -o \
-    -name 'EXECUTOR-HANDOFF.json' -o \
     -name 'PAUSED.json' -o \
     -name 'CHECKPOINT.json' \
   \) -mmin -30 2>/dev/null)

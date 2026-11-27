@@ -16,7 +16,7 @@ Check: `node "$T/.claude/get-shit-done/bin/gsd-tools.js" init new-project` runs 
 
 ## What a pilot session must set
 
-The installer does NOT rewrite `$HOME/.claude/get-shit-done/bin/gsd-tools.js` calls inside workflow bodies (about 10 workflow and agent files use that form). Those resolve through the `HOME` of the Claude Code process, so launch the session with `HOME="$T"` (CLAUDE_CONFIG_DIR alone makes Claude Code load the commands from `$T/.claude` but leaves `$HOME/.claude/...` calls pointing at the real install). Subagents inherit the environment of the session, so they use the same copy.
+The installer does NOT rewrite `$HOME/.claude/get-shit-done/bin/gsd-tools.js` calls inside workflow bodies (43 workflow, agent, reference and command files use that form). Those resolve through the `HOME` of the Claude Code process, so launch the session with `HOME="$T"` (CLAUDE_CONFIG_DIR alone makes Claude Code load the commands from `$T/.claude` but leaves `$HOME/.claude/...` calls pointing at the real install). Subagents inherit the environment of the session, so they use the same copy.
 Unverified: whether a session with a changed `HOME` keeps its login (credentials may live in `~/.claude.json` / keychain); if not, sign in once inside `$T`, or copy only the auth file.
 
 Remove with `rm -rf "$T"`. Reinstall after every change to the fork: the install is a copy.

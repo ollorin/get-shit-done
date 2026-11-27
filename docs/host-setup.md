@@ -17,6 +17,5 @@ Restart only when free disk is below ~3 GiB, or docker or a test bucket stalls. 
 
 ## What eats the disk
 
-Swap sits in `/System/Volumes/VM` and shares free space with Data. See `.planning/gsd-v2/experiments/08-orbstack-memory/` for the measured breakdown.
-
+Swap sits in `/System/Volumes/VM` and shares free space with Data.
 Already off in igaming `apps/api/supabase/config.toml`: Studio, analytics (logflare, vector).
