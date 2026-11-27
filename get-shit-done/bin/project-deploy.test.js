@@ -90,7 +90,7 @@ function seedDeployed(root, presetDir) {
     writeAt(root, f.dest, f.content, f.mode);
     writeAt(root, `${BASE_DIR}/${f.dest}`, f.content);
     const entry = { kind: f.kind, sha256: sha256(f.content) };
-    if (f.kind === 'block') entry.blocks = planBlockFile({ current: null, next: f.content.toString('utf8'), prevBlocks: null }).blocks;
+    if (f.kind === 'block') entry.blocks = planBlockFile({ current: null, next: f.content.toString('utf8') }).blocks;
     files[f.dest] = entry;
   }
   const merged = mergeSettings(null, null, rendered.settings);
@@ -260,19 +260,35 @@ describe('planDeploy (agnostic-B)', () => {
     assert.deepStrictEqual(snapshot(outC), beforeC);
   });
 
-  test('P8 a preset file dropped from the preset is reported as orphan and its manifest entry kept', () => {
+  test('P8 a preset file dropped from the preset is planned for deletion when unmodified, with its preset copy', () => {
     const dir = makePreset();
     const root = makeProject();
-    const manifest = seedDeployed(root, dir);
+    seedDeployed(root, dir);
     writePreset(dir, { files: DEFAULT_FILES.filter((f) => f.dest !== '.claude/rules/style.md') });
     const before = snapshot(root);
     const { report, ops } = plan(root, 'sync', dir);
     assert.strictEqual(report.ok, true);
     assert.deepStrictEqual(report.files.find((f) => f.path === '.claude/rules/style.md'), {
-      path: '.claude/rules/style.md', kind: 'whole', action: 'orphan',
+      path: '.claude/rules/style.md', kind: 'whole', action: 'delete',
     });
-    assert.deepStrictEqual(ops.manifest.files['.claude/rules/style.md'], manifest.files['.claude/rules/style.md']);
+    assert.deepStrictEqual(ops.deletes, ['.claude/rules/style.md', `${BASE_DIR}/.claude/rules/style.md`]);
+    assert.strictEqual('.claude/rules/style.md' in ops.manifest.files, false);
     assert.deepStrictEqual(snapshot(root), before);
+  });
+
+  test('P8b a dropped preset file the project edited is kept as an orphan, with its manifest entry', () => {
+    const dir = makePreset();
+    const root = makeProject();
+    const manifest = seedDeployed(root, dir);
+    writePreset(dir, { files: DEFAULT_FILES.filter((f) => f.dest !== '.claude/rules/style.md') });
+    writeAt(root, '.claude/rules/style.md', 'mine\n');
+    const { report, ops } = plan(root, 'sync', dir);
+    assert.strictEqual(report.ok, true);
+    assert.deepStrictEqual(report.files.find((f) => f.path === '.claude/rules/style.md'), {
+      path: '.claude/rules/style.md', kind: 'whole', action: 'orphan', reason: 'modified since last deploy',
+    });
+    assert.deepStrictEqual(ops.deletes, []);
+    assert.deepStrictEqual(ops.manifest.files['.claude/rules/style.md'], manifest.files['.claude/rules/style.md']);
   });
 
   test('P9 an unparseable settings file is reported and nothing is planned for it', () => {
@@ -620,6 +636,51 @@ describe('project init|diff|sync (agnostic-B)', () => {
     assert.ok(text.startsWith('Project intro\n'));
     assert.ok(text.endsWith('Project footer\n'));
     assert.ok(text.includes('Run all tests in srv.'));
+  });
+
+  test('A15 a project section inside the managed block survives a sync that changes another paragraph', () => {
+    const CM_PRESET = '# Project\n\n<!-- gsd:begin core -->\nRun tests in {{stack.paths.backend}}.\n\n## Search\nUse the index first.\n<!-- gsd:end core -->\n';
+    const dir = makePreset({ claude: CM_PRESET });
+    const root = makeProject();
+    assert.strictEqual(run(root, dir, 'init').exitCode, 0);
+    writeAt(root, 'CLAUDE.md', '# Project\n\n<!-- gsd:begin core -->\nRun tests in srv.\n\n## Search\nUse the index first.\n\n## Semantic grep\nRun zg query first.\n<!-- gsd:end core -->\n');
+    writePreset(dir, { claude: CM_PRESET.replace('Run tests', 'Run all tests') });
+    assert.strictEqual(run(root, dir, 'sync').exitCode, 0);
+    assert.strictEqual(
+      fs.readFileSync(abs(root, 'CLAUDE.md'), 'utf8'),
+      '# Project\n\n<!-- gsd:begin core -->\nRun all tests in srv.\n\n## Search\nUse the index first.\n\n## Semantic grep\nRun zg query first.\n<!-- gsd:end core -->\n',
+    );
+  });
+
+  test('A16 an overlapping block edit refuses the whole sync: exit 1, error names file and line, nothing written', () => {
+    const { root, dir } = initialised();
+    writeAt(root, 'CLAUDE.md', `Project intro\n${CLAUDE_RENDERED.replace('Run tests', 'Run unit tests')}`);
+    writePreset(dir, { rule: RULE_V2, claude: CLAUDE_MD.replace('Run tests', 'Run all tests') });
+    const before = snapshot(root);
+    const r = run(root, dir, 'sync');
+    assert.strictEqual(r.exitCode, 1);
+    assert.deepStrictEqual(r.result.written, []);
+    assert.deepStrictEqual(r.result.errors, [{ file: 'CLAUDE.md', line: 4, reason: 'block core: merge conflict' }]);
+    assert.deepStrictEqual(snapshot(root), before);
+  });
+
+  test('A17 sync deletes a dropped preset file that is unmodified, with its preset copy and manifest entry', () => {
+    const { root, dir } = initialised();
+    writePreset(dir, { files: DEFAULT_FILES.filter((f) => f.dest !== STYLE_REL) });
+    assert.strictEqual(run(root, dir, 'sync').exitCode, 0);
+    assert.strictEqual(fs.existsSync(abs(root, STYLE_REL)), false);
+    assert.strictEqual(fs.existsSync(abs(root, `${BASE_DIR}/${STYLE_REL}`)), false);
+    assert.strictEqual(STYLE_REL in readManifest(root).files, false);
+  });
+
+  test('A18 a dropped guarded hook is removed only from a terminal: an agent env is refused and nothing changes', () => {
+    const { root, dir } = initialised();
+    writePreset(dir, { files: DEFAULT_FILES.filter((f) => f.dest !== HOOK_DEST) });
+    const before = snapshot(root);
+    const r = run(root, dir, 'sync', { CLAUDECODE: '1' });
+    assert.strictEqual(r.exitCode, 1);
+    assert.deepStrictEqual(r.result.refused.paths, [HOOK_DEST]);
+    assert.deepStrictEqual(snapshot(root), before);
   });
 
   const TOKEN = `ghp_${'a'.repeat(36)}`;

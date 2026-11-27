@@ -10,13 +10,20 @@ const show = (v) => JSON.stringify(v).replace(CONTROL_RE, (c) => `\\u${c.charCod
 
 const contentLines = (buf) => buf.toString('utf8').split('\n').map((l) => `    | ${show(l)}`);
 
-function shownFiles({ writes, files, olds, guarded, settingsPlan, settingsPath }) {
-  const entries = writes.filter((w) => guarded.includes(w.dest)).map((w) => ({
+function shownFiles({ writes, deletes = [], files, olds, guarded, settingsPlan, settingsPath }) {
+  const written = writes.filter((w) => guarded.includes(w.dest)).map((w) => ({
     path: w.dest,
     action: files.find((f) => f.path === w.dest).action,
     old: olds.get(w.dest) ?? null,
     content: w.content,
   }));
+  const removed = deletes.filter((dest) => guarded.includes(dest)).map((dest) => ({
+    path: dest,
+    action: 'delete',
+    old: olds.get(dest) ?? null,
+    content: Buffer.alloc(0),
+  }));
+  const entries = [...written, ...removed];
   return settingsPlan === null ? entries : [...entries, {
     path: settingsPath,
     action: settingsPlan.action,

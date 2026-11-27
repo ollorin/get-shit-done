@@ -204,16 +204,28 @@ describe('block-managed files (agnostic-B4)', () => {
 
   test('B4-4 current null creates the file from next', () => {
     const next = L(M('a')[0], 'n', M('a')[1]);
-    const r = F.planBlockFile({ current: null, next, prevBlocks: null });
+    const r = F.planBlockFile({ current: null, next });
     assert.strictEqual(r.action, 'create');
     assert.strictEqual(r.content, next);
   });
 
-  test('B4-5 replace changes only the inner text of the matching block', () => {
+  test('B4-5 a preset change merges into the matching block only; text outside blocks is kept', () => {
     const current = L('head', M('a')[0], 'old1', 'old2', M('a')[1], 'mid', M('b')[0], 'bb', M('b')[1], 'tail');
+    const base = L(M('a')[0], 'old1', 'old2', M('a')[1], M('b')[0], 'bb', M('b')[1]);
     const next = L(M('a')[0], 'n1', 'n2', 'n3', M('a')[1], M('b')[0], 'bb', M('b')[1]);
     const expected = L('head', M('a')[0], 'n1', 'n2', 'n3', M('a')[1], 'mid', M('b')[0], 'bb', M('b')[1], 'tail');
-    const r = F.planBlockFile({ current, next, prevBlocks: null });
+    const r = F.planBlockFile({ current, next, base, mergeFn: mergeWith(mkTmp()) });
+    assert.strictEqual(r.action, 'update');
+    assert.strictEqual(r.content, expected);
+  });
+
+  test('B4-13 a project section inside the block survives a preset change to another paragraph', () => {
+    const para = (t) => [t, '', '## Search', 'Use the index first.'];
+    const base = L(M('core')[0], ...para('Run tests.'), M('core')[1]);
+    const current = L(M('core')[0], ...para('Run tests.'), '', '## Semantic grep', 'Run zg query first.', M('core')[1]);
+    const next = L(M('core')[0], ...para('Run all tests.'), M('core')[1]);
+    const expected = L(M('core')[0], ...para('Run all tests.'), '', '## Semantic grep', 'Run zg query first.', M('core')[1]);
+    const r = F.planBlockFile({ current, next, base, mergeFn: mergeWith(mkTmp()) });
     assert.strictEqual(r.action, 'update');
     assert.strictEqual(r.content, expected);
   });
@@ -221,7 +233,7 @@ describe('block-managed files (agnostic-B4)', () => {
   test('B4-6 an absent block is appended after a separating empty line', () => {
     const current = 'project text';
     const next = L(M('c')[0], 'x1', M('c')[1]);
-    const r = F.planBlockFile({ current, next, prevBlocks: null });
+    const r = F.planBlockFile({ current, next });
     assert.strictEqual(r.action, 'update');
     assert.strictEqual(r.content, `${current}\n\n${M('c')[0]}\nx1\n${M('c')[1]}\n`);
   });
@@ -229,56 +241,72 @@ describe('block-managed files (agnostic-B4)', () => {
   test('B4-7 identical inner returns unchanged with no content', () => {
     const current = L('p', M('a')[0], 'same', M('a')[1]);
     const next = L(M('a')[0], 'same', M('a')[1]);
-    const r = F.planBlockFile({ current, next, prevBlocks: null });
+    const r = F.planBlockFile({ current, next });
     assert.strictEqual(r.action, 'unchanged');
     assert.strictEqual('content' in r, false);
   });
 
   test('B4-8 a project-only block is byte-identical in the result', () => {
     const current = L(M('mine')[0], 'my own', 'x', M('mine')[1], M('a')[0], 'old', M('a')[1]);
+    const base = L(M('a')[0], 'old', M('a')[1]);
     const next = L(M('a')[0], 'new', M('a')[1]);
     const expected = L(M('mine')[0], 'my own', 'x', M('mine')[1], M('a')[0], 'new', M('a')[1]);
-    const r = F.planBlockFile({ current, next, prevBlocks: null });
+    const r = F.planBlockFile({ current, next, base, mergeFn: mergeWith(mkTmp()) });
     assert.strictEqual(r.action, 'update');
     assert.strictEqual(r.content, expected);
   });
 
   test('B4-9 malformed current is a conflict, malformed next is an error', () => {
-    const conflict = F.planBlockFile({ current: L(M('a')[0], 'x'), next: L(M('a')[0], 'n', M('a')[1]), prevBlocks: null });
+    const conflict = F.planBlockFile({ current: L(M('a')[0], 'x'), next: L(M('a')[0], 'n', M('a')[1]) });
     assert.strictEqual(conflict.action, 'conflict');
     assert.strictEqual(conflict.reason, 'malformed markers: unclosed block: a');
     assert.strictEqual('content' in conflict, false);
 
-    const noMarkers = F.planBlockFile({ current: 'x\n', next: 'plain\n', prevBlocks: null });
+    const noMarkers = F.planBlockFile({ current: 'x\n', next: 'plain\n' });
     assert.strictEqual(noMarkers.action, 'error');
     assert.strictEqual(noMarkers.reason, 'preset block file: no managed blocks');
 
-    const dup = F.planBlockFile({ current: 'x\n', next: L(M('a')[0], 'x', M('a')[1], M('a')[0], 'y', M('a')[1]), prevBlocks: null });
+    const dup = F.planBlockFile({ current: 'x\n', next: L(M('a')[0], 'x', M('a')[1], M('a')[0], 'y', M('a')[1]) });
     assert.strictEqual(dup.action, 'error');
     assert.strictEqual(dup.reason, 'preset block file: duplicate block id: a');
   });
 
-  test('B4-10 hand edit overwritten by a new preset inner warns; no warning when current matches the previous preset', () => {
-    const next = L(M('a')[0], 'new-preset', M('a')[1]);
-    const edited = F.planBlockFile({
-      current: L(M('a')[0], 'hand edit', M('a')[1]),
+  test('B4-10 an overlapping project edit is a conflict with its line; a non-overlapping one is kept', () => {
+    const base = L(M('a')[0], 'line1', 'line2', 'line3', M('a')[1]);
+    const next = L(M('a')[0], 'line1', 'preset-2', 'line3', M('a')[1]);
+    const overlap = F.planBlockFile({
+      current: L('head', M('a')[0], 'line1', 'hand-2', 'line3', M('a')[1]),
       next,
-      prevBlocks: { a: F.sha256(Buffer.from('old-preset')) },
+      base,
+      mergeFn: mergeWith(mkTmp()),
     });
-    assert.strictEqual(edited.action, 'update');
-    assert.deepStrictEqual(edited.warnings, ['local edit in block overwritten: a']);
+    assert.strictEqual(overlap.action, 'conflict');
+    assert.deepStrictEqual(overlap.conflicts, [{ id: 'a', line: 2, reason: 'merge conflict' }]);
+    assert.strictEqual('content' in overlap, false);
 
-    const clean = F.planBlockFile({
-      current: L(M('a')[0], 'old-preset', M('a')[1]),
+    const kept = F.planBlockFile({
+      current: L(M('a')[0], 'line1', 'line2', 'line3', 'added by project', M('a')[1]),
       next,
-      prevBlocks: { a: F.sha256(Buffer.from('old-preset')) },
+      base,
+      mergeFn: mergeWith(mkTmp()),
     });
-    assert.deepStrictEqual(clean.warnings, []);
+    assert.strictEqual(kept.action, 'update');
+    assert.strictEqual(kept.content, L(M('a')[0], 'line1', 'preset-2', 'line3', 'added by project', M('a')[1]));
+  });
+
+  test('B4-14 a differing block without a merge base is a conflict; an identical block is unchanged', () => {
+    const next = L(M('a')[0], 'new', M('a')[1]);
+    const noBase = F.planBlockFile({ current: L(M('a')[0], 'hand', M('a')[1]), next, base: null });
+    assert.strictEqual(noBase.action, 'conflict');
+    assert.deepStrictEqual(noBase.conflicts, [{ id: 'a', line: 1, reason: 'merge base missing' }]);
+
+    const same = F.planBlockFile({ current: L(M('a')[0], 'new', M('a')[1]), next, base: null });
+    assert.strictEqual(same.action, 'unchanged');
   });
 
   test('B4-11 blocks maps each id of next to the sha256 of its inner text', () => {
     const crypto = require('crypto');
-    const r = F.planBlockFile({ current: null, next: L(M('a')[0], 'x', M('a')[1], M('b')[0], 'y\nz', M('b')[1]), prevBlocks: null });
+    const r = F.planBlockFile({ current: null, next: L(M('a')[0], 'x', M('a')[1], M('b')[0], 'y\nz', M('b')[1]) });
     const hash = (s) => crypto.createHash('sha256').update(Buffer.from(s)).digest('hex');
     assert.deepStrictEqual(r.blocks, { a: hash('x'), b: hash('y\nz') });
   });

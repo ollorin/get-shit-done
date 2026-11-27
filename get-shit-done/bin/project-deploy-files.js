@@ -83,34 +83,52 @@ function parseBlocks(text) {
 
 const innerLines = (inner) => (inner === '' ? [] : inner.split('\n'));
 
-function planBlockFile({ current, next, prevBlocks }) {
+// Inner text is compared as whole lines: `asText` adds the final newline git merge-file works on, `fromText` removes it.
+const asText = (inner) => (inner === '' ? '' : `${inner}\n`);
+const fromText = (text) => text.replace(/\n$/, '');
+
+// base = the block as last deployed (the mirror), ours = the project's block, theirs = the new preset block.
+function mergeBlock({ ours, base, theirs, mergeFn }) {
+  if (ours === theirs) return { ok: true, inner: ours };
+  if (base === undefined) return { ok: false, reason: 'merge base missing' };
+  const r = mergeFn(asText(ours), asText(base), asText(theirs));
+  return r.ok ? { ok: true, inner: fromText(r.content.toString('utf8')) } : { ok: false, reason: r.reason };
+}
+
+// `base` is the mirrored preset file text, or null. A block with no base and a differing project edit is a conflict.
+function planBlockFile({ current, next, base = null, mergeFn = gitMergeFile }) {
   const parsedNext = parseBlocks(next);
   if (!parsedNext.ok || parsedNext.blocks.length === 0) {
     return { action: 'error', reason: `preset block file: ${parsedNext.ok ? 'no managed blocks' : parsedNext.reason}` };
   }
   const blocks = Object.fromEntries(parsedNext.blocks.map((b) => [b.id, sha256(Buffer.from(b.inner, 'utf8'))]));
-  if (current === null) return { action: 'create', content: next, blocks, warnings: [] };
+  if (current === null) return { action: 'create', content: next, blocks };
 
   const parsedCur = parseBlocks(current);
-  if (!parsedCur.ok) return { action: 'conflict', reason: `malformed markers: ${parsedCur.reason}`, blocks, warnings: [] };
+  if (!parsedCur.ok) return { action: 'conflict', reason: `malformed markers: ${parsedCur.reason}`, conflicts: [], blocks };
+  const parsedBase = base === null ? { ok: true, blocks: [] } : parseBlocks(base);
+  if (!parsedBase.ok) return { action: 'conflict', reason: `merge base malformed: ${parsedBase.reason}`, conflicts: [], blocks };
 
   const nextInner = new Map(parsedNext.blocks.map((b) => [b.id, b.inner]));
-  const curByBegin = new Map(parsedCur.blocks.map((b) => [b.beginLine, b]));
+  const baseInner = new Map(parsedBase.blocks.map((b) => [b.id, b.inner]));
   const curIds = new Set(parsedCur.blocks.map((b) => b.id));
-  const warnings = parsedNext.blocks
-    .filter((b) => curIds.has(b.id) && prevBlocks && prevBlocks[b.id] !== undefined)
-    .filter((b) => {
-      const curHash = sha256(Buffer.from(parsedCur.blocks.find((c) => c.id === b.id).inner, 'utf8'));
-      return curHash !== prevBlocks[b.id] && curHash !== blocks[b.id];
-    })
-    .map((b) => `local edit in block overwritten: ${b.id}`);
+  const merged = parsedCur.blocks.filter((b) => nextInner.has(b.id)).map((b) => ({
+    block: b,
+    result: mergeBlock({ ours: b.inner, base: baseInner.get(b.id), theirs: nextInner.get(b.id), mergeFn }),
+  }));
+  const conflicts = merged
+    .filter((m) => !m.result.ok)
+    .map((m) => ({ id: m.block.id, line: m.block.beginLine + 1, reason: m.result.reason }));
+  if (conflicts.length > 0) return { action: 'conflict', reason: 'overlapping edit', conflicts, blocks };
+  const mergedInner = new Map(merged.map((m) => [m.block.id, m.result.inner]));
 
   const curLines = current.split('\n');
+  const curByBegin = new Map(parsedCur.blocks.map((b) => [b.beginLine, b]));
   const out = [];
   for (let i = 0; i < curLines.length; ) {
     const b = curByBegin.get(i);
-    if (b && nextInner.has(b.id)) {
-      out.push(curLines[b.beginLine], ...innerLines(nextInner.get(b.id)), curLines[b.endLine]);
+    if (b && mergedInner.has(b.id)) {
+      out.push(curLines[b.beginLine], ...innerLines(mergedInner.get(b.id)), curLines[b.endLine]);
       i = b.endLine + 1;
     } else {
       out.push(curLines[i]);
@@ -121,12 +139,12 @@ function planBlockFile({ current, next, prevBlocks }) {
 
   const nextLines = next.split('\n');
   for (const b of parsedNext.blocks.filter((nb) => !curIds.has(nb.id))) {
-    const base = text.endsWith('\n') ? text : `${text}\n`;
-    text = `${base}\n${[nextLines[b.beginLine], ...innerLines(b.inner), nextLines[b.endLine]].join('\n')}\n`;
+    const prefix = text.endsWith('\n') ? text : `${text}\n`;
+    text = `${prefix}\n${[nextLines[b.beginLine], ...innerLines(b.inner), nextLines[b.endLine]].join('\n')}\n`;
   }
 
-  if (text === current) return { action: 'unchanged', blocks, warnings };
-  return { action: 'update', content: text, blocks, warnings };
+  if (text === current) return { action: 'unchanged', blocks };
+  return { action: 'update', content: text, blocks };
 }
 
 function stripMarkerLines(text) {

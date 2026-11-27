@@ -52,6 +52,7 @@ function buildSteps(plan, gitignore) {
     ...ops.bases.map((b) => ({ rel: `${BASE_DIR}/${b.dest}`, content: b.content, mode: DEFAULT_MODE })),
     ...(ops.settingsText ? [{ rel: SETTINGS, content: Buffer.from(ops.settingsText, 'utf8'), mode: DEFAULT_MODE }] : []),
     ...(gitignore ? [{ rel: GITIGNORE, content: gitignore, mode: DEFAULT_MODE }] : []),
+    ...(ops.deletes ?? []).map((rel) => ({ rel, del: true })),
     { rel: MANIFEST, content: Buffer.from(`${JSON.stringify(ops.manifest, null, 2)}\n`, 'utf8'), mode: DEFAULT_MODE },
   ];
 }
@@ -99,7 +100,16 @@ function stageStep(root, step, rand, dirs) {
   return { rel: step.rel, target, tmp, original, mode: currentMode };
 }
 
-// Undoes renames in reverse order, then discards staged temps and the directories this apply created.
+// A deletion keeps the file's bytes and mode, so a rollback restores them exactly.
+function stageDelete(root, rel) {
+  const target = path.join(root, rel);
+  const st = lstatOrNull(target);
+  if (st === null) return null;
+  if (!st.isFile()) throw new Error('not a regular file');
+  return { rel, target, tmp: null, original: fs.readFileSync(target), mode: st.mode & 0o777 };
+}
+
+// Undoes renames and deletions in reverse order, then discards staged temps and the directories this apply created.
 // Returns the rel paths that could not be restored (empty when the tree is back to its pre-apply state).
 function rollback(staged, done, dirs, rand) {
   const restoreFailed = [...done].reverse().flatMap((s) => {
@@ -111,7 +121,7 @@ function rollback(staged, done, dirs, rand) {
       return [s.rel];
     }
   });
-  for (const s of staged) quiet(() => fs.rmSync(s.tmp, { force: true }));
+  for (const s of staged.filter((x) => x.tmp !== null)) quiet(() => fs.rmSync(s.tmp, { force: true }));
   for (const d of [...dirs].reverse()) quiet(() => fs.rmdirSync(d));
   return restoreFailed;
 }
@@ -163,7 +173,7 @@ function applyPlan(root, plan, command, io = {}) {
 
   for (const step of steps) {
     try {
-      const s = stageStep(root, step, rand, dirs);
+      const s = step.del === true ? stageDelete(root, step.rel) : stageStep(root, step, rand, dirs);
       if (s !== null) staged.push(s);
     } catch (e) {
       return bail({ path: step.rel, reason: errReason(e) });
@@ -175,7 +185,8 @@ function applyPlan(root, plan, command, io = {}) {
     const r = canonicalRel(root, s.rel);
     if (r.error) return bail({ path: s.rel, reason: r.error }, done);
     try {
-      rename(s.tmp, s.target);
+      if (s.tmp === null) fs.unlinkSync(s.target);
+      else rename(s.tmp, s.target);
     } catch (e) {
       return bail({ path: s.rel, reason: errReason(e) }, done);
     }

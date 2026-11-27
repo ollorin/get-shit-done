@@ -141,6 +141,44 @@ describe('applyPlan is transactional (B-FIX1 L7)', () => {
     assert.strictEqual(fs.existsSync(path.join(root, MANIFEST)), true);
   });
 
+  test('a listed deletion removes the file on success, after the writes', () => {
+    const root = mkTmp('gsd-apply-');
+    writeAt(root, 'gone.txt', 'KEEP-ME');
+    const plan = {
+      ops: {
+        files: [{ dest: 'a.txt', content: Buffer.from('NEW-A'), mode: 0o644 }],
+        bases: [],
+        deletes: ['gone.txt'],
+        settingsText: null,
+        manifest: { manifest_version: 1, preset: { name: 'demo', version: '1' }, files: {} },
+      },
+    };
+    const r = applyPlan(root, plan, 'sync');
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(fs.existsSync(path.join(root, 'gone.txt')), false);
+    assert.deepStrictEqual(r.written, ['a.txt', 'gone.txt', MANIFEST]);
+  });
+
+  test('a deletion is restored with its bytes and mode when a later rename fails', () => {
+    const root = mkTmp('gsd-apply-');
+    writeAt(root, 'gone.txt', 'KEEP-ME', 0o600);
+    writeAt(root, 'a.txt', 'OLD-A');
+    const before = snapshot(root);
+    const plan = {
+      ops: {
+        files: [{ dest: 'a.txt', content: Buffer.from('NEW-A'), mode: 0o644 }],
+        bases: [],
+        deletes: ['gone.txt'],
+        settingsText: null,
+        manifest: { manifest_version: 1, preset: { name: 'demo', version: '1' }, files: {} },
+      },
+    };
+    const r = applyPlan(root, plan, 'sync', { rename: failAt(2) });
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.rolled_back, true);
+    assert.deepStrictEqual(snapshot(root), before);
+  });
+
   test('a temp name that already exists is never reused: the planted file survives and nothing changes', () => {
     const root = mkTmp('gsd-apply-');
     writeAt(root, 'a.txt.gsd-tmp-FIXED', 'SENTINEL');

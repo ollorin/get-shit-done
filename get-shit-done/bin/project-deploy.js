@@ -21,10 +21,11 @@ const SETTINGS = '.claude/settings.json';
 const GITIGNORE = '.gitignore';
 const WRITE_ACTIONS = new Set(['create', 'overwrite', 'merge', 'update']);
 // An adopt is a change: it records the file in the manifest, though it writes no content.
-const CHANGE_ACTIONS = new Set([...WRITE_ACTIONS, 'adopt']);
+const CHANGE_ACTIONS = new Set([...WRITE_ACTIONS, 'adopt', 'delete']);
+const GUARDED_ACTIONS = new Set([...WRITE_ACTIONS, 'delete']);
 const PRESET_NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
 const DEFAULT_PRESETS = path.join(__dirname, '..', 'presets');
-const EMPTY_OPS = Object.freeze({ files: [], bases: [], settingsText: null, manifest: null });
+const EMPTY_OPS = Object.freeze({ files: [], bases: [], deletes: [], settingsText: null, manifest: null });
 
 const newReport = (command) => ({
   command,
@@ -47,26 +48,28 @@ const stop = (command, reason, file) => ({
 
 const sortKeys = (obj) => Object.fromEntries(Object.keys(obj).sort().map((k) => [k, obj[k]]));
 
+// A conflict names each overlapping block by its file and begin-marker line; a whole-file conflict has only a reason.
+const reasonOf = (plan) => (plan.conflicts && plan.conflicts.length > 0
+  ? plan.conflicts.map((c) => `block ${c.id}: ${c.reason}`).join('; ')
+  : plan.reason);
+
 function planFile(root, f, prev) {
   const cur = readRegular(path.join(root, f.dest));
   if (cur.error) return { dest: f.dest, error: { file: f.dest, reason: cur.error } };
-  let plan;
-  if (f.kind === 'whole') {
-    const base = readRegular(path.join(root, BASE_DIR, f.dest));
-    if (base.error) return { dest: f.dest, error: { file: f.dest, reason: base.error } };
-    plan = planWholeFile({
+  const base = readRegular(path.join(root, BASE_DIR, f.dest));
+  if (base.error) return { dest: f.dest, error: { file: f.dest, reason: base.error } };
+  const plan = f.kind === 'whole'
+    ? planWholeFile({
       current: cur.bytes,
       base: base.bytes,
       manifestHash: prev && prev.kind === 'whole' ? prev.sha256 : null,
       next: f.content,
-    });
-  } else {
-    plan = planBlockFile({
+    })
+    : planBlockFile({
       current: cur.bytes === null ? null : cur.bytes.toString('utf8'),
       next: f.content.toString('utf8'),
-      prevBlocks: prev && prev.blocks ? prev.blocks : null,
+      base: base.bytes === null ? null : base.bytes.toString('utf8'),
     });
-  }
   if (plan.action === 'error') return { dest: f.dest, error: { file: f.dest, reason: plan.reason } };
   // An unmanaged file already byte-equal to the rendered output (a crashed init, say) is adopted, not conflicting.
   // Adopt writes no content: a different mode is an update, so apply sets the rendered mode.
@@ -76,14 +79,15 @@ function planFile(root, f, prev) {
   const content = byteEqual ? f.content : plan.content;
   const entry = { kind: f.kind, sha256: sha256(f.content), ...(plan.blocks ? { blocks: plan.blocks } : {}) };
   const conflict = action === 'conflict';
+  const firstLine = conflict && plan.conflicts && plan.conflicts.length > 0 ? plan.conflicts[0].line : undefined;
   return {
     dest: f.dest,
     report: {
       path: f.dest,
       kind: f.kind,
       action,
-      ...(conflict ? { reason: plan.reason } : {}),
-      ...(plan.warnings && plan.warnings.length > 0 ? { warnings: plan.warnings } : {}),
+      ...(conflict ? { reason: reasonOf(plan) } : {}),
+      ...(firstLine === undefined ? {} : { line: firstLine }),
     },
     write: WRITE_ACTIONS.has(action) ? { dest: f.dest, content: Buffer.from(content), mode: f.mode } : null,
     base: conflict ? null : { dest: f.dest, content: f.content },
@@ -92,23 +96,39 @@ function planFile(root, f, prev) {
   };
 }
 
-function planFiles(root, rendered, prevFiles) {
+// A dropped preset file is deleted only when it is byte-equal to its preset copy (the mirror); an edited one stays.
+function planOrphan(root, dest, prev) {
+  const cur = readRegular(path.join(root, dest));
+  const base = readRegular(path.join(root, BASE_DIR, dest));
+  const error = cur.error ?? base.error;
+  if (error) return { dest, error: { file: dest, reason: error } };
+  const mirror = `${BASE_DIR}/${dest}`;
+  const mirrorRel = base.bytes === null ? [] : [mirror];
+  if (cur.bytes === null) return { dest, removed: true, deletes: mirrorRel, old: null };
+  if (base.bytes !== null && base.bytes.equals(cur.bytes)) {
+    return { dest, removed: true, deletes: [dest, ...mirrorRel], old: cur.bytes, report: { path: dest, kind: prev.kind, action: 'delete' } };
+  }
+  const reason = base.bytes === null ? 'no preset copy to compare' : 'modified since last deploy';
+  return { dest, removed: false, deletes: [], old: cur.bytes, report: { path: dest, kind: prev.kind, action: 'orphan', reason } };
+}
+
+function planFiles(root, rendered, orphanDests, prevFiles) {
   const results = rendered.files.map((f) => planFile(root, f, prevFiles.get(f.dest)));
-  const dests = new Set(rendered.files.map((f) => f.dest));
-  const orphans = [...prevFiles].filter(([dest]) => !dests.has(dest));
-  const manifestFiles = Object.fromEntries(
-    [...results.filter((r) => r.manifestEntry !== undefined && r.manifestEntry !== null).map((r) => [r.dest, r.manifestEntry]),
-      ...orphans],
-  );
+  const orphans = orphanDests.map((dest) => planOrphan(root, dest, prevFiles.get(dest)));
+  const manifestFiles = Object.fromEntries([
+    ...results.filter((r) => r.manifestEntry !== undefined && r.manifestEntry !== null).map((r) => [r.dest, r.manifestEntry]),
+    ...orphans.filter((o) => !o.removed && !o.error).map((o) => [o.dest, prevFiles.get(o.dest)]),
+  ]);
   return {
-    errors: results.filter((r) => r.error).map((r) => r.error),
+    errors: [...results.filter((r) => r.error).map((r) => r.error), ...orphans.filter((o) => o.error).map((o) => o.error)],
     files: [
       ...results.filter((r) => r.report).map((r) => r.report),
-      ...orphans.map(([dest, e]) => ({ path: dest, kind: e.kind, action: 'orphan' })),
+      ...orphans.filter((o) => o.report).map((o) => o.report),
     ],
     writes: results.filter((r) => r.write).map((r) => r.write),
     bases: results.filter((r) => r.base).map((r) => r.base),
-    olds: new Map(results.map((r) => [r.dest, r.old ?? null])),
+    deletes: orphans.flatMap((o) => o.deletes ?? []),
+    olds: new Map([...results.map((r) => [r.dest, r.old ?? null]), ...orphans.map((o) => [o.dest, o.old ?? null])]),
     manifestFiles: sortKeys(manifestFiles),
   };
 }
@@ -212,15 +232,23 @@ function planDeploy(opts) {
   ].filter((rel) => !contained(root, rel)).map((file) => ({ file, reason: 'destination escapes project root' }));
   if (escapes.length > 0) return { report: { ...report, errors: [...errors, ...escapes] }, ops: EMPTY_OPS };
 
+  const renderedDests = rendered.files.map((f) => f.dest);
+  const orphanDests = [...prevFiles.keys()].filter((dest) => !renderedDests.includes(dest));
   const resolved = resolvePaths(root, {
-    dests: rendered.files.map((f) => f.dest),
-    bases: rendered.files.map((f) => `${BASE_DIR}/${f.dest}`),
+    dests: [...renderedDests, ...orphanDests],
+    bases: [...renderedDests, ...orphanDests].map((dest) => `${BASE_DIR}/${dest}`),
     extra: [...(needSettings ? [SETTINGS] : []), ...(command === 'init' ? [GITIGNORE] : [])],
   });
   if (resolved.errors.length > 0) return { report: { ...report, errors: [...errors, ...resolved.errors] }, ops: EMPTY_OPS };
 
-  const planned = planFiles(root, rendered, prevFiles);
+  const planned = planFiles(root, rendered, orphanDests, prevFiles);
   errors.push(...planned.errors);
+  // A block that overlaps a preset change is refused for the whole run: nothing is written, the file and line are named.
+  errors.push(...planned.files.filter((f) => f.action === 'conflict' && f.kind === 'block').map((f) => ({
+    file: f.path,
+    ...(f.line === undefined ? {} : { line: f.line }),
+    reason: f.reason,
+  })));
   const settingsPlan = needSettings ? planSettings(root, rendered, prevSettings) : null;
   if (settingsPlan && settingsPlan.error) errors.push(settingsPlan.error);
 
@@ -235,7 +263,7 @@ function planDeploy(opts) {
     presetFlags: new Set(rendered.files.filter((f) => f.guarded).map((f) => f.dest)),
   });
   const guarded = [
-    ...planned.files.filter((f) => WRITE_ACTIONS.has(f.action) && guardedFiles.has(f.path)).map((f) => f.path),
+    ...planned.files.filter((f) => GUARDED_ACTIONS.has(f.action) && guardedFiles.has(f.path)).map((f) => f.path),
     ...(settingsWrites ? [SETTINGS] : []),
   ].sort();
   Object.assign(report, {
@@ -265,6 +293,7 @@ function planDeploy(opts) {
     ops: {
       files: planned.writes,
       bases: planned.bases,
+      deletes: planned.deletes,
       settingsText: settingsWrites ? settingsPlan.text : null,
       manifest: manifestOut,
     },
@@ -273,6 +302,7 @@ function planDeploy(opts) {
     shown: shownFiles({
       writes: planned.writes,
       files: planned.files,
+      deletes: planned.files.filter((f) => f.action === 'delete').map((f) => f.path),
       olds: planned.olds,
       guarded,
       settingsPlan: settingsWrites ? settingsPlan : null,
