@@ -44,7 +44,7 @@ Applies only when `stack.isolation.lock_dir` is set. A live window is the time o
 ## One writer per file set
 
 - Two agents never edit the same file set at once. Before a replacement is dispatched for a dead or stalled agent, stop the original.
-- Never run two executors in parallel within one phase: their phase-scoped resume state collides. Parallel work is separate phases with disjoint file claims.
+- A phase runs at most two executors, only on file-disjoint plans (`gsd-tools plan overlap`), each in its own worktree and with its own `TASK-CHECKPOINT-{plan_id}.json`; `dispatch begin executor` refuses a second lease without `--plan` on both, a third, or an overlapping pair. Other parallel work is separate phases with disjoint file claims (`gsd-tools claims check`).
 - A spawner runs at most two of its own child agents at once.
 - Never send a message to a coordinator that has handed back or completed. It resumes and runs beside its replacement. Stop it, then brief a fresh agent.
 - An agent that hits a permission prompt while unattended stops and reports the exact command. It never waits on the prompt.

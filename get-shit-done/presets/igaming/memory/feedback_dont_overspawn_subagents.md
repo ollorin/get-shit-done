@@ -49,4 +49,4 @@ to catch a false "passed" claim is still correct and necessary; personally runni
 re-running the tests, or polling the process in my own Bash calls is not.
 
 **2026-10-14 (v0.1.34 run):** the "max 2 parallel" ceiling is per spawner, so nested fan-out reached ~6 agents (+ an orphaned executor from a dead coordinator) and burned ~40% of a 5h session limit early. Brief every coordinator with a TREE-WIDE cap of 2 concurrent agents and "children spawn none"; after a coordinator death, ListAgents and TaskStop orphaned children before respawning.
-**Amended same day:** the tree-wide cap of 2 applies to Sonnet/Opus agents; multiple parallel Haiku implementers on disjoint file sets are allowed (cheap), still never two gsd-executors in one phase.
+**Amended same day:** the tree-wide cap of 2 applies to Sonnet/Opus agents; multiple parallel Haiku implementers on disjoint file sets are allowed (cheap), still at most two gsd-executors in one phase, only on file-disjoint plans in separate worktrees (see CLAUDE.md Parallelism).

@@ -71,6 +71,34 @@ describe('dispatch leases', () => {
     assert.ok(L.end({ cwd: dir, id: 'a', events: [], now: T0 + 120000 }).lease);
     assert.ok(L.begin({ cwd: dir, phase: '1', role: 'executor', id: 'b', events: [], now: T0 + 180000 }).lease);
   });
+  describe('two file-disjoint executors per phase (D-279)', () => {
+    const plan = (n, files, extra = '') => { write(`p${n}.md`, `---\nphase: 1\nplan: ${n}\ndepends_on: []\nfiles_modified: [${files}]\n${extra}---\nbody\n`); return `p${n}.md`; };
+    const ex = (id, p, t = 0) => L.begin({ cwd: dir, phase: '1', role: 'executor', id, plan: p, events: [], now: T0 + t * 60000 });
+    test('a second disjoint lease is allowed, a third is refused', () => {
+      assert.ok(ex('a', plan(1, 'src/a.js')).lease);
+      assert.strictEqual(ex('b', plan(2, 'src/b.js'), 1).lease.plan, 'p2.md');
+      assert.match(ex('c', plan(3, 'src/c.js'), 2).error, /already has 2 open executor leases \(a, b\)/);
+    });
+    test('the lease stores the plan path repo-relative', () => {
+      assert.strictEqual(ex('a', path.join(dir, plan(1, 'src/a.js'))).lease.plan, 'p1.md');
+    });
+    test('an overlapping pair is refused with the reason', () => {
+      ex('a', plan(1, 'src/a.js'));
+      assert.match(ex('b', plan(2, 'src/a.js'), 1).error, /not file-disjoint \(shared file src\/a\.js\)/);
+    });
+    test('a lease without --plan is refused while one is open, and when the open lease has no plan', () => {
+      ex('a', plan(1, 'src/a.js'));
+      assert.match(L.begin({ cwd: dir, phase: '1', role: 'executor', id: 'b', events: [], now: T0 + 60000 }).error, /second executor needs --plan on both leases/);
+      L.end({ cwd: dir, id: 'a', events: [], now: T0 + 120000 });
+      L.begin({ cwd: dir, phase: '1', role: 'executor', id: 'c', events: [], now: T0 + 130000 });
+      assert.match(ex('d', plan(2, 'src/b.js'), 3).error, /second executor needs --plan on both leases/);
+    });
+    test('a window lease stays exclusive beside executor leases', () => {
+      ex('a', plan(1, 'src/a.js'));
+      assert.ok(L.begin({ cwd: dir, phase: '1', role: 'window', id: 'w1', events: [], now: T0 + 60000 }).lease);
+      assert.match(L.begin({ cwd: dir, phase: '1', role: 'window', id: 'w2', events: [], now: T0 + 120000 }).error, /already has an open window lease \(w1\)/);
+    });
+  });
   test('stale close counts to the last event, never to now; the reason is required', () => {
     L.begin({ cwd: dir, phase: '1', role: 'executor', id: 'a', events: [], now: T0 });
     const ev = events({ type: 'dispatch_begin', timestamp: iso(10) });

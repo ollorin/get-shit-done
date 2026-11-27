@@ -233,6 +233,7 @@ const rigour = require('./rigour.js');
 const topModel = require('./top-model.js');
 const phaseBudget = require('./phase-budget.js');
 const dispatchLease = require('./dispatch-lease.js');
+const planOverlap = require('./plan-overlap.js');
 const formCheck = require('./form-check.js');
 const testWorklist = require('./test-worklist.js');
 const contextUsageLib = require('./context-usage.js');
@@ -1330,7 +1331,11 @@ function cmdResilienceCheckStaleness(cwd, filePath, thresholdMinutes, raw) {
   if (!filePath) {
     error('resilience check-staleness: <file> required');
   }
-  const resolvedPath = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath);
+  const absPath = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath);
+  const phaseDir = absPath.replace(/\\/g, '/').match(/\.planning\/phases\/([^/]+)\//);
+  const phaseKey = phaseDir ? dispatch.phaseKey(phaseDir[1].split('-')[0]) : null;
+  const openExecutors = dispatchLease.load(cwd).filter((l) => !l.end && l.role === 'executor' && l.phase === phaseKey).length;
+  const resolvedPath = planOverlap.resolveTaskCheckpoint(absPath, openExecutors);
   const threshold = (thresholdMinutes !== null && thresholdMinutes !== undefined && Number.isFinite(thresholdMinutes))
     ? thresholdMinutes
     : loadConfig(cwd).staleness_threshold_minutes;
@@ -12493,7 +12498,7 @@ function cmdPhaseBudget(cwd, args, raw) {
   output(phaseBudgetStatus(cwd, phase, readExecutionEvents(cwd)), raw);
 }
 
-// dispatch begin --phase N --role R --id A [--owner-pid P] [--reason T (a second window)] | end --id A | reap-dead --phase N | end --stale A --reason "<text>". A refusal exits 1; only the automatic stale closes it performed are logged.
+// dispatch begin --phase N --role R --id A [--owner-pid P] [--reason T (a second window)] [--plan <PLAN.md> (executor; required for a second one)] | end --id A | reap-dead --phase N | end --stale A --reason "<text>". A refusal exits 1; only the automatic stale closes it performed are logged.
 function cmdDispatch(cwd, args, raw) {
   const sub = args[0];
   const flag = (name) => { const i = args.indexOf(name); return i !== -1 ? args[i + 1] : undefined; };
@@ -12502,7 +12507,7 @@ function cmdDispatch(cwd, args, raw) {
     const info = reviewGate.REVIEW_ROLES.has(flag('--role')) ? findPhaseInternal(cwd, flag('--phase')) : null;
     const gateErr = info && info.found ? reviewGate.gatesAfterFixError(execGit, cwd, path.join(cwd, info.directory), info.phase_number) : null;
     if (gateErr) error(`dispatch begin refused: ${gateErr}`);
-    const r = dispatchLease.begin({ cwd, phase: flag('--phase'), role: flag('--role'), id: flag('--id'), events, ttlMin: phaseBudget.ttlMinutes(cwd), ownerPid: flag('--owner-pid') ? Number(flag('--owner-pid')) : undefined, reason: flag('--reason') });
+    const r = dispatchLease.begin({ cwd, phase: flag('--phase'), role: flag('--role'), id: flag('--id'), events, ttlMin: phaseBudget.ttlMinutes(cwd), ownerPid: flag('--owner-pid') ? Number(flag('--owner-pid')) : undefined, reason: flag('--reason'), plan: flag('--plan') });
     for (const e of r.auto_closed || []) appendEvent(cwd, e);
     if (r.quarantined) appendEvent(cwd, { type: 'dispatch_leases_corrupt', phase: dispatch.phaseKey(flag('--phase')), moved_to: r.quarantined });
     if (r.error) error(r.error);
@@ -15008,6 +15013,23 @@ async function main() {
 
     case 'dispatch': {
       cmdDispatch(cwd, args.slice(1), raw);
+      break;
+    }
+
+    case 'plan': {
+      if (args[1] !== 'overlap') error('Unknown plan subcommand. Available: overlap <planA> <planB>');
+      const r = planOverlap.cmdOverlap(cwd, args[2], args[3]);
+      if (r.error) error(r.error);
+      output(r, raw, undefined, r.disjoint ? 0 : 1);
+      break;
+    }
+
+    case 'claims': {
+      if (args[1] !== 'check') error('Unknown claims subcommand. Available: check <plan> [--lane <title>] [--file <claims file>]');
+      const claimFlag = (n) => { const i = args.indexOf(n); return i !== -1 ? args[i + 1] : undefined; };
+      const r = planOverlap.cmdClaimsCheck(cwd, args[2], claimFlag('--lane'), claimFlag('--file'));
+      if (r.error) error(r.error);
+      output(r, raw, undefined, r.clear ? 0 : 1);
       break;
     }
 
