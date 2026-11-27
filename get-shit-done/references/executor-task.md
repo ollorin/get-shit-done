@@ -43,6 +43,8 @@ A plan of `type: tdd`: follow `references/tdd.md` (red, green, refactor commits)
 
 Per task run only the test file(s) your task names plus the test files of the modules you changed, through the project's documented runner. Never the full suite: it and every wider suite or bucket run belong to the phase's gates step, never to a task. A capture holds only the red, green and mutant output of the task's tests, never a full-suite run. No inline env prefixes, no bypass flags, no `--no-verify`, no `--no-check`; if a runner refuses a command, report the denial verbatim and do not reshape it. Check `df -h` before a heavy run; low disk is a stop. Long runs: foreground under `timeout` (at most 600 s per call) or `run_in_background` and end your turn; the exit notification wakes you; a stage silent for 25 minutes is a hang: stop it, find the file and report. At any permission prompt STOP and report the exact command string. Temp files go in the project's temp directory; clean up what you create.
 
+Fix loops: run `node scripts/affected-tests.mjs <plan_base_sha>` (the `plan_base_sha` in your plan's frontmatter), then run each path it prints through `stack.commands.test_file`; `full: true` already lists every candidate, and exit 2 (it cannot decide, e.g. no base ref) means run the integration gate in `stack.gates[]` instead.
+
 ## Commit
 
 1. `git status --short`; stage the task's files individually by path (never `git add .` or `-A`), tests and code together.
