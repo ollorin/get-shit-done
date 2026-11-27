@@ -26,7 +26,7 @@ const STACK_DEFAULTS = Object.freeze({
   'stack.test_command_shapes': entry({ default: null, severity: 'warn', scope: RUNNER, why: 'the only test commands agents may run; written by hand, no generator' }),
   'stack.isolation.lock_dir': entry({
     default: '.tmp/stack.lock.d', severity: 'error', scope: ALL, when: lockedOnly,
-    why: 'stack lock directory holding owner.txt (casino-mall scripts/stack-lock.mjs:46); applies only with stack.locked_commands',
+    why: 'stack lock directory holding owner.txt (project scripts/stack-lock.mjs:46); applies only with stack.locked_commands',
   }),
   'stack.isolation.port_base': entry({ default: null, severity: 'error', scope: PER_PROJECT, why: 'allocated by project init in projects.json; absent means the project never registered' }),
   'stack.mutation.build_error_pattern': entry({
