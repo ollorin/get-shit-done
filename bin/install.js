@@ -6,6 +6,9 @@ const os = require('os');
 const readline = require('readline');
 const crypto = require('crypto');
 const { execSync, execFileSync } = require('child_process');
+const { refusalOf } = require('../get-shit-done/bin/project-deploy-guard.js');
+const { detectSession } = require('../get-shit-done/bin/project-deploy-session.js');
+const { openRecord, closeRecord } = require('./install-record.js');
 
 // Colors
 const cyan = '\x1b[36m';
@@ -184,24 +187,70 @@ function buildHookCommand(configDir, hookName) {
 }
 
 /**
- * Read and parse settings.json, returning empty object if it doesn't exist
+ * Read and parse settings.json, returning empty object if it doesn't exist.
+ * A file that is not valid JSON throws: callers must never overwrite it with defaults.
  */
 function readSettings(settingsPath) {
-  if (fs.existsSync(settingsPath)) {
-    try {
-      return JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-    } catch (e) {
-      return {};
-    }
+  if (!fs.existsSync(settingsPath)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+  } catch (e) {
+    throw new Error(`${settingsPath} is not valid JSON`);
   }
-  return {};
 }
 
 /**
- * Write settings.json with proper formatting
+ * Write settings.json with proper formatting; leaves the file untouched when the bytes are unchanged
  */
 function writeSettings(settingsPath, settings) {
-  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+  const text = JSON.stringify(settings, null, 2) + '\n';
+  if (fs.existsSync(settingsPath) && fs.readFileSync(settingsPath, 'utf8') === text) return;
+  fs.writeFileSync(settingsPath, text);
+}
+
+const SETTINGS_FILES = ['settings.json', 'settings.local.json'];
+
+function isValidJsonFile(filePath) {
+  if (!fs.existsSync(filePath)) return true;
+  try {
+    JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Refusal before any write: a settings file that is not valid JSON (any install), or an agent session
+ * (user-scope installs only: the shared ~/.claude is what the guard protects). Null when the install may proceed.
+ */
+function refuseInstall({ targetDirs, userScope, env, session }) {
+  const corrupt = targetDirs
+    .flatMap((dir) => SETTINGS_FILES.map((name) => path.join(dir, name)))
+    .filter((file) => !isValidJsonFile(file));
+  if (corrupt.length > 0) {
+    return { reason: 'settings file is not valid JSON; fix or move it, nothing was written', paths: corrupt, failed: [] };
+  }
+  return userScope ? refusalOf({ command: 'install', guarded: targetDirs, env, session }) : null;
+}
+
+/**
+ * Build a tree in `<liveDir>.next`, then swap it in (the old tree becomes `<liveDir>.prev`).
+ * A failed build removes the staging tree and leaves the live tree as it was.
+ */
+function stageAndSwap(liveDir, build) {
+  const stageDir = `${liveDir}.next`;
+  const prevDir = `${liveDir}.prev`;
+  fs.rmSync(stageDir, { recursive: true, force: true });
+  try {
+    build(stageDir);
+  } catch (err) {
+    fs.rmSync(stageDir, { recursive: true, force: true });
+    throw err;
+  }
+  fs.rmSync(prevDir, { recursive: true, force: true });
+  if (fs.existsSync(liveDir)) fs.renameSync(liveDir, prevDir);
+  fs.renameSync(stageDir, liveDir);
 }
 
 // Cache for attribution settings (populated once per runtime during install)
@@ -1578,21 +1627,27 @@ function install(isGlobal, runtime = 'claude') {
   const existingHookConfigContent = fs.existsSync(existingHookConfigPath)
     ? fs.readFileSync(existingHookConfigPath, 'utf8')
     : null;
-  copyWithPathReplacement(skillSrc, skillDest, pathPrefix, runtime, { verbatimDirs: ['presets'] });
-  if (verifyInstalled(skillDest, 'get-shit-done')) {
+  // Built in get-shit-done.next (dependencies included) and swapped in; a failed build keeps the old tree.
+  // Declared in the function scope because the compression hook registration below runs for Gemini too.
+  let depsOk = false;
+  let skillInstalled = false;
+  try {
+    stageAndSwap(skillDest, (stageDir) => {
+      copyWithPathReplacement(skillSrc, stageDir, pathPrefix, runtime, { verbatimDirs: ['presets'] });
+      // npm dependencies for the doc-compression hook; they live in get-shit-done/node_modules/ so the hook can require() them
+      if (!isOpencode && !isGemini) depsOk = installHookDependencies(stageDir);
+    });
+    skillInstalled = verifyInstalled(skillDest, 'get-shit-done');
+  } catch (err) {
+    console.error(`  ${yellow}✗${reset} Failed to replace get-shit-done: ${err.message}`);
+  }
+  if (skillInstalled) {
     console.log(`  ${green}✓${reset} Installed get-shit-done`);
   } else {
     failures.push('get-shit-done');
   }
 
-  // Install npm dependencies for the doc-compression hook
-  // These live in get-shit-done/node_modules/ so the hook can require() them
-  // Declared in the function scope (not just !isOpencode && !isGemini) because
-  // the compression hook registration below is gated on this flag and runs
-  // whenever !isOpencode (i.e. for Gemini too).
-  let depsOk = false;
   if (!isOpencode && !isGemini) {
-    depsOk = installHookDependencies(skillDest);
     if (depsOk) {
       console.log(`  ${green}✓${reset} Installed hook dependencies (markdown-it, gray-matter, minimatch, @xenova/transformers)`);
     } else {
@@ -2040,10 +2095,29 @@ function promptLocation(runtimes) {
   });
 }
 
+function targetDirOf(runtime, isGlobal) {
+  return isGlobal ? getGlobalDir(runtime, explicitConfigDir) : path.join(process.cwd(), getDirName(runtime));
+}
+
 /**
  * Install GSD for all selected runtimes
  */
 function installAllRuntimes(runtimes, isGlobal, isInteractive) {
+  const targetDirs = runtimes.map((runtime) => targetDirOf(runtime, isGlobal));
+  const refusal = refuseInstall({ targetDirs, userScope: isGlobal, env: process.env, session: detectSession() });
+  if (refusal) {
+    const checks = refusal.failed.length > 0 ? [`checks failed: ${refusal.failed.join(', ')}`] : [];
+    console.error(`  ${yellow}Install refused:${reset} ${refusal.reason}`);
+    for (const line of [...refusal.paths, ...checks]) console.error(`    ${line}`);
+    process.exit(1);
+  }
+  if (isGlobal) {
+    // Closed on every exit path, so a failed run still has a rollback point.
+    const recordDir = openRecord({ targetDirs, homeDir: os.homedir() });
+    process.once('exit', () => closeRecord(recordDir));
+    console.log(`  ${dim}Backup record: ${recordDir}${reset}\n`);
+  }
+
   const results = [];
 
   for (const runtime of runtimes) {
@@ -2123,4 +2197,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { installHookDependencies, wrapWithTimeout, resolveTimeoutBinary, rewrapGsdHookCommands, writeManifest, pruneIdenticalPatches, copyWithPathReplacement, copyDirVerbatim, rewriteClaudeDir };
+module.exports = { installHookDependencies, wrapWithTimeout, resolveTimeoutBinary, rewrapGsdHookCommands, writeManifest, pruneIdenticalPatches, copyWithPathReplacement, copyDirVerbatim, rewriteClaudeDir, readSettings, writeSettings, refuseInstall, stageAndSwap };

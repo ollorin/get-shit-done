@@ -38,6 +38,7 @@ const INSTALL_JS_PATH = path.join(REPO_ROOT, 'bin', 'install.js');
 const HOOK_CONFIG_SRC = path.join(REPO_ROOT, 'hook-config.json');
 const HOOKS_SRC_DIR = path.join(__dirname); // get-shit-done/bin/hooks
 const COMPRESSION_SRC_DIR = path.join(__dirname, '..', 'compression'); // get-shit-done/bin/compression
+const GUARD_PATH = path.join(__dirname, '..', 'project-deploy-guard.js'); // the user-scope install guard
 
 let mockExecSyncPath;
 let depsCacheDir;
@@ -99,6 +100,10 @@ before(() => {
     const fs = require('fs');
     const path = require('path');
     const realExecSync = cp.execSync;
+
+    // Test child only: this run is a non-TTY subprocess, which the agent guard refuses by design.
+    // The guard's own tests and the installer refusal tests use the real guard.
+    require(${JSON.stringify(GUARD_PATH)}).refusalOf = () => null;
 
     function copyDir(src, dest) {
       fs.mkdirSync(dest, { recursive: true });

@@ -805,3 +805,170 @@ describe('rewriteClaudeDir anchors repo-relative @get-shit-done refs', () => {
     assert.strictEqual(out, 'see @/h/.claude/get-shit-done/references/a.md and @/h/.claude/get-shit-done/b.md and /h/.claude/x');
   });
 });
+
+// WP22a: every case runs against a temp home passed in explicitly; nothing reads the real ~/.claude or ~/.gsd.
+describe('WP22a installer safety: corrupt settings, backup record, staged swap, rollback', () => {
+  const installer = () => require(INSTALL_JS_PATH);
+  const recordModule = () => require(path.join(__dirname, 'install-record.js'));
+  const GOOD = { stdin_tty: true, stdout_tty: true, agent_ancestor: false, orphan: false };
+  const AGENT = { stdin_tty: false, stdout_tty: false, agent_ancestor: true, orphan: false };
+
+  const filesUnder = (dir) => (fs.existsSync(dir)
+    ? fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      const p = path.join(dir, e.name);
+      return e.isDirectory() ? filesUnder(p) : [p];
+    })
+    : []);
+  const snapshotOf = (dir) => Object.fromEntries(filesUnder(dir).map((p) => [p, fs.readFileSync(p, 'base64')]));
+  const withHome = (fn) => {
+    const home = createScratchDir('gsd-wp22a-');
+    try { fn(home); } finally { cleanup(home); }
+  };
+  const seedClaudeDir = (home) => {
+    const claude = path.join(home, '.claude');
+    fs.mkdirSync(path.join(claude, 'get-shit-done'), { recursive: true });
+    fs.mkdirSync(path.join(claude, 'agents'), { recursive: true });
+    fs.writeFileSync(path.join(claude, 'settings.json'), '{"hooks":{}}\n');
+    fs.writeFileSync(path.join(claude, 'get-shit-done', 'a.js'), 'original a\n');
+    fs.writeFileSync(path.join(claude, 'agents', 'gsd-x.md'), 'original agent\n');
+    return claude;
+  };
+  const simulateInstall = (claude) => {
+    fs.writeFileSync(path.join(claude, 'settings.json'), '{"hooks":{"Stop":[]}}\n');
+    fs.writeFileSync(path.join(claude, 'get-shit-done', 'a.js'), 'new a\n');
+    fs.rmSync(path.join(claude, 'agents', 'gsd-x.md'));
+    fs.writeFileSync(path.join(claude, 'get-shit-done', 'new.js'), 'added\n');
+  };
+
+  test('corrupt settings.json: install refused, nothing written, the file not overwritten', () => withHome((home) => {
+    const claude = seedClaudeDir(home);
+    fs.writeFileSync(path.join(claude, 'settings.json'), '{"hooks": ');
+    const before = snapshotOf(home);
+    const refusal = installer().refuseInstall({ targetDirs: [claude], env: {}, session: GOOD });
+    assert.deepStrictEqual(refusal.paths, [path.join(claude, 'settings.json')]);
+    assert.deepStrictEqual(snapshotOf(home), before);
+    assert.throws(() => installer().readSettings(path.join(claude, 'settings.json')), /not valid JSON/);
+  }));
+
+  test('writeSettings leaves the file untouched when the serialized bytes are unchanged', () => withHome((home) => {
+    const file = path.join(home, 'settings.json');
+    const settings = { hooks: { Stop: [] } };
+    installer().writeSettings(file, settings);
+    const past = new Date('2000-01-01T00:00:00Z');
+    fs.utimesSync(file, past, past);
+    installer().writeSettings(file, settings);
+    assert.strictEqual(fs.statSync(file).mtimeMs, past.getTime());
+  }));
+
+  test('openRecord copies every file an install may replace and writes a manifest under a UTC stamp', () => withHome((home) => {
+    const claude = seedClaudeDir(home);
+    const settingsBytes = fs.readFileSync(path.join(claude, 'settings.json'));
+    const recordDir = recordModule().openRecord({ targetDirs: [claude], homeDir: home, now: new Date('2026-11-27T10:00:00.123Z') });
+    assert.strictEqual(path.basename(recordDir), '2026-11-27T10-00-00-123Z');
+    const record = JSON.parse(fs.readFileSync(path.join(recordDir, 'record.json'), 'utf8'));
+    assert.strictEqual(record.status, 'open');
+    const byPath = new Map(record.entries.map((e) => [e.path, e]));
+    assert.strictEqual(byPath.get(path.join(claude, 'settings.json')).pre_sha256,
+      require('crypto').createHash('sha256').update(settingsBytes).digest('hex'));
+    assert.strictEqual(byPath.get(path.join(claude, 'settings.local.json')).pre_sha256, null);
+    assert.strictEqual(fs.readFileSync(path.join(recordDir, 'pre', claude, 'get-shit-done', 'a.js'), 'utf8'), 'original a\n');
+  }));
+
+  test('stageAndSwap: a failed build leaves the live tree intact and no .next behind', () => withHome((home) => {
+    const live = path.join(home, 'get-shit-done');
+    fs.mkdirSync(live);
+    fs.writeFileSync(path.join(live, 'a.js'), 'old\n');
+    assert.throws(() => installer().stageAndSwap(live, (stage) => {
+      fs.mkdirSync(stage);
+      fs.writeFileSync(path.join(stage, 'a.js'), 'partial\n');
+      throw new Error('simulated copy failure');
+    }), /simulated copy failure/);
+    assert.strictEqual(fs.readFileSync(path.join(live, 'a.js'), 'utf8'), 'old\n');
+    assert.strictEqual(fs.existsSync(`${live}.next`), false);
+    assert.strictEqual(fs.existsSync(`${live}.prev`), false);
+  }));
+
+  test('stageAndSwap: a successful build replaces the live tree and keeps the old one as .prev', () => withHome((home) => {
+    const live = path.join(home, 'get-shit-done');
+    fs.mkdirSync(live);
+    fs.writeFileSync(path.join(live, 'a.js'), 'old\n');
+    installer().stageAndSwap(live, (stage) => {
+      fs.mkdirSync(stage);
+      fs.writeFileSync(path.join(stage, 'a.js'), 'new\n');
+    });
+    assert.strictEqual(fs.readFileSync(path.join(live, 'a.js'), 'utf8'), 'new\n');
+    assert.strictEqual(fs.readFileSync(path.join(`${live}.prev`, 'a.js'), 'utf8'), 'old\n');
+    assert.strictEqual(fs.existsSync(`${live}.next`), false);
+  }));
+
+  test('rollback restores the pre-images byte for byte, and a second run changes nothing', () => withHome((home) => {
+    const claude = seedClaudeDir(home);
+    const before = snapshotOf(claude);
+    const recordDir = recordModule().openRecord({ targetDirs: [claude], homeDir: home });
+    simulateInstall(claude);
+    assert.strictEqual(recordModule().closeRecord(recordDir).status, 'closed');
+    const first = recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD });
+    assert.strictEqual(first.status, 'rolled-back');
+    assert.deepStrictEqual(snapshotOf(claude), before);
+    const second = recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD });
+    assert.strictEqual(second.status, 'already-rolled-back');
+    assert.deepStrictEqual(snapshotOf(claude), before);
+  }));
+
+  test('rollback leaves a file edited since the install alone and reports it', () => withHome((home) => {
+    const claude = seedClaudeDir(home);
+    const recordDir = recordModule().openRecord({ targetDirs: [claude], homeDir: home });
+    simulateInstall(claude);
+    recordModule().closeRecord(recordDir);
+    fs.writeFileSync(path.join(claude, 'settings.json'), 'edited by owner\n');
+    const result = recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD });
+    assert.strictEqual(result.status, 'partial');
+    assert.deepStrictEqual(result.left, [path.join(claude, 'settings.json')]);
+    assert.strictEqual(fs.readFileSync(path.join(claude, 'settings.json'), 'utf8'), 'edited by owner\n');
+    assert.strictEqual(fs.readFileSync(path.join(claude, 'get-shit-done', 'a.js'), 'utf8'), 'original a\n');
+  }));
+
+  test('rollback refuses a record that never closed', () => withHome((home) => {
+    const claude = seedClaudeDir(home);
+    recordModule().openRecord({ targetDirs: [claude], homeDir: home });
+    assert.strictEqual(recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD }).status, 'incomplete');
+  }));
+
+  test('an agent environment or agent session refuses install and rollback before any write', () => withHome((home) => {
+    const claude = seedClaudeDir(home);
+    const recordDir = recordModule().openRecord({ targetDirs: [claude], homeDir: home });
+    simulateInstall(claude);
+    recordModule().closeRecord(recordDir);
+    const mutated = snapshotOf(home);
+    assert.deepStrictEqual(installer().refuseInstall({ targetDirs: [claude], userScope: true, env: { CLAUDECODE: '1' }, session: GOOD }).failed, ['env']);
+    const result = recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: AGENT });
+    assert.strictEqual(result.status, 'refused');
+    assert.ok(result.refusal.failed.includes('agent_ancestor'));
+    assert.deepStrictEqual(snapshotOf(home), mutated);
+  }));
+
+  // Subprocess cases: HOME is the temp home, so the real ~/.claude and ~/.gsd are never read or written.
+  const runGlobalCli = (home, env) => require('child_process').spawnSync(
+    process.execPath, [INSTALL_JS_PATH, '--global', '--claude'],
+    { encoding: 'utf8', env: { ...process.env, CLAUDE_CONFIG_DIR: '', ...env, HOME: home } },
+  );
+
+  test('global install from an agent environment is refused before any write', () => withHome((home) => {
+    seedClaudeDir(home);
+    const before = snapshotOf(home);
+    const run = runGlobalCli(home, { CLAUDECODE: '1' });
+    assert.strictEqual(run.status, 1);
+    assert.match(run.stdout + run.stderr, /Install refused/);
+    assert.deepStrictEqual(snapshotOf(home), before);
+  }));
+
+  test('global install with a corrupt settings.json is refused and the file is not overwritten', () => withHome((home) => {
+    const claude = seedClaudeDir(home);
+    fs.writeFileSync(path.join(claude, 'settings.json'), '{"hooks": ');
+    const before = snapshotOf(home);
+    const run = runGlobalCli(home, {});
+    assert.strictEqual(run.status, 1);
+    assert.match(run.stdout + run.stderr, /not valid JSON/);
+    assert.deepStrictEqual(snapshotOf(home), before);
+  }));
+});
