@@ -380,7 +380,10 @@ function unregister({ dir, slug }) {
   }));
 }
 
+// The config a sync would write before the engine runs: re-derived deploy entries, then the missing default gates.
+const withSyncDefaults = (config) => withMissingGates(withRederivedSlots(config));
+
 module.exports = {
-  registryDir, readRegistry, planAllocation, allocate, unregister, applyToConfig, detectRuleSet, registerForInit, initWithRegistration,
+  withSyncDefaults, registryDir, readRegistry, planAllocation, allocate, unregister, applyToConfig, detectRuleSet, registerForInit, initWithRegistration,
   planUnderLock,
 };

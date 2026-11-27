@@ -15167,6 +15167,11 @@ async function main() {
     }
 
     case 'project': {
+      if (args[1] === 'upgrade') {
+        const upgraded = require('./project-upgrade.js').runCli(args.slice(2), { doctor: (root) => projectProfile.runCli(root, ['doctor']) });
+        writeStdoutSync(upgraded.lines.join('\n') + '\n');
+        process.exit(upgraded.exitCode);
+      }
       if (args[1] === 'adopt-brief') {
         const rootIdx = args.indexOf('--root');
         const adopted = projectContext.adoptBrief(rootIdx === -1 ? cwd : path.resolve(cwd, args[rootIdx + 1] ?? '.'));

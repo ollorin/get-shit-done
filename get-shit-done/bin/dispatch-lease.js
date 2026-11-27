@@ -253,4 +253,4 @@ function windows(cwd, events, phase) {
 // Earliest lease begin (ms) of the phase, or null.
 const firstBegin = (cwd, phase) => { const b = load(cwd).filter((l) => l.phase === phaseKey(phase)).map((l) => ms(l.begin)).filter((t) => !Number.isNaN(t)); return b.length ? Math.min(...b) : null; };
 
-module.exports = { windows, unleasedSpawns, firstBegin, begin, end, reapDead, spend, load, leasePath, closeEvent, DEFAULT_TTL_MIN };
+module.exports = { windows, unleasedSpawns, firstBegin, begin, end, reapDead, spend, load, leasePath, closeEvent, DEFAULT_TTL_MIN, WINDOW_CLOSE };

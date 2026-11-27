@@ -419,5 +419,10 @@ module.exports = { openRecord, closeRecord, closeOnExit, ownedFilesOf, rollbackN
 if (require.main === module) {
   const result = rollbackWithGuard({ env: process.env, session: detectSession() });
   console.log(SUMMARY[result.status](result));
+  if (result.status === 'rolled-back') {
+    const { revertLines } = require('../get-shit-done/bin/project-upgrade-log.js');
+    const { registryDir } = require('../get-shit-done/bin/project-registry-store.js');
+    for (const line of revertLines(registryDir(process.env))) console.log(line);
+  }
   process.exit(OK_STATUSES.has(result.status) ? 0 : 1);
 }

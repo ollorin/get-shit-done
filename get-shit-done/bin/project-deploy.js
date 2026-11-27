@@ -207,7 +207,9 @@ function planDeploy(opts) {
   const env = opts.env === undefined ? process.env : opts.env;
 
   if (!isDirectory(root)) return stop(command, 'root is not a directory');
-  const config = exists(path.join(root, CONFIG)) ? readJsonObject(path.join(root, CONFIG)) : undefined;
+  const config = opts.config !== undefined
+    ? opts.config
+    : exists(path.join(root, CONFIG)) ? readJsonObject(path.join(root, CONFIG)) : undefined;
   if (config === undefined && command !== 'diff') return stop(command, 'missing .planning/config.json');
   if (config === null) return stop(command, '.planning/config.json is not valid JSON');
 
@@ -366,7 +368,7 @@ function runCli(cwd, args, env, session, io = {}) {
   const { command, opts } = parsed;
   const root = path.resolve(cwd, opts.root ?? '.');
   const presetDir = opts['preset-dir'] === undefined ? undefined : path.resolve(cwd, opts['preset-dir']);
-  const plan = planDeploy({ root, command, presetDir, presetName: opts.preset, env, session, presetFlag: presetDir !== undefined });
+  const plan = planDeploy({ root, command, presetDir, presetName: opts.preset, env, session, presetFlag: presetDir !== undefined, ...(io.presetsRoot === undefined ? {} : { presetsRoot: io.presetsRoot }) });
   const { report } = plan;
   if (!report.ok) return { exitCode: 1, result: { ...report, written: [] } };
   if (report.already_adopted) return { exitCode: 0, result: report };

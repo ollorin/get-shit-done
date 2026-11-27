@@ -13,7 +13,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execSync, spawnSync } = require('child_process');
 
 // Detect installation context
 function detectContext() {
@@ -68,6 +68,20 @@ async function main() {
     process.exit(1);
   }
 
+  const upgrade = require('../get-shit-done/bin/project-upgrade.js');
+  const guard = upgrade.guardRefusal(process.env, undefined, require('../get-shit-done/bin/project-registry-store.js').registryDir(process.env));
+  if (guard) {
+    console.error(`❌ Install ${guard}`);
+    process.exit(1);
+  }
+  const projects = upgrade.liveProjects(process.env);
+  if (projects.error || projects.live.length > 0) {
+    console.error('❌ Install refused before any write:');
+    console.error(projects.error ? `   - ${projects.error}` : projects.live.map((p) => `   - ${p.name}: ${p.reasons.join('; ')}`).join('\n'));
+    console.error('   Rerun when the phase is done.');
+    process.exit(1);
+  }
+
   try {
     // Step 1: Install npm dependencies via workspaces
     console.log('📥 1/6 Installing npm dependencies...');
@@ -115,6 +129,14 @@ async function main() {
       require(healthCheck)();
     } else {
       console.log('       ⏭️  (skipped - health check not yet created)');
+    }
+
+    // Step 7: bring every registered project up to the installed framework (stdio inherited: the confirmation needs the TTY)
+    console.log('🧩 Upgrading registered projects...');
+    const upgradeRun = spawnSync('node', [path.join(__dirname, '..', 'get-shit-done', 'bin', 'gsd-tools.js'), 'project', 'upgrade'], { stdio: 'inherit' });
+    if (upgradeRun.status !== 0) {
+      console.error('\n❌ Framework installed, but a project is not up to date (see above); fix it and run `npm run install:gsd` again.\n');
+      process.exit(1);
     }
 
     console.log('\n✅ Installation complete!\n');
