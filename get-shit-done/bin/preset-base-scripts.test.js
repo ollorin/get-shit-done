@@ -545,13 +545,24 @@ describe('pre-PR gate skeleton and disagreement log (agnostic-M-08 8.7)', () => 
     assert.strictEqual(fs.existsSync(marker(root)), false);
   });
 
-  test('G-d3 the full output of a failing check is kept in .tmp/pre-pr-gate/<check id>.log and the tree stays clean', () => {
+  test('G-d3 the full output of a failing check is kept in .tmp/pre-pr-gate/<N>-<check id>.log and the tree stays clean', () => {
     const root = project(GREEN, [{ id: 'style', run: 'seq 1 40; exit 1' }]);
     const r = runGate(root);
     assert.strictEqual(r.status, 1, r.stdout + r.stderr);
-    const kept = fs.readFileSync(path.join(root, '.tmp', 'pre-pr-gate', 'style.log'), 'utf8').trim().split('\n');
+    const dir = path.join(root, '.tmp', 'pre-pr-gate');
+    const [log] = fs.readdirSync(dir).filter((f) => /^\d+-style\.log$/.test(f));
+    assert.ok(log, 'one log per check, named <N>-style.log');
+    const kept = fs.readFileSync(path.join(dir, log), 'utf8').trim().split('\n');
     assert.strictEqual(kept.length, 40, 'the whole output, not the 15-line tail');
     assert.strictEqual(git(root, 'status', '--porcelain').trim(), '');
+  });
+
+  test('G-d4 two checks whose ids sanitize alike (a/b, a_b) keep two logs, one per check', () => {
+    const root = project(GREEN, [{ id: 'a/b', run: 'echo first; exit 1' }, { id: 'a_b', run: 'echo second; exit 1' }]);
+    runGate(root);
+    const dir = path.join(root, '.tmp', 'pre-pr-gate');
+    const kept = fs.readdirSync(dir).filter((f) => f.endsWith('.log')).map((f) => fs.readFileSync(path.join(dir, f), 'utf8').trim()).filter((t) => t !== '');
+    assert.deepStrictEqual(kept.sort(), ['first', 'second']);
   });
 
   test('G-e a stack.gates entry whose run exits 1 fails the gate and writes no marker; a stale marker from an earlier green run is removed', () => {

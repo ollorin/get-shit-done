@@ -12,7 +12,7 @@ This single script mirrors the project's pull-request validation workflow. It:
 
 - Runs stage 1 ONCE: the type check (`stack.commands.typecheck`) and lint (`stack.commands.lint`). Static analysis cannot flake, so a second identical run adds only wall time. Red here stops the gate before the test stage.
 - Runs stage 2, the test suite (`stack.commands.test_all`), ONCE. Red here stops the gate before stage 3. `.planning/pre-pr-disagreements.jsonl` is history from the earlier double run; nothing writes it any more.
-- Keeps the full output of every check in `.tmp/pre-pr-gate/<check id>.log` (cleared at the start of each run, ignored by git); read the failing lines there, not the console tail.
+- Keeps the full output of every check in `.tmp/pre-pr-gate/<N>-<check id>.log` (N is the check's order in the run) (cleared at the start of each run, ignored by git); read the failing lines there, not the console tail.
 - Runs stage 3 ONCE: each `stack.gates[].run`, in profile order. The script does not reset a local stack between runs; a project that needs a doubled integration or UI suite makes it part of `stack.commands.test_all`. A command key that is unset, or a `stack.gates` entry without a non-empty `id` and `run`, prints `NOT CONFIGURED` and fails the gate before anything runs. An explicit `none` or `null` for `typecheck`, `lint` or `test_all` (no code yet) is skipped with a `WARNING ... not configured yet` line and the final line reads `PASSED, BUT NOT CONFIGURED (skipped): ...`.
 - Writes the pre-PR marker in the git directory of the worktree that unblocks `git push`. It is written ONLY when every stage is green.
 

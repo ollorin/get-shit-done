@@ -4,7 +4,7 @@
 #   Stage 1 (deterministic, once): stack.commands.typecheck, stack.commands.lint.
 #   Stage 2 (once): stack.commands.test_all. A red run stops the gate before stage 3.
 #   Stage 3 (once): each stack.gates[].run, in profile order.
-# The full output of every check is kept in .tmp/pre-pr-gate/<check id>.log (cleared at the start of each run).
+# The full output of every check is kept in .tmp/pre-pr-gate/<N>-<check id>.log, N the check's order in the run (cleared at the start of each run).
 # A command key that is not set in .planning/config.json prints "NOT CONFIGURED: stack.commands.<key>" and the gate
 # fails before anything runs: an unset command is a gap, never a skip. Set the literal `true` to state there is none.
 # The marker is "$(git rev-parse --absolute-git-dir)/.pre-pr-passed" (per worktree, never in the working tree). It is
@@ -91,9 +91,12 @@ rm -rf "$LOGDIR"
 mkdir -p "$LOGDIR" || exit 1
 printf '*\n' > "$LOGDIR/.gitignore"
 
-# run_check <id> <name> <command>: runs through sh -c into $LOGDIR/<id>.log, prints one PASS/FAIL line and the last 15 lines on failure.
+# run_check <id> <name> <command>: runs through sh -c into $LOGDIR/<N>-<id>.log, prints one PASS/FAIL line and the last 15 lines on failure.
+# The counter keeps two checks whose ids sanitize alike (a/b, a_b) or equal a stage id from overwriting each other's log.
+CHECK_N=0
 run_check() {
-  LOG="$LOGDIR/$(printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_').log"
+  CHECK_N=$((CHECK_N + 1))
+  LOG="$LOGDIR/$CHECK_N-$(printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_').log"
   shift
   _start=$(date +%s)
   _rc=0

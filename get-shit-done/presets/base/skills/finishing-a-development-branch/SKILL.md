@@ -32,7 +32,7 @@ The gate automatically:
 
 **If the gate passes:**
 ```
-All checks green — Run 1 ✅  Run 2 ✅
+All checks green ✅
 ```
 
 Only then proceed to Step 2.
