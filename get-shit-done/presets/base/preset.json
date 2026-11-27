@@ -515,6 +515,13 @@
       "guarded": true
     },
     {
+      "src": "scripts/mutate/window.mjs",
+      "dest": "scripts/mutate/window.mjs",
+      "kind": "whole",
+      "render": false,
+      "guarded": true
+    },
+    {
       "src": "docs/mutation-testing.md",
       "dest": "docs/gsd/mutation-testing.md",
       "kind": "whole",

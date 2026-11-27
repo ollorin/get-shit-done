@@ -1,5 +1,6 @@
 {
   "extensions": [".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".mts", ".cts"],
+  "frontmatter_extensions": [".astro"],
   "idioms": {
     "errors": "A result type from a library such as neverthrow (ok/err values, andThen/map chains) instead of throw; wrap third-party code that throws at the edge.",
     "immutability": "const bindings, object spread and array spread; never assign to a parameter member or call push/sort/splice on an input.",

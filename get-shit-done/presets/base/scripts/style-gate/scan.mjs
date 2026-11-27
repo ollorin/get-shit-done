@@ -66,6 +66,15 @@ export function globToRegExp(glob) {
 
 export const matchesAnyGlob = (relPath, globs) => globs.some((g) => globToRegExp(g).test(relPath));
 
+/** Pure: the text a rule set scans. For a frontmatter extension (Astro component) only the leading `---` block is kept; every other line is blank, so line numbers hold. */
+export function sourceView(text, relPath, ruleSet) {
+  if (!(ruleSet.frontmatterExtensions ?? []).some((x) => relPath.endsWith(x))) return text;
+  const lines = text.split('\n');
+  const close = lines.findIndex((l, i) => i > 0 && l.trimEnd() === '---');
+  const open = lines[0].trimEnd() === '---' && close > 0;
+  return lines.map((l, i) => (open && i > 0 && i < close ? l : '')).join('\n');
+}
+
 /** Pure: a file is an edge when an edge glob matches or the raw text carries `style-gate:edge <reason>`. */
 export const isEdge = (relPath, rawText, edgeGlobs) => matchesAnyGlob(relPath, edgeGlobs) || EDGE_TAG.test(rawText);
 
@@ -93,9 +102,10 @@ function routerViolation(lines, threshold) {
  * opts: { edgeGlobs, maxLines }.
  */
 export function scanText(text, relPath, ruleSet, opts) {
-  const stripped = stripComments(text, commentStyleFor(relPath));
+  const source = sourceView(text, relPath, ruleSet);
+  const stripped = stripComments(source, commentStyleFor(relPath));
   const lines = stripped.split('\n');
-  const rawLines = text.split('\n');
+  const rawLines = source.split('\n');
   const edge = isEdge(relPath, text, opts.edgeGlobs);
   const found = [];
   for (const rule of ruleSet.regexRules) {

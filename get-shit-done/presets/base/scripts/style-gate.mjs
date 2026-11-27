@@ -5,6 +5,7 @@
 //   dup_min_lines (12), require_language_rules (default true: a failure when js/ts/py files are scanned by a rule set with no
 //   rules (generic) or exist outside the active rule set's extensions; false only prints `no language rules active`). Every dest in .planning/gsd-project-manifest.json (the deployed GSD files) is always excluded.
 // Rules: the chosen rule set's regex and structural rules, plus oversizeFiles and duplicateBlocks for every set.
+// A rule set's frontmatter_extensions (Astro components) are scanned on their leading `---` block only.
 // Ratchet: counts per (top directory under a root, rule) against .planning/style-baseline.json (absent = all 0). A count
 // above its baseline exits 1 and prints each site as `file:line [rule] message`; a count below prints STALE.
 // Tags (a reason is required): `style-gate:edge <reason>` exempts a file from the edge-exempt rules; `style-gate:ignore
@@ -15,7 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findDuplicates, normalise } from './style-gate/dup.mjs';
-import { globToRegExp, scanText } from './style-gate/scan.mjs';
+import { globToRegExp, scanText, sourceView } from './style-gate/scan.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RULE_SET_DIR = path.join(HERE, 'style-gate', 'rule-sets');
@@ -58,6 +59,8 @@ export function loadRuleSet(name, dir = RULE_SET_DIR) {
   if (!fs.existsSync(file)) throw new Fail(`unknown rule set "${name}" (no ${path.relative(process.cwd(), file)})`);
   const raw = readJson(file, `rule set ${name}`);
   if (!isStrings(raw.extensions) || !raw.extensions.every((e) => e.startsWith('.'))) throw new Fail(`rule set ${name}: extensions must be an array of .ext strings`);
+  const frontmatterExtensions = raw.frontmatter_extensions ?? [];
+  if (!isStrings(frontmatterExtensions) || !frontmatterExtensions.every((e) => e.startsWith('.'))) throw new Fail(`rule set ${name}: frontmatter_extensions must be an array of .ext strings`);
   const structural = raw.structural ?? [];
   for (const id of structural) if (!STRUCTURAL.has(id)) throw new Fail(`rule set ${name}: unknown structural rule ${id}`);
   const regexRules = (raw.regex_rules ?? []).map((r) => {
@@ -66,7 +69,7 @@ export function loadRuleSet(name, dir = RULE_SET_DIR) {
       throw new Fail(`rule set ${name}: rule ${r.id} has an invalid pattern: ${err.message}`);
     }
   });
-  return { extensions: raw.extensions, structural, regexRules, threshold: raw.router_branch_threshold ?? 4 };
+  return { extensions: raw.extensions, frontmatterExtensions, structural, regexRules, threshold: raw.router_branch_threshold ?? 4 };
 }
 
 function manifestDests(root) {
@@ -163,13 +166,13 @@ const writeBaseline = (root, domains) => {
 };
 
 function collect(root, cfg, ruleSet) {
-  const files = listFiles(root, cfg, ruleSet.extensions);
+  const files = listFiles(root, cfg, [...ruleSet.extensions, ...ruleSet.frontmatterExtensions]);
   const violations = [];
   const normalised = [];
   for (const file of files) {
     const text = fs.readFileSync(path.join(root, file), 'utf8');
     for (const v of scanText(text, file, ruleSet, { edgeGlobs: cfg.edgeGlobs, maxLines: cfg.maxLines })) violations.push({ file, bucket: bucketOf(file, cfg.roots), ...v });
-    normalised.push({ file, lines: normalise(text, file) });
+    normalised.push({ file, lines: normalise(sourceView(text, file, ruleSet), file) });
   }
   for (const d of findDuplicates(normalised, cfg.dupMin)) violations.push({ file: d.file, bucket: bucketOf(d.file, cfg.roots), line: d.line, rule: 'duplicateBlocks', message: d.message });
   return { files, violations };

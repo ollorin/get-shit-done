@@ -123,6 +123,7 @@ describe('base preset: CLAUDE.md methodology (agnostic-M-03 3.1)', () => {
       ['scripts/mutate/worktree.mjs', 'whole', false],
       ['scripts/mutate/process.mjs', 'whole', false],
       ['scripts/mutate/mutate.mjs', 'whole', false],
+      ['scripts/mutate/window.mjs', 'whole', false],
       ['docs/gsd/mutation-testing.md', 'whole', false],
       ['scripts/dependency-scan-gate.mjs', 'whole', false],
       ['scripts/memory-guard.sh', 'whole', false],
@@ -407,6 +408,7 @@ describe('base preset: regression guard for the base deployment (agnostic-M-03 3
     'scripts/mutate/worktree.mjs',
     'scripts/mutate/process.mjs',
     'scripts/mutate/mutate.mjs',
+    'scripts/mutate/window.mjs',
     'scripts/dependency-scan-gate.mjs',
     'scripts/lib/reap-stale-test-processes.sh',
     'scripts/reap-stale.sh',
@@ -462,6 +464,7 @@ describe('base preset: regression guard for the base deployment (agnostic-M-03 3
     'scripts/mutate/restore.mjs',
     'scripts/mutate/worktree.mjs',
     'scripts/mutate/mutate.mjs',
+    'scripts/mutate/window.mjs',
     'scripts/mutate/process.mjs',
     'scripts/pre-pr-gate.sh',
     'scripts/session-supervisor.sh',
@@ -653,7 +656,7 @@ describe('base preset: regression guard for the base deployment (agnostic-M-03 3
   test('3.7 each base copy under .planning/.gsd-preset-base is byte-equal to its deployed file', () => {
     const root = initWith({});
     const mirrors = listTree(root).filter((f) => f.startsWith('.planning/.gsd-preset-base/'));
-    assert.strictEqual(mirrors.length, 85, 'one base copy per preset file (not the settings, gitignore or manifest)');
+    assert.strictEqual(mirrors.length, 86,'one base copy per preset file (not the settings, gitignore or manifest)');
     for (const m of mirrors) {
       const dest = m.slice('.planning/.gsd-preset-base/'.length);
       assert.ok(fs.readFileSync(path.join(root, m)).equals(fs.readFileSync(path.join(root, dest))), dest);
@@ -697,7 +700,7 @@ describe('base preset: regression guard for the base deployment (agnostic-M-03 3
   test('3.7 guarded flags: every entry under .claude/hooks (lib included) and the five scripts is guarded; canaries.jsonl is not', () => {
     const { preset } = R.loadPreset(BASE);
     const mine = preset.files.filter((f) => f.dest.startsWith('.claude/hooks/') || GUARDED_SCRIPTS.includes(f.dest));
-    assert.strictEqual(mine.length, 35, '15 hook files and the 20 scripts');
+    assert.strictEqual(mine.length, 36, '15 hook files and the 21 scripts');
     for (const f of mine) assert.strictEqual(f.guarded, true, f.dest);
     for (const s of GUARDED_SCRIPTS) assert.ok(preset.files.some((f) => f.dest === s), `entry for ${s}`);
     assert.strictEqual(preset.files.find((f) => f.dest === 'scripts/validation/hook-canaries/canaries.jsonl').guarded, false);
@@ -927,7 +930,7 @@ describe('base preset: pilot, three throwaway projects (agnostic-M-07 7.2)', () 
     'scripts/hooks-apply.sh', 'scripts/lib/findings-register/owner.mjs', 'scripts/lib/findings-register/parse.mjs',
     'scripts/lib/findings-register/telemetry.mjs', 'scripts/lib/reap-stale-test-processes.sh', 'scripts/log-pre-pr-disagreement.sh',
     'scripts/memory-guard.sh', 'scripts/mutate/classify.mjs', 'scripts/mutate/guards.mjs', 'scripts/mutate/mutate.mjs',
-    'scripts/mutate/options.mjs', 'scripts/mutate/process.mjs', 'scripts/mutate/restore.mjs', 'scripts/mutate/worktree.mjs',
+    'scripts/mutate/options.mjs', 'scripts/mutate/process.mjs', 'scripts/mutate/restore.mjs', 'scripts/mutate/window.mjs', 'scripts/mutate/worktree.mjs',
     'scripts/pre-pr-gate.sh', 'scripts/reap-stale.sh', 'scripts/session-supervisor.sh', 'scripts/stack-lock.mjs', 'scripts/stack-lock.sh',
     'scripts/style-gate.mjs', 'scripts/style-gate/dup.mjs', 'scripts/style-gate/input-mutation.mjs',
     'scripts/style-gate/rule-sets/generic.json', 'scripts/style-gate/rule-sets/js-ts.json', 'scripts/style-gate/rule-sets/python.json',

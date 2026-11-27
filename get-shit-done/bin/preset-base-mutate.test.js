@@ -751,3 +751,18 @@ describe('mutation tool: runs only inside a live window when the project has a s
     }
   });
 });
+
+describe('preset manifest: every relative import of a listed script is listed (WP17)', () => {
+  test('a deployed script that imports ./x.mjs or ../x.mjs names a file preset.json also lists', () => {
+    const base = path.join(__dirname, '..', 'presets', 'base');
+    const preset = JSON.parse(fs.readFileSync(path.join(base, 'preset.json'), 'utf8'));
+    const listed = new Set(preset.files.map((f) => f.dest));
+    const unlisted = preset.files
+      .filter((f) => /\.m?js$/.test(f.src))
+      .flatMap((f) => [...fs.readFileSync(path.join(base, f.src), 'utf8').matchAll(/(?:from\s+|import\()\s*'(\.{1,2}\/[^']+)'/g)]
+        .map((m) => ({ file: f.dest, spec: m[1], target: path.posix.normalize(path.posix.join(path.posix.dirname(f.dest), m[1])) })))
+      .filter((r) => !listed.has(r.target))
+      .map((r) => `${r.file} imports ${r.spec} (${r.target}), not listed`);
+    assert.deepStrictEqual(unlisted, []);
+  });
+});
